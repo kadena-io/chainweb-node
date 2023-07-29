@@ -90,6 +90,7 @@ import Chainweb.Logging.Miner
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
 import Chainweb.Miner.Coordinator (MiningStats)
+import Chainweb.Pact.Backend.DbCache (DbCacheStats)
 import Chainweb.Pact.Service.PactQueue (PactQueueStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Payload
@@ -404,6 +405,8 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @MempoolStats mgr teleLogConfig
     blockUpdateBackend <- managed
         $ mkTelemetryLogger @BlockUpdate mgr teleLogConfig
+    dbCacheBackend <- managed
+        $ mkTelemetryLogger @DbCacheStats mgr teleLogConfig
     dbStatsBackend <- managed
         $ mkTelemetryLogger @DbStats mgr teleLogConfig
     pactQueueStatsBackend <- managed
@@ -428,6 +431,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler traceBackend
             , logHandler mempoolStatsBackend
             , logHandler blockUpdateBackend
+            , logHandler dbCacheBackend
             , logHandler dbStatsBackend
             , logHandler pactQueueStatsBackend
             , logHandler topLevelStatusBackend
@@ -442,8 +446,7 @@ withNodeLogger logConfig v f = runManaged $ do
 
 mkTelemetryLogger
     :: forall a b
-    . Typeable a
-    => ToJSON a
+    . (Typeable a, ToJSON a)
     => HTTP.Manager
     -> EnableConfig BackendConfig
     -> (Backend (JsonLog a) -> IO b)
