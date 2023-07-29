@@ -329,7 +329,7 @@ applyGenesisCmd logger dbEnv spv txCtx cmd =
 
     go = do
       -- TODO: fix with version recordification so that this matches the flags at genesis heights.
-      cr <- catchesPactError logger PrintsUnexpectedError $! runGenesis cmd permissiveNamespacePolicy interp
+      cr <- catchesPactError logger (onChainErrorPrintingFor txCtx) $! runGenesis cmd permissiveNamespacePolicy interp
       case cr of
         Left e -> fatal $ "Genesis command failed: " <> sshow e
         Right r -> r <$ debug "successful genesis tx for request key"

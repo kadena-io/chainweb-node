@@ -400,8 +400,7 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
                     withAsync (heightProgress (_blockHeight commonAncestor) heightRef (logInfo_ logger)) $ \_ ->
                       s
                           & S.scanM
-                              -- no need to re-validate hashes, because these blocks have already been validated
-                              (\ !p !c -> runPact (local (psValidateHashesOnReplay .~ False) $ fastForward (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
+                              (\ !p !c -> runPact (local (psReplaying .~ True) $ fastForward (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
                               (return h) -- initial parent
                               return
                           & S.length_

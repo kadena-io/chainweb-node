@@ -86,8 +86,6 @@ data PactServiceConfig = PactServiceConfig
     -- hardcodes this to 8 currently.
   , _pactLocalRewindDepthLimit :: !RewindLimit
     -- ^ Maximum allowed rewind depth in the local command.
-  , _pactRevalidate :: !Bool
-    -- ^ Re-validate payload hashes during transaction replay
   , _pactAllowReadsInLocal :: !Bool
     -- ^ Allow direct database reads in local mode
   , _pactQueueSize :: !Natural

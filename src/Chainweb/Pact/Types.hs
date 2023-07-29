@@ -38,6 +38,7 @@ module Chainweb.Pact.Types
   , GasId(..)
   , EnforceCoinbaseFailure(..)
   , CoinbaseUsePrecompiled(..)
+  , cleanModuleCache
 
     -- * Transaction State
   , TransactionState(..)
@@ -80,7 +81,7 @@ module Chainweb.Pact.Types
   , psLocalRewindDepthLimit
   , psOnFatalError
   , psVersion
-  , psValidateHashesOnReplay
+  , psReplaying
   , psLogger
   , psGasLogger
   , psAllowReadsInLocal
@@ -215,7 +216,6 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Version.Guards
 import Utils.Logging.Trace
 
 
@@ -285,6 +285,15 @@ moduleCacheFromHashMap = ModuleCache . LHM.fromList . HM.toList
 moduleCacheKeys :: ModuleCache -> [ModuleName]
 moduleCacheKeys (ModuleCache a) = fst <$> LHM.toList a
 {-# INLINE moduleCacheKeys #-}
+
+-- this can't go in Chainweb.Version.Guards because it causes an import cycle
+-- it uses genesisHeight which is from BlockHeader which imports Guards
+cleanModuleCache :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+cleanModuleCache v cid bh =
+  case v ^?! versionForks . at Chainweb217Pact . _Just . onChain cid of
+    ForkAtBlockHeight bh' -> bh == bh'
+    ForkAtGenesis -> bh == genesisHeight v cid
+    ForkNever -> False
 
 -- -------------------------------------------------------------------- --
 -- Local vs. Send execution context flag
@@ -410,7 +419,7 @@ data PactServiceEnv logger tbl = PactServiceEnv
     -- ^ The limit of checkpointer's rewind in the `execValidationBlock` command.
     , _psOnFatalError :: !(forall a. PactException -> Text -> IO a)
     , _psVersion :: !ChainwebVersion
-    , _psValidateHashesOnReplay :: !Bool
+    , _psReplaying :: !Bool
     , _psAllowReadsInLocal :: !Bool
     , _psLogger :: !logger
     , _psGasLogger :: !(Maybe logger)
@@ -456,7 +465,6 @@ testPactServiceConfig :: PactServiceConfig
 testPactServiceConfig = PactServiceConfig
       { _pactReorgLimit = defaultReorgLimit
       , _pactLocalRewindDepthLimit = defaultLocalRewindDepthLimit
-      , _pactRevalidate = True
       , _pactQueueSize = 1000
       , _pactResetDb = True
       , _pactAllowReadsInLocal = False
@@ -720,9 +728,11 @@ catchesPactError :: (MonadCatch m, MonadIO m, Logger logger) => logger -> Unexpe
 catchesPactError logger exnPrinting action = catches (Right <$> action)
   [ Handler $ \(e :: PactError) -> return $ Left e
   , Handler $ \(e :: SomeException) -> do
-      liftIO $ logWarn_ logger ("catchesPactError: unknown error: " <> sshow e)
-      return $ Left $ PactError EvalError def def $
-        case exnPrinting of
-          PrintsUnexpectedError -> viaShow e
-          CensorsUnexpectedError -> "unknown error"
+      !err <- case exnPrinting of
+          PrintsUnexpectedError ->
+            return (viaShow e)
+          CensorsUnexpectedError -> do
+            liftIO $ logWarn_ logger ("catchesPactError: unknown error: " <> sshow e)
+            return "unknown error"
+      return $ Left $ PactError EvalError def def err
   ]

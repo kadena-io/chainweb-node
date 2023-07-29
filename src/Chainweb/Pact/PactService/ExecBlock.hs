@@ -53,6 +53,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 
 import System.IO
+import qualified System.Logger as L
 import System.Timeout
 
 import Prelude hiding (lookup)
@@ -151,8 +152,9 @@ execBlock currHeader plData pdbenv = do
 
     modify' $ set psStateValidated $ Just currHeader
 
-    -- Validate hashes if requested
-    asks _psValidateHashesOnReplay >>= \x -> when x $
+    -- Validate hashes if not doing a replay. no need to re-validate hashes
+    -- during a replay, because these blocks have already been validated
+    view psReplaying >>= \x -> unless x $
         either throwM (void . return) $!
         validateHashes currHeader plData miner results
 
@@ -347,7 +349,6 @@ runCoinbase
     -> PactServiceM logger tbl (P.CommandResult [P.TxLogJson])
 runCoinbase True _ _ _ _ _ = return noCoinbase
 runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
-    logger <- view psLogger
     rs <- view psMinerRewards
     v <- view chainwebVersion
     txCtx <- getTxContext def
@@ -357,7 +358,8 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
     reward <- liftIO $! minerReward v rs bh
 
     (T2 cr upgradedCacheM) <-
-      liftIO $! applyCoinbase v logger dbEnv miner reward txCtx enfCBFail usePrecomp mc
+      withSilentLoggerForReplays $ \logger ->
+        liftIO $ applyCoinbase v logger dbEnv miner reward txCtx enfCBFail usePrecomp mc
     mapM_ upgradeInitCache upgradedCacheM
     debugResult "runCoinbase" (P.crLogs %~ fmap J.Array $ cr)
     return $! cr
@@ -387,6 +389,14 @@ applyPactCmds isGenesis env cmds miner mc blockGas txTimeLimit = do
     txs <- tracePactServiceM' "applyPactCmds" () txsGas $
       evalStateT (V.mapM (applyPactCmd isGenesis env miner txTimeLimit) cmds) (T2 mc blockGas)
     return txs
+
+-- we don't want pact tx failure or unknown exception messages when we're doing a replay.
+withSilentLoggerForReplays :: Logger logger => (logger -> PactServiceM logger tbl a) -> PactServiceM logger tbl a
+withSilentLoggerForReplays f = do
+  replaying <- view psReplaying
+  logger <- view psLogger
+  if replaying then L.withLoggerLevel L.Error logger f
+  else f logger
 
 applyPactCmd
   :: (Logger logger)
@@ -434,9 +444,9 @@ applyPactCmd isGenesis env miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlo
             Just limit ->
                maybe (throwM timeoutError) return <=< timeout (fromIntegral limit)
         let txGas (T3 r _ _) = fromIntegral $ P._crGas r
-        T3 r c _warns <-
+        T3 r c _warns <- withSilentLoggerForReplays $ \cmdLogger ->
           tracePactServiceM' "applyCmd" (J.toJsonViaEncode (P._cmdHash cmd)) txGas $
-            liftIO $ txTimeout $ applyCmd v logger gasLogger env miner (gasModel txCtx) txCtx spv gasLimitedCmd initialGas mcache ApplySend
+            liftIO $ txTimeout $ applyCmd v cmdLogger gasLogger env miner (gasModel txCtx) txCtx spv gasLimitedCmd initialGas mcache ApplySend
         pure $ T2 r c
 
     if isGenesis
