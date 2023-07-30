@@ -635,7 +635,7 @@ jsonErrorResult err msg = do
     l <- view txLogger
 
     logInfo_ l
-      $! msg
+      $ msg
       <> ": " <> sshow rk
       <> ": " <> sshow err
 
@@ -1136,7 +1136,7 @@ gasLog m = do
   l <- view txGasLogger
   rk <- view txRequestKey
   for_ l $ \logger ->
-    logInfo_ logger $! m <> ": " <> sshow rk
+    logInfo_ logger $ m <> ": " <> sshow rk
 
 -- | Log request keys at DEBUG when successful
 --
@@ -1144,7 +1144,7 @@ debug :: (Logger logger) => Text -> TransactionM logger db ()
 debug s = do
     l <- view txLogger
     rk <- view txRequestKey
-    logDebug_ l $! s <> ": " <> sshow rk
+    logDebug_ l $ s <> ": " <> sshow rk
 
 
 -- | Denotes fatal failure points in the tx exec process
@@ -1155,7 +1155,7 @@ fatal e = do
     rk <- view txRequestKey
 
     logError_ l
-      $! "critical transaction failure: "
+      $ "critical transaction failure: "
       <> sshow rk <> ": " <> e
 
     throwM $ PactTransactionExecError (fromUntypedHash $ unRequestKey rk) e
