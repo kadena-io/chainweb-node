@@ -162,7 +162,7 @@ constraints: any.Boolean ==0.2.4,
              any.ghc-prim ==0.10.0,
              any.groups ==0.5.3,
              any.happy ==1.20.1.1,
-             any.hashable ==1.4.3.0,
+             any.hashable ==1.4.2.0,
              hashable +integer-gmp -random-initial-seed,
              any.hashes ==0.2.3,
              hashes -benchmark-cryptonite -openssl-use-pkg-config -test-cryptonite +with-openssl,
@@ -405,4 +405,4 @@ constraints: any.Boolean ==0.2.4,
              yet-another-logger -tbmqueue,
              any.zlib ==0.6.3.0,
              zlib -bundled-c-zlib -non-blocking-ffi -pkg-config
-index-state: hackage.haskell.org 2023-07-30T12:44:58Z
+index-state: hackage.haskell.org 2023-07-18T16:46:58Z
