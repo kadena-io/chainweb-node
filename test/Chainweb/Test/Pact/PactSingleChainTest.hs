@@ -491,10 +491,10 @@ preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
         $ set cbChainId cid
         $ set cbTTL 300
         $ mkCmd "tx-now"
-        $ mkExec' "(+ 1 1)"
+        $ mkExec' "(enumerate 0 100000) (str-to-list 'hi) (make-list 10 'hi)"
 
   rs <- forSuccess "preInsertCheckTimeoutTest" $ pactPreInsertCheck (V.singleton tx) q
-  assertBool "should be InsertErrorTimedOut" $ V.and $ V.map (== Left InsertErrorTimedOut) rs
+  assertBool ("should be InsertErrorTimedOut and got " ++ show rs) $ V.and $ V.map (== Left InsertErrorTimedOut) rs
 
 badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
