@@ -48,6 +48,7 @@ import Pact.Types.Gas
 import Pact.Types.Hash
 import Pact.Types.Persistence
 import Pact.Types.RowData
+import Pact.Parse (ParsedInteger(..))
 
 import qualified Pact.JSON.Encode as J
 
@@ -247,6 +248,14 @@ instance J.Encode PactException where
     , "_localRewindRequestedDepth" J..= J.Aeson @Int (fromIntegral $ _rewindDepth $ _localRewindRequestedDepth o)
     ]
   build LocalRewindGenesisExceeded = tagged "LocalRewindGenesisExceeded" J.null
+  build (LocalGasLimitExceeded {..}) =
+    let
+      GasLimit (ParsedInteger lmgl) = _localMaxGasLimit
+      GasLimit (ParsedInteger lrgl) = _localRequestedGasLimit
+    in tagged "LocalGasLimitExceeded" $ J.object
+    [ "_localMaxGasLimit" J..= J.Aeson lmgl
+    , "_localRequestedGasLimit" J..= J.Aeson lrgl
+    ]
 
 tagged :: J.Encode v => Text -> v -> J.Builder
 tagged t v = J.object

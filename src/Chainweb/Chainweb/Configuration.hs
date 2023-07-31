@@ -124,6 +124,8 @@ import Chainweb.Time
 import P2P.Node.Configuration
 import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
 
+import Pact.Parse (ParsedInteger(..))
+
 -- -------------------------------------------------------------------------- --
 -- Throttling Configuration
 
@@ -483,7 +485,7 @@ instance ToJSON ChainwebConfiguration where
         , "reorgLimit" .= _configReorgLimit o
         , "localRewindDepthLimit" .= _configLocalRewindDepthLimit o
         , "preInsertCheckTimeout" .= _configPreInsertCheckTimeout o
-        , "localMaxGasLimit" .= _configLocalMaxGasLimit o
+        , "localMaxGasLimit" .= ((\(Mempool.GasLimit (ParsedInteger v)) -> v) <$> _configLocalMaxGasLimit o)
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
         , "rosetta" .= _configRosetta o
         , "serviceApi" .= _configServiceApi o
