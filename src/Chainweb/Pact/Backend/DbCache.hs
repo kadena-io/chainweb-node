@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
@@ -24,8 +25,12 @@ module Chainweb.Pact.Backend.DbCache
 , isEmptyCache
 , cacheStats
 , updateCacheStats
+
+  -- * Telemetry
+, DbCacheStats(..)
 ) where
 
+import Control.DeepSeq (NFData(..))
 import Control.Lens hiding ((.=))
 import Control.Monad (forM, unless)
 import Control.Monad.State.Strict
@@ -33,7 +38,7 @@ import Control.Monad.State.Strict
 import qualified Crypto.Hash as C (hash)
 import Crypto.Hash.Algorithms
 
-import Data.Aeson (FromJSON, ToJSON, Value, object, decodeStrict, (.=))
+import Data.Aeson (FromJSON, ToJSON(..), object, decodeStrict, (.=))
 import qualified Data.ByteArray as BA
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Short as BS
@@ -188,15 +193,17 @@ checkDbCache key rowdata txid = runStateT $ do
   where
     addy = mkAddress key rowdata
 
-cacheStats :: DbCache a -> Value
-cacheStats mc = object
-    [ "misses" .= _dcMisses mc
-    , "hits" .= _dcHits mc
-    , "size" .=  cacheSize mc
-    , "count" .= cacheCount mc
-    ]
+cacheStats :: DbCache a -> DbCacheStats
+cacheStats mc = DbCacheStats
+  { _dbCacheStatsSize = cacheSize mc
+  , _dbCacheStatsCount = cacheCount mc
+  , _dbCacheStatsHits = _dcHits mc
+  , _dbCacheStatsMisses = _dcMisses mc
+  }
 
-updateCacheStats :: DbCache a -> (Value, DbCache a)
+-- | Return stats about the current cache, and return a cache
+--   with Hits/Misses set to 0.
+updateCacheStats :: DbCache a -> (DbCacheStats, DbCache a)
 updateCacheStats mc = (cacheStats mc, set dcMisses 0 (set dcHits 0 mc))
 
 -- -------------------------------------------------------------------------- --
@@ -254,3 +261,23 @@ maintainCache = do
                 $ (dcStore %~ HM.delete (_ceAddy e))
                 . (dcSize .~ sz')
             evict sz' lim es
+
+data DbCacheStats = DbCacheStats
+  { _dbCacheStatsSize :: !Int
+  , _dbCacheStatsCount :: !Int
+  , _dbCacheStatsHits :: !Int
+  , _dbCacheStatsMisses :: !Int
+  }
+  deriving stock (Eq, Show)
+
+instance NFData DbCacheStats where
+  rnf (DbCacheStats sz count hits misses)
+    = rnf sz `seq` rnf count `seq` rnf hits `seq` rnf misses
+
+instance ToJSON DbCacheStats where
+  toJSON (DbCacheStats sz count hits misses) = object
+    [ "size" .= sz
+    , "count" .= count
+    , "hits" .= hits
+    , "misses" .= misses
+    ]
