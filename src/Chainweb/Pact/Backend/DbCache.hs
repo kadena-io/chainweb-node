@@ -32,6 +32,7 @@ module Chainweb.Pact.Backend.DbCache
 
 import Control.DeepSeq (NFData(..))
 import Control.Lens hiding ((.=))
+import Control.Monad (forM, unless)
 import Control.Monad.State.Strict
 
 import qualified Crypto.Hash as C (hash)

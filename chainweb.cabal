@@ -371,7 +371,7 @@ library
         , merkle-log >=0.2
         , mmorph >= 1.1
         , monad-control >= 1.0
-        , mtl >= 2.2
+        , mtl >= 2.3
         , mwc-random >= 0.13
         , mwc-probability >= 2.0 && <2.4
         , network >= 3.1.2
@@ -538,7 +538,7 @@ test-suite chainweb-tests
         , lens-aeson >= 1.2.2
         , loglevel >= 0.1
         , merkle-log >=0.2
-        , mtl >= 2.2
+        , mtl >= 2.3
         , network >= 3.1.2
         , http-client-tls >=0.3
         , pact
@@ -702,7 +702,7 @@ executable cwtool
         , loglevel >= 0.1
         , memory >=0.14
         , merkle-log >=0.2
-        , mtl >= 2.2
+        , mtl >= 2.3
         , network >= 3.1.2
         , optparse-applicative >= 0.14
         , pact
@@ -776,7 +776,7 @@ benchmark bench
         , lens >= 4.17
         , loglevel >= 0.1
         , merkle-log >=0.2
-        , mtl >= 2.2
+        , mtl >= 2.3
         , pact
         , random >= 1.2
         , text >= 2.0

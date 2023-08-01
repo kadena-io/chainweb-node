@@ -60,6 +60,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch (MonadThrow, throwM)
 import Control.Monad.Except
+import Control.Monad.IO.Class
 
 import Data.Aeson.Encode.Pretty hiding (Config)
 import Data.Aeson.Lens
