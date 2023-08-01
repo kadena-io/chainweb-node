@@ -152,11 +152,8 @@ execBlock currHeader plData pdbenv = do
 
     modify' $ set psStateValidated $ Just currHeader
 
-    -- Validate hashes if not doing a replay. no need to re-validate hashes
-    -- during a replay, because these blocks have already been validated
-    view psReplaying >>= \x -> unless x $
-        either throwM (void . return) $!
-        validateHashes currHeader plData miner results
+    either throwM (void . return) $
+      validateHashes currHeader plData miner results
 
     return $! T2 miner results
 
