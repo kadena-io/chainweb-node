@@ -176,3 +176,7 @@ allow-newer: base16-bytestring:*
 
 -- servant does not yet support aeson 2.2
 constraints: aeson <2.2
+
+-- this indicates a bug in chainweb-node or pact where code depends on ordering
+-- of items in hashmap
+constraints: hashable <1.4.3
