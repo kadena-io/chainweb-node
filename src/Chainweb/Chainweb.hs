@@ -108,7 +108,6 @@ import Control.DeepSeq
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (fromException, throwM)
-import Control.Monad.Writer
 
 import Data.Foldable
 import Data.Function (on)

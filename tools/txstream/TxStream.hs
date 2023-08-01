@@ -37,6 +37,7 @@ import Configuration.Utils
 
 import Control.Arrow ((&&&))
 import Control.Lens hiding ((.=))
+import Control.Monad ((<=<), when)
 import Control.Monad.Reader
 
 import Data.Aeson.Encode.Pretty hiding (Config)

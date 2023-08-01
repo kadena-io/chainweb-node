@@ -13,6 +13,7 @@ import Control.Concurrent.MVar
 import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((.=))
+import Control.Monad (when, void)
 import Control.Monad.Reader
 
 import Data.Aeson (Value(..), object, (.=), Key)
