@@ -110,7 +110,7 @@ tests rdb = ScheduledTest testName go
           f (fst <$> dm)
 
         test f = testWithConf f testPactServiceConfig
-        testTimeout f = testWithConf f (testPactServiceConfig { _pactPreInsertCheckTimeout = 10 })
+        testTimeout f = testWithConf f (testPactServiceConfig { _pactPreInsertCheckTimeout = 5 })
 
         testHistLookup1 = getHistoricalLookupNoTxs "sender00"
           (assertSender00Bal 100_000_000 "check latest entry for sender00 after a no txs block")
@@ -491,10 +491,10 @@ preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
         $ set cbChainId cid
         $ set cbTTL 300
         $ mkCmd "tx-now"
-        $ mkExec' "(enumerate 0 100000) (str-to-list 'hi) (make-list 10 'hi)"
+        $ mkExec' "(enumerate 0 1000000000) (str-to-list 'hi) (make-list 10 'hi)"
 
   rs <- forSuccess "preInsertCheckTimeoutTest" $ pactPreInsertCheck (V.singleton tx) q
-  assertBool ("should be InsertErrorTimedOut and got " ++ show rs) $ V.and $ V.map (== Left InsertErrorTimedOut) rs
+  assertBool "should be InsertErrorTimedOut" $ V.and $ V.map (== Left InsertErrorTimedOut) rs
 
 badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
