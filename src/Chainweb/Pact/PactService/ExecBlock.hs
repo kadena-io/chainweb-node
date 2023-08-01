@@ -513,7 +513,6 @@ minerReward v (MinerRewards rs) bh =
 data CRLogPair = CRLogPair P.Hash [P.TxLogJson]
 
 
-
 instance J.Encode CRLogPair where
   build (CRLogPair h logs) = J.object
     [ "hash" J..= h

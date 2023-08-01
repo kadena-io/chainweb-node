@@ -102,9 +102,6 @@ gasCost units = realToFrac units * defGasPrice
 defMiningReward :: Decimal
 defMiningReward = 2.304523
 
-transferGasCost :: Decimal
-transferGasCost = gasCost 700
-
 type RosettaTest = IO (Time Micros) -> IO ClientEnv -> ScheduledTest
 
 -- -------------------------------------------------------------------------- --
@@ -153,7 +150,7 @@ accountBalanceTests tio envIo =
       step "check initial balance"
       cenv <- envIo
       resp0 <- accountBalance cenv req
-      let startBal = 99999997.8600
+      let startBal = 99999997.8056
       checkBalance resp0 startBal
 
       step "send 1.0 tokens to sender00 from sender01"
@@ -164,6 +161,9 @@ accountBalanceTests tio envIo =
       checkBalance resp1 (startBal - transferGasCost - 1)
   where
     req = AccountBalanceReq nid (AccountId "sender00" Nothing Nothing) Nothing
+
+    transferGasCost :: Decimal
+    transferGasCost = gasCost 976
 
     checkBalance resp bal1 = do
       let b0 = head $ _accountBalanceResp_balances resp
@@ -243,6 +243,9 @@ blockTransactionTests tio envIo =
 
       return $ BlockTransactionReq nid bid tid
 
+    transferGasCost :: Decimal
+    transferGasCost = gasCost 968
+
 
 -- | Rosetta block endpoint tests
 --
@@ -304,6 +307,9 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
       validateOp 2 "TransferOrCreateAcct" sender00ks Successful (negate 1.0) deb
       validateOp 3 "GasPayment" sender00ks Successful (defFundGas - transferGasCost) gasRedeem
       validateOp 4 "GasPayment" noMinerks Successful transferGasCost gasReward
+
+    transferGasCost :: Decimal
+    transferGasCost = gasCost 976
 
 blockCoinV2RemediationTests :: RosettaTest
 blockCoinV2RemediationTests _ envIo =
@@ -753,7 +759,8 @@ operationTypes =
 -- | Validate all useful data for a tx operation
 --
 validateOp
-    :: Word64
+    :: HasCallStack
+    => Word64
       -- ^ op idx
     -> Text
       -- ^ operation type

@@ -97,6 +97,7 @@ tbl t@(Utf8 b)
 chainwebPactDb :: (Logger logger) => PactDb (BlockEnv logger SQLiteEnv)
 chainwebPactDb = PactDb
     { _readRow = \d k e -> runBlockEnv e $ doReadRow d k
+    , _sizeRow = \d k e -> runBlockEnv e $ doSizeRow d k
     , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow wt d k v
     , _keys = \d e -> runBlockEnv e $ doKeys d
     , _txids = \t txid e -> runBlockEnv e $ doTxIds t txid
@@ -197,6 +198,66 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
         -> MaybeT (BlockHandler logger SQLiteEnv) v
     noCache _key rowdata = MaybeT $ return $! decodeStrict' rowdata
 
+
+doSizeRow
+    :: (IsString k)
+    => Domain k v
+    -> k
+    -> BlockHandler logger SQLiteEnv (Maybe Int)
+doSizeRow d k = forModuleNameFix $ \mnFix ->
+    case d of
+        KeySets -> lookupWithKey (convKeySetName k)
+        -- TODO: This is incomplete (the modules case), due to namespace
+        -- resolution concerns
+        Modules -> lookupWithKey (convModuleName mnFix k)
+        Namespaces -> lookupWithKey (convNamespaceName k)
+        (UserTables _) -> lookupWithKey (convRowKey k)
+        Pacts -> lookupWithKey (convPactId k)
+  where
+    tableName = domainTableName d
+    (Utf8 tableNameBS) = tableName
+
+    queryStmt =
+        "SELECT LENGTH(rowdata) FROM " <> tbl tableName <> " WHERE rowkey = ? ORDER BY txid DESC LIMIT 1;"
+
+    lookupWithKey
+        :: Utf8
+        -> BlockHandler logger SQLiteEnv (Maybe Int)
+    lookupWithKey key = do
+        pds <- getPendingData
+        let lookPD = foldr1 (<|>) $ map (lookupInPendingData key) pds
+        let lookDB = lookupInDb key
+        runMaybeT (lookPD <|> lookDB)
+
+    lookupInPendingData
+        :: Utf8
+        -> SQLitePendingData
+        -> MaybeT (BlockHandler logger SQLiteEnv) Int
+    lookupInPendingData (Utf8 rowkey) p = do
+        let deltaKey = SQLiteDeltaKey tableNameBS rowkey
+        ddata <- fmap _deltaData <$> MaybeT (return $ HashMap.lookup deltaKey (_pendingWrites p))
+        if null ddata
+            -- should be impossible, but we'll check this case
+            then mzero
+            -- we merge with (++) which should produce txids most-recent-first
+            -- -- we care about the most recent update to this rowkey
+            else return $! BS.length $ DL.head ddata
+
+    lookupInDb
+        :: Utf8
+        -> MaybeT (BlockHandler logger SQLiteEnv) Int
+    lookupInDb rowkey = do
+        -- First, check: did we create this table during this block? If so,
+        -- there's no point in looking up the key.
+        checkDbTableExists tableName
+        result <- lift $ callDb "doSizeRow"
+                       $ \db -> qry db queryStmt [SText rowkey] [RInt]
+        case result of
+            [] -> mzero
+            [[SInt a]] -> return $! fromIntegral a
+            err -> internalError $
+                     "doSizeRow: Expected (at most) a single result, but got: " <>
+                     T.pack (show err)
 
 checkDbTableExists :: Utf8 -> MaybeT (BlockHandler logger SQLiteEnv) ()
 checkDbTableExists tableName = do

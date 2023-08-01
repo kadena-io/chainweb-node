@@ -380,6 +380,7 @@ burnGen time pidv sid tid = do
                   set cbSigners [mkSigner' sender00 []] $
                   set cbCreationTime (toTxCreationTime time) $
                   set cbChainId sid $
+                  -- FIXME does networkId == Nothing actually work?
                   mkCmd "0" $
                   mkExec tx1Code tx1Data
                 writeIORef ref0 True

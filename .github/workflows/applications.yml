@@ -619,10 +619,17 @@ jobs:
         # when adding more than one build, use a different package name or
         # different tags
         include:
+<<<<<<< HEAD
+        - ghc: "9.6.1"
+          os: "ubuntu-20.04"
+          use-freeze-file: "false"
+        - ghc: "9.6.1"
+=======
         - ghc: "9.6.2"
           os: "ubuntu-20.04"
           use-freeze-file: "false"
         - ghc: "9.6.2"
+>>>>>>> master
           os: "ubuntu-20.04"
           use-freeze-file: "true"
     env:
@@ -665,7 +672,7 @@ jobs:
           libbz2-1.0 \
           libgflags2.2 \
           zstd \
-          locales && 
+          locales &&
           rm -rf /var/lib/apt/lists/* &&
           locale-gen en_US.UTF-8 &&
           update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8

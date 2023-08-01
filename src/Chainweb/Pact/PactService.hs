@@ -875,7 +875,7 @@ freeModuleLoadGasModel = modifiedGasModel
     defGasModel = tableGasModel defaultGasConfig
     fullRunFunction = P.runGasModel defGasModel
     modifiedRunFunction name ga = case ga of
-      P.GPostRead P.ReadModule {} -> 0
+      P.GPostRead P.ReadModule {} -> P.gasToMilliGas 0
       _ -> fullRunFunction name ga
     modifiedGasModel = defGasModel { P.runGasModel = modifiedRunFunction }
 
@@ -894,16 +894,42 @@ chainweb213GasModel = modifiedGasModel
       ]
     fullRunFunction = P.runGasModel defGasModel
     modifiedRunFunction name ga = case ga of
-      P.GPostRead P.ReadModule {} -> 0
+      P.GPostRead P.ReadModule {} -> P.gasToMilliGas 0
       P.GUnreduced _ts -> case M.lookup name updTable of
-        Just g -> g
-        Nothing -> unknownOperationPenalty
+        Just g -> P.gasToMilliGas g
+        Nothing -> P.gasToMilliGas unknownOperationPenalty
       _ -> fullRunFunction name ga
     modifiedGasModel = defGasModel { P.runGasModel = modifiedRunFunction }
 
+chainweb220GasModel :: P.GasModel
+chainweb220GasModel = modifiedGasModel
+  where
+    defGasModel = tableGasModel gasConfig
+    unknownOperationPenalty = 1000000
+    multiRowOperation = 40000
+    gasConfig = defaultGasConfig
+      { _gasCostConfig_primTable = updTable
+      , _gasCostConfig_decodeJsonBytesCost = 2
+      , _gasCostConfig_writeBytesCost = 2
+      }
+    updTable = M.union upd defaultGasTable
+    upd = M.fromList
+      [("keys",    multiRowOperation)
+      ,("select",  multiRowOperation)
+      ,("fold-db", multiRowOperation)
+      ]
+    fullRunFunction = P.runGasModel defGasModel
+    modifiedRunFunction name ga = case ga of
+      P.GPostRead P.ReadModule {} -> P.gasToMilliGas 0
+      P.GUnreduced _ts -> case M.lookup name updTable of
+        Just g -> P.gasToMilliGas g
+        Nothing -> P.gasToMilliGas unknownOperationPenalty
+      _ -> fullRunFunction name ga
+    modifiedGasModel = defGasModel { P.runGasModel = modifiedRunFunction }
 
 getGasModel :: TxContext -> P.GasModel
 getGasModel ctx
+    | chainweb220Pact (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) = chainweb220GasModel
     | chainweb213Pact (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) = chainweb213GasModel
     | otherwise = freeModuleLoadGasModel
 
