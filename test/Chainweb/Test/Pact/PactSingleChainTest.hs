@@ -494,7 +494,7 @@ preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
         $ mkExec' "(enumerate 0 1000000000) (str-to-list 'hi) (make-list 10 'hi)"
 
   rs <- forSuccess "preInsertCheckTimeoutTest" $ pactPreInsertCheck (V.singleton tx) q
-  assertBool "should be InsertErrorTimedOut" $ V.and $ V.map (== Left InsertErrorTimedOut) rs
+  assertBool ("should be InsertErrorTimedOut but got " ++ show rs) $ V.and $ V.map (== Left InsertErrorTimedOut) rs
 
 badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
