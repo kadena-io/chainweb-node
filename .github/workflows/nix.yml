@@ -9,7 +9,8 @@ on:
 
 jobs:
   build-and-cache:
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-latest
+    #runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, mac-m1]
