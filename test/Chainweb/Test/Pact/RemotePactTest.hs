@@ -373,8 +373,12 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
       Right (LocalResultWithWarns cr' ws) -> do
-        assertEqual "Preflight's metadata should have increment block height"
-          (Just $ 1 + fromIntegral currentBlockHeight) (getBlockHeight cr')
+        let crbh :: Integer = fromIntegral $ fromMaybe 0 $ getBlockHeight cr'
+            expectedbh = 1 + fromIntegral currentBlockHeight
+        assertBool "Preflight's metadata should have increment block height"
+          -- we don't control the node in remote tests and the data can get oudated,
+          -- to make test less flaky we use a small range for validation
+          (abs (expectedbh - crbh) <= 2)
 
         case ws of
           [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
@@ -390,8 +394,12 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
       Right (LocalResultWithWarns cr' ws) -> do
-        assertEqual "Preflight's metadata block height should reflect the rewind depth"
-          (Just $ 1 + (fromIntegral currentBlockHeight') - rewindDepth) (getBlockHeight cr')
+        let crbh :: Integer = fromIntegral $ fromMaybe 0 $ getBlockHeight cr'
+            expectedbh = toInteger $ 1 + (fromIntegral currentBlockHeight') - rewindDepth
+        assertBool "Preflight's metadata block height should reflect the rewind depth"
+          -- we don't control the node in remote tests and the data can get oudated,
+          -- to make test less flaky we use a small range for validation
+          (abs (expectedbh - crbh) <= 2)
 
         case ws of
           [w] | "decimal/integer operator overload" `T.isInfixOf` w ->

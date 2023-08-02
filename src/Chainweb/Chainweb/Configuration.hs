@@ -110,7 +110,7 @@ import Chainweb.HostAddress
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultLocalRewindDepthLimit)
+import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultLocalRewindDepthLimit, defaultPreInsertCheckTimeout)
 import Chainweb.Pact.Service.Types (RewindLimit(..))
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
@@ -119,6 +119,7 @@ import Chainweb.Version.Development
 import Chainweb.Version.FastDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Registry
+import Chainweb.Time
 
 import P2P.Node.Configuration
 import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
@@ -391,6 +392,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configPactQueueSize :: !Natural
     , _configReorgLimit :: !RewindLimit
     , _configLocalRewindDepthLimit :: !RewindLimit
+    , _configPreInsertCheckTimeout :: !Micros
     , _configAllowReadsInLocal :: !Bool
     , _configRosetta :: !Bool
     , _configBackup :: !BackupConfig
@@ -452,6 +454,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configPactQueueSize = 2000
     , _configReorgLimit = defaultReorgLimit
     , _configLocalRewindDepthLimit = defaultLocalRewindDepthLimit
+    , _configPreInsertCheckTimeout = defaultPreInsertCheckTimeout
     , _configAllowReadsInLocal = False
     , _configRosetta = False
     , _configServiceApi = defaultServiceApiConfig
@@ -477,6 +480,7 @@ instance ToJSON ChainwebConfiguration where
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
         , "localRewindDepthLimit" .= _configLocalRewindDepthLimit o
+        , "preInsertCheckTimeout" .= _configPreInsertCheckTimeout o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
         , "rosetta" .= _configRosetta o
         , "serviceApi" .= _configServiceApi o
@@ -506,6 +510,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configPactQueueSize ..: "pactQueueSize" % o
         <*< configReorgLimit ..: "reorgLimit" % o
         <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
+        <*< configPreInsertCheckTimeout ..: "preInsertCheckTimeout" % o
         <*< configRosetta ..: "rosetta" % o
         <*< configServiceApi %.: "serviceApi" % o
         <*< configOnlySyncPact ..: "onlySyncPact" % o
@@ -545,6 +550,9 @@ pChainwebConfiguration = id
     <*< configLocalRewindDepthLimit .:: jsonOption
         % long "local-rewind-depth-limit"
         <> help "Max allowed rewind depth for the local command."
+    <*< configPreInsertCheckTimeout .:: jsonOption
+        % long "pre-insert-check-timeout"
+        <> help "Max allowed time in microseconds for the transactions validation in the PreInsertCheck command."
     <*< configAllowReadsInLocal .:: boolOption_
         % long "allowReadsInLocal"
         <> help "Enable direct database reads of smart contract tables in local queries."
