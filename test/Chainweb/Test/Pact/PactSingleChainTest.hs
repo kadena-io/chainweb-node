@@ -29,6 +29,7 @@ import Data.Either (isRight)
 import Data.IORef
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 
@@ -486,12 +487,13 @@ preInsertCheckTimeoutTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlock
 preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
   (q,_) <- reqIO
 
+  coinV5 <- T.readFile "pact/coin-contract/v5/coin-v5.pact"
+
   tx <- buildCwCmd
         $ signSender00
         $ set cbChainId cid
-        $ set cbTTL 300
         $ mkCmd "tx-now"
-        $ mkExec' "(enumerate 0 1000000000) (str-to-list 'hi) (make-list 10 'hi)"
+        $ mkExec' coinV5
 
   rs <- forSuccess "preInsertCheckTimeoutTest" $ pactPreInsertCheck (V.singleton tx) q
   assertBool ("should be InsertErrorTimedOut but got " ++ show rs) $ V.and $ V.map (== Left InsertErrorTimedOut) rs
