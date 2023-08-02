@@ -883,7 +883,7 @@ freeModuleLoadGasModel = modifiedGasModel
     defGasModel = tableGasModel defaultGasConfig
     fullRunFunction = P.runGasModel defGasModel
     modifiedRunFunction name ga = case ga of
-      P.GPostRead P.ReadModule {} -> 0
+      P.GPostRead P.ReadModule {} -> mempty
       _ -> fullRunFunction name ga
     modifiedGasModel = defGasModel { P.runGasModel = modifiedRunFunction }
 
@@ -902,10 +902,10 @@ chainweb213GasModel = modifiedGasModel
       ]
     fullRunFunction = P.runGasModel defGasModel
     modifiedRunFunction name ga = case ga of
-      P.GPostRead P.ReadModule {} -> 0
+      P.GPostRead P.ReadModule {} -> mempty
       P.GUnreduced _ts -> case M.lookup name updTable of
-        Just g -> g
-        Nothing -> unknownOperationPenalty
+        Just g -> P.gasToMilliGas g
+        Nothing -> P.gasToMilliGas unknownOperationPenalty
       _ -> fullRunFunction name ga
     modifiedGasModel = defGasModel { P.runGasModel = modifiedRunFunction }
 
