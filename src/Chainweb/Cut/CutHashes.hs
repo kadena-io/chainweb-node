@@ -44,7 +44,7 @@ module Chainweb.Cut.CutHashes
 , BlockHashWithHeight(..)
 , CutHashes(..)
 , cutHashes
-, cutHashesChainwebVersionName
+, cutHashesChainwebVersion
 , cutHashesId
 , cutOrigin
 , cutHashesWeight
@@ -359,7 +359,7 @@ cutToCutHashes p c = CutHashes
     , _cutOrigin = p
     , _cutHashesWeight = _cutWeight c
     , _cutHashesHeight = _cutHeight c
-    , _cutHashesChainwebVersionName = _versionName $ _chainwebVersion c
+    , _cutHashesChainwebVersion = _chainwebVersion c
     , _cutHashesId = _cutId c
     , _cutHashesHeaders = mempty
     , _cutHashesPayloads = mempty

@@ -143,7 +143,7 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
       -- Chainweb tx output proof
       "TXOUT" -> do
         u <- except $ extractProof enableBridge o
-        unless (view outputProofChainId u == cid) $
+        unless (view outputProofChainId u == Just cid) $
           forkedThrower bh "cannot redeem spv proof on wrong target chain"
 
         -- SPV proof verification is a 3 step process:
@@ -187,7 +187,7 @@ verifyCont bdb bh (ContProof cp) = runExceptT $ do
     case decodeStrict' t of
       Nothing -> forkedThrower bh "unable to decode continuation proof"
       Just u
-        | view outputProofChainId u /= cid ->
+        | view outputProofChainId u /= Just cid ->
           forkedThrower bh "cannot redeem continuation proof on wrong target chain"
         | otherwise -> do
 
