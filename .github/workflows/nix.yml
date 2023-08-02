@@ -17,6 +17,10 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
+    - name: testing gh runner mac config 
+      run: |
+          diskutil list
+
     - name: Set up Nix with caching
       uses: kadena-io/setup-nix-with-cache@v1
       with:
