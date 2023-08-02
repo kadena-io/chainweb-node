@@ -26,11 +26,12 @@ module Chainweb.Pact.Service.BlockValidation
 
 import Control.Concurrent.MVar.Strict
 
-import Data.Aeson (Value)
 import Data.Vector (Vector)
+import Data.HashMap.Strict (HashMap)
 
 import Pact.Types.Hash
-import Pact.Types.Persistence (RowKey, TxLog)
+import Pact.Types.Persistence (RowKey, TxLog, Domain)
+import Pact.Types.RowData (RowData)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -89,12 +90,13 @@ local preflight sigVerify rd ct reqQ = do
 
 lookupPactTxs
     :: Rewind
+    -> Maybe ConfirmationDepth
     -> Vector PactHash
     -> PactQueue
-    -> IO (MVar (Either PactException (Vector (Maybe (T2 BlockHeight BlockHash)))))
-lookupPactTxs restorePoint txs reqQ = do
+    -> IO (MVar (Either PactException (HashMap PactHash (T2 BlockHeight BlockHash))))
+lookupPactTxs restorePoint confDepth txs reqQ = do
     resultVar <- newEmptyMVar
-    let !req = LookupPactTxsReq restorePoint txs resultVar
+    let !req = LookupPactTxsReq restorePoint confDepth txs resultVar
     let !msg = LookupPactTxsMsg req
     addRequest reqQ msg
     return resultVar
@@ -112,7 +114,7 @@ pactPreInsertCheck txs reqQ = do
 
 pactBlockTxHistory
   :: BlockHeader
-  -> Domain'
+  -> Domain RowKey RowData
   -> PactQueue
   -> IO (MVar (Either PactException BlockTxHistory))
 pactBlockTxHistory bh d reqQ = do
@@ -124,10 +126,10 @@ pactBlockTxHistory bh d reqQ = do
 
 pactHistoricalLookup
     :: BlockHeader
-    -> Domain'
+    -> Domain RowKey RowData
     -> RowKey
     -> PactQueue
-    -> IO (MVar (Either PactException (Maybe (TxLog Value))))
+    -> IO (MVar (Either PactException (Maybe (TxLog RowData))))
 pactHistoricalLookup bh d k reqQ = do
   resultVar <- newEmptyMVar
   let !req = HistoricalLookupReq bh d k resultVar

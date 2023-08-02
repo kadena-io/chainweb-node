@@ -15,6 +15,7 @@ module CheckpointerDBChecksum where
 import Configuration.Utils hiding (Error, Lens', action, encode)
 
 import Control.Exception.Safe (tryAny)
+import Control.Monad (foldM, when, void)
 import Control.Monad.Reader
 
 import Crypto.Hash

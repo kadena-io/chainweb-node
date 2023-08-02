@@ -108,7 +108,6 @@ import Control.DeepSeq
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (fromException, throwM)
-import Control.Monad.Writer
 
 import Data.Foldable
 import Data.Function (on)
@@ -388,8 +387,14 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf) (_configMinGasPrice conf)
             -- NOTE: the gas limit may be set based on block height in future, so this approach may not be valid.
             let maxGasLimit = fromIntegral <$> maxBlockGasLimit v maxBound
-            when (Just (_configBlockGasLimit conf) > maxGasLimit) $
-                logg Warn "configured block gas limit is greater than the maximum for this chain; the maximum will be used instead"
+            case maxGasLimit of
+                Just maxGasLimit'
+                    | _configBlockGasLimit conf > maxGasLimit' ->
+                        logg Warn $ T.unwords
+                            [ "configured block gas limit is greater than the"
+                            , "maximum for this chain; the maximum will be used instead"
+                            ]
+                _ -> return ()
             withChainResources
                 v
                 cid
@@ -412,6 +417,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
     pactConfig maxGasLimit = PactServiceConfig
       { _pactReorgLimit = _configReorgLimit conf
       , _pactLocalRewindDepthLimit = _configLocalRewindDepthLimit conf
+      , _pactPreInsertCheckTimeout = _configPreInsertCheckTimeout conf
       , _pactRevalidate = True
       , _pactQueueSize = _configPactQueueSize conf
       , _pactResetDb = resetDb

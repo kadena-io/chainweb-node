@@ -40,7 +40,7 @@ import Data.Aeson.Lens hiding (values)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Short as SB
-import Data.Decimal
+import Data.Word (Word64)
 import Data.Default (def)
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
@@ -59,6 +59,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import qualified Pact.ApiReq as Pact
+import qualified Pact.JSON.Encode as J
 import Pact.Types.API
 import Pact.Types.Capability
 import qualified Pact.Types.ChainId as Pact
@@ -151,6 +152,8 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
                       [ caplistTest iot net ]
                     , after AllSucceed "caplistTests" $
                       localContTest iot net
+                    , after AllSucceed "caplistTests" $
+                      pollingConfirmDepth iot net
                     , after AllSucceed "local continuation test" $
                       pollBadKeyTest net
                     , after AllSucceed "poll bad key test" $
@@ -165,7 +168,7 @@ responseGolden networkIO rksIO = golden "remote-golden" $ do
     PollResponses theMap <- polling cid cenv rks ExpectPactResult
     let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
-    return $! foldMap A.encode values
+    return $! foldMap J.encode values
 
 localTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
 localTest iot nio = do
@@ -184,10 +187,10 @@ localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
 
     step "execute /send with initial pact continuation tx"
     cmd1 <- firstStep
-    rks <- sending sid cenv (SubmitBatch $ pure cmd1)
+    rks <- sending cid' cenv (SubmitBatch $ pure cmd1)
 
     step "check /poll responses to extract pact id for continuation"
-    PollResponses m <- polling sid cenv rks ExpectPactResult
+    PollResponses m <- polling cid' cenv rks ExpectPactResult
     pid <- case NEL.toList (_rkRequestKeys rks) of
       [rk] -> case HashMap.lookup rk m of
         Nothing -> assertFailure "impossible"
@@ -198,13 +201,14 @@ localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
 
     step "execute /local continuation dry run"
     cmd2 <- secondStep pid
-    r <- _pactResult . _crResult <$> local sid cenv cmd2
+    r <- _pactResult . _crResult <$> local cid' cenv cmd2
     case r of
       Left err -> assertFailure (show err)
       Right (PLiteral (LDecimal a)) | a == 2 -> return ()
       Right p -> assertFailure $ "unexpected cont return value: " ++ show p
+
   where
-    sid = unsafeChainId 0
+    cid' = unsafeChainId 0
     tx =
       "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
     firstStep = do
@@ -226,6 +230,41 @@ localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
         $ mkCmd "nonce-cont-2"
         $ mkCont
         $ mkContMsg pid 1
+
+pollingConfirmDepth :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
+pollingConfirmDepth iot nio = testCaseSteps "poll confirmation depth test" $ \step -> do
+    cenv <- _getServiceClientEnv <$> nio
+
+    step "/send transactions"
+    cmd1 <- firstStep tx
+    cmd2 <- firstStep tx'
+    rks <- sending cid' cenv (SubmitBatch $ cmd1 NEL.:| [cmd2])
+
+    step "/poll for the transactions until they appear"
+
+    beforePolling <- getCurrentBlockHeight v cenv cid'
+    PollResponses m <- pollingWithDepth cid' cenv rks (Just $ ConfirmationDepth 10) ExpectPactResult
+    afterPolling <- getCurrentBlockHeight v cenv cid'
+
+    assertBool "there are two command results" $ length (HashMap.keys m) == 2
+
+    -- we are checking that we have waited at least 10 blocks using /poll for the transaction
+    assertBool "the difference between heights should be no less than the confirmation depth" $ (afterPolling - beforePolling) >= 10
+  where
+    cid' = unsafeChainId 0
+    tx =
+      "42"
+    tx' =
+      "43"
+    firstStep transaction = do
+      t <- toTxCreationTime <$> iot
+      buildTextCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbCreationTime t
+        $ set cbNetworkId (Just v)
+        $ set cbGasLimit 70000
+        $ mkCmd "nonce-cont-1"
+        $ mkExec' transaction
 
 localChainDataTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
 localChainDataTest iot nio = do
@@ -254,7 +293,7 @@ localChainDataTest iot nio = do
           pm = Pact.PublicMeta pactCid "sender00" 1000 0.1 (fromInteger ttl)
 
     expectedResult (PObject (ObjectMap m)) = do
-          assert' "chain-id" (PLiteral (LString "8"))
+          assert' "chain-id" (PLiteral (LString $ chainIdToText cid))
           assert' "gas-limit" (PLiteral (LInteger 1000))
           assert' "gas-price" (PLiteral (LDecimal 0.1))
           assert' "sender" (PLiteral (LString "sender00"))
@@ -325,21 +364,57 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
 
     step "Execute preflight /local tx - collect warnings"
     cmd7 <- mkRawTx' mv pcid sigs0 "(+ 1 2.0)"
+
+    currentBlockHeight <- getCurrentBlockHeight v cenv sid
     runLocalPreflightClient sid cenv cmd7 >>= \case
       Left e -> assertFailure $ show e
       Right LocalResultLegacy{} ->
         assertFailure "Preflight /local call produced legacy result"
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
-      Right (LocalResultWithWarns _ ws) -> case ws of
-        [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
-          pure ()
-        ws' -> assertFailure $ "Incorrect warns: " ++ show ws'
+      Right (LocalResultWithWarns cr' ws) -> do
+        let crbh :: Integer = fromIntegral $ fromMaybe 0 $ getBlockHeight cr'
+            expectedbh = 1 + fromIntegral currentBlockHeight
+        assertBool "Preflight's metadata should have increment block height"
+          -- we don't control the node in remote tests and the data can get oudated,
+          -- to make test less flaky we use a small range for validation
+          (abs (expectedbh - crbh) <= 2)
+
+        case ws of
+          [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
+            pure ()
+          ws' -> assertFailure $ "Incorrect warns: " ++ show ws'
+
+    let rewindDepth = 10
+    currentBlockHeight' <- getCurrentBlockHeight v cenv sid
+    runLocalPreflightClientWithDepth sid cenv cmd7 rewindDepth >>= \case
+      Left e -> assertFailure $ show e
+      Right LocalResultLegacy{} ->
+        assertFailure "Preflight /local call produced legacy result"
+      Right MetadataValidationFailure{} ->
+        assertFailure "Preflight produced an impossible result"
+      Right (LocalResultWithWarns cr' ws) -> do
+        let crbh :: Integer = fromIntegral $ fromMaybe 0 $ getBlockHeight cr'
+            expectedbh = toInteger $ 1 + (fromIntegral currentBlockHeight') - rewindDepth
+        assertBool "Preflight's metadata block height should reflect the rewind depth"
+          -- we don't control the node in remote tests and the data can get oudated,
+          -- to make test less flaky we use a small range for validation
+          (abs (expectedbh - crbh) <= 2)
+
+        case ws of
+          [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
+            pure ()
+          ws' -> assertFailure $ "Incorrect warns: " ++ show ws'
   where
     runLocalPreflightClient sid e cmd = flip runClientM e $
       pactLocalWithQueryApiClient v sid
         (Just PreflightSimulation)
         (Just Verify) Nothing cmd
+
+    runLocalPreflightClientWithDepth sid e cmd d = flip runClientM e $
+      pactLocalWithQueryApiClient v sid
+        (Just PreflightSimulation)
+        (Just Verify) (Just $ RewindDepth d) cmd
 
     runClientFailureAssertion sid e cmd msg =
       runLocalPreflightClient sid e cmd >>= \case
@@ -555,7 +630,7 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
 
     txdata = A.object
         [ "sender01-keyset" A..= [fst sender01]
-        , "target-chain-id" A..= tid
+        , "target-chain-id" A..= J.toJsonViaEncode tid
         ]
 
 txTooBigGasTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
@@ -767,10 +842,6 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     localAfterBlockHeight bh cr =
       getBlockHeight cr > Just bh
 
-    -- avoiding `scientific` dep here
-    getBlockHeight :: CommandResult a -> Maybe Decimal
-    getBlockHeight = preview (crMetaData . _Just . key "blockHeight" . _Number . to (fromRational . toRational))
-
     accountInfo = Right
       $ PObject
       $ ObjectMap
@@ -792,7 +863,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
         d = mkKeySet
           ["0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a"]
           "keys-all"
-      in PactTransaction c $ Just (A.object [ "allocation02-keyset" A..= d ])
+      in PactTransaction c $ Just (A.object [ "allocation02-keyset" A..= J.toJsonViaEncode d ])
     tx4 = PactTransaction "(coin.release-allocation \"allocation02\")" Nothing
     tx5 = PactTransaction "(coin.details \"allocation02\")" Nothing
 
@@ -872,3 +943,7 @@ testBatch iot mnonce = testBatch' iot ttl mnonce
 pactDeadBeef :: RequestKey
 pactDeadBeef = let (TransactionHash b) = deadbeef
                in RequestKey $ Hash b
+
+-- avoiding `scientific` dep here
+getBlockHeight :: CommandResult a -> Maybe Word64
+getBlockHeight = preview (crMetaData . _Just . key "blockHeight" . _Number . to ((fromIntegral :: Integer -> Word64 ) . round . toRational))

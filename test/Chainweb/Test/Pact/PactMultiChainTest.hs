@@ -135,16 +135,17 @@ tests = ScheduledTest testName go
       where
           -- This is way more than what is used in production, but during testing
           -- we can be generous.
-        generousConfig = defaultPactServiceConfig { _pactBlockGasLimit = 300_000 }
-        timeoutConfig = defaultPactServiceConfig { _pactBlockGasLimit = 100_000 }
+        generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
+        timeoutConfig = testPactServiceConfig { _pactBlockGasLimit = 100_000 }
+
         test pactConfig gasmodel tname f =
           withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
             withTestBlockDb testVersion $ \bdb -> do
               (iompa,mpa) <- dmpio
-              withWebPactExecutionService step testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
+              let logger = hunitDummyLogger step
+              withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
                 runReaderT f $
                 MultiEnv bdb pact pacts (return iompa) noMiner cid
-
 
 minerKeysetTest :: PactTestM ()
 minerKeysetTest = do
@@ -269,7 +270,7 @@ pactLocalDepthTest = do
       LocalRewindLimitExceeded _ _ -> return ()
       err -> liftIO $ assertFailure $ "Expected LocalRewindLimitExceeded, but got " ++ show err)
     (do
-      runLocalWithDepth (Just $ RewindDepth (-5)) cid getSender00Balance >>= \_ ->
+      runLocalWithDepth (Just $ RewindDepth (fromIntegral (-5 :: Int))) cid getSender00Balance >>= \_ ->
         liftIO $ assertFailure "Expected LocalRewindLimitExceeded, but block succeeded")
 
   -- the genesis depth
@@ -573,8 +574,8 @@ chainweb215Test = do
     mkRecdEvents h h' = sequence
       [ mkTransferEvent "sender00" "NoMiner" 0.0258 "coin" h
       , mkTransferEvent "" "sender00" 0.0123 "coin" h
-      , mkTransferXChainRecdEvent "" "sender00" 0.0123 "coin" h "8"
-      , mkXResumeEvent "sender00" "sender00" 0.0123 sender00Ks "pact" h' "8" "0"
+      , mkTransferXChainRecdEvent "" "sender00" 0.0123 "coin" h (toText cid)
+      , mkXResumeEvent "sender00" "sender00" 0.0123 sender00Ks "pact" h' (toText cid) "0"
       ]
 
 

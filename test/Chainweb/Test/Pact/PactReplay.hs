@@ -9,6 +9,7 @@
 module Chainweb.Test.Pact.PactReplay where
 
 import Control.Concurrent.MVar
+import Control.Monad (forM_, unless, void)
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
@@ -86,7 +87,7 @@ tests rdb =
     genblock = genesisBlockHeader testVer cid
     label = "Chainweb.Test.Pact.PactReplay"
 
-    forkLimit fl = defaultPactServiceConfig { _pactReorgLimit = fl }
+    forkLimit fl = testPactServiceConfig { _pactReorgLimit = fl }
 
 
 onRestart
