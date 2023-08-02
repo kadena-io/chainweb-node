@@ -150,7 +150,7 @@ accountBalanceTests tio envIo =
       step "check initial balance"
       cenv <- envIo
       resp0 <- accountBalance cenv req
-      let startBal = 99999997.8056
+      let startBal = 99999997.8440
       checkBalance resp0 startBal
 
       step "send 1.0 tokens to sender00 from sender01"
@@ -163,7 +163,7 @@ accountBalanceTests tio envIo =
     req = AccountBalanceReq nid (AccountId "sender00" Nothing Nothing) Nothing
 
     transferGasCost :: Decimal
-    transferGasCost = gasCost 976
+    transferGasCost = gasCost 778
 
     checkBalance resp bal1 = do
       let b0 = head $ _accountBalanceResp_balances resp
@@ -244,7 +244,7 @@ blockTransactionTests tio envIo =
       return $ BlockTransactionReq nid bid tid
 
     transferGasCost :: Decimal
-    transferGasCost = gasCost 968
+    transferGasCost = gasCost 778
 
 
 -- | Rosetta block endpoint tests
@@ -309,7 +309,7 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
       validateOp 4 "GasPayment" noMinerks Successful transferGasCost gasReward
 
     transferGasCost :: Decimal
-    transferGasCost = gasCost 976
+    transferGasCost = gasCost 782
 
 blockCoinV2RemediationTests :: RosettaTest
 blockCoinV2RemediationTests _ envIo =
