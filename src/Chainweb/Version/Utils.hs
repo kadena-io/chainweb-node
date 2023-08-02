@@ -223,9 +223,8 @@ someChainId v = someChainIdAt v maxBound
 -- chain ids for the chainweb at the given height.
 --
 someChainIdAt :: HasCallStack => HasChainwebVersion v => v -> BlockHeight -> ChainId
-someChainIdAt v h = head . toList $ chainIdsAt v h
-    -- 'head' is guaranteed to succeed because the empty graph isn't a valid chain
-    -- graph.
+someChainIdAt v h = minimum $ chainIdsAt v h
+    -- guaranteed to succeed because the empty graph isn't a valid chain graph.
 {-# INLINE someChainIdAt #-}
 
 isGraphChange :: HasChainwebVersion v => v -> BlockHeight -> Bool
