@@ -235,7 +235,7 @@ withMiningCoordination logger conf cdb inner
 data MinerResources logger tbl = MinerResources
     { _minerResLogger :: !logger
     , _minerResCutDb :: !(CutDb tbl)
-    , _minerChainResources :: HashMap ChainId (ChainResources logger)
+    , _minerChainResources :: !(HashMap ChainId (ChainResources logger))
     , _minerResConfig :: !NodeMiningConfig
     , _minerResCoordination :: !(Maybe (MiningCoordination logger tbl))
         -- ^ The primed work cache. This is Nothing when coordination is

@@ -121,18 +121,21 @@ jobs:
         fi
 
         echo "tag-suffix=$TAG_SUFFIX" >> $GITHUB_OUTPUT
+
+    # BUILD MATRIX
+    #
     - name: Create matrix
       id: set-matrix
       run: |
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["8.10.7", "9.0.2"],
+          "ghc": ["9.6.2"],
           "cabal": ["3.10"],
           "os": ["ubuntu-20.04", "ubuntu-22.04"],
           "use-freeze-file": ["false"],
           "include": [
             {
-              "ghc": "8.10.7",
+              "ghc": "9.6.2",
               "cabal": "3.10",
               "os" : "ubuntu-20.04",
               "use-freeze-file": "true"
@@ -283,14 +286,6 @@ jobs:
           ghc-options: -debug
         EOF
 
-    - name: Set GHC Eventlog Flag
-      if: needs.config.outputs.eventlog == 'True'
-      run: |
-        cat >> cabal.project.local <<EOF
-        package chainweb
-          ghc-options: -eventlog
-        EOF
-
     # dist cache
     # the cache-key forces uploading of cache at least once a day, which ensures that
     # upstream dependency changes are captured regularly.
@@ -329,7 +324,7 @@ jobs:
         diff -w <(git show HEAD:cabal.project.freeze) cabal.project.freeze || true
     - name: Sync from cabal cache
       if: env.USE_CABAL_CACHE == 'true'
-      uses: larskuhtz/cabal-cache-action@ecc751af6d31b3ed5a3b4aefdefd0ed6ef4cb414
+      uses: larskuhtz/cabal-cache-action@018b7ae0c480ba3dc4fa0cfa3a0bc1f05b7724b3
       with:
         bucket: "kadena-cabal-cache"
         region: "us-east-1"
@@ -626,10 +621,10 @@ jobs:
         # when adding more than one build, use a different package name or
         # different tags
         include:
-        - ghc: "8.10.7"
+        - ghc: "9.6.2"
           os: "ubuntu-20.04"
           use-freeze-file: "false"
-        - ghc: "8.10.7"
+        - ghc: "9.6.2"
           os: "ubuntu-20.04"
           use-freeze-file: "true"
     env:
@@ -650,7 +645,7 @@ jobs:
 
     - name: Create Dockerfile
       run: |
-        cat > Dockerfile <<EOF
+        cat > Dockerfile <<DEOF
         FROM ubuntu:${OS#ubuntu-}
         LABEL com.chainweb.docker.image.compiler="ghc-${{ matrix.ghc }}"
         LABEL com.chainweb.docker.image.os="${OS}"
@@ -660,10 +655,27 @@ jobs:
         LABEL com.chainweb.docker.image.debug="${{ needs.config.outputs.debug }}"
         LABEL com.chainweb.docker.image.eventlog="${{ needs.config.outputs.eventlog }}"
         LABEL com.chainweb.docker.image.revision="${{ needs.config.outputs.git-sha-short }}"
-        RUN apt-get update && apt-get install -y ca-certificates libgmp10 libssl1.1 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd locales && rm -rf /var/lib/apt/lists/* && locale-gen en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+        RUN <<EOF
+        apt-get update &&
+        apt-get install -y \
+          ca-certificates \
+          libgmp10 \
+          libssl1.1 \
+          libsnappy1v5 \
+          zlib1g \
+          liblz4-1 \
+          libbz2-1.0 \
+          libgflags2.2 \
+          zstd \
+          locales && 
+          rm -rf /var/lib/apt/lists/* &&
+          locale-gen en_US.UTF-8 &&
+          update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+        EOF
         ENV LANG=en_US.UTF-8
         WORKDIR /chainweb
         COPY chainweb/chainweb-node .
+        COPY chainweb/chainweb-tests .
         COPY chainweb/LICENSE .
         COPY chainweb/README.md .
         COPY chainweb/CHANGELOG.md .
@@ -673,7 +685,7 @@ jobs:
         COPY chainweb/cabal.project.freeze .
         STOPSIGNAL SIGTERM
         ENTRYPOINT [ "/chainweb/chainweb-node" ]
-        EOF
+        DEOF
 
     - name: Set frozen tag
       id: frozen-tag
@@ -686,7 +698,7 @@ jobs:
 
     - name: Docker meta
       id: meta
-      uses: docker/metadata-action@v3
+      uses: docker/metadata-action@v4
       with:
         images: ghcr.io/kadena-io/chainweb-node
         flavor: |
@@ -717,7 +729,7 @@ jobs:
 
     - name: Build and push
       id: docker_build
-      uses: docker/build-push-action@v2
+      uses: docker/build-push-action@v4
       with:
         push: true
         context: .

@@ -61,6 +61,8 @@ import Data.Text (Text)
 import qualified Pact.Types.Command as Pact
 import Pact.Server.API as API
 import Pact.Types.API (Poll, PollResponses)
+import Pact.Utils.Servant
+
 import Servant
 
 -- internal modules
@@ -139,8 +141,8 @@ type PactLocalWithQueryApi_
     :> QueryParam "preflight" LocalPreflightSimulation
     :> QueryParam "signatureVerification" LocalSignatureVerification
     :> QueryParam "rewindDepth" RewindDepth
-    :> ReqBody '[JSON] (Pact.Command Text)
-    :> Post '[JSON] LocalResult
+    :> ReqBody '[PactJson] (Pact.Command Text)
+    :> Post '[PactJson] LocalResult
 
 type PactLocalWithQueryApi v c = PactV1ApiEndpoint v c PactLocalWithQueryApi_
 
@@ -155,8 +157,8 @@ pactLocalWithQueryApi = Proxy
 type PactPollWithQueryApi_
     = "poll"
     :> QueryParam "confirmationDepth" ConfirmationDepth
-    :> ReqBody '[JSON] Poll
-    :> Post '[JSON] PollResponses
+    :> ReqBody '[PactJson] Poll
+    :> Post '[PactJson] PollResponses
 
 type PactPollWithQueryApi v c = PactV1ApiEndpoint v c PactPollWithQueryApi_
 
@@ -171,7 +173,7 @@ pactPollWithQueryApi = Proxy
 type PactSpvApi_
     = "pact"
     :> "spv"
-    :> ReqBody '[JSON] SpvRequest
+    :> ReqBody '[PactJson] SpvRequest
     :> Post '[JSON] TransactionOutputProofB64
 
 type PactSpvApi (v :: ChainwebVersionT) (c :: ChainIdT)

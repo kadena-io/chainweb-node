@@ -78,6 +78,8 @@ import qualified Data.Text as T
 import Pact.Eval (eval, liftTerm)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
+import qualified Pact.JSON.Encode as J
+import Pact.JSON.Legacy.Value
 import Pact.Native.Capabilities (evalCap)
 import Pact.Parse (ParsedDecimal(..))
 import Pact.Runtime.Capabilities (popCapStack)
@@ -86,7 +88,6 @@ import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Hash as Pact
 import Pact.Types.KeySet
-import Pact.Types.Logger hiding (logError)
 import Pact.Types.PactValue
 import Pact.Types.Pretty
 import Pact.Types.RPC
@@ -98,6 +99,7 @@ import Pact.Types.SPV
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import Chainweb.Logger
 import qualified Chainweb.ChainId as Chainweb
 import Chainweb.Mempool.Mempool (requestKeyToTransactionHash)
 import Chainweb.Miner.Pact
@@ -108,6 +110,7 @@ import Chainweb.Transaction
 import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous, T2(..), T3(..))
 import Chainweb.Version as V
 import Chainweb.Version.Guards as V
+import Pact.JSON.Encode (toJsonViaEncode)
 
 
 -- -------------------------------------------------------------------------- --
@@ -141,10 +144,11 @@ onChainErrorPrintingFor txCtx =
 -- orchestrates gas buys/redemption, and executing payloads.
 --
 applyCmd
-    :: ChainwebVersion
-    -> Logger
+    :: (Logger logger)
+    => ChainwebVersion
+    -> logger
       -- ^ Pact logger
-    -> Maybe Logger
+    -> Maybe logger
       -- ^ Pact gas logger
     -> PactDbEnv p
       -- ^ Pact db environment
@@ -164,7 +168,7 @@ applyCmd
       -- ^ cached module state
     -> ApplyCmdExecutionContext
       -- ^ is this a local or send execution context?
-    -> IO (T3 (CommandResult [TxLog Value]) ModuleCache (S.Set PactWarning))
+    -> IO (T3 (CommandResult [TxLogJson]) ModuleCache (S.Set PactWarning))
 applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 callCtx = do
     T2 cr st <- runTransactionM cenv txst applyBuyGas
 
@@ -177,7 +181,6 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       | chainweb217Pact' = gasModel
       | otherwise = _geGasModel freeGasEnv
     txst = TransactionState mcache0 mempty 0 Nothing stGasModel mempty
-
 
     executionConfigNoHistory = ExecutionConfig
       $ S.singleton FlagDisableHistoryInTransactionalMode
@@ -264,7 +267,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
 
           let !cr' = case callCtx of
                 ApplySend -> set crLogs (Just logs) $ over crEvents (es ++) cr
-                ApplyLocal -> set crMetaData (Just $ toJSON $ ctxToPublicData' txCtx)
+                ApplyLocal -> set crMetaData (Just $ J.toJsonViaEncode $ ctxToPublicData' txCtx)
                   $ set crLogs (Just logs)
                   $ over crEvents (es ++) cr
 
@@ -275,16 +278,19 @@ listErrMsg =
     "Unknown primitive \"list\" in determining cost of GUnreduced\nCallStack (from HasCallStack):\n  error, called at src/Pact/Gas/Table.hs:209:22 in pact-4.2.0-fe223ad86f1795ba381192792f450820557e59c2926c747bf2aa6e398394bee6:Pact.Gas.Table"
 
 applyGenesisCmd
-    :: Logger
+    :: (Logger logger)
+    => logger
       -- ^ Pact logger
     -> PactDbEnv p
       -- ^ Pact db environment
     -> SPVSupport
       -- ^ SPV support (validates cont proofs)
+    -> TxContext
+      -- ^ tx metadata
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
-    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyGenesisCmd logger dbEnv spv cmd =
+    -> IO (T2 (CommandResult [TxLogJson]) ModuleCache)
+applyGenesisCmd logger dbEnv spv txCtx cmd =
     second _txCache <$!> runTransactionM tenv txst go
   where
     nid = networkIdOf cmd
@@ -300,14 +306,14 @@ applyGenesisCmd logger dbEnv spv cmd =
         , _txGasPrice = 0.0
         , _txRequestKey = rk
         , _txGasLimit = 0
-        , _txExecutionConfig = mkExecutionConfig
-          [ FlagDisablePact40
-          , FlagDisablePact420
-          , FlagDisableInlineMemCheck
-          , FlagDisablePact43
-          , FlagDisablePact44
-          , FlagDisablePact45
-          ]
+        , _txExecutionConfig = ExecutionConfig
+          $ flagsFor (ctxVersion txCtx) (ctxChainId txCtx) (_blockHeight $ ctxBlockHeader txCtx)
+          -- TODO this is very ugly. Genesis blocks need to install keysets
+          -- outside of namespaces so we need to disable Pact 4.4. It would be
+          -- preferable to have a flag specifically for the namespaced keyset
+          -- stuff so that we retain this power in genesis and upgrade txs even
+          -- after the block height where pact4.4 is on.
+          <> S.fromList [ FlagDisableInlineMemCheck, FlagDisablePact44 ]
         }
     txst = TransactionState
         { _txCache = mempty
@@ -342,12 +348,14 @@ flagsFor v cid bh = S.fromList $ concat
   , enableNewTrans v cid bh
   , enablePact46 v cid bh
   , enablePact47 v cid bh
+  , enablePact48 v cid bh
   , disableReturnRTC v cid bh
   ]
 
 applyCoinbase
-    :: ChainwebVersion
-    -> Logger
+    :: (Logger logger)
+    => ChainwebVersion
+    -> logger
       -- ^ Pact logger
     -> PactDbEnv p
       -- ^ Pact db environment
@@ -362,7 +370,7 @@ applyCoinbase
     -> CoinbaseUsePrecompiled
       -- ^ always enable precompilation
     -> ModuleCache
-    -> IO (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache))
+    -> IO (T2 (CommandResult [TxLogJson]) (Maybe ModuleCache))
 applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecimal d) txCtx
   (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
   | fork1_3InEffect || enablePC = do
@@ -410,7 +418,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
         Right er -> do
           debug
             $! "successful coinbase of "
-            <> (T.take 18 $ sshow d)
+            <> T.take 18 (sshow d)
             <> " to "
             <> sshow mid
 
@@ -420,14 +428,15 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
 
           return $! T2
             (CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
-              (_erGas er) (Just $ logs) (_erExec er) Nothing (_erEvents er))
+              (_erGas er) (Just logs) (_erExec er) Nothing (_erEvents er))
             upgradedModuleCache
 
 
 applyLocal
-    :: Logger
+    :: (Logger logger)
+    => logger
       -- ^ Pact logger
-    -> Maybe Logger
+    -> Maybe logger
       -- ^ Pact gas logger
     -> PactDbEnv p
       -- ^ Pact db environment
@@ -441,7 +450,7 @@ applyLocal
       -- ^ command with payload to execute
     -> ModuleCache
     -> ExecutionConfig
-    -> IO (CommandResult [TxLog Value])
+    -> IO (CommandResult [TxLogJson])
 applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     evalTransactionM tenv txst go
   where
@@ -467,13 +476,14 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
 
       case cr of
         Left e -> jsonErrorResult e "applyLocal"
-        Right r -> return $! r { _crMetaData = Just (toJSON $ ctxToPublicData' txCtx) }
+        Right r -> return $! r { _crMetaData = Just (J.toJsonViaEncode $ ctxToPublicData' txCtx) }
 
     go = checkTooBigTx gas0 gasLimit (applyPayload $ _pPayload $ _cmdPayload cmd) return
 
 
 readInitModules
-    :: Logger
+    :: forall logger p. (Logger logger)
+    => logger
       -- ^ Pact logger
     -> PactDbEnv p
       -- ^ Pact db environment
@@ -515,7 +525,7 @@ readInitModules logger dbEnv txCtx
           (o:_) -> return o
 
 
-    go :: TransactionM p ModuleCache
+    go :: TransactionM logger p ModuleCache
     go = do
 
       -- see if fungible-v2 is there
@@ -550,7 +560,7 @@ readInitModules logger dbEnv txCtx
     -- requires a block height that witnesses the invariant.
     --
     -- if this changes, we must change the filter in 'updateInitCache'
-    goCw217 :: TransactionM p ModuleCache
+    goCw217 :: TransactionM logger p ModuleCache
     goCw217 = do
       coinDepCmd <- liftIO $ mkCmd "coin.MINIMUM_PRECISION"
       void $ run "load modules" coinDepCmd
@@ -566,10 +576,11 @@ readInitModules logger dbEnv txCtx
 -- which both hit the database.
 --
 applyUpgrades
-  :: ChainwebVersion
+  :: (Logger logger)
+  => ChainwebVersion
   -> Chainweb.ChainId
   -> BlockHeight
-  -> TransactionM p (Maybe ModuleCache)
+  -> TransactionM logger p (Maybe ModuleCache)
 applyUpgrades v cid height
      | Just upg <-
          v ^? versionUpgrades . onChain cid . at height . _Just = applyUpgrade upg
@@ -580,7 +591,7 @@ applyUpgrades v cid height
 
     filterModuleCache = do
       mc <- use txCache
-      pure $ Just $ HM.filterWithKey (\k _ -> k == "coin") mc
+      pure $ Just $ filterModuleCacheByKey (== "coin") mc
 
     applyUpgrade upg = do
       infoLog "Applying upgrade!"
@@ -597,7 +608,7 @@ applyUpgrades v cid height
       caches <- local
         (txExecutionConfig .~ ExecutionConfig flags)
         (mapM applyTx payloads)
-      return $ Just (HM.unions caches)
+      return $ Just $ mconcat $ reverse caches
 
     interp = initStateInterpreter
         $ installCoinModuleAdmin
@@ -613,28 +624,29 @@ applyUpgrades v cid height
           throwM e
 
 jsonErrorResult
-    :: PactError
+    :: (Logger logger)
+    => PactError
     -> Text
-    -> TransactionM p (CommandResult [TxLog Value])
+    -> TransactionM logger p (CommandResult [TxLogJson])
 jsonErrorResult err msg = do
     logs <- use txLogs
     gas <- view txGasLimit -- error means all gas was charged
     rk <- view txRequestKey
     l <- view txLogger
 
-    liftIO
-      $! logLog l "INFO"
-      $! T.unpack msg
-      <> ": " <> show rk
-      <> ": " <> show err
+    logInfo_ l
+      $! msg
+      <> ": " <> sshow rk
+      <> ": " <> sshow err
 
     return $! CommandResult rk Nothing (PactResult (Left err))
       gas (Just logs) Nothing Nothing []
 
 runPayload
-    :: Command (Payload PublicMeta ParsedCode)
+    :: (Logger logger)
+    => Command (Payload PublicMeta ParsedCode)
     -> NamespacePolicy
-    -> TransactionM p (CommandResult [TxLog Value])
+    -> TransactionM logger p (CommandResult [TxLogJson])
 runPayload cmd nsp = do
     g0 <- use txGasUsed
     interp <- gasInterpreter g0
@@ -654,10 +666,11 @@ runPayload cmd nsp = do
 -- | Run genesis transaction payloads with custom interpreter
 --
 runGenesis
-    :: Command (Payload PublicMeta ParsedCode)
+    :: (Logger logger)
+    => Command (Payload PublicMeta ParsedCode)
     -> NamespacePolicy
     -> Interpreter p
-    -> TransactionM p (CommandResult [TxLog Value])
+    -> TransactionM logger p (CommandResult [TxLogJson])
 runGenesis cmd nsp interp = case payload of
     Exec pm ->
       applyExec 0 interp pm signers chash nsp
@@ -671,39 +684,41 @@ runGenesis cmd nsp interp = case payload of
 -- | Execute an 'ExecMsg' and Return the result with module cache
 --
 applyExec
-    :: Gas
+    :: (Logger logger)
+    => Gas
     -> Interpreter p
     -> ExecMsg ParsedCode
     -> [Signer]
     -> Hash
     -> NamespacePolicy
-    -> TransactionM p (CommandResult [TxLog Value])
+    -> TransactionM logger p (CommandResult [TxLogJson])
 applyExec initialGas interp em senderSigs hsh nsp = do
     EvalResult{..} <- applyExec' initialGas interp em senderSigs hsh nsp
     for_ _erLogGas $ \gl -> gasLog $ "gas logs: " <> sshow gl
-    logs <- use txLogs
-    rk <- view txRequestKey
+    !logs <- use txLogs
+    !rk <- view txRequestKey
 
     -- concat tx warnings with eval warnings
-    txWarnings <>= _erWarnings
+    modify' $ txWarnings <>~ _erWarnings
 
     -- applyExec enforces non-empty expression set so `last` ok
     -- forcing it here for lazy errors. TODO NFData the Pacts
-    lastResult <- return $!! last _erOutput
-    return $! CommandResult rk _erTxId (PactResult (Right lastResult))
+    let !lastResult = force $ last _erOutput
+    return $ CommandResult rk _erTxId (PactResult (Right lastResult))
       _erGas (Just logs) _erExec Nothing _erEvents
 
 -- | Variation on 'applyExec' that returns 'EvalResult' as opposed to
 -- wrapping it up in a JSON result.
 --
 applyExec'
-    :: Gas
+    :: (Logger logger)
+    => Gas
     -> Interpreter p
     -> ExecMsg ParsedCode
     -> [Signer]
     -> Hash
     -> NamespacePolicy
-    -> TransactionM p EvalResult
+    -> TransactionM logger p EvalResult
 applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs hsh nsp
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
@@ -759,6 +774,9 @@ enablePact46 v cid bh = [FlagDisablePact46 | not (chainweb218Pact v cid bh)]
 enablePact47 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enablePact47 v cid bh = [FlagDisablePact47 | not (chainweb219Pact v cid bh)]
 
+enablePact48 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact48 v cid bh = [FlagDisablePact48 | not (chainweb220Pact v cid bh)]
+
 -- | Even though this is not forking, abstracting for future shutoffs
 disableReturnRTC :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 disableReturnRTC _v _cid _bh = [FlagDisableRuntimeReturnTypeChecking]
@@ -766,13 +784,14 @@ disableReturnRTC _v _cid _bh = [FlagDisableRuntimeReturnTypeChecking]
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
 applyContinuation
-    :: Gas
+    :: (Logger logger)
+    => Gas
     -> Interpreter p
     -> ContMsg
     -> [Signer]
     -> Hash
     -> NamespacePolicy
-    -> TransactionM p (CommandResult [TxLog Value])
+    -> TransactionM logger p (CommandResult [TxLogJson])
 applyContinuation initialGas interp cm senderSigs hsh nsp = do
     EvalResult{..} <- applyContinuation' initialGas interp cm senderSigs hsh nsp
     for_ _erLogGas $ \gl -> gasLog $ "gas logs: " <> sshow gl
@@ -783,11 +802,11 @@ applyContinuation initialGas interp cm senderSigs hsh nsp = do
     txWarnings <>= _erWarnings
 
     -- last safe here because cont msg is guaranteed one exp
-    return $! (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
-      _erGas (Just logs) _erExec Nothing) _erEvents
+    return $! CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
+      _erGas (Just logs) _erExec Nothing _erEvents
 
 
-setEnvGas :: Gas -> EvalEnv e -> TransactionM p ()
+setEnvGas :: Gas -> EvalEnv e -> TransactionM logger p ()
 setEnvGas initialGas = liftIO . views eeGas (`writeIORef` initialGas)
 
 -- | Execute a 'ContMsg' and return just eval result, not wrapped in a
@@ -800,7 +819,7 @@ applyContinuation'
     -> [Signer]
     -> Hash
     -> NamespacePolicy
-    -> TransactionM p EvalResult
+    -> TransactionM logger p EvalResult
 applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
 
     eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs)
@@ -820,7 +839,7 @@ applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh ns
 --
 -- see: 'pact/coin-contract/coin.pact#fund-tx'
 --
-buyGas :: Bool -> Command (Payload PublicMeta ParsedCode) -> Miner -> TransactionM p ()
+buyGas :: (Logger logger) => Bool -> Command (Payload PublicMeta ParsedCode) -> Miner -> TransactionM logger p ()
 buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
   where
     sender = view (cmdPayload . pMeta . pmSender) cmd
@@ -884,7 +903,7 @@ findPayer isPactBackCompatV16 cmd = runMaybeT $ do
     runCap i capRef as input = do
       let msgBody = enrichedMsgBody cmd
           enrichMsgBody | isPactBackCompatV16 = id
-                        | otherwise = setEnvMsgBody msgBody
+                        | otherwise = setEnvMsgBody (toLegacyJson msgBody)
       ar <- local enrichMsgBody $
         evalCap i CapCallStack False $ mkApp i capRef as
 
@@ -900,14 +919,14 @@ enrichedMsgBody cmd = case (_pPayload $ _cmdPayload cmd) of
   Exec (ExecMsg (ParsedCode _ exps) userData) ->
     object [ "tx-type" A..= ( "exec" :: Text)
            , "exec-code" A..= map renderCompactText exps
-           , "exec-user-data" A..= pactFriendlyUserData userData ]
+           , "exec-user-data" A..= pactFriendlyUserData (_getLegacyValue userData) ]
   Continuation (ContMsg pid step isRollback userData proof) ->
     object [ "tx-type" A..= ("cont" :: Text)
-           , "cont-pact-id" A..= pid
-           , "cont-step" A..= (LInteger $ toInteger step)
-           , "cont-is-rollback" A..= LBool isRollback
-           , "cont-user-data" A..= pactFriendlyUserData userData
-           , "cont-has-proof" A..= (LBool $ isJust proof)
+           , "cont-pact-id" A..= toJsonViaEncode pid
+           , "cont-step" A..= toJsonViaEncode (LInteger $ toInteger step)
+           , "cont-is-rollback" A..= toJsonViaEncode (LBool isRollback)
+           , "cont-user-data" A..= pactFriendlyUserData (_getLegacyValue userData)
+           , "cont-has-proof" A..= toJsonViaEncode (isJust proof)
            ]
   where
     pactFriendlyUserData Null = object []
@@ -918,7 +937,7 @@ enrichedMsgBody cmd = case (_pPayload $ _cmdPayload cmd) of
 --
 -- see: 'pact/coin-contract/coin.pact#fund-tx'
 --
-redeemGas :: Command (Payload PublicMeta ParsedCode) -> TransactionM p [PactEvent]
+redeemGas :: (Logger logger) => Command (Payload PublicMeta ParsedCode) -> TransactionM logger p [PactEvent]
 redeemGas cmd = do
     mcache <- use txCache
 
@@ -938,7 +957,7 @@ redeemGas cmd = do
       $ initCapabilities [magic_GAS]
 
     redeemGasCmd fee (GasId pid) =
-      ContMsg pid 1 False (object [ "fee" A..= fee ]) Nothing
+      ContMsg pid 1 False (toLegacyJson $ object [ "fee" A..= toJsonViaEncode fee ]) Nothing
 
 
 -- ---------------------------------------------------------------------------- --
@@ -959,14 +978,15 @@ initStateInterpreter s = Interpreter (put s >>)
 -- gas limit and do some action depending on the outcome
 --
 checkTooBigTx
-    :: Gas
+    :: (Logger logger)
+    => Gas
     -> GasLimit
-    -> TransactionM p (CommandResult [TxLog Value])
-    -> (CommandResult [TxLog Value] -> TransactionM p (CommandResult [TxLog Value]))
-    -> TransactionM p (CommandResult [TxLog Value])
+    -> TransactionM logger p (CommandResult [TxLogJson])
+    -> (CommandResult [TxLogJson] -> TransactionM logger p (CommandResult [TxLogJson]))
+    -> TransactionM logger p (CommandResult [TxLogJson])
 checkTooBigTx initialGas gasLimit next onFail
-  | initialGas >= (fromIntegral gasLimit) = do
-      txGasUsed .= (fromIntegral gasLimit) -- all gas is consumed
+  | initialGas >= fromIntegral gasLimit = do
+      txGasUsed .= fromIntegral gasLimit -- all gas is consumed
 
       let !pe = PactError GasError def []
             $ "Tx too big (" <> pretty initialGas <> "), limit "
@@ -976,7 +996,7 @@ checkTooBigTx initialGas gasLimit next onFail
       onFail r
   | otherwise = next
 
-gasInterpreter :: Gas -> TransactionM db (Interpreter p)
+gasInterpreter :: Gas -> TransactionM logger db (Interpreter p)
 gasInterpreter g = do
     mc <- use txCache
     logGas <- isJust <$> view txGasLogger
@@ -1019,16 +1039,18 @@ setModuleCache
   -> EvalState
   -> EvalState
 setModuleCache mcache es =
-  let allDeps = foldMap (allModuleExports . fst) mcache
-  in set (evalRefs . rsQualifiedDeps) allDeps $ set (evalRefs . rsLoadedModules) mcache $ es
+  let allDeps = foldMap (allModuleExports . fst) $ _getModuleCache mcache
+  in set (evalRefs . rsQualifiedDeps) allDeps $ set (evalRefs . rsLoadedModules) c es
+ where
+  c = moduleCacheToHashMap mcache
 {-# INLINE setModuleCache #-}
 
 -- | Set tx result state
 --
-setTxResultState :: EvalResult -> TransactionM db ()
+setTxResultState :: EvalResult -> TransactionM logger db ()
 setTxResultState er = do
     txLogs <>= (_erLogs er)
-    txCache .= (_erLoadedModules er)
+    txCache .= moduleCacheFromHashMap (_erLoadedModules er)
     txGasUsed .= (_erGas er)
 {-# INLINE setTxResultState #-}
 
@@ -1037,7 +1059,7 @@ setTxResultState er = do
 mkEvalEnv
     :: NamespacePolicy
     -> MsgData
-    -> TransactionM db (EvalEnv db)
+    -> TransactionM logger db (EvalEnv db)
 mkEvalEnv nsp msg = do
     tenv <- ask
     genv <- GasEnv
@@ -1077,7 +1099,7 @@ buildExecParsedCode
 buildExecParsedCode ppv value code = maybe (go Null) go value
   where
     go val = case parsePact ppv code of
-      Right !t -> pure $! ExecMsg t val
+      Right !t -> pure $! ExecMsg t (toLegacyJson val)
       -- if we can't construct coin contract calls, this should
       -- fail fast
       Left err -> internalError $ "buildExecParsedCode: parse failed: " <> T.pack err
@@ -1109,38 +1131,37 @@ toCoinUnit :: Decimal -> Decimal
 toCoinUnit = roundTo 12
 {-# INLINE toCoinUnit #-}
 
-gasLog :: Text -> TransactionM db ()
+gasLog :: (Logger logger) => Text -> TransactionM logger db ()
 gasLog m = do
   l <- view txGasLogger
   rk <- view txRequestKey
   for_ l $ \logger ->
-    liftIO $! logLog logger "INFO" $! T.unpack m <> ": " <> show rk
+    logInfo_ logger $! m <> ": " <> sshow rk
 
 -- | Log request keys at DEBUG when successful
 --
-debug :: Text -> TransactionM db ()
+debug :: (Logger logger) => Text -> TransactionM logger db ()
 debug s = do
     l <- view txLogger
     rk <- view txRequestKey
-    liftIO $! logLog l "DEBUG" $! T.unpack s <> ": " <> show rk
+    logDebug_ l $! s <> ": " <> sshow rk
 
 
 -- | Denotes fatal failure points in the tx exec process
 --
-fatal :: Text -> TransactionM db a
+fatal :: (Logger logger) => Text -> TransactionM logger db a
 fatal e = do
     l <- view txLogger
     rk <- view txRequestKey
 
-    liftIO
-      $! logLog l "ERROR"
+    logError_ l
       $! "critical transaction failure: "
-      <> sshow rk <> ": " <> T.unpack e
+      <> sshow rk <> ": " <> e
 
     throwM $ PactTransactionExecError (fromUntypedHash $ unRequestKey rk) e
 
-logError :: Text -> TransactionM db ()
-logError msg = view txLogger >>= \l -> liftIO $! logLog l "ERROR" (T.unpack msg)
+logError :: (Logger logger) => Text -> TransactionM logger db ()
+logError msg = view txLogger >>= \l -> logError_ l msg
 
-infoLog :: Text -> TransactionM db ()
-infoLog msg = view txLogger >>= \l -> liftIO $! logLog l "INFO" (T.unpack msg)
+infoLog :: (Logger logger) => Text -> TransactionM logger db ()
+infoLog msg = view txLogger >>= \l -> logInfo_ l msg

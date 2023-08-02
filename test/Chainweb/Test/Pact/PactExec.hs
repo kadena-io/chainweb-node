@@ -24,7 +24,6 @@ module Chainweb.Test.Pact.PactExec
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Data.Aeson
-import Data.Aeson.Encode.Pretty
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.List as L
 import Data.String
@@ -42,6 +41,7 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHeader (genesisBlockHeader)
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.Graph
+import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService
 import Chainweb.Pact.PactService.ExecBlock
@@ -50,6 +50,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)
+import Chainweb.Storage.Table.RocksDB (RocksDb)
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
@@ -58,13 +59,13 @@ import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.Version.Utils (someChainId)
 import Chainweb.Utils (sshow, tryAllSynchronous)
 
-import Chainweb.Storage.Table.RocksDB (RocksDb)
-
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.Pretty
+
+import qualified Pact.JSON.Encode as J
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion petersonChainGraph
@@ -82,33 +83,33 @@ tests = ScheduledTest label $
     -- fungible-v2 is installed at that block height 1. Because applying the
     -- update twice resuls in an validaton failures, we have to run each test on
     -- a fresh pact environment. Unfortunately, that's a bit slow.
-    [ withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    [ withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
         \ctx -> _schTest $ execTest ctx testReq2
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
         \ctx -> _schTest $ execTest ctx testReq3
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
         \ctx -> _schTest $ execTest ctx testReq4
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
         \ctx -> _schTest $ execTest ctx testReq5
-    , withPactCtxSQLite testEventsVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testEventsVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
         \ctx -> _schTest $ execTxsTest ctx "testTfrGas" testTfrGas
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
         \ctx -> _schTest $ execTxsTest ctx "testGasPayer" testGasPayer
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
         \ctx -> _schTest $ execTxsTest ctx "testContinuationGasPayer" testContinuationGasPayer
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
         \ctx -> _schTest $ execTxsTest ctx "testExecGasPayer" testExecGasPayer
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
       \ctx -> _schTest $ execTest ctx testReq6
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
       \ctx -> _schTest $ execTxsTest ctx "testTfrNoGasFails" testTfrNoGasFails
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
       \ctx -> _schTest $ execTxsTest ctx "testBadSenderFails" testBadSenderFails
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
       \ctx -> _schTest $ execTxsTest ctx "testFailureRedeem" testFailureRedeem
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
       \ctx -> _schTest $ execLocalTest ctx "testAllowReadsLocalFails" testAllowReadsLocalFails
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb allowReads $
+    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb allowReads $
       \ctx -> _schTest $ execLocalTest ctx "testAllowReadsLocalSuccess" testAllowReadsLocalSuccess
     ]
   where
@@ -122,6 +123,8 @@ tests = ScheduledTest label $
     killPdb _ = return ()
     cid = someChainId testVersion
     allowReads = testPactServiceConfig { _pactAllowReadsInLocal = True }
+
+    logger = dummyLogger
 
 -- -------------------------------------------------------------------------- --
 -- Pact test datatypes
@@ -146,7 +149,7 @@ data TestResponse a = TestResponse
     { _trOutputs :: ![(a, CommandResult Hash)]
     , _trCoinBaseOutput :: !(CommandResult Hash)
     }
-    deriving (Generic, ToJSON, Show)
+    deriving (Generic, Show)
 
 type TxsTest = (IO (V.Vector ChainwebTransaction), Either String (TestResponse String) -> Assertion)
 
@@ -482,7 +485,8 @@ testAllowReadsLocalSuccess = (tx,test)
 -- Utils
 
 execTest
-    :: WithPactCtxSQLite tbl
+    :: (Logger logger)
+    => WithPactCtxSQLite logger tbl
     -> TestRequest
     -> ScheduledTest
 execTest runPact request = _trEval request $ do
@@ -509,7 +513,8 @@ execTest runPact request = _trEval request $ do
       mkKeySetData "test-admin-keyset" [sender00]
 
 execTxsTest
-    :: WithPactCtxSQLite tbl
+    :: (Logger logger)
+    => WithPactCtxSQLite logger tbl
     -> String
     -> TxsTest
     -> ScheduledTest
@@ -534,8 +539,8 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
 type LocalTest = (IO ChainwebTransaction,Either String (CommandResult Hash) -> Assertion)
 
 execLocalTest
-    :: CanReadablePayloadCas tbl
-    => WithPactCtxSQLite tbl
+    :: (Logger logger, CanReadablePayloadCas tbl)
+    => WithPactCtxSQLite logger tbl
     -> String
     -> LocalTest
     -> ScheduledTest
@@ -577,11 +582,11 @@ fileCompareTxLogs label respIO = goldenSch label $ do
         : (result <$> _trOutputs resp)
   where
     result (cmd, out) = object
-        [ "output" .= _crLogs out
+        [ "output" .= J.toJsonViaEncode (_crLogs out)
         , "cmd" .= cmd
         ]
     coinbase out = object
-        [ "output" .= _crLogs out
+        [ "output" .= J.toJsonViaEncode (_crLogs out)
         , "cmd" .= ("coinbase" :: String)
         ]
 
@@ -597,7 +602,7 @@ _showValidationFailure = do
         , _crTxId = Nothing
         , _crResult = PactResult $ Right $ pString "hi"
         , _crGas = 0
-        , _crLogs = Just [TxLog "Domain" "Key" (object [ "stuff" .= True ])]
+        , _crLogs = Just [encodeTxLog $ TxLog "Domain" "Key" (object [ "stuff" .= True ])]
         , _crContinuation = Nothing
         , _crMetaData = Nothing
         , _crEvents = []
@@ -616,4 +621,6 @@ _showValidationFailure = do
         }
       r = validateHashes header pd miner outs2
 
-  BL.putStrLn $ encodePretty r
+  BL.putStrLn $ case r of
+    Left e -> J.encode e
+    Right x -> encode x

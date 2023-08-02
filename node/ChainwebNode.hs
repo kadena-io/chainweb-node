@@ -90,11 +90,13 @@ import Chainweb.Logging.Miner
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
 import Chainweb.Miner.Coordinator (MiningStats)
+import Chainweb.Pact.Backend.DbCache (DbCacheStats)
 import Chainweb.Pact.Service.PactQueue (PactQueueStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
+import Data.Time.Format.ISO8601
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
@@ -267,11 +269,6 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
 
 -- This instances are OK, since this is the "Main" module of an application
 --
-#if !MIN_VERSION_base(4,15,0)
-deriving instance Generic GCDetails
-deriving instance Generic RTSStats
-#endif
-
 deriving instance NFData GCDetails
 deriving instance NFData RTSStats
 
@@ -408,6 +405,8 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @MempoolStats mgr teleLogConfig
     blockUpdateBackend <- managed
         $ mkTelemetryLogger @BlockUpdate mgr teleLogConfig
+    dbCacheBackend <- managed
+        $ mkTelemetryLogger @DbCacheStats mgr teleLogConfig
     dbStatsBackend <- managed
         $ mkTelemetryLogger @DbStats mgr teleLogConfig
     pactQueueStatsBackend <- managed
@@ -432,6 +431,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler traceBackend
             , logHandler mempoolStatsBackend
             , logHandler blockUpdateBackend
+            , logHandler dbCacheBackend
             , logHandler dbStatsBackend
             , logHandler pactQueueStatsBackend
             , logHandler topLevelStatusBackend
@@ -446,14 +446,13 @@ withNodeLogger logConfig v f = runManaged $ do
 
 mkTelemetryLogger
     :: forall a b
-    . Typeable a
-    => ToJSON a
+    . (Typeable a, ToJSON a)
     => HTTP.Manager
     -> EnableConfig BackendConfig
     -> (Backend (JsonLog a) -> IO b)
     -> IO b
 mkTelemetryLogger mgr = configureHandler
-    $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
+    $ withJsonHandleBackend @a (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
 
 -- -------------------------------------------------------------------------- --
 -- Service Date
@@ -547,8 +546,6 @@ main = do
                 , Handler $ \(e :: SomeException) ->
                     logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
                 ] $ do
-                kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
+                kt <- mapM iso8601ParseM serviceDate
                 withServiceDate (logFunctionText logger) kt $
                     node conf logger
-  where
-    timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")

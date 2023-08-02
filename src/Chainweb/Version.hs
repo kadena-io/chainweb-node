@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -30,6 +31,10 @@ module Chainweb.Version
     (
     -- * Properties of Chainweb Version
       Fork(..)
+    , ForkHeight(..)
+    , _ForkAtBlockHeight
+    , _ForkAtGenesis
+    , _ForkNever
     , VersionGenesis(..)
     , VersionCheats(..)
     , VersionDefaults(..)
@@ -46,7 +51,7 @@ module Chainweb.Version
     , Upgrade(..)
     , upgrade
     , versionForks
-    , versionBlockRate
+    , versionBlockDelay
     , versionCheats
     , versionDefaults
     , versionUpgrades
@@ -135,8 +140,6 @@ import Data.Word
 import GHC.Generics(Generic)
 import GHC.TypeLits
 
-import Numeric.Natural
-
 -- internal modules
 
 import Chainweb.BlockCreationTime
@@ -186,6 +189,7 @@ data Fork
     | Chainweb217Pact
     | Chainweb218Pact
     | Chainweb219Pact
+    | Chainweb220Pact
     -- always add new forks at the end, not in the middle of the constructors.
     deriving stock (Bounded, Generic, Eq, Enum, Ord, Show)
     deriving anyclass (NFData, Hashable)
@@ -215,6 +219,7 @@ instance HasTextRepresentation Fork where
     toText Chainweb217Pact = "chainweb217Pact"
     toText Chainweb218Pact = "chainweb218Pact"
     toText Chainweb219Pact = "chainweb219Pact"
+    toText Chainweb220Pact = "chainweb220Pact"
 
     fromText "slowEpoch" = return SlowEpoch
     fromText "vuln797Fix" = return Vuln797Fix
@@ -240,6 +245,7 @@ instance HasTextRepresentation Fork where
     fromText "chainweb217Pact" = return Chainweb217Pact
     fromText "chainweb218Pact" = return Chainweb218Pact
     fromText "chainweb219Pact" = return Chainweb219Pact
+    fromText "chainweb220Pact" = return Chainweb220Pact
     fromText t = throwM . TextFormatException $ "Unknown Chainweb fork: " <> t
 
 instance ToJSON Fork where
@@ -250,6 +256,12 @@ instance FromJSON Fork where
     parseJSON = parseJsonFromText "Fork"
 instance FromJSONKey Fork where
     fromJSONKey = FromJSONKeyTextParser $ either fail return . eitherFromText
+
+data ForkHeight = ForkAtBlockHeight !BlockHeight | ForkAtGenesis | ForkNever
+    deriving stock (Generic, Eq, Ord)
+    deriving anyclass (Hashable, NFData)
+
+makePrisms ''ForkHeight
 
 newtype ChainwebVersionName =
     ChainwebVersionName { getChainwebVersionName :: T.Text }
@@ -315,15 +327,15 @@ data ChainwebVersion
         -- ^ The textual name of the Version, used in almost all REST endpoints.
     , _versionGraphs :: Rule BlockHeight ChainGraph
         -- ^ The chain graphs in the history and at which block heights they apply.
-    , _versionForks :: HashMap Fork (ChainMap BlockHeight)
+    , _versionForks :: HashMap Fork (ChainMap ForkHeight)
         -- ^ The block heights on each chain to apply behavioral changes.
         -- Interpretation of these is up to the functions in
         -- `Chainweb.Version.Guards`.
     , _versionUpgrades :: ChainMap (HashMap BlockHeight Upgrade)
         -- ^ The upgrade transactions to execute on each chain at certain block
         -- heights.
-    , _versionBlockRate :: BlockRate
-        -- ^ The Proof-of-Work `BlockRate` for each `ChainwebVersion`. This is
+    , _versionBlockDelay :: BlockDelay
+        -- ^ The Proof-of-Work `BlockDelay` for each `ChainwebVersion`. This is
         -- the number of microseconds we expect to pass while a miner mines on
         -- various chains, eventually succeeding on one.
     , _versionWindow :: WindowWidth
@@ -359,7 +371,7 @@ instance Ord ChainwebVersion where
         , _versionForks v `compare` _versionForks v'
         -- upgrades cannot be ordered because Payload in Pact cannot be ordered
         -- , _versionUpgrades v `compare` _versionUpgrades v'
-        , _versionBlockRate v `compare` _versionBlockRate v'
+        , _versionBlockDelay v `compare` _versionBlockDelay v'
         , _versionWindow v `compare` _versionWindow v'
         , _versionHeaderBaseSizeBytes v `compare` _versionHeaderBaseSizeBytes v'
         , _versionMaxBlockGasLimit v `compare` _versionMaxBlockGasLimit v'
@@ -546,7 +558,7 @@ forkUpgrades v = OnChains . foldl' go (HM.empty <$ HS.toMap (chainIds v))
             | cid <- HM.keys acc
             , Just upg <- [txsPerChain ^? onChain cid]
             , not (null $ _upgradeTransactions upg) || emptyUpgradeError fork
-            , let forkHeight = v ^?! versionForks . at fork . _Just . onChain cid
+            , ForkAtBlockHeight forkHeight <- [v ^?! versionForks . at fork . _Just . onChain cid]
             , forkHeight /= maxBound
             ]
 
@@ -556,7 +568,7 @@ latestBehaviorAt :: ChainwebVersion -> BlockHeight
 latestBehaviorAt v = foldlOf' behaviorChanges max 0 v + 1
     where
     behaviorChanges = fold
-        [ versionForks . folded . folded
+        [ versionForks . folded . folded . _ForkAtBlockHeight
         , versionUpgrades . folded . ifolded . asIndex
         , versionGraphs . to ruleHead . _1 . _Just
-        ] . filtered (/= maxBound)
+        ]
