@@ -61,6 +61,7 @@ import Test.Tasty.HUnit
 
 -- internal pact modules
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.Command
 import Pact.Types.Exp
 import Pact.Types.Hash
@@ -98,7 +99,6 @@ import Chainweb.Storage.Table (casLookupM)
 
 import Data.LogMessage
 
-
 -- | Note: These tests are intermittently non-deterministic due to the way
 -- random chain sampling works with our test harnesses.
 --
@@ -121,6 +121,8 @@ testVer = noBridgeCpmTestVersion triangleChainGraph
 bridgeVer :: ChainwebVersion
 bridgeVer = fastForkingCpmTestVersion pairChainGraph
 
+-- Only use for debugging. Do not use in tests in the test suite!
+--
 logg :: LogMessage a => LogLevel -> a -> IO ()
 logg l
   | l <= Warn = T.putStrLn . logText
@@ -161,7 +163,7 @@ contTXOUTNew step = do
   checkResult c1 0 "ObjectMap"
   checkResult' c3 1 $ PactResult $ Right $ PLiteral $ LString rSuccessTXOUT
   where
-    mdata = toJSON [fst sender01] :: Value
+    mdata = toJSON [fst sender01]
 
 
 tfrTXOUTNew :: (String -> IO ()) -> Assertion
@@ -222,8 +224,6 @@ checkResult' co ci expect = case HM.lookup (unsafeChainId ci) co of
     [(_,cr)] -> assertEqual "pact results match" expect (_crResult cr)
     _ -> assertFailure $ "expected single result, got " ++ show v
 
-
-
 getCutOutputs :: TestBlockDb -> IO CutOutputs
 getCutOutputs (TestBlockDb _ pdb cmv) = do
   c <- readMVar cmv
@@ -235,7 +235,6 @@ runCut' :: ChainwebVersion -> TestBlockDb -> WebPactExecutionService -> IO CutOu
 runCut' v bdb pact = do
   runCut v bdb pact (offsetBlockTime second) zeroNoncer noMiner
   getCutOutputs bdb
-
 
 roundtrip
     :: Word32
@@ -261,10 +260,12 @@ roundtrip'
     -> CreatesGenerator
       -- ^ create tx generator
     -> (String -> IO ())
+      -- ^ logging backend
     -> IO (CutOutputs, CutOutputs)
 roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
   tg <- newMVar mempty
-  withWebPactExecutionService v defaultPactServiceConfig bdb (chainToMPA' tg) freeGasModel $ \(pact,_) -> do
+  let logger = hunitDummyLogger step
+  withWebPactExecutionService logger v testPactServiceConfig bdb (chainToMPA' tg) freeGasModel $ \(pact,_) -> do
 
     sid <- mkChainId v maxBound sid0
     tid <- mkChainId v maxBound tid0
@@ -278,7 +279,8 @@ roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
 
     -- cut 1: burn
     step "cut 1: burn"
-    (BlockCreationTime t1) <- _blockCreationTime <$> getParentTestBlockDb bdb sid
+    -- Creating the parent took at least 1 second. So 1s is fine as creation time
+    let t1 = add second epoch
     txGen1 <- burn t1 pidv sid tid
     void $ swapMVar tg txGen1
     co1 <- runCut' v bdb pact
@@ -405,7 +407,7 @@ burnGen time pidv sid tid = do
             "keys-all"
 
       in object
-         [ "sender01-keyset" .= ks
+         [ "sender01-keyset" .= J.toJsonViaEncode ks
          , "target-chain-id" .= chainIdToText tid
          ]
 
@@ -432,6 +434,7 @@ transferGen time pidv sid _tid = do
                        ,mkGasCap]] $
                   set cbCreationTime (toTxCreationTime time) $
                   set cbChainId sid $
+                  -- FIXME what about the network id? It is Nothing
                   mkCmd "0" $
                   mkExec' tx1Code
                 writeIORef ref0 True
@@ -476,7 +479,9 @@ createVerify bridge code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe =
             True -> return mempty
             False -> do
                 pf <- createTransactionOutputProof_ wdb pdb tid sid bhe 0
-                let q | bridge = object [("proof",String $ encodeB64UrlNoPaddingText $ encodeToByteString pf)]
+                let q | bridge = object
+                        [ ("proof", String $ encodeB64UrlNoPaddingText $ encodeToByteString pf)
+                        ]
                       | otherwise = toJSON pf
                 cmd <- buildCwCmd $
                   set cbSigners [mkSigner' sender00 []] $

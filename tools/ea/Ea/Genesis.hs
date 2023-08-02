@@ -1,11 +1,15 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Ea.Genesis
 ( -- * Genesis tx data
   Genesis(..)
-, ChainIdRange(..)
+, ChainIdRange
+, pattern ChainIdRange
+, mkChainIdRange
+, onlyChainId
 , chainIdRangeTag
 
   -- * Devnet Genesis Txs
@@ -51,6 +55,7 @@ module Ea.Genesis
 
 
 import Control.Lens
+import Control.Monad
 
 import Data.Text
 import Data.Word
@@ -69,28 +74,25 @@ import Chainweb.Version.Testnet
 
 -- A range of chain IDs [l,r]
 data ChainIdRange
-    = ChainIdRange !Word32 !Word32
+    = UnsafeChainIdRange !Word32 !Word32
     deriving (Eq, Ord)
+
+{-# COMPLETE ChainIdRange #-}
+pattern ChainIdRange :: Word32 -> Word32 -> ChainIdRange
+pattern ChainIdRange l r <- UnsafeChainIdRange l r
+
+mkChainIdRange :: Word32 -> Word32 -> ChainIdRange
+mkChainIdRange l u
+  | l <= u = UnsafeChainIdRange l u
+  | otherwise = error "mkChainIdRange: chain IDs are not in order"
+
+onlyChainId :: Word32 -> ChainIdRange
+onlyChainId = join mkChainIdRange
 
 chainIdRangeTag :: ChainIdRange -> String
 chainIdRangeTag (ChainIdRange l u)
     | l == u = show l
     | otherwise = show l <> "to" <> show u
-
--- instance Show GChainId where
---   show = \case
---     Zero -> "0"
---     One -> "1"
---     Two -> "2"
---     Three -> "3"
---     Four -> "4"
---     Five -> "5"
---     Six -> "6"
---     Seven -> "7"
---     Eight -> "8"
---     Nine -> "9"
---     N -> "N"
---     KAD -> "KAD"
 
 -- | Genesis transaction record
 --
@@ -110,7 +112,7 @@ data Genesis = Genesis
     , _namespaces :: Maybe FilePath
       -- ^ filepath to namespace yaml
     , _coinContract :: [FilePath]
-    } deriving (Eq, Ord) -- Show)
+    } deriving (Eq, Ord)
 
 makeLensesFor [("_" <> fn, fn) | fn <- ["txChainIds", "coinbase", "keysets", "allocations", "namespaces", "coinContract"]] ''Genesis
 
@@ -157,7 +159,7 @@ development0 :: Genesis
 development0 = Genesis
     { _version = Development
     , _tag = "Development"
-    , _txChainIds = ChainIdRange 0 0
+    , _txChainIds = onlyChainId 0
     , _coinbase = Just dev0Grants
     , _keysets = Just devKeysets
     , _allocations = Just devAllocations
@@ -167,12 +169,12 @@ development0 = Genesis
 
 developmentN :: Genesis
 developmentN = development0
-    & txChainIds .~ ChainIdRange 1 9
+    & txChainIds .~ mkChainIdRange 1 9
     & coinbase .~ Just devNGrants
 
 developmentKAD :: Genesis
 developmentKAD = development0
-    & txChainIds .~ ChainIdRange 10 19
+    & txChainIds .~ mkChainIdRange 10 19
     & coinbase .~ Just devnetKadOps
     & keysets .~ Nothing
     & allocations .~ Nothing
@@ -183,7 +185,7 @@ fastDevelopment0 :: Genesis
 fastDevelopment0 = Genesis
     { _version = FastDevelopment
     , _tag = "FastDevelopment"
-    , _txChainIds = ChainIdRange 0 0
+    , _txChainIds = onlyChainId 0
     , _coinbase = Just dev0Grants
     , _keysets = Just devKeysets
     , _allocations = Just devAllocations
@@ -193,7 +195,7 @@ fastDevelopment0 = Genesis
 
 fastDevelopmentN :: Genesis
 fastDevelopmentN = fastDevelopment0
-    & txChainIds .~ ChainIdRange 1 19
+    & txChainIds .~ mkChainIdRange 1 19
     & coinbase .~ (Just devNGrants)
 
 devNs2 :: FilePath
@@ -224,7 +226,7 @@ fastTimedCPM0 :: Genesis
 fastTimedCPM0 = Genesis
     { _version = fastForkingCpmTestVersion petersonChainGraph
     , _tag = "FastTimedCPM"
-    , _txChainIds = ChainIdRange 0 0
+    , _txChainIds = onlyChainId 0
     , _coinbase = Just fast0Grants
     , _keysets = Just fastKeysets
     , _allocations = Just fastAllocations
@@ -234,7 +236,7 @@ fastTimedCPM0 = Genesis
 
 fastTimedCPMN :: Genesis
 fastTimedCPMN = fastTimedCPM0
-    & txChainIds .~ ChainIdRange 1 9
+    & txChainIds .~ mkChainIdRange 1 9
     & coinbase .~ (Just fastNGrants)
 
 fastNs :: FilePath
@@ -259,7 +261,7 @@ testnet0 :: Genesis
 testnet0 = Genesis
     { _version = Testnet04
     , _tag = "Testnet"
-    , _txChainIds = ChainIdRange 0 0
+    , _txChainIds = onlyChainId 0
     , _coinbase = Just test0Grants
     , _keysets = Just testnetKeysets
     , _allocations = Just testnetAllocations
@@ -269,7 +271,7 @@ testnet0 = Genesis
 
 testnetN :: Genesis
 testnetN = testnet0
-    & txChainIds .~ ChainIdRange 1 19
+    & txChainIds .~ mkChainIdRange 1 19
     & coinbase .~ (Just testNGrants)
 
 test0Grants :: FilePath
@@ -294,7 +296,7 @@ mainnet0 :: Genesis
 mainnet0 = Genesis
     { _version = Mainnet01
     , _tag = "Mainnet"
-    , _txChainIds = ChainIdRange 0 0
+    , _txChainIds = onlyChainId 0
     , _coinbase = Nothing
     , _keysets = Just mainnetKeysets
     , _allocations = Just mainnetAllocations0
@@ -304,54 +306,54 @@ mainnet0 = Genesis
 
 mainnet1 :: Genesis
 mainnet1 = mainnet0
-    & txChainIds .~ ChainIdRange 1 1
+    & txChainIds .~ onlyChainId 1
     & allocations .~ (Just mainnetAllocations1)
 
 mainnet2 :: Genesis
 mainnet2 = mainnet0
-    & txChainIds .~ ChainIdRange 2 2
+    & txChainIds .~ onlyChainId 2
     & allocations .~ (Just mainnetAllocations2)
 
 mainnet3 :: Genesis
 mainnet3 = mainnet0
-    & txChainIds .~ ChainIdRange 3 3
+    & txChainIds .~ onlyChainId 3
     & allocations .~ (Just mainnetAllocations3)
 
 mainnet4 :: Genesis
 mainnet4 = mainnet0
-    & txChainIds .~ ChainIdRange 4 4
+    & txChainIds .~ onlyChainId 4
     & allocations .~ (Just mainnetAllocations4)
 
 mainnet5 :: Genesis
 mainnet5 = mainnet0
-    & txChainIds .~ ChainIdRange 5 5
+    & txChainIds .~ onlyChainId 5
     & allocations .~ (Just mainnetAllocations5)
 
 mainnet6 :: Genesis
 mainnet6 = mainnet0
-    & txChainIds .~ ChainIdRange 6 6
+    & txChainIds .~ onlyChainId 6
     & allocations .~ (Just mainnetAllocations6)
 
 mainnet7 :: Genesis
 mainnet7 = mainnet0
-    & txChainIds .~ ChainIdRange 7 7
+    & txChainIds .~ onlyChainId 7
     & allocations .~ (Just mainnetAllocations7)
 
 mainnet8 :: Genesis
 mainnet8 = mainnet0
-    & txChainIds .~ ChainIdRange 8 8
+    & txChainIds .~ onlyChainId 8
     & allocations .~ (Just mainnetAllocations8)
 
 mainnet9 :: Genesis
 mainnet9 = mainnet0
-    & txChainIds .~ ChainIdRange 9 9
+    & txChainIds .~ onlyChainId 9
     & allocations .~ (Just mainnetAllocations9)
 
 mainnetKAD :: Genesis
 mainnetKAD = Genesis
     { _version = Mainnet01
     , _tag = "Mainnet"
-    , _txChainIds = ChainIdRange 10 19
+    , _txChainIds = mkChainIdRange 10 19
     , _coinbase = Just mainnetKadOps
     , _keysets = Nothing
     , _allocations = Nothing

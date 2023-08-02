@@ -29,7 +29,7 @@ import qualified Chainweb.Pact.Transactions.CoinV5Transactions as CoinV5
 import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
 
 to20ChainsDevelopment :: BlockHeight
-to20ChainsDevelopment = 12
+to20ChainsDevelopment = 60
 
 pattern Development :: ChainwebVersion
 pattern Development <- ((== devnet) -> True) where
@@ -41,29 +41,31 @@ devnet = ChainwebVersion
     , _versionName = ChainwebVersionName "development"
 
     , _versionForks = tabulateHashMap $ \case
-            SlowEpoch -> AllChains $ ForkAtBlockHeight 0
-            Vuln797Fix -> AllChains $ ForkAtBlockHeight 0
-            CoinV2 -> AllChains $ ForkAtBlockHeight 1
-            PactBackCompat_v16 -> AllChains $ ForkAtBlockHeight 0
-            ModuleNameFix -> AllChains $ ForkAtBlockHeight 0
-            SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight 0
-            OldTargetGuard -> AllChains $ ForkAtBlockHeight 0
-            SkipFeatureFlagValidation -> AllChains $ ForkAtBlockHeight 0
-            ModuleNameFix2 -> AllChains $ ForkAtBlockHeight 0
-            OldDAGuard -> AllChains $ ForkAtBlockHeight 1
-            PactEvents -> AllChains $ ForkAtBlockHeight 1
-            SPVBridge -> AllChains $ ForkAtBlockHeight 1
-            Pact4Coin3 -> AllChains $ ForkAtBlockHeight 14
-            EnforceKeysetFormats -> AllChains $ ForkAtBlockHeight 1
-            Pact420 -> AllChains $ ForkAtBlockHeight 1
-            CheckTxHash -> AllChains $ ForkAtBlockHeight 1
-            Chainweb213Pact -> AllChains $ ForkAtBlockHeight 15
-            Chainweb214Pact -> AllChains $ ForkAtBlockHeight 15
-            Chainweb215Pact -> AllChains $ ForkAtBlockHeight 16
-            Pact44NewTrans -> AllChains $ ForkAtBlockHeight 1
-            Chainweb216Pact -> AllChains $ ForkAtBlockHeight 17
-            Chainweb217Pact -> AllChains $ ForkAtBlockHeight 17
-            Chainweb218Pact -> AllChains $ ForkAtBlockHeight 17
+            SlowEpoch -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
+            Vuln797Fix -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
+            CoinV2 -> onChains $ [(unsafeChainId 0, ForkAtBlockHeight $ BlockHeight 3)] <> [(unsafeChainId i, ForkAtBlockHeight $ BlockHeight 4) | i <- [1..19]]
+            PactBackCompat_v16 -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
+            SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
+            OldTargetGuard -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
+            SkipFeatureFlagValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
+            ModuleNameFix -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
+            ModuleNameFix2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
+            OldDAGuard -> AllChains $ ForkAtBlockHeight $ BlockHeight 13
+            PactEvents -> AllChains $ ForkAtBlockHeight $ BlockHeight 40
+            SPVBridge -> AllChains $ ForkAtBlockHeight $ BlockHeight 50
+            Pact4Coin3 -> AllChains $ ForkAtBlockHeight $ BlockHeight 80
+            EnforceKeysetFormats -> AllChains $ ForkAtBlockHeight $ BlockHeight 100
+            Pact420 -> AllChains $ ForkAtBlockHeight $ BlockHeight 90
+            CheckTxHash -> AllChains $ ForkAtBlockHeight $ BlockHeight 110
+            Chainweb213Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 95
+            Chainweb214Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 115
+            Chainweb215Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 165
+            Pact44NewTrans -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
+            Chainweb216Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 215
+            Chainweb217Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 470
+            Chainweb218Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 500
+            Chainweb219Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 550
+            Chainweb220Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 560
 
     , _versionUpgrades = foldr (chainZip HM.union) (AllChains mempty)
         [ forkUpgrades devnet
@@ -79,7 +81,7 @@ devnet = ChainwebVersion
         (to20ChainsDevelopment, twentyChainGraph) `Above`
         End petersonChainGraph
 
-    , _versionBlockRate = BlockRate 30_000_000
+    , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionBootstraps = []

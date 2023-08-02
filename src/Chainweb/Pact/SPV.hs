@@ -30,7 +30,10 @@ import GHC.Stack
 
 import Control.Error
 import Control.Lens hiding (index)
+import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.Except
+import Control.Monad.Trans.Except
 
 import Data.Aeson hiding (Object, (.=))
 import Data.Bifunctor
@@ -53,11 +56,10 @@ import qualified Streaming.Prelude as S
 
 -- internal chainweb modules
 
-import Chainweb.BlockHash as CW
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Service.Types(internalError)
 import Chainweb.Pact.Utils (aeson)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -72,12 +74,26 @@ import Chainweb.Storage.Table
 
 -- internal pact modules
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.PactValue
 import Pact.Types.Runtime
 import Pact.Types.SPV
 
+catchAndDisplaySPVError :: BlockHeader -> ExceptT Text IO a -> ExceptT Text IO a
+catchAndDisplaySPVError bh =
+  if CW.chainweb219Pact (CW._chainwebVersion bh) (_blockChainId bh) (_blockHeight bh)
+  then flip catch $ \case
+    SpvExceptionVerificationFailed m -> throwError ("spv verification failed: " <> m)
+    spvErr -> throwM spvErr
+  else id
+
+forkedThrower :: BlockHeader -> Text -> ExceptT Text IO a
+forkedThrower bh =
+  if CW.chainweb219Pact (CW._chainwebVersion bh) (_blockChainId bh) (_blockHeight bh)
+  then throwError
+  else internalError
 
 -- | Spv support for pact
 --
@@ -87,7 +103,7 @@ pactSPV
     -> BlockHeader
       -- ^ the context for verifying the proof
     -> SPVSupport
-pactSPV bdb bh = SPVSupport (verifySPV bdb bh) (verifyCont bdb (_blockHash bh))
+pactSPV bdb bh = SPVSupport (verifySPV bdb bh) (verifyCont bdb bh)
 
 -- | SPV transaction verification support. Calls to 'verify-spv' in Pact
 -- will thread through this function and verify an SPV receipt, making the
@@ -104,59 +120,54 @@ verifySPV
     -> Object Name
       -- ^ the proof object to validate
     -> IO (Either Text (Object Name))
-verifySPV bdb bh typ proof = go typ proof
+verifySPV bdb bh typ proof = runExceptT $ go typ proof
   where
     cid = CW._chainId bdb
     enableBridge = CW.enableSPVBridge (CW._chainwebVersion bh) cid (_blockHeight bh)
 
     mkSPVResult' cr j
         | enableBridge =
-          return $ Right $ mkSPVResult cr j
+          return $ mkSPVResult cr j
         | otherwise = case fromPactValue j of
-            TObject o _ -> return $ Right $ o
-            _ -> return $ Left "spv-verified tx output has invalid type"
+            TObject o _ -> return o
+            _ -> throwError "spv-verified tx output has invalid type"
 
     go s o = case s of
 
       -- Ethereum Receipt Proof
-      "ETH" | enableBridge -> case extractEthProof o of
-        Left e -> return (Left e)
-        Right parsedProof -> case validateReceiptProof parsedProof of
-          Left e -> return $ Left $ "Validation of of Eth proof failed: " <> sshow e
-          Right result -> return $ Right $ ethResultToPactValue result
+      "ETH" | enableBridge -> except (extractEthProof o) >>=
+        \parsedProof -> case validateReceiptProof parsedProof of
+          Left e -> throwError $ "Validation of Eth proof failed: " <> sshow e
+          Right result -> return $ ethResultToPactValue result
 
       -- Chainweb tx output proof
-      "TXOUT" -> case extractProof enableBridge o of
-        Left t -> return (Left t)
-        Right u
-          | ProofTargetChain tcid <- view outputProofTarget u, tcid /= cid ->
-            internalError "cannot redeem spv proof on wrong target chain"
-          -- NOT allowed to use ProofTargetCrossNetwork yet
-          | ProofTargetCrossNetwork _ <- view outputProofTarget u ->
-            internalError "cannot use verify-spv with a cross-network proof"
-          | otherwise -> do
+      "TXOUT" -> do
+        u <- except $ extractProof enableBridge o
+        unless (view outputProofChainId u == cid) $
+          forkedThrower bh "cannot redeem spv proof on wrong target chain"
 
-            -- SPV proof verification is a 3 step process:
-            --
-            --  1. verify spv tx output proof via chainweb spv api
-            --
-            --  2. Decode tx outputs to 'HashCommandResult'
-            --
-            --  3. Extract tx outputs as a pact object and return the
-            --  object.
+        -- SPV proof verification is a 3 step process:
+        --
+        --  1. verify spv tx output proof via chainweb spv api
+        --
+        --  2. Decode tx outputs to 'HashCommandResult'
+        --
+        --  3. Extract tx outputs as a pact object and return the
+        --  object.
 
-            TransactionOutput p <- verifyTransactionOutputProofAt_ bdb u (_blockHash bh)
+        TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u (_blockHash bh)
 
-            q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
-              Nothing -> internalError "unable to decode spv transaction output"
-              Just cr -> return cr
+        q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
+          Nothing -> forkedThrower bh "unable to decode spv transaction output"
+          Just cr -> return cr
 
-            case _crResult q of
-              PactResult Left{} ->
-                return (Left "Failed command result in tx output proof")
-              PactResult (Right v) -> mkSPVResult' q v
+        case _crResult q of
+          PactResult Left{} ->
+            throwError "Failed command result in tx output proof"
+          PactResult (Right v) ->
+            mkSPVResult' q v
 
-      t -> return . Left $! "unsupported SPV types: " <> t
+      t -> throwError $! "unsupported SPV types: " <> t
 
 
 
@@ -166,18 +177,18 @@ verifySPV bdb bh typ proof = go typ proof
 verifyCont
     :: BlockHeaderDb
       -- ^ handle into the cut db
-    -> CW.BlockHash
+    -> BlockHeader
         -- ^ the context for verifying the proof
     -> ContProof
       -- ^ bytestring of 'TransactionOutputP roof' object to validate
     -> IO (Either Text PactExec)
-verifyCont bdb bh (ContProof cp) = do
-    t <- decodeB64UrlNoPaddingText $ T.decodeUtf8 cp
+verifyCont bdb bh (ContProof cp) = runExceptT $ do
+    t <- liftIO $ decodeB64UrlNoPaddingText $ T.decodeUtf8 cp
     case decodeStrict' t of
-      Nothing -> internalError "unable to decode continuation proof"
+      Nothing -> forkedThrower bh "unable to decode continuation proof"
       Just u
-        | ProofTargetChain tcid <- view outputProofTarget u, tcid /= cid ->
-          internalError "cannot redeem continuation proof on wrong target chain"
+        | view outputProofChainId u /= cid ->
+          forkedThrower bh "cannot redeem continuation proof on wrong target chain"
         | otherwise -> do
 
           -- Cont proof verification is a 3 step process:
@@ -189,15 +200,15 @@ verifyCont bdb bh (ContProof cp) = do
           --  3. Extract continuation 'PactExec' from decoded result
           --  and return the cont exec object
 
-          TransactionOutput p <- verifyTransactionOutputProofAt_ bdb u bh
+          TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u (_blockHash bh)
 
           q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
-            Nothing -> internalError "unable to decode spv transaction output"
+            Nothing -> forkedThrower bh "unable to decode spv transaction output"
             Just cr -> return cr
 
           case _crContinuation q of
-            Nothing -> return (Left "no pact exec found in command result")
-            Just pe -> return (Right pe)
+            Nothing -> throwError "no pact exec found in command result"
+            Just pe -> return pe
   where
     cid = CW._chainId bdb
 
@@ -208,7 +219,7 @@ extractProof False o = toPactValue (TObject o def) >>= k
   where
     k = aeson (Left . pack) Right
       . fromJSON
-      . toJSON
+      . J.toJsonViaEncode
 extractProof True (Object (ObjectMap o) _ _ _) = case M.lookup "proof" o of
   Just (TLitString proof) -> do
     j <- first (const "Base64 decode failed") (decodeB64UrlNoPaddingText proof)
@@ -352,7 +363,7 @@ mkSPVResult CommandResult{..} j =
     , ("txid", tStr $ maybe "" asString _crTxId)
     , ("gas", toTerm $ (fromIntegral _crGas :: Integer))
     , ("meta", maybe empty metaField _crMetaData)
-    , ("logs", tStr $ asString $ _crLogs)
+    , ("logs", tStr $ asString _crLogs)
     , ("continuation", maybe empty contField _crContinuation)
     , ("events", toTList TyAny def $ map eventField _crEvents)
     ]

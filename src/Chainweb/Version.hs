@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -50,7 +51,7 @@ module Chainweb.Version
     , Upgrade(..)
     , upgrade
     , versionForks
-    , versionBlockRate
+    , versionBlockDelay
     , versionCheats
     , versionDefaults
     , versionUpgrades
@@ -139,8 +140,6 @@ import Data.Word
 import GHC.Generics(Generic)
 import GHC.TypeLits
 
-import Numeric.Natural
-
 -- internal modules
 
 import Chainweb.BlockCreationTime
@@ -189,6 +188,8 @@ data Fork
     | Chainweb216Pact
     | Chainweb217Pact
     | Chainweb218Pact
+    | Chainweb219Pact
+    | Chainweb220Pact
     -- always add new forks at the end, not in the middle of the constructors.
     deriving stock (Bounded, Generic, Eq, Enum, Ord, Show)
     deriving anyclass (NFData, Hashable)
@@ -217,6 +218,8 @@ instance HasTextRepresentation Fork where
     toText Chainweb216Pact = "chainweb216Pact"
     toText Chainweb217Pact = "chainweb217Pact"
     toText Chainweb218Pact = "chainweb218Pact"
+    toText Chainweb219Pact = "chainweb219Pact"
+    toText Chainweb220Pact = "chainweb220Pact"
 
     fromText "slowEpoch" = return SlowEpoch
     fromText "vuln797Fix" = return Vuln797Fix
@@ -241,6 +244,8 @@ instance HasTextRepresentation Fork where
     fromText "chainweb216Pact" = return Chainweb216Pact
     fromText "chainweb217Pact" = return Chainweb217Pact
     fromText "chainweb218Pact" = return Chainweb218Pact
+    fromText "chainweb219Pact" = return Chainweb219Pact
+    fromText "chainweb220Pact" = return Chainweb220Pact
     fromText t = throwM . TextFormatException $ "Unknown Chainweb fork: " <> t
 
 instance ToJSON Fork where
@@ -329,8 +334,8 @@ data ChainwebVersion
     , _versionUpgrades :: ChainMap (HashMap BlockHeight Upgrade)
         -- ^ The upgrade transactions to execute on each chain at certain block
         -- heights.
-    , _versionBlockRate :: BlockRate
-        -- ^ The Proof-of-Work `BlockRate` for each `ChainwebVersion`. This is
+    , _versionBlockDelay :: BlockDelay
+        -- ^ The Proof-of-Work `BlockDelay` for each `ChainwebVersion`. This is
         -- the number of microseconds we expect to pass while a miner mines on
         -- various chains, eventually succeeding on one.
     , _versionWindow :: WindowWidth
@@ -366,7 +371,7 @@ instance Ord ChainwebVersion where
         , _versionForks v `compare` _versionForks v'
         -- upgrades cannot be ordered because Payload in Pact cannot be ordered
         -- , _versionUpgrades v `compare` _versionUpgrades v'
-        , _versionBlockRate v `compare` _versionBlockRate v'
+        , _versionBlockDelay v `compare` _versionBlockDelay v'
         , _versionWindow v `compare` _versionWindow v'
         , _versionHeaderBaseSizeBytes v `compare` _versionHeaderBaseSizeBytes v'
         , _versionMaxBlockGasLimit v `compare` _versionMaxBlockGasLimit v'

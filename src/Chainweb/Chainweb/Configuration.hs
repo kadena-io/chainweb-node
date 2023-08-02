@@ -96,6 +96,8 @@ import Network.Wai.Handler.Warp hiding (Port)
 
 import Numeric.Natural (Natural)
 
+import qualified Pact.JSON.Encode as J
+
 import Prelude hiding (log)
 
 import System.Directory
@@ -108,7 +110,8 @@ import Chainweb.HostAddress
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit)
+import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultLocalRewindDepthLimit, defaultPreInsertCheckTimeout)
+import Chainweb.Pact.Service.Types (RewindLimit(..))
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
 import Chainweb.Version
@@ -116,6 +119,7 @@ import Chainweb.Version.Development
 import Chainweb.Version.FastDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Registry
+import Chainweb.Time
 
 import P2P.Node.Configuration
 import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
@@ -264,6 +268,9 @@ data ServiceApiConfig = ServiceApiConfig
     , _serviceApiConfigInterface :: !HostPreference
         -- ^ The network interface that the service APIs are bound to. Default is to
         -- bind to all available interfaces ('*').
+    , _serviceApiConfigValidateSpec :: !Bool
+        -- ^ Validate requests and responses against the latest OpenAPI specification.
+        -- Disabled by default for performance reasons
 
     , _serviceApiPayloadBatchLimit :: PayloadBatchLimit
         -- ^ maximum size for payload batches on the service API. Default is
@@ -277,6 +284,7 @@ defaultServiceApiConfig :: ServiceApiConfig
 defaultServiceApiConfig = ServiceApiConfig
     { _serviceApiConfigPort = 1848
     , _serviceApiConfigInterface = "*"
+    , _serviceApiConfigValidateSpec = False
     , _serviceApiPayloadBatchLimit = defaultServicePayloadBatchLimit
     }
 
@@ -284,6 +292,7 @@ instance ToJSON ServiceApiConfig where
     toJSON o = object
         [ "port" .= _serviceApiConfigPort o
         , "interface" .= hostPreferenceToText (_serviceApiConfigInterface o)
+        , "validateSpec" .= _serviceApiConfigValidateSpec o
         , "payloadBatchLimit" .= _serviceApiPayloadBatchLimit o
         ]
 
@@ -291,6 +300,7 @@ instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
     parseJSON = withObject "ServiceApiConfig" $ \o -> id
         <$< serviceApiConfigPort ..: "port" % o
         <*< setProperty serviceApiConfigInterface "interface" (parseJsonFromText "interface") o
+        <*< serviceApiConfigValidateSpec ..: "validateSpec" % o
         <*< serviceApiPayloadBatchLimit ..: "payloadBatchLimit" % o
 
 pServiceApiConfig :: MParser ServiceApiConfig
@@ -303,6 +313,9 @@ pServiceApiConfig = id
     <*< serviceApiPayloadBatchLimit .:: fmap PayloadBatchLimit . option auto
         % prefixLong service "payload-batch-limit"
         <> suffixHelp service "upper limit for the size of payload batches on the service API"
+    <*< serviceApiConfigValidateSpec .:: enableDisableFlag
+        % prefixLong service "validate-spec"
+        <> internal -- hidden option, for expert use
   where
     service = Just "service"
 
@@ -377,9 +390,9 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configLogGas :: !Bool
     , _configMinGasPrice :: !Mempool.GasPrice
     , _configPactQueueSize :: !Natural
-    , _configReorgLimit :: !Natural
-    , _configValidateHashesOnReplay :: !Bool
-        -- ^ Re-validate payload hashes during replay.
+    , _configReorgLimit :: !RewindLimit
+    , _configLocalRewindDepthLimit :: !RewindLimit
+    , _configPreInsertCheckTimeout :: !Micros
     , _configAllowReadsInLocal :: !Bool
     , _configRosetta :: !Bool
     , _configBackup :: !BackupConfig
@@ -408,12 +421,14 @@ validateChainwebConfiguration c = do
     validateChainwebVersion (_configChainwebVersion c)
 
 validateChainwebVersion :: ConfigValidation ChainwebVersion []
-validateChainwebVersion v = unless (_versionCode v `elem` map _versionCode [devnet, fastDevnet]) $
+validateChainwebVersion v = unless (isDevelopment || elem v knownVersions) $
     throwError $ T.unwords
         [ "Specifying version properties is only legal with chainweb-version"
-        , "set to development, but version is set to"
+        , "set to development or fast-development, but version is set to"
         , sshow (_versionName v)
         ]
+    where
+    isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [devnet, fastDevnet]]
 
 validateBackupConfig :: ConfigValidation BackupConfig []
 validateBackupConfig c =
@@ -437,8 +452,9 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configLogGas = False
     , _configMinGasPrice = 1e-8
     , _configPactQueueSize = 2000
-    , _configReorgLimit = int defaultReorgLimit
-    , _configValidateHashesOnReplay = False
+    , _configReorgLimit = defaultReorgLimit
+    , _configLocalRewindDepthLimit = defaultLocalRewindDepthLimit
+    , _configPreInsertCheckTimeout = defaultPreInsertCheckTimeout
     , _configAllowReadsInLocal = False
     , _configRosetta = False
     , _configServiceApi = defaultServiceApiConfig
@@ -458,12 +474,13 @@ instance ToJSON ChainwebConfiguration where
         , "p2p" .= _configP2p o
         , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
-        , "gasLimitOfBlock" .= _configBlockGasLimit o
+        , "gasLimitOfBlock" .= J.toJsonViaEncode (_configBlockGasLimit o)
         , "logGas" .= _configLogGas o
-        , "minGasPrice" .= _configMinGasPrice o
+        , "minGasPrice" .= J.toJsonViaEncode (_configMinGasPrice o)
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
-        , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
+        , "localRewindDepthLimit" .= _configLocalRewindDepthLimit o
+        , "preInsertCheckTimeout" .= _configPreInsertCheckTimeout o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
         , "rosetta" .= _configRosetta o
         , "serviceApi" .= _configServiceApi o
@@ -477,30 +494,29 @@ instance FromJSON ChainwebConfiguration where
     parseJSON = fmap ($ defaultChainwebConfiguration Mainnet01) . parseJSON
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
-    parseJSON = withObject "ChainwebConfiguration" $ \o -> do
-        id
-            <$< setProperty configChainwebVersion "chainwebVersion"
-                (findKnownVersion <=< parseJSON) o
-            <*< configCuts %.: "cuts" % o
-            <*< configMining %.: "mining" % o
-            <*< configHeaderStream ..: "headerStream" % o
-            <*< configReintroTxs ..: "reintroTxs" % o
-            <*< configP2p %.: "p2p" % o
-            <*< configThrottling %.: "throttling" % o
-            <*< configMempoolP2p %.: "mempoolP2p" % o
-            <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
-            <*< configLogGas ..: "logGas" % o
-            <*< configMinGasPrice ..: "minGasPrice" % o
-            <*< configPactQueueSize ..: "pactQueueSize" % o
-            <*< configReorgLimit ..: "reorgLimit" % o
-            <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
-            <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
-            <*< configRosetta ..: "rosetta" % o
-            <*< configServiceApi %.: "serviceApi" % o
-            <*< configOnlySyncPact ..: "onlySyncPact" % o
-            <*< configSyncPactChains ..: "syncPactChains" % o
-            <*< configBackup %.: "backup" % o
-            <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
+    parseJSON = withObject "ChainwebConfiguration" $ \o -> id
+        <$< setProperty configChainwebVersion "chainwebVersion"
+            (findKnownVersion <=< parseJSON) o
+        <*< configCuts %.: "cuts" % o
+        <*< configMining %.: "mining" % o
+        <*< configHeaderStream ..: "headerStream" % o
+        <*< configReintroTxs ..: "reintroTxs" % o
+        <*< configP2p %.: "p2p" % o
+        <*< configThrottling %.: "throttling" % o
+        <*< configMempoolP2p %.: "mempoolP2p" % o
+        <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
+        <*< configLogGas ..: "logGas" % o
+        <*< configMinGasPrice ..: "minGasPrice" % o
+        <*< configPactQueueSize ..: "pactQueueSize" % o
+        <*< configReorgLimit ..: "reorgLimit" % o
+        <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
+        <*< configPreInsertCheckTimeout ..: "preInsertCheckTimeout" % o
+        <*< configRosetta ..: "rosetta" % o
+        <*< configServiceApi %.: "serviceApi" % o
+        <*< configOnlySyncPact ..: "onlySyncPact" % o
+        <*< configSyncPactChains ..: "syncPactChains" % o
+        <*< configBackup %.: "backup" % o
+        <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -531,9 +547,12 @@ pChainwebConfiguration = id
         <> help "Max allowed reorg depth.\
                 \ Consult https://github.com/kadena-io/chainweb-node/blob/master/docs/RecoveringFromDeepForks.md for\
                 \ more information. "
-    <*< configValidateHashesOnReplay .:: boolOption_
-        % long "validateHashesOnReplay"
-        <> help "Re-validate payload hashes during transaction replay."
+    <*< configLocalRewindDepthLimit .:: jsonOption
+        % long "local-rewind-depth-limit"
+        <> help "Max allowed rewind depth for the local command."
+    <*< configPreInsertCheckTimeout .:: jsonOption
+        % long "pre-insert-check-timeout"
+        <> help "Max allowed time in microseconds for the transactions validation in the PreInsertCheck command."
     <*< configAllowReadsInLocal .:: boolOption_
         % long "allowReadsInLocal"
         <> help "Enable direct database reads of smart contract tables in local queries."
@@ -566,18 +585,18 @@ parseVersion = constructVersion
             <> help "the chainweb version that this node is using"
         )
     <*> optional (textOption @Fork (long "fork-upper-bound" <> help "(development mode only) the latest fork the node will enable"))
-    <*> optional (BlockRate <$> textOption (long "block-rate" <> help "(development mode only) the block rate in seconds per block"))
+    <*> optional (BlockDelay <$> textOption (long "block-delay" <> help "(development mode only) the block delay in seconds per block"))
     <*> switch (long "disable-pow" <> help "(development mode only) disable proof of work check")
     where
-    constructVersion cliVersion fub br disablePow' oldVersion = winningVersion
-        & versionBlockRate .~ fromMaybe (_versionBlockRate winningVersion) br
+    constructVersion cliVersion fub bd disablePow' oldVersion = winningVersion
+        & versionBlockDelay .~ fromMaybe (_versionBlockDelay winningVersion) bd
         & versionForks %~ HM.filterWithKey (\fork _ -> fork <= fromMaybe maxBound fub)
         & versionUpgrades .~
             maybe (_versionUpgrades winningVersion) (\fub' ->
                 OnChains $ HM.mapWithKey
                     (\cid _ ->
                         case winningVersion ^?! versionForks . at fub' . _Just . onChain cid of
-                            ForkNever -> error "the fork upper bound never occurs"
+                            ForkNever -> error "Chainweb.Chainweb.Configuration.parseVersion: the fork upper bound never occurs in this version."
                             ForkAtBlockHeight fubHeight -> HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionUpgrades . onChain cid)
                             ForkAtGenesis -> winningVersion ^?! versionUpgrades . onChain cid
                     )

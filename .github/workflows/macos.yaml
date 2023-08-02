@@ -12,8 +12,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ["8.10.7", "9.0"]
-        cabal: ["3.6"]
+        ghc: ["9.6.1"]
+        cabal: ["3.10"]
         os: ["macOS-latest"]
         cabalcache: ["true"]
 
@@ -82,7 +82,7 @@ jobs:
         cabal freeze
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
-      uses: larskuhtz/cabal-cache-action@ecc751af6d31b3ed5a3b4aefdefd0ed6ef4cb414
+      uses: larskuhtz/cabal-cache-action@018b7ae0c480ba3dc4fa0cfa3a0bc1f05b7724b3
       with:
         bucket: "kadena-cabal-cache"
         region: "us-east-1"

@@ -35,7 +35,8 @@ import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
-import Control.Lens (set, view, preview, (^?!), _head)
+import Control.Lens (set, view, preview)
+import Control.Monad ((<$!>), forM, mzero, when, void)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -45,6 +46,7 @@ import Control.Monad.Trans.Maybe
 import Data.Aeson as Aeson
 import Data.Bifunctor (second)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
 import Data.Default (def)
@@ -119,6 +121,7 @@ import Chainweb.WebPactExecutionService
 
 import Chainweb.Storage.Table
 
+import qualified Pact.JSON.Encode as J
 import qualified Pact.Parse as Pact
 import Pact.Types.API
 import qualified Pact.Types.ChainId as Pact
@@ -207,12 +210,35 @@ somePactServers v =
     mconcat . fmap (somePactServer . uncurry (somePactServerData v))
 
 data PactCmdLog
-  = PactCmdLogSend (NonEmpty (Command Text))
-  | PactCmdLogPoll (NonEmpty Text)
-  | PactCmdLogListen Text
-  | PactCmdLogLocal (Command Text)
-  | PactCmdLogSpv Text
-  deriving (Show, Generic, ToJSON, NFData)
+    = PactCmdLogSend (NonEmpty (Command Text))
+    | PactCmdLogPoll (NonEmpty Text)
+    | PactCmdLogListen Text
+    | PactCmdLogLocal (Command Text)
+    | PactCmdLogSpv Text
+    deriving (Show, Generic, NFData)
+
+instance ToJSON PactCmdLog where
+    toJSON (PactCmdLogSend x) = object
+        [ "tag" .= ("PactCmdLogSend" :: T.Text)
+        , "contents" .= fmap J.toJsonViaEncode x
+        ]
+    toJSON (PactCmdLogPoll x) = object
+        [ "tag" .= ("PactCmdLogPoll" :: T.Text)
+        , "contents" .= x
+        ]
+    toJSON (PactCmdLogListen x) = object
+        [ "tag" .= ("PactCmdLogListen" :: T.Text)
+        , "contents" .= x
+        ]
+    toJSON (PactCmdLogLocal x) = object
+        [ "tag" .= ("PactCmdLogLocal" :: T.Text)
+        , "contents" .= J.toJsonViaEncode x
+        ]
+    toJSON (PactCmdLogSpv x) = object
+        [ "tag" .= ("PactCmdLogSpv" :: T.Text)
+        , "contents" .= x
+        ]
+    {-# INLINEABLE toJSON #-}
 
 -- -------------------------------------------------------------------------- --
 -- Send Handler
@@ -232,10 +258,10 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
            liftIO (mempoolInsertCheck mempool txs) >>= checkResult
            liftIO (mempoolInsert mempool UncheckedInsert txs)
            return $! RequestKeys $ NEL.map cmdToRequestKey enriched
-       Left err -> failWith $ "Validation failed: " <> err
+       Left err -> failWith $ "Validation failed: " <> T.pack err
   where
-    failWith :: String -> ExceptT ServerError IO a
-    failWith err = throwError $ err400 { errBody = BSL8.pack err }
+    failWith :: Text -> ExceptT ServerError IO a
+    failWith err = throwError $ setErrText err err400
 
     logg = logFunctionJson (setComponent "send-handler" logger)
 
@@ -244,12 +270,13 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
 
     checkResult :: Either (T2 TransactionHash InsertError) () -> ExceptT ServerError IO ()
     checkResult (Right _) = pure ()
-    checkResult (Left (T2 hash insErr)) =
-        failWith $ concat [ "Validation failed for hash "
-                          , show $ toPactHash hash
-                          , ": "
-                          , show insErr
-                          ]
+    checkResult (Left (T2 hash insErr)) = failWith $ fold
+        [ "Validation failed for hash "
+        , sshow $ toPactHash hash
+        , ": "
+        , sshow insErr
+        ]
+
 -- -------------------------------------------------------------------------- --
 -- Poll Handler
 
@@ -262,15 +289,16 @@ pollHandler
     -> ChainId
     -> PactExecutionService
     -> MempoolBackend ChainwebTransaction
+    -> Maybe ConfirmationDepth
     -> Poll
     -> Handler PollResponses
-pollHandler logger cdb cid pact mem (Poll request) = do
+pollHandler logger cdb cid pact mem confDepth (Poll request) = do
     traverse_ validateRequestKey request
 
     liftIO $! logg Info $ PactCmdLogPoll $ fmap requestKeyToB16Text request
     -- get current best cut
     cut <- liftIO $! CutDB._cut cdb
-    PollResponses <$!> liftIO (internalPoll pdb bdb mem pact cut request)
+    PollResponses <$!> liftIO (internalPoll pdb bdb mem pact cut confDepth request)
   where
     pdb = view CutDB.cutDbPayloadDb cdb
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
@@ -310,7 +338,7 @@ listenHandler logger cdb cid pact mem (ListenerRequest key) = do
 
         poll :: Cut -> IO ListenResponse
         poll cut = do
-            hm <- internalPoll pdb bdb mem pact cut (pure key)
+            hm <- internalPoll pdb bdb mem pact cut Nothing (pure key)
             if HM.null hm
               then go (Just cut)
               else return $! ListenResponse $ snd $ head $ HM.toList hm
@@ -341,7 +369,7 @@ localHandler
       -- ^ Preflight flag
     -> Maybe LocalSignatureVerification
       -- ^ No sig verification flag
-    -> Maybe BlockHeight
+    -> Maybe RewindDepth
       -- ^ Rewind depth
     -> Command Text
     -> Handler LocalResult
@@ -350,16 +378,16 @@ localHandler logger pact preflight sigVerify rewindDepth cmd = do
     cmd' <- case doCommandValidation cmd of
       Right c -> return c
       Left err ->
-        throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
+        throwError $ setErrText ("Validation failed: " <> T.pack err) err400
 
     r <- liftIO $ _pactLocal pact preflight sigVerify rewindDepth cmd'
     case r of
-      Left err -> throwError $ err400
-        { errBody = "Execution failed: " <> BSL8.pack (show err) }
+      Left err -> throwError $ setErrText
+        ("Execution failed: " <> T.pack (show err)) err400
       Right (MetadataValidationFailure e) -> do
-        throwError $ err400
-          { errBody = "Metadata validation failed: " <> Aeson.encode e }
-      Right lr -> pure lr
+        throwError $ setErrText
+          ("Metadata validation failed: " <> decodeUtf8 (BSL.toStrict (Aeson.encode e))) err400
+      Right lr -> return $! lr
   where
     logg = logFunctionJson (setComponent "local-handler" logger)
 
@@ -407,10 +435,10 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
 
     liftIO $! logg (sshow ph)
 
-    T2 bhe _bha <- liftIO (_pactLookup pe (NoRewind cid) (pure ph)) >>= \case
+    T2 bhe _bha <- liftIO (_pactLookup pe (NoRewind cid) Nothing (pure ph)) >>= \case
       Left e ->
         toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
-      Right v -> case v ^?! _head of
+      Right v -> case HM.lookup ph v of
         Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
         Just t -> return t
 
@@ -430,11 +458,12 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
 
     case p of
       Left e@SpvExceptionTargetNotReachable{} ->
-        toErr $ "SPV target not reachable: " <> spvErrOf e
+        toErr $ "SPV target not reachable: " <> _spvExceptionMsg e
       Left e@SpvExceptionVerificationFailed{} ->
-        toErr $ "SPV verification failed: " <> spvErrOf e
-      Left e -> toErr $ "Internal error: SPV verification failed: " <> spvErrOf e
-      Right q -> return $! b64 q
+        toErr $ "SPV verification failed: " <> _spvExceptionMsg e
+      Left e ->
+        toErr $ "Internal error: SPV verification failed: " <> _spvExceptionMsg e
+      Right q -> return q
 
   where
     pe = _webPactExecutionService $ view CutDB.cutDbPactService cdb
@@ -449,11 +478,7 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
     logg = logFunctionJson (setComponent "spv-handler" l) Info
       . PactCmdLogSpv
 
-    toErr e = throwError $ err400 { errBody = e }
-
-    spvErrOf = BSL8.fromStrict
-      . encodeUtf8
-      . _spvExceptionMsg
+    toErr e = throwError $ setErrText e err400
 
 -- -------------------------------------------------------------------------- --
 -- SPV2 Handler
@@ -495,10 +520,10 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
     proof f = SomePayloadProof <$> do
         validateRequestKey rk
         liftIO $! logg (sshow ph)
-        T2 bhe bha <- liftIO (_pactLookup pe (NoRewind cid) (pure ph)) >>= \case
+        T2 bhe bha <- liftIO (_pactLookup pe (NoRewind cid) Nothing (pure ph)) >>= \case
             Left e ->
                 toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
-            Right v -> case v ^?! _head of
+            Right v -> case HM.lookup ph v of
                 Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
                 Just t -> return t
 
@@ -582,15 +607,16 @@ internalPoll
     -> MempoolBackend ChainwebTransaction
     -> PactExecutionService
     -> Cut
+    -> Maybe ConfirmationDepth
     -> NonEmpty RequestKey
     -> IO (HashMap RequestKey (CommandResult Hash))
-internalPoll pdb bhdb mempool pactEx cut requestKeys0 = do
+internalPoll pdb bhdb mempool pactEx cut confDepth requestKeys0 = do
     -- get leaf block header for our chain from current best cut
     chainLeaf <- lookupCutM cid cut
-    results0 <- _pactLookup pactEx (DoRewind chainLeaf) requestKeys >>= either throwM return
+    results0 <- _pactLookup pactEx (DoRewind chainLeaf) confDepth requestKeys >>= either throwM return
         -- TODO: are we sure that all of these are raised locally. This will cause the
         -- server to shut down the connection without returning a result to the user.
-    let results1 = V.zip requestKeysV results0
+    let results1 = V.map (\rk -> (rk, HM.lookup (Pact.fromUntypedHash $ unRequestKey rk) results0)) requestKeysV
     let (present0, missing) = V.unstablePartition (isJust . snd) results1
     let present = V.map (second fromJuste) present0
     lookedUp <- catMaybes . V.toList <$> mapM lookup present
@@ -673,15 +699,13 @@ validateCommand cmdText = case verifyCommand cmdBS of
 validateRequestKey :: RequestKey -> Handler ()
 validateRequestKey (RequestKey h'@(Hash h))
     | keyLength == blakeHashLength = return ()
-    | otherwise = throwError err400
-      { errBody = "Request Key "
-        <> keyString
+    | otherwise = throwError $ setErrText
+        ( "Request Key "
+        <> Pact.hashToText h'
         <> " has incorrect hash of length "
-        <> BSL8.pack (show keyLength)
-      }
+        <> sshow keyLength
+        ) err400
   where
-    keyString = BSL8.pack $ T.unpack $ Pact.hashToText h'
-
     -- length of the encoded request key hash
     --
     keyLength = SB.length h

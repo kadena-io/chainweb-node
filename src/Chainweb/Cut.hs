@@ -633,7 +633,7 @@ tryMonotonicCutExtension c h = isMonotonicCutExtension c h >>= \case
     False -> return Nothing
     True -> return $ Just
         $! over unsafeCutHeaders extendChains
-        $ set (unsafeCutHeaders . ix (_chainId h)) h c
+        $ set (unsafeCutHeaders . ix' (_chainId h)) h c
 
 -- -------------------------------------------------------------------------- --
 -- Join

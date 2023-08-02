@@ -90,11 +90,13 @@ import Chainweb.Logging.Miner
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
 import Chainweb.Miner.Coordinator (MiningStats)
+import Chainweb.Pact.Backend.DbCache (DbCacheStats)
 import Chainweb.Pact.Service.PactQueue (PactQueueStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
+import Data.Time.Format.ISO8601
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
@@ -267,11 +269,6 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
 
 -- This instances are OK, since this is the "Main" module of an application
 --
-#if !MIN_VERSION_base(4,15,0)
-deriving instance Generic GCDetails
-deriving instance Generic RTSStats
-#endif
-
 deriving instance NFData GCDetails
 deriving instance NFData RTSStats
 
@@ -338,7 +335,15 @@ node conf logger = do
     rocksDbDir <- getRocksDbDir conf
     pactDbDir <- getPactDbDir conf
     dbBackupsDir <- getBackupsDir conf
-    withRocksDb rocksDbDir modernDefaultOptions $ \rocksDb -> do
+    withRocksDb' <-
+        if _configOnlySyncPact cwConf
+        then
+            if _cutPruneChainDatabase (_configCuts cwConf) == GcNone
+            then withReadOnlyRocksDb <$ logFunctionText logger Info "Opening RocksDB in read-only mode"
+            else withRocksDb <$ logFunctionText logger Info "Opening RocksDB in read-write mode, if this wasn't intended, ensure that cuts.pruneChainDatabase is set to none"
+        else
+            return withRocksDb
+    withRocksDb' rocksDbDir modernDefaultOptions $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
         logFunctionText logger Info $ "backup config: " <> sshow (_configBackup cwConf)
         withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir (_nodeConfigResetChainDbs conf) $ \case
@@ -400,6 +405,8 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @MempoolStats mgr teleLogConfig
     blockUpdateBackend <- managed
         $ mkTelemetryLogger @BlockUpdate mgr teleLogConfig
+    dbCacheBackend <- managed
+        $ mkTelemetryLogger @DbCacheStats mgr teleLogConfig
     dbStatsBackend <- managed
         $ mkTelemetryLogger @DbStats mgr teleLogConfig
     pactQueueStatsBackend <- managed
@@ -424,6 +431,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler traceBackend
             , logHandler mempoolStatsBackend
             , logHandler blockUpdateBackend
+            , logHandler dbCacheBackend
             , logHandler dbStatsBackend
             , logHandler pactQueueStatsBackend
             , logHandler topLevelStatusBackend
@@ -438,14 +446,13 @@ withNodeLogger logConfig v f = runManaged $ do
 
 mkTelemetryLogger
     :: forall a b
-    . Typeable a
-    => ToJSON a
+    . (Typeable a, ToJSON a)
     => HTTP.Manager
     -> EnableConfig BackendConfig
     -> (Backend (JsonLog a) -> IO b)
     -> IO b
 mkTelemetryLogger mgr = configureHandler
-    $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
+    $ withJsonHandleBackend @a (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
 
 -- -------------------------------------------------------------------------- --
 -- Service Date
@@ -508,10 +515,10 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- SERVICE DATE for version 2.18
+-- SERVICE DATE for version 2.19
 --
 serviceDate :: Maybe String
-serviceDate = Just "2023-06-01T00:00:00Z"
+serviceDate = Just "2023-09-07T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
@@ -539,8 +546,6 @@ main = do
                 , Handler $ \(e :: SomeException) ->
                     logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
                 ] $ do
-                kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
+                kt <- mapM iso8601ParseM serviceDate
                 withServiceDate (logFunctionText logger) kt $
                     node conf logger
-  where
-    timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")

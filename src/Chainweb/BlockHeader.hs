@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -19,7 +20,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeInType #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -165,7 +165,7 @@ import Chainweb.Version
 import Chainweb.Version.Guards
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet
-import Chainweb.Version.Registry ()
+import Chainweb.Version.Registry (lookupVersionByName)
 
 import Chainweb.Storage.Table
 
@@ -179,9 +179,6 @@ import Text.Read (readEither)
 -- -------------------------------------------------------------------------- --
 -- Nonce
 
--- | FIXME: is 64 bit enough for the nonce. It seems that it may not be
--- sufficient for the current hashpower of the bitcoin network.
---
 newtype Nonce = Nonce Word64
     deriving stock (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
@@ -424,11 +421,11 @@ slowEpoch (ParentHeader p) (BlockCreationTime ct) = actual > (expected * 5)
   where
     EpochStartTime es = _blockEpochStart p
     v = _chainwebVersion p
-    BlockRate br = _versionBlockRate v
+    BlockDelay bd = _versionBlockDelay v
     WindowWidth ww = _versionWindow v
 
     expected :: Micros
-    expected = br * int ww
+    expected = bd * int ww
 
     actual :: Micros
     actual = timeSpanToMicros $ ct .-. es
@@ -470,12 +467,12 @@ powTarget p@(ParentHeader ph) as bct = case effectiveWindow ph of
 
     activeAdjust w
         | oldDaGuard ver (_chainId ph) (_blockHeight ph + 1)
-            = legacyAdjust (_versionBlockRate ver) w (t .-. _blockEpochStart ph) (_blockTarget ph)
+            = legacyAdjust (_versionBlockDelay ver) w (t .-. _blockEpochStart ph) (_blockTarget ph)
         | otherwise
             = avgTarget $ adjustForParent w <$> (p : HM.elems as)
 
     adjustForParent w (ParentHeader a)
-        = adjust (_versionBlockRate ver) w (toEpochStart a .-. _blockEpochStart a) (_blockTarget a)
+        = adjust (_versionBlockDelay ver) w (toEpochStart a .-. _blockEpochStart a) (_blockTarget a)
 
     toEpochStart = EpochStartTime . _bct . _blockCreationTime
 
@@ -1009,7 +1006,7 @@ blockHeaderProperties (ObjectEncoded b) =
     , "chainId" .= _chainId b
     , "weight" .= _blockWeight b
     , "height" .= _blockHeight b
-    , "chainwebVersion" .= _blockChainwebVersion b
+    , "chainwebVersion" .= _versionName (_chainwebVersion b)
     , "epochStart" .= _blockEpochStart b
     , "featureFlags" .= _blockFlags b
     , "hash" .= _blockHash b
@@ -1033,7 +1030,9 @@ parseBlockHeaderObject o = BlockHeader
     <*> o .: "chainId"
     <*> o .: "weight"
     <*> o .: "height"
-    <*> o .: "chainwebVersion"
+    -- TODO: lookupVersionByName should probably be deprecated for performance,
+    -- so perhaps we move this codec outside of the node proper.
+    <*> (_versionCode . lookupVersionByName <$> (o .: "chainwebVersion"))
     <*> o .: "epochStart"
     <*> o .: "nonce"
     <*> o .: "hash"

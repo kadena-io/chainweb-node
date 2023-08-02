@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -43,9 +44,9 @@ module Chainweb.Chainweb.PeerResources
 import Configuration.Utils hiding (Error, Lens')
 
 import Control.Concurrent.Async
-import Control.Exception.Safe
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
+import Control.Monad.Catch
 
 import qualified Data.ByteString.Char8 as B8
 import Data.Either
@@ -263,7 +264,23 @@ newManagerCounter = ManagerCounter
     <*> newCounter
     -- <*> newCounterMap
 
--- Connection Manager
+-- | Timeout connection-attempts to estabilished peers in the P2P network.
+--
+-- This timeout can be overwritten on a per-request base.
+--
+p2pResponseTimeout :: HTTP.ResponseTimeout
+p2pResponseTimeout = HTTP.responseTimeoutMicro 3_000_000
+
+-- Default Connection Manager for P2P Connections.
+--
+-- This manager uses the P2P peer database to validate server certificates.
+--
+-- This manager is used for all P2P requests except for
+--
+-- - requests for checking reachability of new peers which are not yet in the
+--   peer db (cf. newPeerManager in src/P2P/Node.hs) and
+-- - requests by the logging backend (cf. withNodeLogger in
+--   node/ChainwebNode.hs).
 --
 connectionManager :: PeerDb -> IO (HTTP.Manager, ManagerCounter)
 connectionManager peerDb = do
@@ -273,8 +290,7 @@ connectionManager peerDb = do
     let settings' = settings
             { HTTP.managerConnCount = 5
                 -- keep only 5 connections alive
-            , HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro 5000000
-                -- timeout connection-attempts after 10 sec instead of the default of 30 sec
+            , HTTP.managerResponseTimeout = p2pResponseTimeout
             , HTTP.managerIdleConnectionCount = 512
                 -- total number of connections to keep alive. 512 is the default
             }
@@ -289,11 +305,6 @@ connectionManager peerDb = do
             inc (_mgrCounterRequests counter)
             -- incKey urlStats (sshow $ HTTP.getUri req)
             HTTP.managerModifyRequest settings req
-                { HTTP.responseTimeout = HTTP.responseTimeoutMicro 5000000
-                    -- overwrite the explicit connection timeout from servant-client
-                    -- (If the request has a timeout configured, the global timeout of
-                    -- the manager is ignored)
-                }
         }
     return (mgr, counter)
   where
@@ -319,7 +330,7 @@ withConnectionLogger logger counter inner =
     withAsyncWithUnmask (\u -> runLogClientConnections u) $ const inner
   where
     logClientConnections = forever $ do
-        approximateThreadDelay 60000000 {- 1 minute -}
+        approximateThreadDelay 60_000_000 {- 1 minute -}
         logFunctionCounter logger Info =<< sequence
             [ roll (_mgrCounterConnections counter)
             , roll (_mgrCounterRequests counter)
@@ -327,7 +338,7 @@ withConnectionLogger logger counter inner =
             ]
 
     runLogClientConnections umask = do
-        umask logClientConnections `catchAny` \e -> do
+        umask logClientConnections `catchAllSynchronous` \e -> do
             logFunctionText logger Error ("Connection manager logger failed: " <> sshow e)
         logFunctionText logger Info "Restarting connection manager logger"
         runLogClientConnections umask

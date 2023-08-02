@@ -74,7 +74,9 @@ module Chainweb.Utils
 , alignWithV
 , (&)
 , IxedGet(..)
+, ix'
 , minusOrZero
+, interleaveIO
 , mutableVectorFromList
 
 -- * Encoding and Serialization
@@ -219,7 +221,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.TokenBucket
 import Control.DeepSeq
-import Control.Exception (SomeAsyncException(..))
+import Control.Exception (SomeAsyncException(..), evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
@@ -272,7 +274,7 @@ import qualified Options.Applicative as O
 import qualified Streaming as S (concats, effect, inspect)
 import qualified Streaming.Prelude as S
 
-import System.IO.Unsafe (unsafePerformIO)
+import System.IO.Unsafe (unsafeInterleaveIO, unsafePerformIO)
 import System.LogLevel
 import qualified System.Random.MWC as Prob
 import qualified System.Random.MWC.Probability as Prob
@@ -397,6 +399,12 @@ minusOrZero :: Ord a => Num a => a -> a -> a
 minusOrZero a b = a - min a b
 {-# INLINE minusOrZero #-}
 
+-- | Analogous to `unsafeInterleaveIO` but doesn't hide the effect behind evaluation.
+-- Careful; if the inner action throws an exception, it will never not throw that exception.
+interleaveIO :: IO a -> IO (IO a)
+interleaveIO act = evaluate <$> unsafeInterleaveIO act
+{-# INLINE interleaveIO #-}
+
 -- | Equivalent to V.thaw . V.fromList but by inspection probably faster.
 mutableVectorFromList
     :: PrimMonad m
@@ -414,7 +422,7 @@ mutableVectorFromList as = do
 -- | Provides a simple Fold lets you fold the value at a given key in a Map or
 -- element at an ordinal position in a list or Seq.
 --
--- This is a restrictec version of 'Ixed' from the lens package that prevents
+-- This is a restricted version of 'Ixed' from the lens package that prevents
 -- the value at the key from being modified.
 --
 class IxedGet a where
@@ -426,6 +434,19 @@ class IxedGet a where
     default ixg :: Ixed a => Index a -> Fold a (IxValue a)
     ixg i = ix i
     {-# INLINE ixg #-}
+
+-- | A strict version of 'ix'. It requires a 'Monad' constraint on the context.
+--
+ix'
+    :: forall s f
+    . Monad f
+    => Ixed s
+    => Index s
+    -> (IxValue s -> f (IxValue s))
+    -> s
+    -> f s
+ix' i f = ix i (f >=> \ !r -> return r)
+{-# INLINE ix' #-}
 
 -- -------------------------------------------------------------------------- --
 -- * Encodings and Serialization
@@ -1292,14 +1313,6 @@ unsafeManagerWithSettings settings = HTTP.newTlsManagerWith
 setManagerRequestTimeout :: Int -> HTTP.ManagerSettings -> HTTP.ManagerSettings
 setManagerRequestTimeout micros settings = settings
     { HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro micros
-        -- timeout connection-attempts after 10 sec instead of the default of 30 sec
-    , HTTP.managerModifyRequest = \req -> do
-        HTTP.managerModifyRequest settings req
-            { HTTP.responseTimeout = HTTP.responseTimeoutMicro micros
-                -- overwrite the explicit connection timeout from servant-client
-                -- (If the request has a timeout configured, the global timeout of
-                -- the manager is ignored)
-            }
     }
 
 -- -------------------------------------------------------------------------- --

@@ -145,7 +145,7 @@ convSavepointName = toTextUtf8
 --
 
 callDb
-    :: (MonadCatch m, MonadReader (BlockDbEnv SQLiteEnv) m, MonadIO m)
+    :: (MonadCatch m, MonadReader (BlockDbEnv logger SQLiteEnv) m, MonadIO m)
     => T.Text
     -> (SQ3.Database -> IO b)
     -> m b
@@ -158,8 +158,8 @@ callDb callerName action = do
 
 withSavepoint
     :: SavepointName
-    -> BlockHandler SQLiteEnv a
-    -> BlockHandler SQLiteEnv a
+    -> BlockHandler logger SQLiteEnv a
+    -> BlockHandler logger SQLiteEnv a
 withSavepoint name action = mask $ \resetMask -> do
     resetMask $ beginSavepoint name
     go resetMask `catches` handlers
@@ -174,11 +174,11 @@ withSavepoint name action = mask $ \resetMask -> do
                , Handler $ \(e :: SomeException) -> throwErr ("non-pact exception: " <> sshow e)
                ]
 
-beginSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
+beginSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
 beginSavepoint name =
   callDb "beginSavepoint" $ \db -> exec_ db $ "SAVEPOINT [" <> convSavepointName name <> "];"
 
-commitSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
+commitSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
 commitSavepoint name =
   callDb "commitSavepoint" $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> convSavepointName name <> "];"
 
@@ -192,7 +192,7 @@ commitSavepoint name =
 -- Cf. <https://www.sqlite.org/lang_savepoint.html> for details about
 -- savepoints.
 --
-rollbackSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
+rollbackSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
 rollbackSavepoint name =
   callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
 
@@ -348,7 +348,6 @@ withTempSQLiteConnection = withSQLiteConnection ""
 withInMemSQLiteConnection :: [Pragma] -> (SQLiteEnv -> IO c) -> IO c
 withInMemSQLiteConnection = withSQLiteConnection ":memory:"
 
--- TODO: use SQ3.open2 instead?
 open2 :: String -> IO (Either (SQ3.Error, SQ3.Utf8) SQ3.Database)
 open2 file = open_v2
     (fromString file)

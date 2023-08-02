@@ -83,7 +83,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Trans
 
-import Data.Aeson
+import Data.Aeson hiding (Key)
 import Data.Foldable
 import Data.Function
 import Data.Functor.Of

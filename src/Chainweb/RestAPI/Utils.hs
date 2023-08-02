@@ -17,6 +17,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -39,6 +40,8 @@ module Chainweb.RestAPI.Utils
 (
 -- * Servant Utils
   Reassoc
+, setErrText
+, setErrJSON
 
 -- * API Version
 , Version
@@ -97,15 +100,19 @@ module Chainweb.RestAPI.Utils
 
 ) where
 
+import Control.Exception (Exception, throw)
 import Control.Monad.Catch (bracket)
 
 import Data.Aeson
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.CaseInsensitive as CI
 import Data.Kind
+import Data.List (find)
 import Data.Proxy
 import Data.Streaming.Network (bindPortGen)
 import Data.String
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
 import GHC.Generics
 import GHC.TypeLits
@@ -114,7 +121,7 @@ import qualified Network.HTTP.Types.Header as HTTP
 import qualified Network.Socket as N
 import Network.Wai.Handler.Warp (HostPreference)
 
-import Servant.API
+import Servant.API hiding (addHeader)
 import Servant.Client
 import Servant.Server
 
@@ -132,10 +139,34 @@ import Chainweb.Version
 
 type Reassoc (api :: Type) = ReassocBranch api '[]
 
+type ReassocBranch :: s -> [Type] -> Type
 type family ReassocBranch (a :: s) (b :: [Type]) :: Type where
     ReassocBranch (a :> b) rest = ReassocBranch a (b ': rest)
     ReassocBranch a '[] = a
     ReassocBranch a (b ': rest) = a :> ReassocBranch b rest
+
+newtype DuplicateHeader = DuplicateHeader HTTP.HeaderName
+instance Show DuplicateHeader where
+    show (DuplicateHeader hn) = "Attempted to set a duplicate header with this name: " <> show hn
+instance Exception DuplicateHeader
+
+addHeader :: HTTP.Header -> [HTTP.Header] -> [HTTP.Header]
+addHeader (hn, hv) hs =
+    case find ((== hn) . fst) hs of
+      Just _ -> throw (DuplicateHeader hn)
+      Nothing -> (hn, hv) : hs
+
+setErrText :: T.Text -> ServerError -> ServerError
+setErrText m e = e
+    { errBody = BSL.fromStrict $ T.encodeUtf8 m
+    , errHeaders = addHeader ("Content-Type", "text/plain;charset=utf-8") (errHeaders e)
+    }
+
+setErrJSON :: ToJSON a => a -> ServerError -> ServerError
+setErrJSON m e = e
+    { errBody = encode m
+    , errHeaders = addHeader ("Content-Type", "application/json;charset=utf-8") (errHeaders e)
+    }
 
 -- -------------------------------------------------------------------------- --
 -- API Version
@@ -439,6 +470,7 @@ type family SetRespBodyContentType ct api where
 
 type SupportedRespBodyContentType ct api t = (SupportedRespBodyCT_ ct api api ~ 'True, MimeUnrender ct t)
 
+type SupportedRespBodyCT_ :: Type -> k -> k1 -> Bool
 type family SupportedRespBodyCT_ (ct :: Type) (api :: k) (arg :: k1) :: Bool where
     SupportedRespBodyCT_ ct api (Verb _ _ '[] _) = RespBodyContentTypeNotSupportedMsg ct api
     SupportedRespBodyCT_ ct api (Verb _ _ (ct ': _) _) = 'True
@@ -455,12 +487,14 @@ type family RespBodyContentTypeNotSupportedMsg ct api where
 
 -- Request Body Content Type
 
+type SetReqBodyContentType :: Type -> k -> k1
 type family SetReqBodyContentType (ct :: Type) (api :: k) :: k1 where
     SetReqBodyContentType ct (ReqBody _ t :> a) = ReqBody '[ct] t :> a
     SetReqBodyContentType ct (a :> b) = a :> SetReqBodyContentType ct b
 
 type SupportedReqBodyContentType ct api t = (SupportedReqBodyCT_ ct api api ~ 'True, MimeRender ct t)
 
+type SupportedReqBodyCT_ :: Type -> k -> k1 -> Bool
 type family SupportedReqBodyCT_ (ct :: Type) (api :: k) (arg :: k1) :: Bool where
     SupportedReqBodyCT_ ct api (ReqBody '[] _ :> _) = ReqBodyContentTypeNotSupportedMsg ct api
     SupportedReqBodyCT_ ct api (ReqBody (ct ': _) _ :> _) = 'True

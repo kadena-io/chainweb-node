@@ -9,6 +9,7 @@
 module Chainweb.Test.Pact.PactReplay where
 
 import Control.Concurrent.MVar
+import Control.Monad (forM_, unless, void)
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
@@ -19,7 +20,6 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Data.Word
 
-import System.LogLevel
 import System.Timeout
 
 import Test.Tasty
@@ -67,27 +67,27 @@ tests rdb =
         mpio = fst <$> dmp
     in
     testGroup label
-        [ withPactTestBlockDb testVer cid Warn rdb mp (forkLimit 100_000)
+        [ withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
             (testCase "initial-playthrough" . firstPlayThrough mpio genblock)
         , after AllSucceed "initial-playthrough" $
-            withPactTestBlockDb testVer cid Warn rdb mp (forkLimit 100_000)
+            withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
                 (testCase "service-init-after-fork" . serviceInitializationAfterFork mpio genblock)
         , after AllSucceed "service-init-after-fork" $
-            withPactTestBlockDb testVer cid Warn rdb mp (forkLimit 100_000)
+            withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
                 (testCaseSteps "on-restart" . onRestart mpio)
         , after AllSucceed "on-restart" $
-            withPactTestBlockDb testVer cid Quiet rdb mp (forkLimit 100_000)
+            withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
             (testCase "reject-dupes" . testDupes mpio genblock)
         , after AllSucceed "reject-dupes" $
-            let deepForkLimit = 4
-            in withPactTestBlockDb testVer cid Quiet rdb mp (forkLimit deepForkLimit)
-                (testCaseSteps "deep-fork-limit" . testDeepForkLimit mpio (fromIntegral deepForkLimit))
+            let deepForkLimit = RewindLimit 4
+            in withPactTestBlockDb testVer cid rdb mp (forkLimit deepForkLimit)
+                (testCaseSteps "deep-fork-limit" . testDeepForkLimit mpio deepForkLimit)
         ]
   where
     genblock = genesisBlockHeader testVer cid
     label = "Chainweb.Test.Pact.PactReplay"
 
-    forkLimit fl = defaultPactServiceConfig { _pactReorgLimit = fl }
+    forkLimit fl = testPactServiceConfig { _pactReorgLimit = fl }
 
 
 onRestart
@@ -264,11 +264,11 @@ testDupes mpio genesisBlock iop = do
 
 testDeepForkLimit
   :: IO (IORef MemPoolAccess)
-  -> Word64
+  -> RewindLimit
   -> IO (PactQueue,TestBlockDb)
   -> (String -> IO ())
   -> Assertion
-testDeepForkLimit mpio deepForkLimit iop step = do
+testDeepForkLimit mpio (RewindLimit deepForkLimit) iop step = do
     setOneShotMempool mpio testMemPoolAccess
     bdb <- snd <$> iop
     bhdb <- getBlockHeaderDb cid bdb

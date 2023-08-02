@@ -6,6 +6,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- | A mock in-memory mempool backend that does not persist to disk.
@@ -19,7 +20,6 @@ module Chainweb.Mempool.InMem
   , makeInMemPool
   , newInMemMempoolData
 
-  , validateOne
   , txTTLCheck
   ) where
 
@@ -70,6 +70,8 @@ import Chainweb.Pact.Validations (defaultMaxTTL, defaultMaxCoinDecimalPlaces)
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion)
+
+import Numeric.AffineSpace
 
 ------------------------------------------------------------------------------
 compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
@@ -290,6 +292,12 @@ maxNumPending = 10000
 -- | Validation: A short-circuiting variant of this check that fails outright at
 -- the first detection of any validation failure on any Transaction.
 --
+-- This function is used when a transaction is inserted into the mempool. It is
+-- NOT used when a new block is created. For the latter more strict validation
+-- methods are used. In particular TTL validation is uses the current time as
+-- reference in the former case and the creation time of the parent header in
+-- the latter case.
+--
 insertCheckInMem
     :: forall t
     .  NFData t
@@ -319,8 +327,13 @@ insertCheckInMem cfg lock txs
     hasher = txHasher (_inmemTxCfg cfg)
 
 -- | Validation: Confirm the validity of some single transaction @t@.
--- Note that this function is not called during block validation. This
--- merely exists to validate a transaction entering the mempool.
+--
+-- This function is only used during insert checks. TTL validation is done in
+-- the context of the current time (now).
+--
+-- This function is NOT used during the pre validation when creating a new
+-- block.
+--
 validateOne
     :: forall t a
     .  NFData t
@@ -385,15 +398,34 @@ validateOne cfg badmap curTxIdx now t h =
         | otherwise = Right ()
 
 -- | Check the TTL of a transaction.
+--
+-- A grace period of 10 seconds is applied for the tx creation time to account for
+-- clock shifts between client and server. While this can slightly increase the
+-- chance that the transaction is rejected later during validation, this is fine
+-- because this value is still much smaller than the grace period in the final
+-- validation where 95 seconds are allowed (cf.
+-- "Chainweb.Pact.Utils.lenientTimeSlop").
+--
+-- This check is used when a TX is inserted into the mempool. The reference time
+-- for the check is the current time. The validation for inclusion into a block
+-- is the creation time of the parent block. Therefor success in this function
+-- doesn't guarantee succesfull validation in the context of a block.
+--
 txTTLCheck :: TransactionConfig t -> Time Micros -> t -> Either InsertError ()
-txTTLCheck txcfg (Time (TimeSpan now)) t =
-    ebool_ InsertErrorInvalidTime (ct < now && now < et && ct < et)
+txTTLCheck txcfg now t =
+    ebool_ InsertErrorInvalidTime (ct < now .+^ gracePeriod && now < et && ct < et)
   where
-    TransactionMetadata (Time (TimeSpan ct)) (Time (TimeSpan et)) = txMetadata txcfg t
-
+    TransactionMetadata ct et = txMetadata txcfg t
+    gracePeriod = scaleTimeSpan @Int 10 second
 
 -- | Validation: Similar to `insertCheckInMem`, but does not short circuit.
 -- Instead, bad transactions are filtered out and the successful ones are kept.
+--
+-- This function is used when a transaction is inserted into the mempool. It is
+-- NOT used when a new block is created. For the latter more strict validation
+-- methods are used. In particular TTL validation is uses the current time as
+-- reference in the former case and the creation time of the parent header in
+-- the latter case.
 --
 insertCheckInMem'
     :: forall t
@@ -435,7 +467,7 @@ insertInMem cfg lock runCheck txs0 = do
         let txs = V.take (max 0 (maxNumPending - cnt)) txhashes
         let T2 !pending' !newHashesDL = V.foldl' insOne (T2 pending id) txs
         let !newHashes = V.fromList $ newHashesDL []
-        writeIORef (_inmemPending mdata) $! pending'
+        writeIORef (_inmemPending mdata) $! force pending'
         modifyIORef' (_inmemRecentLog mdata) $
             recordRecentTransactions maxRecent newHashes
   where
@@ -488,8 +520,8 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight 
         -- put the txs chosen for the block back into the map -- they don't get
         -- expunged until they are mined and validated by consensus.
         let !psq'' = V.foldl' ins (HashMap.union seen psq') out
-        writeIORef (_inmemPending mdata) $ psq''
-        writeIORef (_inmemBadMap mdata) $ badmap'
+        writeIORef (_inmemPending mdata) $! force psq''
+        writeIORef (_inmemBadMap mdata) $! force badmap'
         mout <- V.thaw $ V.map (snd . snd) out
         TimSort.sortBy (compareOnGasPrice txcfg) mout
         V.unsafeFreeze mout
@@ -514,7 +546,7 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight 
 
     txcfg = _inmemTxCfg cfg
     codec = txCodec txcfg
-    decodeTx tx0 = either err id $ codecDecode codec tx
+    decodeTx tx0 = either err id $! codecDecode codec tx
       where
         !tx = SB.fromShort tx0
         err s = error $
@@ -671,7 +703,7 @@ recordRecentTransactions maxNumRecent newTxs rlog = rlog'
     newNext = oldNext + fromIntegral numNewItems
     newTxs' = V.reverse (V.map (T2 oldNext) newTxs)
     newL' = newTxs' <> _rlRecent rlog
-    newL = V.force $ V.take maxNumRecent newL'
+    newL = force $ V.take maxNumRecent newL'
 
 
 -- | Get the recent transactions from the transaction log. Returns Nothing if
@@ -721,13 +753,14 @@ pruneInternal
 pruneInternal mdata now = do
     let pref = _inmemPending mdata
     !pending <- readIORef pref
-    let !pending' = HashMap.filter flt pending
+    !pending' <- evaluate $ force $ HashMap.filter flt pending
     writeIORef pref pending'
 
     let bref = _inmemBadMap mdata
-    !badmap <- HashMap.filter (> now) <$> readIORef bref
+    !badmap <- (force . pruneBadMap) <$!> readIORef bref
     writeIORef bref badmap
 
   where
     -- keep transactions that expire in the future.
     flt pe = _inmemPeExpires pe > now
+    pruneBadMap = HashMap.filter (> now)

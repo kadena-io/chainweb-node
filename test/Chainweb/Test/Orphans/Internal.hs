@@ -1,15 +1,11 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -57,6 +53,7 @@ module Chainweb.Test.Orphans.Internal
 , mkTestEventsProof
 , arbitraryEventsProof
 , EventPactValue(..)
+, ProofPactEvent(..)
 
 -- ** Misc
 , arbitraryPage
@@ -87,10 +84,12 @@ import GHC.Stack
 
 import Numeric.Natural
 
-import Pact.Parse
+import qualified Pact.JSON.Encode as J
 import Pact.Types.Command
 import Pact.Types.PactValue
 import Pact.Types.Runtime (PactEvent(..), Literal(..))
+
+import Prelude hiding (Applicative(..))
 
 import System.IO.Unsafe
 
@@ -234,6 +233,7 @@ instance Arbitrary P2pConfiguration where
         <$> arbitrary <*> arbitrary <*> arbitrary
         <*> arbitrary <*> arbitrary <*> arbitrary
         <*> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary
 
 instance Arbitrary PeerEntry where
     arbitrary = PeerEntry
@@ -680,7 +680,7 @@ arbitraryPayloadWithStructuredOutputs = resize 10 $ do
     payloads <- newPayloadWithOutputs
         <$> arbitrary
         <*> arbitrary
-        <*> pure (fmap (TransactionOutput . encodeToByteString) <$> txs)
+        <*> pure (fmap (TransactionOutput . J.encodeStrict) <$> txs)
     return (_crReqKey . snd <$> txs, payloads)
   where
     genResult = arbitraryCommandResultWithEvents arbitraryProofPactEvent
@@ -853,8 +853,18 @@ arbitraryOutputEvents = OutputEvents
 instance Arbitrary OutputEvents where
     arbitrary = arbitraryOutputEvents
 
-instance Arbitrary PactEvent where
-    arbitrary = arbitraryProofPactEvent
+-- | Events that are supported in proofs
+--
+newtype ProofPactEvent = ProofPactEvent { getProofPactEvent :: PactEvent }
+    deriving (Show)
+    deriving newtype (Eq, FromJSON)
+
+instance ToJSON ProofPactEvent where
+    toJSON = J.toJsonViaEncode . getProofPactEvent
+    {-# INLINEABLE toJSON #-}
+
+instance Arbitrary ProofPactEvent where
+    arbitrary = ProofPactEvent <$> arbitraryProofPactEvent
 
 instance MerkleHashAlgorithm a => Arbitrary (BlockEventsHash_ a) where
     arbitrary = BlockEventsHash <$> arbitrary
@@ -863,6 +873,8 @@ instance Arbitrary Int256 where
     arbitrary = unsafeInt256
         <$> choose (int256ToInteger minBound, int256ToInteger maxBound)
 
+-- | PactValues that are supported in Proofs
+--
 newtype EventPactValue = EventPactValue { getEventPactValue :: PactValue }
     deriving (Show, Eq, Ord)
 
@@ -940,18 +952,6 @@ instance Arbitrary PendingTransactions where
 
 instance Arbitrary TransactionMetadata where
     arbitrary = TransactionMetadata <$> arbitrary <*> arbitrary
-
-instance Arbitrary ParsedDecimal where
-    arbitrary = ParsedDecimal <$> arbitrary
-
-instance Arbitrary ParsedInteger where
-    arbitrary = ParsedInteger <$> arbitrary
-
-instance Arbitrary GasLimit where
-    arbitrary = GasLimit <$> (getPositive <$> arbitrary)
-
-instance Arbitrary GasPrice where
-    arbitrary = GasPrice <$> (getPositive <$> arbitrary)
 
 instance Arbitrary t => Arbitrary (ValidatedTransaction t) where
     arbitrary = ValidatedTransaction <$> arbitrary <*> arbitrary <*> arbitrary

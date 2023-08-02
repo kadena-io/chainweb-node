@@ -7,6 +7,9 @@ inputs:
   ghc:
     description: GHC version of the build
     required: true
+  use-freeze-file:
+    description: Whether to use the freeze file currently checked in
+    required: true
 
 runs:
   using: 'composite'
@@ -32,7 +35,7 @@ runs:
         esac
     - name: Install chainweb applications
       env:
-        ARCHIVE_PATTERN: chainweb.${{ inputs.ghc }}.${{ inputs.os }}.*.tar.gz
+        ARCHIVE_PATTERN: chainweb.${{ inputs.use-freeze-file }}.${{ inputs.ghc }}.${{ inputs.os }}.*.tar.gz
       shell: bash
       run: |
           tar -xzf $ARCHIVE_PATTERN

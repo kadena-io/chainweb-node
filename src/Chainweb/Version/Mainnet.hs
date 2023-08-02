@@ -138,11 +138,13 @@ mainnet = ChainwebVersion
         Chainweb216Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 2_988_324) -- 2022-09-02T00:00:00+00:00
         Chainweb217Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 3_250_348) -- 2022-12-02T00:00:00+00:00
         Chainweb218Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 3_512_363) -- 2023-03-03 00:00:00+00:00
+        Chainweb219Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 3_774_423) -- 2023-06-02 00:00:00+00:00
+        Chainweb220Pact -> AllChains ForkNever
 
     , _versionGraphs =
         (to20ChainsMainnet, twentyChainGraph) `Above`
         End petersonChainGraph
-    , _versionBlockRate = BlockRate 30_000_000
+    , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionMaxBlockGasLimit =

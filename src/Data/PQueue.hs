@@ -65,7 +65,7 @@ pQueueIsEmpty (PQueue _ q) = H.null <$!> readMVar q
 pQueueSize :: PQueue a -> IO Natural
 pQueueSize (PQueue _ q) = fromIntegral . H.size <$!> readMVar q
 
--- | It the queue is empty it blocks and races for new items
+-- | If the queue is empty it blocks and races for new items
 --
 pQueueRemove :: PQueue a -> IO a
 pQueueRemove (PQueue s q) = run

@@ -94,6 +94,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Except
+import Control.Monad.Trans.Class
 
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
