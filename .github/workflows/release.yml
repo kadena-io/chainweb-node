@@ -9,7 +9,6 @@ name: Release - chainweb-node - binary release scripts
 
 run-name: "Release chainweb-node ${{ inputs.release_sha }} from ${{ github.sha}}"
 on:
-  pull_request:
   workflow_dispatch:
     inputs:
       release_sha:

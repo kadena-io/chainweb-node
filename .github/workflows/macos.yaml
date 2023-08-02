@@ -2,9 +2,9 @@ name: Build with MacOS
 
 on:
   workflow_dispatch:
-  push:
-    paths-ignore:
-    - '.github/**'
+  #  push:
+    #    paths-ignore:
+    #    - '.github/**'
 
 jobs:
 
