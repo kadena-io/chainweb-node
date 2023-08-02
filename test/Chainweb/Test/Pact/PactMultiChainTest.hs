@@ -1235,8 +1235,6 @@ assertTxSuccess
   -> CommandResult Hash
   -> m ()
 assertTxSuccess msg r tx = do
-  unless (Just r == (tx ^? crResult . to _pactResult . _Right)) $
-    liftIO $ print tx
   liftIO $ assertEqual msg (Just r)
     (tx ^? crResult . to _pactResult . _Right)
 

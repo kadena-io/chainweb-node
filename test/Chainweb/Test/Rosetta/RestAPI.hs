@@ -150,7 +150,7 @@ accountBalanceTests tio envIo =
       step "check initial balance"
       cenv <- envIo
       resp0 <- accountBalance cenv req
-      let startBal = 99999997.8440
+      let startBal = 99999997.8592
       checkBalance resp0 startBal
 
       step "send 1.0 tokens to sender00 from sender01"
@@ -163,7 +163,7 @@ accountBalanceTests tio envIo =
     req = AccountBalanceReq nid (AccountId "sender00" Nothing Nothing) Nothing
 
     transferGasCost :: Decimal
-    transferGasCost = gasCost 778
+    transferGasCost = gasCost 705
 
     checkBalance resp bal1 = do
       let b0 = head $ _accountBalanceResp_balances resp
@@ -232,6 +232,9 @@ blockTransactionTests tio envIo =
       validateOp 4 "GasPayment" noMinerks Successful transferGasCost reward
 
   where
+    transferGasCost :: Decimal
+    transferGasCost = gasCost 703
+
     mkTxReq rkmv prs = do
       rk <- NEL.head . _rkRequestKeys <$> takeMVar rkmv
       meta <- KM.toMap <$> extractMetadata rk prs
@@ -242,9 +245,6 @@ blockTransactionTests tio envIo =
           tid = rkToTransactionId rk
 
       return $ BlockTransactionReq nid bid tid
-
-    transferGasCost :: Decimal
-    transferGasCost = gasCost 778
 
 
 -- | Rosetta block endpoint tests
@@ -269,6 +269,9 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
     validateTransferResp bh resp1
   where
     req h = BlockReq nid $ PartialBlockId (Just h) Nothing
+
+    transferGasCost :: Decimal
+    transferGasCost = gasCost 705
 
     validateTransferResp bh resp = do
       _blockResp_otherTransactions resp @?= Nothing
@@ -307,9 +310,6 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
       validateOp 2 "TransferOrCreateAcct" sender00ks Successful (negate 1.0) deb
       validateOp 3 "GasPayment" sender00ks Successful (defFundGas - transferGasCost) gasRedeem
       validateOp 4 "GasPayment" noMinerks Successful transferGasCost gasReward
-
-    transferGasCost :: Decimal
-    transferGasCost = gasCost 782
 
 blockCoinV2RemediationTests :: RosettaTest
 blockCoinV2RemediationTests _ envIo =
