@@ -167,6 +167,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                   , _psGasModel = getGasModel
                   , _psMinerRewards = readRewards
                   , _psLocalRewindDepthLimit = RewindLimit 100
+                  , _psPreInsertCheckTimeout = defaultPreInsertCheckTimeout
                   , _psReorgLimit = RewindLimit 0
                   , _psOnFatalError = ferr
                   , _psVersion = ver

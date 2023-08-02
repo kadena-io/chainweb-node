@@ -78,6 +78,7 @@ module Chainweb.Pact.Types
   , psMinerRewards
   , psReorgLimit
   , psLocalRewindDepthLimit
+  , psPreInsertCheckTimeout
   , psOnFatalError
   , psVersion
   , psValidateHashesOnReplay
@@ -156,6 +157,7 @@ module Chainweb.Pact.Types
   , defaultModuleCacheLimit
   , catchesPactError
   , UnexpectedErrorPrinting(..)
+  , defaultPreInsertCheckTimeout
   ) where
 
 import Control.DeepSeq
@@ -406,6 +408,8 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psMinerRewards :: !MinerRewards
     , _psLocalRewindDepthLimit :: !RewindLimit
     -- ^ The limit of rewind's depth in the `execLocal` command.
+    , _psPreInsertCheckTimeout :: !Micros
+    -- ^ Maximum allowed execution time for the transactions validation.
     , _psReorgLimit :: !RewindLimit
     -- ^ The limit of checkpointer's rewind in the `execValidationBlock` command.
     , _psOnFatalError :: !(forall a. PactException -> Text -> IO a)
@@ -444,6 +448,9 @@ defaultReorgLimit = RewindLimit 480
 defaultLocalRewindDepthLimit :: RewindLimit
 defaultLocalRewindDepthLimit = RewindLimit 1000
 
+defaultPreInsertCheckTimeout :: Micros
+defaultPreInsertCheckTimeout = 1000000 -- 1 second
+
 -- | Default limit for the per chain size of the decoded module cache.
 --
 -- default limit: 60 MiB per chain
@@ -456,6 +463,7 @@ testPactServiceConfig :: PactServiceConfig
 testPactServiceConfig = PactServiceConfig
       { _pactReorgLimit = defaultReorgLimit
       , _pactLocalRewindDepthLimit = defaultLocalRewindDepthLimit
+      , _pactPreInsertCheckTimeout = defaultPreInsertCheckTimeout
       , _pactRevalidate = True
       , _pactQueueSize = 1000
       , _pactResetDb = True
