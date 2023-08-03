@@ -103,6 +103,7 @@ module Chainweb.Utils
 , encodeB64UrlNoPaddingText
 , b64UrlNoPaddingTextEncoding
 , decodeB64UrlNoPaddingText
+, decodeB64UrlNoPaddingTextWithFixedErrorMessage
 
 -- ** JSON
 , encodeToText
@@ -282,6 +283,8 @@ import System.Timeout
 
 import Text.Printf (printf)
 import Text.Read (readEither)
+
+import Pact.Types.Util (base64DowngradeErrorMessage)
 
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
@@ -612,7 +615,7 @@ encodeB64UrlText = T.decodeUtf8 . B64U.encode
 -- representation. A 'Base64DecodeException' is thrown if the input is not a
 -- valid base64-url without padding encoding.
 --
-decodeB64UrlNoPaddingText :: MonadThrow m => T.Text -> m B.ByteString
+decodeB64UrlNoPaddingText:: MonadThrow m => T.Text -> m B.ByteString
 decodeB64UrlNoPaddingText = fromEitherM
     . first (Base64DecodeException . T.pack)
     . B64U.decode
@@ -621,6 +624,17 @@ decodeB64UrlNoPaddingText = fromEitherM
   where
     pad t = let s = T.length t `mod` 4 in t <> T.replicate ((4 - s) `mod` 4) "="
 {-# INLINE decodeB64UrlNoPaddingText #-}
+
+decodeB64UrlNoPaddingTextWithFixedErrorMessage :: MonadThrow m => T.Text -> m B.ByteString
+decodeB64UrlNoPaddingTextWithFixedErrorMessage = fromEitherM
+    . first (Base64DecodeException . T.pack . base64DowngradeErrorMessage)
+    . B64U.decode
+    . T.encodeUtf8
+    . pad
+  where
+    pad t = let s = T.length t `mod` 4 in t <> T.replicate ((4 - s) `mod` 4) "="
+{-# INLINE decodeB64UrlNoPaddingTextWithFixedErrorMessage #-}
+
 
 -- | Encode a binary value to a textual base64-url without padding
 -- representation.

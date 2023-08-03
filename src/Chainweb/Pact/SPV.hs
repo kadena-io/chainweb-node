@@ -183,7 +183,7 @@ verifyCont
       -- ^ bytestring of 'TransactionOutputP roof' object to validate
     -> IO (Either Text PactExec)
 verifyCont bdb bh (ContProof cp) = runExceptT $ do
-    t <- liftIO $ decodeB64UrlNoPaddingText $ T.decodeUtf8 cp
+    t <- liftIO $ decodeB64UrlNoPaddingTextWithFixedErrorMessage $ T.decodeUtf8 cp
     case decodeStrict' t of
       Nothing -> forkedThrower bh "unable to decode continuation proof"
       Just u
