@@ -64,8 +64,7 @@ instance Exception ValidationException
 chainwebOpenApiSpec :: OpenApi
 chainwebOpenApiSpec = unsafePerformIO $ do
     mgr <- manager 10_000_000
-    --let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/main/chainweb.openapi.yaml"
-    let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/7abbc3c90b745970977354e3f7287eb6d8ff3312/chainweb.openapi.yaml"
+    let specUri = "https://raw.githubusercontent.com/kadena-io/chainweb-openapi/main/chainweb.openapi.yaml"
     Yaml.decodeThrow . BL.toStrict . HTTP.responseBody =<< HTTP.httpLbs (HTTP.parseRequest_ specUri) mgr
 
 {-# NOINLINE pactOpenApiSpec #-}
