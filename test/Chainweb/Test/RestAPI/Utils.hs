@@ -9,6 +9,9 @@ module Chainweb.Test.RestAPI.Utils
 
   -- * Utils
 , repeatUntil
+, clientErrorStatusCode
+, isFailureResponse
+, getStatusCode
 
   -- * Pact client DSL
 , PactTestFailure(..)
@@ -53,6 +56,7 @@ import Data.Text (Text)
 import Data.Maybe (fromJust)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
+import Network.HTTP.Types.Status (Status(..))
 
 import Rosetta
 
@@ -600,3 +604,19 @@ networkStatus cenv req =
     h _ = Handler $ \case
       NetworkStatusFailure _ -> return True
       _ -> return False
+
+clientErrorStatusCode :: ClientError -> Maybe Int
+clientErrorStatusCode = \case
+  FailureResponse _ resp -> Just $ getStatusCode resp
+  DecodeFailure _ resp -> Just $ getStatusCode resp
+  UnsupportedContentType _ resp -> Just $ getStatusCode resp
+  InvalidContentTypeHeader resp -> Just $ getStatusCode resp
+  ConnectionError _ -> Nothing
+
+isFailureResponse :: ClientError -> Bool
+isFailureResponse = \case
+  FailureResponse {} -> True
+  _ -> False
+
+getStatusCode :: ResponseF a -> Int
+getStatusCode resp = statusCode (responseStatusCode resp)
