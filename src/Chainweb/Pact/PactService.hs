@@ -155,7 +155,6 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout config
                     , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                     , _psVersion = ver
-                    , _psValidateHashesOnReplay = _pactRevalidate config
                     , _psAllowReadsInLocal = _pactAllowReadsInLocal config
                     , _psIsBatch = False
                     , _psCheckpointerDepth = 0

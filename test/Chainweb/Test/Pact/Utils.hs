@@ -631,7 +631,6 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
         , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout conf
         , _psOnFatalError = defaultOnFatalError mempty
         , _psVersion = v
-        , _psValidateHashesOnReplay = _pactRevalidate conf
         , _psAllowReadsInLocal = _pactAllowReadsInLocal conf
         , _psIsBatch = False
         , _psCheckpointerDepth = 0
