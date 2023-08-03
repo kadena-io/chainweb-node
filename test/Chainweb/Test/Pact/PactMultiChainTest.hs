@@ -62,7 +62,6 @@ import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Version.Utils
 import Chainweb.WebPactExecutionService
 
 import Chainweb.Storage.Table (casLookupM)
@@ -71,7 +70,8 @@ testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion peterson
 
 cid :: ChainId
-cid = someChainId testVersion
+cid = unsafeChainId 9
+    -- several tests in this file expect chain 9
 
 data MultiEnv = MultiEnv
     { _menvBdb :: !TestBlockDb
