@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -93,6 +94,7 @@ import Chainweb.Miner.Coordinator (MiningStats)
 import Chainweb.Pact.Backend.DbCache (DbCacheStats)
 import Chainweb.Pact.Service.PactQueue (PactQueueStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
+import Chainweb.Pact.Types(TxFailureLog)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
@@ -363,17 +365,24 @@ node conf logger = do
 
 withNodeLogger
     :: LogConfig
+    -> ChainwebConfiguration
     -> ChainwebVersion
     -> (L.Logger SomeLogMessage -> IO ())
     -> IO ()
-withNodeLogger logConfig v f = runManaged $ do
+withNodeLogger logCfg chainwebCfg v f = runManaged $ do
 
     -- This manager is used only for logging backends
     mgr <- liftIO HTTPS.newTlsManager
 
     -- Base Backend
     baseBackend <- managed
-        $ withBaseHandleBackend "ChainwebApp" mgr pkgInfoScopes (_logConfigBackend logConfig)
+        $ withBaseHandleBackend "ChainwebApp" mgr pkgInfoScopes (_logConfigBackend logCfg)
+
+    -- we don't log tx failures in replay
+    let !txFailureHandler =
+            if _configOnlySyncPact chainwebCfg
+            then dropLogHandler (Proxy :: Proxy TxFailureLog)
+            else passthroughLogHandler
 
     -- Telemetry Backends
     monitorBackend <- managed
@@ -415,8 +424,9 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @ChainwebStatus mgr teleLogConfig
 
     logger <- managed
-        $ L.withLogger (_logConfigLogger logConfig) $ logHandles
-            [ logFilterHandle (_logConfigFilter logConfig)
+        $ L.withLogger (_logConfigLogger logCfg) $ logHandles
+            [ logFilterHandle (_logConfigFilter logCfg)
+            , txFailureHandler
             , logHandler monitorBackend
             , logHandler p2pInfoBackend
             , logHandler rtsBackend
@@ -438,11 +448,11 @@ withNodeLogger logConfig v f = runManaged $ do
             ] baseBackend
 
     liftIO $ f
-        $ maybe id (\x -> addLabel ("cluster", toText x)) (_logConfigClusterId logConfig)
+        $ maybe id (\x -> addLabel ("cluster", toText x)) (_logConfigClusterId logCfg)
         $ addLabel ("chainwebVersion", sshow (_versionName v))
         $ logger
   where
-    teleLogConfig = _logConfigTelemetryBackend logConfig
+    teleLogConfig = _logConfigTelemetryBackend logCfg
 
 mkTelemetryLogger
     :: forall a b
@@ -538,7 +548,7 @@ main = do
         let v = _configChainwebVersion $ _nodeConfigChainweb conf
         registerVersion v
         hSetBuffering stderr LineBuffering
-        withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
+        withNodeLogger (_nodeConfigLog conf) (_nodeConfigChainweb conf) v $ \logger -> do
             logFunctionJson logger Info ProcessStarted
             handles
                 [ Handler $ \(e :: SomeAsyncException) ->

@@ -79,9 +79,9 @@ module Chainweb.Pact.Types
   , psMinerRewards
   , psReorgLimit
   , psLocalRewindDepthLimit
+  , psPreInsertCheckTimeout
   , psOnFatalError
   , psVersion
-  , psReplaying
   , psLogger
   , psGasLogger
   , psAllowReadsInLocal
@@ -147,6 +147,7 @@ module Chainweb.Pact.Types
     -- * types
   , TxTimeout(..)
   , ApplyCmdExecutionContext(..)
+  , TxFailureLog(..)
 
   -- * miscellaneous
   , defaultOnFatalError
@@ -157,6 +158,7 @@ module Chainweb.Pact.Types
   , defaultModuleCacheLimit
   , catchesPactError
   , UnexpectedErrorPrinting(..)
+  , defaultPreInsertCheckTimeout
   ) where
 
 import Control.DeepSeq
@@ -415,11 +417,12 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psMinerRewards :: !MinerRewards
     , _psLocalRewindDepthLimit :: !RewindLimit
     -- ^ The limit of rewind's depth in the `execLocal` command.
+    , _psPreInsertCheckTimeout :: !Micros
+    -- ^ Maximum allowed execution time for the transactions validation.
     , _psReorgLimit :: !RewindLimit
     -- ^ The limit of checkpointer's rewind in the `execValidationBlock` command.
     , _psOnFatalError :: !(forall a. PactException -> Text -> IO a)
     , _psVersion :: !ChainwebVersion
-    , _psReplaying :: !Bool
     , _psAllowReadsInLocal :: !Bool
     , _psLogger :: !logger
     , _psGasLogger :: !(Maybe logger)
@@ -453,6 +456,9 @@ defaultReorgLimit = RewindLimit 480
 defaultLocalRewindDepthLimit :: RewindLimit
 defaultLocalRewindDepthLimit = RewindLimit 1000
 
+defaultPreInsertCheckTimeout :: Micros
+defaultPreInsertCheckTimeout = 1000000 -- 1 second
+
 -- | Default limit for the per chain size of the decoded module cache.
 --
 -- default limit: 60 MiB per chain
@@ -465,6 +471,7 @@ testPactServiceConfig :: PactServiceConfig
 testPactServiceConfig = PactServiceConfig
       { _pactReorgLimit = defaultReorgLimit
       , _pactLocalRewindDepthLimit = defaultLocalRewindDepthLimit
+      , _pactPreInsertCheckTimeout = defaultPreInsertCheckTimeout
       , _pactQueueSize = 1000
       , _pactResetDb = True
       , _pactAllowReadsInLocal = False
@@ -492,6 +499,15 @@ instance Exception ReorgLimitExceeded where
 newtype TxTimeout = TxTimeout TransactionHash
     deriving Show
 instance Exception TxTimeout
+
+data TxFailureLog = TxFailureLog !RequestKey !PactError !Text
+  deriving stock (Generic)
+  deriving anyclass (NFData, Typeable)
+instance LogMessage TxFailureLog where
+  logText (TxFailureLog rk err msg) =
+    msg <> ": " <> sshow rk <> ": " <> sshow err
+instance Show TxFailureLog where
+  show m = unpack (logText m)
 
 defaultOnFatalError :: forall a. (LogLevel -> Text -> IO ()) -> PactException -> Text -> IO a
 defaultOnFatalError lf pex t = do

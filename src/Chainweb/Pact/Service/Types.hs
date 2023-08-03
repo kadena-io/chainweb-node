@@ -63,6 +63,7 @@ import Chainweb.Pact.Backend.DbCache
 import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
+import Chainweb.Time
 
 -- | Value that represents a limitation for rewinding.
 newtype RewindLimit = RewindLimit { _rewindLimit :: Word64 }
@@ -86,6 +87,8 @@ data PactServiceConfig = PactServiceConfig
     -- hardcodes this to 8 currently.
   , _pactLocalRewindDepthLimit :: !RewindLimit
     -- ^ Maximum allowed rewind depth in the local command.
+  , _pactPreInsertCheckTimeout :: !Micros
+    -- ^ Maximum allowed execution time for the transactions validation.
   , _pactAllowReadsInLocal :: !Bool
     -- ^ Allow direct database reads in local mode
   , _pactQueueSize :: !Natural

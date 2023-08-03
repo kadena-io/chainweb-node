@@ -608,7 +608,7 @@ rewindToIncremental rewindLimit (Just (ParentHeader parent)) = do
                     -- transactions (withBatchIO).
                     let playChunk :: IORef BlockHeight -> BlockHeader -> Stream (Of BlockHeader) IO r -> IO (Of BlockHeader r)
                         playChunk heightRef cur s = withBatchIO runPact $ \runPactLocal -> S.foldM
-                            (\c x -> x <$ (runPactLocal (local (psReplaying .~ True) $ fastForward (ParentHeader c, x)) >> writeIORef heightRef (_blockHeight c)))
+                            (\c x -> x <$ (runPactLocal (fastForward (ParentHeader c, x)) >> writeIORef heightRef (_blockHeight c)))
                             (return cur)
                             return
                             s

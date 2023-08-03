@@ -45,6 +45,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
+import Control.Monad.Primitive (PrimState)
 
 import Data.Default (def)
 import qualified Data.DList as DL
@@ -61,8 +62,12 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
+import Data.Primitive (Array)
+import Dyna (Vec)
+import Dyna qualified
 
 import System.IO
+import System.Timeout
 
 import Prelude hiding (lookup)
 
@@ -103,11 +108,6 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards
 import Utils.Logging.Trace
-
-import Dyna (Vec)
-import Dyna qualified
-import Control.Monad.Primitive (PrimState)
-import Data.Primitive (Array)
 
 runPactService
     :: Logger logger
@@ -152,9 +152,9 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psMinerRewards = rs
                     , _psReorgLimit = _pactReorgLimit config
                     , _psLocalRewindDepthLimit = _pactLocalRewindDepthLimit config
+                    , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout config
                     , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                     , _psVersion = ver
-                    , _psReplaying = False
                     , _psAllowReadsInLocal = _pactAllowReadsInLocal config
                     , _psIsBatch = False
                     , _psCheckpointerDepth = 0
@@ -832,7 +832,7 @@ execPreInsertCheckReq
     => Vector ChainwebTransaction
     -> PactServiceM logger tbl (Vector (Either Mempool.InsertError ChainwebTransaction))
 execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ withDiscardedBatch $ do
-    let requestKeys = V.map P._cmdHash txs
+    let requestKeys = V.map P.cmdToRequestKey txs
     logInfo $ "(request keys = " <> sshow requestKeys <> ")"
 
     parent <- use psParentHeader
@@ -845,8 +845,15 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ withDiscardedBat
     withCurrentCheckpointer "execPreInsertCheckReq" $ \pdb -> do
       let v = _chainwebVersion psEnv
           cid = _chainId psEnv
-      liftIO $ fmap Discard $
-        validateChainwebTxs logger v cid cp parentTime currHeight txs (runGas pdb psState psEnv)
+          timeoutLimit = fromIntegral $ (\(Micros n) -> n) $ _psPreInsertCheckTimeout psEnv
+          act = validateChainwebTxs logger v cid cp parentTime currHeight txs (runGas pdb psState psEnv)
+
+      fmap Discard $ liftIO $ timeout timeoutLimit act >>= \case
+        Just r -> pure r
+        Nothing -> do
+          logError_ logger $ "Mempool pre-insert check timed out for txs:\n" <> sshow txs
+          pure $ V.map (const $ Left Mempool.InsertErrorTimedOut) txs
+
   where
     runGas pdb pst penv ts =
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)
