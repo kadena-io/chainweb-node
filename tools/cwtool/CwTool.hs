@@ -19,6 +19,7 @@ import qualified SlowTests
 import qualified TxStream
 import qualified KnownGraphs
 import qualified TxSimulator
+import qualified CalculateRelease
 
 main :: IO ()
 main = do
@@ -98,6 +99,10 @@ topLevelCommands =
       "tx-sim"
       "Simulate tx execution against real pact dbs"
       TxSimulator.simulateMain
+  , CommandSpec
+      "calculate-release"
+      "Calculate next service date and block heights for upgrades"
+      CalculateRelease.main
   ]
 
 printHelp :: [CommandSpec] -> IO ()
