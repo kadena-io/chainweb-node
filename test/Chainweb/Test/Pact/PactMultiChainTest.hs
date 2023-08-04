@@ -254,7 +254,7 @@ pactLocalMaxGasLimitTest = do
 
   -- works fine, passes the max gas limit check
   runLocalWithDepth Nothing cid (getSender00Balance 700) >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the current balance" (pDecimal 100000000)
+    checkLocalResultLegacy r $ assertTxSuccess "Should get the current balance" (pDecimal 100000000)
 
   where
     getSender00Balance gl = set cbGasLimit gl $ mkCmd "nonce" $ mkExec' "(coin.get-balance \"sender00\")"
@@ -272,17 +272,17 @@ pactLocalDepthTest = do
     ]
 
   runLocalWithDepth (Just $ RewindDepth 0) cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the current balance" (pDecimal 99999997.6834)
+    checkLocalResultLegacy r $ assertTxSuccess "Should get the current balance" (pDecimal 99999997.6834)
 
   -- checking that `Just $ RewindDepth 0` has the same behaviour as `Nothing`
   runLocalWithDepth Nothing cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the current balance as well" (pDecimal 99999997.6834)
+    checkLocalResultLegacy r $ assertTxSuccess "Should get the current balance as well" (pDecimal 99999997.6834)
 
   runLocalWithDepth (Just $ RewindDepth 1) cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the balance one block before" (pDecimal 99999998.8417)
+    checkLocalResultLegacy r $ assertTxSuccess "Should get the balance one block before" (pDecimal 99999998.8417)
 
   runLocalWithDepth (Just $ RewindDepth 2) cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the balance two blocks before" (pDecimal 100000000)
+    checkLocalResultLegacy r $ assertTxSuccess "Should get the balance two blocks before" (pDecimal 100000000)
 
   -- the negative depth turns into 18446744073709551611 and we expect the `LocalRewindLimitExceeded` exception
   -- since `Depth` is a wrapper around `Word64`
@@ -296,7 +296,7 @@ pactLocalDepthTest = do
 
   -- the genesis depth
   runLocalWithDepth (Just $ RewindDepth 55) cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000)
+    checkLocalResultLegacy r $ assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000)
 
   -- depth that goes after the genesis block should trigger the `LocalRewindLimitExceeded` exception
   handle
@@ -1427,7 +1427,8 @@ cbResult = do
   liftIO $
     decodeStrictOrThrow @_ @(CommandResult Hash) (_coinbaseOutput $ _payloadWithOutputsCoinbase o)
 
-checkLocalResult :: Either PactException LocalResult -> (CommandResult Hash -> PactTestM ()) -> PactTestM ()
-checkLocalResult r checkResult = case r of
+-- | Expects 'LocalResultLegacy' and checks it result
+checkLocalResultLegacy :: Either PactException LocalResult -> (CommandResult Hash -> PactTestM ()) -> PactTestM ()
+checkLocalResultLegacy r checkResult = case r of
   Right (LocalResultLegacy cr) -> checkResult cr
   res -> liftIO $ assertFailure $ "Expected LocalResultLegacy, but got: " ++ show res
