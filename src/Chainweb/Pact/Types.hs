@@ -73,6 +73,7 @@ module Chainweb.Pact.Types
   , PactServiceEnv(..)
   , psMempoolAccess
   , psCheckpointer
+  , psReadCheckpointer
   , psPdb
   , psBlockHeaderDb
   , psGasModel
@@ -87,6 +88,7 @@ module Chainweb.Pact.Types
   , psAllowReadsInLocal
   , psIsBatch
   , psCheckpointerDepth
+  , psReadCheckpointerDepth
   , psBlockGasLimit
   , psChainId
 
@@ -411,6 +413,7 @@ data TxContext = TxContext
 data PactServiceEnv logger tbl = PactServiceEnv
     { _psMempoolAccess :: !(Maybe MemPoolAccess)
     , _psCheckpointer :: !(Checkpointer logger)
+    , _psReadCheckpointer :: !(Checkpointer logger)
     , _psPdb :: !(PayloadDb tbl)
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: !(TxContext -> GasModel)
@@ -437,6 +440,7 @@ data PactServiceEnv logger tbl = PactServiceEnv
         -- ^ True when within a `withBatch` or `withDiscardBatch` call.
     , _psCheckpointerDepth :: !Int
         -- ^ Number of nested checkpointer calls
+    , _psReadCheckpointerDepth :: !Int
     , _psBlockGasLimit :: !GasLimit
     , _psChainId :: !ChainId
     }

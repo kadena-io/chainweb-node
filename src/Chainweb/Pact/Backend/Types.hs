@@ -24,6 +24,7 @@
 -- Chainweb / Pact Types module for various database backends
 module Chainweb.Pact.Backend.Types
     ( Checkpointer(..)
+    , CheckpointerMode(..)
     , Env'(..)
     , EnvPersist'(..)
     , PactDbConfig(..)
@@ -287,6 +288,8 @@ newtype BlockHandler logger p a = BlockHandler
 newtype PactDbEnv' logger = PactDbEnv' (PactDbEnv (BlockEnv logger SQLiteEnv))
 
 type ParentHash = BlockHash
+
+data CheckpointerMode = ReadOnlyCheckpointer | ReadWriteCheckpointer
 
 data Checkpointer logger = Checkpointer
     {

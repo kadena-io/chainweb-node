@@ -162,6 +162,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                 pse = PactServiceEnv
                   { _psMempoolAccess = Nothing
                   , _psCheckpointer = cp
+                  , _psReadCheckpointer = cp
                   , _psPdb = paydb
                   , _psBlockHeaderDb = bdb
                   , _psGasModel = getGasModel
@@ -176,6 +177,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                   , _psGasLogger = gasLogger
                   , _psIsBatch = False
                   , _psCheckpointerDepth = 1
+                  , _psReadCheckpointerDepth = 0
                   , _psBlockGasLimit = testBlockGasLimit
                   , _psChainId = cid
                   }

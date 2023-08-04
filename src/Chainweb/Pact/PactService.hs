@@ -90,7 +90,7 @@ import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpointer)
+import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpointer, withProdRelationalReadCheckpointer)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.PactService.Checkpointer
@@ -141,11 +141,13 @@ withPactService
     -> IO (T2 a PactServiceState)
 withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
     withProdRelationalCheckpointer checkpointerLogger initialBlockState sqlenv ver cid $ \checkpointer -> do
+    withProdRelationalReadCheckpointer checkpointerLogger initialBlockState sqlenv ver cid $ \readCheckpointer -> do
         let !rs = readRewards
             !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
             !pse = PactServiceEnv
                     { _psMempoolAccess = Nothing
                     , _psCheckpointer = checkpointer
+                    , _psReadCheckpointer = readCheckpointer
                     , _psPdb = pdb
                     , _psBlockHeaderDb = bhDb
                     , _psGasModel = getGasModel
@@ -158,6 +160,7 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psAllowReadsInLocal = _pactAllowReadsInLocal config
                     , _psIsBatch = False
                     , _psCheckpointerDepth = 0
+                    , _psReadCheckpointerDepth = 0
                     , _psLogger = pactServiceLogger
                     , _psGasLogger = gasLogger <$ guard (_pactLogGas config)
                     , _psBlockGasLimit = _pactBlockGasLimit config

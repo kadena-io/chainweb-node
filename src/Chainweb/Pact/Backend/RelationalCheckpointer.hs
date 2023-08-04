@@ -16,7 +16,9 @@
 module Chainweb.Pact.Backend.RelationalCheckpointer
   ( initRelationalCheckpointer
   , initRelationalCheckpointer'
+  , initRelationalReadCheckpointer'
   , withProdRelationalCheckpointer
+  , withProdRelationalReadCheckpointer
   ) where
 
 import Control.Concurrent (threadDelay)
@@ -72,6 +74,8 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Guards
 
+import Debug.Trace (traceShowM)
+
 initRelationalCheckpointer
     :: (Logger logger)
     => BlockState
@@ -105,7 +109,38 @@ withProdRelationalCheckpointer logger bstate sqlenv v cid inner = do
         logFunctionJson logger Info stats
         threadDelay 60_000_000 {- 1 minute -}
 
--- for testing
+withProdRelationalReadCheckpointer
+    :: (Logger logger)
+    => logger
+    -> BlockState
+    -> SQLiteEnv
+    -> ChainwebVersion
+    -> ChainId
+    -> (Checkpointer logger -> IO a)
+    -> IO a
+withProdRelationalReadCheckpointer logger bstate sqlenv v cid inner = do
+    (dbenv, cp) <- initRelationalCheckpointer' bstate sqlenv logger v cid
+    withAsync (logModuleCacheStats dbenv) $ \_ -> inner cp
+  where
+    logFun = logFunctionText logger
+    logModuleCacheStats e = runForever logFun "ModuleCacheStats" $ do
+        stats <- modifyMVar (pdPactDbVar e) $ \db -> do
+            let (s, !mc') = updateCacheStats $ _bsModuleCache $ _benvBlockState db
+                !db' = set (benvBlockState . bsModuleCache) mc' db
+            return (db', s)
+        logFunctionJson logger Info stats
+        threadDelay 60_000_000 {- 1 minute -}
+
+initRelationalReadCheckpointer'
+    :: (Logger logger)
+    => BlockState
+    -> SQLiteEnv
+    -> logger
+    -> ChainwebVersion
+    -> ChainId
+    -> IO (PactDbEnv (BlockEnv logger SQLiteEnv), Checkpointer logger)
+initRelationalReadCheckpointer' = initRelationalCheckpointer'' ReadOnlyCheckpointer
+
 initRelationalCheckpointer'
     :: (Logger logger)
     => BlockState
@@ -114,26 +149,51 @@ initRelationalCheckpointer'
     -> ChainwebVersion
     -> ChainId
     -> IO (PactDbEnv (BlockEnv logger SQLiteEnv), Checkpointer logger)
-initRelationalCheckpointer' bstate sqlenv loggr v cid = do
+initRelationalCheckpointer' = initRelationalCheckpointer'' ReadWriteCheckpointer
+
+-- for testing
+initRelationalCheckpointer''
+    :: (Logger logger)
+    => CheckpointerMode
+    -> BlockState
+    -> SQLiteEnv
+    -> logger
+    -> ChainwebVersion
+    -> ChainId
+    -> IO (PactDbEnv (BlockEnv logger SQLiteEnv), Checkpointer logger)
+initRelationalCheckpointer'' _ bstate sqlenv loggr v cid = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
     runBlockEnv db initSchema
     let pactDbEnv = PactDbEnv chainwebPactDb db
     let checkpointer = Checkpointer
           {
-            _cpRestore = doRestore v cid db
-          , _cpSave = doSave db
-          , _cpDiscard = doDiscard db
-          , _cpGetLatestBlock = doGetLatest db
-          , _cpBeginCheckpointerBatch = doBeginBatch db
-          , _cpCommitCheckpointerBatch = doCommitBatch db
-          , _cpDiscardCheckpointerBatch = doDiscardBatch db
-          , _cpLookupBlockInCheckpointer = doLookupBlock db
-          , _cpGetBlockParent = doGetBlockParent v cid db
-          , _cpRegisterProcessedTx = doRegisterSuccessful db
-          , _cpLookupProcessedTx = doLookupSuccessful db
-          , _cpGetBlockHistory = doGetBlockHistory db
-          , _cpGetHistoricalLookup = doGetHistoricalLookup db
+            _cpRestore = traceShowM ("_cpRestore!!!!!!!!!!!" :: String) >>
+                     doRestore v cid db
+          , _cpSave = traceShowM ("_cpSave!!!!!!!!!!!" :: String) >>
+                   doSave db
+          , _cpDiscard = -- traceShowM ("_cpDiscard" :: String) >> -- called
+                   doDiscard db
+          , _cpGetLatestBlock = -- traceShowM ("_cpGetLatestBlock" :: String) >> -- called
+                   doGetLatest db
+          , _cpBeginCheckpointerBatch = -- traceShowM ("_cpBeginCheckpointerBatch" :: String) >> -- called
+                   doBeginBatch db
+          , _cpCommitCheckpointerBatch = -- traceShowM ("_cpCommitCheckpointerBatch" :: String) >> -- called
+                   doCommitBatch db
+          , _cpDiscardCheckpointerBatch = -- traceShowM ("_cpDiscardCheckpointerBatch" :: String) >> -- called
+                   doDiscardBatch db
+          , _cpLookupBlockInCheckpointer = traceShowM ("_cpLookupBlockInCheckpointer!!!!!!!!!!!" :: String) >>
+                   doLookupBlock db
+          , _cpGetBlockParent = traceShowM ("_cpGetBlockParent!!!!!!!!!!!" :: String) >>
+                   doGetBlockParent v cid db
+          , _cpRegisterProcessedTx = traceShowM ("_cpRegisterProcessedTx!!!!!!!!!!!" :: String) >>
+                   doRegisterSuccessful db
+          , _cpLookupProcessedTx = traceShowM ("_cpLookupProcessedTx!!!!!!!!!!!" :: String) >>
+                   doLookupSuccessful db
+          , _cpGetBlockHistory = traceShowM ("_cpGetBlockHistory!!!!!!!!!!!" :: String) >>
+                   doGetBlockHistory db
+          , _cpGetHistoricalLookup = traceShowM ("_cpGetHistoricalLookup!!!!!!!!!!!" :: String) >>
+                   doGetHistoricalLookup db
           , _cpLogger = loggr
           }
     return (pactDbEnv, checkpointer)
