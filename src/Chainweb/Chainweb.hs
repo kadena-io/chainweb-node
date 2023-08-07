@@ -664,10 +664,10 @@ runChainweb cw = do
         -- 1. Start serving Rest API
         [ (if tls then serve else servePlain)
             $ httpLog
+            . p2pRequestSizeLimit
             . throttle (_chainwebPutPeerThrottler cw)
             . throttle (_chainwebMempoolThrottler cw)
             . throttle (_chainwebThrottler cw)
-            . p2pRequestSizeLimit
             . p2pValidationMiddleware
 
         -- 2. Start Clients (with a delay of 500ms)

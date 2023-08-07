@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -20,7 +21,9 @@ module Chainweb.RestAPI.Config
 , someGetConfigServer
 ) where
 
+import Control.Concurrent
 import Control.Lens
+import Control.Monad.IO.Class
 
 import Data.Proxy
 
@@ -44,22 +47,24 @@ someGetConfigApi :: SomeApi
 someGetConfigApi = SomeApi (Proxy @GetConfigApi)
 
 someGetConfigServer :: ChainwebConfiguration -> SomeServer
-someGetConfigServer config = SomeServer (Proxy @GetConfigApi) $ return
-    -- hide sensible information
+someGetConfigServer config = SomeServer (Proxy @GetConfigApi) $ do
+    liftIO $ threadDelay 1_000_000
+    return
+        -- hide sensible information
 
-    -- SSL certificates
-    $ set (configP2p . p2pConfigPeer . peerConfigCertificateChain) Nothing
-    $ set (configP2p . p2pConfigPeer . peerConfigCertificateChainFile) Nothing
-    $ set (configP2p . p2pConfigPeer . peerConfigKey) Nothing
-    $ set (configP2p . p2pConfigPeer . peerConfigKeyFile) Nothing
+        -- SSL certificates
+        $ set (configP2p . p2pConfigPeer . peerConfigCertificateChain) Nothing
+        $ set (configP2p . p2pConfigPeer . peerConfigCertificateChainFile) Nothing
+        $ set (configP2p . p2pConfigPeer . peerConfigKey) Nothing
+        $ set (configP2p . p2pConfigPeer . peerConfigKeyFile) Nothing
 
-    -- Miner Info
-    $ set (configMining . miningCoordination . coordinationMiners) mempty
-    $ set (configMining . miningInNode . nodeMiner) invalidMiner
+        -- Miner Info
+        $ set (configMining . miningCoordination . coordinationMiners) mempty
+        $ set (configMining . miningInNode . nodeMiner) invalidMiner
 
-    -- Service API port
-    $ set (configServiceApi . serviceApiConfigPort) 0
-    $ set (configServiceApi . serviceApiConfigInterface) "invalid"
-    $ set configBackup defaultBackupConfig
-    config
+        -- Service API port
+        $ set (configServiceApi . serviceApiConfigPort) 0
+        $ set (configServiceApi . serviceApiConfigInterface) "invalid"
+        $ set configBackup defaultBackupConfig
+        config
 
