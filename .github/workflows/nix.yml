@@ -17,11 +17,6 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
-    - name: testing gh runner mac config 
-      if: ${{ contains(matrix.os,'mac') }}
-      run: |
-          diskutil list
-
     - name: Set up Nix with caching
       uses: kadena-io/setup-nix-with-cache@v2
       with:
@@ -29,7 +24,7 @@ jobs:
         signing_private_key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
 
     - name: Set up AWS credentials
-      uses: aws-actions/configure-aws-credentials@v2
+      uses: aws-actions/configure-aws-credentials@fixing-m1-mac
       with:
         aws-access-key-id: ${{ secrets.NIX_CACHE_AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.NIX_CACHE_AWS_SECRET_ACCESS_KEY }}
