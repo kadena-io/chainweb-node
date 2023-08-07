@@ -225,7 +225,11 @@ withCheckpointerWithoutRewind' checkpointerMode target caller act = do
         Just h -> setParentHeader (caller <> ".withCheckpointerWithoutRewind") h
         Nothing -> return ()
 
-    local (over psCheckpointerDepth succ) $ mask $ \restore -> do
+    let
+        cpdepth = case checkpointerMode of
+            ReadWriteCheckpointer -> psCheckpointerDepth
+            ReadOnlyCheckpointer -> psReadCheckpointerDepth
+    local (over cpdepth succ) $ mask $ \restore -> do
         cenv <- restore $ liftIO $! _cpRestore checkPointer checkpointerTarget
 
         try (restore (act cenv)) >>= \case

@@ -84,10 +84,10 @@ main = do
             defaultMainWithIngredients (consoleAndJsonReporter : defaultIngredients)
                 $ adjustOption adj
                 $ testGroup "Chainweb Tests" . schedule Sequential
-                $ [pactTestSuite rdb]
-                -- : mempoolTestSuite db h0
-                -- : rosettaTestSuite rdb
-                -- : suite rdb
+                $ pactTestSuite rdb
+                : mempoolTestSuite db h0
+                : rosettaTestSuite rdb
+                : suite rdb
   where
     adj NoTimeout = Timeout (1_000_000 * 60 * 10) "10m"
     adj x = x

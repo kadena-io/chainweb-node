@@ -69,6 +69,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Backend.DbCache (updateCacheStats)
 import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types (logError_)
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
@@ -166,30 +167,24 @@ initRelationalCheckpointer'' cpm bstate sqlenv loggr v cid = do
     db <- newMVar (BlockEnv dbenv bstate)
     runBlockEnv db initSchema
     let pactDbEnv = PactDbEnv chainwebPactDb db
-    let wrapReadOnlyMethod (name :: String) act = case cpm of
-          ReadWriteCheckpointer -> traceShowM (name <> " IS CALLED") >> act
-          ReadOnlyCheckpointer -> traceShowM (name <> " is not available in read-only mode") >> error $ name <> " is not available in read-only mode"
-          --traceShowM (name <> " IS CALLED") >> act --
+    let wrapReadOnlyMethod (name :: T.Text) act = case cpm of
+          ReadWriteCheckpointer -> act
+          ReadOnlyCheckpointer -> logError_ loggr $ name <> " is not available in read-only mode"
     let checkpointer = Checkpointer
           {
-            _cpRestore = wrapReadOnlyMethod "_cpRestore" $ doRestore v cid db
-          , _cpSave = wrapReadOnlyMethod "_cpSave" $ doSave db
-          , _cpDiscard = -- traceShowM ("_cpDiscard" :: String) >> -- called
-                   doDiscard db
-          , _cpGetLatestBlock = -- traceShowM ("_cpGetLatestBlock" :: String) >> -- called
-                   doGetLatest db
-          , _cpBeginCheckpointerBatch = -- traceShowM ("_cpBeginCheckpointerBatch" :: String) >> -- called
-                   doBeginBatch db
-          , _cpCommitCheckpointerBatch = -- traceShowM ("_cpCommitCheckpointerBatch" :: String) >> -- called
-                   doCommitBatch db
-          , _cpDiscardCheckpointerBatch = -- traceShowM ("_cpDiscardCheckpointerBatch" :: String) >> -- called
-                   doDiscardBatch db
-          , _cpLookupBlockInCheckpointer = wrapReadOnlyMethod "_cpLookupBlockInCheckpointer" $ doLookupBlock db
-          , _cpGetBlockParent = wrapReadOnlyMethod "_cpGetBlockParent" $ doGetBlockParent v cid db
-          , _cpRegisterProcessedTx = wrapReadOnlyMethod "_cpRegisterProcessedTx" $ doRegisterSuccessful db
-          , _cpLookupProcessedTx = wrapReadOnlyMethod "_cpLookupProcessedTx" $ doLookupSuccessful db
-          , _cpGetBlockHistory = wrapReadOnlyMethod "_cpGetBlockHistory" $ doGetBlockHistory db
-          , _cpGetHistoricalLookup = wrapReadOnlyMethod "_cpGetHistoricalLookup" $ doGetHistoricalLookup db
+            _cpRestore = doRestore v cid db
+          , _cpSave = \s -> wrapReadOnlyMethod "_cpSave" $ doSave db s
+          , _cpDiscard = doDiscard db
+          , _cpGetLatestBlock = doGetLatest db
+          , _cpBeginCheckpointerBatch = doBeginBatch db
+          , _cpCommitCheckpointerBatch = wrapReadOnlyMethod "_cpCommitCheckpointerBatch" $ doCommitBatch db
+          , _cpDiscardCheckpointerBatch = doDiscardBatch db
+          , _cpLookupBlockInCheckpointer = doLookupBlock db
+          , _cpGetBlockParent = doGetBlockParent v cid db
+          , _cpRegisterProcessedTx = doRegisterSuccessful db
+          , _cpLookupProcessedTx = doLookupSuccessful db
+          , _cpGetBlockHistory = doGetBlockHistory db
+          , _cpGetHistoricalLookup = doGetHistoricalLookup db
           , _cpLogger = loggr
           }
     return (pactDbEnv, checkpointer)
