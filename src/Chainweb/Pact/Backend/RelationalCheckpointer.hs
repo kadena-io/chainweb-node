@@ -3,7 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TupleSections,ScopedTypeVariables #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.RelationalCheckpointer
@@ -119,7 +119,7 @@ withProdRelationalReadCheckpointer
     -> (Checkpointer logger -> IO a)
     -> IO a
 withProdRelationalReadCheckpointer logger bstate sqlenv v cid inner = do
-    (dbenv, cp) <- initRelationalCheckpointer' bstate sqlenv logger v cid
+    (dbenv, cp) <- initRelationalReadCheckpointer' bstate sqlenv logger v cid
     withAsync (logModuleCacheStats dbenv) $ \_ -> inner cp
   where
     logFun = logFunctionText logger
@@ -161,17 +161,19 @@ initRelationalCheckpointer''
     -> ChainwebVersion
     -> ChainId
     -> IO (PactDbEnv (BlockEnv logger SQLiteEnv), Checkpointer logger)
-initRelationalCheckpointer'' _ bstate sqlenv loggr v cid = do
+initRelationalCheckpointer'' cpm bstate sqlenv loggr v cid = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
     runBlockEnv db initSchema
     let pactDbEnv = PactDbEnv chainwebPactDb db
+    let wrapReadOnlyMethod (name :: String) act = case cpm of
+          ReadWriteCheckpointer -> traceShowM (name <> " IS CALLED") >> act
+          ReadOnlyCheckpointer -> traceShowM (name <> " is not available in read-only mode") >> error $ name <> " is not available in read-only mode"
+          --traceShowM (name <> " IS CALLED") >> act --
     let checkpointer = Checkpointer
           {
-            _cpRestore = traceShowM ("_cpRestore!!!!!!!!!!!" :: String) >>
-                     doRestore v cid db
-          , _cpSave = traceShowM ("_cpSave!!!!!!!!!!!" :: String) >>
-                   doSave db
+            _cpRestore = wrapReadOnlyMethod "_cpRestore" $ doRestore v cid db
+          , _cpSave = wrapReadOnlyMethod "_cpSave" $ doSave db
           , _cpDiscard = -- traceShowM ("_cpDiscard" :: String) >> -- called
                    doDiscard db
           , _cpGetLatestBlock = -- traceShowM ("_cpGetLatestBlock" :: String) >> -- called
@@ -182,18 +184,12 @@ initRelationalCheckpointer'' _ bstate sqlenv loggr v cid = do
                    doCommitBatch db
           , _cpDiscardCheckpointerBatch = -- traceShowM ("_cpDiscardCheckpointerBatch" :: String) >> -- called
                    doDiscardBatch db
-          , _cpLookupBlockInCheckpointer = traceShowM ("_cpLookupBlockInCheckpointer!!!!!!!!!!!" :: String) >>
-                   doLookupBlock db
-          , _cpGetBlockParent = traceShowM ("_cpGetBlockParent!!!!!!!!!!!" :: String) >>
-                   doGetBlockParent v cid db
-          , _cpRegisterProcessedTx = traceShowM ("_cpRegisterProcessedTx!!!!!!!!!!!" :: String) >>
-                   doRegisterSuccessful db
-          , _cpLookupProcessedTx = traceShowM ("_cpLookupProcessedTx!!!!!!!!!!!" :: String) >>
-                   doLookupSuccessful db
-          , _cpGetBlockHistory = traceShowM ("_cpGetBlockHistory!!!!!!!!!!!" :: String) >>
-                   doGetBlockHistory db
-          , _cpGetHistoricalLookup = traceShowM ("_cpGetHistoricalLookup!!!!!!!!!!!" :: String) >>
-                   doGetHistoricalLookup db
+          , _cpLookupBlockInCheckpointer = wrapReadOnlyMethod "_cpLookupBlockInCheckpointer" $ doLookupBlock db
+          , _cpGetBlockParent = wrapReadOnlyMethod "_cpGetBlockParent" $ doGetBlockParent v cid db
+          , _cpRegisterProcessedTx = wrapReadOnlyMethod "_cpRegisterProcessedTx" $ doRegisterSuccessful db
+          , _cpLookupProcessedTx = wrapReadOnlyMethod "_cpLookupProcessedTx" $ doLookupSuccessful db
+          , _cpGetBlockHistory = wrapReadOnlyMethod "_cpGetBlockHistory" $ doGetBlockHistory db
+          , _cpGetHistoricalLookup = wrapReadOnlyMethod "_cpGetHistoricalLookup" $ doGetHistoricalLookup db
           , _cpLogger = loggr
           }
     return (pactDbEnv, checkpointer)

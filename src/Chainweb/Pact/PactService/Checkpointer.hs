@@ -54,6 +54,7 @@ module Chainweb.Pact.PactService.Checkpointer
     -- subsequent evaluation are performed the same context as the current one.
     --
     , withCheckpointerRewind
+    , withReadCheckpointerRewind
     , withCurrentCheckpointer
     , WithCheckpointerResult(..)
 
@@ -192,8 +193,21 @@ withCheckpointerWithoutRewind
         -- ^ Putative caller
     -> (PactDbEnv' logger -> PactServiceM logger tbl (WithCheckpointerResult a))
     -> PactServiceM logger tbl a
-withCheckpointerWithoutRewind target caller act = do
-    checkPointer <- getCheckpointer
+withCheckpointerWithoutRewind = withCheckpointerWithoutRewind' ReadWriteCheckpointer
+
+withCheckpointerWithoutRewind'
+    :: (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
+    => CheckpointerMode
+    -> Maybe ParentHeader
+        -- ^ block height and hash of the parent header
+    -> Text
+        -- ^ Putative caller
+    -> (PactDbEnv' logger -> PactServiceM logger tbl (WithCheckpointerResult a))
+    -> PactServiceM logger tbl a
+withCheckpointerWithoutRewind' checkpointerMode target caller act = do
+    checkPointer <- case checkpointerMode of
+        ReadWriteCheckpointer -> getCheckpointer
+        ReadOnlyCheckpointer -> getReadCheckpointer
     logDebug $ "restoring (with caller " <> caller <> ") " <> sshow target
 
     -- check requirement that this must be called within a batch
@@ -201,7 +215,10 @@ withCheckpointerWithoutRewind target caller act = do
         error $ "Code invariant violation: withCheckpointerRewind called by " <> T.unpack caller <> " outside of batch. Please report this as a bug."
     -- we allow exactly one nested call of 'withCheckpointer', which is used
     -- during fastforward in 'rewindTo'.
-    unlessM ((<= 1) <$> asks _psCheckpointerDepth) $ do
+    let cpDepth = case checkpointerMode of
+            ReadWriteCheckpointer -> _psCheckpointerDepth
+            ReadOnlyCheckpointer -> _psReadCheckpointerDepth
+    unlessM ((<= 1) <$> asks cpDepth) $ do
         error $ "Code invariant violation: to many nested calls of withCheckpointerRewind. Please report this as a bug."
 
     case target of
@@ -271,6 +288,25 @@ withCheckpointerRewind rewindLimit p caller act = do
         -- This updates '_psParentHeader'
     withCheckpointerWithoutRewind p caller act
 
+withReadCheckpointerRewind
+    :: (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
+    => Maybe RewindLimit
+        -- ^ if set, limit rewinds to this delta
+    -> Maybe ParentHeader
+        -- ^ The parent header to which the checkpointer is restored
+        --
+        -- 'Nothing' restores the checkpointer for evaluating the genesis block.
+        --
+    -> Text
+    -> (PactDbEnv' logger -> PactServiceM logger tbl (WithCheckpointerResult a))
+    -> PactServiceM logger tbl a
+withReadCheckpointerRewind rewindLimit p caller act = do
+    tracePactServiceM "withCheckpointerRewind.rewindTo" (_parentHeader <$> p) 0 $
+        rewindTo' ReadOnlyCheckpointer rewindLimit p
+        -- This updates '_psParentHeader'
+    withCheckpointerWithoutRewind' ReadOnlyCheckpointer p caller act
+
+
 -- | Run a batch of checkpointer operations, possibly involving the evaluation
 -- transactions accross several blocks using more than a single call of
 -- 'withCheckPointerRewind' or 'withCurrentCheckpointer', and persist the final
@@ -338,11 +374,25 @@ rewindTo
     -> Maybe ParentHeader
         -- ^ The parent header which is the rewind target
     -> PactServiceM logger tbl ()
-rewindTo _ Nothing = return ()
-rewindTo rewindLimit (Just (ParentHeader parent)) = do
+rewindTo = rewindTo' ReadWriteCheckpointer
+
+rewindTo'
+    :: forall logger tbl
+    . (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
+    => CheckpointerMode
+    -> Maybe RewindLimit
+        -- ^ if set, limit rewinds to this delta
+    -> Maybe ParentHeader
+        -- ^ The parent header which is the rewind target
+    -> PactServiceM logger tbl ()
+rewindTo' _ _ Nothing = return ()
+rewindTo' checkpointerMode rewindLimit (Just (ParentHeader parent)) = do
+    let getCheckpointer' = case checkpointerMode of
+            ReadWriteCheckpointer -> getCheckpointer
+            ReadOnlyCheckpointer -> getReadCheckpointer
 
     -- skip if the checkpointer is already at the target.
-    (_, lastHash) <- getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
+    (_, lastHash) <- getCheckpointer' >>= liftIO . _cpGetLatestBlock >>= \case
         Nothing -> throwM NoBlockValidatedYet
         Just p -> return p
 

@@ -289,7 +289,7 @@ newtype PactDbEnv' logger = PactDbEnv' (PactDbEnv (BlockEnv logger SQLiteEnv))
 
 type ParentHash = BlockHash
 
-data CheckpointerMode = ReadOnlyCheckpointer | ReadWriteCheckpointer
+data CheckpointerMode = ReadOnlyCheckpointer | ReadWriteCheckpointer deriving Show
 
 data Checkpointer logger = Checkpointer
     {

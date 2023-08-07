@@ -93,6 +93,7 @@ module Chainweb.Pact.Types
   , psChainId
 
   , getCheckpointer
+  , getReadCheckpointer
 
     -- * TxContext
   , TxContext(..)
@@ -675,6 +676,9 @@ execPactServiceM st env act
 
 getCheckpointer :: PactServiceM logger tbl (Checkpointer logger)
 getCheckpointer = view psCheckpointer
+
+getReadCheckpointer :: PactServiceM logger tbl (Checkpointer logger)
+getReadCheckpointer = view psReadCheckpointer
 
 -- -------------------------------------------------------------------------- --
 -- Pact Logger

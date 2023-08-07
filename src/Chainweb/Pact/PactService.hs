@@ -705,7 +705,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ withDiscarde
 
     -- In this case the rewind limit is the same as rewind depth
     let rewindLimit = RewindLimit $ _rewindDepth rewindDepth
-    withCheckpointerRewind (Just rewindLimit) (Just rewindHeader) "execLocal" $
+    withReadCheckpointerRewind (Just rewindLimit) (Just rewindHeader) "execLocal" $
       \(PactDbEnv' pdbenv) -> do
 
         let ctx = TxContext rewindHeader pm
