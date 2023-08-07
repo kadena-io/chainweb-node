@@ -112,7 +112,7 @@ import Control.Monad.Catch (fromException, throwM)
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
-import Data.List (isPrefixOf, sortBy)
+import Data.List (isPrefixOf, sortBy, unfoldr)
 import qualified Data.List as L
 import Data.Maybe
 import qualified Data.Text as T
@@ -317,10 +317,18 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
         -> IO (V.Vector (Either (T2 Mempool.TransactionHash Mempool.InsertError)
                                 (T2 Mempool.TransactionHash ChainwebTransaction)))
     preInsertBatch txs = do
-        pex <- readMVar mv
-        rs <- _pactPreInsertCheck pex cid (V.map ssnd txs) >>= either throwM pure
-        pure $ alignWithV f rs txs
+        -- we avoid sending too many txs in a single batch to avoid occupying
+        -- the Pact service for too long
+        let batchSize = 50
+        chunks <- forM (chunksOf batchSize txs) $ \chunk -> do
+            pex <- readMVar mv
+            _pactPreInsertCheck pex cid (V.map ssnd chunk) >>= either throwM pure
+        pure $ alignWithV f (V.concat chunks) txs
       where
+        chunksOf :: Int -> V.Vector a -> [V.Vector a]
+        chunksOf i = unfoldr go
+          where
+          go xs = V.splitAt i xs <$ guard (not (V.null xs))
         f (These r (T2 h t)) = case r of
                                  Left e -> Left (T2 h e)
                                  Right _ -> Right (T2 h t)
