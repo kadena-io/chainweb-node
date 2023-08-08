@@ -56,6 +56,7 @@ module Chainweb.Pact.PactService.Checkpointer
     , withCheckpointerRewind
     , withReadCheckpointerRewind
     , withCurrentCheckpointer
+    , withReadCurrentCheckpointer
     , WithCheckpointerResult(..)
 
     -- * Low Level Pact Service Checkpointer Tools
@@ -264,6 +265,17 @@ withCurrentCheckpointer caller act = do
         -- discover the header for the latest block that is stored in the
         -- checkpointer.
     withCheckpointerRewind (Just $ RewindLimit 0) (Just ph) caller act
+
+withReadCurrentCheckpointer
+    :: (CanReadablePayloadCas tbl, Logger logger)
+    => Text
+    -> (PactDbEnv' logger -> PactServiceM logger tbl (WithCheckpointerResult a))
+    -> PactServiceM logger tbl a
+withReadCurrentCheckpointer caller act = do
+    ph <- syncParentHeader "withReadCurrentCheckpointer"
+        -- discover the header for the latest block that is stored in the
+        -- checkpointer.
+    withReadCheckpointerRewind (Just $ RewindLimit 0) (Just ph) caller act
 
 -- | Execute an action in the context of an @Block@ that is provided by the
 -- checkpointer. The checkpointer is rewinded and restored to the state to the

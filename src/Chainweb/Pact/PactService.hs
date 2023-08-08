@@ -845,7 +845,7 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ withDiscardedBat
     let parentTime = ParentCreationTime $ _blockCreationTime $ _parentHeader parent
     cp <- getCheckpointer
     logger <- view psLogger
-    withCurrentCheckpointer "execPreInsertCheckReq" $ \pdb -> do
+    withReadCurrentCheckpointer "execPreInsertCheckReq" $ \pdb -> do
       let v = _chainwebVersion psEnv
           cid = _chainId psEnv
           timeoutLimit = fromIntegral $ (\(Micros n) -> n) $ _psPreInsertCheckTimeout psEnv
