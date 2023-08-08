@@ -870,11 +870,11 @@ execLookupPactTxs
 execLookupPactTxs restorePoint confDepth txs = pactLabel "execLookupPactTxs" $ do
   if V.null txs then return mempty else go
   where
-    go = getCheckpointer >>= \(!cp) -> case restorePoint of
+    go = getReadCheckpointer >>= \(!cp) -> case restorePoint of
       NoRewind _ ->
         liftIO $! _cpLookupProcessedTx cp confDepth txs
       DoRewind parent -> withDiscardedBatch $ do
-        withCheckpointerRewind Nothing (Just $ ParentHeader parent) "lookupPactTxs" $ \_ ->
+        withReadCheckpointerRewind Nothing (Just $ ParentHeader parent) "lookupPactTxs" $ \_ ->
           liftIO $ Discard <$> _cpLookupProcessedTx cp confDepth txs
 
 -- | Modified table gas module with free module loads
