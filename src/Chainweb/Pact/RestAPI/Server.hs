@@ -463,7 +463,7 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
         toErr $ "SPV verification failed: " <> _spvExceptionMsg e
       Left e ->
         toErr $ "Internal error: SPV verification failed: " <> _spvExceptionMsg e
-      Right q -> return q
+      Right q -> return $! b64 q
 
   where
     pe = _webPactExecutionService $ view CutDB.cutDbPactService cdb
