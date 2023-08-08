@@ -483,7 +483,7 @@ execNewBlock
 execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
     updateMempool
     withDiscardedBatch $ do
-      withCheckpointerRewind newblockRewindLimit (Just parent) "execNewBlock" doNewBlock
+      withReadCheckpointerRewind newblockRewindLimit (Just parent) "execNewBlock" doNewBlock
   where
     handleTimeout :: TxTimeout -> PactServiceM logger cas a
     handleTimeout (TxTimeout h) = do
@@ -498,7 +498,7 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
 
     getBlockTxs :: BlockFill -> PactServiceM logger tbl (Vector ChainwebTransaction)
     getBlockTxs bfState = do
-      cp <- getCheckpointer
+      cp <- getReadCheckpointer
       psEnv <- ask
       logger <- view psLogger
       let validate bhi _bha txs = do
