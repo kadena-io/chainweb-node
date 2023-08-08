@@ -817,7 +817,7 @@ execBlockTxHistory
     -> P.Domain P.RowKey P.RowData
     -> PactServiceM logger tbl BlockTxHistory
 execBlockTxHistory bh d = pactLabel "execBlockTxHistory" $ do
-  !cp <- getCheckpointer
+  !cp <- getReadCheckpointer
   liftIO $ _cpGetBlockHistory cp bh d
 
 execHistoricalLookup
@@ -827,7 +827,7 @@ execHistoricalLookup
     -> P.RowKey
     -> PactServiceM logger tbl (Maybe (P.TxLog P.RowData))
 execHistoricalLookup bh d k = pactLabel "execHistoricalLookup" $ do
-  !cp <- getCheckpointer
+  !cp <- getReadCheckpointer
   liftIO $ _cpGetHistoricalLookup cp bh d k
 
 execPreInsertCheckReq
