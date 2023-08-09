@@ -632,7 +632,10 @@ decodeB64UrlNoPaddingTextWithFixedErrorMessage = fromEitherM
     . T.encodeUtf8
     . pad
   where
-    pad t = let s = T.length t `mod` 4 in t <> T.replicate ((4 - s) `mod` 4) "="
+    pad t =
+      case T.length t `mod` 4 of
+        1 -> t -- Do not pad bytestrings when (length % 4 == 1)
+        s -> t <> T.replicate ((4 - s) `mod` 4) "="
 {-# INLINE decodeB64UrlNoPaddingTextWithFixedErrorMessage #-}
 
 
