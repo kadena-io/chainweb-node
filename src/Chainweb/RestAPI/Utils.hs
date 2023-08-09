@@ -518,7 +518,7 @@ bindPortTcp p interface = do
         socket <- bindPortGen N.Stream (int p) interface
         port <- N.socketPort socket
         return (int port, socket)
-    N.listen sock (max 2048 N.maxListenQueue)
+    N.listen sock (min 2048 N.maxListenQueue)
     return (port, sock)
 
 allocateSocket :: Port -> HostPreference -> IO (Port, N.Socket)
