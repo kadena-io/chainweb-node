@@ -94,7 +94,7 @@ import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpoin
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.PactService.Checkpointer
-import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
+import Chainweb.Pact.Service.PactQueue (PactQueue, getNextValidateBlockRequest, getNextOtherRequest)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
@@ -122,12 +122,17 @@ runPactService
     -> SQLiteEnv
     -> PactServiceConfig
     -> IO ()
-runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config =
-    void $ withPactService ver cid chainwebLogger bhDb pdb sqlenv config $ do
+runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config = do
+    void $ withPactService ver cid chainwebLogger bhDb pdb sqlenv config $
         initialPayloadState mempoolAccess ver cid
-        serviceRequests mempoolAccess reqQ
 
-withPactService
+    (pst, pse) <- mkPactService ver cid chainwebLogger bhDb pdb sqlenv config
+
+    concurrently_
+        (withPactServiceAndState (pst, pse) config $ serviceValidateBlockRequests mempoolAccess reqQ)
+        (withPactServiceAndState (pst, pse) config $ serviceOtherRequests mempoolAccess reqQ)
+
+mkPactService
     :: Logger logger
     => CanReadablePayloadCas tbl
     => ChainwebVersion
@@ -137,9 +142,8 @@ withPactService
     -> PayloadDb tbl
     -> SQLiteEnv
     -> PactServiceConfig
-    -> PactServiceM logger tbl a
-    -> IO (T2 a PactServiceState)
-withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
+    -> IO (PactServiceState, PactServiceEnv logger tbl)
+mkPactService ver cid chainwebLogger bhDb pdb sqlenv config =
     withProdRelationalCheckpointer checkpointerLogger initialBlockState sqlenv ver cid $ \checkpointer -> do
     withProdRelationalReadCheckpointer checkpointerLogger initialBlockState sqlenv ver cid $ \readCheckpointer -> do
         let !rs = readRewards
@@ -167,20 +171,45 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psChainId = cid
                     }
             !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
-        runPactServiceM pst pse $ do
-
-            -- If the latest header that is stored in the checkpointer was on an
-            -- orphaned fork, there is no way to recover it in the call of
-            -- 'initalPayloadState.readContracts'. We therefore rewind to the latest
-            -- avaliable header in the block header database.
-            --
-            exitOnRewindLimitExceeded $ initializeLatestBlock (_pactUnlimitedInitialRewind config)
-            act
+        return (pst, pse)
   where
     initialBlockState = initBlockState (_pactModuleCacheLimit config) $ genesisHeight ver cid
     pactServiceLogger = setComponent "pact" chainwebLogger
     checkpointerLogger = addLabel ("sub-component", "checkpointer") pactServiceLogger
     gasLogger = addLabel ("transaction", "GasLogs") pactServiceLogger
+
+withPactServiceAndState
+    :: Logger logger
+    => CanReadablePayloadCas tbl
+    => (PactServiceState, PactServiceEnv logger tbl)
+    -> PactServiceConfig
+    -> PactServiceM logger tbl a
+    -> IO (T2 a PactServiceState)
+withPactServiceAndState (pst, pse) config act =
+    runPactServiceM pst pse $ do
+        -- If the latest header that is stored in the checkpointer was on an
+        -- orphaned fork, there is no way to recover it in the call of
+        -- 'initalPayloadState.readContracts'. We therefore rewind to the latest
+        -- avaliable header in the block header database.
+        --
+        exitOnRewindLimitExceeded $ initializeLatestBlock (_pactUnlimitedInitialRewind config)
+        act
+
+withPactService
+    :: Logger logger
+    => CanReadablePayloadCas tbl
+    => ChainwebVersion
+    -> ChainId
+    -> logger
+    -> BlockHeaderDb
+    -> PayloadDb tbl
+    -> SQLiteEnv
+    -> PactServiceConfig
+    -> PactServiceM logger tbl a
+    -> IO (T2 a PactServiceState)
+withPactService ver cid chainwebLogger bhDb pdb sqlenv config act = do
+    (pst, pse) <- mkPactService ver cid chainwebLogger bhDb pdb sqlenv config
+    withPactServiceAndState (pst, pse) config act
 
 initializeLatestBlock :: (Logger logger) => CanReadablePayloadCas tbl => Bool -> PactServiceM logger tbl ()
 initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
@@ -270,25 +299,52 @@ lookupBlockHeader bhash ctx = do
             throwM $ BlockHeaderLookupFailure $
                 "failed lookup of parent header in " <> ctx <> ": " <> sshow e
 
--- | Loop forever, serving Pact execution requests and reponses from the queues
-serviceRequests
+serviceValidateBlockRequests
     :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
     => MemPoolAccess
     -> PactQueue
     -> PactServiceM logger tbl ()
-serviceRequests memPoolAccess reqQ = do
-    logInfo "Starting service"
-    go `finally` logInfo "Stopping service"
+serviceValidateBlockRequests memPoolAccess reqQ = do
+    logInfo "Starting ValidateBlock requests handling service"
+    go `finally` logInfo "Stopping ValidateBlock requests handling service"
   where
     go = do
         PactServiceEnv{_psLogger} <- ask
-        logDebug "serviceRequests: wait"
-        msg <- liftIO $ getNextRequest reqQ
+        logDebug "serviceValidateBlockRequests: wait"
+        msg <- liftIO $ getNextValidateBlockRequest reqQ
         requestId <- liftIO $ UUID.toText <$> UUID.nextRandom
         let logFn = logFunction $ addLabel ("pact-request-id", requestId) _psLogger
-        logDebug $ "serviceRequests: " <> sshow msg
+        logDebug $ "serviceValidateBlockRequests: " <> sshow msg
+        case msg of
+            ValidateBlockMsg ValidateBlockReq {..} -> do
+                tryOne "execValidateBlock" _valResultVar $
+                  fmap fst $ trace' logFn "Chainweb.Pact.PactService.execValidateBlock"
+                    _valBlockHeader
+                    (\(_, g) -> fromIntegral g)
+                    (execValidateBlock memPoolAccess _valBlockHeader _valPayloadData)
+                go
+            _ -> error $ "impossible: unexpected request " ++ show msg
+
+-- | Loop forever, serving Pact execution requests and reponses from the queues
+serviceOtherRequests
+    :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
+    => MemPoolAccess
+    -> PactQueue
+    -> PactServiceM logger tbl ()
+serviceOtherRequests memPoolAccess reqQ = do
+    logInfo "Starting other requests handling service"
+    go `finally` logInfo "Stopping other requests handling service"
+  where
+    go = do
+        PactServiceEnv{_psLogger} <- ask
+        logDebug "serviceOtherRequests: wait"
+        msg <- liftIO $ getNextOtherRequest reqQ
+        requestId <- liftIO $ UUID.toText <$> UUID.nextRandom
+        let logFn = logFunction $ addLabel ("pact-request-id", requestId) _psLogger
+        logDebug $ "serviceOtherRequests: " <> sshow msg
         case msg of
             CloseMsg -> return ()
+            ValidateBlockMsg _ -> error "impossible: this service doesn't handle ValidateBlock request"
             LocalMsg (LocalReq localRequest preflight sigVerify rewindDepth localResultVar)  -> do
                 trace logFn "Chainweb.Pact.PactService.execLocal" () 0 $
                     tryOne "execLocal" localResultVar $
@@ -299,13 +355,6 @@ serviceRequests memPoolAccess reqQ = do
                     (_parentHeader _newBlockHeader) 1 $
                     tryOne "execNewBlock" _newResultVar $
                         execNewBlock memPoolAccess _newBlockHeader _newMiner
-                go
-            ValidateBlockMsg ValidateBlockReq {..} -> do
-                tryOne "execValidateBlock" _valResultVar $
-                  fmap fst $ trace' logFn "Chainweb.Pact.PactService.execValidateBlock"
-                    _valBlockHeader
-                    (\(_, g) -> fromIntegral g)
-                    (execValidateBlock memPoolAccess _valBlockHeader _valPayloadData)
                 go
             LookupPactTxsMsg (LookupPactTxsReq restorePoint confDepth txHashes resultVar) -> do
                 trace logFn "Chainweb.Pact.PactService.execLookupPactTxs" ()
@@ -334,71 +383,6 @@ serviceRequests memPoolAccess reqQ = do
                     tryOne "syncToBlockBlock" _syncToResultVar $
                         execSyncToBlock _syncToBlockHeader
                 go
-
-    toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
-
-    tryOne
-        :: Text
-        -> MVar (Either PactException a)
-        -> PactServiceM logger tbl a
-        -> PactServiceM logger tbl ()
-    tryOne which mvar = tryOne' which mvar Right
-
-    tryOne'
-        :: Text
-        -> MVar (Either PactException b)
-        -> (a -> Either PactException b)
-        -> PactServiceM logger tbl a
-        -> PactServiceM logger tbl ()
-    tryOne' which mvar post m =
-        (evalPactOnThread (post <$> m) >>= (liftIO . putMVar mvar))
-        `catches`
-            [ Handler $ \(e :: SomeAsyncException) -> do
-                logWarn $ T.concat
-                    [ "Received asynchronous exception running pact service ("
-                    , which
-                    , "): "
-                    , sshow e
-                    ]
-                liftIO $ do
-                    void $ tryPutMVar mvar $! toPactInternalError e
-                    throwM e
-            , Handler $ \(e :: SomeException) -> do
-                logError $ mconcat
-                    [ "Received exception running pact service ("
-                    , which
-                    , "): "
-                    , sshow e
-                    ]
-                liftIO $ do
-                    void $ tryPutMVar mvar $! toPactInternalError e
-           ]
-      where
-        -- Pact turns AsyncExceptions into textual exceptions within
-        -- PactInternalError. So there is no easy way for us to distinguish
-        -- whether an exception originates from within pact or from the outside.
-        --
-        -- A common strategy to deal with this is to run the computation (pact)
-        -- on a "hidden" internal thread. Lifting `forkIO` into a state
-        -- monad is generally not thread-safe. It is fine to do here, since
-        -- there is no concurrency. We use a thread here only to shield the
-        -- computation from external exceptions.
-        --
-        -- This solution isn't bullet-proof and only meant as a temporary fix. A
-        -- proper solution is to fix pact, to handle asynchronous exceptions
-        -- gracefully.
-        --
-        -- No mask is needed here. Asynchronous exceptions are handled
-        -- by the outer handlers and cause an abort. So no state is lost.
-        --
-        evalPactOnThread :: PactServiceM logger tbl a -> PactServiceM logger tbl a
-        evalPactOnThread act = do
-            e <- ask
-            s <- get
-            T2 r s' <- liftIO $
-                withAsync (runPactServiceM s e act) wait
-            put $! s'
-            return $! r
 
 -- | Performs a dry run of PactExecution's `buyGas` function for transactions being validated.
 --
@@ -919,3 +903,69 @@ getGasModel ctx
 
 pactLabel :: (Logger logger) => Text -> PactServiceM logger tbl x -> PactServiceM logger tbl x
 pactLabel lbl x = localLabel ("pact-request", lbl) x
+
+tryOne
+    :: forall logger tbl a. (Logger logger, CanReadablePayloadCas tbl)
+    => Text
+    -> MVar (Either PactException a)
+    -> PactServiceM logger tbl a
+    -> PactServiceM logger tbl ()
+tryOne which mvar = tryOne' which mvar
+
+tryOne'
+    :: (Logger logger, CanReadablePayloadCas tbl)
+    => Text
+    -> MVar (Either PactException a)
+    -> PactServiceM logger tbl a
+    -> PactServiceM logger tbl ()
+tryOne' which mvar m =
+    (evalPactOnThread (Right <$> m) >>= (liftIO . putMVar mvar))
+    `catches`
+        [ Handler $ \(e :: SomeAsyncException) -> do
+            logWarn $ T.concat
+                [ "Received asynchronous exception running pact service ("
+                , which
+                , "): "
+                , sshow e
+                ]
+            liftIO $ do
+                void $ tryPutMVar mvar $! toPactInternalError e
+                throwM e
+        , Handler $ \(e :: SomeException) -> do
+            logError $ mconcat
+                [ "Received exception running pact service ("
+                , which
+                , "): "
+                , sshow e
+                ]
+            liftIO $ do
+                void $ tryPutMVar mvar $! toPactInternalError e
+       ]
+  where
+    toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
+
+    -- Pact turns AsyncExceptions into textual exceptions within
+    -- PactInternalError. So there is no easy way for us to distinguish
+    -- whether an exception originates from within pact or from the outside.
+    --
+    -- A common strategy to deal with this is to run the computation (pact)
+    -- on a "hidden" internal thread. Lifting `forkIO` into a state
+    -- monad is generally not thread-safe. It is fine to do here, since
+    -- there is no concurrency. We use a thread here only to shield the
+    -- computation from external exceptions.
+    --
+    -- This solution isn't bullet-proof and only meant as a temporary fix. A
+    -- proper solution is to fix pact, to handle asynchronous exceptions
+    -- gracefully.
+    --
+    -- No mask is needed here. Asynchronous exceptions are handled
+    -- by the outer handlers and cause an abort. So no state is lost.
+    --
+    evalPactOnThread :: PactServiceM logger tbl a -> PactServiceM logger tbl a
+    evalPactOnThread act = do
+        e <- ask
+        s <- get
+        T2 r s' <- liftIO $
+            withAsync (runPactServiceM s e act) wait
+        put $! s'
+        return $! r

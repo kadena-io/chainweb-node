@@ -17,7 +17,8 @@
 --
 module Chainweb.Pact.Service.PactQueue
 ( addRequest
-, getNextRequest
+, getNextValidateBlockRequest
+, getNextOtherRequest
 , getPactQueueStats
 , newPactQueue
 , resetPactQueueStats
@@ -88,13 +89,27 @@ addRequest q msg =  do
         NewBlockMsg {} -> _pactQueueNewBlock q
         _ -> _pactQueueOtherMsg q
 
--- | Get the next available request from the Pact execution queue
+-- | Get the next available ValdiateBlock request from the Pact execution queue
 --
-getNextRequest :: PactQueue -> IO RequestMsg
-getNextRequest q = do
+getNextValidateBlockRequest :: PactQueue -> IO RequestMsg
+getNextValidateBlockRequest q = do
+    T2 req entranceTime <- atomically $ tryReadTBQueueOrRetry (_pactQueueValidateBlock q)
+    requestTime <- diff <$> getCurrentTimeIntegral <*> pure entranceTime
+    updatePactQueueCounters (counters req q) requestTime
+    return req
+  where
+    tryReadTBQueueOrRetry = tryReadTBQueue >=> \case
+        Nothing -> retry
+        Just msg -> return msg
+
+    counters ValidateBlockMsg{} = _pactQueuePactQueueValidateBlockMsgCounters
+    counters NewBlockMsg{} = _pactQueuePactQueueNewBlockMsgCounters
+    counters _ = _pactQueuePactQueueOtherMsgCounters
+
+getNextOtherRequest :: PactQueue -> IO RequestMsg
+getNextOtherRequest q = do
     T2 req entranceTime <- atomically
-        $ tryReadTBQueueOrRetry (_pactQueueValidateBlock q)
-        <|> tryReadTBQueueOrRetry (_pactQueueNewBlock q)
+        $ tryReadTBQueueOrRetry (_pactQueueNewBlock q)
         <|> tryReadTBQueueOrRetry (_pactQueueOtherMsg q)
     requestTime <- diff <$> getCurrentTimeIntegral <*> pure entranceTime
     updatePactQueueCounters (counters req q) requestTime
