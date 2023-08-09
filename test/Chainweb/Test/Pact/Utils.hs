@@ -849,11 +849,12 @@ withPactTestBlockDb version cid rdb mempoolIO pactConfig f =
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) cid
         let pdb = _bdbPayloadDb bdb
         sqlEnv <- startSqliteDb cid logger dir False
+        sqlEnv2 <- startSqliteDb cid logger dir False
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
-            runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
-        return (a, sqlEnv, (reqQ,bdb))
+            runPactService version cid logger reqQ mempool bhdb pdb (sqlEnv, sqlEnv2) pactConfig
+        return (a, (sqlEnv, sqlEnv2), (reqQ,bdb))
 
-    stopPact (a, sqlEnv, _) = cancel a >> stopSqliteDb sqlEnv
+    stopPact (a, (sqlEnv, sqlEnv2), _) = cancel a >> stopSqliteDb sqlEnv >> stopSqliteDb sqlEnv2
 
     -- Ideally, we should throw 'error' when the logger is invoked, because
     -- error logs should not happen in production and should always be resolved.

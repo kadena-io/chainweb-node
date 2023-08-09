@@ -75,8 +75,6 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Guards
 
-import Debug.Trace (traceShowM)
-
 initRelationalCheckpointer
     :: (Logger logger)
     => BlockState
@@ -165,14 +163,14 @@ initRelationalCheckpointer''
 initRelationalCheckpointer'' cpm bstate sqlenv loggr v cid = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
-    runBlockEnv db initSchema
+    when (cpm == ReadWriteCheckpointer) $ runBlockEnv db initSchema
     let pactDbEnv = PactDbEnv chainwebPactDb db
     let wrapReadOnlyMethod (name :: T.Text) act = case cpm of
           ReadWriteCheckpointer -> act
           ReadOnlyCheckpointer -> logError_ loggr $ name <> " is not available in read-only mode"
     let checkpointer = Checkpointer
           {
-            _cpRestore = doRestore v cid db
+            _cpRestore = \s -> doRestore v cid db s
           , _cpSave = \s -> wrapReadOnlyMethod "_cpSave" $ doSave db s
           , _cpDiscard = doDiscard db
           , _cpGetLatestBlock = doGetLatest db

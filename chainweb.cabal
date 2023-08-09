@@ -433,7 +433,7 @@ library
 -- -------------------------------------------------------------------------- --
 
 test-suite chainweb-tests
-    import: warning-flags, debugging-flags
+    import: debugging-flags
     default-language: Haskell2010
     ghc-options:
         -threaded

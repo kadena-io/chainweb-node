@@ -258,9 +258,10 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
         nonceCounter <- newIORef 1
         txPerBlock <- newIORef 10
         sqlEnv <- openSQLiteConnection "" {- temporary SQLite db -} chainwebBenchPragmas
+        sqlEnv2 <- openSQLiteConnection "" {- temporary SQLite db -} chainwebBenchPragmas
         mp <- testMemPoolAccess txPerBlock coinAccounts
         pactService <-
-          startPact testVer logger blockHeaderDb payloadDb mp sqlEnv
+          startPact testVer logger blockHeaderDb payloadDb mp (sqlEnv, sqlEnv2)
         mainTrunkBlocks <-
           playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
         return $ NoopNFData $ Resources {..}

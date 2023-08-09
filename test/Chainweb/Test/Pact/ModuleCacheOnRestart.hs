@@ -306,8 +306,9 @@ withPact' bdbio ioSqlEnv r (ps, cacheTest) tastylog = do
     bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) testChainId
     let pdb = _bdbPayloadDb bdb
     sqlEnv <- ioSqlEnv
+    sqlEnv2 <- ioSqlEnv
     T2 _ pstate <- withPactService
-        testVer testChainId logger bhdb pdb sqlEnv testPactServiceConfig ps
+        testVer testChainId logger bhdb pdb (sqlEnv, sqlEnv2) testPactServiceConfig ps
     cacheTest r (_psInitCache pstate)
   where
     logger = genericLogger Quiet (tastylog . T.unpack)

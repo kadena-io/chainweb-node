@@ -170,8 +170,9 @@ genPayloadModule v tag cid cwTxs =
         pdb <- newPayloadDb
         withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> do
             T2 payloadWO _ <- withSqliteDb cid logger pactDbDir False $ \env ->
-                withPactService v cid logger bhdb pdb env testPactServiceConfig $
-                    execNewGenesisBlock noMiner (V.fromList cwTxs)
+                withSqliteDb cid logger pactDbDir False $ \env2 ->
+                    withPactService v cid logger bhdb pdb (env, env2) testPactServiceConfig $
+                        execNewGenesisBlock noMiner (V.fromList cwTxs)
             return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
 
 mkChainwebTxs :: [FilePath] -> IO [ChainwebTransaction]

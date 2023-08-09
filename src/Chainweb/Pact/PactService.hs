@@ -119,14 +119,14 @@ runPactService
     -> MemPoolAccess
     -> BlockHeaderDb
     -> PayloadDb tbl
-    -> SQLiteEnv
+    -> (SQLiteEnv, SQLiteEnv)
     -> PactServiceConfig
     -> IO ()
-runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config = do
-    void $ withPactService ver cid chainwebLogger bhDb pdb sqlenv config $
+runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenvs config = do
+    void $ withPactService ver cid chainwebLogger bhDb pdb sqlenvs config $
         initialPayloadState mempoolAccess ver cid
 
-    (pst, pse) <- mkPactService ver cid chainwebLogger bhDb pdb sqlenv config
+    (pst, pse) <- mkPactService ver cid chainwebLogger bhDb pdb sqlenvs config
 
     concurrently_
         (withPactServiceAndState (pst, pse) config $ serviceValidateBlockRequests mempoolAccess reqQ)
@@ -140,12 +140,12 @@ mkPactService
     -> logger
     -> BlockHeaderDb
     -> PayloadDb tbl
-    -> SQLiteEnv
+    -> (SQLiteEnv, SQLiteEnv)
     -> PactServiceConfig
     -> IO (PactServiceState, PactServiceEnv logger tbl)
-mkPactService ver cid chainwebLogger bhDb pdb sqlenv config =
+mkPactService ver cid chainwebLogger bhDb pdb (sqlenv, sqlenv2) config =
     withProdRelationalCheckpointer checkpointerLogger initialBlockState sqlenv ver cid $ \checkpointer -> do
-    withProdRelationalReadCheckpointer checkpointerLogger initialBlockState sqlenv ver cid $ \readCheckpointer -> do
+    withProdRelationalReadCheckpointer checkpointerLogger initialBlockState2 sqlenv2 ver cid $ \readCheckpointer -> do
         let !rs = readRewards
             !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
             !pse = PactServiceEnv
@@ -174,6 +174,7 @@ mkPactService ver cid chainwebLogger bhDb pdb sqlenv config =
         return (pst, pse)
   where
     initialBlockState = initBlockState (_pactModuleCacheLimit config) $ genesisHeight ver cid
+    initialBlockState2 = initBlockState (_pactModuleCacheLimit config) $ genesisHeight ver cid
     pactServiceLogger = setComponent "pact" chainwebLogger
     checkpointerLogger = addLabel ("sub-component", "checkpointer") pactServiceLogger
     gasLogger = addLabel ("transaction", "GasLogs") pactServiceLogger
@@ -203,12 +204,12 @@ withPactService
     -> logger
     -> BlockHeaderDb
     -> PayloadDb tbl
-    -> SQLiteEnv
+    -> (SQLiteEnv, SQLiteEnv)
     -> PactServiceConfig
     -> PactServiceM logger tbl a
     -> IO (T2 a PactServiceState)
-withPactService ver cid chainwebLogger bhDb pdb sqlenv config act = do
-    (pst, pse) <- mkPactService ver cid chainwebLogger bhDb pdb sqlenv config
+withPactService ver cid chainwebLogger bhDb pdb sqlenvs config act = do
+    (pst, pse) <- mkPactService ver cid chainwebLogger bhDb pdb sqlenvs config
     withPactServiceAndState (pst, pse) config act
 
 initializeLatestBlock :: (Logger logger) => CanReadablePayloadCas tbl => Bool -> PactServiceM logger tbl ()

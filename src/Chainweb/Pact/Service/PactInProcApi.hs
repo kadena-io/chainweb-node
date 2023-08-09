@@ -68,7 +68,8 @@ withPactService
     -> IO a
 withPactService ver cid logger mpc bhdb pdb pactDbDir config action =
     withSqliteDb cid logger pactDbDir (_pactResetDb config) $ \sqlenv ->
-        withPactService' ver cid logger mpa bhdb pdb sqlenv config action
+    withSqliteDb cid logger pactDbDir (_pactResetDb config) $ \sqlenv2 ->
+        withPactService' ver cid logger mpa bhdb pdb (sqlenv, sqlenv2) config action
   where
     mpa = pactMemPoolAccess mpc $ addLabel ("sub-component", "MempoolAccess") logger
 
@@ -84,18 +85,18 @@ withPactService'
     -> MemPoolAccess
     -> BlockHeaderDb
     -> PayloadDb tbl
-    -> SQLiteEnv
+    -> (SQLiteEnv, SQLiteEnv)
     -> PactServiceConfig
     -> (PactQueue -> IO a)
     -> IO a
-withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
+withPactService' ver cid logger memPoolAccess bhDb pdb sqlenvs config action = do
     reqQ <- newPactQueue (_pactQueueSize config)
     race (concurrently_ (monitor reqQ) (server reqQ)) (action reqQ) >>= \case
         Left () -> error "Chainweb.Pact.Service.PactInProcApi: pact service terminated unexpectedly"
         Right a -> return a
   where
     server reqQ = runForever logg "pact-service"
-        $ PS.runPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv config
+        $ PS.runPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenvs config
     logg = logFunction logger
     monitor = runPactServiceQueueMonitor $ addLabel ("sub-component", "PactQueue") logger
 

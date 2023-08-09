@@ -89,6 +89,8 @@ import Chainweb.Version
 import Chainweb.Utils (sshow)
 import Chainweb.Utils.Serialization
 
+-- import Debug.Trace (traceShowM)
+
 tbl :: HasCallStack => Utf8 -> Utf8
 tbl t@(Utf8 b)
     | B8.elem ']' b =  error $ "Chainweb.Pact.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
