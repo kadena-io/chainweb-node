@@ -1047,7 +1047,7 @@ chainweb219UpgradeTest = do
 
 pact48UpgradeTest :: PactTestM ()
 pact48UpgradeTest = do
-  runToHeight 83 -- TODO: What height do we want pre-fork, post-fork?
+  runToHeight 83
 
   -- run block TODO
   runBlockTest
