@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -53,7 +54,7 @@ module Utils.Logging
 -- * Base Logger Backend
   SomeBackend
 
--- * Log Handlers Backends
+-- * Log Handlers Backends Types
 , Backend
 , TextBackend
 , JsonBackend
@@ -64,15 +65,17 @@ module Utils.Logging
 , maybeLogHandle
 , genericLogHandle
 
--- * Logging Backend Stacks
+-- * Log Handler Stacks
 , LogHandler(..)
 , logHandler
 , maybeLogHandler
 , passthroughLogHandler
 , dropLogHandler
+, dropIfLogHandler
+, staticLogFilterHandler
 , logHandles
 
--- * Filter LogScope Backend
+-- * Filter LogScope Handler
 , Probability(..)
 , propMult
 , LogFilterRule(..)
@@ -83,12 +86,12 @@ module Utils.Logging
 , logFilterRules
 , logFilterDefaultLevel
 , logFilterDefaultRate
-, logFilterHandle
+, logFilterHandler
 
 -- * Base Backends
 , withBaseHandleBackend
 
--- * Specialized Backends
+-- ** Specialized Backends
 , withTextHandleBackend
 , withJsonHandleBackend
 , withJsonEventSourceBackend
@@ -100,7 +103,8 @@ module Utils.Logging
 , withExampleLogger
 
 -- * Configuration
-, configureHandler
+, configureBackend
+, enableLogBackend
 
 -- * Utils
 , toBackendLogMessage
@@ -126,7 +130,6 @@ import Data.Bifunctor
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import Data.IORef
-import Data.Proxy
 import Data.Semigroup
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -258,7 +261,7 @@ genericLogHandle
     => (BackendLogMessage a -> IO (Maybe (BackendLogMessage SomeLogMessage)))
     -> GenericBackend b
     -> GenericBackend b
-genericLogHandle f b msg = case fromBackendLogMessage msg of
+genericLogHandle f b msg = case fromBackendLogMessage (toBackendLogMessage msg) of
     Nothing -> b msg
     (Just !amsg) -> f amsg >>= \case
         Nothing -> return mempty
@@ -435,11 +438,10 @@ applyRuleToLevel rl rp l = case compare l rl of
 -- log level of the respective logger.
 --
 -- This could be optimized for the number of rules or the number of scopes
--- in a message. Currently it is optimized for the. The current implementation
--- make one lookup per scope.
+-- in a message. The current implementation makes one lookup per scope.
 --
-logFilterHandle :: LogFilter -> LogHandler
-logFilterHandle sf = maybeLogHandler $ \msg -> do
+logFilterHandler :: LogFilter -> LogHandler
+logFilterHandler sf = maybeLogHandler $ \msg -> do
     foldMap (\r -> applyRule r msg) (_logFilterRules sf) >>= \case
         Just (All True) -> return (Just msg)
         Just (All False) -> return Nothing
@@ -449,14 +451,26 @@ logFilterHandle sf = maybeLogHandler $ \msg -> do
                 (_logFilterDefaultRate sf)
                 (L._logMsgLevel msg)
             if x then return (Just msg) else return Nothing
-{-# INLINEABLE logFilterHandle #-}
+{-# INLINEABLE logFilterHandler #-}
 
 -- -------------------------------------------------------------------------- --
 -- Log Handler Stacks
 
+-- | A Log Handler applies a backend function to all matching messages. It may
+-- return either Nothing or emit a new log messages that is passed on.
+--
+-- LogHandlers can stacked using the 'logHandles' function.
+--
 data LogHandler = forall a . LogMessage a
     => LogHandler (BackendLogMessage a -> IO (Maybe (BackendLogMessage SomeLogMessage)))
 
+-- | A log handler that applies a backend to each matching message. The message
+-- is consumed and processing for this message stops.
+--
+-- This is the default way of handling a log message. Typically the backend
+-- writes the log message to a log file or delivers it to some external log
+-- processing system.
+--
 logHandler
     :: forall a . LogMessage a
     => Backend a
@@ -464,6 +478,12 @@ logHandler
 logHandler f = maybeLogHandler $ \m -> Nothing <$ f m
 {-# INLINEABLE logHandler #-}
 
+-- | A log handler that in addition to serving as a backend may also emit a new
+-- message for a matching message.
+--
+-- This handler is useful for creating more complex log handlers, like, for
+-- instance, the 'dropIfLogHandler' below.
+--
 maybeLogHandler
     :: forall a . LogMessage a
     => (L.LogMessage a -> IO (Maybe (L.LogMessage SomeLogMessage)))
@@ -473,25 +493,55 @@ maybeLogHandler b = LogHandler $ \case
     (Right !msg) -> fmap Right <$!> b msg
 {-# INLINEABLE maybeLogHandler #-}
 
+-- | Forward all messages. It can be used as a building block for more complex
+-- handlers.
+--
 passthroughLogHandler :: LogHandler
-passthroughLogHandler = maybeLogHandler (return . Just)
+passthroughLogHandler = LogHandler $ return . Just
+{-# INLINEABLE passthroughLogHandler #-}
 
-dropLogHandler :: forall a. LogMessage a => Proxy a -> LogHandler
-dropLogHandler _ = LogHandler $ h @a
-    where
-    h :: forall m. LogMessage m => BackendLogMessage m -> IO (Maybe (BackendLogMessage SomeLogMessage))
-    h (Left msg) = Just . Left <$!> return msg
-    h (Right _) = return Nothing
+-- | Drop all matching messages.
+--
+dropLogHandler :: forall a. LogMessage a => LogHandler
+dropLogHandler = maybeLogHandler @a $ \_ -> return Nothing
+{-# INLINEABLE dropLogHandler #-}
 
-logHandles :: Monoid b => Foldable f => f LogHandler -> GenericBackend b -> GenericBackend b
+-- | A log handler that drops all matching messages that also satisfy some
+-- predicate.
+--
+dropIfLogHandler
+    :: forall a . LogMessage a
+    => (L.LogMessage a -> Bool)
+    -> LogHandler
+dropIfLogHandler c = maybeLogHandler $ \msg -> return $
+    if c msg then Nothing else Just (toLogMessage <$> msg)
+{-# INLINEABLE dropIfLogHandler #-}
+
+-- | Disable logging of matching messages if a condition is true.
+--
+-- Otherwise just pass on all messages.
+--
+staticLogFilterHandler :: forall a . LogMessage a => Bool -> LogHandler
+staticLogFilterHandler True = dropLogHandler @a
+staticLogFilterHandler False = passthroughLogHandler
+{-# INLINEABLE staticLogFilterHandler #-}
+
+-- | Fold a stack of 'LogHandler's into a 'GenericBackend'.
+--
+logHandles
+    :: Monoid b
+    => Foldable f
+    => f LogHandler
+    -> GenericBackend b
+    -> GenericBackend b
 logHandles = flip $ foldr $ \case (LogHandler h) -> genericLogHandle h
 {-# INLINEABLE logHandles #-}
 
 -- -------------------------------------------------------------------------- --
 -- Configuration
 
--- | Enables a logger in a log-handler stack based on its 'EnabledConfig'
--- wrapper. If the logger is disabled, messages are passed to the inner backend.
+-- | Enables a backend based on its 'EnabledConfig' wrapper. If the logger is
+-- disabled, messages are discarded.
 --
 -- Usage Example:
 --
@@ -499,13 +549,24 @@ logHandles = flip $ foldr $ \case (LogHandler h) -> genericLogHandle h
 -- withEnabledJsonHandleBackend mgr = configureHandler (withJsonHandleBackend mgr)
 -- @
 --
-configureHandler
+configureBackend
     :: (c -> (Backend b -> IO a) -> IO a)
     -> EnableConfig c
     -> (Backend b -> IO a)
     -> IO a
-configureHandler logger config inner
+configureBackend logger config inner
     | _enableConfigEnabled config = logger (_enableConfigConfig config) inner
+    | otherwise = inner (const $ return ())
+
+-- | Enables a log backend based on a boolean condition.
+--
+enableLogBackend
+    :: ((Backend b -> IO a) -> IO a)
+    -> Bool
+    -> (Backend b -> IO a)
+    -> IO a
+enableLogBackend logger b inner
+    | b = logger inner
     | otherwise = inner (const $ return ())
 
 -- -------------------------------------------------------------------------- --
@@ -557,7 +618,7 @@ esJsonLogMessageEncoding (EsJsonLogMessage a) =
 {-# INLINE esJsonLogMessageEncoding #-}
 
 -- -------------------------------------------------------------------------- --
--- Base Backends
+-- Backends
 
 -- | A Base Backend for arbitrary log messages. All message bodies are encoded
 -- using 'logText'.
@@ -584,8 +645,6 @@ esJsonLogMessageEncoding (EsJsonLogMessage a) =
 -- instance is ignored. For formatting the message body using the 'ToJSON'
 -- instances log messages can be wrapped into 'JsonLog' or instance the or the
 -- function 'withJsonHandleBackend' can be used.
---
--- TODO: should we try to cast to 'SomeJsonLog a' or is that to much magic?
 --
 withBaseHandleBackend
     :: forall b
@@ -656,27 +715,41 @@ withJsonHandleBackend
     :: forall a b
     . ToJSON a
     => T.Text
+        -- ^ fixed type label (also used as index in Elasticsearch)
+    -> (a -> Maybe T.Text)
+        -- ^ function to get sub-type label for a log message
     -> HTTP.Manager
+        -- ^ HTTP connection manager for Elasticsearch client
     -> [(T.Text, T.Text)]
-        -- Scope that are included only with remote backends. In chainweb-node
+        -- ^ Scopes that are included only with remote backends. In chainweb-node
         -- this is used for package info data.
     -> BackendConfig
-    -> (Backend (JsonLog a) -> IO b)
+        -- ^ Note that sharing the same configuration between more than one
+        -- instance of this backend prevents the use of `file:` handles as
+        -- output sink.
+    -> (Backend a -> IO b)
     -> IO b
-withJsonHandleBackend llabel mgr pkgScopes c inner = case _backendConfigHandle c of
-    StdOut -> fdBackend stdout
-    StdErr -> fdBackend stderr
-    FileHandle f -> withFile f WriteMode fdBackend
-    ElasticSearch f auth -> withElasticsearchBackend mgr f auth (T.toLower llabel) pkgScopes $ \b ->
-        inner (b . fmap unJsonLog . addTypeScope)
+withJsonHandleBackend llabel subtypeFun mgr pkgScopes c inner =
+    case _backendConfigHandle c of
+        StdOut -> fdBackend stdout
+        StdErr -> fdBackend stderr
+        FileHandle f -> withFile f WriteMode fdBackend
+        ElasticSearch f auth ->
+            withElasticsearchBackend mgr f auth (T.toLower llabel) pkgScopes $ \b ->
+                inner (b . addTypeScope)
   where
-    addTypeScope = L.logMsgScope %~ (:) ("type", llabel)
+    addTypeScope m = m
+        & L.logMsgScope %~ (:) ("type", llabel)
+        & case subtypeFun (L._logMsg m) of
+            Just st -> L.logMsgScope %~ (:) ("sub-type", st)
+            Nothing -> id
+
     fdBackend h = case _backendConfigFormat c of
         LogFormatText -> do
             colored <- useColor (_backendConfigColor c) h
-            inner $ L.handleBackend_ (encodeToText . unJsonLog) h colored . Right . addTypeScope
+            inner $ L.handleBackend_ encodeToText h colored . Right . addTypeScope
         LogFormatJson -> inner $
-            BL8.hPutStrLn h . encode . JsonLogMessage . fmap unJsonLog . addTypeScope
+            BL8.hPutStrLn h . encode . JsonLogMessage . addTypeScope
 {-# INLINEABLE withJsonHandleBackend #-}
 
 -- -------------------------------------------------------------------------- --
@@ -898,11 +971,13 @@ withJsonEventSourceAppBackend port staticDir inner = do
         <|> mount "events" (loggingCors $ eventSourceAppChan c)
         -- <|> mountRoot (loggingCors $ eventSourceAppChan c)
 
--- Simple cors with actually simpleHeaders which includes content-type.
+-- | Simple cors with actually simpleHeaders which includes content-type.
+--
 loggingCors :: Middleware
 loggingCors = cors $ const $ Just $ simpleCorsResourcePolicy
   { corsRequestHeaders = simpleHeaders
   }
+
 -- -------------------------------------------------------------------------- --
 -- Out-Of-The-Box Logger
 

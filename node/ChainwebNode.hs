@@ -10,6 +10,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -25,8 +26,6 @@
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
---
--- TODO
 --
 module Main
 (
@@ -378,55 +377,66 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
     baseBackend <- managed
         $ withBaseHandleBackend "ChainwebApp" mgr pkgInfoScopes (_logConfigBackend logCfg)
 
-    -- we don't log tx failures in replay
-    let !txFailureHandler =
-            if _configOnlySyncPact chainwebCfg
-            then dropLogHandler (Proxy :: Proxy TxFailureLog)
-            else passthroughLogHandler
+    -- Backend for message that are logged to the security log
+    -- These messages are also forwarded to the rest of the stack
+    --
+    securityBackend <- managed
+        $ mkTelemetryLogger_ @SomeSecurityLog "securitylog" getSubType mgr securityLogConfig
 
     -- Telemetry Backends
     monitorBackend <- managed
-        $ mkTelemetryLogger @CutHashes mgr teleLogConfig
+        $ mkTelemetryLogger @(JsonLog CutHashes) mgr teleLogConfig
     p2pInfoBackend <- managed
-        $ mkTelemetryLogger @P2pSessionInfo mgr teleLogConfig
+        $ mkTelemetryLogger @(JsonLog P2pSessionInfo) mgr teleLogConfig
     rtsBackend <- managed
-        $ mkTelemetryLogger @RTSStats mgr teleLogConfig
-    counterBackend <- managed $ configureHandler
-        (withJsonHandleBackend @CounterLog "connectioncounters" mgr pkgInfoScopes)
-        teleLogConfig
+        $ mkTelemetryLogger @(JsonLog RTSStats) mgr teleLogConfig
+    counterBackend <- managed
+        $ mkTelemetryLogger_ @(JsonLog CounterLog) "connectioncounters" (const Nothing) mgr teleLogConfig
     endpointBackend <- managed
-        $ mkTelemetryLogger @PactCmdLog mgr teleLogConfig
+        $ mkTelemetryLogger @(JsonLog PactCmdLog) mgr teleLogConfig
     newBlockBackend <- managed
-        $ mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
+        $ mkTelemetryLogger @(JsonLog NewMinedBlock) mgr teleLogConfig
     orphanedBlockBackend <- managed
-        $ mkTelemetryLogger @OrphanedBlock mgr teleLogConfig
+        $ mkTelemetryLogger @(JsonLog OrphanedBlock) mgr teleLogConfig
     miningStatsBackend <- managed
-        $ mkTelemetryLogger @MiningStats mgr teleLogConfig
+        $ mkTelemetryLogger @(JsonLog MiningStats) mgr teleLogConfig
     requestLogBackend <- managed
-        $ mkTelemetryLogger @RequestResponseLog mgr teleLogConfig
+        $ mkTelemetryLogger @(JsonLog RequestResponseLog) mgr teleLogConfig
     queueStatsBackend <- managed
-        $ mkTelemetryLogger @QueueStats mgr teleLogConfig
+        $ mkTelemetryLogger @(JsonLog QueueStats) mgr teleLogConfig
     reintroBackend <- managed
-        $ mkTelemetryLogger @ReintroducedTxsLog mgr teleLogConfig
+        $ mkTelemetryLogger @(JsonLog ReintroducedTxsLog) mgr teleLogConfig
     traceBackend <- managed
-        $ mkTelemetryLogger @Trace mgr teleLogConfig
+        $ mkTelemetryLogger @(JsonLog Trace) mgr teleLogConfig
     mempoolStatsBackend <- managed
-        $ mkTelemetryLogger @MempoolStats mgr teleLogConfig
+        $ mkTelemetryLogger @(JsonLog MempoolStats) mgr teleLogConfig
     blockUpdateBackend <- managed
-        $ mkTelemetryLogger @BlockUpdate mgr teleLogConfig
+        $ mkTelemetryLogger @(JsonLog BlockUpdate) mgr teleLogConfig
     dbCacheBackend <- managed
-        $ mkTelemetryLogger @DbCacheStats mgr teleLogConfig
+        $ mkTelemetryLogger @(JsonLog DbCacheStats) mgr teleLogConfig
     dbStatsBackend <- managed
-        $ mkTelemetryLogger @DbStats mgr teleLogConfig
+        $ mkTelemetryLogger @(JsonLog DbStats) mgr teleLogConfig
     pactQueueStatsBackend <- managed
-        $ mkTelemetryLogger @PactQueueStats mgr teleLogConfig
+        $ mkTelemetryLogger @(JsonLog PactQueueStats) mgr teleLogConfig
     topLevelStatusBackend <- managed
-        $ mkTelemetryLogger @ChainwebStatus mgr teleLogConfig
+        $ mkTelemetryLogger @(JsonLog ChainwebStatus) mgr teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logCfg) $ logHandles
-            [ logFilterHandle (_logConfigFilter logCfg)
-            , txFailureHandler
+
+            -- we don't log tx failures in replay
+            [ staticLogFilterHandler @TxFailureLog (_configOnlySyncPact chainwebCfg)
+
+            -- apply log filter
+            , logFilterHandler (_logConfigFilter logCfg)
+
+            -- handle security log messages. All messages are
+            -- re-emitted for further processing.
+            , maybeLogHandler $ \msg -> do
+                securityBackend msg
+                return (Just $ toLogMessage <$> msg)
+
+            -- apply handlers for telemetry messages
             , logHandler monitorBackend
             , logHandler p2pInfoBackend
             , logHandler rtsBackend
@@ -453,16 +463,54 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
         $ logger
   where
     teleLogConfig = _logConfigTelemetryBackend logCfg
+    securityLogConfig = _logConfigSecurityBackend logCfg
 
+    -- sub-type lable function for security logs
+    getSubType (SomeSecurityLog a) = Just $ sshow $ innerType $ typeOf a
+
+-- | Provide backend for telemetry messages.
+--
+-- The type label of the backend is derived from the first type parameter of the
+-- function. When the Elasticsearch backend is used the type label is used as
+-- the name of the index.
+--
 mkTelemetryLogger
     :: forall a b
-    . (Typeable a, ToJSON a)
+    . Typeable a
+    => ToJSON a
     => HTTP.Manager
     -> EnableConfig BackendConfig
-    -> (Backend (JsonLog a) -> IO b)
+    -> (Backend a -> IO b)
     -> IO b
-mkTelemetryLogger mgr = configureHandler
-    $ withJsonHandleBackend @a (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
+mkTelemetryLogger mgr = configureBackend
+    $ withJsonHandleBackend @a typ (const Nothing) mgr pkgInfoScopes
+  where
+    typ = sshow $ innerType $ typeRep $ Proxy @a
+
+-- | Same as 'mkTelemetryLogger', but also allows to set the type and sub-type
+-- labels.
+--
+mkTelemetryLogger_
+    :: forall a b
+    . Typeable a
+    => ToJSON a
+    => T.Text
+        -- ^ fixed type label (index for elasticsearch backend)
+    -> (a -> Maybe T.Text)
+        -- ^ sub-type label function
+    -> HTTP.Manager
+    -> EnableConfig BackendConfig
+    -> (Backend a -> IO b)
+    -> IO b
+mkTelemetryLogger_ typ subtyp mgr = configureBackend
+    $ withJsonHandleBackend @a typ subtyp mgr pkgInfoScopes
+
+-- Heuristically return the innermost type of a TypeRep.
+--
+innerType :: TypeRep -> TypeRep
+innerType t = case typeRepArgs t of
+    [] -> t
+    l -> innerType (last l)
 
 -- -------------------------------------------------------------------------- --
 -- Service Date

@@ -5,6 +5,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
@@ -53,6 +54,12 @@ module Data.LogMessage
 , TextLog(..)
 , BinaryLog(..)
 , SomeSymbolLog(..)
+
+-- * Class of Security Log Messages
+, SomeSecurityLog(..)
+, securityLogToLogMessage
+, securityLogFromLogMessage
+, SecurityLog(..)
 ) where
 
 import Control.DeepSeq
@@ -164,12 +171,13 @@ aNoLog = ALogFunction $ \_ _ -> return ()
 -- -------------------------------------------------------------------------- --
 -- LogMessage Types
 
--- | A newtype wrapper for log messages types with a 'ToJSON' instance.
+-- | A newtype wrapper for log messages for types with a 'ToJSON' instance.
 --
--- This type must not have a `ToJSON` instance.
+-- Using this wrapper any type that has a `ToJSON` instance can be used as a log
+-- message. Message are formatted as JSON text.
 --
 newtype JsonLog a = JsonLog { unJsonLog :: a }
-    deriving newtype (NFData)
+    deriving newtype (NFData, ToJSON)
 
 instance (Typeable a, NFData a, ToJSON a) => LogMessage (JsonLog a) where
     logText (JsonLog a) = T.decodeUtf8 . BL.toStrict $ encode a
@@ -216,4 +224,53 @@ instance NFData SomeSymbolLog where
 instance LogMessage SomeSymbolLog where
     logText (SomeSymbolLog (_ :: Proxy a)) = T.pack $ symbolVal (Proxy @a)
     {-# INLINE logText #-}
+
+-- -------------------------------------------------------------------------- --
+-- Class of Security Log Messages
+
+-- | Superclass of security log messages
+--
+data SomeSecurityLog = forall a . (ToJSON a, Typeable a, LogMessage a) => SomeSecurityLog a
+
+instance Show SomeSecurityLog where
+    showsPrec p (SomeSecurityLog a) = showsPrec p (T.unpack $ logText a)
+
+instance NFData SomeSecurityLog where
+    rnf (SomeSecurityLog a) = rnf a
+    {-# INLINE rnf #-}
+
+instance LogMessage SomeSecurityLog where
+    logText (SomeSecurityLog msg) = logText msg
+    {-# INLINE logText #-}
+
+instance ToJSON SomeSecurityLog where
+    toJSON (SomeSecurityLog a) = toJSON a
+    toEncoding (SomeSecurityLog a) = toEncoding a
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+securityLogToLogMessage :: ToJSON a => LogMessage a => a -> SomeLogMessage
+securityLogToLogMessage = toLogMessage . SomeSecurityLog
+{-# INLINE securityLogToLogMessage #-}
+
+securityLogFromLogMessage :: ToJSON a => LogMessage a => SomeLogMessage -> Maybe a
+securityLogFromLogMessage x = do
+    SomeSecurityLog a <- fromLogMessage x
+    cast a
+{-# INLINEABLE securityLogFromLogMessage #-}
+
+-- | A newtype wrapper for log messages that are security relevant
+--
+newtype SecurityLog a = SecurityLog a
+    deriving stock (Show, Generic)
+    deriving newtype (ToJSON, NFData)
+
+instance (ToJSON a, LogMessage a) => LogMessage (SecurityLog a) where
+    logText (SecurityLog a) = logText a
+    toLogMessage = securityLogToLogMessage
+    fromLogMessage = securityLogFromLogMessage
+
+    {-# INLINEABLE logText #-}
+    {-# INLINEABLE toLogMessage #-}
+    {-# INLINEABLE fromLogMessage #-}
 

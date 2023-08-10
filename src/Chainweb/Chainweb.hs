@@ -122,6 +122,7 @@ import qualified Data.Vector as V
 import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
+import qualified Network.HTTP.Types.Status as HTTP
 import Network.Socket (Socket)
 import Network.Wai
 import Network.Wai.Handler.Warp hiding (Port)
@@ -174,7 +175,7 @@ import Chainweb.WebPactExecutionService
 
 import Chainweb.Storage.Table.RocksDB
 
-import Data.LogMessage (LogFunctionText)
+import Data.LogMessage (LogFunctionText, JsonLog(..), SecurityLog(..))
 
 import P2P.Node.Configuration
 import P2P.Node.PeerDB (PeerDb)
@@ -664,6 +665,7 @@ runChainweb cw = do
         -- 1. Start serving Rest API
         [ (if tls then serve else servePlain)
             $ httpLog
+            . securityHttpLog
             . throttle (_chainwebPutPeerThrottler cw)
             . throttle (_chainwebMempoolThrottler cw)
             . throttle (_chainwebThrottler cw)
@@ -677,6 +679,7 @@ runChainweb cw = do
         , threadDelay 500000 >> do
             serveServiceApi
                 $ serviceHttpLog
+                . serviceSecurityHttpLog
                 . serviceRequestSizeLimit
                 . serviceApiValidationMiddleware
         ]
@@ -807,7 +810,18 @@ runChainweb cw = do
         defaultRequestSizeLimitSettings
 
     httpLog :: Middleware
-    httpLog = requestResponseLogger $ setComponent "http:p2p-api" (_chainwebLogger cw)
+    httpLog = requestResponseLogger''
+        (\_ -> Just Info)
+        (\r -> if HTTP.statusCode (responseStatus r) > 500 then Just Warn else Just Info)
+        JsonLog
+        (setComponent "http:p2p-api" (_chainwebLogger cw))
+
+    securityHttpLog :: Middleware
+    securityHttpLog = requestResponseLogger''
+        (\_ -> Nothing)
+        (\r -> if HTTP.statusCode (responseStatus r) > 400 then Just Error else Nothing)
+        (SecurityLog . JsonLog)
+        (addLabel ("sub-component", "security") $ setComponent "http:p2p-api" (_chainwebLogger cw))
 
     loggServerError (Just r) e = "HTTP server error: " <> sshow e <> ". Request: " <> sshow r
     loggServerError Nothing e = "HTTP server error: " <> sshow e
@@ -845,7 +859,18 @@ runChainweb cw = do
         (_serviceApiPayloadBatchLimit . _configServiceApi $ _chainwebConfig cw)
 
     serviceHttpLog :: Middleware
-    serviceHttpLog = requestResponseLogger $ setComponent "http:service-api" (_chainwebLogger cw)
+    serviceHttpLog = requestResponseLogger''
+        (\_ -> Just Info)
+        (\r -> if HTTP.statusCode (responseStatus r) > 500 then Just Warn else Just Info)
+        JsonLog
+        (setComponent "http:service-api" (_chainwebLogger cw))
+
+    serviceSecurityHttpLog :: Middleware
+    serviceSecurityHttpLog = requestResponseLogger''
+        (\_ -> Nothing)
+        (\r -> if HTTP.statusCode (responseStatus r) > 400 then Just Error else Nothing)
+        (SecurityLog . JsonLog)
+        (addLabel ("sub-component", "security") $ setComponent "http:service-api" (_chainwebLogger cw))
 
     loggServiceApiServerError (Just r) e = "HTTP service API server error: " <> sshow e <> ". Request: " <> sshow r
     loggServiceApiServerError Nothing e = "HTTP service API server error: " <> sshow e
