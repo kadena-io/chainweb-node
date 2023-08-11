@@ -706,6 +706,7 @@ handlePossibleRewind
     -> BlockHandler logger SQLiteEnv TxId
 handlePossibleRewind v cid bRestore hsh = do
     bCurrent <- getBCurrentHeight
+    liftIO $ putStrLn $ "handlePossibleRewind.getBCurrentHeight: " ++ show (bCurrent, bRestore, bCurrent + 1)
     checkHistoryInvariant (bCurrent + 1)
     case compare bRestore (bCurrent + 1) of
         GT -> internalError "handlePossibleRewind: Block_Restore invariant violation!"

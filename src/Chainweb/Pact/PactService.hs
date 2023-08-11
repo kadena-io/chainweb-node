@@ -215,7 +215,7 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenvs config act = do
 initializeLatestBlock :: (Logger logger) => CanReadablePayloadCas tbl => Bool -> PactServiceM logger tbl ()
 initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
     Nothing -> return ()
-    Just b -> withBatch $ rewindTo initialRewindLimit (Just $ ParentHeader b)
+    Just b -> withBatch $ rewindTo ReadWriteCheckpointer initialRewindLimit (Just $ ParentHeader b)
   where
     initialRewindLimit = RewindLimit 1000 <$ guard (not unlimitedRewind)
 
@@ -466,6 +466,8 @@ execNewBlock
     -> Miner
     -> PactServiceM logger tbl PayloadWithOutputs
 execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
+    liftIO $ putStrLn "execNewBlock!!!!"
+
     updateMempool
     withDiscardedBatch $ do
       withReadCheckpointerRewind newblockRewindLimit (Just parent) "execNewBlock" doNewBlock
@@ -738,7 +740,7 @@ execSyncToBlock
     => BlockHeader
     -> PactServiceM logger tbl ()
 execSyncToBlock hdr = pactLabel "execSyncToBlock" $
-  rewindToIncremental Nothing (Just $ ParentHeader hdr)
+  rewindToIncremental ReadWriteCheckpointer Nothing (Just $ ParentHeader hdr)
 
 -- | Validate a mined block. Execute the transactions in Pact again as
 -- validation. Note: The BlockHeader here is the header of the block being
@@ -751,6 +753,7 @@ execValidateBlock
     -> PayloadData
     -> PactServiceM logger tbl (PayloadWithOutputs, P.Gas)
 execValidateBlock memPoolAccess currHeader plData = pactLabel "execValidateBlock" $ do
+    liftIO $ putStrLn "execValidateBlock!!!!"
     -- The parent block header must be available in the block header database
     target <- getTarget
 
@@ -763,8 +766,9 @@ execValidateBlock memPoolAccess currHeader plData = pactLabel "execValidateBlock
         psEnv <- ask
         let reorgLimit = view psReorgLimit psEnv
         T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch $ do
+            liftIO $ putStrLn "execValidateBlock. calling withCheckpointerRewind"
             withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
-                !result <- execBlock currHeader plData pdbenv
+                !result <- execBlock ReadWriteCheckpointer currHeader plData pdbenv
                 return $! Save currHeader result
         !result <- either throwM return $
             validateHashes currHeader plData miner transactions

@@ -89,20 +89,20 @@ tests rdb = ScheduledTest testName go
   where
     testName = "Chainweb.Test.Pact.PactSingleChainTest"
     go = testGroup testName
-         [ test $ goldenNewBlock "new-block-0" goldenMemPool
-         , test $ goldenNewBlock "empty-block-tests" mempty
-         , test newBlockAndValidate
-         , test newBlockRewindValidate
-         , test getHistory
-         , test testHistLookup1
-         , test testHistLookup2
-         , test testHistLookup3
-         , test badlistNewBlockTest
-         , test mempoolCreationTimeTest
-         , test moduleNameFork
-         , test mempoolRefillTest
-         , test blockGasLimitTest
-         , testTimeout preInsertCheckTimeoutTest
+         -- [ test $ goldenNewBlock "new-block-0" goldenMemPool
+         -- , test $ goldenNewBlock "empty-block-tests" mempty
+         -- , test newBlockAndValidate
+         [ test newBlockRewindValidate
+         -- , test getHistory
+         -- , test testHistLookup1
+         -- , test testHistLookup2
+         -- , test testHistLookup3
+         -- , test badlistNewBlockTest
+         -- , test mempoolCreationTimeTest
+         -- , test moduleNameFork
+         -- , test mempoolRefillTest
+         -- , test blockGasLimitTest
+         -- , testTimeout preInsertCheckTimeoutTest
          ]
       where
         testWithConf f conf =

@@ -196,6 +196,7 @@ doRestore :: (Logger logger)
   -> Maybe (BlockHeight, ParentHash)
   -> IO (PactDbEnv' logger)
 doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
+    liftIO $ putStrLn "doRestore !!!!"
     setModuleNameFix
     setSortedKeys
     setLowerCaseTables

@@ -107,7 +107,8 @@ setParentHeader msg ph@(ParentHeader bh) = do
 --
 execBlock
     :: (CanReadablePayloadCas tbl, Logger logger)
-    => BlockHeader
+    => CheckpointerMode
+    -> BlockHeader
         -- ^ this is the current header. We may consider changing this to the parent
         -- header to avoid confusion with new block and prevent using data from this
         -- header when we should use the respective values from the parent header
@@ -115,9 +116,12 @@ execBlock
     -> PayloadData
     -> PactDbEnv' logger
     -> PactServiceM logger tbl (T2 Miner (Transactions (P.CommandResult [P.TxLogJson])))
-execBlock currHeader plData pdbenv = do
+execBlock checkpointerMode currHeader plData pdbenv = do
+    let cpDepth = case checkpointerMode of
+            ReadWriteCheckpointer -> _psCheckpointerDepth
+            ReadOnlyCheckpointer -> _psReadCheckpointerDepth
 
-    unlessM ((> 0) <$> asks _psCheckpointerDepth) $ do
+    unlessM ((> 0) <$> asks cpDepth) $ do
         error "Code invariant violation: execBlock must be called with withCheckpointer. Please report this as a bug."
 
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
