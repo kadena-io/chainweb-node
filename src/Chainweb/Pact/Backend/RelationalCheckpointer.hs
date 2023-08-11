@@ -196,7 +196,7 @@ doRestore :: (Logger logger)
   -> Maybe (BlockHeight, ParentHash)
   -> IO (PactDbEnv' logger)
 doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
-    liftIO $ putStrLn "doRestore !!!!"
+    liftIO $ putStrLn $ "doRestore !!!! to " ++ show (bh, hash)
     setModuleNameFix
     setSortedKeys
     setLowerCaseTables
@@ -210,6 +210,7 @@ doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     setSortedKeys = bsSortedKeys .= pact420 v cid bh
     setLowerCaseTables = bsLowerCaseTables .= chainweb217Pact v cid bh
 doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
+    liftIO $ putStrLn $ "doRestore !!!! to NOTHING"
     clearPendingTxState
     withSavepoint DbTransaction $
       callDb "doRestoreInitial: resetting tables" $ \db -> do
