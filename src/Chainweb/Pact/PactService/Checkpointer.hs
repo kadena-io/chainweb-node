@@ -264,7 +264,7 @@ withCurrentCheckpointer
     -> (PactDbEnv' logger -> PactServiceM logger tbl (WithCheckpointerResult a))
     -> PactServiceM logger tbl a
 withCurrentCheckpointer caller act = do
-    ph <- syncParentHeader "withCurrentCheckpointer"
+    ph <- syncParentHeader ReadWriteCheckpointer "withCurrentCheckpointer"
         -- discover the header for the latest block that is stored in the
         -- checkpointer.
     withCheckpointerRewind (Just $ RewindLimit 0) (Just ph) caller act
@@ -275,7 +275,7 @@ withReadCurrentCheckpointer
     -> (PactDbEnv' logger -> PactServiceM logger tbl (WithCheckpointerResult a))
     -> PactServiceM logger tbl a
 withReadCurrentCheckpointer caller act = do
-    ph <- syncParentHeader "withReadCurrentCheckpointer"
+    ph <- syncParentHeader ReadOnlyCheckpointer "withReadCurrentCheckpointer"
         -- discover the header for the latest block that is stored in the
         -- checkpointer.
     withReadCheckpointerRewind (Just $ RewindLimit 0) (Just ph) caller act
@@ -333,9 +333,11 @@ withReadCheckpointerRewind rewindLimit p caller act = do
 -- state. In case of an failure, the checkpointer is reverted to the initial
 -- state.
 --
-withBatch :: PactServiceM logger tbl a -> PactServiceM logger tbl a
-withBatch act = do
-    cp <- getCheckpointer
+withBatch :: CheckpointerMode -> PactServiceM logger tbl a -> PactServiceM logger tbl a
+withBatch checkpointerMode act = do
+    cp <- case checkpointerMode of
+            ReadWriteCheckpointer -> getCheckpointer
+            ReadOnlyCheckpointer -> getReadCheckpointer
     local (set psIsBatch True) $ mask $ \r -> do
         liftIO $ _cpBeginCheckpointerBatch cp
         v <- r act `onException` (liftIO $ _cpDiscardCheckpointerBatch cp)
@@ -349,11 +351,14 @@ withBatch act = do
 withBatchIO
     :: forall logger tbl b
     . (CanReadablePayloadCas tbl, Logger logger)
-    => (forall a . PactServiceM logger tbl a -> IO a)
+    => CheckpointerMode
+    -> (forall a . PactServiceM logger tbl a -> IO a)
     -> ((forall a . PactServiceM logger tbl a -> IO a) -> IO b)
     -> IO b
-withBatchIO runPact act = mask $ \umask -> do
-    cp <- runPact getCheckpointer
+withBatchIO checkpointerMode runPact act = mask $ \umask -> do
+    cp <- runPact $ case checkpointerMode of
+            ReadWriteCheckpointer -> getCheckpointer
+            ReadOnlyCheckpointer -> getReadCheckpointer
     _cpBeginCheckpointerBatch cp
     v <- umask (act runLocalPact) `onException` (_cpDiscardCheckpointerBatch cp)
     _cpCommitCheckpointerBatch cp
@@ -367,9 +372,11 @@ withBatchIO runPact act = mask $ \umask -> do
 -- 'withCheckPointerRewind' or 'withCurrentCheckpointer', and discard the final
 -- state at the end.
 --
-withDiscardedBatch :: PactServiceM logger tbl a -> PactServiceM logger tbl a
-withDiscardedBatch act = do
-    cp <- getCheckpointer
+withDiscardedBatch :: CheckpointerMode -> PactServiceM logger tbl a -> PactServiceM logger tbl a
+withDiscardedBatch checkpointerMode act = do
+    cp <- case checkpointerMode of
+            ReadWriteCheckpointer -> getCheckpointer
+            ReadOnlyCheckpointer -> getReadCheckpointer
     local (set psIsBatch True) $ bracket_
         (liftIO $ _cpBeginCheckpointerBatch cp)
         (liftIO $ _cpDiscardCheckpointerBatch cp)
@@ -424,7 +431,7 @@ rewindTo checkpointerMode rewindLimit (Just (ParentHeader parent)) = do
         -- 'withCheckPointerWithoutRewind'.
         setParentHeader "rewindTo" (ParentHeader parent)
       else do
-        lastHeader <- findLatestValidBlock >>= maybe failNonGenesisOnEmptyDb return
+        lastHeader <- findLatestValidBlock checkpointerMode >>= maybe failNonGenesisOnEmptyDb return
         logInfo $ "rewind from last to checkpointer target"
             <> ". last height: " <> sshow (_blockHeight lastHeader)
             <> "; last hash: " <> blockHashToText (_blockHash lastHeader)
@@ -514,11 +521,15 @@ fastForward checkpointerMode (target, block) =
 -- header isn't available, the function recursively checks the result of
 -- '_cpGetBlockParent'.
 --
-findLatestValidBlock :: (Logger logger) => PactServiceM logger tbl (Maybe BlockHeader)
-findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
+findLatestValidBlock :: (Logger logger) => CheckpointerMode -> PactServiceM logger tbl (Maybe BlockHeader)
+findLatestValidBlock cpm = getCheckpointer' >>= liftIO . _cpGetLatestBlock >>= \case
     Nothing -> return Nothing
     Just (height, hash) -> go height hash
   where
+    getCheckpointer' = case cpm of
+        ReadWriteCheckpointer -> getCheckpointer
+        ReadOnlyCheckpointer -> getReadCheckpointer
+
     go height hash = do
         bhdb <- view psBlockHeaderDb
         liftIO (lookup bhdb hash) >>= \case
@@ -526,7 +537,7 @@ findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
                 logInfo $ "Latest block isn't valid."
                     <> " Failed to lookup hash " <> sshow (height, hash) <> " in block header db."
                     <> " Continuing with parent."
-                cp <- getCheckpointer
+                cp <- getCheckpointer'
                 liftIO (_cpGetBlockParent cp (height, hash)) >>= \case
                     Nothing -> throwM $ PactInternalError
                         $ "missing block parent of last hash " <> sshow (height, hash)
@@ -552,9 +563,12 @@ findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
 -- prevented by rewinding on pact service startup to the latest available header
 -- in the block header db.
 --
-syncParentHeader :: (Logger logger) => Text -> PactServiceM logger tbl ParentHeader
-syncParentHeader caller = do
-    cp <- getCheckpointer
+syncParentHeader :: (Logger logger) => CheckpointerMode -> Text -> PactServiceM logger tbl ParentHeader
+syncParentHeader checkpointerMode caller = do
+    cp <- case checkpointerMode of
+        ReadWriteCheckpointer -> getCheckpointer
+        ReadOnlyCheckpointer -> getReadCheckpointer
+
     liftIO (_cpGetLatestBlock cp) >>= \case
         Nothing -> throwM NoBlockValidatedYet
         Just (h, ph) -> do
@@ -633,7 +647,7 @@ rewindToIncremental checkpointerMode rewindLimit (Just (ParentHeader parent)) = 
         -- 'withCheckPointerWithoutRewind'.
         setParentHeader "rewindTo" (ParentHeader parent)
       else do
-        lastHeader <- findLatestValidBlock >>= maybe failNonGenesisOnEmptyDb return
+        lastHeader <- findLatestValidBlock checkpointerMode >>= maybe failNonGenesisOnEmptyDb return
         logInfo $ "rewind from last to checkpointer target"
             <> ". last height: " <> sshow (_blockHeight lastHeader)
             <> "; last hash: " <> blockHashToText (_blockHash lastHeader)
@@ -659,7 +673,7 @@ rewindToIncremental checkpointerMode rewindLimit (Just (ParentHeader parent)) = 
           then
             -- If no blocks got replayed the checkpointer isn't restored via
             -- 'fastForward'. So we do an empty 'withCheckPointerWithoutRewind'.
-            withBatch $
+            withBatch checkpointerMode $
                 withCheckpointerWithoutRewind' checkpointerMode (Just $ ParentHeader commonAncestor) "rewindTo" $ \_ ->
                     return $! Save commonAncestor ()
           else do
@@ -679,7 +693,7 @@ rewindToIncremental checkpointerMode rewindLimit (Just (ParentHeader parent)) = 
                     -- fastforwards all blocks in a chunk in a single database
                     -- transactions (withBatchIO).
                     let playChunk :: IORef BlockHeight -> BlockHeader -> Stream (Of BlockHeader) IO r -> IO (Of BlockHeader r)
-                        playChunk heightRef cur s = withBatchIO runPact $ \runPactLocal -> S.foldM
+                        playChunk heightRef cur s = withBatchIO checkpointerMode runPact $ \runPactLocal -> S.foldM
                             (\c x -> x <$ (runPactLocal (fastForward checkpointerMode (ParentHeader c, x)) >> writeIORef heightRef (_blockHeight c)))
                             (return cur)
                             return

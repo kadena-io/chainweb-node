@@ -46,6 +46,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.Types
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -493,7 +494,7 @@ execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     trans <- mkCmds cmdStrs
     results <- runPact $ \pde ->
-      execTransactions False defaultMiner
+      execTransactions ReadWriteCheckpointer False defaultMiner
         trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde Nothing Nothing
         >>= throwOnGasFailure
 
@@ -523,7 +524,7 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
     go = do
       trans <- trans'
       results' <- tryAllSynchronous $ runPact $ \pde ->
-        execTransactions False defaultMiner trans
+        execTransactions ReadWriteCheckpointer False defaultMiner trans
           (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde Nothing Nothing
           >>= throwOnGasFailure
       case results' of

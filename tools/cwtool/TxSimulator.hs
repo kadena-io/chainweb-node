@@ -177,7 +177,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                   , _psGasLogger = gasLogger
                   , _psIsBatch = False
                   , _psCheckpointerDepth = 1
-                  , _psReadCheckpointerDepth = 0
+                  , _psReadCheckpointerDepth = 1
                   , _psBlockGasLimit = testBlockGasLimit
                   , _psChainId = cid
                   }

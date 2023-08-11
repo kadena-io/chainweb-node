@@ -213,9 +213,9 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenvs config act = do
     withPactServiceAndState (pst, pse) config act
 
 initializeLatestBlock :: (Logger logger) => CanReadablePayloadCas tbl => Bool -> PactServiceM logger tbl ()
-initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
+initializeLatestBlock unlimitedRewind = findLatestValidBlock ReadWriteCheckpointer >>= \case
     Nothing -> return ()
-    Just b -> withBatch $ rewindTo ReadWriteCheckpointer initialRewindLimit (Just $ ParentHeader b)
+    Just b -> withBatch ReadWriteCheckpointer $ rewindTo ReadWriteCheckpointer initialRewindLimit (Just $ ParentHeader b)
   where
     initialRewindLimit = RewindLimit 1000 <$ guard (not unlimitedRewind)
 
@@ -268,8 +268,8 @@ initializeCoinContract memPoolAccess v cid pwo = do
     genesisHeader :: BlockHeader
     genesisHeader = genesisBlockHeader v cid
 
-    readContracts = withDiscardedBatch $ do
-      parent <- syncParentHeader "initializeCoinContract.readContracts"
+    readContracts = withDiscardedBatch ReadWriteCheckpointer $ do
+      parent <- syncParentHeader ReadWriteCheckpointer "initializeCoinContract.readContracts"
       withCheckpointerRewind Nothing (Just parent) "initializeCoinContract.readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         pd <- getTxContext def
@@ -469,7 +469,7 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
     liftIO $ putStrLn "execNewBlock!!!!"
 
     updateMempool
-    withDiscardedBatch $ do
+    withDiscardedBatch ReadOnlyCheckpointer $ do
       withReadCheckpointerRewind newblockRewindLimit (Just parent) "execNewBlock" doNewBlock
   where
     handleTimeout :: TxTimeout -> PactServiceM logger cas a
@@ -523,7 +523,7 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
         newTrans <- getBlockTxs initState
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        Transactions pairs cb <- execTransactions False miner newTrans
+        Transactions pairs cb <- execTransactions ReadOnlyCheckpointer False miner newTrans
           (EnforceCoinbaseFailure True)
           (CoinbaseUsePrecompiled True)
           pdbenv
@@ -571,7 +571,7 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
             newTrans <- getBlockTxs bfState
             if V.null newTrans then pure unchanged else do
 
-              pairs <- execTransactionsOnly miner newTrans pdbenv
+              pairs <- execTransactionsOnly ReadOnlyCheckpointer miner newTrans pdbenv
                 (Just txTimeLimit) `catch` handleTimeout
 
               (oldPairsLength, oldFailsLength) <- liftIO $ (,)
@@ -637,11 +637,11 @@ execNewGenesisBlock
     => Miner
     -> Vector ChainwebTransaction
     -> PactServiceM logger tbl PayloadWithOutputs
-execNewGenesisBlock miner newTrans = pactLabel "execNewGenesisBlock" $ withDiscardedBatch $
+execNewGenesisBlock miner newTrans = pactLabel "execNewGenesisBlock" $ withDiscardedBatch ReadWriteCheckpointer $
     withCheckpointerRewind Nothing Nothing "execNewGenesisBlock" $ \pdbenv -> do
 
         -- NEW GENESIS COINBASE: Reject bad coinbase, use date rule for precompilation
-        results <- execTransactions True miner newTrans
+        results <- execTransactions ReadWriteCheckpointer True miner newTrans
                    (EnforceCoinbaseFailure True)
                    (CoinbaseUsePrecompiled False) pdbenv Nothing Nothing
                    >>= throwOnGasFailure
@@ -657,8 +657,8 @@ execLocal
     -> Maybe RewindDepth
       -- ^ rewind depth
     -> PactServiceM logger tbl LocalResult
-execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ withDiscardedBatch $ do
-    parent <- syncParentHeader "execLocal"
+execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ withDiscardedBatch ReadOnlyCheckpointer $ do
+    parent <- syncParentHeader ReadOnlyCheckpointer "execLocal"
 
     PactServiceEnv{..} <- ask
 
@@ -765,7 +765,7 @@ execValidateBlock memPoolAccess currHeader plData = pactLabel "execValidateBlock
     act target = do
         psEnv <- ask
         let reorgLimit = view psReorgLimit psEnv
-        T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch $ do
+        T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch ReadWriteCheckpointer $ do
             liftIO $ putStrLn "execValidateBlock. calling withCheckpointerRewind"
             withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
                 !result <- execBlock ReadWriteCheckpointer currHeader plData pdbenv
@@ -823,7 +823,7 @@ execPreInsertCheckReq
     :: (CanReadablePayloadCas tbl, Logger logger)
     => Vector ChainwebTransaction
     -> PactServiceM logger tbl (Vector (Either Mempool.InsertError ChainwebTransaction))
-execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ withDiscardedBatch $ do
+execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ withDiscardedBatch ReadOnlyCheckpointer $ do
     let requestKeys = V.map P.cmdToRequestKey txs
     logInfo $ "(request keys = " <> sshow requestKeys <> ")"
 
@@ -832,7 +832,7 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ withDiscardedBat
     psEnv <- ask
     psState <- get
     let parentTime = ParentCreationTime $ _blockCreationTime $ _parentHeader parent
-    cp <- getCheckpointer
+    cp <- getReadCheckpointer
     logger <- view psLogger
     withReadCurrentCheckpointer "execPreInsertCheckReq" $ \pdb -> do
       let v = _chainwebVersion psEnv
@@ -862,7 +862,7 @@ execLookupPactTxs restorePoint confDepth txs = pactLabel "execLookupPactTxs" $ d
     go = getReadCheckpointer >>= \(!cp) -> case restorePoint of
       NoRewind _ ->
         liftIO $! _cpLookupProcessedTx cp confDepth txs
-      DoRewind parent -> withDiscardedBatch $ do
+      DoRewind parent -> withDiscardedBatch ReadOnlyCheckpointer $ do
         withReadCheckpointerRewind Nothing (Just $ ParentHeader parent) "lookupPactTxs" $ \_ ->
           liftIO $ Discard <$> _cpLookupProcessedTx cp confDepth txs
 
