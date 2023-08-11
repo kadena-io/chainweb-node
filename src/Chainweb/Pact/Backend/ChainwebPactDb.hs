@@ -786,6 +786,7 @@ handlePossibleRewind v cid bRestore hsh = do
         callDb "rewindBlock" $ \db -> do
             droppedtbls <- dropTablesAtRewind bh db
             vacuumTablesAtRewind bh endingtx droppedtbls db
+        liftIO $ putStrLn $ "DELETING HISTORY SINCE " ++ show bh
         deleteHistory bh
         assign bsTxId endingtx
         clearTxIndex
@@ -842,6 +843,12 @@ tableMaintenanceRowsVersionedSystemTables endingtx = do
 deleteHistory :: BlockHeight -> BlockHandler logger SQLiteEnv ()
 deleteHistory bh = do
     callDb "Deleting from BlockHistory, VersionHistory" $ \db -> do
+        blocks <- qry db "SELECT blockheight FROM BlockHistory"
+                          [] [RText]
+
+        liftIO $ putStrLn $ "HISTORY BEFORE DELETION " ++ show blocks
+
+
         exec' db "DELETE FROM BlockHistory WHERE blockheight >= ?"
               [SInt (fromIntegral bh)]
 
