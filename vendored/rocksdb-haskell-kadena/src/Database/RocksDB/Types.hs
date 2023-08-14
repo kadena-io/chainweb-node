@@ -10,10 +10,8 @@
 
 module Database.RocksDB.Types
     ( BatchOp (..)
-    , BloomFilter (..)
     , Comparator (..)
     , Compression (..)
-    , FilterPolicy (..)
     , Options (..)
     , Property (..)
     , Snapshot (..)
@@ -43,16 +41,6 @@ data Compression
 
 -- | User-defined comparator
 newtype Comparator = Comparator (ByteString -> ByteString -> Ordering)
-
--- | User-defined filter policy
-data FilterPolicy = FilterPolicy
-    { fpName       :: String
-    , createFilter :: [ByteString] -> ByteString
-    , keyMayMatch  :: ByteString -> ByteString -> Bool
-    }
-
--- | Represents the built-in Bloom Filter
-newtype BloomFilter = BloomFilter FilterPolicyPtr
 
 -- | Options when opening a database
 data Options = Options
