@@ -217,7 +217,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
       psParentHeader .= ParentHeader parent
       liftIO (spvSim sc hdr pwo) >>= assign psSpvSupport
       _r <- trace (logFunction cwLogger) "execBlock" () 1 $
-          execBlock hdr (payloadWithOutputsToPayloadData pwo) pde'
+          execBlock ReadWriteCheckpointer hdr (payloadWithOutputsToPayloadData pwo) pde'
       liftIO $ _cpSave cp (_blockHash hdr)
       doBlock False hdr rest
 

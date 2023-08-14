@@ -717,8 +717,13 @@ handlePossibleRewind v cid bRestore hsh = do
     -- The maximum block height that is stored in the block history.
     --
     getBCurrentHeight = do
-        r <- callDb "handlePossibleRewind" $ \db ->
-             qry_ db "SELECT max(blockheight) AS current_block_height \
+        r <- callDb "handlePossibleRewind" $ \db -> do
+            blocks <- qry db "SELECT blockheight FROM BlockHistory"
+                              [] [RText]
+
+            liftIO $ putStrLn $ "HISTORY BEFORE " ++ show blocks
+
+            qry_ db "SELECT max(blockheight) AS current_block_height \
                      \FROM BlockHistory;" [RInt]
         bh <- liftIO $ expectSingleRowCol "handlePossibleRewind: (block):" r >>= \case
             SInt x -> return x
@@ -843,10 +848,10 @@ tableMaintenanceRowsVersionedSystemTables endingtx = do
 deleteHistory :: BlockHeight -> BlockHandler logger SQLiteEnv ()
 deleteHistory bh = do
     callDb "Deleting from BlockHistory, VersionHistory" $ \db -> do
-        blocks <- qry db "SELECT blockheight FROM BlockHistory"
-                          [] [RText]
+        -- blocks <- qry db "SELECT blockheight FROM BlockHistory"
+        --                   [] [RText]
 
-        liftIO $ putStrLn $ "HISTORY BEFORE DELETION " ++ show blocks
+        -- liftIO $ putStrLn $ "HISTORY BEFORE DELETION " ++ show blocks
 
 
         exec' db "DELETE FROM BlockHistory WHERE blockheight >= ?"

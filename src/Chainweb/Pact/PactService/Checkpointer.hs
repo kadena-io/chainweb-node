@@ -233,7 +233,6 @@ withCheckpointerWithoutRewind' checkpointerMode target caller act = do
             ReadWriteCheckpointer -> psCheckpointerDepth
             ReadOnlyCheckpointer -> psReadCheckpointerDepth
     local (over cpdepth succ) $ mask $ \restore -> do
-        liftIO $ putStrLn "withCheckpointerWithoutRewind'.inside local"
         cenv <- restore $ liftIO $! _cpRestore checkPointer checkpointerTarget
 
         try (restore (act cenv)) >>= \case

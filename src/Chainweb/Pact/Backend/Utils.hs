@@ -175,11 +175,13 @@ withSavepoint name action = mask $ \resetMask -> do
                ]
 
 beginSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
-beginSavepoint name =
+beginSavepoint name = do
+  liftIO $ putStrLn $ ">>>>>STARTING SAVEPOINT " ++ (show name)
   callDb "beginSavepoint" $ \db -> exec_ db $ "SAVEPOINT [" <> convSavepointName name <> "];"
 
 commitSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
-commitSavepoint name =
+commitSavepoint name = do
+  liftIO $ putStrLn $ "<<<<<RELEASING SAVEPOINT " ++ (show name)
   callDb "commitSavepoint" $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> convSavepointName name <> "];"
 
 -- | @rollbackSavepoint n@ rolls back all database updates since the most recent
