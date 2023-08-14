@@ -1049,14 +1049,14 @@ pact48UpgradeTest :: PactTestM ()
 pact48UpgradeTest = do
   runToHeight 83
 
-  -- run block TODO
+  -- run block 84 (before the pact48 fork)
   runBlockTest
     [ PactTxTest runConcat $ assertTxGas "Old concat gas cost" 231
     , PactTxTest runFormat $ assertTxGas "Old format gas cost" 238
     , PactTxTest runReverse $ assertTxGas "Old reverse gas cost" 4232
     ]
 
-  -- run block TODO
+  -- run block 85 (after the pact 48 fork)
   runBlockTest
     [ PactTxTest runConcat $ assertTxGas "New concat gas cost" 280
     , PactTxTest runFormat $ assertTxGas "New format gas cost" 233
