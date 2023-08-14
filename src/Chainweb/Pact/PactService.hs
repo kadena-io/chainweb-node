@@ -94,7 +94,7 @@ import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpoin
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.PactService.Checkpointer
-import Chainweb.Pact.Service.PactQueue (PactQueue, getNextValidateBlockRequest, getNextOtherRequest)
+import Chainweb.Pact.Service.PactQueue (PactQueue, getNextValidateBlockRequest, getNextOtherRequest, getNextRequest)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
@@ -128,9 +128,9 @@ runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenvs config
 
     (pst, pse) <- mkPactService ver cid chainwebLogger bhDb pdb sqlenvs config
 
-    concurrently_
-        (withPactServiceAndState (pst, pse) config $ serviceValidateBlockRequests mempoolAccess reqQ)
-        (withPactServiceAndState (pst, pse) config $ serviceOtherRequests mempoolAccess reqQ)
+    -- concurrently_
+    -- void $ (withPactServiceAndState (pst, pse) config $ serviceValidateBlockRequests mempoolAccess reqQ)
+    void $ (withPactServiceAndState (pst, pse) config $ serviceOtherRequests mempoolAccess reqQ)
 
 mkPactService
     :: Logger logger
@@ -339,13 +339,21 @@ serviceOtherRequests memPoolAccess reqQ = do
     go = do
         PactServiceEnv{_psLogger} <- ask
         logDebug "serviceOtherRequests: wait"
-        msg <- liftIO $ getNextOtherRequest reqQ
+        msg <- liftIO $ getNextRequest reqQ
         requestId <- liftIO $ UUID.toText <$> UUID.nextRandom
         let logFn = logFunction $ addLabel ("pact-request-id", requestId) _psLogger
         logDebug $ "serviceOtherRequests: " <> sshow msg
         case msg of
             CloseMsg -> return ()
-            ValidateBlockMsg _ -> error "impossible: this service doesn't handle ValidateBlock request"
+
+            ValidateBlockMsg ValidateBlockReq {..} -> do
+                tryOne "execValidateBlock" _valResultVar $
+                  fmap fst $ trace' logFn "Chainweb.Pact.PactService.execValidateBlock"
+                    _valBlockHeader
+                    (\(_, g) -> fromIntegral g)
+                    (execValidateBlock memPoolAccess _valBlockHeader _valPayloadData)
+                go
+
             LocalMsg (LocalReq localRequest preflight sigVerify rewindDepth localResultVar)  -> do
                 trace logFn "Chainweb.Pact.PactService.execLocal" () 0 $
                     tryOne "execLocal" localResultVar $

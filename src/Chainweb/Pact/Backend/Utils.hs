@@ -181,7 +181,7 @@ beginSavepoint name = do
 
 commitSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
 commitSavepoint name = do
-  liftIO $ putStrLn $ "<<<<<RELEASING SAVEPOINT " ++ (show name)
+  liftIO $ putStrLn $ "<<<<<COMMITING SAVEPOINT " ++ (show name)
   callDb "commitSavepoint" $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> convSavepointName name <> "];"
 
 -- | @rollbackSavepoint n@ rolls back all database updates since the most recent
@@ -195,7 +195,8 @@ commitSavepoint name = do
 -- savepoints.
 --
 rollbackSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
-rollbackSavepoint name =
+rollbackSavepoint name = do
+  liftIO $ putStrLn $ "<<<<<ROLLINGBACK SAVEPOINT " ++ (show name)
   callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
 
 data SavepointName = BatchSavepoint | Block | DbTransaction |  PreBlock
