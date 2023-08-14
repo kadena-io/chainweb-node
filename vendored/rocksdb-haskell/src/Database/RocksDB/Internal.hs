@@ -15,19 +15,16 @@ module Database.RocksDB.Internal
     ( -- * Types
       DB (..)
     , Comparator'
-    , FilterPolicy'
     , Options' (..)
 
     -- * "Smart" constructors and deconstructors
     , freeCReadOpts
     , freeComparator
-    , freeFilterPolicy
     , freeOpts
     , freeCString
     , mkComparator
     , mkCompareFun
     , mkCreateFilterFun
-    , mkFilterPolicy
     , mkKeyMayMatchFun
     , mkOpts
 
@@ -55,7 +52,6 @@ import           Database.RocksDB.C
 import           Database.RocksDB.Types
 
 import qualified Data.ByteString        as BS
-import System.IO.Unsafe
 
 
 -- | Database handle
@@ -67,13 +63,6 @@ data Comparator' = Comparator' (FunPtr CompareFun)
                                (FunPtr Destructor)
                                (FunPtr NameFun)
                                ComparatorPtr
-
--- | Internal representation of a 'FilterPolicy'
-data FilterPolicy' = FilterPolicy' (FunPtr CreateFilterFun)
-                                   (FunPtr KeyMayMatchFun)
-                                   (FunPtr Destructor)
-                                   (FunPtr NameFun)
-                                   FilterPolicyPtr
 
 -- | Internal representation of the 'Options'
 data Options' = Options'
@@ -189,25 +178,6 @@ mkKeyMayMatchFun g = g'
         f' <- BS.packCStringLen (f, fromInteger . toInteger $ flen)
         return . boolToNum $ g k' f'
 
-
-mkFilterPolicy :: FilterPolicy -> IO FilterPolicy'
-mkFilterPolicy FilterPolicy{..} =
-    withCString fpName $ \cs -> do
-        cname  <- mkName $ const cs
-        cdest  <- mkDest $ const ()
-        ccffun <- mkCF . mkCreateFilterFun $ createFilter
-        ckmfun <- mkKMM . mkKeyMayMatchFun $ keyMayMatch
-        cfp    <- c_rocksdb_filterpolicy_create nullPtr cdest ccffun ckmfun cname
-
-        return $ FilterPolicy' ccffun ckmfun cdest cname cfp
-
-freeFilterPolicy :: FilterPolicy' -> IO ()
-freeFilterPolicy (FilterPolicy' ccffun ckmfun cdest cname cfp) = do
-    c_rocksdb_filterpolicy_destroy cfp
-    freeHaskellFunPtr ccffun
-    freeHaskellFunPtr ckmfun
-    freeHaskellFunPtr cdest
-    freeHaskellFunPtr cname
 
 freeCReadOpts :: ReadOptionsPtr -> IO ()
 freeCReadOpts = c_rocksdb_readoptions_destroy
