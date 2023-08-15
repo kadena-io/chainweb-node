@@ -291,6 +291,31 @@ headersHandler db maxLimit limit next minr maxr = do
   where
     effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
 
+-- | Every block within a given range.
+--
+-- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
+--
+blocksHandler
+    :: CanReadablePayloadCas tbl
+    => BlockHeaderDb
+    -> PayloadDb tbl
+    -> Limit
+        -- ^ max limit
+    -> Maybe Limit
+    -> Maybe (NextItem BlockHash)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> Handler BlockPage
+blocksHandler bhdb pdb maxLimit limit next minr maxr = do
+    nextChecked <- traverse (traverse $ checkKey bhdb) next
+    liftIO
+        $ entries bhdb nextChecked (succ <$> effectiveLimit) minr maxr
+        $ finitePrefixOfInfiniteStreamToPage (key . _blockHeader) effectiveLimit . void . SP.mapM grabPayload
+  where
+    effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
+    grabPayload :: BlockHeader -> IO Block
+    grabPayload h = Block h <$> casLookupM pdb (_blockPayloadHash h)
+
 -- | Query a single 'BlockHeader' by its 'BlockHash'
 --
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
@@ -321,6 +346,7 @@ blockHeaderDbServer
 blockHeaderDbServer (BlockHeaderDb_ db) pdb
     = hashesHandler db
     :<|> headersHandler db defaultEntryLimit
+    :<|> blocksHandler db pdb defaultEntryLimit
     :<|> headerHandler db
     :<|> branchHashesHandler db
     :<|> branchHeadersHandler db defaultBoundsLimit defaultEntryLimit

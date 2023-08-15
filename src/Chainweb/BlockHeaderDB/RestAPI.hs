@@ -386,6 +386,25 @@ p2pHeaderApi
 p2pHeaderApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+type BlocksApi_
+    = "block"
+    :> PageParams (NextItem BlockHash)
+    :> FilterParams
+    :> Get '[JsonBlockHeaderObject] BlockPage
+
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/block@
+--
+-- Returns blocks in the block header tree database in ascending order
+-- with respect to the children relation.
+--
+-- Note that for blocks on different branches, the order isn't determined.
+-- Therefore a block of higher block height can be returned before a block of
+-- lower block height.
+--
+type BlocksApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BlocksApi_
+
+-- -------------------------------------------------------------------------- --
 type BranchBlocksApi_
     = "block" :> "branch"
     :> PageParams (NextItem BlockHash)
@@ -403,6 +422,7 @@ type BranchBlocksApi (v :: ChainwebVersionT) (c :: ChainIdT)
 type BlockHeaderDbApi v c
     = HashesApi v c
     :<|> HeadersApi v c
+    :<|> BlocksApi v c
     :<|> HeaderApi v c
     :<|> BranchHashesApi v c
     :<|> BranchHeadersApi v c
