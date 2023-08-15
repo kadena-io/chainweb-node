@@ -6,6 +6,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -41,8 +42,10 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Short (fromShort)
 import Data.Foldable
+import Data.Function
 import Data.Functor.Of
 import Data.IORef
+import qualified Data.Map.Strict as Map
 import Data.Proxy
 import Data.Text.Encoding (decodeUtf8)
 import Numeric.Natural(Natural)
@@ -58,6 +61,7 @@ import qualified Streaming.Prelude as SP
 
 -- internal modules
 
+import Chainweb.BlockHash
 import Chainweb.BlockHeader (BlockHeader(..), ObjectEncoded(..), _blockPow)
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
@@ -207,6 +211,41 @@ branchHeadersHandler db (BranchBoundsLimit boundsLimit) maxLimit limit next minr
   where
     effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
 
+-- | Query Branch Blocks of the database.
+--
+-- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
+--
+branchBlocksHandler
+    :: CanReadablePayloadCas tbl
+    => BlockHeaderDb
+    -> PayloadDb tbl
+    -> BranchBoundsLimit
+    -> Limit
+        -- ^ max limit
+    -> Maybe Limit
+    -> Maybe (NextItem BlockHash)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> BranchBounds BlockHeaderDb
+    -> Handler (Page (NextItem BlockHash) Block)
+branchBlocksHandler bhdb pdb (BranchBoundsLimit boundsLimit) maxLimit limit next minr maxr bounds
+    | fromIntegral (length (_branchBoundsUpper bounds)) > boundsLimit = throwError $ err400Msg $
+        "upper branch bound limit exceeded. Only " <> show boundsLimit <> " values are supported."
+    | fromIntegral (length (_branchBoundsLower bounds)) > boundsLimit = throwError $ err400Msg $
+        "lower branch bound limit exceeded. Only " <> show boundsLimit <> " values are supported."
+    | otherwise = do
+        nextChecked <- traverse (traverse $ checkKey bhdb) next
+        checkedBounds <- checkBounds bhdb bounds
+        liftIO
+            $ branchEntries bhdb nextChecked (succ <$> effectiveLimit) minr maxr
+                (_branchBoundsLower checkedBounds)
+                (_branchBoundsUpper checkedBounds)
+            $ finiteStreamToPage (key . _blockHeader) effectiveLimit . void . SP.mapM grabPayload
+  where
+    effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
+    grabPayload :: BlockHeader -> IO Block
+    grabPayload h = Block h <$> casLookupM pdb (_blockPayloadHash h)
+
 -- | Every `TreeDb` key within a given range.
 --
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
@@ -274,13 +313,18 @@ headerHandler db k = liftIO (lookup db k) >>= \case
 
 -- Full BlockHeader DB API (used for Service API)
 --
-blockHeaderDbServer :: BlockHeaderDb_ v c -> Server (BlockHeaderDbApi v c)
-blockHeaderDbServer (BlockHeaderDb_ db)
+blockHeaderDbServer
+    :: CanReadablePayloadCas tbl
+    => BlockHeaderDb_ v c
+    -> PayloadDb tbl
+    -> Server (BlockHeaderDbApi v c)
+blockHeaderDbServer (BlockHeaderDb_ db) pdb
     = hashesHandler db
     :<|> headersHandler db defaultEntryLimit
     :<|> headerHandler db
     :<|> branchHashesHandler db
     :<|> branchHeadersHandler db defaultBoundsLimit defaultEntryLimit
+    :<|> branchBlocksHandler db pdb defaultBoundsLimit defaultEntryLimit
 
 -- Restricted P2P BlockHeader DB API
 --
@@ -293,13 +337,25 @@ p2pBlockHeaderDbServer (BlockHeaderDb_ db)
 -- -------------------------------------------------------------------------- --
 -- Multichain Server
 
-someBlockHeaderDbServer :: SomeBlockHeaderDb -> SomeServer
-someBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c))
-    = SomeServer (Proxy @(BlockHeaderDbApi v c)) (blockHeaderDbServer db)
+someBlockHeaderDbServer
+    :: CanReadablePayloadCas tbl
+    => SomeBlockHeaderDb
+    -> PayloadDb tbl
+    -> SomeServer
+someBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c)) pdb
+    = SomeServer (Proxy @(BlockHeaderDbApi v c)) (blockHeaderDbServer db pdb)
 
-someBlockHeaderDbServers :: ChainwebVersion -> [(ChainId, BlockHeaderDb)] -> SomeServer
-someBlockHeaderDbServers v = mconcat
-    . fmap (someBlockHeaderDbServer . uncurry (someBlockHeaderDbVal v))
+someBlockHeaderDbServers
+    :: CanReadablePayloadCas tbl
+    => ChainwebVersion
+    -> [(ChainId, BlockHeaderDb)]
+    -> [(ChainId, PayloadDb tbl)]
+    -> SomeServer
+someBlockHeaderDbServers v cdbs pdbs = mconcat
+    [ someBlockHeaderDbServer (someBlockHeaderDbVal v cid cdb) pdb
+    | (cid, (cdb, pdb)) <-
+        Map.toList $ Map.intersectionWith (,) (Map.fromList cdbs) (Map.fromList pdbs)
+    ]
 
 someP2pBlockHeaderDbServer :: SomeBlockHeaderDb -> SomeServer
 someP2pBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c))
@@ -341,11 +397,11 @@ headerStreamHandler db streamTransactions = Tagged $ \req resp -> do
         x <- casLookupM cas $ _blockPayloadHash bh
         pure $ HeaderUpdate
             { _huHeader = ObjectEncoded bh
-            , _huTransactions =
-                _payloadWithOutputsTransactions x <$ guard streamTransactions
+            , _huPayloadWithOutputs =
+                x <$ guard streamTransactions
             , _huTxCount = length $ _payloadWithOutputsTransactions x
             , _huPowHash = decodeUtf8 . B16.encode . BS.reverse . fromShort . powHashBytes $ _blockPow bh
-            , _huTarget = showTargetHex $ _blockTarget bh 
+            , _huTarget = showTargetHex $ _blockTarget bh
             }
 
     f :: HeaderUpdate -> ServerEvent

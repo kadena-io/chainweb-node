@@ -48,6 +48,8 @@ module Chainweb.BlockHeaderDB.RestAPI
 -- * API types
   BlockHashPage
 , BlockHeaderPage
+, Block(..)
+, BlockPage
 
 -- * Encodings
 , JsonBlockHeaderObject
@@ -89,7 +91,6 @@ import Data.Bifunctor
 import Data.Maybe
 import Data.Proxy
 import Data.Text (Text)
-import Data.Vector (Vector)
 
 import Network.HTTP.Media ((//), (/:))
 
@@ -111,13 +112,28 @@ import Chainweb.Version
 -- -------------------------------------------------------------------------- --
 -- API types
 
--- | A page of BlockHashes
---
 type BlockHashPage = Page (NextItem BlockHash) BlockHash
 
--- | A page of BlockHeaders
---
 type BlockHeaderPage = Page (NextItem BlockHash) BlockHeader
+
+data Block = Block
+    { _blockHeader :: BlockHeader
+    , _blockPayloadWithOutputs :: PayloadWithOutputs
+    }
+
+blockProperties :: KeyValue kv => Block -> [kv]
+blockProperties o =
+    [ "header"  .= ObjectEncoded (_blockHeader o)
+    , "payloadWithOutputs" .= _blockPayloadWithOutputs o
+    ]
+
+instance ToJSON Block where
+    toJSON = object . blockProperties
+    toEncoding = pairs . mconcat . blockProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+type BlockPage = Page (NextItem BlockHash) Block
 
 -- -------------------------------------------------------------------------- --
 -- Encodings
@@ -161,6 +177,10 @@ instance MimeUnrender JsonBlockHeaderObject BlockHeaderPage where
 
 instance MimeRender JsonBlockHeaderObject BlockHeaderPage where
     mimeRender _ = encode . fmap ObjectEncoded
+    {-# INLINE mimeRender #-}
+
+instance MimeRender JsonBlockHeaderObject BlockPage where
+    mimeRender _ = encode
     {-# INLINE mimeRender #-}
 
 -- -------------------------------------------------------------------------- --
@@ -366,6 +386,18 @@ p2pHeaderApi
 p2pHeaderApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+type BranchBlocksApi_
+    = "block" :> "branch"
+    :> PageParams (NextItem BlockHash)
+    :> MinHeightParam
+    :> MaxHeightParam
+    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
+    :> Post '[JSON, JsonBlockHeaderObject] BlockPage
+
+type BranchBlocksApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchBlocksApi_
+
+-- -------------------------------------------------------------------------- --
 -- | BlockHeaderDb Api
 --
 type BlockHeaderDbApi v c
@@ -374,6 +406,7 @@ type BlockHeaderDbApi v c
     :<|> HeaderApi v c
     :<|> BranchHashesApi v c
     :<|> BranchHeadersApi v c
+    :<|> BranchBlocksApi v c
 
 -- | Restricted P2P BlockHeader DB API
 --
@@ -387,7 +420,7 @@ type P2pBlockHeaderDbApi v c
 
 data HeaderUpdate = HeaderUpdate
     { _huHeader :: !(ObjectEncoded BlockHeader)
-    , _huTransactions :: !(Maybe (Vector (Transaction, TransactionOutput)))
+    , _huPayloadWithOutputs :: !(Maybe PayloadWithOutputs)
     , _huTxCount :: !Int
     , _huPowHash :: !Text
     , _huTarget :: !Text
@@ -401,7 +434,7 @@ headerUpdateProperties o =
     , "powHash" .= _huPowHash o
     , "target"  .= _huTarget o
     ] <> concatMap maybeToList
-    [ ("transactions" .=) <$> _huTransactions o
+    [ ("payloadWithOutputs" .=) <$> _huPayloadWithOutputs o
     ]
 {-# INLINE headerUpdateProperties #-}
 
@@ -414,7 +447,7 @@ instance ToJSON HeaderUpdate where
 instance FromJSON HeaderUpdate where
     parseJSON = withObject "HeaderUpdate" $ \o -> HeaderUpdate
         <$> o .: "header"
-        <*> o .:? "transactions"
+        <*> o .:? "payloadWithOutputs"
         <*> o .: "txCount"
         <*> o .: "powHash"
         <*> o .: "target"
