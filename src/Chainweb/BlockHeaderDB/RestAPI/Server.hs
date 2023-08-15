@@ -323,8 +323,8 @@ headerStreamServer
     -> Server (HeaderStreamApi v)
 headerStreamServer = headerStreamHandler
 
-headerStreamHandler :: forall tbl. CanReadablePayloadCas tbl => CutDb tbl -> Tagged Handler Application
-headerStreamHandler db = Tagged $ \req resp -> do
+headerStreamHandler :: forall tbl. CanReadablePayloadCas tbl => CutDb tbl -> Bool -> Tagged Handler Application
+headerStreamHandler db streamTransactions = Tagged $ \req resp -> do
     streamRef <- newIORef $ SP.map f $ SP.mapM g $ SP.concat $ blockDiffStream db
     eventSourceAppIO (run streamRef) req resp
   where
@@ -340,10 +340,13 @@ headerStreamHandler db = Tagged $ \req resp -> do
     g bh = do
         x <- casLookupM cas $ _blockPayloadHash bh
         pure $ HeaderUpdate
-            { _huHeader =  ObjectEncoded bh
+            { _huHeader = ObjectEncoded bh
+            , _huTransactions =
+                _payloadWithOutputsTransactions x <$ guard streamTransactions
             , _huTxCount = length $ _payloadWithOutputsTransactions x
             , _huPowHash = decodeUtf8 . B16.encode . BS.reverse . fromShort . powHashBytes $ _blockPow bh
-            , _huTarget = showTargetHex $ _blockTarget bh }
+            , _huTarget = showTargetHex $ _blockTarget bh 
+            }
 
     f :: HeaderUpdate -> ServerEvent
     f hu = ServerEvent (Just $ fromByteString "BlockHeader") Nothing

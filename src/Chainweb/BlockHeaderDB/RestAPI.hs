@@ -86,8 +86,10 @@ module Chainweb.BlockHeaderDB.RestAPI
 
 import Data.Aeson
 import Data.Bifunctor
+import Data.Maybe
 import Data.Proxy
 import Data.Text (Text)
+import Data.Vector (Vector)
 
 import Network.HTTP.Media ((//), (/:))
 
@@ -98,6 +100,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
+import Chainweb.Payload
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
@@ -384,6 +387,7 @@ type P2pBlockHeaderDbApi v c
 
 data HeaderUpdate = HeaderUpdate
     { _huHeader :: !(ObjectEncoded BlockHeader)
+    , _huTransactions :: !(Maybe (Vector (Transaction, TransactionOutput)))
     , _huTxCount :: !Int
     , _huPowHash :: !Text
     , _huTarget :: !Text
@@ -396,6 +400,8 @@ headerUpdateProperties o =
     , "txCount" .= _huTxCount o
     , "powHash" .= _huPowHash o
     , "target"  .= _huTarget o
+    ] <> concatMap maybeToList
+    [ ("transactions" .=) <$> _huTransactions o
     ]
 {-# INLINE headerUpdateProperties #-}
 
@@ -408,12 +414,13 @@ instance ToJSON HeaderUpdate where
 instance FromJSON HeaderUpdate where
     parseJSON = withObject "HeaderUpdate" $ \o -> HeaderUpdate
         <$> o .: "header"
+        <*> o .:? "transactions"
         <*> o .: "txCount"
         <*> o .: "powHash"
         <*> o .: "target"
     {-# INLINE parseJSON #-}
 
-type HeaderStreamApi_ = "header" :> "updates" :> Raw
+type HeaderStreamApi_ = "header" :> "updates" :> QueryFlag "withTransactions" :> Raw
 
 -- | A stream of all new `BlockHeader`s that are accepted into the true `Cut`.
 --
