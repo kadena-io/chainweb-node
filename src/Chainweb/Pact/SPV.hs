@@ -143,7 +143,7 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
       -- Chainweb tx output proof
       "TXOUT" -> do
         u <- except $ extractProof enableBridge o
-        unless (view outputProofChainId u == Just cid) $
+        unless (view outputProofTarget u == ProofTargetChain cid) $
           forkedThrower bh "cannot redeem spv proof on wrong target chain"
 
         -- SPV proof verification is a 3 step process:
@@ -169,8 +169,6 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
 
       t -> throwError $! "unsupported SPV types: " <> t
 
-
-
 -- | SPV defpact transaction verification support. This call validates a pact 'endorsement'
 -- in Pact, providing a validation that the yield data of a cross-chain pact is valid.
 --
@@ -187,7 +185,7 @@ verifyCont bdb bh (ContProof cp) = runExceptT $ do
     case decodeStrict' t of
       Nothing -> forkedThrower bh "unable to decode continuation proof"
       Just u
-        | view outputProofChainId u /= Just cid ->
+        | ProofTargetChain tcid <- view outputProofTarget u, tcid /= cid ->
           forkedThrower bh "cannot redeem continuation proof on wrong target chain"
         | otherwise -> do
 

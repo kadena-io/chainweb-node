@@ -27,7 +27,6 @@ module Chainweb.SPV
 , proofChainId
 , TransactionOutputProof(..)
 , outputProofTarget
-, outputProofChainId
 ) where
 
 import Control.Applicative
@@ -237,8 +236,3 @@ instance FromJSON (TransactionOutputProof SHA512t_256) where
 --
 outputProofTarget :: Getter (TransactionOutputProof a) ProofTarget
 outputProofTarget = to (\(TransactionOutputProof tgt _) -> tgt)
-
-outputProofChainId :: Getter (TransactionOutputProof a) (Maybe ChainId)
-outputProofChainId = to $ \(TransactionOutputProof tgt _) -> case tgt of
-  ProofTargetChain cid -> Just cid
-  ProofTargetCrossNetwork _ -> Nothing
