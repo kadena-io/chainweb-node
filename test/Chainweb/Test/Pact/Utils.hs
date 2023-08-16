@@ -90,8 +90,6 @@ module Chainweb.Test.Pact.Utils
 , freeGasModel
 , withTestBlockDbTest
 , testPactServiceConfig
-, withMVarResource
-, withTime
 , withPayloadDb
 , withBlockHeaderDb
 , withTemporaryDir

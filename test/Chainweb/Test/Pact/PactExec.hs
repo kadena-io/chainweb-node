@@ -76,7 +76,7 @@ testEventsVersion = fastForkingCpmTestVersion singletonChainGraph
 tests :: ScheduledTest
 tests = ScheduledTest label $
     withResource newPayloadDb killPdb $ \pdb ->
-    withRocksResource $ \rocksIO ->
+    withResourceT withRocksResource $ \rocksIO ->
     testGroup label
 
     -- The test pact context evaluates the test code at block height 1.

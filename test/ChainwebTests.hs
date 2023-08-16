@@ -14,6 +14,9 @@
 
 module Main ( main ) where
 
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Resource
+
 import Test.Tasty
 import Test.Tasty.JsonReporter
 import Test.Tasty.QuickCheck
@@ -80,14 +83,15 @@ main = do
     registerVersion Development
     registerVersion FastDevelopment
     withTempRocksDb "chainweb-tests" $ \rdb ->
-        withToyDB rdb toyChainId $ \h0 db ->
-            defaultMainWithIngredients (consoleAndJsonReporter : defaultIngredients)
-                $ adjustOption adj
-                $ testGroup "Chainweb Tests" . schedule Sequential
-                $ pactTestSuite rdb
-                : mempoolTestSuite db h0
-                : rosettaTestSuite rdb
-                : suite rdb
+        runResourceT $ do
+        (h0, db) <- withToyDB rdb toyChainId
+        liftIO $ defaultMainWithIngredients (consoleAndJsonReporter : defaultIngredients)
+            $ adjustOption adj
+            $ testGroup "Chainweb Tests" . schedule Sequential
+            $ pactTestSuite rdb
+            : mempoolTestSuite db h0
+            : rosettaTestSuite rdb
+            : suite rdb
   where
     adj NoTimeout = Timeout (1_000_000 * 60 * 10) "10m"
     adj x = x

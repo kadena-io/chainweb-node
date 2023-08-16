@@ -45,7 +45,7 @@ import Chainweb.Test.Utils
 -- Tests
 
 tests :: TestTree
-tests = withInMemSQLiteResource $ \dbIO ->
+tests = withResourceT withInMemSQLiteResource $ \dbIO ->
     withResource (dbIO >>= newMVar) mempty $ \dbVarIO ->
         let run = runMsgTest dbVarIO []
             runMonte = runMonteTest dbVarIO []

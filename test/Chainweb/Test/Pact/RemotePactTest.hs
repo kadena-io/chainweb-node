@@ -111,6 +111,15 @@ pactCid = Pact.ChainId $ chainIdToText cid
 gp :: GasPrice
 gp = 0.1
 
+withRequestKeys
+    :: Time Micros
+    -> ChainwebNetwork
+    -> IO RequestKeys
+withRequestKeys iot network = do
+    let cenv = _getServiceClientEnv network
+    mNonce <- newMVar 0
+    testSend iot mNonce cenv
+
 -- ------------------------------------------------------------------------- --
 -- Tests. GHCI use `runSchedRocks tests`
 -- also:
@@ -122,57 +131,74 @@ gp = 0.1
 --
 tests :: RocksDb -> ScheduledTest
 tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
-    [ withNodesAtLatestBehavior v "remotePactTest-" rdb nNodes $ \net -> do
-        withMVarResource 0 $ \iomvar ->
-            withTime $ \iot ->
-                testGroup "remote pact tests"
-                    [ withRequestKeys iot iomvar net $ responseGolden net
-                    , after AllSucceed "remote-golden" $
-                      testGroup "remote spv" [spvTest iot net]
-                    , after AllSucceed "remote-golden" $
-                      testGroup "remote eth spv" [ethSpvTest iot net]
-                    , after AllSucceed "remote spv" $
-                      sendValidationTest iot net
-                    , after AllSucceed "remote spv" $
-                      pollingBadlistTest net
-                    , after AllSucceed "remote spv" $
-                      testCase "trivialLocalCheck" $
-                      localTest iot net
-                    , after AllSucceed "remote spv" $
-                      testCase "localChainData" $
-                      localChainDataTest iot net
-                    , after AllSucceed "remote spv" $
-                      testGroup "gasForTxSize"
-                      [ txTooBigGasTest iot net ]
-                    , after AllSucceed "remote spv" $
-                      testGroup "genesisAllocations"
-                      [ allocationTest iot net ]
-                    , after AllSucceed "genesisAllocations" $
-                      testGroup "caplistTests"
-                      [ caplistTest iot net ]
-                    , after AllSucceed "caplistTests" $
-                      localContTest iot net
-                    , after AllSucceed "caplistTests" $
-                      pollingConfirmDepth iot net
-                    , after AllSucceed "local continuation test" $
-                      pollBadKeyTest net
-                    , after AllSucceed "poll bad key test" $
-                      localPreflightSimTest iot net
+    [ withResourceT (withNodesAtLatestBehavior v "remotePactTest-" rdb nNodes) $ \net ->
+        withResource' getCurrentTimeIntegral $ \iot ->
+            testGroup "remote pact tests"
+                [ withResourceT (liftIO $ join $ withRequestKeys <$> iot <*> net) $ \reqkeys -> golden "remote-golden" $
+                    join $ responseGolden <$> net <*> reqkeys
+                , after AllSucceed "remote-golden" $
+                    testGroup "remote spv" [
+                        testCaseSteps "spv client tests" $ \step ->
+                            join $ spvTest <$> iot <*> net <*> pure step
                     ]
+                , after AllSucceed "remote-golden" $
+                    testGroup "remote eth spv" [
+                        testCaseSteps "eth spv client tests" $ \step ->
+                            join $ ethSpvTest <$> iot <*> net <*> pure step
+                        ]
+                , after AllSucceed "remote spv" $
+                    testCaseSteps "/send reports validation failure" $ \step ->
+                        join $ sendValidationTest <$> iot <*> net <*> pure step
+                , after AllSucceed "remote spv" $
+                    testCase "/poll reports badlisted txs" $
+                        join $ pollingBadlistTest <$> net
+                , after AllSucceed "remote spv" $
+                    testCase "trivialLocalCheck" $
+                        join $ localTest <$> iot <*> net
+                , after AllSucceed "remote spv" $
+                    testCase "localChainData" $
+                        join $ localChainDataTest <$> iot <*> net
+                , after AllSucceed "remote spv" $
+                    testGroup "gasForTxSize"
+                        [ testCaseSteps "transaction size gas tests" $ \step ->
+                            join $ txTooBigGasTest <$> iot <*> net <*> pure step
+                        ]
+                , after AllSucceed "remote spv" $
+                    testGroup "genesisAllocations"
+                        [ testCaseSteps "genesis allocation tests" $ \step ->
+                            join $ allocationTest <$> iot <*> net <*> pure step
+                        ]
+                , after AllSucceed "genesisAllocations" $
+                    testGroup "caplistTests"
+                        [ testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
+                            join $ caplistTest <$> iot <*> net <*> pure step
+                        ]
+                , after AllSucceed "caplistTests" $
+                    testCaseSteps "local continuation test" $ \step ->
+                        join $ localContTest <$> iot <*> net <*> pure step
+                , after AllSucceed "caplistTests" $
+                    testCaseSteps "poll confirmation depth test" $ \step ->
+                        join $ pollingConfirmDepth <$> iot <*> net <*> pure step
+                , after AllSucceed "local continuation test" $
+                    testCaseSteps "/poll rejects keys of incorrect length" $ \step ->
+                        join $ pollBadKeyTest <$> net <*> pure step
+                , after AllSucceed "poll bad key test" $
+                    testCaseSteps "local preflight sim test" $ \step ->
+                        join $ localPreflightSimTest <$> iot <*> net <*> pure step
+                ]
     ]
 
-responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
-responseGolden networkIO rksIO = golden "remote-golden" $ do
-    rks <- rksIO
-    cenv <- _getServiceClientEnv <$> networkIO
+responseGolden :: ChainwebNetwork -> RequestKeys -> IO LBS.ByteString
+responseGolden network rks = do
+    let cenv = _getServiceClientEnv network
     PollResponses theMap <- polling cid cenv rks ExpectPactResult
     let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
     return $! foldMap J.encode values
 
-localTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
+localTest :: Time Micros -> ChainwebNetwork -> IO ()
 localTest iot nio = do
-    cenv <- fmap _getServiceClientEnv nio
+    let cenv = _getServiceClientEnv nio
     mv <- newMVar 0
     SubmitBatch batch <- testBatch iot mv gp
     let cmd = head $ toList batch
@@ -181,9 +207,9 @@ localTest iot nio = do
     assertEqual "expect /local to return gas for tx" (_crGas res) 5
     assertEqual "expect /local to succeed and return 3" e (Right (PLiteral $ LDecimal 3))
 
-localContTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
-localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
-    cenv <- _getServiceClientEnv <$> nio
+localContTest :: Time Micros -> ChainwebNetwork -> (String -> IO ()) -> IO ()
+localContTest iot nio step = do
+    let cenv = _getServiceClientEnv nio
 
     step "execute /send with initial pact continuation tx"
     cmd1 <- firstStep
@@ -212,7 +238,7 @@ localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
     tx =
       "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
     firstStep = do
-      t <- toTxCreationTime <$> iot
+      let t = toTxCreationTime iot
       buildTextCmd
         $ set cbSigners [mkSigner' sender00 []]
         $ set cbCreationTime t
@@ -222,7 +248,7 @@ localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
         $ mkExec' tx
 
     secondStep pid = do
-      t <- toTxCreationTime <$> iot
+      let t = toTxCreationTime iot
       buildTextCmd
         $ set cbSigners [mkSigner' sender00 []]
         $ set cbCreationTime t
@@ -231,9 +257,9 @@ localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
         $ mkCont
         $ mkContMsg pid 1
 
-pollingConfirmDepth :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
-pollingConfirmDepth iot nio = testCaseSteps "poll confirmation depth test" $ \step -> do
-    cenv <- _getServiceClientEnv <$> nio
+pollingConfirmDepth :: Time Micros -> ChainwebNetwork -> (String -> IO ()) -> IO ()
+pollingConfirmDepth iot nio step = do
+    let cenv = _getServiceClientEnv nio
 
     step "/send transactions"
     cmd1 <- firstStep tx
@@ -257,7 +283,7 @@ pollingConfirmDepth iot nio = testCaseSteps "poll confirmation depth test" $ \st
     tx' =
       "43"
     firstStep transaction = do
-      t <- toTxCreationTime <$> iot
+      let t = toTxCreationTime iot
       buildTextCmd
         $ set cbSigners [mkSigner' sender00 []]
         $ set cbCreationTime t
@@ -266,9 +292,9 @@ pollingConfirmDepth iot nio = testCaseSteps "poll confirmation depth test" $ \st
         $ mkCmd "nonce-cont-1"
         $ mkExec' transaction
 
-localChainDataTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
+localChainDataTest :: Time Micros -> ChainwebNetwork -> IO ()
 localChainDataTest iot nio = do
-    cenv <- fmap _getServiceClientEnv nio
+    let cenv = _getServiceClientEnv nio
     mv <- newMVar (0 :: Int)
     SubmitBatch batch <- localTestBatch iot mv
     let cmd = head $ toList batch
@@ -284,7 +310,7 @@ localChainDataTest iot nio = do
 
     localTestBatch iott mnonce = modifyMVar mnonce $ \(!nn) -> do
         let nonce = "nonce" <> sshow nn
-        t <- toTxCreationTime <$> iott
+        let t = toTxCreationTime iott
         kps <- testKeyPairs sender00 Nothing
         c <- Pact.mkExec "(chain-data)" A.Null (pm t) kps (Just "fastfork-CPM-peterson") (Just nonce)
         pure (succ nn, SubmitBatch (pure c))
@@ -301,9 +327,9 @@ localChainDataTest iot nio = do
           assert' name value = assertEqual name (M.lookup  (FieldKey (T.pack name)) m) (Just value)
     expectedResult _ = assertFailure "Didn't get back an object map!"
 
-localPreflightSimTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
-localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step -> do
-    cenv <- _getServiceClientEnv <$> nio
+localPreflightSimTest :: Time Micros -> ChainwebNetwork -> (String -> IO ()) -> IO ()
+localPreflightSimTest iot nio step = do
+    let cenv = _getServiceClientEnv nio
     mv <- newMVar (0 :: Int)
     sid <- mkChainId v maxBound 0
     let sigs = [mkSigner' sender00 []]
@@ -436,12 +462,12 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
           ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta pcid "sender00" 1000 0.1 (fromInteger ttl)
 
-      t <- toTxCreationTime <$> iot
+      let t = toTxCreationTime iot
       c <- Pact.mkExec code A.Null (pm t) kps (Just "fastfork-CPM-peterson") (Just nonce)
       pure (succ nn, c)
 
     mkCmdBuilder sigs nid pcid limit price = do
-      t <- toTxCreationTime <$> iot
+      let t = toTxCreationTime iot
       pure
         $ set cbGasLimit limit
         $ set cbGasPrice price
@@ -457,44 +483,42 @@ localPreflightSimTest iot nio = testCaseSteps "local preflight sim test" $ \step
       tx' <- buildTextCmd $ set cbNonce n tx
       pure (succ nn, tx')
 
-pollingBadlistTest :: IO ChainwebNetwork -> TestTree
-pollingBadlistTest nio = testCase "/poll reports badlisted txs" $ do
-    cenv <- fmap _getServiceClientEnv nio
+pollingBadlistTest :: ChainwebNetwork -> IO ()
+pollingBadlistTest nio = do
+    let cenv = _getServiceClientEnv nio
     let rks = RequestKeys $ NEL.fromList [pactDeadBeef]
-    sid <- liftIO $ mkChainId v maxBound 0
+    sid <- mkChainId v maxBound 0
     void $ polling sid cenv rks ExpectPactError
 
 -- | Check request key length validation in the /poll endpoints
 --
-pollBadKeyTest :: IO ChainwebNetwork -> TestTree
-pollBadKeyTest nio =
-    testCaseSteps "/poll rejects keys of incorrect length" $ \step -> do
-      cenv <- _getServiceClientEnv <$> nio
-      let tooBig = toRk $ BS.replicate 33 0x3d
-          tooSmall = toRk $ BS.replicate 31 0x3d
+pollBadKeyTest :: ChainwebNetwork -> (String -> IO ()) -> IO ()
+pollBadKeyTest nio step = do
+    let cenv = _getServiceClientEnv nio
+    let tooBig = toRk $ BS.replicate 33 0x3d
+        tooSmall = toRk $ BS.replicate 31 0x3d
 
-      sid <- liftIO $ mkChainId v maxBound 0
+    sid <- liftIO $ mkChainId v maxBound 0
 
-      step "RequestKeys of length > 32 fail fast"
-      runClientM (pactPollApiClient v sid (Poll tooBig)) cenv >>= \case
-        Left _ -> return ()
-        Right r -> assertFailure $ "Poll succeeded with response: " <> show r
+    step "RequestKeys of length > 32 fail fast"
+    runClientM (pactPollApiClient v sid (Poll tooBig)) cenv >>= \case
+      Left _ -> return ()
+      Right r -> assertFailure $ "Poll succeeded with response: " <> show r
 
-      step "RequestKeys of length < 32 fail fast"
-      runClientM (pactPollApiClient v sid (Poll tooSmall)) cenv >>= \case
-        Left _ -> return ()
-        Right r -> assertFailure $ "Poll succeeded with response: " <> show r
+    step "RequestKeys of length < 32 fail fast"
+    runClientM (pactPollApiClient v sid (Poll tooSmall)) cenv >>= \case
+      Left _ -> return ()
+      Right r -> assertFailure $ "Poll succeeded with response: " <> show r
   where
     toRk = (NEL.:| []) . RequestKey . Hash . SB.toShort
 
-sendValidationTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
-sendValidationTest iot nio =
-    testCaseSteps "/send reports validation failure" $ \step -> do
+sendValidationTest :: Time Micros -> ChainwebNetwork -> (String -> IO ()) -> IO ()
+sendValidationTest iot nio step = do
         step "check sending poisoned TTL batch"
-        cenv <- fmap _getServiceClientEnv nio
+        let cenv = _getServiceClientEnv nio
         mv <- newMVar 0
         SubmitBatch batch1 <- testBatch' iot 10_000 mv gp
-        SubmitBatch batch2 <- testBatch' (return $ Time $ TimeSpan 0) 2 mv gp
+        SubmitBatch batch2 <- testBatch' (Time $ TimeSpan 0) 2 mv gp
         let batch = SubmitBatch $ batch1 <> batch2
         expectSendFailure "Transaction time is invalid or TTL is expired" $
           flip runClientM cenv $
@@ -524,7 +548,7 @@ sendValidationTest iot nio =
   where
     mkBadGasTxBatch code senderName senderKeyPair capList = do
       ks <- testKeyPairs senderKeyPair capList
-      t <- toTxCreationTime <$> iot
+      let t = toTxCreationTime iot
       let ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta (Pact.ChainId "0") senderName 100_000 0.01 ttl t
       let cmd (n :: Int) = liftIO $ Pact.mkExec code A.Null pm ks (Just "fastfork-CPM-peterson") (Just $ sshow n)
@@ -546,14 +570,14 @@ expectSendFailure expectErr act = tryAllSynchronous act >>= \case
   where
     test er = assertSatisfies ("Expected message containing '" ++ expectErr ++ "'") er (L.isInfixOf expectErr)
 
-ethSpvTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
-ethSpvTest iot nio = testCaseSteps "eth spv client tests" $ \step -> do
+ethSpvTest :: Time Micros -> ChainwebNetwork -> (String -> IO ()) -> IO ()
+ethSpvTest iot nio step = do
 
     req <- A.eitherDecodeFileStrict' "test/pact/eth-spv-request.json" >>= \case
         Left e -> assertFailure $ "failed to decode test/pact/eth-spv-request: " <> e
         Right x -> return (x :: EthSpvRequest)
 
-    cenv <- _getServiceClientEnv <$> nio
+    let cenv = _getServiceClientEnv nio
     c <- mkChainId v maxBound 1
     r <- flip runClientM cenv $ do
 
@@ -568,7 +592,7 @@ ethSpvTest iot nio = testCaseSteps "eth spv client tests" $ \step -> do
         void $ liftIO $ step "pollApiClient: poll until key is found"
         void $ liftIO $ polling c cenv rks ExpectPactResult
 
-        liftIO $ return ()
+        return ()
 
     case r of
         Left e -> assertFailure $ "eth proof roundtrip failed: " <> sshow e
@@ -578,7 +602,7 @@ ethSpvTest iot nio = testCaseSteps "eth spv client tests" $ \step -> do
 
     mkTxBatch proof = do
       ks <- liftIO $ testKeyPairs sender00 Nothing
-      t <- toTxCreationTime <$> iot
+      let t = toTxCreationTime iot
       let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100_000 0.01 ttl t
       cmd <- liftIO $ Pact.mkExec txcode (txdata proof) pm ks (Just "fastfork-CPM-peterson") (Just "1")
       return $ SubmitBatch (pure cmd)
@@ -587,9 +611,9 @@ ethSpvTest iot nio = testCaseSteps "eth spv client tests" $ \step -> do
 
     txdata proof = A.toJSON proof
 
-spvTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
-spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
-    cenv <- fmap _getServiceClientEnv nio
+spvTest :: Time Micros -> ChainwebNetwork -> (String -> IO ()) -> IO ()
+spvTest iot nio step = do
+    let cenv = _getServiceClientEnv nio
     batch <- mkTxBatch
     sid <- mkChainId v maxBound 1
     r <- flip runClientM cenv $ do
@@ -613,7 +637,7 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
     mkTxBatch = do
       ks <- liftIO $ testKeyPairs sender00
         (Just [mkGasCap, mkXChainTransferCap "sender00" "sender01" 1.0 "2"])
-      t <- toTxCreationTime <$> iot
+      let t = toTxCreationTime iot
       let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100_000 0.01 ttl t
       cmd1 <- liftIO $ Pact.mkExec txcode txdata pm ks (Just "fastfork-CPM-peterson") (Just "1")
       cmd2 <- liftIO $ Pact.mkExec txcode txdata pm ks (Just "fastfork-CPM-peterson") (Just "2")
@@ -633,9 +657,9 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
         , "target-chain-id" A..= J.toJsonViaEncode tid
         ]
 
-txTooBigGasTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
-txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> do
-    cenv <- fmap _getServiceClientEnv nio
+txTooBigGasTest :: Time Micros -> ChainwebNetwork -> (String -> IO ()) -> IO ()
+txTooBigGasTest iot nio step = do
+    let cenv = _getServiceClientEnv nio
 
     let
       runSend batch expectation = try @IO @PactTestFailure $ do
@@ -691,7 +715,7 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
 
     mkTxBatch code cdata limit n = do
       ks <- testKeyPairs sender00 Nothing
-      t <- toTxCreationTime <$> iot
+      let t = toTxCreationTime iot
       let ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" limit 0.01 ttl t
       cmd <- liftIO $ Pact.mkExec code cdata pm ks (Just "fastfork-CPM-peterson") n
@@ -701,10 +725,10 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
     txcode1 = txcode0 <> "(identity 1)"
 
 
-caplistTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
-caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step -> do
+caplistTest :: Time Micros -> ChainwebNetwork -> (String -> IO ()) -> IO ()
+caplistTest iot nio step = do
     let testCaseStep = void . liftIO . step
-    cenv <- fmap _getServiceClientEnv nio
+    let cenv = _getServiceClientEnv nio
 
     r <- flip runClientM cenv $ do
       batch <- liftIO
@@ -764,10 +788,10 @@ allocation02KeyPair' =
     , "2f75b5d875dd7bf07cc1a6973232a9e53dc1d4ffde2bab0bbace65cd87e87f53"
     )
 
-allocationTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
-allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
+allocationTest :: Time Micros -> ChainwebNetwork -> (String -> IO ()) -> IO ()
+allocationTest iot nio step = do
     let testCaseStep = void . step
-    cenv <- fmap _getServiceClientEnv nio
+    let cenv = _getServiceClientEnv nio
 
     step "positive allocation test: allocation00 release"
     p <- do
@@ -890,7 +914,7 @@ resultOf :: CommandResult l -> Either Pact.PactError PactValue
 resultOf = _pactResult . _crResult
 
 mkSingletonBatch
-    :: IO (Time Micros)
+    :: Time Micros
     -> SimpleKeyPair
     -> PactTransaction
     -> Maybe Text
@@ -899,32 +923,18 @@ mkSingletonBatch
     -> IO SubmitBatch
 mkSingletonBatch iot kps (PactTransaction c d) nonce pmk clist = do
     ks <- testKeyPairs kps clist
-    pm <- pmk . toTxCreationTime <$> iot
+    let pm = pmk $ toTxCreationTime iot
     let dd = fromMaybe A.Null d
     cmd <- liftIO $ Pact.mkExec c dd pm ks (Just "fastfork-CPM-peterson") nonce
     return $ SubmitBatch (cmd NEL.:| [])
 
-withRequestKeys
-    :: IO (Time Micros)
-    -> IO (MVar Int)
-    -> IO ChainwebNetwork
-    -> (IO RequestKeys -> TestTree)
-    -> TestTree
-withRequestKeys iot ioNonce networkIO f = withResource mkKeys (\_ -> return ()) f
-  where
-    mkKeys :: IO RequestKeys
-    mkKeys = do
-        cenv <- _getServiceClientEnv <$> networkIO
-        mNonce <- ioNonce
-        testSend iot mNonce cenv
-
-testSend :: IO (Time Micros) -> MVar Int -> ClientEnv -> IO RequestKeys
+testSend :: Time Micros -> MVar Int -> ClientEnv -> IO RequestKeys
 testSend iot mNonce env = testBatch iot mNonce gp >>= sending cid env
 
-testBatch'' :: Pact.ChainId -> IO (Time Micros) -> Integer -> MVar Int -> GasPrice -> IO SubmitBatch
+testBatch'' :: Pact.ChainId -> Time Micros -> Integer -> MVar Int -> GasPrice -> IO SubmitBatch
 testBatch'' chain iot ttl mnonce gp' = modifyMVar mnonce $ \(!nn) -> do
     let nonce = "nonce" <> sshow nn
-    t <- toTxCreationTime <$> iot
+    let t = toTxCreationTime iot
     kps <- testKeyPairs sender00 Nothing
     c <- Pact.mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastfork-CPM-peterson") (Just nonce)
     pure (succ nn, SubmitBatch (pure c))
@@ -932,10 +942,10 @@ testBatch'' chain iot ttl mnonce gp' = modifyMVar mnonce $ \(!nn) -> do
     pm :: Pact.TxCreationTime -> Pact.PublicMeta
     pm = Pact.PublicMeta chain "sender00" 1000 gp' (fromInteger ttl)
 
-testBatch' :: IO (Time Micros) -> Integer -> MVar Int -> GasPrice -> IO SubmitBatch
+testBatch' :: Time Micros -> Integer -> MVar Int -> GasPrice -> IO SubmitBatch
 testBatch' = testBatch'' pactCid
 
-testBatch :: IO (Time Micros) -> MVar Int -> GasPrice -> IO SubmitBatch
+testBatch :: Time Micros -> MVar Int -> GasPrice -> IO SubmitBatch
 testBatch iot mnonce = testBatch' iot ttl mnonce
   where
     ttl = 2 * 24 * 60 * 60

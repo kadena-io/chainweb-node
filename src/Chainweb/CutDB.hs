@@ -93,7 +93,7 @@ import Control.Concurrent.STM.TVar
 import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((:>))
-import Control.Monad hiding (join)
+import Control.Monad
 import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
 import Control.Monad.Morph

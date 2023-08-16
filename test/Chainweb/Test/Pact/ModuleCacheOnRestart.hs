@@ -76,10 +76,10 @@ instance NFData RewindData
 tests :: RocksDb -> ScheduledTest
 tests rdb =
       ScheduledTest label $
-      withMVarResource mempty $ \iom ->
-      withEmptyMVarResource $ \rewindDataM ->
+      withResource' (newMVar mempty) $ \iom ->
+      withResource' newEmptyMVar $ \rewindDataM ->
       withTestBlockDbTest testVer rdb $ \bdbio ->
-      withTempSQLiteResource $ \ioSqlEnv ->
+      withResourceT withTempSQLiteResource $ \ioSqlEnv ->
       testGroup label
       [ testCaseSteps "testInitial" $ withPact' bdbio ioSqlEnv iom testInitial
       , after AllSucceed "testInitial" $

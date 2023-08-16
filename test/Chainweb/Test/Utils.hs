@@ -23,6 +23,8 @@ module Chainweb.Test.Utils
 (
 -- * Misc
   readFile'
+, withResource'
+, withResourceT
 
 -- * Test RocksDb
 , testRocksDb
@@ -30,7 +32,6 @@ module Chainweb.Test.Utils
 -- * Intialize Test BlockHeader DB
 , testBlockHeaderDb
 , withTestBlockHeaderDb
-, withBlockHeaderDbsResource
 
 -- * SQLite Database Test Resource
 , withTempSQLiteResource
@@ -127,9 +128,6 @@ module Chainweb.Test.Utils
 , setBootstrapPeerInfo
 , host
 , interface
-, withTime
-, withMVarResource
-, withEmptyMVarResource
 , testRetryPolicy
 ) where
 
@@ -137,8 +135,9 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch (MonadThrow(..), finally, bracket)
+import Control.Monad.Catch (finally, bracket)
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Resource
 import Control.Retry
 
 import Data.Aeson (FromJSON, ToJSON)
@@ -148,6 +147,8 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Coerce (coerce)
 import Data.Foldable
 import qualified Data.HashMap.Strict as HashMap
+import Data.IORef
+import Data.List (sortOn, isInfixOf)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Tree
@@ -183,8 +184,6 @@ import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck (testProperty, property, discard, (.&&.))
 
 import Text.Printf (printf)
-
-import Data.List (sortOn,isInfixOf)
 
 -- internal modules
 
@@ -251,20 +250,29 @@ testBlockHeaderDb rdb h = do
     rdb' <- testRocksDb "withTestBlockHeaderDb" rdb
     initBlockHeaderDb (Configuration h rdb')
 
+withResource' :: IO a -> (IO a -> TestTree) -> TestTree
+withResource' create act = withResource create (\_ -> return ()) act
+
+withResourceT :: ResourceT IO a -> (IO a -> TestTree) -> TestTree
+withResourceT rt act =
+    withResource
+        (runResourceT $ do
+            a <- rt
+            st <- getInternalState
+            rm <- liftIO $ readIORef st
+            newSt <- createInternalState >>= liftIO . readIORef
+            liftIO $ writeIORef st newSt
+            return (rm, a)
+        )
+        (\(rm, a) -> do { ir <- newIORef rm; closeInternalState ir })
+        (\ioarm -> act (snd <$> ioarm))
+
 withTestBlockHeaderDb
     :: RocksDb
     -> BlockHeader
-    -> (BlockHeaderDb -> IO a)
-    -> IO a
-withTestBlockHeaderDb rdb h = bracket (testBlockHeaderDb rdb h) closeBlockHeaderDb
-
-withBlockHeaderDbsResource
-    :: RocksDb
-    -> ChainwebVersion
-    -> (IO [(ChainId, BlockHeaderDb)] -> TestTree)
-    -> TestTree
-withBlockHeaderDbsResource rdb v
-    = withResource (testBlockHeaderDbs rdb v) (const $ return ())
+    -> ResourceT IO BlockHeaderDb
+withTestBlockHeaderDb rdb h =
+    snd <$> allocate (testBlockHeaderDb rdb h) closeBlockHeaderDb
 
 testRocksDb
     :: B.ByteString
@@ -274,8 +282,8 @@ testRocksDb l r = do
   prefix <- (<>) l . sshow <$> (randomIO @Word64)
   return r { _rocksDbNamespace = prefix }
 
-withRocksResource :: (IO RocksDb -> TestTree) -> TestTree
-withRocksResource m = withResource create destroy wrap
+withRocksResource :: ResourceT IO RocksDb
+withRocksResource = view _2 . snd <$> allocate create destroy
   where
     create = do
       sysdir <- getCanonicalTemporaryDirectory
@@ -287,7 +295,6 @@ withRocksResource m = withResource create destroy wrap
         closeRocksDb rocks `finally`
             R.freeOpts opts `finally`
             destroyRocksDb dir
-    wrap ioact = let io' = view _2 <$> ioact in m io'
 
 -- -------------------------------------------------------------------------- --
 -- SQLite DB Test Resource
@@ -298,16 +305,15 @@ withRocksResource m = withResource create destroy wrap
 --
 withSQLiteResource
     :: String
-    -> (IO SQLiteEnv -> TestTree)
-    -> TestTree
-withSQLiteResource file = withResource
+    -> ResourceT IO SQLiteEnv
+withSQLiteResource file = snd <$> allocate
     (openSQLiteConnection file chainwebPragmas)
     closeSQLiteConnection
 
-withTempSQLiteResource :: (IO SQLiteEnv -> TestTree) -> TestTree
+withTempSQLiteResource :: ResourceT IO SQLiteEnv
 withTempSQLiteResource = withSQLiteResource ""
 
-withInMemSQLiteResource :: (IO SQLiteEnv -> TestTree) -> TestTree
+withInMemSQLiteResource :: ResourceT IO SQLiteEnv
 withInMemSQLiteResource = withSQLiteResource ":memory:"
 
 -- -------------------------------------------------------------------------- --
@@ -338,9 +344,9 @@ toyBlockHeaderDb db cid = (g,) <$> testBlockHeaderDb db g
 -- an initialized `BlockHeaderDb`, perform some action
 -- and cleanly close the DB.
 --
-withToyDB :: RocksDb -> ChainId -> (BlockHeader -> BlockHeaderDb -> IO a) -> IO a
+withToyDB :: RocksDb -> ChainId -> ResourceT IO (BlockHeader, BlockHeaderDb)
 withToyDB db cid
-    = bracket (toyBlockHeaderDb db cid) (closeBlockHeaderDb . snd) . uncurry
+    = snd <$> allocate (toyBlockHeaderDb db cid) (closeBlockHeaderDb . snd)
 
 mockBlockFill :: BlockFill
 mockBlockFill = BlockFill mockBlockGasLimit mempty 0
@@ -501,10 +507,9 @@ testBlockHeaderDbs rdb v = mapM toEntry $ toList $ chainIds v
 
 linearBlockHeaderDbs
     :: Natural
+    -> [(ChainId, BlockHeaderDb)]
     -> IO [(ChainId, BlockHeaderDb)]
-    -> IO [(ChainId, BlockHeaderDb)]
-linearBlockHeaderDbs n genDbs = do
-    dbs <- genDbs
+linearBlockHeaderDbs n dbs = do
     mapM_ populateDb dbs
     return dbs
   where
@@ -514,10 +519,9 @@ linearBlockHeaderDbs n genDbs = do
 
 starBlockHeaderDbs
     :: Natural
+    -> [(ChainId, BlockHeaderDb)]
     -> IO [(ChainId, BlockHeaderDb)]
-    -> IO [(ChainId, BlockHeaderDb)]
-starBlockHeaderDbs n genDbs = do
-    dbs <- genDbs
+starBlockHeaderDbs n dbs = do
     mapM_ populateDb dbs
     return dbs
   where
@@ -610,19 +614,16 @@ withChainwebTestServer
     :: ShouldValidateSpec
     -> Bool
     -> ChainwebVersion
-    -> IO W.Application
-    -> (Int -> IO a)
-    -> (IO a -> TestTree)
-    -> TestTree
-withChainwebTestServer shouldValidateSpec tls v appIO envIO test =
-    withResource start stop $ \x -> do
-        test $ x >>= \(_, _, env) -> return env
+    -> W.Application
+    -> ResourceT IO Int
+withChainwebTestServer shouldValidateSpec tls v app =
+    view _3 . snd <$> allocate start stop
   where
     start = do
         mw <- case shouldValidateSpec of
             ValidateSpec -> mkApiValidationMiddleware v
             DoNotValidateSpec -> return id
-        app <- mw <$> appIO
+        let app' = mw app
         (port, sock) <- W.openFreePort
         readyVar <- newEmptyMVar
         server <- async $ do
@@ -632,14 +633,13 @@ withChainwebTestServer shouldValidateSpec tls v appIO envIO test =
                     let certBytes = testBootstrapCertificate
                     let keyBytes = testBootstrapKey
                     let tlsSettings = tlsServerSettings certBytes keyBytes
-                    W.runTLSSocket tlsSettings settings sock app
+                    W.runTLSSocket tlsSettings settings sock app'
                 | otherwise ->
-                    W.runSettingsSocket settings sock app
+                    W.runSettingsSocket settings sock app'
 
         link server
         _ <- takeMVar readyVar
-        env <- envIO port
-        return (server, sock, env)
+        return (server, sock, port)
 
     stop (server, sock, _) = do
         uninterruptibleCancel server
@@ -654,35 +654,27 @@ clientEnvWithChainwebTestServer
     => ShouldValidateSpec
     -> Bool
     -> ChainwebVersion
-    -> IO (ChainwebServerDbs t tbl)
-    -> (IO (TestClientEnv t tbl) -> TestTree)
-    -> TestTree
-clientEnvWithChainwebTestServer shouldValidateSpec tls v dbsIO =
-    withChainwebTestServer shouldValidateSpec tls v mkApp mkEnv
-  where
-
+    -> ChainwebServerDbs t tbl
+    -> ResourceT IO (TestClientEnv t tbl)
+clientEnvWithChainwebTestServer shouldValidateSpec tls v dbs = do
     -- FIXME: Hashes API got removed from the P2P API. We use an application that
     -- includes this API for testing. We should create comprehensive tests for the
-    -- servcice API and move the tests over there.
+    -- service API and move the tests over there.
     --
-    mkApp :: IO W.Application
-    mkApp = chainwebApplicationWithHashesAndSpvApi (defaultChainwebConfiguration v) <$> dbsIO
-
-    mkEnv :: Int -> IO (TestClientEnv t tbl)
-    mkEnv port = do
-        mgrSettings <- if
-            | tls -> certificateCacheManagerSettings TlsInsecure
-            | otherwise -> return HTTP.defaultManagerSettings
-        mgr <- HTTP.newManager mgrSettings
-        dbs <- dbsIO
-        return $ TestClientEnv
-            (mkClientEnv mgr (BaseUrl (if tls then Https else Http) testHost port ""))
-            (_chainwebServerCutDb dbs)
-            (_chainwebServerBlockHeaderDbs dbs)
-            (_chainwebServerMempools dbs)
-            (_chainwebServerPayloadDbs dbs)
-            (_chainwebServerPeerDbs dbs)
-            v
+    let app = chainwebApplicationWithHashesAndSpvApi (defaultChainwebConfiguration v) dbs
+    port <- withChainwebTestServer shouldValidateSpec tls v app
+    mgrSettings <- if
+        | tls -> liftIO $ certificateCacheManagerSettings TlsInsecure
+        | otherwise -> return HTTP.defaultManagerSettings
+    mgr <- liftIO $ HTTP.newManager mgrSettings
+    return $ TestClientEnv
+        (mkClientEnv mgr (BaseUrl (if tls then Https else Http) testHost port ""))
+        (_chainwebServerCutDb dbs)
+        (_chainwebServerBlockHeaderDbs dbs)
+        (_chainwebServerMempools dbs)
+        (_chainwebServerPayloadDbs dbs)
+        (_chainwebServerPeerDbs dbs)
+        v
 
 withPeerDbsServer
     :: Show t
@@ -692,14 +684,13 @@ withPeerDbsServer
     => ShouldValidateSpec
     -> Bool
     -> ChainwebVersion
-    -> IO [(NetworkId, P2P.PeerDb)]
-    -> (IO (TestClientEnv t tbl) -> TestTree)
-    -> TestTree
-withPeerDbsServer shouldValidateSpec tls v peerDbsIO = clientEnvWithChainwebTestServer shouldValidateSpec tls v $ do
-    peerDbs <- peerDbsIO
-    return $ emptyChainwebServerDbs
-        { _chainwebServerPeerDbs = peerDbs
-        }
+    -> [(NetworkId, P2P.PeerDb)]
+    -> ResourceT IO (TestClientEnv t tbl)
+withPeerDbsServer shouldValidateSpec tls v peerDbs =
+    clientEnvWithChainwebTestServer shouldValidateSpec tls v
+        emptyChainwebServerDbs
+            { _chainwebServerPeerDbs = peerDbs
+            }
 
 withPayloadServer
     :: Show t
@@ -709,15 +700,12 @@ withPayloadServer
     => ShouldValidateSpec
     -> Bool
     -> ChainwebVersion
-    -> IO (CutDb tbl)
-    -> IO [(ChainId, PayloadDb tbl)]
-    -> (IO (TestClientEnv t tbl) -> TestTree)
-    -> TestTree
-withPayloadServer shouldValidateSpec tls v cutDbIO payloadDbsIO =
-    clientEnvWithChainwebTestServer shouldValidateSpec tls v $ do
-        payloadDbs <- payloadDbsIO
-        cutDb <- cutDbIO
-        return $ emptyChainwebServerDbs
+    -> CutDb tbl
+    -> [(ChainId, PayloadDb tbl)]
+    -> ResourceT IO (TestClientEnv t tbl)
+withPayloadServer shouldValidateSpec tls v cutDb payloadDbs =
+    clientEnvWithChainwebTestServer shouldValidateSpec tls v
+        emptyChainwebServerDbs
             { _chainwebServerPayloadDbs = payloadDbs
             , _chainwebServerCutDb = Just cutDb
             }
@@ -730,15 +718,12 @@ withBlockHeaderDbsServer
     => ShouldValidateSpec
     -> Bool
     -> ChainwebVersion
-    -> IO [(ChainId, BlockHeaderDb)]
-    -> IO [(ChainId, MempoolBackend t)]
-    -> (IO (TestClientEnv t tbl) -> TestTree)
-    -> TestTree
-withBlockHeaderDbsServer shouldValidateSpec tls v chainDbsIO mempoolsIO =
-    clientEnvWithChainwebTestServer shouldValidateSpec tls v $ do
-        chainDbs <- chainDbsIO
-        mempools <- mempoolsIO
-        return $ emptyChainwebServerDbs
+    -> [(ChainId, BlockHeaderDb)]
+    -> [(ChainId, MempoolBackend t)]
+    -> ResourceT IO (TestClientEnv t tbl)
+withBlockHeaderDbsServer shouldValidateSpec tls v chainDbs mempools =
+    clientEnvWithChainwebTestServer shouldValidateSpec tls v
+        emptyChainwebServerDbs
             { _chainwebServerBlockHeaderDbs = chainDbs
             , _chainwebServerMempools = mempools
             }
@@ -964,11 +949,10 @@ withNodes_
     -> B.ByteString
     -> RocksDb
     -> Natural
-    -> (IO ChainwebNetwork -> TestTree)
-    -> TestTree
-withNodes_ logger v testLabel rdb n f = withResource start
-    (cancel . fst)
-    (f . fmap (uncurry ChainwebNetwork . snd))
+    -> ResourceT IO ChainwebNetwork
+withNodes_ logger v testLabel rdb n =
+    (uncurry ChainwebNetwork . snd) . snd <$>
+        allocate start (cancel . fst)
   where
     start :: IO (Async (), (ClientEnv, ClientEnv))
     start = do
@@ -992,8 +976,7 @@ withNodes
     -> B.ByteString
     -> RocksDb
     -> Natural
-    -> (IO ChainwebNetwork -> TestTree)
-    -> TestTree
+    -> ResourceT IO ChainwebNetwork
 withNodes = withNodes_ (genericLogger Error (error . T.unpack))
     -- Test resources are part of test infrastructure and should never print
     -- anything. A message at log level error means that the test harness itself
@@ -1004,11 +987,11 @@ withNodesAtLatestBehavior
     -> B.ByteString
     -> RocksDb
     -> Natural
-    -> (IO ChainwebNetwork -> TestTree)
-    -> TestTree
-withNodesAtLatestBehavior v testLabel rdb n f = withNodes v testLabel rdb n $ \net ->
-    withResource (awaitBlockHeight v putStrLn (_getClientEnv <$> net) (latestBehaviorAt v)) (const (return ())) $ \_ ->
-        f net
+    -> ResourceT IO ChainwebNetwork
+withNodesAtLatestBehavior v testLabel rdb n = do
+    net <- withNodes v testLabel rdb n
+    liftIO $ awaitBlockHeight v putStrLn (_getClientEnv net) (latestBehaviorAt v)
+    return net
 
 -- | Network initialization takes some time. Within my ghci session it took
 -- about 10 seconds. Once initialization is complete even large numbers of empty
@@ -1017,11 +1000,10 @@ withNodesAtLatestBehavior v testLabel rdb n f = withNodes v testLabel rdb n $ \n
 awaitBlockHeight
     :: ChainwebVersion
     -> (String -> IO ())
-    -> IO ClientEnv
+    -> ClientEnv
     -> BlockHeight
     -> IO ()
-awaitBlockHeight v step cenvIo i = do
-    cenv <- cenvIo
+awaitBlockHeight v step cenv i = do
     result <- retrying testRetryPolicy checkRetry
         $ const $ runClientM (cutGetClient v) cenv
     case result of
@@ -1160,15 +1142,6 @@ getClientEnv url = flip mkClientEnv url <$> HTTP.newTlsManagerWith mgrSettings
       mgrSettings = HTTP.mkManagerSettings
        (HTTP.TLSSettingsSimple True False False)
        Nothing
-
-withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
-withMVarResource value = withResource (newMVar value) mempty
-
-withTime :: (IO (Time Micros) -> TestTree) -> TestTree
-withTime = withResource getCurrentTimeIntegral mempty
-
-withEmptyMVarResource :: (IO (MVar a) -> TestTree) -> TestTree
-withEmptyMVarResource = withResource newEmptyMVar mempty
 
 -- | Backoff up to a constant 250ms, limiting to ~40s
 -- (actually saw a test have to wait > 22s)
