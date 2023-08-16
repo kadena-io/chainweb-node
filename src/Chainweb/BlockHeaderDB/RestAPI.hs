@@ -84,6 +84,8 @@ module Chainweb.BlockHeaderDB.RestAPI
 , headersApi
 , HashesApi
 , hashesApi
+, BlocksApi
+, BranchBlocksApi
 ) where
 
 import Data.Aeson
@@ -133,12 +135,18 @@ instance ToJSON Block where
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
+instance FromJSON Block where
+    parseJSON = withObject "Block" $ \o -> Block
+        <$> o .: "header"
+        <*> o .: "payloadWithOutputs"
+    {-# INLINE parseJSON #-}
+
 type BlockPage = Page (NextItem BlockHash) Block
 
 -- -------------------------------------------------------------------------- --
 -- Encodings
 
--- | Orphan instance to encode BlockHeaders as OctetStream
+-- | Orphan instance to decode BlockHeaders from OctetStream
 --
 instance MimeUnrender OctetStream BlockHeader where
     mimeUnrender _ = runGetEitherL decodeBlockHeader
@@ -148,6 +156,11 @@ instance MimeUnrender OctetStream BlockHeader where
 --
 instance MimeRender OctetStream BlockHeader where
     mimeRender _ = runPutL . encodeBlockHeader
+    {-# INLINE mimeRender #-}
+
+-- | Orphan instance to encode pages of blocks as JSON
+instance MimeRender JSON BlockPage where
+    mimeRender _ = encode
     {-# INLINE mimeRender #-}
 
 -- | The default JSON instance of BlockHeader is an unpadded base64Url encoding of
@@ -177,10 +190,6 @@ instance MimeUnrender JsonBlockHeaderObject BlockHeaderPage where
 
 instance MimeRender JsonBlockHeaderObject BlockHeaderPage where
     mimeRender _ = encode . fmap ObjectEncoded
-    {-# INLINE mimeRender #-}
-
-instance MimeRender JsonBlockHeaderObject BlockPage where
-    mimeRender _ = encode
     {-# INLINE mimeRender #-}
 
 -- -------------------------------------------------------------------------- --
@@ -390,7 +399,7 @@ type BlocksApi_
     = "block"
     :> PageParams (NextItem BlockHash)
     :> FilterParams
-    :> Get '[JsonBlockHeaderObject] BlockPage
+    :> Get '[JSON] BlockPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/block@
 --
@@ -411,7 +420,7 @@ type BranchBlocksApi_
     :> MinHeightParam
     :> MaxHeightParam
     :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
-    :> Post '[JSON, JsonBlockHeaderObject] BlockPage
+    :> Post '[JSON] BlockPage
 
 type BranchBlocksApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchBlocksApi_
