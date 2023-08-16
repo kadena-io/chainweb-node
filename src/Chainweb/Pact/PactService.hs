@@ -62,7 +62,6 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
-import Data.Primitive (Array)
 import GrowableVector.Lifted (Vec)
 import GrowableVector.Lifted qualified as Vec
 
