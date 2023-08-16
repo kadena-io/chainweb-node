@@ -418,7 +418,6 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
       { _pactReorgLimit = _configReorgLimit conf
       , _pactLocalRewindDepthLimit = _configLocalRewindDepthLimit conf
       , _pactPreInsertCheckTimeout = _configPreInsertCheckTimeout conf
-      , _pactRevalidate = True
       , _pactQueueSize = _configPactQueueSize conf
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
@@ -668,7 +667,7 @@ runChainweb cw = do
             . throttle (_chainwebPutPeerThrottler cw)
             . throttle (_chainwebMempoolThrottler cw)
             . throttle (_chainwebThrottler cw)
-            . requestSizeLimit
+            . p2pRequestSizeLimit
             . p2pValidationMiddleware
 
         -- 2. Start Clients (with a delay of 500ms)
@@ -678,7 +677,7 @@ runChainweb cw = do
         , threadDelay 500000 >> do
             serveServiceApi
                 $ serviceHttpLog
-                . requestSizeLimit
+                . serviceRequestSizeLimit
                 . serviceApiValidationMiddleware
         ]
 
@@ -786,11 +785,26 @@ runChainweb cw = do
                 mw)
             (monitorConnectionsClosedByClient clientClosedConnectionsCounter)
 
-    requestSizeLimit :: Middleware
-    requestSizeLimit = requestSizeLimitMiddleware $
+    -- Request size limit for the service API
+    --
+    serviceRequestSizeLimit :: Middleware
+    serviceRequestSizeLimit = requestSizeLimitMiddleware $
         setMaxLengthForRequest (\_req -> pure $ Just $ 2 * 1024 * 1024) -- 2MB
         defaultRequestSizeLimitSettings
 
+    -- Request size limit for the P2P API
+    --
+    -- NOTE: this may need to have to be adjusted if the p2p limits for batch
+    -- sizes or number of branch bound change. It may also need adjustment for
+    -- other protocol changes, like additional HTTP request headers or changes
+    -- in the mempool protocol.
+    --
+    -- FIXME: can we make this smaller and still let the mempool work?
+    --
+    p2pRequestSizeLimit :: Middleware
+    p2pRequestSizeLimit = requestSizeLimitMiddleware $
+        setMaxLengthForRequest (\_req -> pure $ Just $ 2 * 1024 * 1024) -- 2MB
+        defaultRequestSizeLimitSettings
 
     httpLog :: Middleware
     httpLog = requestResponseLogger $ setComponent "http:p2p-api" (_chainwebLogger cw)

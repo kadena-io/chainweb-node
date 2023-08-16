@@ -593,7 +593,7 @@ executable chainweb-node
     default-language: Haskell2010
     ghc-options:
         -threaded
-        "-with-rtsopts=-N -H1G -A64M"
+        "-with-rtsopts=-N -H1G -A64M --disable-delayed-os-memory-return"
         -rtsopts
     hs-source-dirs: node
     main-is: ChainwebNode.hs
@@ -640,7 +640,19 @@ executable cwtool
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
-    hs-source-dirs: tools/cwtool tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/txstream tools/header-dump tools/db-checksum tools/known-graphs node test
+    hs-source-dirs:
+        tools/cwtool
+        tools/ea
+        tools/encode-decode
+        tools/genconf
+        tools/run-nodes
+        tools/txstream
+        tools/header-dump
+        tools/db-checksum
+        tools/known-graphs
+        tools/calculate-release
+        node
+        test
     main-is: CwTool.hs
     other-modules:
         Allocations
@@ -665,6 +677,7 @@ executable cwtool
         SlowTests
         TxStream
         TxSimulator
+        CalculateRelease
 
     build-depends:
         -- internal
@@ -711,6 +724,8 @@ executable cwtool
         , quickcheck-instances >= 0.3
         , random >= 1.2
         , retry >= 0.9
+        , wreq >= 0.5
+        , regex-tdfa >= 1.3
         , rocksdb-haskell-kadena >= 1.1.0
         , safe-exceptions >= 0.1
         , servant-client >= 0.18.2
@@ -722,6 +737,7 @@ executable cwtool
         , tasty-hunit >= 0.9
         , tasty-quickcheck >= 0.9
         , temporary >= 1.3
+        , time >= 1.9
         , text >= 2.0
         , unordered-containers >= 0.2.16
         , vector >= 0.12.2

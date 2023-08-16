@@ -400,8 +400,7 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
                     withAsync (heightProgress (_blockHeight commonAncestor) heightRef (logInfo_ logger)) $ \_ ->
                       s
                           & S.scanM
-                              -- no need to re-validate hashes, because these blocks have already been validated
-                              (\ !p !c -> runPact (local (psValidateHashesOnReplay .~ False) $ fastForward (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
+                              (\ !p !c -> runPact (fastForward (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
                               (return h) -- initial parent
                               return
                           & S.length_
@@ -416,7 +415,7 @@ fastForward
     . (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
     => (ParentHeader, BlockHeader)
     -> PactServiceM logger tbl ()
-fastForward (target, block) =
+fastForward (target, block) = do
     -- This does a restore, i.e. it rewinds the checkpointer back in
     -- history, if needed.
     withCheckpointerWithoutRewind (Just target) "fastForward" $ \pdbenv -> do

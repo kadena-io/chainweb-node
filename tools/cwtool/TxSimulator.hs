@@ -171,7 +171,6 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                   , _psReorgLimit = RewindLimit 0
                   , _psOnFatalError = ferr
                   , _psVersion = ver
-                  , _psValidateHashesOnReplay = True
                   , _psAllowReadsInLocal = False
                   , _psLogger = logger
                   , _psGasLogger = gasLogger

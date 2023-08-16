@@ -631,7 +631,6 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
         , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout conf
         , _psOnFatalError = defaultOnFatalError mempty
         , _psVersion = v
-        , _psValidateHashesOnReplay = _pactRevalidate conf
         , _psAllowReadsInLocal = _pactAllowReadsInLocal conf
         , _psIsBatch = False
         , _psCheckpointerDepth = 0
@@ -712,9 +711,11 @@ runCut v bdb pact genTime noncer miner =
     ph <- ParentHeader <$> getParentTestBlockDb bdb cid
     pout <- _webPactNewBlock pact miner ph
     n <- noncer cid
-    addTestBlockDb bdb n genTime cid pout
-    h <- getParentTestBlockDb bdb cid
-    void $ _webPactValidateBlock pact h (payloadWithOutputsToPayloadData pout)
+
+    -- skip this chain if mining fails and retry with the next chain.
+    whenM (addTestBlockDb bdb n genTime cid pout) $ do
+        h <- getParentTestBlockDb bdb cid
+        void $ _webPactValidateBlock pact h (payloadWithOutputsToPayloadData pout)
 
 initializeSQLite :: IO SQLiteEnv
 initializeSQLite = open2 file >>= \case

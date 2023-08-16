@@ -155,7 +155,6 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout config
                     , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                     , _psVersion = ver
-                    , _psValidateHashesOnReplay = _pactRevalidate config
                     , _psAllowReadsInLocal = _pactAllowReadsInLocal config
                     , _psIsBatch = False
                     , _psCheckpointerDepth = 0
@@ -883,7 +882,7 @@ freeModuleLoadGasModel = modifiedGasModel
     defGasModel = tableGasModel defaultGasConfig
     fullRunFunction = P.runGasModel defGasModel
     modifiedRunFunction name ga = case ga of
-      P.GPostRead P.ReadModule {} -> 0
+      P.GPostRead P.ReadModule {} -> P.MilliGas 0
       _ -> fullRunFunction name ga
     modifiedGasModel = defGasModel { P.runGasModel = modifiedRunFunction }
 
@@ -906,8 +905,8 @@ chainweb213GasModel = modifiedGasModel
       P.GUnreduced _ts -> case M.lookup name updTable of
         Just g -> g
         Nothing -> unknownOperationPenalty
-      _ -> fullRunFunction name ga
-    modifiedGasModel = defGasModel { P.runGasModel = modifiedRunFunction }
+      _ -> P.milliGasToGas $ fullRunFunction name ga
+    modifiedGasModel = defGasModel { P.runGasModel = \t g -> P.gasToMilliGas (modifiedRunFunction t g) }
 
 
 getGasModel :: TxContext -> P.GasModel

@@ -1,6 +1,10 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -72,6 +76,7 @@ import Data.Maybe
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified System.LogLevel as L
 
 -- internal Pact modules
 
@@ -223,14 +228,14 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
         Right _ -> checkTooBigTx initialGas gasLimit applyPayload redeemAllGas
 
     displayPactError e = do
-      r <- jsonErrorResult e "tx failure for request key when running cmd"
+      r <- failTxWith e "tx failure for request key when running cmd"
       redeemAllGas r
 
     stripPactError e = do
       let e' = case callCtx of
             ApplyLocal -> e
             ApplySend -> toEmptyPactError e
-      r <- jsonErrorResult e' "tx failure for request key when running cmd"
+      r <- failTxWith e' "tx failure for request key when running cmd"
       redeemAllGas r
 
     applyPayload = do
@@ -247,7 +252,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
           | chainweb217Pact' -> stripPactError e
           | chainweb213Pact' || not (isOldListErr e) -> displayPactError e
           | otherwise -> do
-              r <- jsonErrorResult (toOldListErr e) "tx failure for request key when running cmd"
+              r <- failTxWith (toOldListErr e) "tx failure for request key when running cmd"
               redeemAllGas r
         Right r -> applyRedeem r
 
@@ -329,7 +334,7 @@ applyGenesisCmd logger dbEnv spv txCtx cmd =
 
     go = do
       -- TODO: fix with version recordification so that this matches the flags at genesis heights.
-      cr <- catchesPactError logger PrintsUnexpectedError $! runGenesis cmd permissiveNamespacePolicy interp
+      cr <- catchesPactError logger (onChainErrorPrintingFor txCtx) $! runGenesis cmd permissiveNamespacePolicy interp
       case cr of
         Left e -> fatal $ "Genesis command failed: " <> sshow e
         Right r -> r <$ debug "successful genesis tx for request key"
@@ -414,7 +419,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       case cr of
         Left e
           | throwCritical -> throwM $ CoinbaseFailure $ sshow e
-          | otherwise -> (`T2` Nothing) <$> jsonErrorResult e "coinbase tx failure"
+          | otherwise -> (`T2` Nothing) <$> failTxWith e "coinbase tx failure"
         Right er -> do
           debug
             $! "successful coinbase of "
@@ -475,7 +480,7 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
           applyContinuation gas0 interp cm signers chash managedNamespacePolicy
 
       case cr of
-        Left e -> jsonErrorResult e "applyLocal"
+        Left e -> failTxWith e "applyLocal"
         Right r -> return $! r { _crMetaData = Just (J.toJsonViaEncode $ ctxToPublicData' txCtx) }
 
     go = checkTooBigTx gas0 gasLimit (applyPayload $ _pPayload $ _cmdPayload cmd) return
@@ -623,21 +628,19 @@ applyUpgrades v cid height
           logError $ "Upgrade transaction failed! " <> sshow e
           throwM e
 
-jsonErrorResult
+failTxWith
     :: (Logger logger)
     => PactError
     -> Text
     -> TransactionM logger p (CommandResult [TxLogJson])
-jsonErrorResult err msg = do
+failTxWith err msg = do
     logs <- use txLogs
     gas <- view txGasLimit -- error means all gas was charged
     rk <- view txRequestKey
     l <- view txLogger
 
-    logInfo_ l
-      $! msg
-      <> ": " <> sshow rk
-      <> ": " <> sshow err
+    liftIO $ logFunction l L.Info
+      (TxFailureLog rk err msg)
 
     return $! CommandResult rk Nothing (PactResult (Left err))
       gas (Just logs) Nothing Nothing []
@@ -807,7 +810,7 @@ applyContinuation initialGas interp cm senderSigs hsh nsp = do
 
 
 setEnvGas :: Gas -> EvalEnv e -> TransactionM logger p ()
-setEnvGas initialGas = liftIO . views eeGas (`writeIORef` initialGas)
+setEnvGas initialGas = liftIO . views eeGas (`writeIORef` gasToMilliGas initialGas)
 
 -- | Execute a 'ContMsg' and return just eval result, not wrapped in a
 -- 'CommandResult' wrapper
@@ -992,7 +995,7 @@ checkTooBigTx initialGas gasLimit next onFail
             $ "Tx too big (" <> pretty initialGas <> "), limit "
             <> pretty gasLimit
 
-      r <- jsonErrorResult pe "Tx too big"
+      r <- failTxWith pe "Tx too big"
       onFail r
   | otherwise = next
 
@@ -1063,7 +1066,7 @@ mkEvalEnv
 mkEvalEnv nsp msg = do
     tenv <- ask
     genv <- GasEnv
-      <$> view (txGasLimit . to fromIntegral)
+      <$> view (txGasLimit . to (MilliGasLimit . gasToMilliGas))
       <*> view txGasPrice
       <*> use txGasModel
     liftIO $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
@@ -1136,7 +1139,7 @@ gasLog m = do
   l <- view txGasLogger
   rk <- view txRequestKey
   for_ l $ \logger ->
-    logInfo_ logger $! m <> ": " <> sshow rk
+    logInfo_ logger $ m <> ": " <> sshow rk
 
 -- | Log request keys at DEBUG when successful
 --
@@ -1144,7 +1147,7 @@ debug :: (Logger logger) => Text -> TransactionM logger db ()
 debug s = do
     l <- view txLogger
     rk <- view txRequestKey
-    logDebug_ l $! s <> ": " <> sshow rk
+    logDebug_ l $ s <> ": " <> sshow rk
 
 
 -- | Denotes fatal failure points in the tx exec process
@@ -1155,7 +1158,7 @@ fatal e = do
     rk <- view txRequestKey
 
     logError_ l
-      $! "critical transaction failure: "
+      $ "critical transaction failure: "
       <> sshow rk <> ": " <> e
 
     throwM $ PactTransactionExecError (fromUntypedHash $ unRequestKey rk) e

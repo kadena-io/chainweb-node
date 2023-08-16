@@ -68,6 +68,8 @@ module Utils.Logging
 , LogHandler(..)
 , logHandler
 , maybeLogHandler
+, passthroughLogHandler
+, dropLogHandler
 , logHandles
 
 -- * Filter LogScope Backend
@@ -124,6 +126,7 @@ import Data.Bifunctor
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import Data.IORef
+import Data.Proxy
 import Data.Semigroup
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -469,6 +472,16 @@ maybeLogHandler b = LogHandler $ \case
     (Left !msg) -> Just . Left <$!> return msg
     (Right !msg) -> fmap Right <$!> b msg
 {-# INLINEABLE maybeLogHandler #-}
+
+passthroughLogHandler :: LogHandler
+passthroughLogHandler = maybeLogHandler (return . Just)
+
+dropLogHandler :: forall a. LogMessage a => Proxy a -> LogHandler
+dropLogHandler _ = LogHandler $ h @a
+    where
+    h :: forall m. LogMessage m => BackendLogMessage m -> IO (Maybe (BackendLogMessage SomeLogMessage))
+    h (Left msg) = Just . Left <$!> return msg
+    h (Right _) = return Nothing
 
 logHandles :: Monoid b => Foldable f => f LogHandler -> GenericBackend b -> GenericBackend b
 logHandles = flip $ foldr $ \case (LogHandler h) -> genericLogHandle h
