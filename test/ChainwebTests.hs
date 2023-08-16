@@ -84,14 +84,14 @@ main = do
     registerVersion FastDevelopment
     withTempRocksDb "chainweb-tests" $ \rdb ->
         runResourceT $ do
-        (h0, db) <- withToyDB rdb toyChainId
-        liftIO $ defaultMainWithIngredients (consoleAndJsonReporter : defaultIngredients)
-            $ adjustOption adj
-            $ testGroup "Chainweb Tests" . schedule Sequential
-            $ pactTestSuite rdb
-            : mempoolTestSuite db h0
-            : rosettaTestSuite rdb
-            : suite rdb
+            (h0, db) <- withToyDB rdb toyChainId
+            liftIO $ defaultMainWithIngredients (consoleAndJsonReporter : defaultIngredients)
+                $ adjustOption adj
+                $ testGroup "Chainweb Tests" . schedule Sequential
+                $ pactTestSuite rdb
+                : mempoolTestSuite db h0
+                : rosettaTestSuite rdb
+                : suite rdb
   where
     adj NoTimeout = Timeout (1_000_000 * 60 * 10) "10m"
     adj x = x
