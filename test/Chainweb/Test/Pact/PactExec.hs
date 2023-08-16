@@ -75,7 +75,7 @@ testEventsVersion = fastForkingCpmTestVersion singletonChainGraph
 
 tests :: ScheduledTest
 tests = ScheduledTest label $
-    withResource newPayloadDb killPdb $ \pdb ->
+    withResource' newPayloadDb $ \pdb ->
     withResourceT withRocksResource $ \rocksIO ->
     testGroup label
 
@@ -120,7 +120,6 @@ tests = ScheduledTest label $
         testBlockHeaderDb rdb genesisHeader
 
     label = "Chainweb.Test.Pact.PactExec"
-    killPdb _ = return ()
     cid = someChainId testVersion
     allowReads = testPactServiceConfig { _pactAllowReadsInLocal = True }
 

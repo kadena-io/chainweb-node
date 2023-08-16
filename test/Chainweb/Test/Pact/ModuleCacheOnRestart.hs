@@ -49,7 +49,6 @@ import Chainweb.Time
 import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
-import Chainweb.Test.Pact.Utils
 import Chainweb.Test.TestVersions(fastForkingCpmTestVersion)
 import Chainweb.Utils (T2(..))
 import Chainweb.Version
@@ -78,7 +77,7 @@ tests rdb =
       ScheduledTest label $
       withResource' (newMVar mempty) $ \iom ->
       withResource' newEmptyMVar $ \rewindDataM ->
-      withTestBlockDbTest testVer rdb $ \bdbio ->
+      withResource' (mkTestBlockDb testVer rdb) $ \bdbio ->
       withResourceT withTempSQLiteResource $ \ioSqlEnv ->
       testGroup label
       [ testCaseSteps "testInitial" $ withPact' bdbio ioSqlEnv iom testInitial

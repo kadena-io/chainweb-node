@@ -264,7 +264,7 @@ withResourceT rt act =
             liftIO $ writeIORef st newSt
             return (rm, a)
         )
-        (\(rm, a) -> do { ir <- newIORef rm; closeInternalState ir })
+        (\(rm, _) -> do { ir <- newIORef rm; closeInternalState ir })
         (\ioarm -> act (snd <$> ioarm))
 
 withTestBlockHeaderDb
@@ -884,7 +884,6 @@ goldenSch
     -> IO BL.ByteString -- ^ Test action
     -> ScheduledTest
 goldenSch l = ScheduledTest l . golden l
-{-# INLINE goldenSch #-}
 
 -- -------------------------------------------------------------------------- --
 -- Scheduling Tests

@@ -417,7 +417,6 @@ data ConsensusState = ConsensusState
 
 instance HasChainwebVersion ConsensusState where
     _chainwebVersion = _stateChainwebVersion
-    {-# INLINE _chainwebVersion #-}
 
 emptyConsensusState :: ChainwebVersion -> ConsensusState
 emptyConsensusState v = ConsensusState mempty mempty v

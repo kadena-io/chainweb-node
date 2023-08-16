@@ -128,7 +128,7 @@ noMempool = []
 
 simpleSessionTests :: RocksDb -> Bool -> TestTree
 simpleSessionTests rdb tls =
-    withResource (testBlockHeaderDbs rdb version) (const $ return ()) $ \dbs ->
+    withResource' (testBlockHeaderDbs rdb version) $ \dbs ->
         withResourceT (join $ withBlockHeaderDbsServer ValidateSpec tls version <$> liftIO dbs <*> pure noMempool)
         $ \env -> testGroup "client session tests"
             $ httpHeaderTests env (head $ toList $ chainIds version)
