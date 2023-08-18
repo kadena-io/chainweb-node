@@ -101,7 +101,7 @@ localTest lf v coord m cdb gen miners =
                 void $ awaitNewCut cdb c
   where
     meanBlockTime :: Double
-    meanBlockTime = int (_getBlockRate (_versionBlockRate v)) / 1_000_000
+    meanBlockTime = int (_getBlockDelay (_versionBlockDelay v)) / 1_000_000
 
     go :: BlockHeight -> WorkHeader -> IO SolvedWork
     go height w = do

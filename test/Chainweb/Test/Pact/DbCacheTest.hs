@@ -5,6 +5,7 @@ module Chainweb.Test.Pact.DbCacheTest (tests) where
 
 import Chainweb.Pact.Backend.DbCache
 
+import Control.Monad (void)
 import Control.Monad.State.Strict
 
 import Data.Aeson

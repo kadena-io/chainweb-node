@@ -64,7 +64,7 @@ assertLocalMetadata
     :: P.Command (P.Payload P.PublicMeta c)
     -> TxContext
     -> Maybe LocalSignatureVerification
-    -> PactServiceM tbl (Either (NonEmpty Text) ())
+    -> PactServiceM logger tbl (Either (NonEmpty Text) ())
 assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
     v <- view psVersion
     cid <- view psChainId

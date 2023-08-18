@@ -19,7 +19,6 @@ module Chainweb.Test.Pact.TransactionTests ( tests ) where
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Control.Applicative((<|>))
 import Control.Concurrent (readMVar)
 import Control.Lens hiding ((.=))
 import Control.Monad
@@ -31,6 +30,7 @@ import Data.Function (on)
 import Data.List (intercalate)
 import Data.Text (Text,isInfixOf,unpack)
 import Data.Default
+import qualified System.LogLevel as L
 
 -- internal pact modules
 
@@ -41,7 +41,6 @@ import Pact.Repl
 import Pact.Repl.Types
 import Pact.Types.Command
 import qualified Pact.Types.Hash as H
-import Pact.Types.Logger
 import Pact.Types.PactValue
 import Pact.Types.RPC
 import Pact.Types.Runtime
@@ -53,6 +52,7 @@ import Pact.Types.SPV
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Templates
 import Chainweb.Pact.TransactionExec
@@ -88,11 +88,11 @@ nsReplV1 = "pact/namespaces/v1/ns.repl"
 nsReplV2 :: FilePath
 nsReplV2 = "pact/namespaces/ns.repl"
 
-logger :: Logger
+logger :: GenericLogger
 #if DEBUG_TEST
-logger = newLogger alwaysLog ""
+logger = genericLogger L.Info (step . T.unpack)
 #else
-logger = newLogger neverLog ""
+logger = genericLogger L.Error (\_ -> return ())
 #endif
 
 -- ---------------------------------------------------------------------- --
@@ -158,7 +158,7 @@ loadScript fp = do
             (view (rEnv . eePactDb) rst)
             (view (rEnv . eePactDbVar) rst)
       mc = view (rEvalState . evalRefs . rsLoadedModules) rst
-  return (pdb,mc)
+  return (pdb, moduleCacheFromHashMap mc)
 
 -- ---------------------------------------------------------------------- --
 -- Template vuln tests
@@ -354,7 +354,7 @@ testUpgradeScript
     :: FilePath
     -> V.ChainId
     -> BlockHeight
-    -> (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache) -> IO ())
+    -> (T2 (CommandResult [TxLogJson]) (Maybe ModuleCache) -> IO ())
     -> IO ()
 testUpgradeScript script cid bh test = do
     (pdb, mc) <- loadScript script
@@ -369,7 +369,7 @@ testUpgradeScript script cid bh test = do
 matchLogs :: [(Text, Text, Maybe Value)] -> [(Text, Text, Maybe Value)] -> IO ()
 matchLogs expectedResults actualResults
     | length actualResults /= length expectedResults = void $
-      assertFailure $ intercalate "\n" $
+      assertFailure $ intercalate "\n"
         [ "matchLogs: length mismatch "
           <> show (length actualResults) <> " /= " <> show (length expectedResults)
         , "actual: " ++ show actualResults
@@ -389,13 +389,16 @@ parent bh cid = ParentHeader (someBlockHeader v bh)
     , _blockHeight = pred bh
     }
 
-logResults :: [TxLog Value] -> [(Text, Text, Maybe Value)]
-logResults = fmap f
+logResults :: [TxLogJson] -> [(Text, Text, Maybe Value)]
+logResults = fmap go
   where
+    go x = case decodeTxLogJson x of
+        Left e -> error $ "unable to parse TxLog: " <> show e
+        Right (r :: TxLog Value) -> f r
     f l =
       ( _txDomain l
       , _txKey l
       -- This lens is because some of the transacctions happen post 420 fork
       -- So the object representation changes due to the RowData type.
-      , l ^? txValue . _Object . ix "balance" <|> l ^? txValue . _Object . ix "$d" . _Object . ix "balance"
+      , l ^? txValue . _Object . (ix "balance" `failing` ix "$d" . _Object . ix "balance")
       )

@@ -135,9 +135,6 @@ module Chainweb.Test.Utils
 
 import Control.Concurrent
 import Control.Concurrent.Async
-#if !MIN_VERSION_base(4,15,0)
-import Control.Exception (evaluate)
-#endif
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch (MonadThrow(..), finally, bracket)
@@ -242,18 +239,6 @@ import qualified P2P.Node.PeerDB as P2P
 import P2P.Peer
 
 import Chainweb.Test.Utils.APIValidation
-
--- -------------------------------------------------------------------------- --
--- Misc
-
-#if !MIN_VERSION_base(4,15,0)
--- | Guarantee that the
-readFile' :: FilePath -> IO String
-readFile' fp = withFile fp ReadMode $ \h -> do
-    s <- hGetContents h
-    void $ evaluate $ length s
-    return s
-#endif
 
 -- -------------------------------------------------------------------------- --
 -- Intialize Test BlockHeader DB

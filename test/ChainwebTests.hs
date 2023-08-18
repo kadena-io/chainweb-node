@@ -65,6 +65,7 @@ import Chainweb.Test.Utils
 import qualified Chainweb.Test.Version (tests)
 import qualified Chainweb.Test.Chainweb.Utils.Paging (properties)
 import Chainweb.Version.Development
+import Chainweb.Version.FastDevelopment
 import Chainweb.Version.Registry
 
 import Chainweb.Storage.Table.RocksDB
@@ -78,6 +79,7 @@ import qualified P2P.Test.Node (properties)
 main :: IO ()
 main = do
     registerVersion Development
+    registerVersion FastDevelopment
     withTempRocksDb "chainweb-tests" $ \rdb ->
         withToyDB rdb toyChainId $ \h0 db ->
             defaultMainWithIngredients (consoleAndJsonReporter : defaultIngredients)

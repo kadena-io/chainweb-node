@@ -36,18 +36,6 @@ import Test.QuickCheck
 -- -------------------------------------------------------------------------- --
 --
 
-instance Arbitrary RequestKey where
-    arbitrary = RequestKey <$> arbitrary
-
-instance Arbitrary TxId where
-    arbitrary = TxId <$> arbitrary
-
-instance Arbitrary PactResult where
-    arbitrary = PactResult . Right <$> arbitrary
-
-instance Arbitrary Gas where
-    arbitrary = Gas <$> arbitrary
-
 arbitraryJsonValue :: Gen A.Value
 arbitraryJsonValue = go (3 :: Int)
   where

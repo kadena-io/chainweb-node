@@ -1,5 +1,5 @@
 -- ------------------------------------------------------ --
--- Copyright © 2019 Kadena LLC <chainweb-dev@kadena.io>
+-- Copyright © 2019-2023 Kadena LLC <chainweb-dev@kadena.io>
 -- Copyright © 2019 Colin Woodbury <colin@fosskers.ca>
 -- Copyright © 2015-2018 Lars Kuhtz <lakuhtz@gmail.com>
 -- Copyright © 2014 AlephCloud Systems, Inc.
@@ -113,14 +113,8 @@ import Distribution.Simple.Setup
 import Distribution.Text
 import Distribution.Types.LocalBuildInfo
 import Distribution.Types.UnqualComponentName
-
-#if MIN_VERSION_Cabal(3,6,0)
 import Distribution.Utils.Path
-#endif
-
-#if MIN_VERSION_Cabal(3,2,0)
 import Distribution.Utils.ShortText
-#endif
 
 import System.Process
 
@@ -170,13 +164,8 @@ mkPkgInfoModules hooks = hooks
 prettyLicense :: I.InstalledPackageInfo -> String
 prettyLicense = either prettyShow prettyShow . I.license
 
-#if MIN_VERSION_Cabal(3,2,0)
 ft :: ShortText -> String
 ft = fromShortText
-#else
-ft :: String -> String
-ft = id
-#endif
 
 -- -------------------------------------------------------------------------- --
 -- Cabal 2.0
@@ -242,11 +231,7 @@ trim = f . f
 -- -------------------------------------------------------------------------- --
 -- VCS
 
-#if defined (MIN_VERSION_Cabal) && MIN_VERSION_Cabal(3,4,0)
 getVCS :: IO (Maybe KnownRepoType)
-#else
-getVCS :: IO (Maybe RepoType)
-#endif
 getVCS = getCurrentDirectory >>= getVcsOfDir
   where
     getVcsOfDir d = do
@@ -445,12 +430,7 @@ licenseFilesText pkgDesc =
     B.intercalate "\n------------------------------------------------------------\n" <$> mapM fileTextStr
         (licenseFiles pkgDesc)
   where
-#if MIN_VERSION_Cabal(3,6,0)
     fileTextStr = fileText . getSymbolicPath
-#else
-    fileTextStr = fileText
-#endif
-
     fileText file = doesFileExist file >>= \x -> if x
         then B.readFile file
         else return ""

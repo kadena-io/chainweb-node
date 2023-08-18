@@ -9,6 +9,9 @@ module Chainweb.Test.RestAPI.Utils
 
   -- * Utils
 , repeatUntil
+, clientErrorStatusCode
+, isFailureResponse
+, getStatusCode
 
   -- * Pact client DSL
 , PactTestFailure(..)
@@ -53,6 +56,7 @@ import Data.Text (Text)
 import Data.Maybe (fromJust)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
+import Network.HTTP.Types.Status (Status(..))
 
 import Rosetta
 
@@ -69,13 +73,13 @@ import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.Service.Types
 import Chainweb.Rosetta.RestAPI.Client
-import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 
 -- internal pact modules
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.API
 import Pact.Types.Command
 import Pact.Types.Hash
@@ -268,7 +272,7 @@ pollingWithDepth sid cenv rks confirmationDepth pollingExpectation =
         Right r@(PollResponses mp) ->
           if all (go mp) (toList rs)
           then return r
-          else throwM $ PollingFailure $ T.unpack $ "polling check failed: " <> encodeToText r
+          else throwM $ PollingFailure $ T.unpack $ "polling check failed: " <> J.encodeText r
   where
     h _ = Handler $ \case
       PollingFailure _ -> return True
@@ -600,3 +604,19 @@ networkStatus cenv req =
     h _ = Handler $ \case
       NetworkStatusFailure _ -> return True
       _ -> return False
+
+clientErrorStatusCode :: ClientError -> Maybe Int
+clientErrorStatusCode = \case
+  FailureResponse _ resp -> Just $ getStatusCode resp
+  DecodeFailure _ resp -> Just $ getStatusCode resp
+  UnsupportedContentType _ resp -> Just $ getStatusCode resp
+  InvalidContentTypeHeader resp -> Just $ getStatusCode resp
+  ConnectionError _ -> Nothing
+
+isFailureResponse :: ClientError -> Bool
+isFailureResponse = \case
+  FailureResponse {} -> True
+  _ -> False
+
+getStatusCode :: ResponseF a -> Int
+getStatusCode resp = statusCode (responseStatusCode resp)

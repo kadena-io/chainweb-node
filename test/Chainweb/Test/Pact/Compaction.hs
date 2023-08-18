@@ -33,7 +33,6 @@ import Patience.Map (Delta(..))
 import Prelude hiding (head)
 
 import Pact.Interpreter (PactDbEnv(..))
-import Pact.Types.Logger (newLogger)
 import Pact.Types.RowData (RowData(..), RowDataVersion(..), RowDataValue(..))
 import Pact.Types.Runtime (PactDb(..), Domain(..), ExecutionMode(..), Literal(..), WriteType(..), ObjectMap(..), TableName(..), RowKey(..))
 
@@ -46,13 +45,17 @@ import System.Logger (LogLevel(..))
 
 import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeight (BlockHeight)
+import Chainweb.BlockHeader(genesisHeight)
+import Chainweb.Graph
+import Chainweb.Logger
 import Chainweb.Pact.Types (defaultModuleCacheLimit)
 import Chainweb.Pact.Backend.Compaction (CompactFlag(..), compact, runCompactM, mkCompactEnv, withDefaultLogger)
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
-import Chainweb.Pact.Backend.Types (CheckpointEnv(..), SQLiteEnv(..), PactDbEnv'(..), Checkpointer(..), BlockEnv, ParentHash, initBlockState, bsModuleNameFix)
-import Chainweb.Test.Pact.Utils (pactTestLogger)
-import Chainweb.Test.Utils (ScheduledTest, testGroupSch, withTempSQLiteResource, getArbitrary, peterson)
-import Chainweb.Version (ChainwebVersion(..), ChainId, genesisHeight, unsafeChainId)
+import Chainweb.Pact.Backend.Types (SQLiteEnv(..), PactDbEnv'(..), Checkpointer(..), BlockEnv, ParentHash, initBlockState, bsModuleNameFix)
+import Chainweb.Test.Pact.Utils (dummyLogger)
+import Chainweb.Test.TestVersions
+import Chainweb.Test.Utils (ScheduledTest, testGroupSch, withTempSQLiteResource, getArbitrary)
+import Chainweb.Version (ChainwebVersion(..), ChainId, unsafeChainId)
 
 import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
 
@@ -71,24 +74,24 @@ testCompactCheckpointer =
   withTempSQLiteResource $ runSQLite' $ \resIO ->
   testCase "testCompactCheckpointer" $ do
 
-    (CheckpointEnv {..}, SQLiteEnv {..}) <- resIO
+    (Checkpointer {..}, SQLiteEnv {..}) <- resIO
 
     let hashes = V.unfoldrExactN 20 (\i -> (getArbitrary @BlockHash i, i + 1)) 0
     let nthHash :: BlockHeight -> ParentHash
         nthHash h = hashes V.! (fromIntegral h)
 
-    let restore :: BlockHeight -> IO PactDbEnv'
+    let restore :: BlockHeight -> IO (PactDbEnv' GenericLogger)
         restore h = do
           let head = if h == 0
                      then Nothing
                      else Just (h, nthHash (h - 1))
-          _cpRestore _cpeCheckpointer head
+          _cpRestore head
     let restore_ :: BlockHeight -> IO ()
         restore_ h = do
           void $ restore h
     let save :: BlockHeight -> IO ()
         save h = do
-          _cpSave _cpeCheckpointer (nthHash h)
+          _cpSave (nthHash h)
 
     -- genesis block
     restore_ 0
@@ -188,7 +191,7 @@ test coverage TODOs
 -- Chainweb Settings
 
 testVer :: ChainwebVersion
-testVer = FastTimedCPM peterson
+testVer = fastForkingCpmTestVersion petersonChainGraph
 
 testChainId :: ChainId
 testChainId = unsafeChainId 0
@@ -197,17 +200,16 @@ testChainId = unsafeChainId 0
 -- Checkpointer Utils
 
 runSQLite'
-    :: (IO (CheckpointEnv,SQLiteEnv) -> TestTree)
+    :: (IO (Checkpointer GenericLogger, SQLiteEnv) -> TestTree)
     -> IO SQLiteEnv
     -> TestTree
 runSQLite' runTest sqlEnvIO = runTest $ do
     sqlenv <- sqlEnvIO
-    cp <- initRelationalCheckpointer initialBlockState sqlenv logger testVer testChainId
+    cp <- initRelationalCheckpointer initialBlockState sqlenv dummyLogger testVer testChainId
     return (cp, sqlenv)
   where
     initialBlockState = set bsModuleNameFix True $
         initBlockState defaultModuleCacheLimit $ genesisHeight testVer testChainId
-    logger = newLogger (pactTestLogger False) "RelationalCheckpointer"
 
 -- -------------------------------------------------------------------------- --
 -- Diff Utils
@@ -270,8 +272,8 @@ prettyDiffOfDiffs p = \case
 
 -- | Check a table before and after by verifying that the diff is correct
 checkTableDiff :: ()
-  => PactDb (BlockEnv SQLiteEnv)
-  -> MVar (BlockEnv SQLiteEnv)
+  => PactDb (BlockEnv GenericLogger SQLiteEnv)
+  -> MVar (BlockEnv GenericLogger SQLiteEnv)
   -> TableName -- ^ table
   -> [(RowKey, RowData)] -- ^ before the operation
   -> [(RowKey, Delta RowData)] -- ^ diff from the operation
@@ -353,8 +355,8 @@ _applyDiffBackwards values d = mapMaybe go values
           Delta x1 _x2 -> pure (k, x1)
 
 checkTablesBeforeAfter :: ()
-  => PactDb (BlockEnv SQLiteEnv)
-  -> MVar (BlockEnv SQLiteEnv)
+  => PactDb (BlockEnv GenericLogger SQLiteEnv)
+  -> MVar (BlockEnv GenericLogger SQLiteEnv)
   -> IO a
   -> [TableName]
   -> Map TableName (TableBeforeAfter RowKey RowData)

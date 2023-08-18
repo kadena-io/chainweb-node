@@ -1,9 +1,11 @@
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Chainweb.Test.Pact.Checkpointer (tests) where
 
@@ -11,9 +13,10 @@ import Control.Concurrent.MVar
 import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((.=))
+import Control.Monad (when, void)
 import Control.Monad.Reader
 
-import Data.Aeson (Value(..), object, toJSON, (.=))
+import Data.Aeson (Value(..), object, (.=), Key)
 import Data.Default (def)
 import Data.Function
 import qualified Data.HashMap.Strict as HM
@@ -23,17 +26,18 @@ import qualified Data.Text as T
 
 import Pact.Gas
 import Pact.Interpreter (EvalResult(..), PactDbEnv(..), defaultInterpreter)
+import Pact.JSON.Legacy.Value
 import Pact.Native (nativeDefs)
 import Pact.Repl
 import Pact.Repl.Types
 import Pact.Types.Command
 import qualified Pact.Types.Hash as H
-import Pact.Types.Logger (newLogger)
 import Pact.Types.PactValue
 import Pact.Types.RowData
 import Pact.Types.Runtime hiding (ChainId)
 import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.SQLite
+import qualified Pact.JSON.Encode as J
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -42,6 +46,7 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight (BlockHeight(..))
+import Chainweb.Logger
 import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.MerkleUniverse
 import Chainweb.Pact.Backend.ChainwebPactDb
@@ -56,7 +61,6 @@ import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Utils (catchAllSynchronous)
 import Chainweb.Version
-
 
 import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
 
@@ -79,18 +83,18 @@ testModuleName :: TestTree
 testModuleName = withTempSQLiteResource $
     runSQLite' $ \resIO -> testCase "testModuleName" $ do
 
-        (CheckpointEnv {..}, SQLiteEnv {..}) <- resIO
+        (Checkpointer {..}, SQLiteEnv {..}) <- resIO
 
         -- init genesis
         let hash00 = getArbitrary 0
-        void $ _cpRestore _cpeCheckpointer Nothing
-        _cpSave _cpeCheckpointer hash00
+        void $ _cpRestore Nothing
+        _cpSave hash00
 
         let hash01 = getArbitrary 1
             hash02 = getArbitrary 2
-        void $ _cpRestore _cpeCheckpointer (Just (1, hash00))
-        _cpSave _cpeCheckpointer hash01
-        (PactDbEnv' (PactDbEnv pactdb mvar)) <- _cpRestore _cpeCheckpointer (Just (2, hash01))
+        void $ _cpRestore (Just (1, hash00))
+        _cpSave hash01
+        (PactDbEnv' (PactDbEnv pactdb mvar)) <- _cpRestore (Just (2, hash01))
 
 
         -- block 2: write module records
@@ -99,7 +103,7 @@ testModuleName = withTempSQLiteResource $
         _writeRow pactdb Insert Modules "nsname.qualmod" mod' mvar
         -- write unqualified
         _writeRow pactdb Insert Modules "baremod" mod' mvar
-        _cpSave _cpeCheckpointer hash02
+        _cpSave hash02
 
         r1 <- qry_ _sConn "SELECT rowkey FROM [SYS:Modules] WHERE rowkey LIKE '%qual%'" [RText]
         assertEqual "correct namespaced module name" [[SText "nsname.qualmod"]] r1
@@ -113,28 +117,28 @@ testModuleName = withTempSQLiteResource $
 testKeyset :: TestTree
 testKeyset = withResource initializeSQLite freeSQLiteResource (runSQLite keysetTest)
 
-keysetTest ::  IO CheckpointEnv -> TestTree
+keysetTest ::  IO (Checkpointer logger) -> TestTree
 keysetTest c = testCaseSteps "Keyset test" $ \next -> do
-    CheckpointEnv {..} <- c
+    Checkpointer {..} <- c
     let hash00 = nullBlockHash
 
     next "init"
-    _blockenv00 <- _cpRestore _cpeCheckpointer Nothing
-    _cpSave _cpeCheckpointer hash00
+    _blockenv00 <- _cpRestore Nothing
+    _cpSave hash00
 
     next "next block (blockheight 1, version 0)"
     let bh01 = BlockHeight 1
     _hash01 <- BlockHash <$> liftIO (merkleLogHash @_ @ChainwebMerkleHashAlgorithm "0000000000000000000000000000001a")
-    blockenv01 <- _cpRestore _cpeCheckpointer (Just (bh01, hash00))
+    blockenv01 <- _cpRestore (Just (bh01, hash00))
     addKeyset blockenv01 "k2" (mkKeySet [] ">=")
-    _cpDiscard _cpeCheckpointer
+    _cpDiscard
 
     next "fork on blockheight = 1"
     let bh11 = BlockHeight 1
     hash11 <- BlockHash <$> liftIO (merkleLogHash @_ @ChainwebMerkleHashAlgorithm "0000000000000000000000000000001b")
-    blockenv11 <- _cpRestore _cpeCheckpointer (Just (bh11, hash00))
+    blockenv11 <- _cpRestore (Just (bh11, hash00))
     addKeyset blockenv11 "k1" (mkKeySet [] ">=")
-    _cpSave _cpeCheckpointer hash11
+    _cpSave hash11
 
 -- -------------------------------------------------------------------------- --
 -- CheckPointer Test
@@ -144,10 +148,10 @@ testRelational =
   withRelationalCheckpointerResource $
     checkpointerTest "Relational Checkpointer" True
 
-checkpointerTest :: String -> Bool -> IO CheckpointEnv -> TestTree
+checkpointerTest :: (Logger logger) => String -> Bool -> IO (Checkpointer logger) -> TestTree
 checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
     cenv <- cenvIO
-    let cp = _cpeCheckpointer cenv
+    let cp = cenv
     ------------------------------------------------------------------
     -- s01 : new block workflow (restore -> discard), genesis
     ------------------------------------------------------------------
@@ -407,7 +411,7 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
       where
         msg = "The table duplication somehow went through. Investigate this error."
 
-    ksData :: Text -> Value
+    ksData :: Key -> Value
     ksData idx = object
         [ ("k" <> idx) .= object
             [ "keys" .= ([] :: [Text])
@@ -419,8 +423,9 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
 -- Read Row Unit Test
 
 readRowUnitTest :: (String -> IO ()) -> Assertion
-readRowUnitTest logBackend = simpleBlockEnvInit logBackend runUnitTest
+readRowUnitTest logBackend = simpleBlockEnvInit logger runUnitTest
   where
+    logger = hunitDummyLogger logBackend
     writeRow' pactdb writeType conn i =
       _writeRow pactdb writeType (UserTables "user1") "key1"
       (RowData RDV1 (ObjectMap $ M.fromList [("f", (RDLiteral (LInteger i)))])) conn
@@ -456,15 +461,16 @@ readRowUnitTest logBackend = simpleBlockEnvInit logBackend runUnitTest
 
 testRegress :: (String -> IO ()) -> Assertion
 testRegress logBackend =
-    regressChainwebPactDb logBackend
+    regressChainwebPactDb logger
         >>= fmap (toTup . _benvBlockState) . readMVar
         >>= assertEquals "The final block state is" finalBlockState
   where
+    logger = hunitDummyLogger logBackend
     finalBlockState = (2, 0)
     toTup BlockState { _bsTxId = txid, _bsBlockHeight = blockVersion } = (txid, blockVersion)
 
-regressChainwebPactDb :: (String -> IO ()) -> IO (MVar (BlockEnv SQLiteEnv))
-regressChainwebPactDb logBackend = simpleBlockEnvInit logBackend runRegression
+regressChainwebPactDb :: (Logger logger) => logger -> IO (MVar (BlockEnv logger SQLiteEnv))
+regressChainwebPactDb logger = simpleBlockEnvInit logger runRegression
 
 {- this should be moved to pact -}
 runRegression
@@ -482,11 +488,11 @@ runRegression pactdb e schemaInit = do
         toPV = pactValueToRowData . toPactValueLenient . toTerm'
     _createUserTable pactdb user1 "someModule" conn
     assertEquals' "output of commit2"
-        [ TxLog "SYS:usertables" "user1" $
-            object
-                [ "utModule" .= object
-                    [ "name" .= String "someModule"
-                    , "namespace" .= Null
+        [ encodeTxLog $ TxLog "SYS:usertables" "user1" $
+            J.object
+                [ "utModule" J..= J.object
+                    [ "namespace" J..= J.null
+                    , "name" J..= J.text "someModule"
                     ]
                ]
         ]
@@ -508,25 +514,25 @@ runRegression pactdb e schemaInit = do
     assertEquals "module native repopulation" (Right modRef) $
       traverse (traverse (fromPersistDirect nativeLookup)) mod'
     assertEquals' "result of commit 3"
-        [ TxLog
+        [ encodeTxLog TxLog
             { _txDomain = "SYS:KeySets"
             , _txKey = "ks1"
-            , _txValue = toJSON ks
+            , _txValue = ks
             }
-        , TxLog
+        , encodeTxLog TxLog
             { _txDomain = "SYS:Modules"
             , _txKey = asString modName
-            , _txValue = toJSON mod'
+            , _txValue = mod'
             }
-        , TxLog
+        , encodeTxLog TxLog
             { _txDomain = "user1"
             , _txKey = "key1"
-            , _txValue = toJSON row
+            , _txValue = row
             }
-        , TxLog
+        , encodeTxLog TxLog
             { _txDomain = "user1"
             , _txKey = "key1"
-            , _txValue = toJSON row'
+            , _txValue = row'
             }
         ]
         (commit pactdb conn)
@@ -576,12 +582,13 @@ throwFail = throwIO . userError
 -- Checkpointer Utils
 
 withRelationalCheckpointerResource
-    :: (IO CheckpointEnv -> TestTree)
+    :: (Logger logger, logger ~ GenericLogger)
+    => (IO (Checkpointer logger) -> TestTree)
     -> TestTree
 withRelationalCheckpointerResource =
     withResource initializeSQLite freeSQLiteResource . runSQLite
 
-addKeyset :: PactDbEnv' -> KeySetName -> KeySet -> IO ()
+addKeyset :: PactDbEnv' logger -> KeySetName -> KeySet -> IO ()
 addKeyset (PactDbEnv' (PactDbEnv pactdb mvar)) keysetname keyset =
     _writeRow pactdb Insert KeySets keysetname keyset mvar
 
@@ -593,13 +600,15 @@ runTwice step action = do
   action
 
 runSQLite
-    :: (IO CheckpointEnv -> TestTree)
+    :: (Logger logger, logger ~ GenericLogger)
+    => (IO (Checkpointer logger) -> TestTree)
     -> IO SQLiteEnv
     -> TestTree
 runSQLite f = runSQLite' (f . fmap fst)
 
 runSQLite'
-    :: (IO (CheckpointEnv,SQLiteEnv) -> TestTree)
+    :: (Logger logger, logger ~ GenericLogger)
+    => (IO (Checkpointer logger, SQLiteEnv) -> TestTree)
     -> IO SQLiteEnv
     -> TestTree
 runSQLite' runTest sqlEnvIO = runTest $ do
@@ -608,28 +617,28 @@ runSQLite' runTest sqlEnvIO = runTest $ do
     return (cp, sqlenv)
   where
     initialBlockState = set bsModuleNameFix True $ initBlockState defaultModuleCacheLimit $ genesisHeight testVer testChainId
-    logger = newLogger (pactTestLogger (\_ -> return ()) False) "RelationalCheckpointer"
+    logger = addLabel ("sub-component", "relational-checkpointer") $ dummyLogger
 
-runExec :: CheckpointEnv -> PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
+runExec :: (Logger logger) => Checkpointer logger -> PactDbEnv' logger -> Maybe Value -> Text -> IO EvalResult
 runExec cp (PactDbEnv' pactdbenv) eData eCode = do
     execMsg <- buildExecParsedCode maxBound {- use latest parser version -} eData eCode
     evalTransactionM cmdenv cmdst $
       applyExec' 0 defaultInterpreter execMsg [] h' permissiveNamespacePolicy
   where
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-    cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) Nothing def
+    cmdenv = TransactionEnv Transactional pactdbenv (_cpLogger cp) Nothing def
              noSPVSupport Nothing 0.0 (RequestKey h') 0 def
     cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
-runCont :: CheckpointEnv -> PactDbEnv' -> PactId -> Int -> IO EvalResult
+runCont :: Checkpointer logger -> PactDbEnv' logger -> PactId -> Int -> IO EvalResult
 runCont cp (PactDbEnv' pactdbenv) pactId step = do
     evalTransactionM cmdenv cmdst $
       applyContinuation' 0 defaultInterpreter contMsg [] h' permissiveNamespacePolicy
   where
-    contMsg = ContMsg pactId step False Null Nothing
+    contMsg = ContMsg pactId step False (toLegacyJson Null) Nothing
 
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-    cmdenv = TransactionEnv Transactional pactdbenv (_cpeLogger cp) Nothing def
+    cmdenv = TransactionEnv Transactional pactdbenv (_cpLogger cp) Nothing def
              noSPVSupport Nothing 0.0 (RequestKey h') 0 def
     cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
@@ -637,15 +646,15 @@ runCont cp (PactDbEnv' pactdbenv) pactId step = do
 -- Pact Utils
 
 simpleBlockEnvInit
-    :: (String -> IO ())
-    -> (PactDb (BlockEnv SQLiteEnv) -> BlockEnv SQLiteEnv -> (MVar (BlockEnv SQLiteEnv) -> IO ()) -> IO a)
+    :: (Logger logger)
+    => logger
+    -> (PactDb (BlockEnv logger SQLiteEnv) -> BlockEnv logger SQLiteEnv -> (MVar (BlockEnv logger SQLiteEnv) -> IO ()) -> IO a)
     -> IO a
-simpleBlockEnvInit logBackend f = withTempSQLiteConnection chainwebPragmas $ \sqlenv ->
+simpleBlockEnvInit logger f = withTempSQLiteConnection chainwebPragmas $ \sqlenv ->
     f chainwebPactDb (blockEnv sqlenv) (\v -> runBlockEnv v initSchema)
   where
-    loggers = pactTestLogger logBackend False
     blockEnv e = BlockEnv
-        (BlockDbEnv e (newLogger loggers "BlockEnvironment"))
+        (BlockDbEnv e (addLabel ("block-environment", "simpleBlockEnvInit") logger))
         (initBlockState defaultModuleCacheLimit $ genesisHeight testVer testChainId)
 
 {- this should be moved to pact -}
@@ -653,7 +662,7 @@ begin :: PactDb e -> Method e (Maybe TxId)
 begin pactdb = _beginTx pactdb Transactional
 
 {- this should be moved to pact -}
-commit :: PactDb e -> Method e [TxLog Value]
+commit :: PactDb e -> Method e [TxLogJson]
 commit pactdb = _commitTx pactdb
 
 loadModule :: IO (ModuleName, ModuleData Ref, PersistModuleData)

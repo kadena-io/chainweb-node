@@ -35,7 +35,7 @@ module Chainweb.Version.Utils
 , someChainIdAt
 , blockCountAt
 , globalBlockCountAt
-, globalBlockRateAt
+, globalBlockDelayAt
 , isGraphChange
 
 -- * Chain Graph Properties By Cut Height
@@ -223,9 +223,8 @@ someChainId v = someChainIdAt v maxBound
 -- chain ids for the chainweb at the given height.
 --
 someChainIdAt :: HasCallStack => HasChainwebVersion v => v -> BlockHeight -> ChainId
-someChainIdAt v h = head . toList $ chainIdsAt v h
-    -- 'head' is guaranteed to succeed because the empty graph isn't a valid chain
-    -- graph.
+someChainIdAt v h = minimum $ chainIdsAt v h
+    -- guaranteed to succeed because the empty graph isn't a valid chain graph.
 {-# INLINE someChainIdAt #-}
 
 isGraphChange :: HasChainwebVersion v => v -> BlockHeight -> Bool
@@ -266,15 +265,15 @@ globalBlockCountAt v h = sum
     $ toList
     $ chainIdsAt v h
 
-globalBlockRateAt
+globalBlockDelayAt
     :: HasCallStack
     => HasChainwebVersion v
     => v
     -> BlockHeight
     -> Double
-globalBlockRateAt v h = (int r / 1_000_000) / int (chainCountAt v h)
+globalBlockDelayAt v h = (int r / 1_000_000) / int (chainCountAt v h)
   where
-    BlockRate r = _versionBlockRate (_chainwebVersion v)
+    BlockDelay r = _versionBlockDelay (_chainwebVersion v)
 
 -- -------------------------------------------------------------------------- --
 -- Cut Heights
@@ -395,7 +394,7 @@ expectedBlockCountAfterSeconds v cid s = max 0 (1 + (int s / (int r / 1_000_000)
     -- The `max 0` term is required for chains that were added during graph transitions
     -- and thus have `genesisHeight > 0`
   where
-    BlockRate r = _versionBlockRate (_chainwebVersion v)
+    BlockDelay r = _versionBlockDelay (_chainwebVersion v)
     gh = genesisHeight (_chainwebVersion v) (_chainId cid)
 
 -- | This function is useful for performance testing when calculating the
@@ -431,7 +430,7 @@ expectedBlockHeightAfterSeconds
     -> Double
 expectedBlockHeightAfterSeconds v s = int s / (int r / 1_000_000)
   where
-    BlockRate r = _versionBlockRate (_chainwebVersion v)
+    BlockDelay r = _versionBlockDelay (_chainwebVersion v)
 
 -- | The expected CutHeight after the given number of seconds has passed.
 --

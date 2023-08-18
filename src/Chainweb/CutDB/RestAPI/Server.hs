@@ -34,6 +34,7 @@ module Chainweb.CutDB.RestAPI.Server
 
 import Control.Lens (view)
 import Control.Monad.Except
+import Control.Monad.IO.Class
 
 import Data.IxSet.Typed
 import Data.Proxy

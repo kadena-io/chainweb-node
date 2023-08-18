@@ -62,7 +62,6 @@ import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Version.Utils
 import Chainweb.WebPactExecutionService
 
 import Chainweb.Storage.Table (casLookupM)
@@ -71,7 +70,8 @@ testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion peterson
 
 cid :: ChainId
-cid = someChainId testVersion
+cid = unsafeChainId 9
+    -- several tests in this file expect chain 9
 
 data MultiEnv = MultiEnv
     { _menvBdb :: !TestBlockDb
@@ -131,20 +131,22 @@ tests = ScheduledTest testName go
          , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
          , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
          , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
+         , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
          ]
       where
           -- This is way more than what is used in production, but during testing
           -- we can be generous.
         generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
         timeoutConfig = testPactServiceConfig { _pactBlockGasLimit = 100_000 }
+
         test pactConfig gasmodel tname f =
           withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
             withTestBlockDb testVersion $ \bdb -> do
               (iompa,mpa) <- dmpio
-              withWebPactExecutionService step testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
+              let logger = hunitDummyLogger step
+              withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
                 runReaderT f $
                 MultiEnv bdb pact pacts (return iompa) noMiner cid
-
 
 minerKeysetTest :: PactTestM ()
 minerKeysetTest = do
@@ -573,8 +575,8 @@ chainweb215Test = do
     mkRecdEvents h h' = sequence
       [ mkTransferEvent "sender00" "NoMiner" 0.0258 "coin" h
       , mkTransferEvent "" "sender00" 0.0123 "coin" h
-      , mkTransferXChainRecdEvent "" "sender00" 0.0123 "coin" h "8"
-      , mkXResumeEvent "sender00" "sender00" 0.0123 sender00Ks "pact" h' "8" "0"
+      , mkTransferXChainRecdEvent "" "sender00" 0.0123 "coin" h (toText cid)
+      , mkXResumeEvent "sender00" "sender00" 0.0123 sender00Ks "pact" h' (toText cid) "0"
       ]
 
 
@@ -1043,6 +1045,28 @@ chainweb219UpgradeTest = do
     tryReadMsg = buildBasicGas 1000
         $ mkExec' "(try 1 (read-msg \"somekey\"))"
 
+pact48UpgradeTest :: PactTestM ()
+pact48UpgradeTest = do
+  runToHeight 83
+
+  -- run block 84 (before the pact48 fork)
+  runBlockTest
+    [ PactTxTest runConcat $ assertTxGas "Old concat gas cost" 231
+    , PactTxTest runFormat $ assertTxGas "Old format gas cost" 238
+    , PactTxTest runReverse $ assertTxGas "Old reverse gas cost" 4232
+    ]
+
+  -- run block 85 (after the pact 48 fork)
+  runBlockTest
+    [ PactTxTest runConcat $ assertTxGas "New concat gas cost" 280
+    , PactTxTest runFormat $ assertTxGas "New format gas cost" 233
+    , PactTxTest runReverse $ assertTxGas "New reverse gas cost" 4272
+    ]
+
+  where
+    runConcat = buildBasicGas 10000 $ mkExec' "(concat [\"hello\", \"world\"])"
+    runFormat = buildBasicGas 10000 $ mkExec' "(format \"{}\" [1,2,3])"
+    runReverse = buildBasicGas 10000 $ mkExec' "(reverse (enumerate 1 4000))"
 
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do

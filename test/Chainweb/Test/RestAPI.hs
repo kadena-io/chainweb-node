@@ -2,6 +2,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
+{-# options_ghc -fno-warn-unused-local-binds -fno-warn-unused-imports #-}
 
 -- |
 -- Module: Chainweb.Test.RestAPI
@@ -19,6 +22,7 @@ module Chainweb.Test.RestAPI
 import Control.Monad
 import Control.Monad.IO.Class
 
+import Data.Bifunctor (first)
 import qualified Data.ByteString.Char8 as B8
 import Data.Either
 import Data.Foldable
@@ -40,6 +44,7 @@ import Text.Read (readEither)
 
 -- internal modules
 
+import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
@@ -48,6 +53,7 @@ import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MempoolBackend, MockTx)
 import Chainweb.RestAPI
 import Chainweb.Test.RestAPI.Client_
+import Chainweb.Test.RestAPI.Utils (isFailureResponse, clientErrorStatusCode)
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Test.TestVersions (barebonesTestVersion)
@@ -168,6 +174,7 @@ simpleClientSession envIO cid =
         assertBool ("test failed: " <> sshow res) (isRight res)
   where
 
+    session :: [(ChainId, BlockHeaderDb)] -> (String -> IO a) -> ClientM ()
     session dbs step = do
 
         let gbh0 = genesisBlockHeader version cid
@@ -230,6 +237,60 @@ simpleClientSession envIO cid =
                 (Actual r)
 
         -- branchHeaders
+
+        do
+          void $ liftIO $ step "branchHeadersClient: BranchBounds limits exceeded"
+          clientEnv <- liftIO $ do
+            -- ClientM does not have a MonadFail instance for this failable
+            -- pattern match; IO does.
+            BlockHeaderDbsTestClientEnv clientEnv _ _ <- envIO
+            pure clientEnv
+          let query bounds = liftIO
+                $ flip runClientM clientEnv
+                $ branchHeadersClient
+                    version cid Nothing Nothing Nothing Nothing bounds
+          let limit = 32
+          let blockHeaders = testBlockHeaders (ParentHeader gbh0)
+          let maxBlockHeaders = take limit blockHeaders
+          let excessBlockHeaders = take (limit + 1) blockHeaders
+
+          let mkLower :: [BlockHeader] -> HS.HashSet (LowerBound BlockHash)
+              mkLower hs = HS.fromList $ map (LowerBound . key) hs
+          let mkUpper :: [BlockHeader] -> HS.HashSet (UpperBound BlockHash)
+              mkUpper hs = HS.fromList $ map (UpperBound . key) hs
+
+          let emptyLower = mkLower []
+          let badLower = mkLower excessBlockHeaders
+          let goodLower = mkLower maxBlockHeaders
+
+          let emptyUpper = mkUpper []
+          let badUpper = mkUpper excessBlockHeaders
+          let goodUpper = mkUpper maxBlockHeaders
+
+          let badRespCheck :: Int -> ClientError -> Bool
+              badRespCheck s e = isFailureResponse e && clientErrorStatusCode e == Just s
+
+          badLowerResponse <- query (BranchBounds badLower emptyUpper)
+          assertExpectation "branchHeadersClient returned a 400 error code on excess lower"
+            (Expected (Left True))
+            (Actual (first (badRespCheck 400) badLowerResponse))
+
+          badUpperResponse <- query (BranchBounds emptyLower badUpper)
+          assertExpectation "branchHeadersClient returned a 400 error code on excess upper"
+            (Expected (Left True))
+            (Actual (first (badRespCheck 400) badUpperResponse))
+
+          -- This will still fail because a bunch of these keys won't be found,
+          -- but it won't fail the bounds check, which happens first
+          doesntFailBoundsCheck <- query (BranchBounds goodLower goodUpper)
+          assertExpectation "branchHeadersClient returned a 404; bounds were within the limits, still fails key exists check"
+            (Expected (Left True))
+            (Actual (first (badRespCheck 404) doesntFailBoundsCheck))
+
+          doesntFailAtAll <- query (BranchBounds emptyLower emptyUpper)
+          assertExpectation "branchHeadersClient returned a 200; bounds were within the limits, and no keys to check at all"
+            (Expected (Right ()))
+            (Actual (() <$ doesntFailAtAll))
 
         void $ liftIO $ step "branchHeadersClient: get no block headers"
         bhs3 <- branchHeadersClient version cid Nothing Nothing Nothing Nothing
@@ -320,9 +381,12 @@ simpleClientSession envIO cid =
             void $ liftIO $ step "branchHashesClient: get one block headers with lower and upper bound"
             hs5 <- branchHashesClient version cid Nothing Nothing Nothing Nothing
                 (BranchBounds (HS.singleton (LowerBound $ key lower)) (HS.singleton (UpperBound $ key h)))
+            liftIO $ print hs5
             assertExpectation "branchHashesClient returned wrong number of entries"
                 (Expected i)
                 (Actual $ _pageLimit hs5)
+
+
 
 -- -------------------------------------------------------------------------- --
 -- Paging Tests

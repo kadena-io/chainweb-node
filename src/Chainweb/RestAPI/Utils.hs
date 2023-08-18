@@ -17,6 +17,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -138,6 +139,7 @@ import Chainweb.Version
 
 type Reassoc (api :: Type) = ReassocBranch api '[]
 
+type ReassocBranch :: s -> [Type] -> Type
 type family ReassocBranch (a :: s) (b :: [Type]) :: Type where
     ReassocBranch (a :> b) rest = ReassocBranch a (b ': rest)
     ReassocBranch a '[] = a
@@ -468,6 +470,7 @@ type family SetRespBodyContentType ct api where
 
 type SupportedRespBodyContentType ct api t = (SupportedRespBodyCT_ ct api api ~ 'True, MimeUnrender ct t)
 
+type SupportedRespBodyCT_ :: Type -> k -> k1 -> Bool
 type family SupportedRespBodyCT_ (ct :: Type) (api :: k) (arg :: k1) :: Bool where
     SupportedRespBodyCT_ ct api (Verb _ _ '[] _) = RespBodyContentTypeNotSupportedMsg ct api
     SupportedRespBodyCT_ ct api (Verb _ _ (ct ': _) _) = 'True
@@ -484,12 +487,14 @@ type family RespBodyContentTypeNotSupportedMsg ct api where
 
 -- Request Body Content Type
 
+type SetReqBodyContentType :: Type -> k -> k1
 type family SetReqBodyContentType (ct :: Type) (api :: k) :: k1 where
     SetReqBodyContentType ct (ReqBody _ t :> a) = ReqBody '[ct] t :> a
     SetReqBodyContentType ct (a :> b) = a :> SetReqBodyContentType ct b
 
 type SupportedReqBodyContentType ct api t = (SupportedReqBodyCT_ ct api api ~ 'True, MimeRender ct t)
 
+type SupportedReqBodyCT_ :: Type -> k -> k1 -> Bool
 type family SupportedReqBodyCT_ (ct :: Type) (api :: k) (arg :: k1) :: Bool where
     SupportedReqBodyCT_ ct api (ReqBody '[] _ :> _) = ReqBodyContentTypeNotSupportedMsg ct api
     SupportedReqBodyCT_ ct api (ReqBody (ct ': _) _ :> _) = 'True
@@ -513,7 +518,7 @@ bindPortTcp p interface = do
         socket <- bindPortGen N.Stream (int p) interface
         port <- N.socketPort socket
         return (int port, socket)
-    N.listen sock (max 2048 N.maxListenQueue)
+    N.listen sock N.maxListenQueue
     return (port, sock)
 
 allocateSocket :: Port -> HostPreference -> IO (Port, N.Socket)

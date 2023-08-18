@@ -68,6 +68,8 @@ module Utils.Logging
 , LogHandler(..)
 , logHandler
 , maybeLogHandler
+, passthroughLogHandler
+, dropLogHandler
 , logHandles
 
 -- * Filter LogScope Backend
@@ -119,9 +121,12 @@ import Control.Monad.STM
 import Control.Monad.Trans.Control
 
 import Data.Aeson.Encoding hiding (int, bool)
+import qualified Data.Aeson.Key as A
+import Data.Bifunctor
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import Data.IORef
+import Data.Proxy
 import Data.Semigroup
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -468,6 +473,16 @@ maybeLogHandler b = LogHandler $ \case
     (Right !msg) -> fmap Right <$!> b msg
 {-# INLINEABLE maybeLogHandler #-}
 
+passthroughLogHandler :: LogHandler
+passthroughLogHandler = maybeLogHandler (return . Just)
+
+dropLogHandler :: forall a. LogMessage a => Proxy a -> LogHandler
+dropLogHandler _ = LogHandler $ h @a
+    where
+    h :: forall m. LogMessage m => BackendLogMessage m -> IO (Maybe (BackendLogMessage SomeLogMessage))
+    h (Left msg) = Just . Left <$!> return msg
+    h (Right _) = return Nothing
+
 logHandles :: Monoid b => Foldable f => f LogHandler -> GenericBackend b -> GenericBackend b
 logHandles = flip $ foldr $ \case (LogHandler h) -> genericLogHandle h
 {-# INLINEABLE logHandles #-}
@@ -498,8 +513,7 @@ configureHandler logger config inner
 
 -- | Format a Log Message as JSON.
 --
-newtype JsonLogMessage a = JsonLogMessage
-    { _getJsonLogMessage :: L.LogMessage a }
+newtype JsonLogMessage a = JsonLogMessage (L.LogMessage a)
     deriving (Generic)
 
 instance ToJSON a => ToJSON (JsonLogMessage a) where
@@ -516,7 +530,7 @@ jsonLogMessageEncoding (JsonLogMessage a) =
     , "message" .= L._logMsg a
     ]
   where
-    scopeToJson = object . map (uncurry (.=)) . reverse
+    scopeToJson = object . map (uncurry (.=) . first A.fromText) . reverse
 {-# INLINE jsonLogMessageEncoding #-}
 
 -- | Format a Log Message for Usage in Elasticsearch DataStreams
@@ -539,7 +553,7 @@ esJsonLogMessageEncoding (EsJsonLogMessage a) =
     , "message" .= L._logMsg a
     ]
   where
-    scopeToJson = object . map (uncurry (.=)) . reverse
+    scopeToJson = object . map (uncurry (.=) . first A.fromText) . reverse
 {-# INLINE esJsonLogMessageEncoding #-}
 
 -- -------------------------------------------------------------------------- --
@@ -647,22 +661,22 @@ withJsonHandleBackend
         -- Scope that are included only with remote backends. In chainweb-node
         -- this is used for package info data.
     -> BackendConfig
-    -> (Backend a -> IO b)
+    -> (Backend (JsonLog a) -> IO b)
     -> IO b
 withJsonHandleBackend llabel mgr pkgScopes c inner = case _backendConfigHandle c of
     StdOut -> fdBackend stdout
     StdErr -> fdBackend stderr
     FileHandle f -> withFile f WriteMode fdBackend
     ElasticSearch f auth -> withElasticsearchBackend mgr f auth (T.toLower llabel) pkgScopes $ \b ->
-        inner (b . addTypeScope)
+        inner (b . fmap unJsonLog . addTypeScope)
   where
     addTypeScope = L.logMsgScope %~ (:) ("type", llabel)
     fdBackend h = case _backendConfigFormat c of
         LogFormatText -> do
             colored <- useColor (_backendConfigColor c) h
-            inner $ L.handleBackend_ encodeToText h colored . Right . addTypeScope
+            inner $ L.handleBackend_ (encodeToText . unJsonLog) h colored . Right . addTypeScope
         LogFormatJson -> inner $
-            BL8.hPutStrLn h . encode . JsonLogMessage . addTypeScope
+            BL8.hPutStrLn h . encode . JsonLogMessage . fmap unJsonLog . addTypeScope
 {-# INLINEABLE withJsonHandleBackend #-}
 
 -- -------------------------------------------------------------------------- --
@@ -864,7 +878,7 @@ withJsonEventSourceAppBackend
     :: ToJSON a
     => W.Port
     -> FilePath
-    -> (Backend a -> IO b)
+    -> (Backend (JsonLog a) -> IO b)
     -> IO b
 withJsonEventSourceAppBackend port staticDir inner = do
     c <- newChan
@@ -877,6 +891,7 @@ withJsonEventSourceAppBackend port staticDir inner = do
         . fromEncoding
         . toEncoding
         . JsonLogMessage
+        . fmap unJsonLog
     app c = mapUrls
         $ mount "frontendapp" (staticApp $ defaultWebAppSettings staticDir)
         <|> mount "frontend" (staticApp $ defaultFileServerSettings staticDir)
@@ -915,7 +930,7 @@ withExampleLogger
 withExampleLogger port loggerConfig backendConfig staticDir f = do
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     withBaseHandleBackend "example-logger" mgr [] backendConfig $ \baseBackend ->
-        withJsonEventSourceAppBackend @(JsonLog P2pSessionInfo) port staticDir $ \sessionsBackend -> do
+        withJsonEventSourceAppBackend @P2pSessionInfo port staticDir $ \sessionsBackend -> do
             let loggerBackend = logHandles
                     [ logHandler sessionsBackend ]
                     baseBackend

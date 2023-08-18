@@ -35,6 +35,7 @@ module Chainweb.Pact.Backend.Compaction
   , compactAll
   , compactMain
   , withDefaultLogger
+  , withPerChainFileLogger
   ) where
 
 import UnliftIO.Async (pooledMapConcurrentlyN_)
@@ -104,8 +105,12 @@ data CompactEnv = CompactEnv
   }
 makeLenses ''CompactEnv
 
-withDefaultLogger :: FilePath -> ChainId -> LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
-withDefaultLogger logDir chainId ll f = withHandleBackend_ logText handleConfig $ \b ->
+withDefaultLogger :: LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
+withDefaultLogger ll f = withHandleBackend_ logText defaultHandleBackendConfig $ \b ->
+    withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel ll l)
+
+withPerChainFileLogger :: FilePath -> ChainId -> LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
+withPerChainFileLogger logDir chainId ll f = withHandleBackend_ logText handleConfig $ \b ->
   withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel ll l)
   where
     cid = Text.unpack (chainIdToText chainId)
@@ -463,7 +468,7 @@ data CompactConfig = CompactConfig
 compactAll :: CompactConfig -> IO ()
 compactAll CompactConfig{..} = do
   flip (pooledMapConcurrentlyN_ ccThreads) cids $ \cid -> do
-    withDefaultLogger logDir cid Debug $ \logger' -> do
+    withPerChainFileLogger logDir cid Debug $ \logger' -> do
       let logger = over setLoggerScope (("chain",sshow cid):) logger'
       let resetDb = False
       withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) ->
@@ -526,7 +531,7 @@ compactMain = do
                <> metavar "DIRECTORY"
                <> help "Directory where logs will be placed"
                <> value ".")
-        <*> (fromIntegral @Int <$> option auto
+        <*> (option auto
              (short 't'
               <> long "threads"
               <> metavar "THREADS"

@@ -15,7 +15,6 @@ import Control.Concurrent.MVar
 import Control.Exception (evaluate)
 import Control.Monad.Catch
 
-import Data.Aeson (Value)
 import qualified Data.HashMap.Strict as HM
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -39,7 +38,8 @@ import Chainweb.Transaction
 import Chainweb.Utils (T2)
 
 import Pact.Types.Hash
-import Pact.Types.Persistence (RowKey, TxLog)
+import Pact.Types.Persistence (RowKey, TxLog, Domain)
+import Pact.Types.RowData (RowData)
 
 -- -------------------------------------------------------------------------- --
 -- PactExecutionService
@@ -85,15 +85,15 @@ data PactExecutionService = PactExecutionService
       -- ^ Run speculative checks to find bad transactions (ie gas buy failures, etc)
     , _pactBlockTxHistory :: !(
         BlockHeader ->
-        Domain' ->
+        Domain RowKey RowData ->
         IO (Either PactException BlockTxHistory)
         )
       -- ^ Obtain all transaction history in block for specified table/domain.
     , _pactHistoricalLookup :: !(
         BlockHeader ->
-        Domain' ->
+        Domain RowKey RowData ->
         RowKey ->
-        IO (Either PactException (Maybe (TxLog Value)))
+        IO (Either PactException (Maybe (TxLog RowData)))
         )
       -- ^ Obtain latest entry at or before the given block for specified table/domain and row key.
     , _pactSyncToBlock :: !(

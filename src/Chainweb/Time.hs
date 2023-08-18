@@ -1,15 +1,17 @@
-{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -115,6 +117,8 @@ import Language.Haskell.TH (ExpQ)
 import Language.Haskell.TH.Quote
 import Language.Haskell.TH.Syntax (Lift)
 
+import qualified Pact.JSON.Encode as J
+
 -- internal imports
 
 import Chainweb.Utils
@@ -135,7 +139,7 @@ newtype TimeSpan a = TimeSpan a
         ( AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
         , AdditiveGroup, FractionalVectorSpace
         , Enum, Bounded
-        , ToJSON, FromJSON
+        , ToJSON, FromJSON, J.Encode
         )
 
 encodeTimeSpan :: TimeSpan Micros -> Put
@@ -186,7 +190,7 @@ divTimeSpan (TimeSpan a) s = TimeSpan $ a `div` (int s)
 newtype Time a = Time (TimeSpan a)
     deriving (Show, Eq, Ord, Generic, Data, Lift)
     deriving anyclass (Hashable, NFData)
-    deriving newtype (Enum, Bounded, ToJSON, FromJSON)
+    deriving newtype (Enum, Bounded, ToJSON, FromJSON, J.Encode)
 
 instance AdditiveGroup (TimeSpan a) => LeftTorsor (Time a) where
     type Diff (Time a) = TimeSpan a
@@ -319,6 +323,7 @@ newtype Seconds = Seconds Int64
     deriving anyclass (Hashable, NFData)
     deriving newtype (FromJSON, ToJSON)
     deriving newtype (Num, Enum, Real, Integral)
+    deriving J.Encode via (J.Aeson Int64)
 
 secondsToTimeSpan :: Num a => Seconds -> TimeSpan a
 secondsToTimeSpan (Seconds s) = scaleTimeSpan s second
@@ -352,6 +357,7 @@ newtype Micros = Micros Int64
     deriving anyclass (Hashable, NFData)
     deriving newtype (Num, Integral, Real, AdditiveGroup, AdditiveMonoid, AdditiveSemigroup)
     deriving newtype (ToJSON, FromJSON)
+    deriving J.Encode via (J.Aeson Int64)
 
 microsToTimeSpan :: Num a => Micros -> TimeSpan a
 microsToTimeSpan (Micros us) = scaleTimeSpan us microsecond

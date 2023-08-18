@@ -37,6 +37,7 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import Data.String
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
@@ -396,11 +397,8 @@ createCoinAccount v meta name = do
     sender00Keyset <- NEL.fromList <$> getKeyset "sender00"
     nameKeyset <- NEL.fromList <$> getKeyset name
     let attach = attachCaps "sender00" name 1000.0
-    let theData = object [T.pack name .= fmap (formatB16PubKey . fst) (attach nameKeyset)]
-    res <- mkExec (T.pack theCode) theData meta
-      (NEL.toList $ attach sender00Keyset)
-      (Just $ Pact.NetworkId $ toText (_versionName v))
-      Nothing
+    let theData = object [fromString name .= fmap (formatB16PubKey . fst) (attach nameKeyset)]
+    res <- mkExec (T.pack theCode) theData meta (NEL.toList $ attach sender00Keyset) (Just $ Pact.NetworkId $ toText (_versionName v)) Nothing
     pure (nameKeyset, res)
   where
     theCode = printf "(coin.transfer-create \"sender00\" \"%s\" (read-keyset \"%s\") 1000.0)" name name

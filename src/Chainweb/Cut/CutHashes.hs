@@ -85,8 +85,6 @@ import Foreign.Storable
 import GHC.Generics (Generic)
 import GHC.TypeNats
 
-import Numeric.Natural
-
 import System.IO.Unsafe
 
 -- internal modules
@@ -328,7 +326,7 @@ cutHashesProperties c =
     ifNotEmpty
         :: ToJSONKey k
         => ToJSON v
-        => T.Text
+        => Key
         -> Lens' CutHashes (HM.HashMap k v)
         -> [kv]
     ifNotEmpty s l
