@@ -57,6 +57,7 @@ import Data.Vector qualified as V
 import Database.SQLite3.Direct (Utf8(..), Database)
 import GHC.Stack (HasCallStack)
 import Options.Applicative
+import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 
 import Chainweb.BlockHeight (BlockHeight)
@@ -110,14 +111,17 @@ withDefaultLogger ll f = withHandleBackend_ logText defaultHandleBackendConfig $
     withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel ll l)
 
 withPerChainFileLogger :: FilePath -> ChainId -> LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
-withPerChainFileLogger logDir chainId ll f = withHandleBackend_ logText handleConfig $ \b ->
-  withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel ll l)
+withPerChainFileLogger logDir chainId ll f = do
+  createDirectoryIfMissing False {- don't create parents -} logDir
+  let logFile = logDir </> ("compact-chain-" <> cid <> ".log")
+  !_ <- writeFile logFile ""
+  let handleConfig = defaultHandleBackendConfig
+        { _handleBackendConfigHandle = FileHandle logFile
+        }
+  withHandleBackend_ logText handleConfig $ \b ->
+    withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel ll l)
   where
     cid = Text.unpack (chainIdToText chainId)
-
-    handleConfig = defaultHandleBackendConfig
-      { _handleBackendConfigHandle = FileHandle (logDir </> ("compact-chain-" <> cid <> ".log"))
-      }
 
 -- | Set up compaction.
 mkCompactEnv
