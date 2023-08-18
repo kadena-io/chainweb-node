@@ -62,9 +62,8 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
-import Data.Primitive (Array)
-import Dyna (Vec)
-import Dyna qualified
+import GrowableVector.Lifted (Vec)
+import GrowableVector.Lifted qualified as Vec
 
 import System.IO
 import System.Timeout
@@ -540,19 +539,19 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
           Nothing
           (Just txTimeLimit) `catch` handleTimeout
 
-        successes <- liftIO $ Dyna.new @_ @Array @_ @(ChainwebTransaction, P.CommandResult [P.TxLogJson])
-        failures <- liftIO $ Dyna.new @_ @Array @_ @GasPurchaseFailure
+        successes <- liftIO $ Vec.new @_ @_ @(ChainwebTransaction, P.CommandResult [P.TxLogJson])
+        failures <- liftIO $ Vec.new @_ @_ @GasPurchaseFailure
         BlockFill _ requestKeys _ <- refill fetchLimit txTimeLimit pdbenv successes failures =<<
           foldM (splitResults successes failures) (incCount initState) pairs
 
         logInfo $ "(request keys = " <> sshow requestKeys <> ")"
 
         liftIO $ do
-          txHashes <- Dyna.toLiftedVectorWith (\_ failure -> pure (gasPurchaseFailureHash failure)) failures
+          txHashes <- Vec.toLiftedVectorWith (\_ failure -> pure (gasPurchaseFailureHash failure)) failures
           mpaBadlistTx mpAccess txHashes
 
         !pwo <- liftIO $ do
-          txs <- Dyna.toLiftedVector successes
+          txs <- Vec.toLiftedVector successes
           pure (toPayloadWithOutputs miner (Transactions txs cb))
         return $! Discard pwo
 
@@ -564,7 +563,7 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
 
           case unchanged of
             BlockFill g _ c -> do
-              (goodLength, badLength) <- liftIO $ (,) <$> Dyna.length successes <*> Dyna.length failures
+              (goodLength, badLength) <- liftIO $ (,) <$> Vec.length successes <*> Vec.length failures
               logDebug $ "Block fill: count=" <> sshow c
                 <> ", gaslimit=" <> sshow g <> ", good="
                 <> sshow goodLength <> ", bad=" <> sshow badLength
@@ -585,8 +584,8 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
                 (Just txTimeLimit) `catch` handleTimeout
 
               (oldPairsLength, oldFailsLength) <- liftIO $ (,)
-                <$> Dyna.length successes
-                <*> Dyna.length failures
+                <$> Vec.length successes
+                <*> Vec.length failures
 
               newState <- foldM (splitResults successes failures) unchanged pairs
 
@@ -595,8 +594,8 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
                 throwM $ MempoolFillFailure $ "Gas must not increase: " <> sshow (bfState,newState)
 
               (newPairsLength, newFailsLength) <- liftIO $ (,)
-                <$> Dyna.length successes
-                <*> Dyna.length failures
+                <$> Vec.length successes
+                <*> Vec.length failures
               let newSuccessCount = newPairsLength - oldPairsLength
               let newFailCount = newFailsLength - oldFailsLength
 
@@ -617,12 +616,12 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
         !rks' <- enforceUnique rks (requestKeyToTransactionHash $ P._crReqKey cr)
         -- Decrement actual gas used from block limit
         let !g' = g - fromIntegral (P._crGas cr)
-        liftIO $ Dyna.push success (t, cr)
+        liftIO $ Vec.push success (t, cr)
         return $ BlockFill g' rks' i
       Left f -> do
         !rks' <- enforceUnique rks (gasPurchaseFailureHash f)
         -- Gas buy failure adds failed request key to fail list only
-        liftIO $ Dyna.push fails f
+        liftIO $ Vec.push fails f
         return $ BlockFill g rks' i
 
     enforceUnique rks rk
@@ -637,8 +636,7 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
       mpaProcessFork mpAccess $ _parentHeader parent
       mpaSetLastHeader mpAccess $ _parentHeader parent
 
-
-type GrowableVec = Vec Array (PrimState IO)
+type GrowableVec = Vec (PrimState IO)
 
 -- | only for use in generating genesis blocks in tools
 --
