@@ -89,8 +89,6 @@ data PactServiceConfig = PactServiceConfig
     -- ^ Maximum allowed rewind depth in the local command.
   , _pactPreInsertCheckTimeout :: !Micros
     -- ^ Maximum allowed execution time for the transactions validation.
-  , _pactRevalidate :: !Bool
-    -- ^ Re-validate payload hashes during transaction replay
   , _pactAllowReadsInLocal :: !Bool
     -- ^ Allow direct database reads in local mode
   , _pactQueueSize :: !Natural

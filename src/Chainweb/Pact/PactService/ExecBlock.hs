@@ -151,10 +151,8 @@ execBlock currHeader plData pdbenv = do
 
     modify' $ set psStateValidated $ Just currHeader
 
-    -- Validate hashes if requested
-    asks _psValidateHashesOnReplay >>= \x -> when x $
-        either throwM (void . return) $!
-        validateHashes currHeader plData miner results
+    either throwM (void . return) $
+      validateHashes currHeader plData miner results
 
     return $! T2 miner results
 
@@ -356,8 +354,7 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
 
     reward <- liftIO $! minerReward v rs bh
 
-    (T2 cr upgradedCacheM) <-
-      liftIO $! applyCoinbase v logger dbEnv miner reward txCtx enfCBFail usePrecomp mc
+    (T2 cr upgradedCacheM) <- liftIO $ applyCoinbase v logger dbEnv miner reward txCtx enfCBFail usePrecomp mc
     mapM_ upgradeInitCache upgradedCacheM
     debugResult "runCoinbase" (P.crLogs %~ fmap J.Array $ cr)
     return $! cr

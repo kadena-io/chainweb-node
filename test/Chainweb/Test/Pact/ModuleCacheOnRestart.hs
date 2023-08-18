@@ -139,9 +139,9 @@ testCoinbase
 testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
   where
     doCoinbase = do
-      bdb <- liftIO $ iobdb
+      bdb <- liftIO iobdb
       pwo <- execNewBlock mempty (ParentHeader genblock) noMiner
-      liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
+      void $ liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
       void $ execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
 
@@ -259,7 +259,7 @@ doNextCoinbase iobdb = do
       bdb <- liftIO iobdb
       prevH <- liftIO $ getParentTestBlockDb bdb testChainId
       pwo <- execNewBlock mempty (ParentHeader prevH) noMiner
-      liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
+      void $ liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
       (valPWO, _g) <- execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
       return (nextH, valPWO)

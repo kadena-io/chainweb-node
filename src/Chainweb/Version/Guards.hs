@@ -38,7 +38,6 @@ module Chainweb.Version.Guards
     , chainweb215Pact
     , chainweb216Pact
     , chainweb217Pact
-    , cleanModuleCache
     , chainweb218Pact
     , chainweb219Pact
     , chainweb220Pact
@@ -222,9 +221,6 @@ chainweb216Pact = checkFork after Chainweb216Pact
 
 chainweb217Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb217Pact = checkFork after Chainweb217Pact
-
-cleanModuleCache :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-cleanModuleCache = checkFork atOrAfter Chainweb217Pact
 
 chainweb218Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb218Pact = checkFork atOrAfter Chainweb218Pact

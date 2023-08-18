@@ -38,6 +38,7 @@ module Chainweb.Pact.Types
   , GasId(..)
   , EnforceCoinbaseFailure(..)
   , CoinbaseUsePrecompiled(..)
+  , cleanModuleCache
 
     -- * Transaction State
   , TransactionState(..)
@@ -81,7 +82,6 @@ module Chainweb.Pact.Types
   , psPreInsertCheckTimeout
   , psOnFatalError
   , psVersion
-  , psValidateHashesOnReplay
   , psLogger
   , psGasLogger
   , psAllowReadsInLocal
@@ -147,6 +147,7 @@ module Chainweb.Pact.Types
     -- * types
   , TxTimeout(..)
   , ApplyCmdExecutionContext(..)
+  , TxFailureLog(..)
 
   -- * miscellaneous
   , defaultOnFatalError
@@ -217,7 +218,6 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Version.Guards
 import Utils.Logging.Trace
 
 
@@ -287,6 +287,15 @@ moduleCacheFromHashMap = ModuleCache . LHM.fromList . HM.toList
 moduleCacheKeys :: ModuleCache -> [ModuleName]
 moduleCacheKeys (ModuleCache a) = fst <$> LHM.toList a
 {-# INLINE moduleCacheKeys #-}
+
+-- this can't go in Chainweb.Version.Guards because it causes an import cycle
+-- it uses genesisHeight which is from BlockHeader which imports Guards
+cleanModuleCache :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+cleanModuleCache v cid bh =
+  case v ^?! versionForks . at Chainweb217Pact . _Just . onChain cid of
+    ForkAtBlockHeight bh' -> bh == bh'
+    ForkAtGenesis -> bh == genesisHeight v cid
+    ForkNever -> False
 
 -- -------------------------------------------------------------------- --
 -- Local vs. Send execution context flag
@@ -414,7 +423,6 @@ data PactServiceEnv logger tbl = PactServiceEnv
     -- ^ The limit of checkpointer's rewind in the `execValidationBlock` command.
     , _psOnFatalError :: !(forall a. PactException -> Text -> IO a)
     , _psVersion :: !ChainwebVersion
-    , _psValidateHashesOnReplay :: !Bool
     , _psAllowReadsInLocal :: !Bool
     , _psLogger :: !logger
     , _psGasLogger :: !(Maybe logger)
@@ -464,7 +472,6 @@ testPactServiceConfig = PactServiceConfig
       { _pactReorgLimit = defaultReorgLimit
       , _pactLocalRewindDepthLimit = defaultLocalRewindDepthLimit
       , _pactPreInsertCheckTimeout = defaultPreInsertCheckTimeout
-      , _pactRevalidate = True
       , _pactQueueSize = 1000
       , _pactResetDb = True
       , _pactAllowReadsInLocal = False
@@ -492,6 +499,15 @@ instance Exception ReorgLimitExceeded where
 newtype TxTimeout = TxTimeout TransactionHash
     deriving Show
 instance Exception TxTimeout
+
+data TxFailureLog = TxFailureLog !RequestKey !PactError !Text
+  deriving stock (Generic)
+  deriving anyclass (NFData, Typeable)
+instance LogMessage TxFailureLog where
+  logText (TxFailureLog rk err msg) =
+    msg <> ": " <> sshow rk <> ": " <> sshow err
+instance Show TxFailureLog where
+  show m = unpack (logText m)
 
 defaultOnFatalError :: forall a. (LogLevel -> Text -> IO ()) -> PactException -> Text -> IO a
 defaultOnFatalError lf pex t = do
@@ -728,9 +744,11 @@ catchesPactError :: (MonadCatch m, MonadIO m, Logger logger) => logger -> Unexpe
 catchesPactError logger exnPrinting action = catches (Right <$> action)
   [ Handler $ \(e :: PactError) -> return $ Left e
   , Handler $ \(e :: SomeException) -> do
-      liftIO $ logWarn_ logger ("catchesPactError: unknown error: " <> sshow e)
-      return $ Left $ PactError EvalError def def $
-        case exnPrinting of
-          PrintsUnexpectedError -> viaShow e
-          CensorsUnexpectedError -> "unknown error"
+      !err <- case exnPrinting of
+          PrintsUnexpectedError ->
+            return (viaShow e)
+          CensorsUnexpectedError -> do
+            liftIO $ logWarn_ logger ("catchesPactError: unknown error: " <> sshow e)
+            return "unknown error"
+      return $ Left $ PactError EvalError def def err
   ]
