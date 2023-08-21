@@ -464,7 +464,7 @@ compact = do
     withTx $ do
       withTables $ do
         compactTable
-        void $ verifyTable
+        whenFlagUnset Flag_NoGrandHash $ void $ verifyTable
       whenFlagUnset Flag_NoDropNewTables $ do
         logg Info "Dropping new tables"
         dropNewTables
