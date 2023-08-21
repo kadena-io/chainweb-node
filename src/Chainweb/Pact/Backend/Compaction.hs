@@ -10,6 +10,7 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -320,27 +321,39 @@ tableRowCount lbl =
 -- and compute+store table grand hash in CompactGrandHash.
 collectTableRows :: CompactM ()
 collectTableRows = do
-
   tableRowCount "collectTableRows"
 
-  logg Info "collectTableRows:insert"
-  execM'
-      " INSERT INTO CompactActiveRow \
-      \ SELECT ?1,rowkey,rowid, \
-      \ sha3_256('T',?1,'K',rowkey,'I',txid,'D',rowdata) \
-      \ FROM $VTABLE$ t1 \
-      \ WHERE txid=(SELECT MAX(txid) FROM $VTABLE$ t2 \
-      \  WHERE t2.rowkey=t1.rowkey AND t2.txid<?2) \
-      \ GROUP BY rowkey; "
-      [vtable,txid]
+  doGrandHash <- not <$> isFlagSet Flag_NoGrandHash
+  if | doGrandHash -> do
+         logg Info "collectTableRows:insert"
+         execM'
+           " INSERT INTO CompactActiveRow \
+           \ SELECT ?1,rowkey,rowid, \
+           \ sha3_256('T',?1,'K',rowkey,'I',txid,'D',rowdata) \
+           \ FROM $VTABLE$ t1 \
+           \ WHERE txid=(SELECT MAX(txid) FROM $VTABLE$ t2 \
+           \  WHERE t2.rowkey=t1.rowkey AND t2.txid<?2) \
+           \ GROUP BY rowkey; "
+           [vtable,txid]
 
-  logg Info "collectTableRows:checksum"
-  execM'
-      " INSERT INTO CompactGrandHash \
-      \ VALUES (?1, \
-      \  (SELECT sha3a_256(hash) FROM CompactActiveRow \
-      \   WHERE tablename=?1 ORDER BY rowkey)); "
-      [vtable]
+         logg Info "collectTableRows:checksum"
+         execM'
+             " INSERT INTO CompactGrandHash \
+             \ VALUES (?1, \
+             \  (SELECT sha3a_256(hash) FROM CompactActiveRow \
+             \   WHERE tablename=?1 ORDER BY rowkey)); "
+             [vtable]
+     | otherwise -> do
+         logg Info "collectTableRows:insert"
+         execM'
+           " INSERT INTO CompactActiveRow \
+           \ SELECT ?1,rowkey,rowid, \
+           \ NULL \
+           \ FROM $VTABLE$ t1 \
+           \ WHERE txid=(SELECT MAX(txid) FROM $VTABLE$ t2 \
+           \  WHERE t2.rowkey=t1.rowkey AND t2.txid<?2) \
+           \ GROUP BY rowkey; "
+           [vtable,txid]
 
 -- | Compute global grand hash from all table grand hashes.
 computeGlobalHash :: CompactM ByteString
@@ -436,20 +449,17 @@ compact :: CompactM (Maybe ByteString)
 compact = do
   doGrandHash <- not <$> isFlagSet Flag_NoGrandHash
 
-  when doGrandHash $ do
-    withTx $ do
-      createCompactGrandHash
-      createCompactActiveRow
+  withTx $ do
+    createCompactGrandHash
+    createCompactActiveRow
 
   readTxId $ collectVersionedTables $ do
 
-    gh <- if doGrandHash
-      then do
-        fmap Just $ withTx $ do
-          withTables collectTableRows
-          computeGlobalHash
-      else do
-        pure Nothing
+    gh <- withTx $ do
+      withTables collectTableRows
+      if doGrandHash
+      then Just <$> computeGlobalHash
+      else pure Nothing
 
     withTx $ do
       withTables $ do
