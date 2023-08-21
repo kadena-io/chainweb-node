@@ -261,12 +261,19 @@ withResourceT rt act =
         (runResourceT $ do
             a <- rt
             st <- getInternalState
+            -- get resource map
             rm <- liftIO $ readIORef st
-            newSt <- createInternalState >>= liftIO . readIORef
+            -- create new empty resource map
+            newSt <- liftIO . readIORef =<< createInternalState
+            -- replace resource map with empty one so it's not freed by
+            -- runResourceT early
             liftIO $ writeIORef st newSt
+            -- return the resource map to be freed later
             return (rm, a)
         )
-        (\(rm, _) -> do { ir <- newIORef rm; closeInternalState ir })
+        (\(rm, _) ->
+            closeInternalState =<< newIORef rm
+        )
         (\ioarm -> act (snd <$> ioarm))
 
 withTestBlockHeaderDb
