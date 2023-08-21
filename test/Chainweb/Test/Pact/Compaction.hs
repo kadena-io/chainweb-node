@@ -392,3 +392,7 @@ getTestTables db = do
       then [TableName name]
       else []
     _ -> []
+
+-- test idea:
+-- dump out all of the latest values, compact, dump again, compare. they
+-- should be equal.
