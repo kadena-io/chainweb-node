@@ -494,8 +494,10 @@ compactAll CompactConfig{..} = do
             Just ccid | ccid /= cid -> logg Info $ "Skipping chain"
             _ -> do
               logg Info $ "Beginning compaction"
-              h <- compact
-              logg Info $ "Compaction complete, hash=" <> encodeB64Text h
+              m <- compact
+              case m of
+                Just h -> logg Info $ "Compaction complete, hash=" <> encodeB64Text h
+                Nothing -> logg Info $ "Compaction complete"
 
   where
     cids = List.sort $ F.toList $ chainIdsAt ccVersion ccBlockHeight
