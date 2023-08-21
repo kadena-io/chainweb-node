@@ -90,6 +90,9 @@ data CompactFlag
   | Flag_NoVacuum
     -- ^ Don't VACUUM database
   | Flag_NoDropNewTables
+    -- ^ Don't drop new tables created after the compaction height.
+  | Flag_NoGrandHash
+    -- ^ Don't compute the grand hash.
   deriving stock (Eq,Show,Read,Enum,Bounded)
 
 internalError :: MonadThrow m => Text -> m a
@@ -231,7 +234,12 @@ withDb :: (Database -> CompactM a) -> CompactM a
 withDb a = view ceDb >>= a
 
 whenFlagUnset :: CompactFlag -> CompactM () -> CompactM ()
-whenFlagUnset f a = view ceFlags >>= \fs -> when (not (f `elem` fs)) a
+whenFlagUnset f x = do
+  yeahItIs <- isFlagSet f
+  when (not yeahItIs) x
+
+isFlagSet :: CompactFlag -> CompactM Bool
+isFlagSet f = view ceFlags >>= \fs -> pure (f `elem` fs)
 
 withTables :: CompactM () -> CompactM ()
 withTables a = view ceVersionTables >>= \ts -> do
@@ -424,38 +432,43 @@ dropCompactTables = do
       " DROP TABLE CompactGrandHash; \
       \ DROP TABLE CompactActiveRow; "
 
-
-compact :: CompactM ByteString
+compact :: CompactM (Maybe ByteString)
 compact = do
+  doGrandHash <- not <$> isFlagSet Flag_NoGrandHash
 
+  when doGrandHash $ do
     withTx $ do
       createCompactGrandHash
       createCompactActiveRow
 
-    readTxId $ collectVersionedTables $ do
+  readTxId $ collectVersionedTables $ do
 
-        gh <- withTx $ do
+    gh <- if doGrandHash
+      then do
+        fmap Just $ withTx $ do
           withTables collectTableRows
           computeGlobalHash
+      else do
+        pure Nothing
 
-        withTx $ do
-          withTables $ do
-            compactTable
-            void $ verifyTable
-          whenFlagUnset Flag_NoDropNewTables $ do
-            logg Info "Dropping new tables"
-            dropNewTables
-          compactSystemTables
+    withTx $ do
+      withTables $ do
+        compactTable
+        void $ verifyTable
+      whenFlagUnset Flag_NoDropNewTables $ do
+        logg Info "Dropping new tables"
+        dropNewTables
+      compactSystemTables
 
-        whenFlagUnset Flag_KeepCompactTables $ do
-          logg Info "Dropping compact-specific tables"
-          withTx $ dropCompactTables
+    whenFlagUnset Flag_KeepCompactTables $ do
+      logg Info "Dropping compact-specific tables"
+      withTx $ dropCompactTables
 
-        whenFlagUnset Flag_NoVacuum $ do
-          logg Info "Vacuum"
-          execM_ "VACUUM;"
+    whenFlagUnset Flag_NoVacuum $ do
+      logg Info "Vacuum"
+      execM_ "VACUUM;"
 
-        return gh
+    return gh
 
 
 data CompactConfig = CompactConfig
@@ -525,6 +538,9 @@ compactMain = do
                , flag [] [Flag_NoDropNewTables]
                   (long "no-drop-new-tables"
                    <> help "Don't drop new tables.")
+               , flag [] [Flag_NoGrandHash]
+                  (long "no-grand-hash"
+                   <> help "Don't compute the compact grand hash.")
                ])
         <*> optional (unsafeChainId <$> option auto
              (short 'c'
