@@ -253,6 +253,8 @@ testBlockHeaderDb rdb h = do
 withResource' :: IO a -> (IO a -> TestTree) -> TestTree
 withResource' create act = withResource create (\_ -> return ()) act
 
+-- this makes ResourceT general enough to allocate resources both for test
+-- groups and within tests.
 withResourceT :: ResourceT IO a -> (IO a -> TestTree) -> TestTree
 withResourceT rt act =
     withResource
