@@ -810,7 +810,7 @@ applyContinuation initialGas interp cm senderSigs hsh nsp = do
 
 
 setEnvGas :: Gas -> EvalEnv e -> TransactionM logger p ()
-setEnvGas initialGas = liftIO . views eeGas (`writeIORef` initialGas)
+setEnvGas initialGas = liftIO . views eeGas (`writeIORef` gasToMilliGas initialGas)
 
 -- | Execute a 'ContMsg' and return just eval result, not wrapped in a
 -- 'CommandResult' wrapper
@@ -1066,7 +1066,7 @@ mkEvalEnv
 mkEvalEnv nsp msg = do
     tenv <- ask
     genv <- GasEnv
-      <$> view (txGasLimit . to fromIntegral)
+      <$> view (txGasLimit . to (MilliGasLimit . gasToMilliGas))
       <*> view txGasPrice
       <*> use txGasModel
     liftIO $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)

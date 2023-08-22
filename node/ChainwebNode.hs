@@ -74,6 +74,7 @@ import System.FilePath
 import System.IO
 import qualified System.Logger as L
 import System.LogLevel
+import System.Mem
 
 -- internal modules
 
@@ -605,5 +606,9 @@ main = do
                     logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
                 ] $ do
                 kt <- mapM iso8601ParseM serviceDate
-                withServiceDate (logFunctionText logger) kt $
-                    node conf logger
+                withServiceDate (logFunctionText logger) kt $ void $ 
+                    race (node conf logger) (gcRunner (logFunctionText logger))
+    where
+    gcRunner lf = runForever lf "GarbageCollect" $ do
+        performMajorGC
+        threadDelay (30 * 1_000_000)
