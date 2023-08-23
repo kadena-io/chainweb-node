@@ -54,6 +54,7 @@ module Chainweb.Pact.PactService.Checkpointer
     -- subsequent evaluation are performed the same context as the current one.
     --
     , withCheckpointerRewind
+    , withCheckpointerReadRewind
     , withCurrentCheckpointer
     , WithCheckpointerResult(..)
 
@@ -270,6 +271,27 @@ withCheckpointerRewind rewindLimit p caller act = do
         rewindTo rewindLimit p
         -- This updates '_psParentHeader'
     withCheckpointerWithoutRewind p caller act
+
+withCheckpointerReadRewind
+    :: (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
+    => Maybe ParentHeader
+        -- ^ The parent header to which the checkpointer is restored
+        --
+        -- 'Nothing' restores the checkpointer for evaluating the genesis block.
+        --
+    -> Text
+    -> (PactDbEnv' logger -> PactServiceM logger tbl a)
+    -> PactServiceM logger tbl a
+withCheckpointerReadRewind p caller act = do
+    cp <- getCheckpointer
+
+    case p of
+        Nothing -> pure ()
+        (Just (ParentHeader parent)) -> setParentHeader "withCheckpointerReadRewind" (ParentHeader parent)
+
+    (ParentHeader parent) <- use psParentHeader
+    cenv <- liftIO $! _cpReadRestore cp ((_blockHeight parent + 1, _blockHash parent))
+    act cenv
 
 -- | Run a batch of checkpointer operations, possibly involving the evaluation
 -- transactions accross several blocks using more than a single call of

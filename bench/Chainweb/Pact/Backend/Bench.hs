@@ -414,4 +414,4 @@ cpBenchLookupProcessedTx transactionCount cp = C.env (setup' cp) $ \ ~(ut) ->
     go Checkpointer{..} (NoopNFData _) = do
         _cpRestore (Just (BlockHeight 2, hash02)) >>= \case
           PactDbEnv' _ ->
-            _cpLookupProcessedTx Nothing (V.fromList [Pact.TypedHash "" | _ <- [1..transactionCount]])
+            _cpLookupProcessedTx (BlockHeight 2) Nothing (V.fromList [Pact.TypedHash "" | _ <- [1..transactionCount]])

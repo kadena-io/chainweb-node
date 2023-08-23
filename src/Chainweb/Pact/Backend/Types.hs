@@ -293,6 +293,9 @@ data Checkpointer logger = Checkpointer
       _cpRestore :: !(Maybe (BlockHeight, ParentHash) -> IO (PactDbEnv' logger))
       -- ^ prerequisite: (BlockHeight - 1, ParentHash) is a direct ancestor of
       -- the "latest block"
+    , _cpReadRestore :: !((BlockHeight, ParentHash) -> IO (PactDbEnv' logger))
+      -- ^ prerequisite: (BlockHeight - 1, ParentHash) is a direct ancestor of
+      -- the "latest block"
     , _cpSave :: !(BlockHash -> IO ())
       -- ^ commits pending modifications to block, with the given blockhash
     , _cpDiscard :: !(IO ())
@@ -315,7 +318,7 @@ data Checkpointer logger = Checkpointer
     , _cpRegisterProcessedTx :: !(P.PactHash -> IO ())
 
     , _cpLookupProcessedTx ::
-        !(Maybe ConfirmationDepth -> Vector P.PactHash -> IO (HashMap P.PactHash (T2 BlockHeight BlockHash)))
+        !(BlockHeight -> Maybe ConfirmationDepth -> Vector P.PactHash -> IO (HashMap P.PactHash (T2 BlockHeight BlockHash)))
     , _cpGetBlockHistory ::
         !(BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory)
     , _cpGetHistoricalLookup ::

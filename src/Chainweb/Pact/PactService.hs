@@ -162,7 +162,12 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psBlockGasLimit = _pactBlockGasLimit config
                     , _psChainId = cid
                     }
-            !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
+            !pst = PactServiceState
+                    { _psStateValidated = Nothing
+                    , _psInitCache = mempty
+                    , _psParentHeader = initialParentHeader
+                    , _psSpvSupport = P.noSPVSupport
+                    }
         runPactServiceM pst pse $ do
 
             -- If the latest header that is stored in the checkpointer was on an
@@ -698,9 +703,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ withDiscarde
         Nothing -> throwM $ BlockHeaderLookupFailure $
             "failed seekAncestor of parent header with ancestorRank " <> sshow ancestorRank
 
-    -- In this case the rewind limit is the same as rewind depth
-    let rewindLimit = RewindLimit $ _rewindDepth rewindDepth
-    withCheckpointerRewind (Just rewindLimit) (Just rewindHeader) "execLocal" $
+    withCheckpointerReadRewind (Just rewindHeader) "execLocal" $
       \(PactDbEnv' pdbenv) -> do
 
         let ctx = TxContext rewindHeader pm
@@ -741,7 +744,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ withDiscarde
             let cr' = toHashCommandResult cr
             pure $ LocalResultLegacy cr'
 
-        return $ Discard r
+        return r
 
 execSyncToBlock
     :: (CanReadablePayloadCas tbl, Logger logger)
@@ -813,6 +816,7 @@ execBlockTxHistory
     -> PactServiceM logger tbl BlockTxHistory
 execBlockTxHistory bh d = pactLabel "execBlockTxHistory" $ do
   !cp <- getCheckpointer
+  -- TODO: pass parent header to limit the visible range
   liftIO $ _cpGetBlockHistory cp bh d
 
 execHistoricalLookup
@@ -823,6 +827,7 @@ execHistoricalLookup
     -> PactServiceM logger tbl (Maybe (P.TxLog P.RowData))
 execHistoricalLookup bh d k = pactLabel "execHistoricalLookup" $ do
   !cp <- getCheckpointer
+  -- TODO: pass parent header to limit the visible range
   liftIO $ _cpGetHistoricalLookup cp bh d k
 
 execPreInsertCheckReq
@@ -865,12 +870,13 @@ execLookupPactTxs
 execLookupPactTxs restorePoint confDepth txs = pactLabel "execLookupPactTxs" $ do
   if V.null txs then return mempty else go
   where
-    go = getCheckpointer >>= \(!cp) -> case restorePoint of
-      NoRewind _ ->
-        liftIO $! _cpLookupProcessedTx cp confDepth txs
-      DoRewind parent -> withDiscardedBatch $ do
-        withCheckpointerRewind Nothing (Just $ ParentHeader parent) "lookupPactTxs" $ \_ ->
-          liftIO $ Discard <$> _cpLookupProcessedTx cp confDepth txs
+    go = getCheckpointer >>= \(!cp) -> do
+      currHeight <- case restorePoint of
+        NoRewind _ -> do
+          parent <- use psParentHeader
+          pure $ _blockHeight $ _parentHeader parent
+        DoRewind parent -> pure $ _blockHeight parent
+      liftIO $! _cpLookupProcessedTx cp currHeight confDepth txs
 
 -- | Modified table gas module with free module loads
 --

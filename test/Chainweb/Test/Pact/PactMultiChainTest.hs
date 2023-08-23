@@ -250,7 +250,6 @@ pactLocalDepthTest = do
     [ PactTxTest (buildCoinXfer "(coin.transfer 'sender00 'sender01 1.0)") $
         assertTxGas "Coin post-fork" 1583
     ]
-
   runLocalWithDepth (Just $ RewindDepth 0) cid getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the current balance" (pDecimal 99999997.6834)
 

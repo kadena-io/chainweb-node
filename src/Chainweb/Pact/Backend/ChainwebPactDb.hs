@@ -16,6 +16,7 @@
 
 module Chainweb.Pact.Backend.ChainwebPactDb
 ( chainwebPactDb
+, readOnlyChainwebPactDb
 , handlePossibleRewind
 , blockHistoryInsert
 , initSchema
@@ -96,7 +97,7 @@ tbl t@(Utf8 b)
 
 chainwebPactDb :: (Logger logger) => PactDb (BlockEnv logger SQLiteEnv)
 chainwebPactDb = PactDb
-    { _readRow = \d k e -> runBlockEnv e $ doReadRow d k
+    { _readRow = \d k e -> runBlockEnv e $ doReadRow d k Nothing
     , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow wt d k v
     , _keys = \d e -> runBlockEnv e $ doKeys d
     , _txids = \t txid e -> runBlockEnv e $ doTxIds t txid
@@ -104,6 +105,26 @@ chainwebPactDb = PactDb
     , _getUserTableInfo = \_ -> error "WILL BE DEPRECATED!"
     , _beginTx = \m e -> runBlockEnv e $ doBegin m
     , _commitTx = \e -> runBlockEnv e doCommit
+    , _rollbackTx = \e -> runBlockEnv e doRollback
+    , _getTxLog = \d tid e -> runBlockEnv e $ doGetTxLog d tid
+    }
+
+readOnlyChainwebPactDb :: (Logger logger) => BlockHeight -> PactDb (BlockEnv logger SQLiteEnv)
+readOnlyChainwebPactDb bh = PactDb
+    { _readRow = \d k e -> runBlockEnv e $ doReadRow d k (Just bh)
+    , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow wt d k v
+    , _keys = \d e -> runBlockEnv e $ doKeys d
+    , _txids = \t txid e -> runBlockEnv e $ doTxIds t txid
+    , _createUserTable = \tn mn e -> runBlockEnv e $ doCreateUserTable tn mn
+    , _getUserTableInfo = \_ -> error "WILL BE DEPRECATED!"
+    , _beginTx = \m e -> runBlockEnv e $ doBegin m
+    , _commitTx = \e -> do
+        putStrLn ("readOnlyChainwebPactDb._commitTx: " ++ show bh)
+        -- we commit to change the state of the block
+        res <- runBlockEnv e doCommit
+        -- but remove empty list to avoid writing to the db
+        liftIO $ putStrLn ("readOnlyChainwebPactDb._commitTx.res: " ++ show res)
+        pure []
     , _rollbackTx = \e -> runBlockEnv e doRollback
     , _getTxLog = \d tid e -> runBlockEnv e $ doGetTxLog d tid
     }
@@ -122,32 +143,35 @@ doReadRow
     :: (IsString k, FromJSON v)
     => Domain k v
     -> k
+    -> Maybe BlockHeight
     -> BlockHandler logger SQLiteEnv (Maybe v)
-doReadRow d k = forModuleNameFix $ \mnFix ->
+doReadRow d k mbh = forModuleNameFix $ \mnFix ->
     case d of
-        KeySets -> lookupWithKey (convKeySetName k) noCache
+        KeySets -> lookupWithKey (convKeySetName k) noCache mbh
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
-        Modules -> lookupWithKey (convModuleName mnFix k) checkModuleCache
-        Namespaces -> lookupWithKey (convNamespaceName k) noCache
-        (UserTables _) -> lookupWithKey (convRowKey k) noCache
-        Pacts -> lookupWithKey (convPactId k) noCache
+        Modules -> lookupWithKey (convModuleName mnFix k) checkModuleCache mbh
+        Namespaces -> lookupWithKey (convNamespaceName k) noCache mbh
+        (UserTables _) -> lookupWithKey (convRowKey k) noCache mbh
+        Pacts -> lookupWithKey (convPactId k) noCache mbh
   where
     tableName = domainTableName d
     (Utf8 tableNameBS) = tableName
 
     queryStmt =
-        "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ? ORDER BY txid DESC LIMIT 1;"
+        "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ?" <> (maybe "" (const " AND \
+        \txid <= (SELECT endingtxid FROM BlockHistory where blockheight = ?)") mbh) <> " ORDER BY txid DESC LIMIT 1;"
 
     lookupWithKey
         :: forall logger v . FromJSON v
         => Utf8
         -> (Utf8 -> BS.ByteString -> MaybeT (BlockHandler logger SQLiteEnv) v)
+        -> Maybe BlockHeight
         -> BlockHandler logger SQLiteEnv (Maybe v)
-    lookupWithKey key checkCache = do
+    lookupWithKey key checkCache mbh = do
         pds <- getPendingData
         let lookPD = foldr1 (<|>) $ map (lookupInPendingData key) pds
-        let lookDB = lookupInDb key checkCache
+        let lookDB = lookupInDb key checkCache mbh
         runMaybeT (lookPD <|> lookDB)
 
     lookupInPendingData
@@ -169,13 +193,14 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
         :: forall logger v . FromJSON v
         => Utf8
         -> (Utf8 -> BS.ByteString -> MaybeT (BlockHandler logger SQLiteEnv) v)
+        -> Maybe BlockHeight
         -> MaybeT (BlockHandler logger SQLiteEnv) v
-    lookupInDb rowkey checkCache = do
+    lookupInDb rowkey checkCache mbh = do
         -- First, check: did we create this table during this block? If so,
         -- there's no point in looking up the key.
         checkDbTableExists tableName
         result <- lift $ callDb "doReadRow"
-                       $ \db -> qry db queryStmt [SText rowkey] [RBlob]
+                       $ \db -> qry db queryStmt ([SText rowkey] ++ maybe [] (\(BlockHeight bh) -> [SInt $ fromIntegral bh - 1]) mbh) [RBlob]
         case result of
             [] -> mzero
             [[SBlob a]] -> checkCache rowkey a
@@ -280,7 +305,7 @@ checkInsertIsOK
     -> RowKey
     -> BlockHandler logger SQLiteEnv (Maybe RowData)
 checkInsertIsOK wt d k = do
-    olds <- doReadRow d k
+    olds <- doReadRow d k Nothing
     case (olds, wt) of
         (Nothing, Insert) -> return Nothing
         (Just _, Insert) -> err "Insert: row found for key "
