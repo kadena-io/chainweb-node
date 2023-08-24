@@ -703,7 +703,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ withDiscarde
         Nothing -> throwM $ BlockHeaderLookupFailure $
             "failed seekAncestor of parent header with ancestorRank " <> sshow ancestorRank
 
-    withCheckpointerReadRewind (Just rewindHeader) "execLocal" $
+    withCheckpointerReadRewind rewindHeader "execLocal" $
       \(PactDbEnv' pdbenv) -> do
 
         let ctx = TxContext rewindHeader pm

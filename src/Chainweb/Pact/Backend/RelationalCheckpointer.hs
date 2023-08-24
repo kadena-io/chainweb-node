@@ -123,11 +123,12 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
     let checkpointer = Checkpointer
           {
             _cpRestore = doRestore v cid db
-          , _cpReadRestore = doReadRestore v cid db
           , _cpSave = doSave db
           , _cpDiscard = doDiscard db
           , _cpGetEarliestBlock = doGetEarliest db
           , _cpGetLatestBlock = doGetLatest db
+          , _cpReadRestoreBegin = doReadRestoreBegin v cid db
+          , _cpReadRestoreEnd = doReadRestoreEnd db
           , _cpBeginCheckpointerBatch = doBeginBatch db
           , _cpCommitCheckpointerBatch = doCommitBatch db
           , _cpDiscardCheckpointerBatch = doDiscardBatch db
@@ -182,23 +183,34 @@ doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
     assign bsTxId 0
     return $! PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
 
-doReadRestore :: (Logger logger)
+doReadRestoreBegin :: (Logger logger)
   => ChainwebVersion
   -> ChainId
   -> Db logger
-  -> (BlockHeight, ParentHash)
+  -> BlockHeight
   -> IO (PactDbEnv' logger)
-doReadRestore v cid dbenv (bh, hash) = runBlockEnv dbenv $ do
+doReadRestoreBegin v cid dbenv bh = runBlockEnv dbenv $ do
     setModuleNameFix
     setSortedKeys
     setLowerCaseTables
     clearPendingTxState
+    beginSavepoint ReadBlock
     return $! PactDbEnv' $! PactDbEnv (readOnlyChainwebPactDb bh) dbenv
   where
     -- Module name fix follows the restore call to checkpointer.
     setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v cid bh
     setSortedKeys = bsSortedKeys .= pact420 v cid bh
     setLowerCaseTables = bsLowerCaseTables .= chainweb217Pact v cid bh
+
+doReadRestoreEnd :: Db logger -> IO ()
+doReadRestoreEnd db = runBlockEnv db $ do
+    rollbackSavepoint ReadBlock
+
+    -- @ROLLBACK TO n@ only rolls back updates up to @n@ but doesn't remove the
+    -- savepoint. In order to also pop the savepoint from the stack we commit it
+    -- (as empty transaction). <https://www.sqlite.org/lang_savepoint.html>
+    --
+    commitSavepoint ReadBlock
 
 doSave :: Db logger -> BlockHash -> IO ()
 doSave dbenv hash = runBlockEnv dbenv $ do

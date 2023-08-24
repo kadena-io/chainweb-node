@@ -97,7 +97,7 @@ tbl t@(Utf8 b)
 
 chainwebPactDb :: (Logger logger) => PactDb (BlockEnv logger SQLiteEnv)
 chainwebPactDb = PactDb
-    { _readRow = \d k e -> runBlockEnv e $ doReadRow d k Nothing
+    { _readRow = \d k e -> runBlockEnv e $ doReadRow Nothing d k
     , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow wt d k v
     , _keys = \d e -> runBlockEnv e $ doKeys d
     , _txids = \t txid e -> runBlockEnv e $ doTxIds t txid
@@ -110,14 +110,8 @@ chainwebPactDb = PactDb
     }
 
 readOnlyChainwebPactDb :: (Logger logger) => BlockHeight -> PactDb (BlockEnv logger SQLiteEnv)
-readOnlyChainwebPactDb bh = PactDb
-    { _readRow = \d k e -> runBlockEnv e $ doReadRow d k (Just bh)
-    , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow wt d k v
-    , _keys = \d e -> runBlockEnv e $ doKeys d
-    , _txids = \t txid e -> runBlockEnv e $ doTxIds t txid
-    , _createUserTable = \tn mn e -> runBlockEnv e $ doCreateUserTable tn mn
-    , _getUserTableInfo = \_ -> error "WILL BE DEPRECATED!"
-    , _beginTx = \m e -> runBlockEnv e $ doBegin m
+readOnlyChainwebPactDb bh = chainwebPactDb
+    { _readRow = \d k e -> runBlockEnv e $ doReadRow (Just bh) d k
     , _commitTx = \e -> do
         putStrLn ("readOnlyChainwebPactDb._commitTx: " ++ show bh)
         -- we commit to change the state of the block
@@ -125,8 +119,6 @@ readOnlyChainwebPactDb bh = PactDb
         -- but remove empty list to avoid writing to the db
         liftIO $ putStrLn ("readOnlyChainwebPactDb._commitTx.res: " ++ show res)
         pure []
-    , _rollbackTx = \e -> runBlockEnv e doRollback
-    , _getTxLog = \d tid e -> runBlockEnv e $ doGetTxLog d tid
     }
 
 getPendingData :: BlockHandler logger SQLiteEnv [SQLitePendingData]
@@ -141,19 +133,19 @@ forModuleNameFix f = use bsModuleNameFix >>= f
 
 doReadRow
     :: (IsString k, FromJSON v)
-    => Domain k v
+    => Maybe BlockHeight
+    -> Domain k v
     -> k
-    -> Maybe BlockHeight
     -> BlockHandler logger SQLiteEnv (Maybe v)
-doReadRow d k mbh = forModuleNameFix $ \mnFix ->
+doReadRow mbh d k = forModuleNameFix $ \mnFix ->
     case d of
-        KeySets -> lookupWithKey (convKeySetName k) noCache mbh
+        KeySets -> lookupWithKey (convKeySetName k) noCache
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
-        Modules -> lookupWithKey (convModuleName mnFix k) checkModuleCache mbh
-        Namespaces -> lookupWithKey (convNamespaceName k) noCache mbh
-        (UserTables _) -> lookupWithKey (convRowKey k) noCache mbh
-        Pacts -> lookupWithKey (convPactId k) noCache mbh
+        Modules -> lookupWithKey (convModuleName mnFix k) checkModuleCache
+        Namespaces -> lookupWithKey (convNamespaceName k) noCache
+        (UserTables _) -> lookupWithKey (convRowKey k) noCache
+        Pacts -> lookupWithKey (convPactId k) noCache
   where
     tableName = domainTableName d
     (Utf8 tableNameBS) = tableName
@@ -166,12 +158,11 @@ doReadRow d k mbh = forModuleNameFix $ \mnFix ->
         :: forall logger v . FromJSON v
         => Utf8
         -> (Utf8 -> BS.ByteString -> MaybeT (BlockHandler logger SQLiteEnv) v)
-        -> Maybe BlockHeight
         -> BlockHandler logger SQLiteEnv (Maybe v)
-    lookupWithKey key checkCache mbh = do
+    lookupWithKey key checkCache = do
         pds <- getPendingData
         let lookPD = foldr1 (<|>) $ map (lookupInPendingData key) pds
-        let lookDB = lookupInDb key checkCache mbh
+        let lookDB = lookupInDb key checkCache
         runMaybeT (lookPD <|> lookDB)
 
     lookupInPendingData
@@ -193,9 +184,8 @@ doReadRow d k mbh = forModuleNameFix $ \mnFix ->
         :: forall logger v . FromJSON v
         => Utf8
         -> (Utf8 -> BS.ByteString -> MaybeT (BlockHandler logger SQLiteEnv) v)
-        -> Maybe BlockHeight
         -> MaybeT (BlockHandler logger SQLiteEnv) v
-    lookupInDb rowkey checkCache mbh = do
+    lookupInDb rowkey checkCache = do
         -- First, check: did we create this table during this block? If so,
         -- there's no point in looking up the key.
         checkDbTableExists tableName
@@ -305,7 +295,7 @@ checkInsertIsOK
     -> RowKey
     -> BlockHandler logger SQLiteEnv (Maybe RowData)
 checkInsertIsOK wt d k = do
-    olds <- doReadRow d k Nothing
+    olds <- doReadRow Nothing d k
     case (olds, wt) of
         (Nothing, Insert) -> return Nothing
         (Just _, Insert) -> err "Insert: row found for key "

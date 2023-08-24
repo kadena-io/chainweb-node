@@ -274,24 +274,22 @@ withCheckpointerRewind rewindLimit p caller act = do
 
 withCheckpointerReadRewind
     :: (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
-    => Maybe ParentHeader
-        -- ^ The parent header to which the checkpointer is restored
-        --
-        -- 'Nothing' restores the checkpointer for evaluating the genesis block.
-        --
+    => ParentHeader
     -> Text
     -> (PactDbEnv' logger -> PactServiceM logger tbl a)
     -> PactServiceM logger tbl a
-withCheckpointerReadRewind p caller act = do
+withCheckpointerReadRewind target@(ParentHeader parent) caller act = do
     cp <- getCheckpointer
+    logDebug $ "restoring (with caller " <> caller <> ") " <> sshow target
 
-    case p of
-        Nothing -> pure ()
-        (Just (ParentHeader parent)) -> setParentHeader "withCheckpointerReadRewind" (ParentHeader parent)
+    setParentHeader "withCheckpointerReadRewind" (ParentHeader parent)
 
-    (ParentHeader parent) <- use psParentHeader
-    cenv <- liftIO $! _cpReadRestore cp ((_blockHeight parent + 1, _blockHash parent))
-    act cenv
+    mask $ \restore -> do
+        cenv <- restore $ liftIO $! _cpReadRestoreBegin cp (_blockHeight parent + 1)
+
+        try (restore (act cenv)) >>= \case
+            Left !e -> (liftIO $! _cpReadRestoreEnd cp) >> throwM @_ @SomeException e
+            Right !result -> (liftIO $! _cpReadRestoreEnd cp) >> return result
 
 -- | Run a batch of checkpointer operations, possibly involving the evaluation
 -- transactions accross several blocks using more than a single call of

@@ -293,9 +293,6 @@ data Checkpointer logger = Checkpointer
       _cpRestore :: !(Maybe (BlockHeight, ParentHash) -> IO (PactDbEnv' logger))
       -- ^ prerequisite: (BlockHeight - 1, ParentHash) is a direct ancestor of
       -- the "latest block"
-    , _cpReadRestore :: !((BlockHeight, ParentHash) -> IO (PactDbEnv' logger))
-      -- ^ prerequisite: (BlockHeight - 1, ParentHash) is a direct ancestor of
-      -- the "latest block"
     , _cpSave :: !(BlockHash -> IO ())
       -- ^ commits pending modifications to block, with the given blockhash
     , _cpDiscard :: !(IO ())
@@ -308,6 +305,13 @@ data Checkpointer logger = Checkpointer
       -- is the height of the block of the block hash.
       --
       -- TODO: Under which circumstances does this return 'Nothing'?
+
+    , _cpReadRestoreBegin :: !(BlockHeight -> IO (PactDbEnv' logger))
+      -- ^ starts ReadBlock savepoint for read-only transactions
+      -- prerequisite: (BlockHeight - 1, ParentHash) is a direct ancestor of
+      -- the "latest block"
+    , _cpReadRestoreEnd :: !(IO ())
+      -- ^ closes ReadBlock savepoint discarding any changes
 
     , _cpBeginCheckpointerBatch :: !(IO ())
     , _cpCommitCheckpointerBatch :: !(IO ())

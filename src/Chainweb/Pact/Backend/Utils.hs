@@ -196,7 +196,7 @@ rollbackSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
 rollbackSavepoint name =
   callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
 
-data SavepointName = BatchSavepoint | Block | DbTransaction |  PreBlock
+data SavepointName = BatchSavepoint | Block | DbTransaction | PreBlock | ReadBlock
   deriving (Eq, Ord, Enum, Bounded)
 
 instance Show SavepointName where
@@ -207,12 +207,14 @@ instance HasTextRepresentation SavepointName where
     toText Block = "block"
     toText DbTransaction = "db-transaction"
     toText PreBlock = "preblock"
+    toText ReadBlock = "readblock"
     {-# INLINE toText #-}
 
     fromText "batch" = pure BatchSavepoint
     fromText "block" = pure Block
     fromText "db-transaction" = pure DbTransaction
     fromText "preblock" = pure PreBlock
+    fromText "readblock" = pure ReadBlock
     fromText t = throwM $ TextFormatException
         $ "failed to decode SavepointName " <> t
         <> ". Valid names are " <> T.intercalate ", " (toText @SavepointName <$> [minBound .. maxBound])
