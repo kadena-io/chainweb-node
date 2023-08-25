@@ -282,16 +282,19 @@ withCheckpointerReadRewind target@(ParentHeader parent) caller act = do
     cp <- getCheckpointer
     logDebug $ "read restoring (with caller " <> caller <> ") " <> sshow target
 
-    setParentHeader "withCheckpointerReadRewind" (ParentHeader parent)
-
-    -- TODO: figure out the proper handling of parent header
-    -- would be nice to do it in local
+    currentParent <- use psParentHeader
     mask $ \restore -> do
-        cenv <- restore $ liftIO $! _cpReadRestoreBegin cp (_blockHeight parent + 1)
+        cenv <- restore $ do
+            setParentHeader "withCheckpointerReadRewind" (ParentHeader parent)
+            liftIO $! _cpReadRestoreBegin cp (_blockHeight parent + 1)
 
         try (restore (act cenv)) >>= \case
-            Left !e -> (liftIO $! _cpReadRestoreEnd cp) >> throwM @_ @SomeException e
-            Right !result -> (liftIO $! _cpReadRestoreEnd cp) >> return result
+            Left !e -> finalize cp currentParent >> throwM @_ @SomeException e
+            Right !result -> finalize cp currentParent >> return result
+    where
+        finalize cp p = do
+            setParentHeader "withCheckpointerReadRewind" p
+            liftIO $! _cpReadRestoreEnd cp
 
 -- | Run a batch of checkpointer operations, possibly involving the evaluation
 -- transactions accross several blocks using more than a single call of
