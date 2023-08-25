@@ -241,12 +241,12 @@ initializeCoinContract memPoolAccess v cid pwo = do
 
     readContracts = withDiscardedBatch $ do
       parent <- syncParentHeader "initializeCoinContract.readContracts"
-      withCheckpointerRewind Nothing (Just parent) "initializeCoinContract.readContracts" $ \(PactDbEnv' pdbenv) -> do
+      withCheckpointerReadRewind parent "initializeCoinContract.readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         pd <- getTxContext def
         !mc <- liftIO $ readInitModules _psLogger pdbenv pd
         updateInitCache mc
-        return $! Discard ()
+        return ()
 
 -- | Lookup a block header.
 --
@@ -681,9 +681,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ withDiscarde
     mc <- getInitCache
     spv <- use psSpvSupport
 
-    -- when no depth is defined, treat
-    -- withCheckpointerRewind as withCurrentCheckpointer
-    -- (i.e. setting rewind to 0).
+    -- when no depth is defined use the current parent header (setting rewind to 0).
     let rewindDepth = fromMaybe (RewindDepth 0) rdepth
 
     when (_rewindDepth rewindDepth > _rewindLimit _psLocalRewindDepthLimit) $ do
@@ -816,7 +814,6 @@ execBlockTxHistory
     -> PactServiceM logger tbl BlockTxHistory
 execBlockTxHistory bh d = pactLabel "execBlockTxHistory" $ do
   !cp <- getCheckpointer
-  -- TODO: pass parent header to limit the visible range
   liftIO $ _cpGetBlockHistory cp bh d
 
 execHistoricalLookup
@@ -827,7 +824,6 @@ execHistoricalLookup
     -> PactServiceM logger tbl (Maybe (P.TxLog P.RowData))
 execHistoricalLookup bh d k = pactLabel "execHistoricalLookup" $ do
   !cp <- getCheckpointer
-  -- TODO: pass parent header to limit the visible range
   liftIO $ _cpGetHistoricalLookup cp bh d k
 
 execPreInsertCheckReq
