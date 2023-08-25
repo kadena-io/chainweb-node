@@ -151,8 +151,9 @@ doReadRow mbh d k = forModuleNameFix $ \mnFix ->
     (Utf8 tableNameBS) = tableName
 
     queryStmt =
-        "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ?" <> (maybe "" (const " AND \
-        \txid <= (SELECT endingtxid FROM BlockHistory where blockheight = ?)") mbh) <> " ORDER BY txid DESC LIMIT 1;"
+        "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ?" <> blockLimitStmt <> " ORDER BY txid DESC LIMIT 1;"
+    -- we inject the endingtx limitation to reduce the scope up to the provided block height
+    blockLimitStmt = maybe "" (const " AND txid <= (SELECT endingtxid FROM BlockHistory where blockheight = ?)") mbh
 
     lookupWithKey
         :: forall logger v . FromJSON v
@@ -189,8 +190,9 @@ doReadRow mbh d k = forModuleNameFix $ \mnFix ->
         -- First, check: did we create this table during this block? If so,
         -- there's no point in looking up the key.
         checkDbTableExists tableName
+        let blockLimitParam = maybe [] (\(BlockHeight bh) -> [SInt $ fromIntegral bh - 1]) mbh
         result <- lift $ callDb "doReadRow"
-                       $ \db -> qry db queryStmt ([SText rowkey] ++ maybe [] (\(BlockHeight bh) -> [SInt $ fromIntegral bh - 1]) mbh) [RBlob]
+                       $ \db -> qry db queryStmt ([SText rowkey] ++ blockLimitParam) [RBlob]
         case result of
             [] -> mzero
             [[SBlob a]] -> checkCache rowkey a

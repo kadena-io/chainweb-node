@@ -280,7 +280,7 @@ withCheckpointerReadRewind
     -> PactServiceM logger tbl a
 withCheckpointerReadRewind target@(ParentHeader parent) caller act = do
     cp <- getCheckpointer
-    logDebug $ "restoring (with caller " <> caller <> ") " <> sshow target
+    logDebug $ "read restoring (with caller " <> caller <> ") " <> sshow target
 
     setParentHeader "withCheckpointerReadRewind" (ParentHeader parent)
 
