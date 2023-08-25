@@ -112,13 +112,10 @@ chainwebPactDb = PactDb
 readOnlyChainwebPactDb :: (Logger logger) => BlockHeight -> PactDb (BlockEnv logger SQLiteEnv)
 readOnlyChainwebPactDb bh = chainwebPactDb
     { _readRow = \d k e -> runBlockEnv e $ doReadRow (Just bh) d k
-    , _commitTx = \e -> do
-        putStrLn ("readOnlyChainwebPactDb._commitTx: " ++ show bh)
+    , _commitTx = \e ->
         -- we commit to change the state of the block
-        res <- runBlockEnv e doCommit
-        -- but remove empty list to avoid writing to the db
-        liftIO $ putStrLn ("readOnlyChainwebPactDb._commitTx.res: " ++ show res)
-        pure []
+        -- but return the empty list to avoid writing to the db
+        runBlockEnv e doCommit >>= \_ -> pure []
     }
 
 getPendingData :: BlockHandler logger SQLiteEnv [SQLitePendingData]
