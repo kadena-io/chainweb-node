@@ -4,9 +4,12 @@
 
 Changes:
 
-* A new chainwebVersion called fast-development, intended for use by Pact developers. See #1627 for more details.
-* Updated to Pact 4.8. (numerous, see [Pact changelog](https://github.com/kadena-io/pact/releases/tag/v4.8))
-* Fixed an issue where /local calls that rewind to a previous block could have the wrong behavior or gas usage if rewinding crosses fork boundaries. (#1700)
+* A new chainwebVersion called fast-development, intended for use by Pact
+  developers. See #1627 for more details.
+* Updated to Pact 4.8. (numerous, see [Pact
+  changelog](https://github.com/kadena-io/pact/releases/tag/v4.8))
+* Fixed an issue where /local calls that rewind to a previous block could have
+  the wrong behavior or gas usage if rewinding crosses fork boundaries. (#1700)
 
 Internal Changes:
 * Updated from GHC 8.10.7 to GHC 9.6.2. (#1565)
