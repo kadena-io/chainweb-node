@@ -4,10 +4,12 @@
 
 Changes:
 
-* A new chainwebVersion called fast-development, which is intended to make the devnet experience faster to get started with for testing transactions. See #1627 for more details.
+* A new chainwebVersion called fast-development, intended for use by Pact developers. See #1627 for more details.
+* Updated to Pact 4.8. (numerous, see [Pact changelog](https://github.com/kadena-io/pact/releases/tag/v4.8))
+* Fixed an issue where /local calls that rewind to a previous block could have the wrong behavior or gas usage if rewinding crosses fork boundaries. (#1700)
+
+Internal Changes:
 * Updated from GHC 8.10.7 to GHC 9.6.2. (#1565)
-* Updated to Pact 4.8. (numerous)
-* Fixed an issue where making local calls on a previous block could have the wrong behavior or gas usage if rewinding crosses fork boundaries. (#1700)
 * PactService now emits significantly more structured logs. (#1699)
 
 ## 2.19.2 (2023-07-17)
