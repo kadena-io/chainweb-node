@@ -593,6 +593,21 @@ evalPactServiceM_ ctx pact = modifyMVar (_testPactCtxState ctx) $ \s -> do
 destroyTestPactCtx :: TestPactCtx logger tbl -> IO ()
 destroyTestPactCtx = void . takeMVar . _testPactCtxState
 
+testPactServiceConfig :: PactServiceConfig
+testPactServiceConfig = PactServiceConfig
+      { _pactReorgLimit = defaultReorgLimit
+      , _pactLocalRewindDepthLimit = defaultLocalRewindDepthLimit
+      , _pactPreInsertCheckTimeout = defaultPreInsertCheckTimeout
+      , _pactQueueSize = 1000
+      , _pactResetDb = True
+      , _pactAllowReadsInLocal = False
+      , _pactUnlimitedInitialRewind = False
+      , _pactBlockGasLimit = testBlockGasLimit
+      , _pactLogGas = False
+      , _pactModuleCacheLimit = defaultModuleCacheLimit
+      , _pactSqlitePragmas = chainwebPragmas
+      }
+
 -- | setup TestPactCtx, internal function.
 -- Use 'withPactCtxSQLite' in tests.
 testPactCtxSQLite
@@ -846,7 +861,7 @@ withPactTestBlockDb version cid rdb mempoolIO pactConfig f =
         mempool <- mempoolIO
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) cid
         let pdb = _bdbPayloadDb bdb
-        sqlEnv <- startSqliteDb cid logger dir False
+        sqlEnv <- startSqliteDb cid logger replayPragmas dir False
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
             runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
         return (a, sqlEnv, (reqQ,bdb))

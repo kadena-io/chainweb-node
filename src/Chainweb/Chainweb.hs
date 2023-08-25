@@ -157,6 +157,7 @@ import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import qualified Chainweb.OpenAPIValidation as OpenAPIValidation
+import Chainweb.Pact.Backend.Utils (chainwebPragmas, replayPragmas)
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
 import Chainweb.Pact.Service.Types (PactServiceConfig(..))
 import Chainweb.Pact.Validations
@@ -427,6 +428,10 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
       , _pactBlockGasLimit = maybe id min maxGasLimit (_configBlockGasLimit conf)
       , _pactLogGas = _configLogGas conf
       , _pactModuleCacheLimit = _configModuleCacheLimit conf
+      , _pactSqlitePragmas =
+            if _configOnlySyncPact conf
+            then replayPragmas
+            else chainwebPragmas
       }
 
     pruningLogger :: T.Text -> logger

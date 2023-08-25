@@ -67,7 +67,7 @@ withPactService
     -> (PactQueue -> IO a)
     -> IO a
 withPactService ver cid logger mpc bhdb pdb pactDbDir config action =
-    withSqliteDb cid logger pactDbDir (_pactResetDb config) $ \sqlenv ->
+    withSqliteDb cid logger (_pactSqlitePragmas config) pactDbDir (_pactResetDb config) $ \sqlenv ->
         withPactService' ver cid logger mpa bhdb pdb sqlenv config action
   where
     mpa = pactMemPoolAccess mpc $ addLabel ("sub-component", "MempoolAccess") logger

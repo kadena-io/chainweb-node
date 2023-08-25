@@ -101,7 +101,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
   cenv <- setupClient sc
   (parent:hdrs) <- fetchHeaders sc cenv
   pwos <- fetchOutputs sc cenv hdrs
-  withSqliteDb cid cwLogger dbDir False $ \sqlenv -> do
+  withSqliteDb cid cwLogger chainwebPragmas dbDir False $ \sqlenv -> do
     cp <-
       initRelationalCheckpointer (initBlockState defaultModuleCacheLimit 0) sqlenv logger ver cid
     bracket_

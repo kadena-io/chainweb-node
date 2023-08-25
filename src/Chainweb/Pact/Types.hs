@@ -153,7 +153,6 @@ module Chainweb.Pact.Types
   , defaultOnFatalError
   , defaultReorgLimit
   , defaultLocalRewindDepthLimit
-  , testPactServiceConfig
   , testBlockGasLimit
   , defaultModuleCacheLimit
   , catchesPactError
@@ -465,21 +464,6 @@ defaultPreInsertCheckTimeout = 1000000 -- 1 second
 --
 defaultModuleCacheLimit :: DbCacheLimitBytes
 defaultModuleCacheLimit = DbCacheLimitBytes (60 * mebi)
-
--- | NOTE this is only used for tests/benchmarks. DO NOT USE IN PROD
-testPactServiceConfig :: PactServiceConfig
-testPactServiceConfig = PactServiceConfig
-      { _pactReorgLimit = defaultReorgLimit
-      , _pactLocalRewindDepthLimit = defaultLocalRewindDepthLimit
-      , _pactPreInsertCheckTimeout = defaultPreInsertCheckTimeout
-      , _pactQueueSize = 1000
-      , _pactResetDb = True
-      , _pactAllowReadsInLocal = False
-      , _pactUnlimitedInitialRewind = False
-      , _pactBlockGasLimit = testBlockGasLimit
-      , _pactLogGas = False
-      , _pactModuleCacheLimit = defaultModuleCacheLimit
-      }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
 -- is initialized from the @_configBlockGasLimit@ value of @ChainwebConfiguration@.

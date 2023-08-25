@@ -55,6 +55,7 @@ module Chainweb.Pact.Backend.Utils
   , withInMemSQLiteConnection
   -- * SQLite Pragmas
   , chainwebPragmas
+  , replayPragmas
   ) where
 
 import Control.Exception (SomeAsyncException, evaluate)
@@ -255,6 +256,16 @@ chainwebPragmas =
   , "page_size = 1024"
   ]
 
+replayPragmas :: [Pragma]
+replayPragmas =
+  [ "synchronous = OFF"
+  , "journal_mode = MEMORY"
+  , "locking_mode = EXCLUSIVE"
+  , "temp_store = MEMORY"
+  , "auto_vacuum = NONE"
+  , "page_size = 4096"
+  ]
+
 execMulti :: Traversable t => SQ3.Database -> SQ3.Utf8 -> t [SType] -> IO ()
 execMulti db q rows = bracket (prepStmt db q) destroy $ \stmt -> do
     forM_ rows $ \row -> do
@@ -272,22 +283,24 @@ withSqliteDb
     :: Logger logger
     => ChainId
     -> logger
+    -> [Pragma]
     -> FilePath
     -> Bool
     -> (SQLiteEnv -> IO a)
     -> IO a
-withSqliteDb cid logger dbDir resetDb = bracket
-    (startSqliteDb cid logger dbDir resetDb)
+withSqliteDb cid logger pragmas dbDir resetDb = bracket
+    (startSqliteDb cid logger pragmas dbDir resetDb)
     stopSqliteDb
 
 startSqliteDb
     :: Logger logger
     => ChainId
     -> logger
+    -> [Pragma]
     -> FilePath
     -> Bool
     -> IO SQLiteEnv
-startSqliteDb cid logger dbDir doResetDb = do
+startSqliteDb cid logger pragmas dbDir doResetDb = do
     when doResetDb resetDb
     createDirectoryIfMissing True dbDir
     textLog Info $ mconcat
@@ -297,7 +310,7 @@ startSqliteDb cid logger dbDir doResetDb = do
         , sshow dbDir
         ]
     textLog Info $ "opening sqlitedb named " <> T.pack sqliteFile
-    openSQLiteConnection sqliteFile chainwebPragmas
+    openSQLiteConnection sqliteFile pragmas
   where
     textLog = logFunctionText logger
     resetDb = removeDirectoryRecursive dbDir

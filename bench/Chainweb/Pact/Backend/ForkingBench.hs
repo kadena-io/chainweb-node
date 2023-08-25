@@ -251,6 +251,20 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
     unwrap ~(NoopNFData (Resources {..})) =
       f mainTrunkBlocks payloadDb blockHeaderDb nonceCounter (snd pactService) txPerBlock
 
+    testPactServiceConfig = PactServiceConfig
+          { _pactReorgLimit = defaultReorgLimit
+          , _pactLocalRewindDepthLimit = defaultLocalRewindDepthLimit
+          , _pactPreInsertCheckTimeout = defaultPreInsertCheckTimeout
+          , _pactQueueSize = 1000
+          , _pactResetDb = True
+          , _pactAllowReadsInLocal = False
+          , _pactUnlimitedInitialRewind = False
+          , _pactBlockGasLimit = testBlockGasLimit
+          , _pactLogGas = False
+          , _pactModuleCacheLimit = defaultModuleCacheLimit
+          , _pactSqlitePragmas = chainwebPragmas
+          }
+
     create = do
         payloadDb <- createPayloadDb
         blockHeaderDb <- testBlockHeaderDb

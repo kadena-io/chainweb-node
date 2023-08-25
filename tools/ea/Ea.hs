@@ -54,7 +54,8 @@ import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
-import Chainweb.Pact.Types (testPactServiceConfig)
+import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
@@ -162,6 +163,21 @@ genCoinV5Payloads = genTxModule "CoinV5"
 -- Payload Generation
 ---------------------
 
+testPactServiceConfig :: PactServiceConfig
+testPactServiceConfig = PactServiceConfig
+      { _pactReorgLimit = defaultReorgLimit
+      , _pactLocalRewindDepthLimit = defaultLocalRewindDepthLimit
+      , _pactPreInsertCheckTimeout = defaultPreInsertCheckTimeout
+      , _pactQueueSize = 1000
+      , _pactResetDb = True
+      , _pactAllowReadsInLocal = False
+      , _pactUnlimitedInitialRewind = False
+      , _pactBlockGasLimit = testBlockGasLimit
+      , _pactLogGas = False
+      , _pactModuleCacheLimit = defaultModuleCacheLimit
+      , _pactSqlitePragmas = chainwebPragmas
+      }
+
 genPayloadModule :: ChainwebVersion -> Text -> ChainId -> [ChainwebTransaction] -> IO Text
 genPayloadModule v tag cid cwTxs =
     withTempRocksDb "chainweb-ea" $ \rocks ->
@@ -169,7 +185,7 @@ genPayloadModule v tag cid cwTxs =
         let logger = genericLogger Warn TIO.putStrLn
         pdb <- newPayloadDb
         withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> do
-            T2 payloadWO _ <- withSqliteDb cid logger pactDbDir False $ \env ->
+            T2 payloadWO _ <- withSqliteDb cid logger chainwebPragmas pactDbDir False $ \env ->
                 withPactService v cid logger bhdb pdb env testPactServiceConfig $
                     execNewGenesisBlock noMiner (V.fromList cwTxs)
             return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO

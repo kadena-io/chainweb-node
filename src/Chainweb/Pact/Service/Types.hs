@@ -48,6 +48,7 @@ import Pact.Types.Gas
 import Pact.Types.Hash
 import Pact.Types.Persistence
 import Pact.Types.RowData
+import Pact.Types.SQLite
 
 import qualified Pact.JSON.Encode as J
 
@@ -103,6 +104,8 @@ data PactServiceConfig = PactServiceConfig
     -- ^ whether to write transaction gas logs at INFO
   , _pactModuleCacheLimit :: !DbCacheLimitBytes
     -- ^ limit of the database module cache in bytes of corresponding row data
+  , _pactSqlitePragmas :: ![Pragma]
+    -- ^ sqlite database pragmas to enable when connecting to sqlite
   } deriving (Eq,Show)
 
 data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError
