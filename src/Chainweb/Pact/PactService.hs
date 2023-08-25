@@ -834,7 +834,7 @@ execPreInsertCheckReq
     :: (CanReadablePayloadCas tbl, Logger logger)
     => Vector ChainwebTransaction
     -> PactServiceM logger tbl (Vector (Either Mempool.InsertError ChainwebTransaction))
-execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ withDiscardedBatch $ do
+execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
     let requestKeys = V.map P.cmdToRequestKey txs
     logInfo $ "(request keys = " <> sshow requestKeys <> ")"
 
@@ -845,13 +845,13 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ withDiscardedBat
     let parentTime = ParentCreationTime $ _blockCreationTime $ _parentHeader parent
     cp <- getCheckpointer
     logger <- view psLogger
-    withCurrentCheckpointer "execPreInsertCheckReq" $ \pdb -> do
+    withCheckpointerReadRewind parent "execPreInsertCheckReq" $ \pdb -> do
       let v = _chainwebVersion psEnv
           cid = _chainId psEnv
           timeoutLimit = fromIntegral $ (\(Micros n) -> n) $ _psPreInsertCheckTimeout psEnv
           act = validateChainwebTxs logger v cid cp parentTime currHeight txs (runGas pdb psState psEnv)
 
-      fmap Discard $ liftIO $ timeout timeoutLimit act >>= \case
+      liftIO $ timeout timeoutLimit act >>= \case
         Just r -> pure r
         Nothing -> do
           logError_ logger $ "Mempool pre-insert check timed out for txs:\n" <> sshow txs
