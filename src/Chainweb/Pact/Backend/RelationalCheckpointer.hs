@@ -124,6 +124,7 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
             _cpRestore = doRestore v cid db
           , _cpSave = doSave db
           , _cpDiscard = doDiscard db
+          , _cpGetEarliestBlock = doGetEarliest db
           , _cpGetLatestBlock = doGetLatest db
           , _cpBeginCheckpointerBatch = doBeginBatch db
           , _cpCommitCheckpointerBatch = doCommitBatch db
@@ -230,6 +231,22 @@ doDiscard dbenv = runBlockEnv dbenv $ do
     -- (as empty transaction). <https://www.sqlite.org/lang_savepoint.html>
     --
     commitSavepoint Block
+
+doGetEarliest :: Db logger -> IO (Maybe (BlockHeight, BlockHash))
+doGetEarliest dbenv =
+  runBlockEnv dbenv $ callDb "getEarliestBlock" $ \db -> do
+    r <- qry_ db qtext [RInt, RBlob] >>= mapM go
+    case r of
+      [] -> return Nothing
+      (!o:_) -> return (Just o)
+  where
+    qtext = "SELECT blockheight, hash FROM BlockHistory \
+            \ ORDER BY blockheight ASC LIMIT 1"
+
+    go [SInt hgt, SBlob blob] =
+        let hash = either error id $ runGetEitherS decodeBlockHash blob
+        in return (fromIntegral hgt, hash)
+    go _ = fail "impossible"
 
 doGetLatest :: Db logger -> IO (Maybe (BlockHeight, BlockHash))
 doGetLatest dbenv =

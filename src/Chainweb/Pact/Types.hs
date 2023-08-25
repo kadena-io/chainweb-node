@@ -668,7 +668,6 @@ execPactServiceM
 execPactServiceM st env act
     = execStateT (runReaderT (_unPactServiceM act) env) st
 
-
 getCheckpointer :: PactServiceM logger tbl (Checkpointer logger)
 getCheckpointer = view psCheckpointer
 
