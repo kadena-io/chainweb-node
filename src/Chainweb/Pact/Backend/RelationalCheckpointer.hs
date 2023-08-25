@@ -118,6 +118,7 @@ initRelationalCheckpointer'
 initRelationalCheckpointer' bstate sqlenv loggr v cid = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
+    rodb <- newMVar (BlockEnv dbenv bstate)
     runBlockEnv db initSchema
     let pactDbEnv = PactDbEnv chainwebPactDb db
     let checkpointer = Checkpointer
@@ -127,8 +128,8 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
           , _cpDiscard = doDiscard db
           , _cpGetEarliestBlock = doGetEarliest db
           , _cpGetLatestBlock = doGetLatest db
-          , _cpReadRestoreBegin = doReadRestoreBegin v cid db
-          , _cpReadRestoreEnd = doReadRestoreEnd db
+          , _cpReadRestoreBegin = doReadRestoreBegin v cid db rodb
+          , _cpReadRestoreEnd = doReadRestoreEnd rodb
           , _cpBeginCheckpointerBatch = doBeginBatch db
           , _cpCommitCheckpointerBatch = doCommitBatch db
           , _cpDiscardCheckpointerBatch = doDiscardBatch db
@@ -187,15 +188,21 @@ doReadRestoreBegin :: (Logger logger)
   => ChainwebVersion
   -> ChainId
   -> Db logger
+  -> Db logger
   -> BlockHeight
   -> IO (PactDbEnv' logger)
-doReadRestoreBegin v cid dbenv bh = runBlockEnv dbenv $ do
-    setModuleNameFix
-    setSortedKeys
-    setLowerCaseTables
-    clearPendingTxState
-    beginSavepoint ReadBlock
-    return $! PactDbEnv' $! PactDbEnv (readOnlyChainwebPactDb bh) dbenv
+doReadRestoreBegin v cid dbenv rodbenv bh = do
+    -- copy data from the real dbenv to read-only dbenv
+    dbContent <- readMVar dbenv
+    modifyMVar_ rodbenv (const $ pure dbContent)
+
+    runBlockEnv rodbenv $ do
+      setModuleNameFix
+      setSortedKeys
+      setLowerCaseTables
+      clearPendingTxState
+      beginSavepoint ReadBlock
+      return $! PactDbEnv' $! PactDbEnv (readOnlyChainwebPactDb bh) rodbenv
   where
     -- Module name fix follows the restore call to checkpointer.
     setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v cid bh
