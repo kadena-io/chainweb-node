@@ -284,6 +284,8 @@ withCheckpointerReadRewind target@(ParentHeader parent) caller act = do
 
     setParentHeader "withCheckpointerReadRewind" (ParentHeader parent)
 
+    -- TODO: figure out the proper handling of parent header
+    -- would be nice to do it in local
     mask $ \restore -> do
         cenv <- restore $ liftIO $! _cpReadRestoreBegin cp (_blockHeight parent + 1)
 
