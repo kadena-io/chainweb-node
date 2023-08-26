@@ -3,10 +3,10 @@
 ## 2.20 (2023-08-28)
 
 This version replaces all previous versions. Any prior version will stop working
-on 2023-09-07T00:00:00Z. Node administrators must upgrade to this version before
+on **2023-09-07T00:00:00Z**. Node administrators must upgrade to this version before
 that date.
 
-This version will expire on 2023-10-19.
+This version will expire on **2023-10-19T00:00:00Z**.
 
 To upgrade, pull the latest docker image or download the binary and restart the node.
 
