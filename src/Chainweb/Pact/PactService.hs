@@ -546,9 +546,10 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
 
         logInfo $ "(request keys = " <> sshow requestKeys <> ")"
 
-        liftIO $ do
-          txHashes <- Vec.toLiftedVectorWith (\_ failure -> pure (gasPurchaseFailureHash failure)) failures
-          mpaBadlistTx mpAccess txHashes
+        txHashes <- flip Vec.toLiftedVectorWith failures $ \_ failure -> do
+          logDebug ("badlisting tx due to gas buy failure: " <> sshow failure)
+          pure (gasPurchaseFailureHash failure)
+        liftIO $ mpaBadlistTx mpAccess txHashes
 
         !pwo <- liftIO $ do
           txs <- Vec.toLiftedVector successes

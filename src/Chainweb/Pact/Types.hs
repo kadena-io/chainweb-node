@@ -14,6 +14,7 @@
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 -- |
 -- Module: Chainweb.Pact.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -165,6 +166,7 @@ import Control.DeepSeq
 import Control.Exception (asyncExceptionFromException, asyncExceptionToException)
 import Control.Exception.Safe
 import Control.Lens
+import Control.Monad.Primitive
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
@@ -629,7 +631,7 @@ newtype PactServiceM logger tbl a = PactServiceM
     , MonadReader (PactServiceEnv logger tbl)
     , MonadState PactServiceState
     , MonadThrow, MonadCatch, MonadMask
-    , MonadIO
+    , MonadIO, PrimMonad
     )
 
 -- | Run a 'PactServiceM' computation given some initial
