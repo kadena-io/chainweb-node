@@ -172,7 +172,7 @@ multiBootstrapConfig conf = conf
     & set (configP2p . p2pConfigPeer) peerConfig
     & set (configP2p . p2pConfigKnownPeers) []
   where
-    peerConfig = (head $ bootstrapPeerConfig $ _configChainwebVersion conf)
+    peerConfig = (head $ testBootstrapPeerConfig $ _configChainwebVersion conf)
         & set peerConfigPort 0
         -- Normally, the port of bootstrap nodes is hard-coded. But in
         -- test-suites that may run concurrently we want to use a port that is
@@ -460,7 +460,7 @@ consensusStateSummary s
         }
   where
     cutHeights = _cutHeight <$> _stateCutMap s
-    graph = chainGraphAt_ s
+    graph = chainGraphAt s
         $ maximum . concatMap chainHeights
         $ toList
         $ _stateCutMap s

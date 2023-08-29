@@ -5,7 +5,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -28,9 +27,10 @@
 -- target value divided by the hash target for the block.
 --
 module Chainweb.Difficulty
-(
+( BlockDelay(..)
+, WindowWidth(..)
 -- * PowHashNat
-  PowHashNat(..)
+, PowHashNat(..)
 , powHashNat
 , encodePowHashNat
 , decodePowHashNat
@@ -84,10 +84,9 @@ import Text.Printf (printf)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.PowHash
-import Chainweb.Time (Micros(..), Seconds, TimeSpan(..))
+import Chainweb.Time (Micros(..), TimeSpan(..))
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
-import Chainweb.Version
 
 import Numeric.Additive
 
@@ -96,6 +95,21 @@ import Numeric.Additive
 
 instance NFData Word128
 instance NFData Word256
+--
+-- | The gap in MICROSECONDS that we desire between the Creation Time of subsequent
+-- blocks in some chain.
+--
+newtype BlockDelay = BlockDelay { _getBlockDelay :: Micros }
+    deriving stock (Eq, Generic, Ord, Show)
+    deriving newtype (Hashable, NFData, ToJSON, FromJSON)
+
+-- | The number of blocks to be mined after a difficulty adjustment, before
+-- considering a further adjustment. Critical for the "epoch-based" adjustment
+-- algorithm seen in `adjust`.
+newtype WindowWidth = WindowWidth Natural
+    deriving stock (Eq, Generic, Ord, Show)
+    deriving newtype (Hashable, NFData, ToJSON, FromJSON)
+
 
 -- -------------------------------------------------------------------------- --
 -- PowHashNat
@@ -283,10 +297,8 @@ targetToDifficulty (HashTarget (PowHashNat target)) =
 -- smaller or equal than 2^256-1.
 --
 adjust
-    :: ChainwebVersion
-        -- ^ Chainweb Version
+    :: BlockDelay
     -> WindowWidth
-        -- ^ The number of blocks in an epoch
     -> TimeSpan Micros
         -- ^ the actual time of the last epoch: creation time minus the epoch
         -- start time of the last block in the (previous) epoch
@@ -295,15 +307,10 @@ adjust
         -- the last header in the (previous) epoch
     -> HashTarget
         -- ^ the hash target of the new epoch
-adjust v (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
+adjust (BlockDelay bd) (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
   where
-    br :: Seconds
-    br = _getBlockRate $ blockRate v
-
-    -- TODO: the block rate should be specified in microseconds in
-    -- "Chainweb.Version".
     targetedEpochTime :: Rational
-    targetedEpochTime = int ww * int br * 1000000
+    targetedEpochTime = int ww * int bd
 
     actualEpochTime :: Rational
     actualEpochTime = int delta
@@ -320,10 +327,8 @@ adjust v (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
 -- This is used when 'oldDaGuard' is active.
 --
 legacyAdjust
-    :: ChainwebVersion
-        -- ^ Chainweb Version
+    :: BlockDelay
     -> WindowWidth
-        -- ^ The number of blocks in an epoch
     -> TimeSpan Micros
         -- ^ the actual time of the last epoch: creation time minus the epoch
         -- start time of the last block in the (previous) epoch
@@ -332,13 +337,10 @@ legacyAdjust
         -- the last header in the (previous) epoch
     -> HashTarget
         -- ^ the hash target of the new epoch
-legacyAdjust v (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
+legacyAdjust (BlockDelay bd) (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
   where
-    br :: Seconds
-    br = _getBlockRate $ blockRate v
-
     newDiff :: Rational
-    newDiff = oldDiff * int br * int ww * 1000000 / int delta
+    newDiff = oldDiff * int bd * int ww / int delta
 
     oldDiff :: Rational
     oldDiff = int maxTargetWord / int oldTarget

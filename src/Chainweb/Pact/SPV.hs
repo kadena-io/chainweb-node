@@ -68,11 +68,13 @@ import Chainweb.SPV.VerifyProof
 import Chainweb.TreeDB
 import Chainweb.Utils
 import qualified Chainweb.Version as CW
+import qualified Chainweb.Version.Guards as CW
 
 import Chainweb.Storage.Table
 
 -- internal pact modules
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.PactValue
@@ -81,7 +83,7 @@ import Pact.Types.SPV
 
 catchAndDisplaySPVError :: BlockHeader -> ExceptT Text IO a -> ExceptT Text IO a
 catchAndDisplaySPVError bh =
-  if CW.chainweb219Pact (_blockChainwebVersion bh) (_blockHeight bh)
+  if CW.chainweb219Pact (CW._chainwebVersion bh) (_blockChainId bh) (_blockHeight bh)
   then flip catch $ \case
     SpvExceptionVerificationFailed m -> throwError ("spv verification failed: " <> m)
     spvErr -> throwM spvErr
@@ -89,7 +91,7 @@ catchAndDisplaySPVError bh =
 
 forkedThrower :: BlockHeader -> Text -> ExceptT Text IO a
 forkedThrower bh =
-  if CW.chainweb219Pact (_blockChainwebVersion bh) (_blockHeight bh)
+  if CW.chainweb219Pact (CW._chainwebVersion bh) (_blockChainId bh) (_blockHeight bh)
   then throwError
   else internalError
 
@@ -121,7 +123,7 @@ verifySPV
 verifySPV bdb bh typ proof = runExceptT $ go typ proof
   where
     cid = CW._chainId bdb
-    enableBridge = CW.enableSPVBridge (_blockChainwebVersion bh) (_blockHeight bh)
+    enableBridge = CW.enableSPVBridge (CW._chainwebVersion bh) cid (_blockHeight bh)
 
     mkSPVResult' cr j
         | enableBridge =
@@ -217,7 +219,7 @@ extractProof False o = toPactValue (TObject o def) >>= k
   where
     k = aeson (Left . pack) Right
       . fromJSON
-      . toJSON
+      . J.toJsonViaEncode
 extractProof True (Object (ObjectMap o) _ _ _) = case M.lookup "proof" o of
   Just (TLitString proof) -> do
     j <- first (const "Base64 decode failed") (decodeB64UrlNoPaddingText proof)
@@ -361,7 +363,7 @@ mkSPVResult CommandResult{..} j =
     , ("txid", tStr $ maybe "" asString _crTxId)
     , ("gas", toTerm $ (fromIntegral _crGas :: Integer))
     , ("meta", maybe empty metaField _crMetaData)
-    , ("logs", tStr $ asString $ _crLogs)
+    , ("logs", tStr $ asString _crLogs)
     , ("continuation", maybe empty contField _crContinuation)
     , ("events", toTList TyAny def $ map eventField _crEvents)
     ]

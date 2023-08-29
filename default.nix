@@ -6,10 +6,13 @@ let flakeDefaultNix = (import (
        src =  ./.;
      }).defaultNix;
     inputs = flakeDefaultNix.inputs;
-    pkgsDef = import inputs.nixpkgs (import inputs.haskellNix {}).nixpkgsArgs;
+    pkgsDef = import inputs.nixpkgs {
+      config = inputs.haskellNix.config;
+      overlays = [ inputs.haskellNix.overlay] ;
+    };
 in
 { pkgs ? pkgsDef
-, compiler ? "ghc8107"
+, compiler ? "ghc962"
 , flakePath ? flakeDefaultNix.outPath
 , nix-filter ? inputs.nix-filter
 , ...

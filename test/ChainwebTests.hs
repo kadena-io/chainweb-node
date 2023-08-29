@@ -63,6 +63,9 @@ import Chainweb.Test.Utils
     withToyDB)
 import qualified Chainweb.Test.Version (tests)
 import qualified Chainweb.Test.Chainweb.Utils.Paging (properties)
+import Chainweb.Version.Development
+import Chainweb.Version.FastDevelopment
+import Chainweb.Version.Registry
 
 import Chainweb.Storage.Table.RocksDB
 
@@ -73,16 +76,18 @@ import qualified P2P.Test.TaskQueue (properties)
 import qualified P2P.Test.Node (properties)
 
 main :: IO ()
-main =
+main = do
+    registerVersion Development
+    registerVersion FastDevelopment
     withTempRocksDb "chainweb-tests" $ \rdb ->
-    withToyDB rdb toyChainId $ \h0 db ->
-        defaultMainWithIngredients (consoleAndJsonReporter : defaultIngredients)
-            $ adjustOption adj
-            $ testGroup "Chainweb Tests" . schedule Sequential
-            $ pactTestSuite rdb
-            : mempoolTestSuite db h0
-            : rosettaTestSuite rdb
-            : suite rdb
+        withToyDB rdb toyChainId $ \h0 db ->
+            defaultMainWithIngredients (consoleAndJsonReporter : defaultIngredients)
+                $ adjustOption adj
+                $ testGroup "Chainweb Tests" . schedule Sequential
+                $ pactTestSuite rdb
+                : mempoolTestSuite db h0
+                : rosettaTestSuite rdb
+                : suite rdb
   where
     adj NoTimeout = Timeout (1_000_000 * 60 * 10) "10m"
     adj x = x

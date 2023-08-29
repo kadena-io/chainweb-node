@@ -1,6 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
+import Chainweb.Version.Development
+import Chainweb.Version.FastDevelopment
+import Chainweb.Version.Registry
+
 import System.Environment
 import System.Exit
 import Text.Printf
@@ -15,9 +19,12 @@ import qualified SlowTests
 import qualified TxStream
 import qualified KnownGraphs
 import qualified TxSimulator
+import qualified CalculateRelease
 
 main :: IO ()
 main = do
+    registerVersion Development
+    registerVersion FastDevelopment
     args <- getArgs
     case args of
       [] -> printHelp topLevelCommands
@@ -92,6 +99,10 @@ topLevelCommands =
       "tx-sim"
       "Simulate tx execution against real pact dbs"
       TxSimulator.simulateMain
+  , CommandSpec
+      "calculate-release"
+      "Calculate next service date and block heights for upgrades"
+      CalculateRelease.main
   ]
 
 printHelp :: [CommandSpec] -> IO ()

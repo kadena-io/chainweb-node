@@ -37,6 +37,7 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import Data.String
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
@@ -71,7 +72,6 @@ import Pact.Types.Util hiding (unwrap)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
 import Chainweb.ChainId
@@ -89,6 +89,7 @@ import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -274,7 +275,7 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
 
     startPact version l bhdb pdb mempool sqlEnv = do
         reqQ <- newPactQueue pactQueueSize
-        a <- async $ runPactService version cid l reqQ mempool bhdb pdb sqlEnv defaultPactServiceConfig
+        a <- async $ runPactService version cid l reqQ mempool bhdb pdb sqlEnv testPactServiceConfig
             { _pactBlockGasLimit = 150000
             }
 
@@ -379,7 +380,7 @@ cid :: ChainId
 cid = someChainId testVer
 
 testVer :: ChainwebVersion
-testVer = FastTimedCPM petersonChainGraph
+testVer = slowForkingCpmTestVersion petersonChainGraph
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l
@@ -396,8 +397,8 @@ createCoinAccount v meta name = do
     sender00Keyset <- NEL.fromList <$> getKeyset "sender00"
     nameKeyset <- NEL.fromList <$> getKeyset name
     let attach = attachCaps "sender00" name 1000.0
-    let theData = object [T.pack name .= fmap (formatB16PubKey . fst) (attach nameKeyset)]
-    res <- mkExec (T.pack theCode) theData meta (NEL.toList $ attach sender00Keyset) (Just $ Pact.NetworkId $ toText v) Nothing
+    let theData = object [fromString name .= fmap (formatB16PubKey . fst) (attach nameKeyset)]
+    res <- mkExec (T.pack theCode) theData meta (NEL.toList $ attach sender00Keyset) (Just $ Pact.NetworkId $ toText (_versionName v)) Nothing
     pure (nameKeyset, res)
   where
     theCode = printf "(coin.transfer-create \"sender00\" \"%s\" (read-keyset \"%s\") 1000.0)" name name
@@ -550,14 +551,20 @@ createCoinContractRequest v meta ks request =
               object
                 [ "create-account-guard" .= fmap (formatB16PubKey . fst) guardd
                 ]
-        mkExec (T.pack theCode) theData meta (NEL.toList ks) (Just $ Pact.NetworkId $ toText v) Nothing
+        mkExec (T.pack theCode) theData meta
+          (NEL.toList ks)
+          (Just $ Pact.NetworkId $ toText $ _versionName v)
+          Nothing
       CoinAccountBalance (Account account) -> do
         let theData = Null
             theCode =
               printf
               "(coin.get-balance \"%s\")"
               account
-        mkExec (T.pack theCode) theData meta (NEL.toList ks) (Just $ Pact.NetworkId $ toText v) Nothing
+        mkExec (T.pack theCode) theData meta
+          (NEL.toList ks)
+          (Just $ Pact.NetworkId $ toText $ _versionName v)
+          Nothing
       CoinTransferAndCreate (SenderName (Account sn)) (ReceiverName (Account rn)) (Guard guardd) (Amount amount) -> do
         let theCode =
               printf
@@ -570,7 +577,10 @@ createCoinContractRequest v meta ks request =
               object
                 [ "receiver-guard" .= fmap (formatB16PubKey . fst) guardd
                 ]
-        mkExec (T.pack theCode) theData meta (NEL.toList ks) (Just $ Pact.NetworkId $ toText v) Nothing
+        mkExec (T.pack theCode) theData meta
+          (NEL.toList ks)
+          (Just $ Pact.NetworkId $ toText $ _versionName v)
+          Nothing
 
       CoinTransfer (SenderName (Account sn)) (ReceiverName (Account rn)) (Amount amount) -> do
         let theCode =
@@ -581,7 +591,10 @@ createCoinContractRequest v meta ks request =
               -- Super janky, but gets the job done for now
               (fromRational @Double $ toRational amount)
             theData = object []
-        mkExec (T.pack theCode) theData meta (NEL.toList ks) (Just $ Pact.NetworkId $ toText v) Nothing
+        mkExec (T.pack theCode) theData meta
+          (NEL.toList ks)
+          (Just $ Pact.NetworkId $ toText $ _versionName v)
+          Nothing
 
 makeMetaWithSender :: String -> ChainId -> IO PublicMeta
 makeMetaWithSender sender c =

@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -28,7 +29,7 @@ module Chainweb.PowHash
 , powHashBytesCount
 , encodePowHash
 , decodePowHash
-, powHash
+, cryptoHash
 ) where
 
 import Control.DeepSeq
@@ -51,8 +52,6 @@ import GHC.Generics
 import GHC.Stack (HasCallStack)
 import GHC.TypeNats
 
-import Numeric.Natural
-
 import System.IO.Unsafe
 
 -- internal modules
@@ -61,7 +60,6 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
-import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
 -- PowHash
@@ -127,16 +125,6 @@ instance FromJSON PowHash where
 
 -- -------------------------------------------------------------------------- --
 -- Cryptographic Hash
-
-powHash :: ChainwebVersion -> B.ByteString -> PowHash
-powHash Test{} = cryptoHash @Blake2s_256
-powHash TimedConsensus{} = cryptoHash @Blake2s_256
-powHash PowConsensus{} = cryptoHash @Blake2s_256
-powHash TimedCPM{} = cryptoHash @Blake2s_256
-powHash FastTimedCPM{} = cryptoHash @Blake2s_256
-powHash Development = cryptoHash @Blake2s_256
-powHash Testnet04 = cryptoHash @Blake2s_256
-powHash Mainnet01 = cryptoHash @Blake2s_256
 
 cryptoHash :: forall a . HashAlgorithm a => B.ByteString -> PowHash
 cryptoHash = PowHash . SB.toShort . BA.convert . C.hash @_ @a

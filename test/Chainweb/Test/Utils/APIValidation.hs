@@ -90,12 +90,12 @@ mkApiValidationMiddleware v = do
     findPath path = asum
         [ case B8.split '/' path of
             ("" : "chainweb" : "0.0" : rawVersion : "chain" : rawChainId : "pact" : "api" : "v1" : rest) -> do
-                reqVersion <- chainwebVersionFromText (T.decodeUtf8 rawVersion)
-                guard (reqVersion == v)
+                let reqVersion = T.decodeUtf8 rawVersion
+                guard (reqVersion == getChainwebVersionName (_versionName v))
                 reqChainId <- chainIdFromText (T.decodeUtf8 rawChainId)
                 guard (HashSet.member reqChainId (chainIds v))
                 return (B8.intercalate "/" ("":rest), pactOpenApiSpec)
             _ -> Nothing
-        , (,chainwebOpenApiSpec) <$> B8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> chainwebVersionToText v) path
+        , (,chainwebOpenApiSpec) <$> B8.stripPrefix (T.encodeUtf8 $ "/chainweb/0.0/" <> getChainwebVersionName (_versionName v)) path
         , Just (path,chainwebOpenApiSpec)
         ]

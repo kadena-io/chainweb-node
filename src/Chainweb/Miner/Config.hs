@@ -49,6 +49,7 @@ import Numeric.Natural (Natural)
 
 import Options.Applicative
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.Term (mkKeySet, PublicKeyText(..))
 
 -- internal modules
@@ -160,7 +161,7 @@ instance ToJSON CoordinationConfig where
     toJSON o = object
         [ "enabled" .= _coordinationEnabled o
         , "limit" .= _coordinationReqLimit o
-        , "miners" .= _coordinationMiners o
+        , "miners" .= (J.toJsonViaEncode <$> S.toList (_coordinationMiners o))
         , "updateStreamLimit" .= _coordinationUpdateStreamLimit o
         , "updateStreamTimeout" .= _coordinationUpdateStreamTimeout o
         ]
@@ -234,7 +235,7 @@ nodeTestMiners = lens _nodeTestMiners (\m c -> m { _nodeTestMiners = c })
 instance ToJSON NodeMiningConfig where
     toJSON o = object
         [ "enabled" .= _nodeMiningEnabled o
-        , "miner" .= _nodeMiner o
+        , "miner" .= J.toJsonViaEncode (_nodeMiner o)
         ]
 
 instance FromJSON (NodeMiningConfig -> NodeMiningConfig) where

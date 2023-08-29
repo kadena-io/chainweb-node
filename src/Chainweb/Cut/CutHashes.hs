@@ -85,8 +85,6 @@ import Foreign.Storable
 import GHC.Generics (Generic)
 import GHC.TypeNats
 
-import Numeric.Natural
-
 import System.IO.Unsafe
 
 -- internal modules
@@ -106,6 +104,7 @@ import Chainweb.Payload
 import Chainweb.Storage.Table
 
 import P2P.Peer
+import Chainweb.Version.Registry (fabricateVersionWithName)
 
 -- -------------------------------------------------------------------------- --
 -- CutId
@@ -266,7 +265,7 @@ data CutHashes = CutHashes
         -- ^ 'Nothing' is used for locally mined Cuts
     , _cutHashesWeight :: !BlockWeight
     , _cutHashesHeight :: !CutHeight
-    , _cutHashesChainwebVersion :: !ChainwebVersion
+    , _cutHashesChainwebVersion :: ChainwebVersion
     , _cutHashesId :: !CutId
     , _cutHashesHeaders :: !(HM.HashMap BlockHash BlockHeader)
         -- ^ optional block headers
@@ -318,7 +317,7 @@ cutHashesProperties c =
     , "origin" .= _cutOrigin c
     , "weight" .= _cutHashesWeight c
     , "height" .= _cutHashesHeight c
-    , "instance" .= _cutHashesChainwebVersion c
+    , "instance" .= _versionName (_cutHashesChainwebVersion c)
     , "id" .= _cutHashesId c
     ]
     <> ifNotEmpty "headers" cutHashesHeaders
@@ -327,7 +326,7 @@ cutHashesProperties c =
     ifNotEmpty
         :: ToJSONKey k
         => ToJSON v
-        => T.Text
+        => Key
         -> Lens' CutHashes (HM.HashMap k v)
         -> [kv]
     ifNotEmpty s l
@@ -346,7 +345,7 @@ instance FromJSON CutHashes where
         <*> o .: "origin"
         <*> o .: "weight"
         <*> o .: "height"
-        <*> o .: "instance"
+        <*> (fabricateVersionWithName <$> o .: "instance")
         <*> o .: "id"
         <*> o .:? "headers" .!= mempty
         <*> o .:? "payloads" .!= mempty

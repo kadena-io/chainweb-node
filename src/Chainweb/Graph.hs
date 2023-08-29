@@ -14,7 +14,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeInType #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
@@ -185,7 +184,7 @@ validChainGraph g
     && (G.order g <= 1 || G.symSize g >= 1)
 {-# INLINE validChainGraph #-}
 
--- | Returns an empty set of the chain id is not in the graph
+-- | Returns an empty set if the chain id is not in the graph
 --
 adjacentChainIds
     :: HasChainId p
@@ -327,7 +326,7 @@ checkAdjacentChainIds g cid expectedAdj = do
 -- | Graphs which have known, specific, intended meaning for Chainweb.
 --
 data KnownGraph = Singleton | Pair | Triangle | Peterson | Twenty | HoffmanSingleton
-    deriving (Generic)
+    deriving (Generic, Enum, Bounded)
     deriving anyclass (NFData)
 
 instance HasTextRepresentation KnownGraph where

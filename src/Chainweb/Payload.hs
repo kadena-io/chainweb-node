@@ -14,9 +14,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- TODO KeySet NFData in Pact
-{-# OPTIONS_GHC -fno-warn-orphans #-}
-
 -- |
 -- Module: Chainweb.Payload
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
@@ -116,9 +113,11 @@ import Control.Monad ((<$!>))
 import Control.Monad.Catch
 
 import Data.Aeson
+import Data.Aeson.Encoding (encodingToLazyByteString, pair)
 import qualified Data.Aeson.Types as A
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
 import Data.Hashable
 import Data.MerkleLog
 import qualified Data.Text as T
@@ -138,7 +137,6 @@ import Chainweb.Storage.Table
 
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
-
 
 -- -------------------------------------------------------------------------- --
 -- Block Transactions Hash
@@ -166,6 +164,12 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockTrans
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
+instance HasTextRepresentation BlockTransactionsHash where
+  toText (BlockTransactionsHash h) = toText h
+  fromText = fmap BlockTransactionsHash . fromText
+  {-# INLINE toText #-}
+  {-# INLINE fromText #-}
+
 -- -------------------------------------------------------------------------- --
 -- Block Outputs Hash
 
@@ -191,6 +195,12 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockOutpu
     fromMerkleNode = decodeMerkleTreeNode
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
+
+instance HasTextRepresentation BlockOutputsHash where
+  toText (BlockOutputsHash h) = toText h
+  fromText = fmap BlockOutputsHash . fromText
+  {-# INLINE toText #-}
+  {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- BlockPayloadHash
@@ -218,6 +228,12 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockPaylo
     fromMerkleNode = decodeMerkleTreeNode
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
+
+instance HasTextRepresentation BlockPayloadHash where
+  toText (BlockPayloadHash h) = toText h
+  fromText = fmap BlockPayloadHash . fromText
+  {-# INLINE toText #-}
+  {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- Transaction
@@ -277,8 +293,13 @@ instance HasTextRepresentation Transaction where
 --
 newtype TransactionOutput = TransactionOutput
     { _transactionOutputBytes :: B.ByteString }
-    deriving (Show, Eq, Ord, Generic)
-    deriving newtype (BA.ByteArrayAccess, NFData)
+    deriving (Eq, Ord, Generic)
+    deriving anyclass (NFData)
+    deriving newtype (BA.ByteArrayAccess)
+
+instance Show TransactionOutput where
+    show = T.unpack . encodeToText
+    {-# INLINE show #-}
 
 instance ToJSON TransactionOutput where
     toJSON = toJSON . encodeB64UrlNoPaddingText . _transactionOutputBytes
@@ -554,9 +575,9 @@ coinbaseOutputFromText t = either (throwM . TextFormatException . sshow) return
 -- | No-op coinbase payload
 --
 noCoinbaseOutput :: CoinbaseOutput
-noCoinbaseOutput = CoinbaseOutput $ encodeToByteString $ object
+noCoinbaseOutput = CoinbaseOutput $ BL.toStrict $ encodingToLazyByteString $ pairs $ mconcat
     [ "gas" .= (0 :: Int)
-    , "result" .= object
+    , pair "result" $ pairs $ mconcat
         [ "status" .= ("success" :: String)
         , "data" .= ("NO_COINBASE" :: String)
         ]
@@ -915,9 +936,9 @@ payloadDataProperties
 payloadDataProperties o =
     [ "transactions" .= _payloadDataTransactions o
     , "minerData" .= _payloadDataMiner o
-    , "payloadHash" .= _payloadDataPayloadHash o
     , "transactionsHash" .= _payloadDataTransactionsHash o
     , "outputsHash" .= _payloadDataOutputsHash o
+    , "payloadHash" .= _payloadDataPayloadHash o
     ]
 {-# INLINE payloadDataProperties #-}
 
@@ -1065,10 +1086,10 @@ payloadWithOutputsProperties
 payloadWithOutputsProperties o =
     [ "transactions" .= _payloadWithOutputsTransactions o
     , "minerData" .= _payloadWithOutputsMiner o
-    , "coinbase" .= _payloadWithOutputsCoinbase o
-    , "payloadHash" .= _payloadWithOutputsPayloadHash o
     , "transactionsHash" .= _payloadWithOutputsTransactionsHash o
     , "outputsHash" .= _payloadWithOutputsOutputsHash o
+    , "payloadHash" .= _payloadWithOutputsPayloadHash o
+    , "coinbase" .= _payloadWithOutputsCoinbase o
     ]
 {-# INLINE payloadWithOutputsProperties #-}
 
@@ -1130,4 +1151,3 @@ verifyPayloadWithOutputs p
         (_payloadWithOutputsMiner p)
         (_payloadWithOutputsCoinbase p)
         (_payloadWithOutputsTransactions p)
-

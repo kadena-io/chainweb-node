@@ -1,5 +1,45 @@
 # `chainweb-node` Changelog
 
+## 2.20 (2023-08-28)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2023-09-07T00:00:00Z**. Node administrators must upgrade to this version before
+that date.
+
+This version will expire on **2023-10-19T00:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+* A new chainwebVersion called fast-development, intended for use by Pact
+  developers. See #1627 for more details.
+* Updated to Pact 4.8. (numerous, see [Pact
+  changelog](https://github.com/kadena-io/pact/releases/tag/v4.8))
+* Fixed an issue where /local calls that rewind to a previous block could have
+  the wrong behavior or gas usage if rewinding crosses fork boundaries. (#1700)
+
+Internal Changes:
+* Updated from GHC 8.10.7 to GHC 9.6.2. (#1565)
+* PactService now emits significantly more structured logs. (#1699)
+
+## 2.19.2 (2023-07-17)
+
+**NOTE: THIS VERSION SUPERSEDES 2.19.1. PLEASE UPDATE AS SOON AS POSSIBLE.**
+
+This version replaces all previous versions.
+
+This version will expire on 2023-09-07.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+*   Add rewind support to /poll and /local. (#1653, #1686)
+*   Add some leniency to mempool creation time checks. (#1255)
+*   Return metadata from /local with preflight set to true. (#1612)
+*   Optimize new block creation. (#1691)
+
 ## 2.19.1 (2023-05-22)
 
 **NOTE: THIS VERSION SUPERSEDES 2.19. PLEASE UPDATE AS SOON AS POSSIBLE.**
@@ -16,7 +56,7 @@ Changes:
 *   Disable user function return value typechecking (#1661)
 *   Add typechecking option to tx-sim. (#1656)
 
-## 2.19 (2023-05-25)
+## 2.19 (2023-05-17)
 
 **NOTE: THIS VERSION IS OBSOLETE. IT IS REPLACED BY 2.19.1. PLEASE UPDATE AS SOON
 AS POSSIBLE.**

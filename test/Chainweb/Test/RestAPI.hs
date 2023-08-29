@@ -2,6 +2,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
+{-# options_ghc -fno-warn-unused-local-binds -fno-warn-unused-imports #-}
 
 -- |
 -- Module: Chainweb.Test.RestAPI
@@ -19,6 +22,7 @@ module Chainweb.Test.RestAPI
 import Control.Monad
 import Control.Monad.IO.Class
 
+import Data.Bifunctor (first)
 import qualified Data.ByteString.Char8 as B8
 import Data.Either
 import Data.Foldable
@@ -40,8 +44,8 @@ import Text.Read (readEither)
 
 -- internal modules
 
+import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.ChainId
@@ -49,8 +53,10 @@ import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MempoolBackend, MockTx)
 import Chainweb.RestAPI
 import Chainweb.Test.RestAPI.Client_
+import Chainweb.Test.RestAPI.Utils (isFailureResponse, clientErrorStatusCode)
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
+import Chainweb.Test.TestVersions (barebonesTestVersion)
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Paging
@@ -103,11 +109,12 @@ tests rdb = testGroup "REST API tests"
 
 tests_ :: RocksDb -> Bool -> [TestTree]
 tests_ rdb tls =
-    [ simpleSessionTests rdb tls version
-    , pagingTests rdb tls version
+    [ simpleSessionTests rdb tls
+    , pagingTests rdb tls
     ]
-  where
-    version = Test singletonChainGraph
+
+version :: ChainwebVersion
+version = barebonesTestVersion singletonChainGraph
 
 -- -------------------------------------------------------------------------- --
 -- Test all endpoints on each chain
@@ -119,8 +126,8 @@ type TestClientEnv_ = TestClientEnv MockTx RocksDbTable
 noMempool :: [(ChainId, MempoolBackend MockTx)]
 noMempool = []
 
-simpleSessionTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
-simpleSessionTests rdb tls version =
+simpleSessionTests :: RocksDb -> Bool -> TestTree
+simpleSessionTests rdb tls =
     withBlockHeaderDbsResource rdb version $ \dbs ->
         withBlockHeaderDbsServer ValidateSpec tls version dbs (return noMempool)
         $ \env -> testGroup "client session tests"
@@ -140,7 +147,7 @@ httpHeaderTests envIO cid =
         ]
       where
         go name run = testCase name $ do
-            BlockHeaderDbsTestClientEnv env _ version <- liftIO envIO
+            BlockHeaderDbsTestClientEnv env _ _ <- liftIO envIO
             res <- flip runClientM_ env $ modifyResponse checkHeader $
                 run version (genesisBlockHeader version cid)
             assertBool ("test failed: " <> sshow res) (isRight res)
@@ -162,12 +169,13 @@ httpHeaderTests envIO cid =
 simpleClientSession :: IO TestClientEnv_ -> ChainId -> TestTree
 simpleClientSession envIO cid =
     testCaseSteps ("simple session for chain " <> sshow cid) $ \step -> do
-        BlockHeaderDbsTestClientEnv env dbs version <- envIO
-        res <- runClientM (session version dbs step) env
+        BlockHeaderDbsTestClientEnv env dbs _ <- envIO
+        res <- runClientM (session dbs step) env
         assertBool ("test failed: " <> sshow res) (isRight res)
   where
 
-    session version dbs step = do
+    session :: [(ChainId, BlockHeaderDb)] -> (String -> IO a) -> ClientM ()
+    session dbs step = do
 
         let gbh0 = genesisBlockHeader version cid
 
@@ -229,6 +237,60 @@ simpleClientSession envIO cid =
                 (Actual r)
 
         -- branchHeaders
+
+        do
+          void $ liftIO $ step "branchHeadersClient: BranchBounds limits exceeded"
+          clientEnv <- liftIO $ do
+            -- ClientM does not have a MonadFail instance for this failable
+            -- pattern match; IO does.
+            BlockHeaderDbsTestClientEnv clientEnv _ _ <- envIO
+            pure clientEnv
+          let query bounds = liftIO
+                $ flip runClientM clientEnv
+                $ branchHeadersClient
+                    version cid Nothing Nothing Nothing Nothing bounds
+          let limit = 32
+          let blockHeaders = testBlockHeaders (ParentHeader gbh0)
+          let maxBlockHeaders = take limit blockHeaders
+          let excessBlockHeaders = take (limit + 1) blockHeaders
+
+          let mkLower :: [BlockHeader] -> HS.HashSet (LowerBound BlockHash)
+              mkLower hs = HS.fromList $ map (LowerBound . key) hs
+          let mkUpper :: [BlockHeader] -> HS.HashSet (UpperBound BlockHash)
+              mkUpper hs = HS.fromList $ map (UpperBound . key) hs
+
+          let emptyLower = mkLower []
+          let badLower = mkLower excessBlockHeaders
+          let goodLower = mkLower maxBlockHeaders
+
+          let emptyUpper = mkUpper []
+          let badUpper = mkUpper excessBlockHeaders
+          let goodUpper = mkUpper maxBlockHeaders
+
+          let badRespCheck :: Int -> ClientError -> Bool
+              badRespCheck s e = isFailureResponse e && clientErrorStatusCode e == Just s
+
+          badLowerResponse <- query (BranchBounds badLower emptyUpper)
+          assertExpectation "branchHeadersClient returned a 400 error code on excess lower"
+            (Expected (Left True))
+            (Actual (first (badRespCheck 400) badLowerResponse))
+
+          badUpperResponse <- query (BranchBounds emptyLower badUpper)
+          assertExpectation "branchHeadersClient returned a 400 error code on excess upper"
+            (Expected (Left True))
+            (Actual (first (badRespCheck 400) badUpperResponse))
+
+          -- This will still fail because a bunch of these keys won't be found,
+          -- but it won't fail the bounds check, which happens first
+          doesntFailBoundsCheck <- query (BranchBounds goodLower goodUpper)
+          assertExpectation "branchHeadersClient returned a 404; bounds were within the limits, still fails key exists check"
+            (Expected (Left True))
+            (Actual (first (badRespCheck 404) doesntFailBoundsCheck))
+
+          doesntFailAtAll <- query (BranchBounds emptyLower emptyUpper)
+          assertExpectation "branchHeadersClient returned a 200; bounds were within the limits, and no keys to check at all"
+            (Expected (Right ()))
+            (Actual (() <$ doesntFailAtAll))
 
         void $ liftIO $ step "branchHeadersClient: get no block headers"
         bhs3 <- branchHeadersClient version cid Nothing Nothing Nothing Nothing
@@ -319,21 +381,24 @@ simpleClientSession envIO cid =
             void $ liftIO $ step "branchHashesClient: get one block headers with lower and upper bound"
             hs5 <- branchHashesClient version cid Nothing Nothing Nothing Nothing
                 (BranchBounds (HS.singleton (LowerBound $ key lower)) (HS.singleton (UpperBound $ key h)))
+            liftIO $ print hs5
             assertExpectation "branchHashesClient returned wrong number of entries"
                 (Expected i)
                 (Actual $ _pageLimit hs5)
 
+
+
 -- -------------------------------------------------------------------------- --
 -- Paging Tests
 
-pagingTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
-pagingTests rdb tls version =
+pagingTests :: RocksDb -> Bool -> TestTree
+pagingTests rdb tls =
     withBlockHeaderDbsServer ValidateSpec tls version
             (starBlockHeaderDbs 6 $ testBlockHeaderDbs rdb version)
             (return noMempool)
     $ \env -> testGroup "paging tests"
-        [ testPageLimitHeadersClient version env
-        , testPageLimitHashesClient version env
+        [ testPageLimitHeadersClient env
+        , testPageLimitHashesClient env
         ]
 
 pagingTest
@@ -417,12 +482,12 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
         | n >= len ents = Exclusive . getKey <$> (Just $ last ents)
         | otherwise = Inclusive . getKey <$> listToMaybe (drop (int n) ents)
 
-testPageLimitHeadersClient :: ChainwebVersion -> IO TestClientEnv_ -> TestTree
-testPageLimitHeadersClient version = pagingTest "headersClient" headers key False request
+testPageLimitHeadersClient :: IO TestClientEnv_ -> TestTree
+testPageLimitHeadersClient = pagingTest "headersClient" headers key False request
   where
     request cid l n = headersClient version cid l n Nothing Nothing
 
-testPageLimitHashesClient :: ChainwebVersion -> IO TestClientEnv_ -> TestTree
-testPageLimitHashesClient version = pagingTest "hashesClient" hashes id False request
+testPageLimitHashesClient :: IO TestClientEnv_ -> TestTree
+testPageLimitHashesClient = pagingTest "hashesClient" hashes id False request
   where
     request cid l n = hashesClient version cid l n Nothing Nothing

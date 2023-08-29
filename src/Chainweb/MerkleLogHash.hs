@@ -52,8 +52,6 @@ import GHC.Generics
 import GHC.Stack (HasCallStack)
 import GHC.TypeNats
 
-import Numeric.Natural
-
 import System.IO.Unsafe
 
 -- internal imports

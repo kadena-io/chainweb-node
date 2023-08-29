@@ -124,7 +124,6 @@ import qualified Streaming.Prelude as S
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
@@ -634,7 +633,7 @@ tryMonotonicCutExtension c h = isMonotonicCutExtension c h >>= \case
     False -> return Nothing
     True -> return $ Just
         $! over unsafeCutHeaders extendChains
-        $ set (unsafeCutHeaders . ix (_chainId h)) h c
+        $ set (unsafeCutHeaders . ix' (_chainId h)) h c
 
 -- -------------------------------------------------------------------------- --
 -- Join

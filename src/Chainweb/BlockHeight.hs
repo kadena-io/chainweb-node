@@ -55,7 +55,7 @@ import Numeric.Additive
 -- -------------------------------------------------------------------------- --
 -- | BlockHeight
 --
-newtype BlockHeight = BlockHeight { _height :: Word64 }
+newtype BlockHeight = BlockHeight { getBlockHeight :: Word64 }
     deriving (Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype
@@ -101,7 +101,7 @@ decodeBlockHeightBe = BlockHeight <$> getWord64be
 -- -------------------------------------------------------------------------- --
 -- Cut Height
 
-newtype CutHeight = CutHeight Word64
+newtype CutHeight = CutHeight { getCutHeight :: Word64 }
     deriving (Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype

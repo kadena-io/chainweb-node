@@ -98,6 +98,7 @@ import Chainweb.Cut.Create
 import Chainweb.Graph
 import Chainweb.Payload
 import Chainweb.Test.Utils.BlockHeader
+import Chainweb.Test.TestVersions
 import Chainweb.Time (Micros(..), Time, TimeSpan)
 import qualified Chainweb.Time as Time (second)
 import Chainweb.Utils
@@ -625,7 +626,7 @@ prop_blockCountAtChainHeight g0 g1 = all p [0..10]
     h i = min 8 (i + 1) * int (order g0) + max 0 (i - 7) * int (order g1)
 
     -- (8, g1) :| [(0, g0)]
-    v = TimedConsensus g0 g1
+    v = timedConsensusVersion g0 g1
 
 properties_misc :: [(String, T.Property)]
 properties_misc =
@@ -654,7 +655,7 @@ properties db
     <> properties_miscCut db v
     <> properties_misc
   where
-    v = Test pairChainGraph
+    v = barebonesTestVersion pairChainGraph
 
 -- -------------------------------------------------------------------------- --
 -- TestTools

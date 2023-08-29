@@ -224,8 +224,11 @@ defaultCutDbParams v ft = CutDbParams
 -- NOTE: this number multiplied by the (current) number of chains must always be
 -- STRICTLY LARGER THAN 'catchupStepSize' in "Chainweb.CutDB.Sync".
 --
+-- This number should also be sufficiently large to accomodate for parallel
+-- mining. It should be at least the diameter of the chain graph.
+--
 farAheadThreshold :: BlockHeight
-farAheadThreshold = 200
+farAheadThreshold = 20
 
 -- -------------------------------------------------------------------------- --
 -- CutHashes Table
@@ -237,6 +240,16 @@ cutHashesTable rdb = Casify $ newTable rdb valueCodec keyCodec ["CutHashes"]
         (\(a,b,c) -> runPutS $ encodeCutHeightBe a >> encodeBlockWeightBe b >> encodeCutId c)
         (runGetS $ (,,) <$> decodeCutHeightBe <*> decodeBlockWeightBe <*> decodeCutId)
     valueCodec = Codec encodeToByteString decodeStrictOrThrow'
+
+-- -------------------------------------------------------------------------- --
+-- Exceptions
+
+data CutDbStopped = CutDbStopped
+    deriving (Eq, Show, Generic)
+
+instance Exception CutDbStopped where
+  fromException = asyncExceptionFromException
+  toException = asyncExceptionToException
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB
@@ -490,7 +503,7 @@ stopCutDb db = do
     currentCut <- readTVarIO (_cutDbCut db)
     unless (_cutDbReadOnly db) $
         casInsert (_cutDbCutStore db) (cutToCutHashes Nothing currentCut)
-    cancel (_cutDbAsync db)
+    cancelWith (_cutDbAsync db) CutDbStopped
 
 -- | Lookup the BlockHeaders for a CutHashes structure. Throws an exception if
 -- the lookup for some BlockHash in the input CutHashes.
@@ -612,7 +625,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
     --
     isVeryOld x = do
         curMin <- minChainHeight <$> readTVarIO cutVar
-        let diam = diameter $ chainGraphAt_ headerStore curMin
+        let diam = diameter $ chainGraphAt headerStore curMin
             newMin = _cutHashesMinHeight x
         let r = newMin + 2 * (1 + int diam) <= curMin
         when r $ loggc Debug x "skip very old cut"
@@ -821,7 +834,7 @@ member db cid h = do
 -- -------------------------------------------------------------------------- --
 -- Some CutDB
 
--- | 'CutDb' with type level 'ChainwebVersion'
+-- | 'CutDb' with type level 'ChainwebVersionName'
 --
 newtype CutDbT tbl (v :: ChainwebVersionT) = CutDbT (CutDb tbl)
     deriving (Generic)

@@ -58,19 +58,20 @@ import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Version.Utils
 import Chainweb.WebPactExecutionService
 
 import Chainweb.Storage.Table (casLookupM)
 
 testVersion :: ChainwebVersion
-testVersion = FastTimedCPM peterson
+testVersion = slowForkingCpmTestVersion peterson
 
 cid :: ChainId
-cid = someChainId testVersion
+cid = unsafeChainId 9
+    -- several tests in this file expect chain 9
 
 data MultiEnv = MultiEnv
     { _menvBdb :: !TestBlockDb
@@ -87,7 +88,8 @@ type PactTestM = ReaderT MultiEnv IO
 
 data MempoolInput = MempoolInput
     { _miBlockFill :: BlockFill
-    , _miBlockHeader :: BlockHeader }
+    , _miBlockHeader :: BlockHeader
+    }
 
 newtype MempoolCmdBuilder = MempoolCmdBuilder
     { _mempoolCmdBuilder :: MempoolInput -> CmdBuilder
@@ -100,7 +102,8 @@ newtype MempoolBlock = MempoolBlock
 
 -- | Mempool with an ordered list of fillers.
 newtype PactMempool = PactMempool
-  { _pactMempool :: [MempoolBlock] }
+  { _pactMempool :: [MempoolBlock]
+  }
   deriving (Semigroup,Monoid)
 
 
@@ -127,20 +130,23 @@ tests = ScheduledTest testName go
          , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
          , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
          , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
+         , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
+         , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
          ]
       where
           -- This is way more than what is used in production, but during testing
           -- we can be generous.
-        generousConfig = defaultPactServiceConfig { _pactBlockGasLimit = 300_000 }
-        timeoutConfig = defaultPactServiceConfig { _pactBlockGasLimit = 100_000 }
+        generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
+        timeoutConfig = testPactServiceConfig { _pactBlockGasLimit = 100_000 }
+
         test pactConfig gasmodel tname f =
           withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
             withTestBlockDb testVersion $ \bdb -> do
               (iompa,mpa) <- dmpio
-              withWebPactExecutionService step testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
+              let logger = hunitDummyLogger step
+              withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
                 runReaderT f $
                 MultiEnv bdb pact pacts (return iompa) noMiner cid
-
 
 minerKeysetTest :: PactTestM ()
 minerKeysetTest = do
@@ -233,6 +239,65 @@ chainweb213Test = do
         , "(create-table tbl)"
         ]
 
+pactLocalDepthTest :: PactTestM ()
+pactLocalDepthTest = do
+  runToHeight 53
+  runBlockTest
+    [ PactTxTest (buildCoinXfer "(coin.transfer 'sender00 'sender01 1.0)") $
+        assertTxGas "Coin transfer pre-fork" 1583
+    ]
+  runBlockTest
+    [ PactTxTest (buildCoinXfer "(coin.transfer 'sender00 'sender01 1.0)") $
+        assertTxGas "Coin post-fork" 1583
+    ]
+
+  runLocalWithDepth (Just $ RewindDepth 0) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the current balance" (pDecimal 99999997.6834)
+
+  -- checking that `Just $ RewindDepth 0` has the same behaviour as `Nothing`
+  runLocalWithDepth Nothing cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the current balance as well" (pDecimal 99999997.6834)
+
+  runLocalWithDepth (Just $ RewindDepth 1) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the balance one block before" (pDecimal 99999998.8417)
+
+  runLocalWithDepth (Just $ RewindDepth 2) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the balance two blocks before" (pDecimal 100000000)
+
+  -- the negative depth turns into 18446744073709551611 and we expect the `LocalRewindLimitExceeded` exception
+  -- since `Depth` is a wrapper around `Word64`
+  handle
+    (\case
+      LocalRewindLimitExceeded _ _ -> return ()
+      err -> liftIO $ assertFailure $ "Expected LocalRewindLimitExceeded, but got " ++ show err)
+    (do
+      runLocalWithDepth (Just $ RewindDepth (fromIntegral (-5 :: Int))) cid getSender00Balance >>= \_ ->
+        liftIO $ assertFailure "Expected LocalRewindLimitExceeded, but block succeeded")
+
+  -- the genesis depth
+  runLocalWithDepth (Just $ RewindDepth 55) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000)
+
+  -- depth that goes after the genesis block should trigger the `LocalRewindLimitExceeded` exception
+  handle
+    (\case
+      LocalRewindGenesisExceeded -> return ()
+      err -> liftIO $ assertFailure $ "Expected LocalRewindGenesisExceeded, but got " ++ show err)
+    (do
+      runLocalWithDepth (Just $ RewindDepth 56) cid getSender00Balance >>= \_ ->
+        liftIO $ assertFailure "Expected LocalRewindGenesisExceeded, but block succeeded")
+
+  where
+  checkLocalResult r checkResult = case r of
+    Right (LocalResultLegacy cr) -> checkResult cr
+    res -> liftIO $ assertFailure $ "Expected LocalResultLegacy, but got: " ++ show res
+  getSender00Balance = set cbGasLimit 700 $ mkCmd "nonce" $ mkExec' "(coin.get-balance \"sender00\")"
+  buildCoinXfer code = buildBasic'
+    (set cbSigners [mkSigner' sender00 coinCaps] . set cbGasLimit 3000)
+    $ mkExec' code
+    where
+    coinCaps = [ mkGasCap, mkTransferCap "sender00" "sender01" 1.0 ]
+
 pact45UpgradeTest :: PactTestM ()
 pact45UpgradeTest = do
   runToHeight 53 -- 2 before fork
@@ -247,7 +312,7 @@ pact45UpgradeTest = do
     , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
         assertTxGas "Enforce pre-fork evaluates the string with gas" 34
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
-        assertTxGas "List functions pre-fork gas" 20
+        assertTxGas "List functions pre-fork gas" 19
     , PactTxTest
       (buildBasicGas 70000 $ tblModule "Tbl") $
       assertTxSuccess "mod53 table update succeeds" $ pString "TableCreated"
@@ -261,7 +326,7 @@ pact45UpgradeTest = do
     , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
         assertTxGas "Enforce post fork does not eval the string" (14 + coinTxBuyTransferGas)
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
-        assertTxGas "List functions post-fork change gas" (40 + coinTxBuyTransferGas)
+        assertTxGas "List functions post-fork change gas" (39 + coinTxBuyTransferGas)
     , PactTxTest
       (buildBasicGas 70000 $ tblModule "tBl") $
       assertTxFailure "mod53 table update fails after fork" ""
@@ -292,10 +357,13 @@ pact45UpgradeTest = do
       $ mkExec' code
 
 runLocal :: ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
-runLocal cid' cmd = do
+runLocal cid' cmd = runLocalWithDepth Nothing cid' cmd
+
+runLocalWithDepth :: Maybe RewindDepth -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
+runLocalWithDepth depth cid' cmd = do
   HM.lookup cid' <$> view menvPacts >>= \case
     Just pact -> buildCwCmd cmd >>=
-      liftIO . _pactLocal pact Nothing Nothing Nothing
+      liftIO . _pactLocal pact Nothing Nothing depth
     Nothing -> liftIO $ assertFailure $ "No pact service found at chain id " ++ show cid'
 
 assertLocalFailure
@@ -507,8 +575,8 @@ chainweb215Test = do
     mkRecdEvents h h' = sequence
       [ mkTransferEvent "sender00" "NoMiner" 0.0258 "coin" h
       , mkTransferEvent "" "sender00" 0.0123 "coin" h
-      , mkTransferXChainRecdEvent "" "sender00" 0.0123 "coin" h "8"
-      , mkXResumeEvent "sender00" "sender00" 0.0123 sender00Ks "pact" h' "8" "0"
+      , mkTransferXChainRecdEvent "" "sender00" 0.0123 "coin" h (toText cid)
+      , mkXResumeEvent "sender00" "sender00" 0.0123 sender00Ks "pact" h' (toText cid) "0"
       ]
 
 
@@ -787,7 +855,7 @@ pact46UpgradeTest :: PactTestM ()
 pact46UpgradeTest = do
 
   -- run past genesis, upgrades
-  runToHeight 59
+  runToHeight 58
 
   -- Note: no error messages on-chain, so the error message is empty
   runBlockTest
@@ -977,6 +1045,28 @@ chainweb219UpgradeTest = do
     tryReadMsg = buildBasicGas 1000
         $ mkExec' "(try 1 (read-msg \"somekey\"))"
 
+pact48UpgradeTest :: PactTestM ()
+pact48UpgradeTest = do
+  runToHeight 83
+
+  -- run block 84 (before the pact48 fork)
+  runBlockTest
+    [ PactTxTest runConcat $ assertTxGas "Old concat gas cost" 231
+    , PactTxTest runFormat $ assertTxGas "Old format gas cost" 238
+    , PactTxTest runReverse $ assertTxGas "Old reverse gas cost" 4232
+    ]
+
+  -- run block 85 (after the pact 48 fork)
+  runBlockTest
+    [ PactTxTest runConcat $ assertTxGas "New concat gas cost" 280
+    , PactTxTest runFormat $ assertTxGas "New format gas cost" 233
+    , PactTxTest runReverse $ assertTxGas "New reverse gas cost" 4272
+    ]
+
+  where
+    runConcat = buildBasicGas 10000 $ mkExec' "(concat [\"hello\", \"world\"])"
+    runFormat = buildBasicGas 10000 $ mkExec' "(format \"{}\" [1,2,3])"
+    runReverse = buildBasicGas 10000 $ mkExec' "(reverse (enumerate 1 4000))"
 
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do

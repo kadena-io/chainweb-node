@@ -4,6 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 -- |
 -- Module: Chainweb.TreeDB.RemoteDB
@@ -39,11 +40,10 @@ import System.LogLevel
 import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeaderDB.RestAPI.Client
-import Chainweb.ChainId (ChainId)
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Paging
-import Chainweb.Version (ChainwebVersion)
+import Chainweb.Version
 
 import Data.LogMessage
 
@@ -137,4 +137,4 @@ remoteDb
     -> IO RemoteDb
 remoteDb db logg env = do
     h <- root db
-    pure $! RemoteDb env (ALogFunction logg) (_blockChainwebVersion h) (_blockChainId h)
+    pure $! RemoteDb env (ALogFunction logg) (_chainwebVersion h) (_blockChainId h)

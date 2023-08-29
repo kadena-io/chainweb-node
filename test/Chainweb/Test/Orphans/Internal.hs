@@ -1,15 +1,11 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -57,6 +53,7 @@ module Chainweb.Test.Orphans.Internal
 , mkTestEventsProof
 , arbitraryEventsProof
 , EventPactValue(..)
+, ProofPactEvent(..)
 
 -- ** Misc
 , arbitraryPage
@@ -87,10 +84,12 @@ import GHC.Stack
 
 import Numeric.Natural
 
-import Pact.Parse
+import qualified Pact.JSON.Encode as J
 import Pact.Types.Command
 import Pact.Types.PactValue
 import Pact.Types.Runtime (PactEvent(..), Literal(..))
+
+import Prelude hiding (Applicative(..))
 
 import System.IO.Unsafe
 
@@ -140,11 +139,16 @@ import Chainweb.SPV.OutputProof
 import Chainweb.SPV.PayloadProof
 import Chainweb.Test.Orphans.Pact
 import Chainweb.Test.Orphans.Time ()
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Utils.Serialization
 import Chainweb.Version
+import Chainweb.Version.Development
+import Chainweb.Version.Mainnet
+import Chainweb.Version.Registry
+import Chainweb.Version.Testnet
 import Chainweb.Version.Utils
 
 import Data.Singletons
@@ -178,26 +182,24 @@ instance Arbitrary Utf8Encoded where
 -- -------------------------------------------------------------------------- --
 -- Basics
 
--- FIXME: This doesn't throw pattern-match warnings when a new `ChainwebVersion`
--- constructor is invented!
 instance Arbitrary ChainwebVersion where
     arbitrary = elements
-        [ Test singletonChainGraph
-        , Test petersonChainGraph
-        , TimedConsensus singletonChainGraph singletonChainGraph
-        , TimedConsensus petersonChainGraph petersonChainGraph
-        , TimedConsensus singletonChainGraph pairChainGraph
-        , TimedConsensus petersonChainGraph twentyChainGraph
-        , PowConsensus singletonChainGraph
-        , PowConsensus petersonChainGraph
-        , TimedCPM singletonChainGraph
-        , TimedCPM petersonChainGraph
-        , FastTimedCPM singletonChainGraph
-        , FastTimedCPM petersonChainGraph
+        [ barebonesTestVersion singletonChainGraph
+        , barebonesTestVersion petersonChainGraph
+        , timedConsensusVersion singletonChainGraph singletonChainGraph
+        , timedConsensusVersion petersonChainGraph petersonChainGraph
+        , timedConsensusVersion singletonChainGraph pairChainGraph
+        , timedConsensusVersion petersonChainGraph twentyChainGraph
         , Development
         , Testnet04
         , Mainnet01
         ]
+
+instance Arbitrary ChainwebVersionName where
+    arbitrary = _versionName <$> arbitrary
+
+instance Arbitrary ChainwebVersionCode where
+    arbitrary = _versionCode <$> arbitrary
 
 instance MerkleHashAlgorithm a => Arbitrary (MerkleLogHash a) where
     arbitrary = unsafeMerkleLogHash . B.pack
@@ -206,7 +208,7 @@ instance MerkleHashAlgorithm a => Arbitrary (MerkleLogHash a) where
 -- A somewhat boring instance. Mostly the default value.
 --
 instance Arbitrary ChainwebConfiguration where
-    arbitrary = defaultChainwebConfiguration <$> arbitrary
+    arbitrary = defaultChainwebConfiguration <$> elements knownVersions
 
 -- -------------------------------------------------------------------------- --
 -- POW
@@ -284,11 +286,12 @@ instance Arbitrary NodeInfo where
             curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
             curChains = map fst $ snd curGraph
         return $ NodeInfo
-            { nodeVersion = v
+            { nodeVersion = _versionName v
             , nodeApiVersion = prettyApiVersion
             , nodeChains = T.pack . show <$> curChains
             , nodeNumberOfChains = length curChains
             , nodeGraphHistory = graphs
+            , nodeLatestBehaviorHeight = latestBehaviorAt v
             }
 
 -- -------------------------------------------------------------------------- --
@@ -373,7 +376,7 @@ arbitraryBlockHeaderVersionHeightChain v h cid
         $ liftA2 (:+:) (pure cid) -- chain id
         $ liftA2 (:+:) arbitrary -- weight
         $ liftA2 (:+:) (pure h) -- height
-        $ liftA2 (:+:) (pure v) -- version
+        $ liftA2 (:+:) (pure (_versionCode v)) -- version
         $ liftA2 (:+:) (EpochStartTime <$> chooseEnum (toEnum 0, t)) -- epoch start
         $ liftA2 (:+:) (Nonce <$> chooseAny) -- nonce
         $ fmap (MerkleLogBody . blockHashRecordToVector)
@@ -677,7 +680,7 @@ arbitraryPayloadWithStructuredOutputs = resize 10 $ do
     payloads <- newPayloadWithOutputs
         <$> arbitrary
         <*> arbitrary
-        <*> pure (fmap (TransactionOutput . encodeToByteString) <$> txs)
+        <*> pure (fmap (TransactionOutput . J.encodeStrict) <$> txs)
     return (_crReqKey . snd <$> txs, payloads)
   where
     genResult = arbitraryCommandResultWithEvents arbitraryProofPactEvent
@@ -850,8 +853,18 @@ arbitraryOutputEvents = OutputEvents
 instance Arbitrary OutputEvents where
     arbitrary = arbitraryOutputEvents
 
-instance Arbitrary PactEvent where
-    arbitrary = arbitraryProofPactEvent
+-- | Events that are supported in proofs
+--
+newtype ProofPactEvent = ProofPactEvent { getProofPactEvent :: PactEvent }
+    deriving (Show)
+    deriving newtype (Eq, FromJSON)
+
+instance ToJSON ProofPactEvent where
+    toJSON = J.toJsonViaEncode . getProofPactEvent
+    {-# INLINEABLE toJSON #-}
+
+instance Arbitrary ProofPactEvent where
+    arbitrary = ProofPactEvent <$> arbitraryProofPactEvent
 
 instance MerkleHashAlgorithm a => Arbitrary (BlockEventsHash_ a) where
     arbitrary = BlockEventsHash <$> arbitrary
@@ -860,6 +873,8 @@ instance Arbitrary Int256 where
     arbitrary = unsafeInt256
         <$> choose (int256ToInteger minBound, int256ToInteger maxBound)
 
+-- | PactValues that are supported in Proofs
+--
 newtype EventPactValue = EventPactValue { getEventPactValue :: PactValue }
     deriving (Show, Eq, Ord)
 
@@ -931,21 +946,6 @@ instance Arbitrary PendingTransactions where
 
 instance Arbitrary TransactionMetadata where
     arbitrary = TransactionMetadata <$> arbitrary <*> arbitrary
-
-instance Arbitrary ParsedDecimal where
-    arbitrary = ParsedDecimal <$> arbitrary
-
-instance Arbitrary ParsedInteger where
-    arbitrary = ParsedInteger <$> arbitrary
-
-instance Arbitrary GasLimit where
-    arbitrary = GasLimit <$> (getPositive <$> arbitrary)
-
-instance Arbitrary GasPrice where
-    arbitrary = GasPrice <$> (getPositive <$> arbitrary)
-
-instance Arbitrary MockTx where
-    arbitrary = MockTx <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
 
 instance Arbitrary t => Arbitrary (ValidatedTransaction t) where
     arbitrary = ValidatedTransaction <$> arbitrary <*> arbitrary <*> arbitrary

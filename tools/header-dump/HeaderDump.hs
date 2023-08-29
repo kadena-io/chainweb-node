@@ -60,6 +60,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch (MonadThrow, throwM)
 import Control.Monad.Except
+import Control.Monad.IO.Class
 
 import Data.Aeson.Encode.Pretty hiding (Config)
 import Data.Aeson.Lens
@@ -71,7 +72,7 @@ import Data.Functor.Of
 import qualified Data.HashSet as HS
 import Data.LogMessage
 import Data.Maybe
-import Data.Semigroup hiding (option)
+import Data.Semigroup
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
@@ -106,10 +107,13 @@ import Chainweb.Time
 import Chainweb.TreeDB hiding (key)
 import Chainweb.Utils hiding (progress)
 import Chainweb.Version
+import Chainweb.Version.Development
+import Chainweb.Version.Registry
 
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.Command
 import Pact.Types.PactError
 
@@ -220,7 +224,7 @@ instance ToJSON Config where
     toJSON o = object
         [ "logHandle" .= _configLogHandle o
         , "logLevel" .= _configLogLevel o
-        , "chainwebVersion" .= _configChainwebVersion o
+        , "chainwebVersion" .= _versionName (_configChainwebVersion o)
         , "chainId" .= _configChainId o
         , "pretty" .= _configPretty o
         , "database" .= _configDatabasePath o
@@ -234,7 +238,8 @@ instance FromJSON (Config -> Config) where
     parseJSON = withObject "Config" $ \o -> id
         <$< configLogHandle ..: "logHandle" % o
         <*< configLogLevel ..: "logLevel" % o
-        <*< configChainwebVersion ..: "ChainwebVersion" % o
+        <*< setProperty configChainwebVersion "chainwebVersion"
+            (findKnownVersion <=< parseJSON) o
         <*< configChainId ..: "chainId" % o
         <*< configPretty ..: "pretty" % o
         <*< configDatabasePath ..: "database" % o
@@ -247,7 +252,7 @@ pConfig :: MParser Config
 pConfig = id
     <$< configLogHandle .:: Y.pLoggerHandleConfig
     <*< configLogLevel .:: Y.pLogLevel
-    <*< configChainwebVersion .:: option textReader
+    <*< configChainwebVersion .:: option (findKnownVersion =<< textReader)
         % long "chainweb-version"
         <> help "chainweb version identifier"
     <*< configChainId .:: fmap Just % option textReader
@@ -341,7 +346,7 @@ instance ToJSON a => ToJSON (ChainData a) where
 mainWithConfig :: Config -> IO ()
 mainWithConfig config = withLog $ \logger ->
     liftIO $ run config $ logger
-        & addLabel ("version", toText $ _configChainwebVersion config)
+        & addLabel ("version", getChainwebVersionName $ _versionName $ _configChainwebVersion config)
         -- & addLabel ("chain", toText $ _configChainId config)
   where
     logconfig = Y.defaultLogConfig
@@ -412,7 +417,7 @@ run config logger = withBlockHeaders logger config $ \pdb x -> x
             & payloadsCid pdb id
             & miner cdData
             & S.filter ((/= "noMiner") . view (cdData . minerId))
-            & S.map encodeJson
+            & S.map (encodeJson . fmap J.encodeText)
             & S.mapM_ T.putStrLn
         OutputCoinbaseOutput -> s
             & payloadsCid pdb id
@@ -422,6 +427,7 @@ run config logger = withBlockHeaders logger config $ \pdb x -> x
         OutputCoinebaseResult -> s
             & payloadsCid pdb id
             & coinbaseResult cdData
+            & S.map (fmap J.toJsonViaEncode)
             & S.map encodeJson
             & S.mapM_ T.putStrLn
         CoinbaseFailure -> s
@@ -429,6 +435,7 @@ run config logger = withBlockHeaders logger config $ \pdb x -> x
             & coinbaseResult cdData
             & failures cdData
             & S.filter (isJust . view cdData)
+            & S.map (fmap J.toJsonViaEncode)
             & S.map encodeJson
             & S.mapM_ T.putStrLn
         OutputPayload -> s
@@ -599,19 +606,19 @@ transactionsWithOutputs l = S.mapM $ l
 
 commandWithOutputsValue :: (Command T.Text, CommandResult T.Text) -> Value
 commandWithOutputsValue (c, o) = object
-    [ "sigs" .= _cmdSigs c
-    , "hash" .= _cmdHash c
+    [ "sigs" .= fmap J.toJsonViaEncode (_cmdSigs c)
+    , "hash" .= J.toJsonViaEncode (_cmdHash c)
     , "payload" .= either
         (const $ String $ _cmdPayload c)
         (id @Value)
         (eitherDecodeStrict' $ T.encodeUtf8 $ _cmdPayload c)
-    , "output" .= o
+    , "output" .= J.toJsonViaEncode o
     ]
 
 commandValue :: Command T.Text -> Value
 commandValue c = object
-    [ "sigs" .= _cmdSigs c
-    , "hash" .= _cmdHash c
+    [ "sigs" .= fmap J.toJsonViaEncode (_cmdSigs c)
+    , "hash" .= J.toJsonViaEncode (_cmdHash c)
     , "payload" .= either
         (const $ String $ _cmdPayload c)
         (id @Value)

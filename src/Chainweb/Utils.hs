@@ -66,18 +66,15 @@ module Chainweb.Utils
 , len
 , (==>)
 , keySet
-, minimumsOf
-, minimumsByOf
+, tabulateHashMap
 , maxBy
-, minBy
-, allEqOn
-, roundBy
 , unlessM
 , whenM
 , ebool_
 , alignWithV
 , (&)
 , IxedGet(..)
+, ix'
 , minusOrZero
 , interleaveIO
 , mutableVectorFromList
@@ -132,7 +129,6 @@ module Chainweb.Utils
 , (???)
 , fromEitherM
 , InternalInvariantViolation(..)
-, eatIOExceptions
 
 -- ** Synchronous Exceptions
 , catchSynchronous
@@ -193,7 +189,7 @@ module Chainweb.Utils
 , scurry
 , suncurry
 , suncurry3
-, rwipe3
+, uncurry3
 , _T2
 , _T3
 
@@ -225,8 +221,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.TokenBucket
 import Control.DeepSeq
-import Control.Exception
-    (IOException, SomeAsyncException(..), evaluate)
+import Control.Exception (SomeAsyncException(..), evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
@@ -248,12 +243,10 @@ import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as CSV
 import Data.Decimal
-import Data.Foldable
 import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import Data.Monoid (Endo)
 import Data.Proxy
 import Data.String (IsString(..))
 import qualified Data.Text as T
@@ -362,23 +355,10 @@ keySet :: HM.HashMap a b -> HS.HashSet a
 keySet = HS.fromMap . set each ()
 {-# INLINE keySet #-}
 
--- | The the minimum elements of a list.
+-- | A HashMap memoizing a function over a finite input type.
 --
-minimumsOf :: Ord a => Getting (Endo (Endo [a])) s a -> s -> [a]
-minimumsOf l = minimumsByOf l compare
-{-# INLINE minimumsOf #-}
-
--- | The the minimum elements of a list by some comparision function.
---
-minimumsByOf :: Getting (Endo (Endo [a])) s a -> (a -> a -> Ordering) -> s -> [a]
-minimumsByOf l cmp = foldlOf' l mf []
-  where
-    mf [] !y = [y]
-    mf x@(h:_) !y = case cmp h y of
-        EQ -> y:x
-        GT -> [y]
-        LT -> x
-{-# INLINE minimumsByOf #-}
+tabulateHashMap :: (Enum a, Bounded a, Hashable a, Eq a) => (a -> b) -> HM.HashMap a b
+tabulateHashMap f = HM.fromList [ (a, f a) | a <- [minBound..maxBound] ]
 
 -- | The maximum of two value by some comparision function.
 --
@@ -387,23 +367,6 @@ maxBy cmp a b = case cmp a b of
     LT -> b
     _ -> a
 {-# INLINE maxBy #-}
-
--- | The minimum of two value by some comparision function.
---
-minBy :: (a -> a -> Ordering) -> a -> a -> a
-minBy cmp a b = case cmp a b of
-    GT -> b
-    _ -> a
-{-# INLINE minBy #-}
-
--- | Checks that all elements of foldable structure are equal under the given
--- mapping.
---
-allEqOn :: Foldable f => Eq b => (a -> b) -> f a -> Bool
-allEqOn p f = case toList f of
-    [] -> True
-    (h:t) -> all (== p h) $ p <$> t
-{-# INLINEABLE allEqOn #-}
 
 -- | A version of 'unless' with a monadic predicate.
 --
@@ -419,13 +382,6 @@ whenM c a = c >>= flip when a
 
 ebool_ :: e -> Bool -> Either e ()
 ebool_ e = bool (Left e) (Right ())
-
--- | Round an integral `n` up to the nearest multiple of
--- an integral `m`
---
-roundBy :: Integral a => a -> a -> a
-roundBy n m = ((n `div` m) + 1) * m
-{-# INLINE roundBy #-}
 
 -- | Elide 'semialign' import with this simple Vector-specialized version.
 -- O(n)-ish -- O(min (m,n) + 2*max(m-n,n-m))
@@ -466,7 +422,7 @@ mutableVectorFromList as = do
 -- | Provides a simple Fold lets you fold the value at a given key in a Map or
 -- element at an ordinal position in a list or Seq.
 --
--- This is a restrictec version of 'Ixed' from the lens package that prevents
+-- This is a restricted version of 'Ixed' from the lens package that prevents
 -- the value at the key from being modified.
 --
 class IxedGet a where
@@ -478,6 +434,19 @@ class IxedGet a where
     default ixg :: Ixed a => Index a -> Fold a (IxValue a)
     ixg i = ix i
     {-# INLINE ixg #-}
+
+-- | A strict version of 'ix'. It requires a 'Monad' constraint on the context.
+--
+ix'
+    :: forall s f
+    . Monad f
+    => Ixed s
+    => Index s
+    -> (IxValue s -> f (IxValue s))
+    -> s
+    -> f s
+ix' i f = ix i (f >=> \ !r -> return r)
+{-# INLINE ix' #-}
 
 -- -------------------------------------------------------------------------- --
 -- * Encodings and Serialization
@@ -878,15 +847,6 @@ newtype InternalInvariantViolation = InternalInvariantViolation T.Text
     deriving (Show)
 
 instance Exception InternalInvariantViolation
-
--- | Catch and strictly evaluate any 'IOException's.
---
--- This function should be used with great care because operation may silently
--- fail without leaving a trace. This can hide issues in the code making them
--- very difficult to debug.
---
-eatIOExceptions :: IO () -> IO ()
-eatIOExceptions = handle $ \(e :: IOException) -> void $ evaluate e
 
 -- | Catch and handle exception that are not contained in 'SomeAsyncException'.
 --
@@ -1295,13 +1255,13 @@ suncurry :: (a -> b -> c) -> T2 a b -> c
 suncurry k (T2 a b) = k a b
 {-# INLINE suncurry #-}
 
+uncurry3 :: (a -> b -> c -> d) -> (a, b, c) -> d
+uncurry3 k (a, b, c) = k a b c
+{-# INLINE uncurry3 #-}
+
 suncurry3 :: (a -> b -> c -> d) -> T3 a b c -> d
 suncurry3 k (T3 a b c) = k a b c
 {-# INLINE suncurry3 #-}
-
-rwipe3 :: T3 a b c -> T2 b c
-rwipe3 (T3 _ b c) = T2 b c
-{-# INLINE rwipe3 #-}
 
 _T2 :: Iso (T2 a b) (T2 s t) (a,b) (s,t)
 _T2 = iso (\(T2 a b) -> (a,b)) (uncurry T2)
@@ -1353,14 +1313,6 @@ unsafeManagerWithSettings settings = HTTP.newTlsManagerWith
 setManagerRequestTimeout :: Int -> HTTP.ManagerSettings -> HTTP.ManagerSettings
 setManagerRequestTimeout micros settings = settings
     { HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro micros
-        -- timeout connection-attempts after 10 sec instead of the default of 30 sec
-    , HTTP.managerModifyRequest = \req -> do
-        HTTP.managerModifyRequest settings req
-            { HTTP.responseTimeout = HTTP.responseTimeoutMicro micros
-                -- overwrite the explicit connection timeout from servant-client
-                -- (If the request has a timeout configured, the global timeout of
-                -- the manager is ignored)
-            }
     }
 
 -- -------------------------------------------------------------------------- --
