@@ -5,8 +5,7 @@ on:
   push:
     paths:
     - '**'
-    - '!.github/**'
-    - '.github/workflows/nix.yml'
+      #    - '!.github/**'
 
 jobs:
   build-and-cache:
