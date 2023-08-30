@@ -205,7 +205,7 @@ jobs:
             docker pull kadena/chainweb-node:${{ env.VERSION_NEW }}
             ```
             
-            *   [Binary-only Ubuntu-22.04 ](ghcr.io/kadena-io/chainweb-node/ubuntu:${{ env.VERSION_NEW }})
+            *   [Binary-only Ubuntu-20.04 ](ghcr.io/kadena-io/chainweb-node/ubuntu:${{ env.VERSION_NEW }})
             Image Digest: `${{ env.GHCR_DIGEST }}`
             ```sh
             docker pull ghcr.io/kadena-io/chainweb-node/ubuntu:${{ env.VERSION_NEW }}
