@@ -97,7 +97,7 @@ jobs:
           # git push
           # git push origin chainweb-$VERSION_NEW
 
-          echo ${{ secrets.DOCKERHUB_PAT }} | docker login https://registry.hub.docker.com/v2/ --username ${{ secrets.DOCKERHUB_USER }} --password-stdin
+          echo ${{ secrets.DOCKERHUB_PAT }} | docker login docker.io --username ${{ secrets.DOCKERHUB_USER }} --password-stdin
 
           docker tag kadena/chainweb-node:$VERSION_NEW kadena/chainweb-node:latest
           docker image push --all-tags kadena/chainweb-node
