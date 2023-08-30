@@ -86,10 +86,7 @@ jobs:
       - name: UBUNTU IMAGE bump end-user docker image 
         continue-on-error: true
         run: |
-          if [[ ${{ inputs.dry_run }} ]]; then 
-            echo "DOCKERHUB_SHA=we did not actually update dockerhub" >> $GITHUB_ENV
-            exit 0
-          fi
+          echo "DOCKERHUB_SHA=not yet updated" >> $GITHUB_ENV
           git clone https://github.com/kadena-io/chainweb-node-docker
           cd chainweb-node-docker
           sed -i -e "s/ARG REVISION=.*/ARG REVISION=$SHORT_REVISION/" Dockerfile
@@ -162,22 +159,22 @@ jobs:
           
           GHC_VER=9.6.2
           
-          UBUNTU_22_TAR=chainweb.false.$GHC_VER.ubuntu-22.04.$SHORT_REVISION.tar.gz
+          UBUNTU_20_TAR=chainweb.true.$GHC_VER.ubuntu-20.04.$SHORT_REVISION.tar.gz
           
-          UBUNTU_22_NODE=chainweb-$VERSION_NEW.ghc-$GHC_VER.ubuntu-22.04.$SHORT_REVISION.tar.gz
-          echo $UBUNTU_22_TAR
-          echo $UBUNTU_22_NODE
+          UBUNTU_20_NODE=chainweb-$VERSION_NEW.ghc-$GHC_VER.ubuntu-20.04.$SHORT_REVISION.tar.gz
+          echo $UBUNTU_20_TAR
+          echo $UBUNTU_20_NODE
           
-          curl "s3.us-east-1.amazonaws.com/kadena-cabal-cache/chainweb-node/$UBUNTU_22_TAR" -o "./$UBUNTU_22_TAR"
+          curl "s3.us-east-1.amazonaws.com/kadena-cabal-cache/chainweb-node/$UBUNTU_20_TAR" -o "./$UBUNTU_20_TAR"
                    
-          tar xvfz "$UBUNTU_22_TAR" chainweb/chainweb-node
+          tar xvfz "$UBUNTU_20_TAR" chainweb/chainweb-node
           mv chainweb/chainweb-node .
-          tar cvfz "$UBUNTU_22_NODE" chainweb-node
+          tar cvfz "$UBUNTU_20_NODE" chainweb-node
           rm -fr chainweb-node chainweb
           
-          echo "UBUNTU_22_SHA=$(shasum -a 256 $UBUNTU_22_NODE)" >> $GITHUB_ENV
-          shasum -a 256 "$UBUNTU_22_NODE"
-          echo "UBUNTU_22_NODE=$UBUNTU_22_NODE" >> $GITHUB_ENV
+          echo "UBUNTU_20_SHA=$(shasum -a 256 $UBUNTU_20_NODE)" >> $GITHUB_ENV
+          shasum -a 256 "$UBUNTU_20_NODE"
+          echo "UBUNTU_20_NODE=$UBUNTU_20_NODE" >> $GITHUB_ENV
 
       #- name: generate release message
       # could generate this from the changelog.md, though changelog.md could be itself generated...
@@ -186,7 +183,7 @@ jobs:
       - name: Generate release message
         continue-on-error: true
         env:
-          UBUNTU_22_NODE: ${{ env.UBUNTU_22_NODE }}
+          UBUNTU_20_NODE: ${{ env.UBUNTU_20_NODE }}
           IMAGE: ${{ env.IMAGE }}
           SHORT_REVISION: ${{ env.SHORT_REVISION }}
           VERSION_NEW: ${{ env.VERSION_NEW }}
@@ -219,12 +216,12 @@ jobs:
             SHA256 Hashes
             
             ```
-            ${{ env.UBUNTU_22_SHA }}
+            ${{ env.UBUNTU_20_SHA }}
             ```
           
             The following dependencies must be installed on the system:
             
-            *   ubuntu-22.04:
+            *   ubuntu-20.04:
                 ```sh
                 apt-get install ca-certificates libgmp10 libssl3 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
                 ```
@@ -236,7 +233,7 @@ jobs:
         #if: startsWith(github.ref, 'refs/tags/')
         with:
           bodyFile: CHANGELOG.md
-          artifacts: "${{ env.UBUNTU_22_NODE }}"
+          artifacts: "${{ env.UBUNTU_20_NODE }}"
           token: ${{ github.token }}
           tag: ${{ env.VERSION_NEW }}
           commit: ${{ env.RELEASE_SHA }}
