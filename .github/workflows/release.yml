@@ -73,7 +73,12 @@ jobs:
         with:
            ref: ${{ env.RELEASE_SHA }}
            sparse-checkout: 'CHANGELOG.md'
-           
+
+      - name: tag git sha with release version
+        run: |
+          git tag ${{ env.VERSION_NEW }} ${{ env.RELEASE_SHA }}
+          git push --tags
+
       #- name: derive release id from branch name?
       # if this was a release branch we'd do this to override the inputs
         # first run we are releasing from master (release branch kinda not needed if we just force release build logic during 'freeze')
@@ -86,6 +91,8 @@ jobs:
             echo "Skipping the batteries-included image steps as it should be a remote trigger" >> $GITHUB_STEP_STATUS
             exit 0
           fi
+          git clone https://github.com/kadena-io/chainweb-node-docker
+          cd chainweb-node-docker
           sed -i -e "s/ARG REVISION=.*/ARG REVISION=$SHORT_REVISION/" Dockerfile
           docker build -t kadena/chainweb-node:$VERSION_NEW .
           docker run --rm kadena/chainweb-node:$VERSION_NEW ./chainweb-node --version
@@ -95,6 +102,9 @@ jobs:
           git push
           git push origin chainweb-$VERSION_NEW
           # log into docker hub?
+
+          echo ${{ secrets.DOCKERHUB_PAT }} | docker login https://registry.hub.docker.com/v2/ --username ${{ secrets.DOCKERHUB_USER }} --password-stdin
+          
           docker push kadena/chainweb-node:$VERSION_NEW
           docker tag kadena/chainweb-node:$VERSION_NEW kadena/chainweb-node:latest
           docker push kadena/chainweb-node:latest
@@ -108,7 +118,7 @@ jobs:
           fi
           echo "DOCKERHUB_SHA=$digest1" >> $GITHUB_ENV
           
-      # all of this should really just be a BUMP IMAGE VERSION step in the other repo
+          # all of this should really just be a BUMP IMAGE VERSION step in the other repo
           # Now in this workflow, trigger the above, spit output into release notes file 
 
       - name: Login to GHCR
@@ -118,11 +128,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: tag git sha with release version
-        run: |
-          git tag ${{ env.VERSION_NEW }} ${{ env.RELEASE_SHA }}
-          git push --tags
-
       - name: retag ghcr docker images
         continue-on-error: true
         env:
@@ -134,7 +139,7 @@ jobs:
           docker run --rm $IMAGE --version
           docker tag ghcr.io/kadena-io/chainweb-node:sha-$SHORT_REVISION ghcr.io/kadena-io/chainweb-node/ubuntu:$VERSION_NEW
           docker tag ghcr.io/kadena-io/chainweb-node:sha-$SHORT_REVISION ghcr.io/kadena-io/chainweb-node/ubuntu:latest
-
+          
           docker image ls
           
           if [[ ! ${{ inputs.dry_run }} ]]; then 
@@ -150,7 +155,6 @@ jobs:
             exit 1
           fi
           echo "GHCR_DIGEST=$digest1" >> $GITHUB_ENV
-
 
       - name: run release script to generate images
         id: repack-binaries
@@ -247,4 +251,4 @@ jobs:
 
       - name: Deploy to mainnet api.chainweb.com
         run: |
-          echo "This will be a remote trigger in a bit here" >> $GITHUB_STEP_SUMMARY
+          echo "This will be a remote trigger" >> $GITHUB_STEP_SUMMARY
