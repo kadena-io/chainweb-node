@@ -91,6 +91,10 @@ jobs:
           git add Dockerfile
           git commit -m "chainweb-node version $VERSION_NEW"
           git tag chainweb-$VERSION_NEW
+
+          git config --local user.name "github-actions[chainweb-node release]"
+          git config --local user.email "devops@kadena.io"
+          
           git push
           git push origin chainweb-$VERSION_NEW
 
