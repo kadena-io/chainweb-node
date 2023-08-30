@@ -88,7 +88,6 @@ jobs:
         run: |
           if [[ ${{ inputs.dry_run }} ]]; then 
             echo "DOCKERHUB_SHA=we did not actually update dockerhub" >> $GITHUB_ENV
-            echo "Skipping the batteries-included image steps as it should be a remote trigger" >> $GITHUB_STEP_STATUS
             exit 0
           fi
           git clone https://github.com/kadena-io/chainweb-node-docker
@@ -105,9 +104,8 @@ jobs:
 
           echo ${{ secrets.DOCKERHUB_PAT }} | docker login https://registry.hub.docker.com/v2/ --username ${{ secrets.DOCKERHUB_USER }} --password-stdin
           
-          docker push kadena/chainweb-node:$VERSION_NEW
           docker tag kadena/chainweb-node:$VERSION_NEW kadena/chainweb-node:latest
-          docker push kadena/chainweb-node:latest
+          docker image push --all-tags kadena/chainweb-node
           
           ## spit these to output
           digest1=$(docker inspect kadena/chainweb-node:$VERSION_NEW --format '{{ .RepoDigests }}')
@@ -139,13 +137,12 @@ jobs:
           docker run --rm $IMAGE --version
           docker tag ghcr.io/kadena-io/chainweb-node:sha-$SHORT_REVISION ghcr.io/kadena-io/chainweb-node/ubuntu:$VERSION_NEW
           docker tag ghcr.io/kadena-io/chainweb-node:sha-$SHORT_REVISION ghcr.io/kadena-io/chainweb-node/ubuntu:latest
-          
+          docker tag ghcr.io/kadena-io/chainweb-node:sha-$SHORT_REVISION ghcr.io/kadena-io/chainweb-node:latest
+                    
           docker image ls
           
-          if [[ ! ${{ inputs.dry_run }} ]]; then 
-            docker push ghcr.io/kadena-io/chainweb-node/ubuntu:$VERSION_NEW
-            docker push ghcr.io/kadena-io/chainweb-node/ubuntu:latest
-          fi
+          docker image push --all-tags ghcr.io/kadena-io/chainweb-node/ubuntu
+          docker image push --all-tags ghcr.io/kadena-io/chainweb-node
           
           digest1=$(docker inspect ghcr.io/kadena-io/chainweb-node:sha-$SHORT_REVISION --format '{{ .RepoDigests }}')
           digest2=$(docker inspect ghcr.io/kadena-io/chainweb-node/ubuntu:$VERSION_NEW --format '{{ .RepoDigests }}')
@@ -154,7 +151,7 @@ jobs:
             echo "GHCR_DIGEST=GHCR digests do not compare correctly" >> $GITHUB_ENV
             exit 1
           fi
-          echo "GHCR_DIGEST=$digest1" >> $GITHUB_ENV
+          echo "GHCR_DIGEST=$digest2" >> $GITHUB_ENV
 
       - name: run release script to generate images
         id: repack-binaries
