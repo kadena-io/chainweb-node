@@ -186,7 +186,7 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
 initializeLatestBlock :: (Logger logger) => CanReadablePayloadCas tbl => Bool -> PactServiceM logger tbl ()
 initializeLatestBlock unlimitedRewind = findLatestValidBlock >>= \case
     Nothing -> return ()
-    Just b -> withBatch $ rewindTo initialRewindLimit (Just $ ParentHeader b)
+    Just b -> withBatch $ rewindTo "initializeLatestBlock" initialRewindLimit (Just $ ParentHeader b)
   where
     initialRewindLimit = RewindLimit 1000 <$ guard (not unlimitedRewind)
 
@@ -483,19 +483,14 @@ execNewBlock
     -> PactServiceM logger tbl PayloadWithOutputs
 execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
     updateMempool
-    withDiscardedBatch $ do
-      withCheckpointerRewind newblockRewindLimit (Just parent) "execNewBlock" doNewBlock
+    liftIO $ putStrLn $ "execNewBlock at " ++ (show $ _blockHeight $ _parentHeader parent)
+    withDiscardedBatch $ withCheckpointerRewind Nothing (Just parent) "execNewBlock" doNewBlock
   where
     handleTimeout :: TxTimeout -> PactServiceM logger cas a
     handleTimeout (TxTimeout h) = do
       logError $ "timed out on " <> sshow h
       liftIO $ mpaBadlistTx mpAccess (V.singleton h)
       throwM (TxTimeout h)
-
-    -- This is intended to mitigate mining attempts during replay.
-    -- In theory we shouldn't need to rewind much ever, but values
-    -- less than this are failing in PactReplay test.
-    newblockRewindLimit = Just $ RewindLimit 8
 
     getBlockTxs :: BlockFill -> PactServiceM logger tbl (Vector ChainwebTransaction)
     getBlockTxs bfState = do
@@ -775,6 +770,7 @@ execValidateBlock memPoolAccess currHeader plData = pactLabel "execValidateBlock
         let reorgLimit = view psReorgLimit psEnv
         T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch $ do
             withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
+                liftIO $ putStrLn $ "execValidateBlock execBlock!!!!! at " ++ (show $ _blockHeight currHeader)
                 !result <- execBlock currHeader plData pdbenv
                 return $! Save currHeader result
         !result <- either throwM return $

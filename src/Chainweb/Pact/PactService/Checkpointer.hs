@@ -229,6 +229,7 @@ withCheckpointerWithoutRewind target caller act = do
         -- TODO: _cpSave is a complex call. If any thing in there throws
         -- an exception it would result in a pending tx.
         liftIO $! _cpSave checkPointer $ _blockHash header
+        liftIO $ putStrLn $ "Saving psStateValidated at " ++ (show (_blockHeight header) ++ " called by " ++ T.unpack caller)
         modify' $ set psStateValidated (Just header)
         setParentHeader (caller <> ".withCheckpointerWithoutRewind.saveTx") (ParentHeader header)
 
@@ -268,7 +269,7 @@ withCheckpointerRewind
     -> PactServiceM logger tbl a
 withCheckpointerRewind rewindLimit p caller act = do
     tracePactServiceM "withCheckpointerRewind.rewindTo" (_parentHeader <$> p) 0 $
-        rewindTo rewindLimit p
+        rewindTo caller rewindLimit p
         -- This updates '_psParentHeader'
     withCheckpointerWithoutRewind p caller act
 
@@ -358,13 +359,14 @@ withDiscardedBatch act = do
 rewindTo
     :: forall logger tbl
     . (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
-    => Maybe RewindLimit
+    => Text
+    -> Maybe RewindLimit
         -- ^ if set, limit rewinds to this delta
     -> Maybe ParentHeader
         -- ^ The parent header which is the rewind target
     -> PactServiceM logger tbl ()
-rewindTo _ Nothing = return ()
-rewindTo rewindLimit (Just (ParentHeader parent)) = do
+rewindTo _ _ Nothing = return ()
+rewindTo caller rewindLimit (Just (ParentHeader parent)) = do
 
     -- skip if the checkpointer is already at the target.
     (_, lastHash) <- getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
@@ -372,14 +374,16 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
         Just p -> return p
 
     if lastHash == parentHash
-      then
+      then do
         -- We want to guarantee that '_psParentHeader' is in sync with the
         -- latest block of the checkpointer at the end of and call to
         -- 'rewindTo'. In the @else@ branch this is taken care of by the call to
         -- 'withCheckPointerWithoutRewind'.
         setParentHeader "rewindTo" (ParentHeader parent)
+        liftIO $ putStrLn $ "rewindTo: " ++ (show (_blockHeight $ parent))
       else do
         lastHeader <- findLatestValidBlock >>= maybe failNonGenesisOnEmptyDb return
+        liftIO $ putStrLn $ "rewindTo looking for the lastHeader: " ++ (show (_blockHeight $ lastHeader))
         logInfo $ "rewind from last to checkpointer target"
             <> ". last height: " <> sshow (_blockHeight lastHeader)
             <> "; last hash: " <> blockHashToText (_blockHash lastHeader)
@@ -402,10 +406,12 @@ rewindTo rewindLimit (Just (ParentHeader parent)) = do
         let ancestorHeight = _blockHeight commonAncestor
 
         if commonAncestor == parent
-          then
+          then do
+            liftIO $ putStrLn $ "playFork: " ++ (show (_blockHeight parent))
+
             -- If no blocks got replayed the checkpointer isn't restored via
             -- 'fastForward'. So we do an empty 'withCheckPointerWithoutRewind'.
-            withCheckpointerWithoutRewind (Just $ ParentHeader commonAncestor) "rewindTo" $ \_ ->
+            withCheckpointerWithoutRewind (Just $ ParentHeader commonAncestor) (caller <> ".rewindTo") $ \_ ->
                 return $! Save commonAncestor ()
           else do
             logInfo $ "rewindTo.playFork"
@@ -441,6 +447,7 @@ fastForward
     => (ParentHeader, BlockHeader)
     -> PactServiceM logger tbl ()
 fastForward (target, block) = do
+    liftIO $ putStrLn $ "fastForwarding: " ++ (show (_blockHeight $ _parentHeader target, _blockHeight block))
     -- This does a restore, i.e. it rewinds the checkpointer back in
     -- history, if needed.
     withCheckpointerWithoutRewind (Just target) "fastForward" $ \pdbenv -> do
@@ -451,6 +458,7 @@ fastForward (target, block) = do
                 <> ". BlockPayloadHash: " <> encodeToText bpHash
                 <> ". Block: "<> encodeToText (ObjectEncoded block)
             Just x -> return $ payloadWithOutputsToPayloadData x
+        liftIO $ putStrLn "fastForward execBlock!!!!!"
         void $ execBlock block payload pdbenv
         return $! Save block ()
     -- double check output hash here?

@@ -710,6 +710,7 @@ runCut v bdb pact genTime noncer miner =
   forM_ (chainIds v) $ \cid -> do
     ph <- ParentHeader <$> getParentTestBlockDb bdb cid
     pout <- _webPactNewBlock pact miner ph
+    -- print ("runCut.pout ", pout)
     n <- noncer cid
 
     -- skip this chain if mining fails and retry with the next chain.

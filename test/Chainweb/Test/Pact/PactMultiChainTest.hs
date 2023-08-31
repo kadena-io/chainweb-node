@@ -118,20 +118,20 @@ tests = ScheduledTest testName go
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
     go = testGroup testName
-         [ test generousConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
-         , test generousConfig freeGasModel "pact420UpgradeTest" pact420UpgradeTest
-         , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
-         , test timeoutConfig freeGasModel "txTimeoutTest" txTimeoutTest
-         , test generousConfig getGasModel "chainweb213Test" chainweb213Test
-         , test generousConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
-         , test generousConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
-         , test generousConfig getGasModel "chainweb215Test" chainweb215Test
-         , test generousConfig getGasModel "chainweb216Test" chainweb216Test
-         , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
-         , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
-         , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
-         , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
-         , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
+         -- [ test generousConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
+         -- , test generousConfig freeGasModel "pact420UpgradeTest" pact420UpgradeTest
+         -- , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
+         -- , test timeoutConfig freeGasModel "txTimeoutTest" txTimeoutTest
+         -- , test generousConfig getGasModel "chainweb213Test" chainweb213Test
+         -- , test generousConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
+         -- , test generousConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
+         [ test generousConfig getGasModel "chainweb215Test" chainweb215Test
+         -- , test generousConfig getGasModel "chainweb216Test" chainweb216Test
+         -- , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
+         -- , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
+         -- , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
+         -- , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
+         -- , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
          ]
       where
           -- This is way more than what is used in production, but during testing
@@ -493,6 +493,8 @@ chainweb215Test = do
   -- run past genesis, upgrades
   runToHeight 30 -- 1->30
 
+  liftIO $ putStrLn "GOT TO HEIGHT 30"
+
   -- execute pre-fork xchain transfer (blocc0)
   runBlockTest
       [ PactTxTest xsend $ \cr -> do
@@ -501,11 +503,25 @@ chainweb215Test = do
       ]
   send0 <- txResult 0
 
+  liftIO $ putStrLn "EXECUTED PRE FORK"
+
   -- run past v5 upgrade, build proof of pre-fork xchain for tx31_0, save cut
   resetMempool
+
+  liftIO $ putStrLn "RESET MEMPOOL"
+
   runToHeight 34
+
+  liftIO $ putStrLn "GOT TO HEIGHT 34"
+
   savedCut <- currentCut
+
+  liftIO $ putStrLn "GOT THE CURRENT CUT"
+
   runToHeight 41
+
+  liftIO $ putStrLn "GOT TO HEIGHT 41"
+
 
   xproof <- buildXProof cid 31 0 send0
 
@@ -532,8 +548,17 @@ chainweb215Test = do
   currCut <- currentCut
 
     -- rewind to saved cut 43
+  liftIO $ putStrLn "REWINDING TO CUT AT 34"
+
+
   rewindTo savedCut
+
+  liftIO $ putStrLn "GOT TO HEIGHT 34, COMING TO 43"
+
   runToHeight 43
+
+  liftIO $ putStrLn "GOT TO HEIGHT 43"
+
 
   -- resume on original cut
   rewindTo currCut

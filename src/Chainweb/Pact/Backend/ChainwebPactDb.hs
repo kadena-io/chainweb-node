@@ -115,7 +115,7 @@ readOnlyChainwebPactDb bh = chainwebPactDb
     , _commitTx = \e ->
         -- we commit to change the state of the block
         -- but return the empty list to avoid writing to the db
-        runBlockEnv e doCommit >>= \_ -> pure []
+        runBlockEnv e doCommit -- >>= \_ -> pure []
     }
 
 getPendingData :: BlockHandler logger SQLiteEnv [SQLitePendingData]

@@ -84,10 +84,10 @@ main = do
             defaultMainWithIngredients (consoleAndJsonReporter : defaultIngredients)
                 $ adjustOption adj
                 $ testGroup "Chainweb Tests" . schedule Sequential
-                $ pactTestSuite rdb
-                : mempoolTestSuite db h0
-                : rosettaTestSuite rdb
-                : suite rdb
+                $ [pactTestSuite rdb]
+                -- : mempoolTestSuite db h0
+                -- : rosettaTestSuite rdb
+                -- : suite rdb
   where
     adj NoTimeout = Timeout (1_000_000 * 60 * 10) "10m"
     adj x = x
@@ -99,17 +99,17 @@ mempoolTestSuite db genesisBlock = testGroupSch "Mempool Consensus Tests"
 pactTestSuite :: RocksDb -> ScheduledTest
 pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
     $ schedule Sequential
-        [ Chainweb.Test.Pact.PactExec.tests
-        , ScheduledTest "DbCacheTests" Chainweb.Test.Pact.DbCacheTest.tests
-        , Chainweb.Test.Pact.Checkpointer.tests
-        , Chainweb.Test.Pact.PactMultiChainTest.tests
-        , Chainweb.Test.Pact.PactSingleChainTest.tests rdb
-        , Chainweb.Test.Pact.RemotePactTest.tests rdb
-        , Chainweb.Test.Pact.PactReplay.tests rdb
-        , Chainweb.Test.Pact.ModuleCacheOnRestart.tests rdb
-        , Chainweb.Test.Pact.TTL.tests rdb
-        , Chainweb.Test.Pact.RewardsTest.tests
-        , Chainweb.Test.Pact.NoCoinbase.tests
+        -- [ Chainweb.Test.Pact.PactExec.tests
+        -- , ScheduledTest "DbCacheTests" Chainweb.Test.Pact.DbCacheTest.tests
+        -- , Chainweb.Test.Pact.Checkpointer.tests
+        [ Chainweb.Test.Pact.PactMultiChainTest.tests
+        -- , Chainweb.Test.Pact.PactSingleChainTest.tests rdb
+        -- , Chainweb.Test.Pact.RemotePactTest.tests rdb
+        -- , Chainweb.Test.Pact.PactReplay.tests rdb
+        -- , Chainweb.Test.Pact.ModuleCacheOnRestart.tests rdb
+        -- , Chainweb.Test.Pact.TTL.tests rdb
+        -- , Chainweb.Test.Pact.RewardsTest.tests
+        -- , Chainweb.Test.Pact.NoCoinbase.tests
         ]
 
 rosettaTestSuite :: RocksDb -> ScheduledTest

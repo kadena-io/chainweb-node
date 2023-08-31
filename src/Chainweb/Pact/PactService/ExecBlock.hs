@@ -89,6 +89,8 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards
 
+-- import Debug.Trace (traceShow)
+
 -- | Set parent header in state and spv support (using parent hash)
 setParentHeader :: (Logger logger) => Text -> ParentHeader -> PactServiceM logger tbl ()
 setParentHeader msg ph@(ParentHeader bh) = do
@@ -622,6 +624,6 @@ toPayloadWithOutputs mi ts =
           . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
         blockOuts = snd $ newBlockOutputs cb transOuts
 
-        blockPL = blockPayload blockTrans blockOuts
+        blockPL = blockPayload blockTrans blockOuts -- traceShow ("toPayloadWithOutputs.coinbaseoutput: " ++ (show $ _transactionCoinbase ts)
         plData = payloadData blockTrans blockPL
      in payloadWithOutputs plData cb transOuts
