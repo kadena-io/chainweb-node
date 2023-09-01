@@ -1,7 +1,7 @@
 cabal-version: 3.8
 
 name:         chainweb
-version:      2.20
+version:      2.21
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
