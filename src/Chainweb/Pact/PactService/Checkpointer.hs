@@ -509,7 +509,7 @@ rewindToRead _ (ParentHeader parent) = do
 
             setParentHeader "rewindToRead.playFork" (ParentHeader commonAncestor)
           else do
-            liftIO $ putStrLn $ "rewindToRead.playFork: commonAncestor /= parent at " ++ (show (_blockHeight commonAncestor))
+            liftIO $ putStrLn $ "rewindToRead.playFork: commonAncestor /= parent at " ++ (show (_blockHeight commonAncestor, _blockHash commonAncestor))
 
             logInfo $ "rewindToRead.playFork"
                 <> ": checkpointer is at height: " <> sshow (_blockHeight lastHeader)
@@ -546,6 +546,7 @@ fastForward
     -> PactServiceM logger tbl ()
 fastForward (target, block) = do
     liftIO $ putStrLn $ "fastForwarding: " ++ (show (_blockHeight $ _parentHeader target, _blockHeight block))
+    liftIO $ putStrLn $ "fastForwardingHashes: " ++ (show (_blockHash $ _parentHeader target, _blockHash block))
     -- This does a restore, i.e. it rewinds the checkpointer back in
     -- history, if needed.
     withCheckpointerWithoutRewind (Just target) "fastForward" $ \pdbenv -> do
@@ -569,10 +570,11 @@ fastForwardRead
     => (ParentHeader, BlockHeader)
     -> PactServiceM logger tbl ()
 fastForwardRead (target, block) = do
-    liftIO $ putStrLn $ "fastForwardingRead: " ++ (show (_blockHeight $ _parentHeader target, _blockHeight block))
+    liftIO $ putStrLn $ "fastForwardingRead: " ++ (show (_blockHeight $ _parentHeader target, _blockHeight block, _blockHash block))
+    liftIO $ putStrLn $ "fastForwardingReadHashes: " ++ (show (_blockHash $ _parentHeader target, _blockHash block))
     -- This does a restore, i.e. it rewinds the checkpointer back in
     -- history, if needed.
-    withCheckpointerWithoutReadRewind target "fastForwardRead" $ \pdbenv -> do
+    withCheckpointerWithoutRewind (Just target) "fastForward" $ \pdbenv -> do
         payloadDb <- asks _psPdb
         payload <- liftIO $ tableLookup payloadDb bpHash >>= \case
             Nothing -> throwM $ PactInternalError
@@ -580,9 +582,21 @@ fastForwardRead (target, block) = do
                 <> ". BlockPayloadHash: " <> encodeToText bpHash
                 <> ". Block: "<> encodeToText (ObjectEncoded block)
             Just x -> return $ payloadWithOutputsToPayloadData x
-        liftIO $ putStrLn "fastForwardRead execBlock!!!!!"
+        liftIO $ putStrLn "fastForward execBlock!!!!!"
         void $ execBlock block payload pdbenv
-    setParentHeader "fastForwardRead" (ParentHeader block)
+        return $! Save block ()
+
+    -- withCheckpointerWithoutReadRewind target "fastForwardRead" $ \pdbenv -> do
+    --     payloadDb <- asks _psPdb
+    --     payload <- liftIO $ tableLookup payloadDb bpHash >>= \case
+    --         Nothing -> throwM $ PactInternalError
+    --             $ "Checkpointer.rewindTo.fastForward: lookup of payload failed"
+    --             <> ". BlockPayloadHash: " <> encodeToText bpHash
+    --             <> ". Block: "<> encodeToText (ObjectEncoded block)
+    --         Just x -> return $ payloadWithOutputsToPayloadData x
+    --     liftIO $ putStrLn "fastForwardRead execBlock!!!!!"
+    --     void $ execBlock block payload pdbenv
+    -- setParentHeader "fastForwardRead" (ParentHeader block)
   where
     bpHash = _blockPayloadHash block
 

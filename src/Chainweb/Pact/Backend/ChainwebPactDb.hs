@@ -607,14 +607,19 @@ blockHistoryInsert bh hsh t = do
             , SInt (fromIntegral t)
             ]
 
-        r' <- qry_ db qtext' [RInt]
+        let
+          qtext' = "SELECT blockheight, hash FROM BlockHistory \
+                  \ ORDER BY blockheight DESC LIMIT 10"
+
+          go [SInt hgt, SBlob blob] =
+              let hash = either error id $ runGetEitherS decodeBlockHash blob
+              in return (fromIntegral hgt :: Integer, hash :: BlockHash)
+          go _ = fail "impossible"
+
+        r' <- qry_ db qtext' [RInt, RBlob] >>= mapM go
         print r'
 
   where
-    qtext' = "SELECT blockheight FROM BlockHistory \
-            \ ORDER BY blockheight DESC LIMIT 10"
-
-
     stmt =
       "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
 

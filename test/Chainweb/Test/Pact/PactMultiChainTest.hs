@@ -563,11 +563,20 @@ chainweb215Test = do
   -- resume on original cut
   rewindTo currCut
 
+  liftIO $ putStrLn "REWINDED TO CURRCUT"
+
+
   -- run until post-fork xchain proof exists
   resetMempool
+  liftIO $ putStrLn "RUNNING TO HEIGHT 50"
   runToHeight 50
+  liftIO $ putStrLn "RUNNED TO HEIGHT 50"
+
   savedCut1 <- currentCut
+  liftIO $ putStrLn "RUNNING TO HEIGHT 52"
   runToHeight 52
+
+  liftIO $ putStrLn "BUILDING XPROOF"
 
   xproof1 <- buildXProof cid 42 0 send1
 

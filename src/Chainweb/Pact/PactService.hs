@@ -484,7 +484,7 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
     updateMempool
     liftIO $! putStrLn $ "execNewBlock at " ++ (show $ _blockHeight $ _parentHeader parent)
     -- withDiscardedBatch $ withCheckpointerRewind Nothing (Just parent) "execNewBlock" doNewBlock
-    withCheckpointerReadRewind parent "execNewBlock" doNewBlock
+    withDiscardedBatch $ withCheckpointerReadRewind parent "execNewBlock" doNewBlock
   where
     handleTimeout :: TxTimeout -> PactServiceM logger cas a
     handleTimeout (TxTimeout h) = do
