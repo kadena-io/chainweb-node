@@ -158,9 +158,6 @@ allow-newer: base-compat-batteries:*
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
 
--- other pact induced bounds (not relevant for on-chain semantics)
--- constraints: megaparsec <9.3
-allow-newer: prettyprinter:*
 allow-newer: webauthn:time
 
 -- servant does not yet support aeson 2.2

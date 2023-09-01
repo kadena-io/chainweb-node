@@ -198,6 +198,7 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
 data GenerateBase64ErrorMessage
   = Legacy
   | Simplified
+  deriving (Eq, Show)
 
 
 -- | A modified version of `decodeBase64UrlNoPaddingText` that emits
