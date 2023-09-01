@@ -163,8 +163,7 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psChainId = cid
                     }
             !pst = PactServiceState
-                    { _psStateValidated = Nothing
-                    , _psInitCache = mempty
+                    { _psInitCache = mempty
                     , _psParentHeader = initialParentHeader
                     , _psSpvSupport = P.noSPVSupport
                     }
@@ -483,8 +482,9 @@ execNewBlock
     -> PactServiceM logger tbl PayloadWithOutputs
 execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
     updateMempool
-    liftIO $ putStrLn $ "execNewBlock at " ++ (show $ _blockHeight $ _parentHeader parent)
-    withDiscardedBatch $ withCheckpointerRewind Nothing (Just parent) "execNewBlock" doNewBlock
+    liftIO $! putStrLn $ "execNewBlock at " ++ (show $ _blockHeight $ _parentHeader parent)
+    -- withDiscardedBatch $ withCheckpointerRewind Nothing (Just parent) "execNewBlock" doNewBlock
+    withCheckpointerReadRewind parent "execNewBlock" doNewBlock
   where
     handleTimeout :: TxTimeout -> PactServiceM logger cas a
     handleTimeout (TxTimeout h) = do
@@ -553,7 +553,8 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
         !pwo <- liftIO $ do
           txs <- Vec.toLiftedVector successes
           pure (toPayloadWithOutputs miner (Transactions txs cb))
-        return $! Discard pwo
+        return pwo
+        -- return $! Discard pwo
 
     refill :: Word64 -> Micros -> PactDbEnv' logger -> GrowableVec (ChainwebTransaction, P.CommandResult [P.TxLogJson]) -> GrowableVec GasPurchaseFailure -> BlockFill -> PactServiceM logger tbl BlockFill
     refill fetchLimit txTimeLimit pdbenv successes failures = go
@@ -757,6 +758,7 @@ execValidateBlock
     -> PayloadData
     -> PactServiceM logger tbl (PayloadWithOutputs, P.Gas)
 execValidateBlock memPoolAccess currHeader plData = pactLabel "execValidateBlock" $ do
+    liftIO $ putStrLn $ "execValidateBlock at " ++ (show $ _blockHeight currHeader)
     -- The parent block header must be available in the block header database
     target <- getTarget
 
@@ -770,7 +772,6 @@ execValidateBlock memPoolAccess currHeader plData = pactLabel "execValidateBlock
         let reorgLimit = view psReorgLimit psEnv
         T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch $ do
             withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
-                liftIO $ putStrLn $ "execValidateBlock execBlock!!!!! at " ++ (show $ _blockHeight currHeader)
                 !result <- execBlock currHeader plData pdbenv
                 return $! Save currHeader result
         !result <- either throwM return $

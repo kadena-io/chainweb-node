@@ -306,7 +306,7 @@ data Checkpointer logger = Checkpointer
       --
       -- TODO: Under which circumstances does this return 'Nothing'?
 
-    , _cpReadRestoreBegin :: !(BlockHeight -> IO (PactDbEnv' logger))
+    , _cpReadRestoreBegin :: !((BlockHeight, BlockHash) -> IO (PactDbEnv' logger))
       -- ^ starts ReadBlock savepoint for read-only transactions
       -- prerequisite: (BlockHeight - 1, ParentHash) is a direct ancestor of
       -- the "latest block"

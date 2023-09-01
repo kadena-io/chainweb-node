@@ -611,7 +611,7 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
     let rs = readRewards
     let ph = ParentHeader $ genesisBlockHeader v cid
     !ctx <- TestPactCtx
-      <$!> newMVar (PactServiceState Nothing mempty ph noSPVSupport)
+      <$!> newMVar (PactServiceState mempty ph noSPVSupport)
       <*> pure (pactServiceEnv cp rs)
     evalPactServiceM_ ctx (initialPayloadState mempty v cid)
     return (ctx, PactDbEnv' dbSt)

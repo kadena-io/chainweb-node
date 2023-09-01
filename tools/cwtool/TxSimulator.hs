@@ -180,8 +180,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                   , _psChainId = cid
                   }
                 pss = PactServiceState
-                  { _psStateValidated = Nothing
-                  , _psInitCache = mempty
+                  { _psInitCache = mempty
                   , _psParentHeader = ParentHeader parent
                   , _psSpvSupport = noSPVSupport
                   }

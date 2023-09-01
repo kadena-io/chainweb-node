@@ -150,7 +150,7 @@ doReadRow mbh d k = forModuleNameFix $ \mnFix ->
     queryStmt =
         "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ?" <> blockLimitStmt <> " ORDER BY txid DESC LIMIT 1;"
     -- we inject the endingtx limitation to reduce the scope up to the provided block height
-    blockLimitStmt = maybe "" (const " AND txid <= (SELECT endingtxid FROM BlockHistory where blockheight = ?)") mbh
+    blockLimitStmt = maybe "" (const " AND txid < (SELECT endingtxid FROM BlockHistory where blockheight = ?)") mbh
 
     lookupWithKey
         :: forall logger v . FromJSON v
@@ -598,14 +598,23 @@ toTxLog d key value =
               return $! TxLog (asString d) (fromUtf8 key) v
 
 blockHistoryInsert :: BlockHeight -> BlockHash -> TxId -> BlockHandler logger SQLiteEnv ()
-blockHistoryInsert bh hsh t =
-    callDb "blockHistoryInsert" $ \db ->
+blockHistoryInsert bh hsh t = do
+    liftIO $ putStrLn $ "INSERTED NEW BLOCK AT " ++ show (bh, hsh, t)
+    callDb "blockHistoryInsert" $ \db -> do
         exec' db stmt
             [ SInt (fromIntegral bh)
             , SBlob (runPutS (encodeBlockHash hsh))
             , SInt (fromIntegral t)
             ]
+
+        r' <- qry_ db qtext' [RInt]
+        print r'
+
   where
+    qtext' = "SELECT blockheight FROM BlockHistory \
+            \ ORDER BY blockheight DESC LIMIT 10"
+
+
     stmt =
       "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
 

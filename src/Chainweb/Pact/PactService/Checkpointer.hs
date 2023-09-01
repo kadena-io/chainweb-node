@@ -229,8 +229,7 @@ withCheckpointerWithoutRewind target caller act = do
         -- TODO: _cpSave is a complex call. If any thing in there throws
         -- an exception it would result in a pending tx.
         liftIO $! _cpSave checkPointer $ _blockHash header
-        liftIO $ putStrLn $ "Saving psStateValidated at " ++ (show (_blockHeight header) ++ " called by " ++ T.unpack caller)
-        modify' $ set psStateValidated (Just header)
+        liftIO $ putStrLn $ "Saving header with target at " ++ (show ((_blockHeight . _parentHeader) <$> target) ++ " called by " ++ T.unpack caller ++  " " ++ (show header))
         setParentHeader (caller <> ".withCheckpointerWithoutRewind.saveTx") (ParentHeader header)
 
 -- | 'withCheckpointer' but using the cached parent header for target.
@@ -276,25 +275,47 @@ withCheckpointerRewind rewindLimit p caller act = do
 withCheckpointerReadRewind
     :: (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
     => ParentHeader
+        -- ^ The parent header to which the checkpointer is restored
+        --
+        -- 'Nothing' restores the checkpointer for evaluating the genesis block.
+        --
     -> Text
     -> (PactDbEnv' logger -> PactServiceM logger tbl a)
     -> PactServiceM logger tbl a
-withCheckpointerReadRewind target@(ParentHeader parent) caller act = do
+withCheckpointerReadRewind p caller act = do
+    tracePactServiceM "withCheckpointerReadRewind.rewindTo" (_parentHeader p) 0 $
+        rewindToRead caller p
+        -- This updates '_psParentHeader'
+    withCheckpointerWithoutReadRewind p caller act
+
+withCheckpointerWithoutReadRewind
+    :: (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
+    => ParentHeader
+    -> Text
+    -> (PactDbEnv' logger -> PactServiceM logger tbl a)
+    -> PactServiceM logger tbl a
+withCheckpointerWithoutReadRewind target@(ParentHeader parent) caller act = do
     cp <- getCheckpointer
     logDebug $ "read restoring (with caller " <> caller <> ") " <> sshow target
 
+    -- we allow exactly one nested call of 'withCheckpointer', which is used
+    -- during fastforward in 'rewindTo'.
+    unlessM ((<= 1) <$> asks _psCheckpointerDepth) $ do
+        error $ "Code invariant violation: to many nested calls of withCheckpointerWithoutReadRewind. Please report this as a bug."
+
     currentParent <- use psParentHeader
-    mask $ \restore -> do
+
+    local (over psCheckpointerDepth succ) $ mask $ \restore -> do
         cenv <- restore $ do
-            setParentHeader "withCheckpointerReadRewind" (ParentHeader parent)
-            liftIO $! _cpReadRestoreBegin cp (_blockHeight parent + 1)
+            setParentHeader "withCheckpointerWithoutReadRewind" (ParentHeader parent)
+            liftIO $! _cpReadRestoreBegin cp (_blockHeight parent + 1, _blockHash parent)
 
         try (restore (act cenv)) >>= \case
             Left !e -> finalize cp currentParent >> throwM @_ @SomeException e
             Right !result -> finalize cp currentParent >> return result
     where
-        finalize cp p = do
-            setParentHeader "withCheckpointerReadRewind" p
+        finalize cp _ = do
+            -- setParentHeader "withCheckpointerWithoutReadRewind" p
             liftIO $! _cpReadRestoreEnd cp
 
 -- | Run a batch of checkpointer operations, possibly involving the evaluation
@@ -373,6 +394,8 @@ rewindTo caller rewindLimit (Just (ParentHeader parent)) = do
         Nothing -> throwM NoBlockValidatedYet
         Just p -> return p
 
+    liftIO $ putStrLn $ "rewindTo: (lastHash, parentHash) " ++ (show (lastHash, parentHash))
+
     if lastHash == parentHash
       then do
         -- We want to guarantee that '_psParentHeader' is in sync with the
@@ -383,7 +406,7 @@ rewindTo caller rewindLimit (Just (ParentHeader parent)) = do
         liftIO $ putStrLn $ "rewindTo: " ++ (show (_blockHeight $ parent))
       else do
         lastHeader <- findLatestValidBlock >>= maybe failNonGenesisOnEmptyDb return
-        liftIO $ putStrLn $ "rewindTo looking for the lastHeader: " ++ (show (_blockHeight $ lastHeader))
+        liftIO $ putStrLn $ "rewindTo: lastHeader " ++ (show lastHeader)
         logInfo $ "rewind from last to checkpointer target"
             <> ". last height: " <> sshow (_blockHeight lastHeader)
             <> "; last hash: " <> blockHashToText (_blockHash lastHeader)
@@ -408,6 +431,8 @@ rewindTo caller rewindLimit (Just (ParentHeader parent)) = do
         if commonAncestor == parent
           then do
             liftIO $ putStrLn $ "playFork: " ++ (show (_blockHeight parent))
+
+            liftIO $ putStrLn $ "rewindTo.playFork: Saving header at " ++ (show commonAncestor)
 
             -- If no blocks got replayed the checkpointer isn't restored via
             -- 'fastForward'. So we do an empty 'withCheckPointerWithoutRewind'.
@@ -437,6 +462,79 @@ rewindTo caller rewindLimit (Just (ParentHeader parent)) = do
                           & S.length_
             logInfo $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
 
+rewindToRead
+    :: forall logger tbl
+    . (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
+    => Text
+    -> ParentHeader
+    -> PactServiceM logger tbl ()
+rewindToRead _ (ParentHeader parent) = do
+    (ParentHeader currentParent) <- use psParentHeader
+
+    -- skip if the checkpointer is already at the target.
+    (_, lastHash) <- getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
+        Nothing -> throwM NoBlockValidatedYet
+        Just p -> return p
+
+    liftIO $ putStrLn $ "rewindToRead: (lastHash, parentHash, currentParent) " ++ (show (lastHash, parentHash, _blockHash currentParent))
+
+
+    lastHeader <- findLatestValidBlockSince (_blockHeight currentParent, _blockHash currentParent) >>= maybe failNonGenesisOnEmptyDb return
+
+    liftIO $ putStrLn $ "rewindToRead: lastHeader " ++ (show lastHeader)
+    logInfo $ "rewind from last to checkpointer target"
+        <> ". last height: " <> sshow (_blockHeight lastHeader)
+        <> "; last hash: " <> blockHashToText (_blockHash lastHeader)
+        <> "; target height: " <> sshow parentHeight
+        <> "; target hash: " <> blockHashToText parentHash
+
+    playFork lastHeader
+
+  where
+    parentHeight = _blockHeight parent
+    parentHash = _blockHash parent
+    failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
+
+    playFork :: BlockHeader -> PactServiceM logger tbl ()
+    playFork lastHeader = do
+        bhdb <- asks _psBlockHeaderDb
+        commonAncestor <- liftIO $ forkEntry bhdb lastHeader parent
+        let ancestorHeight = _blockHeight commonAncestor
+
+        if commonAncestor == parent
+          then do
+            liftIO $ putStrLn $ "rewindToRead.playFork: " ++ (show (_blockHeight parent))
+
+            liftIO $ putStrLn $ "rewindToRead.playFork: Saving header at " ++ (show commonAncestor)
+
+            setParentHeader "rewindToRead.playFork" (ParentHeader commonAncestor)
+          else do
+            liftIO $ putStrLn $ "rewindToRead.playFork: commonAncestor /= parent at " ++ (show (_blockHeight commonAncestor))
+
+            logInfo $ "rewindToRead.playFork"
+                <> ": checkpointer is at height: " <> sshow (_blockHeight lastHeader)
+                <> ", target height: " <> sshow (_blockHeight parent)
+                <> ", common ancestor height " <> sshow ancestorHeight
+
+            logger <- view psLogger
+            -- 'getBranchIncreasing' expects an 'IO' callback because it maintains an 'TreeDB'
+            -- iterator. 'withPactState' allows us to call pact service actions
+            -- from the callback.
+            c <- withPactState $ \runPact ->
+                getBranchIncreasing bhdb parent (int ancestorHeight) $ \newBlocks -> do
+                    -- This stream is guaranteed to at least contain @e@.
+                    (h, s) <- fromJuste <$> S.uncons newBlocks
+                    heightRef <- newIORef (_blockHeight commonAncestor)
+                    withAsync (heightProgress (_blockHeight commonAncestor) heightRef (logInfo_ logger)) $ \_ ->
+                      s
+                          & S.scanM
+                              (\ !p !c -> runPact (fastForwardRead (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
+                              (return h) -- initial parent
+                              return
+                          & S.length_
+            logInfo $ "rewindToRead.playFork: replayed " <> sshow c <> " blocks"
+
+
 -- | INTERNAL UTILITY FUNCTION. DON'T EXPORT FROM THIS MODULE.
 --
 -- Fast forward a block within a 'rewindTo' loop.
@@ -465,6 +563,29 @@ fastForward (target, block) = do
   where
     bpHash = _blockPayloadHash block
 
+fastForwardRead
+    :: forall logger tbl
+    . (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
+    => (ParentHeader, BlockHeader)
+    -> PactServiceM logger tbl ()
+fastForwardRead (target, block) = do
+    liftIO $ putStrLn $ "fastForwardingRead: " ++ (show (_blockHeight $ _parentHeader target, _blockHeight block))
+    -- This does a restore, i.e. it rewinds the checkpointer back in
+    -- history, if needed.
+    withCheckpointerWithoutReadRewind target "fastForwardRead" $ \pdbenv -> do
+        payloadDb <- asks _psPdb
+        payload <- liftIO $ tableLookup payloadDb bpHash >>= \case
+            Nothing -> throwM $ PactInternalError
+                $ "Checkpointer.rewindTo.fastForward: lookup of payload failed"
+                <> ". BlockPayloadHash: " <> encodeToText bpHash
+                <> ". Block: "<> encodeToText (ObjectEncoded block)
+            Just x -> return $ payloadWithOutputsToPayloadData x
+        liftIO $ putStrLn "fastForwardRead execBlock!!!!!"
+        void $ execBlock block payload pdbenv
+    setParentHeader "fastForwardRead" (ParentHeader block)
+  where
+    bpHash = _blockPayloadHash block
+
 -- | Find the latest block stored in the checkpointer for which the respective
 -- block header is available in the block header database.
 --
@@ -480,6 +601,23 @@ findLatestValidBlock :: (Logger logger) => PactServiceM logger tbl (Maybe BlockH
 findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
     Nothing -> return Nothing
     Just (height, hash) -> go height hash
+  where
+    go height hash = do
+        bhdb <- view psBlockHeaderDb
+        liftIO (lookup bhdb hash) >>= \case
+            Nothing -> do
+                logInfo $ "Latest block isn't valid."
+                    <> " Failed to lookup hash " <> sshow (height, hash) <> " in block header db."
+                    <> " Continuing with parent."
+                cp <- getCheckpointer
+                liftIO (_cpGetBlockParent cp (height, hash)) >>= \case
+                    Nothing -> throwM $ PactInternalError
+                        $ "missing block parent of last hash " <> sshow (height, hash)
+                    Just predHash -> go (pred height) predHash
+            x -> return x
+
+findLatestValidBlockSince :: (Logger logger) => (BlockHeight, BlockHash) -> PactServiceM logger tbl (Maybe BlockHeader)
+findLatestValidBlockSince (h, h') = go h h'
   where
     go height hash = do
         bhdb <- view psBlockHeaderDb

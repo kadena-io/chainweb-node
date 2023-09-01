@@ -151,7 +151,8 @@ doRestore :: (Logger logger)
   -> Db logger
   -> Maybe (BlockHeight, ParentHash)
   -> IO (PactDbEnv' logger)
-doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
+doRestore v cid dbenv (Just (bh, hash)) = do
+  runBlockEnv dbenv $ do
     setModuleNameFix
     setSortedKeys
     setLowerCaseTables
@@ -189,9 +190,9 @@ doReadRestoreBegin :: (Logger logger)
   -> ChainId
   -> Db logger
   -> Db logger
-  -> BlockHeight
+  -> (BlockHeight, BlockHash)
   -> IO (PactDbEnv' logger)
-doReadRestoreBegin v cid dbenv rodbenv bh = do
+doReadRestoreBegin v cid dbenv rodbenv (bh, bhash) = do
     -- copy data from the real dbenv to read-only dbenv
     dbContent <- readMVar dbenv
     modifyMVar_ rodbenv (const $ pure dbContent)
@@ -202,6 +203,14 @@ doReadRestoreBegin v cid dbenv rodbenv bh = do
       setLowerCaseTables
       clearPendingTxState
       beginSavepoint ReadBlock
+
+      -- rewind the block state to the given block height
+      endTxId <- callDb "doReadRestoreBegin" $ \db -> TxId . fromIntegral <$> getEndTxId db (bh - 1) bhash
+      assign bsBlockHeight bh
+      assign bsTxId endTxId
+
+      liftIO $ putStrLn $ "doReadRestoreBegin: " ++ (show (bh, endTxId))
+
       return $! PactDbEnv' $! PactDbEnv (readOnlyChainwebPactDb bh) rodbenv
   where
     -- Module name fix follows the restore call to checkpointer.
@@ -290,6 +299,9 @@ doGetEarliest dbenv =
 doGetLatest :: HasCallStack => Db logger -> IO (Maybe (BlockHeight, BlockHash))
 doGetLatest dbenv =
     runBlockEnv dbenv $ callDb "getLatestBlock" $ \db -> do
+        r' <- qry_ db qtext' [RInt]
+        print r'
+
         r <- qry_ db qtext [RInt, RBlob] >>= mapM go
         case r of
           [] -> return Nothing
@@ -297,6 +309,10 @@ doGetLatest dbenv =
   where
     qtext = "SELECT blockheight, hash FROM BlockHistory \
             \ ORDER BY blockheight DESC LIMIT 1"
+
+    qtext' = "SELECT blockheight FROM BlockHistory \
+            \ ORDER BY blockheight DESC LIMIT 10"
+
 
     go [SInt hgt, SBlob blob] =
         let hash = either error id $ runGetEitherS decodeBlockHash blob

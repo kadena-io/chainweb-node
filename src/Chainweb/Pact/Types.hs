@@ -104,7 +104,6 @@ module Chainweb.Pact.Types
 
     -- * Pact Service State
   , PactServiceState(..)
-  , psStateValidated
   , psInitCache
   , psParentHeader
   , psSpvSupport
@@ -519,8 +518,7 @@ defaultOnFatalError lf pex t = do
 type ModuleInitCache = M.Map BlockHeight ModuleCache
 
 data PactServiceState = PactServiceState
-    { _psStateValidated :: !(Maybe BlockHeader)
-    , _psInitCache :: !ModuleInitCache
+    { _psInitCache :: !ModuleInitCache
     , _psParentHeader :: !ParentHeader
     , _psSpvSupport :: !SPVSupport
     }

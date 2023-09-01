@@ -151,8 +151,6 @@ execBlock currHeader plData pdbenv = do
 
     !results <- go miner trans >>= throwOnGasFailure
 
-    modify' $ set psStateValidated $ Just currHeader
-
     either throwM (void . return) $
       validateHashes currHeader plData miner results
 
