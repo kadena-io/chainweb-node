@@ -891,7 +891,7 @@ blockPayload
 blockPayload txs outs
     = fromLog $! newMerkleLog @a @ChainwebHashTag
         $ _blockTransactionsHash txs
-        :+: (traceShow ("blockPayload outputshash " ++ (show outs)) $ _blockOutputsHash outs)
+        :+: (_blockOutputsHash outs)
         :+: emptyBody
 
 -- | Compute BlockPayload from transactions and outputs.

@@ -599,7 +599,7 @@ toTxLog d key value =
 
 blockHistoryInsert :: BlockHeight -> BlockHash -> TxId -> BlockHandler logger SQLiteEnv ()
 blockHistoryInsert bh hsh t = do
-    liftIO $ putStrLn $ "INSERTED NEW BLOCK AT " ++ show (bh, hsh, t)
+    -- liftIO $ putStrLn $ "INSERTED NEW BLOCK AT " ++ show (bh, hsh, t)
     callDb "blockHistoryInsert" $ \db -> do
         exec' db stmt
             [ SInt (fromIntegral bh)
@@ -607,17 +607,17 @@ blockHistoryInsert bh hsh t = do
             , SInt (fromIntegral t)
             ]
 
-        let
-          qtext' = "SELECT blockheight, hash FROM BlockHistory \
-                  \ ORDER BY blockheight DESC LIMIT 10"
+        -- let
+        --   qtext' = "SELECT blockheight, hash FROM BlockHistory \
+        --           \ ORDER BY blockheight DESC LIMIT 10"
 
-          go [SInt hgt, SBlob blob] =
-              let hash = either error id $ runGetEitherS decodeBlockHash blob
-              in return (fromIntegral hgt :: Integer, hash :: BlockHash)
-          go _ = fail "impossible"
+        --   go [SInt hgt, SBlob blob] =
+        --       let hash = either error id $ runGetEitherS decodeBlockHash blob
+        --       in return (fromIntegral hgt :: Integer, hash :: BlockHash)
+        --   go _ = fail "impossible"
 
-        r' <- qry_ db qtext' [RInt, RBlob] >>= mapM go
-        print r'
+        -- r' <- qry_ db qtext' [RInt, RBlob] >>= mapM go
+        -- print r'
 
   where
     stmt =

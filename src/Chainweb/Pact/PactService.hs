@@ -482,7 +482,7 @@ execNewBlock
     -> PactServiceM logger tbl PayloadWithOutputs
 execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
     updateMempool
-    liftIO $! putStrLn $ "execNewBlock at " ++ (show $ _blockHeight $ _parentHeader parent)
+    -- liftIO $! putStrLn $ "execNewBlock at " ++ (show $ _blockHeight $ _parentHeader parent)
     -- withDiscardedBatch $ withCheckpointerRewind Nothing (Just parent) "execNewBlock" doNewBlock
     withDiscardedBatch $ withCheckpointerReadRewind parent "execNewBlock" doNewBlock
   where
@@ -758,7 +758,7 @@ execValidateBlock
     -> PayloadData
     -> PactServiceM logger tbl (PayloadWithOutputs, P.Gas)
 execValidateBlock memPoolAccess currHeader plData = pactLabel "execValidateBlock" $ do
-    liftIO $ putStrLn $ "execValidateBlock at " ++ (show $ _blockHeight currHeader)
+    -- liftIO $ putStrLn $ "execValidateBlock at " ++ (show $ _blockHeight currHeader)
     -- The parent block header must be available in the block header database
     target <- getTarget
 

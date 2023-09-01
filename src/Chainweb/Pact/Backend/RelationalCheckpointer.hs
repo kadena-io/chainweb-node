@@ -215,14 +215,14 @@ doReadRestoreBegin v cid dbenv rodbenv (bh, bhash) = do
               in return (fromIntegral hgt :: Integer, hash :: BlockHash)
           go _ = fail "impossible"
 
-        r' <- qry_ db qtext' [RInt, RBlob] >>= mapM go
-        print r'
+        -- r' <- qry_ db qtext' [RInt, RBlob] >>= mapM go
+        -- print r'
 
         TxId . fromIntegral <$> getEndTxId db (bh - 1) bhash
       assign bsBlockHeight bh
       assign bsTxId endTxId
 
-      liftIO $ putStrLn $ "doReadRestoreBegin: " ++ (show (bh, endTxId))
+      -- liftIO $ putStrLn $ "doReadRestoreBegin: " ++ (show (bh, endTxId))
 
       return $! PactDbEnv' $! PactDbEnv (readOnlyChainwebPactDb bh) rodbenv
   where
@@ -321,8 +321,8 @@ doGetLatest dbenv =
               in return (fromIntegral hgt :: Integer, hash :: BlockHash)
           go' _ = fail "impossible"
 
-        r' <- qry_ db qtext' [RInt, RBlob] >>= mapM go'
-        print r'
+        -- r' <- qry_ db qtext' [RInt, RBlob] >>= mapM go'
+        -- print r'
 
         r <- qry_ db qtext [RInt, RBlob] >>= mapM go
         case r of
