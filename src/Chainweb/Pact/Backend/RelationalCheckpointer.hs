@@ -232,7 +232,7 @@ doDiscard dbenv = runBlockEnv dbenv $ do
     --
     commitSavepoint Block
 
-doGetEarliest :: Db logger -> IO (Maybe (BlockHeight, BlockHash))
+doGetEarliest :: HasCallStack => Db logger -> IO (Maybe (BlockHeight, BlockHash))
 doGetEarliest dbenv =
   runBlockEnv dbenv $ callDb "getLatestBlock" $ \db -> do
     r <- qry_ db qtext [RInt, RBlob] >>= mapM go
