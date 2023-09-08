@@ -246,7 +246,7 @@ doGetEarliest dbenv =
     go [SInt hgt, SBlob blob] =
         let hash = either error id $ runGetEitherS decodeBlockHash blob
         in return (fromIntegral hgt, hash)
-    go _ = fail "impossible"
+    go _ = fail "Chainweb.Pact.Backend.RelationalCheckpointer.doGetEarliest: impossible. This is a bug in chainweb-node."
 
 doGetLatest :: Db logger -> IO (Maybe (BlockHeight, BlockHash))
 doGetLatest dbenv =
