@@ -42,6 +42,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
+import GHC.Stack (HasCallStack)
 
 import Database.SQLite3.Direct
 
@@ -248,7 +249,7 @@ doGetEarliest dbenv =
         in return (fromIntegral hgt, hash)
     go _ = fail "Chainweb.Pact.Backend.RelationalCheckpointer.doGetEarliest: impossible. This is a bug in chainweb-node."
 
-doGetLatest :: Db logger -> IO (Maybe (BlockHeight, BlockHash))
+doGetLatest :: HasCallStack => Db logger -> IO (Maybe (BlockHeight, BlockHash))
 doGetLatest dbenv =
     runBlockEnv dbenv $ callDb "getLatestBlock" $ \db -> do
         r <- qry_ db qtext [RInt, RBlob] >>= mapM go
@@ -262,7 +263,7 @@ doGetLatest dbenv =
     go [SInt hgt, SBlob blob] =
         let hash = either error id $ runGetEitherS decodeBlockHash blob
         in return (fromIntegral hgt, hash)
-    go _ = fail "impossible"
+    go _ = fail "Chainweb.Pact.Backend.RelationalCheckpointer.doGetLatest: impossible. This is a bug in chainweb-node."
 
 doBeginBatch :: Db logger -> IO ()
 doBeginBatch db = runBlockEnv db $ beginSavepoint BatchSavepoint
