@@ -653,14 +653,7 @@ failOnTooLowRequestedHeight parent (Just limit) lastHeader = do
     throwM $ RewindLimitExceeded limit parentHeight lastHeight parent
 
   cp <- getCheckpointer
-  earliestBlockHeight <- do
-    mEarliestBlock <- liftIO $ _cpGetEarliestBlock cp
-    case mEarliestBlock of
-      Just (minBlockHeight, _) -> pure minBlockHeight
-      Nothing -> do
-        ver <- view psVersion
-        cid <- view psChainId
-        pure (genesisHeight ver cid)
+  (earliestBlockHeight, _) <- liftIO $ _cpGetEarliestBlock cp
 
   when (parentHeight < earliestBlockHeight) $ do
     throwM $ RewindPastMinBlockHeight parentHeight parent earliestBlockHeight

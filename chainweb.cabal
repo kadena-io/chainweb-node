@@ -399,7 +399,7 @@ library
         , trifecta >= 2.1
         , these >= 1.0
         , time >= 1.12.2
-        , tls >=1.5.2
+        , tls >=1.9
         , tls-session-manager >= 0.0
         , token-bucket >= 0.1
         , transformers >= 0.5
