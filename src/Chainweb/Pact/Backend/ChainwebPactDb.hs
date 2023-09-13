@@ -98,7 +98,7 @@ tbl t@(Utf8 b)
 chainwebPactDb :: (Logger logger) => PactDb (BlockEnv logger SQLiteEnv)
 chainwebPactDb = PactDb
     { _readRow = \d k e -> runBlockEnv e $ doReadRow Nothing d k
-    , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow wt d k v
+    , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow Nothing wt d k v
     , _keys = \d e -> runBlockEnv e $ doKeys d
     , _txids = \t txid e -> runBlockEnv e $ doTxIds t txid
     , _createUserTable = \tn mn e -> runBlockEnv e $ doCreateUserTable tn mn
@@ -112,10 +112,7 @@ chainwebPactDb = PactDb
 readOnlyChainwebPactDb :: (Logger logger) => BlockHeight -> PactDb (BlockEnv logger SQLiteEnv)
 readOnlyChainwebPactDb bh = chainwebPactDb
     { _readRow = \d k e -> runBlockEnv e $ doReadRow (Just bh) d k
-    , _commitTx = \e ->
-        -- we commit to change the state of the block
-        -- but return the empty list to avoid writing to the db
-        runBlockEnv e doCommit -- >>= \_ -> pure []
+    , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow (Just bh) wt d k v
     }
 
 getPendingData :: BlockHandler logger SQLiteEnv [SQLitePendingData]
@@ -289,12 +286,13 @@ markTableMutation tablename blockheight db = do
     mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
 
 checkInsertIsOK
-    :: WriteType
+    :: Maybe BlockHeight
+    -> WriteType
     -> Domain RowKey RowData
     -> RowKey
     -> BlockHandler logger SQLiteEnv (Maybe RowData)
-checkInsertIsOK wt d k = do
-    olds <- doReadRow Nothing d k
+checkInsertIsOK mbh wt d k = do
+    olds <- doReadRow mbh d k
     case (olds, wt) of
         (Nothing, Insert) -> return Nothing
         (Just _, Insert) -> err "Insert: row found for key "
@@ -306,19 +304,20 @@ checkInsertIsOK wt d k = do
     err msg = internalError $ "checkInsertIsOK: " <> msg <> asString k
 
 writeUser
-    :: WriteType
+    :: Maybe BlockHeight
+    -> WriteType
     -> Domain RowKey RowData
     -> RowKey
     -> RowData
     -> BlockHandler logger SQLiteEnv ()
-writeUser wt d k rowdata@(RowData _ row) = gets _bsTxId >>= go
+writeUser mbh wt d k rowdata@(RowData _ row) = gets _bsTxId >>= go
   where
     toTableName = TableName . fromUtf8
     tn = domainTableName d
     ttn = toTableName tn
 
     go txid = do
-        m <- checkInsertIsOK wt d k
+        m <- checkInsertIsOK mbh wt d k
         row' <- case m of
                     Nothing -> ins
                     (Just old) -> upd old
@@ -336,13 +335,14 @@ writeUser wt d k rowdata@(RowData _ row) = gets _bsTxId >>= go
 
 doWriteRow
   :: (AsString k, J.Encode v)
-    => WriteType
+    => Maybe BlockHeight
+    -> WriteType
     -> Domain k v
     -> k
     -> v
     -> BlockHandler logger SQLiteEnv ()
-doWriteRow wt d k v = case d of
-    (UserTables _) -> writeUser wt d k v
+doWriteRow mbh wt d k v = case d of
+    (UserTables _) -> writeUser mbh wt d k v
     _ -> writeSys d k v
 
 doKeys
