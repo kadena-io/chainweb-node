@@ -140,7 +140,7 @@ testCompactCheckpointer =
 
     save 3
 
-    let compactToHeight :: BlockHeight -> [CompactFlag] -> IO ByteString
+    let compactToHeight :: BlockHeight -> [CompactFlag] -> IO (Maybe ByteString)
         compactToHeight h flags = withDefaultLogger Debug $ \logger -> do
           runCompactM (mkCompactEnv logger _sConn h flags) $ do
             -- compact and capture global grand hash
