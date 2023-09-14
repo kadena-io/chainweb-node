@@ -72,6 +72,7 @@ import Prelude hiding (lookup)
 
 import qualified Pact.Gas as P
 import Pact.Gas.Table
+import qualified Pact.JSON.Encode as J
 import qualified Pact.Interpreter as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
@@ -127,8 +128,7 @@ runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config 
         serviceRequests mempoolAccess reqQ
 
 withPactService
-    :: Logger logger
-    => CanReadablePayloadCas tbl
+    :: forall logger tbl a. (Logger logger, CanReadablePayloadCas tbl)
     => ChainwebVersion
     -> ChainId
     -> logger
@@ -141,8 +141,10 @@ withPactService
 withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
     withProdRelationalCheckpointer checkpointerLogger initialBlockState sqlenv ver cid $ \checkpointer -> do
         let !rs = readRewards
-            !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
-            !pse = PactServiceEnv
+        let !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
+        let onFatalError :: PactException -> Text -> IO x
+            !onFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
+        let !pse = PactServiceEnv
                     { _psMempoolAccess = Nothing
                     , _psCheckpointer = checkpointer
                     , _psPdb = pdb
@@ -152,7 +154,7 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psReorgLimit = _pactReorgLimit config
                     , _psLocalRewindDepthLimit = _pactLocalRewindDepthLimit config
                     , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout config
-                    , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
+                    , _psOnFatalError = onFatalError
                     , _psVersion = ver
                     , _psAllowReadsInLocal = _pactAllowReadsInLocal config
                     , _psIsBatch = False
@@ -162,9 +164,26 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psBlockGasLimit = _pactBlockGasLimit config
                     , _psChainId = cid
                     }
-            !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
-        runPactServiceM pst pse $ do
+        let !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
 
+        when (_pactRosettaEnabled config) $ do
+          (earliestBlockHeight, _) <- _cpGetEarliestBlock checkpointer
+          let gHeight = genesisHeight ver cid
+          when (gHeight /= earliestBlockHeight) $ do
+            let e = RosettaWithoutFullHistory
+                  { _earliestBlockHeight = earliestBlockHeight
+                  , _genesisHeight = gHeight
+                  }
+            let msg = J.object
+                  [ "details" J..= e
+                  , "message" J..= J.text "Your node has Rosetta enabled,\
+                      \ which requires that the full history is available.\
+                      \ However, the full history is not available.\
+                      \ Perhaps you have compacted your node?"
+                  ]
+            onFatalError e (J.encodeText msg)
+
+        runPactServiceM pst pse $ do
             -- If the latest header that is stored in the checkpointer was on an
             -- orphaned fork, there is no way to recover it in the call of
             -- 'initalPayloadState.readContracts'. We therefore rewind to the latest
@@ -906,7 +925,6 @@ chainweb213GasModel = modifiedGasModel
       _ -> P.milliGasToGas $ fullRunFunction name ga
     modifiedGasModel = defGasModel { P.runGasModel = \t g -> P.gasToMilliGas (modifiedRunFunction t g) }
 
-
 getGasModel :: TxContext -> P.GasModel
 getGasModel ctx
     | chainweb213Pact (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) = chainweb213GasModel
@@ -914,3 +932,5 @@ getGasModel ctx
 
 pactLabel :: (Logger logger) => Text -> PactServiceM logger tbl x -> PactServiceM logger tbl x
 pactLabel lbl x = localLabel ("pact-request", lbl) x
+
+

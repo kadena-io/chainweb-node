@@ -186,7 +186,6 @@ genesisTransactions
 genesisTransactions logs cid txs =
   pure $ V.toList $ V.map (getGenesisLog logs cid) txs
 
-
 -- | Matches a single genesis transaction to its coin contract logs.
 genesisTransaction
     :: Map TxId [AccountLog]
@@ -199,7 +198,6 @@ genesisTransaction logs cid rest target = do
   cr <- note RosettaTxIdNotFound $
         V.find (\c -> _crReqKey c == target) rest
   pure $ getGenesisLog logs cid cr
-
 
 ------------------------
 -- Coinbase Helpers --
@@ -510,7 +508,6 @@ getLatestBlockHeader cutDb cid = do
   c <- liftIO $ _cut cutDb
   HM.lookup cid (_cutMap c) ?? RosettaInvalidChain
 
-
 findBlockHeaderInCurrFork
     :: CutDb tbl
     -> ChainId
@@ -544,7 +541,6 @@ findBlockHeaderInCurrFork cutDb cid someHeight someHash = do
     byHeight db latest hi = do
       somebh <- liftIO $ seekAncestor db latest (int hi)
       somebh ?? RosettaInvalidBlockHeight
-
 
 getBlockOutputs
     :: forall tbl

@@ -427,6 +427,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
       , _pactBlockGasLimit = maybe id min maxGasLimit (_configBlockGasLimit conf)
       , _pactLogGas = _configLogGas conf
       , _pactModuleCacheLimit = _configModuleCacheLimit conf
+      , _pactRosettaEnabled = _configRosetta conf
       }
 
     pruningLogger :: T.Text -> logger

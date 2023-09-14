@@ -103,6 +103,10 @@ data PactServiceConfig = PactServiceConfig
     -- ^ whether to write transaction gas logs at INFO
   , _pactModuleCacheLimit :: !DbCacheLimitBytes
     -- ^ limit of the database module cache in bytes of corresponding row data
+  , _pactRosettaEnabled :: !Bool
+    -- ^ Whether or not the node has enabled Rosetta.
+    --   The Checkpointer needs this for compaction, because we must ensure that
+    --   the full history is available.
   } deriving (Eq,Show)
 
 data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError
@@ -210,6 +214,10 @@ data PactException
     { _localRewindExceededLimit :: !RewindLimit
     , _localRewindRequestedDepth :: !RewindDepth }
   | LocalRewindGenesisExceeded
+  | RosettaWithoutFullHistory
+    { _earliestBlockHeight :: !BlockHeight
+    , _genesisHeight :: !BlockHeight
+    }
   deriving (Eq,Generic)
 
 instance Show PactException where
@@ -239,6 +247,10 @@ instance J.Encode PactException where
     , "_localRewindRequestedDepth" J..= J.Aeson @Int (fromIntegral $ _rewindDepth $ _localRewindRequestedDepth o)
     ]
   build LocalRewindGenesisExceeded = tagged "LocalRewindGenesisExceeded" J.null
+  build o@(RosettaWithoutFullHistory{}) = tagged "RosettaWithoutFullHistory" $ J.object
+    [ "_rosettaWithoutFullHistoryEarliestBlockHeight" J..= J.Aeson @Int (fromIntegral $ _earliestBlockHeight o)
+    , "_rosettaWithoutFullHistoryGenesisHeight" J..= J.Aeson @Int (fromIntegral $ _genesisHeight o)
+    ]
 
 tagged :: J.Encode v => Text -> v -> J.Builder
 tagged t v = J.object
