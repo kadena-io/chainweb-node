@@ -282,7 +282,7 @@ withTestPact rdb test =
   withResource newEmptyMVar (const $ return ()) $ \mempoolVarIO ->
     withPactTestBlockDb testVer cid rdb (mempool mempoolVarIO) testPactServiceConfig $ \ios ->
       test $ do
-        (pq,bdb) <- ios
+        (_, pq, bdb) <- ios
         mp <- mempoolVarIO
         bhdb <- getBlockHeaderDb cid bdb
         return $ Ctx mp pq (_bdbPayloadDb bdb) bhdb
