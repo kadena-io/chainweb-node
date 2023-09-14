@@ -167,7 +167,11 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
         let !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
 
         when (_pactRosettaEnabled config) $ do
-          (earliestBlockHeight, _) <- _cpGetEarliestBlock checkpointer
+          putStrLn "oh yeah"
+          (earliestBlockHeight, _) <- catch (_cpGetEarliestBlock checkpointer) $ \(e :: SomeException) -> do
+            putStrLn $ show e
+            throwM e
+          putStrLn "koolaid"
           let gHeight = genesisHeight ver cid
           when (gHeight /= earliestBlockHeight) $ do
             let e = RosettaWithoutFullHistory
