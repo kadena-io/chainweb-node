@@ -58,7 +58,6 @@ module Chainweb.Test.Utils
 -- * Test BlockHeaderDbs Configurations
 , singleton
 , peterson
-, twenty
 , testBlockHeaderDbs
 , linearBlockHeaderDbs
 , starBlockHeaderDbs
@@ -492,9 +491,6 @@ peterson = petersonChainGraph
 
 singleton :: ChainGraph
 singleton = singletonChainGraph
-
-twenty :: ChainGraph
-twenty = twentyChainGraph
 
 testBlockHeaderDbs :: RocksDb -> ChainwebVersion -> IO [(ChainId, BlockHeaderDb)]
 testBlockHeaderDbs rdb v = mapM toEntry $ toList $ chainIds v

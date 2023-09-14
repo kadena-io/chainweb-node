@@ -655,7 +655,6 @@ failOnTooLowRequestedHeight parent (Just limit) lastHeader = do
   cp <- getCheckpointer
   (earliestBlockHeight, _) <- liftIO $ _cpGetEarliestBlock cp
 
-  liftIO $ print earliestBlockHeight
   when (parentHeight < earliestBlockHeight) $ do
     throwM $ RewindPastMinBlockHeight parentHeight parent earliestBlockHeight
 

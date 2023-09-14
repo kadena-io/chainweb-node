@@ -148,7 +148,7 @@ testBlockHeader adj nonce p@(ParentHeader b) =
 -- Should only be used for testing purposes.
 --
 testBlockHeaders :: ParentHeader -> [BlockHeader]
-testBlockHeaders (ParentHeader p) = L.unfoldr (Just . (\x -> (x, x)) . f) p
+testBlockHeaders (ParentHeader p) = L.unfoldr (Just . (id &&& id) . f) p
   where
     f b = testBlockHeader mempty (_blockNonce b) $ ParentHeader b
 
