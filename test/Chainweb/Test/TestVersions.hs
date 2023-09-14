@@ -19,7 +19,8 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.List as List
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload as TN0
-import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM1to9Payload as TNN
+import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM1to9Payload as TN1to9
+--import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM10to19Payload as TN10to19
 
 import System.IO.Unsafe
 
@@ -190,7 +191,7 @@ timedConsensusVersion g1 g2 = buildTestVersion $ \v -> v
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
             (unsafeChainId 0, TN0.payloadBlock) :
-            [(n, TNN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` chainIds v)]
+            [(n, TN1to9.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` chainIds v)]
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
@@ -214,7 +215,7 @@ cpmTestVersion g v = v
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
             (unsafeChainId 0, TN0.payloadBlock) :
-            [(n, TNN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` chainIds v)]
+            [(n, TN1to9.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` chainIds v)]
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }

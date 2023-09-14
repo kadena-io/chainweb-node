@@ -95,7 +95,7 @@ main = void $ do
       [ fastDevelopment0
       , fastDevelopmentN
       ]
-    fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
+    fastnet = mkPayloads [fastTimedCPM0, fastTimedCPM1to9, fastTimedCPM10to19]
     testnet = mkPayloads [testnet0, testnetN]
     mainnet = mkPayloads
       [ mainnet0

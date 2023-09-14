@@ -122,6 +122,7 @@ import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
+import Debug.Trace (trace)
 
 import Data.Aeson
 import Data.Aeson.Types (Parser)
@@ -648,21 +649,27 @@ genesisBlockHeaderCache = unsafePerformIO $ do
 --
 genesisBlockHeaders :: ChainwebVersion -> HashMap ChainId BlockHeader
 genesisBlockHeaders = \v ->
-    if _versionCode v == _versionCode mainnet then mainnetGenesisHeaders
-    else if _versionCode v == _versionCode testnet then testnetGenesisHeaders
-    else unsafeDupablePerformIO $
-        HM.lookup (_versionCode v) <$> readIORef genesisBlockHeaderCache >>= \case
+  if | _versionCode v == _versionCode mainnet -> trace "genesisBlockHeaders:mainnet" $ mainnetGenesisHeaders
+     | _versionCode v == _versionCode testnet -> trace "genesisBlockHeaders:testnet" $ testnetGenesisHeaders
+     | otherwise -> do
+        unsafeDupablePerformIO $ do
+          putStrLn "genesisBlockHeaders:otherwise"
+          HM.lookup (_versionCode v) <$> readIORef genesisBlockHeaderCache >>= \case
             Just hs -> return hs
             Nothing -> do
-                let freshGenesisHeaders = makeGenesisBlockHeaders v
-                modifyIORef' genesisBlockHeaderCache $ HM.insert (_versionCode v) freshGenesisHeaders
-                return freshGenesisHeaders
+              let freshGenesisHeaders = makeGenesisBlockHeaders v
+              modifyIORef' genesisBlockHeaderCache $ HM.insert (_versionCode v) freshGenesisHeaders
+              return freshGenesisHeaders
   where
     mainnetGenesisHeaders = makeGenesisBlockHeaders mainnet
     testnetGenesisHeaders = makeGenesisBlockHeaders testnet
 
 genesisBlockHeader :: (HasCallStack, HasChainId p) => ChainwebVersion -> p -> BlockHeader
-genesisBlockHeader v p = genesisBlockHeaders v ^?! at (_chainId p) . _Just
+genesisBlockHeader v p = case HM.lookup (_chainId p) (genesisBlockHeaders v) of
+  Just bh -> bh
+  Nothing -> error $ "Chainweb.BlockHeader.genesisBlockHeader: Failed to find for " ++
+    "version = " ++ show (_versionCode v) ++
+    ", chainId = " ++ show (_chainId p)
 
 makeGenesisBlockHeaders :: ChainwebVersion -> HashMap ChainId BlockHeader
 makeGenesisBlockHeaders v = HM.fromList [ (cid, makeGenesisBlockHeader v cid) | cid <- HS.toList (chainIds v)]

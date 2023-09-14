@@ -42,6 +42,7 @@ import Pact.Types.Lang(_LString)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
+--import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
@@ -60,6 +61,7 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Time
+import Chainweb.TreeDB (root)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
@@ -67,7 +69,7 @@ import Chainweb.WebPactExecutionService
 import Chainweb.Storage.Table (casLookupM)
 
 testVersion :: ChainwebVersion
-testVersion = slowForkingCpmTestVersion peterson
+testVersion = slowForkingCpmTestVersion twenty
 
 cid :: ChainId
 cid = unsafeChainId 9
@@ -132,6 +134,7 @@ tests = ScheduledTest testName go
          , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
          , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
          , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
+         , test generousConfig getGasModel "rewindTooFarBackTest" rewindTooFarBackTest
          ]
       where
           -- This is way more than what is used in production, but during testing
@@ -361,9 +364,14 @@ runLocal cid' cmd = runLocalWithDepth Nothing cid' cmd
 
 runLocalWithDepth :: Maybe RewindDepth -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
 runLocalWithDepth depth cid' cmd = do
+  pact <- getPactService cid'
+  cwCmd <- buildCwCmd cmd
+  liftIO $ _pactLocal pact Nothing Nothing depth cwCmd
+
+getPactService :: ChainId -> PactTestM PactExecutionService
+getPactService cid' = do
   HM.lookup cid' <$> view menvPacts >>= \case
-    Just pact -> buildCwCmd cmd >>=
-      liftIO . _pactLocal pact Nothing Nothing depth
+    Just pact -> return pact
     Nothing -> liftIO $ assertFailure $ "No pact service found at chain id " ++ show cid'
 
 assertLocalFailure
@@ -485,7 +493,28 @@ pact43UpgradeTest = do
         ])
         $ mkKeySetData "k" [sender00]
 
+rewindTooFarBackTest :: PactTestM ()
+rewindTooFarBackTest = do
+  -- we need to not have history at earlier heights
+  withChain (unsafeChainId 15) $ do
+    handle
+      (\case
+        RewindPastMinBlockHeight {} -> return ()
+        err -> liftIO $ assertFailure $ "Expected RewindPastMinBlockHeight, but got " ++ show err
+      )
+      (do
+        cid' <- view menvChainId
+        pact <- getPactService cid'
 
+        bdb <- view menvBdb
+        bhDb <- liftIO $ getBlockHeaderDb cid' bdb
+        bh <- liftIO $ root bhDb
+        liftIO $ putStrLn $ "\n" ++ "genesisHeight: " ++ show (genesisHeight testVersion cid')
+        liftIO $ putStrLn $ "\n" ++ show bh
+
+        liftIO $ _pactSyncToBlock pact bh
+        liftIO $ assertFailure "Expected RewindPastMinBlockHeight, but rewind succeeded."
+      )
 
 chainweb215Test :: PactTestM ()
 chainweb215Test = do
@@ -578,8 +607,6 @@ chainweb215Test = do
       , mkTransferXChainRecdEvent "" "sender00" 0.0123 "coin" h (toText cid)
       , mkXResumeEvent "sender00" "sender00" 0.0123 sender00Ks "pact" h' (toText cid) "0"
       ]
-
-
 
 pact431UpgradeTest :: PactTestM ()
 pact431UpgradeTest = do
@@ -1152,7 +1179,7 @@ pact4coin3UpgradeTest = do
   runCut'
   withChain cid $ do
     runBlockTests block22
-    cbEv <- mkTransferEvent "" "NoMiner" 2.304523 "coin" v3Hash
+    cbEv <- mkTransferEvent "" "NoMiner" 1.1522615 "coin" v3Hash
     assertTxEvents "Coinbase events @ block 22" [cbEv] =<< cbResult
   withChain chain0 $ runBlockTests block22_0
 
@@ -1336,7 +1363,6 @@ buildXSend caps = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
     "(coin.transfer-crosschain 'sender00 'sender00 (read-keyset 'k) \"0\" 0.0123)" $
     mkKeySetData "k" [sender00]
 
-
 chain0 :: ChainId
 chain0 = unsafeChainId 0
 
@@ -1374,7 +1400,6 @@ setFromHeader bh =
   set cbChainId (_blockChainId bh)
   . set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
 
-
 buildBasic
     :: PactRPC T.Text
     -> MempoolCmdBuilder
@@ -1392,9 +1417,6 @@ buildBasic' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   f $ signSender00
   $ setFromHeader bh
   $ mkCmd (sshow bh) r
-
-
-
 
 -- | Get output on latest cut for chain
 getPWO :: ChainId -> PactTestM (PayloadWithOutputs,BlockHeader)
