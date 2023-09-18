@@ -1071,7 +1071,7 @@ pact48UpgradeTest = do
 
 pact49UpgradeTest :: PactTestM ()
 pact49UpgradeTest = do
-  runToHeight 99
+  runToHeight 90
 
   -- run block 99 (before the pact-4.9 fork)
   runBlockTest

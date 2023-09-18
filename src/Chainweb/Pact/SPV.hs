@@ -39,11 +39,13 @@ import Control.Monad.Trans.Except
 
 import Data.Aeson hiding (Object, (.=))
 import Data.Bifunctor
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Base64.URL as B64U
 import Data.Default (def)
 import qualified Data.Map.Strict as M
 import Data.Text (Text, pack)
 import qualified Data.Text as Text
-import qualified Data.Text.Encoding as T
+import qualified Data.Text.Encoding as Text
 import Text.Read (readMaybe)
 
 import Crypto.Hash.Algorithms
@@ -76,9 +78,6 @@ import qualified Chainweb.Version.Guards as CW
 
 import Chainweb.Storage.Table
 
-import qualified Data.ByteString as B
-import qualified Data.Text as T
-import qualified Data.ByteString.Base64.URL as B64U
 
 -- internal pact modules
 
@@ -203,24 +202,24 @@ data GenerateBase64ErrorMessage
 
 -- | A modified version of `decodeBase64UrlNoPaddingText` that emits
 --   base64 decoding errors in a configurable way.
-decodeB64UrlNoPaddingTextWithFixedErrorMessage :: MonadThrow m => GenerateBase64ErrorMessage -> T.Text -> m B.ByteString
+decodeB64UrlNoPaddingTextWithFixedErrorMessage :: MonadThrow m => GenerateBase64ErrorMessage -> Text.Text -> m B.ByteString
 decodeB64UrlNoPaddingTextWithFixedErrorMessage errorMessageType msg =
   fromEitherM
   . first (\e -> Base64DecodeException $ base64ErrorMessage e)
   . (if errorMessageType == Legacy then patchNonCanonical else id)
   . B64U.decode
-  . T.encodeUtf8
+  . Text.encodeUtf8
   . (if errorMessageType == Legacy then pad else id)
   $ msg
   where
-    pad t = let s = T.length t `mod` 4 in t <> T.replicate ((4 - s) `mod` 4) "="
+    pad t = let s = Text.length t `mod` 4 in t <> Text.replicate ((4 - s) `mod` 4) "="
     base64ErrorMessage m = case errorMessageType of
       Legacy -> base64DowngradeErrorMessage (Text.pack m)
       Simplified -> "could not base64-decode message"
     patchNonCanonical decodeResult = case decodeResult of
       Right bs -> Right bs
-      Left e | "non-canonical" `T.isInfixOf` T.pack e ->
-               Right (B64U.decodeLenient (T.encodeUtf8 msg))
+      Left e | "non-canonical" `Text.isInfixOf` Text.pack e ->
+               Right (B64U.decodeLenient (Text.encodeUtf8 msg))
       Left e -> Left e
 {-# INLINE decodeB64UrlNoPaddingTextWithFixedErrorMessage #-}
 
@@ -245,7 +244,7 @@ base64DowngradeErrorMessage msg = case msg of
     adjustedOffset suffix = case readMaybe (Text.unpack suffix) of
       Nothing -> 0
       Just offset -> let
-        endsWithThreeEquals = T.drop (T.length msg - 3) msg == "==="
+        endsWithThreeEquals = Text.drop (Text.length msg - 3) msg == "==="
         adjustment = if endsWithThreeEquals then -1 else 0
         in
         offset - (offset `rem` 4) + adjustment
@@ -269,7 +268,7 @@ verifyCont bdb bh (ContProof cp) = runExceptT $ do
              (_blockHeight bh)
           then Simplified
           else Legacy
-    t <- decodeB64UrlNoPaddingTextWithFixedErrorMessage errorMessageType $ T.decodeUtf8 cp
+    t <- decodeB64UrlNoPaddingTextWithFixedErrorMessage errorMessageType $ Text.decodeUtf8 cp
     case decodeStrict' t of
       Nothing -> forkedThrower bh "unable to decode continuation proof"
       Just u

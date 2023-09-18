@@ -158,6 +158,7 @@ allow-newer: base-compat-batteries:*
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
 
+allow-newer: webauthn:these
 allow-newer: webauthn:time
 
 -- servant does not yet support aeson 2.2

@@ -16,7 +16,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
--- {-# LANGUAGE ViewPatterns #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_GHC -fno-warn-deprecations #-}
@@ -244,7 +243,6 @@ import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as CSV
 import Data.Decimal
--- import qualified Data.List as L
 import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
@@ -284,8 +282,6 @@ import System.Timeout
 
 import Text.Printf (printf)
 import Text.Read (readEither)
-
--- import Pact.Types.Util (base64DowngradeErrorMessage)
 
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
@@ -616,7 +612,7 @@ encodeB64UrlText = T.decodeUtf8 . B64U.encode
 -- representation. A 'Base64DecodeException' is thrown if the input is not a
 -- valid base64-url without padding encoding.
 --
-decodeB64UrlNoPaddingText:: MonadThrow m => T.Text -> m B.ByteString
+decodeB64UrlNoPaddingText :: MonadThrow m => T.Text -> m B.ByteString
 decodeB64UrlNoPaddingText = fromEitherM
     . first (Base64DecodeException . T.pack)
     . B64U.decode
@@ -625,7 +621,6 @@ decodeB64UrlNoPaddingText = fromEitherM
   where
     pad t = let s = T.length t `mod` 4 in t <> T.replicate ((4 - s) `mod` 4) "="
 {-# INLINE decodeB64UrlNoPaddingText #-}
-
 
 -- | Encode a binary value to a textual base64-url without padding
 -- representation.
