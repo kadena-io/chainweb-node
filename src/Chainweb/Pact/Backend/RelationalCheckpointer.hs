@@ -235,7 +235,7 @@ doDiscard dbenv = runBlockEnv dbenv $ do
 
 doGetEarliest :: HasCallStack => Db logger -> IO (BlockHeight, BlockHash)
 doGetEarliest dbenv =
-  runBlockEnv dbenv $ callDb "getLatestBlock" $ \db -> do
+  runBlockEnv dbenv $ callDb "getEarliestBlock" $ \db -> do
     r <- qry_ db qtext [RInt, RBlob] >>= mapM go
     case r of
       [] -> fail "Chainweb.Pact.Backend.RelationalCheckpointer.doGetEarliest: no earliest block. This is a bug in chainweb-node."
