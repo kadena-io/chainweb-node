@@ -719,7 +719,8 @@ createSigningPayloads (EnrichedCommand cmd _ _) = map f
 
     toRosettaSigType Nothing = Just RosettaEd25519
     toRosettaSigType (Just P.ED25519) = Just RosettaEd25519
-    toRosettaSigType (Just P.WebAuthn) = Just RosettaEd25519 -- TODO Ok?
+    toRosettaSigType (Just P.WebAuthn) = Nothing 
+    -- TODO: Linda Ortega (09/18/2023) -- Returning `Nothing` to discourage using WebAuthn for Rosetta. `sigToScheme` will eventually throw an error.
 
 --------------------------------------------------------------------------------
 -- /parse
