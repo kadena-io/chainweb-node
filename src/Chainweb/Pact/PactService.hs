@@ -142,8 +142,6 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
     withProdRelationalCheckpointer checkpointerLogger initialBlockState sqlenv ver cid $ \checkpointer -> do
         let !rs = readRewards
         let !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
-        let onFatalError :: PactException -> Text -> IO x
-            !onFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
         let !pse = PactServiceEnv
                     { _psMempoolAccess = Nothing
                     , _psCheckpointer = checkpointer
@@ -154,7 +152,7 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psReorgLimit = _pactReorgLimit config
                     , _psLocalRewindDepthLimit = _pactLocalRewindDepthLimit config
                     , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout config
-                    , _psOnFatalError = onFatalError
+                    , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                     , _psVersion = ver
                     , _psAllowReadsInLocal = _pactAllowReadsInLocal config
                     , _psIsBatch = False
@@ -167,25 +165,26 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
         let !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
 
         when (_pactRosettaEnabled config) $ do
-          putStrLn "oh yeah"
-          (earliestBlockHeight, _) <- catch (_cpGetEarliestBlock checkpointer) $ \(e :: SomeException) -> do
-            putStrLn $ show e
-            throwM e
-          putStrLn "koolaid"
-          let gHeight = genesisHeight ver cid
-          when (gHeight /= earliestBlockHeight) $ do
-            let e = RosettaWithoutFullHistory
-                  { _earliestBlockHeight = earliestBlockHeight
-                  , _genesisHeight = gHeight
-                  }
-            let msg = J.object
-                  [ "details" J..= e
-                  , "message" J..= J.text "Your node has Rosetta enabled,\
-                      \ which requires that the full history is available.\
-                      \ However, the full history is not available.\
-                      \ Perhaps you have compacted your node?"
-                  ]
-            onFatalError e (J.encodeText msg)
+          mEarliestBlock <- _cpGetEarliestBlock checkpointer
+          case mEarliestBlock of
+            Nothing -> do
+              pure ()
+            Just (earliestBlockHeight, _) -> do
+              let gHeight = genesisHeight ver cid
+              when (gHeight /= earliestBlockHeight) $ do
+                let e = RosettaWithoutFullHistory
+                      { _earliestBlockHeight = earliestBlockHeight
+                      , _genesisHeight = gHeight
+                      }
+                let msg = J.object
+                      [ "details" J..= e
+                      , "message" J..= J.text "Your node has Rosetta enabled,\
+                          \ which requires that the full history is available.\
+                          \ However, the full history is not available.\
+                          \ Perhaps you have compacted your node?"
+                      ]
+                logError_ chainwebLogger (J.encodeText msg)
+                throwM e
 
         runPactServiceM pst pse $ do
             -- If the latest header that is stored in the checkpointer was on an

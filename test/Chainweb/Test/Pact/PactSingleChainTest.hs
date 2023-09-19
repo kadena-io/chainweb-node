@@ -55,13 +55,15 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Graph
+import Chainweb.Logger (genericLogger)
 import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation hiding (local)
-import Chainweb.Pact.Service.PactQueue (PactQueue)
+import Chainweb.Pact.Service.PactQueue (PactQueue, newPactQueue)
 import Chainweb.Pact.Service.Types
+import Chainweb.Pact.PactService (runPactService)
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (emptyPayload)
@@ -74,10 +76,12 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
+import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb)
 
 import Chainweb.Storage.Table.RocksDB
 
-import System.Logger.Types (LogLevel(..), setLoggerScope)
+import System.Logger.Types (LogLevel(..))
+import System.LogLevel (LogLevel(..))
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion petersonChainGraph
@@ -107,21 +111,11 @@ tests rdb = ScheduledTest testName go
          , test mempoolRefillTest
          , test blockGasLimitTest
          , testTimeout preInsertCheckTimeoutTest
-         , testRosetta rosettaFailsWithoutFullHistory
+         , rosettaFailsWithoutFullHistory rdb
          ]
       where
-        testWithConf :: ()
-          => (IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree)
-          -> PactServiceConfig
-          -> TestTree
-        testWithConf f conf =
-          withDelegateMempool $ \dm ->
-          withPactTestBlockDb testVersion cid rdb (snd <$> dm) conf $
-          f (fst <$> dm)
-
-        test f = testWithConf f testPactServiceConfig
-        testTimeout f = testWithConf f (testPactServiceConfig { _pactPreInsertCheckTimeout = 5 })
-        testRosetta f = testWithConf f (testPactServiceConfig { _pactRosettaEnabled = True })
+        test = test' rdb
+        testTimeout = testTimeout' rdb
 
         testHistLookup1 = getHistoricalLookupNoTxs "sender00"
           (assertSender00Bal 100_000_000 "check latest entry for sender00 after a no txs block")
@@ -129,6 +123,28 @@ tests rdb = ScheduledTest testName go
           (assertEqual "Return Nothing if key absent after a no txs block" Nothing)
         testHistLookup3 = getHistoricalLookupWithTxs "sender00"
           (assertSender00Bal 9.999998051e7 "check latest entry for sender00 after block with txs")
+
+testWithConf' :: ()
+  => RocksDb
+  -> (IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree)
+  -> PactServiceConfig
+  -> TestTree
+testWithConf' rdb f conf =
+  withDelegateMempool $ \dm ->
+  withPactTestBlockDb testVersion cid rdb (snd <$> dm) conf $
+  f (fst <$> dm)
+
+test' :: ()
+  => RocksDb
+  -> (IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree)
+  -> TestTree
+test' rdb f = testWithConf' rdb f testPactServiceConfig
+
+testTimeout' :: ()
+  => RocksDb
+  -> (IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree)
+  -> TestTree
+testTimeout' rdb f = testWithConf' rdb f (testPactServiceConfig { _pactPreInsertCheckTimeout = 5 })
 
 forSuccess :: NFData a => String -> IO (MVar (Either PactException a)) -> IO a
 forSuccess msg mvio = (`catchAllSynchronous` handler) $ do
@@ -167,19 +183,68 @@ toRowData v = case eitherDecode encV of
   where
     encV = J.encode v
 
-rosettaFailsWithoutFullHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
-rosettaFailsWithoutFullHistory refIO reqIO = testCase "rosettaFailsWithoutFullHistory" $ do
-  (sqlEnv, q, bdb) <- reqIO
+-- Test that PactService fails if Rosetta is enabled and we don't have all of
+-- the history.
+--
+-- We do this in two stages:
+--
+-- 1:
+--   - Start PactService with Rosetta disabled
+--   - Run some blocks
+--   - Compact to some arbitrary greater-than-genesis height
+-- 2:
+--   - Start PactService with Rosetta enabled
+--   - Catch the exception that should arise at the start of PactService,
+--     when performing the history check
+rosettaFailsWithoutFullHistory :: ()
+  => RocksDb
+  -> TestTree
+rosettaFailsWithoutFullHistory rdb =
+  withTemporaryDir $ \iodir ->
+  withSqliteDb cid iodir $ \sqlEnvIO ->
+    let
+        pat = "runBlocks and compact"
+        mempool :: MemPoolAccess
+        mempool = mempty
 
-  C.withDefaultLogger System.Logger.Types.Info $ \logger' -> do
-    let logger = over setLoggerScope (("chain", sshow cid):) logger'
-    let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
-    let db = _sConn sqlEnv
-    let bh = BlockHeight 0 --undefined
-    void $ C.runCompactM (C.mkCompactEnv logger db bh flags) C.compact
+        mempoolRef :: IO (IORef MemPoolAccess)
+        mempoolRef = newIORef mempty
+    in
+    testGroup "rosettaFailsWithoutFullHistory"
+      [
+        -- Run some blocks and then compact
+        withPactTestBlockDb' testVersion cid rdb sqlEnvIO mempty testPactServiceConfig $ \reqIO -> testCase pat $ do
+          (sqlEnv, q, bdb) <- reqIO
 
-  setOneShotMempool refIO goldenMemPool
-  void $ runBlock q bdb second "rosettaFailsWithoutFullHistory"
+          setOneShotMempool mempoolRef goldenMemPool
+          replicateM_ 10 $ void $ runBlock q bdb second "rosettaFailsWithoutFullHistory"
+
+          C.withDefaultLogger System.Logger.Types.Error $ \logger -> do
+            let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
+            let db = _sConn sqlEnv
+            let bh = BlockHeight 5
+            void $ C.runCompactM (C.mkCompactEnv logger db bh flags) C.compact
+
+        -- This needs to run after the previous test
+        -- Annoyingly, we must inline the PactService util starts here.
+        -- ResourceT will help clean all this up
+      , after AllSucceed pat $ testCase "PactService Should fail" $ do
+          pactQueue <- newPactQueue 2000
+          blockDb <- mkTestBlockDb testVersion rdb
+          bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
+          sqlEnv <- sqlEnvIO
+          let payloadDb = _bdbPayloadDb blockDb
+          let cfg = testPactServiceConfig { _pactRosettaEnabled = True }
+          let logger = genericLogger System.LogLevel.Error (\_ -> return ())
+          e <- try $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
+          case e of
+            Left (RosettaWithoutFullHistory {}) -> do
+              pure ()
+            Left err -> do
+              assertFailure $ "Expected RosettaWithoutFullHistory exception, instead got: " ++ show err
+            Right _ -> do
+              assertFailure $ "Expected RosettaWithoutFullHistory exception, instead there was no exception at all."
+      ]
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do
