@@ -147,6 +147,11 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
           Left e -> throwError $ "Validation of Eth proof failed: " <> sshow e
           Right result -> return $ ethResultToPactValue result
 
+      "HYPERLANE_V3" | enableBridge -> except (extractEthProof o) >>=
+        \parsedProof -> case validateReceiptProof parsedProof of
+          Left e -> throwError $ "Validation of Hyperlane proof failed: " <> sshow e
+          Right result -> return $ ethResultToPactValue result
+
       -- Chainweb tx output proof
       "TXOUT" -> do
         u <- except $ extractProof enableBridge o
