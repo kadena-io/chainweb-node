@@ -49,13 +49,18 @@ method id: "0xd57f8952"
 
 instance Binary FormatMessageCall where
   put (FormatMessageCall {..}) = do
+    put (0xd5 :: Word8)
+    put (0x7f :: Word8)
+    put (0x89 :: Word8)
+    put (0x52 :: Word8)
+
     put fmcVersion
     put fmcNonce
     put fmcOriginDomain
     put fmcSender
     put fmcDestinationDomain
     put fmcRecipient
-    put fmcSender
+    put fmcMessageBody
 
   get = do
     -- parse method id
@@ -72,9 +77,9 @@ instance Binary FormatMessageCall where
         fmcSender <- get :: Get ByteString
         fmcDestinationDomain <- get :: Get Word32
         fmcRecipient <- get :: Get ByteString
-        fmcSender <- get :: Get ByteString
+        fmcMessageBody <- get :: Get ByteString
         return $ FormatMessageCall {..}
-      _ -> fail "Unexpected method id: " ++ show (b1, b2, b3, b4)
+      _ -> error $ "Unexpected method id: " ++ show (b1, b2, b3, b4)
 
 
 --    "0xcdcd77c0992ec5bbfc459984220f8c45084cc24d9b6efed1fae540db8de801d2"
