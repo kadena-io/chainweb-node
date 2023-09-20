@@ -479,7 +479,7 @@ testPactServiceConfig = PactServiceConfig
       , _pactBlockGasLimit = testBlockGasLimit
       , _pactLogGas = False
       , _pactModuleCacheLimit = defaultModuleCacheLimit
-      , _pactRosettaEnabled = False
+      , _pactFullHistoryRequired = False
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@

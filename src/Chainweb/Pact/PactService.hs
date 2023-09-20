@@ -164,7 +164,7 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     }
         let !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
 
-        when (_pactRosettaEnabled config) $ do
+        when (_pactFullHistoryRequired config) $ do
           mEarliestBlock <- _cpGetEarliestBlock checkpointer
           case mEarliestBlock of
             Nothing -> do
@@ -172,16 +172,16 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
             Just (earliestBlockHeight, _) -> do
               let gHeight = genesisHeight ver cid
               when (gHeight /= earliestBlockHeight) $ do
-                let e = RosettaWithoutFullHistory
+                let e = FullHistoryRequired
                       { _earliestBlockHeight = earliestBlockHeight
                       , _genesisHeight = gHeight
                       }
                 let msg = J.object
                       [ "details" J..= e
-                      , "message" J..= J.text "Your node has Rosetta enabled,\
-                          \ which requires that the full history is available.\
-                          \ However, the full history is not available.\
-                          \ Perhaps you have compacted your node?"
+                      , "message" J..= J.text "Your node has been configured\
+                          \ to require the full Pact history; however, the full\
+                          \ history is not available. Perhaps you have compacted\
+                          \ your Pact state?"
                       ]
                 logError_ chainwebLogger (J.encodeText msg)
                 throwM e

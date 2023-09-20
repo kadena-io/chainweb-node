@@ -234,16 +234,16 @@ rosettaFailsWithoutFullHistory rdb =
           bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
           sqlEnv <- sqlEnvIO
           let payloadDb = _bdbPayloadDb blockDb
-          let cfg = testPactServiceConfig { _pactRosettaEnabled = True }
+          let cfg = testPactServiceConfig { _pactFullHistoryRequired = True }
           let logger = genericLogger System.LogLevel.Error (\_ -> return ())
           e <- try $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
           case e of
-            Left (RosettaWithoutFullHistory {}) -> do
+            Left (FullHistoryRequired {}) -> do
               pure ()
             Left err -> do
-              assertFailure $ "Expected RosettaWithoutFullHistory exception, instead got: " ++ show err
+              assertFailure $ "Expected FullHistoryRequired exception, instead got: " ++ show err
             Right _ -> do
-              assertFailure $ "Expected RosettaWithoutFullHistory exception, instead there was no exception at all."
+              assertFailure $ "Expected FullHistoryRequired exception, instead there was no exception at all."
       ]
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
