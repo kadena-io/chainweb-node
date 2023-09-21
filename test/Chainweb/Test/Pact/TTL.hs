@@ -279,7 +279,7 @@ withTestPact
     -> (IO Ctx -> TestTree)
     -> TestTree
 withTestPact rdb test =
-  withResource newEmptyMVar (const $ return ()) $ \mempoolVarIO ->
+  withResource' newEmptyMVar $ \mempoolVarIO ->
     withPactTestBlockDb testVer cid rdb (mempool mempoolVarIO) testPactServiceConfig $ \ios ->
       test $ do
         (_, pq, bdb) <- ios

@@ -389,6 +389,7 @@ chainwebTransactionConfig ppv = TransactionConfig
         (TxCreationTime ct) = getCreationTime t
         toMicros = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
         (TTLSeconds ttl) = getTimeToLive t
+        -- TODO: this should be defaultMaxTTL + 1 but that causes an import cycle right now
         maxDuration = 2 * 24 * 60 * 60 + 1
 
 ------------------------------------------------------------------------------

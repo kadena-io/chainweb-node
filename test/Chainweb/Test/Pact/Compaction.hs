@@ -54,7 +54,7 @@ import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..), PactDbEnv'(..), Checkpointer(..), BlockEnv, ParentHash, initBlockState, bsModuleNameFix)
 import Chainweb.Test.Pact.Utils (dummyLogger)
 import Chainweb.Test.TestVersions
-import Chainweb.Test.Utils (ScheduledTest, testGroupSch, withTempSQLiteResource, getArbitrary)
+import Chainweb.Test.Utils (ScheduledTest, testGroupSch, withTempSQLiteResource, getArbitrary, withResourceT)
 import Chainweb.Version (ChainwebVersion(..), ChainId, unsafeChainId)
 
 import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
@@ -71,7 +71,7 @@ tests = testGroupSch "Chainweb.Test.Pact.Compaction"
 
 testCompactCheckpointer :: TestTree
 testCompactCheckpointer =
-  withTempSQLiteResource $ runSQLite' $ \resIO ->
+  withResourceT withTempSQLiteResource $ runSQLite' $ \resIO ->
   testCase "testCompactCheckpointer" $ do
 
     (Checkpointer {..}, SQLiteEnv {..}) <- resIO

@@ -550,6 +550,7 @@ test-suite chainweb-tests
         , quickcheck-instances >= 0.3
         , random >= 1.2
         , resource-pool >= 0.4
+        , resourcet >= 1.3
         , retry >= 0.7
         , rocksdb-haskell-kadena >= 1.1.0
         , rosetta >= 1.0
@@ -727,6 +728,7 @@ executable cwtool
         , process >= 1.5
         , quickcheck-instances >= 0.3
         , random >= 1.2
+        , resourcet >= 1.3
         , retry >= 0.9
         , wreq >= 0.5
         , regex-tdfa >= 1.3
