@@ -96,21 +96,9 @@ module Chainweb.Test.Utils
 
 -- * Golden Tests
 , golden
-, goldenSch
-
--- * Scheduling Tests
-, RunStyle(..)
-, ScheduledTest(..)
-, schedule
-, testCaseSch
-, testCaseSchSteps
-, testGroupSch
-, testPropertySch
 
 -- * GHCI Runners
-, runSched
 , runRocks
-, runSchedRocks
 , withArgs
 , matchTest
 
@@ -176,12 +164,12 @@ import System.Random (randomIO)
 
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Gen
-import Test.QuickCheck.Property (Property, Testable, (===))
+import Test.QuickCheck.Property (Property, (===))
 import Test.QuickCheck.Random (mkQCGen)
 import Test.Tasty
 import Test.Tasty.Golden
 import Test.Tasty.HUnit
-import Test.Tasty.QuickCheck (testProperty, property, discard, (.&&.))
+import Test.Tasty.QuickCheck (property, discard, (.&&.))
 
 import Text.Printf (printf)
 
@@ -888,57 +876,11 @@ golden l = goldenVsString l (goldenFilesDir <> fp)
   where
     fp = l <> "-expected.txt"
 
-goldenSch
-    :: String -- ^ Test Label
-    -> IO BL.ByteString -- ^ Test action
-    -> ScheduledTest
-goldenSch l = ScheduledTest l . golden l
-
--- -------------------------------------------------------------------------- --
--- Scheduling Tests
-
-data RunStyle = Sequential | Parallel
-
--- | A structure similar to that procuded by `testGroup`, except that we can
--- optionally schedule groups of this type.
---
-data ScheduledTest = ScheduledTest { _schLabel :: String , _schTest :: TestTree }
-
-testCaseSch :: String -> Assertion -> ScheduledTest
-testCaseSch l a = ScheduledTest l $ testCase l a
-
-testCaseSchSteps :: String -> ((String -> IO ()) -> Assertion) -> ScheduledTest
-testCaseSchSteps l a = ScheduledTest l $ testCaseSteps l a
-
-testGroupSch :: String -> [TestTree] -> ScheduledTest
-testGroupSch l ts = ScheduledTest l $ testGroup l ts
-
-testPropertySch :: Testable a => String -> a -> ScheduledTest
-testPropertySch l p = ScheduledTest l $ testProperty l p
-
--- | Schedule groups of tests according to some `RunStyle`. When `Sequential`,
--- each group will be made to run one after another. This can be used to prevent
--- various tests from starving each other of resources.
---
-schedule :: RunStyle -> [ScheduledTest] -> [TestTree]
-schedule _ [] = []
-schedule Parallel tgs = map _schTest tgs
-schedule Sequential tgs@(h : _) = _schTest h : zipWith f tgs (tail tgs)
-  where
-    f a b = after AllFinish (_schLabel a) $ _schTest b
-
--- | Util for GHCI execution of a scheduled test
-runSched :: ScheduledTest -> IO ()
-runSched = defaultMain . testGroup "" . schedule Sequential . pure
-
 runRocks :: (RocksDb -> TestTree) -> IO ()
 runRocks test = withTempRocksDb "chainweb-tests" $ \rdb -> defaultMain (test rdb)
 
-runSchedRocks :: (RocksDb -> ScheduledTest) -> IO ()
-runSchedRocks test = withTempRocksDb "chainweb-tests" $ \rdb -> runSched (test rdb)
-
 -- | Convenience to use "-p" with value to match a test run
--- > matchTest "myTest" $ runSched tests
+-- > matchTest "myTest" $ defaultMain tests
 matchTest :: String -> IO a -> IO a
 matchTest pat = withArgs ["-p",pat]
 

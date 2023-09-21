@@ -84,41 +84,39 @@ cid = someChainId testVersion
 genesisHeader :: BlockHeader
 genesisHeader = genesisBlockHeader testVersion cid
 
-tests :: RocksDb -> ScheduledTest
-tests rdb = ScheduledTest testName go
+tests :: RocksDb -> TestTree
+tests rdb = testGroup testName
+  [ test $ goldenNewBlock "new-block-0" goldenMemPool
+  , test $ goldenNewBlock "empty-block-tests" mempty
+  , test newBlockAndValidate
+  , test newBlockRewindValidate
+  , test getHistory
+  , test testHistLookup1
+  , test testHistLookup2
+  , test testHistLookup3
+  , test badlistNewBlockTest
+  , test mempoolCreationTimeTest
+  , test moduleNameFork
+  , test mempoolRefillTest
+  , test blockGasLimitTest
+  , testTimeout preInsertCheckTimeoutTest
+  ]
   where
     testName = "Chainweb.Test.Pact.PactSingleChainTest"
-    go = testGroup testName
-         [ test $ goldenNewBlock "new-block-0" goldenMemPool
-         , test $ goldenNewBlock "empty-block-tests" mempty
-         , test newBlockAndValidate
-         , test newBlockRewindValidate
-         , test getHistory
-         , test testHistLookup1
-         , test testHistLookup2
-         , test testHistLookup3
-         , test badlistNewBlockTest
-         , test mempoolCreationTimeTest
-         , test moduleNameFork
-         , test mempoolRefillTest
-         , test blockGasLimitTest
-         , testTimeout preInsertCheckTimeoutTest
-         ]
-      where
-        testWithConf f conf =
-          withDelegateMempool $ \dm ->
-          withPactTestBlockDb testVersion cid rdb (snd <$> dm) conf $
-          f (fst <$> dm)
+    testWithConf f conf =
+      withDelegateMempool $ \dm ->
+      withPactTestBlockDb testVersion cid rdb (snd <$> dm) conf $
+      f (fst <$> dm)
 
-        test f = testWithConf f testPactServiceConfig
-        testTimeout f = testWithConf f (testPactServiceConfig { _pactPreInsertCheckTimeout = 5 })
+    test f = testWithConf f testPactServiceConfig
+    testTimeout f = testWithConf f (testPactServiceConfig { _pactPreInsertCheckTimeout = 5 })
 
-        testHistLookup1 = getHistoricalLookupNoTxs "sender00"
-          (assertSender00Bal 100_000_000 "check latest entry for sender00 after a no txs block")
-        testHistLookup2 = getHistoricalLookupNoTxs "randomAccount"
-          (assertEqual "Return Nothing if key absent after a no txs block" Nothing)
-        testHistLookup3 = getHistoricalLookupWithTxs "sender00"
-          (assertSender00Bal 9.999998051e7 "check latest entry for sender00 after block with txs")
+    testHistLookup1 = getHistoricalLookupNoTxs "sender00"
+      (assertSender00Bal 100_000_000 "check latest entry for sender00 after a no txs block")
+    testHistLookup2 = getHistoricalLookupNoTxs "randomAccount"
+      (assertEqual "Return Nothing if key absent after a no txs block" Nothing)
+    testHistLookup3 = getHistoricalLookupWithTxs "sender00"
+      (assertSender00Bal 9.999998051e7 "check latest entry for sender00 after block with txs")
 
 
 forSuccess :: NFData a => String -> IO (MVar (Either PactException a)) -> IO a

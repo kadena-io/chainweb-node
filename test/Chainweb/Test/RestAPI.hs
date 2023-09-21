@@ -21,6 +21,7 @@ module Chainweb.Test.RestAPI
 
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Resource
 
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Char8 as B8
@@ -51,6 +52,7 @@ import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MempoolBackend, MockTx)
+import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI
 import Chainweb.Test.RestAPI.Client_
 import Chainweb.Test.RestAPI.Utils (isFailureResponse, clientErrorStatusCode)
@@ -123,13 +125,17 @@ version = barebonesTestVersion singletonChainGraph
 --
 type TestClientEnv_ = TestClientEnv MockTx RocksDbTable
 
-noMempool :: [(ChainId, MempoolBackend MockTx)]
-noMempool = []
+mkEnv :: RocksDb -> Bool -> [(ChainId, BlockHeaderDb)] -> ResourceT IO TestClientEnv_
+mkEnv rdb tls dbs =
+    clientEnvWithChainwebTestServer ValidateSpec tls version emptyChainwebServerDbs
+        { _chainwebServerBlockHeaderDbs = dbs
+        , _chainwebServerPayloadDbs = [ (cid, newPayloadDb rdb) | (cid, _) <- dbs ]
+        }
 
 simpleSessionTests :: RocksDb -> Bool -> TestTree
 simpleSessionTests rdb tls =
-    withResource' (testBlockHeaderDbs rdb version) $ \dbs ->
-        withResourceT (join $ withBlockHeaderDbsServer ValidateSpec tls version <$> liftIO dbs <*> pure noMempool)
+    withResource' (testBlockHeaderDbs rdb version) $ \dbsIO ->
+        withResourceT (mkEnv rdb tls =<< liftIO dbsIO)
         $ \env -> testGroup "client session tests"
             $ httpHeaderTests env (head $ toList $ chainIds version)
             : (simpleClientSession env <$> toList (chainIds version))
@@ -147,11 +153,10 @@ httpHeaderTests envIO cid =
         ]
       where
         go name run = testCase name $ do
-            BlockHeaderDbsTestClientEnv env _ _ <- liftIO envIO
+            env <- _envClientEnv <$> envIO
             res <- flip runClientM_ env $ modifyResponse checkHeader $
                 run version (genesisBlockHeader version cid)
             assertBool ("test failed: " <> sshow res) (isRight res)
-            return ()
 
         checkHeader res = do
             cur <- realToFrac <$> getPOSIXTime :: IO Double
@@ -162,14 +167,15 @@ httpHeaderTests envIO cid =
                     Right x -> do
                         let d = cur - x
                         assertBool
-                            ("test failed because X-Server-Time is of by " <> sshow d <> " seconds")
+                            ("test failed because X-Server-Time is off by " <> sshow d <> " seconds")
                             (d <= 2)
                         return res
 
 simpleClientSession :: IO TestClientEnv_ -> ChainId -> TestTree
 simpleClientSession envIO cid =
     testCaseSteps ("simple session for chain " <> sshow cid) $ \step -> do
-        BlockHeaderDbsTestClientEnv env dbs _ <- envIO
+        env <- _envClientEnv <$> envIO
+        dbs <- _envBlockHeaderDbs <$> envIO
         res <- runClientM (session dbs step) env
         assertBool ("test failed: " <> sshow res) (isRight res)
   where
@@ -240,11 +246,7 @@ simpleClientSession envIO cid =
 
         do
           void $ liftIO $ step "branchHeadersClient: BranchBounds limits exceeded"
-          clientEnv <- liftIO $ do
-            -- ClientM does not have a MonadFail instance for this failable
-            -- pattern match; IO does.
-            BlockHeaderDbsTestClientEnv clientEnv _ _ <- envIO
-            pure clientEnv
+          clientEnv <- liftIO $ _envClientEnv <$> envIO
           let query bounds = liftIO
                 $ flip runClientM clientEnv
                 $ branchHeadersClient
@@ -393,9 +395,8 @@ simpleClientSession envIO cid =
 pagingTests :: RocksDb -> Bool -> TestTree
 pagingTests rdb tls =
     withResourceT
-        (join $ withBlockHeaderDbsServer ValidateSpec tls version
-            <$> liftIO (starBlockHeaderDbs 6 =<< testBlockHeaderDbs rdb version)
-            <*> return noMempool)
+        (mkEnv rdb tls =<<
+            liftIO (starBlockHeaderDbs 6 =<< testBlockHeaderDbs rdb version))
     $ \env -> testGroup "paging tests"
         [ testPageLimitHeadersClient env
         , testPageLimitHashesClient env
@@ -420,7 +421,8 @@ pagingTest
     -> TestTree
 pagingTest name getDbItems getKey fin request envIO = testGroup name
     [ testCaseSteps "test limit parameter" $ \step -> do
-        BlockHeaderDbsTestClientEnv env [(cid, db)] _ <- envIO
+        env <- _envClientEnv <$> envIO
+        [(cid, db)] <- _envBlockHeaderDbs <$> envIO
         ents <- getDbItems db
         let l = len ents
         res <- flip runClientM env $ forM_ [0 .. (l+2)] $ \i ->
@@ -432,7 +434,8 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
     -- hitting `Limit 0`.
 
     , testCaseSteps "test next parameter" $ \step -> do
-        BlockHeaderDbsTestClientEnv env [(cid, db)] _ <- envIO
+        env <- _envClientEnv <$> envIO
+        [(cid, db)] <- _envBlockHeaderDbs <$> envIO
         ents <- getDbItems db
         let l = len ents
         res <- flip runClientM env $ forM_ [0 .. (l-1)] $ \i -> do
@@ -441,7 +444,8 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
     , testCaseSteps "test limit and next parameter" $ \step -> do
-        BlockHeaderDbsTestClientEnv env [(cid, db)] _ <- envIO
+        env <- _envClientEnv <$> envIO
+        [(cid, db)] <- _envBlockHeaderDbs <$> envIO
         ents <- getDbItems db
         let l = len ents
         res <- flip runClientM env
@@ -451,7 +455,8 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
         assertBool ("test limit and next failed: " <> sshow res) (isRight res)
 
     , testCase "non existing next parameter" $ do
-        BlockHeaderDbsTestClientEnv env [(cid, db)] _ <- envIO
+        env <- _envClientEnv <$> envIO
+        [(cid, db)] <- _envBlockHeaderDbs <$> envIO
         missing <- missingKey db
         res <- flip runClientM env $ request cid Nothing (Just $ Exclusive missing)
         assertBool ("test failed with unexpected result: " <> sshow res) (isErrorCode 404 res)
