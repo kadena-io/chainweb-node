@@ -480,7 +480,6 @@ compact = do
 
     return gh
 
-
 data CompactConfig = CompactConfig
   { ccBlockHeight :: BlockHeight
   , ccDbDir :: FilePath

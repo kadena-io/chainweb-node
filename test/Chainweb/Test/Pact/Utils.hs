@@ -81,6 +81,7 @@ module Chainweb.Test.Pact.Utils
 , csPrivKey
 -- * Pact Service creation
 , withPactTestBlockDb
+, withPactTestBlockDb'
 , withWebPactExecutionService
 , withPactCtxSQLite
 , WithPactCtxSQLite
@@ -95,6 +96,7 @@ module Chainweb.Test.Pact.Utils
 , withPayloadDb
 , withBlockHeaderDb
 , withTemporaryDir
+, withSqliteDb
 -- * Mempool utils
 , delegateMemPoolAccess
 , withDelegateMempool
@@ -119,7 +121,7 @@ module Chainweb.Test.Pact.Utils
 import Control.Arrow ((&&&))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Lens (view, _3, makeLenses)
+import Control.Lens (view, _2, makeLenses)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -185,7 +187,7 @@ import Chainweb.Pact.Backend.RelationalCheckpointer
     (initRelationalCheckpointer')
 import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Backend.Utils hiding (withSqliteDb)
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
@@ -800,7 +802,6 @@ setOneShotMempool mpRefIO mp = do
         True -> mempty
     }
 
-
 withBlockHeaderDb
     :: IO RocksDb
     -> BlockHeader
@@ -826,18 +827,73 @@ withTestBlockDbTest
 withTestBlockDbTest v rdb = withResource (mkTestBlockDb v rdb) mempty
 
 -- | Single-chain Pact via service queue.
+withPactTestBlockDb'
+    :: ChainwebVersion
+    -> ChainId
+    -> RocksDb
+    -> IO SQLiteEnv
+    -> IO MemPoolAccess
+    -> PactServiceConfig
+    -> (IO (SQLiteEnv,PactQueue,TestBlockDb) -> TestTree)
+    -> TestTree
+withPactTestBlockDb' version cid rdb sqlEnvIO mempoolIO pactConfig f =
+  withTestBlockDbTest version rdb $ \bdbio ->
+  withResource (startPact bdbio) stopPact $ f . fmap (view _2)
+  where
+    startPact bdbio = do
+        reqQ <- newPactQueue 2000
+        bdb <- bdbio
+        sqlEnv <- sqlEnvIO
+        mempool <- mempoolIO
+        bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) cid
+        let pdb = _bdbPayloadDb bdb
+        a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
+            runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
+        return (a, (sqlEnv,reqQ,bdb))
+
+    stopPact (a, _) = cancel a
+
+    -- Ideally, we should throw 'error' when the logger is invoked, because
+    -- error logs should not happen in production and should always be resolved.
+    -- Unfortunately, that's not yet always the case. So we just drop the
+    -- message.
+    --
+    logger = genericLogger Error (\_ -> return ())
+
+withSqliteDb :: ()
+  => ChainId
+  -> IO FilePath
+  -> (IO SQLiteEnv -> TestTree)
+  -> TestTree
+withSqliteDb cid iodir s = withResource start stop s
+  where
+    start = do
+      dir <- iodir
+      startSqliteDb cid logger dir False
+
+    stop env = do
+      stopSqliteDb env
+
+   -- Ideally, we should throw 'error' when the logger is invoked, because
+    -- error logs should not happen in production and should always be resolved.
+    -- Unfortunately, that's not yet always the case. So we just drop the
+    -- message.
+    --
+    logger = genericLogger Error (\_ -> return ())
+
+-- | Single-chain Pact via service queue.
 withPactTestBlockDb
     :: ChainwebVersion
     -> ChainId
     -> RocksDb
     -> IO MemPoolAccess
     -> PactServiceConfig
-    -> (IO (PactQueue,TestBlockDb) -> TestTree)
+    -> (IO (SQLiteEnv,PactQueue,TestBlockDb) -> TestTree)
     -> TestTree
 withPactTestBlockDb version cid rdb mempoolIO pactConfig f =
   withTemporaryDir $ \iodir ->
   withTestBlockDbTest version rdb $ \bdbio ->
-  withResource (startPact bdbio iodir) stopPact $ f . fmap (view _3)
+  withResource (startPact bdbio iodir) stopPact $ f . fmap (view _2)
   where
     startPact bdbio iodir = do
         reqQ <- newPactQueue 2000
@@ -849,9 +905,9 @@ withPactTestBlockDb version cid rdb mempoolIO pactConfig f =
         sqlEnv <- startSqliteDb cid logger dir False
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
             runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
-        return (a, sqlEnv, (reqQ,bdb))
+        return (a, (sqlEnv,reqQ,bdb))
 
-    stopPact (a, sqlEnv, _) = cancel a >> stopSqliteDb sqlEnv
+    stopPact (a, (sqlEnv, _, _)) = cancel a >> stopSqliteDb sqlEnv
 
     -- Ideally, we should throw 'error' when the logger is invoked, because
     -- error logs should not happen in production and should always be resolved.
