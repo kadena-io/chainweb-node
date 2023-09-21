@@ -170,9 +170,9 @@ assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidation
     ttl > 0
     && txValidationTime >= timeFromSeconds 0
     && txOriginationTime >= 0
-    && timeFromSeconds txOriginationTime <= lenientTxValidationTime
+    && timeFromSeconds (txOriginationTime) <= lenientTxValidationTime
     && timeFromSeconds (txOriginationTime + ttl) > txValidationTime
-    && ttl <= defaultMaxTTL
+    && P.TTLSeconds ttl <= defaultMaxTTL
   where
     P.TTLSeconds ttl = view cmdTimeToLive tx
     timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
@@ -199,8 +199,8 @@ defaultMaxCoinDecimalPlaces = 12
 --
 -- This is probably going to be changed. Let us make it 2 days for now.
 --
-defaultMaxTTL :: P.ParsedInteger
-defaultMaxTTL = P.ParsedInteger $ 2 * 24 * 60 * 60
+defaultMaxTTL :: P.TTLSeconds
+defaultMaxTTL = P.TTLSeconds $ P.ParsedInteger $ 2 * 24 * 60 * 60
 
 -- | Validation "slop" to allow for a more lenient creation time check after
 -- @useLegacyCreationTimeForTxValidation@ is no longer true.

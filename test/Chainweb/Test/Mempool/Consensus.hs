@@ -9,6 +9,7 @@ module Chainweb.Test.Mempool.Consensus
   ) where
 
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Resource
 
 import qualified Data.ByteString.Short as SB
 import Data.Foldable (toList)
@@ -460,7 +461,8 @@ debugTrans context txs = "\n" ++ show (HS.size txs) ++ " TransactionHashes from:
 _runGhci :: IO ()
 _runGhci =
     withTempRocksDb "mempool-consensus-test" $ \rdb ->
-    withToyDB rdb toyChainId $ \h0 db -> do
-        quickCheck (prop_validTxSource db h0)
-        quickCheck (prop_noOrphanedTxs db h0)
+    runResourceT $ do
+        (h0, db) <- withToyDB rdb toyChainId
+        liftIO $ quickCheck (prop_validTxSource db h0)
+        liftIO $ quickCheck (prop_noOrphanedTxs db h0)
         return ()

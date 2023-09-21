@@ -49,7 +49,6 @@ import Chainweb.Time
 import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
-import Chainweb.Test.Pact.Utils
 import Chainweb.Test.TestVersions(fastForkingCpmTestVersion)
 import Chainweb.Utils (T2(..))
 import Chainweb.Version
@@ -76,10 +75,10 @@ instance NFData RewindData
 tests :: RocksDb -> ScheduledTest
 tests rdb =
       ScheduledTest label $
-      withMVarResource mempty $ \iom ->
-      withEmptyMVarResource $ \rewindDataM ->
-      withTestBlockDbTest testVer rdb $ \bdbio ->
-      withTempSQLiteResource $ \ioSqlEnv ->
+      withResource' (newMVar mempty) $ \iom ->
+      withResource' newEmptyMVar $ \rewindDataM ->
+      withResource' (mkTestBlockDb testVer rdb) $ \bdbio ->
+      withResourceT withTempSQLiteResource $ \ioSqlEnv ->
       testGroup label
       [ testCaseSteps "testInitial" $ withPact' bdbio ioSqlEnv iom testInitial
       , after AllSucceed "testInitial" $
