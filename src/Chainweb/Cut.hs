@@ -642,7 +642,7 @@ type DiffItem a = These a a
 
 type JoinQueue a = H.Heap (H.Entry (BlockHeight, a) BlockHeader)
 
--- | This represents the Join of two cuts in an algrithmically convenient way.
+-- | This represents the Join of two cuts in an algorithmically convenient way.
 --
 data Join a = Join
     { _joinBase :: !Cut
@@ -653,7 +653,7 @@ data Join a = Join
         -- the join cut from the join base.
     }
 
--- | This computes the join for cuts accross all chains.
+-- | This computes the join for cuts across all chains.
 --
 -- If you want to compute a join for cuts that include only a subset of all
 -- chains.
