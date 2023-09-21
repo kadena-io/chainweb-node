@@ -53,13 +53,17 @@ import Pact.JSON.Yaml
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Graph
+import Chainweb.Logger (genericLogger)
 import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation hiding (local)
-import Chainweb.Pact.Service.PactQueue (PactQueue)
+import Chainweb.Pact.Service.PactQueue (PactQueue, newPactQueue)
 import Chainweb.Pact.Service.Types
+import Chainweb.Pact.PactService (runPactService)
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (emptyPayload)
@@ -72,8 +76,12 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
+import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb)
 
 import Chainweb.Storage.Table.RocksDB
+
+import System.Logger.Types (LogLevel(..))
+import System.LogLevel (LogLevel(..))
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion petersonChainGraph
@@ -103,15 +111,11 @@ tests rdb = ScheduledTest testName go
          , test mempoolRefillTest
          , test blockGasLimitTest
          , testTimeout preInsertCheckTimeoutTest
+         , rosettaFailsWithoutFullHistory rdb
          ]
       where
-        testWithConf f conf =
-          withDelegateMempool $ \dm ->
-          withPactTestBlockDb testVersion cid rdb (snd <$> dm) conf $
-          f (fst <$> dm)
-
-        test f = testWithConf f testPactServiceConfig
-        testTimeout f = testWithConf f (testPactServiceConfig { _pactPreInsertCheckTimeout = 5 })
+        test = test' rdb
+        testTimeout = testTimeout' rdb
 
         testHistLookup1 = getHistoricalLookupNoTxs "sender00"
           (assertSender00Bal 100_000_000 "check latest entry for sender00 after a no txs block")
@@ -120,6 +124,27 @@ tests rdb = ScheduledTest testName go
         testHistLookup3 = getHistoricalLookupWithTxs "sender00"
           (assertSender00Bal 9.999998051e7 "check latest entry for sender00 after block with txs")
 
+testWithConf' :: ()
+  => RocksDb
+  -> (IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree)
+  -> PactServiceConfig
+  -> TestTree
+testWithConf' rdb f conf =
+  withDelegateMempool $ \dm ->
+  withPactTestBlockDb testVersion cid rdb (snd <$> dm) conf $
+  f (fst <$> dm)
+
+test' :: ()
+  => RocksDb
+  -> (IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree)
+  -> TestTree
+test' rdb f = testWithConf' rdb f testPactServiceConfig
+
+testTimeout' :: ()
+  => RocksDb
+  -> (IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree)
+  -> TestTree
+testTimeout' rdb f = testWithConf' rdb f (testPactServiceConfig { _pactPreInsertCheckTimeout = 5 })
 
 forSuccess :: NFData a => String -> IO (MVar (Either PactException a)) -> IO a
 forSuccess msg mvio = (`catchAllSynchronous` handler) $ do
@@ -129,7 +154,6 @@ forSuccess msg mvio = (`catchAllSynchronous` handler) $ do
     Right v -> return v
   where
     handler e = assertFailure $ msg ++ ": exception thrown: " ++ show e
-
 
 runBlock :: PactQueue -> TestBlockDb -> TimeSpan Micros -> String -> IO PayloadWithOutputs
 runBlock q bdb timeOffset msg = do
@@ -145,9 +169,9 @@ runBlock q bdb timeOffset msg = do
   forSuccess "newBlockAndValidate: validate" $
        validateBlock nextH (payloadWithOutputsToPayloadData nb) q
 
-newBlockAndValidate :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+newBlockAndValidate :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 newBlockAndValidate refIO reqIO = testCase "newBlockAndValidate" $ do
-  (q,bdb) <- reqIO
+  (_, q, bdb) <- reqIO
   setOneShotMempool refIO goldenMemPool
   void $ runBlock q bdb second "newBlockAndValidate"
 
@@ -159,9 +183,72 @@ toRowData v = case eitherDecode encV of
   where
     encV = J.encode v
 
-getHistory :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+-- Test that PactService fails if Rosetta is enabled and we don't have all of
+-- the history.
+--
+-- We do this in two stages:
+--
+-- 1:
+--   - Start PactService with Rosetta disabled
+--   - Run some blocks
+--   - Compact to some arbitrary greater-than-genesis height
+-- 2:
+--   - Start PactService with Rosetta enabled
+--   - Catch the exception that should arise at the start of PactService,
+--     when performing the history check
+rosettaFailsWithoutFullHistory :: ()
+  => RocksDb
+  -> TestTree
+rosettaFailsWithoutFullHistory rdb =
+  withTemporaryDir $ \iodir ->
+  withSqliteDb cid iodir $ \sqlEnvIO ->
+    let
+        pat = "runBlocks and compact"
+        mempool :: MemPoolAccess
+        mempool = mempty
+
+        mempoolRef :: IO (IORef MemPoolAccess)
+        mempoolRef = newIORef mempty
+    in
+    testGroup "rosettaFailsWithoutFullHistory"
+      [
+        -- Run some blocks and then compact
+        withPactTestBlockDb' testVersion cid rdb sqlEnvIO mempty testPactServiceConfig $ \reqIO -> testCase pat $ do
+          (sqlEnv, q, bdb) <- reqIO
+
+          setOneShotMempool mempoolRef goldenMemPool
+          replicateM_ 10 $ void $ runBlock q bdb second "rosettaFailsWithoutFullHistory"
+
+          C.withDefaultLogger System.Logger.Types.Error $ \logger -> do
+            let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
+            let db = _sConn sqlEnv
+            let bh = BlockHeight 5
+            void $ C.runCompactM (C.mkCompactEnv logger db bh flags) C.compact
+
+        -- This needs to run after the previous test
+        -- Annoyingly, we must inline the PactService util starts here.
+        -- ResourceT will help clean all this up
+      , after AllSucceed pat $ testCase "PactService Should fail" $ do
+          pactQueue <- newPactQueue 2000
+          blockDb <- mkTestBlockDb testVersion rdb
+          bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
+          sqlEnv <- sqlEnvIO
+          let payloadDb = _bdbPayloadDb blockDb
+          let cfg = testPactServiceConfig { _pactFullHistoryRequired = True }
+          let logger = genericLogger System.LogLevel.Error (\_ -> return ())
+          e <- try $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
+          case e of
+            Left (FullHistoryRequired {}) -> do
+              pure ()
+            Left err -> do
+              assertFailure $ "Expected FullHistoryRequired exception, instead got: " ++ show err
+            Right _ -> do
+              assertFailure $ "Expected FullHistoryRequired exception, instead there was no exception at all."
+      ]
+
+getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do
-  (q,bdb) <- reqIO
+  (_, q, bdb) <- reqIO
   setOneShotMempool refIO goldenMemPool
   void $ runBlock q bdb second "getHistory"
   h <- getParentTestBlockDb bdb cid
@@ -205,10 +292,10 @@ getHistoricalLookupNoTxs
     :: T.Text
     -> (Maybe (TxLog RowData) -> IO ())
     -> IO (IORef MemPoolAccess)
-    -> IO (PactQueue,TestBlockDb)
+    -> IO (SQLiteEnv, PactQueue, TestBlockDb)
     -> TestTree
 getHistoricalLookupNoTxs key assertF refIO reqIO = testCase msg $ do
-  (q,bdb) <- reqIO
+  (_, q, bdb) <- reqIO
   setOneShotMempool refIO mempty
   void $ runBlock q bdb second msg
   h <- getParentTestBlockDb bdb cid
@@ -219,16 +306,15 @@ getHistoricalLookupWithTxs
     :: T.Text
     -> (Maybe (TxLog RowData) -> IO ())
     -> IO (IORef MemPoolAccess)
-    -> IO (PactQueue,TestBlockDb)
+    -> IO (SQLiteEnv, PactQueue, TestBlockDb)
     -> TestTree
 getHistoricalLookupWithTxs key assertF refIO reqIO = testCase msg $ do
-  (q,bdb) <- reqIO
+  (_, q, bdb) <- reqIO
   setOneShotMempool refIO goldenMemPool
   void $ runBlock q bdb second msg
   h <- getParentTestBlockDb bdb cid
   histLookup q h key >>= assertF
   where msg = T.unpack $ "getHistoricalLookupWithTxs: " <> key
-
 
 histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (TxLog RowData))
 histLookup q bh k = do
@@ -249,9 +335,9 @@ assertSender00Bal bal msg hist =
         ])))
     hist
 
-newBlockRewindValidate :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+newBlockRewindValidate :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
-  (q,bdb) <- reqIO
+  (_, q, bdb) <- reqIO
   setOneShotMempool mpRefIO chainDataMemPool
   cut0 <- readMVar $ _bdbCut bdb -- genesis cut
 
@@ -278,7 +364,6 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
               $ mkExec' "(chain-data)"
       }
 
-
 signSender00 :: CmdBuilder -> CmdBuilder
 signSender00 = set cbSigners [mkSigner' sender00 []]
 
@@ -293,9 +378,9 @@ pattern BlockGasLimitError <-
   Left (PactInternalError (decodeStrict . T.encodeUtf8 -> Just (PactExceptionTag "BlockGasLimitExceeded")))
 
 -- this test relies on block gas errors being thrown before other Pact errors.
-blockGasLimitTest :: HasCallStack => IO (IORef MemPoolAccess) -> IO (PactQueue, TestBlockDb) -> TestTree
+blockGasLimitTest :: HasCallStack => IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
-  (q,_) <- reqIO
+  (_, q, _) <- reqIO
 
   let
     useGas g = do
@@ -348,10 +433,10 @@ blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
     _ ->
       return ()
 
-mempoolRefillTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+mempoolRefillTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
 
-  (q,bdb) <- reqIO
+  (_, q, bdb) <- reqIO
   supply <- newMVar (0 :: Int)
 
   mp supply [ ( 0, [goodTx, goodTx] ), ( 1, [badTx] ) ]
@@ -401,12 +486,10 @@ mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
       setFromHeader bh
       . mkCmd nonce
 
-
-
-moduleNameFork :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+moduleNameFork :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 moduleNameFork mpRefIO reqIO = testCase "moduleNameFork" $ do
 
-  (q,bdb) <- reqIO
+  (_, q, bdb) <- reqIO
 
   -- install in free in block 1
   setOneShotMempool mpRefIO (moduleNameMempool "free" "test")
@@ -443,10 +526,10 @@ moduleNameMempool ns mn = mempty
           mkExec' code
 
 
-mempoolCreationTimeTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+mempoolCreationTimeTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
 
-  (q,bdb) <- reqIO
+  (_, q, bdb) <- reqIO
 
   let start@(Time startSpan) :: Time Micros = Time (TimeSpan (Micros 100_000_000))
       s30 = scaleTimeSpan (30 :: Int) second
@@ -483,9 +566,9 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
       unless (V.and oks) $ throwM $ userError "Insert failed"
       return txs
 
-preInsertCheckTimeoutTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+preInsertCheckTimeoutTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
-  (q,_) <- reqIO
+  (_, q, _) <- reqIO
 
   coinV5 <- T.readFile "pact/coin-contract/v5/coin-v5.pact"
 
@@ -498,9 +581,9 @@ preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
   rs <- forSuccess "preInsertCheckTimeoutTest" $ pactPreInsertCheck (V.singleton tx) q
   assertBool ("should be InsertErrorTimedOut but got " ++ show rs) $ V.and $ V.map (== Left InsertErrorTimedOut) rs
 
-badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
-  (reqQ,_) <- reqIO
+  (_, reqQ, _) <- reqIO
   let hashToTxHashList = V.singleton . requestKeyToTransactionHash . RequestKey . toUntypedHash @'Blake2b_256
   badHashRef <- newIORef $ hashToTxHashList initialHash
   badTx <- buildCwCmd
@@ -522,9 +605,9 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
       }
 
 
-goldenNewBlock :: String -> MemPoolAccess -> IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+goldenNewBlock :: String -> MemPoolAccess -> IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 goldenNewBlock name mp mpRefIO reqIO = golden name $ do
-    (reqQ,_) <- reqIO
+    (_, reqQ, _) <- reqIO
     setOneShotMempool mpRefIO mp
     resp <- forSuccess ("goldenNewBlock:" ++ name) $
       newBlock noMiner (ParentHeader genesisHeader) reqQ
