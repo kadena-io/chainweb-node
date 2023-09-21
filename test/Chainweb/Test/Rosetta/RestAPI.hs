@@ -59,7 +59,7 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.RestAPI.Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
-import Chainweb.Time (Time(..), Micros(..))
+import Chainweb.Time (Time(..), Micros(..), getCurrentTimeIntegral)
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -114,8 +114,8 @@ tests :: RocksDb -> ScheduledTest
 tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
   where
     go = return $
-      withNodesAtLatestBehavior v "rosettaRemoteTests-" rdb nodes $ \envIo ->
-      withTime $ \tio -> testGroup "Rosetta Api tests" $
+      withResourceT (withNodesAtLatestBehavior v "rosettaRemoteTests-" rdb nodes) $ \envIo ->
+      withResource' getCurrentTimeIntegral $ \tio -> testGroup "Rosetta Api tests" $
         schedule Sequential (tgroup tio $ _getServiceClientEnv <$> envIo)
 
     -- Not supported:

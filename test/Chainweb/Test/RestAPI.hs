@@ -128,8 +128,8 @@ noMempool = []
 
 simpleSessionTests :: RocksDb -> Bool -> TestTree
 simpleSessionTests rdb tls =
-    withBlockHeaderDbsResource rdb version $ \dbs ->
-        withBlockHeaderDbsServer ValidateSpec tls version dbs (return noMempool)
+    withResource' (testBlockHeaderDbs rdb version) $ \dbs ->
+        withResourceT (join $ withBlockHeaderDbsServer ValidateSpec tls version <$> liftIO dbs <*> pure noMempool)
         $ \env -> testGroup "client session tests"
             $ httpHeaderTests env (head $ toList $ chainIds version)
             : (simpleClientSession env <$> toList (chainIds version))
@@ -381,7 +381,6 @@ simpleClientSession envIO cid =
             void $ liftIO $ step "branchHashesClient: get one block headers with lower and upper bound"
             hs5 <- branchHashesClient version cid Nothing Nothing Nothing Nothing
                 (BranchBounds (HS.singleton (LowerBound $ key lower)) (HS.singleton (UpperBound $ key h)))
-            liftIO $ print hs5
             assertExpectation "branchHashesClient returned wrong number of entries"
                 (Expected i)
                 (Actual $ _pageLimit hs5)
@@ -393,9 +392,10 @@ simpleClientSession envIO cid =
 
 pagingTests :: RocksDb -> Bool -> TestTree
 pagingTests rdb tls =
-    withBlockHeaderDbsServer ValidateSpec tls version
-            (starBlockHeaderDbs 6 $ testBlockHeaderDbs rdb version)
-            (return noMempool)
+    withResourceT
+        (join $ withBlockHeaderDbsServer ValidateSpec tls version
+            <$> liftIO (starBlockHeaderDbs 6 =<< testBlockHeaderDbs rdb version)
+            <*> return noMempool)
     $ \env -> testGroup "paging tests"
         [ testPageLimitHeadersClient env
         , testPageLimitHashesClient env

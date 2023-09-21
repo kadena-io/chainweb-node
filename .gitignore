@@ -50,3 +50,4 @@ TAGS
 .DS_Store
 .vscode/*
 rosetta/logs/*
+.ghci_history
