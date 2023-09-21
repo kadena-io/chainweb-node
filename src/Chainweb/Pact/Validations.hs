@@ -34,7 +34,7 @@ module Chainweb.Pact.Validations
 import Control.Lens
 
 import Data.Decimal (decimalPlaces)
-import Data.Maybe (isJust, catMaybes)
+import Data.Maybe (isJust, catMaybes, fromMaybe)
 import Data.List.NonEmpty (NonEmpty, nonEmpty)
 import Data.Text (Text)
 import Data.Word (Word8)
@@ -72,6 +72,7 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
     bgl <- view psBlockGasLimit
 
     let bh = ctxCurrentBlockHeight txCtx
+    let validSchemes = validPPKSchemes v cid bh
 
     let P.PublicMeta pcid _ gl gp _ _ = P._pMeta pay
         nid = P._pNetworkId pay
@@ -84,7 +85,7 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
           , eUnless "Gas price decimal precision too high" $ assertGasPrice gp
           , eUnless "Network id mismatch" $ assertNetworkId v nid
           , eUnless "Signature list size too big" $ assertSigSize sigs
-          , eUnless "Invalid transaction signatures" $ sigValidate signers
+          , eUnless "Invalid transaction signatures" $ sigValidate validSchemes signers
           , eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
           ]
 
@@ -92,8 +93,7 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
       Nothing -> Right ()
       Just vs -> Left vs
   where
-    validSchemes = validPPKSchemes v cid bh
-    sigValidate signers
+    sigValidate validSchemes signers
       | Just NoVerify <- sigVerify = True
       | otherwise = assertValidateSigs validSchemes hsh signers sigs
 
@@ -154,12 +154,13 @@ assertTxSize initialGas gasLimit = initialGas < fromIntegral gasLimit
 -- | Check and assert that signers and user signatures are valid for a given
 -- transaction hash.
 --
-assertValidateSigs :: [PPKScheme] -> P.PactHash -> [P.Signer] -> [P.UserSig] -> Bool
+assertValidateSigs :: [P.PPKScheme] -> P.PactHash -> [P.Signer] -> [P.UserSig] -> Bool
 assertValidateSigs validSchemes hsh signers sigs
     | length signers /= length sigs = False
-    | otherwise = all (uncurry (verifyUserSig hsh)) (zip sigs signers)
+    | otherwise = and $ zipWith verifyUserSig sigs signers
     where verifyUserSig sig signer =
-            scheme sig `elem` validScheme && P.verifyUserSig hsh sig signer
+            let sigScheme = fromMaybe P.ED25519 (P._siScheme signer)
+            in sigScheme `elem` validSchemes && P.verifyUserSig hsh sig signer
 
 -- prop_tx_ttl_newBlock/validateBlock
 --

@@ -57,6 +57,7 @@ module Chainweb.Version.Guards
 
 import Control.Lens
 import Numeric.Natural
+import Pact.Types.Scheme (PPKScheme(ED25519, WebAuthn))
 
 import Chainweb.BlockHeight
 import Chainweb.ChainId
@@ -254,5 +255,5 @@ maxBlockGasLimit v bh = case measureRule bh $ _versionMaxBlockGasLimit v of
 validPPKSchemes :: ChainwebVersion -> ChainId -> BlockHeight -> [PPKScheme]
 validPPKSchemes v cid bh =
   if chainweb221Pact v cid bh
-  then [Ed25519, WebAuthn]
-  else [Ed25519]
+  then [ED25519, WebAuthn]
+  else [ED25519]

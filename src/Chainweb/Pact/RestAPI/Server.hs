@@ -186,10 +186,10 @@ pactServer d =
     cdb = _pactServerDataCutDb d
 
     pactApiHandlers
-      = sendHandler logger cdb cid mempool
+      = sendHandler logger mempool
       :<|> pollHandler logger cdb cid pact mempool
       :<|> listenHandler logger cdb cid pact mempool
-      :<|> localHandler logger cid pact
+      :<|> localHandler logger pact
 
     pactSpvHandler = spvHandler logger cdb cid
     pactSpv2Handler = spv2Handler logger cdb cid
@@ -245,13 +245,10 @@ instance ToJSON PactCmdLog where
 sendHandler
     :: Logger logger
     => logger
-    -> CutDB.CutDb tbl
-    -> ChainId
     -> MempoolBackend ChainwebTransaction
     -> SubmitBatch
     -> Handler RequestKeys
-sendHandler logger cdb mempool (SubmitBatch cmds) = Handler $ do
-
+sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
     case traverse validateCommand cmds of
        Right enriched -> do
@@ -369,7 +366,6 @@ localHandler
     -> PactExecutionService
     -> Maybe LocalPreflightSimulation
       -- ^ Preflight flag
-    -> ChainId
     -> Maybe LocalSignatureVerification
       -- ^ No sig verification flag
     -> Maybe RewindDepth
