@@ -262,7 +262,7 @@ verifyCont
     -> IO (Either Text PactExec)
 verifyCont bdb bh (ContProof cp) = runExceptT $ do
     let errorMessageType =
-          if CW.chainweb220Pact
+          if CW.chainweb221Pact
              (CW._chainwebVersion bh)
              (_blockChainId bh)
              (_blockHeight bh)
