@@ -45,8 +45,8 @@ import Chainweb.Test.Utils
 -- Tests
 
 tests :: TestTree
-tests = withInMemSQLiteResource $ \dbIO ->
-    withResource (dbIO >>= newMVar) mempty $ \dbVarIO ->
+tests = withResourceT withInMemSQLiteResource $ \dbIO ->
+    withResource' (dbIO >>= newMVar) $ \dbVarIO ->
         let run = runMsgTest dbVarIO []
             runMonte = runMonteTest dbVarIO []
 
@@ -242,7 +242,7 @@ withAggTable
     -> (IO (String, [B.ByteString]) -> TestTree)
     -> TestTree
 withAggTable dbVarIO rowCount chunkSize =
-    withResource createAggTable (const $ return ())
+    withResource' createAggTable
   where
     tbl = "bytesTbl"
     createAggTable = do
