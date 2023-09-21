@@ -45,12 +45,14 @@ module Chainweb.Version.Guards
     , pact44NewTrans
     , pactParserVersion
     , maxBlockGasLimit
+    , validPPKSchemes
 
     -- ** BlockHeader Validation Guards
     , slowEpochGuard
     , oldTargetGuard
     , skipFeatureFlagValidationGuard
     , oldDaGuard
+
   ) where
 
 import Control.Lens
@@ -245,3 +247,12 @@ maxBlockGasLimit v bh = case measureRule bh $ _versionMaxBlockGasLimit v of
     Bottom limit -> limit
     Top (_, limit) -> limit
     Between (_, limit) _ -> limit
+
+
+-- | Different versions of Chainweb allow different PPKSchemes.
+--
+validPPKSchemes :: ChainwebVersion -> ChainId -> BlockHeight -> [PPKScheme]
+validPPKSchemes v cid bh =
+  if chainweb221Pact v cid bh
+  then [Ed25519, WebAuthn]
+  else [Ed25519]

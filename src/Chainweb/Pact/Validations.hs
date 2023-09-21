@@ -49,6 +49,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
 import Chainweb.Transaction (cmdTimeToLive, cmdCreationTime)
 import Chainweb.Version
+import Chainweb.Version.Guards (validPPKSchemes)
 
 import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Hash as P
@@ -70,6 +71,8 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
     cid <- view psChainId
     bgl <- view psBlockGasLimit
 
+    let bh = ctxCurrentBlockHeight txCtx
+
     let P.PublicMeta pcid _ gl gp _ _ = P._pMeta pay
         nid = P._pNetworkId pay
         signers = P._pSigners pay
@@ -89,9 +92,10 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
       Nothing -> Right ()
       Just vs -> Left vs
   where
+    validSchemes = validPPKSchemes v cid bh
     sigValidate signers
       | Just NoVerify <- sigVerify = True
-      | otherwise = assertValidateSigs hsh signers sigs
+      | otherwise = assertValidateSigs validSchemes hsh signers sigs
 
     pct = ParentCreationTime
       . _blockCreationTime
@@ -150,10 +154,12 @@ assertTxSize initialGas gasLimit = initialGas < fromIntegral gasLimit
 -- | Check and assert that signers and user signatures are valid for a given
 -- transaction hash.
 --
-assertValidateSigs :: P.PactHash -> [P.Signer] -> [P.UserSig] -> Bool
-assertValidateSigs hsh signers sigs
+assertValidateSigs :: [PPKScheme] -> P.PactHash -> [P.Signer] -> [P.UserSig] -> Bool
+assertValidateSigs validSchemes hsh signers sigs
     | length signers /= length sigs = False
-    | otherwise = all (uncurry (P.verifyUserSig hsh)) (zip sigs signers)
+    | otherwise = all (uncurry (verifyUserSig hsh)) (zip sigs signers)
+    where verifyUserSig sig signer =
+            scheme sig `elem` validScheme && P.verifyUserSig hsh sig signer
 
 -- prop_tx_ttl_newBlock/validateBlock
 --
