@@ -65,7 +65,7 @@ module Chainweb.BlockHeaderDB.RestAPI
 
 -- * BlockHeader Event Stream
 , HeaderUpdate(..)
-, HeaderStreamApi
+, BlockStreamApi
 
 -- * Sub APIs
 , BranchHashesApi
@@ -482,9 +482,11 @@ instance FromJSON HeaderUpdate where
         <*> o .: "target"
     {-# INLINE parseJSON #-}
 
-type HeaderStreamApi_ = "header" :> "updates" :> QueryFlag "withTransactions" :> Raw
+type BlockStreamApi_ =
+    "block" :> "updates" :> Raw :<|>
+    "header" :> "updates" :> Raw
 
--- | A stream of all new `BlockHeader`s that are accepted into the true `Cut`.
+-- | A stream of all new blocks that are accepted into the true `Cut`.
 --
-type HeaderStreamApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> HeaderStreamApi_
+type BlockStreamApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> BlockStreamApi_
 

@@ -27,7 +27,7 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 , someP2pBlockHeaderDbServers
 
 -- * Header Stream Server
-, someHeaderStreamServer
+, someBlockStreamServer
 ) where
 
 import Control.Applicative
@@ -394,19 +394,13 @@ someP2pBlockHeaderDbServers v = mconcat
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream
 
-someHeaderStreamServer :: CanReadablePayloadCas tbl => ChainwebVersion -> CutDb tbl -> SomeServer
-someHeaderStreamServer (FromSingChainwebVersion (SChainwebVersion :: Sing v)) cdb =
-    SomeServer (Proxy @(HeaderStreamApi v)) $ headerStreamServer cdb
+someBlockStreamServer :: CanReadablePayloadCas tbl => ChainwebVersion -> CutDb tbl -> SomeServer
+someBlockStreamServer (FromSingChainwebVersion (SChainwebVersion :: Sing v)) cdb =
+    SomeServer (Proxy @(BlockStreamApi v)) $
+        blockStreamHandler cdb True :<|> blockStreamHandler cdb False
 
-headerStreamServer
-    :: forall tbl (v :: ChainwebVersionT)
-    .  CanReadablePayloadCas tbl
-    => CutDb tbl
-    -> Server (HeaderStreamApi v)
-headerStreamServer = headerStreamHandler
-
-headerStreamHandler :: forall tbl. CanReadablePayloadCas tbl => CutDb tbl -> Bool -> Tagged Handler Application
-headerStreamHandler db streamTransactions = Tagged $ \req resp -> do
+blockStreamHandler :: forall tbl. CanReadablePayloadCas tbl => CutDb tbl -> Bool -> Tagged Handler Application
+blockStreamHandler db withPayloads = Tagged $ \req resp -> do
     streamRef <- newIORef $ SP.map f $ SP.mapM g $ SP.concat $ blockDiffStream db
     eventSourceAppIO (run streamRef) req resp
   where
@@ -424,7 +418,7 @@ headerStreamHandler db streamTransactions = Tagged $ \req resp -> do
         pure $ HeaderUpdate
             { _huHeader = ObjectEncoded bh
             , _huPayloadWithOutputs =
-                x <$ guard streamTransactions
+                x <$ guard withPayloads
             , _huTxCount = length $ _payloadWithOutputsTransactions x
             , _huPowHash = decodeUtf8 . B16.encode . BS.reverse . fromShort . powHashBytes $ _blockPow bh
             , _huTarget = showTargetHex $ _blockTarget bh
