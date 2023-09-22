@@ -772,12 +772,15 @@ execValidateBlock memPoolAccess currHeader plData = pactLabel "execValidateBlock
     act target = do
         psEnv <- ask
         let reorgLimit = view psReorgLimit psEnv
-        T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch $ do
-            withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
-                !result <- execBlock currHeader plData pdbenv
-                return $! Save currHeader result
-        !result <- either throwM return $
-            validateHashes currHeader plData miner transactions
+        T2 result transactions <- do
+            res <- exitOnRewindLimitExceeded $ withBatch $
+                withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
+                    T2 miner transactions <- execBlock currHeader plData pdbenv
+
+                    case validateHashes currHeader plData miner transactions of
+                        Right r -> return $! Save currHeader (Right (T2 r transactions))
+                        Left err -> return $! Discard $ Left err
+            either throwM return res
 
         -- update mempool
         --
