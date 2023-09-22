@@ -645,17 +645,12 @@ failOnTooLowRequestedHeight
     -> Maybe RewindLimit
     -> BlockHeader
     -> PactServiceM logger tbl ()
-failOnTooLowRequestedHeight parent (Just limit) lastHeader = do
-  let limitHeight = BlockHeight $ _rewindLimit limit
-  let parentHeight = _blockHeight parent
-  let lastHeight = _blockHeight lastHeader
-  when (parentHeight + 1 + limitHeight < lastHeight) $ do -- need to stick with addition because Word64
-    throwM $ RewindLimitExceeded limit parentHeight lastHeight parent
-
-  cp <- getCheckpointer
-  (earliestBlockHeight, _) <- liftIO $ _cpGetEarliestBlock cp
-
-  when (parentHeight < earliestBlockHeight) $ do
-    throwM $ RewindPastMinBlockHeight parentHeight parent earliestBlockHeight
-
-failOnTooLowRequestedHeight _ _ _ = return ()
+failOnTooLowRequestedHeight parent mLimit lastHeader = case mLimit of
+  Just limit -> do
+    let limitHeight = BlockHeight $ _rewindLimit limit
+    let parentHeight = _blockHeight parent
+    let lastHeight = _blockHeight lastHeader
+    when (parentHeight + 1 + limitHeight < lastHeight) $ do -- need to stick with addition because Word64
+      throwM $ RewindLimitExceeded limit parentHeight lastHeight parent
+  Nothing -> do
+    return ()

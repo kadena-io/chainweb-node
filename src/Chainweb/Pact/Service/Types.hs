@@ -205,14 +205,6 @@ data PactException
       , _rewindExceededTarget :: !BlockHeader
           -- ^ target header
       }
-  | RewindPastMinBlockHeight
-      { _rewindPastMinParentHeight :: !BlockHeight
-        -- ^ parent block height
-      , _rewindPastMinParentHeader :: !BlockHeader
-        -- ^ parent block header
-      , _rewindPastMinMinBlockHeight :: !BlockHeight
-        -- ^ min block height @SELECT MIN(blockheight) FROM BlockHistory@
-      }
   | BlockHeaderLookupFailure !Text
   | BuyGasFailure !GasPurchaseFailure
   | MempoolFillFailure !Text
@@ -244,11 +236,6 @@ instance J.Encode PactException where
     , "_rewindExceededLastHeight" J..= J.Aeson @Int (fromIntegral $ _rewindExceededLastHeight o)
     , "_rewindExceededForkHeight" J..= J.Aeson @Int (fromIntegral $ _rewindExceededForkHeight o)
     , "_rewindExceededTarget" J..= J.encodeWithAeson (_rewindExceededTarget o)
-    ]
-  build o@(RewindPastMinBlockHeight{}) = tagged "RewindPastMinBlockHeight" $ J.object
-    [ "_rewindPastMinParentHeight" J..= J.Aeson @Int (fromIntegral $ _rewindPastMinParentHeight o)
-    , "_rewindPastMinParentHeader" J..= J.encodeWithAeson (_rewindPastMinParentHeader o)
-    , "_rewindPastMinMinBlockHeight" J..= J.Aeson @Int (fromIntegral $ _rewindPastMinMinBlockHeight o)
     ]
   build (BlockHeaderLookupFailure msg) = tagged "BlockHeaderLookupFailure" msg
   build (BuyGasFailure failure) = tagged "BuyGasFailure" failure
