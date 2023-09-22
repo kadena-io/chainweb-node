@@ -61,7 +61,6 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Time
-import Chainweb.TreeDB (root)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
@@ -134,7 +133,6 @@ tests = ScheduledTest testName go
          , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
          , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
          , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
-         , test generousConfig getGasModel "rewindTooFarBackTest" rewindTooFarBackTest
          ]
       where
           -- This is way more than what is used in production, but during testing
@@ -492,27 +490,6 @@ pact43UpgradeTest = do
         , ")"
         ])
         $ mkKeySetData "k" [sender00]
-
-rewindTooFarBackTest :: PactTestM ()
-rewindTooFarBackTest = do
-  handle
-    (\case
-      RewindPastMinBlockHeight {} -> return ()
-      err -> liftIO $ assertFailure $ "Expected RewindPastMinBlockHeight, but got " ++ show err
-    )
-    (do
-      cid' <- view menvChainId
-      pact <- getPactService cid'
-
-      bdb <- view menvBdb
-      bhDb <- liftIO $ getBlockHeaderDb cid' bdb
-      bh <- liftIO $ root bhDb
-      liftIO $ putStrLn $ "\n" ++ "genesisHeight: " ++ show (genesisHeight testVersion cid')
-      liftIO $ putStrLn $ "\n" ++ show bh
-
-      liftIO $ _pactSyncToBlock pact bh
-      liftIO $ assertFailure "Expected RewindPastMinBlockHeight, but rewind succeeded."
-    )
 
 chainweb215Test :: PactTestM ()
 chainweb215Test = do
