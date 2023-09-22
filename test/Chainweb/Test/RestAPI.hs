@@ -52,6 +52,7 @@ import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MempoolBackend, MockTx)
+import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI
 import Chainweb.Test.RestAPI.Client_
@@ -126,10 +127,12 @@ version = barebonesTestVersion singletonChainGraph
 type TestClientEnv_ = TestClientEnv MockTx RocksDbTable
 
 mkEnv :: RocksDb -> Bool -> [(ChainId, BlockHeaderDb)] -> ResourceT IO TestClientEnv_
-mkEnv rdb tls dbs =
-    clientEnvWithChainwebTestServer ValidateSpec tls version emptyChainwebServerDbs
+mkEnv rdb tls dbs = do
+    let pdb = newPayloadDb rdb
+    liftIO $ initializePayloadDb version pdb
+    clientEnvWithChainwebTestServer DoNotValidateSpec tls version emptyChainwebServerDbs
         { _chainwebServerBlockHeaderDbs = dbs
-        , _chainwebServerPayloadDbs = [ (cid, newPayloadDb rdb) | (cid, _) <- dbs ]
+        , _chainwebServerPayloadDbs = [ (cid, pdb) | (cid, _) <- dbs ]
         }
 
 simpleSessionTests :: RocksDb -> Bool -> TestTree
@@ -143,16 +146,17 @@ simpleSessionTests rdb tls =
 httpHeaderTests :: IO TestClientEnv_ -> ChainId -> TestTree
 httpHeaderTests envIO cid =
     testGroup ("http header tests for chain " <> sshow cid)
-        [ go "headerClient" $ \v h -> headerClient' v cid (key h)
-        , go "headersClient" $ \v _ -> headersClient' v cid Nothing Nothing Nothing Nothing
-        , go "hashesClient" $ \v _ -> hashesClient' v cid Nothing Nothing Nothing Nothing
-        , go "branchHashesClient" $ \v _ -> branchHashesClient' v cid Nothing Nothing Nothing
+        [ testCase "headerClient" $ go $ \v h -> headerClient' v cid (key h)
+        , testCase "headersClient" $ go $ \v _ -> headersClient' v cid Nothing Nothing Nothing Nothing
+        , testCase "blocksClient" $ go $ \v _ -> blocksClient' v cid Nothing Nothing Nothing Nothing
+        , testCase "hashesClient" $ go $ \v _ -> hashesClient' v cid Nothing Nothing Nothing Nothing
+        , testCase "branchHashesClient" $ go $ \v _ -> branchHashesClient' v cid Nothing Nothing Nothing
             Nothing (BranchBounds mempty mempty)
-        , go "branchHeadersClient" $ \v _ -> branchHeadersClient' v cid Nothing Nothing Nothing
+        , testCase "branchHeadersClient" $ go $ \v _ -> branchHeadersClient' v cid Nothing Nothing Nothing
             Nothing (BranchBounds mempty mempty)
         ]
       where
-        go name run = testCase name $ do
+        go run = do
             env <- _envClientEnv <$> envIO
             res <- flip runClientM_ env $ modifyResponse checkHeader $
                 run version (genesisBlockHeader version cid)
@@ -175,19 +179,24 @@ simpleClientSession :: IO TestClientEnv_ -> ChainId -> TestTree
 simpleClientSession envIO cid =
     testCaseSteps ("simple session for chain " <> sshow cid) $ \step -> do
         env <- _envClientEnv <$> envIO
-        dbs <- _envBlockHeaderDbs <$> envIO
-        res <- runClientM (session dbs step) env
+        bhdbs <- _envBlockHeaderDbs <$> envIO
+        pdbs <- _envPayloadDbs <$> envIO
+        res <- runClientM (session bhdbs pdbs step) env
         assertBool ("test failed: " <> sshow res) (isRight res)
   where
 
-    session :: [(ChainId, BlockHeaderDb)] -> (String -> IO a) -> ClientM ()
-    session dbs step = do
+    session :: [(ChainId, BlockHeaderDb)] -> [(ChainId, PayloadDb RocksDbTable)] -> (String -> IO a) -> ClientM ()
+    session bhdbs pdbs step = do
 
         let gbh0 = genesisBlockHeader version cid
 
-        db <- case Prelude.lookup cid dbs of
+        bhdb <- case Prelude.lookup cid bhdbs of
             Just x -> return x
-            Nothing ->  error "Chainweb.Test.RestAPI.simpleClientSession: missing block header db in test"
+            Nothing -> error "Chainweb.Test.RestAPI.simpleClientSession: missing block header db in test"
+
+        pdb <- case Prelude.lookup cid pdbs of
+            Just x -> return x
+            Nothing -> error "Chainweb.Test.RestAPI.simpleClientSession: missing payload db in test"
 
         void $ liftIO $ step "headerClient: get genesis block header"
         gen0 <- headerClient version cid (key gbh0)
@@ -218,7 +227,8 @@ simpleClientSession envIO cid =
 
         void $ liftIO $ step "put 3 new blocks"
         let newHeaders = take 3 $ testBlockHeaders (ParentHeader gbh0)
-        liftIO $ traverse_ (unsafeInsertBlockHeaderDb db) newHeaders
+        liftIO $ traverse_ (unsafeInsertBlockHeaderDb bhdb) newHeaders
+        liftIO $ traverse_ (addNewPayload pdb . testBlockPayload) newHeaders
 
         void $ liftIO $ step "headersClient: get all 4 block headers"
         bhs2 <- headersClient version cid Nothing Nothing Nothing Nothing
@@ -376,7 +386,8 @@ simpleClientSession envIO cid =
 
         void $ liftIO $ step "headerPutClient: put 3 new blocks on a new fork"
         let newHeaders2 = take 3 $ testBlockHeadersWithNonce (Nonce 17) (ParentHeader gbh0)
-        liftIO $ traverse_ (unsafeInsertBlockHeaderDb db) newHeaders2
+        liftIO $ traverse_ (unsafeInsertBlockHeaderDb bhdb) newHeaders2
+        liftIO $ traverse_ (addNewPayload pdb . testBlockPayload) newHeaders2
 
         let lower = last newHeaders
         forM_ ([1..] `zip` newHeaders2) $ \(i, h) -> do

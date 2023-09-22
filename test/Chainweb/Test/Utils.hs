@@ -147,6 +147,7 @@ import Data.Word
 import qualified Network.Connection as HTTP
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTP
+import qualified Network.HTTP.Types as HTTP
 import Network.Socket (close)
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
@@ -616,6 +617,8 @@ withChainwebTestServer
 withChainwebTestServer shouldValidateSpec tls v app =
     view _3 . snd <$> allocate start stop
   where
+    verboseOnExceptionResponse exn =
+        W.responseLBS HTTP.internalServerError500 [] ("exception: " <> sshow exn)
     start = do
         mw <- case shouldValidateSpec of
             ValidateSpec -> mkApiValidationMiddleware v
@@ -624,7 +627,11 @@ withChainwebTestServer shouldValidateSpec tls v app =
         (port, sock) <- W.openFreePort
         readyVar <- newEmptyMVar
         server <- async $ do
-            let settings = W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
+            let
+                settings =
+                    W.setBeforeMainLoop (putMVar readyVar ()) $
+                    W.setOnExceptionResponse verboseOnExceptionResponse $
+                    W.defaultSettings
             if
                 | tls -> do
                     let certBytes = testBootstrapCertificate

@@ -119,10 +119,13 @@ type BlockHashPage = Page (NextItem BlockHash) BlockHash
 type BlockHeaderPage = Page (NextItem BlockHash) BlockHeader
 
 data Block = Block
-    { _blockHeader :: BlockHeader
-    , _blockPayloadWithOutputs :: PayloadWithOutputs
+    { _blockHeader :: !BlockHeader
+    , _blockPayloadWithOutputs :: !PayloadWithOutputs
     }
+    deriving Show
 
+-- because this endpoint is only used on the service API, we assume clients
+-- want object-encoded block headers.
 blockProperties :: KeyValue kv => Block -> [kv]
 blockProperties o =
     [ "header"  .= ObjectEncoded (_blockHeader o)
@@ -137,7 +140,7 @@ instance ToJSON Block where
 
 instance FromJSON Block where
     parseJSON = withObject "Block" $ \o -> Block
-        <$> o .: "header"
+        <$> (_objectEncoded <$> o .: "header")
         <*> o .: "payloadWithOutputs"
     {-# INLINE parseJSON #-}
 
