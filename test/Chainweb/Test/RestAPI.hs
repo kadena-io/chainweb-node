@@ -154,6 +154,8 @@ httpHeaderTests envIO cid =
             Nothing (BranchBounds mempty mempty)
         , testCase "branchHeadersClient" $ go $ \v _ -> branchHeadersClient' v cid Nothing Nothing Nothing
             Nothing (BranchBounds mempty mempty)
+        , testCase "branchBlocksClient" $ go $ \v _ -> branchBlocksClient' v cid Nothing Nothing Nothing
+            Nothing (BranchBounds mempty mempty)
         ]
       where
         go run = do

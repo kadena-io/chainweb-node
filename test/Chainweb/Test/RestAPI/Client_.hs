@@ -36,6 +36,7 @@ module Chainweb.Test.RestAPI.Client_
 , blocksClient'
 , branchHashesClient'
 , branchHeadersClient'
+, branchBlocksClient'
 ) where
 
 import Data.Functor.Identity
@@ -177,3 +178,17 @@ branchHeadersClient' v c = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(BranchHeadersApi v c)
+
+branchBlocksClient'
+    :: ChainwebVersion
+    -> ChainId
+    -> Maybe Limit
+    -> Maybe (NextItem BlockHash)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> BranchBounds BlockHeaderDb
+    -> ClientM_ (Page (NextItem BlockHash) Block)
+branchBlocksClient' v c = runIdentity $ do
+    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
+    (SomeSing (SChainId :: Sing c)) <- return $ toSing c
+    return $ client_ @(BranchBlocksApi v c)
