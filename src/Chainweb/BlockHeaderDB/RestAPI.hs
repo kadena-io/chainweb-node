@@ -122,7 +122,7 @@ data Block = Block
     { _blockHeader :: !BlockHeader
     , _blockPayloadWithOutputs :: !PayloadWithOutputs
     }
-    deriving Show
+    deriving (Eq, Show)
 
 -- because this endpoint is only used on the service API, we assume clients
 -- want object-encoded block headers.

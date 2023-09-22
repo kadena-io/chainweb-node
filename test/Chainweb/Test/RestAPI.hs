@@ -19,6 +19,7 @@ module Chainweb.Test.RestAPI
 ( tests
 ) where
 
+import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
@@ -49,6 +50,7 @@ import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
+import Chainweb.BlockHeaderDB.RestAPI (Block(..))
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MempoolBackend, MockTx)
@@ -227,16 +229,31 @@ simpleClientSession envIO cid =
             (Expected gbh0)
             (Actual gen1)
 
+        void $ liftIO $ step "blocksClient: get genesis block"
+        block1 <- blocksClient version cid Nothing Nothing Nothing Nothing
+        gen1Block <- case _pageItems block1 of
+            [] -> liftIO $ assertFailure "blocksClient did return empty result"
+            (h:_) -> return h
+        assertExpectation "block client returned wrong entry"
+            (Expected (Block gbh0 (version ^?! versionGenesis . genesisBlockPayload . onChain cid)))
+            (Actual gen1Block)
+
         void $ liftIO $ step "put 3 new blocks"
         let newHeaders = take 3 $ testBlockHeaders (ParentHeader gbh0)
         liftIO $ traverse_ (unsafeInsertBlockHeaderDb bhdb) newHeaders
-        liftIO $ traverse_ (addNewPayload pdb . testBlockPayload) newHeaders
+        liftIO $ traverse_ (addNewPayload pdb . testBlockPayload_) newHeaders
 
         void $ liftIO $ step "headersClient: get all 4 block headers"
         bhs2 <- headersClient version cid Nothing Nothing Nothing Nothing
         assertExpectation "headersClient returned wrong number of entries"
             (Expected 4)
             (Actual $ _pageLimit bhs2)
+
+        void $ liftIO $ step "blocksClient: get all 4 blocks"
+        blocks2 <- blocksClient version cid Nothing Nothing Nothing Nothing
+        assertExpectation "blocksClient returned wrong number of entries"
+            (Expected 4)
+            (Actual $ _pageLimit blocks2)
 
         void $ liftIO $ step "hashesClient: get all 4 block hashes"
         hs2 <- hashesClient version cid Nothing Nothing Nothing Nothing
@@ -389,7 +406,7 @@ simpleClientSession envIO cid =
         void $ liftIO $ step "headerPutClient: put 3 new blocks on a new fork"
         let newHeaders2 = take 3 $ testBlockHeadersWithNonce (Nonce 17) (ParentHeader gbh0)
         liftIO $ traverse_ (unsafeInsertBlockHeaderDb bhdb) newHeaders2
-        liftIO $ traverse_ (addNewPayload pdb . testBlockPayload) newHeaders2
+        liftIO $ traverse_ (addNewPayload pdb . testBlockPayload_) newHeaders2
 
         let lower = last newHeaders
         forM_ ([1..] `zip` newHeaders2) $ \(i, h) -> do
