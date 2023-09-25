@@ -274,8 +274,7 @@ rewindPastMinBlockHeightFails rdb =
 
       let ver = testVersion
       let cfg = testPactServiceConfig
-      let logger = genericLogger System.LogLevel.Info T.putStrLn --(\_ -> return ())
-      --let sqlEnvs = HM.singleton cid sqlEnv
+      let logger = genericLogger System.LogLevel.Error (\_ -> return ())
 
       void $ forkIO $ runPactService ver cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
 

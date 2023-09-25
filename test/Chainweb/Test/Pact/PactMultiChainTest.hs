@@ -42,7 +42,6 @@ import Pact.Types.Lang(_LString)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
---import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
