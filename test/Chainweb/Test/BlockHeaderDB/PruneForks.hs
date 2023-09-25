@@ -116,7 +116,7 @@ delHdr cdb k = do
 -- Test cases
 
 tests :: TestTree
-tests = withRocksResource $ \rio ->
+tests = withResourceT withRocksResource $ \rio ->
     testGroup "Chainweb.BlockHeaderDb.PruneForks"
         [ testCaseSteps "simple 1" (test0 rio)
         , testCaseSteps "simple 2" (test1 rio)
