@@ -102,8 +102,8 @@ setParentHeader msg ph@(ParentHeader bh) = do
 -- /NOTE:/
 --
 -- Any call of this function must occur within a dedicated call to
--- 'withChwithCheckpointerRewind', 'withCurrentCheckpointer' or
--- 'withCheckPointerWithoutRewind'.
+-- 'withCheckpointerRewind', 'withCurrentCheckpointer' or
+-- 'withCheckpointerWithoutRewind'.
 --
 execBlock
     :: (CanReadablePayloadCas tbl, Logger logger)

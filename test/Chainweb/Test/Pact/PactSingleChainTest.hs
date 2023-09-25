@@ -17,6 +17,7 @@ module Chainweb.Test.Pact.PactSingleChainTest
 ) where
 
 import Control.Arrow ((&&&))
+import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
 import Control.DeepSeq
 import Control.Lens hiding ((.=))
@@ -112,6 +113,7 @@ tests rdb = ScheduledTest testName go
          , test blockGasLimitTest
          , testTimeout preInsertCheckTimeoutTest
          , rosettaFailsWithoutFullHistory rdb
+         , rewindPastMinBlockHeightFails rdb
          ]
       where
         test = test' rdb
@@ -203,7 +205,8 @@ rosettaFailsWithoutFullHistory rdb =
   withTemporaryDir $ \iodir ->
   withSqliteDb cid iodir $ \sqlEnvIO ->
     let
-        pat = "runBlocks and compact"
+        pat = "runBlocksAndCompact"
+
         mempool :: MemPoolAccess
         mempool = mempty
 
@@ -245,6 +248,56 @@ rosettaFailsWithoutFullHistory rdb =
             Right _ -> do
               assertFailure $ "Expected FullHistoryRequired exception, instead there was no exception at all."
       ]
+
+rewindPastMinBlockHeightFails :: ()
+  => RocksDb
+  -> TestTree
+rewindPastMinBlockHeightFails rdb =
+  withTemporaryDir $ \iodir ->
+  withSqliteDb cid iodir $ \sqlEnvIO ->
+    let
+        pat :: String
+        pat = "rewindPastMinBlockHeightFails"
+
+        mempool :: MemPoolAccess
+        mempool = mempty
+
+        mempoolRef :: IO (IORef MemPoolAccess)
+        mempoolRef = newIORef mempool
+    in
+    testCase pat $ do
+      blockDb <- mkTestBlockDb testVersion rdb
+      bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
+      let payloadDb = _bdbPayloadDb blockDb
+      sqlEnv <- sqlEnvIO
+      pactQueue <- newPactQueue 2000
+
+      let ver = testVersion
+      let cfg = testPactServiceConfig
+      let logger = genericLogger System.LogLevel.Error (\_ -> return ())
+
+      void $ forkIO $ runPactService ver cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
+
+      setOneShotMempool mempoolRef goldenMemPool
+      replicateM_ 10 $ runBlock pactQueue blockDb second pat
+
+      C.withDefaultLogger System.Logger.Types.Error $ \cLogger -> do
+        let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
+        let db = _sConn sqlEnv
+        let height = BlockHeight 5
+        void $ C.runCompactM (C.mkCompactEnv cLogger db height flags) C.compact
+
+      -- Genesis block header; compacted away by now
+      let bh = genesisBlockHeader ver cid
+
+      syncResult <- readMVar =<< pactSyncToBlock bh pactQueue
+      case syncResult of
+        Left (PactInternalError {}) -> do
+          return ()
+        Left err -> do
+          assertFailure $ "Expected a PactInternalError, but got: " ++ show err
+        Right _ -> do
+          assertFailure "Expected an exception, but didn't encounter one."
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do

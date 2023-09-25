@@ -361,9 +361,14 @@ runLocal cid' cmd = runLocalWithDepth Nothing cid' cmd
 
 runLocalWithDepth :: Maybe RewindDepth -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
 runLocalWithDepth depth cid' cmd = do
+  pact <- getPactService cid'
+  cwCmd <- buildCwCmd cmd
+  liftIO $ _pactLocal pact Nothing Nothing depth cwCmd
+
+getPactService :: ChainId -> PactTestM PactExecutionService
+getPactService cid' = do
   HM.lookup cid' <$> view menvPacts >>= \case
-    Just pact -> buildCwCmd cmd >>=
-      liftIO . _pactLocal pact Nothing Nothing depth
+    Just pact -> return pact
     Nothing -> liftIO $ assertFailure $ "No pact service found at chain id " ++ show cid'
 
 assertLocalFailure
@@ -485,8 +490,6 @@ pact43UpgradeTest = do
         ])
         $ mkKeySetData "k" [sender00]
 
-
-
 chainweb215Test :: PactTestM ()
 chainweb215Test = do
 
@@ -578,8 +581,6 @@ chainweb215Test = do
       , mkTransferXChainRecdEvent "" "sender00" 0.0123 "coin" h (toText cid)
       , mkXResumeEvent "sender00" "sender00" 0.0123 sender00Ks "pact" h' (toText cid) "0"
       ]
-
-
 
 pact431UpgradeTest :: PactTestM ()
 pact431UpgradeTest = do
@@ -1336,7 +1337,6 @@ buildXSend caps = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
     "(coin.transfer-crosschain 'sender00 'sender00 (read-keyset 'k) \"0\" 0.0123)" $
     mkKeySetData "k" [sender00]
 
-
 chain0 :: ChainId
 chain0 = unsafeChainId 0
 
@@ -1374,7 +1374,6 @@ setFromHeader bh =
   set cbChainId (_blockChainId bh)
   . set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
 
-
 buildBasic
     :: PactRPC T.Text
     -> MempoolCmdBuilder
@@ -1392,9 +1391,6 @@ buildBasic' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   f $ signSender00
   $ setFromHeader bh
   $ mkCmd (sshow bh) r
-
-
-
 
 -- | Get output on latest cut for chain
 getPWO :: ChainId -> PactTestM (PayloadWithOutputs,BlockHeader)
