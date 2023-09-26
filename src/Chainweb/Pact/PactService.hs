@@ -314,9 +314,9 @@ serviceRequests memPoolAccess reqQ = do
                 go
             NewBlockMsg NewBlockReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execNewBlock"
-                    (_parentHeader _newBlockHeader) 1 $
+                    () 1 $
                     tryOne "execNewBlock" _newResultVar $
-                        execNewBlock memPoolAccess _newBlockHeader _newMiner
+                        execNewBlock memPoolAccess _newMiner
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
                 tryOne "execValidateBlock" _valResultVar $
@@ -489,16 +489,25 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = localLabel ("transaction", "attempt
             Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
             Right t -> return (T2 (_txCache t) (Right tx))
 
+execNewBlock
+    :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
+    => MemPoolAccess
+    -> Miner
+    -> PactServiceM logger tbl PayloadWithOutputs
+execNewBlock mpAccess miner = do
+    parent <- syncParentHeader "execNewBlock"
+    execNewBlock' mpAccess parent miner
+
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
 --
-execNewBlock
+execNewBlock'
     :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
     => MemPoolAccess
     -> ParentHeader
     -> Miner
     -> PactServiceM logger tbl PayloadWithOutputs
-execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
+execNewBlock' mpAccess parent miner = pactLabel "execNewBlock" $ do
     updateMempool
     withDiscardedBatch $ do
       withCheckpointerRewind newblockRewindLimit (Just parent) "execNewBlock" doNewBlock

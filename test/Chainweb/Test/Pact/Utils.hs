@@ -121,7 +121,7 @@ module Chainweb.Test.Pact.Utils
 , someTestVersionHeader
 , someBlockHeader
 , testPactFilesDir
-
+, getPWOByHeader
 ) where
 
 import Control.Arrow ((&&&))
@@ -222,6 +222,7 @@ import Chainweb.Version.Utils (someChainId)
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
+import Chainweb.Storage.Table (casLookupM)
 import Chainweb.Storage.Table.RocksDB
 
 -- ----------------------------------------------------------------------- --
@@ -743,8 +744,8 @@ withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
         bhdb <- getBlockHeaderDb c bdb
         (ctx,_) <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
         return $ (c,) $ PactExecutionService
-          { _pactNewBlock = \m p ->
-              evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
+          { _pactNewBlock = \_ m ->
+              evalPactServiceM_ ctx $ execNewBlock mempoolAccess m
           , _pactValidateBlock = \h d ->
               evalPactServiceM_ ctx $ fst <$> execValidateBlock mempoolAccess h d
           , _pactLocal = \pf sv rd cmd ->
@@ -779,8 +780,7 @@ runCut
     -> IO ()
 runCut v bdb pact genTime noncer miner =
   forM_ (chainIds v) $ \cid -> do
-    ph <- ParentHeader <$> getParentTestBlockDb bdb cid
-    pout <- _webPactNewBlock pact miner ph
+    pout <- _webPactNewBlock pact cid miner
     n <- noncer cid
 
     -- skip this chain if mining fails and retry with the next chain.
@@ -1047,3 +1047,6 @@ compact :: ()
 compact logLevel cFlags (SQLiteEnv db _) bh = do
   C.withDefaultLogger logLevel $ \logger -> do
     void $ C.compact bh logger db cFlags
+
+getPWOByHeader :: BlockHeader -> TestBlockDb -> IO PayloadWithOutputs
+getPWOByHeader h (TestBlockDb _ pdb _) = casLookupM pdb (_blockPayloadHash h)

@@ -134,7 +134,7 @@ withMiningCoordination logger conf cdb inner
             -- Generate new payloads, one for each Miner we're managing --
             let !newParent = ParentHeader . fromJuste . HM.lookup cid $ _cutMap new
                 !newParentHash = _blockHash $ _parentHeader newParent
-            payloads <- traverse (\m -> T2 m <$> getPayload newParent m) miners
+            payloads <- traverse (\m -> T2 m <$> getPayload cid m) miners
             -- Update the cache in a single step --
             atomically $ modifyTVar' tpw $ \pw ->
                 foldl' (updateCache cid newParentHash) pw payloads
@@ -174,13 +174,13 @@ withMiningCoordination logger conf cdb inner
       -> IO (HM.HashMap ChainId (Maybe (PayloadData, BlockHash)))
     fromCut m cut = HM.fromList
         <$> traverse
-            (\(T2 cid bh) -> (cid,) . Just . (, _blockHash (_parentHeader bh)) <$> getPayload bh m)
+            (\(T2 cid bh) -> (cid,) . Just . (, _blockHash (_parentHeader bh)) <$> getPayload cid m)
             cut
 
-    getPayload :: ParentHeader -> Miner -> IO PayloadData
-    getPayload parent m = trace (logFunction logger)
+    getPayload :: ChainId -> Miner -> IO PayloadData
+    getPayload cid m = trace (logFunction logger)
         "Chainweb.Chainweb.MinerResources.withMiningCoordination.newBlock"
-        () 1 (payloadWithOutputsToPayloadData <$> _pactNewBlock pact m parent)
+        () 1 (payloadWithOutputsToPayloadData <$> _pactNewBlock pact cid m)
 
     pact :: PactExecutionService
     pact = _webPactExecutionService $ view cutDbPactService cdb

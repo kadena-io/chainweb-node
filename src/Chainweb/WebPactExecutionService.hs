@@ -55,8 +55,8 @@ data PactExecutionService = PactExecutionService
         )
       -- ^ Validate block payload data by running through pact service.
     , _pactNewBlock :: !(
+        ChainId ->
         Miner ->
-        ParentHeader ->
         IO PayloadWithOutputs
         )
       -- ^ Request a new block to be formed using mempool
@@ -111,8 +111,8 @@ newtype WebPactExecutionService = WebPactExecutionService
 
 _webPactNewBlock
     :: WebPactExecutionService
+    -> ChainId
     -> Miner
-    -> ParentHeader
     -> IO PayloadWithOutputs
 _webPactNewBlock = _pactNewBlock . _webPactExecutionService
 {-# INLINE _webPactNewBlock #-}
@@ -131,7 +131,7 @@ mkWebPactExecutionService
     -> WebPactExecutionService
 mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
     { _pactValidateBlock = \h pd -> withChainService (_chainId h) $ \p -> _pactValidateBlock p h pd
-    , _pactNewBlock = \m h -> withChainService (_chainId h) $ \p -> _pactNewBlock p m h
+    , _pactNewBlock = \cid m -> withChainService cid $ \p -> _pactNewBlock p cid m
     , _pactLocal = \_pf _sv _rd _ct -> throwM $ userError "Chainweb.WebPactExecutionService.mkPactExecutionService: No web-level local execution supported"
     , _pactLookup = \h cd txs -> withChainService (_chainId h) $ \p -> _pactLookup p h cd txs
     , _pactPreInsertCheck = \cid txs -> withChainService cid $ \p -> _pactPreInsertCheck p cid txs
@@ -155,8 +155,8 @@ mkPactExecutionService q = PactExecutionService
         case r of
           Right (!pdo) -> return pdo
           Left e -> throwM e
-    , _pactNewBlock = \m h -> do
-        mv <- newBlock m h q
+    , _pactNewBlock = \_ m -> do
+        mv <- newBlock m q
         r <- takeMVar mv
         either throwM evaluate r
     , _pactLocal = \pf sv rd ct ->

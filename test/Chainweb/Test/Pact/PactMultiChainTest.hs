@@ -1383,7 +1383,21 @@ currentCut :: PactTestM Cut
 currentCut = view menvBdb >>= liftIO . readMVar . _bdbCut
 
 rewindTo :: Cut -> PactTestM ()
-rewindTo c = view menvBdb >>= \bdb -> void $ liftIO $ swapMVar (_bdbCut bdb) c
+rewindTo c = do
+  pact <- view menvPact
+  bdb <- view menvBdb
+
+  forM_ (chainIds testVersion) $ \cid' -> do
+    let
+      ph = case HM.lookup cid' (_cutMap c) of
+          Just h -> h
+          Nothing -> error $ "rewindTo: can't find block header for " ++ show cid'
+
+    -- reset the parent header using validateBlock
+    pout <- liftIO $ getPWOByHeader ph bdb
+    void $ liftIO $ _webPactValidateBlock pact ph (payloadWithOutputsToPayloadData pout)
+
+    void $ liftIO $ swapMVar (_bdbCut bdb) c
 
 assertTxEvents :: (HasCallStack, MonadIO m) => String -> [PactEvent] -> CommandResult Hash -> m ()
 assertTxEvents msg evs = liftIO . assertEqual msg evs . _crEvents

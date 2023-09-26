@@ -45,13 +45,12 @@ import Chainweb.Transaction
 import Chainweb.Utils (T2)
 
 
-newBlock :: Miner -> ParentHeader -> PactQueue ->
+newBlock :: Miner -> PactQueue ->
             IO (MVar (Either PactException PayloadWithOutputs))
-newBlock mi bHeader reqQ = do
+newBlock mi reqQ = do
     !resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
     let !msg = NewBlockMsg NewBlockReq
-          { _newBlockHeader = bHeader
-          , _newMiner = mi
+          { _newMiner = mi
           , _newResultVar = resultVar }
     addRequest reqQ msg
     return resultVar

@@ -154,16 +154,28 @@ bench rdb = C.bgroup "PactService" $
     forkingBench = withResources rdb 10 Quiet DontCompact
         $ \mainLineBlocks pdb bhdb nonceCounter pactQueue _ ->
             C.bench "forkingBench"  $ C.whnfIO $ do
-              let (T3 _ join1 _) = mainLineBlocks !! 5
+              let (T3 _ join1 pwo1) = mainLineBlocks !! 5
+
+              -- we have to execValidateBlock on `join1` block height to update the parent header
+              void $ validateBlock join1 (payloadWithOutputsToPayloadData pwo1) pactQueue
+
               void $ playLine pdb bhdb 5 join1 pactQueue nonceCounter
 
     doubleForkingBench = withResources rdb 10 Quiet DontCompact
         $ \mainLineBlocks pdb bhdb nonceCounter pactQueue _ ->
             C.bench "doubleForkingBench"  $ C.whnfIO $ do
-              let (T3 _ join1 _) = mainLineBlocks !! 5
+              let (T3 _ join1 pwo1) = mainLineBlocks !! 5
                   forkLength1 = 5
                   forkLength2 = 5
+
+              -- we have to execValidateBlock on `join1` block height to update the parent header
+              void $ validateBlock join1 (payloadWithOutputsToPayloadData pwo1) pactQueue
+
               void $ playLine pdb bhdb forkLength1 join1 pactQueue nonceCounter
+
+              -- we have to execValidateBlock on `join1` block height to update the parent header
+              void $ validateBlock join1 (payloadWithOutputsToPayloadData pwo1) pactQueue
+
               void $ playLine pdb bhdb forkLength2 join1 pactQueue nonceCounter
 
     oneBlock :: BenchConfig -> Int -> C.Benchmark
@@ -172,7 +184,11 @@ bench rdb = C.bgroup "PactService" $
         go mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock = do
           C.bench name $ C.whnfIO $ do
             writeIORef txsPerBlock txCount
-            let (T3 _ join1 _) = last mainLineBlocks
+            let (T3 _ join1 pwo1) = last mainLineBlocks
+
+            -- we have to execValidateBlock on `join1` block height to update the parent header
+            void $ validateBlock join1 (payloadWithOutputsToPayloadData pwo1) pactQueue
+
             createBlock cfg.validate (ParentHeader join1) (Nonce 1234) pactQueue
         name = "block-new ["
           ++ List.intercalate ","
@@ -235,7 +251,7 @@ createBlock validate parent nonce pact = do
 
      -- assemble block without nonce and timestamp
 
-     mv <- newBlock noMiner parent pact
+     mv <- newBlock noMiner pact
 
      payload <- assertNotLeft =<< takeMVar mv
 
