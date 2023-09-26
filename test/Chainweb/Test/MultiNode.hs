@@ -39,7 +39,7 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Exception
-import Control.Lens (set, view)
+import Control.Lens (set, view, over)
 import Control.Monad
 
 import Data.Aeson
@@ -312,12 +312,15 @@ compactAndResumeTest logLevel v n =
     let logger = genericLogger logLevel logFun
 
     tastyLog "phase 1... creating blocks"
+    -- N.B.: This consensus state stuff calls into RocksDB. This is
+    -- fine because we ultimately just want to make sure that we are
+    -- making progress (i.e, new blocks)
     stateVar <- newMVar (emptyConsensusState v)
     let ct :: Int -> StartedChainweb logger -> IO ()
         ct = harvestConsensusState logger stateVar
-    runNodesForSeconds logLevel logFun (multiConfig v n) 2 60 rdb pactDbDir ct
+    runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rdb pactDbDir ct
     Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
-    assertGe "maximum cut height before compaction" (Actual $ _statMaxHeight stats1) (Expected 10)
+    assertGe "average block count before compaction" (Actual $ _statBlockCount stats1) (Expected 50)
     tastyLog $ sshow stats1
 
     tastyLog "phase 2... compacting"
@@ -327,16 +330,18 @@ compactAndResumeTest logLevel v n =
     forM_ nids $ \nid -> do
       let dir = pactDbDir </> show nid
       withSqliteDb cid logger dir False{-reset db-} $ \sqlEnv -> do
-        C.withDefaultLogger YAL.Info $ \cLogger -> do
+        C.withDefaultLogger YAL.Warn $ \cLogger -> do
+          let cLogger' = over YAL.setLoggerScope (\scope -> ("nodeId",sshow nid) : ("chainId",sshow cid) : scope) cLogger
           let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
           let db = _sConn sqlEnv
           let bh = BlockHeight 5
-          void $ C.runCompactM (C.mkCompactEnv cLogger db bh flags) C.compact
+          void $ C.runCompactM (C.mkCompactEnv cLogger' db bh flags) C.compact
 
     tastyLog "phase 3... restarting nodes and ensuring progress"
-    runNodesForSeconds logLevel logFun (multiConfig v n) 2 60 rdb pactDbDir ct
+    runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rdb pactDbDir ct
     Just stats2 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
-    assertGe "maximum cut height before compaction" (Actual $ _statMaxHeight stats2) (Expected 10)
+    -- We ensure that we've gotten to at least 1.5x the previous block count
+    assertGe "average block count post-compaction" (Actual $ _statBlockCount stats2) (Expected (3 * _statBlockCount stats1 `div` 2))
     tastyLog $ sshow stats2
 
 replayTest
