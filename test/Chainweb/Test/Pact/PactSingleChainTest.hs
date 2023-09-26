@@ -204,6 +204,7 @@ rosettaFailsWithoutFullHistory rdb =
   withSqliteDb cid iodir $ \sqlEnvIO ->
     let
         pat = "runBlocks and compact"
+
         mempool :: MemPoolAccess
         mempool = mempty
 
