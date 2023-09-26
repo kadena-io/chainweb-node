@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
@@ -32,7 +33,7 @@
 -- The configuration defines a scaled down, accelerated chain that tries to
 -- similulate a full-scale chain in a miniaturized settings.
 --
-module Chainweb.Test.MultiNode ( test, replayTest ) where
+module Chainweb.Test.MultiNode ( test, replayTest, compactAndResumeTest ) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
@@ -58,6 +59,7 @@ import qualified Streaming.Prelude as S
 
 import System.FilePath
 import System.IO.Temp
+import System.Logger.Types qualified as YAL
 import System.LogLevel
 import System.Timeout
 
@@ -73,6 +75,9 @@ import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.PeerResources
+import Chainweb.Pact.Backend.Compaction qualified as C
+import Chainweb.Pact.Backend.Types (_sConn)
+import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
@@ -282,6 +287,55 @@ runNodesForSeconds
 runNodesForSeconds loglevel write baseConf n (Seconds seconds) rdb pactDbDir inner = do
     void $ timeout (int seconds * 1_000_000)
         $ runNodes loglevel write baseConf n rdb pactDbDir inner
+
+-- | Run nodes
+--   Each node creates blocks
+--   We wait until they've made a sufficient amount of blocks
+--   We stop the nodes
+--   We open sqlite connections to some of the database dirs and compact them
+--   We restart all nodes with the same database dirs
+--   We observe that they can make progress
+compactAndResumeTest :: ()
+  => LogLevel
+  -> ChainwebVersion
+  -> Natural
+  -> TestTree
+compactAndResumeTest logLevel v n =
+  let
+    name = "compact-resume"
+  in
+  after AllFinish "ConsensusNetwork" $ testCaseSteps name $ \step ->
+  withTempRocksDb "compact-resume-test-rocks" $ \rdb ->
+  withSystemTempDirectory "compact-resume-test-pact" $ \pactDbDir -> do
+    let tastyLog = step . T.unpack
+    let logFun = tastyLog
+    let logger = genericLogger logLevel logFun
+
+    tastyLog "phase 1... creating blocks"
+    stateVar <- newMVar (emptyConsensusState v)
+    let ct :: Int -> StartedChainweb logger -> IO ()
+        ct = harvestConsensusState logger stateVar
+    runNodesForSeconds logLevel logFun (multiConfig v n) 2 60 rdb pactDbDir ct
+    Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
+    assertGe "maximum cut height before compaction" (Actual $ _statMaxHeight stats1) (Expected 10)
+    tastyLog $ sshow stats1
+
+    tastyLog "phase 2... compacting"
+    let cid = unsafeChainId 0
+    forM_ [0 .. int @_ @Int n - 1] $ \nid -> do
+      let dir = pactDbDir </> show nid
+      withSqliteDb cid logger dir False{-reset db-} $ \sqlEnv -> do
+        C.withDefaultLogger YAL.Info $ \cLogger -> do
+          let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
+          let db = _sConn sqlEnv
+          let bh = BlockHeight 5
+          void $ C.runCompactM (C.mkCompactEnv cLogger db bh flags) C.compact
+
+    tastyLog "phase 3... restarting nodes and ensuring progress"
+    runNodesForSeconds logLevel logFun (multiConfig v n) 2 60 rdb pactDbDir ct
+    Just stats2 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
+    assertGe "maximum cut height before compaction" (Actual $ _statMaxHeight stats2) (Expected 10)
+    tastyLog $ sshow stats2
 
 replayTest
     :: LogLevel
