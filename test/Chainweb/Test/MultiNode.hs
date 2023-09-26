@@ -322,7 +322,9 @@ compactAndResumeTest logLevel v n =
 
     tastyLog "phase 2... compacting"
     let cid = unsafeChainId 0
-    forM_ [0 .. int @_ @Int n - 1] $ \nid -> do
+    -- compact only half of them
+    let nids = filter even [0 .. int @_ @Int n - 1]
+    forM_ nids $ \nid -> do
       let dir = pactDbDir </> show nid
       withSqliteDb cid logger dir False{-reset db-} $ \sqlEnv -> do
         C.withDefaultLogger YAL.Info $ \cLogger -> do
