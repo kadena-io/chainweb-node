@@ -164,34 +164,63 @@ runCompactM e a = runReaderT (unCompactM a) e
 
 -- | Prepare/Execute a "$VTABLE$"-templated query.
 execM_ :: ()
-  => Text -- ^ "$VTABLE$"-templated query
+  => Text -- ^ query name (for logging purposes)
+  -> Text -- ^ "$VTABLE$"-templated query
   -> CompactM ()
-execM_ q = do
+execM_ msg q = do
+  logQueryDebug msg
   q' <- templateStmt q
   withDb $ \db -> liftIO $ Pact.exec_ db q'
 
 -- | Prepare/Execute a "$VTABLE$"-templated, parameterised query.
 --   The parameters are the results of the 'CompactM' 'SType' computations.
 execM' :: ()
-  => Text -- ^ "$VTABLE$"-templated query
+  => Text -- ^ query name (for logging purposes)
+  -> Text -- ^ "$VTABLE$"-templated query
   -> [CompactM SType] -- ^ parameters
   -> CompactM ()
-execM' stmt ps' = do
+execM' msg stmt ps' = do
+  logQueryDebug msg
   ps <- sequence ps'
   stmt' <- templateStmt stmt
   withDb $ \db -> liftIO $ Pact.exec' db stmt' ps
 
+exec_ :: ()
+  => Text
+  -> Database
+  -> Utf8
+  -> CompactM ()
+exec_ msg db qry = do
+  logQueryDebug msg
+  liftIO $ Pact.exec_ db qry
+
+qry_ :: ()
+  => Text
+  -> Database
+  -> Utf8
+  -> [RType]
+  -> CompactM [[SType]]
+qry_ msg db qry rs = do
+  logQueryDebug msg
+  liftIO $ Pact.qry_ db qry rs
+
 -- | Prepare/Execute a "$VTABLE$"-templated, parameterised query.
 --   'RType's are the expected results.
 qryM :: ()
-  => Text -- ^ "$VTABLE$"-templated query
+  => Text -- ^ query name (for logging purposes)
+  -> Text -- ^ "$VTABLE$"-templated query
   -> [CompactM SType] -- ^ parameters
   -> [RType] -- ^ results
   -> CompactM [[SType]]
-qryM q ins' outs = do
+qryM msg q ins' outs = do
+  logQueryDebug msg
   q' <- templateStmt q
   ins <- sequence ins'
   withDb $ \db -> liftIO $ Pact.qry db q' ins outs
+
+logQueryDebug :: Text -> CompactM ()
+logQueryDebug msg = do
+  logg Info ("Query: " <> msg)
 
 -- | Statements are templated with "$VTABLE$" substituted
 -- with the currently-focused versioned table.
@@ -225,10 +254,10 @@ vtable' = view ceVersionTable >>= \case
 --   Throws a 'CompactExceptionDb' on failure.
 withTx :: HasCallStack => CompactM a -> CompactM a
 withTx a = withDb $ \db -> do
-  liftIO $ Pact.exec_ db $ "SAVEPOINT compact_tx"
-  catch (a >>= \r -> liftIO (Pact.exec_ db "RELEASE SAVEPOINT compact_tx") >> return r) $
+  exec_ "withTx.0" db $ "SAVEPOINT compact_tx"
+  catch (a >>= \r -> exec_ "withTx.1" db "RELEASE SAVEPOINT compact_tx" >> return r) $
       \e@SomeException {} -> do
-        liftIO $ Pact.exec_ db "ROLLBACK TRANSACTION TO SAVEPOINT compact_tx"
+        exec_ "withTx.2" db "ROLLBACK TRANSACTION TO SAVEPOINT compact_tx"
         throwM $ CompactExceptionDb e
 
 withDb :: (Database -> CompactM a) -> CompactM a
@@ -262,19 +291,19 @@ setTables rs next = do
 createCompactGrandHash :: CompactM ()
 createCompactGrandHash = do
   logg Info "createTables"
-  execM_
+  execM_ "createTable: CompactGrandHash"
       " CREATE TABLE IF NOT EXISTS CompactGrandHash \
       \ ( tablename TEXT \
       \ , hash BLOB \
       \ , UNIQUE (tablename) ); "
 
-  execM_
+  execM_ "deleteFrom: CompactGrandHash"
       "DELETE FROM CompactGrandHash"
 
 -- | CompactActiveRow collects all active rows from all tables.
 createCompactActiveRow :: CompactM ()
 createCompactActiveRow = do
-  execM_
+  execM_ "createTable: CompactActiveRow"
       " CREATE TABLE IF NOT EXISTS CompactActiveRow \
       \ ( tablename TEXT NOT NULL \
       \ , rowkey TEXT NOT NULL \
@@ -282,13 +311,14 @@ createCompactActiveRow = do
       \ , hash BLOB \
       \ , UNIQUE (tablename,rowkey) ); "
 
-  execM_
+  execM_ "deleteFrom: CompactActiveRow"
       "DELETE FROM CompactActiveRow"
 
 -- | Sets environment txid, which is the "endingtxid" of the target blockheight.
 readTxId :: CompactM a -> CompactM a
 readTxId next = do
   r <- qryM
+       "readTxId.0"
        "SELECT endingtxid FROM BlockHistory WHERE blockheight=?"
        [blockheight]
        [RInt]
@@ -305,6 +335,7 @@ collectVersionedTables :: CompactM a -> CompactM a
 collectVersionedTables next = do
   logg Info "collectVersionedTables"
   rs <- qryM
+        "collectVersionedTables.0"
         " SELECT DISTINCT tablename FROM VersionedTableMutation \
         \ WHERE blockheight <= ? ORDER BY blockheight; "
         [blockheight]
@@ -313,7 +344,7 @@ collectVersionedTables next = do
 
 tableRowCount :: Text -> CompactM ()
 tableRowCount lbl =
-  qryM "SELECT COUNT(*) FROM $VTABLE$" [] [RInt] >>= \case
+  qryM "tableRowCount.0" "SELECT COUNT(*) FROM $VTABLE$" [] [RInt] >>= \case
     [[SInt r]] -> logg Info $ lbl <> ":rowcount=" <> sshow r
     _ -> internalError "count(*) failure"
 
@@ -326,7 +357,7 @@ collectTableRows = do
   doGrandHash <- not <$> isFlagSet Flag_NoGrandHash
   if | doGrandHash -> do
          logg Info "collectTableRows:insert"
-         execM'
+         execM' "collectTableRows.0, doGrandHash=True"
            " INSERT INTO CompactActiveRow \
            \ SELECT ?1,rowkey,rowid, \
            \ sha3_256('T',?1,'K',rowkey,'I',txid,'D',rowdata) \
@@ -337,7 +368,7 @@ collectTableRows = do
            [vtable,txid]
 
          logg Info "collectTableRows:checksum"
-         execM'
+         execM' "collectTableRows.1, doGrandHash=True"
              " INSERT INTO CompactGrandHash \
              \ VALUES (?1, \
              \  (SELECT sha3a_256(hash) FROM CompactActiveRow \
@@ -345,7 +376,7 @@ collectTableRows = do
              [vtable]
      | otherwise -> do
          logg Info "collectTableRows:insert"
-         execM'
+         execM' "collectTableRows.0, doGrandHash=False"
            " INSERT INTO CompactActiveRow \
            \ SELECT ?1,rowkey,rowid, \
            \ NULL \
@@ -359,14 +390,14 @@ collectTableRows = do
 computeGlobalHash :: CompactM ByteString
 computeGlobalHash = do
   logg Info "computeGlobalHash"
-  execM_
+  execM_ "computeGlobalHash.0"
       " INSERT INTO CompactGrandHash \
       \ VALUES (NULL, \
       \  (SELECT sha3a_256(hash) FROM CompactGrandHash \
       \   WHERE tablename IS NOT NULL ORDER BY tablename)); "
 
   withDb $ \db ->
-    liftIO $ Pact.qry_ db "SELECT hash FROM CompactGrandHash WHERE tablename IS NULL" [RBlob] >>= \case
+    qry_ "computeGlobalHash.1" db "SELECT hash FROM CompactGrandHash WHERE tablename IS NULL" [RBlob] >>= \case
       [[SBlob h]] -> return h
       _ -> throwM $ CompactExceptionInternal "computeGlobalHash: bad result"
 
@@ -374,7 +405,7 @@ computeGlobalHash = do
 compactTable :: CompactM ()
 compactTable = do
   logg Info "compactTable"
-  execM'
+  execM' "compactTable.0"
       " DELETE FROM $VTABLE$ WHERE rowid NOT IN \
       \ (SELECT t.rowid FROM $VTABLE$ t \
       \  LEFT JOIN CompactActiveRow v \
@@ -387,7 +418,8 @@ verifyTable :: CompactM ByteString
 verifyTable = do
   logg Info "verifyTable"
   curr <- computeTableHash
-  rs <- qryM " SELECT hash FROM CompactGrandHash WHERE tablename=?1 "
+  rs <- qryM "verifyTable.0"
+      " SELECT hash FROM CompactGrandHash WHERE tablename=?1 "
       [vtable]
       [RBlob]
   case rs of
@@ -402,7 +434,7 @@ verifyTable = do
 -- | For given table, compute table grand hash for max txid.
 computeTableHash :: CompactM ByteString
 computeTableHash = do
-  rs <- qryM
+  rs <- qryM "computeTableHash.0"
         " SELECT sha3a_256(hash) FROM \
         \ (SELECT sha3_256('T',?1,'K',rowkey,'I',txid,'D',rowdata) as hash \
         \  FROM $VTABLE$ t1 \
@@ -418,14 +450,14 @@ computeTableHash = do
 dropNewTables :: CompactM ()
 dropNewTables = do
   logg Info "dropNewTables"
-  nts <- qryM
+  nts <- qryM "dropNewTables.0"
       " SELECT tablename FROM VersionedTableCreation \
       \ WHERE createBlockheight > ?1 ORDER BY createBlockheight; "
       [blockheight]
       [RText]
 
   setTables nts $ withTables $ do
-    execM_ "DROP TABLE IF EXISTS $VTABLE$"
+    execM_ "dropNewTables.1" "DROP TABLE IF EXISTS $VTABLE$"
 
 -- | Delete all rows from Checkpointer system tables that are not for the target blockheight.
 compactSystemTables :: CompactM ()
@@ -437,11 +469,11 @@ compactSystemTables = do
           if tbl == "VersionedTableCreation"
           then "createBlockheight"
           else "blockheight"
-    execM' ("DELETE FROM " <> tbl <> " WHERE " <> column <> " != ?1;") [blockheight]
+    execM' ("compactSystemTables: " <> tbl) ("DELETE FROM " <> tbl <> " WHERE " <> column <> " != ?1;") [blockheight]
 
 dropCompactTables :: CompactM ()
 dropCompactTables = do
-  execM_
+  execM_ "dropCompactTables.0"
       " DROP TABLE CompactGrandHash; \
       \ DROP TABLE CompactActiveRow; "
 
@@ -476,7 +508,7 @@ compact = do
 
     whenFlagUnset Flag_NoVacuum $ do
       logg Info "Vacuum"
-      execM_ "VACUUM;"
+      execM_ "VACUUM" "VACUUM;"
 
     return gh
 
