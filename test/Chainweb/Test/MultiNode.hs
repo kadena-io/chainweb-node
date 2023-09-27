@@ -311,9 +311,10 @@ compactAndResumeTest logLevel v n =
     let logger = genericLogger logLevel logFun
 
     logFun "phase 1... creating blocks"
-    -- N.B.: This consensus state stuff calls into RocksDB. This is
-    -- fine because we ultimately just want to make sure that we are
-    -- making progress (i.e, new blocks)
+    -- N.B: This consensus state stuff counts the number of blocks
+    -- in RocksDB, rather than the number of blocks in all chains
+    -- on the current cut. This is fine because we ultimately just want
+    -- to make sure that we are making progress (i.e, new blocks).
     stateVar <- newMVar (emptyConsensusState v)
     let ct :: Int -> StartedChainweb logger -> IO ()
         ct = harvestConsensusState logger stateVar
