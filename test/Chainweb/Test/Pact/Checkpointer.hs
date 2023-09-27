@@ -53,6 +53,7 @@ import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec
     (applyContinuation', applyExec', buildExecParsedCode)
 import Chainweb.Pact.Types
@@ -613,7 +614,7 @@ runSQLite'
     -> TestTree
 runSQLite' runTest sqlEnvIO = runTest $ do
     sqlenv <- sqlEnvIO
-    cp <- initRelationalCheckpointer initialBlockState sqlenv logger testVer testChainId
+    cp <- initRelationalCheckpointer initialBlockState sqlenv DoNotPersistIntraBlockWrites logger testVer testChainId
     return (cp, sqlenv)
   where
     initialBlockState = set bsModuleNameFix True $ initBlockState defaultModuleCacheLimit $ genesisHeight testVer testChainId
@@ -654,7 +655,7 @@ simpleBlockEnvInit logger f = withTempSQLiteConnection chainwebPragmas $ \sqlenv
     f chainwebPactDb (blockEnv sqlenv) (\v -> runBlockEnv v initSchema)
   where
     blockEnv e = BlockEnv
-        (BlockDbEnv e (addLabel ("block-environment", "simpleBlockEnvInit") logger))
+        (BlockDbEnv e (addLabel ("block-environment", "simpleBlockEnvInit") logger) DoNotPersistIntraBlockWrites)
         (initBlockState defaultModuleCacheLimit $ genesisHeight testVer testChainId)
 
 {- this should be moved to pact -}

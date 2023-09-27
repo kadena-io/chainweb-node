@@ -79,6 +79,9 @@ newtype ConfirmationDepth = ConfirmationDepth { _confirmationDepth :: Word64 }
   deriving (Eq, Ord)
   deriving newtype (Show, FromJSON, ToJSON, Enum, Bounded)
 
+data PersistIntraBlockWrites = PersistIntraBlockWrites | DoNotPersistIntraBlockWrites
+  deriving (Eq, Ord, Show)
+
 -- | Externally-injected PactService properties.
 --
 data PactServiceConfig = PactServiceConfig
@@ -103,6 +106,9 @@ data PactServiceConfig = PactServiceConfig
     -- ^ whether to write transaction gas logs at INFO
   , _pactModuleCacheLimit :: !DbCacheLimitBytes
     -- ^ limit of the database module cache in bytes of corresponding row data
+  , _pactPersistIntraBlockWrites :: !PersistIntraBlockWrites
+    -- ^ whether to write rows to the database even if they are replaced by
+    -- other rows in the same block
   } deriving (Eq,Show)
 
 data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError

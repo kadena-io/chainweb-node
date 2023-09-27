@@ -93,7 +93,8 @@ tests rdb = ScheduledTest testName go
          , test $ goldenNewBlock "empty-block-tests" mempty
          , test newBlockAndValidate
          , test newBlockRewindValidate
-         , test getHistory
+         , testWithConf getHistory
+           testPactServiceConfig { _pactPersistIntraBlockWrites = PersistIntraBlockWrites }
          , test testHistLookup1
          , test testHistLookup2
          , test testHistLookup3

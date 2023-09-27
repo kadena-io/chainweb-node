@@ -598,7 +598,7 @@ testPactCtxSQLite
   -> (TxContext -> GasModel)
   -> IO (TestPactCtx logger tbl, PactDbEnv' logger)
 testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
-    (dbSt,cp) <- initRelationalCheckpointer' initialBlockState sqlenv cpLogger v cid
+    (dbSt,cp) <- initRelationalCheckpointer' initialBlockState sqlenv DoNotPersistIntraBlockWrites cpLogger v cid
     let rs = readRewards
     let ph = ParentHeader $ genesisBlockHeader v cid
     !ctx <- TestPactCtx

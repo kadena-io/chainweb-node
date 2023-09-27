@@ -73,6 +73,7 @@ module Chainweb.Pact.Backend.Types
     , BlockDbEnv(..)
     , bdbenvDb
     , bdbenvLogger
+    , bdbenvPersistIntraBlockWrites
     , SQLiteFlag(..)
 
       -- * mempool
@@ -190,7 +191,7 @@ type SQLitePendingTableCreations = HashSet ByteString
 type SQLitePendingSuccessfulTxs = HashSet ByteString
 
 -- | Pending writes to the pact db during a block, to be recorded in 'BlockState'.
-type SQLitePendingWrites = HashMap SQLiteDeltaKey (DList SQLiteRowDelta)
+type SQLitePendingWrites = HashMap SQLiteDeltaKey [SQLiteRowDelta]
 
 -- | A collection of pending mutations to the pact db. We maintain two of
 -- these; one for the block as a whole, and one for any pending pact
@@ -251,6 +252,7 @@ makeLenses ''BlockState
 data BlockDbEnv logger p = BlockDbEnv
     { _bdbenvDb :: !p
     , _bdbenvLogger :: !logger
+    , _bdbenvPersistIntraBlockWrites :: !PersistIntraBlockWrites
     }
 
 makeLenses ''BlockDbEnv

@@ -41,7 +41,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.DList as DL
 import Data.Foldable (toList)
-import Data.List(sort)
+import Data.List(concat, sort)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
@@ -83,7 +83,7 @@ import Chainweb.Logger
 import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.Types (PactException(..), internalError)
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types (logInfo_, logError_)
 import Chainweb.Version
 import Chainweb.Utils (sshow)
@@ -158,12 +158,11 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
     lookupInPendingData (Utf8 rowkey) p = do
         let deltaKey = SQLiteDeltaKey tableNameBS rowkey
         ddata <- fmap _deltaData <$> MaybeT (return $ HashMap.lookup deltaKey (_pendingWrites p))
-        if null ddata
+        case ddata of
             -- should be impossible, but we'll check this case
-            then mzero
-            -- we merge with (++) which should produce txids most-recent-first
-            -- -- we care about the most recent update to this rowkey
-            else MaybeT $ return $! decodeStrict' $ DL.head ddata
+            [] -> mzero
+            -- we get the latest-written value at this rowkey
+            w:_ -> MaybeT $ return $! decodeStrict' w
 
     lookupInDb
         :: forall logger v . FromJSON v
@@ -245,7 +244,7 @@ recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
     modf = over pendingWrites upd
     {- "const" is used here because prefer the latest update of the rowkey for
     the current transaction  -}
-    upd = HashMap.insertWith const deltaKey (DL.singleton delta)
+    upd = HashMap.insertWith const deltaKey [delta]
 
 
 backendWriteUpdateBatch
@@ -341,9 +340,8 @@ doKeys d = do
     pb <- use bsPendingBlock
     mptx <- use bsPendingTx
 
-    let memKeys = DL.toList $
-                  fmap (B8.unpack . _deltaRowKey) $
-                  collect pb `DL.append` maybe DL.empty collect mptx
+    let memKeys = fmap (B8.unpack . _deltaRowKey) $
+                  collect pb ++ maybe [] collect mptx
 
     let !allKeys = fmap fromString
                   $ msort -- becomes available with pact420Upgrade
@@ -368,7 +366,7 @@ doKeys d = do
     tnS = let (Utf8 x) = tn in x
     collect p =
         let flt k _ = _dkTable k == tnS
-        in DL.concat $ HashMap.elems $ HashMap.filterWithKey flt (_pendingWrites p)
+        in concat $ HashMap.elems $ HashMap.filterWithKey flt (_pendingWrites p)
 {-# INLINE doKeys #-}
 
 -- tid is non-inclusive lower bound for the search
@@ -404,9 +402,8 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
     tnS = T.encodeUtf8 tn
     collect p =
         let flt k _ = _dkTable k == tnS
-            txids = DL.toList $
-                    fmap _deltaTxId $
-                    DL.concat $
+            txids = fmap _deltaTxId $
+                    concat $
                     HashMap.elems $
                     HashMap.filterWithKey flt (_pendingWrites p)
         in filter (> _tid) txids
@@ -487,7 +484,8 @@ doCommit = use bsMode >>= \case
               modify' $ over bsTxId succ
               -- merge pending tx into block data
               pending <- use bsPendingTx
-              modify' $ over bsPendingBlock (merge pending)
+              persistIntraBlockWrites <- view bdbenvPersistIntraBlockWrites
+              modify' $ over bsPendingBlock (merge persistIntraBlockWrites pending)
               blockLogs <- use $ bsPendingBlock . pendingTxLogMap
               modify' $ set bsPendingTx Nothing
               resetTemp
@@ -495,17 +493,19 @@ doCommit = use bsMode >>= \case
           else doRollback >> return mempty
         return $! concatMap (reverse . DL.toList) txrs
   where
-    merge Nothing a = a
-    merge (Just a) b = SQLitePendingData
-        { _pendingTableCreation = HashSet.union (_pendingTableCreation a) (_pendingTableCreation b)
-        , _pendingWrites = HashMap.unionWith mergeW (_pendingWrites a) (_pendingWrites b)
-        , _pendingTxLogMap = _pendingTxLogMap a
-        , _pendingSuccessfulTxs = _pendingSuccessfulTxs b
+    merge _ Nothing a = a
+    merge persistIntraBlockWrites (Just txPending) blockPending = SQLitePendingData
+        { _pendingTableCreation = HashSet.union (_pendingTableCreation txPending) (_pendingTableCreation blockPending)
+        , _pendingWrites = HashMap.unionWith mergeAtRowKey (_pendingWrites txPending) (_pendingWrites blockPending)
+        , _pendingTxLogMap = _pendingTxLogMap txPending
+        , _pendingSuccessfulTxs = _pendingSuccessfulTxs blockPending
         }
-
-    mergeW a b = case take 1 (DL.toList a) of
-        [] -> b
-        (x:_) -> DL.cons x b
+        where
+        mergeAtRowKey txWrites blockWrites = case take 1 txWrites of
+            [] -> blockWrites
+            lastTxWrite : _ -> case persistIntraBlockWrites of
+                PersistIntraBlockWrites -> lastTxWrite : blockWrites
+                DoNotPersistIntraBlockWrites -> [lastTxWrite]
 {-# INLINE doCommit #-}
 
 clearPendingTxState :: BlockHandler logger SQLiteEnv ()
@@ -550,15 +550,12 @@ doGetTxLog d txid = do
                       _deltaTableName delta == tableNameBS
 
     tableName = domainTableName d
-    (Utf8 tableNameBS) = tableName
-
-    takeHead [] = []
-    takeHead (a:_) = [a]
+    Utf8 tableNameBS = tableName
 
     readFromPending = do
         ptx <- maybeToList <$> use bsPendingTx
         pb <- use bsPendingBlock
-        let deltas = (ptx ++ [pb]) >>= HashMap.elems . _pendingWrites >>= takeHead . DL.toList
+        let deltas = (ptx ++ [pb]) >>= HashMap.elems . _pendingWrites >>= take 1
         let ourDeltas = filter predicate deltas
         mapM (\x -> toTxLog d (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
 

@@ -1160,4 +1160,5 @@ testRetryPolicy = stepped <> limitRetries 150
       0 -> Just 20_000
       1 -> Just 50_000
       2 -> Just 100_000
-      _ -> Just 250_000
+      3 -> Just 100_000
+      _ -> Just 500_000

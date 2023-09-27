@@ -51,6 +51,7 @@ import Chainweb.MerkleLogHash
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Test.TestVersions
 import Chainweb.Utils.Bench
@@ -125,7 +126,7 @@ cpWithBench torun =
         let neverLogger = genericLogger Error (\_ -> return ())
         !sqliteEnv <- openSQLiteConnection dbFile chainwebPragmas
         !cenv <-
-          initRelationalCheckpointer initialBlockState sqliteEnv neverLogger v cid
+          initRelationalCheckpointer initialBlockState sqliteEnv DoNotPersistIntraBlockWrites neverLogger v cid
         return $ NoopNFData (sqliteEnv, cenv)
 
     teardown (NoopNFData (sqliteEnv, _cenv)) = closeSQLiteConnection sqliteEnv

@@ -30,7 +30,6 @@ import Control.Monad.State (gets)
 
 import Data.ByteString (ByteString, intercalate)
 import qualified Data.ByteString.Short as BS
-import qualified Data.DList as DL
 import Data.Foldable (toList,foldl')
 import Data.Int
 import qualified Data.Map.Strict as M
@@ -77,24 +76,26 @@ initRelationalCheckpointer
     :: (Logger logger)
     => BlockState
     -> SQLiteEnv
+    -> PersistIntraBlockWrites
     -> logger
     -> ChainwebVersion
     -> ChainId
     -> IO (Checkpointer logger)
-initRelationalCheckpointer bstate sqlenv loggr v cid =
-    snd <$!> initRelationalCheckpointer' bstate sqlenv loggr v cid
+initRelationalCheckpointer bstate sqlenv p loggr v cid =
+    snd <$!> initRelationalCheckpointer' bstate sqlenv p loggr v cid
 
 withProdRelationalCheckpointer
     :: (Logger logger)
     => logger
     -> BlockState
     -> SQLiteEnv
+    -> PersistIntraBlockWrites
     -> ChainwebVersion
     -> ChainId
     -> (Checkpointer logger -> IO a)
     -> IO a
-withProdRelationalCheckpointer logger bstate sqlenv v cid inner = do
-    (dbenv, cp) <- initRelationalCheckpointer' bstate sqlenv logger v cid
+withProdRelationalCheckpointer logger bstate sqlenv p v cid inner = do
+    (dbenv, cp) <- initRelationalCheckpointer' bstate sqlenv p logger v cid
     withAsync (logModuleCacheStats dbenv) $ \_ -> inner cp
   where
     logFun = logFunctionText logger
@@ -111,12 +112,13 @@ initRelationalCheckpointer'
     :: (Logger logger)
     => BlockState
     -> SQLiteEnv
+    -> PersistIntraBlockWrites
     -> logger
     -> ChainwebVersion
     -> ChainId
     -> IO (PactDbEnv (BlockEnv logger SQLiteEnv), Checkpointer logger)
-initRelationalCheckpointer' bstate sqlenv loggr v cid = do
-    let dbenv = BlockDbEnv sqlenv loggr
+initRelationalCheckpointer' bstate sqlenv p loggr v cid = do
+    let dbenv = BlockDbEnv sqlenv loggr p
     db <- newMVar (BlockEnv dbenv bstate)
     runBlockEnv db initSchema
     let pactDbEnv = PactDbEnv chainwebPactDb db
@@ -206,7 +208,7 @@ doSave dbenv hash = runBlockEnv dbenv $ do
     prepChunk chunk@(h:_) = (Utf8 $ _deltaTableName h, V.fromList chunk)
 
     toVectorChunks writes = liftIO $ do
-        mv <- mutableVectorFromList . DL.toList . DL.concat $
+        mv <- mutableVectorFromList . concat $
               HashMap.elems writes
         TimSort.sort mv
         l' <- V.toList <$> V.unsafeFreeze mv
