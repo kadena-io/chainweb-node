@@ -328,9 +328,9 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
         f (This _) = Left (T2 (Mempool.TransactionHash "") (Mempool.InsertErrorOther "preInsertBatch: align mismatch 1"))
 
 
-data StartedChainweb logger
-    = forall cas. (CanReadablePayloadCas cas, Logger logger) => StartedChainweb !(Chainweb logger cas)
-    | Replayed !Cut !Cut
+data StartedChainweb logger where
+  StartedChainweb :: (CanReadablePayloadCas cas, Logger logger) => !(Chainweb logger cas) -> StartedChainweb logger
+  Replayed :: !Cut -> !Cut -> StartedChainweb logger
 
 data ChainwebStatus
     = ProcessStarted
