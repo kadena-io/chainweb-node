@@ -307,11 +307,10 @@ compactAndResumeTest logLevel v n =
   after AllFinish "ConsensusNetwork" $ testCaseSteps name $ \step ->
   withTempRocksDb "compact-resume-test-rocks" $ \rdb ->
   withSystemTempDirectory "compact-resume-test-pact" $ \pactDbDir -> do
-    let tastyLog = step . T.unpack
-    let logFun = tastyLog
+    let logFun = step . T.unpack
     let logger = genericLogger logLevel logFun
 
-    tastyLog "phase 1... creating blocks"
+    logFun "phase 1... creating blocks"
     -- N.B.: This consensus state stuff calls into RocksDB. This is
     -- fine because we ultimately just want to make sure that we are
     -- making progress (i.e, new blocks)
@@ -321,9 +320,9 @@ compactAndResumeTest logLevel v n =
     runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rdb pactDbDir ct
     Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
     assertGe "average block count before compaction" (Actual $ _statBlockCount stats1) (Expected 50)
-    tastyLog $ sshow stats1
+    logFun $ sshow stats1
 
-    tastyLog "phase 2... compacting"
+    logFun "phase 2... compacting"
     let cid = unsafeChainId 0
     -- compact only half of them
     let nids = filter even [0 .. int @_ @Int n - 1]
@@ -337,12 +336,12 @@ compactAndResumeTest logLevel v n =
           let bh = BlockHeight 5
           void $ C.runCompactM (C.mkCompactEnv cLogger' db bh flags) C.compact
 
-    tastyLog "phase 3... restarting nodes and ensuring progress"
+    logFun "phase 3... restarting nodes and ensuring progress"
     runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rdb pactDbDir ct
     Just stats2 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
     -- We ensure that we've gotten to at least 1.5x the previous block count
     assertGe "average block count post-compaction" (Actual $ _statBlockCount stats2) (Expected (3 * _statBlockCount stats1 `div` 2))
-    tastyLog $ sshow stats2
+    logFun $ sshow stats2
 
 replayTest
     :: LogLevel
