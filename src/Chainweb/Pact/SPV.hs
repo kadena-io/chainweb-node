@@ -219,7 +219,7 @@ decodeB64UrlNoPaddingTextWithFixedErrorMessage errorMessageType msg =
     patchNonCanonical decodeResult = case decodeResult of
       Right bs -> Right bs
       Left e | "non-canonical" `Text.isInfixOf` Text.pack e ->
-               Right (B64U.decodeLenient (Text.encodeUtf8 msg))
+               Right (B64U.decodeNonCanonical (Text.encodeUtf8 msg))
       Left e -> Left e
 {-# INLINE decodeB64UrlNoPaddingTextWithFixedErrorMessage #-}
 

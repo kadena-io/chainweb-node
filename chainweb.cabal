@@ -330,7 +330,7 @@ library
         , attoparsec >= 0.13
         , base >= 4.12 && < 5
         , base16-bytestring >= 0.1
-        , base64-bytestring >= 1.0
+        , base64-bytestring-kadena == 0.1
         , binary >= 0.8
         , bytestring >= 0.10
         , case-insensitive >= 1.2
@@ -514,7 +514,7 @@ test-suite chainweb-tests
         , aeson >= 1.4.3
         , async >= 2.2
         , base >= 4.12 && < 5
-        , base64-bytestring >= 1.0
+        , base64-bytestring-kadena == 0.1
             -- due to change in error message that is inlined in pact
         , bytestring >= 0.10
         , case-insensitive >= 1.2
