@@ -636,6 +636,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
     --
     isOld x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
+        -- are all chains in the current cut ahead of or equal to this new cut in height?
         let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . _bhwhHeight) . _cutHashes)) curHashes x
         when r $ loggc Debug x "skip old cut"
         return r

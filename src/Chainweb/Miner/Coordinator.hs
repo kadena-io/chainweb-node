@@ -6,6 +6,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -41,6 +42,7 @@ module Chainweb.Miner.Coordinator
 , publish
 ) where
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
@@ -71,6 +73,7 @@ import Chainweb.Cut hiding (join)
 import Chainweb.Cut.Create
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
+import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Logging.Miner
 import Chainweb.Miner.Config
@@ -224,8 +227,14 @@ chainChoice c choice = case choice of
   where
     loop :: ChainId -> IO ChainId
     loop cid = do
-        new <- randomChainIdAt c (minChainHeight c)
-        bool (pure new) (loop cid) $ new == cid
+        if _chainGraph c == singletonChainGraph
+        then do
+            let millisecondInMicros = 1_000
+            threadDelay millisecondInMicros
+            return cid
+        else do
+            new <- randomChainIdAt c (minChainHeight c)
+            bool (pure new) (loop cid) $ new == cid
 
 -- | Accepts a "solved" `BlockHeader` from some external source (e.g. a remote
 -- mining client), attempts to reassociate it with the current best `Cut`, and
