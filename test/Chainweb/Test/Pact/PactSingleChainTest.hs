@@ -25,7 +25,7 @@ import Control.Monad.Catch
 
 import Data.Aeson (object, (.=), Value(..), decodeStrict, eitherDecode)
 import qualified Data.ByteString.Lazy as BL
-import Data.Either (isRight)
+import Data.Either (isRight, fromRight)
 import Data.IORef
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
@@ -47,6 +47,7 @@ import Pact.Types.Persistence
 import Pact.Types.PactError
 import Pact.Types.RowData
 import Pact.Types.RPC
+import Pact.Types.Util (fromText')
 
 import Pact.JSON.Encode qualified as J
 import Pact.JSON.Yaml
@@ -55,6 +56,7 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool
+import Chainweb.MerkleLogHash (unsafeMerkleLogHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation hiding (local)
@@ -92,6 +94,7 @@ tests rdb = ScheduledTest testName go
          [ test $ goldenNewBlock "new-block-0" goldenMemPool
          , test $ goldenNewBlock "empty-block-tests" mempty
          , test newBlockAndValidate
+         , test newBlockAndValidationFailure
          , test newBlockRewindValidate
          , test getHistory
          , test testHistLookup1
@@ -150,6 +153,36 @@ newBlockAndValidate refIO reqIO = testCase "newBlockAndValidate" $ do
   (q,bdb) <- reqIO
   setOneShotMempool refIO goldenMemPool
   void $ runBlock q bdb second "newBlockAndValidate"
+
+newBlockAndValidationFailure :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailure" $ do
+  (q,bdb) <- reqIO
+  setOneShotMempool refIO goldenMemPool
+
+  ph <- getParentTestBlockDb bdb cid
+  let blockTime = add second $ _bct $ _blockCreationTime ph
+  nb <- forSuccess ("newBlockAndValidate" <> ": newblock") $
+        newBlock noMiner (ParentHeader ph) q
+  forM_ (chainIds testVersion) $ \c -> do
+    let o | c == cid = nb
+          | otherwise = emptyPayload
+    addTestBlockDb bdb (Nonce 0) (\_ _ -> blockTime) c o
+
+  nextH <- getParentTestBlockDb bdb cid
+
+  let nextH' = nextH { _blockPayloadHash = BlockPayloadHash $ unsafeMerkleLogHash "0000000000000000000000000000001d" }
+  let nb' = nb { _payloadWithOutputsOutputsHash = BlockOutputsHash (unsafeMerkleLogHash "0000000000000000000000000000001d")}
+  r <- validateBlock nextH' (payloadWithOutputsToPayloadData nb') q
+
+  takeMVar r >>= \case
+    Left (PactInternalError err) -> do
+      let txHash = fromRight (error "can't parse") $ fromText' "WgnuCg6L_l6lzbjWtBfMEuPtty_uGcNrUol5HGREO_o"
+      lookupResMvar <- lookupPactTxs (NoRewind cid) Nothing (V.fromList [txHash]) q
+      takeMVar lookupResMvar >>= \lookupRes ->
+        assertEqual "The transaction from the latest block is not at the tip point" (Right mempty) lookupRes
+
+      assertBool "Should be BlockValidationFailure" $ "BlockValidationFailure" `T.isInfixOf` err
+    _ -> assertFailure "newBlockAndValidationFailure: expected failure"
 
 toRowData :: HasCallStack => Value -> RowData
 toRowData v = case eitherDecode encV of
