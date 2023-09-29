@@ -6,7 +6,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -42,7 +41,6 @@ module Chainweb.Miner.Coordinator
 , publish
 ) where
 
-import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
@@ -131,7 +129,7 @@ data MiningCoordination logger tbl = MiningCoordination
 --
 newtype PrimedWork =
     PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (Maybe (PayloadData, BlockHash))))
-    deriving newtype (Semigroup, Monoid)
+    deriving newtype (Eq, Semigroup, Monoid)
 
 resetPrimed :: MinerId -> ChainId -> PrimedWork -> PrimedWork
 resetPrimed mid cid (PrimedWork pw) = PrimedWork
@@ -181,14 +179,13 @@ newWork
     -> Cut
     -> IO (Maybe (T2 WorkHeader PayloadData))
 newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
+    PrimedWork pw <- readTVarIO tpw
 
     -- Randomly pick a chain to mine on, unless the caller specified a specific
     -- one.
-    --
-    cid <- chainChoice c choice
+    cid <- chainChoice tpw c choice
     logFun @T.Text Debug $ "newWork: picked chain " <> sshow cid
 
-    PrimedWork pw <- readTVarIO tpw
     let mr = T2
             <$> join (HM.lookup mid pw >>= HM.lookup cid)
             <*> getCutExtension c cid
@@ -219,8 +216,8 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
 
                 return Nothing
 
-chainChoice :: Cut -> ChainChoice -> IO ChainId
-chainChoice c choice = case choice of
+chainChoice :: TVar PrimedWork -> Cut -> ChainChoice -> IO ChainId
+chainChoice var c choice = case choice of
     Anything -> randomChainIdAt c (minChainHeight c)
     Suggestion cid -> pure cid
     TriedLast cid -> loop cid
@@ -229,12 +226,22 @@ chainChoice c choice = case choice of
     loop cid = do
         if _chainGraph c == singletonChainGraph
         then do
-            let millisecondInMicros = 1_000
-            threadDelay millisecondInMicros
-            return cid
+            onChangeTVar var $ \_ -> do
+                return cid
         else do
             new <- randomChainIdAt c (minChainHeight c)
             bool (pure new) (loop cid) $ new == cid
+
+onChangeTVar :: (Eq a) => TVar a -> (a -> IO b) -> IO b
+onChangeTVar var f = do
+  readTVarIO var >>= go
+  where
+    go old = do
+      new <- atomically $ do
+        a <- readTVar var
+        guard (a /= old)
+        return a
+      f new
 
 -- | Accepts a "solved" `BlockHeader` from some external source (e.g. a remote
 -- mining client), attempts to reassociate it with the current best `Cut`, and
