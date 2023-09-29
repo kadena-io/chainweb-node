@@ -208,7 +208,7 @@ type SimpleKeyPair = (Text,Text)
 
 -- | Legacy; better to use 'CmdSigner'/'CmdBuilder'.
 -- if caps are empty, gas cap is implicit. otherwise it must be included
-testKeyPairs :: SimpleKeyPair -> Maybe [SigCapability] -> IO [Ed25519KeyPairCaps]
+testKeyPairs :: SimpleKeyPair -> Maybe [SigCapability] -> IO [SomeKeyPairCaps]
 testKeyPairs skp capsm = do
   kp <- toApiKp $ mkSigner' skp (fromMaybe [] capsm)
   mkKeyPairs [kp]

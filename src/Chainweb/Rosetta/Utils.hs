@@ -36,7 +36,9 @@ import qualified Data.Text.Encoding as T
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Command as P
+import qualified Pact.Types.Scheme as P
 import qualified Pact.Parse as P
+import qualified Pact.Types.Crypto as P
 import qualified Data.Set as S
 import Data.Maybe ( fromMaybe )
 import qualified Pact.Types.RowData as P
@@ -565,16 +567,21 @@ rosettaPubKeyTokAccount (RosettaPublicKey pubKey curve) = do
 
 toPactPubKeyAddr
     :: T.Text
+    -> P.PPKScheme
     -> Either RosettaError T.Text
-toPactPubKeyAddr pk = do
+toPactPubKeyAddr pk sk = do
+  let scheme = P.toScheme sk
   bs <- toRosettaError RosettaInvalidPublicKey $! P.parseB16TextOnly pk
-  pure $! P.toB16Text bs
+  addrBS <- toRosettaError RosettaInvalidPublicKey $!
+            P.formatPublicKeyBS scheme (P.PubBS bs)
+  pure $! P.toB16Text addrBS
 
 
 signerToAddr :: Signer -> Either RosettaError T.Text
-signerToAddr (Signer _ pk someAddr _) = do
-  let addr = fromMaybe pk someAddr
-  toPactPubKeyAddr addr
+signerToAddr (Signer someScheme pk someAddr _) = do
+  let sk = fromMaybe P.ED25519 someScheme
+      addr = fromMaybe pk someAddr
+  toPactPubKeyAddr addr sk
 
 
 getScheme :: CurveType -> Either RosettaError P.PPKScheme
@@ -719,8 +726,7 @@ createSigningPayloads (EnrichedCommand cmd _ _) = map f
 
     toRosettaSigType Nothing = Just RosettaEd25519
     toRosettaSigType (Just P.ED25519) = Just RosettaEd25519
-    toRosettaSigType (Just P.WebAuthn) = Nothing 
-    -- TODO: Linda Ortega (09/18/2023) -- Returning `Nothing` to discourage using WebAuthn for Rosetta. `sigToScheme` will eventually throw an error.
+    toRosettaSigType (Just P.ETH) = Just RosettaEcdsa -- TODO: unsupport this
 
 --------------------------------------------------------------------------------
 -- /parse
@@ -790,7 +796,7 @@ matchSigs sigs signers = do
          "Expected the same Signature and PublicKey type for Signature=" ++ show sig)
 
       let userSig = P.UserSig sig
-      addr <- toPactPubKeyAddr pk
+      addr <- toPactPubKeyAddr pk pkScheme
       pure (addr, userSig)
 
 --------------------------------------------------------------------------------
