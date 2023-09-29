@@ -10,6 +10,7 @@ module Chainweb.Test.Mempool.Consensus
 
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
+import Control.Monad.Reader
 
 import qualified Data.ByteString.Short as SB
 import Data.Foldable (toList)
@@ -46,6 +47,7 @@ import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
+import Chainweb.Utils
 import Chainweb.Test.Orphans.Time ()
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
@@ -230,7 +232,7 @@ genTree
   -> PropertyM IO (Tree BlockTrans)
 genTree db mapRef h allTxs = do
     (takenNow, theRest) <- takeTrans allTxs
-    next <- header' h
+    next <- header' (_chainwebVersion db) h
     liftIO $ unsafeInsertBlockHeaderDb db next
     listOfOne <- preForkTrunk db mapRef next theRest
     newNode mapRef
@@ -262,7 +264,7 @@ preForkTrunk
     -> HashSet TransactionHash
     -> PropertyM IO (Forest BlockTrans)
 preForkTrunk db mapRef h avail = do
-    next <- header' h
+    next <- header' (_chainwebVersion db) h
     liftIO $ unsafeInsertBlockHeaderDb db next
     (takenNow, theRest) <- takeTrans avail
     children <- frequencyM
@@ -290,9 +292,9 @@ fork
     -> HashSet TransactionHash
     -> PropertyM IO (Forest BlockTrans)
 fork db mapRef h avail = do
-    nextLeft <- header' h
+    nextLeft <- header' (_chainwebVersion db) h
     liftIO $ unsafeInsertBlockHeaderDb db nextLeft
-    nextRight <- header' h
+    nextRight <- header' (_chainwebVersion db) h
     liftIO $ unsafeInsertBlockHeaderDb db nextRight
     (takenNow, theRest) <- takeTrans avail
 
@@ -321,7 +323,7 @@ postForkTrunk
     -> Int
     -> PropertyM IO (Forest BlockTrans)
 postForkTrunk db mapRef h avail count = do
-    next <- header' h
+    next <- header' (_chainwebVersion db) h
     (takenNow, theRest) <- takeTrans avail
     children <-
         if count == 0 then return []
@@ -335,12 +337,14 @@ postForkTrunk db mapRef h avail count = do
 
 ----------------------------------------------------------------------------------------------------
 -- TODO: does this test really has to go that low-level? Let try to refactor it use
--- existing functionlity for creating a test block chain.
+-- existing functionality for creating a test block chain.
 --
-header' :: BlockHeader -> PropertyM IO BlockHeader
-header' h = do
+header' :: ChainwebVersion -> BlockHeader -> PropertyM IO BlockHeader
+header' v h = do
     nonce <- Nonce <$> pick chooseAny
     return
+        . fromJuste
+        . flip runReaderT v
         . fromLog @ChainwebMerkleHashAlgorithm
         . newMerkleLog
         $ mkFeatureFlags
@@ -358,7 +362,6 @@ header' h = do
    where
     BlockCreationTime t = _blockCreationTime h
     target = powTarget (ParentHeader h) mempty t'
-    v = _chainwebVersion h
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
 
 ----------------------------------------------------------------------------------------------------

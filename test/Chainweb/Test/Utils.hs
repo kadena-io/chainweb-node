@@ -137,6 +137,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch (finally, bracket)
 import Control.Monad.IO.Class
+import Control.Monad.Reader
 import Control.Monad.Trans.Resource
 import Control.Retry
 
@@ -381,7 +382,7 @@ genesisBlockHeaderForChain v i
 insertN :: Int -> BlockHeader -> BlockHeaderDb -> IO ()
 insertN n g db = traverse_ (unsafeInsertBlockHeaderDb db) bhs
   where
-    bhs = take n $ testBlockHeaders $ ParentHeader g
+    bhs = take n $ testBlockHeaders (_chainwebVersion db) $ ParentHeader g
 
 -- | Payload hashes are generated using 'testBlockPayloadFromParent_', which
 -- includes the nonce. They payloads can be recovered using
@@ -392,7 +393,7 @@ insertN_ s n g db = do
     traverse_ (unsafeInsertBlockHeaderDb db) bhs
     return bhs
   where
-    bhs = take (int n) $ testBlockHeadersWithNonce s $ ParentHeader g
+    bhs = take (int n) $ testBlockHeadersWithNonce  (_chainwebVersion db) s $ ParentHeader g
 
 -- | Useful for terminal-based debugging. A @Tree BlockHeader@ can be obtained
 -- from any `TreeDb` via `toTree`.
@@ -436,43 +437,45 @@ data Growth = Randomly | AtMost BlockHeight deriving (Eq, Ord, Show)
 tree :: ChainwebVersion -> Growth -> Gen (Tree BlockHeader)
 tree v g = do
     h <- genesis v
-    Node h <$> forest g h
+    Node h <$> forest v g h
 
 -- | Generate a sane, legal genesis block for 'Test' chainweb instance
 --
 genesis :: ChainwebVersion -> Gen BlockHeader
 genesis v = either (error . sshow) return $ genesisBlockHeaderForChain v 0
 
-forest :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
-forest Randomly h = randomTrunk h
-forest g@(AtMost n) h | n < _blockHeight h = pure []
-                      | otherwise = fixedTrunk g h
+forest :: ChainwebVersion -> Growth -> BlockHeader -> Gen (Forest BlockHeader)
+forest v Randomly h = randomTrunk v h
+forest v g@(AtMost n) h | n < _blockHeight h = pure []
+                      | otherwise = fixedTrunk v g h
 
-fixedTrunk :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
-fixedTrunk g h = frequency [ (1, sequenceA [fork h, trunk g h])
-                           , (5, sequenceA [trunk g h]) ]
+fixedTrunk :: ChainwebVersion -> Growth -> BlockHeader -> Gen (Forest BlockHeader)
+fixedTrunk v g h = frequency [ (1, sequenceA [fork v h, trunk v g h])
+                             , (5, sequenceA [trunk v g h]) ]
 
-randomTrunk :: BlockHeader -> Gen (Forest BlockHeader)
-randomTrunk h = frequency [ (2, pure [])
-                          , (4, sequenceA [fork h, trunk Randomly h])
-                          , (18, sequenceA [trunk Randomly h]) ]
+randomTrunk :: ChainwebVersion -> BlockHeader -> Gen (Forest BlockHeader)
+randomTrunk v h = frequency [ (2, pure [])
+                            , (4, sequenceA [fork v h, trunk v Randomly h])
+                            , (18, sequenceA [trunk v Randomly h]) ]
 
-fork :: BlockHeader -> Gen (Tree BlockHeader)
-fork h = do
-    next <- header h
-    Node next <$> frequency [ (1, pure []), (1, sequenceA [fork next]) ]
+fork :: ChainwebVersion -> BlockHeader -> Gen (Tree BlockHeader)
+fork v h = do
+    next <- header v h
+    Node next <$> frequency [ (1, pure []), (1, sequenceA [fork v next]) ]
 
-trunk :: Growth -> BlockHeader -> Gen (Tree BlockHeader)
-trunk g h = do
-    next <- header h
-    Node next <$> forest g next
+trunk :: ChainwebVersion -> Growth -> BlockHeader -> Gen (Tree BlockHeader)
+trunk v g h = do
+    next <- header v h
+    Node next <$> forest v g next
 
 -- | Generate some new `BlockHeader` based on a parent.
 --
-header :: BlockHeader -> Gen BlockHeader
-header p = do
+header :: ChainwebVersion -> BlockHeader -> Gen BlockHeader
+header v p = do
     nonce <- Nonce <$> chooseAny
     return
+        . fromJuste
+        . flip runReaderT v
         . fromLog @ChainwebMerkleHashAlgorithm
         . newMerkleLog
         $ mkFeatureFlags
@@ -524,7 +527,7 @@ linearBlockHeaderDbs n dbs = do
   where
     populateDb (_, db) = do
         gbh0 <- root db
-        traverse_ (unsafeInsertBlockHeaderDb db) . take (int n) . testBlockHeaders $ ParentHeader gbh0
+        traverse_ (unsafeInsertBlockHeaderDb db) . take (int n) . testBlockHeaders (_chainwebVersion db) $ ParentHeader gbh0
 
 starBlockHeaderDbs
     :: Natural
@@ -536,9 +539,9 @@ starBlockHeaderDbs n dbs = do
   where
     populateDb (_, db) = do
         gbh0 <- root db
-        traverse_ (\i -> unsafeInsertBlockHeaderDb db . newEntry i $ ParentHeader gbh0) [0 .. (int n-1)]
+        traverse_ (\i -> unsafeInsertBlockHeaderDb db . newEntry db i $ ParentHeader gbh0) [0 .. (int n-1)]
 
-    newEntry i h = head $ testBlockHeadersWithNonce (Nonce i) h
+    newEntry db i h = head $ testBlockHeadersWithNonce (_chainwebVersion db) (Nonce i) h
 
 -- -------------------------------------------------------------------------- --
 -- Tasty TestTree Server and Client Environment

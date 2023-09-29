@@ -121,9 +121,9 @@ type BlockHeaderPage = Page (NextItem BlockHash) BlockHeader
 
 -- | Orphan instance to encode BlockHeaders as OctetStream
 --
-instance MimeUnrender OctetStream BlockHeader where
-    mimeUnrender _ = runGetEitherL decodeBlockHeader
-    {-# INLINE mimeUnrender #-}
+-- instance MimeUnrender OctetStream BlockHeader where
+--     mimeUnrender _ = runGetEitherL decodeBlockHeader
+--     {-# INLINE mimeUnrender #-}
 
 -- | Orphan instance to encode BlockHeaders as OctetStream
 --
@@ -144,17 +144,17 @@ data JsonBlockHeaderObject
 instance Accept JsonBlockHeaderObject where
     contentType _ = "application" // "json" /: ("blockheader-encoding", "object")
 
-instance MimeUnrender JsonBlockHeaderObject BlockHeader where
-    mimeUnrender _ = second _objectEncoded . eitherDecode
-    {-# INLINE mimeUnrender #-}
+-- instance MimeUnrender JsonBlockHeaderObject BlockHeader where
+--     mimeUnrender _ = second _objectEncoded . eitherDecode
+--     {-# INLINE mimeUnrender #-}
 
 instance MimeRender JsonBlockHeaderObject BlockHeader where
     mimeRender _ = encode . ObjectEncoded
     {-# INLINE mimeRender #-}
 
-instance MimeUnrender JsonBlockHeaderObject BlockHeaderPage where
-    mimeUnrender _ = second (fmap _objectEncoded) . eitherDecode
-    {-# INLINE mimeUnrender #-}
+-- instance MimeUnrender JsonBlockHeaderObject BlockHeaderPage where
+--     mimeUnrender _ = second (fmap _objectEncoded) . eitherDecode
+--     {-# INLINE mimeUnrender #-}
 
 instance MimeRender JsonBlockHeaderObject BlockHeaderPage where
     mimeRender _ = encode . fmap ObjectEncoded
@@ -405,13 +405,13 @@ instance ToJSON HeaderUpdate where
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
-instance FromJSON HeaderUpdate where
-    parseJSON = withObject "HeaderUpdate" $ \o -> HeaderUpdate
-        <$> o .: "header"
-        <*> o .: "txCount"
-        <*> o .: "powHash"
-        <*> o .: "target"
-    {-# INLINE parseJSON #-}
+-- instance FromJSON HeaderUpdate where
+--     parseJSON = withObject "HeaderUpdate" $ \o -> HeaderUpdate
+--         <$> o .: "header"
+--         <*> o .: "txCount"
+--         <*> o .: "powHash"
+--         <*> o .: "target"
+--     {-# INLINE parseJSON #-}
 
 type HeaderStreamApi_ = "header" :> "updates" :> Raw
 

@@ -95,7 +95,7 @@ solvedHandler
     -> HeaderBytes
     -> Handler NoContent
 solvedHandler mr (HeaderBytes bytes) = do
-    liftIO (try $ runGetS decodeSolvedWork bytes) >>= \case
+    liftIO (try $ runGetS (decodeSolvedWork (_chainwebVersion mr)) bytes) >>= \case
         Left (DecodeException e) ->
             throwError $ setErrText ("Decoding error: " <> e) err400
         Left _ ->

@@ -106,7 +106,7 @@ localTest lf v coord m cdb gen miners =
     go :: BlockHeight -> WorkHeader -> IO SolvedWork
     go height w = do
         MWC.geometric1 t gen >>= threadDelay
-        runGetS decodeSolvedWork $ BS.fromShort $ _workHeaderBytes w
+        runGetS (decodeSolvedWork (_chainwebVersion cdb)) $ BS.fromShort $ _workHeaderBytes w
       where
         t :: Double
         t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1_000_000)
@@ -148,4 +148,4 @@ localPOW lf coord m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
             void $ awaitNewCut cdb c
   where
     go :: WorkHeader -> IO SolvedWork
-    go = mine @Blake2s_256 (Nonce 0)
+    go = mine @Blake2s_256 (_chainwebVersion cdb) (Nonce 0)

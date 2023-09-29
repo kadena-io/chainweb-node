@@ -67,7 +67,7 @@ getCut
     :: CutClientEnv
     -> CutHeight
     -> IO CutHashes
-getCut (CutClientEnv v env) h = runClientThrowM (cutGetClientLimit v (int h)) env
+getCut (CutClientEnv v env) h = undefined -- runClientThrowM (cutGetClientLimit v (int h)) env
 
 -- -------------------------------------------------------------------------- --
 -- Sync Session

@@ -310,12 +310,14 @@ blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
           (CommandResult (RequestKey (Hash "h")) Nothing
             (PactResult $ Right $ pString "output") 0 Nothing Nothing Nothing [])
         payload = toPayloadWithOutputs noMiner block
-        bh = newBlockHeader
-          mempty
-          (_payloadWithOutputsPayloadHash payload)
-          (Nonce 0)
-          (BlockCreationTime $ Time $ TimeSpan 0)
-          (ParentHeader $ genesisBlockHeader testVersion cid)
+        bh = fromJuste $
+          newBlockHeader
+            testVersion
+            mempty
+            (_payloadWithOutputsPayloadHash payload)
+            (Nonce 0)
+            (BlockCreationTime $ Time $ TimeSpan 0)
+            (ParentHeader $ genesisBlockHeader testVersion cid)
       validateBlock bh (payloadWithOutputsToPayloadData payload) q >>= takeMVar
   -- we consume slightly more than the maximum block gas limit and provoke an error.
   useGas 2_000_001 >>= \case

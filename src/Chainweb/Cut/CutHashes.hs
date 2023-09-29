@@ -339,16 +339,16 @@ instance ToJSON CutHashes where
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
-instance FromJSON CutHashes where
-    parseJSON = withObject "CutHashes" $ \o -> CutHashes
-        <$> o .: "hashes"
-        <*> o .: "origin"
-        <*> o .: "weight"
-        <*> o .: "height"
-        <*> (fabricateVersionWithName <$> o .: "instance")
-        <*> o .: "id"
-        <*> o .:? "headers" .!= mempty
-        <*> o .:? "payloads" .!= mempty
+-- instance FromJSON CutHashes where
+--     parseJSON = withObject "CutHashes" $ \o -> CutHashes
+--         <$> o .: "hashes"
+--         <*> o .: "origin"
+--         <*> o .: "weight"
+--         <*> o .: "height"
+--         <*> (fabricateVersionWithName <$> o .: "instance")
+--         <*> o .: "id"
+--         <*> o .:? "headers" .!= mempty
+--         <*> o .:? "payloads" .!= mempty
 
 -- | Compute a 'CutHashes' structure from a 'Cut'. The result doesn't include
 -- any block headers or payloads.

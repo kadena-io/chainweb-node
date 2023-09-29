@@ -15,7 +15,7 @@
 --
 module Chainweb.Version.Registry
     ( registerVersion
-    , lookupVersionByCode
+    -- , lookupVersionByCode
     , lookupVersionByName
     , fabricateVersionWithName
     , knownVersions
@@ -89,27 +89,27 @@ validateVersion v = do
     unless (null errors) $
         error $ unlines $ ["errors encountered validating version " <> show v <> ":"] <> errors
 
--- | Look up a version in the registry by code.
-lookupVersionByCode :: HasCallStack => ChainwebVersionCode -> ChainwebVersion
-lookupVersionByCode code
-    -- these two cases exist to ensure that the mainnet and testnet versions
-    -- cannot be accidentally replaced and are the most performant to look up.
-    -- registering them is still allowed, as long as they are not conflicting.
-    | code == _versionCode mainnet = mainnet
-    | code == _versionCode testnet = testnet
-    | otherwise =
-        -- Setting the version code here allows us to delay doing the lookup in
-        -- the case that we don't actually need the version, just the code.
-        lookupVersion & versionCode .~ code
-  where
-    lookupVersion = unsafeDupablePerformIO $ do
-        m <- readIORef versionMap
-        return $ fromMaybe (error notRegistered) $
-            HM.lookup code m
-    notRegistered
-      | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured"
-      | code == _versionCode fastDevnet = "fastDevnet version used but not registered, remember to do so after it's configured"
-      | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.legalizeTestVersion?"
+-- -- | Look up a version in the registry by code.
+-- lookupVersionByCode :: HasCallStack => ChainwebVersionCode -> ChainwebVersion
+-- lookupVersionByCode code
+--     -- these two cases exist to ensure that the mainnet and testnet versions
+--     -- cannot be accidentally replaced and are the most performant to look up.
+--     -- registering them is still allowed, as long as they are not conflicting.
+--     | code == _versionCode mainnet = mainnet
+--     | code == _versionCode testnet = testnet
+--     | otherwise =
+--         -- Setting the version code here allows us to delay doing the lookup in
+--         -- the case that we don't actually need the version, just the code.
+--         lookupVersion & versionCode .~ code
+--   where
+--     lookupVersion = unsafeDupablePerformIO $ do
+--         m <- readIORef versionMap
+--         return $ fromMaybe (error notRegistered) $
+--             HM.lookup code m
+--     notRegistered
+--       | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured"
+--       | code == _versionCode fastDevnet = "fastDevnet version used but not registered, remember to do so after it's configured"
+--       | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.legalizeTestVersion?"
 
 -- TODO: ideally all uses of this are deprecated. currently in use in
 -- ObjectEncoded block header decoder and CutHashes decoder.
@@ -143,5 +143,5 @@ findKnownVersion vn =
         Nothing -> fail $ T.unpack (getChainwebVersionName vn) <> " is not a known version: try development, mainnet01 or testnet04"
         Just v -> return v
 
-instance HasChainwebVersion ChainwebVersionCode where
-    _chainwebVersion = lookupVersionByCode
+-- instance HasChainwebVersion ChainwebVersionCode where
+--     _chainwebVersion = lookupVersionByCode

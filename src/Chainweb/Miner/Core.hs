@@ -46,6 +46,7 @@ import Chainweb.Difficulty
 import Chainweb.Time hiding (second)
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
+import Chainweb.Version
 
 ---
 
@@ -94,10 +95,11 @@ timestampPosition = 8
 mine
   :: forall a
   . HashAlgorithm a
-  => Nonce
+  => ChainwebVersion
+  -> Nonce
   -> WorkHeader
   -> IO SolvedWork
-mine orig work = do
+mine cwv orig work = do
     when (bufSize < noncePosition + sizeOf (0 :: Word64)) $
         error "Chainweb.Miner.Core.mine: Buffer is too small to receive the nonce"
     BA.withByteArray tbytes $ \trgPtr -> do
@@ -135,7 +137,7 @@ mine orig work = do
                 -- Start outer mining loop
                 t <- getCurrentTimeIntegral
                 go0 100000 t orig
-        runGetS decodeSolvedWork new
+        runGetS (decodeSolvedWork cwv) new
   where
     tbytes = runPutS $ encodeHashTarget (_workHeaderTarget work)
     hbytes = BS.fromShort $ _workHeaderBytes work

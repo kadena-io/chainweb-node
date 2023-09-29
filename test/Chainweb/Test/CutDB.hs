@@ -406,7 +406,7 @@ tryMineForChain miner webPact cutDb c cid = do
     outputs <- _webPactNewBlock webPact miner parent
     let payloadHash = _payloadWithOutputsPayloadHash outputs
     t <- getCurrentTimeIntegral
-    x <- testMineWithPayloadHash wdb (Nonce 0) t payloadHash cid c
+    x <- testMineWithPayloadHash (_chainwebVersion cutDb) wdb (Nonce 0) t payloadHash cid c
     case x of
         Right (T2 h c') -> do
             addCutHashes cutDb (cutToCutHashes Nothing c')

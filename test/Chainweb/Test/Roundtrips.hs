@@ -67,7 +67,7 @@ import Chainweb.RestAPI.NodeInfo
 import Chainweb.SPV
 import Chainweb.SPV.EventProof
 import Chainweb.SPV.PayloadProof
-import Chainweb.Test.Orphans.Internal (EventPactValue(..), ProofPactEvent(..))
+import Chainweb.Test.Orphans.Internal (EventPactValue(..), ProofPactEvent(..), arbitraryBlockHeaderVersion)
 import Chainweb.Test.SPV.EventProof hiding (tests)
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -201,8 +201,8 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
         ]
 
     -- Mining
-    , testProperty "SolvedWork"
-        $ prop_encodeDecode decodeSolvedWork encodeSolvedWork
+    , testProperty "SolvedWork" $ \v -> forAll (SolvedWork <$> arbitraryBlockHeaderVersion v)
+        $ prop_encodeDecode (decodeSolvedWork v) encodeSolvedWork
 
     -- FIXME: decoding depends on version and block height (which is something
     -- that we should fix)

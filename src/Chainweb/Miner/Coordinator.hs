@@ -123,6 +123,9 @@ data MiningCoordination logger tbl = MiningCoordination
     , _coordPrimedWork :: !(TVar PrimedWork)
     }
 
+instance HasChainwebVersion (MiningCoordination logger tbl) where
+    _chainwebVersion = _chainwebVersion . _coordCutDb
+
 -- | Precached payloads for Private Miners. This allows new work requests to be
 -- made as often as desired, without clogging the Pact queue.
 --

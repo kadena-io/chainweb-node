@@ -2,6 +2,8 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -9,6 +11,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -62,6 +65,7 @@ module Chainweb.Test.Orphans.Internal
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.Reader
 
 import Crypto.Hash.Algorithms
 
@@ -360,7 +364,7 @@ arbitraryBlockHeaderVersionHeightChain
 arbitraryBlockHeaderVersionHeightChain v h cid
     | isWebChain (chainGraphAt v h) cid = do
         t <- chooseEnum (epoch, add (scaleTimeSpan @Int (365 * 200) day) epoch)
-        fromLog @ChainwebMerkleHashAlgorithm . newMerkleLog <$> entries t
+        fromJuste . flip runReaderT v . fromLog @ChainwebMerkleHashAlgorithm . newMerkleLog <$> entries t
     | otherwise = discard
   where
     entries t
@@ -490,10 +494,10 @@ arbitraryPayloadMerkleTree = oneof
     ]
 
 arbitraryMerkleTree
-    :: forall a b
+    :: forall a b m
     . MerkleHashAlgorithm a
     => Arbitrary b
-    => HasMerkleLog a ChainwebHashTag b
+    => HasMerkleLog a ChainwebHashTag b m
     => Gen (MerkleTree a)
 arbitraryMerkleTree = _merkleLogTree <$> (toLog @a <$> arbitrary @b)
 
@@ -508,8 +512,8 @@ instance Arbitrary MerkleRootType where
         ]
 
 arbitraryMerkleProof
-    :: forall a b h t
-    . HasMerkleLog a ChainwebHashTag b
+    :: forall a b h t m
+    . HasMerkleLog a ChainwebHashTag b m
     => Arbitrary b
     => MerkleHashAlgorithm a
     => MerkleLogHeader b ~ (h ': t) -- TODO: drop this constraint?
@@ -531,8 +535,8 @@ arbitraryMerkleProof = do
         in (b, hs, bs) <$ guard (bs + hs > 0)
 
 arbitraryMerkleBodyProof
-    :: forall a b
-    . HasMerkleLog a ChainwebHashTag b
+    :: forall a b m
+    . HasMerkleLog a ChainwebHashTag b m
     => Arbitrary b
     => MerkleHashAlgorithm a
     => Gen (MerkleProof a)
@@ -548,8 +552,8 @@ arbitraryMerkleBodyProof = do
         in (b, s) <$ guard (s > 0)
 
 arbitraryMerkleHeaderProof
-    :: forall a b h t
-    . HasMerkleLog a ChainwebHashTag b
+    :: forall a b h t m
+    . HasMerkleLog a ChainwebHashTag b m
     => Arbitrary b
     => MerkleHashAlgorithm a
     => MerkleLogHeader b ~ (h ': t)
@@ -565,8 +569,8 @@ arbitraryMerkleHeaderProof = do
 -- details. Proposals for making this nicer are welcome.
 --
 mkHeaderProof
-    :: forall a b h t m
-    . HasMerkleLog a ChainwebHashTag b
+    :: forall a b h t m m'
+    . HasMerkleLog a ChainwebHashTag b m'
     => MonadThrow m
     => MerkleHashAlgorithm a
     => MerkleLogHeader b ~ (h ': t)

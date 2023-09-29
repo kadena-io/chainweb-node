@@ -86,7 +86,7 @@ genesisBh db = head <$> headers db
 missingKey :: MonadIO m => BlockHeaderDb -> m (DbKey BlockHeaderDb)
 missingKey db = key
     . head
-    . testBlockHeadersWithNonce (Nonce 34523)
+    . testBlockHeadersWithNonce (_chainwebVersion db) (Nonce 34523)
     . ParentHeader
     <$> genesisBh db
 
@@ -211,7 +211,7 @@ simpleClientSession envIO cid =
             (Actual gen1)
 
         void $ liftIO $ step "put 3 new blocks"
-        let newHeaders = take 3 $ testBlockHeaders (ParentHeader gbh0)
+        let newHeaders = take 3 $ testBlockHeaders version (ParentHeader gbh0)
         liftIO $ traverse_ (unsafeInsertBlockHeaderDb db) newHeaders
 
         void $ liftIO $ step "headersClient: get all 4 block headers"
@@ -250,7 +250,7 @@ simpleClientSession envIO cid =
                 $ branchHeadersClient
                     version cid Nothing Nothing Nothing Nothing bounds
           let limit = 32
-          let blockHeaders = testBlockHeaders (ParentHeader gbh0)
+          let blockHeaders = testBlockHeaders version (ParentHeader gbh0)
           let maxBlockHeaders = take limit blockHeaders
           let excessBlockHeaders = take (limit + 1) blockHeaders
 
@@ -373,7 +373,7 @@ simpleClientSession envIO cid =
         -- branch hashes with fork
 
         void $ liftIO $ step "headerPutClient: put 3 new blocks on a new fork"
-        let newHeaders2 = take 3 $ testBlockHeadersWithNonce (Nonce 17) (ParentHeader gbh0)
+        let newHeaders2 = take 3 $ testBlockHeadersWithNonce version (Nonce 17) (ParentHeader gbh0)
         liftIO $ traverse_ (unsafeInsertBlockHeaderDb db) newHeaders2
 
         let lower = last newHeaders

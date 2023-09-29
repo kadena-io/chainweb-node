@@ -66,35 +66,35 @@ instance TreeDb RemoteDb where
     lookup (RemoteDb env alog ver cid) k = hush <$> runClientM client env
       where
         client = logServantError alog "failed to query tree db entry"
-            $ headerClient ver cid k
+            $ undefined -- headerClient ver cid k
 
     keys (RemoteDb env alog ver cid) next limit minr maxr f
         = f $ callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
         client nxt = logServantError alog "failed to query tree db keys"
-            $ hashesClient ver cid limit nxt minr maxr
+            $ undefined -- hashesClient ver cid limit nxt minr maxr
 
     entries (RemoteDb env alog ver cid) next limit minr maxr f
         = f $ callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
         client nxt = logServantError alog "failed to query tree db entries"
-            $ headersClient ver cid limit nxt minr maxr
+            $ undefined -- headersClient ver cid limit nxt minr maxr
 
     branchKeys (RemoteDb env alog ver cid) next limit minr maxr lower upper f
         = f $ callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHash)
         client nxt = logServantError alog "failed to query remote branch keys"
-            $ branchHashesClient ver cid limit nxt minr maxr (BranchBounds lower upper)
+            $ undefined -- branchHashesClient ver cid limit nxt minr maxr (BranchBounds lower upper)
 
     branchEntries (RemoteDb env alog ver cid) next limit minr maxr lower upper f
         = f $ callAndPage client next 0 env
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
         client nxt = logServantError alog "failed to query remote branch entries"
-            $ branchHeadersClient ver cid limit nxt minr maxr (BranchBounds lower upper)
+            $ undefined -- branchHeadersClient ver cid limit nxt minr maxr (BranchBounds lower upper)
 
     -- We could either use the cut or create a new API
     -- maxEntry (RemoteDb env alog ver cid) e =

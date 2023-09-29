@@ -118,6 +118,7 @@ import qualified Data.Aeson.Types as A
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
+import Data.Functor.Identity
 import Data.Hashable
 import Data.MerkleLog
 import qualified Data.Text as T
@@ -388,7 +389,7 @@ instance IsCasValue (BlockPayload_ a) where
     type CasKeyType (BlockPayload_ a) = BlockPayloadHash_ a
     casKey = _blockPayloadPayloadHash
 
-instance MerkleHashAlgorithm a => HasMerkleLog a ChainwebHashTag (BlockPayload_ a) where
+instance MerkleHashAlgorithm a => HasMerkleLog a ChainwebHashTag (BlockPayload_ a) Identity where
     type MerkleLogHeader (BlockPayload_ a) = '[BlockTransactionsHash_ a, BlockOutputsHash_ a]
     type MerkleLogBody (BlockPayload_ a) = Void
 
@@ -399,7 +400,7 @@ instance MerkleHashAlgorithm a => HasMerkleLog a ChainwebHashTag (BlockPayload_ 
             :+: _blockPayloadOutputsHash a
             :+: emptyBody
 
-    fromLog l = BlockPayload
+    fromLog l = Identity $ BlockPayload
         { _blockPayloadPayloadHash = BlockPayloadHash $ MerkleLogHash $ _merkleLogRoot l
         , _blockPayloadTransactionsHash = txHash
         , _blockPayloadOutputsHash = outHash
@@ -503,7 +504,7 @@ instance IsCasValue (BlockTransactions_ a) where
     type CasKeyType (BlockTransactions_ a) = BlockTransactionsHash_ a
     casKey = _blockTransactionsHash
 
-instance MerkleHashAlgorithm a => HasMerkleLog a ChainwebHashTag (BlockTransactions_ a) where
+instance MerkleHashAlgorithm a => HasMerkleLog a ChainwebHashTag (BlockTransactions_ a) Identity where
     type MerkleLogHeader (BlockTransactions_ a) = '[MinerData]
     type MerkleLogBody (BlockTransactions_ a) = Transaction
 
@@ -512,7 +513,7 @@ instance MerkleHashAlgorithm a => HasMerkleLog a ChainwebHashTag (BlockTransacti
         BlockTransactionsHash (MerkleLogHash (!root)) = _blockTransactionsHash a
         !entries = _blockMinerData a :+: MerkleLogBody (_blockTransactions a)
 
-    fromLog l = BlockTransactions
+    fromLog l = Identity $ BlockTransactions
         { _blockTransactionsHash = BlockTransactionsHash $! MerkleLogHash $! _merkleLogRoot l
         , _blockTransactions = txs
         , _blockMinerData = mi
@@ -648,7 +649,7 @@ instance IsCasValue (BlockOutputs_ a) where
     type CasKeyType (BlockOutputs_ a) = BlockOutputsHash_ a
     casKey = _blockOutputsHash
 
-instance MerkleHashAlgorithm a => HasMerkleLog a ChainwebHashTag (BlockOutputs_ a) where
+instance MerkleHashAlgorithm a => HasMerkleLog a ChainwebHashTag (BlockOutputs_ a) Identity where
     type MerkleLogHeader (BlockOutputs_ a) = '[CoinbaseOutput]
     type MerkleLogBody (BlockOutputs_ a) = TransactionOutput
 
@@ -657,7 +658,7 @@ instance MerkleHashAlgorithm a => HasMerkleLog a ChainwebHashTag (BlockOutputs_ 
         BlockOutputsHash (MerkleLogHash (!root)) = _blockOutputsHash a
         !entries = _blockCoinbaseOutput a :+: MerkleLogBody (_blockOutputs a)
 
-    fromLog l = BlockOutputs
+    fromLog l = Identity $ BlockOutputs
         { _blockOutputsHash = BlockOutputsHash $! MerkleLogHash $! _merkleLogRoot l
         , _blockOutputs = outs
         , _blockCoinbaseOutput = co
@@ -809,7 +810,7 @@ newBlockTransactions
 newBlockTransactions mi txs = (tree, blockTxs)
   where
     mlog = newTransactionLog mi txs
-    blockTxs = fromLog mlog
+    blockTxs = runIdentity $ fromLog mlog
     tree = TransactionTree
         { _transactionTreeHash = _blockTransactionsHash blockTxs
         , _transactionTree = _merkleLogTree mlog
@@ -853,7 +854,7 @@ newBlockOutputs
 newBlockOutputs co outs = (tree, blkOuts)
   where
     mlog = newBlockOutputLog co outs
-    blkOuts = fromLog mlog
+    blkOuts = runIdentity $ fromLog mlog
     tree = OutputTree
         { _outputTreeHash = _blockOutputsHash blkOuts
         , _outputTree = _merkleLogTree mlog
@@ -887,7 +888,7 @@ blockPayload
     -> BlockOutputs_ a
     -> BlockPayload_ a
 blockPayload txs outs
-    = fromLog $! newMerkleLog @a @ChainwebHashTag
+    = runIdentity $ fromLog $! newMerkleLog @a @ChainwebHashTag
         $ _blockTransactionsHash txs
         :+: _blockOutputsHash outs
         :+: emptyBody
@@ -994,12 +995,12 @@ verifyPayloadData p
   where
     -- forces the transactions Merkle Tree
     txs :: BlockTransactions_ a
-    txs = fromLog @a $ newTransactionLog
+    txs = runIdentity $ fromLog @a $ newTransactionLog
         (_payloadDataMiner p)
         (_payloadDataTransactions p)
 
     -- forces the BlockPayload Merkle Tree
-    bp = fromLog @a $ newMerkleLog
+    bp = runIdentity $ fromLog @a $ newMerkleLog
         $ _payloadDataTransactionsHash p
         :+: _payloadDataOutputsHash p
         :+: emptyBody

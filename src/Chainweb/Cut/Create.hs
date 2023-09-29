@@ -311,8 +311,8 @@ newWorkHeaderPure hdb creationTime extension phash = do
 -- | Get all adjacent parent headers for a new block header for a given cut.
 --
 -- This yields the same result as 'blockAdjacentParentHeaders', however, it is
--- more efficent when the cut and the adjacent parent hashes are already known.
--- Also, it works accross graph changes. It is not checked whether the given
+-- more efficient when the cut and the adjacent parent hashes are already known.
+-- Also, it works across graph changes. It is not checked whether the given
 -- adjacent parent hashes are consistent with the cut.
 --
 -- Only those parents are included that are not block parent hashes of genesis
@@ -365,8 +365,8 @@ newtype SolvedWork = SolvedWork BlockHeader
 encodeSolvedWork :: SolvedWork -> Put
 encodeSolvedWork (SolvedWork hdr) = encodeBlockHeaderWithoutHash hdr
 
-decodeSolvedWork :: Get SolvedWork
-decodeSolvedWork = SolvedWork <$> decodeBlockHeaderWithoutHash
+decodeSolvedWork :: ChainwebVersion -> Get SolvedWork
+decodeSolvedWork cwv = SolvedWork <$> decodeBlockHeaderWithoutHash cwv
 
 data InvalidSolvedHeader = InvalidSolvedHeader BlockHeader T.Text
     deriving (Show, Eq, Ord, Generic)

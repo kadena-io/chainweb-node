@@ -438,7 +438,7 @@ data MerkleLog a u (h :: [Type]) (b :: Type) = MerkleLog
 -- 2. a body that consists of a monomorphic sequence of 'IsMerkleEntry'
 --    instances.
 --
-class (MerkleUniverse u, MerkleHashAlgorithm a) => HasMerkleLog a u b | b -> u where
+class (MerkleUniverse u, MerkleHashAlgorithm a) => HasMerkleLog a u b m | b -> u, b -> m where
     type MerkleLogHeader b :: [Type]
         -- The header of the Merkle log representation of the type.
 
@@ -453,7 +453,7 @@ class (MerkleUniverse u, MerkleHashAlgorithm a) => HasMerkleLog a u b | b -> u w
         -- 'merkleLog' can be used to create the 'MerkleLog' from the root and
         -- the entries without forcing the computation of the Merkle tree field.
 
-    fromLog :: MerkleLog a u (MerkleLogHeader b) (MerkleLogBody b) -> b
+    fromLog :: MerkleLog a u (MerkleLogHeader b) (MerkleLogBody b) -> m b
         -- ^ Recover a value from a Merkle log.
 
 type MkLogType a u b = MerkleLog a u (MerkleLogHeader b) (MerkleLogBody b)
@@ -589,8 +589,8 @@ bodySize = V.length . body
 -- be cached.
 --
 computeMerkleLogRoot
-    :: forall a u b
-    . HasMerkleLog a u b
+    :: forall a u b m
+    . HasMerkleLog a u b m
     => b
     -> MerkleRoot a
 computeMerkleLogRoot = merkleRoot . _merkleLogTree . toLog @a
@@ -613,10 +613,10 @@ computeMerkleLogRoot = merkleRoot . _merkleLogTree . toLog @a
 -- but, again, our current use case wouldn't justify the overhead.
 --
 headerProof
-    :: forall c a u b m
+    :: forall c a u b m m'
     . MonadThrow m
     => HasHeader a u c (MkLogType a u b)
-    => HasMerkleLog a u b
+    => HasMerkleLog a u b m'
     => b
     -> m (MerkleProof a)
 headerProof = uncurry3 merkleProof . headerTree @c @a
@@ -629,9 +629,9 @@ headerProof = uncurry3 merkleProof . headerTree @c @a
 -- Merkle tree and should be used for the leaf tree in the nested proof.
 --
 headerTree
-    :: forall c a u b
+    :: forall c a u b m
     . HasHeader a u c (MkLogType a u b)
-    => HasMerkleLog a u b
+    => HasMerkleLog a u b m
     => b
     -> (MerkleNodeType a B.ByteString, Int, MerkleTree a)
 headerTree b = (node, p, _merkleLogTree @a mlog)
@@ -648,9 +648,9 @@ headerTree b = (node, p, _merkleLogTree @a mlog)
 -- the subject. It should be used for inner trees in the nested proof.
 --
 headerTree_
-    :: forall c a u b
+    :: forall c a u b m
     . HasHeader a u c (MkLogType a u b)
-    => HasMerkleLog a u b
+    => HasMerkleLog a u b m
     => b
     -> (Int, MerkleTree a)
 headerTree_ b = (p, _merkleLogTree @a mlog)
@@ -666,9 +666,9 @@ headerTree_ b = (p, _merkleLogTree @a mlog)
 -- 'MerkleLog' value.
 --
 bodyProof
-    :: forall a u b m
+    :: forall a u b m m'
     . MonadThrow m
-    => HasMerkleLog a u b
+    => HasMerkleLog a u b m'
     => b
     -> Int
         -- ^ the index in the body of the log
@@ -683,8 +683,8 @@ bodyProof b = uncurry3 merkleProof . bodyTree @a b
 -- Merkle tree and should be used for the leaf tree in the nested proof.
 --
 bodyTree
-    :: forall a u b
-    . HasMerkleLog a u b
+    :: forall a u b m
+    . HasMerkleLog a u b m
     => b
     -> Int
         -- ^ the index in the body of the log
@@ -702,8 +702,8 @@ bodyTree b i = (node, i_, _merkleLogTree @a mlog)
 -- the subject. It should be used for inner trees in the nested proof.
 --
 bodyTree_
-    :: forall a u b
-    . HasMerkleLog a u b
+    :: forall a u b m
+    . HasMerkleLog a u b m
     => b
     -> Int
         -- ^ the index in the body of the log

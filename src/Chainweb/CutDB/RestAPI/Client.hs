@@ -11,9 +11,9 @@
 -- Client implementation of the 'Cut' REST API.
 --
 module Chainweb.CutDB.RestAPI.Client
-( cutGetClient
-, cutGetClientLimit
-, cutPutClient
+-- ( cutGetClient
+-- , cutGetClientLimit
+( cutPutClient
 ) where
 
 import Servant.API (NoContent(..))
@@ -30,18 +30,18 @@ import Chainweb.Version
 -- -------------------------------------------------------------------------- --
 -- GET Cut Client
 
-cutGetClient
-    :: ChainwebVersion
-    -> ClientM CutHashes
-cutGetClient (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    = client (cutGetApi @v) Nothing
+-- cutGetClient
+--     :: ChainwebVersion
+--     -> ClientM CutHashes
+-- cutGetClient (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+--     = client (cutGetApi @v) Nothing
 
-cutGetClientLimit
-    :: ChainwebVersion
-    -> MaxRank
-    -> ClientM CutHashes
-cutGetClientLimit (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    = client (cutGetApi @v) . Just
+-- cutGetClientLimit
+--     :: ChainwebVersion
+--     -> MaxRank
+--     -> ClientM CutHashes
+-- cutGetClientLimit (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+--     = client (cutGetApi @v) . Just
 
 -- -------------------------------------------------------------------------- --
 -- PUT Cut Client
