@@ -5,9 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -39,14 +37,10 @@ import Control.Monad.Trans.Except
 
 import Data.Aeson hiding (Object, (.=))
 import Data.Bifunctor
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Base64.URL as B64U
 import Data.Default (def)
 import qualified Data.Map.Strict as M
 import Data.Text (Text, pack)
-import qualified Data.Text as Text
-import qualified Data.Text.Encoding as Text
-import Text.Read (readMaybe)
+import qualified Data.Text.Encoding as T
 
 import Crypto.Hash.Algorithms
 
@@ -77,7 +71,6 @@ import qualified Chainweb.Version as CW
 import qualified Chainweb.Version.Guards as CW
 
 import Chainweb.Storage.Table
-
 
 -- internal pact modules
 
@@ -176,78 +169,7 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
 
       t -> throwError $! "unsupported SPV types: " <> t
 
--- | A tag for specifying the format of base64 error messages on chain.
---
---   `Legacy` errors match those produced by our legacy version of
---   base64-bytestring, and are produced by parsing the error messages
---   we receive from our current version of base64-bytestring (1.2),
---   and formatting them in the older style. Legacy behavior also implies
---   that non-canonical encodings be allowed, because that was the behavior
---   of the legacy bytestring parser; and improperly padded messages
---   will get extra padding, because that is the legacy chainweb behavior.
---
---   `Simplified` errors are a static string, which may not describe
---   the issue with the base64-encoded string as well, but will be
---   more stable as we upgrade base64 decoding libraries in the future.
---   In the `Simplified` errors setting, messages rejected for using
---   non-canonical encodings will remain as errors, because we want to
---   begin enforcing the expected constraints on base64-encoded messages.
---   Similarly, Simplified parsing will not add extra padding to improperly
---   padded messages.
-data GenerateBase64ErrorMessage
-  = Legacy
-  | Simplified
-  deriving (Eq, Show)
 
-
--- | A modified version of `decodeBase64UrlNoPaddingText` that emits
---   base64 decoding errors in a configurable way.
-decodeB64UrlNoPaddingTextWithFixedErrorMessage :: MonadThrow m => GenerateBase64ErrorMessage -> Text.Text -> m B.ByteString
-decodeB64UrlNoPaddingTextWithFixedErrorMessage errorMessageType msg =
-  fromEitherM
-  . first (\e -> Base64DecodeException $ base64ErrorMessage e)
-  . (if errorMessageType == Legacy then patchNonCanonical else id)
-  . B64U.decode
-  . Text.encodeUtf8
-  . (if errorMessageType == Legacy then pad else id)
-  $ msg
-  where
-    pad t = let s = Text.length t `mod` 4 in t <> Text.replicate ((4 - s) `mod` 4) "="
-    base64ErrorMessage m = case errorMessageType of
-      Legacy -> base64DowngradeErrorMessage (Text.pack m)
-      Simplified -> "could not base64-decode message"
-    patchNonCanonical decodeResult = case decodeResult of
-      Right bs -> Right bs
-      Left e | "non-canonical" `Text.isInfixOf` Text.pack e ->
-               (B64U.decodeNonCanonical (Text.encodeUtf8 msg))
-      Left e -> Left e
-{-# INLINE decodeB64UrlNoPaddingTextWithFixedErrorMessage #-}
-
-
-
--- | Converts the error message format of base64-bytestring-1.2
---   into that of base64-bytestring-0.1, for the error messages
---   that have made it onto the chain.
---   This allows us to upgrade to base64-bytestring-1.2 without
---   breaking compatibility.
-base64DowngradeErrorMessage :: Text -> Text
-base64DowngradeErrorMessage msg = case msg of
-  "Base64-encoded bytestring has invalid size" ->
-       "invalid base64 encoding near offset 0"
-  (Text.stripPrefix "invalid character at offset: " -> Just suffix) ->
-    Text.pack $ "invalid base64 encoding near offset " ++ show (adjustedOffset suffix)
-  (Text.stripPrefix "invalid padding at offset: " -> Just suffix) ->
-    Text.pack $ "invalid padding near offset " ++ show (adjustedOffset suffix)
-  e -> e
-  where
-    adjustedOffset :: Text -> Int
-    adjustedOffset suffix = case readMaybe (Text.unpack suffix) of
-      Nothing -> 0
-      Just offset -> let
-        endsWithThreeEquals = Text.drop (Text.length msg - 3) msg == "==="
-        adjustment = if endsWithThreeEquals then -1 else 0
-        in
-        offset - (offset `rem` 4) + adjustment
 
 -- | SPV defpact transaction verification support. This call validates a pact 'endorsement'
 -- in Pact, providing a validation that the yield data of a cross-chain pact is valid.
@@ -261,14 +183,7 @@ verifyCont
       -- ^ bytestring of 'TransactionOutputP roof' object to validate
     -> IO (Either Text PactExec)
 verifyCont bdb bh (ContProof cp) = runExceptT $ do
-    let errorMessageType =
-          if CW.chainweb221Pact
-             (CW._chainwebVersion bh)
-             (_blockChainId bh)
-             (_blockHeight bh)
-          then Simplified
-          else Legacy
-    t <- decodeB64UrlNoPaddingTextWithFixedErrorMessage errorMessageType $ Text.decodeUtf8 cp
+    t <- liftIO $ decodeB64UrlNoPaddingText $ T.decodeUtf8 cp
     case decodeStrict' t of
       Nothing -> forkedThrower bh "unable to decode continuation proof"
       Just u

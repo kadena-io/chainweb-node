@@ -840,7 +840,7 @@ rosettaPubKeysToSignerMap pubKeys = HM.fromList <$> mapM f pubKeys
   where
     f (RosettaPublicKey pk ct) = do
       sk <- getScheme ct
-      addr <- toPactPubKeyAddr pk
+      addr <- toPactPubKeyAddr pk sk
       let signerWithoutCap = P.Signer (Just sk) pk (Just addr)
       pure (addr, signerWithoutCap)
 
