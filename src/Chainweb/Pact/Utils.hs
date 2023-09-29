@@ -109,8 +109,7 @@ validateKAccountKeySet kacct actualKeySet =
 -- | Empty payload marking no-op transaction payloads.
 --
 emptyPayload :: PayloadWithOutputs
-emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
+emptyPayload = newPayloadWithOutputs miner coinbase mempty
   where
-    BlockPayload h i o = newBlockPayload miner coinbase mempty
     miner = MinerData $ J.encodeStrict noMiner
     coinbase = noCoinbaseOutput

@@ -271,7 +271,7 @@ addNewPayload db s = addPayload db txs txTree outs outTree
 -- of its dependencies are present. For that we must be careful about the order
 -- of insertion and deletions.
 --
-instance (pk ~ CasKeyType (PayloadWithOutputs_ a), CanReadablePayloadCas_ a tbl) => ReadableTable (PayloadDb_ a tbl) pk (PayloadWithOutputs_ a) where
+instance (pk ~ CasKeyType (PayloadWithOutputs_ a), CanReadablePayloadCas_ a tbl, MerkleHashAlgorithm a) => ReadableTable (PayloadDb_ a tbl) pk (PayloadWithOutputs_ a) where
     tableLookup db k = runMaybeT $ do
         pd <- MaybeT $ tableLookup
             (_transactionDbBlockPayloads $ _transactionDb db)
@@ -284,14 +284,7 @@ instance (pk ~ CasKeyType (PayloadWithOutputs_ a), CanReadablePayloadCas_ a tbl)
         outs <- MaybeT $ tableLookup
             (_payloadCacheBlockOutputs $ _payloadCache db)
             outsHash
-        return $ PayloadWithOutputs
-            { _payloadWithOutputsTransactions = V.zip (_blockTransactions txs) (_blockOutputs outs)
-            , _payloadWithOutputsMiner = _blockMinerData txs
-            , _payloadWithOutputsCoinbase = _blockCoinbaseOutput outs
-            , _payloadWithOutputsPayloadHash = k
-            , _payloadWithOutputsTransactionsHash = txsHash
-            , _payloadWithOutputsOutputsHash = outsHash
-            }
+        return $ newPayloadWithOutputs (_blockMinerData txs) (_blockCoinbaseOutput outs) (V.zip (_blockTransactions txs) (_blockOutputs outs))
     {-# INLINE tableLookup #-}
 
 
