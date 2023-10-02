@@ -90,7 +90,7 @@ data SpvSubjectIdentifier = SpvSubjectIdentifier
     }
     deriving (Show, Eq, Ord, Generic)
 
-spvSubjectIdentifierProperties :: KeyValue kv => SpvSubjectIdentifier -> [kv]
+spvSubjectIdentifierProperties :: KeyValue e kv => SpvSubjectIdentifier -> [kv]
 spvSubjectIdentifierProperties o =
     [ "type" .= _spvSubjectIdType o
     , "chain" .= _spvSubjectIdChain o
@@ -120,7 +120,7 @@ data Spv2Request = Spv2Request
     }
     deriving (Show, Eq, Ord, Generic)
 
-spv2RequestProperties :: KeyValue kv => Spv2Request -> [kv]
+spv2RequestProperties :: KeyValue e kv => Spv2Request -> [kv]
 spv2RequestProperties o =
     [ "subjectIdentifier" .= _spv2ReqSubjectIdentifier o
     , "minimalProofDepth" .= _spv2ReqMinimalProofDepth o
