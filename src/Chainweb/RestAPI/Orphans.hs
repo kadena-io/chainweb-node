@@ -1,7 +1,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -28,16 +30,18 @@
 -- The instances are brought into scope only in the modules that implement that
 -- API and are out of scope otherwise.
 --
-module Chainweb.RestAPI.Orphans () where
+module Chainweb.RestAPI.Orphans (ChainwebVersionSegment) where
 
 import Control.Monad
 
 import Data.Bool
 import Data.Bifunctor
 import Data.Proxy
+import Data.Reflection
 import Data.Semigroup (Max(..), Min(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import GHC.TypeLits
 
 import Servant.API
 
@@ -154,17 +158,25 @@ instance FromHttpApiData (NextItem Int) where
     parseUrlPiece = first sshow . fromText
 
 instance ToHttpApiData SomeChainwebVersionT where
-    toUrlPiece (SomeChainwebVersionT prox) = chainwebVersionSymbolVal prox
+    toUrlPiece (SomeChainwebVersionT (SChainwebVersion :: SChainwebVersion v)) =
+        getChainwebVersionName $ _versionName $ reflect (Proxy @v)
 
 instance ToHttpApiData SomeChainIdT where
     toUrlPiece (SomeChainIdT prox) = chainIdSymbolVal prox
 
+data ChainwebVersionSegment v
+
 instance
-    (KnownChainwebVersionSymbol sym, HasLink sub)
-    => HasLink (sym :> sub)
+    (KnownChainwebVersionSymbol v, HasLink sub)
+    => HasLink (ChainwebVersionSegment v :> sub)
   where
-    type MkLink (sym :> sub) a = MkLink sub a
-    toLink toA _ = toLink toA (Proxy @(ChainwebVersionSymbol sym :> sub))
+    type MkLink ((ChainwebVersionSegment v) :> sub) a = MkLink sub a
+    toLink toA _ =
+        withSomeSSymbol (T.unpack (getChainwebVersionName (_versionName v))) $ \case
+            (SSymbol :: SSymbol sym) -> toLink toA (Proxy @(sym :> sub))
+            _ -> error "impossible, GHC is just missing a COMPLETE pragma on SSymbol"
+        where
+        v = reflect (Proxy @v)
 
 instance
     (KnownChainIdSymbol sym, HasLink sub)

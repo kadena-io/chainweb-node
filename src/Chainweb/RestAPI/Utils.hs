@@ -10,6 +10,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedLists #-}
@@ -109,6 +110,7 @@ import qualified Data.CaseInsensitive as CI
 import Data.Kind
 import Data.List (find)
 import Data.Proxy
+import Data.Reflection (reflect)
 import Data.Streaming.Network (bindPortGen)
 import Data.String
 import qualified Data.Text as T
@@ -122,6 +124,7 @@ import qualified Network.Socket as N
 import Network.Wai.Handler.Warp (HostPreference)
 
 import Servant.API hiding (addHeader)
+import Servant.Client.Core.Request hiding (addHeader)
 import Servant.Client
 import Servant.Server
 
@@ -129,7 +132,7 @@ import Servant.Server
 import Chainweb.ChainId
 import Chainweb.HostAddress
 import Chainweb.RestAPI.NetworkID
-import Chainweb.RestAPI.Orphans ()
+import Chainweb.RestAPI.Orphans
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
@@ -236,11 +239,11 @@ type NextParam k = QueryParam "next" k
 -- -------------------------------------------------------------------------- --
 -- Chainweb API Endpoints
 
-newtype ChainwebEndpoint = ChainwebEndpoint ChainwebVersionT
+newtype ChainwebEndpoint c = ChainwebEndpoint c
 
 type ChainwebEndpointApi c a = "chainweb"
     :> Version
-    :> ChainwebVersionSymbol c
+    :> ChainwebVersionSegment c
     :> a
 
 -- | Server implementations can use this type to gain access to the
@@ -254,9 +257,37 @@ type ChainwebEndpointApi c a = "chainweb"
 --
 type ChainwebEndpointApiWithHeader c a = "chainweb"
     :> Version
-    :> ChainwebVersionSymbol c
+    :> ChainwebVersionSegment c
     :> Header ChainwebNodeVersionHeaderName T.Text -- Cabal.Version
     :> a
+
+-- Servers with a ChainwebVersionSegment segment are the same to route as
+-- servers with a segment that contains that version's name
+instance (HasServer api ctx, KnownChainwebVersionSymbol c)
+    => HasServer (ChainwebVersionSegment c :> api) ctx where
+    -- ServerT for (sym :: Symbol) :> api is the same as ServerT for api, `sym` is unused
+    type ServerT (ChainwebVersionSegment c :> api) m = ServerT api m
+    route Proxy context subserver =
+        withSomeSSymbol (T.unpack (getChainwebVersionName (_versionName v))) $ \case
+            (SSymbol :: SSymbol sym) -> route (Proxy @(sym :> api)) context subserver
+            _ -> error "impossible, GHC is just missing a COMPLETE pragma on SSymbol"
+        where
+        v = reflect (Proxy @c)
+
+-- Clients with a ChainwebVersionSegment segment are the same to route as
+-- clients with a segment that contains that version's name
+instance
+    (KnownChainwebVersionSymbol v, HasClient m api)
+    => HasClient m (ChainwebVersionSegment v :> api)
+  where
+    type Client m (ChainwebVersionSegment v :> api) = Client m api
+
+    clientWithRoute pm Proxy req =
+        clientWithRoute pm (Proxy :: Proxy api) (appendToPath p req)
+        where p = toEncodedUrlPiece $ getChainwebVersionName $ _versionName $ reflect (Proxy :: Proxy v)
+
+    hoistClientMonad pm _ f cl = hoistClientMonad pm (Proxy :: Proxy api) f cl
+
 
 instance
     (HasServer api ctx, KnownChainwebVersionSymbol c)

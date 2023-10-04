@@ -79,7 +79,7 @@ pactSpvApiClient
         -- tx request.
     -> ClientM TransactionOutputProofB64
 pactSpvApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainwebVersion (SChainwebVersion :: SChainwebVersionT v))
     (FromSingChainId (SChainId :: Sing c))
     = pactSpvApiClient_ @v @c
 

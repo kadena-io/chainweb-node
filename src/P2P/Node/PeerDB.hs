@@ -454,11 +454,11 @@ newtype PeerDbT (v :: ChainwebVersionT) (n :: NetworkIdT) = PeerDbT PeerDb
     deriving (Eq, Generic)
 
 data SomePeerDb = forall v n
-    . (KnownChainwebVersionSymbol v, SingI n)
+    . (Reifies v ChainwebVersion, SingI n)
     => SomePeerDb (PeerDbT v n)
 
 somePeerDbVal :: ChainwebVersion -> NetworkId -> PeerDb -> SomePeerDb
-somePeerDbVal (FromSingChainwebVersion (SChainwebVersion :: Sing v)) n db = f n
+somePeerDbVal (FromSingChainwebVersion (SChainwebVersion :: SChainwebVersion v)) n db = f n
   where
     f (FromSingNetworkId (SChainNetwork SChainId :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
     f (FromSingNetworkId (SMempoolNetwork SChainId :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
