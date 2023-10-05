@@ -43,7 +43,7 @@ mainnetBootstrapHosts = map unsafeHostAddressFromText
     , "jp2.chainweb.com:443"
     , "jp3.chainweb.com:443"
     , "1.sea.us.node.kda.kaddex.xyz:8443"
-    , "dal.us.node.kda.kaddex.xyz:8443"
+    , "1.dal.us.node.kda.kaddex.xyz:8443"
     , "1.hel.fi.node.kda.kaddex.xyz:8443"
     , "2.hel.fi.node.kda.kaddex.xyz:8443"
     , "1.fsn.de.node.kda.kaddex.xyz:8443"
