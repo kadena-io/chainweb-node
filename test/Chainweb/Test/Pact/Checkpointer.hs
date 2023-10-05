@@ -80,7 +80,7 @@ tests = testGroupSch "Checkpointer"
 -- Module Name Test
 
 testModuleName :: TestTree
-testModuleName = withTempSQLiteResource $
+testModuleName = withResourceT withTempSQLiteResource $
     runSQLite' $ \resIO -> testCase "testModuleName" $ do
 
         (Checkpointer {..}, SQLiteEnv {..}) <- resIO

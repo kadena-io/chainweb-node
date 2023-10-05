@@ -71,6 +71,8 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion)
 
+import qualified Pact.Types.ChainMeta as P
+
 import Numeric.AffineSpace
 
 ------------------------------------------------------------------------------
@@ -267,7 +269,7 @@ addToBadListInMem lock txs = withMVarMasked lock $ \mdata -> do
     let !pnd' = foldl' (flip HashMap.delete) pnd txs
     -- we don't have the expiry time here, so just use maxTTL
     now <- getCurrentTimeIntegral
-    let (ParsedInteger mt) = defaultMaxTTL
+    let P.TTLSeconds (ParsedInteger mt) = defaultMaxTTL
     let !endTime = add (secondsToTimeSpan $ fromIntegral mt) now
     let !bad' = foldl' (\h tx -> HashMap.insert tx endTime h) bad txs
     writeIORef (_inmemPending mdata) pnd'
