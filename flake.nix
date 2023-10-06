@@ -28,7 +28,7 @@
       pkgs = import nixpkgs {
         inherit system;
         inherit (haskellNix) config;
-        overlays = [ haskellNix.overlay ];
+        overlays = [ haskellNix.overlay (import ./overlay-ghc963.nix) ];
       };
       defaultNix = import ./default.nix {
         inherit pkgs nix-filter;
