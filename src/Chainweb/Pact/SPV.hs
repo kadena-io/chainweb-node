@@ -67,6 +67,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
 import Chainweb.Pact.Service.Types(internalError)
 import Chainweb.Pact.Utils (aeson)
+import Chainweb.Pact.SPV.Hyperlane
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV
@@ -147,11 +148,6 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
           Left e -> throwError $ "Validation of Eth proof failed: " <> sshow e
           Right result -> return $ ethResultToPactValue result
 
-      "HYPERLANE_V3" | enableBridge -> except (extractEthProof o) >>=
-        \parsedProof -> case validateReceiptProof parsedProof of
-          Left e -> throwError $ "Validation of Hyperlane proof failed: " <> sshow e
-          Right result -> return $ ethResultToPactValue result
-
       -- Chainweb tx output proof
       "TXOUT" -> do
         u <- except $ extractProof enableBridge o
@@ -178,6 +174,8 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
             throwError "Failed command result in tx output proof"
           PactResult (Right v) ->
             mkSPVResult' q v
+
+      "HYPERLANE_V3" -> evalHyperlaneCommand o
 
       t -> throwError $! "unsupported SPV types: " <> t
 
@@ -315,6 +313,25 @@ extractProof True (Object (ObjectMap o) _ _ _) = case M.lookup "proof" o of
     j <- first (const "Base64 decode failed") (decodeB64UrlNoPaddingText proof)
     first (const "Decode of TransactionOutputProof failed") (decodeStrictOrThrow j)
   _ -> Left "Invalid input, expected 'proof' field with base64url unpadded text"
+
+evalHyperlaneCommand :: Object Name -> ExceptT Text IO (Object Name)
+evalHyperlaneCommand o = case M.lookup "cmd" $ _objectMap $ _oObject o of
+  Just (TLitString "parseMessage") -> undefined
+  Just (TLitString "encodeMessage") -> undefined
+  Just (TLitString _) -> throwError "Unknown hyperlane command"
+  _ -> throwError "Couldn't find hyperlane command"
+
+extractHyperlaneCommand :: Object Name -> Either Text HyperlaneMessage
+extractHyperlaneCommand o = case M.lookup "proof" $ _objectMap $ _oObject o of
+  Nothing -> Left "Decoding of Hyperlane proof object failed: missing 'proof' property"
+  Just (TLitString p) -> do
+    bytes' <- errMsg "Decoding of Hyperlane proof object failed: invalid base64URLWithoutPadding encoding"
+        $ decodeB64UrlNoPaddingText p
+    errMsg "Decoding of Hyperlane proof object failed: invalid binary proof data"
+        $ parseHyperlaneMessage bytes'
+  Just _ -> Left "Decoding of Hyperlane proof object failed: invalid 'proof' property"
+  where
+    errMsg t = first (const t)
 
 -- | Extract an Eth 'ReceiptProof' from a generic pact object
 --
