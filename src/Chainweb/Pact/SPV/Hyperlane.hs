@@ -2,21 +2,31 @@
 
 module Chainweb.Pact.SPV.Hyperlane where
 
+import qualified Data.ByteString as BS
 import Data.ByteString.Lazy
 import Data.ByteString.Builder
 
 import Data.Binary
 
+import Numeric.Natural
+
+
 newtype Argument = Argument ByteString
 
-data FormatMessageCall = FormatMessageCall
-  { fmcVersion :: Word8
-  , fmcNonce :: Word32
-  , fmcOriginDomain :: Word32
-  , fmcSender :: ByteString
-  , fmcDestinationDomain :: Word32
-  , fmcRecipient :: ByteString
-  , fmcMessageBody :: ByteString
+data HyperlaneMessage = HyperlaneMessage
+  { fmcVersion :: Word8            -- uint8
+  , fmcNonce :: Word32             -- uint32
+  , fmcOriginDomain :: Word32      -- uint32
+  , fmcSender :: ByteString        -- bytes32
+  , fmcDestinationDomain :: Word32 -- uint32
+  , fmcRecipient :: ByteString     -- bytes32
+  , fmcMessageBody :: ByteString   -- bytes
+  }
+
+data TokenMessage = TokenMessage
+  { tmRecipient :: ByteString -- bytes
+  , tmAmount :: Natural       -- uint256
+  , tmMetadata :: ByteString  -- bytes
   }
 
 {-
@@ -41,19 +51,10 @@ function formatMessage(
                 _messageBody
             );
     }
-
-signature: "formatMessage(uint8,uint32,uint32,bytes32,uint32,bytes32,bytes)"
-Keccak hash of the signature "0xd57f8952f34e582e3760214a5ed542cb2b0fe2940dade6d615c363192405938e"
-method id: "0xd57f8952"
 -}
 
-instance Binary FormatMessageCall where
-  put (FormatMessageCall {..}) = do
-    put (0xd5 :: Word8)
-    put (0x7f :: Word8)
-    put (0x89 :: Word8)
-    put (0x52 :: Word8)
-
+instance Binary HyperlaneMessage where
+  put (HyperlaneMessage {..}) = do
     put fmcVersion
     put fmcNonce
     put fmcOriginDomain
@@ -63,23 +64,17 @@ instance Binary FormatMessageCall where
     put fmcMessageBody
 
   get = do
-    -- parse method id
-    b1 <- get :: Get Word8
-    b2 <- get :: Get Word8
-    b3 <- get :: Get Word8
-    b4 <- get :: Get Word8
+    fmcVersion <- get :: Get Word8
+    fmcNonce <- get :: Get Word32
+    fmcOriginDomain <- get :: Get Word32
+    fmcSender <- get :: Get ByteString
+    fmcDestinationDomain <- get :: Get Word32
+    fmcRecipient <- get :: Get ByteString
+    fmcMessageBody <- get :: Get ByteString
+    return $ HyperlaneMessage {..}
 
-    case (b1, b2, b3, b4) of
-      (0xd5, 0x7f, 0x89, 0x52) -> do
-        fmcVersion <- get :: Get Word8
-        fmcNonce <- get :: Get Word32
-        fmcOriginDomain <- get :: Get Word32
-        fmcSender <- get :: Get ByteString
-        fmcDestinationDomain <- get :: Get Word32
-        fmcRecipient <- get :: Get ByteString
-        fmcMessageBody <- get :: Get ByteString
-        return $ FormatMessageCall {..}
-      _ -> error $ "Unexpected method id: " ++ show (b1, b2, b3, b4)
-
-
---    "0xcdcd77c0992ec5bbfc459984220f8c45084cc24d9b6efed1fae540db8de801d2"
+parseHyperlaneMessage :: BS.ByteString -> Either String HyperlaneMessage
+parseHyperlaneMessage s =
+  case decodeOrFail (fromStrict s) of
+    Right (_, _, m) -> Right m
+    Left _ -> Left "Failed to parse hyperlane message"
