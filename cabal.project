@@ -59,8 +59,8 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 4e04f83ee2b185cbc48727fe57b4ddabd20e2f0f
-    --sha256: 006m8idx88rm5i5a1s8qw1ls8ynj63r4sf4jxz3abg1f7h7sxxcf
+    tag: 6fe1e5e8f472fc5fccb1017abd18905d7b827968
+    --sha256: 0jrswgzdkfkz5ngfx30f5g0gydaplknna2hcr6i06hkrfm1zyyqv
 
 source-repository-package
     type: git
@@ -114,6 +114,13 @@ source-repository-package
     tag: b66e3a04c20f753213fe7e5115a95b3fe34109f9
     --sha256: 0dca5pl56nz8ijnqavnpxw5f47qmpalszd5w0ag8bq3fd0l3839m
 
+-- Required for non-canonical decode in base64-bytestring (remove after 2.20 fork)
+source-repository-package
+    type: git
+    location: https://github.com/emilypi/base64-bytestring-kadena
+    tag: 174af3523616c8fe01449da5ccbb9f16df097ac3
+    --sha256: sha256-kVFIy+Aj3TNJpsM1Cs/5uGmzeWwHKYWjjCQ+L1/XOj8=
+
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
 
@@ -158,16 +165,8 @@ allow-newer: base-compat-batteries:*
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
 
--- required by pact
--- these upper bounds are required in order to not break payload validation
-constraints: base16-bytestring <1
-constraints: base64-bytestring <1.1
-
--- we have to add these because the old versions that we use would prevent
--- us to use recent versions of other packages
-allow-newer: base64-bytestring:*
-allow-newer: base16-bytestring:*
+allow-newer: webauthn:these
+allow-newer: webauthn:time
 
 -- servant does not yet support aeson 2.2
 constraints: aeson <2.2
-

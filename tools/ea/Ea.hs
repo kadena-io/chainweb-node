@@ -56,6 +56,7 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types (testPactServiceConfig)
 import Chainweb.Pact.Utils (toTxCreationTime)
+import Chainweb.Pact.Validations (defaultMaxTTL)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Storage.Table.RocksDB
@@ -186,7 +187,7 @@ mkChainwebTxs' rawTxs =
             f@ProcFail{} -> fail (show f)
             ProcSucc c -> do
                 let t = toTxCreationTime (Time (TimeSpan 0))
-                return $! mkPayloadWithTextOld <$> (c & setTxTime t & setTTL (TTLSeconds $ 2 * 24 * 60 * 60))
+                return $! mkPayloadWithTextOld <$> (c & setTxTime t & setTTL defaultMaxTTL)
   where
     setTxTime = set (cmdPayload . pMeta . pmCreationTime)
     setTTL = set (cmdPayload . pMeta . pmTTL)

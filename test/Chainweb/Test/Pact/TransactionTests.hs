@@ -358,14 +358,17 @@ testUpgradeScript
     -> IO ()
 testUpgradeScript script cid bh test = do
     (pdb, mc) <- loadScript script
-    r <- tryAllSynchronous $ applyCoinbase v logger pdb noMiner 0.1 (TxContext p def)
+    r <- tryAllSynchronous $ applyCoinbase v logger pdb noMiner 0.1 (TxContext parent def)
         (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left e -> assertFailure $ "tx execution failed: " ++ show e
       Right cr -> test cr
   where
-    p = parent bh cid
-
+    parent = ParentHeader (someBlockHeader v bh)
+        { _blockChainwebVersion = _versionCode v
+        , _blockChainId = cid
+        , _blockHeight = pred bh
+        }
 matchLogs :: [(Text, Text, Maybe Value)] -> [(Text, Text, Maybe Value)] -> IO ()
 matchLogs expectedResults actualResults
     | length actualResults /= length expectedResults = void $
@@ -381,13 +384,6 @@ matchLogs expectedResults actualResults
       (assertEqual "domain matches" `on` view _1) actual expected
       (assertEqual "key matches" `on` view _2) actual expected
       (assertEqual "balance matches" `on` view _3) actual expected
-
-parent :: BlockHeight -> V.ChainId -> ParentHeader
-parent bh cid = ParentHeader (someBlockHeader v bh)
-    { _blockChainwebVersion = _versionCode v
-    , _blockChainId = cid
-    , _blockHeight = pred bh
-    }
 
 logResults :: [TxLogJson] -> [(Text, Text, Maybe Value)]
 logResults = fmap go
