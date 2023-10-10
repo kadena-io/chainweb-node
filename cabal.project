@@ -30,6 +30,10 @@ package chainweb
     tests: True
     benchmarks: True
 
+if impl(ghc >= 9.8.1)
+    package chainweb
+        ghc-options: -Wno-x-partial
+
 package pact
     ghc-options: -Wwarn
     optimization: True
@@ -145,9 +149,26 @@ allow-newer: servant:*
 -- These packages are tightly bound to the GHC version and these
 -- settings ensure that we use the versions that are shipped with the
 -- GHC version that we are using.
+allow-newer: *:Cabal
+allow-newer: *:array
 allow-newer: *:base
-allow-newer: *:tempalte-haskell
+allow-newer: *:bytestring
+allow-newer: *:containers
+allow-newer: *:deepseq
+allow-newer: *:directory
+allow-newer: *:exceptions
+allow-newer: *:ghc-compact
 allow-newer: *:ghc-prim
+allow-newer: *:integer-gmp
+allow-newer: *:mtl
+allow-newer: *:parsec
+allow-newer: *:pretty
+allow-newer: *:process
+allow-newer: *:stm
+allow-newer: *:template-haskell
+allow-newer: *:text
+allow-newer: *:time
+allow-newer: *:transformers
 
 -- Pact uses a vendored version of trifecta that has outdated
 -- upper bounds
