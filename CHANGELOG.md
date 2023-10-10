@@ -1,5 +1,48 @@
 # `chainweb-node` Changelog
 
+## 2.21 (2023-10-05)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2023-10-19T00:00:00Z**. Node administrators must upgrade to this version before
+that date.
+
+This version will expire on **2023-12-13T:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+* Support for WebAuthN signatures in Pact keyset guards. (#1729, see [https://github.com/kadena-io/pact](Pact) #1139)
+* Updated to Pact 4.9. (numerous, see [Pact
+  changelog](https://github.com/kadena-io/pact/releases/tag/v4.9))
+
+Internal Changes:
+* Updated from tls package version 1.7.1 to 1.9. (#1734)
+* Updated from base64-bytestring package version 1.0.0.3 to 1.2.1.0. (#1729)
+
+## 2.20 (2023-08-28)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2023-09-07T00:00:00Z**. Node administrators must upgrade to this version before
+that date.
+
+This version will expire on **2023-10-19T00:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+* A new chainwebVersion called fast-development, intended for use by Pact
+  developers. See #1627 for more details.
+* Updated to Pact 4.8. (numerous, see [Pact
+  changelog](https://github.com/kadena-io/pact/releases/tag/v4.8))
+* Fixed an issue where /local calls that rewind to a previous block could have
+  the wrong behavior or gas usage if rewinding crosses fork boundaries. (#1700)
+
+Internal Changes:
+* Updated from GHC 8.10.7 to GHC 9.6.2. (#1565)
+* PactService now emits significantly more structured logs. (#1699)
+
 ## 2.19.2 (2023-07-17)
 
 **NOTE: THIS VERSION SUPERSEDES 2.19.1. PLEASE UPDATE AS SOON AS POSSIBLE.**

@@ -55,7 +55,6 @@ module Chainweb.Test.Pact.Utils
 -- * Command builder
 , defaultCmd
 , mkCmd
-, buildRawCmd
 , buildCwCmd
 , buildTextCmd
 , mkExec'
@@ -88,11 +87,7 @@ module Chainweb.Test.Pact.Utils
 , initializeSQLite
 , freeSQLiteResource
 , freeGasModel
-, withTestBlockDbTest
 , testPactServiceConfig
-, withMVarResource
-, withTime
-, withPayloadDb
 , withBlockHeaderDb
 , withTemporaryDir
 -- * Mempool utils
@@ -109,7 +104,6 @@ module Chainweb.Test.Pact.Utils
 , dummyLogger
 , hunitDummyLogger
 , pactTestLogger
-, epochCreationTime
 , someTestVersionHeader
 , someBlockHeader
 , testPactFilesDir
@@ -173,7 +167,6 @@ import Pact.Types.Util (parseB16TextOnly)
 
 -- internal modules
 
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeight
@@ -192,7 +185,6 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
@@ -207,7 +199,6 @@ import Chainweb.Version.Utils (someChainId)
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
-import Chainweb.Storage.Table.HashMap hiding (toList)
 import Chainweb.Storage.Table.RocksDB
 
 -- ----------------------------------------------------------------------- --
@@ -217,7 +208,7 @@ type SimpleKeyPair = (Text,Text)
 
 -- | Legacy; better to use 'CmdSigner'/'CmdBuilder'.
 -- if caps are empty, gas cap is implicit. otherwise it must be included
-testKeyPairs :: SimpleKeyPair -> Maybe [SigCapability] -> IO [SomeKeyPairCaps]
+testKeyPairs :: SimpleKeyPair -> Maybe [SigCapability] -> IO [Ed25519KeyPairCaps]
 testKeyPairs skp capsm = do
   kp <- toApiKp $ mkSigner' skp (fromMaybe [] capsm)
   mkKeyPairs [kp]
@@ -760,9 +751,6 @@ withPactCtxSQLite logger v bhdbIO pdbIO conf f =
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
 toTxCreationTime (Time timespan) = TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan
 
-withPayloadDb :: (IO (PayloadDb HashMapTable) -> TestTree) -> TestTree
-withPayloadDb = withResource newPayloadDb mempty
-
 -- | 'MemPoolAccess' that delegates all calls to the contents of provided `IORef`.
 delegateMemPoolAccess :: IORef MemPoolAccess -> MemPoolAccess
 delegateMemPoolAccess r = MemPoolAccess
@@ -782,7 +770,7 @@ delegateMemPoolAccess r = MemPoolAccess
 withDelegateMempool
   :: (IO (IORef MemPoolAccess, MemPoolAccess) -> TestTree)
   -> TestTree
-withDelegateMempool = withResource start mempty
+withDelegateMempool = withResource' start
   where
     start = (id &&& delegateMemPoolAccess) <$> newIORef mempty
 
@@ -799,7 +787,6 @@ setOneShotMempool mpRefIO mp = do
         False -> writeIORef oneShot True >> mpaGetBlock mp g v i a e
         True -> mempty
     }
-
 
 withBlockHeaderDb
     :: IO RocksDb
@@ -818,13 +805,6 @@ withTemporaryDir = withResource
     (getTemporaryDirectory >>= \d -> createTempDirectory d "test-pact")
     removeDirectoryRecursive
 
-withTestBlockDbTest
-    :: ChainwebVersion
-    -> RocksDb
-    -> (IO TestBlockDb -> TestTree)
-    -> TestTree
-withTestBlockDbTest v rdb = withResource (mkTestBlockDb v rdb) mempty
-
 -- | Single-chain Pact via service queue.
 withPactTestBlockDb
     :: ChainwebVersion
@@ -836,7 +816,7 @@ withPactTestBlockDb
     -> TestTree
 withPactTestBlockDb version cid rdb mempoolIO pactConfig f =
   withTemporaryDir $ \iodir ->
-  withTestBlockDbTest version rdb $ \bdbio ->
+  withResource' (mkTestBlockDb version rdb) $ \bdbio ->
   withResource (startPact bdbio iodir) stopPact $ f . fmap (view _3)
   where
     startPact bdbio iodir = do
@@ -871,9 +851,6 @@ someTestVersion = fastForkingCpmTestVersion petersonChainGraph
 
 someTestVersionHeader :: BlockHeader
 someTestVersionHeader = someBlockHeader someTestVersion 10
-
-epochCreationTime :: BlockCreationTime
-epochCreationTime = BlockCreationTime epoch
 
 -- | The runtime is linear in the requested height. This can be slow if a large
 -- block height is requested for a chainweb version that simulates realtime
