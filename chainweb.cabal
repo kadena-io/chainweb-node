@@ -1,7 +1,7 @@
 cabal-version: 3.8
 
 name:         chainweb
-version:      2.20
+version:      2.21
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -331,7 +331,7 @@ library
         , attoparsec >= 0.13
         , base >= 4.12 && < 5
         , base16-bytestring >= 0.1
-        , base64-bytestring >= 1.0
+        , base64-bytestring-kadena == 0.1
         , binary >= 0.8
         , bytestring >= 0.10
         , case-insensitive >= 1.2
@@ -517,7 +517,7 @@ test-suite chainweb-tests
         , aeson >= 1.4.3
         , async >= 2.2
         , base >= 4.12 && < 5
-        , base64-bytestring >= 1.0 && < 1.1
+        , base64-bytestring-kadena == 0.1
             -- due to change in error message that is inlined in pact
         , bytestring >= 0.10
         , case-insensitive >= 1.2

@@ -247,14 +247,16 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
                     return $ Right t
             Right _ -> pure $ Right t
 
+
     checkTxSigs :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkTxSigs t
-      | assertValidateSigs hsh signers sigs = pure $ Right t
+      | assertValidateSigs validSchemes hsh signers sigs = pure $ Right t
       | otherwise = return $ Left InsertErrorInvalidSigs
       where
         hsh = P._cmdHash t
         sigs = P._cmdSigs t
         signers = P._pSigners $ payloadObj $ P._cmdPayload t
+        validSchemes = validPPKSchemes v cid bh
 
     initTxList :: ValidateTxs
     initTxList = V.map Right txs

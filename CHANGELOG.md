@@ -1,5 +1,25 @@
 # `chainweb-node` Changelog
 
+## 2.21 (2023-10-05)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2023-10-19T00:00:00Z**. Node administrators must upgrade to this version before
+that date.
+
+This version will expire on **2023-12-13T:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+* Support for WebAuthN signatures in Pact keyset guards. (#1729, see [https://github.com/kadena-io/pact](Pact) #1139)
+* Updated to Pact 4.9. (numerous, see [Pact
+  changelog](https://github.com/kadena-io/pact/releases/tag/v4.9))
+
+Internal Changes:
+* Updated from tls package version 1.7.1 to 1.9. (#1734)
+* Updated from base64-bytestring package version 1.0.0.3 to 1.2.1.0. (#1729)
+
 ## 2.20 (2023-08-28)
 
 This version replaces all previous versions. Any prior version will stop working
