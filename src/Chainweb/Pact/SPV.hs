@@ -25,6 +25,10 @@ module Chainweb.Pact.SPV
 , verifyCont
   -- * spv api utilities
 , getTxIdx
+-- * hyperlane utilities
+, evalHyperlaneCommand
+, mkObject
+, obj
 ) where
 
 
@@ -315,11 +319,25 @@ extractProof True (Object (ObjectMap o) _ _ _) = case M.lookup "proof" o of
   _ -> Left "Invalid input, expected 'proof' field with base64url unpadded text"
 
 evalHyperlaneCommand :: Object Name -> ExceptT Text IO (Object Name)
-evalHyperlaneCommand o = case M.lookup "cmd" $ _objectMap $ _oObject o of
-  Just (TLitString "parseMessage") -> undefined
-  Just (TLitString "encodeMessage") -> undefined
-  Just (TLitString _) -> throwError "Unknown hyperlane command"
-  _ -> throwError "Couldn't find hyperlane command"
+evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.lookup "arg" $ _objectMap $ _oObject o) of
+  (Just (TLitString "parseMessage"), _) -> undefined
+  (Just (TLitString "encodeTokenMessageERC20"), Nothing) -> throwError "Missing argument"
+  (Just (TLitString "encodeTokenMessageERC20"), Just (TObject obj _)) -> do
+    let
+      newObj = do
+        let om = _objectMap $ _oObject obj
+        tmRecipient <- om ^? at "recipient" . to toPactValue . _Just
+        tmAmount <- om ^? at "amount" . _Just . to toPactValue
+        tmMetadata <- om ^? at "metadata" . _Just . to toPactValue
+        let tm = TokenMessageERC20{..}
+        pure $ mkObject [ ("result", tStr $ asString ("hello" :: Text)) ]
+    case newObj of
+      Just o -> pure o
+      _ -> throwError "Couldn't encode message"
+  (Just (TLitString "encodeTokenMessageERC721"), Just argObj) -> undefined
+  (Just (TLitString "encodeHyperlaneMessage"), Just argObj) -> undefined
+  (Nothing, _) -> throwError "Missing command name"
+  _ -> throwError "Unknown hyperlane command"
 
 extractHyperlaneCommand :: Object Name -> Either Text HyperlaneMessage
 extractHyperlaneCommand o = case M.lookup "proof" $ _objectMap $ _oObject o of

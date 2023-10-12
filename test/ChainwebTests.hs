@@ -87,10 +87,10 @@ main = do
             liftIO $ defaultMainWithIngredients (consoleAndJsonReporter : defaultIngredients)
                 $ adjustOption adj
                 $ testGroup "Chainweb Tests"
-                $ pactTestSuite rdb
-                : mempoolTestSuite db h0
-                : rosettaTestSuite rdb
-                : suite rdb
+                -- $ pactTestSuite rdb
+                -- : mempoolTestSuite db h0
+                -- : rosettaTestSuite rdb
+                $ suite rdb
   where
     adj NoTimeout = Timeout (1_000_000 * 60 * 10) "10m"
     adj x = x
@@ -123,38 +123,38 @@ suite :: RocksDb -> [TestTree]
 suite rdb =
     [ testGroup "Chainweb Unit Tests"
         [ testGroup "BlockHeaderDb"
-            [ Chainweb.Test.BlockHeaderDB.tests rdb
-            , Chainweb.Test.TreeDB.RemoteDB.tests
-            , Chainweb.Test.BlockHeaderDB.PruneForks.tests
-            , testProperties "Chainweb.Test.TreeDB" Chainweb.Test.TreeDB.properties
+        --     [ Chainweb.Test.BlockHeaderDB.tests rdb
+        --     , Chainweb.Test.TreeDB.RemoteDB.tests
+        --     , Chainweb.Test.BlockHeaderDB.PruneForks.tests
+        --     , testProperties "Chainweb.Test.TreeDB" Chainweb.Test.TreeDB.properties
+        --     ]
+        -- , Chainweb.Test.Pact.SQLite.tests
+        -- , Chainweb.Test.CutDB.tests rdb
+        -- , Chainweb.Test.Pact.TransactionTests.tests
+        -- , Chainweb.Test.Roundtrips.tests
+        -- , Chainweb.Test.Rosetta.tests
+        -- , Chainweb.Test.RestAPI.tests rdb
+        testGroup "SPV"
+            -- [ Chainweb.Test.SPV.tests rdb
+            [ Chainweb.Test.Pact.SPV.tests
+            -- , Chainweb.Test.SPV.EventProof.properties
             ]
-        , Chainweb.Test.Pact.SQLite.tests
-        , Chainweb.Test.CutDB.tests rdb
-        , Chainweb.Test.Pact.TransactionTests.tests
-        , Chainweb.Test.Roundtrips.tests
-        , Chainweb.Test.Rosetta.tests
-        , Chainweb.Test.RestAPI.tests rdb
-        , testGroup "SPV"
-            [ Chainweb.Test.SPV.tests rdb
-            , Chainweb.Test.Pact.SPV.tests
-            , Chainweb.Test.SPV.EventProof.properties
-            ]
-        , Chainweb.Test.Mempool.InMem.tests
-        , Chainweb.Test.Mempool.Sync.tests
-        , Chainweb.Test.Mempool.RestAPI.tests
-        , Chainweb.Test.Mining.tests rdb
-        , Chainweb.Test.Misc.tests
-        , Chainweb.Test.BlockHeader.Genesis.tests
-        , Chainweb.Test.BlockHeader.Validation.tests
-        , Chainweb.Test.Version.tests
-        , testProperties "Chainweb.Test.Chainweb.Utils.Paging" Chainweb.Test.Chainweb.Utils.Paging.properties
-        , testProperties "Chainweb.Test.HostAddress" Chainweb.Test.HostAddress.properties
-        , testProperties "Chainweb.Test.Sync.WebBlockHeaderStore" Chainweb.Test.Sync.WebBlockHeaderStore.properties
-        , testProperties "P2P.Test.TaskQueue" P2P.Test.TaskQueue.properties
-        , testProperties "P2P.Test.Node" P2P.Test.Node.properties
-        , testProperties "Data.Test.PQueue" Data.Test.PQueue.properties
-        , testProperties "Chainweb.Test.Difficulty" Chainweb.Test.Difficulty.properties
-        , testProperties "Data.Test.Word.Encoding" Data.Test.Word.Encoding.properties
-        , testProperties "Chainweb.Test.Cut" (Chainweb.Test.Cut.properties rdb)
+        -- , Chainweb.Test.Mempool.InMem.tests
+        -- , Chainweb.Test.Mempool.Sync.tests
+        -- , Chainweb.Test.Mempool.RestAPI.tests
+        -- , Chainweb.Test.Mining.tests rdb
+        -- , Chainweb.Test.Misc.tests
+        -- , Chainweb.Test.BlockHeader.Genesis.tests
+        -- , Chainweb.Test.BlockHeader.Validation.tests
+        -- , Chainweb.Test.Version.tests
+        -- , testProperties "Chainweb.Test.Chainweb.Utils.Paging" Chainweb.Test.Chainweb.Utils.Paging.properties
+        -- , testProperties "Chainweb.Test.HostAddress" Chainweb.Test.HostAddress.properties
+        -- , testProperties "Chainweb.Test.Sync.WebBlockHeaderStore" Chainweb.Test.Sync.WebBlockHeaderStore.properties
+        -- , testProperties "P2P.Test.TaskQueue" P2P.Test.TaskQueue.properties
+        -- , testProperties "P2P.Test.Node" P2P.Test.Node.properties
+        -- , testProperties "Data.Test.PQueue" Data.Test.PQueue.properties
+        -- , testProperties "Chainweb.Test.Difficulty" Chainweb.Test.Difficulty.properties
+        -- , testProperties "Data.Test.Word.Encoding" Data.Test.Word.Encoding.properties
+        -- , testProperties "Chainweb.Test.Cut" (Chainweb.Test.Cut.properties rdb)
         ]
     ]

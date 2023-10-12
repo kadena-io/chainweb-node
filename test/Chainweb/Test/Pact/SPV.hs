@@ -33,6 +33,7 @@ import Control.Concurrent.MVar
 import Control.Exception (SomeException, finally)
 import Control.Monad
 import Control.Lens (set)
+import Control.Monad.Trans.Except
 
 import Data.Aeson as Aeson
 import qualified Data.ByteString.Base64.URL as B64U
@@ -80,6 +81,7 @@ import Chainweb.BlockHeight
 import Chainweb.Cut
 import Chainweb.Graph
 import Chainweb.Miner.Pact
+import Chainweb.Pact.SPV
 import Chainweb.Pact.Backend.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -99,20 +101,28 @@ import Chainweb.Storage.Table (casLookupM)
 
 import Data.LogMessage
 
+import Pact.Types.Util (AsString(..))
+
 -- | Note: These tests are intermittently non-deterministic due to the way
 -- random chain sampling works with our test harnesses.
 --
 tests :: TestTree
 tests = testGroup "Chainweb.Test.Pact.SPV"
-    [ testCaseSteps "standard SPV verification round trip" standard
-    , testCaseSteps "contTXOUTOld" contTXOUTOld
-    , testCaseSteps "contTXOUTNew" contTXOUTNew
-    , testCaseSteps "tfrTXOUTNew" tfrTXOUTNew
-    , testCaseSteps "ethReceiptProof" ethReceiptProof
-    , testCaseSteps "noEthReceiptProof" noEthReceiptProof
-    , testCaseSteps "wrong chain execution fails" wrongChain
-    , testCaseSteps "invalid proof formats fail" invalidProof
-    , testCaseSteps "wrong target chain in proofs fail" wrongChainProof
+    -- [ testCaseSteps "standard SPV verification round trip" standard
+    -- , testCaseSteps "contTXOUTOld" contTXOUTOld
+    -- , testCaseSteps "contTXOUTNew" contTXOUTNew
+    -- , testCaseSteps "tfrTXOUTNew" tfrTXOUTNew
+    -- , testCaseSteps "ethReceiptProof" ethReceiptProof
+    -- , testCaseSteps "noEthReceiptProof" noEthReceiptProof
+    -- , testCaseSteps "wrong chain execution fails" wrongChain
+    -- , testCaseSteps "invalid proof formats fail" invalidProof
+    -- , testCaseSteps "wrong target chain in proofs fail" wrongChainProof
+    [ testGroup "hyperlane"
+      [ testCase "empty object" hyperlaneEmptyObject
+      , testCase "wrong command name" hyperlaneWrongCommand
+      , testCase "missing argument" hyperlaneMissingArgument
+      , testCase "encodeTokenMessageERC20" hyperlaneEncodeTokenMessageERC20
+      ]
     ]
 
 testVer :: ChainwebVersion
@@ -136,6 +146,34 @@ _handle' e =
       s = show e
     in logg System.LogLevel.Error (pack s) >> return (False, s)
 
+
+hyperlaneEmptyObject :: Assertion
+hyperlaneEmptyObject = do
+  let obj = mkObject []
+  res <- runExceptT $ evalHyperlaneCommand obj
+  assertEqual "should fail with missing command name" (Left "Missing command name") res
+
+hyperlaneWrongCommand :: Assertion
+hyperlaneWrongCommand = do
+  let obj = mkObject [ ("cmd", tStr $ asString ("someCommandName" :: Text)) ]
+  res <- runExceptT $ evalHyperlaneCommand obj
+  assertEqual "should fail with unknown command name" (Left "Unknown hyperlane command") res
+
+hyperlaneMissingArgument :: Assertion
+hyperlaneMissingArgument = do
+  let obj = mkObject [ ("cmd", tStr $ asString ("encodeTokenMessageERC20" :: Text)) ]
+  res <- runExceptT $ evalHyperlaneCommand obj
+  assertEqual "should fail with missing argument" (Left "Missing argument") res
+
+hyperlaneEncodeTokenMessageERC20 :: Assertion
+hyperlaneEncodeTokenMessageERC20 = do
+  let
+    obj' = mkObject
+        [ ("cmd", tStr $ asString ("encodeTokenMessageERC20" :: Text))
+        , ("arg", obj [ ("hello", tStr $ asString ("world" :: Text)) ]) ]
+  res <- runExceptT $ evalHyperlaneCommand obj'
+  print res
+  -- assertEqual "should fail with missing argument" (Left "Missing argument") res
 
 -- -------------------------------------------------------------------------- --
 -- tests

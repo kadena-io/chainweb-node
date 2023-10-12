@@ -1,3 +1,4 @@
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE RecordWildCards #-}
 
 module Chainweb.Pact.SPV.Hyperlane where
@@ -6,6 +7,7 @@ import qualified Data.ByteString as BS
 import Data.ByteString.Lazy
 import Data.ByteString.Builder
 
+import Data.Text (Text)
 import Data.Binary
 
 import Numeric.Natural
@@ -22,36 +24,6 @@ data HyperlaneMessage = HyperlaneMessage
   , fmcRecipient :: ByteString     -- bytes32
   , fmcMessageBody :: ByteString   -- bytes
   }
-
-data TokenMessage = TokenMessage
-  { tmRecipient :: ByteString -- bytes
-  , tmAmount :: Natural       -- uint256
-  , tmMetadata :: ByteString  -- bytes
-  }
-
-{-
-
-function formatMessage(
-        uint8 _version,
-        uint32 _nonce,
-        uint32 _originDomain,
-        bytes32 _sender,
-        uint32 _destinationDomain,
-        bytes32 _recipient,
-        bytes calldata _messageBody
-    ) internal pure returns (bytes memory) {
-        return
-            abi.encodePacked(
-                _version,
-                _nonce,
-                _originDomain,
-                _sender,
-                _destinationDomain,
-                _recipient,
-                _messageBody
-            );
-    }
--}
 
 instance Binary HyperlaneMessage where
   put (HyperlaneMessage {..}) = do
@@ -72,6 +44,42 @@ instance Binary HyperlaneMessage where
     fmcRecipient <- get :: Get ByteString
     fmcMessageBody <- get :: Get ByteString
     return $ HyperlaneMessage {..}
+
+data TokenMessageERC20 = TokenMessageERC20
+  { tmRecipient :: Text -- string
+  , tmAmount :: Natural       -- uint256
+  , tmMetadata :: Text  -- string
+  }
+
+instance Binary TokenMessageERC20 where
+  put (TokenMessageERC20 {..}) = do
+    put tmRecipient
+    put tmAmount
+    put tmMetadata
+
+  get = do
+    -- tmRecipient <- get :: Get ByteString
+    -- tmAmount <- get :: Get Word32
+    -- tmMetadata <- get :: Get ByteString
+    return $ TokenMessageERC20 {..}
+
+data TokenMessageERC721 = TokenMessageERC721
+  { tmRecipient :: ByteString -- bytes
+  , tmTokenId :: Natural      -- uint256
+  , tmMetadata :: ByteString  -- bytes
+  }
+
+instance Binary TokenMessageERC721 where
+  put (TokenMessageERC721 {..}) = do
+    put tmRecipient
+    put tmTokenId
+    put tmMetadata
+
+  get = do
+    -- tmRecipient <- get :: Get ByteString
+    -- tmTokenId <- get :: Get Word32
+    -- tmMetadata <- get :: Get ByteString
+    return $ TokenMessageERC721 {..}
 
 parseHyperlaneMessage :: BS.ByteString -> Either String HyperlaneMessage
 parseHyperlaneMessage s =
