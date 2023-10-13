@@ -49,7 +49,7 @@ import Chainweb.BlockHeader(genesisHeight)
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Pact.Types (defaultModuleCacheLimit)
-import Chainweb.Pact.Backend.Compaction (CompactFlag(..), compact, runCompactM, mkCompactEnv, withDefaultLogger)
+import Chainweb.Pact.Backend.Compaction (CompactFlag(..), compact, withDefaultLogger)
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..), PactDbEnv'(..), Checkpointer(..), BlockEnv, ParentHash, initBlockState, bsModuleNameFix)
 import Chainweb.Test.Pact.Utils (dummyLogger)
@@ -142,9 +142,8 @@ testCompactCheckpointer =
 
     let compactToHeight :: BlockHeight -> [CompactFlag] -> IO (Maybe ByteString)
         compactToHeight h flags = withDefaultLogger Debug $ \logger -> do
-          runCompactM (mkCompactEnv logger _sConn h flags) $ do
-            -- compact and capture global grand hash
-            compact
+          -- compact and capture global grand hash
+          compact h logger _sConn flags
 
     tables <- getTestTables _sConn
 

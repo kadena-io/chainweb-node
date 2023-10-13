@@ -226,7 +226,7 @@ rosettaFailsWithoutFullHistory rdb =
             let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
             let db = _sConn sqlEnv
             let bh = BlockHeight 5
-            void $ C.runCompactM (C.mkCompactEnv logger db bh flags) C.compact
+            void $ C.compact bh logger db flags
 
         -- This needs to run after the previous test
         -- Annoyingly, we must inline the PactService util starts here.
@@ -285,7 +285,7 @@ rewindPastMinBlockHeightFails rdb =
         let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
         let db = _sConn sqlEnv
         let height = BlockHeight 5
-        void $ C.runCompactM (C.mkCompactEnv cLogger db height flags) C.compact
+        void $ C.compact height cLogger db flags
 
       -- Genesis block header; compacted away by now
       let bh = genesisBlockHeader ver cid
