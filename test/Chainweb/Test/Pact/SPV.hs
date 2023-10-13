@@ -170,7 +170,11 @@ hyperlaneEncodeTokenMessageERC20 = do
   let
     obj' = mkObject
         [ ("cmd", tStr $ asString ("encodeTokenMessageERC20" :: Text))
-        , ("arg", obj [ ("hello", tStr $ asString ("world" :: Text)) ]) ]
+        , ("arg", obj
+          [ ("recipient", tStr $ asString ("recipient" :: Text))
+          , ("amount", tLit $ LDecimal 0)
+          , ("metadata", tStr $ asString ("metadata" :: Text)) ])
+        ]
   res <- runExceptT $ evalHyperlaneCommand obj'
   print res
   -- assertEqual "should fail with missing argument" (Left "Missing argument") res
