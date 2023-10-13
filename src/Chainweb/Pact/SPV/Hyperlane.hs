@@ -9,7 +9,7 @@ import Data.ByteString.Builder
 
 import Data.Text (Text)
 import Data.Binary
-
+import Data.Decimal
 import Numeric.Natural
 
 
@@ -47,14 +47,14 @@ instance Binary HyperlaneMessage where
 
 data TokenMessageERC20 = TokenMessageERC20
   { tmRecipient :: Text -- string
-  , tmAmount :: Natural       -- uint256
+  , tmAmount :: Decimal       -- uint256
   , tmMetadata :: Text  -- string
   }
 
 instance Binary TokenMessageERC20 where
   put (TokenMessageERC20 {..}) = do
     put tmRecipient
-    put tmAmount
+    -- put tmAmount
     put tmMetadata
 
   get = do

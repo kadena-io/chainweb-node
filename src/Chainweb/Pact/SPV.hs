@@ -326,9 +326,9 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
     let
       newObj = do
         let om = _objectMap $ _oObject obj
-        tmRecipient <- om ^? at "recipient" . to toPactValue . _Just
-        tmAmount <- om ^? at "amount" . _Just . to toPactValue
-        tmMetadata <- om ^? at "metadata" . _Just . to toPactValue
+        tmRecipient <- om ^? at "recipient" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+        tmAmount <- om ^? at "amount" . _Just . to toPactValue . _Right . to (\(PLiteral (LDecimal r)) -> r)
+        tmMetadata <- om ^? at "metadata" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
         let tm = TokenMessageERC20{..}
         pure $ mkObject [ ("result", tStr $ asString ("hello" :: Text)) ]
     case newObj of
