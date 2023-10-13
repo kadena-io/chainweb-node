@@ -129,6 +129,7 @@ tests = testGroup testName
   , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
   , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
   , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
+  , test generousConfig getGasModel "pact49UpgradeTest" pact49UpgradeTest
   ]
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
@@ -1065,6 +1066,31 @@ pact48UpgradeTest = do
     runConcat = buildBasicGas 10000 $ mkExec' "(concat [\"hello\", \"world\"])"
     runFormat = buildBasicGas 10000 $ mkExec' "(format \"{}\" [1,2,3])"
     runReverse = buildBasicGas 10000 $ mkExec' "(reverse (enumerate 1 4000))"
+
+pact49UpgradeTest :: PactTestM ()
+pact49UpgradeTest = do
+  runToHeight 98
+
+  -- run block 99 (before the pact-4.9 fork)
+  runBlockTest
+    [ PactTxTest base64DecodeNonCanonical $
+        assertTxSuccess
+        "Non-canonical messages decode before pact-4.9"
+        (pString "d")
+    , PactTxTest base64DecodeBadPadding $ assertTxFailure "decoding illegally padded string" "Could not decode string: Base64URL decode failed: invalid padding near offset 16"
+
+    ]
+
+  -- run block 100 (after the pact-4.9 fork)
+  runBlockTest
+    [ PactTxTest base64DecodeNonCanonical $
+        assertTxFailure "decoding non-canonical message" "Could not decode string: Could not base64-decode string"
+    , PactTxTest base64DecodeBadPadding $ assertTxFailure "decoding illegally padded string" "Could not decode string: Could not base64-decode string"
+    ]
+
+  where
+    base64DecodeNonCanonical = buildBasicGas 10000 $ mkExec' "(base64-decode \"ZE==\")"
+    base64DecodeBadPadding = buildBasicGas 10000 $ mkExec' "(base64-decode \"aGVsbG8gd29ybGQh%\")"
 
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
