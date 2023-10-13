@@ -120,7 +120,7 @@ testnet = ChainwebVersion
         Chainweb218Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_038_343  -- 2023-03-02 12:00:00+00:00
         Chainweb219Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_299_753 -- 2023-06-01 12:00:00+00:00
         Chainweb220Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_580_964 -- 2023-09-08 12:00:00+00:00
-        Chainweb221Pact -> AllChains ForkNever -- TODO: Fix this at release time.
+        Chainweb221Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_702_250 -- 2023-10-19 12:00:00+00:00
 
     , _versionGraphs =
         (to20ChainsTestnet, twentyChainGraph) `Above`
