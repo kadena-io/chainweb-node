@@ -29,12 +29,13 @@ module Chainweb.Pact.Backend.Compaction
   , compactMain
   , withDefaultLogger
   , withPerChainFileLogger
+  , getLatestPactState, PactRow(..)
   ) where
 
 import UnliftIO.Async (pooledMapConcurrentlyN_)
 import Control.Exception (Exception, SomeException(..))
 import Control.Lens (makeLenses, set, over, view)
-import Control.Monad (forM_, when, void)
+import Control.Monad (forM, forM_, when, void)
 import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, local)
@@ -43,6 +44,8 @@ import Data.Foldable qualified as F
 import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map.Strict qualified as M
+import Data.Map (Map)
+import Data.Ord (Down(..))
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
@@ -70,7 +73,7 @@ import Data.LogMessage
 import Pact.Types.SQLite (SType(..), RType(..))
 import Pact.Types.SQLite qualified as Pact
 
-newtype TxId = TxId Int64
+newtype ITxId = ITxId Int64
 
 newtype TableName = TableName { getTableName :: Utf8 }
   deriving stock (Show)
@@ -244,6 +247,9 @@ templateStmt (TableName (Utf8 tblName)) s
   where
     tblTemplate = "$VTABLE$"
 
+utf8ToText :: Utf8 -> Text
+utf8ToText (Utf8 u) = Text.decodeUtf8 u
+
 textToUtf8 :: Text -> Utf8
 textToUtf8 txt = Utf8 $ Text.encodeUtf8 $ Text.toLower txt
 
@@ -312,7 +318,7 @@ createCompactActiveRow = do
   execNoTemplateM_ "deleteFrom: CompactActiveRow"
       "DELETE FROM CompactActiveRow"
 
-getEndingTxId :: BlockHeight -> CompactM TxId
+getEndingTxId :: BlockHeight -> CompactM ITxId
 getEndingTxId bh = do
   r <- qryNoTemplateM
        "getTxId.0"
@@ -323,7 +329,7 @@ getEndingTxId bh = do
     [] -> do
       throwM (CompactExceptionInvalidBlockHeight bh)
     [[SInt t]] -> do
-      pure (TxId t)
+      pure (ITxId t)
     _ -> do
       internalError "initialize: expected single-row int"
 
@@ -341,8 +347,8 @@ getVersionedTables bh = do
 bhToSType :: BlockHeight -> SType
 bhToSType bh = SInt (int bh)
 
-txIdToSType :: TxId -> SType
-txIdToSType (TxId txid) = SInt txid
+txIdToSType :: ITxId -> SType
+txIdToSType (ITxId txid) = SInt txid
 
 tableNameToSType :: TableName -> SType
 tableNameToSType (TableName tbl) = SText tbl
@@ -355,7 +361,7 @@ tableRowCount tbl label =
 
 -- | For a given table, collect all active rows into CompactActiveRow,
 -- and compute+store table grand hash in CompactGrandHash.
-collectTableRows :: TxId -> TableName -> CompactM ()
+collectTableRows :: ITxId -> TableName -> CompactM ()
 collectTableRows txId tbl = do
   tableRowCount tbl "collectTableRows"
   let vt = tableNameToSType tbl
@@ -626,3 +632,55 @@ compactMain = do
     fromTextSilly t = case fromText t of
       Just a -> a
       Nothing -> error "fromText failed"
+
+getLatestPactState :: Database -> IO (Map Text [PactRow])
+getLatestPactState db = do
+  let checkpointerTables = ["BlockHistory", "VersionedTableCreation", "VersionedTableMutation", "TransactionIndex"]
+  let compactionTables = ["CompactGrandHash", "CompactActiveRow"]
+  let excludeThese = checkpointerTables ++ compactionTables
+  let fmtTable x = "\"" <> x <> "\""
+
+  tables <- fmap sortedTableNames $ do
+    let qry =
+          "SELECT name FROM sqlite_schema \
+          \WHERE \
+          \  type = 'table' \
+          \AND \
+          \  name NOT LIKE 'sqlite_%'"
+    Pact.qry db qry [] [RText]
+
+  let takeHead :: [a] -> a
+      takeHead = \case
+        [] -> error "getLatestPactState.getActiveRows.takeHead: impossible case"
+        (x : _) -> x
+
+  let getActiveRows :: [PactRow] -> [PactRow]
+      getActiveRows rows = id
+        $ List.map takeHead
+        $ List.map (List.sortOn (Down . txId))
+        $ List.groupBy (\x y -> rowKey x == rowKey y) rows
+
+  let go :: Map Text [PactRow] -> TableName -> IO (Map Text [PactRow])
+      go m (TableName tbl) = do
+        if tbl `notElem` excludeThese
+        then do
+          let qry = "SELECT * FROM " <> fmtTable tbl
+          userRows <- Pact.qry db qry [] [RText, RBlob, RInt]
+          shapedRows <- forM userRows $ \case
+            [SText (Utf8 rowKey), SBlob rowData, SInt txId] -> do
+              pure $ PactRow {..}
+            _ -> error "getLatestPactState: unexpected shape of user table row"
+          pure $ M.insert (utf8ToText tbl) shapedRows m
+        else do
+          pure m
+
+  allRows <- F.foldlM go mempty tables
+  let activeRows = M.map getActiveRows allRows
+  pure activeRows
+
+data PactRow = PactRow
+  { rowKey :: ByteString
+  , rowData :: ByteString
+  , txId :: Int64
+  }
+  deriving stock (Eq, Ord, Show)

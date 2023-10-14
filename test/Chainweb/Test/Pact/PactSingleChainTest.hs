@@ -20,9 +20,12 @@ import Control.Arrow ((&&&))
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
 import Control.DeepSeq
-import Control.Lens hiding ((.=))
+import Control.Lens hiding ((.=), matching)
 import Control.Monad
 import Control.Monad.Catch
+import Patience qualified as PatienceL
+import Patience.Map qualified as PatienceM
+import Patience.Map (Delta(..))
 
 import Data.Aeson (object, (.=), Value(..), decodeStrict, eitherDecode)
 import qualified Data.ByteString.Lazy as BL
@@ -114,6 +117,7 @@ tests rdb = ScheduledTest testName go
          , testTimeout preInsertCheckTimeoutTest
          , rosettaFailsWithoutFullHistory rdb
          , rewindPastMinBlockHeightFails rdb
+         , pactStateSamePreAndPostCompaction rdb
          ]
       where
         test = test' rdb
@@ -298,6 +302,130 @@ rewindPastMinBlockHeightFails rdb =
           assertFailure $ "Expected a PactInternalError, but got: " ++ show err
         Right _ -> do
           assertFailure "Expected an exception, but didn't encounter one."
+
+pactStateSamePreAndPostCompaction :: ()
+  => RocksDb
+  -> TestTree
+pactStateSamePreAndPostCompaction rdb =
+  withTemporaryDir $ \iodir ->
+  withSqliteDb cid iodir $ \sqlEnvIO ->
+    let
+        pat :: String
+        pat = "pactStateSamePreAndPostCompaction"
+
+        mempool :: MemPoolAccess
+        mempool = mempty
+
+        mempoolRef :: IO (IORef MemPoolAccess)
+        mempoolRef = newIORef mempool
+    in
+    testCase pat $ do
+      blockDb <- mkTestBlockDb testVersion rdb
+      bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
+      let payloadDb = _bdbPayloadDb blockDb
+      sqlEnv <- sqlEnvIO
+      pactQueue <- newPactQueue 2000
+
+      let ver = testVersion
+      let cfg = testPactServiceConfig
+      let logger = genericLogger System.LogLevel.Error (\_ -> return ())
+
+      void $ forkIO $ runPactService ver cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
+
+      setOneShotMempool mempoolRef goldenMemPool
+      replicateM_ 10 $ runBlock pactQueue blockDb second pat
+
+      let db = _sConn sqlEnv
+
+      statePreCompaction <- C.getLatestPactState db
+
+      C.withDefaultLogger System.Logger.Types.Error $ \cLogger -> do
+        let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
+        let height = BlockHeight 5
+        void $ C.compact height cLogger db flags
+
+      statePostCompaction <- C.getLatestPactState db
+
+      let findAndRemove :: (a -> Bool) -> [a] -> Maybe (a, [a])
+          findAndRemove p = go Nothing
+            where
+              go curr = \case
+                [] -> curr
+                (x : xs) ->
+                  if p x
+                  then Just (x, xs)
+                  else fmap (\(a, as) -> (a, x : as)) (go curr xs)
+
+      let pairItems :: (a -> a -> Bool) -> [PatienceL.Item a] -> [Delta a]
+          pairItems cmp xs = go xs [] []
+            where
+              go [] _seen current = current
+              go (i : is) seen current = case i of
+                -- we don't need to keep track of `Both`/`Same` values, i don't think
+                PatienceL.Both x _y -> go is seen (Same x : current)
+                o@(PatienceL.Old x) ->
+                  let
+                    matching = \case
+                      PatienceL.New y -> cmp x y
+                      _     -> False
+                    matchingD = \case
+                      New y -> cmp x y
+                      _     -> False
+                  in case findAndRemove matching seen of
+                       Nothing -> go is (o : seen) (Old x : current)
+                       Just (PatienceL.New y, seen1) -> case findAndRemove matchingD current of
+                         Nothing -> error "encountered matching diff item in `seen` that wasn't in `current`"
+                         Just (New _, current1) -> go is seen1 (Delta x y : current1)
+                         Just _ -> error "pairItems: impossible"
+                       Just _ -> error "pairItems: impossible"
+                n@(PatienceL.New x) ->
+                  let
+                    matching = \case
+                      PatienceL.Old y -> cmp x y
+                      _     -> False
+                    matchingD = \case
+                      Old y -> cmp x y
+                      _     -> False
+                  in case findAndRemove matching seen of
+                       Nothing -> go is (n : seen) (New x : current)
+                       Just (PatienceL.Old y, seen1) -> case findAndRemove matchingD current of
+                         Nothing -> error "encountered matching diff item in `seen` that wasn't in `current`"
+                         Just (Old _, current1) -> go is seen1 (Delta y x : current1)
+                         Just _ -> error "pairItems: impossible"
+                       Just _ -> error "pairItems: impossible"
+
+      putStrLn ""
+
+      let stateDiff = M.filter (not . PatienceM.isSame) (PatienceM.diff statePreCompaction statePostCompaction)
+      when (not (null stateDiff)) $ do
+        forM_ (M.toList stateDiff) $ \(tbl, delta) -> do
+          T.putStrLn tbl
+          case delta of
+            Same _ -> do
+              pure ()
+            Old x -> do
+              assertFailure $ "a pre-only value appeared in the pre- and post-compaction diff: " ++ show x
+            New x -> do
+              assertFailure $ "a post-only value appeared in the pre- and post-compaction diff: " ++ show x
+            Delta x1 x2 -> do
+              let daDiff = pairItems (\a b -> C.rowKey a == C.rowKey b) (PatienceL.diff x1 x2)
+              forM_ daDiff $ \item -> do
+                case item of
+                  Old x -> do
+                    putStrLn $ "old: " ++ show x
+                    putStrLn ""
+                  New x -> do
+                    putStrLn $ "new: " ++ show x
+                    putStrLn ""
+                  Same _ -> do
+                    pure ()
+                  Delta x y -> do
+                    putStrLn $ "old: " ++ show x
+                    putStrLn $ "new: " ++ show y
+                    putStrLn ""
+
+              --putStrLn $ "pre compaction: " ++ show x1
+              --putStrLn $ "post compaction: " ++ show x2
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do
