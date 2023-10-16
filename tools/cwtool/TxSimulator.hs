@@ -108,7 +108,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
       (_cpBeginCheckpointerBatch cp)
       (_cpDiscardCheckpointerBatch cp) $ case (txIdx',doTypecheck) of
         (Just txIdx,_) -> do -- single-tx simulation
-          let pwo :: PayloadWithOutputs = head pwos
+          let pwo = head pwos
           let txs = _payloadWithOutputsTransactions pwo
           let md = _payloadWithOutputsMiner pwo
           miner <- decodeStrictOrThrow $ _minerData md

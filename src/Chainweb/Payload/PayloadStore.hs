@@ -71,7 +71,6 @@ import Control.Monad.Trans.Maybe
 
 import Data.Hashable
 import Data.Foldable
-import qualified Data.Vector as V
 
 import GHC.Generics
 
@@ -273,18 +272,26 @@ addNewPayload db s = addPayload db txs txTree outs outTree
 --
 instance (pk ~ CasKeyType (PayloadWithOutputs_ a), CanReadablePayloadCas_ a tbl, MerkleHashAlgorithm a) => ReadableTable (PayloadDb_ a tbl) pk (PayloadWithOutputs_ a) where
     tableLookup db k = runMaybeT $ do
-        pd <- MaybeT $ tableLookup
+        bpd <- MaybeT $ tableLookup
             (_transactionDbBlockPayloads $ _transactionDb db)
             k
-        let txsHash = _blockPayloadTransactionsHash pd
-        let outsHash = _blockPayloadOutputsHash pd
+        let txsHash = _blockPayloadTransactionsHash bpd
+        let outsHash = _blockPayloadOutputsHash bpd
         txs <- MaybeT $ tableLookup
             (_transactionDbBlockTransactions $ _transactionDb db)
             txsHash
         outs <- MaybeT $ tableLookup
             (_payloadCacheBlockOutputs $ _payloadCache db)
             outsHash
-        return $ newPayloadWithOutputs (_blockMinerData txs) (_blockCoinbaseOutput outs) (V.zip (_blockTransactions txs) (_blockOutputs outs))
+        let
+            pd = PayloadData
+                { _payloadDataTransactions = _blockTransactions txs
+                , _payloadDataMiner = _blockMinerData txs
+                , _payloadDataPayloadHash = _blockPayloadPayloadHash bpd
+                , _payloadDataTransactionsHash = txsHash
+                , _payloadDataOutputsHash = outsHash
+                }
+        return $ payloadWithOutputs pd (_blockCoinbaseOutput outs) (_blockOutputs outs)
     {-# INLINE tableLookup #-}
 
 
