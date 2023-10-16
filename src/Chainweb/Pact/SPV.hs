@@ -46,6 +46,8 @@ import Data.Bifunctor
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.Default (def)
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.Binary as Binary
 import qualified Data.Map.Strict as M
 import Data.Text (Text, pack)
 import qualified Data.Text as Text
@@ -327,10 +329,11 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
       newObj = do
         let om = _objectMap $ _oObject obj
         tmRecipient <- om ^? at "recipient" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-        tmAmount <- om ^? at "amount" . _Just . to toPactValue . _Right . to (\(PLiteral (LDecimal r)) -> r)
+        tmAmount <- om ^? at "amount" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> r)
         tmMetadata <- om ^? at "metadata" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
         let tm = TokenMessageERC20{..}
-        pure $ mkObject [ ("result", tStr $ asString ("hello" :: Text)) ]
+        let b64 = encodeB64UrlText $ BL.toStrict $ Binary.encode tm
+        pure $ mkObject [ ("result", tStr $ asString b64) ]
     case newObj of
       Just o -> pure o
       _ -> throwError "Couldn't encode message"
