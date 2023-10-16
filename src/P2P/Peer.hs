@@ -184,7 +184,7 @@ data PeerInfo = PeerInfo
 
 makeLenses ''PeerInfo
 
-peerInfoProperties :: KeyValue kv => PeerInfo -> [kv]
+peerInfoProperties :: KeyValue e kv => PeerInfo -> [kv]
 peerInfoProperties a =
     [ "id" .= _peerId a
     , "address" .= _peerAddr a
@@ -341,7 +341,7 @@ validatePeerConfig c = do
     when (isJust (_peerConfigKeyFile c) && isJust (_peerConfigKey c)) $
         tell $ pure "The configuration provides both 'key' and 'keyFile'. The 'key' setting will be used."
 
-peerConfigProperties :: KeyValue kv => PeerConfig -> [kv]
+peerConfigProperties :: KeyValue e kv => PeerConfig -> [kv]
 peerConfigProperties o =
     [ "hostaddress" .= _peerConfigAddr o
     , "interface" .= hostPreferenceToText (_peerConfigInterface o)
@@ -447,7 +447,7 @@ unsafeCreatePeer conf = do
         , _peerKey = key
         }
 
-peerProperties :: KeyValue kv => Peer -> [kv]
+peerProperties :: KeyValue e kv => Peer -> [kv]
 peerProperties p =
     [ "info" .= _peerInfo p
     , "interface" .= hostPreferenceToText (_peerInterface p)
