@@ -15,11 +15,11 @@ import Data.Decimal
 import Numeric.Natural
 
 data HyperlaneMessage = HyperlaneMessage
-  { fmcVersion :: Word8            -- uint8
-  , fmcNonce :: Word32             -- uint32
-  , fmcOriginDomain :: Word32      -- uint32
+  { fmcVersion :: Integer            -- uint8
+  , fmcNonce :: Integer             -- uint32
+  , fmcOriginDomain :: Integer      -- uint32
   , fmcSender :: Text              -- string
-  , fmcDestinationDomain :: Word32 -- uint32
+  , fmcDestinationDomain :: Integer -- uint32
   , fmcRecipient :: Text           -- string
   , fmcMessageBody :: Text         -- string
   }
@@ -49,13 +49,13 @@ instance Binary HyperlaneMessage where
       (messageBody, messageBodySize) = padRight $ BL.fromStrict $ Text.encodeUtf8 fmcMessageBody
 
   get = do
-    fmcVersion <- get :: Get Word8
-    fmcNonce <- get :: Get Word32
-    fmcOriginDomain <- get :: Get Word32
-    fmcSender <- get :: Get Text
-    fmcDestinationDomain <- get :: Get Word32
-    fmcRecipient <- get :: Get Text
-    fmcMessageBody <- get :: Get Text
+    -- fmcVersion <- get :: Get Word8
+    -- fmcNonce <- get :: Get Word32
+    -- fmcOriginDomain <- get :: Get Word32
+    -- fmcSender <- get :: Get Text
+    -- fmcDestinationDomain <- get :: Get Word32
+    -- fmcRecipient <- get :: Get Text
+    -- fmcMessageBody <- get :: Get Text
     return $ HyperlaneMessage {..}
 
 data TokenMessageERC20 = TokenMessageERC20
