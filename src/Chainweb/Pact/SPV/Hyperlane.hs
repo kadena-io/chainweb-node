@@ -18,30 +18,44 @@ data HyperlaneMessage = HyperlaneMessage
   { fmcVersion :: Word8            -- uint8
   , fmcNonce :: Word32             -- uint32
   , fmcOriginDomain :: Word32      -- uint32
-  , fmcSender :: ByteString        -- bytes32
+  , fmcSender :: Text              -- string
   , fmcDestinationDomain :: Word32 -- uint32
-  , fmcRecipient :: ByteString     -- bytes32
-  , fmcMessageBody :: ByteString   -- bytes
+  , fmcRecipient :: Text           -- string
+  , fmcMessageBody :: Text         -- string
   }
 
 instance Binary HyperlaneMessage where
   put (HyperlaneMessage {..}) = do
-    put fmcVersion
-    put fmcNonce
-    put fmcOriginDomain
-    put fmcSender
-    put fmcDestinationDomain
-    put fmcRecipient
-    put fmcMessageBody
+    put $ padLeft $ encode fmcVersion                                 -- 32 bytes
+    put $ padLeft $ encode fmcNonce                                   -- 32 bytes
+    put $ padLeft $ encode fmcOriginDomain                            -- 32 bytes
+    -- 96 bytes
+    put $ padLeft $ encode (96 + 32 * 4 :: Int)                              -- 32 bytes
+    put $ padLeft $ encode fmcDestinationDomain                       -- 32 bytes
+    put $ padLeft $ encode (96 + 32 * 5 + senderSize)                 -- 32 bytes
+    put $ padLeft $ encode (96 + 32 * 6 + senderSize + recipientSize) -- 32 bytes
+    -- 96 + 32 * 4
+    put $ padLeft $ encode senderSize                                 -- 32 bytes
+    put sender                                                        -- senderSize
+    -- 96 + 32 * 5 + senderSize
+    put $ padLeft $ encode recipientSize                              -- 32 bytes
+    put recipient                                                     -- recipientSize
+    -- 96 + 32 * 6 + senderSize + recipientSize
+    put $ padLeft $ encode messageBodySize                            -- 32 bytes
+    put messageBody                                                   -- messageBodySize
+    where
+      (sender, senderSize) = padRight $ BL.fromStrict $ Text.encodeUtf8 fmcSender
+      (recipient, recipientSize) = padRight $ BL.fromStrict $ Text.encodeUtf8 fmcRecipient
+      (messageBody, messageBodySize) = padRight $ BL.fromStrict $ Text.encodeUtf8 fmcMessageBody
 
   get = do
     fmcVersion <- get :: Get Word8
     fmcNonce <- get :: Get Word32
     fmcOriginDomain <- get :: Get Word32
-    fmcSender <- get :: Get ByteString
+    fmcSender <- get :: Get Text
     fmcDestinationDomain <- get :: Get Word32
-    fmcRecipient <- get :: Get ByteString
-    fmcMessageBody <- get :: Get ByteString
+    fmcRecipient <- get :: Get Text
+    fmcMessageBody <- get :: Get Text
     return $ HyperlaneMessage {..}
 
 data TokenMessageERC20 = TokenMessageERC20
