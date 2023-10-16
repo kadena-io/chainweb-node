@@ -353,6 +353,9 @@ txIdToSType (ITxId txid) = SInt txid
 tableNameToSType :: TableName -> SType
 tableNameToSType (TableName tbl) = SText tbl
 
+tableNameToText :: TableName -> Text
+tableNameToText (TableName tbl) = utf8ToText tbl
+
 tableRowCount :: TableName -> Text -> CompactM ()
 tableRowCount tbl label =
   qryM "tableRowCount.0" tbl "SELECT COUNT(*) FROM $VTABLE$" [] [RInt] >>= \case
@@ -417,7 +420,7 @@ computeGlobalHash = do
 -- | Delete non-active rows from given table.
 compactTable :: TableName -> CompactM ()
 compactTable tbl = do
-  logg Info "compactTable"
+  logg Info $ "compactTable: " <> tableNameToText tbl
   execM'
       "compactTable.0"
       tbl
