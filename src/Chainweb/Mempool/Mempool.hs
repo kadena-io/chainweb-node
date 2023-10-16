@@ -613,7 +613,7 @@ data TransactionMetadata = TransactionMetadata
     deriving (Eq, Ord, Show, Generic)
     deriving anyclass (NFData)
 
-transactionMetadataProperties :: KeyValue kv => TransactionMetadata -> [kv]
+transactionMetadataProperties :: KeyValue e kv => TransactionMetadata -> [kv]
 transactionMetadataProperties o =
     [ "txMetaCreationTime" .= txMetaCreationTime o
     , "txMetaExpiryTime" .= txMetaExpiryTime o
@@ -661,7 +661,7 @@ data ValidatedTransaction t = ValidatedTransaction
   deriving (Show, Eq, Generic)
   deriving anyclass (NFData)
 
-validatedTransactionProperties :: ToJSON t => KeyValue kv => ValidatedTransaction t -> [kv]
+validatedTransactionProperties :: ToJSON t => KeyValue e kv => ValidatedTransaction t -> [kv]
 validatedTransactionProperties o =
     [ "validatedHeight" .= validatedHeight o
     , "validatedHash" .= validatedHash o
