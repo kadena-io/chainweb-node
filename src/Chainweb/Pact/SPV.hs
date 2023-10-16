@@ -322,7 +322,6 @@ extractProof True (Object (ObjectMap o) _ _ _) = case M.lookup "proof" o of
 
 evalHyperlaneCommand :: Object Name -> ExceptT Text IO (Object Name)
 evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.lookup "arg" $ _objectMap $ _oObject o) of
-  (Just (TLitString "parseMessage"), _) -> undefined
   (Just (TLitString "encodeTokenMessageERC20"), Nothing) -> throwError "Missing argument"
   (Just (TLitString "encodeTokenMessageERC20"), Just (TObject obj _)) -> do
     let
@@ -337,8 +336,25 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
     case newObj of
       Just o -> pure o
       _ -> throwError "Couldn't encode message"
-  (Just (TLitString "encodeTokenMessageERC721"), Just argObj) -> undefined
+
+  (Just (TLitString "encodeTokenMessageERC721"), Nothing) -> throwError "Missing argument"
+  (Just (TLitString "encodeTokenMessageERC721"), Just (TObject obj _)) -> do
+    let
+      newObj = do
+        let om = _objectMap $ _oObject obj
+        tmRecipient <- om ^? at "recipient" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+        tmTokenId <- om ^? at "tokenId" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> r)
+        tmMetadata <- om ^? at "metadata" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+        let tm = TokenMessageERC721{..}
+        let b64 = encodeB64UrlText $ BL.toStrict $ Binary.encode tm
+        pure $ mkObject [ ("result", tStr $ asString b64) ]
+    case newObj of
+      Just o -> pure o
+      _ -> throwError "Couldn't encode message"
+
   (Just (TLitString "encodeHyperlaneMessage"), Just argObj) -> undefined
+  (Just (TLitString "parseMessage"), _) -> undefined
+
   (Nothing, _) -> throwError "Missing command name"
   _ -> throwError "Unknown hyperlane command"
 
