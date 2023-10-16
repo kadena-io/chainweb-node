@@ -658,13 +658,14 @@ getLatestPactState db = do
       getActiveRows rows = id
         $ List.map takeHead
         $ List.map (List.sortOn (Down . txId))
-        $ List.groupBy (\x y -> rowKey x == rowKey y) rows
+        $ List.groupBy (\x y -> rowKey x == rowKey y)
+        $ List.sortOn rowKey rows
 
   let go :: Map Text [PactRow] -> TableName -> IO (Map Text [PactRow])
       go m (TableName tbl) = do
         if tbl `notElem` excludeThese
         then do
-          let qry = "SELECT * FROM " <> fmtTable tbl
+          let qry = "SELECT rowkey, rowdata, txid FROM " <> fmtTable tbl
           userRows <- Pact.qry db qry [] [RText, RBlob, RInt]
           shapedRows <- forM userRows $ \case
             [SText (Utf8 rowKey), SBlob rowData, SInt txId] -> do
