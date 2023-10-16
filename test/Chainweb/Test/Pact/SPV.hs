@@ -172,7 +172,7 @@ hyperlaneEncodeTokenMessageERC20 = do
         [ ("cmd", tStr $ asString ("encodeTokenMessageERC20" :: Text))
         , ("arg", obj
           [ ("recipient", tStr $ asString ("recipient" :: Text))
-          , ("amount", tLit $ LDecimal 0)
+          , ("amount", tLit $ LInteger 0)
           , ("metadata", tStr $ asString ("metadata" :: Text)) ])
         ]
   res <- runExceptT $ evalHyperlaneCommand obj'
