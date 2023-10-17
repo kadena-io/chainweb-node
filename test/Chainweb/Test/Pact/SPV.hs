@@ -32,6 +32,7 @@ import Control.Arrow ((***))
 import Control.Concurrent.MVar
 import Control.Exception (SomeException, finally)
 import Control.Monad
+import Control.Lens hiding ((.=))
 import Control.Lens (set)
 import Control.Monad.Trans.Except
 
@@ -122,6 +123,8 @@ tests = testGroup "Chainweb.Test.Pact.SPV"
       , testCase "wrong command name" hyperlaneWrongCommand
       , testCase "missing argument" hyperlaneMissingArgument
       , testCase "encodeTokenMessageERC20" hyperlaneEncodeTokenMessageERC20
+      , testCase "encodeTokenMessageERC721" hyperlaneEncodeTokenMessageERC721
+      , testCase "encodeHyperlaneMessage" hyperlaneEncodeHyperlaneMessage
       ]
     ]
 
@@ -176,8 +179,76 @@ hyperlaneEncodeTokenMessageERC20 = do
           , ("metadata", tStr $ asString ("metadata" :: Text)) ])
         ]
   res <- runExceptT $ evalHyperlaneCommand obj'
-  print res
-  -- assertEqual "should fail with missing argument" (Left "Missing argument") res
+  case res of
+    Left _ -> assertFailure "Should get the result"
+    Right o ->
+      let om = _objectMap $ _oObject o
+          message = om ^? at "message" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+          expectedMessage = "AAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACgAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAgcmVjaXBpZW50AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAACBtZXRhZGF0YQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      in assertEqual "should get encoded message" (Just expectedMessage) message
+
+hyperlaneEncodeTokenMessageERC721 :: Assertion
+hyperlaneEncodeTokenMessageERC721 = do
+  let
+    obj' = mkObject
+        [ ("cmd", tStr $ asString ("encodeTokenMessageERC721" :: Text))
+        , ("arg", obj
+          [ ("recipient", tStr $ asString ("recipient1" :: Text))
+          , ("tokenId", tLit $ LInteger 12)
+          , ("metadata", tStr $ asString ("metadata2" :: Text)) ])
+        ]
+  res <- runExceptT $ evalHyperlaneCommand obj'
+  case res of
+    Left _ -> assertFailure "Should get the result"
+    Right o ->
+      let om = _objectMap $ _oObject o
+          message = om ^? at "message" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+          expectedMessage = "AAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACgAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAgcmVjaXBpZW50MQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAACBtZXRhZGF0YTIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      in assertEqual "should get encoded message" (Just expectedMessage) message
+
+hyperlaneEncodeHyperlaneMessage :: Assertion
+hyperlaneEncodeHyperlaneMessage = do
+  tokenMessage <- do
+      let
+        obj' = mkObject
+            [ ("cmd", tStr $ asString ("encodeTokenMessageERC721" :: Text))
+            , ("arg", obj
+              [ ("recipient", tStr $ asString ("recipient1" :: Text))
+              , ("tokenId", tLit $ LInteger 12)
+              , ("metadata", tStr $ asString ("metadata2" :: Text)) ])
+            ]
+      res <- runExceptT $ evalHyperlaneCommand obj'
+      case res of
+        Left _ -> assertFailure "Failed to build TokenMessage"
+        Right o ->
+          let om = _objectMap $ _oObject o
+              message = om ^? at "message" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+          in pure message
+
+  let
+    obj' = mkObject
+        [ ("cmd", tStr $ asString ("encodeHyperlaneMessage" :: Text))
+        , ("arg", obj
+          [ ("version", tLit $ LInteger 1)
+          , ("nonce", tLit $ LInteger 1223)
+          , ("originDomain", tLit $ LInteger 7)
+          , ("sender", tStr $ asString ("sender1" :: Text))
+          , ("destinationDomain", tLit $ LInteger 8)
+          , ("recipient", tStr $ asString ("recipient1" :: Text))
+          , ("messageBody", tStr $ asString tokenMessage) ])
+        ]
+  res <- runExceptT $ evalHyperlaneCommand obj'
+  case res of
+    Left _ -> assertFailure "Should get the result"
+    Right o ->
+      let om = _objectMap $ _oObject o
+          message = om ^? at "message" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+          expectedMessage = "AAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABMcAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4AAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEgAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABYAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAIHNlbmRlcjEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAgcmVjaXBpZW50MQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEgAAAAAAAAASAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABgAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAACByZWNpcGllbnQxAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAIG1ldGFkYXRhMgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+          messageId = om ^? at "messageId" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+          expectedMessageId = "ZU0UQcKVmR0YgsZ3DCi4j_F51piST4hQjXvvI_R8Ky4="
+      in do
+        assertEqual "should get encoded message" (Just expectedMessage) message
+        assertEqual "should get encoded message" (Just expectedMessageId) messageId
 
 -- -------------------------------------------------------------------------- --
 -- tests
