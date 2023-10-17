@@ -494,7 +494,9 @@ sendValidationTest t cenv step = do
         SubmitBatch batch2 <-
           testBatch' (toTxCreationTime (Time (TimeSpan 0) :: Time Micros)) 2 mv gp
         let batch = SubmitBatch $ batch1 <> batch2
-        expectSendFailure "Transaction time is invalid or TTL is expired" $
+        -- expectSendFailure "Transaction time is invalid or TTL is expired" $
+        -- Just putting this in given recent change to mempool error message
+        expectSendFailure "The current time is past the transaction expiration" $
           flip runClientM cenv $
             pactSendApiClient v cid batch
 

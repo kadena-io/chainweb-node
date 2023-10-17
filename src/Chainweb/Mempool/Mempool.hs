@@ -220,6 +220,9 @@ data InsertType = CheckedInsert | UncheckedInsert
 
 data InsertError = InsertErrorDuplicate
                  | InsertErrorInvalidTime
+                 | InsertErrorInvalidCreationTimeInFuture
+                 | InsertErrorInvalidCreationTimePastExpiration
+                 | InsertErrorInvalidCurrentTimePastExpiration
                  | InsertErrorOversized GasLimit
                  | InsertErrorUndersized
                     GasPrice -- actual gas price
@@ -239,6 +242,9 @@ instance Show InsertError
   where
     show InsertErrorDuplicate = "Transaction already exists on chain"
     show InsertErrorInvalidTime = "Transaction time is invalid or TTL is expired"
+    show InsertErrorInvalidCreationTimeInFuture = "Transaction creation time is in the future"
+    show InsertErrorInvalidCreationTimePastExpiration = "Transaction creation time is past expiration"
+    show InsertErrorInvalidCurrentTimePastExpiration = "The current time is past the transaction expiration"
     show (InsertErrorOversized (GasLimit l)) = "Transaction gas limit exceeds block gas limit (" <> show l <> ")"
     show (InsertErrorUndersized (GasPrice p) (GasPrice m)) = "Transaction gas price (" <> show p <> ") is below minimum gas price (" <> show m <> ")"
     show InsertErrorBadlisted =
