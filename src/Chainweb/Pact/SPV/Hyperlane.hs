@@ -9,8 +9,10 @@ import Data.ByteString.Builder
 
 import Data.Int
 import Data.Text (Text)
+import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import Data.Binary
+import Data.Binary.Get
 import Data.Decimal
 import Numeric.Natural
 
@@ -81,9 +83,15 @@ instance Binary TokenMessageERC20 where
       (metadata, metadataSize) = padRight $ BL.fromStrict $ Text.encodeUtf8 tmMetadata
 
   get = do
-    -- tmRecipient <- get :: Get ByteString
-    -- tmAmount <- get :: Get Word32
-    -- tmMetadata <- get :: Get ByteString
+    _firstOffset <- Text.decodeUtf8 <$> getByteString 32
+    tmAmount <- (read . Text.unpack . Text.decodeUtf8) <$> getByteString 32
+    _secondOffset <- Text.decodeUtf8 <$> getByteString 32
+
+    recipientSize <- (read . Text.unpack . Text.decodeUtf8) <$> getByteString 32
+    tmRecipient <- Text.decodeUtf8 <$> getByteString recipientSize
+
+    metadataSize <- (read . Text.unpack . Text.decodeUtf8) <$> getByteString 32
+    tmMetadata <- Text.decodeUtf8 <$> getByteString metadataSize
     return $ TokenMessageERC20 {..}
 
 data TokenMessageERC721 = TokenMessageERC721

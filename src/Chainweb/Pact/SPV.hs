@@ -323,6 +323,7 @@ extractProof True (Object (ObjectMap o) _ _ _) = case M.lookup "proof" o of
 
 evalHyperlaneCommand :: Object Name -> ExceptT Text IO (Object Name)
 evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.lookup "arg" $ _objectMap $ _oObject o) of
+  -- TokenMessageERC20
   (Just (TLitString "encodeTokenMessageERC20"), Nothing) -> throwError "Missing argument"
   (Just (TLitString "encodeTokenMessageERC20"), Just (TObject obj _)) ->
     let
@@ -338,6 +339,25 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
       Just o -> pure o
       _ -> throwError "Couldn't encode TokenMessageERC20"
 
+  (Just (TLitString "decodeTokenMessageERC20"), Nothing) -> throwError "Missing argument"
+  (Just (TLitString "decodeTokenMessageERC20"), Just (TObject o _)) -> do
+    let
+      om = _objectMap $ _oObject o
+      base64message = om ^? at "message" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+    message <- case base64message of
+        Nothing -> throwError "Decoding of TokenMessageERC20 failed: missing message field"
+        Just b -> BL.fromStrict <$> decodeB64UrlNoPaddingText b
+
+    let TokenMessageERC20{..} = Binary.decode message
+    let
+      tmObj = obj
+            [ ("recipient", tStr $ asString tmRecipient)
+            , ("amount", tLit $ LInteger tmAmount)
+            , ("metadata", tStr $ asString tmMetadata)
+            ]
+    pure $ mkObject [ ("tokenMessageERC20", tmObj) ]
+
+  -- TokenMessageERC721
   (Just (TLitString "encodeTokenMessageERC721"), Nothing) -> throwError "Missing argument"
   (Just (TLitString "encodeTokenMessageERC721"), Just (TObject obj _)) ->
     let
@@ -353,6 +373,7 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
       Just o -> pure o
       _ -> throwError "Couldn't encode TokenMessageERC721"
 
+  -- HyperlaneMessage
   (Just (TLitString "encodeHyperlaneMessage"), Nothing) -> throwError "Missing argument"
   (Just (TLitString "encodeHyperlaneMessage"), Just (TObject obj _)) -> do
     let
@@ -382,8 +403,6 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
     case newObj of
       Just o -> pure o
       _ -> throwError "Couldn't encode HyperlaneMessage"
-
-  (Just (TLitString "parseMessage"), _) -> undefined
 
   (Nothing, _) -> throwError "Missing command name"
   _ -> throwError "Unknown hyperlane command"
