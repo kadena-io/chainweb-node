@@ -333,7 +333,7 @@ work mr _mcid m = do
                 | otherwise ->
                     "findWork: all chains with primed work may be stalled, possible stalled chains: " <> sshow (HM.keys mpw)
 
-        logDelays (n + 1)
+        logDelays n'
 
     -- Here we come up with a block to mine. We find a random unblocked chain
     -- on which we have run a payload. We do this in an STM transaction so that
