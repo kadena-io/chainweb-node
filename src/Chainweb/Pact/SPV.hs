@@ -46,6 +46,7 @@ import Data.Bifunctor
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.Default (def)
+import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Binary as Binary
 import qualified Data.Map.Strict as M
@@ -332,7 +333,7 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
         tmMetadata <- om ^? at "metadata" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
         let tm = TokenMessageERC20{..}
         let b64 = encodeB64UrlText $ BL.toStrict $ Binary.encode tm
-        pure $ mkObject [ ("result", tStr $ asString b64) ]
+        pure $ mkObject [ ("message", tStr $ asString b64) ]
     in case newObj of
       Just o -> pure o
       _ -> throwError "Couldn't encode TokenMessageERC20"
@@ -347,7 +348,7 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
         tmMetadata <- om ^? at "metadata" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
         let tm = TokenMessageERC721{..}
         let b64 = encodeB64UrlText $ BL.toStrict $ Binary.encode tm
-        pure $ mkObject [ ("result", tStr $ asString b64) ]
+        pure $ mkObject [ ("message", tStr $ asString b64) ]
     in case newObj of
       Just o -> pure o
       _ -> throwError "Couldn't encode TokenMessageERC721"
@@ -361,7 +362,7 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
 
     fmcMessageBody <- case messageBody of
       Nothing -> throwError "Decoding of Hyperlane message body failed: missing field"
-      Just b -> fmap T.decodeUtf8 $ decodeB64UrlNoPaddingText b
+      Just b -> BL.fromStrict <$> decodeB64UrlNoPaddingText b
 
     let
       newObj = do
@@ -374,8 +375,10 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
         fmcRecipient <- om ^? at "recipient" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
 
         let hm = HyperlaneMessage{..}
-        let b64 = encodeB64UrlText $ BL.toStrict $ Binary.encode hm
-        pure $ mkObject [ ("result", tStr $ asString b64) ]
+        let b = BL.toStrict $ Binary.encode hm
+        let messageId = encodeB64UrlText $ BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 b
+        let b64 = encodeB64UrlText b
+        pure $ mkObject [ ("message", tStr $ asString b64), ("messageId", tStr $ asString messageId) ]
     case newObj of
       Just o -> pure o
       _ -> throwError "Couldn't encode HyperlaneMessage"

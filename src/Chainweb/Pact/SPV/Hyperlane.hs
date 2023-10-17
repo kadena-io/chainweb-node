@@ -15,13 +15,13 @@ import Data.Decimal
 import Numeric.Natural
 
 data HyperlaneMessage = HyperlaneMessage
-  { fmcVersion :: Integer            -- uint8
+  { fmcVersion :: Integer           -- uint8
   , fmcNonce :: Integer             -- uint32
   , fmcOriginDomain :: Integer      -- uint32
-  , fmcSender :: Text              -- string
+  , fmcSender :: Text               -- string
   , fmcDestinationDomain :: Integer -- uint32
-  , fmcRecipient :: Text           -- string
-  , fmcMessageBody :: Text         -- string
+  , fmcRecipient :: Text            -- string
+  , fmcMessageBody :: ByteString    -- string
   }
 
 instance Binary HyperlaneMessage where
@@ -46,7 +46,7 @@ instance Binary HyperlaneMessage where
     where
       (sender, senderSize) = padRight $ BL.fromStrict $ Text.encodeUtf8 fmcSender
       (recipient, recipientSize) = padRight $ BL.fromStrict $ Text.encodeUtf8 fmcRecipient
-      (messageBody, messageBodySize) = padRight $ BL.fromStrict $ Text.encodeUtf8 fmcMessageBody
+      (messageBody, messageBodySize) = padRight fmcMessageBody
 
   get = do
     -- fmcVersion <- get :: Get Word8
