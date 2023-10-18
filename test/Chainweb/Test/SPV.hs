@@ -25,6 +25,7 @@ module Chainweb.Test.SPV
 ) where
 
 import Control.Lens (view, (^?!))
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
@@ -59,7 +60,7 @@ import Test.Tasty.QuickCheck
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
-import Chainweb.Cut
+import Chainweb.Cut hiding (join)
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MockTx)
@@ -431,12 +432,12 @@ spvTransactionOutputRoundtripTest rdb v step = do
 type TestClientEnv_ tbl = TestClientEnv MockTx tbl
 
 apiTests :: RocksDb -> ChainwebVersion -> TestTree
-apiTests rdb v = withTestPayloadResource rdb v 100 (\_ _ -> return ()) $ \dbIO ->
+apiTests rdb v = withResourceT (withTestPayloadResource rdb v 100 (\_ _ -> pure ())) $ \dbIO ->
     testGroup "SPV API tests"
         -- TODO: there is no openapi spec for this SPV API.
-        [ withPayloadServer DoNotValidateSpec False v dbIO (payloadDbs . view cutDbPayloadDb <$> dbIO) $ \env ->
+        [ withResourceT (join $ withPayloadServer DoNotValidateSpec False v <$> liftIO dbIO <*> (liftIO $ payloadDbs . view cutDbPayloadDb <$> dbIO)) $ \env ->
             testCaseStepsN "spv api tests (without tls)" 10 (txApiTests env)
-        , withPayloadServer DoNotValidateSpec True v dbIO (payloadDbs . view cutDbPayloadDb <$> dbIO) $ \env ->
+        , withResourceT (join $ withPayloadServer DoNotValidateSpec True v <$> liftIO dbIO <*> (liftIO $ payloadDbs . view cutDbPayloadDb <$> dbIO)) $ \env ->
             testCaseStepsN "spv api tests (with tls)" 10 (txApiTests env)
         ]
   where
