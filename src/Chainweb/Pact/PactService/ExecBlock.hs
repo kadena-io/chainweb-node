@@ -80,7 +80,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
-import Chainweb.Pact.Validations (assertTxTimeRelativeToParent, assertValidateSigs)
+import Chainweb.Pact.Validations (assertTxTimeRelativeToParent, assertTxTimeRelativeToParentWithErrorMessage, assertValidateSigs)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
@@ -235,7 +235,14 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
     checkTimes t
         | skipTxTimingValidation v cid bh = return $ Right t
         | assertTxTimeRelativeToParent txValidationTime $ fmap payloadObj t = return $ Right t
-        | otherwise = return $ Left InsertErrorInvalidTime
+        -- | otherwise = return $ Left InsertErrorInvalidTime
+        | otherwise =
+            let s = assertTxTimeRelativeToParentWithErrorMessage txValidationTime (fmap payloadObj t)
+            in return $ case s of
+              Left err -> Left $ InsertErrorOther $ sshow err
+              Right _ -> Right t
+
+
 
     checkTxHash :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkTxHash t =

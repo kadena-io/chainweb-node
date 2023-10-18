@@ -24,6 +24,7 @@ module Chainweb.Pact.Validations
 , assertTxSize
 , assertValidateSigs
 , assertTxTimeRelativeToParent
+, assertTxTimeRelativeToParentWithErrorMessage
   -- * Defaults
 , defaultMaxCommandUserSigListSize
 , defaultMaxCoinDecimalPlaces
@@ -180,6 +181,28 @@ assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidation
     && timeFromSeconds (txOriginationTime) <= lenientTxValidationTime
     && timeFromSeconds (txOriginationTime + ttl) > txValidationTime
     && P.TTLSeconds ttl <= defaultMaxTTL
+  where
+    P.TTLSeconds ttl = view cmdTimeToLive tx
+    timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
+    P.TxCreationTime txOriginationTime = view cmdCreationTime tx
+    lenientTxValidationTime = add (scaleTimeSpan defaultLenientTimeSlop second) txValidationTime
+
+assertTxTimeRelativeToParentWithErrorMessage
+  :: ParentCreationTime
+  -> P.Command (P.Payload P.PublicMeta c)
+  -> Either String ()
+assertTxTimeRelativeToParentWithErrorMessage (ParentCreationTime (BlockCreationTime txValidationTime)) tx
+    | ttl <= 0 = Left "Transaction TTL must be positive"
+    | txValidationTime < timeFromSeconds 0 = Left "Transaction validation time must be positive"
+    | txOriginationTime < 0 = Left "Transaction origination time must be positive"
+    | timeFromSeconds (txOriginationTime) > lenientTxValidationTime =
+        Left "Transaction origination time must be before validation time"
+    | timeFromSeconds (txOriginationTime + ttl) <= txValidationTime =
+        Left "Transaction TTL must be positive"
+    | P.TTLSeconds ttl > defaultMaxTTL =
+        Left $ "Transaction TTL must be less than or equal to " <> show defaultMaxTTL
+        <> " seconds. The transaction's TTL is " <> show ttl <> " seconds."
+    | otherwise = Right ()
   where
     P.TTLSeconds ttl = view cmdTimeToLive tx
     timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
