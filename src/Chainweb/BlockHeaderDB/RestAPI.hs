@@ -126,7 +126,7 @@ data Block = Block
 
 -- because this endpoint is only used on the service API, we assume clients
 -- want object-encoded block headers.
-blockProperties :: KeyValue kv => Block -> [kv]
+blockProperties :: KeyValue e kv => Block -> [kv]
 blockProperties o =
     [ "header"  .= ObjectEncoded (_blockHeader o)
     , "payloadWithOutputs" .= _blockPayloadWithOutputs o
