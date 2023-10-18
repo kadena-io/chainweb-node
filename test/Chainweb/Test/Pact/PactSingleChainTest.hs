@@ -12,6 +12,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
+{-# options_ghc -fno-warn-unused-imports #-}
+
 module Chainweb.Test.Pact.PactSingleChainTest
 ( tests
 ) where
@@ -310,21 +312,19 @@ pactStateSamePreAndPostCompaction :: ()
 pactStateSamePreAndPostCompaction rdb =
   withTemporaryDir $ \iodir ->
   withSqliteDb cid iodir $ \sqlEnvIO ->
+  withDelegateMempool $ \dm ->
     let
         pat :: String
         pat = "pactStateSamePreAndPostCompaction"
-
-        mempool :: MemPoolAccess
-        mempool = mempty
-
-        mempoolRef :: IO (IORef MemPoolAccess)
-        mempoolRef = newIORef mempool
     in
     testCase pat $ do
       blockDb <- mkTestBlockDb testVersion rdb
       bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
       let payloadDb = _bdbPayloadDb blockDb
       sqlEnv <- sqlEnvIO
+      (mempoolRef, mempool) <- do
+        (ref, nonRef) <- dm
+        pure (pure ref, nonRef)
       pactQueue <- newPactQueue 2000
 
       let ver = testVersion
@@ -340,20 +340,28 @@ pactStateSamePreAndPostCompaction rdb =
 
       let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
           makeTx nth bh = buildCwCmd
-            $ signSender00
+            $ set cbSigners [mkSigner' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
             $ setFromHeader bh
             $ mkCmd (sshow (nth, bh))
-            $ mkExec' "(+ 1 2)"
+            $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
 
       supply <- newIORef @Int 0
+      madeTx <- newIORef @Bool False
       replicateM_ numBlocks $ do
         setMempool mempoolRef $ mempty {
           mpaGetBlock = \_ _ _ _ bh -> do
-            n <- readIORef supply
-            tx <- makeTx n bh
-            pure $ V.fromList [tx]
+            madeTxYet <- readIORef madeTx
+            if madeTxYet
+            then do
+              pure mempty
+            else do
+              n <- atomicModifyIORef supply $ \a -> (a + 1, a)
+              tx <- makeTx n bh
+              writeIORef madeTx True
+              pure $ V.fromList [tx]
         }
         void $ runBlock pactQueue blockDb second pat
+        writeIORef madeTx False
 
       let db = _sConn sqlEnv
 
@@ -370,31 +378,29 @@ pactStateSamePreAndPostCompaction rdb =
       when (not (null stateDiff)) $ do
         putStrLn ""
         forM_ (M.toList stateDiff) $ \(tbl, delta) -> do
+          T.putStrLn ""
           T.putStrLn tbl
           case delta of
             Same _ -> do
               pure ()
             Old x -> do
-              assertFailure $ "a pre-only value appeared in the pre- and post-compaction diff: " ++ show x
+              putStrLn $ "a pre-only value appeared in the pre- and post-compaction diff: " ++ show x
             New x -> do
-              assertFailure $ "a post-only value appeared in the pre- and post-compaction diff: " ++ show x
+              putStrLn $ "a post-only value appeared in the pre- and post-compaction diff: " ++ show x
             Delta x1 x2 -> do
               let daDiff = PatienceL.pairItems (\a b -> C.rowKey a == C.rowKey b) (PatienceL.diff x1 x2)
               forM_ daDiff $ \item -> do
                 case item of
                   Old x -> do
                     putStrLn $ "old: " ++ show x
-                    putStrLn ""
                   New x -> do
                     putStrLn $ "new: " ++ show x
-                    putStrLn ""
                   Same _ -> do
                     pure ()
                   Delta x y -> do
                     putStrLn $ "old: " ++ show x
                     putStrLn $ "new: " ++ show y
                     putStrLn ""
-      when (not (null stateDiff)) $ do
         assertFailure "pact state check failed"
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
