@@ -190,19 +190,15 @@ assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidation
 assertTxTimeRelativeToParentWithErrorMessage
   :: ParentCreationTime
   -> P.Command (P.Payload P.PublicMeta c)
-  -> Either String ()
-assertTxTimeRelativeToParentWithErrorMessage (ParentCreationTime (BlockCreationTime txValidationTime)) tx
-    | ttl <= 0 = Left "Transaction TTL must be positive"
-    | txValidationTime < timeFromSeconds 0 = Left "Transaction validation time must be positive"
-    | txOriginationTime < 0 = Left "Transaction origination time must be positive"
-    | timeFromSeconds (txOriginationTime) > lenientTxValidationTime =
-        Left "Transaction origination time must be before validation time"
-    | timeFromSeconds (txOriginationTime + ttl) <= txValidationTime =
-        Left "Transaction TTL must be positive"
-    | P.TTLSeconds ttl > defaultMaxTTL =
-        Left $ "Transaction TTL must be less than or equal to " <> show defaultMaxTTL
-        <> " seconds. The transaction's TTL is " <> show ttl <> " seconds."
-    | otherwise = Right ()
+  -> [Bool]
+assertTxTimeRelativeToParentWithErrorMessage (ParentCreationTime (BlockCreationTime txValidationTime)) tx =
+    [ ttl > 0
+    , txValidationTime >= timeFromSeconds 0
+    , txOriginationTime >= 0
+    , timeFromSeconds (txOriginationTime) <= lenientTxValidationTime
+    , timeFromSeconds (txOriginationTime + ttl) > txValidationTime
+    , P.TTLSeconds ttl <= defaultMaxTTL
+    ]
   where
     P.TTLSeconds ttl = view cmdTimeToLive tx
     timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
