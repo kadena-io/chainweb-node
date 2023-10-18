@@ -93,7 +93,7 @@ module Chainweb.Payload
 -- * API Payload Data
 , PayloadData
 , PayloadData_(..)
-, payloadData
+, mkPayloadData
 , newPayloadData
 , PayloadDataCas
 , verifyPayloadData
@@ -477,7 +477,7 @@ data BlockTransactions_ a = BlockTransactions
 
 blockTransactionsProperties
     :: MerkleHashAlgorithm a
-    => A.KeyValue kv
+    => A.KeyValue e kv
     => BlockTransactions_ a
     -> [kv]
 blockTransactionsProperties o =
@@ -622,7 +622,7 @@ data BlockOutputs_ a = BlockOutputs
 
 blockOutputsProperties
     :: MerkleHashAlgorithm a
-    => A.KeyValue kv
+    => A.KeyValue e kv
     => BlockOutputs_ a
     -> [kv]
 blockOutputsProperties o =
@@ -698,7 +698,7 @@ instance IsCasValue (TransactionTree_ a) where
 
 transactionTreeProperties
     :: MerkleHashAlgorithm a
-    => A.KeyValue kv
+    => A.KeyValue e kv
     => TransactionTree_ a
     -> [kv]
 transactionTreeProperties o =
@@ -756,7 +756,7 @@ instance IsCasValue (OutputTree_ a) where
 
 outputTreeProperties
     :: MerkleHashAlgorithm a
-    => A.KeyValue kv
+    => A.KeyValue e kv
     => OutputTree_ a
     -> [kv]
 outputTreeProperties o =
@@ -930,7 +930,7 @@ data PayloadData_ a = PayloadData
 
 payloadDataProperties
     :: MerkleHashAlgorithm a
-    => A.KeyValue kv
+    => A.KeyValue e kv
     => PayloadData_ a
     -> [kv]
 payloadDataProperties o =
@@ -961,8 +961,8 @@ instance IsCasValue (PayloadData_ a) where
     casKey = _payloadDataPayloadHash
     {-# INLINE casKey #-}
 
-payloadData :: BlockTransactions_ a -> BlockPayload_ a -> PayloadData_ a
-payloadData txs payload = PayloadData
+mkPayloadData :: BlockTransactions_ a -> BlockPayload_ a -> PayloadData_ a
+mkPayloadData txs payload = PayloadData
     { _payloadDataTransactions = _blockTransactions txs
     , _payloadDataMiner = _blockMinerData txs
     , _payloadDataPayloadHash = _blockPayloadPayloadHash payload
@@ -975,7 +975,7 @@ newPayloadData
     => BlockTransactions_ a
     -> BlockOutputs_ a
     -> PayloadData_ a
-newPayloadData txs outputs = payloadData txs $ blockPayload txs outputs
+newPayloadData txs outputs = mkPayloadData txs $ blockPayload txs outputs
 
 type PayloadDataCas tbl = Cas tbl PayloadData
 
@@ -1080,7 +1080,7 @@ newPayloadWithOutputs mi co s = PayloadWithOutputs
 
 payloadWithOutputsProperties
     :: MerkleHashAlgorithm a
-    => A.KeyValue kv
+    => A.KeyValue e kv
     => PayloadWithOutputs_ a
     -> [kv]
 payloadWithOutputsProperties o =

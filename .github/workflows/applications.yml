@@ -131,13 +131,13 @@ jobs:
       run: |
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.2"],
+          "ghc": ["9.6.3", "9.8.1"],
           "cabal": ["3.10"],
           "os": ["ubuntu-20.04", "ubuntu-22.04"],
           "use-freeze-file": ["false"],
           "include": [
             {
-              "ghc": "9.6.2",
+              "ghc": "9.6.3",
               "cabal": "3.10",
               "os" : "ubuntu-20.04",
               "use-freeze-file": "true"
@@ -623,10 +623,10 @@ jobs:
         # when adding more than one build, use a different package name or
         # different tags
         include:
-        - ghc: "9.6.2"
+        - ghc: "9.6.3"
           os: "ubuntu-20.04"
           use-freeze-file: "false"
-        - ghc: "9.6.2"
+        - ghc: "9.6.3"
           os: "ubuntu-20.04"
           use-freeze-file: "true"
     env:

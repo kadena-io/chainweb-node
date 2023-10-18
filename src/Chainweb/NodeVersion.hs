@@ -195,7 +195,7 @@ remoteNodeInfoHostname :: Lens' RemoteNodeInfo Hostname
 remoteNodeInfoHostname = remoteNodeInfoAddr . hostAddressHost
 {-# INLINE remoteNodeInfoHostname #-}
 
-remoteNodeInfoProperties :: KeyValue kv => RemoteNodeInfo -> [kv]
+remoteNodeInfoProperties :: KeyValue e kv => RemoteNodeInfo -> [kv]
 remoteNodeInfoProperties x =
     [ "version" .= _remoteNodeInfoVersion x
     , "timestamp" .= _remoteNodeInfoTimestamp x

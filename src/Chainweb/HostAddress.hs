@@ -462,7 +462,7 @@ instance HasTextRepresentation HostAddress where
     fromText = hostAddressFromText
     {-# INLINE fromText #-}
 
-hostAddressProperties :: KeyValue kv => HostAddress -> [kv]
+hostAddressProperties :: KeyValue e kv => HostAddress -> [kv]
 hostAddressProperties o =
     [ "hostname" .= _hostAddressHost o
     , "port" .= _hostAddressPort o
