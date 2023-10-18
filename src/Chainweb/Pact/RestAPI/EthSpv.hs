@@ -57,7 +57,7 @@ instance ToJSON EthSpvRequest where
     {-# INLINE toEncoding #-}
     {-# INLINE toJSON #-}
 
-ethSpvRequestProperties :: KeyValue kv => EthSpvRequest -> [kv]
+ethSpvRequestProperties :: KeyValue e kv => EthSpvRequest -> [kv]
 ethSpvRequestProperties o =
         [ "transactionHash" .= _ethSpvReqTransactionHash o
         , "blocks" .= _ethSpvReqBlocks o
@@ -86,7 +86,7 @@ instance ToJSON EthSpvResponse where
     {-# INLINE toEncoding #-}
     {-# INLINE toJSON #-}
 
-ethSpvResponseProperties :: KeyValue kv => EthSpvResponse -> [kv]
+ethSpvResponseProperties :: KeyValue e kv => EthSpvResponse -> [kv]
 ethSpvResponseProperties o = [ "proof" .= _ethSpvResponse o ]
 {-# INLINE ethSpvResponseProperties #-}
 
