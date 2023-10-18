@@ -77,6 +77,7 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Time
+import Chainweb.Transaction (ChainwebTransaction)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
@@ -332,8 +333,27 @@ pactStateSamePreAndPostCompaction rdb =
 
       void $ forkIO $ runPactService ver cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
 
+      let numBlocks :: Num a => a
+          numBlocks = 100
+
       setOneShotMempool mempoolRef goldenMemPool
-      replicateM_ 10 $ runBlock pactQueue blockDb second pat
+
+      let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
+          makeTx nth bh = buildCwCmd
+            $ signSender00
+            $ setFromHeader bh
+            $ mkCmd (sshow (nth, bh))
+            $ mkExec' "(+ 1 2)"
+
+      supply <- newIORef @Int 0
+      replicateM_ numBlocks $ do
+        setMempool mempoolRef $ mempty {
+          mpaGetBlock = \_ _ _ _ bh -> do
+            n <- readIORef supply
+            tx <- makeTx n bh
+            pure $ V.fromList [tx]
+        }
+        void $ runBlock pactQueue blockDb second pat
 
       let db = _sConn sqlEnv
 
@@ -341,63 +361,14 @@ pactStateSamePreAndPostCompaction rdb =
 
       C.withDefaultLogger System.Logger.Types.Error $ \cLogger -> do
         let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
-        let height = BlockHeight 5
+        let height = BlockHeight numBlocks
         void $ C.compact height cLogger db flags
 
       statePostCompaction <- C.getLatestPactState db
 
-      let findAndRemove :: (a -> Bool) -> [a] -> Maybe (a, [a])
-          findAndRemove p = go Nothing
-            where
-              go curr = \case
-                [] -> curr
-                (x : xs) ->
-                  if p x
-                  then Just (x, xs)
-                  else fmap (\(a, as) -> (a, x : as)) (go curr xs)
-
-      let pairItems :: (a -> a -> Bool) -> [PatienceL.Item a] -> [Delta a]
-          pairItems cmp xs = go xs [] []
-            where
-              go [] _seen current = current
-              go (i : is) seen current = case i of
-                -- we don't need to keep track of `Both`/`Same` values, i don't think
-                PatienceL.Both x _y -> go is seen (Same x : current)
-                o@(PatienceL.Old x) ->
-                  let
-                    matching = \case
-                      PatienceL.New y -> cmp x y
-                      _     -> False
-                    matchingD = \case
-                      New y -> cmp x y
-                      _     -> False
-                  in case findAndRemove matching seen of
-                       Nothing -> go is (o : seen) (Old x : current)
-                       Just (PatienceL.New y, seen1) -> case findAndRemove matchingD current of
-                         Nothing -> error "encountered matching diff item in `seen` that wasn't in `current`"
-                         Just (New _, current1) -> go is seen1 (Delta x y : current1)
-                         Just _ -> error "pairItems: impossible"
-                       Just _ -> error "pairItems: impossible"
-                n@(PatienceL.New x) ->
-                  let
-                    matching = \case
-                      PatienceL.Old y -> cmp x y
-                      _     -> False
-                    matchingD = \case
-                      Old y -> cmp x y
-                      _     -> False
-                  in case findAndRemove matching seen of
-                       Nothing -> go is (n : seen) (New x : current)
-                       Just (PatienceL.Old y, seen1) -> case findAndRemove matchingD current of
-                         Nothing -> error "encountered matching diff item in `seen` that wasn't in `current`"
-                         Just (Old _, current1) -> go is seen1 (Delta y x : current1)
-                         Just _ -> error "pairItems: impossible"
-                       Just _ -> error "pairItems: impossible"
-
-      putStrLn ""
-
       let stateDiff = M.filter (not . PatienceM.isSame) (PatienceM.diff statePreCompaction statePostCompaction)
       when (not (null stateDiff)) $ do
+        putStrLn ""
         forM_ (M.toList stateDiff) $ \(tbl, delta) -> do
           T.putStrLn tbl
           case delta of
@@ -408,7 +379,7 @@ pactStateSamePreAndPostCompaction rdb =
             New x -> do
               assertFailure $ "a post-only value appeared in the pre- and post-compaction diff: " ++ show x
             Delta x1 x2 -> do
-              let daDiff = pairItems (\a b -> C.rowKey a == C.rowKey b) (PatienceL.diff x1 x2)
+              let daDiff = PatienceL.pairItems (\a b -> C.rowKey a == C.rowKey b) (PatienceL.diff x1 x2)
               forM_ daDiff $ \item -> do
                 case item of
                   Old x -> do
@@ -423,9 +394,8 @@ pactStateSamePreAndPostCompaction rdb =
                     putStrLn $ "old: " ++ show x
                     putStrLn $ "new: " ++ show y
                     putStrLn ""
-
-              --putStrLn $ "pre compaction: " ++ show x1
-              --putStrLn $ "post compaction: " ++ show x2
+      when (not (null stateDiff)) $ do
+        assertFailure "pact state check failed"
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do
