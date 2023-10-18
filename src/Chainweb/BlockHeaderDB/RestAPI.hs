@@ -459,7 +459,7 @@ data HeaderUpdate = HeaderUpdate
     }
     deriving (Show, Eq)
 
-headerUpdateProperties :: KeyValue kv => HeaderUpdate -> [kv]
+headerUpdateProperties :: KeyValue e kv => HeaderUpdate -> [kv]
 headerUpdateProperties o =
     [ "header"  .= _huHeader o
     , "txCount" .= _huTxCount o

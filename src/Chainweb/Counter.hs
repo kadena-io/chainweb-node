@@ -83,7 +83,7 @@ instance (KnownSymbol s, ToJSON a) => ToJSON (Labeled s a) where
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
-kv :: forall s a x . KnownSymbol s => ToJSON a => KeyValue x => Labeled s a -> x
+kv :: forall s a e x . KnownSymbol s => ToJSON a => KeyValue e x => Labeled s a -> x
 kv (Labeled a) = symbolText @s .= a
 {-# INLINE kv #-}
 
