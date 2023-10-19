@@ -12,8 +12,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
-{-# options_ghc -fno-warn-unused-imports #-}
-
 module Chainweb.Test.Pact.PactSingleChainTest
 ( tests
 ) where
