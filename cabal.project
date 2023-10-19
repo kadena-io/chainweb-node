@@ -125,6 +125,12 @@ source-repository-package
     tag: 174af3523616c8fe01449da5ccbb9f16df097ac3
     --sha256: sha256-kVFIy+Aj3TNJpsM1Cs/5uGmzeWwHKYWjjCQ+L1/XOj8=
 
+source-repository-package
+    type: git
+    location: https://github.com/chessai/patience
+    tag: 2f67d546ea6608fc6ebe5f2f6976503cbf340442
+    --sha256: 0x137akvbh4kr3qagksw74xdj2xz5vjnx1fbr41bb54a0lkcb8mm
+
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
 

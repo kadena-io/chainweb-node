@@ -23,6 +23,9 @@ import Control.DeepSeq
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
+import Patience qualified as PatienceL
+import Patience.Map qualified as PatienceM
+import Patience.Map (Delta(..))
 
 import Data.Aeson (object, (.=), Value(..), decodeStrict, eitherDecode)
 import qualified Data.ByteString.Lazy as BL
@@ -74,6 +77,7 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Time
+import Chainweb.Transaction (ChainwebTransaction)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
@@ -114,6 +118,7 @@ tests rdb = ScheduledTest testName go
          , testTimeout preInsertCheckTimeoutTest
          , rosettaFailsWithoutFullHistory rdb
          , rewindPastMinBlockHeightFails rdb
+         , compactionIsIdempotent rdb
          ]
       where
         test = test' rdb
@@ -298,6 +303,152 @@ rewindPastMinBlockHeightFails rdb =
           assertFailure $ "Expected a PactInternalError, but got: " ++ show err
         Right _ -> do
           assertFailure "Expected an exception, but didn't encounter one."
+
+{-
+getLatestPactState :: Database -> IO (Map Text [PactRow])
+getLatestPactState db = do
+  let checkpointerTables = ["BlockHistory", "VersionedTableCreation", "VersionedTableMutation", "TransactionIndex"]
+  let compactionTables = ["CompactGrandHash", "CompactActiveRow"]
+  let excludeThese = checkpointerTables ++ compactionTables
+  let fmtTable x = "\"" <> x <> "\""
+
+  tables <- fmap sortedTableNames $ do
+    let qry =
+          "SELECT name FROM sqlite_schema \
+          \WHERE \
+          \  type = 'table' \
+          \AND \
+          \  name NOT LIKE 'sqlite_%'"
+    Pact.qry db qry [] [RText]
+
+  let takeHead :: [a] -> a
+      takeHead = \case
+        [] -> error "getLatestPactState.getActiveRows.takeHead: impossible case"
+        (x : _) -> x
+
+  let getActiveRows :: [PactRow] -> [PactRow]
+      getActiveRows rows = id
+        $ List.map takeHead
+        $ List.map (List.sortOn (Down . txId))
+        $ List.groupBy (\x y -> rowKey x == rowKey y)
+        $ List.sortOn rowKey rows
+
+  let go :: Map Text [PactRow] -> TableName -> IO (Map Text [PactRow])
+      go m (TableName tbl) = do
+        if tbl `notElem` excludeThese
+        then do
+          let qry = "SELECT rowkey, rowdata, txid FROM " <> fmtTable tbl
+          userRows <- Pact.qry db qry [] [RText, RBlob, RInt]
+          shapedRows <- forM userRows $ \case
+            [SText (Utf8 rowKey), SBlob rowData, SInt txId] -> do
+              pure $ PactRow {..}
+            _ -> error "getLatestPactState: unexpected shape of user table row"
+          pure $ M.insert (utf8ToText tbl) shapedRows m
+        else do
+          pure m
+
+  allRows <- F.foldlM go mempty tables
+  let activeRows = M.map getActiveRows allRows
+  pure activeRows
+-}
+
+compactionIsIdempotent :: ()
+  => RocksDb
+  -> TestTree
+compactionIsIdempotent rdb =
+  withTemporaryDir $ \iodir ->
+  withSqliteDb cid iodir $ \sqlEnvIO ->
+  withDelegateMempool $ \dm ->
+    let
+        pat :: String
+        pat = "compactionIdempotent"
+    in
+    testCase pat $ do
+      blockDb <- mkTestBlockDb testVersion rdb
+      bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
+      let payloadDb = _bdbPayloadDb blockDb
+      sqlEnv <- sqlEnvIO
+      (mempoolRef, mempool) <- do
+        (ref, nonRef) <- dm
+        pure (pure ref, nonRef)
+      pactQueue <- newPactQueue 2000
+
+      let ver = testVersion
+      let cfg = testPactServiceConfig
+      let logger = genericLogger System.LogLevel.Error (\_ -> return ())
+
+      void $ forkIO $ runPactService ver cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
+
+      let numBlocks :: Num a => a
+          numBlocks = 100
+
+      setOneShotMempool mempoolRef goldenMemPool
+
+      let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
+          makeTx nth bh = buildCwCmd
+            $ set cbSigners [mkSigner' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
+            $ setFromHeader bh
+            $ mkCmd (sshow (nth, bh))
+            $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+
+      supply <- newIORef @Int 0
+      madeTx <- newIORef @Bool False
+      replicateM_ numBlocks $ do
+        setMempool mempoolRef $ mempty {
+          mpaGetBlock = \_ _ _ _ bh -> do
+            madeTxYet <- readIORef madeTx
+            if madeTxYet
+            then do
+              pure mempty
+            else do
+              n <- atomicModifyIORef supply $ \a -> (a + 1, a)
+              tx <- makeTx n bh
+              writeIORef madeTx True
+              pure $ V.fromList [tx]
+        }
+        void $ runBlock pactQueue blockDb second pat
+        writeIORef madeTx False
+
+      let db = _sConn sqlEnv
+
+      let compact h = C.withDefaultLogger System.Logger.Types.Error $ \cLogger -> do
+            let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
+            void $ C.compact h cLogger db flags
+
+      let compactionHeight = BlockHeight numBlocks
+      compact compactionHeight
+      statePostCompaction1 <- getPactUserTables db
+      compact compactionHeight
+      statePostCompaction2 <- getPactUserTables db
+
+      let stateDiff = M.filter (not . PatienceM.isSame) (PatienceM.diff statePostCompaction1 statePostCompaction2)
+      when (not (null stateDiff)) $ do
+        putStrLn ""
+        forM_ (M.toList stateDiff) $ \(tbl, delta) -> do
+          T.putStrLn ""
+          T.putStrLn tbl
+          case delta of
+            Same _ -> do
+              pure ()
+            Old x -> do
+              putStrLn $ "a pre-only value appeared in the compaction idempotency diff: " ++ show x
+            New x -> do
+              putStrLn $ "a post-only value appeared in the compaction idempotency diff: " ++ show x
+            Delta x1 x2 -> do
+              let daDiff = PatienceL.pairItems (\a b -> rowKey a == rowKey b) (PatienceL.diff x1 x2)
+              forM_ daDiff $ \item -> do
+                case item of
+                  Old x -> do
+                    putStrLn $ "old: " ++ show x
+                  New x -> do
+                    putStrLn $ "new: " ++ show x
+                  Same _ -> do
+                    pure ()
+                  Delta x y -> do
+                    putStrLn $ "old: " ++ show x
+                    putStrLn $ "new: " ++ show y
+                    putStrLn ""
+        assertFailure "pact state check failed"
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do
