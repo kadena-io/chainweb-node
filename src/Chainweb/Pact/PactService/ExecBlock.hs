@@ -237,8 +237,8 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
         | assertTxTimeRelativeToParent txValidationTime $ fmap payloadObj t = return $ Right t
         -- | otherwise = return $ Left InsertErrorInvalidTime
         | otherwise =
-            let s = assertTxTimeRelativeToParentWithErrorMessage txValidationTime (fmap payloadObj t)
-            in return $ Left $ InsertErrorOther $ sshow s <> " (tx: " <> sshow (P._cmdHash t) <> ")"
+            let (s,str) = assertTxTimeRelativeToParentWithErrorMessage txValidationTime (fmap payloadObj t)
+            in return $ Left $ InsertErrorOther $ sshow s <> " (tx: " <> sshow (P._cmdHash t) <> ")" <> ": " <> sshow str
 
 
     checkTxHash :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
