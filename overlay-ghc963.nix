@@ -12,12 +12,12 @@ in
     compiler = {
       ghc963 = overrideGHC "ghc963" {
         ghcFlavour = debugFlavour;
-        enableDWARF = true;
+        #enableDWARF = true;
       };
 
       ghc981 = overrideGHC "ghc981" {
         ghcFlavour = debugFlavour;
-        enableDWARF = true;
+        #enableDWARF = true;
       };
     };
   };
