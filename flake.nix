@@ -2,7 +2,7 @@
   description = "Chainweb";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs?rev=4d2b37a84fad1091b9de401eb450aae66f1a741e";
+    nixpkgs.follows = "haskellNix/nixpkgs"; #url = "github:NixOS/nixpkgs?rev=4d2b37a84fad1091b9de401eb450aae66f1a741e";
     hackage = {
       url = "github:input-output-hk/hackage.nix";
       flake = false;
