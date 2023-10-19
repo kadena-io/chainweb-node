@@ -304,54 +304,6 @@ rewindPastMinBlockHeightFails rdb =
         Right _ -> do
           assertFailure "Expected an exception, but didn't encounter one."
 
-{-
-getLatestPactState :: Database -> IO (Map Text [PactRow])
-getLatestPactState db = do
-  let checkpointerTables = ["BlockHistory", "VersionedTableCreation", "VersionedTableMutation", "TransactionIndex"]
-  let compactionTables = ["CompactGrandHash", "CompactActiveRow"]
-  let excludeThese = checkpointerTables ++ compactionTables
-  let fmtTable x = "\"" <> x <> "\""
-
-  tables <- fmap sortedTableNames $ do
-    let qry =
-          "SELECT name FROM sqlite_schema \
-          \WHERE \
-          \  type = 'table' \
-          \AND \
-          \  name NOT LIKE 'sqlite_%'"
-    Pact.qry db qry [] [RText]
-
-  let takeHead :: [a] -> a
-      takeHead = \case
-        [] -> error "getLatestPactState.getActiveRows.takeHead: impossible case"
-        (x : _) -> x
-
-  let getActiveRows :: [PactRow] -> [PactRow]
-      getActiveRows rows = id
-        $ List.map takeHead
-        $ List.map (List.sortOn (Down . txId))
-        $ List.groupBy (\x y -> rowKey x == rowKey y)
-        $ List.sortOn rowKey rows
-
-  let go :: Map Text [PactRow] -> TableName -> IO (Map Text [PactRow])
-      go m (TableName tbl) = do
-        if tbl `notElem` excludeThese
-        then do
-          let qry = "SELECT rowkey, rowdata, txid FROM " <> fmtTable tbl
-          userRows <- Pact.qry db qry [] [RText, RBlob, RInt]
-          shapedRows <- forM userRows $ \case
-            [SText (Utf8 rowKey), SBlob rowData, SInt txId] -> do
-              pure $ PactRow {..}
-            _ -> error "getLatestPactState: unexpected shape of user table row"
-          pure $ M.insert (utf8ToText tbl) shapedRows m
-        else do
-          pure m
-
-  allRows <- F.foldlM go mempty tables
-  let activeRows = M.map getActiveRows allRows
-  pure activeRows
--}
-
 compactionIsIdempotent :: ()
   => RocksDb
   -> TestTree
