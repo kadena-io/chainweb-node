@@ -195,6 +195,7 @@ assertTxTimeRelativeToParentWithErrorMessage (ParentCreationTime (BlockCreationT
     [ ttl > 0
     , txValidationTime >= timeFromSeconds 0
     , txOriginationTime >= 0
+    , txValidationTime <= lenientTxValidationTime
     , timeFromSeconds (txOriginationTime) <= lenientTxValidationTime
     , timeFromSeconds (txOriginationTime + ttl) > txValidationTime
     , P.TTLSeconds ttl <= defaultMaxTTL
