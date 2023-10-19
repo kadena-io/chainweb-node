@@ -1,5 +1,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ViewPatterns #-}
+
 
 module Chainweb.Pact.SPV.Hyperlane where
 
@@ -7,119 +9,141 @@ import qualified Data.ByteString as BS
 import Data.ByteString.Lazy as BL
 import Data.ByteString.Builder
 
+import Data.DoubleWord
 import Data.Int
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import Data.Binary
+import Data.Binary.Builder (fromLazyByteString)
 import Data.Binary.Get
+import Data.Binary.Put
 import Data.Decimal
 import Numeric.Natural
 
+import Debug.Trace (traceShowM)
+
 data HyperlaneMessage = HyperlaneMessage
-  { fmcVersion :: Integer           -- uint8
-  , fmcNonce :: Integer             -- uint32
-  , fmcOriginDomain :: Integer      -- uint32
-  , fmcSender :: Text               -- string
-  , fmcDestinationDomain :: Integer -- uint32
-  , fmcRecipient :: Text            -- string
-  , fmcMessageBody :: ByteString    -- string
+  { hmVersion :: Word256           -- uint8
+  , hmNonce :: Word256             -- uint32
+  , hmOriginDomain :: Word256      -- uint32
+  , hmSender :: Text               -- string
+  , hmDestinationDomain :: Word256 -- uint32
+  , hmRecipient :: Text            -- string
+  , hmMessageBody :: Text -- string
   }
 
 instance Binary HyperlaneMessage where
   put (HyperlaneMessage {..}) = do
-    put $ padLeft $ encode fmcVersion                                 -- 32 bytes
-    put $ padLeft $ encode fmcNonce                                   -- 32 bytes
-    put $ padLeft $ encode fmcOriginDomain                            -- 32 bytes
+    put hmVersion                                 -- 32 bytes
+    put hmNonce                                   -- 32 bytes
+    put hmOriginDomain                            -- 32 bytes
     -- 96 bytes
-    put $ padLeft $ encode (96 + 32 * 4 :: Int)                              -- 32 bytes
-    put $ padLeft $ encode fmcDestinationDomain                       -- 32 bytes
-    put $ padLeft $ encode (96 + 32 * 5 + senderSize)                 -- 32 bytes
-    put $ padLeft $ encode (96 + 32 * 6 + senderSize + recipientSize) -- 32 bytes
+    put (96 + 32 * 4 :: Word256)                       -- 32 bytes
+    put hmDestinationDomain                       -- 32 bytes
+    put (96 + 32 * 5 + senderSize)                 -- 32 bytes
+    put (96 + 32 * 6 + senderSize + recipientSize) -- 32 bytes
     -- 96 + 32 * 4
-    put $ padLeft $ encode senderSize                                 -- 32 bytes
-    put sender                                                        -- senderSize
+    put senderSize                                 -- 32 bytes
+    putBS sender                                                        -- senderSize
     -- 96 + 32 * 5 + senderSize
-    put $ padLeft $ encode recipientSize                              -- 32 bytes
-    put recipient                                                     -- recipientSize
+    put recipientSize                              -- 32 bytes
+    putBS recipient                                                     -- recipientSize
     -- 96 + 32 * 6 + senderSize + recipientSize
-    put $ padLeft $ encode messageBodySize                            -- 32 bytes
-    put messageBody                                                   -- messageBodySize
+    put messageBodySize                            -- 32 bytes
+    putBS messageBody                                                   -- messageBodySize
     where
-      (sender, senderSize) = padRight $ BL.fromStrict $ Text.encodeUtf8 fmcSender
-      (recipient, recipientSize) = padRight $ BL.fromStrict $ Text.encodeUtf8 fmcRecipient
-      (messageBody, messageBodySize) = padRight fmcMessageBody
+      (sender, senderSize) = padRight $ BL.fromStrict $ Text.encodeUtf8 hmSender
+      (recipient, recipientSize) = padRight $ BL.fromStrict $ Text.encodeUtf8 hmRecipient
+      (messageBody, messageBodySize) = padRight $ BL.fromStrict $ Text.encodeUtf8 hmMessageBody
 
   get = do
-    -- fmcVersion <- get :: Get Word8
-    -- fmcNonce <- get :: Get Word32
-    -- fmcOriginDomain <- get :: Get Word32
-    -- fmcSender <- get :: Get Text
-    -- fmcDestinationDomain <- get :: Get Word32
-    -- fmcRecipient <- get :: Get Text
-    -- fmcMessageBody <- get :: Get Text
+    hmVersion <- getWord256be
+    hmNonce <- getWord256be
+    hmOriginDomain <- getWord256be
+
+    _firstOffset <- getWord256be
+    hmDestinationDomain <- getWord256be
+    _secondOffset <- getWord256be
+    _thirdOffset <- getWord256be
+
+    senderSize <- getWord256be
+    hmSender <- Text.decodeUtf8 <$> getBS senderSize
+
+    recipientSize <- getWord256be
+    hmRecipient <- Text.decodeUtf8 <$> getBS recipientSize
+
+    messageBodySize <- getWord256be
+    hmMessageBody <- Text.decodeUtf8 <$> getBS messageBodySize
+
     return $ HyperlaneMessage {..}
 
 data TokenMessageERC20 = TokenMessageERC20
   { tmRecipient :: Text -- string
-  , tmAmount :: Integer -- uint256
+  , tmAmount :: Word256 -- uint256
   , tmMetadata :: Text  -- string
   }
 
 instance Binary TokenMessageERC20 where
   put (TokenMessageERC20 {..}) = do
     -- the first offset is constant
-    put $ padLeft $ encode (96 :: Int)               -- 32 bytes
-    put $ padLeft $ encode tmAmount                  -- 32 bytes
-    put $ padLeft $ encode (96 + 32 + recipientSize) -- 32 bytes
+    put (96 :: Word256)           -- 32 bytes
+    put tmAmount                  -- 32 bytes
+    put (96 + 32 + recipientSize) -- 32 bytes
     -- 96 bytes
-    put $ padLeft $ encode recipientSize             -- 32 bytes
-    put recipient                                    -- recipientSize
+    put recipientSize             -- 32 bytes
+    putBS recipient               -- recipientSize
     -- 96 bytes + 32 bytes + recipientSize
-    put $ padLeft $ encode metadataSize              -- 32 bytes
-    put metadata                                     -- metadataSize
+    put metadataSize              -- 32 bytes
+    putBS metadata                -- metadataSize
     where
       (recipient, recipientSize) = padRight $ BL.fromStrict $ Text.encodeUtf8 tmRecipient
       (metadata, metadataSize) = padRight $ BL.fromStrict $ Text.encodeUtf8 tmMetadata
 
   get = do
-    _firstOffset <- Text.decodeUtf8 <$> getByteString 32
-    tmAmount <- (read . Text.unpack . Text.decodeUtf8) <$> getByteString 32
-    _secondOffset <- Text.decodeUtf8 <$> getByteString 32
+    _firstOffset <- getWord256be
+    tmAmount <- getWord256be
+    _secondOffset <- getWord256be
 
-    recipientSize <- (read . Text.unpack . Text.decodeUtf8) <$> getByteString 32
-    tmRecipient <- Text.decodeUtf8 <$> getByteString recipientSize
+    recipientSize <- getWord256be
+    tmRecipient <- Text.decodeUtf8 <$> getBS recipientSize
 
-    metadataSize <- (read . Text.unpack . Text.decodeUtf8) <$> getByteString 32
-    tmMetadata <- Text.decodeUtf8 <$> getByteString metadataSize
+    metadataSize <- getWord256be
+    tmMetadata <- Text.decodeUtf8 <$> getBS metadataSize
     return $ TokenMessageERC20 {..}
 
 data TokenMessageERC721 = TokenMessageERC721
   { tmRecipient :: Text  -- bytes
-  , tmTokenId :: Integer -- uint256
+  , tmTokenId :: Word256 -- uint256
   , tmMetadata :: Text   -- bytes
   }
 
 instance Binary TokenMessageERC721 where
   put (TokenMessageERC721 {..}) = do
     -- the first offset is constant
-    put $ padLeft $ encode (96 :: Int)               -- 32 bytes
-    put $ padLeft $ encode tmTokenId                 -- 32 bytes
-    put $ padLeft $ encode (96 + 32 + recipientSize) -- 32 bytes
+    put (96 :: Word256)           -- 32 bytes
+    put tmTokenId                 -- 32 bytes
+    put (96 + 32 + recipientSize) -- 32 bytes
     -- 96 bytes
-    put $ padLeft $ encode recipientSize             -- 32 bytes
-    put recipient                                    -- recipientSize
+    put recipientSize             -- 32 bytes
+    putBS recipient               -- recipientSize
     -- 96 bytes + 32 bytes + recipientSize
-    put $ padLeft $ encode metadataSize              -- 32 bytes
-    put metadata                                     -- metadataSize
+    put metadataSize              -- 32 bytes
+    putBS metadata                -- metadataSize
     where
       (recipient, recipientSize) = padRight $ BL.fromStrict $ Text.encodeUtf8 tmRecipient
       (metadata, metadataSize) = padRight $ BL.fromStrict $ Text.encodeUtf8 tmMetadata
 
   get = do
-    -- tmRecipient <- get :: Get ByteString
-    -- tmTokenId <- get :: Get Word32
-    -- tmMetadata <- get :: Get ByteString
+    _firstOffset <- getWord256be
+    tmTokenId <- getWord256be
+    _secondOffset <- getWord256be
+
+    recipientSize <- getWord256be
+    tmRecipient <- Text.decodeUtf8 <$> getBS recipientSize
+
+    metadataSize <- getWord256be
+    tmMetadata <- Text.decodeUtf8 <$> getBS metadataSize
     return $ TokenMessageERC721 {..}
 
 parseHyperlaneMessage :: BS.ByteString -> Either String HyperlaneMessage
@@ -139,9 +163,51 @@ padLeft s = BL.replicate (32 - BL.length s) 0 <> s
 --
 -- > padRight "hello world"
 -- ("hello world\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL",32)
-padRight :: ByteString -> (ByteString, Int64)
+padRight :: ByteString -> (ByteString, Word256)
 padRight s =
   let
     size = BL.length s
-    missingZeroes = fromIntegral $ (32 - size) `mod` 32
-  in (s <> BL.replicate missingZeroes 0, size + missingZeroes)
+    missingZeroes = restSize size
+  in (s <> BL.replicate missingZeroes 0, fromIntegral size)
+
+restSize :: Integral a => a -> a
+restSize size = (32 - size) `mod` 32
+
+-- | Puts bytestring without size using 'Builder'.
+putBS :: ByteString -> Put
+putBS s = putBuilder $ fromLazyByteString s
+
+getBS :: Word256 -> Get BS.ByteString
+getBS size = BS.take (fromIntegral size) <$> getByteString (fromIntegral $ size + restSize size)
+
+instance Binary Word128 where
+  put (Word128 w1 w2) = do
+    putWord64be w1
+    putWord64be w2
+
+  get = do
+    w1 <- getWord64be
+    w2 <- getWord64be
+    pure $ Word128 w1 w2
+
+putWord128be :: Word128 -> Put
+putWord128be = put
+
+getWord128be :: Get Word128
+getWord128be = get
+
+instance Binary Word256 where
+  put (Word256 w1 w2) = do
+    putWord128be w1
+    putWord128be w2
+
+  get = do
+    w1 <- getWord128be
+    w2 <- getWord128be
+    pure $ Word256 w1 w2
+
+putWord256be :: Word256 -> Put
+putWord256be = put
+
+getWord256be :: Get Word256
+getWord256be = get
