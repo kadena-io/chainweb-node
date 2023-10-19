@@ -35,11 +35,11 @@ let haskellSrc = with nix-filter.lib; filter {
       compiler-nix-name = compiler;
       projectFileName = "cabal.project";
       shell.tools = {
-        cabal = {};
+        # cabal = {};
       };
       shell.buildInputs = with pkgs; [
         zlib
-        pkgconfig
+        pkg-config
       ];
       modules = [
         {
