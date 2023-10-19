@@ -317,7 +317,7 @@ extractProof False o = toPactValue (TObject o def) >>= k
       . J.toJsonViaEncode
 extractProof True (Object (ObjectMap o) _ _ _) = case M.lookup "proof" o of
   Just (TLitString proof) -> do
-    j <- first (const "Base64 decode failed") (decodeB64UrlNoPaddingText proof)
+    j <- first (const "Base64 decode failed") (decodeB64Text proof)
     first (const "Decode of TransactionOutputProof failed") (decodeStrictOrThrow j)
   _ -> Left "Invalid input, expected 'proof' field with base64url unpadded text"
 
@@ -330,10 +330,10 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
       newObj = do
         let om = _objectMap $ _oObject obj
         tmRecipient <- om ^? at "recipient" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-        tmAmount <- om ^? at "amount" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> r)
+        tmAmount <- om ^? at "amount" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
         tmMetadata <- om ^? at "metadata" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
         let tm = TokenMessageERC20{..}
-        let b64 = encodeB64UrlText $ BL.toStrict $ Binary.encode tm
+        let b64 = encodeB64Text $ BL.toStrict $ Binary.encode tm
         pure $ mkObject [ ("message", tStr $ asString b64) ]
     in case newObj of
       Just o -> pure o
@@ -343,16 +343,16 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
   (Just (TLitString "decodeTokenMessageERC20"), Just (TObject o _)) -> do
     let
       om = _objectMap $ _oObject o
-      base64message = om ^? at "message" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+      base64message = om ^? at "encodedMessage" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
     message <- case base64message of
         Nothing -> throwError "Decoding of TokenMessageERC20 failed: missing message field"
-        Just b -> BL.fromStrict <$> decodeB64UrlNoPaddingText b
+        Just b -> BL.fromStrict <$> decodeB64Text b
 
     let TokenMessageERC20{..} = Binary.decode message
     let
       tmObj = obj
             [ ("recipient", tStr $ asString tmRecipient)
-            , ("amount", tLit $ LInteger tmAmount)
+            , ("amount", tLit $ LInteger $ toInteger tmAmount)
             , ("metadata", tStr $ asString tmMetadata)
             ]
     pure $ mkObject [ ("tokenMessageERC20", tmObj) ]
@@ -364,60 +364,79 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
       newObj = do
         let om = _objectMap $ _oObject obj
         tmRecipient <- om ^? at "recipient" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-        tmTokenId <- om ^? at "tokenId" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> r)
+        tmTokenId <- om ^? at "tokenId" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
         tmMetadata <- om ^? at "metadata" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
         let tm = TokenMessageERC721{..}
-        let b64 = encodeB64UrlText $ BL.toStrict $ Binary.encode tm
+        let b64 = encodeB64Text $ BL.toStrict $ Binary.encode tm
         pure $ mkObject [ ("message", tStr $ asString b64) ]
     in case newObj of
       Just o -> pure o
       _ -> throwError "Couldn't encode TokenMessageERC721"
 
+  (Just (TLitString "decodeTokenMessageERC721"), Nothing) -> throwError "Missing argument"
+  (Just (TLitString "decodeTokenMessageERC721"), Just (TObject o _)) -> do
+    let
+      om = _objectMap $ _oObject o
+      base64message = om ^? at "encodedMessage" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+    message <- case base64message of
+        Nothing -> throwError "Decoding of TokenMessageERC721 failed: missing message field"
+        Just b -> BL.fromStrict <$> decodeB64Text b
+
+    let TokenMessageERC721{..} = Binary.decode message
+    let
+      tmObj = obj
+            [ ("recipient", tStr $ asString tmRecipient)
+            , ("tokenId", tLit $ LInteger $ toInteger tmTokenId)
+            , ("metadata", tStr $ asString tmMetadata)
+            ]
+    pure $ mkObject [ ("tokenMessageERC721", tmObj) ]
+
   -- HyperlaneMessage
   (Just (TLitString "encodeHyperlaneMessage"), Nothing) -> throwError "Missing argument"
   (Just (TLitString "encodeHyperlaneMessage"), Just (TObject obj _)) -> do
     let
-      errMsg t = first (const t)
-      om = _objectMap $ _oObject obj
-      messageBody = om ^? at "messageBody" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-
-    fmcMessageBody <- case messageBody of
-      Nothing -> throwError "Decoding of Hyperlane message body failed: missing field"
-      Just b -> BL.fromStrict <$> decodeB64UrlNoPaddingText b
-
-    let
       newObj = do
-
-        fmcVersion <- om ^? at "version" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> r)
-        fmcNonce <- om ^? at "nonce" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> r)
-        fmcOriginDomain <- om ^? at "originDomain" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> r)
-        fmcSender <- om ^? at "sender" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-        fmcDestinationDomain <- om ^? at "destinationDomain" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> r)
-        fmcRecipient <- om ^? at "recipient" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+        let om = _objectMap $ _oObject obj
+        hmVersion <- om ^? at "version" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
+        hmNonce <- om ^? at "nonce" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
+        hmOriginDomain <- om ^? at "originDomain" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
+        hmSender <- om ^? at "sender" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+        hmDestinationDomain <- om ^? at "destinationDomain" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
+        hmRecipient <- om ^? at "recipient" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+        hmMessageBody <- om ^? at "messageBody" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
 
         let hm = HyperlaneMessage{..}
         let b = BL.toStrict $ Binary.encode hm
-        let messageId = encodeB64UrlText $ BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 b
-        let b64 = encodeB64UrlText b
+        let messageId = encodeB64Text $ BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 b
+        let b64 = encodeB64Text b
         pure $ mkObject [ ("message", tStr $ asString b64), ("messageId", tStr $ asString messageId) ]
     case newObj of
       Just o -> pure o
       _ -> throwError "Couldn't encode HyperlaneMessage"
 
+  (Just (TLitString "decodeHyperlaneMessage"), Nothing) -> throwError "Missing argument"
+  (Just (TLitString "decodeHyperlaneMessage"), Just (TObject o _)) -> do
+    let
+      om = _objectMap $ _oObject o
+      base64message = om ^? at "encodedMessage" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+    message <- case base64message of
+        Nothing -> throwError "Decoding of HyperlaneMessage failed: missing message field"
+        Just b -> BL.fromStrict <$> decodeB64Text b
+
+    let HyperlaneMessage{..} = Binary.decode message
+    let
+      hmObj = obj
+            [ ("version", tLit $ LInteger $ toInteger hmVersion)
+            , ("nonce", tLit $ LInteger $ toInteger hmNonce)
+            , ("originDomain", tLit $ LInteger $ toInteger hmOriginDomain)
+            , ("sender", tStr $ asString hmSender)
+            , ("destinationDomain", tLit $ LInteger $ toInteger hmDestinationDomain)
+            , ("recipient", tStr $ asString hmRecipient)
+            , ("messageBody", tStr $ asString hmMessageBody) ]
+    pure $ mkObject [ ("hyperlaneMessage", hmObj) ]
+
   (Nothing, _) -> throwError "Missing command name"
   _ -> throwError "Unknown hyperlane command"
-
-extractHyperlaneCommand :: Object Name -> Either Text HyperlaneMessage
-extractHyperlaneCommand o = case M.lookup "proof" $ _objectMap $ _oObject o of
-  Nothing -> Left "Decoding of Hyperlane proof object failed: missing 'proof' property"
-  Just (TLitString p) -> do
-    bytes' <- errMsg "Decoding of Hyperlane proof object failed: invalid base64URLWithoutPadding encoding"
-        $ decodeB64UrlNoPaddingText p
-    errMsg "Decoding of Hyperlane proof object failed: invalid binary proof data"
-        $ parseHyperlaneMessage bytes'
-  Just _ -> Left "Decoding of Hyperlane proof object failed: invalid 'proof' property"
-  where
-    errMsg t = first (const t)
 
 -- | Extract an Eth 'ReceiptProof' from a generic pact object
 --
