@@ -46,6 +46,7 @@ import Data.Bifunctor
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.Default (def)
+import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Binary as Binary
@@ -331,7 +332,6 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
         let om = _objectMap $ _oObject obj
         tmRecipient <- om ^? at "recipient" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
         tmAmount <- om ^? at "amount" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
-        tmMetadata <- om ^? at "metadata" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
         let tm = TokenMessageERC20{..}
         let b64 = encodeB64Text $ BL.toStrict $ Binary.encode tm
         pure $ mkObject [ ("message", tStr $ asString b64) ]
@@ -353,7 +353,6 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
       tmObj = obj
             [ ("recipient", tStr $ asString tmRecipient)
             , ("amount", tLit $ LInteger $ toInteger tmAmount)
-            , ("metadata", tStr $ asString tmMetadata)
             ]
     pure $ mkObject [ ("tokenMessageERC20", tmObj) ]
 
@@ -400,9 +399,9 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
         hmVersion <- om ^? at "version" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
         hmNonce <- om ^? at "nonce" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
         hmOriginDomain <- om ^? at "originDomain" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
-        hmSender <- om ^? at "sender" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+        hmSender <- om ^? at "sender" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> B64.decode $ T.encodeUtf8 r) . _Right
         hmDestinationDomain <- om ^? at "destinationDomain" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
-        hmRecipient <- om ^? at "recipient" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+        hmRecipient <- om ^? at "recipient" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> B64.decode $ T.encodeUtf8 r) . _Right
         hmMessageBody <- om ^? at "messageBody" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
 
         let hm = HyperlaneMessage{..}
@@ -425,15 +424,18 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
 
     let HyperlaneMessage{..} = Binary.decode message
     let
+      encodedSender = B64.encode hmSender
+      encodedRecipient = B64.encode hmRecipient
       hmObj = obj
             [ ("version", tLit $ LInteger $ toInteger hmVersion)
             , ("nonce", tLit $ LInteger $ toInteger hmNonce)
             , ("originDomain", tLit $ LInteger $ toInteger hmOriginDomain)
-            , ("sender", tStr $ asString hmSender)
+            , ("sender", tStr $ asString encodedSender)
             , ("destinationDomain", tLit $ LInteger $ toInteger hmDestinationDomain)
-            , ("recipient", tStr $ asString hmRecipient)
+            , ("recipient", tStr $ asString encodedRecipient)
             , ("messageBody", tStr $ asString hmMessageBody) ]
-    pure $ mkObject [ ("hyperlaneMessage", hmObj) ]
+      messageId = encodeB64Text $ BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict message
+    pure $ mkObject [ ("hyperlaneMessage", hmObj), ("messageId", tStr $ asString messageId) ]
 
   (Nothing, _) -> throwError "Missing command name"
   _ -> throwError "Unknown hyperlane command"
