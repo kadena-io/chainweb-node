@@ -128,7 +128,7 @@ instance ToJSON PactQueueCounters where
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
-pactQueueCountersProperties :: KeyValue kv => PactQueueCounters -> [kv]
+pactQueueCountersProperties :: KeyValue e kv => PactQueueCounters -> [kv]
 pactQueueCountersProperties pqc =
     [ "count" .= _pactQueueCountersCount pqc
     , "sum" .= _pactQueueCountersSum pqc
@@ -170,7 +170,7 @@ instance ToJSON PactQueueStats where
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
-pactQueueStatsProperties :: KeyValue kv => PactQueueStats -> [kv]
+pactQueueStatsProperties :: KeyValue e kv => PactQueueStats -> [kv]
 pactQueueStatsProperties o =
     [ "validate" .= _validateblock o
     , "newblock" .= _newblock o

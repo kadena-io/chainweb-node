@@ -107,13 +107,13 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'MinerDataTag = 0x0017
     type MerkleTagVal ChainwebHashTag 'CoinbaseOutputTag = 0x0018
     type MerkleTagVal ChainwebHashTag 'EpochStartTimeTag = 0x0019
-    type MerkleTagVal ChainwebHashTag 'BlockNonceTag = 0x00020
+    type MerkleTagVal ChainwebHashTag 'BlockNonceTag = 0x0020
 
     -- Event Proofs
-    type MerkleTagVal ChainwebHashTag 'OutputEventsTag = 0x00030
-    type MerkleTagVal ChainwebHashTag 'BlockEventsHashTag = 0x00031
-    type MerkleTagVal ChainwebHashTag 'RequestKeyTag = 0x00032
-    type MerkleTagVal ChainwebHashTag 'PactEventTag = 0x00034
+    type MerkleTagVal ChainwebHashTag 'OutputEventsTag = 0x0030
+    type MerkleTagVal ChainwebHashTag 'BlockEventsHashTag = 0x0031
+    type MerkleTagVal ChainwebHashTag 'RequestKeyTag = 0x0032
+    type MerkleTagVal ChainwebHashTag 'PactEventTag = 0x0034
 
 instance HashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Void where
     type Tag Void = 'VoidTag
