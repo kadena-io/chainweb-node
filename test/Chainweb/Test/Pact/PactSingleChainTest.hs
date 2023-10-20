@@ -119,6 +119,7 @@ tests rdb = ScheduledTest testName go
          , rosettaFailsWithoutFullHistory rdb
          , rewindPastMinBlockHeightFails rdb
          , pactStateSamePreAndPostCompaction rdb
+         , compactionIsIdempotent rdb
          ]
       where
         test = test' rdb
@@ -387,6 +388,104 @@ pactStateSamePreAndPostCompaction rdb =
               putStrLn $ "a post-only value appeared in the pre- and post-compaction diff: " ++ show x
             Delta x1 x2 -> do
               let daDiff = PatienceL.pairItems (\a b -> C.rowKey a == C.rowKey b) (PatienceL.diff x1 x2)
+              forM_ daDiff $ \item -> do
+                case item of
+                  Old x -> do
+                    putStrLn $ "old: " ++ show x
+                  New x -> do
+                    putStrLn $ "new: " ++ show x
+                  Same _ -> do
+                    pure ()
+                  Delta x y -> do
+                    putStrLn $ "old: " ++ show x
+                    putStrLn $ "new: " ++ show y
+                    putStrLn ""
+        assertFailure "pact state check failed"
+
+compactionIsIdempotent :: ()
+  => RocksDb
+  -> TestTree
+compactionIsIdempotent rdb =
+  withTemporaryDir $ \iodir ->
+  withSqliteDb cid iodir $ \sqlEnvIO ->
+  withDelegateMempool $ \dm ->
+    let
+        pat :: String
+        pat = "compactionIdempotent"
+    in
+    testCase pat $ do
+      blockDb <- mkTestBlockDb testVersion rdb
+      bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
+      let payloadDb = _bdbPayloadDb blockDb
+      sqlEnv <- sqlEnvIO
+      (mempoolRef, mempool) <- do
+        (ref, nonRef) <- dm
+        pure (pure ref, nonRef)
+      pactQueue <- newPactQueue 2000
+
+      let ver = testVersion
+      let cfg = testPactServiceConfig
+      let logger = genericLogger System.LogLevel.Error (\_ -> return ())
+
+      void $ forkIO $ runPactService ver cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
+
+      let numBlocks :: Num a => a
+          numBlocks = 100
+
+      setOneShotMempool mempoolRef goldenMemPool
+
+      let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
+          makeTx nth bh = buildCwCmd
+            $ set cbSigners [mkSigner' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
+            $ setFromHeader bh
+            $ mkCmd (sshow (nth, bh))
+            $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+
+      supply <- newIORef @Int 0
+      madeTx <- newIORef @Bool False
+      replicateM_ numBlocks $ do
+        setMempool mempoolRef $ mempty {
+          mpaGetBlock = \_ _ _ _ bh -> do
+            madeTxYet <- readIORef madeTx
+            if madeTxYet
+            then do
+              pure mempty
+            else do
+              n <- atomicModifyIORef supply $ \a -> (a + 1, a)
+              tx <- makeTx n bh
+              writeIORef madeTx True
+              pure $ V.fromList [tx]
+        }
+        void $ runBlock pactQueue blockDb second pat
+        writeIORef madeTx False
+
+      let db = _sConn sqlEnv
+
+      let compact h = C.withDefaultLogger System.Logger.Types.Error $ \cLogger -> do
+            let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
+            void $ C.compact h cLogger db flags
+
+      let compactionHeight = BlockHeight numBlocks
+      compact compactionHeight
+      statePostCompaction1 <- getPactUserTables db
+      compact compactionHeight
+      statePostCompaction2 <- getPactUserTables db
+
+      let stateDiff = M.filter (not . PatienceM.isSame) (PatienceM.diff statePostCompaction1 statePostCompaction2)
+      when (not (null stateDiff)) $ do
+        putStrLn ""
+        forM_ (M.toList stateDiff) $ \(tbl, delta) -> do
+          T.putStrLn ""
+          T.putStrLn tbl
+          case delta of
+            Same _ -> do
+              pure ()
+            Old x -> do
+              putStrLn $ "a pre-only value appeared in the compaction idempotency diff: " ++ show x
+            New x -> do
+              putStrLn $ "a post-only value appeared in the compaction idempotency diff: " ++ show x
+            Delta x1 x2 -> do
+              let daDiff = PatienceL.pairItems (\a b -> rowKey a == rowKey b) (PatienceL.diff x1 x2)
               forM_ daDiff $ \item -> do
                 case item of
                   Old x -> do
