@@ -993,7 +993,7 @@ newtype ObjectEncoded a = ObjectEncoded { _objectEncoded :: a }
     deriving newtype (Eq, Ord, Hashable, NFData)
 
 blockHeaderProperties
-    :: KeyValue kv
+    :: KeyValue e kv
     => ObjectEncoded BlockHeader
     -> [kv]
 blockHeaderProperties (ObjectEncoded b) =

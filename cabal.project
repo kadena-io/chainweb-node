@@ -30,6 +30,10 @@ package chainweb
     tests: True
     benchmarks: True
 
+if impl(ghc >= 9.8.1)
+    package chainweb
+        ghc-options: -Wno-x-partial
+
 package pact
     ghc-options: -Wwarn
     optimization: True
@@ -59,8 +63,8 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 0c9cfe5e88659c762289f24c8be54ed8c5b13251
-    --sha256: 11kznkm05j3797g87qz4skh5q21pxsh4lh2qvp50lac6m2fcgwj3
+    tag: 9d8d0975d58fd811404130a57724bfb5a2f2af80
+    --sha256: sha256-4oVJnV12kXraWRQjJJZv3wuoEGfGVFC1EIkzYJrUVs8=
 
 source-repository-package
     type: git
@@ -89,8 +93,8 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
-    tag: a0fde0d7066e676288ee3f6e52cdc7edbd48af9d
-    --sha256: 1ph65jak6188yrfp519pi18gdjgprmgi07z9s8sld7mn1dw8sc9g
+    tag: 7119860463f05e452288eac651c38313a04d6b6b
+    --sha256: 191iy36rpb3rk15kk48n8vqiawaablcms9imgld5sg15gb7859vf
 
 source-repository-package
     type: git
@@ -145,9 +149,27 @@ allow-newer: servant:*
 -- These packages are tightly bound to the GHC version and these
 -- settings ensure that we use the versions that are shipped with the
 -- GHC version that we are using.
+allow-newer: *:Cabal
+allow-newer: *:Cabal-syntax
+allow-newer: *:array
 allow-newer: *:base
-allow-newer: *:tempalte-haskell
+allow-newer: *:bytestring
+allow-newer: *:containers
+allow-newer: *:deepseq
+allow-newer: *:directory
+allow-newer: *:exceptions
+allow-newer: *:ghc-compact
 allow-newer: *:ghc-prim
+allow-newer: *:integer-gmp
+allow-newer: *:mtl
+allow-newer: *:parsec
+allow-newer: *:pretty
+allow-newer: *:process
+allow-newer: *:stm
+allow-newer: *:template-haskell
+allow-newer: *:text
+allow-newer: *:time
+allow-newer: *:transformers
 
 -- Pact uses a vendored version of trifecta that has outdated
 -- upper bounds
@@ -167,6 +189,4 @@ allow-newer: base-compat-batteries:*
 
 allow-newer: webauthn:these
 allow-newer: webauthn:time
-
--- servant does not yet support aeson 2.2
-constraints: aeson <2.2
+allow-newer: webauthn:aeson
