@@ -9,7 +9,8 @@ import System.Environment
 import System.Exit
 import Text.Printf
 
-import Chainweb.Pact.Backend.Compaction
+import Chainweb.Pact.Backend.Compaction (main)
+import Chainweb.Pact.Backend.PactState (main)
 
 import qualified CheckpointerDBChecksum
 import qualified Ea
@@ -104,7 +105,11 @@ topLevelCommands =
   , CommandSpec
       "compact"
       "Compact pact database"
-      compactMain
+      Chainweb.Pact.Backend.Compaction.main
+  , CommandSpec
+      "pact-db-compare"
+      "Compare pre- and post-compaction state"
+      Chainweb.Pact.Backend.PactState.main
   , CommandSpec
       "calculate-release"
       "Calculate next service date and block heights for upgrades"

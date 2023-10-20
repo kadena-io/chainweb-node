@@ -26,7 +26,7 @@ module Chainweb.Pact.Backend.Compaction
   , CompactM
   , compact
   , compactAll
-  , compactMain
+  , main
   , withDefaultLogger
   , withPerChainFileLogger
   ) where
@@ -564,8 +564,8 @@ compactAll CompactConfig{..} = do
   where
     cids = List.sort $ F.toList $ chainIdsAt ccVersion ccBlockHeight
 
-compactMain :: IO ()
-compactMain = do
+main :: IO ()
+main = do
   config <- execParser opts
   compactAll config
   where
