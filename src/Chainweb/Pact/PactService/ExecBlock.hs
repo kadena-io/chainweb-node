@@ -532,7 +532,8 @@ validateHashes bHeader pData miner transactions =
       then Right pwo
       else Left $ BlockValidationFailure $ BlockValidationFailureMsg $
         J.encodeJsonText $ J.object
-            [ "mismatch" J..= errorMsg "Payload hash" prevHash newHash
+            [ "header" J..= J.encodeWithAeson (ObjectEncoded bHeader)
+            , "mismatch" J..= errorMsg "Payload hash" prevHash newHash
             , "details" J..= details
             ]
   where
