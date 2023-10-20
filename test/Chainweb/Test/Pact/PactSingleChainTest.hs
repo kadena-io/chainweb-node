@@ -364,14 +364,14 @@ pactStateSamePreAndPostCompaction rdb =
 
       let db = _sConn sqlEnv
 
-      statePreCompaction <- C.getLatestPactState db
+      statePreCompaction <- getLatestPactState db
 
       C.withDefaultLogger System.Logger.Types.Error $ \cLogger -> do
         let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
         let height = BlockHeight numBlocks
         void $ C.compact height cLogger db flags
 
-      statePostCompaction <- C.getLatestPactState db
+      statePostCompaction <- getLatestPactState db
 
       let stateDiff = M.filter (not . PatienceM.isSame) (PatienceM.diff statePreCompaction statePostCompaction)
       when (not (null stateDiff)) $ do
@@ -387,7 +387,7 @@ pactStateSamePreAndPostCompaction rdb =
             New x -> do
               putStrLn $ "a post-only value appeared in the pre- and post-compaction diff: " ++ show x
             Delta x1 x2 -> do
-              let daDiff = PatienceL.pairItems (\a b -> C.rowKey a == C.rowKey b) (PatienceL.diff x1 x2)
+              let daDiff = PatienceL.pairItems (\a b -> rowKey a == rowKey b) (PatienceL.diff x1 x2)
               forM_ daDiff $ \item -> do
                 case item of
                   Old x -> do

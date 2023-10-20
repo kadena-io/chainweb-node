@@ -29,13 +29,12 @@ module Chainweb.Pact.Backend.Compaction
   , compactMain
   , withDefaultLogger
   , withPerChainFileLogger
-  , getLatestPactState, PactRow(..)
   ) where
 
 import UnliftIO.Async (pooledMapConcurrentlyN_)
 import Control.Exception (Exception, SomeException(..))
 import Control.Lens (makeLenses, set, over, view)
-import Control.Monad (forM, forM_, when, void)
+import Control.Monad (forM_, when, void)
 import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, local)
@@ -44,8 +43,6 @@ import Data.Foldable qualified as F
 import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map.Strict qualified as M
-import Data.Map (Map)
-import Data.Ord (Down(..))
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
@@ -635,56 +632,3 @@ compactMain = do
     fromTextSilly t = case fromText t of
       Just a -> a
       Nothing -> error "fromText failed"
-
-getLatestPactState :: Database -> IO (Map Text [PactRow])
-getLatestPactState db = do
-  let checkpointerTables = ["BlockHistory", "VersionedTableCreation", "VersionedTableMutation", "TransactionIndex"]
-  let compactionTables = ["CompactGrandHash", "CompactActiveRow"]
-  let excludeThese = checkpointerTables ++ compactionTables
-  let fmtTable x = "\"" <> x <> "\""
-
-  tables <- fmap sortedTableNames $ do
-    let qry =
-          "SELECT name FROM sqlite_schema \
-          \WHERE \
-          \  type = 'table' \
-          \AND \
-          \  name NOT LIKE 'sqlite_%'"
-    Pact.qry db qry [] [RText]
-
-  let takeHead :: [a] -> a
-      takeHead = \case
-        [] -> error "getLatestPactState.getActiveRows.takeHead: impossible case"
-        (x : _) -> x
-
-  let getActiveRows :: [PactRow] -> [PactRow]
-      getActiveRows rows = id
-        $ List.map takeHead
-        $ List.map (List.sortOn (Down . txId))
-        $ List.groupBy (\x y -> rowKey x == rowKey y)
-        $ List.sortOn rowKey rows
-
-  let go :: Map Text [PactRow] -> TableName -> IO (Map Text [PactRow])
-      go m (TableName tbl) = do
-        if tbl `notElem` excludeThese
-        then do
-          let qry = "SELECT rowkey, rowdata, txid FROM " <> fmtTable tbl
-          userRows <- Pact.qry db qry [] [RText, RBlob, RInt]
-          shapedRows <- forM userRows $ \case
-            [SText (Utf8 rowKey), SBlob rowData, SInt txId] -> do
-              pure $ PactRow {..}
-            _ -> error "getLatestPactState: unexpected shape of user table row"
-          pure $ M.insert (utf8ToText tbl) shapedRows m
-        else do
-          pure m
-
-  allRows <- F.foldlM go mempty tables
-  let activeRows = M.map getActiveRows allRows
-  pure activeRows
-
-data PactRow = PactRow
-  { rowKey :: ByteString
-  , rowData :: ByteString
-  , txId :: Int64
-  }
-  deriving stock (Eq, Ord, Show)
