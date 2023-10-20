@@ -181,22 +181,21 @@ hyperlaneEncodeTokenMessageERC20 = do
         [ ("cmd", tStr $ asString ("encodeTokenMessageERC20" :: Text))
         , ("arg", obj
           [ ("recipient", tStr $ asString ("recipient" :: Text))
-          , ("amount", tLit $ LInteger 23)
-          , ("metadata", tStr $ asString ("metadata" :: Text)) ])
+          , ("amount", tLit $ LInteger 23) ])
         ]
   res <- runExceptT $ evalHyperlaneCommand obj'
   case res of
     Left _ -> assertFailure "Should get the result"
     Right o ->
-      let om = _objectMap $ _oObject o
-          message = om ^? at "message" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-          expectedMessage = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACJAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlyZWNpcGllbnQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIbWV0YWRhdGEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-      in assertEqual "should get encoded message" (Just expectedMessage) message
+      let
+        expectedMessage :: Text = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJcmVjaXBpZW50AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        expectedObject = mkObject [ ("message", tStr $ asString expectedMessage) ]
+      in assertEqual "should get encoded message" expectedObject o
 
 hyperlaneDecodeTokenMessageERC20 :: Assertion
 hyperlaneDecodeTokenMessageERC20 = do
   let
-    encodedMessage :: Text = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACJAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlyZWNpcGllbnQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIbWV0YWRhdGEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    encodedMessage :: Text = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJcmVjaXBpZW50AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
     obj' = mkObject
         [ ("cmd", tStr $ asString ("decodeTokenMessageERC20" :: Text))
         , ("arg", obj [ ("encodedMessage", tStr $ asString encodedMessage) ])
@@ -207,8 +206,7 @@ hyperlaneDecodeTokenMessageERC20 = do
     expectedObject = mkObject
       [ ("tokenMessageERC20", obj
         [ ("recipient", tStr $ asString ("recipient" :: Text))
-        , ("amount", tLit $ LInteger 23)
-        , ("metadata", tStr $ asString ("metadata" :: Text)) ])
+        , ("amount", tLit $ LInteger 23) ])
       ]
   case res of
     Left _ -> assertFailure "Should get the result"
@@ -228,10 +226,10 @@ hyperlaneEncodeTokenMessageERC721 = do
   case res of
     Left _ -> assertFailure "Should get the result"
     Right o ->
-      let om = _objectMap $ _oObject o
-          message = om ^? at "message" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-          expectedMessage = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApyZWNpcGllbnQxAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJbWV0YWRhdGEyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-      in assertEqual "should get encoded message" (Just expectedMessage) message
+      let
+        expectedMessage :: Text = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApyZWNpcGllbnQxAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJbWV0YWRhdGEyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        expectedObject = mkObject [ ("message", tStr $ asString expectedMessage) ]
+      in assertEqual "should get encoded message" expectedObject o
 
 hyperlaneDecodeTokenMessageERC721 :: Assertion
 hyperlaneDecodeTokenMessageERC721 = do
@@ -280,23 +278,22 @@ hyperlaneEncodeHyperlaneMessage = do
           [ ("version", tLit $ LInteger 1)
           , ("nonce", tLit $ LInteger 1223)
           , ("originDomain", tLit $ LInteger 7)
-          , ("sender", tStr $ asString ("sender1" :: Text))
+          , ("sender", tStr $ asString ("c2VuZGVyMQ==" :: Text))
           , ("destinationDomain", tLit $ LInteger 8)
-          , ("recipient", tStr $ asString ("recipient1" :: Text))
+          , ("recipient", tStr $ asString ("cmVjaXBpZW50MQ==" :: Text))
           , ("messageBody", tStr $ asString tokenMessage) ])
         ]
   res <- runExceptT $ evalHyperlaneCommand obj'
   case res of
     Left _ -> assertFailure "Should get the result"
     Right o ->
-      let om = _objectMap $ _oObject o
-          message = om ^? at "message" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-          expectedMessage = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAExwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB3NlbmRlcjEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApyZWNpcGllbnQxAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEsQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFHQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBREFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQ0tBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFweVpXTnBjR2xsYm5ReEFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBSmJXVjBZV1JoZEdFeUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE9AAAAAAAAAAAAAAAAAAAAAAAAAAA="
-          messageId = om ^? at "messageId" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-          expectedMessageId = "jICi+lgLrkQmCPlC4+JiIJNj0tm/lthQ4OnaoblRddI="
-      in do
-        assertEqual "should get encoded message" (Just expectedMessage) message
-        assertEqual "should get encoded message" (Just expectedMessageId) messageId
+      let
+        expectedMessage :: Text = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAExwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB3NlbmRlcjEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApyZWNpcGllbnQxAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEsQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFHQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBREFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQ0tBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFweVpXTnBjR2xsYm5ReEFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBSmJXVjBZV1JoZEdFeUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE9AAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        expectedObject = mkObject
+          [ ("message", tStr $ asString expectedMessage)
+          , ("messageId", tStr $ asString ("jICi+lgLrkQmCPlC4+JiIJNj0tm/lthQ4OnaoblRddI=" :: Text))
+          ]
+      in assertEqual "should get encoded message" expectedObject o
 
 hyperlaneDecodeHyperlaneMessage :: Assertion
 hyperlaneDecodeHyperlaneMessage = do
@@ -315,10 +312,11 @@ hyperlaneDecodeHyperlaneMessage = do
         [ ("version", tLit $ LInteger 1)
           , ("nonce", tLit $ LInteger 1223)
           , ("originDomain", tLit $ LInteger 7)
-          , ("sender", tStr $ asString ("sender1" :: Text))
+          , ("sender", tStr $ asString ("c2VuZGVyMQ==" :: Text))
           , ("destinationDomain", tLit $ LInteger 8)
-          , ("recipient", tStr $ asString ("recipient1" :: Text))
+          , ("recipient", tStr $ asString ("cmVjaXBpZW50MQ==" :: Text))
           , ("messageBody", tStr $ asString tokenMessage) ])
+      , ("messageId", tStr $ asString ("jICi+lgLrkQmCPlC4+JiIJNj0tm/lthQ4OnaoblRddI=" :: Text))
       ]
   case res of
     Left _ -> assertFailure "Should get the result"
