@@ -1,10 +1,12 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -101,6 +103,10 @@ module Chainweb.Test.Pact.Utils
 , runCut
 , Noncer
 , zeroNoncer
+-- * Pact State
+, PactRow(..)
+, getLatestPactState
+, getPactUserTables
 -- * miscellaneous
 , toTxCreationTime
 , dummyLogger
@@ -127,14 +133,20 @@ import Data.Decimal
 import Data.Default (def)
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
+import Data.Int (Int64)
 import Data.IORef
+import Data.List qualified as List
+import Data.Map (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe
+import Data.Ord (Down(..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.String
 import qualified Data.Vector as V
+
+import Database.SQLite3.Direct (Utf8(..), Database)
 
 import GHC.Generics
 
@@ -923,3 +935,70 @@ someBlockHeader v h = (!! (int h - 1))
 
 makeLenses ''CmdBuilder
 makeLenses ''CmdSigner
+
+getPactUserTables :: Database -> IO (Map Text [PactRow])
+getPactUserTables db = do
+  let checkpointerTables = ["BlockHistory", "VersionedTableCreation", "VersionedTableMutation", "TransactionIndex"]
+  let compactionTables = ["CompactGrandHash", "CompactActiveRow"]
+  let excludeThese = checkpointerTables ++ compactionTables
+  let fmtTable x = "\"" <> x <> "\""
+
+  let utf8ToText :: Utf8 -> Text
+      utf8ToText (Utf8 u) = T.decodeUtf8 u
+
+  let sortedTableNames :: [[SType]] -> [Utf8]
+      sortedTableNames rows = M.elems $ M.fromListWith const $ flip List.map rows $ \case
+        [SText u] -> (T.toLower (utf8ToText u), u)
+        _ -> error "sortedTableNames: expected text"
+
+  tables <- fmap sortedTableNames $ do
+    let qryText =
+          "SELECT name FROM sqlite_schema \
+          \WHERE \
+          \  type = 'table' \
+          \AND \
+          \  name NOT LIKE 'sqlite_%'"
+    qry db qryText [] [RText]
+
+  let go :: Map Text [PactRow] -> Utf8 -> IO (Map Text [PactRow])
+      go m tbl = do
+        if tbl `notElem` excludeThese
+        then do
+          let qryText = "SELECT rowkey, rowdata, txid FROM "
+                    <> fmtTable tbl
+                    <> " ORDER BY txid"
+          userRows <- qry db qryText [] [RText, RBlob, RInt]
+          shapedRows <- forM userRows $ \case
+            [SText (Utf8 rowKey), SBlob rowData, SInt txId] -> do
+              pure $ PactRow {..}
+            _ -> error "getPactUserTables: unexpected shape of user table row"
+          pure $ M.insert (utf8ToText tbl) shapedRows m
+        else do
+          pure m
+
+  foldlM go mempty tables
+
+getLatestPactState :: Database -> IO (Map Text [PactRow])
+getLatestPactState db = do
+  allRows <- getPactUserTables db
+
+  let takeHead :: [a] -> a
+      takeHead = \case
+        [] -> error "getLatestPactState.getActiveRows.takeHead: impossible case"
+        (x : _) -> x
+  let getActiveRows :: [PactRow] -> [PactRow]
+      getActiveRows rows = id
+        $ List.map takeHead
+        $ List.map (List.sortOn (Down . txId))
+        $ List.groupBy (\x y -> rowKey x == rowKey y)
+        $ List.sortOn rowKey rows
+
+  let activeRows = M.map getActiveRows allRows
+  pure activeRows
+
+data PactRow = PactRow
+  { rowKey :: ByteString
+  , rowData :: ByteString
+  , txId :: Int64
+  }
+  deriving stock (Eq, Ord, Show)
