@@ -208,7 +208,7 @@ doSave dbenv hash = runBlockEnv dbenv $ do
     prepChunk chunk@(h:_) = (Utf8 $ _deltaTableName h, V.fromList chunk)
 
     toVectorChunks writes = liftIO $ do
-        mv <- mutableVectorFromList . concat $
+        mv <- mutableVectorFromList . concatMap toList $
               HashMap.elems writes
         TimSort.sort mv
         l' <- V.toList <$> V.unsafeFreeze mv

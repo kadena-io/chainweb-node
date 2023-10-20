@@ -96,6 +96,7 @@ import Data.DList (DList)
 import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
+import Data.List.NonEmpty(NonEmpty(..))
 import Data.Map.Strict (Map)
 import Data.Vector (Vector)
 
@@ -191,7 +192,7 @@ type SQLitePendingTableCreations = HashSet ByteString
 type SQLitePendingSuccessfulTxs = HashSet ByteString
 
 -- | Pending writes to the pact db during a block, to be recorded in 'BlockState'.
-type SQLitePendingWrites = HashMap SQLiteDeltaKey [SQLiteRowDelta]
+type SQLitePendingWrites = HashMap SQLiteDeltaKey (NonEmpty SQLiteRowDelta)
 
 -- | A collection of pending mutations to the pact db. We maintain two of
 -- these; one for the block as a whole, and one for any pending pact
