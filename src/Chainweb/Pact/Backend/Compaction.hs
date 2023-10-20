@@ -70,7 +70,7 @@ import Data.LogMessage
 import Pact.Types.SQLite (SType(..), RType(..))
 import Pact.Types.SQLite qualified as Pact
 
-newtype TxId = TxId Int64
+newtype ITxId = ITxId Int64
 
 newtype TableName = TableName { getTableName :: Utf8 }
   deriving stock (Show)
@@ -244,6 +244,9 @@ templateStmt (TableName (Utf8 tblName)) s
   where
     tblTemplate = "$VTABLE$"
 
+utf8ToText :: Utf8 -> Text
+utf8ToText (Utf8 u) = Text.decodeUtf8 u
+
 textToUtf8 :: Text -> Utf8
 textToUtf8 txt = Utf8 $ Text.encodeUtf8 $ Text.toLower txt
 
@@ -312,7 +315,7 @@ createCompactActiveRow = do
   execNoTemplateM_ "deleteFrom: CompactActiveRow"
       "DELETE FROM CompactActiveRow"
 
-getEndingTxId :: BlockHeight -> CompactM TxId
+getEndingTxId :: BlockHeight -> CompactM ITxId
 getEndingTxId bh = do
   r <- qryNoTemplateM
        "getTxId.0"
@@ -323,7 +326,7 @@ getEndingTxId bh = do
     [] -> do
       throwM (CompactExceptionInvalidBlockHeight bh)
     [[SInt t]] -> do
-      pure (TxId t)
+      pure (ITxId t)
     _ -> do
       internalError "initialize: expected single-row int"
 
@@ -341,11 +344,14 @@ getVersionedTables bh = do
 bhToSType :: BlockHeight -> SType
 bhToSType bh = SInt (int bh)
 
-txIdToSType :: TxId -> SType
-txIdToSType (TxId txid) = SInt txid
+txIdToSType :: ITxId -> SType
+txIdToSType (ITxId txid) = SInt txid
 
 tableNameToSType :: TableName -> SType
 tableNameToSType (TableName tbl) = SText tbl
+
+tableNameToText :: TableName -> Text
+tableNameToText (TableName tbl) = utf8ToText tbl
 
 tableRowCount :: TableName -> Text -> CompactM ()
 tableRowCount tbl label =
@@ -355,7 +361,7 @@ tableRowCount tbl label =
 
 -- | For a given table, collect all active rows into CompactActiveRow,
 -- and compute+store table grand hash in CompactGrandHash.
-collectTableRows :: TxId -> TableName -> CompactM ()
+collectTableRows :: ITxId -> TableName -> CompactM ()
 collectTableRows txId tbl = do
   tableRowCount tbl "collectTableRows"
   let vt = tableNameToSType tbl
@@ -411,7 +417,7 @@ computeGlobalHash = do
 -- | Delete non-active rows from given table.
 compactTable :: TableName -> CompactM ()
 compactTable tbl = do
-  logg Info "compactTable"
+  logg Info $ "compactTable: " <> tableNameToText tbl
   execM'
       "compactTable.0"
       tbl
