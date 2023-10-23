@@ -399,9 +399,9 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
         hmVersion <- om ^? at "version" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
         hmNonce <- om ^? at "nonce" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
         hmOriginDomain <- om ^? at "originDomain" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
-        hmSender <- om ^? at "sender" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> B64.decode $ T.encodeUtf8 r) . _Right
+        hmSender <- om ^? at "sender" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> B64.decode $ Text.encodeUtf8 r) . _Right
         hmDestinationDomain <- om ^? at "destinationDomain" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
-        hmRecipient <- om ^? at "recipient" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> B64.decode $ T.encodeUtf8 r) . _Right
+        hmRecipient <- om ^? at "recipient" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> B64.decode $ Text.encodeUtf8 r) . _Right
         hmMessageBody <- om ^? at "messageBody" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
 
         let hm = HyperlaneMessage{..}
