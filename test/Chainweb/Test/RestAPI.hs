@@ -132,7 +132,7 @@ mkEnv :: RocksDb -> Bool -> [(ChainId, BlockHeaderDb)] -> ResourceT IO TestClien
 mkEnv rdb tls dbs = do
     let pdb = newPayloadDb rdb
     liftIO $ initializePayloadDb version pdb
-    clientEnvWithChainwebTestServer DoNotValidateSpec tls version emptyChainwebServerDbs
+    clientEnvWithChainwebTestServer ValidateSpec tls version emptyChainwebServerDbs
         { _chainwebServerBlockHeaderDbs = dbs
         , _chainwebServerPayloadDbs = [ (cid, pdb) | (cid, _) <- dbs ]
         }
