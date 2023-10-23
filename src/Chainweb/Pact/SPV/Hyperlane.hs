@@ -5,6 +5,8 @@
 
 module Chainweb.Pact.SPV.Hyperlane where
 
+import Control.Monad (replicateM)
+
 import Data.ByteString as BS
 import qualified Data.ByteString.Short as Short
 import qualified Data.ByteString.Lazy as BL
@@ -143,9 +145,33 @@ data MessageMultisigIsmMetadata = MessageMultisigIsmMetadata
   }
 
 instance Binary MessageMultisigIsmMetadata where
-  put = undefined
+  put = error "put instance is not implemented for MessageMultisigIsmMetadata"
 
-  get = undefined
+  get = do
+    _firstOffset <- getWord256be
+    _secondOffset <- getWord256be
+    mmimSignedCheckpointIndex <- getWord256be
+    _thirdOffset <- getWord256be
+
+    addressSize <- getWord256be
+    mmimOriginMerkleTreeAddress <- Text.decodeUtf8 <$> getBS addressSize
+
+    rootSize <- getWord256be
+    mmimSignedCheckpointRoot <- Text.decodeUtf8 <$> getBS rootSize
+
+    rootSize <- getWord256be
+    mmimSignedCheckpointRoot <- Text.decodeUtf8 <$> getBS rootSize
+
+    listSize <- getWord256be
+
+    _offsets <- replicateM (fromIntegral listSize) getWord256be
+
+    mmimSignatures <- replicateM (fromIntegral listSize) $ do
+      signatureSize <- getWord256be
+      signatureBody <- Text.decodeUtf8 <$> getBS signatureSize
+      return signatureBody
+
+    return $ MessageMultisigIsmMetadata{..}
 
 -- | Pad with zeroes on the left to 32 bytes
 --
