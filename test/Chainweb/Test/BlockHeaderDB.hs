@@ -51,7 +51,7 @@ tests rdb = testGroup "Unit Tests"
         (\x f -> runResourceT $ do
           db <- withTestBlockHeaderDb rdb x
           liftIO $ f db (traverse_ . unsafeInsertBlockHeaderDb))
-        Parallel
+        testGroup
     ]
 
 insertItems :: RocksDb -> Assertion

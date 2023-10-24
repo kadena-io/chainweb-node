@@ -15,7 +15,6 @@
 --
 module Chainweb.Test.TreeDB
 ( treeDbInvariants
-, RunStyle(..)
 , properties
 ) where
 
@@ -58,39 +57,39 @@ treeDbInvariants
     => WithTestDb db
         -- ^ Given a generic entry should yield a database and insert function for
         -- testing, and then safely close it after use.
-    -> RunStyle
+    -> (String -> [TestTree] -> TestTree)
     -> TestTree
-treeDbInvariants f rs = testGroup "TreeDb Invariants"
-    [ testGroup "Properties" $ schedule rs
-        [ testGroupSch "TreeDb Shape" $ schedule rs
-            [ testPropertySch "Conversion to and from Tree" $ treeIso_prop f
-            , testPropertySch "Root node has genesis parent hash" $ rootParent_prop f
+treeDbInvariants f grp = grp "TreeDb Invariants"
+    [ grp "Properties" $
+        [ grp "TreeDb Shape" $
+            [ testProperty "Conversion to and from Tree" $ treeIso_prop f
+            , testProperty "Root node has genesis parent hash" $ rootParent_prop f
             ]
-        , testGroupSch "Basic Streaming" $ schedule rs
-              [ testGroupSch "Self-reported Stream Length" $ schedule rs
-                    [ testPropertySch "streaming keys"
+        , grp "Basic Streaming" $
+              [ grp "Self-reported Stream Length" $
+                    [ testProperty "streaming keys"
                           $ streamCount_prop f (\db -> keys db Nothing Nothing Nothing Nothing)
-                    , testPropertySch "streaming entries"
+                    , testProperty "streaming entries"
                           $ streamCount_prop f (\db -> entries db Nothing Nothing Nothing Nothing)
-                    , testPropertySch "streaming branchKeys"
+                    , testProperty "streaming branchKeys"
                           $ streamCount_prop f (branches branchKeys)
-                    , testPropertySch "streaming branchEntries"
+                    , testProperty "streaming branchEntries"
                           $ streamCount_prop f (branches branchEntries)
                     ]
-              , testGroupSch "Miscellaneous" $ schedule rs
-                    [ testPropertySch "Parent lookup of genesis fails" $ genParent_prop f
-                    , testPropertySch "All entries are properly fetched" $ entriesFetch_prop f
+              , grp "Miscellaneous" $
+                    [ testProperty "Parent lookup of genesis fails" $ genParent_prop f
+                    , testProperty "All entries are properly fetched" $ entriesFetch_prop f
                     ]
               ]
-        , testGroupSch "TreeDb Behaviour" $ schedule rs
-            [ testPropertySch "Reinsertion is a no-op" $ reinsertion_prop f
-            , testPropertySch "Cannot manipulate old nodes" $ handOfGod_prop f
-            , testPropertySch "Entries are streamed in ascending order" $ entryOrder_prop f
-            , testPropertySch "maxRank reports correct height" $ maxRank_prop f
-            , testPropertySch "getBranchIncreasing streams in ascending order" $ prop_getBranchIncreasing_order f
-            , testPropertySch "getBranchIncreasing streams returns leaf entry last" $ prop_getBranchIncreasing_end f
-            , testPropertySch "getBranchIncreasing streams ordered by parent relation" $ prop_getBranchIncreasing_parents f
-            , testPropertySch "forkEntry returns correct results" $ prop_forkEntry f
+        , grp "TreeDb Behaviour" $
+            [ testProperty "Reinsertion is a no-op" $ reinsertion_prop f
+            , testProperty "Cannot manipulate old nodes" $ handOfGod_prop f
+            , testProperty "Entries are streamed in ascending order" $ entryOrder_prop f
+            , testProperty "maxRank reports correct height" $ maxRank_prop f
+            , testProperty "getBranchIncreasing streams in ascending order" $ prop_getBranchIncreasing_order f
+            , testProperty "getBranchIncreasing streams returns leaf entry last" $ prop_getBranchIncreasing_end f
+            , testProperty "getBranchIncreasing streams ordered by parent relation" $ prop_getBranchIncreasing_parents f
+            , testProperty "forkEntry returns correct results" $ prop_forkEntry f
             ]
         ]
     ]

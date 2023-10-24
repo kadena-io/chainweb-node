@@ -249,7 +249,7 @@ someChainwebServerWithHashesAndSpvApi
 someChainwebServerWithHashesAndSpvApi config dbs =
     maybe mempty (someCutServer v cutPeerDb) cuts
     <> somePayloadServers v p2pPayloadBatchLimit payloads
-    <> someBlockHeaderDbServers v blocks
+    <> someBlockHeaderDbServers v blocks payloads
     <> Mempool.someMempoolServers v mempools
     <> someP2pServers v peers
     <> someGetConfigServer config
@@ -379,7 +379,6 @@ someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv pbl 
     <> maybe mempty (someNodeInfoServer v) cuts
     <> PactAPI.somePactServers v pacts
     <> maybe mempty (Mining.someMiningServer v) mr
-    <> maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)
     <> maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
         -- TODO: not sure if passing the correct PeerDb here
         -- TODO: why does Rosetta need a peer db at all?
@@ -389,7 +388,8 @@ someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv pbl 
     -- GET Cut, Payload, and Headers endpoints
     <> maybe mempty (someCutGetServer v) cuts
     <> somePayloadServers v pbl payloads
-    <> someBlockHeaderDbServers v blocks -- TOD make max limits configurable
+    <> someBlockHeaderDbServers v blocks payloads -- TODO make max limits configurable
+    <> maybe mempty (someBlockStreamServer v) (bool Nothing cuts hs)
   where
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
