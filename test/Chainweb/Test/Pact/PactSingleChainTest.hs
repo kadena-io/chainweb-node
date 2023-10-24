@@ -520,15 +520,29 @@ preInsertCheckTimeoutTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlock
 preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
   (q,_) <- reqIO
 
+  coinV3 <- T.readFile "pact/coin-contract/v3/coin-v3.pact"
+  coinV4 <- T.readFile "pact/coin-contract/v4/coin-v4.pact"
   coinV5 <- T.readFile "pact/coin-contract/v5/coin-v5.pact"
 
-  tx <- buildCwCmd
+  txCoinV3 <- buildCwCmd
         $ signSender00
         $ set cbChainId cid
-        $ mkCmd "tx-now"
+        $ mkCmd "tx-now-coinv3"
+        $ mkExec' coinV3
+
+  txCoinV4 <- buildCwCmd
+        $ signSender00
+        $ set cbChainId cid
+        $ mkCmd "tx-now-coinv4"
+        $ mkExec' coinV4
+
+  txCoinV5 <- buildCwCmd
+        $ signSender00
+        $ set cbChainId cid
+        $ mkCmd "tx-now-coinv5"
         $ mkExec' coinV5
 
-  rs <- forSuccess "preInsertCheckTimeoutTest" $ pactPreInsertCheck (V.singleton tx) q
+  rs <- forSuccess "preInsertCheckTimeoutTest" $ pactPreInsertCheck (V.fromList [txCoinV3, txCoinV4, txCoinV5]) q
   assertBool ("should be InsertErrorTimedOut but got " ++ show rs) $ V.and $ V.map (== Left InsertErrorTimedOut) rs
 
 badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
