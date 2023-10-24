@@ -1,6 +1,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 
 module Chainweb.Pact.SPV.Hyperlane where
@@ -87,11 +88,11 @@ data TokenMessageERC20 = TokenMessageERC20
 instance Binary TokenMessageERC20 where
   put (TokenMessageERC20 {..}) = do
     -- the first offset is constant
-    put (96 :: Word256)           -- 32 bytes
-    put tmAmount                  -- 32 bytes
-    -- 96 bytes
-    put recipientSize             -- 32 bytes
-    putBS recipient               -- recipientSize
+    put (64 :: Word256) -- 32 bytes
+    put tmAmount        -- 32 bytes
+    -- 64 bytes
+    put recipientSize   -- 32 bytes
+    putBS recipient     -- recipientSize
     where
       (recipient, recipientSize) = padRight $ Text.encodeUtf8 tmRecipient
 
@@ -137,15 +138,15 @@ instance Binary TokenMessageERC721 where
     tmMetadata <- Text.decodeUtf8 <$> getBS metadataSize
     return $ TokenMessageERC721 {..}
 
-data MessageMultisigIsmMetadata = MessageMultisigIsmMetadata
+data MessageIdMultisigIsmMetadata = MessageIdMultisigIsmMetadata
   { mmimOriginMerkleTreeAddress :: Text
   , mmimSignedCheckpointRoot :: Text
   , mmimSignedCheckpointIndex :: Word256
   , mmimSignatures :: [Text]
   }
 
-instance Binary MessageMultisigIsmMetadata where
-  put = error "put instance is not implemented for MessageMultisigIsmMetadata"
+instance Binary MessageIdMultisigIsmMetadata where
+  put = error "put instance is not implemented for MessageIdMultisigIsmMetadata"
 
   get = do
     _firstOffset <- getWord256be
@@ -171,7 +172,84 @@ instance Binary MessageMultisigIsmMetadata where
       signatureBody <- Text.decodeUtf8 <$> getBS signatureSize
       return signatureBody
 
-    return $ MessageMultisigIsmMetadata{..}
+    return $ MessageIdMultisigIsmMetadata{..}
+
+data DomainHashPayload = DomainHashPayload
+  { dhpOrigin :: Word256
+  , dhpOriginMerkleTreeHook :: Text
+  }
+
+instance Binary DomainHashPayload where
+  put (DomainHashPayload {..}) = do
+    put dhpOrigin            -- 32 bytes
+    put (96 :: Word256)      -- 32 bytes
+    put (96 + 32 + hookSize) -- 32 bytes
+    -- 96 bytes
+    put hookSize             -- 32 bytes
+    putBS hook               -- hookSize
+    -- 96 bytes + hookSize
+    put nameSize             -- 32 bytes
+    putBS name               -- nameSize
+
+    where
+      (hook, hookSize) = padRight $ Text.encodeUtf8 dhpOriginMerkleTreeHook
+      (name, nameSize) = padRight $ Text.encodeUtf8 "HYPERLANE"
+
+  get = error "get instance is not implemented for DomainHashPayload"
+
+data DigestHashPayload = DigestHashPayload
+  { dihpDomainHash :: ByteString
+  , dihpRoot :: Text
+  , dihpIndex :: Word256
+  , dihpId :: ByteString
+  }
+
+instance Binary DigestHashPayload where
+  put (DigestHashPayload {..}) = do
+    -- the first offset is constant
+    put (128 :: Word256)                      -- 32 bytes
+    put (128 + 32 + hashSize)                 -- 32 bytes
+    put dihpIndex                             -- 32 bytes
+    put (128 + 32 + hashSize + 32 + rootSize) -- 32 bytes
+    -- 128 bytes
+    put hashSize                              -- 32 bytes
+    putBS hash                                -- hashSize
+    -- 128 bytes + 32 bytes + hashSize
+    put rootSize                              -- 32 bytes
+    putBS root                                -- rootSize
+    -- 128 bytes + 32 bytes + hashSize + 32 bytes + rootSize
+    put idSize                                -- 32 bytes
+    putBS idContent                           -- idSize
+
+    where
+      (hash, hashSize) = padRight dihpDomainHash
+      (root, rootSize) = padRight $ Text.encodeUtf8 dihpRoot
+      (idContent, idSize) = padRight dihpId
+
+  get = error "get instance is not implemented for DigestHashPayload"
+
+data DigestPayload = DigestPayload
+  { dpHash :: ByteString
+  }
+
+instance Binary DigestPayload where
+  put (DigestPayload {..}) = do
+    -- the first offset is constant
+    put (96 :: Word256)        -- 32 bytes
+    put hashSize               -- 32 bytes
+    put (96 + 32 + headerSize) -- 32 bytes
+    -- 96 bytes
+    put headerSize             -- 32 bytes
+    putBS header               -- headerSize
+    -- 96 bytes + headerSize
+    put hashSize               -- 32 bytes
+    putBS hash                 -- hashSize
+
+    where
+      (header, headerSize) = padRight $ Text.encodeUtf8 "\x19Ethereum Signed Message:\n"
+      (hash, hashSize) = padRight dpHash
+
+  get = error "get instance is not implemented for DigestPayload"
 
 -- | Pad with zeroes on the left to 32 bytes
 --
