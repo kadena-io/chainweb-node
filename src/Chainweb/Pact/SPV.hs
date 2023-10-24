@@ -57,6 +57,7 @@ import qualified Data.Text.Encoding as Text
 import Text.Read (readMaybe)
 
 import Crypto.Hash.Algorithms
+import qualified Crypto.Secp256k1 as ECDSA
 
 import Ethereum.Header as EthHeader
 import Ethereum.Misc
@@ -436,6 +437,39 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
             , ("messageBody", tStr $ asString hmMessageBody) ]
       messageId = encodeB64Text $ BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict message
     pure $ mkObject [ ("hyperlaneMessage", hmObj), ("messageId", tStr $ asString messageId) ]
+
+  (Just (TLitString "verify"), Nothing) -> throwError "Missing argument"
+  (Just (TLitString "verify"), Just (TObject o _)) -> do
+    let
+      om = _objectMap $ _oObject o
+      base64message = om ^? at "encodedMessage" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+      base64metadata = om ^? at "base64metadata" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+    message <- case base64message of
+        Nothing -> throwError "Decoding of HyperlaneMessage failed: missing message field"
+        Just b -> BL.fromStrict <$> decodeB64Text b
+
+    let HyperlaneMessage{..} = Binary.decode message
+
+    metadata <- case base64metadata of
+        Nothing -> throwError "Decoding of Metadata failed: missing message field"
+        Just b -> BL.fromStrict <$> decodeB64Text b
+
+    let MessageIdMultisigIsmMetadata{..} = Binary.decode metadata
+
+    let domainHash = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict $ Binary.encode $ DomainHashPayload hmOriginDomain mmimOriginMerkleTreeAddress
+
+    let messageId = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict message
+
+    let hash = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict $ Binary.encode $ DigestHashPayload domainHash mmimSignedCheckpointRoot mmimSignedCheckpointIndex messageId
+    let digest = keccak256 $ BL.toStrict $ Binary.encode $ DigestPayload hash
+
+    fnDigest <- ECDSA.ecdsaMessageDigest $ _getBytesN $ _getKeccak256Hash digest
+    fnR <- ECDSA.ecdsaR undefined
+    fnS <- ECDSA.ecdsaS undefined
+    let recoverAddress s = ECDSA.ecdsaRecoverPublicKey fnDigest fnR fnS False False
+    let addresses = map recoverAddress mmimSignatures
+
+    return undefined
 
   (Nothing, _) -> throwError "Missing command name"
   _ -> throwError "Unknown hyperlane command"
