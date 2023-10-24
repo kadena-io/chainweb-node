@@ -58,6 +58,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainValue
 import Chainweb.Test.Orphans.Internal
+import Chainweb.Utils
 import Chainweb.Version
 
 import Chainweb.Storage.Table
@@ -153,7 +154,7 @@ arbitraryTestHeaderHeight v cid h = do
             <$> HM.insert cid (_parentHeader parent) as
     t <- BlockCreationTime <$> chooseEnum (pt, maxBound)
     return $ TestHeader
-        { _testHeaderHdr = newBlockHeader (ParentHeader <$> as) payloadHash nonce t parent
+        { _testHeaderHdr = fromJuste $ newBlockHeader v (ParentHeader <$> as) payloadHash nonce t parent
         , _testHeaderParent = parent
         , _testHeaderAdjs = toList $ ParentHeader <$> as
         }

@@ -112,6 +112,7 @@ import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Short as BS
 import Data.Decimal
 import Data.Foldable
+import Data.Functor.Identity
 import Data.Hashable
 import Data.MerkleLog hiding (Actual, Expected)
 import qualified Data.Text as T
@@ -473,7 +474,7 @@ data BlockEvents_ a = BlockEvents
     }
     deriving (Show, Eq, Generic)
 
-instance MerkleHashAlgorithm a => HasMerkleLog a ChainwebHashTag (BlockEvents_ a) where
+instance MerkleHashAlgorithm a => HasMerkleLog a ChainwebHashTag (BlockEvents_ a) Identity where
     type MerkleLogHeader (BlockEvents_ a) = '[]
     type MerkleLogBody (BlockEvents_ a) = OutputEvents
     toLog a = merkleLog root entries
@@ -481,12 +482,12 @@ instance MerkleHashAlgorithm a => HasMerkleLog a ChainwebHashTag (BlockEvents_ a
         BlockEventsHash (MerkleLogHash !root) = _blockEventsHash a
         !entries = MerkleLogBody (_blockEventsEvents a)
 
-    fromLog l = BlockEvents
+    fromLog l = Identity $ BlockEvents
         { _blockEventsHash = BlockEventsHash $! MerkleLogHash $! _merkleLogRoot l
         , _blockEventsEvents = es
         }
       where
-        (MerkleLogBody es) = _merkleLogEntries l
+        MerkleLogBody es = _merkleLogEntries l
 
 -- | Smart Constructor for 'BlockEvents'
 --
@@ -495,7 +496,7 @@ blockEvents
     . MerkleHashAlgorithm a
     => V.Vector OutputEvents
     -> BlockEvents_ a
-blockEvents = fromLog . newMerkleLog @a . MerkleLogBody
+blockEvents = runIdentity . fromLog . newMerkleLog @a . MerkleLogBody
 
 type BlockEventsLog a = MkLogType a ChainwebHashTag (BlockEvents_ a)
 

@@ -860,7 +860,7 @@ someTestVersionHeader = someBlockHeader someTestVersion 10
 someBlockHeader :: ChainwebVersion -> BlockHeight -> BlockHeader
 someBlockHeader v 0 = genesisBlockHeader v (unsafeChainId 0)
 someBlockHeader v h = (!! (int h - 1))
-    $ testBlockHeaders
+    $ testBlockHeaders v
     $ ParentHeader
     $ genesisBlockHeader v (unsafeChainId 0)
 

@@ -95,7 +95,7 @@ data Configuration = Configuration
 newtype RankedBlockHeader = RankedBlockHeader { _getRankedBlockHeader :: BlockHeader }
     deriving (Show, Generic)
     deriving anyclass (NFData)
-    deriving newtype (Hashable, Eq, ToJSON, FromJSON)
+    deriving newtype (Hashable, Eq, ToJSON)
 
 instance HasChainwebVersion RankedBlockHeader where
     _chainwebVersion = _chainwebVersion . _getRankedBlockHeader
@@ -148,8 +148,8 @@ encodeRankedBlockHeader :: RankedBlockHeader -> Put
 encodeRankedBlockHeader = encodeBlockHeader . _getRankedBlockHeader
 {-# INLINE encodeRankedBlockHeader #-}
 
-decodeRankedBlockHeader :: Get RankedBlockHeader
-decodeRankedBlockHeader = RankedBlockHeader <$!> decodeBlockHeader
+decodeRankedBlockHeader :: ChainwebVersion -> Get RankedBlockHeader
+decodeRankedBlockHeader v = RankedBlockHeader <$!> decodeBlockHeader v
 {-# INLINE decodeRankedBlockHeader #-}
 
 encodeRankedBlockHash :: RankedBlockHash -> Put
@@ -242,13 +242,14 @@ initBlockHeaderDb config = do
     dbAddChecked db rootEntry
     return db
   where
+    v = _chainwebVersion rootEntry
     rootEntry = _configRoot config
     cid = _chainId rootEntry
     cidNs = T.encodeUtf8 (toText cid)
 
     headerTable = newTable
         (_configRocksDb config)
-        (Codec (runPutS . encodeRankedBlockHeader) (runGetS decodeRankedBlockHeader))
+        (Codec (runPutS . encodeRankedBlockHeader) (runGetS (decodeRankedBlockHeader v)))
         (Codec (runPutS . encodeRankedBlockHash) (runGetS decodeRankedBlockHash))
         ["BlockHeader", cidNs, "header"]
 
@@ -259,7 +260,7 @@ initBlockHeaderDb config = do
         ["BlockHeader", cidNs, "rank"]
 
     !db = BlockHeaderDb cid
-        (_chainwebVersion rootEntry)
+        v
         headerTable
         rankTable
 

@@ -44,7 +44,7 @@ import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.TreeDB
-import Chainweb.Utils (sshow, tryAllSynchronous, catchAllSynchronous, T3(..))
+import Chainweb.Utils (fromJuste, sshow, tryAllSynchronous, catchAllSynchronous, T3(..))
 import Chainweb.Version
 import Chainweb.Version.Utils
 
@@ -321,12 +321,16 @@ mineBlock ph nonce iop = timeout 5000000 go >>= \case
       mv <- r >>= newBlock noMiner ph
       payload <- assertNotLeft =<< takeMVar mv
 
-      let bh = newBlockHeader
-               mempty
-               (_payloadWithOutputsPayloadHash payload)
-               nonce
-               creationTime
-               ph
+      let
+        bh =
+          fromJuste
+            $ newBlockHeader
+            testVer
+            mempty
+            (_payloadWithOutputsPayloadHash payload)
+            nonce
+            creationTime
+            ph
 
       mv' <- r >>= validateBlock bh (payloadWithOutputsToPayloadData payload)
       void $ assertNotLeft =<< takeMVar mv'

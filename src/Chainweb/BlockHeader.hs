@@ -121,6 +121,8 @@ module Chainweb.BlockHeader
 import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((.=))
+import Control.Monad
+import Control.Monad.Reader
 import Control.Monad.Catch
 
 import Data.Aeson
@@ -337,7 +339,7 @@ data BlockHeader :: Type where
             -- the block height of a block is the block height of its parent
             -- plus one.
 
-        , _blockChainwebVersion :: !ChainwebVersionCode
+        , _blockChainwebVersion :: !ChainwebVersion
             -- ^ the Chainweb version is a constant for the chain. A chain
             -- is uniquely identified by its genesis block. Thus this is
             -- redundant information and thus subject to the inductive property
@@ -691,7 +693,7 @@ makeGenesisBlockHeader'
     -> Nonce
     -> BlockHeader
 makeGenesisBlockHeader' v p ct@(BlockCreationTime t) n =
-    fromLog @ChainwebMerkleHashAlgorithm mlog
+    fromJuste $ runReaderT (fromLog @ChainwebMerkleHashAlgorithm mlog) v
   where
     g = genesisGraph v p
     cid = _chainId p
@@ -754,7 +756,7 @@ genesisGraph v = chainGraphAt v_ . genesisHeight' v_ . _chainId
 genesisHeight :: HasCallStack => ChainwebVersion -> ChainId -> BlockHeight
 genesisHeight v c = _blockHeight (genesisBlockHeader v c)
 
-instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader where
+instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader (ReaderT ChainwebVersion Maybe) where
 
     -- /IMPORTANT/ a types must occur at most once in this list
     type MerkleLogHeader BlockHeader =
@@ -784,12 +786,14 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader wh
             :+: _blockChainId bh
             :+: _blockWeight bh
             :+: _blockHeight bh
-            :+: _blockChainwebVersion bh
+            :+: _versionCode (_blockChainwebVersion bh)
             :+: _blockEpochStart bh
             :+: _blockNonce bh
             :+: MerkleLogBody (blockHashRecordToVector $ _blockAdjacentHashes bh)
 
-    fromLog l = BlockHeader
+    fromLog l = ReaderT $ \cwv -> do
+        guard (_versionCode cwv == cwvc)
+        return BlockHeader
             { _blockFlags = flags
             , _blockCreationTime = time
             , _blockHash = BlockHash (MerkleLogHash $ _merkleLogRoot l)
@@ -799,10 +803,10 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader wh
             , _blockChainId = cid
             , _blockWeight = weight
             , _blockHeight = height
-            , _blockChainwebVersion = cwvc
+            , _blockChainwebVersion = cwv
             , _blockEpochStart = es
             , _blockNonce = nonce
-            , _blockAdjacentHashes = blockHashRecordFromVector adjGraph cid adjParents
+            , _blockAdjacentHashes = blockHashRecordFromVector (adjGraph cwv) cid adjParents
             }
       where
         ( flags
@@ -818,9 +822,8 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader wh
             :+: nonce
             :+: MerkleLogBody adjParents
             ) = _merkleLogEntries l
-        cwv = _chainwebVersion cwvc
 
-        adjGraph
+        adjGraph cwv
             | height == genesisHeight' cwv cid = chainGraphAt cwv height
             | otherwise = chainGraphAt cwv (height - 1)
 
@@ -835,7 +838,7 @@ encodeBlockHeaderWithoutHash b = do
     encodeChainId (_blockChainId b)
     encodeBlockWeight (_blockWeight b)
     encodeBlockHeight (_blockHeight b)
-    encodeChainwebVersionCode (_blockChainwebVersion b)
+    encodeChainwebVersionCode (_versionCode $ _blockChainwebVersion b)
     encodeEpochStartTime (_blockEpochStart b)
     encodeNonce (_blockNonce b)
 
@@ -849,10 +852,10 @@ encodeBlockHeader b = do
 -- 1. chain id is in graph
 -- 2. all adjacentParent match adjacents in graph
 --
-decodeBlockHeaderChecked :: Get BlockHeader
-decodeBlockHeaderChecked = do
-    !bh <- decodeBlockHeader
-    _ <- checkAdjacentChainIds bh bh (Expected $ _blockAdjacentChainIds bh)
+decodeBlockHeaderChecked :: ChainwebVersion -> Get BlockHeader
+decodeBlockHeaderChecked ver = do
+    !bh <- decodeBlockHeader ver
+    _ <- checkAdjacentChainIds (chainGraphAt ver (_blockHeight bh)) bh (Expected $ _blockAdjacentChainIds bh)
     return bh
 
 -- | Decode and check that
@@ -863,17 +866,18 @@ decodeBlockHeaderChecked = do
 --
 decodeBlockHeaderCheckedChainId
     :: HasChainId p
-    => Expected p
+    => ChainwebVersion
+    -> Expected p
     -> Get BlockHeader
-decodeBlockHeaderCheckedChainId p = do
-    !bh <- decodeBlockHeaderChecked
+decodeBlockHeaderCheckedChainId ver p = do
+    !bh <- decodeBlockHeaderChecked ver
     _ <- checkChainId p (Actual (_chainId bh))
     return bh
 
 -- | Decode a BlockHeader and trust the result
 --
-decodeBlockHeaderWithoutHash :: Get BlockHeader
-decodeBlockHeaderWithoutHash = do
+decodeBlockHeaderWithoutHash :: ChainwebVersion -> Get BlockHeader
+decodeBlockHeaderWithoutHash cwv = do
     a0 <- decodeFeatureFlags
     a1 <- decodeBlockCreationTime
     a2 <- decodeBlockHash -- parent hash
@@ -886,39 +890,46 @@ decodeBlockHeaderWithoutHash = do
     a9 <- decodeChainwebVersionCode
     a11 <- decodeEpochStartTime
     a12 <- decodeNonce
-    return
-        $! fromLog @ChainwebMerkleHashAlgorithm
-        $ newMerkleLog
-        $ a0
-        :+: a1
-        :+: a2
-        :+: a4
-        :+: a5
-        :+: a6
-        :+: a7
-        :+: a8
-        :+: a9
-        :+: a11
-        :+: a12
-        :+: MerkleLogBody (blockHashRecordToVector a3)
+    let merkleLog =
+            newMerkleLog
+            $ a0
+            :+: a1
+            :+: a2
+            :+: a4
+            :+: a5
+            :+: a6
+            :+: a7
+            :+: a8
+            :+: a9
+            :+: a11
+            :+: a12
+            :+: MerkleLogBody (blockHashRecordToVector a3)
+    case runReaderT (fromLog @ChainwebMerkleHashAlgorithm merkleLog) cwv of
+        Nothing -> fail "decodeBlockHeaderWithoutHash: ChainwebVersionCode does not match"
+        Just !bh -> return bh
 
 -- | Decode a BlockHeader and trust the result
 --
-decodeBlockHeader :: Get BlockHeader
-decodeBlockHeader = BlockHeader
-    <$> decodeFeatureFlags
-    <*> decodeBlockCreationTime
-    <*> decodeBlockHash -- parent hash
-    <*> decodeBlockHashRecord
-    <*> decodeHashTarget
-    <*> decodeBlockPayloadHash
-    <*> decodeChainId
-    <*> decodeBlockWeight
-    <*> decodeBlockHeight
-    <*> decodeChainwebVersionCode
-    <*> decodeEpochStartTime
-    <*> decodeNonce
-    <*> decodeBlockHash
+decodeBlockHeader :: ChainwebVersion -> Get BlockHeader
+decodeBlockHeader cwv = do
+    BlockHeader
+        <$> decodeFeatureFlags
+        <*> decodeBlockCreationTime
+        <*> decodeBlockHash -- parent hash
+        <*> decodeBlockHashRecord
+        <*> decodeHashTarget
+        <*> decodeBlockPayloadHash
+        <*> decodeChainId
+        <*> decodeBlockWeight
+        <*> decodeBlockHeight
+        <*> (do
+            vc <- decodeChainwebVersionCode
+            unless (vc == _versionCode cwv) $ fail "decodeBlockHeader: ChainwebVersionCode does not match"
+            return cwv
+        )
+        <*> decodeEpochStartTime
+        <*> decodeNonce
+        <*> decodeBlockHash
 
 instance ToJSON BlockHeader where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
@@ -926,11 +937,11 @@ instance ToJSON BlockHeader where
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
-instance FromJSON BlockHeader where
-    parseJSON = withText "BlockHeader" $ \t ->
-        case runGetS decodeBlockHeader =<< decodeB64UrlNoPaddingText t of
-            Left (e :: SomeException) -> fail (sshow e)
-            (Right !x) -> return x
+parseBlockHeaderJSON :: ChainwebVersion -> Value -> Parser BlockHeader
+parseBlockHeaderJSON ver = withText "BlockHeader" $ \t ->
+    case runGetS (decodeBlockHeader ver) =<< decodeB64UrlNoPaddingText t of
+        Left (e :: SomeException) -> fail (sshow e)
+        (Right !x) -> return x
 
 _blockAdjacentChainIds :: BlockHeader -> HS.HashSet ChainId
 _blockAdjacentChainIds =
@@ -1006,7 +1017,7 @@ blockHeaderProperties (ObjectEncoded b) =
     , "chainId" .= _chainId b
     , "weight" .= _blockWeight b
     , "height" .= _blockHeight b
-    , "chainwebVersion" .= _versionName (_chainwebVersion b)
+    , "chainwebVersion" .= _versionName (undefined b)
     , "epochStart" .= _blockEpochStart b
     , "featureFlags" .= _blockFlags b
     , "hash" .= _blockHash b
@@ -1019,8 +1030,8 @@ instance ToJSON (ObjectEncoded BlockHeader) where
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
-parseBlockHeaderObject :: Object -> Parser BlockHeader
-parseBlockHeaderObject o = BlockHeader
+parseBlockHeaderObject :: ChainwebVersion -> Value -> Parser BlockHeader
+parseBlockHeaderObject ver = withObject "BlockHeader" $ \o -> BlockHeader
     <$> o .: "featureFlags"
     <*> o .: "creationTime"
     <*> o .: "parent"
@@ -1030,17 +1041,15 @@ parseBlockHeaderObject o = BlockHeader
     <*> o .: "chainId"
     <*> o .: "weight"
     <*> o .: "height"
-    -- TODO: lookupVersionByName should probably be deprecated for performance,
-    -- so perhaps we move this codec outside of the node proper.
-    <*> (_versionCode . lookupVersionByName <$> (o .: "chainwebVersion"))
+    <*> (do
+        vn <- o .: "chainwebVersion"
+        unless (vn == _versionName ver)
+            (fail "parseBlockHeaderObject: version name mismatch")
+        return ver
+        )
     <*> o .: "epochStart"
     <*> o .: "nonce"
     <*> o .: "hash"
-
-instance FromJSON (ObjectEncoded BlockHeader) where
-    parseJSON = withObject "BlockHeader"
-        $ fmap ObjectEncoded . parseBlockHeaderObject
-    {-# INLINE parseJSON #-}
 
 -- -------------------------------------------------------------------------- --
 -- IsBlockHeader
@@ -1057,7 +1066,7 @@ instance IsBlockHeader BlockHeader where
 -- Create new BlockHeader
 
 -- | Creates a new block header. No validation of the input parameters is
--- performaned.
+-- performed.
 --
 -- It's not guaranteed that the result is a valid block header. It is, however,
 -- guaranteed by construction that
@@ -1089,7 +1098,9 @@ newBlockHeader
         -- ^ parent block header
     -> BlockHeader
 newBlockHeader adj pay nonce t p@(ParentHeader b) =
-    fromLog @ChainwebMerkleHashAlgorithm $ newMerkleLog
+    fromJuste $ runReaderT (fromLog @ChainwebMerkleHashAlgorithm merkleLog) v
+  where
+    merkleLog = newMerkleLog
         $ mkFeatureFlags
         :+: t
         :+: _blockHash b
@@ -1102,7 +1113,6 @@ newBlockHeader adj pay nonce t p@(ParentHeader b) =
         :+: epochStart p adj t
         :+: nonce
         :+: MerkleLogBody (blockHashRecordToVector adjHashes)
-  where
     cid = _chainId p
     v = _chainwebVersion p
     target = powTarget p adj t

@@ -222,12 +222,16 @@ doNewBlock ctxIO mempool parent nonce t = do
      mv <- newBlock noMiner parent $ _ctxQueue ctx
      payload <- assertNotLeft =<< takeMVar mv
 
-     let bh = newBlockHeader
-              mempty
-              (_payloadWithOutputsPayloadHash payload)
-              nonce
-              creationTime
-              parent
+     let
+        bh =
+            fromJuste
+            $ newBlockHeader
+                testVer
+                mempty
+                (_payloadWithOutputsPayloadHash payload)
+                nonce
+                creationTime
+                parent
      -- no need for mining, since testVer uses a trivial target
      return $ T2 bh payload
    where

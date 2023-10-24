@@ -24,7 +24,7 @@ module Chainweb.CutDB.RestAPI
 , cutApi
 
 -- * Some Cut API
-, someCutApi
+-- , someCutApi
 ) where
 
 import Data.Proxy
@@ -84,5 +84,5 @@ cutApi = Proxy
 -- -------------------------------------------------------------------------- --
 -- Some Cut Api
 
-someCutApi :: ChainwebVersion -> SomeApi
-someCutApi (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = SomeApi $ cutApi @v
+-- someCutApi :: ChainwebVersion -> SomeApi
+-- someCutApi (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = SomeApi $ cutApi @v

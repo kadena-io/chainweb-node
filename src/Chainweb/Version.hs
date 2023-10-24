@@ -1,3 +1,4 @@
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -12,9 +13,11 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE ViewPatterns #-}
 
 -- |
@@ -69,16 +72,16 @@ module Chainweb.Version
     , genesisTime
 
     -- * Typelevel ChainwebVersionName
-    , ChainwebVersionT(..)
-    , ChainwebVersionSymbol
-    , chainwebVersionSymbolVal
+    -- , ChainwebVersionT(..)
+    -- , ChainwebVersionSymbol
+    -- , chainwebVersionSymbolVal
     , SomeChainwebVersionT(..)
     , KnownChainwebVersionSymbol
-    , someChainwebVersionVal
+    -- , someChainwebVersionVal
 
     -- * Singletons
-    , Sing(SChainwebVersion)
-    , SChainwebVersion
+    -- , Sing(SChainwebVersion)
+    , SChainwebVersion(..)
     , pattern FromSingChainwebVersion
 
     -- * HasChainwebVersion
@@ -133,7 +136,9 @@ import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import Data.Kind
 import Data.Proxy
+import Data.Reflection
 import qualified Data.Text as T
 import Data.Word
 
@@ -436,49 +441,23 @@ instance HasTextRepresentation ChainwebVersionName where
 
 -------------------------------------------------------------------------- --
 -- Type level ChainwebVersion
+--
+reifyVersion :: forall a r k. a -> (forall (s :: k). Reifies s a => Proxy s -> r) -> r
+reifyVersion a k = unsafeCoerce (Magic k :: Magic a r) (const a) Proxy
 
-newtype ChainwebVersionT = ChainwebVersionT Symbol
-
-data SomeChainwebVersionT = forall (a :: ChainwebVersionT)
-        . KnownChainwebVersionSymbol a => SomeChainwebVersionT (Proxy a)
-
-class KnownSymbol (ChainwebVersionSymbol n) => KnownChainwebVersionSymbol (n :: ChainwebVersionT) where
-    type ChainwebVersionSymbol n :: Symbol
-    chainwebVersionSymbolVal :: Proxy n -> T.Text
-
-instance (KnownSymbol n) => KnownChainwebVersionSymbol ('ChainwebVersionT n) where
-    type ChainwebVersionSymbol ('ChainwebVersionT n) = n
-    chainwebVersionSymbolVal _ = T.pack $ symbolVal (Proxy @n)
+data SomeChainwebVersionT = forall v. SomeChainwebVersionT (SChainwebVersion v)
+data SChainwebVersion (v :: ChainwebVersion) = Reifies (MirrorsEdge v :: Type) ChainwebVersion => SChainwebVersion
 
 someChainwebVersionVal :: ChainwebVersion -> SomeChainwebVersionT
-someChainwebVersionVal v = someChainwebVersionVal' (_versionName v)
-
-someChainwebVersionVal' :: ChainwebVersionName -> SomeChainwebVersionT
-someChainwebVersionVal' v = case someSymbolVal (show v) of
-    (SomeSymbol (Proxy :: Proxy v)) -> SomeChainwebVersionT (Proxy @('ChainwebVersionT v))
+someChainwebVersionVal v = reify v (\(p :: Proxy s) -> SomeChainwebVersionT (SChainwebVersion @s))
 
 -------------------------------------------------------------------------- --
 -- Singletons
 
-data instance Sing (v :: ChainwebVersionT) where
-    SChainwebVersion :: KnownChainwebVersionSymbol v => Sing v
+type KnownChainwebVersionSymbol v = Reifies v ChainwebVersion
 
-type SChainwebVersion (v :: ChainwebVersionT) = Sing v
-
-instance KnownChainwebVersionSymbol v => SingI (v :: ChainwebVersionT) where
-    sing = SChainwebVersion
-
-instance SingKind ChainwebVersionT where
-    type Demote ChainwebVersionT = ChainwebVersionName
-
-    fromSing (SChainwebVersion :: Sing v) = unsafeFromText
-        . chainwebVersionSymbolVal $ Proxy @v
-
-    toSing n = case someChainwebVersionVal' n of
-        SomeChainwebVersionT p -> SomeSing (singByProxy p)
-
-pattern FromSingChainwebVersion :: Sing (n :: ChainwebVersionT) -> ChainwebVersion
-pattern FromSingChainwebVersion sng <- (\v -> withSomeSing (_versionName v) SomeSing -> SomeSing sng)
+pattern FromSingChainwebVersion :: SomeChainwebVersionT -> ChainwebVersion
+pattern FromSingChainwebVersion sng <- (\v -> someChainwebVersionVal v -> sng)
 {-# COMPLETE FromSingChainwebVersion #-}
 
 -------------------------------------------------------------------------- --

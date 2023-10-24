@@ -320,7 +320,7 @@ prop_forkEntry f i j = do
     a = take (int i) $ branch (Nonce 0) g
     b = take (int j) $ branch (Nonce 1) g
 
-    branch n x = view (from isoBH) <$> testBlockHeadersWithNonce n (ParentHeader $ view isoBH x)
+    branch n x = view (from isoBH) <$> testBlockHeadersWithNonce toyVersion n (ParentHeader $ view isoBH x)
 
 -- -------------------------------------------------------------------------- --
 -- forward branch entries

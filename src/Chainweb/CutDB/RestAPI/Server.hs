@@ -103,8 +103,8 @@ cutGetServer (CutDbT db) = liftIO . cutGetHandler db
 -- Some Cut Server
 
 someCutServerT :: PeerDb -> SomeCutDb tbl -> SomeServer
-someCutServerT pdb (SomeCutDb (db :: CutDbT tbl v)) =
-    SomeServer (Proxy @(CutApi v)) (cutServer pdb db)
+someCutServerT pdb (SomeCutDb (db :: CutDbT tbl v)) = undefined
+    -- SomeServer (Proxy @(CutApi v)) (cutServer pdb db)
 
 someCutServer :: ChainwebVersion -> PeerDb -> CutDb tbl -> SomeServer
 someCutServer v pdb = someCutServerT pdb . someCutDbVal v
