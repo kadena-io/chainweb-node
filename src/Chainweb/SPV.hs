@@ -93,8 +93,8 @@ instance Exception SpvException
 -- legacy format for existing endpoints in order to not break existing clients.
 --
 proofProperties
-    :: forall kv
-    . KeyValue kv
+    :: forall kv e
+    . KeyValue e kv
     => ProofTarget
     -> MerkleProof SHA512t_256
     -> [kv]
