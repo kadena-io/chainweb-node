@@ -344,7 +344,7 @@ flagsFor v cid bh = S.fromList $ concat
   [ enablePactEvents' v cid bh
   , enablePact40 v cid bh
   , enablePact420 v cid bh
-  , enforceKeysetFormats' v cid bh
+  -- , enforceKeysetFormats' v cid bh
   , enablePactModuleMemcheck v cid bh
   , enablePact43 v cid bh
   , enablePact431 v cid bh
