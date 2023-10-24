@@ -112,7 +112,7 @@ proofProperties tgt p =
 --
 newtype JsonProofSubject = JsonProofSubject (MerkleNodeType SHA512t_256 B.ByteString)
 
-jsonProofSubjectProperties :: KeyValue kv => JsonProofSubject -> [kv]
+jsonProofSubjectProperties :: KeyValue e kv => JsonProofSubject -> [kv]
 jsonProofSubjectProperties (JsonProofSubject (TreeNode h)) =
     [ "tree" .= encodeB64UrlNoPaddingText (encodeMerkleRoot h)
     ]
