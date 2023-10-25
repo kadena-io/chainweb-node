@@ -287,10 +287,11 @@ replayTest
     :: LogLevel
     -> ChainwebVersion
     -> Natural
-    -> TestTree
-replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps name $ \step ->
-    withTempRocksDb "replay-test-rocks" $ \rdb ->
-    withSystemTempDirectory "replay-test-pact" $ \pactDbDir -> do
+    -> RocksDb
+    -> FilePath
+    -> (String -> IO ())
+    -> IO ()
+replayTest loglevel v n rdb pactDbDir step = do
         let tastylog = step . T.unpack
         let logFun = step . T.unpack
         tastylog "phase 1..."
@@ -354,50 +355,51 @@ test
     -> ChainwebVersion
     -> Natural
     -> Seconds
-    -> TestTree
-test loglevel v n seconds = testCaseSteps name $ \f ->
+    -> RocksDb
+    -> FilePath
+    -> (String -> IO ())
+    -> IO ()
+test loglevel v n seconds rdb pactDbDir step = do
     -- Count log messages and only print the first 60 messages
-    withTempRocksDb "multinode-tests" $ \rdb ->
-    withSystemTempDirectory "replay-test-pact" $ \pactDbDir -> do
-        let tastylog = f . T.unpack
-        let logFun = tastylog
-            maxLogMsgs = 60
-        var <- newMVar (0 :: Int)
-        let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
-                when (c < maxLogMsgs) (logFun msg)
-        stateVar <- newMVar (emptyConsensusState v)
-        runNodesForSeconds loglevel countedLog (multiConfig v n) n seconds rdb pactDbDir
-            (harvestConsensusState (genericLogger loglevel logFun) stateVar)
-        consensusStateSummary <$> readMVar stateVar >>= \case
-            Nothing -> assertFailure "chainweb didn't make any progress"
-            Just stats -> do
-                logsCount <- readMVar var
-                tastylog $ "Number of logs: " <> sshow logsCount
-                tastylog $ "Expected BlockCount: " <> sshow (expectedBlockCount v seconds) -- 80 + 19.5 * 20
-                tastylog $ encodeToText stats
-                tastylog $ encodeToText $ object
-                    [ "maxEfficiency%" .= (realToFrac (bc $ _statMaxHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                    , "minEfficiency%" .= (realToFrac (bc $ _statMinHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                    , "medEfficiency%" .= (realToFrac (bc $ _statMedHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                    , "avgEfficiency%" .= (realToFrac (bc $ round (_statAvgHeight stats)) * (100 :: Double) / int (_statBlockCount stats))
-                    ]
+    let tastylog = step . T.unpack
+    let logFun = tastylog
+        maxLogMsgs = 60
+    var <- newMVar (0 :: Int)
+    let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
+            when (c < maxLogMsgs) (logFun msg)
+    stateVar <- newMVar (emptyConsensusState v)
+    runNodesForSeconds loglevel countedLog (multiConfig v n) n seconds rdb pactDbDir
+        (harvestConsensusState (genericLogger loglevel logFun) stateVar)
+    consensusStateSummary <$> readMVar stateVar >>= \case
+        Nothing -> assertFailure "chainweb didn't make any progress"
+        Just stats -> do
+            logsCount <- readMVar var
+            tastylog $ "Number of logs: " <> sshow logsCount
+            tastylog $ "Expected BlockCount: " <> sshow (expectedBlockCount v seconds) -- 80 + 19.5 * 20
+            tastylog $ encodeToText stats
+            tastylog $ encodeToText $ object
+                [ "maxEfficiency%" .= (realToFrac (bc $ _statMaxHeight stats) * (100 :: Double) / int (_statBlockCount stats))
+                , "minEfficiency%" .= (realToFrac (bc $ _statMinHeight stats) * (100 :: Double) / int (_statBlockCount stats))
+                , "medEfficiency%" .= (realToFrac (bc $ _statMedHeight stats) * (100 :: Double) / int (_statBlockCount stats))
+                , "avgEfficiency%" .= (realToFrac (bc $ round (_statAvgHeight stats)) * (100 :: Double) / int (_statBlockCount stats))
+                ]
 
-                (assertGe "number of blocks") (Actual $ _statBlockCount stats) (Expected $ _statBlockCount l)
-                (assertGe "maximum cut height") (Actual $ _statMaxHeight stats) (Expected $ _statMaxHeight l)
-                (assertGe "minimum cut height") (Actual $ _statMinHeight stats) (Expected $ _statMinHeight l)
-                (assertGe "median cut height") (Actual $ _statMedHeight stats) (Expected $ _statMedHeight l)
-                (assertGe "average cut height") (Actual $ _statAvgHeight stats) (Expected $ _statAvgHeight l)
+            (assertGe "number of blocks") (Actual $ _statBlockCount stats) (Expected $ _statBlockCount l)
+            (assertGe "maximum cut height") (Actual $ _statMaxHeight stats) (Expected $ _statMaxHeight l)
+            (assertGe "minimum cut height") (Actual $ _statMinHeight stats) (Expected $ _statMinHeight l)
+            (assertGe "median cut height") (Actual $ _statMedHeight stats) (Expected $ _statMedHeight l)
+            (assertGe "average cut height") (Actual $ _statAvgHeight stats) (Expected $ _statAvgHeight l)
 
-                (assertLe "maximum cut height") (Actual $ _statMaxHeight stats) (Expected $ _statMaxHeight u)
-                (assertLe "minimum cut height") (Actual $ _statMinHeight stats) (Expected $ _statMinHeight u)
-                (assertLe "median cut height") (Actual $ _statMedHeight stats) (Expected $ _statMedHeight u)
-                (assertLe "average cut height") (Actual $ _statAvgHeight stats) (Expected $ _statAvgHeight u)
+            (assertLe "maximum cut height") (Actual $ _statMaxHeight stats) (Expected $ _statMaxHeight u)
+            (assertLe "minimum cut height") (Actual $ _statMinHeight stats) (Expected $ _statMinHeight u)
+            (assertLe "median cut height") (Actual $ _statMedHeight stats) (Expected $ _statMedHeight u)
+            (assertLe "average cut height") (Actual $ _statAvgHeight stats) (Expected $ _statAvgHeight u)
 
   where
     l = lowerStats v seconds
     u = upperStats v seconds
 
-    name = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ")"
+    name = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ", version: " <> sshow (_versionName v) <> ")"
 
     bc x = blockCountAtCutHeight v x - order (chainGraphAtCutHeight v x)
 
@@ -502,4 +504,3 @@ upperStats v seconds = Stats
   where
     ebc = expectedBlockCount v seconds
     ech = expectedCutHeightAfterSeconds v seconds
-
