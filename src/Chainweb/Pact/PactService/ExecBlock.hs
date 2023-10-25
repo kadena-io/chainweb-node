@@ -139,7 +139,7 @@ execBlock currHeader plData pdbenv = do
     -- prop_tx_ttl_validate
     valids <- liftIO $ V.zip trans <$>
         validateChainwebTxs logger v cid cp txValidationTime
-            (_blockHeight currHeader) trans skipDebitGas
+            (_blockHeight currHeader) trans "called from execBlock" skipDebitGas
 
     case foldr handleValids [] valids of
       [] -> return ()
@@ -208,9 +208,10 @@ validateChainwebTxs
     -> BlockHeight
         -- ^ Current block height
     -> Vector ChainwebTransaction
+    -> String
     -> RunGas
     -> IO ValidateTxs
-validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
+validateChainwebTxs logger v cid cp txValidationTime bh txs calledFrom doBuyGas
   | bh == genesisHeight v cid = pure $! V.map Right txs
   | V.null txs = pure V.empty
   | otherwise = go
@@ -237,7 +238,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
         | assertTxTimeRelativeToParent txValidationTime $ fmap payloadObj t = return $ Right t
         -- | otherwise = return $ Left InsertErrorInvalidTime
         | otherwise =
-            let (s,str) = assertTxTimeRelativeToParentWithErrorMessage txValidationTime (fmap payloadObj t)
+            let (s,str) = assertTxTimeRelativeToParentWithErrorMessage txValidationTime (fmap payloadObj t) calledFrom
             in return $ Left $ InsertErrorOther $ sshow s <> " (tx: " <> sshow (P._cmdHash t) <> ")" <> ": " <> sshow str
 
 

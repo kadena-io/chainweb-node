@@ -190,8 +190,9 @@ assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidation
 assertTxTimeRelativeToParentWithErrorMessage
   :: ParentCreationTime
   -> P.Command (P.Payload P.PublicMeta c)
+  -> String
   -> ([Bool], String)
-assertTxTimeRelativeToParentWithErrorMessage (ParentCreationTime (BlockCreationTime txValidationTime)) tx =
+assertTxTimeRelativeToParentWithErrorMessage (ParentCreationTime (BlockCreationTime txValidationTime)) tx calledFrom =
     ([ ttl > 0
     , txValidationTime >= timeFromSeconds 0
     , txOriginationTime >= 0
@@ -199,9 +200,18 @@ assertTxTimeRelativeToParentWithErrorMessage (ParentCreationTime (BlockCreationT
     , timeFromSeconds (txOriginationTime) <= lenientTxValidationTime
     , timeFromSeconds (txOriginationTime + ttl) > txValidationTime
     , P.TTLSeconds ttl <= defaultMaxTTL
-    ]
-    , "(" <> show (timeFromSeconds txOriginationTime) <> "," <> show lenientTxValidationTime <> ")"
-    )
+    ],
+     mconcat
+      [ calledFrom
+      , " ("
+      , show (timeFromSeconds txOriginationTime)
+      , ","
+      , show txValidationTime
+      , ","
+      , show lenientTxValidationTime
+      , ")"
+      ])
+
   where
     P.TTLSeconds ttl = view cmdTimeToLive tx
     timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
