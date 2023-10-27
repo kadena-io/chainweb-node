@@ -72,9 +72,9 @@ defTtl = 60 * 60 * 2 -- 2 hours
 -- Thus, all failing tests are expected to already fail during pre block
 -- validation.
 --
-tests :: RocksDb -> ScheduledTest
-tests rdb = ScheduledTest "Chainweb.Test.Pact.TTL" $
-    testGroup "timing tests"
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "Chainweb.Test.Pact.TTL"
+    [ testGroup "timing tests"
         [ withTestPact rdb testTxTime
         , withTestPact rdb testTxTimeLenient
         , withTestPact rdb testTxTimeFail1
@@ -86,6 +86,7 @@ tests rdb = ScheduledTest "Chainweb.Test.Pact.TTL" $
         , withTestPact rdb testJustMadeItSmall
         , withTestPact rdb testJustMadeItLarge
         ]
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- Tests

@@ -36,7 +36,7 @@ import Pact.Interpreter (PactDbEnv(..))
 import Pact.Types.RowData (RowData(..), RowDataVersion(..), RowDataValue(..))
 import Pact.Types.Runtime (PactDb(..), Domain(..), ExecutionMode(..), Literal(..), WriteType(..), ObjectMap(..), TableName(..), RowKey(..))
 
-import Test.Tasty (TestTree)
+import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, {-assertEqual,-} assertFailure)
 
 import System.Logger (LogLevel(..))
@@ -54,7 +54,7 @@ import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..), PactDbEnv'(..), Checkpointer(..), BlockEnv, ParentHash, initBlockState, bsModuleNameFix)
 import Chainweb.Test.Pact.Utils (dummyLogger)
 import Chainweb.Test.TestVersions
-import Chainweb.Test.Utils (ScheduledTest, testGroupSch, withTempSQLiteResource, getArbitrary, withResourceT)
+import Chainweb.Test.Utils (withTempSQLiteResource, getArbitrary, withResourceT)
 import Chainweb.Version (ChainwebVersion(..), ChainId, unsafeChainId)
 
 import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
@@ -64,8 +64,8 @@ import Pact.Types.SQLite qualified as Pact
 -- -------------------------------------------------------------------------- --
 -- Tests
 
-tests :: ScheduledTest
-tests = testGroupSch "Chainweb.Test.Pact.Compaction"
+tests :: TestTree
+tests = testGroup "Chainweb.Test.Pact.Compaction"
     [ testCompactCheckpointer
     ]
 

@@ -67,8 +67,8 @@ import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
 -- -------------------------------------------------------------------------- --
 -- Tests
 
-tests :: ScheduledTest
-tests = testGroupSch "Checkpointer"
+tests :: TestTree
+tests = testGroup "Checkpointer"
     [ testRelational
     , testKeyset
     , testModuleName
