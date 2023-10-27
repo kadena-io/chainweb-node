@@ -569,44 +569,45 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
                 <> sshow goodLength <> ", bad=" <> sshow badLength
 
           -- LOOP INVARIANT: limit absolute recursion count
-          when (_bfCount bfState > fetchLimit) $
-            throwM $ MempoolFillFailure $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
+          if _bfCount bfState > fetchLimit then do
+            logInfo $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
+            pure unchanged
+          else do
+            when (_bfGasLimit bfState < 0) $
+              throwM $ MempoolFillFailure $ "Internal error, negative gas limit: " <> sshow bfState
 
-          when (_bfGasLimit bfState < 0) $
-            throwM $ MempoolFillFailure $ "Internal error, negative gas limit: " <> sshow bfState
+            if _bfGasLimit bfState == 0 then pure unchanged else do
 
-          if _bfGasLimit bfState == 0 then pure unchanged else do
+              newTrans <- getBlockTxs bfState
+              if V.null newTrans then pure unchanged else do
 
-            newTrans <- getBlockTxs bfState
-            if V.null newTrans then pure unchanged else do
+                pairs <- execTransactionsOnly miner newTrans pdbenv
+                  (Just txTimeLimit) `catch` handleTimeout
 
-              pairs <- execTransactionsOnly miner newTrans pdbenv
-                (Just txTimeLimit) `catch` handleTimeout
+                (oldPairsLength, oldFailsLength) <- liftIO $ (,)
+                  <$> Vec.length successes
+                  <*> Vec.length failures
 
-              (oldPairsLength, oldFailsLength) <- liftIO $ (,)
-                <$> Vec.length successes
-                <*> Vec.length failures
+                newState <- foldM (splitResults successes failures) unchanged pairs
 
-              newState <- foldM (splitResults successes failures) unchanged pairs
+                -- LOOP INVARIANT: gas must not increase
+                when (_bfGasLimit newState > _bfGasLimit bfState) $
+                  throwM $ MempoolFillFailure $ "Gas must not increase: " <> sshow (bfState,newState)
 
-              -- LOOP INVARIANT: gas must not increase
-              when (_bfGasLimit newState > _bfGasLimit bfState) $
-                throwM $ MempoolFillFailure $ "Gas must not increase: " <> sshow (bfState,newState)
+                (newPairsLength, newFailsLength) <- liftIO $ (,)
+                  <$> Vec.length successes
+                  <*> Vec.length failures
+                let newSuccessCount = newPairsLength - oldPairsLength
+                let newFailCount = newFailsLength - oldFailsLength
 
-              (newPairsLength, newFailsLength) <- liftIO $ (,)
-                <$> Vec.length successes
-                <*> Vec.length failures
-              let newSuccessCount = newPairsLength - oldPairsLength
-              let newFailCount = newFailsLength - oldFailsLength
-
-              -- LOOP INVARIANT: gas must decrease ...
-              if (_bfGasLimit newState < _bfGasLimit bfState)
-                  -- ... OR only non-zero failures were returned.
-                 || (newSuccessCount == 0  && newFailCount > 0)
-                  then go (incCount newState)
-                  else throwM $ MempoolFillFailure $ "Invariant failure: " <>
-                       sshow (bfState,newState,V.length newTrans
-                             ,newPairsLength,newFailsLength)
+                -- LOOP INVARIANT: gas must decrease ...
+                if (_bfGasLimit newState < _bfGasLimit bfState)
+                    -- ... OR only non-zero failures were returned.
+                   || (newSuccessCount == 0  && newFailCount > 0)
+                    then go (incCount newState)
+                    else throwM $ MempoolFillFailure $ "Invariant failure: " <>
+                         sshow (bfState,newState,V.length newTrans
+                               ,newPairsLength,newFailsLength)
 
     incCount :: BlockFill -> BlockFill
     incCount b = over bfCount succ b
