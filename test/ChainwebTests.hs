@@ -63,8 +63,7 @@ import qualified Chainweb.Test.Sync.WebBlockHeaderStore (properties)
 import qualified Chainweb.Test.TreeDB (properties)
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import Chainweb.Test.Utils
-    (RunStyle(..), ScheduledTest(..), schedule, testGroupSch, toyChainId,
-    withToyDB)
+    (toyChainId, withToyDB)
 import qualified Chainweb.Test.Version (tests)
 import qualified Chainweb.Test.Chainweb.Utils.Paging (properties)
 import Chainweb.Version.Development
@@ -88,7 +87,7 @@ main = do
             (h0, db) <- withToyDB rdb toyChainId
             liftIO $ defaultMainWithIngredients (consoleAndJsonReporter : defaultIngredients)
                 $ adjustOption adj
-                $ testGroup "Chainweb Tests" . schedule Sequential
+                $ testGroup "Chainweb Tests"
                 $ pactTestSuite rdb
                 : mempoolTestSuite db h0
                 : rosettaTestSuite rdb
@@ -97,35 +96,34 @@ main = do
     adj NoTimeout = Timeout (1_000_000 * 60 * 10) "10m"
     adj x = x
 
-mempoolTestSuite :: BlockHeaderDb -> BlockHeader -> ScheduledTest
-mempoolTestSuite db genesisBlock = testGroupSch "Mempool Consensus Tests"
-    $ schedule Sequential [Chainweb.Test.Mempool.Consensus.tests db genesisBlock]
+mempoolTestSuite :: BlockHeaderDb -> BlockHeader -> TestTree
+mempoolTestSuite db genesisBlock = testGroup "Mempool Consensus Tests"
+    [Chainweb.Test.Mempool.Consensus.tests db genesisBlock]
 
-pactTestSuite :: RocksDb -> ScheduledTest
-pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
-    $ schedule Sequential
-        [ Chainweb.Test.Pact.PactExec.tests
-        , ScheduledTest "DbCacheTests" Chainweb.Test.Pact.DbCacheTest.tests
-        , Chainweb.Test.Pact.Compaction.tests
-        , Chainweb.Test.Pact.Checkpointer.tests
-        , Chainweb.Test.Pact.PactMultiChainTest.tests
-        , Chainweb.Test.Pact.PactSingleChainTest.tests rdb
-        , Chainweb.Test.Pact.RemotePactTest.tests rdb
-        , Chainweb.Test.Pact.PactReplay.tests rdb
-        , Chainweb.Test.Pact.ModuleCacheOnRestart.tests rdb
-        , Chainweb.Test.Pact.TTL.tests rdb
-        , Chainweb.Test.Pact.RewardsTest.tests
-        , Chainweb.Test.Pact.NoCoinbase.tests
-        ]
+pactTestSuite :: RocksDb -> TestTree
+pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
+    [ Chainweb.Test.Pact.PactExec.tests
+    , Chainweb.Test.Pact.DbCacheTest.tests
+    , Chainweb.Test.Pact.Compaction.tests
+    , Chainweb.Test.Pact.Checkpointer.tests
+    , Chainweb.Test.Pact.PactMultiChainTest.tests
+    , Chainweb.Test.Pact.PactSingleChainTest.tests rdb
+    , Chainweb.Test.Pact.RemotePactTest.tests rdb
+    , Chainweb.Test.Pact.PactReplay.tests rdb
+    , Chainweb.Test.Pact.ModuleCacheOnRestart.tests rdb
+    , Chainweb.Test.Pact.TTL.tests rdb
+    , Chainweb.Test.Pact.RewardsTest.tests
+    , Chainweb.Test.Pact.NoCoinbase.tests
+    ]
 
-rosettaTestSuite :: RocksDb -> ScheduledTest
-rosettaTestSuite rdb = testGroupSch "Chainweb-Rosetta API Tests" $ schedule Sequential
+rosettaTestSuite :: RocksDb -> TestTree
+rosettaTestSuite rdb = testGroup "Chainweb-Rosetta API Tests"
     [ Chainweb.Test.Rosetta.RestAPI.tests rdb
     ]
 
-suite :: RocksDb -> [ScheduledTest]
+suite :: RocksDb -> [TestTree]
 suite rdb =
-    [ testGroupSch "Chainweb Unit Tests"
+    [ testGroup "Chainweb Unit Tests"
         [ testGroup "BlockHeaderDb"
             [ Chainweb.Test.BlockHeaderDB.tests rdb
             , Chainweb.Test.TreeDB.RemoteDB.tests

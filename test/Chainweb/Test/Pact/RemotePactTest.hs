@@ -121,7 +121,7 @@ withRequestKeys t cenv = do
     testSend t mNonce cenv
 
 -- ------------------------------------------------------------------------- --
--- Tests. GHCI use `runSchedRocks tests`
+-- Tests. GHCI use `runRocks tests`
 -- also:
 -- :set -package retry
 -- :set -package extra
@@ -129,8 +129,8 @@ withRequestKeys t cenv = do
 -- | Note: These tests are intermittently non-deterministic due to the way
 -- random chain sampling works with our test harnesses.
 --
-tests :: RocksDb -> ScheduledTest
-tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
     [ withResourceT (withNodesAtLatestBehavior v "remotePactTest-" rdb nNodes) $ \net ->
         withResource' getCurrentTimeIntegral $ \(iotm :: IO (Time Micros)) ->
             let cenv = _getServiceClientEnv <$> net

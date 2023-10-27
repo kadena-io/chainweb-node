@@ -12,6 +12,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Chainweb.Pact.RestAPI.Server
 ( PactServerData(..)
@@ -633,7 +634,7 @@ internalPoll pdb bhdb mempool pactEx cut confDepth requestKeys0 = do
         let matchingHash = (== pactHash) . _cmdHash . fst
         blockHeader <- liftIO $ TreeDB.lookupM bhdb bHash
         let payloadHash = _blockPayloadHash blockHeader
-        (PayloadWithOutputs txsBs _ _ _ _ _) <- MaybeT $ tableLookup pdb payloadHash
+        (_payloadWithOutputsTransactions -> txsBs) <- MaybeT $ tableLookup pdb payloadHash
         !txs <- mapM fromTx txsBs
         case find matchingHash txs of
             Just (_cmd, TransactionOutput output) -> do
