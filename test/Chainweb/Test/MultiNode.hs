@@ -61,7 +61,6 @@ import System.IO.Temp
 import System.LogLevel
 import System.Timeout
 
-import Test.Tasty
 import Test.Tasty.HUnit
 
 -- internal modules
@@ -344,8 +343,6 @@ replayTest loglevel v n rdb pactDbDir step = do
                 _ -> error "replayTest: not a replay"
         assertEqual "second replay completion" True =<< readIORef secondReplayCompleteRef
         tastylog "done."
-    where
-    name = "Replay network"
 
 -- -------------------------------------------------------------------------- --
 -- Test
@@ -398,8 +395,6 @@ test loglevel v n seconds rdb pactDbDir step = do
   where
     l = lowerStats v seconds
     u = upperStats v seconds
-
-    name = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ", version: " <> sshow (_versionName v) <> ")"
 
     bc x = blockCountAtCutHeight v x - order (chainGraphAtCutHeight v x)
 
