@@ -107,7 +107,7 @@ topLevelCommands =
       "Compact pact database"
       Chainweb.Pact.Backend.Compaction.main
   , CommandSpec
-      "pact-db-compare"
+      "compact-compare"
       "Compare pre- and post-compaction state"
       Chainweb.Pact.Backend.PactState.main
   , CommandSpec

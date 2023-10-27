@@ -26,6 +26,10 @@
 -- There are other utilities provided by this module whose purpose is either
 -- to get the pact state or perform diffs, without compacting.
 --
+-- The code in this module operates primarily on 'Stream's, because the amount
+-- of user data can grow quite large. by comparing one table at a time, we can
+-- keep maximum memory utilisation in check.
+--
 
 module Chainweb.Pact.Backend.PactState
   ( getPactTables
@@ -41,6 +45,7 @@ module Chainweb.Pact.Backend.PactState
   )
   where
 
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Control.Concurrent.MVar (MVar, putMVar, takeMVar, newEmptyMVar)
 import UnliftIO.Async (pooledMapConcurrentlyN_)
 import Control.Lens (over)
@@ -65,9 +70,8 @@ import Options.Applicative
 import Patience qualified
 import Patience.Map qualified as PatienceM
 import Patience.Delta (Delta(..))
-import System.Directory (copyFile, listDirectory)
+import System.Directory (copyFile, listDirectory, createDirectoryIfMissing)
 import System.FilePath ((</>), takeExtension)
-import System.IO.Temp (withSystemTempDirectory)
 
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Utils (sshow, HasTextRepresentation, fromText, toText, int)
@@ -200,9 +204,6 @@ data UserTableDiff = UserTableDiff
   }
   deriving stock (Eq, Ord, Show)
 
---instance NFData UserTableDiff where
---  rnf (UserTableDiff x y) = rnf x `seq` rnf y `seq` ()
-
 instance ToJSON UserTableDiff where
   toJSON utd = Aeson.object
     [ "table_name" .= utd.tableName
@@ -260,6 +261,7 @@ utf8ToText (Utf8 u) = Text.decodeUtf8 u
 
 data Config = Config
   { pactDbDir :: FilePath
+  , compactDir :: FilePath
   , chainwebVersion :: ChainwebVersion
   , logDir :: FilePath
   , numThreads :: Int
@@ -280,26 +282,35 @@ main = do
 
   -- Compaction is destructive. In order to do a streaming diff, we need to make
   -- a copy of the pact state.
-  withSystemTempDirectory "pact-compact-diff" $ \tmpPactDbDir -> do
+  do
+    createDirectoryIfMissing False cfg.compactDir
     sqliteFiles <- List.filter (\file -> takeExtension file == ".sqlite") <$> listDirectory cfg.pactDbDir
     forM_ sqliteFiles $ \file -> do
       let src = cfg.pactDbDir </> file
-      let dst = tmpPactDbDir </> file
+      let dst = cfg.compactDir </> file
       copyFile src dst
 
-    flip (pooledMapConcurrentlyN_ cfg.numThreads) cids $ \cid -> do
-      C.withPerChainFileLogger cfg.logDir cid Debug $ \logger' -> do
-        let logger = over setLoggerScope (("chain-id", sshow cid) :) logger'
-        let resetDb = False
-        withSqliteDb cid logger tmpPactDbDir resetDb $ \(SQLiteEnv tmpDb _) -> do
-          latestBlockHeight <- getLatestBlockHeight tmpDb
-          void $ C.compact latestBlockHeight logger tmpDb []
+  flip (pooledMapConcurrentlyN_ cfg.numThreads) cids $ \cid -> do
+    C.withPerChainFileLogger cfg.logDir cid Debug $ \logger' -> do
+      let logger = over setLoggerScope (("chain-id", sshow cid) :) logger'
+      let resetDb = False
+      withSqliteDb cid logger cfg.compactDir resetDb $ \(SQLiteEnv cpDb _) -> do
+        latestBlockHeight <- getLatestBlockHeight cpDb
+        void $ C.compact latestBlockHeight logger cpDb []
 
-          withSqliteDb cid logger cfg.pactDbDir resetDb $ \(SQLiteEnv db _) -> do
-            let diff = diffLatestPactState (getLatestPactState db) (getLatestPactState tmpDb)
-            flip S.mapM_ diff $ \utd -> do
-              loggerFunIO logger Warn $ toLogMessage $
-                TextLog $ Text.decodeUtf8 $ BSL.toStrict $ Aeson.encode utd
+        withSqliteDb cid logger cfg.pactDbDir resetDb $ \(SQLiteEnv db _) -> do
+          diffEmptyRef <- newIORef True
+
+          let diff = diffLatestPactState (getLatestPactState db) (getLatestPactState cpDb)
+          flip S.mapM_ diff $ \utd -> do
+            writeIORef diffEmptyRef False
+            loggerFunIO logger Warn $ toLogMessage $
+              TextLog $ Text.decodeUtf8 $ BSL.toStrict $ Aeson.encode utd
+
+          diffEmpty <- readIORef diffEmptyRef
+          when (not diffEmpty) $ do
+            pure ()
+            -- TODO: print error message, then exitFailure 1
   where
     opts :: ParserInfo Config
     opts = info (parser <**> helper)
@@ -308,13 +319,15 @@ main = do
     parser :: Parser Config
     parser = Config
       <$> strOption
-           (short 'd'
-            <> long "pact-database-dir"
+           (long "pact-database-dir"
             <> metavar "PACT_DB_DIRECTORY"
             <> help "Pact database directory")
+      <*> strOption
+           (long "compact-dir"
+            <> metavar "PACT_DB_DIRECTORY"
+            <> help "Copy the Pact database")
       <*> (fmap (lookupVersionByName . fromTextSilly @ChainwebVersionName) $ strOption
-           (short 'v'
-            <> long "graph-version"
+           (long "graph-version"
             <> metavar "CHAINWEB_VERSION"
             <> help "Chainweb version for graph. Only needed for non-standard graphs."
             <> value (toText (_versionName mainnet))
