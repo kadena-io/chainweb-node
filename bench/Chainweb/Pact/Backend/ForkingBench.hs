@@ -14,8 +14,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
-{-# options_ghc -fno-warn-unused-local-binds -fno-warn-unused-top-binds #-}
-
 module Chainweb.Pact.Backend.ForkingBench ( bench ) where
 
 import Control.Concurrent.Async
@@ -210,7 +208,6 @@ reportPayloads = do
   putStrLn $ "numBlocks: " ++ show (M.size blocks)
   forM_ (List.sortOn (_blockHeight . fst) (M.toList blocks)) $ \(bh, p) -> do
     let txs = _payloadWithOutputsTransactions p
-    --when (not (V.null txs)) $ do
     putStrLn $ "Block @ height " ++ show (_blockHeight bh) ++ " (" ++ show (_blockHash bh) ++ ")" ++ " has " ++ show (V.length txs) ++ " txs."
 
 clearPayloads :: IO ()
@@ -238,7 +235,6 @@ createBlock validate parent nonce pact = do
               creationTime
               parent
 
-     --payloadsRef :: IORef (Int, Map (Int, BlockHash) PayloadWithOutputs)
      atomicModifyIORef' payloadsRef $ \m -> (M.insert bh payload m, ())
 
      when validate $ do
@@ -300,8 +296,8 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
     destroy (NoopNFData (Resources {..})) = do
       stopPact pactService
       stopSqliteDb sqlEnv
-      --reportPayloads
-      --clearPayloads
+      when (logLevel >= Debug) reportPayloads
+      clearPayloads
 
     pactQueueSize = 2000
 
