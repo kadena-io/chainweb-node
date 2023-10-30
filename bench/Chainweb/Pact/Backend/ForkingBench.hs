@@ -165,8 +165,8 @@ playLine
     -> PactQueue
     -> IORef Word64
     -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
-playLine pdb bhdb trunkLength startingBlock pactQueue x =
-    mineLine startingBlock trunkLength x
+playLine pdb bhdb trunkLength startingBlock pactQueue counter =
+    mineLine startingBlock trunkLength counter
   where
     mineLine :: BlockHeader -> Word64 -> IORef Word64 -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
     mineLine start l ncounter =
@@ -178,7 +178,6 @@ playLine pdb bhdb trunkLength startingBlock pactQueue x =
             r <- ask
             pblock <- gets ParentHeader
             n <- liftIO $ Nonce <$> readIORef ncounter
-            --liftIO $ putStrLn "minin a block!!!!!!!!!!!!"
             ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n pdb bhdb r
             liftIO $ modifyIORef' ncounter succ
             put newblock
@@ -346,18 +345,11 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
 --
 testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty Ed25519KeyPairCaps)) -> IO MemPoolAccess
 testMemPoolAccess txsPerBlock accounts = do
-  --madeTx <- newIORef False
   return $ mempty
     { mpaGetBlock = \bf validate bh hash header -> do
-        --madeTxYet <- readIORef madeTx
-        --if madeTxYet
-        --then do
-        --  pure mempty
-        --else do
-          if _bfCount bf /= 0 then pure mempty else do
-            testBlock <- getTestBlock accounts (_bct $ _blockCreationTime header) validate bh hash
-            --writeIORef madeTx True
-            pure testBlock
+        if _bfCount bf /= 0 then pure mempty else do
+          testBlock <- getTestBlock accounts (_bct $ _blockCreationTime header) validate bh hash
+          pure testBlock
     }
   where
 
@@ -582,6 +574,3 @@ makeMeta c = do
         , _pmTTL = 3600
         , _pmCreationTime = t
         }
-
---ifilter :: (a -> Bool) -> [a] -> [(Word, a)]
---ifilter keep as = filter (keep . snd) (zip [0..] as)
