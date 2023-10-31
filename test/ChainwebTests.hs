@@ -121,8 +121,8 @@ rosettaTestSuite rdb = testGroup "Chainweb-Rosetta API Tests"
 
 suite :: RocksDb -> [TestTree]
 suite rdb =
-    [ testGroup "Chainweb Unit Tests"
-        [ testGroup "BlockHeaderDb"
+    [ -- testGroup "Chainweb Unit Tests"
+        -- [ testGroup "BlockHeaderDb"
         --     [ Chainweb.Test.BlockHeaderDB.tests rdb
         --     , Chainweb.Test.TreeDB.RemoteDB.tests
         --     , Chainweb.Test.BlockHeaderDB.PruneForks.tests
@@ -156,5 +156,5 @@ suite rdb =
         -- , testProperties "Chainweb.Test.Difficulty" Chainweb.Test.Difficulty.properties
         -- , testProperties "Data.Test.Word.Encoding" Data.Test.Word.Encoding.properties
         -- , testProperties "Chainweb.Test.Cut" (Chainweb.Test.Cut.properties rdb)
-        ]
+        -- ]
     ]

@@ -44,6 +44,7 @@ import Control.Monad.Trans.Except
 import Data.Aeson hiding (Object, (.=))
 import Data.Bifunctor
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.Default (def)
 import qualified Data.ByteString.Base64 as B64
@@ -443,7 +444,7 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
     let
       om = _objectMap $ _oObject o
       base64message = om ^? at "encodedMessage" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-      base64metadata = om ^? at "base64metadata" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
+      base64metadata = om ^? at "encodedMetadata" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
     message <- case base64message of
         Nothing -> throwError "Decoding of HyperlaneMessage failed: missing message field"
         Just b -> BL.fromStrict <$> decodeB64Text b
@@ -451,7 +452,7 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
     let HyperlaneMessage{..} = Binary.decode message
 
     metadata <- case base64metadata of
-        Nothing -> throwError "Decoding of Metadata failed: missing message field"
+        Nothing -> throwError "Decoding of Metadata failed: missing metadata field"
         Just b -> BL.fromStrict <$> decodeB64Text b
 
     let MessageIdMultisigIsmMetadata{..} = Binary.decode metadata
@@ -464,12 +465,20 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
     let digest = keccak256 $ BL.toStrict $ Binary.encode $ DigestPayload hash
 
     fnDigest <- ECDSA.ecdsaMessageDigest $ _getBytesN $ _getKeccak256Hash digest
-    fnR <- ECDSA.ecdsaR undefined
-    fnS <- ECDSA.ecdsaS undefined
-    let recoverAddress s = ECDSA.ecdsaRecoverPublicKey fnDigest fnR fnS False False
-    let addresses = map recoverAddress mmimSignatures
+    let
+      mkR s = ECDSA.ecdsaR $ BS.toShort s
+      mkS s = ECDSA.ecdsaS $ BS.toShort s
+      recoverAddress sig = do
+        let (begin, end) = B.splitAt 32 sig
+        r <- mkR begin
+        s <- mkS (B.take 32 end)
+        pure $ ECDSA.ecdsaRecoverPublicKey fnDigest r s False False <&> getAddress
 
-    return undefined
+    addresses <- mapM recoverAddress mmimSignatures
+    let mkHexText = ((<>) "0x") . Text.decodeUtf8 . B.toStrict . Builder.toLazyByteString . Builder.byteStringHex
+    let addrs = map (tStr . asString . mkHexText) $ catMaybes addresses
+
+    return $ mkObject [ ("addresses", toTList TyAny def addrs) ]
 
   (Nothing, _) -> throwError "Missing command name"
   _ -> throwError "Unknown hyperlane command"
@@ -653,3 +662,7 @@ mkSPVResult CommandResult{..} j =
         ]
 
     empty = obj []
+
+-- | Returns an address, a rightmost 160 bits of the keccak hash of the public key.
+getAddress :: ECDSA.EcdsaPublicKey -> B.ByteString
+getAddress pubkey = B.drop 12 $ BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BS.fromShort $ ECDSA.ecdsaPublicKeyBytes pubkey
