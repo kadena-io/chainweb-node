@@ -64,14 +64,13 @@ import Data.Map.Strict qualified as M
 import Data.Ord (Down(..))
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.IO qualified as Text
 import Data.Text.Encoding qualified as Text
 import Database.SQLite3.Direct (Utf8(..), Database)
 import Options.Applicative
 import Patience qualified
 import Patience.Map qualified as PatienceM
 import Patience.Delta (Delta(..))
-import System.Directory (copyFile, listDirectory, createDirectoryIfMissing)
-import System.FilePath ((</>), takeExtension)
 
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Utils (sshow, HasTextRepresentation, fromText, toText, int)
@@ -83,8 +82,9 @@ import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Pact.Backend.Compaction qualified as C
 
-import System.Logger
-import Data.LogMessage
+import System.Exit (exitFailure)
+import System.Logger (LogLevel(..), setLoggerScope, loggerFunIO)
+import Data.LogMessage (TextLog(..), toLogMessage)
 
 import Pact.Types.SQLite (SType(..), RType(..))
 import Pact.Types.SQLite qualified as Pact
@@ -271,6 +271,10 @@ main :: IO ()
 main = do
   cfg <- execParser opts
 
+  when (cfg.pactDbDir == cfg.compactDir) $ do
+    Text.putStrLn "Pact database directory and compacted Pact database directory cannot be the same."
+    exitFailure
+
   cids <- do
     -- Get the latest block height on chain 0 for the purpose of calculating all
     -- the chain ids at the current (version,height) pair
@@ -279,16 +283,6 @@ main = do
       withSqliteDb (unsafeChainId 0) logger cfg.pactDbDir resetDb $ \(SQLiteEnv db _) -> do
         getLatestBlockHeight db
     pure $ List.sort $ F.toList $ chainIdsAt cfg.chainwebVersion latestBlockHeight
-
-  -- Compaction is destructive. In order to do a streaming diff, we need to make
-  -- a copy of the pact state.
-  do
-    createDirectoryIfMissing False cfg.compactDir
-    sqliteFiles <- List.filter (\file -> takeExtension file == ".sqlite") <$> listDirectory cfg.pactDbDir
-    forM_ sqliteFiles $ \file -> do
-      let src = cfg.pactDbDir </> file
-      let dst = cfg.compactDir </> file
-      copyFile src dst
 
   flip (pooledMapConcurrentlyN_ cfg.numThreads) cids $ \cid -> do
     C.withPerChainFileLogger cfg.logDir cid Debug $ \logger' -> do
@@ -309,8 +303,9 @@ main = do
 
           diffEmpty <- readIORef diffEmptyRef
           when (not diffEmpty) $ do
-            pure ()
-            -- TODO: print error message, then exitFailure 1
+            loggerFunIO logger Warn $ toLogMessage $
+              TextLog $ "Non-empty diff."
+            exitFailure
   where
     opts :: ParserInfo Config
     opts = info (parser <**> helper)
@@ -325,7 +320,7 @@ main = do
       <*> strOption
            (long "compact-dir"
             <> metavar "PACT_DB_DIRECTORY"
-            <> help "Copy the Pact database")
+            <> help "Copy of the pact database directory, will be compacted")
       <*> (fmap (lookupVersionByName . fromTextSilly @ChainwebVersionName) $ strOption
            (long "graph-version"
             <> metavar "CHAINWEB_VERSION"
