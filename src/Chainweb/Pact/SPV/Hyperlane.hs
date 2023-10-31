@@ -118,67 +118,61 @@ instance Binary TokenMessageERC721 where
     return $ TokenMessageERC721 {..}
 
 data MessageIdMultisigIsmMetadata = MessageIdMultisigIsmMetadata
-  { mmimOriginMerkleTreeAddress :: Text
-  , mmimSignedCheckpointRoot :: Text
+  { mmimOriginMerkleTreeAddress :: ByteString
+  , mmimSignedCheckpointRoot :: ByteString
   , mmimSignedCheckpointIndex :: Word256
-  , mmimSignatures :: [Text]
+  , mmimSignatures :: [ByteString]
   }
+
+-- example
+-- 6f726967696e4d65726b6c655472656541646472657373000000000000000000 32 originMerkleTreeAddress
+-- 6d65726b6c65526f6f7400000000000000000000000000000000000000000000 64 merkleRoot
+-- 00000000000000000000000000000000000000000000000000000000ffffffff 96 4294967295
+-- 0000000000000000000000000000000000000000000000000000000000000080 128 128
+-- 0000000000000000000000000000000000000000000000000000000000000041 160 65
+-- 4e45a1dc8d84b3a63db8c9c6cbe4e0a780ecb55ff157c038b9f5d1a2be7a0a02
+-- 77c3c8d8e6029f65f7f7b0ad8b80fae2b178d14c9a7b228a539349aad0c7b58b
+-- 1b00000000000000000000000000000000000000000000000000000000000000
 
 instance Binary MessageIdMultisigIsmMetadata where
   put = error "put instance is not implemented for MessageIdMultisigIsmMetadata"
 
   get = do
-    _firstOffset <- getWord256be
-    _secondOffset <- getWord256be
+    mmimOriginMerkleTreeAddress <- getBS 32
+    mmimSignedCheckpointRoot <- getBS 32
     mmimSignedCheckpointIndex <- getWord256be
-    _thirdOffset <- getWord256be
+    _firstOffset <- getWord256be
 
-    addressSize <- getWord256be
-    mmimOriginMerkleTreeAddress <- Text.decodeUtf8 <$> getBS addressSize
+    -- we don't care about the size, we know that each signature is 65 bytes long
+    _signaturesSize <- getWord256be
 
-    rootSize <- getWord256be
-    mmimSignedCheckpointRoot <- Text.decodeUtf8 <$> getBS rootSize
-
-    rootSize <- getWord256be
-    mmimSignedCheckpointRoot <- Text.decodeUtf8 <$> getBS rootSize
-
-    listSize <- getWord256be
-
-    _offsets <- replicateM (fromIntegral listSize) getWord256be
-
-    mmimSignatures <- replicateM (fromIntegral listSize) $ do
-      signatureSize <- getWord256be
-      signatureBody <- Text.decodeUtf8 <$> getBS signatureSize
-      return signatureBody
+    theRest <- BL.toStrict <$> getRemainingLazyByteString
+    let mmimSignatures = sliceSignatures theRest
 
     return $ MessageIdMultisigIsmMetadata{..}
 
 data DomainHashPayload = DomainHashPayload
   { dhpOrigin :: Word256
-  , dhpOriginMerkleTreeHook :: Text
+  , dhpOriginMerkleTreeHook :: ByteString
   }
 
 instance Binary DomainHashPayload where
   put (DomainHashPayload {..}) = do
-    put dhpOrigin            -- 32 bytes
-    put (96 :: Word256)      -- 32 bytes
-    put (96 + 32 + hookSize) -- 32 bytes
+    put dhpOrigin               -- 32 bytes
+    put dhpOriginMerkleTreeHook -- 32 bytes
+    put (96 :: Word256)         -- 32 bytes
     -- 96 bytes
-    put hookSize             -- 32 bytes
-    putBS hook               -- hookSize
-    -- 96 bytes + hookSize
     put nameSize             -- 32 bytes
     putBS name               -- nameSize
 
     where
-      (hook, hookSize) = padRight $ Text.encodeUtf8 dhpOriginMerkleTreeHook
       (name, nameSize) = padRight $ Text.encodeUtf8 "HYPERLANE"
 
   get = error "get instance is not implemented for DomainHashPayload"
 
 data DigestHashPayload = DigestHashPayload
   { dihpDomainHash :: ByteString
-  , dihpRoot :: Text
+  , dihpRoot :: ByteString
   , dihpIndex :: Word256
   , dihpId :: ByteString
   }
@@ -187,22 +181,18 @@ instance Binary DigestHashPayload where
   put (DigestHashPayload {..}) = do
     -- the first offset is constant
     put (128 :: Word256)                      -- 32 bytes
-    put (128 + 32 + hashSize)                 -- 32 bytes
+    put dihpRoot                              -- 32 bytes
     put dihpIndex                             -- 32 bytes
-    put (128 + 32 + hashSize + 32 + rootSize) -- 32 bytes
+    put (128 + 32 + hashSize)                 -- 32 bytes
     -- 128 bytes
     put hashSize                              -- 32 bytes
     putBS hash                                -- hashSize
-    -- 128 bytes + 32 bytes + hashSize
-    put rootSize                              -- 32 bytes
-    putBS root                                -- rootSize
-    -- 128 bytes + 32 bytes + hashSize + 32 bytes + rootSize
+    -- 128 bytes + 32 bytes + hashSize + 32 bytes
     put idSize                                -- 32 bytes
     putBS idContent                           -- idSize
 
     where
       (hash, hashSize) = padRight dihpDomainHash
-      (root, rootSize) = padRight $ Text.encodeUtf8 dihpRoot
       (idContent, idSize) = padRight dihpId
 
   get = error "get instance is not implemented for DigestHashPayload"
@@ -240,7 +230,7 @@ padLeft s = BS.replicate (32 - BS.length s) 0 <> s
 -- | Pad with zeroes on the right, such that the resulting size is a multiple of 32.
 --
 -- > padRight "hello world"
--- ("hello world\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL",32)
+-- ("hello world\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL",11)
 padRight :: ByteString -> (ByteString, Word256)
 padRight s =
   let
@@ -289,3 +279,10 @@ putWord256be = put
 
 getWord256be :: Get Word256
 getWord256be = get
+
+sliceSignatures :: ByteString -> [ByteString]
+sliceSignatures s = go s []
+  where
+    go s sigs = if BS.length s >= 65
+      then let (sig, rest) = BS.splitAt 65 s in go (BS.drop 65 s) (sig:sigs)
+      else Prelude.reverse sigs

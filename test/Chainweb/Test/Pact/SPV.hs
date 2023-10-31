@@ -40,6 +40,7 @@ import Data.Aeson as Aeson
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Char8 as B8
 
+import Data.Default (def)
 import Data.ByteString.Lazy (toStrict)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
@@ -68,10 +69,10 @@ import Pact.Types.Command
 import Pact.Types.Exp
 import Pact.Types.Hash
 import Pact.Types.PactValue
-import Pact.Types.Runtime (toPactId)
+import Pact.Types.Runtime (toPactId, Type(TyAny))
 import Pact.Types.SPV
 import Pact.Types.Term
-
+import Pact.Types.Util (AsString(..))
 
 -- internal chainweb modules
 
@@ -102,8 +103,6 @@ import Chainweb.Storage.Table (casLookupM)
 
 import Data.LogMessage
 
-import Pact.Types.Util (AsString(..))
-
 -- | Note: These tests are intermittently non-deterministic due to the way
 -- random chain sampling works with our test harnesses.
 --
@@ -131,6 +130,8 @@ tests = testGroup "Chainweb.Test.Pact.SPV"
 
       , testCase "encodeHyperlaneMessage" hyperlaneEncodeHyperlaneMessage
       , testCase "decodeHyperlaneMessage" hyperlaneDecodeHyperlaneMessage
+
+      , testCase "verifyHyperlaneMessage" hyperlaneVerifyHyperlaneMessage
       ]
     ]
 
@@ -317,6 +318,28 @@ hyperlaneDecodeHyperlaneMessage = do
           , ("recipient", tStr $ asString ("MjIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=" :: Text))
           , ("messageBody", tStr $ asString tokenMessage) ])
       , ("messageId", tStr $ asString ("HgwbcPaoC3aiHxVVlxBe1ziQPDjDa+1tRQog17EzGfE=" :: Text))
+      ]
+  case res of
+    Left _ -> assertFailure "Should get the result"
+    Right o -> assertEqual "Should properly decode the object" expectedObject o
+
+hyperlaneVerifyHyperlaneMessage :: Assertion
+hyperlaneVerifyHyperlaneMessage = do
+  let
+    encodedMessage :: Text = "AAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIMjIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTJBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUdBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFEQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFDS0FBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQXB5WldOcGNHbGxiblF4QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFKYldWMFlXUmhkR0V5QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQT0="
+    encodedMetadata :: Text = "b3JpZ2luTWVya2xlVHJlZUFkZHJlc3MAAAAAAAAAAABtZXJrbGVSb290AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQU5FodyNhLOmPbjJxsvk4KeA7LVf8VfAOLn10aK+egoCd8PI2OYCn2X397Cti4D64rF40UyaeyKKU5NJqtDHtYsbAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+    obj' = mkObject
+        [ ("cmd", tStr $ asString ("verify" :: Text))
+        , ("arg", obj
+          [ ("encodedMessage", tStr $ asString encodedMessage)
+          , ("encodedMetadata", tStr $ asString encodedMetadata)
+          ])
+        ]
+  res <- runExceptT $ evalHyperlaneCommand obj'
+
+  let
+    expectedObject = mkObject
+      [ ("addresses", toTList TyAny def [ tStr $ asString ("0x23dc3567f7376b1b1e8bbc0513ff0417ab5adbd0" :: Text) ])
       ]
   case res of
     Left _ -> assertFailure "Should get the result"
