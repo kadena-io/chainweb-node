@@ -26,7 +26,7 @@ import Data.Decimal
 import Numeric.Natural
 
 data HyperlaneMessage = HyperlaneMessage
-  { hmVersion :: Word256           -- uint8
+  { hmVersion :: Word32            -- uint8
   , hmNonce :: Word256             -- uint32
   , hmOriginDomain :: Word256      -- uint32
   , hmSender :: BS.ByteString      -- bytes32
@@ -37,46 +37,25 @@ data HyperlaneMessage = HyperlaneMessage
 
 instance Binary HyperlaneMessage where
   put (HyperlaneMessage {..}) = do
-    put hmVersion                                  -- 32 bytes
+    put hmVersion                                  -- 8 bytes
     put hmNonce                                    -- 32 bytes
     put hmOriginDomain                             -- 32 bytes
-    -- 96 bytes
-    put (96 + 32 * 4 :: Word256)                   -- 32 bytes
+    putBS sender                                   -- 32 bytes
     put hmDestinationDomain                        -- 32 bytes
-    put (96 + 32 * 5 + senderSize)                 -- 32 bytes
-    put (96 + 32 * 6 + senderSize + recipientSize) -- 32 bytes
-    -- 96 + 32 * 4
-    put senderSize                                 -- 32 bytes
-    putBS sender                                   -- senderSize
-    -- 96 + 32 * 5 + senderSize
-    put recipientSize                              -- 32 bytes
-    putBS recipient                                -- recipientSize
-    -- 96 + 32 * 6 + senderSize + recipientSize
-    put messageBodySize                            -- 32 bytes
-    putBS messageBody                              -- messageBodySize
+    putBS recipient                                -- 32 bytes
+    putBS (Text.encodeUtf8 hmMessageBody)          -- messageBodySize
     where
-      (sender, senderSize) = padRight hmSender
-      (recipient, recipientSize) = padRight hmRecipient
-      (messageBody, messageBodySize) = padRight $ Text.encodeUtf8 hmMessageBody
+      (sender, _) = padRight hmSender
+      (recipient, _) = padRight hmRecipient
 
   get = do
-    hmVersion <- getWord256be
+    hmVersion <- getWord32be
     hmNonce <- getWord256be
     hmOriginDomain <- getWord256be
-
-    _firstOffset <- getWord256be
+    hmSender <- getBS 32
     hmDestinationDomain <- getWord256be
-    _secondOffset <- getWord256be
-    _thirdOffset <- getWord256be
-
-    senderSize <- getWord256be
-    hmSender <- getBS senderSize
-
-    recipientSize <- getWord256be
-    hmRecipient <- getBS recipientSize
-
-    messageBodySize <- getWord256be
-    hmMessageBody <- Text.decodeUtf8 <$> getBS messageBodySize
+    hmRecipient <- getBS 32
+    hmMessageBody <- Text.decodeUtf8 . BL.toStrict <$> getRemainingLazyByteString
 
     return $ HyperlaneMessage {..}
 
