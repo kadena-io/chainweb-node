@@ -12,6 +12,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
+{-# options_ghc -Wwarn #-}
+
 module Chainweb.Test.Pact.PactSingleChainTest
 ( tests
 ) where
@@ -33,6 +35,7 @@ import Data.Either (isRight, fromRight)
 import Data.IORef
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
+import Data.Text (Text)
 import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
@@ -120,6 +123,7 @@ tests rdb = testGroup testName
   , rewindPastMinBlockHeightFails rdb
   , pactStateSamePreAndPostCompaction rdb
   , compactionIsIdempotent rdb
+  , compactionUserTablesDropped rdb
   ]
   where
     testName = "Chainweb.Test.Pact.PactSingleChainTest"
@@ -385,7 +389,7 @@ pactStateSamePreAndPostCompaction rdb =
             then do
               pure mempty
             else do
-              n <- atomicModifyIORef supply $ \a -> (a + 1, a)
+              n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
               tx <- makeTx n bh
               writeIORef madeTx True
               pure $ V.fromList [tx]
@@ -482,7 +486,7 @@ compactionIsIdempotent rdb =
             then do
               pure mempty
             else do
-              n <- atomicModifyIORef supply $ \a -> (a + 1, a)
+              n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
               tx <- makeTx n bh
               writeIORef madeTx True
               pure $ V.fromList [tx]
@@ -530,6 +534,121 @@ compactionIsIdempotent rdb =
                     putStrLn $ "new: " ++ show y
                     putStrLn ""
         assertFailure "pact state check failed"
+
+compactionUserTablesDropped :: ()
+  => RocksDb
+  -> TestTree
+compactionUserTablesDropped rdb =
+  withTemporaryDir $ \iodir ->
+  withSqliteDb cid iodir $ \sqlEnvIO ->
+  withDelegateMempool $ \dm ->
+    let
+        pat :: String
+        pat = "compactionUserTablesDropped"
+    in
+    testCase pat $ do
+      blockDb <- mkTestBlockDb testVersion rdb
+      bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
+      let payloadDb = _bdbPayloadDb blockDb
+      sqlEnv <- sqlEnvIO
+      (mempoolRef, mempool) <- do
+        (ref, nonRef) <- dm
+        pure (pure ref, nonRef)
+      pactQueue <- newPactQueue 2000
+
+      let ver = testVersion
+      let cfg = testPactServiceConfig
+      let logger = genericLogger System.LogLevel.Error (\_ -> return ())
+
+      void $ forkIO $ runPactService ver cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
+
+      let numBlocks :: Num a => a
+          numBlocks = 10
+      let halfwayPoint :: Integral a => a
+          halfwayPoint = numBlocks `div` 2
+
+      setOneShotMempool mempoolRef goldenMemPool
+
+      let createTable :: Int -> Text -> IO ChainwebTransaction
+          createTable n tblName = buildCwCmd
+            $ signSender00
+            $ mkCmd ("createTable-" <> tblName <> "-" <> sshow n)
+            $ mkExec' ("(create-table " <> tblName <> ")")
+
+      let beforeTable = "test-before"
+      let afterTable = "test-after"
+
+      supply <- newIORef @Int 0
+      madeBeforeTable <- newIORef @Bool False
+      beforeHash <- newIORef @(Maybe PactHash) Nothing
+      madeAfterTable <- newIORef @Bool False
+      afterHash <- newIORef @(Maybe PactHash) Nothing
+      replicateM_ numBlocks $ do
+        setMempool mempoolRef $ mempty {
+          mpaGetBlock = \_ _ mBlockHeight _ _ -> do
+            let mkTable madeRef hashRef tbl = do
+                  madeYet <- readIORef madeRef
+                  if madeYet
+                  then do
+                    pure mempty
+                  else do
+                    n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
+                    tx <- createTable n tbl
+                    writeIORef hashRef $ Just $ _cmdHash tx
+                    writeIORef madeRef True
+                    pure (V.fromList [tx])
+
+            if mBlockHeight <= halfwayPoint
+            then do
+              mkTable madeBeforeTable beforeHash beforeTable
+            else do
+              mkTable madeAfterTable afterHash afterTable
+        }
+        void $ runBlock pactQueue blockDb second pat
+
+      m <- do
+        Just h1 <- readIORef beforeHash
+        Just h2 <- readIORef afterHash
+
+        lookupPactTxs (NoRewind cid) Nothing (V.fromList [h1, h2]) pactQueue
+      _ <- takeMVar m >>= \case
+        Left err -> assertFailure $ show err
+        Right hm -> assertFailure $ show hm
+
+      let db = _sConn sqlEnv
+
+      let compact h = C.withDefaultLogger System.Logger.Types.Error $ \cLogger -> do
+            let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
+            void $ C.compact h cLogger db flags
+
+      let compactionHeight = BlockHeight halfwayPoint
+
+      do
+        state <- getPactUserTables db
+        let assertExists tbl = case M.lookup beforeTable state of
+              Just _ -> do
+                pure ()
+              Nothing -> do
+                putStrLn $ "\nAll tables: " ++ show (M.keys state)
+                assertFailure $ "Table " ++ T.unpack tbl ++ " should exist pre-compaction, but it doesn't."
+        assertExists beforeTable
+        assertExists afterTable
+
+      compact compactionHeight
+
+      do
+        state <- getPactUserTables db
+        case M.lookup beforeTable state of
+          Just _ -> do
+            pure ()
+          Nothing -> do
+            assertFailure $ T.unpack beforeTable ++ " was dropped; it wasn't supposed to be."
+
+        case M.lookup afterTable state of
+          Just _ -> do
+            assertFailure $ T.unpack afterTable ++ " wasn't dropped; it was supposed to be."
+          Nothing -> do
+            pure ()
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do
