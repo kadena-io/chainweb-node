@@ -73,7 +73,6 @@ import Pact.Types.Util hiding (unwrap)
 -- chainweb imports
 
 import Chainweb.BlockCreationTime
---import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
