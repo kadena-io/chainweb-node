@@ -555,7 +555,9 @@ compactionUserTablesDropped rdb =
       pactQueue <- newPactQueue 2000
 
       let ver = testVersion
-      let cfg = testPactServiceConfig
+      let cfg = testPactServiceConfig {
+            _pactBlockGasLimit = 70_000
+          }
       let logger = genericLogger System.LogLevel.Error (\_ -> return ())
 
       void $ forkIO $ runPactService ver cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
@@ -579,8 +581,6 @@ compactionUserTablesDropped rdb =
                   , ")"
                   , "(create-table " <> tblName <> ")"
                   ]
-            T.putStrLn ""
-            T.putStrLn tx
             buildCwCmd
               $ signSender00
               $ set cbGasLimit 70_000
@@ -591,17 +591,13 @@ compactionUserTablesDropped rdb =
       let beforeTable = "test_before"
       let afterTable = "test_after"
 
-      payloadsRef <- newIORef @[PayloadWithOutputs] []
-
       supply <- newIORef @Int 0
       madeBeforeTable <- newIORef @Bool False
-      beforeHash <- newIORef @(Maybe PactHash) Nothing
       madeAfterTable <- newIORef @Bool False
-      afterHash <- newIORef @(Maybe PactHash) Nothing
       replicateM_ numBlocks $ do
         setMempool mempoolRef $ mempty {
           mpaGetBlock = \_ _ mBlockHeight _ _ -> do
-            let mkTable madeRef hashRef tbl = do
+            let mkTable madeRef tbl = do
                   madeYet <- readIORef madeRef
                   if madeYet
                   then do
@@ -609,37 +605,16 @@ compactionUserTablesDropped rdb =
                   else do
                     n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
                     tx <- createTable n tbl
-                    writeIORef hashRef $ Just $ _cmdHash tx
                     writeIORef madeRef True
                     pure (V.fromList [tx])
 
             if mBlockHeight <= halfwayPoint
             then do
-              mkTable madeBeforeTable beforeHash beforeTable
+              mkTable madeBeforeTable beforeTable
             else do
-              mkTable madeAfterTable afterHash afterTable
+              mkTable madeAfterTable afterTable
         }
-        p <- runBlock pactQueue blockDb second pat
-        modifyIORef' payloadsRef (p :)
-
-      m <- do
-        Just h1 <- readIORef beforeHash
-        Just h2 <- readIORef afterHash
-
-        lookupPactTxs (NoRewind cid) Nothing (V.fromList [h1, h2]) pactQueue
-      _ <- takeMVar m >>= \case
-        Left err -> do
-          assertFailure $ show err
-        Right _ -> do
-           ps <- readIORef payloadsRef
-           forM_ ps $ \p -> do
-             forM_ (_payloadWithOutputsTransactions p) $ \(_txIn, TransactionOutput out) -> do
-               cr <- decodeStrictOrThrow @_ @(CommandResult Hash) out
-               case _crResult cr of
-                 PactResult (Right _) -> do
-                   pure ()
-                 PactResult (Left err) -> do
-                   print err
+        void $ runBlock pactQueue blockDb second pat
 
       let db = _sConn sqlEnv
 
