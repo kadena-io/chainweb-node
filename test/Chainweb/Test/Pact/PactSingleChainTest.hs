@@ -554,9 +554,14 @@ compactionUserTablesDropped rdb =
         pure (pure ref, nonRef)
       pactQueue <- newPactQueue 2000
 
+      let -- creating a module uses about 60k gas. this is
+          -- that plus some change.
+          gasLimit :: GasLimit
+          gasLimit = 70_000
+
       let ver = testVersion
       let cfg = testPactServiceConfig {
-            _pactBlockGasLimit = 70_000
+            _pactBlockGasLimit = gasLimit
           }
       let logger = genericLogger System.LogLevel.Error (\_ -> return ())
 
@@ -583,7 +588,7 @@ compactionUserTablesDropped rdb =
                   ]
             buildCwCmd
               $ signSender00
-              $ set cbGasLimit 70_000
+              $ set cbGasLimit gasLimit
               $ mkCmd ("createTable-" <> tblName <> "-" <> sshow n)
               $ mkExec tx
               $ mkKeySetData "sender00" [sender00]
