@@ -53,7 +53,7 @@ jobs:
       debug: ${{ steps.compile-flags.outputs.debug }}
       eventlog: ${{ steps.compile-flags.outputs.eventlog }}
       tag-suffix: ${{ steps.compile-flags.outputs.tag-suffix }}
-      chainweb-network-version: "fast-development"
+      chainweb-network-version: ${{ steps.compile-flags.outputs.chainweb-network-version }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
@@ -67,6 +67,8 @@ jobs:
       id: compile-flags
       run: |
         TAG_SUFFIX=
+        
+        echo "chainweb-network-version=fast-development" >> $GITHUB_OUTPUT
 
         # Optimization
         OPT_LEVEL=${{ github.event.inputs.optimizationLevel }}
