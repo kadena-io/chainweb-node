@@ -180,7 +180,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        chainwebVersion: ['development']
+        chainwebVersion: ['fast-development']
     env:
       DB_SNAPSHOT_URI: 's3://chainweb-chain-db/${{ matrix.chainwebVersion }}/pipeline-db/rocksDb'
     steps:
@@ -485,7 +485,7 @@ jobs:
           databaseDirectory: "db"
           chainweb:
             onlySyncPact: true
-            chainwebVersion: development
+            chainwebVersion: fast-development
             validateHashesOnReplay: true
             p2p:
               peer:
