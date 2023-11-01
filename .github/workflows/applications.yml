@@ -183,17 +183,15 @@ jobs:
     runs-on: 'ubuntu-latest'
     strategy:
       fail-fast: false
-      matrix:
-        chainwebVersion: ${{ needs.config.outputs.chainweb-network-version }}
     env:
-      DB_SNAPSHOT_URI: 's3://chainweb-chain-db/${{ matrix.chainwebVersion }}/pipeline-db/rocksDb'
+      DB_SNAPSHOT_URI: 's3://chainweb-chain-db/${{ needs.config.outputs.chainweb-network-version }}/pipeline-db/rocksDb'
     steps:
     - name: Sync chain database from S3
       run: aws s3 sync "$DB_SNAPSHOT_URI" db/0/rocksDb --delete --exclude=LOCK
     - name: Store chain database as artifact
       uses: actions/upload-artifact@v3
       with:
-        name: chain-db-${{ matrix.chainwebVersion }}
+        name: chain-db-${{ needs.config.outputs.chainweb-network-version }}
         path: db
 
   # ########################################################################## #
@@ -470,7 +468,7 @@ jobs:
     - name: Download ${{ needs.config.outputs.chainweb-network-version }} chain database artifact
       uses: actions/download-artifact@v3
       with:
-        name: ${{ needs.config.outputs.chainweb-network-version }}
+        name: chain-db-${{ needs.config.outputs.chainweb-network-version }}
         path: db
     - name: Download build artifacts
       uses: actions/download-artifact@v3
