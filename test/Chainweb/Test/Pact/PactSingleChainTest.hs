@@ -12,8 +12,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
-{-# options_ghc -Wwarn #-}
-
 module Chainweb.Test.Pact.PactSingleChainTest
 ( tests
 ) where
@@ -563,20 +561,37 @@ compactionUserTablesDropped rdb =
       void $ forkIO $ runPactService ver cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
 
       let numBlocks :: Num a => a
-          numBlocks = 10
+          numBlocks = 100
       let halfwayPoint :: Integral a => a
           halfwayPoint = numBlocks `div` 2
 
       setOneShotMempool mempoolRef goldenMemPool
 
       let createTable :: Int -> Text -> IO ChainwebTransaction
-          createTable n tblName = buildCwCmd
-            $ signSender00
-            $ mkCmd ("createTable-" <> tblName <> "-" <> sshow n)
-            $ mkExec' ("(create-table " <> tblName <> ")")
+          createTable n tblName = do
+            let tx = T.unlines
+                  [ "(namespace 'free)"
+                  , "(module m" <> sshow n <> " G"
+                  , "  \"Hullaballo\""
+                  , "  (defcap G () true)"
+                  , "  (defschema empty-schema)"
+                  , "  (deftable " <> tblName <> ":{empty-schema})"
+                  , ")"
+                  , "(create-table " <> tblName <> ")"
+                  ]
+            T.putStrLn ""
+            T.putStrLn tx
+            buildCwCmd
+              $ signSender00
+              $ set cbGasLimit 70_000
+              $ mkCmd ("createTable-" <> tblName <> "-" <> sshow n)
+              $ mkExec tx
+              $ mkKeySetData "sender00" [sender00]
 
-      let beforeTable = "test-before"
-      let afterTable = "test-after"
+      let beforeTable = "test_before"
+      let afterTable = "test_after"
+
+      payloadsRef <- newIORef @[PayloadWithOutputs] []
 
       supply <- newIORef @Int 0
       madeBeforeTable <- newIORef @Bool False
@@ -604,7 +619,8 @@ compactionUserTablesDropped rdb =
             else do
               mkTable madeAfterTable afterHash afterTable
         }
-        void $ runBlock pactQueue blockDb second pat
+        p <- runBlock pactQueue blockDb second pat
+        modifyIORef' payloadsRef (p :)
 
       m <- do
         Just h1 <- readIORef beforeHash
@@ -612,8 +628,18 @@ compactionUserTablesDropped rdb =
 
         lookupPactTxs (NoRewind cid) Nothing (V.fromList [h1, h2]) pactQueue
       _ <- takeMVar m >>= \case
-        Left err -> assertFailure $ show err
-        Right hm -> assertFailure $ show hm
+        Left err -> do
+          assertFailure $ show err
+        Right _ -> do
+           ps <- readIORef payloadsRef
+           forM_ ps $ \p -> do
+             forM_ (_payloadWithOutputsTransactions p) $ \(_txIn, TransactionOutput out) -> do
+               cr <- decodeStrictOrThrow @_ @(CommandResult Hash) out
+               case _crResult cr of
+                 PactResult (Right _) -> do
+                   pure ()
+                 PactResult (Left err) -> do
+                   print err
 
       let db = _sConn sqlEnv
 
@@ -623,28 +649,30 @@ compactionUserTablesDropped rdb =
 
       let compactionHeight = BlockHeight halfwayPoint
 
+      let freeBeforeTbl = "free.m0_" <> beforeTable
+      let freeAfterTbl = "free.m1_" <> afterTable
       do
         state <- getPactUserTables db
-        let assertExists tbl = case M.lookup beforeTable state of
+        let assertExists tbl = case M.lookup tbl state of
               Just _ -> do
                 pure ()
               Nothing -> do
-                putStrLn $ "\nAll tables: " ++ show (M.keys state)
+                print $ M.keys state
                 assertFailure $ "Table " ++ T.unpack tbl ++ " should exist pre-compaction, but it doesn't."
-        assertExists beforeTable
-        assertExists afterTable
+        assertExists freeBeforeTbl
+        assertExists freeAfterTbl
 
       compact compactionHeight
 
       do
         state <- getPactUserTables db
-        case M.lookup beforeTable state of
+        case M.lookup freeBeforeTbl state of
           Just _ -> do
             pure ()
           Nothing -> do
             assertFailure $ T.unpack beforeTable ++ " was dropped; it wasn't supposed to be."
 
-        case M.lookup afterTable state of
+        case M.lookup freeAfterTbl state of
           Just _ -> do
             assertFailure $ T.unpack afterTable ++ " wasn't dropped; it was supposed to be."
           Nothing -> do
