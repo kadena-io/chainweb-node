@@ -24,7 +24,6 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
 import qualified Criterion.Main as C
-import System.IO.Unsafe (unsafePerformIO)
 
 import Data.Aeson hiding (Error)
 import Data.ByteString (ByteString)
@@ -34,7 +33,6 @@ import Data.FileEmbed
 import Data.Foldable (toList)
 import Data.IORef
 import Data.List (uncons)
-import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Map.Strict (Map)
@@ -196,21 +194,6 @@ mineBlock parent nonce pdb bhdb pact = do
     unsafeInsertBlockHeaderDb bhdb newHeader
     return r
 
-payloadsRef :: IORef (Map BlockHeader PayloadWithOutputs)
-payloadsRef = unsafePerformIO $ newIORef M.empty
-{-# noinline payloadsRef #-}
-
-reportPayloads :: IO ()
-reportPayloads = do
-  blocks <- readIORef payloadsRef
-  putStrLn $ "numBlocks: " ++ show (M.size blocks)
-  forM_ (List.sortOn (_blockHeight . fst) (M.toList blocks)) $ \(bh, p) -> do
-    let txs = _payloadWithOutputsTransactions p
-    putStrLn $ "Block @ height " ++ show (_blockHeight bh) ++ " (" ++ show (_blockHash bh) ++ ")" ++ " has " ++ show (V.length txs) ++ " txs."
-
-clearPayloads :: IO ()
-clearPayloads = writeIORef payloadsRef M.empty
-
 createBlock
     :: Bool
     -> ParentHeader
@@ -232,8 +215,6 @@ createBlock validate parent nonce pact = do
               nonce
               creationTime
               parent
-
-     atomicModifyIORef' payloadsRef $ \m -> (M.insert bh payload m, ())
 
      when validate $ do
        mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) pact
@@ -294,8 +275,6 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
     destroy (NoopNFData (Resources {..})) = do
       stopPact pactService
       stopSqliteDb sqlEnv
-      when (logLevel >= Debug) reportPayloads
-      clearPayloads
 
     pactQueueSize = 2000
 
