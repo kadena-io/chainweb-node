@@ -22,6 +22,8 @@ module Ea.Genesis
   -- * Testing Genesis Txs
 , fastTimedCPM0
 , fastTimedCPMN
+, instantCPM0
+, instantCPMN
 
   -- * Testnet Genesis txs
 , testnet0
@@ -227,7 +229,24 @@ devnetKadOps :: FilePath
 devnetKadOps = "pact/genesis/devnet/kad-ops-grants.yaml"
 
 -- ---------------------------------------------------------------------- --
--- Fast timed CPM
+-- CPM test versions
+
+instantCPM0 :: Genesis
+instantCPM0 = Genesis
+    { _version = instantCpmTestVersion petersonChainGraph
+    , _tag = "InstantTimedCPM"
+    , _txChainIds = onlyChainId 0
+    , _coinbase = Just fast0Grants
+    , _keysets = Just fastKeysets
+    , _allocations = Just fastAllocations
+    , _namespaces = Just devNs2
+    , _coinContract = [fungibleAssetV1, fungibleXChainV1, fungibleAssetV2, installCoinContractV6, gasPayer]
+    }
+
+instantCPMN :: Genesis
+instantCPMN = instantCPM0
+  & txChainIds .~ mkChainIdRange 1 9
+  & coinbase .~ Just fastNGrants
 
 fastTimedCPM0 :: Genesis
 fastTimedCPM0 = Genesis
@@ -244,7 +263,7 @@ fastTimedCPM0 = Genesis
 fastTimedCPMN :: Genesis
 fastTimedCPMN = fastTimedCPM0
     & txChainIds .~ mkChainIdRange 1 9
-    & coinbase .~ (Just fastNGrants)
+    & coinbase .~ Just fastNGrants
 
 fastNs :: FilePath
 fastNs = "pact/genesis/ns-v1.yaml"

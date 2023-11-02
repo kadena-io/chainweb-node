@@ -152,7 +152,7 @@ accountBalanceTests tio envIo =
     testCaseSteps "Account Balance Tests" $ \step -> do
       step "check initial balance"
       cenv <- envIo
-      resp0 <- accountBalance cenv req
+      resp0 <- accountBalance v cenv req
       let startBal = 99999997.8600
       checkBalance resp0 startBal
 
@@ -160,7 +160,7 @@ accountBalanceTests tio envIo =
       void $! transferOneAsync_ cid tio cenv (void . return)
 
       step "check post-transfer and gas fees balance"
-      resp1 <- accountBalance cenv req
+      resp1 <- accountBalance v cenv req
       checkBalance resp1 (startBal - transferGasCost - 1)
   where
     req = AccountBalanceReq nid (AccountId "sender00" Nothing Nothing) Nothing
@@ -190,7 +190,7 @@ blockKAccountAfterPact42 tio envIo =
     bh <- cmdMeta ^?! mix "blockHeight"
 
     step "check that block endpoint doesn't return TxLog parse error"
-    _ <- block cenv (req bh)
+    _ <- block v cenv (req bh)
     pure ()
   where
     req h = BlockReq nid $ PartialBlockId (Just h) Nothing
@@ -208,7 +208,7 @@ blockTransactionTests tio envIo =
       req <- mkTxReq rkmv prs
 
       step "send in block tx request"
-      resp <- blockTransaction cenv req
+      resp <- blockTransaction v cenv req
 
       (fundtx,cred,deb,redeem,reward) <-
         case _transaction_operations $ _blockTransactionResp_transaction resp of
@@ -252,7 +252,7 @@ blockTests testname tio envIo = testCaseSteps testname $ \step -> do
     rkmv <- newEmptyMVar @RequestKeys
 
     step "fetch genesis block"
-    (BlockResp (Just bl0) _) <- block cenv (req 0)
+    (BlockResp (Just bl0) _) <- block v cenv (req 0)
     _block_blockId bl0 @?= genesisId
 
     step "send transaction"
@@ -262,7 +262,7 @@ blockTests testname tio envIo = testCaseSteps testname $ \step -> do
     bh <- cmdMeta ^?! mix "blockHeight"
 
     step "check tx at block height matches sent tx + remediations"
-    resp1 <- block cenv (req bh)
+    resp1 <- block v cenv (req bh)
     validateTransferResp bh resp1
   where
     req h = BlockReq nid $ PartialBlockId (Just h) Nothing
@@ -311,7 +311,7 @@ blockCoinV2RemediationTests _ envIo =
     cenv <- envIo
 
     step "fetch coin v2 remediation block"
-    resp <- block cenv (req bhCoinV2Rem)
+    resp <- block v cenv (req bhCoinV2Rem)
 
     step "validate block"
     _blockResp_otherTransactions resp @?= Nothing
@@ -348,7 +348,7 @@ block20ChainRemediationTests _ envIo =
     cenv <- envIo
 
     step "fetch  remediation block"
-    resp <- block cenv (req bhChain20Rem)
+    resp <- block v cenv (req bhChain20Rem)
 
     step "validate block"
     _blockResp_otherTransactions resp @?= Nothing
@@ -388,7 +388,7 @@ blockCoinV3RemediationTests _ envIo =
     cenv <- envIo
 
     step "fetch coin v3 remediation block"
-    resp <- block cenv (req bhCoinV3Rem)
+    resp <- block v cenv (req bhCoinV3Rem)
 
     step "validate block"
     _blockResp_otherTransactions resp @?= Nothing
@@ -435,7 +435,7 @@ constructionTransferTests _ envIo =
       let rosettaPubKeySender01 = RosettaPublicKey (fst sender01) CurveEdwards25519
           deriveReq = ConstructionDeriveReq netId rosettaPubKeySender01 Nothing
       (ConstructionDeriveResp _ (Just (AccountId acctAddr _ _)) (Just deriveRespMeta)) <-
-        constructionDerive cenv deriveReq
+        constructionDerive v cenv deriveReq
 
       Right (DeriveRespMetaData toGuardSender01) <- pure $ extractMetaData deriveRespMeta
       let toAcct1 = acctAddr
@@ -519,48 +519,48 @@ submitToConstructionAPI expectOps chainId' payer getKeys expectResult cenv step 
                Nothing Nothing
 
   (ConstructionPreprocessResp (Just preRespMetaObj) (Just reqAccts)) <-
-    constructionPreprocess cenv preReq
+    constructionPreprocess v cenv preReq
 
   step "feed preprocessed tx into metadata endpoint"
   let opts = preRespMetaObj
       pubKeys = concatMap toRosettaPk reqAccts
       metaReq = ConstructionMetadataReq netId opts (Just pubKeys)
 
-  (ConstructionMetadataResp payloadMeta _) <- constructionMetadata cenv metaReq
+  (ConstructionMetadataResp payloadMeta _) <- constructionMetadata v cenv metaReq
 
   step "feed metadata to get payload"
   let payloadReq = ConstructionPayloadsReq netId expectOps (Just payloadMeta) (Just pubKeys)
-  ConstructionPayloadsResp unsigned payloads <- constructionPayloads cenv payloadReq
+  ConstructionPayloadsResp unsigned payloads <- constructionPayloads v cenv payloadReq
 
   step "parse unsigned tx"
   let parseReqUnsigned = ConstructionParseReq netId False unsigned
-  _ <- constructionParse cenv parseReqUnsigned
+  _ <- constructionParse v cenv parseReqUnsigned
 
   step "combine tx signatures"
   sigs <- mapM sign payloads
   let combineReq = ConstructionCombineReq netId unsigned sigs
-  ConstructionCombineResp signed <- constructionCombine cenv combineReq
+  ConstructionCombineResp signed <- constructionCombine v cenv combineReq
 
   step "parse signed tx"
   let parseReqSigned = ConstructionParseReq netId True signed
-  _ <- constructionParse cenv parseReqSigned
+  _ <- constructionParse v cenv parseReqSigned
 
   step "get hash (request key) of tx"
   let hshReq = ConstructionHashReq netId signed
-  (TransactionIdResp (TransactionId tid) _) <- constructionHash cenv hshReq
+  (TransactionIdResp (TransactionId tid) _) <- constructionHash v cenv hshReq
   Right rk <- pure $ P.fromText' tid
 
   step "run tx locally"
   Just (EnrichedCommand cmd _ _) <- pure $ textToEnrichedCommand signed
-  crDryRun <- local chainId' cenv cmd
+  crDryRun <- local v chainId' cenv cmd
   isCorrectResult rk crDryRun
 
   step "submit tx to blockchain"
   let submitReq = ConstructionSubmitReq netId signed
-  _ <- constructionSubmit cenv submitReq
+  _ <- constructionSubmit v cenv submitReq
 
   step "confirm transaction details via poll"
-  PollResponses prs <- polling cid cenv (RequestKeys $ pure rk) ExpectPactResult
+  PollResponses prs <- polling v cid cenv (RequestKeys $ pure rk) ExpectPactResult
   case HM.lookup rk prs of
     Nothing -> assertFailure $ "unable to find poll response for: " <> show rk
     Just cr -> isCorrectResult rk cr
@@ -570,7 +570,7 @@ submitToConstructionAPI expectOps chainId' payer getKeys expectResult cenv step 
   bheight <- cmdMeta ^?! mix "blockHeight"
   bhash <- cmdMeta ^?! mix "blockHash"
   let blockTxReq = BlockTransactionReq netId (BlockId bheight bhash) (TransactionId tid)
-  BlockTransactionResp (Transaction _ ops _) <- blockTransaction cenv blockTxReq
+  BlockTransactionResp (Transaction _ ops _) <- blockTransaction v cenv blockTxReq
   let actualOps = filter (\o -> _operation_type o == "TransferOrCreateAcct") ops
 
   step "confirm that the tx has the same number of TransferOrCreateAcct operations"
@@ -630,7 +630,7 @@ mempoolTests tio envIo = testCaseSteps "Mempool Tests" $ \step -> do
     let test (MempoolResp ts) = return $ elem tid ts
 
     step "compare requestkey against mempool responses"
-    void $! repeatUntil test $ mempool cenv req
+    void $! repeatUntil test $ mempool v cenv req
   where
     req = NetworkReq nid Nothing
 
@@ -642,7 +642,7 @@ networkListTests _ envIo =
       cenv <- envIo
 
       step "send network list request"
-      resp <- networkList cenv req
+      resp <- networkList v cenv req
 
       for_ (_networkListResp_networkIds resp) $ \n -> do
          _networkId_blockchain n @=? "kadena"
@@ -661,7 +661,7 @@ networkOptionsTests _ envIo =
       cenv <- envIo
 
       step "send network options request"
-      resp <- networkOptions cenv req0
+      resp <- networkOptions v cenv req0
 
       let allow = _networkOptionsResp_allow resp
           version = _networkOptionsResp_version resp
@@ -689,14 +689,14 @@ networkStatusTests tio envIo =
       cenv <- envIo
 
       step "send network status request"
-      resp0 <- networkStatus cenv req
+      resp0 <- networkStatus v cenv req
 
       step "check status response against genesis"
       genesisId @=? _networkStatusResp_genesisBlockId resp0
 
       step "send in a transaction and update current block"
       transferOneAsync_ cid tio cenv (void . return)
-      resp1 <- networkStatus cenv req
+      resp1 <- networkStatus v cenv req
 
       step "check status response genesis and block height"
       genesisId @=? _networkStatusResp_genesisBlockId resp1
@@ -838,8 +838,8 @@ mkOneKCoinAccountAsync
 mkOneKCoinAccountAsync sid tio cenv callback = do
     batch0 <- mkKCoinAccount sid tio
     void $! callback (f batch0)
-    rks <- sending cid cenv batch0
-    polling cid cenv rks ExpectPactResult
+    rks <- sending v cid cenv batch0
+    polling v cid cenv rks ExpectPactResult
   where
     f (SubmitBatch cs) = RequestKeys (cmdToRequestKey <$> cs)
 
@@ -855,8 +855,8 @@ transferOneAsync
 transferOneAsync sid tio cenv callback = do
     batch0 <- mkTransfer sid tio
     void $! callback (f batch0)
-    rks <- sending cid cenv batch0
-    polling cid cenv rks ExpectPactResult
+    rks <- sending v cid cenv batch0
+    polling v cid cenv rks ExpectPactResult
   where
     f (SubmitBatch cs) = RequestKeys (cmdToRequestKey <$> cs)
 

@@ -112,7 +112,7 @@ nNodes :: Word
 nNodes = 1
 
 v :: ChainwebVersion
-v = fastForkingCpmTestVersion petersonChainGraph
+v = instantCpmTestVersion petersonChainGraph
 
 cid :: HasCallStack => ChainId
 cid = head . toList $ chainIds v
@@ -196,7 +196,7 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
 
 responseGolden :: ClientEnv -> RequestKeys -> IO LBS.ByteString
 responseGolden cenv rks = do
-    PollResponses theMap <- polling cid cenv rks ExpectPactResult
+    PollResponses theMap <- polling v cid cenv rks ExpectPactResult
     let values = mapMaybe (\rk -> _crResult <$> HM.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
     return $ foldMap J.encode values
@@ -278,7 +278,7 @@ txlogsCompactionTest t cenv pactDbDir = do
             Left err -> do
               assertFailure $ "Error when sending tx: " ++ show err
             Right rks -> do
-              PollResponses m <- polling cid cenv rks ExpectPactResult
+              PollResponses m <- polling v cid cenv rks ExpectPactResult
               case HM.lookup (NEL.head (_rkRequestKeys rks)) m of
                 Just cr -> do
                   case _crResult cr of
@@ -371,7 +371,7 @@ txlogsCompactionTest t cenv pactDbDir = do
       Backend.withSqliteDb cid logger pactDbDir resetDb $ \dbEnv ->
         compactUntilAvailable C.LatestUnsafe logger dbEnv flags
 
-    txLogs <- crGetTxLogs =<< local cid cenv =<< createTxLogsTx =<< nextNonce
+    txLogs <- crGetTxLogs =<< local v cid cenv =<< createTxLogsTx =<< nextNonce
 
     latestState <- getLatestState
     assertEqual
@@ -384,7 +384,7 @@ localTest t cenv = do
     mv <- newMVar 0
     SubmitBatch batch <- testBatch t mv gp
     let cmd = head $ toList batch
-    res <- local (unsafeChainId 0) cenv cmd
+    res <- local v (unsafeChainId 0) cenv cmd
     let PactResult e = _crResult res
     assertEqual "expect /local to return gas for tx" (_crGas res) 5
     assertEqual "expect /local to succeed and return 3" e (Right (PLiteral $ LDecimal 3))
@@ -394,10 +394,10 @@ localContTest t cenv step = do
 
     step "execute /send with initial pact continuation tx"
     cmd1 <- firstStep
-    rks <- sending cid' cenv (SubmitBatch $ pure cmd1)
+    rks <- sending v cid' cenv (SubmitBatch $ pure cmd1)
 
     step "check /poll responses to extract pact id for continuation"
-    PollResponses m <- polling cid' cenv rks ExpectPactResult
+    PollResponses m <- polling v cid' cenv rks ExpectPactResult
     pid <- case _rkRequestKeys rks of
       rk NEL.:| [] -> maybe (assertFailure "impossible") (return . _pePactId)
         $ HM.lookup rk m >>= _crContinuation
@@ -405,7 +405,7 @@ localContTest t cenv step = do
 
     step "execute /local continuation dry run"
     cmd2 <- secondStep pid
-    r <- _pactResult . _crResult <$> local cid' cenv cmd2
+    r <- _pactResult . _crResult <$> local v cid' cenv cmd2
     case r of
       Left err -> assertFailure (show err)
       Right (PLiteral (LDecimal a)) | a == 2 -> return ()
@@ -436,11 +436,11 @@ pollingConfirmDepth t cenv step = do
     step "/send transactions"
     cmd1 <- firstStep tx
     cmd2 <- firstStep tx'
-    rks <- sending cid' cenv (SubmitBatch $ cmd1 NEL.:| [cmd2])
+    rks <- sending v cid' cenv (SubmitBatch $ cmd1 NEL.:| [cmd2])
 
     step "/poll for the transactions until they appear"
 
-    PollResponses m <- pollingWithDepth cid' cenv rks (Just $ ConfirmationDepth 10) ExpectPactResult
+    PollResponses m <- pollingWithDepth v cid' cenv rks (Just $ ConfirmationDepth 10) ExpectPactResult
     afterPolling <- getCurrentBlockHeight v cenv cid'
     -- here we rely on both txs being in the same block.
     let txHeight = the
@@ -473,12 +473,12 @@ pollingCorrectResults t cenv step = do
 
     -- submit the first one, then poll to confirm its in a block
     cmd1 <- stepTx tx
-    rks1@(RequestKeys (rk1 NEL.:| [])) <- sending cid' cenv (SubmitBatch $ cmd1 NEL.:| [])
-    PollResponses _ <- pollingWithDepth cid' cenv rks1 (Just $ ConfirmationDepth 10) ExpectPactResult
+    rks1@(RequestKeys (rk1 NEL.:| [])) <- sending v cid' cenv (SubmitBatch $ cmd1 NEL.:| [])
+    PollResponses _ <- pollingWithDepth v cid' cenv rks1 (Just $ ConfirmationDepth 10) ExpectPactResult
 
     -- submit the second...
     cmd2 <- stepTx tx'
-    RequestKeys (rk2 NEL.:| []) <- sending cid' cenv (SubmitBatch $ cmd2 NEL.:| [])
+    RequestKeys (rk2 NEL.:| []) <- sending v cid' cenv (SubmitBatch $ cmd2 NEL.:| [])
 
     -- now request both. the second transaction will by definition go into another block.
     -- do it in two different orders, and ensure it works either way.
@@ -486,8 +486,8 @@ pollingCorrectResults t cenv step = do
       together1 = RequestKeys $ rk1 NEL.:| [rk2]
       together2 = RequestKeys $ rk2 NEL.:| [rk1]
 
-    PollResponses resp1 <- polling cid' cenv together1 ExpectPactResult
-    PollResponses resp2 <- polling cid' cenv together2 ExpectPactResult
+    PollResponses resp1 <- polling v cid' cenv together1 ExpectPactResult
+    PollResponses resp2 <- polling v cid' cenv together2 ExpectPactResult
 
     assertEqual "the two responses should be the same" resp1 resp2
   where
@@ -520,7 +520,7 @@ localChainDataTest t cenv = do
     localTestBatch mnonce = modifyMVar mnonce $ \(!nn) -> do
         let nonce = "nonce" <> sshow nn
         kps <- testKeyPairs sender00 Nothing
-        c <- Pact.mkExec "(chain-data)" A.Null (pm t) kps [] (Just "fastfork-CPM-peterson") (Just nonce)
+        c <- Pact.mkExec "(chain-data)" A.Null (pm t) kps [] (Just "instant-CPM-peterson") (Just nonce)
         pure (succ nn, SubmitBatch (pure c))
         where
           pm = Pact.PublicMeta pactCid "sender00" 1000 0.1 defaultMaxTTL
@@ -673,7 +673,7 @@ localPreflightSimTest t cenv step = do
       let nonce = "nonce" <> sshow nn
           pm = Pact.PublicMeta pcid "sender00" 1000 0.1 defaultMaxTTL
 
-      c <- Pact.mkExec code A.Null (pm t) kps [] (Just "fastfork-CPM-peterson") (Just nonce)
+      c <- Pact.mkExec code A.Null (pm t) kps [] (Just "instant-CPM-peterson") (Just nonce)
       pure (succ nn, c)
 
     mkCmdBuilder sigs pcid limit price = do
@@ -695,7 +695,7 @@ pollingBadlistTest :: ClientEnv -> IO ()
 pollingBadlistTest cenv = do
     let rks = RequestKeys $ NEL.fromList [pactDeadBeef]
     sid <- mkChainId v maxBound 0
-    void $ polling sid cenv rks ExpectPactError
+    void $ polling v sid cenv rks ExpectPactError
 
 -- | Check request key length validation in the /poll endpoints
 --
@@ -741,14 +741,14 @@ sendValidationTest t cenv step = do
         step "check insufficient gas"
         batch4 <- testBatch' t 10_000 mv 10_000_000_000
         expectSendFailure
-          "Attempt to buy gas failed with: : Failure: Tx Failed: Insufficient funds" $
+          "Attempt to buy gas failed with: (enforce (<= amount balance) \\\"...: Failure: Tx Failed: Insufficient funds\"" $
           flip runClientM cenv $
             pactSendApiClient v cid batch4
 
         step "check bad sender"
         batch5 <- mkBadGasTxBatch "(+ 1 2)" "invalid-sender" sender00 Nothing
         expectSendFailure
-          "Attempt to buy gas failed with: : Failure: Tx Failed: read: row not found: invalid-sender" $
+          "Attempt to buy gas failed with: (read coin-table sender): Failure: Tx Failed: read: row not found: invalid-sender" $
           flip runClientM cenv $
             pactSendApiClient v cid0 batch5
 
@@ -756,7 +756,7 @@ sendValidationTest t cenv step = do
     mkBadGasTxBatch code senderName senderKeyPair capList = do
       ks <- testKeyPairs senderKeyPair capList
       let pm = Pact.PublicMeta (Pact.ChainId "0") senderName 100_000 0.01 defaultMaxTTL t
-      let cmd (n :: Int) = liftIO $ Pact.mkExec code A.Null pm ks [] (Just "fastfork-CPM-peterson") (Just $ sshow n)
+      let cmd (n :: Int) = liftIO $ Pact.mkExec code A.Null pm ks [] (Just "instant-CPM-peterson") (Just $ sshow n)
       cmds <- mapM cmd (0 NEL.:| [1..5])
       return $ SubmitBatch cmds
 
@@ -786,15 +786,15 @@ ethSpvTest t cenv step = do
     r <- flip runClientM cenv $ do
 
         void $ liftIO $ step "ethSpvApiClient: submit eth proof request"
-        proof <- liftIO $ ethSpv c cenv req
+        proof <- liftIO $ ethSpv v c cenv req
 
         batch <- liftIO $ mkTxBatch proof
 
         void $ liftIO $ step "sendApiClient: submit batch for proof validation"
-        rks <- liftIO $ sending c cenv batch
+        rks <- liftIO $ sending v c cenv batch
 
         void $ liftIO $ step "pollApiClient: poll until key is found"
-        void $ liftIO $ polling c cenv rks ExpectPactResult
+        void $ liftIO $ polling v c cenv rks ExpectPactResult
 
         return ()
 
@@ -806,7 +806,7 @@ ethSpvTest t cenv step = do
     mkTxBatch proof = do
       ks <- liftIO $ testKeyPairs sender00 Nothing
       let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100_000 0.01 defaultMaxTTL t
-      cmd <- liftIO $ Pact.mkExec txcode (txdata proof) pm ks [] (Just "fastfork-CPM-peterson") (Just "1")
+      cmd <- liftIO $ Pact.mkExec txcode (txdata proof) pm ks [] (Just "instant-CPM-peterson") (Just "1")
       return $ SubmitBatch (pure cmd)
 
     txcode = "(verify-spv 'ETH (read-msg))"
@@ -820,13 +820,13 @@ spvTest t cenv step = do
     r <- flip runClientM cenv $ do
 
       void $ liftIO $ step "sendApiClient: submit batch"
-      rks <- liftIO $ sending sid cenv batch
+      rks <- liftIO $ sending v sid cenv batch
 
       void $ liftIO $ step "pollApiClient: poll until key is found"
-      void $ liftIO $ polling sid cenv rks ExpectPactResult
+      void $ liftIO $ polling v sid cenv rks ExpectPactResult
 
       void $ liftIO $ step "spvApiClient: submit request key"
-      liftIO $ spv sid cenv (SpvRequest (NEL.head $ _rkRequestKeys rks) tid)
+      liftIO $ spv v sid cenv (SpvRequest (NEL.head $ _rkRequestKeys rks) tid)
 
     case r of
       Left e -> assertFailure $ "output proof failed: " <> sshow e
@@ -838,8 +838,8 @@ spvTest t cenv step = do
       ks <- liftIO $ testKeyPairs sender00
         (Just [mkGasCap, mkXChainTransferCap "sender00" "sender01" 1.0 "2"])
       let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100_000 0.01 defaultMaxTTL t
-      cmd1 <- liftIO $ Pact.mkExec txcode txdata pm ks [] (Just "fastfork-CPM-peterson") (Just "1")
-      cmd2 <- liftIO $ Pact.mkExec txcode txdata pm ks [] (Just "fastfork-CPM-peterson") (Just "2")
+      cmd1 <- liftIO $ Pact.mkExec txcode txdata pm ks [] (Just "instant-CPM-peterson") (Just "1")
+      cmd2 <- liftIO $ Pact.mkExec txcode txdata pm ks [] (Just "instant-CPM-peterson") (Just "2")
       return $ SubmitBatch (pure cmd1 <> pure cmd2)
 
     txcode = T.unlines
@@ -862,15 +862,15 @@ txTooBigGasTest t cenv step = do
     let
       runSend batch expectation = try @IO @PactTestFailure $ do
           void $ step "sendApiClient: submit transaction"
-          rks <- sending sid cenv batch
+          rks <- sending v sid cenv batch
 
           void $ step "pollApiClient: polling for request key"
-          PollResponses resp <- polling sid cenv rks expectation
+          PollResponses resp <- polling v sid cenv rks expectation
           return (HM.lookup (NEL.head $ _rkRequestKeys rks) resp)
 
       runLocal (SubmitBatch cmds) = do
           void $ step "localApiClient: submit transaction"
-          local sid cenv (head $ toList cmds)
+          local v sid cenv (head $ toList cmds)
 
     -- batch with big tx and insufficient gas
     batch0 <- mkTxBatch txcode0 A.Null 1 (Just "0")
@@ -914,7 +914,7 @@ txTooBigGasTest t cenv step = do
     mkTxBatch code cdata limit n = do
       ks <- testKeyPairs sender00 Nothing
       let pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" limit 0.01 defaultMaxTTL t
-      cmd <- liftIO $ Pact.mkExec code cdata pm ks [] (Just "fastfork-CPM-peterson") n
+      cmd <- liftIO $ Pact.mkExec code cdata pm ks [] (Just "instant-CPM-peterson") n
       return $ SubmitBatch (pure cmd)
 
     txcode0 = T.concat ["[", T.replicate 10 " 1", "]"]
@@ -930,10 +930,10 @@ caplistTest t cenv step = do
         $ mkSingletonBatch t sender00 tx0 n0 (pm "sender00") clist
 
       testCaseStep "send transfer request with caplist sender00 -> sender01"
-      rks <- liftIO $ sending sid cenv batch
+      rks <- liftIO $ sending v sid cenv batch
 
       testCaseStep "poll for transfer results"
-      PollResponses rs <- liftIO $ polling sid cenv rks ExpectPactResult
+      PollResponses rs <- liftIO $ polling v sid cenv rks ExpectPactResult
 
       return (HM.lookup (NEL.head $ _rkRequestKeys rks) rs)
 
@@ -993,13 +993,13 @@ allocationTest t cenv step = do
       SubmitBatch batch1 <- liftIO
         $ mkSingletonBatch t allocation00KeyPair tx1 n1 (pm "allocation00") Nothing
       step "sendApiClient: submit allocation release request"
-      rks0 <- liftIO $ sending sid cenv batch0
+      rks0 <- liftIO $ sending v sid cenv batch0
 
       step "pollApiClient: polling for allocation key"
-      _ <- liftIO $ polling sid cenv rks0 ExpectPactResult
+      _ <- liftIO $ polling v sid cenv rks0 ExpectPactResult
 
       step "localApiClient: submit local account balance request"
-      liftIO $ localTestToRetry sid cenv (head (toList batch1)) (localAfterBlockHeight 4)
+      liftIO $ localTestToRetry v sid cenv (head (toList batch1)) (localAfterBlockHeight 4)
 
     assertEqual "00 expect /local allocation balance" accountInfo (resultOf p)
 
@@ -1008,7 +1008,7 @@ allocationTest t cenv step = do
       batch0 <- mkSingletonBatch t allocation01KeyPair tx2 n2 (pm "allocation01") Nothing
 
       step "sendApiClient: submit allocation release request"
-      cr <- local sid cenv (NEL.head $ _sbCmds batch0)
+      cr <- local v sid cenv (NEL.head $ _sbCmds batch0)
 
       case resultOf cr of
         Left e -> do
@@ -1023,22 +1023,22 @@ allocationTest t cenv step = do
       batch0 <- mkSingletonBatch t allocation02KeyPair tx3 n3 (pm "allocation02") Nothing
 
       step "senderApiClient: submit keyset rotation request"
-      rks <- sending sid cenv batch0
+      rks <- sending v sid cenv batch0
 
       step "pollApiClient: polling for successful rotation"
-      void $ polling sid cenv rks ExpectPactResult
+      void $ polling v sid cenv rks ExpectPactResult
 
       step "senderApiClient: submit allocation release request"
       batch1 <- mkSingletonBatch t allocation02KeyPair' tx4 n4 (pm "allocation02") Nothing
 
-      rks' <- sending sid cenv batch1
+      rks' <- sending v sid cenv batch1
       step "pollingApiClient: polling for successful release"
-      pr <- polling sid cenv rks' ExpectPactResult
+      pr <- polling v sid cenv rks' ExpectPactResult
 
       step "localApiClient: retrieving account info for allocation02"
       SubmitBatch batch2 <- mkSingletonBatch t allocation02KeyPair' tx5 n5 (pm "allocation02") Nothing
 
-      localTestToRetry sid cenv (head (toList batch2)) (localAfterPollResponse pr)
+      localTestToRetry v sid cenv (head (toList batch2)) (localAfterPollResponse pr)
 
     assertEqual "02 expect /local allocation balance" accountInfo' (resultOf r)
 
@@ -1087,7 +1087,7 @@ allocationTest t cenv step = do
       $ ObjectMap
       $ M.fromList
         [ (FieldKey "account", PLiteral $ LString "allocation02")
-        , (FieldKey "balance", PLiteral $ LDecimal 1_099_991) -- 1k + 1mm - gas
+        , (FieldKey "balance", PLiteral $ LDecimal 1_099_991.01) -- 1k + 1mm - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation02" Nothing))
         ]
 
@@ -1103,8 +1103,8 @@ webAuthnSignatureTest t cenv = do
     $ set cbRPC (mkExec' "(concat [\"chainweb-\" \"node\"])")
     $ defaultCmd
 
-  rks1 <- sending cid' cenv (SubmitBatch $ pure cmd1)
-  PollResponses _resp1 <- polling cid' cenv rks1 ExpectPactResult
+  rks1 <- sending v cid' cenv (SubmitBatch $ pure cmd1)
+  PollResponses _resp1 <- polling v cid' cenv rks1 ExpectPactResult
 
   cmd2 <- buildTextCmd "nonce-webauthn-2" v
     $ set cbSigners [mkWebAuthnSigner' sender02WebAuthn [], mkEd25519Signer' sender00 []]
@@ -1113,8 +1113,8 @@ webAuthnSignatureTest t cenv = do
     $ set cbRPC (mkExec' "(concat [\"chainweb-\" \"node\"])")
     $ defaultCmd
 
-  rks2 <- sending cid' cenv (SubmitBatch $ pure cmd2)
-  PollResponses _resp2 <- polling cid' cenv rks2 ExpectPactResult
+  rks2 <- sending v cid' cenv (SubmitBatch $ pure cmd2)
+  PollResponses _resp2 <- polling v cid' cenv rks2 ExpectPactResult
 
   return ()
 
@@ -1146,17 +1146,17 @@ mkSingletonBatch
 mkSingletonBatch t kps (PactTransaction c d) nonce pmk clist = do
     ks <- testKeyPairs kps clist
     let dd = fromMaybe A.Null d
-    cmd <- liftIO $ Pact.mkExec c dd (pmk t) ks [] (Just "fastfork-CPM-peterson") nonce
+    cmd <- liftIO $ Pact.mkExec c dd (pmk t) ks [] (Just "instant-CPM-peterson") nonce
     return $ SubmitBatch (cmd NEL.:| [])
 
 testSend :: Pact.TxCreationTime -> MVar Int -> ClientEnv -> IO RequestKeys
-testSend t mNonce env = testBatch t mNonce gp >>= sending cid env
+testSend t mNonce env = testBatch t mNonce gp >>= sending v cid env
 
 testBatch'' :: Pact.ChainId -> Pact.TxCreationTime -> Pact.TTLSeconds -> MVar Int -> GasPrice -> IO SubmitBatch
 testBatch'' chain t ttl mnonce gp' = modifyMVar mnonce $ \(!nn) -> do
     let nonce = "nonce" <> sshow nn
     kps <- testKeyPairs sender00 Nothing
-    c <- Pact.mkExec "(+ 1 2)" A.Null (pm t) kps [] (Just "fastfork-CPM-peterson") (Just nonce)
+    c <- Pact.mkExec "(+ 1 2)" A.Null (pm t) kps [] (Just "instant-CPM-peterson") (Just nonce)
     pure (succ nn, SubmitBatch (pure c))
   where
     pm :: Pact.TxCreationTime -> Pact.PublicMeta
