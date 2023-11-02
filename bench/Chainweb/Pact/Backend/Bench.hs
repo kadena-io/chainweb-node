@@ -60,7 +60,7 @@ import Chainweb.Utils (sshow)
 import Chainweb.Version
 
 testVer :: ChainwebVersion
-testVer = fastForkingCpmTestVersion petersonChainGraph
+testVer = instantCpmTestVersion petersonChainGraph
 
 testChainId :: ChainId
 testChainId = unsafeChainId 0

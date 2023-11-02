@@ -12,6 +12,7 @@ module Chainweb.Test.TestVersions
     , slowForkingCpmTestVersion
     , quirkedGasSlowForkingCpmTestVersion
     , timedConsensusVersion
+    , instantCpmTestVersion
     ) where
 
 import Control.Lens hiding (elements)
@@ -22,6 +23,8 @@ import qualified Data.List as List
 import qualified Data.Set as Set
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload as TN0
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM1to9Payload as TNN
+import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload as IN0
+import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload as INN
 
 import System.IO.Unsafe
 
@@ -105,6 +108,9 @@ testVersions = _versionName <$> concat
       , g2 :: KnownGraph <- [minBound..maxBound]
       ]
     , [ quirkedGasSlowForkingCpmTestVersion (knownChainGraph g) (P.RequestKey $ P.Hash mempty)
+      | g :: KnownGraph <- [minBound..maxBound]
+      ]
+    , [ instantCpmTestVersion (knownChainGraph g)
       | g :: KnownGraph <- [minBound..maxBound]
       ]
     ]
@@ -312,3 +318,19 @@ noBridgeCpmTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("nobridge-CPM-" <> toText g)
     & versionForks .~ (fastForks & at SPVBridge ?~ AllChains ForkNever)
+
+-- | CPM version (see `cpmTestVersion`) with forks and upgrades instantly enabled
+-- at genesis.
+instantCpmTestVersion :: ChainGraph -> ChainwebVersion
+instantCpmTestVersion g = buildTestVersion $ \v -> v
+    & cpmTestVersion g
+    & versionName .~ ChainwebVersionName ("instant-CPM-" <> toText g)
+    & versionForks .~ tabulateHashMap (\_ -> AllChains ForkAtGenesis)
+    & versionGenesis .~ VersionGenesis
+        { _genesisBlockPayload = onChains $
+            (unsafeChainId 0, IN0.payloadBlock) :
+            [(n, INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` chainIds v)]
+        , _genesisBlockTarget = AllChains maxTarget
+        , _genesisTime = AllChains $ BlockCreationTime epoch
+        }
+    & versionUpgrades .~ AllChains mempty
