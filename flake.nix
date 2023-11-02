@@ -36,11 +36,14 @@
         inherit (haskellNix) config;
         overlays = [ haskellNix.overlay ];
       };
-      defaultNix = import ./default.nix {
-        inherit pkgs nix-filter;
-        flakePath = self.outPath;
-        pact = if inputs.pact.outPath != inputs.empty.outPath then inputs.pact else null;
-      };
+      mkDefaultNix = {
+          pact ? if inputs.pact.outPath != inputs.empty.outPath then inputs.pact else null,
+          enablePactBuildTool ? false,
+        }: import ./default.nix {
+          inherit pkgs nix-filter pact enablePactBuildTool;
+          flakePath = self.outPath;
+        };
+      defaultNix = mkDefaultNix {};
       flake = defaultNix.flake;
       executables = defaultNix.default;
       # This package depends on other packages at buildtime, but its output does not
@@ -51,7 +54,7 @@
         echo works > $out
       '';
     in nixpkgs.lib.recursiveUpdate flake {
-      lib.chainwebProject = defaultNix.chainweb;
+      lib.mkChainwebProject = args: (mkDefaultNix args).chainweb;
       packages.default = executables;
       packages.check = pkgs.runCommand "check" {} ''
         echo ${mkCheck "chainweb" executables}

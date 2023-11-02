@@ -16,7 +16,7 @@ in
 , flakePath ? flakeDefaultNix.outPath
 , nix-filter ? inputs.nix-filter
 , pact ? null
-, enablePactBuildTool ? true
+, enablePactBuildTool ? false
 , ...
 }:
 let haskellSrc = with nix-filter.lib; filter {
