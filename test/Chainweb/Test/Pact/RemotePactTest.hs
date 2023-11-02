@@ -177,6 +177,9 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
                 , after AllSucceed "poll bad key test" $
                     testCaseSteps "local preflight sim test" $ \step ->
                         join $ localPreflightSimTest <$> iot <*> cenv <*> pure step
+                , after AllSucceed "poll returns correct results" $
+                    testCaseSteps "poll correct results test" $ \step ->
+                        join $ pollingCorrectResults <$> iot <*> cenv <*> pure step
                 ]
     ]
 
@@ -272,6 +275,42 @@ pollingConfirmDepth t cenv step = do
         $ set cbNetworkId (Just v)
         $ set cbGasLimit 70000
         $ mkCmd "nonce-cont-1"
+        $ mkExec' transaction
+
+pollingCorrectResults :: Pact.TxCreationTime -> ClientEnv -> (String -> IO ()) -> IO ()
+pollingCorrectResults t cenv step = do
+    step "/send transactions"
+
+    -- submit the first one, then poll to confirm its in a block
+    cmd1 <- stepTx tx
+    rks1@(RequestKeys (rk1 NEL.:| [])) <- sending cid' cenv (SubmitBatch $ cmd1 NEL.:| [])
+    PollResponses _ <- pollingWithDepth cid' cenv rks1 (Just $ ConfirmationDepth 10) ExpectPactResult
+
+    -- submit the second...
+    cmd2 <- stepTx tx'
+    RequestKeys (rk2 NEL.:| []) <- sending cid' cenv (SubmitBatch $ cmd2 NEL.:| [])
+
+    -- now request both. the second transaction will by definition go into another block.
+    -- do it in two different orders, and ensure it works either way.
+    let
+      together1 = RequestKeys $ rk1 NEL.:| [rk2]
+      together2 = RequestKeys $ rk2 NEL.:| [rk1]
+
+    PollResponses resp1 <- polling cid' cenv together1 ExpectPactResult
+    PollResponses resp2 <- polling cid' cenv together2 ExpectPactResult
+
+    assertEqual "the two responses should be the same" resp1 resp2
+  where
+    cid' = unsafeChainId 0
+    (tx, tx')  = ("42", "43")
+
+    stepTx transaction = do
+      buildTextCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbCreationTime t
+        $ set cbNetworkId (Just v)
+        $ set cbGasLimit 70_000
+        $ mkCmd "nonce-cont-2"
         $ mkExec' transaction
 
 localChainDataTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
