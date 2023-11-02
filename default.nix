@@ -36,8 +36,13 @@ let haskellSrc = with nix-filter.lib; filter {
       # Remove the source-repository-package section for pact and inject the
       # override as a packages section
       ${pkgs.gawk}/bin/awk -i inplace '
-        BEGIN { delete_block=0; }
-        /^$/ { if (delete_block == 0) print buffer "\n"; buffer=""; delete_block=0; next; }
+        BEGINFILE { delete_block=0; buffer = ""; }
+        /^$/ {
+          if (delete_block == 0) print buffer "\n";
+          buffer="";
+          delete_block=0;
+          next;
+        }
         /location: https:\/\/github.com\/kadena-io\/pact.git/ { delete_block=1; }
         {
           if (delete_block == 0) {
@@ -45,7 +50,7 @@ let haskellSrc = with nix-filter.lib; filter {
             buffer = buffer $0;
           }
         }
-        END { if (delete_block == 0) print buffer; }
+        ENDFILE { if (delete_block == 0) print buffer "\n"; }
       ' $out
       echo 'packages: ${pact}' >> $out
     '';
