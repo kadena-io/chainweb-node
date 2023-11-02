@@ -533,6 +533,8 @@ compactionIsIdempotent rdb =
                     putStrLn ""
         assertFailure "pact state check failed"
 
+-- | Test that user tables created before the compaction height are kept,
+--   while those created after the compaction height are dropped.
 compactionUserTablesDropped :: ()
   => RocksDb
   -> TestTree
@@ -599,7 +601,7 @@ compactionUserTablesDropped rdb =
       supply <- newIORef @Int 0
       madeBeforeTable <- newIORef @Bool False
       madeAfterTable <- newIORef @Bool False
-      replicateM_ numBlocks $ do
+      forM_ [1..numBlocks :: Word] $ \blockNum -> do
         setMempool mempoolRef $ mempty {
           mpaGetBlock = \_ _ mBlockHeight _ _ -> do
             let mkTable madeRef tbl = do
@@ -619,15 +621,13 @@ compactionUserTablesDropped rdb =
             else do
               mkTable madeAfterTable afterTable
         }
-        void $ runBlock pactQueue blockDb second pat
+        void $ runBlock pactQueue blockDb second (pat ++ "-" ++ show blockNum)
 
       let db = _sConn sqlEnv
 
       let compact h = C.withDefaultLogger System.Logger.Types.Error $ \cLogger -> do
             let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
             void $ C.compact h cLogger db flags
-
-      let compactionHeight = BlockHeight halfwayPoint
 
       let freeBeforeTbl = "free.m0_" <> beforeTable
       let freeAfterTbl = "free.m1_" <> afterTable
@@ -642,7 +642,7 @@ compactionUserTablesDropped rdb =
         assertExists freeBeforeTbl
         assertExists freeAfterTbl
 
-      compact compactionHeight
+      compact (BlockHeight halfwayPoint)
 
       do
         state <- getPactUserTables db
