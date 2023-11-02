@@ -723,6 +723,9 @@ mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
   (_, q, bdb) <- reqIO
   supply <- newMVar (0 :: Int)
 
+  mp supply [ ( 0, [goodTx] ), ( 1, [goodTx] ) ]
+  runBlock q bdb second >>= checkCount 2
+
   mp supply [ ( 0, [goodTx, goodTx] ), ( 1, [badTx] ) ]
   runBlock q bdb second >>= checkCount 2
 
