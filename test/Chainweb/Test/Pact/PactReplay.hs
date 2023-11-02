@@ -53,7 +53,7 @@ import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 
 testVer :: ChainwebVersion
-testVer = fastForkingCpmTestVersion petersonChainGraph
+testVer = instantCpmTestVersion petersonChainGraph
 
 cid :: ChainId
 cid = someChainId testVer

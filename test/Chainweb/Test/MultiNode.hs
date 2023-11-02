@@ -193,7 +193,7 @@ harvestConsensusState
 harvestConsensusState _ _ _ (Replayed _ _) =
     error "harvestConsensusState: doesn't work when replaying, replays don't do consensus"
 harvestConsensusState logger stateVar nid (StartedChainweb cw) = do
-    runChainweb cw `finally` do
+    runChainweb cw (\_ -> return ()) `finally` do
         logFunctionText logger Info "write sample data"
         modifyMVar_ stateVar $
             sampleConsensusState
@@ -502,4 +502,3 @@ upperStats v seconds = Stats
   where
     ebc = expectedBlockCount v seconds
     ech = expectedCutHeightAfterSeconds v seconds
-

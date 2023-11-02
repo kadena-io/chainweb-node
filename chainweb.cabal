@@ -127,6 +127,8 @@ library
         , Chainweb.BlockHeader.Genesis.FastDevelopment1to19Payload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM1to9Payload
+        , Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload
+        , Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload
         , Chainweb.BlockHeader.Genesis.Testnet0Payload
         , Chainweb.BlockHeader.Genesis.Testnet1to19Payload
         , Chainweb.BlockHeader.Genesis.Mainnet0Payload
@@ -732,6 +734,7 @@ executable cwtool
         , safe-exceptions >= 0.1
         , servant-client >= 0.18.2
         , servant-client-core >= 0.18.2
+        , stm >= 2.4
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
         , tasty >= 1.0

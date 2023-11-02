@@ -261,7 +261,7 @@ instance FromJSONKey Fork where
     fromJSONKey = FromJSONKeyTextParser $ either fail return . eitherFromText
 
 data ForkHeight = ForkAtBlockHeight !BlockHeight | ForkAtGenesis | ForkNever
-    deriving stock (Generic, Eq, Ord)
+    deriving stock (Generic, Eq, Ord, Show)
     deriving anyclass (Hashable, NFData)
 
 makePrisms ''ForkHeight
@@ -304,6 +304,9 @@ data Upgrade = Upgrade
     }
     deriving stock (Generic, Eq)
     deriving anyclass (NFData)
+
+instance Show Upgrade where
+    show _ = "<upgrade>"
 
 upgrade :: [ChainwebTransaction] -> Upgrade
 upgrade txs = Upgrade txs False

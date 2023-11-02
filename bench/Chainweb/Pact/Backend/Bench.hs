@@ -58,7 +58,7 @@ import Chainweb.Utils (sshow)
 import Chainweb.Version
 
 v :: ChainwebVersion
-v = fastForkingCpmTestVersion petersonChainGraph
+v = instantCpmTestVersion petersonChainGraph
 
 bench :: C.Benchmark
 bench = C.bgroup "pact-backend" $

@@ -11,6 +11,7 @@ module Chainweb.Test.TestVersions
     , noBridgeCpmTestVersion
     , slowForkingCpmTestVersion
     , timedConsensusVersion
+    , instantCpmTestVersion
     ) where
 
 import Control.Lens hiding (elements)
@@ -20,6 +21,8 @@ import qualified Data.HashSet as HS
 import qualified Data.List as List
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload as TN0
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM1to9Payload as TNN
+import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload as IN0
+import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload as INN
 
 import System.IO.Unsafe
 
@@ -95,6 +98,9 @@ testVersions = _versionName <$> concat
     , [ timedConsensusVersion (knownChainGraph g1) (knownChainGraph g2)
       | g1 :: KnownGraph <- [minBound..maxBound]
       , g2 :: KnownGraph <- [minBound..maxBound]
+      ]
+    , [ instantCpmTestVersion (knownChainGraph g)
+      | g :: KnownGraph <- [minBound..maxBound]
       ]
     ]
 
@@ -276,3 +282,17 @@ noBridgeCpmTestVersion g = buildTestVersion $ \v -> v
     & versionName .~ ChainwebVersionName ("nobridge-CPM-" <> toText g)
     & versionForks .~ (fastForks & at SPVBridge ?~ AllChains ForkNever)
 
+-- | CPM version (see `cpmTestVersion`) with forks and upgrades instantly enabled
+-- at genesis.
+instantCpmTestVersion :: ChainGraph -> ChainwebVersion
+instantCpmTestVersion g = buildTestVersion $ \v -> v
+    & cpmTestVersion g
+    & versionName .~ ChainwebVersionName ("instant-CPM-" <> toText g)
+    & versionForks .~ tabulateHashMap (\_ -> AllChains ForkAtGenesis)
+    & versionGenesis .~ VersionGenesis
+        { _genesisBlockPayload = onChains $
+            (unsafeChainId 0, IN0.payloadBlock) :
+            [(n, INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` chainIds v)]
+        , _genesisBlockTarget = AllChains maxTarget
+        , _genesisTime = AllChains $ BlockCreationTime epoch
+        }

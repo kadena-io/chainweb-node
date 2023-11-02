@@ -51,7 +51,7 @@ import Chainweb.Storage.Table.RocksDB
 -- Settings
 
 testVer :: ChainwebVersion
-testVer = fastForkingCpmTestVersion peterson
+testVer = instantCpmTestVersion peterson
 
 genblock :: BlockHeader
 genblock = genesisBlockHeader testVer (someChainId testVer)

@@ -353,7 +353,7 @@ node conf logger = do
             Replayed _ _ -> return ()
             StartedChainweb cw ->
                 concurrentlies_
-                    [ runChainweb cw
+                    [ runChainweb cw (\_ -> return ())
                     -- we should probably push 'onReady' deeper here but this should be ok
                     , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
                     , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)

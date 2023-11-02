@@ -121,6 +121,7 @@ module Chainweb.Test.Utils
 
 import Control.Concurrent
 import Control.Concurrent.Async
+import Control.Concurrent.STM
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch (finally, bracket)
@@ -914,7 +915,7 @@ withNodes_ logger v testLabel rdb n =
     start :: IO (Async (), (ClientEnv, ClientEnv))
     start = do
         peerInfoVar <- newEmptyMVar
-        a <- async $ runTestNodes testLabel rdb logger v n peerInfoVar
+        a <- runTestNodes testLabel rdb logger v n peerInfoVar
         (i, servicePort) <- readMVar peerInfoVar
         cwEnv <- getClientEnv $ getCwBaseUrl Https $ _hostAddressPort $ _peerAddr i
         cwServiceEnv <- getClientEnv $ getCwBaseUrl Http servicePort
@@ -947,7 +948,7 @@ withNodesAtLatestBehavior
     -> ResourceT IO ChainwebNetwork
 withNodesAtLatestBehavior v testLabel rdb n = do
     net <- withNodes v testLabel rdb n
-    liftIO $ awaitBlockHeight v putStrLn (_getClientEnv net) (latestBehaviorAt v)
+    liftIO $ awaitBlockHeight v putStrLn (_getServiceClientEnv net) (latestBehaviorAt v)
     return net
 
 -- | Network initialization takes some time. Within my ghci session it took
@@ -994,9 +995,9 @@ runTestNodes
     -> ChainwebVersion
     -> Natural
     -> MVar (PeerInfo, Port)
-    -> IO ()
-runTestNodes testLabel rdb logger ver n portMVar =
-    forConcurrently_ [0 .. int n - 1] $ \i -> do
+    -> IO (Async ())
+runTestNodes testLabel rdb logger ver n portMVar = do
+    asyncs <- forConcurrently [0 .. int n - 1] $ \i -> do
         threadDelay (1000 * int i)
         let baseConf = config ver n
         conf <- if
@@ -1004,19 +1005,31 @@ runTestNodes testLabel rdb logger ver n portMVar =
                 return $ bootstrapConfig baseConf
             | otherwise ->
                 setBootstrapPeerInfo <$> (fst <$> readMVar portMVar) <*> pure baseConf
-        node testLabel rdb logger portMVar conf i
+        nowServingRef <- newTVarIO NowServing
+            { _nowServingP2PAPI = False
+            , _nowServingServiceAPI = False
+            }
+        run <- async $ node testLabel rdb logger nowServingRef portMVar conf i
+        atomically $ do
+            nowServing <- readTVar nowServingRef
+            guard $ nowServing ==
+                NowServing { _nowServingP2PAPI = True, _nowServingServiceAPI = True }
+        print $ "node ready " <> show i
+        return run
+    async $ traverse_ wait asyncs
 
 node
     :: Logger logger
     => B.ByteString
     -> RocksDb
     -> logger
+    -> TVar NowServing
     -> MVar (PeerInfo, Port)
     -> ChainwebConfiguration
     -> Int
         -- ^ Unique Node Id. The node id 0 is used for the bootstrap node
     -> IO ()
-node testLabel rdb rawLogger peerInfoVar conf nid = do
+node testLabel rdb rawLogger nowServingRef peerInfoVar conf nid = do
     rocksDb <- testRocksDb (testLabel <> T.encodeUtf8 (toText nid)) rdb
     withSystemTempDirectory "test-backupdir" $ \backupDir ->
         withSystemTempDirectory "test-rocksdb" $ \dir ->
@@ -1030,7 +1043,7 @@ node testLabel rdb rawLogger peerInfoVar conf nid = do
                         putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
 
                     poisonDeadBeef cw
-                    runChainweb cw `finally` do
+                    runChainweb cw (atomically . modifyTVar' nowServingRef) `finally` do
                         logFunctionText logger Info "write sample data"
                         logFunctionText logger Info "shutdown node"
                     return ()
@@ -1109,4 +1122,4 @@ testRetryPolicy = stepped <> limitRetries 150
       0 -> Just 20_000
       1 -> Just 50_000
       2 -> Just 100_000
-      _ -> Just 250_000
+      _ -> Just 500_000
