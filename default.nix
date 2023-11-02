@@ -16,7 +16,7 @@ in
 , flakePath ? flakeDefaultNix.outPath
 , nix-filter ? inputs.nix-filter
 , pact ? null
-, enablePactBuildtool ? true
+, enablePactBuildTool ? true
 , ...
 }:
 let haskellSrc = with nix-filter.lib; filter {
@@ -49,7 +49,7 @@ let haskellSrc = with nix-filter.lib; filter {
       ' $out
       echo 'packages: ${pact}' >> $out
     '';
-    overridePactBuildTool = pkgs.lib.optionalString enablePactBuildtool ''
+    overridePactBuildTool = pkgs.lib.optionalString enablePactBuildTool ''
       # Remove the -build-tool flag from the pact package section, this allows
       # us to build the pact executable through the chainweb project
       sed -i '/package pact/,/^[^\ ]/{/^[ \t]/!b; s/-build-tool//}' $out
