@@ -37,6 +37,7 @@ let haskellSrc = with nix-filter.lib; filter {
       projectFileName = "cabal.project";
       shell.tools = {
         cabal = {};
+        haskell-language-server = {};
       };
       shell.buildInputs = with pkgs; [
         zlib
