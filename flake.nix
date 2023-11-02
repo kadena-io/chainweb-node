@@ -13,6 +13,12 @@
     };
     flake-utils.url = "github:numtide/flake-utils";
     nix-filter.url = "github:numtide/nix-filter";
+    empty = {
+      url = "github:kadena-io/empty";
+      flake = false;
+    };
+    # By default we use the pact specified in the cabal.project
+    pact.follows = "empty";
   };
 
   nixConfig = {
@@ -20,7 +26,7 @@
     trusted-public-keys = "nixcache.chainweb.com:FVN503ABX9F8x8K0ptnc99XEz5SaA4Sks6kNcZn2pBY= iohk.cachix.org-1:DpRUyj7h7V830dp/i6Nti+NEO2/nhblbov/8MW7Rqoo= cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=";
   };
 
-  outputs = { self, nixpkgs, flake-utils, haskellNix, nix-filter, ... }:
+  outputs = inputs@{ self, nixpkgs, flake-utils, haskellNix, nix-filter, ... }:
     flake-utils.lib.eachSystem
       [ "x86_64-linux" "x86_64-darwin"
         "aarch64-linux" "aarch64-darwin" ] (system:
@@ -33,6 +39,7 @@
       defaultNix = import ./default.nix {
         inherit pkgs nix-filter;
         flakePath = self.outPath;
+        pact = if inputs.pact.outPath != inputs.empty.outPath then inputs.pact else null;
       };
       flake = defaultNix.flake;
       executables = defaultNix.default;
@@ -44,6 +51,7 @@
         echo works > $out
       '';
     in nixpkgs.lib.recursiveUpdate flake {
+      lib.chainwebProject = defaultNix.chainweb;
       packages.default = executables;
       packages.check = pkgs.runCommand "check" {} ''
         echo ${mkCheck "chainweb" executables}

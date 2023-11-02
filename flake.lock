@@ -83,6 +83,22 @@
         "type": "github"
       }
     },
+    "empty": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1683033565,
+        "narHash": "sha256-UZ2dz7/RzJKTw/8uqLu6biAbb3xNk23xUHb5/oAYWsw=",
+        "owner": "kadena-io",
+        "repo": "empty",
+        "rev": "c30c041f692678788a294069c95677774be2dff3",
+        "type": "github"
+      },
+      "original": {
+        "owner": "kadena-io",
+        "repo": "empty",
+        "type": "github"
+      }
+    },
     "flake-compat": {
       "flake": false,
       "locked": {
@@ -592,11 +608,15 @@
     },
     "root": {
       "inputs": {
+        "empty": "empty",
         "flake-utils": "flake-utils",
         "hackage": "hackage",
         "haskellNix": "haskellNix",
         "nix-filter": "nix-filter",
-        "nixpkgs": "nixpkgs_2"
+        "nixpkgs": "nixpkgs_2",
+        "pact": [
+          "empty"
+        ]
       }
     },
     "stackage": {
