@@ -69,6 +69,7 @@ module Chainweb.Chainweb
 , chainwebBackup
 , StartedChainweb(..)
 , ChainwebStatus(..)
+, NowServing(..)
 
 -- ** Mempool integration
 , ChainwebTransaction
@@ -635,6 +636,13 @@ mkThrottler e rate c = initThrottler (defaultThrottleSettings $ TimeSpec (ceilin
 -- -------------------------------------------------------------------------- --
 -- Run Chainweb
 
+data NowServing = NowServing
+    { _nowServingP2PAPI :: !Bool
+    , _nowServingServiceAPI :: !Bool
+    } deriving Eq
+
+makeLenses ''NowServing
+
 -- | Starts server and runs all network clients
 --
 runChainweb
@@ -642,8 +650,9 @@ runChainweb
     . Logger logger
     => CanReadablePayloadCas tbl
     => Chainweb logger tbl
+    -> ((NowServing -> NowServing) -> IO ())
     -> IO ()
-runChainweb cw = do
+runChainweb cw nowServing = do
     logg Info "start chainweb node"
     mkValidationMiddleware <- interleaveIO $
         OpenAPIValidation.mkValidationMiddleware (_chainwebLogger cw) (_chainwebVersion cw) (_chainwebManager cw)
@@ -729,16 +738,19 @@ runChainweb cw = do
     -- P2P Server
 
     serverSettings :: Counter "clientClosedConnections" -> Settings
-    serverSettings closedConnectionsCounter = setOnException
-        (\r e -> if
-            | Just InsecureConnectionDenied <- fromException e ->
-                return ()
-            | Just ClientClosedConnectionPrematurely <- fromException e ->
-                inc closedConnectionsCounter
-            | otherwise ->
-                when (defaultShouldDisplayException e) $
-                    logg Warn $ loggServerError r e
-        ) $ peerServerSettings (_peerResPeer $ _chainwebPeer cw)
+    serverSettings closedConnectionsCounter =
+        peerServerSettings (_peerResPeer $ _chainwebPeer cw)
+        & setOnException
+            (\r e -> if
+                | Just InsecureConnectionDenied <- fromException e ->
+                    return ()
+                | Just ClientClosedConnectionPrematurely <- fromException e ->
+                    inc closedConnectionsCounter
+                | otherwise ->
+                    when (defaultShouldDisplayException e) $
+                        logg Warn $ loggServerError r e
+            )
+        & setBeforeMainLoop (nowServing (nowServingP2PAPI .~ True))
 
     monitorConnectionsClosedByClient :: Counter "clientClosedConnections" -> IO ()
     monitorConnectionsClosedByClient clientClosedConnectionsCounter =
@@ -821,6 +833,7 @@ runChainweb cw = do
         & setHost interface
         & setOnException
             (\r e -> when (defaultShouldDisplayException e) (logg Warn $ loggServiceApiServerError r e))
+        & setBeforeMainLoop (nowServing (nowServingServiceAPI .~ True))
 
     serviceApiHost = _serviceApiConfigInterface $ _configServiceApi $ _chainwebConfig cw
 
