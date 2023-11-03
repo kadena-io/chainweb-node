@@ -562,13 +562,12 @@ compactionUserTablesDropped rdb =
           gasLimit :: GasLimit
           gasLimit = 70_000
 
-      let ver = testVersion
       let cfg = testPactServiceConfig {
             _pactBlockGasLimit = gasLimit
           }
       let logger = genericLogger System.LogLevel.Error (\_ -> return ())
 
-      void $ forkIO $ runPactService ver cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
+      void $ forkIO $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
 
       let numBlocks :: Num a => a
           numBlocks = 100
@@ -635,8 +634,8 @@ compactionUserTablesDropped rdb =
       do
         state <- getPactUserTables db
         let assertExists tbl = do
-              when (isNothing (M.lookup tbl state)) $ do
-                assertFailure $ "Table " ++ T.unpack tbl ++ " should exist pre-compaction, but it doesn't."
+              let msg = "Table " ++ T.unpack tbl ++ " should exist pre-compaction, but it doesn't."
+              assertBool msg (isJust (M.lookup tbl state))
         assertExists freeBeforeTbl
         assertExists freeAfterTbl
 
@@ -644,11 +643,13 @@ compactionUserTablesDropped rdb =
 
       do
         state <- getPactUserTables db
-        when (isNothing (M.lookup freeBeforeTbl state)) $ do
-          assertFailure $ T.unpack beforeTable ++ " was dropped; it wasn't supposed to be."
+        do
+          let msg = T.unpack beforeTable ++ " was dropped; it wasn't supposed to be."
+          assertBool msg (isJust (M.lookup freeBeforeTbl state))
 
-        when (isJust (M.lookup freeAfterTbl state)) $ do
-          assertFailure $ T.unpack afterTable ++ " wasn't dropped; it was supposed to be."
+        do
+          let msg = T.unpack afterTable ++ " wasn't dropped; it was supposed to be."
+          assertBool msg (isNothing (M.lookup freeAfterTbl state))
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do
