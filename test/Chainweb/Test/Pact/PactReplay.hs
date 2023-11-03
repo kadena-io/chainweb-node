@@ -40,7 +40,6 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Pact.Utils
-import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.TreeDB
@@ -59,29 +58,24 @@ testVer = fastForkingCpmTestVersion petersonChainGraph
 cid :: ChainId
 cid = someChainId testVer
 
-tests :: RocksDb -> ScheduledTest
+tests :: RocksDb -> TestTree
 tests rdb =
-    ScheduledTest label $
     withDelegateMempool $ \dmp ->
     let mp = snd <$> dmp
         mpio = fst <$> dmp
     in
-    testGroup label
+    sequentialTestGroup label AllSucceed
         [ withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
             (testCase "initial-playthrough" . firstPlayThrough mpio genblock)
-        , after AllSucceed "initial-playthrough" $
-            withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
-                (testCase "service-init-after-fork" . serviceInitializationAfterFork mpio genblock)
-        , after AllSucceed "service-init-after-fork" $
-            withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
-                (testCaseSteps "on-restart" . onRestart mpio)
-        , after AllSucceed "on-restart" $
-            withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
+        , withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
+            (testCase "service-init-after-fork" . serviceInitializationAfterFork mpio genblock)
+        , withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
+            (testCaseSteps "on-restart" . onRestart mpio)
+        , withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
             (testCase "reject-dupes" . testDupes mpio genblock)
-        , after AllSucceed "reject-dupes" $
-            let deepForkLimit = RewindLimit 4
-            in withPactTestBlockDb testVer cid rdb mp (forkLimit deepForkLimit)
-                (testCaseSteps "deep-fork-limit" . testDeepForkLimit mpio deepForkLimit)
+        , let deepForkLimit = RewindLimit 4
+          in withPactTestBlockDb testVer cid rdb mp (forkLimit deepForkLimit)
+            (testCaseSteps "deep-fork-limit" . testDeepForkLimit mpio deepForkLimit)
         ]
   where
     genblock = genesisBlockHeader testVer cid
