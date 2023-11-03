@@ -32,6 +32,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Either (isRight, fromRight)
 import Data.IORef
 import qualified Data.Map.Strict as M
+import Data.Maybe (isJust, isNothing)
 import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.Text.IO as T
@@ -633,11 +634,8 @@ compactionUserTablesDropped rdb =
       let freeAfterTbl = "free.m1_" <> afterTable
       do
         state <- getPactUserTables db
-        let assertExists tbl = case M.lookup tbl state of
-              Just _ -> do
-                pure ()
-              Nothing -> do
-                print $ M.keys state
+        let assertExists tbl = do
+              when (isNothing (M.lookup tbl state)) $ do
                 assertFailure $ "Table " ++ T.unpack tbl ++ " should exist pre-compaction, but it doesn't."
         assertExists freeBeforeTbl
         assertExists freeAfterTbl
@@ -646,17 +644,11 @@ compactionUserTablesDropped rdb =
 
       do
         state <- getPactUserTables db
-        case M.lookup freeBeforeTbl state of
-          Just _ -> do
-            pure ()
-          Nothing -> do
-            assertFailure $ T.unpack beforeTable ++ " was dropped; it wasn't supposed to be."
+        when (isNothing (M.lookup freeBeforeTbl state)) $ do
+          assertFailure $ T.unpack beforeTable ++ " was dropped; it wasn't supposed to be."
 
-        case M.lookup freeAfterTbl state of
-          Just _ -> do
-            assertFailure $ T.unpack afterTable ++ " wasn't dropped; it was supposed to be."
-          Nothing -> do
-            pure ()
+        when (isJust (M.lookup freeAfterTbl state)) $ do
+          assertFailure $ T.unpack afterTable ++ " wasn't dropped; it was supposed to be."
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do
