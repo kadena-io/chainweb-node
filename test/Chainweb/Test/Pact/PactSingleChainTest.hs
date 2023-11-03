@@ -32,7 +32,9 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Either (isRight, fromRight)
 import Data.IORef
 import qualified Data.Map.Strict as M
+import Data.Maybe (isJust, isNothing)
 import qualified Data.Text as T
+import Data.Text (Text)
 import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
@@ -120,6 +122,7 @@ tests rdb = testGroup testName
   , rewindPastMinBlockHeightFails rdb
   , pactStateSamePreAndPostCompaction rdb
   , compactionIsIdempotent rdb
+  , compactionUserTablesDropped rdb
   ]
   where
     testName = "Chainweb.Test.Pact.PactSingleChainTest"
@@ -385,7 +388,7 @@ pactStateSamePreAndPostCompaction rdb =
             then do
               pure mempty
             else do
-              n <- atomicModifyIORef supply $ \a -> (a + 1, a)
+              n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
               tx <- makeTx n bh
               writeIORef madeTx True
               pure $ V.fromList [tx]
@@ -482,7 +485,7 @@ compactionIsIdempotent rdb =
             then do
               pure mempty
             else do
-              n <- atomicModifyIORef supply $ \a -> (a + 1, a)
+              n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
               tx <- makeTx n bh
               writeIORef madeTx True
               pure $ V.fromList [tx]
@@ -530,6 +533,123 @@ compactionIsIdempotent rdb =
                     putStrLn $ "new: " ++ show y
                     putStrLn ""
         assertFailure "pact state check failed"
+
+-- | Test that user tables created before the compaction height are kept,
+--   while those created after the compaction height are dropped.
+compactionUserTablesDropped :: ()
+  => RocksDb
+  -> TestTree
+compactionUserTablesDropped rdb =
+  withTemporaryDir $ \iodir ->
+  withSqliteDb cid iodir $ \sqlEnvIO ->
+  withDelegateMempool $ \dm ->
+    let
+        pat :: String
+        pat = "compactionUserTablesDropped"
+    in
+    testCase pat $ do
+      blockDb <- mkTestBlockDb testVersion rdb
+      bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
+      let payloadDb = _bdbPayloadDb blockDb
+      sqlEnv <- sqlEnvIO
+      (mempoolRef, mempool) <- do
+        (ref, nonRef) <- dm
+        pure (pure ref, nonRef)
+      pactQueue <- newPactQueue 2000
+
+      let -- creating a module uses about 60k gas. this is
+          -- that plus some change.
+          gasLimit :: GasLimit
+          gasLimit = 70_000
+
+      let cfg = testPactServiceConfig {
+            _pactBlockGasLimit = gasLimit
+          }
+      let logger = genericLogger System.LogLevel.Error (\_ -> return ())
+
+      void $ forkIO $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
+
+      let numBlocks :: Num a => a
+          numBlocks = 100
+      let halfwayPoint :: Integral a => a
+          halfwayPoint = numBlocks `div` 2
+
+      setOneShotMempool mempoolRef goldenMemPool
+
+      let createTable :: Int -> Text -> IO ChainwebTransaction
+          createTable n tblName = do
+            let tx = T.unlines
+                  [ "(namespace 'free)"
+                  , "(module m" <> sshow n <> " G"
+                  , "  \"Hullaballo\""
+                  , "  (defcap G () true)"
+                  , "  (defschema empty-schema)"
+                  , "  (deftable " <> tblName <> ":{empty-schema})"
+                  , ")"
+                  , "(create-table " <> tblName <> ")"
+                  ]
+            buildCwCmd
+              $ signSender00
+              $ set cbGasLimit gasLimit
+              $ mkCmd ("createTable-" <> tblName <> "-" <> sshow n)
+              $ mkExec tx
+              $ mkKeySetData "sender00" [sender00]
+
+      let beforeTable = "test_before"
+      let afterTable = "test_after"
+
+      supply <- newIORef @Int 0
+      madeBeforeTable <- newIORef @Bool False
+      madeAfterTable <- newIORef @Bool False
+      forM_ [1..numBlocks :: Word] $ \blockNum -> do
+        setMempool mempoolRef $ mempty {
+          mpaGetBlock = \_ _ mBlockHeight _ _ -> do
+            let mkTable madeRef tbl = do
+                  madeYet <- readIORef madeRef
+                  if madeYet
+                  then do
+                    pure mempty
+                  else do
+                    n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
+                    tx <- createTable n tbl
+                    writeIORef madeRef True
+                    pure (V.fromList [tx])
+
+            if mBlockHeight <= halfwayPoint
+            then do
+              mkTable madeBeforeTable beforeTable
+            else do
+              mkTable madeAfterTable afterTable
+        }
+        void $ runBlock pactQueue blockDb second (pat ++ "-" ++ show blockNum)
+
+      let db = _sConn sqlEnv
+
+      let compact h = C.withDefaultLogger System.Logger.Types.Error $ \cLogger -> do
+            let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
+            void $ C.compact h cLogger db flags
+
+      let freeBeforeTbl = "free.m0_" <> beforeTable
+      let freeAfterTbl = "free.m1_" <> afterTable
+      do
+        state <- getPactUserTables db
+        let assertExists tbl = do
+              let msg = "Table " ++ T.unpack tbl ++ " should exist pre-compaction, but it doesn't."
+              assertBool msg (isJust (M.lookup tbl state))
+        assertExists freeBeforeTbl
+        assertExists freeAfterTbl
+
+      compact (BlockHeight halfwayPoint)
+
+      do
+        state <- getPactUserTables db
+        do
+          let msg = T.unpack beforeTable ++ " was dropped; it wasn't supposed to be."
+          assertBool msg (isJust (M.lookup freeBeforeTbl state))
+
+        do
+          let msg = T.unpack afterTable ++ " wasn't dropped; it was supposed to be."
+          assertBool msg (isNothing (M.lookup freeAfterTbl state))
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do
