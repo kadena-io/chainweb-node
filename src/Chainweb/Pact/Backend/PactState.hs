@@ -1,8 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
@@ -12,9 +10,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.PactState
@@ -41,11 +37,13 @@ module Chainweb.Pact.Backend.PactState
   , UserTable(..)
   , UserTableDiff(..)
 
-  , main
+  , pactDiffMain
+  , pactBreakdownMain
   )
   where
 
-import Data.IORef (newIORef, readIORef, writeIORef)
+import Data.IORef (newIORef, readIORef, writeIORef, atomicModifyIORef')
+import Data.Word (Word64)
 import Control.Concurrent.MVar (MVar, putMVar, takeMVar, newEmptyMVar)
 import UnliftIO.Async (pooledMapConcurrentlyN_)
 import Control.Lens (over)
@@ -60,6 +58,7 @@ import Data.ByteString.Lazy qualified as BSL
 import Data.Foldable qualified as F
 import Data.Int (Int64)
 import Data.List qualified as List
+import Data.Map (Map)
 import Data.Map.Strict qualified as M
 import Data.Ord (Down(..))
 import Data.Text (Text)
@@ -74,7 +73,7 @@ import Patience.Delta (Delta(..))
 
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Utils (sshow, HasTextRepresentation, fromText, toText, int)
-import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName, unsafeChainId)
+import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName, ChainId, unsafeChainId, chainIdToText)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
@@ -83,6 +82,7 @@ import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Pact.Backend.Compaction qualified as C
 
 import System.Exit (exitFailure)
+import System.IO qualified as IO
 import System.Logger (LogLevel(..), setLoggerScope, loggerFunIO)
 import Data.LogMessage (TextLog(..), toLogMessage)
 
@@ -91,11 +91,64 @@ import Pact.Types.SQLite qualified as Pact
 import Streaming.Prelude (Stream, Of)
 import Streaming.Prelude qualified as S
 
+checkpointerTables :: [Utf8]
+checkpointerTables = ["BlockHistory", "VersionedTableCreation", "VersionedTableMutation", "TransactionIndex"]
+
+compactionTables :: [Utf8]
+compactionTables = ["CompactGrandHash", "CompactActiveRow"]
+
+sysTables :: [Utf8]
+sysTables = ["SYS:usertables", "SYS:KeySets", "SYS:Modules", "SYS:Namespaces", "SYS:Pacts"]
+
 excludedTables :: [Utf8]
 excludedTables = checkpointerTables ++ compactionTables
+
+data TableType
+  = TableTypeSystem
+  | TableTypeCompaction
+  | TableTypeUser
+  deriving stock (Eq)
+
+instance ToJSON TableType where
+  toJSON = \case
+    TableTypeSystem -> "system"
+    TableTypeCompaction -> "compaction"
+    TableTypeUser -> "user"
+
+prettyTableType :: TableType -> String
+prettyTableType = \case
+  TableTypeSystem -> "System table"
+  TableTypeCompaction -> "Compaction table"
+  TableTypeUser -> "User table"
+
+data SizedTable = SizedTable
+  { tableName :: Text
+  , tableSizeBytes :: Word64
+  , tableType :: TableType
+  }
+
+instance ToJSON SizedTable where
+  toJSON tbl = Aeson.object
+    [ "table_name" .= tbl.tableName
+    , "table_size_bytes" .= tbl.tableSizeBytes
+    , "table_type" .= tbl.tableType
+    ]
+
+getTableSizesBytes :: Database -> IO [SizedTable]
+getTableSizesBytes db = do
+  let qryText = "SELECT name, SUM(\"pgsize\") table_size FROM \"dbstat\" GROUP BY name ORDER BY table_size DESC"
+  Pact.qry db qryText [] [RText, RInt] >>= mapM go
   where
-    checkpointerTables = ["BlockHistory", "VersionedTableCreation", "VersionedTableMutation", "TransactionIndex"]
-    compactionTables = ["CompactGrandHash", "CompactActiveRow"]
+    go :: [SType] -> IO SizedTable
+    go = \case
+      [SText tbl, SInt tblSize] -> do
+        let tblType =
+              if | tbl `elem` checkpointerTables -> TableTypeSystem
+                 | tbl `elem` sysTables -> TableTypeSystem
+                 | tbl `elem` compactionTables -> TableTypeCompaction
+                 | otherwise -> TableTypeUser
+        pure (SizedTable (utf8ToText tbl) (fromIntegral tblSize) tblType)
+      _ -> error "getTableSizesBytes: expected (text, int)"
 
 getLatestBlockHeight :: Database -> IO BlockHeight
 getLatestBlockHeight db = do
@@ -150,7 +203,7 @@ getPactUserTables db numTables = do
 
 getLatestPactState :: Database -> Stream (Of UserTable) IO ()
 getLatestPactState db = do
-  numTablesVar <- liftIO $ newEmptyMVar
+  numTablesVar <- liftIO newEmptyMVar
 
   let go :: Word -> Stream (Of UserTable) IO () -> Stream (Of UserTable) IO ()
       go !tablesRemaining s = do
@@ -246,8 +299,7 @@ instance ToJSON PactRow where
 
 getActiveRows :: UserTable -> UserTable
 getActiveRows (UserTable name rows) = UserTable name
-  $ List.map takeHead
-  $ List.map (List.sortOn (Down . txId))
+  $ List.map (takeHead . List.sortOn (Down . txId))
   $ List.groupBy (\x y -> rowKey x == rowKey y)
   $ List.sortOn rowKey rows
   where
@@ -259,7 +311,101 @@ getActiveRows (UserTable name rows) = UserTable name
 utf8ToText :: Utf8 -> Text
 utf8ToText (Utf8 u) = Text.decodeUtf8 u
 
-data Config = Config
+data ChainSizeInfo = ChainSizeInfo
+  { totalSizeBytes :: Word64
+  , tableSizes :: [SizedTable]
+  }
+
+instance ToJSON ChainSizeInfo where
+  toJSON cInfo = Aeson.object
+    [ "total_size_bytes" .= cInfo.totalSizeBytes
+    , "table_sizes" .= cInfo.tableSizes
+    ]
+
+mkChainSizeInfo :: [SizedTable] -> ChainSizeInfo
+mkChainSizeInfo tbls = ChainSizeInfo
+  { totalSizeBytes = List.foldl' (\acc tbl -> acc + tbl.tableSizeBytes) 0 tbls
+  , tableSizes = tbls
+  }
+
+data PactBreakdown = PactBreakdown
+  { totalSizeBytes :: Word64
+  , sizes :: Map ChainId ChainSizeInfo
+  }
+
+instance ToJSON PactBreakdown where
+  toJSON b = Aeson.object
+    [ "total_size_bytes" .= b.totalSizeBytes
+    , "chain_sizes" .= b.sizes
+    ]
+
+reportBreakdown :: PactBreakdown -> IO ()
+reportBreakdown breakdown = do
+  IO.withFile "report.txt" IO.AppendMode $ \h -> do
+    let put = IO.hPutStrLn h
+    put $ "Total Size of All Chains: " ++ showBytes breakdown.totalSizeBytes
+    forM_ (M.toAscList breakdown.sizes) $ \(cid, cInfo) -> do
+      put ""
+      put $ "Chain " ++ Text.unpack (chainIdToText cid)
+      put $ "Total Size: " ++ showBytes cInfo.totalSizeBytes
+      forM_ cInfo.tableSizes $ \tbl -> do
+        put $ Text.unpack tbl.tableName ++
+          " (" ++ prettyTableType tbl.tableType ++ "): " ++
+          showBytes tbl.tableSizeBytes
+
+data PactBreakdownConfig = PactBreakdownConfig
+  { pactDbDir :: FilePath
+  , chainwebVersion :: ChainwebVersion
+  , numThreads :: Int
+  }
+
+pactBreakdownMain :: IO ()
+pactBreakdownMain = do
+  cfg <- execParser opts
+
+  cids <- getCids cfg.pactDbDir cfg.chainwebVersion
+
+  sizesRef <- newIORef @(Map ChainId [SizedTable]) M.empty
+
+  flip (pooledMapConcurrentlyN_ cfg.numThreads) cids $ \cid -> do
+    C.withDefaultLogger Error $ \logger -> do
+      let resetDb = False
+      withSqliteDb cid logger cfg.pactDbDir resetDb $ \(SQLiteEnv db _) -> do
+        sizedTables <- getTableSizesBytes db
+        atomicModifyIORef' sizesRef $ \m -> (M.insert cid sizedTables m, ())
+
+  sizes <- readIORef sizesRef
+  let chainSizeInfos = M.map mkChainSizeInfo sizes
+  let breakdown = PactBreakdown
+        { totalSizeBytes = M.foldl' (\acc cInfo -> acc + cInfo.totalSizeBytes) 0 chainSizeInfos
+        , sizes = chainSizeInfos
+        }
+  reportBreakdown breakdown
+
+  where
+    opts :: ParserInfo PactBreakdownConfig
+    opts = info (parser <**> helper)
+      (fullDesc <> progDesc "Pact DB compare-and-compare")
+
+    parser :: Parser PactBreakdownConfig
+    parser = PactBreakdownConfig
+      <$> strOption
+           (long "pact-database-dir"
+            <> metavar "PACT_DB_DIRECTORY"
+            <> help "Pact database directory")
+      <*> (fmap (lookupVersionByName . fromTextSilly @ChainwebVersionName) $ strOption
+           (long "graph-version"
+            <> metavar "CHAINWEB_VERSION"
+            <> help "Chainweb version for graph. Only needed for non-standard graphs."
+            <> value (toText (_versionName mainnet))
+            <> showDefault))
+      <*> option auto
+           (long "threads"
+            <> metavar "NUM_THREADS"
+            <> help "Number of threads on which to run compaction."
+            <> value 4)
+
+data PactDiffConfig = PactDiffConfig
   { pactDbDir :: FilePath
   , compactDir :: FilePath
   , chainwebVersion :: ChainwebVersion
@@ -267,22 +413,15 @@ data Config = Config
   , numThreads :: Int
   }
 
-main :: IO ()
-main = do
+pactDiffMain :: IO ()
+pactDiffMain = do
   cfg <- execParser opts
 
   when (cfg.pactDbDir == cfg.compactDir) $ do
     Text.putStrLn "Pact database directory and compacted Pact database directory cannot be the same."
     exitFailure
 
-  cids <- do
-    -- Get the latest block height on chain 0 for the purpose of calculating all
-    -- the chain ids at the current (version,height) pair
-    latestBlockHeight <- C.withDefaultLogger Error $ \logger -> do
-      let resetDb = False
-      withSqliteDb (unsafeChainId 0) logger cfg.pactDbDir resetDb $ \(SQLiteEnv db _) -> do
-        getLatestBlockHeight db
-    pure $ List.sort $ F.toList $ chainIdsAt cfg.chainwebVersion latestBlockHeight
+  cids <- getCids cfg.pactDbDir cfg.chainwebVersion
 
   flip (pooledMapConcurrentlyN_ cfg.numThreads) cids $ \cid -> do
     C.withPerChainFileLogger cfg.logDir cid Debug $ \logger' -> do
@@ -307,12 +446,12 @@ main = do
               TextLog $ "Non-empty diff."
             exitFailure
   where
-    opts :: ParserInfo Config
+    opts :: ParserInfo PactDiffConfig
     opts = info (parser <**> helper)
       (fullDesc <> progDesc "Pact DB compare-and-compare")
 
-    parser :: Parser Config
-    parser = Config
+    parser :: Parser PactDiffConfig
+    parser = PactDiffConfig
       <$> strOption
            (long "pact-database-dir"
             <> metavar "PACT_DB_DIRECTORY"
@@ -339,7 +478,28 @@ main = do
             <> help "Number of threads on which to run compaction."
             <> value 4)
 
-    fromTextSilly :: HasTextRepresentation a => Text -> a
-    fromTextSilly t = case fromText t of
-      Just a -> a
-      Nothing -> error "fromText failed"
+fromTextSilly :: HasTextRepresentation a => Text -> a
+fromTextSilly t = case fromText t of
+  Just a -> a
+  Nothing -> error "fromText failed"
+
+getCids :: FilePath -> ChainwebVersion -> IO [ChainId]
+getCids pactDbDir chainwebVersion = do
+  -- Get the latest block height on chain 0 for the purpose of calculating all
+  -- the chain ids at the current (version,height) pair
+  latestBlockHeight <- C.withDefaultLogger Error $ \logger -> do
+    let resetDb = False
+    withSqliteDb (unsafeChainId 0) logger pactDbDir resetDb $ \(SQLiteEnv db _) -> do
+      getLatestBlockHeight db
+  pure $ List.sort $ F.toList $ chainIdsAt chainwebVersion latestBlockHeight
+
+showBytes :: Word64 -> String
+showBytes bytes
+  | bytes > oneMB = show (w2d bytes / w2d oneMB) ++ " MB"
+  | otherwise = show bytes ++ " bytes"
+  where
+    oneMB :: Word64
+    oneMB = 1024 * 1024
+
+    w2d :: Word64 -> Double
+    w2d = fromIntegral

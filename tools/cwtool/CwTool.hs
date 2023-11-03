@@ -10,7 +10,7 @@ import System.Exit
 import Text.Printf
 
 import Chainweb.Pact.Backend.Compaction (main)
-import Chainweb.Pact.Backend.PactState (main)
+import Chainweb.Pact.Backend.PactState (pactDiffMain, pactBreakdownMain)
 
 import qualified CheckpointerDBChecksum
 import qualified Ea
@@ -109,7 +109,11 @@ topLevelCommands =
   , CommandSpec
       "compact-compare"
       "Compare pre- and post-compaction state"
-      Chainweb.Pact.Backend.PactState.main
+      Chainweb.Pact.Backend.PactState.pactDiffMain
+  , CommandSpec
+      "pact-breakdown"
+      "Show a breakdown of the Pact State"
+      Chainweb.Pact.Backend.PactState.pactBreakdownMain
   , CommandSpec
       "calculate-release"
       "Calculate next service date and block heights for upgrades"

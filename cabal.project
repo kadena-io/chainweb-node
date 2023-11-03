@@ -131,6 +131,13 @@ source-repository-package
     tag: 2f67d546ea6608fc6ebe5f2f6976503cbf340442
     --sha256: 0x137akvbh4kr3qagksw74xdj2xz5vjnx1fbr41bb54a0lkcb8mm
 
+-- version that builds sqlite with -DSQLITE_ENABLE_DBSTAT_VTAB
+source-repository-package
+    type: git
+    location: https://github.com/chessai/direct-sqlite
+    tag: 2f1d2b4c617c2f1a07a6b281538da61cfa74c6af
+    --sha256: 0ysfb08vrzz3j8bklmby2r3fgf8aha3csda4lvhkypgr6xxfspvs
+
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
 
