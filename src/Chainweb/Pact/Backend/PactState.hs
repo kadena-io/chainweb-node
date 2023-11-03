@@ -1,8 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
@@ -12,19 +10,17 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.PactState
 -- Copyright: Copyright © 2023 Kadena LLC.
 -- License: see LICENSE.md
 --
--- Diff Pact state pre- and post-compaction.
+-- Diff Pact state between two databases.
 --
 -- There are other utilities provided by this module whose purpose is either
--- to get the pact state or perform diffs, without compacting.
+-- to get the pact state.
 --
 -- The code in this module operates primarily on 'Stream's, because the amount
 -- of user data can grow quite large. by comparing one table at a time, we can
@@ -41,15 +37,15 @@ module Chainweb.Pact.Backend.PactState
   , UserTable(..)
   , UserTableDiff(..)
 
-  , main
+  , pactDiffMain
   )
   where
 
-import Data.IORef (newIORef, readIORef, writeIORef)
+import Data.IORef (newIORef, readIORef, atomicModifyIORef')
 import Control.Concurrent.MVar (MVar, putMVar, takeMVar, newEmptyMVar)
 import UnliftIO.Async (pooledMapConcurrentlyN_)
 import Control.Lens (over)
-import Control.Monad (forM, forM_, when, void)
+import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Aeson (ToJSON(..), (.=))
 import Data.Aeson qualified as Aeson
@@ -60,6 +56,7 @@ import Data.ByteString.Lazy qualified as BSL
 import Data.Foldable qualified as F
 import Data.Int (Int64)
 import Data.List qualified as List
+import Data.Map (Map)
 import Data.Map.Strict qualified as M
 import Data.Ord (Down(..))
 import Data.Text (Text)
@@ -74,7 +71,7 @@ import Patience.Delta (Delta(..))
 
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Utils (sshow, HasTextRepresentation, fromText, toText, int)
-import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName, unsafeChainId)
+import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName, ChainId, chainIdToText, unsafeChainId)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
@@ -153,8 +150,8 @@ getLatestPactState db = do
   numTablesVar <- liftIO $ newEmptyMVar
 
   let go :: Word -> Stream (Of UserTable) IO () -> Stream (Of UserTable) IO ()
-      go !tablesRemaining s = do
-        if tablesRemaining == 0
+      go !tablesRepactDiffMaining s = do
+        if tablesRepactDiffMaining == 0
         then do
           pure ()
         else do
@@ -164,7 +161,7 @@ getLatestPactState db = do
               pure ()
             Right (userTable, rest) -> do
               S.yield (getActiveRows userTable)
-              go (tablesRemaining - 1) rest
+              go (tablesRepactDiffMaining - 1) rest
 
   e <- liftIO $ S.next (getPactUserTables db numTablesVar)
   case e of
@@ -246,8 +243,7 @@ instance ToJSON PactRow where
 
 getActiveRows :: UserTable -> UserTable
 getActiveRows (UserTable name rows) = UserTable name
-  $ List.map takeHead
-  $ List.map (List.sortOn (Down . txId))
+  $ List.map (takeHead . List.sortOn (Down . txId))
   $ List.groupBy (\x y -> rowKey x == rowKey y)
   $ List.sortOn rowKey rows
   where
@@ -259,68 +255,71 @@ getActiveRows (UserTable name rows) = UserTable name
 utf8ToText :: Utf8 -> Text
 utf8ToText (Utf8 u) = Text.decodeUtf8 u
 
-data Config = Config
-  { pactDbDir :: FilePath
-  , compactDir :: FilePath
+data PactDiffConfig = PactDiffConfig
+  { firstDbDir :: FilePath
+  , secondDbDir :: FilePath
   , chainwebVersion :: ChainwebVersion
   , logDir :: FilePath
   , numThreads :: Int
   }
 
-main :: IO ()
-main = do
+data Diffy = Difference | NoDifference
+  deriving stock (Eq)
+
+instance Semigroup Diffy where
+  Difference <> _ = Difference
+  _ <> Difference = Difference
+  _ <> _          = NoDifference
+
+instance Monoid Diffy where
+  mempty = NoDifference
+
+pactDiffMain :: IO ()
+pactDiffMain = do
   cfg <- execParser opts
 
-  when (cfg.pactDbDir == cfg.compactDir) $ do
-    Text.putStrLn "Pact database directory and compacted Pact database directory cannot be the same."
+  when (cfg.firstDbDir == cfg.secondDbDir) $ do
+    Text.putStrLn "Source and target Pact database directories cannot be the same."
     exitFailure
 
-  cids <- do
-    -- Get the latest block height on chain 0 for the purpose of calculating all
-    -- the chain ids at the current (version,height) pair
-    latestBlockHeight <- C.withDefaultLogger Error $ \logger -> do
-      let resetDb = False
-      withSqliteDb (unsafeChainId 0) logger cfg.pactDbDir resetDb $ \(SQLiteEnv db _) -> do
-        getLatestBlockHeight db
-    pure $ List.sort $ F.toList $ chainIdsAt cfg.chainwebVersion latestBlockHeight
+  cids <- getCids cfg.firstDbDir cfg.chainwebVersion
+
+  diffyRef <- newIORef @(Map ChainId Diffy) M.empty
 
   flip (pooledMapConcurrentlyN_ cfg.numThreads) cids $ \cid -> do
     C.withPerChainFileLogger cfg.logDir cid Debug $ \logger' -> do
       let logger = over setLoggerScope (("chain-id", sshow cid) :) logger'
       let resetDb = False
-      withSqliteDb cid logger cfg.compactDir resetDb $ \(SQLiteEnv cpDb _) -> do
-        latestBlockHeight <- getLatestBlockHeight cpDb
-        void $ C.compact latestBlockHeight logger cpDb []
-
-        withSqliteDb cid logger cfg.pactDbDir resetDb $ \(SQLiteEnv db _) -> do
-          diffEmptyRef <- newIORef True
-
-          let diff = diffLatestPactState (getLatestPactState db) (getLatestPactState cpDb)
-          flip S.mapM_ diff $ \utd -> do
-            writeIORef diffEmptyRef False
+      withSqliteDb cid logger cfg.firstDbDir resetDb $ \(SQLiteEnv db1 _) -> do
+        withSqliteDb cid logger cfg.secondDbDir resetDb $ \(SQLiteEnv db2 _) -> do
+          let diff = diffLatestPactState (getLatestPactState db1) (getLatestPactState db2)
+          diffy <- S.foldMap_ id $ flip S.mapM diff $ \utd -> do
             loggerFunIO logger Warn $ toLogMessage $
               TextLog $ Text.decodeUtf8 $ BSL.toStrict $ Aeson.encode utd
+            pure Difference
+          atomicModifyIORef' diffyRef $ \m -> (M.insert cid diffy m, ())
 
-          diffEmpty <- readIORef diffEmptyRef
-          when (not diffEmpty) $ do
-            loggerFunIO logger Warn $ toLogMessage $
-              TextLog $ "Non-empty diff."
-            exitFailure
+  diffy <- readIORef diffyRef
+  forM_ (M.toAscList diffy) $ \(cid, d) -> do
+    when (d == Difference) $ do
+      Text.putStrLn $ "Non-empty diff on chain " <> chainIdToText cid
+  when (M.size diffy > 0) $ do
+    exitFailure
   where
-    opts :: ParserInfo Config
+    opts :: ParserInfo PactDiffConfig
     opts = info (parser <**> helper)
-      (fullDesc <> progDesc "Pact DB compare-and-compare")
+      (fullDesc <> progDesc "Compare two Pact databases")
 
-    parser :: Parser Config
-    parser = Config
+    parser :: Parser PactDiffConfig
+    parser = PactDiffConfig
       <$> strOption
-           (long "pact-database-dir"
+           (long "first-database-dir"
             <> metavar "PACT_DB_DIRECTORY"
-            <> help "Pact database directory")
+            <> help "First Pact database directory")
       <*> strOption
-           (long "compact-dir"
+           (long "second-database-dir"
             <> metavar "PACT_DB_DIRECTORY"
-            <> help "Copy of the pact database directory, will be compacted")
+            <> help "Second Pact database directory")
       <*> (fmap (lookupVersionByName . fromTextSilly @ChainwebVersionName) $ strOption
            (long "graph-version"
             <> metavar "CHAINWEB_VERSION"
@@ -343,3 +342,13 @@ main = do
     fromTextSilly t = case fromText t of
       Just a -> a
       Nothing -> error "fromText failed"
+
+getCids :: FilePath -> ChainwebVersion -> IO [ChainId]
+getCids pactDbDir chainwebVersion = do
+  -- Get the latest block height on chain 0 for the purpose of calculating all
+  -- the chain ids at the current (version,height) pair
+  latestBlockHeight <- C.withDefaultLogger Error $ \logger -> do
+    let resetDb = False
+    withSqliteDb (unsafeChainId 0) logger pactDbDir resetDb $ \(SQLiteEnv db _) -> do
+      getLatestBlockHeight db
+  pure $ List.sort $ F.toList $ chainIdsAt chainwebVersion latestBlockHeight
