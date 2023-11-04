@@ -17,10 +17,10 @@
 -- Copyright: Copyright © 2023 Kadena LLC.
 -- License: see LICENSE.md
 --
--- Diff Pact state pre- and post-compaction.
+-- Diff Pact state between two databases.
 --
 -- There are other utilities provided by this module whose purpose is either
--- to get the pact state or perform diffs, without compacting.
+-- to get the pact state.
 --
 -- The code in this module operates primarily on 'Stream's, because the amount
 -- of user data can grow quite large. by comparing one table at a time, we can
@@ -42,12 +42,12 @@ module Chainweb.Pact.Backend.PactState
   )
   where
 
-import Data.IORef (newIORef, readIORef, writeIORef, atomicModifyIORef')
+import Data.IORef (newIORef, readIORef, atomicModifyIORef')
 import Data.Word (Word64)
 import Control.Concurrent.MVar (MVar, putMVar, takeMVar, newEmptyMVar)
 import UnliftIO.Async (pooledMapConcurrentlyN_)
 import Control.Lens (over)
-import Control.Monad (forM, forM_, when, void)
+import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Aeson (ToJSON(..), (.=))
 import Data.Aeson qualified as Aeson
@@ -73,7 +73,7 @@ import Patience.Delta (Delta(..))
 
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Utils (sshow, HasTextRepresentation, fromText, toText, int)
-import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName, ChainId, unsafeChainId, chainIdToText)
+import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName, ChainId, chainIdToText, unsafeChainId)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
@@ -206,8 +206,8 @@ getLatestPactState db = do
   numTablesVar <- liftIO newEmptyMVar
 
   let go :: Word -> Stream (Of UserTable) IO () -> Stream (Of UserTable) IO ()
-      go !tablesRemaining s = do
-        if tablesRemaining == 0
+      go !tablesRepactDiffMaining s = do
+        if tablesRepactDiffMaining == 0
         then do
           pure ()
         else do
@@ -217,7 +217,7 @@ getLatestPactState db = do
               pure ()
             Right (userTable, rest) -> do
               S.yield (getActiveRows userTable)
-              go (tablesRemaining - 1) rest
+              go (tablesRepactDiffMaining - 1) rest
 
   e <- liftIO $ S.next (getPactUserTables db numTablesVar)
   case e of
@@ -406,60 +406,70 @@ pactBreakdownMain = do
             <> value 4)
 
 data PactDiffConfig = PactDiffConfig
-  { pactDbDir :: FilePath
-  , compactDir :: FilePath
+  { firstDbDir :: FilePath
+  , secondDbDir :: FilePath
   , chainwebVersion :: ChainwebVersion
   , logDir :: FilePath
   , numThreads :: Int
   }
 
+data Diffy = Difference | NoDifference
+  deriving stock (Eq)
+
+instance Semigroup Diffy where
+  Difference <> _ = Difference
+  _ <> Difference = Difference
+  _ <> _          = NoDifference
+
+instance Monoid Diffy where
+  mempty = NoDifference
+
 pactDiffMain :: IO ()
 pactDiffMain = do
   cfg <- execParser opts
 
-  when (cfg.pactDbDir == cfg.compactDir) $ do
-    Text.putStrLn "Pact database directory and compacted Pact database directory cannot be the same."
+  when (cfg.firstDbDir == cfg.secondDbDir) $ do
+    Text.putStrLn "Source and target Pact database directories cannot be the same."
     exitFailure
 
-  cids <- getCids cfg.pactDbDir cfg.chainwebVersion
+  cids <- getCids cfg.firstDbDir cfg.chainwebVersion
+
+  diffyRef <- newIORef @(Map ChainId Diffy) M.empty
 
   flip (pooledMapConcurrentlyN_ cfg.numThreads) cids $ \cid -> do
     C.withPerChainFileLogger cfg.logDir cid Debug $ \logger' -> do
       let logger = over setLoggerScope (("chain-id", sshow cid) :) logger'
       let resetDb = False
-      withSqliteDb cid logger cfg.compactDir resetDb $ \(SQLiteEnv cpDb _) -> do
-        latestBlockHeight <- getLatestBlockHeight cpDb
-        void $ C.compact latestBlockHeight logger cpDb []
-
-        withSqliteDb cid logger cfg.pactDbDir resetDb $ \(SQLiteEnv db _) -> do
-          diffEmptyRef <- newIORef True
-
-          let diff = diffLatestPactState (getLatestPactState db) (getLatestPactState cpDb)
-          flip S.mapM_ diff $ \utd -> do
-            writeIORef diffEmptyRef False
+      withSqliteDb cid logger cfg.firstDbDir resetDb $ \(SQLiteEnv db1 _) -> do
+        withSqliteDb cid logger cfg.secondDbDir resetDb $ \(SQLiteEnv db2 _) -> do
+          let diff = diffLatestPactState (getLatestPactState db1) (getLatestPactState db2)
+          diffy <- S.foldMap_ id $ flip S.mapM diff $ \utd -> do
             loggerFunIO logger Warn $ toLogMessage $
               TextLog $ Text.decodeUtf8 $ BSL.toStrict $ Aeson.encode utd
+            pure Difference
+          atomicModifyIORef' diffyRef $ \m -> (M.insert cid diffy m, ())
 
-          diffEmpty <- readIORef diffEmptyRef
-          when (not diffEmpty) $ do
-            loggerFunIO logger Warn $ toLogMessage $
-              TextLog $ "Non-empty diff."
-            exitFailure
+  diffy <- readIORef diffyRef
+  forM_ (M.toAscList diffy) $ \(cid, d) -> do
+    when (d == Difference) $ do
+      Text.putStrLn $ "Non-empty diff on chain " <> chainIdToText cid
+  when (M.size diffy > 0) $ do
+    exitFailure
   where
     opts :: ParserInfo PactDiffConfig
     opts = info (parser <**> helper)
-      (fullDesc <> progDesc "Pact DB compare-and-compare")
+      (fullDesc <> progDesc "Compare two Pact databases")
 
     parser :: Parser PactDiffConfig
     parser = PactDiffConfig
       <$> strOption
-           (long "pact-database-dir"
+           (long "first-database-dir"
             <> metavar "PACT_DB_DIRECTORY"
-            <> help "Pact database directory")
+            <> help "First Pact database directory")
       <*> strOption
-           (long "compact-dir"
+           (long "second-database-dir"
             <> metavar "PACT_DB_DIRECTORY"
-            <> help "Copy of the pact database directory, will be compacted")
+            <> help "Second Pact database directory")
       <*> (fmap (lookupVersionByName . fromTextSilly @ChainwebVersionName) $ strOption
            (long "graph-version"
             <> metavar "CHAINWEB_VERSION"
