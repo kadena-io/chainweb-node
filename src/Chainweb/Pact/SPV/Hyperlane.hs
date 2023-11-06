@@ -151,25 +151,6 @@ instance Binary MessageIdMultisigIsmMetadata where
 
     return $ MessageIdMultisigIsmMetadata{..}
 
-data DomainHashPayload = DomainHashPayload
-  { dhpOrigin :: Word256
-  , dhpOriginMerkleTreeHook :: ByteString
-  }
-
-instance Binary DomainHashPayload where
-  put (DomainHashPayload {..}) = do
-    put dhpOrigin               -- 32 bytes
-    put dhpOriginMerkleTreeHook -- 32 bytes
-    put (96 :: Word256)         -- 32 bytes
-    -- 96 bytes
-    put nameSize             -- 32 bytes
-    putBS name               -- nameSize
-
-    where
-      (name, nameSize) = padRight $ Text.encodeUtf8 "HYPERLANE"
-
-  get = error "get instance is not implemented for DomainHashPayload"
-
 data DigestHashPayload = DigestHashPayload
   { dihpDomainHash :: ByteString
   , dihpRoot :: ByteString

@@ -457,7 +457,7 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
 
     let MessageIdMultisigIsmMetadata{..} = Binary.decode metadata
 
-    let domainHash = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict $ Binary.encode $ DomainHashPayload hmOriginDomain mmimOriginMerkleTreeAddress
+    domainHash <- decodeB64Text domainHashB64
 
     let messageId = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict message
 
@@ -666,3 +666,9 @@ mkSPVResult CommandResult{..} j =
 -- | Returns an address, a rightmost 160 bits of the keccak hash of the public key.
 getAddress :: ECDSA.EcdsaPublicKey -> B.ByteString
 getAddress pubkey = B.drop 12 $ BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BS.fromShort $ ECDSA.ecdsaPublicKeyBytes pubkey
+
+-- | This is a kadena's domain hash represented as base64 calculated in Solidity as
+-- keccak256(abi.encodePacked(626, "kb-mailbox", "HYPERLANE_ANNOUNCEMENT"))
+-- which results in hex as 0xa69e6ef1a8e62aa6b513bd7d694c6d237164fb04df4e5fb4106e47bf5b5a0428
+domainHashB64 :: Text
+domainHashB64 = "pp5u8ajmKqa1E719aUxtI3Fk+wTfTl+0EG5Hv1taBCg="
