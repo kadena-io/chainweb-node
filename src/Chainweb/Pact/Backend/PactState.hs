@@ -65,8 +65,8 @@ import Data.Text.Encoding qualified as Text
 import Database.SQLite3.Direct (Utf8(..), Database)
 import Options.Applicative
 import Patience qualified
-import Patience.Map qualified as PatienceM
-import Patience.Delta (Delta(..))
+--import Patience.Map qualified as PatienceM
+--import Patience.Delta (Delta(..))
 
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Utils (sshow, HasTextRepresentation, fromText, toText, int)
@@ -184,41 +184,42 @@ getLatestPactState db = do
 -- constant memory.
 diffLatestPactState :: Stream (Of UserTable) IO () -> Stream (Of UserTable) IO () -> Stream (Of UserTableDiff) IO ()
 diffLatestPactState s1 s2 = do
+  let isBoth :: Patience.Item a -> Bool
+      isBoth = \case
+        Patience.Both { } -> True
+        _ -> False
+
   let diff :: UserTable -> UserTable -> UserTableDiff
       diff ut1 ut2
         | ut1.tableName /= ut2.tableName = error "diffLatestPactState: mismatched table names"
         | otherwise = UserTableDiff ut1.tableName
-            $ List.filter (not . PatienceM.isSame)
-            $ Patience.pairItems (\x y -> x.rowKey == y.rowKey)
+            $ List.filter (not . isBoth)
+            -- $ Patience.pairItems (\x y -> x.rowKey == y.rowKey)
             $ Patience.diff ut1.rows ut2.rows
 
   S.zipWith diff s1 s2
 
 data UserTableDiff = UserTableDiff
   { tableName :: !Text
-  , rowDiff :: [Delta PactRow]
+  , rowDiff :: [Patience.Item PactRow]
   }
   deriving stock (Eq, Ord, Show)
 
 instance ToJSON UserTableDiff where
   toJSON utd = Aeson.object
     [ "table_name" .= utd.tableName
-    , "row_diff" .= List.map deltaToObject utd.rowDiff
+    , "row_diff" .= List.map itemToObject utd.rowDiff
     ]
     where
-      deltaToObject :: (ToJSON a) => Delta a -> Aeson.Value
-      deltaToObject = \case
-        Old x -> Aeson.object
+      itemToObject :: (ToJSON a) => Patience.Item a -> Aeson.Value
+      itemToObject = \case
+        Patience.Old x -> Aeson.object
           [ "old" .= x
           ]
-        New x -> Aeson.object
+        Patience.New x -> Aeson.object
           [ "new" .= x
           ]
-        Delta x y -> Aeson.object
-          [ "old" .= x
-          , "new" .= y
-          ]
-        Same _ -> Aeson.Null
+        Patience.Both {} -> Aeson.Null
 
 data UserTable = UserTable
   { tableName :: !Text
