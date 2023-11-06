@@ -146,7 +146,7 @@ getPactUserTables db numTables = do
 
 getLatestPactState :: Database -> Stream (Of UserTable) IO ()
 getLatestPactState db = do
-  numTablesVar <- liftIO $ newEmptyMVar
+  numTablesVar <- liftIO newEmptyMVar
 
   let go :: Word -> Stream (Of UserTable) IO () -> Stream (Of UserTable) IO ()
       go !tablesRepactDiffMaining s = do
@@ -288,10 +288,15 @@ pactDiffMain = do
     C.withPerChainFileLogger cfg.logDir cid Debug $ \logger' -> do
       let logger = over setLoggerScope (("chain-id", sshow cid) :) logger'
       let resetDb = False
+
       withSqliteDb cid logger cfg.firstDbDir resetDb $ \(SQLiteEnv db1 _) -> do
         withSqliteDb cid logger cfg.secondDbDir resetDb $ \(SQLiteEnv db2 _) -> do
+          loggerFunIO logger Info $ toLogMessage $
+            TextLog "Starting diff"
           let diff = diffLatestPactState (getLatestPactState db1) (getLatestPactState db2)
           diffy <- S.foldMap_ id $ flip S.mapM diff $ \utd -> do
+            loggerFunIO logger Info $ toLogMessage $
+              TextLog $ "[starting table " <> utd.tableName <> "]"
             if List.null utd.rowDiff
             then do
               pure NoDifference
