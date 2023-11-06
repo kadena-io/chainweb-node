@@ -286,7 +286,7 @@ pactDiffMain = do
   diffyRef <- newIORef @(Map ChainId Diffy) M.empty
 
   forM_ cids $ \cid -> do
-    C.withPerChainFileLogger cfg.logDir cid Debug $ \logger' -> do
+    C.withPerChainFileLogger cfg.logDir cid Info $ \logger' -> do
       let logger = over setLoggerScope (("chain-id", sshow cid) :) logger'
       let resetDb = False
 
