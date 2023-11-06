@@ -294,9 +294,13 @@ pactDiffMain = do
         withSqliteDb cid logger cfg.secondDbDir resetDb $ \(SQLiteEnv db2 _) -> do
           let diff = diffLatestPactState (getLatestPactState db1) (getLatestPactState db2)
           diffy <- S.foldMap_ id $ flip S.mapM diff $ \utd -> do
-            loggerFunIO logger Warn $ toLogMessage $
-              TextLog $ Text.decodeUtf8 $ BSL.toStrict $ Aeson.encode utd
-            pure Difference
+            if List.null utd.rowDiff
+            then do
+              pure NoDifference
+            else do
+              loggerFunIO logger Warn $ toLogMessage $
+                TextLog $ Text.decodeUtf8 $ BSL.toStrict $ Aeson.encode utd
+              pure Difference
           atomicModifyIORef' diffyRef $ \m -> (M.insert cid diffy m, ())
 
   diffy <- readIORef diffyRef
