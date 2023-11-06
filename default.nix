@@ -6,9 +6,10 @@ let flakeDefaultNix = (import (
        src =  ./.;
      }).defaultNix;
     inputs = flakeDefaultNix.inputs;
-    pkgsDef = import inputs.nixpkgs {
-      config = inputs.haskellNix.config;
-      overlays = [ inputs.haskellNix.overlay] ;
+    hs-nix-infra = inputs.hs-nix-infra;
+    pkgsDef = import hs-nix-infra.nixpkgs {
+      config = hs-nix-infra.haskellNix.config;
+      overlays = [ hs-nix-infra.haskellNix.overlay] ;
     };
 in
 { pkgs ? pkgsDef
