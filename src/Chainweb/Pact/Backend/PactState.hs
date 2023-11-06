@@ -43,7 +43,6 @@ module Chainweb.Pact.Backend.PactState
 
 import Data.IORef (newIORef, readIORef, atomicModifyIORef')
 import Control.Concurrent.MVar (MVar, putMVar, takeMVar, newEmptyMVar)
-import UnliftIO.Async (pooledMapConcurrentlyN_)
 import Control.Lens (over)
 import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (MonadIO(liftIO))
@@ -260,7 +259,6 @@ data PactDiffConfig = PactDiffConfig
   , secondDbDir :: FilePath
   , chainwebVersion :: ChainwebVersion
   , logDir :: FilePath
-  , numThreads :: Int
   }
 
 data Diffy = Difference | NoDifference
@@ -286,7 +284,7 @@ pactDiffMain = do
 
   diffyRef <- newIORef @(Map ChainId Diffy) M.empty
 
-  flip (pooledMapConcurrentlyN_ cfg.numThreads) cids $ \cid -> do
+  forM_ cids $ \cid -> do
     C.withPerChainFileLogger cfg.logDir cid Debug $ \logger' -> do
       let logger = over setLoggerScope (("chain-id", sshow cid) :) logger'
       let resetDb = False
@@ -335,12 +333,6 @@ pactDiffMain = do
             <> metavar "LOG_DIRECTORY"
             <> help "Directory where logs will be placed"
             <> value ".")
-      <*> option auto
-           (short 't'
-            <> long "threads"
-            <> metavar "NUM_THREADS"
-            <> help "Number of threads on which to run compaction."
-            <> value 4)
 
     fromTextSilly :: HasTextRepresentation a => Text -> a
     fromTextSilly t = case fromText t of
