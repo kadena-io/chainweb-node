@@ -80,6 +80,7 @@ data CompactException
   | CompactExceptionDb !SomeException
   | CompactExceptionInvalidBlockHeight !BlockHeight
   | CompactExceptionTableVerificationFailure !TableName
+  | CompactExceptionNoLatestBlockHeight
   deriving stock (Show)
   deriving anyclass (Exception)
 
@@ -315,6 +316,41 @@ createCompactActiveRow = do
   execNoTemplateM_ "deleteFrom: CompactActiveRow"
       "DELETE FROM CompactActiveRow"
 
+locateTarget :: TargetBlockHeight -> CompactM BlockHeight
+locateTarget = \case
+  Target bh -> do
+    ensureBlockHeightExists bh
+    pure bh
+  Latest -> do
+    getLatestBlockHeight
+
+ensureBlockHeightExists :: BlockHeight -> CompactM ()
+ensureBlockHeightExists bh = do
+  r <- qryNoTemplateM
+    "ensureBlockHeightExists.0"
+    "SELECT blockheight FROM BlockHistory WHERE blockheight = ?1"
+    [bhToSType bh]
+    [RInt]
+  case r of
+    [[SInt rBH]] -> do
+      when (fromIntegral bh /= rBH) $ do
+        throwM $ CompactExceptionInvalidBlockHeight bh
+    _ -> do
+      error "ensureBlockHeightExists.0: impossible"
+
+getLatestBlockHeight :: CompactM BlockHeight
+getLatestBlockHeight = do
+  r <- qryNoTemplateM
+    "locateTarget.1"
+    "SELECT blockheight FROM BlockHistory ORDER BY blockheight DESC LIMIT 1"
+    []
+    [RInt]
+  case r of
+    [[SInt bh]] -> do
+      pure (fromIntegral bh)
+    _ -> do
+      throwM CompactExceptionNoLatestBlockHeight
+
 getEndingTxId :: BlockHeight -> CompactM ITxId
 getEndingTxId bh = do
   r <- qryNoTemplateM
@@ -501,7 +537,7 @@ compact :: ()
   -> [CompactFlag]
   -> IO (Maybe ByteString)
 compact blockHeight logger db flags = runCompactM (mkCompactEnv logger db flags) $ do
-  logg Info $ "Beginning compaction"
+  logg Info "Beginning compaction"
 
   doGrandHash <- not <$> isFlagSet Flag_NoGrandHash
 
@@ -544,8 +580,15 @@ compact blockHeight logger db flags = runCompactM (mkCompactEnv logger db flags)
 
   pure gh
 
+data TargetBlockHeight
+  = Target !BlockHeight
+    -- ^ compact to this blockheight across all chains
+  | Latest
+    -- ^ for each chain, compact to its latest blockheight
+  deriving stock (Eq, Show)
+
 data CompactConfig = CompactConfig
-  { ccBlockHeight :: BlockHeight
+  { ccBlockHeight :: TargetBlockHeight
   , ccDbDir :: FilePath
   , ccVersion :: ChainwebVersion
   , ccFlags :: [CompactFlag]
@@ -557,6 +600,15 @@ data CompactConfig = CompactConfig
 
 compactAll :: CompactConfig -> IO ()
 compactAll CompactConfig{..} = do
+  latestBlockHeightChain0 <- do
+    let cid = unsafeChainId 0
+    withDefaultLogger Debug $ \logger -> do
+      let resetDb = False
+      withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) -> do
+        runCompactM (mkCompactEnv logger db []) getLatestBlockHeight
+
+  let cids = List.sort $ F.toList $ chainIdsAt ccVersion latestBlockHeightChain0
+
   flip (pooledMapConcurrentlyN_ ccThreads) cids $ \cid -> do
     withPerChainFileLogger logDir cid Debug $ \logger' -> do
       let logger = over setLoggerScope (("chain",sshow cid):) logger'
@@ -566,9 +618,8 @@ compactAll CompactConfig{..} = do
           Just ccid | ccid /= cid -> do
             pure ()
           _ -> do
-            void $ compact ccBlockHeight logger db ccFlags
-  where
-    cids = List.sort $ F.toList $ chainIdsAt ccVersion ccBlockHeight
+            blockHeight <- runCompactM (mkCompactEnv logger db []) $ locateTarget ccBlockHeight
+            void $ compact blockHeight logger db ccFlags
 
 main :: IO ()
 main = do
@@ -581,11 +632,11 @@ main = do
 
     parser :: Parser CompactConfig
     parser = CompactConfig
-        <$> (fromIntegral @Int <$> option auto
+        <$> (fmap Target (fromIntegral @Int <$> option auto
              (short 'b'
               <> long "target-blockheight"
               <> metavar "BLOCKHEIGHT"
-              <> help "Target blockheight"))
+              <> help "Target blockheight")) <|> pure Latest)
         <*> strOption
              (short 'd'
               <> long "pact-database-dir"
