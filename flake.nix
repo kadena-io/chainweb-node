@@ -44,21 +44,23 @@
         echo works > $out
       '';
       runRecursive = hs-nix-infra.lib.recursiveRawFlakeBuilder pkgs self;
-    in nixpkgs.lib.recursiveUpdate flake {
-      packages.default = executables;
-      packages.recursive = runRecursive "chainweb"
-        {
-          buildInputs = [pkgs.jq];
-          outputs = [ "out" "metadata" ];
-        } ''
-          mkdir -p $out
-          ln -s $(nix build ${self}#default --print-out-paths)/bin $out/bin
-          cp $(nix build ${self}#default.metadata --print-out-paths) $metadata
+    in flake // {
+      packages = flake.packages // {
+        default = executables;
+        recursive = runRecursive "chainweb"
+          {
+            buildInputs = [pkgs.jq];
+            outputs = [ "out" "metadata" ];
+          } ''
+            mkdir -p $out
+            ln -s $(nix build ${self}#default --print-out-paths)/bin $out/bin
+            cp $(nix build ${self}#default.metadata --print-out-paths) $metadata
+          '';
+        check = pkgs.runCommand "check" {} ''
+          echo ${mkCheck "chainweb" executables}
+          echo ${mkCheck "devShell" flake.devShell}
+          echo works > $out
         '';
-      packages.check = pkgs.runCommand "check" {} ''
-        echo ${mkCheck "chainweb" executables}
-        echo ${mkCheck "devShell" flake.devShell}
-        echo works > $out
-      '';
+      };
     });
 }
