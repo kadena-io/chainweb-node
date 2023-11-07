@@ -45,6 +45,7 @@ module Chainweb.Version.Guards
     , chainweb222Pact
     , chainweb223Pact
     , pact44NewTrans
+    , enableVerifiers
     , pactParserVersion
     , maxBlockGasLimit
     , validPPKSchemes
@@ -248,6 +249,9 @@ chainweb222Pact = checkFork atOrAfter Chainweb222Pact
 
 chainweb223Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb223Pact = checkFork atOrAfter Chainweb223Pact
+
+enableVerifiers :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+enableVerifiers = checkFork atOrAfter EnableVerifiers
 
 pactParserVersion :: ChainwebVersion -> ChainId -> BlockHeight -> PactParserVersion
 pactParserVersion v cid bh
