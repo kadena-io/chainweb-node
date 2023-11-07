@@ -25,6 +25,7 @@
         "aarch64-linux" "aarch64-darwin" ] (system:
     let
       inherit (hs-nix-infra) nixpkgs haskellNix;
+      basePkgs = hs-nix-infra.nixpkgs.legacyPackages.${system};
       pkgs = import nixpkgs {
         inherit system;
         inherit (haskellNix) config;
@@ -43,13 +44,13 @@
         echo ${name}: ${package}
         echo works > $out
       '';
-      runRecursive = hs-nix-infra.lib.recursiveRawFlakeBuilder pkgs self;
+      runRecursive = hs-nix-infra.lib.recursiveRawFlakeBuilder basePkgs self;
     in {
       packages = {
         default = executables;
         recursive = runRecursive "chainweb"
           {
-            buildInputs = [pkgs.jq];
+            buildInputs = [basePkgs.jq];
             outputs = [ "out" "metadata" ];
           } ''
             mkdir -p $out
