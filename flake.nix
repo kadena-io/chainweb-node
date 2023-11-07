@@ -53,8 +53,8 @@
             outputs = [ "out" "metadata" ];
           } ''
             mkdir -p $out
-            ln -s $(nix build ${self}#default --print-out-paths)/bin $out/bin
-            cp $(nix build ${self}#default.metadata --print-out-paths) $metadata
+            ln -s $(nix build ${./.}#default --print-out-paths)/bin $out/bin
+            cp $(nix build ${./.}#default.metadata --print-out-paths) $metadata
           '';
         check = pkgs.runCommand "check" {} ''
           echo ${mkCheck "chainweb" executables}
