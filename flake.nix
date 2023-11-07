@@ -50,7 +50,6 @@
         default = executables;
         recursive = runRecursive "chainweb"
           {
-            buildInputs = [basePkgs.jq];
             outputs = [ "out" "metadata" ];
           } ''
             mkdir -p $out
