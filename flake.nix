@@ -44,8 +44,8 @@
         echo works > $out
       '';
       runRecursive = hs-nix-infra.lib.recursiveRawFlakeBuilder pkgs self;
-    in flake // {
-      packages = flake.packages // {
+    in {
+      packages = {
         default = executables;
         recursive = runRecursive "chainweb"
           {
