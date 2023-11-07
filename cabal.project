@@ -63,8 +63,8 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 495c8738acaa0157958ab23a06cd94abbc99d2d5
-    --sha256: 1dn322m5mx43bn3ki37zdk9daknnr6sz8y7d89si75m84rl0w27k
+    tag: e1cfd21b8f4bda70f97539c5cb0c9f62598e0166
+    --sha256: sha256-4oVJnV12kXraWRQjJJZv3wuoEGfGVFC1EIkzYJrUVs8=
 
 source-repository-package
     type: git
@@ -81,8 +81,8 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/rocksdb-haskell.git
-    tag: b35d82bad2194a916c821457069388410662b58c
-    --sha256: 0p60xjqv7ayy6vh263id6l2fpa4rr95vnhisa691ix9h8rnwc7hk
+    tag: 1a82da5660a4cc2681eb90da6505b6897d1b12e9
+    --sha256: 020n6knl8psh5y9766amrsh706ka83fz3vfm77lrzngg5mcz45qs
 
 source-repository-package
     type: git

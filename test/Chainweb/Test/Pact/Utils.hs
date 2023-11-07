@@ -74,6 +74,7 @@ module Chainweb.Test.Pact.Utils
 , mkWebAuthnSigner'
 , CmdBuilder(..)
 , cbSigners
+, cbVerifiers
 , cbRPC
 , cbNonce
 , cbChainId
@@ -232,7 +233,7 @@ type SimpleKeyPair = (Text,Text)
 
 -- | Legacy; better to use 'CmdSigner'/'CmdBuilder'.
 -- if caps are empty, gas cap is implicit. otherwise it must be included
-testKeyPairs :: SimpleKeyPair -> Maybe [SigCapability] -> IO [(DynKeyPair, [SigCapability])]
+testKeyPairs :: SimpleKeyPair -> Maybe [MsgCapability] -> IO [Ed25519KeyPairCaps]
 testKeyPairs skp capsm = do
   kp <- toApiKp $ mkEd25519Signer' skp (fromMaybe [] capsm)
   mkKeyPairs [kp]
@@ -454,18 +455,18 @@ mkXResumeEvent sender receiver amount ks mn mh tid sid
 -- Capability helpers
 
 -- | Cap smart constructor.
-mkCapability :: ModuleName -> Text -> [PactValue] -> SigCapability
-mkCapability mn cap args = SigCapability (QualifiedName mn cap def) args
+mkCapability :: ModuleName -> Text -> [PactValue] -> MsgCapability
+mkCapability mn cap args = MsgCapability (QualifiedName mn cap def) args
 
 -- | Convenience to make caps like TRANSFER, GAS etc.
-mkCoinCap :: Text -> [PactValue] -> SigCapability
+mkCoinCap :: Text -> [PactValue] -> MsgCapability
 mkCoinCap n = mkCapability "coin" n
 
-mkTransferCap :: Text -> Text -> Decimal -> SigCapability
+mkTransferCap :: Text -> Text -> Decimal -> MsgCapability
 mkTransferCap sender receiver amount = mkCoinCap "TRANSFER"
   [ pString sender, pString receiver, pDecimal amount ]
 
-mkXChainTransferCap :: Text -> Text -> Decimal -> Text -> SigCapability
+mkXChainTransferCap :: Text -> Text -> Decimal -> Text -> MsgCapability
 mkXChainTransferCap sender receiver amount cid = mkCoinCap "TRANSFER_XCHAIN"
   [ pString sender
   , pString receiver
@@ -473,7 +474,7 @@ mkXChainTransferCap sender receiver amount cid = mkCoinCap "TRANSFER_XCHAIN"
   , pString cid
   ]
 
-mkGasCap :: SigCapability
+mkGasCap :: MsgCapability
 mkGasCap = mkCoinCap "GAS" []
 
 
@@ -489,7 +490,7 @@ data CmdSigner = CmdSigner
   } deriving (Eq,Show,Ord,Generic)
 
 -- | Make ED25519 signer.
-mkEd25519Signer :: Text -> Text -> [SigCapability] -> CmdSigner
+mkEd25519Signer :: Text -> Text -> [MsgCapability] -> CmdSigner
 mkEd25519Signer pubKey privKey caps = CmdSigner
   { _csSigner = signer
   , _csPrivKey = privKey
@@ -501,10 +502,10 @@ mkEd25519Signer pubKey privKey caps = CmdSigner
       , _siAddress = Nothing
       , _siCapList = caps }
 
-mkEd25519Signer' :: SimpleKeyPair -> [SigCapability] -> CmdSigner
+mkEd25519Signer' :: SimpleKeyPair -> [MsgCapability] -> CmdSigner
 mkEd25519Signer' (pub,priv) = mkEd25519Signer pub priv
 
-mkWebAuthnSigner :: Text -> Text -> [SigCapability] -> CmdSigner
+mkWebAuthnSigner :: Text -> Text -> [MsgCapability] -> CmdSigner
 mkWebAuthnSigner pubKey privKey caps = CmdSigner
   { _csSigner = signer
   , _csPrivKey = privKey
@@ -516,12 +517,13 @@ mkWebAuthnSigner pubKey privKey caps = CmdSigner
       , _siAddress = Nothing
       , _siCapList = caps }
 
-mkWebAuthnSigner' :: SimpleKeyPair -> [SigCapability] -> CmdSigner
+mkWebAuthnSigner' :: SimpleKeyPair -> [MsgCapability] -> CmdSigner
 mkWebAuthnSigner' (pub, priv) caps = mkWebAuthnSigner pub priv caps
 
 -- | Chainweb-oriented command builder.
 data CmdBuilder = CmdBuilder
   { _cbSigners :: ![CmdSigner]
+  , _cbVerifiers :: ![Verifier]
   , _cbRPC :: !(PactRPC Text)
   , _cbNonce :: !Text
   , _cbChainId :: !ChainId
@@ -555,6 +557,7 @@ mkContMsg pid step = ContMsg
 defaultCmd :: CmdBuilder
 defaultCmd = CmdBuilder
   { _cbSigners = []
+  , _cbVerifiers = []
   , _cbRPC = mkExec' "1"
   , _cbNonce = "nonce"
   , _cbChainId = unsafeChainId 0
@@ -591,7 +594,7 @@ buildTextCmd v = fmap (fmap T.decodeUtf8) . buildRawCmd v
 buildRawCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m (Command ByteString)
 buildRawCmd v CmdBuilder{..} = do
     kps <- liftIO $ traverse mkDynKeyPairs _cbSigners
-    cmd <- liftIO $ mkCommandWithDynKeys kps pm _cbNonce (Just nid) _cbRPC
+    cmd <- liftIO $ mkCommandWithDynKeys kps _cbVerifiers pm _cbNonce (Just nid) _cbRPC
     pure cmd
   where
     nid = P.NetworkId (sshow v)
