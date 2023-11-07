@@ -123,19 +123,19 @@ import Pact.JSON.Encode (toJsonViaEncode)
 -- | "Magic" capability 'COINBASE' used in the coin contract to
 -- constrain coinbase calls.
 --
-magic_COINBASE :: CapSlot UserCapability
+magic_COINBASE :: CapSlot MsgCapability
 magic_COINBASE = mkMagicCapSlot "COINBASE"
 
 -- | "Magic" capability 'GAS' used in the coin contract to
 -- constrain gas buy/redeem calls.
 --
-magic_GAS :: CapSlot UserCapability
+magic_GAS :: CapSlot MsgCapability
 magic_GAS = mkMagicCapSlot "GAS"
 
 -- | "Magic" capability 'GENESIS' used in the coin contract to
 -- constrain genesis-only allocations
 --
-magic_GENESIS :: CapSlot UserCapability
+magic_GENESIS :: CapSlot MsgCapability
 magic_GENESIS = mkMagicCapSlot "GENESIS"
 
 onChainErrorPrintingFor :: TxContext -> UnexpectedErrorPrinting
@@ -729,7 +729,7 @@ applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs hsh nsp
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
 
-      eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs)
+      eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs [])
 
       setEnvGas initialGas eenv
 
@@ -834,7 +834,7 @@ applyContinuation'
     -> TransactionM logger p EvalResult
 applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
 
-    eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs)
+    eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs [])
 
     setEnvGas initialGas eenv
 
@@ -900,7 +900,7 @@ findPayer isPactBackCompatV16 cmd = runMaybeT $ do
     findPayerCap :: Eval e (Maybe (ModuleName,QualifiedName,[PactValue]))
     findPayerCap = preview $ eeMsgSigs . folded . folded . to sigPayerCap . _Just
 
-    sigPayerCap (SigCapability q@(QualifiedName m n _) as)
+    sigPayerCap (MsgCapability q@(QualifiedName m n _) as)
       | n == "GAS_PAYER" = Just (m,q,as)
     sigPayerCap _ = Nothing
 
@@ -979,7 +979,7 @@ redeemGas cmd = do
 -- This is the way we inject the correct guards into the environment
 -- during Pact code execution
 --
-initCapabilities :: [CapSlot UserCapability] -> EvalState
+initCapabilities :: [CapSlot MsgCapability] -> EvalState
 initCapabilities cs = set (evalCapabilities . capStack) cs def
 {-# INLINABLE initCapabilities #-}
 
@@ -1091,12 +1091,12 @@ managedNamespacePolicy = SmartNamespacePolicy False
 
 -- | Builder for "magic" capabilities given a magic cap name
 --
-mkMagicCapSlot :: Text -> CapSlot UserCapability
+mkMagicCapSlot :: Text -> CapSlot MsgCapability
 mkMagicCapSlot c = CapSlot CapCallStack cap []
   where
     mn = ModuleName "coin" Nothing
     fqn = QualifiedName mn c def
-    cap = SigCapability fqn []
+    cap = MsgCapability fqn []
 {-# INLINE mkMagicCapSlot #-}
 
 -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'

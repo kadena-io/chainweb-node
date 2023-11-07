@@ -690,7 +690,7 @@ constructionTxToPactRPC txInfo =
 --   endpoint.
 createUnsignedCmd :: ChainwebVersion -> PayloadsMetaData -> IO EnrichedCommand
 createUnsignedCmd v meta = do
-  cmd <- mkUnsignedCommand pactSigners pubMeta nonce networkId pactRPC
+  cmd <- mkUnsignedCommand pactSigners [] pubMeta nonce networkId pactRPC
   let cmdText = T.decodeUtf8 <$> cmd
   pure $ EnrichedCommand cmdText txInfo signerAccts
   where
