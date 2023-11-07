@@ -5,11 +5,11 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StrictData #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -35,7 +35,6 @@ module Chainweb.Pact.Backend.PactState
 
   , PactRow(..)
   , UserTable(..)
-  , UserTableDiff(..)
 
   , pactDiffMain
   )
@@ -44,7 +43,7 @@ module Chainweb.Pact.Backend.PactState
 import Data.IORef (newIORef, readIORef, atomicModifyIORef')
 import Control.Concurrent.MVar (MVar, putMVar, takeMVar, newEmptyMVar)
 import Control.Lens (over)
-import Control.Monad (forM, forM_, when)
+import Control.Monad (forM, forM_, when, void)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Aeson (ToJSON(..), (.=))
 import Data.Aeson qualified as Aeson
@@ -56,7 +55,8 @@ import Data.Foldable qualified as F
 import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map (Map)
-import Data.Map.Strict qualified as M
+import Data.Map.Merge.Lazy qualified as Merge
+import Data.Map.Lazy qualified as M
 import Data.Ord (Down(..))
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -64,9 +64,6 @@ import Data.Text.IO qualified as Text
 import Data.Text.Encoding qualified as Text
 import Database.SQLite3.Direct (Utf8(..), Database)
 import Options.Applicative
-import Patience qualified
---import Patience.Map qualified as PatienceM
---import Patience.Delta (Delta(..))
 
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Utils (sshow, HasTextRepresentation, fromText, toText, int)
@@ -144,11 +141,11 @@ getPactUserTables db numTables = do
     else do
       pure ()
 
-getLatestPactState :: Database -> Stream (Of UserTable) IO ()
+getLatestPactState :: Database -> Stream (Of UserTableDiffable) IO ()
 getLatestPactState db = do
   numTablesVar <- liftIO newEmptyMVar
 
-  let go :: Word -> Stream (Of UserTable) IO () -> Stream (Of UserTable) IO ()
+  let go :: Word -> Stream (Of UserTable) IO () -> Stream (Of UserTableDiffable) IO ()
       go !tablesRepactDiffMaining s = do
         if tablesRepactDiffMaining == 0
         then do
@@ -159,7 +156,7 @@ getLatestPactState db = do
             Left () -> do
               pure ()
             Right (userTable, rest) -> do
-              S.yield (getActiveRows userTable)
+              S.yield (getActiveRows' userTable)
               go (tablesRepactDiffMaining - 1) rest
 
   e <- liftIO $ S.next (getPactUserTables db numTablesVar)
@@ -169,7 +166,7 @@ getLatestPactState db = do
     Right (userTable, rest) -> do
       numRows <- liftIO $ takeMVar numTablesVar
       when (numRows > 0) $ do
-        S.yield (getActiveRows userTable)
+        S.yield (getActiveRows' userTable)
         go (numRows - 1) rest
 
 -- This assumes the same tables (essentially zipWith).
@@ -182,48 +179,74 @@ getLatestPactState db = do
 -- This diminishes the utility of comparing two pact states that are known to be
 -- at different heights, but that hurts our ability to perform the diff in
 -- constant memory.
-diffLatestPactState :: Stream (Of UserTable) IO () -> Stream (Of UserTable) IO () -> Stream (Of UserTableDiff) IO ()
-diffLatestPactState s1 s2 = do
-  let isBoth :: Patience.Item a -> Bool
-      isBoth = \case
-        Patience.Both { } -> True
-        _ -> False
+--
+-- TODO: maybe inner stream should be a ByteStream
+diffLatestPactState :: Stream (Of UserTableDiffable) IO () -> Stream (Of UserTableDiffable) IO () -> Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
+diffLatestPactState = go
+  where
+  go :: Stream (Of UserTableDiffable) IO () -> Stream (Of UserTableDiffable) IO () -> Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
+  go s1 s2 = do
+    e1 <- liftIO $ S.next s1
+    e2 <- liftIO $ S.next s2
 
-  let diff :: UserTable -> UserTable -> UserTableDiff
-      diff ut1 ut2
-        | ut1.tableName /= ut2.tableName = error "diffLatestPactState: mismatched table names"
-        | otherwise = UserTableDiff ut1.tableName
-            $ List.filter (not . isBoth)
-            -- $ Patience.pairItems (\x y -> x.rowKey == y.rowKey)
-            $ Patience.diff ut1.rows ut2.rows
+    case (e1, e2) of
+      (Left (), Left ()) -> do
+        pure ()
+      (Right _, Left ()) -> do
+        error "left stream longer than right"
+      (Left (), Right _) -> do
+        error "right stream longer than left"
+      (Right (t1, next1), Right (t2, next2)) -> do
+        when (t1.tableName /= t2.tableName) $ do
+          error "diffLatestPactState: mismatched table names"
+        S.yield (t1.tableName, diffTables t1 t2)
+        go next1 next2
 
-  S.zipWith diff s1 s2
+data RowKeyDiffExists
+  = Old ByteString
+  | New ByteString
+  | Delta ByteString
 
-data UserTableDiff = UserTableDiff
-  { tableName :: !Text
-  , rowDiff :: [Patience.Item PactRow]
-  }
-  deriving stock (Eq, Ord, Show)
+diffTables :: UserTableDiffable -> UserTableDiffable -> Stream (Of RowKeyDiffExists) IO ()
+diffTables t1 t2 = do
+  void $ Merge.mergeA
+    (Merge.traverseMaybeMissing $ \rk _rd -> do
+      S.yield (Old rk)
+      pure Nothing
+    )
+    (Merge.traverseMaybeMissing $ \rk _rd -> do
+      S.yield (New rk)
+      pure Nothing
+    )
+    (Merge.zipWithMaybeAMatched $ \rk rd1 rd2 -> do
+      when (rd1 /= rd2) $ do
+        S.yield (Delta rk)
+      pure Nothing
+    )
+    t1.rows
+    t2.rows
 
-instance ToJSON UserTableDiff where
-  toJSON utd = Aeson.object
-    [ "table_name" .= utd.tableName
-    , "row_diff" .= List.map itemToObject utd.rowDiff
+rowKeyDiffExistsToObject :: RowKeyDiffExists -> Aeson.Value
+rowKeyDiffExistsToObject = \case
+  Old rk -> Aeson.object
+    [ "old" .= Text.decodeUtf8 rk
     ]
-    where
-      itemToObject :: (ToJSON a) => Patience.Item a -> Aeson.Value
-      itemToObject = \case
-        Patience.Old x -> Aeson.object
-          [ "old" .= x
-          ]
-        Patience.New x -> Aeson.object
-          [ "new" .= x
-          ]
-        Patience.Both {} -> Aeson.Null
+  New rk -> Aeson.object
+    [ "new" .= Text.decodeUtf8 rk
+    ]
+  Delta rk -> Aeson.object
+    [ "delta" .= Text.decodeUtf8 rk
+    ]
 
 data UserTable = UserTable
   { tableName :: !Text
   , rows :: [PactRow]
+  }
+  deriving stock (Eq, Ord, Show)
+
+data UserTableDiffable = UserTableDiffable
+  { tableName :: !Text
+  , rows :: Map ByteString ByteString -- Map RowKey RowData
   }
   deriving stock (Eq, Ord, Show)
 
@@ -241,16 +264,22 @@ instance ToJSON PactRow where
     , "tx_id" .= pr.txId
     ]
 
-getActiveRows :: UserTable -> UserTable
-getActiveRows (UserTable name rows) = UserTable name
-  $ List.map (takeHead . List.sortOn (Down . txId))
-  $ List.groupBy (\x y -> rowKey x == rowKey y)
-  $ List.sortOn rowKey rows
+getActiveRows' :: UserTable -> UserTableDiffable
+getActiveRows' (UserTable name rows) = UserTableDiffable
+  { tableName = name
+  , rows = M.fromList
+      $ List.map (pactRowToEntry . takeHead . List.sortOn (Down . txId))
+      $ List.groupBy (\x y -> rowKey x == rowKey y)
+      $ List.sortOn rowKey rows
+  }
   where
     takeHead :: [a] -> a
     takeHead = \case
       [] -> error "getLatestPactState.getActiveRows.takeHead: impossible case"
       (x : _) -> x
+
+    pactRowToEntry :: PactRow -> (ByteString, ByteString)
+    pactRowToEntry pr = (pr.rowKey, pr.rowData)
 
 utf8ToText :: Utf8 -> Text
 utf8ToText (Utf8 u) = Text.decodeUtf8 u
@@ -293,18 +322,17 @@ pactDiffMain = do
       withSqliteDb cid logger cfg.firstDbDir resetDb $ \(SQLiteEnv db1 _) -> do
         withSqliteDb cid logger cfg.secondDbDir resetDb $ \(SQLiteEnv db2 _) -> do
           loggerFunIO logger Info $ toLogMessage $
-            TextLog "Starting diff"
+            TextLog "[Starting diff]"
           let diff = diffLatestPactState (getLatestPactState db1) (getLatestPactState db2)
-          diffy <- S.foldMap_ id $ flip S.mapM diff $ \utd -> do
+          diffy <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
             loggerFunIO logger Info $ toLogMessage $
-              TextLog $ "[starting table " <> utd.tableName <> "]"
-            if List.null utd.rowDiff
-            then do
-              pure NoDifference
-            else do
-              loggerFunIO logger Warn $ toLogMessage $
-                TextLog $ Text.decodeUtf8 $ BSL.toStrict $ Aeson.encode utd
+              TextLog $ "[Starting table " <> tblName <> "]"
+            S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do
+              loggerFunIO logger Info $ toLogMessage $
+                TextLog $ Text.decodeUtf8 $ BSL.toStrict $
+                  Aeson.encode $ rowKeyDiffExistsToObject d
               pure Difference
+
           atomicModifyIORef' diffyRef $ \m -> (M.insert cid diffy m, ())
 
   diffy <- readIORef diffyRef
