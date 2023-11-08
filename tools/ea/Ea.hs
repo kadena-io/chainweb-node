@@ -182,6 +182,7 @@ mkChainwebTxs' :: [Command Text] -> IO [ChainwebTransaction]
 mkChainwebTxs' rawTxs =
     forM rawTxs $ \cmd -> do
         let cmdBS = fmap TE.encodeUtf8 cmd
+            -- TODO: Use the new `assertCommand` function.
             procCmd = verifyCommand cmdBS
         case procCmd of
             f@ProcFail{} -> fail (show f)
