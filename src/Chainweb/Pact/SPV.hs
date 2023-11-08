@@ -495,9 +495,9 @@ encodeHyperMessage o = do
       hmVersion <- om ^? at "version" . _Just . to (\(TLitInteger r) -> fromIntegral r)
       hmNonce <- om ^? at "nonce" . _Just . to (\(TLitInteger r) -> fromIntegral r)
       hmOriginDomain <- om ^? at "originDomain" . _Just . to (\(TLitInteger r) -> fromIntegral r)
-      hmSender <- om ^? at "sender" . _Just . to (\(TLitString r) -> B64.decode $ Text.encodeUtf8 r) . _Right
+      hmSender <- om ^? at "sender" . _Just . to (\(TLitString r) -> decodeHex r) . _Right
       hmDestinationDomain <- om ^? at "destinationDomain" . _Just . to (\(TLitInteger r) -> fromIntegral r)
-      hmRecipient <- om ^? at "recipient" . _Just . to (\(TLitString r) -> B64.decode $ Text.encodeUtf8 r) . _Right
+      hmRecipient <- om ^? at "recipient" . _Just . to (\(TLitString r) -> decodeHex r) . _Right
 
       let hm = HyperlaneMessage{..}
       let b = BL.toStrict $ Binary.encode hm

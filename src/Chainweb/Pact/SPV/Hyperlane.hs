@@ -40,20 +40,17 @@ instance Binary HyperlaneMessage where
     put hmVersion
     put hmNonce
     put hmOriginDomain
-    putBS sender                                   -- 32 bytes
+    putBS (padLeft hmSender)      -- 32 bytes
     put hmDestinationDomain
-    putBS recipient                                -- 32 bytes
+    putBS (padLeft hmRecipient) -- 32 bytes
 
     put hmTokenMessage
-    where
-      (sender, _) = padRight hmSender
-      (recipient, _) = padRight hmRecipient
 
   get = do
     hmVersion <- getWord8
     hmNonce <- getWord32be
     hmOriginDomain <- getWord32be
-    hmSender <- getBS 32
+    hmSender <- BS.drop 12 <$> getBS 32
     hmDestinationDomain <- getWord32be
     hmRecipient <- getBS 32
     rest <- getRemainingLazyByteString
