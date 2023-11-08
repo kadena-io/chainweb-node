@@ -165,7 +165,7 @@ minerKeysetTest = do
 
   where
 
-    badMiner = Miner (MinerId "miner") $ MinerKeys $ mkKeySet ["bad-bad-bad"] "keys-all"
+    badMiner = Miner (MinerId "miner") $ MinerKeys $ mkKeySetText ["bad-bad-bad"] "keys-all"
 
 txTimeoutTest :: PactTestM ()
 txTimeoutTest = do
@@ -1115,7 +1115,7 @@ pact4coin3UpgradeTest = do
     , PactTxTest badKeyset $
       assertTxSuccess
       "Should allow bad keys" $
-      pKeySet $ mkKeySet ["badkey"] "keys-all"
+      pKeySet $ mkKeySetText ["badkey"] "keys-all"
     ]
 
   assertTxEvents "Coinbase events @ block 7" [] =<< cbResult

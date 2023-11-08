@@ -491,7 +491,7 @@ constructionTransferTests _ envIo =
 
     ks (TestKeySet _ Nothing pred') = P.mkKeySet [] pred'
     ks (TestKeySet _ (Just (pk,_)) pred') =
-      P.mkKeySet [P.PublicKeyText pk] pred'
+      P.mkKeySetText [P.PublicKeyText pk] pred'
 
     sender00KAcct = "k:" <> fst sender00
     sender01KAcct = "k:" <> fst sender01
@@ -600,14 +600,14 @@ submitToConstructionAPI expectOps chainId' payer getKeys expectResult cenv step 
       (Right (hsh :: P.PactHash)) <- pure $ fmap
         (P.fromUntypedHash . P.Hash . BS.toShort)
         (P.parseB16TextOnly $ _rosettaSigningPayload_hexBytes payload)
-      sig <- P.signHash hsh kp
+      ED25519Sig sig <- P.signHash hsh kp
 
       pure $! RosettaSignature
         { _rosettaSignature_signingPayload = payload
         , _rosettaSignature_publicKey =
             RosettaPublicKey pk CurveEdwards25519
         , _rosettaSignature_signatureType = RosettaEd25519
-        , _rosettaSignature_hexBytes = P._usSig sig
+        , _rosettaSignature_hexBytes = sig
         }
 
     acct n = AccountId n Nothing Nothing

@@ -1084,7 +1084,7 @@ allocationTest t cenv step = do
     tx3 =
       let
         c = "(define-keyset \"allocation02\" (read-keyset \"allocation02-keyset\"))"
-        d = mkKeySet
+        d = mkKeySetText
           ["0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a"]
           "keys-all"
       in PactTransaction c $ Just (A.object [ "allocation02-keyset" A..= J.toJsonViaEncode d ])

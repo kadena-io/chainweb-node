@@ -196,7 +196,7 @@ badMinerId :: MinerId
 badMinerId = MinerId "alpha\" (read-keyset \"miner-keyset\") 9999999.99)(coin.coinbase \"alpha"
 
 minerKeys0 :: MinerKeys
-minerKeys0 = MinerKeys $ mkKeySet
+minerKeys0 = MinerKeys $ mkKeySetText
     ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
     "default"
 
@@ -267,7 +267,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     miner = Miner
       (MinerId "tester01\" (read-keyset \"miner-keyset\") 1000.0)(coin.coinbase \"tester01")
-      (MinerKeys $ mkKeySet ["b67e109352e8e33c8fe427715daad57d35d25d025914dd705b97db35b1bfbaa5"] "keys-all")
+      (MinerKeys $ mkKeySetText ["b67e109352e8e33c8fe427715daad57d35d25d025914dd705b97db35b1bfbaa5"] "keys-all")
 
     preForkHeight = 121451
     postForkHeight = 121452
