@@ -345,17 +345,18 @@ constructionParseH
     :: ChainwebVersion
     -> ConstructionParseReq
     -> Handler ConstructionParseResp
-constructionParseH v (ConstructionParseReq net isSigned tx) =
+constructionParseH v (ConstructionParseReq net isSigned tx) = do
   either throwRosettaError pure work
   where
     work :: Either RosettaError ConstructionParseResp
     work = do
+      cid <- annotate rosettaError' (validateNetwork v net)
       void $ annotate rosettaError' (validateNetwork v net)
 
       (EnrichedCommand cmd txInfo signAccts) <- note
         (rosettaError' RosettaUnparsableTx)
         $ textToEnrichedCommand tx
-      signers <- getRosettaSigners cmd signAccts
+      signers <- getRosettaSigners cid cmd signAccts
       let ops = txToOps txInfo
 
       pure $ ConstructionParseResp
@@ -365,9 +366,9 @@ constructionParseH v (ConstructionParseReq net isSigned tx) =
         , _constructionParseResp_metadata = Nothing
         }
 
-    getRosettaSigners cmd expectedSignerAccts
+    getRosettaSigners cid cmd expectedSignerAccts
       | isSigned = do
-          _ <- toRosettaError RosettaInvalidTx $ validateCommand cmd
+          _ <- toRosettaError RosettaInvalidTx $ validateCommand v cid cmd
           pure expectedSignerAccts
           -- If transaction signatures successfully validates,
           -- it was signed correctly with all of the account public
@@ -379,7 +380,7 @@ constructionParseH v (ConstructionParseReq net isSigned tx) =
 constructionCombineH
     :: ConstructionCombineReq
     -> Handler ConstructionCombineResp
-constructionCombineH (ConstructionCombineReq _ unsignedTx sigs) =
+constructionCombineH (ConstructionCombineReq _ unsignedTx sigs) = do
   either throwRosettaError pure work
   where
     work :: Either RosettaError ConstructionCombineResp
@@ -398,7 +399,7 @@ constructionCombineH (ConstructionCombineReq _ unsignedTx sigs) =
 constructionHashH
     :: ConstructionHashReq
     -> Handler TransactionIdResp
-constructionHashH (ConstructionHashReq _ signedTx) =
+constructionHashH (ConstructionHashReq _ signedTx) = do
   either throwRosetta pure work
   where
     work :: Either RosettaFailure TransactionIdResp
@@ -437,7 +438,7 @@ constructionSubmitH v ms (ConstructionSubmitReq net tx) =
           note (rosettaError' RosettaUnparsableTx)
           $ textToEnrichedCommand tx
 
-        case validateCommand cmd of
+        case validateCommand v cid cmd of
           Right validated -> do
             let txs = V.fromList [validated]
             -- If any of the txs in the batch fail validation, we reject them all.

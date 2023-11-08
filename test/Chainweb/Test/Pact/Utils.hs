@@ -522,6 +522,7 @@ mkCmd nonce rpc = defaultCmd
 
 -- | Build parsed + verified Pact command
 --
+-- TODO: Use the new `assertCommand` function.
 buildCwCmd :: (MonadThrow m, MonadIO m) => CmdBuilder -> m ChainwebTransaction
 buildCwCmd cmd = buildRawCmd cmd >>= \c -> case verifyCommand c of
     ProcSucc r -> return $ fmap (mkPayloadWithText c) r

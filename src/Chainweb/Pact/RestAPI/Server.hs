@@ -45,7 +45,6 @@ import Control.Monad.Trans.Maybe
 
 import Data.Aeson as Aeson
 import Data.Bifunctor (second)
-import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
@@ -117,6 +116,8 @@ import Chainweb.Transaction
 import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Pact.Validations (assertCommand)
+import Chainweb.Version.Guards (validPPKSchemes)
 import Chainweb.WebPactExecutionService
 
 import Chainweb.Storage.Table
@@ -125,6 +126,7 @@ import qualified Pact.JSON.Encode as J
 import qualified Pact.Parse as Pact
 import Pact.Types.API
 import qualified Pact.Types.ChainId as Pact
+import Pact.Types.ChainMeta (PublicMeta)
 import Pact.Types.Command
 import Pact.Types.Hash (Hash(..))
 import qualified Pact.Types.Hash as Pact
@@ -185,12 +187,13 @@ pactServer d =
     logger = _pactServerDataLogger d
     pact = _pactServerDataPact d
     cdb = _pactServerDataCutDb d
+    v = _chainwebVersion cdb
 
     pactApiHandlers
-      = sendHandler logger mempool
+      = sendHandler logger v cid mempool
       :<|> pollHandler logger cdb cid pact mempool
       :<|> listenHandler logger cdb cid pact mempool
-      :<|> localHandler logger pact
+      :<|> localHandler logger v cid pact
 
     pactSpvHandler = spvHandler logger cdb cid
     pactSpv2Handler = spv2Handler logger cdb cid
@@ -246,12 +249,14 @@ instance ToJSON PactCmdLog where
 sendHandler
     :: Logger logger
     => logger
+    -> ChainwebVersion
+    -> ChainId
     -> MempoolBackend ChainwebTransaction
     -> SubmitBatch
     -> Handler RequestKeys
-sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
+sendHandler logger v cid mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
-    case traverse validateCommand cmds of
+    case traverse (validateCommand v cid) cmds of
        Right enriched -> do
            let txs = V.fromList $ NEL.toList enriched
            -- If any of the txs in the batch fail validation, we reject them all.
@@ -364,6 +369,8 @@ listenHandler logger cdb cid pact mem (ListenerRequest key) = do
 localHandler
     :: Logger logger
     => logger
+    -> ChainwebVersion
+    -> ChainId
     -> PactExecutionService
     -> Maybe LocalPreflightSimulation
       -- ^ Preflight flag
@@ -373,7 +380,7 @@ localHandler
       -- ^ Rewind depth
     -> Command Text
     -> Handler LocalResult
-localHandler logger pact preflight sigVerify rewindDepth cmd = do
+localHandler logger v cid pact preflight sigVerify rewindDepth cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
     cmd' <- case doCommandValidation cmd of
       Right c -> return c
@@ -408,7 +415,7 @@ localHandler logger pact preflight sigVerify rewindDepth cmd = do
 
           let cmd' = cmdBS { _cmdPayload = p }
           pure $ mkPayloadWithText cmdBS <$> cmd'
-      | otherwise = validateCommand cmd
+      | otherwise = validateCommand v cid cmd
 
 -- -------------------------------------------------------------------------- --
 -- Cross Chain SPV Handler
@@ -679,13 +686,23 @@ internalPoll pdb bhdb mempool pactEx cut confDepth requestKeys0 = do
 toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict' b
 
-validateCommand :: Command Text -> Either String ChainwebTransaction
-validateCommand cmdText = case verifyCommand cmdBS of
-    ProcSucc cmd -> Right (mkPayloadWithText cmdBS <$> cmd)
-    ProcFail err -> Left err
+
+validateCommand :: ChainwebVersion -> ChainId -> Command Text -> Either String ChainwebTransaction
+validateCommand v cid cmdText = case parsedPayload of
+  Right (parsedPact :: Payload PublicMeta ParsedCode) ->
+    let pwt = mkPayloadWithText cmdBs parsedPact
+        commandParsed = cmdText { _cmdPayload = pwt }
+    in
+        if assertCommand commandParsed (validPPKSchemes v cid maxBound)
+        then Right commandParsed
+        else Left "Command failed validation"
+  Left e -> Left $ "Pact parsing error: " ++ e
+
   where
-    cmdBS :: Command ByteString
-    cmdBS = encodeUtf8 <$> cmdText
+    payloadBs = encodeUtf8 (_cmdPayload cmdText)
+    cmdBs = cmdText { _cmdPayload = payloadBs }
+    parsedPayload = traverse (parsePact (maxBound :: PactParserVersion))
+                    =<< Aeson.eitherDecodeStrict' payloadBs
 
 
 -- | Validate the length of the request key's underlying hash.
