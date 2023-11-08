@@ -450,6 +450,8 @@ formatB16PubKey = toB16Text . getPublic
 safeCapitalize :: String -> String
 safeCapitalize = maybe [] (uncurry (:) . bimap toUpper (Prelude.map toLower)) . Data.List.uncons
 
+
+-- TODO: Use the new `assertCommand` function.
 validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = case verifyCommand cmdBS of
     ProcSucc cmd -> Right (mkPayloadWithTextOld <$> cmd)
