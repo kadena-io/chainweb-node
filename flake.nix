@@ -44,17 +44,16 @@
         echo ${name}: ${package}
         echo works > $out
       '';
-      runRecursive = hs-nix-infra.lib.recursiveRawFlakeBuilder basePkgs self;
     in {
       packages = {
         default = executables;
-        recursive = runRecursive "chainweb"
+        recursive = hs-nix-infra.lib.runRecursiveBuild system "chainweb"
           {
             outputs = [ "out" "metadata" ];
           } ''
             mkdir -p $out
-            ln -s $(nix build ${./.}#default --print-out-paths)/bin $out/bin
-            cp $(nix build ${./.}#default.metadata --print-out-paths) $metadata
+            ln -s $(nix-build-flake ${self} packages.${system}.default)/bin $out/bin
+            cp $(nix-build-flake ${self} packages.${system}.default.metadata) $metadata
           '';
         check = pkgs.runCommand "check" {} ''
           echo ${mkCheck "chainweb" executables}
