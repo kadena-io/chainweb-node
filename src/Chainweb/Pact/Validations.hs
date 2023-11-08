@@ -186,6 +186,16 @@ assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidation
     P.TxCreationTime txOriginationTime = view cmdCreationTime tx
     lenientTxValidationTime = add (scaleTimeSpan defaultLenientTimeSlop second) txValidationTime
 
+-- | Assert that the command hash matches its payload and
+-- its signatures are valid, without parsing the payload.
+assertCommand :: P.Command PayloadWithText -> [P.PPKScheme] -> Bool
+assertCommand cmd@(P.Command (PayloadWithText { _payloadBytes, _payloadObj }) sigs hsh) ppkSchemePassList =
+  assertHash &&
+  assertValidateSigs ppkSchemePassList hsh signers sigs
+  where
+    signers = P._pSigners p
+    assertHash = Pact.verifyHash @'Pact.Blake2b_256 (_cmdHash cmdBS) (_cmdPayload cmdBS)
+
 -- -------------------------------------------------------------------- --
 -- defaults
 
