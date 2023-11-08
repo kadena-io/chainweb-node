@@ -32,7 +32,7 @@ data HyperlaneMessage = HyperlaneMessage
   , hmSender :: BS.ByteString     -- bytes32
   , hmDestinationDomain :: Word32 -- uint32
   , hmRecipient :: BS.ByteString  -- bytes32
-  , hmMessageBody :: Text         -- string
+  , hmTokenMessage :: TokenMessageERC20
   }
 
 instance Binary HyperlaneMessage where
@@ -43,7 +43,8 @@ instance Binary HyperlaneMessage where
     putBS sender                                   -- 32 bytes
     put hmDestinationDomain
     putBS recipient                                -- 32 bytes
-    putBS (Text.encodeUtf8 hmMessageBody)          -- messageBodySize
+
+    put hmTokenMessage
     where
       (sender, _) = padRight hmSender
       (recipient, _) = padRight hmRecipient
@@ -55,7 +56,8 @@ instance Binary HyperlaneMessage where
     hmSender <- getBS 32
     hmDestinationDomain <- getWord32be
     hmRecipient <- getBS 32
-    hmMessageBody <- Text.decodeUtf8 . BL.toStrict <$> getRemainingLazyByteString
+    rest <- getRemainingLazyByteString
+    let hmTokenMessage = decode rest
 
     return $ HyperlaneMessage {..}
 

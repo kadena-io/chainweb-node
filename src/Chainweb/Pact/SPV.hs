@@ -362,6 +362,7 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
           Left err -> throwError $ Text.pack $ "Decoding of HyperlaneMessage failed: " ++ err
 
     let HyperlaneMessage{..} = Binary.decode message
+    let TokenMessageERC20{..} = hmTokenMessage
     let
       encodedSender = encodeHex hmSender
       encodedRecipient = encodeHex hmRecipient
@@ -372,7 +373,12 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
             , ("sender", tStr $ asString encodedSender)
             , ("destinationDomain", tLit $ LInteger $ toInteger hmDestinationDomain)
             , ("recipient", tStr $ asString encodedRecipient)
-            , ("messageBody", tStr $ asString hmMessageBody) ]
+            , ("tokenMessage", obj
+                ([ ("recipient", tStr $ asString tmRecipient)
+                 , ("amount", tLit $ LInteger $ toInteger tmAmount)
+                ])
+              )
+            ]
       messageId = encodeHex $ BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict message
     pure $ mkObject [ ("hyperlaneMessage", hmObj), ("messageId", tStr $ asString messageId) ]
 
@@ -434,6 +440,7 @@ verifySignatures hexMessage hexMetadata signatures threshold = do
           Left err -> throwError $ Text.pack $ "Decoding of HyperlaneMessage failed: " ++ err
 
   let HyperlaneMessage{..} = Binary.decode message
+  -- parse sender in decoding
 
   metadata <- case BL.fromStrict <$> decodeHex hexMetadata of
           Right s -> pure s
@@ -478,12 +485,11 @@ encodeHyperMessage o = do
     om = _objectMap $ _oObject o
     tokenMessage = om ^? at "tokenMessage" . _Just . to (\(TObject o _) -> o)
 
-  hmMessageBody <- case encodeTokenMessageERC20 <$> tokenMessage of
+  hmTokenMessage <- case parseTokenMessageERC20 <$> tokenMessage of
     Just (Just t) -> pure t
     _ -> throwError "Couldn't encode TokenMessageERC20"
 
   -- add padding for recipient
-  -- parse sender
   let
     newObj = do
       hmVersion <- om ^? at "version" . _Just . to (\(TLitInteger r) -> fromIntegral r)
@@ -502,12 +508,16 @@ encodeHyperMessage o = do
     Just o -> pure o
     _ -> throwError "Couldn't encode HyperlaneMessage"
 
-encodeTokenMessageERC20 :: Object Name -> Maybe Text
-encodeTokenMessageERC20 obj = do
+parseTokenMessageERC20 :: Object Name -> Maybe TokenMessageERC20
+parseTokenMessageERC20 obj = do
   let om = _objectMap $ _oObject obj
   tmRecipient <- om ^? at "recipient" . _Just . to (\(TLitString r) -> r)
   tmAmount <- om ^? at "amount" . _Just . to (\(TLitInteger r) -> fromIntegral r)
-  let tm = TokenMessageERC20{..}
+  pure $ TokenMessageERC20{..}
+
+encodeTokenMessageERC20 :: Object Name -> Maybe Text
+encodeTokenMessageERC20 obj = do
+  tm <- parseTokenMessageERC20 obj
   let hex = encodeHex $ BL.toStrict $ Binary.encode tm
   pure hex
 
