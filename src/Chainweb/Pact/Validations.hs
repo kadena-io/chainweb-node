@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 -- |
@@ -24,6 +25,7 @@ module Chainweb.Pact.Validations
 , assertTxSize
 , assertValidateSigs
 , assertTxTimeRelativeToParent
+, assertCommand
   -- * Defaults
 , defaultMaxCommandUserSigListSize
 , defaultMaxCoinDecimalPlaces
@@ -35,8 +37,10 @@ import Control.Lens
 
 import Data.Decimal (decimalPlaces)
 import Data.Maybe (isJust, catMaybes, fromMaybe)
+import Data.Either (isRight)
 import Data.List.NonEmpty (NonEmpty, nonEmpty)
 import Data.Text (Text)
+import qualified Data.ByteString.Short as SBS
 import Data.Word (Word8)
 
 -- internal modules
@@ -47,7 +51,7 @@ import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (fromPactChainId)
 import Chainweb.Pact.Service.Types
 import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
-import Chainweb.Transaction (cmdTimeToLive, cmdCreationTime)
+import Chainweb.Transaction (cmdTimeToLive, cmdCreationTime, PayloadWithText, payloadBytes, payloadObj)
 import Chainweb.Version
 import Chainweb.Version.Guards (validPPKSchemes)
 
@@ -189,12 +193,13 @@ assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidation
 -- | Assert that the command hash matches its payload and
 -- its signatures are valid, without parsing the payload.
 assertCommand :: P.Command PayloadWithText -> [P.PPKScheme] -> Bool
-assertCommand cmd@(P.Command (PayloadWithText { _payloadBytes, _payloadObj }) sigs hsh) ppkSchemePassList =
-  assertHash &&
+assertCommand (P.Command pwt sigs hsh) ppkSchemePassList =
+  isRight assertHash &&
   assertValidateSigs ppkSchemePassList hsh signers sigs
   where
-    signers = P._pSigners p
-    assertHash = Pact.verifyHash @'Pact.Blake2b_256 (_cmdHash cmdBS) (_cmdPayload cmdBS)
+    cmdBS = SBS.fromShort $ payloadBytes pwt
+    signers = P._pSigners (payloadObj pwt)
+    assertHash = P.verifyHash @'P.Blake2b_256 hsh cmdBS
 
 -- -------------------------------------------------------------------- --
 -- defaults
