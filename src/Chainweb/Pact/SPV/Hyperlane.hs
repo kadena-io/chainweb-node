@@ -26,22 +26,22 @@ import Data.Decimal
 import Numeric.Natural
 
 data HyperlaneMessage = HyperlaneMessage
-  { hmVersion :: Word32            -- uint8
-  , hmNonce :: Word256             -- uint32
-  , hmOriginDomain :: Word256      -- uint32
-  , hmSender :: BS.ByteString      -- bytes32
-  , hmDestinationDomain :: Word256 -- uint32
-  , hmRecipient :: BS.ByteString   -- bytes32
-  , hmMessageBody :: Text          -- string
+  { hmVersion :: Word8            -- uint8
+  , hmNonce :: Word32             -- uint32
+  , hmOriginDomain :: Word32      -- uint32
+  , hmSender :: BS.ByteString     -- bytes32
+  , hmDestinationDomain :: Word32 -- uint32
+  , hmRecipient :: BS.ByteString  -- bytes32
+  , hmMessageBody :: Text         -- string
   }
 
 instance Binary HyperlaneMessage where
   put (HyperlaneMessage {..}) = do
-    put hmVersion                                  -- 8 bytes
-    put hmNonce                                    -- 32 bytes
-    put hmOriginDomain                             -- 32 bytes
+    put hmVersion
+    put hmNonce
+    put hmOriginDomain
     putBS sender                                   -- 32 bytes
-    put hmDestinationDomain                        -- 32 bytes
+    put hmDestinationDomain
     putBS recipient                                -- 32 bytes
     putBS (Text.encodeUtf8 hmMessageBody)          -- messageBodySize
     where
@@ -49,11 +49,11 @@ instance Binary HyperlaneMessage where
       (recipient, _) = padRight hmRecipient
 
   get = do
-    hmVersion <- getWord32be
-    hmNonce <- getWord256be
-    hmOriginDomain <- getWord256be
+    hmVersion <- getWord8
+    hmNonce <- getWord32be
+    hmOriginDomain <- getWord32be
     hmSender <- getBS 32
-    hmDestinationDomain <- getWord256be
+    hmDestinationDomain <- getWord32be
     hmRecipient <- getBS 32
     hmMessageBody <- Text.decodeUtf8 . BL.toStrict <$> getRemainingLazyByteString
 
@@ -82,40 +82,6 @@ instance Binary TokenMessageERC20 where
     recipientSize <- getWord256be
     tmRecipient <- Text.decodeUtf8 <$> getBS recipientSize
     return $ TokenMessageERC20 {..}
-
-data TokenMessageERC721 = TokenMessageERC721
-  { tmRecipient :: Text  -- bytes
-  , tmTokenId :: Word256 -- uint256
-  , tmMetadata :: Text   -- bytes
-  }
-
-instance Binary TokenMessageERC721 where
-  put (TokenMessageERC721 {..}) = do
-    -- the first offset is constant
-    put (96 :: Word256)           -- 32 bytes
-    put tmTokenId                 -- 32 bytes
-    put (96 + 32 + recipientSize) -- 32 bytes
-    -- 96 bytes
-    put recipientSize             -- 32 bytes
-    putBS recipient               -- recipientSize
-    -- 96 bytes + 32 bytes + recipientSize
-    put metadataSize              -- 32 bytes
-    putBS metadata                -- metadataSize
-    where
-      (recipient, recipientSize) = padRight $ Text.encodeUtf8 tmRecipient
-      (metadata, metadataSize) = padRight $ Text.encodeUtf8 tmMetadata
-
-  get = do
-    _firstOffset <- getWord256be
-    tmTokenId <- getWord256be
-    _secondOffset <- getWord256be
-
-    recipientSize <- getWord256be
-    tmRecipient <- Text.decodeUtf8 <$> getBS recipientSize
-
-    metadataSize <- getWord256be
-    tmMetadata <- Text.decodeUtf8 <$> getBS metadataSize
-    return $ TokenMessageERC721 {..}
 
 data MessageIdMultisigIsmMetadata = MessageIdMultisigIsmMetadata
   { mmimOriginMerkleTreeAddress :: ByteString
@@ -151,6 +117,19 @@ instance Binary MessageIdMultisigIsmMetadata where
 
     return $ MessageIdMultisigIsmMetadata{..}
 
+data DomainHashPayload = DomainHashPayload
+  { dhpOrigin :: Word32
+  , dhpOriginMerkleTreeHook :: ByteString
+  }
+
+instance Binary DomainHashPayload where
+  put (DomainHashPayload {..}) = do
+    put dhpOrigin
+    putBS dhpOriginMerkleTreeHook
+    putBS ("HYPERLANE" :: ByteString)
+
+  get = error "get instance is not implemented for DomainHashPayload"
+
 data DigestHashPayload = DigestHashPayload
   { dihpDomainHash :: ByteString
   , dihpRoot :: ByteString
@@ -184,20 +163,8 @@ data DigestPayload = DigestPayload
 
 instance Binary DigestPayload where
   put (DigestPayload {..}) = do
-    -- the first offset is constant
-    put (96 :: Word256)        -- 32 bytes
-    put hashSize               -- 32 bytes
-    put (96 + 32 + headerSize) -- 32 bytes
-    -- 96 bytes
-    put headerSize             -- 32 bytes
-    putBS header               -- headerSize
-    -- 96 bytes + headerSize
-    put hashSize               -- 32 bytes
-    putBS hash                 -- hashSize
-
-    where
-      (header, headerSize) = padRight $ Text.encodeUtf8 "\x19Ethereum Signed Message:\n"
-      (hash, hashSize) = padRight dpHash
+    putBS ("\x19Ethereum Signed Message:\n" :: ByteString)
+    putBS dpHash
 
   get = error "get instance is not implemented for DigestPayload"
 
