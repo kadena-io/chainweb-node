@@ -22,6 +22,7 @@ import Data.Foldable (foldl')
 import Data.Decimal ( Decimal, DecimalRaw(Decimal) )
 import Data.Hashable (Hashable(..))
 import Data.List (sortOn, inits)
+import Data.Maybe (mapMaybe)
 import Data.Word (Word32, Word64)
 import Text.Read (readMaybe)
 import Text.Printf ( printf )
@@ -45,6 +46,7 @@ import Numeric.Natural ( Natural )
 
 import Pact.Types.Command
 import Pact.Types.PactValue (PactValue(..))
+import Pact.Types.KeySet (KeysetPublicKey(KeysetPublicKey), PublicKeyText(..))
 import Pact.Types.Exp (Literal(..))
 import Pact.JSON.Legacy.Value
 
@@ -762,6 +764,8 @@ getCmdPayload (Command p _ _) =
     (decodeStrict' $! T.encodeUtf8 p)
 
 
+-- TODO: This assumes Rosettas signatures are all Ed25519 signatures
+-- (Not webauthn).
 matchSigs
     :: [RosettaSignature]
     -> [Signer]
@@ -789,7 +793,7 @@ matchSigs sigs signers = do
         (Left $ stringRosettaError RosettaInvalidSignature $
          "Expected the same Signature and PublicKey type for Signature=" ++ show sig)
 
-      let userSig = P.UserSig sig
+      let userSig = P.ED25519Sig sig
       addr <- toPactPubKeyAddr pk
       pure (addr, userSig)
 
@@ -1178,7 +1182,11 @@ toRosettaError failure = annotate (stringRosettaError failure)
 
 ksToPubKeys :: P.KeySet -> [T.Text]
 ksToPubKeys (P.KeySet pkSet _) =
-  map P._pubKey (S.toList pkSet)
+  mapMaybe (\(KeysetPublicKey (PublicKeyText pk) sch) ->
+              if sch == ED25519
+              then Just pk
+              else Nothing
+           ) (S.toList pkSet)
 
 
 parsePubKeys :: T.Text -> Value -> Either RosettaError [T.Text]
