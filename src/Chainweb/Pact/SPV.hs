@@ -27,6 +27,7 @@ module Chainweb.Pact.SPV
 , getTxIdx
 -- * hyperlane utilities
 , evalHyperlaneCommand
+, encodeTokenMessageERC20
 , mkObject
 , obj
 ) where
@@ -330,21 +331,6 @@ extractProof True (Object (ObjectMap o) _ _ _) = case M.lookup "proof" o of
 
 evalHyperlaneCommand :: Object Name -> ExceptT Text IO (Object Name)
 evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.lookup "arg" $ _objectMap $ _oObject o) of
-  -- TokenMessageERC20
-  (Just (TLitString "encodeTokenMessageERC20"), Nothing) -> throwError "Missing argument"
-  (Just (TLitString "encodeTokenMessageERC20"), Just (TObject obj _)) ->
-    let
-      newObj = do
-        let om = _objectMap $ _oObject obj
-        tmRecipient <- om ^? at "recipient" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-        tmAmount <- om ^? at "amount" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
-        let tm = TokenMessageERC20{..}
-        let hex = encodeHex $ BL.toStrict $ Binary.encode tm
-        pure $ mkObject [ ("message", tStr $ asString hex) ]
-    in case newObj of
-      Just o -> pure o
-      _ -> throwError "Couldn't encode TokenMessageERC20"
-
   (Just (TLitString "decodeTokenMessageERC20"), Nothing) -> throwError "Missing argument"
   (Just (TLitString "decodeTokenMessageERC20"), Just (TObject o _)) -> do
     let
@@ -363,29 +349,6 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
             , ("amount", tLit $ LInteger $ toInteger tmAmount)
             ]
     pure $ mkObject [ ("tokenMessageERC20", tmObj) ]
-
-  -- HyperlaneMessage
-  (Just (TLitString "encodeHyperlaneMessage"), Nothing) -> throwError "Missing argument"
-  (Just (TLitString "encodeHyperlaneMessage"), Just (TObject obj _)) -> do
-    let
-      newObj = do
-        let om = _objectMap $ _oObject obj
-        hmVersion <- om ^? at "version" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
-        hmNonce <- om ^? at "nonce" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
-        hmOriginDomain <- om ^? at "originDomain" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
-        hmSender <- om ^? at "sender" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> B64.decode $ Text.encodeUtf8 r) . _Right
-        hmDestinationDomain <- om ^? at "destinationDomain" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
-        hmRecipient <- om ^? at "recipient" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> B64.decode $ Text.encodeUtf8 r) . _Right
-        hmMessageBody <- om ^? at "messageBody" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-
-        let hm = HyperlaneMessage{..}
-        let b = BL.toStrict $ Binary.encode hm
-        let messageId = encodeHex $ BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 b
-        let hex = encodeHex b
-        pure $ mkObject [ ("message", tStr $ asString hex), ("messageId", tStr $ asString messageId) ]
-    case newObj of
-      Just o -> pure o
-      _ -> throwError "Couldn't encode HyperlaneMessage"
 
   (Just (TLitString "decodeHyperlaneMessage"), Nothing) -> throwError "Missing argument"
   (Just (TLitString "decodeHyperlaneMessage"), Just (TObject o _)) -> do
@@ -448,8 +411,6 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
     addresses <- mapM recoverAddress mmimSignatures
     let addrs = map (tStr . asString) $ catMaybes addresses
     return $ mkObject [ ("addresses", toTList TyAny def addrs) ]
-
-  (Nothing, _) -> throwError "Missing command name"
   _ -> evalHyperlaneCommand' o
 
 evalHyperlaneCommand' :: Object Name -> ExceptT Text IO (Object Name)
@@ -525,12 +486,12 @@ encodeHyperMessage o = do
   -- parse sender
   let
     newObj = do
-      hmVersion <- om ^? at "version" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
-      hmNonce <- om ^? at "nonce" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
-      hmOriginDomain <- om ^? at "originDomain" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
-      hmSender <- om ^? at "sender" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> B64.decode $ Text.encodeUtf8 r) . _Right
-      hmDestinationDomain <- om ^? at "destinationDomain" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
-      hmRecipient <- om ^? at "recipient" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> B64.decode $ Text.encodeUtf8 r) . _Right
+      hmVersion <- om ^? at "version" . _Just . to (\(TLitInteger r) -> fromIntegral r)
+      hmNonce <- om ^? at "nonce" . _Just . to (\(TLitInteger r) -> fromIntegral r)
+      hmOriginDomain <- om ^? at "originDomain" . _Just . to (\(TLitInteger r) -> fromIntegral r)
+      hmSender <- om ^? at "sender" . _Just . to (\(TLitString r) -> B64.decode $ Text.encodeUtf8 r) . _Right
+      hmDestinationDomain <- om ^? at "destinationDomain" . _Just . to (\(TLitInteger r) -> fromIntegral r)
+      hmRecipient <- om ^? at "recipient" . _Just . to (\(TLitString r) -> B64.decode $ Text.encodeUtf8 r) . _Right
 
       let hm = HyperlaneMessage{..}
       let b = BL.toStrict $ Binary.encode hm
@@ -542,16 +503,16 @@ encodeHyperMessage o = do
     _ -> throwError "Couldn't encode HyperlaneMessage"
 
 encodeTokenMessageERC20 :: Object Name -> Maybe Text
-encodeTokenMessageERC20 obj =
-  let
-    tm = do
-      let om = _objectMap $ _oObject obj
-      tmRecipient <- om ^? at "recipient" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-      tmAmount <- om ^? at "amount" . _Just . to toPactValue . _Right . to (\(PLiteral (LInteger r)) -> fromIntegral r)
-      let tm = TokenMessageERC20{..}
-      let hex = encodeHex $ BL.toStrict $ Binary.encode tm
-      pure hex
-  in tm
+encodeTokenMessageERC20 obj = do
+  let om = _objectMap $ _oObject obj
+  tmRecipient <- om ^? at "recipient" . _Just . to (\(TLitString r) -> r)
+  tmAmount <- om ^? at "amount" . _Just . to (\(TLitInteger r) -> fromIntegral r)
+  let tm = TokenMessageERC20{..}
+  let hex = encodeHex $ BL.toStrict $ Binary.encode tm
+  pure hex
+
+decodeTokenMessageERC20 :: Text -> Maybe (Object Name)
+decodeTokenMessageERC20 t = undefined
 
 recoverHexAddress :: MonadThrow m => Keccak256Hash -> B.ByteString -> m (Maybe Text)
 recoverHexAddress digest sig = do

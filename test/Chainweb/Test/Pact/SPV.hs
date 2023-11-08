@@ -119,8 +119,6 @@ tests = testGroup "Chainweb.Test.Pact.SPV"
     -- , testCaseSteps "wrong target chain in proofs fail" wrongChainProof
     [ testGroup "hyperlane"
       [ testCase "empty object" hyperlaneEmptyObject
-      , testCase "wrong command name" hyperlaneWrongCommand
-      , testCase "missing argument" hyperlaneMissingArgument
 
       , testCase "encodeTokenMessageERC20" hyperlaneEncodeTokenMessageERC20
       , testCase "decodeTokenMessageERC20" hyperlaneDecodeTokenMessageERC20
@@ -158,37 +156,20 @@ hyperlaneEmptyObject :: Assertion
 hyperlaneEmptyObject = do
   let obj = mkObject []
   res <- runExceptT $ evalHyperlaneCommand obj
-  assertEqual "should fail with missing command name" (Left "Missing command name") res
-
-hyperlaneWrongCommand :: Assertion
-hyperlaneWrongCommand = do
-  let obj = mkObject [ ("cmd", tStr $ asString ("someCommandName" :: Text)) ]
-  res <- runExceptT $ evalHyperlaneCommand obj
-  assertEqual "should fail with unknown command name" (Left "Unknown hyperlane command") res
-
-hyperlaneMissingArgument :: Assertion
-hyperlaneMissingArgument = do
-  let obj = mkObject [ ("cmd", tStr $ asString ("encodeTokenMessageERC20" :: Text)) ]
-  res <- runExceptT $ evalHyperlaneCommand obj
-  assertEqual "should fail with missing argument" (Left "Missing argument") res
+  assertEqual "should fail with missing command name" (Left "Unknown hyperlane command") res
 
 hyperlaneEncodeTokenMessageERC20 :: Assertion
 hyperlaneEncodeTokenMessageERC20 = do
   let
-    obj' = mkObject
-        [ ("cmd", tStr $ asString ("encodeTokenMessageERC20" :: Text))
-        , ("arg", obj
-          [ ("recipient", tStr $ asString ("recipient" :: Text))
-          , ("amount", tLit $ LInteger 23) ])
-        ]
-  res <- runExceptT $ evalHyperlaneCommand obj'
+    res = encodeTokenMessageERC20 $ mkObject
+        [ ("recipient", tStr $ asString ("recipient" :: Text))
+          , ("amount", tLit $ LInteger 23) ]
   case res of
-    Left _ -> assertFailure "Should get the result"
-    Right o ->
+    Nothing -> assertFailure "Should get the result"
+    Just t ->
       let
         expectedMessage :: Text = "0x000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000170000000000000000000000000000000000000000000000000000000000000009726563697069656e740000000000000000000000000000000000000000000000"
-        expectedObject = mkObject [ ("message", tStr $ asString expectedMessage) ]
-      in assertEqual "should get encoded message" expectedObject o
+      in assertEqual "should get encoded message" t expectedMessage
 
 hyperlaneDecodeTokenMessageERC20 :: Assertion
 hyperlaneDecodeTokenMessageERC20 = do
@@ -212,42 +193,29 @@ hyperlaneDecodeTokenMessageERC20 = do
 
 hyperlaneEncodeHyperlaneMessage :: Assertion
 hyperlaneEncodeHyperlaneMessage = do
-  tokenMessage <- do
-      let
-        obj' = mkObject
-            [ ("cmd", tStr $ asString ("encodeTokenMessageERC20" :: Text))
-            , ("arg", obj
-              [ ("recipient", tStr $ asString ("recipient1" :: Text))
-              , ("amount", tLit $ LInteger 12) ])
-            ]
-      res <- runExceptT $ evalHyperlaneCommand obj'
-      case res of
-        Left _ -> assertFailure "Failed to build TokenMessage"
-        Right o ->
-          let om = _objectMap $ _oObject o
-              message = om ^? at "message" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-          in pure message
-
   let
     obj' = mkObject
-        [ ("cmd", tStr $ asString ("encodeHyperlaneMessage" :: Text))
-        , ("arg", obj
+        [ ("message", obj
           [ ("version", tLit $ LInteger 1)
           , ("nonce", tLit $ LInteger 1223)
           , ("originDomain", tLit $ LInteger 626)
           , ("sender", tStr $ asString ("MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=" :: Text))
           , ("destinationDomain", tLit $ LInteger 8)
           , ("recipient", tStr $ asString ("MjIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=" :: Text))
-          , ("messageBody", tStr $ asString tokenMessage) ])
+          , ("tokenMessage", obj
+              [ ("recipient", tStr $ asString ("recipient1" :: Text))
+              , ("amount", tLit $ LInteger 12) ]
+            )
+          ])
         ]
   res <- runExceptT $ evalHyperlaneCommand obj'
   case res of
-    Left _ -> assertFailure "Should get the result"
+    Left err -> assertFailure $ "Should get the result" ++ show err
     Right o ->
       let
         expectedMessage :: Text = "0x01000004c7000002723132333435363738393031323334353637383930313233343536373839303132000000083232333435363738393031323334353637383930313233343536373839303132307830303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303430303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030633030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030306137323635363336393730363936353665373433313030303030303030303030303030303030303030303030303030303030303030303030303030303030303030"
         expectedObject = mkObject
-          [ ("message", tStr $ asString expectedMessage)
+          [ ("encodedMessage", tStr $ asString expectedMessage)
           , ("messageId", tStr $ asString ("0x44913bf0252502307d973a4da0a34b12c476594481da13235989af05e8086a5a" :: Text))
           ]
       in assertEqual "should get encoded message" expectedObject o
