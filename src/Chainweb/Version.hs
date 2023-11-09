@@ -133,6 +133,12 @@ import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import Data.Map.Strict(Map)
+import qualified Data.Map.Strict as Map
+import qualified Data.Map.Merge.Strict as Merge
+import Data.Set(Set)
+import qualified Data.Set as Set
+import Data.Maybe
 import Data.Proxy
 import qualified Data.Text as T
 import Data.Word
@@ -155,6 +161,7 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Utils.Serialization
+import Chainweb.VerifierPlugin
 
 import Data.Singletons
 
@@ -368,6 +375,8 @@ data ChainwebVersion
         -- ^ Whether to disable any core functionality.
     , _versionDefaults :: VersionDefaults
         -- ^ Version-specific defaults that can be overridden elsewhere.
+    , _versionVerifierPlugins :: ChainMap (Rule BlockHeight (Map T.Text VerifierPlugin))
+        -- ^ Verifier plugins that can be run to verify transaction contents.
     }
     deriving stock (Generic)
     deriving anyclass NFData
