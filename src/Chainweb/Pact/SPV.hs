@@ -436,12 +436,12 @@ evalHyperlaneCommand' (_objectMap . _oObject -> om) = do
         let
           convert (TLitString v) = Just v
           convert _ = Nothing
-        in verifySignatures message metadata (V.mapMaybe convert validators) threshold
+        in verifySignatures message metadata (V.mapMaybe convert validators) (fromInteger threshold)
 
       (Just (TObject o _), _, _, _) -> encodeHyperMessage o
       _ -> throwError "Unknown hyperlane command"
 
-verifySignatures :: Text -> Text -> V.Vector Text -> Integer -> ExceptT Text IO (Object Name)
+verifySignatures :: Text -> Text -> V.Vector Text -> Int -> ExceptT Text IO (Object Name)
 verifySignatures hexMessage hexMetadata validators threshold = do
   message <- case decodeHex hexMessage of
           Right s -> pure s
@@ -477,7 +477,30 @@ verifySignatures hexMessage hexMetadata validators threshold = do
   let recoverAddress = recoverHexAddress digest
   addresses <- mapM recoverAddress mmimSignatures
 
-  undefined
+  let verificationAddresses = take threshold $ catMaybes addresses
+  let verifyStep (_, validators) signer = case V.elemIndex signer validators of
+        Just i -> let newV = snd $ V.splitAt (i + 1) validators in (True, newV)
+        Nothing -> (False, V.empty)
+  let verified = fst $ foldl verifyStep (False, validators) verificationAddresses
+
+  let TokenMessageERC20{..} = hmTokenMessage
+  let
+    encodedSender = encodeHex hmSender
+    encodedRecipient = encodeHex hmRecipient
+    hmObj = obj
+          [ ("version", tLit $ LInteger $ toInteger hmVersion)
+          , ("nonce", tLit $ LInteger $ toInteger hmNonce)
+          , ("originDomain", tLit $ LInteger $ toInteger hmOriginDomain)
+          , ("sender", tStr $ asString encodedSender)
+          , ("destinationDomain", tLit $ LInteger $ toInteger hmDestinationDomain)
+          , ("recipient", tStr $ asString encodedRecipient)
+          , ("tokenMessage", obj
+              ([ ("recipient", tStr $ asString tmRecipient)
+               , ("amount", tLit $ LInteger $ toInteger tmAmount)
+              ])
+            )
+          ]
+  pure $ mkObject [ ("message", hmObj), ("messageId", tStr $ asString $ encodeHex messageId), ("verified", tLit $ LBool verified) ]
 
 recoverAddressValidatorAnnouncement :: Text -> Text -> ExceptT Text IO (Object Name)
 recoverAddressValidatorAnnouncement storageLocation sig = do
@@ -562,7 +585,6 @@ recoverHexAddress digest sig = do
       s <- mkS (B.take 32 end)
       pure $ ECDSA.ecdsaRecoverPublicKey fnDigest r s False False <&> getAddress
 
-  -- let addrs = map (tStr . asString . encodeHex) $ catMaybes addresses
   addr <- recoverAddress sig
   pure $ encodeHex <$> addr
 
