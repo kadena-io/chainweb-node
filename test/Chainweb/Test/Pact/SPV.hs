@@ -33,7 +33,6 @@ import Control.Concurrent.MVar
 import Control.Exception (SomeException, finally)
 import Control.Monad
 import Control.Lens hiding ((.=))
-import Control.Lens (set)
 import Control.Monad.Trans.Except
 
 import Data.Aeson as Aeson
@@ -42,7 +41,6 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as B8
 
 import qualified Data.Binary as Binary
-import Data.Default (def)
 import Data.ByteString.Lazy (toStrict)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
@@ -71,7 +69,7 @@ import Pact.Types.Command
 import Pact.Types.Exp
 import Pact.Types.Hash
 import Pact.Types.PactValue
-import Pact.Types.Runtime (toPactId, Type(TyAny))
+import Pact.Types.Runtime (toPactId)
 import Pact.Types.SPV
 import Pact.Types.Term
 import Pact.Types.Util (AsString(..))
@@ -111,16 +109,16 @@ import Data.LogMessage
 --
 tests :: TestTree
 tests = testGroup "Chainweb.Test.Pact.SPV"
-    -- [ testCaseSteps "standard SPV verification round trip" standard
-    -- , testCaseSteps "contTXOUTOld" contTXOUTOld
-    -- , testCaseSteps "contTXOUTNew" contTXOUTNew
-    -- , testCaseSteps "tfrTXOUTNew" tfrTXOUTNew
-    -- , testCaseSteps "ethReceiptProof" ethReceiptProof
-    -- , testCaseSteps "noEthReceiptProof" noEthReceiptProof
-    -- , testCaseSteps "wrong chain execution fails" wrongChain
-    -- , testCaseSteps "invalid proof formats fail" invalidProof
-    -- , testCaseSteps "wrong target chain in proofs fail" wrongChainProof
-    [ testGroup "hyperlane"
+    [ testCaseSteps "standard SPV verification round trip" standard
+    , testCaseSteps "contTXOUTOld" contTXOUTOld
+    , testCaseSteps "contTXOUTNew" contTXOUTNew
+    , testCaseSteps "tfrTXOUTNew" tfrTXOUTNew
+    , testCaseSteps "ethReceiptProof" ethReceiptProof
+    , testCaseSteps "noEthReceiptProof" noEthReceiptProof
+    , testCaseSteps "wrong chain execution fails" wrongChain
+    , testCaseSteps "invalid proof formats fail" invalidProof
+    , testCaseSteps "wrong target chain in proofs fail" wrongChainProof
+    , testGroup "hyperlane"
       [ testCase "empty object" hyperlaneEmptyObject
 
       , testCase "encodeTokenMessageERC20" hyperlaneEncodeTokenMessageERC20
@@ -128,9 +126,6 @@ tests = testGroup "Chainweb.Test.Pact.SPV"
       , testCase "wordToDecimal" hyperlaneWordToDecimal
 
       , testCase "encodeHyperlaneMessage" hyperlaneEncodeHyperlaneMessage
-      -- , testCase "decodeHyperlaneMessage" hyperlaneDecodeHyperlaneMessage
-
-      -- , testCase "verifyHyperlaneMessage" hyperlaneVerifyHyperlaneMessage
       ]
     ]
 
@@ -158,8 +153,7 @@ _handle' e =
 
 hyperlaneEmptyObject :: Assertion
 hyperlaneEmptyObject = do
-  let obj = mkObject []
-  res <- runExceptT $ evalHyperlaneCommand obj
+  res <- runExceptT $ evalHyperlaneCommand $ mkObject []
   assertEqual "should fail with missing command name" (Left "Unknown hyperlane command") res
 
 hyperlaneEncodeTokenMessageERC20 :: Assertion
@@ -218,59 +212,6 @@ hyperlaneEncodeHyperlaneMessage = do
           , ("messageId", tStr $ asString ("0xd7d22abdd68430821df0732b7bb87cd05536810cc9fc29d3fbe22cfd359ba190" :: Text))
           ]
       in assertEqual "should get encoded message" expectedObject o
-
-hyperlaneDecodeHyperlaneMessage :: Assertion
-hyperlaneDecodeHyperlaneMessage = do
-  let
-    -- like in hyperlaneEncodeHyperlaneMessage but sender and recipient are swapped
-    encodedMessage :: Text = "0x01000004c70000027200000000000000000000000071c7656ec7ab88b098defb751b7401b5f6d8976f0000000800000000000000000000000000000000000000000000000000000000000000230000000000000000000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000000a726563697069656e743100000000000000000000000000000000000000000000"
-    obj' = mkObject
-        [ ("cmd", tStr $ asString ("decodeHyperlaneMessage" :: Text))
-        , ("arg", obj [ ("encodedMessage", tStr $ asString encodedMessage) ])
-        ]
-  res <- runExceptT $ evalHyperlaneCommand obj'
-
-  let
-    expectedObject = mkObject
-      [ ("hyperlaneMessage", obj
-        [ ("version", tLit $ LInteger 1)
-          , ("nonce", tLit $ LInteger 1223)
-          , ("originDomain", tLit $ LInteger 626)
-          , ("sender", tStr $ asString ("0x71c7656ec7ab88b098defb751b7401b5f6d8976f" :: Text))
-          , ("destinationDomain", tLit $ LInteger 8)
-          , ("recipient", tStr $ asString ("0x23" :: Text))
-          , ("tokenMessage", obj
-            [ ("recipient", tStr $ asString ("recipient1" :: Text))
-            , ("amount", tLit $ LDecimal 3333333333333333333.333333333333333333) ])
-        ]
-        )
-      , ("messageId", tStr $ asString ("0x9d323cd6008aca8c91237e1a63a83fa7861e14b31fa3bc902edfcea979bcbf11" :: Text))
-      ]
-  case res of
-    Left _ -> assertFailure "Should get the result"
-    Right o -> assertEqual "Should properly decode the object" expectedObject o
-
-hyperlaneVerifyHyperlaneMessage :: Assertion
-hyperlaneVerifyHyperlaneMessage = do
-  let
-    encodedMessage :: Text = "0x01000004c7000002723132333435363738393031323334353637383930313233343536373839303132000000083232333435363738393031323334353637383930313233343536373839303132307830303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303430303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030633030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030306137323635363336393730363936353665373433313030303030303030303030303030303030303030303030303030303030303030303030303030303030303030"
-    encodedMetadata :: Text = "0x6f726967696e4d65726b6c6554726565416464726573730000000000000000006d65726b6c65526f6f740000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffff000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000414e45a1dc8d84b3a63db8c9c6cbe4e0a780ecb55ff157c038b9f5d1a2be7a0a0277c3c8d8e6029f65f7f7b0ad8b80fae2b178d14c9a7b228a539349aad0c7b58b1b00000000000000000000000000000000000000000000000000000000000000"
-    obj' = mkObject
-        [ ("cmd", tStr $ asString ("verify" :: Text))
-        , ("arg", obj
-          [ ("encodedMessage", tStr $ asString encodedMessage)
-          , ("encodedMetadata", tStr $ asString encodedMetadata)
-          ])
-        ]
-  res <- runExceptT $ evalHyperlaneCommand obj'
-
-  let
-    expectedObject = mkObject
-      [ ("addresses", toTList TyAny def [ tStr $ asString ("0x401e26e5c99b75568fe860d107f75c917a4fcbb9" :: Text) ])
-      ]
-  case res of
-    Left _ -> assertFailure "Should get the result"
-    Right o -> assertEqual "Should properly decode the object" expectedObject o
 
 -- -------------------------------------------------------------------------- --
 -- tests
