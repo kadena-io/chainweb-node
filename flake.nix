@@ -47,14 +47,18 @@
     in {
       packages = {
         default = executables;
+
+        # This package is equivalent to the default package, but it offloads the
+        # evaluation of the haskellNix project to a recursive nix-build. If you expect to
+        # find this package in your nix store or a binary cache, using this package will
+        # significantly reduce your nix eval times and the amount of data you download.
         recursive = hs-nix-infra.lib.runRecursiveBuild system "chainweb"
-          {
-            outputs = [ "out" "metadata" ];
-          } ''
-            mkdir -p $out
-            ln -s $(nix-build-flake ${self} packages.${system}.default)/bin $out/bin
+          { outputs = [ "out" "metadata" ]; }
+          ''
+            ln -s $(nix-build-flake ${self} packages.${system}.default) $out
             cp $(nix-build-flake ${self} packages.${system}.default.metadata) $metadata
           '';
+
         check = pkgs.runCommand "check" {} ''
           echo ${mkCheck "chainweb" executables}
           echo ${mkCheck "devShell" flake.devShell}
