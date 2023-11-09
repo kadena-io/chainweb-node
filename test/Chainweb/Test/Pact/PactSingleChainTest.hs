@@ -112,7 +112,7 @@ tests rdb = testGroup testName
       f (fst <$> dm)
 
     test f = testWithConf f testPactServiceConfig
-    testTimeout f = testWithConf f (testPactServiceConfig { _pactPreInsertCheckTimeout = 5 })
+    testTimeout f = testWithConf f (testPactServiceConfig { _pactPreInsertCheckTimeout = 1 })
 
     testHistLookup1 = getHistoricalLookupNoTxs "sender00"
       (assertSender00Bal 100_000_000 "check latest entry for sender00 after a no txs block")
