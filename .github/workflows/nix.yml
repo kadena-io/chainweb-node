@@ -34,7 +34,7 @@ jobs:
         aws-region: us-east-1
 
     - name: Give root user AWS credentials
-      uses: kadena-io/setup-nix-with-cache/copy-root-aws-credentials@v3
+      uses: kadena-io/setup-nix-with-cache/copy-root-aws-credentials@v3.1
 
     - name: Build and cache artifacts
       run: |
