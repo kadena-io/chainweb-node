@@ -3,27 +3,20 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Chainweb.Pact.SPV.Hyperlane where
 
-import Control.Monad (replicateM)
-
 import Data.ByteString as BS
-import qualified Data.ByteString.Short as Short
 import qualified Data.ByteString.Lazy as BL
-import Data.ByteString.Builder
 
 import Data.DoubleWord
-import Data.Int
 import Data.Text (Text)
-import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import Data.Binary
 import qualified Data.Binary.Builder as Builder
 import Data.Binary.Get
 import Data.Binary.Put
-import Data.Decimal
-import Numeric.Natural
 
 data HyperlaneMessage = HyperlaneMessage
   { hmVersion :: Word8            -- uint8
@@ -177,8 +170,8 @@ getWord256be :: Get Word256
 getWord256be = get
 
 sliceSignatures :: ByteString -> [ByteString]
-sliceSignatures s = go s []
+sliceSignatures sig' = go sig' []
   where
     go s sigs = if BS.length s >= 65
-      then let (sig, rest) = BS.splitAt 65 s in go (BS.drop 65 s) (sig:sigs)
+      then let (sig, rest) = BS.splitAt 65 s in go rest (sig:sigs)
       else Prelude.reverse sigs

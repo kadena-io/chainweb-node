@@ -54,12 +54,10 @@ import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.Default (def)
 import qualified Data.ByteString.Base16 as B16
-import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Binary as Binary
 import qualified Data.Binary.Put as Binary
-import qualified Data.Binary.Builder as Binary
 import qualified Data.Map.Strict as M
 import Data.Text (Text, pack)
 import qualified Data.Text as Text
@@ -74,7 +72,7 @@ import Ethereum.Header as EthHeader
 import Ethereum.Misc hiding (Word256)
 import Ethereum.Receipt
 import Ethereum.Receipt.ReceiptProof
-import Ethereum.RLP
+import Ethereum.RLP hiding (end)
 
 import Numeric.Natural
 
@@ -330,7 +328,7 @@ extractProof False o = toPactValue (TObject o def) >>= k
       . J.toJsonViaEncode
 extractProof True (Object (ObjectMap o) _ _ _) = case M.lookup "proof" o of
   Just (TLitString proof) -> do
-    j <- first (const "Base64 decode failed") (decodeB64Text proof)
+    j <- first (const "Base64 decode failed") (decodeB64UrlNoPaddingText proof)
     first (const "Decode of TransactionOutputProof failed") (decodeStrictOrThrow j)
   _ -> Left "Invalid input, expected 'proof' field with base64url unpadded text"
 
@@ -352,13 +350,13 @@ verifySignatures :: Text -> Text -> V.Vector Text -> Int -> ExceptT Text IO (Obj
 verifySignatures hexMessage hexMetadata validators threshold = do
   message <- case decodeHex hexMessage of
           Right s -> pure s
-          Left err -> throwError $ Text.pack $ "Decoding of HyperlaneMessage failed: " ++ err
+          Left e -> throwError $ Text.pack $ "Decoding of HyperlaneMessage failed: " ++ e
 
   let HyperlaneMessage{..} = Binary.decode $ BL.fromStrict $ message
 
   metadata <- case BL.fromStrict <$> decodeHex hexMetadata of
           Right s -> pure s
-          Left err -> throwError $ Text.pack $ "Decoding of Metadata failed: " ++ err
+          Left e -> throwError $ Text.pack $ "Decoding of Metadata failed: " ++ e
 
   let MessageIdMultisigIsmMetadata{..} = Binary.decode metadata
 
@@ -371,7 +369,7 @@ verifySignatures hexMessage hexMetadata validators threshold = do
   let messageId = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 message
 
   let
-    hash = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict $ Binary.runPut $ do
+    hash' = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict $ Binary.runPut $ do
       putBS domainHash
       putBS mmimSignedCheckpointRoot
       Binary.put mmimSignedCheckpointIndex
@@ -379,14 +377,14 @@ verifySignatures hexMessage hexMetadata validators threshold = do
   let
     digest = keccak256 $ BL.toStrict $ Binary.runPut $ do
       putBS ethereumHeader
-      putBS hash
+      putBS hash'
 
   let recoverAddress = recoverHexAddress digest
   addresses <- mapM recoverAddress mmimSignatures
 
   let verificationAddresses = take threshold $ catMaybes addresses
-  let verifyStep (_, validators) signer = case V.elemIndex signer validators of
-        Just i -> let newV = snd $ V.splitAt (i + 1) validators in (True, newV)
+  let verifyStep (_, vals) signer = case V.elemIndex signer vals of
+        Just i -> let newV = snd $ V.splitAt (i + 1) vals in (True, newV)
         Nothing -> (False, V.empty)
   let verified = fst $ foldl verifyStep (False, validators) verificationAddresses
 
@@ -413,20 +411,20 @@ recoverAddressValidatorAnnouncement :: Text -> Text -> ExceptT Text IO (Object N
 recoverAddressValidatorAnnouncement storageLocation sig = do
   signatureBinary <- case decodeHex sig of
           Right s -> pure s
-          Left err -> throwError $ Text.pack $ "Decoding of signature failed: " ++ err
+          Left e -> throwError $ Text.pack $ "Decoding of signature failed: " ++ e
   domainHash <- case decodeHex domainHashHex of
           Right s -> pure s
-          Left err -> throwError $ Text.pack $ "Decoding of domainHashHex failed: " ++ err
+          Left e -> throwError $ Text.pack $ "Decoding of domainHashHex failed: " ++ e
 
   let
-    hash = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict $ Binary.runPut $ do
+    hash' = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict $ Binary.runPut $ do
       putBS domainHash
       putBS $ Text.encodeUtf8 storageLocation
 
   let
     announcementDigest = keccak256 $ BL.toStrict $ Binary.runPut $ do
       putBS ethereumHeader
-      putBS hash
+      putBS hash'
 
   let recoverAddress = recoverHexAddress announcementDigest
   address <- recoverAddress signatureBinary
@@ -440,7 +438,7 @@ encodeHyperMessage :: Object Name -> ExceptT Text IO (Object Name)
 encodeHyperMessage o = do
   let
     om = _objectMap $ _oObject o
-    tokenMessage = om ^? at "tokenMessage" . _Just . to (\(TObject o _) -> o)
+    tokenMessage = om ^? at "tokenMessage" . _Just . to (\case { (TObject o' _) -> Just o'; _ -> Nothing }) . _Just
 
   hmTokenMessage <- case parseTokenMessageERC20 <$> tokenMessage of
     Just (Just t) -> pure t
@@ -448,12 +446,12 @@ encodeHyperMessage o = do
 
   let
     newObj = do
-      hmVersion <- om ^? at "version" . _Just . to (\(TLitInteger r) -> fromIntegral r)
-      hmNonce <- om ^? at "nonce" . _Just . to (\(TLitInteger r) -> fromIntegral r)
-      hmOriginDomain <- om ^? at "originDomain" . _Just . to (\(TLitInteger r) -> fromIntegral r)
-      hmSender <- om ^? at "sender" . _Just . to (\(TLitString r) -> decodeHex r) . _Right
-      hmDestinationDomain <- om ^? at "destinationDomain" . _Just . to (\(TLitInteger r) -> fromIntegral r)
-      hmRecipient <- om ^? at "recipient" . _Just . to (\(TLitString r) -> decodeHex r) . _Right
+      hmVersion <- om ^? at "version" . _Just . to (\case { (TLitInteger r) -> Just $ fromIntegral r; _ -> Nothing}) . _Just
+      hmNonce <- om ^? at "nonce" . _Just . to (\case { (TLitInteger r) -> Just $ fromIntegral r ; _ -> Nothing }) . _Just
+      hmOriginDomain <- om ^? at "originDomain" . _Just . to (\case { (TLitInteger r) -> Just $ fromIntegral r; _ -> Nothing }) . _Just
+      hmSender <- om ^? at "sender" . _Just . to (\case { (TLitString r) -> decodeHex r; _ -> Left "Error" }) . _Right
+      hmDestinationDomain <- om ^? at "destinationDomain" . _Just . to (\case { (TLitInteger r) -> Just $ fromIntegral r; _ -> Nothing }) . _Just
+      hmRecipient <- om ^? at "recipient" . _Just . to (\case { (TLitString r) -> decodeHex r; _ -> Left "Error" }) . _Right
 
       let hm = HyperlaneMessage{..}
       let b = BL.toStrict $ Binary.encode hm
@@ -461,24 +459,24 @@ encodeHyperMessage o = do
       let hex = encodeHex b
       pure $ mkObject [ ("encodedMessage", tStr $ asString hex), ("messageId", tStr $ asString messageId) ]
   case newObj of
-    Just o -> pure o
+    Just o' -> pure o'
     _ -> throwError "Couldn't encode HyperlaneMessage"
 
 parseTokenMessageERC20 :: Object Name -> Maybe TokenMessageERC20
-parseTokenMessageERC20 obj = do
-  let om = _objectMap $ _oObject obj
-  tmRecipient <- om ^? at "recipient" . _Just . to (\(TLitString r) -> r)
-  tmAmount <- om ^? at "amount" . _Just . to (\(TLiteral (LDecimal r) _) -> decimalToWord r)
+parseTokenMessageERC20 o = do
+  let om = _objectMap $ _oObject o
+  tmRecipient <- om ^? at "recipient" . _Just . to (\case { (TLitString r) -> Just r; _ -> Nothing }) . _Just
+  tmAmount <- om ^? at "amount" . _Just . to (\case { (TLiteral (LDecimal r) _) -> Just $ decimalToWord r; _ -> Nothing }) . _Just
   pure $ TokenMessageERC20{..}
 
 encodeTokenMessageERC20 :: Object Name -> Maybe Text
-encodeTokenMessageERC20 obj = do
-  tm <- parseTokenMessageERC20 obj
+encodeTokenMessageERC20 o = do
+  tm <- parseTokenMessageERC20 o
   let hex = encodeHex $ BL.toStrict $ Binary.encode tm
   pure hex
 
 recoverHexAddress :: MonadThrow m => Keccak256Hash -> B.ByteString -> m (Maybe Text)
-recoverHexAddress digest sig = do
+recoverHexAddress digest sig' = do
   fnDigest <- ECDSA.ecdsaMessageDigest $ _getBytesN $ _getKeccak256Hash digest
   let
     mkR s = ECDSA.ecdsaR $ BS.toShort s
@@ -489,7 +487,7 @@ recoverHexAddress digest sig = do
       s <- mkS (B.take 32 end)
       pure $ ECDSA.ecdsaRecoverPublicKey fnDigest r s False False <&> getAddress
 
-  addr <- recoverAddress sig
+  addr <- recoverAddress sig'
   pure $ encodeHex <$> addr
 
 
