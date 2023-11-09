@@ -37,8 +37,7 @@ import Pact.Parse
 import qualified Pact.Types.ChainId as P
 import qualified Pact.Types.Term as P
 import Pact.Types.ChainMeta
-import Pact.Types.KeySet (KeysetPublicKey(KeysetPublicKey), ed25519HexFormat)
-import Pact.Types.Crypto (PPKScheme(ED25519))
+import Pact.Types.KeySet (ed25519HexFormat)
 
 import qualified Pact.JSON.Encode as J
 
@@ -73,7 +72,7 @@ validateKAccount acctName =
   case T.take 2 acctName of
     "k:" ->
       let pubKey = P.PublicKeyText $ T.drop 2 acctName
-      in ed25519HexFormat $ KeysetPublicKey pubKey ED25519
+      in ed25519HexFormat pubKey
     _ -> False
 
 extractPubKeyFromKAccount :: T.Text -> Maybe P.PublicKeyText
@@ -90,14 +89,14 @@ generateKAccountFromPubKey pubKey
   | otherwise = Nothing
   where
     validPubKey :: Bool
-    validPubKey = ed25519HexFormat $ KeysetPublicKey pubKey ED25519
+    validPubKey = ed25519HexFormat pubKey
 
 
 -- Warning: Only use if already certain that PublicKeyText
 -- is valid.
 -- Note: We are assuming the k: account is ED25519.
 pubKeyToKAccountKeySet :: P.PublicKeyText -> P.KeySet
-pubKeyToKAccountKeySet pubKey = P.mkKeySetText [pubKey] "keys-all"
+pubKeyToKAccountKeySet pubKey = P.mkKeySet [pubKey] "keys-all"
 
 generateKeySetFromKAccount :: T.Text -> Maybe P.KeySet
 generateKeySetFromKAccount kacct = do

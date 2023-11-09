@@ -126,7 +126,7 @@ fastForks = tabulateHashMap $ \case
     Chainweb213Pact -> AllChains ForkAtGenesis
     PactEvents -> AllChains ForkAtGenesis
     CoinV2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
-    Pact420 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
+    Pact42 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
     SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
     ModuleNameFix -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
     ModuleNameFix2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
@@ -246,7 +246,7 @@ slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
         SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
         ModuleNameFix -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
         ModuleNameFix2 -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
-        Pact420 -> AllChains $ ForkAtBlockHeight (BlockHeight 5)
+        Pact42 -> AllChains $ ForkAtBlockHeight (BlockHeight 5)
         CheckTxHash -> AllChains $ ForkAtBlockHeight (BlockHeight 7)
         EnforceKeysetFormats -> AllChains $ ForkAtBlockHeight (BlockHeight 10)
         PactEvents -> AllChains $ ForkAtBlockHeight (BlockHeight 10)
@@ -275,4 +275,3 @@ noBridgeCpmTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("nobridge-CPM-" <> toText g)
     & versionForks .~ (fastForks & at SPVBridge ?~ AllChains ForkNever)
-

@@ -116,7 +116,7 @@ data PactTxTest = PactTxTest
 tests :: TestTree
 tests = testGroup testName
   [ test generousConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
-  , test generousConfig freeGasModel "pact420UpgradeTest" pact420UpgradeTest
+  , test generousConfig freeGasModel "Pact42UpgradeTest" Pact42UpgradeTest
   , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
   , test timeoutConfig freeGasModel "txTimeoutTest" txTimeoutTest
   , test generousConfig getGasModel "chainweb213Test" chainweb213Test
@@ -165,7 +165,7 @@ minerKeysetTest = do
 
   where
 
-    badMiner = Miner (MinerId "miner") $ MinerKeys $ mkKeySetText ["bad-bad-bad"] "keys-all"
+    badMiner = Miner (MinerId "miner") $ MinerKeys $ mkKeySet ["bad-bad-bad"] "keys-all"
 
 txTimeoutTest :: PactTestM ()
 txTimeoutTest = do
@@ -648,8 +648,8 @@ pact431UpgradeTest = do
         ])
 
 
-pact420UpgradeTest :: PactTestM ()
-pact420UpgradeTest = do
+Pact42UpgradeTest :: PactTestM ()
+Pact42UpgradeTest = do
 
   -- run past genesis, upgrades
   runToHeight 3
@@ -1114,7 +1114,7 @@ pact4coin3UpgradeTest = do
     , PactTxTest badKeyset $
       assertTxSuccess
       "Should allow bad keys" $
-      pKeySet $ mkKeySetText ["badkey"] "keys-all"
+      pKeySet $ mkKeySet ["badkey"] "keys-all"
     ]
 
   assertTxEvents "Coinbase events @ block 7" [] =<< cbResult

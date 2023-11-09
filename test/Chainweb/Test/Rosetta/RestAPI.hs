@@ -140,7 +140,7 @@ tests rdb = testGroup "Chainweb.Test.Rosetta.RestAPI" go
       , networkListTests
       , networkOptionsTests
       , networkStatusTests
-      , blockKAccountAfterPact420
+      , blockKAccountAfterPact42
       , constructionTransferTests
       , blockCoinV3RemediationTests
       ]
@@ -177,8 +177,8 @@ accountBalanceTests tio envIo =
 --   TxLog parse error after fork to Pact 420.
 --   This assumes that this test occurs after the
 --   fork blockheight.
-blockKAccountAfterPact420 :: RosettaTest
-blockKAccountAfterPact420 tio envIo =
+blockKAccountAfterPact42 :: RosettaTest
+blockKAccountAfterPact42 tio envIo =
   testCaseSteps "Block k Account After Pact 420 Test" $ \step -> do
     cenv <- envIo
     rkmv <- newEmptyMVar @RequestKeys
@@ -491,7 +491,7 @@ constructionTransferTests _ envIo =
 
     ks (TestKeySet _ Nothing pred') = P.mkKeySet [] pred'
     ks (TestKeySet _ (Just (pk,_)) pred') =
-      P.mkKeySetText [P.PublicKeyText pk] pred'
+      P.mkKeySet [P.PublicKeyText pk] pred'
 
     sender00KAcct = "k:" <> fst sender00
     sender01KAcct = "k:" <> fst sender01
