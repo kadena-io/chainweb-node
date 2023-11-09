@@ -255,7 +255,7 @@ mkKeySetData :: Key  -> [SimpleKeyPair] -> Value
 mkKeySetData name keys = object [ name .= map fst keys ]
 
 sender00Ks :: KeySet
-sender00Ks = mkKeySetText
+sender00Ks = mkKeySet
     ["368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"]
     "keys-all"
 

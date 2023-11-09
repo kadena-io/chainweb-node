@@ -30,7 +30,7 @@ module Chainweb.Version.Guards
     , enablePactEvents
     , enableSPVBridge
     , pact4Coin3
-    , pact420
+    , pact42
     , enforceKeysetFormats
     , doCheckTxHash
     , chainweb213Pact
@@ -208,8 +208,8 @@ pact44NewTrans = checkFork atOrAfter Pact44NewTrans
 pact4Coin3 :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 pact4Coin3 = checkFork after Pact4Coin3
 
-pact420 :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-pact420 = checkFork atOrAfter Pact420
+pact42 :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+pact42 = checkFork atOrAfter Pact42
 
 chainweb213Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb213Pact = checkFork atOrAfter Chainweb213Pact

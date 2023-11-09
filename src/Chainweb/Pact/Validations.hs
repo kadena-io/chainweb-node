@@ -164,7 +164,7 @@ assertValidateSigs validSchemes hsh signers sigs
     | otherwise = and $ zipWith verifyUserSig sigs signers
     where verifyUserSig sig signer =
             let sigScheme = fromMaybe P.ED25519 (P._siScheme signer)
-            in sigScheme `elem` validSchemes && P.verifyUserSig hsh sig signer
+            in sigScheme `elem` validSchemes && isRight (P.verifyUserSig hsh sig signer)
 
 -- prop_tx_ttl_newBlock/validateBlock
 --

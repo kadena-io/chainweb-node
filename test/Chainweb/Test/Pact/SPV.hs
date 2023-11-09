@@ -402,7 +402,7 @@ burnGen time pidv sid tid = do
 
     tx1Data =
       -- sender01 keyset guard
-      let ks = mkKeySetText
+      let ks = mkKeySet
             ["6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"]
             "keys-all"
 

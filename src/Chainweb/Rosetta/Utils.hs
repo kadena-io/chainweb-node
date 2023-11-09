@@ -22,7 +22,6 @@ import Data.Foldable (foldl')
 import Data.Decimal ( Decimal, DecimalRaw(Decimal) )
 import Data.Hashable (Hashable(..))
 import Data.List (sortOn, inits)
-import Data.Maybe (mapMaybe)
 import Data.Word (Word32, Word64)
 import Text.Read (readMaybe)
 import Text.Printf ( printf )
@@ -37,6 +36,7 @@ import qualified Data.Text.Encoding as T
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Command as P
+import qualified Pact.Types.Crypto as P
 import qualified Pact.Parse as P
 import qualified Data.Set as S
 import Data.Maybe ( fromMaybe )
@@ -46,7 +46,6 @@ import Numeric.Natural ( Natural )
 
 import Pact.Types.Command
 import Pact.Types.PactValue (PactValue(..))
-import Pact.Types.KeySet (KeysetPublicKey(KeysetPublicKey), PublicKeyText(..))
 import Pact.Types.Exp (Literal(..))
 import Pact.JSON.Legacy.Value
 
@@ -721,7 +720,7 @@ createSigningPayloads (EnrichedCommand cmd _ _) = map f
 
     toRosettaSigType Nothing = Just RosettaEd25519
     toRosettaSigType (Just P.ED25519) = Just RosettaEd25519
-    toRosettaSigType (Just P.WebAuthn) = Nothing 
+    toRosettaSigType (Just P.WebAuthn) = Nothing
     -- TODO: Linda Ortega (09/18/2023) -- Returning `Nothing` to discourage using WebAuthn for Rosetta. `sigToScheme` will eventually throw an error.
 
 --------------------------------------------------------------------------------
@@ -786,16 +785,16 @@ matchSigs sigs signers = do
             $ HM.lookup addr m
 
     sigAndAddr (RosettaSignature _ (RosettaPublicKey pk ct) sigTyp sig) = do
-      _ <- toRosettaError RosettaInvalidSignature $! P.parseB16TextOnly sig
+      sigDecoded <- toRosettaError RosettaInvalidSignature $! P.parseB16TextOnly sig
       sigScheme <- sigToScheme sigTyp
       pkScheme <- getScheme ct
       when (sigScheme /= pkScheme)
         (Left $ stringRosettaError RosettaInvalidSignature $
          "Expected the same Signature and PublicKey type for Signature=" ++ show sig)
 
-      let userSig = P.ED25519Sig sig
+      userSig <- toRosettaError RosettaInvalidSignature $! P.parseEd25519Signature sigDecoded
       addr <- toPactPubKeyAddr pk
-      pure (addr, userSig)
+      pure (addr, P.ED25519Sig userSig)
 
 --------------------------------------------------------------------------------
 -- Rosetta Helper Types --
@@ -1182,11 +1181,7 @@ toRosettaError failure = annotate (stringRosettaError failure)
 
 ksToPubKeys :: P.KeySet -> [T.Text]
 ksToPubKeys (P.KeySet pkSet _) =
-  mapMaybe (\(KeysetPublicKey (PublicKeyText pk) sch) ->
-              if sch == ED25519
-              then Just pk
-              else Nothing
-           ) (S.toList pkSet)
+  map P._pubKey (S.toList pkSet)
 
 
 parsePubKeys :: T.Text -> Value -> Either RosettaError [T.Text]
