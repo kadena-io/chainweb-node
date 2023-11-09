@@ -62,7 +62,7 @@ import Chainweb.Payload
 import Chainweb.Utils
 
 import qualified Pact.JSON.Encode as J
-import Pact.Types.Term (KeySet(..), mkKeySet, mkKeySetText)
+import Pact.Types.Term (KeySet(..), mkKeySet)
 
 -- -------------------------------------------------------------------------- --
 -- Miner data
@@ -125,7 +125,7 @@ minerKeys = lens (\(Miner _ k) -> k) (\(Miner i _) b -> Miner i b)
 defaultMiner :: Miner
 defaultMiner = Miner (MinerId "miner")
     $ MinerKeys
-    $ mkKeySetText
+    $ mkKeySet
       ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
       "keys-all"
 

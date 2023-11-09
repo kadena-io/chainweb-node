@@ -55,7 +55,7 @@ devnet = ChainwebVersion
             SPVBridge -> AllChains $ ForkAtBlockHeight $ BlockHeight 50
             Pact4Coin3 -> AllChains $ ForkAtBlockHeight $ BlockHeight 80
             EnforceKeysetFormats -> AllChains $ ForkAtBlockHeight $ BlockHeight 100
-            Pact420 -> AllChains $ ForkAtBlockHeight $ BlockHeight 90
+            Pact42 -> AllChains $ ForkAtBlockHeight $ BlockHeight 90
             CheckTxHash -> AllChains $ ForkAtBlockHeight $ BlockHeight 110
             Chainweb213Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 95
             Chainweb214Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 115

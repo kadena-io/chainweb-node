@@ -343,7 +343,7 @@ flagsFor :: ChainwebVersion -> V.ChainId -> BlockHeight -> S.Set ExecutionFlag
 flagsFor v cid bh = S.fromList $ concat
   [ enablePactEvents' v cid bh
   , enablePact40 v cid bh
-  , enablePact420 v cid bh
+  , enablePact42 v cid bh
   -- , enforceKeysetFormats' v cid bh
   , enablePactModuleMemcheck v cid bh
   , enablePact43 v cid bh
@@ -751,8 +751,8 @@ enforceKeysetFormats' v cid bh = [FlagEnforceKeyFormats | enforceKeysetFormats v
 enablePact40 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enablePact40 v cid bh = [FlagDisablePact40 | not (pact4Coin3 v cid bh)]
 
-enablePact420 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
-enablePact420 v cid bh = [FlagDisablePact420 | not (pact420 v cid bh)]
+enablePact42 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact42 v cid bh = [FlagDisablePact42 | not (pact42 v cid bh)]
 
 enablePactModuleMemcheck :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enablePactModuleMemcheck v cid bh = [FlagDisableInlineMemCheck | not (chainweb213Pact v cid bh)]
