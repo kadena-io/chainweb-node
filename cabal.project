@@ -63,8 +63,13 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
+<<<<<<< HEAD
     tag: 0e05fb9d4008a3d143e1842a88e9978ec8301276
     --sha256: 0zbjlrzmjzhbkw7kxrhqk360gx7a42qy2igffmsq88a3c8wzbg76
+=======
+    tag: 15d391406e84b65945021b4066ce0cf0464bcc63
+    --sha256: BROKEN
+>>>>>>> mlep/webauthn-jwk-formats
 
 source-repository-package
     type: git
