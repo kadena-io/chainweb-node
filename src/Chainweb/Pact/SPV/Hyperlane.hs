@@ -40,9 +40,9 @@ instance Binary HyperlaneMessage where
     put hmVersion
     put hmNonce
     put hmOriginDomain
-    putBS (padLeft hmSender)      -- 32 bytes
+    putBS (padLeft hmSender)
     put hmDestinationDomain
-    putBS (padLeft hmRecipient) -- 32 bytes
+    putBS (padLeft hmRecipient)
 
     put hmTokenMessage
 
