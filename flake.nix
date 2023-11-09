@@ -7,7 +7,7 @@
       flake = false;
     };
     hs-nix-infra = {
-      url = "github:kadena-io/hs-nix-infra/enis/experiment-with-recursive-inputs";
+      url = "github:kadena-io/hs-nix-infra";
       inputs.hackage.follows = "hackage";
     };
     flake-utils.url = "github:numtide/flake-utils";
