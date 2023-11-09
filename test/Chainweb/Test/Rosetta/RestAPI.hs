@@ -600,14 +600,17 @@ submitToConstructionAPI expectOps chainId' payer getKeys expectResult cenv step 
       (Right (hsh :: P.PactHash)) <- pure $ fmap
         (P.fromUntypedHash . P.Hash . BS.toShort)
         (P.parseB16TextOnly $ _rosettaSigningPayload_hexBytes payload)
-      ED25519Sig sig <- P.signHash hsh kp
+      let
+        sig = case P.signHash hsh kp of
+          ED25519Sig s -> s
+          _ -> error "not an ED25519 signature"
 
       pure $! RosettaSignature
         { _rosettaSignature_signingPayload = payload
         , _rosettaSignature_publicKey =
             RosettaPublicKey pk CurveEdwards25519
         , _rosettaSignature_signatureType = RosettaEd25519
-        , _rosettaSignature_hexBytes = sig
+        , _rosettaSignature_hexBytes = P.toB16Text $ P.exportEd25519Signature sig
         }
 
     acct n = AccountId n Nothing Nothing
