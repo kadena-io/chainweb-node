@@ -61,7 +61,7 @@ instance Binary HyperlaneMessage where
 data TokenMessageERC20 = TokenMessageERC20
   { tmRecipient :: Text -- string
   , tmAmount :: Word256 -- uint256
-  }
+  } deriving (Show, Eq)
 
 instance Binary TokenMessageERC20 where
   put (TokenMessageERC20 {..}) = do

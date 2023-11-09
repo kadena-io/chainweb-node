@@ -30,6 +30,8 @@ module Chainweb.Pact.SPV
 , encodeTokenMessageERC20
 , mkObject
 , obj
+, decodeHex
+, wordToDecimal
 ) where
 
 
@@ -42,6 +44,9 @@ import Control.Monad.Catch
 import Control.Monad.Except
 import Control.Monad.Trans.Except
 
+import Data.DoubleWord
+import Data.Decimal
+import Data.Ratio
 import Data.Aeson hiding (Object, (.=))
 import Data.Bifunctor
 import qualified Data.ByteString as B
@@ -66,7 +71,7 @@ import Crypto.Hash.Algorithms
 import qualified Crypto.Secp256k1 as ECDSA
 
 import Ethereum.Header as EthHeader
-import Ethereum.Misc
+import Ethereum.Misc hiding (Word256)
 import Ethereum.Receipt
 import Ethereum.Receipt.ReceiptProof
 import Ethereum.RLP
@@ -398,7 +403,7 @@ verifySignatures hexMessage hexMetadata validators threshold = do
           , ("recipient", tStr $ asString encodedRecipient)
           , ("tokenMessage", obj
               ([ ("recipient", tStr $ asString tmRecipient)
-               , ("amount", tLit $ LInteger $ toInteger tmAmount)
+               , ("amount", tLit $ LDecimal $ wordToDecimal tmAmount)
               ])
             )
           ]
@@ -463,7 +468,7 @@ parseTokenMessageERC20 :: Object Name -> Maybe TokenMessageERC20
 parseTokenMessageERC20 obj = do
   let om = _objectMap $ _oObject obj
   tmRecipient <- om ^? at "recipient" . _Just . to (\(TLitString r) -> r)
-  tmAmount <- om ^? at "amount" . _Just . to (\(TLitInteger r) -> fromIntegral r)
+  tmAmount <- om ^? at "amount" . _Just . to (\(TLiteral (LDecimal r) _) -> decimalToWord r)
   pure $ TokenMessageERC20{..}
 
 encodeTokenMessageERC20 :: Object Name -> Maybe Text
@@ -685,3 +690,15 @@ decodeHex s = B16.decode $ Text.encodeUtf8 $ Text.drop 2 s
 
 ethereumHeader :: B.ByteString
 ethereumHeader = "\x19Ethereum Signed Message:\n32"
+
+decimalToWord :: Decimal -> Word256
+decimalToWord d =
+  let ethInWei = 1000000000000000000 -- 1e18
+  in round $ d * ethInWei
+
+wordToDecimal :: Word256 -> Decimal
+wordToDecimal w =
+  let i = toInteger w
+      ethInWei = 1000000000000000000 -- 1e18
+      (d, m) = i `divMod` ethInWei
+  in fromInteger d + fromRational (m % ethInWei)
