@@ -239,7 +239,7 @@ hyperlaneDecodeHyperlaneMessage = do
           , ("originDomain", tLit $ LInteger 626)
           , ("sender", tStr $ asString ("0x71c7656ec7ab88b098defb751b7401b5f6d8976f" :: Text))
           , ("destinationDomain", tLit $ LInteger 8)
-          , ("recipient", tStr $ asString ("0x0000000000000000000000000000000000000000000000000000000000000023" :: Text))
+          , ("recipient", tStr $ asString ("0x23" :: Text))
           , ("tokenMessage", obj
             [ ("recipient", tStr $ asString ("recipient1" :: Text))
             , ("amount", tLit $ LInteger 12) ])

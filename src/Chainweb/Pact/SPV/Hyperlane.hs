@@ -52,7 +52,7 @@ instance Binary HyperlaneMessage where
     hmOriginDomain <- getWord32be
     hmSender <- BS.drop 12 <$> getBS 32
     hmDestinationDomain <- getWord32be
-    hmRecipient <- getBS 32
+    hmRecipient <- (BS.dropWhile (==0)) <$> getBS 32
     rest <- getRemainingLazyByteString
     let hmTokenMessage = decode rest
 
