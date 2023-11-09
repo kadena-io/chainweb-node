@@ -330,105 +330,7 @@ extractProof True (Object (ObjectMap o) _ _ _) = case M.lookup "proof" o of
   _ -> Left "Invalid input, expected 'proof' field with base64url unpadded text"
 
 evalHyperlaneCommand :: Object Name -> ExceptT Text IO (Object Name)
-evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.lookup "arg" $ _objectMap $ _oObject o) of
-  (Just (TLitString "decodeTokenMessageERC20"), Nothing) -> throwError "Missing argument"
-  (Just (TLitString "decodeTokenMessageERC20"), Just (TObject o _)) -> do
-    let
-      om = _objectMap $ _oObject o
-      hexMessage = om ^? at "encodedMessage" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-    message <- case hexMessage of
-        Nothing -> throwError "Decoding of TokenMessageERC20 failed: missing encodedMessage field"
-        Just b -> case BL.fromStrict <$> decodeHex b of
-          Right s -> pure s
-          Left err -> throwError $ Text.pack $ "Decoding of TokenMessageERC20 failed: " ++ err
-
-    let TokenMessageERC20{..} = Binary.decode message
-    let
-      tmObj = obj
-            [ ("recipient", tStr $ asString tmRecipient)
-            , ("amount", tLit $ LInteger $ toInteger tmAmount)
-            ]
-    pure $ mkObject [ ("tokenMessageERC20", tmObj) ]
-
-  (Just (TLitString "decodeHyperlaneMessage"), Nothing) -> throwError "Missing argument"
-  (Just (TLitString "decodeHyperlaneMessage"), Just (TObject o _)) -> do
-    let
-      om = _objectMap $ _oObject o
-      hexMessage = om ^? at "encodedMessage" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-    message <- case hexMessage of
-        Nothing -> throwError "Decoding of HyperlaneMessage failed: missing encodedMessage field"
-        Just b -> case BL.fromStrict <$> decodeHex b of
-          Right s -> pure s
-          Left err -> throwError $ Text.pack $ "Decoding of HyperlaneMessage failed: " ++ err
-
-    let HyperlaneMessage{..} = Binary.decode message
-    let TokenMessageERC20{..} = hmTokenMessage
-    let
-      encodedSender = encodeHex hmSender
-      encodedRecipient = encodeHex hmRecipient
-      hmObj = obj
-            [ ("version", tLit $ LInteger $ toInteger hmVersion)
-            , ("nonce", tLit $ LInteger $ toInteger hmNonce)
-            , ("originDomain", tLit $ LInteger $ toInteger hmOriginDomain)
-            , ("sender", tStr $ asString encodedSender)
-            , ("destinationDomain", tLit $ LInteger $ toInteger hmDestinationDomain)
-            , ("recipient", tStr $ asString encodedRecipient)
-            , ("tokenMessage", obj
-                ([ ("recipient", tStr $ asString tmRecipient)
-                 , ("amount", tLit $ LInteger $ toInteger tmAmount)
-                ])
-              )
-            ]
-      messageId = encodeHex $ BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict message
-    pure $ mkObject [ ("hyperlaneMessage", hmObj), ("messageId", tStr $ asString messageId) ]
-
-  (Just (TLitString "verify"), Nothing) -> throwError "Missing argument"
-  (Just (TLitString "verify"), Just (TObject o _)) -> do
-    let
-      om = _objectMap $ _oObject o
-      hexMessage = om ^? at "encodedMessage" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-      hexMetadata = om ^? at "encodedMetadata" . _Just . to toPactValue . _Right . to (\(PLiteral (LString r)) -> r)
-    message <- case hexMessage of
-        Nothing -> throwError "Decoding of HyperlaneMessage failed: missing encodedMessage field"
-        Just b -> case BL.fromStrict <$> decodeHex b of
-          Right s -> pure s
-          Left err -> throwError $ Text.pack $ "Decoding of HyperlaneMessage failed: " ++ err
-
-    let HyperlaneMessage{..} = Binary.decode message
-
-    metadata <- case hexMetadata of
-        Nothing -> throwError "Decoding of Metadata failed: missing encodedMetadata field"
-        Just b -> case BL.fromStrict <$> decodeHex b of
-          Right s -> pure s
-          Left err -> throwError $ Text.pack $ "Decoding of Metadata failed: " ++ err
-
-    let MessageIdMultisigIsmMetadata{..} = Binary.decode metadata
-
-    domainHash <- case decodeHex domainHashHex of
-          Right s -> pure s
-          Left err -> throwError $ Text.pack $ "Decoding of domainHashHex failed: " ++ err
-
-    let messageId = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict message
-
-    let
-      hash = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict $ Binary.runPut $ do
-        putBS domainHash
-        putBS mmimSignedCheckpointRoot
-        Binary.put mmimSignedCheckpointIndex
-        putBS messageId
-    let
-      digest = keccak256 $ BL.toStrict $ Binary.runPut $ do
-        putBS ethereumHeader
-        putBS hash
-
-    let recoverAddress = recoverHexAddress digest
-    addresses <- mapM recoverAddress mmimSignatures
-    let addrs = map (tStr . asString) $ catMaybes addresses
-    return $ mkObject [ ("addresses", toTList TyAny def addrs) ]
-  _ -> evalHyperlaneCommand' o
-
-evalHyperlaneCommand' :: Object Name -> ExceptT Text IO (Object Name)
-evalHyperlaneCommand' (_objectMap . _oObject -> om) = do
+evalHyperlaneCommand (_objectMap . _oObject -> om) = do
   case (M.lookup "storageLocation" om, M.lookup "signature" om) of
     (Just (TLitString storageLocation), Just (TLitString sig)) -> recoverAddressValidatorAnnouncement storageLocation sig
     _ -> case (M.lookup "message" om, M.lookup "metadata" om, M.lookup "validators" om, M.lookup "threshold" om) of
@@ -569,9 +471,6 @@ encodeTokenMessageERC20 obj = do
   tm <- parseTokenMessageERC20 obj
   let hex = encodeHex $ BL.toStrict $ Binary.encode tm
   pure hex
-
-decodeTokenMessageERC20 :: Text -> Maybe (Object Name)
-decodeTokenMessageERC20 t = undefined
 
 recoverHexAddress :: MonadThrow m => Keccak256Hash -> B.ByteString -> m (Maybe Text)
 recoverHexAddress digest sig = do

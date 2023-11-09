@@ -121,12 +121,12 @@ tests = testGroup "Chainweb.Test.Pact.SPV"
       [ testCase "empty object" hyperlaneEmptyObject
 
       , testCase "encodeTokenMessageERC20" hyperlaneEncodeTokenMessageERC20
-      , testCase "decodeTokenMessageERC20" hyperlaneDecodeTokenMessageERC20
+      -- , testCase "decodeTokenMessageERC20" hyperlaneDecodeTokenMessageERC20
 
       , testCase "encodeHyperlaneMessage" hyperlaneEncodeHyperlaneMessage
-      , testCase "decodeHyperlaneMessage" hyperlaneDecodeHyperlaneMessage
+      -- , testCase "decodeHyperlaneMessage" hyperlaneDecodeHyperlaneMessage
 
-      , testCase "verifyHyperlaneMessage" hyperlaneVerifyHyperlaneMessage
+      -- , testCase "verifyHyperlaneMessage" hyperlaneVerifyHyperlaneMessage
       ]
     ]
 
