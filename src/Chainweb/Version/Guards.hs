@@ -46,6 +46,7 @@ module Chainweb.Version.Guards
     , pactParserVersion
     , maxBlockGasLimit
     , validPPKSchemes
+    , validKeyFormats
 
     -- ** BlockHeader Validation Guards
     , slowEpochGuard
@@ -57,6 +58,7 @@ module Chainweb.Version.Guards
 
 import Control.Lens
 import Numeric.Natural
+import Pact.Types.KeySet (PublicKeyText, ed25519HexFormat, webauthnFormat)
 import Pact.Types.Scheme (PPKScheme(ED25519, WebAuthn))
 
 import Chainweb.BlockHeight
@@ -257,3 +259,9 @@ validPPKSchemes v cid bh =
   if chainweb221Pact v cid bh
   then [ED25519, WebAuthn]
   else [ED25519]
+
+validKeyFormats :: ChainwebVersion -> ChainId -> BlockHeight -> [PublicKeyText -> Bool]
+validKeyFormats v cid bh =
+  if chainweb221Pact v cid bh
+  then [ed25519HexFormat, webauthnFormat]
+  else [ed25519HexFormat]
