@@ -357,7 +357,7 @@ flagsFor v cid bh = S.fromList $ concat
   , disableReturnRTC v cid bh
   , enablePact49 v cid bh
   , enablePact410 v cid bh
-  , [FlagEnableVerifiers | V.enableVerifiers v cid bh]
+  , [FlagEnableVerifiers | enableVerifiers v cid bh]
   ]
 
 applyCoinbase

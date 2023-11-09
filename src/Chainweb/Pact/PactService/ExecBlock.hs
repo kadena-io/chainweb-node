@@ -30,7 +30,7 @@ module Chainweb.Pact.PactService.ExecBlock
     ) where
 
 import Control.DeepSeq
-import Control.Exception (evaluate)
+import Control.Exception (evaluate, SomeAsyncException(..), SomeException(..))
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -258,6 +258,15 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
         signers = P._pSigners $ payloadObj $ P._cmdPayload t
         validSchemes = validPPKSchemes v cid bh
         webAuthnPrefixLegal = isWebAuthnPrefixLegal v cid bh
+
+    allVerifiers = verifiersAt v cid bh
+
+    checkVerifiers :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
+    checkVerifiers t =
+      (Right t <$ runVerifierPlugins v cid bh t) `catches`
+        [ Handler $ \(ex :: SomeAsyncException) -> throwM ex
+        , Handler $ \(_ :: SomeException) -> return $ Left InsertErrorInvalidVerifiers
+        ]
 
     initTxList :: ValidateTxs
     initTxList = V.map Right txs

@@ -55,6 +55,9 @@ module Chainweb.Version.Utils
 , expectedCutHeightAfterSeconds
 , expectedBlockCountAfterSeconds
 , expectedGlobalBlockCountAfterSeconds
+
+-- * Verifiers
+, verifiersAt
 ) where
 
 import Chainweb.BlockHeight
@@ -62,10 +65,18 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Time
+import Chainweb.VerifierPlugin
 
+import Control.Lens
 import Data.Foldable
 import qualified Data.HashSet as HS
+import Data.Map.Strict(Map)
 import qualified Data.Map.Strict as M
+import qualified Data.Map.Merge.Strict as Merge
+import Data.Set(Set)
+import qualified Data.Set as Set
+import Data.Text(Text)
+import Data.Maybe
 
 import GHC.Stack
 
@@ -445,3 +456,11 @@ expectedCutHeightAfterSeconds
 expectedCutHeightAfterSeconds v s = eh * int (chainCountAt v (round eh))
   where
     eh = expectedBlockHeightAfterSeconds v s
+
+-- | The verifier plugins enabled for a particular block.
+verifiersAt :: ChainwebVersion -> ChainId -> BlockHeight -> Map Text VerifierPlugin
+verifiersAt v cid bh =
+    case measureRule bh $ _versionVerifierPlugins v ^?! onChain cid of
+        Bottom vs -> vs
+        Top (_, vs) -> vs
+        Between (_, vs) _ -> vs
