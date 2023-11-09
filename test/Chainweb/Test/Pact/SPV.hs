@@ -267,7 +267,7 @@ hyperlaneVerifyHyperlaneMessage = do
 
   let
     expectedObject = mkObject
-      [ ("addresses", toTList TyAny def [ tStr $ asString ("0xd3884b49b90a6344ee898ac6034f443b4975d9c4" :: Text) ])
+      [ ("addresses", toTList TyAny def [ tStr $ asString ("0x401e26e5c99b75568fe860d107f75c917a4fcbb9" :: Text) ])
       ]
   case res of
     Left _ -> assertFailure "Should get the result"

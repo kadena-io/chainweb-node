@@ -410,8 +410,16 @@ evalHyperlaneCommand o = case (M.lookup "cmd" $ _objectMap $ _oObject o, M.looku
 
     let messageId = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict message
 
-    let hash = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict $ Binary.encode $ DigestHashPayload domainHash mmimSignedCheckpointRoot mmimSignedCheckpointIndex messageId
-    let digest = keccak256 $ BL.toStrict $ Binary.encode $ DigestPayload hash
+    let
+      hash = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict $ Binary.runPut $ do
+        putBS domainHash
+        putBS mmimSignedCheckpointRoot
+        Binary.put mmimSignedCheckpointIndex
+        putBS messageId
+    let
+      digest = keccak256 $ BL.toStrict $ Binary.runPut $ do
+        putBS ethereumHeader
+        putBS hash
 
     let recoverAddress = recoverHexAddress digest
     addresses <- mapM recoverAddress mmimSignatures
@@ -434,13 +442,12 @@ evalHyperlaneCommand' (_objectMap . _oObject -> om) = do
       _ -> throwError "Unknown hyperlane command"
 
 verifySignatures :: Text -> Text -> V.Vector Text -> Integer -> ExceptT Text IO (Object Name)
-verifySignatures hexMessage hexMetadata signatures threshold = do
-  message <- case BL.fromStrict <$> decodeHex hexMessage of
+verifySignatures hexMessage hexMetadata validators threshold = do
+  message <- case decodeHex hexMessage of
           Right s -> pure s
           Left err -> throwError $ Text.pack $ "Decoding of HyperlaneMessage failed: " ++ err
 
-  let HyperlaneMessage{..} = Binary.decode message
-  -- parse sender in decoding
+  let HyperlaneMessage{..} = Binary.decode $ BL.fromStrict $ message
 
   metadata <- case BL.fromStrict <$> decodeHex hexMetadata of
           Right s -> pure s
@@ -448,11 +455,27 @@ verifySignatures hexMessage hexMetadata signatures threshold = do
 
   let MessageIdMultisigIsmMetadata{..} = Binary.decode metadata
 
-  let domainHash = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict $ Binary.encode $ DomainHashPayload hmOriginDomain mmimOriginMerkleTreeAddress
-  let messageId = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict message
+  let
+    domainHash = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict $ Binary.runPut $ do
+      Binary.put hmOriginDomain
+      putBS mmimOriginMerkleTreeAddress
+      putBS "HYPERLANE"
 
-  let hash = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict $ Binary.encode $ DigestHashPayload domainHash mmimSignedCheckpointRoot mmimSignedCheckpointIndex messageId
-  let digest = keccak256 $ BL.toStrict $ Binary.encode $ DigestPayload hash
+  let messageId = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 message
+
+  let
+    hash = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict $ Binary.runPut $ do
+      putBS domainHash
+      putBS mmimSignedCheckpointRoot
+      Binary.put mmimSignedCheckpointIndex
+      putBS messageId
+  let
+    digest = keccak256 $ BL.toStrict $ Binary.runPut $ do
+      putBS ethereumHeader
+      putBS hash
+
+  let recoverAddress = recoverHexAddress digest
+  addresses <- mapM recoverAddress mmimSignatures
 
   undefined
 
@@ -467,10 +490,14 @@ recoverAddressValidatorAnnouncement storageLocation sig = do
 
   let
     hash = BS.fromShort $ _getBytesN $ _getKeccak256Hash $ keccak256 $ BL.toStrict $ Binary.runPut $ do
-      Binary.putBuilder $ Binary.fromByteString domainHash
-      Binary.putBuilder $ Binary.fromByteString $ Text.encodeUtf8 storageLocation
+      putBS domainHash
+      putBS $ Text.encodeUtf8 storageLocation
 
-  let announcementDigest = keccak256 $ BL.toStrict $ Binary.encode $ DigestPayload hash
+  let
+    announcementDigest = keccak256 $ BL.toStrict $ Binary.runPut $ do
+      putBS ethereumHeader
+      putBS hash
+
   let recoverAddress = recoverHexAddress announcementDigest
   address <- recoverAddress signatureBinary
   let addr = fmap (tStr . asString) $ address
@@ -489,7 +516,6 @@ encodeHyperMessage o = do
     Just (Just t) -> pure t
     _ -> throwError "Couldn't encode TokenMessageERC20"
 
-  -- add padding for recipient
   let
     newObj = do
       hmVersion <- om ^? at "version" . _Just . to (\(TLitInteger r) -> fromIntegral r)
@@ -735,3 +761,6 @@ encodeHex = ((<>) "0x") . Text.decodeUtf8 . B.toStrict . Builder.toLazyByteStrin
 
 decodeHex :: Text -> Either String B.ByteString
 decodeHex s = B16.decode $ Text.encodeUtf8 $ Text.drop 2 s
+
+ethereumHeader :: B.ByteString
+ethereumHeader = "\x19Ethereum Signed Message:\n32"
