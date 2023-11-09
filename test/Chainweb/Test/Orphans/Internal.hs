@@ -384,6 +384,7 @@ instance Arbitrary HeaderUpdate where
         <*> arbitrary
         <*> arbitrary
         <*> arbitrary
+        <*> arbitrary
 
 instance Arbitrary BlockHashWithHeight where
     arbitrary = BlockHashWithHeight <$> arbitrary <*> arbitrary

@@ -17,7 +17,6 @@ module Chainweb.Pact.Utils
     , toTxCreationTime
 
     -- * k:account helper functions
-    , validatePubKey
     , validateKAccount
     , extractPubKeyFromKAccount
     , generateKAccountFromPubKey
@@ -38,7 +37,8 @@ import Pact.Parse
 import qualified Pact.Types.ChainId as P
 import qualified Pact.Types.Term as P
 import Pact.Types.ChainMeta
-import Pact.Types.KeySet (validateKeyFormat)
+import Pact.Types.KeySet (KeysetPublicKey(KeysetPublicKey), ed25519HexFormat)
+import Pact.Types.Crypto (PPKScheme(ED25519))
 
 import qualified Pact.JSON.Encode as J
 
@@ -64,15 +64,16 @@ toTxCreationTime (Time timespan) =
   TxCreationTime $ ParsedInteger $ fromIntegral $ timeSpanToSeconds timespan
 
 
-validatePubKey :: P.PublicKeyText -> Bool
-validatePubKey = validateKeyFormat
 
+-- TODO: This will fail for k: accounts that correspond to WebAuthn public
+-- keys. Consider extending it when we integrate WebAuthn with k: accounts.
+-- Note: This function is only used in Rosetta as a validation step.
 validateKAccount :: T.Text -> Bool
 validateKAccount acctName =
   case T.take 2 acctName of
     "k:" ->
       let pubKey = P.PublicKeyText $ T.drop 2 acctName
-      in validateKeyFormat pubKey
+      in ed25519HexFormat $ KeysetPublicKey pubKey ED25519
     _ -> False
 
 extractPubKeyFromKAccount :: T.Text -> Maybe P.PublicKeyText
@@ -83,15 +84,20 @@ extractPubKeyFromKAccount kacct
 
 generateKAccountFromPubKey :: P.PublicKeyText -> Maybe T.Text
 generateKAccountFromPubKey pubKey
-  | validatePubKey pubKey =
+  | validPubKey =
     let pubKeyText = P._pubKey pubKey
     in Just $ "k:" <> pubKeyText
   | otherwise = Nothing
+  where
+    validPubKey :: Bool
+    validPubKey = ed25519HexFormat $ KeysetPublicKey pubKey ED25519
+
 
 -- Warning: Only use if already certain that PublicKeyText
 -- is valid.
+-- Note: We are assuming the k: account is ED25519.
 pubKeyToKAccountKeySet :: P.PublicKeyText -> P.KeySet
-pubKeyToKAccountKeySet pubKey = P.mkKeySet [pubKey] "keys-all"
+pubKeyToKAccountKeySet pubKey = P.mkKeySetText [pubKey] "keys-all"
 
 generateKeySetFromKAccount :: T.Text -> Maybe P.KeySet
 generateKeySetFromKAccount kacct = do
@@ -109,8 +115,7 @@ validateKAccountKeySet kacct actualKeySet =
 -- | Empty payload marking no-op transaction payloads.
 --
 emptyPayload :: PayloadWithOutputs
-emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
+emptyPayload = newPayloadWithOutputs miner coinbase mempty
   where
-    BlockPayload h i o = newBlockPayload miner coinbase mempty
     miner = MinerData $ J.encodeStrict noMiner
     coinbase = noCoinbaseOutput

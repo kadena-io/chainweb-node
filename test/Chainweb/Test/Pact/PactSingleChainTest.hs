@@ -25,7 +25,7 @@ import Control.Monad.Catch
 
 import Data.Aeson (object, (.=), Value(..), decodeStrict, eitherDecode)
 import qualified Data.ByteString.Lazy as BL
-import Data.Either (isRight)
+import Data.Either (isRight, fromRight)
 import Data.IORef
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
@@ -47,6 +47,7 @@ import Pact.Types.Persistence
 import Pact.Types.PactError
 import Pact.Types.RowData
 import Pact.Types.RPC
+import Pact.Types.Util (fromText')
 
 import Pact.JSON.Encode qualified as J
 import Pact.JSON.Yaml
@@ -55,6 +56,7 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool
+import Chainweb.MerkleLogHash (unsafeMerkleLogHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation hiding (local)
@@ -84,41 +86,40 @@ cid = someChainId testVersion
 genesisHeader :: BlockHeader
 genesisHeader = genesisBlockHeader testVersion cid
 
-tests :: RocksDb -> ScheduledTest
-tests rdb = ScheduledTest testName go
+tests :: RocksDb -> TestTree
+tests rdb = testGroup testName
+  [ test $ goldenNewBlock "new-block-0" goldenMemPool
+  , test $ goldenNewBlock "empty-block-tests" mempty
+  , test newBlockAndValidate
+  , test newBlockAndValidationFailure
+  , test newBlockRewindValidate
+  , test getHistory
+  , test testHistLookup1
+  , test testHistLookup2
+  , test testHistLookup3
+  , test badlistNewBlockTest
+  , test mempoolCreationTimeTest
+  , test moduleNameFork
+  , test mempoolRefillTest
+  , test blockGasLimitTest
+  , testTimeout preInsertCheckTimeoutTest
+  ]
   where
     testName = "Chainweb.Test.Pact.PactSingleChainTest"
-    go = testGroup testName
-         [ test $ goldenNewBlock "new-block-0" goldenMemPool
-         , test $ goldenNewBlock "empty-block-tests" mempty
-         , test newBlockAndValidate
-         , test newBlockRewindValidate
-         , test getHistory
-         , test testHistLookup1
-         , test testHistLookup2
-         , test testHistLookup3
-         , test badlistNewBlockTest
-         , test mempoolCreationTimeTest
-         , test moduleNameFork
-         , test mempoolRefillTest
-         , test blockGasLimitTest
-         , testTimeout preInsertCheckTimeoutTest
-         ]
-      where
-        testWithConf f conf =
-          withDelegateMempool $ \dm ->
-          withPactTestBlockDb testVersion cid rdb (snd <$> dm) conf $
-          f (fst <$> dm)
+    testWithConf f conf =
+      withDelegateMempool $ \dm ->
+      withPactTestBlockDb testVersion cid rdb (snd <$> dm) conf $
+      f (fst <$> dm)
 
-        test f = testWithConf f testPactServiceConfig
-        testTimeout f = testWithConf f (testPactServiceConfig { _pactPreInsertCheckTimeout = 5 })
+    test f = testWithConf f testPactServiceConfig
+    testTimeout f = testWithConf f (testPactServiceConfig { _pactPreInsertCheckTimeout = 1 })
 
-        testHistLookup1 = getHistoricalLookupNoTxs "sender00"
-          (assertSender00Bal 100_000_000 "check latest entry for sender00 after a no txs block")
-        testHistLookup2 = getHistoricalLookupNoTxs "randomAccount"
-          (assertEqual "Return Nothing if key absent after a no txs block" Nothing)
-        testHistLookup3 = getHistoricalLookupWithTxs "sender00"
-          (assertSender00Bal 9.999998051e7 "check latest entry for sender00 after block with txs")
+    testHistLookup1 = getHistoricalLookupNoTxs "sender00"
+      (assertSender00Bal 100_000_000 "check latest entry for sender00 after a no txs block")
+    testHistLookup2 = getHistoricalLookupNoTxs "randomAccount"
+      (assertEqual "Return Nothing if key absent after a no txs block" Nothing)
+    testHistLookup3 = getHistoricalLookupWithTxs "sender00"
+      (assertSender00Bal 9.999998051e7 "check latest entry for sender00 after block with txs")
 
 
 forSuccess :: NFData a => String -> IO (MVar (Either PactException a)) -> IO a
@@ -150,6 +151,36 @@ newBlockAndValidate refIO reqIO = testCase "newBlockAndValidate" $ do
   (q,bdb) <- reqIO
   setOneShotMempool refIO goldenMemPool
   void $ runBlock q bdb second "newBlockAndValidate"
+
+newBlockAndValidationFailure :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailure" $ do
+  (q,bdb) <- reqIO
+  setOneShotMempool refIO goldenMemPool
+
+  ph <- getParentTestBlockDb bdb cid
+  let blockTime = add second $ _bct $ _blockCreationTime ph
+  nb <- forSuccess ("newBlockAndValidate" <> ": newblock") $
+        newBlock noMiner (ParentHeader ph) q
+  forM_ (chainIds testVersion) $ \c -> do
+    let o | c == cid = nb
+          | otherwise = emptyPayload
+    addTestBlockDb bdb (Nonce 0) (\_ _ -> blockTime) c o
+
+  nextH <- getParentTestBlockDb bdb cid
+
+  let nextH' = nextH { _blockPayloadHash = BlockPayloadHash $ unsafeMerkleLogHash "0000000000000000000000000000001d" }
+  let nb' = nb { _payloadWithOutputsOutputsHash = BlockOutputsHash (unsafeMerkleLogHash "0000000000000000000000000000001d")}
+  r <- validateBlock nextH' (payloadWithOutputsToPayloadData nb') q
+
+  takeMVar r >>= \case
+    Left (PactInternalError err) -> do
+      let txHash = fromRight (error "can't parse") $ fromText' "WgnuCg6L_l6lzbjWtBfMEuPtty_uGcNrUol5HGREO_o"
+      lookupResMvar <- lookupPactTxs (NoRewind cid) Nothing (V.fromList [txHash]) q
+      takeMVar lookupResMvar >>= \lookupRes ->
+        assertEqual "The transaction from the latest block is not at the tip point" (Right mempty) lookupRes
+
+      assertBool "Should be BlockValidationFailure" $ "BlockValidationFailure" `T.isInfixOf` err
+    _ -> assertFailure "newBlockAndValidationFailure: expected failure"
 
 toRowData :: HasCallStack => Value -> RowData
 toRowData v = case eitherDecode encV of
@@ -487,15 +518,29 @@ preInsertCheckTimeoutTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlock
 preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
   (q,_) <- reqIO
 
+  coinV3 <- T.readFile "pact/coin-contract/v3/coin-v3.pact"
+  coinV4 <- T.readFile "pact/coin-contract/v4/coin-v4.pact"
   coinV5 <- T.readFile "pact/coin-contract/v5/coin-v5.pact"
 
-  tx <- buildCwCmd
+  txCoinV3 <- buildCwCmd
         $ signSender00
         $ set cbChainId cid
-        $ mkCmd "tx-now"
+        $ mkCmd "tx-now-coinv3"
+        $ mkExec' coinV3
+
+  txCoinV4 <- buildCwCmd
+        $ signSender00
+        $ set cbChainId cid
+        $ mkCmd "tx-now-coinv4"
+        $ mkExec' coinV4
+
+  txCoinV5 <- buildCwCmd
+        $ signSender00
+        $ set cbChainId cid
+        $ mkCmd "tx-now-coinv5"
         $ mkExec' coinV5
 
-  rs <- forSuccess "preInsertCheckTimeoutTest" $ pactPreInsertCheck (V.singleton tx) q
+  rs <- forSuccess "preInsertCheckTimeoutTest" $ pactPreInsertCheck (V.fromList [txCoinV3, txCoinV4, txCoinV5]) q
   assertBool ("should be InsertErrorTimedOut but got " ++ show rs) $ V.and $ V.map (== Left InsertErrorTimedOut) rs
 
 badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree

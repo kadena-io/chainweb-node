@@ -113,41 +113,39 @@ data PactTxTest = PactTxTest
     , _pttTest :: CommandResult Hash -> Assertion
     }
 
-tests :: ScheduledTest
-tests = ScheduledTest testName go
+tests :: TestTree
+tests = testGroup testName
+  [ test generousConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
+  , test generousConfig freeGasModel "pact420UpgradeTest" pact420UpgradeTest
+  , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
+  , test timeoutConfig freeGasModel "txTimeoutTest" txTimeoutTest
+  , test generousConfig getGasModel "chainweb213Test" chainweb213Test
+  , test generousConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
+  , test generousConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
+  , test generousConfig getGasModel "chainweb215Test" chainweb215Test
+  , test generousConfig getGasModel "chainweb216Test" chainweb216Test
+  , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
+  , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
+  , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
+  , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
+  , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
+  , test generousConfig getGasModel "pact49UpgradeTest" pact49UpgradeTest
+  ]
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
-    go = testGroup testName
-         [ test generousConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
-         , test generousConfig freeGasModel "pact420UpgradeTest" pact420UpgradeTest
-         , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
-         , test timeoutConfig freeGasModel "txTimeoutTest" txTimeoutTest
-         , test generousConfig getGasModel "chainweb213Test" chainweb213Test
-         , test generousConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
-         , test generousConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
-         , test generousConfig getGasModel "chainweb215Test" chainweb215Test
-         , test generousConfig getGasModel "chainweb216Test" chainweb216Test
-         , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
-         , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
-         , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
-         , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
-         , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
-         , test generousConfig getGasModel "pact49UpgradeTest" pact49UpgradeTest
-         ]
-      where
-          -- This is way more than what is used in production, but during testing
-          -- we can be generous.
-        generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
-        timeoutConfig = testPactServiceConfig { _pactBlockGasLimit = 100_000 }
+    -- This is way more than what is used in production, but during testing
+    -- we can be generous.
+    generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
+    timeoutConfig = testPactServiceConfig { _pactBlockGasLimit = 100_000 }
 
-        test pactConfig gasmodel tname f =
-          withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
-            withTestBlockDb testVersion $ \bdb -> do
-              (iompa,mpa) <- dmpio
-              let logger = hunitDummyLogger step
-              withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
-                runReaderT f $
-                MultiEnv bdb pact pacts (return iompa) noMiner cid
+    test pactConfig gasmodel tname f =
+      withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
+        withTestBlockDb testVersion $ \bdb -> do
+          (iompa,mpa) <- dmpio
+          let logger = hunitDummyLogger step
+          withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
+            runReaderT f $
+            MultiEnv bdb pact pacts (return iompa) noMiner cid
 
 minerKeysetTest :: PactTestM ()
 minerKeysetTest = do
@@ -167,7 +165,7 @@ minerKeysetTest = do
 
   where
 
-    badMiner = Miner (MinerId "miner") $ MinerKeys $ mkKeySet ["bad-bad-bad"] "keys-all"
+    badMiner = Miner (MinerId "miner") $ MinerKeys $ mkKeySetText ["bad-bad-bad"] "keys-all"
 
 txTimeoutTest :: PactTestM ()
 txTimeoutTest = do
@@ -1116,7 +1114,7 @@ pact4coin3UpgradeTest = do
     , PactTxTest badKeyset $
       assertTxSuccess
       "Should allow bad keys" $
-      pKeySet $ mkKeySet ["badkey"] "keys-all"
+      pKeySet $ mkKeySetText ["badkey"] "keys-all"
     ]
 
   assertTxEvents "Coinbase events @ block 7" [] =<< cbResult
