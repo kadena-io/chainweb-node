@@ -116,7 +116,7 @@ data PactTxTest = PactTxTest
 tests :: TestTree
 tests = testGroup testName
   [ test generousConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
-  , test generousConfig freeGasModel "Pact42UpgradeTest" Pact42UpgradeTest
+  , test generousConfig freeGasModel "pact42UpgradeTest" pact42UpgradeTest
   , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
   , test timeoutConfig freeGasModel "txTimeoutTest" txTimeoutTest
   , test generousConfig getGasModel "chainweb213Test" chainweb213Test
@@ -648,8 +648,8 @@ pact431UpgradeTest = do
         ])
 
 
-Pact42UpgradeTest :: PactTestM ()
-Pact42UpgradeTest = do
+pact42UpgradeTest :: PactTestM ()
+pact42UpgradeTest = do
 
   -- run past genesis, upgrades
   runToHeight 3
