@@ -114,7 +114,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
           miner <- decodeStrictOrThrow $ _minerData md
           let Transaction tx = fst $ txs V.! txIdx
           cmdTx <- decodeStrictOrThrow tx
-          case validateCommand cmdTx of
+          case validateCommand ver cid cmdTx of
             Left _ -> error "bad cmd"
             Right cmdPwt -> do
               let cmd = payloadObj <$> cmdPwt
