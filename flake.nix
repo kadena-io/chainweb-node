@@ -65,5 +65,11 @@
           echo works > $out
         '';
       };
+
+      # Used by nix develop
+      devShell = flake.devShell;
+
+      # Not used by standard Nix tooling, but could be useful for downstream users
+      project = defauktNix.chainweb;
     });
 }
