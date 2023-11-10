@@ -42,6 +42,7 @@ module Chainweb.Version.Guards
     , chainweb219Pact
     , chainweb220Pact
     , chainweb221Pact
+    , chainweb222Pact
     , pact44NewTrans
     , pactParserVersion
     , maxBlockGasLimit
@@ -239,6 +240,9 @@ chainweb220Pact = checkFork atOrAfter Chainweb220Pact
 
 chainweb221Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb221Pact = checkFork atOrAfter Chainweb221Pact
+
+chainweb222Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+chainweb222Pact = checkFork atOrAfter Chainweb222Pact
 
 pactParserVersion :: ChainwebVersion -> ChainId -> BlockHeight -> PactParserVersion
 pactParserVersion v cid bh
