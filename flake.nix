@@ -65,9 +65,5 @@
           echo works > $out
         '';
       };
-      tmp = {
-        someVal = 123;
-        someDeriv = basePkgs.hello;
-      };
     });
 }
