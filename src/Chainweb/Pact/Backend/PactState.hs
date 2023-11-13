@@ -34,7 +34,7 @@ module Chainweb.Pact.Backend.PactState
   , getLatestBlockHeight
 
   , PactRow(..)
-  , UserTable(..)
+  , Table(..)
 
   , pactDiffMain
   )
@@ -102,7 +102,7 @@ getPactTables db = do
   let sortedTableNames :: [[SType]] -> [Utf8]
       sortedTableNames rows = M.elems $ M.fromListWith const $ flip List.map rows $ \case
         [SText u] -> (Text.toLower (utf8ToText u), u)
-        _ -> error "getPactUserTables.sortedTableNames: expected text"
+        _ -> error "getPactTables.sortedTableNames: expected text"
 
   tables <- fmap sortedTableNames $ do
     let qryText =
@@ -119,7 +119,7 @@ getPactTables db = do
 --
 --   The 'MVar' 'Word' argument is supposed to be supplied as a 'newEmptyMVar'.
 --   This will get filled with the number of tables, once it is known.
-getPactUserTables :: Database -> MVar Word -> Stream (Of UserTable) IO ()
+getPactUserTables :: Database -> MVar Word -> Stream (Of Table) IO ()
 getPactUserTables db numTables = do
   let fmtTable x = "\"" <> x <> "\""
 
@@ -136,16 +136,16 @@ getPactUserTables db numTables = do
       shapedRows <- forM userRows $ \case
         [SText (Utf8 rowKey), SBlob rowData, SInt txId] -> do
           pure $ PactRow {..}
-        _ -> error "getPactUserTables: unexpected shape of user table row"
-      S.yield $ UserTable (utf8ToText tbl) shapedRows
+        _ -> error "getPactTables: unexpected shape of user table row"
+      S.yield $ Table (utf8ToText tbl) shapedRows
     else do
       pure ()
 
-getLatestPactState :: Database -> Stream (Of UserTableDiffable) IO ()
+getLatestPactState :: Database -> Stream (Of TableDiffable) IO ()
 getLatestPactState db = do
   numTablesVar <- liftIO newEmptyMVar
 
-  let go :: Word -> Stream (Of UserTable) IO () -> Stream (Of UserTableDiffable) IO ()
+  let go :: Word -> Stream (Of Table) IO () -> Stream (Of TableDiffable) IO ()
       go !tablesRepactDiffMaining s = do
         if tablesRepactDiffMaining == 0
         then do
@@ -171,7 +171,7 @@ getLatestPactState db = do
 
 -- This assumes the same tables (essentially zipWith).
 --   Note that this assumes we got the state from `getLatestPactState`,
---   because `getPactUserTables` sorts the table names, and `getLatestPactState`
+--   because `getPactTables` sorts the table names, and `getLatestPactState`
 --   sorts the [PactRow] by rowKey.
 --
 -- If we ever find two tables that are not the same, we throw an error.
@@ -181,10 +181,10 @@ getLatestPactState db = do
 -- constant memory.
 --
 -- TODO: maybe inner stream should be a ByteStream
-diffLatestPactState :: Stream (Of UserTableDiffable) IO () -> Stream (Of UserTableDiffable) IO () -> Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
+diffLatestPactState :: Stream (Of TableDiffable) IO () -> Stream (Of TableDiffable) IO () -> Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
 diffLatestPactState = go
   where
-  go :: Stream (Of UserTableDiffable) IO () -> Stream (Of UserTableDiffable) IO () -> Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
+  go :: Stream (Of TableDiffable) IO () -> Stream (Of TableDiffable) IO () -> Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
   go s1 s2 = do
     e1 <- liftIO $ S.next s1
     e2 <- liftIO $ S.next s2
@@ -207,7 +207,7 @@ data RowKeyDiffExists
   | New ByteString
   | Delta ByteString
 
-diffTables :: UserTableDiffable -> UserTableDiffable -> Stream (Of RowKeyDiffExists) IO ()
+diffTables :: TableDiffable -> TableDiffable -> Stream (Of RowKeyDiffExists) IO ()
 diffTables t1 t2 = do
   void $ Merge.mergeA
     (Merge.traverseMaybeMissing $ \rk _rd -> do
@@ -238,13 +238,13 @@ rowKeyDiffExistsToObject = \case
     [ "delta" .= Text.decodeUtf8 rk
     ]
 
-data UserTable = UserTable
+data Table = Table
   { tableName :: !Text
   , rows :: [PactRow]
   }
   deriving stock (Eq, Ord, Show)
 
-data UserTableDiffable = UserTableDiffable
+data TableDiffable = TableDiffable
   { tableName :: !Text
   , rows :: Map ByteString ByteString -- Map RowKey RowData
   }
@@ -264,8 +264,8 @@ instance ToJSON PactRow where
     , "tx_id" .= pr.txId
     ]
 
-getActiveRows' :: UserTable -> UserTableDiffable
-getActiveRows' (UserTable name rows) = UserTableDiffable
+getActiveRows' :: Table -> TableDiffable
+getActiveRows' (Table name rows) = TableDiffable
   { tableName = name
   , rows = M.fromList
       $ List.map (pactRowToEntry . takeHead . List.sortOn (Down . txId))
@@ -339,8 +339,11 @@ pactDiffMain = do
   forM_ (M.toAscList diffy) $ \(cid, d) -> do
     when (d == Difference) $ do
       Text.putStrLn $ "Non-empty diff on chain " <> chainIdToText cid
-  when (M.size diffy > 0) $ do
+  if M.size diffy > 0
+  then do
     exitFailure
+  else do
+    Text.putStrLn "Diff complete. No differences found."
   where
     opts :: ParserInfo PactDiffConfig
     opts = info (parser <**> helper)
