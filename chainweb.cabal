@@ -294,6 +294,7 @@ library
         , Chainweb.Pact.RestAPI.Server
         , Chainweb.Pact.SPV
         , Chainweb.Pact.SPV.Hyperlane
+        , Chainweb.Pact.SPV.Hyperlane.Binary
         , Chainweb.Pact.Service.BlockValidation
         , Chainweb.Pact.Service.PactInProcApi
         , Chainweb.Pact.Service.PactQueue
@@ -482,6 +483,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.PactReplay
         Chainweb.Test.Pact.RemotePactTest
         Chainweb.Test.Pact.SPV
+        Chainweb.Test.Pact.SPV.Hyperlane
         Chainweb.Test.Pact.TransactionTests
         Chainweb.Test.Pact.TTL
         Chainweb.Test.Pact.SQLite

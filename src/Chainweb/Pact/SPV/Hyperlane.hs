@@ -3,175 +3,234 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-{-# OPTIONS_GHC -fno-warn-orphans #-}
-
 module Chainweb.Pact.SPV.Hyperlane where
 
-import Data.ByteString as BS
-import qualified Data.ByteString.Lazy as BL
+import Control.Error
+import Control.Lens hiding (index)
+import Control.Monad.Catch
+import Control.Monad.Except
 
 import Data.DoubleWord
+import Data.Decimal
+import Data.Ratio
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Builder as Builder
+import Data.Default (def)
+import qualified Data.ByteString.Base16 as B16
+import qualified Data.ByteString.Short as BS
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.Binary as Binary
+import qualified Data.Binary.Put as Binary
+import qualified Data.Map.Strict as M
 import Data.Text (Text)
+import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
-import Data.Binary
-import qualified Data.Binary.Builder as Builder
-import Data.Binary.Get
-import Data.Binary.Put
+import qualified Data.Vector as V
 
-data HyperlaneMessage = HyperlaneMessage
-  { hmVersion :: Word8            -- uint8
-  , hmNonce :: Word32             -- uint32
-  , hmOriginDomain :: Word32      -- uint32
-  , hmSender :: BS.ByteString     -- bytes32
-  , hmDestinationDomain :: Word32 -- uint32
-  , hmRecipient :: BS.ByteString  -- bytes32
-  , hmTokenMessage :: TokenMessageERC20
-  }
+import qualified Crypto.Secp256k1 as ECDSA
 
-instance Binary HyperlaneMessage where
-  put (HyperlaneMessage {..}) = do
-    put hmVersion
-    put hmNonce
-    put hmOriginDomain
-    putBS (padLeft hmSender)
-    put hmDestinationDomain
-    putBS (padLeft hmRecipient)
+import Ethereum.Misc hiding (Word256)
 
-    put hmTokenMessage
+-- internal pact modules
 
-  get = do
-    hmVersion <- getWord8
-    hmNonce <- getWord32be
-    hmOriginDomain <- getWord32be
-    hmSender <- BS.drop 12 <$> getBS 32
-    hmDestinationDomain <- getWord32be
-    hmRecipient <- (BS.dropWhile (==0)) <$> getBS 32
-    rest <- getRemainingLazyByteString
-    let hmTokenMessage = decode rest
+import Pact.Types.Runtime
 
-    return $ HyperlaneMessage {..}
+import Chainweb.Pact.SPV.Hyperlane.Binary
 
-data TokenMessageERC20 = TokenMessageERC20
-  { tmRecipient :: Text -- string
-  , tmAmount :: Word256 -- uint256
-  } deriving (Show, Eq)
+-- | Evaluates Hyperlane command
+evalHyperlaneCommand :: Object Name -> ExceptT Text IO (Object Name)
+evalHyperlaneCommand (_objectMap . _oObject -> om) = do
+  case (M.lookup "storageLocation" om, M.lookup "signature" om) of
+    (Just (TLitString storageLocation), Just (TLitString sig)) -> recoverAddressValidatorAnnouncement storageLocation sig
+    _ -> case (M.lookup "message" om, M.lookup "metadata" om, M.lookup "validators" om, M.lookup "threshold" om) of
+      (Just (TLitString message), Just (TLitString metadata), Just (TList validators _ _), Just (TLitInteger threshold)) ->
+        let
+          convert (TLitString v) = Just v
+          convert _ = Nothing
+        in verifySignatures message metadata (V.mapMaybe convert validators) (fromInteger threshold)
 
-instance Binary TokenMessageERC20 where
-  put (TokenMessageERC20 {..}) = do
-    -- the first offset is constant
-    put (64 :: Word256) -- 32 bytes
-    put tmAmount        -- 32 bytes
-    -- 64 bytes
-    put recipientSize   -- 32 bytes
-    putBS recipient     -- recipientSize
-    where
-      (recipient, recipientSize) = padRight $ Text.encodeUtf8 tmRecipient
+      (Just (TObject o _), _, _, _) -> encodeHyperMessage o
+      _ -> throwError "Unknown hyperlane command"
 
-  get = do
-    _firstOffset <- getWord256be
-    tmAmount <- getWord256be
+verifySignatures :: Text -> Text -> V.Vector Text -> Int -> ExceptT Text IO (Object Name)
+verifySignatures hexMessage hexMetadata validators threshold = do
+  message <- case decodeHex hexMessage of
+          Right s -> pure s
+          Left e -> throwError $ Text.pack $ "Decoding of HyperlaneMessage failed: " ++ e
 
-    recipientSize <- getWord256be
-    tmRecipient <- Text.decodeUtf8 <$> getBS recipientSize
-    return $ TokenMessageERC20 {..}
+  let HyperlaneMessage{..} = Binary.decode $ BL.fromStrict $ message
 
-data MessageIdMultisigIsmMetadata = MessageIdMultisigIsmMetadata
-  { mmimOriginMerkleTreeAddress :: ByteString
-  , mmimSignedCheckpointRoot :: ByteString
-  , mmimSignedCheckpointIndex :: Word256
-  , mmimSignatures :: [ByteString]
-  }
+  metadata <- case BL.fromStrict <$> decodeHex hexMetadata of
+          Right s -> pure s
+          Left e -> throwError $ Text.pack $ "Decoding of Metadata failed: " ++ e
 
--- example
--- 6f726967696e4d65726b6c655472656541646472657373000000000000000000 32 originMerkleTreeAddress
--- 6d65726b6c65526f6f7400000000000000000000000000000000000000000000 64 merkleRoot
--- 00000000000000000000000000000000000000000000000000000000ffffffff 96 4294967295
--- 0000000000000000000000000000000000000000000000000000000000000080 128 128
--- 0000000000000000000000000000000000000000000000000000000000000041 160 65
--- 4e45a1dc8d84b3a63db8c9c6cbe4e0a780ecb55ff157c038b9f5d1a2be7a0a02
--- 77c3c8d8e6029f65f7f7b0ad8b80fae2b178d14c9a7b228a539349aad0c7b58b
--- 1b00000000000000000000000000000000000000000000000000000000000000
+  let MessageIdMultisigIsmMetadata{..} = Binary.decode metadata
 
-instance Binary MessageIdMultisigIsmMetadata where
-  put = error "put instance is not implemented for MessageIdMultisigIsmMetadata"
-
-  get = do
-    mmimOriginMerkleTreeAddress <- getBS 32
-    mmimSignedCheckpointRoot <- getBS 32
-    mmimSignedCheckpointIndex <- getWord256be
-    _firstOffset <- getWord256be
-
-    -- we don't care about the size, we know that each signature is 65 bytes long
-    _signaturesSize <- getWord256be
-
-    theRest <- BL.toStrict <$> getRemainingLazyByteString
-    let mmimSignatures = sliceSignatures theRest
-
-    return $ MessageIdMultisigIsmMetadata{..}
-
--- | Pad with zeroes on the left to 32 bytes
---
--- > padLeft "hello world"
--- "\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NULhello world"
-padLeft :: ByteString -> ByteString
-padLeft s = BS.replicate (32 - BS.length s) 0 <> s
-
--- | Pad with zeroes on the right, such that the resulting size is a multiple of 32.
---
--- > padRight "hello world"
--- ("hello world\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL",11)
-padRight :: ByteString -> (ByteString, Word256)
-padRight s =
   let
-    size = BS.length s
-    missingZeroes = restSize size
-  in (s <> BS.replicate missingZeroes 0, fromIntegral size)
+    domainHash = getKeccak256Hash $ BL.toStrict $ Binary.runPut $ do
+      Binary.put hmOriginDomain
+      putBS mmimOriginMerkleTreeAddress
+      putBS "HYPERLANE"
 
-restSize :: Integral a => a -> a
-restSize size = (32 - size) `mod` 32
+  let messageId = getKeccak256Hash message
 
--- | Puts bytestring without size using 'Builder'.
-putBS :: ByteString -> Put
-putBS s = putBuilder $ Builder.fromByteString s
+  let
+    hash' = getKeccak256Hash $ BL.toStrict $ Binary.runPut $ do
+      putBS domainHash
+      putBS mmimSignedCheckpointRoot
+      Binary.put mmimSignedCheckpointIndex
+      putBS messageId
+  let
+    digest = keccak256 $ BL.toStrict $ Binary.runPut $ do
+      putBS ethereumHeader
+      putBS hash'
 
-getBS :: Word256 -> Get BS.ByteString
-getBS size = (BS.take (fromIntegral size)) <$> getByteString (fromIntegral $ size + restSize size)
+  let recoverAddress = recoverHexAddress digest
+  addresses <- mapM recoverAddress mmimSignatures
 
-instance Binary Word128 where
-  put (Word128 w1 w2) = do
-    putWord64be w1
-    putWord64be w2
+  let verificationAddresses = take threshold $ catMaybes addresses
+  let verifyStep (_, vals) signer = case V.elemIndex signer vals of
+        Just i -> let newV = snd $ V.splitAt (i + 1) vals in (True, newV)
+        Nothing -> (False, V.empty)
+  let verified = fst $ foldl verifyStep (False, validators) verificationAddresses
 
-  get = do
-    w1 <- getWord64be
-    w2 <- getWord64be
-    pure $ Word128 w1 w2
+  let TokenMessageERC20{..} = hmTokenMessage
+  let
+    encodedSender = encodeHex hmSender
+    encodedRecipient = encodeHex hmRecipient
+    hmObj = obj
+          [ ("version", tLit $ LInteger $ toInteger hmVersion)
+          , ("nonce", tLit $ LInteger $ toInteger hmNonce)
+          , ("originDomain", tLit $ LInteger $ toInteger hmOriginDomain)
+          , ("sender", tStr $ asString encodedSender)
+          , ("destinationDomain", tLit $ LInteger $ toInteger hmDestinationDomain)
+          , ("recipient", tStr $ asString encodedRecipient)
+          , ("tokenMessage", obj
+              ([ ("recipient", tStr $ asString tmRecipient)
+               , ("amount", tLit $ LDecimal $ wordToDecimal tmAmount)
+              ])
+            )
+          ]
+  pure $ mkObject [ ("message", hmObj), ("messageId", tStr $ asString $ encodeHex messageId), ("verified", tLit $ LBool verified) ]
 
-putWord128be :: Word128 -> Put
-putWord128be = put
+recoverAddressValidatorAnnouncement :: Text -> Text -> ExceptT Text IO (Object Name)
+recoverAddressValidatorAnnouncement storageLocation sig = do
+  signatureBinary <- case decodeHex sig of
+          Right s -> pure s
+          Left e -> throwError $ Text.pack $ "Decoding of signature failed: " ++ e
+  domainHash <- case decodeHex domainHashHex of
+          Right s -> pure s
+          Left e -> throwError $ Text.pack $ "Decoding of domainHashHex failed: " ++ e
 
-getWord128be :: Get Word128
-getWord128be = get
+  let
+    hash' = getKeccak256Hash $ BL.toStrict $ Binary.runPut $ do
+      putBS domainHash
+      putBS $ Text.encodeUtf8 storageLocation
 
-instance Binary Word256 where
-  put (Word256 w1 w2) = do
-    putWord128be w1
-    putWord128be w2
+  let
+    announcementDigest = keccak256 $ BL.toStrict $ Binary.runPut $ do
+      putBS ethereumHeader
+      putBS hash'
 
-  get = do
-    w1 <- getWord128be
-    w2 <- getWord128be
-    pure $ Word256 w1 w2
+  let recoverAddress = recoverHexAddress announcementDigest
+  address <- recoverAddress signatureBinary
+  let addr = fmap (tStr . asString) $ address
 
-putWord256be :: Word256 -> Put
-putWord256be = put
+  case addr of
+    Just a -> return $ mkObject [ ("address", a) ]
+    Nothing -> throwError "Failed to recover address"
 
-getWord256be :: Get Word256
-getWord256be = get
+encodeHyperMessage :: Object Name -> ExceptT Text IO (Object Name)
+encodeHyperMessage o = do
+  let
+    om = _objectMap $ _oObject o
+    tokenMessage = om ^? at "tokenMessage" . _Just . _TObject . _1
 
-sliceSignatures :: ByteString -> [ByteString]
-sliceSignatures sig' = go sig' []
-  where
-    go s sigs = if BS.length s >= 65
-      then let (sig, rest) = BS.splitAt 65 s in go rest (sig:sigs)
-      else Prelude.reverse sigs
+  hmTokenMessage <- case parseTokenMessageERC20 <$> tokenMessage of
+    Just (Just t) -> pure t
+    _ -> throwError "Couldn't encode TokenMessageERC20"
+
+  let
+    newObj = do
+      hmVersion <- om ^? at "version" . _Just . _TLiteral . _1 . _LInteger . to fromIntegral
+      hmNonce <- om ^? at "nonce" . _Just . _TLiteral . _1 . _LInteger . to fromIntegral
+      hmOriginDomain <- om ^? at "originDomain" . _Just . _TLiteral . _1 . _LInteger . to fromIntegral
+      hmSender <- om ^? at "sender" . _Just . _TLiteral . _1 . _LString . to decodeHex . _Right
+      hmDestinationDomain <- om ^? at "destinationDomain" . _Just . _TLiteral . _1 . _LInteger . to fromIntegral
+      hmRecipient <- om ^? at "recipient" . _Just . _TLiteral . _1 . _LString . to decodeHex . _Right
+
+      let hm = HyperlaneMessage{..}
+      let b = BL.toStrict $ Binary.encode hm
+      let messageId = encodeHex $ getKeccak256Hash b
+      let hex = encodeHex b
+      pure $ mkObject [ ("encodedMessage", tStr $ asString hex), ("messageId", tStr $ asString messageId) ]
+  case newObj of
+    Just o' -> pure o'
+    _ -> throwError "Couldn't encode HyperlaneMessage"
+
+parseTokenMessageERC20 :: Object Name -> Maybe TokenMessageERC20
+parseTokenMessageERC20 o = do
+  let om = _objectMap $ _oObject o
+  tmRecipient <- om ^? at "recipient" . _Just . _TLiteral . _1 . _LString
+  tmAmount <- om ^? at "amount" . _Just . _TLiteral . _1 . _LDecimal . to decimalToWord
+  pure $ TokenMessageERC20{..}
+
+encodeTokenMessageERC20 :: Object Name -> Maybe Text
+encodeTokenMessageERC20 o = do
+  tm <- parseTokenMessageERC20 o
+  let hex = encodeHex $ BL.toStrict $ Binary.encode tm
+  pure hex
+
+recoverHexAddress :: MonadThrow m => Keccak256Hash -> B.ByteString -> m (Maybe Text)
+recoverHexAddress digest sig' = do
+  fnDigest <- ECDSA.ecdsaMessageDigest $ _getBytesN $ _getKeccak256Hash digest
+  let
+    mkR s = ECDSA.ecdsaR $ BS.toShort s
+    mkS s = ECDSA.ecdsaS $ BS.toShort s
+    recoverAddress sig = do
+      let (begin, end) = B.splitAt 32 sig
+      r <- mkR begin
+      s <- mkS (B.take 32 end)
+      pure $ ECDSA.ecdsaRecoverPublicKey fnDigest r s False False <&> getAddress
+
+  addr <- recoverAddress sig'
+  pure $ encodeHex <$> addr
+
+-- | Returns an address, a rightmost 160 bits of the keccak hash of the public key.
+getAddress :: ECDSA.EcdsaPublicKey -> B.ByteString
+getAddress pubkey = B.drop 12 $ getKeccak256Hash $ BS.fromShort $ ECDSA.ecdsaPublicKeyBytes pubkey
+
+-- | This is a kadena's domain hash calculated in Solidity as
+-- keccak256(abi.encodePacked(626, "kb-mailbox", "HYPERLANE_ANNOUNCEMENT"))
+domainHashHex :: Text
+domainHashHex = "0xa69e6ef1a8e62aa6b513bd7d694c6d237164fb04df4e5fb4106e47bf5b5a0428"
+
+encodeHex :: B.ByteString -> Text
+encodeHex = ((<>) "0x") . Text.decodeUtf8 . B.toStrict . Builder.toLazyByteString . Builder.byteStringHex
+
+decodeHex :: Text -> Either String B.ByteString
+decodeHex s = B16.decode $ Text.encodeUtf8 $ Text.drop 2 s
+
+ethereumHeader :: B.ByteString
+ethereumHeader = "\x19Ethereum Signed Message:\n32"
+
+decimalToWord :: Decimal -> Word256
+decimalToWord d =
+  let ethInWei = 1000000000000000000 -- 1e18
+  in round $ d * ethInWei
+
+wordToDecimal :: Word256 -> Decimal
+wordToDecimal w =
+  let i = toInteger w
+      ethInWei = 1000000000000000000 -- 1e18
+      (d, m) = i `divMod` ethInWei
+  in fromInteger d + fromRational (m % ethInWei)
+
+getKeccak256Hash :: B.ByteString -> B.ByteString
+getKeccak256Hash = BS.fromShort . _getBytesN . _getKeccak256Hash . keccak256
+
+mkObject :: [(FieldKey, Term n)] -> Object n
+mkObject ps = Object (ObjectMap (M.fromList ps)) TyAny Nothing def
+
+obj :: [(FieldKey, Term n)] -> Term n
+obj = toTObject TyAny def
