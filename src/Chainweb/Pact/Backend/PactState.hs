@@ -317,7 +317,7 @@ pactDiffMain = do
               TextLog $ "[Finished table " <> tblName <> "]"
             pure d
 
-          loggerFunIO logger Warn $ toLogMessage $
+          loggerFunIO logger Info $ toLogMessage $
             TextLog $ case diffy of
               Difference -> "[Non-empty diff]"
               NoDifference -> "[Empty diff]"
