@@ -77,6 +77,7 @@ import Chainweb.Pact.Backend.Compaction qualified as C
 
 import System.Exit (exitFailure)
 import System.Logger (LogLevel(..), setLoggerScope, loggerFunIO)
+import System.Mem (performMajorGC)
 import Data.LogMessage (TextLog(..), toLogMessage)
 
 import Pact.Types.SQLite (SType(..), RType(..))
@@ -325,6 +326,7 @@ pactDiffMain = do
             TextLog "[Starting diff]"
           let diff = diffLatestPactState (getLatestPactState db1) (getLatestPactState db2)
           diffy <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
+            performMajorGC
             loggerFunIO logger Info $ toLogMessage $
               TextLog $ "[Starting table " <> tblName <> "]"
             S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do
