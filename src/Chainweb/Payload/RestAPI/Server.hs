@@ -84,7 +84,7 @@ payloadHandler db k = run >>= \case
         txs <- MaybeT $ liftIO $ tableLookup
             (_transactionDbBlockTransactions $ _transactionDb db)
             (_blockPayloadTransactionsHash payload)
-        return $ mkPayloadData txs payload
+        return $ payloadData txs payload
 
 -- -------------------------------------------------------------------------- --
 -- POST Payload Batch Handler
@@ -98,7 +98,7 @@ payloadBatchHandler
 payloadBatchHandler batchLimit db ks = liftIO $ do
     payloads <- catMaybes
         <$> tableLookupBatch payloadsDb (take (int batchLimit) ks)
-    txs <- zipWith (\a b -> mkPayloadData <$> a <*> pure b)
+    txs <- zipWith (\a b -> payloadData <$> a <*> pure b)
         <$> tableLookupBatch txsDb (_blockPayloadTransactionsHash <$> payloads)
         <*> pure payloads
     return $ catMaybes txs
