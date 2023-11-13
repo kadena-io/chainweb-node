@@ -299,11 +299,14 @@ pactDiffMain = do
           diffy <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
             loggerFunIO logger Info $ toLogMessage $
               TextLog $ "[Starting table " <> tblName <> "]"
-            S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do
+            d <- S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do
               loggerFunIO logger Info $ toLogMessage $
                 TextLog $ Text.decodeUtf8 $ BSL.toStrict $
                   Aeson.encode $ rowKeyDiffExistsToObject d
               pure Difference
+            loggerFunIO logger Info $ toLogMessage $
+              TextLog $ "[Finished table " <> tblName <> "]"
+            pure d
 
           atomicModifyIORef' diffyRef $ \m -> (M.insert cid diffy m, ())
 
