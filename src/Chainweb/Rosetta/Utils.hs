@@ -36,7 +36,6 @@ import qualified Data.Text.Encoding as T
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Command as P
-import qualified Pact.Types.Crypto as P
 import qualified Pact.Parse as P
 import qualified Data.Set as S
 import Data.Maybe ( fromMaybe )
@@ -785,16 +784,15 @@ matchSigs sigs signers = do
             $ HM.lookup addr m
 
     sigAndAddr (RosettaSignature _ (RosettaPublicKey pk ct) sigTyp sig) = do
-      sigDecoded <- toRosettaError RosettaInvalidSignature $! P.parseB16TextOnly sig
       sigScheme <- sigToScheme sigTyp
       pkScheme <- getScheme ct
       when (sigScheme /= pkScheme)
         (Left $ stringRosettaError RosettaInvalidSignature $
          "Expected the same Signature and PublicKey type for Signature=" ++ show sig)
 
-      userSig <- toRosettaError RosettaInvalidSignature $! P.parseEd25519Signature sigDecoded
+      let userSig = P.ED25519Sig sig
       addr <- toPactPubKeyAddr pk
-      pure (addr, P.ED25519Sig userSig)
+      pure (addr, userSig)
 
 --------------------------------------------------------------------------------
 -- Rosetta Helper Types --
