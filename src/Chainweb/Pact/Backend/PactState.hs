@@ -39,7 +39,6 @@ module Chainweb.Pact.Backend.PactState
   where
 
 import Data.IORef (newIORef, readIORef, atomicModifyIORef')
-import Control.Lens (over)
 import Control.Monad (forM, forM_, when, void)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Aeson (ToJSON(..), (.=))
@@ -63,7 +62,7 @@ import Database.SQLite3.Direct (Utf8(..), Database)
 import Options.Applicative
 
 import Chainweb.BlockHeight (BlockHeight(..))
-import Chainweb.Utils (sshow, HasTextRepresentation, fromText, toText, int)
+import Chainweb.Utils (HasTextRepresentation, fromText, toText, int)
 import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName, ChainId, chainIdToText, unsafeChainId)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
@@ -73,7 +72,7 @@ import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Pact.Backend.Compaction qualified as C
 
 import System.Exit (exitFailure)
-import System.Logger (LogLevel(..), setLoggerScope, loggerFunIO)
+import System.Logger (LogLevel(..), loggerFunIO)
 import System.Mem (performMajorGC)
 import Data.LogMessage (TextLog(..), toLogMessage)
 
@@ -298,8 +297,7 @@ pactDiffMain = do
   diffyRef <- newIORef @(Map ChainId Diffy) M.empty
 
   forM_ cids $ \cid -> do
-    C.withPerChainFileLogger cfg.logDir cid Info $ \logger' -> do
-      let logger = over setLoggerScope (("chain-id", sshow cid) :) logger'
+    C.withPerChainFileLogger cfg.logDir cid Info $ \logger -> do
       let resetDb = False
 
       withSqliteDb cid logger cfg.firstDbDir resetDb $ \(SQLiteEnv db1 _) -> do

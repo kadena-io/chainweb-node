@@ -118,7 +118,10 @@ withPerChainFileLogger logDir chainId ll f = do
         { _handleBackendConfigHandle = FileHandle logFile
         }
   withHandleBackend_ logText handleConfig $ \b ->
-    withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel ll l)
+    withLogger defaultLoggerConfig b $ \l -> do
+      let logger = over setLoggerScope (("chain", chainIdToText chainId) :)
+            $ set setLoggerLevel ll l
+      f logger
   where
     cid = Text.unpack (chainIdToText chainId)
 
@@ -610,8 +613,7 @@ compactAll CompactConfig{..} = do
   let cids = List.sort $ F.toList $ chainIdsAt ccVersion latestBlockHeightChain0
 
   flip (pooledMapConcurrentlyN_ ccThreads) cids $ \cid -> do
-    withPerChainFileLogger logDir cid Debug $ \logger' -> do
-      let logger = over setLoggerScope (("chain",sshow cid):) logger'
+    withPerChainFileLogger logDir cid Debug $ \logger -> do
       let resetDb = False
       withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) -> do
         case ccChain of
