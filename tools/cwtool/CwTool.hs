@@ -107,8 +107,8 @@ topLevelCommands =
       "Compact pact database"
       Chainweb.Pact.Backend.Compaction.main
   , CommandSpec
-      "pact-compare"
-      "Compare two pact databases"
+      "pact-diff"
+      "Diff the latest state of two pact databases"
       Chainweb.Pact.Backend.PactState.pactDiffMain
   , CommandSpec
       "calculate-release"
