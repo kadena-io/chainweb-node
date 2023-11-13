@@ -7,7 +7,7 @@
       flake = false;
     };
     hs-nix-infra = {
-      url = "github:kadena-io/hs-nix-infra";
+      url = "github:kadena-io/hs-nix-infra/enis/metadata-experiments";
       inputs.hackage.follows = "hackage";
     };
     flake-utils.url = "github:numtide/flake-utils";
@@ -52,12 +52,8 @@
         # evaluation of the haskellNix project to a recursive nix-build. If you expect to
         # find this package in your nix store or a binary cache, using this package will
         # significantly reduce your nix eval times and the amount of data you download.
-        recursive = hs-nix-infra.lib.runRecursiveBuild system "chainweb"
-          { outputs = [ "out" "metadata" ]; }
-          ''
-            ln -s $(nix-build-flake ${self} packages.${system}.default) $out
-            cp $(nix-build-flake ${self} packages.${system}.default.metadata) $metadata
-          '';
+        recursive = with hs-nix-infra.lib.recursive system;
+          wrapRecursiveWithMeta "chainweb-node" "${wrapFlake self}.default";
 
         check = pkgs.runCommand "check" {} ''
           echo ${mkCheck "chainweb" executables}
