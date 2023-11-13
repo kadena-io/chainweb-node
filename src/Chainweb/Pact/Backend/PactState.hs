@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE ImportQualifiedPost #-}
@@ -145,7 +144,7 @@ getLatestPactState db = do
 --   because `getPactTableNames` sorts the table names, and `getLatestPactState`
 --   sorts the [PactRow] by rowKey.
 --
--- If we ever find two tables that are not the same, we throw an error.
+-- If we ever step across two tables that do not have the same name, we throw an error.
 --
 -- This diminishes the utility of comparing two pact states that are known to be
 -- at different heights, but that hurts our ability to perform the diff in
@@ -173,10 +172,16 @@ diffLatestPactState = go
         S.yield (t1.name, diffTables t1 t2)
         go next1 next2
 
+-- | We don't include the entire rowdata in the diff, only the rowkey.
+--   This is just a space-saving measure.
 data RowKeyDiffExists
   = Old ByteString
+    -- ^ The rowkey exists in the same table of the first db, but not the second.
   | New ByteString
+    -- ^ The rowkey exists in the same table of the second db, but not the first.
   | Delta ByteString
+    -- ^ The rowkey exists in the same table of both dbs, but the rowdata
+    --   differs.
 
 diffTables :: TableDiffable -> TableDiffable -> Stream (Of RowKeyDiffExists) IO ()
 diffTables t1 t2 = do
@@ -210,22 +215,25 @@ rowKeyDiffExistsToObject = \case
     [ "delta" .= Text.decodeUtf8 rk
     ]
 
+-- | A pact table - just its name and its rows.
 data Table = Table
-  { name :: !Text
+  { name :: Text
   , rows :: [PactRow]
   }
   deriving stock (Eq, Ord, Show)
 
+-- | A diffable pact table - its name and the _active_ pact state
+--   as a Map from RowKey to RowData.
 data TableDiffable = TableDiffable
-  { name :: !Text
+  { name :: Text
   , rows :: Map ByteString ByteString -- Map RowKey RowData
   }
   deriving stock (Eq, Ord, Show)
 
 data PactRow = PactRow
-  { rowKey :: !ByteString
-  , rowData :: !ByteString
-  , txId :: !Int64
+  { rowKey :: ByteString
+  , rowData :: ByteString
+  , txId :: Int64
   }
   deriving stock (Eq, Ord, Show)
 
@@ -236,6 +244,12 @@ instance ToJSON PactRow where
     , "tx_id" .= pr.txId
     ]
 
+-- | Get the active rows of a table.
+--
+--   - sort the rows by row key
+--   - group into chunks by rowkey
+--   - for each chunk, keep only the latest txId
+--   - shove all the (rowkey, rowdata) into a Map
 getActiveRows :: Table -> TableDiffable
 getActiveRows (Table name rows) = TableDiffable
   { name = name
@@ -252,9 +266,6 @@ getActiveRows (Table name rows) = TableDiffable
 
     pactRowToEntry :: PactRow -> (ByteString, ByteString)
     pactRowToEntry pr = (pr.rowKey, pr.rowData)
-
-utf8ToText :: Utf8 -> Text
-utf8ToText (Utf8 u) = Text.decodeUtf8 u
 
 data PactDiffConfig = PactDiffConfig
   { firstDbDir :: FilePath
@@ -300,7 +311,7 @@ pactDiffMain = do
             loggerFunIO logger Info $ toLogMessage $
               TextLog $ "[Starting table " <> tblName <> "]"
             d <- S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do
-              loggerFunIO logger Info $ toLogMessage $
+              loggerFunIO logger Warn $ toLogMessage $
                 TextLog $ Text.decodeUtf8 $ BSL.toStrict $
                   Aeson.encode $ rowKeyDiffExistsToObject d
               pure Difference
@@ -308,17 +319,22 @@ pactDiffMain = do
               TextLog $ "[Finished table " <> tblName <> "]"
             pure d
 
+          loggerFunIO logger Warn $ toLogMessage $
+            TextLog $ case diffy of
+              Difference -> "[Non-empty diff]"
+              NoDifference -> "[Empty diff]"
+          loggerFunIO logger Info $ toLogMessage $
+            TextLog $ "[Finished chain " <> chainIdToText cid <> "]"
+
           atomicModifyIORef' diffyRef $ \m -> (M.insert cid diffy m, ())
 
   diffy <- readIORef diffyRef
-  forM_ (M.toAscList diffy) $ \(cid, d) -> do
-    when (d == Difference) $ do
-      Text.putStrLn $ "Non-empty diff on chain " <> chainIdToText cid
-  if M.size diffy > 0
-  then do
-    exitFailure
-  else do
-    Text.putStrLn "Diff complete. No differences found."
+  case M.foldMapWithKey (\_ d -> d) diffy of
+    Difference -> do
+      Text.putStrLn "Diff complete. Differences found."
+      exitFailure
+    NoDifference -> do
+      Text.putStrLn "Diff complete. No differences found."
   where
     opts :: ParserInfo PactDiffConfig
     opts = info (parser <**> helper)
@@ -346,10 +362,13 @@ pactDiffMain = do
             <> help "Directory where logs will be placed"
             <> value ".")
 
-    fromTextSilly :: HasTextRepresentation a => Text -> a
-    fromTextSilly t = case fromText t of
-      Just a -> a
-      Nothing -> error "fromText failed"
+fromTextSilly :: HasTextRepresentation a => Text -> a
+fromTextSilly t = case fromText t of
+  Just a -> a
+  Nothing -> error "fromText failed"
+
+utf8ToText :: Utf8 -> Text
+utf8ToText (Utf8 u) = Text.decodeUtf8 u
 
 getCids :: FilePath -> ChainwebVersion -> IO [ChainId]
 getCids pactDbDir chainwebVersion = do
