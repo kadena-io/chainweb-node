@@ -37,7 +37,6 @@ import Control.Lens (makeLenses, set, over, view)
 import Control.Monad (forM_, when, void)
 import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
 import Control.Monad.IO.Class (MonadIO(liftIO))
-import Control.Monad.IO.Unlift (MonadUnliftIO)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, local)
 import Data.ByteString (ByteString)
 import Data.Foldable qualified as F
@@ -135,7 +134,7 @@ mkCompactEnv
 mkCompactEnv logger db flags = CompactEnv db logger flags
 
 newtype CompactM a = CompactM { unCompactM :: ReaderT CompactEnv IO a }
-  deriving newtype (Functor,Applicative,Monad,MonadReader CompactEnv,MonadIO,MonadThrow,MonadCatch,MonadUnliftIO)
+  deriving newtype (Functor,Applicative,Monad,MonadReader CompactEnv,MonadIO,MonadThrow,MonadCatch)
 
 instance MonadLog Text CompactM where
   localScope :: (LogScope -> LogScope) -> CompactM x -> CompactM x
@@ -278,7 +277,7 @@ isFlagSet f = view ceFlags >>= \fs -> pure (f `elem` fs)
 
 withTables :: Vector TableName -> (TableName -> CompactM a) -> CompactM ()
 withTables ts a = do
-  flip (pooledMapConcurrentlyN_ 10) (List.zip [1 :: Word ..] (V.toList ts)) $ \(i, u@(TableName (Utf8 t'))) -> do
+  V.iforM_ ts $ \((+ 1) -> i) u@(TableName (Utf8 t')) -> do
     let lbl = Text.decodeUtf8 t' <> " (" <> sshow i <> " of " <> sshow (V.length ts) <> ")"
     localScope (("table",lbl):) $ a u
 
