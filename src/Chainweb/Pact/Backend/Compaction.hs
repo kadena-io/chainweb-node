@@ -113,7 +113,7 @@ withDefaultLogger ll f = withHandleBackend_ logText defaultHandleBackendConfig $
 withPerChainFileLogger :: FilePath -> ChainId -> LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
 withPerChainFileLogger logDir chainId ll f = do
   createDirectoryIfMissing False {- don't create parents -} logDir
-  let logFile = logDir </> ("compact-chain-" <> cid <> ".log")
+  let logFile = logDir </> ("chain-" <> cid <> ".log")
   !_ <- writeFile logFile ""
   let handleConfig = defaultHandleBackendConfig
         { _handleBackendConfigHandle = FileHandle logFile
