@@ -40,6 +40,8 @@ tests = testGroup "hyperlane"
 
   , testCase "encodeTokenMessageERC20" hyperlaneEncodeTokenMessageERC20
   , testCase "decodeTokenMessageERC20" hyperlaneDecodeTokenMessageERC20
+
+  , testCase "decimalToWord" hyperlaneDecimalToWord
   , testCase "wordToDecimal" hyperlaneWordToDecimal
 
   , testCase "encodeHyperlaneMessage" hyperlaneEncodeHyperlaneMessage
@@ -66,14 +68,17 @@ hyperlaneEncodeTokenMessageERC20 = do
 hyperlaneDecodeTokenMessageERC20 :: Assertion
 hyperlaneDecodeTokenMessageERC20 = do
   let
-    encodedMessage :: Text = "0x0000000000000000000000000000000000000000000000000000000000000040000000000000000000000000000000000281fa059c9e179daafc1235555555550000000000000000000000000000000000000000000000000000000000000009726563697069656e740000000000000000000000000000000000000000000000"
+    encodedMessage :: Text = "0x00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000002e426101834d55550000000000000000000000000000000000000000000000000000000000000009726563697069656e740000000000000000000000000000000000000000000000"
   encodedBinary <- case decodeHex encodedMessage of
       Right r -> pure r
       Left _ -> assertFailure "hyperlaneDecodeTokenMessageERC20: failed to decode"
   let
     tm = Binary.decode $ BL.fromStrict encodedBinary
-    expectedObject = TokenMessageERC20 "recipient" 3333333333333333333333333333333333333
+    expectedObject = TokenMessageERC20 "recipient" 3333333333333333333
   assertEqual "Should properly decode the object" expectedObject tm
+
+hyperlaneDecimalToWord :: Assertion
+hyperlaneDecimalToWord = assertEqual "" 10000000000000000000000000000000000000 (decimalToWord 10000000000000000000)
 
 hyperlaneWordToDecimal :: Assertion
 hyperlaneWordToDecimal = assertEqual "" 3333333333333333333.333333333333333333 (wordToDecimal 3333333333333333333333333333333333333)
@@ -84,14 +89,14 @@ hyperlaneEncodeHyperlaneMessage = do
     obj' = mkObject
         [ ("message", obj
           [ ("version", tLit $ LInteger 1)
-          , ("nonce", tLit $ LInteger 1223)
+          , ("nonce", tLit $ LInteger 325)
           , ("originDomain", tLit $ LInteger 626)
-          , ("sender", tStr $ asString ("0x23" :: Text))
-          , ("destinationDomain", tLit $ LInteger 8)
-          , ("recipient", tStr $ asString ("0x71c7656ec7ab88b098defb751b7401b5f6d8976f" :: Text))
+          , ("sender", tStr $ asString ("0x6b622d746f6b656e2d726f75746572" :: Text))
+          , ("destinationDomain", tLit $ LInteger 1)
+          , ("recipient", tStr $ asString ("0x71C7656EC7ab88b098defB751B7401B5f6d8976F" :: Text))
           , ("tokenMessage", obj
-              [ ("recipient", tStr $ asString ("recipient1" :: Text))
-              , ("amount", tLit $ LDecimal 3333333333333333333.333333333333333333) ]
+              [ ("recipient", tStr $ asString ("0x71C7656EC7ab88b098defB751B7401B5f6d8976F" :: Text))
+              , ("amount", tLit $ LDecimal 10000000000000000000) ]
             )
           ])
         ]
@@ -100,9 +105,9 @@ hyperlaneEncodeHyperlaneMessage = do
     Left err -> assertFailure $ "Should get the result" ++ show err
     Right o ->
       let
-        expectedMessage :: Text = "0x01000004c70000027200000000000000000000000000000000000000000000000000000000000000230000000800000000000000000000000071c7656ec7ab88b098defb751b7401b5f6d8976f0000000000000000000000000000000000000000000000000000000000000040000000000000000000000000000000000281fa059c9e179daafc123555555555000000000000000000000000000000000000000000000000000000000000000a726563697069656e743100000000000000000000000000000000000000000000"
+        expectedMessage :: Text = "0x01000001450000027200000000000000000000000000000000006b622d746f6b656e2d726f757465720000000100000000000000000000000071c7656ec7ab88b098defb751b7401b5f6d8976f0000000000000000000000000000000000000000000000000000000000000040000000000000000000000000000000000785ee10d5da46d900f436a000000000000000000000000000000000000000000000000000000000000000000000002a30783731433736353645433761623838623039386465664237353142373430314235663664383937364600000000000000000000000000000000000000000000"
         expectedObject = mkObject
           [ ("encodedMessage", tStr $ asString expectedMessage)
-          , ("messageId", tStr $ asString ("0xd7d22abdd68430821df0732b7bb87cd05536810cc9fc29d3fbe22cfd359ba190" :: Text))
+          , ("messageId", tStr $ asString ("0x42f79cdedbfc03af3296d1b337255cc53f870c8b2bb02107bded2a082bd02323" :: Text))
           ]
       in assertEqual "should get encoded message" expectedObject o

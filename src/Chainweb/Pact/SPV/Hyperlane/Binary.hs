@@ -28,6 +28,7 @@ data HyperlaneMessage = HyperlaneMessage
   , hmTokenMessage :: TokenMessageERC20
   }
 
+-- Corresponds to abi.encodePacked behaviour
 instance Binary HyperlaneMessage where
   put (HyperlaneMessage {..}) = do
     put hmVersion
@@ -56,6 +57,14 @@ data TokenMessageERC20 = TokenMessageERC20
   , tmAmount :: Word256 -- uint256
   } deriving (Show, Eq)
 
+-- example
+-- 0000000000000000000000000000000000000000000000000000000000000040 # 64
+-- 0000000000000000000000000000000000000000000000008ac7230489e80000 # 10000000000000000000
+-- 000000000000000000000000000000000000000000000000000000000000002a # 42
+-- 3078373143373635364543376162383862303938646566423735314237343031 # "0x71C7656EC7ab88b098defB751B7401B5f6d8976F"
+-- 4235663664383937364600000000000000000000000000000000000000000000
+
+-- Corresponds to abi.encode behaviour
 instance Binary TokenMessageERC20 where
   put (TokenMessageERC20 {..}) = do
     -- the first offset is constant
@@ -95,6 +104,7 @@ data MessageIdMultisigIsmMetadata = MessageIdMultisigIsmMetadata
 instance Binary MessageIdMultisigIsmMetadata where
   put = error "put instance is not implemented for MessageIdMultisigIsmMetadata"
 
+  -- Corresponds to abi.encode behaviour
   get = do
     mmimOriginMerkleTreeAddress <- getBS 32
     mmimSignedCheckpointRoot <- getBS 32
@@ -127,6 +137,7 @@ padRight s =
     missingZeroes = restSize size
   in (s <> BS.replicate missingZeroes 0, fromIntegral size)
 
+-- | Returns the modular of 32 bytes.
 restSize :: Integral a => a -> a
 restSize size = (32 - size) `mod` 32
 
@@ -134,6 +145,7 @@ restSize size = (32 - size) `mod` 32
 putBS :: ByteString -> Put
 putBS s = putBuilder $ Builder.fromByteString s
 
+-- | Reads a given number of bytes and the rest because binary data padded up to 32 bytes.
 getBS :: Word256 -> Get BS.ByteString
 getBS size = (BS.take (fromIntegral size)) <$> getByteString (fromIntegral $ size + restSize size)
 
@@ -169,6 +181,7 @@ putWord256be = put
 getWord256be :: Get Word256
 getWord256be = get
 
+-- | Signatures are 65 bytes sized, we split the bytestring by 65 symbols segments.
 sliceSignatures :: ByteString -> [ByteString]
 sliceSignatures sig' = go sig' []
   where
