@@ -168,9 +168,9 @@ diffLatestPactState = go
       (Left (), Right _) -> do
         error "right stream longer than left"
       (Right (t1, next1), Right (t2, next2)) -> do
-        when (t1.tableName /= t2.tableName) $ do
+        when (t1.name /= t2.name) $ do
           error "diffLatestPactState: mismatched table names"
-        S.yield (t1.tableName, diffTables t1 t2)
+        S.yield (t1.name, diffTables t1 t2)
         go next1 next2
 
 data RowKeyDiffExists
@@ -211,13 +211,13 @@ rowKeyDiffExistsToObject = \case
     ]
 
 data Table = Table
-  { tableName :: !Text
+  { name :: !Text
   , rows :: [PactRow]
   }
   deriving stock (Eq, Ord, Show)
 
 data TableDiffable = TableDiffable
-  { tableName :: !Text
+  { name :: !Text
   , rows :: Map ByteString ByteString -- Map RowKey RowData
   }
   deriving stock (Eq, Ord, Show)
@@ -238,11 +238,11 @@ instance ToJSON PactRow where
 
 getActiveRows :: Table -> TableDiffable
 getActiveRows (Table name rows) = TableDiffable
-  { tableName = name
+  { name = name
   , rows = M.fromList
-      $ List.map (pactRowToEntry . takeHead . List.sortOn (Down . txId))
-      $ List.groupBy (\x y -> rowKey x == rowKey y)
-      $ List.sortOn rowKey rows
+      $ List.map (pactRowToEntry . takeHead . List.sortOn (\pr -> Down pr.txId))
+      $ List.groupBy (\x y -> x.rowKey == y.rowKey)
+      $ List.sortOn (\pr -> pr.rowKey) rows
   }
   where
     takeHead :: [a] -> a
