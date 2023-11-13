@@ -58,7 +58,7 @@ module Chainweb.Version.Guards
 
 import Control.Lens
 import Numeric.Natural
-import Pact.Types.KeySet (PublicKeyText, ed25519HexFormat, webauthnFormat)
+import Pact.Types.KeySet (PublicKeyText, ed25519HexFormat, webAuthnFormat)
 import Pact.Types.Scheme (PPKScheme(ED25519, WebAuthn))
 
 import Chainweb.BlockHeight
@@ -263,5 +263,5 @@ validPPKSchemes v cid bh =
 validKeyFormats :: ChainwebVersion -> ChainId -> BlockHeight -> [PublicKeyText -> Bool]
 validKeyFormats v cid bh =
   if chainweb221Pact v cid bh
-  then [ed25519HexFormat, webauthnFormat]
+  then [ed25519HexFormat, webAuthnFormat]
   else [ed25519HexFormat]
