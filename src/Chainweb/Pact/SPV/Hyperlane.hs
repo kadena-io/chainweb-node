@@ -31,13 +31,11 @@ import qualified Crypto.Secp256k1 as ECDSA
 
 import Ethereum.Misc hiding (Word256)
 
--- internal pact modules
-
 import Pact.Types.Runtime
 
 import Chainweb.Pact.SPV.Hyperlane.Binary
 
--- | Evaluates Hyperlane command
+-- | Parses the object and evaluates Hyperlane command
 evalHyperlaneCommand :: Object Name -> ExceptT Text IO (Object Name)
 evalHyperlaneCommand (_objectMap . _oObject -> om) = do
   case (M.lookup "storageLocation" om, M.lookup "signature" om) of
@@ -52,6 +50,13 @@ evalHyperlaneCommand (_objectMap . _oObject -> om) = do
       (Just (TObject o _), _, _, _) -> encodeHyperMessage o
       _ -> throwError "Unknown hyperlane command"
 
+-- | Decodes Hyperlane binary message and metadata,
+-- verifies against the provided signatures using the provided threshold.
+--
+-- Requires that m-of-n validators verify a merkle root, and verifies a me∑rkle proof of message against that root.
+--
+-- The original algorithm in hyperlane.
+-- https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/v3/solidity/contracts/isms/multisig/AbstractMultisigIsm.sol#L67
 verifySignatures :: Text -> Text -> V.Vector Text -> Int -> ExceptT Text IO (Object Name)
 verifySignatures hexMessage hexMetadata validators threshold = do
   message <- case decodeHex hexMessage of
@@ -68,6 +73,7 @@ verifySignatures hexMessage hexMetadata validators threshold = do
 
   let
     domainHash = getKeccak256Hash $ BL.toStrict $ Binary.runPut $ do
+      -- Corresponds to abi.encodePacked behaviour
       Binary.put hmOriginDomain
       putBS mmimOriginMerkleTreeAddress
       putBS "HYPERLANE"
@@ -76,17 +82,18 @@ verifySignatures hexMessage hexMetadata validators threshold = do
 
   let
     hash' = getKeccak256Hash $ BL.toStrict $ Binary.runPut $ do
+      -- Corresponds to abi.encodePacked behaviour
       putBS domainHash
       putBS mmimSignedCheckpointRoot
       Binary.put mmimSignedCheckpointIndex
       putBS messageId
   let
     digest = keccak256 $ BL.toStrict $ Binary.runPut $ do
+      -- Corresponds to abi.encodePacked behaviour
       putBS ethereumHeader
       putBS hash'
 
-  let recoverAddress = recoverHexAddress digest
-  addresses <- mapM recoverAddress mmimSignatures
+  addresses <- mapM (recoverHexAddress digest) mmimSignatures
 
   let verificationAddresses = take threshold $ catMaybes addresses
   let verifyStep (_, vals) signer = case V.elemIndex signer vals of
@@ -113,6 +120,7 @@ verifySignatures hexMessage hexMetadata validators threshold = do
           ]
   pure $ mkObject [ ("message", hmObj), ("messageId", tStr $ asString $ encodeHex messageId), ("verified", tLit $ LBool verified) ]
 
+-- | Recovers address from provided signature using the calculated digest with provided storageLocation.
 recoverAddressValidatorAnnouncement :: Text -> Text -> ExceptT Text IO (Object Name)
 recoverAddressValidatorAnnouncement storageLocation sig = do
   signatureBinary <- case decodeHex sig of
@@ -124,22 +132,24 @@ recoverAddressValidatorAnnouncement storageLocation sig = do
 
   let
     hash' = getKeccak256Hash $ BL.toStrict $ Binary.runPut $ do
+      -- Corresponds to abi.encodePacked behaviour
       putBS domainHash
       putBS $ Text.encodeUtf8 storageLocation
 
   let
     announcementDigest = keccak256 $ BL.toStrict $ Binary.runPut $ do
+      -- Corresponds to abi.encodePacked behaviour
       putBS ethereumHeader
       putBS hash'
 
-  let recoverAddress = recoverHexAddress announcementDigest
-  address <- recoverAddress signatureBinary
+  address <- recoverHexAddress announcementDigest signatureBinary
   let addr = fmap (tStr . asString) $ address
 
   case addr of
     Just a -> return $ mkObject [ ("address", a) ]
     Nothing -> throwError "Failed to recover address"
 
+-- | Encodes pact object into Hyperlane binary message
 encodeHyperMessage :: Object Name -> ExceptT Text IO (Object Name)
 encodeHyperMessage o = do
   let
@@ -168,6 +178,7 @@ encodeHyperMessage o = do
     Just o' -> pure o'
     _ -> throwError "Couldn't encode HyperlaneMessage"
 
+-- | Parses 'TokenMessageERC20' from provided pact object.
 parseTokenMessageERC20 :: Object Name -> Maybe TokenMessageERC20
 parseTokenMessageERC20 o = do
   let om = _objectMap $ _oObject o
@@ -181,6 +192,7 @@ encodeTokenMessageERC20 o = do
   let hex = encodeHex $ BL.toStrict $ Binary.encode tm
   pure hex
 
+-- | Recovers the address from keccak256 encoded digest and signature.
 recoverHexAddress :: MonadThrow m => Keccak256Hash -> B.ByteString -> m (Maybe Text)
 recoverHexAddress digest sig' = do
   fnDigest <- ECDSA.ecdsaMessageDigest $ _getBytesN $ _getKeccak256Hash digest

@@ -51,10 +51,10 @@ import Text.Read (readMaybe)
 import Crypto.Hash.Algorithms
 
 import Ethereum.Header as EthHeader
-import Ethereum.Misc hiding (Word256)
+import Ethereum.Misc
 import Ethereum.Receipt
 import Ethereum.Receipt.ReceiptProof
-import Ethereum.RLP hiding (end)
+import Ethereum.RLP
 
 import Numeric.Natural
 
@@ -313,8 +313,6 @@ extractProof True (Object (ObjectMap o) _ _ _) = case M.lookup "proof" o of
     j <- first (const "Base64 decode failed") (decodeB64UrlNoPaddingText proof)
     first (const "Decode of TransactionOutputProof failed") (decodeStrictOrThrow j)
   _ -> Left "Invalid input, expected 'proof' field with base64url unpadded text"
-
-
 
 -- | Extract an Eth 'ReceiptProof' from a generic pact object
 --
