@@ -2,7 +2,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedRecordDot #-}
@@ -28,8 +27,8 @@
 --
 
 module Chainweb.Pact.Backend.PactState
-  ( getPactTables
-  , getPactUserTables
+  ( getPactTableNames
+  , getPactTables
   , getLatestPactState
   , getLatestBlockHeight
 
@@ -41,7 +40,6 @@ module Chainweb.Pact.Backend.PactState
   where
 
 import Data.IORef (newIORef, readIORef, atomicModifyIORef')
-import Control.Concurrent.MVar (MVar, putMVar, takeMVar, newEmptyMVar)
 import Control.Lens (over)
 import Control.Monad (forM, forM_, when, void)
 import Control.Monad.IO.Class (MonadIO(liftIO))
@@ -98,12 +96,12 @@ getLatestBlockHeight db = do
     [[SInt bh]] -> pure (BlockHeight (int bh))
     _ -> error "getLatestBlockHeight: expected int"
 
-getPactTables :: Database -> IO (Vector Utf8)
-getPactTables db = do
+getPactTableNames :: Database -> IO (Vector Utf8)
+getPactTableNames db = do
   let sortedTableNames :: [[SType]] -> [Utf8]
       sortedTableNames rows = M.elems $ M.fromListWith const $ flip List.map rows $ \case
         [SText u] -> (Text.toLower (utf8ToText u), u)
-        _ -> error "getPactTables.sortedTableNames: expected text"
+        _ -> error "getPactTableNames.sortedTableNames: expected text"
 
   tables <- fmap sortedTableNames $ do
     let qryText =
@@ -116,17 +114,13 @@ getPactTables db = do
 
   pure (Vector.fromList tables)
 
--- | Get all of the rows for each user table. The tables will be sorted.
---
---   The 'MVar' 'Word' argument is supposed to be supplied as a 'newEmptyMVar'.
---   This will get filled with the number of tables, once it is known.
-getPactUserTables :: Database -> MVar Word -> Stream (Of Table) IO ()
-getPactUserTables db numTables = do
+-- | Get all of the rows for each table. The tables will be sorted
+--   lexicographically by name.
+getPactTables :: Database -> Stream (Of Table) IO ()
+getPactTables db = do
   let fmtTable x = "\"" <> x <> "\""
 
-  tables <- liftIO $ getPactTables db
-
-  liftIO $ putMVar numTables (fromIntegral (Vector.length tables))
+  tables <- liftIO $ getPactTableNames db
 
   forM_ tables $ \tbl -> do
     if tbl `notElem` excludedTables
@@ -137,42 +131,18 @@ getPactUserTables db numTables = do
       shapedRows <- forM userRows $ \case
         [SText (Utf8 rowKey), SBlob rowData, SInt txId] -> do
           pure $ PactRow {..}
-        _ -> error "getPactTables: unexpected shape of user table row"
+        _ -> error "getPactTableNames: unexpected shape of user table row"
       S.yield $ Table (utf8ToText tbl) shapedRows
     else do
       pure ()
 
 getLatestPactState :: Database -> Stream (Of TableDiffable) IO ()
 getLatestPactState db = do
-  numTablesVar <- liftIO newEmptyMVar
-
-  let go :: Word -> Stream (Of Table) IO () -> Stream (Of TableDiffable) IO ()
-      go !tablesRepactDiffMaining s = do
-        if tablesRepactDiffMaining == 0
-        then do
-          pure ()
-        else do
-          e <- liftIO $ S.next s
-          case e of
-            Left () -> do
-              pure ()
-            Right (userTable, rest) -> do
-              S.yield (getActiveRows' userTable)
-              go (tablesRepactDiffMaining - 1) rest
-
-  e <- liftIO $ S.next (getPactUserTables db numTablesVar)
-  case e of
-    Left () -> do
-      pure ()
-    Right (userTable, rest) -> do
-      numRows <- liftIO $ takeMVar numTablesVar
-      when (numRows > 0) $ do
-        S.yield (getActiveRows' userTable)
-        go (numRows - 1) rest
+  S.map getActiveRows' (getPactTables db)
 
 -- This assumes the same tables (essentially zipWith).
 --   Note that this assumes we got the state from `getLatestPactState`,
---   because `getPactTables` sorts the table names, and `getLatestPactState`
+--   because `getPactTableNames` sorts the table names, and `getLatestPactState`
 --   sorts the [PactRow] by rowKey.
 --
 -- If we ever find two tables that are not the same, we throw an error.
@@ -226,6 +196,7 @@ diffTables t1 t2 = do
     )
     t1.rows
     t2.rows
+  liftIO performMajorGC
 
 rowKeyDiffExistsToObject :: RowKeyDiffExists -> Aeson.Value
 rowKeyDiffExistsToObject = \case
@@ -326,7 +297,6 @@ pactDiffMain = do
             TextLog "[Starting diff]"
           let diff = diffLatestPactState (getLatestPactState db1) (getLatestPactState db2)
           diffy <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
-            performMajorGC
             loggerFunIO logger Info $ toLogMessage $
               TextLog $ "[Starting table " <> tblName <> "]"
             S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do
