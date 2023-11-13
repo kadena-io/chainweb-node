@@ -12,6 +12,12 @@
     };
     flake-utils.url = "github:numtide/flake-utils";
     nix-filter.url = "github:numtide/nix-filter";
+    empty = {
+      url = "github:kadena-io/empty";
+      flake = false;
+    };
+    # By default we use the pact specified in the cabal.project
+    pact.follows = "empty";
   };
 
   nixConfig = {
@@ -19,7 +25,7 @@
     trusted-public-keys = "nixcache.chainweb.com:FVN503ABX9F8x8K0ptnc99XEz5SaA4Sks6kNcZn2pBY= iohk.cachix.org-1:DpRUyj7h7V830dp/i6Nti+NEO2/nhblbov/8MW7Rqoo= cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=";
   };
 
-  outputs = { self, hs-nix-infra, flake-utils, nix-filter, ... }:
+  outputs = inputs@{ self, hs-nix-infra, flake-utils, nix-filter, ... }:
     flake-utils.lib.eachSystem
       [ "x86_64-linux" "x86_64-darwin"
         "aarch64-linux" "aarch64-darwin" ] (system:
@@ -31,10 +37,14 @@
         inherit (haskellNix) config;
         overlays = [ haskellNix.overlay ];
       };
-      defaultNix = import ./default.nix {
-        inherit pkgs nix-filter;
-        flakePath = self.outPath;
-      };
+      mkDefaultNix = {
+          pact ? if inputs.pact.outPath != inputs.empty.outPath then inputs.pact else null,
+          enablePactBuildTool ? false,
+        }: import ./default.nix {
+          inherit pkgs nix-filter pact enablePactBuildTool;
+          flakePath = self.outPath;
+        };
+      defaultNix = mkDefaultNix {};
       flake = defaultNix.flake;
       executables = defaultNix.default;
       # This package depends on other packages at buildtime, but its output does not
@@ -67,5 +77,7 @@
 
       # Not used by standard Nix tooling, but could be useful for downstream users
       project = defaultNix.chainweb;
+
+      lib.mkChainwebProject = args: (mkDefaultNix args).chainweb;
     });
 }

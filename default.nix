@@ -16,6 +16,8 @@ in
 , compiler ? "ghc963"
 , flakePath ? flakeDefaultNix.outPath
 , nix-filter ? inputs.nix-filter
+, pact ? null
+, enablePactBuildTool ? false
 , ...
 }:
 let haskellSrc = with nix-filter.lib; filter {
@@ -32,10 +34,41 @@ let haskellSrc = with nix-filter.lib; filter {
         "dist-newstyle"
       ];
     };
-    chainweb = pkgs.haskell-nix.project' {
+    overridePact = pkgs.lib.optionalString (pact != null) ''
+      # Remove the source-repository-package section for pact and inject the
+      # override as a packages section
+      ${pkgs.gawk}/bin/awk -i inplace '
+        BEGINFILE { delete_block=0; buffer = ""; }
+        /^$/ {
+          if (delete_block == 0) print buffer "\n";
+          buffer="";
+          delete_block=0;
+          next;
+        }
+        /location: https:\/\/github.com\/kadena-io\/pact.git/ { delete_block=1; }
+        {
+          if (delete_block == 0) {
+            if (buffer != "") buffer = buffer "\n";
+            buffer = buffer $0;
+          }
+        }
+        ENDFILE { if (delete_block == 0) print buffer "\n"; }
+      ' $out
+      echo 'packages: ${pact}' >> $out
+    '';
+    overridePactBuildTool = pkgs.lib.optionalString enablePactBuildTool ''
+      # Remove the -build-tool flag from the pact package section, this allows
+      # us to build the pact executable through the chainweb project
+      sed -i '/package pact/,/^[^\ ]/{/^[ \t]/!b; s/-build-tool//}' $out
+    '';
+    chainweb = pkgs.haskell-nix.cabalProject' {
       src = haskellSrc;
       compiler-nix-name = compiler;
-      projectFileName = "cabal.project";
+      cabalProject = builtins.readFile (pkgs.runCommand "cabal.project" {} ''
+        cat ${./cabal.project} > $out
+        ${overridePact}
+        ${overridePactBuildTool}
+      '').outPath;
       shell.tools = {
         cabal = {};
         haskell-language-server = {};
