@@ -70,6 +70,6 @@
       devShell = flake.devShell;
 
       # Not used by standard Nix tooling, but could be useful for downstream users
-      project = defauktNix.chainweb;
+      project = defaultNix.chainweb;
     });
 }
