@@ -626,5 +626,5 @@ toPayloadWithOutputs mi ts =
         blockOuts = snd $ newBlockOutputs cb transOuts
 
         blockPL = blockPayload blockTrans blockOuts
-        plData = mkPayloadData blockTrans blockPL
+        plData = payloadData blockTrans blockPL
      in payloadWithOutputs plData cb transOuts

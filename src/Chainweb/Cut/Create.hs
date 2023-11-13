@@ -138,7 +138,7 @@ instance HasChainwebVersion CutExtension where
 -- | Witness that a cut can be extended for the given chain by trying to
 -- assemble the adjacent hashes for a new work header.
 --
--- Generally, adjacent validation uses the graph of the parent header. This
+-- Generally, adajacent validation uses the graph of the parent header. This
 -- ensures that during a graph transition the current header and all
 -- dependencies use the same graph and the inductive validation step works
 -- without special cases. Genesis headers don't require validation, because they
@@ -213,13 +213,13 @@ getCutExtension c cid = do
     tryAdj b
 
         -- When the block is behind, we can move ahead
-        | _blockHeight b == targetHeight = Just (_blockParent b)
+        | _blockHeight b == targetHeight = Just $! _blockParent b
 
         -- if the block is ahead it's blocked
         | _blockHeight b + 1 == parentHeight = Nothing -- chain is blocked
 
         -- If this is not a graph transition cut we can move ahead
-        | _blockHeight b == parentHeight = Just (_blockHash b)
+        | _blockHeight b == parentHeight = Just $! _blockHash b
 
         -- The cut is invalid
         | _blockHeight b > targetHeight = error $ T.unpack
