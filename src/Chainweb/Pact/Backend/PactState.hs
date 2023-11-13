@@ -138,7 +138,7 @@ getPactTables db = do
 
 getLatestPactState :: Database -> Stream (Of TableDiffable) IO ()
 getLatestPactState db = do
-  S.map getActiveRows' (getPactTables db)
+  S.map getActiveRows (getPactTables db)
 
 -- This assumes the same tables (essentially zipWith).
 --   Note that this assumes we got the state from `getLatestPactState`,
@@ -236,8 +236,8 @@ instance ToJSON PactRow where
     , "tx_id" .= pr.txId
     ]
 
-getActiveRows' :: Table -> TableDiffable
-getActiveRows' (Table name rows) = TableDiffable
+getActiveRows :: Table -> TableDiffable
+getActiveRows (Table name rows) = TableDiffable
   { tableName = name
   , rows = M.fromList
       $ List.map (pactRowToEntry . takeHead . List.sortOn (Down . txId))
