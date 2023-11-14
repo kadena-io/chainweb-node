@@ -142,6 +142,7 @@ fastForks = tabulateHashMap $ \case
     Chainweb221Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 33
     Chainweb222Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 36
     Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 38
+    Hyperlane -> AllChains ForkNever
 
 -- | A test version without Pact or PoW, with only one chain graph.
 barebonesTestVersion :: ChainGraph -> ChainwebVersion
@@ -266,6 +267,7 @@ slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
         Chainweb221Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 100)
         Chainweb222Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 115)
         Chainweb223Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 120)
+        Hyperlane -> AllChains ForkNever
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades quickly enabled.
 fastForkingCpmTestVersion :: ChainGraph -> ChainwebVersion

@@ -44,6 +44,7 @@ module Chainweb.Version.Guards
     , chainweb221Pact
     , chainweb222Pact
     , chainweb223Pact
+    , enableHyperlane
     , pact44NewTrans
     , pactParserVersion
     , maxBlockGasLimit
@@ -248,6 +249,10 @@ chainweb222Pact = checkFork atOrAfter Chainweb222Pact
 
 chainweb223Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb223Pact = checkFork atOrAfter Chainweb223Pact
+
+-- | Bridge support: Hyperlane.
+enableHyperlane :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+enableHyperlane = checkFork atOrAfter Hyperlane
 
 pactParserVersion :: ChainwebVersion -> ChainId -> BlockHeight -> PactParserVersion
 pactParserVersion v cid bh
