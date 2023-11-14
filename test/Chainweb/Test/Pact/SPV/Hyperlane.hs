@@ -45,6 +45,7 @@ tests = testGroup "hyperlane"
   , testCase "wordToDecimal" hyperlaneWordToDecimal
 
   , testCase "encodeHyperlaneMessage" hyperlaneEncodeHyperlaneMessage
+  , testCase "recoverValidatorAnnouncement" hyperlaneRecoverValidatorAnnouncement
   ]
 
 hyperlaneEmptyObject :: Assertion
@@ -109,5 +110,22 @@ hyperlaneEncodeHyperlaneMessage = do
         expectedObject = mkObject
           [ ("encodedMessage", tStr $ asString expectedMessage)
           , ("messageId", tStr $ asString ("0x42f79cdedbfc03af3296d1b337255cc53f870c8b2bb02107bded2a082bd02323" :: Text))
+          ]
+      in assertEqual "should get encoded message" expectedObject o
+
+hyperlaneRecoverValidatorAnnouncement :: Assertion
+hyperlaneRecoverValidatorAnnouncement = do
+  let
+    obj' = mkObject
+        [ ("storageLocation", tStr $ asString ("storagelocation" :: Text))
+        , ("signature", tStr $ asString ("0x53ba1fb621a19fbae9589c9d3fab7414a4ad75c45ddb6ddaf2e493a8a8ecf0af27256ed4f38b7304e80f653b462a79dcc22bbc975d7ce6f077f1cefe3afedabc1c" :: Text))
+        ]
+  res <- runExceptT $ evalHyperlaneCommand obj'
+  case res of
+    Left err -> assertFailure $ "Should get the result" ++ show err
+    Right o ->
+      let
+        expectedObject = mkObject
+          [ ("address", tStr $ asString ("0x6c414e7a15088023e28af44ad0e1d593671e4b15" :: Text))
           ]
       in assertEqual "should get encoded message" expectedObject o
