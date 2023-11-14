@@ -7,9 +7,11 @@ module Chainweb.Pact.SPV.Hyperlane where
 
 import Control.Error
 import Control.Lens hiding (index)
+import Control.Monad (when)
 import Control.Monad.Catch
 import Control.Monad.Except
 
+import Data.Foldable (foldl')
 import Data.DoubleWord
 import Data.Decimal
 import Data.Ratio
@@ -37,26 +39,28 @@ import Chainweb.Pact.SPV.Hyperlane.Binary
 
 -- | Parses the object and evaluates Hyperlane command
 evalHyperlaneCommand :: Object Name -> ExceptT Text IO (Object Name)
-evalHyperlaneCommand (_objectMap . _oObject -> om) = do
-  case (M.lookup "storageLocation" om, M.lookup "signature" om) of
-    (Just (TLitString storageLocation), Just (TLitString sig)) -> recoverAddressValidatorAnnouncement storageLocation sig
-    _ -> case (M.lookup "message" om, M.lookup "metadata" om, M.lookup "validators" om, M.lookup "threshold" om) of
-      (Just (TLitString message), Just (TLitString metadata), Just (TList validators _ _), Just (TLitInteger threshold)) ->
-        let
-          convert (TLitString v) = Just v
-          convert _ = Nothing
-        in verifySignatures message metadata (V.mapMaybe convert validators) (fromInteger threshold)
+evalHyperlaneCommand (_objectMap . _oObject -> om)
+  | Just (TLitString storageLocation) <- M.lookup "storageLocation" om
+  , Just (TLitString sig) <- M.lookup "signature" om
+  = recoverAddressValidatorAnnouncement storageLocation sig
 
-      (Just (TObject o _), _, _, _) -> encodeHyperMessage o
-      _ -> throwError "Unknown hyperlane command"
+  | Just (TLitString message) <- M.lookup "message" om
+  , Just (TLitString metadata) <- M.lookup "metadata" om
+  , Just (TList validators _ _) <- M.lookup "validators" om
+  , Just (TLitInteger threshold) <- M.lookup "threshold" om
+  =
+    let
+      convert (TLitString v) = Just v
+      convert _ = Nothing
+    in verifySignatures message metadata (V.mapMaybe convert validators) (fromInteger threshold)
+
+  | Just (TObject o _) <- M.lookup "message" om
+  = encodeHyperlaneMessage o
+
+  | otherwise = throwError "Unknown hyperlane command"
 
 -- | Decodes Hyperlane binary message and metadata,
 -- verifies against the provided signatures using the provided threshold.
---
--- Requires that m-of-n validators verify a merkle root, and verifies a me∑rkle proof of message against that root.
---
--- The original algorithm in hyperlane.
--- https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/v3/solidity/contracts/isms/multisig/AbstractMultisigIsm.sol#L67
 verifySignatures :: Text -> Text -> V.Vector Text -> Int -> ExceptT Text IO (Object Name)
 verifySignatures hexMessage hexMetadata validators threshold = do
   message <- case decodeHex hexMessage of
@@ -93,13 +97,20 @@ verifySignatures hexMessage hexMetadata validators threshold = do
       putBS ethereumHeader
       putBS hash'
 
-  addresses <- mapM (recoverHexAddress digest) mmimSignatures
+  addresses <- catMaybes <$> mapM (recoverHexAddress digest) mmimSignatures
 
-  let verificationAddresses = take threshold $ catMaybes addresses
+  when (length addresses < threshold) $
+    throwError $ Text.pack $ "The number of recovered addresses from the signatures is less than threshold: " ++ show threshold
+
+  -- Requires that m-of-n validators verify a merkle root, and verifies a merkle proof of message against that root.
+  --
+  -- The original algorithm in hyperlane.
+  -- https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/v3/solidity/contracts/isms/multisig/AbstractMultisigIsm.sol#L67
+  let verificationAddresses = take threshold addresses
   let verifyStep (_, vals) signer = case V.elemIndex signer vals of
-        Just i -> let newV = snd $ V.splitAt (i + 1) vals in (True, newV)
+        Just i -> let newV = V.drop (i + 1) vals in (True, newV)
         Nothing -> (False, V.empty)
-  let verified = fst $ foldl verifyStep (False, validators) verificationAddresses
+  let verified = fst $ foldl' verifyStep (False, validators) verificationAddresses
 
   let TokenMessageERC20{..} = hmTokenMessage
   let
@@ -126,6 +137,13 @@ recoverAddressValidatorAnnouncement storageLocation sig = do
   signatureBinary <- case decodeHex sig of
           Right s -> pure s
           Left e -> throwError $ Text.pack $ "Decoding of signature failed: " ++ e
+
+  let
+    -- | This is a kadena's domain hash calculated in Solidity as
+    -- keccak256(abi.encodePacked(626, "kb-mailbox", "HYPERLANE_ANNOUNCEMENT"))
+    domainHashHex :: Text
+    domainHashHex = "0xa69e6ef1a8e62aa6b513bd7d694c6d237164fb04df4e5fb4106e47bf5b5a0428"
+
   domainHash <- case decodeHex domainHashHex of
           Right s -> pure s
           Left e -> throwError $ Text.pack $ "Decoding of domainHashHex failed: " ++ e
@@ -150,8 +168,8 @@ recoverAddressValidatorAnnouncement storageLocation sig = do
     Nothing -> throwError "Failed to recover address"
 
 -- | Encodes pact object into Hyperlane binary message
-encodeHyperMessage :: Object Name -> ExceptT Text IO (Object Name)
-encodeHyperMessage o = do
+encodeHyperlaneMessage :: Object Name -> ExceptT Text IO (Object Name)
+encodeHyperlaneMessage o = do
   let
     om = _objectMap $ _oObject o
     tokenMessage = om ^? at "tokenMessage" . _Just . _TObject . _1
@@ -208,23 +226,21 @@ recoverHexAddress digest sig' = do
   addr <- recoverAddress sig'
   pure $ encodeHex <$> addr
 
--- | Returns an address, a rightmost 160 bits of the keccak hash of the public key.
+-- | Returns an address, a rightmost 160 bits (20 bytes) of the keccak hash of the public key.
 getAddress :: ECDSA.EcdsaPublicKey -> B.ByteString
-getAddress pubkey = B.drop 12 $ getKeccak256Hash $ BS.fromShort $ ECDSA.ecdsaPublicKeyBytes pubkey
-
--- | This is a kadena's domain hash calculated in Solidity as
--- keccak256(abi.encodePacked(626, "kb-mailbox", "HYPERLANE_ANNOUNCEMENT"))
-domainHashHex :: Text
-domainHashHex = "0xa69e6ef1a8e62aa6b513bd7d694c6d237164fb04df4e5fb4106e47bf5b5a0428"
+getAddress pubkey = B.takeEnd ethereumAddressSize $ getKeccak256Hash $ BS.fromShort $ ECDSA.ecdsaPublicKeyBytes pubkey
 
 encodeHex :: B.ByteString -> Text
 encodeHex = ((<>) "0x") . Text.decodeUtf8 . B.toStrict . Builder.toLazyByteString . Builder.byteStringHex
 
 decodeHex :: Text -> Either String B.ByteString
-decodeHex s = B16.decode $ Text.encodeUtf8 $ Text.drop 2 s
+decodeHex s
+  | Just h <- Text.stripPrefix "0x" s = B16.decode $ Text.encodeUtf8 h
+  | otherwise = Left "decodeHex: does not start with 0x"
 
+-- | Header of the 32 bytes ethereum binary message.
 ethereumHeader :: B.ByteString
-ethereumHeader = "\x19Ethereum Signed Message:\n32"
+ethereumHeader = "\x19Ethereum Signed Message:\n" <> "32"
 
 decimalToWord :: Decimal -> Word256
 decimalToWord d =
@@ -233,10 +249,8 @@ decimalToWord d =
 
 wordToDecimal :: Word256 -> Decimal
 wordToDecimal w =
-  let i = toInteger w
-      ethInWei = 1000000000000000000 -- 1e18
-      (d, m) = i `divMod` ethInWei
-  in fromInteger d + fromRational (m % ethInWei)
+  let ethInWei = 1000000000000000000 -- 1e18
+  in fromRational (toInteger w % ethInWei)
 
 getKeccak256Hash :: B.ByteString -> B.ByteString
 getKeccak256Hash = BS.fromShort . _getBytesN . _getKeccak256Hash . keccak256
