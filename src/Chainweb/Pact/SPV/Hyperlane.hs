@@ -240,7 +240,7 @@ decodeHex s
 
 -- | Header of the 32 bytes ethereum binary message.
 ethereumHeader :: B.ByteString
-ethereumHeader = "\x19Ethereum Signed Message:\n" <> "32"
+ethereumHeader = "\x19" <> "Ethereum Signed Message:\n" <> "32"
 
 decimalToWord :: Decimal -> Word256
 decimalToWord d =
