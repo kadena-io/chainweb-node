@@ -18,6 +18,10 @@ import qualified Data.Binary.Builder as Builder
 import Data.Binary.Get
 import Data.Binary.Put
 
+-- | Ethereum address takes 20 bytes
+ethereumAddressSize :: Int
+ethereumAddressSize = 20
+
 data HyperlaneMessage = HyperlaneMessage
   { hmVersion :: Word8            -- uint8
   , hmNonce :: Word32             -- uint32
@@ -44,11 +48,10 @@ instance Binary HyperlaneMessage where
     hmVersion <- getWord8
     hmNonce <- getWord32be
     hmOriginDomain <- getWord32be
-    hmSender <- BS.drop 12 <$> getBS 32
+    hmSender <- BS.takeEnd ethereumAddressSize <$> getBS 32
     hmDestinationDomain <- getWord32be
-    hmRecipient <- (BS.dropWhile (==0)) <$> getBS 32
-    rest <- getRemainingLazyByteString
-    let hmTokenMessage = decode rest
+    hmRecipient <- BS.dropWhile (== 0) <$> getBS 32
+    hmTokenMessage <- get
 
     return $ HyperlaneMessage {..}
 
