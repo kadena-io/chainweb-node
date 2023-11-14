@@ -55,6 +55,7 @@ import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 
 import Chainweb.BlockHeight (BlockHeight)
+import Chainweb.Logger (setComponent)
 import Chainweb.Utils (sshow, HasTextRepresentation, fromText, toText, int)
 import Chainweb.Version (ChainId, ChainwebVersion(..), ChainwebVersionName, unsafeChainId, chainIdToText)
 import Chainweb.Version.Mainnet (mainnet)
@@ -85,13 +86,13 @@ data CompactException
   deriving anyclass (Exception)
 
 data CompactFlag
-  = Flag_KeepCompactTables
+  = KeepCompactTables
     -- ^ Keep compaction tables post-compaction for inspection.
-  | Flag_NoVacuum
+  | NoVacuum
     -- ^ Don't VACUUM database
-  | Flag_NoDropNewTables
+  | NoDropNewTables
     -- ^ Don't drop new tables created after the compaction height.
-  | Flag_NoGrandHash
+  | NoGrandHash
     -- ^ Don't compute the grand hash.
   deriving stock (Eq,Show,Read,Enum,Bounded)
 
@@ -119,7 +120,8 @@ withPerChainFileLogger logDir chainId ll f = do
         }
   withHandleBackend_ logText handleConfig $ \b ->
     withLogger defaultLoggerConfig b $ \l -> do
-      let logger = over setLoggerScope (("chain", chainIdToText chainId) :)
+      let logger = setComponent "compaction"
+            $ over setLoggerScope (("chain", chainIdToText chainId) :)
             $ set setLoggerLevel ll l
       f logger
   where
@@ -406,7 +408,7 @@ collectTableRows txId tbl = do
   let vt = tableNameToSType tbl
   let txid = txIdToSType txId
 
-  doGrandHash <- not <$> isFlagSet Flag_NoGrandHash
+  doGrandHash <- not <$> isFlagSet NoGrandHash
   if | doGrandHash -> do
          logg Info "collectTableRows:insert"
          execM' "collectTableRows.0, doGrandHash=True" tbl
@@ -542,7 +544,7 @@ compact :: ()
 compact blockHeight logger db flags = runCompactM (mkCompactEnv logger db flags) $ do
   logg Info "Beginning compaction"
 
-  doGrandHash <- not <$> isFlagSet Flag_NoGrandHash
+  doGrandHash <- not <$> isFlagSet NoGrandHash
 
   withTx $ do
     createCompactGrandHash
@@ -561,17 +563,17 @@ compact blockHeight logger db flags = runCompactM (mkCompactEnv logger db flags)
   withTx $ do
     withTables versionedTables $ \tbl -> do
       compactTable tbl
-      whenFlagUnset Flag_NoGrandHash $ void $ verifyTable tbl
-    whenFlagUnset Flag_NoDropNewTables $ do
+      whenFlagUnset NoGrandHash $ void $ verifyTable tbl
+    whenFlagUnset NoDropNewTables $ do
       logg Info "Dropping new tables"
       dropNewTables blockHeight
     compactSystemTables blockHeight
 
-  whenFlagUnset Flag_KeepCompactTables $ do
+  whenFlagUnset KeepCompactTables $ do
     logg Info "Dropping compact-specific tables"
     withTx $ dropCompactTables
 
-  whenFlagUnset Flag_NoVacuum $ do
+  whenFlagUnset NoVacuum $ do
     logg Info "Vacuum"
     execNoTemplateM_ "VACUUM" "VACUUM;"
 
@@ -632,6 +634,9 @@ main = do
     opts = info (parser <**> helper)
         (fullDesc <> progDesc "Pact DB Compaction tool")
 
+    collapseSum :: [Parser [a]] -> Parser [a]
+    collapseSum = foldr (\x y -> (++) <$> x <*> y) (pure [])
+
     parser :: Parser CompactConfig
     parser = CompactConfig
         <$> (fmap Target (fromIntegral @Int <$> option auto
@@ -651,20 +656,20 @@ main = do
                <> help "Chainweb version for graph. Only needed for non-standard graphs."
                <> value (toText (_versionName mainnet))
                <> showDefault))
-        <*> (foldr (\x y -> (++) <$> x <*> y) (pure [])
-               [ flag [] [Flag_KeepCompactTables]
+        <*> collapseSum
+               [ flag [] [KeepCompactTables]
                   (long "keep-compact-tables"
                    <> help "Keep compaction tables post-compaction, for inspection.")
-               , flag [] [Flag_NoVacuum]
+               , flag [] [NoVacuum]
                   (long "no-vacuum"
                    <> help "Don't VACUUM database.")
-               , flag [] [Flag_NoDropNewTables]
+               , flag [] [NoDropNewTables]
                   (long "no-drop-new-tables"
                    <> help "Don't drop new tables.")
-               , flag [] [Flag_NoGrandHash]
+               , flag [] [NoGrandHash]
                   (long "no-grand-hash"
                    <> help "Don't compute the compact grand hash.")
-               ])
+               ]
         <*> optional (unsafeChainId <$> option auto
              (short 'c'
               <> metavar "CHAINID"
@@ -674,14 +679,14 @@ main = do
                <> metavar "DIRECTORY"
                <> help "Directory where logs will be placed"
                <> value ".")
-        <*> (option auto
+        <*> option auto
              (short 't'
               <> long "threads"
               <> metavar "THREADS"
               <> value 4
-              <> help "Number of threads for compaction processing"))
+              <> help "Number of threads for compaction processing")
 
-    fromTextSilly :: HasTextRepresentation a => Text -> a
-    fromTextSilly t = case fromText t of
-      Just a -> a
-      Nothing -> error "fromText failed"
+fromTextSilly :: HasTextRepresentation a => Text -> a
+fromTextSilly t = case fromText t of
+  Just a -> a
+  Nothing -> error "fromText failed"

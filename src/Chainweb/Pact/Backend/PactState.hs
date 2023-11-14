@@ -1,8 +1,10 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -49,7 +51,6 @@ import Data.Aeson qualified as Aeson
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import Data.ByteString (ByteString)
-import Data.ByteString.Lazy qualified as BSL
 import Data.Foldable qualified as F
 import Data.Int (Int64)
 import Data.List qualified as List
@@ -65,8 +66,9 @@ import Database.SQLite3.Direct qualified as SQL
 import Options.Applicative
 
 import Chainweb.BlockHeight (BlockHeight(..))
+import Chainweb.Logger (logFunctionText, logFunctionJson)
 import Chainweb.Utils (HasTextRepresentation, fromText, toText, int)
-import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName, ChainId, chainIdToText, unsafeChainId)
+import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName, ChainId, chainIdToText)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
@@ -74,10 +76,11 @@ import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Pact.Backend.Compaction qualified as C
 
+import System.Directory (doesFileExist)
+import System.FilePath ((</>))
 import System.Exit (exitFailure)
-import System.Logger (LogLevel(..), loggerFunIO)
-import System.Mem (performMajorGC)
-import Data.LogMessage (TextLog(..), toLogMessage)
+import System.Logger (LogLevel(..))
+import System.LogLevel qualified as LL
 
 import Pact.Types.SQLite (SType(..), RType(..))
 import Pact.Types.SQLite qualified as Pact
@@ -258,7 +261,6 @@ diffTables t1 t2 = do
     )
     t1.rows
     t2.rows
-  liftIO performMajorGC
 
 rowKeyDiffExistsToObject :: RowKeyDiffExists -> Aeson.Value
 rowKeyDiffExistsToObject = \case
@@ -333,39 +335,41 @@ pactDiffMain = do
     Text.putStrLn "Source and target Pact database directories cannot be the same."
     exitFailure
 
-  cids <- getCids cfg.firstDbDir cfg.chainwebVersion
+  let cids = List.sort $ F.toList $ chainIdsAt cfg.chainwebVersion (BlockHeight maxBound)
 
   diffyRef <- newIORef @(Map ChainId Diffy) M.empty
 
   forM_ cids $ \cid -> do
     C.withPerChainFileLogger cfg.logDir cid Info $ \logger -> do
-      let resetDb = False
+      let logText = logFunctionText logger
 
-      withSqliteDb cid logger cfg.firstDbDir resetDb $ \(SQLiteEnv db1 _) -> do
-        withSqliteDb cid logger cfg.secondDbDir resetDb $ \(SQLiteEnv db2 _) -> do
-          loggerFunIO logger Info $ toLogMessage $
-            TextLog "[Starting diff]"
-          let diff = diffLatestPactState (getLatestPactState db1) (getLatestPactState db2)
-          diffy <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
-            loggerFunIO logger Info $ toLogMessage $
-              TextLog $ "[Starting table " <> tblName <> "]"
-            d <- S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do
-              loggerFunIO logger Warn $ toLogMessage $
-                TextLog $ Text.decodeUtf8 $ BSL.toStrict $
-                  Aeson.encode $ rowKeyDiffExistsToObject d
-              pure Difference
-            loggerFunIO logger Info $ toLogMessage $
-              TextLog $ "[Finished table " <> tblName <> "]"
-            pure d
+      sqliteFileExists1 <- doesPactDbExist cid cfg.firstDbDir
+      sqliteFileExists2 <- doesPactDbExist cid cfg.secondDbDir
 
-          loggerFunIO logger Info $ toLogMessage $
-            TextLog $ case diffy of
-              Difference -> "[Non-empty diff]"
-              NoDifference -> "[Empty diff]"
-          loggerFunIO logger Info $ toLogMessage $
-            TextLog $ "[Finished chain " <> chainIdToText cid <> "]"
+      if | not sqliteFileExists1 -> do
+             logText LL.Warn $ "[SQLite for chain in " <> Text.pack cfg.firstDbDir <> " doesn't exist. Skipping]"
+         | not sqliteFileExists2 -> do
+             logText LL.Warn $ "[SQLite for chain in " <> Text.pack cfg.secondDbDir <> " doesn't exist. Skipping]"
+         | otherwise -> do
+             let resetDb = False
+             withSqliteDb cid logger cfg.firstDbDir resetDb $ \(SQLiteEnv db1 _) -> do
+               withSqliteDb cid logger cfg.secondDbDir resetDb $ \(SQLiteEnv db2 _) -> do
+                 logText LL.Info "[Starting diff]"
+                 let diff = diffLatestPactState (getLatestPactState db1) (getLatestPactState db2)
+                 diffy <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
+                   logText LL.Info $ "[Starting table " <> tblName <> "]"
+                   d <- S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do
+                     logFunctionJson logger LL.Warn $ rowKeyDiffExistsToObject d
+                     pure Difference
+                   logText LL.Info $ "[Finished table " <> tblName <> "]"
+                   pure d
 
-          atomicModifyIORef' diffyRef $ \m -> (M.insert cid diffy m, ())
+                 logText LL.Info $ case diffy of
+                   Difference -> "[Non-empty diff]"
+                   NoDifference -> "[Empty diff]"
+                 logText LL.Info $ "[Finished chain " <> chainIdToText cid <> "]"
+
+                 atomicModifyIORef' diffyRef $ \m -> (M.insert cid diffy m, ())
 
   diffy <- readIORef diffyRef
   case M.foldMapWithKey (\_ d -> d) diffy of
@@ -409,12 +413,12 @@ fromTextSilly t = case fromText t of
 utf8ToText :: Utf8 -> Text
 utf8ToText (Utf8 u) = Text.decodeUtf8 u
 
-getCids :: FilePath -> ChainwebVersion -> IO [ChainId]
-getCids pactDbDir chainwebVersion = do
-  -- Get the latest block height on chain 0 for the purpose of calculating all
-  -- the chain ids at the current (version,height) pair
-  latestBlockHeight <- C.withDefaultLogger Error $ \logger -> do
-    let resetDb = False
-    withSqliteDb (unsafeChainId 0) logger pactDbDir resetDb $ \(SQLiteEnv db _) -> do
-      getLatestBlockHeight db
-  pure $ List.sort $ F.toList $ chainIdsAt chainwebVersion latestBlockHeight
+doesPactDbExist :: ChainId -> FilePath -> IO Bool
+doesPactDbExist cid dbDir = do
+  let chainDbFileName = mconcat
+        [ "pact-v1-chain-"
+        , Text.unpack (chainIdToText cid)
+        , ".sqlite"
+        ]
+  let file = dbDir </> chainDbFileName
+  doesFileExist file

@@ -147,7 +147,7 @@ testCompactCheckpointer =
 
     tables <- getTestTables _sConn
 
-    checkTablesBeforeAfter pactdb mvar (compactToHeight 2 [Flag_KeepCompactTables]) tables $
+    checkTablesBeforeAfter pactdb mvar (compactToHeight 2 [KeepCompactTables]) tables $
       M.fromList
         [ ( "test_A"
           , TableBeforeAfter
