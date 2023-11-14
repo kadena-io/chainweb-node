@@ -16,8 +16,6 @@ module Chainweb.Test.Pact.SPV.Hyperlane
 ) where
 
 import Control.Monad.Trans.Except
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.Binary as Binary
 import Data.Text (Text)
 
 import Test.Tasty
@@ -33,6 +31,7 @@ import Pact.Types.Util (AsString(..))
 
 import Chainweb.Pact.SPV.Hyperlane
 import Chainweb.Pact.SPV.Hyperlane.Binary
+import Chainweb.Utils.Serialization (runGetS)
 
 tests :: TestTree
 tests = testGroup "hyperlane"
@@ -73,8 +72,8 @@ hyperlaneDecodeTokenMessageERC20 = do
   encodedBinary <- case decodeHex encodedMessage of
       Right r -> pure r
       Left _ -> assertFailure "hyperlaneDecodeTokenMessageERC20: failed to decode"
+  tm <- runGetS getTokenMessageERC20 encodedBinary
   let
-    tm = Binary.decode $ BL.fromStrict encodedBinary
     expectedObject = TokenMessageERC20 "recipient" 3333333333333333333
   assertEqual "Should properly decode the object" expectedObject tm
 

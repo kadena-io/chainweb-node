@@ -11,18 +11,15 @@ import Control.Monad (when)
 import Control.Monad.Catch
 import Control.Monad.Except
 
-import Data.Foldable (foldl')
-import Data.DoubleWord
-import Data.Decimal
-import Data.Ratio
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Builder as Builder
-import Data.Default (def)
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Short as BS
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.Binary as Binary
-import qualified Data.Binary.Put as Binary
+import Data.DoubleWord
+import Data.Decimal
+import Data.Default (def)
+import Data.Foldable (foldl')
+import Data.Ratio
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -36,6 +33,7 @@ import Ethereum.Misc hiding (Word256)
 import Pact.Types.Runtime
 
 import Chainweb.Pact.SPV.Hyperlane.Binary
+import Chainweb.Utils.Serialization (putRawByteString, runPutS, runGetS, putWord32be, putWord256be)
 
 -- | Parses the object and evaluates Hyperlane command
 evalHyperlaneCommand :: Object Name -> ExceptT Text IO (Object Name)
@@ -67,35 +65,35 @@ verifySignatures hexMessage hexMetadata validators threshold = do
           Right s -> pure s
           Left e -> throwError $ Text.pack $ "Decoding of HyperlaneMessage failed: " ++ e
 
-  let HyperlaneMessage{..} = Binary.decode $ BL.fromStrict $ message
+  HyperlaneMessage{..} <- runGetS getHyperlaneMessage message
 
-  metadata <- case BL.fromStrict <$> decodeHex hexMetadata of
+  metadata <- case decodeHex hexMetadata of
           Right s -> pure s
           Left e -> throwError $ Text.pack $ "Decoding of Metadata failed: " ++ e
 
-  let MessageIdMultisigIsmMetadata{..} = Binary.decode metadata
+  MessageIdMultisigIsmMetadata{..} <- runGetS getMessageIdMultisigIsmMetadata metadata
 
   let
-    domainHash = getKeccak256Hash $ BL.toStrict $ Binary.runPut $ do
+    domainHash = getKeccak256Hash $ runPutS $ do
       -- Corresponds to abi.encodePacked behaviour
-      Binary.put hmOriginDomain
-      putBS mmimOriginMerkleTreeAddress
-      putBS "HYPERLANE"
+      putWord32be hmOriginDomain
+      putRawByteString mmimOriginMerkleTreeAddress
+      putRawByteString "HYPERLANE"
 
   let messageId = getKeccak256Hash message
 
   let
-    hash' = getKeccak256Hash $ BL.toStrict $ Binary.runPut $ do
+    hash' = getKeccak256Hash $ runPutS $ do
       -- Corresponds to abi.encodePacked behaviour
-      putBS domainHash
-      putBS mmimSignedCheckpointRoot
-      Binary.put mmimSignedCheckpointIndex
-      putBS messageId
+      putRawByteString domainHash
+      putRawByteString mmimSignedCheckpointRoot
+      putWord256be mmimSignedCheckpointIndex
+      putRawByteString messageId
   let
-    digest = keccak256 $ BL.toStrict $ Binary.runPut $ do
+    digest = keccak256 $ runPutS $ do
       -- Corresponds to abi.encodePacked behaviour
-      putBS ethereumHeader
-      putBS hash'
+      putRawByteString ethereumHeader
+      putRawByteString hash'
 
   addresses <- catMaybes <$> mapM (recoverHexAddress digest) mmimSignatures
 
@@ -149,16 +147,16 @@ recoverAddressValidatorAnnouncement storageLocation sig = do
           Left e -> throwError $ Text.pack $ "Decoding of domainHashHex failed: " ++ e
 
   let
-    hash' = getKeccak256Hash $ BL.toStrict $ Binary.runPut $ do
+    hash' = getKeccak256Hash $ runPutS $ do
       -- Corresponds to abi.encodePacked behaviour
-      putBS domainHash
-      putBS $ Text.encodeUtf8 storageLocation
+      putRawByteString domainHash
+      putRawByteString $ Text.encodeUtf8 storageLocation
 
   let
-    announcementDigest = keccak256 $ BL.toStrict $ Binary.runPut $ do
+    announcementDigest = keccak256 $ runPutS $ do
       -- Corresponds to abi.encodePacked behaviour
-      putBS ethereumHeader
-      putBS hash'
+      putRawByteString ethereumHeader
+      putRawByteString hash'
 
   address <- recoverHexAddress announcementDigest signatureBinary
   let addr = fmap (tStr . asString) $ address
@@ -188,10 +186,10 @@ encodeHyperlaneMessage o = do
       hmRecipient <- om ^? at "recipient" . _Just . _TLiteral . _1 . _LString . to decodeHex . _Right
 
       let hm = HyperlaneMessage{..}
-      let b = BL.toStrict $ Binary.encode hm
-      let messageId = encodeHex $ getKeccak256Hash b
-      let hex = encodeHex b
-      pure $ mkObject [ ("encodedMessage", tStr $ asString hex), ("messageId", tStr $ asString messageId) ]
+      let binaryHm = runPutS $ putHyperlaneMessage hm
+      let messageId = encodeHex $ getKeccak256Hash binaryHm
+      let hexHm = encodeHex binaryHm
+      pure $ mkObject [ ("encodedMessage", tStr $ asString hexHm), ("messageId", tStr $ asString messageId) ]
   case newObj of
     Just o' -> pure o'
     _ -> throwError "Couldn't encode HyperlaneMessage"
@@ -207,7 +205,7 @@ parseTokenMessageERC20 o = do
 encodeTokenMessageERC20 :: Object Name -> Maybe Text
 encodeTokenMessageERC20 o = do
   tm <- parseTokenMessageERC20 o
-  let hex = encodeHex $ BL.toStrict $ Binary.encode tm
+  let hex = encodeHex $ runPutS $ putTokenMessageERC20 tm
   pure hex
 
 -- | Recovers the address from keccak256 encoded digest and signature.

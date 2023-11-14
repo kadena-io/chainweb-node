@@ -8,15 +8,12 @@
 module Chainweb.Pact.SPV.Hyperlane.Binary where
 
 import Data.ByteString as BS
-import qualified Data.ByteString.Lazy as BL
-
 import Data.DoubleWord
 import Data.Text (Text)
 import qualified Data.Text.Encoding as Text
-import Data.Binary
-import qualified Data.Binary.Builder as Builder
-import Data.Binary.Get
-import Data.Binary.Put
+import Data.Word
+
+import Chainweb.Utils.Serialization
 
 -- | Ethereum address takes 20 bytes
 ethereumAddressSize :: Int
@@ -33,27 +30,28 @@ data HyperlaneMessage = HyperlaneMessage
   }
 
 -- Corresponds to abi.encodePacked behaviour
-instance Binary HyperlaneMessage where
-  put (HyperlaneMessage {..}) = do
-    put hmVersion
-    put hmNonce
-    put hmOriginDomain
-    putBS (padLeft hmSender)
-    put hmDestinationDomain
-    putBS (padLeft hmRecipient)
+putHyperlaneMessage :: HyperlaneMessage -> Put
+putHyperlaneMessage (HyperlaneMessage {..}) = do
+  putWord8 hmVersion
+  putWord32be hmNonce
+  putWord32be hmOriginDomain
+  putRawByteString (padLeft hmSender)
+  putWord32be hmDestinationDomain
+  putRawByteString (padLeft hmRecipient)
 
-    put hmTokenMessage
+  putTokenMessageERC20 hmTokenMessage
 
-  get = do
-    hmVersion <- getWord8
-    hmNonce <- getWord32be
-    hmOriginDomain <- getWord32be
-    hmSender <- BS.takeEnd ethereumAddressSize <$> getBS 32
-    hmDestinationDomain <- getWord32be
-    hmRecipient <- BS.dropWhile (== 0) <$> getBS 32
-    hmTokenMessage <- get
+getHyperlaneMessage :: Get HyperlaneMessage
+getHyperlaneMessage = do
+  hmVersion <- getWord8
+  hmNonce <- getWord32be
+  hmOriginDomain <- getWord32be
+  hmSender <- BS.takeEnd ethereumAddressSize <$> getBS 32
+  hmDestinationDomain <- getWord32be
+  hmRecipient <- BS.dropWhile (== 0) <$> getBS 32
+  hmTokenMessage <- getTokenMessageERC20
 
-    return $ HyperlaneMessage {..}
+  return $ HyperlaneMessage {..}
 
 data TokenMessageERC20 = TokenMessageERC20
   { tmRecipient :: Text -- string
@@ -68,18 +66,19 @@ data TokenMessageERC20 = TokenMessageERC20
 -- 4235663664383937364600000000000000000000000000000000000000000000
 
 -- Corresponds to abi.encode behaviour
-instance Binary TokenMessageERC20 where
-  put (TokenMessageERC20 {..}) = do
-    -- the first offset is constant
-    put (64 :: Word256) -- 32 bytes
-    put tmAmount        -- 32 bytes
-    -- 64 bytes
-    put recipientSize   -- 32 bytes
-    putBS recipient     -- recipientSize
-    where
-      (recipient, recipientSize) = padRight $ Text.encodeUtf8 tmRecipient
+putTokenMessageERC20 :: TokenMessageERC20 -> Put
+putTokenMessageERC20 (TokenMessageERC20 {..}) = do
+  -- the first offset is constant
+  putWord256be (64 :: Word256) -- 32 bytes
+  putWord256be tmAmount        -- 32 bytes
+  -- 64 bytes
+  putWord256be recipientSize   -- 32 bytes
+  putRawByteString recipient   -- recipientSize
+  where
+    (recipient, recipientSize) = padRight $ Text.encodeUtf8 tmRecipient
 
-  get = do
+getTokenMessageERC20 :: Get TokenMessageERC20
+getTokenMessageERC20 = do
     _firstOffset <- getWord256be
     tmAmount <- getWord256be
 
@@ -104,23 +103,20 @@ data MessageIdMultisigIsmMetadata = MessageIdMultisigIsmMetadata
 -- 77c3c8d8e6029f65f7f7b0ad8b80fae2b178d14c9a7b228a539349aad0c7b58b
 -- 1b00000000000000000000000000000000000000000000000000000000000000
 
-instance Binary MessageIdMultisigIsmMetadata where
-  put = error "put instance is not implemented for MessageIdMultisigIsmMetadata"
+getMessageIdMultisigIsmMetadata :: Get MessageIdMultisigIsmMetadata
+getMessageIdMultisigIsmMetadata = do
+  mmimOriginMerkleTreeAddress <- getBS 32
+  mmimSignedCheckpointRoot <- getBS 32
+  mmimSignedCheckpointIndex <- getWord256be
+  _firstOffset <- getWord256be
 
-  -- Corresponds to abi.encode behaviour
-  get = do
-    mmimOriginMerkleTreeAddress <- getBS 32
-    mmimSignedCheckpointRoot <- getBS 32
-    mmimSignedCheckpointIndex <- getWord256be
-    _firstOffset <- getWord256be
+  -- we don't care about the size, we know that each signature is 65 bytes long
+  signaturesSize <- getWord256be
 
-    -- we don't care about the size, we know that each signature is 65 bytes long
-    _signaturesSize <- getWord256be
+  signaturesBytes <- getByteString (fromIntegral signaturesSize)
+  let mmimSignatures = sliceSignatures signaturesBytes
 
-    theRest <- BL.toStrict <$> getRemainingLazyByteString
-    let mmimSignatures = sliceSignatures theRest
-
-    return $ MessageIdMultisigIsmMetadata{..}
+  return $ MessageIdMultisigIsmMetadata{..}
 
 -- | Pad with zeroes on the left to 32 bytes
 --
@@ -144,45 +140,9 @@ padRight s =
 restSize :: Integral a => a -> a
 restSize size = (32 - size) `mod` 32
 
--- | Puts bytestring without size using 'Builder'.
-putBS :: ByteString -> Put
-putBS s = putBuilder $ Builder.fromByteString s
-
 -- | Reads a given number of bytes and the rest because binary data padded up to 32 bytes.
 getBS :: Word256 -> Get BS.ByteString
 getBS size = (BS.take (fromIntegral size)) <$> getByteString (fromIntegral $ size + restSize size)
-
-instance Binary Word128 where
-  put (Word128 w1 w2) = do
-    putWord64be w1
-    putWord64be w2
-
-  get = do
-    w1 <- getWord64be
-    w2 <- getWord64be
-    pure $ Word128 w1 w2
-
-putWord128be :: Word128 -> Put
-putWord128be = put
-
-getWord128be :: Get Word128
-getWord128be = get
-
-instance Binary Word256 where
-  put (Word256 w1 w2) = do
-    putWord128be w1
-    putWord128be w2
-
-  get = do
-    w1 <- getWord128be
-    w2 <- getWord128be
-    pure $ Word256 w1 w2
-
-putWord256be :: Word256 -> Put
-putWord256be = put
-
-getWord256be :: Get Word256
-getWord256be = get
 
 -- | Signatures are 65 bytes sized, we split the bytestring by 65 symbols segments.
 sliceSignatures :: ByteString -> [ByteString]
