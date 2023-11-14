@@ -31,8 +31,13 @@ module Chainweb.Utils.Serialization
     , getWord64le
     , putWord64be
     , getWord64be
+    , putWord128be
+    , getWord128be
+    , putWord256be
+    , getWord256be
     , putByteString
     , getByteString
+    , putRawByteString
 
     -- abstract encoders and decoders
     , WordEncoding(..)
@@ -57,6 +62,7 @@ import qualified Data.Text as T
 import Data.Word
 
 import qualified Data.Binary as Binary
+import qualified Data.Binary.Builder as Builder
 import qualified Data.Binary.Get as Binary
 import qualified Data.Binary.Put as Binary
 
@@ -146,6 +152,22 @@ getByteString :: Int -> Get B.ByteString
 getByteString = coerce Binary.getByteString
 putByteString :: B.ByteString -> Put
 putByteString = coerce Binary.putByteString
+
+putWord128be :: Word128 -> Put
+putWord128be = encodeWordBe
+
+getWord128be :: Get Word128
+getWord128be = decodeWordBe
+
+putWord256be :: Word256 -> Put
+putWord256be = encodeWordBe
+
+getWord256be :: Get Word256
+getWord256be = decodeWordBe
+
+-- | Puts bytestring without size using 'Builder'.
+putRawByteString :: B.ByteString -> Put
+putRawByteString = coerce (Binary.putBuilder . Builder.fromByteString)
 
 --------------------
 -- Abstract encoders/decoders
