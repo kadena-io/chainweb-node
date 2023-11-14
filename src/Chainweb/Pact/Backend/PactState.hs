@@ -39,8 +39,11 @@ module Chainweb.Pact.Backend.PactState
   where
 
 import Data.IORef (newIORef, readIORef, atomicModifyIORef')
+import Control.Exception (bracket)
 import Control.Monad (forM, forM_, when, void)
 import Control.Monad.IO.Class (MonadIO(liftIO))
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Except (ExceptT(..), runExceptT, throwError)
 import Data.Aeson (ToJSON(..), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Vector (Vector)
@@ -51,14 +54,14 @@ import Data.Foldable qualified as F
 import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map (Map)
-import Data.Map.Merge.Lazy qualified as Merge
-import Data.Map.Lazy qualified as M
-import Data.Ord (Down(..))
+import Data.Map.Merge.Strict qualified as Merge
+import Data.Map.Strict qualified as M
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
 import Data.Text.Encoding qualified as Text
 import Database.SQLite3.Direct (Utf8(..), Database)
+import Database.SQLite3.Direct qualified as SQL
 import Options.Applicative
 
 import Chainweb.BlockHeight (BlockHeight(..))
@@ -134,9 +137,61 @@ getPactTables db = do
     else do
       pure ()
 
+stepStatement :: SQL.Statement -> [RType] -> Stream (Of [SType]) IO (Either SQL.Error ())
+stepStatement stmt rts = runExceptT $ do
+  -- todo: rename from acc
+  let acc :: SQL.StepResult -> ExceptT SQL.Error (Stream (Of [SType]) IO) ()
+      acc = \case
+        SQL.Done -> do
+          pure ()
+        SQL.Row -> do
+          as <- forM (List.zip [0..] rts) $ \(colIx, expectedColType) -> do
+            liftIO $ case expectedColType of
+              RInt -> SInt <$> SQL.columnInt64 stmt colIx
+              RDouble -> SDouble <$> SQL.columnDouble stmt colIx
+              RText -> SText <$> SQL.columnText stmt colIx
+              RBlob -> SBlob <$> SQL.columnBlob stmt colIx
+          lift $ S.yield as
+          liftIO (SQL.step stmt) >>= \case
+            Left err -> do
+              throwError err
+            Right sr -> do
+              acc sr
+
+  -- maybe use stepNoCB
+  ExceptT (liftIO (SQL.step stmt)) >>= acc
+
+-- | Prepare/execute query with params
+qry :: ()
+  => Database
+  -> Utf8
+  -> [SType]
+  -> [RType]
+  -> (Stream (Of [SType]) IO (Either SQL.Error ()) -> IO x)
+  -> IO x
+qry db qryText args returnTypes k = do
+  bracket (Pact.prepStmt db qryText) SQL.finalize $ \stmt -> do
+    Pact.bindParams stmt args
+    k (stepStatement stmt returnTypes)
+
 getLatestPactState :: Database -> Stream (Of TableDiffable) IO ()
 getLatestPactState db = do
-  S.map getActiveRows (getPactTables db)
+  let fmtTable x = "\"" <> x <> "\""
+
+  tables <- liftIO $ getPactTableNames db
+
+  forM_ tables $ \tbl -> do
+    when (tbl `notElem` excludedTables) $ do
+      let qryText = "SELECT rowkey, rowdata, txid FROM "
+            <> fmtTable tbl
+      latestState <- fmap (M.map (\prc -> prc.rowData)) $ liftIO $ qry db qryText [] [RText, RBlob, RInt] $ \rows -> do
+        let go :: Map ByteString PactRowContents -> [SType] -> Map ByteString PactRowContents
+            go m = \case
+              [SText (Utf8 rowKey), SBlob rowData, SInt txId] ->
+                M.insertWith (\prc1 prc2 -> if prc1.txId > prc2.txId then prc1 else prc2) rowKey (PactRowContents rowData txId) m
+              _ -> error "getLatestPactState: unexpected shape of user table row"
+        S.fold_ go M.empty id rows
+      S.yield (TableDiffable (utf8ToText tbl) latestState)
 
 -- This assumes the same tables (essentially zipWith).
 --   Note that this assumes we got the state from `getLatestPactState`,
@@ -150,7 +205,10 @@ getLatestPactState db = do
 -- constant memory.
 --
 -- TODO: maybe inner stream should be a ByteStream
-diffLatestPactState :: Stream (Of TableDiffable) IO () -> Stream (Of TableDiffable) IO () -> Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
+diffLatestPactState :: ()
+  => Stream (Of TableDiffable) IO ()
+  -> Stream (Of TableDiffable) IO ()
+  -> Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
 diffLatestPactState = go
   where
   go :: Stream (Of TableDiffable) IO () -> Stream (Of TableDiffable) IO () -> Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
@@ -219,7 +277,7 @@ data Table = Table
   { name :: Text
   , rows :: [PactRow]
   }
-  deriving stock (Eq, Ord, Show)
+  deriving stock (Eq, Show)
 
 -- | A diffable pact table - its name and the _active_ pact state
 --   as a Map from RowKey to RowData.
@@ -234,7 +292,7 @@ data PactRow = PactRow
   , rowData :: ByteString
   , txId :: Int64
   }
-  deriving stock (Eq, Ord, Show)
+  deriving stock (Eq, Show)
 
 instance ToJSON PactRow where
   toJSON pr = Aeson.object
@@ -243,28 +301,11 @@ instance ToJSON PactRow where
     , "tx_id" .= pr.txId
     ]
 
--- | Get the active rows of a table.
---
---   - sort the rows by row key
---   - group into chunks by rowkey
---   - for each chunk, keep only the latest txId
---   - shove all the (rowkey, rowdata) into a Map
-getActiveRows :: Table -> TableDiffable
-getActiveRows (Table name rows) = TableDiffable
-  { name = name
-  , rows = M.fromList
-      $ List.map (pactRowToEntry . takeHead . List.sortOn (\pr -> Down pr.txId))
-      $ List.groupBy (\x y -> x.rowKey == y.rowKey)
-      $ List.sortOn (\pr -> pr.rowKey) rows
+data PactRowContents = PactRowContents
+  { rowData :: ByteString
+  , txId :: Int64
   }
-  where
-    takeHead :: [a] -> a
-    takeHead = \case
-      [] -> error "getLatestPactState.getActiveRows.takeHead: impossible case"
-      (x : _) -> x
-
-    pactRowToEntry :: PactRow -> (ByteString, ByteString)
-    pactRowToEntry pr = (pr.rowKey, pr.rowData)
+  deriving stock (Eq, Show)
 
 data PactDiffConfig = PactDiffConfig
   { firstDbDir :: FilePath
