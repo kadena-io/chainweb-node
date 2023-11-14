@@ -31,6 +31,8 @@
         "aarch64-linux" "aarch64-darwin" ] (system:
     let
       inherit (hs-nix-infra) nixpkgs haskellNix;
+      # The pactInput is non-null only if the pact input was overridden
+      pactInput = if inputs.pact.outPath != inputs.empty.outPath then inputs.pact else null;
       basePkgs = hs-nix-infra.nixpkgs.legacyPackages.${system};
       pkgs = import nixpkgs {
         inherit system;
@@ -38,7 +40,7 @@
         overlays = [ haskellNix.overlay ];
       };
       mkDefaultNix = {
-          pact ? if inputs.pact.outPath != inputs.empty.outPath then inputs.pact else null,
+          pact ? pactInput,
           enablePactBuildTool ? false,
         }: import ./default.nix {
           inherit pkgs nix-filter pact enablePactBuildTool;
@@ -46,6 +48,12 @@
         };
       defaultNix = mkDefaultNix {};
       flake = defaultNix.flake;
+      mkRecursive = { pact ? pactInput }: with hs-nix-infra.lib.recursive system;
+        let args = if pact == null then "{}" else "{ pact = builtins.storePath ${pact}; }";
+            recursive = wrapRecursiveWithMeta "chainweb-node" ''
+              (${wrapFlake self}.lib.${system}.mkDefaultNix ${args}).default
+            '';
+        in recursive // { pact = defaultNix.pactFromCached pkgs-rec pact recursive.cached; };
       executables = defaultNix.default;
       # This package depends on other packages at buildtime, but its output does not
       # depend on them. This way, we don't have to download the entire closure to verify
@@ -62,8 +70,7 @@
         # evaluation of the haskellNix project to a recursive nix-build. If you expect to
         # find this package in your nix store or a binary cache, using this package will
         # significantly reduce your nix eval times and the amount of data you download.
-        recursive = with hs-nix-infra.lib.recursive system;
-          wrapRecursiveWithMeta "chainweb-node" "${wrapFlake self}.default";
+        recursive = mkRecursive {};
 
         check = pkgs.runCommand "check" {} ''
           echo ${mkCheck "chainweb" executables}
@@ -78,6 +85,9 @@
       # Not used by standard Nix tooling, but could be useful for downstream users
       project = defaultNix.chainweb;
 
-      lib.mkChainwebProject = args: (mkDefaultNix args).chainweb;
+      lib = {
+        inherit mkDefaultNix mkRecursive;
+        mkChainwebProject = args: (mkDefaultNix args).chainweb;
+      };
     });
 }

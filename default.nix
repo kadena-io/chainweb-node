@@ -84,15 +84,23 @@ let haskellSrc = with nix-filter.lib; filter {
       ];
     };
     flake = chainweb.flake {};
+    pactFromCached = pkgs: pactInput: cached: {
+      version = cached.meta.pact.version;
+      src = if pactInput == null then pkgs.fetchgit cached.meta.pact.src else pactInput;
+    };
     passthru = {
       version = flake.packages."chainweb:exe:chainweb-node".version;
-      # cachedMeta gets propagated through the recursive outputs
-      cachedMeta = {
-        pact = {
-          version = chainweb.hsPkgs.pact.identifier.version;
-          src = chainweb.hsPkgs.pact.src;
+      # cached.meta gets propagated through the recursive outputs
+      cached.paths.pactSrc = chainweb.hsPkgs.pact.src;
+      cached.meta.pact = {
+        version = chainweb.hsPkgs.pact.identifier.version;
+        src = if pact != null then {} else with chainweb.hsPkgs.pact.src; {
+          url = gitRepoUrl;
+          hash = outputHash;
+          inherit rev;
         };
       };
+      pact = pactFromCached pkgs pact passthru.cached;
     };
     default = pkgs.runCommandCC "chainweb" { inherit passthru; } ''
       mkdir -pv $out/bin
@@ -118,6 +126,8 @@ in {
   # Example:
   # $ ls $(nix-instantiate default.nix -A haskellSrc --eval)
   inherit haskellSrc;
+
+  inherit pactFromCached;
 
   # The haskell.nix Haskell project (executables, libraries, etc)
   # Also contains the `flake` attribute, and many useful things.
