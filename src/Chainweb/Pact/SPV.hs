@@ -132,6 +132,7 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
   where
     cid = CW._chainId bdb
     enableBridge = CW.enableSPVBridge (CW._chainwebVersion bh) cid (_blockHeight bh)
+    enableHyperlane = CW.enableHyperlane (CW._chainwebVersion bh) cid (_blockHeight bh)
 
     mkSPVResult' cr j
         | enableBridge =
@@ -175,7 +176,7 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
           PactResult (Right v) ->
             mkSPVResult' q v
 
-      "HYPERLANE_V3" -> evalHyperlaneCommand o
+      "HYPERLANE_V3" | enableHyperlane -> evalHyperlaneCommand o
 
       t -> throwError $! "unsupported SPV types: " <> t
 
