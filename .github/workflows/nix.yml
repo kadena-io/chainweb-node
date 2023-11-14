@@ -40,4 +40,6 @@ jobs:
       run: |
         echo Building the project and its devShell
         nix build .#check --log-lines 500 --show-trace --accept-flake-config
-        nix build .#recursive --log-lines 500 --show-trace --accept-flake-config
+
+        echo Build the recursive output
+        nix build .#recursive.allDerivations --accept-flake-config --log-lines 500 --show-trace
