@@ -1,12 +1,14 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -32,14 +34,18 @@ module Chainweb.Pact.Backend.Compaction
   ) where
 
 import UnliftIO.Async (pooledMapConcurrentlyN_)
+import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.MVar (swapMVar, readMVar, newMVar)
 import Control.Exception (Exception, SomeException(..))
-import Control.Lens (makeLenses, set, over, view)
+import Control.Lens (makeLenses, set, over, view, (^.))
 import Control.Monad (forM_, when, void)
 import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, local)
+import Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
 import Data.ByteString (ByteString)
 import Data.Foldable qualified as F
+import Data.Function (fix)
 import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map.Strict qualified as M
@@ -53,6 +59,8 @@ import GHC.Stack (HasCallStack)
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
+import System.IO qualified as IO
+import System.IO (Handle)
 
 import Chainweb.BlockHeight (BlockHeight)
 import Chainweb.Logger (setComponent)
@@ -66,6 +74,7 @@ import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Utils (encodeB64Text)
 
 import System.Logger
+import System.Logger.Backend.ColorOption (useColor)
 import Data.LogMessage
 
 import Pact.Types.SQLite (SType(..), RType(..))
@@ -118,14 +127,41 @@ withPerChainFileLogger logDir chainId ll f = do
   let handleConfig = defaultHandleBackendConfig
         { _handleBackendConfigHandle = FileHandle logFile
         }
-  withHandleBackend_ logText handleConfig $ \b ->
+  withHandleBackend_' logText handleConfig $ \h b -> do
+
+    done <- newMVar False
+    void $ forkIO $ fix $ \go -> do
+      doneYet <- readMVar done
+      when (not doneYet) $ do
+        threadDelay 5_000_000
+        IO.hFlush h
+        go
+      IO.hFlush h
+
     withLogger defaultLoggerConfig b $ \l -> do
       let logger = setComponent "compaction"
             $ over setLoggerScope (("chain", chainIdToText chainId) :)
             $ set setLoggerLevel ll l
-      f logger
+      a <- f logger
+      void $ swapMVar done True
+      pure a
   where
     cid = Text.unpack (chainIdToText chainId)
+
+withHandleBackend_' :: (MonadIO m, MonadBaseControl IO m)
+  => (msg -> Text)
+  -> HandleBackendConfig
+  -> (Handle -> LoggerBackend msg -> m a)
+  -> m a
+withHandleBackend_' format conf inner =
+  case conf ^. handleBackendConfigHandle of
+    StdErr -> run IO.stderr
+    StdOut -> run IO.stdout
+    FileHandle file -> liftBaseOp (IO.withFile file IO.AppendMode) run
+  where
+    run h = do
+      colored <- liftIO $ useColor (conf ^. handleBackendConfigColor) h
+      inner h (handleBackend_ format h colored)
 
 -- | Set up compaction.
 mkCompactEnv
@@ -571,7 +607,7 @@ compact blockHeight logger db flags = runCompactM (mkCompactEnv logger db flags)
 
   whenFlagUnset KeepCompactTables $ do
     logg Info "Dropping compact-specific tables"
-    withTx $ dropCompactTables
+    withTx dropCompactTables
 
   whenFlagUnset NoVacuum $ do
     logg Info "Vacuum"
@@ -581,7 +617,7 @@ compact blockHeight logger db flags = runCompactM (mkCompactEnv logger db flags)
     Just h -> do
       logg Info $ "Compaction complete, hash=" <> encodeB64Text h
     Nothing -> do
-      logg Info $ "Compaction complete"
+      logg Info "Compaction complete"
 
   pure gh
 
