@@ -171,7 +171,7 @@ putRawByteString :: B.ByteString -> Put
 putRawByteString = coerce (Binary.putBuilder . Builder.fromByteString)
 
 getRemainingLazyByteString :: Get BL.ByteString
-getRemainingLazyByteString = coerce ( Binary.getRemainingLazyByteString)
+getRemainingLazyByteString = coerce Binary.getRemainingLazyByteString
 
 --------------------
 -- Abstract encoders/decoders
