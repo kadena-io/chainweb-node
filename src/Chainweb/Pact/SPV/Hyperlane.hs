@@ -215,18 +215,24 @@ recoverHexAddress digest sig' = do
   let
     mkR s = ECDSA.ecdsaR $ BS.toShort s
     mkS s = ECDSA.ecdsaS $ BS.toShort s
+    mkV s = ECDSA.ecdsaV $ BS.toShort s
     recoverAddress sig = do
       let (begin, end) = B.splitAt 32 sig
       r <- mkR begin
       s <- mkS (B.take 32 end)
-      pure $ ECDSA.ecdsaRecoverPublicKey fnDigest r s False False <&> getAddress
+      v <- mkV (B.drop 32 end)
+      pure $ ECDSA.ecdsaRecoverPublicKey fnDigest r s v <&> getAddress
 
   addr <- recoverAddress sig'
   pure $ encodeHex <$> addr
 
 -- | Returns an address, a rightmost 160 bits (20 bytes) of the keccak hash of the public key.
 getAddress :: ECDSA.EcdsaPublicKey -> B.ByteString
-getAddress pubkey = B.takeEnd ethereumAddressSize $ getKeccak256Hash $ BS.fromShort $ ECDSA.ecdsaPublicKeyBytes pubkey
+getAddress pubkey = B.takeEnd ethereumAddressSize
+    $ getKeccak256Hash
+    $ BS.fromShort
+    $ BS.drop 1 -- drop the first 0x04 byte the indicates that the key is encoded in compressed format
+    $ ECDSA.ecdsaPublicKeyBytes pubkey
 
 encodeHex :: B.ByteString -> Text
 encodeHex = ((<>) "0x") . Text.decodeUtf8 . B.toStrict . Builder.toLazyByteString . Builder.byteStringHex
