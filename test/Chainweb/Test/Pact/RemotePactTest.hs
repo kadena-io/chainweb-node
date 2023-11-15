@@ -3,6 +3,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -50,6 +51,7 @@ import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
+import System.Logger.Types (LogLevel(..))
 
 import Numeric.Natural
 
@@ -79,6 +81,9 @@ import Pact.Types.Term
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool
+import Chainweb.Pact.Backend.Compaction qualified as C
+import Chainweb.Pact.Backend.Utils qualified as Backend
+import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.Service.Types
@@ -92,7 +97,6 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Mainnet
 import Chainweb.Storage.Table.RocksDB
-
 
 -- -------------------------------------------------------------------------- --
 -- Global Settings
@@ -135,6 +139,12 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
         withResource' getCurrentTimeIntegral $ \(iotm :: IO (Time Micros)) ->
             let cenv = _getServiceClientEnv <$> net
                 iot = toTxCreationTime <$> iotm
+                pactDir = do
+                  m <- _getPactDbDirs <$> net
+                  case M.lookup 0 m of
+                    Just dir -> pure dir
+                    Nothing -> error "impossible"
+
             in testGroup "remote pact tests"
                 [ withResourceT (liftIO $ join $ withRequestKeys <$> iot <*> cenv) $ \reqkeys -> golden "remote-golden" $
                     join $ responseGolden <$> cenv <*> reqkeys
@@ -153,6 +163,9 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
                 , after AllSucceed "remote spv" $
                     testCase "trivialLocalCheck" $
                         join $ localTest <$> iot <*> cenv
+                , after AllSucceed "remote spv" $
+                    testCase "txlogsTest" $
+                        join $ txlogsTest <$> iot <*> cenv <*> pactDir
                 , after AllSucceed "remote spv" $
                     testCase "localChainData" $
                         join $ localChainDataTest <$> iot <*> cenv
@@ -189,6 +202,61 @@ responseGolden cenv rks = do
     let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
     return $ foldMap J.encode values
+
+txlogsTest :: Pact.TxCreationTime -> ClientEnv -> FilePath -> IO ()
+txlogsTest t cenv pactDbDir = do
+    let getTxLogs :: Int -> Text -> IO (Command Text)
+        getTxLogs n tblName = do
+          let mkId txtId = "\"" <> txtId <> "\""
+          let mkPerson name age = "{ 'name:\"" <> name <> "\", 'age:" <> age <> " }"
+          let mkInsert txtId name age
+                = "(insert " <> tblName <> " " <> mkId txtId <> " " <> mkPerson name age <> ")"
+
+          let tx = T.unlines
+                [ "(namespace 'free)"
+                , "(module m" <> sshow n <> " G"
+                , "  \"Hullabaloo\""
+                , "  (defcap G () true)"
+                , "  (defschema person"
+                , "    name:string"
+                , "    age:integer"
+                , "  )"
+                , "  (deftable " <> tblName <> ":{person})"
+                , "  (defun read-persons (k) (read persons k))"
+                , "  (defun persons-txids (i) (txids persons i))"
+                , ")"
+                , "(create-table " <> tblName <> ")"
+                , mkInsert "A" "Lindsey Lohan" "42"
+                , mkInsert "B" "Nico Robin" "30"
+                , mkInsert "C" "chessai" "69"
+                , "(map (txlog m0.persons) (txids m0.persons 0))"
+                ]
+          buildTextCmd
+            $ set cbSigners [mkSigner' sender00 []]
+            $ set cbGasLimit 300_000
+            $ set cbTTL defaultMaxTTL
+            $ set cbCreationTime t
+            $ set cbChainId cid
+            $ set cbNetworkId (Just v)
+            $ mkCmd ("createTable-" <> tblName <> "-" <> sshow n)
+            $ mkExec tx
+            $ mkKeySetData "sender00" [sender00]
+
+    do
+      tx <- getTxLogs 0 "persons"
+      cr <- local cid cenv tx --e <- flip runClientM cenv $
+        --pactSendApiClient v cid $ SubmitBatch $ NEL.fromList [tx]
+      print (_crResult cr) --print e
+
+    C.withDefaultLogger Error $ \logger -> do
+      let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
+      let bh = undefined
+      let resetDb = False
+
+      Backend.withSqliteDb cid logger pactDbDir resetDb $ \(SQLiteEnv db _) -> do
+        void $ C.compact bh logger db flags
+
+    pure ()
 
 localTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
 localTest t cenv = do

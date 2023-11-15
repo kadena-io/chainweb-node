@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -10,7 +11,6 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Test.Utils
@@ -134,6 +134,8 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Coerce (coerce)
 import Data.Foldable
+import Data.Map.Strict qualified as Map
+import Data.Map.Strict (Map)
 import qualified Data.HashMap.Strict as HashMap
 import Data.IORef
 import Data.List (sortOn, isInfixOf)
@@ -897,6 +899,7 @@ matchTest pat = withArgs ["-p",pat]
 data ChainwebNetwork = ChainwebNetwork
     { _getClientEnv :: !ClientEnv
     , _getServiceClientEnv :: !ClientEnv
+    , _getPactDbDirs :: !(Map Int FilePath)
     }
 
 withNodes_
@@ -907,14 +910,17 @@ withNodes_
     -> RocksDb
     -> Natural
     -> ResourceT IO ChainwebNetwork
-withNodes_ logger v testLabel rdb n =
-    (uncurry ChainwebNetwork . snd) . snd <$>
-        allocate start (cancel . fst)
+withNodes_ logger v testLabel rdb n = do
+    pactDbDirsVar <- liftIO newEmptyMVar
+
+    (_rkey, (_async, (p2p, service))) <- allocate (start pactDbDirsVar) (cancel . fst)
+    pactDbDirs <- liftIO (readMVar pactDbDirsVar)
+    pure (ChainwebNetwork p2p service pactDbDirs)
   where
-    start :: IO (Async (), (ClientEnv, ClientEnv))
-    start = do
+    start :: MVar (Map Int FilePath) -> IO (Async (), (ClientEnv, ClientEnv))
+    start pactDbDirsVar = do
         peerInfoVar <- newEmptyMVar
-        a <- async $ runTestNodes testLabel rdb logger v n peerInfoVar
+        a <- async $ runTestNodes testLabel rdb logger v n peerInfoVar pactDbDirsVar
         (i, servicePort) <- readMVar peerInfoVar
         cwEnv <- getClientEnv $ getCwBaseUrl Https $ _hostAddressPort $ _peerAddr i
         cwServiceEnv <- getClientEnv $ getCwBaseUrl Http servicePort
@@ -994,17 +1000,32 @@ runTestNodes
     -> ChainwebVersion
     -> Natural
     -> MVar (PeerInfo, Port)
+    -> MVar (Map Int FilePath)
+       -- ^ A Map from Node Id to Pact DB Dir.
+       --   Pass in an empty MVar.
+       --   `readMVar` this and you will block until it's filled.
     -> IO ()
-runTestNodes testLabel rdb logger ver n portMVar =
-    forConcurrently_ [0 .. int n - 1] $ \i -> do
-        threadDelay (1000 * int i)
+runTestNodes testLabel rdb logger ver n portMVar pactDbsVar = do
+    let nids = [0 .. int n - 1]
+
+    --nodeDirsRef <- newIORef @(Map Int (MVar FilePath)) mempty
+    nodeVars <- forM nids $ \nid -> do
+      var <- newEmptyMVar
+      pure (nid, var)
+
+    void $ forkIO $ do
+      nodePaths <- forM nodeVars $ \(nid, var) -> do
+        path <- readMVar var
+        pure (nid, path)
+      putMVar pactDbsVar $ Map.fromList nodePaths
+
+    forConcurrently_ nodeVars $ \(nid, var) -> do
+        threadDelay (1000 * int nid)
         let baseConf = config ver n
-        conf <- if
-            | i == 0 ->
-                return $ bootstrapConfig baseConf
-            | otherwise ->
-                setBootstrapPeerInfo <$> (fst <$> readMVar portMVar) <*> pure baseConf
-        node testLabel rdb logger portMVar conf i
+        conf <- if nid == 0
+          then return $ bootstrapConfig baseConf
+          else setBootstrapPeerInfo <$> (fst <$> readMVar portMVar) <*> pure baseConf
+        node testLabel rdb logger portMVar conf var nid
 
 node
     :: Logger logger
@@ -1013,15 +1034,19 @@ node
     -> logger
     -> MVar (PeerInfo, Port)
     -> ChainwebConfiguration
+    -> MVar FilePath
+       -- ^ an MVar that will be filled with the directory
+       --   of the node's pact state. pass in an empty MVar.
     -> Int
         -- ^ Unique Node Id. The node id 0 is used for the bootstrap node
     -> IO ()
-node testLabel rdb rawLogger peerInfoVar conf nid = do
+node testLabel rdb rawLogger peerInfoVar conf pactDbDirVar nid = do
     rocksDb <- testRocksDb (testLabel <> T.encodeUtf8 (toText nid)) rdb
     withSystemTempDirectory "test-backupdir" $ \backupDir ->
         withSystemTempDirectory "test-rocksdb" $ \dir ->
             withChainweb conf logger rocksDb backupDir dir False $ \case
                 StartedChainweb cw -> do
+                    putMVar pactDbDirVar backupDir
 
                     -- If this is the bootstrap node we extract the port number and publish via an MVar.
                     when (nid == 0) $ do
