@@ -33,7 +33,7 @@ import Ethereum.Misc hiding (Word256)
 import Pact.Types.Runtime
 
 import Chainweb.Pact.SPV.Hyperlane.Binary
-import Chainweb.Utils.Serialization (putRawByteString, runPutS, runGetS, putWord32be, putWord256be)
+import Chainweb.Utils.Serialization (putRawByteString, runPutS, runGetS, putWord32be)
 
 -- | Parses the object and evaluates Hyperlane command
 evalHyperlaneCommand :: Object Name -> ExceptT Text IO (Object Name)
@@ -87,7 +87,7 @@ verifySignatures hexMessage hexMetadata validators threshold = do
       -- Corresponds to abi.encodePacked behaviour
       putRawByteString domainHash
       putRawByteString mmimSignedCheckpointRoot
-      putWord256be mmimSignedCheckpointIndex
+      putWord32be mmimSignedCheckpointIndex
       putRawByteString messageId
   let
     digest = keccak256 $ runPutS $ do
@@ -95,10 +95,12 @@ verifySignatures hexMessage hexMetadata validators threshold = do
       putRawByteString ethereumHeader
       putRawByteString hash'
 
-  addresses <- catMaybes <$> mapM (recoverHexAddress digest) mmimSignatures
+  addresses <- catMaybes <$> mapM (recoverAddress digest) mmimSignatures
 
   when (length addresses < threshold) $
     throwError $ Text.pack $ "The number of recovered addresses from the signatures is less than threshold: " ++ show threshold
+
+  binaryValidators <- mapM (either (throwError . Text.pack) pure . decodeHex) validators
 
   -- Requires that m-of-n validators verify a merkle root, and verifies a merkle proof of message against that root.
   --
@@ -108,7 +110,7 @@ verifySignatures hexMessage hexMetadata validators threshold = do
   let verifyStep (_, vals) signer = case V.elemIndex signer vals of
         Just i -> let newV = V.drop (i + 1) vals in (True, newV)
         Nothing -> (False, V.empty)
-  let verified = fst $ foldl' verifyStep (False, validators) verificationAddresses
+  let verified = fst $ foldl' verifyStep (False, binaryValidators) verificationAddresses
 
   let TokenMessageERC20{..} = hmTokenMessage
   let
@@ -158,8 +160,8 @@ recoverAddressValidatorAnnouncement storageLocation sig = do
       putRawByteString ethereumHeader
       putRawByteString hash'
 
-  address <- recoverHexAddress announcementDigest signatureBinary
-  let addr = fmap (tStr . asString) $ address
+  address <- recoverAddress announcementDigest signatureBinary
+  let addr = fmap (tStr . asString . encodeHex) $ address
 
   case addr of
     Just a -> return $ mkObject [ ("address", a) ]
@@ -209,22 +211,23 @@ encodeTokenMessageERC20 o = do
   pure hex
 
 -- | Recovers the address from keccak256 encoded digest and signature.
-recoverHexAddress :: MonadThrow m => Keccak256Hash -> B.ByteString -> m (Maybe Text)
-recoverHexAddress digest sig' = do
+recoverAddress :: MonadThrow m => Keccak256Hash -> B.ByteString -> m (Maybe B.ByteString)
+recoverAddress digest sig' = do
   fnDigest <- ECDSA.ecdsaMessageDigest $ _getBytesN $ _getKeccak256Hash digest
   let
     mkR s = ECDSA.ecdsaR $ BS.toShort s
     mkS s = ECDSA.ecdsaS $ BS.toShort s
     mkV s = ECDSA.ecdsaV $ BS.toShort s
-    recoverAddress sig = do
-      let (begin, end) = B.splitAt 32 sig
-      r <- mkR begin
-      s <- mkS (B.take 32 end)
-      v <- mkV (B.drop 32 end)
+    ecrecover sig = do
+      -- signature is a 65 bytes long sequence (r, s, v), where r and s are both 32 bytes and v is 1 byte
+      let (binR, sAndV) = B.splitAt 32 sig
+      r <- mkR binR
+      s <- mkS (B.take 32 sAndV)
+      v <- mkV (B.drop 32 sAndV)
       pure $ ECDSA.ecdsaRecoverPublicKey fnDigest r s v <&> getAddress
 
-  addr <- recoverAddress sig'
-  pure $ encodeHex <$> addr
+  addr <- ecrecover sig'
+  pure addr
 
 -- | Returns an address, a rightmost 160 bits (20 bytes) of the keccak hash of the public key.
 getAddress :: ECDSA.EcdsaPublicKey -> B.ByteString

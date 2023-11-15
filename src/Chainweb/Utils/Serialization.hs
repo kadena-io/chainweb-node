@@ -38,6 +38,7 @@ module Chainweb.Utils.Serialization
     , putByteString
     , getByteString
     , putRawByteString
+    , getRemainingLazyByteString
 
     -- abstract encoders and decoders
     , WordEncoding(..)
@@ -168,6 +169,9 @@ getWord256be = decodeWordBe
 -- | Puts bytestring without size using 'Builder'.
 putRawByteString :: B.ByteString -> Put
 putRawByteString = coerce (Binary.putBuilder . Builder.fromByteString)
+
+getRemainingLazyByteString :: Get BL.ByteString
+getRemainingLazyByteString = coerce ( Binary.getRemainingLazyByteString)
 
 --------------------
 -- Abstract encoders/decoders

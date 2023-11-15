@@ -8,6 +8,7 @@
 module Chainweb.Pact.SPV.Hyperlane.Binary where
 
 import Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BL
 import Data.DoubleWord
 import Data.Text (Text)
 import qualified Data.Text.Encoding as Text
@@ -89,31 +90,17 @@ getTokenMessageERC20 = do
 data MessageIdMultisigIsmMetadata = MessageIdMultisigIsmMetadata
   { mmimOriginMerkleTreeAddress :: ByteString
   , mmimSignedCheckpointRoot :: ByteString
-  , mmimSignedCheckpointIndex :: Word256
+  , mmimSignedCheckpointIndex :: Word32
   , mmimSignatures :: [ByteString]
   }
-
--- example
--- 6f726967696e4d65726b6c655472656541646472657373000000000000000000 32 originMerkleTreeAddress
--- 6d65726b6c65526f6f7400000000000000000000000000000000000000000000 64 merkleRoot
--- 00000000000000000000000000000000000000000000000000000000ffffffff 96 4294967295
--- 0000000000000000000000000000000000000000000000000000000000000080 128 128
--- 0000000000000000000000000000000000000000000000000000000000000041 160 65
--- 4e45a1dc8d84b3a63db8c9c6cbe4e0a780ecb55ff157c038b9f5d1a2be7a0a02
--- 77c3c8d8e6029f65f7f7b0ad8b80fae2b178d14c9a7b228a539349aad0c7b58b
--- 1b00000000000000000000000000000000000000000000000000000000000000
 
 getMessageIdMultisigIsmMetadata :: Get MessageIdMultisigIsmMetadata
 getMessageIdMultisigIsmMetadata = do
   mmimOriginMerkleTreeAddress <- getBS 32
   mmimSignedCheckpointRoot <- getBS 32
-  mmimSignedCheckpointIndex <- getWord256be
-  _firstOffset <- getWord256be
+  mmimSignedCheckpointIndex <- getWord32be
 
-  -- we don't care about the size, we know that each signature is 65 bytes long
-  signaturesSize <- getWord256be
-
-  signaturesBytes <- getByteString (fromIntegral signaturesSize)
+  signaturesBytes <- getRemainingLazyByteString
   let mmimSignatures = sliceSignatures signaturesBytes
 
   return $ MessageIdMultisigIsmMetadata{..}
@@ -145,9 +132,9 @@ getBS :: Word256 -> Get BS.ByteString
 getBS size = (BS.take (fromIntegral size)) <$> getByteString (fromIntegral $ size + restSize size)
 
 -- | Signatures are 65 bytes sized, we split the bytestring by 65 symbols segments.
-sliceSignatures :: ByteString -> [ByteString]
+sliceSignatures :: BL.ByteString -> [ByteString]
 sliceSignatures sig' = go sig' []
   where
-    go s sigs = if BS.length s >= 65
-      then let (sig, rest) = BS.splitAt 65 s in go rest (sig:sigs)
+    go s sigs = if BL.length s >= 65
+      then let (sig, rest) = BL.splitAt 65 s in go rest (BL.toStrict sig : sigs)
       else Prelude.reverse sigs
