@@ -537,7 +537,6 @@ test-suite chainweb-tests
         , byteslice >= 0.2.12
         , bytesmith >= 0.3.10
             -- due to change in error message that is inlined in pact
-        , binary >= 0.8
         , bytestring >= 0.10.12
         , case-insensitive >= 1.2
         , chainweb-storage >= 0.1
