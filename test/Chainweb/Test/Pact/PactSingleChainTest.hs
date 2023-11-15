@@ -409,7 +409,7 @@ pactStateSamePreAndPostCompaction rdb =
 
       let stateDiff = M.filter (not . PatienceM.isSame) (PatienceM.diff statePreCompaction statePostCompaction)
       when (not (null stateDiff)) $ do
-        putStrLn ""
+        T.putStrLn ""
         forM_ (M.toList stateDiff) $ \(tbl, delta) -> do
           T.putStrLn ""
           T.putStrLn tbl
@@ -507,7 +507,7 @@ compactionIsIdempotent rdb =
 
       let stateDiff = M.filter (not . PatienceM.isSame) (PatienceM.diff statePostCompaction1 statePostCompaction2)
       when (not (null stateDiff)) $ do
-        putStrLn ""
+        T.putStrLn ""
         forM_ (M.toList stateDiff) $ \(tbl, delta) -> do
           T.putStrLn ""
           T.putStrLn tbl
