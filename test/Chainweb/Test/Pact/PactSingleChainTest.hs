@@ -266,7 +266,7 @@ rosettaFailsWithoutFullHistory rdb =
             let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
             let db = _sConn sqlEnv
             let bh = BlockHeight 5
-            void $ C.compact bh logger db flags
+            void $ C.compact (C.Target bh) logger db flags
 
         -- This needs to run after the previous test
         -- Annoyingly, we must inline the PactService util starts here.
@@ -325,7 +325,7 @@ rewindPastMinBlockHeightFails rdb =
         let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
         let db = _sConn sqlEnv
         let height = BlockHeight 5
-        void $ C.compact height cLogger db flags
+        void $ C.compact (C.Target height) cLogger db flags
 
       -- Genesis block header; compacted away by now
       let bh = genesisBlockHeader ver cid
@@ -403,7 +403,7 @@ pactStateSamePreAndPostCompaction rdb =
       C.withDefaultLogger System.Logger.Types.Error $ \cLogger -> do
         let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
         let height = BlockHeight numBlocks
-        void $ C.compact height cLogger db flags
+        void $ C.compact (C.Target height) cLogger db flags
 
       statePostCompaction <- getLatestPactState db
 
@@ -499,7 +499,7 @@ compactionIsIdempotent rdb =
             let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
             void $ C.compact h cLogger db flags
 
-      let compactionHeight = BlockHeight numBlocks
+      let compactionHeight = C.Target (BlockHeight numBlocks)
       compact compactionHeight
       statePostCompaction1 <- getPactUserTables db
       compact compactionHeight
@@ -627,7 +627,7 @@ compactionUserTablesDropped rdb =
 
       let compact h = C.withDefaultLogger System.Logger.Types.Error $ \cLogger -> do
             let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
-            void $ C.compact h cLogger db flags
+            void $ C.compact (C.Target h) cLogger db flags
 
       let freeBeforeTbl = "free.m0_" <> beforeTable
       let freeAfterTbl = "free.m1_" <> afterTable

@@ -23,6 +23,7 @@
 
 module Chainweb.Pact.Backend.Compaction
   ( CompactFlag(..)
+  , TargetBlockHeight(..)
   , CompactM
   , compact
   , compactAll
@@ -71,6 +72,7 @@ import Pact.Types.SQLite (SType(..), RType(..))
 import Pact.Types.SQLite qualified as Pact
 
 newtype ITxId = ITxId Int64
+  deriving newtype (Show)
 
 newtype TableName = TableName { getTableName :: Utf8 }
   deriving stock (Show)
@@ -341,7 +343,7 @@ ensureBlockHeightExists bh = do
 getLatestBlockHeight :: CompactM BlockHeight
 getLatestBlockHeight = do
   r <- qryNoTemplateM
-    "locateTarget.1"
+    "getLatestBlockHeight.0"
     "SELECT blockheight FROM BlockHistory ORDER BY blockheight DESC LIMIT 1"
     []
     [RInt]
@@ -531,12 +533,12 @@ dropCompactTables = do
     \ DROP TABLE CompactActiveRow; "
 
 compact :: ()
-  => BlockHeight
+  => TargetBlockHeight
   -> Logger SomeLogMessage
   -> Database
   -> [CompactFlag]
   -> IO (Maybe ByteString)
-compact blockHeight logger db flags = runCompactM (mkCompactEnv logger db flags) $ do
+compact tbh logger db flags = runCompactM (mkCompactEnv logger db flags) $ do
   logg Info "Beginning compaction"
 
   doGrandHash <- not <$> isFlagSet Flag_NoGrandHash
@@ -545,7 +547,11 @@ compact blockHeight logger db flags = runCompactM (mkCompactEnv logger db flags)
     createCompactGrandHash
     createCompactActiveRow
 
+  blockHeight <- locateTarget tbh
   txId <- getEndingTxId blockHeight
+
+  logg Info $ "Target blockheight: " <> sshow blockHeight
+  logg Info $ "Ending TxId: " <> sshow txId
 
   versionedTables <- getVersionedTables blockHeight
 
@@ -566,7 +572,7 @@ compact blockHeight logger db flags = runCompactM (mkCompactEnv logger db flags)
 
   whenFlagUnset Flag_KeepCompactTables $ do
     logg Info "Dropping compact-specific tables"
-    withTx $ dropCompactTables
+    withTx dropCompactTables
 
   whenFlagUnset Flag_NoVacuum $ do
     logg Info "Vacuum"
@@ -576,7 +582,7 @@ compact blockHeight logger db flags = runCompactM (mkCompactEnv logger db flags)
     Just h -> do
       logg Info $ "Compaction complete, hash=" <> encodeB64Text h
     Nothing -> do
-      logg Info $ "Compaction complete"
+      logg Info "Compaction complete"
 
   pure gh
 
@@ -618,8 +624,7 @@ compactAll CompactConfig{..} = do
           Just ccid | ccid /= cid -> do
             pure ()
           _ -> do
-            blockHeight <- runCompactM (mkCompactEnv logger db []) $ locateTarget ccBlockHeight
-            void $ compact blockHeight logger db ccFlags
+            void $ compact ccBlockHeight logger db ccFlags
 
 compactMain :: IO ()
 compactMain = do

@@ -43,6 +43,7 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Short as SB
 import Data.Word (Word64)
 import Data.Default (def)
+import Data.Either (isRight)
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.List as L
@@ -52,8 +53,6 @@ import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Logger.Types (LogLevel(..))
-
-import Numeric.Natural
 
 import Servant.Client
 
@@ -101,7 +100,7 @@ import Chainweb.Storage.Table.RocksDB
 -- -------------------------------------------------------------------------- --
 -- Global Settings
 
-nNodes :: Natural
+nNodes :: Word
 nNodes = 1
 
 v :: ChainwebVersion
@@ -140,9 +139,9 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
             let cenv = _getServiceClientEnv <$> net
                 iot = toTxCreationTime <$> iotm
                 pactDir = do
-                  m <- _getPactDbDirs <$> net
+                  m <- _getNodeDbDirs <$> net
                   case M.lookup 0 m of
-                    Just dir -> pure dir
+                    Just (pactDbDir, _) -> pure pactDbDir
                     Nothing -> error "impossible"
 
             in testGroup "remote pact tests"
@@ -215,7 +214,6 @@ txlogsTest t cenv pactDbDir = do
           let tx = T.unlines
                 [ "(namespace 'free)"
                 , "(module m" <> sshow n <> " G"
-                , "  \"Hullabaloo\""
                 , "  (defcap G () true)"
                 , "  (defschema person"
                 , "    name:string"
@@ -229,7 +227,7 @@ txlogsTest t cenv pactDbDir = do
                 , mkInsert "A" "Lindsey Lohan" "42"
                 , mkInsert "B" "Nico Robin" "30"
                 , mkInsert "C" "chessai" "69"
-                , "(map (txlog m0.persons) (txids m0.persons 0))"
+                , "(map (txlog m" <> sshow n <> ".persons) (txids m" <> sshow n <> ".persons 0))"
                 ]
           buildTextCmd
             $ set cbSigners [mkSigner' sender00 []]
@@ -242,21 +240,24 @@ txlogsTest t cenv pactDbDir = do
             $ mkExec tx
             $ mkKeySetData "sender00" [sender00]
 
+    let sendTxs txs = flip runClientM cenv $
+          pactSendApiClient v cid $ SubmitBatch $ NEL.fromList txs
     do
       tx <- getTxLogs 0 "persons"
-      cr <- local cid cenv tx --e <- flip runClientM cenv $
-        --pactSendApiClient v cid $ SubmitBatch $ NEL.fromList [tx]
-      print (_crResult cr) --print e
+      print =<< local cid cenv tx
+      e <- sendTxs [tx]
+      assertBool "sending persistent tx succeeded" (isRight e)
 
     C.withDefaultLogger Error $ \logger -> do
       let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
-      let bh = undefined
       let resetDb = False
 
       Backend.withSqliteDb cid logger pactDbDir resetDb $ \(SQLiteEnv db _) -> do
-        void $ C.compact bh logger db flags
+        void $ C.compact C.Latest logger db flags
 
-    pure ()
+    do
+      tx <- getTxLogs 1 "persons"
+      print =<< local cid cenv tx
 
 localTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
 localTest t cenv = do

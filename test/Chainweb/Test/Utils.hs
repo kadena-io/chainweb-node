@@ -117,13 +117,14 @@ module Chainweb.Test.Utils
 , host
 , interface
 , testRetryPolicy
+, withDbDirs
 ) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch (finally, bracket)
+import Control.Monad.Catch (MonadCatch, catch, finally, bracket)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
 import Control.Retry
@@ -136,6 +137,7 @@ import Data.Coerce (coerce)
 import Data.Foldable
 import Data.Map.Strict qualified as Map
 import Data.Map.Strict (Map)
+import Data.Maybe (mapMaybe)
 import qualified Data.HashMap.Strict as HashMap
 import Data.IORef
 import Data.List (sortOn, isInfixOf)
@@ -159,6 +161,7 @@ import Numeric.Natural
 
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv, runClientM)
 
+import System.Directory (removeDirectoryRecursive)
 import System.Environment (withArgs)
 import System.IO
 import System.IO.Temp
@@ -899,7 +902,7 @@ matchTest pat = withArgs ["-p",pat]
 data ChainwebNetwork = ChainwebNetwork
     { _getClientEnv :: !ClientEnv
     , _getServiceClientEnv :: !ClientEnv
-    , _getPactDbDirs :: !(Map Int FilePath)
+    , _getNodeDbDirs :: !(Map Word (FilePath, FilePath))
     }
 
 withNodes_
@@ -908,19 +911,17 @@ withNodes_
     -> ChainwebVersion
     -> B.ByteString
     -> RocksDb
-    -> Natural
+    -> Word
     -> ResourceT IO ChainwebNetwork
 withNodes_ logger v testLabel rdb n = do
-    pactDbDirsVar <- liftIO newEmptyMVar
-
-    (_rkey, (_async, (p2p, service))) <- allocate (start pactDbDirsVar) (cancel . fst)
-    pactDbDirs <- liftIO (readMVar pactDbDirsVar)
-    pure (ChainwebNetwork p2p service pactDbDirs)
+    nodeDbDirs <- withDbDirs n
+    (_rkey, (_async, (p2p, service))) <- allocate (start nodeDbDirs) (cancel . fst)
+    pure (ChainwebNetwork p2p service nodeDbDirs)
   where
-    start :: MVar (Map Int FilePath) -> IO (Async (), (ClientEnv, ClientEnv))
-    start pactDbDirsVar = do
+    start :: Map Word (FilePath, FilePath) -> IO (Async (), (ClientEnv, ClientEnv))
+    start dbDirs = do
         peerInfoVar <- newEmptyMVar
-        a <- async $ runTestNodes testLabel rdb logger v n peerInfoVar pactDbDirsVar
+        a <- async $ runTestNodes testLabel rdb logger v n peerInfoVar dbDirs
         (i, servicePort) <- readMVar peerInfoVar
         cwEnv <- getClientEnv $ getCwBaseUrl Https $ _hostAddressPort $ _peerAddr i
         cwServiceEnv <- getClientEnv $ getCwBaseUrl Http servicePort
@@ -938,7 +939,7 @@ withNodes
     :: ChainwebVersion
     -> B.ByteString
     -> RocksDb
-    -> Natural
+    -> Word
     -> ResourceT IO ChainwebNetwork
 withNodes = withNodes_ (genericLogger Error (error . T.unpack))
     -- Test resources are part of test infrastructure and should never print
@@ -949,7 +950,7 @@ withNodesAtLatestBehavior
     :: ChainwebVersion
     -> B.ByteString
     -> RocksDb
-    -> Natural
+    -> Word
     -> ResourceT IO ChainwebNetwork
 withNodesAtLatestBehavior v testLabel rdb n = do
     net <- withNodes v testLabel rdb n
@@ -998,34 +999,22 @@ runTestNodes
     -> RocksDb
     -> logger
     -> ChainwebVersion
-    -> Natural
+    -> Word
     -> MVar (PeerInfo, Port)
-    -> MVar (Map Int FilePath)
-       -- ^ A Map from Node Id to Pact DB Dir.
-       --   Pass in an empty MVar.
-       --   `readMVar` this and you will block until it's filled.
+    -> Map Word (FilePath, FilePath)
+       -- ^ A Map from Node Id to (Pact DB Dir, RocksDB Dir).
     -> IO ()
-runTestNodes testLabel rdb logger ver n portMVar pactDbsVar = do
-    let nids = [0 .. int n - 1]
+runTestNodes testLabel rdb logger ver n portMVar dbDirs = do
+    let nids = [0 .. n - 1]
+    let nidWithDirs = mapMaybe (\nid -> (nid,) <$> Map.lookup nid dbDirs) nids
 
-    --nodeDirsRef <- newIORef @(Map Int (MVar FilePath)) mempty
-    nodeVars <- forM nids $ \nid -> do
-      var <- newEmptyMVar
-      pure (nid, var)
-
-    void $ forkIO $ do
-      nodePaths <- forM nodeVars $ \(nid, var) -> do
-        path <- readMVar var
-        pure (nid, path)
-      putMVar pactDbsVar $ Map.fromList nodePaths
-
-    forConcurrently_ nodeVars $ \(nid, var) -> do
+    forConcurrently_ nidWithDirs $ \(nid, (pactDbDir, rocksDbDir)) -> do
         threadDelay (1000 * int nid)
-        let baseConf = config ver n
+        let baseConf = config ver (int n)
         conf <- if nid == 0
           then return $ bootstrapConfig baseConf
           else setBootstrapPeerInfo <$> (fst <$> readMVar portMVar) <*> pure baseConf
-        node testLabel rdb logger portMVar conf var nid
+        node testLabel rdb logger portMVar conf pactDbDir rocksDbDir nid
 
 node
     :: Logger logger
@@ -1034,32 +1023,29 @@ node
     -> logger
     -> MVar (PeerInfo, Port)
     -> ChainwebConfiguration
-    -> MVar FilePath
-       -- ^ an MVar that will be filled with the directory
-       --   of the node's pact state. pass in an empty MVar.
-    -> Int
+    -> FilePath
+       -- ^ pact db dir
+    -> FilePath
+       -- ^ rocksdb dir
+    -> Word
         -- ^ Unique Node Id. The node id 0 is used for the bootstrap node
     -> IO ()
-node testLabel rdb rawLogger peerInfoVar conf pactDbDirVar nid = do
+node testLabel rdb rawLogger peerInfoVar conf pactDbDir rocksDbDir nid = do
     rocksDb <- testRocksDb (testLabel <> T.encodeUtf8 (toText nid)) rdb
-    withSystemTempDirectory "test-backupdir" $ \backupDir ->
-        withSystemTempDirectory "test-rocksdb" $ \dir ->
-            withChainweb conf logger rocksDb backupDir dir False $ \case
-                StartedChainweb cw -> do
-                    putMVar pactDbDirVar backupDir
+    withChainweb conf logger rocksDb pactDbDir rocksDbDir False $ \case
+        StartedChainweb cw -> do
+            -- If this is the bootstrap node we extract the port number and publish via an MVar.
+            when (nid == 0) $ do
+                let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
+                    bootStrapPort = view (chainwebServiceSocket . _1) cw
+                putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
 
-                    -- If this is the bootstrap node we extract the port number and publish via an MVar.
-                    when (nid == 0) $ do
-                        let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
-                            bootStrapPort = view (chainwebServiceSocket . _1) cw
-                        putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
-
-                    poisonDeadBeef cw
-                    runChainweb cw `finally` do
-                        logFunctionText logger Info "write sample data"
-                        logFunctionText logger Info "shutdown node"
-                    return ()
-                Replayed _ _ -> error "node: should not be a replay"
+            poisonDeadBeef cw
+            runChainweb cw `finally` do
+                logFunctionText logger Info "write sample data"
+                logFunctionText logger Info "shutdown node"
+            return ()
+        Replayed _ _ -> error "node: should not be a replay"
   where
     logger = addLabel ("node", sshow nid) rawLogger
 
@@ -1067,6 +1053,33 @@ node testLabel rdb rawLogger peerInfoVar conf pactDbDirVar nid = do
       where
         crs = map snd $ HashMap.toList $ view chainwebChains cw
         poison cr = mempoolAddToBadList (view chainResMempool cr) (V.singleton deadbeef)
+
+withDbDirs :: Word -> ResourceT IO (Map Word (FilePath, FilePath))
+withDbDirs n = do
+  let create :: IO (Map Word (FilePath, FilePath))
+      create = do
+        canonicalTmpDirs <- forM [0 .. n - 1] $ \nid -> do
+          targetDir1 <- getCanonicalTemporaryDirectory
+          targetDir2 <- getCanonicalTemporaryDirectory
+          pure (nid, targetDir1, targetDir2)
+
+        fmap Map.fromList $ do
+          forM canonicalTmpDirs $ \(nid, targetDir1, targetDir2) -> do
+            dir1 <- createTempDirectory targetDir1 ("pactdb-dir-" ++ show nid)
+            dir2 <- createTempDirectory targetDir2 ("rocksdb-dir-" ++ show nid)
+            pure (nid, (dir1, dir2))
+
+  let destroy :: Map Word (FilePath, FilePath) -> IO ()
+      destroy m = flip foldMap m $ \(d1, d2) -> do
+        ignoringIOErrors $ do
+          removeDirectoryRecursive d1
+          removeDirectoryRecursive d2
+
+  (_, m) <- allocate create destroy
+  pure m
+
+ignoringIOErrors :: (MonadCatch m) => m () -> m ()
+ignoringIOErrors ioe = ioe `catch` (\e -> const (return ()) (e :: IOError))
 
 deadbeef :: TransactionHash
 deadbeef = TransactionHash "deadbeefdeadbeefdeadbeefdeadbeef"
