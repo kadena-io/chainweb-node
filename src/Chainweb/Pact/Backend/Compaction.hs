@@ -1,12 +1,14 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -26,20 +28,24 @@ module Chainweb.Pact.Backend.Compaction
   , CompactM
   , compact
   , compactAll
-  , compactMain
+  , main
   , withDefaultLogger
   , withPerChainFileLogger
   ) where
 
 import UnliftIO.Async (pooledMapConcurrentlyN_)
+import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.MVar (swapMVar, readMVar, newMVar)
 import Control.Exception (Exception, SomeException(..))
-import Control.Lens (makeLenses, set, over, view)
+import Control.Lens (makeLenses, set, over, view, (^.))
 import Control.Monad (forM_, when, void)
 import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, local)
+import Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
 import Data.ByteString (ByteString)
 import Data.Foldable qualified as F
+import Data.Function (fix)
 import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map.Strict qualified as M
@@ -53,8 +59,11 @@ import GHC.Stack (HasCallStack)
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
+import System.IO qualified as IO
+import System.IO (Handle)
 
 import Chainweb.BlockHeight (BlockHeight)
+import Chainweb.Logger (setComponent)
 import Chainweb.Utils (sshow, HasTextRepresentation, fromText, toText, int)
 import Chainweb.Version (ChainId, ChainwebVersion(..), ChainwebVersionName, unsafeChainId, chainIdToText)
 import Chainweb.Version.Mainnet (mainnet)
@@ -65,6 +74,7 @@ import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Utils (encodeB64Text)
 
 import System.Logger
+import System.Logger.Backend.ColorOption (useColor)
 import Data.LogMessage
 
 import Pact.Types.SQLite (SType(..), RType(..))
@@ -85,13 +95,13 @@ data CompactException
   deriving anyclass (Exception)
 
 data CompactFlag
-  = Flag_KeepCompactTables
+  = KeepCompactTables
     -- ^ Keep compaction tables post-compaction for inspection.
-  | Flag_NoVacuum
+  | NoVacuum
     -- ^ Don't VACUUM database
-  | Flag_NoDropNewTables
+  | NoDropNewTables
     -- ^ Don't drop new tables created after the compaction height.
-  | Flag_NoGrandHash
+  | NoGrandHash
     -- ^ Don't compute the grand hash.
   deriving stock (Eq,Show,Read,Enum,Bounded)
 
@@ -112,15 +122,46 @@ withDefaultLogger ll f = withHandleBackend_ logText defaultHandleBackendConfig $
 withPerChainFileLogger :: FilePath -> ChainId -> LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
 withPerChainFileLogger logDir chainId ll f = do
   createDirectoryIfMissing False {- don't create parents -} logDir
-  let logFile = logDir </> ("compact-chain-" <> cid <> ".log")
+  let logFile = logDir </> ("chain-" <> cid <> ".log")
   !_ <- writeFile logFile ""
   let handleConfig = defaultHandleBackendConfig
         { _handleBackendConfigHandle = FileHandle logFile
         }
-  withHandleBackend_ logText handleConfig $ \b ->
-    withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel ll l)
+  withHandleBackend_' logText handleConfig $ \h b -> do
+
+    done <- newMVar False
+    void $ forkIO $ fix $ \go -> do
+      doneYet <- readMVar done
+      when (not doneYet) $ do
+        threadDelay 5_000_000
+        IO.hFlush h
+        go
+      IO.hFlush h
+
+    withLogger defaultLoggerConfig b $ \l -> do
+      let logger = setComponent "compaction"
+            $ over setLoggerScope (("chain", chainIdToText chainId) :)
+            $ set setLoggerLevel ll l
+      a <- f logger
+      void $ swapMVar done True
+      pure a
   where
     cid = Text.unpack (chainIdToText chainId)
+
+withHandleBackend_' :: (MonadIO m, MonadBaseControl IO m)
+  => (msg -> Text)
+  -> HandleBackendConfig
+  -> (Handle -> LoggerBackend msg -> m a)
+  -> m a
+withHandleBackend_' format conf inner =
+  case conf ^. handleBackendConfigHandle of
+    StdErr -> run IO.stderr
+    StdOut -> run IO.stdout
+    FileHandle file -> liftBaseOp (IO.withFile file IO.AppendMode) run
+  where
+    run h = do
+      colored <- liftIO $ useColor (conf ^. handleBackendConfigColor) h
+      inner h (handleBackend_ format h colored)
 
 -- | Set up compaction.
 mkCompactEnv
@@ -403,7 +444,7 @@ collectTableRows txId tbl = do
   let vt = tableNameToSType tbl
   let txid = txIdToSType txId
 
-  doGrandHash <- not <$> isFlagSet Flag_NoGrandHash
+  doGrandHash <- not <$> isFlagSet NoGrandHash
   if | doGrandHash -> do
          logg Info "collectTableRows:insert"
          execM' "collectTableRows.0, doGrandHash=True" tbl
@@ -539,7 +580,7 @@ compact :: ()
 compact blockHeight logger db flags = runCompactM (mkCompactEnv logger db flags) $ do
   logg Info "Beginning compaction"
 
-  doGrandHash <- not <$> isFlagSet Flag_NoGrandHash
+  doGrandHash <- not <$> isFlagSet NoGrandHash
 
   withTx $ do
     createCompactGrandHash
@@ -558,17 +599,17 @@ compact blockHeight logger db flags = runCompactM (mkCompactEnv logger db flags)
   withTx $ do
     withTables versionedTables $ \tbl -> do
       compactTable tbl
-      whenFlagUnset Flag_NoGrandHash $ void $ verifyTable tbl
-    whenFlagUnset Flag_NoDropNewTables $ do
+      whenFlagUnset NoGrandHash $ void $ verifyTable tbl
+    whenFlagUnset NoDropNewTables $ do
       logg Info "Dropping new tables"
       dropNewTables blockHeight
     compactSystemTables blockHeight
 
-  whenFlagUnset Flag_KeepCompactTables $ do
+  whenFlagUnset KeepCompactTables $ do
     logg Info "Dropping compact-specific tables"
-    withTx $ dropCompactTables
+    withTx dropCompactTables
 
-  whenFlagUnset Flag_NoVacuum $ do
+  whenFlagUnset NoVacuum $ do
     logg Info "Vacuum"
     execNoTemplateM_ "VACUUM" "VACUUM;"
 
@@ -576,7 +617,7 @@ compact blockHeight logger db flags = runCompactM (mkCompactEnv logger db flags)
     Just h -> do
       logg Info $ "Compaction complete, hash=" <> encodeB64Text h
     Nothing -> do
-      logg Info $ "Compaction complete"
+      logg Info "Compaction complete"
 
   pure gh
 
@@ -610,8 +651,7 @@ compactAll CompactConfig{..} = do
   let cids = List.sort $ F.toList $ chainIdsAt ccVersion latestBlockHeightChain0
 
   flip (pooledMapConcurrentlyN_ ccThreads) cids $ \cid -> do
-    withPerChainFileLogger logDir cid Debug $ \logger' -> do
-      let logger = over setLoggerScope (("chain",sshow cid):) logger'
+    withPerChainFileLogger logDir cid Debug $ \logger -> do
       let resetDb = False
       withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) -> do
         case ccChain of
@@ -621,14 +661,17 @@ compactAll CompactConfig{..} = do
             blockHeight <- runCompactM (mkCompactEnv logger db []) $ locateTarget ccBlockHeight
             void $ compact blockHeight logger db ccFlags
 
-compactMain :: IO ()
-compactMain = do
+main :: IO ()
+main = do
   config <- execParser opts
   compactAll config
   where
     opts :: ParserInfo CompactConfig
     opts = info (parser <**> helper)
         (fullDesc <> progDesc "Pact DB Compaction tool")
+
+    collapseSum :: [Parser [a]] -> Parser [a]
+    collapseSum = foldr (\x y -> (++) <$> x <*> y) (pure [])
 
     parser :: Parser CompactConfig
     parser = CompactConfig
@@ -649,20 +692,20 @@ compactMain = do
                <> help "Chainweb version for graph. Only needed for non-standard graphs."
                <> value (toText (_versionName mainnet))
                <> showDefault))
-        <*> (foldr (\x y -> (++) <$> x <*> y) (pure [])
-               [ flag [] [Flag_KeepCompactTables]
+        <*> collapseSum
+               [ flag [] [KeepCompactTables]
                   (long "keep-compact-tables"
                    <> help "Keep compaction tables post-compaction, for inspection.")
-               , flag [] [Flag_NoVacuum]
+               , flag [] [NoVacuum]
                   (long "no-vacuum"
                    <> help "Don't VACUUM database.")
-               , flag [] [Flag_NoDropNewTables]
+               , flag [] [NoDropNewTables]
                   (long "no-drop-new-tables"
                    <> help "Don't drop new tables.")
-               , flag [] [Flag_NoGrandHash]
+               , flag [] [NoGrandHash]
                   (long "no-grand-hash"
                    <> help "Don't compute the compact grand hash.")
-               ])
+               ]
         <*> optional (unsafeChainId <$> option auto
              (short 'c'
               <> metavar "CHAINID"
@@ -672,14 +715,14 @@ compactMain = do
                <> metavar "DIRECTORY"
                <> help "Directory where logs will be placed"
                <> value ".")
-        <*> (option auto
+        <*> option auto
              (short 't'
               <> long "threads"
               <> metavar "THREADS"
               <> value 4
-              <> help "Number of threads for compaction processing"))
+              <> help "Number of threads for compaction processing")
 
-    fromTextSilly :: HasTextRepresentation a => Text -> a
-    fromTextSilly t = case fromText t of
-      Just a -> a
-      Nothing -> error "fromText failed"
+fromTextSilly :: HasTextRepresentation a => Text -> a
+fromTextSilly t = case fromText t of
+  Just a -> a
+  Nothing -> error "fromText failed"

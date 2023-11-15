@@ -263,7 +263,7 @@ rosettaFailsWithoutFullHistory rdb =
           replicateM_ 10 $ void $ runBlock q bdb second "rosettaFailsWithoutFullHistory"
 
           C.withDefaultLogger System.Logger.Types.Error $ \logger -> do
-            let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
+            let flags = [C.NoVacuum, C.NoGrandHash]
             let db = _sConn sqlEnv
             let bh = BlockHeight 5
             void $ C.compact bh logger db flags
@@ -322,7 +322,7 @@ rewindPastMinBlockHeightFails rdb =
       replicateM_ 10 $ runBlock pactQueue blockDb second pat
 
       C.withDefaultLogger System.Logger.Types.Error $ \cLogger -> do
-        let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
+        let flags = [C.NoVacuum, C.NoGrandHash]
         let db = _sConn sqlEnv
         let height = BlockHeight 5
         void $ C.compact height cLogger db flags
@@ -401,7 +401,7 @@ pactStateSamePreAndPostCompaction rdb =
       statePreCompaction <- getLatestPactState db
 
       C.withDefaultLogger System.Logger.Types.Error $ \cLogger -> do
-        let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
+        let flags = [C.NoVacuum, C.NoGrandHash]
         let height = BlockHeight numBlocks
         void $ C.compact height cLogger db flags
 
@@ -496,7 +496,7 @@ compactionIsIdempotent rdb =
       let db = _sConn sqlEnv
 
       let compact h = C.withDefaultLogger System.Logger.Types.Error $ \cLogger -> do
-            let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
+            let flags = [C.NoVacuum, C.NoGrandHash]
             void $ C.compact h cLogger db flags
 
       let compactionHeight = BlockHeight numBlocks
@@ -626,7 +626,7 @@ compactionUserTablesDropped rdb =
       let db = _sConn sqlEnv
 
       let compact h = C.withDefaultLogger System.Logger.Types.Error $ \cLogger -> do
-            let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
+            let flags = [C.NoVacuum, C.NoGrandHash]
             void $ C.compact h cLogger db flags
 
       let freeBeforeTbl = "free.m0_" <> beforeTable
