@@ -35,6 +35,7 @@ module Chainweb.Pact.Backend.PactState
 
   , PactRow(..)
   , Table(..)
+  , TableDiffable(..)
 
   , pactDiffMain
   )
@@ -73,7 +74,7 @@ import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
-import Chainweb.Pact.Backend.Utils (withSqliteDb)
+import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
 import Chainweb.Pact.Backend.Compaction qualified as C
 
 import System.Directory (doesFileExist)
@@ -104,7 +105,7 @@ getPactTableNames :: Database -> IO (Vector Utf8)
 getPactTableNames db = do
   let sortedTableNames :: [[SType]] -> [Utf8]
       sortedTableNames rows = M.elems $ M.fromListWith const $ flip List.map rows $ \case
-        [SText u] -> (Text.toLower (utf8ToText u), u)
+        [SText u] -> (Text.toLower (fromUtf8 u), u)
         _ -> error "getPactTableNames.sortedTableNames: expected text"
 
   tables <- fmap sortedTableNames $ do
@@ -136,7 +137,7 @@ getPactTables db = do
         [SText (Utf8 rowKey), SBlob rowData, SInt txId] -> do
           pure $ PactRow {..}
         _ -> error "getPactTableNames: unexpected shape of user table row"
-      S.yield $ Table (utf8ToText tbl) shapedRows
+      S.yield $ Table (fromUtf8 tbl) shapedRows
     else do
       pure ()
 
@@ -194,7 +195,7 @@ getLatestPactState db = do
                 M.insertWith (\prc1 prc2 -> if prc1.txId > prc2.txId then prc1 else prc2) rowKey (PactRowContents rowData txId) m
               _ -> error "getLatestPactState: unexpected shape of user table row"
         S.fold_ go M.empty id rows
-      S.yield (TableDiffable (utf8ToText tbl) latestState)
+      S.yield (TableDiffable (fromUtf8 tbl) latestState)
 
 -- This assumes the same tables (essentially zipWith).
 --   Note that this assumes we got the state from `getLatestPactState`,
@@ -295,6 +296,12 @@ data PactRow = PactRow
   , txId :: Int64
   }
   deriving stock (Eq, Show)
+
+instance Ord PactRow where
+  compare pr1 pr2 =
+    compare pr1.txId pr2.txId
+    <> compare pr1.rowKey pr2.rowKey
+    <> compare pr1.rowData pr2.rowData
 
 instance ToJSON PactRow where
   toJSON pr = Aeson.object
@@ -409,9 +416,6 @@ fromTextSilly :: HasTextRepresentation a => Text -> a
 fromTextSilly t = case fromText t of
   Just a -> a
   Nothing -> error "fromText failed"
-
-utf8ToText :: Utf8 -> Text
-utf8ToText (Utf8 u) = Text.decodeUtf8 u
 
 doesPactDbExist :: ChainId -> FilePath -> IO Bool
 doesPactDbExist cid dbDir = do

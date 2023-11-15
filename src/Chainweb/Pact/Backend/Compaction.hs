@@ -70,7 +70,7 @@ import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
-import Chainweb.Pact.Backend.Utils (withSqliteDb)
+import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
 import Chainweb.Utils (encodeB64Text)
 
 import System.Logger
@@ -286,9 +286,6 @@ templateStmt (TableName (Utf8 tblName)) s
   where
     tblTemplate = "$VTABLE$"
 
-utf8ToText :: Utf8 -> Text
-utf8ToText (Utf8 u) = Text.decodeUtf8 u
-
 textToUtf8 :: Text -> Utf8
 textToUtf8 txt = Utf8 $ Text.encodeUtf8 $ Text.toLower txt
 
@@ -431,7 +428,7 @@ tableNameToSType :: TableName -> SType
 tableNameToSType (TableName tbl) = SText tbl
 
 tableNameToText :: TableName -> Text
-tableNameToText (TableName tbl) = utf8ToText tbl
+tableNameToText (TableName tbl) = fromUtf8 tbl
 
 tableRowCount :: TableName -> Text -> CompactM ()
 tableRowCount tbl label =

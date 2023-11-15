@@ -128,7 +128,7 @@ runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config 
         serviceRequests mempoolAccess reqQ
 
 withPactService
-    :: forall logger tbl a. (Logger logger, CanReadablePayloadCas tbl)
+    :: (Logger logger, CanReadablePayloadCas tbl)
     => ChainwebVersion
     -> ChainId
     -> logger
