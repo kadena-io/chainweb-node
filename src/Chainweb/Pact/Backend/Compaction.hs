@@ -38,7 +38,7 @@ import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (swapMVar, readMVar, newMVar)
 import Control.Exception (Exception, SomeException(..))
 import Control.Lens (makeLenses, set, over, view, (^.))
-import Control.Monad (forM_, when, void)
+import Control.Monad (forM_, unless, void, when)
 import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, local)
@@ -299,7 +299,7 @@ textToTableName txt = TableName $ textToUtf8 txt
 --   Throws a 'CompactExceptionDb' on failure.
 withTx :: HasCallStack => CompactM a -> CompactM a
 withTx a = withDb $ \db -> do
-  exec_ "withTx.0" db $ "SAVEPOINT compact_tx"
+  exec_ "withTx.0" db "SAVEPOINT compact_tx"
   catch (a >>= \r -> exec_ "withTx.1" db "RELEASE SAVEPOINT compact_tx" >> pure r) $
       \e@SomeException {} -> do
         exec_ "withTx.2" db "ROLLBACK TRANSACTION TO SAVEPOINT compact_tx"
@@ -308,18 +308,21 @@ withTx a = withDb $ \db -> do
 withDb :: (Database -> CompactM a) -> CompactM a
 withDb a = view ceDb >>= a
 
-whenFlagUnset :: CompactFlag -> CompactM () -> CompactM ()
-whenFlagUnset f x = do
+unlessFlagSet :: CompactFlag -> CompactM () -> CompactM ()
+unlessFlagSet f x = do
   yeahItIs <- isFlagSet f
-  when (not yeahItIs) x
+  unless yeahItIs x
 
 isFlagSet :: CompactFlag -> CompactM Bool
 isFlagSet f = view ceFlags >>= \fs -> pure (f `elem` fs)
 
+isFlagNotSet :: CompactFlag -> CompactM Bool
+isFlagNotSet f = not <$> isFlagSet f
+
 withTables :: Vector TableName -> (TableName -> CompactM a) -> CompactM ()
 withTables ts a = do
-  V.iforM_ ts $ \((+ 1) -> i) u@(TableName (Utf8 t')) -> do
-    let lbl = Text.decodeUtf8 t' <> " (" <> sshow i <> " of " <> sshow (V.length ts) <> ")"
+  V.iforM_ ts $ \i u@(TableName (Utf8 t')) -> do
+    let lbl = Text.decodeUtf8 t' <> " (" <> sshow (i + 1) <> " of " <> sshow (V.length ts) <> ")"
     localScope (("table",lbl):) $ a u
 
 -- | Takes a bunch of singleton tablename rows, sorts them, returns them as
@@ -444,37 +447,32 @@ collectTableRows txId tbl = do
   let vt = tableNameToSType tbl
   let txid = txIdToSType txId
 
-  doGrandHash <- not <$> isFlagSet NoGrandHash
-  if | doGrandHash -> do
-         logg Info "collectTableRows:insert"
-         execM' "collectTableRows.0, doGrandHash=True" tbl
-           " INSERT INTO CompactActiveRow \
-           \ SELECT ?1,rowkey,rowid, \
-           \ sha3_256('T',?1,'K',rowkey,'I',txid,'D',rowdata) \
-           \ FROM $VTABLE$ t1 \
-           \ WHERE txid=(SELECT MAX(txid) FROM $VTABLE$ t2 \
-           \  WHERE t2.rowkey=t1.rowkey AND t2.txid<?2) \
-           \ GROUP BY rowkey; "
-           [vt, txid]
+  doGrandHash <- isFlagNotSet NoGrandHash
 
-         logg Info "collectTableRows:checksum"
-         execM' "collectTableRows.1, doGrandHash=True" tbl
-             " INSERT INTO CompactGrandHash \
-             \ VALUES (?1, \
-             \  (SELECT sha3a_256(hash) FROM CompactActiveRow \
-             \   WHERE tablename=?1 ORDER BY rowkey)); "
-             [vt]
-     | otherwise -> do
-         logg Info "collectTableRows:insert"
-         execM' "collectTableRows.0, doGrandHash=False" tbl
-           " INSERT INTO CompactActiveRow \
-           \ SELECT ?1,rowkey,rowid, \
-           \ NULL \
-           \ FROM $VTABLE$ t1 \
-           \ WHERE txid=(SELECT MAX(txid) FROM $VTABLE$ t2 \
-           \  WHERE t2.rowkey=t1.rowkey AND t2.txid<?2) \
-           \ GROUP BY rowkey; "
-           [vt, txid]
+  let collectInsert = Text.concat
+        [ "INSERT INTO CompactActiveRow "
+        , "SELECT ?1,rowkey,rowid," <> if doGrandHash
+             then "sha3_256('T',?1,'K',rowkey,'I',txid,'D',rowdata) "
+             else "NULL "
+        , "FROM $VTABLE$ t1 "
+        , "WHERE txid=(SELECT MAX(txid) FROM $VTABLE$ t2 "
+        , "WHERE t2.rowkey=t1.rowkey AND t2.txid<?2) "
+        , "GROUP BY rowkey; "
+        ]
+
+  logg Info "collectTableRows:insert"
+  execM' "collectTableRows.0, doGrandHash=True" tbl
+    collectInsert
+    [vt, txid]
+
+  when doGrandHash $ do
+    logg Info "collectTableRows:checksum"
+    execM' "collectTableRows.1, doGrandHash=True" tbl
+        " INSERT INTO CompactGrandHash \
+        \ VALUES (?1, \
+        \  (SELECT sha3a_256(hash) FROM CompactActiveRow \
+        \   WHERE tablename=?1 ORDER BY rowkey)); "
+        [vt]
 
 -- | Compute global grand hash from all table grand hashes.
 computeGlobalHash :: CompactM ByteString
@@ -580,7 +578,7 @@ compact :: ()
 compact blockHeight logger db flags = runCompactM (mkCompactEnv logger db flags) $ do
   logg Info "Beginning compaction"
 
-  doGrandHash <- not <$> isFlagSet NoGrandHash
+  doGrandHash <- isFlagNotSet NoGrandHash
 
   withTx $ do
     createCompactGrandHash
@@ -599,17 +597,17 @@ compact blockHeight logger db flags = runCompactM (mkCompactEnv logger db flags)
   withTx $ do
     withTables versionedTables $ \tbl -> do
       compactTable tbl
-      whenFlagUnset NoGrandHash $ void $ verifyTable tbl
-    whenFlagUnset NoDropNewTables $ do
+      unlessFlagSet NoGrandHash $ void $ verifyTable tbl
+    unlessFlagSet NoDropNewTables $ do
       logg Info "Dropping new tables"
       dropNewTables blockHeight
     compactSystemTables blockHeight
 
-  whenFlagUnset KeepCompactTables $ do
+  unlessFlagSet KeepCompactTables $ do
     logg Info "Dropping compact-specific tables"
     withTx dropCompactTables
 
-  whenFlagUnset NoVacuum $ do
+  unlessFlagSet NoVacuum $ do
     logg Info "Vacuum"
     execNoTemplateM_ "VACUUM" "VACUUM;"
 

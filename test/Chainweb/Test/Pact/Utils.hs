@@ -961,20 +961,19 @@ getPactUserTables db = do
     qry db qryText [] [RText]
 
   let go :: Map Text [PactRow] -> Utf8 -> IO (Map Text [PactRow])
-      go m tbl = do
-        if tbl `notElem` excludeThese
-        then do
-          let qryText = "SELECT rowkey, rowdata, txid FROM "
+      go m tbl
+        | tbl `elem` excludeThese = do
+            pure m
+        | otherwise = do
+            let qryText = "SELECT rowkey, rowdata, txid FROM "
                     <> fmtTable tbl
                     <> " ORDER BY txid"
-          userRows <- qry db qryText [] [RText, RBlob, RInt]
-          shapedRows <- forM userRows $ \case
-            [SText (Utf8 rowKey), SBlob rowData, SInt txId] -> do
-              pure $ PactRow {..}
-            _ -> error "getPactUserTables: unexpected shape of user table row"
-          pure $ M.insert (utf8ToText tbl) shapedRows m
-        else do
-          pure m
+            userRows <- qry db qryText [] [RText, RBlob, RInt]
+            shapedRows <- forM userRows $ \case
+              [SText (Utf8 rowKey), SBlob rowData, SInt txId] -> do
+                pure $ PactRow {..}
+              _ -> error "getPactUserTables: unexpected shape of user table row"
+            pure $ M.insert (utf8ToText tbl) shapedRows m
 
   foldlM go mempty tables
 
@@ -993,8 +992,7 @@ getLatestPactState db = do
         $ List.groupBy (\x y -> rowKey x == rowKey y)
         $ List.sortOn rowKey rows
 
-  let activeRows = M.map getActiveRows allRows
-  pure activeRows
+  pure (M.map getActiveRows allRows)
 
 data PactRow = PactRow
   { rowKey :: ByteString
