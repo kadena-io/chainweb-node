@@ -7,7 +7,7 @@ module Chainweb.Pact.SPV.Hyperlane where
 
 import Control.Error
 import Control.Lens hiding (index)
-import Control.Monad (when)
+import Control.Monad (when, unless)
 import Control.Monad.Catch
 import Control.Monad.Except
 
@@ -117,6 +117,8 @@ verifySignatures hexMessage hexMetadata validators threshold = do
         Nothing -> (False, V.empty)
   let verified = fst $ foldl' verifyStep (False, binaryValidators) verificationAddresses
 
+  unless verified $ throwError "Verification failed"
+
   let TokenMessageERC20{..} = hmTokenMessage
   let
     encodedSender = encodeHex hmSender
@@ -134,7 +136,7 @@ verifySignatures hexMessage hexMetadata validators threshold = do
               ])
             )
           ]
-  pure $ mkObject [ ("message", hmObj), ("messageId", tStr $ asString $ encodeHex messageId), ("verified", tLit $ LBool verified) ]
+  pure $ mkObject [ ("message", hmObj), ("messageId", tStr $ asString $ encodeHex messageId) ]
 
 -- | Recovers address from provided signature using the calculated digest with provided storageLocation.
 recoverAddressValidatorAnnouncement :: Text -> Text -> ExceptT Text IO (Object Name)
