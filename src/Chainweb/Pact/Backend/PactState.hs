@@ -13,6 +13,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TupleSections #-}
 
 {-# options_ghc -fno-warn-unused-imports -fno-warn-unused-top-binds #-}
 
@@ -48,11 +49,12 @@ module Chainweb.Pact.Backend.PactState
 
 import Data.Word (Word64)
 import Data.IORef (newIORef, readIORef, atomicModifyIORef')
-import Control.Exception (bracket)
-import Control.Monad (forM, forM_, when)
+import Control.Exception (bracket, throwIO)
+import Control.Monad
+import Control.Monad.Except (ExceptT(..), runExceptT, throwError)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Except (ExceptT(..), runExceptT, throwError)
+import Control.Monad.Trans.Resource
 import Data.Aeson (ToJSON(..), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Vector (Vector)
@@ -62,6 +64,7 @@ import Data.Foldable qualified as F
 import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map (Map)
+import Data.Map.Merge.Strict
 import Data.Map.Strict qualified as M
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -91,6 +94,7 @@ import System.FilePath ((</>))
 import System.Exit (exitFailure)
 import System.Logger (LogLevel(..))
 import System.LogLevel qualified as LL
+import GHC.IO.Unsafe
 
 import Pact.Types.SQLite (SType(..), RType(..))
 import Pact.Types.SQLite qualified as Pact
@@ -150,32 +154,25 @@ getPactTables db = do
     else do
       pure ()
 
-stepStatement :: SQL.Statement -> [RType] -> Stream (Of [SType]) IO QryResult
-stepStatement stmt rts = do
-  e <- runExceptT $ do
-    -- todo: rename from acc
-    let acc :: SQL.StepResult -> ExceptT SQL.Error (Stream (Of [SType]) IO) ()
-        acc = \case
-          SQL.Done -> do
-            pure ()
-          SQL.Row -> do
-            as <- forM (List.zip [0..] rts) $ \(colIx, expectedColType) -> do
-              liftIO $ case expectedColType of
-                RInt -> SInt <$> SQL.columnInt64 stmt colIx
-                RDouble -> SDouble <$> SQL.columnDouble stmt colIx
-                RText -> SText <$> SQL.columnText stmt colIx
-                RBlob -> SBlob <$> SQL.columnBlob stmt colIx
-            lift $ S.yield as
-            liftIO (SQL.step stmt) >>= \case
-              Left err -> do
-                throwError err
-              Right sr -> do
-                acc sr
-
+allRows :: SQL.Statement -> [RType] -> IO [[SType]]
+allRows stmt rts =
+  go
+  where
+  go = unsafeDupableInterleaveIO $
     -- maybe use stepNoCB
-    ExceptT (liftIO (SQL.step stmt)) >>= acc
-
-  pure (QryResult e)
+    SQL.step stmt >>= \case
+      Left err -> error $ "sql error: " <> show err
+      Right sr -> step sr
+  step SQL.Done = pure []
+  step SQL.Row = do
+    as <- forM (List.zip [0..] rts) $ \(colIx, expectedColType) -> do
+      liftIO $ case expectedColType of
+        RInt -> SInt <$> SQL.columnInt64 stmt colIx
+        RDouble -> SDouble <$> SQL.columnDouble stmt colIx
+        RText -> SText <$> SQL.columnText stmt colIx
+        RBlob -> SBlob <$> SQL.columnBlob stmt colIx
+    rest <- go
+    return (as:rest)
 
 --foreign import ccall "sqlite3.h &sqlite3_finalize"
 --  c_sqlite3_finalize_funptr :: FunPtr (Ptr CStatement -> IO ())
@@ -188,44 +185,57 @@ qry :: ()
   -> Utf8
   -> [SType]
   -> [RType]
-  -> (Stream (Of [SType]) IO QryResult -> IO x)
-  -> IO x
-qry db qryText args returnTypes k = do
-  stmt <- Pact.prepStmt db qryText
-  --fptr <- newForeignPtr c_sqlite3_finalize_funptr (coerce stmt)
-  Pact.bindParams stmt args
-  k (stepStatement stmt returnTypes)
+  -> ResourceT IO [[SType]]
+qry db qryText args returnTypes = do
+  (_rk, stmt) <- allocate (Pact.prepStmt db qryText) (SQL.finalize >=> either (error . show) return)
+  liftIO $ Pact.bindParams stmt args
+  rows <- liftIO $ allRows stmt returnTypes
+  return rows
 
-getLatestPactState :: (Logger logger) => logger -> Text -> Database -> Stream (Of TableDiffable) IO ()
+interleaveForM :: [a] -> (a -> ResourceT IO b) -> ResourceT IO [b]
+interleaveForM xs f = do
+  st <- getInternalState
+  liftIO $ unsafeDupableInterleaveIO $
+    case xs of
+      [] -> return []
+      (y:ys) -> do
+        y' <- runInternalState (f y) st
+        ys' <- runInternalState (interleaveForM ys f) st
+        return (y' : ys')
+
+      -- (:) <$> f y <*> interleaveForM ys f
+
+getLatestPactState
+  :: (Logger logger)
+  => logger
+  -> Text
+  -> Database
+  -> IO (Map Text (ResourceT IO [(ByteString, ByteString)]))
 getLatestPactState logger nth db = do
   let fmtTable x = "\"" <> x <> "\""
 
   tables <- liftIO $ getPactTableNames db
 
-  forM_ tables $ \tbl -> do
-    when (tbl `notElem` excludedTables) $ do
-      liftIO $ logFunctionText logger LL.Info $
-        "[Starting on table " <> utf8ToText tbl <> " from " <> nth <> " db]"
-      latestState <- liftIO $ do
-        let t = fmtTable tbl
-        {-
-        let qryText = "SELECT rowkey, rowdata "
-              <> "FROM " <> t <> " t1 "
-              <> "WHERE txid=(SELECT MAX(txid) FROM " <> t <> " t2 WHERE t1.rowkey=t2.rowkey) "
-              <> "GROUP BY rowkey"
-        -}
-        let qryText = "SELECT rowkey, rowdata "
-              <> "FROM " <> t <> " "
-              <> "ORDER BY rowkey DESC, txid DESC"
+  tableContents <- forM (Vector.toList tables) $ \tbl -> do
+    guard (tbl `notElem` excludedTables)
+    let t = fmtTable tbl
+    let qryText = "SELECT rowkey, rowdata "
+          <> "FROM " <> t <> " "
+          <> "ORDER BY rowkey DESC, txid DESC"
 
-        qry db qryText [] [RText, RBlob] $ \rows -> do
-          pure $ flip S.mapM (S.zip (S.enumFrom (0 :: Word64)) rows) $ \case
-            (n, [SText (Utf8 rowKey), SBlob rowData]) -> do
-              when (n `mod` 1_000_000 == 0 && (tbl == "coin_coin-table" || tbl == "SYS:Pacts")) $ do
-                liftIO $ logFunctionText logger LL.Info $ "[getLatestPactState row " <> sshow n <> "]"
-              pure (rowKey, rowData)
-            _ -> error "getLatestPactState: expected (text, blob)"
+    return $ (utf8ToText tbl,) $ do
+      rows <- qry db qryText [] [RText, RBlob]
+      rows' <- interleaveForM (zip [(0 :: Word64)..] rows) $ \case
+        (n, [SText (Utf8 rowKey), SBlob rowData]) -> do
+          when (n `mod` 1_000_000 == 0 && (tbl == "coin_coin-table" || tbl == "SYS:Pacts")) $ do
+            liftIO $ logFunctionText logger LL.Info $ "[getLatestPactState row " <> sshow n <> "]"
+          pure (rowKey, rowData)
+        _ -> error "getLatestPactState: expected (text, blob)"
+      return rows'
 
+  return $ M.fromList tableContents
+      -- liftIO $ logFunctionText logger LL.Info $
+      --   "[Starting on table " <> utf8ToText tbl <> " from " <> nth <> " db]"
 {-
         let qryText1 = "SELECT rowkey, txid FROM "
               <> fmtTable tbl
@@ -245,7 +255,7 @@ getLatestPactState logger nth db = do
             [[SBlob rowData]] -> pure rowData
             _ -> error "getLatestPactState.qry2: expected Blob"
 -}
-      S.yield (TableDiffable (utf8ToText tbl) latestState)
+      -- S.yield (TableDiffable (utf8ToText tbl) latestState)
 
 -- This assumes the same tables (essentially zipWith).
 --   Note that this assumes we got the state from `getLatestPactState`,
@@ -261,31 +271,14 @@ getLatestPactState logger nth db = do
 -- TODO: maybe inner stream should be a ByteStream
 diffLatestPactState :: (Logger logger)
   => logger
-  -> Stream (Of TableDiffable) IO ()
-  -> Stream (Of TableDiffable) IO ()
-  -> Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
-diffLatestPactState logger = go
-  where
-  go :: ()
-    => Stream (Of TableDiffable) IO ()
-    -> Stream (Of TableDiffable) IO ()
-    -> Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
-  go s1 s2 = do
-    e1 <- liftIO $ S.next s1
-    e2 <- liftIO $ S.next s2
-
-    case (e1, e2) of
-      (Left (), Left ()) -> do
-        pure ()
-      (Right _, Left ()) -> do
-        error "left stream longer than right"
-      (Left (), Right _) -> do
-        error "right stream longer than left"
-      (Right (t1, next1), Right (t2, next2)) -> do
-        when (t1.name /= t2.name) $ do
-          error "diffLatestPactState: mismatched table names"
-        S.yield (t1.name, diffTables logger t1 t2)
-        go next1 next2
+  -> Map Text (ResourceT IO [(ByteString, ByteString)])
+  -> Map Text (ResourceT IO [(ByteString, ByteString)])
+  -> Map Text (Either TableDiffExists (ResourceT IO [RowKeyDiffExists]))
+diffLatestPactState logger =
+  merge
+    (mapMissing $ \k _ -> Left $ OldTable k)
+    (mapMissing $ \k _ -> Left $ NewTable k)
+    (zipWithMatched $ \_ t1 t2 -> Right $ join $ fmap liftIO $ diffTables logger <$> t1 <*> t2)
 
 -- | We don't include the entire rowdata in the diff, only the rowkey.
 --   This is just a space-saving measure.
@@ -298,42 +291,47 @@ data RowKeyDiffExists
     -- ^ The rowkey exists in the same table of both dbs, but the rowdata
     --   differs.
 
-diffTables :: (Logger logger) => logger -> TableDiffable -> TableDiffable -> Stream (Of RowKeyDiffExists) IO ()
-diffTables logger td1 td2 = go (0 :: Word64) td1.rows td2.rows
+data TableDiffExists
+  = OldTable Text
+  | NewTable Text
+
+diffTables :: (Logger logger) => logger -> [(ByteString, ByteString)] -> [(ByteString, ByteString)] -> IO [RowKeyDiffExists]
+diffTables logger td1 td2 = go (0 :: Word64) td1 td2
   where
-    go !n t1 t2 = do
-      e1 <- liftIO $ S.next t1
-      e2 <- liftIO $ S.next t2
-      case (e1, e2) of
-        (Left (QryResult r1), Left (QryResult r2)) -> do
-          case r1 >> r2 of
-            Left err -> do
-              error $ "diffTables: SQLite error: " <> show err
-            Right () -> do
-              pure ()
-        (Right ((rk1, _rd1), next1), Left r) -> do
-          S.yield (Old rk1)
-          go (n + 1) (S.dropWhile (\(rk, _) -> rk == rk1) next1) (pure r)
-        (Left r, Right ((rk2, _rd2), next2)) -> do
-          S.yield (New rk2)
-          go (n + 1) (pure r) (S.dropWhile (\(rk, _) -> rk == rk2) next2)
-        (Right ((rk1, _rd1), next1), Right ((rk2, _rd2), next2)) -> do
-          when (n `mod` 100 == 0 && (td1.name == "SYS:Pacts" || td1.name == "coin_coin-table")) $ do
-            liftIO $ logFunctionText logger LL.Info $ "[diffTables rowkey " <> sshow n <> "]"
-          go (n + 1) (S.dropWhile (\(rk, _) -> rk == rk1) next1) (S.dropWhile (\(rk, _) -> rk == rk2) next2)
-{-
+    go :: Word64 -> [(ByteString, ByteString)] -> [(ByteString, ByteString)] -> IO [RowKeyDiffExists]
+    go !n t1 t2 = unsafeDupableInterleaveIO $ do
+      case (t1, t2) of
+        ([], []) ->
+          return []
+        ((rk1, _rd1) : next1, []) -> do
+          (Old rk1 :) <$> go (n + 1) (dropWhile (\(rk, _) -> rk == rk1) next1) []
+        ([], (rk2, _rd2) : next2) -> do
+          (Old rk2 :) <$> go (n + 1) [] (dropWhile (\(rk, _) -> rk == rk2) next2)
+        ((rk1, rd1) : next1, (rk2, rd2) : next2) -> do
+          -- when (n `mod` 100 == 0 && (td1.name == "SYS:Pacts" || td1.name == "coin_coin-table")) $ do
+          --   liftIO $ logFunctionText logger LL.Info $ "[diffTables rowkey " <> sshow n <> "]"
           case compare rk1 rk2 of
             EQ -> do
-              when (rd1 /= rd2) $ do
-                S.yield (Delta rk1)
-              go (n + 1) (S.dropWhile (\(rk, _) -> rk == rk1) next1) (S.dropWhile (\(rk, _) -> rk == rk2) next2)
+              let
+                extend =
+                  if (rd1 /= rd2)
+                  then (Delta rk1 :)
+                  else id
+              extend <$> go (n + 1) (dropWhile (\(rk, _) -> rk == rk1) next1) (dropWhile (\(rk, _) -> rk == rk2) next2)
             GT -> do
-              S.yield (Old rk1)
-              go (n + 1) (S.dropWhile (\(rk, _) -> rk == rk1) next1) (S.cons (rk2, rd2) next2)
+              (Old rk1 :) <$> go (n + 1) (dropWhile (\(rk, _) -> rk == rk1) next1) t2
             LT -> do
-              S.yield (New rk2)
-              go (n + 1) (S.cons (rk1, rd1) next1) (S.dropWhile (\(rk, _) -> rk == rk2) next2)
--}
+              (New rk2 :) <$> go (n + 1) t1 (dropWhile (\(rk, _) -> rk == rk2) next2)
+
+tableDiffExistsToObject :: TableDiffExists -> Aeson.Value
+tableDiffExistsToObject = \case
+  OldTable tblName -> Aeson.object
+    [ "oldTable" .= tblName
+    ]
+  NewTable tblName -> Aeson.object
+    [ "newTable" .= tblName
+    ]
+
 
 rowKeyDiffExistsToObject :: RowKeyDiffExists -> Aeson.Value
 rowKeyDiffExistsToObject = \case
@@ -358,7 +356,7 @@ data Table = Table
 --   as a Map from RowKey to RowData.
 data TableDiffable = TableDiffable
   { name :: Text
-  , rows :: Stream (Of (ByteString, ByteString)) IO QryResult -- Stream (Of (RowKey, RowData)) IO ()
+  , rows :: IO [(ByteString, ByteString)] -- Stream (Of (RowKey, RowData)) IO ()
   }
 
 data PactRow = PactRow
@@ -399,6 +397,18 @@ instance Semigroup Diffy where
 instance Monoid Diffy where
   mempty = NoDifference
 
+foldMapM
+  :: (Monad m, Monoid w, Foldable t)
+  => (a -> m w)
+  -> t a
+  -> m w
+foldMapM f = F.foldlM
+  (\acc a -> do
+    w <- f a
+    return $! mappend acc w
+    )
+  mempty
+
 pactDiffMain :: IO ()
 pactDiffMain = do
   cfg <- execParser opts
@@ -418,32 +428,38 @@ pactDiffMain = do
       sqliteFileExists1 <- doesPactDbExist cid cfg.firstDbDir
       sqliteFileExists2 <- doesPactDbExist cid cfg.secondDbDir
 
-      if | not sqliteFileExists1 -> do
-             logText LL.Warn $ "[SQLite for chain in " <> Text.pack cfg.firstDbDir <> " doesn't exist. Skipping]"
-         | not sqliteFileExists2 -> do
-             logText LL.Warn $ "[SQLite for chain in " <> Text.pack cfg.secondDbDir <> " doesn't exist. Skipping]"
-         | otherwise -> do
-             let resetDb = False
-             withSqliteDb cid logger cfg.firstDbDir resetDb $ \(SQLiteEnv db1 _) -> do
-               withSqliteDb cid logger cfg.secondDbDir resetDb $ \(SQLiteEnv db2 _) -> do
-                 logText LL.Info "[Starting diff]"
-                 let diff = diffLatestPactState logger
-                       (getLatestPactState logger "first" db1)
-                       (getLatestPactState logger "second" db2)
-                 diffy <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
-                   d <- S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do
-                     when False $ do
-                       logFunctionJson logger LL.Warn $ rowKeyDiffExistsToObject d
-                     pure Difference
-                   logText LL.Info $ "[Finished diffing table " <> tblName <> "]"
-                   pure d
+      if
+        | not sqliteFileExists1 -> do
+          logText LL.Warn $ "[SQLite for chain in " <> Text.pack cfg.firstDbDir <> " doesn't exist. Skipping]"
+        | not sqliteFileExists2 -> do
+          logText LL.Warn $ "[SQLite for chain in " <> Text.pack cfg.secondDbDir <> " doesn't exist. Skipping]"
+        | otherwise -> do
+          let resetDb = False
+          withSqliteDb cid logger cfg.firstDbDir resetDb $ \(SQLiteEnv db1 _) -> do
+            withSqliteDb cid logger cfg.secondDbDir resetDb $ \(SQLiteEnv db2 _) -> do
+              logText LL.Info "[Starting diff]"
+              allTableDiffs <- diffLatestPactState logger
+                    <$> (getLatestPactState logger "first" db1)
+                    <*> (getLatestPactState logger "second" db2)
+              diffy <- flip M.foldMapWithKey allTableDiffs $ \tblName -> \case
+                Left tblDiff -> do
+                  logFunctionJson logger LL.Warn $ tableDiffExistsToObject tblDiff
+                  pure Difference
+                Right getTblDiff -> runResourceT $ do
+                  liftIO $ logText LL.Info $ "[Starting to diff table " <> tblName <> "]"
+                  tblDiffs <- getTblDiff
+                  diff <- flip foldMapM tblDiffs $ \rowDiff -> do
+                    liftIO $ logFunctionJson logger LL.Warn $ rowKeyDiffExistsToObject rowDiff
+                    pure Difference
+                  liftIO $ logText LL.Info $ "[Finished diffing table " <> tblName <> "]"
+                  return diff
 
-                 logText LL.Info $ case diffy of
-                   Difference -> "[Non-empty diff]"
-                   NoDifference -> "[Empty diff]"
-                 logText LL.Info $ "[Finished chain " <> chainIdToText cid <> "]"
+              logText LL.Info $ case diffy of
+                Difference -> "[Non-empty diff]"
+                NoDifference -> "[Empty diff]"
+              logText LL.Info $ "[Finished chain " <> chainIdToText cid <> "]"
 
-                 atomicModifyIORef' diffyRef $ \m -> (M.insert cid diffy m, ())
+              atomicModifyIORef' diffyRef $ \m -> (M.insert cid diffy m, ())
 
   diffy <- readIORef diffyRef
   case M.foldMapWithKey (\_ d -> d) diffy of
