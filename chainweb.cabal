@@ -526,7 +526,6 @@ test-suite chainweb-tests
         , base >= 4.12 && < 5
         , base64-bytestring-kadena == 0.1
             -- due to change in error message that is inlined in pact
-        , binary >= 0.8
         , bytestring >= 0.10.12
         , case-insensitive >= 1.2
         , chainweb-storage >= 0.1

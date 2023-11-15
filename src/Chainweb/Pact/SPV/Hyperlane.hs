@@ -19,6 +19,7 @@ import Data.DoubleWord
 import Data.Decimal
 import Data.Default (def)
 import Data.Foldable (foldl')
+import Data.Traversable (forM)
 import Data.Ratio
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
@@ -100,9 +101,13 @@ verifySignatures hexMessage hexMetadata validators threshold = do
   when (length addresses < threshold) $
     throwError $ Text.pack $ "The number of recovered addresses from the signatures is less than threshold: " ++ show threshold
 
-  binaryValidators <- mapM (either (throwError . Text.pack) pure . decodeHex) validators
+  binaryValidators <- forM validators $ \val -> case decodeHex val of
+          Right v -> pure v
+          Left e -> throwError $ "Failed to decode a validator (" <> val <> "):" <> Text.pack e
 
   -- Requires that m-of-n validators verify a merkle root, and verifies a merkle proof of message against that root.
+  --
+  -- The signature addresses and validator addresses should be in the same order.
   --
   -- The original algorithm in hyperlane.
   -- https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/v3/solidity/contracts/isms/multisig/AbstractMultisigIsm.sol#L67
@@ -139,7 +144,7 @@ recoverAddressValidatorAnnouncement storageLocation sig = do
           Left e -> throwError $ Text.pack $ "Decoding of signature failed: " ++ e
 
   let
-    -- | This is a kadena's domain hash calculated in Solidity as
+    -- This is a kadena's domain hash calculated in Solidity as
     -- keccak256(abi.encodePacked(626, "kb-mailbox", "HYPERLANE_ANNOUNCEMENT"))
     domainHashHex :: Text
     domainHashHex = "0xa69e6ef1a8e62aa6b513bd7d694c6d237164fb04df4e5fb4106e47bf5b5a0428"
