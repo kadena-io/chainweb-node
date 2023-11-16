@@ -76,7 +76,7 @@ import System.IO.Unsafe (unsafePerformIO)
 v :: ChainwebVersion
 v = fastForkingCpmTestVersion petersonChainGraph
 
-nodes :: Natural
+nodes :: Word
 nodes = 1
 
 cid :: ChainId

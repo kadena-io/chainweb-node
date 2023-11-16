@@ -9,6 +9,9 @@ import System.Environment
 import System.Exit
 import Text.Printf
 
+import Chainweb.Pact.Backend.Compaction (main)
+import Chainweb.Pact.Backend.PactState (pactDiffMain)
+
 import qualified CheckpointerDBChecksum
 import qualified Ea
 import qualified EncodeDecodeB64Util
@@ -99,6 +102,14 @@ topLevelCommands =
       "tx-sim"
       "Simulate tx execution against real pact dbs"
       TxSimulator.simulateMain
+  , CommandSpec
+      "compact"
+      "Compact pact database"
+      Chainweb.Pact.Backend.Compaction.main
+  , CommandSpec
+      "pact-diff"
+      "Diff the latest state of two pact databases"
+      Chainweb.Pact.Backend.PactState.pactDiffMain
   , CommandSpec
       "calculate-release"
       "Calculate next service date and block heights for upgrades"
