@@ -1079,7 +1079,7 @@ withDbDirs n = do
   pure m
 
 ignoringIOErrors :: (MonadCatch m) => m () -> m ()
-ignoringIOErrors ioe = ioe `catch` (\e -> const (return ()) (e :: IOError))
+ignoringIOErrors ioe = ioe `catch` (\e -> const (pure ()) (e :: IOError))
 
 deadbeef :: TransactionHash
 deadbeef = TransactionHash "deadbeefdeadbeefdeadbeefdeadbeef"

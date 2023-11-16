@@ -359,7 +359,7 @@ txlogsTest t cenv pactDbDir = do
                 ]
           buildTextCmd
             $ set cbSigners [mkSigner' sender00 []]
-            $ set cbGasLimit 100_000 --300_000
+            $ set cbGasLimit 100_000
             $ set cbTTL defaultMaxTTL
             $ set cbCreationTime t
             $ set cbChainId cid
