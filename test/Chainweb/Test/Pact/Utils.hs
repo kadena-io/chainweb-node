@@ -32,6 +32,7 @@ module Chainweb.Test.Pact.Utils
 , sender01
 , sender00Ks
 , sender02WebAuthn
+, sender03WebAuthn
 , allocation00KeyPair
 , testKeyPairs
 , mkKeySetData
@@ -84,6 +85,7 @@ module Chainweb.Test.Pact.Utils
 , CmdSigner
 , csSigner
 , csPrivKey
+, csWebAuthnEncoding
 -- * Pact Service creation
 , withPactTestBlockDb
 , withPactTestBlockDb'
@@ -249,6 +251,11 @@ sender02WebAuthn :: SimpleKeyPair
 sender02WebAuthn =
            ("a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf"
            ,"fecd4feb1243d715d095e24713875ca76c476f8672ec487be8e3bc110dd329ab")
+
+sender03WebAuthn :: SimpleKeyPair
+sender03WebAuthn =
+           ("a4010103272006215820ad72392508272b4c45536976474cdd434e772bfd630738ee9aac7343e7222eb6"
+           ,"ebe7d1119a53863fa64be7347d82d9fcc9ebeb8cbbe480f5e8642c5c36831434")
 
 allocation00KeyPair :: SimpleKeyPair
 allocation00KeyPair =
@@ -473,8 +480,8 @@ mkGasCap = mkCoinCap "GAS" []
 data CmdSigner = CmdSigner
   { _csSigner :: !Signer
   , _csPrivKey :: !Text
-  , _csWebAuthnEncoding :: Maybe WebAuthnProvenance
-    -- ^ When this field is set, we override the WebAuthn provenance
+  , _csWebAuthnEncoding :: WebAuthnSigEncoding
+    -- ^ When this field is set, we override the WebAuthn encoding
     -- of the signatures in order to influence how the signatures
     -- will be encoded. This is used for testing.
   } deriving (Eq,Show,Ord,Generic)
@@ -483,7 +490,9 @@ data CmdSigner = CmdSigner
 mkEd25519Signer :: Text -> Text -> [SigCapability] -> CmdSigner
 mkEd25519Signer pubKey privKey caps = CmdSigner
   { _csSigner = signer
-  , _csPrivKey = privKey }
+  , _csPrivKey = privKey
+  , _csWebAuthnEncoding = WebAuthnObject
+  }
   where
     signer = Signer
       { _siScheme = Nothing
@@ -494,10 +503,12 @@ mkEd25519Signer pubKey privKey caps = CmdSigner
 mkEd25519Signer' :: SimpleKeyPair -> [SigCapability] -> CmdSigner
 mkEd25519Signer' (pub,priv) = mkEd25519Signer pub priv
 
-mkWebAuthnSigner :: Text -> Text -> [SigCapability] -> CmdSigner
-mkWebAuthnSigner pubKey privKey caps = CmdSigner
+mkWebAuthnSigner :: Text -> Text -> [SigCapability] -> WebAuthnSigEncoding -> CmdSigner
+mkWebAuthnSigner pubKey privKey caps prov = CmdSigner
   { _csSigner = signer
-  , _csPrivKey = privKey }
+  , _csPrivKey = privKey
+  , _csWebAuthnEncoding = prov
+  }
   where
     signer = Signer
       { _siScheme = Just WebAuthn
@@ -505,8 +516,8 @@ mkWebAuthnSigner pubKey privKey caps = CmdSigner
       , _siAddress = Nothing
       , _siCapList = caps }
 
-mkWebAuthnSigner' :: SimpleKeyPair -> [SigCapability] -> CmdSigner
-mkWebAuthnSigner' (pub, priv) = mkWebAuthnSigner pub priv
+mkWebAuthnSigner' :: SimpleKeyPair -> [SigCapability] -> WebAuthnSigEncoding -> CmdSigner
+mkWebAuthnSigner' (pub, priv) caps prov = mkWebAuthnSigner pub priv caps prov
 
 -- | Chainweb-oriented command builder.
 data CmdBuilder = CmdBuilder
@@ -596,7 +607,7 @@ dieL :: MonadThrow m => [Char] -> Either [Char] a -> m a
 dieL msg = either (\s -> throwM $ userError $ msg ++ ": " ++ s) return
 
 toApiKp :: MonadThrow m => CmdSigner -> m ApiKeyPair
-toApiKp (CmdSigner Signer{..} privKey) = do
+toApiKp (CmdSigner Signer{..} privKey _webAuthnEncoding) = do
   sk <- dieL "private key" $ parseB16TextOnly privKey
   pk <- dieL "public key" $ parseB16TextOnly _siPubKey
   return $!

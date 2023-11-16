@@ -30,6 +30,7 @@ import Test.Tasty.HUnit
 import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Continuation
+import Pact.Types.Crypto (WebAuthnSigEncoding(WebAuthnObject, WebAuthnStringified))
 import Pact.Types.Hash
 import Pact.Types.PactError
 import Pact.Types.PactValue
@@ -1096,10 +1097,14 @@ pact49UpgradeTest = do
 
 pact410UpgradeTest :: PactTestM ()
 pact410UpgradeTest = do
-  runToHeight 114
+  runToHeight 80
 
   runBlockTest
-    [ PactTxTest (buildBasicGasWebAuthn 1000 $ mkExec' "(+ 1 2)") $ assertTxSuccess "Should succeed" (pInteger 3)  ]
+    [ PactTxTest (buildBasicGasWebAuthn WebAuthnObject 1000 $ mkExec' "(+ 1 2)") $
+      assertTxSuccess "Should succeed" (pInteger 3)
+    , PactTxTest (buildBasicGasWebAuthn WebAuthnStringified 1000 $ mkExec' "(+ 1 3)") $
+      assertTxSuccess "Should succeed" (pInteger 4)
+    ]
 
 
 pact4coin3UpgradeTest :: PactTestM ()
@@ -1399,8 +1404,8 @@ buildXReceive
 buildXReceive (proof,pid) = buildBasic $
     mkCont ((mkContMsg pid 1) { _cmProof = Just proof })
 
-signWebAuthn00 :: CmdBuilder -> CmdBuilder
-signWebAuthn00 = set cbSigners [mkWebAuthnSigner' sender02WebAuthn []]
+signWebAuthn00 :: WebAuthnSigEncoding -> CmdBuilder -> CmdBuilder
+signWebAuthn00 webAuthnSigEncoding = set cbSigners [mkWebAuthnSigner' sender02WebAuthn [] webAuthnSigEncoding]
 
 signSender00 :: CmdBuilder -> CmdBuilder
 signSender00 = set cbSigners [mkEd25519Signer' sender00 []]
@@ -1429,17 +1434,18 @@ buildBasic' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   $ mkCmd (sshow bh) r
 
 buildBasicWebAuthn'
-    :: (CmdBuilder -> CmdBuilder)
+    :: WebAuthnSigEncoding
+    -> (CmdBuilder -> CmdBuilder)
     -> PactRPC T.Text
     -> MempoolCmdBuilder
-buildBasicWebAuthn' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
-  f $ signWebAuthn00
+buildBasicWebAuthn' webAuthnSigEncoding f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+  f $ signWebAuthn00 webAuthnSigEncoding
   $ setFromHeader bh
   $ mkCmd (sshow bh) r
 
 
-buildBasicGasWebAuthn :: GasLimit -> PactRPC T.Text -> MempoolCmdBuilder
-buildBasicGasWebAuthn g = buildBasicWebAuthn' (set cbGasLimit g)
+buildBasicGasWebAuthn :: WebAuthnSigEncoding -> GasLimit -> PactRPC T.Text -> MempoolCmdBuilder
+buildBasicGasWebAuthn webAuthnSigEncoding g = buildBasicWebAuthn' webAuthnSigEncoding (set cbGasLimit g)
 
 
 -- | Get output on latest cut for chain

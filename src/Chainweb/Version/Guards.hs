@@ -48,7 +48,7 @@ module Chainweb.Version.Guards
     , maxBlockGasLimit
     , validPPKSchemes
     , validKeyFormats
-    , validWebAuthnSignatureProvenance
+    , validWebAuthnSignatureEncoding
 
     -- ** BlockHeader Validation Guards
     , slowEpochGuard
@@ -62,7 +62,7 @@ import Control.Lens
 import Numeric.Natural
 import Pact.Types.KeySet (PublicKeyText, ed25519HexFormat, webAuthnFormat)
 import Pact.Types.Scheme (PPKScheme(ED25519, WebAuthn))
-import Pact.Types.Crypto (WebAuthnSigProvenance(WebAuthnStringified, WebAuthnObject))
+import Pact.Types.Crypto (WebAuthnSigEncoding(WebAuthnStringified, WebAuthnObject))
 
 import Chainweb.BlockHeight
 import Chainweb.ChainId
@@ -272,10 +272,10 @@ validKeyFormats v cid bh =
   then [ed25519HexFormat, webAuthnFormat]
   else [ed25519HexFormat]
 
--- | Different versions of Chainweb allow different WebAuthn signature provenance.
+-- | Different versions of Chainweb allow different WebAuthn signature encoding.
 --
-validWebAuthnSignatureProvenance :: ChainwebVersion -> ChainId -> BlockHeight -> [WebAuthnSigProvenance]
-validWebAuthnSignatureProvenance v cid bh =
+validWebAuthnSignatureEncoding :: ChainwebVersion -> ChainId -> BlockHeight -> [WebAuthnSigEncoding]
+validWebAuthnSignatureEncoding v cid bh =
   if chainweb222Pact v cid bh
   then [WebAuthnStringified, WebAuthnObject]
   else [WebAuthnStringified]

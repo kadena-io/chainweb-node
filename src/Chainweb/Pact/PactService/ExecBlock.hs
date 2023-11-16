@@ -257,7 +257,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
         sigs = P._cmdSigs t
         signers = P._pSigners $ payloadObj $ P._cmdPayload t
         validSchemes = validPPKSchemes v cid bh
-        validProv = validWebAuthnSignatureProvenance v cid bh
+        validProv = validWebAuthnSignatureEncoding v cid bh
 
     initTxList :: ValidateTxs
     initTxList = V.map Right txs

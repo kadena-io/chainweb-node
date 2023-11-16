@@ -53,7 +53,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
 import Chainweb.Transaction (cmdTimeToLive, cmdCreationTime, PayloadWithText, payloadBytes, payloadObj)
 import Chainweb.Version
-import Chainweb.Version.Guards (validPPKSchemes, validWebAuthnSignatureProvenance)
+import Chainweb.Version.Guards (validPPKSchemes, validWebAuthnSignatureEncoding)
 
 import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Hash as P
@@ -78,7 +78,7 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
 
     let bh = ctxCurrentBlockHeight txCtx
     let validSchemes = validPPKSchemes v cid bh
-    let validProv = validWebAuthnSignatureProvenance v cid bh
+    let validProv = validWebAuthnSignatureEncoding v cid bh
 
     let P.PublicMeta pcid _ gl gp _ _ = P._pMeta pay
         nid = P._pNetworkId pay
@@ -160,8 +160,8 @@ assertTxSize initialGas gasLimit = initialGas < fromIntegral gasLimit
 -- | Check and assert that signers and user signatures are valid for a given
 -- transaction hash.
 --
-assertValidateSigs :: [P.PPKScheme] -> [P.WebAuthnSigProvenance] -> P.PactHash -> [P.Signer] -> [P.UserSig] -> Bool
-assertValidateSigs validSchemes validProvenance hsh signers sigs
+assertValidateSigs :: [P.PPKScheme] -> [P.WebAuthnSigEncoding] -> P.PactHash -> [P.Signer] -> [P.UserSig] -> Bool
+assertValidateSigs validSchemes validEncoding hsh signers sigs
     | length signers /= length sigs = False
     | otherwise = and $ zipWith verifyUserSig sigs signers
     where verifyUserSig sig signer =
@@ -170,7 +170,7 @@ assertValidateSigs validSchemes validProvenance hsh signers sigs
               okScheme = sigScheme `elem` validSchemes
               okSignature = isRight $ P.verifyUserSig hsh sig signer
               okProvenance = case sig of
-                P.WebAuthnSig _ provenance -> provenance `elem` validProvenance
+                P.WebAuthnSig _ provenance -> provenance `elem` validEncoding
                 _ -> True
             in okScheme && okProvenance && okSignature
 
@@ -200,10 +200,10 @@ assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidation
 
 -- | Assert that the command hash matches its payload and
 -- its signatures are valid, without parsing the payload.
-assertCommand :: P.Command PayloadWithText -> [P.PPKScheme] -> [P.WebAuthnSigProvenance] -> Bool
-assertCommand (P.Command pwt sigs hsh) ppkSchemePassList validWebAuthnProvenance =
+assertCommand :: P.Command PayloadWithText -> [P.PPKScheme] -> [P.WebAuthnSigEncoding] -> Bool
+assertCommand (P.Command pwt sigs hsh) ppkSchemePassList validWebAuthnEncoding =
   isRight assertHash &&
-  assertValidateSigs ppkSchemePassList validWebAuthnProvenance hsh signers sigs
+  assertValidateSigs ppkSchemePassList validWebAuthnEncoding hsh signers sigs
   where
     cmdBS = SBS.fromShort $ payloadBytes pwt
     signers = P._pSigners (payloadObj pwt)
