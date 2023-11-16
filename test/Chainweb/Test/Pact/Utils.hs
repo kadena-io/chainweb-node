@@ -85,7 +85,7 @@ module Chainweb.Test.Pact.Utils
 , CmdSigner
 , csSigner
 , csPrivKey
-, csWebAuthnEncoding
+, csWebAuthnSigEncoding
 -- * Pact Service creation
 , withPactTestBlockDb
 , withPactTestBlockDb'
@@ -164,7 +164,7 @@ import Test.Tasty
 
 -- internal pact modules
 
-import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
+import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs, mkKeyPairsWithWebAuthnSigEncoding)
 import Pact.Gas
 import Pact.JSON.Legacy.Value
 import Pact.Types.Capability
@@ -233,7 +233,7 @@ type SimpleKeyPair = (Text,Text)
 -- if caps are empty, gas cap is implicit. otherwise it must be included
 testKeyPairs :: SimpleKeyPair -> Maybe [SigCapability] -> IO [(DynKeyPair, [SigCapability])]
 testKeyPairs skp capsm = do
-  kp <- toApiKp $ mkEd25519Signer' skp (fromMaybe [] capsm)
+  (kp, _) <- toApiKp $ mkEd25519Signer' skp (fromMaybe [] capsm)
   mkKeyPairs [kp]
 
 testPactFilesDir :: FilePath
@@ -480,7 +480,7 @@ mkGasCap = mkCoinCap "GAS" []
 data CmdSigner = CmdSigner
   { _csSigner :: !Signer
   , _csPrivKey :: !Text
-  , _csWebAuthnEncoding :: WebAuthnSigEncoding
+  , _csWebAuthnSigEncoding :: WebAuthnSigEncoding
     -- ^ When this field is set, we override the WebAuthn encoding
     -- of the signatures in order to influence how the signatures
     -- will be encoded. This is used for testing.
@@ -491,7 +491,7 @@ mkEd25519Signer :: Text -> Text -> [SigCapability] -> CmdSigner
 mkEd25519Signer pubKey privKey caps = CmdSigner
   { _csSigner = signer
   , _csPrivKey = privKey
-  , _csWebAuthnEncoding = WebAuthnObject
+  , _csWebAuthnSigEncoding = WebAuthnObject
   }
   where
     signer = Signer
@@ -504,10 +504,10 @@ mkEd25519Signer' :: SimpleKeyPair -> [SigCapability] -> CmdSigner
 mkEd25519Signer' (pub,priv) = mkEd25519Signer pub priv
 
 mkWebAuthnSigner :: Text -> Text -> [SigCapability] -> WebAuthnSigEncoding -> CmdSigner
-mkWebAuthnSigner pubKey privKey caps prov = CmdSigner
+mkWebAuthnSigner pubKey privKey caps webAuthnSigEncoding = CmdSigner
   { _csSigner = signer
   , _csPrivKey = privKey
-  , _csWebAuthnEncoding = prov
+  , _csWebAuthnSigEncoding = webAuthnSigEncoding
   }
   where
     signer = Signer
@@ -594,9 +594,9 @@ buildTextCmd = fmap (fmap T.decodeUtf8) . buildRawCmd
 buildRawCmd :: (MonadThrow m, MonadIO m) => CmdBuilder -> m (Command ByteString)
 buildRawCmd CmdBuilder{..} = do
     akps <- mapM toApiKp _cbSigners
-    kps <- liftIO $ mkKeyPairs akps
+    kps <- liftIO $ mkKeyPairsWithWebAuthnSigEncoding akps
     cmd <- liftIO $ mkCommandWithDynKeys kps pm _cbNonce nid _cbRPC
-    -- error (show cmd)
+    -- _ <- error (show cmd)
     pure cmd
   where
     nid = fmap (P.NetworkId . sshow) _cbNetworkId
@@ -606,12 +606,14 @@ buildRawCmd CmdBuilder{..} = do
 dieL :: MonadThrow m => [Char] -> Either [Char] a -> m a
 dieL msg = either (\s -> throwM $ userError $ msg ++ ": " ++ s) return
 
-toApiKp :: MonadThrow m => CmdSigner -> m ApiKeyPair
-toApiKp (CmdSigner Signer{..} privKey _webAuthnEncoding) = do
+toApiKp :: MonadThrow m => CmdSigner -> m (ApiKeyPair, WebAuthnSigEncoding)
+toApiKp (CmdSigner Signer{..} privKey webAuthnSigEncoding) = do
   sk <- dieL "private key" $ parseB16TextOnly privKey
   pk <- dieL "public key" $ parseB16TextOnly _siPubKey
+  let keyPair = ApiKeyPair (PrivBS sk) (Just (PubBS pk)) _siAddress _siScheme (Just _siCapList)
   return $!
-    ApiKeyPair (PrivBS sk) (Just (PubBS pk)) _siAddress _siScheme (Just _siCapList)
+    (keyPair, webAuthnSigEncoding)
+
 
 -- ----------------------------------------------------------------------- --
 -- Service creation utilities

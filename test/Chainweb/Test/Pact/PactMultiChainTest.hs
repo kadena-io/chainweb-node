@@ -1100,9 +1100,9 @@ pact410UpgradeTest = do
   runToHeight 80
 
   runBlockTest
-    [ PactTxTest (buildBasicGasWebAuthn WebAuthnObject 1000 $ mkExec' "(+ 1 2)") $
+    [ PactTxTest (buildBasicGasWebAuthn WebAuthnStringified 1000 $ mkExec' "(+ 1 2)") $
       assertTxSuccess "Should succeed" (pInteger 3)
-    , PactTxTest (buildBasicGasWebAuthn WebAuthnStringified 1000 $ mkExec' "(+ 1 3)") $
+    , PactTxTest (buildBasicGasWebAuthn WebAuthnObject 1000 $ mkExec' "(+ 1 3)") $
       assertTxSuccess "Should succeed" (pInteger 4)
     ]
 
