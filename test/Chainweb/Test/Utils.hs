@@ -135,9 +135,6 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Coerce (coerce)
 import Data.Foldable
-import Data.Map.Strict qualified as Map
-import Data.Map.Strict (Map)
-import Data.Maybe (mapMaybe)
 import qualified Data.HashMap.Strict as HashMap
 import Data.IORef
 import Data.List (sortOn, isInfixOf)
@@ -902,7 +899,7 @@ matchTest pat = withArgs ["-p",pat]
 data ChainwebNetwork = ChainwebNetwork
     { _getClientEnv :: !ClientEnv
     , _getServiceClientEnv :: !ClientEnv
-    , _getNodeDbDirs :: !(Map Word (FilePath, FilePath))
+    , _getNodeDbDirs :: ![(FilePath, FilePath)]
     }
 
 withNodes_
@@ -918,10 +915,10 @@ withNodes_ logger v testLabel rdb n = do
     (_rkey, (_async, (p2p, service))) <- allocate (start nodeDbDirs) (cancel . fst)
     pure (ChainwebNetwork p2p service nodeDbDirs)
   where
-    start :: Map Word (FilePath, FilePath) -> IO (Async (), (ClientEnv, ClientEnv))
+    start :: [(FilePath, FilePath)] -> IO (Async (), (ClientEnv, ClientEnv))
     start dbDirs = do
         peerInfoVar <- newEmptyMVar
-        a <- async $ runTestNodes testLabel rdb logger v n peerInfoVar dbDirs
+        a <- async $ runTestNodes testLabel rdb logger v peerInfoVar dbDirs
         (i, servicePort) <- readMVar peerInfoVar
         cwEnv <- getClientEnv $ getCwBaseUrl Https $ _hostAddressPort $ _peerAddr i
         cwServiceEnv <- getClientEnv $ getCwBaseUrl Http servicePort
@@ -999,18 +996,15 @@ runTestNodes
     -> RocksDb
     -> logger
     -> ChainwebVersion
-    -> Word
     -> MVar (PeerInfo, Port)
-    -> Map Word (FilePath, FilePath)
+    -> [(FilePath, FilePath)]
        -- ^ A Map from Node Id to (Pact DB Dir, RocksDB Dir).
+       --   The index is just the position in the list.
     -> IO ()
-runTestNodes testLabel rdb logger ver n portMVar dbDirs = do
-    let nids = [0 .. n - 1]
-    let nidWithDirs = mapMaybe (\nid -> (nid,) <$> Map.lookup nid dbDirs) nids
-
-    forConcurrently_ nidWithDirs $ \(nid, (pactDbDir, rocksDbDir)) -> do
+runTestNodes testLabel rdb logger ver portMVar dbDirs = do
+    forConcurrently_ (zip [0 ..] dbDirs) $ \(nid, (pactDbDir, rocksDbDir)) -> do
         threadDelay (1000 * int nid)
-        let baseConf = config ver (int n)
+        let baseConf = config ver (int (length dbDirs))
         conf <- if nid == 0
           then return $ bootstrapConfig baseConf
           else setBootstrapPeerInfo <$> (fst <$> readMVar portMVar) <*> pure baseConf
@@ -1054,22 +1048,20 @@ node testLabel rdb rawLogger peerInfoVar conf pactDbDir rocksDbDir nid = do
         crs = map snd $ HashMap.toList $ view chainwebChains cw
         poison cr = mempoolAddToBadList (view chainResMempool cr) (V.singleton deadbeef)
 
-withDbDirs :: Word -> ResourceT IO (Map Word (FilePath, FilePath))
+withDbDirs :: Word -> ResourceT IO [(FilePath, FilePath)]
 withDbDirs n = do
-  let create :: IO (Map Word (FilePath, FilePath))
+  let create :: IO [(FilePath, FilePath)]
       create = do
-        canonicalTmpDirs <- forM [0 .. n - 1] $ \nid -> do
+        forM [0 .. n - 1] $ \nid -> do
           targetDir1 <- getCanonicalTemporaryDirectory
           targetDir2 <- getCanonicalTemporaryDirectory
-          pure (nid, targetDir1, targetDir2)
 
-        fmap Map.fromList $ do
-          forM canonicalTmpDirs $ \(nid, targetDir1, targetDir2) -> do
-            dir1 <- createTempDirectory targetDir1 ("pactdb-dir-" ++ show nid)
-            dir2 <- createTempDirectory targetDir2 ("rocksdb-dir-" ++ show nid)
-            pure (nid, (dir1, dir2))
+          dir1 <- createTempDirectory targetDir1 ("pactdb-dir-" ++ show nid)
+          dir2 <- createTempDirectory targetDir2 ("rocksdb-dir-" ++ show nid)
 
-  let destroy :: Map Word (FilePath, FilePath) -> IO ()
+          pure (dir1, dir2)
+
+  let destroy :: [(FilePath, FilePath)] -> IO ()
       destroy m = flip foldMap m $ \(d1, d2) -> do
         ignoringIOErrors $ do
           removeDirectoryRecursive d1
@@ -1077,9 +1069,9 @@ withDbDirs n = do
 
   (_, m) <- allocate create destroy
   pure m
-
-ignoringIOErrors :: (MonadCatch m) => m () -> m ()
-ignoringIOErrors ioe = ioe `catch` (\e -> const (pure ()) (e :: IOError))
+  where
+    ignoringIOErrors :: (MonadCatch m) => m () -> m ()
+    ignoringIOErrors ioe = ioe `catch` (\(_ :: IOError) -> pure ())
 
 deadbeef :: TransactionHash
 deadbeef = TransactionHash "deadbeefdeadbeefdeadbeefdeadbeef"

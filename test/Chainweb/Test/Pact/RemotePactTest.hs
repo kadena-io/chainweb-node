@@ -147,9 +147,13 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
                 iot = toTxCreationTime <$> iotm
                 pactDir = do
                   m <- _getNodeDbDirs <$> net
-                  case M.lookup 0 m of
-                    Just (pactDbDir, _) -> pure pactDbDir
-                    Nothing -> error "impossible"
+                  -- This looks up the pactDbDir for node 0. This is
+                  -- kind of a hack, because there is only one node in
+                  -- this test. However, it doesn't matter much, because
+                  -- we are dealing with both submitting /local txs
+                  -- and compaction, so picking an arbitrary node
+                  -- to run these two operations on is fine.
+                  pure (fst (head m))
 
             in testGroup "remote pact tests"
                 [ withResourceT (liftIO $ join $ withRequestKeys <$> iot <*> cenv) $ \reqkeys -> golden "remote-golden" $
@@ -241,36 +245,39 @@ responseGolden cenv rks = do
 --       appear in the `txLogs` anymore, and the two should be equivalent.
 txlogsCompactionTest :: Pact.TxCreationTime -> ClientEnv -> FilePath -> IO ()
 txlogsCompactionTest t cenv pactDbDir = do
-    createTableTx <- do
-      let tx = T.unlines
-            [ "(namespace 'free)"
-            , "(module m0 G"
-            , "  (defcap G () true)"
-            , "  (defschema person"
-            , "    name:string"
-            , "    age:integer"
-            , "  )"
-            , "  (deftable persons:{person})"
-            , "  (defun read-persons (k) (read persons k))"
-            , "  (defun insert-persons (id name age) (insert persons id { 'name:name, 'age:age }))"
-            , "  (defun write-persons (id name age) (write persons id { 'name:name, 'age:age }))"
-            , "  (defun persons-txlogs (i) (map (txlog persons) (txids persons i)))"
-            , ")"
-            , "(create-table persons)"
-            , "(insert-persons \"A\" \"Lindsey Lohan\" 42)"
-            , "(insert-persons \"B\" \"Nico Robin\" 30)"
-            , "(insert-persons \"C\" \"chessai\" 420)"
-            ]
-      buildTextCmd
-        $ set cbSigners [mkSigner' sender00 []]
-        $ set cbGasLimit 300_000
-        $ set cbTTL defaultMaxTTL
-        $ set cbCreationTime t
-        $ set cbChainId cid
-        $ set cbNetworkId (Just v)
-        $ mkCmd "createTable-persons"
-        $ mkExec tx
-        $ mkKeySetData "sender00" [sender00]
+    let cmd :: Text -> Text -> CmdBuilder
+        cmd nonce tx = do
+          set cbSigners [mkSigner' sender00 []]
+            $ set cbTTL defaultMaxTTL
+            $ set cbCreationTime t
+            $ set cbChainId cid
+            $ set cbNetworkId (Just v)
+            $ mkCmd nonce
+            $ mkExec tx
+            $ mkKeySetData "sender00" [sender00]
+
+    createTableTx <- buildTextCmd
+      $ set cbGasLimit 300_000
+      $ cmd "create-table-persons"
+      $ T.unlines
+          [ "(namespace 'free)"
+          , "(module m0 G"
+          , "  (defcap G () true)"
+          , "  (defschema person"
+          , "    name:string"
+          , "    age:integer"
+          , "  )"
+          , "  (deftable persons:{person})"
+          , "  (defun read-persons (k) (read persons k))"
+          , "  (defun insert-persons (id name age) (insert persons id { 'name:name, 'age:age }))"
+          , "  (defun write-persons (id name age) (write persons id { 'name:name, 'age:age }))"
+          , "  (defun persons-txlogs (i) (map (txlog persons) (txids persons i)))"
+          , ")"
+          , "(create-table persons)"
+          , "(insert-persons \"A\" \"Lindsey Lohan\" 42)"
+          , "(insert-persons \"B\" \"Nico Robin\" 30)"
+          , "(insert-persons \"C\" \"chessai\" 420)"
+          ]
 
     nonceSupply <- newIORef @Word 1 -- starts at 1 since 0 is always the create-table tx
     let nextNonce = do
@@ -278,11 +285,10 @@ txlogsCompactionTest t cenv pactDbDir = do
           modifyIORef' nonceSupply (+ 1)
           pure cur
 
-    let sendTxs txs = flip runClientM cenv $
-          pactSendApiClient v cid $ SubmitBatch $ NEL.fromList txs
-
     let submitAndCheckTx tx = do
-          sendTxs [tx] >>= \case
+          submitResult <- flip runClientM cenv $
+            pactSendApiClient v cid $ SubmitBatch $ NEL.fromList [tx]
+          case submitResult of
             Left err -> do
               assertFailure $ "Error when sending tx: " ++ show err
             Right rks -> do
@@ -315,28 +321,33 @@ txlogsCompactionTest t cenv pactDbDir = do
 
     let createTxLogsTx :: Word -> IO (Command Text)
         createTxLogsTx n = do
-          let txTxt = T.unlines
+          -- cost is about 360k.
+          -- cost = flatCost(module) + flatCost(map) + flatCost(txIds) + numTxIds * (costOf(txlog)) + C
+          --      = 60_000 + 4 + 100_000 + 2 * 100_000 + C
+          --      = 360_004 + C
+          -- Note there are two transactions that write to `persons`, which is
+          -- why `numTxIds` = 2 (and not the number of rows).
+          let gasLimit = 400_000
+          buildTextCmd
+            $ set cbGasLimit gasLimit
+            $ cmd ("test-txlogs-" <> sshow n)
+            $ T.unlines
                 [ "(namespace 'free)"
                 , "(module m" <> sshow n <> " G"
                 , "  (defcap G () true)"
-                , "  (defun test (i) (m0.persons-txlogs i))"
+                , "  (defun persons-txlogs (i) (m0.persons-txlogs i))"
                 , ")"
-                , "(test 0)"
+                , "(persons-txlogs 0)"
                 ]
-          buildTextCmd
-            $ set cbSigners [mkSigner' sender00 []]
-            $ set cbGasLimit 400_000
-            $ set cbTTL defaultMaxTTL
-            $ set cbCreationTime t
-            $ set cbChainId cid
-            $ set cbNetworkId (Just v)
-            $ mkCmd "test-write"
-            $ mkExec txTxt
-            $ mkKeySetData "sender00" [sender00]
 
     let createWriteTx :: Word -> IO (Command Text)
         createWriteTx n = do
-          let txTxt = T.unlines
+          -- module = 60k, write = 100
+          let gasLimit = 70_000
+          buildTextCmd
+            $ set cbGasLimit gasLimit
+            $ cmd ("test-write-" <> sshow n)
+            $ T.unlines
                 [ "(namespace 'free)"
                 , "(module m" <> sshow n <> " G"
                 , "  (defcap G () true)"
@@ -344,16 +355,6 @@ txlogsCompactionTest t cenv pactDbDir = do
                 , ")"
                 , "(test-write \"C\" \"chessai\" 69)"
                 ]
-          buildTextCmd
-            $ set cbSigners [mkSigner' sender00 []]
-            $ set cbGasLimit 100_000
-            $ set cbTTL defaultMaxTTL
-            $ set cbCreationTime t
-            $ set cbChainId cid
-            $ set cbNetworkId (Just v)
-            $ mkCmd ("test-write-" <> sshow n)
-            $ mkExec txTxt
-            $ mkKeySetData "sender00" [sender00]
 
     let -- This can't be a Map because the RowKeys aren't
         -- necessarily unique, unlike in `getLatestPactState`.
@@ -375,8 +376,7 @@ txlogsCompactionTest t cenv pactDbDir = do
             Right txlogs -> do
               pure txlogs
 
-    writeTx <- createWriteTx =<< nextNonce
-    submitAndCheckTx writeTx
+    submitAndCheckTx =<< createWriteTx =<< nextNonce
 
     C.withDefaultLogger Error $ \logger -> do
       let flags = [C.NoVacuum, C.NoGrandHash]
@@ -385,13 +385,13 @@ txlogsCompactionTest t cenv pactDbDir = do
       Backend.withSqliteDb cid logger pactDbDir resetDb $ \(SQLiteEnv db _) -> do
         void $ C.compact C.Latest logger db flags
 
-    txLogsTx <- createTxLogsTx =<< nextNonce
-    cr <- local cid cenv txLogsTx
-    txLogs <- crGetTxLogs cr
+    txLogs <- crGetTxLogs =<< local cid cenv =<< createTxLogsTx =<< nextNonce
 
     latestState <- getLatestState
-    assertBool "txlogs match latest state" $
-      txLogs == map (\(rk, rd) -> (rk, J.toJsonViaEncode (_rdData rd))) (M.toList latestState)
+    assertEqual
+      "txlogs match latest state"
+      txLogs
+      (map (\(rk, rd) -> (rk, J.toJsonViaEncode (_rdData rd))) (M.toList latestState))
 
 localTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
 localTest t cenv = do
