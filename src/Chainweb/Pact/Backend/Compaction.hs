@@ -25,6 +25,7 @@
 
 module Chainweb.Pact.Backend.Compaction
   ( CompactFlag(..)
+  , TargetBlockHeight(..)
   , CompactM
   , compact
   , compactAll
@@ -84,6 +85,7 @@ import Pact.Types.SQLite (SType(..), RType(..))
 import Pact.Types.SQLite qualified as Pact
 
 newtype ITxId = ITxId Int64
+  deriving newtype (Show)
 
 newtype TableName = TableName { getTableName :: Utf8 }
   deriving stock (Show)
@@ -378,7 +380,7 @@ ensureBlockHeightExists bh = do
 getLatestBlockHeight :: CompactM BlockHeight
 getLatestBlockHeight = do
   r <- qryNoTemplateM
-    "locateTarget.1"
+    "getLatestBlockHeight.1"
     "SELECT blockheight FROM BlockHistory ORDER BY blockheight DESC LIMIT 1"
     []
     [RInt]
@@ -554,12 +556,12 @@ dropCompactTables = do
     \ DROP TABLE CompactActiveRow; "
 
 compact :: ()
-  => BlockHeight
+  => TargetBlockHeight
   -> Logger SomeLogMessage
   -> Database
   -> [CompactFlag]
   -> IO (Maybe ByteString)
-compact blockHeight logger db flags = runCompactM (mkCompactEnv logger db flags) $ do
+compact tbh logger db flags = runCompactM (mkCompactEnv logger db flags) $ do
   logg Info "Beginning compaction"
 
   doGrandHash <- isFlagNotSet NoGrandHash
@@ -568,7 +570,11 @@ compact blockHeight logger db flags = runCompactM (mkCompactEnv logger db flags)
     createCompactGrandHash
     createCompactActiveRow
 
+  blockHeight <- locateTarget tbh
   txId <- getEndingTxId blockHeight
+
+  logg Info $ "Target blockheight: " <> sshow blockHeight
+  logg Info $ "Ending TxId: " <> sshow txId
 
   versionedTables <- getVersionedTables blockHeight
 
@@ -637,8 +643,7 @@ compactAll CompactConfig{..} = do
     withPerChainFileLogger logDir cid Debug $ \logger -> do
       let resetDb = False
       withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) -> do
-        blockHeight <- runCompactM (mkCompactEnv logger db []) $ locateTarget ccBlockHeight
-        void $ compact blockHeight logger db ccFlags
+        void $ compact ccBlockHeight logger db ccFlags
 
 main :: IO ()
 main = do

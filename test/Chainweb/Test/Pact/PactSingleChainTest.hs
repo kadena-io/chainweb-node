@@ -261,7 +261,7 @@ rosettaFailsWithoutFullHistory rdb =
           setOneShotMempool mempoolRef goldenMemPool
           replicateM_ 10 $ void $ runBlock q bdb second "rosettaFailsWithoutFullHistory"
 
-          Utils.compact LL.Error [C.NoVacuum, C.NoGrandHash] sqlEnv (BlockHeight 5)
+          Utils.compact LL.Error [C.NoVacuum, C.NoGrandHash] sqlEnv (C.Target (BlockHeight 5))
 
         -- This needs to run after the previous test
         -- Annoyingly, we must inline the PactService util starts here.
@@ -297,7 +297,7 @@ rewindPastMinBlockHeightFails rdb =
     setOneShotMempool cr.mempoolRef goldenMemPool
     replicateM_ 10 $ runBlock cr.pactQueue cr.blockDb second pat
 
-    Utils.compact LL.Error [C.NoVacuum, C.NoGrandHash] cr.sqlEnv (BlockHeight 5)
+    Utils.compact LL.Error [C.NoVacuum, C.NoGrandHash] cr.sqlEnv (C.Target (BlockHeight 5))
 
     -- Genesis block header; compacted away by now
     let bh = genesisBlockHeader testVersion cid
@@ -354,7 +354,7 @@ pactStateSamePreAndPostCompaction rdb =
 
     statePreCompaction <- getLatestPactState db
 
-    Utils.compact LL.Error [C.NoVacuum, C.NoGrandHash] cr.sqlEnv (BlockHeight numBlocks)
+    Utils.compact LL.Error [C.NoVacuum, C.NoGrandHash] cr.sqlEnv (C.Target (BlockHeight numBlocks))
 
     statePostCompaction <- getLatestPactState db
 
@@ -431,7 +431,7 @@ compactionIsIdempotent rdb =
     let compact h =
           Utils.compact LL.Error [C.NoVacuum, C.NoGrandHash] cr.sqlEnv h
 
-    let compactionHeight = BlockHeight numBlocks
+    let compactionHeight = C.Target (BlockHeight numBlocks)
     compact compactionHeight
     statePostCompaction1 <- getPactUserTables db
     compact compactionHeight
@@ -550,7 +550,7 @@ compactionUserTablesDropped rdb =
     assertExists freeBeforeTbl
     assertExists freeAfterTbl
 
-    Utils.compact LL.Error [C.NoVacuum, C.NoGrandHash] cr.sqlEnv (BlockHeight halfwayPoint)
+    Utils.compact LL.Error [C.NoVacuum, C.NoGrandHash] cr.sqlEnv (C.Target (BlockHeight halfwayPoint))
 
     statePost <- getPactUserTables db
     flip assertBool (isJust (M.lookup freeBeforeTbl statePost)) $

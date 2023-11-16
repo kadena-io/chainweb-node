@@ -980,7 +980,7 @@ compact :: ()
   => LL.LogLevel
   -> [C.CompactFlag]
   -> SQLiteEnv
-  -> BlockHeight
+  -> C.TargetBlockHeight
   -> IO ()
 compact logLevel cFlags (SQLiteEnv db _) bh = do
   C.withDefaultLogger logLevel $ \logger -> do

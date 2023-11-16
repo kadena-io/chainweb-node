@@ -335,7 +335,7 @@ compactAndResumeTest logLevel v n =
           let flags = [C.NoVacuum, C.NoGrandHash]
           let db = _sConn sqlEnv
           let bh = BlockHeight 5
-          void $ C.compact bh cLogger' db flags
+          void $ C.compact (C.Target bh) cLogger' db flags
 
     logFun "phase 3... restarting nodes and ensuring progress"
     runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rdb pactDbDir ct
