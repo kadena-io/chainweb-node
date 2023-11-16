@@ -2,6 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Chainweb.Pact.SPV.Hyperlane where
 
@@ -47,11 +48,11 @@ evalHyperlaneCommand (_objectMap . _oObject -> om)
   , Just (TLitString metadata) <- M.lookup "metadata" om
   , Just (TList validators _ _) <- M.lookup "validators" om
   , Just (TLitInteger threshold) <- M.lookup "threshold" om
-  =
-    let
-      convert (TLitString v) = Just v
-      convert _ = Nothing
-    in verifySignatures message metadata (V.mapMaybe convert validators) (fromInteger threshold)
+  = do
+    parsedValidators <- forM validators $ \case
+      (TLitString v) -> pure v
+      _ -> throwError $ Text.pack $ "Only string validators are supported"
+    verifySignatures message metadata parsedValidators (fromInteger threshold)
 
   | Just (TObject o _) <- M.lookup "message" om
   = encodeHyperlaneMessage o
@@ -63,14 +64,14 @@ evalHyperlaneCommand (_objectMap . _oObject -> om)
 verifySignatures :: Text -> Text -> V.Vector Text -> Int -> ExceptT Text IO (Object Name)
 verifySignatures hexMessage hexMetadata validators threshold = do
   message <- case decodeHex hexMessage of
-          Right s -> pure s
-          Left e -> throwError $ Text.pack $ "Decoding of HyperlaneMessage failed: " ++ e
+    Right s -> pure s
+    Left e -> throwError $ Text.pack $ "Decoding of HyperlaneMessage failed: " ++ e
 
   HyperlaneMessage{..} <- runGetS getHyperlaneMessage message
 
   metadata <- case decodeHex hexMetadata of
-          Right s -> pure s
-          Left e -> throwError $ Text.pack $ "Decoding of Metadata failed: " ++ e
+    Right s -> pure s
+    Left e -> throwError $ Text.pack $ "Decoding of Metadata failed: " ++ e
 
   MessageIdMultisigIsmMetadata{..} <- runGetS getMessageIdMultisigIsmMetadata metadata
 
@@ -102,8 +103,8 @@ verifySignatures hexMessage hexMetadata validators threshold = do
     throwError $ Text.pack $ "The number of recovered addresses from the signatures is less than threshold: " ++ show threshold
 
   binaryValidators <- forM validators $ \val -> case decodeHex val of
-          Right v -> pure v
-          Left e -> throwError $ "Failed to decode a validator (" <> val <> "):" <> Text.pack e
+    Right v -> pure v
+    Left e -> throwError $ "Failed to decode a validator (" <> val <> "):" <> Text.pack e
 
   -- Requires that m-of-n validators verify a merkle root, and verifies a merkle proof of message against that root.
   --
@@ -168,7 +169,7 @@ recoverAddressValidatorAnnouncement storageLocation sig = do
       putRawByteString hash'
 
   address <- recoverAddress announcementDigest signatureBinary
-  let addr = fmap (tStr . asString . encodeHex) $ address
+  let addr = tStr . asString . encodeHex <$> address
 
   case addr of
     Just a -> return $ mkObject [ ("address", a) ]
@@ -181,8 +182,8 @@ encodeHyperlaneMessage o = do
     om = _objectMap $ _oObject o
     tokenMessage = om ^? at "tokenMessage" . _Just . _TObject . _1
 
-  hmTokenMessage <- case parseTokenMessageERC20 <$> tokenMessage of
-    Just (Just t) -> pure t
+  hmTokenMessage <- case parseTokenMessageERC20 =<< tokenMessage of
+    Just t -> pure t
     _ -> throwError "Couldn't encode TokenMessageERC20"
 
   let
