@@ -508,8 +508,10 @@ test-suite chainweb-tests
         P2P.Test.TaskQueue
 
     build-depends:
+        , aeson-pretty
+
         -- internal
-          chainweb
+        , chainweb
 
         -- external
         , Decimal >= 0.4.2

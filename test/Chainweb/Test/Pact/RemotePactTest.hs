@@ -36,6 +36,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
+import Data.Aeson.Encode.Pretty qualified as A
 import qualified Data.Aeson as A
 import Data.Aeson.Lens hiding (values)
 import qualified Data.ByteString as BS
@@ -45,13 +46,16 @@ import Data.Word (Word64)
 import Data.Default (def)
 import Data.Either (isRight)
 import Data.Foldable (toList)
-import qualified Data.HashMap.Strict as HashMap
+import Data.Foldable qualified as F
+import qualified Data.HashMap.Strict as HM
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import qualified Data.Text.IO as T
 import System.Logger.Types (LogLevel(..))
 
 import Servant.Client
@@ -77,7 +81,10 @@ import Pact.Types.Term
 
 -- internal modules
 
+import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.ChainId
+import Chainweb.Cut.CutHashes (BlockHashWithHeight(..), CutHashes(..))
+import Chainweb.CutDB.RestAPI.Client (cutGetClient)
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Backend.Compaction qualified as C
@@ -88,6 +95,7 @@ import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Validations (defaultMaxTTL)
 import Chainweb.Test.Pact.Utils
+import Chainweb.Test.Pact.Utils qualified as Utils
 import Chainweb.Test.RestAPI.Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
@@ -198,66 +206,181 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
 responseGolden :: ClientEnv -> RequestKeys -> IO LBS.ByteString
 responseGolden cenv rks = do
     PollResponses theMap <- polling cid cenv rks ExpectPactResult
-    let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
+    let values = mapMaybe (\rk -> _crResult <$> HM.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
     return $ foldMap J.encode values
 
 txlogsTest :: Pact.TxCreationTime -> ClientEnv -> FilePath -> IO ()
 txlogsTest t cenv pactDbDir = do
-    let getTxLogs :: Int -> Text -> IO (Command Text)
-        getTxLogs n tblName = do
-          let mkId txtId = "\"" <> txtId <> "\""
-          let mkPerson name age = "{ 'name:\"" <> name <> "\", 'age:" <> age <> " }"
-          let mkInsert txtId name age
-                = "(insert " <> tblName <> " " <> mkId txtId <> " " <> mkPerson name age <> ")"
+    createTableTx <- do
+      let tx = T.unlines
+            [ "(namespace 'free)"
+            , "(module m0 G"
+            , "  (defcap G () true)"
+            , "  (defschema person"
+            , "    name:string"
+            , "    age:integer"
+            , "  )"
+            , "  (deftable persons:{person})"
+            , "  (defun read-persons (k) (read persons k))"
+            , "  (defun insert-persons (id name age) (insert persons id { 'name:name, 'age:age }))"
+            , "  (defun write-persons (id name age) (write persons id { 'name:name, 'age:age }))"
+            , "  (defun persons-txlogs (i) (map (txlog persons) (txids persons i)))"
+            , ")"
+            , "(create-table persons)"
+            , "(insert-persons \"A\" \"Lindsey Lohan\" 42)"
+            , "(insert-persons \"B\" \"Nico Robin\" 30)"
+            , "(insert-persons \"C\" \"chessai\" 420)"
+            ]
+      buildTextCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbGasLimit 300_000
+        $ set cbTTL defaultMaxTTL
+        $ set cbCreationTime t
+        $ set cbChainId cid
+        $ set cbNetworkId (Just v)
+        $ mkCmd "createTable-persons"
+        $ mkExec tx
+        $ mkKeySetData "sender00" [sender00]
 
-          let tx = T.unlines
+    let sendTxs txs = flip runClientM cenv $
+          pactSendApiClient v cid $ SubmitBatch $ NEL.fromList txs
+
+    let submitAndCheckTx tx = do
+          sendTxs [tx] >>= \case
+            Left err -> do
+              assertFailure $ "Error when sending tx: " ++ show err
+            Right rks -> do
+              PollResponses m <- polling cid cenv rks ExpectPactResult
+              case HM.lookup (NEL.head (_rkRequestKeys rks)) m of
+                Just cr -> do
+                  case _crResult cr of
+                    PactResult (Left err) -> do
+                      assertFailure $ "validation failure on tx: " ++ show err
+                    PactResult (Right pv) -> do
+                      print pv --pure ()
+                Nothing -> do
+                  assertFailure "impossible"
+
+    submitAndCheckTx createTableTx
+
+    let queryCurrentBlockHeight :: IO BlockHeight
+        queryCurrentBlockHeight = do
+          runClientM (cutGetClient v) cenv >>= \case
+            Left err -> do
+              assertFailure $ show err
+            Right x -> do
+              -- TODO: is `minimum` the right thing here?
+              pure $ F.minimum (HM.map _bhwhHeight (_cutHashes x))
+
+    BlockHeight bhAfterCreateTable <- queryCurrentBlockHeight
+
+    let decode :: BS.ByteString -> A.Value
+        decode b = case A.decodeStrict' @A.Value b of
+          Nothing-> error "decode failure"
+          Just a -> a
+
+    let rowsToObject :: [(BS.ByteString, BS.ByteString)] -> A.Value
+        rowsToObject rows = A.toJSONList $ flip map rows $ \(rk, rd) -> A.object
+          [ "0_rowkey" A..= T.decodeUtf8 rk
+          , "1_rowdata" A..= decode rd
+          ]
+
+    let pprintJson :: (J.Encode a) => a -> IO ()
+        pprintJson a = case A.decode @A.Value (J.encode a) of
+          Nothing -> assertFailure "pprintJsonFailure"
+          Just x -> T.putStrLn $ T.decodeUtf8 $ LBS.toStrict $ A.encodePretty x
+
+    let getState = C.withDefaultLogger Error $ \logger -> do
+          Backend.withSqliteDb cid logger pactDbDir False $ \(SQLiteEnv db _) -> do
+            st <- Utils.getLatestPactState db
+            case M.lookup "free.m0_persons" st of
+              Just ps -> pure ps
+              Nothing -> error "getting state of free.m0_persons failed"
+
+    let printState :: M.Map BS.ByteString BS.ByteString -> IO ()
+        printState st = do
+          pprintJson $ rowsToObject $ M.toList st
+
+    printState =<< getState
+
+    -- let some time pass
+    awaitBlockHeight v (\_ -> pure ()) cenv (BlockHeight (bhAfterCreateTable + 50))
+
+    let createTxLogsTx :: Word -> IO (Command Text)
+        createTxLogsTx n = do
+          let txTxt = T.unlines
                 [ "(namespace 'free)"
                 , "(module m" <> sshow n <> " G"
                 , "  (defcap G () true)"
-                , "  (defschema person"
-                , "    name:string"
-                , "    age:integer"
-                , "  )"
-                , "  (deftable " <> tblName <> ":{person})"
-                , "  (defun read-persons (k) (read persons k))"
-                , "  (defun persons-txids (i) (txids persons i))"
+                , "  (defun test (i) (m0.persons-txlogs i))"
                 , ")"
-                , "(create-table " <> tblName <> ")"
-                , mkInsert "A" "Lindsey Lohan" "42"
-                , mkInsert "B" "Nico Robin" "30"
-                , mkInsert "C" "chessai" "69"
-                , "(map (txlog m" <> sshow n <> ".persons) (txids m" <> sshow n <> ".persons 0))"
+                , "(test 0)"
                 ]
           buildTextCmd
             $ set cbSigners [mkSigner' sender00 []]
-            $ set cbGasLimit 300_000
+            $ set cbGasLimit 400_000
             $ set cbTTL defaultMaxTTL
             $ set cbCreationTime t
             $ set cbChainId cid
             $ set cbNetworkId (Just v)
-            $ mkCmd ("createTable-" <> tblName <> "-" <> sshow n)
-            $ mkExec tx
+            $ mkCmd "test-write"
+            $ mkExec txTxt
             $ mkKeySetData "sender00" [sender00]
 
-    let sendTxs txs = flip runClientM cenv $
-          pactSendApiClient v cid $ SubmitBatch $ NEL.fromList txs
-    do
-      tx <- getTxLogs 0 "persons"
-      print =<< local cid cenv tx
-      e <- sendTxs [tx]
-      assertBool "sending persistent tx succeeded" (isRight e)
+    let createWriteTx :: Word -> IO (Command Text)
+        createWriteTx n = do
+          let txTxt = T.unlines
+                [ "(namespace 'free)"
+                , "(module m" <> sshow n <> " G"
+                , "  (defcap G () true)"
+                , "  (defun test-write (id name age) (m0.write-persons id name age))"
+                , ")"
+                , "(test-write \"C\" \"chessai\" 69)"
+                ]
+          buildTextCmd
+            $ set cbSigners [mkSigner' sender00 []]
+            $ set cbGasLimit 100_000 --300_000
+            $ set cbTTL defaultMaxTTL
+            $ set cbCreationTime t
+            $ set cbChainId cid
+            $ set cbNetworkId (Just v)
+            $ mkCmd ("test-write-" <> sshow n)
+            $ mkExec txTxt
+            $ mkKeySetData "sender00" [sender00]
+
+    let reportLocalResult :: CommandResult Hash -> IO ()
+        reportLocalResult cr = do
+          case _crResult cr of
+            PactResult (Right result) -> do
+              pprintJson result
+            PactResult (Left err) -> do
+              assertFailure $ "local failed: " ++ show err
+          case _crMetaData cr of
+            Just metadata -> do
+              pprintJson metadata
+            Nothing -> do
+              pure ()
+
+    txLogsTx1 <- createTxLogsTx 2
+    cr1 <- local cid cenv txLogsTx1
+    T.putStrLn "\ncr1:"
+    reportLocalResult cr1
+
+    writeTx1 <- createWriteTx 1
+    submitAndCheckTx writeTx1
 
     C.withDefaultLogger Error $ \logger -> do
-      let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
+      let flags = [C.NoVacuum, C.NoGrandHash]
       let resetDb = False
 
       Backend.withSqliteDb cid logger pactDbDir resetDb $ \(SQLiteEnv db _) -> do
         void $ C.compact C.Latest logger db flags
 
-    do
-      tx <- getTxLogs 1 "persons"
-      print =<< local cid cenv tx
+    txLogsTx2 <- createTxLogsTx 3
+    T.putStrLn "\ncr2:"
+    cr2 <- local cid cenv txLogsTx2
+    reportLocalResult cr2
 
 localTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
 localTest t cenv = do
@@ -280,7 +403,7 @@ localContTest t cenv step = do
     PollResponses m <- polling cid' cenv rks ExpectPactResult
     pid <- case _rkRequestKeys rks of
       rk NEL.:| [] -> maybe (assertFailure "impossible") (return . _pePactId)
-        $ HashMap.lookup rk m >>= _crContinuation
+        $ HM.lookup rk m >>= _crContinuation
       _ -> assertFailure "continuation did not succeed"
 
     step "execute /local continuation dry run"
@@ -327,7 +450,7 @@ pollingConfirmDepth t cenv step = do
     PollResponses m <- pollingWithDepth cid' cenv rks (Just $ ConfirmationDepth 10) ExpectPactResult
     afterPolling <- getCurrentBlockHeight v cenv cid'
 
-    assertBool "there are two command results" $ length (HashMap.keys m) == 2
+    assertBool "there are two command results" $ length (HM.keys m) == 2
 
     -- we are checking that we have waited at least 10 blocks using /poll for the transaction
     assertBool "the difference between heights should be no less than the confirmation depth" $ (afterPolling - beforePolling) >= 10
@@ -485,7 +608,7 @@ localPreflightSimTest t cenv step = do
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
       Right (LocalResultWithWarns cr' ws) -> do
-        let crbh :: Integer = fromIntegral $ fromMaybe 0 $ getBlockHeight cr'
+        let crbh :: Integer = fromIntegral $ fromMaybe 0 $ crGetBlockHeight cr'
             expectedbh = 1 + fromIntegral currentBlockHeight
         assertBool "Preflight's metadata should have increment block height"
           -- we don't control the node in remote tests and the data can get oudated,
@@ -506,7 +629,7 @@ localPreflightSimTest t cenv step = do
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
       Right (LocalResultWithWarns cr' ws) -> do
-        let crbh :: Integer = fromIntegral $ fromMaybe 0 $ getBlockHeight cr'
+        let crbh :: Integer = fromIntegral $ fromMaybe 0 $ crGetBlockHeight cr'
             expectedbh = toInteger $ 1 + (fromIntegral currentBlockHeight') - rewindDepth
         assertBool "Preflight's metadata block height should reflect the rewind depth"
           -- we don't control the node in remote tests and the data can get oudated,
@@ -741,7 +864,7 @@ txTooBigGasTest t cenv step = do
 
           void $ step "pollApiClient: polling for request key"
           PollResponses resp <- polling sid cenv rks expectation
-          return (HashMap.lookup (NEL.head $ _rkRequestKeys rks) resp)
+          return (HM.lookup (NEL.head $ _rkRequestKeys rks) resp)
 
       runLocal (SubmitBatch cmds) = do
           void $ step "localApiClient: submit transaction"
@@ -810,7 +933,7 @@ caplistTest t cenv step = do
       testCaseStep "poll for transfer results"
       PollResponses rs <- liftIO $ polling sid cenv rks ExpectPactResult
 
-      return (HashMap.lookup (NEL.head $ _rkRequestKeys rks) rs)
+      return (HM.lookup (NEL.head $ _rkRequestKeys rks) rs)
 
     case r of
       Left e -> assertFailure $ "test failure for TRANSFER + FUND_TX: " <> show e
@@ -928,10 +1051,10 @@ allocationTest t cenv step = do
     sid = unsafeChainId 0
 
     localAfterPollResponse (PollResponses prs) cr =
-        getBlockHeight cr > getBlockHeight (snd $ head $ HashMap.toList prs)
+        crGetBlockHeight cr > crGetBlockHeight (snd $ head $ HM.toList prs)
 
     localAfterBlockHeight bh cr =
-      getBlockHeight cr > Just bh
+      crGetBlockHeight cr > Just bh
 
     accountInfo = Right
       $ PObject
@@ -1017,5 +1140,5 @@ pactDeadBeef = let (TransactionHash b) = deadbeef
                in RequestKey $ Hash b
 
 -- avoiding `scientific` dep here
-getBlockHeight :: CommandResult a -> Maybe Word64
-getBlockHeight = preview (crMetaData . _Just . key "blockHeight" . _Number . to ((fromIntegral :: Integer -> Word64 ) . round . toRational))
+crGetBlockHeight :: CommandResult a -> Maybe Word64
+crGetBlockHeight = preview (crMetaData . _Just . key "blockHeight" . _Number . to ((fromIntegral :: Integer -> Word64 ) . round . toRational))
