@@ -47,7 +47,6 @@ import Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
 import Data.ByteString (ByteString)
 import Data.Foldable qualified as F
 import Data.Function (fix)
-import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map.Strict qualified as M
 import Data.Set (Set)
@@ -81,11 +80,9 @@ import System.Logger
 import System.Logger.Backend.ColorOption (useColor)
 import Data.LogMessage
 
+import Pact.Types.Persistence (TxId(..))
 import Pact.Types.SQLite (SType(..), RType(..))
 import Pact.Types.SQLite qualified as Pact
-
-newtype ITxId = ITxId Int64
-  deriving newtype (Show)
 
 newtype TableName = TableName { getTableName :: Utf8 }
   deriving stock (Show)
@@ -390,7 +387,7 @@ getLatestBlockHeight = do
     _ -> do
       throwM CompactExceptionNoLatestBlockHeight
 
-getEndingTxId :: BlockHeight -> CompactM ITxId
+getEndingTxId :: BlockHeight -> CompactM TxId
 getEndingTxId bh = do
   r <- qryNoTemplateM
        "getTxId.0"
@@ -401,7 +398,7 @@ getEndingTxId bh = do
     [] -> do
       throwM (CompactExceptionInvalidBlockHeight bh)
     [[SInt t]] -> do
-      pure (ITxId t)
+      pure (TxId (fromIntegral t))
     _ -> do
       internalError "initialize: expected single-row int"
 
@@ -424,7 +421,7 @@ tableRowCount tbl label =
 
 -- | For a given table, collect all active rows into CompactActiveRow,
 -- and compute+store table grand hash in CompactGrandHash.
-collectTableRows :: ITxId -> TableName -> CompactM ()
+collectTableRows :: TxId -> TableName -> CompactM ()
 collectTableRows txId tbl = do
   tableRowCount tbl "collectTableRows"
   let vt = tableNameToSType tbl
@@ -720,8 +717,8 @@ fromTextSilly t = case fromText t of
 bhToSType :: BlockHeight -> SType
 bhToSType bh = SInt (int bh)
 
-txIdToSType :: ITxId -> SType
-txIdToSType (ITxId txid) = SInt txid
+txIdToSType :: TxId -> SType
+txIdToSType (TxId txid) = SInt (fromIntegral txid)
 
 tableNameToSType :: TableName -> SType
 tableNameToSType (TableName tbl) = SText tbl
