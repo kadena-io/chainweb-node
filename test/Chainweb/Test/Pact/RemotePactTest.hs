@@ -39,14 +39,16 @@ import Control.Monad.IO.Class
 import Data.Aeson.Encode.Pretty qualified as A
 import qualified Data.Aeson as A
 import Data.Aeson.Lens hiding (values)
+import Data.Bifunctor (first)
+import Control.Monad.Trans.Except (runExceptT, except)
+import Control.Monad.Except (throwError)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Short as SB
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Word (Word64)
 import Data.Default (def)
-import Data.Either (isRight)
 import Data.Foldable (toList)
-import Data.Foldable qualified as F
 import qualified Data.HashMap.Strict as HM
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NEL
@@ -77,14 +79,13 @@ import Pact.Types.Hash (Hash(..))
 import qualified Pact.Types.PactError as Pact
 import Pact.Types.PactValue
 import Pact.Types.Pretty
+import Pact.Types.Persistence (RowKey(..), TxLog(..))
+import Pact.Types.RowData (RowData(..))
 import Pact.Types.Term
 
 -- internal modules
 
-import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.ChainId
-import Chainweb.Cut.CutHashes (BlockHashWithHeight(..), CutHashes(..))
-import Chainweb.CutDB.RestAPI.Client (cutGetClient)
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Backend.Compaction qualified as C
@@ -210,6 +211,42 @@ responseGolden cenv rks = do
                           (NEL.toList $ _rkRequestKeys rks)
     return $ foldMap J.encode values
 
+-- | Check that txlogs don't problematically access history
+--   post-compaction.
+--
+--   At a high level, the test does this:
+--     - Submits a tx that creates a module with a table named `persons`.
+--
+--       This module exposes a few functions for reading, inserting,
+--       and overwriting rows to the `persons` table.
+--
+--       The tx also inserts some people into `persons` for
+--       some initial state.
+--
+--       This module also exposes a way to access the `txlogs`
+--       of the `persons` table (what this test is concerned with).
+--
+--     - Submits a /local tx that reads the `txlogs` on the aforementioned
+--       `persons` table. Call this 'txlogs0'.
+--
+--     - Submits a (non-local) tx that overwrites a row in the
+--       `persons` table.
+--
+--     - Submits a /local tx that reads the `txlogs` on the `persons`
+--       table. Call this 'txlogs1'.
+--
+--     - Compacts to the latest blockheight on each chain. This should
+--       get rid of any out-of-date rows.
+--
+--     - Submits a /local tx that reads the `txlogs` on the `persons`
+--       table. Call this `txlogs2`.
+--
+--       If this read fails, Pact is doing something problematic!
+--
+--       If this read doesn't fail, we need to check at least two things:
+--         - none of 'txlogs0', 'txlogs1', or 'txlogs2' are equal to
+--           any of the others
+--         - txlogs2 matches the latest pact state for the `persons` table
 txlogsTest :: Pact.TxCreationTime -> ClientEnv -> FilePath -> IO ()
 txlogsTest t cenv pactDbDir = do
     createTableTx <- do
@@ -243,6 +280,12 @@ txlogsTest t cenv pactDbDir = do
         $ mkExec tx
         $ mkKeySetData "sender00" [sender00]
 
+    nonceSupply <- newIORef @Word 1 -- starts at 1 since 0 is always the create-table tx
+    let nextNonce = do
+          cur <- readIORef nonceSupply
+          modifyIORef' nonceSupply (+ 1)
+          pure cur
+
     let sendTxs txs = flip runClientM cenv $
           pactSendApiClient v cid $ SubmitBatch $ NEL.fromList txs
 
@@ -257,55 +300,31 @@ txlogsTest t cenv pactDbDir = do
                   case _crResult cr of
                     PactResult (Left err) -> do
                       assertFailure $ "validation failure on tx: " ++ show err
-                    PactResult (Right pv) -> do
-                      print pv --pure ()
+                    PactResult _ -> do
+                      pure ()
                 Nothing -> do
                   assertFailure "impossible"
 
     submitAndCheckTx createTableTx
-
-    let queryCurrentBlockHeight :: IO BlockHeight
-        queryCurrentBlockHeight = do
-          runClientM (cutGetClient v) cenv >>= \case
-            Left err -> do
-              assertFailure $ show err
-            Right x -> do
-              -- TODO: is `minimum` the right thing here?
-              pure $ F.minimum (HM.map _bhwhHeight (_cutHashes x))
-
-    BlockHeight bhAfterCreateTable <- queryCurrentBlockHeight
-
-    let decode :: BS.ByteString -> A.Value
-        decode b = case A.decodeStrict' @A.Value b of
-          Nothing-> error "decode failure"
-          Just a -> a
-
-    let rowsToObject :: [(BS.ByteString, BS.ByteString)] -> A.Value
-        rowsToObject rows = A.toJSONList $ flip map rows $ \(rk, rd) -> A.object
-          [ "0_rowkey" A..= T.decodeUtf8 rk
-          , "1_rowdata" A..= decode rd
-          ]
 
     let pprintJson :: (J.Encode a) => a -> IO ()
         pprintJson a = case A.decode @A.Value (J.encode a) of
           Nothing -> assertFailure "pprintJsonFailure"
           Just x -> T.putStrLn $ T.decodeUtf8 $ LBS.toStrict $ A.encodePretty x
 
-    let getState = C.withDefaultLogger Error $ \logger -> do
+    let getLatestState :: IO (M.Map RowKey RowData)
+        getLatestState = C.withDefaultLogger Error $ \logger -> do
           Backend.withSqliteDb cid logger pactDbDir False $ \(SQLiteEnv db _) -> do
             st <- Utils.getLatestPactState db
             case M.lookup "free.m0_persons" st of
-              Just ps -> pure ps
+              Just ps -> fmap M.fromList $ forM (M.toList ps) $ \(rkBytes, rdBytes) -> do
+                let rk = RowKey (T.decodeUtf8 rkBytes)
+                case A.eitherDecodeStrict' @RowData rdBytes of
+                  Left err -> do
+                    assertFailure $ "Failed decoding rowdata: " ++ err
+                  Right rd -> do
+                    pure (rk, rd)
               Nothing -> error "getting state of free.m0_persons failed"
-
-    let printState :: M.Map BS.ByteString BS.ByteString -> IO ()
-        printState st = do
-          pprintJson $ rowsToObject $ M.toList st
-
-    printState =<< getState
-
-    -- let some time pass
-    awaitBlockHeight v (\_ -> pure ()) cenv (BlockHeight (bhAfterCreateTable + 50))
 
     let createTxLogsTx :: Word -> IO (Command Text)
         createTxLogsTx n = do
@@ -349,26 +368,36 @@ txlogsTest t cenv pactDbDir = do
             $ mkExec txTxt
             $ mkKeySetData "sender00" [sender00]
 
-    let reportLocalResult :: CommandResult Hash -> IO ()
-        reportLocalResult cr = do
-          case _crResult cr of
-            PactResult (Right result) -> do
-              pprintJson result
-            PactResult (Left err) -> do
-              assertFailure $ "local failed: " ++ show err
-          case _crMetaData cr of
-            Just metadata -> do
-              pprintJson metadata
-            Nothing -> do
-              pure ()
+    let -- This can't be a Map because the RowKeys aren't
+        -- necessarily unique, unlike in `getLatestPactState`.
+        crGetTxLogs :: CommandResult Hash -> IO [(RowKey, A.Value)]
+        crGetTxLogs cr = do
+          e <- runExceptT $ do
+            pv0 <- except (first show (_pactResult (_crResult cr)))
+            case pv0 of
+              PList arr -> do
+                fmap concat $ forM arr $ \pv -> do
+                  txLogs <- except (A.eitherDecode @[TxLog A.Value] (J.encode pv))
+                  pure $ flip map txLogs $ \txLog ->
+                    (RowKey (_txKey txLog), _txValue txLog)
+              _ -> do
+                throwError "expected outermost PList when decoding TxLogs"
+          case e of
+            Left err -> do
+              assertFailure $ "crGetTxLogs failed: " ++ err
+            Right txlogs -> do
+              pure txlogs
 
-    txLogsTx1 <- createTxLogsTx 2
+    txLogsTx0 <- createTxLogsTx =<< nextNonce
+    cr0 <- local cid cenv txLogsTx0
+    txlogs0 <- crGetTxLogs cr0
+
+    writeTx <- createWriteTx =<< nextNonce
+    submitAndCheckTx writeTx
+
+    txLogsTx1 <- createTxLogsTx =<< nextNonce
     cr1 <- local cid cenv txLogsTx1
-    T.putStrLn "\ncr1:"
-    reportLocalResult cr1
-
-    writeTx1 <- createWriteTx 1
-    submitAndCheckTx writeTx1
+    txlogs1 <- crGetTxLogs cr1
 
     C.withDefaultLogger Error $ \logger -> do
       let flags = [C.NoVacuum, C.NoGrandHash]
@@ -377,10 +406,28 @@ txlogsTest t cenv pactDbDir = do
       Backend.withSqliteDb cid logger pactDbDir resetDb $ \(SQLiteEnv db _) -> do
         void $ C.compact C.Latest logger db flags
 
-    txLogsTx2 <- createTxLogsTx 3
-    T.putStrLn "\ncr2:"
+    txLogsTx2 <- createTxLogsTx =<< nextNonce
     cr2 <- local cid cenv txLogsTx2
-    reportLocalResult cr2
+    txlogs2 <- crGetTxLogs cr2
+
+    let txLogsToCompare =
+          let
+            -- we have to give them "unique ids", otherwise we risk
+            -- comparing a txlogs to itself, which would fail the test
+            allTxLogs = zip [0 :: Word ..] [txlogs0, txlogs1, txlogs2]
+          in
+          [(x, y) | x <- allTxLogs, y <- allTxLogs, fst x /= fst y]
+    forM_ txLogsToCompare $ \((idLeft, txLogsLeft), (idRight, txLogsRight)) -> do
+      when (txLogsLeft == txLogsRight) $ do
+        T.putStrLn $ "\ntxlogs" <> sshow idLeft <> ":"
+        pprintJson $ J.Object $ map (first (\(RowKey rk) -> rk)) txLogsLeft
+        T.putStrLn $ "\ntxlogs" <> sshow idRight <> ":"
+        pprintJson $ J.Object $ map (first (\(RowKey rk) -> rk)) txLogsRight
+        assertFailure "no two txlogs are the same"
+
+    latestState <- getLatestState
+    assertBool "txlogs match latest state" $
+      txlogs2 == map (\(rk, rd) -> (rk, J.toJsonViaEncode (_rdData rd))) (M.toList latestState)
 
 localTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
 localTest t cenv = do
