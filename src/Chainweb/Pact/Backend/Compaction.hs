@@ -377,7 +377,7 @@ ensureBlockHeightExists bh = do
 getLatestBlockHeight :: CompactM BlockHeight
 getLatestBlockHeight = do
   r <- qryNoTemplateM
-    "getLatestBlockHeight.1"
+    "getLatestBlockHeight.0"
     "SELECT blockheight FROM BlockHistory ORDER BY blockheight DESC LIMIT 1"
     []
     [RInt]
