@@ -308,7 +308,7 @@ withResources rdb trunkLength logLevel compact f = C.envWithCleanup create destr
             let flags = [C.NoGrandHash]
             let db = _sConn sqlEnv
             let bh = BlockHeight trunkLength
-            void $ C.compact bh lgr db flags
+            void $ C.compact (C.Target bh) lgr db flags
 
         return $ NoopNFData $ Resources {..}
 
