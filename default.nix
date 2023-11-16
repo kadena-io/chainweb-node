@@ -28,6 +28,7 @@ let haskellSrc = with nix-filter.lib; filter {
         (matchExt "nix")
         "flake.lock"
         "cabal.project.freeze"
+        "dist-newstyle"
       ];
     };
     chainweb = pkgs.haskell-nix.project' {
