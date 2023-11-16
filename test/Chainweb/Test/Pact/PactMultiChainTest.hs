@@ -130,6 +130,7 @@ tests = testGroup testName
   , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
   , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
   , test generousConfig getGasModel "pact49UpgradeTest" pact49UpgradeTest
+  , test generousConfig getGasModel "pact410UpgradeTest" pact410UpgradeTest
   ]
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
@@ -292,7 +293,7 @@ pactLocalDepthTest = do
     res -> liftIO $ assertFailure $ "Expected LocalResultLegacy, but got: " ++ show res
   getSender00Balance = set cbGasLimit 700 $ mkCmd "nonce" $ mkExec' "(coin.get-balance \"sender00\")"
   buildCoinXfer code = buildBasic'
-    (set cbSigners [mkSigner' sender00 coinCaps] . set cbGasLimit 3000)
+    (set cbSigners [mkEd25519Signer' sender00 coinCaps] . set cbGasLimit 3000)
     $ mkExec' code
     where
     coinCaps = [ mkGasCap, mkTransferCap "sender00" "sender01" 1.0 ]
@@ -347,7 +348,7 @@ pact45UpgradeTest = do
       \   (deftable $TABLE$:{sch})) \
       \ (create-table $TABLE$)"
   buildCoinXfer code = buildBasic'
-    (set cbSigners [mkSigner' sender00 coinCaps] . set cbGasLimit 3000)
+    (set cbSigners [mkEd25519Signer' sender00 coinCaps] . set cbGasLimit 3000)
     $ mkExec' code
     where
     coinCaps = [ mkGasCap, mkTransferCap "sender00" "sender01" 1.0 ]
@@ -1093,6 +1094,14 @@ pact49UpgradeTest = do
     base64DecodeNonCanonical = buildBasicGas 10000 $ mkExec' "(base64-decode \"ZE==\")"
     base64DecodeBadPadding = buildBasicGas 10000 $ mkExec' "(base64-decode \"aGVsbG8gd29ybGQh%\")"
 
+pact410UpgradeTest :: PactTestM ()
+pact410UpgradeTest = do
+  runToHeight 114
+
+  runBlockTest
+    [ PactTxTest (buildBasicGasWebAuthn 1000 $ mkExec' "(+ 1 2)") $ assertTxSuccess "Should succeed" (pInteger 3)  ]
+
+
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
 
@@ -1205,8 +1214,8 @@ pact4coin3UpgradeTest = do
           ]
 
     buildReleaseCommand = buildBasic'
-      (set cbSigners [ mkSigner' sender00 []
-                     , mkSigner' allocation00KeyPair []])
+      (set cbSigners [ mkEd25519Signer' sender00 []
+                     , mkEd25519Signer' allocation00KeyPair []])
       $ mkExec' "(coin.release-allocation 'allocation00)"
 
     buildCont sendTx = do
@@ -1354,7 +1363,7 @@ runToHeight bhi = do
 
 buildXSend :: [SigCapability] -> MempoolCmdBuilder
 buildXSend caps = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
-  set cbSigners [mkSigner' sender00 caps]
+  set cbSigners [mkEd25519Signer' sender00 caps]
   $ setFromHeader bh
   $ mkCmd (sshow bh)
   $ mkExec
@@ -1390,8 +1399,11 @@ buildXReceive
 buildXReceive (proof,pid) = buildBasic $
     mkCont ((mkContMsg pid 1) { _cmProof = Just proof })
 
+signWebAuthn00 :: CmdBuilder -> CmdBuilder
+signWebAuthn00 = set cbSigners [mkWebAuthnSigner' sender02WebAuthn []]
+
 signSender00 :: CmdBuilder -> CmdBuilder
-signSender00 = set cbSigners [mkSigner' sender00 []]
+signSender00 = set cbSigners [mkEd25519Signer' sender00 []]
 
 setFromHeader :: BlockHeader -> CmdBuilder -> CmdBuilder
 setFromHeader bh =
@@ -1415,6 +1427,20 @@ buildBasic' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   f $ signSender00
   $ setFromHeader bh
   $ mkCmd (sshow bh) r
+
+buildBasicWebAuthn'
+    :: (CmdBuilder -> CmdBuilder)
+    -> PactRPC T.Text
+    -> MempoolCmdBuilder
+buildBasicWebAuthn' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+  f $ signWebAuthn00
+  $ setFromHeader bh
+  $ mkCmd (sshow bh) r
+
+
+buildBasicGasWebAuthn :: GasLimit -> PactRPC T.Text -> MempoolCmdBuilder
+buildBasicGasWebAuthn g = buildBasicWebAuthn' (set cbGasLimit g)
+
 
 -- | Get output on latest cut for chain
 getPWO :: ChainId -> PactTestM (PayloadWithOutputs,BlockHeader)

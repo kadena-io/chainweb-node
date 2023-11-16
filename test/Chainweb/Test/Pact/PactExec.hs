@@ -222,7 +222,7 @@ testTfrNoGasFails =
    assertResultFail "Expected missing (GAS) failure" "Keyset failure")
   where
     tx = buildCwCmd $ set cbSigners
-         [ mkSigner' sender00
+         [ mkEd25519Signer' sender00
            [ mkTransferCap "sender00" "sender01" 1.0 ]
          ]
          $ mkCmd "testTfrNoGas"
@@ -232,7 +232,7 @@ testTfrGas :: TxsTest
 testTfrGas = (V.singleton <$> tx,test)
   where
     tx = buildCwCmd $ set cbSigners
-         [ mkSigner' sender00
+         [ mkEd25519Signer' sender00
            [ mkTransferCap "sender00" "sender01" 1.0
            , mkGasCap
            ]
@@ -254,7 +254,7 @@ testBadSenderFails =
    "row not found: some-unknown-sender")
   where
     tx = buildCwCmd
-         $ set cbSigners [ mkSigner' sender00 [] ]
+         $ set cbSigners [ mkEd25519Signer' sender00 [] ]
          $ set cbSender "some-unknown-sender"
          $ mkCmd "testBadSenderFails"
          $ mkExec' "(+ 1 2)"
@@ -283,7 +283,7 @@ testGasPayer = (txs,checkResultSuccess test)
         fundGasAcct = mkExec'
           "(coin.transfer-create \"sender01\" \"gas-payer\" (gas-payer-v1-reference.create-gas-payer-guard) 100.0)"
 
-        s01 = mkSigner' sender01
+        s01 = mkEd25519Signer' sender01
           [ mkTransferCap "sender01" "gas-payer" 100.0
           , mkGasCap
           , mkCapability "user.gas-payer-v1-reference" "FUND_USER" []
@@ -292,7 +292,7 @@ testGasPayer = (txs,checkResultSuccess test)
 
     runPaidTx = fmap V.singleton $ buildCwCmd $
       set cbSigners
-      [mkSigner' sender00
+      [mkEd25519Signer' sender00
         [mkCapability "user.gas-payer-v1-reference" "GAS_PAYER"
          [pString "sender00",pInteger 10_000,pDecimal 0.01]]] $
       mkCmd "testGasPayer" $
@@ -329,7 +329,7 @@ testContinuationGasPayer = (txs,checkResultSuccess test)
       setupExprs' <- setupExprs
       forM setupExprs' $ \se -> buildCwCmd $
         set cbSigners
-          [ mkSigner' sender00
+          [ mkEd25519Signer' sender00
             [ mkTransferCap "sender00" "cont-gas-payer" 100.0
             , mkGasCap
             ]] $
@@ -340,7 +340,7 @@ testContinuationGasPayer = (txs,checkResultSuccess test)
 
     runStepTwoWithGasPayer = fmap V.singleton $ buildCwCmd $
       set cbSigners
-        [ mkSigner' sender01
+        [ mkEd25519Signer' sender01
           [ mkCapability "user.gas-payer-for-cont" "GAS_PAYER"
             [pString "sender01",pInteger 10_000,pDecimal 0.01]
           ]] $
@@ -349,7 +349,7 @@ testContinuationGasPayer = (txs,checkResultSuccess test)
       mkCont $ mkContMsg (fromString contPactId) 1
 
     balanceCheck = fmap V.singleton $ buildCwCmd $
-      set cbSigners [mkSigner' sender00 []] $
+      set cbSigners [mkEd25519Signer' sender00 []] $
       mkCmd "testContinuationGasPayer2" $
       mkExec' "(coin.get-balance \"cont-gas-payer\")"
 
@@ -386,7 +386,7 @@ testExecGasPayer = (txs,checkResultSuccess test)
       setupExprs' <- setupExprs
       forM setupExprs' $ \se -> buildCwCmd $
         set cbSigners
-          [ mkSigner' sender00
+          [ mkEd25519Signer' sender00
             [ mkTransferCap "sender00" "exec-gas-payer" 100.0
             , mkGasCap
             ]] $
@@ -395,7 +395,7 @@ testExecGasPayer = (txs,checkResultSuccess test)
 
     runPaidTx = fmap V.singleton $ buildCwCmd $
       set cbSigners
-      [mkSigner' sender01
+      [mkEd25519Signer' sender01
         [mkCapability "user.gas-payer-for-exec" "GAS_PAYER"
          [pString "sender01",pInteger 10_000,pDecimal 0.01]]] $
       set cbSender "exec-gas-payer" $
@@ -403,7 +403,7 @@ testExecGasPayer = (txs,checkResultSuccess test)
       mkExec' "(+ 1 2)"
 
     balanceCheck = fmap V.singleton $ buildCwCmd $
-      set cbSigners [mkSigner' sender00 []] $
+      set cbSigners [mkEd25519Signer' sender00 []] $
       mkCmd "testExecGasPayer" $
       mkExec' "(coin.get-balance \"exec-gas-payer\")"
 
@@ -427,7 +427,7 @@ testFailureRedeem :: TxsTest
 testFailureRedeem = (txs,checkResultSuccess test)
   where
     txs = fmap V.fromList $ forM exps $ \e -> buildCwCmd $
-      set cbSigners [mkSigner' sender00 []] $
+      set cbSigners [mkEd25519Signer' sender00 []] $
       set cbGasPrice 0.01 $
       set cbGasLimit 1000 $
       mkCmd "testFailureRedeem" $
@@ -504,7 +504,7 @@ execTest runPact request = _trEval request $ do
     mkCmds cmdStrs =
       fmap V.fromList $ forM (zip cmdStrs [0..]) $ \(code,n :: Int) ->
       buildCwCmd $
-      set cbSigners [mkSigner' sender00 []] $
+      set cbSigners [mkEd25519Signer' sender00 []] $
       set cbGasPrice 0.01 $
       set cbTTL 1_000_000 $
       mkCmd ("1" <> sshow n) $
@@ -593,7 +593,7 @@ fileCompareTxLogs label respIO = golden label $ do
 _showValidationFailure :: IO ()
 _showValidationFailure = do
   txs <- fmap V.singleton $ buildCwCmd $
-    set cbSigners [mkSigner' sender00 []] $
+    set cbSigners [mkEd25519Signer' sender00 []] $
     mkCmd "nonce" $
     mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
   let cr1 = CommandResult

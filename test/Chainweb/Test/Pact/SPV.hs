@@ -377,7 +377,7 @@ burnGen time pidv sid tid = do
               True -> return mempty
               False -> do
                 cmd <- buildCwCmd $
-                  set cbSigners [mkSigner' sender00 []] $
+                  set cbSigners [mkEd25519Signer' sender00 []] $
                   set cbCreationTime (toTxCreationTime time) $
                   set cbChainId sid $
                   mkCmd "0" $
@@ -429,7 +429,7 @@ transferGen time pidv sid _tid = do
               False -> do
                 cmd <- buildCwCmd $
                   set cbSigners
-                    [mkSigner' sender00
+                    [mkEd25519Signer' sender00
                        [mkTransferCap "sender00" "sender01" 1.0
                        ,mkGasCap]] $
                   set cbCreationTime (toTxCreationTime time) $
@@ -458,7 +458,7 @@ createCont cid pidv proof time = do
   pid <- readMVar pidv
   fmap Vector.singleton $
     buildCwCmd $
-    set cbSigners [mkSigner' sender00 []] $
+    set cbSigners [mkEd25519Signer' sender00 []] $
     set cbCreationTime (toTxCreationTime time) $
     set cbChainId cid $
     mkCmd "1" $
@@ -484,7 +484,7 @@ createVerify bridge code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe =
                         ]
                       | otherwise = toJSON pf
                 cmd <- buildCwCmd $
-                  set cbSigners [mkSigner' sender00 []] $
+                  set cbSigners [mkEd25519Signer' sender00 []] $
                   set cbCreationTime (toTxCreationTime time) $
                   set cbChainId tid $
                   mkCmd "0" $
@@ -509,7 +509,7 @@ createVerifyEth code time (TestBlockDb _wdb _pdb _c) _pidv _sid tid _bhe = do
             False -> do
                 -- q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
                 cmd <- buildCwCmd $
-                  set cbSigners [mkSigner' sender00 []] $
+                  set cbSigners [mkEd25519Signer' sender00 []] $
                   set cbCreationTime (toTxCreationTime time) $
                   set cbChainId tid $
                   mkCmd "0" $

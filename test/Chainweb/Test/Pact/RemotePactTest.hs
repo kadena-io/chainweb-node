@@ -431,7 +431,7 @@ localContTest t cenv step = do
       "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
     firstStep = do
       buildTextCmd
-        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbSigners [mkEd25519Signer' sender00 []]
         $ set cbCreationTime t
         $ set cbNetworkId (Just v)
         $ set cbGasLimit 70000
@@ -440,7 +440,7 @@ localContTest t cenv step = do
 
     secondStep pid = do
       buildTextCmd
-        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbSigners [mkEd25519Signer' sender00 []]
         $ set cbCreationTime t
         $ set cbNetworkId (Just v)
         $ mkCmd "nonce-cont-2"
@@ -473,7 +473,7 @@ pollingConfirmDepth t cenv step = do
       "43"
     firstStep transaction = do
       buildTextCmd
-        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbSigners [mkEd25519Signer' sender00 []]
         $ set cbCreationTime t
         $ set cbNetworkId (Just v)
         $ set cbGasLimit 70000
@@ -509,7 +509,7 @@ pollingCorrectResults t cenv step = do
 
     stepTx transaction = do
       buildTextCmd
-        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbSigners [mkEd25519Signer' sender00 []]
         $ set cbCreationTime t
         $ set cbNetworkId (Just v)
         $ set cbGasLimit 70_000
@@ -552,7 +552,7 @@ localPreflightSimTest :: Pact.TxCreationTime -> ClientEnv -> (String -> IO ()) -
 localPreflightSimTest t cenv step = do
     mv <- newMVar (0 :: Int)
     sid <- mkChainId v maxBound 0
-    let sigs = [mkSigner' sender00 []]
+    let sigs = [mkEd25519Signer' sender00 []]
 
     step "Execute preflight /local tx - preflight known /send success"
     let psid = Pact.ChainId $ chainIdToText sid

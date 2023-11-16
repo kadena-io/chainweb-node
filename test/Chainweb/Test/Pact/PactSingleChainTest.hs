@@ -662,7 +662,7 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
       }
 
 signSender00 :: CmdBuilder -> CmdBuilder
-signSender00 = set cbSigners [mkSigner' sender00 []]
+signSender00 = set cbSigners [mkEd25519Signer' sender00 []]
 
 setFromHeader :: BlockHeader -> CmdBuilder -> CmdBuilder
 setFromHeader bh =

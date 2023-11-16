@@ -31,6 +31,7 @@ module Chainweb.Test.Pact.Utils
 , sender00
 , sender01
 , sender00Ks
+, sender02WebAuthn
 , allocation00KeyPair
 , testKeyPairs
 , mkKeySetData
@@ -65,8 +66,10 @@ module Chainweb.Test.Pact.Utils
 , mkCont
 , mkContMsg
 , ContMsg (..)
-, mkSigner
-, mkSigner'
+, mkEd25519Signer
+, mkEd25519Signer'
+, mkWebAuthnSigner
+, mkWebAuthnSigner'
 , CmdBuilder(..)
 , cbSigners
 , cbRPC
@@ -226,9 +229,9 @@ type SimpleKeyPair = (Text,Text)
 
 -- | Legacy; better to use 'CmdSigner'/'CmdBuilder'.
 -- if caps are empty, gas cap is implicit. otherwise it must be included
-testKeyPairs :: SimpleKeyPair -> Maybe [SigCapability] -> IO [Ed25519KeyPairCaps]
+testKeyPairs :: SimpleKeyPair -> Maybe [SigCapability] -> IO [(DynKeyPair, [SigCapability])]
 testKeyPairs skp capsm = do
-  kp <- toApiKp $ mkSigner' skp (fromMaybe [] capsm)
+  kp <- toApiKp $ mkEd25519Signer' skp (fromMaybe [] capsm)
   mkKeyPairs [kp]
 
 testPactFilesDir :: FilePath
@@ -242,6 +245,10 @@ sender01 :: SimpleKeyPair
 sender01 = ("6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"
            ,"2beae45b29e850e6b1882ae245b0bab7d0689ebdd0cd777d4314d24d7024b4f7")
 
+sender02WebAuthn :: SimpleKeyPair
+sender02WebAuthn =
+           ("a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf"
+           ,"fecd4feb1243d715d095e24713875ca76c476f8672ec487be8e3bc110dd329ab")
 
 allocation00KeyPair :: SimpleKeyPair
 allocation00KeyPair =
@@ -466,11 +473,15 @@ mkGasCap = mkCoinCap "GAS" []
 data CmdSigner = CmdSigner
   { _csSigner :: !Signer
   , _csPrivKey :: !Text
+  , _csWebAuthnEncoding :: Maybe WebAuthnProvenance
+    -- ^ When this field is set, we override the WebAuthn provenance
+    -- of the signatures in order to influence how the signatures
+    -- will be encoded. This is used for testing.
   } deriving (Eq,Show,Ord,Generic)
 
 -- | Make ED25519 signer.
-mkSigner :: Text -> Text -> [SigCapability] -> CmdSigner
-mkSigner pubKey privKey caps = CmdSigner
+mkEd25519Signer :: Text -> Text -> [SigCapability] -> CmdSigner
+mkEd25519Signer pubKey privKey caps = CmdSigner
   { _csSigner = signer
   , _csPrivKey = privKey }
   where
@@ -480,8 +491,22 @@ mkSigner pubKey privKey caps = CmdSigner
       , _siAddress = Nothing
       , _siCapList = caps }
 
-mkSigner' :: SimpleKeyPair -> [SigCapability] -> CmdSigner
-mkSigner' (pub,priv) = mkSigner pub priv
+mkEd25519Signer' :: SimpleKeyPair -> [SigCapability] -> CmdSigner
+mkEd25519Signer' (pub,priv) = mkEd25519Signer pub priv
+
+mkWebAuthnSigner :: Text -> Text -> [SigCapability] -> CmdSigner
+mkWebAuthnSigner pubKey privKey caps = CmdSigner
+  { _csSigner = signer
+  , _csPrivKey = privKey }
+  where
+    signer = Signer
+      { _siScheme = Just WebAuthn
+      , _siPubKey = pubKey
+      , _siAddress = Nothing
+      , _siCapList = caps }
+
+mkWebAuthnSigner' :: SimpleKeyPair -> [SigCapability] -> CmdSigner
+mkWebAuthnSigner' (pub, priv) = mkWebAuthnSigner pub priv
 
 -- | Chainweb-oriented command builder.
 data CmdBuilder = CmdBuilder
@@ -559,7 +584,9 @@ buildRawCmd :: (MonadThrow m, MonadIO m) => CmdBuilder -> m (Command ByteString)
 buildRawCmd CmdBuilder{..} = do
     akps <- mapM toApiKp _cbSigners
     kps <- liftIO $ mkKeyPairs akps
-    liftIO $ mkCommand kps pm _cbNonce nid _cbRPC
+    cmd <- liftIO $ mkCommandWithDynKeys kps pm _cbNonce nid _cbRPC
+    -- error (show cmd)
+    pure cmd
   where
     nid = fmap (P.NetworkId . sshow) _cbNetworkId
     cid = fromString $ show (chainIdInt _cbChainId :: Int)

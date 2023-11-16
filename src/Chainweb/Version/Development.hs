@@ -67,6 +67,7 @@ devnet = ChainwebVersion
             Chainweb219Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 550
             Chainweb220Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 560
             Chainweb221Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 580
+            Chainweb222Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 590 -- TODO: Correct?
 
     , _versionUpgrades = foldr (chainZip HM.union) (AllChains mempty)
         [ forkUpgrades devnet

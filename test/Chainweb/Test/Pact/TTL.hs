@@ -182,7 +182,7 @@ modAtTtl f (Seconds t) = mempty
         outtxs <- fmap V.singleton $ buildCwCmd
           $ set cbCreationTime txTime
           $ set cbTTL tt
-          $ set cbSigners [mkSigner' sender00 []]
+          $ set cbSigners [mkEd25519Signer' sender00 []]
           $ mkCmd (sshow bh)
           $ mkExec' "1"
 

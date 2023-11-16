@@ -42,6 +42,7 @@ module Chainweb.Version.Guards
     , chainweb219Pact
     , chainweb220Pact
     , chainweb221Pact
+    , chainweb222Pact
     , pact44NewTrans
     , pactParserVersion
     , maxBlockGasLimit
@@ -242,6 +243,9 @@ chainweb220Pact = checkFork atOrAfter Chainweb220Pact
 chainweb221Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb221Pact = checkFork atOrAfter Chainweb221Pact
 
+chainweb222Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+chainweb222Pact = checkFork atOrAfter Chainweb222Pact
+
 pactParserVersion :: ChainwebVersion -> ChainId -> BlockHeight -> PactParserVersion
 pactParserVersion v cid bh
     | chainweb213Pact v cid bh = PactParserChainweb213
@@ -264,7 +268,7 @@ validPPKSchemes v cid bh =
 
 validKeyFormats :: ChainwebVersion -> ChainId -> BlockHeight -> [PublicKeyText -> Bool]
 validKeyFormats v cid bh =
-  if chainweb221Pact v cid bh
+  if chainweb222Pact v cid bh
   then [ed25519HexFormat, webAuthnFormat]
   else [ed25519HexFormat]
 
@@ -272,6 +276,6 @@ validKeyFormats v cid bh =
 --
 validWebAuthnSignatureProvenance :: ChainwebVersion -> ChainId -> BlockHeight -> [WebAuthnSigProvenance]
 validWebAuthnSignatureProvenance v cid bh =
-  if chainweb221Pact v cid bh
+  if chainweb222Pact v cid bh
   then [WebAuthnStringified, WebAuthnObject]
   else [WebAuthnStringified]
