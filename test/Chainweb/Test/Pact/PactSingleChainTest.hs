@@ -377,7 +377,6 @@ pactStateSamePreAndPostCompaction rdb =
                   putStrLn ""
       assertFailure "pact state check failed"
 
-
 compactionIsIdempotent :: ()
   => RocksDb
   -> TestTree

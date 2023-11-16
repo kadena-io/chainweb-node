@@ -509,7 +509,7 @@ test-suite chainweb-tests
 
     build-depends:
         -- internal
-          chainweb
+        , chainweb
 
         -- external
         , Decimal >= 0.4.2
