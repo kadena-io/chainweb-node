@@ -275,6 +275,7 @@ library
         , Chainweb.Pact.Backend.ChainwebPactDb
         , Chainweb.Pact.Backend.DbCache
         , Chainweb.Pact.Backend.Compaction
+        , Chainweb.Pact.Backend.PactState
         , Chainweb.Pact.Backend.RelationalCheckpointer
         , Chainweb.Pact.Backend.SQLite.DirectV2
         , Chainweb.Pact.Backend.SQLite.V2
@@ -464,7 +465,6 @@ test-suite chainweb-tests
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
-        Chainweb.Test.Pact.Compaction
         Chainweb.Test.Pact.PactMultiChainTest
         Chainweb.Test.Pact.PactSingleChainTest
         Chainweb.Test.P2P.Peer.BootstrapConfig

@@ -104,7 +104,7 @@ data PactServiceConfig = PactServiceConfig
   , _pactModuleCacheLimit :: !DbCacheLimitBytes
     -- ^ limit of the database module cache in bytes of corresponding row data
   , _pactFullHistoryRequired :: !Bool
-    -- ^ Whether or not the node requires that the fully Pact history be
+    -- ^ Whether or not the node requires that the full Pact history be
     --   available. Compaction can remove history.
   } deriving (Eq,Show)
 

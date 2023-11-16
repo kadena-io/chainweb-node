@@ -329,10 +329,10 @@ compactAndResumeTest logLevel v n =
     let nids = filter even [0 .. int @_ @Int n - 1]
     forM_ nids $ \nid -> do
       let dir = pactDbDir </> show nid
-      withSqliteDb cid logger dir False{-reset db-} $ \sqlEnv -> do
+      withSqliteDb cid logger dir False $ \sqlEnv -> do
         C.withDefaultLogger YAL.Warn $ \cLogger -> do
           let cLogger' = over YAL.setLoggerScope (\scope -> ("nodeId",sshow nid) : ("chainId",sshow cid) : scope) cLogger
-          let flags = [C.Flag_NoVacuum, C.Flag_NoGrandHash]
+          let flags = [C.NoVacuum, C.NoGrandHash]
           let db = _sConn sqlEnv
           let bh = BlockHeight 5
           void $ C.compact bh cLogger' db flags

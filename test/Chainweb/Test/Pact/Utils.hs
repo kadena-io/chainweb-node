@@ -5,6 +5,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -104,6 +105,7 @@ module Chainweb.Test.Pact.Utils
 , Noncer
 , zeroNoncer
 -- * Pact State
+, compact
 , PactRow(..)
 , getLatestPactState
 , getPactUserTables
@@ -133,26 +135,25 @@ import Data.Decimal
 import Data.Default (def)
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
-import Data.Int (Int64)
 import Data.IORef
-import Data.List qualified as List
 import Data.Map (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import Data.Ord (Down(..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.String
 import qualified Data.Vector as V
 
-import Database.SQLite3.Direct (Utf8(..), Database)
+import Database.SQLite3.Direct (Database)
 
 import GHC.Generics
 
+import Streaming.Prelude qualified as S
 import System.Directory
 import System.IO.Temp (createTempDirectory)
 import System.LogLevel
+import System.Logger.Types qualified as LL
 
 import Test.Tasty
 
@@ -188,6 +189,9 @@ import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.Compaction qualified as C
+import Chainweb.Pact.Backend.PactState qualified as PactState
+import Chainweb.Pact.Backend.PactState (TableDiffable(..), Table(..), PactRow(..))
 import Chainweb.Pact.Backend.RelationalCheckpointer
     (initRelationalCheckpointer')
 import Chainweb.Pact.Backend.SQLite.DirectV2
@@ -820,6 +824,12 @@ withTemporaryDir = withResource
     removeDirectoryRecursive
 
 -- | Single-chain Pact via service queue.
+--
+--   The difference between this and 'withPactTestBlockDb' is that,
+--   this function takes a `SQLiteEnv` resource which it then exposes
+--   to the test function.
+--
+--   TODO: Consolidate these two functions.
 withPactTestBlockDb'
     :: ChainwebVersion
     -> ChainId
@@ -936,69 +946,42 @@ someBlockHeader v h = (!! (int h - 1))
 makeLenses ''CmdBuilder
 makeLenses ''CmdSigner
 
+-- | Get all pact user tables.
+--
+--   Note: This consumes a stream. If you are writing a test
+--   with very large pact states (think: Gigabytes), use
+--   the streaming version of this function from
+--   'Chainweb.Pact.Backend.PactState'.
 getPactUserTables :: Database -> IO (Map Text [PactRow])
 getPactUserTables db = do
-  let checkpointerTables = ["BlockHistory", "VersionedTableCreation", "VersionedTableMutation", "TransactionIndex"]
-  let compactionTables = ["CompactGrandHash", "CompactActiveRow"]
-  let excludeThese = checkpointerTables ++ compactionTables
-  let fmtTable x = "\"" <> x <> "\""
+  S.foldM_
+    (\m tbl -> pure (M.insert tbl.name tbl.rows m))
+    (pure M.empty)
+    pure
+    (PactState.getPactTables db)
 
-  let utf8ToText :: Utf8 -> Text
-      utf8ToText (Utf8 u) = T.decodeUtf8 u
-
-  let sortedTableNames :: [[SType]] -> [Utf8]
-      sortedTableNames rows = M.elems $ M.fromListWith const $ flip List.map rows $ \case
-        [SText u] -> (T.toLower (utf8ToText u), u)
-        _ -> error "sortedTableNames: expected text"
-
-  tables <- fmap sortedTableNames $ do
-    let qryText =
-          "SELECT name FROM sqlite_schema \
-          \WHERE \
-          \  type = 'table' \
-          \AND \
-          \  name NOT LIKE 'sqlite_%'"
-    qry db qryText [] [RText]
-
-  let go :: Map Text [PactRow] -> Utf8 -> IO (Map Text [PactRow])
-      go m tbl = do
-        if tbl `notElem` excludeThese
-        then do
-          let qryText = "SELECT rowkey, rowdata, txid FROM "
-                    <> fmtTable tbl
-                    <> " ORDER BY txid"
-          userRows <- qry db qryText [] [RText, RBlob, RInt]
-          shapedRows <- forM userRows $ \case
-            [SText (Utf8 rowKey), SBlob rowData, SInt txId] -> do
-              pure $ PactRow {..}
-            _ -> error "getPactUserTables: unexpected shape of user table row"
-          pure $ M.insert (utf8ToText tbl) shapedRows m
-        else do
-          pure m
-
-  foldlM go mempty tables
-
-getLatestPactState :: Database -> IO (Map Text [PactRow])
+-- | Get active/latest pact state.
+--
+--   Note: This consumes a stream. If you are writing a test
+--   with very large pact states (think: Gigabytes), use
+--   the streaming version of this function from
+--   'Chainweb.Pact.Backend.PactState'.
+getLatestPactState :: Database -> IO (Map Text (Map ByteString ByteString))
 getLatestPactState db = do
-  allRows <- getPactUserTables db
+  S.foldM_
+    (\m td -> pure (M.insert td.name td.rows m))
+    (pure M.empty)
+    pure
+    (PactState.getLatestPactState db)
 
-  let takeHead :: [a] -> a
-      takeHead = \case
-        [] -> error "getLatestPactState.getActiveRows.takeHead: impossible case"
-        (x : _) -> x
-  let getActiveRows :: [PactRow] -> [PactRow]
-      getActiveRows rows = id
-        $ List.map takeHead
-        $ List.map (List.sortOn (Down . txId))
-        $ List.groupBy (\x y -> rowKey x == rowKey y)
-        $ List.sortOn rowKey rows
-
-  let activeRows = M.map getActiveRows allRows
-  pure activeRows
-
-data PactRow = PactRow
-  { rowKey :: ByteString
-  , rowData :: ByteString
-  , txId :: Int64
-  }
-  deriving stock (Eq, Ord, Show)
+-- | Compaction utility for testing.
+--   Most of the time the flags will be ['C.NoVacuum', 'C.NoGrandHash']
+compact :: ()
+  => LL.LogLevel
+  -> [C.CompactFlag]
+  -> SQLiteEnv
+  -> BlockHeight
+  -> IO ()
+compact logLevel cFlags (SQLiteEnv db _) bh = do
+  C.withDefaultLogger logLevel $ \logger -> do
+    void $ C.compact bh logger db cFlags
