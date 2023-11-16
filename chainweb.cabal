@@ -515,7 +515,6 @@ test-suite chainweb-tests
         , Decimal >= 0.4.2
         , QuickCheck >= 2.14
         , aeson >= 2.2
-        , aeson-pretty >= 0.8
         , async >= 2.2
         , base >= 4.12 && < 5
         , base64-bytestring-kadena == 0.1

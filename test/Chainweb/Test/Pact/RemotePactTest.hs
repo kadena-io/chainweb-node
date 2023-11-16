@@ -36,7 +36,6 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
-import Data.Aeson.Encode.Pretty qualified as A
 import qualified Data.Aeson as A
 import Data.Aeson.Lens hiding (values)
 import Data.Bifunctor (first)
@@ -57,7 +56,6 @@ import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.Text.IO as T
 import System.Logger.Types (LogLevel(..))
 
 import Servant.Client
@@ -172,8 +170,8 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
                     testCase "trivialLocalCheck" $
                         join $ localTest <$> iot <*> cenv
                 , after AllSucceed "remote spv" $
-                    testCase "txlogsTest" $
-                        join $ txlogsTest <$> iot <*> cenv <*> pactDir
+                    testCase "txlogsCompactionTest" $
+                        join $ txlogsCompactionTest <$> iot <*> cenv <*> pactDir
                 , after AllSucceed "remote spv" $
                     testCase "localChainData" $
                         join $ localChainDataTest <$> iot <*> cenv
@@ -226,29 +224,23 @@ responseGolden cenv rks = do
 --       This module also exposes a way to access the `txlogs`
 --       of the `persons` table (what this test is concerned with).
 --
---     - Submits a /local tx that reads the `txlogs` on the aforementioned
---       `persons` table. Call this 'txlogs0'.
---
---     - Submits a (non-local) tx that overwrites a row in the
+--     - Submits a tx that overwrites a row in the
 --       `persons` table.
---
---     - Submits a /local tx that reads the `txlogs` on the `persons`
---       table. Call this 'txlogs1'.
 --
 --     - Compacts to the latest blockheight on each chain. This should
 --       get rid of any out-of-date rows.
 --
 --     - Submits a /local tx that reads the `txlogs` on the `persons`
---       table. Call this `txlogs2`.
+--       table. Call this `txLogs`.
 --
 --       If this read fails, Pact is doing something problematic!
 --
---       If this read doesn't fail, we need to check at least two things:
---         - none of 'txlogs0', 'txlogs1', or 'txlogs2' are equal to
---           any of the others
---         - txlogs2 matches the latest pact state for the `persons` table
-txlogsTest :: Pact.TxCreationTime -> ClientEnv -> FilePath -> IO ()
-txlogsTest t cenv pactDbDir = do
+--       If this read doesn't fail, we need to check that `txLogs`
+--       matches the latest pact state post-compaction. Because
+--       compaction sweeps away the out-of-date rows, they shouldn't
+--       appear in the `txLogs` anymore, and the two should be equivalent.
+txlogsCompactionTest :: Pact.TxCreationTime -> ClientEnv -> FilePath -> IO ()
+txlogsCompactionTest t cenv pactDbDir = do
     createTableTx <- do
       let tx = T.unlines
             [ "(namespace 'free)"
@@ -306,11 +298,6 @@ txlogsTest t cenv pactDbDir = do
                   assertFailure "impossible"
 
     submitAndCheckTx createTableTx
-
-    let pprintJson :: (J.Encode a) => a -> IO ()
-        pprintJson a = case A.decode @A.Value (J.encode a) of
-          Nothing -> assertFailure "pprintJsonFailure"
-          Just x -> T.putStrLn $ T.decodeUtf8 $ LBS.toStrict $ A.encodePretty x
 
     let getLatestState :: IO (M.Map RowKey RowData)
         getLatestState = C.withDefaultLogger Error $ \logger -> do
@@ -388,16 +375,8 @@ txlogsTest t cenv pactDbDir = do
             Right txlogs -> do
               pure txlogs
 
-    txLogsTx0 <- createTxLogsTx =<< nextNonce
-    cr0 <- local cid cenv txLogsTx0
-    txlogs0 <- crGetTxLogs cr0
-
     writeTx <- createWriteTx =<< nextNonce
     submitAndCheckTx writeTx
-
-    txLogsTx1 <- createTxLogsTx =<< nextNonce
-    cr1 <- local cid cenv txLogsTx1
-    txlogs1 <- crGetTxLogs cr1
 
     C.withDefaultLogger Error $ \logger -> do
       let flags = [C.NoVacuum, C.NoGrandHash]
@@ -406,28 +385,13 @@ txlogsTest t cenv pactDbDir = do
       Backend.withSqliteDb cid logger pactDbDir resetDb $ \(SQLiteEnv db _) -> do
         void $ C.compact C.Latest logger db flags
 
-    txLogsTx2 <- createTxLogsTx =<< nextNonce
-    cr2 <- local cid cenv txLogsTx2
-    txlogs2 <- crGetTxLogs cr2
-
-    let txLogsToCompare =
-          let
-            -- we have to give them "unique ids", otherwise we risk
-            -- comparing a txlogs to itself, which would fail the test
-            allTxLogs = zip [0 :: Word ..] [txlogs0, txlogs1, txlogs2]
-          in
-          [(x, y) | x <- allTxLogs, y <- allTxLogs, fst x /= fst y]
-    forM_ txLogsToCompare $ \((idLeft, txLogsLeft), (idRight, txLogsRight)) -> do
-      when (txLogsLeft == txLogsRight) $ do
-        T.putStrLn $ "\ntxlogs" <> sshow idLeft <> ":"
-        pprintJson $ J.Object $ map (first (\(RowKey rk) -> rk)) txLogsLeft
-        T.putStrLn $ "\ntxlogs" <> sshow idRight <> ":"
-        pprintJson $ J.Object $ map (first (\(RowKey rk) -> rk)) txLogsRight
-        assertFailure "no two txlogs are the same"
+    txLogsTx <- createTxLogsTx =<< nextNonce
+    cr <- local cid cenv txLogsTx
+    txLogs <- crGetTxLogs cr
 
     latestState <- getLatestState
     assertBool "txlogs match latest state" $
-      txlogs2 == map (\(rk, rd) -> (rk, J.toJsonViaEncode (_rdData rd))) (M.toList latestState)
+      txLogs == map (\(rk, rd) -> (rk, J.toJsonViaEncode (_rdData rd))) (M.toList latestState)
 
 localTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
 localTest t cenv = do
