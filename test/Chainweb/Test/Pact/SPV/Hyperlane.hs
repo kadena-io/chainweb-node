@@ -68,6 +68,7 @@ tests = testGroup "hyperlane"
   , testCase "verifySuccessMoreValidators" hyperlaneVerifySuccessMoreValidators
 
   , testCase "verifyFailure" hyperlaneVerifyFailure
+  , testCase "verifyFailureWrongTypeValidator" hyperlaneVerifyFailureWrongTypeValidator
   , testCase "verifyFailureIncorrectValidator" hyperlaneVerifyFailureIncorrectValidator
   , testCase "verifyFailureNotEnoughRecoveredSignatures" hyperlaneVerifyFailureNotEnoughRecoveredSignatures
   , testCase "verifyFailureNotEnoughSignaturesToPassThreshold" hyperlaneVerifyFailureNotEnoughSignaturesToPassThreshold
@@ -250,6 +251,22 @@ hyperlaneVerifyFailure = do
 
   case res of
     Left err -> assertEqual "Verification should fail" "Verification failed" err
+    Right _ -> assertFailure "Should fail"
+
+hyperlaneVerifyFailureWrongTypeValidator :: Assertion
+hyperlaneVerifyFailureWrongTypeValidator = do
+  let
+    obj' = mkObject
+        [ ("message", tStr $ asString ("0x01000001450000027200000000000000000000000000000000006b622d746f6b656e2d726f757465720000000100000000000000000000000071c7656ec7ab88b098defb751b7401b5f6d8976f00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000008ac7230489e80000000000000000000000000000000000000000000000000000000000000000002a30783731433736353645433761623838623039386465664237353142373430314235663664383937364600000000000000000000000000000000000000000000" :: Text))
+        -- validators: badly formatted
+        , ("validators", toTList tTyInteger def $ map (tLit . LInteger) [2 :: Integer])
+        , ("metadata", tStr $ asString ("0x0000000000000000000000002e234dae75c793f67a35089c9d99245e1c58470b00000000000000000000000000000000000000000000000000000000000000ad0000000f0e1c8be19e9e2bd14665599b8e8ed1f3dbca562788e5844975770eb31380b3ae5de03487e89a1d3c42fad8aac486a06e1af6b3478ec0d148c0c8566c404537291b" :: Text))
+        , ("threshold", tLit $ LInteger 1)
+        ]
+  res <- runExceptT $ evalHyperlaneCommand obj'
+
+  case res of
+    Left err -> assertEqual "Verification should fail" "Only string validators are supported" err
     Right _ -> assertFailure "Should fail"
 
 hyperlaneVerifyFailureIncorrectValidator :: Assertion

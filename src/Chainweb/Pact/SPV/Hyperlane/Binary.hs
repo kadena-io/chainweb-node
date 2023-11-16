@@ -129,12 +129,10 @@ restSize size = (32 - size) `mod` 32
 
 -- | Reads a given number of bytes and the rest because binary data padded up to 32 bytes.
 getBS :: Word256 -> Get BS.ByteString
-getBS size = (BS.take (fromIntegral size)) <$> getByteString (fromIntegral $ size + restSize size)
+getBS size = BS.take (fromIntegral size) <$> getByteString (fromIntegral $ size + restSize size)
 
 -- | Signatures are 65 bytes sized, we split the bytestring by 65 symbols segments.
 sliceSignatures :: BL.ByteString -> [ByteString]
-sliceSignatures sig' = go sig' []
-  where
-    go s sigs = if BL.length s >= 65
-      then let (sig, rest) = BL.splitAt 65 s in go rest (BL.toStrict sig : sigs)
-      else Prelude.reverse sigs
+sliceSignatures s
+  | BL.length s < 65 = []
+  | otherwise = let (sig, rest) = BL.splitAt 65 s in BL.toStrict sig : sliceSignatures rest
