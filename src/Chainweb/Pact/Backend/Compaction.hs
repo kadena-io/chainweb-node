@@ -112,8 +112,8 @@ internalError :: MonadThrow m => Text -> m a
 internalError = throwM . CompactExceptionInternal
 
 data CompactEnv = CompactEnv
-  { _ceDb :: !Database
-  , _ceLogger :: !(Logger SomeLogMessage)
+  { _ceLogger :: !(Logger SomeLogMessage)
+  , _ceDb :: !Database
   , _ceFlags :: ![CompactFlag]
   }
 makeLenses ''CompactEnv
@@ -136,8 +136,8 @@ withPerChainFileLogger logDir chainId ll f = do
     void $ forkIO $ fix $ \go -> do
       doneYet <- readMVar done
       when (not doneYet) $ do
-        threadDelay 5_000_000
         IO.hFlush h
+        threadDelay 5_000_000
         go
       IO.hFlush h
 
@@ -166,17 +166,6 @@ withHandleBackend_' format conf inner =
       colored <- liftIO $ useColor (conf ^. handleBackendConfigColor) h
       inner h (handleBackend_ format h colored)
 
--- | Set up compaction.
-mkCompactEnv
-    :: Logger SomeLogMessage
-    -- ^ Logger
-    -> Database
-    -- ^ A single-chain pact database connection.
-    -> [CompactFlag]
-    -- ^ Execution flags.
-    -> CompactEnv
-mkCompactEnv logger db flags = CompactEnv db logger flags
-
 newtype CompactM a = CompactM { unCompactM :: ReaderT CompactEnv IO a }
   deriving newtype (Functor,Applicative,Monad,MonadReader CompactEnv,MonadIO,MonadThrow,MonadCatch)
 
@@ -195,7 +184,7 @@ instance MonadLog Text CompactM where
   withPolicy :: LogPolicy -> CompactM x -> CompactM x
   withPolicy p = local (set (ceLogger.setLoggerPolicy) p)
 
--- | Run compaction monad, see 'mkCompactEnv'.
+-- | Run compaction monad
 runCompactM :: CompactEnv -> CompactM a -> IO a
 runCompactM e a = runReaderT (unCompactM a) e
 
@@ -558,7 +547,7 @@ compact :: ()
   -> Database
   -> [CompactFlag]
   -> IO (Maybe ByteString)
-compact tbh logger db flags = runCompactM (mkCompactEnv logger db flags) $ do
+compact tbh logger db flags = runCompactM (CompactEnv logger db flags) $ do
   logg Info "Beginning compaction"
 
   doGrandHash <- isFlagNotSet NoGrandHash
@@ -631,7 +620,7 @@ compactAll CompactConfig{..} = do
     withDefaultLogger Debug $ \logger -> do
       let resetDb = False
       withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) -> do
-        runCompactM (mkCompactEnv logger db []) getLatestBlockHeight
+        runCompactM (CompactEnv logger db []) getLatestBlockHeight
 
   let allCids = Set.fromList $ F.toList $ chainIdsAt ccVersion latestBlockHeightChain0
   let targetCids = Set.toList $ maybe allCids (Set.intersection allCids) ccChains

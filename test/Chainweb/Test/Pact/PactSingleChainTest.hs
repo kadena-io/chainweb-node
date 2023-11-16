@@ -160,7 +160,7 @@ testTimeout' :: ()
   -> TestTree
 testTimeout' rdb f = testWithConf' rdb f (testPactServiceConfig { _pactPreInsertCheckTimeout = 5 })
 
-forSuccess :: NFData a => String -> IO (MVar (Either PactException a)) -> IO a
+forSuccess :: (NFData a, HasCallStack) => String -> IO (MVar (Either PactException a)) -> IO a
 forSuccess msg mvio = (`catchAllSynchronous` handler) $ do
   mv <- mvio
   takeMVar mv >>= \case
@@ -169,11 +169,11 @@ forSuccess msg mvio = (`catchAllSynchronous` handler) $ do
   where
     handler e = assertFailure $ msg ++ ": exception thrown: " ++ show e
 
-runBlock :: PactQueue -> TestBlockDb -> TimeSpan Micros -> String -> IO PayloadWithOutputs
-runBlock q bdb timeOffset msg = do
+runBlock :: (HasCallStack) => PactQueue -> TestBlockDb -> TimeSpan Micros -> IO PayloadWithOutputs
+runBlock q bdb timeOffset = do
   ph <- getParentTestBlockDb bdb cid
   let blockTime = add timeOffset $ _bct $ _blockCreationTime ph
-  nb <- forSuccess (msg <> ": newblock") $
+  nb <- forSuccess "newBlock" $
         newBlock noMiner (ParentHeader ph) q
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
@@ -187,7 +187,7 @@ newBlockAndValidate :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, Tes
 newBlockAndValidate refIO reqIO = testCase "newBlockAndValidate" $ do
   (_, q, bdb) <- reqIO
   setOneShotMempool refIO goldenMemPool
-  void $ runBlock q bdb second "newBlockAndValidate"
+  void $ runBlock q bdb second
 
 newBlockAndValidationFailure :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailure" $ do
@@ -247,19 +247,17 @@ rosettaFailsWithoutFullHistory rdb =
   withTemporaryDir $ \iodir ->
   withSqliteDb cid iodir $ \sqlEnvIO ->
   withDelegateMempool $ \dm ->
-    let
-      pat = "runBlocksAndCompact"
-    in
     sequentialTestGroup "rosettaFailsWithoutFullHistory" AllSucceed
       [
         -- Run some blocks and then compact
-        withPactTestBlockDb' testVersion cid rdb sqlEnvIO mempty testPactServiceConfig $ \reqIO -> testCase pat $ do
+        withPactTestBlockDb' testVersion cid rdb sqlEnvIO mempty testPactServiceConfig $ \reqIO ->
+        testCase "runBlocksAndCompact" $ do
           (sqlEnv, q, bdb) <- reqIO
 
           mempoolRef <- fmap (pure . fst) dm
 
           setOneShotMempool mempoolRef goldenMemPool
-          replicateM_ 10 $ void $ runBlock q bdb second "rosettaFailsWithoutFullHistory"
+          replicateM_ 10 $ void $ runBlock q bdb second
 
           Utils.compact LL.Error [C.NoVacuum, C.NoGrandHash] sqlEnv (C.Target (BlockHeight 5))
 
@@ -289,13 +287,9 @@ rewindPastMinBlockHeightFails :: ()
   => RocksDb
   -> TestTree
 rewindPastMinBlockHeightFails rdb =
-  let
-    pat :: String
-    pat = "rewindPastMinBlockHeightFails"
-  in
-  compactionSetup pat rdb testPactServiceConfig $ \cr -> do
+  compactionSetup "rewindPastMinBlockHeightFails" rdb testPactServiceConfig $ \cr -> do
     setOneShotMempool cr.mempoolRef goldenMemPool
-    replicateM_ 10 $ runBlock cr.pactQueue cr.blockDb second pat
+    replicateM_ 10 $ runBlock cr.pactQueue cr.blockDb second
 
     Utils.compact LL.Error [C.NoVacuum, C.NoGrandHash] cr.sqlEnv (C.Target (BlockHeight 5))
 
@@ -315,11 +309,7 @@ pactStateSamePreAndPostCompaction :: ()
   => RocksDb
   -> TestTree
 pactStateSamePreAndPostCompaction rdb =
-  let
-    pat :: String
-    pat = "pactStateSamePreAndPostCompaction"
-  in
-  compactionSetup pat rdb testPactServiceConfig $ \cr -> do
+  compactionSetup "pactStateSamePreAndPostCompaction" rdb testPactServiceConfig $ \cr -> do
     let numBlocks :: Num a => a
         numBlocks = 100
 
@@ -347,7 +337,7 @@ pactStateSamePreAndPostCompaction rdb =
             writeIORef madeTx True
             pure $ V.fromList [tx]
       }
-      void $ runBlock cr.pactQueue cr.blockDb second pat
+      void $ runBlock cr.pactQueue cr.blockDb second
       writeIORef madeTx False
 
     let db = _sConn cr.sqlEnv
@@ -392,10 +382,7 @@ compactionIsIdempotent :: ()
   => RocksDb
   -> TestTree
 compactionIsIdempotent rdb =
-  let
-    pat = "compactionIdempotent"
-  in
-  compactionSetup pat rdb testPactServiceConfig $ \cr -> do
+  compactionSetup "compactionIdempotent" rdb testPactServiceConfig $ \cr -> do
     let numBlocks :: Num a => a
         numBlocks = 100
 
@@ -423,7 +410,7 @@ compactionIsIdempotent rdb =
             writeIORef madeTx True
             pure $ V.fromList [tx]
       }
-      void $ runBlock cr.pactQueue cr.blockDb second pat
+      void $ runBlock cr.pactQueue cr.blockDb second
       writeIORef madeTx False
 
     let db = _sConn cr.sqlEnv
@@ -473,8 +460,6 @@ compactionUserTablesDropped :: ()
   -> TestTree
 compactionUserTablesDropped rdb =
   let
-    pat = "compactionUserTablesDropped"
-
     -- creating a module uses about 60k gas. this is
     -- that plus some change.
     gasLimit :: GasLimit
@@ -484,7 +469,7 @@ compactionUserTablesDropped rdb =
       _pactBlockGasLimit = gasLimit
     }
   in
-  compactionSetup pat rdb pactCfg $ \cr -> do
+  compactionSetup "compactionUserTablesDropped" rdb pactCfg $ \cr -> do
     let numBlocks :: Num a => a
         numBlocks = 100
     let halfwayPoint :: Integral a => a
@@ -516,7 +501,7 @@ compactionUserTablesDropped rdb =
     supply <- newIORef @Int 0
     madeBeforeTable <- newIORef @Bool False
     madeAfterTable <- newIORef @Bool False
-    forM_ [1..numBlocks :: Word] $ \blockNum -> do
+    replicateM_ numBlocks $ do
       setMempool cr.mempoolRef $ mempty {
         mpaGetBlock = \_ _ mBlockHeight _ _ -> do
           let mkTable madeRef tbl = do
@@ -536,7 +521,7 @@ compactionUserTablesDropped rdb =
           else do
             mkTable madeAfterTable afterTable
       }
-      void $ runBlock cr.pactQueue cr.blockDb second (pat ++ "-" ++ show blockNum)
+      void $ runBlock cr.pactQueue cr.blockDb second
 
     let freeBeforeTbl = "free.m0_" <> beforeTable
     let freeAfterTbl = "free.m1_" <> afterTable
@@ -563,7 +548,7 @@ getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb)
 getHistory refIO reqIO = testCase "getHistory" $ do
   (_, q, bdb) <- reqIO
   setOneShotMempool refIO goldenMemPool
-  void $ runBlock q bdb second "getHistory"
+  void $ runBlock q bdb second
   h <- getParentTestBlockDb bdb cid
   mv <- pactBlockTxHistory h (UserTables "coin_coin-table") q
 
@@ -607,13 +592,13 @@ getHistoricalLookupNoTxs
     -> IO (IORef MemPoolAccess)
     -> IO (SQLiteEnv, PactQueue, TestBlockDb)
     -> TestTree
-getHistoricalLookupNoTxs key assertF refIO reqIO = testCase msg $ do
-  (_, q, bdb) <- reqIO
-  setOneShotMempool refIO mempty
-  void $ runBlock q bdb second msg
-  h <- getParentTestBlockDb bdb cid
-  histLookup q h key >>= assertF
-  where msg = T.unpack $ "getHistoricalLookupNoTxs: " <> key
+getHistoricalLookupNoTxs key assertF refIO reqIO =
+  testCase (T.unpack ("getHistoricalLookupNoTxs: " <> key)) $ do
+    (_, q, bdb) <- reqIO
+    setOneShotMempool refIO mempty
+    void $ runBlock q bdb second
+    h <- getParentTestBlockDb bdb cid
+    histLookup q h key >>= assertF
 
 getHistoricalLookupWithTxs
     :: T.Text
@@ -621,13 +606,13 @@ getHistoricalLookupWithTxs
     -> IO (IORef MemPoolAccess)
     -> IO (SQLiteEnv, PactQueue, TestBlockDb)
     -> TestTree
-getHistoricalLookupWithTxs key assertF refIO reqIO = testCase msg $ do
-  (_, q, bdb) <- reqIO
-  setOneShotMempool refIO goldenMemPool
-  void $ runBlock q bdb second msg
-  h <- getParentTestBlockDb bdb cid
-  histLookup q h key >>= assertF
-  where msg = T.unpack $ "getHistoricalLookupWithTxs: " <> key
+getHistoricalLookupWithTxs key assertF refIO reqIO =
+  testCase (T.unpack ("getHistoricalLookupWithTxs: " <> key)) $ do
+    (_, q, bdb) <- reqIO
+    setOneShotMempool refIO goldenMemPool
+    void $ runBlock q bdb second
+    h <- getParentTestBlockDb bdb cid
+    histLookup q h key >>= assertF
 
 histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (TxLog RowData))
 histLookup q bh k = do
@@ -655,16 +640,16 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
   cut0 <- readMVar $ _bdbCut bdb -- genesis cut
 
   -- cut 1a
-  void $ runBlock q bdb second "newBlockRewindValidate-1a"
+  void $ runBlock q bdb second
   cut1a <- readMVar $ _bdbCut bdb
 
   -- rewind, cut 1b
   void $ swapMVar (_bdbCut bdb) cut0
-  void $ runBlock q bdb second "newBlockRewindValidate-1b"
+  void $ runBlock q bdb second
 
   -- rewind to cut 1a to trigger replay with chain data bug
   void $ swapMVar (_bdbCut bdb) cut1a
-  void $ runBlock q bdb (secondsToTimeSpan 2) "newBlockRewindValidate-2"
+  void $ runBlock q bdb (secondsToTimeSpan 2)
 
   where
 
@@ -753,19 +738,19 @@ mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
   supply <- newMVar (0 :: Int)
 
   mp supply [ ( 0, [goodTx, goodTx] ), ( 1, [badTx] ) ]
-  runBlock q bdb second "mempoolRefillTest-1" >>= checkCount 2
+  runBlock q bdb second >>= checkCount 2
 
   mp supply [ ( 0, [goodTx, goodTx] ), ( 1, [goodTx, badTx] ) ]
-  runBlock q bdb second "mempoolRefillTest-2" >>= checkCount 3
+  runBlock q bdb second >>= checkCount 3
 
   mp supply [ ( 0, [badTx, goodTx] ), ( 1, [goodTx, badTx] ) ]
-  runBlock q bdb second "mempoolRefillTest-3" >>= checkCount 2
+  runBlock q bdb second >>= checkCount 2
 
   mp supply [ ( 0, [badTx] ), ( 1, [goodTx, goodTx] ) ]
-  runBlock q bdb second "mempoolRefillTest-4" >>= checkCount 2
+  runBlock q bdb second >>= checkCount 2
 
   mp supply [ ( 0, [goodTx, goodTx] ), ( 1, [badTx, badTx] ) ]
-  runBlock q bdb second "mempoolRefillTest-5" >>= checkCount 2
+  runBlock q bdb second >>= checkCount 2
 
   where
 
@@ -806,17 +791,17 @@ moduleNameFork mpRefIO reqIO = testCase "moduleNameFork" $ do
 
   -- install in free in block 1
   setOneShotMempool mpRefIO (moduleNameMempool "free" "test")
-  void $ runBlock q bdb second "moduleNameFork-1"
+  void $ runBlock q bdb second
 
   -- install in user in block 2
   setOneShotMempool mpRefIO (moduleNameMempool "user" "test")
-  void $ runBlock q bdb second "moduleNameFork-1"
+  void $ runBlock q bdb second
 
   -- do something else post-fork
   setOneShotMempool mpRefIO (moduleNameMempool "free" "test2")
-  void $ runBlock q bdb second "moduleNameFork-1"
+  void $ runBlock q bdb second
   setOneShotMempool mpRefIO (moduleNameMempool "user" "test2")
-  void $ runBlock q bdb second "moduleNameFork-1"
+  void $ runBlock q bdb second
 
   -- TODO this test doesn't actually validate, I turn on Debug and make sure it
   -- goes well.
@@ -848,7 +833,7 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
       s30 = scaleTimeSpan (30 :: Int) second
       s15 = scaleTimeSpan (15 :: Int) second
   -- b1 block time is start
-  void $ runBlock q bdb startSpan "mempoolCreationTimeTest-1"
+  void $ runBlock q bdb startSpan
 
 
   -- do pre-insert check with transaction at start + 15s
@@ -858,7 +843,7 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
 
   setOneShotMempool mpRefIO $ mp tx
   -- b2 will be made at start + 30s
-  void $ runBlock q bdb s30 "mempoolCreationTimeTest-2"
+  void $ runBlock q bdb s30
 
   where
 
