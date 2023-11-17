@@ -214,7 +214,7 @@ playLine pdb bhdb trunkLength startingBlock pactQueue counter =
   where
     mineLine :: BlockHeader -> Word64 -> IORef Word64 -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
     mineLine start l ncounter =
-        evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. startHeight + l - 1]) pactQueue) start
+        evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. startHeight + l]) pactQueue) start
       where
         startHeight :: Num a => a
         startHeight = fromIntegral $ _blockHeight start
