@@ -138,6 +138,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Short as BS
 import Data.Decimal
 import Data.Default (def)
+import Data.Either (isRight)
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
@@ -203,6 +204,7 @@ import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils hiding (withSqliteDb)
 import Chainweb.Pact.PactService
+import Chainweb.Pact.RestAPI.Server (validateCommand)
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
@@ -578,8 +580,18 @@ mkCmd nonce rpc = defaultCmd
 --
 -- TODO: Use the new `assertCommand` function.
 buildCwCmd :: (MonadThrow m, MonadIO m) => CmdBuilder -> m ChainwebTransaction
-buildCwCmd cmd = buildRawCmd cmd >>= \c -> case verifyCommand c of
-    ProcSucc r -> return $ fmap (mkPayloadWithText c) r
+buildCwCmd cmd = buildRawCmd cmd >>= \(c :: Command ByteString) ->
+  let
+    commandText :: Command Text = T.decodeUtf8 <$> c
+    cmdValid = isRight $
+      validateCommand (fromJust $ _cbNetworkId cmd) (_cbChainId cmd) commandText
+
+  in
+  case verifyCommand c of
+    ProcSucc r ->
+      if cmdValid
+      then return $ fmap (mkPayloadWithText c) r
+      else throwM $ userError $ "buildCmd failed: "
     ProcFail e -> throwM $ userError $ "buildCmd failed: " ++ e
 
 
