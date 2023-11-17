@@ -704,9 +704,7 @@ jobs:
       id: meta
       uses: docker/metadata-action@v4
       with:
-        images: |
-          name=ghcr.io/kadena-io/chainweb-node
-          name=ghcr.io/kadena-io/chainweb-node/branches/hyperlane
+        images: ghcr.io/kadena-io/chainweb-node
         flavor: |
           suffix=${{ steps.frozen-tag.outputs.value }}${{ needs.config.outputs.tag-suffix }}
         tags: |
