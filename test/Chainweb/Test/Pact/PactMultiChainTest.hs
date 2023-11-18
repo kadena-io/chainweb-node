@@ -15,7 +15,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
-import Data.Aeson (object, (.=))
+import Data.Aeson (Value, object, (.=))
 import Data.List(isPrefixOf)
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.HashMap.Strict as HM
@@ -1072,7 +1072,17 @@ pact48UpgradeTest = do
 
 pact49UpgradeTest :: PactTestM ()
 pact49UpgradeTest = do
-  runToHeight 98
+  runToHeight 97
+
+  -- Run block 98.
+  -- WebAuthn is not yet a valid PPK scheme, so this transaction
+  -- is not valid for insertion into the mempool.
+  expectInvalid
+    [ PactTxTest addOneTwo $
+      assertTxSuccess
+      "WebAuthn not valid scheme at this block height"
+      (pDecimal 3)
+    ]
 
   -- run block 99 (before the pact-4.9 fork)
   runBlockTest
@@ -1081,7 +1091,6 @@ pact49UpgradeTest = do
         "Non-canonical messages decode before pact-4.9"
         (pString "d")
     , PactTxTest base64DecodeBadPadding $ assertTxFailure "decoding illegally padded string" "Could not decode string: Base64URL decode failed: invalid padding near offset 16"
-
     ]
 
   -- run block 100 (after the pact-4.9 fork)
@@ -1089,22 +1098,81 @@ pact49UpgradeTest = do
     [ PactTxTest base64DecodeNonCanonical $
         assertTxFailure "decoding non-canonical message" "Could not decode string: Could not base64-decode string"
     , PactTxTest base64DecodeBadPadding $ assertTxFailure "decoding illegally padded string" "Could not decode string: Could not base64-decode string"
+
+    , PactTxTest addOneTwo $
+      assertTxSuccess
+      "WebAuthn not valid scheme at this block height"
+      (pDecimal 3)
+
     ]
 
   where
+    addOneTwo = buildBasicGasWebAuthn WebAuthnStringified 1000 $ mkExec' "(+ 1 2)"
     base64DecodeNonCanonical = buildBasicGas 10000 $ mkExec' "(base64-decode \"ZE==\")"
     base64DecodeBadPadding = buildBasicGas 10000 $ mkExec' "(base64-decode \"aGVsbG8gd29ybGQh%\")"
 
 pact410UpgradeTest :: PactTestM ()
 pact410UpgradeTest = do
-  runToHeight 80
+  runToHeight 110
+
+  -- PactAPI
+  --   Pre-fork, webauthn fails when ed25519 succeeds.
+  --   Post-fork, webauthn succeeds and ed25519 succeeds.
+  -- RemotePactTests
+  --   Try send, make sure result code is good.
+
+  -- Also test the new signature format
 
   runBlockTest
-    [ PactTxTest (buildBasicGasWebAuthn WebAuthnStringified 1000 $ mkExec' "(+ 1 2)") $
-      assertTxSuccess "Should succeed" (pInteger 3)
-    , PactTxTest (buildBasicGasWebAuthn WebAuthnObject 1000 $ mkExec' "(+ 1 3)") $
-      assertTxSuccess "Should succeed" (pInteger 4)
+    [ PactTxTest readValidPrefixedWebAuthnKey $
+      assertTxFailure
+      "Key prefixing is not yet supported."
+      "Invalid keyset"
     ]
+
+  runToHeight 120
+  runBlockTest
+    [ PactTxTest addTenTwenty $
+      assertTxSuccess
+      "WebAuthn not valid scheme at this block height"
+      (pDecimal 30)
+
+    , PactTxTest readValidPrefixedWebAuthnKey $
+      assertTxSuccess
+      "Key prefixing is supported."
+      (pKeySet (mkKeySet ["WEBAUTHN-a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf"] "keys-all"))
+
+    ]
+
+  where
+    _addOneTwo = buildBasicGasWebAuthn WebAuthnStringified 1000 $ mkExec' "(+ 1 2)"
+    addTenTwenty = buildBasicGasWebAuthn WebAuthnStringified 1000 $ mkExec'
+      "(let ((x:integer 10) (y:integer 20)) (+ x y))"
+
+    readValidPrefixedEd25519Key = buildBasicGas 1000 $ mkExec
+      "(read-keyset 'k)"
+      (mkKeyEnvData "ED25519-368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca")
+
+    readInvalidPrefixedEd25519Key = buildBasicGas 1000 $ mkExec
+      "(read-keyset 'k)"
+      (mkKeyEnvData "ED2551-Z")
+
+    readValidPrefixedWebAuthnKey = buildBasicGas 1000 $ mkExec
+      "(read-keyset 'k)"
+      (mkKeyEnvData  "WEBAUTHN-a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
+
+    -- This hardcoded public key is the same as the valid one above, except that the first
+    -- character is changed. CBOR parsing will fail.
+    readInvalidPrefixedWebAuthnKey = buildBasicGas 1000 $ mkExec
+      "(read-keyset 'k)"
+      (mkKeyEnvData  "WEBAUTHN-a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
+
+    _x = WebAuthnStringified
+    _y = WebAuthnObject
+
+    mkKeyEnvData :: String -> Value
+    mkKeyEnvData key = object [ "k" .= [key] ]
+    -- addOneTwo = buildBasicGas 1000 $ mkExec' "(+ 1 2)"
 
 
 pact4coin3UpgradeTest :: PactTestM ()
@@ -1246,18 +1314,22 @@ setPactMempool (PactMempool fs) = do
     mpaGetBlock = go mpsRef
     }
   where
-    go ref bf _ _ _ bh = do
+    go ref bf mempoolPreBlockCheck bHeight bHash blockHeader = do
       mps <- readIORef ref
-      let mi = MempoolInput bf bh
+      let mi = MempoolInput bf blockHeader
           runMps i = \case
             [] -> return mempty
             (mp:r) -> case _mempoolBlock mp mi of
               Just bs -> do
                 writeIORef ref (take i mps ++ r)
-                fmap V.fromList $ forM bs $ \b ->
+                cmds <- fmap V.fromList $ forM bs $ \b ->
                   buildCwCmd $ _mempoolCmdBuilder b mi
+                validationResults <- mempoolPreBlockCheck bHeight bHash cmds
+                return $ fmap fst $ V.filter snd (V.zip cmds validationResults)
               Nothing -> runMps (succ i) r
-      runMps 0 mps
+      rs <- runMps 0 mps
+      print $ "rs: " ++ show rs
+      return rs
 
 filterBlock :: (MempoolInput -> Bool) -> MempoolBlock -> MempoolBlock
 filterBlock f (MempoolBlock b) = MempoolBlock $ \mi ->
@@ -1338,7 +1410,7 @@ assertTxFailure' msg needle tx =
 -- | Run a single mempool block on current chain with tests for each tx.
 -- Limitations: can only run a single-chain, single-refill test for
 -- a given cut height.
-runBlockTest :: [PactTxTest] -> PactTestM ()
+runBlockTest :: HasCallStack => [PactTxTest] -> PactTestM ()
 runBlockTest pts = do
   chid <- view menvChainId
   setPactMempool $ PactMempool [testsToBlock chid pts]
@@ -1350,11 +1422,24 @@ testsToBlock :: ChainId -> [PactTxTest] -> MempoolBlock
 testsToBlock chid pts = blockForChain chid $ MempoolBlock $ \_ ->
   pure $ map _pttBuilder pts
 
+-- | No tests in this list should even be submitted to the mempool,
+-- they should be rejected early.
+expectInvalid :: [PactTxTest] -> PactTestM ()
+expectInvalid pts = do
+  chid <- view menvChainId
+  setPactMempool $ PactMempool [testsToBlock chid pts]
+  runCut'
+  rs <- txResults
+  liftIO $ assertEqual "None of these transactions should succeed" rs mempty
+
 -- | Run tests on current cut and chain.
-runBlockTests :: [PactTxTest] -> PactTestM ()
+runBlockTests :: HasCallStack => [PactTxTest] -> PactTestM ()
 runBlockTests pts = do
-  txResults >>= zipWithM_ go pts . V.toList
+  rs <- txResults
+  liftIO $ assertEqual "Result length should equal transaction length" (length pts) (length rs)
+  zipWithM_ go pts (V.toList rs)
   where
+    go :: PactTxTest -> CommandResult Hash -> PactTestM ()
     go (PactTxTest _ t) cr = liftIO $ t cr
 
 -- | Run cuts to block height.
@@ -1405,7 +1490,10 @@ buildXReceive (proof,pid) = buildBasic $
     mkCont ((mkContMsg pid 1) { _cmProof = Just proof })
 
 signWebAuthn00 :: WebAuthnSigEncoding -> CmdBuilder -> CmdBuilder
-signWebAuthn00 webAuthnSigEncoding = set cbSigners [mkWebAuthnSigner' sender02WebAuthn [] webAuthnSigEncoding]
+signWebAuthn00 webAuthnSigEncoding =
+  set cbSigners [mkWebAuthnSigner' sender02WebAuthn [] webAuthnSigEncoding
+                ,mkEd25519Signer' sender00 []
+                ]
 
 signSender00 :: CmdBuilder -> CmdBuilder
 signSender00 = set cbSigners [mkEd25519Signer' sender00 []]
@@ -1418,6 +1506,7 @@ setFromHeader bh =
 buildBasic
     :: PactRPC T.Text
     -> MempoolCmdBuilder
+-- buildBasic = buildBasic' (\cmd -> cmd { _cbNetworkId = Just testVersion })
 buildBasic = buildBasic' id
 
 buildBasicGas :: GasLimit -> PactRPC T.Text -> MempoolCmdBuilder
@@ -1441,6 +1530,7 @@ buildBasicWebAuthn'
 buildBasicWebAuthn' webAuthnSigEncoding f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   f $ signWebAuthn00 webAuthnSigEncoding
   $ setFromHeader bh
+  -- $ (\cmd -> cmd { _cbNetworkId = Just testVersion })
   $ mkCmd (sshow bh) r
 
 
