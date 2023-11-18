@@ -135,11 +135,14 @@ withPerChainFileLogger logDir chainId ll f = do
     done <- newMVar False
     void $ forkIO $ fix $ \go -> do
       doneYet <- readMVar done
+      let flush = do
+            w <- IO.hIsOpen h
+            when w (IO.hFlush h)
       when (not doneYet) $ do
-        IO.hFlush h
+        flush
         threadDelay 5_000_000
         go
-      IO.hFlush h
+      flush
 
     withLogger defaultLoggerConfig b $ \l -> do
       let logger = setComponent "compaction"
@@ -617,7 +620,7 @@ compactAll :: CompactConfig -> IO ()
 compactAll CompactConfig{..} = do
   latestBlockHeightChain0 <- do
     let cid = unsafeChainId 0
-    withDefaultLogger Debug $ \logger -> do
+    withDefaultLogger Error $ \logger -> do
       let resetDb = False
       withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) -> do
         runCompactM (CompactEnv logger db []) getLatestBlockHeight
