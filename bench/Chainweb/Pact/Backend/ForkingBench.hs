@@ -263,7 +263,7 @@ data Resources
     , blockHeaderDb :: !BlockHeaderDb
     , pactService :: !(Async (), PactQueue)
     , mainTrunkBlocks :: ![T3 ParentHeader BlockHeader PayloadWithOutputs]
-    , coinAccounts :: !(MVar (Map Account (NonEmpty Ed25519KeyPairCaps)))
+    , coinAccounts :: !(MVar (Map Account (NonEmpty (DynKeyPair, [SigCapability]))))
     , nonceCounter :: !(IORef Word64)
     , txPerBlock :: !(IORef Int)
     , sqlEnv :: !SQLiteEnv
@@ -361,7 +361,7 @@ withResources rdb trunkLength logLevel compact f = C.envWithCleanup create destr
 
 -- | Mempool Access
 --
-testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty Ed25519KeyPairCaps)) -> IO MemPoolAccess
+testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty (DynKeyPair, [SigCapability]))) -> IO MemPoolAccess
 testMemPoolAccess txsPerBlock accounts = do
   return $ mempty
     { mpaGetBlock = \bf validate bh hash header -> do
@@ -402,7 +402,7 @@ testMemPoolAccess txsPerBlock accounts = do
                   Right tx -> return tx
             return $! txs
 
-    mkTransferCaps :: ReceiverName -> Amount -> (Account, NonEmpty Ed25519KeyPairCaps) -> (Account, NonEmpty Ed25519KeyPairCaps)
+    mkTransferCaps :: ReceiverName -> Amount -> (Account, NonEmpty (DynKeyPair, [SigCapability])) -> (Account, NonEmpty (DynKeyPair, [SigCapability]))
     mkTransferCaps (ReceiverName (Account r)) (Amount m) (s@(Account ss),ks) = (s, (caps <$) <$> ks)
       where
         caps = [gas,tfr]
@@ -431,7 +431,7 @@ createCoinAccount
     :: ChainwebVersion
     -> PublicMeta
     -> String
-    -> IO (NonEmpty Ed25519KeyPairCaps, Command Text)
+    -> IO (NonEmpty (DynKeyPair, [SigCapability]), Command Text)
 createCoinAccount v meta name = do
     sender00Keyset <- NEL.fromList <$> getKeyset "sender00"
     nameKeyset <- NEL.fromList <$> getKeyset name
@@ -444,13 +444,14 @@ createCoinAccount v meta name = do
     isSenderAccount name' =
       elem name' (map getAccount coinAccountNames)
 
-    getKeyset :: String -> IO [Ed25519KeyPairCaps]
+    getKeyset :: String -> IO [(DynKeyPair, [SigCapability])]
     getKeyset s
       | isSenderAccount s = do
           keypair <- stockKey (T.pack s)
           mkKeyPairs [keypair]
-      | otherwise = (\k -> [(k, [])]) <$> genKeyPair
+      | otherwise = (\k -> [(DynEd25519KeyPair k, [])]) <$> generateEd25519KeyPair
 
+    attachCaps :: String -> String -> Decimal -> NonEmpty (DynKeyPair, [SigCapability]) -> NonEmpty (DynKeyPair, [SigCapability])
     attachCaps s rcvr m ks = (caps <$) <$> ks
       where
         caps = [gas, tfr]
@@ -474,7 +475,7 @@ stockKey s = do
 stockKeyFile :: ByteString
 stockKeyFile = $(embedFile "pact/genesis/devnet/keys.yaml")
 
-createCoinAccounts :: ChainwebVersion -> PublicMeta -> IO (NonEmpty (Account, NonEmpty Ed25519KeyPairCaps, Command Text))
+createCoinAccounts :: ChainwebVersion -> PublicMeta -> IO (NonEmpty (Account, NonEmpty (DynKeyPair, [SigCapability]), Command Text))
 createCoinAccounts v meta = traverse (go <*> createCoinAccount v meta) names
   where
     go a m = do
@@ -484,8 +485,10 @@ createCoinAccounts v meta = traverse (go <*> createCoinAccount v meta) names
 names :: NonEmpty String
 names = NEL.map safeCapitalize . NEL.fromList $ Prelude.take 2 $ words "mary elizabeth patricia jennifer linda barbara margaret susan dorothy jessica james john robert michael william david richard joseph charles thomas"
 
-formatB16PubKey :: Ed25519KeyPair -> Text
-formatB16PubKey = toB16Text . getPublic
+formatB16PubKey :: DynKeyPair -> Text
+formatB16PubKey = \case
+  DynEd25519KeyPair kp -> toB16Text $ getPublic kp
+  DynWebAuthnKeyPair pub _ _ -> toB16Text $ exportWebAuthnPublicKey pub
 
 safeCapitalize :: String -> String
 safeCapitalize = maybe [] (uncurry (:) . bimap toUpper (Prelude.map toLower)) . Data.List.uncons
@@ -503,7 +506,7 @@ validateCommand cmdText = case verifyCommand cmdBS of
 data TransferRequest = TransferRequest !SenderName !ReceiverName !Amount
 
 mkTransferRequest :: ()
-  => M.Map Account (NonEmpty Ed25519KeyPairCaps)
+  => M.Map Account (NonEmpty (DynKeyPair, [SigCapability]))
   -> IO TransferRequest
 mkTransferRequest kacts = do
   (from, to) <- distinctAccounts (M.keys kacts)
@@ -564,7 +567,7 @@ distinctAccounts xs = pick xs >>= go
 createTransfer :: ()
   => ChainwebVersion
   -> PublicMeta
-  -> NEL.NonEmpty Ed25519KeyPairCaps
+  -> NEL.NonEmpty (DynKeyPair, [SigCapability])
   -> TransferRequest
   -> IO (Command Text)
 createTransfer v meta ks request =

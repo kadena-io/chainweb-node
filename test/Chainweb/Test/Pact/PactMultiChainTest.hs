@@ -1115,14 +1115,6 @@ pact410UpgradeTest :: PactTestM ()
 pact410UpgradeTest = do
   runToHeight 110
 
-  -- PactAPI
-  --   Pre-fork, webauthn fails when ed25519 succeeds.
-  --   Post-fork, webauthn succeeds and ed25519 succeeds.
-  -- RemotePactTests
-  --   Try send, make sure result code is good.
-
-  -- Also test the new signature format
-
   runBlockTest
     [ PactTxTest readValidPrefixedWebAuthnKey $
       assertTxFailure
