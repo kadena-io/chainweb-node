@@ -3,6 +3,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -37,21 +38,25 @@ import Control.Monad.IO.Class
 
 import qualified Data.Aeson as A
 import Data.Aeson.Lens hiding (values)
+import Data.Bifunctor (first)
+import Control.Monad.Trans.Except (runExceptT, except)
+import Control.Monad.Except (throwError)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Short as SB
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Word (Word64)
 import Data.Default (def)
 import Data.Foldable (toList)
-import qualified Data.HashMap.Strict as HashMap
+import qualified Data.HashMap.Strict as HM
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
-
-import Numeric.Natural
+import qualified Data.Text.Encoding as T
+import System.Logger.Types (LogLevel(..))
 
 import Servant.Client
 
@@ -72,6 +77,8 @@ import Pact.Types.Hash (Hash(..))
 import qualified Pact.Types.PactError as Pact
 import Pact.Types.PactValue
 import Pact.Types.Pretty
+import Pact.Types.Persistence (RowKey(..), TxLog(..))
+import Pact.Types.RowData (RowData(..))
 import Pact.Types.Term
 
 -- internal modules
@@ -79,11 +86,15 @@ import Pact.Types.Term
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool
+import Chainweb.Pact.Backend.Compaction qualified as C
+import Chainweb.Pact.Backend.Utils qualified as Backend
+import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Validations (defaultMaxTTL)
 import Chainweb.Test.Pact.Utils
+import Chainweb.Test.Pact.Utils qualified as Utils
 import Chainweb.Test.RestAPI.Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
@@ -93,11 +104,10 @@ import Chainweb.Version
 import Chainweb.Version.Mainnet
 import Chainweb.Storage.Table.RocksDB
 
-
 -- -------------------------------------------------------------------------- --
 -- Global Settings
 
-nNodes :: Natural
+nNodes :: Word
 nNodes = 1
 
 v :: ChainwebVersion
@@ -135,6 +145,16 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
         withResource' getCurrentTimeIntegral $ \(iotm :: IO (Time Micros)) ->
             let cenv = _getServiceClientEnv <$> net
                 iot = toTxCreationTime <$> iotm
+                pactDir = do
+                  m <- _getNodeDbDirs <$> net
+                  -- This looks up the pactDbDir for node 0. This is
+                  -- kind of a hack, because there is only one node in
+                  -- this test. However, it doesn't matter much, because
+                  -- we are dealing with both submitting /local txs
+                  -- and compaction, so picking an arbitrary node
+                  -- to run these two operations on is fine.
+                  pure (fst (head m))
+
             in testGroup "remote pact tests"
                 [ withResourceT (liftIO $ join $ withRequestKeys <$> iot <*> cenv) $ \reqkeys -> golden "remote-golden" $
                     join $ responseGolden <$> cenv <*> reqkeys
@@ -153,6 +173,9 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
                 , after AllSucceed "remote spv" $
                     testCase "trivialLocalCheck" $
                         join $ localTest <$> iot <*> cenv
+                , after AllSucceed "remote spv" $
+                    testCase "txlogsCompactionTest" $
+                        join $ txlogsCompactionTest <$> iot <*> cenv <*> pactDir
                 , after AllSucceed "remote spv" $
                     testCase "localChainData" $
                         join $ localChainDataTest <$> iot <*> cenv
@@ -186,9 +209,189 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
 responseGolden :: ClientEnv -> RequestKeys -> IO LBS.ByteString
 responseGolden cenv rks = do
     PollResponses theMap <- polling cid cenv rks ExpectPactResult
-    let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
+    let values = mapMaybe (\rk -> _crResult <$> HM.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
     return $ foldMap J.encode values
+
+-- | Check that txlogs don't problematically access history
+--   post-compaction.
+--
+--   At a high level, the test does this:
+--     - Submits a tx that creates a module with a table named `persons`.
+--
+--       This module exposes a few functions for reading, inserting,
+--       and overwriting rows to the `persons` table.
+--
+--       The tx also inserts some people into `persons` for
+--       some initial state.
+--
+--       This module also exposes a way to access the `txlogs`
+--       of the `persons` table (what this test is concerned with).
+--
+--     - Submits a tx that overwrites a row in the
+--       `persons` table.
+--
+--     - Compacts to the latest blockheight on each chain. This should
+--       get rid of any out-of-date rows.
+--
+--     - Submits a /local tx that reads the `txlogs` on the `persons`
+--       table. Call this `txLogs`.
+--
+--       If this read fails, Pact is doing something problematic!
+--
+--       If this read doesn't fail, we need to check that `txLogs`
+--       matches the latest pact state post-compaction. Because
+--       compaction sweeps away the out-of-date rows, they shouldn't
+--       appear in the `txLogs` anymore, and the two should be equivalent.
+txlogsCompactionTest :: Pact.TxCreationTime -> ClientEnv -> FilePath -> IO ()
+txlogsCompactionTest t cenv pactDbDir = do
+    let cmd :: Text -> Text -> CmdBuilder
+        cmd nonce tx = do
+          set cbSigners [mkSigner' sender00 []]
+            $ set cbTTL defaultMaxTTL
+            $ set cbCreationTime t
+            $ set cbChainId cid
+            $ set cbNetworkId (Just v)
+            $ mkCmd nonce
+            $ mkExec tx
+            $ mkKeySetData "sender00" [sender00]
+
+    createTableTx <- buildTextCmd
+      $ set cbGasLimit 300_000
+      $ cmd "create-table-persons"
+      $ T.unlines
+          [ "(namespace 'free)"
+          , "(module m0 G"
+          , "  (defcap G () true)"
+          , "  (defschema person"
+          , "    name:string"
+          , "    age:integer"
+          , "  )"
+          , "  (deftable persons:{person})"
+          , "  (defun read-persons (k) (read persons k))"
+          , "  (defun insert-persons (id name age) (insert persons id { 'name:name, 'age:age }))"
+          , "  (defun write-persons (id name age) (write persons id { 'name:name, 'age:age }))"
+          , "  (defun persons-txlogs (i) (map (txlog persons) (txids persons i)))"
+          , ")"
+          , "(create-table persons)"
+          , "(insert-persons \"A\" \"Lindsey Lohan\" 42)"
+          , "(insert-persons \"B\" \"Nico Robin\" 30)"
+          , "(insert-persons \"C\" \"chessai\" 420)"
+          ]
+
+    nonceSupply <- newIORef @Word 1 -- starts at 1 since 0 is always the create-table tx
+    let nextNonce = do
+          cur <- readIORef nonceSupply
+          modifyIORef' nonceSupply (+ 1)
+          pure cur
+
+    let submitAndCheckTx tx = do
+          submitResult <- flip runClientM cenv $
+            pactSendApiClient v cid $ SubmitBatch $ NEL.fromList [tx]
+          case submitResult of
+            Left err -> do
+              assertFailure $ "Error when sending tx: " ++ show err
+            Right rks -> do
+              PollResponses m <- polling cid cenv rks ExpectPactResult
+              case HM.lookup (NEL.head (_rkRequestKeys rks)) m of
+                Just cr -> do
+                  case _crResult cr of
+                    PactResult (Left err) -> do
+                      assertFailure $ "validation failure on tx: " ++ show err
+                    PactResult _ -> do
+                      pure ()
+                Nothing -> do
+                  assertFailure "impossible"
+
+    submitAndCheckTx createTableTx
+
+    let getLatestState :: IO (M.Map RowKey RowData)
+        getLatestState = C.withDefaultLogger Error $ \logger -> do
+          Backend.withSqliteDb cid logger pactDbDir False $ \(SQLiteEnv db _) -> do
+            st <- Utils.getLatestPactState db
+            case M.lookup "free.m0_persons" st of
+              Just ps -> fmap M.fromList $ forM (M.toList ps) $ \(rkBytes, rdBytes) -> do
+                let rk = RowKey (T.decodeUtf8 rkBytes)
+                case A.eitherDecodeStrict' @RowData rdBytes of
+                  Left err -> do
+                    assertFailure $ "Failed decoding rowdata: " ++ err
+                  Right rd -> do
+                    pure (rk, rd)
+              Nothing -> error "getting state of free.m0_persons failed"
+
+    let createTxLogsTx :: Word -> IO (Command Text)
+        createTxLogsTx n = do
+          -- cost is about 360k.
+          -- cost = flatCost(module) + flatCost(map) + flatCost(txIds) + numTxIds * (costOf(txlog)) + C
+          --      = 60_000 + 4 + 100_000 + 2 * 100_000 + C
+          --      = 360_004 + C
+          -- Note there are two transactions that write to `persons`, which is
+          -- why `numTxIds` = 2 (and not the number of rows).
+          let gasLimit = 400_000
+          buildTextCmd
+            $ set cbGasLimit gasLimit
+            $ cmd ("test-txlogs-" <> sshow n)
+            $ T.unlines
+                [ "(namespace 'free)"
+                , "(module m" <> sshow n <> " G"
+                , "  (defcap G () true)"
+                , "  (defun persons-txlogs (i) (m0.persons-txlogs i))"
+                , ")"
+                , "(persons-txlogs 0)"
+                ]
+
+    let createWriteTx :: Word -> IO (Command Text)
+        createWriteTx n = do
+          -- module = 60k, write = 100
+          let gasLimit = 70_000
+          buildTextCmd
+            $ set cbGasLimit gasLimit
+            $ cmd ("test-write-" <> sshow n)
+            $ T.unlines
+                [ "(namespace 'free)"
+                , "(module m" <> sshow n <> " G"
+                , "  (defcap G () true)"
+                , "  (defun test-write (id name age) (m0.write-persons id name age))"
+                , ")"
+                , "(test-write \"C\" \"chessai\" 69)"
+                ]
+
+    let -- This can't be a Map because the RowKeys aren't
+        -- necessarily unique, unlike in `getLatestPactState`.
+        crGetTxLogs :: CommandResult Hash -> IO [(RowKey, A.Value)]
+        crGetTxLogs cr = do
+          e <- runExceptT $ do
+            pv0 <- except (first show (_pactResult (_crResult cr)))
+            case pv0 of
+              PList arr -> do
+                fmap concat $ forM arr $ \pv -> do
+                  txLogs <- except (A.eitherDecode @[TxLog A.Value] (J.encode pv))
+                  pure $ flip map txLogs $ \txLog ->
+                    (RowKey (_txKey txLog), _txValue txLog)
+              _ -> do
+                throwError "expected outermost PList when decoding TxLogs"
+          case e of
+            Left err -> do
+              assertFailure $ "crGetTxLogs failed: " ++ err
+            Right txlogs -> do
+              pure txlogs
+
+    submitAndCheckTx =<< createWriteTx =<< nextNonce
+
+    C.withDefaultLogger Error $ \logger -> do
+      let flags = [C.NoVacuum, C.NoGrandHash]
+      let resetDb = False
+
+      Backend.withSqliteDb cid logger pactDbDir resetDb $ \(SQLiteEnv db _) -> do
+        void $ C.compact C.Latest logger db flags
+
+    txLogs <- crGetTxLogs =<< local cid cenv =<< createTxLogsTx =<< nextNonce
+
+    latestState <- getLatestState
+    assertEqual
+      "txlogs match latest state"
+      txLogs
+      (map (\(rk, rd) -> (rk, J.toJsonViaEncode (_rdData rd))) (M.toList latestState))
 
 localTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
 localTest t cenv = do
@@ -211,7 +414,7 @@ localContTest t cenv step = do
     PollResponses m <- polling cid' cenv rks ExpectPactResult
     pid <- case _rkRequestKeys rks of
       rk NEL.:| [] -> maybe (assertFailure "impossible") (return . _pePactId)
-        $ HashMap.lookup rk m >>= _crContinuation
+        $ HM.lookup rk m >>= _crContinuation
       _ -> assertFailure "continuation did not succeed"
 
     step "execute /local continuation dry run"
@@ -258,7 +461,7 @@ pollingConfirmDepth t cenv step = do
     PollResponses m <- pollingWithDepth cid' cenv rks (Just $ ConfirmationDepth 10) ExpectPactResult
     afterPolling <- getCurrentBlockHeight v cenv cid'
 
-    assertBool "there are two command results" $ length (HashMap.keys m) == 2
+    assertBool "there are two command results" $ length (HM.keys m) == 2
 
     -- we are checking that we have waited at least 10 blocks using /poll for the transaction
     assertBool "the difference between heights should be no less than the confirmation depth" $ (afterPolling - beforePolling) >= 10
@@ -416,7 +619,7 @@ localPreflightSimTest t cenv step = do
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
       Right (LocalResultWithWarns cr' ws) -> do
-        let crbh :: Integer = fromIntegral $ fromMaybe 0 $ getBlockHeight cr'
+        let crbh :: Integer = fromIntegral $ fromMaybe 0 $ crGetBlockHeight cr'
             expectedbh = 1 + fromIntegral currentBlockHeight
         assertBool "Preflight's metadata should have increment block height"
           -- we don't control the node in remote tests and the data can get oudated,
@@ -437,7 +640,7 @@ localPreflightSimTest t cenv step = do
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
       Right (LocalResultWithWarns cr' ws) -> do
-        let crbh :: Integer = fromIntegral $ fromMaybe 0 $ getBlockHeight cr'
+        let crbh :: Integer = fromIntegral $ fromMaybe 0 $ crGetBlockHeight cr'
             expectedbh = toInteger $ 1 + (fromIntegral currentBlockHeight') - rewindDepth
         assertBool "Preflight's metadata block height should reflect the rewind depth"
           -- we don't control the node in remote tests and the data can get oudated,
@@ -672,7 +875,7 @@ txTooBigGasTest t cenv step = do
 
           void $ step "pollApiClient: polling for request key"
           PollResponses resp <- polling sid cenv rks expectation
-          return (HashMap.lookup (NEL.head $ _rkRequestKeys rks) resp)
+          return (HM.lookup (NEL.head $ _rkRequestKeys rks) resp)
 
       runLocal (SubmitBatch cmds) = do
           void $ step "localApiClient: submit transaction"
@@ -741,7 +944,7 @@ caplistTest t cenv step = do
       testCaseStep "poll for transfer results"
       PollResponses rs <- liftIO $ polling sid cenv rks ExpectPactResult
 
-      return (HashMap.lookup (NEL.head $ _rkRequestKeys rks) rs)
+      return (HM.lookup (NEL.head $ _rkRequestKeys rks) rs)
 
     case r of
       Left e -> assertFailure $ "test failure for TRANSFER + FUND_TX: " <> show e
@@ -859,10 +1062,10 @@ allocationTest t cenv step = do
     sid = unsafeChainId 0
 
     localAfterPollResponse (PollResponses prs) cr =
-        getBlockHeight cr > getBlockHeight (snd $ head $ HashMap.toList prs)
+        crGetBlockHeight cr > crGetBlockHeight (snd $ head $ HM.toList prs)
 
     localAfterBlockHeight bh cr =
-      getBlockHeight cr > Just bh
+      crGetBlockHeight cr > Just bh
 
     accountInfo = Right
       $ PObject
@@ -948,5 +1151,5 @@ pactDeadBeef = let (TransactionHash b) = deadbeef
                in RequestKey $ Hash b
 
 -- avoiding `scientific` dep here
-getBlockHeight :: CommandResult a -> Maybe Word64
-getBlockHeight = preview (crMetaData . _Just . key "blockHeight" . _Number . to ((fromIntegral :: Integer -> Word64 ) . round . toRational))
+crGetBlockHeight :: CommandResult a -> Maybe Word64
+crGetBlockHeight = preview (crMetaData . _Just . key "blockHeight" . _Number . to ((fromIntegral :: Integer -> Word64 ) . round . toRational))
