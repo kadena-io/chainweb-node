@@ -70,6 +70,7 @@ import Pact.Types.Capability
 import qualified Pact.Types.ChainId as Pact
 import qualified Pact.Types.ChainMeta as Pact
 import Pact.Types.Command
+import Pact.Types.Crypto (WebAuthnSigEncoding(WebAuthnObject))
 import Pact.Types.Continuation
 import Pact.Types.Exp
 import Pact.Types.Gas
@@ -1099,6 +1100,32 @@ allocationTest t cenv step = do
         , (FieldKey "balance", PLiteral $ LDecimal 1_099_991) -- 1k + 1mm - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation02" Nothing))
         ]
+
+-- Test that transactions signed with (mock) WebAuthn keypairs are accepted
+-- by the pact service.
+_webAuthnSignatureTest :: Pact.TxCreationTime -> ClientEnv -> (String -> IO ()) -> IO ()
+_webAuthnSignatureTest t cenv step = do
+
+  step "Build command"
+  cmd1 <- buildTextCmd
+    $ set cbSigners [mkWebAuthnSigner' sender02WebAuthn [] WebAuthnObject]
+    $ set cbCreationTime t
+    $ set cbNetworkId (Just v)
+    $ set cbGasLimit 1000
+    $ mkCmd "nonce-webauthn-1"
+    $ mkExec' "(concat [\"chainweb-\" \"node\"])"
+
+  step "Send"
+  rks <- sending cid' cenv (SubmitBatch $ pure cmd1)
+  _beforePolling <- getCurrentBlockHeight v cenv cid'
+  step "Poll"
+  PollResponses m <- pollingWithDepth cid' cenv rks (Just $ ConfirmationDepth 10) ExpectPactResult
+  _afterPolling <- getCurrentBlockHeight v cenv cid'
+  assertBool " There is a command result" $ length (HashMap.keys m) == 1
+
+  where
+    cid' = unsafeChainId 0
+
 
 
 -- -------------------------------------------------------------------------- --
