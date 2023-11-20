@@ -1142,6 +1142,11 @@ pact410UpgradeTest = do
       "Key prefixing is supported."
       (pKeySet (mkKeySet ["WEBAUTHN-a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf"] "keys-all"))
 
+    , PactTxTest readInvalidPrefixedWebAuthnKey $
+      assertTxFailure
+      "Key prefixing is supported."
+      "Invalid keyset"
+
     ]
 
   where
@@ -1149,13 +1154,13 @@ pact410UpgradeTest = do
     addTenTwenty = buildBasicGasWebAuthn WebAuthnStringified 1000 $ mkExec'
       "(let ((x:integer 10) (y:integer 20)) (+ x y))"
 
-    readValidPrefixedEd25519Key = buildBasicGas 1000 $ mkExec
-      "(read-keyset 'k)"
-      (mkKeyEnvData "ED25519-368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca")
+    -- readValidPrefixedEd25519Key = buildBasicGas 1000 $ mkExec
+    --   "(read-keyset 'k)"
+    --   (mkKeyEnvData "ED25519-368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca")
 
-    readInvalidPrefixedEd25519Key = buildBasicGas 1000 $ mkExec
-      "(read-keyset 'k)"
-      (mkKeyEnvData "ED2551-Z")
+    -- readInvalidPrefixedEd25519Key = buildBasicGas 1000 $ mkExec
+    --   "(read-keyset 'k)"
+    --   (mkKeyEnvData "ED2551-Z")
 
     readValidPrefixedWebAuthnKey = buildBasicGas 1000 $ mkExec
       "(read-keyset 'k)"
@@ -1164,8 +1169,8 @@ pact410UpgradeTest = do
     -- This hardcoded public key is the same as the valid one above, except that the first
     -- character is changed. CBOR parsing will fail.
     readInvalidPrefixedWebAuthnKey = buildBasicGas 1000 $ mkExec
-      "(read-keyset 'k)"
-      (mkKeyEnvData  "WEBAUTHN-a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
+      "(read-keyset  'k)"
+      (mkKeyEnvData  "WEBAUTHN-a401010327200add79710303bf")
 
     _x = WebAuthnStringified
     _y = WebAuthnObject
@@ -1327,9 +1332,7 @@ setPactMempool (PactMempool fs) = do
                 validationResults <- mempoolPreBlockCheck bHeight bHash cmds
                 return $ fmap fst $ V.filter snd (V.zip cmds validationResults)
               Nothing -> runMps (succ i) r
-      rs <- runMps 0 mps
-      print $ "rs: " ++ show rs
-      return rs
+      runMps 0 mps
 
 filterBlock :: (MempoolInput -> Bool) -> MempoolBlock -> MempoolBlock
 filterBlock f (MempoolBlock b) = MempoolBlock $ \mi ->
