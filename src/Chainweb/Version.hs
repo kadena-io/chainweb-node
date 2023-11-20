@@ -63,6 +63,7 @@ module Chainweb.Version
     , versionName
     , versionWindow
     , versionGenesis
+    , versionVerifierPlugins
     , genesisBlockPayload
     , genesisBlockPayloadHash
     , genesisBlockTarget
@@ -134,11 +135,6 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Map.Strict(Map)
-import qualified Data.Map.Strict as Map
-import qualified Data.Map.Merge.Strict as Merge
-import Data.Set(Set)
-import qualified Data.Set as Set
-import Data.Maybe
 import Data.Proxy
 import qualified Data.Text as T
 import Data.Word

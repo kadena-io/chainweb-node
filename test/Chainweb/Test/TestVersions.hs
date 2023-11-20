@@ -109,6 +109,7 @@ testVersionTemplate v = v
     & versionWindow .~ WindowWidth 120
     & versionMaxBlockGasLimit .~ End (Just 2_000_000)
     & versionBootstraps .~ [testBootstrapPeerInfos]
+    & versionVerifierPlugins .~ AllChains (End mempty)
 
 -- | A set of fork heights which are relatively fast, but not fast enough to break anything.
 fastForks :: HashMap Fork (ChainMap ForkHeight)
@@ -141,6 +142,7 @@ fastForks = tabulateHashMap $ \case
     Chainweb221Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 33
     Chainweb222Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 36
     Chainweb223Pact -> AllChains ForkNever
+    EnableVerifiers -> AllChains $ ForkAtBlockHeight $ BlockHeight 35
 
 -- | A test version without Pact or PoW, with only one chain graph.
 barebonesTestVersion :: ChainGraph -> ChainwebVersion
@@ -264,6 +266,7 @@ slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
         Chainweb221Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 100)
         Chainweb222Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 115)
         Chainweb223Pact -> AllChains ForkNever
+        EnableVerifiers -> AllChains $ ForkAtBlockHeight (BlockHeight 110)
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades quickly enabled.
 fastForkingCpmTestVersion :: ChainGraph -> ChainwebVersion
