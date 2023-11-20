@@ -55,4 +55,5 @@ fastDevnet = ChainwebVersion
         { _disablePeerValidation = True
         , _disableMempoolSync = False
         }
+    , _versionVerifierPlugins = AllChains $ End $ mempty
     }

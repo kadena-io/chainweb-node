@@ -1,6 +1,7 @@
 {-# language DerivingStrategies #-}
 {-# language EmptyCase #-}
 {-# language GeneralizedNewtypeDeriving #-}
+{-# language OverloadedStrings #-}
 {-# language TupleSections #-}
 {-# language TypeApplications #-}
 

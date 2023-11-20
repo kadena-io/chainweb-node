@@ -238,6 +238,7 @@ library
         , Chainweb.Utils.RequestLog
         , Chainweb.Utils.Rule
         , Chainweb.Utils.Serialization
+        , Chainweb.VerifierPlugin
         , Chainweb.Version
         , Chainweb.Version.Development
         , Chainweb.Version.FastDevelopment
