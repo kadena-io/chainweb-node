@@ -249,7 +249,7 @@ txlogsCompactionTest :: Pact.TxCreationTime -> ClientEnv -> FilePath -> IO ()
 txlogsCompactionTest t cenv pactDbDir = do
     let cmd :: Text -> Text -> CmdBuilder
         cmd nonce tx = do
-          set cbSigners [mkSigner' sender00 []]
+          set cbSigners [mkEd25519Signer' sender00 []]
             $ set cbTTL defaultMaxTTL
             $ set cbCreationTime t
             $ set cbChainId cid

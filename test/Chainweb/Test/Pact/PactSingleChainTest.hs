@@ -317,7 +317,7 @@ pactStateSamePreAndPostCompaction rdb =
 
     let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
         makeTx nth bh = buildCwCmd
-          $ set cbSigners [mkSigner' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
+          $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
           $ setFromHeader bh
           $ mkCmd (sshow (nth, bh))
           $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
@@ -389,7 +389,7 @@ compactionIsIdempotent rdb =
 
     let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
         makeTx nth bh = buildCwCmd
-          $ set cbSigners [mkSigner' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
+          $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
           $ setFromHeader bh
           $ mkCmd (sshow (nth, bh))
           $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
