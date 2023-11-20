@@ -70,7 +70,7 @@ import Pact.Types.Capability
 import qualified Pact.Types.ChainId as Pact
 import qualified Pact.Types.ChainMeta as Pact
 import Pact.Types.Command
-import Pact.Types.Crypto (WebAuthnSigEncoding(WebAuthnObject))
+import Pact.Types.Crypto (WebAuthnSigEncoding(WebAuthnObject, WebAuthnStringified))
 import Pact.Types.Continuation
 import Pact.Types.Exp
 import Pact.Types.Gas
@@ -204,6 +204,7 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
                 , after AllSucceed "poll returns correct results" $
                     testCaseSteps "poll correct results test" $ \step ->
                         join $ pollingCorrectResults <$> iot <*> cenv <*> pure step
+                , after AllSucceed "webauthn signatures" $ testCase "webauthn sig" $ join $ webAuthnSignatureTest <$> iot <*> cenv
                 ]
     ]
 
@@ -1103,25 +1104,33 @@ allocationTest t cenv step = do
 
 -- Test that transactions signed with (mock) WebAuthn keypairs are accepted
 -- by the pact service.
-_webAuthnSignatureTest :: Pact.TxCreationTime -> ClientEnv -> (String -> IO ()) -> IO ()
-_webAuthnSignatureTest t cenv step = do
+webAuthnSignatureTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
+webAuthnSignatureTest t cenv = do
 
-  step "Build command"
   cmd1 <- buildTextCmd
-    $ set cbSigners [mkWebAuthnSigner' sender02WebAuthn [] WebAuthnObject]
+    $ set cbSigners [mkWebAuthnSigner' sender02WebAuthn [] WebAuthnObject, mkEd25519Signer' sender00 []]
     $ set cbCreationTime t
     $ set cbNetworkId (Just v)
     $ set cbGasLimit 1000
     $ mkCmd "nonce-webauthn-1"
     $ mkExec' "(concat [\"chainweb-\" \"node\"])"
 
-  step "Send"
-  rks <- sending cid' cenv (SubmitBatch $ pure cmd1)
-  _beforePolling <- getCurrentBlockHeight v cenv cid'
-  step "Poll"
-  PollResponses m <- pollingWithDepth cid' cenv rks (Just $ ConfirmationDepth 10) ExpectPactResult
-  _afterPolling <- getCurrentBlockHeight v cenv cid'
-  assertBool " There is a command result" $ length (HashMap.keys m) == 1
+  rks1 <- sending cid' cenv (SubmitBatch $ pure cmd1)
+  PollResponses _resp1 <- polling cid' cenv rks1 ExpectPactResult
+
+  cmd2 <- buildTextCmd
+    $ set cbSigners [mkWebAuthnSigner' sender02WebAuthn [] WebAuthnStringified, mkEd25519Signer' sender00 []]
+    $ set cbCreationTime t
+    $ set cbNetworkId (Just v)
+    $ set cbGasLimit 1000
+    $ mkCmd "nonce-webauthn-2"
+    $ mkExec' "(concat [\"chainweb-\" \"node\"])"
+
+
+  rks2 <- sending cid' cenv (SubmitBatch $ pure cmd2)
+  PollResponses _resp2 <- polling cid' cenv rks2 ExpectPactResult
+
+  return ()
 
   where
     cid' = unsafeChainId 0
