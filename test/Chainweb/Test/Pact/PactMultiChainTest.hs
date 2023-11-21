@@ -1116,6 +1116,11 @@ pact410UpgradeTest = do
     "WebAuthn prefixed keys should not yet be supported in signatures"
     [ prefixedSigned
     ]
+  runBlockTest [
+    PactTxTest poseidonTx $
+      assertTxFailure "Should not resolve new pact native: poseidon-hash-hack-a-chain"
+      "Cannot resolve poseidon-hash-hack-a-chain"
+  ]
 
   runToHeight 120
   runBlockTest
@@ -1159,9 +1164,13 @@ pact410UpgradeTest = do
       "Invalid WebAuthn prefixed keys should throw an error when read"
       "Invalid keyset"
 
+    ,  PactTxTest poseidonTx $
+      assertTxSuccess "Should resolve new pact native: poseidon-hash-hack-a-chain"
+      (pDecimal 18586133768512220936620570745912940619677854269274689475585506675881198879027)
     ]
 
   where
+    poseidonTx = buiildBasic $ mkExec' "(poseidon-hash-hack-a-chain 1)"
     prefixedSigned = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec' "1"
 
     prefixedSignerBareKey = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec
