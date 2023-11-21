@@ -1077,10 +1077,8 @@ pact49UpgradeTest = do
   -- WebAuthn is not yet a valid PPK scheme, so this transaction
   -- is not valid for insertion into the mempool.
   expectInvalid
-    [ PactTxTest webAuthnSignedTransaction $
-      assertTxSuccess
-      "WebAuthn not valid scheme at this block height"
-      (pDecimal 3)
+    "WebAuthn should not yet be supported"
+    [ webAuthnSignedTransaction
     ]
 
   -- run block 99 (before the pact-4.9 fork)
@@ -1115,69 +1113,89 @@ pact410UpgradeTest = do
   runToHeight 110
 
   expectInvalid
-    [ PactTxTest readValidWebAuthnPrefixedSignerPrefixedKey $
-      assertTxFailure
-      "Key prefixing is not yet supported."
-      "Invalid keyset"
+    "WebAuthn prefixed keys should not yet be supported in signatures"
+    [ prefixedSigned
     ]
 
   runToHeight 120
   runBlockTest
-    [ -- PactTxTest addTenTwenty $
-      -- assertTxSuccess
-      -- "WebAuthn not valid scheme at this block height"
-      -- (pDecimal 30)
+    [ PactTxTest prefixedSigned $
+      assertTxSuccess
+      "Prefixed WebAuthn signers should be legal"
+      (pDecimal 1)
 
-    -- , PactTxTest readValidWebAuthnPrefixedSignerPrefixedKey $
-    --   assertTxSuccess
-    --   "Key prefixing is supported."
-    --   (pBool True)
+    , PactTxTest prefixedSignerPrefixedKey $
+      assertTxSuccess
+      "WebAuthn prefixed keys should be enforceable with prefixed signers"
+      (pBool True)
 
-    -- -- , PactTxTest readValidPrefixedWebAuthnKeyNoPrefix $
-    -- --   assertTxSuccess
-    -- --   "Key prefixing is supported."
-    -- --   (pBool True)
+    , PactTxTest bareSignerPrefixedKey $
+      assertTxFailure
+      "WebAuthn prefixed keys should not be enforceable with bare signers"
+      "Keyset failure (keys-all): [WEBAUTHN...]"
 
-    -- , PactTxTest readInvalidPrefixedWebAuthnKey $
-    --   assertTxFailure
-    --   "Key prefixing is supported."
-    --   "Invalid keyset"
+    , PactTxTest definePrefixedKeySet $
+      assertTxSuccess
+      "WebAuthn prefixed keys should be enforceable after defining them"
+      (pBool True)
+
+    , PactTxTest prefixedSignerPrefixedKeyCreatePrincipal $
+      assertTxSuccess
+      "WebAuthn prefixed keys in a keyset should be possible to make into w: principals"
+      (pString "w:XrscJ2X8aFxFF7oilzFyjQuA1mUN8jgwdxbAd8rt21M:keys-all")
+
+    , PactTxTest prefixedSignerPrefixedKeyValidatePrincipal $
+      assertTxSuccess
+      "WebAuthn prefixed keys in a keyset should be possible to make into *valid* w: principals"
+      (pBool True)
+
+    , PactTxTest prefixedSignerBareKey $
+      assertTxFailure
+      "WebAuthn bare keys should throw an error when read"
+      "Invalid keyset"
+
+    , PactTxTest invalidPrefixedKey $
+      assertTxFailure
+      "Invalid WebAuthn prefixed keys should throw an error when read"
+      "Invalid keyset"
 
     ]
 
   where
-    addTenTwenty = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec'
-      "(let ((x:integer 10) (y:integer 20)) (+ x y))"
+    prefixedSigned = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec' "1"
 
-    -- readValidPrefixedEd25519Key = buildBasicGas 1000 $ mkExec
-    --   "(read-keyset 'k)"
-    --   (mkKeyEnvData "ED25519-368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca")
-
-    -- readInvalidPrefixedEd25519Key = buildBasicGas 1000 $ mkExec
-    --   "(read-keyset 'k)"
-    --   (mkKeyEnvData "ED2551-Z")
-
-    readValidWebAuthnPrefixedSignerBareKey = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec
+    prefixedSignerBareKey = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec
       "(enforce-keyset (read-keyset 'k))"
-      (mkKeyEnvData  "a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
+      (mkKeyEnvData "a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
 
-    readValidWebAuthnPrefixedSignerPrefixedKey = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec
+    bareSignerPrefixedKey = buildBasicGasWebAuthnBareSigner 1000 $ mkExec
       "(enforce-keyset (read-keyset 'k))"
-      (mkKeyEnvData  "WEBAUTHN-a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
+      (mkKeyEnvData "WEBAUTHN-a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
 
-    -- readValidPrefixedWebAuthnKeyNoPrefix = buildBasicGas 1000 $ mkExec
-    --   "(enforce-keyset (read-keyset 'k))"
-    --   (mkKeyEnvData  "a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
+    prefixedSignerPrefixedKey = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec
+      "(enforce-keyset (read-keyset 'k))"
+      (mkKeyEnvData "WEBAUTHN-a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
+
+    definePrefixedKeySet = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec
+      "(namespace 'free) (define-keyset \"free.edmund\" (read-keyset 'k)) (enforce-keyset \"free.edmund\")"
+      (mkKeyEnvData "WEBAUTHN-a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
+
+    prefixedSignerPrefixedKeyCreatePrincipal = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec
+      "(create-principal (read-keyset 'k))"
+      (mkKeyEnvData "WEBAUTHN-a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
+
+    prefixedSignerPrefixedKeyValidatePrincipal = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec
+      "(let ((ks (read-keyset 'k))) (validate-principal ks (create-principal ks)))"
+      (mkKeyEnvData "WEBAUTHN-a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
 
     -- This hardcoded public key is the same as the valid one above, except that the first
     -- character is changed. CBOR parsing will fail.
-    readInvalidPrefixedWebAuthnKey = buildBasicGas 1000 $ mkExec
-      "(read-keyset  'k)"
-      (mkKeyEnvData  "WEBAUTHN-a401010327200add79710303bf")
+    invalidPrefixedKey = buildBasicGas 1000 $ mkExec
+      "(read-keyset 'k)"
+      (mkKeyEnvData "WEBAUTHN-a401010327200add79710303bf")
 
     mkKeyEnvData :: String -> Value
     mkKeyEnvData key = object [ "k" .= [key] ]
-    -- addOneTwo = buildBasicGas 1000 $ mkExec' "(+ 1 2)"
 
 
 pact4coin3UpgradeTest :: PactTestM ()
@@ -1427,13 +1445,13 @@ testsToBlock chid pts = blockForChain chid $ MempoolBlock $ \_ ->
 
 -- | No tests in this list should even be submitted to the mempool,
 -- they should be rejected early.
-expectInvalid :: [PactTxTest] -> PactTestM ()
-expectInvalid pts = do
+expectInvalid :: String -> [MempoolCmdBuilder] -> PactTestM ()
+expectInvalid msg pts = do
   chid <- view menvChainId
-  setPactMempool $ PactMempool [testsToBlock chid pts]
-  cutResult <- try runCut'
+  setPactMempool $ PactMempool [blockForChain chid $ MempoolBlock $ \_ -> pure pts]
+  _ <- runCut'
   rs <- txResults
-  liftIO $ assertEqual "None of these transactions should succeed" rs mempty
+  liftIO $ assertEqual msg mempty rs
 
 -- | Run tests on current cut and chain.
 runBlockTests :: HasCallStack => [PactTxTest] -> PactTestM ()
@@ -1515,8 +1533,7 @@ setFromHeader bh =
 buildBasic
     :: PactRPC T.Text
     -> MempoolCmdBuilder
--- buildBasic = buildBasic' (\cmd -> cmd { _cbNetworkId = Just testVersion })
-buildBasic = buildBasic' id
+buildBasic = buildBasic' (\cmd -> cmd { _cbNetworkId = Just testVersion })
 
 buildBasicGas :: GasLimit -> PactRPC T.Text -> MempoolCmdBuilder
 buildBasicGas g = buildBasic' (set cbGasLimit g)
@@ -1529,6 +1546,7 @@ buildBasic'
 buildBasic' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   f $ signSender00
   $ setFromHeader bh
+  $ (\cmd -> cmd { _cbNetworkId = Just testVersion })
   $ mkCmd (sshow bh) r
 
 buildBasicWebAuthnBareSigner'
@@ -1538,7 +1556,7 @@ buildBasicWebAuthnBareSigner'
 buildBasicWebAuthnBareSigner' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   f $ signWebAuthn00
   $ setFromHeader bh
-  -- $ (\cmd -> cmd { _cbNetworkId = Just testVersion })
+  $ (\cmd -> cmd { _cbNetworkId = Just testVersion })
   $ mkCmd (sshow bh) r
 
 buildBasicWebAuthnPrefixedSigner'
@@ -1548,7 +1566,7 @@ buildBasicWebAuthnPrefixedSigner'
 buildBasicWebAuthnPrefixedSigner' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   f $ signWebAuthn00Prefixed
   $ setFromHeader bh
-  -- $ (\cmd -> cmd { _cbNetworkId = Just testVersion })
+  $ (\cmd -> cmd { _cbNetworkId = Just testVersion })
   $ mkCmd (sshow bh) r
 
 buildBasicGasWebAuthnPrefixedSigner :: GasLimit -> PactRPC T.Text -> MempoolCmdBuilder

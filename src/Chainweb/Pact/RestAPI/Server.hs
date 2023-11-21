@@ -117,7 +117,7 @@ import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Pact.Validations (assertCommand)
-import Chainweb.Version.Guards (validPPKSchemes )
+import Chainweb.Version.Guards (isWebAuthnPrefixLegal, validPPKSchemes)
 import Chainweb.WebPactExecutionService
 
 import Chainweb.Storage.Table
@@ -696,6 +696,7 @@ validateCommand v cid cmdText = case parsedPayload of
         if assertCommand
              commandParsed
              (validPPKSchemes v cid maxBound)
+             (isWebAuthnPrefixLegal v cid maxBound)
         then Right commandParsed
         else Left "Command failed validation"
   Left e -> Left $ "Pact parsing error: " ++ e

@@ -134,6 +134,7 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 
 import Data.Aeson (Value(..), object, (.=), Key)
+import Data.Bifunctor
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Short as BS
 import Data.Decimal
@@ -175,6 +176,7 @@ import Pact.Types.Crypto
 import Pact.Types.Exp
 import Pact.Types.Gas
 import Pact.Types.Hash
+import Pact.Types.KeySet
 import qualified Pact.Types.Logger as P
 import Pact.Types.Names
 import Pact.Types.PactValue
@@ -579,12 +581,9 @@ mkCmd nonce rpc = defaultCmd
 -- TODO: Use the new `assertCommand` function.
 buildCwCmd :: (MonadThrow m, MonadIO m) => CmdBuilder -> m ChainwebTransaction
 buildCwCmd cmd = buildRawCmd cmd >>= \(c :: Command ByteString) ->
-  case verifyCommand c of
-    ProcSucc r ->
-      return $ fmap (mkPayloadWithText c) r
-    ProcFail e -> throwM $ userError $ "buildCmd failed: " ++ e
-
-
+  case validateCommand (fromJust $ _cbNetworkId cmd) (_cbChainId cmd) (T.decodeUtf8 <$> c) of
+    Left err -> throwM $ userError $ "buildCmd failed: " ++ err
+    Right cmd' -> return cmd'
 
 -- | Build unparsed, unverified command
 --
@@ -595,8 +594,7 @@ buildTextCmd = fmap (fmap T.decodeUtf8) . buildRawCmd
 --
 buildRawCmd :: (MonadThrow m, MonadIO m) => CmdBuilder -> m (Command ByteString)
 buildRawCmd CmdBuilder{..} = do
-    akps <- mapM toApiKp _cbSigners
-    kps <- liftIO $ mkKeyPairsWithWebAuthnSigEncoding akps
+    kps <- liftIO $ traverse mkDynKeyPairs _cbSigners
     cmd <- liftIO $ mkCommandWithDynKeys kps pm _cbNonce nid _cbRPC
     -- _ <- error (show cmd)
     pure cmd
@@ -607,6 +605,28 @@ buildRawCmd CmdBuilder{..} = do
 
 dieL :: MonadThrow m => [Char] -> Either [Char] a -> m a
 dieL msg = either (\s -> throwM $ userError $ msg ++ ": " ++ s) return
+
+mkDynKeyPairs :: MonadThrow m => CmdSigner -> m (DynKeyPair, [SigCapability])
+mkDynKeyPairs (CmdSigner Signer{..} privKey) =
+  case (fromMaybe ED25519 _siScheme, _siPubKey, privKey) of
+    (ED25519, pub, priv) -> do
+      pub' <- either diePubKey return $ parseEd25519PubKey =<< parseB16TextOnly pub
+      priv' <- either diePrivKey return $ parseEd25519SecretKey =<< parseB16TextOnly priv
+      return $ (DynEd25519KeyPair (pub', priv'), _siCapList)
+
+    (WebAuthn, pub, priv) -> do
+      let (pubKeyStripped, wasPrefixed) = fromMaybe
+            (pub, WebAuthnPubKeyBare)
+            ((,WebAuthnPubKeyPrefixed) <$> T.stripPrefix webAuthnPrefix pub)
+      pubWebAuthn <-
+        either diePubKey return (parseWebAuthnPublicKey =<< parseB16TextOnly pubKeyStripped)
+      privWebAuthn <-
+        either diePrivKey return (parseWebAuthnPrivateKey =<< parseB16TextOnly priv)
+      return $ (DynWebAuthnKeyPair wasPrefixed pubWebAuthn privWebAuthn, _siCapList)
+  where
+    diePubKey str = error $ "pubkey: " <> str
+    diePrivKey str = error $ "privkey: " <> str
+    dieAddress str = error $ "address: " <> str
 
 toApiKp :: MonadThrow m => CmdSigner -> m ApiKeyPair
 toApiKp (CmdSigner Signer{..} privKey) = do
