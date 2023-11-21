@@ -488,7 +488,7 @@ names = NEL.map safeCapitalize . NEL.fromList $ Prelude.take 2 $ words "mary eli
 formatB16PubKey :: DynKeyPair -> Text
 formatB16PubKey = \case
   DynEd25519KeyPair kp -> toB16Text $ getPublic kp
-  DynWebAuthnKeyPair pub _ -> toB16Text $ exportWebAuthnPublicKey pub
+  DynWebAuthnKeyPair _ pub _ -> toB16Text $ exportWebAuthnPublicKey pub
 
 safeCapitalize :: String -> String
 safeCapitalize = maybe [] (uncurry (:) . bimap toUpper (Prelude.map toLower)) . Data.List.uncons
