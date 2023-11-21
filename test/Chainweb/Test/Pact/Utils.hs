@@ -32,6 +32,7 @@ module Chainweb.Test.Pact.Utils
 , sender01
 , sender00Ks
 , sender02WebAuthn
+, sender02WebAuthnPrefixed
 , sender03WebAuthn
 , allocation00KeyPair
 , testKeyPairs
@@ -202,6 +203,7 @@ import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils hiding (withSqliteDb)
 import Chainweb.Pact.PactService
+import Chainweb.Pact.RestAPI.Server (validateCommand)
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
@@ -245,6 +247,11 @@ sender00 = ("368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
 sender01 :: SimpleKeyPair
 sender01 = ("6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"
            ,"2beae45b29e850e6b1882ae245b0bab7d0689ebdd0cd777d4314d24d7024b4f7")
+
+sender02WebAuthnPrefixed :: SimpleKeyPair
+sender02WebAuthnPrefixed =
+           ("WEBAUTHN-a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf"
+           ,"fecd4feb1243d715d095e24713875ca76c476f8672ec487be8e3bc110dd329ab")
 
 sender02WebAuthn :: SimpleKeyPair
 sender02WebAuthn =
