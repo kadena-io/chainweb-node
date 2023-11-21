@@ -70,7 +70,6 @@ import Pact.Types.Capability
 import qualified Pact.Types.ChainId as Pact
 import qualified Pact.Types.ChainMeta as Pact
 import Pact.Types.Command
-import Pact.Types.Crypto (WebAuthnSigEncoding(WebAuthnObject, WebAuthnStringified))
 import Pact.Types.Continuation
 import Pact.Types.Exp
 import Pact.Types.Gas
@@ -1108,7 +1107,7 @@ webAuthnSignatureTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
 webAuthnSignatureTest t cenv = do
 
   cmd1 <- buildTextCmd
-    $ set cbSigners [mkWebAuthnSigner' sender02WebAuthn [] WebAuthnObject, mkEd25519Signer' sender00 []]
+    $ set cbSigners [mkWebAuthnSigner' sender02WebAuthn [], mkEd25519Signer' sender00 []]
     $ set cbCreationTime t
     $ set cbNetworkId (Just v)
     $ set cbGasLimit 1000
@@ -1119,7 +1118,7 @@ webAuthnSignatureTest t cenv = do
   PollResponses _resp1 <- polling cid' cenv rks1 ExpectPactResult
 
   cmd2 <- buildTextCmd
-    $ set cbSigners [mkWebAuthnSigner' sender02WebAuthn [] WebAuthnStringified, mkEd25519Signer' sender00 []]
+    $ set cbSigners [mkWebAuthnSigner' sender02WebAuthn [], mkEd25519Signer' sender00 []]
     $ set cbCreationTime t
     $ set cbNetworkId (Just v)
     $ set cbGasLimit 1000

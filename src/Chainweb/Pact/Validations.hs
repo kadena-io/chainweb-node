@@ -53,13 +53,12 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
 import Chainweb.Transaction (cmdTimeToLive, cmdCreationTime, PayloadWithText, payloadBytes, payloadObj)
 import Chainweb.Version
-import Chainweb.Version.Guards (validPPKSchemes, validWebAuthnSignatureEncoding)
+import Chainweb.Version.Guards (validPPKSchemes)
 
 import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.ChainId as P
 import qualified Pact.Types.Command as P
-import qualified Pact.Types.Crypto as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Parse as P
 
@@ -78,7 +77,6 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
 
     let bh = ctxCurrentBlockHeight txCtx
     let validSchemes = validPPKSchemes v cid bh
-    let validProv = validWebAuthnSignatureEncoding v cid bh
 
     let P.PublicMeta pcid _ gl gp _ _ = P._pMeta pay
         nid = P._pNetworkId pay
@@ -91,7 +89,7 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
           , eUnless "Gas price decimal precision too high" $ assertGasPrice gp
           , eUnless "Network id mismatch" $ assertNetworkId v nid
           , eUnless "Signature list size too big" $ assertSigSize sigs
-          , eUnless "Invalid transaction signatures" $ sigValidate validSchemes validProv signers
+          , eUnless "Invalid transaction signatures" $ sigValidate validSchemes signers
           , eUnless "Tx time outside of valid range" $ assertTxTimeRelativeToParent pct cmd
           ]
 
@@ -99,9 +97,9 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
       Nothing -> Right ()
       Just vs -> Left vs
   where
-    sigValidate validSchemes validProv signers
+    sigValidate validSchemes signers
       | Just NoVerify <- sigVerify = True
-      | otherwise = assertValidateSigs validSchemes validProv hsh signers sigs
+      | otherwise = assertValidateSigs validSchemes hsh signers sigs
 
     pct = ParentCreationTime
       . _blockCreationTime
@@ -160,8 +158,8 @@ assertTxSize initialGas gasLimit = initialGas < fromIntegral gasLimit
 -- | Check and assert that signers and user signatures are valid for a given
 -- transaction hash.
 --
-assertValidateSigs :: [P.PPKScheme] -> [P.WebAuthnSigEncoding] -> P.PactHash -> [P.Signer] -> [P.UserSig] -> Bool
-assertValidateSigs validSchemes validEncoding hsh signers sigs
+assertValidateSigs :: [P.PPKScheme]  -> P.PactHash -> [P.Signer] -> [P.UserSig] -> Bool
+assertValidateSigs validSchemes hsh signers sigs
     | length signers /= length sigs = False
     | otherwise = and $ zipWith verifyUserSig sigs signers
     where verifyUserSig sig signer =
@@ -169,10 +167,7 @@ assertValidateSigs validSchemes validEncoding hsh signers sigs
               sigScheme = fromMaybe P.ED25519 (P._siScheme signer)
               okScheme = sigScheme `elem` validSchemes
               okSignature = isRight $ P.verifyUserSig hsh sig signer
-              okProvenance = case sig of
-                P.WebAuthnSig _ provenance -> provenance `elem` validEncoding
-                _ -> True
-            in okScheme && okProvenance && okSignature
+            in okScheme && okSignature
 
 -- prop_tx_ttl_newBlock/validateBlock
 --
@@ -200,10 +195,10 @@ assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidation
 
 -- | Assert that the command hash matches its payload and
 -- its signatures are valid, without parsing the payload.
-assertCommand :: P.Command PayloadWithText -> [P.PPKScheme] -> [P.WebAuthnSigEncoding] -> Bool
-assertCommand (P.Command pwt sigs hsh) ppkSchemePassList validWebAuthnEncoding =
+assertCommand :: P.Command PayloadWithText -> [P.PPKScheme] -> Bool
+assertCommand (P.Command pwt sigs hsh) ppkSchemePassList =
   isRight assertHash &&
-  assertValidateSigs ppkSchemePassList validWebAuthnEncoding hsh signers sigs
+  assertValidateSigs ppkSchemePassList hsh signers sigs
   where
     cmdBS = SBS.fromShort $ payloadBytes pwt
     signers = P._pSigners (payloadObj pwt)

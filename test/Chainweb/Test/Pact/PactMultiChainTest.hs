@@ -30,7 +30,6 @@ import Test.Tasty.HUnit
 import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Continuation
-import Pact.Types.Crypto (WebAuthnSigEncoding(WebAuthnObject, WebAuthnStringified))
 import Pact.Types.Hash
 import Pact.Types.PactError
 import Pact.Types.PactValue
@@ -1107,7 +1106,7 @@ pact49UpgradeTest = do
     ]
 
   where
-    addOneTwo = buildBasicGasWebAuthn WebAuthnStringified 1000 $ mkExec' "(+ 1 2)"
+    addOneTwo = buildBasicGasWebAuthn 1000 $ mkExec' "(+ 1 2)"
     base64DecodeNonCanonical = buildBasicGas 10000 $ mkExec' "(base64-decode \"ZE==\")"
     base64DecodeBadPadding = buildBasicGas 10000 $ mkExec' "(base64-decode \"aGVsbG8gd29ybGQh%\")"
 
@@ -1142,8 +1141,8 @@ pact410UpgradeTest = do
     ]
 
   where
-    _addOneTwo = buildBasicGasWebAuthn WebAuthnStringified 1000 $ mkExec' "(+ 1 2)"
-    addTenTwenty = buildBasicGasWebAuthn WebAuthnStringified 1000 $ mkExec'
+    _addOneTwo = buildBasicGasWebAuthn 1000 $ mkExec' "(+ 1 2)"
+    addTenTwenty = buildBasicGasWebAuthn 1000 $ mkExec'
       "(let ((x:integer 10) (y:integer 20)) (+ x y))"
 
     -- readValidPrefixedEd25519Key = buildBasicGas 1000 $ mkExec
@@ -1163,9 +1162,6 @@ pact410UpgradeTest = do
     readInvalidPrefixedWebAuthnKey = buildBasicGas 1000 $ mkExec
       "(read-keyset  'k)"
       (mkKeyEnvData  "WEBAUTHN-a401010327200add79710303bf")
-
-    _x = WebAuthnStringified
-    _y = WebAuthnObject
 
     mkKeyEnvData :: String -> Value
     mkKeyEnvData key = object [ "k" .= [key] ]
@@ -1484,9 +1480,9 @@ buildXReceive
 buildXReceive (proof,pid) = buildBasic $
     mkCont ((mkContMsg pid 1) { _cmProof = Just proof })
 
-signWebAuthn00 :: WebAuthnSigEncoding -> CmdBuilder -> CmdBuilder
-signWebAuthn00 webAuthnSigEncoding =
-  set cbSigners [mkWebAuthnSigner' sender02WebAuthn [] webAuthnSigEncoding
+signWebAuthn00 :: CmdBuilder -> CmdBuilder
+signWebAuthn00 =
+  set cbSigners [mkWebAuthnSigner' sender02WebAuthn []
                 ,mkEd25519Signer' sender00 []
                 ]
 
@@ -1518,19 +1514,18 @@ buildBasic' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   $ mkCmd (sshow bh) r
 
 buildBasicWebAuthn'
-    :: WebAuthnSigEncoding
-    -> (CmdBuilder -> CmdBuilder)
+    :: (CmdBuilder -> CmdBuilder)
     -> PactRPC T.Text
     -> MempoolCmdBuilder
-buildBasicWebAuthn' webAuthnSigEncoding f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
-  f $ signWebAuthn00 webAuthnSigEncoding
+buildBasicWebAuthn' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+  f $ signWebAuthn00
   $ setFromHeader bh
   -- $ (\cmd -> cmd { _cbNetworkId = Just testVersion })
   $ mkCmd (sshow bh) r
 
 
-buildBasicGasWebAuthn :: WebAuthnSigEncoding -> GasLimit -> PactRPC T.Text -> MempoolCmdBuilder
-buildBasicGasWebAuthn webAuthnSigEncoding g = buildBasicWebAuthn' webAuthnSigEncoding (set cbGasLimit g)
+buildBasicGasWebAuthn :: GasLimit -> PactRPC T.Text -> MempoolCmdBuilder
+buildBasicGasWebAuthn g = buildBasicWebAuthn' (set cbGasLimit g)
 
 
 -- | Get output on latest cut for chain
