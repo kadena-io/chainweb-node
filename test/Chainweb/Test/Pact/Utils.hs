@@ -134,7 +134,6 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 
 import Data.Aeson (Value(..), object, (.=), Key)
-import Data.Bifunctor
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Short as BS
 import Data.Decimal
@@ -165,7 +164,7 @@ import Test.Tasty
 
 -- internal pact modules
 
-import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs, mkKeyPairsWithWebAuthnSigEncoding)
+import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
 import Pact.Gas
 import Pact.JSON.Legacy.Value
 import Pact.Types.Capability
@@ -626,7 +625,6 @@ mkDynKeyPairs (CmdSigner Signer{..} privKey) =
   where
     diePubKey str = error $ "pubkey: " <> str
     diePrivKey str = error $ "privkey: " <> str
-    dieAddress str = error $ "address: " <> str
 
 toApiKp :: MonadThrow m => CmdSigner -> m ApiKeyPair
 toApiKp (CmdSigner Signer{..} privKey) = do

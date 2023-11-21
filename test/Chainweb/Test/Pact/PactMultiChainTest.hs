@@ -1120,7 +1120,7 @@ pact410UpgradeTest = do
     PactTxTest poseidonTx $
       assertTxFailure "Should not resolve new pact native: poseidon-hash-hack-a-chain"
       "Cannot resolve poseidon-hash-hack-a-chain"
-  ]
+    ]
 
   runToHeight 120
   runBlockTest
@@ -1170,7 +1170,7 @@ pact410UpgradeTest = do
     ]
 
   where
-    poseidonTx = buiildBasic $ mkExec' "(poseidon-hash-hack-a-chain 1)"
+    poseidonTx = buildBasic $ mkExec' "(poseidon-hash-hack-a-chain 1)"
     prefixedSigned = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec' "1"
 
     prefixedSignerBareKey = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec
