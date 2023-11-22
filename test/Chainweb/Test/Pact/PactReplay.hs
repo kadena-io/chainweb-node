@@ -40,7 +40,6 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Pact.Utils
-import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.TreeDB
@@ -59,29 +58,24 @@ testVer = fastForkingCpmTestVersion petersonChainGraph
 cid :: ChainId
 cid = someChainId testVer
 
-tests :: RocksDb -> ScheduledTest
+tests :: RocksDb -> TestTree
 tests rdb =
-    ScheduledTest label $
     withDelegateMempool $ \dmp ->
     let mp = snd <$> dmp
         mpio = fst <$> dmp
     in
-    testGroup label
+    sequentialTestGroup label AllSucceed
         [ withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
             (testCase "initial-playthrough" . firstPlayThrough mpio genblock)
-        , after AllSucceed "initial-playthrough" $
-            withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
-                (testCase "service-init-after-fork" . serviceInitializationAfterFork mpio genblock)
-        , after AllSucceed "service-init-after-fork" $
-            withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
-                (testCaseSteps "on-restart" . onRestart mpio)
-        , after AllSucceed "on-restart" $
-            withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
+        , withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
+            (testCase "service-init-after-fork" . serviceInitializationAfterFork mpio genblock)
+        , withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
+            (testCaseSteps "on-restart" . onRestart mpio)
+        , withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
             (testCase "reject-dupes" . testDupes mpio genblock)
-        , after AllSucceed "reject-dupes" $
-            let deepForkLimit = RewindLimit 4
-            in withPactTestBlockDb testVer cid rdb mp (forkLimit deepForkLimit)
-                (testCaseSteps "deep-fork-limit" . testDeepForkLimit mpio deepForkLimit)
+        , let deepForkLimit = RewindLimit 4
+          in withPactTestBlockDb testVer cid rdb mp (forkLimit deepForkLimit)
+            (testCaseSteps "deep-fork-limit" . testDeepForkLimit mpio deepForkLimit)
         ]
   where
     genblock = genesisBlockHeader testVer cid
@@ -92,12 +86,12 @@ tests rdb =
 
 onRestart
     :: IO (IORef MemPoolAccess)
-    -> IO (PactQueue,TestBlockDb)
+    -> IO (SQLiteEnv, PactQueue, TestBlockDb)
     -> (String -> IO ())
     -> Assertion
 onRestart mpio iop step = do
     setOneShotMempool mpio testMemPoolAccess
-    bdb <- snd <$> iop
+    (_, _, bdb) <- iop
     bhdb' <- getBlockHeaderDb cid bdb
     block <- maxEntry bhdb'
     step $ "max block has height " <> sshow (_blockHeight block)
@@ -166,7 +160,7 @@ dupegenMemPoolAccess = do
 serviceInitializationAfterFork
     :: IO (IORef MemPoolAccess)
     -> BlockHeader
-    -> IO (PactQueue,TestBlockDb)
+    -> IO (SQLiteEnv, PactQueue, TestBlockDb)
     -> Assertion
 serviceInitializationAfterFork mpio genesisBlock iop = do
     setOneShotMempool mpio testMemPoolAccess
@@ -194,11 +188,11 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
 
     restartPact :: IO ()
     restartPact = do
-        q <- fst <$> iop
+        (_, q, _) <- iop
         addRequest q CloseMsg
 
     pruneDbs = forM_ cids $ \c -> do
-        dbs <- snd <$> iop
+        (_, _, dbs) <- iop
         db <- getBlockHeaderDb c dbs
         h <- maxEntry db
         tableDelete (_chainDbCas db) (casKey $ RankedBlockHeader h)
@@ -208,7 +202,7 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
 firstPlayThrough
     :: IO (IORef MemPoolAccess)
     -> BlockHeader
-    -> IO (PactQueue,TestBlockDb)
+    -> IO (SQLiteEnv, PactQueue, TestBlockDb)
     -> Assertion
 firstPlayThrough mpio genesisBlock iop = do
     setOneShotMempool mpio testMemPoolAccess
@@ -234,7 +228,7 @@ firstPlayThrough mpio genesisBlock iop = do
 testDupes
   :: IO (IORef MemPoolAccess)
   -> BlockHeader
-  -> IO (PactQueue,TestBlockDb)
+  -> IO (SQLiteEnv, PactQueue, TestBlockDb)
   -> Assertion
 testDupes mpio genesisBlock iop = do
     setMempool mpio =<< dupegenMemPoolAccess
@@ -265,12 +259,12 @@ testDupes mpio genesisBlock iop = do
 testDeepForkLimit
   :: IO (IORef MemPoolAccess)
   -> RewindLimit
-  -> IO (PactQueue,TestBlockDb)
+  -> IO (SQLiteEnv, PactQueue,TestBlockDb)
   -> (String -> IO ())
   -> Assertion
 testDeepForkLimit mpio (RewindLimit deepForkLimit) iop step = do
     setOneShotMempool mpio testMemPoolAccess
-    bdb <- snd <$> iop
+    (_, _, bdb) <- iop
     bhdb <- getBlockHeaderDb cid bdb
     step "query max db entry"
     maxblock <- maxEntry bhdb
@@ -308,7 +302,7 @@ testDeepForkLimit mpio (RewindLimit deepForkLimit) iop step = do
 mineBlock
     :: ParentHeader
     -> Nonce
-    -> IO (PactQueue,TestBlockDb)
+    -> IO (SQLiteEnv, PactQueue, TestBlockDb)
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock ph nonce iop = timeout 5000000 go >>= \case
     Nothing -> error "PactReplay.mineBlock: Test timeout. Most likely a test case caused a pact service failure that wasn't caught, and the test was blocked while waiting for the result"
@@ -317,7 +311,7 @@ mineBlock ph nonce iop = timeout 5000000 go >>= \case
     go = do
 
       -- assemble block without nonce and timestamp
-      let r = fst <$> iop
+      let r = (\(_, q, _) -> q) <$> iop
       mv <- r >>= newBlock noMiner ph
       payload <- assertNotLeft =<< takeMVar mv
 
@@ -331,7 +325,7 @@ mineBlock ph nonce iop = timeout 5000000 go >>= \case
       mv' <- r >>= validateBlock bh (payloadWithOutputsToPayloadData payload)
       void $ assertNotLeft =<< takeMVar mv'
 
-      bdb <- snd <$> iop
+      (_, _, bdb) <- iop
       let pdb = _bdbPayloadDb bdb
       addNewPayload pdb payload
 

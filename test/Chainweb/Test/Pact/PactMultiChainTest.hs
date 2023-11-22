@@ -113,40 +113,39 @@ data PactTxTest = PactTxTest
     , _pttTest :: CommandResult Hash -> Assertion
     }
 
-tests :: ScheduledTest
-tests = ScheduledTest testName go
+tests :: TestTree
+tests = testGroup testName
+  [ test generousConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
+  , test generousConfig freeGasModel "pact420UpgradeTest" pact420UpgradeTest
+  , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
+  , test timeoutConfig freeGasModel "txTimeoutTest" txTimeoutTest
+  , test generousConfig getGasModel "chainweb213Test" chainweb213Test
+  , test generousConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
+  , test generousConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
+  , test generousConfig getGasModel "chainweb215Test" chainweb215Test
+  , test generousConfig getGasModel "chainweb216Test" chainweb216Test
+  , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
+  , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
+  , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
+  , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
+  , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
+  , test generousConfig getGasModel "pact49UpgradeTest" pact49UpgradeTest
+  ]
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
-    go = testGroup testName
-         [ test generousConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
-         , test generousConfig freeGasModel "pact420UpgradeTest" pact420UpgradeTest
-         , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
-         , test timeoutConfig freeGasModel "txTimeoutTest" txTimeoutTest
-         , test generousConfig getGasModel "chainweb213Test" chainweb213Test
-         , test generousConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
-         , test generousConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
-         , test generousConfig getGasModel "chainweb215Test" chainweb215Test
-         , test generousConfig getGasModel "chainweb216Test" chainweb216Test
-         , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
-         , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
-         , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
-         , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
-         , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
-         ]
-      where
-          -- This is way more than what is used in production, but during testing
-          -- we can be generous.
-        generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
-        timeoutConfig = testPactServiceConfig { _pactBlockGasLimit = 100_000 }
+    -- This is way more than what is used in production, but during testing
+    -- we can be generous.
+    generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
+    timeoutConfig = testPactServiceConfig { _pactBlockGasLimit = 100_000 }
 
-        test pactConfig gasmodel tname f =
-          withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
-            withTestBlockDb testVersion $ \bdb -> do
-              (iompa,mpa) <- dmpio
-              let logger = hunitDummyLogger step
-              withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
-                runReaderT f $
-                MultiEnv bdb pact pacts (return iompa) noMiner cid
+    test pactConfig gasmodel tname f =
+      withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
+        withTestBlockDb testVersion $ \bdb -> do
+          (iompa,mpa) <- dmpio
+          let logger = hunitDummyLogger step
+          withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
+            runReaderT f $
+            MultiEnv bdb pact pacts (return iompa) noMiner cid
 
 minerKeysetTest :: PactTestM ()
 minerKeysetTest = do
@@ -361,9 +360,14 @@ runLocal cid' cmd = runLocalWithDepth Nothing cid' cmd
 
 runLocalWithDepth :: Maybe RewindDepth -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
 runLocalWithDepth depth cid' cmd = do
+  pact <- getPactService cid'
+  cwCmd <- buildCwCmd cmd
+  liftIO $ _pactLocal pact Nothing Nothing depth cwCmd
+
+getPactService :: ChainId -> PactTestM PactExecutionService
+getPactService cid' = do
   HM.lookup cid' <$> view menvPacts >>= \case
-    Just pact -> buildCwCmd cmd >>=
-      liftIO . _pactLocal pact Nothing Nothing depth
+    Just pact -> return pact
     Nothing -> liftIO $ assertFailure $ "No pact service found at chain id " ++ show cid'
 
 assertLocalFailure
@@ -484,8 +488,6 @@ pact43UpgradeTest = do
         , ")"
         ])
         $ mkKeySetData "k" [sender00]
-
-
 
 chainweb215Test :: PactTestM ()
 chainweb215Test = do
@@ -612,8 +614,6 @@ chainweb215Test = do
       , mkTransferXChainRecdEvent "" "sender00" 0.0123 "coin" h (toText cid)
       , mkXResumeEvent "sender00" "sender00" 0.0123 sender00Ks "pact" h' (toText cid) "0"
       ]
-
-
 
 pact431UpgradeTest :: PactTestM ()
 pact431UpgradeTest = do
@@ -1102,6 +1102,31 @@ pact48UpgradeTest = do
     runFormat = buildBasicGas 10000 $ mkExec' "(format \"{}\" [1,2,3])"
     runReverse = buildBasicGas 10000 $ mkExec' "(reverse (enumerate 1 4000))"
 
+pact49UpgradeTest :: PactTestM ()
+pact49UpgradeTest = do
+  runToHeight 98
+
+  -- run block 99 (before the pact-4.9 fork)
+  runBlockTest
+    [ PactTxTest base64DecodeNonCanonical $
+        assertTxSuccess
+        "Non-canonical messages decode before pact-4.9"
+        (pString "d")
+    , PactTxTest base64DecodeBadPadding $ assertTxFailure "decoding illegally padded string" "Could not decode string: Base64URL decode failed: invalid padding near offset 16"
+
+    ]
+
+  -- run block 100 (after the pact-4.9 fork)
+  runBlockTest
+    [ PactTxTest base64DecodeNonCanonical $
+        assertTxFailure "decoding non-canonical message" "Could not decode string: Could not base64-decode string"
+    , PactTxTest base64DecodeBadPadding $ assertTxFailure "decoding illegally padded string" "Could not decode string: Could not base64-decode string"
+    ]
+
+  where
+    base64DecodeNonCanonical = buildBasicGas 10000 $ mkExec' "(base64-decode \"ZE==\")"
+    base64DecodeBadPadding = buildBasicGas 10000 $ mkExec' "(base64-decode \"aGVsbG8gd29ybGQh%\")"
+
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
 
@@ -1370,7 +1395,6 @@ buildXSend caps = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
     "(coin.transfer-crosschain 'sender00 'sender00 (read-keyset 'k) \"0\" 0.0123)" $
     mkKeySetData "k" [sender00]
 
-
 chain0 :: ChainId
 chain0 = unsafeChainId 0
 
@@ -1408,7 +1432,6 @@ setFromHeader bh =
   set cbChainId (_blockChainId bh)
   . set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
 
-
 buildBasic
     :: PactRPC T.Text
     -> MempoolCmdBuilder
@@ -1426,9 +1449,6 @@ buildBasic' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   f $ signSender00
   $ setFromHeader bh
   $ mkCmd (sshow bh) r
-
-
-
 
 -- | Get output on latest cut for chain
 getPWO :: ChainId -> PactTestM (PayloadWithOutputs,BlockHeader)

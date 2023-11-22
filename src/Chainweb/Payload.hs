@@ -100,7 +100,14 @@ module Chainweb.Payload
 
 -- * All Payload Data in a Single Structure
 , PayloadWithOutputs
-, PayloadWithOutputs_(..)
+, PayloadWithOutputs_
+    ( _payloadWithOutputsTransactions
+    , _payloadWithOutputsMiner
+    , _payloadWithOutputsCoinbase
+    , _payloadWithOutputsPayloadHash
+    , _payloadWithOutputsTransactionsHash
+    , _payloadWithOutputsOutputsHash
+    )
 , payloadWithOutputs
 , newPayloadWithOutputs
 , payloadWithOutputsToBlockObjects
@@ -479,7 +486,7 @@ data BlockTransactions_ a = BlockTransactions
 
 blockTransactionsProperties
     :: MerkleHashAlgorithm a
-    => A.KeyValue kv
+    => A.KeyValue e kv
     => BlockTransactions_ a
     -> [kv]
 blockTransactionsProperties o =
@@ -624,7 +631,7 @@ data BlockOutputs_ a = BlockOutputs
 
 blockOutputsProperties
     :: MerkleHashAlgorithm a
-    => A.KeyValue kv
+    => A.KeyValue e kv
     => BlockOutputs_ a
     -> [kv]
 blockOutputsProperties o =
@@ -700,7 +707,7 @@ instance IsCasValue (TransactionTree_ a) where
 
 transactionTreeProperties
     :: MerkleHashAlgorithm a
-    => A.KeyValue kv
+    => A.KeyValue e kv
     => TransactionTree_ a
     -> [kv]
 transactionTreeProperties o =
@@ -758,7 +765,7 @@ instance IsCasValue (OutputTree_ a) where
 
 outputTreeProperties
     :: MerkleHashAlgorithm a
-    => A.KeyValue kv
+    => A.KeyValue e kv
     => OutputTree_ a
     -> [kv]
 outputTreeProperties o =
@@ -932,7 +939,7 @@ data PayloadData_ a = PayloadData
 
 payloadDataProperties
     :: MerkleHashAlgorithm a
-    => A.KeyValue kv
+    => A.KeyValue e kv
     => PayloadData_ a
     -> [kv]
 payloadDataProperties o =
@@ -1082,7 +1089,7 @@ newPayloadWithOutputs mi co s = PayloadWithOutputs
 
 payloadWithOutputsProperties
     :: MerkleHashAlgorithm a
-    => A.KeyValue kv
+    => A.KeyValue e kv
     => PayloadWithOutputs_ a
     -> [kv]
 payloadWithOutputsProperties o =

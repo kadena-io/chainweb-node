@@ -231,7 +231,7 @@ data BlockHashWithHeight = BlockHashWithHeight
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
 
-blockHashWithHeightProperties :: KeyValue kv => BlockHashWithHeight -> [kv]
+blockHashWithHeightProperties :: KeyValue e kv => BlockHashWithHeight -> [kv]
 blockHashWithHeightProperties o =
     [ "height" .= _bhwhHeight o
     , "hash" .= _bhwhHash o
@@ -311,7 +311,7 @@ instance Ord CutHashes where
     compare = compare `on` (_cutHashesWeight &&& _cutHashesId)
     {-# INLINE compare #-}
 
-cutHashesProperties :: forall kv . KeyValue kv => CutHashes -> [kv]
+cutHashesProperties :: forall e kv . KeyValue e kv => CutHashes -> [kv]
 cutHashesProperties c =
     [ "hashes" .= _cutHashes c
     , "origin" .= _cutOrigin c

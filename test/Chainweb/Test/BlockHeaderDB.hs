@@ -13,6 +13,8 @@ module Chainweb.Test.BlockHeaderDB
 ( tests
 ) where
 
+import Control.Monad.Trans.Resource
+import Control.Monad.IO.Class
 import Data.Foldable
 import Data.Semigroup (Min(..))
 
@@ -25,8 +27,8 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
-import Chainweb.Test.TreeDB (RunStyle(..), treeDbInvariants)
-import Chainweb.Test.Utils (insertN, toyBlockHeaderDb, withToyDB, toyChainId, withTestBlockHeaderDb)
+import Chainweb.Test.TreeDB (treeDbInvariants)
+import Chainweb.Test.Utils
 import Chainweb.TreeDB
 
 import Chainweb.Storage.Table.RocksDB
@@ -46,22 +48,28 @@ tests rdb = testGroup "Unit Tests"
       [ testCase "height" $ correctHeight rdb
       ]
     , treeDbInvariants
-        (\x f -> withTestBlockHeaderDb rdb x (\db -> f db (traverse_ . unsafeInsertBlockHeaderDb)))
-        Parallel
+        (\x f -> runResourceT $ do
+          db <- withTestBlockHeaderDb rdb x
+          liftIO $ f db (traverse_ . unsafeInsertBlockHeaderDb))
+        testGroup
     ]
 
 insertItems :: RocksDb -> Assertion
-insertItems rdb = withToyDB rdb toyChainId $ \g db -> insertN 10 g db
+insertItems rdb = runResourceT $ do
+  (g, db) <- withToyDB rdb toyChainId
+  liftIO $ insertN 10 g db
 
 correctHeight :: RocksDb -> Assertion
-correctHeight rdb = withToyDB rdb toyChainId $ \g db -> do
-    maxRank db >>= \r -> r @?= 0
-    insertN 10 g db
-    maxRank db >>= \r -> r @?= 10
+correctHeight rdb = runResourceT $ do
+    (g, db) <- withToyDB rdb toyChainId
+    liftIO $ maxRank db >>= \r -> r @?= 0
+    liftIO $ insertN 10 g db
+    liftIO $ maxRank db >>= \r -> r @?= 10
 
 rankFiltering :: RocksDb -> Assertion
-rankFiltering rdb = withToyDB rdb toyChainId $ \g db -> do
-    insertN 100 g db
-    l <- entries db Nothing Nothing (Just . MinRank $ Min 90) Nothing $ S.length_
-    l @?= 11
+rankFiltering rdb = runResourceT $ do
+    (g, db) <- withToyDB rdb toyChainId
+    liftIO $ insertN 100 g db
+    l <- liftIO $ entries db Nothing Nothing (Just . MinRank $ Min 90) Nothing $ S.length_
+    liftIO $ l @?= 11
 

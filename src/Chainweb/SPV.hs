@@ -88,8 +88,8 @@ instance Exception SpvException
 -- legacy format for existing endpoints in order to not break existing clients.
 --
 proofProperties
-    :: forall kv
-    . KeyValue kv
+    :: forall e kv
+    . KeyValue e kv
     => ChainId
     -> MerkleProof SHA512t_256
     -> [kv]
@@ -107,7 +107,7 @@ proofProperties cid p =
 --
 newtype JsonProofSubject = JsonProofSubject (MerkleNodeType SHA512t_256 B.ByteString)
 
-jsonProofSubjectProperties :: KeyValue kv => JsonProofSubject -> [kv]
+jsonProofSubjectProperties :: KeyValue e kv => JsonProofSubject -> [kv]
 jsonProofSubjectProperties (JsonProofSubject (TreeNode h)) =
     [ "tree" .= encodeB64UrlNoPaddingText (encodeMerkleRoot h)
     ]

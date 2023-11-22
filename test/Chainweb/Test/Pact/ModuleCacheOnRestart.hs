@@ -49,7 +49,6 @@ import Chainweb.Time
 import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
-import Chainweb.Test.Pact.Utils
 import Chainweb.Test.TestVersions(fastForkingCpmTestVersion)
 import Chainweb.Utils (T2(..))
 import Chainweb.Version
@@ -73,43 +72,29 @@ data RewindData = RewindData
 
 instance NFData RewindData
 
-tests :: RocksDb -> ScheduledTest
+tests :: RocksDb -> TestTree
 tests rdb =
-      ScheduledTest label $
-      withMVarResource mempty $ \iom ->
-      withEmptyMVarResource $ \rewindDataM ->
-      withTestBlockDbTest testVer rdb $ \bdbio ->
-      withTempSQLiteResource $ \ioSqlEnv ->
-      testGroup label
-      [ testCaseSteps "testInitial" $ withPact' bdbio ioSqlEnv iom testInitial
-      , after AllSucceed "testInitial" $
-        testCaseSteps "testRestart1" $ withPact' bdbio ioSqlEnv iom testRestart
-      , after AllSucceed "testRestart1" $
-        -- wow, Tasty thinks there's a "loop" if the following test is called "testCoinbase"!!
-        testCaseSteps "testDoUpgrades" $ withPact' bdbio ioSqlEnv iom (testCoinbase bdbio)
-      , after AllSucceed "testDoUpgrades" $
-        testCaseSteps "testRestart2" $ withPact' bdbio ioSqlEnv iom testRestart
-      , after AllSucceed "testRestart2" $
-        testCaseSteps "testV3" $ withPact' bdbio ioSqlEnv iom (testV3 bdbio rewindDataM)
-      , after AllSucceed "testV3" $
-        testCaseSteps "testRestart3"$ withPact' bdbio ioSqlEnv iom testRestart
-      , after AllSucceed "testRestart3" $
-        testCaseSteps "testV4" $ withPact' bdbio ioSqlEnv iom (testV4 bdbio rewindDataM)
-      , after AllSucceed "testV4" $
-        testCaseSteps "testRestart4" $ withPact' bdbio ioSqlEnv iom testRestart
-      , after AllSucceed "testRestart4" $
-        testCaseSteps "testRewindAfterFork" $ withPact' bdbio ioSqlEnv iom (testRewindAfterFork bdbio rewindDataM)
-      , after AllSucceed "testRewindAfterFork" $
-        testCaseSteps "testRewindBeforeFork" $ withPact' bdbio ioSqlEnv iom (testRewindBeforeFork bdbio rewindDataM)
-      , after AllSucceed "testRewindBeforeFork" $
-        testCaseSteps "testCw217CoinOnly" $ withPact' bdbio ioSqlEnv iom $
-          testCw217CoinOnly bdbio rewindDataM
-      , after AllSucceed "testCw217CoinOnly" $
-        testCaseSteps "testRestartCw217" $
-        withPact' bdbio ioSqlEnv iom testRestart
-      ]
-  where
-    label = "Chainweb.Test.Pact.ModuleCacheOnRestart"
+    withResource' (newMVar mempty) $ \iom ->
+    withResource' newEmptyMVar $ \rewindDataM ->
+    withResource' (mkTestBlockDb testVer rdb) $ \bdbio ->
+    withResourceT withTempSQLiteResource $ \ioSqlEnv ->
+    sequentialTestGroup "Chainweb.Test.Pact.ModuleCacheOnRestart" AllSucceed
+    [ testCaseSteps "testInitial" $ withPact' bdbio ioSqlEnv iom testInitial
+    , testCaseSteps "testRestart1" $ withPact' bdbio ioSqlEnv iom testRestart
+      -- wow, Tasty thinks there's a "loop" if the following test is called "testCoinbase"!!
+    , testCaseSteps "testDoUpgrades" $ withPact' bdbio ioSqlEnv iom (testCoinbase bdbio)
+    , testCaseSteps "testRestart2" $ withPact' bdbio ioSqlEnv iom testRestart
+    , testCaseSteps "testV3" $ withPact' bdbio ioSqlEnv iom (testV3 bdbio rewindDataM)
+    , testCaseSteps "testRestart3"$ withPact' bdbio ioSqlEnv iom testRestart
+    , testCaseSteps "testV4" $ withPact' bdbio ioSqlEnv iom (testV4 bdbio rewindDataM)
+    , testCaseSteps "testRestart4" $ withPact' bdbio ioSqlEnv iom testRestart
+    , testCaseSteps "testRewindAfterFork" $ withPact' bdbio ioSqlEnv iom (testRewindAfterFork bdbio rewindDataM)
+    , testCaseSteps "testRewindBeforeFork" $ withPact' bdbio ioSqlEnv iom (testRewindBeforeFork bdbio rewindDataM)
+    , testCaseSteps "testCw217CoinOnly" $ withPact' bdbio ioSqlEnv iom $
+        testCw217CoinOnly bdbio rewindDataM
+    , testCaseSteps "testRestartCw217" $
+      withPact' bdbio ioSqlEnv iom testRestart
+    ]
 
 type CacheTest logger tbl =
   (PactServiceM logger tbl ()

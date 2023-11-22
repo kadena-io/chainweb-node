@@ -12,7 +12,7 @@ let flakeDefaultNix = (import (
     };
 in
 { pkgs ? pkgsDef
-, compiler ? "ghc962"
+, compiler ? "ghc963"
 , flakePath ? flakeDefaultNix.outPath
 , nix-filter ? inputs.nix-filter
 , ...
@@ -28,6 +28,7 @@ let haskellSrc = with nix-filter.lib; filter {
         (matchExt "nix")
         "flake.lock"
         "cabal.project.freeze"
+        "dist-newstyle"
       ];
     };
     chainweb = pkgs.haskell-nix.project' {
@@ -36,6 +37,7 @@ let haskellSrc = with nix-filter.lib; filter {
       projectFileName = "cabal.project";
       shell.tools = {
         cabal = {};
+        haskell-language-server = {};
       };
       shell.buildInputs = with pkgs; [
         zlib

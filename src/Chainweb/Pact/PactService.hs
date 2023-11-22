@@ -78,6 +78,7 @@ import Prelude hiding (lookup)
 
 import qualified Pact.Gas as P
 import Pact.Gas.Table
+import qualified Pact.JSON.Encode as J
 import qualified Pact.Interpreter as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
@@ -134,8 +135,7 @@ runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config 
         serviceRequests mempoolAccess reqQ
 
 withPactService
-    :: Logger logger
-    => CanReadablePayloadCas tbl
+    :: (Logger logger, CanReadablePayloadCas tbl)
     => ChainwebVersion
     -> ChainId
     -> logger
@@ -148,8 +148,8 @@ withPactService
 withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
     withProdRelationalCheckpointer checkpointerLogger initialBlockState sqlenv ver cid $ \checkpointer -> do
         let !rs = readRewards
-            !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
-            !pse = PactServiceEnv
+        let !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
+        let !pse = PactServiceEnv
                     { _psMempoolAccess = Nothing
                     , _psCheckpointer = checkpointer
                     , _psPdb = pdb
@@ -174,8 +174,30 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psParentHeader = initialParentHeader
                     , _psSpvSupport = P.noSPVSupport
                     }
-        runPactServiceM pst pse $ do
 
+        when (_pactFullHistoryRequired config) $ do
+          mEarliestBlock <- _cpGetEarliestBlock checkpointer
+          case mEarliestBlock of
+            Nothing -> do
+              pure ()
+            Just (earliestBlockHeight, _) -> do
+              let gHeight = genesisHeight ver cid
+              when (gHeight /= earliestBlockHeight) $ do
+                let e = FullHistoryRequired
+                      { _earliestBlockHeight = earliestBlockHeight
+                      , _genesisHeight = gHeight
+                      }
+                let msg = J.object
+                      [ "details" J..= e
+                      , "message" J..= J.text "Your node has been configured\
+                          \ to require the full Pact history; however, the full\
+                          \ history is not available. Perhaps you have compacted\
+                          \ your Pact state?"
+                      ]
+                logError_ chainwebLogger (J.encodeText msg)
+                throwM e
+
+        runPactServiceM pst pse $ do
             -- If the latest header that is stored in the checkpointer was on an
             -- orphaned fork, there is no way to recover it in the call of
             -- 'initalPayloadState.readContracts'. We therefore rewind to the latest
@@ -582,44 +604,45 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
                 <> sshow goodLength <> ", bad=" <> sshow badLength
 
           -- LOOP INVARIANT: limit absolute recursion count
-          when (_bfCount bfState > fetchLimit) $
-            throwM $ MempoolFillFailure $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
+          if _bfCount bfState > fetchLimit then do
+            logInfo $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
+            pure unchanged
+          else do
+            when (_bfGasLimit bfState < 0) $
+              throwM $ MempoolFillFailure $ "Internal error, negative gas limit: " <> sshow bfState
 
-          when (_bfGasLimit bfState < 0) $
-            throwM $ MempoolFillFailure $ "Internal error, negative gas limit: " <> sshow bfState
+            if _bfGasLimit bfState == 0 then pure unchanged else do
 
-          if _bfGasLimit bfState == 0 then pure unchanged else do
+              newTrans <- getBlockTxs bfState
+              if V.null newTrans then pure unchanged else do
 
-            newTrans <- getBlockTxs bfState
-            if V.null newTrans then pure unchanged else do
+                pairs <- execTransactionsOnly miner newTrans pdbenv
+                  (Just txTimeLimit) `catch` handleTimeout
 
-              pairs <- execTransactionsOnly miner newTrans pdbenv
-                (Just txTimeLimit) `catch` handleTimeout
+                (oldPairsLength, oldFailsLength) <- liftIO $ (,)
+                  <$> Vec.length successes
+                  <*> Vec.length failures
 
-              (oldPairsLength, oldFailsLength) <- liftIO $ (,)
-                <$> Vec.length successes
-                <*> Vec.length failures
+                newState <- foldM (splitResults successes failures) unchanged pairs
 
-              newState <- foldM (splitResults successes failures) unchanged pairs
+                -- LOOP INVARIANT: gas must not increase
+                when (_bfGasLimit newState > _bfGasLimit bfState) $
+                  throwM $ MempoolFillFailure $ "Gas must not increase: " <> sshow (bfState,newState)
 
-              -- LOOP INVARIANT: gas must not increase
-              when (_bfGasLimit newState > _bfGasLimit bfState) $
-                throwM $ MempoolFillFailure $ "Gas must not increase: " <> sshow (bfState,newState)
+                (newPairsLength, newFailsLength) <- liftIO $ (,)
+                  <$> Vec.length successes
+                  <*> Vec.length failures
+                let newSuccessCount = newPairsLength - oldPairsLength
+                let newFailCount = newFailsLength - oldFailsLength
 
-              (newPairsLength, newFailsLength) <- liftIO $ (,)
-                <$> Vec.length successes
-                <*> Vec.length failures
-              let newSuccessCount = newPairsLength - oldPairsLength
-              let newFailCount = newFailsLength - oldFailsLength
-
-              -- LOOP INVARIANT: gas must decrease ...
-              if (_bfGasLimit newState < _bfGasLimit bfState)
-                  -- ... OR only non-zero failures were returned.
-                 || (newSuccessCount == 0  && newFailCount > 0)
-                  then go (incCount newState)
-                  else throwM $ MempoolFillFailure $ "Invariant failure: " <>
-                       sshow (bfState,newState,V.length newTrans
-                             ,newPairsLength,newFailsLength)
+                -- LOOP INVARIANT: gas must decrease ...
+                if (_bfGasLimit newState < _bfGasLimit bfState)
+                    -- ... OR only non-zero failures were returned.
+                   || (newSuccessCount == 0  && newFailCount > 0)
+                    then go (incCount newState)
+                    else throwM $ MempoolFillFailure $ "Invariant failure: " <>
+                         sshow (bfState,newState,V.length newTrans
+                               ,newPairsLength,newFailsLength)
 
     incCount :: BlockFill -> BlockFill
     incCount b = over bfCount succ b
@@ -721,9 +744,7 @@ execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
                   plData <- liftIO $ fromJuste <$> tableLookup
                       (_transactionDb pdb)
                       (_blockPayloadHash bh)
-                  !(T2 miner transactions) <- lift $ execBlock bh plData pdbenv
-                  _ <- either throwM return $
-                      validateHashes bh plData miner transactions
+                  _ <- lift $ execBlock bh plData pdbenv
                   put bh
                   return ()
                   )
@@ -851,12 +872,11 @@ execValidateBlock memPoolAccess currHeader plData = pactLabel "execValidateBlock
     act target = do
         psEnv <- ask
         let reorgLimit = view psReorgLimit psEnv
-        T2 miner transactions <- exitOnRewindLimitExceeded $ withBatch $ do
+
+        T2 transactions validationResult <- exitOnRewindLimitExceeded $ withBatch $ do
             withCheckpointerRewind (Just reorgLimit) target "execValidateBlock" $ \pdbenv -> do
                 !result <- execBlock currHeader plData pdbenv
                 return $! Save currHeader result
-        !result <- either throwM return $
-            validateHashes currHeader plData miner transactions
 
         -- update mempool
         --
@@ -875,7 +895,7 @@ execValidateBlock memPoolAccess currHeader plData = pactLabel "execValidateBlock
                 mpaSetLastHeader memPoolAccess p
 
         let !totalGasUsed = sumOf (folded . to P._crGas) transactions
-        return (result, totalGasUsed)
+        return (validationResult, totalGasUsed)
 
     getTarget
         | isGenesisBlockHeader currHeader = return Nothing
@@ -985,7 +1005,6 @@ chainweb213GasModel = modifiedGasModel
         Nothing -> unknownOperationPenalty
       _ -> P.milliGasToGas $ fullRunFunction name ga
     modifiedGasModel = defGasModel { P.runGasModel = \t g -> P.gasToMilliGas (modifiedRunFunction t g) }
-
 
 getGasModel :: TxContext -> P.GasModel
 getGasModel ctx

@@ -67,8 +67,8 @@ import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
 -- -------------------------------------------------------------------------- --
 -- Tests
 
-tests :: ScheduledTest
-tests = testGroupSch "Checkpointer"
+tests :: TestTree
+tests = testGroup "Checkpointer"
     [ testRelational
     , testKeyset
     , testModuleName
@@ -80,7 +80,7 @@ tests = testGroupSch "Checkpointer"
 -- Module Name Test
 
 testModuleName :: TestTree
-testModuleName = withTempSQLiteResource $
+testModuleName = withResourceT withTempSQLiteResource $
     runSQLite' $ \resIO -> testCase "testModuleName" $ do
 
         (Checkpointer {..}, SQLiteEnv {..}) <- resIO

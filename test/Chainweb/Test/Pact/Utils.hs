@@ -1,10 +1,13 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -55,7 +58,6 @@ module Chainweb.Test.Pact.Utils
 -- * Command builder
 , defaultCmd
 , mkCmd
-, buildRawCmd
 , buildCwCmd
 , buildTextCmd
 , mkExec'
@@ -81,6 +83,7 @@ module Chainweb.Test.Pact.Utils
 , csPrivKey
 -- * Pact Service creation
 , withPactTestBlockDb
+, withPactTestBlockDb'
 , withWebPactExecutionService
 , withPactCtxSQLite
 , WithPactCtxSQLite
@@ -88,13 +91,10 @@ module Chainweb.Test.Pact.Utils
 , initializeSQLite
 , freeSQLiteResource
 , freeGasModel
-, withTestBlockDbTest
 , testPactServiceConfig
-, withMVarResource
-, withTime
-, withPayloadDb
 , withBlockHeaderDb
 , withTemporaryDir
+, withSqliteDb
 -- * Mempool utils
 , delegateMemPoolAccess
 , withDelegateMempool
@@ -104,12 +104,16 @@ module Chainweb.Test.Pact.Utils
 , runCut
 , Noncer
 , zeroNoncer
+-- * Pact State
+, compact
+, PactRow(..)
+, getLatestPactState
+, getPactUserTables
 -- * miscellaneous
 , toTxCreationTime
 , dummyLogger
 , hunitDummyLogger
 , pactTestLogger
-, epochCreationTime
 , someTestVersionHeader
 , someBlockHeader
 , testPactFilesDir
@@ -119,7 +123,7 @@ module Chainweb.Test.Pact.Utils
 import Control.Arrow ((&&&))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Lens (view, _3, makeLenses)
+import Control.Lens (view, _2, makeLenses)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -132,6 +136,7 @@ import Data.Default (def)
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
+import Data.Map (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Text (Text)
@@ -140,11 +145,15 @@ import qualified Data.Text.Encoding as T
 import Data.String
 import qualified Data.Vector as V
 
+import Database.SQLite3.Direct (Database)
+
 import GHC.Generics
 
+import Streaming.Prelude qualified as S
 import System.Directory
 import System.IO.Temp (createTempDirectory)
 import System.LogLevel
+import System.Logger.Types qualified as LL
 
 import Test.Tasty
 
@@ -173,7 +182,6 @@ import Pact.Types.Util (parseB16TextOnly)
 
 -- internal modules
 
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeight
@@ -181,18 +189,20 @@ import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.Compaction qualified as C
+import Chainweb.Pact.Backend.PactState qualified as PactState
+import Chainweb.Pact.Backend.PactState (TableDiffable(..), Table(..), PactRow(..))
 import Chainweb.Pact.Backend.RelationalCheckpointer
     (initRelationalCheckpointer')
 import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Backend.Utils hiding (withSqliteDb)
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
@@ -207,7 +217,6 @@ import Chainweb.Version.Utils (someChainId)
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
-import Chainweb.Storage.Table.HashMap hiding (toList)
 import Chainweb.Storage.Table.RocksDB
 
 -- ----------------------------------------------------------------------- --
@@ -217,7 +226,7 @@ type SimpleKeyPair = (Text,Text)
 
 -- | Legacy; better to use 'CmdSigner'/'CmdBuilder'.
 -- if caps are empty, gas cap is implicit. otherwise it must be included
-testKeyPairs :: SimpleKeyPair -> Maybe [SigCapability] -> IO [SomeKeyPairCaps]
+testKeyPairs :: SimpleKeyPair -> Maybe [SigCapability] -> IO [Ed25519KeyPairCaps]
 testKeyPairs skp capsm = do
   kp <- toApiKp $ mkSigner' skp (fromMaybe [] capsm)
   mkKeyPairs [kp]
@@ -763,9 +772,6 @@ withPactCtxSQLite logger v bhdbIO pdbIO conf f =
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
 toTxCreationTime (Time timespan) = TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan
 
-withPayloadDb :: (IO (PayloadDb HashMapTable) -> TestTree) -> TestTree
-withPayloadDb = withResource newPayloadDb mempty
-
 -- | 'MemPoolAccess' that delegates all calls to the contents of provided `IORef`.
 delegateMemPoolAccess :: IORef MemPoolAccess -> MemPoolAccess
 delegateMemPoolAccess r = MemPoolAccess
@@ -785,7 +791,7 @@ delegateMemPoolAccess r = MemPoolAccess
 withDelegateMempool
   :: (IO (IORef MemPoolAccess, MemPoolAccess) -> TestTree)
   -> TestTree
-withDelegateMempool = withResource start mempty
+withDelegateMempool = withResource' start
   where
     start = (id &&& delegateMemPoolAccess) <$> newIORef mempty
 
@@ -802,7 +808,6 @@ setOneShotMempool mpRefIO mp = do
         False -> writeIORef oneShot True >> mpaGetBlock mp g v i a e
         True -> mempty
     }
-
 
 withBlockHeaderDb
     :: IO RocksDb
@@ -821,12 +826,66 @@ withTemporaryDir = withResource
     (getTemporaryDirectory >>= \d -> createTempDirectory d "test-pact")
     removeDirectoryRecursive
 
-withTestBlockDbTest
+-- | Single-chain Pact via service queue.
+--
+--   The difference between this and 'withPactTestBlockDb' is that,
+--   this function takes a `SQLiteEnv` resource which it then exposes
+--   to the test function.
+--
+--   TODO: Consolidate these two functions.
+withPactTestBlockDb'
     :: ChainwebVersion
+    -> ChainId
     -> RocksDb
-    -> (IO TestBlockDb -> TestTree)
+    -> IO SQLiteEnv
+    -> IO MemPoolAccess
+    -> PactServiceConfig
+    -> (IO (SQLiteEnv,PactQueue,TestBlockDb) -> TestTree)
     -> TestTree
-withTestBlockDbTest v rdb = withResource (mkTestBlockDb v rdb) mempty
+withPactTestBlockDb' version cid rdb sqlEnvIO mempoolIO pactConfig f =
+  withResource' (mkTestBlockDb version rdb) $ \bdbio ->
+  withResource (startPact bdbio) stopPact $ f . fmap (view _2)
+  where
+    startPact bdbio = do
+        reqQ <- newPactQueue 2000
+        bdb <- bdbio
+        sqlEnv <- sqlEnvIO
+        mempool <- mempoolIO
+        bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) cid
+        let pdb = _bdbPayloadDb bdb
+        a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
+            runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
+        return (a, (sqlEnv,reqQ,bdb))
+
+    stopPact (a, _) = cancel a
+
+    -- Ideally, we should throw 'error' when the logger is invoked, because
+    -- error logs should not happen in production and should always be resolved.
+    -- Unfortunately, that's not yet always the case. So we just drop the
+    -- message.
+    --
+    logger = genericLogger Error (\_ -> return ())
+
+withSqliteDb :: ()
+  => ChainId
+  -> IO FilePath
+  -> (IO SQLiteEnv -> TestTree)
+  -> TestTree
+withSqliteDb cid iodir s = withResource start stop s
+  where
+    start = do
+      dir <- iodir
+      startSqliteDb cid logger dir False
+
+    stop env = do
+      stopSqliteDb env
+
+   -- Ideally, we should throw 'error' when the logger is invoked, because
+    -- error logs should not happen in production and should always be resolved.
+    -- Unfortunately, that's not yet always the case. So we just drop the
+    -- message.
+    --
+    logger = genericLogger Error (\_ -> return ())
 
 -- | Single-chain Pact via service queue.
 withPactTestBlockDb
@@ -835,12 +894,12 @@ withPactTestBlockDb
     -> RocksDb
     -> IO MemPoolAccess
     -> PactServiceConfig
-    -> (IO (PactQueue,TestBlockDb) -> TestTree)
+    -> (IO (SQLiteEnv,PactQueue,TestBlockDb) -> TestTree)
     -> TestTree
 withPactTestBlockDb version cid rdb mempoolIO pactConfig f =
   withTemporaryDir $ \iodir ->
-  withTestBlockDbTest version rdb $ \bdbio ->
-  withResource (startPact bdbio iodir) stopPact $ f . fmap (view _3)
+  withResource' (mkTestBlockDb version rdb) $ \bdbio ->
+  withResource (startPact bdbio iodir) stopPact $ f . fmap (view _2)
   where
     startPact bdbio iodir = do
         reqQ <- newPactQueue 2000
@@ -852,9 +911,9 @@ withPactTestBlockDb version cid rdb mempoolIO pactConfig f =
         sqlEnv <- startSqliteDb cid logger dir False
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
             runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
-        return (a, sqlEnv, (reqQ,bdb))
+        return (a, (sqlEnv,reqQ,bdb))
 
-    stopPact (a, sqlEnv, _) = cancel a >> stopSqliteDb sqlEnv
+    stopPact (a, (sqlEnv, _, _)) = cancel a >> stopSqliteDb sqlEnv
 
     -- Ideally, we should throw 'error' when the logger is invoked, because
     -- error logs should not happen in production and should always be resolved.
@@ -875,9 +934,6 @@ someTestVersion = fastForkingCpmTestVersion petersonChainGraph
 someTestVersionHeader :: BlockHeader
 someTestVersionHeader = someBlockHeader someTestVersion 10
 
-epochCreationTime :: BlockCreationTime
-epochCreationTime = BlockCreationTime epoch
-
 -- | The runtime is linear in the requested height. This can be slow if a large
 -- block height is requested for a chainweb version that simulates realtime
 -- mining. It is fast enough for testing purposes with "fast" mining chainweb
@@ -892,3 +948,43 @@ someBlockHeader v h = (!! (int h - 1))
 
 makeLenses ''CmdBuilder
 makeLenses ''CmdSigner
+
+-- | Get all pact user tables.
+--
+--   Note: This consumes a stream. If you are writing a test
+--   with very large pact states (think: Gigabytes), use
+--   the streaming version of this function from
+--   'Chainweb.Pact.Backend.PactState'.
+getPactUserTables :: Database -> IO (Map Text [PactRow])
+getPactUserTables db = do
+  S.foldM_
+    (\m tbl -> pure (M.insert tbl.name tbl.rows m))
+    (pure M.empty)
+    pure
+    (PactState.getPactTables db)
+
+-- | Get active/latest pact state.
+--
+--   Note: This consumes a stream. If you are writing a test
+--   with very large pact states (think: Gigabytes), use
+--   the streaming version of this function from
+--   'Chainweb.Pact.Backend.PactState'.
+getLatestPactState :: Database -> IO (Map Text (Map ByteString ByteString))
+getLatestPactState db = do
+  S.foldM_
+    (\m td -> pure (M.insert td.name td.rows m))
+    (pure M.empty)
+    pure
+    (PactState.getLatestPactState db)
+
+-- | Compaction utility for testing.
+--   Most of the time the flags will be ['C.NoVacuum', 'C.NoGrandHash']
+compact :: ()
+  => LL.LogLevel
+  -> [C.CompactFlag]
+  -> SQLiteEnv
+  -> C.TargetBlockHeight
+  -> IO ()
+compact logLevel cFlags (SQLiteEnv db _) bh = do
+  C.withDefaultLogger logLevel $ \logger -> do
+    void $ C.compact bh logger db cFlags

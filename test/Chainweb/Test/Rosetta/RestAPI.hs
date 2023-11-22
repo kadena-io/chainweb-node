@@ -59,7 +59,7 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.RestAPI.Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
-import Chainweb.Time (Time(..), Micros(..))
+import Chainweb.Time (Time(..), Micros(..), getCurrentTimeIntegral)
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -76,7 +76,7 @@ import System.IO.Unsafe (unsafePerformIO)
 v :: ChainwebVersion
 v = fastForkingCpmTestVersion petersonChainGraph
 
-nodes :: Natural
+nodes :: Word
 nodes = 1
 
 cid :: ChainId
@@ -105,18 +105,18 @@ defMiningReward = 2.304523
 transferGasCost :: Decimal
 transferGasCost = gasCost 700
 
-type RosettaTest = IO (Time Micros) -> IO ClientEnv -> ScheduledTest
+type RosettaTest = IO (Time Micros) -> IO ClientEnv -> TestTree
 
 -- -------------------------------------------------------------------------- --
 -- Test Tree
 
-tests :: RocksDb -> ScheduledTest
-tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "Chainweb.Test.Rosetta.RestAPI" go
   where
     go = return $
-      withNodesAtLatestBehavior v "rosettaRemoteTests-" rdb nodes $ \envIo ->
-      withTime $ \tio -> testGroup "Rosetta Api tests" $
-        schedule Sequential (tgroup tio $ _getServiceClientEnv <$> envIo)
+      withResourceT (withNodesAtLatestBehavior v "rosettaRemoteTests-" rdb nodes) $ \envIo ->
+      withResource' getCurrentTimeIntegral $ \tio -> sequentialTestGroup "Rosetta Api tests" AllFinish $
+        tgroup tio $ _getServiceClientEnv <$> envIo
 
     -- Not supported:
     --
@@ -149,7 +149,7 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
 --
 accountBalanceTests :: RosettaTest
 accountBalanceTests tio envIo =
-    testCaseSchSteps "Account Balance Tests" $ \step -> do
+    testCaseSteps "Account Balance Tests" $ \step -> do
       step "check initial balance"
       cenv <- envIo
       resp0 <- accountBalance cenv req
@@ -179,7 +179,7 @@ accountBalanceTests tio envIo =
 --   fork blockheight.
 blockKAccountAfterPact420 :: RosettaTest
 blockKAccountAfterPact420 tio envIo =
-  testCaseSchSteps "Block k Account After Pact 420 Test" $ \step -> do
+  testCaseSteps "Block k Account After Pact 420 Test" $ \step -> do
     cenv <- envIo
     rkmv <- newEmptyMVar @RequestKeys
 
@@ -199,7 +199,7 @@ blockKAccountAfterPact420 tio envIo =
 --
 blockTransactionTests :: RosettaTest
 blockTransactionTests tio envIo =
-    testCaseSchSteps "Block Transaction Tests" $ \step -> do
+    testCaseSteps "Block Transaction Tests" $ \step -> do
       cenv <- envIo
       rkmv <- newEmptyMVar @RequestKeys
 
@@ -247,7 +247,7 @@ blockTransactionTests tio envIo =
 -- | Rosetta block endpoint tests
 --
 blockTests :: String -> RosettaTest
-blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
+blockTests testname tio envIo = testCaseSteps testname $ \step -> do
     cenv <- envIo
     rkmv <- newEmptyMVar @RequestKeys
 
@@ -307,7 +307,7 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
 
 blockCoinV2RemediationTests :: RosettaTest
 blockCoinV2RemediationTests _ envIo =
-  testCaseSchSteps "Block CoinV2 Remediation Tests" $ \step -> do
+  testCaseSteps "Block CoinV2 Remediation Tests" $ \step -> do
     cenv <- envIo
 
     step "fetch coin v2 remediation block"
@@ -344,7 +344,7 @@ blockCoinV2RemediationTests _ envIo =
 
 block20ChainRemediationTests :: RosettaTest
 block20ChainRemediationTests _ envIo =
-  testCaseSchSteps "Block 20 Chain Remediation Tests" $ \step -> do
+  testCaseSteps "Block 20 Chain Remediation Tests" $ \step -> do
     cenv <- envIo
 
     step "fetch  remediation block"
@@ -384,7 +384,7 @@ block20ChainRemediationTests _ envIo =
 
 blockCoinV3RemediationTests :: RosettaTest
 blockCoinV3RemediationTests _ envIo =
-  testCaseSchSteps "Block CoinV3 Remediation Tests" $ \step -> do
+  testCaseSteps "Block CoinV3 Remediation Tests" $ \step -> do
     cenv <- envIo
 
     step "fetch coin v3 remediation block"
@@ -422,7 +422,7 @@ blockCoinV3RemediationTests _ envIo =
 --
 constructionTransferTests :: RosettaTest
 constructionTransferTests _ envIo =
-  testCaseSchSteps "Construction Flow Tests" $ \step -> do
+  testCaseSteps "Construction Flow Tests" $ \step -> do
     cenv <- envIo
     let submitToConstructionAPI' ops cid' res =
           submitToConstructionAPI ops cid' sender00KAcct getKeys res cenv step
@@ -617,7 +617,7 @@ submitToConstructionAPI expectOps chainId' payer getKeys expectResult cenv step 
 -- | Rosetta mempool endpoint tests
 --
 mempoolTests :: RosettaTest
-mempoolTests tio envIo = testCaseSchSteps "Mempool Tests" $ \step -> do
+mempoolTests tio envIo = testCaseSteps "Mempool Tests" $ \step -> do
     cenv <- envIo
     rkmv <- newEmptyMVar @RequestKeys
 
@@ -637,7 +637,7 @@ mempoolTests tio envIo = testCaseSchSteps "Mempool Tests" $ \step -> do
 --
 networkListTests :: RosettaTest
 networkListTests _ envIo =
-    testCaseSchSteps "Network List Tests" $ \step -> do
+    testCaseSteps "Network List Tests" $ \step -> do
       cenv <- envIo
 
       step "send network list request"
@@ -656,7 +656,7 @@ networkListTests _ envIo =
 --
 networkOptionsTests :: RosettaTest
 networkOptionsTests _ envIo =
-    testCaseSchSteps "Network Options Tests" $ \step -> do
+    testCaseSteps "Network Options Tests" $ \step -> do
       cenv <- envIo
 
       step "send network options request"
@@ -684,7 +684,7 @@ networkOptionsTests _ envIo =
 --
 networkStatusTests :: RosettaTest
 networkStatusTests tio envIo =
-    testCaseSchSteps "Network Status Tests" $ \step -> do
+    testCaseSteps "Network Status Tests" $ \step -> do
       cenv <- envIo
 
       step "send network status request"

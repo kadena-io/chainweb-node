@@ -35,6 +35,7 @@ import Control.Concurrent.STM as STM
 import Control.Lens hiding (elements)
 import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.Trans.Resource
 
 import Data.Foldable
 import Data.Function
@@ -264,11 +265,9 @@ withTestPayloadResource
     -> ChainwebVersion
     -> Int
     -> LogFunction
-    -> (forall tbl . CanReadablePayloadCas tbl => IO (CutDb tbl) -> TestTree)
-    -> TestTree
-withTestPayloadResource rdb v n logfun inner
-    = withResource start stopTestPayload $ \envIO -> do
-        inner (envIO >>= \(_,_,a) -> return a)
+    -> ResourceT IO (CutDb RocksDbTable)
+withTestPayloadResource rdb v n logfun
+    = view _3 . snd <$> allocate start stopTestPayload
   where
     start = startTestPayload rdb v logfun n
 

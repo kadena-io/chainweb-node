@@ -72,7 +72,7 @@ data PendingTransactions = PendingTransactions
     }
     deriving (Show, Eq, Ord, Generic)
 
-pendingTransactionsProperties :: KeyValue kv => PendingTransactions -> [kv]
+pendingTransactionsProperties :: KeyValue e kv => PendingTransactions -> [kv]
 pendingTransactionsProperties o =
     [ "hashes" .= _pendingTransationsHashes o
     , "highwaterMark" .= _pendingTransactionsHighwaterMark o

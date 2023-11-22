@@ -73,10 +73,10 @@ testVersion = slowForkingCpmTestVersion petersonChainGraph
 testEventsVersion :: ChainwebVersion
 testEventsVersion = fastForkingCpmTestVersion singletonChainGraph
 
-tests :: ScheduledTest
-tests = ScheduledTest label $
-    withResource newPayloadDb killPdb $ \pdb ->
-    withRocksResource $ \rocksIO ->
+tests :: TestTree
+tests =
+    withResource' newPayloadDb $ \pdb ->
+    withResourceT withRocksResource $ \rocksIO ->
     testGroup label
 
     -- The test pact context evaluates the test code at block height 1.
@@ -84,33 +84,33 @@ tests = ScheduledTest label $
     -- update twice resuls in an validaton failures, we have to run each test on
     -- a fresh pact environment. Unfortunately, that's a bit slow.
     [ withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
-        \ctx -> _schTest $ execTest ctx testReq2
+        \ctx -> execTest ctx testReq2
     , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
-        \ctx -> _schTest $ execTest ctx testReq3
+        \ctx -> execTest ctx testReq3
     , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
-        \ctx -> _schTest $ execTest ctx testReq4
+        \ctx -> execTest ctx testReq4
     , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
-        \ctx -> _schTest $ execTest ctx testReq5
+        \ctx -> execTest ctx testReq5
     , withPactCtxSQLite logger testEventsVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
-        \ctx -> _schTest $ execTxsTest ctx "testTfrGas" testTfrGas
+        \ctx -> execTxsTest ctx "testTfrGas" testTfrGas
     , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
-        \ctx -> _schTest $ execTxsTest ctx "testGasPayer" testGasPayer
+        \ctx -> execTxsTest ctx "testGasPayer" testGasPayer
     , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
-        \ctx -> _schTest $ execTxsTest ctx "testContinuationGasPayer" testContinuationGasPayer
+        \ctx -> execTxsTest ctx "testContinuationGasPayer" testContinuationGasPayer
     , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
-        \ctx -> _schTest $ execTxsTest ctx "testExecGasPayer" testExecGasPayer
+        \ctx -> execTxsTest ctx "testExecGasPayer" testExecGasPayer
     , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
-      \ctx -> _schTest $ execTest ctx testReq6
+      \ctx -> execTest ctx testReq6
     , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
-      \ctx -> _schTest $ execTxsTest ctx "testTfrNoGasFails" testTfrNoGasFails
+      \ctx -> execTxsTest ctx "testTfrNoGasFails" testTfrNoGasFails
     , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
-      \ctx -> _schTest $ execTxsTest ctx "testBadSenderFails" testBadSenderFails
+      \ctx -> execTxsTest ctx "testBadSenderFails" testBadSenderFails
     , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
-      \ctx -> _schTest $ execTxsTest ctx "testFailureRedeem" testFailureRedeem
+      \ctx -> execTxsTest ctx "testFailureRedeem" testFailureRedeem
     , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
-      \ctx -> _schTest $ execLocalTest ctx "testAllowReadsLocalFails" testAllowReadsLocalFails
+      \ctx -> execLocalTest ctx "testAllowReadsLocalFails" testAllowReadsLocalFails
     , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb allowReads $
-      \ctx -> _schTest $ execLocalTest ctx "testAllowReadsLocalSuccess" testAllowReadsLocalSuccess
+      \ctx -> execLocalTest ctx "testAllowReadsLocalSuccess" testAllowReadsLocalSuccess
     ]
   where
     bhdbIO :: IO RocksDb -> IO BlockHeaderDb
@@ -120,7 +120,6 @@ tests = ScheduledTest label $
         testBlockHeaderDb rdb genesisHeader
 
     label = "Chainweb.Test.Pact.PactExec"
-    killPdb _ = return ()
     cid = someChainId testVersion
     allowReads = testPactServiceConfig { _pactAllowReadsInLocal = True }
 
@@ -129,7 +128,7 @@ tests = ScheduledTest label $
 -- -------------------------------------------------------------------------- --
 -- Pact test datatypes
 
-type RunTest a = IO (TestResponse a) -> ScheduledTest
+type RunTest a = IO (TestResponse a) -> TestTree
 
 -- | A test request is comprised of a list of commands, a textual discription,
 -- and an test runner function, that turns an IO acttion that produces are
@@ -488,7 +487,7 @@ execTest
     :: (Logger logger)
     => WithPactCtxSQLite logger tbl
     -> TestRequest
-    -> ScheduledTest
+    -> TestTree
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     trans <- mkCmds cmdStrs
@@ -517,8 +516,8 @@ execTxsTest
     => WithPactCtxSQLite logger tbl
     -> String
     -> TxsTest
-    -> ScheduledTest
-execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
+    -> TestTree
+execTxsTest runPact name (trans',check) = testCase name (go >>= check)
   where
     go = do
       trans <- trans'
@@ -543,8 +542,8 @@ execLocalTest
     => WithPactCtxSQLite logger tbl
     -> String
     -> LocalTest
-    -> ScheduledTest
-execLocalTest runPact name (trans',check) = testCaseSch name (go >>= check)
+    -> TestTree
+execLocalTest runPact name (trans',check) = testCase name (go >>= check)
   where
     go = do
       trans <- trans'
@@ -566,16 +565,16 @@ checkSuccessOnly cr = case _crResult cr of
   PactResult (Right _) -> return ()
   r -> assertFailure $ "Failure status returned: " ++ show r
 
-checkSuccessOnly' :: String -> IO (TestResponse TestSource) -> ScheduledTest
-checkSuccessOnly' msg f = testCaseSch msg $ f >>= \case
+checkSuccessOnly' :: String -> IO (TestResponse TestSource) -> TestTree
+checkSuccessOnly' msg f = testCase msg $ f >>= \case
     TestResponse res@(_:_) _ -> checkSuccessOnly (snd $ last res)
     TestResponse res _ -> fail (show res) -- TODO
 
 
 -- | A test runner for golden tests.
 --
-fileCompareTxLogs :: String -> IO (TestResponse TestSource) -> ScheduledTest
-fileCompareTxLogs label respIO = goldenSch label $ do
+fileCompareTxLogs :: String -> IO (TestResponse TestSource) -> TestTree
+fileCompareTxLogs label respIO = golden label $ do
     resp <- respIO
     return $ BL.fromStrict $ Y.encode
         $ coinbase (_trCoinBaseOutput resp)

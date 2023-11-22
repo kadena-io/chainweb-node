@@ -151,7 +151,6 @@ mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
       $ "PactExecutionService: Invalid chain ID: "
       ++ show cid
 
-
 mkPactExecutionService
     :: PactQueue
     -> PactExecutionService
