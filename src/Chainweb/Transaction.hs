@@ -12,6 +12,7 @@ module Chainweb.Transaction
   , HashableTrans(..)
   , PayloadWithText
   , PactParserVersion(..)
+  , IsWebAuthnPrefixLegal(..)
   , chainwebPayloadCodec
   , encodePayload
   , decodePayload
@@ -83,6 +84,11 @@ type ChainwebTransaction = Command PayloadWithText
 data PactParserVersion
     = PactParserGenesis
     | PactParserChainweb213
+    deriving (Eq, Ord, Bounded, Show, Enum)
+
+data IsWebAuthnPrefixLegal
+    = WebAuthnPrefixIllegal
+    | WebAuthnPrefixLegal
     deriving (Eq, Ord, Bounded, Show, Enum)
 
 -- | Hashable newtype of ChainwebTransaction
