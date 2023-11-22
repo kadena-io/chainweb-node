@@ -20,7 +20,42 @@
 --
 -- Types module for Pact execution API
 
-module Chainweb.Pact.Service.Types where
+module Chainweb.Pact.Service.Types
+  ( NewBlockReq(..)
+  , ValidateBlockReq(..)
+  , SyncToBlockReq(..)
+  , LocalReq(..)
+  , LookupPactTxsReq(..)
+  , PreInsertCheckReq(..)
+  , BlockTxHistoryReq(..)
+  , HistoricalLookupReq(..)
+  , ReadOnlyReplayReq(..)
+
+  , RequestMsg(..)
+  , PactServiceConfig(..)
+
+  , LocalPreflightSimulation(..)
+  , LocalSignatureVerification(..)
+  , RewindDepth(..)
+  , ConfirmationDepth(..)
+  , RewindLimit(..)
+  , Rewind(..)
+
+  , BlockValidationFailureMsg(..)
+  , LocalResult(..)
+  , _LocalResultLegacy
+  , BlockTxHistory(..)
+
+  , PactException(..)
+  , PactExceptionTag(..)
+  , GasPurchaseFailure(..)
+  , gasPurchaseFailureHash
+  , SpvRequest(..)
+
+  , TransactionOutputProofB64(..)
+
+  , internalError
+  ) where
 
 import Control.DeepSeq
 import Control.Concurrent.MVar.Strict
@@ -286,6 +321,7 @@ data RequestMsg = NewBlockMsg !NewBlockReq
                 | BlockTxHistoryMsg !BlockTxHistoryReq
                 | HistoricalLookupMsg !HistoricalLookupReq
                 | SyncToBlockMsg !SyncToBlockReq
+                | ReadOnlyReplayMsg !ReadOnlyReplayReq
                 | CloseMsg
                 deriving (Show)
 
@@ -356,6 +392,15 @@ data HistoricalLookupReq = HistoricalLookupReq
 instance Show HistoricalLookupReq where
   show (HistoricalLookupReq h d k _) =
     "HistoricalLookupReq@" ++ show h ++ ", " ++ show d ++ ", " ++ show k
+
+data ReadOnlyReplayReq = ReadOnlyReplayReq
+    { _readOnlyReplayLowerBound :: !BlockHeader
+    , _readOnlyReplayUpperBound :: !BlockHeader
+    , _readOnlyReplayResultVar :: !(PactExMVar ())
+    }
+instance Show ReadOnlyReplayReq where
+  show (ReadOnlyReplayReq l u _) =
+    "ReadOnlyReplayReq@" ++ show l ++ ", " ++ show u
 
 data SyncToBlockReq = SyncToBlockReq
     { _syncToBlockHeader :: !BlockHeader

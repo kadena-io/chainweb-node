@@ -494,7 +494,34 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             synchronizePactDb pactSyncChains initialCut
             logg Info "finished synchronizing Pact DBs to initial cut"
 
-            if _configOnlySyncPact conf
+            if _configReadOnlyReplay conf
+            then do
+                logFunctionJson logger Info PactReplayInProgress
+                lowerBoundCut <-
+                    limitCut webchain (fromMaybe 0 $ _cutInitialBlockHeightLimit $ _configCuts conf) initialCut
+                upperBoundCut <-
+                    limitCut webchain (fromMaybe maxBound $ _cutFastForwardBlockHeightLimit $ _configCuts conf) initialCut
+                let
+                    syncOne :: (ChainResources logger, (BlockHeader, BlockHeader)) -> IO ()
+                    syncOne (cr, (l, u)) = do
+                        let pact = _chainResPact cr
+                        let logCr = logFunctionText
+                                $ addLabel ("component", "pact")
+                                $ addLabel ("sub-component", "init")
+                                $ _chainResLogger cr
+                        logCr Info $ "pact db replaying between blocks "
+                            <> T.pack (show (_blockHeight l, _blockHash l)) <> "and "
+                            <> T.pack (show (_blockHeight u, _blockHash u))
+                        void $ _pactReadOnlyReplay pact l u
+                        logCr Info "pact db synchronized"
+                mapConcurrently_ syncOne $
+                    HM.intersectionWith (,)
+                        pactSyncChains
+                        (HM.intersectionWith (,) (_cutMap lowerBoundCut) (_cutMap upperBoundCut))
+                logg Info "finished fast forward replay"
+                logFunctionJson logger Info PactReplaySuccessful
+                inner $ Replayed lowerBoundCut upperBoundCut
+            else if _configOnlySyncPact conf
             then do
                 logFunctionJson logger Info PactReplayInProgress
                 logg Info "start replaying Pact DBs to fast forward cut"

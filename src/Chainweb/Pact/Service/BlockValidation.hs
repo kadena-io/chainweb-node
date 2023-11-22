@@ -21,6 +21,7 @@ module Chainweb.Pact.Service.BlockValidation
 , pactBlockTxHistory
 , pactHistoricalLookup
 , pactSyncToBlock
+, pactReadOnlyReplay
 ) where
 
 
@@ -146,6 +147,21 @@ pactSyncToBlock bh reqQ = do
     let !msg = SyncToBlockMsg SyncToBlockReq
           { _syncToBlockHeader = bh
           , _syncToResultVar = resultVar
+          }
+    addRequest reqQ msg
+    return resultVar
+
+pactReadOnlyReplay
+    :: BlockHeader
+    -> BlockHeader
+    -> PactQueue
+    -> IO (MVar (Either PactException ()))
+pactReadOnlyReplay l u reqQ = do
+    !resultVar <- newEmptyMVar
+    let !msg = ReadOnlyReplayMsg ReadOnlyReplayReq
+          { _readOnlyReplayLowerBound = l
+          , _readOnlyReplayUpperBound = u
+          , _readOnlyReplayResultVar = resultVar
           }
     addRequest reqQ msg
     return resultVar
