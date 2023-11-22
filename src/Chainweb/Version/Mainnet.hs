@@ -134,7 +134,7 @@ mainnet = ChainwebVersion
         Chainweb213Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 2_447_315) -- 2022-02-26T00:00:00+00:00
         Chainweb214Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 2_605_663) -- 2022-04-22T00:00:00+00:00
         Chainweb215Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 2_766_630) -- 2022-06-17T00:00:00+00:00
-        Pact44NewTrans -> AllChains (ForkAtBlockHeight $ BlockHeight 2_965_885) -- Todo: add date
+        Pact44NewTrans -> AllChains (ForkAtBlockHeight $ BlockHeight 2_939_323) -- Todo: add date
         Chainweb216Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 2_988_324) -- 2022-09-02T00:00:00+00:00
         Chainweb217Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 3_250_348) -- 2022-12-02T00:00:00+00:00
         Chainweb218Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 3_512_363) -- 2023-03-03 00:00:00+00:00
