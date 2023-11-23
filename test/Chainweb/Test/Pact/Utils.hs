@@ -580,15 +580,10 @@ mkCmd nonce rpc = defaultCmd
 -- TODO: Use the new `assertCommand` function.
 buildCwCmd :: (MonadThrow m, MonadIO m) => CmdBuilder -> m ChainwebTransaction
 buildCwCmd cmd = buildRawCmd cmd >>= \(c :: Command ByteString) ->
-  case _cbNetworkId cmd of
-    Just cid ->
-      case validateCommand cid (_cbChainId cmd) (T.decodeUtf8 <$> c) of
-        Left err -> throwM $ userError $ "buildCmd failed: " ++ err
-        Right cmd' -> return cmd'
-    Nothing ->
-      case verifyCommand c of
-        ProcSucc r -> return $ fmap (mkPayloadWithText c) r
-        ProcFail e -> throwM $ userError $ "buildCmd failed: " ++ e
+  case validateCommand (fromJust $ _cbNetworkId cmd) (_cbChainId cmd) (T.decodeUtf8 <$> c) of
+    Left err -> throwM $ userError $ "buildCmd failed: " ++ err
+    Right cmd' -> return cmd'
+
 -- | Build unparsed, unverified command
 --
 buildTextCmd :: CmdBuilder -> IO (Command Text)
