@@ -592,7 +592,6 @@ buildRawCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m (
 buildRawCmd v CmdBuilder{..} = do
     kps <- liftIO $ traverse mkDynKeyPairs _cbSigners
     cmd <- liftIO $ mkCommandWithDynKeys kps pm _cbNonce (Just nid) _cbRPC
-    -- _ <- error (show cmd)
     pure cmd
   where
     nid = P.NetworkId (sshow v)
