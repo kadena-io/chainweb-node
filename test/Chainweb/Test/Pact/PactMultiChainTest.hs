@@ -1098,7 +1098,7 @@ pact49UpgradeTest = do
 
     , PactTxTest webAuthnSignedTransaction $
       assertTxSuccess
-      "WebAuthn not valid scheme at this block height"
+      "WebAuthn signatures should be valid now"
       (pDecimal 3)
 
     ]
