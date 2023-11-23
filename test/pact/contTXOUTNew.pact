@@ -7,7 +7,7 @@
         , "name": "coin.transfer-crosschain"
         }
       , "executed": ""
-      , "pact-id": "rwFh_qoxumclpxZj6QIo5GOM0CmE5AztlKukhFCRTVA"
+      , "pact-id": "pHsX8RJkJNRlrGflD_vRiKOsjlLSVGdf1hYU_eI6fgU"
       , "step": 0
       , "step-count": 2
       , "step-has-rollback": false
@@ -25,9 +25,9 @@
       }
     , "events": []
     , "gas": 6
-    , "logs": "9JwtbUnJnZVC62lihy1YDA7Gmi2Mkopl62GkMGB3QZI"
+    , "logs": "c_Xbqb7BZetrHBtU7nGdZ4yoc1_Y1iE3CgsO03gOrbc"
     , "meta": {}
-    , "req-key": "rwFh_qoxumclpxZj6QIo5GOM0CmE5AztlKukhFCRTVA"
+    , "req-key": "pHsX8RJkJNRlrGflD_vRiKOsjlLSVGdf1hYU_eI6fgU"
     , "result":
       { "amount": 1.0
       , "receiver": "sender01"

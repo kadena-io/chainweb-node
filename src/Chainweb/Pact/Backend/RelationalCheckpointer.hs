@@ -159,7 +159,7 @@ doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
   where
     -- Module name fix follows the restore call to checkpointer.
     setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v cid bh
-    setSortedKeys = bsSortedKeys .= pact420 v cid bh
+    setSortedKeys = bsSortedKeys .= pact42 v cid bh
     setLowerCaseTables = bsLowerCaseTables .= chainweb217Pact v cid bh
 doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
     clearPendingTxState

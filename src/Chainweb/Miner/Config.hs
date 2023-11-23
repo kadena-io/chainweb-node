@@ -259,4 +259,3 @@ defaultNodeMining = NodeMiningConfig
 
 invalidMiner :: Miner
 invalidMiner = Miner "" . MinerKeys $ mkKeySet [] "keys-all"
-
