@@ -76,7 +76,6 @@ module Chainweb.Test.Pact.Utils
 , cbSigners
 , cbRPC
 , cbNonce
-, cbNetworkId
 , cbChainId
 , cbSender
 , cbGasLimit
@@ -525,7 +524,6 @@ data CmdBuilder = CmdBuilder
   { _cbSigners :: ![CmdSigner]
   , _cbRPC :: !(PactRPC Text)
   , _cbNonce :: !Text
-  , _cbNetworkId :: !(Maybe ChainwebVersion)
   , _cbChainId :: !ChainId
   , _cbSender :: !Text
   , _cbGasLimit :: !GasLimit
@@ -559,7 +557,6 @@ defaultCmd = CmdBuilder
   { _cbSigners = []
   , _cbRPC = mkExec' "1"
   , _cbNonce = "nonce"
-  , _cbNetworkId = Nothing
   , _cbChainId = unsafeChainId 0
   , _cbSender = "sender00"
   , _cbGasLimit = 10_000
@@ -578,27 +575,27 @@ mkCmd nonce rpc = defaultCmd
 -- | Build parsed + verified Pact command
 --
 -- TODO: Use the new `assertCommand` function.
-buildCwCmd :: (MonadThrow m, MonadIO m) => CmdBuilder -> m ChainwebTransaction
-buildCwCmd cmd = buildRawCmd cmd >>= \(c :: Command ByteString) ->
-  case validateCommand (fromJust $ _cbNetworkId cmd) (_cbChainId cmd) (T.decodeUtf8 <$> c) of
+buildCwCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m ChainwebTransaction
+buildCwCmd v cmd = buildRawCmd v cmd >>= \(c :: Command ByteString) ->
+  case validateCommand v (_cbChainId cmd) (T.decodeUtf8 <$> c) of
     Left err -> throwM $ userError $ "buildCmd failed: " ++ err
     Right cmd' -> return cmd'
 
 -- | Build unparsed, unverified command
 --
-buildTextCmd :: CmdBuilder -> IO (Command Text)
-buildTextCmd = fmap (fmap T.decodeUtf8) . buildRawCmd
+buildTextCmd :: ChainwebVersion -> CmdBuilder -> IO (Command Text)
+buildTextCmd v = fmap (fmap T.decodeUtf8) . buildRawCmd v
 
 -- | Build a raw bytestring command
 --
-buildRawCmd :: (MonadThrow m, MonadIO m) => CmdBuilder -> m (Command ByteString)
-buildRawCmd CmdBuilder{..} = do
+buildRawCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m (Command ByteString)
+buildRawCmd v CmdBuilder{..} = do
     kps <- liftIO $ traverse mkDynKeyPairs _cbSigners
-    cmd <- liftIO $ mkCommandWithDynKeys kps pm _cbNonce nid _cbRPC
+    cmd <- liftIO $ mkCommandWithDynKeys kps pm _cbNonce (Just nid) _cbRPC
     -- _ <- error (show cmd)
     pure cmd
   where
-    nid = fmap (P.NetworkId . sshow) _cbNetworkId
+    nid = P.NetworkId (sshow v)
     cid = fromString $ show (chainIdInt _cbChainId :: Int)
     pm = PublicMeta cid _cbSender _cbGasLimit _cbGasPrice _cbTTL _cbCreationTime
 

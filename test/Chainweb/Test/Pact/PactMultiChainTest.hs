@@ -310,9 +310,9 @@ pact45UpgradeTest = do
     [ PactTxTest (buildSimpleCmd "(enforce false 'hi)") $
         assertTxFailure "Should fail with the error from the enforce" "hi"
     , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
-        assertTxGas "Enforce pre-fork evaluates the string with gas" 34
+        assertTxGas "Enforce pre-fork evaluates the string with gas" 35
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
-        assertTxGas "List functions pre-fork gas" 19
+        assertTxGas "List functions pre-fork gas" 20
     , PactTxTest
       (buildBasicGas 70000 $ tblModule "Tbl") $
       assertTxSuccess "mod53 table update succeeds" $ pString "TableCreated"
@@ -324,9 +324,9 @@ pact45UpgradeTest = do
     [ PactTxTest (buildSimpleCmd "(+ 1 \'clearlyanerror)") $
       assertTxFailure "Should replace tx error with empty error" ""
     , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
-        assertTxGas "Enforce post fork does not eval the string" (14 + coinTxBuyTransferGas)
+        assertTxGas "Enforce post fork does not eval the string" (15 + coinTxBuyTransferGas)
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
-        assertTxGas "List functions post-fork change gas" (39 + coinTxBuyTransferGas)
+        assertTxGas "List functions post-fork change gas" (40 + coinTxBuyTransferGas)
     , PactTxTest
       (buildBasicGas 70000 $ tblModule "tBl") $
       assertTxFailure "mod53 table update fails after fork" ""
@@ -362,7 +362,7 @@ runLocal cid' cmd = runLocalWithDepth Nothing cid' cmd
 runLocalWithDepth :: Maybe RewindDepth -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
 runLocalWithDepth depth cid' cmd = do
   pact <- getPactService cid'
-  cwCmd <- buildCwCmd cmd
+  cwCmd <- buildCwCmd testVersion cmd
   liftIO $ _pactLocal pact Nothing Nothing depth cwCmd
 
 getPactService :: ChainId -> PactTestM PactExecutionService
@@ -736,7 +736,7 @@ chainweb216Test = do
       [ PactTxTest (buildSimpleCmd formatGas) $
         assertTxGas "Pre-fork format gas" 21
       , PactTxTest (buildSimpleCmd tryGas) $
-        assertTxGas "Pre-fork try" 18
+        assertTxGas "Pre-fork try" 19
       , PactTxTest (buildSimpleCmd defineNonNamespacedPreFork) $
         assertTxSuccess
         "Should pass when defining a non-namespaced keyset"
@@ -752,7 +752,7 @@ chainweb216Test = do
       [ PactTxTest (buildSimpleCmd formatGas) $
         assertTxGas "Post-fork format gas increase" 48
       , PactTxTest (buildSimpleCmd tryGas) $
-        assertTxGas "Post-fork try should charge a bit more gas" 19
+        assertTxGas "Post-fork try should charge a bit more gas" 20
       , PactTxTest (buildSimpleCmd defineNonNamespacedPostFork1) $
         assertTxFailure
         "Should fail when defining a non-namespaced keyset post fork"
@@ -1104,7 +1104,7 @@ pact49UpgradeTest = do
     ]
 
   where
-    webAuthnSignedTransaction = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec' "(+ 1 2)"
+    webAuthnSignedTransaction = buildBasicGasWebAuthnBareSigner 1000 $ mkExec' "(+ 1 2)"
     base64DecodeNonCanonical = buildBasicGas 10000 $ mkExec' "(base64-decode \"ZE==\")"
     base64DecodeBadPadding = buildBasicGas 10000 $ mkExec' "(base64-decode \"aGVsbG8gd29ybGQh%\")"
 
@@ -1259,7 +1259,7 @@ pact4coin3UpgradeTest = do
                        "coin" v3Hash
             assertTxEvents "Events for tx1 @ block 22" [gasEv1,allocEv,allocTfr] cr
         , PactTxTest (buildXSend []) $ \cr -> do
-            gasEv2 <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
+            gasEv2 <- mkTransferEvent "sender00" "NoMiner" 0.0015 "coin" v3Hash
             sendTfr <- mkTransferEvent "sender00" "" 0.0123 "coin" v3Hash
             yieldEv <- mkXYieldEvent "sender00" "sender00" 0.0123 sender00Ks "pact" v3Hash "0" "0"
             assertTxEvents "Events for tx2 @ block 22" [gasEv2,sendTfr, yieldEv] cr
@@ -1355,7 +1355,7 @@ setPactMempool (PactMempool fs) = do
               Just bs -> do
                 writeIORef ref (take i mps ++ r)
                 cmds <- fmap V.fromList $ forM bs $ \b ->
-                  buildCwCmd $ _mempoolCmdBuilder b mi
+                  buildCwCmd testVersion $ _mempoolCmdBuilder b mi
                 validationResults <- mempoolPreBlockCheck bHeight bHash cmds
                 return $ fmap fst $ V.filter snd (V.zip cmds validationResults)
               Nothing -> runMps (succ i) r
@@ -1542,7 +1542,7 @@ setFromHeader bh =
 buildBasic
     :: PactRPC T.Text
     -> MempoolCmdBuilder
-buildBasic = buildBasic' (\cmd -> cmd { _cbNetworkId = Just testVersion })
+buildBasic = buildBasic' id
 
 buildBasicGas :: GasLimit -> PactRPC T.Text -> MempoolCmdBuilder
 buildBasicGas g = buildBasic' (set cbGasLimit g)
@@ -1555,7 +1555,6 @@ buildBasic'
 buildBasic' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   f $ signSender00
   $ setFromHeader bh
-  $ (\cmd -> cmd { _cbNetworkId = Just testVersion })
   $ mkCmd (sshow bh) r
 
 buildBasicWebAuthnBareSigner'
@@ -1565,7 +1564,6 @@ buildBasicWebAuthnBareSigner'
 buildBasicWebAuthnBareSigner' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   f $ signWebAuthn00
   $ setFromHeader bh
-  $ (\cmd -> cmd { _cbNetworkId = Just testVersion })
   $ mkCmd (sshow bh) r
 
 buildBasicWebAuthnPrefixedSigner'
@@ -1575,7 +1573,6 @@ buildBasicWebAuthnPrefixedSigner'
 buildBasicWebAuthnPrefixedSigner' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   f $ signWebAuthn00Prefixed
   $ setFromHeader bh
-  $ (\cmd -> cmd { _cbNetworkId = Just testVersion })
   $ mkCmd (sshow bh) r
 
 buildBasicGasWebAuthnPrefixedSigner :: GasLimit -> PactRPC T.Text -> MempoolCmdBuilder

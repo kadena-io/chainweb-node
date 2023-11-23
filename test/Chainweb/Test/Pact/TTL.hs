@@ -179,7 +179,7 @@ modAtTtl f (Seconds t) = mempty
     { mpaGetBlock = \_ validate bh hash ph -> do
         let txTime = toTxCreationTime $ f $ _bct $ _blockCreationTime ph
             tt = TTLSeconds (int t)
-        outtxs <- fmap V.singleton $ buildCwCmd
+        outtxs <- fmap V.singleton $ buildCwCmd testVer
           $ set cbCreationTime txTime
           $ set cbTTL tt
           $ set cbSigners [mkEd25519Signer' sender00 []]
