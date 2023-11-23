@@ -709,7 +709,14 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
         , _psIsBatch = False
         , _psCheckpointerDepth = 0
         , _psLogger = addLabel ("chain-id", chainIdToText cid) $ addLabel ("component", "pact") $ _cpLogger cp
-        , _psGasLogger = Nothing
+        , _psGasLogger = do
+            guard (_pactLogGas conf)
+            return
+                $ addLabel ("chain-id", chainIdToText cid)
+                $ addLabel ("component", "pact")
+                $ addLabel ("sub-component", "gas")
+                $ _cpLogger cp
+
         , _psBlockGasLimit = _pactBlockGasLimit conf
         , _psChainId = cid
         }
