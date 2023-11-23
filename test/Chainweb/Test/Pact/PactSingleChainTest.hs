@@ -97,6 +97,9 @@ import System.LogLevel (LogLevel(..))
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion petersonChainGraph
 
+setTestVersion :: CmdBuilder -> CmdBuilder
+setTestVersion cmd = cmd { _cbNetworkId = Just testVersion }
+
 cid :: ChainId
 cid = someChainId testVersion
 
@@ -318,6 +321,7 @@ pactStateSamePreAndPostCompaction rdb =
     let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
         makeTx nth bh = buildCwCmd
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
+          $ setTestVersion
           $ setFromHeader bh
           $ mkCmd (sshow (nth, bh))
           $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
@@ -390,6 +394,7 @@ compactionIsIdempotent rdb =
     let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
         makeTx nth bh = buildCwCmd
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
+          $ setTestVersion
           $ setFromHeader bh
           $ mkCmd (sshow (nth, bh))
           $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
@@ -489,6 +494,7 @@ compactionUserTablesDropped rdb =
                 ]
           buildCwCmd
             $ signSender00
+            $ setTestVersion
             $ set cbGasLimit gasLimit
             $ mkCmd ("createTable-" <> tblName <> "-" <> sshow n)
             $ mkExec tx
@@ -656,6 +662,7 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
       mpaGetBlock = \_ _ _ _ bh -> do
           fmap V.singleton $ buildCwCmd
               $ signSender00
+              $ setTestVersion
               $ setFromHeader bh
               $ mkCmd (sshow bh)
               $ mkExec' "(chain-data)"
@@ -681,7 +688,7 @@ blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
 
   let
     useGas g = do
-      bigTx <- buildCwCmd $ set cbGasLimit g $ signSender00 $ mkCmd "cmd" $ mkExec' "TESTING"
+      bigTx <- buildCwCmd $ set cbGasLimit g $ setTestVersion $ signSender00 $ setTestVersion $ mkCmd "cmd" $ mkExec' "TESTING"
       let
         cr = CommandResult
           (RequestKey (Hash "0")) Nothing
@@ -768,11 +775,13 @@ mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
 
     goodTx i bh = buildCwCmd
         $ signSender00
+        $ setTestVersion
         $ mkCmd' bh (sshow (i,bh))
         $ mkExec' "(+ 1 2)"
 
     badTx i bh = buildCwCmd
         $ signSender00
+        $ setTestVersion
         $ set cbSender "bad"
         $ mkCmd' bh (sshow (i,bh))
         $ mkExec' "(+ 1 2)"
@@ -818,6 +827,7 @@ moduleNameMempool ns mn = mempty
         fmap V.fromList $ forM (zip txs [0..]) $ \(code,n :: Int) ->
           buildCwCmd $
           signSender00 $
+          setTestVersion $
           set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh) $
           mkCmd ("1" <> sshow n) $
           mkExec' code
@@ -848,6 +858,7 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
 
     makeTx nonce t = buildCwCmd
         $ signSender00
+        $ setTestVersion
         $ set cbChainId cid
         $ set cbCreationTime (toTxCreationTime t)
         $ set cbTTL 300
@@ -873,18 +884,21 @@ preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
 
   txCoinV3 <- buildCwCmd
         $ signSender00
+        $ setTestVersion
         $ set cbChainId cid
         $ mkCmd "tx-now-coinv3"
         $ mkExec' coinV3
 
   txCoinV4 <- buildCwCmd
         $ signSender00
+        $ setTestVersion
         $ set cbChainId cid
         $ mkCmd "tx-now-coinv4"
         $ mkExec' coinV4
 
   txCoinV5 <- buildCwCmd
         $ signSender00
+        $ setTestVersion
         $ set cbChainId cid
         $ mkCmd "tx-now-coinv5"
         $ mkExec' coinV5
@@ -899,6 +913,7 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
   badHashRef <- newIORef $ hashToTxHashList initialHash
   badTx <- buildCwCmd
     $ signSender00
+    $ setTestVersion
     -- this should exceed the account balance
     $ set cbGasLimit 99999
     $ set cbGasPrice 1_000_000_000_000_000
@@ -968,6 +983,7 @@ goldenMemPool = mempty
         fmap V.fromList $ forM (zip txs [0..]) $ \(code,n :: Int) ->
           buildCwCmd $
           signSender00 $
+          setTestVersion $
           set cbGasPrice 0.01 $
           set cbTTL 1_000_000 $ -- match old goldens
           mkCmd ("1" <> sshow n) $
