@@ -124,7 +124,7 @@ accountBalanceH
     -> AccountBalanceReq
     -> Handler AccountBalanceResp
 accountBalanceH _ _ _ (AccountBalanceReq _ (AccountId _ (Just _) _) _) = throwRosetta RosettaSubAcctUnsupported
-accountBalanceH v cutDb pacts (AccountBalanceReq net (AccountId acct _ _) pbid) = do
+accountBalanceH v cutDb pacts (AccountBalanceReq net (AccountId acct _ _) pbid) =
   runExceptT work >>= either throwRosetta pure
   where
     acctBalResp bid bal = AccountBalanceResp
@@ -193,7 +193,7 @@ blockTransactionH
     -> [(ChainId, PactExecutionService)]
     -> BlockTransactionReq
     -> Handler BlockTransactionResp
-blockTransactionH v cutDb ps pacts (BlockTransactionReq net bid t) = do
+blockTransactionH v cutDb ps pacts (BlockTransactionReq net bid t) =
   runExceptT work >>= either throwRosetta pure
   where
     BlockId bheight bhash = bid
@@ -243,7 +243,7 @@ constructionPreprocessH
     :: ChainwebVersion
     -> ConstructionPreprocessReq
     -> Handler ConstructionPreprocessResp
-constructionPreprocessH v req = do
+constructionPreprocessH v req =
     either throwRosettaError pure work
   where
     ConstructionPreprocessReq net ops someMeta someMaxFee someMult = req
@@ -345,13 +345,12 @@ constructionParseH
     :: ChainwebVersion
     -> ConstructionParseReq
     -> Handler ConstructionParseResp
-constructionParseH v (ConstructionParseReq net isSigned tx) = do
+constructionParseH v (ConstructionParseReq net isSigned tx) =
   either throwRosettaError pure work
   where
     work :: Either RosettaError ConstructionParseResp
     work = do
       cid <- annotate rosettaError' (validateNetwork v net)
-      void $ annotate rosettaError' (validateNetwork v net)
 
       (EnrichedCommand cmd txInfo signAccts) <- note
         (rosettaError' RosettaUnparsableTx)
@@ -380,7 +379,7 @@ constructionParseH v (ConstructionParseReq net isSigned tx) = do
 constructionCombineH
     :: ConstructionCombineReq
     -> Handler ConstructionCombineResp
-constructionCombineH (ConstructionCombineReq _ unsignedTx sigs) = do
+constructionCombineH (ConstructionCombineReq _ unsignedTx sigs) =
   either throwRosettaError pure work
   where
     work :: Either RosettaError ConstructionCombineResp
@@ -399,7 +398,7 @@ constructionCombineH (ConstructionCombineReq _ unsignedTx sigs) = do
 constructionHashH
     :: ConstructionHashReq
     -> Handler TransactionIdResp
-constructionHashH (ConstructionHashReq _ signedTx) = do
+constructionHashH (ConstructionHashReq _ signedTx) =
   either throwRosetta pure work
   where
     work :: Either RosettaFailure TransactionIdResp
