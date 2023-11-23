@@ -83,13 +83,10 @@ extractPubKeyFromKAccount kacct
 
 generateKAccountFromPubKey :: P.PublicKeyText -> Maybe T.Text
 generateKAccountFromPubKey pubKey
-  | validPubKey =
+  | ed25519HexFormat pubKey =
     let pubKeyText = P._pubKey pubKey
     in Just $ "k:" <> pubKeyText
   | otherwise = Nothing
-  where
-    validPubKey :: Bool
-    validPubKey = ed25519HexFormat pubKey
 
 
 -- Warning: Only use if already certain that PublicKeyText
