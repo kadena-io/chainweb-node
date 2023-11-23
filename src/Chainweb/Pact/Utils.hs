@@ -64,9 +64,6 @@ toTxCreationTime (Time timespan) =
 
 
 
--- TODO: This will fail for k: accounts that correspond to WebAuthn public
--- keys. Consider extending it when we integrate WebAuthn with k: accounts.
--- Note: This function is only used in Rosetta as a validation step.
 validateKAccount :: T.Text -> Bool
 validateKAccount acctName =
   case T.take 2 acctName of

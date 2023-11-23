@@ -67,9 +67,9 @@ payloadBytes = _payloadBytes
 payloadObj :: PayloadWithText -> Payload PublicMeta ParsedCode
 payloadObj = _payloadObj
 
-mkPayloadWithText :: Command ByteString -> Payload PublicMeta ParsedCode -> PayloadWithText
-mkPayloadWithText cmd p = PayloadWithText
-    { _payloadBytes = SB.toShort $ _cmdPayload cmd
+mkPayloadWithText :: Command (ByteString, Payload PublicMeta ParsedCode) -> Command PayloadWithText
+mkPayloadWithText = over cmdPayload $ \(bs, p) -> PayloadWithText
+    { _payloadBytes = SB.toShort bs
     , _payloadObj = p
     }
 
