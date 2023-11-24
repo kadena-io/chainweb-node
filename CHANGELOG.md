@@ -10,7 +10,9 @@ This version will expire on **2023-03-06T:00:00Z**.
 To upgrade, pull the latest docker image or download the binary and restart the node.
 
 Changes:
- 
+
+* Updated to Pact 4.10 (numerous, see [Pact
+  changelog](https://github.com/kadena-io/pact/releases/tag/v4.10))
 * Node support for webauthn signers, scoped signatures, and webauthn keyset formats in Pact (#1779)
 * Block endpoint added to Service API (#1720)
 * Fix batch /polling so that it no longer omits results (#1775)
