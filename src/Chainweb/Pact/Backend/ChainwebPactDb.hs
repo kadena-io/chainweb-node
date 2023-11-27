@@ -99,7 +99,7 @@ chainwebPactDb :: (Logger logger) => PactDb (BlockEnv logger SQLiteEnv)
 chainwebPactDb = PactDb
     { _readRow = \d k e -> runBlockEnv e $ doReadRow Nothing d k
     , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow Nothing wt d k v
-    , _keys = \d e -> runBlockEnv e $ doKeys d
+    , _keys = \d e -> runBlockEnv e $ doKeys Nothing d
     , _txids = \t txid e -> runBlockEnv e $ doTxIds t txid
     , _createUserTable = \tn mn e -> runBlockEnv e $ doCreateUserTable tn mn
     , _getUserTableInfo = \_ -> error "WILL BE DEPRECATED!"
@@ -113,6 +113,7 @@ readOnlyChainwebPactDb :: (Logger logger) => BlockHeight -> PactDb (BlockEnv log
 readOnlyChainwebPactDb bh = chainwebPactDb
     { _readRow = \d k e -> runBlockEnv e $ doReadRow (Just bh) d k
     , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow (Just bh) wt d k v
+    , _keys = \d e -> runBlockEnv e $ doKeys (Just bh) d
     }
 
 getPendingData :: BlockHandler logger SQLiteEnv [SQLitePendingData]
@@ -347,9 +348,10 @@ doWriteRow mbh wt d k v = case d of
 
 doKeys
     :: (IsString k)
-    => Domain k v
+    => Maybe BlockHeight
+    -> Domain k v
     -> BlockHandler logger SQLiteEnv [k]
-doKeys d = do
+doKeys mbh d = do
     msort <- uses bsSortedKeys (\c -> if c then sort else id)
     dbKeys <- getDbKeys
     pb <- use bsPendingBlock
@@ -366,13 +368,15 @@ doKeys d = do
     return allKeys
 
   where
+    blockLimitStmt = maybe "" (const " WHERE txid < (SELECT endingtxid FROM BlockHistory where blockheight = ?)") mbh
+    blockLimitParam = maybe [] (\(BlockHeight bh) -> [SInt $ fromIntegral bh - 1]) mbh
     getDbKeys = do
         m <- runMaybeT $ checkDbTableExists $ Utf8 tnS
         case m of
             Nothing -> return mempty
             Just () -> do
                 ks <- callDb "doKeys" $ \db ->
-                          qry_ db  ("SELECT DISTINCT rowkey FROM " <> tbl tn) [RText]
+                          qry db ("SELECT DISTINCT rowkey FROM " <> tbl tn <> blockLimitStmt) blockLimitParam [RText]
                 forM ks $ \row -> do
                     case row of
                         [SText k] -> return $! T.unpack $ fromUtf8 k
