@@ -46,6 +46,7 @@ import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -226,10 +227,14 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
 
     checkUnique :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkUnique t = do
-      found <- HashMap.lookup (P._cmdHash t) <$> _cpLookupProcessedTx cp bh Nothing (V.singleton $ P._cmdHash t)
-      case found of
-        Nothing -> pure $ Right t
-        Just _ -> pure $ Left InsertErrorDuplicate
+        -- to allow for read-only replays we exclude the current block height from this check.
+        -- note also that we don't check the current block for duplicates,
+        -- that implicitly happens because of the TransactionIndex UNIQUE constraint.
+        -- maybe we should do it here? or just delete checkUnique?
+        found <- HashMap.lookup (P._cmdHash t) <$> _cpLookupProcessedTx cp (min minBound (bh - 1)) Nothing (V.singleton $ P._cmdHash t)
+        case found of
+            Nothing -> pure $ Right t
+            Just _ -> pure $ Left InsertErrorDuplicate
 
     checkTimes :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkTimes t
@@ -261,9 +266,9 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
     initTxList :: ValidateTxs
     initTxList = V.map Right txs
 
-    runValid :: Monad m => (a -> m (Either e a)) -> Either e a -> m (Either e a)
+    runValid :: Monad m => (a -> m (Either e b)) -> Either e a -> m (Either e b)
     runValid f (Right r) = f r
-    runValid _ l@Left{} = pure l
+    runValid _ (Left e) = pure $ Left e
 
 
 type ValidateTxs = Vector (Either InsertError ChainwebTransaction)
