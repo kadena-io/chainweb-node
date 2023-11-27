@@ -110,7 +110,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table
 import Chainweb.Time
 import Chainweb.Transaction
-import Chainweb.TreeDB (getBranchIncreasing, lookupM, seekAncestor)
+import Chainweb.TreeDB
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards
@@ -719,36 +719,37 @@ execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
     s' <- liftIO $ getBranchIncreasing bhdb upperBound (int (_blockHeight lowerBound)) $ \blocks -> do
       heightRef <- newIORef (_blockHeight lowerBound)
       withAsync (heightProgress (_blockHeight lowerBound) heightRef (logInfo_ logger)) $ \_ -> do
-        T2 _ s' <- runPactServiceM s e $
           blocks
               & Stream.hoist liftIO
-              & Stream.copy
-              & Stream.length_
-              & Stream.chunksOf 1000
-              & foldChunksM_ (playChunk pdb heightRef) lowerBound
-        return s'
+              & play bhdb pdb heightRef
+              & execPactServiceM s e
     put s'
     where
-    playChunk
+    play
       :: CanReadablePayloadCas tbl
-      => PayloadDb tbl
+      => BlockHeaderDb
+      -> PayloadDb tbl
       -> IORef BlockHeight
-      -> BlockHeader
       -> Stream.Stream (Stream.Of BlockHeader) (PactServiceM logger tbl) r
-      -> PactServiceM logger tbl (Stream.Of BlockHeader r)
-    playChunk pdb heightRef start bs =
-        withCheckpointerReadRewind (ParentHeader start) "execValidateBlock" $ \pdbenv -> do
-            (r, chunkEnd) <-
-              flip runStateT start $ bs & Stream.hoist lift & Stream.mapM_ (\bh -> do
-                  liftIO $ writeIORef heightRef (_blockHeight bh)
-                  plData <- liftIO $ fromJuste <$> tableLookup
-                      (_transactionDb pdb)
-                      (_blockPayloadHash bh)
-                  _ <- lift $ execBlock bh plData pdbenv
-                  put bh
-                  return ()
-                  )
-            return (chunkEnd Stream.:> r)
+      -> PactServiceM logger tbl r
+    play bhdb pdb heightRef bs = do
+        (start, rest) <- fromMaybe (error "no blocks to replay") <$> Stream.uncons bs
+        parent <- liftIO $ lookupParentM GenesisParentThrow bhdb start
+        let
+            blocks =
+                if _blockHash start == _blockHash parent
+                then bs
+                else Stream.cons start bs
+        blocks & Stream.mapM_ (\bh -> do
+            parent <- liftIO $ lookupParentM GenesisParentThrow bhdb bh
+            withCheckpointerReadRewind (ParentHeader parent) "execValidateBlock" $ \pdbenv -> do
+                liftIO $ writeIORef heightRef (_blockHeight bh)
+                plData <- liftIO $ fromJuste <$> tableLookup
+                    (_transactionDb pdb)
+                    (_blockPayloadHash bh)
+                _ <- execBlock bh plData pdbenv
+                return ()
+            )
 
     heightProgress :: BlockHeight -> IORef BlockHeight -> (Text -> IO ()) -> IO ()
     heightProgress initialHeight ref logFun = forever $ do
