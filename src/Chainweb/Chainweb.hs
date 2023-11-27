@@ -487,13 +487,14 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             let
                 pactSyncChains =
                     case _configSyncPactChains conf of
-                      Just syncChains | _configOnlySyncPact conf -> HM.filterWithKey (\k _ -> elem k syncChains) cs
+                      Just syncChains | _configOnlySyncPact conf || _configReadOnlyReplay conf -> HM.filterWithKey (\k _ -> elem k syncChains) cs
                       _ -> cs
-            logg Info "start synchronizing Pact DBs to initial cut"
-            logFunctionJson logger Info InitialSyncInProgress
             initialCut <- _cut mCutDb
-            synchronizePactDb pactSyncChains initialCut
-            logg Info "finished synchronizing Pact DBs to initial cut"
+            when (not $ _configReadOnlyReplay conf) $ do
+                logg Info "start synchronizing Pact DBs to initial cut"
+                logFunctionJson logger Info InitialSyncInProgress
+                synchronizePactDb pactSyncChains initialCut
+                logg Info "finished synchronizing Pact DBs to initial cut"
 
             if _configReadOnlyReplay conf
             then do
