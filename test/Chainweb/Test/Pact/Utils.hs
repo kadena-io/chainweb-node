@@ -145,7 +145,7 @@ import qualified Data.Text.Encoding as T
 import Data.String
 import qualified Data.Vector as V
 
-import Database.SQLite3.Direct (Database)
+import Database.SQLite3.Direct (Database, Utf8)
 
 import GHC.Generics
 
@@ -946,6 +946,9 @@ someBlockHeader v h = (!! (int h - 1))
 makeLenses ''CmdBuilder
 makeLenses ''CmdSigner
 
+pactStateExcludedTables :: [Utf8]
+pactStateExcludedTables = PactState.checkpointerTables ++ PactState.compactionTables
+
 -- | Get all pact user tables.
 --
 --   Note: This consumes a stream. If you are writing a test
@@ -958,7 +961,7 @@ getPactUserTables db = do
     (\m tbl -> pure (M.insert tbl.name tbl.rows m))
     (pure M.empty)
     pure
-    (PactState.getPactTables db)
+    (PactState.getPactTables pactStateExcludedTables db)
 
 -- | Get active/latest pact state.
 --
@@ -972,7 +975,7 @@ getLatestPactState db = do
     (\m td -> pure (M.insert td.name td.rows m))
     (pure M.empty)
     pure
-    (PactState.getLatestPactState db)
+    (PactState.getLatestPactState pactStateExcludedTables db)
 
 -- | Compaction utility for testing.
 --   Most of the time the flags will be ['C.NoVacuum', 'C.NoGrandHash']
