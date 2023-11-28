@@ -60,8 +60,12 @@ runClientThrowM req = fromEitherM <=< runClientM req
 putCut
     :: CutClientEnv
     -> CutHashes
+    -> Bool
     -> IO ()
-putCut (CutClientEnv v env) = void . flip runClientThrowM env . cutPutClient v
+putCut (CutClientEnv v env) hashes force
+  = void
+  $ flip runClientThrowM env
+  $ cutPutClient v hashes force
 
 getCut
     :: CutClientEnv
@@ -105,7 +109,7 @@ syncSession v p db logg env pinf = do
     cenv = CutClientEnv v env
 
     send c = do
-        putCut cenv c
+        putCut cenv c False -- XXX (aseipp): ???
         logg @T.Text Debug $ "put cut " <> encodeToText c
 
     receive = do
@@ -124,4 +128,4 @@ syncSession v p db logg env pinf = do
 
         let c' = set cutOrigin (Just pinf) c
         logg @T.Text Debug $ "received cut " <> encodeToText c'
-        addCutHashes db c'
+        addCutHashes db (cutHashOrdinary c')

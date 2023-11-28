@@ -61,6 +61,7 @@ cutGetApi = Proxy
 
 type CutPutApi_
     = ReqBody '[JSON] CutHashes
+    :> QueryFlag "force"
     :> Verb 'PUT 204 '[JSON] NoContent
 
 type CutPutApi (v :: ChainwebVersionT)

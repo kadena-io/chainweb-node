@@ -17,6 +17,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.CutDB
@@ -48,6 +49,9 @@ module Chainweb.CutDB
 
 -- * CutDb
 , CutDb
+, CutHashInsert
+, cutHashForced
+, cutHashOrdinary
 , pruneCuts
 , cutDbWebBlockHeaderDb
 , cutDbBlockHeaderDb
@@ -254,11 +258,43 @@ instance Exception CutDbStopped where
 -- -------------------------------------------------------------------------- --
 -- Cut DB
 
+-- | When inserting some cuthashes, we can do it one of two ways:
+--
+-- 1. We can insert it as a normal cut, which will be processed by the cut pipeline
+-- and then merged into the current cut (with certain provisos)
+-- 2. We can insert it as a forced cut, which will skip the cut pipeline and
+-- just set the current cut without exception.
+--
+-- Case 2 MUST only occur on the development chain, and MUST only be used when
+-- testing things like orphan blocks, etc.
+data CutHashInsert
+    = Ordinary CutHashes
+    | Forced CutHashes
+    deriving (Show, Eq, Generic)
+
+instance Ord CutHashInsert where
+    compare (unCutHashInsert -> a) (unCutHashInsert -> b)
+      = compare (Down a) (Down b)
+
+instance HasCutId CutHashInsert where
+    _cutId (Ordinary v) = _cutId v
+    _cutId (Forced v) = _cutId v
+
+cutHashOrdinary :: CutHashes -> CutHashInsert
+cutHashOrdinary = Ordinary
+
+cutHashForced :: CutHashes -> CutHashInsert
+cutHashForced = Forced
+
+unCutHashInsert :: CutHashInsert -> CutHashes
+unCutHashInsert (Ordinary c) = c
+unCutHashInsert (Forced c) = c
+
 -- | This is a singleton DB that contains the latest chainweb cut as only entry.
 --
 data CutDb tbl = CutDb
     { _cutDbCut :: !(TVar Cut)
-    , _cutDbQueue :: !(PQueue (Down CutHashes))
+    , _cutDbQueue :: !(PQueue CutHashInsert)
     , _cutDbAsync :: !(Async ())
     , _cutDbLogFunction :: !LogFunction
     , _cutDbHeaderStore :: !WebBlockHeaderStore
@@ -315,8 +351,8 @@ _cut = readTVarIO . _cutDbCut
 cut :: Getter (CutDb tbl) (IO Cut)
 cut = to _cut
 
-addCutHashes :: CutDb tbl -> CutHashes -> IO ()
-addCutHashes db = pQueueInsertLimit (_cutDbQueue db) (_cutDbQueueSize db) . Down
+addCutHashes :: CutDb tbl -> CutHashInsert -> IO ()
+addCutHashes db = pQueueInsertLimit (_cutDbQueue db) (_cutDbQueueSize db)
 
 -- | An 'STM' version of '_cut'.
 --
@@ -443,7 +479,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     wbhdb = _webBlockHeaderStoreCas headerStore
     v = _chainwebVersion headerStore
 
-    processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
+    processor :: PQueue CutHashInsert -> TVar Cut -> IO ()
     processor queue cutVar = runForever logfun "CutDB" $
         processCuts config logfun headerStore payloadStore cutHashesStore queue cutVar
 
@@ -536,40 +572,48 @@ processCuts
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore tbl
     -> Casify RocksDbTable CutHashes
-    -> PQueue (Down CutHashes)
+    -> PQueue CutHashInsert
     -> TVar Cut
     -> IO ()
 processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = do
     rng <- Prob.createSystemRandom
     queueToStream
         & S.chain (\c -> loggc Debug c "start processing")
-        & S.filterM (fmap not . isVeryOld)
-        & S.filterM (fmap not . farAhead)
-        & S.filterM (fmap not . isOld)
-        & S.filterM (fmap not . isCurrent)
+        & S.filterM isValidCut
         & S.chain (\c -> loggc Debug c "fetch all prerequesites")
         & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore payloadStore)
         & S.chain (either
             (\(T2 hsid c) -> loggc Warn hsid $ "failed to get prerequesites for some blocks. Missing: " <> encodeToText c)
-            (\c -> loggc Info c "got all prerequesites")
+            (\(_, c) -> loggc Info c "got all prerequesites")
             )
-        & S.concat
-            -- ignore left values for now
-
-        -- using S.scanM would be slightly more efficient (one pointer dereference)
-        -- by keeping the value of cutVar in memory. We use the S.mapM variant with
-        -- an redundant 'readTVarIO' because it is eaiser to read.
-        & S.mapM_ (\newCut -> do
-            curCut <- readTVarIO cutVar
-            !resultCut <- trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1
-                $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
-            unless (_cutDbParamsReadOnly conf) $ do
-                maybePrune rng (cutAvgBlockHeight v curCut)
-                maybeWrite rng resultCut
-            atomically $ writeTVar cutVar resultCut
-            loggc Info resultCut "published cut"
-            )
+        & S.concat -- ignore left values for now
+        & S.mapM_ (setCut rng)
   where
+    isValidCut :: CutHashInsert -> IO Bool
+    -- forced cuts are valid and do not get merged.
+    isValidCut (Forced _) = return True
+    isValidCut (Ordinary c) = do
+        b1 <- fmap not (isVeryOld c)
+        b2 <- fmap not (farAhead c)
+        b3 <- fmap not (isOld c)
+        b4 <- fmap not (isCurrent c)
+        return (and [b1, b2, b3, b4])
+
+    -- using S.scanM would be slightly more efficient (one pointer dereference)
+    -- by keeping the value of cutVar in memory. We use the S.mapM variant with
+    -- an redundant 'readTVarIO' because it is eaiser to read.
+    setCut rng (forced, newCut) = do
+        curCut <- readTVarIO cutVar
+        !resultCut <- if forced
+            then pure (unsafeMkCut v newCut)
+            else trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1
+               $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
+        unless (not forced && _cutDbParamsReadOnly conf) $ do
+            maybePrune rng (cutAvgBlockHeight v curCut)
+            maybeWrite rng resultCut
+        atomically $ writeTVar cutVar resultCut
+        loggc Info resultCut "published natural cut"
+
     loggc :: HasCutId c => LogLevel -> c -> T.Text -> IO ()
     loggc l c msg = logFun @T.Text l $  "cut " <> cutIdToTextShort (_cutId c) <> ": " <> msg
 
@@ -589,7 +633,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
     hdrStore = _webBlockHeaderStoreCas headerStore
 
     queueToStream = do
-        Down a <- liftIO (pQueueRemove queue)
+        a <- liftIO (pQueueRemove queue)
         S.yield a
         queueToStream
 
@@ -746,11 +790,11 @@ cutHashesToBlockHeaderMap
     -> LogFunction
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore tbl
-    -> CutHashes
-    -> IO (Either (T2 CutId (HM.HashMap ChainId BlockHash)) (HM.HashMap ChainId BlockHeader))
+    -> CutHashInsert
+    -> IO (Either (T2 CutId (HM.HashMap ChainId BlockHash)) (Bool, HM.HashMap ChainId BlockHeader))
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
-        -- a 'Cut'.
-cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
+        -- a 'Cut', which may or may not be forced (True)
+cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs' =
     timeout (_cutDbParamsFetchTimeout conf) go >>= \case
         Nothing -> do
             logfun Warn
@@ -761,6 +805,10 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
             return $! Left $! T2 hsid mempty
         Just x -> return $! x
   where
+    (hs, forced)
+      | Ordinary _ <- hs' = (unCutHashInsert hs', False)
+      | Forced _ <- hs'   = (unCutHashInsert hs', True)
+
     hsid = _cutId hs
     go =
         trace logfun "Chainweb.CutDB.cutHashesToBlockHeaderMap" hsid 1 $ do
@@ -777,7 +825,7 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
                 & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
                 & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
             if null missing
-                then return (Right headers)
+                then return (Right (forced, headers))
                 else return $! Left $! T2 hsid missing
 
     origin = _cutOrigin hs
@@ -864,4 +912,3 @@ getQueueStats db = QueueStats
     <*> (int <$> TM.size (_webBlockHeaderStoreMemo $ view cutDbWebBlockHeaderStore db))
     <*> pQueueSize (_webBlockPayloadStoreQueue $ view cutDbPayloadStore db)
     <*> (int <$> TM.size (_webBlockPayloadStoreMemo $ view cutDbPayloadStore db))
-
