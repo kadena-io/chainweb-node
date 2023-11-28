@@ -750,6 +750,8 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ withDiscarde
                 pure $ LocalResultWithWarns cr' warns'
               Left e -> pure $ MetadataValidationFailure e
           _ -> liftIO $ do
+            -- these flags are supposed to be basically the set of flags that we would enable at the maximum block height.
+            -- TODO: consider making this formal, using flagsFor, and just adding FlagAllowReadInLocal.
             let execConfig = P.mkExecutionConfig $
                     [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
                     enablePactEvents' (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) ++
@@ -935,5 +937,3 @@ getGasModel ctx
 
 pactLabel :: (Logger logger) => Text -> PactServiceM logger tbl x -> PactServiceM logger tbl x
 pactLabel lbl x = localLabel ("pact-request", lbl) x
-
-
