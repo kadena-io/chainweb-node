@@ -12,6 +12,7 @@ module Chainweb.Transaction
   , HashableTrans(..)
   , PayloadWithText
   , PactParserVersion(..)
+  , IsWebAuthnPrefixLegal(..)
   , chainwebPayloadCodec
   , encodePayload
   , decodePayload
@@ -66,9 +67,9 @@ payloadBytes = _payloadBytes
 payloadObj :: PayloadWithText -> Payload PublicMeta ParsedCode
 payloadObj = _payloadObj
 
-mkPayloadWithText :: Command ByteString -> Payload PublicMeta ParsedCode -> PayloadWithText
-mkPayloadWithText cmd p = PayloadWithText
-    { _payloadBytes = SB.toShort $ _cmdPayload cmd
+mkPayloadWithText :: Command (ByteString, Payload PublicMeta ParsedCode) -> Command PayloadWithText
+mkPayloadWithText = over cmdPayload $ \(bs, p) -> PayloadWithText
+    { _payloadBytes = SB.toShort bs
     , _payloadObj = p
     }
 
@@ -83,6 +84,11 @@ type ChainwebTransaction = Command PayloadWithText
 data PactParserVersion
     = PactParserGenesis
     | PactParserChainweb213
+    deriving (Eq, Ord, Bounded, Show, Enum)
+
+data IsWebAuthnPrefixLegal
+    = WebAuthnPrefixIllegal
+    | WebAuthnPrefixLegal
     deriving (Eq, Ord, Bounded, Show, Enum)
 
 -- | Hashable newtype of ChainwebTransaction

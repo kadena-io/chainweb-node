@@ -299,7 +299,7 @@ data LogFilterRule = LogFilterRule
 makeLenses ''LogFilterRule
 
 logFilterRuleProperties
-    :: KeyValue kv
+    :: KeyValue e kv
     => LogFilterRule
     -> [kv]
 logFilterRuleProperties r =
@@ -583,7 +583,7 @@ instance ToJSON a => ToJSON (JsonLogMessage a) where
     {-# INLINE toEncoding #-}
     {-# INLINE toJSON #-}
 
-jsonLogMessageEncoding :: KeyValue kv => ToJSON a => JsonLogMessage a -> [kv]
+jsonLogMessageEncoding :: KeyValue e kv => ToJSON a => JsonLogMessage a -> [kv]
 jsonLogMessageEncoding (JsonLogMessage a) =
     [ "level" .= L._logMsgLevel a
     , "scope" .= scopeToJson (L._logMsgScope a)
@@ -606,7 +606,7 @@ instance ToJSON a => ToJSON (EsJsonLogMessage a) where
     {-# INLINE toEncoding #-}
     {-# INLINE toJSON #-}
 
-esJsonLogMessageEncoding :: KeyValue kv => ToJSON a => EsJsonLogMessage a -> [kv]
+esJsonLogMessageEncoding :: KeyValue e kv => ToJSON a => EsJsonLogMessage a -> [kv]
 esJsonLogMessageEncoding (EsJsonLogMessage a) =
     [ "level" .= L._logMsgLevel a
     , "scope" .= scopeToJson (L._logMsgScope a)

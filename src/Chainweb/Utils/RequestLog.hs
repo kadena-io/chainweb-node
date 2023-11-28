@@ -107,7 +107,7 @@ data RequestLog = RequestLog
 
 makeLenses ''RequestLog
 
-requestLogProperties :: KeyValue kv => RequestLog -> [kv]
+requestLogProperties :: KeyValue e kv => RequestLog -> [kv]
 requestLogProperties o =
     [ "version" .= _requestLogVersion o
     , "method" .= _requestLogMethod o
@@ -167,7 +167,7 @@ data RequestResponseLog = RequestResponseLog
 
 makeLenses ''RequestResponseLog
 
-requestResponseLogProperties :: KeyValue kv => RequestResponseLog -> [kv]
+requestResponseLogProperties :: KeyValue e kv => RequestResponseLog -> [kv]
 requestResponseLogProperties o =
     [ "request" .= _requestResponseLogRequest o
     , "status" .= _requestResponseLogStatus o

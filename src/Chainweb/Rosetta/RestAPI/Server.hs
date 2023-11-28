@@ -124,7 +124,7 @@ accountBalanceH
     -> AccountBalanceReq
     -> Handler AccountBalanceResp
 accountBalanceH _ _ _ (AccountBalanceReq _ (AccountId _ (Just _) _) _) = throwRosetta RosettaSubAcctUnsupported
-accountBalanceH v cutDb pacts (AccountBalanceReq net (AccountId acct _ _) pbid) = do
+accountBalanceH v cutDb pacts (AccountBalanceReq net (AccountId acct _ _) pbid) =
   runExceptT work >>= either throwRosetta pure
   where
     acctBalResp bid bal = AccountBalanceResp
@@ -193,7 +193,7 @@ blockTransactionH
     -> [(ChainId, PactExecutionService)]
     -> BlockTransactionReq
     -> Handler BlockTransactionResp
-blockTransactionH v cutDb ps pacts (BlockTransactionReq net bid t) = do
+blockTransactionH v cutDb ps pacts (BlockTransactionReq net bid t) =
   runExceptT work >>= either throwRosetta pure
   where
     BlockId bheight bhash = bid
@@ -243,7 +243,7 @@ constructionPreprocessH
     :: ChainwebVersion
     -> ConstructionPreprocessReq
     -> Handler ConstructionPreprocessResp
-constructionPreprocessH v req = do
+constructionPreprocessH v req =
     either throwRosettaError pure work
   where
     ConstructionPreprocessReq net ops someMeta someMaxFee someMult = req
@@ -350,12 +350,12 @@ constructionParseH v (ConstructionParseReq net isSigned tx) =
   where
     work :: Either RosettaError ConstructionParseResp
     work = do
-      void $ annotate rosettaError' (validateNetwork v net)
+      cid <- annotate rosettaError' (validateNetwork v net)
 
       (EnrichedCommand cmd txInfo signAccts) <- note
         (rosettaError' RosettaUnparsableTx)
         $ textToEnrichedCommand tx
-      signers <- getRosettaSigners cmd signAccts
+      signers <- getRosettaSigners cid cmd signAccts
       let ops = txToOps txInfo
 
       pure $ ConstructionParseResp
@@ -365,9 +365,9 @@ constructionParseH v (ConstructionParseReq net isSigned tx) =
         , _constructionParseResp_metadata = Nothing
         }
 
-    getRosettaSigners cmd expectedSignerAccts
+    getRosettaSigners cid cmd expectedSignerAccts
       | isSigned = do
-          _ <- toRosettaError RosettaInvalidTx $ validateCommand cmd
+          _ <- toRosettaError RosettaInvalidTx $ validateCommand v cid cmd
           pure expectedSignerAccts
           -- If transaction signatures successfully validates,
           -- it was signed correctly with all of the account public
@@ -437,7 +437,7 @@ constructionSubmitH v ms (ConstructionSubmitReq net tx) =
           note (rosettaError' RosettaUnparsableTx)
           $ textToEnrichedCommand tx
 
-        case validateCommand cmd of
+        case validateCommand v cid cmd of
           Right validated -> do
             let txs = V.fromList [validated]
             -- If any of the txs in the batch fail validation, we reject them all.

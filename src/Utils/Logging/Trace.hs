@@ -56,7 +56,7 @@ data Trace = Trace
     }
     deriving (Show, Eq, Generic, NFData)
 
-traceProperties :: KeyValue kv => Trace -> [kv]
+traceProperties :: KeyValue e kv => Trace -> [kv]
 traceProperties o =
     [ "action" .= _traceAction o
     , "param" .= _traceParam o

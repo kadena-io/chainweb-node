@@ -53,6 +53,7 @@ jobs:
       debug: ${{ steps.compile-flags.outputs.debug }}
       eventlog: ${{ steps.compile-flags.outputs.eventlog }}
       tag-suffix: ${{ steps.compile-flags.outputs.tag-suffix }}
+      chainweb-network-version: ${{ steps.compile-flags.outputs.chainweb-network-version }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
@@ -66,6 +67,8 @@ jobs:
       id: compile-flags
       run: |
         TAG_SUFFIX=
+        
+        echo "chainweb-network-version=fast-development" >> $GITHUB_OUTPUT
 
         # Optimization
         OPT_LEVEL=${{ github.event.inputs.optimizationLevel }}
@@ -131,13 +134,13 @@ jobs:
       run: |
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.2"],
+          "ghc": ["9.6.3", "9.8.1"],
           "cabal": ["3.10"],
           "os": ["ubuntu-20.04", "ubuntu-22.04"],
           "use-freeze-file": ["false"],
           "include": [
             {
-              "ghc": "9.6.2",
+              "ghc": "9.6.3",
               "cabal": "3.10",
               "os" : "ubuntu-20.04",
               "use-freeze-file": "true"
@@ -176,20 +179,19 @@ jobs:
 
   sync-chain-db:
     name: Download test chain database
+    needs: [config]
     runs-on: 'ubuntu-latest'
     strategy:
       fail-fast: false
-      matrix:
-        chainwebVersion: ['development']
     env:
-      DB_SNAPSHOT_URI: 's3://chainweb-chain-db/${{ matrix.chainwebVersion }}/pipeline-db/rocksDb'
+      DB_SNAPSHOT_URI: 's3://chainweb-chain-db/${{ needs.config.outputs.chainweb-network-version }}/pipeline-db/rocksDb'
     steps:
     - name: Sync chain database from S3
       run: aws s3 sync "$DB_SNAPSHOT_URI" db/0/rocksDb --delete --exclude=LOCK
     - name: Store chain database as artifact
       uses: actions/upload-artifact@v3
       with:
-        name: chain-db-${{ matrix.chainwebVersion }}
+        name: chain-db-${{ needs.config.outputs.chainweb-network-version }}
         path: db
 
   # ########################################################################## #
@@ -463,10 +465,10 @@ jobs:
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
-    - name: Download ${{ matrix.chainwebVersion }} chain database artifact
+    - name: Download ${{ needs.config.outputs.chainweb-network-version }} chain database artifact
       uses: actions/download-artifact@v3
       with:
-        name: chain-db-development
+        name: chain-db-${{ needs.config.outputs.chainweb-network-version }}
         path: db
     - name: Download build artifacts
       uses: actions/download-artifact@v3
@@ -485,7 +487,7 @@ jobs:
           databaseDirectory: "db"
           chainweb:
             onlySyncPact: true
-            chainwebVersion: development
+            chainwebVersion: ${{ needs.config.outputs.chainweb-network-version }}
             validateHashesOnReplay: true
             p2p:
               peer:
@@ -623,10 +625,10 @@ jobs:
         # when adding more than one build, use a different package name or
         # different tags
         include:
-        - ghc: "9.6.2"
+        - ghc: "9.6.3"
           os: "ubuntu-20.04"
           use-freeze-file: "false"
-        - ghc: "9.6.2"
+        - ghc: "9.6.3"
           os: "ubuntu-20.04"
           use-freeze-file: "true"
     env:
