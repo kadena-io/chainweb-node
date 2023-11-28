@@ -40,8 +40,7 @@ import Control.Monad
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-import Control.Monad.Trans.Except (ExceptT)
-import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Except (ExceptT, runExceptT, except)
 
 import Data.Aeson as Aeson
 import Data.Bifunctor (second)
@@ -131,6 +130,7 @@ import Pact.Types.Hash (Hash(..))
 import qualified Pact.Types.Hash as Pact
 import Pact.Types.PactError (PactError(..), PactErrorType(..))
 import Pact.Types.Pretty (pretty)
+import Control.Error (note, rights)
 
 -- -------------------------------------------------------------------------- --
 
@@ -619,10 +619,10 @@ internalPoll pdb bhdb mempool pactEx cut confDepth requestKeys0 = do
     let results1 = V.map (\rk -> (rk, HM.lookup (Pact.fromUntypedHash $ unRequestKey rk) results0)) requestKeysV
     let (present0, missing) = V.unstablePartition (isJust . snd) results1
     let present = V.map (second fromJuste) present0
-    lookedUp <- catMaybes . V.toList <$> mapM lookup present
     badlisted <- V.toList <$> checkBadList (V.map fst missing)
-    let outputs = lookedUp ++ badlisted
-    return $! HM.fromList outputs
+    vs <- mapM lookup present
+    let good = rights $ V.toList vs
+    return $! HM.fromList (good ++ badlisted)
   where
     cid = _chainId bhdb
     !requestKeysV = V.fromList $ NEL.toList requestKeys0
@@ -630,28 +630,29 @@ internalPoll pdb bhdb mempool pactEx cut confDepth requestKeys0 = do
 
     lookup
         :: (RequestKey, T2 BlockHeight BlockHash)
-        -> IO (Maybe (RequestKey, CommandResult Hash))
+        -> IO (Either String (RequestKey, CommandResult Hash))
     lookup (key, T2 _ ha) = fmap (key,) <$> lookupRequestKey key ha
 
     -- TODO: group by block for performance (not very important right now)
-    lookupRequestKey key bHash = runMaybeT $ do
+    lookupRequestKey key bHash = runExceptT $ do
         let keyHash = unRequestKey key
         let pactHash = Pact.fromUntypedHash keyHash
         let matchingHash = (== pactHash) . _cmdHash . fst
         blockHeader <- liftIO $ TreeDB.lookupM bhdb bHash
         let payloadHash = _blockPayloadHash blockHeader
-        (_payloadWithOutputsTransactions -> txsBs) <- MaybeT $ tableLookup pdb payloadHash
+        (_payloadWithOutputsTransactions -> txsBs) <- barf "tablelookupFailed" =<< liftIO (tableLookup pdb payloadHash)
         !txs <- mapM fromTx txsBs
         case find matchingHash txs of
             Just (_cmd, TransactionOutput output) -> do
-                out <- MaybeT $ return $! decodeStrict' output
+                out <- barf "decodeStrict' output" $! decodeStrict' output
                 when (_crReqKey out /= key) $
                     fail "internal error: Transaction output doesn't match its hash!"
                 enrichCR blockHeader out
-            Nothing -> mzero
+            Nothing -> throwError $ "Request key not found: " <> sshow keyHash
 
+    fromTx :: (Transaction, TransactionOutput) -> ExceptT String IO (Command Text, TransactionOutput)
     fromTx (!tx, !out) = do
-        !tx' <- MaybeT (return (toPactTx tx))
+        !tx' <- except $ toPactTx tx
         return (tx', out)
 
     checkBadList :: Vector RequestKey -> IO (Vector (RequestKey, CommandResult Hash))
@@ -670,7 +671,7 @@ internalPoll pdb bhdb mempool pactEx cut confDepth requestKeys0 = do
             !cr = CommandResult rk Nothing res 0 Nothing Nothing Nothing []
         in (rk, cr)
 
-    enrichCR :: BlockHeader -> CommandResult Hash -> MaybeT IO (CommandResult Hash)
+    enrichCR :: BlockHeader -> CommandResult Hash -> ExceptT String IO (CommandResult Hash)
     enrichCR bh = return . set crMetaData
       (Just $ object
        [ "blockHeight" .= _blockHeight bh
@@ -682,9 +683,11 @@ internalPoll pdb bhdb mempool pactEx cut confDepth requestKeys0 = do
 -- -------------------------------------------------------------------------- --
 -- Misc Utils
 
-toPactTx :: Transaction -> Maybe (Command Text)
-toPactTx (Transaction b) = decodeStrict' b
+barf :: Monad m => e -> Maybe a -> ExceptT e m a
+barf e = maybe (throwError e) return
 
+toPactTx :: Transaction -> Either String (Command Text)
+toPactTx (Transaction b) = note "toPactTx failure" (decodeStrict' b)
 
 -- TODO: all of the functions in this module can instead grab the current block height from consensus
 -- and pass it here to get a better estimate of what behavior is correct.
