@@ -409,7 +409,7 @@ tryMineForChain miner webPact cutDb c cid = do
     x <- testMineWithPayloadHash wdb (Nonce 0) t payloadHash cid c
     case x of
         Right (T2 h c') -> do
-            addCutHashes cutDb (cutToCutHashes Nothing c')
+            addCutHashes cutDb $ cutHashOrdinary (cutToCutHashes Nothing c')
                 { _cutHashesHeaders = HM.singleton (_blockHash h) h
                 , _cutHashesPayloads = HM.singleton (_blockPayloadHash h) (payloadWithOutputsToPayloadData outputs)
                 }
@@ -544,4 +544,3 @@ testCutGet rdb = testCase "cut get" $ do
       assertGe "cut height is large enough" (Actual curHeight) (Expected $ 2 * int ch)
       retCut <- cutGetHandler cutDb (Just $ MaxRank (Max $ int halfCh))
       assertLe "cut hashes are too high" (Actual (_cutHashesHeight retCut)) (Expected halfCh)
-

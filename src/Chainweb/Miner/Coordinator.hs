@@ -252,7 +252,7 @@ publish lf cdb pwVar miner pd s = do
 
             -- reset the primed payload for this cut extension
             atomically $ modifyTVar pwVar $ resetPrimed miner (_chainId bh)
-            addCutHashes cdb ch
+            addCutHashes cdb (cutHashOrdinary ch)
 
             let bytes = sum . fmap (BS.length . _transactionBytes) $
                         _payloadDataTransactions pd

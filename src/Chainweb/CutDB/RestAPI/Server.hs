@@ -61,6 +61,7 @@ import Chainweb.Version.Utils
 
 import P2P.Node.PeerDB
 import P2P.Peer
+import Chainweb.Version.Development
 
 -- -------------------------------------------------------------------------- --
 -- Handlers
@@ -74,14 +75,19 @@ cutGetHandler db (Just (MaxRank (Max mar))) = liftIO $ do
     !c' <- limitCut (view cutDbWebBlockHeaderDb db) bh c
     return $! cutToCutHashes Nothing c'
 
-cutPutHandler :: PeerDb -> CutDb tbl -> CutHashes -> Handler NoContent
-cutPutHandler pdb db c = case _peerAddr <$> _cutOrigin c of
+cutPutHandler :: PeerDb -> CutDb tbl -> CutHashes -> Bool -> Handler NoContent
+cutPutHandler pdb db c force = case _peerAddr <$> _cutOrigin c of
     Nothing -> throwError $ setErrText "Cut is missing an origin entry" err400
     Just addr -> do
         ps <- liftIO $ peerDbSnapshot pdb
-        case getOne (getEQ addr ps) of
-            Nothing -> throwError $ setErrText "Unknown peer" err401
-            Just{} -> NoContent <$ liftIO (addCutHashes db c)
+        hs <- case getOne (getEQ addr ps) of
+            Nothing -> throwError (setErrText "Unknown peer" err401)
+            Just{}
+              | force && (_peerDbChainwebVersion pdb == devnet)
+              -> pure (cutHashForced c)
+              | otherwise
+              -> pure (cutHashOrdinary c)
+        NoContent <$ liftIO (addCutHashes db hs)
 
 -- -------------------------------------------------------------------------- --
 -- Cut API Server
@@ -121,5 +127,3 @@ someCutGetServer v = someCutGetServerT . someCutDbVal v
 
 serveCutOnPort :: Port -> ChainwebVersion -> PeerDb -> CutDb tbl -> IO ()
 serveCutOnPort p v pdb = run (int p) . someServerApplication . someCutServer v pdb
-
-

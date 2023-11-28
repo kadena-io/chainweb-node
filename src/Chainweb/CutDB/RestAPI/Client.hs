@@ -49,5 +49,6 @@ cutGetClientLimit (FromSingChainwebVersion (SChainwebVersion :: Sing v))
 cutPutClient
     :: ChainwebVersion
     -> CutHashes
+    -> Bool
     -> ClientM NoContent
 cutPutClient (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = client $ cutPutApi @v

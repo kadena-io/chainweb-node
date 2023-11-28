@@ -98,6 +98,7 @@ cutGetClient' v = runIdentity $ do
 cutPutClient'
     :: ChainwebVersion
     -> CutHashes
+    -> Bool
     -> ClientM_ NoContent
 cutPutClient' v = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
