@@ -115,6 +115,7 @@ library
     autogen-modules:
         Paths_chainweb
     c-sources: c/shathree.c
+    cc-options: -DSQLITE_CORE
     exposed-modules:
           Chainweb.Backup
         , Chainweb.BlockCreationTime
