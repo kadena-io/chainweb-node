@@ -2,7 +2,7 @@
   description = "Chainweb";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs?rev=4d2b37a84fad1091b9de401eb450aae66f1a741e";
+    nixpkgs.follows = "haskellNix/nixpkgs"; #url = "github:NixOS/nixpkgs?rev=4d2b37a84fad1091b9de401eb450aae66f1a741e";
     hackage = {
       url = "github:input-output-hk/hackage.nix";
       flake = false;
@@ -28,7 +28,7 @@
       pkgs = import nixpkgs {
         inherit system;
         inherit (haskellNix) config;
-        overlays = [ haskellNix.overlay ];
+        overlays = [ haskellNix.overlay (import ./overlay-ghc963.nix) ];
       };
       defaultNix = import ./default.nix {
         inherit pkgs nix-filter;

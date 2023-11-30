@@ -12,7 +12,7 @@ let flakeDefaultNix = (import (
     };
 in
 { pkgs ? pkgsDef
-, compiler ? "ghc963"
+, compiler ? "ghc981"
 , flakePath ? flakeDefaultNix.outPath
 , nix-filter ? inputs.nix-filter
 , ...
@@ -36,12 +36,11 @@ let haskellSrc = with nix-filter.lib; filter {
       compiler-nix-name = compiler;
       projectFileName = "cabal.project";
       shell.tools = {
-        cabal = {};
-        haskell-language-server = {};
+        # cabal = {};
       };
       shell.buildInputs = with pkgs; [
         zlib
-        pkgconfig
+        pkg-config
       ];
       modules = [
         {
