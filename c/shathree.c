@@ -32,7 +32,9 @@
 ** is used.  If SIZE is included it must be one of the integers 224, 256,
 ** 384, or 512, to determine SHA3 hash variant that is computed.
 */
-#include "sqlite3.h"
+#include <sqlite3ext.h>
+SQLITE_EXTENSION_INIT1
+
 #include <assert.h>
 #include <string.h>
 #include <stdarg.h>
@@ -635,3 +637,19 @@ int sqlite3_shathree_create_functions(sqlite3 *db)
   return rc;
 }
 
+/* ************************************************************************** */
+/* SQLite Extension
+ *
+ * When compiled as shared library this supports dynamic loading of the
+ * extension.
+ */
+int sqlite3_shathree_init(
+  sqlite3 *db,
+  char **pzErrMsg,
+  const sqlite3_api_routines *pApi
+){
+  int rc = SQLITE_OK;
+  SQLITE_EXTENSION_INIT2(pApi);
+  sqlite3_shathree_create_functions(db);
+  return rc;
+}
