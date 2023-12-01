@@ -433,6 +433,7 @@ collectTableRows txId tbl = do
         ]
 
   logg Info "collectTableRows:insert"
+  -- TODO: this should say True only if doGrandHash is true
   execM' "collectTableRows.0, doGrandHash=True" tbl
     collectInsert
     [vt, txid]

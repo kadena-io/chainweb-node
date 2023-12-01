@@ -31,9 +31,11 @@ module Chainweb.Pact.Backend.PactState
   ( getPactTableNames
   , getPactTables
   , getLatestPactState
+  , getLatestPactState'
   , getLatestBlockHeight
 
   , PactRow(..)
+  , PactRowContents(..)
   , Table(..)
   , TableDiffable(..)
 
@@ -104,8 +106,8 @@ getLatestBlockHeight db = do
 getPactTableNames :: Database -> IO (Vector Utf8)
 getPactTableNames db = do
   let sortedTableNames :: [[SType]] -> [Utf8]
-      sortedTableNames rows = M.elems $ M.fromListWith const $ flip List.map rows $ \case
-        [SText u] -> (Text.toLower (fromUtf8 u), u)
+      sortedTableNames rows = List.sortOn fromUtf8 $ flip List.map rows $ \case
+        [SText u] -> u
         _ -> error "getPactTableNames.sortedTableNames: expected text"
 
   tables <- fmap sortedTableNames $ do
@@ -180,6 +182,11 @@ qry db qryText args returnTypes k = do
 
 getLatestPactState :: Database -> Stream (Of TableDiffable) IO ()
 getLatestPactState db = do
+  flip S.map (getLatestPactState' db) $ \(tblName, state) ->
+    TableDiffable tblName (M.map (\prc -> prc.rowData) state)
+
+getLatestPactState' :: Database -> Stream (Of (Text, Map ByteString PactRowContents)) IO ()
+getLatestPactState' db = do
   let fmtTable x = "\"" <> x <> "\""
 
   tables <- liftIO $ getPactTableNames db
@@ -188,14 +195,14 @@ getLatestPactState db = do
     when (tbl `notElem` excludedTables) $ do
       let qryText = "SELECT rowkey, rowdata, txid FROM "
             <> fmtTable tbl
-      latestState <- fmap (M.map (\prc -> prc.rowData)) $ liftIO $ qry db qryText [] [RText, RBlob, RInt] $ \rows -> do
+      latestState <- liftIO $ qry db qryText [] [RText, RBlob, RInt] $ \rows -> do
         let go :: Map ByteString PactRowContents -> [SType] -> Map ByteString PactRowContents
             go m = \case
               [SText (Utf8 rowKey), SBlob rowData, SInt txId] ->
                 M.insertWith (\prc1 prc2 -> if prc1.txId > prc2.txId then prc1 else prc2) rowKey (PactRowContents rowData txId) m
               _ -> error "getLatestPactState: unexpected shape of user table row"
         S.fold_ go M.empty id rows
-      S.yield (TableDiffable (fromUtf8 tbl) latestState)
+      S.yield (fromUtf8 tbl, latestState)
 
 -- This assumes the same tables (essentially zipWith).
 --   Note that this assumes we got the state from `getLatestPactState`,
