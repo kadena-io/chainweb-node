@@ -22,7 +22,6 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteArray qualified as Memory
 import Data.ByteString.Builder qualified as BB
-import Data.Coerce (coerce)
 import Data.IORef
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
@@ -65,23 +64,6 @@ checkRowHashes db tblName prs = do
       error $ unlines
         [ "Hash mismatch on table " <> Text.unpack tblName
         ]
-
-singleRowTest :: Database -> IO ()
-singleRowTest db = do
-  (tbl, rk, arHash) <- do
-    let qryText = "SELECT tablename, rowkey, hash FROM CompactActiveRow"
-          <> " ORDER BY rowkey LIMIT 1"
-    [[SText tbl, SText rk, SBlob arHash]]  <- Pact.qry db qryText [] [RText, RText, RBlob]
-    pure (tbl, rk, arHash)
-
-  pr <- do
-    let qryText = "SELECT rowkey, rowdata, txid FROM \"" <> tbl <> "\""
-                  <> " WHERE rowkey=\"" <> rk <> "\""
-                  <> " ORDER BY txid DESC LIMIT 1"
-    [[SText (Utf8 rowKey), SBlob rowData, SInt txId]] <- Pact.qry db qryText [] [RText, RBlob, RInt]
-    pure $ PactRow {..}
-
-  print $ arHash == hashRow (coerce tbl) pr
 
 compareHash :: Database -> Text -> Maybe ByteString -> IO ()
 compareHash db tblName ourHash = do
@@ -131,6 +113,7 @@ computeGrandHash db = do
     hashStream
 
   ourTableNames <- List.reverse <$> readIORef ourTableNamesIO
+  putStr "our table names match the reference table names: "
   print $ refTableNames == ourTableNames
 
   pure grandHash
@@ -156,7 +139,6 @@ test = do
     let resetDb = False
     let cid = unsafeChainId 4
     withSqliteDb cid logger "/home/chessai/sqlite-compacted/sqlite/" resetDb $ \(SQLiteEnv db _) -> do
-      singleRowTest db
       hashTablesTest db
 
 hashAggregate :: (a -> ByteString) -> Vector a -> Maybe ByteString
