@@ -1,9 +1,12 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Pact.Backend.PactState.GrandHash
   ( test
@@ -28,11 +31,15 @@ import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as BL
+import Data.ByteString.Short qualified as BSS
 import Data.ByteArray qualified as Memory
 import Data.ByteString.Base16 qualified as Base16
 import Data.ByteString.Builder qualified as BB
 import Data.Char (isHexDigit)
 import Data.Foldable qualified as F
+import Data.Hash.Class.Mutable (Context)
+import Data.Hash.Class.Mutable qualified as H
+import Data.Hash.SHA3 (Sha3_256(..))
 import Data.IORef
 import Data.List qualified as List
 import Data.Map (Map)
@@ -123,17 +130,27 @@ computeGrandHash db = do
           modifyIORef ourTableNamesIO (tblName :)
         pure hash
 
-  grandHash <- S.foldM_
-    (\ctx hash -> pure (hashUpdate ctx (hashWith SHA3_256 hash)))
-    (pure (hashInitWith SHA3_256))
-    (pure . Memory.convert . hashFinalize)
+  let unSha3 (Sha3_256 b) = BSS.fromShort b
+
+  ctx <- H.initialize @Sha3_256
+  flip S.mapM_ hashStream $ \tblHash -> do
+    H.updateByteString @Sha3_256 ctx (unSha3 (H.hashByteString @Sha3_256 tblHash))
+  grandHash_LibHashes <- unSha3 <$> H.finalize ctx
+
+  grandHash_LibCrypton :: ByteString <- S.fold_
+    (\ctx hash -> hashUpdate ctx (hashWith SHA3_256 hash))
+    (hashInitWith SHA3_256)
+    (Memory.convert . hashFinalize)
     hashStream
 
   ourTableNames <- List.reverse <$> readIORef ourTableNamesIO
   putStr "our table names match the reference table names: "
   print $ refTableNames == ourTableNames
 
-  pure grandHash
+  putStr "lib hashes  grandHash: " >> print grandHash_LibHashes
+  putStr "lib crypton grandHash: " >> print grandHash_LibCrypton
+
+  pure grandHash_LibHashes
 
 test :: IO ()
 test = do
