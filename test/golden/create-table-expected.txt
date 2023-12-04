@@ -3,4 +3,4 @@
 - cmd:
     contents: (create-table test1.accounts)
     tag: Code
-  output: ExfKxPyfW_VnvUXfZva1taP6-woqfIYlNcnlFnKv5wQ
+  output: 2Ld8y7v3yS4WgJdp2jG4ayjrhnn0PJALeunzpdL3fe8

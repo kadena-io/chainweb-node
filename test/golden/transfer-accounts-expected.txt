@@ -3,4 +3,4 @@
 - cmd:
     contents: (test1.transfer "Acct1" "Acct2" 1.00)
     tag: Code
-  output: noxWe0aOpl3J20QHMVJP8EvPGG8kftv63GeIjvJwrXQ
+  output: O4tU1VdTniyZH8CkVPKViCvHT6C_lke6lmObZeKjPL8
