@@ -737,7 +737,7 @@ execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
       -> PactServiceM logger tbl r
     play bhdb pdb heightRef bs = do
         (start, rest) <- fromMaybe (error "no blocks to replay") <$> Stream.uncons bs
-        parent <- liftIO $ lookupParentM GenesisParentThrow bhdb start
+        parent <- liftIO $ lookupParentM GenesisParentSelf bhdb start
         let
             blocks =
                 if _blockHash start == _blockHash parent
