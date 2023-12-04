@@ -101,7 +101,7 @@ chainwebPactDb = PactDb
     , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow Nothing wt d k v
     , _keys = \d e -> runBlockEnv e $ doKeys Nothing d
     , _txids = \t txid e -> runBlockEnv e $ doTxIds t txid
-    , _createUserTable = \tn mn e -> runBlockEnv e $ doCreateUserTable tn mn
+    , _createUserTable = \tn mn e -> runBlockEnv e $ doCreateUserTable Nothing tn mn
     , _getUserTableInfo = \_ -> error "WILL BE DEPRECATED!"
     , _beginTx = \m e -> runBlockEnv e $ doBegin m
     , _commitTx = \e -> runBlockEnv e doCommit
@@ -114,6 +114,7 @@ readOnlyChainwebPactDb bh = chainwebPactDb
     { _readRow = \d k e -> runBlockEnv e $ doReadRow (Just bh) d k
     , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow (Just bh) wt d k v
     , _keys = \d e -> runBlockEnv e $ doKeys (Just bh) d
+    , _createUserTable = \tn mn e -> runBlockEnv e $ doCreateUserTable (Just bh) tn mn
     }
 
 getPendingData :: BlockHandler logger SQLiteEnv [SQLitePendingData]
@@ -457,8 +458,8 @@ modifyPendingData f = do
       Just d -> set bsPendingTx (Just $! f d)
       Nothing -> over bsPendingBlock f
 
-doCreateUserTable :: TableName -> ModuleName -> BlockHandler logger SQLiteEnv ()
-doCreateUserTable tn@(TableName ttxt) mn = do
+doCreateUserTable :: Maybe BlockHeight -> TableName -> ModuleName -> BlockHandler logger SQLiteEnv ()
+doCreateUserTable mbh tn@(TableName ttxt) mn = do
     -- first check if tablename already exists in pending queues
     m <- runMaybeT $ checkDbTableExists (Utf8 $ T.encodeUtf8 ttxt)
     case m of
@@ -475,11 +476,20 @@ doCreateUserTable tn@(TableName ttxt) mn = do
     inDb lcTables t =
       callDb "doCreateUserTable" $ \db -> do
         r <- qry db (tableLookupStmt lcTables) [SText t] [RText]
-        return $ case r of
+        case r of
           -- if lowercase matching, no need to check equality
           -- (wasn't needed before either but leaving alone for replay)
-          [[SText rname]] -> lcTables || rname == t
-          _ -> False
+          [[SText rname]] ->
+            case mbh of
+                Nothing -> return (lcTables || rname == t)
+                Just bh ->
+                    qry db
+                        "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight < ? AND tablename = ?;"
+                        [SInt (fromIntegral bh), SText t]
+                        [RText] <&> \case
+                        [[SText rname']] -> lcTables || rname == t
+                        [] -> False
+          _ -> return False
 
     tableLookupStmt False =
       "SELECT name FROM sqlite_master WHERE type='table' and name=?;"
