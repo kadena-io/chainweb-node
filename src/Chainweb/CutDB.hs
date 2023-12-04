@@ -71,6 +71,7 @@ module Chainweb.CutDB
 , blockDiffStream
 , cutStreamToHeaderStream
 , cutStreamToHeaderDiffStream
+, readHighestCutHeaders
 
 -- * Membership Queries
 , member
@@ -451,14 +452,15 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     readInitialCut = do
         unsafeMkCut v <$> do
             hm <- readHighestCutHeaders v logfun wbhdb cutHashesStore
-            case _cutDbParamsInitialHeightLimit config of
-                Nothing -> return hm
-                Just h -> do
-                    limitedCutHeaders <- limitCutHeaders wbhdb h hm
-                    let limitedCut = unsafeMkCut v limitedCutHeaders
-                    unless (_cutDbParamsReadOnly config) $
-                        casInsert cutHashesStore (cutToCutHashes Nothing limitedCut)
-                    return limitedCutHeaders
+            return hm
+            -- case _cutDbParamsInitialHeightLimit config of
+            --     Nothing -> return hm
+            --     Just h -> do
+            --         limitedCutHeaders <- limitCutHeaders wbhdb h hm
+            --         let limitedCut = unsafeMkCut v limitedCutHeaders
+            --         unless (_cutDbParamsReadOnly config) $
+            --             casInsert cutHashesStore (cutToCutHashes Nothing limitedCut)
+            --         return limitedCutHeaders
 
 readHighestCutHeaders :: ChainwebVersion -> LogFunction -> WebBlockHeaderDb -> Casify RocksDbTable CutHashes -> IO (HM.HashMap ChainId BlockHeader)
 readHighestCutHeaders v logfun wbhdb cutHashesStore = withTableIterator (unCasify cutHashesStore) $ \it -> do
@@ -864,4 +866,3 @@ getQueueStats db = QueueStats
     <*> (int <$> TM.size (_webBlockHeaderStoreMemo $ view cutDbWebBlockHeaderStore db))
     <*> pQueueSize (_webBlockPayloadStoreQueue $ view cutDbPayloadStore db)
     <*> (int <$> TM.size (_webBlockPayloadStoreMemo $ view cutDbPayloadStore db))
-

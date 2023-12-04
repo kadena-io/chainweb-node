@@ -98,7 +98,7 @@ setParentHeader msg ph@(ParentHeader bh) = do
   logDebug $ "setParentHeader: " <> msg <> ": " <> sshow (_blockHash bh,_blockHeight bh)
   modify' $ set psParentHeader ph
   bdb <- view psBlockHeaderDb
-  modify' $ set psSpvSupport $! pactSPV bdb bh
+  modify' $ set psSpvSupport $ pactSPV bdb bh
 
 -- | Execute a block -- only called in validate either for replay or for validating current block.
 --

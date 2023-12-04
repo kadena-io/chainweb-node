@@ -105,7 +105,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.TreeDB (getBranchIncreasing, forkEntry, lookup, lookupM)
+import Chainweb.TreeDB
 import Chainweb.Utils hiding (check)
 
 import Chainweb.Storage.Table
@@ -282,11 +282,36 @@ withCheckpointerReadRewind
     -> Text
     -> (PactDbEnv' logger -> PactServiceM logger tbl a)
     -> PactServiceM logger tbl a
-withCheckpointerReadRewind p caller act = do
-    tracePactServiceM "withCheckpointerReadRewind.rewindTo" (_parentHeader p) 0 $
-        rewindToRead caller p
-        -- This updates '_psParentHeader'
-    withCheckpointerWithoutReadRewind p caller act
+withCheckpointerReadRewind (ParentHeader parent) caller act = do
+    oldParent <- use psParentHeader
+    go `finally` setParentHeader "withCheckpointerReadRewind.revert" oldParent
+    where
+    go = do
+        cp <- getCheckpointer
+        (lastHeight, lastHash) <- liftIO (_cpGetLatestBlock cp) >>= \case
+            Nothing -> throwM NoBlockValidatedYet
+            Just p -> return p
+
+        lastHeader <- findLatestValidBlockSince (lastHeight, lastHash) >>= maybe failNonGenesisOnEmptyDb return
+
+        -- liftIO $ putStrLn $ "rewindToRead: lastHeader " ++ (show lastHeader)
+        logDebug $ "read-only rewind from last to checkpointer target"
+            <> ". last height: " <> sshow (_blockHeight lastHeader)
+            <> "; last hash: " <> blockHashToText (_blockHash lastHeader)
+            <> "; target height: " <> sshow parentHeight
+            <> "; target hash: " <> blockHashToText parentHash
+
+        bhdb <- asks _psBlockHeaderDb
+        isAncestor <- liftIO $ ancestorOf bhdb (_blockHash parent) (_blockHash lastHeader)
+
+        if isAncestor
+        then setParentHeader "withCheckpointerReadRewind" (ParentHeader parent)
+        else logError "parent is not an ancestor of lastHeader"
+            -- This updates '_psParentHeader'
+        withCheckpointerWithoutReadRewind (ParentHeader parent) caller act
+    failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
+    parentHeight = _blockHeight parent
+    parentHash = _blockHash parent
 
 withCheckpointerWithoutReadRewind
     :: (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
@@ -461,79 +486,6 @@ rewindTo caller rewindLimit (Just (ParentHeader parent)) = do
                               return
                           & S.length_
             logInfo $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
-
-rewindToRead
-    :: forall logger tbl
-    . (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
-    => Text
-    -> ParentHeader
-    -> PactServiceM logger tbl ()
-rewindToRead _ (ParentHeader parent) = do
-    (ParentHeader currentParent) <- use psParentHeader
-
-    -- skip if the checkpointer is already at the target.
-    (_, lastHash) <- getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
-        Nothing -> throwM NoBlockValidatedYet
-        Just p -> return p
-
-    -- liftIO $ putStrLn $ "rewindToRead: (lastHash, parentHash, currentParent) " ++ (show (lastHash, parentHash, _blockHash currentParent))
-
-
-    lastHeader <- findLatestValidBlockSince (_blockHeight currentParent, _blockHash currentParent) >>= maybe failNonGenesisOnEmptyDb return
-
-    -- liftIO $ putStrLn $ "rewindToRead: lastHeader " ++ (show lastHeader)
-    logInfo $ "rewind from last to checkpointer target"
-        <> ". last height: " <> sshow (_blockHeight lastHeader)
-        <> "; last hash: " <> blockHashToText (_blockHash lastHeader)
-        <> "; target height: " <> sshow parentHeight
-        <> "; target hash: " <> blockHashToText parentHash
-
-    playFork lastHeader
-
-  where
-    parentHeight = _blockHeight parent
-    parentHash = _blockHash parent
-    failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
-
-    playFork :: BlockHeader -> PactServiceM logger tbl ()
-    playFork lastHeader = do
-        bhdb <- asks _psBlockHeaderDb
-        commonAncestor <- liftIO $ forkEntry bhdb lastHeader parent
-        let ancestorHeight = _blockHeight commonAncestor
-
-        if commonAncestor == parent
-          then do
-            -- liftIO $ putStrLn $ "rewindToRead.playFork: " ++ (show (_blockHeight parent))
-
-            -- liftIO $ putStrLn $ "rewindToRead.playFork: Saving header at " ++ (show commonAncestor)
-
-            setParentHeader "rewindToRead.playFork" (ParentHeader commonAncestor)
-          else do
-            -- liftIO $ putStrLn $ "rewindToRead.playFork: commonAncestor /= parent at " ++ (show (_blockHeight commonAncestor, _blockHash commonAncestor))
-
-            logInfo $ "rewindToRead.playFork"
-                <> ": checkpointer is at height: " <> sshow (_blockHeight lastHeader)
-                <> ", target height: " <> sshow (_blockHeight parent)
-                <> ", common ancestor height " <> sshow ancestorHeight
-
-            logger <- view psLogger
-            -- 'getBranchIncreasing' expects an 'IO' callback because it maintains an 'TreeDB'
-            -- iterator. 'withPactState' allows us to call pact service actions
-            -- from the callback.
-            c <- withPactState $ \runPact ->
-                getBranchIncreasing bhdb parent (int ancestorHeight) $ \newBlocks -> do
-                    -- This stream is guaranteed to at least contain @e@.
-                    (h, s) <- fromJuste <$> S.uncons newBlocks
-                    heightRef <- newIORef (_blockHeight commonAncestor)
-                    withAsync (heightProgress (_blockHeight commonAncestor) heightRef (logInfo_ logger)) $ \_ ->
-                      s
-                          & S.scanM
-                              (\ !p !c -> runPact (fastForwardRead (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
-                              (return h) -- initial parent
-                              return
-                          & S.length_
-            logInfo $ "rewindToRead.playFork: replayed " <> sshow c <> " blocks"
-
 
 -- | INTERNAL UTILITY FUNCTION. DON'T EXPORT FROM THIS MODULE.
 --
