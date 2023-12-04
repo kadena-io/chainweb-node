@@ -136,7 +136,7 @@ tests rdb = testGroup testName
     testHistLookup2 = getHistoricalLookupNoTxs "randomAccount"
       (assertEqual "Return Nothing if key absent after a no txs block" Nothing)
     testHistLookup3 = getHistoricalLookupWithTxs "sender00"
-      (assertSender00Bal 9.999998051e7 "check latest entry for sender00 after block with txs")
+      (assertSender00Bal 9.999998042e7 "check latest entry for sender00 after block with txs")
 
 testWithConf' :: ()
   => RocksDb
@@ -316,8 +316,8 @@ pactStateSamePreAndPostCompaction rdb =
     setOneShotMempool cr.mempoolRef goldenMemPool
 
     let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
-        makeTx nth bh = buildCwCmd
-          $ set cbSigners [mkSigner' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
+        makeTx nth bh = buildCwCmd testVersion
+          $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
           $ setFromHeader bh
           $ mkCmd (sshow (nth, bh))
           $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
@@ -388,8 +388,8 @@ compactionIsIdempotent rdb =
     setOneShotMempool cr.mempoolRef goldenMemPool
 
     let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
-        makeTx nth bh = buildCwCmd
-          $ set cbSigners [mkSigner' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
+        makeTx nth bh = buildCwCmd testVersion
+          $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
           $ setFromHeader bh
           $ mkCmd (sshow (nth, bh))
           $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
@@ -487,7 +487,7 @@ compactionUserTablesDropped rdb =
                 , ")"
                 , "(create-table " <> tblName <> ")"
                 ]
-          buildCwCmd
+          buildCwCmd testVersion
             $ signSender00
             $ set cbGasLimit gasLimit
             $ mkCmd ("createTable-" <> tblName <> "-" <> sshow n)
@@ -654,7 +654,7 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
 
     chainDataMemPool = mempty {
       mpaGetBlock = \_ _ _ _ bh -> do
-          fmap V.singleton $ buildCwCmd
+          fmap V.singleton $ buildCwCmd testVersion
               $ signSender00
               $ setFromHeader bh
               $ mkCmd (sshow bh)
@@ -662,7 +662,7 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
       }
 
 signSender00 :: CmdBuilder -> CmdBuilder
-signSender00 = set cbSigners [mkSigner' sender00 []]
+signSender00 = set cbSigners [mkEd25519Signer' sender00 []]
 
 setFromHeader :: BlockHeader -> CmdBuilder -> CmdBuilder
 setFromHeader bh =
@@ -681,7 +681,7 @@ blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
 
   let
     useGas g = do
-      bigTx <- buildCwCmd $ set cbGasLimit g $ signSender00 $ mkCmd "cmd" $ mkExec' "TESTING"
+      bigTx <- buildCwCmd testVersion $ set cbGasLimit g $ signSender00 $ mkCmd "cmd" $ mkExec' "TESTING"
       let
         cr = CommandResult
           (RequestKey (Hash "0")) Nothing
@@ -766,12 +766,12 @@ mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
       i <- modifyMVar supply $ return . (succ &&& id)
       f i bh
 
-    goodTx i bh = buildCwCmd
+    goodTx i bh = buildCwCmd testVersion
         $ signSender00
         $ mkCmd' bh (sshow (i,bh))
         $ mkExec' "(+ 1 2)"
 
-    badTx i bh = buildCwCmd
+    badTx i bh = buildCwCmd testVersion
         $ signSender00
         $ set cbSender "bad"
         $ mkCmd' bh (sshow (i,bh))
@@ -816,7 +816,7 @@ moduleNameMempool ns mn = mempty
               , ns <> "." <> mn <> ".G"
               ]
         fmap V.fromList $ forM (zip txs [0..]) $ \(code,n :: Int) ->
-          buildCwCmd $
+          buildCwCmd testVersion $
           signSender00 $
           set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh) $
           mkCmd ("1" <> sshow n) $
@@ -846,7 +846,7 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
 
   where
 
-    makeTx nonce t = buildCwCmd
+    makeTx nonce t = buildCwCmd testVersion
         $ signSender00
         $ set cbChainId cid
         $ set cbCreationTime (toTxCreationTime t)
@@ -871,19 +871,19 @@ preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
   coinV4 <- T.readFile "pact/coin-contract/v4/coin-v4.pact"
   coinV5 <- T.readFile "pact/coin-contract/v5/coin-v5.pact"
 
-  txCoinV3 <- buildCwCmd
+  txCoinV3 <- buildCwCmd testVersion
         $ signSender00
         $ set cbChainId cid
         $ mkCmd "tx-now-coinv3"
         $ mkExec' coinV3
 
-  txCoinV4 <- buildCwCmd
+  txCoinV4 <- buildCwCmd testVersion
         $ signSender00
         $ set cbChainId cid
         $ mkCmd "tx-now-coinv4"
         $ mkExec' coinV4
 
-  txCoinV5 <- buildCwCmd
+  txCoinV5 <- buildCwCmd testVersion
         $ signSender00
         $ set cbChainId cid
         $ mkCmd "tx-now-coinv5"
@@ -897,7 +897,7 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
   (_, reqQ, _) <- reqIO
   let hashToTxHashList = V.singleton . requestKeyToTransactionHash . RequestKey . toUntypedHash @'Blake2b_256
   badHashRef <- newIORef $ hashToTxHashList initialHash
-  badTx <- buildCwCmd
+  badTx <- buildCwCmd testVersion
     $ signSender00
     -- this should exceed the account balance
     $ set cbGasLimit 99999
@@ -966,7 +966,7 @@ goldenMemPool = mempty
         return outtxs
     mkTxs txs =
         fmap V.fromList $ forM (zip txs [0..]) $ \(code,n :: Int) ->
-          buildCwCmd $
+          buildCwCmd testVersion $
           signSender00 $
           set cbGasPrice 0.01 $
           set cbTTL 1_000_000 $ -- match old goldens

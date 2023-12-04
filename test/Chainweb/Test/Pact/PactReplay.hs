@@ -110,8 +110,8 @@ testMemPoolAccess = mempty
     getTestBlock _ _ 1 _ = mempty
     getTestBlock txOrigTime validate bHeight hash = do
       let nonce = T.pack . show @(Time Micros) $ txOrigTime
-      tx <- buildCwCmd $
-        set cbSigners [mkSigner' sender00 []] $
+      tx <- buildCwCmd testVer $
+        set cbSigners [mkEd25519Signer' sender00 []] $
         set cbCreationTime (toTxCreationTime txOrigTime) $
         mkCmd nonce $
         mkExec' "1"
@@ -137,8 +137,8 @@ dupegenMemPoolAccess = do
         if bHeight `elem` hs' then return mempty else do
           writeIORef hs (bHeight:hs')
           outtxs <- fmap V.singleton $
-            buildCwCmd $
-            set cbSigners [mkSigner' sender00 []] $
+            buildCwCmd testVer $
+            set cbSigners [mkEd25519Signer' sender00 []] $
             mkCmd "0" $
             mkExec' "1"
           oks <- validate bHeight bHash outtxs
