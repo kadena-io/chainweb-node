@@ -19,8 +19,6 @@ import qualified Data.Vector as V
 
 import Pact.Types.ChainMeta
 
-import System.LogLevel
-
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -28,7 +26,6 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.Miner.Pact
@@ -36,12 +33,13 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.Utils (lenientTimeSlop)
+import Chainweb.Pact.Validations (defaultLenientTimeSlop)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -53,7 +51,7 @@ import Chainweb.Storage.Table.RocksDB
 -- Settings
 
 testVer :: ChainwebVersion
-testVer = FastTimedCPM peterson
+testVer = fastForkingCpmTestVersion peterson
 
 genblock :: BlockHeader
 genblock = genesisBlockHeader testVer (someChainId testVer)
@@ -74,9 +72,9 @@ defTtl = 60 * 60 * 2 -- 2 hours
 -- Thus, all failing tests are expected to already fail during pre block
 -- validation.
 --
-tests :: RocksDb -> ScheduledTest
-tests rdb = ScheduledTest "Chainweb.Test.Pact.TTL" $
-    testGroup "timing tests"
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "Chainweb.Test.Pact.TTL"
+    [ testGroup "timing tests"
         [ withTestPact rdb testTxTime
         , withTestPact rdb testTxTimeLenient
         , withTestPact rdb testTxTimeFail1
@@ -88,6 +86,7 @@ tests rdb = ScheduledTest "Chainweb.Test.Pact.TTL" $
         , withTestPact rdb testJustMadeItSmall
         , withTestPact rdb testJustMadeItLarge
         ]
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- Tests
@@ -103,13 +102,13 @@ testTxTimeLenient :: IO Ctx -> TestTree
 testTxTimeLenient ctxIO =
     testCase "testTxTimeLenient: tx time of parent time + slop and default ttl succeeds during new block validation" $ do
         T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
-        void $ doNewBlock ctxIO (offset lenientTimeSlop) (ParentHeader hdr) (Nonce 2) 1
+        void $ doNewBlock ctxIO (offset defaultLenientTimeSlop) (ParentHeader hdr) (Nonce 2) 1
 
 testTxTimeFail1 :: IO Ctx -> TestTree
 testTxTimeFail1 ctxIO =
     testCase "testTxTimeFail1: tx time of parent time + slop + 1 and default ttl fails during new block validation" $ do
         T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
-        assertDoPreBlockFailure $ doNewBlock ctxIO (offset (succ lenientTimeSlop)) (ParentHeader hdr) (Nonce 2) 1
+        assertDoPreBlockFailure $ doNewBlock ctxIO (offset (succ defaultLenientTimeSlop)) (ParentHeader hdr) (Nonce 2) 1
 
 testTxTimeFail2 :: IO Ctx -> TestTree
 testTxTimeFail2 ctxIO =
@@ -180,10 +179,10 @@ modAtTtl f (Seconds t) = mempty
     { mpaGetBlock = \_ validate bh hash ph -> do
         let txTime = toTxCreationTime $ f $ _bct $ _blockCreationTime ph
             tt = TTLSeconds (int t)
-        outtxs <- fmap V.singleton $ buildCwCmd
+        outtxs <- fmap V.singleton $ buildCwCmd testVer
           $ set cbCreationTime txTime
           $ set cbTTL tt
-          $ set cbSigners [mkSigner' sender00 []]
+          $ set cbSigners [mkEd25519Signer' sender00 []]
           $ mkCmd (sshow bh)
           $ mkExec' "1"
 
@@ -281,10 +280,10 @@ withTestPact
     -> (IO Ctx -> TestTree)
     -> TestTree
 withTestPact rdb test =
-  withResource newEmptyMVar (const $ return ()) $ \mempoolVarIO ->
-    withPactTestBlockDb testVer cid Quiet rdb (mempool mempoolVarIO) defaultPactServiceConfig $ \ios ->
+  withResource' newEmptyMVar $ \mempoolVarIO ->
+    withPactTestBlockDb testVer cid rdb (mempool mempoolVarIO) testPactServiceConfig $ \ios ->
       test $ do
-        (pq,bdb) <- ios
+        (_, pq, bdb) <- ios
         mp <- mempoolVarIO
         bhdb <- getBlockHeaderDb cid bdb
         return $ Ctx mp pq (_bdbPayloadDb bdb) bhdb

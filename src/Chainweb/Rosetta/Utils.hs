@@ -16,11 +16,13 @@ import Control.Monad (when)
 import Control.Error.Util
 import Data.Aeson
 import Data.Aeson.Types (Pair)
+import qualified Data.Aeson.KeyMap as KM
+import Data.Bifunctor (first)
 import Data.Foldable (foldl')
 import Data.Decimal ( Decimal, DecimalRaw(Decimal) )
 import Data.Hashable (Hashable(..))
 import Data.List (sortOn, inits)
-import Data.Word (Word64)
+import Data.Word (Word32, Word64)
 import Text.Read (readMaybe)
 import Text.Printf ( printf )
 
@@ -34,9 +36,7 @@ import qualified Data.Text.Encoding as T
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Command as P
-import qualified Pact.Types.Scheme as P
 import qualified Pact.Parse as P
-import qualified Pact.Types.Crypto as P
 import qualified Data.Set as S
 import Data.Maybe ( fromMaybe )
 import qualified Pact.Types.RowData as P
@@ -46,6 +46,7 @@ import Numeric.Natural ( Natural )
 import Pact.Types.Command
 import Pact.Types.PactValue (PactValue(..))
 import Pact.Types.Exp (Literal(..))
+import Pact.JSON.Legacy.Value
 
 import Rosetta
 
@@ -53,8 +54,9 @@ import Rosetta
 
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.BlockHash ( blockHashToText )
-import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.BlockHeader
 import Chainweb.BlockHeight (BlockHeight(..))
+import Chainweb.ChainId
 import Chainweb.Pact.Utils
 import Chainweb.Time
 import Chainweb.Utils ( sshow, int, T2(..) )
@@ -71,7 +73,7 @@ import Chainweb.Version
 --   JSON Object.
 -- NOTE: Rosetta types expect metadata to be `Object`
 class ToObject a where
-  toPairs :: a -> [(T.Text, Value)]
+  toPairs :: a -> [(Key, Value)]
   toObject :: a -> Object
 
 
@@ -84,7 +86,7 @@ instance ToObject OperationMetaData where
   toPairs (OperationMetaData prevOwnership currOwnership) =
     [ "prev-ownership" .= prevOwnership
     , "curr-ownership" .= currOwnership ]
-  toObject opMeta = HM.fromList (toPairs opMeta)
+  toObject opMeta = KM.fromList (toPairs opMeta)
 instance FromJSON OperationMetaData where
   parseJSON = withObject "OperationMetaData" $ \o -> do
     prevOwnership <- o .: "prev-ownership"
@@ -101,7 +103,7 @@ newtype AccountIdMetaData = AccountIdMetaData
 instance ToObject AccountIdMetaData where
   toPairs (AccountIdMetaData currOwnership) =
     [ "current-ownership" .= currOwnership ]
-  toObject acctMeta = HM.fromList (toPairs acctMeta)
+  toObject acctMeta = KM.fromList (toPairs acctMeta)
 instance FromJSON AccountIdMetaData where
   parseJSON = withObject "AccountIdMetaData" $ \o -> do
     currOwnership <- o .: "current-ownership"
@@ -116,7 +118,7 @@ instance ToObject TransactionMetaData where
   toPairs (TransactionMetaData Nothing) = []
   toPairs (TransactionMetaData (Just multi)) =
     [ "multi-step-transaction" .= toObject multi ]
-  toObject txMeta = HM.fromList (toPairs txMeta)
+  toObject txMeta = KM.fromList (toPairs txMeta)
 
 transactionMetaData :: ChainId -> CommandResult a -> TransactionMetaData
 transactionMetaData cid cr = case _crContinuation cr of
@@ -142,14 +144,14 @@ data ContinuationMetaData = ContinuationMetaData
 instance ToObject ContinuationMetaData where
   toPairs (ContinuationMetaData curr next rk total) =
     [ "current-step" .= toObject curr
-    , "first-step-request-key" .= rk
+    , "first-step-request-key" .= toLegacyJsonViaEncode rk
     , "total-steps" .= total ]
     <> omitNextIfMissing
     where
       omitNextIfMissing = case next of
         Nothing -> []
         Just ns -> [ "next-step" .= toObject ns ]
-  toObject contMeta = HM.fromList (toPairs contMeta)
+  toObject contMeta = KM.fromList (toPairs contMeta)
 
 toContMeta :: ChainId -> P.PactExec -> ContinuationMetaData
 toContMeta cid pe = ContinuationMetaData
@@ -176,7 +178,7 @@ instance ToObject ContinuationCurrStep where
     [ "chain-id" .= cid
     , "step-id" .= step
     , "rollback-available" .= rollback ]
-  toObject contCurrStep = HM.fromList (toPairs contCurrStep)
+  toObject contCurrStep = KM.fromList (toPairs contCurrStep)
 
 toContStep :: ChainId -> P.PactExec -> ContinuationCurrStep
 toContStep cid pe = ContinuationCurrStep
@@ -194,7 +196,7 @@ newtype ContinuationNextStep = ContinuationNextStep
 -- TODO: document
 instance ToObject ContinuationNextStep where
   toPairs (ContinuationNextStep cid) = [ "target-chain-id" .= cid ]
-  toObject contNextStep = HM.fromList (toPairs contNextStep)
+  toObject contNextStep = KM.fromList (toPairs contNextStep)
 
 -- | Determines if the continuation has a next step and, if so, provides
 --   the chain id of where this next step will need to occur.
@@ -230,7 +232,7 @@ instance ToObject PreprocessReqMetaData where
     toPairOmitMaybe
     [ "gas_payer" .= payer ]
     [ maybePair "nonce" someNonce ]
-  toObject meta = HM.fromList (toPairs meta)
+  toObject meta = KM.fromList (toPairs meta)
 instance ToJSON PreprocessReqMetaData where
   toJSON = object . toPairs
 instance FromJSON PreprocessReqMetaData where
@@ -262,10 +264,10 @@ instance ToJSON ConstructionTx where
   toJSON (ConstructTransfer from fromGuard to toGuard amt) =
     object [ "tx_type" .= ("transfer" :: T.Text)
            , "sender_account" .= from
-           , "sender_ownership" .= fromGuard
+           , "sender_ownership" .= toLegacyJsonViaEncode fromGuard
            , "receiver_account" .= to
-           , "receiver_ownership" .= toGuard
-           , "transfer_amount" .= amt ]
+           , "receiver_ownership" .= toLegacyJsonViaEncode toGuard
+           , "transfer_amount" .= toLegacyJsonViaEncode amt ]
 instance FromJSON ConstructionTx where
   parseJSON = withObject "ConstructionTx" $ \o -> do
     typ :: T.Text <- o .: "tx_type"
@@ -347,8 +349,8 @@ newtype DeriveRespMetaData = DeriveRespMetaData
   { _deriveRespMetaData_ownership :: P.KeySet }
 instance ToObject DeriveRespMetaData where
   toPairs (DeriveRespMetaData ownership) =
-    [ "ownership" .= ownership ]
-  toObject m = HM.fromList (toPairs m)
+    [ "ownership" .= toLegacyJsonViaEncode ownership ]
+  toObject m = KM.fromList (toPairs m)
 instance FromJSON DeriveRespMetaData where
   parseJSON = withObject "DeriveRespMetaData" $ \o -> do
     ownership <- o .: "ownership"
@@ -367,9 +369,9 @@ instance ToObject PreprocessRespMetaData where
     [ "preprocess_request_metadata" .= reqMeta
     , "tx_info" .= txInfo
     , "suggested_fee" .= fee
-    , "gas_limit" .= gasLimit
-    , "gas_price" .= gasPrice ]
-  toObject m = HM.fromList (toPairs m)
+    , "gas_limit" .= toLegacyJsonViaEncode gasLimit
+    , "gas_price" .= toLegacyJsonViaEncode gasPrice ]
+  toObject m = KM.fromList (toPairs m)
 instance FromJSON PreprocessRespMetaData where
   parseJSON = withObject "PreprocessRespMetaData" $ \o -> do
     reqMeta <- o .: "preprocess_request_metadata"
@@ -433,7 +435,7 @@ getSuggestedFee tx someMaxFees someMult = do
     -- - https://explorer.chainweb.com/mainnet/txdetail/EUiZfeHHeisKMP2uHpzyAcMOIqZJVsJB6sT_ABpBUsQ
     -- - https://explorer.chainweb.com/mainnet/txdetail/-cb0Pz6rKb1NVhAFQ_Bcz2V2dGPjTmIiVBl-gXMLGRQ
     -- - https://explorer.chainweb.com/mainnet/txdetail/2riuW2nBmbN2dzmyAh5b2lUns5SPARb44-QN_EKzzmk
-    defGasUnitsTransferCreate = 1000
+    defGasUnitsTransferCreate = 4000
 
     -- See Chainweb.Chainweb.Configuration for latest min gas
     minGasPrice = Decimal 8 1
@@ -563,21 +565,16 @@ rosettaPubKeyTokAccount (RosettaPublicKey pubKey curve) = do
 
 toPactPubKeyAddr
     :: T.Text
-    -> P.PPKScheme
     -> Either RosettaError T.Text
-toPactPubKeyAddr pk sk = do
-  let scheme = P.toScheme sk
+toPactPubKeyAddr pk = do
   bs <- toRosettaError RosettaInvalidPublicKey $! P.parseB16TextOnly pk
-  addrBS <- toRosettaError RosettaInvalidPublicKey $!
-            P.formatPublicKeyBS scheme (P.PubBS bs)
-  pure $! P.toB16Text addrBS
+  pure $! P.toB16Text bs
 
 
 signerToAddr :: Signer -> Either RosettaError T.Text
-signerToAddr (Signer someScheme pk someAddr _) = do
-  let sk = fromMaybe P.ED25519 someScheme
-      addr = fromMaybe pk someAddr
-  toPactPubKeyAddr addr sk
+signerToAddr (Signer _ pk someAddr _) = do
+  let addr = fromMaybe pk someAddr
+  toPactPubKeyAddr addr
 
 
 getScheme :: CurveType -> Either RosettaError P.PPKScheme
@@ -615,12 +612,12 @@ data PayloadsMetaData = PayloadsMetaData
   } deriving (Show)
 instance ToObject PayloadsMetaData where
   toPairs (PayloadsMetaData signers nonce pm tx) =
-    [ "signers" .= signers
+    [ "signers" .= fmap (first toLegacyJsonViaEncode) signers
     , "nonce" .= nonce
-    , "public_meta" .= pm
+    , "public_meta" .= toLegacyJsonViaEncode pm
     , "tx" .= tx
     ]
-  toObject m = HM.fromList (toPairs m)
+  toObject m = KM.fromList (toPairs m)
 instance FromJSON PayloadsMetaData where
   parseJSON = withObject "PayloadsMetaData" $ \o -> do
     signers <- o .: "signers"
@@ -642,7 +639,7 @@ data EnrichedCommand = EnrichedCommand
   } deriving (Show)
 instance ToJSON EnrichedCommand where
   toJSON (EnrichedCommand cmd tx accts) = object
-    [ "cmd" .= cmd
+    [ "cmd" .= toLegacyJsonViaEncode cmd
     , "tx_info" .= tx
     , "signer_accounts" .= accts ]
 instance FromJSON EnrichedCommand where
@@ -669,13 +666,13 @@ transferCreateCode from (to, toGuard) amt =
             "(coin.transfer-create %s %s (read-keyset %s) (read-decimal %s))"
             (acctTostr from) (acctTostr to) (show guardName) (show amountName)
       rdata = object
-            [ guardName .= toGuard
-            , amountName .= amt ]
+            [ guardName .= toLegacyJsonViaEncode toGuard
+            , amountName .= toLegacyJsonViaEncode amt ]
   in (code, rdata)
   where
     acctTostr = show . T.unpack . _accountId_address
-    amountName :: T.Text = "amount"
-    guardName :: T.Text = "ks"
+    amountName = "amount"
+    guardName = "ks"
 
 constructionTxToPactRPC
     :: ConstructionTx
@@ -684,7 +681,7 @@ constructionTxToPactRPC txInfo =
   case txInfo of
     ConstructTransfer from _ to toGuard amt ->
       let (code, rdata) = transferCreateCode from (to, toGuard) amt
-      in P.Exec $ P.ExecMsg code rdata
+      in P.Exec $ P.ExecMsg code (toLegacyJson rdata)
 
 
 -- | Creates an enriched Command that consists of an
@@ -700,7 +697,7 @@ createUnsignedCmd v meta = do
     PayloadsMetaData signers nonce pubMeta txInfo = meta
     signerAccts = map snd signers
     pactSigners = map fst signers
-    networkId = Just $ P.NetworkId $! chainwebVersionToText v
+    networkId = Just $! P.NetworkId $! getChainwebVersionName $ _versionName v
     pactRPC = constructionTxToPactRPC txInfo
 
 
@@ -722,7 +719,8 @@ createSigningPayloads (EnrichedCommand cmd _ _) = map f
 
     toRosettaSigType Nothing = Just RosettaEd25519
     toRosettaSigType (Just P.ED25519) = Just RosettaEd25519
-    toRosettaSigType (Just P.ETH) = Just RosettaEcdsa -- TODO: unsupport this
+    toRosettaSigType (Just P.WebAuthn) = Nothing
+    -- TODO: Linda Ortega (09/18/2023) -- Returning `Nothing` to discourage using WebAuthn for Rosetta. `sigToScheme` will eventually throw an error.
 
 --------------------------------------------------------------------------------
 -- /parse
@@ -730,8 +728,8 @@ createSigningPayloads (EnrichedCommand cmd _ _) = map f
 txToOps :: ConstructionTx -> [Operation]
 txToOps txInfo = case txInfo of
   ConstructTransfer from fromGuard to toGuard (P.ParsedDecimal amt) ->
-    [ op (_accountId_address from) (negate amt) fromGuard 0
-    , op (_accountId_address to) amt toGuard 1
+    [ op (_accountId_address from) (negate amt) (toLegacyJsonViaEncode fromGuard) 0
+    , op (_accountId_address to) amt (toLegacyJsonViaEncode toGuard) 1
     ]
 
   where
@@ -764,6 +762,8 @@ getCmdPayload (Command p _ _) =
     (decodeStrict' $! T.encodeUtf8 p)
 
 
+-- TODO: This assumes Rosettas signatures are all Ed25519 signatures
+-- (Not webauthn).
 matchSigs
     :: [RosettaSignature]
     -> [Signer]
@@ -784,15 +784,14 @@ matchSigs sigs signers = do
             $ HM.lookup addr m
 
     sigAndAddr (RosettaSignature _ (RosettaPublicKey pk ct) sigTyp sig) = do
-      _ <- toRosettaError RosettaInvalidSignature $! P.parseB16TextOnly sig
       sigScheme <- sigToScheme sigTyp
       pkScheme <- getScheme ct
       when (sigScheme /= pkScheme)
         (Left $ stringRosettaError RosettaInvalidSignature $
          "Expected the same Signature and PublicKey type for Signature=" ++ show sig)
 
-      let userSig = P.UserSig sig
-      addr <- toPactPubKeyAddr pk pkScheme
+      let userSig = P.ED25519Sig sig
+      addr <- toPactPubKeyAddr pk
       pure (addr, userSig)
 
 --------------------------------------------------------------------------------
@@ -850,15 +849,15 @@ parentBlockId bh
   where
     bHeight = _blockHeight bh
     cid = _blockChainId bh
-    v = _blockChainwebVersion bh
+    v = _chainwebVersion bh
     parent = BlockId
-      { _blockId_index = _height (pred $ _blockHeight bh)
+      { _blockId_index = getBlockHeight (pred $ _blockHeight bh)
       , _blockId_hash = blockHashToText (_blockParent bh)
       }
 
 blockId :: BlockHeader -> BlockId
 blockId bh = BlockId
-  { _blockId_index = _height (_blockHeight bh)
+  { _blockId_index = getBlockHeight (_blockHeight bh)
   , _blockId_hash = blockHashToText (_blockHash bh)
   }
 
@@ -1151,24 +1150,24 @@ rosettaError' f = rosettaError f Nothing
 
 stringRosettaError :: RosettaFailure -> String -> RosettaError
 stringRosettaError e msg = rosettaError e $ Just $
-  HM.fromList ["error_message" .= msg ]
+  KM.fromList ["error_message" .= msg ]
 
 --------------------------------------------------------------------------------
 -- Misc Helper Functions --
 --------------------------------------------------------------------------------
 
-maybePair :: (ToJSON a) => T.Text -> Maybe a -> (T.Text, Maybe Value)
+maybePair :: (ToJSON a) => Key -> Maybe a -> (Key, Maybe Value)
 maybePair name Nothing = (name, Nothing)
 maybePair name (Just v) = (name, Just (toJSON v))
 
-toPairOmitMaybe :: [Pair] -> [(T.Text, Maybe Value)] -> [Pair]
+toPairOmitMaybe :: [Pair] -> [(Key, Maybe Value)] -> [Pair]
 toPairOmitMaybe defPairs li = allPairs
   where
     allPairs = foldl' f defPairs li
     f acc (_, Nothing) = acc
     f acc (t, Just p) = acc ++ [t .= p]
 
-toJSONOmitMaybe :: [Pair] -> [(T.Text, Maybe Value)] -> Value
+toJSONOmitMaybe :: [Pair] -> [(Key, Maybe Value)] -> Value
 toJSONOmitMaybe defPairs li = object $ toPairOmitMaybe defPairs li
 
 toRosettaError
@@ -1204,7 +1203,7 @@ extractMetaData = toRosettaError RosettaUnparsableMetaData
 --
 readChainIdText :: ChainwebVersion -> T.Text -> Maybe ChainId
 readChainIdText v c = do
-  cid <- readMaybe @Word (T.unpack c)
+  cid <- readMaybe @Word32 (T.unpack c)
   mkChainId v maxBound cid
 
 -- TODO: document
@@ -1232,10 +1231,9 @@ rowDataToAccountLog (currKey, currBal, currGuard) prev = do
         }
 
 -- | Parse TxLog Value into fungible asset account columns
-txLogToAccountRow :: P.TxLog Value -> Maybe AccountRow
-txLogToAccountRow (P.TxLog _ key obj) = do
-  P.RowData _ (P.ObjectMap row) :: P.RowData <- (hushResult . fromJSON) obj
-  guard :: Value <- toJSON . P.rowDataToPactValue <$> M.lookup "guard" row
+txLogToAccountRow :: P.TxLog P.RowData -> Maybe AccountRow
+txLogToAccountRow (P.TxLog _ key (P.RowData _ (P.ObjectMap row))) = do
+  LegacyValue guard <- toLegacyJsonViaEncode . P.rowDataToPactValue <$> M.lookup "guard" row
   case M.lookup "balance" row of
     Just (P.RDLiteral (LDecimal bal)) -> pure (key, bal, guard)
     _ -> Nothing

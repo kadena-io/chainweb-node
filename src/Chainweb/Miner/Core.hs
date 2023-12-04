@@ -20,19 +20,16 @@ module Chainweb.Miner.Core
   , TargetBytes(..)
   , ChainBytes(..)
   , WorkBytes(..)
-  , usePowHash
   , mine
   ) where
 
 import Control.Monad
 
-import Crypto.Hash.Algorithms (Blake2s_256)
 import Crypto.Hash.IO
 
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Short as BS
-import Data.Proxy (Proxy(..))
 import Data.Word (Word64, Word8)
 
 import Foreign.Marshal.Alloc (allocaBytes)
@@ -49,7 +46,6 @@ import Chainweb.Difficulty
 import Chainweb.Time hiding (second)
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
-import Chainweb.Version (ChainwebVersion(..))
 
 ---
 
@@ -75,18 +71,6 @@ newtype TargetBytes = TargetBytes { _targetBytes :: B.ByteString }
 newtype ChainBytes = ChainBytes { _chainBytes :: B.ByteString }
     deriving stock (Eq, Show)
     deriving newtype (MimeRender OctetStream, MimeUnrender OctetStream)
-
--- | Select a hashing algorithm.
---
-usePowHash :: ChainwebVersion -> (forall a. HashAlgorithm a => Proxy a -> f) -> f
-usePowHash Test{} f = f $ Proxy @Blake2s_256
-usePowHash TimedConsensus{} f = f $ Proxy @Blake2s_256
-usePowHash PowConsensus{} f = f $ Proxy @Blake2s_256
-usePowHash TimedCPM{} f = f $ Proxy @Blake2s_256
-usePowHash FastTimedCPM{} f = f $ Proxy @Blake2s_256
-usePowHash Development f = f $ Proxy @Blake2s_256
-usePowHash Testnet04 f = f $ Proxy @Blake2s_256
-usePowHash Mainnet01 f = f $ Proxy @Blake2s_256
 
 -- -------------------------------------------------------------------------- --
 -- CPU Mining

@@ -11,6 +11,8 @@ module Chainweb.Transaction
   ( ChainwebTransaction
   , HashableTrans(..)
   , PayloadWithText
+  , PactParserVersion(..)
+  , IsWebAuthnPrefixLegal(..)
   , chainwebPayloadCodec
   , encodePayload
   , decodePayload
@@ -31,7 +33,6 @@ import Control.Lens
 import qualified Data.Aeson as Aeson
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
-import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SB
 import Data.Hashable
 import Data.Text (Text)
@@ -44,11 +45,11 @@ import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import Pact.Types.Hash
+import qualified Pact.JSON.Encode as J
+import Pact.JSON.Legacy.Value
 
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
-import Chainweb.Version
-import Chainweb.BlockHeight
 
 -- | A product type representing a `Payload PublicMeta ParsedCode` coupled with
 -- the Text that generated it, to make gossiping easier.
@@ -60,28 +61,35 @@ data PayloadWithText = PayloadWithText
     deriving (Show, Eq, Generic)
     deriving anyclass (NFData)
 
-
 payloadBytes :: PayloadWithText -> SB.ShortByteString
 payloadBytes = _payloadBytes
 
 payloadObj :: PayloadWithText -> Payload PublicMeta ParsedCode
 payloadObj = _payloadObj
 
-
-mkPayloadWithText :: Command ByteString -> Payload PublicMeta ParsedCode -> PayloadWithText
-mkPayloadWithText cmd p = PayloadWithText
-    { _payloadBytes = SB.toShort $ _cmdPayload cmd
+mkPayloadWithText :: Command (ByteString, Payload PublicMeta ParsedCode) -> Command PayloadWithText
+mkPayloadWithText = over cmdPayload $ \(bs, p) -> PayloadWithText
+    { _payloadBytes = SB.toShort bs
     , _payloadObj = p
     }
 
 mkPayloadWithTextOld :: Payload PublicMeta ParsedCode -> PayloadWithText
 mkPayloadWithTextOld p = PayloadWithText
-    { _payloadBytes = SB.toShort $ BL.toStrict $ Aeson.encode $ fmap _pcCode p
+    { _payloadBytes = SB.toShort $ J.encodeStrict $ toLegacyJsonViaEncode $ fmap _pcCode p
     , _payloadObj = p
     }
 
-
 type ChainwebTransaction = Command PayloadWithText
+
+data PactParserVersion
+    = PactParserGenesis
+    | PactParserChainweb213
+    deriving (Eq, Ord, Bounded, Show, Enum)
+
+data IsWebAuthnPrefixLegal
+    = WebAuthnPrefixIllegal
+    | WebAuthnPrefixLegal
+    deriving (Eq, Ord, Bounded, Show, Enum)
 
 -- | Hashable newtype of ChainwebTransaction
 newtype HashableTrans a = HashableTrans { unHashable :: Command a }
@@ -96,38 +104,37 @@ instance Hashable (HashableTrans PayloadWithText) where
     {-# INLINE hashWithSalt #-}
 
 -- | A codec for (Command PayloadWithText) transactions.
+--
 chainwebPayloadCodec
-    :: Maybe (ChainwebVersion, BlockHeight)
+    :: PactParserVersion
     -> Codec (Command PayloadWithText)
-chainwebPayloadCodec chainCtx = Codec enc dec
+chainwebPayloadCodec ppv = Codec enc dec
   where
-    enc c = encodeToByteString $ fmap (decodeUtf8 . encodePayload) c
+    enc c = J.encodeStrict $ fmap (decodeUtf8 . encodePayload) c
     dec bs = case Aeson.decodeStrict' bs of
-               Just cmd -> traverse (decodePayload chainCtx . encodeUtf8) cmd
+               Just cmd -> traverse (decodePayload ppv . encodeUtf8) cmd
                Nothing -> Left "decode PayloadWithText failed"
 
 encodePayload :: PayloadWithText -> ByteString
 encodePayload = SB.fromShort . _payloadBytes
 
 decodePayload
-    :: Maybe (ChainwebVersion, BlockHeight)
+    :: PactParserVersion
     -> ByteString
     -> Either String PayloadWithText
-decodePayload chainCtx bs = case Aeson.decodeStrict' bs of
+decodePayload ppv bs = case Aeson.decodeStrict' bs of
     Just payload -> do
-        p <- traverse (parsePact chainCtx) payload
+        p <- traverse (parsePact ppv) payload
         return $! PayloadWithText (SB.toShort bs) p
     Nothing -> Left "decoding Payload failed"
 
 parsePact
-    :: Maybe (ChainwebVersion, BlockHeight)
+    :: PactParserVersion
         -- ^ If the chain context is @Nothing@, latest parser version is used.
     -> Text
     -> Either String ParsedCode
-parsePact Nothing code = P.parsePact code
-parsePact (Just (v, h)) code
-    | chainweb213Pact v h = P.parsePact code
-    | otherwise = P.legacyParsePact code
+parsePact PactParserChainweb213 = P.parsePact
+parsePact PactParserGenesis = P.legacyParsePact
 
 -- | Access the gas limit/supply of a public chain command payload
 cmdGasLimit :: Lens' (Command (Payload PublicMeta c)) GasLimit

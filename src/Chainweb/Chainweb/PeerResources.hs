@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -60,7 +61,6 @@ import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket)
-import Network.Wai.Handler.Warp (Settings, defaultSettings, setHost, setPort)
 
 import Prelude hiding (log)
 
@@ -154,12 +154,6 @@ withPeerResources v conf logger inner = withPeerSocket conf $ \(conf', sock) -> 
 
                 inner logger' (PeerResources conf'' peer sock localDb mgr logger')
 
-peerServerSettings :: Peer -> Settings
-peerServerSettings peer
-    = setPort (int . _hostAddressPort . _peerAddr $ _peerInfo peer)
-    . setHost (_peerInterface peer)
-    $ defaultSettings
-
 -- | Setup the local hostname.
 --
 -- If the configured hostname is "0.0.0.0" (i.e. 'anyIpv4'), the hostname is
@@ -213,7 +207,7 @@ getHost
     -> IO (Either T.Text Hostname)
 getHost mgr ver logger peers = do
     nis <- forConcurrently peers $ \p ->
-        tryAllSynchronous (requestRemoteNodeInfo mgr ver (_peerAddr p) Nothing) >>= \case
+        tryAllSynchronous (requestRemoteNodeInfo mgr (_versionName ver) (_peerAddr p) Nothing) >>= \case
             Right x -> Just x <$ do
                 logFunctionText logger Info
                     $ "got remote info from " <> toText (_peerAddr p)
@@ -244,7 +238,7 @@ withPeerSocket conf act = withSocket port interface $ \(p, s) ->
 -- Run PeerDb for a Chainweb Version
 
 startPeerDb_ :: ChainwebVersion -> P2pConfiguration -> IO PeerDb
-startPeerDb_ v = startPeerDb nids
+startPeerDb_ v = startPeerDb v nids
   where
     nids = HS.singleton CutNetwork
         `HS.union` HS.map MempoolNetwork cids
@@ -270,7 +264,23 @@ newManagerCounter = ManagerCounter
     <*> newCounter
     -- <*> newCounterMap
 
--- Connection Manager
+-- | Timeout connection-attempts to estabilished peers in the P2P network.
+--
+-- This timeout can be overwritten on a per-request base.
+--
+p2pResponseTimeout :: HTTP.ResponseTimeout
+p2pResponseTimeout = HTTP.responseTimeoutMicro 3_000_000
+
+-- Default Connection Manager for P2P Connections.
+--
+-- This manager uses the P2P peer database to validate server certificates.
+--
+-- This manager is used for all P2P requests except for
+--
+-- - requests for checking reachability of new peers which are not yet in the
+--   peer db (cf. newPeerManager in src/P2P/Node.hs) and
+-- - requests by the logging backend (cf. withNodeLogger in
+--   node/ChainwebNode.hs).
 --
 connectionManager :: PeerDb -> IO (HTTP.Manager, ManagerCounter)
 connectionManager peerDb = do
@@ -280,8 +290,7 @@ connectionManager peerDb = do
     let settings' = settings
             { HTTP.managerConnCount = 5
                 -- keep only 5 connections alive
-            , HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro 5000000
-                -- timeout connection-attempts after 10 sec instead of the default of 30 sec
+            , HTTP.managerResponseTimeout = p2pResponseTimeout
             , HTTP.managerIdleConnectionCount = 512
                 -- total number of connections to keep alive. 512 is the default
             }
@@ -296,11 +305,6 @@ connectionManager peerDb = do
             inc (_mgrCounterRequests counter)
             -- incKey urlStats (sshow $ HTTP.getUri req)
             HTTP.managerModifyRequest settings req
-                { HTTP.responseTimeout = HTTP.responseTimeoutMicro 5000000
-                    -- overwrite the explicit connection timeout from servant-client
-                    -- (If the request has a timeout configured, the global timeout of
-                    -- the manager is ignored)
-                }
         }
     return (mgr, counter)
   where
@@ -326,7 +330,7 @@ withConnectionLogger logger counter inner =
     withAsyncWithUnmask (\u -> runLogClientConnections u) $ const inner
   where
     logClientConnections = forever $ do
-        approximateThreadDelay 60000000 {- 1 minute -}
+        approximateThreadDelay 60_000_000 {- 1 minute -}
         logFunctionCounter logger Info =<< sequence
             [ roll (_mgrCounterConnections counter)
             , roll (_mgrCounterRequests counter)

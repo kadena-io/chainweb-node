@@ -444,7 +444,7 @@ crumbsToChain db srcCid trgHeader
     | (int (_blockHeight trgHeader) + 1) < length path = return Nothing
     | otherwise = Just <$> go trgHeader path []
   where
-    graph = chainGraphAt_ db (_blockHeight trgHeader)
+    graph = chainGraphAt db (_blockHeight trgHeader)
     path = shortestPath (_chainId trgHeader) srcCid graph
 
     go
@@ -492,8 +492,8 @@ minimumTrgHeader headerDb tcid scid bh = do
             -- This assumes that graph changes are at least graph-diameter
             -- blocks appart.
 
-    srcGraph = chainGraphAt_ headerDb bh
+    srcGraph = chainGraphAt headerDb bh
     srcDistance = length $ shortestPath tcid scid srcGraph
-    trgGraph = chainGraphAt_ headerDb (bh + int srcDistance)
+    trgGraph = chainGraphAt headerDb (bh + int srcDistance)
     trgDistance = length $ shortestPath tcid scid trgGraph
 

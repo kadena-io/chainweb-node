@@ -4,6 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 -- |
 -- Module: Chainweb.TreeDB.RemoteDB
@@ -40,11 +41,10 @@ import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeaderDB.RestAPI.Client
-import Chainweb.ChainId (ChainId)
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Paging
-import Chainweb.Version (ChainwebVersion)
+import Chainweb.Version
 
 import Data.LogMessage
 
@@ -65,10 +65,10 @@ instance TreeDb RemoteDb where
 
     -- If other default functions rely on this, it could be quite inefficient.
     lookup (RemoteDb env alog ver cid) k =
-        (fmap.fmap) resultHeader $ hush <$> runClientM client env
+        hush <$> runClientM client env
       where
         client = logServantError alog "failed to query tree db entry"
-            $ headerClient ver cid False k
+            $ headerClient ver cid k
 
     keys (RemoteDb env alog ver cid) next limit minr maxr f
         = f $ callAndPage client next 0 env
@@ -82,7 +82,7 @@ instance TreeDb RemoteDb where
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
         client nxt = logServantError alog "failed to query tree db entries"
-            $ (fmap.fmap) resultHeader $ headersClient ver cid limit nxt minr maxr False
+            $ headersClient ver cid limit nxt minr maxr
 
     branchKeys (RemoteDb env alog ver cid) next limit minr maxr lower upper f
         = f $ callAndPage client next 0 env
@@ -96,7 +96,7 @@ instance TreeDb RemoteDb where
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
         client nxt = logServantError alog "failed to query remote branch entries"
-            $ (fmap.fmap) resultHeader $ branchHeadersClient ver cid limit nxt minr maxr False (BranchBounds lower upper)
+            $ branchHeadersClient ver cid limit nxt minr maxr (BranchBounds lower upper)
 
     -- We could either use the cut or create a new API
     -- maxEntry (RemoteDb env alog ver cid) e =
@@ -139,4 +139,4 @@ remoteDb
     -> IO RemoteDb
 remoteDb db logg env = do
     h <- root db
-    pure $! RemoteDb env (ALogFunction logg) (_blockChainwebVersion h) (_blockChainId h)
+    pure $! RemoteDb env (ALogFunction logg) (_chainwebVersion h) (_blockChainId h)

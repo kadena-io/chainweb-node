@@ -14,24 +14,24 @@ module Chainweb.Test.Pact.NoCoinbase
 ( tests
 ) where
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.Command
 import Pact.Types.Hash
 
+import Test.Tasty
 import Test.Tasty.HUnit
 
 -- internal modules
 
 import Chainweb.Pact.NoCoinbase
 import Chainweb.Payload
-import Chainweb.Utils
-import Chainweb.Test.Utils
 
-tests :: ScheduledTest
-tests = ScheduledTest "Chainweb.Test.Pact.NoCoinbase" $
-    testCase "noCoinbaseOutput is consistent" test_noCoinbase
+tests :: TestTree
+tests = testGroup "Chainweb.Test.Pact.NoCoinbase"
+    [testCase "noCoinbaseOutput is consistent" test_noCoinbase]
 
 test_noCoinbase :: Assertion
 test_noCoinbase =
     noCoinbaseOutput
     @=?
-    CoinbaseOutput (encodeToByteString (noCoinbase :: CommandResult Hash))
+    CoinbaseOutput (J.encodeStrict (noCoinbase :: CommandResult Hash))

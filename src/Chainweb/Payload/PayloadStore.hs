@@ -12,6 +12,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- |
@@ -81,8 +82,9 @@ import GHC.Generics
 
 -- internal modules
 
-import Chainweb.BlockHeader.Genesis (genesisBlockPayload)
+import Chainweb.BlockHeader(genesisHeight)
 import Chainweb.BlockHeight
+import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
@@ -236,7 +238,7 @@ initializePayloadDb
 initializePayloadDb v db = traverse_ initForChain $ chainIds v
   where
     initForChain cid =
-        addNewPayload db (genesisHeight v cid) $ genesisBlockPayload v cid
+        addNewPayload db (genesisHeight v cid) $ v ^?! versionGenesis . genesisBlockPayload . onChain cid
 
 -- -------------------------------------------------------------------------- --
 -- Insert new Payload
@@ -288,7 +290,7 @@ addNewPayload db height s = addPayload db height txs txTree outs outTree
 -- of insertion and deletions.
 --
 instance
-    (pk ~ CasKeyType (PayloadWithOutputs_ a), CanReadablePayloadCas_ a tbl) =>
+    (pk ~ CasKeyType (PayloadWithOutputs_ a), CanReadablePayloadCas_ a tbl, MerkleHashAlgorithm a) =>
     ReadableTable (PayloadDb_ a tbl) pk (BlockHeight, PayloadWithOutputs_ a) where
     tableLookup db k = runMaybeT $ do
         h <- MaybeT $ tableLookup
@@ -298,7 +300,7 @@ instance
         return (h, p)
     {-# INLINE tableLookup #-}
 
-lookupPayloadWithHeight :: CanReadablePayloadCas_ a tbl => PayloadDb_ a tbl -> BlockHeight -> BlockPayloadHash_ a -> IO (Maybe (PayloadWithOutputs_ a))
+lookupPayloadWithHeight :: (MerkleHashAlgorithm a, CanReadablePayloadCas_ a tbl) => PayloadDb_ a tbl -> BlockHeight -> BlockPayloadHash_ a -> IO (Maybe (PayloadWithOutputs_ a))
 lookupPayloadWithHeight db h k = runMaybeT $ do
     pd <- MaybeT $ tableLookup
         (_transactionDbBlockPayloads $ _transactionDb db)
@@ -311,14 +313,13 @@ lookupPayloadWithHeight db h k = runMaybeT $ do
     outs <- MaybeT $ tableLookup
         (_payloadCacheBlockOutputs $ _payloadCache db)
         outsHash
-    return PayloadWithOutputs
-        { _payloadWithOutputsTransactions = V.zip (_blockTransactions txs) (_blockOutputs outs)
-        , _payloadWithOutputsMiner = _blockMinerData txs
-        , _payloadWithOutputsCoinbase = _blockCoinbaseOutput outs
-        , _payloadWithOutputsPayloadHash = k
-        , _payloadWithOutputsTransactionsHash = txsHash
-        , _payloadWithOutputsOutputsHash = outsHash
-        }
+    return $ unsafePayloadWithOutputs
+        (V.zip (_blockTransactions txs) (_blockOutputs outs))
+        (_blockMinerData txs)
+        (_blockCoinbaseOutput outs)
+        k
+        txsHash
+        outsHash
 
 -- | Combine all Payload related stores into a single content addressed
 -- store. We want the invariant that if a key is present in the store also all

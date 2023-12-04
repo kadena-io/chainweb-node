@@ -16,7 +16,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeInType #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -128,7 +127,7 @@ decodeBlockHash = BlockHash <$!> decodeMerkleLogHash
 
 instance ToJSON (BlockHash_ a) where
     toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
-    toEncoding = toEncoding . encodeB64UrlNoPaddingText . runPutS . encodeBlockHash
+    toEncoding = b64UrlNoPaddingTextEncoding . runPutS . encodeBlockHash
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 

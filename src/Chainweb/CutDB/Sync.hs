@@ -72,8 +72,16 @@ getCut (CutClientEnv v env) h = runClientThrowM (cutGetClientLimit v (int h)) en
 -- -------------------------------------------------------------------------- --
 -- Sync Session
 
+-- | 10 blocks per chain
+--
+-- NOTE: This number MUST be STRICTLY LARGER THAN the number of chains. It is
+-- recommended that it is at least 2 times the number of chains.
+--
+-- This number MUST BE STRICTLY SMALLER than 'Chainweb.CutDB.farAheadThreshold'
+-- times the number of chains.
+--
 catchupStepSize :: CutHeight
-catchupStepSize = 1000
+catchupStepSize = 100
 
 syncSession
     :: ChainwebVersion

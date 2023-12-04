@@ -1,5 +1,187 @@
 # `chainweb-node` Changelog
 
+## 2.22 (2023-11-24)
+This version replaces all previous versions. Any prior version will stop working
+on **2023-12-13T:00:00Z**. Node administrators must upgrade to this version before
+that date.
+
+This version will expire on **2023-03-06T:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+* Updated to Pact 4.10 (numerous, see [Pact
+  changelog](https://github.com/kadena-io/pact/releases/tag/v4.10))
+* Node support for webauthn signers, scoped signatures, and webauthn keyset formats in Pact (#1779)
+* Block endpoint added to Service API (#1720)
+* Fix batch /polling so that it no longer omits results (#1775)
+* Add block header to validation failure message (#1752)
+* Halt block fill algorithm constructively if we exceeded the tx fetch limit (#1762)
+* Be more careful not to write the results of invalid blocks to the pact state (#1740)
+* Fix Mac M2 compatibility with older blocks (#1782)
+
+Internal Changes:
+* Support aeson-2.2 (#1750)
+* Fix benchmarks for block creation and validation (#1767)
+
+## 2.21 (2023-10-05)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2023-10-19T00:00:00Z**. Node administrators must upgrade to this version before
+that date.
+
+This version will expire on **2023-12-13T:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+* Support for WebAuthN signatures in Pact keyset guards. (#1729, see [https://github.com/kadena-io/pact](Pact) #1139)
+* Updated to Pact 4.9. (numerous, see [Pact
+  changelog](https://github.com/kadena-io/pact/releases/tag/v4.9))
+
+Internal Changes:
+* Updated from tls package version 1.7.1 to 1.9. (#1734)
+* Updated from base64-bytestring package version 1.0.0.3 to 1.2.1.0. (#1729)
+
+## 2.20 (2023-08-28)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2023-09-07T00:00:00Z**. Node administrators must upgrade to this version before
+that date.
+
+This version will expire on **2023-10-19T00:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+* A new chainwebVersion called fast-development, intended for use by Pact
+  developers. See #1627 for more details.
+* Updated to Pact 4.8. (numerous, see [Pact
+  changelog](https://github.com/kadena-io/pact/releases/tag/v4.8))
+* Fixed an issue where /local calls that rewind to a previous block could have
+  the wrong behavior or gas usage if rewinding crosses fork boundaries. (#1700)
+
+Internal Changes:
+* Updated from GHC 8.10.7 to GHC 9.6.2. (#1565)
+* PactService now emits significantly more structured logs. (#1699)
+
+## 2.19.2 (2023-07-17)
+
+**NOTE: THIS VERSION SUPERSEDES 2.19.1. PLEASE UPDATE AS SOON AS POSSIBLE.**
+
+This version replaces all previous versions.
+
+This version will expire on 2023-09-07.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+*   Add rewind support to /poll and /local. (#1653, #1686)
+*   Add some leniency to mempool creation time checks. (#1255)
+*   Return metadata from /local with preflight set to true. (#1612)
+*   Optimize new block creation. (#1691)
+
+## 2.19.1 (2023-05-22)
+
+**NOTE: THIS VERSION SUPERSEDES 2.19. PLEASE UPDATE AS SOON AS POSSIBLE.**
+
+This version replaces all previous versions. Node administrators must upgrade to
+this version before 2023-06-01T00:00:00Z.
+
+This version will expire on 2023-09-07.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+*   Disable user function return value typechecking (#1661)
+*   Add typechecking option to tx-sim. (#1656)
+
+## 2.19 (2023-05-17)
+
+**NOTE: THIS VERSION IS OBSOLETE. IT IS REPLACED BY 2.19.1. PLEASE UPDATE AS SOON
+AS POSSIBLE.**
+
+This version replaces all previous versions. Any prior version will stop working
+on 2023-06-01T00:00:00Z. Node administrators must upgrade to this version before
+that date.
+
+This version will expire on 2023-09-07.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+*   Support for Pact 4.7 (#1649, #1645, #1633, #1639):
+    *   Pact errors are now displayed to users of the Pact /poll endpoint. Some
+        Pact errors have changed and been made shorter.
+
+Bug fixes:
+
+*   API endpoints now more strictly comply to the API specification at
+    api.chainweb.com. (#1434)
+*   A small memory leak has been fixed. (#1635)
+
+## 2.18.1 (2023-03-06)
+
+This is a feature and bug-fix release. Upgrading is optional but recommended.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+All 2.18.* versions will expire on **2023-06-01T00:00:00Z**.
+
+[Changes](https://github.com/kadena-io/chainweb-node/compare/2.18...2.18.1):
+
+Performance Improvements:
+
+*   Optimize JSON+base64 encoding. (#1611)
+*   Use `application/octet-stream` encoding for P2P header queries. (#1619)
+
+Miscellaneous:
+
+*   Remove unused rate limiting configuration settings. (#1616)
+*   Remove CORS support from the P2P API. (#1616)
+*   Remove unused hashes and SPV endpoints from the P2P API. (#1616)
+*   Tighten default P2P rate limits. (#1616)
+*   Add dedicated rate limiter for Mempool requests. (#1616)
+*   Disable unused `application/json;blockheader-encoding=object` in responses
+    from the P2P API. (#1619)
+
+## 2.18 (2023-03-01)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2023-03-02T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will expire on **2023-06-01T00:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the
+node.
+
+[Changes](https://github.com/kadena-io/chainweb-node/compare/2.17.2...2.18):
+
+*   New /local endpoint preflight simulation API. (#1585, #1600)
+*   Support for Pact 4.6: (#1602)
+    *    New ZK native function support.
+    *    Better gas estimation.
+*   Warning deprecation system support in /local:
+    *    Allows the node to provide warnings for upcoming feature deprecations in Pact.
+    *    The same warnings are generated by the repl in Pact 4.6.
+*   Internal changes to support future chain database schema changes.
+*   Remove libtbb as a dependency.
+
+Bug fixes:
+
+*   Filter Module Cache for just `coin` contract. (#1548)
+*   Prevent table name clashes in module. (#1556)
+*   Full chain replay is now possible on Intel Mac & Linux, and M1 Mac.
+When upgrading directly from chainweb-node version 2.17, please, also take a look at the changes in versions 2.17.1 and 2.17.2 below.
+
 ## 2.17.2 (2022-12-22)
 
 This is a feature and bug-fix release. Upgrading is optional but recommended.

@@ -146,8 +146,6 @@ import Network.TLS.Extra (ciphersuite_default)
 import Network.Wai.Handler.WarpTLS as WARP
     (TLSSettings(..), tlsSettingsChainMemory, tlsSettingsMemory)
 
-import Numeric.Natural (Natural)
-
 import System.Hourglass (dateCurrent)
 import System.X509 (getSystemCertificateStore)
 
@@ -725,7 +723,7 @@ certificateCache query = ValidationCache queryCallback (\_ _ _ -> return ())
 isCertificateMismatchException :: HttpException -> Bool
 isCertificateMismatchException (HttpExceptionRequest _ (InternalException e)) =
     case fromException e of
-        Just (HandshakeFailed (Error_Protocol (_msg, _, CertificateUnknown))) -> True
+        Just (HandshakeFailed (Error_Protocol _msg CertificateUnknown)) -> True
         _ -> False
     -- _msg looks something like:
     --

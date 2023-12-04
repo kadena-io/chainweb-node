@@ -1,7 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Version.Utils
@@ -32,7 +35,7 @@ module Chainweb.Version.Utils
 , someChainIdAt
 , blockCountAt
 , globalBlockCountAt
-, globalBlockRateAt
+, globalBlockDelayAt
 , isGraphChange
 
 -- * Chain Graph Properties By Cut Height
@@ -55,6 +58,9 @@ module Chainweb.Version.Utils
 ) where
 
 import Chainweb.BlockHeight
+import Chainweb.BlockHeader
+import Chainweb.ChainId
+import Chainweb.Difficulty
 import Chainweb.Time
 
 import Data.Foldable
@@ -71,7 +77,9 @@ import System.Random
 
 import Chainweb.Graph
 import Chainweb.Utils
+import Chainweb.Utils.Rule
 import Chainweb.Version
+import Chainweb.Version.Mainnet
 
 -- -------------------------------------------------------------------------- --
 --  Utils
@@ -110,29 +118,12 @@ atCutHeight h = snd . fromJuste . M.lookupLE h
 -- @
 --
 chainGraphs :: HasChainwebVersion v => v -> M.Map BlockHeight ChainGraph
-chainGraphs v = case _chainwebVersion v of
-    Mainnet01 -> mainnet01GraphMap
-    Testnet04 -> testnet04GraphMap
-    Development -> developmentGraphMap
-    x -> M.fromList . toList $ chainwebGraphs x
-
--- | Memoized mainnet01 chainweb graphs map
---
-mainnet01GraphMap :: M.Map BlockHeight ChainGraph
-mainnet01GraphMap = M.fromList . toList $ chainwebGraphs Mainnet01
-{-# NOINLINE mainnet01GraphMap #-}
-
--- | Memoized testnet04 chainweb graphs map
---
-testnet04GraphMap :: M.Map BlockHeight ChainGraph
-testnet04GraphMap = M.fromList . toList $ chainwebGraphs Testnet04
-{-# NOINLINE testnet04GraphMap #-}
-
--- | Memoized devnet chainweb graphs map
---
-developmentGraphMap :: M.Map BlockHeight ChainGraph
-developmentGraphMap = M.fromList . toList $ chainwebGraphs Development
-{-# NOINLINE developmentGraphMap #-}
+chainGraphs = \case
+    (_chainwebVersion -> v)
+        | _versionCode v == _versionCode mainnet -> mainnetGraphs
+        | otherwise -> M.fromDistinctDescList . toList . ruleElems minBound $ _versionGraphs v
+    where
+    mainnetGraphs = M.fromDistinctDescList . toList . ruleElems minBound $ _versionGraphs mainnet
 
 -- | BlockHeight intervals for the chain graphs of a chainweb version up to a
 -- given block height.
@@ -232,9 +223,8 @@ someChainId v = someChainIdAt v maxBound
 -- chain ids for the chainweb at the given height.
 --
 someChainIdAt :: HasCallStack => HasChainwebVersion v => v -> BlockHeight -> ChainId
-someChainIdAt v h = head . toList $ chainIdsAt v h
-    -- 'head' is guaranteed to succeed because the empty graph isn't a valid chain
-    -- graph.
+someChainIdAt v h = minimum $ chainIdsAt v h
+    -- guaranteed to succeed because the empty graph isn't a valid chain graph.
 {-# INLINE someChainIdAt #-}
 
 isGraphChange :: HasChainwebVersion v => v -> BlockHeight -> Bool
@@ -275,15 +265,15 @@ globalBlockCountAt v h = sum
     $ toList
     $ chainIdsAt v h
 
-globalBlockRateAt
+globalBlockDelayAt
     :: HasCallStack
     => HasChainwebVersion v
     => v
     -> BlockHeight
     -> Double
-globalBlockRateAt v h = int r / int (chainCountAt v h)
+globalBlockDelayAt v h = (int r / 1_000_000) / int (chainCountAt v h)
   where
-    BlockRate r = blockRate (_chainwebVersion v)
+    BlockDelay r = _versionBlockDelay (_chainwebVersion v)
 
 -- -------------------------------------------------------------------------- --
 -- Cut Heights
@@ -310,13 +300,11 @@ chainGraphsByCutHeight
     :: HasChainwebVersion v
     => v
     -> M.Map CutHeight ChainGraph
-chainGraphsByCutHeight = M.fromAscList
+chainGraphsByCutHeight = M.fromList
     . fmap (\(h,g) -> (int h * int (order g), g))
     . M.toAscList
     . chainGraphs
 {-# INLINE chainGraphsByCutHeight #-}
-
--- chainGraphAtCutHeight = atCutHeight h
 
 -- | The chain graph at the given cut height
 --
@@ -324,7 +312,6 @@ chainGraphsByCutHeight = M.fromAscList
 --
 chainGraphAtCutHeight :: HasChainwebVersion v => v -> CutHeight -> ChainGraph
 chainGraphAtCutHeight v h = atCutHeight h $ chainGraphsByCutHeight v
-{-# INLINE chainGraphAtCutHeight #-}
 
 -- | The number of chains that exist at the given cut height
 --
@@ -332,7 +319,6 @@ chainGraphAtCutHeight v h = atCutHeight h $ chainGraphsByCutHeight v
 --
 chainCountAtCutHeight :: HasChainwebVersion v => v -> CutHeight -> Natural
 chainCountAtCutHeight v = order . chainGraphAtCutHeight v
-{-# INLINE chainCountAtCutHeight #-}
 
 -- | The diameter of the chain graph at the given cut height
 --
@@ -340,7 +326,6 @@ chainCountAtCutHeight v = order . chainGraphAtCutHeight v
 --
 diameterAtCutHeight :: HasChainwebVersion v => v -> CutHeight -> Natural
 diameterAtCutHeight v = diameter . chainGraphAtCutHeight v
-{-# INLINE diameterAtCutHeight #-}
 
 -- | The degree of the chain graph at the given cut height
 --
@@ -348,7 +333,6 @@ diameterAtCutHeight v = diameter . chainGraphAtCutHeight v
 --
 degreeAtCutHeight :: HasChainwebVersion v => v -> CutHeight -> Natural
 degreeAtCutHeight v = degree . chainGraphAtCutHeight v
-{-# INLINE degreeAtCutHeight #-}
 
 -- | The average chain height at a given cut height.
 --
@@ -357,7 +341,6 @@ degreeAtCutHeight v = degree . chainGraphAtCutHeight v
 --
 avgBlockHeightAtCutHeight :: HasChainwebVersion v => v -> CutHeight -> Double
 avgBlockHeightAtCutHeight v h = int h / int (chainCountAtCutHeight v h)
-{-# INLINE avgBlockHeightAtCutHeight #-}
 
 -- | The global number of blocks that exist at the given cut height.
 --
@@ -374,7 +357,6 @@ blockCountAtCutHeight v h
     = globalBlockCountAt v (int k `div` int (order g)) + int (h - k)
   where
    (k, g) = fromJuste $ M.lookupLE h $ chainGraphsByCutHeight v
-{-# INLINE blockCountAtCutHeight #-}
 
 lastGraphChangeByCutHeight
     :: HasCallStack
@@ -384,7 +366,6 @@ lastGraphChangeByCutHeight
     -> CutHeight
 lastGraphChangeByCutHeight v h
     = fst $ fromJuste $ M.lookupLE h $ chainGraphsByCutHeight v
-{-# INLINE lastGraphChangeByCutHeight #-}
 
 nextGraphChangeByCutHeight
     :: HasCallStack
@@ -394,7 +375,6 @@ nextGraphChangeByCutHeight
     -> CutHeight
 nextGraphChangeByCutHeight v h
     = fst $ fromJuste $ M.lookupGT h $ chainGraphsByCutHeight v
-{-# INLINE nextGraphChangeByCutHeight #-}
 
 -- -------------------------------------------------------------------------- --
 -- Expected Block Count, Block Heights, and Cut Heights
@@ -410,11 +390,11 @@ expectedBlockCountAfterSeconds
     -> cid
     -> Seconds
     -> Double
-expectedBlockCountAfterSeconds v cid s = max 0 (1 + (int s / int r) - int gh)
+expectedBlockCountAfterSeconds v cid s = max 0 (1 + (int s / (int r / 1_000_000)) - int gh)
     -- The `max 0` term is required for chains that were added during graph transitions
     -- and thus have `genesisHeight > 0`
   where
-    BlockRate r = blockRate (_chainwebVersion v)
+    BlockDelay r = _versionBlockDelay (_chainwebVersion v)
     gh = genesisHeight (_chainwebVersion v) (_chainId cid)
 
 -- | This function is useful for performance testing when calculating the
@@ -448,9 +428,9 @@ expectedBlockHeightAfterSeconds
     => v
     -> Seconds
     -> Double
-expectedBlockHeightAfterSeconds v s = (int s / int r)
+expectedBlockHeightAfterSeconds v s = int s / (int r / 1_000_000)
   where
-    BlockRate r = blockRate (_chainwebVersion v)
+    BlockDelay r = _versionBlockDelay (_chainwebVersion v)
 
 -- | The expected CutHeight after the given number of seconds has passed.
 --

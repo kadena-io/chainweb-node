@@ -28,6 +28,7 @@ import GHC.Generics
 import Numeric.Natural
 
 import Pact.Types.Command
+import Pact.JSON.Legacy.Value
 
 -- internal modules
 
@@ -89,11 +90,11 @@ data SpvSubjectIdentifier = SpvSubjectIdentifier
     }
     deriving (Show, Eq, Ord, Generic)
 
-spvSubjectIdentifierProperties :: KeyValue kv => SpvSubjectIdentifier -> [kv]
+spvSubjectIdentifierProperties :: KeyValue e kv => SpvSubjectIdentifier -> [kv]
 spvSubjectIdentifierProperties o =
     [ "type" .= _spvSubjectIdType o
     , "chain" .= _spvSubjectIdChain o
-    , "requestKey" .= _spvSubjectIdReqKey o
+    , "requestKey" .= toLegacyJsonViaEncode (_spvSubjectIdReqKey o)
     ]
 {-# INLINE spvSubjectIdentifierProperties #-}
 
@@ -119,7 +120,7 @@ data Spv2Request = Spv2Request
     }
     deriving (Show, Eq, Ord, Generic)
 
-spv2RequestProperties :: KeyValue kv => Spv2Request -> [kv]
+spv2RequestProperties :: KeyValue e kv => Spv2Request -> [kv]
 spv2RequestProperties o =
     [ "subjectIdentifier" .= _spv2ReqSubjectIdentifier o
     , "minimalProofDepth" .= _spv2ReqMinimalProofDepth o

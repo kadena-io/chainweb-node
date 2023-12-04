@@ -1,8 +1,7 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE OverloadedLists #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -33,6 +32,7 @@ module Chainweb.RestAPI.Orphans () where
 
 import Control.Monad
 
+import Data.Bool
 import Data.Bifunctor
 import Data.Proxy
 import Data.Semigroup (Max(..), Min(..))
@@ -53,6 +53,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Utils.Serialization
 import Chainweb.Version
+import Chainweb.Pact.Service.Types
 
 import P2P.Peer
 
@@ -92,10 +93,10 @@ instance FromHttpApiData BlockPayloadHash where
 instance ToHttpApiData BlockPayloadHash where
     toUrlPiece = encodeB64UrlNoPaddingText . runPutS . encodeBlockPayloadHash
 
-instance FromHttpApiData ChainwebVersion where
+instance FromHttpApiData ChainwebVersionName where
     parseUrlPiece = first T.pack . eitherFromText
 
-instance ToHttpApiData ChainwebVersion where
+instance ToHttpApiData ChainwebVersionName where
     toUrlPiece = toText
 
 instance FromHttpApiData ChainId where
@@ -104,17 +105,13 @@ instance FromHttpApiData ChainId where
 instance ToHttpApiData ChainId where
     toUrlPiece = chainIdToText
 
-instance FromHttpApiData BlockHeight where
-    parseUrlPiece = fmap BlockHeight . parseUrlPiece
+deriving newtype instance FromHttpApiData BlockHeight
 
-instance ToHttpApiData BlockHeight where
-    toUrlPiece (BlockHeight k) = toUrlPiece k
+deriving newtype instance ToHttpApiData BlockHeight
 
-instance FromHttpApiData CutHeight where
-    parseUrlPiece = fmap CutHeight . parseUrlPiece
+deriving newtype instance FromHttpApiData CutHeight
 
-instance ToHttpApiData CutHeight where
-    toUrlPiece (CutHeight k) = toUrlPiece k
+deriving newtype instance ToHttpApiData CutHeight
 
 instance FromHttpApiData MinRank where
     parseUrlPiece = fmap (MinRank . Min) . parseUrlPiece
@@ -128,11 +125,9 @@ instance FromHttpApiData MaxRank where
 instance ToHttpApiData MaxRank where
     toUrlPiece (MaxRank (Max k)) = toUrlPiece k
 
-instance FromHttpApiData Eos where
-    parseUrlPiece = fmap Eos . parseUrlPiece
+deriving newtype instance FromHttpApiData Eos
 
-instance ToHttpApiData Eos where
-    toUrlPiece (Eos b) = toUrlPiece b
+deriving newtype instance ToHttpApiData Eos
 
 instance FromHttpApiData Limit where
     parseUrlPiece = fmap Limit . parseUrlPiece
@@ -178,3 +173,24 @@ instance
     type MkLink (sym :> sub) a = MkLink sub a
     toLink toA _ = toLink toA (Proxy @(ChainIdSymbol sym :> sub))
 
+instance ToHttpApiData LocalPreflightSimulation where
+    toUrlPiece PreflightSimulation = toUrlPiece True
+    toUrlPiece LegacySimulation = toUrlPiece False
+
+instance FromHttpApiData LocalPreflightSimulation where
+    parseUrlPiece = fmap (bool LegacySimulation PreflightSimulation) . parseUrlPiece
+
+instance ToHttpApiData LocalSignatureVerification where
+    toUrlPiece Verify = toUrlPiece True
+    toUrlPiece NoVerify = toUrlPiece False
+
+instance FromHttpApiData LocalSignatureVerification where
+    parseUrlPiece = fmap (bool NoVerify Verify) . parseUrlPiece
+
+deriving newtype instance FromHttpApiData RewindDepth
+
+deriving newtype instance ToHttpApiData RewindDepth
+
+deriving newtype instance FromHttpApiData ConfirmationDepth
+
+deriving newtype instance ToHttpApiData ConfirmationDepth

@@ -22,7 +22,7 @@ import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
 import Chainweb.HostAddress
 import Chainweb.Miner.Config
-import Chainweb.Version
+import Chainweb.Version.Mainnet
 
 import P2P.Node.Configuration
 import P2P.Peer
@@ -84,9 +84,8 @@ getConf = do
 defaultThrottlingConfig :: ThrottlingConfig
 defaultThrottlingConfig = ThrottlingConfig
   { _throttlingRate = 50 -- per second
-  , _throttlingMiningRate = 2  -- per second
-  , _throttlingPeerRate = 11  -- per second, on for each p2p network
-  , _throttlingLocalRate = 0.1 -- per 10 seconds
+  , _throttlingPeerRate = 11  -- per second, one each 2 seconds for each p2p network
+  , _throttlingMempoolRate = 5 -- per second, one each 4 seconds for each mempool
   }
 
 main :: IO ()

@@ -48,7 +48,8 @@ module Chainweb.BlockHeaderDB.RestAPI
 -- * API types
   BlockHashPage
 , BlockHeaderPage
-, BlockHeaderResult(..)
+, Block(..)
+, BlockPage
 
 -- * Encodings
 , JsonBlockHeaderObject
@@ -60,38 +61,36 @@ module Chainweb.BlockHeaderDB.RestAPI
 
 -- * BlockHeaderDb API
 , BlockHeaderDbApi
-, blockHeaderDbApi
-
--- * Multichain APIs
-, someBlockHeaderDbApi
-, someBlockHeaderDbApis
+, P2pBlockHeaderDbApi
 
 -- * BlockHeader Event Stream
 , HeaderUpdate(..)
-, HeaderStreamApi
-, headerStreamApi
-, someHeaderStreamApi
+, BlockStreamApi
 
 -- * Sub APIs
 , BranchHashesApi
 , branchHashesApi
 , BranchHeadersApi
 , branchHeadersApi
+, P2pBranchHeadersApi
+, p2pBranchHeadersApi
 , HeaderApi
+, P2pHeaderApi
 , headerApi
+, p2pHeaderApi
 , HeadersApi
+, P2pHeadersApi
+, p2pHeadersApi
 , headersApi
 , HashesApi
 , hashesApi
+, BlocksApi
+, BranchBlocksApi
 ) where
 
-import Control.Monad.Identity
-import Control.Monad.State.Strict
-
 import Data.Aeson
-import Data.ByteString.Builder (toLazyByteString)
-import qualified Data.ByteString.Lazy as LBS
-import Data.Foldable
+import Data.Bifunctor
+import Data.Maybe
 import Data.Proxy
 import Data.Text (Text)
 
@@ -115,45 +114,42 @@ import Chainweb.Version
 -- -------------------------------------------------------------------------- --
 -- API types
 
--- | A page of BlockHashes
---
 type BlockHashPage = Page (NextItem BlockHash) BlockHash
 
--- | A page of BlockHeaders
---
-data BlockHeaderResult = BlockHeaderResult
-    { resultHeader :: !BlockHeader
-    , resultPayload ::  !(Maybe PayloadData)
-    }
+type BlockHeaderPage = Page (NextItem BlockHash) BlockHeader
 
-instance ToJSON BlockHeaderResult where
-    toJSON (BlockHeaderResult h Nothing) =
-        toJSON h
-    toJSON (BlockHeaderResult h (Just p)) = object
-        [ "header" .= h
-        , "payload" .= p
-        ]
-instance ToJSON (ObjectEncoded BlockHeaderResult) where
-    toJSON (ObjectEncoded (BlockHeaderResult h Nothing)) =
-        toJSON (ObjectEncoded h)
-    toJSON (ObjectEncoded (BlockHeaderResult h (Just p))) = object
-        [ "header" .= ObjectEncoded h
-        , "payload" .= p
-        ]
-    toEncoding (ObjectEncoded (BlockHeaderResult h Nothing)) =
-        toEncoding (ObjectEncoded h)
-    toEncoding (ObjectEncoded (BlockHeaderResult h (Just p))) = pairs $ fold
-        [ "header" .= ObjectEncoded h
-        , "payload" .= p
-        ]
-instance FromJSON BlockHeaderResult where
-    parseJSON v = BlockHeaderResult <$> parseJSON v <*> pure Nothing
-type BlockHeaderPage = Page (NextItem BlockHash) BlockHeaderResult
+data Block = Block
+    { _blockHeader :: !BlockHeader
+    , _blockPayloadWithOutputs :: !PayloadWithOutputs
+    }
+    deriving (Eq, Show)
+
+-- because this endpoint is only used on the service API, we assume clients
+-- want object-encoded block headers.
+blockProperties :: KeyValue e kv => Block -> [kv]
+blockProperties o =
+    [ "header"  .= ObjectEncoded (_blockHeader o)
+    , "payloadWithOutputs" .= _blockPayloadWithOutputs o
+    ]
+
+instance ToJSON Block where
+    toJSON = object . blockProperties
+    toEncoding = pairs . mconcat . blockProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON Block where
+    parseJSON = withObject "Block" $ \o -> Block
+        <$> (_objectEncoded <$> o .: "header")
+        <*> o .: "payloadWithOutputs"
+    {-# INLINE parseJSON #-}
+
+type BlockPage = Page (NextItem BlockHash) Block
 
 -- -------------------------------------------------------------------------- --
 -- Encodings
 
--- | Orphan instance to encode BlockHeaders as OctetStream
+-- | Orphan instance to decode BlockHeaders from OctetStream
 --
 instance MimeUnrender OctetStream BlockHeader where
     mimeUnrender _ = runGetEitherL decodeBlockHeader
@@ -163,6 +159,11 @@ instance MimeUnrender OctetStream BlockHeader where
 --
 instance MimeRender OctetStream BlockHeader where
     mimeRender _ = runPutL . encodeBlockHeader
+    {-# INLINE mimeRender #-}
+
+-- | Orphan instance to encode pages of blocks as JSON
+instance MimeRender JSON BlockPage where
+    mimeRender _ = encode
     {-# INLINE mimeRender #-}
 
 -- | The default JSON instance of BlockHeader is an unpadded base64Url encoding of
@@ -178,34 +179,16 @@ data JsonBlockHeaderObject
 instance Accept JsonBlockHeaderObject where
     contentType _ = "application" // "json" /: ("blockheader-encoding", "object")
 
-instance MimeRender OctetStream BlockHeaderResult where
-    mimeRender pr (BlockHeaderResult h Nothing) = mimeRender pr h
-    mimeRender pr (BlockHeaderResult h (Just p)) = mimeRender pr h <> encode p
-
-instance MimeUnrender OctetStream BlockHeaderResult where
-    mimeUnrender _ i = flip evalStateT i $ do
-      h <- StateT (runGetEitherL' decodeBlockHeader)
-      r <- get
-      if LBS.null r
-      then return $ BlockHeaderResult h Nothing
-      else do
-          p <- get >>= (lift . eitherDecode')
-          return $ BlockHeaderResult h (Just p)
-
-instance MimeUnrender JsonBlockHeaderObject BlockHeaderResult where
-    mimeUnrender _  = fmap (flip BlockHeaderResult Nothing . _objectEncoded) . eitherDecode
+instance MimeUnrender JsonBlockHeaderObject BlockHeader where
+    mimeUnrender _ = second _objectEncoded . eitherDecode
     {-# INLINE mimeUnrender #-}
 
-instance MimeRender JsonBlockHeaderObject BlockHeaderResult where
-    mimeRender _ (BlockHeaderResult h Nothing) = encode (ObjectEncoded h)
-    mimeRender _ (BlockHeaderResult h (Just p)) = toLazyByteString $ fromEncoding $ pairs $ fold
-        [ "header" .= h
-        , "payload" .= p
-        ]
+instance MimeRender JsonBlockHeaderObject BlockHeader where
+    mimeRender _ = encode . ObjectEncoded
     {-# INLINE mimeRender #-}
 
 instance MimeUnrender JsonBlockHeaderObject BlockHeaderPage where
-    mimeUnrender _ = fmap (fmap (flip BlockHeaderResult Nothing . _objectEncoded)) . eitherDecode
+    mimeUnrender _ = second (fmap _objectEncoded) . eitherDecode
     {-# INLINE mimeUnrender #-}
 
 instance MimeRender JsonBlockHeaderObject BlockHeaderPage where
@@ -279,9 +262,16 @@ type BranchHeadersApi_
     :> PageParams (NextItem BlockHash)
     :> MinHeightParam
     :> MaxHeightParam
-    :> QueryFlag "include-payload"
     :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
     :> Post '[JSON, JsonBlockHeaderObject] BlockHeaderPage
+
+type P2pBranchHeadersApi_
+    = "header" :> "branch"
+    :> PageParams (NextItem BlockHash)
+    :> MinHeightParam
+    :> MaxHeightParam
+    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
+    :> Post '[JSON] BlockHeaderPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/branch@
 --
@@ -302,11 +292,18 @@ type BranchHeadersApi_
 --
 type BranchHeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchHeadersApi_
+type P2pBranchHeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc P2pBranchHeadersApi_
 
 branchHeadersApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (BranchHeadersApi v c)
 branchHeadersApi = Proxy
+
+p2pBranchHeadersApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (P2pBranchHeadersApi v c)
+p2pBranchHeadersApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 type HashesApi_
@@ -337,8 +334,13 @@ type HeadersApi_
     = "header"
     :> PageParams (NextItem BlockHash)
     :> FilterParams
-    :> QueryFlag "include-payload"
     :> Get '[JSON, JsonBlockHeaderObject] BlockHeaderPage
+
+type P2pHeadersApi_
+    = "header"
+    :> PageParams (NextItem BlockHash)
+    :> FilterParams
+    :> Get '[JSON] BlockHeaderPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
 --
@@ -352,17 +354,29 @@ type HeadersApi_
 type HeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc HeadersApi_
 
+type P2pHeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc P2pHeadersApi_
+
 headersApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (HeadersApi v c)
 headersApi = Proxy
 
+p2pHeadersApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (P2pHeadersApi v c)
+p2pHeadersApi = Proxy
+
 -- -------------------------------------------------------------------------- --
 type HeaderApi_
     = "header"
-    :> QueryFlag "include-payload"
     :> Capture "BlockHash" BlockHash
-    :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeaderResult
+    :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
+
+type P2pHeaderApi_
+    = "header"
+    :> Capture "BlockHash" BlockHash
+    :> Get '[JSON, OctetStream] BlockHeader
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/\<BlockHash\>@
 --
@@ -370,11 +384,49 @@ type HeaderApi_
 --
 type HeaderApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> HeaderApi_
+type P2pHeaderApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> P2pHeaderApi_
 
 headerApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (HeaderApi v c)
 headerApi = Proxy
+
+p2pHeaderApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (P2pHeaderApi v c)
+p2pHeaderApi = Proxy
+
+-- -------------------------------------------------------------------------- --
+type BlocksApi_
+    = "block"
+    :> PageParams (NextItem BlockHash)
+    :> FilterParams
+    :> Get '[JSON] BlockPage
+
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/block@
+--
+-- Returns blocks in the block header tree database in ascending order
+-- with respect to the children relation.
+--
+-- Note that for blocks on different branches, the order isn't determined.
+-- Therefore a block of higher block height can be returned before a block of
+-- lower block height.
+--
+type BlocksApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BlocksApi_
+
+-- -------------------------------------------------------------------------- --
+type BranchBlocksApi_
+    = "block" :> "branch"
+    :> PageParams (NextItem BlockHash)
+    :> MinHeightParam
+    :> MaxHeightParam
+    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
+    :> Post '[JSON] BlockPage
+
+type BranchBlocksApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchBlocksApi_
 
 -- -------------------------------------------------------------------------- --
 -- | BlockHeaderDb Api
@@ -382,45 +434,39 @@ headerApi = Proxy
 type BlockHeaderDbApi v c
     = HashesApi v c
     :<|> HeadersApi v c
+    :<|> BlocksApi v c
     :<|> HeaderApi v c
     :<|> BranchHashesApi v c
     :<|> BranchHeadersApi v c
+    :<|> BranchBlocksApi v c
 
-blockHeaderDbApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (BlockHeaderDbApi v c)
-blockHeaderDbApi = Proxy
-
--- -------------------------------------------------------------------------- --
--- Multi Chain API
-
--- TODO Just use @case@ statements.
-someBlockHeaderDbApi :: ChainwebVersion -> ChainId -> SomeApi
-someBlockHeaderDbApi v c = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v') <- return $ someChainwebVersionVal v
-    SomeChainIdT (_ :: Proxy c') <- return $ someChainIdVal c
-    return $ SomeApi (blockHeaderDbApi @v' @c')
-
-someBlockHeaderDbApis :: ChainwebVersion -> [ChainId] -> SomeApi
-someBlockHeaderDbApis v = mconcat . fmap (someBlockHeaderDbApi v)
+-- | Restricted P2P BlockHeader DB API
+--
+type P2pBlockHeaderDbApi v c
+    = P2pHeadersApi v c
+    :<|> P2pHeaderApi v c
+    :<|> P2pBranchHeadersApi v c
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream
 
 data HeaderUpdate = HeaderUpdate
     { _huHeader :: !(ObjectEncoded BlockHeader)
+    , _huPayloadWithOutputs :: !(Maybe PayloadWithOutputs)
     , _huTxCount :: !Int
     , _huPowHash :: !Text
     , _huTarget :: !Text
     }
     deriving (Show, Eq)
 
-headerUpdateProperties :: KeyValue kv => HeaderUpdate -> [kv]
+headerUpdateProperties :: KeyValue e kv => HeaderUpdate -> [kv]
 headerUpdateProperties o =
     [ "header"  .= _huHeader o
     , "txCount" .= _huTxCount o
     , "powHash" .= _huPowHash o
     , "target"  .= _huTarget o
+    ] <> concatMap maybeToList
+    [ ("payloadWithOutputs" .=) <$> _huPayloadWithOutputs o
     ]
 {-# INLINE headerUpdateProperties #-}
 
@@ -433,19 +479,17 @@ instance ToJSON HeaderUpdate where
 instance FromJSON HeaderUpdate where
     parseJSON = withObject "HeaderUpdate" $ \o -> HeaderUpdate
         <$> o .: "header"
+        <*> o .:? "payloadWithOutputs"
         <*> o .: "txCount"
         <*> o .: "powHash"
         <*> o .: "target"
     {-# INLINE parseJSON #-}
 
-type HeaderStreamApi_ = "header" :> "updates" :> Raw
+type BlockStreamApi_ =
+    "block" :> "updates" :> Raw :<|>
+    "header" :> "updates" :> Raw
 
--- | A stream of all new `BlockHeader`s that are accepted into the true `Cut`.
+-- | A stream of all new blocks that are accepted into the true `Cut`.
 --
-type HeaderStreamApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> HeaderStreamApi_
+type BlockStreamApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> BlockStreamApi_
 
-headerStreamApi :: forall (v :: ChainwebVersionT). Proxy (HeaderStreamApi v)
-headerStreamApi = Proxy
-
-someHeaderStreamApi :: ChainwebVersion -> SomeApi
-someHeaderStreamApi (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = SomeApi $ headerStreamApi @v

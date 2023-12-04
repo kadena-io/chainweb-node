@@ -16,6 +16,7 @@ import Control.Monad.IO.Class
 import Crypto.Hash.Algorithms
 import Data.Aeson (decodeStrict')
 import Data.Default
+import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -49,6 +50,9 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
+import Chainweb.Version.Guards
+import Chainweb.Version.Mainnet
+import Chainweb.Version.Registry
 
 import Network.Connection
 import Network.HTTP.Client.TLS
@@ -57,11 +61,25 @@ import Servant.Client
 
 import Chainweb.Storage.Table.RocksDB
 
+import Pact.Gas
+import Pact.Interpreter
+import Pact.Native
+import Pact.Runtime.Utils
+import Pact.Typechecker
 import Pact.Types.Command
 import Pact.Types.Hash
-import Pact.Types.Logger
+import Pact.Types.Info
+--import Pact.Types.Logger
+import Pact.Types.Namespace
+import Pact.Types.Persistence
+import Pact.Types.Pretty
 import Pact.Types.RPC
+import Pact.Types.Runtime (runEval,keys,RefStore(..))
 import Pact.Types.SPV
+import Pact.Types.Term
+import Pact.Types.Typecheck
+
+import qualified Pact.JSON.Encode as J
 
 import Utils.Logging.Trace
 
@@ -74,25 +92,29 @@ data SimConfig = SimConfig
     , scRange :: (BlockHeight,BlockHeight)
     , scChain :: ChainId
     , scVersion :: ChainwebVersion
+    , scGasLog :: Bool
+    , scTypecheck :: Bool
     }
 
 simulate :: SimConfig -> IO ()
-simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
+simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
   cenv <- setupClient sc
   (parent:hdrs) <- fetchHeaders sc cenv
   pwos <- fetchOutputs sc cenv hdrs
   withSqliteDb cid cwLogger dbDir False $ \sqlenv -> do
-    cpe@(CheckpointEnv cp _) <-
+    cp <-
       initRelationalCheckpointer (initBlockState defaultModuleCacheLimit 0) sqlenv logger ver cid
     bracket_
       (_cpBeginCheckpointerBatch cp)
-      (_cpDiscardCheckpointerBatch cp) $ case txIdx' of
-        Just txIdx -> do -- single-tx simulation
-          let PayloadWithOutputs txs md _ _ _ _ :: PayloadWithOutputs = head pwos
+      (_cpDiscardCheckpointerBatch cp) $ case (txIdx',doTypecheck) of
+        (Just txIdx,_) -> do -- single-tx simulation
+          let pwo = head pwos
+          let txs = _payloadWithOutputsTransactions pwo
+          let md = _payloadWithOutputsMiner pwo
           miner <- decodeStrictOrThrow $ _minerData md
           let Transaction tx = fst $ txs V.! txIdx
           cmdTx <- decodeStrictOrThrow tx
-          case validateCommand cmdTx of
+          case validateCommand ver cid cmdTx of
             Left _ -> error "bad cmd"
             Right cmdPwt -> do
               let cmd = payloadObj <$> cmdPwt
@@ -100,38 +122,90 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver) = do
               PactDbEnv' pde <-
                 _cpRestore cp $ Just (succ (_blockHeight parent), _blockHash parent)
               mc <- readInitModules logger pde txc
-              (T2 !cr _mc) <-
+              T3 !cr _mc _ <-
                 trace (logFunction cwLogger) "applyCmd" () 1 $
                   applyCmd ver logger gasLogger pde miner (getGasModel txc)
-                  txc noSPVSupport cmd (initGas cmdPwt) mc
-              T.putStrLn (encodeToText cr)
-        Nothing -> do -- blocks simulation
+                  txc noSPVSupport cmd (initGas cmdPwt) mc ApplySend
+              T.putStrLn (J.encodeText (J.Array <$> cr))
+        (_,True) -> do
+          PactDbEnv' pde <-
+              _cpRestore cp $ Just (succ (_blockHeight parent), _blockHash parent)
+          let refStore = RefStore nativeDefs
+              pd = ctxToPublicData $ TxContext (ParentHeader parent) def
+              loadMod = fmap inlineModuleData . getModule (def :: Info)
+          ee <- setupEvalEnv pde Nothing Local (initMsgData pactInitialHash) refStore freeGasEnv
+              permissiveNamespacePolicy noSPVSupport pd def
+          void $ runEval def ee $ do
+            mods <- keys def Modules
+            coin <- loadMod "coin"
+            let dynEnv = M.singleton "fungible-v2" coin
+            forM mods $ \mn -> do
+              md <- loadMod mn
+              case _mdModule md of
+                MDInterface _ -> return ()
+                MDModule _ -> do
+                  tcr :: Either CheckerException ([TopLevel Node],[Failure]) <-
+                    try $ liftIO $ typecheckModule False dynEnv md
+                  case tcr of
+                    Left (CheckerException ei e) ->
+                      liftIO $ putStrLn $ "TC_FAILURE: " ++ showPretty mn ++ ": "
+                        ++ renderInfo ei ++ ": " ++ showPretty e
+                    Right (_,[]) -> liftIO $ putStrLn $ "TC_SUCCESS: " ++ showPretty mn
+                    Right (_,fails) ->
+                      liftIO $ putStrLn $ "TC_FAILURE: " ++ showPretty mn ++ ": "
+                      ++ "Unable to resolve all types: " ++ show (length fails) ++ " failures"
+
+
+        (Nothing,False) -> do -- blocks simulation
           paydb <- newPayloadDb
           withRocksDb "txsim-rocksdb" modernDefaultOptions $ \rdb ->
             withBlockHeaderDb rdb ver cid $ \bdb -> do
-              let pse = PactServiceEnv Nothing cpe paydb bdb getGasModel readRewards 0 ferr
-                        ver True False logger gasLogger (pactLoggers cwLogger) False 1 defaultBlockGasLimit
-                  pss = PactServiceState Nothing mempty (ParentHeader parent) noSPVSupport
+              let
+                pse = PactServiceEnv
+                  { _psMempoolAccess = Nothing
+                  , _psCheckpointer = cp
+                  , _psPdb = paydb
+                  , _psBlockHeaderDb = bdb
+                  , _psGasModel = getGasModel
+                  , _psMinerRewards = readRewards
+                  , _psLocalRewindDepthLimit = RewindLimit 100
+                  , _psPreInsertCheckTimeout = defaultPreInsertCheckTimeout
+                  , _psReorgLimit = RewindLimit 0
+                  , _psOnFatalError = ferr
+                  , _psVersion = ver
+                  , _psAllowReadsInLocal = False
+                  , _psLogger = logger
+                  , _psGasLogger = gasLogger
+                  , _psIsBatch = False
+                  , _psCheckpointerDepth = 1
+                  , _psBlockGasLimit = testBlockGasLimit
+                  , _psChainId = cid
+                  }
+                pss = PactServiceState
+                  { _psStateValidated = Nothing
+                  , _psInitCache = mempty
+                  , _psParentHeader = ParentHeader parent
+                  , _psSpvSupport = noSPVSupport
+                  }
               evalPactServiceM pss pse $ doBlock True parent (zip hdrs pwos)
-
-
 
 
   where
 
     cwLogger = genericLogger Debug T.putStrLn
     initGas cmd = initialGasOf (_cmdPayload cmd)
-    logger = newLogger (pactLoggers cwLogger) "TxSimulator"
-    gasLogger = Nothing
+    logger = addLabel ("cwtool", "TxSimulator") $ cwLogger
+    gasLogger | gasLog = Just cwLogger
+              | otherwise = Nothing
     txContext parent cmd = TxContext (ParentHeader parent) $ publicMetaOf cmd
     ferr e _ = throwM e
 
     doBlock
-        :: CanReadablePayloadCas cas
+        :: (CanReadablePayloadCas cas, Logger logger)
         => Bool
         -> BlockHeader
         -> [(BlockHeader,PayloadWithOutputs)]
-        -> PactServiceM cas ()
+        -> PactServiceM logger cas ()
     doBlock _ _ [] = return ()
     doBlock initMC parent ((hdr,pwo):rest) = do
       !cp <- getCheckpointer
@@ -158,7 +232,7 @@ spvSim sc bh pwo = do
     go mv cp = modifyMVar mv $ searchOuts cp
     searchOuts _ [] = return ([],Left "spv: proof not found")
     searchOuts cp@(ContProof pf) ((Transaction ti,TransactionOutput _o):txs) =
-      case codecDecode (chainwebPayloadCodec (Just (scVersion sc,_blockHeight bh))) ti of
+      case codecDecode (chainwebPayloadCodec (pactParserVersion (scVersion sc) (_chainId bh) (_blockHeight bh))) ti of
         Left {} -> internalError "input decode failed"
         Right cmd -> case _pPayload $ payloadObj $ _cmdPayload cmd of
           Continuation cm | _cmProof cm == Just cp -> do
@@ -205,16 +279,16 @@ fetchOutputs sc cenv bhs = do
 
 simulateMain :: IO ()
 simulateMain = do
-  execParser opts >>= \(d,s,e,i,h,c,v) -> do
-    vv <- chainwebVersionFromText (T.pack v)
+  execParser opts >>= \(d,s,e,i,h,c,v,g,r) -> do
+    vv <- findKnownVersion $ ChainwebVersionName (T.pack v)
     cc <- chainIdFromText (T.pack c)
     u <- parseBaseUrl h
     let rng = (fromIntegral @Integer s,fromIntegral @Integer (fromMaybe s e))
-    simulate $ SimConfig d i u rng cc vv
+    simulate $ SimConfig d i u rng cc vv g r
   where
     opts = info (parser <**> helper)
         (fullDesc <> progDesc "Single Transaction simulator")
-    parser = (,,,,,,)
+    parser = (,,,,,,,,)
         <$> strOption
              (short 'd'
               <> metavar "DBDIR"
@@ -244,3 +318,9 @@ simulateMain = do
               <> metavar "VERSION"
               <> help ("Chainweb version, default is "
                        ++ show Mainnet01))))
+        <*> switch
+             (short 'g'
+              <> help "Enable gas logging")
+        <*> switch
+             (short 't'
+              <> help "Typecheck modules")

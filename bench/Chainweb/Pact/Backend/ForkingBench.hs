@@ -1,9 +1,12 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -25,7 +28,6 @@ import Control.Monad.State
 import qualified Criterion.Main as C
 
 import Data.Aeson hiding (Error)
-import Data.Bool
 import Data.ByteString (ByteString)
 import Data.Char
 import Data.Decimal
@@ -33,10 +35,12 @@ import Data.FileEmbed
 import Data.Foldable (toList)
 import Data.IORef
 import Data.List (uncons)
+import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import Data.String
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
@@ -48,6 +52,7 @@ import qualified Data.Yaml as Y
 import GHC.Generics hiding (from, to)
 
 import System.Environment
+import System.Logger.Types qualified
 import System.LogLevel
 import System.Random
 
@@ -71,13 +76,15 @@ import Pact.Types.Util hiding (unwrap)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
+import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Logger
+import Chainweb.Mempool.Mempool (BlockFill(..))
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
@@ -89,6 +96,7 @@ import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
+import Chainweb.Test.TestVersions (slowForkingCpmTestVersion)
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -109,44 +117,71 @@ _run args = withTempRocksDb "forkingbench" $ \rdb ->
 -- -------------------------------------------------------------------------- --
 -- Benchmarks
 
+data BenchConfig = BenchConfig
+  { numPriorBlocks :: Word64
+    -- ^ number of blocks to create prior to benchmarking
+  , validate :: Validate
+    -- ^ whether or not to validate the blocks as part of the benchmark
+  , compact :: Compact
+    -- ^ whether or not to compact the pact database prior to benchmarking
+  }
+
+defBenchConfig :: BenchConfig
+defBenchConfig = BenchConfig
+  { numPriorBlocks = 100
+  , validate = DontValidate
+  , compact = DontCompact
+  }
+
+data Compact = DoCompact | DontCompact
+  deriving stock (Eq)
+
+data Validate = DoValidate | DontValidate
+  deriving stock (Eq)
+
 bench :: RocksDb -> C.Benchmark
-bench rdb = C.bgroup "PactService"
+bench rdb = C.bgroup "PactService" $
     [ forkingBench
-    , nonForkingBench
-    , oneBlock True 1
-    , oneBlock True 10
-    , oneBlock True 50
-    , oneBlock True 100
-    , oneBlock False 1
-    , oneBlock False 10
-    , oneBlock False 50
-    , oneBlock False 100
-    ]
+    , doubleForkingBench
+    ] ++ map (oneBlock defBenchConfig) [1, 10, 50, 100]
+      ++ map (oneBlock validateCfg) [0, 1, 10, 50, 100]
+      ++ map (oneBlock compactCfg) [0, 1, 10, 50, 100]
+      ++ map (oneBlock compactValidateCfg) [1, 10, 50, 100]
   where
-    nonForkingBench = withResources rdb 10 Quiet
+    validateCfg = defBenchConfig { validate = DoValidate }
+    compactCfg = defBenchConfig { compact = DoCompact }
+    compactValidateCfg = compactCfg { validate = DoValidate }
+
+    forkingBench = withResources rdb 10 Quiet DontCompact
         $ \mainLineBlocks pdb bhdb nonceCounter pactQueue _ ->
-            C.bench "simpleForkingBench"  $ C.whnfIO $ do
+            C.bench "forkingBench"  $ C.whnfIO $ do
               let (T3 _ join1 _) = mainLineBlocks !! 5
               void $ playLine pdb bhdb 5 join1 pactQueue nonceCounter
 
-    forkingBench = withResources rdb 10 Quiet
+    doubleForkingBench = withResources rdb 10 Quiet DontCompact
         $ \mainLineBlocks pdb bhdb nonceCounter pactQueue _ ->
-            C.bench "forkingBench"  $ C.whnfIO $ do
+            C.bench "doubleForkingBench"  $ C.whnfIO $ do
               let (T3 _ join1 _) = mainLineBlocks !! 5
                   forkLength1 = 5
                   forkLength2 = 5
               void $ playLine pdb bhdb forkLength1 join1 pactQueue nonceCounter
               void $ playLine pdb bhdb forkLength2 join1 pactQueue nonceCounter
 
-    oneBlock validate txCount = withResources rdb 1 Error go
+    oneBlock :: BenchConfig -> Int -> C.Benchmark
+    oneBlock cfg txCount = withResources rdb cfg.numPriorBlocks Error cfg.compact go
       where
-        go mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock =
+        go mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock = do
           C.bench name $ C.whnfIO $ do
             writeIORef txsPerBlock txCount
-            let (T3 _ join1 _) = head mainLineBlocks
-            createBlock validate (ParentHeader join1) (Nonce 1234) pactQueue
-        name = "block-new" ++ (if validate then "-valid" else "") ++
-               "[" ++ show txCount ++ "]"
+            let (T3 _ join1 _) = last mainLineBlocks
+            createBlock cfg.validate (ParentHeader join1) (Nonce 1234) pactQueue
+        name = "block-new ["
+          ++ List.intercalate ","
+               [ "txCount=" ++ show txCount
+               , "validate=" ++ show (cfg.validate == DoValidate)
+               , "compact=" ++ show (cfg.compact == DoCompact)
+               ]
+          ++ "]"
 
 -- -------------------------------------------------------------------------- --
 -- Benchmark Function
@@ -159,12 +194,12 @@ playLine
     -> PactQueue
     -> IORef Word64
     -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
-playLine  pdb bhdb trunkLength startingBlock rr =
-    mineLine startingBlock trunkLength
+playLine pdb bhdb trunkLength startingBlock pactQueue counter =
+    mineLine startingBlock trunkLength counter
   where
     mineLine :: BlockHeader -> Word64 -> IORef Word64 -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
     mineLine start l ncounter =
-        evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. startHeight + l - 1]) rr) start
+        evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. startHeight + l - 1]) pactQueue) start
       where
         startHeight :: Num a => a
         startHeight = fromIntegral $ _blockHeight start
@@ -185,14 +220,14 @@ mineBlock
     -> PactQueue
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock parent nonce pdb bhdb pact = do
-    !r@(T3 _ newHeader payload) <- createBlock True parent nonce pact
+    r@(T3 _ newHeader payload) <- createBlock DoValidate parent nonce pact
     addNewPayload pdb (succ $ _blockHeight $ _parentHeader parent) payload
     -- NOTE: this doesn't validate the block header, which is fine in this test case
     unsafeInsertBlockHeaderDb bhdb newHeader
     return r
 
 createBlock
-    :: Bool
+    :: Validate
     -> ParentHeader
     -> Nonce
     -> PactQueue
@@ -213,7 +248,7 @@ createBlock validate parent nonce pact = do
               creationTime
               parent
 
-     when validate $ do
+     when (validate == DoValidate) $ do
        mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) pact
        void $ assertNotLeft =<< takeMVar mv'
 
@@ -228,7 +263,7 @@ data Resources
     , blockHeaderDb :: !BlockHeaderDb
     , pactService :: !(Async (), PactQueue)
     , mainTrunkBlocks :: ![T3 ParentHeader BlockHeader PayloadWithOutputs]
-    , coinAccounts :: !(MVar (Map Account (NonEmpty SomeKeyPairCaps)))
+    , coinAccounts :: !(MVar (Map Account (NonEmpty (DynKeyPair, [SigCapability]))))
     , nonceCounter :: !(IORef Word64)
     , txPerBlock :: !(IORef Int)
     , sqlEnv :: !SQLiteEnv
@@ -243,8 +278,14 @@ type RunPactService =
   -> IORef Int
   -> C.Benchmark
 
-withResources :: RocksDb -> Word64 -> LogLevel -> RunPactService -> C.Benchmark
-withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwrap
+withResources :: ()
+  => RocksDb
+  -> Word64
+  -> LogLevel
+  -> Compact
+  -> RunPactService
+  -> C.Benchmark
+withResources rdb trunkLength logLevel compact f = C.envWithCleanup create destroy unwrap
   where
 
     unwrap ~(NoopNFData (Resources {..})) =
@@ -262,6 +303,13 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
           startPact testVer logger blockHeaderDb payloadDb mp sqlEnv
         mainTrunkBlocks <-
           playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
+        when (compact == DoCompact) $ do
+          C.withDefaultLogger System.Logger.Types.Error $ \lgr -> do
+            let flags = [C.NoGrandHash]
+            let db = _sConn sqlEnv
+            let bh = BlockHeight trunkLength
+            void $ C.compact (C.Target bh) lgr db flags
+
         return $ NoopNFData $ Resources {..}
 
     destroy (NoopNFData (Resources {..})) = do
@@ -274,7 +322,7 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
 
     startPact version l bhdb pdb mempool sqlEnv = do
         reqQ <- newPactQueue pactQueueSize
-        a <- async $ runPactService version cid l reqQ mempool bhdb pdb sqlEnv defaultPactServiceConfig
+        a <- async $ runPactService version cid l reqQ mempool bhdb pdb sqlEnv testPactServiceConfig
             { _pactBlockGasLimit = 150000
             }
 
@@ -313,15 +361,13 @@ withResources rdb trunkLength logLevel f = C.envWithCleanup create destroy unwra
 
 -- | Mempool Access
 --
-testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> IO MemPoolAccess
+testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty (DynKeyPair, [SigCapability]))) -> IO MemPoolAccess
 testMemPoolAccess txsPerBlock accounts = do
-  hs <- newIORef []
   return $ mempty
-    { mpaGetBlock = \_g validate bh hash header -> do
-        hs' <- readIORef hs
-        if bh `elem` hs' then return mempty else do
-          writeIORef hs (bh:hs')
-          getTestBlock accounts (_bct $ _blockCreationTime header) validate bh hash
+    { mpaGetBlock = \bf validate bh hash header -> do
+        if _bfCount bf /= 0 then pure mempty else do
+          testBlock <- getTestBlock accounts (_bct $ _blockCreationTime header) validate bh hash
+          pure testBlock
     }
   where
 
@@ -345,24 +391,18 @@ testMemPoolAccess txsPerBlock accounts = do
         | otherwise = do
           withMVar mVarAccounts $ \accs -> do
             blockSize <- readIORef txsPerBlock
-            coinReqs <- V.replicateM blockSize (mkRandomCoinContractRequest True accs)
-            txs <- forM coinReqs $ \coinReq -> do
+            coinReqs <- V.replicateM blockSize (mkTransferRequest accs)
+            txs <- forM coinReqs $ \req@(TransferRequest (SenderName sn) rcvr amt) -> do
                 let (Account sender, ks) =
-                      case coinReq of
-                        CoinCreateAccount account (Guard guardd) -> (account, guardd)
-                        CoinAccountBalance account -> (account, fromJuste $ M.lookup account accs)
-                        CoinTransfer (SenderName sn) rcvr amt ->
-                          mkTransferCaps rcvr amt (sn, fromJuste $ M.lookup sn accs)
-                        CoinTransferAndCreate (SenderName acc) rcvr (Guard guardd) amt ->
-                          mkTransferCaps rcvr amt (acc, guardd)
+                      mkTransferCaps rcvr amt (sn, fromJuste $ M.lookup sn accs)
                 meta <- setTime txOrigTime <$> makeMetaWithSender sender cid
-                eCmd <- validateCommand <$> createCoinContractRequest testVer meta ks coinReq
+                eCmd <- validateCommand <$> createTransfer testVer meta ks req
                 case eCmd of
                   Left e -> throwM $ userError e
                   Right tx -> return tx
             return $! txs
 
-    mkTransferCaps :: ReceiverName -> Amount -> (Account, NonEmpty SomeKeyPairCaps) -> (Account, NonEmpty SomeKeyPairCaps)
+    mkTransferCaps :: ReceiverName -> Amount -> (Account, NonEmpty (DynKeyPair, [SigCapability])) -> (Account, NonEmpty (DynKeyPair, [SigCapability]))
     mkTransferCaps (ReceiverName (Account r)) (Amount m) (s@(Account ss),ks) = (s, (caps <$) <$> ks)
       where
         caps = [gas,tfr]
@@ -379,7 +419,7 @@ cid :: ChainId
 cid = someChainId testVer
 
 testVer :: ChainwebVersion
-testVer = FastTimedCPM petersonChainGraph
+testVer = slowForkingCpmTestVersion petersonChainGraph
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l
@@ -391,26 +431,27 @@ createCoinAccount
     :: ChainwebVersion
     -> PublicMeta
     -> String
-    -> IO (NonEmpty SomeKeyPairCaps, Command Text)
+    -> IO (NonEmpty (DynKeyPair, [SigCapability]), Command Text)
 createCoinAccount v meta name = do
     sender00Keyset <- NEL.fromList <$> getKeyset "sender00"
     nameKeyset <- NEL.fromList <$> getKeyset name
     let attach = attachCaps "sender00" name 1000.0
-    let theData = object [T.pack name .= fmap (formatB16PubKey . fst) (attach nameKeyset)]
-    res <- mkExec (T.pack theCode) theData meta (NEL.toList $ attach sender00Keyset) (Just $ Pact.NetworkId $ toText v) Nothing
+    let theData = object [fromString name .= fmap (formatB16PubKey . fst) (attach nameKeyset)]
+    res <- mkExec (T.pack theCode) theData meta (NEL.toList $ attach sender00Keyset) (Just $ Pact.NetworkId $ toText (_versionName v)) Nothing
     pure (nameKeyset, res)
   where
     theCode = printf "(coin.transfer-create \"sender00\" \"%s\" (read-keyset \"%s\") 1000.0)" name name
     isSenderAccount name' =
       elem name' (map getAccount coinAccountNames)
 
-    getKeyset :: String -> IO [SomeKeyPairCaps]
+    getKeyset :: String -> IO [(DynKeyPair, [SigCapability])]
     getKeyset s
       | isSenderAccount s = do
           keypair <- stockKey (T.pack s)
           mkKeyPairs [keypair]
-      | otherwise = (\k -> [(k, [])]) <$> genKeyPair defaultScheme
+      | otherwise = (\k -> [(DynEd25519KeyPair k, [])]) <$> generateEd25519KeyPair
 
+    attachCaps :: String -> String -> Decimal -> NonEmpty (DynKeyPair, [SigCapability]) -> NonEmpty (DynKeyPair, [SigCapability])
     attachCaps s rcvr m ks = (caps <$) <$> ks
       where
         caps = [gas, tfr]
@@ -434,7 +475,7 @@ stockKey s = do
 stockKeyFile :: ByteString
 stockKeyFile = $(embedFile "pact/genesis/devnet/keys.yaml")
 
-createCoinAccounts :: ChainwebVersion -> PublicMeta -> IO (NonEmpty (Account, NonEmpty SomeKeyPairCaps, Command Text))
+createCoinAccounts :: ChainwebVersion -> PublicMeta -> IO (NonEmpty (Account, NonEmpty (DynKeyPair, [SigCapability]), Command Text))
 createCoinAccounts v meta = traverse (go <*> createCoinAccount v meta) names
   where
     go a m = do
@@ -444,15 +485,16 @@ createCoinAccounts v meta = traverse (go <*> createCoinAccount v meta) names
 names :: NonEmpty String
 names = NEL.map safeCapitalize . NEL.fromList $ Prelude.take 2 $ words "mary elizabeth patricia jennifer linda barbara margaret susan dorothy jessica james john robert michael william david richard joseph charles thomas"
 
-accountNames :: NonEmpty Account
-accountNames = Account <$> names
-
-formatB16PubKey :: SomeKeyPair -> Text
-formatB16PubKey = toB16Text . formatPublicKey
+formatB16PubKey :: DynKeyPair -> Text
+formatB16PubKey = \case
+  DynEd25519KeyPair kp -> toB16Text $ getPublic kp
+  DynWebAuthnKeyPair _ pub _ -> toB16Text $ exportWebAuthnPublicKey pub
 
 safeCapitalize :: String -> String
 safeCapitalize = maybe [] (uncurry (:) . bimap toUpper (Prelude.map toLower)) . Data.List.uncons
 
+
+-- TODO: Use the new `assertCommand` function.
 validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = case verifyCommand cmdBS of
     ProcSucc cmd -> Right (mkPayloadWithTextOld <$> cmd)
@@ -461,45 +503,38 @@ validateCommand cmdText = case verifyCommand cmdBS of
     cmdBS :: Command ByteString
     cmdBS = encodeUtf8 <$> cmdText
 
-mkRandomCoinContractRequest
-    :: Bool
-    -> M.Map Account (NonEmpty SomeKeyPairCaps)
-    -> IO CoinContractRequest
-mkRandomCoinContractRequest transfersPred kacts = do
-    request <- bool (randomRIO @Int (0, 1)) (return 1) transfersPred
-    case request of
-      0 -> CoinAccountBalance <$> fakeAccount
-      1 -> do
-          (from, to) <- distinctAccounts (M.keys kacts)
-          case M.lookup to kacts of
-              Nothing -> error $ errmsg ++ getAccount to
-              Just _keyset -> CoinTransfer
-                  (SenderName from)
-                  (ReceiverName to)
-                  <$> fakeAmount
-      _ -> error "mkRandomCoinContractRequest: impossible case"
-    where
-      errmsg =
-        "mkRandomCoinContractRequest: something went wrong." ++
-        " Cannot find account name: "
+data TransferRequest = TransferRequest !SenderName !ReceiverName !Amount
+
+mkTransferRequest :: ()
+  => M.Map Account (NonEmpty (DynKeyPair, [SigCapability]))
+  -> IO TransferRequest
+mkTransferRequest kacts = do
+  (from, to) <- distinctAccounts (M.keys kacts)
+  case M.lookup to kacts of
+    Nothing -> error $ errmsg ++ getAccount to
+    Just _keyset -> do
+      amt <- fakeAmount
+      pure (TransferRequest (SenderName from) (ReceiverName to) amt)
+  where
+    errmsg =
+      "mkTransferRequest: something went wrong." ++
+      " Cannot find account name: "
+
+mkTransferTx :: TransferRequest -> String
+mkTransferTx (TransferRequest (SenderName (Account s)) (ReceiverName (Account r)) (Amount amt)) =
+  "(coin.transfer " ++ inQuotes s ++ " " ++ inQuotes r ++ " " ++ formatAmount amt ++ ")"
+  where
+    inQuotes x = "\"" ++ x ++ "\""
+    formatAmount a =
+      -- Super janky, but gets the job done for now
+      show (fromRational @Double (toRational a))
 
 newtype Account = Account
   { getAccount :: String
   } deriving (Eq, Ord, Show, Generic)
 
-data CoinContractRequest
-  = CoinCreateAccount Account Guard
-  | CoinAccountBalance Account
-  | CoinTransfer SenderName ReceiverName Amount
-  | CoinTransferAndCreate SenderName ReceiverName Guard Amount
-  deriving Show
-
-newtype Guard = Guard (NonEmpty SomeKeyPairCaps)
 newtype SenderName = SenderName Account
 newtype ReceiverName = ReceiverName Account
-
-instance Show Guard where
-    show _ = "<guard>"
 
 instance Show SenderName where
     show (SenderName account) = "sender: " ++ show account
@@ -509,9 +544,6 @@ instance Show ReceiverName where
 
 pick :: Foldable l => l a -> IO a
 pick l = (toList l !!) <$> randomRIO (0, length l - 1)
-
-fakeAccount :: IO Account
-fakeAccount =  pick accountNames
 
 newtype Amount = Amount
   { getAmount :: Decimal
@@ -532,56 +564,21 @@ distinctAccounts xs = pick xs >>= go
         b <- pick xs
         if (a == b) then (go a) else return (a,b)
 
-createCoinContractRequest
-    :: ChainwebVersion
-    -> PublicMeta
-    -> NEL.NonEmpty SomeKeyPairCaps
-    -> CoinContractRequest
-    -> IO (Command Text)
-createCoinContractRequest v meta ks request =
-    case request of
-      CoinCreateAccount (Account account) (Guard guardd) -> do
-        let theCode =
-              printf
-              "(coin.create-account \"%s\" (read-keyset \"%s\"))"
-              account
-              ("create-account-guard" :: String)
-            theData =
-              object
-                [ "create-account-guard" .= fmap (formatB16PubKey . fst) guardd
-                ]
-        mkExec (T.pack theCode) theData meta (NEL.toList ks) (Just $ Pact.NetworkId $ toText v) Nothing
-      CoinAccountBalance (Account account) -> do
-        let theData = Null
-            theCode =
-              printf
-              "(coin.get-balance \"%s\")"
-              account
-        mkExec (T.pack theCode) theData meta (NEL.toList ks) (Just $ Pact.NetworkId $ toText v) Nothing
-      CoinTransferAndCreate (SenderName (Account sn)) (ReceiverName (Account rn)) (Guard guardd) (Amount amount) -> do
-        let theCode =
-              printf
-              "(coin.transfer-create \"%s\" \"%s\" (read-keyset \"%s\") %f)"
-              sn
-              rn
-              ("receiver-guard" :: String)
-              (fromRational @Double $ toRational amount)
-            theData =
-              object
-                [ "receiver-guard" .= fmap (formatB16PubKey . fst) guardd
-                ]
-        mkExec (T.pack theCode) theData meta (NEL.toList ks) (Just $ Pact.NetworkId $ toText v) Nothing
-
-      CoinTransfer (SenderName (Account sn)) (ReceiverName (Account rn)) (Amount amount) -> do
-        let theCode =
-              printf
-              "(coin.transfer \"%s\" \"%s\" %f)"
-              sn
-              rn
-              -- Super janky, but gets the job done for now
-              (fromRational @Double $ toRational amount)
-            theData = object []
-        mkExec (T.pack theCode) theData meta (NEL.toList ks) (Just $ Pact.NetworkId $ toText v) Nothing
+createTransfer :: ()
+  => ChainwebVersion
+  -> PublicMeta
+  -> NEL.NonEmpty (DynKeyPair, [SigCapability])
+  -> TransferRequest
+  -> IO (Command Text)
+createTransfer v meta ks request =
+  case request of
+    req@(TransferRequest {}) -> do
+      let theCode = mkTransferTx req
+      let theData = object []
+      mkExec (T.pack theCode) theData meta
+        (NEL.toList ks)
+        (Just $ Pact.NetworkId $ toText $ _versionName v)
+        Nothing
 
 makeMetaWithSender :: String -> ChainId -> IO PublicMeta
 makeMetaWithSender sender c =

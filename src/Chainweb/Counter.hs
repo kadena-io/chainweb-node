@@ -48,7 +48,9 @@ module Chainweb.Counter
 import Control.DeepSeq
 
 import Data.Aeson
+import qualified Data.Aeson.Key as A
 import Data.Aeson.Encoding (pair)
+import Data.Bifunctor
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
@@ -81,7 +83,7 @@ instance (KnownSymbol s, ToJSON a) => ToJSON (Labeled s a) where
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
-kv :: forall s a x . KnownSymbol s => ToJSON a => KeyValue x => Labeled s a -> x
+kv :: forall s a e x . KnownSymbol s => ToJSON a => KeyValue e x => Labeled s a -> x
 kv (Labeled a) = symbolText @s .= a
 {-# INLINE kv #-}
 
@@ -200,20 +202,20 @@ instance ToJSON CounterLog where
     toJSON (CounterLog v) = object $ V.toList $ V.map f v
       where
         f (CounterValue i) = kv i
-        f (CounterMapValue m) = kv $ fmap (object . V.toList . V.map (fmap toJSON)) m
+        f (CounterMapValue m) = kv $ fmap (object . V.toList . V.map (bimap A.fromText toJSON)) m
     {-# INLINE toJSON #-}
 
     toEncoding (CounterLog v) = pairs $ foldMap f v
       where
         f (CounterValue i) = kv i
-        f (CounterMapValue m) = kv' $ fmap (pairs . foldMap (uncurry (.=))) m
+        f (CounterMapValue m) = kv' $ fmap (pairs . foldMap (uncurry (.=) . first A.fromText)) m
     {-# INLINE toEncoding #-}
 
 logFunctionCounter
     :: Logger l
     => l
     -> LogFunctionCounter
-logFunctionCounter logger level = logFunction logger level
+logFunctionCounter logger level = logFunctionJson logger level
     . CounterLog
     . V.fromList
     . toList

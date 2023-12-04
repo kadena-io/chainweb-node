@@ -3,6 +3,8 @@ name: Build with MacOS
 on:
   workflow_dispatch:
   push:
+    #    paths-ignore:
+    #      - '.github/**'
 
 jobs:
 
@@ -12,8 +14,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ["8.10.7", "9.0"]
-        cabal: ["3.6"]
+        ghc: ["9.6.1"]
+        cabal: ["3.10"]
         os: ["macOS-latest"]
         cabalcache: ["true"]
 
@@ -21,8 +23,13 @@ jobs:
     # Setup
     - name: Checkout repository
       uses: actions/checkout@v3
+
+    # work around for https://github.com/haskell/actions/issues/187
+    - name: Set permissions for .ghcup
+      if: startsWith(matrix.os, 'ubuntu-')
+      run: sudo chown -R $USER /usr/local/.ghcup
     - name: Install GHC and Cabal
-      uses: haskell/actions/setup@v2.0.1
+      uses: haskell/actions/setup@v2
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
@@ -77,7 +84,7 @@ jobs:
         cabal freeze
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
-      uses: larskuhtz/cabal-cache-action@ecc751af6d31b3ed5a3b4aefdefd0ed6ef4cb414
+      uses: larskuhtz/cabal-cache-action@018b7ae0c480ba3dc4fa0cfa3a0bc1f05b7724b3
       with:
         bucket: "kadena-cabal-cache"
         region: "us-east-1"

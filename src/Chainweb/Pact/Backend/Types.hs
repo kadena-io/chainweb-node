@@ -23,10 +23,7 @@
 --
 -- Chainweb / Pact Types module for various database backends
 module Chainweb.Pact.Backend.Types
-    ( CheckpointEnv(..)
-    , cpeCheckpointer
-    , cpeLogger
-    , Checkpointer(..)
+    ( Checkpointer(..)
     , Env'(..)
     , EnvPersist'(..)
     , PactDbConfig(..)
@@ -75,6 +72,7 @@ module Chainweb.Pact.Backend.Types
     , ParentHash
     , BlockDbEnv(..)
     , bdbenvDb
+    , bdbenvLogger
     , SQLiteFlag(..)
 
       -- * mempool
@@ -110,8 +108,8 @@ import Pact.Interpreter (PactDbEnv(..))
 import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
 import qualified Pact.Types.Hash as P
-import Pact.Types.Logger (Logger(..), Logging(..))
 import Pact.Types.Persistence
+import Pact.Types.RowData (RowData)
 import Pact.Types.Runtime (TableName)
 
 -- internal modules
@@ -122,15 +120,13 @@ import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
-
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
-
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
 
 data PactDbEnvPersist p = PactDbEnvPersist
-    { _pdepPactDb :: PactDb (DbEnv p)
-    , _pdepEnv :: DbEnv p
+    { _pdepPactDb :: !(PactDb (DbEnv p))
+    , _pdepEnv :: !(DbEnv p)
     }
 
 makeLenses ''PactDbEnvPersist
@@ -143,11 +139,11 @@ newtype PactDbState = PactDbState { _pdbsDbEnv :: EnvPersist' }
 makeLenses ''PactDbState
 
 data PactDbConfig = PactDbConfig
-    { _pdbcPersistDir :: Maybe FilePath
-    , _pdbcLogDir :: FilePath
-    , _pdbcPragmas :: [Pragma]
-    , _pdbcGasLimit :: Maybe Int
-    , _pdbcGasRate :: Maybe Int
+    { _pdbcPersistDir :: !(Maybe FilePath)
+    , _pdbcLogDir :: !FilePath
+    , _pdbcPragmas :: ![Pragma]
+    , _pdbcGasLimit :: !(Maybe Int)
+    , _pdbcGasRate :: !(Maybe Int)
     } deriving (Eq, Show, Generic)
 
 instance FromJSON PactDbConfig
@@ -183,7 +179,7 @@ data SQLiteDeltaKey = SQLiteDeltaKey
 
 -- | A map from table name to a list of 'TxLog' entries. This is maintained in
 -- 'BlockState' and is cleared upon pact transaction commit.
-type TxLogMap = Map TableName (DList (TxLog Value))
+type TxLogMap = Map TableName (DList TxLogJson)
 
 -- | Between a @restore..save@ bracket, we also need to record which tables
 -- were created during this block (so the necessary @CREATE TABLE@ statements
@@ -224,10 +220,10 @@ data BlockState = BlockState
     , _bsBlockHeight :: !BlockHeight
     , _bsPendingBlock :: !SQLitePendingData
     , _bsPendingTx :: !(Maybe SQLitePendingData)
-    , _bsModuleNameFix :: Bool
-    , _bsSortedKeys :: Bool
-    , _bsLowerCaseTables :: Bool
-    , _bsModuleCache :: DbCache PersistModuleData
+    , _bsModuleNameFix :: !Bool
+    , _bsSortedKeys :: !Bool
+    , _bsLowerCaseTables :: !Bool
+    , _bsModuleCache :: !(DbCache PersistModuleData)
     }
 
 emptySQLitePendingData :: SQLitePendingData
@@ -252,29 +248,29 @@ initBlockState cl initialBlockHeight = BlockState
 
 makeLenses ''BlockState
 
-data BlockDbEnv p = BlockDbEnv
+data BlockDbEnv logger p = BlockDbEnv
     { _bdbenvDb :: !p
-    , _logger :: !Logger
+    , _bdbenvLogger :: !logger
     }
 
 makeLenses ''BlockDbEnv
 
-data BlockEnv p = BlockEnv
-    { _benvDb :: !(BlockDbEnv p)
+data BlockEnv logger p = BlockEnv
+    { _benvDb :: !(BlockDbEnv logger p)
     , _benvBlockState :: !BlockState -- ^ The current block state.
     }
 
 makeLenses ''BlockEnv
 
 
-runBlockEnv :: MVar (BlockEnv SQLiteEnv) -> BlockHandler SQLiteEnv a -> IO a
+runBlockEnv :: MVar (BlockEnv logger SQLiteEnv) -> BlockHandler logger SQLiteEnv a -> IO a
 runBlockEnv e m = modifyMVar e $
   \(BlockEnv dbenv bs) -> do
     (!a,!s) <- runStateT (runReaderT (runBlockHandler m) dbenv) bs
     return (BlockEnv dbenv s, a)
 
-newtype BlockHandler p a = BlockHandler
-    { runBlockHandler :: ReaderT (BlockDbEnv p) (StateT BlockState IO) a
+newtype BlockHandler logger p a = BlockHandler
+    { runBlockHandler :: ReaderT (BlockDbEnv logger p) (StateT BlockState IO) a
     } deriving newtype
         ( Functor
         , Applicative
@@ -284,53 +280,48 @@ newtype BlockHandler p a = BlockHandler
         , MonadCatch
         , MonadMask
         , MonadIO
-        , MonadReader (BlockDbEnv p)
+        , MonadReader (BlockDbEnv logger p)
+
         )
 
-newtype PactDbEnv' = PactDbEnv' (PactDbEnv (BlockEnv SQLiteEnv))
-
-instance Logging (BlockHandler p) where
-    log c s = view logger >>= \l -> liftIO $ logLog l c s
+newtype PactDbEnv' logger = PactDbEnv' (PactDbEnv (BlockEnv logger SQLiteEnv))
 
 type ParentHash = BlockHash
 
-data Checkpointer = Checkpointer
+data Checkpointer logger = Checkpointer
     {
-      _cpRestore :: !(Maybe (BlockHeight, ParentHash) -> IO PactDbEnv')
+      _cpRestore :: !(Maybe (BlockHeight, ParentHash) -> IO (PactDbEnv' logger))
       -- ^ prerequisite: (BlockHeight - 1, ParentHash) is a direct ancestor of
       -- the "latest block"
     , _cpSave :: !(BlockHash -> IO ())
       -- ^ commits pending modifications to block, with the given blockhash
-    , _cpDiscard :: IO ()
+    , _cpDiscard :: !(IO ())
       -- ^ discard pending block changes
-    , _cpGetLatestBlock :: IO (Maybe (BlockHeight, BlockHash))
+    , _cpGetEarliestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
+      -- ^ get the checkpointer's idea of the earliest block. The block height
+      --   is the height of the block of the block hash.
+    , _cpGetLatestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
       -- ^ get the checkpointer's idea of the latest block. The block height is
       -- is the height of the block of the block hash.
       --
       -- TODO: Under which circumstances does this return 'Nothing'?
 
-    , _cpBeginCheckpointerBatch :: IO ()
-    , _cpCommitCheckpointerBatch :: IO ()
-    , _cpDiscardCheckpointerBatch :: IO ()
+    , _cpBeginCheckpointerBatch :: !(IO ())
+    , _cpCommitCheckpointerBatch :: !(IO ())
+    , _cpDiscardCheckpointerBatch :: !(IO ())
     , _cpLookupBlockInCheckpointer :: !((BlockHeight, BlockHash) -> IO Bool)
       -- ^ is the checkpointer aware of the given block?
     , _cpGetBlockParent :: !((BlockHeight, BlockHash) -> IO (Maybe BlockHash))
     , _cpRegisterProcessedTx :: !(P.PactHash -> IO ())
 
-      -- TODO: this would be nicer as a batch lookup :(
-    , _cpLookupProcessedTx :: !(P.PactHash -> IO (Maybe (T2 BlockHeight BlockHash)))
-    , _cpGetBlockHistory :: !(
-        forall k v . (FromJSON v) => BlockHeader -> Domain k v -> IO BlockTxHistory)
-    , _cpGetHistoricalLookup :: !(
-        forall k v . (FromJSON v) => BlockHeader -> Domain k v -> RowKey -> IO (Maybe (TxLog Value)))
+    , _cpLookupProcessedTx ::
+        !(Maybe ConfirmationDepth -> Vector P.PactHash -> IO (HashMap P.PactHash (T2 BlockHeight BlockHash)))
+    , _cpGetBlockHistory ::
+        !(BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory)
+    , _cpGetHistoricalLookup ::
+        !(BlockHeader -> Domain RowKey RowData -> RowKey -> IO (Maybe (TxLog RowData)))
+    , _cpLogger :: !logger
     }
-
-data CheckpointEnv = CheckpointEnv
-    { _cpeCheckpointer :: !Checkpointer
-    , _cpeLogger :: !Logger
-    }
-
-makeLenses ''CheckpointEnv
 
 newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
   deriving newtype (Eq, Ord, Bits, Num)
@@ -338,15 +329,16 @@ newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
 -- TODO: get rid of this shim, it's probably not necessary
 data MemPoolAccess = MemPoolAccess
   { mpaGetBlock
-        :: BlockFill
+        :: !(BlockFill
         -> MempoolPreBlockCheck ChainwebTransaction
         -> BlockHeight
         -> BlockHash
         -> BlockHeader
         -> IO (Vector ChainwebTransaction)
-  , mpaSetLastHeader :: BlockHeader -> IO ()
-  , mpaProcessFork :: BlockHeader -> IO ()
-  , mpaBadlistTx :: Vector TransactionHash -> IO ()
+        )
+  , mpaSetLastHeader :: !(BlockHeader -> IO ())
+  , mpaProcessFork :: !(BlockHeader -> IO ())
+  , mpaBadlistTx :: !(Vector TransactionHash -> IO ())
   }
 
 instance Semigroup MemPoolAccess where
@@ -358,8 +350,8 @@ instance Monoid MemPoolAccess where
 
 
 data PactServiceException = PactServiceIllegalRewind
-    { _attemptedRewindTo :: Maybe (BlockHeight, BlockHash)
-    , _latestBlock :: Maybe (BlockHeight, BlockHash)
+    { _attemptedRewindTo :: !(Maybe (BlockHeight, BlockHash))
+    , _latestBlock :: !(Maybe (BlockHeight, BlockHash))
     } deriving (Generic)
 
 instance Show PactServiceException where

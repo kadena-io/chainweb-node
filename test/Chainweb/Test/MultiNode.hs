@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
@@ -32,17 +33,13 @@
 -- The configuration defines a scaled down, accelerated chain that tries to
 -- similulate a full-scale chain in a miniaturized settings.
 --
-module Chainweb.Test.MultiNode ( test, replayTest ) where
-
-#ifndef DEBUG_MULTINODE_TEST
-#define DEBUG_MULTINODE_TEST 0
-#endif
+module Chainweb.Test.MultiNode ( test, replayTest, compactAndResumeTest ) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Exception
-import Control.Lens (set, view)
+import Control.Lens (set, view, over)
 import Control.Monad
 
 import Data.Aeson
@@ -53,10 +50,6 @@ import Data.IORef
 import qualified Data.List as L
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.Text.IO as T
-#if DEBUG_MULTINODE_TEST
-import qualified Data.Text.IO as T
-#endif
 
 import GHC.Generics
 
@@ -66,6 +59,7 @@ import qualified Streaming.Prelude as S
 
 import System.FilePath
 import System.IO.Temp
+import System.Logger.Types qualified as YAL
 import System.LogLevel
 import System.Timeout
 
@@ -81,6 +75,9 @@ import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.PeerResources
+import Chainweb.Pact.Backend.Compaction qualified as C
+import Chainweb.Pact.Backend.Types (_sConn)
+import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
@@ -168,9 +165,7 @@ multiConfig v n = defaultChainwebConfiguration v
 
     throttling = defaultThrottlingConfig
         { _throttlingRate = 10_000 -- per second
-        , _throttlingMiningRate = 10_000 --  per second
         , _throttlingPeerRate = 10_000 -- per second, one for each p2p network
-        , _throttlingLocalRate = 10_000  -- per 10 seconds
         }
 
 -- | Configure a bootstrap node
@@ -182,7 +177,7 @@ multiBootstrapConfig conf = conf
     & set (configP2p . p2pConfigPeer) peerConfig
     & set (configP2p . p2pConfigKnownPeers) []
   where
-    peerConfig = (head $ bootstrapPeerConfig $ _configChainwebVersion conf)
+    peerConfig = (head $ testBootstrapPeerConfig $ _configChainwebVersion conf)
         & set peerConfigPort 0
         -- Normally, the port of bootstrap nodes is hard-coded. But in
         -- test-suites that may run concurrently we want to use a port that is
@@ -293,24 +288,81 @@ runNodesForSeconds loglevel write baseConf n (Seconds seconds) rdb pactDbDir inn
     void $ timeout (int seconds * 1_000_000)
         $ runNodes loglevel write baseConf n rdb pactDbDir inner
 
+-- | Run nodes
+--   Each node creates blocks
+--   We wait until they've made a sufficient amount of blocks
+--   We stop the nodes
+--   We open sqlite connections to some of the database dirs and compact them
+--   We restart all nodes with the same database dirs
+--   We observe that they can make progress
+compactAndResumeTest :: ()
+  => LogLevel
+  -> ChainwebVersion
+  -> Natural
+  -> TestTree
+compactAndResumeTest logLevel v n =
+  let
+    name = "compact-resume"
+  in
+  after AllFinish "ConsensusNetwork" $ testCaseSteps name $ \step ->
+  withTempRocksDb "compact-resume-test-rocks" $ \rdb ->
+  withSystemTempDirectory "compact-resume-test-pact" $ \pactDbDir -> do
+    let logFun = step . T.unpack
+    let logger = genericLogger logLevel logFun
+
+    logFun "phase 1... creating blocks"
+    -- N.B: This consensus state stuff counts the number of blocks
+    -- in RocksDB, rather than the number of blocks in all chains
+    -- on the current cut. This is fine because we ultimately just want
+    -- to make sure that we are making progress (i.e, new blocks).
+    stateVar <- newMVar (emptyConsensusState v)
+    let ct :: Int -> StartedChainweb logger -> IO ()
+        ct = harvestConsensusState logger stateVar
+    runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rdb pactDbDir ct
+    Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
+    assertGe "average block count before compaction" (Actual $ _statBlockCount stats1) (Expected 50)
+    logFun $ sshow stats1
+
+    logFun "phase 2... compacting"
+    let cid = unsafeChainId 0
+    -- compact only half of them
+    let nids = filter even [0 .. int @_ @Int n - 1]
+    forM_ nids $ \nid -> do
+      let dir = pactDbDir </> show nid
+      withSqliteDb cid logger dir False $ \sqlEnv -> do
+        C.withDefaultLogger YAL.Warn $ \cLogger -> do
+          let cLogger' = over YAL.setLoggerScope (\scope -> ("nodeId",sshow nid) : ("chainId",sshow cid) : scope) cLogger
+          let flags = [C.NoVacuum, C.NoGrandHash]
+          let db = _sConn sqlEnv
+          let bh = BlockHeight 5
+          void $ C.compact (C.Target bh) cLogger' db flags
+
+    logFun "phase 3... restarting nodes and ensuring progress"
+    runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rdb pactDbDir ct
+    Just stats2 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
+    -- We ensure that we've gotten to at least 1.5x the previous block count
+    assertGe "average block count post-compaction" (Actual $ _statBlockCount stats2) (Expected (3 * _statBlockCount stats1 `div` 2))
+    logFun $ sshow stats2
+
 replayTest
     :: LogLevel
     -> ChainwebVersion
     -> Natural
     -> TestTree
-replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps name $ \step -> 
-    withTempRocksDb "replay-test-rocks" $ \rdb -> 
+replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps name $ \step ->
+    withTempRocksDb "replay-test-rocks" $ \rdb ->
     withSystemTempDirectory "replay-test-pact" $ \pactDbDir -> do
         let tastylog = step . T.unpack
+        let logFun = step . T.unpack
         tastylog "phase 1..."
         stateVar <- newMVar $ emptyConsensusState v
-        let ct = harvestConsensusState (genericLogger loglevel T.putStrLn) stateVar
-        runNodesForSeconds loglevel T.putStrLn (multiConfig v n) 2 60 rdb pactDbDir ct
+        let ct = harvestConsensusState (genericLogger loglevel logFun) stateVar
+        runNodesForSeconds loglevel logFun (multiConfig v n) n 60 rdb pactDbDir ct
         Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
         assertGe "maximum cut height before reset" (Actual $ _statMaxHeight stats1) (Expected $ 10)
         tastylog $ sshow stats1
         tastylog $ "phase 2... resetting"
-        runNodesForSeconds loglevel T.putStrLn (multiConfig v 2 & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) n 30 rdb pactDbDir ct
+        runNodesForSeconds loglevel logFun (multiConfig v n & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) n 30 rdb pactDbDir ct
         state2 <- swapMVar stateVar (emptyConsensusState v)
         let stats2 = fromJuste $ consensusStateSummary state2
         tastylog $ sshow stats2
@@ -318,7 +370,7 @@ replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps nam
         tastylog $ "phase 3... replaying"
         let replayInitialHeight = 5
         firstReplayCompleteRef <- newIORef False
-        runNodesForSeconds loglevel T.putStrLn
+        runNodesForSeconds loglevel logFun
             (multiConfig v n
                 & set (configCuts . cutInitialBlockHeightLimit) (Just replayInitialHeight)
                 & set configOnlySyncPact True)
@@ -336,7 +388,7 @@ replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps nam
         let fastForwardHeight = 10
         tastylog $ "phase 4... replaying with fast-forward limit"
         secondReplayCompleteRef <- newIORef False
-        runNodesForSeconds loglevel T.putStrLn
+        runNodesForSeconds loglevel logFun
             (multiConfig v n
                 & set (configCuts . cutInitialBlockHeightLimit) (Just replayInitialHeight)
                 & set (configCuts . cutFastForwardBlockHeightLimit) (Just fastForwardHeight)
@@ -364,19 +416,13 @@ test
     -> Natural
     -> Seconds
     -> TestTree
-test loglevel v n seconds = testCaseSteps name $ \f -> 
+test loglevel v n seconds = testCaseSteps name $ \f ->
     -- Count log messages and only print the first 60 messages
-    withTempRocksDb "multinode-tests" $ \rdb -> 
+    withTempRocksDb "multinode-tests" $ \rdb ->
     withSystemTempDirectory "replay-test-pact" $ \pactDbDir -> do
         let tastylog = f . T.unpack
-#if DEBUG_MULTINODE_TEST
-        -- useful for debugging, requires import of Data.Text.IO.
-        let logFun = T.putStrLn
-            maxLogMsgs = 100_000
-#else
         let logFun = tastylog
             maxLogMsgs = 60
-#endif
         var <- newMVar (0 :: Int)
         let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
                 when (c < maxLogMsgs) (logFun msg)
@@ -432,7 +478,6 @@ data ConsensusState = ConsensusState
 
 instance HasChainwebVersion ConsensusState where
     _chainwebVersion = _stateChainwebVersion
-    {-# INLINE _chainwebVersion #-}
 
 emptyConsensusState :: ChainwebVersion -> ConsensusState
 emptyConsensusState v = ConsensusState mempty mempty v
@@ -475,7 +520,7 @@ consensusStateSummary s
         }
   where
     cutHeights = _cutHeight <$> _stateCutMap s
-    graph = chainGraphAt_ s
+    graph = chainGraphAt s
         $ maximum . concatMap chainHeights
         $ toList
         $ _stateCutMap s

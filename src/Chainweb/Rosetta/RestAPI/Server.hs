@@ -25,6 +25,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Data.Aeson
+import qualified Data.Aeson.KeyMap as KM
 import Data.IORef
 import Data.List (sort)
 import Data.Proxy (Proxy(..))
@@ -43,8 +44,8 @@ import Servant.Server
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..))
-import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
+import Chainweb.BlockHeader
+import Chainweb.ChainId
 import Chainweb.Cut (_cutMap)
 import Chainweb.CutDB
 import Chainweb.HostAddress
@@ -123,7 +124,7 @@ accountBalanceH
     -> AccountBalanceReq
     -> Handler AccountBalanceResp
 accountBalanceH _ _ _ (AccountBalanceReq _ (AccountId _ (Just _) _) _) = throwRosetta RosettaSubAcctUnsupported
-accountBalanceH v cutDb pacts (AccountBalanceReq net (AccountId acct _ _) pbid) = do
+accountBalanceH v cutDb pacts (AccountBalanceReq net (AccountId acct _ _) pbid) =
   runExceptT work >>= either throwRosetta pure
   where
     acctBalResp bid bal = AccountBalanceResp
@@ -192,7 +193,7 @@ blockTransactionH
     -> [(ChainId, PactExecutionService)]
     -> BlockTransactionReq
     -> Handler BlockTransactionResp
-blockTransactionH v cutDb ps pacts (BlockTransactionReq net bid t) = do
+blockTransactionH v cutDb ps pacts (BlockTransactionReq net bid t) =
   runExceptT work >>= either throwRosetta pure
   where
     BlockId bheight bhash = bid
@@ -242,11 +243,11 @@ constructionPreprocessH
     :: ChainwebVersion
     -> ConstructionPreprocessReq
     -> Handler ConstructionPreprocessResp
-constructionPreprocessH v req = do
+constructionPreprocessH v req =
     either throwRosettaError pure work
   where
     ConstructionPreprocessReq net ops someMeta someMaxFee someMult = req
-    
+
     work :: Either RosettaError ConstructionPreprocessResp
     work = do
       _ <- annotate rosettaError' (validateNetwork v net)
@@ -286,7 +287,7 @@ constructionMetadataH
 constructionMetadataH v cutDb pacts (ConstructionMetadataReq net opts someKeys) =
     runExceptT work >>= either throwRosettaError pure
   where
-    
+
     work :: ExceptT RosettaError Handler ConstructionMetadataResp
     work = do
       cid <- hoistEither $ annotate rosettaError' (validateNetwork v net)
@@ -302,7 +303,7 @@ constructionMetadataH v cutDb pacts (ConstructionMetadataReq net opts someKeys) 
       expectedAccts <- toSignerAcctsMap tx payer cid pacts cutDb
       signersAndAccts <- hoistEither $!
                          createSigners availableSigners expectedAccts
-      
+
       pure $! ConstructionMetadataResp
         { _constructionMetadataResp_metadata = toObject $! PayloadsMetaData
             { _payloadsMetaData_signers = signersAndAccts
@@ -349,12 +350,12 @@ constructionParseH v (ConstructionParseReq net isSigned tx) =
   where
     work :: Either RosettaError ConstructionParseResp
     work = do
-      void $ annotate rosettaError' (validateNetwork v net)
+      cid <- annotate rosettaError' (validateNetwork v net)
 
       (EnrichedCommand cmd txInfo signAccts) <- note
         (rosettaError' RosettaUnparsableTx)
         $ textToEnrichedCommand tx
-      signers <- getRosettaSigners cmd signAccts
+      signers <- getRosettaSigners cid cmd signAccts
       let ops = txToOps txInfo
 
       pure $ ConstructionParseResp
@@ -364,9 +365,9 @@ constructionParseH v (ConstructionParseReq net isSigned tx) =
         , _constructionParseResp_metadata = Nothing
         }
 
-    getRosettaSigners cmd expectedSignerAccts
+    getRosettaSigners cid cmd expectedSignerAccts
       | isSigned = do
-          _ <- toRosettaError RosettaInvalidTx $ validateCommand cmd
+          _ <- toRosettaError RosettaInvalidTx $ validateCommand v cid cmd
           pure expectedSignerAccts
           -- If transaction signatures successfully validates,
           -- it was signed correctly with all of the account public
@@ -425,7 +426,7 @@ constructionSubmitH v ms (ConstructionSubmitReq net tx) =
       $ "Validation failed for hash "
       ++ (show $! hsh) ++ ": "
       ++ show insErr
-    
+
     work :: ExceptT RosettaError Handler TransactionIdResp
     work = do
         cid <- hoistEither $ annotate rosettaError' (validateNetwork v net)
@@ -436,7 +437,7 @@ constructionSubmitH v ms (ConstructionSubmitReq net tx) =
           note (rosettaError' RosettaUnparsableTx)
           $ textToEnrichedCommand tx
 
-        case validateCommand cmd of
+        case validateCommand v cid cmd of
           Right validated -> do
             let txs = V.fromList [validated]
             -- If any of the txs in the batch fail validation, we reject them all.
@@ -520,7 +521,7 @@ networkListH v cutDb _ = runExceptT work >>= either throwRosetta pure
     f :: ChainId -> NetworkId
     f cid =  NetworkId
       { _networkId_blockchain = "kadena"
-      , _networkId_network = chainwebVersionToText v
+      , _networkId_network = getChainwebVersionName $ _versionName v
       , _networkId_subNetworkId = Just (SubNetworkId (chainIdToText cid) Nothing)
       }
 
@@ -536,12 +537,12 @@ networkOptionsH v (NetworkReq nid _) = runExceptT work >>= either throwRosetta p
       { _version_rosettaVersion = rosettaSpecVersion
       , _version_nodeVersion = chainwebNodeVersionHeaderValue
       , _version_middlewareVersion = Nothing
-      , _version_metadata = Just $ HM.fromList metaPairs }
+      , _version_metadata = Just $ KM.fromList metaPairs }
 
     -- TODO: Document this meta data
     metaPairs =
       [ "node-api-version" .= prettyApiVersion
-      , "chainweb-version" .= chainwebVersionToText v
+      , "chainweb-version" .= getChainwebVersionName (_versionName v)
       , "rosetta-chainweb-version" .= rosettaImplementationVersion
       --  The version of the rosetta implementation.
       --  Meant to capture if something about the internal
@@ -599,24 +600,24 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) =
       }
 
     rosettaNodePeers :: [PeerInfo] -> [RosettaNodePeer]
-    rosettaNodePeers ps = map f ps
+    rosettaNodePeers = map f
       where
         f :: PeerInfo -> RosettaNodePeer
         f p = RosettaNodePeer
           { _peer_peerId = hostAddressToText $ _peerAddr p
-          , _peer_metadata = Just . HM.fromList $ metaPairs p }
+          , _peer_metadata = Just . KM.fromList $ metaPairs p }
 
         -- TODO: document this meta data
-        metaPairs :: PeerInfo -> [(T.Text, Value)]
+        metaPairs :: PeerInfo -> [(Key, Value)]
         metaPairs p = addrPairs (_peerAddr p) ++ someCertPair (_peerId p)
 
-        addrPairs :: HostAddress -> [(T.Text, Value)]
+        addrPairs :: HostAddress -> [(Key, Value)]
         addrPairs addr =
           [ "address_hostname" .= hostnameToText (_hostAddressHost addr)
           , "address_port" .= portToText (_hostAddressPort addr)
           -- TODO: document that port is string represation of Word16
           ]
 
-        someCertPair :: Maybe PeerId -> [(T.Text, Value)]
+        someCertPair :: Maybe PeerId -> [(Key, Value)]
         someCertPair (Just i) = ["certificate_id" .= i]
         someCertPair Nothing = []

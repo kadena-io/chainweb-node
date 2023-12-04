@@ -87,7 +87,7 @@ newtype PayloadBatchLimit = PayloadBatchLimit Natural
     deriving newtype (Ord, Enum, Num, Real, Integral, ToJSON, FromJSON)
 
 p2pPayloadBatchLimit :: PayloadBatchLimit
-p2pPayloadBatchLimit = 50
+p2pPayloadBatchLimit = 20
 
 defaultServicePayloadBatchLimit :: PayloadBatchLimit
 defaultServicePayloadBatchLimit = 1000

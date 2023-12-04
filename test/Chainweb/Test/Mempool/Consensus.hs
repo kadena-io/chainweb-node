@@ -9,6 +9,7 @@ module Chainweb.Test.Mempool.Consensus
   ) where
 
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Resource
 
 import qualified Data.ByteString.Short as SB
 import Data.Foldable (toList)
@@ -28,6 +29,7 @@ import GHC.Generics
 import Test.QuickCheck (quickCheck)
 import Test.QuickCheck.Gen
 import Test.QuickCheck.Monadic
+import Test.Tasty
 import Test.Tasty.QuickCheck
 
 -- internal modules
@@ -49,14 +51,15 @@ import Chainweb.Test.Orphans.Time ()
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time
+import Chainweb.Version
 
 import Chainweb.Storage.Table.RocksDB
 
 import Data.LogMessage
 
 ----------------------------------------------------------------------------------------------------
-tests :: BlockHeaderDb -> BlockHeader -> ScheduledTest
-tests db h0 = testGroupSch "mempool-consensus-quickcheck-tests"
+tests :: BlockHeaderDb -> BlockHeader -> TestTree
+tests db h0 = testGroup "mempool-consensus-quickcheck-tests"
     [ testProperty "valid-transactions-source" (prop_validTxSource db h0)
     , testProperty "no-orphaned-txs" (prop_noOrphanedTxs db h0)
     , testProperty "test-processfork-filter" (prop_noOldCrap db h0)
@@ -349,14 +352,14 @@ header' h = do
             :+: _chainId h
             :+: BlockWeight (targetToDifficulty target) + _blockWeight h
             :+: succ (_blockHeight h)
-            :+: v
+            :+: _versionCode v
             :+: epochStart (ParentHeader h) mempty t'
             :+: nonce
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h
     target = powTarget (ParentHeader h) mempty t'
-    v = _blockChainwebVersion h
+    v = _chainwebVersion h
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
 
 ----------------------------------------------------------------------------------------------------
@@ -459,7 +462,8 @@ debugTrans context txs = "\n" ++ show (HS.size txs) ++ " TransactionHashes from:
 _runGhci :: IO ()
 _runGhci =
     withTempRocksDb "mempool-consensus-test" $ \rdb ->
-    withToyDB rdb toyChainId $ \h0 db -> do
-        quickCheck (prop_validTxSource db h0)
-        quickCheck (prop_noOrphanedTxs db h0)
+    runResourceT $ do
+        (h0, db) <- withToyDB rdb toyChainId
+        liftIO $ quickCheck (prop_validTxSource db h0)
+        liftIO $ quickCheck (prop_noOrphanedTxs db h0)
         return ()

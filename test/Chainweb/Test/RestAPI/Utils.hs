@@ -4,14 +4,14 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Chainweb.Test.RestAPI.Utils
-( -- * Retry Policies
-  testRetryPolicy
-
   -- * Debugging
-, debug
+( debug
 
   -- * Utils
 , repeatUntil
+, clientErrorStatusCode
+, isFailureResponse
+, getStatusCode
 
   -- * Pact client DSL
 , PactTestFailure(..)
@@ -22,6 +22,8 @@ module Chainweb.Test.RestAPI.Utils
 , ethSpv
 , sending
 , polling
+, pollingWithDepth
+, getCurrentBlockHeight
 
   -- * Rosetta client DSL
 , RosettaTestException(..)
@@ -51,7 +53,10 @@ import Control.Retry
 import Data.Either
 import Data.Foldable (toList)
 import Data.Text (Text)
+import Data.Maybe (fromJust)
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
+import Network.HTTP.Types.Status (Status(..))
 
 import Rosetta
 
@@ -59,17 +64,22 @@ import Servant.Client
 
 -- internal chainweb modules
 
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Graph
+import Chainweb.Cut.CutHashes (_cutHashes, _bhwhHeight)
+import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.Service.Types
 import Chainweb.Rosetta.RestAPI.Client
-import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Test.TestVersions
+import Chainweb.Test.Utils
 
 -- internal pact modules
 
+import qualified Pact.JSON.Encode as J
 import Pact.Types.API
 import Pact.Types.Command
 import Pact.Types.Hash
@@ -85,18 +95,7 @@ debug = const $ return ()
 #endif
 
 v :: ChainwebVersion
-v = FastTimedCPM petersonChainGraph
-
--- | Backoff up to a constant 250ms, limiting to ~40s
--- (actually saw a test have to wait > 22s)
-testRetryPolicy :: RetryPolicy
-testRetryPolicy = stepped <> limitRetries 150
-  where
-    stepped = retryPolicy $ \rs -> case rsIterNumber rs of
-      0 -> Just 20_000
-      1 -> Just 50_000
-      2 -> Just 100_000
-      _ -> Just 250_000
+v = fastForkingCpmTestVersion petersonChainGraph
 
 -- ------------------------------------------------------------------ --
 -- Pact api client utils w/ retry
@@ -107,7 +106,7 @@ data PactTestFailure
     | SendFailure String
     | LocalFailure String
     | SpvFailure String
-    | SlowChain String
+    | GetBlockHeightFailure String
     deriving Show
 
 instance Exception PactTestFailure
@@ -119,28 +118,45 @@ repeatUntil test action = retrying testRetryPolicy
     (\_ b -> not <$> test b)
     (const action)
 
+
 -- | Calls to /local via the pact local api client with retry
+--
+localWithQueryParams
+    :: ChainId
+    -> ClientEnv
+    -> Maybe LocalPreflightSimulation
+    -> Maybe LocalSignatureVerification
+    -> Maybe RewindDepth
+    -> Command Text
+    -> IO LocalResult
+localWithQueryParams sid cenv pf sv rd cmd =
+    recovering testRetryPolicy [h] $ \s -> do
+      debug
+        $ "requesting local cmd for " <> take 19 (show cmd)
+        <> " [" <> show (view rsIterNumberL s) <> "]"
+
+      -- send a single local request and return the result
+      --
+      runClientM (pactLocalWithQueryApiClient v sid pf sv rd cmd) cenv >>= \case
+        Left e -> throwM $ LocalFailure (show e)
+        Right t -> return t
+  where
+    h _ = Handler $ \case
+      LocalFailure _ -> pure True
+      _ -> pure False
+
+-- | Calls /local via the pact local api client with preflight
+-- turned off. Retries.
 --
 local
     :: ChainId
     -> ClientEnv
     -> Command Text
     -> IO (CommandResult Hash)
-local sid cenv cmd =
-    recovering testRetryPolicy [h] $ \s -> do
-      debug
-        $ "requesting local cmd for " <> take 19 (show cmd)
-        <> " [" <> show (view rsIterNumberL s) <> "]"
-
-      -- send a single spv request and return the result
-      --
-      runClientM (pactLocalApiClient v sid cmd) cenv >>= \case
-        Left e -> throwM $ LocalFailure (show e)
-        Right t -> return t
-  where
-    h _ = Handler $ \case
-      LocalFailure _ -> return True
-      _ -> return False
+local sid cenv cmd = do
+    LocalResultLegacy cr <-
+      localWithQueryParams sid cenv Nothing Nothing Nothing cmd
+    pure cr
 
 localTestToRetry
     :: ChainId
@@ -232,7 +248,16 @@ polling
     -> RequestKeys
     -> PollingExpectation
     -> IO PollResponses
-polling sid cenv rks pollingExpectation =
+polling sid cenv rks pollingExpectation = pollingWithDepth sid cenv rks Nothing pollingExpectation
+
+pollingWithDepth
+    :: ChainId
+    -> ClientEnv
+    -> RequestKeys
+    -> Maybe ConfirmationDepth
+    -> PollingExpectation
+    -> IO PollResponses
+pollingWithDepth sid cenv rks confirmationDepth pollingExpectation =
     recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
@@ -242,12 +267,12 @@ polling sid cenv rks pollingExpectation =
       -- by making sure results are successful and request keys
       -- are sane
 
-      runClientM (pactPollApiClient v sid $ Poll rs) cenv >>= \case
+      runClientM (pactPollWithQueryApiClient v sid confirmationDepth $ Poll rs) cenv >>= \case
         Left e -> throwM $ PollingFailure (show e)
         Right r@(PollResponses mp) ->
           if all (go mp) (toList rs)
           then return r
-          else throwM $ PollingFailure $ T.unpack $ "polling check failed: " <> encodeToText r
+          else throwM $ PollingFailure $ T.unpack $ "polling check failed: " <> J.encodeText r
   where
     h _ = Handler $ \case
       PollingFailure _ -> return True
@@ -263,6 +288,11 @@ polling sid cenv rks pollingExpectation =
       Just cr ->  _crReqKey cr == rk && validate (_crResult cr)
       Nothing -> False
 
+getCurrentBlockHeight :: ChainwebVersion -> ClientEnv -> ChainId -> IO BlockHeight
+getCurrentBlockHeight сv cenv cid =
+  runClientM (cutGetClient сv) cenv >>= \case
+    Left e -> throwM $ GetBlockHeightFailure $ "Failed to get cuts: " ++ show e
+    Right cuts -> return $ fromJust $ _bhwhHeight <$> HM.lookup cid (_cutHashes cuts)
 
 -- ------------------------------------------------------------------ --
 -- Rosetta api client utils w/ retry
@@ -574,3 +604,19 @@ networkStatus cenv req =
     h _ = Handler $ \case
       NetworkStatusFailure _ -> return True
       _ -> return False
+
+clientErrorStatusCode :: ClientError -> Maybe Int
+clientErrorStatusCode = \case
+  FailureResponse _ resp -> Just $ getStatusCode resp
+  DecodeFailure _ resp -> Just $ getStatusCode resp
+  UnsupportedContentType _ resp -> Just $ getStatusCode resp
+  InvalidContentTypeHeader resp -> Just $ getStatusCode resp
+  ConnectionError _ -> Nothing
+
+isFailureResponse :: ClientError -> Bool
+isFailureResponse = \case
+  FailureResponse {} -> True
+  _ -> False
+
+getStatusCode :: ResponseF a -> Int
+getStatusCode resp = statusCode (responseStatusCode resp)

@@ -45,6 +45,7 @@ import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Development
 
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
@@ -117,7 +118,7 @@ delHdr cdb k = do
 -- Test cases
 
 tests :: TestTree
-tests = withRocksResource $ \rio ->
+tests = withResourceT withRocksResource $ \rio ->
     testGroup "Chainweb.BlockHeaderDb.PruneForks"
         [ testCaseSteps "simple 1" (test0 rio)
         , testCaseSteps "simple 2" (test1 rio)
@@ -276,7 +277,7 @@ failIntrinsicCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
     let b = f0 !! int n
     delHdr bdb b
-    unsafeInsertBlockHeaderDb bdb $ b { _blockChainwebVersion = Development }
+    unsafeInsertBlockHeaderDb bdb $ b { _blockChainwebVersion = _versionCode Development }
     try (pruneAllChains logger rdb toyVersion checks) >>= \case
         Left e
             | CheckFull `elem` checks

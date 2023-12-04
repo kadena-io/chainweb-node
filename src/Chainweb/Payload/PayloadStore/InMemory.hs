@@ -9,6 +9,7 @@
 --
 -- An in-memory block payload store.
 --
+-- TODO: move to tests
 module Chainweb.Payload.PayloadStore.InMemory
 ( newPayloadDb
 

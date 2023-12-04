@@ -1,11 +1,7 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -34,7 +30,10 @@ module Chainweb.Pact.RestAPI
 , pactSendApi
 , PactPollApi
 , pactPollApi
-
+, PactLocalWithQueryApi
+, pactLocalWithQueryApi
+, PactPollWithQueryApi
+, pactPollWithQueryApi
 -- * Pact Spv Api
 , PactSpvApi
 , pactSpvApi
@@ -56,7 +55,13 @@ module Chainweb.Pact.RestAPI
 , somePactServiceApis
 ) where
 
+
+import Data.Text (Text)
+
+import qualified Pact.Types.Command as Pact
 import Pact.Server.API as API
+import Pact.Types.API (Poll, PollResponses)
+import Pact.Utils.Servant
 
 import Servant
 
@@ -71,9 +76,18 @@ import Chainweb.SPV.PayloadProof
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
--- @GET /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/pact/@
+-- @POST /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/pact/@
 
-type PactApi_ = "pact" :> API.ApiV1API -- TODO unify with Pact versioning
+-- TODO unify with Pact versioning
+type PactApi_
+    = "pact"
+    :> "api"
+    :> "v1"
+    :> ( ApiSend
+       :<|> PactPollWithQueryApi_
+       :<|> ApiListen
+       :<|> PactLocalWithQueryApi_
+       )
 
 type PactApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc PactApi_
@@ -120,12 +134,46 @@ pactPollApi
 pactPollApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+-- POST Queries for Pact Local Pre-flight
+
+type PactLocalWithQueryApi_
+    = "local"
+    :> QueryParam "preflight" LocalPreflightSimulation
+    :> QueryParam "signatureVerification" LocalSignatureVerification
+    :> QueryParam "rewindDepth" RewindDepth
+    :> ReqBody '[PactJson] (Pact.Command Text)
+    :> Post '[PactJson] LocalResult
+
+type PactLocalWithQueryApi v c = PactV1ApiEndpoint v c PactLocalWithQueryApi_
+
+pactLocalWithQueryApi
+  :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+  . Proxy (PactLocalWithQueryApi v c)
+pactLocalWithQueryApi = Proxy
+
+-- -------------------------------------------------------------------------- --
+-- POST Queries for Pact Poll
+
+type PactPollWithQueryApi_
+    = "poll"
+    :> QueryParam "confirmationDepth" ConfirmationDepth
+    :> ReqBody '[PactJson] Poll
+    :> Post '[PactJson] PollResponses
+
+type PactPollWithQueryApi v c = PactV1ApiEndpoint v c PactPollWithQueryApi_
+
+pactPollWithQueryApi
+  :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+  . Proxy (PactPollWithQueryApi v c)
+pactPollWithQueryApi = Proxy
+
+-- -------------------------------------------------------------------------- --
 -- POST Pact Spv Transaction Proof
 
 type PactSpvApi_
     = "pact"
     :> "spv"
-    :> ReqBody '[JSON] SpvRequest
+    :> ReqBody '[PactJson] SpvRequest
     :> Post '[JSON] TransactionOutputProofB64
 
 type PactSpvApi (v :: ChainwebVersionT) (c :: ChainIdT)
@@ -157,7 +205,7 @@ pactSpv2Api
 pactSpv2Api = Proxy
 
 -- -------------------------------------------------------------------------- --
--- GET Eth Receipt SPV Proof
+-- POST Eth Receipt SPV Proof
 
 type EthSpvApi_
     = "pact"

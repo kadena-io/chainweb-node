@@ -221,8 +221,8 @@ pruneForks_ logg cdb mar mir callback = do
     deleteHdr k = do
         -- TODO: make this atomic (create boilerplate to combine queries for
         -- different tables)
-        casDelete (_chainDbCas cdb) (RankedBlockHeader k) 
-        tableDelete (_chainDbRankTable cdb) (_blockHash k) 
+        casDelete (_chainDbCas cdb) (RankedBlockHeader k)
+        tableDelete (_chainDbRankTable cdb) (_blockHash k)
         logg Debug
             $ "pruned block header " <> encodeToText (_blockHash k)
             <> " at height " <> sshow (_blockHeight k)

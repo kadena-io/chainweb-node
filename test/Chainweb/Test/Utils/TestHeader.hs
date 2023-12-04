@@ -6,6 +6,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- |
@@ -26,8 +27,8 @@ module Chainweb.Test.Utils.TestHeader
 , testHeaderChainLookup
 , genesisTestHeader
 , genesisTestHeaders
-, queryTestHeader
-, queryTestHeaderByHeight
+-- , queryTestHeader
+-- , queryTestHeaderByHeight
 , arbitraryTestHeader
 , arbitraryTestHeaderHeight
 ) where
@@ -54,11 +55,9 @@ import Test.QuickCheck.Gen (Gen)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeight
 import Chainweb.ChainValue
 import Chainweb.Test.Orphans.Internal
-import Chainweb.Test.Utils.ApiQueries
 import Chainweb.Version
 
 import Chainweb.Storage.Table
@@ -77,19 +76,15 @@ makeLenses ''TestHeader
 
 instance HasChainId TestHeader where
     _chainId = _chainId . _testHeaderHdr
-    {-# INLINE _chainId #-}
 
 instance HasChainwebVersion TestHeader where
     _chainwebVersion = _chainwebVersion . _testHeaderHdr
-    {-# INLINE _chainwebVersion #-}
 
 instance HasChainGraph TestHeader where
     _chainGraph = _chainGraph . _testHeaderHdr
-    {-# INLINE _chainGraph #-}
 
 instance (k ~ CasKeyType BlockHeader) => ReadableTable TestHeader k BlockHeader where
     tableLookup h = return . testHeaderLookup h
-    {-# INLINE tableLookup #-}
 
 testHeaderLookup :: TestHeader -> BlockHash -> Maybe BlockHeader
 testHeaderLookup testHdr x = lookup x tbl
@@ -101,14 +96,12 @@ testHeaderLookup testHdr x = lookup x tbl
         = (_blockHash h, h)
         : (_blockHash p, p)
         : fmap (\(ParentHeader b) -> (_blockHash b, b)) a
-{-# INLINE testHeaderLookup #-}
 
 instance FromJSON TestHeader where
     parseJSON = withObject "TestHeader" $ \o -> TestHeader
         <$> o .: "header"
         <*> (ParentHeader <$> o .: "parent")
         <*> (fmap ParentHeader <$> o .: "adjacents")
-    {-# INLINE parseJSON #-}
 
 instance ToJSON TestHeader where
     toJSON o = object
@@ -116,7 +109,6 @@ instance ToJSON TestHeader where
         , "parent" .= _parentHeader (_testHeaderParent o)
         , "adjacents" .= fmap _parentHeader (_testHeaderAdjs o)
         ]
-    {-# INLINE toJSON #-}
 
 -- | An unsafe convenience functions for hard coding test headers in the code
 -- use Aeson syntax. Cf. Test.Chainweb.BlockHeader.Validation for examples.
@@ -125,7 +117,6 @@ testHeader :: HasCallStack => [Pair] -> TestHeader
 testHeader v = case fromJSON (object v) of
     Success a -> a
     e -> error (show e)
-{-# INLINE testHeader #-}
 
 -- -------------------------------------------------------------------------- --
 -- arbitrary TestHeader
@@ -141,7 +132,6 @@ arbitraryTestHeader :: ChainwebVersion -> ChainId -> Gen TestHeader
 arbitraryTestHeader v cid = do
     h <- chooseEnum (genesisHeight v cid, maxBound `div` 2)
     arbitraryTestHeaderHeight v cid h
-{-# INLINE arbitraryTestHeader #-}
 
 arbitraryTestHeaderHeight
     :: ChainwebVersion
@@ -179,7 +169,6 @@ testHeaderChainLookup
     -> ChainValue BlockHash
     -> m (Maybe BlockHeader)
 testHeaderChainLookup h x = pure $! testHeaderLookup h $ _chainValueValue x
-{-# INLINE testHeaderChainLookup #-}
 
 -- -------------------------------------------------------------------------- --
 -- Genesis Test Headers
@@ -203,55 +192,3 @@ genesisTestHeader v cid = TestHeader
     }
   where
     gen = genesisBlockHeader (_chainwebVersion v) (_chainId cid)
-
--- -------------------------------------------------------------------------- --
--- Query TestHeader from a network
-
-queryTestHeader
-    :: HasCallStack
-    => HasChainwebVersion v
-    => HasChainId c
-    => v
-    -> c
-    -> BlockHash
-    -> IO TestHeader
-queryTestHeader v c h = do
-    mgr <- mkMgr
-    hdr <- getHeaderByHash mgr ver cid h
-    parent <- getHeaderByHash mgr ver cid $ _blockParent hdr
-    ads <- itraverse (\ac a -> ParentHeader <$> getHeaderByHash mgr ver ac a)
-        $ _getBlockHashRecord
-        $ _blockAdjacentHashes hdr
-    return $ TestHeader
-        { _testHeaderHdr = hdr
-        , _testHeaderParent = ParentHeader parent
-        , _testHeaderAdjs = toList ads
-        }
-  where
-    ver = _chainwebVersion v
-    cid = _chainId c
-
-queryTestHeaderByHeight
-    :: HasCallStack
-    => HasChainwebVersion v
-    => HasChainId c
-    => v
-    -> c
-    -> BlockHeight
-    -> IO TestHeader
-queryTestHeaderByHeight v c h = do
-    mgr <- mkMgr
-    hdr <- getHeaderByHeight mgr ver cid h
-    parent <- getHeaderByHash mgr ver cid $ _blockParent hdr
-    ads <- itraverse (\ac a -> ParentHeader <$> getHeaderByHash mgr ver ac a)
-        $ _getBlockHashRecord
-        $ _blockAdjacentHashes hdr
-    return $ TestHeader
-        { _testHeaderHdr = hdr
-        , _testHeaderParent = ParentHeader parent
-        , _testHeaderAdjs = toList ads
-        }
-  where
-    ver = _chainwebVersion v
-    cid = _chainId c
-

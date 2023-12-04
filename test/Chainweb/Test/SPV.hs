@@ -25,6 +25,7 @@ module Chainweb.Test.SPV
 ) where
 
 import Control.Lens (view, (^?!))
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
@@ -59,7 +60,7 @@ import Test.Tasty.QuickCheck
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
-import Chainweb.Cut
+import Chainweb.Cut hiding (join)
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MockTx)
@@ -75,6 +76,7 @@ import Chainweb.SPV.VerifyProof
 import Chainweb.Test.CutDB hiding (tests)
 import Chainweb.Test.Orphans.Internal
 import Chainweb.Test.Utils
+import Chainweb.Test.TestVersions(barebonesTestVersion)
 import Chainweb.TreeDB
 import Chainweb.Utils hiding ((==>))
 import Chainweb.Version
@@ -89,7 +91,7 @@ import Chainweb.Storage.Table.RocksDB
 -- quickCheck instead of HUnit or should be derandomized.
 --
 tests :: RocksDb -> TestTree
-tests rdb = testGroup "SPV tests"
+tests rdb =testGroup  "SPV tests"
     [ testCaseStepsN "SPV transaction proof" 10 (spvTransactionRoundtripTest rdb version)
     , testCaseStepsN "SPV transaction output proof" 10 (spvTransactionOutputRoundtripTest rdb version)
     , apiTests rdb version
@@ -97,7 +99,8 @@ tests rdb = testGroup "SPV tests"
     , properties
     ]
   where
-    version = Test petersonChainGraph
+    version = barebonesTestVersion petersonChainGraph
+
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -320,7 +323,7 @@ spvTest rdb v step = do
     --
     distance cutDb h trgChain = length
         $ shortestPath (_chainId h) trgChain
-        $ chainGraphAt_ cutDb (_blockHeight h)
+        $ chainGraphAt cutDb (_blockHeight h)
 
     -- Check whether target chain is reachable from the source block
     --
@@ -429,11 +432,12 @@ spvTransactionOutputRoundtripTest rdb v step = do
 type TestClientEnv_ tbl = TestClientEnv MockTx tbl
 
 apiTests :: RocksDb -> ChainwebVersion -> TestTree
-apiTests rdb v = withTestPayloadResource rdb v 100 (\_ _ -> return ()) $ \dbIO ->
+apiTests rdb v = withResourceT (withTestPayloadResource rdb v 100 (\_ _ -> pure ())) $ \dbIO ->
     testGroup "SPV API tests"
-        [ withPayloadServer False v dbIO (payloadDbs . view cutDbPayloadDb <$> dbIO) $ \env ->
+        -- TODO: there is no openapi spec for this SPV API.
+        [ withResourceT (join $ withPayloadServer DoNotValidateSpec False v <$> liftIO dbIO <*> (liftIO $ payloadDbs . view cutDbPayloadDb <$> dbIO)) $ \env ->
             testCaseStepsN "spv api tests (without tls)" 10 (txApiTests env)
-        , withPayloadServer True v dbIO (payloadDbs . view cutDbPayloadDb <$> dbIO) $ \env ->
+        , withResourceT (join $ withPayloadServer DoNotValidateSpec True v <$> liftIO dbIO <*> (liftIO $ payloadDbs . view cutDbPayloadDb <$> dbIO)) $ \env ->
             testCaseStepsN "spv api tests (with tls)" 10 (txApiTests env)
         ]
   where

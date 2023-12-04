@@ -124,7 +124,6 @@ import qualified Streaming.Prelude as S
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
@@ -634,7 +633,7 @@ tryMonotonicCutExtension c h = isMonotonicCutExtension c h >>= \case
     False -> return Nothing
     True -> return $ Just
         $! over unsafeCutHeaders extendChains
-        $ set (unsafeCutHeaders . ix (_chainId h)) h c
+        $ set (unsafeCutHeaders . ix' (_chainId h)) h c
 
 -- -------------------------------------------------------------------------- --
 -- Join
@@ -643,7 +642,7 @@ type DiffItem a = These a a
 
 type JoinQueue a = H.Heap (H.Entry (BlockHeight, a) BlockHeader)
 
--- | This represents the Join of two cuts in an algrithmically convenient way.
+-- | This represents the Join of two cuts in an algorithmically convenient way.
 --
 data Join a = Join
     { _joinBase :: !Cut
@@ -654,7 +653,7 @@ data Join a = Join
         -- the join cut from the join base.
     }
 
--- | This computes the join for cuts accross all chains.
+-- | This computes the join for cuts across all chains.
 --
 -- If you want to compute a join for cuts that include only a subset of all
 -- chains.

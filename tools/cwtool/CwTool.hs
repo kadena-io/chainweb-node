@@ -1,9 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
+import Chainweb.Version.Development
+import Chainweb.Version.FastDevelopment
+import Chainweb.Version.Registry
+
 import System.Environment
 import System.Exit
 import Text.Printf
+
+import Chainweb.Pact.Backend.Compaction (main)
+import Chainweb.Pact.Backend.PactState (pactDiffMain)
 
 import qualified CheckpointerDBChecksum
 import qualified Ea
@@ -15,9 +22,12 @@ import qualified SlowTests
 import qualified TxStream
 import qualified KnownGraphs
 import qualified TxSimulator
+import qualified CalculateRelease
 
 main :: IO ()
 main = do
+    registerVersion Development
+    registerVersion FastDevelopment
     args <- getArgs
     case args of
       [] -> printHelp topLevelCommands
@@ -92,6 +102,18 @@ topLevelCommands =
       "tx-sim"
       "Simulate tx execution against real pact dbs"
       TxSimulator.simulateMain
+  , CommandSpec
+      "compact"
+      "Compact pact database"
+      Chainweb.Pact.Backend.Compaction.main
+  , CommandSpec
+      "pact-diff"
+      "Diff the latest state of two pact databases"
+      Chainweb.Pact.Backend.PactState.pactDiffMain
+  , CommandSpec
+      "calculate-release"
+      "Calculate next service date and block heights for upgrades"
+      CalculateRelease.main
   ]
 
 printHelp :: [CommandSpec] -> IO ()

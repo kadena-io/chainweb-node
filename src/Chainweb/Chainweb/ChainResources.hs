@@ -97,7 +97,7 @@ withChainResources
       let mempoolCfg = mempoolCfg0 pexMv
       Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg v $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
-        withPactService v cid (setComponent "pact" logger) mpc cdb
+        withPactService v cid logger mpc cdb
                         payloadDb pactDbDir pactConfig $ \requestQ -> do
             let pex = pes requestQ
             putMVar pexMv pex
@@ -110,13 +110,6 @@ withChainResources
                 , _chainResPact = pex
                 }
   where
-    pes requestQ = case v of
-        Test{} -> emptyPactExecutionService
-        TimedConsensus{} -> emptyPactExecutionService
-        PowConsensus{} -> emptyPactExecutionService
-        TimedCPM{} -> mkPactExecutionService requestQ
-        FastTimedCPM{} -> mkPactExecutionService requestQ
-        Development -> mkPactExecutionService requestQ
-        Testnet04 -> mkPactExecutionService requestQ
-        Mainnet01 -> mkPactExecutionService requestQ
-
+    pes requestQ
+        | v ^. versionCheats . disablePact = emptyPactExecutionService
+        | otherwise = mkPactExecutionService requestQ

@@ -37,6 +37,7 @@ module Chainweb.RestAPI
 -- * Chainweb P2P API Server
 , someChainwebServer
 , chainwebApplication
+, chainwebApplicationWithHashesAndSpvApi
 , serveChainwebOnPort
 , serveChainweb
 , serveChainwebSocket
@@ -104,7 +105,7 @@ import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.NodeInfo
 import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.RestAPI.Server
-import Chainweb.SPV.RestAPI.Server
+import Chainweb.SPV.RestAPI.Server (someSpvServers)
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -149,7 +150,9 @@ serveSocketTls settings certChain key = runTLSSocket tlsSettings settings
 --
 data ChainwebServerDbs t tbl = ChainwebServerDbs
     { _chainwebServerCutDb :: !(Maybe (CutDb tbl))
-    , _chainwebServerChainDbs :: ![(ChainId, BlockHeaderDb, MempoolBackend t, PayloadDb tbl)]
+    , _chainwebServerBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
+    , _chainwebServerMempools :: ![(ChainId, MempoolBackend t)]
+    , _chainwebServerPayloadDbs :: ![(ChainId, PayloadDb tbl)]
     , _chainwebServerPeerDbs :: ![(NetworkId, PeerDb)]
     }
     deriving (Generic)
@@ -157,7 +160,9 @@ data ChainwebServerDbs t tbl = ChainwebServerDbs
 emptyChainwebServerDbs :: ChainwebServerDbs t tbl
 emptyChainwebServerDbs = ChainwebServerDbs
     { _chainwebServerCutDb = Nothing
-    , _chainwebServerChainDbs = []
+    , _chainwebServerBlockHeaderDbs = []
+    , _chainwebServerMempools = []
+    , _chainwebServerPayloadDbs = []
     , _chainwebServerPeerDbs = []
     }
 
@@ -199,7 +204,6 @@ chainwebP2pMiddlewares
     = chainwebTime
     . chainwebPeerAddr
     . chainwebNodeVersion
-    . chainwebCors
 
 chainwebServiceMiddlewares :: Middleware
 chainwebServiceMiddlewares
@@ -218,19 +222,44 @@ someChainwebServer
     -> SomeServer
 someChainwebServer config dbs =
     maybe mempty (someCutServer v cutPeerDb) cuts
-    <> maybe mempty (someSpvServers v) cuts
     <> somePayloadServers v p2pPayloadBatchLimit payloads
-    <> someBlockHeaderDbServers v blocks
+    <> someP2pBlockHeaderDbServers v blocks
     <> Mempool.someMempoolServers v mempools
     <> someP2pServers v peers
     <> someGetConfigServer config
   where
-    chains = _chainwebServerChainDbs dbs
-    payloads = [(cid, pdb) | (cid, _, _, pdb) <- chains]
-    blocks = [(cid, bhdb, pdb) | (cid, bhdb, _, pdb) <- chains]
-    mempools = [(cid, mem) | (cid, _, mem, _) <- chains]
+    payloads = _chainwebServerPayloadDbs dbs
+    blocks = _chainwebServerBlockHeaderDbs dbs
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
+    mempools = _chainwebServerMempools dbs
+    cutPeerDb = fromJuste $ lookup CutNetwork peers
+    v = _configChainwebVersion config
+
+-- | Legacy version with Hashes API that is used in tests
+--
+-- When we have comprehensive testing for the service API we can remove this
+--
+someChainwebServerWithHashesAndSpvApi
+    :: Show t
+    => CanReadablePayloadCas tbl
+    => ChainwebConfiguration
+    -> ChainwebServerDbs t tbl
+    -> SomeServer
+someChainwebServerWithHashesAndSpvApi config dbs =
+    maybe mempty (someCutServer v cutPeerDb) cuts
+    <> somePayloadServers v p2pPayloadBatchLimit payloads
+    <> someBlockHeaderDbServers v blocks payloads
+    <> Mempool.someMempoolServers v mempools
+    <> someP2pServers v peers
+    <> someGetConfigServer config
+    <> maybe mempty (someSpvServers v) cuts
+  where
+    payloads = _chainwebServerPayloadDbs dbs
+    blocks = _chainwebServerBlockHeaderDbs dbs
+    cuts = _chainwebServerCutDb dbs
+    peers = _chainwebServerPeerDbs dbs
+    mempools = _chainwebServerMempools dbs
     cutPeerDb = fromJuste $ lookup CutNetwork peers
     v = _configChainwebVersion config
 
@@ -247,6 +276,21 @@ chainwebApplication config dbs
     = chainwebP2pMiddlewares
     . someServerApplication
     $ someChainwebServer config dbs
+
+-- | Legacy version with Hashes API that is used in tests
+--
+-- When we have comprehensive testing for the service API we can remove this
+--
+chainwebApplicationWithHashesAndSpvApi
+    :: Show t
+    => CanReadablePayloadCas tbl
+    => ChainwebConfiguration
+    -> ChainwebServerDbs t tbl
+    -> Application
+chainwebApplicationWithHashesAndSpvApi config dbs
+    = chainwebP2pMiddlewares
+    . someServerApplication
+    $ someChainwebServerWithHashesAndSpvApi config dbs
 
 serveChainwebOnPort
     :: Show t
@@ -335,25 +379,25 @@ someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv pbl 
     <> maybe mempty (someNodeInfoServer v) cuts
     <> PactAPI.somePactServers v pacts
     <> maybe mempty (Mining.someMiningServer v) mr
-    <> maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)
     <> maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
         -- TODO: not sure if passing the correct PeerDb here
         -- TODO: why does Rosetta need a peer db at all?
         -- TODO: simplify number of resources passing to rosetta
+    -- <> maybe mempty (someSpvServers v) cuts -- AFAIK currently not used
 
     -- GET Cut, Payload, and Headers endpoints
     <> maybe mempty (someCutGetServer v) cuts
     <> somePayloadServers v pbl payloads
-    <> someBlockHeaderDbServers v blocks
+    <> someBlockHeaderDbServers v blocks payloads -- TODO make max limits configurable
+    <> maybe mempty (someBlockStreamServer v) (bool Nothing cuts hs)
   where
-    chains = _chainwebServerChainDbs dbs
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
     concreteMs = second PactAPI._pactServerDataMempool <$> pacts
     concretePacts = second PactAPI._pactServerDataPact <$> pacts
     cutPeerDb = fromJuste $ lookup CutNetwork peers
-    payloads = [(cid, pdb) | (cid, _, _, pdb) <- chains]
-    blocks = [(cid, bhdb, pdb) | (cid, bhdb, _, pdb) <- chains]
+    payloads = _chainwebServerPayloadDbs dbs
+    blocks = _chainwebServerBlockHeaderDbs dbs
 
 serviceApiApplication
     :: Show t
@@ -391,3 +435,4 @@ serveServiceApiSocket
     -> IO ()
 serveServiceApiSocket s sock v dbs pacts mr hs r be pbl m =
     runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r be pbl
+

@@ -3,44 +3,47 @@ packages: chainweb.cabal
 debug-info: True
 
 -- -------------------------------------------------------------------------- --
+-- Platform specific locations of external libraries
+
+if os(darwin)
+    if arch(aarch64)
+        package *
+            extra-include-dirs:
+                /opt/homebrew/include
+                /opt/homebrew/opt/openssl/include
+            extra-lib-dirs:
+                /opt/homebrew/lib
+                /opt/homebrew/opt/openssl/lib
+    else
+        package *
+            extra-include-dirs:
+                /opt/local/include
+                /usr/local/opt/openssl/include
+            extra-lib-dirs:
+                /opt/local/lib
+                /usr/local/opt/openssl/lib/
+
+-- -------------------------------------------------------------------------- --
 -- Package Specific Build Settings
 
 package chainweb
     tests: True
     benchmarks: True
-    extra-include-dirs:
-      /opt/local/include
-      /usr/local/opt/openssl/include
-    extra-lib-dirs:
-      /opt/local/lib
-      /usr/local/opt/openssl/lib/
-    ghc-options: -Wunused-packages
+
+if impl(ghc >= 9.8.1)
+    package chainweb
+        ghc-options: -Wno-x-partial
 
 package pact
     ghc-options: -Wwarn
+    optimization: True
     -- avoid conflict with cryptonite during linking
-    flags: +cryptonite-ed25519 -build-tool +no-advice
+    flags: +cryptonite-ed25519 -build-tool
 
-package ethereum
-    extra-include-dirs:
-      /opt/local/include
-      /usr/local/opt/openssl/include
-    extra-lib-dirs:
-      /opt/local/lib
-      /usr/local/opt/openssl/lib/
+package rocksdb-haskell-kadena
+    ghc-options: -Wwarn -optc-w -optcxx-w
 
-package hashes
-    extra-include-dirs:
-      /opt/local/include
-      /usr/local/opt/openssl/include
-    extra-lib-dirs:
-      /opt/local/lib
-      /usr/local/opt/openssl/lib/
-
-package aeson
-    flags: +cffi
-
-package cryptonite
+package crypton
     flags: +support_pclmuldq
 
 package vault
@@ -51,39 +54,82 @@ package yet-another-logger
 
 -- -------------------------------------------------------------------------- --
 -- Source Repository Packages
+--
+-- In order to determine proper sha256 value each time the revision is
+-- changed, please run the following command:
+--
+--   nix-prefetch-git --url <location> --rev <tag>
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: bb6476de0fe56858a80f179d256809676885d0cb
+    tag: 495c8738acaa0157958ab23a06cd94abbc99d2d5
+    --sha256: 1dn322m5mx43bn3ki37zdk9daknnr6sz8y7d89si75m84rl0w27k
+
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/pact-json.git
+    tag: 1d260bfaa48312b54851057885de4c43c420e35f
+    --sha256: 0fzq4mzaszj5clvixx9mn1x6r4dcrnwvbl2znd0p5mmy5h2jr0hh
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/chainweb-storage.git
-    tag: af9f42c78bcd703ac382cfd8101c6d1c66a035f1
+    tag: 4b45c1ab9c070c6d16a058bcbab0c06ac0fb6d4e
+    --sha256: 0m6c7kl6x5a3k02q2i7qzfx91kxz19dzav0piqfxra52bq0x3sm6
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/rocksdb-haskell.git
-    tag: b4bfc0e4cb0fd401f68190d1ba90b56b80d3effc
+    tag: b35d82bad2194a916c821457069388410662b58c
+    --sha256: 0p60xjqv7ayy6vh263id6l2fpa4rr95vnhisa691ix9h8rnwc7hk
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/rosetta.git
     tag: 6c8dd2eea1f6d0dba925646dbcb6e07feeccbfd5
+    --sha256: 19pjy06xrx2siggzybcmly0qaq4ds3yzxcsvqwgs4qh9kkzh0kqh
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
-    tag: 10f21e96af1dce4f13e261be9dfad8c28cd299f7
+    tag: 7119860463f05e452288eac651c38313a04d6b6b
+    --sha256: 191iy36rpb3rk15kk48n8vqiawaablcms9imgld5sg15gb7859vf
 
--- Required for GHC-9:
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/wai-middleware-validation.git
+    tag: e0437bf82e9b4d3fec5ad42ef6e860f4bd04e1b4
+    --sha256: 1az7jcggcj275djnfsvhdg3n7hjrj6vp8rj137fxrg4hazh0hyzv
+
+-- Required for backward compatibility:
 
 -- ixset-typed FIX (no PR yet)
 source-repository-package
     type: git
     location: https://github.com/larskuhtz/ixset-typed
     tag: d8019c3404d6f3b3c0b0416e9899cfdf614ef425
+    --sha256: 09msayidg23rsdz97fcfqqalm4pbawx3c1qihgab8hnlmjxby103
+
+-- Patch merged into master (upcoming version 10.0). We are currently using 9.2
+source-repository-package
+    type: git
+    location: https://github.com/larskuhtz/sbv
+    tag: b66e3a04c20f753213fe7e5115a95b3fe34109f9
+    --sha256: 0dca5pl56nz8ijnqavnpxw5f47qmpalszd5w0ag8bq3fd0l3839m
+
+-- Required for non-canonical decode in base64-bytestring (remove after 2.20 fork)
+source-repository-package
+    type: git
+    location: https://github.com/emilypi/base64-bytestring-kadena
+    tag: 174af3523616c8fe01449da5ccbb9f16df097ac3
+    --sha256: sha256-kVFIy+Aj3TNJpsM1Cs/5uGmzeWwHKYWjjCQ+L1/XOj8=
+
+source-repository-package
+    type: git
+    location: https://github.com/chessai/patience
+    tag: 2f67d546ea6608fc6ebe5f2f6976503cbf340442
+    --sha256: 0x137akvbh4kr3qagksw74xdj2xz5vjnx1fbr41bb54a0lkcb8mm
 
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
@@ -92,24 +138,61 @@ source-repository-package
 
 allow-newer: token-bucket:*
 allow-newer: ixset-typed:*
-allow-newer: hashable:*
+
+-- TODO: I think this fixed?
+allow-newer: rosetta:*
+
+-- Servant is notoriously forcing outdated upper bounds onto its users.
+-- It is usually safe to just ignore those.
+--
+allow-newer: servant-server:*
+allow-newer: servant-client-core:*
+allow-newer: servant-client:*
+allow-newer: servant:*
+
+-- these are more liberal than necessary, but since everything works fine
+-- with this there's no reason to constrain it more than necessary.
+-- These packages are tightly bound to the GHC version and these
+-- settings ensure that we use the versions that are shipped with the
+-- GHC version that we are using.
+allow-newer: *:Cabal
+allow-newer: *:Cabal-syntax
+allow-newer: *:array
+allow-newer: *:base
+allow-newer: *:bytestring
+allow-newer: *:containers
+allow-newer: *:deepseq
+allow-newer: *:directory
+allow-newer: *:exceptions
+allow-newer: *:ghc-compact
+allow-newer: *:ghc-prim
+allow-newer: *:integer-gmp
+allow-newer: *:mtl
+allow-newer: *:parsec
+allow-newer: *:pretty
+allow-newer: *:process
+allow-newer: *:stm
+allow-newer: *:template-haskell
+allow-newer: *:text
+allow-newer: *:time
+allow-newer: *:transformers
+
+-- Pact uses a vendored version of trifecta that has outdated
+-- upper bounds
+allow-newer: trifecta:*
+
+-- wai-middleware-validation dependencies
+
+allow-newer: wai-middleware-validation:*
+allow-newer: validation:*
+allow-newer: these:*
+allow-newer: regex-base:*
+allow-newer: regex-tdfa:*
+allow-newer: base-compat-batteries:*
 
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
 
--- required by pact
--- these upper bounds are required in order to not break payload validation
-constraints: base16-bytestring <1
-constraints: prettyprinter <1.6.1
-constraints: hashable <1.3.1
-constraints: base64-bytestring <1.1
-
--- other pact induced bounds (not relevant for on-chain semantics)
-constraints: megaparsec <9.3
-
--- -------------------------------------------------------------------------- --
--- direct-sqlite 2.3.27
-
--- TODO remove once the bounds are upgraded in pact.
-allow-newer: pact:direct-sqlite
-
+allow-newer: webauthn:these
+allow-newer: webauthn:time
+allow-newer: webauthn:aeson

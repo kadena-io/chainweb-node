@@ -34,6 +34,7 @@ module Chainweb.CutDB.RestAPI.Server
 
 import Control.Lens (view)
 import Control.Monad.Except
+import Control.Monad.IO.Class
 
 import Data.IxSet.Typed
 import Data.Proxy
@@ -75,11 +76,11 @@ cutGetHandler db (Just (MaxRank (Max mar))) = liftIO $ do
 
 cutPutHandler :: PeerDb -> CutDb tbl -> CutHashes -> Handler NoContent
 cutPutHandler pdb db c = case _peerAddr <$> _cutOrigin c of
-    Nothing -> throwError $ err400 { errBody = "Cut is missing an origin entry" }
+    Nothing -> throwError $ setErrText "Cut is missing an origin entry" err400
     Just addr -> do
         ps <- liftIO $ peerDbSnapshot pdb
         case getOne (getEQ addr ps) of
-            Nothing -> throwError $ err401 { errBody = "Unknown peer" }
+            Nothing -> throwError $ setErrText "Unknown peer" err401
             Just{} -> NoContent <$ liftIO (addCutHashes db c)
 
 -- -------------------------------------------------------------------------- --

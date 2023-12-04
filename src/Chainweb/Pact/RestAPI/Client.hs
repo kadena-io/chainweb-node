@@ -3,7 +3,6 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeOperators #-}
 -- |
 -- Module: Chainweb.Pact.RestAPI.Client
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
@@ -28,8 +27,12 @@ module Chainweb.Pact.RestAPI.Client
 , pactSendApiClient
 , pactLocalApiClient_
 , pactLocalApiClient
-)
-where
+, pactLocalWithQueryApiClient_
+, pactLocalWithQueryApiClient
+, pactPollWithQueryApiClient_
+, pactPollWithQueryApiClient
+) where
+
 
 import qualified Data.Text as T
 
@@ -150,6 +153,30 @@ pactLocalApiClient
     (FromSingChainId (SChainId :: Sing c))
     = pactLocalApiClient_ @v @c
 
+pactLocalWithQueryApiClient_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => Maybe LocalPreflightSimulation
+    -> Maybe LocalSignatureVerification
+    -> Maybe RewindDepth
+    -> Command T.Text
+    -> ClientM LocalResult
+pactLocalWithQueryApiClient_ = client (pactLocalWithQueryApi @v @c)
+
+pactLocalWithQueryApiClient
+    :: ChainwebVersion
+    -> ChainId
+    -> Maybe LocalPreflightSimulation
+    -> Maybe LocalSignatureVerification
+    -> Maybe RewindDepth
+    -> Command T.Text
+    -> ClientM LocalResult
+pactLocalWithQueryApiClient
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
+    = pactLocalWithQueryApiClient_ @v @c
+
 -- -------------------------------------------------------------------------- --
 -- Pact Listen
 
@@ -212,3 +239,23 @@ pactPollApiClient
     (FromSingChainwebVersion (SChainwebVersion :: Sing v))
     (FromSingChainId (SChainId :: Sing c))
     = pactPollApiClient_ @v @c
+
+pactPollWithQueryApiClient_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => Maybe ConfirmationDepth
+    -> Poll
+    -> ClientM PollResponses
+pactPollWithQueryApiClient_ = client (pactPollWithQueryApi @v @c)
+
+pactPollWithQueryApiClient
+    :: ChainwebVersion
+    -> ChainId
+    -> Maybe ConfirmationDepth
+    -> Poll
+    -> ClientM PollResponses
+pactPollWithQueryApiClient
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
+    = pactPollWithQueryApiClient_ @v @c

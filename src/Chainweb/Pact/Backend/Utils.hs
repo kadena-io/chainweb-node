@@ -71,7 +71,7 @@ import Data.Foldable
 import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Database.SQLite3.Direct as SQ3
+import qualified Database.SQLite3.Direct as SQ3
 
 import Prelude hiding (log)
 
@@ -97,54 +97,58 @@ import Chainweb.Version
 import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
--- Utf8 Encodings
+-- SQ3.Utf8 Encodings
 
-toUtf8 :: T.Text -> Utf8
-toUtf8 = Utf8 . T.encodeUtf8
+toUtf8 :: T.Text -> SQ3.Utf8
+toUtf8 = SQ3.Utf8 . T.encodeUtf8
 {-# INLINE toUtf8 #-}
 
-fromUtf8 :: Utf8 -> T.Text
-fromUtf8 (Utf8 bytes) = T.decodeUtf8 bytes
+fromUtf8 :: SQ3.Utf8 -> T.Text
+fromUtf8 (SQ3.Utf8 bytes) = T.decodeUtf8 bytes
 {-# INLINE fromUtf8 #-}
 
-toTextUtf8 :: HasTextRepresentation a => a -> Utf8
+toTextUtf8 :: HasTextRepresentation a => a -> SQ3.Utf8
 toTextUtf8 = toUtf8 . toText
 {-# INLINE toTextUtf8 #-}
 
-asStringUtf8 :: AsString a => a -> Utf8
+asStringUtf8 :: AsString a => a -> SQ3.Utf8
 asStringUtf8 = toUtf8 . asString
 {-# INLINE asStringUtf8 #-}
 
-domainTableName :: Domain k v -> Utf8
+domainTableName :: Domain k v -> SQ3.Utf8
 domainTableName = asStringUtf8
 
-convKeySetName :: KeySetName -> Utf8
+convKeySetName :: KeySetName -> SQ3.Utf8
 convKeySetName = toUtf8 . asString
 
 convModuleName
   :: Bool
      -- ^ whether to apply module name fix
   -> ModuleName
-  -> Utf8
+  -> SQ3.Utf8
 convModuleName False (ModuleName name _) = toUtf8 name
 convModuleName True mn = asStringUtf8 mn
 
-convNamespaceName :: NamespaceName -> Utf8
+convNamespaceName :: NamespaceName -> SQ3.Utf8
 convNamespaceName (NamespaceName name) = toUtf8 name
 
-convRowKey :: RowKey -> Utf8
+convRowKey :: RowKey -> SQ3.Utf8
 convRowKey (RowKey name) = toUtf8 name
 
-convPactId :: PactId -> Utf8
+convPactId :: PactId -> SQ3.Utf8
 convPactId = toUtf8 . sshow
 
-convSavepointName :: SavepointName -> Utf8
+convSavepointName :: SavepointName -> SQ3.Utf8
 convSavepointName = toTextUtf8
 
 -- -------------------------------------------------------------------------- --
 --
 
-callDb :: (MonadCatch m, MonadReader (BlockDbEnv SQLiteEnv) m, MonadIO m) => T.Text -> (Database -> IO b) -> m b
+callDb
+    :: (MonadCatch m, MonadReader (BlockDbEnv logger SQLiteEnv) m, MonadIO m)
+    => T.Text
+    -> (SQ3.Database -> IO b)
+    -> m b
 callDb callerName action = do
   c <- view (bdbenvDb . sConn)
   res <- tryAny $ liftIO $ action c
@@ -154,8 +158,8 @@ callDb callerName action = do
 
 withSavepoint
     :: SavepointName
-    -> BlockHandler SQLiteEnv a
-    -> BlockHandler SQLiteEnv a
+    -> BlockHandler logger SQLiteEnv a
+    -> BlockHandler logger SQLiteEnv a
 withSavepoint name action = mask $ \resetMask -> do
     resetMask $ beginSavepoint name
     go resetMask `catches` handlers
@@ -170,11 +174,11 @@ withSavepoint name action = mask $ \resetMask -> do
                , Handler $ \(e :: SomeException) -> throwErr ("non-pact exception: " <> sshow e)
                ]
 
-beginSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
+beginSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
 beginSavepoint name =
   callDb "beginSavepoint" $ \db -> exec_ db $ "SAVEPOINT [" <> convSavepointName name <> "];"
 
-commitSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
+commitSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
 commitSavepoint name =
   callDb "commitSavepoint" $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> convSavepointName name <> "];"
 
@@ -188,7 +192,7 @@ commitSavepoint name =
 -- Cf. <https://www.sqlite.org/lang_savepoint.html> for details about
 -- savepoints.
 --
-rollbackSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
+rollbackSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
 rollbackSavepoint name =
   callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
 
@@ -251,18 +255,18 @@ chainwebPragmas =
   , "page_size = 1024"
   ]
 
-execMulti :: Traversable t => Database -> Utf8 -> t [SType] -> IO ()
+execMulti :: Traversable t => SQ3.Database -> SQ3.Utf8 -> t [SType] -> IO ()
 execMulti db q rows = bracket (prepStmt db q) destroy $ \stmt -> do
     forM_ rows $ \row -> do
-        reset stmt >>= checkError
-        clearBindings stmt
+        SQ3.reset stmt >>= checkError
+        SQ3.clearBindings stmt
         bindParams stmt row
-        step stmt >>= checkError
+        SQ3.step stmt >>= checkError
   where
     checkError (Left e) = void $ fail $ "error during batch insert: " ++ show e
     checkError (Right _) = return ()
 
-    destroy x = void (finalize x >>= checkError)
+    destroy x = void (SQ3.finalize x >>= checkError)
 
 withSqliteDb
     :: Logger logger
@@ -344,7 +348,7 @@ withTempSQLiteConnection = withSQLiteConnection ""
 withInMemSQLiteConnection :: [Pragma] -> (SQLiteEnv -> IO c) -> IO c
 withInMemSQLiteConnection = withSQLiteConnection ":memory:"
 
-open2 :: String -> IO (Either (Error, Utf8) Database)
+open2 :: String -> IO (Either (SQ3.Error, SQ3.Utf8) SQ3.Database)
 open2 file = open_v2
     (fromString file)
     (collapseFlags [sqlite_open_readwrite , sqlite_open_create , sqlite_open_fullmutex])

@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -74,6 +75,7 @@ import System.FilePath
 import System.IO
 import qualified System.Logger as L
 import System.LogLevel
+import System.Mem
 
 -- internal modules
 
@@ -90,14 +92,19 @@ import Chainweb.Logging.Miner
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
 import Chainweb.Miner.Coordinator (MiningStats)
+import Chainweb.Pact.Backend.DbCache (DbCacheStats)
 import Chainweb.Pact.Service.PactQueue (PactQueueStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
+import Chainweb.Pact.Types(TxFailureLog)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
+import Data.Time.Format.ISO8601
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
+import Chainweb.Version.Mainnet
+import Chainweb.Version.Registry
 
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
@@ -128,18 +135,16 @@ data ChainwebNodeConfiguration = ChainwebNodeConfiguration
 
 makeLenses ''ChainwebNodeConfiguration
 
-defaultChainwebNodeConfiguration :: ChainwebVersion -> ChainwebNodeConfiguration
-defaultChainwebNodeConfiguration v = ChainwebNodeConfiguration
-    { _nodeConfigChainweb = defaultChainwebConfiguration v
+defaultChainwebNodeConfiguration :: ChainwebNodeConfiguration
+defaultChainwebNodeConfiguration = ChainwebNodeConfiguration
+    { _nodeConfigChainweb = defaultChainwebConfiguration Mainnet01
     , _nodeConfigLog = defaultLogConfig
         & logConfigLogger . L.loggerConfigThreshold .~ level
     , _nodeConfigDatabaseDirectory = Nothing
     , _nodeConfigResetChainDbs = False
     }
   where
-    level = case v of
-        Mainnet01 -> L.Info
-        _ -> L.Info
+    level = L.Info
 
 validateChainwebNodeConfiguration :: ConfigValidation ChainwebNodeConfiguration []
 validateChainwebNodeConfiguration o = do
@@ -185,7 +190,7 @@ getBackupsDir conf = (</> "backups") <$> getDbBaseDir conf
 getDbBaseDir :: HasCallStack => ChainwebNodeConfiguration -> IO FilePath
 getDbBaseDir conf = case _nodeConfigDatabaseDirectory conf of
     Nothing -> getXdgDirectory XdgData
-        $ "chainweb-node" </> sshow v
+        $ "chainweb-node" </> sshow (_versionName v)
     Just d -> return d
   where
     v = _configChainwebVersion $ _nodeConfigChainweb conf
@@ -267,11 +272,6 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
 
 -- This instances are OK, since this is the "Main" module of an application
 --
-#if !MIN_VERSION_base(4,15,0)
-deriving instance Generic GCDetails
-deriving instance Generic RTSStats
-#endif
-
 deriving instance NFData GCDetails
 deriving instance NFData RTSStats
 
@@ -338,7 +338,15 @@ node conf logger = do
     rocksDbDir <- getRocksDbDir conf
     pactDbDir <- getPactDbDir conf
     dbBackupsDir <- getBackupsDir conf
-    withRocksDb rocksDbDir modernDefaultOptions $ \rocksDb -> do
+    withRocksDb' <-
+        if _configOnlySyncPact cwConf
+        then
+            if _cutPruneChainDatabase (_configCuts cwConf) == GcNone
+            then withReadOnlyRocksDb <$ logFunctionText logger Info "Opening RocksDB in read-only mode"
+            else withRocksDb <$ logFunctionText logger Info "Opening RocksDB in read-write mode, if this wasn't intended, ensure that cuts.pruneChainDatabase is set to none"
+        else
+            return withRocksDb
+    withRocksDb' rocksDbDir modernDefaultOptions $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
         logFunctionText logger Info $ "backup config: " <> sshow (_configBackup cwConf)
         withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir (_nodeConfigResetChainDbs conf) $ \case
@@ -358,17 +366,24 @@ node conf logger = do
 
 withNodeLogger
     :: LogConfig
+    -> ChainwebConfiguration
     -> ChainwebVersion
     -> (L.Logger SomeLogMessage -> IO ())
     -> IO ()
-withNodeLogger logConfig v f = runManaged $ do
+withNodeLogger logCfg chainwebCfg v f = runManaged $ do
 
     -- This manager is used only for logging backends
     mgr <- liftIO HTTPS.newTlsManager
 
     -- Base Backend
     baseBackend <- managed
-        $ withBaseHandleBackend "ChainwebApp" mgr pkgInfoScopes (_logConfigBackend logConfig)
+        $ withBaseHandleBackend "ChainwebApp" mgr pkgInfoScopes (_logConfigBackend logCfg)
+
+    -- we don't log tx failures in replay
+    let !txFailureHandler =
+            if _configOnlySyncPact chainwebCfg
+            then dropLogHandler (Proxy :: Proxy TxFailureLog)
+            else passthroughLogHandler
 
     -- Telemetry Backends
     monitorBackend <- managed
@@ -400,6 +415,8 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @MempoolStats mgr teleLogConfig
     blockUpdateBackend <- managed
         $ mkTelemetryLogger @BlockUpdate mgr teleLogConfig
+    dbCacheBackend <- managed
+        $ mkTelemetryLogger @DbCacheStats mgr teleLogConfig
     dbStatsBackend <- managed
         $ mkTelemetryLogger @DbStats mgr teleLogConfig
     pactQueueStatsBackend <- managed
@@ -408,8 +425,9 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @ChainwebStatus mgr teleLogConfig
 
     logger <- managed
-        $ L.withLogger (_logConfigLogger logConfig) $ logHandles
-            [ logFilterHandle (_logConfigFilter logConfig)
+        $ L.withLogger (_logConfigLogger logCfg) $ logHandles
+            [ logFilterHandle (_logConfigFilter logCfg)
+            , txFailureHandler
             , logHandler monitorBackend
             , logHandler p2pInfoBackend
             , logHandler rtsBackend
@@ -424,28 +442,28 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler traceBackend
             , logHandler mempoolStatsBackend
             , logHandler blockUpdateBackend
+            , logHandler dbCacheBackend
             , logHandler dbStatsBackend
             , logHandler pactQueueStatsBackend
             , logHandler topLevelStatusBackend
             ] baseBackend
 
     liftIO $ f
-        $ maybe id (\x -> addLabel ("cluster", toText x)) (_logConfigClusterId logConfig)
-        $ addLabel ("chainwebVersion", sshow v)
+        $ maybe id (\x -> addLabel ("cluster", toText x)) (_logConfigClusterId logCfg)
+        $ addLabel ("chainwebVersion", sshow (_versionName v))
         $ logger
   where
-    teleLogConfig = _logConfigTelemetryBackend logConfig
+    teleLogConfig = _logConfigTelemetryBackend logCfg
 
 mkTelemetryLogger
     :: forall a b
-    . Typeable a
-    => ToJSON a
+    . (Typeable a, ToJSON a)
     => HTTP.Manager
     -> EnableConfig BackendConfig
     -> (Backend (JsonLog a) -> IO b)
     -> IO b
 mkTelemetryLogger mgr = configureHandler
-    $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
+    $ withJsonHandleBackend @a (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
 
 -- -------------------------------------------------------------------------- --
 -- Service Date
@@ -482,7 +500,7 @@ withServiceDate lf (Just t) inner = race timer inner >>= \case
 
     warning :: Text
     warning = T.concat
-        [ "This version of chainweb node will stop to work at " <> sshow t <> "."
+        [ "This version of chainweb node will stop working at " <> sshow t <> "."
         , " Please upgrade to a new version before that date."
         ]
 
@@ -508,16 +526,16 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- SERVICE DATE for version 2.17
+-- SERVICE DATE for version 2.22
 --
 serviceDate :: Maybe String
-serviceDate = Just "2023-03-02T00:00:00Z"
+serviceDate = Just "2024-03-06T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
     "Chainweb Node"
     pChainwebNodeConfiguration
-    (defaultChainwebNodeConfiguration Mainnet01)
+    defaultChainwebNodeConfiguration
     validateChainwebNodeConfiguration
 
 handles :: [Handler a] -> IO a -> IO a
@@ -529,8 +547,9 @@ main = do
     checkRLimits
     runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
         let v = _configChainwebVersion $ _nodeConfigChainweb conf
+        registerVersion v
         hSetBuffering stderr LineBuffering
-        withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
+        withNodeLogger (_nodeConfigLog conf) (_nodeConfigChainweb conf) v $ \logger -> do
             logFunctionJson logger Info ProcessStarted
             handles
                 [ Handler $ \(e :: SomeAsyncException) ->
@@ -538,8 +557,10 @@ main = do
                 , Handler $ \(e :: SomeException) ->
                     logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
                 ] $ do
-                kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) serviceDate
-                withServiceDate (logFunctionText logger) kt $
-                    node conf logger
-  where
-    timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
+                kt <- mapM iso8601ParseM serviceDate
+                withServiceDate (logFunctionText logger) kt $ void $
+                    race (node conf logger) (gcRunner (logFunctionText logger))
+    where
+    gcRunner lf = runForever lf "GarbageCollect" $ do
+        performMajorGC
+        threadDelay (30 * 1_000_000)

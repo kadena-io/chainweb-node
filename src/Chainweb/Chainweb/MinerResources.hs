@@ -33,7 +33,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
-import Control.Lens (at, over, view, (&), (?~))
+import Control.Lens (at, over, view, (&), (?~), (^.))
 
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
@@ -235,7 +235,7 @@ withMiningCoordination logger conf cdb inner
 data MinerResources logger tbl = MinerResources
     { _minerResLogger :: !logger
     , _minerResCutDb :: !(CutDb tbl)
-    , _minerChainResources :: HashMap ChainId (ChainResources logger)
+    , _minerChainResources :: !(HashMap ChainId (ChainResources logger))
     , _minerResConfig :: !NodeMiningConfig
     , _minerResCoordination :: !(Maybe (MiningCoordination logger tbl))
         -- ^ The primed work cache. This is Nothing when coordination is
@@ -275,9 +275,9 @@ runMiner v mr
     | enabled = case _minerResCoordination mr of
         Nothing -> error
             "Mining coordination must be enabled in order to use the in-node test miner"
-        Just coord -> case window v of
-            Nothing -> testMiner coord
-            Just _ -> powMiner coord
+        Just coord -> case v ^. versionCheats . disablePow of
+            True -> testMiner coord
+            False -> powMiner coord
     | otherwise = mempoolNoopMiner lf (_chainResMempool <$> _minerChainResources mr)
 
   where
@@ -296,4 +296,4 @@ runMiner v mr
         gen <- MWC.createSystemRandom
         localTest lf v coord (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
 
-    powMiner coord = localPOW lf v coord (_nodeMiner conf) cdb
+    powMiner coord = localPOW lf coord (_nodeMiner conf) cdb

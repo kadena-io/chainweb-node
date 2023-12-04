@@ -63,6 +63,7 @@ module Chainweb.Chainweb
 , chainwebPactData
 , chainwebThrottler
 , chainwebPutPeerThrottler
+, chainwebMempoolThrottler
 , chainwebConfig
 , chainwebServiceSocket
 , chainwebBackup
@@ -85,8 +86,6 @@ module Chainweb.Chainweb
 
 , ThrottlingConfig(..)
 , throttlingRate
-, throttlingLocalRate
-, throttlingMiningRate
 , throttlingPeerRate
 , defaultThrottlingConfig
 
@@ -106,13 +105,10 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, readMVar)
 import Control.DeepSeq
-import Control.Error.Util (note)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (fromException, throwM)
-import Control.Monad.Writer
 
-import Data.Bifunctor (second)
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
@@ -160,9 +156,10 @@ import qualified Chainweb.Mempool.InMemTypes as Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
+import qualified Chainweb.OpenAPIValidation as OpenAPIValidation
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
 import Chainweb.Pact.Service.Types (PactServiceConfig(..))
-import Chainweb.Pact.Utils (fromPactChainId)
+import Chainweb.Pact.Validations
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI
@@ -171,6 +168,7 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
+import Chainweb.Version.Guards
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
@@ -182,7 +180,6 @@ import P2P.Node.Configuration
 import P2P.Node.PeerDB (PeerDb)
 import P2P.Peer
 
-import qualified Pact.Types.ChainId as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
 
@@ -202,6 +199,7 @@ data Chainweb logger tbl = Chainweb
     , _chainwebPactData :: ![(ChainId, PactServerData logger tbl)]
     , _chainwebThrottler :: !(Throttle Address)
     , _chainwebPutPeerThrottler :: !(Throttle Address)
+    , _chainwebMempoolThrottler :: !(Throttle Address)
     , _chainwebConfig :: !ChainwebConfiguration
     , _chainwebServiceSocket :: !(Port, Socket)
     , _chainwebBackup :: !(BackupEnv logger)
@@ -256,7 +254,7 @@ withChainweb c logger rocksDb pactDbDir backupDir resetDb inner =
     confWithBootstraps
         | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
         | otherwise = configP2p . p2pConfigKnownPeers
-            %~ (\x -> L.nub $ x <> bootstrapPeerInfos v) $ c
+            %~ (\x -> L.nub $ x <> _versionBootstraps v) $ c
 
 -- TODO: The type InMempoolConfig contains parameters that should be
 -- configurable as well as parameters that are determined by the chainweb
@@ -280,7 +278,7 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
     , Mempool._inmemCurrentTxsSize = currentTxsSize
     }
   where
-    txcfg = Mempool.chainwebTransactionConfig Nothing
+    txcfg = Mempool.chainwebTransactionConfig (maxBound :: PactParserVersion)
         -- The mempool doesn't provide a chain context to the codec which means
         -- that the latest version of the parser is used.
 
@@ -291,8 +289,19 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
         -- is about 360 tx per block. Larger TPS values would result in false
         -- negatives in the set.
 
+    -- | Validation: Is this TX associated with the correct `ChainId`?
+    --
     preInsertSingle :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
-    preInsertSingle tx = checkMetadata tx
+    preInsertSingle tx = do
+        let !pay = payloadObj . P._cmdPayload $ tx
+            pcid = P._pmChainId $ P._pMeta pay
+            sigs = P._cmdSigs tx
+            ver  = P._pNetworkId pay
+        if | not $ assertParseChainId pcid -> Left $ Mempool.InsertErrorOther "Unparsable ChainId"
+           | not $ assertChainId cid pcid  -> Left Mempool.InsertErrorMetadataMismatch
+           | not $ assertSigSize sigs      -> Left $ Mempool.InsertErrorOther "Too many signatures"
+           | not $ assertNetworkId v ver   -> Left Mempool.InsertErrorMetadataMismatch
+           | otherwise                     -> Right tx
 
     -- | Validation: All checks that should occur before a TX is inserted into
     -- the mempool. A rejection at this stage means that something is
@@ -318,23 +327,10 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
         f (That (T2 h _)) = Left (T2 h $ Mempool.InsertErrorOther "preInsertBatch: align mismatch 0")
         f (This _) = Left (T2 (Mempool.TransactionHash "") (Mempool.InsertErrorOther "preInsertBatch: align mismatch 1"))
 
-    -- | Validation: Is this TX associated with the correct `ChainId`?
-    --
-    checkMetadata :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
-    checkMetadata tx = do
-        let !pay = payloadObj . P._cmdPayload $ tx
-            pcid = P._pmChainId $ P._pMeta pay
-            sigs = length (P._cmdSigs tx)
-            ver  = P._pNetworkId pay >>= fromText @ChainwebVersion . P._networkId
-        tcid <- note (Mempool.InsertErrorOther "Unparsable ChainId") $ fromPactChainId pcid
-        if | tcid /= cid   -> Left Mempool.InsertErrorMetadataMismatch
-           | sigs > 100    -> Left $ Mempool.InsertErrorOther "Too many signatures"
-           | ver /= Just v -> Left Mempool.InsertErrorMetadataMismatch
-           | otherwise     -> Right tx
 
-data StartedChainweb logger
-    = forall cas. (CanReadablePayloadCas cas, Logger logger) => StartedChainweb !(Chainweb logger cas)
-    | Replayed !Cut !Cut
+data StartedChainweb logger where
+  StartedChainweb :: (CanReadablePayloadCas cas, Logger logger) => !(Chainweb logger cas) -> StartedChainweb logger
+  Replayed :: !Cut -> !Cut -> StartedChainweb logger
 
 data ChainwebStatus
     = ProcessStarted
@@ -366,7 +362,8 @@ withChainwebInternal
     -> IO ()
 withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir resetDb inner = do
 
-    initializePayloadDb v payloadDb
+    unless (_configOnlySyncPact conf) $
+        initializePayloadDb v payloadDb
 
     -- Garbage Collection
     -- performed before PayloadDb and BlockHeaderDb used by other components
@@ -389,9 +386,15 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
         (\cid x -> do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf) (_configMinGasPrice conf)
             -- NOTE: the gas limit may be set based on block height in future, so this approach may not be valid.
-            let maxGasLimit = fromIntegral <$> maxBlockGasLimit v cid maxBound
-            when (Just (_configBlockGasLimit conf) > maxGasLimit) $
-                logg Warn "configured block gas limit is greater than the maximum for this chain; the maximum will be used instead"
+            let maxGasLimit = fromIntegral <$> maxBlockGasLimit v maxBound
+            case maxGasLimit of
+                Just maxGasLimit'
+                    | _configBlockGasLimit conf > maxGasLimit' ->
+                        logg Warn $ T.unwords
+                            [ "configured block gas limit is greater than the"
+                            , "maximum for this chain; the maximum will be used instead"
+                            ]
+                _ -> return ()
             withChainResources
                 v
                 cid
@@ -413,7 +416,8 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
   where
     pactConfig maxGasLimit = PactServiceConfig
       { _pactReorgLimit = _configReorgLimit conf
-      , _pactRevalidate = _configValidateHashesOnReplay conf
+      , _pactLocalRewindDepthLimit = _configLocalRewindDepthLimit conf
+      , _pactPreInsertCheckTimeout = _configPreInsertCheckTimeout conf
       , _pactQueueSize = _configPactQueueSize conf
       , _pactResetDb = resetDb
       , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
@@ -423,6 +427,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
       , _pactBlockGasLimit = maybe id min maxGasLimit (_configBlockGasLimit conf)
       , _pactLogGas = _configLogGas conf
       , _pactModuleCacheLimit = _configModuleCacheLimit conf
+      , _pactFullHistoryRequired = _configRosetta conf -- this could be OR'd with other things that require full history
       }
 
     pruningLogger :: T.Text -> logger
@@ -468,6 +473,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             -- initialize throttler
             throttler <- mkGenericThrottler $ _throttlingRate throt
             putPeerThrottler <- mkPutPeerThrottler $ _throttlingPeerRate throt
+            mempoolThrottler <- mkMempoolThrottler $ _throttlingMempoolRate throt
             logg Info "initialized throttlers"
 
             -- synchronize pact dbs with latest cut before we start the server
@@ -527,6 +533,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                                 , _chainwebPactData = pactData
                                 , _chainwebThrottler = throttler
                                 , _chainwebPutPeerThrottler = putPeerThrottler
+                                , _chainwebMempoolThrottler = mempoolThrottler
                                 , _chainwebConfig = conf
                                 , _chainwebServiceSocket = serviceSock
                                 , _chainwebBackup = BackupEnv
@@ -591,11 +598,15 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
 -- Throttling
 
 mkGenericThrottler :: Double -> IO (Throttle Address)
-mkGenericThrottler rate = mkThrottler 5 rate (const True)
+mkGenericThrottler rate = mkThrottler 30 rate (const True)
 
 mkPutPeerThrottler :: Double -> IO (Throttle Address)
-mkPutPeerThrottler rate = mkThrottler 5 rate $ \r ->
+mkPutPeerThrottler rate = mkThrottler 30 rate $ \r ->
     elem "peer" (pathInfo r) && requestMethod r == "PUT"
+
+mkMempoolThrottler :: Double -> IO (Throttle Address)
+mkMempoolThrottler rate = mkThrottler 30 rate $ \r ->
+    elem "mempool" (pathInfo r)
 
 checkPathPrefix
     :: [T.Text]
@@ -617,7 +628,7 @@ mkThrottler
 mkThrottler e rate c = initThrottler (defaultThrottleSettings $ TimeSpec (ceiling e) 0) -- expiration
     { throttleSettingsRate = rate -- number of allowed requests per period
     , throttleSettingsPeriod = 1_000_000 -- 1 second
-    , throttleSettingsBurst = 2 * ceiling rate
+    , throttleSettingsBurst = 4 * ceiling rate
     , throttleSettingsIsThrottled = c
     }
 
@@ -634,20 +645,45 @@ runChainweb
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
+    mkValidationMiddleware <- interleaveIO $
+        OpenAPIValidation.mkValidationMiddleware (_chainwebLogger cw) (_chainwebVersion cw) (_chainwebManager cw)
+    p2pValidationMiddleware <-
+        if _p2pConfigValidateSpec (_configP2p $ _chainwebConfig cw)
+        then do
+            logg Warn $ "OpenAPI spec validation enabled on P2P API, make sure this is what you want"
+            mkValidationMiddleware
+        else return id
+    serviceApiValidationMiddleware <-
+        if _serviceApiConfigValidateSpec (_configServiceApi $ _chainwebConfig cw)
+        then do
+            logg Warn $ "OpenAPI spec validation enabled on service API, make sure this is what you want"
+            mkValidationMiddleware
+        else return id
+
     concurrentlies_
+
         -- 1. Start serving Rest API
         [ (if tls then serve else servePlain)
             $ httpLog
             . throttle (_chainwebPutPeerThrottler cw)
+            . throttle (_chainwebMempoolThrottler cw)
             . throttle (_chainwebThrottler cw)
-            . requestSizeLimit
+            . p2pRequestSizeLimit
+            . p2pValidationMiddleware
+
         -- 2. Start Clients (with a delay of 500ms)
         , threadDelay 500000 >> clients
+
         -- 3. Start serving local API
-        , threadDelay 500000 >> serveServiceApi (serviceHttpLog . requestSizeLimit)
+        , threadDelay 500000 >> do
+            serveServiceApi
+                $ serviceHttpLog
+                . serviceRequestSizeLimit
+                . serviceApiValidationMiddleware
         ]
 
   where
+
     tls = _p2pConfigTls $ _configP2p $ _chainwebConfig cw
 
     clients :: IO ()
@@ -671,7 +707,7 @@ runChainweb cw = do
 
     -- collect server resources
     proj :: forall a . (ChainResources logger -> a) -> [(ChainId, a)]
-    proj f = map (second f) chains
+    proj f = chains & mapped . _2 %~ f
 
     chainDbsToServe :: [(ChainId, BlockHeaderDb)]
     chainDbsToServe = proj _chainResBlockHeaderDb
@@ -723,7 +759,7 @@ runChainweb cw = do
                 (_chainwebConfig cw)
                 ChainwebServerDbs
                     { _chainwebServerCutDb = Just cutDb
-                    , _chainwebServerChains = chainDbsToServe
+                    , _chainwebServerBlockHeaderDbs = chainDbsToServe
                     , _chainwebServerMempools = mempoolsToServe
                     , _chainwebServerPayloadDbs = payloadDbsToServe
                     , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pToServe
@@ -750,11 +786,26 @@ runChainweb cw = do
                 mw)
             (monitorConnectionsClosedByClient clientClosedConnectionsCounter)
 
-    requestSizeLimit :: Middleware
-    requestSizeLimit = requestSizeLimitMiddleware $
+    -- Request size limit for the service API
+    --
+    serviceRequestSizeLimit :: Middleware
+    serviceRequestSizeLimit = requestSizeLimitMiddleware $
         setMaxLengthForRequest (\_req -> pure $ Just $ 2 * 1024 * 1024) -- 2MB
         defaultRequestSizeLimitSettings
 
+    -- Request size limit for the P2P API
+    --
+    -- NOTE: this may need to have to be adjusted if the p2p limits for batch
+    -- sizes or number of branch bound change. It may also need adjustment for
+    -- other protocol changes, like additional HTTP request headers or changes
+    -- in the mempool protocol.
+    --
+    -- FIXME: can we make this smaller and still let the mempool work?
+    --
+    p2pRequestSizeLimit :: Middleware
+    p2pRequestSizeLimit = requestSizeLimitMiddleware $
+        setMaxLengthForRequest (\_req -> pure $ Just $ 2 * 1024 * 1024) -- 2MB
+        defaultRequestSizeLimitSettings
 
     httpLog :: Middleware
     httpLog = requestResponseLogger $ setComponent "http:p2p-api" (_chainwebLogger cw)
@@ -828,15 +879,9 @@ runChainweb cw = do
     mempoolSyncClients :: IO [IO ()]
     mempoolSyncClients = case enabledConfig mempoolP2pConfig of
         Nothing -> disabled
-        Just c -> case _chainwebVersion cw of
-            Test{} -> disabled
-            TimedConsensus{} -> disabled
-            PowConsensus{} -> disabled
-            TimedCPM{} -> enabled c
-            FastTimedCPM{} -> enabled c
-            Development -> enabled c
-            Testnet04 -> enabled c
-            Mainnet01 -> enabled c
+        Just c
+            | cw ^. chainwebVersion . versionDefaults . disableMempoolSync -> disabled
+            | otherwise -> enabled c
       where
         disabled = do
             logg Info "Mempool p2p sync disabled"
@@ -844,4 +889,3 @@ runChainweb cw = do
         enabled conf = do
             logg Info "Mempool p2p sync enabled"
             return $ map (runMempoolSyncClient mgr conf (_chainwebPeer cw)) chainVals
-
