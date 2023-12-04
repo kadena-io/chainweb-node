@@ -228,7 +228,7 @@ doReadRestoreBegin v cid dbenv rodbenv (bh, bhash) = do
   where
     -- Module name fix follows the restore call to checkpointer.
     setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v cid bh
-    setSortedKeys = bsSortedKeys .= pact420 v cid bh
+    setSortedKeys = bsSortedKeys .= pact42 v cid bh
     setLowerCaseTables = bsLowerCaseTables .= chainweb217Pact v cid bh
 
 doReadRestoreEnd :: Db logger -> IO ()
