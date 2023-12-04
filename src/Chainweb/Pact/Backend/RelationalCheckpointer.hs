@@ -233,13 +233,13 @@ doDiscard dbenv = runBlockEnv dbenv $ do
     --
     commitSavepoint Block
 
-doGetEarliest :: HasCallStack => Db logger -> IO (BlockHeight, BlockHash)
+doGetEarliest :: HasCallStack => Db logger -> IO (Maybe (BlockHeight, BlockHash))
 doGetEarliest dbenv =
-  runBlockEnv dbenv $ callDb "getLatestBlock" $ \db -> do
+  runBlockEnv dbenv $ callDb "getEarliestBlock" $ \db -> do
     r <- qry_ db qtext [RInt, RBlob] >>= mapM go
     case r of
-      [] -> fail "Chainweb.Pact.Backend.RelationalCheckpointer.doGetEarliest: no earliest block. This is a bug in chainweb-node."
-      (!o:_) -> return o
+      [] -> return Nothing
+      (!o:_) -> return (Just o)
   where
     qtext = "SELECT blockheight, hash FROM BlockHistory \
             \ ORDER BY blockheight ASC LIMIT 1"

@@ -1,5 +1,30 @@
 # `chainweb-node` Changelog
 
+## 2.22 (2023-11-24)
+This version replaces all previous versions. Any prior version will stop working
+on **2023-12-13T:00:00Z**. Node administrators must upgrade to this version before
+that date.
+
+This version will expire on **2023-03-06T:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+
+* Updated to Pact 4.10 (numerous, see [Pact
+  changelog](https://github.com/kadena-io/pact/releases/tag/v4.10))
+* Node support for webauthn signers, scoped signatures, and webauthn keyset formats in Pact (#1779)
+* Block endpoint added to Service API (#1720)
+* Fix batch /polling so that it no longer omits results (#1775)
+* Add block header to validation failure message (#1752)
+* Halt block fill algorithm constructively if we exceeded the tx fetch limit (#1762)
+* Be more careful not to write the results of invalid blocks to the pact state (#1740)
+* Fix Mac M2 compatibility with older blocks (#1782)
+
+Internal Changes:
+* Support aeson-2.2 (#1750)
+* Fix benchmarks for block creation and validation (#1767)
+
 ## 2.21 (2023-10-05)
 
 This version replaces all previous versions. Any prior version will stop working

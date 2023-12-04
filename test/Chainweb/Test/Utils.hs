@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -10,7 +11,6 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Test.Utils
@@ -117,13 +117,14 @@ module Chainweb.Test.Utils
 , host
 , interface
 , testRetryPolicy
+, withDbDirs
 ) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch (finally, bracket)
+import Control.Monad.Catch (MonadCatch, catch, finally, bracket)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
 import Control.Retry
@@ -157,6 +158,7 @@ import Numeric.Natural
 
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv, runClientM)
 
+import System.Directory (removeDirectoryRecursive)
 import System.Environment (withArgs)
 import System.IO
 import System.IO.Temp
@@ -897,6 +899,7 @@ matchTest pat = withArgs ["-p",pat]
 data ChainwebNetwork = ChainwebNetwork
     { _getClientEnv :: !ClientEnv
     , _getServiceClientEnv :: !ClientEnv
+    , _getNodeDbDirs :: ![(FilePath, FilePath)]
     }
 
 withNodes_
@@ -905,16 +908,17 @@ withNodes_
     -> ChainwebVersion
     -> B.ByteString
     -> RocksDb
-    -> Natural
+    -> Word
     -> ResourceT IO ChainwebNetwork
-withNodes_ logger v testLabel rdb n =
-    (uncurry ChainwebNetwork . snd) . snd <$>
-        allocate start (cancel . fst)
+withNodes_ logger v testLabel rdb n = do
+    nodeDbDirs <- withDbDirs n
+    (_rkey, (_async, (p2p, service))) <- allocate (start nodeDbDirs) (cancel . fst)
+    pure (ChainwebNetwork p2p service nodeDbDirs)
   where
-    start :: IO (Async (), (ClientEnv, ClientEnv))
-    start = do
+    start :: [(FilePath, FilePath)] -> IO (Async (), (ClientEnv, ClientEnv))
+    start dbDirs = do
         peerInfoVar <- newEmptyMVar
-        a <- async $ runTestNodes testLabel rdb logger v n peerInfoVar
+        a <- async $ runTestNodes testLabel rdb logger v peerInfoVar dbDirs
         (i, servicePort) <- readMVar peerInfoVar
         cwEnv <- getClientEnv $ getCwBaseUrl Https $ _hostAddressPort $ _peerAddr i
         cwServiceEnv <- getClientEnv $ getCwBaseUrl Http servicePort
@@ -932,7 +936,7 @@ withNodes
     :: ChainwebVersion
     -> B.ByteString
     -> RocksDb
-    -> Natural
+    -> Word
     -> ResourceT IO ChainwebNetwork
 withNodes = withNodes_ (genericLogger Error (error . T.unpack))
     -- Test resources are part of test infrastructure and should never print
@@ -944,7 +948,7 @@ withNodesAtLatestBehavior
     :: ChainwebVersion
     -> B.ByteString
     -> RocksDb
-    -> Natural
+    -> Word
     -> ResourceT IO ChainwebNetwork
 withNodesAtLatestBehavior v testLabel rdb n = do
     net <- withNodes v testLabel rdb n
@@ -993,19 +997,19 @@ runTestNodes
     -> RocksDb
     -> logger
     -> ChainwebVersion
-    -> Natural
     -> MVar (PeerInfo, Port)
+    -> [(FilePath, FilePath)]
+       -- ^ A Map from Node Id to (Pact DB Dir, RocksDB Dir).
+       --   The index is just the position in the list.
     -> IO ()
-runTestNodes testLabel rdb logger ver n portMVar =
-    forConcurrently_ [0 .. int n - 1] $ \i -> do
-        threadDelay (1000 * int i)
-        let baseConf = config ver n
-        conf <- if
-            | i == 0 ->
-                return $ bootstrapConfig baseConf
-            | otherwise ->
-                setBootstrapPeerInfo <$> (fst <$> readMVar portMVar) <*> pure baseConf
-        node testLabel rdb logger portMVar conf i
+runTestNodes testLabel rdb logger ver portMVar dbDirs = do
+    forConcurrently_ (zip [0 ..] dbDirs) $ \(nid, (pactDbDir, rocksDbDir)) -> do
+        threadDelay (1000 * int nid)
+        let baseConf = config ver (int (length dbDirs))
+        conf <- if nid == 0
+          then return $ bootstrapConfig baseConf
+          else setBootstrapPeerInfo <$> (fst <$> readMVar portMVar) <*> pure baseConf
+        node testLabel rdb logger portMVar conf pactDbDir rocksDbDir nid
 
 node
     :: Logger logger
@@ -1014,28 +1018,29 @@ node
     -> logger
     -> MVar (PeerInfo, Port)
     -> ChainwebConfiguration
-    -> Int
+    -> FilePath
+       -- ^ pact db dir
+    -> FilePath
+       -- ^ rocksdb dir
+    -> Word
         -- ^ Unique Node Id. The node id 0 is used for the bootstrap node
     -> IO ()
-node testLabel rdb rawLogger peerInfoVar conf nid = do
+node testLabel rdb rawLogger peerInfoVar conf pactDbDir rocksDbDir nid = do
     rocksDb <- testRocksDb (testLabel <> T.encodeUtf8 (toText nid)) rdb
-    withSystemTempDirectory "test-backupdir" $ \backupDir ->
-        withSystemTempDirectory "test-rocksdb" $ \dir ->
-            withChainweb conf logger rocksDb backupDir dir False $ \case
-                StartedChainweb cw -> do
+    withChainweb conf logger rocksDb pactDbDir rocksDbDir False $ \case
+        StartedChainweb cw -> do
+            -- If this is the bootstrap node we extract the port number and publish via an MVar.
+            when (nid == 0) $ do
+                let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
+                    bootStrapPort = view (chainwebServiceSocket . _1) cw
+                putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
 
-                    -- If this is the bootstrap node we extract the port number and publish via an MVar.
-                    when (nid == 0) $ do
-                        let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
-                            bootStrapPort = view (chainwebServiceSocket . _1) cw
-                        putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
-
-                    poisonDeadBeef cw
-                    runChainweb cw `finally` do
-                        logFunctionText logger Info "write sample data"
-                        logFunctionText logger Info "shutdown node"
-                    return ()
-                Replayed _ _ -> error "node: should not be a replay"
+            poisonDeadBeef cw
+            runChainweb cw `finally` do
+                logFunctionText logger Info "write sample data"
+                logFunctionText logger Info "shutdown node"
+            return ()
+        Replayed _ _ -> error "node: should not be a replay"
   where
     logger = addLabel ("node", sshow nid) rawLogger
 
@@ -1043,6 +1048,31 @@ node testLabel rdb rawLogger peerInfoVar conf nid = do
       where
         crs = map snd $ HashMap.toList $ view chainwebChains cw
         poison cr = mempoolAddToBadList (view chainResMempool cr) (V.singleton deadbeef)
+
+withDbDirs :: Word -> ResourceT IO [(FilePath, FilePath)]
+withDbDirs n = do
+  let create :: IO [(FilePath, FilePath)]
+      create = do
+        forM [0 .. n - 1] $ \nid -> do
+          targetDir1 <- getCanonicalTemporaryDirectory
+          targetDir2 <- getCanonicalTemporaryDirectory
+
+          dir1 <- createTempDirectory targetDir1 ("pactdb-dir-" ++ show nid)
+          dir2 <- createTempDirectory targetDir2 ("rocksdb-dir-" ++ show nid)
+
+          pure (dir1, dir2)
+
+  let destroy :: [(FilePath, FilePath)] -> IO ()
+      destroy m = flip foldMap m $ \(d1, d2) -> do
+        ignoringIOErrors $ do
+          removeDirectoryRecursive d1
+          removeDirectoryRecursive d2
+
+  (_, m) <- allocate create destroy
+  pure m
+  where
+    ignoringIOErrors :: (MonadCatch m) => m () -> m ()
+    ignoringIOErrors ioe = ioe `catch` (\(_ :: IOError) -> pure ())
 
 deadbeef :: TransactionHash
 deadbeef = TransactionHash "deadbeefdeadbeefdeadbeefdeadbeef"

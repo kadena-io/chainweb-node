@@ -76,7 +76,7 @@ import System.IO.Unsafe (unsafePerformIO)
 v :: ChainwebVersion
 v = fastForkingCpmTestVersion petersonChainGraph
 
-nodes :: Natural
+nodes :: Word
 nodes = 1
 
 cid :: ChainId
@@ -596,7 +596,7 @@ submitToConstructionAPI expectOps chainId' payer getKeys expectResult cenv step 
       Right pk' <- pure $ P.parseB16TextOnly pk
       let akps = P.ApiKeyPair (P.PrivBS sk') (Just $ P.PubBS pk')
                  Nothing Nothing Nothing
-      [(kp,_)] <- P.mkKeyPairs [akps]
+      [(DynEd25519KeyPair kp,_)] <- P.mkKeyPairs [akps]
       (Right (hsh :: P.PactHash)) <- pure $ fmap
         (P.fromUntypedHash . P.Hash . BS.toShort)
         (P.parseB16TextOnly $ _rosettaSigningPayload_hexBytes payload)
@@ -792,15 +792,14 @@ mkTransfer :: ChainId -> IO (Time Micros) -> IO SubmitBatch
 mkTransfer sid tio = do
     t <- toTxCreationTime <$> tio
     n <- readIORef nonceRef
-    c <- buildTextCmd
+    c <- buildTextCmd v
       $ set cbSigners
-        [ mkSigner' sender00
+        [ mkEd25519Signer' sender00
           [ mkTransferCap "sender00" "sender01" 1.0
           , mkGasCap
           ]
         ]
       $ set cbCreationTime t
-      $ set cbNetworkId (Just v)
       $ set cbChainId sid
       $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
       $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
@@ -813,14 +812,13 @@ mkKCoinAccount sid tio = do
     let kAcct = "k:" <> fst sender00
     t <- toTxCreationTime <$> tio
     n <- readIORef nonceRef
-    c <- buildTextCmd
+    c <- buildTextCmd v
       $ set cbSigners
-        [ mkSigner' sender00
+        [ mkEd25519Signer' sender00
           [ mkTransferCap "sender00" kAcct 20.0
           , mkGasCap ]
         ]
       $ set cbCreationTime t
-      $ set cbNetworkId (Just v)
       $ set cbChainId sid
       $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
       $ mkExec ("(coin.transfer-create \"sender00\" \"" <> kAcct <> "\" (read-keyset \"sender00\") 20.0)")

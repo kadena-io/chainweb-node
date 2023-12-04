@@ -43,10 +43,12 @@ module Chainweb.Version.Guards
     , chainweb220Pact
     , chainweb221Pact
     , chainweb222Pact
+    , chainweb223Pact
     , pact44NewTrans
     , pactParserVersion
     , maxBlockGasLimit
     , validPPKSchemes
+    , isWebAuthnPrefixLegal
     , validKeyFormats
 
     -- ** BlockHeader Validation Guards
@@ -244,6 +246,9 @@ chainweb221Pact = checkFork atOrAfter Chainweb221Pact
 chainweb222Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb222Pact = checkFork atOrAfter Chainweb222Pact
 
+chainweb223Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+chainweb223Pact = checkFork atOrAfter Chainweb223Pact
+
 pactParserVersion :: ChainwebVersion -> ChainId -> BlockHeight -> PactParserVersion
 pactParserVersion v cid bh
     | chainweb213Pact v cid bh = PactParserChainweb213
@@ -264,8 +269,14 @@ validPPKSchemes v cid bh =
   then [ED25519, WebAuthn]
   else [ED25519]
 
+isWebAuthnPrefixLegal :: ChainwebVersion -> ChainId -> BlockHeight -> IsWebAuthnPrefixLegal
+isWebAuthnPrefixLegal v cid bh =
+    if chainweb222Pact v cid bh
+    then WebAuthnPrefixLegal
+    else WebAuthnPrefixIllegal
+
 validKeyFormats :: ChainwebVersion -> ChainId -> BlockHeight -> [PublicKeyText -> Bool]
 validKeyFormats v cid bh =
-  if chainweb221Pact v cid bh
+  if chainweb222Pact v cid bh
   then [ed25519HexFormat, webAuthnFormat]
   else [ed25519HexFormat]

@@ -12,6 +12,7 @@ module Chainweb.Transaction
   , HashableTrans(..)
   , PayloadWithText
   , PactParserVersion(..)
+  , IsWebAuthnPrefixLegal(..)
   , chainwebPayloadCodec
   , encodePayload
   , decodePayload
@@ -32,7 +33,7 @@ import Control.Lens
 import qualified Data.Aeson as Aeson
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
-import qualified Data.ByteString.Short as SBS
+import qualified Data.ByteString.Short as SB
 import Data.Hashable
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
@@ -54,27 +55,27 @@ import Chainweb.Utils.Serialization
 -- the Text that generated it, to make gossiping easier.
 --
 data PayloadWithText = PayloadWithText
-    { _payloadBytes :: !SBS.ShortByteString
+    { _payloadBytes :: !SB.ShortByteString
     , _payloadObj :: !(Payload PublicMeta ParsedCode)
     }
     deriving (Show, Eq, Generic)
     deriving anyclass (NFData)
 
-payloadBytes :: PayloadWithText -> SBS.ShortByteString
+payloadBytes :: PayloadWithText -> SB.ShortByteString
 payloadBytes = _payloadBytes
 
 payloadObj :: PayloadWithText -> Payload PublicMeta ParsedCode
 payloadObj = _payloadObj
 
-mkPayloadWithText :: Command ByteString -> Payload PublicMeta ParsedCode -> PayloadWithText
-mkPayloadWithText cmd p = PayloadWithText
-    { _payloadBytes = SBS.toShort $ _cmdPayload cmd
+mkPayloadWithText :: Command (ByteString, Payload PublicMeta ParsedCode) -> Command PayloadWithText
+mkPayloadWithText = over cmdPayload $ \(bs, p) -> PayloadWithText
+    { _payloadBytes = SB.toShort bs
     , _payloadObj = p
     }
 
 mkPayloadWithTextOld :: Payload PublicMeta ParsedCode -> PayloadWithText
 mkPayloadWithTextOld p = PayloadWithText
-    { _payloadBytes = SBS.toShort $ J.encodeStrict $ toLegacyJsonViaEncode $ fmap _pcCode p
+    { _payloadBytes = SB.toShort $ J.encodeStrict $ toLegacyJsonViaEncode $ fmap _pcCode p
     , _payloadObj = p
     }
 
@@ -83,6 +84,11 @@ type ChainwebTransaction = Command PayloadWithText
 data PactParserVersion
     = PactParserGenesis
     | PactParserChainweb213
+    deriving (Eq, Ord, Bounded, Show, Enum)
+
+data IsWebAuthnPrefixLegal
+    = WebAuthnPrefixIllegal
+    | WebAuthnPrefixLegal
     deriving (Eq, Ord, Bounded, Show, Enum)
 
 -- | Hashable newtype of ChainwebTransaction
@@ -94,7 +100,7 @@ instance Hashable (HashableTrans PayloadWithText) where
       where
         (TypedHash hc) = _cmdHash t
         decHC = runGetEitherS getWord64le
-        !hashCode = either error id $ decHC (B.take 8 $ SBS.fromShort hc)
+        !hashCode = either error id $ decHC (B.take 8 $ SB.fromShort hc)
     {-# INLINE hashWithSalt #-}
 
 -- | A codec for (Command PayloadWithText) transactions.
@@ -110,7 +116,7 @@ chainwebPayloadCodec ppv = Codec enc dec
                Nothing -> Left "decode PayloadWithText failed"
 
 encodePayload :: PayloadWithText -> ByteString
-encodePayload = SBS.fromShort . _payloadBytes
+encodePayload = SB.fromShort . _payloadBytes
 
 decodePayload
     :: PactParserVersion
@@ -119,7 +125,7 @@ decodePayload
 decodePayload ppv bs = case Aeson.decodeStrict' bs of
     Just payload -> do
         p <- traverse (parsePact ppv) payload
-        return $! PayloadWithText (SBS.toShort bs) p
+        return $! PayloadWithText (SB.toShort bs) p
     Nothing -> Left "decoding Payload failed"
 
 parsePact

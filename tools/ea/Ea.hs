@@ -183,6 +183,10 @@ mkChainwebTxs' rawTxs =
     forM rawTxs $ \cmd -> do
         let cmdBS = fmap TE.encodeUtf8 cmd
             -- TODO: Use the new `assertCommand` function.
+            -- We want to delete `verifyCommand` at some point.
+            -- It's not critical for Ea because WebAuthn signatures (which
+            -- the new `assertCommand` knows how to handle) are not present
+            -- in Genesis blocks.
             procCmd = verifyCommand cmdBS
         case procCmd of
             f@ProcFail{} -> fail (show f)

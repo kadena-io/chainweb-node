@@ -297,9 +297,9 @@ data Checkpointer logger = Checkpointer
       -- ^ commits pending modifications to block, with the given blockhash
     , _cpDiscard :: !(IO ())
       -- ^ discard pending block changes
-    , _cpGetEarliestBlock :: !(IO (BlockHeight, BlockHash))
+    , _cpGetEarliestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
       -- ^ get the checkpointer's idea of the earliest block. The block height
-      -- is the height of the block of the block hash.
+      --   is the height of the block of the block hash.
     , _cpGetLatestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
       -- ^ get the checkpointer's idea of the latest block. The block height is
       -- is the height of the block of the block hash.

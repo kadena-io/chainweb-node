@@ -1,7 +1,7 @@
 cabal-version: 3.8
 
 name:         chainweb
-version:      2.21
+version:      2.22
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -274,6 +274,8 @@ library
         -- pact
         , Chainweb.Pact.Backend.ChainwebPactDb
         , Chainweb.Pact.Backend.DbCache
+        , Chainweb.Pact.Backend.Compaction
+        , Chainweb.Pact.Backend.PactState
         , Chainweb.Pact.Backend.RelationalCheckpointer
         , Chainweb.Pact.Backend.SQLite.DirectV2
         , Chainweb.Pact.Backend.SQLite.V2
@@ -403,6 +405,7 @@ library
         , tls-session-manager >= 0.0
         , token-bucket >= 0.1
         , transformers >= 0.5
+        , unliftio ^>= 0.2
         , unordered-containers >= 0.2.16
         , uuid >= 1.3.15
         , wai >= 3.2.2.1
@@ -506,7 +509,7 @@ test-suite chainweb-tests
 
     build-depends:
         -- internal
-          chainweb
+        , chainweb
 
         -- external
         , Decimal >= 0.4.2
@@ -540,6 +543,7 @@ test-suite chainweb-tests
         , merkle-log >=0.2
         , mtl >= 2.3
         , network >= 3.1.2
+        , patience >= 0.3
         , http-client-tls >=0.3
         , pact
         , pact-json >= 0.1

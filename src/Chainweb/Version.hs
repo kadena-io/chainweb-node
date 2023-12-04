@@ -192,6 +192,7 @@ data Fork
     | Chainweb220Pact
     | Chainweb221Pact
     | Chainweb222Pact
+    | Chainweb223Pact
     -- always add new forks at the end, not in the middle of the constructors.
     deriving stock (Bounded, Generic, Eq, Enum, Ord, Show)
     deriving anyclass (NFData, Hashable)
@@ -211,7 +212,7 @@ instance HasTextRepresentation Fork where
     toText SPVBridge = "spvBridge"
     toText Pact4Coin3 = "pact4Coin3"
     toText EnforceKeysetFormats = "enforceKeysetFormats"
-    toText Pact42 = "pact42"
+    toText Pact42 = "Pact42"
     toText CheckTxHash = "checkTxHash"
     toText Chainweb213Pact = "chainweb213Pact"
     toText Chainweb214Pact = "chainweb214Pact"
@@ -224,6 +225,7 @@ instance HasTextRepresentation Fork where
     toText Chainweb220Pact = "chainweb220Pact"
     toText Chainweb221Pact = "chainweb221Pact"
     toText Chainweb222Pact = "chainweb222Pact"
+    toText Chainweb223Pact = "chainweb223Pact"
 
     fromText "slowEpoch" = return SlowEpoch
     fromText "vuln797Fix" = return Vuln797Fix
@@ -239,7 +241,7 @@ instance HasTextRepresentation Fork where
     fromText "spvBridge" = return SPVBridge
     fromText "pact4Coin3" = return Pact4Coin3
     fromText "enforceKeysetFormats" = return EnforceKeysetFormats
-    fromText "pact42" = return Pact42
+    fromText "Pact42" = return Pact42
     fromText "checkTxHash" = return CheckTxHash
     fromText "chainweb213Pact" = return Chainweb213Pact
     fromText "chainweb214Pact" = return Chainweb214Pact
@@ -251,7 +253,7 @@ instance HasTextRepresentation Fork where
     fromText "chainweb219Pact" = return Chainweb219Pact
     fromText "chainweb220Pact" = return Chainweb220Pact
     fromText "chainweb221Pact" = return Chainweb221Pact
-    fromText "chainweb222Pact" = return Chainweb222Pact
+    fromText "chainweb223Pact" = return Chainweb223Pact
     fromText t = throwM . TextFormatException $ "Unknown Chainweb fork: " <> t
 
 instance ToJSON Fork where
