@@ -703,9 +703,12 @@ execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
     bhdb <- view psBlockHeaderDb
     pdb <- view psPdb
     -- lower bound must be an ancestor of upper.
-    -- assert (ancestorOfEntry bhdb lowerBound upperBound)
+    liftIO (ancestorOf bhdb (_blockHash lowerBound) (_blockHash upperBound)) >>=
+      flip unless (error "lower bound is not an ancestor of upper bound")
+
     -- upper bound must be an ancestor of latest header.
-    -- assert (ancestorOfEntry bhdb upperBound cur)
+    liftIO (ancestorOf bhdb (_blockHash upperBound) (_blockHash cur)) >>=
+      flip unless (error "upper bound is not an ancestor of latest header")
     -- if (upperBound == _blockHash cur)
     --   then return upperBound
     --   else do

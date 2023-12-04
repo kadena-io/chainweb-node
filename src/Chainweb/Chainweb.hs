@@ -362,7 +362,7 @@ withChainwebInternal
     -> IO ()
 withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir resetDb inner = do
 
-    unless (_configOnlySyncPact conf) $
+    unless (_configOnlySyncPact conf || _configReadOnlyReplay conf) $
         initializePayloadDb v payloadDb
 
     -- Garbage Collection
@@ -489,20 +489,17 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                     case _configSyncPactChains conf of
                       Just syncChains | _configOnlySyncPact conf || _configReadOnlyReplay conf -> HM.filterWithKey (\k _ -> elem k syncChains) cs
                       _ -> cs
-            initialCut <- _cut mCutDb
-            when (not $ _configReadOnlyReplay conf) $ do
-                logg Info "start synchronizing Pact DBs to initial cut"
-                logFunctionJson logger Info InitialSyncInProgress
-                synchronizePactDb pactSyncChains initialCut
-                logg Info "finished synchronizing Pact DBs to initial cut"
 
             if _configReadOnlyReplay conf
             then do
                 logFunctionJson logger Info PactReplayInProgress
+                -- note that we don't use the "initial cut" from cutdb because its height depends on initialBlockHeightLimit.
+                highestCut <-
+                    unsafeMkCut v <$> readHighestCutHeaders v (logFunctionText logger) webchain (cutHashesTable rocksDb)
                 lowerBoundCut <-
-                    limitCut webchain (fromMaybe 0 $ _cutInitialBlockHeightLimit $ _configCuts conf) initialCut
+                    limitCut webchain (fromMaybe 0 $ _cutInitialBlockHeightLimit $ _configCuts conf) highestCut
                 upperBoundCut <-
-                    limitCut webchain (fromMaybe maxBound $ _cutFastForwardBlockHeightLimit $ _configCuts conf) initialCut
+                    limitCut webchain (fromMaybe maxBound $ _cutFastForwardBlockHeightLimit $ _configCuts conf) highestCut
                 let
                     syncOne :: (ChainResources logger, (BlockHeader, BlockHeader)) -> IO ()
                     syncOne (cr, (l, u)) = do
@@ -525,6 +522,11 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                 inner $ Replayed lowerBoundCut upperBoundCut
             else if _configOnlySyncPact conf
             then do
+                initialCut <- _cut mCutDb
+                logg Info "start synchronizing Pact DBs to initial cut"
+                logFunctionJson logger Info InitialSyncInProgress
+                synchronizePactDb pactSyncChains initialCut
+                logg Info "finished synchronizing Pact DBs to initial cut"
                 logFunctionJson logger Info PactReplayInProgress
                 logg Info "start replaying Pact DBs to fast forward cut"
                 fastForwardCutDb mCutDb
@@ -534,6 +536,11 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                 logFunctionJson logger Info PactReplaySuccessful
                 inner $ Replayed initialCut newCut
             else do
+                initialCut <- _cut mCutDb
+                logg Info "start synchronizing Pact DBs to initial cut"
+                logFunctionJson logger Info InitialSyncInProgress
+                synchronizePactDb pactSyncChains initialCut
+                logg Info "finished synchronizing Pact DBs to initial cut"
                 withPactData cs cuts $ \pactData -> do
                     logg Info "start initializing miner resources"
                     logFunctionJson logger Info InitializingMinerResources
@@ -598,7 +605,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
         , _cutDbParamsTelemetryLevel = Info
         , _cutDbParamsInitialHeightLimit = _cutInitialBlockHeightLimit cutConf
         , _cutDbParamsFastForwardHeightLimit = _cutFastForwardBlockHeightLimit cutConf
-        , _cutDbParamsReadOnly = _configOnlySyncPact conf
+        , _cutDbParamsReadOnly = _configOnlySyncPact conf || _configReadOnlyReplay conf
         }
       where
         cutConf = _configCuts conf
