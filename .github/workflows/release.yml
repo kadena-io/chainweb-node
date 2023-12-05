@@ -100,8 +100,10 @@ jobs:
     secrets: inherit
   
   release_repo:
-    needs: release_vars
-    runs-on: ubuntu-latest, chainweb-node-dockerhub
+    needs: 
+      - release_vars
+      - chainweb-node-dockerhub
+    runs-on: ubuntu-latest
     env:
       IMAGE: ${{ needs.release_vars.outputs.IMAGE }}
       SHORT_REVISION: ${{ needs.release_vars.outputs.SHORT_REVISION }}
