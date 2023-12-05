@@ -77,7 +77,7 @@ jobs:
           echo $GITHUB_ENV
 
   chainweb_node_docker:
-    uses: kadena-io/chainweb-node-docker/.github/workflows/dockerhub_release.yml
+    uses: kadena-io/chainweb-node-docker/.github/workflows/dockerhub_release.yml@master
     needs: release_vars
     with:
       SHORT_SHA: ${{ needs.release_vars.outputs.SHORT_REVISION }}
