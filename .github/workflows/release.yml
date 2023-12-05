@@ -76,7 +76,7 @@ jobs:
           
       - uses: actions/checkout@v4
         with:
-          ref: steps.set-vars.outputs.RELEASE_SHA
+          ref: ${{ steps.set-vars.outputs.RELEASE_SHA }}
           sparse-checkout: |
             .github/workflows/applications.yml
         
