@@ -233,7 +233,7 @@ type SimpleKeyPair = (Text,Text)
 
 -- | Legacy; better to use 'CmdSigner'/'CmdBuilder'.
 -- if caps are empty, gas cap is implicit. otherwise it must be included
-testKeyPairs :: SimpleKeyPair -> Maybe [MsgCapability] -> IO [Ed25519KeyPairCaps]
+testKeyPairs :: SimpleKeyPair -> Maybe [MsgCapability] -> IO [(DynKeyPair, [MsgCapability])]
 testKeyPairs skp capsm = do
   kp <- toApiKp $ mkEd25519Signer' skp (fromMaybe [] capsm)
   mkKeyPairs [kp]
@@ -604,7 +604,7 @@ buildRawCmd v CmdBuilder{..} = do
 dieL :: MonadThrow m => [Char] -> Either [Char] a -> m a
 dieL msg = either (\s -> throwM $ userError $ msg ++ ": " ++ s) return
 
-mkDynKeyPairs :: MonadThrow m => CmdSigner -> m (DynKeyPair, [SigCapability])
+mkDynKeyPairs :: MonadThrow m => CmdSigner -> m (DynKeyPair, [MsgCapability])
 mkDynKeyPairs (CmdSigner Signer{..} privKey) =
   case (fromMaybe ED25519 _siScheme, _siPubKey, privKey) of
     (ED25519, pub, priv) -> do
