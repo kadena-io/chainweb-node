@@ -14,6 +14,9 @@ module Chainweb.Pact.Backend.PactState.GrandHash
   )
   where
 
+import Data.Maybe (fromJust, fromMaybe)
+
+import Data.Ord (Down(..))
 import Control.Applicative (optional)
 import Control.Monad (forM, forM_, when)
 import Crypto.Hash (hashWith, hashInitWith, hashUpdate, hashFinalize)
@@ -21,7 +24,7 @@ import Crypto.Hash.Algorithms (SHA3_256(..))
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.ChainId (ChainId, chainIdToText, unsafeChainId)
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.PactState (PactRow(..), getLatestPactState', PactRowContents(..))
+import Chainweb.Pact.Backend.PactState (PactRow(..), getLatestPactStateUpperBound', PactRowContents(..))
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (fromUtf8, toUtf8, withSqliteDb)
 import Chainweb.Utils (fromText, toText)
@@ -104,8 +107,14 @@ compareHash db tblName ourHash = do
       , "  ourHash: " ++ show ourHash
       ]
 
-computeGrandHash :: Database -> IO ByteString
-computeGrandHash db = do
+logHexHash :: Text -> ByteString -> IO ()
+logHexHash tblName hash = do
+  Text.putStrLn $ Text.concat
+    [ tblName, " = ", Text.decodeUtf8 (Base16.encode hash)
+    ]
+
+computeGrandHash :: Database -> BlockHeight -> IO ByteString
+computeGrandHash db bh = do
   refTableNames <- do
     let qryText = "SELECT tablename FROM CompactGrandHash WHERE tablename IS NOT NULL ORDER BY tablename"
     rs <- Pact.qry db qryText [] [RText]
@@ -116,8 +125,8 @@ computeGrandHash db = do
   ourTableNamesIO <- newIORef @[Text] []
 
   let hashStream :: Stream (Of ByteString) IO ()
-      hashStream = flip S.mapMaybeM (getLatestPactState' db) $ \(tblName, state) -> do
-        Text.putStrLn $ "Starting table " <> tblName
+      hashStream = flip S.mapMaybeM (getLatestPactStateUpperBound' db bh) $ \(tblName, state) -> do
+        --Text.putStrLn $ "Starting table " <> tblName
         let rows =
               Vector.fromList
               $ List.sortOn (\pr -> pr.rowKey)
@@ -128,6 +137,7 @@ computeGrandHash db = do
         compareHash db tblName hash
         when (isJust hash) $ do
           modifyIORef ourTableNamesIO (tblName :)
+          logHexHash tblName (fromJust hash)
         pure hash
 
   let unSha3 (Sha3_256 b) = BSS.fromShort b
@@ -137,23 +147,38 @@ computeGrandHash db = do
     H.updateByteString @Sha3_256 ctx (unSha3 (H.hashByteString @Sha3_256 tblHash))
   grandHash_LibHashes <- unSha3 <$> H.finalize ctx
 
+{-
   grandHash_LibCrypton :: ByteString <- S.fold_
     (\ctx hash -> hashUpdate ctx (hashWith SHA3_256 hash))
     (hashInitWith SHA3_256)
     (Memory.convert . hashFinalize)
     hashStream
+-}
 
   ourTableNames <- List.reverse <$> readIORef ourTableNamesIO
   putStr "our table names match the reference table names: "
   print $ refTableNames == ourTableNames
 
-  putStr "lib hashes  grandHash: " >> print grandHash_LibHashes
-  putStr "lib crypton grandHash: " >> print grandHash_LibCrypton
+  --putStr "lib hashes  grandHash: " >> print grandHash_LibHashes
+  --putStr "lib crypton grandHash: " >> print grandHash_LibCrypton
 
   pure grandHash_LibHashes
 
 test :: IO ()
 test = do
+
+  do
+    let assert :: (HasCallStack) => Bool -> IO ()
+        assert b = if b then pure () else error "oh brother"
+    let cid = unsafeChainId 4
+    assert $ findGrandHash 5000 cid == Just "4k"
+    assert $ findGrandHash 4000 cid == Just "4k"
+    assert $ findGrandHash 3999 cid == Just "3k"
+    assert $ findGrandHash 3000 cid == Just "3k"
+    assert $ findGrandHash 2999 cid == Just "2k"
+    assert $ findGrandHash 2000 cid == Just "2k"
+    assert $ findGrandHash 1999 cid == Nothing
+
   C.withDefaultLogger Info $ \logger -> do
     let resetDb = False
     let cid = unsafeChainId 4
@@ -163,7 +188,7 @@ test = do
         [[SBlob hash]] <- Pact.qry db qryText [] [RBlob]
         pure hash
 
-      ourHash <- computeGrandHash db
+      ourHash <- computeGrandHash db (BlockHeight maxBound)
 
       putStr "refHash: " >> print refHash
       putStr "ourHash: " >> print ourHash
@@ -211,18 +236,43 @@ data Config = Config
   { sourcePactDir :: FilePath
   , targetPactDir :: Maybe FilePath
   , chainwebVersion :: ChainwebVersion
-  , grandHash :: Text
+  , targetBlockHeight :: Maybe BlockHeight
   }
+
+-- sorted in descending order.
+-- this is currently bogus data.
+grandHashes :: [(BlockHeight, Map ChainId ByteString)]
+grandHashes = List.sortOn (Down . fst) -- insurance
+  [ (4000, Map.fromList [(unsafeChainId 4, "4k")])
+  , (3000, Map.fromList [(unsafeChainId 4, "3k")])
+  , (2000, Map.fromList [(unsafeChainId 4, "2k")])
+  ]
+
+-- | Finds the first element of `grandHashes` such that
+--   the blockheight therein is less than or equal to
+--   the argument blockheight. We then look up the GrandHash
+--   for the cid, and if we get a value, we return it. Otherwise
+--   we keep looking.
+--
+findGrandHash :: BlockHeight -> ChainId -> Maybe ByteString
+findGrandHash bh0 cid = go grandHashes
+  where
+    go = \case
+      [] -> Nothing
+      (bh, hashes) : rest ->
+        if bh0 >= bh
+        then case Map.lookup cid hashes of
+          Just hash -> Just hash
+          Nothing -> go rest
+        else
+          go rest
 
 main :: IO ()
 main = do
   cfg <- O.execParser opts
 
-  -- Check that the grandhash passed is hex-encoded
-  when (not (Text.all isHexDigit cfg.grandHash)) $ do
-    error "GrandHash provided is not hex-encoded."
-
-  let cids = List.sort $ F.toList $ chainIdsAt cfg.chainwebVersion (BlockHeight maxBound)
+  let target = fromMaybe (BlockHeight maxBound) cfg.targetBlockHeight
+  let cids = List.sort $ F.toList $ chainIdsAt cfg.chainwebVersion target
 
   -- We check this as a precondition, because any missing chainIds are
   -- unacceptable, so we can abort.
@@ -238,20 +288,23 @@ main = do
     C.withDefaultLogger Info $ \logger -> do
       let resetDb = False
       withSqliteDb cid logger cfg.sourcePactDir resetDb $ \(SQLiteEnv db _) -> do
-        hash <- computeGrandHash db
+        hash <- computeGrandHash db target
         atomicModifyIORef' chainHashesRef $ \m -> (Map.insert cid hash m, ())
 
   chainHashes <- readIORef chainHashesRef
-  case hashAggregate id (Vector.fromList (Map.elems chainHashes)) of
-    Nothing -> error "impossible"
-    Just ourGrandHash -> do
-      let ourHexGrandHash = Text.decodeUtf8 (Base16.encode ourGrandHash)
-      when (cfg.grandHash /= ourHexGrandHash) $ do
-        error $ unlines
-          [ "Grand Hash mismatch"
-          , "  Expected: " <> Text.unpack cfg.grandHash
-          , "  Actual:   " <> Text.unpack ourHexGrandHash
-          ]
+  flip Map.foldMapWithKey chainHashes $ \cid newlyComputedGrandHash -> do
+    case findGrandHash (BlockHeight maxBound) cid of
+      Nothing -> do
+        error "impossible"
+      Just preComputedGrandHash -> do
+        let preHex = Text.decodeUtf8 (Base16.encode preComputedGrandHash)
+        let newHex = Text.decodeUtf8 (Base16.encode newlyComputedGrandHash)
+        when (preComputedGrandHash /= newlyComputedGrandHash) $ do
+          error $ unlines
+            [ "Grand Hash mismatch"
+            , "  Expected: " <> Text.unpack preHex
+            , "  Actual:   " <> Text.unpack newHex
+            ]
 
   case cfg.targetPactDir of
     Nothing -> do
@@ -294,12 +347,12 @@ main = do
              <> O.value (toText (_versionName mainnet))
              <> O.showDefault
             ))
-      <*> O.strOption
-            (O.long "grand-hash"
-             <> O.short 'g'
-             <> O.metavar "HEX"
-             <> O.help "Expected grand hash of database. This must be hex-encoded."
-            )
+      <*> optional (fmap BlockHeight $ O.option O.auto
+            (O.long "target-blockheight"
+             <> O.short 'b'
+             <> O.metavar "BLOCKHEIGHT"
+             <> O.help "BlockHeight to verify."
+            ))
 
 versionFromText :: (HasCallStack) => Text -> ChainwebVersion
 versionFromText t = case fromText @ChainwebVersionName t of

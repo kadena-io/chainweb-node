@@ -32,6 +32,8 @@ module Chainweb.Pact.Backend.PactState
   , getPactTables
   , getLatestPactState
   , getLatestPactState'
+  , getLatestPactStateUpperBound
+  , getLatestPactStateUpperBound'
   , getLatestBlockHeight
 
   , PactRow(..)
@@ -182,20 +184,52 @@ qry db qryText args returnTypes k = do
 
 getLatestPactState :: Database -> Stream (Of TableDiffable) IO ()
 getLatestPactState db = do
-  flip S.map (getLatestPactState' db) $ \(tblName, state) ->
-    TableDiffable tblName (M.map (\prc -> prc.rowData) state)
+  getLatestPactStateUpperBound db (BlockHeight maxBound)
 
 getLatestPactState' :: Database -> Stream (Of (Text, Map ByteString PactRowContents)) IO ()
 getLatestPactState' db = do
-  let fmtTable x = "\"" <> x <> "\""
+  getLatestPactStateUpperBound' db (BlockHeight maxBound)
+
+getLatestPactStateUpperBound :: ()
+  => Database
+  -> BlockHeight
+  -> Stream (Of TableDiffable) IO ()
+getLatestPactStateUpperBound db bh = do
+  flip S.map (getLatestPactStateUpperBound' db bh) $ \(tblName, state) ->
+    TableDiffable tblName (M.map (\prc -> prc.rowData) state)
+
+getLatestPactStateUpperBound' :: ()
+  => Database
+  -> BlockHeight
+  -> Stream (Of (Text, Map ByteString PactRowContents)) IO ()
+getLatestPactStateUpperBound' db bhUpperBound = do
+  latestBH <- liftIO $ getLatestBlockHeight db
+  let bh = min latestBH bhUpperBound
+
+  endingTxId <- do
+    r <- liftIO $ Pact.qry db
+           "SELECT endingtxid FROM BlockHistory WHERE blockheight=?"
+           [SInt (int bh)]
+           [RInt]
+    case r of
+      [] -> do
+        -- If the blockheight is missing, we find the next largest blockheight
+        -- that is less than our target.
+        let qryText = "SELECT MAX(blockheight) FROM BlockHistory WHERE blockheight<?"
+        liftIO $ Pact.qry db qryText [SInt (int bh)] [RInt] >>= \case
+          [[SInt txId]] -> pure txId
+          _ -> error "expected int"
+      [[SInt txId]] -> pure txId
+      _ -> error "expected int"
 
   tables <- liftIO $ getPactTableNames db
 
   forM_ tables $ \tbl -> do
     when (tbl `notElem` excludedTables) $ do
       let qryText = "SELECT rowkey, rowdata, txid FROM "
-            <> fmtTable tbl
-      latestState <- liftIO $ qry db qryText [] [RText, RBlob, RInt] $ \rows -> do
+            <> "\"" <> tbl <> "\""
+            <> " WHERE txid<?"
+      latestState <- liftIO $ qry db qryText [SInt endingTxId] [RText, RBlob, RInt] $ \rows -> do
         let go :: Map ByteString PactRowContents -> [SType] -> Map ByteString PactRowContents
             go m = \case
               [SText (Utf8 rowKey), SBlob rowData, SInt txId] ->
