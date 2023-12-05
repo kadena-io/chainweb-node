@@ -149,6 +149,7 @@ doReadRow mbh d k = forModuleNameFix $ \mnFix ->
     queryStmt =
         "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ?" <> blockLimitStmt <> " ORDER BY txid DESC LIMIT 1;"
     -- we inject the endingtx limitation to reduce the scope up to the provided block height
+    -- TODO: cache ending txid?
     blockLimitStmt = maybe "" (const " AND txid < (SELECT endingtxid FROM BlockHistory where blockheight = ?)") mbh
 
     lookupWithKey
@@ -177,6 +178,9 @@ doReadRow mbh d k = forModuleNameFix $ \mnFix ->
             -- -- we care about the most recent update to this rowkey
             else MaybeT $ return $! decodeStrict' $ DL.head ddata
 
+    isUserTable tableName =
+        not $ tableName `elem` ["SYS:Pacts", "SYS:Modules", "SYS:KeySets", "SYS:Namespaces"]
+
     lookupInDb
         :: forall logger v . FromJSON v
         => Utf8
@@ -186,7 +190,20 @@ doReadRow mbh d k = forModuleNameFix $ \mnFix ->
         -- First, check: did we create this table during this block? If so,
         -- there's no point in looking up the key.
         checkDbTableExists tableName
-        let blockLimitParam = maybe [] (\(BlockHeight bh) -> [SInt $ fromIntegral bh]) mbh
+        -- TODO: speed this up, cache it?
+        let tableExistsStmt =
+                "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight < ? AND tablename = ?"
+        case mbh of
+            Just bh | isUserTable tableName -> do
+                r <- callDb "doReadRow.tableExists" $ \db ->
+                    qry db tableExistsStmt [SInt $ fromIntegral bh, SText tableName] [RText]
+                -- liftIO $ print (tableName, r)
+                case r of
+                    [] -> void $ callDb "doReadRow" $ \db -> qry db "garbage query" [] []
+                    [[SText _]] -> return ()
+                    err -> internalError $ "doReadRow: what?"
+            _ -> return ()
+        let blockLimitParam = maybe [] (\(BlockHeight bh) -> [SInt $ fromIntegral bh - 1]) mbh
         result <- lift $ callDb "doReadRow"
                        $ \db -> qry db queryStmt ([SText rowkey] ++ blockLimitParam) [RBlob]
         case result of
@@ -369,8 +386,8 @@ doKeys mbh d = do
     return allKeys
 
   where
-    blockLimitStmt = maybe "" (const " WHERE txid < (SELECT endingtxid FROM BlockHistory where blockheight = ?)") mbh
-    blockLimitParam = maybe [] (\(BlockHeight bh) -> [SInt $ fromIntegral bh]) mbh
+    blockLimitStmt = maybe "" (const " WHERE txid < (SELECT endingtxid FROM BlockHistory where blockheight = ?);") mbh
+    blockLimitParam = maybe [] (\(BlockHeight bh) -> [SInt $ fromIntegral bh - 1]) mbh
     getDbKeys = do
         m <- runMaybeT $ checkDbTableExists $ Utf8 tnS
         case m of
