@@ -45,6 +45,7 @@ jobs:
       VERSION_NEW: ${{ steps.set-vars.outputs.VERSION_NEW }}
       VERSION_OLD: ${{ steps.set-vars.outputs.VERSION_OLD }}
       IMAGE: ${{ steps.set-vars.outputs.IMAGE }}
+      GHC_VERSION: ${{ steps.set-ghc-version.outputs.GHC_VERSION }}
     steps:
     # if this plugin is bad we just override it
 #       - name: Bump version and push tag
@@ -55,11 +56,9 @@ jobs:
 #           default_bump: ${{ inputs.tag_default_bump }}
 #           tag_prefix: ""
 #           commit_sha: ${{ inputs.release_sha }}
-      # This is up here so we can adjust the way we handle package bumping etc
-      # might not want to use the above plugin/don't want to depend on its outputs
-      # yeah that thing is for rapid releasing tbh
-    
-      - name: Set environment variables for release
+
+          
+      - name: Set variables for release
         id: set-vars
         run: |
           RELEASE_SHA=${{ github.sha }}
@@ -74,7 +73,22 @@ jobs:
           echo "VERSION_NEW=${{ inputs.new_tag }}" >> $GITHUB_OUTPUT
           echo "VERSION_OLD=${{ inputs.old_tag }}" >> $GITHUB_OUTPUT
           echo "IMAGE=ghcr.io/kadena-io/chainweb-node:sha-$SHORT_REVISION" >> $GITHUB_OUTPUT
-          echo $GITHUB_ENV
+          
+      - uses: actions/checkout@v4
+        with:
+          ref: steps.set-vars.outputs.RELEASE_SHA
+          sparse-checkout: |
+            .github/workflows/applications.yml
+        
+      - name: Get ghc version
+        id: set-ghc-version
+        run: |
+          VERSION=$(grep -Po '(?<="ghc": \[")(\d\.\d\.\d)' .github/workflows/applications.yml)
+            if [[ -z $VERSION ]]; then
+              echo "Unable to get version from chainweb node build"
+              exit 1
+            fi
+          echo "GHC_VERSION=$VERSION" >> $GITHUB_OUTPUT
 
   chainweb_node_docker:
     uses: kadena-io/chainweb-node-docker/.github/workflows/dockerhub_release.yml@master
@@ -82,6 +96,7 @@ jobs:
     with:
       SHORT_SHA: ${{ needs.release_vars.outputs.SHORT_REVISION }}
       VERSION_NEW: ${{ needs.release_vars.outputs.VERSION_NEW }}
+      GHC_VERSION: ${{ needs.release_vars.outputs.GHC_VERSION }}
     secrets: inherit
   
   release_repo:
@@ -93,6 +108,7 @@ jobs:
       VERSION_NEW: ${{ needs.release_vars.outputs.VERSION_NEW }}
       VERSION_OLD: ${{ needs.release_vars.outputs.VERSION_OLD }}
       RELEASE_SHA: ${{  needs.release_vars.outputs.RELEASE_SHA }}
+      GHC_VERSION: ${{ needs.release_vars.outputs.GHC_VERSION }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -138,7 +154,7 @@ jobs:
         id: repack-binaries
         run: |
           # this needs to be pulled from somewhere else tbh it will be a pita to update it
-          GHC_VER=9.8.1
+          GHC_VER=${{ env.GHC_VERSION }}
 
           UBUNTU_20_TAR=chainweb.false.$GHC_VER.ubuntu-20.04.$SHORT_REVISION.tar.gz
           UBUNTU_22_TAR=chainweb.false.$GHC_VER.ubuntu-22.04.$SHORT_REVISION.tar.gz
