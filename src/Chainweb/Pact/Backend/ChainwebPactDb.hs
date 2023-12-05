@@ -186,7 +186,7 @@ doReadRow mbh d k = forModuleNameFix $ \mnFix ->
         -- First, check: did we create this table during this block? If so,
         -- there's no point in looking up the key.
         checkDbTableExists tableName
-        let blockLimitParam = maybe [] (\(BlockHeight bh) -> [SInt $ fromIntegral bh - 1]) mbh
+        let blockLimitParam = maybe [] (\(BlockHeight bh) -> [SInt $ fromIntegral bh]) mbh
         result <- lift $ callDb "doReadRow"
                        $ \db -> qry db queryStmt ([SText rowkey] ++ blockLimitParam) [RBlob]
         case result of
@@ -370,7 +370,7 @@ doKeys mbh d = do
 
   where
     blockLimitStmt = maybe "" (const " WHERE txid < (SELECT endingtxid FROM BlockHistory where blockheight = ?)") mbh
-    blockLimitParam = maybe [] (\(BlockHeight bh) -> [SInt $ fromIntegral bh - 1]) mbh
+    blockLimitParam = maybe [] (\(BlockHeight bh) -> [SInt $ fromIntegral bh]) mbh
     getDbKeys = do
         m <- runMaybeT $ checkDbTableExists $ Utf8 tnS
         case m of
@@ -901,6 +901,8 @@ initSchema = do
       logInfo_ logger $ "initSchema: "  <> fromUtf8 tablename
       callDb "initSchema" $ createVersionedTable tablename
 
+-- TODO: why isn't this using Chainweb.Pact.Backend.RelationalCheckpointer.getEndTxId?
+-- And why does that function care so much about checking the block hash too?
 getEndingTxId :: ChainwebVersion -> ChainId -> BlockHeight -> BlockHandler logger SQLiteEnv TxId
 getEndingTxId v cid bh = callDb "getEndingTxId" $ \db -> do
     if bh == genesisHeight v cid
