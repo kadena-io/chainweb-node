@@ -90,7 +90,7 @@ jobs:
             fi
           echo "GHC_VERSION=$VERSION" >> $GITHUB_OUTPUT
 
-  chainweb_node_docker:
+  chainweb-node-dockerhub:
     uses: kadena-io/chainweb-node-docker/.github/workflows/dockerhub_release.yml@master
     needs: release_vars
     with:
@@ -101,7 +101,7 @@ jobs:
   
   release_repo:
     needs: release_vars
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest, chainweb-node-dockerhub
     env:
       IMAGE: ${{ needs.release_vars.outputs.IMAGE }}
       SHORT_REVISION: ${{ needs.release_vars.outputs.SHORT_REVISION }}
@@ -204,7 +204,7 @@ jobs:
             ### Container Images:
 
             *   [End-user image](https://hub.docker.com/r/kadena/chainweb-node)
-            Image Digest: `${{ env.DOCKERHUB_SHA }}`
+            Image Digest: `${{ needs.chainweb-node-dockerhub.outputs.DOCKERHUB_SHA }}`
             ```sh
             docker pull kadena/chainweb-node:${{ env.VERSION_NEW }}
             ```
