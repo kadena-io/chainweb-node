@@ -709,13 +709,6 @@ execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
     -- upper bound must be an ancestor of latest header.
     liftIO (ancestorOf bhdb (_blockHash upperBound) (_blockHash cur)) >>=
       flip unless (error "upper bound is not an ancestor of latest header")
-    -- if (upperBound == _blockHash cur)
-    --   then return upperBound
-    --   else do
-    --     bhdb <- view psBlockHeaderDb
-    --     liftIO $! lookupM bhdb bhash `catchAllSynchronous` \e ->
-    --         throwM $ BlockHeaderLookupFailure $
-    --             "failed lookup of parent header in " <> ctx <> ": " <> sshow e
 
     e <- ask
     s <- get
