@@ -262,7 +262,7 @@ data Resources
     , blockHeaderDb :: !BlockHeaderDb
     , pactService :: !(Async (), PactQueue)
     , mainTrunkBlocks :: ![T3 ParentHeader BlockHeader PayloadWithOutputs]
-    , coinAccounts :: !(MVar (Map Account (NonEmpty (DynKeyPair, [SigCapability]))))
+    , coinAccounts :: !(MVar (Map Account (NonEmpty (DynKeyPair, [MsgCapability]))))
     , nonceCounter :: !(IORef Word64)
     , txPerBlock :: !(IORef Int)
     , sqlEnv :: !SQLiteEnv
@@ -359,7 +359,7 @@ withResources rdb trunkLength logLevel compact f = C.envWithCleanup create destr
 
 -- | Mempool Access
 --
-testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty (DynKeyPair, [SigCapability]))) -> IO MemPoolAccess
+testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty (DynKeyPair, [MsgCapability]))) -> IO MemPoolAccess
 testMemPoolAccess txsPerBlock accounts = do
   return $ mempty
     { mpaGetBlock = \bf validate bh hash header -> do
@@ -400,7 +400,7 @@ testMemPoolAccess txsPerBlock accounts = do
                   Right tx -> return tx
             return $! txs
 
-    mkTransferCaps :: ReceiverName -> Amount -> (Account, NonEmpty (DynKeyPair, [SigCapability])) -> (Account, NonEmpty (DynKeyPair, [SigCapability]))
+    mkTransferCaps :: ReceiverName -> Amount -> (Account, NonEmpty (DynKeyPair, [MsgCapability])) -> (Account, NonEmpty (DynKeyPair, [MsgCapability]))
     mkTransferCaps (ReceiverName (Account r)) (Amount m) (s@(Account ss),ks) = (s, (caps <$) <$> ks)
       where
         caps = [gas,tfr]
@@ -429,7 +429,7 @@ createCoinAccount
     :: ChainwebVersion
     -> PublicMeta
     -> String
-    -> IO (NonEmpty (DynKeyPair, [SigCapability]), Command Text)
+    -> IO (NonEmpty (DynKeyPair, [MsgCapability]), Command Text)
 createCoinAccount v meta name = do
     sender00Keyset <- NEL.fromList <$> getKeyset "sender00"
     nameKeyset <- NEL.fromList <$> getKeyset name
@@ -442,14 +442,14 @@ createCoinAccount v meta name = do
     isSenderAccount name' =
       elem name' (map getAccount coinAccountNames)
 
-    getKeyset :: String -> IO [(DynKeyPair, [SigCapability])]
+    getKeyset :: String -> IO [(DynKeyPair, [MsgCapability])]
     getKeyset s
       | isSenderAccount s = do
           keypair <- stockKey (T.pack s)
           mkKeyPairs [keypair]
       | otherwise = (\k -> [(DynEd25519KeyPair k, [])]) <$> generateEd25519KeyPair
 
-    attachCaps :: String -> String -> Decimal -> NonEmpty (DynKeyPair, [SigCapability]) -> NonEmpty (DynKeyPair, [SigCapability])
+    attachCaps :: String -> String -> Decimal -> NonEmpty (DynKeyPair, [MsgCapability]) -> NonEmpty (DynKeyPair, [MsgCapability])
     attachCaps s rcvr m ks = (caps <$) <$> ks
       where
         caps = [gas, tfr]
@@ -473,7 +473,7 @@ stockKey s = do
 stockKeyFile :: ByteString
 stockKeyFile = $(embedFile "pact/genesis/devnet/keys.yaml")
 
-createCoinAccounts :: ChainwebVersion -> PublicMeta -> IO (NonEmpty (Account, NonEmpty (DynKeyPair, [SigCapability]), Command Text))
+createCoinAccounts :: ChainwebVersion -> PublicMeta -> IO (NonEmpty (Account, NonEmpty (DynKeyPair, [MsgCapability]), Command Text))
 createCoinAccounts v meta = traverse (go <*> createCoinAccount v meta) names
   where
     go a m = do
@@ -504,7 +504,7 @@ validateCommand cmdText = case verifyCommand cmdBS of
 data TransferRequest = TransferRequest !SenderName !ReceiverName !Amount
 
 mkTransferRequest :: ()
-  => M.Map Account (NonEmpty (DynKeyPair, [SigCapability]))
+  => M.Map Account (NonEmpty (DynKeyPair, [MsgCapability]))
   -> IO TransferRequest
 mkTransferRequest kacts = do
   (from, to) <- distinctAccounts (M.keys kacts)
@@ -565,7 +565,7 @@ distinctAccounts xs = pick xs >>= go
 createTransfer :: ()
   => ChainwebVersion
   -> PublicMeta
-  -> NEL.NonEmpty (DynKeyPair, [SigCapability])
+  -> NEL.NonEmpty (DynKeyPair, [MsgCapability])
   -> TransferRequest
   -> IO (Command Text)
 createTransfer v meta ks request =
