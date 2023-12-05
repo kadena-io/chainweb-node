@@ -137,8 +137,8 @@ jobs:
       - name: run release script to generate images
         id: repack-binaries
         run: |
-          
-          GHC_VER=9.6.2
+          # this needs to be pulled from somewhere else tbh it will be a pita to update it
+          GHC_VER=9.8.1
 
           UBUNTU_20_TAR=chainweb.false.$GHC_VER.ubuntu-20.04.$SHORT_REVISION.tar.gz
           UBUNTU_22_TAR=chainweb.false.$GHC_VER.ubuntu-22.04.$SHORT_REVISION.tar.gz
