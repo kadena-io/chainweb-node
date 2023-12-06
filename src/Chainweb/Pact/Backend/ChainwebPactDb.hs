@@ -127,6 +127,10 @@ getPendingData = do
 forModuleNameFix :: (Bool -> BlockHandler logger e a) -> BlockHandler logger e a
 forModuleNameFix f = use bsModuleNameFix >>= f
 
+isUserTable :: Utf8 -> Bool
+isUserTable tableName =
+    not $ tableName `elem` ["SYS:Pacts", "SYS:Modules", "SYS:KeySets", "SYS:Namespaces"]
+
 doReadRow
     :: (IsString k, FromJSON v)
     => Maybe BlockHeight
@@ -177,9 +181,6 @@ doReadRow mbh d k = forModuleNameFix $ \mnFix ->
             -- we merge with (++) which should produce txids most-recent-first
             -- -- we care about the most recent update to this rowkey
             else MaybeT $ return $! decodeStrict' $ DL.head ddata
-
-    isUserTable tableName =
-        not $ tableName `elem` ["SYS:Pacts", "SYS:Modules", "SYS:KeySets", "SYS:Namespaces"]
 
     lookupInDb
         :: forall logger v . FromJSON v
@@ -393,6 +394,18 @@ doKeys mbh d = do
         case m of
             Nothing -> return mempty
             Just () -> do
+                let tableExistsStmt =
+                        "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight < ? AND tablename = ?"
+                case mbh of
+                    Just bh | isUserTable tn -> do
+                        r <- callDb "doKeys.tableExists" $ \db ->
+                            qry db tableExistsStmt [SInt $ fromIntegral bh - 1, SText tn] [RText]
+                        -- liftIO $ print (tableName, r)
+                        case r of
+                            [] -> void $ callDb "doKeys" $ \db -> qry db "garbage query" [] []
+                            [[SText _]] -> return ()
+                            err -> internalError $ "doKeys: what?"
+                    _ -> return ()
                 ks <- callDb "doKeys" $ \db ->
                           qry db ("SELECT DISTINCT rowkey FROM " <> tbl tn <> blockLimitStmt) blockLimitParam [RText]
                 forM ks $ \row -> do
