@@ -748,12 +748,17 @@ execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
             )
 
     heightProgress :: BlockHeight -> IORef BlockHeight -> (Text -> IO ()) -> IO ()
-    heightProgress initialHeight ref logFun = forever $ do
-        h <- readIORef ref
-        logFun
-          $ "processed blocks: " <> sshow (h - initialHeight)
-          <> ", current height: " <> sshow h
-        threadDelay (20 * 1_000_000)
+    heightProgress initialHeight ref logFun = do
+        r <- newIORef initialHeight
+        forever $ do
+          h <- readIORef r
+          h' <- readIORef ref
+          writeIORef r h'
+          logFun
+            $ "processed: " <> sshow (h' - initialHeight)
+            <> ", current height: " <> sshow h'
+            <> ", rate: " <> sshow ((h' - h) `div` 20) <> "blocks/sec"
+          threadDelay (20 * 1_000_000)
 
 execLocal
     :: (Logger logger, CanReadablePayloadCas tbl)
