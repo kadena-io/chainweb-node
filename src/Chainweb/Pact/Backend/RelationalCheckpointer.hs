@@ -135,7 +135,7 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
           , _cpDiscardCheckpointerBatch = doDiscardBatch db
           , _cpLookupBlockInCheckpointer = doLookupBlock db
           , _cpGetBlockParent = doGetBlockParent v cid db
-          , _cpRegisterProcessedTx = doRegisterSuccessful db
+          , _cpRegisterProcessedTx = doRegisterSuccessful rodb
           , _cpLookupProcessedTx = doLookupSuccessful db
           , _cpGetBlockHistory = doGetBlockHistory db
           , _cpGetHistoricalLookup = doGetHistoricalLookup db
@@ -240,6 +240,7 @@ doReadRestoreEnd db = runBlockEnv db $ do
     -- (as empty transaction). <https://www.sqlite.org/lang_savepoint.html>
     --
     commitSavepoint ReadBlock
+    clearPendingTxState
 
 doSave :: Db logger -> BlockHash -> IO ()
 doSave dbenv hash = runBlockEnv dbenv $ do
