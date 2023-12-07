@@ -1,12 +1,14 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
+
+{-# options_ghc -fno-warn-unused-imports #-}
 
 module Chainweb.Pact.Backend.PactState.GrandHash
   ( test
@@ -14,8 +16,10 @@ module Chainweb.Pact.Backend.PactState.GrandHash
   )
   where
 
-import Data.Maybe (fromJust, fromMaybe)
+import Data.Maybe (fromMaybe)
 
+import Data.Word (Word8)
+import Data.Int (Int64)
 import Chainweb.WebBlockHeaderDB (initWebBlockHeaderDb)
 import Chainweb.Storage.Table.RocksDB (RocksDb)
 import Data.Ord (Down(..))
@@ -36,6 +40,7 @@ import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Short qualified as BSS
 import Data.ByteArray qualified as Memory
@@ -69,113 +74,23 @@ import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist)
 import System.FilePath ((</>))
 import System.Logger.Types (LogLevel(..))
 
-checkRowHashes :: Database -> Text -> Vector PactRow -> IO ()
-checkRowHashes db tblName prs = do
-  ref <- do
-    let qryText = "SELECT rowkey, hash FROM CompactActiveRow WHERE tablename=\""
-          <> toUtf8 tblName <> "\" ORDER BY rowkey"
-    rs <- Pact.qry db qryText [] [RText, RBlob]
-    fmap Vector.fromList $ forM rs $ \case
-      [SText (Utf8 rowkey), SBlob hash] -> pure (rowkey, hash)
-      _ -> error "checkRowHash: invalid query"
-
-  when (Vector.length prs /= Vector.length ref) $ do
-    error $ unlines
-      [ "Length of rows mismatch on table " <> Text.unpack tblName
-      , "  CompactActiveRow disagrees with computed rowkeys."
-      ]
-
-  forM_ (Vector.zip prs ref) $ \(pr, (refRk, refHash)) -> do
-    when (refRk /= pr.rowKey) $ do
-      error "checkRowHashes: ordering mismatch"
-
-    let ourHash = hashRow (Text.encodeUtf8 tblName) pr
-    when (ourHash /= refHash) $ do
-      error $ unlines
-        [ "Hash mismatch on table " <> Text.unpack tblName
-        ]
-
-compareHash :: Database -> Text -> Maybe ByteString -> IO ()
-compareHash db tblName ourHash = do
-  refHash <- do
-    let qryText = "SELECT hash FROM CompactGrandHash WHERE tablename=\"" <> toUtf8 tblName <> "\""
-    Pact.qry db qryText [] [RBlob] >>= \case
-      [[SBlob atHash]] -> pure (Just atHash)
-      _ -> pure Nothing
-
-  when (ourHash /= refHash) $ do
-    error $ unlines
-      [ "Hash mismatch on table " ++ Text.unpack tblName ++ ":"
-      , "  refHash: " ++ show refHash
-      , "  ourHash: " ++ show ourHash
-      ]
-
-logHexHash :: Text -> ByteString -> IO ()
-logHexHash tblName hash = do
-  Text.putStrLn $ Text.concat
-    [ tblName, " = ", Text.decodeUtf8 (Base16.encode hash)
-    ]
-
 computeGrandHash :: Database -> BlockHeight -> IO ByteString
 computeGrandHash db bh = do
-  refTableNames <- do
-    let qryText = "SELECT tablename FROM CompactGrandHash WHERE tablename IS NOT NULL ORDER BY tablename"
-    rs <- Pact.qry db qryText [] [RText]
-    forM rs $ \case
-      [SText tblName] -> pure (fromUtf8 tblName)
-      _ -> error "bad :)"
-
-  ourTableNamesIO <- newIORef @[Text] []
-
-  agg <- newIORef @BB.Builder mempty
-
   let hashStream :: Stream (Of ByteString) IO ()
       hashStream = flip S.mapMaybeM (getLatestPactStateUpperBound' db bh) $ \(tblName, state) -> do
-        --Text.putStrLn $ "Starting table " <> tblName
         let rows =
               Vector.fromList
               $ List.sortOn (\pr -> pr.rowKey)
               $ List.map (\(rowKey, PactRowContents{..}) -> PactRow{..})
               $ Map.toList state
-        checkRowHashes db tblName rows
         let hash = hashRows (Text.encodeUtf8 tblName) rows
-        compareHash db tblName hash
-        when (isJust hash) $ do
-          modifyIORef ourTableNamesIO (tblName :)
-          logHexHash tblName (fromJust hash)
         pure hash
 
-  let unSha3 (Sha3_256 b) = BSS.fromShort b
-
-  flip S.mapM_ hashStream $ \tblHash -> do
-    modifyIORef' agg (<> BB.byteString tblHash)
-
-  aggHash <- Memory.convert . hashWith SHA3_256 . BL.toStrict . BB.toLazyByteString <$> readIORef agg
-
-{-
-  ctx <- H.initialize @Sha3_256
-  flip S.mapM_ hashStream $ \tblHash -> do
-    H.updateByteString @Sha3_256 ctx (unSha3 (H.hashByteString @Sha3_256 tblHash))
-  grandHash_LibHashes <- unSha3 <$> H.finalize ctx
--}
-
-{-
-  grandHash_LibCrypton :: ByteString <- S.fold_
+  S.fold_
     (\ctx hash -> hashUpdate ctx (hashWith SHA3_256 hash))
     (hashInitWith SHA3_256)
     (Memory.convert . hashFinalize)
     hashStream
--}
-
-  ourTableNames <- List.reverse <$> readIORef ourTableNamesIO
-  putStr "our table names match the reference table names: "
-  print $ refTableNames == ourTableNames
-  print $ head refTableNames
-
-  --putStr "lib hashes  grandHash: " >> print grandHash_LibHashes
-  --putStr "lib crypton grandHash: " >> print grandHash_LibCrypton
-
-  pure aggHash --grandHash_LibHashes
 
 test :: IO ()
 test = do
@@ -196,18 +111,8 @@ test = do
     let resetDb = False
     let cid = unsafeChainId 4
     withSqliteDb cid logger "/home/chessai/sqlite-compacted/sqlite/" resetDb $ \(SQLiteEnv db _) -> do
-      refHash <- do
-        let qryText = "SELECT hash FROM CompactGrandHash WHERE tablename IS NULL"
-        [[SBlob hash]] <- Pact.qry db qryText [] [RBlob]
-        pure hash
-
       ourHash <- computeGrandHash db (BlockHeight maxBound)
-
-      putStr "refHash: " >> Text.putStrLn (Text.decodeUtf8 $ Base16.encode refHash)
-      putStr "ourHash: " >> Text.putStrLn (Text.decodeUtf8 $ Base16.encode ourHash)
-
-      when (ourHash /= refHash) $ do
-        error "GrandHash mismatch"
+      Text.putStrLn (Text.decodeUtf8 $ Base16.encode ourHash)
 
 hashAggregate :: (a -> ByteString) -> Vector a -> Maybe ByteString
 hashAggregate f v
@@ -237,13 +142,43 @@ rowToHashArgs tblName pr =
   BL.toStrict
   $ BB.toLazyByteString
   $ BB.charUtf8 'T'
+    <> BB.intDec (BS.length tblName)
     <> BB.byteString tblName
+
     <> BB.charUtf8 'K'
+    <> BB.intDec (BS.length pr.rowKey)
     <> BB.byteString pr.rowKey
+
     <> BB.charUtf8 'I'
+    <> BB.word8Dec (countDigits pr.txId)
     <> BB.int64Dec pr.txId
+
     <> BB.charUtf8 'D'
+    <> BB.intDec (BS.length pr.rowData)
     <> BB.byteString pr.rowData
+
+-- silly
+countDigits :: Int64 -> Word8
+countDigits i
+  | i >= 1_000_000_000_000_000_000 = 19
+  | i >=   100_000_000_000_000_000 = 18
+  | i >=    10_000_000_000_000_000 = 17
+  | i >=     1_000_000_000_000_000 = 16
+  | i >=       100_000_000_000_000 = 15
+  | i >=        10_000_000_000_000 = 14
+  | i >=         1_000_000_000_000 = 13
+  | i >=           100_000_000_000 = 12
+  | i >=            10_000_000_000 = 11
+  | i >=             1_000_000_000 = 10
+  | i >=               100_000_000 =  9
+  | i >=                10_000_000 =  8
+  | i >=                 1_000_000 =  7
+  | i >=                   100_000 =  6
+  | i >=                    10_000 =  5
+  | i >=                     1_000 =  4
+  | i >=                       100 =  3
+  | i >=                        10 =  2
+  | otherwise                      =  1
 
 data Config = Config
   { sourcePactDir :: FilePath
