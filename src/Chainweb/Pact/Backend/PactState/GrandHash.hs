@@ -16,11 +16,14 @@ module Chainweb.Pact.Backend.PactState.GrandHash
 
 import Data.Maybe (fromJust, fromMaybe)
 
+import Chainweb.WebBlockHeaderDB (initWebBlockHeaderDb)
+import Chainweb.Storage.Table.RocksDB (RocksDb)
 import Data.Ord (Down(..))
 import Control.Applicative (optional)
 import Control.Monad (forM, forM_, when)
 import Crypto.Hash (hashWith, hashInitWith, hashUpdate, hashFinalize)
 import Crypto.Hash.Algorithms (SHA3_256(..))
+import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.ChainId (ChainId, chainIdToText, unsafeChainId)
 import Chainweb.Pact.Backend.Compaction qualified as C
@@ -124,6 +127,8 @@ computeGrandHash db bh = do
 
   ourTableNamesIO <- newIORef @[Text] []
 
+  agg <- newIORef @BB.Builder mempty
+
   let hashStream :: Stream (Of ByteString) IO ()
       hashStream = flip S.mapMaybeM (getLatestPactStateUpperBound' db bh) $ \(tblName, state) -> do
         --Text.putStrLn $ "Starting table " <> tblName
@@ -142,10 +147,17 @@ computeGrandHash db bh = do
 
   let unSha3 (Sha3_256 b) = BSS.fromShort b
 
+  flip S.mapM_ hashStream $ \tblHash -> do
+    modifyIORef' agg (<> BB.byteString tblHash)
+
+  aggHash <- Memory.convert . hashWith SHA3_256 . BL.toStrict . BB.toLazyByteString <$> readIORef agg
+
+{-
   ctx <- H.initialize @Sha3_256
   flip S.mapM_ hashStream $ \tblHash -> do
     H.updateByteString @Sha3_256 ctx (unSha3 (H.hashByteString @Sha3_256 tblHash))
   grandHash_LibHashes <- unSha3 <$> H.finalize ctx
+-}
 
 {-
   grandHash_LibCrypton :: ByteString <- S.fold_
@@ -158,11 +170,12 @@ computeGrandHash db bh = do
   ourTableNames <- List.reverse <$> readIORef ourTableNamesIO
   putStr "our table names match the reference table names: "
   print $ refTableNames == ourTableNames
+  print $ head refTableNames
 
   --putStr "lib hashes  grandHash: " >> print grandHash_LibHashes
   --putStr "lib crypton grandHash: " >> print grandHash_LibCrypton
 
-  pure grandHash_LibHashes
+  pure aggHash --grandHash_LibHashes
 
 test :: IO ()
 test = do
@@ -190,8 +203,8 @@ test = do
 
       ourHash <- computeGrandHash db (BlockHeight maxBound)
 
-      putStr "refHash: " >> print refHash
-      putStr "ourHash: " >> print ourHash
+      putStr "refHash: " >> Text.putStrLn (Text.decodeUtf8 $ Base16.encode refHash)
+      putStr "ourHash: " >> Text.putStrLn (Text.decodeUtf8 $ Base16.encode ourHash)
 
       when (ourHash /= refHash) $ do
         error "GrandHash mismatch"
@@ -267,6 +280,15 @@ findGrandHash bh0 cid = go grandHashes
         else
           go rest
 
+--withReadOnlyRocksDb pathToRocksDb modernDefaultOptions $ \rocksDb -> do
+{-
+getBlockHeader :: RocksDb -> BlockHeight -> IO BlockHeader
+getBlockHeader rdb bh = do
+  wbhdb <- initWebBlockHeaderDb rocksDb chainwebVersion
+  let cutHashes = cutHashesTable rocksDb
+  highestCuts <- readHighestCutHeaders chainwebVersion someLogFunc wbhdb cutHashes
+  pure undefined
+-}
 main :: IO ()
 main = do
   cfg <- O.execParser opts
