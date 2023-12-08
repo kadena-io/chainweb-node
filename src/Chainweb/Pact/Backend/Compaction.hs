@@ -71,7 +71,7 @@ import System.FilePath ((</>))
 import System.IO qualified as IO
 import System.IO (Handle)
 
-import Chainweb.BlockHeight (BlockHeight)
+import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Logger (setComponent)
 import Chainweb.Utils (sshow, HasTextRepresentation, fromText, toText, int)
 import Chainweb.Version (ChainId, ChainwebVersion(..), ChainwebVersionName, unsafeChainId, chainIdToText)
@@ -79,7 +79,7 @@ import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
-import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
+import Chainweb.Pact.Backend.Utils (toUtf8, fromUtf8, withSqliteDb)
 
 import System.Logger
 import System.Logger.Backend.ColorOption (useColor)
@@ -223,6 +223,15 @@ execM' msg tbl stmt ps = do
   db <- view ceDb
   stmt' <- templateStmt tbl stmt
   queryDebug msg (Just tbl) $ Pact.exec' db stmt' ps
+
+execNoTemplateM' :: ()
+  => Text
+  -> Utf8
+  -> [SType]
+  -> CompactM ()
+execNoTemplateM' msg q ins = do
+  db <- view ceDb
+  queryDebug msg Nothing $ Pact.exec' db q ins
 
 exec_ :: ()
   => Text
@@ -449,10 +458,47 @@ dropNewTables bh = do
   withTables nts $ \tbl -> do
     execM_ "dropNewTables.1" tbl "DROP TABLE IF EXISTS $VTABLE$"
 
+-- TransactionIndex is special, it is needed for transaction validation to work,
+-- so we need to keep extra rows.
+
+compactTransactionIndex :: BlockHeight -> CompactM ()
+compactTransactionIndex target = do
+  -- We must keep things at least for the maxTTL duration of a tx, which is about
+  -- 5,760 blocks. To be safe, we multiply this value by 4. Rows of this table
+  -- take up very little space, so keeping up to 25k rows isn't expensive.
+  let oneMaxTTLWorthOfHistory = 5_760
+  let extraSafeKeepDepth = 4 * oneMaxTTLWorthOfHistory
+
+      -- Find the youngest block height that is older than `extraSafeKeepDepth`
+      -- blocks ago. Prune every TransactionIndex entry with blockheight less
+      -- than the minimum of this and the target (since the target could be
+      -- before this depth).
+  let qryText = Text.concat
+        [ "DELETE FROM TransactionIndex "
+        , "WHERE "
+        , "  blockheight < ("
+        , "    SELECT "
+        , "      CASE "
+        , "        WHEN latest < ?1 "
+        , "          THEN 0 "
+        , "          ELSE MIN(latest - ?1, ?2) "
+        , "      END "
+        , "    FROM ( "
+        , "      SELECT MAX(blockheight) AS latest FROM TransactionIndex "
+        , "    ) "
+        , "  ) "
+        ]
+  execNoTemplateM'
+    "compactTransactionIndex.0"
+    (toUtf8 qryText)
+    [bhToSType (BlockHeight extraSafeKeepDepth), bhToSType target]
+
+  pure ()
+
 -- | Delete all rows from Checkpointer system tables that are not for the target blockheight.
 compactSystemTables :: BlockHeight -> CompactM ()
 compactSystemTables bh = do
-  let systemTables = ["BlockHistory", "VersionedTableMutation", "TransactionIndex", "VersionedTableCreation"]
+  let systemTables = ["BlockHistory", "VersionedTableMutation", "VersionedTableCreation"]
   forM_ systemTables $ \tbl -> do
     let tblText = fromUtf8 (getTableName tbl)
     logg Info $ "Compacting system table " <> tblText
@@ -465,6 +511,7 @@ compactSystemTables bh = do
       tbl
       ("DELETE FROM $VTABLE$ WHERE " <> column <> " != ?1;")
       [bhToSType bh]
+  compactTransactionIndex bh
 
 dropCompactTables :: CompactM ()
 dropCompactTables = do
