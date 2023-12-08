@@ -11,6 +11,7 @@ import Control.Lens hiding (index)
 import Control.Monad (when, unless)
 import Control.Monad.Catch
 import Control.Monad.Except
+import Control.Exception.Safe (throwIO)
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Builder as Builder
@@ -27,15 +28,88 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Data.Vector as V
-
+import qualified Data.Set as Set
 import qualified Crypto.Secp256k1 as ECDSA
 
 import Ethereum.Misc hiding (Word256)
 
 import Pact.Types.Runtime
+import Pact.Types.PactValue
+import Pact.Types.Capability
 
 import Chainweb.Pact.SPV.Hyperlane.Binary
 import Chainweb.Utils.Serialization (putRawByteString, runPutS, runGetS, putWord32be)
+
+import Chainweb.VerifierPlugin
+import Chainweb.Utils (decodeB64UrlNoPaddingText)
+
+hyperlaneVerifierPlugin :: VerifierPlugin
+hyperlaneVerifierPlugin = VerifierPlugin $ \_ vals caps -> do
+  -- extract capability values
+  let MsgCapability{..} = Set.elemAt 0 caps
+  (capTokenMessage, capRecipient, capSigners) <- case _scArgs of
+      o : r : sigs : _ -> return (o, r, sigs)
+      _ -> throwIO $ VerifierError $ "Not enough capability arguments. Expected: HyperlaneMessage object, recipient and signers."
+
+  -- extract proof object values
+  (encodedHyperlaneMessage, encodedMetadata) <- case vals !! 0 of
+    (PList values)
+      | (PLiteral (LString msg)) : (PLiteral (LString mtdt)) : _ <- V.toList values -> pure (msg, mtdt)
+    _ -> throwIO $ VerifierError "Expected a proof data as a list"
+
+  (HyperlaneMessage{..}, hyperlaneMessageBinary) <- do
+    msg <- decodeB64UrlNoPaddingText encodedHyperlaneMessage
+    decoded <- runGetS getHyperlaneMessage msg
+    return (decoded, msg)
+
+  MessageIdMultisigIsmMetadata{..} <- do
+    metadata <- decodeB64UrlNoPaddingText encodedMetadata
+    runGetS getMessageIdMultisigIsmMetadata metadata
+
+  -- validate recipient
+  let recipientVal = PLiteral $ LString $ Text.decodeUtf8 hmRecipient
+  unless (recipientVal == capRecipient) $
+    throwIO $ VerifierError $
+      "Recipients don't match. Expected: " <> (Text.pack $ show recipientVal) <> " but got " <> (Text.pack $ show capRecipient)
+
+  -- validate token message
+  let
+    TokenMessageERC20{..} = hmTokenMessage
+    tokenVal = PObject $ ObjectMap $ M.fromList
+        [ ("recipient", PLiteral $ LString tmRecipient), ("amount", PLiteral $ LDecimal $ wordToDecimal tmAmount) ]
+
+  unless (tokenVal == capTokenMessage) $
+    throwIO $ VerifierError $
+      "Invalid TokenMessage. Expected: " <> (Text.pack $ show tokenVal) <> " but got " <> (Text.pack $ show capTokenMessage)
+
+  -- validate signers
+  let
+    domainHash = getKeccak256Hash $ runPutS $ do
+      -- Corresponds to abi.encodePacked behaviour
+      putWord32be hmOriginDomain
+      putRawByteString mmimOriginMerkleTreeAddress
+      putRawByteString "HYPERLANE"
+
+  let messageId = getKeccak256Hash hyperlaneMessageBinary
+
+  let
+    hash' = getKeccak256Hash $ runPutS $ do
+      -- Corresponds to abi.encodePacked behaviour
+      putRawByteString domainHash
+      putRawByteString mmimSignedCheckpointRoot
+      putWord32be mmimSignedCheckpointIndex
+      putRawByteString messageId
+  let
+    digest = keccak256 $ runPutS $ do
+      -- Corresponds to abi.encodePacked behaviour
+      putRawByteString ethereumHeader
+      putRawByteString hash'
+  addresses <- catMaybes <$> mapM (recoverAddress digest) mmimSignatures
+  let addressesVals = PList $ V.fromList $ map (PLiteral . LString . Text.decodeUtf8) addresses
+
+  unless (addressesVals == capSigners) $
+    throwIO $ VerifierError $
+      "Signers don't match. Expected: " <> (Text.pack $ show addressesVals) <> " but got " <> (Text.pack $ show capSigners)
 
 -- | Parses the object and evaluates Hyperlane command
 evalHyperlaneCommand :: Object Name -> ExceptT Text IO (Object Name)
