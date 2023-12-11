@@ -255,11 +255,13 @@ computeGrandHashesAt pactDir rocksDir targets chainwebVersion = do
   let cids = List.sort $ F.toList $ chainIdsAt chainwebVersion (BlockHeight maxBound)
   let pooledFor stuff f = pooledMapConcurrentlyN_ 4 f stuff
 
-  -- We do this in two phases;
+  -- We do this in three phases;
   --   - In the first phase, we check that the db matches
   --     our expectations (all files exist, blockheights we intend to use are
   --     available, etc)
-  --   - In the second phase, we actually gather all of the hashes.
+  --   - In the second phase, we gather all of the grand hashes.
+  --   - In the third phase, we pair all of the grand hashes with the associated
+  --     block headers.
   C.withDefaultLogger Info $ \logger' -> do
     let resetDb = False
 
@@ -349,7 +351,7 @@ pactCalcMain = do
   chainHashes <- computeGrandHashesAt cfg.pactDir cfg.rocksDir cfg.targetBlockHeight cfg.chainwebVersion
   BLC8.putStrLn $ J.encode $ J.Object $ flip List.map chainHashes $ \(height, hashes) ->
     let key = Text.pack $ show height
-        val = J.Object $ flip List.map (Map.toDescList hashes) $ \(cid, (hash, header)) ->
+        val = J.Object $ flip List.map (Map.toAscList hashes) $ \(cid, (hash, header)) ->
                 let o = J.Object
                       [ "hash" J..= hex hash
                       , "header" J..= J.encodeWithAeson header
