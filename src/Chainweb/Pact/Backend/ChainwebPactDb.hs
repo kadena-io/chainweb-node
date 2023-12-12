@@ -395,7 +395,7 @@ doKeys mbh d = do
             Nothing -> return mempty
             Just () -> do
                 let tableExistsStmt =
-                        "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight < ? AND tablename = ?"
+                        "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight <= ? AND tablename = ?"
                 case mbh of
                     Just bh | isUserTable tn -> do
                         r <- callDb "doKeys.tableExists" $ \db ->
