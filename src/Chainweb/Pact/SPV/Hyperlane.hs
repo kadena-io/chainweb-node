@@ -46,7 +46,7 @@ import Chainweb.Utils (decodeB64UrlNoPaddingText)
 hyperlaneVerifierPlugin :: VerifierPlugin
 hyperlaneVerifierPlugin = VerifierPlugin $ \_ vals caps -> do
   -- extract capability values
-  let MsgCapability{..} = Set.elemAt 0 caps
+  let SigCapability{..} = Set.elemAt 0 caps
   (capTokenMessage, capRecipient, capSigners) <- case _scArgs of
       o : r : sigs : _ -> return (o, r, sigs)
       _ -> throwIO $ VerifierError $ "Not enough capability arguments. Expected: HyperlaneMessage object, recipient and signers."
