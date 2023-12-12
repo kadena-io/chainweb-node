@@ -713,7 +713,7 @@ toSignerAcctsMap
     -> [(ChainId, PactExecutionService)]
     -> CutDb tbl
     -> ExceptT RosettaError Handler
-       (HM.HashMap AccountId ([P.MsgCapability], [T.Text]))
+       (HM.HashMap AccountId ([P.SigCapability], [T.Text]))
 toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do
   bhCurr <- rosettaErrorT Nothing $
             getLatestBlockHeader cutDb cid
@@ -755,9 +755,9 @@ toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do
 
     insertWith'
         :: AccountId
-        -> ([P.MsgCapability], [T.Text])
-        -> HM.HashMap AccountId ([P.MsgCapability], [T.Text])
-        -> HM.HashMap AccountId ([P.MsgCapability], [T.Text])
+        -> ([P.SigCapability], [T.Text])
+        -> HM.HashMap AccountId ([P.SigCapability], [T.Text])
+        -> HM.HashMap AccountId ([P.SigCapability], [T.Text])
     insertWith' acct sigs m = HM.insertWith f acct sigs m
       where
         f (newSigs, _) (oldSigs, oldKeys) =
@@ -768,28 +768,28 @@ toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do
         :: P.ModuleName
         -> T.Text
         -> [PactValue]
-        -> P.MsgCapability
+        -> P.SigCapability
     mkCapability mn cap args =
-      P.MsgCapability (P.QualifiedName mn cap def) args
+      P.SigCapability (P.QualifiedName mn cap def) args
 
     -- Convenience to make caps like TRANSFER, GAS etc.
     mkCoinCap
         :: T.Text
         -> [PactValue]
-        -> P.MsgCapability
+        -> P.SigCapability
     mkCoinCap n = mkCapability "coin" n
 
     mkTransferCap
         :: AccountId
         -> AccountId
         -> Decimal
-        -> P.MsgCapability
+        -> P.SigCapability
     mkTransferCap sender receiver amount = mkCoinCap "TRANSFER"
       [ pString (_accountId_address sender),
         pString (_accountId_address receiver),
         pDecimal amount ]
 
-    mkGasCap :: P.MsgCapability
+    mkGasCap :: P.SigCapability
     mkGasCap = mkCoinCap "GAS" []
 
     -- Make PactValue from text
@@ -831,7 +831,7 @@ checkExpectedOwnership acct expected (Just actual)
 --   function to create a Signer.
 rosettaPubKeysToSignerMap
     :: [RosettaPublicKey]
-    -> Either RosettaError (HM.HashMap T.Text ([P.MsgCapability] -> Signer))
+    -> Either RosettaError (HM.HashMap T.Text ([P.SigCapability] -> Signer))
 rosettaPubKeysToSignerMap pubKeys = HM.fromList <$> mapM f pubKeys
   where
     f (RosettaPublicKey pk ct) = do
@@ -841,8 +841,8 @@ rosettaPubKeysToSignerMap pubKeys = HM.fromList <$> mapM f pubKeys
       pure (addr, signerWithoutCap)
 
 createSigners
-    :: HM.HashMap T.Text ([P.MsgCapability] -> Signer)
-    -> HM.HashMap AccountId ([P.MsgCapability], [T.Text])
+    :: HM.HashMap T.Text ([P.SigCapability] -> Signer)
+    -> HM.HashMap AccountId ([P.SigCapability], [T.Text])
     -> Either RosettaError [(Signer, AccountId)]
 createSigners addrToSignerMap acctToCapMap =
   -- NOTE: There might be duplicates signers but that's okay
@@ -851,7 +851,7 @@ createSigners addrToSignerMap acctToCapMap =
     f (acct, (caps, pubKeyAddrs)) =
       mapM (lookupSigner acct caps) pubKeyAddrs
 
-    lookupSigner :: AccountId -> [P.MsgCapability] -> T.Text -> Either RosettaError (Signer, AccountId)
+    lookupSigner :: AccountId -> [P.SigCapability] -> T.Text -> Either RosettaError (Signer, AccountId)
     lookupSigner acct caps pkAddr = do
       mkSigner <- toRosettaError RosettaMissingExpectedPublicKey $
                   note ("No Rosetta Public Key found for pact public key address="

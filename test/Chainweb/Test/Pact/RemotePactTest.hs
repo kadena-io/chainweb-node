@@ -954,7 +954,7 @@ caplistTest t cenv step = do
 
     result0 = Just (Right (PLiteral (LString "Write succeeded")))
 
-    clist :: Maybe [MsgCapability]
+    clist :: Maybe [SigCapability]
     clist = Just $
       [ mkCoinCap "GAS" []
       , mkCoinCap "TRANSFER"
@@ -1146,7 +1146,7 @@ mkSingletonBatch
     -> PactTransaction
     -> Maybe Text
     -> (Pact.TxCreationTime -> Pact.PublicMeta)
-    -> Maybe [MsgCapability]
+    -> Maybe [SigCapability]
     -> IO SubmitBatch
 mkSingletonBatch t kps (PactTransaction c d) nonce pmk clist = do
     ks <- testKeyPairs kps clist
