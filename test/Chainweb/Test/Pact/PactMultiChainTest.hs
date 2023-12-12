@@ -1481,7 +1481,7 @@ runToHeight bhi = do
     runCut'
     runToHeight bhi
 
-buildXSend :: [MsgCapability] -> MempoolCmdBuilder
+buildXSend :: [SigCapability] -> MempoolCmdBuilder
 buildXSend caps = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   set cbSigners [mkEd25519Signer' sender00 caps]
   $ setFromHeader bh

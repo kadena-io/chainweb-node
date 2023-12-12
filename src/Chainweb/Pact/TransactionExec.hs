@@ -123,19 +123,19 @@ import Pact.JSON.Encode (toJsonViaEncode)
 -- | "Magic" capability 'COINBASE' used in the coin contract to
 -- constrain coinbase calls.
 --
-magic_COINBASE :: CapSlot MsgCapability
+magic_COINBASE :: CapSlot SigCapability
 magic_COINBASE = mkMagicCapSlot "COINBASE"
 
 -- | "Magic" capability 'GAS' used in the coin contract to
 -- constrain gas buy/redeem calls.
 --
-magic_GAS :: CapSlot MsgCapability
+magic_GAS :: CapSlot SigCapability
 magic_GAS = mkMagicCapSlot "GAS"
 
 -- | "Magic" capability 'GENESIS' used in the coin contract to
 -- constrain genesis-only allocations
 --
-magic_GENESIS :: CapSlot MsgCapability
+magic_GENESIS :: CapSlot SigCapability
 magic_GENESIS = mkMagicCapSlot "GENESIS"
 
 onChainErrorPrintingFor :: TxContext -> UnexpectedErrorPrinting
@@ -357,7 +357,6 @@ flagsFor v cid bh = S.fromList $ concat
   , disableReturnRTC v cid bh
   , enablePact49 v cid bh
   , enablePact410 v cid bh
-  , [FlagEnableVerifiers | enableVerifiers v cid bh]
   ]
 
 applyCoinbase
@@ -901,7 +900,7 @@ findPayer isPactBackCompatV16 cmd = runMaybeT $ do
     findPayerCap :: Eval e (Maybe (ModuleName,QualifiedName,[PactValue]))
     findPayerCap = preview $ eeMsgSigs . folded . folded . to sigPayerCap . _Just
 
-    sigPayerCap (MsgCapability q@(QualifiedName m n _) as)
+    sigPayerCap (SigCapability q@(QualifiedName m n _) as)
       | n == "GAS_PAYER" = Just (m,q,as)
     sigPayerCap _ = Nothing
 
@@ -980,7 +979,7 @@ redeemGas cmd = do
 -- This is the way we inject the correct guards into the environment
 -- during Pact code execution
 --
-initCapabilities :: [CapSlot MsgCapability] -> EvalState
+initCapabilities :: [CapSlot SigCapability] -> EvalState
 initCapabilities cs = set (evalCapabilities . capStack) cs def
 {-# INLINABLE initCapabilities #-}
 
@@ -1092,12 +1091,12 @@ managedNamespacePolicy = SmartNamespacePolicy False
 
 -- | Builder for "magic" capabilities given a magic cap name
 --
-mkMagicCapSlot :: Text -> CapSlot MsgCapability
-mkMagicCapSlot c = CapSlot CapCallStack cap []
+mkMagicCapSlot :: Text -> CapSlot SigCapability
+mkMagicCapSlot c = CapSlot CapCallStack False cap []
   where
     mn = ModuleName "coin" Nothing
     fqn = QualifiedName mn c def
-    cap = MsgCapability fqn []
+    cap = SigCapability fqn []
 {-# INLINE mkMagicCapSlot #-}
 
 -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
