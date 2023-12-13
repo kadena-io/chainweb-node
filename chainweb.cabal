@@ -384,6 +384,7 @@ library
         , optparse-applicative >= 0.14
         , pact >= 4.2.0.1
         , pact-json >= 0.1
+        , patience >= 0.3
         , pem >=0.2
         , primitive >= 0.7.1.0
         , random >= 1.2

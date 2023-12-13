@@ -120,8 +120,12 @@ data CompactEnv = CompactEnv
 makeLenses ''CompactEnv
 
 withDefaultLogger :: LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
-withDefaultLogger ll f = withHandleBackend_ logText defaultHandleBackendConfig $ \b ->
-    withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel ll l)
+withDefaultLogger ll f = withHandleBackend_ logText handleCfg $ \b ->
+  withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel ll l)
+  where
+    handleCfg = defaultHandleBackendConfig
+      { _handleBackendConfigHandle = StdErr
+      }
 
 withPerChainFileLogger :: FilePath -> ChainId -> LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
 withPerChainFileLogger logDir chainId ll f = do
