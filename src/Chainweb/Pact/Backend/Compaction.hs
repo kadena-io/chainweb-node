@@ -471,58 +471,6 @@ dropCompactTables = do
   execNoTemplateM_ "dropCompactTables.0"
     "DROP TABLE CompactActiveRow"
 
-{-
-testCollect :: IO ()
-testCollect = do
-  let cid = unsafeChainId 0
-  withDefaultLogger Info $ \logger -> do
-    let resetDb = False
-    withSqliteDb cid logger "/home/chessai/sqlite/" resetDb $ \(SQLiteEnv db _) -> do
-      collect Latest logger db
-
-      debugLogs <- readIORef queryTimes
-      let -- every query that takes >= 1 second
-          expensiveQueries = List.filter (not . null . snd)
-            $ List.map
-                ( over _2
-                    (List.take 10
-                     . List.sortOn (Down . fst)
-                     . List.filter ((>= Chronos.second) . fst)
-                     . Set.toList
-                    )
-                )
-            $ M.toList debugLogs.tableQueries
-
-      -- TODO: don't use runCompactM here...
-      runCompactM (CompactEnv logger db []) $ do
-        forM_ expensiveQueries $ \(tblName, mostWanted) -> do
-          logg Debug $ "Query Times: " <> fromUtf8 (getTableName tblName)
-          forM_ mostWanted $ \(ts, qryMsg) -> do
-            logg Debug $ "Query " <> qryMsg <> " took " <> Text.pack (show (Chronos.asSeconds ts)) <> "s"
-
-
-collect :: ()
-  => TargetBlockHeight
-  -> Logger SomeLogMessage
-  -> Database
-  -> IO ()
-collect tbh logger db = do
-  (blockHeight, txId) <- runCompactM (CompactEnv logger db []) $ do
-    withTx createCompactActiveRow
-    blockHeight <- locateTarget tbh
-    txId <- getEndingTxId blockHeight
-    pure (blockHeight, txId)
-
-  ts <- Chronos.stopwatch_ $ runCompactM (CompactEnv logger db []) $ do
-    logg Info "Collecting"
-
-    versionedTables <- getVersionedTables blockHeight
-    withTables versionedTables $ \tbl -> collectTableRows txId tbl
-
-  runCompactM (CompactEnv logger db []) $ do
-    logg Info $ "Collection took " <> Text.pack (show (Chronos.asSeconds ts)) <> "s"
--}
-
 compact :: ()
   => TargetBlockHeight
   -> Logger SomeLogMessage
@@ -557,7 +505,6 @@ compact tbh logger db flags = runCompactM (CompactEnv logger db flags) $ do
   unlessFlagSet NoVacuum $ do
     logg Info "Vacuum"
     execNoTemplateM_ "VACUUM" "VACUUM;"
-
 
   debugLogs <- liftIO $ readIORef queryTimes
   let -- every query that takes >= 1 second
