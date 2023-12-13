@@ -24,6 +24,7 @@ import Chainweb.Logger (Logger, addLabel, logFunctionText)
 import Chainweb.Pact.Backend.Compaction (TargetBlockHeight(..))
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.PactState (PactRow(..), getLatestPactStateUpperBound', PactRowContents(..))
+import Chainweb.Pact.Backend.PactState.EmbeddedHashes (EncodedSnapshot(..), grands)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
@@ -56,7 +57,7 @@ import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map.Merge.Strict qualified as Merge
 import Data.Map.Strict qualified as Map
-import Data.Ord (Down(..))
+import Data.Maybe (catMaybes)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -165,39 +166,47 @@ rowToHashArgs tblName pr =
     <> BB.charUtf8 'D'
     <> BB.byteString pr.rowData
 
--- sorted in descending order.
--- this is currently bogus data.
-grands :: [(BlockHeight, Map ChainId (ByteString, BlockHeader))]
-grands = List.sortOn (Down . fst) -- insurance
-  [ --(4000, Map.fromList [(unsafeChainId 4, ("4k", _))])
-  --, (3000, Map.fromList [(unsafeChainId 4, ("3k", _))])
-  --, (2000, Map.fromList [(unsafeChainId 4, ("2k", _))])
-  ]
-
 -- | Get the BlockHeaders for each chain at the specified BlockHeight.
-getBlockHeadersAt :: RocksDb -> BlockHeight -> ChainwebVersion -> IO (Map ChainId BlockHeader)
-getBlockHeadersAt rdb bh v = do
+getBlockHeadersAt :: ()
+  => RocksDb
+     -- ^ RocksDB handle
+  -> Map ChainId (Set BlockHeight)
+     -- ^ Map from ChainId to available blockheights on that chain.
+     --   This is most probably going to be the output of 'resolveTargets'.
+  -> BlockHeight
+     -- ^ The blockheight that you want to look up the header for.
+  -> ChainwebVersion
+     -- ^ chainweb version
+  -> IO (Map ChainId BlockHeader)
+getBlockHeadersAt rdb resolvedTargets bh v = do
   wbhdb <- initWebBlockHeaderDb rdb v
   let cutHashes = cutHashesTable rdb
   -- Get the latest cut
   highestCuts <- readHighestCutHeaders v (\_ _ -> pure ()) wbhdb cutHashes
-  fmap Map.fromList $ forM (HM.toList highestCuts) $ \(cid, header) -> do
-    if _blockHeight header == bh
-    then do
-      -- If we're already there, great
-      pure (cid, header)
-    else do
-      -- Otherwise, we need to do an ancestral lookup
-      case HM.lookup cid (wbhdb ^. webBlockHeaderDb) of
-        Nothing -> error "getBlockHeadersAt: Malformed WebBlockHeaderDb"
-        Just bdb -> do
-          seekAncestor bdb header (fromIntegral bh) >>= \case
-            Just h -> do
-              -- Sanity check, should absolutely never happen
-              when (_blockHeight h /= bh) $ do
-                error "getBlockHeadersAt: internal error"
-              pure (cid, h)
-            Nothing -> error "getBlockHeadersAt: no ancestor found!"
+  fmap (Map.fromList . catMaybes) $ forM (HM.toList highestCuts) $ \(cid, header) -> do
+    case Map.lookup cid resolvedTargets of
+      Nothing -> pure Nothing
+      Just allowedHeights -> do
+        if bh `Set.member` allowedHeights
+        then do
+          if _blockHeight header == bh
+          then do
+            -- If we're already there, great
+            pure $ Just (cid, header)
+          else do
+            -- Otherwise, we need to do an ancestral lookup
+            case HM.lookup cid (wbhdb ^. webBlockHeaderDb) of
+              Nothing -> error "getBlockHeadersAt: Malformed WebBlockHeaderDb"
+              Just bdb -> do
+                seekAncestor bdb header (fromIntegral bh) >>= \case
+                  Just h -> do
+                    -- Sanity check, should absolutely never happen
+                    when (_blockHeight h /= bh) $ do
+                      error "getBlockHeadersAt: expected seekAncestor behaviour is broken"
+                    pure $ Just (cid, h)
+                  Nothing -> error "getBlockHeadersAt: no ancestor found!"
+        else do
+          pure Nothing
 
 -- | Make sure that the blockheight exists on chain.
 ensureBlockHeightExists :: Database -> BlockHeight -> IO ()
@@ -359,7 +368,7 @@ computeGrandHashesAt logger cids pactDir rocksDir ts chainwebVersion = do
   --      available, etc) and resolve targets across all chains.
   --   2) In the second phase, we gather all of the grand hashes.
   --   2) In the third phase, we pair all of the grand hashes with the associated
-  --     block headers.
+  --      block headers.
 
   -- Phase 1:
   --   Check that the DB matches our expectations and resolve
@@ -379,24 +388,25 @@ computeGrandHashesAt logger cids pactDir rocksDir ts chainwebVersion = do
 
   pooledFor cids $ \cid -> do
     withChainDb cid logger pactDir $ \(SQLiteEnv db _) -> do
-      targets <- case Map.lookup cid chainTargets of
-        Nothing -> error "computeGrandHash: logic error in target resolution"
-        Just s -> pure s
-      -- Compute the grand hash for each chain at every target height
-      pooledFor targets $ \target -> do
-        hash <- computeGrandHash db target
-        atomicModifyIORef' chainHashesRef $ \m ->
-          (Map.insertWith Map.union target (Map.singleton cid hash) m, ())
+      case Map.lookup cid chainTargets of
+        Nothing -> do
+          pure ()
+        Just targets -> do
+          -- Compute the grand hash for the chain at every target height
+          pooledFor targets $ \target -> do
+            hash <- computeGrandHash db target
+            atomicModifyIORef' chainHashesRef $ \m ->
+              (Map.insertWith Map.union target (Map.singleton cid hash) m, ())
 
-  -- Note the toDescList. This is so that import's top-down search
-  -- is faster.
+  -- Note the toDescList. This is so that pact-import's top-down search
+  -- is faster, and correct.
   chainHashes <- Map.toDescList <$> readIORef chainHashesRef
 
   -- Phase 3:
   -- Grab the headers corresponding to every blockheight from RocksDB
   withReadOnlyRocksDb rocksDir modernDefaultOptions $ \rocksDb -> do
     forM chainHashes $ \(height, hashes) -> do
-      headers <- getBlockHeadersAt rocksDb height chainwebVersion
+      headers <- getBlockHeadersAt rocksDb chainTargets height chainwebVersion
       let missingIn cid m = error $ "missing entry for chain " <> Text.unpack (chainIdToText cid) <> " in " <> m
       pure $ (height,)
         $ Merge.merge
@@ -427,6 +437,7 @@ pactCalcMain = do
 
   C.withDefaultLogger YAL.Info $ \logger -> do
     chainHashes <- computeGrandHashesAt logger cids cfg.pactDir cfg.rocksDir cfg.targetBlockHeight cfg.chainwebVersion
+    writeFile "src/Chainweb/Pact/Backend/PactState/EmbeddedHashes.hs" (chainHashesToModule chainHashes)
     BLC8.putStrLn $ grandsToJson chainHashes
   where
     opts :: ParserInfo PactCalcConfig
@@ -467,13 +478,13 @@ pactImportMain = do
     -- Get the highest common blockheight across all chains.
     (chainsContainingTarget, latestCommonHeight) <- resolveTarget logger cids cfg.sourcePactDir Latest
 
-    (bh, expectedChainHashes) <- do
-      -- Find the first element of 'grands' such that
-      -- the blockheight therein is less than or equal to
-      -- the argument latest common blockheight.
-      case List.find (\g -> latestCommonHeight >= fst g) grands of
-        Nothing -> error "pact-import: no snapshot found"
-        Just x -> pure x
+    let (bh, expectedChainHashes) =
+          -- Find the first element of 'grands' such that
+          -- the blockheight therein is less than or equal to
+          -- the argument latest common blockheight.
+          case List.find (\g -> latestCommonHeight >= fst g) grands of
+            Nothing -> error "pact-import: no snapshot found"
+            Just (b, s) -> (b, Map.map (\es -> (es.pactHash, es.blockHeader)) s)
 
     chainHashes <- do
       let targets = TargetAll (Set.singleton bh)
@@ -510,7 +521,7 @@ pactImportMain = do
               ]
     when (Map.size deltas > 0) exitFailure
 
-    -- TODO: drop things after the verified height
+    -- TODO: drop things after the verified height?
     case cfg.targetPactDir of
       Nothing -> do
         pure ()
@@ -619,3 +630,112 @@ grandsToJson chainHashes =
                       ]
                 in (chainIdToText cid, o)
     in (key J..= val)
+
+-- | Output a Haskell module with the embedded hashes. This module produced
+--   pact-calc, and embedded into the chainweb-node library.
+--
+--   The implementation is a little janky, but it works.
+chainHashesToModule :: [(BlockHeight, Map ChainId (ByteString, BlockHeader))] -> String
+chainHashesToModule input = prefix
+  where
+    indent :: Int -> String -> String
+    indent n s = List.replicate n ' ' ++ s
+
+    onHead :: (a -> a) -> [a] -> [a]
+    onHead f = \case { [] -> []; x : xs -> f x : xs; }
+
+    onTail :: (a -> a) -> [a] -> [a]
+    onTail f = \case { [] -> []; x : xs -> x : List.map f xs; }
+
+    inQuotes :: String -> String
+    inQuotes s = "\"" ++ s ++ "\""
+
+    prepend :: String -> (String -> String)
+    prepend p = \s -> p ++ s
+
+    makeEntries :: [(BlockHeight, Map ChainId (ByteString, BlockHeader))] -> [String]
+    makeEntries =
+      List.concatMap (List.map (indent 4))
+      . onTail (onTail (indent 2) . onHead (prepend ", "))
+      . List.map (uncurry makeEntry)
+
+    makeEntry :: BlockHeight -> Map ChainId (ByteString, BlockHeader) -> [String]
+    makeEntry height chainMap =
+      [ "( BlockHeight " ++ show height
+      , ", Map.fromList"
+      , "    ["
+      ]
+      ++ onHead ("  " ++) (List.map (indent 4) $ onTail (prepend ", ") (makeChainMap chainMap))
+      ++
+      [ "    ]"
+      , ")"
+      ]
+
+    makeChainMap :: Map ChainId (ByteString, BlockHeader) -> [String]
+    makeChainMap = map (uncurry makeChainEntry) . Map.toList
+
+    makeChainEntry :: ChainId -> (ByteString, BlockHeader) -> String
+    makeChainEntry cid (hash, header) =
+      let
+        jsonDecode j = "unsafeJsonDecode @BlockHeader " ++ j
+        fromHex b = "unsafeFromHex " ++ b
+        sCid = Text.unpack (chainIdToText cid)
+        sHash = inQuotes $ Text.unpack (hex hash)
+        sHeader = Text.unpack (J.encodeText (J.encodeWithAeson header))
+      in
+      concat
+        [ "(unsafeChainId " ++ sCid ++ ", "
+        , "EncodedSnapshot (" ++ fromHex sHash ++ ") (" ++ jsonDecode sHeader ++ ")"
+        , ")"
+        ]
+
+    prefix = List.unlines
+      [ "-- NOTE: This module has been auto-generated."
+      , "-- Do not edit it."
+      , ""
+      , "{-# LANGUAGE ImportQualifiedPost #-}"
+      , "{-# LANGUAGE OverloadedStrings #-}"
+      , "{-# LANGUAGE TypeApplications #-}"
+      , ""
+      , "module Chainweb.Pact.Backend.PactState.EmbeddedHashes"
+      , "  ( EncodedSnapshot(..)"
+      , "  , grands"
+      , "  )"
+      , "  where"
+      , ""
+      , "import Chainweb.BlockHeader (BlockHeader)"
+      , "import Chainweb.BlockHeight (BlockHeight(..))"
+      , "import Chainweb.ChainId (ChainId, unsafeChainId)"
+      , "import Data.Aeson qualified as A"
+      , "import Data.ByteString (ByteString)"
+      , "import Data.ByteString.Base16 qualified as Base16"
+      , "import Data.List qualified as List"
+      , "import Data.Map (Map)"
+      , "import Data.Map qualified as Map"
+      , "import Data.Ord (Down(..))"
+      , "import Data.Text (Text)"
+      , "import Data.Text.Encoding qualified as Text"
+      , ""
+      , "data EncodedSnapshot = EncodedSnapshot"
+      , "  { pactHash :: ByteString"
+      , "  , blockHeader :: BlockHeader"
+      , "  }"
+      , ""
+      , "unsafeJsonDecode :: (A.FromJSON a) => Text -> a"
+      , "unsafeJsonDecode t = case A.decodeStrict (Text.encodeUtf8 t) of"
+      , "  Just a -> a"
+      , "  Nothing -> error \"EmbeddedHashes: invalid json construction\""
+      , ""
+      , "unsafeFromHex :: Text -> ByteString"
+      , "unsafeFromHex t = case Base16.decode (Text.encodeUtf8 t) of"
+      , "  Right a -> a"
+      , "  Left err -> error $ \"EmbeddedHashes: unsafeFromHex failed: \" ++ show err"
+      , ""
+      , "-- | sorted in descending order."
+      , "grands :: [(BlockHeight, Map ChainId EncodedSnapshot)]"
+      , "grands = List.sortOn (Down . fst)"
+      , "  ["
+      , unlines (makeEntries input)
+      , "  ]"
+      ]
+
