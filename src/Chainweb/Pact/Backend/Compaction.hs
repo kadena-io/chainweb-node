@@ -27,17 +27,21 @@
 module Chainweb.Pact.Backend.Compaction
   ( CompactFlag(..)
   , TargetBlockHeight(..)
-  , CompactM
   , compact
-  , compactAll
   , main
+
+    -- * Used in various tools
   , withDefaultLogger
   , withPerChainFileLogger
+
+    -- * Used in tests
+  , transactionIndexKeepDepth
   ) where
 
 import Chronos qualified
 import Control.Lens (_2)
 import Data.Ord (Down(..))
+import Data.Word (Word64)
 import System.IO.Unsafe (unsafePerformIO)
 import Data.IORef (IORef, readIORef, newIORef, atomicModifyIORef')
 import UnliftIO.Async (pooledMapConcurrentlyN_)
@@ -71,7 +75,7 @@ import System.FilePath ((</>))
 import System.IO qualified as IO
 import System.IO (Handle)
 
-import Chainweb.BlockHeight (BlockHeight)
+import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Logger (setComponent)
 import Chainweb.Utils (sshow, HasTextRepresentation, fromText, toText, int)
 import Chainweb.Version (ChainId, ChainwebVersion(..), ChainwebVersionName, unsafeChainId, chainIdToText)
@@ -79,7 +83,7 @@ import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
-import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
+import Chainweb.Pact.Backend.Utils (fromUtf8, toUtf8, withSqliteDb)
 
 import System.Logger
 import System.Logger.Backend.ColorOption (useColor)
@@ -210,6 +214,15 @@ execNoTemplateM_ :: ()
 execNoTemplateM_ msg q = do
   db <- view ceDb
   queryDebug msg Nothing $ Pact.exec_ db q
+
+execNoTemplateM' :: ()
+  => Text
+  -> Utf8
+  -> [SType]
+  -> CompactM ()
+execNoTemplateM' msg q ins = do
+  db <- view ceDb
+  queryDebug msg Nothing $ Pact.exec' db q ins
 
 -- | Prepare/Execute a "$VTABLE$"-templated, parameterised query.
 --   The parameters are the results of the 'CompactM' 'SType' computations.
@@ -449,10 +462,45 @@ dropNewTables bh = do
   withTables nts $ \tbl -> do
     execM_ "dropNewTables.1" tbl "DROP TABLE IF EXISTS $VTABLE$"
 
+-- We must keep TransactionIndex entries at least for the maxTTL duration of
+-- a tx, which is about 5,760 blocks. To be safe, we multiply this value by 4.
+-- Rows of this table take up very little space, so keeping up to 25k rows
+-- isn't costly (each row is a fixed-size hash + one machine word)
+transactionIndexKeepDepth :: Word64
+transactionIndexKeepDepth = 4 * 5_760
+
+-- TransactionIndex is special, it is needed for transaction validation to work,
+-- so we need to keep extra rows.
+compactTransactionIndex :: BlockHeight -> CompactM ()
+compactTransactionIndex target = do
+      -- Find the youngest block height that is older than `extraSafeKeepDepth`
+      -- blocks ago. Prune every TransactionIndex entry with blockheight less
+      -- than the minimum of this and the target (since the target could be
+      -- before this depth).
+  let qryText = Text.concat
+        [ "DELETE FROM TransactionIndex "
+        , "WHERE "
+        , "  blockheight < ("
+        , "    SELECT "
+        , "      CASE "
+        , "        WHEN latest < ?1 "
+        , "          THEN 0 "
+        , "          ELSE MIN(latest - ?1, ?2) "
+        , "      END "
+        , "    FROM ( "
+        , "      SELECT MAX(blockheight) AS latest FROM TransactionIndex "
+        , "    ) "
+        , "  ) "
+        ]
+  execNoTemplateM'
+    "compactTransactionIndex.0"
+    (toUtf8 qryText)
+    [bhToSType (BlockHeight transactionIndexKeepDepth), bhToSType target]
+
 -- | Delete all rows from Checkpointer system tables that are not for the target blockheight.
 compactSystemTables :: BlockHeight -> CompactM ()
 compactSystemTables bh = do
-  let systemTables = ["BlockHistory", "VersionedTableMutation", "TransactionIndex", "VersionedTableCreation"]
+  let systemTables = ["BlockHistory", "VersionedTableMutation", "VersionedTableCreation"]
   forM_ systemTables $ \tbl -> do
     let tblText = fromUtf8 (getTableName tbl)
     logg Info $ "Compacting system table " <> tblText
@@ -465,6 +513,7 @@ compactSystemTables bh = do
       tbl
       ("DELETE FROM $VTABLE$ WHERE " <> column <> " != ?1;")
       [bhToSType bh]
+  compactTransactionIndex bh
 
 dropCompactTables :: CompactM ()
 dropCompactTables = do

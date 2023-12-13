@@ -15,6 +15,9 @@
 
 module Chainweb.Test.Pact.PactSingleChainTest
 ( tests
+
+  -- * This test is slow, so we export it here, and run it in the slow-tests
+, compactionTransactionIndex
 ) where
 
 import Control.Arrow ((&&&))
@@ -54,6 +57,8 @@ import Pact.Types.Persistence
 import Pact.Types.PactError
 import Pact.Types.RowData
 import Pact.Types.RPC
+import Pact.Types.SQLite (RType(..), SType(..))
+import Pact.Types.SQLite qualified as Pact
 import Pact.Types.Util (fromText')
 
 import Pact.JSON.Encode qualified as J
@@ -451,6 +456,67 @@ compactionIsIdempotent rdb =
                   putStrLn $ "new: " ++ show y
                   putStrLn ""
       assertFailure "pact state check failed"
+
+compactionTransactionIndex :: ()
+  => RocksDb
+  -> TestTree
+compactionTransactionIndex rdb =
+  compactionSetup "compactionTransactionIndex" rdb testPactServiceConfig $ \cr -> do
+    setOneShotMempool cr.mempoolRef goldenMemPool
+
+    let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
+        makeTx nth bh = buildCwCmd testVersion
+          $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
+          $ setFromHeader bh
+          $ mkCmd (sshow (nth, bh))
+          $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+
+    supply <- newIORef @Int 0
+    madeTx <- newIORef @Bool False
+    putStrLn "" -- get around tasty formatting
+    let run = do
+          setMempool cr.mempoolRef $ mempty {
+            mpaGetBlock = \_ _ _ _ bh -> do
+              madeTxYet <- readIORef madeTx
+              if madeTxYet
+              then do
+                pure mempty
+              else do
+                n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
+                tx <- makeTx n bh
+                writeIORef madeTx True
+                pure $ V.fromList [tx]
+          }
+          void $ runBlock cr.pactQueue cr.blockDb second
+          writeIORef madeTx False
+          readIORef supply >>= \s -> when (s `mod` 100 == 0) $ putStrLn $ "ran block " ++ show s
+
+    -- Run enough blocks to where TransactionIndex keeps its full history
+    replicateM_ (int C.transactionIndexKeepDepth) run
+
+    let db = _sConn cr.sqlEnv
+
+    let getRange :: IO (BlockHeight, BlockHeight)
+        getRange = do
+          r <- Pact.qry db "SELECT MIN(blockheight), MAX(blockheight) FROM TransactionIndex" [] [RInt, RInt]
+          case r of
+            [[SInt mn, SInt mx]] -> pure (int mn, int mx)
+            _ -> assertFailure "getEarliest: invalid query"
+
+    do
+      startRange <- getRange
+      Utils.compact LL.Error [C.NoVacuum] cr.sqlEnv C.Latest
+      endRange <- getRange
+      assertEqual "TransactionIndex blockheight range is equal after compaction, when max blockheight is less than or equal to transactionIndexKeepDepth" startRange endRange
+
+    do
+      startRange <- getRange
+      replicateM_ 100 run
+      Utils.compact LL.Error [C.NoVacuum] cr.sqlEnv C.Latest
+      endRange <- getRange
+      assertEqual "TransactionIndex blockheight lower range should shift after running more blocks and compacting" (fst startRange + 100) (fst endRange)
+      assertEqual "TransactionIndex blockheight upper range should shift after running more blocks and compacting" (snd startRange + 100) (snd endRange)
+      assertEqual "TransactionIndex blockheight range should maintain keep depth" C.transactionIndexKeepDepth (getBlockHeight $ snd endRange - fst endRange)
 
 -- | Test that user tables created before the compaction height are kept,
 --   while those created after the compaction height are dropped.

@@ -9,8 +9,8 @@ import System.Environment
 import System.Exit
 import Text.Printf
 
-import Chainweb.Pact.Backend.Compaction (main)
-import Chainweb.Pact.Backend.PactState (pactDiffMain)
+import qualified Chainweb.Pact.Backend.Compaction (main)
+import qualified Chainweb.Pact.Backend.PactState (pactDiffMain)
 
 import qualified CheckpointerDBChecksum
 import qualified Ea

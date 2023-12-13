@@ -690,6 +690,7 @@ executable cwtool
           chainweb
 
         -- external
+        , Decimal >= 0.4.2
         , QuickCheck >= 2.14
         , aeson >= 2.2
         , aeson-pretty >= 0.8
@@ -726,6 +727,7 @@ executable cwtool
         , optparse-applicative >= 0.14
         , pact
         , pact-json
+        , patience >= 0.3
         , process >= 1.5
         , quickcheck-instances >= 0.3
         , random >= 1.2
