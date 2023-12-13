@@ -195,7 +195,7 @@ defaultCutDbParams v ft = CutDbParams
     , _cutDbParamsFastForwardHeightLimit = Nothing
     , _cutDbParamsAvgBlockHeightPruningDepth = 5000
     , _cutDbParamsPruningFrequency = 10000
-    , _cutDbParamsWritingFrequency = 30
+    , _cutDbParamsWritingFrequency = 3
     , _cutDbParamsReadOnly = False
     }
   where
