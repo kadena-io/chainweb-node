@@ -437,7 +437,7 @@ pactCalcMain = do
 
   C.withDefaultLogger YAL.Info $ \logger -> do
     chainHashes <- computeGrandHashesAt logger cids cfg.pactDir cfg.rocksDir cfg.targetBlockHeight cfg.chainwebVersion
-    writeFile "src/Chainweb/Pact/Backend/PactState/EmbeddedHashes.hs" (chainHashesToModule chainHashes)
+    writeFile "EmbeddedHashes.hs" (chainHashesToModule chainHashes)
     BLC8.putStrLn $ grandsToJson chainHashes
   where
     opts :: ParserInfo PactCalcConfig
@@ -520,6 +520,8 @@ pactImportMain = do
               , "  Actual:   " <> Text.unpack (hex hash)
               ]
     when (Map.size deltas > 0) exitFailure
+
+    logFunctionText logger Info "Hashes aligned"
 
     -- TODO: drop things after the verified height?
     case cfg.targetPactDir of
@@ -650,6 +652,16 @@ chainHashesToModule input = prefix
     inQuotes :: String -> String
     inQuotes s = "\"" ++ s ++ "\""
 
+    embedQuotes :: String -> String
+    embedQuotes = \case
+      [] -> []
+      c : cs -> "\"\\" ++ [c] ++ go cs
+      where
+        go = \case
+          [] -> error "mis-use of embedQuotes"
+          [_] -> error "mis-use of embedQuotes"
+          xs -> List.init xs ++ "\\\"" ++ [List.last xs]
+
     prepend :: String -> (String -> String)
     prepend p = \s -> p ++ s
 
@@ -681,7 +693,7 @@ chainHashesToModule input = prefix
         fromHex b = "unsafeFromHex " ++ b
         sCid = Text.unpack (chainIdToText cid)
         sHash = inQuotes $ Text.unpack (hex hash)
-        sHeader = Text.unpack (J.encodeText (J.encodeWithAeson header))
+        sHeader = embedQuotes $ Text.unpack (J.encodeText (J.encodeWithAeson header))
       in
       concat
         [ "(unsafeChainId " ++ sCid ++ ", "
