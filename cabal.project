@@ -34,6 +34,13 @@ if impl(ghc >= 9.8.1)
     package chainweb
         ghc-options: -Wno-x-partial
 
+    -- Remove once we actually upgrade to GHC 9.8.1, these
+    -- will be released
+    allow-newer: bytesmith:bytestring
+    allow-newer: bytebuild:*
+    allow-newer: byteslice:*
+    constraints: haskell-src-meta >= 0.8.13
+
 package pact
     ghc-options: -Wwarn
     optimization: True
