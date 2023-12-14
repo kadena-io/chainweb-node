@@ -131,12 +131,6 @@ source-repository-package
     tag: 2f67d546ea6608fc6ebe5f2f6976503cbf340442
     --sha256: 0x137akvbh4kr3qagksw74xdj2xz5vjnx1fbr41bb54a0lkcb8mm
 
-source-repository-package
-    type: git
-    location: https://github.com/andrewthad/chronos
-    tag: 04a68161514909fac076a65dcd0fdbbbf9607b41
-    --sha256: 096mhybg2qqn500gbfcm53rdhxl9vyz3gr7clcha8nvrv3pmsbrp
-
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
 
