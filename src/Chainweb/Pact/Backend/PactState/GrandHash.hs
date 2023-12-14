@@ -437,7 +437,7 @@ pactCalcMain = do
 
   C.withDefaultLogger YAL.Info $ \logger -> do
     chainHashes <- computeGrandHashesAt logger cids cfg.pactDir cfg.rocksDir cfg.targetBlockHeight cfg.chainwebVersion
-    writeFile "EmbeddedHashes.hs" (chainHashesToModule chainHashes)
+    writeFile "src/Chainweb/Pact/Backend/PactState/EmbeddedHashes.hs" (chainHashesToModule chainHashes)
     BLC8.putStrLn $ grandsToJson chainHashes
   where
     opts :: ParserInfo PactCalcConfig
