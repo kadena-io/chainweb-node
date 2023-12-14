@@ -9,6 +9,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -34,6 +35,11 @@ module Chainweb.Pact.Backend.Compaction
   , withPerChainFileLogger
   ) where
 
+import Chronos qualified
+import Control.Lens (_2)
+import Data.Ord (Down(..))
+import System.IO.Unsafe (unsafePerformIO)
+import Data.IORef (IORef, readIORef, newIORef, atomicModifyIORef')
 import UnliftIO.Async (pooledMapConcurrentlyN_)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (swapMVar, readMVar, newMVar)
@@ -44,10 +50,10 @@ import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, local)
 import Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
-import Data.ByteString (ByteString)
 import Data.Foldable qualified as F
 import Data.Function (fix)
 import Data.List qualified as List
+import Data.Map (Map)
 import Data.Map.Strict qualified as M
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -74,7 +80,6 @@ import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
-import Chainweb.Utils (encodeB64Text)
 
 import System.Logger
 import System.Logger.Backend.ColorOption (useColor)
@@ -86,7 +91,7 @@ import Pact.Types.SQLite qualified as Pact
 
 newtype TableName = TableName { getTableName :: Utf8 }
   deriving stock (Show)
-  deriving newtype (Eq, IsString)
+  deriving newtype (Eq, Ord, IsString)
 
 data CompactException
   = CompactExceptionInternal !Text
@@ -102,10 +107,6 @@ data CompactFlag
     -- ^ Keep compaction tables post-compaction for inspection.
   | NoVacuum
     -- ^ Don't VACUUM database
-  | NoDropNewTables
-    -- ^ Don't drop new tables created after the compaction height.
-  | NoGrandHash
-    -- ^ Don't compute the grand hash.
   deriving stock (Eq,Show,Read,Enum,Bounded)
 
 internalError :: MonadThrow m => Text -> m a
@@ -182,10 +183,10 @@ instance MonadLog Text CompactM where
     liftIO $ loggerFunIO l ll $ toLogMessage $ TextLog m
 
   withLevel :: LogLevel -> CompactM x -> CompactM x
-  withLevel l = local (set (ceLogger.setLoggerLevel) l)
+  withLevel l = local (set (ceLogger . setLoggerLevel) l)
 
   withPolicy :: LogPolicy -> CompactM x -> CompactM x
-  withPolicy p = local (set (ceLogger.setLoggerPolicy) p)
+  withPolicy p = local (set (ceLogger . setLoggerPolicy) p)
 
 -- | Run compaction monad
 runCompactM :: CompactEnv -> CompactM a -> IO a
@@ -199,18 +200,16 @@ execM_ :: ()
   -> CompactM ()
 execM_ msg tbl q = do
   db <- view ceDb
-  logQueryDebug msg
   q' <- templateStmt tbl q
-  liftIO $ Pact.exec_ db q'
+  queryDebug msg (Just tbl) $ Pact.exec_ db q'
 
 execNoTemplateM_ :: ()
   => Text -- ^ query name (for logging purposes)
   -> Utf8 -- ^ query
   -> CompactM ()
-execNoTemplateM_ msg qry = do
+execNoTemplateM_ msg q = do
   db <- view ceDb
-  logQueryDebug msg
-  liftIO $ Pact.exec_ db qry
+  queryDebug msg Nothing $ Pact.exec_ db q
 
 -- | Prepare/Execute a "$VTABLE$"-templated, parameterised query.
 --   The parameters are the results of the 'CompactM' 'SType' computations.
@@ -222,28 +221,16 @@ execM' :: ()
   -> CompactM ()
 execM' msg tbl stmt ps = do
   db <- view ceDb
-  logQueryDebug msg
   stmt' <- templateStmt tbl stmt
-  liftIO $ Pact.exec' db stmt' ps
+  queryDebug msg (Just tbl) $ Pact.exec' db stmt' ps
 
 exec_ :: ()
   => Text
   -> Utf8
   -> CompactM ()
-exec_ msg qry = do
+exec_ msg q = do
   db <- view ceDb
-  logQueryDebug msg
-  liftIO $ Pact.exec_ db qry
-
-qry_ :: ()
-  => Text
-  -> Utf8
-  -> [RType]
-  -> CompactM [[SType]]
-qry_ msg qry rs = do
-  db <- view ceDb
-  logQueryDebug msg
-  liftIO $ Pact.qry_ db qry rs
+  queryDebug msg Nothing $ Pact.exec_ db q
 
 -- | Prepare/Execute a "$VTABLE$"-templated, parameterised query.
 --   'RType's are the expected results.
@@ -256,9 +243,8 @@ qryM :: ()
   -> CompactM [[SType]]
 qryM msg tbl q ins outs = do
   db <- view ceDb
-  logQueryDebug msg
   q' <- templateStmt tbl q
-  liftIO $ Pact.qry db q' ins outs
+  queryDebug msg (Just tbl) $ Pact.qry db q' ins outs
 
 qryNoTemplateM :: ()
   => Text -- ^ query name (for logging purposes)
@@ -268,12 +254,35 @@ qryNoTemplateM :: ()
   -> CompactM [[SType]]
 qryNoTemplateM msg q ins outs = do
   db <- view ceDb
-  logQueryDebug msg
-  liftIO $ Pact.qry db q ins outs
+  queryDebug msg Nothing $ Pact.qry db q ins outs
 
-logQueryDebug :: Text -> CompactM ()
-logQueryDebug msg = do
-  logg Info ("Query: " <> msg)
+queryDebug :: Text -> Maybe TableName -> IO x -> CompactM x
+queryDebug qryName mTblName performQuery = do
+  logg Info $ "Starting query " <> qryName
+  (ts, r) <- liftIO $ Chronos.stopwatch performQuery
+  logg Info $ "Completed query " <> qryName <> ". It took " <> Text.pack (show (Chronos.asSeconds ts)) <> "s"
+  liftIO $ atomicModifyIORef' queryTimes $ \qdbg -> case mTblName of
+    Nothing -> (addOnce qryName ts qdbg, ())
+    Just tblName -> (addTblQuery tblName qryName ts qdbg, ())
+  pure r
+
+data QueryDebug = QueryDebug
+  { runOnce :: Set (Chronos.Timespan, Text)
+  , tableQueries :: Map TableName (Set (Chronos.Timespan, Text))
+  }
+
+addOnce :: Text -> Chronos.Timespan -> QueryDebug -> QueryDebug
+addOnce dbg t qdbg = qdbg { runOnce = Set.insert (t, dbg) qdbg.runOnce }
+
+addTblQuery :: TableName -> Text -> Chronos.Timespan -> QueryDebug -> QueryDebug
+addTblQuery tbl dbg t qdbg = qdbg { tableQueries = M.insertWith Set.union tbl (Set.singleton (t, dbg)) qdbg.tableQueries }
+
+emptyQueryDebug :: QueryDebug
+emptyQueryDebug = QueryDebug Set.empty M.empty
+
+queryTimes :: IORef QueryDebug
+queryTimes = unsafePerformIO (newIORef emptyQueryDebug)
+{-# noinline queryTimes #-}
 
 -- | Statements are templated with "$VTABLE$" substituted
 -- with the currently-focused versioned table.
@@ -300,9 +309,6 @@ unlessFlagSet f x = do
 isFlagSet :: CompactFlag -> CompactM Bool
 isFlagSet f = view ceFlags >>= \fs -> pure (f `elem` fs)
 
-isFlagNotSet :: CompactFlag -> CompactM Bool
-isFlagNotSet f = not <$> isFlagSet f
-
 withTables :: Vector TableName -> (TableName -> CompactM a) -> CompactM ()
 withTables ts a = do
   V.iforM_ ts $ \i u@(TableName (Utf8 t')) -> do
@@ -316,20 +322,6 @@ sortedTableNames rows = M.elems $ M.fromListWith const $ flip List.map rows $ \c
   [SText n@(Utf8 s)] -> (Text.toLower (Text.decodeUtf8 s), TableName n)
   _ -> error "sortedTableNames: expected text"
 
--- | CompactGrandHash associates table name with grand hash of its versioned rows,
--- and NULL with grand hash of all table hashes.
-createCompactGrandHash :: CompactM ()
-createCompactGrandHash = do
-  logg Info "createTables"
-  execNoTemplateM_ "createTable: CompactGrandHash"
-      " CREATE TABLE IF NOT EXISTS CompactGrandHash \
-      \ ( tablename TEXT \
-      \ , hash BLOB \
-      \ , UNIQUE (tablename) ); "
-
-  execNoTemplateM_ "deleteFrom: CompactGrandHash"
-      "DELETE FROM CompactGrandHash"
-
 -- | CompactActiveRow collects all active rows from all tables.
 createCompactActiveRow :: CompactM ()
 createCompactActiveRow = do
@@ -338,7 +330,6 @@ createCompactActiveRow = do
       \ ( tablename TEXT NOT NULL \
       \ , rowkey TEXT NOT NULL \
       \ , vrowid INTEGER NOT NULL \
-      \ , hash BLOB \
       \ , UNIQUE (tablename,rowkey) ); "
 
   execNoTemplateM_ "deleteFrom: CompactActiveRow"
@@ -411,54 +402,25 @@ tableRowCount tbl label =
     [[SInt r]] -> logg Info $ label <> ":rowcount=" <> sshow r
     _ -> internalError "count(*) failure"
 
--- | For a given table, collect all active rows into CompactActiveRow,
--- and compute+store table grand hash in CompactGrandHash.
+-- | For a given table, collect all active rows into CompactActiveRow
 collectTableRows :: TxId -> TableName -> CompactM ()
 collectTableRows txId tbl = do
   tableRowCount tbl "collectTableRows"
   let vt = tableNameToSType tbl
   let txid = txIdToSType txId
 
-  doGrandHash <- isFlagNotSet NoGrandHash
-
   let collectInsert = Text.concat
         [ "INSERT INTO CompactActiveRow "
-        , "SELECT ?1,rowkey,rowid," <> if doGrandHash
-             then "sha3_256('T',?1,'K',rowkey,'I',txid,'D',rowdata) "
-             else "NULL "
+        , "SELECT ?1,rowkey,rowid "
         , "FROM $VTABLE$ t1 "
         , "WHERE txid=(SELECT MAX(txid) FROM $VTABLE$ t2 "
         , "WHERE t2.rowkey=t1.rowkey AND t2.txid<?2) "
         , "GROUP BY rowkey; "
         ]
 
-  logg Info "collectTableRows:insert"
-  execM' "collectTableRows.0, doGrandHash=True" tbl
+  execM' "collectTableRows.0" tbl
     collectInsert
     [vt, txid]
-
-  when doGrandHash $ do
-    logg Info "collectTableRows:checksum"
-    execM' "collectTableRows.1, doGrandHash=True" tbl
-        " INSERT INTO CompactGrandHash \
-        \ VALUES (?1, \
-        \  (SELECT sha3a_256(hash) FROM CompactActiveRow \
-        \   WHERE tablename=?1 ORDER BY rowkey)); "
-        [vt]
-
--- | Compute global grand hash from all table grand hashes.
-computeGlobalHash :: CompactM ByteString
-computeGlobalHash = do
-  logg Info "computeGlobalHash"
-  execNoTemplateM_ "computeGlobalHash.0"
-      " INSERT INTO CompactGrandHash \
-      \ VALUES (NULL, \
-      \  (SELECT sha3a_256(hash) FROM CompactGrandHash \
-      \   WHERE tablename IS NOT NULL ORDER BY tablename)); "
-
-  qry_ "computeGlobalHash.1" "SELECT hash FROM CompactGrandHash WHERE tablename IS NULL" [RBlob] >>= \case
-    [[SBlob h]] -> pure h
-    _ -> throwM $ CompactExceptionInternal "computeGlobalHash: bad result"
 
 -- | Delete non-active rows from given table.
 compactTable :: TableName -> CompactM ()
@@ -474,45 +436,11 @@ compactTable tbl = do
       \  WHERE t.rowid = v.vrowid AND v.tablename=?1); "
       [tableNameToSType tbl]
 
--- | For given table, re-compute table grand hash and compare
--- with stored grand hash in CompactGrandHash.
-verifyTable :: TableName -> CompactM ByteString
-verifyTable tbl = do
-  logg Info "verifyTable"
-  curr <- computeTableHash tbl
-  rs <- qryNoTemplateM "verifyTable.0"
-      "SELECT hash FROM CompactGrandHash WHERE tablename=?1"
-      [tableNameToSType tbl]
-      [RBlob]
-  case rs of
-    [[SBlob prev]]
-        | prev == curr -> do
-            tableRowCount tbl "verifyTable"
-            pure curr
-        | otherwise ->
-            throwM (CompactExceptionTableVerificationFailure tbl)
-    _ -> throwM $ CompactExceptionInternal "verifyTable: bad result"
-
--- | For given table, compute table grand hash for max txid.
-computeTableHash :: TableName -> CompactM ByteString
-computeTableHash tbl = do
-  rs <- qryM "computeTableHash.0" tbl
-        " SELECT sha3a_256(hash) FROM \
-        \ (SELECT sha3_256('T',?1,'K',rowkey,'I',txid,'D',rowdata) as hash \
-        \  FROM $VTABLE$ t1 \
-        \  WHERE txid=(select max(txid) FROM $VTABLE$ t2 \
-        \   WHERE t2.rowkey=t1.rowkey) GROUP BY rowkey); "
-      [tableNameToSType tbl]
-      [RBlob]
-  case rs of
-    [[SBlob curr]] -> pure curr
-    _ -> throwM $ CompactExceptionInternal "checksumTable: bad result"
-
 -- | Drop any versioned tables created after target blockheight.
 dropNewTables :: BlockHeight -> CompactM ()
 dropNewTables bh = do
   logg Info "dropNewTables"
-  nts <- fmap (V.fromList . sortedTableNames) $ qryNoTemplateM "dropNewTables.0"
+  nts <- V.fromList . sortedTableNames <$> qryNoTemplateM "dropNewTables.0"
       " SELECT tablename FROM VersionedTableCreation \
       \ WHERE createBlockheight > ?1 ORDER BY createBlockheight; "
       [bhToSType bh]
@@ -541,23 +469,18 @@ compactSystemTables bh = do
 dropCompactTables :: CompactM ()
 dropCompactTables = do
   execNoTemplateM_ "dropCompactTables.0"
-    " DROP TABLE CompactGrandHash; \
-    \ DROP TABLE CompactActiveRow; "
+    "DROP TABLE CompactActiveRow"
 
 compact :: ()
   => TargetBlockHeight
   -> Logger SomeLogMessage
   -> Database
   -> [CompactFlag]
-  -> IO (Maybe ByteString)
+  -> IO ()
 compact tbh logger db flags = runCompactM (CompactEnv logger db flags) $ do
   logg Info "Beginning compaction"
 
-  doGrandHash <- isFlagNotSet NoGrandHash
-
-  withTx $ do
-    createCompactGrandHash
-    createCompactActiveRow
+  withTx createCompactActiveRow
 
   blockHeight <- locateTarget tbh
   txId <- getEndingTxId blockHeight
@@ -567,19 +490,12 @@ compact tbh logger db flags = runCompactM (CompactEnv logger db flags) $ do
 
   versionedTables <- getVersionedTables blockHeight
 
-  gh <- withTx $ do
-    withTables versionedTables $ \tbl -> collectTableRows txId tbl
-    if doGrandHash
-    then Just <$> computeGlobalHash
-    else pure Nothing
+  withTables versionedTables $ \tbl -> collectTableRows txId tbl
 
   withTx $ do
     withTables versionedTables $ \tbl -> do
       compactTable tbl
-      unlessFlagSet NoGrandHash $ void $ verifyTable tbl
-    unlessFlagSet NoDropNewTables $ do
-      logg Info "Dropping new tables"
-      dropNewTables blockHeight
+    dropNewTables blockHeight
     compactSystemTables blockHeight
 
   unlessFlagSet KeepCompactTables $ do
@@ -590,13 +506,25 @@ compact tbh logger db flags = runCompactM (CompactEnv logger db flags) $ do
     logg Info "Vacuum"
     execNoTemplateM_ "VACUUM" "VACUUM;"
 
-  case gh of
-    Just h -> do
-      logg Info $ "Compaction complete, hash=" <> encodeB64Text h
-    Nothing -> do
-      logg Info "Compaction complete"
+  debugLogs <- liftIO $ readIORef queryTimes
+  let -- every query that takes >= 1 second
+      expensiveQueries = List.filter (not . null . snd)
+        $ List.map
+            ( over _2
+                (List.take 10
+                  . List.sortOn (Down . fst)
+                  . List.filter ((>= Chronos.second) . fst)
+                  . Set.toList
+                )
+            )
+        $ M.toList debugLogs.tableQueries
 
-  pure gh
+  forM_ expensiveQueries $ \(tblName, mostWanted) -> do
+    logg Debug $ "Most expensive queries on table " <> fromUtf8 (getTableName tblName)
+    forM_ mostWanted $ \(ts, qryMsg) -> do
+      logg Debug $ "Query " <> qryMsg <> " took " <> Text.pack (show (Chronos.asSeconds ts)) <> "s"
+
+  logg Info "Compaction complete"
 
 data TargetBlockHeight
   = Target !BlockHeight
@@ -663,7 +591,7 @@ main = do
               <> long "pact-database-dir"
               <> metavar "DBDIR"
               <> help "Pact database directory")
-        <*> ((lookupVersionByName . fromTextSilly @ChainwebVersionName) <$> strOption
+        <*> (lookupVersionByName . fromTextSilly @ChainwebVersionName <$> strOption
               (short 'v'
                <> long "graph-version"
                <> metavar "VERSION"
@@ -677,12 +605,6 @@ main = do
                , flag [] [NoVacuum]
                   (long "no-vacuum"
                    <> help "Don't VACUUM database.")
-               , flag [] [NoDropNewTables]
-                  (long "no-drop-new-tables"
-                   <> help "Don't drop new tables.")
-               , flag [] [NoGrandHash]
-                  (long "no-grand-hash"
-                   <> help "Don't compute the compact grand hash.")
                ]
         <*> fmap (fmap Set.fromList . maybeList) (many (unsafeChainId <$> option auto
              (short 'c'
