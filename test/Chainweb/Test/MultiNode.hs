@@ -332,7 +332,7 @@ compactAndResumeTest logLevel v n =
       withSqliteDb cid logger dir False $ \sqlEnv -> do
         C.withDefaultLogger YAL.Warn $ \cLogger -> do
           let cLogger' = over YAL.setLoggerScope (\scope -> ("nodeId",sshow nid) : ("chainId",sshow cid) : scope) cLogger
-          let flags = [C.NoVacuum]
+          let flags = [C.NoVacuum, C.NoGrandHash]
           let db = _sConn sqlEnv
           let bh = BlockHeight 5
           void $ C.compact (C.Target bh) cLogger' db flags

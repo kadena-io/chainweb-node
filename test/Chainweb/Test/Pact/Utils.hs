@@ -1038,7 +1038,7 @@ getLatestPactState db = do
     (PactState.getLatestPactState db)
 
 -- | Compaction utility for testing.
---   Most of the time the flags will be ['C.NoVacuum']
+--   Most of the time the flags will be ['C.NoVacuum', 'C.NoGrandHash']
 compact :: ()
   => LL.LogLevel
   -> [C.CompactFlag]
