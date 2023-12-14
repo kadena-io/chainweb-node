@@ -80,8 +80,7 @@ import Chainweb.Pact.Backend.Compaction qualified as C
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
 import System.Exit (exitFailure)
-import System.Logger (LogLevel(..))
-import System.LogLevel qualified as LL
+import System.LogLevel (LogLevel(..))
 
 import Pact.Types.SQLite (SType(..), RType(..))
 import Pact.Types.SQLite qualified as Pact
@@ -354,27 +353,27 @@ pactDiffMain = do
       sqliteFileExists2 <- doesPactDbExist cid cfg.secondDbDir
 
       if | not sqliteFileExists1 -> do
-             logText LL.Warn $ "[SQLite for chain in " <> Text.pack cfg.firstDbDir <> " doesn't exist. Skipping]"
+             logText Warn $ "[SQLite for chain in " <> Text.pack cfg.firstDbDir <> " doesn't exist. Skipping]"
          | not sqliteFileExists2 -> do
-             logText LL.Warn $ "[SQLite for chain in " <> Text.pack cfg.secondDbDir <> " doesn't exist. Skipping]"
+             logText Warn $ "[SQLite for chain in " <> Text.pack cfg.secondDbDir <> " doesn't exist. Skipping]"
          | otherwise -> do
              let resetDb = False
              withSqliteDb cid logger cfg.firstDbDir resetDb $ \(SQLiteEnv db1 _) -> do
                withSqliteDb cid logger cfg.secondDbDir resetDb $ \(SQLiteEnv db2 _) -> do
-                 logText LL.Info "[Starting diff]"
+                 logText Info "[Starting diff]"
                  let diff = diffLatestPactState (getLatestPactState db1) (getLatestPactState db2)
                  diffy <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
-                   logText LL.Info $ "[Starting table " <> tblName <> "]"
+                   logText Info $ "[Starting table " <> tblName <> "]"
                    d <- S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do
-                     logFunctionJson logger LL.Warn $ rowKeyDiffExistsToObject d
+                     logFunctionJson logger Warn $ rowKeyDiffExistsToObject d
                      pure Difference
-                   logText LL.Info $ "[Finished table " <> tblName <> "]"
+                   logText Info $ "[Finished table " <> tblName <> "]"
                    pure d
 
-                 logText LL.Info $ case diffy of
+                 logText Info $ case diffy of
                    Difference -> "[Non-empty diff]"
                    NoDifference -> "[Empty diff]"
-                 logText LL.Info $ "[Finished chain " <> chainIdToText cid <> "]"
+                 logText Info $ "[Finished chain " <> chainIdToText cid <> "]"
 
                  atomicModifyIORef' diffyRef $ \m -> (M.insert cid diffy m, ())
 
