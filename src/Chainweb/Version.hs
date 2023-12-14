@@ -253,6 +253,7 @@ instance HasTextRepresentation Fork where
     fromText "chainweb219Pact" = return Chainweb219Pact
     fromText "chainweb220Pact" = return Chainweb220Pact
     fromText "chainweb221Pact" = return Chainweb221Pact
+    fromText "chainweb222Pact" = return Chainweb222Pact
     fromText "chainweb223Pact" = return Chainweb223Pact
     fromText t = throwM . TextFormatException $ "Unknown Chainweb fork: " <> t
 

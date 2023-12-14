@@ -774,6 +774,9 @@ instance Arbitrary NetworkId where
 instance Arbitrary ChainId where
     arbitrary = unsafeChainId <$> arbitrary
 
+instance Arbitrary Fork where
+    arbitrary = elements [minBound..maxBound]
+
 instance Arbitrary ChainDatabaseGcConfig where
     arbitrary = elements
         [ GcNone
