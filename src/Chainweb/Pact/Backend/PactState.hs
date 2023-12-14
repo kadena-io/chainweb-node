@@ -1,16 +1,20 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.PactState
@@ -29,30 +33,37 @@
 
 module Chainweb.Pact.Backend.PactState
   ( getPactTableNames
-  , getPactTables
   , getLatestPactState
   , getLatestBlockHeight
 
   , PactRow(..)
   , Table(..)
   , TableDiffable(..)
+  , TableType(..)
 
-  , pactDiffMain
+  , identifyTableType
+  , tableTypeToText
+  , streamQry
+
+    -- Used in tests
+  , getPactTables
+  , checkpointerTables
+  , pactSysTables
+  , compactionTables
+
+  -- main function for tool
+  , main
   )
   where
 
-import Data.IORef (newIORef, readIORef, atomicModifyIORef')
 import Control.Exception (bracket)
 import Control.Monad (forM, forM_, when, void)
+import Control.Monad.Except (ExceptT(..), runExceptT, throwError)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Except (ExceptT(..), runExceptT, throwError)
-import Data.Aeson (ToJSON(..), (.=))
-import Data.Aeson qualified as Aeson
-import Data.Vector (Vector)
-import Data.Vector qualified as Vector
 import Data.ByteString (ByteString)
 import Data.Foldable qualified as F
+import Data.IORef (newIORef, readIORef, atomicModifyIORef')
 import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map (Map)
@@ -60,15 +71,24 @@ import Data.Map.Merge.Strict qualified as Merge
 import Data.Map.Strict qualified as M
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.IO qualified as Text
 import Data.Text.Encoding qualified as Text
+import Data.Text.IO qualified as Text
+import Data.Vector (Vector)
+import Data.Vector qualified as Vector
 import Database.SQLite3.Direct (Utf8(..), Database)
 import Database.SQLite3.Direct qualified as SQL
+import GHC.Show (showCommaSpace)
 import Options.Applicative
+import Prelude hiding (mod)
+import Streaming.Prelude (Stream, Of)
+import Streaming.Prelude qualified as S
+import System.Exit (exitFailure)
+import System.LogLevel qualified as LL
+import System.Logger qualified
 
 import Chainweb.BlockHeight (BlockHeight(..))
-import Chainweb.Logger (logFunctionText, logFunctionJson)
-import Chainweb.Utils (HasTextRepresentation, fromText, toText, int)
+import Chainweb.Logger (logFunctionText)
+import Chainweb.Utils (toText, int)
 import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName, ChainId, chainIdToText)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
@@ -76,23 +96,21 @@ import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
 import Chainweb.Pact.Backend.Compaction qualified as C
+import Chainweb.Pact.Backend.PactState.Utils (inQuotes, doesPactDbExist, fromTextSilly, buildI64)
 
-import System.Directory (doesFileExist)
-import System.FilePath ((</>))
-import System.Exit (exitFailure)
-import System.Logger (LogLevel(..))
-import System.LogLevel qualified as LL
-
+import Pact.JSON.Encode ((.=))
+import Pact.JSON.Encode qualified as J
 import Pact.Types.SQLite (SType(..), RType(..))
 import Pact.Types.SQLite qualified as Pact
-import Streaming.Prelude (Stream, Of)
-import Streaming.Prelude qualified as S
 
-excludedTables :: [Utf8]
-excludedTables = checkpointerTables ++ compactionTables
-  where
-    checkpointerTables = ["BlockHistory", "VersionedTableCreation", "VersionedTableMutation", "TransactionIndex"]
-    compactionTables = ["CompactGrandHash", "CompactActiveRow"]
+checkpointerTables :: [Utf8]
+checkpointerTables = ["BlockHistory", "VersionedTableCreation", "VersionedTableMutation", "TransactionIndex"]
+
+pactSysTables :: [Utf8]
+pactSysTables = ["SYS:KeySets", "SYS:Modules", "SYS:Namespaces", "SYS:Pacts"]
+
+compactionTables :: [Utf8]
+compactionTables = ["CompactGrandHash", "CompactActiveRow"]
 
 getLatestBlockHeight :: Database -> IO BlockHeight
 getLatestBlockHeight db = do
@@ -121,17 +139,15 @@ getPactTableNames db = do
 
 -- | Get all of the rows for each table. The tables will be sorted
 --   lexicographically by name.
-getPactTables :: Database -> Stream (Of Table) IO ()
-getPactTables db = do
-  let fmtTable x = "\"" <> x <> "\""
-
+getPactTables :: [Utf8] -> Database -> Stream (Of Table) IO ()
+getPactTables excludedTables db = do
   tables <- liftIO $ getPactTableNames db
 
   forM_ tables $ \tbl -> do
     if tbl `notElem` excludedTables
     then do
       let qryText = "SELECT rowkey, rowdata, txid FROM "
-            <> fmtTable tbl
+            <> inQuotes tbl
       userRows <- liftIO $ Pact.qry db qryText [] [RText, RBlob, RInt]
       shapedRows <- forM userRows $ \case
         [SText (Utf8 rowKey), SBlob rowData, SInt txId] -> do
@@ -165,21 +181,26 @@ stepStatement stmt rts = runExceptT $ do
   -- maybe use stepNoCB
   ExceptT (liftIO (SQL.step stmt)) >>= acc
 
--- | Prepare/execute query with params
-qry :: ()
+-- | Prepare/execute query with params. Like Pact's 'Pact.qry',
+--   but streams over the rows.
+--
+--   /Note/ This is currently not fully exception-safe; that is acceptable
+--   for now, since this is only called within these cwtool subcommands.
+--   This shouldn't be used transitively by the chainweb-node executable.
+streamQry :: ()
   => Database
   -> Utf8
   -> [SType]
   -> [RType]
   -> (Stream (Of [SType]) IO (Either SQL.Error ()) -> IO x)
   -> IO x
-qry db qryText args returnTypes k = do
+streamQry db qryText args returnTypes k = do
   bracket (Pact.prepStmt db qryText) SQL.finalize $ \stmt -> do
     Pact.bindParams stmt args
     k (stepStatement stmt returnTypes)
 
-getLatestPactState :: Database -> Stream (Of TableDiffable) IO ()
-getLatestPactState db = do
+getLatestPactState :: [Utf8] -> Database -> Stream (Of TableDiffable) IO ()
+getLatestPactState excludedTables db = do
   let fmtTable x = "\"" <> x <> "\""
 
   tables <- liftIO $ getPactTableNames db
@@ -188,7 +209,7 @@ getLatestPactState db = do
     when (tbl `notElem` excludedTables) $ do
       let qryText = "SELECT rowkey, rowdata, txid FROM "
             <> fmtTable tbl
-      latestState <- fmap (M.map (\prc -> prc.rowData)) $ liftIO $ qry db qryText [] [RText, RBlob, RInt] $ \rows -> do
+      latestState <- fmap (M.map (\prc -> prc.rowData)) $ liftIO $ streamQry db qryText [] [RText, RBlob, RInt] $ \rows -> do
         let go :: Map ByteString PactRowContents -> [SType] -> Map ByteString PactRowContents
             go m = \case
               [SText (Utf8 rowKey), SBlob rowData, SInt txId] ->
@@ -244,6 +265,18 @@ data RowKeyDiffExists
     -- ^ The rowkey exists in the same table of both dbs, but the rowdata
     --   differs.
 
+instance J.Encode RowKeyDiffExists where
+  build = \case
+    Old rk -> J.object
+      [ "old" .= Text.decodeUtf8 rk
+      ]
+    New rk -> J.object
+      [ "new" .= Text.decodeUtf8 rk
+      ]
+    Delta rk -> J.object
+      [ "delta" .= Text.decodeUtf8 rk
+      ]
+
 diffTables :: TableDiffable -> TableDiffable -> Stream (Of RowKeyDiffExists) IO ()
 diffTables t1 t2 = do
   void $ Merge.mergeA
@@ -263,24 +296,39 @@ diffTables t1 t2 = do
     t1.rows
     t2.rows
 
-rowKeyDiffExistsToObject :: RowKeyDiffExists -> Aeson.Value
-rowKeyDiffExistsToObject = \case
-  Old rk -> Aeson.object
-    [ "old" .= Text.decodeUtf8 rk
-    ]
-  New rk -> Aeson.object
-    [ "new" .= Text.decodeUtf8 rk
-    ]
-  Delta rk -> Aeson.object
-    [ "delta" .= Text.decodeUtf8 rk
-    ]
+data TableType
+  = Checkpointer -- Compaction code refers to these as system tables
+  | PactSys
+  | Compaction
+  | User
+  | Ix -- ^ index tables, ending in _ix, also `transactionIndexByBH`
+  deriving stock (Eq, Ord, Show)
+
+instance J.Encode TableType where
+  build t = J.text (tableTypeToText t)
+
+identifyTableType :: Utf8 -> TableType
+identifyTableType tbl
+  | tbl `elem` checkpointerTables = Checkpointer
+  | tbl `elem` pactSysTables = PactSys
+  | tbl `elem` compactionTables = Compaction
+  | tbl == "transactionIndexByBH" = Ix
+  | "_ix" `Text.isSuffixOf` fromUtf8 tbl = Ix
+  | otherwise = User
+
+tableTypeToText :: TableType -> Text
+tableTypeToText = \case
+  Checkpointer -> "checkpointer"
+  PactSys -> "pact_sys"
+  Compaction -> "compaction"
+  User -> "user"
+  Ix -> "ix"
 
 -- | A pact table - just its name and its rows.
 data Table = Table
   { name :: Text
   , rows :: [PactRow]
   }
-  deriving stock (Eq, Show)
 
 -- | A diffable pact table - its name and the _active_ pact state
 --   as a Map from RowKey to RowData.
@@ -288,14 +336,18 @@ data TableDiffable = TableDiffable
   { name :: Text
   , rows :: Map ByteString ByteString -- Map RowKey RowData
   }
-  deriving stock (Eq, Ord, Show)
 
 data PactRow = PactRow
   { rowKey :: ByteString
   , rowData :: ByteString
   , txId :: Int64
   }
-  deriving stock (Eq, Show)
+
+instance Eq PactRow where
+  pr1 == pr2 =
+    pr1.txId == pr2.txId
+    && pr1.rowKey == pr2.rowKey
+    && pr2.rowData == pr2.rowData
 
 instance Ord PactRow where
   compare pr1 pr2 =
@@ -303,11 +355,25 @@ instance Ord PactRow where
     <> compare pr1.rowKey pr2.rowKey
     <> compare pr1.rowData pr2.rowData
 
-instance ToJSON PactRow where
-  toJSON pr = Aeson.object
+instance Show PactRow where
+  showsPrec n pr =
+    showParen (n >= 11)
+    $ showString "PactRow {"
+    . showString "txId = "
+    . shows pr.txId
+    . showCommaSpace
+    . showString "rowKey = "
+    . shows pr.rowKey
+    . showCommaSpace
+    . showString "rowData = "
+    . shows pr.rowData
+    . showString "}"
+
+instance J.Encode PactRow where
+  build pr = J.object
     [ "row_key" .= Text.decodeUtf8 pr.rowKey
     , "row_data" .= Text.decodeUtf8 pr.rowData
-    , "tx_id" .= pr.txId
+    , "tx_id" .= buildI64 pr.txId
     ]
 
 data PactRowContents = PactRowContents
@@ -334,8 +400,8 @@ instance Semigroup Diffy where
 instance Monoid Diffy where
   mempty = NoDifference
 
-pactDiffMain :: IO ()
-pactDiffMain = do
+main :: IO ()
+main = do
   cfg <- execParser opts
 
   when (cfg.firstDbDir == cfg.secondDbDir) $ do
@@ -347,7 +413,7 @@ pactDiffMain = do
   diffyRef <- newIORef @(Map ChainId Diffy) M.empty
 
   forM_ cids $ \cid -> do
-    C.withPerChainFileLogger cfg.logDir cid Info $ \logger -> do
+    C.withPerChainFileLogger cfg.logDir cid System.Logger.Info $ \logger -> do
       let logText = logFunctionText logger
 
       sqliteFileExists1 <- doesPactDbExist cid cfg.firstDbDir
@@ -362,11 +428,14 @@ pactDiffMain = do
              withSqliteDb cid logger cfg.firstDbDir resetDb $ \(SQLiteEnv db1 _) -> do
                withSqliteDb cid logger cfg.secondDbDir resetDb $ \(SQLiteEnv db2 _) -> do
                  logText LL.Info "[Starting diff]"
-                 let diff = diffLatestPactState (getLatestPactState db1) (getLatestPactState db2)
+                 let excludedTables = checkpointerTables ++ compactionTables
+                 let diff = diffLatestPactState
+                       (getLatestPactState excludedTables db1)
+                       (getLatestPactState excludedTables db2)
                  diffy <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
                    logText LL.Info $ "[Starting table " <> tblName <> "]"
                    d <- S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do
-                     logFunctionJson logger LL.Warn $ rowKeyDiffExistsToObject d
+                     logText LL.Warn $ J.encodeText d
                      pure Difference
                    logText LL.Info $ "[Finished table " <> tblName <> "]"
                    pure d
@@ -412,17 +481,3 @@ pactDiffMain = do
             <> help "Directory where logs will be placed"
             <> value ".")
 
-fromTextSilly :: HasTextRepresentation a => Text -> a
-fromTextSilly t = case fromText t of
-  Just a -> a
-  Nothing -> error "fromText failed"
-
-doesPactDbExist :: ChainId -> FilePath -> IO Bool
-doesPactDbExist cid dbDir = do
-  let chainDbFileName = mconcat
-        [ "pact-v1-chain-"
-        , Text.unpack (chainIdToText cid)
-        , ".sqlite"
-        ]
-  let file = dbDir </> chainDbFileName
-  doesFileExist file
