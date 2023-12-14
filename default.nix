@@ -40,20 +40,9 @@ let haskellSrc = with nix-filter.lib; filter {
         haskell-language-server = {};
       };
       shell.buildInputs = with pkgs; [
-        gdb
         zlib
         pkgconfig
-        sqlite
-        jq
       ];
-      shell.shellHook = ''
-        function buildShaExt () {
-          gcc -shared -g -fPIC c/shathree.c -o c/shathree.so \
-            -I${pkgs.sqlite.dev.outPath}/include \
-            -L${pkgs.sqlite.dev.outPath}/lib \
-            -lsqlite3
-        }
-      '';
       modules = [
         {
           packages.http2.doHaddock = false;
