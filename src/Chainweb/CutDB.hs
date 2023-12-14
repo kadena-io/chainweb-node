@@ -38,7 +38,6 @@ module Chainweb.CutDB
 , cutDbParamsFetchTimeout
 , cutDbParamsAvgBlockHeightPruningDepth
 , cutDbParamsPruningFrequency
-, cutDbParamsWritingFrequency
 , cutDbParamsReadOnly
 , defaultCutDbParams
 , farAheadThreshold
@@ -172,10 +171,6 @@ data CutDbParams = CutDbParams
     -- (how far back do we expect that a fork can happen)
     , _cutDbParamsPruningFrequency :: !BlockHeight
     -- ^ After how many blocks do we prune cuts (on average)?
-    , _cutDbParamsWritingFrequency :: !BlockHeight
-    -- ^ After how many blocks do we write a cut (on average)?
-    -- should be much less than `blockHeightPruningDepth` or the
-    -- CutHashes table will always be empty.
     , _cutDbParamsReadOnly :: !Bool
     -- ^ Should the cut store be read-only?
     -- Enabled during replay-only mode.
@@ -196,7 +191,6 @@ defaultCutDbParams v ft = CutDbParams
     , _cutDbParamsFastForwardHeightLimit = Nothing
     , _cutDbParamsAvgBlockHeightPruningDepth = 5000
     , _cutDbParamsPruningFrequency = 10000
-    , _cutDbParamsWritingFrequency = 30
     , _cutDbParamsReadOnly = False
     }
   where
@@ -566,7 +560,8 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
                 $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
             unless (_cutDbParamsReadOnly conf) $ do
                 maybePrune rng (cutAvgBlockHeight v curCut)
-                maybeWrite rng resultCut
+                loggc Info newCut "writing cut"
+                casInsert cutHashesStore (cutToCutHashes Nothing resultCut)
             atomically $ writeTVar cutVar resultCut
             loggc Info resultCut "published cut"
             )
@@ -580,12 +575,6 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
         r :: Double <- Prob.uniform rng
         when (r < 1 / int (int (_cutDbParamsPruningFrequency conf) * chainCountAt v maxBound)) $
             pruneCuts logFun v conf curCutAvgBlockHeight cutHashesStore
-
-    maybeWrite rng newCut = do
-        r :: Double <- Prob.uniform rng
-        when (r < 1 / int (int (_cutDbParamsWritingFrequency conf) * chainCountAt v maxBound)) $ do
-            loggc Info newCut "writing cut"
-            casInsert cutHashesStore (cutToCutHashes Nothing newCut)
 
     hdrStore = _webBlockHeaderStoreCas headerStore
 
