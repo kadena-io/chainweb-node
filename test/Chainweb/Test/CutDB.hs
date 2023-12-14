@@ -528,8 +528,7 @@ testCutPruning rdb = testCase "cut pruning" $ do
   where
     alterPruningSettings =
         set cutDbParamsAvgBlockHeightPruningDepth 50 .
-        set cutDbParamsPruningFrequency 1 .
-        set cutDbParamsWritingFrequency 1
+        set cutDbParamsPruningFrequency 1
     minedBlockHeight = 300
 
 testCutGet :: RocksDb -> TestTree
