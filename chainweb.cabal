@@ -362,7 +362,6 @@ library
         , ghc-compact >= 0.1
         , growable-vector >= 0.1
         , hashable >= 1.4
-        , hashes >= 0.2
         , heaps >= 0.3
         , hourglass >=0.2
         , http-client >= 0.5
