@@ -102,6 +102,8 @@ data CompactFlag
     -- ^ Keep compaction tables post-compaction for inspection.
   | NoVacuum
     -- ^ Don't VACUUM database
+  | NoDropNewTables
+    -- ^ Don't drop new tables created after the compaction height.
   | NoGrandHash
     -- ^ Don't compute the grand hash.
   deriving stock (Eq,Show,Read,Enum,Bounded)
@@ -627,7 +629,9 @@ compact tbh logger db flags = runCompactM (CompactEnv logger db flags) $ do
     withTables versionedTables $ \tbl -> do
       compactTable tbl
       unlessFlagSet NoGrandHash $ void $ verifyTable tbl
-    dropNewTables blockHeight
+    unlessFlagSet NoDropNewTables $ do
+      logg Info "Dropping new tables"
+      dropNewTables blockHeight
     compactSystemTables blockHeight
 
   unlessFlagSet KeepCompactTables $ do
@@ -711,7 +715,7 @@ main = do
               <> long "pact-database-dir"
               <> metavar "DBDIR"
               <> help "Pact database directory")
-        <*> (lookupVersionByName . fromTextSilly @ChainwebVersionName <$> strOption
+        <*> ((lookupVersionByName . fromTextSilly @ChainwebVersionName) <$> strOption
               (short 'v'
                <> long "graph-version"
                <> metavar "VERSION"
@@ -725,6 +729,9 @@ main = do
                , flag [] [NoVacuum]
                   (long "no-vacuum"
                    <> help "Don't VACUUM database.")
+               , flag [] [NoDropNewTables]
+                  (long "no-drop-new-tables"
+                   <> help "Don't drop new tables.")
                , flag [] [NoGrandHash]
                   (long "no-grand-hash"
                    <> help "Don't compute the compact grand hash.")
