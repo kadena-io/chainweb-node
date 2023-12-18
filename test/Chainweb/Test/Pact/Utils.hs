@@ -157,7 +157,6 @@ import Streaming.Prelude qualified as S
 import System.Directory
 import System.IO.Temp (createTempDirectory)
 import System.LogLevel
-import System.Logger.Types qualified as LL
 
 import Test.Tasty
 
@@ -1040,7 +1039,7 @@ getLatestPactState db = do
 -- | Compaction utility for testing.
 --   Most of the time the flags will be ['C.NoVacuum']
 compact :: ()
-  => LL.LogLevel
+  => LogLevel
   -> [C.CompactFlag]
   -> SQLiteEnv
   -> C.TargetBlockHeight

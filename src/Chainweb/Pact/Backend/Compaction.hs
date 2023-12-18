@@ -11,6 +11,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
@@ -72,7 +73,7 @@ import System.IO qualified as IO
 import System.IO (Handle)
 
 import Chainweb.BlockHeight (BlockHeight)
-import Chainweb.Logger (setComponent)
+import Chainweb.Logger (l2l, setComponent)
 import Chainweb.Utils (sshow, HasTextRepresentation, fromText, toText, int)
 import Chainweb.Version (ChainId, ChainwebVersion(..), ChainwebVersionName, unsafeChainId, chainIdToText)
 import Chainweb.Version.Mainnet (mainnet)
@@ -81,7 +82,8 @@ import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
 
-import System.Logger
+import "yet-another-logger" System.Logger
+import "loglevel" System.LogLevel qualified as LL
 import System.Logger.Backend.ColorOption (useColor)
 import Data.LogMessage
 
@@ -119,11 +121,11 @@ data CompactEnv = CompactEnv
   }
 makeLenses ''CompactEnv
 
-withDefaultLogger :: LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
+withDefaultLogger :: LL.LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
 withDefaultLogger ll f = withHandleBackend_ logText defaultHandleBackendConfig $ \b ->
-    withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel ll l)
+    withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel (l2l ll) l)
 
-withPerChainFileLogger :: FilePath -> ChainId -> LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
+withPerChainFileLogger :: FilePath -> ChainId -> LL.LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
 withPerChainFileLogger logDir chainId ll f = do
   createDirectoryIfMissing False {- don't create parents -} logDir
   let logFile = logDir </> ("chain-" <> cid <> ".log")
@@ -148,7 +150,7 @@ withPerChainFileLogger logDir chainId ll f = do
     withLogger defaultLoggerConfig b $ \l -> do
       let logger = setComponent "compaction"
             $ over setLoggerScope (("chain", chainIdToText chainId) :)
-            $ set setLoggerLevel ll l
+            $ set setLoggerLevel (l2l ll) l
       a <- f logger
       void $ swapMVar done True
       pure a
@@ -548,7 +550,7 @@ compactAll :: CompactConfig -> IO ()
 compactAll CompactConfig{..} = do
   latestBlockHeightChain0 <- do
     let cid = unsafeChainId 0
-    withDefaultLogger Error $ \logger -> do
+    withDefaultLogger LL.Error $ \logger -> do
       let resetDb = False
       withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) -> do
         runCompactM (CompactEnv logger db []) getLatestBlockHeight
@@ -557,7 +559,7 @@ compactAll CompactConfig{..} = do
   let targetCids = Set.toList $ maybe allCids (Set.intersection allCids) ccChains
 
   flip (pooledMapConcurrentlyN_ ccThreads) targetCids $ \cid -> do
-    withPerChainFileLogger logDir cid Debug $ \logger -> do
+    withPerChainFileLogger logDir cid LL.Debug $ \logger -> do
       let resetDb = False
       withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) -> do
         void $ compact ccBlockHeight logger db ccFlags
