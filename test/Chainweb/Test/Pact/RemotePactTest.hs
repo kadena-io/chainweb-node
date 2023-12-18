@@ -56,7 +56,7 @@ import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import System.Logger.Types (LogLevel(..))
+import System.LogLevel (LogLevel(..))
 
 import Servant.Client
 

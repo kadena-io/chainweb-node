@@ -330,7 +330,7 @@ compactAndResumeTest logLevel v n =
     forM_ nids $ \nid -> do
       let dir = pactDbDir </> show nid
       withSqliteDb cid logger dir False $ \sqlEnv -> do
-        C.withDefaultLogger YAL.Warn $ \cLogger -> do
+        C.withDefaultLogger Warn $ \cLogger -> do
           let cLogger' = over YAL.setLoggerScope (\scope -> ("nodeId",sshow nid) : ("chainId",sshow cid) : scope) cLogger
           let flags = [C.NoVacuum]
           let db = _sConn sqlEnv
