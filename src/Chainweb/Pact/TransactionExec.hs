@@ -108,6 +108,7 @@ import Chainweb.Logger
 import qualified Chainweb.ChainId as Chainweb
 import Chainweb.Mempool.Mempool (requestKeyToTransactionHash)
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
 import Chainweb.Pact.Types hiding (logError)
@@ -155,7 +156,7 @@ applyCmd
       -- ^ Pact logger
     -> Maybe logger
       -- ^ Pact gas logger
-    -> PactDbEnv p
+    -> CurrentBlockDbEnv logger
       -- ^ Pact db environment
     -> Miner
       -- ^ The miner chosen to mine the block
@@ -174,7 +175,7 @@ applyCmd
     -> ApplyCmdExecutionContext
       -- ^ is this a local or send execution context?
     -> IO (T3 (CommandResult [TxLogJson]) ModuleCache (S.Set PactWarning))
-applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 callCtx = do
+applyCmd v logger gasLogger dbEnv miner gasModel txCtx spv cmd initialGas mcache0 callCtx = do
     T2 cr st <- runTransactionM cenv txst applyBuyGas
 
     let cache = _txCache st
@@ -195,7 +196,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
         ++ [ FlagPreserveNsModuleInstallBug | not isModuleNameFix2 ])
       <> flagsFor v (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
 
-    cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
+    cenv = TransactionEnv Transactional (case _cpPactDbEnv dbEnv of PactDbEnv' d -> d) logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
 
     requestKey = cmdToRequestKey cmd
@@ -286,7 +287,7 @@ applyGenesisCmd
     :: (Logger logger)
     => logger
       -- ^ Pact logger
-    -> PactDbEnv p
+    -> CurrentBlockDbEnv logger
       -- ^ Pact db environment
     -> SPVSupport
       -- ^ SPV support (validates cont proofs)
@@ -302,7 +303,7 @@ applyGenesisCmd logger dbEnv spv txCtx cmd =
     rk = cmdToRequestKey cmd
     tenv = TransactionEnv
         { _txMode = Transactional
-        , _txDbEnv = dbEnv
+        , _txDbEnv = case _cpPactDbEnv dbEnv of PactDbEnv' d -> d
         , _txLogger = logger
         , _txGasLogger = Nothing
         , _txPublicData = def
@@ -362,7 +363,7 @@ applyCoinbase
     => ChainwebVersion
     -> logger
       -- ^ Pact logger
-    -> PactDbEnv p
+    -> CurrentBlockDbEnv logger
       -- ^ Pact db environment
     -> Miner
       -- ^ The miner chosen to mine the block
@@ -399,7 +400,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       , S.singleton FlagDisableHistoryInTransactionalMode
       , flagsFor v (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
       ]
-    tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
+    tenv = TransactionEnv Transactional (case _cpPactDbEnv dbEnv of PactDbEnv' d -> d) logger Nothing (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv) mempty
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
@@ -443,7 +444,7 @@ applyLocal
       -- ^ Pact logger
     -> Maybe logger
       -- ^ Pact gas logger
-    -> PactDbEnv p
+    -> CurrentBlockDbEnv logger
       -- ^ Pact db environment
     -> GasModel
       -- ^ Gas model (pact Service config)
@@ -466,7 +467,7 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     signers = _pSigners $ _cmdPayload cmd
     gasPrice = view cmdGasPrice cmd
     gasLimit = view cmdGasLimit cmd
-    tenv = TransactionEnv Local dbEnv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
+    tenv = TransactionEnv Local (case _cpPactDbEnv dbEnv of PactDbEnv' d -> d) logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
            rk (fromIntegral gasLimit) execConfig
     txst = TransactionState mc mempty 0 Nothing gasModel mempty
     gas0 = initialGasOf (_cmdPayload cmdIn)
@@ -487,10 +488,10 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
 
 
 readInitModules
-    :: forall logger p. (Logger logger)
+    :: forall logger. Logger logger
     => logger
       -- ^ Pact logger
-    -> PactDbEnv p
+    -> CurrentBlockDbEnv logger
       -- ^ Pact db environment
     -> TxContext
       -- ^ tx metadata and parent header
@@ -514,7 +515,7 @@ readInitModules logger dbEnv txCtx
     rk = RequestKey chash
     nid = Nothing
     chash = pactInitialHash
-    tenv = TransactionEnv Local dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
+    tenv = TransactionEnv Local (case _cpPactDbEnv dbEnv of PactDbEnv' d -> d) logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
            rk 0 def
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
     interp = defaultInterpreter

@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
@@ -20,7 +21,7 @@
 -- Checkpointer interaction for Pact service.
 --
 module Chainweb.Pact.PactService.Checkpointer
-    (
+    -- (
 
       -- * Checkpointer Batches
       --
@@ -28,9 +29,6 @@ module Chainweb.Pact.PactService.Checkpointer
       -- batch, which ensure proper finalization of checkpointer usage by pact serice
       -- calls.
 
-      withBatch
-    , withBatchIO
-    , withDiscardedBatch
 
     -- * Pact Service Checkpointer
     --
@@ -53,18 +51,18 @@ module Chainweb.Pact.PactService.Checkpointer
     -- is persisted, i.e. is commited as a new block, or is discarded, i.e.
     -- subsequent evaluation are performed the same context as the current one.
     --
-    , withCheckpointerRewind
-    , withReadCheckpointerRewind
-    , withCurrentCheckpointer
-    , withReadCurrentCheckpointer
-    , WithCheckpointerResult(..)
+    -- , withCheckpointerRewind
+    -- , withReadCheckpointerRewind
+    -- , withCurrentCheckpointer
+    -- , withReadCurrentCheckpointer
+    -- , WithCheckpointerResult(..)
 
     -- * Low Level Pact Service Checkpointer Tools
 
-    , withCheckpointerWithoutRewind'
-    , rewindTo
+    -- , withCheckpointerWithoutRewind'
+    ( rewindTo
     , findLatestValidBlock
-    , setParentHeader
+    -- , setParentHeader
     , syncParentHeader
     , getCheckpointer
     , exitOnRewindLimitExceeded
@@ -74,7 +72,7 @@ module Chainweb.Pact.PactService.Checkpointer
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Lens
+import Control.Lens hiding ((:>))
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
@@ -82,8 +80,11 @@ import Control.Monad.State.Strict
 
 import Data.Either
 import Data.IORef
+import Data.Maybe
+import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Void
 
 import GHC.Stack
 
@@ -123,16 +124,11 @@ withPactState
     . (CanReadablePayloadCas tbl, Logger logger)
     => ((forall a . PactServiceM logger tbl a -> IO a) -> IO b)
     -> PactServiceM logger tbl b
-withPactState inner = bracket captureState releaseState $ \ref -> do
+withPactState inner = do
     e <- ask
-    liftIO $ inner $ \act -> mask $ \umask -> do
-        s <- readIORef ref
-        T2 r s' <- umask $ runPactServiceM s e act
-        writeIORef ref s'
-        return r
+    liftIO $ inner $ \act ->
+        runPactServiceM e act
   where
-    captureState = liftIO . newIORef =<< get
-    releaseState = liftIO . readIORef >=> put
 
 exitOnRewindLimitExceeded :: PactServiceM logger tbl a -> PactServiceM logger tbl a
 exitOnRewindLimitExceeded = handle $ \case
@@ -196,190 +192,169 @@ data WithCheckpointerResult a
 --     -> PactServiceM logger tbl a
 -- withCheckpointerWithoutRewind = withCheckpointerWithoutRewind' ReadWriteCheckpointer
 
-withCheckpointerWithoutRewind'
-    :: (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
-    => CheckpointerMode
-    -> Maybe ParentHeader
-        -- ^ block height and hash of the parent header
-    -> Text
-        -- ^ Putative caller
-    -> (PactDbEnv' logger -> PactServiceM logger tbl (WithCheckpointerResult a))
-    -> PactServiceM logger tbl a
-withCheckpointerWithoutRewind' checkpointerMode target caller act = do
-    liftIO $ putStrLn $ "withCheckpointerWithoutRewind'.look at ma checkPointer " ++ (show checkpointerMode)
+-- withCheckpointerWithoutRewind'
+--     :: (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
+--     => Maybe ParentHeader
+--         -- ^ block height and hash of the parent header
+--     -> Text
+--         -- ^ Putative caller
+--     -> (PactDbEnv' logger -> PactServiceM logger tbl (WithCheckpointerResult a))
+--     -> PactServiceM logger tbl a
+-- withCheckpointerWithoutRewind' target caller act = do
+--     -- liftIO $ putStrLn $ "withCheckpointerWithoutRewind'.look at ma checkPointer " ++ (show checkpointerMode)
 
-    checkPointer <- case checkpointerMode of
-        ReadWriteCheckpointer -> getCheckpointer
-        ReadOnlyCheckpointer -> getReadCheckpointer
-    logDebug $ "restoring (with caller " <> caller <> ") " <> sshow target
+--     checkPointer <- getCheckpointer
+--     logDebug $ "restoring (with caller " <> caller <> ") " <> sshow target
 
-    -- check requirement that this must be called within a batch
-    unlessM (asks _psIsBatch) $
-        error $ "Code invariant violation: withCheckpointerRewind called by " <> T.unpack caller <> " outside of batch. Please report this as a bug."
-    -- we allow exactly one nested call of 'withCheckpointer', which is used
-    -- during fastforward in 'rewindTo'.
-    let cpDepth = case checkpointerMode of
-            ReadWriteCheckpointer -> _psCheckpointerDepth
-            ReadOnlyCheckpointer -> _psReadCheckpointerDepth
-    unlessM ((<= 1) <$> asks cpDepth) $ do
-        error $ "Code invariant violation: to many nested calls of withCheckpointerRewind. Please report this as a bug."
+--     undefined
+--     -- case target of
+--     --     Just h -> setParentHeader (caller <> ".withCheckpointerWithoutRewind") h
+--     --     Nothing -> return ()
 
-    case target of
-        Just h -> setParentHeader (caller <> ".withCheckpointerWithoutRewind") h
-        Nothing -> return ()
+--     let
+--         -- cpdepth = case checkpointerMode of
+--         --     ReadWriteCheckpointer -> psCheckpointerDepth
+--         --     ReadOnlyCheckpointer -> psReadCheckpointerDepth
+--     mask $ \restore -> do
+--         cenv <- restore $ liftIO $! _cpRestore checkPointer checkpointerTarget
 
-    let
-        cpdepth = case checkpointerMode of
-            ReadWriteCheckpointer -> psCheckpointerDepth
-            ReadOnlyCheckpointer -> psReadCheckpointerDepth
-    local (over cpdepth succ) $ mask $ \restore -> do
-        cenv <- restore $ liftIO $! _cpRestore checkPointer checkpointerTarget
+--         try (restore (act cenv)) >>= \case
+--             Left !e -> discardTx checkPointer >> throwM @_ @SomeException e
+--             Right (Discard !result) -> tracePactServiceM "withCheckpointerWithoutRewind.discardTx" () 0 (discardTx checkPointer) >> return result
+--             Right (Save header !result) -> tracePactServiceM "withCheckpointerWithoutRewind.saveTx" () 0 (saveTx checkPointer header) >> return result
+--   where
+--     checkpointerTarget = case target of
+--         Nothing -> Nothing
+--         Just (ParentHeader h) -> Just (_blockHeight h + 1, _blockHash h)
+--             -- the second argument of _cpRestore expects the hash of the parent
+--             -- and the height of the parent plus one.
 
-        try (restore (act cenv)) >>= \case
-            Left !e -> discardTx checkPointer >> throwM @_ @SomeException e
-            Right (Discard !result) -> tracePactServiceM "withCheckpointerWithoutRewind.discardTx" () 0 (discardTx checkPointer) >> return result
-            Right (Save header !result) -> tracePactServiceM "withCheckpointerWithoutRewind.saveTx" () 0 (saveTx checkPointer header) >> return result
-  where
-    checkpointerTarget = case target of
-        Nothing -> Nothing
-        Just (ParentHeader h) -> Just (_blockHeight h + 1, _blockHash h)
-            -- the second argument of _cpRestore expects the hash of the parent
-            -- and the height of the parent plus one.
+--     discardTx checkPointer = liftIO $! _cpDiscard checkPointer
 
-    discardTx checkPointer = liftIO $! _cpDiscard checkPointer
+--     saveTx checkPointer !header = do
+--         -- TODO: _cpSave is a complex call. If any thing in there throws
+--         -- an exception it would result in a pending tx.
+--         liftIO $! _cpSave checkPointer $ _blockHash header
+--         -- setParentHeader (caller <> ".withCheckpointerWithoutRewind.saveTx") (ParentHeader header)
 
-    saveTx checkPointer !header = do
-        -- TODO: _cpSave is a complex call. If any thing in there throws
-        -- an exception it would result in a pending tx.
-        liftIO $! _cpSave checkPointer $ _blockHash header
-        modify' $ set psStateValidated (Just header)
-        setParentHeader (caller <> ".withCheckpointerWithoutRewind.saveTx") (ParentHeader header)
+-- -- | 'withCheckpointer' but using the cached parent header for target.
+-- --
+-- withCurrentCheckpointer
+--     :: (CanReadablePayloadCas tbl, Logger logger)
+--     => Text
+--     -> (PactDbEnv' logger -> PactServiceM logger tbl (WithCheckpointerResult a))
+--     -> PactServiceM logger tbl a
+-- withCurrentCheckpointer caller act = do
+--     ph <- syncParentHeader "withCurrentCheckpointer"
+--         -- discover the header for the latest block that is stored in the
+--         -- checkpointer.
+--     withCheckpointerRewind (Just $ RewindLimit 0) (Just ph) caller act
 
--- | 'withCheckpointer' but using the cached parent header for target.
---
-withCurrentCheckpointer
-    :: (CanReadablePayloadCas tbl, Logger logger)
-    => Text
-    -> (PactDbEnv' logger -> PactServiceM logger tbl (WithCheckpointerResult a))
-    -> PactServiceM logger tbl a
-withCurrentCheckpointer caller act = do
-    ph <- syncParentHeader ReadWriteCheckpointer "withCurrentCheckpointer"
-        -- discover the header for the latest block that is stored in the
-        -- checkpointer.
-    withCheckpointerRewind (Just $ RewindLimit 0) (Just ph) caller act
+-- withReadCurrentCheckpointer
+--     :: (CanReadablePayloadCas tbl, Logger logger)
+--     => Text
+--     -> (PactDbEnv' logger -> PactServiceM logger tbl (WithCheckpointerResult a))
+--     -> PactServiceM logger tbl a
+-- withReadCurrentCheckpointer caller act = do
+--     ph <- syncParentHeader "withReadCurrentCheckpointer"
+--         -- discover the header for the latest block that is stored in the
+--         -- checkpointer.
+--     withReadCheckpointerRewind (Just $ RewindLimit 0) (Just ph) caller act
 
-withReadCurrentCheckpointer
-    :: (CanReadablePayloadCas tbl, Logger logger)
-    => Text
-    -> (PactDbEnv' logger -> PactServiceM logger tbl (WithCheckpointerResult a))
-    -> PactServiceM logger tbl a
-withReadCurrentCheckpointer caller act = do
-    ph <- syncParentHeader ReadOnlyCheckpointer "withReadCurrentCheckpointer"
-        -- discover the header for the latest block that is stored in the
-        -- checkpointer.
-    withReadCheckpointerRewind (Just $ RewindLimit 0) (Just ph) caller act
+-- -- | Execute an action in the context of an @Block@ that is provided by the
+-- -- checkpointer. The checkpointer is rewinded and restored to the state to the
+-- -- provided target.
+-- --
+-- -- The result of the inner action indicates whether the resulting checkpointer
+-- -- state should be discarded or saved.
+-- --
+-- -- If the inner action throws an exception the checkpointer state is discarded.
+-- --
+-- withCheckpointerRewind
+--     :: (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
+--     => Maybe RewindLimit
+--         -- ^ if set, limit rewinds to this delta
+--     -> Maybe ParentHeader
+--         -- ^ The parent header to which the checkpointer is restored
+--         --
+--         -- 'Nothing' restores the checkpointer for evaluating the genesis block.
+--         --
+--     -> Text
+--     -> (PactDbEnv' logger -> PactServiceM logger tbl (WithCheckpointerResult a))
+--     -> PactServiceM logger tbl a
+-- withCheckpointerRewind rewindLimit p caller act = do
+--     tracePactServiceM "withCheckpointerRewind.rewindTo" (_parentHeader <$> p) 0 $
+--         rewindTo rewindLimit p
+--         -- This updates '_psParentHeader'
+--     withCheckpointerWithoutRewind' p caller act
 
--- | Execute an action in the context of an @Block@ that is provided by the
--- checkpointer. The checkpointer is rewinded and restored to the state to the
--- provided target.
---
--- The result of the inner action indicates whether the resulting checkpointer
--- state should be discarded or saved.
---
--- If the inner action throws an exception the checkpointer state is discarded.
---
-withCheckpointerRewind
-    :: (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
-    => Maybe RewindLimit
-        -- ^ if set, limit rewinds to this delta
-    -> Maybe ParentHeader
-        -- ^ The parent header to which the checkpointer is restored
-        --
-        -- 'Nothing' restores the checkpointer for evaluating the genesis block.
-        --
-    -> Text
-    -> (PactDbEnv' logger -> PactServiceM logger tbl (WithCheckpointerResult a))
-    -> PactServiceM logger tbl a
-withCheckpointerRewind rewindLimit p caller act = do
-    tracePactServiceM "withCheckpointerRewind.rewindTo" (_parentHeader <$> p) 0 $
-        rewindTo ReadWriteCheckpointer rewindLimit p
-        -- This updates '_psParentHeader'
-    withCheckpointerWithoutRewind' ReadWriteCheckpointer p caller act
-
-withReadCheckpointerRewind
-    :: (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
-    => Maybe RewindLimit
-        -- ^ if set, limit rewinds to this delta
-    -> Maybe ParentHeader
-        -- ^ The parent header to which the checkpointer is restored
-        --
-        -- 'Nothing' restores the checkpointer for evaluating the genesis block.
-        --
-    -> Text
-    -> (PactDbEnv' logger -> PactServiceM logger tbl (WithCheckpointerResult a))
-    -> PactServiceM logger tbl a
-withReadCheckpointerRewind rewindLimit p caller act = do
-    liftIO $ putStrLn "withReadCheckpointerRewind"
-    tracePactServiceM "withCheckpointerRewind.rewindTo" (_parentHeader <$> p) 0 $
-        rewindTo ReadOnlyCheckpointer rewindLimit p
-        -- This updates '_psParentHeader'
-    withCheckpointerWithoutRewind' ReadOnlyCheckpointer p caller act
+-- withReadCheckpointerRewind
+--     :: (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
+--     => Maybe RewindLimit
+--         -- ^ if set, limit rewinds to this delta
+--     -> Maybe ParentHeader
+--         -- ^ The parent header to which the checkpointer is restored
+--         --
+--         -- 'Nothing' restores the checkpointer for evaluating the genesis block.
+--         --
+--     -> Text
+--     -> (PactDbEnv' logger -> PactServiceM logger tbl (WithCheckpointerResult a))
+--     -> PactServiceM logger tbl a
+-- withReadCheckpointerRewind rewindLimit p caller act = do
+--     liftIO $ putStrLn "withReadCheckpointerRewind"
+--     tracePactServiceM "withCheckpointerRewind.rewindTo" (_parentHeader <$> p) 0 $
+--         rewindTo rewindLimit p
+--         -- This updates '_psParentHeader'
+--     withCheckpointerWithoutRewind' p caller act
 
 
--- | Run a batch of checkpointer operations, possibly involving the evaluation
--- transactions accross several blocks using more than a single call of
--- 'withCheckPointerRewind' or 'withCurrentCheckpointer', and persist the final
--- state. In case of an failure, the checkpointer is reverted to the initial
--- state.
---
-withBatch :: CheckpointerMode -> PactServiceM logger tbl a -> PactServiceM logger tbl a
-withBatch checkpointerMode act = do
-    cp <- case checkpointerMode of
-            ReadWriteCheckpointer -> getCheckpointer
-            ReadOnlyCheckpointer -> getReadCheckpointer
-    local (set psIsBatch True) $ mask $ \r -> do
-        liftIO $ _cpBeginCheckpointerBatch cp
-        v <- r act `onException` (liftIO $ _cpDiscardCheckpointerBatch cp)
-        liftIO $ _cpCommitCheckpointerBatch cp
-        return v
+-- -- | Run a batch of checkpointer operations, possibly involving the evaluation
+-- -- transactions accross several blocks using more than a single call of
+-- -- 'withCheckPointerRewind' or 'withCurrentCheckpointer', and persist the final
+-- -- state. In case of an failure, the checkpointer is reverted to the initial
+-- -- state.
+-- --
+-- withBatch :: PactServiceM logger tbl a -> PactServiceM logger tbl a
+-- withBatch act = do
+--     cp <- getCheckpointer
+--     mask $ \r -> do
+--         liftIO $ _cpBeginCheckpointerBatch cp
+--         v <- r act `onException` (liftIO $ _cpDiscardCheckpointerBatch cp)
+--         liftIO $ _cpCommitCheckpointerBatch cp
+--         return v
 
--- | Same as 'withBatch' but in IO, such that it can be used along with
--- 'withPactState'. The same restrictions and precautions apply as for
--- 'withPactState'.
---
-withBatchIO
-    :: forall logger tbl b
-    . (CanReadablePayloadCas tbl, Logger logger)
-    => CheckpointerMode
-    -> (forall a . PactServiceM logger tbl a -> IO a)
-    -> ((forall a . PactServiceM logger tbl a -> IO a) -> IO b)
-    -> IO b
-withBatchIO checkpointerMode runPact act = mask $ \umask -> do
-    cp <- runPact $ case checkpointerMode of
-            ReadWriteCheckpointer -> getCheckpointer
-            ReadOnlyCheckpointer -> getReadCheckpointer
-    _cpBeginCheckpointerBatch cp
-    v <- umask (act runLocalPact) `onException` (_cpDiscardCheckpointerBatch cp)
-    _cpCommitCheckpointerBatch cp
-    return v
-  where
-    runLocalPact :: forall a . PactServiceM logger tbl a -> IO a
-    runLocalPact f = runPact $ local (set psIsBatch True) f
+-- -- | Same as 'withBatch' but in IO, such that it can be used along with
+-- -- 'withPactState'. The same restrictions and precautions apply as for
+-- -- 'withPactState'.
+-- --
+-- withBatchIO
+--     :: forall logger tbl b
+--     . (CanReadablePayloadCas tbl, Logger logger)
+--     => (forall a . PactServiceM logger tbl a -> IO a)
+--     -> ((forall a . PactServiceM logger tbl a -> IO a) -> IO b)
+--     -> IO b
+-- withBatchIO runPact act = mask $ \umask -> do
+--     cp <- runPact getCheckpointer
+--     _cpBeginCheckpointerBatch cp
+--     v <- umask (act runLocalPact) `onException` (_cpDiscardCheckpointerBatch cp)
+--     _cpCommitCheckpointerBatch cp
+--     return v
+--   where
+--     runLocalPact :: forall a . PactServiceM logger tbl a -> IO a
+--     runLocalPact f = runPact f
 
--- | Run a batch of checkpointer operations, possibly involving the evaluation
--- transactions accross several blocks using more than a single call of
--- 'withCheckPointerRewind' or 'withCurrentCheckpointer', and discard the final
--- state at the end.
---
-withDiscardedBatch :: CheckpointerMode -> PactServiceM logger tbl a -> PactServiceM logger tbl a
-withDiscardedBatch checkpointerMode act = do
-    cp <- case checkpointerMode of
-            ReadWriteCheckpointer -> getCheckpointer
-            ReadOnlyCheckpointer -> getReadCheckpointer
-    local (set psIsBatch True) $ bracket_
-        (liftIO $ _cpBeginCheckpointerBatch cp)
-        (liftIO $ _cpDiscardCheckpointerBatch cp)
-        act
+-- -- | Run a batch of checkpointer operations, possibly involving the evaluation
+-- -- transactions accross several blocks using more than a single call of
+-- -- 'withCheckPointerRewind' or 'withCurrentCheckpointer', and discard the final
+-- -- state at the end.
+-- --
+-- withDiscardedBatch :: PactServiceM logger tbl a -> PactServiceM logger tbl a
+-- withDiscardedBatch act = do
+--     cp <- getCheckpointer
+--     bracket_
+--         (liftIO $ _cpBeginCheckpointerBatch cp)
+--         (liftIO $ _cpDiscardCheckpointerBatch cp)
+--         act
 
 -- | INTERNAL FUNCTION. USE 'withCheckpointer' instead.
 --
@@ -405,40 +380,27 @@ withDiscardedBatch checkpointerMode act = do
 rewindTo
     :: forall logger tbl
     . (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
-    => CheckpointerMode
-    -> Maybe RewindLimit
+    => Maybe RewindLimit
         -- ^ if set, limit rewinds to this delta
     -> Maybe ParentHeader
         -- ^ The parent header which is the rewind target
     -> PactServiceM logger tbl ()
-rewindTo _ _ Nothing = return ()
-rewindTo checkpointerMode rewindLimit (Just (ParentHeader parent)) = do
-    let getCheckpointer' = case checkpointerMode of
-            ReadWriteCheckpointer -> getCheckpointer
-            ReadOnlyCheckpointer -> getReadCheckpointer
-
+rewindTo _ Nothing = return ()
+rewindTo rewindLimit (Just (ParentHeader parent)) = do
     -- skip if the checkpointer is already at the target.
-    (_, lastHash) <- getCheckpointer' >>= liftIO . _cpGetLatestBlock >>= \case
+    (_, lastHash) <- getCheckpointer >>= liftIO . _cpGetLatestBlock . _cpReadCp >>= \case
         Nothing -> throwM NoBlockValidatedYet
         Just p -> return p
 
-    if lastHash == parentHash
-      then
-        -- We want to guarantee that '_psParentHeader' is in sync with the
-        -- latest block of the checkpointer at the end of and call to
-        -- 'rewindTo'. In the @else@ branch this is taken care of by the call to
-        -- 'withCheckPointerWithoutRewind'.
-        setParentHeader "rewindTo" (ParentHeader parent)
-      else do
-        lastHeader <- findLatestValidBlock checkpointerMode >>= maybe failNonGenesisOnEmptyDb return
-        logInfo $ "rewind from last to checkpointer target"
-            <> ". last height: " <> sshow (_blockHeight lastHeader)
-            <> "; last hash: " <> blockHashToText (_blockHash lastHeader)
-            <> "; target height: " <> sshow parentHeight
-            <> "; target hash: " <> blockHashToText parentHash
+    lastHeader <- findLatestValidBlock >>= maybe failNonGenesisOnEmptyDb return
+    logInfo $ "rewind from last to checkpointer target"
+        <> ". last height: " <> sshow (_blockHeight lastHeader)
+        <> "; last hash: " <> blockHashToText (_blockHash lastHeader)
+        <> "; target height: " <> sshow parentHeight
+        <> "; target hash: " <> blockHashToText parentHash
 
-        failOnTooLowRequestedHeight parent rewindLimit lastHeader
-        playFork lastHeader
+    failOnTooLowRequestedHeight parent rewindLimit lastHeader
+    playFork lastHeader
 
   where
     parentHeight = _blockHeight parent
@@ -446,18 +408,31 @@ rewindTo checkpointerMode rewindLimit (Just (ParentHeader parent)) = do
 
     failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
 
+    runEmptyStream :: Stream (Of Void) IO r -> IO r
+    runEmptyStream = mapsM_ $ \case
+
+    runUnitStream :: Stream (Of ()) IO r -> IO r
+    runUnitStream = mapsM_ (\(() :> x) -> pure x)
+
     playFork :: BlockHeader -> PactServiceM logger tbl ()
     playFork lastHeader = do
         bhdb <- asks _psBlockHeaderDb
+        payloadDb <- view psPdb
         commonAncestor <- liftIO $ forkEntry bhdb lastHeader parent
+        cp <- view psCheckpointer
         let ancestorHeight = _blockHeight commonAncestor
 
         if commonAncestor == parent
-          then
+          then do
+            liftIO $ void $ _cpRewindAndExtend cp
+                (Just $ ParentHeader commonAncestor)
+                (\_ v -> absurd v :: IO ())
+                (pure ())
+
             -- If no blocks got replayed the checkpointer isn't restored via
             -- 'fastForward'. So we do an empty 'withCheckPointerWithoutRewind'.
-            withCheckpointerWithoutRewind' checkpointerMode (Just $ ParentHeader commonAncestor) "rewindTo" $ \_ ->
-                return $! Save commonAncestor ()
+            -- withCheckpointerWithoutRewind' (Just $ ParentHeader commonAncestor) "rewindTo" $ \_ ->
+            --     return $! Save commonAncestor ()
           else do
             logInfo $ "rewindTo.playFork"
                 <> ": checkpointer is at height: " <> sshow (_blockHeight lastHeader)
@@ -470,44 +445,24 @@ rewindTo checkpointerMode rewindLimit (Just (ParentHeader parent)) = do
             -- from the callback.
             c <- withPactState $ \runPact ->
                 getBranchIncreasing bhdb parent (int ancestorHeight) $ \newBlocks -> do
-                    -- This stream is guaranteed to at least contain @e@.
-                    (h, s) <- fromJuste <$> S.uncons newBlocks
                     heightRef <- newIORef (_blockHeight commonAncestor)
-                    withAsync (heightProgress (_blockHeight commonAncestor) heightRef (logInfo_ logger)) $ \_ ->
-                      s
-                          & S.scanM
-                              (\ !p !c -> runPact (fastForward checkpointerMode (ParentHeader p, c)) >> writeIORef heightRef (_blockHeight c) >> return c)
-                              (return h) -- initial parent
-                              return
-                          & S.length_
+                    (len, ()) <- _cpRewindAndExtend
+                        cp
+                        (Just $ ParentHeader commonAncestor)
+                        (\dbEnv bh -> do
+                            payload <- liftIO $ tableLookup payloadDb (_blockPayloadHash bh) >>= \case
+                                Nothing -> throwM $ PactInternalError
+                                    $ "Checkpointer.rewindTo.fastForward: lookup of payload failed"
+                                    <> ". BlockPayloadHash: " <> encodeToText (_blockPayloadHash bh)
+                                    <> ". Block: "<> encodeToText (ObjectEncoded bh)
+                                Just x -> return $ payloadWithOutputsToPayloadData x
+                            writeIORef heightRef (_blockHeight bh)
+                            void $ runPact $ execBlock bh payload dbEnv
+                            -- double check output hash here?
+                        )
+                        (newBlocks & S.copy & S.length_)
+                    return len
             logInfo $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
-
--- | INTERNAL UTILITY FUNCTION. DON'T EXPORT FROM THIS MODULE.
---
--- Fast forward a block within a 'rewindTo' loop.
---
-fastForward
-    :: forall logger tbl
-    . (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
-    => CheckpointerMode
-    -> (ParentHeader, BlockHeader)
-    -> PactServiceM logger tbl ()
-fastForward checkpointerMode (target, block) =
-    -- This does a restore, i.e. it rewinds the checkpointer back in
-    -- history, if needed.
-    withCheckpointerWithoutRewind' checkpointerMode (Just target) "fastForward" $ \pdbenv -> do
-        payloadDb <- asks _psPdb
-        payload <- liftIO $ tableLookup payloadDb bpHash >>= \case
-            Nothing -> throwM $ PactInternalError
-                $ "Checkpointer.rewindTo.fastForward: lookup of payload failed"
-                <> ". BlockPayloadHash: " <> encodeToText bpHash
-                <> ". Block: "<> encodeToText (ObjectEncoded block)
-            Just x -> return $ payloadWithOutputsToPayloadData x
-        void $ execBlock checkpointerMode block payload pdbenv
-        return $! Save block ()
-    -- double check output hash here?
-  where
-    bpHash = _blockPayloadHash block
 
 -- | Find the latest block stored in the checkpointer for which the respective
 -- block header is available in the block header database.
@@ -520,14 +475,11 @@ fastForward checkpointerMode (target, block) =
 -- header isn't available, the function recursively checks the result of
 -- '_cpGetBlockParent'.
 --
-findLatestValidBlock :: (Logger logger) => CheckpointerMode -> PactServiceM logger tbl (Maybe BlockHeader)
-findLatestValidBlock cpm = getCheckpointer' >>= liftIO . _cpGetLatestBlock >>= \case
+findLatestValidBlock :: (Logger logger) => PactServiceM logger tbl (Maybe BlockHeader)
+findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock . _cpReadCp >>= \case
     Nothing -> return Nothing
     Just (height, hash) -> go height hash
   where
-    getCheckpointer' = case cpm of
-        ReadWriteCheckpointer -> getCheckpointer
-        ReadOnlyCheckpointer -> getReadCheckpointer
 
     go height hash = do
         bhdb <- view psBlockHeaderDb
@@ -536,8 +488,8 @@ findLatestValidBlock cpm = getCheckpointer' >>= liftIO . _cpGetLatestBlock >>= \
                 logInfo $ "Latest block isn't valid."
                     <> " Failed to lookup hash " <> sshow (height, hash) <> " in block header db."
                     <> " Continuing with parent."
-                cp <- getCheckpointer'
-                liftIO (_cpGetBlockParent cp (height, hash)) >>= \case
+                cp <- getCheckpointer
+                liftIO (_cpGetBlockParent (_cpReadCp cp) (height, hash)) >>= \case
                     Nothing -> throwM $ PactInternalError
                         $ "missing block parent of last hash " <> sshow (height, hash)
                     Just predHash -> go (pred height) predHash
@@ -562,16 +514,14 @@ findLatestValidBlock cpm = getCheckpointer' >>= liftIO . _cpGetLatestBlock >>= \
 -- prevented by rewinding on pact service startup to the latest available header
 -- in the block header db.
 --
-syncParentHeader :: (Logger logger) => CheckpointerMode -> Text -> PactServiceM logger tbl ParentHeader
-syncParentHeader checkpointerMode caller = do
-    cp <- case checkpointerMode of
-        ReadWriteCheckpointer -> getCheckpointer
-        ReadOnlyCheckpointer -> getReadCheckpointer
+syncParentHeader :: (Logger logger) => Text -> PactServiceM logger tbl ParentHeader
+syncParentHeader caller = do
+    cp <- getCheckpointer
 
-    liftIO (_cpGetLatestBlock cp) >>= \case
+    liftIO (_cpGetLatestBlock $ _cpReadCp cp) >>= \case
         Nothing -> throwM NoBlockValidatedYet
         Just (h, ph) -> do
-            cur <- _parentHeader <$> use psParentHeader
+            cur <- undefined -- _parentHeader <$> use psParentHeader
             unless (_blockHash cur == ph) $
                 logInfo $ caller <> ".syncParentHeader"
                     <> "; current hash: " <> blockHashToText (_blockHash cur)
@@ -581,7 +531,7 @@ syncParentHeader checkpointerMode caller = do
 
             parent <- ParentHeader
                 <$!> lookupBlockHeader ph (caller <> ".syncParentHeader")
-            setParentHeader (caller <> ".syncParentHeader") parent
+            -- setParentHeader (caller <> ".syncParentHeader") parent
             return parent
 
 -- | Lookup a block header.
@@ -598,14 +548,10 @@ syncParentHeader checkpointerMode caller = do
 --
 lookupBlockHeader :: BlockHash -> Text -> PactServiceM logger tbl BlockHeader
 lookupBlockHeader bhash ctx = do
-    ParentHeader cur <- use psParentHeader
-    if (bhash == _blockHash cur)
-      then return cur
-      else do
-        bhdb <- asks _psBlockHeaderDb
-        liftIO $! lookupM bhdb bhash `catchAllSynchronous` \e ->
-            throwM $ BlockHeaderLookupFailure $
-                "failed lookup of parent header in " <> ctx <> ": " <> sshow e
+    bhdb <- view psBlockHeaderDb
+    liftIO $! lookupM bhdb bhash `catchAllSynchronous` \e ->
+        throwM $ BlockHeaderLookupFailure $
+            "failed lookup of parent header in " <> ctx <> ": " <> sshow e
 
 -- -------------------------------------------------------------------------- --
 -- Incremental rewindTo
@@ -624,37 +570,28 @@ lookupBlockHeader bhash ctx = do
 rewindToIncremental
     :: forall logger tbl
     . (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
-    => CheckpointerMode
-    -> Maybe RewindLimit
+    => Maybe RewindLimit
         -- ^ if set, limit rewinds to this delta
     -> Maybe ParentHeader
         -- ^ The parent header which is the rewind target
     -> PactServiceM logger tbl ()
-rewindToIncremental _ _ Nothing = return ()
-rewindToIncremental checkpointerMode rewindLimit (Just (ParentHeader parent)) = do
+rewindToIncremental _ Nothing = return ()
+rewindToIncremental rewindLimit (Just (ParentHeader parent)) = do
 
     -- skip if the checkpointer is already at the target.
-    (_, lastHash) <- getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
+    (_, lastHash) <- getCheckpointer >>= liftIO . _cpGetLatestBlock . _cpReadCp >>= \case
         Nothing -> throwM NoBlockValidatedYet
         Just p -> return p
 
-    if lastHash == parentHash
-      then
-        -- We want to guarantee that '_psParentHeader' is in sync with the
-        -- latest block of the checkpointer at the end of and call to
-        -- 'rewindTo'. In the @else@ branch this is taken care of by the call to
-        -- 'withCheckPointerWithoutRewind'.
-        setParentHeader "rewindTo" (ParentHeader parent)
-      else do
-        lastHeader <- findLatestValidBlock checkpointerMode >>= maybe failNonGenesisOnEmptyDb return
-        logInfo $ "rewind from last to checkpointer target"
-            <> ". last height: " <> sshow (_blockHeight lastHeader)
-            <> "; last hash: " <> blockHashToText (_blockHash lastHeader)
-            <> "; target height: " <> sshow parentHeight
-            <> "; target hash: " <> blockHashToText parentHash
+    lastHeader <- findLatestValidBlock >>= maybe failNonGenesisOnEmptyDb return
+    logInfo $ "rewind from last to checkpointer target"
+        <> ". last height: " <> sshow (_blockHeight lastHeader)
+        <> "; last hash: " <> blockHashToText (_blockHash lastHeader)
+        <> "; target height: " <> sshow parentHeight
+        <> "; target hash: " <> blockHashToText parentHash
 
-        failOnTooLowRequestedHeight parent rewindLimit lastHeader
-        playFork lastHeader
+    failOnTooLowRequestedHeight parent rewindLimit lastHeader
+    playFork lastHeader
 
   where
     parentHeight = _blockHeight parent
@@ -666,50 +603,83 @@ rewindToIncremental checkpointerMode rewindLimit (Just (ParentHeader parent)) = 
     playFork lastHeader = do
         bhdb <- asks _psBlockHeaderDb
         commonAncestor <- liftIO $ forkEntry bhdb lastHeader parent
+        cp <- view psCheckpointer
+        payloadDb <- view psPdb
         let ancestorHeight = _blockHeight commonAncestor
 
-        if commonAncestor == parent
-          then
-            -- If no blocks got replayed the checkpointer isn't restored via
-            -- 'fastForward'. So we do an empty 'withCheckPointerWithoutRewind'.
-            withBatch checkpointerMode $
-                withCheckpointerWithoutRewind' checkpointerMode (Just $ ParentHeader commonAncestor) "rewindTo" $ \_ ->
-                    return $! Save commonAncestor ()
-          else do
-            logInfo $ "rewindTo.playFork"
-                <> ": checkpointer is at height: " <> sshow (_blockHeight lastHeader)
-                <> ", target height: " <> sshow (_blockHeight parent)
-                <> ", common ancestor height " <> sshow ancestorHeight
+        logInfo $ "rewindTo.playFork"
+            <> ": checkpointer is at height: " <> sshow (_blockHeight lastHeader)
+            <> ", target height: " <> sshow (_blockHeight parent)
+            <> ", common ancestor height " <> sshow ancestorHeight
 
-            logger <- view psLogger
+        logger <- view psLogger
 
-            -- 'getBranchIncreasing' expects an 'IO' callback because it
-            -- maintains an 'TreeDB' iterator. 'withPactState' allows us to call
-            -- pact service actions from the callback.
-            (_ S.:> c) <- withPactState $ \runPact ->
-                getBranchIncreasing bhdb parent (int ancestorHeight) $ \newBlocks -> do
+        c <- withPactState $ \runPact ->
+            getBranchIncreasing bhdb parent (int ancestorHeight) $ \newBlocks -> do
+                heightRef <- newIORef (_blockHeight commonAncestor)
+                bs <- _cpRewindAndExtend
+                    cp
+                    (Just $ ParentHeader commonAncestor)
+                    (\dbEnv bh -> do
+                        payload <- liftIO $ tableLookup payloadDb (_blockPayloadHash bh) >>= \case
+                            Nothing -> throwM $ PactInternalError
+                                $ "Checkpointer.rewindTo.fastForward: lookup of payload failed"
+                                <> ". BlockPayloadHash: " <> encodeToText (_blockPayloadHash bh)
+                                <> ". Block: "<> encodeToText (ObjectEncoded bh)
+                            Just x -> return $ payloadWithOutputsToPayloadData x
+                        writeIORef heightRef (_blockHeight bh)
+                        void $ runPact $ execBlock bh payload dbEnv
+                        -- double check output hash here?
+                    )
+                    newBlocks
+                let c = length bs
+                return c
 
-                    -- fastforwards all blocks in a chunk in a single database
-                    -- transactions (withBatchIO).
-                    let playChunk :: IORef BlockHeight -> BlockHeader -> Stream (Of BlockHeader) IO r -> IO (Of BlockHeader r)
-                        playChunk heightRef cur s = withBatchIO checkpointerMode runPact $ \runPactLocal -> S.foldM
-                            (\c x -> x <$ (runPactLocal (fastForward checkpointerMode (ParentHeader c, x)) >> writeIORef heightRef (_blockHeight c)))
-                            (return cur)
-                            return
+        -- 'getBranchIncreasing' expects an 'IO' callback because it
+        -- maintains an 'TreeDB' iterator. 'withPactState' allows us to call
+        -- pact service actions from the callback.
+        (_ S.:> c) <- withPactState $ \runPact ->
+            getBranchIncreasing bhdb parent (int ancestorHeight) $ \newBlocks -> do
+
+                -- fastforwards all blocks in a chunk in a single database
+                -- transactions (withBatchIO).
+                let playChunk :: IORef BlockHeight -> BlockHeader -> Stream (Of BlockHeader) IO r -> IO (Of BlockHeader r)
+                    playChunk heightRef cur s = do
+                        (r, Last header) <- _cpRewindAndExtend
+                            cp
+                            (Just $ ParentHeader cur)
+                            (\dbEnv bh -> do
+                                payload <- liftIO $ tableLookup payloadDb (_blockPayloadHash bh) >>= \case
+                                    Nothing -> throwM $ PactInternalError
+                                        $ "Checkpointer.rewindTo.fastForward: lookup of payload failed"
+                                        <> ". BlockPayloadHash: " <> encodeToText (_blockPayloadHash bh)
+                                        <> ". Block: "<> encodeToText (ObjectEncoded bh)
+                                    Just x -> return $ payloadWithOutputsToPayloadData x
+                                writeIORef heightRef (_blockHeight bh)
+                                void $ runPact $ execBlock bh payload dbEnv
+                                return $ Last (Just bh)
+                                -- double check output hash here?
+                            )
                             s
+                        return $ fromMaybe cur header :> r
+                            -- \runPactLocal -> S.foldM
+                            -- (\c x -> x <$ (runPactLocal (fastForward (ParentHeader c, x)) >> writeIORef heightRef (_blockHeight c)))
+                            -- (return cur)
+                            -- return
+                            -- s
 
-                    -- This stream is guaranteed to at least contain @e@.
-                    (curHdr, remaining) <- fromJuste <$> S.uncons newBlocks
+                -- This stream is guaranteed to at least contain @e@.
+                (curHdr, remaining) <- fromJuste <$> S.uncons newBlocks
 
-                    heightRef <- newIORef (_blockHeight curHdr)
-                    withAsync (heightProgress (_blockHeight curHdr) heightRef (logInfo_ logger)) $ \_ ->
-                      remaining
-                          & S.copy
-                          & S.length_
-                          & chunksOf 1000
-                          & foldChunksM (playChunk heightRef) curHdr
+                heightRef <- newIORef (_blockHeight curHdr)
+                withAsync (heightProgress (_blockHeight curHdr) heightRef (logInfo_ logger)) $ \_ ->
+                  remaining
+                      & S.copy
+                      & S.length_
+                      & chunksOf 1000
+                      & foldChunksM (playChunk heightRef) curHdr
 
-            logInfo $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
+        logInfo $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
 
 -- -------------------------------------------------------------------------- --
 -- Utils

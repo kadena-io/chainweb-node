@@ -289,6 +289,23 @@ data RequestMsg = NewBlockMsg !NewBlockReq
                 | CloseMsg
                 deriving (Show)
 
+
+-- data RequestMsg = ValidateBlockMsg !ValidateBlockReq
+--                 | SyncToBlockMsg !SyncToBlockReq
+--                 | CloseMsg
+--                 -- ^ Only for testing purposes
+
+-- data ReadRequestMsg
+--   = NewBlockMsg !NewBlockReq
+--   | LocalMsg !LocalReq
+--   | LookupPactTxsMsg !LookupPactTxsReq
+--   | PreInsertCheckMsg !PreInsertCheckReq
+--   | BlockTxHistoryMsg !BlockTxHistoryReq
+--   | HistoricalLookupMsg !HistoricalLookupReq
+--   | ReadCloseMsg
+--   -- ^ Only for testing purposes
+--   deriving (Show)
+
 type PactExMVar t = MVar (Either PactException t)
 
 data NewBlockReq = NewBlockReq

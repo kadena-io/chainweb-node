@@ -24,7 +24,8 @@
 -- Chainweb / Pact Types module for various database backends
 module Chainweb.Pact.Backend.Types
     ( Checkpointer(..)
-    , CheckpointerMode(..)
+    , ReadCheckpointer(..)
+    , CurrentBlockDbEnv(..)
     , Env'(..)
     , EnvPersist'(..)
     , PactDbConfig(..)
@@ -119,9 +120,12 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Service.Types
+import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
+
+import Streaming(Stream, Of)
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
 
@@ -289,39 +293,87 @@ newtype PactDbEnv' logger = PactDbEnv' (PactDbEnv (BlockEnv logger SQLiteEnv))
 
 type ParentHash = BlockHash
 
-data CheckpointerMode = ReadOnlyCheckpointer | ReadWriteCheckpointer deriving (Eq, Show)
+data ReadCheckpointer logger = ReadCheckpointer
+  { _cpReadFrom ::
+    !(forall a. Maybe (BlockHeight, ParentHash) ->
+      (CurrentBlockDbEnv logger -> IO a) -> IO a)
+    -- ^ fetch a block environment which
+    -- ^ prerequisite: (BlockHeight - 1, ParentHash) is a direct ancestor of
+    -- the "latest block"
+  , _cpGetEarliestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
+    -- ^ get the checkpointer's idea of the earliest block. The block height
+    --   is the height of the block of the block hash.
+  , _cpGetLatestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
+    -- ^ get the checkpointer's idea of the latest block. The block height is
+    -- is the height of the block of the block hash.
+    --
+    -- TODO: Under which circumstances does this return 'Nothing'?
+  , _cpLookupBlockInCheckpointer :: !((BlockHeight, BlockHash) -> IO Bool)
+    -- ^ is the checkpointer aware of the given block?
+  , _cpGetBlockParent :: !((BlockHeight, BlockHash) -> IO (Maybe BlockHash))
+  }
 
 data Checkpointer logger = Checkpointer
-    {
-      _cpRestore :: !(Maybe (BlockHeight, ParentHash) -> IO (PactDbEnv' logger))
-      -- ^ prerequisite: (BlockHeight - 1, ParentHash) is a direct ancestor of
-      -- the "latest block"
-    , _cpSave :: !(BlockHash -> IO ())
-      -- ^ commits pending modifications to block, with the given blockhash
-    , _cpDiscard :: !(IO ())
-      -- ^ discard pending block changes
-    , _cpGetLatestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
-      -- ^ get the checkpointer's idea of the latest block. The block height is
-      -- is the height of the block of the block hash.
-      --
-      -- TODO: Under which circumstances does this return 'Nothing'?
+  { _cpRewindAndExtend ::
+    !(forall blk m r. Monoid m => Maybe ParentHeader ->
+      (CurrentBlockDbEnv logger -> blk -> IO m) ->
+      Stream (Of blk) IO r -> IO (r, m))
+  -- ^ rewind to the parent header, extend the chain with new blocks, and save
+  -- the results to the database if successful.
+  -- prerequisite: (BlockHeight - 1, ParentHash) is a direct ancestor of
+  -- the "latest block"
+  -- ^ synchronize the chain with an existing block, deleting any later state.
+  , _cpReadCp :: !(ReadCheckpointer logger)
+  -- ^ access all read-only operations of the checkpointer.
+  }
 
-    , _cpBeginCheckpointerBatch :: !(IO ())
-    , _cpCommitCheckpointerBatch :: !(IO ())
-    , _cpDiscardCheckpointerBatch :: !(IO ())
-    , _cpLookupBlockInCheckpointer :: !((BlockHeight, BlockHash) -> IO Bool)
-      -- ^ is the checkpointer aware of the given block?
-    , _cpGetBlockParent :: !((BlockHeight, BlockHash) -> IO (Maybe BlockHash))
+data CurrentBlockDbEnv logger = ReadDbEnv
+    { _cpPactDbEnv :: !(PactDbEnv' logger)
     , _cpRegisterProcessedTx :: !(P.PactHash -> IO ())
-
     , _cpLookupProcessedTx ::
-        !(Maybe ConfirmationDepth -> Vector P.PactHash -> IO (HashMap P.PactHash (T2 BlockHeight BlockHash)))
+        !(Maybe BlockHeight -> Vector P.PactHash -> IO (HashMap P.PactHash (T2 BlockHeight BlockHash)))
     , _cpGetBlockHistory ::
-        !(BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory)
+        !(Domain RowKey RowData -> IO BlockTxHistory)
     , _cpGetHistoricalLookup ::
-        !(BlockHeader -> Domain RowKey RowData -> RowKey -> IO (Maybe (TxLog RowData)))
-    , _cpLogger :: !logger
+        !(Domain RowKey RowData -> RowKey -> IO (Maybe (TxLog RowData)))
+    , _cpReadLogger :: !logger
     }
+
+makeLenses ''Checkpointer
+makeLenses ''ReadCheckpointer
+makeLenses ''CurrentBlockDbEnv
+
+-- data Checkpointer logger = Checkpointer
+--     {
+--       _cpRestore :: !(Maybe (BlockHeight, ParentHash) -> IO (PactDbEnv' logger))
+--       -- ^ prerequisite: (BlockHeight - 1, ParentHash) is a direct ancestor of
+--       -- the "latest block"
+--     , _cpSave :: !(BlockHash -> IO ())
+--       -- ^ commits pending modifications to block, with the given blockhash
+--     , _cpDiscard :: !(IO ())
+--       -- ^ discard pending block changes
+--     , _cpGetLatestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
+--       -- ^ get the checkpointer's idea of the latest block. The block height is
+--       -- is the height of the block of the block hash.
+--       --
+--       -- TODO: Under which circumstances does this return 'Nothing'?
+
+--     , _cpBeginCheckpointerBatch :: !(IO ())
+--     , _cpCommitCheckpointerBatch :: !(IO ())
+--     , _cpDiscardCheckpointerBatch :: !(IO ())
+--     , _cpLookupBlockInCheckpointer :: !((BlockHeight, BlockHash) -> IO Bool)
+--       -- ^ is the checkpointer aware of the given block?
+--     , _cpGetBlockParent :: !((BlockHeight, BlockHash) -> IO (Maybe BlockHash))
+--     , _cpRegisterProcessedTx :: !(P.PactHash -> IO ())
+
+--     , _cpLookupProcessedTx ::
+--         !(Maybe ConfirmationDepth -> Vector P.PactHash -> IO (HashMap P.PactHash (T2 BlockHeight BlockHash)))
+--     , _cpGetBlockHistory ::
+--         !(BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory)
+--     , _cpGetHistoricalLookup ::
+--         !(BlockHeader -> Domain RowKey RowData -> RowKey -> IO (Maybe (TxLog RowData)))
+--     , _cpLogger :: !logger
+--     }
 
 newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
   deriving newtype (Eq, Ord, Bits, Num)

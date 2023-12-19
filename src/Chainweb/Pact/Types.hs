@@ -73,7 +73,6 @@ module Chainweb.Pact.Types
   , PactServiceEnv(..)
   , psMempoolAccess
   , psCheckpointer
-  , psReadCheckpointer
   , psPdb
   , psBlockHeaderDb
   , psGasModel
@@ -86,14 +85,9 @@ module Chainweb.Pact.Types
   , psLogger
   , psGasLogger
   , psAllowReadsInLocal
-  , psIsBatch
-  , psCheckpointerDepth
-  , psReadCheckpointerDepth
   , psBlockGasLimit
-  , psChainId
 
   , getCheckpointer
-  , getReadCheckpointer
 
     -- * TxContext
   , TxContext(..)
@@ -103,14 +97,13 @@ module Chainweb.Pact.Types
   , ctxCurrentBlockHeight
   , ctxChainId
   , ctxVersion
-  , getTxContext
+  -- , getTxContext
 
     -- * Pact Service State
-  , PactServiceState(..)
-  , psStateValidated
-  , psInitCache
-  , psParentHeader
-  , psSpvSupport
+  -- , PactServiceState(..)
+  -- , psStateValidated
+  -- , psInitCache
+  -- , psParentHeader
 
   -- * Module cache
   , ModuleCache(..)
@@ -119,14 +112,12 @@ module Chainweb.Pact.Types
   , moduleCacheFromHashMap
   , moduleCacheKeys
   , ModuleInitCache
-  , getInitCache
-  , updateInitCache
+  -- , getInitCache
+  -- , updateInitCache
 
     -- * Pact Service Monad
   , PactServiceM(..)
   , runPactServiceM
-  , evalPactServiceM
-  , execPactServiceM
 
     -- * Logging with Pact logger
 
@@ -414,7 +405,6 @@ data TxContext = TxContext
 data PactServiceEnv logger tbl = PactServiceEnv
     { _psMempoolAccess :: !(Maybe MemPoolAccess)
     , _psCheckpointer :: !(Checkpointer logger)
-    , _psReadCheckpointer :: !(Checkpointer logger)
     , _psPdb :: !(PayloadDb tbl)
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: !(TxContext -> GasModel)
@@ -431,19 +421,7 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psLogger :: !logger
     , _psGasLogger :: !(Maybe logger)
 
-    -- The following two fields are used to enforce invariants for using the
-    -- checkpointer. These would better be enforced on the type level. But that
-    -- would require changing many function signatures and is postponed for now.
-    --
-    -- DO NOT use these fields if you don't know what they do!
-    --
-    , _psIsBatch :: !Bool
-        -- ^ True when within a `withBatch` or `withDiscardBatch` call.
-    , _psCheckpointerDepth :: !Int
-        -- ^ Number of nested checkpointer calls
-    , _psReadCheckpointerDepth :: !Int
     , _psBlockGasLimit :: !GasLimit
-    , _psChainId :: !ChainId
     }
 makeLenses ''PactServiceEnv
 
@@ -523,13 +501,18 @@ defaultOnFatalError lf pex t = do
 
 type ModuleInitCache = M.Map BlockHeight ModuleCache
 
-data PactServiceState = PactServiceState
-    { _psStateValidated :: !(Maybe BlockHeader)
-    , _psInitCache :: !ModuleInitCache
-    , _psParentHeader :: !ParentHeader
-    , _psSpvSupport :: !SPVSupport
-    }
-makeLenses ''PactServiceState
+data PactBlockEnv logger tbl = PactBlockEnv
+  { _pactServiceEnv :: PactServiceEnv logger tbl
+  , _pactParentHeader :: !ParentHeader
+  , _psInitCache :: !ModuleInitCache
+  }
+
+
+-- data PactServiceState = PactServiceState
+--     { _psInitCache :: !ModuleInitCache
+--     , _psParentHeader :: !ParentHeader
+--     }
+-- makeLenses ''PactServiceState
 
 tracePactServiceM :: (Logger logger, ToJSON param) => Text -> param -> Int -> PactServiceM logger tbl a -> PactServiceM logger tbl a
 tracePactServiceM label param weight a = tracePactServiceM' label param (const weight) a
@@ -537,37 +520,34 @@ tracePactServiceM label param weight a = tracePactServiceM' label param (const w
 tracePactServiceM' :: (Logger logger, ToJSON param) => Text -> param -> (a -> Int) -> PactServiceM logger tbl a -> PactServiceM logger tbl a
 tracePactServiceM' label param calcWeight a = do
     e <- ask
-    s <- get
-    T2 r s' <- liftIO $ trace' (logJsonTrace_ (_psLogger e)) label param (calcWeight . sfst) (runPactServiceM s e a)
-    put s'
-    return r
+    liftIO $ trace' (logJsonTrace_ (_psLogger e)) label param calcWeight (runPactServiceM e a)
 
--- | Look up an init cache that is stored at or before the height of the current parent header.
-getInitCache :: PactServiceM logger tbl ModuleCache
-getInitCache = get >>= \PactServiceState{..} ->
-    case M.lookupLE (pbh _psParentHeader) _psInitCache of
-      Just (_,mc) -> return mc
-      Nothing -> return mempty
-  where
-    pbh = _blockHeight . _parentHeader
+-- -- | Look up an init cache that is stored at or before the height of the current parent header.
+-- getInitCache :: PactServiceM logger tbl ModuleCache
+-- getInitCache = get >>= \PactServiceState{..} ->
+--     case M.lookupLE (pbh _psParentHeader) _psInitCache of
+--       Just (_,mc) -> return mc
+--       Nothing -> return mempty
+--   where
+--     pbh = _blockHeight . _parentHeader
 
--- | Update init cache at adjusted parent block height (APBH).
--- Contents are merged with cache found at or before APBH.
--- APBH is 0 for genesis and (parent block height + 1) thereafter.
-updateInitCache :: ModuleCache -> PactServiceM logger tbl ()
-updateInitCache mc = get >>= \PactServiceState{..} -> do
-    let bf 0 = 0
-        bf h = succ h
-        pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
+-- -- | Update init cache at adjusted parent block height (APBH).
+-- -- Contents are merged with cache found at or before APBH.
+-- -- APBH is 0 for genesis and (parent block height + 1) thereafter.
+-- updateInitCache :: ModuleCache -> PactServiceM logger tbl ()
+-- updateInitCache mc = get >>= \PactServiceState{..} -> do
+--     let bf 0 = 0
+--         bf h = succ h
+--         pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
 
-    v <- view psVersion
+--     v <- view psVersion
 
-    psInitCache .= case M.lookupLE pbh _psInitCache of
-      Nothing -> M.singleton pbh mc
-      Just (_,before)
-        | cleanModuleCache v (_chainId $ _psParentHeader) pbh ->
-          M.insert pbh mc _psInitCache
-        | otherwise -> M.insert pbh (before <> mc) _psInitCache
+--     psInitCache .= case M.lookupLE pbh _psInitCache of
+--       Nothing -> M.singleton pbh mc
+--       Just (_,before)
+--         | cleanModuleCache v (_chainId $ _psParentHeader) pbh ->
+--           M.insert pbh mc _psInitCache
+--         | otherwise -> M.insert pbh (before <> mc) _psInitCache
 
 -- | Convert context to datatype for Pact environment.
 --
@@ -622,17 +602,15 @@ ctxVersion :: TxContext -> ChainwebVersion
 ctxVersion = _chainwebVersion . ctxBlockHeader
 
 -- | Assemble tx context from transaction metadata and parent header.
-getTxContext :: PublicMeta -> PactServiceM logger tbl TxContext
-getTxContext pm = use psParentHeader >>= \ph -> return (TxContext ph pm)
-
+-- getTxContext :: PublicMeta -> PactServiceM logger tbl TxContext
+-- getTxContext pm = use psParentHeader >>= \ph -> return (TxContext ph pm)
 
 newtype PactServiceM logger tbl a = PactServiceM
   { _unPactServiceM ::
-       ReaderT (PactServiceEnv logger tbl) (StateT PactServiceState IO) a
+       ReaderT (PactServiceEnv logger tbl) IO a
   } deriving newtype
     ( Functor, Applicative, Monad
     , MonadReader (PactServiceEnv logger tbl)
-    , MonadState PactServiceState
     , MonadThrow, MonadCatch, MonadMask
     , MonadIO
     )
@@ -642,43 +620,14 @@ newtype PactServiceM logger tbl a = PactServiceM
 -- final program state
 --
 runPactServiceM
-    :: PactServiceState
-    -> PactServiceEnv logger tbl
-    -> PactServiceM logger tbl a
-    -> IO (T2 a PactServiceState)
-runPactServiceM st env act
-    = view (from _T2)
-    <$> runStateT (runReaderT (_unPactServiceM act) env) st
-
-
--- | Run a 'PactServiceM' computation given some initial
--- reader and state values, discarding final state
---
-evalPactServiceM
-    :: PactServiceState
-    -> PactServiceEnv logger tbl
+    :: PactServiceEnv logger tbl
     -> PactServiceM logger tbl a
     -> IO a
-evalPactServiceM st env act
-    = evalStateT (runReaderT (_unPactServiceM act) env) st
-
--- | Run a 'PactServiceM' computation given some initial
--- reader and state values, discarding final state
---
-execPactServiceM
-    :: PactServiceState
-    -> PactServiceEnv logger tbl
-    -> PactServiceM logger tbl a
-    -> IO PactServiceState
-execPactServiceM st env act
-    = execStateT (runReaderT (_unPactServiceM act) env) st
-
+runPactServiceM env act
+    = runReaderT (_unPactServiceM act) env
 
 getCheckpointer :: PactServiceM logger tbl (Checkpointer logger)
 getCheckpointer = view psCheckpointer
-
-getReadCheckpointer :: PactServiceM logger tbl (Checkpointer logger)
-getReadCheckpointer = view psReadCheckpointer
 
 -- -------------------------------------------------------------------------- --
 -- Pact Logger

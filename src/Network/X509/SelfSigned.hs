@@ -723,7 +723,7 @@ certificateCache query = ValidationCache queryCallback (\_ _ _ -> return ())
 isCertificateMismatchException :: HttpException -> Bool
 isCertificateMismatchException (HttpExceptionRequest _ (InternalException e)) =
     case fromException e of
-        Just (HandshakeFailed (Error_Protocol (_msg, _, CertificateUnknown))) -> True
+        Just (HandshakeFailed (Error_Protocol _ CertificateUnknown)) -> True
         _ -> False
     -- _msg looks something like:
     --

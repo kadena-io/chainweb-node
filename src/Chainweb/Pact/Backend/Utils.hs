@@ -156,10 +156,10 @@ callDb callerName action = do
     Left err -> internalError $ "callDb (" <> callerName <> "): " <> sshow err
     Right r -> return r
 
-withSavepoint
-    :: SavepointName
-    -> BlockHandler logger SQLiteEnv a
-    -> BlockHandler logger SQLiteEnv a
+-- withSavepoint
+--     :: SavepointName
+--     -> BlockHandler logger SQLiteEnv a
+--     -> BlockHandler logger SQLiteEnv a
 withSavepoint name action = mask $ \resetMask -> do
     resetMask $ beginSavepoint name
     go resetMask `catches` handlers
