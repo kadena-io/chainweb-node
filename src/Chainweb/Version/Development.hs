@@ -112,5 +112,5 @@ devnet = ChainwebVersion
         { _disablePeerValidation = True
         , _disableMempoolSync = False
         }
-    , _versionVerifierPlugins = AllChains $ End $ mempty
+    , _versionVerifierPluginNames = AllChains $ End $ mempty
     }

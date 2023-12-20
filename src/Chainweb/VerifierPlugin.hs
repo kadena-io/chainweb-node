@@ -25,12 +25,12 @@ import Data.Set(Set)
 import qualified Data.Set as Set
 import Data.Text(Text)
 
-import Chainweb.Transaction
-
 import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.PactValue
 import Pact.Types.Verifier
+
+import Chainweb.Transaction
 
 data VerifierError = VerifierError Text
     deriving stock Show
@@ -40,7 +40,7 @@ data ShouldRunVerifierPlugins = RunVerifierPlugins | DoNotRunVerifierPlugins
 
 newtype VerifierPlugin
     = VerifierPlugin
-    { runVerifierPlugin :: ChainwebTransaction -> [PactValue] -> Set SigCapability -> IO ()
+    { runVerifierPlugin :: [PactValue] -> Set SigCapability -> Either VerifierError ()
     }
     deriving newtype NFData
 
@@ -51,7 +51,9 @@ runVerifierPlugins allVerifiers tx =
         Merge.dropMissing
         (Merge.zipWithAMatched $ \_vn argsAndCaps verifierPlugin ->
             for_ argsAndCaps $ \(args, caps) ->
-                runVerifierPlugin verifierPlugin tx args caps
+                case runVerifierPlugin verifierPlugin args caps of
+                    Left err -> throwIO err
+                    Right () -> return ()
             )
         usedVerifiers
         allVerifiers

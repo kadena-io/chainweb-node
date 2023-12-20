@@ -63,7 +63,7 @@ module Chainweb.Version
     , versionName
     , versionWindow
     , versionGenesis
-    , versionVerifierPlugins
+    , versionVerifierPluginNames
     , genesisBlockPayload
     , genesisBlockPayloadHash
     , genesisBlockTarget
@@ -134,7 +134,7 @@ import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import Data.Map.Strict(Map)
+import Data.Set(Set)
 import Data.Proxy
 import qualified Data.Text as T
 import Data.Word
@@ -157,7 +157,6 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Utils.Serialization
-import Chainweb.VerifierPlugin
 
 import Data.Singletons
 
@@ -370,7 +369,7 @@ data ChainwebVersion
         -- ^ Whether to disable any core functionality.
     , _versionDefaults :: VersionDefaults
         -- ^ Version-specific defaults that can be overridden elsewhere.
-    , _versionVerifierPlugins :: ChainMap (Rule BlockHeight (Map T.Text VerifierPlugin))
+    , _versionVerifierPluginNames :: ChainMap (Rule BlockHeight (Set T.Text))
         -- ^ Verifier plugins that can be run to verify transaction contents.
     }
     deriving stock (Generic)
@@ -395,6 +394,7 @@ instance Ord ChainwebVersion where
         -- genesis cannot be ordered because Payload in Pact cannot be ordered
         -- , _versionGenesis v `compare` _versionGenesis v'
         , _versionCheats v `compare` _versionCheats v'
+        , _versionVerifierPluginNames v `compare` _versionVerifierPluginNames v'
         ]
 
 instance Eq ChainwebVersion where

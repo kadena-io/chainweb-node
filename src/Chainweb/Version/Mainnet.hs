@@ -204,5 +204,5 @@ mainnet = ChainwebVersion
         { _disablePeerValidation = False
         , _disableMempoolSync = False
         }
-    , _versionVerifierPlugins = AllChains $ End $ mempty
+    , _versionVerifierPluginNames = AllChains $ End $ mempty
     }
