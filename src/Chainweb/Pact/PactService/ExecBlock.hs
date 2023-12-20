@@ -141,7 +141,7 @@ execBlock currHeader plData pdbenv = do
     -- prop_tx_ttl_validate
     valids <- liftIO $ V.zip trans <$>
         validateChainwebTxs logger v cid cp txValidationTime
-            (_blockHeight currHeader) trans skipDebitGas
+            (_blockHeight currHeader) trans skipDebitGas RunVerifierPlugins
 
     case foldr handleValids [] valids of
       [] -> return ()
@@ -211,8 +211,9 @@ validateChainwebTxs
         -- ^ Current block height
     -> Vector ChainwebTransaction
     -> RunGas
+    -> ShouldRunVerifierPlugins
     -> IO ValidateTxs
-validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
+validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas shouldRunVerifierPlugins
   | bh == genesisHeight v cid = pure $! V.map Right txs
   | V.null txs = pure V.empty
   | otherwise = go
@@ -265,11 +266,13 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
     allVerifiers = verifiersAt v cid bh
 
     checkVerifiers :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
-    checkVerifiers t =
-      (Right t <$ runVerifierPlugins allVerifiers t) `catches`
-        [ Handler $ \(ex :: SomeAsyncException) -> throwM ex
-        , Handler $ \(_ :: SomeException) -> return $ Left InsertErrorInvalidVerifiers
-        ]
+    checkVerifiers t = case shouldRunVerifierPlugins of
+      DoNotRunVerifierPlugins -> return (Right t)
+      RunVerifierPlugins ->
+        (Right t <$ runVerifierPlugins allVerifiers t) `catches`
+          [ Handler $ \(ex :: SomeAsyncException) -> throwM ex
+          , Handler $ \(_ :: SomeException) -> return $ Left InsertErrorInvalidVerifiers
+          ]
 
     initTxList :: ValidateTxs
     initTxList = V.map Right txs

@@ -1092,7 +1092,7 @@ managedNamespacePolicy = SmartNamespacePolicy False
 -- | Builder for "magic" capabilities given a magic cap name
 --
 mkMagicCapSlot :: Text -> CapSlot SigCapability
-mkMagicCapSlot c = CapSlot CapCallStack False cap []
+mkMagicCapSlot c = CapSlot CapCallStack cap []
   where
     mn = ModuleName "coin" Nothing
     fqn = QualifiedName mn c def

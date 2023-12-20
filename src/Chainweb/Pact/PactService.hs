@@ -105,6 +105,7 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (lookupM, seekAncestor)
 import Chainweb.Utils hiding (check)
+import Chainweb.VerifierPlugin
 import Chainweb.Version
 import Chainweb.Version.Guards
 import Utils.Logging.Trace
@@ -525,7 +526,7 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
             results <- do
                 let v = _chainwebVersion psEnv
                     cid = _chainId psEnv
-                validateChainwebTxs logger v cid cp parentTime bhi txs return
+                validateChainwebTxs logger v cid cp parentTime bhi txs return RunVerifierPlugins
 
             V.forM results $ \case
                 Right _ -> return True
@@ -868,7 +869,7 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ withDiscardedBat
       let v = _chainwebVersion psEnv
           cid = _chainId psEnv
           timeoutLimit = fromIntegral $ (\(Micros n) -> n) $ _psPreInsertCheckTimeout psEnv
-          act = validateChainwebTxs logger v cid cp parentTime currHeight txs (runGas pdb psState psEnv)
+          act = validateChainwebTxs logger v cid cp parentTime currHeight txs (runGas pdb psState psEnv) DoNotRunVerifierPlugins
 
       fmap Discard $ liftIO $ timeout timeoutLimit act >>= \case
         Just r -> pure r

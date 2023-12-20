@@ -5,7 +5,12 @@
 {-# language TupleSections #-}
 {-# language TypeApplications #-}
 
-module Chainweb.VerifierPlugin(VerifierPlugin(..), VerifierError(..), runVerifierPlugins) where
+module Chainweb.VerifierPlugin
+    ( VerifierPlugin(..)
+    , VerifierError(..)
+    , runVerifierPlugins
+    , ShouldRunVerifierPlugins(..)
+    ) where
 
 import Control.DeepSeq
 import Control.Exception.Safe(Exception, throwIO)
@@ -30,6 +35,8 @@ import Pact.Types.Verifier
 data VerifierError = VerifierError Text
     deriving stock Show
 instance Exception VerifierError
+
+data ShouldRunVerifierPlugins = RunVerifierPlugins | DoNotRunVerifierPlugins
 
 newtype VerifierPlugin
     = VerifierPlugin
