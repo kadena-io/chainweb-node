@@ -131,6 +131,7 @@ tests = testGroup testName
   , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
   , test generousConfig getGasModel "pact49UpgradeTest" pact49UpgradeTest
   , test generousConfig getGasModel "pact410UpgradeTest" pact410UpgradeTest
+  , test generousConfig getGasModel "verifierTest" verifierTest
   ]
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
@@ -1206,6 +1207,15 @@ pact410UpgradeTest = do
     mkKeyEnvData :: String -> Value
     mkKeyEnvData key = object [ "k" .= [key] ]
 
+verifierTest :: PactTestM ()
+verifierTest = do
+  runToHeight 118
+
+  runBlockTest
+    [ PactTxTest
+        (buildBasic (mkExec' "(enforce-verifier 'trivial)"))
+        (assertTxFailure "Should not resolve enforce-verifier" "Cannot resolve enforce-verifier")
+    ]
 
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
