@@ -36,20 +36,14 @@ module Chainweb.Pact.Backend.Compaction
   , withPerChainFileLogger
 
     -- * Used in tests
-  , transactionIndexKeepDepth
+  , defaultTransactionIndexKeepDepth
   ) where
 
 import Chronos qualified
-import Control.Lens (_2)
-import Data.Ord (Down(..))
-import Data.Word (Word64)
-import System.IO.Unsafe (unsafePerformIO)
-import Data.IORef (IORef, readIORef, newIORef, atomicModifyIORef')
-import UnliftIO.Async (pooledMapConcurrentlyN_)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (swapMVar, readMVar, newMVar)
 import Control.Exception (Exception, SomeException(..))
-import Control.Lens (makeLenses, set, over, view, (^.))
+import Control.Lens (makeLenses, set, over, view, (^.), _2)
 import Control.Monad (forM_, unless, void, when)
 import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
 import Control.Monad.IO.Class (MonadIO(liftIO))
@@ -57,24 +51,29 @@ import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, local)
 import Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
 import Data.Foldable qualified as F
 import Data.Function (fix)
+import Data.IORef (IORef, readIORef, newIORef, atomicModifyIORef')
 import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map.Strict qualified as M
+import Data.Ord (Down(..))
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.String (IsString)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
-import Data.Vector qualified as V
 import Data.Vector (Vector)
+import Data.Vector qualified as V
+import Data.Word (Word64)
 import Database.SQLite3.Direct (Utf8(..), Database)
 import GHC.Stack (HasCallStack)
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
-import System.IO qualified as IO
 import System.IO (Handle)
+import System.IO qualified as IO
+import System.IO.Unsafe (unsafePerformIO)
+import UnliftIO.Async (pooledMapConcurrentlyN_)
 
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Logger (l2l, setComponent)
@@ -113,15 +112,19 @@ data CompactFlag
     -- ^ Keep compaction tables post-compaction for inspection.
   | NoVacuum
     -- ^ Don't VACUUM database
-  deriving stock (Eq,Show,Read,Enum,Bounded)
+  | TransactionIndexKeepDepth Word64
+    -- ^ When compacting, keep at least this much depth (in BlockHeight)
+    --   for the TransactionIndex table.
+  deriving stock (Eq, Show)
 
 internalError :: MonadThrow m => Text -> m a
 internalError = throwM . CompactExceptionInternal
 
 data CompactEnv = CompactEnv
-  { _ceLogger :: !(Logger SomeLogMessage)
-  , _ceDb :: !Database
-  , _ceFlags :: ![CompactFlag]
+  { _ceLogger :: Logger SomeLogMessage
+  , _ceDb :: Database
+  , _ceFlags :: [CompactFlag]
+  , _ceTransactionIndexKeepDepth :: Word64
   }
 makeLenses ''CompactEnv
 
@@ -324,6 +327,14 @@ unlessFlagSet f x = do
 isFlagSet :: CompactFlag -> CompactM Bool
 isFlagSet f = view ceFlags >>= \fs -> pure (f `elem` fs)
 
+getKeepDepth :: [CompactFlag] -> Word64
+getKeepDepth = go
+  where
+    go = \case
+      [] -> defaultTransactionIndexKeepDepth
+      TransactionIndexKeepDepth w : _ -> w
+      _ : fs -> go fs
+
 withTables :: Vector TableName -> (TableName -> CompactM a) -> CompactM ()
 withTables ts a = do
   V.iforM_ ts $ \i u@(TableName (Utf8 t')) -> do
@@ -468,15 +479,18 @@ dropNewTables bh = do
 -- a tx, which is about 5,760 blocks. To be safe, we multiply this value by 4.
 -- Rows of this table take up very little space, so keeping up to 25k rows
 -- isn't costly (each row is a fixed-size hash + one machine word)
-transactionIndexKeepDepth :: Word64
-transactionIndexKeepDepth = 4 * 5_760
+defaultTransactionIndexKeepDepth :: Word64
+defaultTransactionIndexKeepDepth = 4 * 5_760
 
 -- TransactionIndex is special, it is needed for transaction validation to work,
 -- so we need to keep extra rows.
 compactTransactionIndex :: BlockHeight -> CompactM ()
 compactTransactionIndex target = do
-      -- Find the youngest block height that is older than `extraSafeKeepDepth`
-      -- blocks ago. Prune every TransactionIndex entry with blockheight less
+  keepDepth <- view ceTransactionIndexKeepDepth
+      -- Find the youngest block height that is older than a number of blocks
+      -- ago equal to the transaction index keep depth. (Configurable; default
+      -- is 'defaultTransactionIndexKeepDepth')
+      -- Prune every TransactionIndex entry with blockheight less
       -- than the minimum of this and the target (since the target could be
       -- before this depth).
   let qryText = Text.concat
@@ -497,7 +511,7 @@ compactTransactionIndex target = do
   execNoTemplateM'
     "compactTransactionIndex.0"
     (toUtf8 qryText)
-    [bhToSType (BlockHeight transactionIndexKeepDepth), bhToSType target]
+    [bhToSType (BlockHeight keepDepth), bhToSType target]
 
 -- | Delete all rows from Checkpointer system tables that are not for the target blockheight.
 compactSystemTables :: BlockHeight -> CompactM ()
@@ -528,7 +542,7 @@ compact :: ()
   -> Database
   -> [CompactFlag]
   -> IO ()
-compact tbh logger db flags = runCompactM (CompactEnv logger db flags) $ do
+compact tbh logger db flags = runCompactM (CompactEnv logger db flags (getKeepDepth flags)) $ do
   logg Info "Beginning compaction"
 
   withTx createCompactActiveRow
@@ -602,7 +616,7 @@ compactAll CompactConfig{..} = do
     withDefaultLogger LL.Error $ \logger -> do
       let resetDb = False
       withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) -> do
-        runCompactM (CompactEnv logger db []) getLatestBlockHeight
+        runCompactM (CompactEnv logger db [] 0) getLatestBlockHeight
 
   let allCids = Set.fromList $ F.toList $ chainIdsAt ccVersion latestBlockHeightChain0
   let targetCids = Set.toList $ maybe allCids (Set.intersection allCids) ccChains

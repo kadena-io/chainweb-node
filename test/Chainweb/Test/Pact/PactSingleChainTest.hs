@@ -129,6 +129,7 @@ tests rdb = testGroup testName
   , pactStateSamePreAndPostCompaction rdb
   , compactionIsIdempotent rdb
   , compactionUserTablesDropped rdb
+  , compactionTransactionIndex rdb
   ]
   where
     testName = "Chainweb.Test.Pact.PactSingleChainTest"
@@ -472,7 +473,6 @@ compactionTransactionIndex rdb =
 
     supply <- newIORef @Int 0
     madeTx <- newIORef @Bool False
-    putStrLn "" -- get around tasty formatting
     let run = do
           setMempool cr.mempoolRef $ mempty {
             mpaGetBlock = \_ _ _ _ bh -> do
@@ -488,10 +488,12 @@ compactionTransactionIndex rdb =
           }
           void $ runBlock cr.pactQueue cr.blockDb second
           writeIORef madeTx False
-          readIORef supply >>= \s -> when (s `mod` 100 == 0) $ putStrLn $ "ran block " ++ show s
+
+    let keepDepth :: Num a => a
+        keepDepth = 100
 
     -- Run enough blocks to where TransactionIndex keeps its full history
-    replicateM_ (int C.transactionIndexKeepDepth) run
+    replicateM_ keepDepth run
 
     let db = _sConn cr.sqlEnv
 
@@ -502,20 +504,24 @@ compactionTransactionIndex rdb =
             [[SInt mn, SInt mx]] -> pure (int mn, int mx)
             _ -> assertFailure "getEarliest: invalid query"
 
+    let compact = Utils.compact Error [C.NoVacuum, C.TransactionIndexKeepDepth 100] cr.sqlEnv C.Latest
+
     do
       startRange <- getRange
-      Utils.compact Error [C.NoVacuum] cr.sqlEnv C.Latest
+      compact
       endRange <- getRange
       assertEqual "TransactionIndex blockheight range is equal after compaction, when max blockheight is less than or equal to transactionIndexKeepDepth" startRange endRange
 
     do
       startRange <- getRange
-      replicateM_ 100 run
-      Utils.compact Error [C.NoVacuum] cr.sqlEnv C.Latest
+      let nMoreBlocks :: Num a => a
+          nMoreBlocks = 100
+      replicateM_ nMoreBlocks run
+      compact
       endRange <- getRange
-      assertEqual "TransactionIndex blockheight lower range should shift after running more blocks and compacting" (fst startRange + 100) (fst endRange)
-      assertEqual "TransactionIndex blockheight upper range should shift after running more blocks and compacting" (snd startRange + 100) (snd endRange)
-      assertEqual "TransactionIndex blockheight range should maintain keep depth" C.transactionIndexKeepDepth (getBlockHeight $ snd endRange - fst endRange)
+      assertEqual "TransactionIndex blockheight lower range should shift after running more blocks and compacting" (fst startRange + nMoreBlocks) (fst endRange)
+      assertEqual "TransactionIndex blockheight upper range should shift after running more blocks and compacting" (snd startRange + nMoreBlocks) (snd endRange)
+      assertEqual "TransactionIndex blockheight range should maintain keep depth" keepDepth (getBlockHeight $ snd endRange - fst endRange)
 
 -- | Test that user tables created before the compaction height are kept,
 --   while those created after the compaction height are dropped.
