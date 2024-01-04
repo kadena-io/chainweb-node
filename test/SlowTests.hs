@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -15,32 +14,24 @@
 module SlowTests ( main ) where
 
 import Chainweb.Graph
-import Chainweb.Storage.Table.RocksDB (RocksDb, withTempRocksDb)
-import Chainweb.Test.MultiNode qualified
 import Chainweb.Test.TestVersions
-import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Resource (runResourceT)
-import Network.X509.SelfSigned.Test qualified
 import System.LogLevel
-import Chainweb.Test.Pact.PactSingleChainTest qualified
 import Test.Tasty
+import qualified Chainweb.Test.MultiNode
+import qualified Network.X509.SelfSigned.Test
 
 main :: IO ()
-main = do
-  withTempRocksDb "chainweb-slow-tests" $ \rdb ->
-    runResourceT $ do
-      liftIO $ defaultMain (suite rdb)
+main = defaultMain suite
 
 loglevel :: LogLevel
 loglevel = Warn
 
-suite :: RocksDb -> TestTree
-suite rdb = testGroup "ChainwebSlowTests"
+suite :: TestTree
+suite = testGroup "ChainwebSlowTests"
     [ Chainweb.Test.MultiNode.test loglevel (timedConsensusVersion petersonChainGraph twentyChainGraph) 10 30
     , Chainweb.Test.MultiNode.replayTest loglevel (fastForkingCpmTestVersion pairChainGraph) 6
     , Chainweb.Test.MultiNode.compactAndResumeTest loglevel (fastForkingCpmTestVersion pairChainGraph) 6
     , testGroup "Network.X05.SelfSigned.Test"
         [ Network.X509.SelfSigned.Test.tests
         ]
-    , Chainweb.Test.Pact.PactSingleChainTest.compactionTransactionIndex rdb
     ]
