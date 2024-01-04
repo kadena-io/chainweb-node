@@ -504,14 +504,14 @@ compactionTransactionIndex rdb =
 
     do
       startRange <- getRange
-      Utils.compact LL.Error [C.NoVacuum] cr.sqlEnv C.Latest
+      Utils.compact Error [C.NoVacuum] cr.sqlEnv C.Latest
       endRange <- getRange
       assertEqual "TransactionIndex blockheight range is equal after compaction, when max blockheight is less than or equal to transactionIndexKeepDepth" startRange endRange
 
     do
       startRange <- getRange
       replicateM_ 100 run
-      Utils.compact LL.Error [C.NoVacuum] cr.sqlEnv C.Latest
+      Utils.compact Error [C.NoVacuum] cr.sqlEnv C.Latest
       endRange <- getRange
       assertEqual "TransactionIndex blockheight lower range should shift after running more blocks and compacting" (fst startRange + 100) (fst endRange)
       assertEqual "TransactionIndex blockheight upper range should shift after running more blocks and compacting" (snd startRange + 100) (snd endRange)
