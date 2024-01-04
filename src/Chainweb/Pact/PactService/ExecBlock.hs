@@ -226,6 +226,7 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas shouldRunVe
       >>= runValid checkTxSigs
       >>= runValid checkTimes
       >>= runValid (return . checkCompile v cid bh)
+      -- TODO: move verifier check to TransactionExec, do it after buying gas.
       >>= runValid checkVerifiers
 
     checkUnique :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
