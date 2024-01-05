@@ -490,7 +490,7 @@ compactionTransactionIndex rdb =
           writeIORef madeTx False
 
     let keepDepth :: Num a => a
-        keepDepth = 100
+        keepDepth = 10
 
     -- Run enough blocks to where TransactionIndex keeps its full history
     replicateM_ keepDepth run
@@ -504,7 +504,7 @@ compactionTransactionIndex rdb =
             [[SInt mn, SInt mx]] -> pure (int mn, int mx)
             _ -> assertFailure "getRange: invalid query"
 
-    let compact = Utils.compact Error [C.NoVacuum, C.TransactionIndexKeepDepth 100] cr.sqlEnv C.Latest
+    let compact = Utils.compact Error [C.NoVacuum, C.TransactionIndexKeepDepth keepDepth] cr.sqlEnv C.Latest
 
     do
       startRange <- getRange
@@ -515,7 +515,7 @@ compactionTransactionIndex rdb =
     do
       startRange <- getRange
       let nMoreBlocks :: Num a => a
-          nMoreBlocks = 100
+          nMoreBlocks = 10
       replicateM_ nMoreBlocks run
       compact
       endRange <- getRange
