@@ -86,6 +86,7 @@ import Pact.Interpreter
 import qualified Pact.JSON.Encode as J
 import Pact.JSON.Legacy.Value
 import Pact.Native.Capabilities (evalCap)
+import Pact.Native.Internal (appToCap)
 import Pact.Parse (ParsedDecimal(..))
 import Pact.Runtime.Capabilities (popCapStack)
 import Pact.Runtime.Utils (lookupModule)
@@ -920,8 +921,9 @@ findPayer isPactBackCompatV16 cmd = runMaybeT $ do
       let msgBody = enrichedMsgBody cmd
           enrichMsgBody | isPactBackCompatV16 = id
                         | otherwise = setEnvMsgBody (toLegacyJson msgBody)
-      ar <- local enrichMsgBody $
-        evalCap i CapCallStack False $ mkApp i capRef as
+      ar <- local enrichMsgBody $ do
+        (cap, capDef, args) <- appToCap $ mkApp i capRef as
+        evalCap i CapCallStack False (cap, capDef, args, i)
 
       case ar of
         NewlyAcquired -> do
