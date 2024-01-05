@@ -502,7 +502,7 @@ compactionTransactionIndex rdb =
           r <- Pact.qry db "SELECT MIN(blockheight), MAX(blockheight) FROM TransactionIndex" [] [RInt, RInt]
           case r of
             [[SInt mn, SInt mx]] -> pure (int mn, int mx)
-            _ -> assertFailure "getEarliest: invalid query"
+            _ -> assertFailure "getRange: invalid query"
 
     let compact = Utils.compact Error [C.NoVacuum, C.TransactionIndexKeepDepth 100] cr.sqlEnv C.Latest
 
