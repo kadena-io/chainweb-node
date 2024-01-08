@@ -441,7 +441,7 @@ compactionTransactionIndexDuplicate rdb =
             $ \_ _ _ _ -> makeTx
 
     run >>= \e -> assertBool "First tx submission succeeds" (isRight e)
-    Utils.compact Error [C.NoVacuum] cr.sqlEnv C.Latest
+    Utils.compact Error [C.NoVacuum, C.TransactionIndexKeepDepth 0] cr.sqlEnv C.Latest
     run >>= \e -> assertBool "First tx submission fails" (isLeft e)
 
     pure ()
