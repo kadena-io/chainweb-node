@@ -15,9 +15,6 @@
 
 module Chainweb.Test.Pact.PactSingleChainTest
 ( tests
-
-  -- * This test is slow, so we export it here, and run it in the slow-tests
-, compactionTransactionIndex
 ) where
 
 import Control.Arrow ((&&&))
@@ -33,7 +30,7 @@ import Patience.Map (Delta(..))
 
 import Data.Aeson (object, (.=), Value(..), decodeStrict, eitherDecode)
 import qualified Data.ByteString.Lazy as BL
-import Data.Either (isRight, fromRight)
+import Data.Either (isLeft, isRight, fromRight)
 import Data.IORef
 import qualified Data.Map.Strict as M
 import Data.Maybe (isJust, isNothing)
@@ -129,7 +126,8 @@ tests rdb = testGroup testName
   , pactStateSamePreAndPostCompaction rdb
   , compactionIsIdempotent rdb
   , compactionUserTablesDropped rdb
-  , compactionTransactionIndex rdb
+  , compactionTransactionIndexRange rdb
+  , compactionTransactionIndexDuplicate rdb
   ]
   where
     testName = "Chainweb.Test.Pact.PactSingleChainTest"
@@ -174,8 +172,8 @@ forSuccess msg mvio = (`catchAllSynchronous` handler) $ do
   where
     handler e = assertFailure $ msg ++ ": exception thrown: " ++ show e
 
-runBlock :: (HasCallStack) => PactQueue -> TestBlockDb -> TimeSpan Micros -> IO PayloadWithOutputs
-runBlock q bdb timeOffset = do
+runBlockE :: (HasCallStack) => PactQueue -> TestBlockDb -> TimeSpan Micros -> IO (MVar (Either PactException PayloadWithOutputs))
+runBlockE q bdb timeOffset = do
   ph <- getParentTestBlockDb bdb cid
   let blockTime = add timeOffset $ _bct $ _blockCreationTime ph
   nb <- forSuccess "newBlock" $
@@ -185,8 +183,12 @@ runBlock q bdb timeOffset = do
           | otherwise = emptyPayload
     addTestBlockDb bdb (Nonce 0) (\_ _ -> blockTime) c o
   nextH <- getParentTestBlockDb bdb cid
+  validateBlock nextH (payloadWithOutputsToPayloadData nb) q
+
+runBlock :: (HasCallStack) => PactQueue -> TestBlockDb -> TimeSpan Micros -> IO PayloadWithOutputs
+runBlock q bdb timeOffset = do
   forSuccess "newBlockAndValidate: validate" $
-       validateBlock nextH (payloadWithOutputsToPayloadData nb) q
+    runBlockE q bdb timeOffset
 
 newBlockAndValidate :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 newBlockAndValidate refIO reqIO = testCase "newBlockAndValidate" $ do
@@ -293,7 +295,6 @@ rewindPastMinBlockHeightFails :: ()
   -> TestTree
 rewindPastMinBlockHeightFails rdb =
   compactionSetup "rewindPastMinBlockHeightFails" rdb testPactServiceConfig $ \cr -> do
-    setOneShotMempool cr.mempoolRef goldenMemPool
     replicateM_ 10 $ runBlock cr.pactQueue cr.blockDb second
 
     Utils.compact Error [C.NoVacuum] cr.sqlEnv (C.Target (BlockHeight 5))
@@ -317,8 +318,6 @@ pactStateSamePreAndPostCompaction rdb =
   compactionSetup "pactStateSamePreAndPostCompaction" rdb testPactServiceConfig $ \cr -> do
     let numBlocks :: Num a => a
         numBlocks = 100
-
-    setOneShotMempool cr.mempoolRef goldenMemPool
 
     let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
         makeTx nth bh = buildCwCmd testVersion
@@ -390,8 +389,6 @@ compactionIsIdempotent rdb =
     let numBlocks :: Num a => a
         numBlocks = 100
 
-    setOneShotMempool cr.mempoolRef goldenMemPool
-
     let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
         makeTx nth bh = buildCwCmd testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
@@ -457,13 +454,46 @@ compactionIsIdempotent rdb =
                   putStrLn ""
       assertFailure "pact state check failed"
 
-compactionTransactionIndex :: ()
+compactionTransactionIndexDuplicate :: ()
   => RocksDb
   -> TestTree
-compactionTransactionIndex rdb =
-  compactionSetup "compactionTransactionIndex" rdb testPactServiceConfig $ \cr -> do
-    setOneShotMempool cr.mempoolRef goldenMemPool
+compactionTransactionIndexDuplicate rdb =
+  compactionSetup "compactionTransactionIndexDuplicate" rdb testPactServiceConfig $ \cr -> do
+    let makeTx :: IO ChainwebTransaction
+        makeTx = buildCwCmd testVersion
+          $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
+          $ mkCmd (sshow @Word 0) -- hardcoded for duplicate
+          $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
 
+    madeTx <- newIORef @Bool False
+    let run :: IO (Either PactException PayloadWithOutputs)
+        run = do
+          setMempool cr.mempoolRef $ mempty {
+            mpaGetBlock = \_ _ _ _ _ -> do
+              madeTxYet <- readIORef madeTx
+              if madeTxYet
+              then do
+                pure mempty
+              else do
+                tx <- makeTx --bh
+                writeIORef madeTx True
+                pure $ V.fromList [tx]
+          }
+          e <- takeMVar =<< runBlockE cr.pactQueue cr.blockDb second
+          writeIORef madeTx False
+          pure e
+
+    run >>= \e -> assertBool "First tx submission succeeds" (isRight e)
+    Utils.compact Error [C.NoVacuum] cr.sqlEnv C.Latest
+    run >>= \e -> assertBool "First tx submission fails" (isLeft e)
+
+    pure ()
+
+compactionTransactionIndexRange :: ()
+  => RocksDb
+  -> TestTree
+compactionTransactionIndexRange rdb =
+  compactionSetup "compactionTransactionIndexRange" rdb testPactServiceConfig $ \cr -> do
     let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
         makeTx nth bh = buildCwCmd testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
@@ -495,11 +525,9 @@ compactionTransactionIndex rdb =
     -- Run enough blocks to where TransactionIndex keeps its full history
     replicateM_ keepDepth run
 
-    let db = _sConn cr.sqlEnv
-
     let getRange :: IO (BlockHeight, BlockHeight)
         getRange = do
-          r <- Pact.qry db "SELECT MIN(blockheight), MAX(blockheight) FROM TransactionIndex" [] [RInt, RInt]
+          r <- Pact.qry (_sConn cr.sqlEnv) "SELECT MIN(blockheight), MAX(blockheight) FROM TransactionIndex" [] [RInt, RInt]
           case r of
             [[SInt mn, SInt mx]] -> pure (int mn, int mx)
             _ -> assertFailure "getRange: invalid query"
@@ -513,15 +541,14 @@ compactionTransactionIndex rdb =
       assertEqual "TransactionIndex blockheight range is equal after compaction, when max blockheight is less than or equal to transactionIndexKeepDepth" startRange endRange
 
     do
-      startRange <- getRange
+      (preStart, preEnd) <- getRange
       let nMoreBlocks :: Num a => a
-          nMoreBlocks = 10
+          nMoreBlocks = 15
       replicateM_ nMoreBlocks run
       compact
-      endRange <- getRange
-      assertEqual "TransactionIndex blockheight lower range should shift after running more blocks and compacting" (fst startRange + nMoreBlocks) (fst endRange)
-      assertEqual "TransactionIndex blockheight upper range should shift after running more blocks and compacting" (snd startRange + nMoreBlocks) (snd endRange)
-      assertEqual "TransactionIndex blockheight range should maintain keep depth" keepDepth (getBlockHeight $ snd endRange - fst endRange)
+      (postStart, postEnd) <- getRange
+      assertEqual "TransactionIndex blockheight range should shift after running more blocks and compacting" (preStart + nMoreBlocks, preEnd + nMoreBlocks) (postStart, postEnd)
+      assertEqual "TransactionIndex blockheight range should maintain keep depth" keepDepth (getBlockHeight postEnd - getBlockHeight postStart)
 
 -- | Test that user tables created before the compaction height are kept,
 --   while those created after the compaction height are dropped.
@@ -544,8 +571,6 @@ compactionUserTablesDropped rdb =
         numBlocks = 100
     let halfwayPoint :: Integral a => a
         halfwayPoint = numBlocks `div` 2
-
-    setOneShotMempool cr.mempoolRef goldenMemPool
 
     let createTable :: Int -> Text -> IO ChainwebTransaction
         createTable n tblName = do
@@ -1077,6 +1102,8 @@ compactionSetup pat rdb pactCfg f =
       let logger = genericLogger System.LogLevel.Error (\_ -> return ())
 
       void $ forkIO $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb sqlEnv pactCfg
+
+      setOneShotMempool mempoolRef goldenMemPool
 
       f $ CompactionResources
         { mempoolRef = mempoolRef
