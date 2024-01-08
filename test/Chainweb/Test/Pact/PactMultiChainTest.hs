@@ -1235,9 +1235,12 @@ verifierTest = do
         (pString "Loaded module free.m, hash QNTlTCp-KMPkT52CEo_0zGaLJ_PnAxsenyhUck1njcc"))
     , PactTxTest
       (buildBasic (mkExec' "(free.m.x)"))
-      (assertTxFailure
-        "verifier not present"
-        "Verifier failure allow: not in transaction")
+      (\cr -> liftIO $ do
+        assertTxFailure
+          "verifier not present"
+          "Verifier failure allow: not in transaction"
+          cr
+        assertTxGas "verifier errors charge all gas" 10000 cr)
     , PactTxTest
       (buildBasic'
         (set cbVerifiers
@@ -1247,8 +1250,7 @@ verifierTest = do
             [cap]])
             (mkExec' "(free.m.x)"))
       (\cr -> liftIO $ do
-        assertEqual "should have succeeded" (Just (pDecimal 1))
-          (cr ^? crResult . to _pactResult . _Right)
+        assertTxSuccess "should have succeeded" (pDecimal 1) cr
         -- The **Allow** verifier costs 100 gas flat
         assertEqual "gas should have been charged" 344 (_crGas cr))
     ]
