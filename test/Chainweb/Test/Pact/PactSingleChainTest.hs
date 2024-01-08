@@ -62,6 +62,7 @@ import Pact.JSON.Encode qualified as J
 import Pact.JSON.Yaml
 
 import Chainweb.BlockCreationTime
+import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Graph
@@ -319,37 +320,21 @@ pactStateSamePreAndPostCompaction rdb =
     let numBlocks :: Num a => a
         numBlocks = 100
 
-    let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
+    let makeTx :: Word -> BlockHeader -> IO ChainwebTransaction
         makeTx nth bh = buildCwCmd testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
           $ setFromHeader bh
           $ mkCmd (sshow (nth, bh))
           $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
 
-    supply <- newIORef @Int 0
-    madeTx <- newIORef @Bool False
     replicateM_ numBlocks $ do
-      setMempool cr.mempoolRef $ mempty {
-        mpaGetBlock = \_ _ _ _ bh -> do
-          madeTxYet <- readIORef madeTx
-          if madeTxYet
-          then do
-            pure mempty
-          else do
-            n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
-            tx <- makeTx n bh
-            writeIORef madeTx True
-            pure $ V.fromList [tx]
-      }
-      void $ runBlock cr.pactQueue cr.blockDb second
-      writeIORef madeTx False
+      runTxInBlock_ cr.mempoolRef cr.pactQueue cr.blockDb
+        $ \n _ _ bHeader -> makeTx n bHeader
 
     let db = _sConn cr.sqlEnv
 
     statePreCompaction <- getLatestPactState db
-
     Utils.compact Error [C.NoVacuum] cr.sqlEnv (C.Target (BlockHeight numBlocks))
-
     statePostCompaction <- getLatestPactState db
 
     let stateDiff = M.filter (not . PatienceM.isSame) (PatienceM.diff statePreCompaction statePostCompaction)
@@ -389,30 +374,16 @@ compactionIsIdempotent rdb =
     let numBlocks :: Num a => a
         numBlocks = 100
 
-    let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
+    let makeTx :: Word -> BlockHeader -> IO ChainwebTransaction
         makeTx nth bh = buildCwCmd testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
           $ setFromHeader bh
           $ mkCmd (sshow (nth, bh))
           $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
 
-    supply <- newIORef @Int 0
-    madeTx <- newIORef @Bool False
     replicateM_ numBlocks $ do
-      setMempool cr.mempoolRef $ mempty {
-        mpaGetBlock = \_ _ _ _ bh -> do
-          madeTxYet <- readIORef madeTx
-          if madeTxYet
-          then do
-            pure mempty
-          else do
-            n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
-            tx <- makeTx n bh
-            writeIORef madeTx True
-            pure $ V.fromList [tx]
-      }
-      void $ runBlock cr.pactQueue cr.blockDb second
-      writeIORef madeTx False
+      runTxInBlock_ cr.mempoolRef cr.pactQueue cr.blockDb
+        $ \n _ _ bHeader -> makeTx n bHeader
 
     let db = _sConn cr.sqlEnv
 
@@ -465,23 +436,9 @@ compactionTransactionIndexDuplicate rdb =
           $ mkCmd (sshow @Word 0) -- hardcoded for duplicate
           $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
 
-    madeTx <- newIORef @Bool False
-    let run :: IO (Either PactException PayloadWithOutputs)
-        run = do
-          setMempool cr.mempoolRef $ mempty {
-            mpaGetBlock = \_ _ _ _ _ -> do
-              madeTxYet <- readIORef madeTx
-              if madeTxYet
-              then do
-                pure mempty
-              else do
-                tx <- makeTx --bh
-                writeIORef madeTx True
-                pure $ V.fromList [tx]
-          }
-          e <- takeMVar =<< runBlockE cr.pactQueue cr.blockDb second
-          writeIORef madeTx False
-          pure e
+    let run = do
+          runTxInBlock cr.mempoolRef cr.pactQueue cr.blockDb
+            $ \_ _ _ _ -> makeTx
 
     run >>= \e -> assertBool "First tx submission succeeds" (isRight e)
     Utils.compact Error [C.NoVacuum] cr.sqlEnv C.Latest
@@ -494,30 +451,16 @@ compactionTransactionIndexRange :: ()
   -> TestTree
 compactionTransactionIndexRange rdb =
   compactionSetup "compactionTransactionIndexRange" rdb testPactServiceConfig $ \cr -> do
-    let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
+    let makeTx :: Word -> BlockHeader -> IO ChainwebTransaction
         makeTx nth bh = buildCwCmd testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
           $ setFromHeader bh
           $ mkCmd (sshow (nth, bh))
           $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
 
-    supply <- newIORef @Int 0
-    madeTx <- newIORef @Bool False
     let run = do
-          setMempool cr.mempoolRef $ mempty {
-            mpaGetBlock = \_ _ _ _ bh -> do
-              madeTxYet <- readIORef madeTx
-              if madeTxYet
-              then do
-                pure mempty
-              else do
-                n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
-                tx <- makeTx n bh
-                writeIORef madeTx True
-                pure $ V.fromList [tx]
-          }
-          void $ runBlock cr.pactQueue cr.blockDb second
-          writeIORef madeTx False
+          runTxInBlock cr.mempoolRef cr.pactQueue cr.blockDb
+            $ \n _ _ bHeader -> makeTx n bHeader
 
     let keepDepth :: Num a => a
         keepDepth = 10
@@ -572,7 +515,7 @@ compactionUserTablesDropped rdb =
     let halfwayPoint :: Integral a => a
         halfwayPoint = numBlocks `div` 2
 
-    let createTable :: Int -> Text -> IO ChainwebTransaction
+    let createTable :: Word -> Text -> IO ChainwebTransaction
         createTable n tblName = do
           let tx = T.unlines
                 [ "(namespace 'free)"
@@ -593,7 +536,7 @@ compactionUserTablesDropped rdb =
     let beforeTable = "test_before"
     let afterTable = "test_after"
 
-    supply <- newIORef @Int 0
+    supply <- newIORef @Word 0
     madeBeforeTable <- newIORef @Bool False
     madeAfterTable <- newIORef @Bool False
     replicateM_ numBlocks $ do
@@ -1112,3 +1055,39 @@ compactionSetup pat rdb pactCfg f =
         , pactQueue = pactQueue
         , blockDb = blockDb
         }
+
+runTxInBlock :: ()
+  => IO (IORef MemPoolAccess) -- ^ mempoolRef
+  -> PactQueue
+  -> TestBlockDb
+  -> (Word -> BlockHeight -> BlockHash -> BlockHeader -> IO ChainwebTransaction)
+  -> IO (Either PactException PayloadWithOutputs)
+runTxInBlock mempoolRef pactQueue blockDb makeTx = do
+  madeTx <- newIORef @Bool False
+  supply <- newIORef @Word 0
+  setMempool mempoolRef $ mempty {
+    mpaGetBlock = \_ _ bHeight bHash bHeader -> do
+      madeTxYet <- readIORef madeTx
+      if madeTxYet
+      then do
+        pure mempty
+      else do
+        n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
+        tx <- makeTx n bHeight bHash bHeader
+        writeIORef madeTx True
+        pure $ V.fromList [tx]
+  }
+  e <- takeMVar =<< runBlockE pactQueue blockDb second
+  writeIORef madeTx False
+  pure e
+
+runTxInBlock_ :: ()
+  => IO (IORef MemPoolAccess) -- ^ mempoolRef
+  -> PactQueue
+  -> TestBlockDb
+  -> (Word -> BlockHeight -> BlockHash -> BlockHeader -> IO ChainwebTransaction)
+  -> IO PayloadWithOutputs
+runTxInBlock_ mempoolRef pactQueue blockDb makeTx = do
+  runTxInBlock mempoolRef pactQueue blockDb makeTx >>= \case
+    Left e -> assertFailure $ "newBlockAndValidate: validate: got failure result: " ++ show e
+    Right v -> pure v
