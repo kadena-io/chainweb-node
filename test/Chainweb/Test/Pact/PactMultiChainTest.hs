@@ -16,10 +16,11 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Data.Aeson (Value, object, (.=))
-import Data.List(isPrefixOf)
+import Data.Default
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
+import Data.List(isPrefixOf)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Test.Tasty
@@ -31,6 +32,8 @@ import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Continuation
 import Pact.Types.Hash
+import qualified Pact.JSON.Encode as PactJSON
+import Pact.Types.Lang(_LString)
 import Pact.Types.PactError
 import Pact.Types.PactValue
 import Pact.Types.Pretty
@@ -38,7 +41,7 @@ import Pact.Types.RPC
 import Pact.Types.Runtime (PactEvent)
 import Pact.Types.SPV
 import Pact.Types.Term
-import Pact.Types.Lang(_LString)
+import Pact.Types.Verifier
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
@@ -1213,8 +1216,41 @@ verifierTest = do
 
   runBlockTest
     [ PactTxTest
-        (buildBasic (mkExec' "(enforce-verifier 'trivial)"))
+        (buildBasic (mkExec' "(enforce-verifier 'allow)"))
         (assertTxFailure "Should not resolve enforce-verifier" "Cannot resolve enforce-verifier")
+    ]
+
+  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "G" def) []
+
+  runBlockTest
+    [ PactTxTest
+      (buildBasicGas 70000
+      $ mkExec' $ mconcat
+        [ "(namespace 'free)"
+        , "(module m G"
+        , "(defcap G () (enforce-verifier 'allow))"
+        , "(defun x () (with-capability (G) 1)))"])
+      (assertTxSuccess
+        "Should allow enforce-verifier in a capability"
+        (pString "Loaded module free.m, hash QNTlTCp-KMPkT52CEo_0zGaLJ_PnAxsenyhUck1njcc"))
+    , PactTxTest
+      (buildBasic (mkExec' "(free.m.x)"))
+      (assertTxFailure
+        "verifier not present"
+        "Verifier failure allow: not in transaction")
+    , PactTxTest
+      (buildBasic'
+        (set cbVerifiers
+          [Verifier
+            (VerifierName "allow")
+            (ParsedVerifierArgs [pString (PactJSON.encodeText cap)])
+            [cap]])
+            (mkExec' "(free.m.x)"))
+      (\cr -> liftIO $ do
+        assertEqual "should have succeeded" (Just (pDecimal 1))
+          (cr ^? crResult . to _pactResult . _Right)
+        -- The **Allow** verifier costs 100 gas flat
+        assertEqual "gas should have been charged" 344 (_crGas cr))
     ]
 
 pact4coin3UpgradeTest :: PactTestM ()

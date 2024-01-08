@@ -105,7 +105,6 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (lookupM, seekAncestor)
 import Chainweb.Utils hiding (check)
-import Chainweb.VerifierPlugin
 import Chainweb.Version
 import Chainweb.Version.Guards
 import Utils.Logging.Trace

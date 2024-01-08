@@ -37,7 +37,6 @@ import Pact.Types.Gas
 import Pact.Types.PactValue
 import Pact.Types.Verifier
 
-import Chainweb.Transaction
 import Chainweb.Utils
 
 newtype VerifierError = VerifierError
@@ -49,7 +48,7 @@ data ShouldRunVerifierPlugins = RunVerifierPlugins | DoNotRunVerifierPlugins
 
 newtype VerifierPlugin
     = VerifierPlugin
-    { runVerifierPlugin :: [PactValue] -> Set SigCapability -> GasLimit -> Either VerifierError Gas
+    { runVerifierPlugin :: [PactValue] -> Set SigCapability -> GasLimit -> Either VerifierError GasLimit
     }
     deriving newtype NFData
 
@@ -59,21 +58,23 @@ chargeGas r g = do
     when (g < 0) $ throwError $ VerifierError $
         "verifier attempted to charge negative gas amount: " <> sshow g
     when (fromIntegral g > gl) $ throwError $ VerifierError $
-        "gas exhausted in verifier. attempted to charge " <> sshow (case g of Gas g' -> g) <>
+        "gas exhausted in verifier. attempted to charge " <> sshow (case g of Gas g' -> g') <>
         " with only " <> sshow (case gl of GasLimit gl' -> gl') <> " remaining."
     lift $ writeSTRef r (gl - fromIntegral g)
 
-runVerifierPlugins :: Map Text VerifierPlugin -> GasLimit -> Command (Payload PublicMeta ParsedCode) -> IO (Either VerifierError ())
+runVerifierPlugins :: Map Text VerifierPlugin -> GasLimit -> Command (Payload PublicMeta ParsedCode) -> IO (Either VerifierError GasLimit)
 runVerifierPlugins allVerifiers gl tx = try $ stToIO $ do
     gasRef <- newSTRef gl
-    either throw (\_ -> return ()) <=< runExceptT $ Merge.mergeA
+    either throw (\_ -> readSTRef gasRef) <=< runExceptT $ Merge.mergeA
         (Merge.traverseMissing $ \k _ -> throwError $ VerifierError ("verifier does not exist: " <> k))
         Merge.dropMissing
-        (Merge.zipWithAMatched $ \_vn argsAndCaps verifierPlugin ->
+        (Merge.zipWithAMatched $ \vn argsAndCaps verifierPlugin ->
             for_ argsAndCaps $ \(args, caps) -> do
-                gl <- lift $ readSTRef gasRef
-                g <- liftEither $ runVerifierPlugin verifierPlugin args caps gl
-                chargeGas gasRef g
+                verifierGasLimit <- lift $ readSTRef gasRef
+                verifierDoneGasLimit <- liftEither $ runVerifierPlugin verifierPlugin args caps verifierGasLimit
+                if verifierDoneGasLimit > verifierGasLimit
+                then throwError $ VerifierError ("Verifier attempted to charge negative gas: " <> vn)
+                else lift $ writeSTRef gasRef verifierDoneGasLimit
             )
         usedVerifiers
         allVerifiers

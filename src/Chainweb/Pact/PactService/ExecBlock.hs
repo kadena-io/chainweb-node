@@ -30,7 +30,7 @@ module Chainweb.Pact.PactService.ExecBlock
     ) where
 
 import Control.DeepSeq
-import Control.Exception (evaluate, SomeAsyncException(..))
+import Control.Exception (evaluate)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -86,9 +86,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
-import Chainweb.VerifierPlugin
 import Chainweb.Version
-import Chainweb.Version.Utils
 import Chainweb.Version.Guards
 
 -- | Set parent header in state and spv support (using parent hash)

@@ -268,7 +268,7 @@ slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
         Chainweb222Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 115)
         EnableVerifiers -> AllChains $ ForkAtBlockHeight (BlockHeight 120)
         Chainweb223Pact -> AllChains ForkNever
-    & versionVerifierPluginNames .~ AllChains (End $ Set.fromList ["trivial"])
+    & versionVerifierPluginNames .~ AllChains (End $ Set.fromList ["allow"])
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades quickly enabled.
 fastForkingCpmTestVersion :: ChainGraph -> ChainwebVersion

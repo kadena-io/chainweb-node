@@ -66,7 +66,7 @@ import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Time
 import Chainweb.VerifierPlugin
-import qualified Chainweb.VerifierPlugin.Trivial
+import qualified Chainweb.VerifierPlugin.Allow
 
 import Control.Lens
 import Data.Foldable
@@ -471,5 +471,5 @@ verifiersAt v cid bh =
 -- with no functions inside.
 allVerifierPlugins :: Map Text VerifierPlugin
 allVerifierPlugins = M.fromList
-    [ ("trivial", Chainweb.VerifierPlugin.Trivial.plugin)
+    [ ("allow", Chainweb.VerifierPlugin.Allow.plugin)
     ]
