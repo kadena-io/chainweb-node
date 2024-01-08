@@ -526,7 +526,7 @@ execNewBlock mpAccess parent miner = pactLabel "execNewBlock" $ do
             results <- do
                 let v = _chainwebVersion psEnv
                     cid = _chainId psEnv
-                validateChainwebTxs logger v cid cp parentTime bhi txs return RunVerifierPlugins
+                validateChainwebTxs logger v cid cp parentTime bhi txs return
 
             V.forM results $ \case
                 Right _ -> return True
@@ -869,7 +869,7 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ withDiscardedBat
       let v = _chainwebVersion psEnv
           cid = _chainId psEnv
           timeoutLimit = fromIntegral $ (\(Micros n) -> n) $ _psPreInsertCheckTimeout psEnv
-          act = validateChainwebTxs logger v cid cp parentTime currHeight txs (runGas pdb psState psEnv) DoNotRunVerifierPlugins
+          act = validateChainwebTxs logger v cid cp parentTime currHeight txs (runGas pdb psState psEnv)
 
       fmap Discard $ liftIO $ timeout timeoutLimit act >>= \case
         Just r -> pure r

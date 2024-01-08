@@ -12,6 +12,7 @@ import qualified Data.Text.Encoding as Text
 
 import Pact.Types.Capability
 import Pact.Types.Exp
+import Pact.Types.Gas
 import Pact.Types.PactValue
 
 import Chainweb.VerifierPlugin
@@ -19,12 +20,13 @@ import Chainweb.VerifierPlugin
 -- This trivial verifier plugin takes as arguments a list of JSON-encoded
 -- capabilities, and grants any subset of them.
 plugin :: VerifierPlugin
-plugin = VerifierPlugin $ \args caps -> over _Left VerifierError $ do
+plugin = VerifierPlugin $ \args caps gl -> over _Left VerifierError $ do
     decodedArgs :: [UserCapability] <- traverse decodeArgToCap args
     unless (noDuplicates decodedArgs) $
         Left "duplicate capabilities exist in the arguments"
     unless (caps `Set.isSubsetOf` Set.fromList decodedArgs) $
         Left "granted capabilities are not a subset of those in the arguments"
+    return (Gas 20)
     where
     noDuplicates :: Ord a => [a] -> Bool
     noDuplicates = go Set.empty

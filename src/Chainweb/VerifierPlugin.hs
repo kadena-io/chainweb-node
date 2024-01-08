@@ -9,12 +9,16 @@ module Chainweb.VerifierPlugin
     ( VerifierPlugin(..)
     , VerifierError(..)
     , runVerifierPlugins
+    , chargeGas
     , ShouldRunVerifierPlugins(..)
     ) where
 
 import Control.DeepSeq
-import Control.Exception.Safe(Exception, throwIO)
+import Control.Exception.Safe(Exception, throw, try)
 import Control.Monad
+import Control.Monad.ST
+import Control.Monad.Except
+import Control.Monad.Trans.Class
 
 import Data.Foldable
 import Data.Map.Strict(Map)
@@ -23,16 +27,21 @@ import qualified Data.Map.Merge.Strict as Merge
 import Data.Maybe
 import Data.Set(Set)
 import qualified Data.Set as Set
+import Data.STRef
 import Data.Text(Text)
 
 import Pact.Types.Capability
+import Pact.Types.ChainMeta
 import Pact.Types.Command
+import Pact.Types.Gas
 import Pact.Types.PactValue
 import Pact.Types.Verifier
 
 import Chainweb.Transaction
+import Chainweb.Utils
 
-data VerifierError = VerifierError Text
+newtype VerifierError = VerifierError
+    { getVerifierError :: Text }
     deriving stock Show
 instance Exception VerifierError
 
@@ -40,20 +49,31 @@ data ShouldRunVerifierPlugins = RunVerifierPlugins | DoNotRunVerifierPlugins
 
 newtype VerifierPlugin
     = VerifierPlugin
-    { runVerifierPlugin :: [PactValue] -> Set SigCapability -> Either VerifierError ()
+    { runVerifierPlugin :: [PactValue] -> Set SigCapability -> GasLimit -> Either VerifierError Gas
     }
     deriving newtype NFData
 
-runVerifierPlugins :: Map Text VerifierPlugin -> ChainwebTransaction -> IO ()
-runVerifierPlugins allVerifiers tx =
-    void $ Merge.mergeA
-        (Merge.traverseMissing $ \k _ -> throwIO $ VerifierError ("verifier does not exist: " <> k))
+chargeGas :: STRef s GasLimit -> Gas -> ExceptT VerifierError (ST s) ()
+chargeGas r g = do
+    gl <- lift $ readSTRef r
+    when (g < 0) $ throwError $ VerifierError $
+        "verifier attempted to charge negative gas amount: " <> sshow g
+    when (fromIntegral g > gl) $ throwError $ VerifierError $
+        "gas exhausted in verifier. attempted to charge " <> sshow (case g of Gas g' -> g) <>
+        " with only " <> sshow (case gl of GasLimit gl' -> gl') <> " remaining."
+    lift $ writeSTRef r (gl - fromIntegral g)
+
+runVerifierPlugins :: Map Text VerifierPlugin -> GasLimit -> Command (Payload PublicMeta ParsedCode) -> IO (Either VerifierError ())
+runVerifierPlugins allVerifiers gl tx = try $ stToIO $ do
+    gasRef <- newSTRef gl
+    either throw (\_ -> return ()) <=< runExceptT $ Merge.mergeA
+        (Merge.traverseMissing $ \k _ -> throwError $ VerifierError ("verifier does not exist: " <> k))
         Merge.dropMissing
         (Merge.zipWithAMatched $ \_vn argsAndCaps verifierPlugin ->
-            for_ argsAndCaps $ \(args, caps) ->
-                case runVerifierPlugin verifierPlugin args caps of
-                    Left err -> throwIO err
-                    Right () -> return ()
+            for_ argsAndCaps $ \(args, caps) -> do
+                gl <- lift $ readSTRef gasRef
+                g <- liftEither $ runVerifierPlugin verifierPlugin args caps gl
+                chargeGas gasRef g
             )
         usedVerifiers
         allVerifiers
@@ -64,4 +84,4 @@ runVerifierPlugins allVerifiers tx =
         fmap
             (\Verifier {_verifierName = VerifierName name, _verifierArgs = ParsedVerifierArgs args, _verifierCaps = caps} ->
                 (name, [(args, Set.fromList caps)])) $
-        fromMaybe [] $ _pVerifiers (payloadObj $ _cmdPayload tx)
+        fromMaybe [] $ _pVerifiers (_cmdPayload tx)

@@ -141,7 +141,7 @@ execBlock currHeader plData pdbenv = do
     -- prop_tx_ttl_validate
     valids <- liftIO $ V.zip trans <$>
         validateChainwebTxs logger v cid cp txValidationTime
-            (_blockHeight currHeader) trans skipDebitGas RunVerifierPlugins
+            (_blockHeight currHeader) trans skipDebitGas
 
     case foldr handleValids [] valids of
       [] -> return ()
@@ -211,9 +211,8 @@ validateChainwebTxs
         -- ^ Current block height
     -> Vector ChainwebTransaction
     -> RunGas
-    -> ShouldRunVerifierPlugins
     -> IO ValidateTxs
-validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas shouldRunVerifierPlugins
+validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
   | bh == genesisHeight v cid = pure $! V.map Right txs
   | V.null txs = pure V.empty
   | otherwise = go
@@ -226,8 +225,6 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas shouldRunVe
       >>= runValid checkTxSigs
       >>= runValid checkTimes
       >>= runValid (return . checkCompile v cid bh)
-      -- TODO: move verifier check to TransactionExec, do it after buying gas.
-      >>= runValid checkVerifiers
 
     checkUnique :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkUnique t = do
@@ -263,17 +260,6 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas shouldRunVe
         signers = P._pSigners $ payloadObj $ P._cmdPayload t
         validSchemes = validPPKSchemes v cid bh
         webAuthnPrefixLegal = isWebAuthnPrefixLegal v cid bh
-
-    allVerifiers = verifiersAt v cid bh
-
-    checkVerifiers :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
-    checkVerifiers t = case shouldRunVerifierPlugins of
-      DoNotRunVerifierPlugins -> return (Right t)
-      RunVerifierPlugins ->
-        (Right t <$ runVerifierPlugins allVerifiers t) `catches`
-          [ Handler $ \(ex :: SomeAsyncException) -> throwM ex
-          , Handler $ \(_ :: SomeException) -> return $ Left InsertErrorInvalidVerifiers
-          ]
 
     initTxList :: ValidateTxs
     initTxList = V.map Right txs

@@ -114,8 +114,10 @@ import Chainweb.Pact.Templates
 import Chainweb.Pact.Types hiding (logError)
 import Chainweb.Transaction
 import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous, T2(..), T3(..))
+import Chainweb.VerifierPlugin
 import Chainweb.Version as V
 import Chainweb.Version.Guards as V
+import Chainweb.Version.Utils as V
 import Pact.JSON.Encode (toJsonViaEncode)
 
 
@@ -211,6 +213,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     chainweb213Pact' = chainweb213Pact v cid currHeight
     chainweb217Pact' = chainweb217Pact v cid currHeight
     chainweb219Pact' = chainweb219Pact v cid currHeight
+    allVerifiers = verifiersAt v cid currHeight
     toEmptyPactError (PactError errty _ _ _) = PactError errty def [] mempty
 
     toOldListErr pe = pe { peDoc = listErrMsg }
@@ -226,7 +229,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       catchesPactError logger (onChainErrorPrintingFor txCtx) (buyGas isPactBackCompatV16 cmd miner) >>= \case
         Left e -> view txRequestKey >>= \rk ->
           throwM $ BuyGasFailure $ GasPurchaseFailure (requestKeyToTransactionHash rk) e
-        Right _ -> checkTooBigTx initialGas gasLimit applyPayload redeemAllGas
+        Right _ -> checkTooBigTx initialGas gasLimit applyVerifiers redeemAllGas
 
     displayPactError e = do
       r <- failTxWith e "tx failure for request key when running cmd"
@@ -238,6 +241,17 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
             ApplySend -> toEmptyPactError e
       r <- failTxWith e' "tx failure for request key when running cmd"
       redeemAllGas r
+
+    applyVerifiers = do
+      gasUsed <- use txGasUsed
+      verifierResult <- liftIO $ runVerifierPlugins allVerifiers (gasLimit - fromIntegral gasUsed) cmd
+      case verifierResult of
+        Left err -> do
+          cmdResult <- failTxWith
+            (PactError TxFailure def [] (pretty $ "Tx verifier error: " <> getVerifierError err))
+            "verifier error"
+          redeemAllGas cmdResult
+        Right () -> applyPayload
 
     applyPayload = do
       txGasModel .= gasModel
@@ -1004,7 +1018,6 @@ checkTooBigTx
     -> TransactionM logger p (CommandResult [TxLogJson])
 checkTooBigTx initialGas gasLimit next onFail
   | initialGas >= fromIntegral gasLimit = do
-      txGasUsed .= fromIntegral gasLimit -- all gas is consumed
 
       let !pe = PactError GasError def []
             $ "Tx too big (" <> pretty initialGas <> "), limit "
