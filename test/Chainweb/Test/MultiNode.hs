@@ -298,14 +298,11 @@ compactAndResumeTest :: ()
   => LogLevel
   -> ChainwebVersion
   -> Natural
-  -> TestTree
-compactAndResumeTest logLevel v n =
-  let
-    name = "compact-resume"
-  in
-  after AllFinish "ConsensusNetwork" $ testCaseSteps name $ \step ->
-  withTempRocksDb "compact-resume-test-rocks" $ \rdb ->
-  withSystemTempDirectory "compact-resume-test-pact" $ \pactDbDir -> do
+  -> RocksDb
+  -> FilePath
+  -> (String -> IO ())
+  -> IO ()
+compactAndResumeTest logLevel v n rdb pactDbDir step = do
     let logFun = step . T.unpack
     let logger = genericLogger logLevel logFun
 

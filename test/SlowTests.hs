@@ -49,10 +49,11 @@ suite = sequentialTestGroup "ChainwebSlowTests" AllSucceed
     , testCaseSteps "Replay - FastTimedCPM - 6 nodes" $ \step ->
         withTempRocksDb "replay-test-fasttimedcpm-pair-rocks" $ \rdb ->
         withSystemTempDirectory "replay-test-fasttimedcpm-pair-pact" $ \pactDbDir ->
-            Chainweb.Test.MultiNode.replayTest loglevel (fastForkingCpmTestVersion pairChainGraph) 6 rdb pactDbDir step
-    , testCaseSteps "compact-resume" $ $ \step ->
+        Chainweb.Test.MultiNode.replayTest loglevel (fastForkingCpmTestVersion pairChainGraph) 6 rdb pactDbDir step
+    , testCaseSteps "compact-resume" $ \step ->
         withTempRocksDb "compact-resume-test-rocks" $ \rdb ->
         withSystemTempDirectory "compact-resume-test-pact" $ \pactDbDir -> do
+        Chainweb.Test.MultiNode.compactAndResumeTest loglevel (fastForkingCpmTestVersion pairChainGraph) 6 rdb pactDbDir step
     , testGroup "Network.X05.SelfSigned.Test"
         [ Network.X509.SelfSigned.Test.tests
         ]
