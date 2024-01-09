@@ -29,6 +29,7 @@ if os(darwin)
 package chainweb
     tests: True
     benchmarks: True
+    ghc-options: -Wno-missed-extra-shared-lib
 
 if impl(ghc >= 9.8.1)
     package chainweb
