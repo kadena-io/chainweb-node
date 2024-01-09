@@ -180,12 +180,15 @@ newWork
     -> TVar PrimedWork
     -> Cut
     -> IO (Maybe (T2 WorkHeader PayloadData))
-newWork logFun _choice eminer@(Miner mid _) hdb pact tpw c = do
+newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
 
     -- Randomly pick a chain to mine on. we no longer support the caller
     -- specifying any particular one.
     --
-    cid <- randomChainIdAt c (minChainHeight c)
+    cid <- case choice of
+        Anything -> randomChainIdAt c (minChainHeight c)
+        Suggestion cid' -> pure cid'
+        TriedLast _ -> randomChainIdAt c (minChainHeight c)
     logFun @T.Text Debug $ "newWork: picked chain " <> sshow cid
 
     -- wait until at least one chain has primed work. we don't wait until *our*
@@ -204,7 +207,7 @@ newWork logFun _choice eminer@(Miner mid _) hdb pact tpw c = do
     case mr of
         Nothing -> do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " not mineable"
-            newWork logFun _choice eminer hdb pact tpw c
+            newWork logFun Anything eminer hdb pact tpw c
         Just (T2 (payload, primedParentHash) extension)
             | primedParentHash == _blockHash (_parentHeader (_cutExtensionParent extension)) -> do
                 let !phash = _payloadDataPayloadHash payload
