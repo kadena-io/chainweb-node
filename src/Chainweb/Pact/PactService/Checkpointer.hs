@@ -41,10 +41,10 @@ module Chainweb.Pact.PactService.Checkpointer
     -- There are two function for restoring the checkpointer for evaluation of back
     -- code:
     --
-    -- * 'withCheckPointerRewind' and
+    -- * 'withCheckpointerRewind' and
     -- * 'withCurrentCheckpointer'.
     --
-    -- 'withCheckPointerRewind' rewinds the checkpointer to the provided parent
+    -- 'withCheckpointerRewind' rewinds the checkpointer to the provided parent
     -- header. 'withCurrentCheckpointer' evaluates the pact transaction within the
     -- context of the current checkpointer state. Both functions update the value of
     -- '_psParentHeader' at the beginning and the end of each call.
@@ -171,7 +171,7 @@ data WithCheckpointerResult a
 --
 -- This function assumes that '_psParentHeader' has been updated to match the
 -- latest block in the checkpointers. This is guaranteed to be the case after
--- calling any of 'rewindTo', 'syncParentHeader', 'withCheckPointerRewind',
+-- calling any of 'rewindTo', 'syncParentHeader', 'withCheckpointerRewind',
 -- 'withCheckPointerWithoutRewind', or 'withCurrentCheckpointer'.
 --
 -- /NOTE:/
@@ -273,7 +273,7 @@ withCheckpointerRewind rewindLimit p caller act = do
 
 -- | Run a batch of checkpointer operations, possibly involving the evaluation
 -- transactions accross several blocks using more than a single call of
--- 'withCheckPointerRewind' or 'withCurrentCheckpointer', and persist the final
+-- 'withCheckpointerRewind' or 'withCurrentCheckpointer', and persist the final
 -- state. In case of an failure, the checkpointer is reverted to the initial
 -- state.
 --
@@ -308,7 +308,7 @@ withBatchIO runPact act = mask $ \umask -> do
 
 -- | Run a batch of checkpointer operations, possibly involving the evaluation
 -- transactions accross several blocks using more than a single call of
--- 'withCheckPointerRewind' or 'withCurrentCheckpointer', and discard the final
+-- 'withCheckpointerRewind' or 'withCurrentCheckpointer', and discard the final
 -- state at the end.
 --
 withDiscardedBatch :: PactServiceM logger tbl a -> PactServiceM logger tbl a

@@ -34,6 +34,13 @@ if impl(ghc >= 9.8.1)
     package chainweb
         ghc-options: -Wno-x-partial
 
+    -- Remove once we actually upgrade to GHC 9.8.1, these
+    -- will be released
+    allow-newer: bytesmith:bytestring
+    allow-newer: bytebuild:*
+    allow-newer: byteslice:*
+    constraints: haskell-src-meta >= 0.8.13
+
 package pact
     ghc-options: -Wwarn
     optimization: True
@@ -63,8 +70,8 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 9d8d0975d58fd811404130a57724bfb5a2f2af80
-    --sha256: sha256-4oVJnV12kXraWRQjJJZv3wuoEGfGVFC1EIkzYJrUVs8=
+    tag: 495c8738acaa0157958ab23a06cd94abbc99d2d5
+    --sha256: 1dn322m5mx43bn3ki37zdk9daknnr6sz8y7d89si75m84rl0w27k
 
 source-repository-package
     type: git
@@ -124,6 +131,18 @@ source-repository-package
     location: https://github.com/emilypi/base64-bytestring-kadena
     tag: 174af3523616c8fe01449da5ccbb9f16df097ac3
     --sha256: sha256-kVFIy+Aj3TNJpsM1Cs/5uGmzeWwHKYWjjCQ+L1/XOj8=
+
+source-repository-package
+    type: git
+    location: https://github.com/chessai/patience
+    tag: 2f67d546ea6608fc6ebe5f2f6976503cbf340442
+    --sha256: 0x137akvbh4kr3qagksw74xdj2xz5vjnx1fbr41bb54a0lkcb8mm
+
+source-repository-package
+    type: git
+    location: https://github.com/andrewthad/chronos
+    tag: b199bf6df1453af95832c2d2f9f0ef48c3622caa
+    --sha256: 056awkmdmkqdd5g3m8a1ibg2vp02kbppmidkfh4aildb1brq970a
 
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
