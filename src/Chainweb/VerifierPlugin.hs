@@ -1,9 +1,11 @@
+{-# language BangPatterns #-}
 {-# language DerivingStrategies #-}
 {-# language EmptyCase #-}
 {-# language GeneralizedNewtypeDeriving #-}
 {-# language OverloadedStrings #-}
 {-# language TupleSections #-}
 {-# language TypeApplications #-}
+{-# language RankNTypes #-}
 
 module Chainweb.VerifierPlugin
     ( VerifierPlugin(..)
@@ -48,9 +50,15 @@ data ShouldRunVerifierPlugins = RunVerifierPlugins | DoNotRunVerifierPlugins
 
 newtype VerifierPlugin
     = VerifierPlugin
-    { runVerifierPlugin :: [PactValue] -> Set SigCapability -> GasLimit -> Either VerifierError GasLimit
+    { runVerifierPlugin
+        :: forall s
+        . [PactValue]
+        -> Set SigCapability
+        -> STRef s GasLimit
+        -> ExceptT VerifierError (ST s) ()
     }
-    deriving newtype NFData
+instance NFData VerifierPlugin where
+    rnf !_ = ()
 
 chargeGas :: STRef s GasLimit -> Gas -> ExceptT VerifierError (ST s) ()
 chargeGas r g = do
@@ -71,10 +79,11 @@ runVerifierPlugins allVerifiers gl tx = try $ stToIO $ do
         (Merge.zipWithAMatched $ \vn argsAndCaps verifierPlugin ->
             for_ argsAndCaps $ \(args, caps) -> do
                 verifierGasLimit <- lift $ readSTRef gasRef
-                verifierDoneGasLimit <- liftEither $ runVerifierPlugin verifierPlugin args caps verifierGasLimit
+                runVerifierPlugin verifierPlugin args caps gasRef
+                verifierDoneGasLimit <- lift $ readSTRef gasRef
                 if verifierDoneGasLimit > verifierGasLimit
                 then throwError $ VerifierError ("Verifier attempted to charge negative gas: " <> vn)
-                else lift $ writeSTRef gasRef verifierDoneGasLimit
+                else return ()
             )
         usedVerifiers
         allVerifiers
