@@ -246,19 +246,18 @@ responseGolden cenv rks = do
 --       appear in the `txLogs` anymore, and the two should be equivalent.
 txlogsCompactionTest :: Pact.TxCreationTime -> ClientEnv -> FilePath -> IO ()
 txlogsCompactionTest t cenv pactDbDir = do
-    let cmd :: Text -> Text -> CmdBuilder
-        cmd nonce tx = do
+    let cmd :: Text -> CmdBuilder
+        cmd tx = do
           set cbSigners [mkEd25519Signer' sender00 []]
             $ set cbTTL defaultMaxTTL
             $ set cbCreationTime t
             $ set cbChainId cid
-            $ mkCmd nonce
-            $ mkExec tx
-            $ mkKeySetData "sender00" [sender00]
+            $ set cbRPC (mkExec tx (mkKeySetData "sender00" [sender00]))
+            $ defaultCmd
 
-    createTableTx <- buildTextCmd v
+    createTableTx <- buildTextCmd "create-table-persons" v
       $ set cbGasLimit 300_000
-      $ cmd "create-table-persons"
+      $ cmd
       $ T.unlines
           [ "(namespace 'free)"
           , "(module m0 G"
@@ -328,9 +327,9 @@ txlogsCompactionTest t cenv pactDbDir = do
           -- Note there are two transactions that write to `persons`, which is
           -- why `numTxIds` = 2 (and not the number of rows).
           let gasLimit = 400_000
-          buildTextCmd v
+          buildTextCmd ("test-txlogs-" <> sshow n) v
             $ set cbGasLimit gasLimit
-            $ cmd ("test-txlogs-" <> sshow n)
+            $ cmd
             $ T.unlines
                 [ "(namespace 'free)"
                 , "(module m" <> sshow n <> " G"
@@ -344,9 +343,9 @@ txlogsCompactionTest t cenv pactDbDir = do
         createWriteTx n = do
           -- module = 60k, write = 100
           let gasLimit = 70_000
-          buildTextCmd v
+          buildTextCmd ("test-write-" <> sshow n) v
             $ set cbGasLimit gasLimit
-            $ cmd ("test-write-" <> sshow n)
+            $ cmd
             $ T.unlines
                 [ "(namespace 'free)"
                 , "(module m" <> sshow n <> " G"
@@ -430,20 +429,19 @@ localContTest t cenv step = do
     tx =
       "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
     firstStep = do
-      buildTextCmd v
+      buildTextCmd "nonce-cont-1" v
         $ set cbSigners [mkEd25519Signer' sender00 []]
         $ set cbCreationTime t
-        $ set cbGasLimit 70000
-        $ mkCmd "nonce-cont-1"
-        $ mkExec' tx
+        $ set cbGasLimit 70_000
+        $ set cbRPC (mkExec' tx)
+        $ defaultCmd
 
     secondStep pid = do
-      buildTextCmd v
+      buildTextCmd "nonce-cont-2" v
         $ set cbSigners [mkEd25519Signer' sender00 []]
         $ set cbCreationTime t
-        $ mkCmd "nonce-cont-2"
-        $ mkCont
-        $ mkContMsg pid 1
+        $ set cbRPC (mkCont (mkContMsg pid 1))
+        $ defaultCmd
 
 pollingConfirmDepth :: Pact.TxCreationTime -> ClientEnv -> (String -> IO ()) -> IO ()
 pollingConfirmDepth t cenv step = do
@@ -470,12 +468,12 @@ pollingConfirmDepth t cenv step = do
     tx' =
       "43"
     firstStep transaction = do
-      buildTextCmd v
+      buildTextCmd "nonce-cont-1" v
         $ set cbSigners [mkEd25519Signer' sender00 []]
         $ set cbCreationTime t
-        $ set cbGasLimit 70000
-        $ mkCmd "nonce-cont-1"
-        $ mkExec' transaction
+        $ set cbGasLimit 70_000
+        $ set cbRPC (mkExec' transaction)
+        $ defaultCmd
 
 pollingCorrectResults :: Pact.TxCreationTime -> ClientEnv -> (String -> IO ()) -> IO ()
 pollingCorrectResults t cenv step = do
@@ -505,12 +503,12 @@ pollingCorrectResults t cenv step = do
     (tx, tx')  = ("42", "43")
 
     stepTx transaction = do
-      buildTextCmd v
+      buildTextCmd "nonce-cont-2" v
         $ set cbSigners [mkEd25519Signer' sender00 []]
         $ set cbCreationTime t
         $ set cbGasLimit 70_000
-        $ mkCmd "nonce-cont-2"
-        $ mkExec' transaction
+        $ set cbRPC (mkExec' transaction)
+        $ defaultCmd
 
 localChainDataTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
 localChainDataTest t cenv = do
@@ -687,12 +685,12 @@ localPreflightSimTest t cenv step = do
         $ set cbChainId pcid
         $ set cbSigners sigs
         $ set cbCreationTime t
-        $ mkCmd ""
-        $ mkExec' "(+ 1 2)"
+        $ set cbRPC (mkExec' "(+ 1 2)")
+        $ defaultCmd
 
     mkTx v' mv tx = modifyMVar mv $ \nn -> do
       let n = "nonce-" <> sshow nn
-      tx' <- buildTextCmd v' $ set cbNonce n tx
+      tx' <- buildTextCmd n v' tx
       pure (succ nn, tx')
 
 pollingBadlistTest :: ClientEnv -> IO ()
@@ -1100,23 +1098,22 @@ allocationTest t cenv step = do
 webAuthnSignatureTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
 webAuthnSignatureTest t cenv = do
 
-  cmd1 <- buildTextCmd v
+  cmd1 <- buildTextCmd "nonce-webauthn-1" v
     $ set cbSigners [mkWebAuthnSigner' sender02WebAuthn [], mkEd25519Signer' sender00 []]
     $ set cbCreationTime t
     $ set cbGasLimit 1000
-    $ mkCmd "nonce-webauthn-1"
-    $ mkExec' "(concat [\"chainweb-\" \"node\"])"
+    $ set cbRPC (mkExec' "(concat [\"chainweb-\" \"node\"])")
+    $ defaultCmd
 
   rks1 <- sending cid' cenv (SubmitBatch $ pure cmd1)
   PollResponses _resp1 <- polling cid' cenv rks1 ExpectPactResult
 
-  cmd2 <- buildTextCmd v
+  cmd2 <- buildTextCmd "nonce-webauthn-2" v
     $ set cbSigners [mkWebAuthnSigner' sender02WebAuthn [], mkEd25519Signer' sender00 []]
     $ set cbCreationTime t
     $ set cbGasLimit 1000
-    $ mkCmd "nonce-webauthn-2"
-    $ mkExec' "(concat [\"chainweb-\" \"node\"])"
-
+    $ set cbRPC (mkExec' "(concat [\"chainweb-\" \"node\"])")
+    $ defaultCmd
 
   rks2 <- sending cid' cenv (SubmitBatch $ pure cmd2)
   PollResponses _resp2 <- polling cid' cenv rks2 ExpectPactResult

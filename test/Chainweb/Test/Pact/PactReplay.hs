@@ -110,11 +110,11 @@ testMemPoolAccess = mempty
     getTestBlock _ _ 1 _ = mempty
     getTestBlock txOrigTime validate bHeight hash = do
       let nonce = T.pack . show @(Time Micros) $ txOrigTime
-      tx <- buildCwCmd testVer $
+      tx <- buildCwCmd nonce testVer $
         set cbSigners [mkEd25519Signer' sender00 []] $
         set cbCreationTime (toTxCreationTime txOrigTime) $
-        mkCmd nonce $
-        mkExec' "1"
+        set cbRPC (mkExec' "1") $
+        defaultCmd
       let outtxs = V.singleton tx
       oks <- validate bHeight hash outtxs
       unless (V.and oks) $ fail $ mconcat
@@ -137,10 +137,10 @@ dupegenMemPoolAccess = do
         if bHeight `elem` hs' then return mempty else do
           writeIORef hs (bHeight:hs')
           outtxs <- fmap V.singleton $
-            buildCwCmd testVer $
+            buildCwCmd "0" testVer $
             set cbSigners [mkEd25519Signer' sender00 []] $
-            mkCmd "0" $
-            mkExec' "1"
+            set cbRPC (mkExec' "1") $
+            defaultCmd
           oks <- validate bHeight bHash outtxs
           unless (V.and oks) $ fail $ mconcat
               [ "dupegenMemPoolAccess: tx failed validation! input list: \n"

@@ -53,9 +53,6 @@ import Pact.Types.Info
 import Pact.Types.Persistence
 import Pact.Types.PactError
 import Pact.Types.RowData
-import Pact.Types.RPC
-import Pact.Types.SQLite (RType(..), SType(..))
-import Pact.Types.SQLite qualified as Pact
 import Pact.Types.Util (fromText')
 
 import Pact.JSON.Encode qualified as J
@@ -127,8 +124,7 @@ tests rdb = testGroup testName
   , pactStateSamePreAndPostCompaction rdb
   , compactionIsIdempotent rdb
   , compactionUserTablesDropped rdb
-  , compactionTransactionIndexRange rdb
-  , compactionTransactionIndexDuplicate rdb
+  , compactionDoesNotDisruptDuplicateDetection rdb
   ]
   where
     testName = "Chainweb.Test.Pact.PactSingleChainTest"
@@ -321,11 +317,11 @@ pactStateSamePreAndPostCompaction rdb =
         numBlocks = 100
 
     let makeTx :: Word -> BlockHeader -> IO ChainwebTransaction
-        makeTx nth bh = buildCwCmd testVersion
+        makeTx nth bh = buildCwCmd (sshow (nth, bh)) testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
           $ setFromHeader bh
-          $ mkCmd (sshow (nth, bh))
-          $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+          $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)")
+          $ defaultCmd
 
     replicateM_ numBlocks $ do
       runTxInBlock_ cr.mempoolRef cr.pactQueue cr.blockDb
@@ -375,11 +371,11 @@ compactionIsIdempotent rdb =
         numBlocks = 100
 
     let makeTx :: Word -> BlockHeader -> IO ChainwebTransaction
-        makeTx nth bh = buildCwCmd testVersion
+        makeTx nth bh = buildCwCmd (sshow (nth, bh)) testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
           $ setFromHeader bh
-          $ mkCmd (sshow (nth, bh))
-          $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+          $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)")
+          $ defaultCmd
 
     replicateM_ numBlocks $ do
       runTxInBlock_ cr.mempoolRef cr.pactQueue cr.blockDb
@@ -425,73 +421,26 @@ compactionIsIdempotent rdb =
                   putStrLn ""
       assertFailure "pact state check failed"
 
-compactionTransactionIndexDuplicate :: ()
+compactionDoesNotDisruptDuplicateDetection :: ()
   => RocksDb
   -> TestTree
-compactionTransactionIndexDuplicate rdb =
-  compactionSetup "compactionTransactionIndexDuplicate" rdb testPactServiceConfig $ \cr -> do
+compactionDoesNotDisruptDuplicateDetection rdb = do
+  compactionSetup "compactionDoesNotDisruptDuplicateDetection" rdb testPactServiceConfig $ \cr -> do
     let makeTx :: IO ChainwebTransaction
-        makeTx = buildCwCmd testVersion
+        makeTx = buildCwCmd (sshow @Word 0) testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
-          $ mkCmd (sshow @Word 0) -- hardcoded for duplicate
-          $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+          $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)")
+          $ defaultCmd
 
     let run = do
           runTxInBlock cr.mempoolRef cr.pactQueue cr.blockDb
             $ \_ _ _ _ -> makeTx
 
     run >>= \e -> assertBool "First tx submission succeeds" (isRight e)
-    Utils.compact Error [C.NoVacuum, C.TransactionIndexKeepDepth 0] cr.sqlEnv C.Latest
+    Utils.compact Error [C.NoVacuum] cr.sqlEnv C.Latest
     run >>= \e -> assertBool "First tx submission fails" (isLeft e)
 
     pure ()
-
-compactionTransactionIndexRange :: ()
-  => RocksDb
-  -> TestTree
-compactionTransactionIndexRange rdb =
-  compactionSetup "compactionTransactionIndexRange" rdb testPactServiceConfig $ \cr -> do
-    let makeTx :: Word -> BlockHeader -> IO ChainwebTransaction
-        makeTx nth bh = buildCwCmd testVersion
-          $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
-          $ setFromHeader bh
-          $ mkCmd (sshow (nth, bh))
-          $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
-
-    let run = do
-          runTxInBlock cr.mempoolRef cr.pactQueue cr.blockDb
-            $ \n _ _ bHeader -> makeTx n bHeader
-
-    let keepDepth :: Num a => a
-        keepDepth = 10
-
-    -- Run enough blocks to where TransactionIndex keeps its full history
-    replicateM_ keepDepth run
-
-    let getRange :: IO (BlockHeight, BlockHeight)
-        getRange = do
-          r <- Pact.qry (_sConn cr.sqlEnv) "SELECT MIN(blockheight), MAX(blockheight) FROM TransactionIndex" [] [RInt, RInt]
-          case r of
-            [[SInt mn, SInt mx]] -> pure (int mn, int mx)
-            _ -> assertFailure "getRange: invalid query"
-
-    let compact = Utils.compact Error [C.NoVacuum, C.TransactionIndexKeepDepth keepDepth] cr.sqlEnv C.Latest
-
-    do
-      startRange <- getRange
-      compact
-      endRange <- getRange
-      assertEqual "TransactionIndex blockheight range is equal after compaction, when max blockheight is less than or equal to transactionIndexKeepDepth" startRange endRange
-
-    do
-      (preStart, preEnd) <- getRange
-      let nMoreBlocks :: Num a => a
-          nMoreBlocks = 15
-      replicateM_ nMoreBlocks run
-      compact
-      (postStart, postEnd) <- getRange
-      assertEqual "TransactionIndex blockheight range should shift after running more blocks and compacting" (preStart + nMoreBlocks, preEnd + nMoreBlocks) (postStart, postEnd)
-      assertEqual "TransactionIndex blockheight range should maintain keep depth" keepDepth (getBlockHeight postEnd - getBlockHeight postStart)
 
 -- | Test that user tables created before the compaction height are kept,
 --   while those created after the compaction height are dropped.
@@ -526,12 +475,11 @@ compactionUserTablesDropped rdb =
                 , ")"
                 , "(create-table " <> tblName <> ")"
                 ]
-          buildCwCmd testVersion
+          buildCwCmd (sshow n) testVersion
             $ signSender00
             $ set cbGasLimit gasLimit
-            $ mkCmd ("createTable-" <> tblName <> "-" <> sshow n)
-            $ mkExec tx
-            $ mkKeySetData "sender00" [sender00]
+            $ set cbRPC (mkExec tx (mkKeySetData "sender00" [sender00]))
+            $ defaultCmd
 
     let beforeTable = "test_before"
     let afterTable = "test_after"
@@ -693,11 +641,11 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
 
     chainDataMemPool = mempty {
       mpaGetBlock = \_ _ _ _ bh -> do
-          fmap V.singleton $ buildCwCmd testVersion
+          fmap V.singleton $ buildCwCmd (sshow bh) testVersion
               $ signSender00
               $ setFromHeader bh
-              $ mkCmd (sshow bh)
-              $ mkExec' "(chain-data)"
+              $ set cbRPC (mkExec' "(chain-data)")
+              $ defaultCmd
       }
 
 signSender00 :: CmdBuilder -> CmdBuilder
@@ -720,7 +668,7 @@ blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
 
   let
     useGas g = do
-      bigTx <- buildCwCmd testVersion $ set cbGasLimit g $ signSender00 $ mkCmd "cmd" $ mkExec' "TESTING"
+      bigTx <- buildCwCmd "cmd" testVersion $ set cbGasLimit g $ signSender00 $ set cbRPC (mkExec' "TESTING") defaultCmd
       let
         cr = CommandResult
           (RequestKey (Hash "0")) Nothing
@@ -805,22 +753,18 @@ mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
       i <- modifyMVar supply $ return . (succ &&& id)
       f i bh
 
-    goodTx i bh = buildCwCmd testVersion
+    goodTx i bh = buildCwCmd (sshow (i, bh)) testVersion
         $ signSender00
-        $ mkCmd' bh (sshow (i,bh))
-        $ mkExec' "(+ 1 2)"
+        $ setFromHeader bh
+        $ set cbRPC (mkExec' "(+ 1 2)")
+        $ defaultCmd
 
-    badTx i bh = buildCwCmd testVersion
+    badTx i bh = buildCwCmd (sshow (i, bh)) testVersion
         $ signSender00
         $ set cbSender "bad"
-        $ mkCmd' bh (sshow (i,bh))
-        $ mkExec' "(+ 1 2)"
-
-
-    mkCmd' :: BlockHeader -> T.Text -> PactRPC T.Text -> CmdBuilder
-    mkCmd' bh nonce =
-      setFromHeader bh
-      . mkCmd nonce
+        $ setFromHeader bh
+        $ set cbRPC (mkExec' "(+ 1 2)")
+        $ defaultCmd
 
 moduleNameFork :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 moduleNameFork mpRefIO reqIO = testCase "moduleNameFork" $ do
@@ -855,11 +799,11 @@ moduleNameMempool ns mn = mempty
               , ns <> "." <> mn <> ".G"
               ]
         fmap V.fromList $ forM (zip txs [0..]) $ \(code,n :: Int) ->
-          buildCwCmd testVersion $
+          buildCwCmd ("1" <> sshow n) testVersion $
           signSender00 $
           set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh) $
-          mkCmd ("1" <> sshow n) $
-          mkExec' code
+          set cbRPC (mkExec' code) $
+          defaultCmd
 
 
 mempoolCreationTimeTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
@@ -885,13 +829,13 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
 
   where
 
-    makeTx nonce t = buildCwCmd testVersion
+    makeTx nonce t = buildCwCmd (sshow t <> nonce) testVersion
         $ signSender00
         $ set cbChainId cid
         $ set cbCreationTime (toTxCreationTime t)
         $ set cbTTL 300
-        $ mkCmd (sshow t <> nonce)
-        $ mkExec' "1"
+        $ set cbRPC (mkExec' "1")
+        $ defaultCmd
     mp tx = mempty {
       mpaGetBlock = \_ valid _ _ bh -> getBlock bh tx valid
       }
@@ -910,23 +854,23 @@ preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
   coinV4 <- T.readFile "pact/coin-contract/v4/coin-v4.pact"
   coinV5 <- T.readFile "pact/coin-contract/v5/coin-v5.pact"
 
-  txCoinV3 <- buildCwCmd testVersion
+  txCoinV3 <- buildCwCmd "tx-now-coinv3" testVersion
         $ signSender00
         $ set cbChainId cid
-        $ mkCmd "tx-now-coinv3"
-        $ mkExec' coinV3
+        $ set cbRPC (mkExec' coinV3)
+        $ defaultCmd
 
-  txCoinV4 <- buildCwCmd testVersion
+  txCoinV4 <- buildCwCmd "tx-now-coinv4" testVersion
         $ signSender00
         $ set cbChainId cid
-        $ mkCmd "tx-now-coinv4"
-        $ mkExec' coinV4
+        $ set cbRPC (mkExec' coinV4)
+        $ defaultCmd
 
-  txCoinV5 <- buildCwCmd testVersion
+  txCoinV5 <- buildCwCmd "tx-now-coinv5" testVersion
         $ signSender00
         $ set cbChainId cid
-        $ mkCmd "tx-now-coinv5"
-        $ mkExec' coinV5
+        $ set cbRPC (mkExec' coinV5)
+        $ defaultCmd
 
   rs <- forSuccess "preInsertCheckTimeoutTest" $ pactPreInsertCheck (V.fromList [txCoinV3, txCoinV4, txCoinV5]) q
   assertBool ("should be InsertErrorTimedOut but got " ++ show rs) $ V.and $ V.map (== Left InsertErrorTimedOut) rs
@@ -936,13 +880,13 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
   (_, reqQ, _) <- reqIO
   let hashToTxHashList = V.singleton . requestKeyToTransactionHash . RequestKey . toUntypedHash @'Blake2b_256
   badHashRef <- newIORef $ hashToTxHashList initialHash
-  badTx <- buildCwCmd testVersion
+  badTx <- buildCwCmd "badListMPA" testVersion
     $ signSender00
     -- this should exceed the account balance
-    $ set cbGasLimit 99999
+    $ set cbGasLimit 99_999
     $ set cbGasPrice 1_000_000_000_000_000
-    $ mkCmd "badListMPA"
-    $ mkExec' "(+ 1 2)"
+    $ set cbRPC (mkExec' "(+ 1 2)")
+    $ defaultCmd
   setOneShotMempool mpRefIO (badlistMPA badTx badHashRef)
   resp <- forSuccess "badlistNewBlockTest" $ newBlock noMiner (ParentHeader genesisHeader) reqQ
   assertEqual "bad tx filtered from block" mempty (_payloadWithOutputsTransactions resp)
@@ -1005,13 +949,12 @@ goldenMemPool = mempty
         return outtxs
     mkTxs txs =
         fmap V.fromList $ forM (zip txs [0..]) $ \(code,n :: Int) ->
-          buildCwCmd testVersion $
+          buildCwCmd ("1" <> sshow n) testVersion $
           signSender00 $
           set cbGasPrice 0.01 $
           set cbTTL 1_000_000 $ -- match old goldens
-          mkCmd ("1" <> sshow n) $
-          mkExec code $
-          mkKeySetData "test-admin-keyset" [sender00]
+          set cbRPC (mkExec code $ mkKeySetData "test-admin-keyset" [sender00]) $
+          defaultCmd
 
 data CompactionResources = CompactionResources
   { mempoolRef :: IO (IORef MemPoolAccess)

@@ -179,12 +179,12 @@ modAtTtl f (Seconds t) = mempty
     { mpaGetBlock = \_ validate bh hash ph -> do
         let txTime = toTxCreationTime $ f $ _bct $ _blockCreationTime ph
             tt = TTLSeconds (int t)
-        outtxs <- fmap V.singleton $ buildCwCmd testVer
+        outtxs <- fmap V.singleton $ buildCwCmd (sshow bh) testVer
           $ set cbCreationTime txTime
           $ set cbTTL tt
           $ set cbSigners [mkEd25519Signer' sender00 []]
-          $ mkCmd (sshow bh)
-          $ mkExec' "1"
+          $ set cbRPC (mkExec' "1")
+          $ defaultCmd
 
         unlessM (and <$> validate bh hash outtxs) $ throwM DoPreBlockFailure
         return outtxs
