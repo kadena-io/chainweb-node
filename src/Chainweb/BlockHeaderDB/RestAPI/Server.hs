@@ -77,8 +77,6 @@ import Chainweb.TreeDB
 import Chainweb.Utils.Paging
 import Chainweb.Version
 
-import Chainweb.Storage.Table
-
 -- -------------------------------------------------------------------------- --
 -- Handler Tools
 
@@ -244,7 +242,9 @@ branchBlocksHandler bhdb pdb (BranchBoundsLimit boundsLimit) maxLimit limit next
   where
     effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
     grabPayload :: BlockHeader -> IO Block
-    grabPayload h = Block h <$> casLookupM pdb (_blockPayloadHash h)
+    grabPayload h = do
+        Just x <- lookupPayloadWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h)
+        pure (Block h x)
 
 -- | Every `TreeDb` key within a given range.
 --
@@ -314,7 +314,9 @@ blocksHandler bhdb pdb maxLimit limit next minr maxr = do
   where
     effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
     grabPayload :: BlockHeader -> IO Block
-    grabPayload h = Block h <$> casLookupM pdb (_blockPayloadHash h)
+    grabPayload h = do
+        Just x <- lookupPayloadWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h)
+        pure (Block h x)
 
 -- | Query a single 'BlockHeader' by its 'BlockHash'
 --
@@ -414,7 +416,7 @@ blockStreamHandler db withPayloads = Tagged $ \req resp -> do
 
     g :: BlockHeader -> IO HeaderUpdate
     g bh = do
-        x <- casLookupM cas $ _blockPayloadHash bh
+        Just x <- lookupPayloadWithHeight cas (Just $ _blockHeight bh) (_blockPayloadHash bh)
         pure $ HeaderUpdate
             { _huHeader = ObjectEncoded bh
             , _huPayloadWithOutputs =

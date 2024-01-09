@@ -280,8 +280,10 @@ testDeepForkLimit mpio (RewindLimit deepForkLimit) iop step = do
     let pdb = _bdbPayloadDb bdb
     step "query max db entry"
     maxblock <- maxEntry bhdb
-    maxblockPayload <- payloadWithOutputsToPayloadData <$>
-      tableLookupM pdb (_blockPayloadHash maxblock)
+    pd <- lookupPayloadWithHeight pdb (Just $ _blockHeight maxblock) (_blockPayloadHash maxblock) >>= \case
+      Nothing -> assertFailure "max block payload not found"
+      Just x -> return x
+    let maxblockPayload = payloadWithOutputsToPayloadData pd
     step $ "max block has height " <> sshow (_blockHeight maxblock)
     nonceCounterMain <- newIORef (fromIntegral $ _blockHeight maxblock)
 
@@ -344,7 +346,7 @@ mineBlock nonce iop = timeout 5000000 go >>= \case
 
       (_, _, bdb) <- iop
       let pdb = _bdbPayloadDb bdb
-      addNewPayload pdb payload
+      addNewPayload pdb (succ $ _blockHeight $ _parentHeader ph) payload
 
       bhdb <- getBlockHeaderDb cid bdb
       unsafeInsertBlockHeaderDb bhdb bh

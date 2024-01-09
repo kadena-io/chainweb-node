@@ -100,14 +100,7 @@ module Chainweb.Payload
 
 -- * All Payload Data in a Single Structure
 , PayloadWithOutputs
-, PayloadWithOutputs_
-    ( _payloadWithOutputsTransactions
-    , _payloadWithOutputsMiner
-    , _payloadWithOutputsCoinbase
-    , _payloadWithOutputsPayloadHash
-    , _payloadWithOutputsTransactionsHash
-    , _payloadWithOutputsOutputsHash
-    )
+, PayloadWithOutputs_(..)
 , payloadWithOutputs
 , newPayloadWithOutputs
 , payloadWithOutputsToBlockObjects

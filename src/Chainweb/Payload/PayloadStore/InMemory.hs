@@ -14,6 +14,7 @@ module Chainweb.Payload.PayloadStore.InMemory
 ( newPayloadDb
 
 -- * Internal
+, oldBlockPayloadStore
 , newBlockPayloadStore
 , newBlockTransactionsStore
 , newTransactionDb
@@ -25,6 +26,7 @@ module Chainweb.Payload.PayloadStore.InMemory
 
 -- internal modules
 
+import Chainweb.BlockHeight
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table
@@ -34,16 +36,24 @@ import qualified Chainweb.Storage.Table.HashMap as HashMapTable
 -- -------------------------------------------------------------------------- --
 -- HashMap CAS
 
-newBlockPayloadStore :: IO (Casify HashMapTable BlockPayload)
-newBlockPayloadStore = Casify <$> HashMapTable.emptyTable
+oldBlockPayloadStore :: IO (Casify HashMapTable BlockPayload)
+oldBlockPayloadStore = Casify <$> HashMapTable.emptyTable
+
+newBlockPayloadStore :: IO (HashMapTable (BlockHeight, BlockPayloadHash_ a) (BlockPayload_ a))
+newBlockPayloadStore = HashMapTable.emptyTable
 
 newBlockTransactionsStore :: IO (Casify HashMapTable BlockTransactions)
 newBlockTransactionsStore = Casify <$> HashMapTable.emptyTable
+
+newBlockPayloadHeightIndex :: IO (HashMapTable (BlockPayloadHash_ a) BlockHeight)
+newBlockPayloadHeightIndex = HashMapTable.emptyTable
 
 newTransactionDb :: IO (TransactionDb HashMapTable)
 newTransactionDb = TransactionDb
     <$> newBlockTransactionsStore
     <*> newBlockPayloadStore
+    <*> newBlockPayloadHeightIndex
+    <*> oldBlockPayloadStore
 
 newBlockOutputsStore :: IO (BlockOutputsStore HashMapTable)
 newBlockOutputsStore = Casify <$> HashMapTable.emptyTable
