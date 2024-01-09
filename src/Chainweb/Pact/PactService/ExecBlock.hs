@@ -30,7 +30,7 @@ module Chainweb.Pact.PactService.ExecBlock
     ) where
 
 import Control.DeepSeq
-import Control.Exception (evaluate, SomeAsyncException(..))
+import Control.Exception (evaluate)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -86,9 +86,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
-import Chainweb.VerifierPlugin
 import Chainweb.Version
-import Chainweb.Version.Utils
 import Chainweb.Version.Guards
 
 -- | Set parent header in state and spv support (using parent hash)
@@ -225,7 +223,6 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
       >>= runValid checkTxSigs
       >>= runValid checkTimes
       >>= runValid (return . checkCompile v cid bh)
-      >>= runValid checkVerifiers
 
     checkUnique :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkUnique t = do
@@ -261,15 +258,6 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
         signers = P._pSigners $ payloadObj $ P._cmdPayload t
         validSchemes = validPPKSchemes v cid bh
         webAuthnPrefixLegal = isWebAuthnPrefixLegal v cid bh
-
-    allVerifiers = verifiersAt v cid bh
-
-    checkVerifiers :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
-    checkVerifiers t =
-      (Right t <$ runVerifierPlugins allVerifiers t) `catches`
-        [ Handler $ \(ex :: SomeAsyncException) -> throwM ex
-        , Handler $ \(_ :: SomeException) -> return $ Left InsertErrorInvalidVerifiers
-        ]
 
     initTxList :: ValidateTxs
     initTxList = V.map Right txs

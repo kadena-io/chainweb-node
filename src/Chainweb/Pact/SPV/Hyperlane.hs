@@ -58,11 +58,13 @@ hyperlaneVerifierPlugin = VerifierPlugin $ \vals caps gasRef -> do
     _ -> throwError $ VerifierError "Expected a proof data as a list"
 
   (HyperlaneMessage{..}, hyperlaneMessageBinary) <- do
+    chargeGas gasRef 5
     msg <- decodeB64UrlNoPaddingText encodedHyperlaneMessage
     decoded <- runGetS getHyperlaneMessage msg
     return (decoded, msg)
 
   MessageIdMultisigIsmMetadata{..} <- do
+    chargeGas gasRef 5
     metadata <- decodeB64UrlNoPaddingText encodedMetadata
     runGetS getMessageIdMultisigIsmMetadata metadata
 
