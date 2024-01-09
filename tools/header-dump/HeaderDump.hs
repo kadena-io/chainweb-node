@@ -548,7 +548,7 @@ payloadsCid
     -> S.Stream (Of b) m r
 payloadsCid pdb l =  S.mapM
     $ l
-        ( cdData (liftIO . casLookupM pdb)
+        ( cdData (fmap snd . liftIO . tableLookupM pdb)
         . (\x -> ChainData
             { _cdChainId = _blockChainId x
             , _cdHeight = _blockHeight x

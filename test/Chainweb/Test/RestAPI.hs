@@ -241,7 +241,7 @@ simpleClientSession envIO cid =
         void $ liftIO $ step "put 3 new blocks"
         let newHeaders = take 3 $ testBlockHeaders (ParentHeader gbh0)
         liftIO $ traverse_ (unsafeInsertBlockHeaderDb bhdb) newHeaders
-        liftIO $ traverse_ (addNewPayload pdb . testBlockPayload_) newHeaders
+        liftIO $ traverse_ (\x -> addNewPayload pdb (_blockHeight x) (testBlockPayload_ x)) newHeaders
 
         void $ liftIO $ step "headersClient: get all 4 block headers"
         bhs2 <- headersClient version cid Nothing Nothing Nothing Nothing
@@ -406,7 +406,7 @@ simpleClientSession envIO cid =
         void $ liftIO $ step "headerPutClient: put 3 new blocks on a new fork"
         let newHeaders2 = take 3 $ testBlockHeadersWithNonce (Nonce 17) (ParentHeader gbh0)
         liftIO $ traverse_ (unsafeInsertBlockHeaderDb bhdb) newHeaders2
-        liftIO $ traverse_ (addNewPayload pdb . testBlockPayload_) newHeaders2
+        liftIO $ traverse_ (\x -> addNewPayload pdb (_blockHeight x) (testBlockPayload_ x)) newHeaders2
 
         let lower = last newHeaders
         forM_ ([1..] `zip` newHeaders2) $ \(i, h) -> do

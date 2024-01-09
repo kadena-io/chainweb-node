@@ -103,7 +103,6 @@ import Chainweb.Pact.Types
 import Chainweb.Pact.Validations
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Storage.Table
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB
@@ -741,7 +740,7 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
                     -- given a header for a block in the fork, fetch its payload
                     -- and run its transactions, validating its hashes
                     let runForkBlockHeader forkBh = do
-                            payload <- liftIO $ tableLookup payloadDb (_blockPayloadHash forkBh) >>= \case
+                            payload <- liftIO $ lookupPayloadWithHeight payloadDb (_blockHeight forkBh) (_blockPayloadHash forkBh) >>= \case
                                 Nothing -> throwM $ PactInternalError
                                     $ "execValidateBlock: lookup of payload failed"
                                     <> ". BlockPayloadHash: " <> encodeToText (_blockPayloadHash forkBh)

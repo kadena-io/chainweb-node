@@ -95,7 +95,7 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version as Chainweb
 import Chainweb.WebPactExecutionService
 
-import Chainweb.Storage.Table (casLookupM)
+import Chainweb.Storage.Table (tableLookupM)
 
 import Data.LogMessage
 
@@ -322,7 +322,7 @@ cutToPayloadOutputs
   -> IO CutOutputs
 cutToPayloadOutputs c pdb = do
   forM (_cutMap c) $ \bh -> do
-    outs <- casLookupM pdb (_blockPayloadHash bh)
+    (_, outs) <- tableLookupM pdb (_blockPayloadHash bh)
     let txs = Vector.map (toTx *** toCR) (_payloadWithOutputsTransactions outs)
         toTx :: Transaction -> Command Text
         toTx (Transaction t) = fromJuste $ decodeStrict' t

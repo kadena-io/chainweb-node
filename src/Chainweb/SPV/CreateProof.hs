@@ -366,7 +366,7 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
             , _spvExceptionTargetHeight = _blockHeight trgHeader
             }
 
-    Just payload <- tableLookup pDb (_blockPayloadHash txHeader)
+    Just payload <- tableLookup pDb (_blockHeight txHeader, _blockPayloadHash txHeader)
 
     -- ----------------------------- --
     -- 1. Payload Proofs (TXs and Payload)
@@ -496,4 +496,3 @@ minimumTrgHeader headerDb tcid scid bh = do
     srcDistance = length $ shortestPath tcid scid srcGraph
     trgGraph = chainGraphAt headerDb (bh + int srcDistance)
     trgDistance = length $ shortestPath tcid scid trgGraph
-

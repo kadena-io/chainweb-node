@@ -101,7 +101,9 @@ insertWithPayloads
     -> IO [BlockHeader]
 insertWithPayloads bdb pdb h n l = do
     hdrs <- insertN_ n l h bdb
-    forM_ hdrs $ casInsert pdb . testBlockPayload_
+    forM_ hdrs $ \hd ->
+        let payload = testBlockPayload_ hd
+        in addNewPayload pdb (_blockHeight hd) payload
     return hdrs
 
 cid :: ChainId
@@ -305,7 +307,8 @@ failPayloadCheck :: IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO ()
 failPayloadCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
     let db = _transactionDbBlockPayloads $ _transactionDb pdb
-    tableDelete db (_blockPayloadHash $ f0 !! int n)
+    let b = f0 !! int n
+    tableDelete db (_blockHeight b, _blockPayloadHash b)
     try (pruneAllChains logger rdb toyVersion checks) >>= \case
         Left (MissingPayloadException{}) -> return ()
         Left e -> assertFailure
@@ -327,7 +330,7 @@ failPayloadCheck2 :: IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO (
 failPayloadCheck2 rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
     let b = f0 !! int n
-    payload <- casLookupM pdb (_blockPayloadHash b)
+    (_, payload) <- tableLookupM pdb (_blockPayloadHash b)
     tableDelete (_transactionDbBlockTransactions $ _transactionDb pdb)
         $ _payloadWithOutputsTransactionsHash payload
     try (pruneAllChains logger rdb toyVersion checks) >>= \case

@@ -254,7 +254,7 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
 
     txCount :: BlockHeader -> IO Int
     txCount bh = do
-        bp <- casLookupM payloadDb (_blockPayloadHash bh)
+        bp <- tableLookupM payloadDb (_blockHeight bh, _blockPayloadHash bh)
         x <- casLookupM txsDb (_blockPayloadTransactionsHash bp)
         return $ length $ _blockTransactions x
 

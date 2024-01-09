@@ -214,8 +214,8 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
     logfun Debug $ "getBlockPayload: " <> sshow h
     tableLookup candidateStore payloadHash >>= \case
         Just !x -> return x
-        Nothing -> tableLookup cas payloadHash >>= \case
-            (Just !x) -> return $! payloadWithOutputsToPayloadData x
+        Nothing -> lookupPayloadWithHeight cas (_blockHeight h) payloadHash >>= \case
+            Just !x -> return $! payloadWithOutputsToPayloadData x
             Nothing -> memo memoMap payloadHash $ \k ->
                 pullOrigin k maybeOrigin >>= \case
                     Nothing -> do
@@ -480,7 +480,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
             (_blockHash hdr)
             (length (_payloadDataTransactions p))
             $ pact hdr p
-        casInsert (_webBlockPayloadStoreCas payloadStore) outs
+        tableInsert (_webBlockPayloadStoreCas payloadStore) (casKey outs) (_blockHeight hdr, outs)
 
     queryBlockHeaderTask ck@(ChainValue cid k)
         = newTask (sshow ck) priority $ \l env -> chainValue <$> do
@@ -611,4 +611,3 @@ instance (CasKeyType (ChainValue BlockHeader) ~ k) => Table WebBlockHeaderCas k 
     -- instance is available only locally.
     --
     -- The instance requires that memoCache doesn't delete from the cas.
-

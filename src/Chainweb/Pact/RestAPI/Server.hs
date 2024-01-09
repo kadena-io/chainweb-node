@@ -119,8 +119,6 @@ import Chainweb.Pact.Validations (assertCommand)
 import Chainweb.Version.Guards (isWebAuthnPrefixLegal, pactParserVersion, validPPKSchemes)
 import Chainweb.WebPactExecutionService
 
-import Chainweb.Storage.Table
-
 import qualified Pact.JSON.Encode as J
 import qualified Pact.Parse as Pact
 import Pact.Types.API
@@ -636,7 +634,7 @@ internalPoll pdb bhdb mempool pactEx confDepth requestKeys0 = do
         let matchingHash = (== pactHash) . _cmdHash . fst
         blockHeader <- liftIO $ TreeDB.lookupM bhdb bHash
         let payloadHash = _blockPayloadHash blockHeader
-        (_payloadWithOutputsTransactions -> txsBs) <- barf "tablelookupFailed" =<< liftIO (tableLookup pdb payloadHash)
+        (_payloadWithOutputsTransactions -> txsBs) <- barf "tablelookupFailed" =<< liftIO (lookupPayloadWithHeight pdb (_blockHeight blockHeader) payloadHash)
         !txs <- mapM fromTx txsBs
         case find matchingHash txs of
             Just (_cmd, TransactionOutput output) -> do

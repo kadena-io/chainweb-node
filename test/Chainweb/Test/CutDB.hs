@@ -178,7 +178,7 @@ syncPact cutDb pact =
     pdb = view cutDbPayloadDb cutDb
     payload h = tableLookup pdb (_blockPayloadHash h) >>= \case
         Nothing -> error $ "Corrupted database: failed to load payload data for block header " <> sshow h
-        Just p -> return $ payloadWithOutputsToPayloadData p
+        Just (_, p) -> return $ payloadWithOutputsToPayloadData p
 
 -- | Atomically await for a 'CutDb' instance to synchronize cuts according to some
 -- predicate for a given 'Cut' and the results of '_cutStm'.
@@ -449,7 +449,7 @@ randomTransaction cutDb = do
     bh <- randomBlockHeader cutDb
     Just pay <- tableLookup
         (_transactionDbBlockPayloads $ _transactionDb payloadDb)
-        (_blockPayloadHash bh)
+        (_blockHeight bh, _blockPayloadHash bh)
     Just btxs <-
         tableLookup
             (_transactionDbBlockTransactions $ _transactionDb payloadDb)

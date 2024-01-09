@@ -400,10 +400,10 @@ getTxIdx bdb pdb bh th = do
       (Left !s) -> return $ Left s
       (Right !a) -> do
         -- get payload
-        payload <- _payloadWithOutputsTransactions <$> casLookupM pdb a
+        Just (_, payload) <- tableLookup pdb a
 
         -- Find transaction index
-        r <- S.each payload
+        r <- S.each (_payloadWithOutputsTransactions payload)
           & S.map fst
           & S.mapM toTxHash
           & sindex (== th)

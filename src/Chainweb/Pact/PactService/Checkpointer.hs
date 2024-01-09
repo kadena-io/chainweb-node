@@ -69,8 +69,6 @@ import Chainweb.TreeDB (getBranchIncreasing, forkEntry, lookup, seekAncestor)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 
-import Chainweb.Storage.Table
-
 exitOnRewindLimitExceeded :: PactServiceM logger tbl a -> PactServiceM logger tbl a
 exitOnRewindLimitExceeded = handle $ \case
     e@RewindLimitExceeded{} -> do
@@ -280,7 +278,8 @@ rewindToIncremental rewindLimit (ParentHeader parent) = do
                             (Just $ ParentHeader cur)
                             $ blockChunk & S.map
                             (\blockHeader -> do
-                                payload <- liftIO $ tableLookup payloadDb (_blockPayloadHash blockHeader) >>= \case
+
+                                payload <- liftIO $ lookupPayloadWithHeight payloadDb (_blockHeight blockHeader) (_blockPayloadHash blockHeader) >>= \case
                                     Nothing -> throwM $ PactInternalError
                                         $ "Checkpointer.rewindTo.fastForward: lookup of payload failed"
                                         <> ". BlockPayloadHash: " <> encodeToText (_blockPayloadHash blockHeader)
