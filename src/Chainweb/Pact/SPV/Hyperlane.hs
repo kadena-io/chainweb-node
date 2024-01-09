@@ -11,7 +11,6 @@ import Control.Lens hiding (index)
 import Control.Monad (when, unless)
 import Control.Monad.Catch
 import Control.Monad.Except
-import Control.Exception.Safe (throwIO)
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Builder as Builder
@@ -44,18 +43,19 @@ import Chainweb.VerifierPlugin
 import Chainweb.Utils (decodeB64UrlNoPaddingText)
 
 hyperlaneVerifierPlugin :: VerifierPlugin
-hyperlaneVerifierPlugin = VerifierPlugin $ \_ vals caps -> do
+hyperlaneVerifierPlugin = VerifierPlugin $ \vals caps gasRef -> do
   -- extract capability values
   let SigCapability{..} = Set.elemAt 0 caps
   (capTokenMessage, capRecipient, capSigners) <- case _scArgs of
       o : r : sigs : _ -> return (o, r, sigs)
-      _ -> throwIO $ VerifierError $ "Not enough capability arguments. Expected: HyperlaneMessage object, recipient and signers."
+      _ -> throwError $ VerifierError $ "Not enough capability arguments. Expected: HyperlaneMessage object, recipient and signers."
 
   -- extract proof object values
   (encodedHyperlaneMessage, encodedMetadata) <- case vals !! 0 of
     (PList values)
-      | (PLiteral (LString msg)) : (PLiteral (LString mtdt)) : _ <- V.toList values -> pure (msg, mtdt)
-    _ -> throwIO $ VerifierError "Expected a proof data as a list"
+      | (PLiteral (LString msg)) : (PLiteral (LString mtdt)) : _ <- V.toList values ->
+        pure (msg, mtdt)
+    _ -> throwError $ VerifierError "Expected a proof data as a list"
 
   (HyperlaneMessage{..}, hyperlaneMessageBinary) <- do
     msg <- decodeB64UrlNoPaddingText encodedHyperlaneMessage
@@ -69,12 +69,12 @@ hyperlaneVerifierPlugin = VerifierPlugin $ \_ vals caps -> do
   -- validate recipient
   let recipientVal = PLiteral $ LString $ Text.decodeUtf8 hmRecipient
   unless (recipientVal == capRecipient) $
-    throwIO $ VerifierError $
+    throwError $ VerifierError $
       "Recipients don't match. Expected: " <> (Text.pack $ show recipientVal) <> " but got " <> (Text.pack $ show capRecipient)
 
   -- validate token message
   unless (_qnName _scName == "MRC20") $
-    throwIO $ VerifierError $ "Only TokenMessageERC20 is supported at the moment."
+    throwError $ VerifierError $ "Only TokenMessageERC20 is supported at the moment."
 
   let
     TokenMessageERC20{..} = hmTokenMessage
@@ -82,7 +82,7 @@ hyperlaneVerifierPlugin = VerifierPlugin $ \_ vals caps -> do
         [ ("recipient", PLiteral $ LString tmRecipient), ("amount", PLiteral $ LDecimal $ wordToDecimal tmAmount) ]
 
   unless (tokenVal == capTokenMessage) $
-    throwIO $ VerifierError $
+    throwError $ VerifierError $
       "Invalid TokenMessage. Expected: " <> (Text.pack $ show tokenVal) <> " but got " <> (Text.pack $ show capTokenMessage)
 
   -- validate signers
@@ -107,11 +107,11 @@ hyperlaneVerifierPlugin = VerifierPlugin $ \_ vals caps -> do
       -- Corresponds to abi.encodePacked behaviour
       putRawByteString ethereumHeader
       putRawByteString hash'
-  addresses <- catMaybes <$> mapM (recoverAddress digest) mmimSignatures
+  addresses <- catMaybes <$> mapM (\sig -> chargeGas gasRef 16250 >> recoverAddress digest sig) mmimSignatures
   let addressesVals = PList $ V.fromList $ map (PLiteral . LString . Text.decodeUtf8) addresses
 
   unless (addressesVals == capSigners) $
-    throwIO $ VerifierError $
+    throwError $ VerifierError $
       "Signers don't match. Expected: " <> (Text.pack $ show addressesVals) <> " but got " <> (Text.pack $ show capSigners)
 
 -- | Parses the object and evaluates Hyperlane command
