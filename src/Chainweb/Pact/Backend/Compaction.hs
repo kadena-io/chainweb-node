@@ -34,9 +34,6 @@ module Chainweb.Pact.Backend.Compaction
     -- * Used in various tools
   , withDefaultLogger
   , withPerChainFileLogger
-
-    -- * Used in tests
-  , defaultTransactionIndexKeepDepth
   ) where
 
 import Chronos qualified
@@ -64,7 +61,6 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Vector (Vector)
 import Data.Vector qualified as V
-import Data.Word (Word64)
 import Database.SQLite3.Direct (Utf8(..), Database)
 import GHC.Stack (HasCallStack)
 import Options.Applicative
@@ -83,7 +79,7 @@ import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
-import Chainweb.Pact.Backend.Utils (fromUtf8, toUtf8, withSqliteDb)
+import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
 
 import "yet-another-logger" System.Logger
 import "loglevel" System.LogLevel qualified as LL
@@ -112,9 +108,6 @@ data CompactFlag
     -- ^ Keep compaction tables post-compaction for inspection.
   | NoVacuum
     -- ^ Don't VACUUM database
-  | TransactionIndexKeepDepth Word64
-    -- ^ When compacting, keep at least this much depth (in BlockHeight)
-    --   for the TransactionIndex table.
   deriving stock (Eq, Show)
 
 internalError :: MonadThrow m => Text -> m a
@@ -124,7 +117,6 @@ data CompactEnv = CompactEnv
   { _ceLogger :: Logger SomeLogMessage
   , _ceDb :: Database
   , _ceFlags :: [CompactFlag]
-  , _ceTransactionIndexKeepDepth :: Word64
   }
 makeLenses ''CompactEnv
 
@@ -219,15 +211,6 @@ execNoTemplateM_ :: ()
 execNoTemplateM_ msg q = do
   db <- view ceDb
   queryDebug msg Nothing $ Pact.exec_ db q
-
-execNoTemplateM' :: ()
-  => Text
-  -> Utf8
-  -> [SType]
-  -> CompactM ()
-execNoTemplateM' msg q ins = do
-  db <- view ceDb
-  queryDebug msg Nothing $ Pact.exec' db q ins
 
 -- | Prepare/Execute a "$VTABLE$"-templated, parameterised query.
 --   The parameters are the results of the 'CompactM' 'SType' computations.
@@ -326,14 +309,6 @@ unlessFlagSet f x = do
 
 isFlagSet :: CompactFlag -> CompactM Bool
 isFlagSet f = view ceFlags >>= \fs -> pure (f `elem` fs)
-
-getKeepDepth :: [CompactFlag] -> Word64
-getKeepDepth = go
-  where
-    go = \case
-      [] -> defaultTransactionIndexKeepDepth
-      TransactionIndexKeepDepth w : _ -> w
-      _ : fs -> go fs
 
 withTables :: Vector TableName -> (TableName -> CompactM a) -> CompactM ()
 withTables ts a = do
@@ -475,45 +450,10 @@ dropNewTables bh = do
   withTables nts $ \tbl -> do
     execM_ "dropNewTables.1" tbl "DROP TABLE IF EXISTS $VTABLE$"
 
--- We must keep TransactionIndex entries at least for the maxTTL duration of
--- a tx, which is about 5,760 blocks. To be safe, we multiply this value by 4.
--- Rows of this table take up very little space, so keeping up to 25k rows
--- isn't costly (each row is a fixed-size hash + one machine word)
-defaultTransactionIndexKeepDepth :: Word64
-defaultTransactionIndexKeepDepth = 4 * 5_760
-
--- TransactionIndex is special, it is needed for transaction validation to work,
--- so we need to keep extra rows.
-compactTransactionIndex :: BlockHeight -> CompactM ()
-compactTransactionIndex target = do
-  keepDepth <- view ceTransactionIndexKeepDepth
-      -- Find the youngest block height that is older than a number of blocks
-      -- ago equal to the transaction index keep depth. (Configurable; default
-      -- is 'defaultTransactionIndexKeepDepth')
-      -- Prune every TransactionIndex entry with blockheight less
-      -- than the minimum of this and the target (since the target could be
-      -- before this depth).
-  let qryText = Text.concat
-        [ "DELETE FROM TransactionIndex "
-        , "WHERE "
-        , "  blockheight < ("
-        , "    SELECT "
-        , "      CASE "
-        , "        WHEN latest < ?1 "
-        , "          THEN 0 "
-        , "          ELSE MIN(latest - ?1, ?2) "
-        , "      END "
-        , "    FROM ( "
-        , "      SELECT MAX(blockheight) AS latest FROM TransactionIndex "
-        , "    ) "
-        , "  ) "
-        ]
-  execNoTemplateM'
-    "compactTransactionIndex.0"
-    (toUtf8 qryText)
-    [bhToSType (BlockHeight keepDepth), bhToSType target]
-
 -- | Delete all rows from Checkpointer system tables that are not for the target blockheight.
+--
+--   We currently do not compact TransactionIndex. This will change once we are
+--   properly pruning RocksDB.
 compactSystemTables :: BlockHeight -> CompactM ()
 compactSystemTables bh = do
   let systemTables = ["BlockHistory", "VersionedTableMutation", "VersionedTableCreation"]
@@ -529,7 +469,6 @@ compactSystemTables bh = do
       tbl
       ("DELETE FROM $VTABLE$ WHERE " <> column <> " != ?1;")
       [bhToSType bh]
-  compactTransactionIndex bh
 
 dropCompactTables :: CompactM ()
 dropCompactTables = do
@@ -542,7 +481,7 @@ compact :: ()
   -> Database
   -> [CompactFlag]
   -> IO ()
-compact tbh logger db flags = runCompactM (CompactEnv logger db flags (getKeepDepth flags)) $ do
+compact tbh logger db flags = runCompactM (CompactEnv logger db flags) $ do
   logg Info "Beginning compaction"
 
   withTx createCompactActiveRow
@@ -616,7 +555,7 @@ compactAll CompactConfig{..} = do
     withDefaultLogger LL.Error $ \logger -> do
       let resetDb = False
       withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) -> do
-        runCompactM (CompactEnv logger db [] 0) getLatestBlockHeight
+        runCompactM (CompactEnv logger db []) getLatestBlockHeight
 
   let allCids = Set.fromList $ F.toList $ chainIdsAt ccVersion latestBlockHeightChain0
   let targetCids = Set.toList $ maybe allCids (Set.intersection allCids) ccChains
