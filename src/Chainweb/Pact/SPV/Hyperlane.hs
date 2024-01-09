@@ -73,7 +73,7 @@ hyperlaneVerifierPlugin = VerifierPlugin $ \_ vals caps -> do
       "Recipients don't match. Expected: " <> (Text.pack $ show recipientVal) <> " but got " <> (Text.pack $ show capRecipient)
 
   -- validate token message
-  unless (_scName == "MRC20") $
+  unless (_qnName _scName == "MRC20") $
     throwIO $ VerifierError $ "Only TokenMessageERC20 is supported at the moment."
 
   let
