@@ -124,7 +124,6 @@ testnet = ChainwebVersion
         Chainweb222Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_859_808 -- 2023-12-13 12:00:00+00:00
         Chainweb223Pact -> AllChains ForkNever
         EnableVerifiers -> AllChains ForkNever
-        Hyperlane -> AllChains ForkNever -- TODO: add date and block height
 
     , _versionGraphs =
         (to20ChainsTestnet, twentyChainGraph) `Above`
@@ -176,5 +175,5 @@ testnet = ChainwebVersion
         { _disablePeerValidation = False
         , _disableMempoolSync = False
         }
-    , _versionVerifierPlugins = AllChains $ End $ mempty
+    , _versionVerifierPluginNames = AllChains $ End $ mempty
     }

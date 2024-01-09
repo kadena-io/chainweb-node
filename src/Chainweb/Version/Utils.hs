@@ -66,6 +66,7 @@ import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Time
 import Chainweb.VerifierPlugin
+import qualified Chainweb.VerifierPlugin.Allow
 
 import Control.Lens
 import Data.Foldable
@@ -456,7 +457,19 @@ expectedCutHeightAfterSeconds v s = eh * int (chainCountAt v (round eh))
 -- | The verifier plugins enabled for a particular block.
 verifiersAt :: ChainwebVersion -> ChainId -> BlockHeight -> Map Text VerifierPlugin
 verifiersAt v cid bh =
-    case measureRule bh $ _versionVerifierPlugins v ^?! onChain cid of
-        Bottom vs -> vs
-        Top (_, vs) -> vs
-        Between (_, vs) _ -> vs
+    M.restrictKeys allVerifierPlugins activeVerifierNames
+    where
+    activeVerifierNames =
+        case measureRule bh $ _versionVerifierPluginNames v ^?! onChain cid of
+            Bottom vs -> vs
+            Top (_, vs) -> vs
+            Between (_, vs) _ -> vs
+
+-- the mappings from names to verifier plugins is global. the list of verifier
+-- plugins active in any particular block validation context is the only thing
+-- that varies. this pedantry is only so that ChainwebVersion is plain data
+-- with no functions inside.
+allVerifierPlugins :: Map Text VerifierPlugin
+allVerifierPlugins = M.fromList
+    [ ("allow", Chainweb.VerifierPlugin.Allow.plugin)
+    ]

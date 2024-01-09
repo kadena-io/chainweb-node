@@ -44,7 +44,6 @@ module Chainweb.Version.Guards
     , chainweb221Pact
     , chainweb222Pact
     , chainweb223Pact
-    , enableHyperlane
     , pact44NewTrans
     , enableVerifiers
     , pactParserVersion
@@ -253,10 +252,6 @@ chainweb223Pact = checkFork atOrAfter Chainweb223Pact
 
 enableVerifiers :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 enableVerifiers = checkFork atOrAfter EnableVerifiers
-
--- | Bridge support: Hyperlane.
-enableHyperlane :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-enableHyperlane = checkFork atOrAfter Hyperlane
 
 pactParserVersion :: ChainwebVersion -> ChainId -> BlockHeight -> PactParserVersion
 pactParserVersion v cid bh
