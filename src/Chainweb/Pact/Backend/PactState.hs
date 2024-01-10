@@ -130,7 +130,7 @@ withChainDb cid logger' path f = do
 getPactTableNames :: Database -> IO (Vector Utf8)
 getPactTableNames db = do
   let sortedTableNames :: [[SType]] -> [Utf8]
-      sortedTableNames rows = List.sortOn fromUtf8 $ flip List.map rows $ \case
+      sortedTableNames rows = List.sortOn (Text.toLower . fromUtf8) $ flip List.map rows $ \case
         [SText u] -> u
         _ -> error "getPactTableNames.sortedTableNames: expected text"
 
