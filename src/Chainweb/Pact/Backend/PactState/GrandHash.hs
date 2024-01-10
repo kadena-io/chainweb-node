@@ -362,6 +362,7 @@ data PactCalcConfig = PactCalcConfig
   , rocksDir :: FilePath
   , chainwebVersion :: ChainwebVersion
   , targetBlockHeight :: BlockHeightTargets
+  , writeModule :: Bool
   }
 
 -- | Calculate the hash at every provided blockheight across all chains.
@@ -383,7 +384,8 @@ pactCalcMain = do
       TargetAll ts -> do
         resolveTargets logger cids cfg.pactDir ts
     chainHashes <- computeGrandHashesAt logger cids cfg.pactDir cfg.rocksDir chainTargets cfg.chainwebVersion
-    writeFile "src/Chainweb/Pact/Backend/PactState/EmbeddedHashes.hs" (chainHashesToModule chainHashes)
+    when cfg.writeModule $ do
+      writeFile "src/Chainweb/Pact/Backend/PactState/EmbeddedHashes.hs" (chainHashesToModule chainHashes)
     BLC8.putStrLn $ grandsToJson chainHashes
   where
     opts :: ParserInfo PactCalcConfig
@@ -405,6 +407,7 @@ pactCalcMain = do
       <*> rocksParser
       <*> cwvParser
       <*> targetsParser
+      <*> O.switch (O.long "write-module" <> O.help "Write the hashes and headers out as a Haskell module to be used in chainweb-node")
 
 data PactImportConfig = PactImportConfig
   { sourcePactDir :: FilePath
