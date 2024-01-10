@@ -31,9 +31,9 @@ module Chainweb.Pact.Backend.PactState
   ( getPactTableNames
   , getPactTables
   , getLatestPactState
-  , getLatestPactState'
-  , getLatestPactStateUpperBound
-  , getLatestPactStateUpperBound'
+  , getLatestPactStateDiffable
+  , getLatestPactStateAt
+  , getLatestPactStateAtDiffable
   , getLatestBlockHeight
 
   , PactRow(..)
@@ -181,43 +181,35 @@ qry db qryText args returnTypes k = do
     Pact.bindParams stmt args
     k (stepStatement stmt returnTypes)
 
-getLatestPactState :: Database -> Stream (Of TableDiffable) IO ()
+getLatestPactStateDiffable :: Database -> Stream (Of TableDiffable) IO ()
+getLatestPactStateDiffable db = do
+  bh <- liftIO $ getLatestBlockHeight db
+  getLatestPactStateAtDiffable db bh
+
+getLatestPactState :: Database -> Stream (Of (Text, Map ByteString PactRowContents)) IO ()
 getLatestPactState db = do
-  getLatestPactStateUpperBound db (BlockHeight maxBound)
+  bh <- liftIO $ getLatestBlockHeight db
+  getLatestPactStateAt db bh
 
-getLatestPactState' :: Database -> Stream (Of (Text, Map ByteString PactRowContents)) IO ()
-getLatestPactState' db = do
-  getLatestPactStateUpperBound' db (BlockHeight maxBound)
-
-getLatestPactStateUpperBound :: ()
+getLatestPactStateAtDiffable :: ()
   => Database
   -> BlockHeight
   -> Stream (Of TableDiffable) IO ()
-getLatestPactStateUpperBound db bh = do
-  flip S.map (getLatestPactStateUpperBound' db bh) $ \(tblName, state) ->
+getLatestPactStateAtDiffable db bh = do
+  flip S.map (getLatestPactStateAt db bh) $ \(tblName, state) ->
     TableDiffable tblName (M.map (\prc -> prc.rowData) state)
 
-getLatestPactStateUpperBound' :: ()
+getLatestPactStateAt :: ()
   => Database
   -> BlockHeight
   -> Stream (Of (Text, Map ByteString PactRowContents)) IO ()
-getLatestPactStateUpperBound' db bhUpperBound = do
-  latestBH <- liftIO $ getLatestBlockHeight db
-  let bh = min latestBH bhUpperBound
-
+getLatestPactStateAt db bh = do
   endingTxId <- do
     r <- liftIO $ Pact.qry db
            "SELECT endingtxid FROM BlockHistory WHERE blockheight=?"
            [SInt (int bh)]
            [RInt]
     case r of
-      [] -> do
-        -- If the blockheight is missing, we find the next largest blockheight
-        -- that is less than our target.
-        let qryText = "SELECT MAX(blockheight) FROM BlockHistory WHERE blockheight<?"
-        liftIO $ Pact.qry db qryText [SInt (int bh)] [RInt] >>= \case
-          [[SInt txId]] -> pure txId
-          _ -> error "expected int"
       [[SInt txId]] -> pure txId
       _ -> error "expected int"
 
@@ -402,7 +394,7 @@ pactDiffMain = do
              withSqliteDb cid logger cfg.firstDbDir resetDb $ \(SQLiteEnv db1 _) -> do
                withSqliteDb cid logger cfg.secondDbDir resetDb $ \(SQLiteEnv db2 _) -> do
                  logText Info "[Starting diff]"
-                 let diff = diffLatestPactState (getLatestPactState db1) (getLatestPactState db2)
+                 let diff = diffLatestPactState (getLatestPactStateDiffable db1) (getLatestPactStateDiffable db2)
                  diffy <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
                    logText Info $ "[Starting table " <> tblName <> "]"
                    d <- S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do

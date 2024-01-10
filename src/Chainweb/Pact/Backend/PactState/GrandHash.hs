@@ -22,7 +22,7 @@ import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB (cutHashesTable, readHighestCutHeaders)
 import Chainweb.Logger (Logger, addLabel, logFunctionText)
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.PactState (PactRow(..), getLatestPactStateUpperBound', PactRowContents(..))
+import Chainweb.Pact.Backend.PactState (PactRow(..), getLatestPactStateAt, PactRowContents(..))
 import Chainweb.Pact.Backend.PactState.EmbeddedHashes (EncodedSnapshot(..), grands)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (withSqliteDb)
@@ -88,7 +88,7 @@ computeGrandHash db bh = do
   -- For each table, we sort the rows by rowKey, lexicographically.
   -- Then we feed the sorted rows into the incremental 'hashAggregate' function.
   let hashStream :: Stream (Of ByteString) IO ()
-      hashStream = flip S.mapMaybeM (getLatestPactStateUpperBound' db bh) $ \(tblName, state) -> do
+      hashStream = flip S.mapMaybeM (getLatestPactStateAt db bh) $ \(tblName, state) -> do
         let rows =
               Vector.fromList
               $ List.sortOn (\pr -> pr.rowKey)
