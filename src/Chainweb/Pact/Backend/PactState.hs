@@ -82,6 +82,7 @@ excludedTables = checkpointerTables ++ compactionTables
     checkpointerTables = ["BlockHistory", "VersionedTableCreation", "VersionedTableMutation", "TransactionIndex"]
     compactionTables = ["CompactGrandHash", "CompactActiveRow"]
 
+-- | Get the latest blockheight on chain.
 getLatestBlockHeight :: Database -> IO BlockHeight
 getLatestBlockHeight db = do
   let qryText = "SELECT MAX(blockheight) FROM BlockHistory"
@@ -92,7 +93,7 @@ getLatestBlockHeight db = do
 -- | Get the earliest blockheight on chain.
 getEarliestBlockHeight :: Database -> IO BlockHeight
 getEarliestBlockHeight db = do
-  r <- Pact.qry db "SELECT blockheight FROM BlockHistory ORDER BY blockheight ASC LIMIT 1" [] [RInt]
+  r <- Pact.qry db "SELECT MIN(blockheight) FROM BlockHistory" [] [RInt]
   case r of
     [[SInt bh]] -> do
       pure (fromIntegral bh)
@@ -125,6 +126,7 @@ withChainDb cid logger' path f = do
   let resetDb = False
   withSqliteDb cid logger path resetDb f
 
+-- | Get all Pact table names in the database.
 getPactTableNames :: Database -> IO (Vector Utf8)
 getPactTableNames db = do
   let sortedTableNames :: [[SType]] -> [Utf8]
@@ -143,8 +145,8 @@ getPactTableNames db = do
 
   pure (Vector.fromList tables)
 
--- | Get all of the rows for each table. The tables will be sorted
---   lexicographically by name.
+-- | Get all of the rows for each table. The tables will be appear sorted
+--   lexicographically by table name.
 getPactTables :: Database -> Stream (Of Table) IO ()
 getPactTables db = do
   let fmtTable x = "\"" <> x <> "\""
@@ -203,16 +205,19 @@ qry db qryText args returnTypes k = do
     Pact.bindParams stmt args
     k (stepStatement stmt returnTypes)
 
+-- | Get the latest Pact state (in a ready-to-diff form).
 getLatestPactStateDiffable :: Database -> Stream (Of TableDiffable) IO ()
 getLatestPactStateDiffable db = do
   bh <- liftIO $ getLatestBlockHeight db
   getLatestPactStateAtDiffable db bh
 
+-- | Get the latest Pact state.
 getLatestPactState :: Database -> Stream (Of (Text, Map ByteString PactRowContents)) IO ()
 getLatestPactState db = do
   bh <- liftIO $ getLatestBlockHeight db
   getLatestPactStateAt db bh
 
+-- | Get the Pact state (in a ready-to-diff form) at the given height.
 getLatestPactStateAtDiffable :: ()
   => Database
   -> BlockHeight
@@ -221,6 +226,7 @@ getLatestPactStateAtDiffable db bh = do
   flip S.map (getLatestPactStateAt db bh) $ \(tblName, state) ->
     TableDiffable tblName (M.map (\prc -> prc.rowData) state)
 
+-- | Get the Pact state at the given height.
 getLatestPactStateAt :: ()
   => Database
   -> BlockHeight
