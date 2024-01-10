@@ -7,7 +7,6 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TypeApplications #-}
@@ -18,15 +17,6 @@
 -- License: see LICENSE.md
 --
 -- Diff Pact state between two databases.
---
--- There are other utilities provided by this module whose purpose is either
--- to get the pact state.
---
--- The code in this module operates primarily on 'Stream's, because the amount
--- of user data can grow quite large. by comparing one table at a time, we can
--- keep maximum memory utilisation in check.
---
-
 module Chainweb.Pact.Backend.PactState.Diff
   ( pactDiffMain
   )
@@ -57,9 +47,8 @@ import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
-import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.PactState
+import Chainweb.Pact.Backend.PactState (TableDiffable(..), getLatestPactStateDiffable, doesPactDbExist, withChainDb)
 
 import System.Exit (exitFailure)
 import System.LogLevel (LogLevel(..))
@@ -109,9 +98,8 @@ pactDiffMain = do
          | not sqliteFileExists2 -> do
              logText Warn $ "[SQLite for chain in " <> Text.pack cfg.secondDbDir <> " doesn't exist. Skipping]"
          | otherwise -> do
-             let resetDb = False
-             withSqliteDb cid logger cfg.firstDbDir resetDb $ \(SQLiteEnv db1 _) -> do
-               withSqliteDb cid logger cfg.secondDbDir resetDb $ \(SQLiteEnv db2 _) -> do
+             withChainDb cid logger cfg.firstDbDir $ \(SQLiteEnv db1 _) -> do
+               withChainDb cid logger cfg.secondDbDir $ \(SQLiteEnv db2 _) -> do
                  logText Info "[Starting diff]"
                  let diff = diffLatestPactState (getLatestPactStateDiffable db1) (getLatestPactStateDiffable db2)
                  diffy <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do

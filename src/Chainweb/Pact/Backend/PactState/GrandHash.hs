@@ -20,12 +20,11 @@ import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB (cutHashesTable, readHighestCutHeaders)
-import Chainweb.Logger (Logger, addLabel, logFunctionText)
+import Chainweb.Logger (Logger, logFunctionText)
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.PactState (PactRow(..), getLatestPactStateAt, PactRowContents(..))
+import Chainweb.Pact.Backend.PactState (PactRow(..), PactRowContents(..), getLatestPactStateAt, withChainDb, getLatestBlockHeight, getEarliestBlockHeight, ensureBlockHeightExists)
 import Chainweb.Pact.Backend.PactState.EmbeddedHashes (EncodedSnapshot(..), grands)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
-import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
 import Chainweb.TreeDB (seekAncestor)
 import Chainweb.Utils (fromText, toText, sshow)
@@ -33,10 +32,8 @@ import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
-import Chainweb.WebBlockHeaderDB (initWebBlockHeaderDb)
-import Chainweb.WebBlockHeaderDB (webBlockHeaderDb)
-import Control.Applicative ((<|>), many)
-import Control.Applicative (optional)
+import Chainweb.WebBlockHeaderDB (initWebBlockHeaderDb, webBlockHeaderDb)
+import Control.Applicative ((<|>), many, optional)
 import Control.Lens ((^.))
 import Control.Monad (forM, forM_, when)
 import Crypto.Hash (hashWith, hashInitWith, hashUpdate, hashFinalize)
@@ -70,8 +67,6 @@ import GHC.Stack (HasCallStack)
 import Options.Applicative (ParserInfo, Parser, (<**>))
 import Options.Applicative qualified as O
 import Pact.JSON.Encode qualified as J
-import Pact.Types.SQLite (RType(..), SType(..))
-import Pact.Types.SQLite qualified as Pact
 import Patience.Map qualified as P
 import Streaming.Prelude (Stream, Of)
 import Streaming.Prelude qualified as S
@@ -194,50 +189,6 @@ getBlockHeadersAt rdb bh v = do
                 error "getBlockHeadersAt: expected seekAncestor behaviour is broken"
               pure $ Just (cid, h)
             Nothing -> error "getBlockHeadersAt: no ancestor found!"
-
--- | Make sure that the blockheight exists on chain.
-ensureBlockHeightExists :: Database -> BlockHeight -> IO ()
-ensureBlockHeightExists db bh = do
-  r <- Pact.qry db "SELECT blockheight FROM BlockHistory WHERE blockheight = ?1" [SInt (fromIntegral bh)] [RInt]
-  case r of
-    [[SInt rBH]] -> do
-      when (fromIntegral bh /= rBH) $ do
-        error "ensureBlockHeightExists: malformed query"
-    _ -> do
-      error $ "ensureBlockHeightExists: empty BlockHistory: height=" ++ show bh
-
--- | Get the earliest blockheight on chain.
-getEarliestBlockHeight :: Database -> IO BlockHeight
-getEarliestBlockHeight db = do
-  r <- Pact.qry db "SELECT blockheight FROM BlockHistory ORDER BY blockheight ASC LIMIT 1" [] [RInt]
-  case r of
-    [[SInt bh]] -> do
-      pure (fromIntegral bh)
-    _ -> do
-      error "getEarliestBlockHeight: no earliest blockheight"
-
--- | Get the latest blockheight on chain.
-getLatestBlockHeight :: Database -> IO BlockHeight
-getLatestBlockHeight db = do
-  r <- Pact.qry db "SELECT blockheight FROM BlockHistory ORDER BY blockheight DESC LIMIT 1" [] [RInt]
-  case r of
-    [[SInt bh]] -> do
-      pure (fromIntegral bh)
-    _ -> do
-      error "getLatestBlockHeight: no latest blockheight"
-
--- | Wrapper around 'withSqliteDb' that adds the chainId label to the logger
---   and sets resetDb to False.
-withChainDb :: (Logger logger)
-  => ChainId
-  -> logger
-  -> FilePath
-  -> (SQLiteEnv -> IO x)
-  -> IO x
-withChainDb cid logger' path f = do
-  let logger = addLabel ("chainId", chainIdToText cid) logger'
-  let resetDb = False
-  withSqliteDb cid logger path resetDb f
 
 -- | Like 'TargetBlockHeight', but supports multiple targets in the non-'Latest'
 --   case.

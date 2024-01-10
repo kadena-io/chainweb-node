@@ -29,6 +29,9 @@ module Chainweb.Pact.Backend.PactState
   , getLatestPactStateAt
   , getLatestPactStateAtDiffable
   , getLatestBlockHeight
+  , getEarliestBlockHeight
+  , ensureBlockHeightExists
+  , withChainDb
   , doesPactDbExist
 
   , PactRow(..)
@@ -59,9 +62,11 @@ import Database.SQLite3.Direct (Utf8(..), Database)
 import Database.SQLite3.Direct qualified as SQL
 
 import Chainweb.BlockHeight (BlockHeight(..))
+import Chainweb.Logger (Logger, addLabel)
+import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
+import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
 import Chainweb.Utils (int)
 import Chainweb.Version (ChainId, chainIdToText)
-import Chainweb.Pact.Backend.Utils (fromUtf8)
 
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
@@ -83,6 +88,42 @@ getLatestBlockHeight db = do
   Pact.qry db qryText [] [RInt] >>= \case
     [[SInt bh]] -> pure (BlockHeight (int bh))
     _ -> error "getLatestBlockHeight: expected int"
+
+-- | Get the earliest blockheight on chain.
+getEarliestBlockHeight :: Database -> IO BlockHeight
+getEarliestBlockHeight db = do
+  r <- Pact.qry db "SELECT blockheight FROM BlockHistory ORDER BY blockheight ASC LIMIT 1" [] [RInt]
+  case r of
+    [[SInt bh]] -> do
+      pure (fromIntegral bh)
+    _ -> do
+      error "getEarliestBlockHeight: no earliest blockheight"
+
+-- | Make sure that the blockheight exists on chain.
+--
+--   Throws an exception if it doesn't.
+ensureBlockHeightExists :: Database -> BlockHeight -> IO ()
+ensureBlockHeightExists db bh = do
+  r <- Pact.qry db "SELECT blockheight FROM BlockHistory WHERE blockheight = ?1" [SInt (fromIntegral bh)] [RInt]
+  case r of
+    [[SInt rBH]] -> do
+      when (fromIntegral bh /= rBH) $ do
+        error "ensureBlockHeightExists: malformed query"
+    _ -> do
+      error $ "ensureBlockHeightExists: empty BlockHistory: height=" ++ show bh
+
+-- | Wrapper around 'withSqliteDb' that adds the chainId label to the logger
+--   and sets resetDb to False.
+withChainDb :: (Logger logger)
+  => ChainId
+  -> logger
+  -> FilePath
+  -> (SQLiteEnv -> IO x)
+  -> IO x
+withChainDb cid logger' path f = do
+  let logger = addLabel ("chainId", chainIdToText cid) logger'
+  let resetDb = False
+  withSqliteDb cid logger path resetDb f
 
 getPactTableNames :: Database -> IO (Vector Utf8)
 getPactTableNames db = do
@@ -221,7 +262,7 @@ data Table = Table
 --   as a Map from rowkey to rowdata.
 data TableDiffable = TableDiffable
   { name :: Text
-  , rows :: Map ByteString ByteString -- Map RowKey RowData
+  , rows :: Map ByteString ByteString
   }
   deriving stock (Eq, Ord, Show)
 
