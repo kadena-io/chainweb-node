@@ -94,8 +94,7 @@ computeGrandHash db bh = do
               $ List.sortOn (\pr -> pr.rowKey)
               $ List.map (\(rowKey, PactRowContents{..}) -> PactRow{..})
               $ Map.toList state
-        let hash = hashRows (Text.encodeUtf8 tblName) rows
-        pure hash
+        pure $ hashRows (Text.encodeUtf8 tblName) rows
 
   -- This is a simple incremental hash over all of the table hashes.
   -- This is well-defined by its order because 'getLatestPactStateUpperBound''
