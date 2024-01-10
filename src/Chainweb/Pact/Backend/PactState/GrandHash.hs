@@ -167,43 +167,33 @@ rowToHashArgs tblName pr =
 getBlockHeadersAt :: ()
   => RocksDb
      -- ^ RocksDB handle
-  -> Map ChainId (Set BlockHeight)
-     -- ^ Map from ChainId to available blockheights on that chain.
-     --   This is most probably going to be the output of 'resolveTargets'.
   -> BlockHeight
      -- ^ The blockheight that you want to look up the header for.
   -> ChainwebVersion
      -- ^ chainweb version
   -> IO (Map ChainId BlockHeader)
-getBlockHeadersAt rdb resolvedTargets bh v = do
+getBlockHeadersAt rdb bh v = do
   wbhdb <- initWebBlockHeaderDb rdb v
   let cutHashes = cutHashesTable rdb
   -- Get the latest cut
-  highestCuts <- readHighestCutHeaders v (\_ _ -> pure ()) wbhdb cutHashes
-  fmap (Map.fromList . catMaybes) $ forM (HM.toList highestCuts) $ \(cid, header) -> do
-    case Map.lookup cid resolvedTargets of
-      Nothing -> pure Nothing
-      Just allowedHeights -> do
-        if bh `Set.member` allowedHeights
-        then do
-          if _blockHeight header == bh
-          then do
-            -- If we're already there, great
-            pure $ Just (cid, header)
-          else do
-            -- Otherwise, we need to do an ancestral lookup
-            case HM.lookup cid (wbhdb ^. webBlockHeaderDb) of
-              Nothing -> error "getBlockHeadersAt: Malformed WebBlockHeaderDb"
-              Just bdb -> do
-                seekAncestor bdb header (fromIntegral bh) >>= \case
-                  Just h -> do
-                    -- Sanity check, should absolutely never happen
-                    when (_blockHeight h /= bh) $ do
-                      error "getBlockHeadersAt: expected seekAncestor behaviour is broken"
-                    pure $ Just (cid, h)
-                  Nothing -> error "getBlockHeadersAt: no ancestor found!"
-        else do
-          pure Nothing
+  latestCut <- readHighestCutHeaders v (\_ _ -> pure ()) wbhdb cutHashes
+  fmap (Map.fromList . catMaybes) $ forM (HM.toList latestCut) $ \(cid, latestCutHeader) -> do
+    if _blockHeight latestCutHeader == bh
+    then do
+      -- If we're already there, great
+      pure $ Just (cid, latestCutHeader)
+    else do
+      -- Otherwise, we need to do an ancestral lookup
+      case HM.lookup cid (wbhdb ^. webBlockHeaderDb) of
+        Nothing -> error "getBlockHeadersAt: Malformed WebBlockHeaderDb"
+        Just bdb -> do
+          seekAncestor bdb latestCutHeader (fromIntegral bh) >>= \case
+            Just h -> do
+              -- Sanity check, should absolutely never happen
+              when (_blockHeight h /= bh) $ do
+                error "getBlockHeadersAt: expected seekAncestor behaviour is broken"
+              pure $ Just (cid, h)
+            Nothing -> error "getBlockHeadersAt: no ancestor found!"
 
 -- | Make sure that the blockheight exists on chain.
 ensureBlockHeightExists :: Database -> BlockHeight -> IO ()
@@ -357,7 +347,7 @@ computeGrandHashesAt logger cids pactDir rocksDir chainTargets chainwebVersion =
   -- Grab the headers corresponding to every blockheight from RocksDB
   withReadOnlyRocksDb rocksDir modernDefaultOptions $ \rocksDb -> do
     forM chainHashes $ \(height, hashes) -> do
-      headers <- getBlockHeadersAt rocksDb chainTargets height chainwebVersion
+      headers <- getBlockHeadersAt rocksDb height chainwebVersion
       let missingIn cid m = error $ "missing entry for chain " <> Text.unpack (chainIdToText cid) <> " in " <> m
       pure $ (height,)
         $ Merge.merge
