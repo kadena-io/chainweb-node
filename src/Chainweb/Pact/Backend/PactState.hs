@@ -239,8 +239,6 @@ getLatestPactStateAt db bh = do
 -- This diminishes the utility of comparing two pact states that are known to be
 -- at different heights, but that hurts our ability to perform the diff in
 -- constant memory.
---
--- TODO: maybe inner stream should be a ByteStream
 diffLatestPactState :: ()
   => Stream (Of TableDiffable) IO ()
   -> Stream (Of TableDiffable) IO ()
