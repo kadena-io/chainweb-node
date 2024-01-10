@@ -10,7 +10,7 @@ import System.Exit
 import Text.Printf
 
 import Chainweb.Pact.Backend.Compaction (main)
-import Chainweb.Pact.Backend.PactState (pactDiffMain)
+import Chainweb.Pact.Backend.PactState.Diff (pactDiffMain)
 import Chainweb.Pact.Backend.PactState.GrandHash (pactCalcMain, pactImportMain)
 
 import qualified CheckpointerDBChecksum
@@ -110,7 +110,7 @@ topLevelCommands =
   , CommandSpec
       "pact-diff"
       "Diff the latest state of two pact databases"
-      Chainweb.Pact.Backend.PactState.pactDiffMain
+      Chainweb.Pact.Backend.PactState.Diff.pactDiffMain
   , CommandSpec
       "pact-calc"
       "Calculate the GrandHashes for a pact database at a particular blockheight"
