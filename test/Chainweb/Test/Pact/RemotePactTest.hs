@@ -56,7 +56,7 @@ import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import System.Logger.Types (LogLevel(..))
+import System.LogLevel (LogLevel(..))
 
 import Servant.Client
 
@@ -379,7 +379,7 @@ txlogsCompactionTest t cenv pactDbDir = do
     submitAndCheckTx =<< createWriteTx =<< nextNonce
 
     C.withDefaultLogger Error $ \logger -> do
-      let flags = [C.NoVacuum, C.NoGrandHash]
+      let flags = [C.NoVacuum]
       let resetDb = False
 
       Backend.withSqliteDb cid logger pactDbDir resetDb $ \(SQLiteEnv db _) -> do

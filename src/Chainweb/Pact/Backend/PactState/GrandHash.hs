@@ -80,7 +80,6 @@ import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist)
 import System.Exit (exitFailure)
 import System.FilePath ((</>))
 import System.LogLevel (LogLevel(..))
-import System.Logger.Types qualified as YAL
 import UnliftIO.Async (pooledMapConcurrentlyN_)
 
 -- | Compute the "Grand Hash" of a given chain.
@@ -435,7 +434,7 @@ pactCalcMain = do
   let cids = allChains cfg.chainwebVersion
   checkPactDbsExist cfg.pactDir cids
 
-  C.withDefaultLogger YAL.Info $ \logger -> do
+  C.withDefaultLogger Info $ \logger -> do
     chainHashes <- computeGrandHashesAt logger cids cfg.pactDir cfg.rocksDir cfg.targetBlockHeight cfg.chainwebVersion
     writeFile "src/Chainweb/Pact/Backend/PactState/EmbeddedHashes.hs" (chainHashesToModule chainHashes)
     BLC8.putStrLn $ grandsToJson chainHashes
@@ -474,7 +473,7 @@ pactImportMain = do
   let cids = allChains cfg.chainwebVersion
   checkPactDbsExist cfg.sourcePactDir cids
 
-  C.withDefaultLogger YAL.Info $ \logger -> do
+  C.withDefaultLogger Info $ \logger -> do
     -- Get the highest common blockheight across all chains.
     (chainsContainingTarget, latestCommonHeight) <- resolveTarget logger cids cfg.sourcePactDir Latest
 

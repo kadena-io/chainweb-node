@@ -52,7 +52,6 @@ import qualified Data.Yaml as Y
 import GHC.Generics hiding (from, to)
 
 import System.Environment
-import System.Logger.Types qualified
 import System.LogLevel
 import System.Random
 
@@ -304,11 +303,10 @@ withResources rdb trunkLength logLevel compact f = C.envWithCleanup create destr
         mainTrunkBlocks <-
           playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
         when (compact == DoCompact) $ do
-          C.withDefaultLogger System.Logger.Types.Error $ \lgr -> do
-            let flags = [C.NoGrandHash]
+          C.withDefaultLogger Error $ \lgr -> do
             let db = _sConn sqlEnv
             let bh = BlockHeight trunkLength
-            void $ C.compact (C.Target bh) lgr db flags
+            void $ C.compact (C.Target bh) lgr db []
 
         return $ NoopNFData $ Resources {..}
 
