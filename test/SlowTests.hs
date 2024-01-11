@@ -13,20 +13,14 @@
 
 module SlowTests ( main ) where
 
-import System.LogLevel
+import Chainweb.Graph
+import Chainweb.Storage.Table.RocksDB
+import Chainweb.Test.TestVersions
 import System.IO.Temp
-
+import System.LogLevel
 import Test.Tasty
 import Test.Tasty.HUnit
-
--- internal modules
-
-import Chainweb.Graph
 import qualified Chainweb.Test.MultiNode
-import Chainweb.Test.TestVersions
-
-import Chainweb.Storage.Table.RocksDB
-
 import qualified Network.X509.SelfSigned.Test
 
 main :: IO ()
