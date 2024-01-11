@@ -92,7 +92,7 @@ computeGrandHash db bh = do
         pure $ hashRows (Text.encodeUtf8 tblName) rows
 
   -- This is a simple incremental hash over all of the table hashes.
-  -- This is well-defined by its order because 'getLatestPactStateUpperBound''
+  -- This is well-defined by its order because 'getLatestPactStateAt'
   -- guarantees that the stream of tables is ordered lexicographically by table
   -- name.
   S.fold_
