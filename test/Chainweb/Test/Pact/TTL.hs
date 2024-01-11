@@ -72,9 +72,9 @@ defTtl = 60 * 60 * 2 -- 2 hours
 -- Thus, all failing tests are expected to already fail during pre block
 -- validation.
 --
-tests :: RocksDb -> ScheduledTest
-tests rdb = ScheduledTest "Chainweb.Test.Pact.TTL" $
-    testGroup "timing tests"
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "Chainweb.Test.Pact.TTL"
+    [ testGroup "timing tests"
         [ withTestPact rdb testTxTime
         , withTestPact rdb testTxTimeLenient
         , withTestPact rdb testTxTimeFail1
@@ -86,6 +86,7 @@ tests rdb = ScheduledTest "Chainweb.Test.Pact.TTL" $
         , withTestPact rdb testJustMadeItSmall
         , withTestPact rdb testJustMadeItLarge
         ]
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- Tests
@@ -178,10 +179,10 @@ modAtTtl f (Seconds t) = mempty
     { mpaGetBlock = \_ validate bh hash ph -> do
         let txTime = toTxCreationTime $ f $ _bct $ _blockCreationTime ph
             tt = TTLSeconds (int t)
-        outtxs <- fmap V.singleton $ buildCwCmd
+        outtxs <- fmap V.singleton $ buildCwCmd testVer
           $ set cbCreationTime txTime
           $ set cbTTL tt
-          $ set cbSigners [mkSigner' sender00 []]
+          $ set cbSigners [mkEd25519Signer' sender00 []]
           $ mkCmd (sshow bh)
           $ mkExec' "1"
 
@@ -282,7 +283,7 @@ withTestPact rdb test =
   withResource' newEmptyMVar $ \mempoolVarIO ->
     withPactTestBlockDb testVer cid rdb (mempool mempoolVarIO) testPactServiceConfig $ \ios ->
       test $ do
-        (pq,bdb) <- ios
+        (_, pq, bdb) <- ios
         mp <- mempoolVarIO
         bhdb <- getBlockHeaderDb cid bdb
         return $ Ctx mp pq (_bdbPayloadDb bdb) bhdb

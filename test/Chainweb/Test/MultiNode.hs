@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
@@ -32,13 +33,13 @@
 -- The configuration defines a scaled down, accelerated chain that tries to
 -- similulate a full-scale chain in a miniaturized settings.
 --
-module Chainweb.Test.MultiNode ( test, replayTest ) where
+module Chainweb.Test.MultiNode ( test, replayTest, compactAndResumeTest ) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Exception
-import Control.Lens (set, view)
+import Control.Lens (set, view, over)
 import Control.Monad
 
 import Data.Aeson
@@ -58,10 +59,10 @@ import qualified Streaming.Prelude as S
 
 import System.FilePath
 import System.IO.Temp
+import System.Logger.Types qualified as YAL
 import System.LogLevel
 import System.Timeout
 
-import Test.Tasty
 import Test.Tasty.HUnit
 
 -- internal modules
@@ -73,6 +74,9 @@ import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.PeerResources
+import Chainweb.Pact.Backend.Compaction qualified as C
+import Chainweb.Pact.Backend.Types (_sConn)
+import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
@@ -283,25 +287,79 @@ runNodesForSeconds loglevel write baseConf n (Seconds seconds) rdb pactDbDir inn
     void $ timeout (int seconds * 1_000_000)
         $ runNodes loglevel write baseConf n rdb pactDbDir inner
 
+-- | Run nodes
+--   Each node creates blocks
+--   We wait until they've made a sufficient amount of blocks
+--   We stop the nodes
+--   We open sqlite connections to some of the database dirs and compact them
+--   We restart all nodes with the same database dirs
+--   We observe that they can make progress
+compactAndResumeTest :: ()
+  => LogLevel
+  -> ChainwebVersion
+  -> Natural
+  -> RocksDb
+  -> FilePath
+  -> (String -> IO ())
+  -> IO ()
+compactAndResumeTest logLevel v n rdb pactDbDir step = do
+    let logFun = step . T.unpack
+    let logger = genericLogger logLevel logFun
+
+    logFun "phase 1... creating blocks"
+    -- N.B: This consensus state stuff counts the number of blocks
+    -- in RocksDB, rather than the number of blocks in all chains
+    -- on the current cut. This is fine because we ultimately just want
+    -- to make sure that we are making progress (i.e, new blocks).
+    stateVar <- newMVar (emptyConsensusState v)
+    let ct :: Int -> StartedChainweb logger -> IO ()
+        ct = harvestConsensusState logger stateVar
+    runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rdb pactDbDir ct
+    Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
+    assertGe "average block count before compaction" (Actual $ _statBlockCount stats1) (Expected 50)
+    logFun $ sshow stats1
+
+    logFun "phase 2... compacting"
+    let cid = unsafeChainId 0
+    -- compact only half of them
+    let nids = filter even [0 .. int @_ @Int n - 1]
+    forM_ nids $ \nid -> do
+      let dir = pactDbDir </> show nid
+      withSqliteDb cid logger dir False $ \sqlEnv -> do
+        C.withDefaultLogger Warn $ \cLogger -> do
+          let cLogger' = over YAL.setLoggerScope (\scope -> ("nodeId",sshow nid) : ("chainId",sshow cid) : scope) cLogger
+          let flags = [C.NoVacuum]
+          let db = _sConn sqlEnv
+          let bh = BlockHeight 5
+          void $ C.compact (C.Target bh) cLogger' db flags
+
+    logFun "phase 3... restarting nodes and ensuring progress"
+    runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rdb pactDbDir ct
+    Just stats2 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
+    -- We ensure that we've gotten to at least 1.5x the previous block count
+    assertGe "average block count post-compaction" (Actual $ _statBlockCount stats2) (Expected (3 * _statBlockCount stats1 `div` 2))
+    logFun $ sshow stats2
+
 replayTest
     :: LogLevel
     -> ChainwebVersion
     -> Natural
-    -> TestTree
-replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps name $ \step ->
-    withTempRocksDb "replay-test-rocks" $ \rdb ->
-    withSystemTempDirectory "replay-test-pact" $ \pactDbDir -> do
+    -> RocksDb
+    -> FilePath
+    -> (String -> IO ())
+    -> IO ()
+replayTest loglevel v n rdb pactDbDir step = do
         let tastylog = step . T.unpack
         let logFun = step . T.unpack
         tastylog "phase 1..."
         stateVar <- newMVar $ emptyConsensusState v
         let ct = harvestConsensusState (genericLogger loglevel logFun) stateVar
-        runNodesForSeconds loglevel logFun (multiConfig v n) 2 60 rdb pactDbDir ct
+        runNodesForSeconds loglevel logFun (multiConfig v n) n 60 rdb pactDbDir ct
         Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
         assertGe "maximum cut height before reset" (Actual $ _statMaxHeight stats1) (Expected $ 10)
         tastylog $ sshow stats1
         tastylog $ "phase 2... resetting"
-        runNodesForSeconds loglevel logFun (multiConfig v 2 & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) n 30 rdb pactDbDir ct
+        runNodesForSeconds loglevel logFun (multiConfig v n & set (configCuts . cutInitialBlockHeightLimit) (Just 5)) n 30 rdb pactDbDir ct
         state2 <- swapMVar stateVar (emptyConsensusState v)
         let stats2 = fromJuste $ consensusStateSummary state2
         tastylog $ sshow stats2
@@ -343,8 +401,6 @@ replayTest loglevel v n = after AllFinish "ConsensusNetwork" $ testCaseSteps nam
                 _ -> error "replayTest: not a replay"
         assertEqual "second replay completion" True =<< readIORef secondReplayCompleteRef
         tastylog "done."
-    where
-    name = "Replay network"
 
 -- -------------------------------------------------------------------------- --
 -- Test
@@ -354,50 +410,49 @@ test
     -> ChainwebVersion
     -> Natural
     -> Seconds
-    -> TestTree
-test loglevel v n seconds = testCaseSteps name $ \f ->
+    -> RocksDb
+    -> FilePath
+    -> (String -> IO ())
+    -> IO ()
+test loglevel v n seconds rdb pactDbDir step = do
     -- Count log messages and only print the first 60 messages
-    withTempRocksDb "multinode-tests" $ \rdb ->
-    withSystemTempDirectory "replay-test-pact" $ \pactDbDir -> do
-        let tastylog = f . T.unpack
-        let logFun = tastylog
-            maxLogMsgs = 60
-        var <- newMVar (0 :: Int)
-        let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
-                when (c < maxLogMsgs) (logFun msg)
-        stateVar <- newMVar (emptyConsensusState v)
-        runNodesForSeconds loglevel countedLog (multiConfig v n) n seconds rdb pactDbDir
-            (harvestConsensusState (genericLogger loglevel logFun) stateVar)
-        consensusStateSummary <$> readMVar stateVar >>= \case
-            Nothing -> assertFailure "chainweb didn't make any progress"
-            Just stats -> do
-                logsCount <- readMVar var
-                tastylog $ "Number of logs: " <> sshow logsCount
-                tastylog $ "Expected BlockCount: " <> sshow (expectedBlockCount v seconds) -- 80 + 19.5 * 20
-                tastylog $ encodeToText stats
-                tastylog $ encodeToText $ object
-                    [ "maxEfficiency%" .= (realToFrac (bc $ _statMaxHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                    , "minEfficiency%" .= (realToFrac (bc $ _statMinHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                    , "medEfficiency%" .= (realToFrac (bc $ _statMedHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                    , "avgEfficiency%" .= (realToFrac (bc $ round (_statAvgHeight stats)) * (100 :: Double) / int (_statBlockCount stats))
-                    ]
+    let tastylog = step . T.unpack
+    let logFun = tastylog
+        maxLogMsgs = 60
+    var <- newMVar (0 :: Int)
+    let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
+            when (c < maxLogMsgs) (logFun msg)
+    stateVar <- newMVar (emptyConsensusState v)
+    runNodesForSeconds loglevel countedLog (multiConfig v n) n seconds rdb pactDbDir
+        (harvestConsensusState (genericLogger loglevel logFun) stateVar)
+    consensusStateSummary <$> readMVar stateVar >>= \case
+        Nothing -> assertFailure "chainweb didn't make any progress"
+        Just stats -> do
+            logsCount <- readMVar var
+            tastylog $ "Number of logs: " <> sshow logsCount
+            tastylog $ "Expected BlockCount: " <> sshow (expectedBlockCount v seconds) -- 80 + 19.5 * 20
+            tastylog $ encodeToText stats
+            tastylog $ encodeToText $ object
+                [ "maxEfficiency%" .= (realToFrac (bc $ _statMaxHeight stats) * (100 :: Double) / int (_statBlockCount stats))
+                , "minEfficiency%" .= (realToFrac (bc $ _statMinHeight stats) * (100 :: Double) / int (_statBlockCount stats))
+                , "medEfficiency%" .= (realToFrac (bc $ _statMedHeight stats) * (100 :: Double) / int (_statBlockCount stats))
+                , "avgEfficiency%" .= (realToFrac (bc $ round (_statAvgHeight stats)) * (100 :: Double) / int (_statBlockCount stats))
+                ]
 
-                (assertGe "number of blocks") (Actual $ _statBlockCount stats) (Expected $ _statBlockCount l)
-                (assertGe "maximum cut height") (Actual $ _statMaxHeight stats) (Expected $ _statMaxHeight l)
-                (assertGe "minimum cut height") (Actual $ _statMinHeight stats) (Expected $ _statMinHeight l)
-                (assertGe "median cut height") (Actual $ _statMedHeight stats) (Expected $ _statMedHeight l)
-                (assertGe "average cut height") (Actual $ _statAvgHeight stats) (Expected $ _statAvgHeight l)
+            (assertGe "number of blocks") (Actual $ _statBlockCount stats) (Expected $ _statBlockCount l)
+            (assertGe "maximum cut height") (Actual $ _statMaxHeight stats) (Expected $ _statMaxHeight l)
+            (assertGe "minimum cut height") (Actual $ _statMinHeight stats) (Expected $ _statMinHeight l)
+            (assertGe "median cut height") (Actual $ _statMedHeight stats) (Expected $ _statMedHeight l)
+            (assertGe "average cut height") (Actual $ _statAvgHeight stats) (Expected $ _statAvgHeight l)
 
-                (assertLe "maximum cut height") (Actual $ _statMaxHeight stats) (Expected $ _statMaxHeight u)
-                (assertLe "minimum cut height") (Actual $ _statMinHeight stats) (Expected $ _statMinHeight u)
-                (assertLe "median cut height") (Actual $ _statMedHeight stats) (Expected $ _statMedHeight u)
-                (assertLe "average cut height") (Actual $ _statAvgHeight stats) (Expected $ _statAvgHeight u)
+            (assertLe "maximum cut height") (Actual $ _statMaxHeight stats) (Expected $ _statMaxHeight u)
+            (assertLe "minimum cut height") (Actual $ _statMinHeight stats) (Expected $ _statMinHeight u)
+            (assertLe "median cut height") (Actual $ _statMedHeight stats) (Expected $ _statMedHeight u)
+            (assertLe "average cut height") (Actual $ _statAvgHeight stats) (Expected $ _statAvgHeight u)
 
   where
     l = lowerStats v seconds
     u = upperStats v seconds
-
-    name = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ")"
 
     bc x = blockCountAtCutHeight v x - order (chainGraphAtCutHeight v x)
 
@@ -502,4 +557,3 @@ upperStats v seconds = Stats
   where
     ebc = expectedBlockCount v seconds
     ech = expectedCutHeightAfterSeconds v seconds
-

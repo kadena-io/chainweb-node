@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -10,7 +11,6 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Test.Utils
@@ -96,21 +96,9 @@ module Chainweb.Test.Utils
 
 -- * Golden Tests
 , golden
-, goldenSch
-
--- * Scheduling Tests
-, RunStyle(..)
-, ScheduledTest(..)
-, schedule
-, testCaseSch
-, testCaseSchSteps
-, testGroupSch
-, testPropertySch
 
 -- * GHCI Runners
-, runSched
 , runRocks
-, runSchedRocks
 , withArgs
 , matchTest
 
@@ -129,13 +117,14 @@ module Chainweb.Test.Utils
 , host
 , interface
 , testRetryPolicy
+, withDbDirs
 ) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch (finally, bracket)
+import Control.Monad.Catch (MonadCatch, catch, finally, bracket)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
 import Control.Retry
@@ -159,6 +148,7 @@ import Data.Word
 import qualified Network.Connection as HTTP
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTP
+import qualified Network.HTTP.Types as HTTP
 import Network.Socket (close)
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
@@ -168,6 +158,7 @@ import Numeric.Natural
 
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv, runClientM)
 
+import System.Directory (removeDirectoryRecursive)
 import System.Environment (withArgs)
 import System.IO
 import System.IO.Temp
@@ -176,12 +167,12 @@ import System.Random (randomIO)
 
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Gen
-import Test.QuickCheck.Property (Property, Testable, (===))
+import Test.QuickCheck.Property (Property, (===))
 import Test.QuickCheck.Random (mkQCGen)
 import Test.Tasty
 import Test.Tasty.Golden
 import Test.Tasty.HUnit
-import Test.Tasty.QuickCheck (testProperty, property, discard, (.&&.))
+import Test.Tasty.QuickCheck (property, discard, (.&&.))
 
 import Text.Printf (printf)
 
@@ -628,6 +619,8 @@ withChainwebTestServer
 withChainwebTestServer shouldValidateSpec tls v app =
     view _3 . snd <$> allocate start stop
   where
+    verboseOnExceptionResponse exn =
+        W.responseLBS HTTP.internalServerError500 [] ("exception: " <> sshow exn)
     start = do
         mw <- case shouldValidateSpec of
             ValidateSpec -> mkApiValidationMiddleware v
@@ -636,7 +629,11 @@ withChainwebTestServer shouldValidateSpec tls v app =
         (port, sock) <- W.openFreePort
         readyVar <- newEmptyMVar
         server <- async $ do
-            let settings = W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
+            let
+                settings =
+                    W.setBeforeMainLoop (putMVar readyVar ()) $
+                    W.setOnExceptionResponse verboseOnExceptionResponse $
+                    W.defaultSettings
             if
                 | tls -> do
                     let certBytes = testBootstrapCertificate
@@ -888,57 +885,11 @@ golden l = goldenVsString l (goldenFilesDir <> fp)
   where
     fp = l <> "-expected.txt"
 
-goldenSch
-    :: String -- ^ Test Label
-    -> IO BL.ByteString -- ^ Test action
-    -> ScheduledTest
-goldenSch l = ScheduledTest l . golden l
-
--- -------------------------------------------------------------------------- --
--- Scheduling Tests
-
-data RunStyle = Sequential | Parallel
-
--- | A structure similar to that procuded by `testGroup`, except that we can
--- optionally schedule groups of this type.
---
-data ScheduledTest = ScheduledTest { _schLabel :: String , _schTest :: TestTree }
-
-testCaseSch :: String -> Assertion -> ScheduledTest
-testCaseSch l a = ScheduledTest l $ testCase l a
-
-testCaseSchSteps :: String -> ((String -> IO ()) -> Assertion) -> ScheduledTest
-testCaseSchSteps l a = ScheduledTest l $ testCaseSteps l a
-
-testGroupSch :: String -> [TestTree] -> ScheduledTest
-testGroupSch l ts = ScheduledTest l $ testGroup l ts
-
-testPropertySch :: Testable a => String -> a -> ScheduledTest
-testPropertySch l p = ScheduledTest l $ testProperty l p
-
--- | Schedule groups of tests according to some `RunStyle`. When `Sequential`,
--- each group will be made to run one after another. This can be used to prevent
--- various tests from starving each other of resources.
---
-schedule :: RunStyle -> [ScheduledTest] -> [TestTree]
-schedule _ [] = []
-schedule Parallel tgs = map _schTest tgs
-schedule Sequential tgs@(h : _) = _schTest h : zipWith f tgs (tail tgs)
-  where
-    f a b = after AllFinish (_schLabel a) $ _schTest b
-
--- | Util for GHCI execution of a scheduled test
-runSched :: ScheduledTest -> IO ()
-runSched = defaultMain . testGroup "" . schedule Sequential . pure
-
 runRocks :: (RocksDb -> TestTree) -> IO ()
 runRocks test = withTempRocksDb "chainweb-tests" $ \rdb -> defaultMain (test rdb)
 
-runSchedRocks :: (RocksDb -> ScheduledTest) -> IO ()
-runSchedRocks test = withTempRocksDb "chainweb-tests" $ \rdb -> runSched (test rdb)
-
 -- | Convenience to use "-p" with value to match a test run
--- > matchTest "myTest" $ runSched tests
+-- > matchTest "myTest" $ defaultMain tests
 matchTest :: String -> IO a -> IO a
 matchTest pat = withArgs ["-p",pat]
 
@@ -948,6 +899,7 @@ matchTest pat = withArgs ["-p",pat]
 data ChainwebNetwork = ChainwebNetwork
     { _getClientEnv :: !ClientEnv
     , _getServiceClientEnv :: !ClientEnv
+    , _getNodeDbDirs :: ![(FilePath, FilePath)]
     }
 
 withNodes_
@@ -956,16 +908,17 @@ withNodes_
     -> ChainwebVersion
     -> B.ByteString
     -> RocksDb
-    -> Natural
+    -> Word
     -> ResourceT IO ChainwebNetwork
-withNodes_ logger v testLabel rdb n =
-    (uncurry ChainwebNetwork . snd) . snd <$>
-        allocate start (cancel . fst)
+withNodes_ logger v testLabel rdb n = do
+    nodeDbDirs <- withDbDirs n
+    (_rkey, (_async, (p2p, service))) <- allocate (start nodeDbDirs) (cancel . fst)
+    pure (ChainwebNetwork p2p service nodeDbDirs)
   where
-    start :: IO (Async (), (ClientEnv, ClientEnv))
-    start = do
+    start :: [(FilePath, FilePath)] -> IO (Async (), (ClientEnv, ClientEnv))
+    start dbDirs = do
         peerInfoVar <- newEmptyMVar
-        a <- async $ runTestNodes testLabel rdb logger v n peerInfoVar
+        a <- async $ runTestNodes testLabel rdb logger v peerInfoVar dbDirs
         (i, servicePort) <- readMVar peerInfoVar
         cwEnv <- getClientEnv $ getCwBaseUrl Https $ _hostAddressPort $ _peerAddr i
         cwServiceEnv <- getClientEnv $ getCwBaseUrl Http servicePort
@@ -983,7 +936,7 @@ withNodes
     :: ChainwebVersion
     -> B.ByteString
     -> RocksDb
-    -> Natural
+    -> Word
     -> ResourceT IO ChainwebNetwork
 withNodes = withNodes_ (genericLogger Error (error . T.unpack))
     -- Test resources are part of test infrastructure and should never print
@@ -994,7 +947,7 @@ withNodesAtLatestBehavior
     :: ChainwebVersion
     -> B.ByteString
     -> RocksDb
-    -> Natural
+    -> Word
     -> ResourceT IO ChainwebNetwork
 withNodesAtLatestBehavior v testLabel rdb n = do
     net <- withNodes v testLabel rdb n
@@ -1032,8 +985,7 @@ awaitBlockHeight v step cenv i = do
         | otherwise = do
             step
                 $ "awaiting cut with all block heights >= " <> show i
-                <> ". Current cut height: " <> show (_cutHashesHeight c)
-                <> ". Current block heights: " <> show (_bhwhHeight <$> _cutHashes c)
+                <> ". Current min. block height: " <> show (minimum $ _bhwhHeight <$> _cutHashes c)
                 <> " [" <> show (view rsIterNumberL s) <> "]"
             return True
 
@@ -1043,19 +995,19 @@ runTestNodes
     -> RocksDb
     -> logger
     -> ChainwebVersion
-    -> Natural
     -> MVar (PeerInfo, Port)
+    -> [(FilePath, FilePath)]
+       -- ^ A Map from Node Id to (Pact DB Dir, RocksDB Dir).
+       --   The index is just the position in the list.
     -> IO ()
-runTestNodes testLabel rdb logger ver n portMVar =
-    forConcurrently_ [0 .. int n - 1] $ \i -> do
-        threadDelay (1000 * int i)
-        let baseConf = config ver n
-        conf <- if
-            | i == 0 ->
-                return $ bootstrapConfig baseConf
-            | otherwise ->
-                setBootstrapPeerInfo <$> (fst <$> readMVar portMVar) <*> pure baseConf
-        node testLabel rdb logger portMVar conf i
+runTestNodes testLabel rdb logger ver portMVar dbDirs = do
+    forConcurrently_ (zip [0 ..] dbDirs) $ \(nid, (pactDbDir, rocksDbDir)) -> do
+        threadDelay (1000 * int nid)
+        let baseConf = config ver (int (length dbDirs))
+        conf <- if nid == 0
+          then return $ bootstrapConfig baseConf
+          else setBootstrapPeerInfo <$> (fst <$> readMVar portMVar) <*> pure baseConf
+        node testLabel rdb logger portMVar conf pactDbDir rocksDbDir nid
 
 node
     :: Logger logger
@@ -1064,28 +1016,29 @@ node
     -> logger
     -> MVar (PeerInfo, Port)
     -> ChainwebConfiguration
-    -> Int
+    -> FilePath
+       -- ^ pact db dir
+    -> FilePath
+       -- ^ rocksdb dir
+    -> Word
         -- ^ Unique Node Id. The node id 0 is used for the bootstrap node
     -> IO ()
-node testLabel rdb rawLogger peerInfoVar conf nid = do
+node testLabel rdb rawLogger peerInfoVar conf pactDbDir rocksDbDir nid = do
     rocksDb <- testRocksDb (testLabel <> T.encodeUtf8 (toText nid)) rdb
-    withSystemTempDirectory "test-backupdir" $ \backupDir ->
-        withSystemTempDirectory "test-rocksdb" $ \dir ->
-            withChainweb conf logger rocksDb backupDir dir False $ \case
-                StartedChainweb cw -> do
+    withChainweb conf logger rocksDb pactDbDir rocksDbDir False $ \case
+        StartedChainweb cw -> do
+            -- If this is the bootstrap node we extract the port number and publish via an MVar.
+            when (nid == 0) $ do
+                let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
+                    bootStrapPort = view (chainwebServiceSocket . _1) cw
+                putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
 
-                    -- If this is the bootstrap node we extract the port number and publish via an MVar.
-                    when (nid == 0) $ do
-                        let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
-                            bootStrapPort = view (chainwebServiceSocket . _1) cw
-                        putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
-
-                    poisonDeadBeef cw
-                    runChainweb cw `finally` do
-                        logFunctionText logger Info "write sample data"
-                        logFunctionText logger Info "shutdown node"
-                    return ()
-                Replayed _ _ -> error "node: should not be a replay"
+            poisonDeadBeef cw
+            runChainweb cw `finally` do
+                logFunctionText logger Info "write sample data"
+                logFunctionText logger Info "shutdown node"
+            return ()
+        Replayed _ _ -> error "node: should not be a replay"
   where
     logger = addLabel ("node", sshow nid) rawLogger
 
@@ -1093,6 +1046,31 @@ node testLabel rdb rawLogger peerInfoVar conf nid = do
       where
         crs = map snd $ HashMap.toList $ view chainwebChains cw
         poison cr = mempoolAddToBadList (view chainResMempool cr) (V.singleton deadbeef)
+
+withDbDirs :: Word -> ResourceT IO [(FilePath, FilePath)]
+withDbDirs n = do
+  let create :: IO [(FilePath, FilePath)]
+      create = do
+        forM [0 .. n - 1] $ \nid -> do
+          targetDir1 <- getCanonicalTemporaryDirectory
+          targetDir2 <- getCanonicalTemporaryDirectory
+
+          dir1 <- createTempDirectory targetDir1 ("pactdb-dir-" ++ show nid)
+          dir2 <- createTempDirectory targetDir2 ("rocksdb-dir-" ++ show nid)
+
+          pure (dir1, dir2)
+
+  let destroy :: [(FilePath, FilePath)] -> IO ()
+      destroy m = flip foldMap m $ \(d1, d2) -> do
+        ignoringIOErrors $ do
+          removeDirectoryRecursive d1
+          removeDirectoryRecursive d2
+
+  (_, m) <- allocate create destroy
+  pure m
+  where
+    ignoringIOErrors :: (MonadCatch m) => m () -> m ()
+    ignoringIOErrors ioe = ioe `catch` (\(_ :: IOError) -> pure ())
 
 deadbeef :: TransactionHash
 deadbeef = TransactionHash "deadbeefdeadbeefdeadbeefdeadbeef"

@@ -126,7 +126,7 @@ fastForks = tabulateHashMap $ \case
     Chainweb213Pact -> AllChains ForkAtGenesis
     PactEvents -> AllChains ForkAtGenesis
     CoinV2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
-    Pact420 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
+    Pact42 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
     SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
     ModuleNameFix -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
     ModuleNameFix2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
@@ -138,6 +138,9 @@ fastForks = tabulateHashMap $ \case
     Chainweb218Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 20
     Chainweb219Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 27
     Chainweb220Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 30
+    Chainweb221Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 33
+    Chainweb222Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 36
+    Chainweb223Pact -> AllChains ForkNever
 
 -- | A test version without Pact or PoW, with only one chain graph.
 barebonesTestVersion :: ChainGraph -> ChainwebVersion
@@ -245,7 +248,7 @@ slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
         SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
         ModuleNameFix -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
         ModuleNameFix2 -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
-        Pact420 -> AllChains $ ForkAtBlockHeight (BlockHeight 5)
+        Pact42 -> AllChains $ ForkAtBlockHeight (BlockHeight 5)
         CheckTxHash -> AllChains $ ForkAtBlockHeight (BlockHeight 7)
         EnforceKeysetFormats -> AllChains $ ForkAtBlockHeight (BlockHeight 10)
         PactEvents -> AllChains $ ForkAtBlockHeight (BlockHeight 10)
@@ -258,6 +261,9 @@ slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
         Chainweb218Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 60)
         Chainweb219Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 71)
         Chainweb220Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 85)
+        Chainweb221Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 100)
+        Chainweb222Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 115)
+        Chainweb223Pact -> AllChains ForkNever
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades quickly enabled.
 fastForkingCpmTestVersion :: ChainGraph -> ChainwebVersion
@@ -273,4 +279,3 @@ noBridgeCpmTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("nobridge-CPM-" <> toText g)
     & versionForks .~ (fastForks & at SPVBridge ?~ AllChains ForkNever)
-

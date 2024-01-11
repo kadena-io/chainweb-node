@@ -98,7 +98,7 @@ pageProperties
     :: HasTextRepresentation k
     => ToJSON k
     => ToJSON a
-    => KeyValue kv
+    => KeyValue e kv
     => Page k a
     -> [kv]
 pageProperties p =

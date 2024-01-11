@@ -522,6 +522,18 @@ instance HasTextRepresentation Integer where
     fromText = treadM
     {-# INLINE fromText #-}
 
+instance HasTextRepresentation Word where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = treadM
+    {-# INLINE fromText #-}
+
+instance HasTextRepresentation Word64 where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = treadM
+    {-# INLINE fromText #-}
+
 instance HasTextRepresentation UTCTime where
     toText = T.pack . formatTime defaultTimeLocale iso8601DateTimeFormat
     {-# INLINE toText #-}
@@ -972,7 +984,7 @@ defaultEnableConfig a = EnableConfig
     , _enableConfigConfig = a
     }
 
-enableConfigProperties :: ToJSON a => KeyValue kv => EnableConfig a -> [kv]
+enableConfigProperties :: ToJSON a => KeyValue e kv => EnableConfig a -> [kv]
 enableConfigProperties o =
     [ "enabled" .= _enableConfigEnabled o
     , "configuration" .= _enableConfigConfig o
@@ -1318,7 +1330,7 @@ setManagerRequestTimeout micros settings = settings
 -- -------------------------------------------------------------------------- --
 -- SockAddr from network package
 
-sockAddrJson :: KeyValue kv => SockAddr -> [kv]
+sockAddrJson :: KeyValue e kv => SockAddr -> [kv]
 sockAddrJson (SockAddrInet p i) =
     [ "ipv4" .= showIpv4 i
     , "port" .= fromIntegral @PortNumber @Int p

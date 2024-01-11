@@ -480,6 +480,7 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     , testProperty "TransactionOutput" $ prop_iso' @_ @TransactionOutput fromText toText
     , testProperty "ChainDatabaseGcConfig" $ prop_iso' @_ @ChainDatabaseGcConfig fromText toText
     , testProperty "MerkleRootType" $ prop_iso' @_ @MerkleRootType fromText toText
+    , testProperty "Fork" $ prop_iso' @_ @Fork fromText toText
     ]
 
 -- -------------------------------------------------------------------------- --

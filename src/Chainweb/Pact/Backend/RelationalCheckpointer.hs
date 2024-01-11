@@ -159,7 +159,7 @@ doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
   where
     -- Module name fix follows the restore call to checkpointer.
     setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v cid bh
-    setSortedKeys = bsSortedKeys .= pact420 v cid bh
+    setSortedKeys = bsSortedKeys .= pact42 v cid bh
     setLowerCaseTables = bsLowerCaseTables .= chainweb217Pact v cid bh
 doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
     clearPendingTxState
@@ -233,13 +233,13 @@ doDiscard dbenv = runBlockEnv dbenv $ do
     --
     commitSavepoint Block
 
-doGetEarliest :: HasCallStack => Db logger -> IO (BlockHeight, BlockHash)
+doGetEarliest :: HasCallStack => Db logger -> IO (Maybe (BlockHeight, BlockHash))
 doGetEarliest dbenv =
-  runBlockEnv dbenv $ callDb "getLatestBlock" $ \db -> do
+  runBlockEnv dbenv $ callDb "getEarliestBlock" $ \db -> do
     r <- qry_ db qtext [RInt, RBlob] >>= mapM go
     case r of
-      [] -> fail "Chainweb.Pact.Backend.RelationalCheckpointer.doGetEarliest: no earliest block. This is a bug in chainweb-node."
-      (!o:_) -> return o
+      [] -> return Nothing
+      (!o:_) -> return (Just o)
   where
     qtext = "SELECT blockheight, hash FROM BlockHistory \
             \ ORDER BY blockheight ASC LIMIT 1"
@@ -339,19 +339,21 @@ doLookupSuccessful dbenv confDepth hashes = runBlockEnv dbenv $ do
           blockheightval = maybe [] (\bh -> [SInt bh]) blockheight
           qvals = [ SBlob (BS.fromShort hash) | (TypedHash hash) <- V.toList hashes ] ++ blockheightval
 
-        qry db qtext qvals [RInt, RBlob] >>= mapM go
-      return $ HashMap.fromList (zip (V.toList hashes) r)
+        qry db qtext qvals [RInt, RBlob, RBlob] >>= mapM go
+      return $ HashMap.fromList (map (\(T3 blockheight blockhash txhash) -> (txhash, T2 blockheight blockhash)) r)
   where
-    qtext = "SELECT blockheight, hash FROM \
+    qtext = "SELECT blockheight, hash, txhash FROM \
             \TransactionIndex INNER JOIN BlockHistory \
             \USING (blockheight) WHERE txhash IN (" <> hashesParams <> ")"
             <> maybe "" (const " AND blockheight <= ?") confDepth
             <> ";"
     hashesParams = Utf8 $ intercalate "," [ "?" | _ <- V.toList hashes]
 
-    go ((SInt h):(SBlob blob):_) = do
-        !hsh <- either fail return $ runGetEitherS decodeBlockHash blob
-        return $! T2 (fromIntegral h) hsh
+    go :: [SType] -> IO (T3 BlockHeight BlockHash PactHash)
+    go (SInt blockheight:SBlob blockhash:SBlob txhash:_) = do
+        !blockhash' <- either fail return $ runGetEitherS decodeBlockHash blockhash
+        let !txhash' = TypedHash $ BS.toShort txhash
+        return $! T3 (fromIntegral blockheight) blockhash' txhash'
     go _ = fail "impossible"
 
 doGetBlockHistory :: Db logger -> BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory

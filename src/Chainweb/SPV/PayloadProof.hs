@@ -74,7 +74,7 @@ instance Exception RequestKeyNotFoundException
 --
 newtype JsonProofSubject a = JsonProofSubject (MerkleNodeType a B.ByteString)
 
-jsonProofSubjectProperties :: KeyValue kv => JsonProofSubject a -> [kv]
+jsonProofSubjectProperties :: KeyValue e kv => JsonProofSubject a -> [kv]
 jsonProofSubjectProperties (JsonProofSubject (TreeNode h)) =
     [ "tree" .= encodeB64UrlNoPaddingText (encodeMerkleRoot h)
     ]
@@ -109,9 +109,9 @@ data PayloadProof a = PayloadProof
     } deriving (Show, Eq, Generic, NFData)
 
 payloadProofProperties
-    :: forall a kv
+    :: forall a e kv
     . MerkleHashAlgorithmName a
-    => KeyValue kv
+    => KeyValue e kv
     => PayloadProof a
     -> [kv]
 payloadProofProperties p =

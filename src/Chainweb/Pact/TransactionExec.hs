@@ -343,7 +343,7 @@ flagsFor :: ChainwebVersion -> V.ChainId -> BlockHeight -> S.Set ExecutionFlag
 flagsFor v cid bh = S.fromList $ concat
   [ enablePactEvents' v cid bh
   , enablePact40 v cid bh
-  , enablePact420 v cid bh
+  , enablePact42 v cid bh
   , enforceKeysetFormats' v cid bh
   , enablePactModuleMemcheck v cid bh
   , enablePact43 v cid bh
@@ -355,6 +355,8 @@ flagsFor v cid bh = S.fromList $ concat
   , enablePact47 v cid bh
   , enablePact48 v cid bh
   , disableReturnRTC v cid bh
+  , enablePact49 v cid bh
+  , enablePact410 v cid bh
   ]
 
 applyCoinbase
@@ -381,6 +383,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
   | fork1_3InEffect || enablePC = do
     when chainweb213Pact' $ enforceKeyFormats
         (\k -> throwM $ CoinbaseFailure $ "Invalid miner key: " <> sshow k)
+        (validKeyFormats v (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx))
         mk
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
         interp = Interpreter $ \_ -> do put initState; fmap pure (eval cterm)
@@ -750,8 +753,8 @@ enforceKeysetFormats' v cid bh = [FlagEnforceKeyFormats | enforceKeysetFormats v
 enablePact40 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enablePact40 v cid bh = [FlagDisablePact40 | not (pact4Coin3 v cid bh)]
 
-enablePact420 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
-enablePact420 v cid bh = [FlagDisablePact420 | not (pact420 v cid bh)]
+enablePact42 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact42 v cid bh = [FlagDisablePact42 | not (pact42 v cid bh)]
 
 enablePactModuleMemcheck :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enablePactModuleMemcheck v cid bh = [FlagDisableInlineMemCheck | not (chainweb213Pact v cid bh)]
@@ -779,6 +782,12 @@ enablePact47 v cid bh = [FlagDisablePact47 | not (chainweb219Pact v cid bh)]
 
 enablePact48 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enablePact48 v cid bh = [FlagDisablePact48 | not (chainweb220Pact v cid bh)]
+
+enablePact49 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact49 v cid bh = [FlagDisablePact49 | not (chainweb221Pact v cid bh)]
+
+enablePact410 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact410 v cid bh = [FlagDisablePact410 | not (chainweb222Pact v cid bh)]
 
 -- | Even though this is not forking, abstracting for future shutoffs
 disableReturnRTC :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]

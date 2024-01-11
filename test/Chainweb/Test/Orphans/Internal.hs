@@ -384,6 +384,7 @@ instance Arbitrary HeaderUpdate where
         <*> arbitrary
         <*> arbitrary
         <*> arbitrary
+        <*> arbitrary
 
 instance Arbitrary BlockHashWithHeight where
     arbitrary = BlockHashWithHeight <$> arbitrary <*> arbitrary
@@ -772,6 +773,9 @@ instance Arbitrary NetworkId where
 
 instance Arbitrary ChainId where
     arbitrary = unsafeChainId <$> arbitrary
+
+instance Arbitrary Fork where
+    arbitrary = elements [minBound..maxBound]
 
 instance Arbitrary ChainDatabaseGcConfig where
     arbitrary = elements

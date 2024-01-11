@@ -20,7 +20,7 @@ import Test.Tasty
 tests :: TestTree
 tests = testGroup "RemoteDB"
     [
-    -- , treeDbInvariants withDb Sequential
+    -- , treeDbInvariants withDb (flip sequentialTestGroup AllFinish)
     ]
 
 -- withDb :: BlockHeader -> (RemoteDb -> IO Bool) -> IO Bool

@@ -29,6 +29,18 @@ if os(darwin)
 package chainweb
     tests: True
     benchmarks: True
+    ghc-options: -Wno-missed-extra-shared-lib
+
+if impl(ghc >= 9.8.1)
+    package chainweb
+        ghc-options: -Wno-x-partial
+
+    -- Remove once we actually upgrade to GHC 9.8.1, these
+    -- will be released
+    allow-newer: bytesmith:bytestring
+    allow-newer: bytebuild:*
+    allow-newer: byteslice:*
+    constraints: haskell-src-meta >= 0.8.13
 
 package pact
     ghc-options: -Wwarn
@@ -59,8 +71,8 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 030e255bc2cae38fd67dd9a1c24956ac59fe894c
-    --sha256: 15vrq9iznj0r39p44yrxxcvzihqkqnlii6556q4cq5lxyc8z4knd
+    tag: 495c8738acaa0157958ab23a06cd94abbc99d2d5
+    --sha256: 1dn322m5mx43bn3ki37zdk9daknnr6sz8y7d89si75m84rl0w27k
 
 source-repository-package
     type: git
@@ -89,8 +101,8 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
-    tag: a0fde0d7066e676288ee3f6e52cdc7edbd48af9d
-    --sha256: 1ph65jak6188yrfp519pi18gdjgprmgi07z9s8sld7mn1dw8sc9g
+    tag: 7119860463f05e452288eac651c38313a04d6b6b
+    --sha256: 191iy36rpb3rk15kk48n8vqiawaablcms9imgld5sg15gb7859vf
 
 source-repository-package
     type: git
@@ -113,6 +125,25 @@ source-repository-package
     location: https://github.com/larskuhtz/sbv
     tag: b66e3a04c20f753213fe7e5115a95b3fe34109f9
     --sha256: 0dca5pl56nz8ijnqavnpxw5f47qmpalszd5w0ag8bq3fd0l3839m
+
+-- Required for non-canonical decode in base64-bytestring (remove after 2.20 fork)
+source-repository-package
+    type: git
+    location: https://github.com/emilypi/base64-bytestring-kadena
+    tag: 174af3523616c8fe01449da5ccbb9f16df097ac3
+    --sha256: sha256-kVFIy+Aj3TNJpsM1Cs/5uGmzeWwHKYWjjCQ+L1/XOj8=
+
+source-repository-package
+    type: git
+    location: https://github.com/chessai/patience
+    tag: 2f67d546ea6608fc6ebe5f2f6976503cbf340442
+    --sha256: 0x137akvbh4kr3qagksw74xdj2xz5vjnx1fbr41bb54a0lkcb8mm
+
+source-repository-package
+    type: git
+    location: https://github.com/andrewthad/chronos
+    tag: b199bf6df1453af95832c2d2f9f0ef48c3622caa
+    --sha256: 056awkmdmkqdd5g3m8a1ibg2vp02kbppmidkfh4aildb1brq970a
 
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
@@ -138,9 +169,27 @@ allow-newer: servant:*
 -- These packages are tightly bound to the GHC version and these
 -- settings ensure that we use the versions that are shipped with the
 -- GHC version that we are using.
+allow-newer: *:Cabal
+allow-newer: *:Cabal-syntax
+allow-newer: *:array
 allow-newer: *:base
-allow-newer: *:tempalte-haskell
+allow-newer: *:bytestring
+allow-newer: *:containers
+allow-newer: *:deepseq
+allow-newer: *:directory
+allow-newer: *:exceptions
+allow-newer: *:ghc-compact
 allow-newer: *:ghc-prim
+allow-newer: *:integer-gmp
+allow-newer: *:mtl
+allow-newer: *:parsec
+allow-newer: *:pretty
+allow-newer: *:process
+allow-newer: *:stm
+allow-newer: *:template-haskell
+allow-newer: *:text
+allow-newer: *:time
+allow-newer: *:transformers
 
 -- Pact uses a vendored version of trifecta that has outdated
 -- upper bounds
@@ -158,16 +207,6 @@ allow-newer: base-compat-batteries:*
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
 
--- required by pact
--- these upper bounds are required in order to not break payload validation
-constraints: base16-bytestring <1
-constraints: base64-bytestring <1.1
-
--- we have to add these because the old versions that we use would prevent
--- us to use recent versions of other packages
-allow-newer: base64-bytestring:*
-allow-newer: base16-bytestring:*
-
--- servant does not yet support aeson 2.2
-constraints: aeson <2.2
-
+allow-newer: webauthn:these
+allow-newer: webauthn:time
+allow-newer: webauthn:aeson
