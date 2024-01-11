@@ -317,7 +317,8 @@ pactCalcMain = do
   C.withDefaultLogger Info $ \logger -> do
     chainTargets <- case cfg.targetBlockHeight of
       LatestAll -> do
-        undefined
+        latestHeight <- resolveLatest logger cids cfg.pactDir
+        pure $ Map.fromList $ List.map (, Set.singleton latestHeight) $ cids
       TargetAll ts -> do
         resolveTargets logger cids cfg.pactDir ts
     chainHashes <- computeGrandHashesAt logger cids cfg.pactDir cfg.rocksDir chainTargets cfg.chainwebVersion
