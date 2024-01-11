@@ -110,11 +110,7 @@ testVersionTemplate v = v
     & versionWindow .~ WindowWidth 120
     & versionMaxBlockGasLimit .~ End (Just 2_000_000)
     & versionBootstraps .~ [testBootstrapPeerInfos]
-<<<<<<< HEAD
-    & versionVerifierPlugins .~ AllChains (End mempty)
-=======
     & versionVerifierPluginNames .~ AllChains (End mempty)
->>>>>>> edmund/spi
 
 -- | A set of fork heights which are relatively fast, but not fast enough to break anything.
 fastForks :: HashMap Fork (ChainMap ForkHeight)
