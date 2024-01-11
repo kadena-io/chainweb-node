@@ -27,16 +27,16 @@ import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.PactState (PactRow(..), PactRowContents(..), getLatestPactStateAt, withChainDb, getLatestBlockHeight, getEarliestBlockHeight, ensureBlockHeightExists)
 import Chainweb.Pact.Backend.PactState.EmbeddedHashes (EncodedSnapshot(..), grands)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
-import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
+import Chainweb.Storage.Table.RocksDB (withReadOnlyRocksDb, modernDefaultOptions)
 import Chainweb.TreeDB (seekAncestor)
 import Chainweb.Utils (fromText, toText, sshow)
 import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
-import Chainweb.WebBlockHeaderDB (initWebBlockHeaderDb, webBlockHeaderDb)
+import Chainweb.WebBlockHeaderDB
 import Control.Applicative ((<|>), many, optional)
-import Control.Lens ((^.))
+import Control.Lens
 import Control.Monad (forM, forM_, when)
 import Crypto.Hash (hashWith, hashInitWith, hashUpdate, hashFinalize)
 import Crypto.Hash.Algorithms (SHA3_256(..))
@@ -53,9 +53,7 @@ import Data.IORef
 import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map (Map)
-import Data.Map.Merge.Strict qualified as Merge
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -160,44 +158,23 @@ rowToHashArgs tblName pr =
     <> BB.charUtf8 'D'
     <> BB.byteString pr.rowData
 
--- | Get the BlockHeaders for each chain at the specified BlockHeight.
-getBlockHeadersAt :: ()
-  => RocksDb
-     -- ^ RocksDB handle
-  -> Map ChainId (Set BlockHeight)
-     -- ^ Map from ChainId to available blockheights on that chain.
-     --   This is most probably going to be the output of 'resolveTargets'.
+getBlockHeaderAt
+  :: WebBlockHeaderDb
+  -> ChainId
+  -> HM.HashMap ChainId BlockHeader
   -> BlockHeight
-     -- ^ The blockheight that you want to look up the header for.
-  -> ChainwebVersion
-     -- ^ chainweb version
-  -> IO (Map ChainId BlockHeader)
-getBlockHeadersAt rdb resolvedTargets bh v = do
-  wbhdb <- initWebBlockHeaderDb rdb v
-  let cutHashes = cutHashesTable rdb
-  -- Get the latest cut
-  latestCut <- readHighestCutHeaders v (\_ _ -> pure ()) wbhdb cutHashes
-  fmap (Map.fromList . catMaybes) $ forM (HM.toList latestCut) $ \(cid, latestCutHeader) -> do
-    if bh `Set.member` Map.findWithDefault Set.empty cid resolvedTargets
-    then do
-      if _blockHeight latestCutHeader == bh
-      then do
-        -- If we're already there, great
-        pure $ Just (cid, latestCutHeader)
-      else do
-        -- Otherwise, we need to do an ancestral lookup
-        case HM.lookup cid (wbhdb ^. webBlockHeaderDb) of
-          Nothing -> error "getBlockHeadersAt: Malformed WebBlockHeaderDb"
-          Just bdb -> do
-            seekAncestor bdb latestCutHeader (fromIntegral bh) >>= \case
-              Just h -> do
-                -- Sanity check, should absolutely never happen
-                when (_blockHeight h /= bh) $ do
-                  error "getBlockHeadersAt: expected seekAncestor behaviour is broken"
-                pure $ Just (cid, h)
-              Nothing -> error "getBlockHeadersAt: no ancestor found!"
-    else do
-      pure Nothing
+  -> IO BlockHeader
+getBlockHeaderAt wbhdb cid latestCutHeaders bh = do
+  bdb <- getWebBlockHeaderDb wbhdb cid
+  -- Get the block in the latest cut
+  let latestCutHeader = latestCutHeaders ^?! at cid . _Just
+  seekAncestor bdb latestCutHeader (fromIntegral bh) >>= \case
+    Just h -> do
+      -- Sanity check, should absolutely never happen
+      when (_blockHeight h /= bh) $ do
+        error "getBlockHeadersAt: expected seekAncestor behaviour is broken"
+      pure h
+    Nothing -> error "getBlockHeadersAt: no ancestor found!"
 
 -- | Like 'TargetBlockHeight', but supports multiple targets in the non-'Latest'
 --   case.
@@ -307,15 +284,15 @@ computeGrandHashesAt logger cids pactDir rocksDir chainTargets chainwebVersion =
   -- Grab the headers corresponding to every blockheight from RocksDB
   withReadOnlyRocksDb rocksDir modernDefaultOptions $ \rocksDb -> do
     forM chainHashes $ \(height, hashes) -> do
-      headers <- getBlockHeadersAt rocksDb chainTargets height chainwebVersion
-      let missingIn cid m = error $ "missing entry for chain " <> Text.unpack (chainIdToText cid) <> " in " <> m
-      pure $ (height,)
-        $ Merge.merge
-            (Merge.mapMissing (\cid _ -> missingIn cid "headers"))
-            (Merge.mapMissing (\cid _ -> missingIn cid "hashes"))
-            (Merge.zipWithMatched (\_ hash header -> (hash, header)))
-            hashes
-            headers
+      wbhdb <- initWebBlockHeaderDb rocksDb chainwebVersion
+      let cutHashes = cutHashesTable rocksDb
+      -- Get the latest cut
+      latestCut <- readHighestCutHeaders chainwebVersion (\_ _ -> pure ()) wbhdb cutHashes
+      headersByChain <- Map.traverseWithKey (\cid hsh -> do
+          bh <- getBlockHeaderAt wbhdb cid latestCut height
+          return (hsh, bh)
+        ) hashes
+      return (height, headersByChain)
 
 data PactCalcConfig = PactCalcConfig
   { pactDir :: FilePath
@@ -659,4 +636,3 @@ chainHashesToModule input = prefix
       , unlines (makeEntries input)
       , "  ]"
       ]
-
