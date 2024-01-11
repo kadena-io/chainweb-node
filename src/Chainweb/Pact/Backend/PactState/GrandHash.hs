@@ -13,6 +13,8 @@
 module Chainweb.Pact.Backend.PactState.GrandHash
   ( pactImportMain
   , pactCalcMain
+
+  , computeGrandHash
   )
   where
 

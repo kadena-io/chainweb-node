@@ -68,6 +68,7 @@ import Chainweb.Mempool.Mempool
 import Chainweb.MerkleLogHash (unsafeMerkleLogHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Compaction qualified as C
+import Chainweb.Pact.Backend.PactState.GrandHash (computeGrandHash)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation hiding (local)
 import Chainweb.Pact.Service.PactQueue (PactQueue, newPactQueue)
@@ -124,6 +125,7 @@ tests rdb = testGroup testName
   , pactStateSamePreAndPostCompaction rdb
   , compactionIsIdempotent rdb
   , compactionUserTablesDropped rdb
+  , compactionGrandHashUnchanged rdb
   ]
   where
     testName = "Chainweb.Test.Pact.PactSingleChainTest"
@@ -541,6 +543,50 @@ compactionUserTablesDropped rdb =
 
     flip assertBool (isNothing (M.lookup freeAfterTbl statePost)) $
       T.unpack afterTable ++ " wasn't dropped; it was supposed to be."
+
+compactionGrandHashUnchanged :: ()
+  => RocksDb
+  -> TestTree
+compactionGrandHashUnchanged rdb =
+  compactionSetup "compactionGrandHashUnchanged" rdb testPactServiceConfig $ \cr -> do
+    setOneShotMempool cr.mempoolRef goldenMemPool
+
+    let numBlocks :: Num a => a
+        numBlocks = 100
+
+    let makeTx :: Int -> BlockHeader -> IO ChainwebTransaction
+        makeTx nth bh = buildCwCmd testVersion
+          $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
+          $ setFromHeader bh
+          $ mkCmd (sshow (nth, bh))
+          $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+
+    supply <- newIORef @Int 0
+    madeTx <- newIORef @Bool False
+    replicateM_ numBlocks $ do
+      setMempool cr.mempoolRef $ mempty {
+        mpaGetBlock = \_ _ _ _ bh -> do
+          madeTxYet <- readIORef madeTx
+          if madeTxYet
+          then do
+            pure mempty
+          else do
+            n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
+            tx <- makeTx n bh
+            writeIORef madeTx True
+            pure $ V.fromList [tx]
+      }
+      void $ runBlock cr.pactQueue cr.blockDb second
+      writeIORef madeTx False
+
+    let db = _sConn cr.sqlEnv
+    let targetHeight = BlockHeight numBlocks
+
+    hashPreCompaction <- computeGrandHash db targetHeight
+    Utils.compact Error [C.NoVacuum] cr.sqlEnv (C.Target targetHeight)
+    hashPostCompaction <- computeGrandHash db targetHeight
+
+    assertEqual "GrandHash pre- and post-compaction are the same" hashPreCompaction hashPostCompaction
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do
