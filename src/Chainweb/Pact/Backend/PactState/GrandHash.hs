@@ -301,7 +301,7 @@ computeGrandHashesAt logger cids pactDir rocksDir chainTargets chainwebVersion =
   -- is faster, and correct.
   chainHashes <- Map.toDescList <$> readIORef chainHashesRef
 
-  -- Phase 3:
+  -- Phase 2:
   -- Grab the headers corresponding to every blockheight from RocksDB
   withReadOnlyRocksDb rocksDir modernDefaultOptions $ \rocksDb -> do
     forM chainHashes $ \(height, hashes) -> do
