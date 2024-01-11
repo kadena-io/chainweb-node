@@ -174,23 +174,23 @@ getBlockHeadersAt rdb resolvedTargets bh v = do
   wbhdb <- initWebBlockHeaderDb rdb v
   let cutHashes = cutHashesTable rdb
   -- Get the latest cut
-  highestCuts <- readHighestCutHeaders v (\_ _ -> pure ()) wbhdb cutHashes
-  fmap (Map.fromList . catMaybes) $ forM (HM.toList highestCuts) $ \(cid, header) -> do
+  latestCut <- readHighestCutHeaders v (\_ _ -> pure ()) wbhdb cutHashes
+  fmap (Map.fromList . catMaybes) $ forM (HM.toList latestCut) $ \(cid, latestCutHeader) -> do
     case Map.lookup cid resolvedTargets of
       Nothing -> pure Nothing
       Just allowedHeights -> do
         if bh `Set.member` allowedHeights
         then do
-          if _blockHeight header == bh
+          if _blockHeight latestCutHeader == bh
           then do
             -- If we're already there, great
-            pure $ Just (cid, header)
+            pure $ Just (cid, latestCutHeader)
           else do
             -- Otherwise, we need to do an ancestral lookup
             case HM.lookup cid (wbhdb ^. webBlockHeaderDb) of
               Nothing -> error "getBlockHeadersAt: Malformed WebBlockHeaderDb"
               Just bdb -> do
-                seekAncestor bdb header (fromIntegral bh) >>= \case
+                seekAncestor bdb latestCutHeader (fromIntegral bh) >>= \case
                   Just h -> do
                     -- Sanity check, should absolutely never happen
                     when (_blockHeight h /= bh) $ do
