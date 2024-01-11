@@ -157,7 +157,6 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Utils.Serialization
-import Chainweb.VerifierPlugin
 
 import Data.Singletons
 
