@@ -176,29 +176,26 @@ getBlockHeadersAt rdb resolvedTargets bh v = do
   -- Get the latest cut
   latestCut <- readHighestCutHeaders v (\_ _ -> pure ()) wbhdb cutHashes
   fmap (Map.fromList . catMaybes) $ forM (HM.toList latestCut) $ \(cid, latestCutHeader) -> do
-    case Map.lookup cid resolvedTargets of
-      Nothing -> pure Nothing
-      Just allowedHeights -> do
-        if bh `Set.member` allowedHeights
-        then do
-          if _blockHeight latestCutHeader == bh
-          then do
-            -- If we're already there, great
-            pure $ Just (cid, latestCutHeader)
-          else do
-            -- Otherwise, we need to do an ancestral lookup
-            case HM.lookup cid (wbhdb ^. webBlockHeaderDb) of
-              Nothing -> error "getBlockHeadersAt: Malformed WebBlockHeaderDb"
-              Just bdb -> do
-                seekAncestor bdb latestCutHeader (fromIntegral bh) >>= \case
-                  Just h -> do
-                    -- Sanity check, should absolutely never happen
-                    when (_blockHeight h /= bh) $ do
-                      error "getBlockHeadersAt: expected seekAncestor behaviour is broken"
-                    pure $ Just (cid, h)
-                  Nothing -> error "getBlockHeadersAt: no ancestor found!"
-        else do
-          pure Nothing
+    if bh `Set.member` Map.findWithDefault Set.empty cid resolvedTargets
+    then do
+      if _blockHeight latestCutHeader == bh
+      then do
+        -- If we're already there, great
+        pure $ Just (cid, latestCutHeader)
+      else do
+        -- Otherwise, we need to do an ancestral lookup
+        case HM.lookup cid (wbhdb ^. webBlockHeaderDb) of
+          Nothing -> error "getBlockHeadersAt: Malformed WebBlockHeaderDb"
+          Just bdb -> do
+            seekAncestor bdb latestCutHeader (fromIntegral bh) >>= \case
+              Just h -> do
+                -- Sanity check, should absolutely never happen
+                when (_blockHeight h /= bh) $ do
+                  error "getBlockHeadersAt: expected seekAncestor behaviour is broken"
+                pure $ Just (cid, h)
+              Nothing -> error "getBlockHeadersAt: no ancestor found!"
+    else do
+      pure Nothing
 
 -- | Like 'TargetBlockHeight', but supports multiple targets in the non-'Latest'
 --   case.
