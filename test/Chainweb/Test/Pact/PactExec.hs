@@ -221,24 +221,25 @@ testTfrNoGasFails =
   (V.singleton <$> tx,
    assertResultFail "Expected missing (GAS) failure" "Keyset failure")
   where
-    tx = buildCwCmd testVersion $ set cbSigners
-         [ mkEd25519Signer' sender00
-           [ mkTransferCap "sender00" "sender01" 1.0 ]
-         ]
-         $ mkCmd "testTfrNoGas"
-         $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+    tx = buildCwCmd "testTfrNoGas" testVersion
+         $ set cbSigners
+           [ mkEd25519Signer' sender00
+             [ mkTransferCap "sender00" "sender01" 1.0 ]
+           ]
+         $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)")
+         $ defaultCmd
 
 testTfrGas :: TxsTest
 testTfrGas = (V.singleton <$> tx,test)
   where
-    tx = buildCwCmd testVersion $ set cbSigners
+    tx = buildCwCmd "testTfrGas" testVersion $ set cbSigners
          [ mkEd25519Signer' sender00
            [ mkTransferCap "sender00" "sender01" 1.0
            , mkGasCap
            ]
          ]
-         $ mkCmd "testTfrGas"
-         $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+         $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)")
+         $ defaultCmd
     test (Left e) = assertFailure $ "Expected success, got " ++ show e
     test (Right (TestResponse [(_,cr)] _)) = do
       checkPactResultSuccess "transfer succeeds" (_crResult cr) $ \pv ->
@@ -253,11 +254,11 @@ testBadSenderFails =
    assertResultFail "Expected failure on bad sender"
    "row not found: some-unknown-sender")
   where
-    tx = buildCwCmd testVersion
+    tx = buildCwCmd "testBadSenderFails" testVersion
          $ set cbSigners [ mkEd25519Signer' sender00 [] ]
          $ set cbSender "some-unknown-sender"
-         $ mkCmd "testBadSenderFails"
-         $ mkExec' "(+ 1 2)"
+         $ set cbRPC (mkExec' "(+ 1 2)")
+         $ defaultCmd
 
 testGasPayer :: TxsTest
 testGasPayer = (txs,checkResultSuccess test)
@@ -266,10 +267,11 @@ testGasPayer = (txs,checkResultSuccess test)
 
       impl <- loadGP
       forM [ impl, setupUser, fundGasAcct ] $ \rpc ->
-        buildCwCmd testVersion $
+        buildCwCmd "testGasPayer" testVersion $
         set cbSigners [s01] $
         set cbSender "sender01" $
-        mkCmd "testGasPayer" rpc
+        set cbRPC rpc $
+        defaultCmd
 
       where
 
@@ -290,13 +292,13 @@ testGasPayer = (txs,checkResultSuccess test)
           ]
 
 
-    runPaidTx = fmap V.singleton $ buildCwCmd testVersion $
+    runPaidTx = fmap V.singleton $ buildCwCmd "testGasPayer" testVersion $
       set cbSigners
-      [mkEd25519Signer' sender00
-        [mkCapability "user.gas-payer-v1-reference" "GAS_PAYER"
-         [pString "sender00",pInteger 10_000,pDecimal 0.01]]] $
-      mkCmd "testGasPayer" $
-      mkExec' "(+ 1 2)"
+        [mkEd25519Signer' sender00
+          [mkCapability "user.gas-payer-v1-reference" "GAS_PAYER"
+           [pString "sender00",pInteger 10_000,pDecimal 0.01]]] $
+      set cbRPC (mkExec' "(+ 1 2)") $
+      defaultCmd
 
     txs = do
       l <- loadCode
@@ -327,31 +329,31 @@ testContinuationGasPayer = (txs,checkResultSuccess test)
 
     setupTest = fmap V.fromList $ do
       setupExprs' <- setupExprs
-      forM setupExprs' $ \se -> buildCwCmd testVersion $
+      forM setupExprs' $ \se -> buildCwCmd "testContinuationGasPayer" testVersion $
         set cbSigners
           [ mkEd25519Signer' sender00
             [ mkTransferCap "sender00" "cont-gas-payer" 100.0
             , mkGasCap
             ]] $
-        mkCmd "testContinuationGasPayer" $
-        mkExec' se
+        set cbRPC (mkExec' se) $
+        defaultCmd
 
     contPactId = "9ylBanSjDGJJ6m0LgokZqb9P66P7JsQRWo9sYxqAjcQ"
 
-    runStepTwoWithGasPayer = fmap V.singleton $ buildCwCmd testVersion $
+    runStepTwoWithGasPayer = fmap V.singleton $ buildCwCmd "testContinuationGasPayer" testVersion $
       set cbSigners
         [ mkEd25519Signer' sender01
           [ mkCapability "user.gas-payer-for-cont" "GAS_PAYER"
             [pString "sender01",pInteger 10_000,pDecimal 0.01]
           ]] $
       set cbSender "cont-gas-payer" $
-      mkCmd "testContinuationGasPayer" $
-      mkCont $ mkContMsg (fromString contPactId) 1
+      set cbRPC (mkCont $ mkContMsg (fromString contPactId) 1) $
+      defaultCmd
 
-    balanceCheck = fmap V.singleton $ buildCwCmd testVersion $
+    balanceCheck = fmap V.singleton $ buildCwCmd "testContinuationGasPayer2" testVersion $
       set cbSigners [mkEd25519Signer' sender00 []] $
-      mkCmd "testContinuationGasPayer2" $
-      mkExec' "(coin.get-balance \"cont-gas-payer\")"
+      set cbRPC (mkExec' "(coin.get-balance \"cont-gas-payer\")") $
+      defaultCmd
 
     txs = do
       s <- setupTest
@@ -384,28 +386,28 @@ testExecGasPayer = (txs,checkResultSuccess test)
              , "(coin.get-balance \"exec-gas-payer\")" ]
     setupTest = fmap V.fromList $ do
       setupExprs' <- setupExprs
-      forM setupExprs' $ \se -> buildCwCmd testVersion $
+      forM setupExprs' $ \se -> buildCwCmd "testExecGasPayer" testVersion $
         set cbSigners
           [ mkEd25519Signer' sender00
             [ mkTransferCap "sender00" "exec-gas-payer" 100.0
             , mkGasCap
             ]] $
-        mkCmd "testExecGasPayer" $
-        mkExec' se
+        set cbRPC (mkExec' se) $
+        defaultCmd
 
-    runPaidTx = fmap V.singleton $ buildCwCmd testVersion $
+    runPaidTx = fmap V.singleton $ buildCwCmd "testExecGasPayer" testVersion $
       set cbSigners
       [mkEd25519Signer' sender01
         [mkCapability "user.gas-payer-for-exec" "GAS_PAYER"
          [pString "sender01",pInteger 10_000,pDecimal 0.01]]] $
       set cbSender "exec-gas-payer" $
-      mkCmd "testExecGasPayer" $
-      mkExec' "(+ 1 2)"
+      set cbRPC (mkExec' "(+ 1 2)") $
+      defaultCmd
 
-    balanceCheck = fmap V.singleton $ buildCwCmd testVersion $
+    balanceCheck = fmap V.singleton $ buildCwCmd "testExecGasPayer" testVersion $
       set cbSigners [mkEd25519Signer' sender00 []] $
-      mkCmd "testExecGasPayer" $
-      mkExec' "(coin.get-balance \"exec-gas-payer\")"
+      set cbRPC (mkExec' "(coin.get-balance \"exec-gas-payer\")") $
+      defaultCmd
 
     txs = do
       s <- setupTest
@@ -426,12 +428,12 @@ testExecGasPayer = (txs,checkResultSuccess test)
 testFailureRedeem :: TxsTest
 testFailureRedeem = (txs,checkResultSuccess test)
   where
-    txs = fmap V.fromList $ forM exps $ \e -> buildCwCmd testVersion $
+    txs = fmap V.fromList $ forM exps $ \e -> buildCwCmd "testFailureRedeem" testVersion $
       set cbSigners [mkEd25519Signer' sender00 []] $
       set cbGasPrice 0.01 $
       set cbGasLimit 1000 $
-      mkCmd "testFailureRedeem" $
-      mkExec' e
+      set cbRPC (mkExec' e) $
+      defaultCmd
 
     exps =
       ["(coin.get-balance \"sender00\")"
@@ -465,16 +467,18 @@ checkLocalSuccess test (Right cr) = test $ _crResult cr
 testAllowReadsLocalFails :: LocalTest
 testAllowReadsLocalFails = (tx,test)
   where
-    tx = buildCwCmd testVersion $ mkCmd "testAllowReadsLocalFails" $
-         mkExec' "(read coin.coin-table \"sender00\")"
+    tx = buildCwCmd "testAllowReadsLocalFails" testVersion $
+         set cbRPC (mkExec' "(read coin.coin-table \"sender00\")") $
+         defaultCmd
     test = checkLocalSuccess $
       checkPactResultFailure "testAllowReadsLocalFails" "Enforce non-upgradeability"
 
 testAllowReadsLocalSuccess :: LocalTest
 testAllowReadsLocalSuccess = (tx,test)
   where
-    tx = buildCwCmd testVersion $ mkCmd "testAllowReadsLocalSuccess" $
-         mkExec' "(at 'balance (read coin.coin-table \"sender00\"))"
+    tx = buildCwCmd "testAllowReadsLocalSuccess" testVersion $
+         set cbRPC (mkExec' "(at 'balance (read coin.coin-table \"sender00\"))") $
+         defaultCmd
     test = checkLocalSuccess $
       checkPactResultSuccessLocal "testAllowReadsLocalSuccess" $
       assertEqual "sender00 bal" (pDecimal 100_000_000.0)
@@ -503,13 +507,12 @@ execTest runPact request = _trEval request $ do
   where
     mkCmds cmdStrs =
       fmap V.fromList $ forM (zip cmdStrs [0..]) $ \(code,n :: Int) ->
-      buildCwCmd testVersion $
+      buildCwCmd ("1" <> sshow n) testVersion $
       set cbSigners [mkEd25519Signer' sender00 []] $
       set cbGasPrice 0.01 $
       set cbTTL 1_000_000 $
-      mkCmd ("1" <> sshow n) $
-      mkExec code $
-      mkKeySetData "test-admin-keyset" [sender00]
+      set cbRPC (mkExec code $ mkKeySetData "test-admin-keyset" [sender00]) $
+      defaultCmd
 
 execTxsTest
     :: (Logger logger)
@@ -592,10 +595,10 @@ fileCompareTxLogs label respIO = golden label $ do
 
 _showValidationFailure :: IO ()
 _showValidationFailure = do
-  txs <- fmap V.singleton $ buildCwCmd testVersion $
+  txs <- fmap V.singleton $ buildCwCmd "nonce" testVersion $
     set cbSigners [mkEd25519Signer' sender00 []] $
-    mkCmd "nonce" $
-    mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+    set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)") $
+    defaultCmd
   let cr1 = CommandResult
         { _crReqKey = RequestKey pactInitialHash
         , _crTxId = Nothing
