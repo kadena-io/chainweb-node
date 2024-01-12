@@ -119,12 +119,12 @@ withChainDb :: (Logger logger)
   => ChainId
   -> logger
   -> FilePath
-  -> (SQLiteEnv -> IO x)
+  -> (logger -> SQLiteEnv -> IO x)
   -> IO x
 withChainDb cid logger' path f = do
   let logger = addLabel ("chainId", chainIdToText cid) logger'
   let resetDb = False
-  withSqliteDb cid logger path resetDb f
+  withSqliteDb cid logger path resetDb (f logger)
 
 -- | Get all Pact table names in the database.
 getPactTableNames :: Database -> IO (Vector Utf8)

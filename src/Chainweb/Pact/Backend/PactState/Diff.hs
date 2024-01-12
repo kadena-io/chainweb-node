@@ -98,8 +98,8 @@ pactDiffMain = do
          | not sqliteFileExists2 -> do
              logText Warn $ "[SQLite for chain in " <> Text.pack cfg.secondDbDir <> " doesn't exist. Skipping]"
          | otherwise -> do
-             withChainDb cid logger cfg.firstDbDir $ \(SQLiteEnv db1 _) -> do
-               withChainDb cid logger cfg.secondDbDir $ \(SQLiteEnv db2 _) -> do
+             withChainDb cid logger cfg.firstDbDir $ \_ (SQLiteEnv db1 _) -> do
+               withChainDb cid logger cfg.secondDbDir $ \_ (SQLiteEnv db2 _) -> do
                  logText Info "[Starting diff]"
                  let diff = diffLatestPactState (getLatestPactStateDiffable db1) (getLatestPactStateDiffable db2)
                  diffy <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do

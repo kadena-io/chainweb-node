@@ -9,6 +9,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Chainweb.Pact.Backend.PactState.GrandHash
   ( pactImportMain
@@ -22,7 +23,7 @@ import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB (cutHashesTable, readHighestCutHeaders)
-import Chainweb.Logger (Logger, logFunctionText)
+import Chainweb.Logger (Logger, logFunctionText, addLabel)
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.PactState (PactRow(..), PactRowContents(..), getLatestPactStateAt, withChainDb, getLatestBlockHeight, getEarliestBlockHeight, ensureBlockHeightExists)
 import Chainweb.Pact.Backend.PactState.EmbeddedHashes (EncodedSnapshot(..), grands)
@@ -36,7 +37,7 @@ import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.WebBlockHeaderDB
 import Control.Applicative ((<|>), many, optional)
-import Control.Lens
+import Control.Lens ((^?!), at, _Just)
 import Control.Monad (forM, forM_, when)
 import Crypto.Hash (hashWith, hashInitWith, hashUpdate, hashFinalize)
 import Crypto.Hash.Algorithms (SHA3_256(..))
@@ -49,7 +50,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Lazy.Char8 qualified as BLC8
 import Data.Foldable qualified as F
 import Data.HashMap.Strict qualified as HM
-import Data.IORef
+import Data.IORef (newIORef, readIORef, atomicModifyIORef')
 import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map (Map)
@@ -89,7 +90,7 @@ computeGrandHash db bh = do
               $ List.sortOn (\pr -> pr.rowKey)
               $ List.map (\(rowKey, PactRowContents{..}) -> PactRow{..})
               $ Map.toList state
-        pure $ hashRows (Text.encodeUtf8 tblName) rows
+        pure $ hashRows (Text.encodeUtf8 (Text.toLower tblName)) rows
 
   -- This is a simple incremental hash over all of the table hashes.
   -- This is well-defined by its order because 'getLatestPactStateAt'
@@ -158,13 +159,16 @@ rowToHashArgs tblName pr =
     <> BB.charUtf8 'D'
     <> BB.byteString pr.rowData
 
-getBlockHeaderAt
-  :: WebBlockHeaderDb
+-- | Get the BlockHeader at a particular height.
+getBlockHeaderAt :: (Logger logger)
+  => logger
+  -> WebBlockHeaderDb
   -> ChainId
   -> HM.HashMap ChainId BlockHeader
+     -- ^ Cut Headers
   -> BlockHeight
   -> IO BlockHeader
-getBlockHeaderAt wbhdb cid latestCutHeaders bh = do
+getBlockHeaderAt logger wbhdb cid latestCutHeaders bh = do
   bdb <- getWebBlockHeaderDb wbhdb cid
   -- Get the block in the latest cut
   let latestCutHeader = latestCutHeaders ^?! at cid . _Just
@@ -172,15 +176,13 @@ getBlockHeaderAt wbhdb cid latestCutHeaders bh = do
     Just h -> do
       -- Sanity check, should absolutely never happen
       when (_blockHeight h /= bh) $ do
-        error "getBlockHeadersAt: expected seekAncestor behaviour is broken"
+        exitLog logger "getBlockHeadersAt: expected seekAncestor behaviour is broken"
       pure h
-    Nothing -> error "getBlockHeadersAt: no ancestor found!"
-
--- | Like 'TargetBlockHeight', but supports multiple targets in the non-'Latest'
---   case.
-data BlockHeightTargets
-  = LatestAll
-  | TargetAll (Set BlockHeight)
+    Nothing -> do
+      exitLog logger $
+        "getBlockHeadersAt: no ancestor found for " <>
+        "BlockHeight " <> sshow bh <> " on " <>
+        "Chain " <> chainIdToText cid
 
 --   Resolve the latest common blockheight across all chains.
 --   Not all chains may be at the same tip, so we have to get
@@ -193,16 +195,19 @@ resolveLatest :: (Logger logger)
   -> [ChainId]
   -> FilePath
   -> IO BlockHeight
-resolveLatest logger cids pactDir = do
+resolveLatest (addLabel ("phase", "resolveLatest") -> logger) cids pactDir = do
   -- Get the highest common blockheight across all chains.
   -- This assumes that all chains are moving along close enough
   -- to one another.
   maxCommonRef <- newIORef @BlockHeight (BlockHeight maxBound)
   pooledFor cids $ \cid -> do
-    withChainDb cid logger pactDir $ \(SQLiteEnv db _) -> do
+    withChainDb cid logger pactDir $ \chainLogger (SQLiteEnv db _) -> do
+      infoLog chainLogger "Getting latest BlockHeight"
       top <- getLatestBlockHeight db
       atomicModifyIORef' maxCommonRef $ \x -> (min x top, ())
-  readIORef maxCommonRef
+  r <- readIORef maxCommonRef
+  debugLog logger $ "Latest common BlockHeight is " <> sshow r
+  pure r
 
 -- | Resolve the requested targets across all chains.
 --
@@ -218,15 +223,16 @@ resolveTargets :: (Logger logger)
   -> FilePath
   -> Set BlockHeight
   -> IO (Map ChainId (Set BlockHeight))
-resolveTargets logger cids pactDir targets = do
-  targetsRef <- newIORef @(Map ChainId (Set BlockHeight)) $ Map.empty
+resolveTargets (addLabel ("phase", "resolveTargets") -> logger) cids pactDir targets = do
+  targetsRef <- newIORef @(Map ChainId (Set BlockHeight)) Map.empty
   pooledFor cids $ \cid -> do
-    withChainDb cid logger pactDir $ \(SQLiteEnv db _) -> do
+    withChainDb cid logger pactDir $ \chainLogger (SQLiteEnv db _) -> do
       pooledFor targets $ \target -> do
+        debugLog chainLogger $ "Target is " <> sshow target
         earliest <- getEarliestBlockHeight db
         if target < earliest
         then do
-          logFunctionText logger Warn
+          logFunctionText chainLogger Warn
             $ "BlockHeight " <> sshow target <> " doesn't exist on Chain " <> chainIdToText cid
         else do
           ensureBlockHeightExists db target
@@ -259,13 +265,14 @@ computeGrandHashesAt logger cids pactDir rocksDir chainTargets chainwebVersion =
 
   -- Phase 1:
   --   Gather all of the grand hashes
+  infoLog logger "Computing Grand Hashes"
 
   -- This holds the Grand Hashes for each chain, at each BlockHeight of
   -- interest.
   chainHashesRef <- newIORef @(Map BlockHeight (Map ChainId ByteString)) Map.empty
 
   pooledFor cids $ \cid -> do
-    withChainDb cid logger pactDir $ \(SQLiteEnv db _) -> do
+    withChainDb cid logger pactDir $ \_ (SQLiteEnv db _) -> do
       case Map.lookup cid chainTargets of
         Nothing -> do
           pure ()
@@ -282,6 +289,8 @@ computeGrandHashesAt logger cids pactDir rocksDir chainTargets chainwebVersion =
 
   -- Phase 2:
   -- Grab the headers corresponding to every blockheight from RocksDB
+  infoLog logger "Grabbing BlockHeaders from RocksDB"
+
   withReadOnlyRocksDb rocksDir modernDefaultOptions $ \rocksDb -> do
     forM chainHashes $ \(height, hashes) -> do
       wbhdb <- initWebBlockHeaderDb rocksDb chainwebVersion
@@ -289,10 +298,16 @@ computeGrandHashesAt logger cids pactDir rocksDir chainTargets chainwebVersion =
       -- Get the latest cut
       latestCut <- readHighestCutHeaders chainwebVersion (\_ _ -> pure ()) wbhdb cutHashes
       headersByChain <- Map.traverseWithKey (\cid hsh -> do
-          bh <- getBlockHeaderAt wbhdb cid latestCut height
+          bh <- getBlockHeaderAt logger wbhdb cid latestCut height
           return (hsh, bh)
         ) hashes
       return (height, headersByChain)
+
+-- | Like 'TargetBlockHeight', but supports multiple targets in the non-'Latest'
+--   case.
+data BlockHeightTargets
+  = LatestAll
+  | TargetAll (Set BlockHeight)
 
 data PactCalcConfig = PactCalcConfig
   { pactDir :: FilePath
@@ -637,3 +652,16 @@ chainHashesToModule input = prefix
       , unlines (makeEntries input)
       , "  ]"
       ]
+
+infoLog :: (Logger logger) => logger -> Text -> IO ()
+infoLog logger msg = do
+  logFunctionText logger Info msg
+
+debugLog :: (Logger logger) => logger -> Text -> IO ()
+debugLog logger msg = do
+  logFunctionText logger Debug msg
+
+exitLog :: (Logger logger) => logger -> Text -> IO a
+exitLog logger msg = do
+  logFunctionText logger Error msg
+  exitFailure
