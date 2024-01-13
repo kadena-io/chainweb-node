@@ -28,24 +28,19 @@
 module Chainweb.Pact.Backend.Compaction
   ( CompactFlag(..)
   , TargetBlockHeight(..)
-  , CompactM
   , compact
-  , compactAll
   , main
+
+    -- * Used in various tools
   , withDefaultLogger
   , withPerChainFileLogger
   ) where
 
 import Chronos qualified
-import Control.Lens (_2)
-import Data.Ord (Down(..))
-import System.IO.Unsafe (unsafePerformIO)
-import Data.IORef (IORef, readIORef, newIORef, atomicModifyIORef')
-import UnliftIO.Async (pooledMapConcurrentlyN_)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (swapMVar, readMVar, newMVar)
 import Control.Exception (Exception, SomeException(..))
-import Control.Lens (makeLenses, set, over, view, (^.))
+import Control.Lens (makeLenses, set, over, view, (^.), _2)
 import Control.Monad (forM_, unless, void, when)
 import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
 import Control.Monad.IO.Class (MonadIO(liftIO))
@@ -53,26 +48,30 @@ import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, local)
 import Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
 import Data.Foldable qualified as F
 import Data.Function (fix)
+import Data.IORef (IORef, readIORef, newIORef, atomicModifyIORef')
 import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map.Strict qualified as M
+import Data.Ord (Down(..))
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.String (IsString)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
-import Data.Vector qualified as V
 import Data.Vector (Vector)
+import Data.Vector qualified as V
 import Database.SQLite3.Direct (Utf8(..), Database)
 import GHC.Stack (HasCallStack)
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
-import System.IO qualified as IO
 import System.IO (Handle)
+import System.IO qualified as IO
+import System.IO.Unsafe (unsafePerformIO)
+import UnliftIO.Async (pooledMapConcurrentlyN_)
 
-import Chainweb.BlockHeight (BlockHeight)
+import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Logger (l2l, setComponent)
 import Chainweb.Utils (sshow, HasTextRepresentation, fromText, toText, int)
 import Chainweb.Version (ChainId, ChainwebVersion(..), ChainwebVersionName, unsafeChainId, chainIdToText)
@@ -109,15 +108,15 @@ data CompactFlag
     -- ^ Keep compaction tables post-compaction for inspection.
   | NoVacuum
     -- ^ Don't VACUUM database
-  deriving stock (Eq,Show,Read,Enum,Bounded)
+  deriving stock (Eq, Show)
 
 internalError :: MonadThrow m => Text -> m a
 internalError = throwM . CompactExceptionInternal
 
 data CompactEnv = CompactEnv
-  { _ceLogger :: !(Logger SomeLogMessage)
-  , _ceDb :: !Database
-  , _ceFlags :: ![CompactFlag]
+  { _ceLogger :: Logger SomeLogMessage
+  , _ceDb :: Database
+  , _ceFlags :: [CompactFlag]
   }
 makeLenses ''CompactEnv
 
@@ -452,9 +451,12 @@ dropNewTables bh = do
     execM_ "dropNewTables.1" tbl "DROP TABLE IF EXISTS $VTABLE$"
 
 -- | Delete all rows from Checkpointer system tables that are not for the target blockheight.
+--
+--   We currently do not compact TransactionIndex. This will change once we are
+--   properly pruning RocksDB.
 compactSystemTables :: BlockHeight -> CompactM ()
 compactSystemTables bh = do
-  let systemTables = ["BlockHistory", "VersionedTableMutation", "TransactionIndex", "VersionedTableCreation"]
+  let systemTables = ["BlockHistory", "VersionedTableMutation", "VersionedTableCreation"]
   forM_ systemTables $ \tbl -> do
     let tblText = fromUtf8 (getTableName tbl)
     logg Info $ "Compacting system table " <> tblText

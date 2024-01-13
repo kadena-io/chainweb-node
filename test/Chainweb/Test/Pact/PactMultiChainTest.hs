@@ -251,18 +251,18 @@ pactLocalDepthTest = do
         assertTxGas "Coin post-fork" 1583
     ]
 
-  runLocalWithDepth (Just $ RewindDepth 0) cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the current balance" (pDecimal 99999997.6834)
+  runLocalWithDepth "0" (Just $ RewindDepth 0) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the current balance" (pDecimal 99_999_997.6834)
 
   -- checking that `Just $ RewindDepth 0` has the same behaviour as `Nothing`
-  runLocalWithDepth Nothing cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the current balance as well" (pDecimal 99999997.6834)
+  runLocalWithDepth "1" Nothing cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the current balance as well" (pDecimal 99_999_997.6834)
 
-  runLocalWithDepth (Just $ RewindDepth 1) cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the balance one block before" (pDecimal 99999998.8417)
+  runLocalWithDepth "2" (Just $ RewindDepth 1) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the balance one block before" (pDecimal 99_999_998.8417)
 
-  runLocalWithDepth (Just $ RewindDepth 2) cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the balance two blocks before" (pDecimal 100000000)
+  runLocalWithDepth "3" (Just $ RewindDepth 2) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the balance two blocks before" (pDecimal 100_000_000)
 
   -- the negative depth turns into 18446744073709551611 and we expect the `LocalRewindLimitExceeded` exception
   -- since `Depth` is a wrapper around `Word64`
@@ -271,11 +271,11 @@ pactLocalDepthTest = do
       LocalRewindLimitExceeded _ _ -> return ()
       err -> liftIO $ assertFailure $ "Expected LocalRewindLimitExceeded, but got " ++ show err)
     (do
-      runLocalWithDepth (Just $ RewindDepth (fromIntegral (-5 :: Int))) cid getSender00Balance >>= \_ ->
+      runLocalWithDepth "4" (Just $ RewindDepth (fromIntegral (-5 :: Int))) cid getSender00Balance >>= \_ ->
         liftIO $ assertFailure "Expected LocalRewindLimitExceeded, but block succeeded")
 
   -- the genesis depth
-  runLocalWithDepth (Just $ RewindDepth 55) cid getSender00Balance >>= \r ->
+  runLocalWithDepth "5" (Just $ RewindDepth 55) cid getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000)
 
   -- depth that goes after the genesis block should trigger the `LocalRewindLimitExceeded` exception
@@ -284,14 +284,14 @@ pactLocalDepthTest = do
       LocalRewindGenesisExceeded -> return ()
       err -> liftIO $ assertFailure $ "Expected LocalRewindGenesisExceeded, but got " ++ show err)
     (do
-      runLocalWithDepth (Just $ RewindDepth 56) cid getSender00Balance >>= \_ ->
+      runLocalWithDepth "6" (Just $ RewindDepth 56) cid getSender00Balance >>= \_ ->
         liftIO $ assertFailure "Expected LocalRewindGenesisExceeded, but block succeeded")
 
   where
   checkLocalResult r checkResult = case r of
     Right (LocalResultLegacy cr) -> checkResult cr
     res -> liftIO $ assertFailure $ "Expected LocalResultLegacy, but got: " ++ show res
-  getSender00Balance = set cbGasLimit 700 $ mkCmd "nonce" $ mkExec' "(coin.get-balance \"sender00\")"
+  getSender00Balance = set cbGasLimit 700 $ set cbRPC (mkExec' "(coin.get-balance \"sender00\")") $ defaultCmd
   buildCoinXfer code = buildBasic'
     (set cbSigners [mkEd25519Signer' sender00 coinCaps] . set cbGasLimit 3000)
     $ mkExec' code
@@ -303,7 +303,7 @@ pact45UpgradeTest = do
   runToHeight 53 -- 2 before fork
   runBlockTest
     [ PactTxTest
-      (buildBasicGas 70000 $ tblModule "tbl") $
+      (buildBasicGas 70_000 $ tblModule "tbl") $
       assertTxSuccess "mod53 table created" $ pString "TableCreated"
     ]
   runBlockTest
@@ -314,7 +314,7 @@ pact45UpgradeTest = do
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
         assertTxGas "List functions pre-fork gas" 20
     , PactTxTest
-      (buildBasicGas 70000 $ tblModule "Tbl") $
+      (buildBasicGas 70_000 $ tblModule "Tbl") $
       assertTxSuccess "mod53 table update succeeds" $ pString "TableCreated"
     , PactTxTest (buildCoinXfer "(coin.transfer 'sender00 'sender01 1.0)") $
         assertTxGas "Coin transfer pre-fork" 1583
@@ -328,13 +328,13 @@ pact45UpgradeTest = do
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
         assertTxGas "List functions post-fork change gas" (40 + coinTxBuyTransferGas)
     , PactTxTest
-      (buildBasicGas 70000 $ tblModule "tBl") $
+      (buildBasicGas 70_000 $ tblModule "tBl") $
       assertTxFailure "mod53 table update fails after fork" ""
     , PactTxTest (buildCoinXfer "(coin.transfer 'sender00 'sender01 1.0)") $
         assertTxGas "Coin post-fork" 709
     ]
   -- run local to check error
-  lr <- runLocal cid $ set cbGasLimit 70000 $ mkCmd "nonce" (tblModule "tBl")
+  lr <- runLocal "0" cid $ set cbGasLimit 70_000 $ set cbRPC (tblModule "tBl") $ defaultCmd
   assertLocalFailure "mod53 table update error"
     (pretty $ show $ PactDuplicateTableError "free.mod53_tBl")
     lr
@@ -356,13 +356,13 @@ pact45UpgradeTest = do
   buildSimpleCmd code = buildBasicGas 3000
       $ mkExec' code
 
-runLocal :: ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
-runLocal cid' cmd = runLocalWithDepth Nothing cid' cmd
+runLocal :: T.Text -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
+runLocal nonce cid' cmd = runLocalWithDepth nonce Nothing cid' cmd
 
-runLocalWithDepth :: Maybe RewindDepth -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
-runLocalWithDepth depth cid' cmd = do
+runLocalWithDepth :: T.Text -> Maybe RewindDepth -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
+runLocalWithDepth nonce depth cid' cmd = do
   pact <- getPactService cid'
-  cwCmd <- buildCwCmd testVersion cmd
+  cwCmd <- buildCwCmd nonce testVersion cmd
   liftIO $ _pactLocal pact Nothing Nothing depth cwCmd
 
 getPactService :: ChainId -> PactTestM PactExecutionService
@@ -1003,34 +1003,34 @@ chainweb219UpgradeTest = do
       ]
 
   -- run local on RTC check
-  lr <- runLocal cid $ set cbGasLimit 70000 $ mkCmd "nonce" runIllTypedFunctionExec
+  lr <- runLocal "0" cid $ set cbGasLimit 70_000 $ set cbRPC runIllTypedFunctionExec $ defaultCmd
   assertLocalSuccess
     "User function return value types should not be checked in local"
     (pDecimal 1.0)
     lr
 
   where
-    addErrTx = buildBasicGas 10000
+    addErrTx = buildBasicGas 10_000
         $ mkExec' (mconcat
         [ "(+ 1 \"a\")"
         ])
-    mapErrTx = buildBasicGas 10000
+    mapErrTx = buildBasicGas 10_000
         $ mkExec' (mconcat
         [ "(map (+ 1) \"a\")"
         ])
-    decTx = buildBasicGas 10000
+    decTx = buildBasicGas 10_000
        $ mkExec' "(dec 1)"
     nativeDetailsMsg = "native `=`  Compare alike terms for equality"
-    nativeDetailsTx = buildBasicGas 10000
+    nativeDetailsTx = buildBasicGas 10_000
         $ mkExec' (mconcat
         [ "="
         ])
     fnDetailsMsg = "(defun coin.transfer:string"
-    fnDetailsTx = buildBasicGas 10000
+    fnDetailsTx = buildBasicGas 10_000
         $ mkExec' (mconcat
         [ "coin.transfer"
         ])
-    runIllTypedFunction = buildBasicGas 70000 runIllTypedFunctionExec
+    runIllTypedFunction = buildBasicGas 70_000 runIllTypedFunctionExec
     runIllTypedFunctionExec = mkExec' (mconcat
                   [ "(namespace 'free)"
                   , "(module m g (defcap g () true)"
@@ -1355,7 +1355,7 @@ setPactMempool (PactMempool fs) = do
               Just bs -> do
                 writeIORef ref (take i mps ++ r)
                 cmds <- fmap V.fromList $ forM bs $ \b ->
-                  buildCwCmd testVersion $ _mempoolCmdBuilder b mi
+                  buildCwCmd (sshow blockHeader) testVersion $ _mempoolCmdBuilder b mi
                 validationResults <- mempoolPreBlockCheck bHeight bHash cmds
                 return $ fmap fst $ V.filter snd (V.zip cmds validationResults)
               Nothing -> runMps (succ i) r
@@ -1485,10 +1485,11 @@ buildXSend :: [SigCapability] -> MempoolCmdBuilder
 buildXSend caps = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   set cbSigners [mkEd25519Signer' sender00 caps]
   $ setFromHeader bh
-  $ mkCmd (sshow bh)
-  $ mkExec
-    "(coin.transfer-crosschain 'sender00 'sender00 (read-keyset 'k) \"0\" 0.0123)" $
-    mkKeySetData "k" [sender00]
+  $ set cbRPC
+      (mkExec
+         "(coin.transfer-crosschain 'sender00 'sender00 (read-keyset 'k) \"0\" 0.0123)" $
+         mkKeySetData "k" [sender00])
+  $ defaultCmd
 
 chain0 :: ChainId
 chain0 = unsafeChainId 0
@@ -1555,7 +1556,8 @@ buildBasic'
 buildBasic' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   f $ signSender00
   $ setFromHeader bh
-  $ mkCmd (sshow bh) r
+  $ set cbRPC r
+  $ defaultCmd
 
 buildBasicWebAuthnBareSigner'
     :: (CmdBuilder -> CmdBuilder)
@@ -1564,7 +1566,8 @@ buildBasicWebAuthnBareSigner'
 buildBasicWebAuthnBareSigner' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   f $ signWebAuthn00
   $ setFromHeader bh
-  $ mkCmd (sshow bh) r
+  $ set cbRPC r
+  $ defaultCmd
 
 buildBasicWebAuthnPrefixedSigner'
     :: (CmdBuilder -> CmdBuilder)
@@ -1573,7 +1576,8 @@ buildBasicWebAuthnPrefixedSigner'
 buildBasicWebAuthnPrefixedSigner' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   f $ signWebAuthn00Prefixed
   $ setFromHeader bh
-  $ mkCmd (sshow bh) r
+  $ set cbRPC r
+  $ defaultCmd
 
 buildBasicGasWebAuthnPrefixedSigner :: GasLimit -> PactRPC T.Text -> MempoolCmdBuilder
 buildBasicGasWebAuthnPrefixedSigner g = buildBasicWebAuthnPrefixedSigner' (set cbGasLimit g)
