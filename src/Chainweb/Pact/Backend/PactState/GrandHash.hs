@@ -518,7 +518,7 @@ hex :: ByteString -> Text
 hex = Text.decodeUtf8 . Base16.encode
 
 pooledFor :: (Foldable t) => t a -> (a -> IO b) -> IO ()
-pooledFor stuff f = pooledMapConcurrentlyN_ 4 f stuff
+pooledFor = pooledForConcurrentlyN_ 4
 
 allChains :: ChainwebVersion -> [ChainId]
 allChains v = List.sort $ F.toList $ chainIdsAt v (BlockHeight maxBound)
