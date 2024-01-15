@@ -75,7 +75,7 @@ import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist)
 import System.Exit (exitFailure)
 import System.FilePath ((</>))
 import System.LogLevel (LogLevel(..))
-import UnliftIO.Async (pooledMapConcurrentlyN_)
+import UnliftIO.Async (pooledForConcurrentlyN_)
 
 -- | Compute the "Grand Hash" of a given chain.
 computeGrandHash :: Database -> BlockHeight -> IO ByteString
