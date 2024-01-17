@@ -24,6 +24,9 @@
 -- Chainweb / Pact Types module for various database backends
 module Chainweb.Pact.Backend.Types
     ( Checkpointer(..)
+    , _cpRewindTo
+    , ReadCheckpointer(..)
+    , CurrentBlockDbEnv(..)
     , Env'(..)
     , EnvPersist'(..)
     , PactDbConfig(..)
@@ -32,12 +35,20 @@ module Chainweb.Pact.Backend.Types
     , pdbcLogDir
     , pdbcPersistDir
     , pdbcPragmas
-    , PactDbEnv'(..)
+    , ChainwebPactDbEnv
     , PactDbEnvPersist(..)
     , pdepEnv
     , pdepPactDb
     , PactDbState(..)
     , pdbsDbEnv
+
+    , ParentContext(..)
+    , parentToParentContext
+    , _parentContextHeight
+    , _parentContextCurrentHeight
+    , _parentContextHash
+    , _parentContextCreationTime
+    , genesisParentContext
 
     , SQLiteRowDelta(..)
     , SQLiteDeltaKey(..)
@@ -92,17 +103,20 @@ import Data.Aeson
 import Data.Bits
 import Data.ByteString (ByteString)
 import Data.DList (DList)
+import Data.Functor
 import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
 import Data.Map.Strict (Map)
 import Data.Vector (Vector)
+import Data.Void
 
 import Database.SQLite3.Direct as SQ3
 
 import Foreign.C.Types (CInt(..))
 
 import GHC.Generics
+import GHC.Stack
 
 import Pact.Interpreter (PactDbEnv(..))
 import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
@@ -113,14 +127,19 @@ import Pact.Types.RowData (RowData)
 import Pact.Types.Runtime (TableName)
 
 -- internal modules
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import Chainweb.ChainId
 import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
+import Chainweb.Version
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
+
+import Streaming(Stream, Of)
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
 
@@ -150,7 +169,7 @@ instance FromJSON PactDbConfig
 
 makeLenses ''PactDbConfig
 
--- | Within a @restore .. save@ block, mutations to the pact database are held
+-- | While a block is being run, mutations to the pact database are held
 -- in RAM to be written to the DB in batches at @save@ time. For any given db
 -- write, we need to record the table name, the current tx id, the row key, and
 -- the row value.
@@ -214,6 +233,10 @@ data SQLiteEnv = SQLiteEnv
 makeLenses ''SQLiteEnv
 
 -- | Monad state for 'BlockHandler.
+-- This notably contains all of the information that's being mutated during
+-- blocks, notably _bsPendingBlock, the pending writes in the block, and
+-- _bsPendingTx, the pending writes in the transaction, which will be discarded
+-- on tx failure.
 data BlockState = BlockState
     { _bsTxId :: !TxId
     , _bsMode :: !(Maybe ExecutionMode)
@@ -269,6 +292,9 @@ runBlockEnv e m = modifyMVar e $
     (!a,!s) <- runStateT (runReaderT (runBlockHandler m) dbenv) bs
     return (BlockEnv dbenv s, a)
 
+-- this monad allows access to the database environment "at" a particular block.
+-- unfortunately, this is tied to a useless MVar via runBlockEnv, which will
+-- be deleted with pact-core.
 newtype BlockHandler logger p a = BlockHandler
     { runBlockHandler :: ReaderT (BlockDbEnv logger p) (StateT BlockState IO) a
     } deriving newtype
@@ -284,43 +310,135 @@ newtype BlockHandler logger p a = BlockHandler
 
         )
 
-newtype PactDbEnv' logger = PactDbEnv' (PactDbEnv (BlockEnv logger SQLiteEnv))
+type ChainwebPactDbEnv logger = PactDbEnv (BlockEnv logger SQLiteEnv)
 
 type ParentHash = BlockHash
 
+-- Context for evaluating Pact transactions, which comes from the parent header.
+-- Note that this isn't actually a parent header, because genesis headers do not
+-- have parents.
+data ParentContext
+  = BlockParentContext !ChainwebVersion !ChainId !BlockHash !BlockHeight !BlockCreationTime
+  | GenesisParentContext !ChainwebVersion !ChainId
+  deriving (Show)
+
+makePrisms ''ParentContext
+
+instance HasChainId ParentContext where
+  _chainId (BlockParentContext _ cid _ _ _) = cid
+  _chainId (GenesisParentContext _ cid) = cid
+
+instance HasChainwebVersion ParentContext where
+  _chainwebVersion (BlockParentContext v _ _ _ _) = v
+  _chainwebVersion (GenesisParentContext v _) = v
+
+parentToParentContext :: ParentHeader -> ParentContext
+parentToParentContext (ParentHeader bh) =
+  BlockParentContext (_chainwebVersion bh) (_chainId bh) (_blockHash bh) (_blockHeight bh) (_blockCreationTime bh)
+
+genesisParentContext :: ChainwebVersion -> ChainId -> ParentContext
+genesisParentContext = GenesisParentContext
+
+_parentContextHash :: ParentContext -> BlockHash
+_parentContextHash (BlockParentContext _ _ bh _ _) = bh
+_parentContextHash (GenesisParentContext v cid) = _blockHash $ genesisBlockHeader v cid
+
+_parentContextHeight :: ParentContext -> BlockHeight
+_parentContextHeight (BlockParentContext _ _ _ bh _) = bh
+_parentContextHeight (GenesisParentContext v cid) = genesisHeight v cid
+
+_parentContextCurrentHeight :: ParentContext -> BlockHeight
+_parentContextCurrentHeight (BlockParentContext _ _ _ bh _) = bh + 1
+_parentContextCurrentHeight (GenesisParentContext v cid) = genesisHeight v cid
+
+_parentContextCreationTime :: ParentContext -> BlockCreationTime
+_parentContextCreationTime (BlockParentContext _ _ _ _ bct) = bct
+_parentContextCreationTime (GenesisParentContext v cid) =
+  _genesisTime (_versionGenesis v) ^?! onChain cid
+
+-- | The parts of the checkpointer that do not mutate the database.
+data ReadCheckpointer logger = ReadCheckpointer
+  { _cpReadFrom ::
+    !(forall a m. (MonadIO m, MonadMask m) => ParentContext ->
+      (CurrentBlockDbEnv logger -> m a) -> m a)
+    -- ^ rewind to a particular block *in-memory*, producing a read-write snapshot
+    -- ^ of the database at that block to compute some value, after which the snapshot
+    -- is discarded and nothing is saved to the database.
+    -- ^ fetch a block environment which
+    -- ^ prerequisite: (BlockHeight - 1, ParentHash) is a direct ancestor of
+    -- the "latest block"
+  , _cpGetEarliestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
+    -- ^ get the checkpointer's idea of the earliest block. The block height
+    --   is the height of the block of the block hash.
+  , _cpGetLatestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
+    -- ^ get the checkpointer's idea of the latest block. The block height is
+    -- is the height of the block of the block hash.
+    --
+    -- TODO: Under which circumstances does this return 'Nothing'?
+  , _cpLookupBlockInCheckpointer :: !((BlockHeight, BlockHash) -> IO Bool)
+    -- ^ is the checkpointer aware of the given block?
+  , _cpGetBlockParent :: !((BlockHeight, BlockHash) -> IO (Maybe BlockHash))
+    -- ^
+  , _cpGetBlockHistory ::
+      !(BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory)
+  , _cpGetHistoricalLookup ::
+      !(BlockHeader -> Domain RowKey RowData -> RowKey -> IO (Maybe (TxLog RowData)))
+  , _cpReadLogger :: logger
+  }
+
+-- | One makes requests to the checkpointer to query the pact state at the
+-- current block or any earlier block, to extend the pact state with new blocks, and
+-- to rewind the pact state to an earlier block.
 data Checkpointer logger = Checkpointer
-    {
-      _cpRestore :: !(Maybe (BlockHeight, ParentHash) -> IO (PactDbEnv' logger))
-      -- ^ prerequisite: (BlockHeight - 1, ParentHash) is a direct ancestor of
-      -- the "latest block"
-    , _cpSave :: !(BlockHash -> IO ())
-      -- ^ commits pending modifications to block, with the given blockhash
-    , _cpDiscard :: !(IO ())
-      -- ^ discard pending block changes
-    , _cpGetEarliestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
-      -- ^ get the checkpointer's idea of the earliest block. The block height
-      --   is the height of the block of the block hash.
-    , _cpGetLatestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
-      -- ^ get the checkpointer's idea of the latest block. The block height is
-      -- is the height of the block of the block hash.
-      --
-      -- TODO: Under which circumstances does this return 'Nothing'?
+  { _cpRewindAndExtend ::
+    !(forall m blk q r.
+      (HasCallStack, Monoid q, MonadIO m, MonadMask m) =>
+      ParentContext ->
+      Stream (Of blk) m r ->
+      (CurrentBlockDbEnv logger -> ParentContext -> blk -> m (q, ParentContext)) ->
+      m (r, q))
+  -- ^ rewind to a particular block, and play a stream of blocks afterward,
+  -- extending the chain and saving the result persistently. for example,
+  -- to validate a block `vb`, we rewind to the common ancestor of `vb` and
+  -- the latest block, and extend the chain with all of the blocks on `vb`'s
+  -- fork, including `vb`.
+  -- this function takes care of making sure that this is done *atomically*.
+  -- promises:
+  --   - excluding the fact that each _cpRewindAndExtend call is atomic, the
+  --     following two expressions should be equivalent:
+  --     do
+  --       _cpRewindAndExtend cp p1 x
+  --         ((,) <$> (bs1 <* Stream.yield p2) <*> bs2) runBlk
+  --     do
+  --       (r1, q1) <- _cpRewindAndExtend cp p1 x (bs1 <* Stream.yield p2) runBlk
+  --       (r2, q2) <- _cpRewindAndExtend cp (Just (x p2)) x bs2 runBlk
+  --       return ((r1, r2), q1 <> q2)
+  --     i.e. rewinding, extending, then rewinding to the point you extended
+  --     to and extending some more, should give the same result as rewinding
+  --     once and extending to the same final point.
+  --   - no block in the stream is used more than once.
+  -- prerequisites:
+  --   - the parent being rewound to must be a direct ancestor
+  --     of the latest block, i.e. what's returned by _cpLatestBlock.
+  --   - the stream must start with a block that is a child of the rewind
+  --     target and each block after must be the child of the previous block.
+  , _cpReadCp :: !(ReadCheckpointer logger)
+  -- ^ access all read-only operations of the checkpointer.
+  }
 
-    , _cpBeginCheckpointerBatch :: !(IO ())
-    , _cpCommitCheckpointerBatch :: !(IO ())
-    , _cpDiscardCheckpointerBatch :: !(IO ())
-    , _cpLookupBlockInCheckpointer :: !((BlockHeight, BlockHash) -> IO Bool)
-      -- ^ is the checkpointer aware of the given block?
-    , _cpGetBlockParent :: !((BlockHeight, BlockHash) -> IO (Maybe BlockHash))
+-- the special case where one doesn't want to extend the chain, just rewind it.
+_cpRewindTo :: Checkpointer logger -> ParentContext -> IO ()
+_cpRewindTo cp ancestor = void $ _cpRewindAndExtend cp
+    ancestor
+    (pure ())
+    (\_ _ v -> absurd v :: IO ((), ParentContext))
+
+-- this is effectively a read-write snapshot of the Pact state at a block.
+data CurrentBlockDbEnv logger = CurrentBlockDbEnv
+    { _cpPactDbEnv :: !(ChainwebPactDbEnv logger)
     , _cpRegisterProcessedTx :: !(P.PactHash -> IO ())
-
     , _cpLookupProcessedTx ::
-        !(Maybe ConfirmationDepth -> Vector P.PactHash -> IO (HashMap P.PactHash (T2 BlockHeight BlockHash)))
-    , _cpGetBlockHistory ::
-        !(BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory)
-    , _cpGetHistoricalLookup ::
-        !(BlockHeader -> Domain RowKey RowData -> RowKey -> IO (Maybe (TxLog RowData)))
-    , _cpLogger :: !logger
+        !(Vector P.PactHash -> IO (HashMap P.PactHash (T2 BlockHeight BlockHash)))
     }
 
 newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }

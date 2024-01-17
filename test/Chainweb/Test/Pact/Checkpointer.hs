@@ -24,6 +24,8 @@ import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 
+import qualified Streaming.Prelude as Stream
+
 import Pact.Gas
 import Pact.Interpreter (EvalResult(..), PactDbEnv(..), defaultInterpreter)
 import Pact.JSON.Legacy.Value
@@ -45,7 +47,6 @@ import Test.Tasty.HUnit
 -- internal imports
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Logger
 import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.MerkleUniverse
@@ -83,27 +84,33 @@ testModuleName :: TestTree
 testModuleName = withResourceT withTempSQLiteResource $
     runSQLite' $ \resIO -> testCase "testModuleName" $ do
 
-        (Checkpointer {..}, SQLiteEnv {..}) <- resIO
+        (cp, SQLiteEnv {..}) <- resIO
 
         -- init genesis
-        let hash00 = getArbitrary 0
-        void $ _cpRestore Nothing
-        _cpSave hash00
+        let
+          hash00 = getArbitrary 0
+          pc00 = childOf genesisPc hash00
+        cpRewindAndExtend cp genesisPc
+          [(pc00, \_ -> return ())]
 
-        let hash01 = getArbitrary 1
-            hash02 = getArbitrary 2
-        void $ _cpRestore (Just (1, hash00))
-        _cpSave hash01
-        (PactDbEnv' (PactDbEnv pactdb mvar)) <- _cpRestore (Just (2, hash01))
-
-
-        -- block 2: write module records
-        (_,_,mod') <- loadModule
-        -- write qualified
-        _writeRow pactdb Insert Modules "nsname.qualmod" mod' mvar
-        -- write unqualified
-        _writeRow pactdb Insert Modules "baremod" mod' mvar
-        _cpSave hash02
+        let
+          hash01 = getArbitrary 1
+          pc01 = childOf pc00 hash01
+        cpRewindAndExtend cp pc00
+          [(pc01, \_ -> return ())
+          ]
+        let
+          hash02 = getArbitrary 2
+          pc02 = childOf pc01 hash02
+        cpRewindAndExtend cp pc01
+          [(pc02, \(PactDbEnv pactdb mvar) -> do
+            -- block 2: write module records
+            (_,_,mod') <- loadModule
+            -- write qualified
+            _writeRow pactdb Insert Modules "nsname.qualmod" mod' mvar
+            -- write unqualified
+            _writeRow pactdb Insert Modules "baremod" mod' mvar
+            )]
 
         r1 <- qry_ _sConn "SELECT rowkey FROM [SYS:Modules] WHERE rowkey LIKE '%qual%'" [RText]
         assertEqual "correct namespaced module name" [[SText "nsname.qualmod"]] r1
@@ -119,26 +126,26 @@ testKeyset = withResource initializeSQLite freeSQLiteResource (runSQLite keysetT
 
 keysetTest ::  IO (Checkpointer logger) -> TestTree
 keysetTest c = testCaseSteps "Keyset test" $ \next -> do
-    Checkpointer {..} <- c
-    let hash00 = nullBlockHash
+    cp <- c
+    let
+      hash00 = nullBlockHash
+      pc00 = childOf (genesisParentContext testVer testChainId) hash00
+
 
     next "init"
-    _blockenv00 <- _cpRestore Nothing
-    _cpSave hash00
+    cpRewindAndExtend cp genesisPc [(pc00, \_ -> pure ())]
 
     next "next block (blockheight 1, version 0)"
-    let bh01 = BlockHeight 1
-    _hash01 <- BlockHash <$> liftIO (merkleLogHash @_ @ChainwebMerkleHashAlgorithm "0000000000000000000000000000001a")
-    blockenv01 <- _cpRestore (Just (bh01, hash00))
-    addKeyset blockenv01 "k2" (mkKeySet [] ">=")
-    _cpDiscard
+    cpReadFrom cp pc00 $ \dbEnv ->
+      addKeyset dbEnv "k2" (mkKeySet [] ">=")
+
 
     next "fork on blockheight = 1"
-    let bh11 = BlockHeight 1
     hash11 <- BlockHash <$> liftIO (merkleLogHash @_ @ChainwebMerkleHashAlgorithm "0000000000000000000000000000001b")
-    blockenv11 <- _cpRestore (Just (bh11, hash00))
-    addKeyset blockenv11 "k1" (mkKeySet [] ">=")
-    _cpSave hash11
+    let pc11 = childOf pc00 hash11
+    cpRewindAndExtend cp pc00 [(pc11, \dbEnv ->
+      addKeyset dbEnv "k1" (mkKeySet [] ">=")
+      )]
 
 -- -------------------------------------------------------------------------- --
 -- CheckPointer Test
@@ -151,17 +158,21 @@ testRelational =
 checkpointerTest :: (Logger logger) => String -> Bool -> IO (Checkpointer logger) -> TestTree
 checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
     cenv <- cenvIO
-    let cp = cenv
+    let
+      cp = cenv
+      readFrom = cpReadFrom cp
+      rewindAndExtend = cpRewindAndExtend cp
     ------------------------------------------------------------------
     -- s01 : new block workflow (restore -> discard), genesis
     ------------------------------------------------------------------
 
     runTwice next $ do
         next "Step 1 : new block workflow (restore -> discard), genesis"
-        blockenvGenesis0 <- _cpRestore cp Nothing
-        void $ runExec cenv blockenvGenesis0 (Just $ ksData "1") $ defModule "1"
-        runExec cenv blockenvGenesis0 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
-        _cpDiscard cp
+        readFrom genesisPc $ \dbEnv -> do
+          void $ runExec cenv dbEnv (Just $ ksData "1") $ defModule "1"
+          runExec cenv dbEnv Nothing "(m1.readTbl)" >>=
+            \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+
 
     -----------------------------------------------------------
     -- s02 : validate block workflow (restore -> save), genesis
@@ -169,26 +180,27 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
 
     let hash00 = nullBlockHash
     next "Step 2 : validate block workflow (restore -> save), genesis"
-    blockenvGenesis1 <- _cpRestore cp Nothing
-    void $ runExec cenv blockenvGenesis1 (Just $ ksData "1") $ defModule "1"
-    runExec cenv blockenvGenesis1 Nothing "(m1.readTbl)"
-      >>=  \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
-    _cpSave cp hash00
+    let pc00 = childOf genesisPc hash00
+    rewindAndExtend genesisPc
+      [(pc00, \dbEnv -> do
+        void $ runExec cenv dbEnv (Just $ ksData "1") $ defModule "1"
+        void $ runExec cenv dbEnv Nothing "(m1.readTbl)"
+          >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+        )]
 
     ------------------------------------------------------------------
     -- s03 : new block 00
     ------------------------------------------------------------------
 
     next "Step 3 : new block 00"
-    blockenv00 <- _cpRestore cp (Just (BlockHeight 1, hash00))
+    let pactCheckStep = preview (_Just . peStep) . _erExec
+    let pactId = "DldRwCblQ7Loqy6wYJnaodHl30d3j3eH-qtFzfEv46g"
+    void $ readFrom pc00 $ \dbEnv -> do
     -- start a pact
     -- test is that exec comes back with proper step
-    let pactId = "DldRwCblQ7Loqy6wYJnaodHl30d3j3eH-qtFzfEv46g"
-        pactCheckStep = preview (_Just . peStep) . _erExec
-    void $ runExec cenv blockenv00 Nothing "(m1.insertTbl 'b 2)"
-    runExec cenv blockenv00 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
-    runExec cenv blockenv00 Nothing "(m1.dopact 'pactA)" >>= ((Just 0 @=?) . pactCheckStep)
-    _cpDiscard cp
+      void $ runExec cenv dbEnv Nothing "(m1.insertTbl 'b 2)"
+      runExec cenv dbEnv Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
+      runExec cenv dbEnv Nothing "(m1.dopact 'pactA)" >>= ((Just 0 @=?) . pactCheckStep)
 
     ------------------------------------------------------------------
     -- s04: validate block 1
@@ -196,13 +208,15 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
 
     next "Step 4: validate block 1"
     hash01 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001a")
-    blockenv01 <- _cpRestore cp (Just (BlockHeight 1, hash00))
-    void $ runExec cenv blockenv01 Nothing "(m1.insertTbl 'b 2)"
-    runExec cenv blockenv01 Nothing "(m1.readTbl)"
-      >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
-    runExec cenv blockenv01 Nothing "(m1.dopact 'pactA)"
-      >>= ((Just 0 @=?) . pactCheckStep)
-    _cpSave cp hash01
+    let pc01 = childOf pc00 hash01
+    rewindAndExtend pc00
+      [(pc01, \dbEnv -> do
+        void $ runExec cenv dbEnv Nothing "(m1.insertTbl 'b 2)"
+        runExec cenv dbEnv Nothing "(m1.readTbl)"
+          >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
+        runExec cenv dbEnv Nothing "(m1.dopact 'pactA)"
+          >>= ((Just 0 @=?) . pactCheckStep)
+      )]
 
     ------------------------------------------------------------------
     -- s05: validate block 02
@@ -213,24 +227,25 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
     let msg = "Step 5: validate block 02\n create m2 module, exercise RefStore checkpoint\n exec next part of pact"
     next msg
     hash02 <- BlockHash <$> merkleLogHash "0000000000000000000000000000002a"
-    blockenv02 <- _cpRestore cp (Just (BlockHeight 2, hash01))
-    void $ runExec cenv blockenv02 (Just $ ksData "2") $ defModule "2"
-    runExec cenv blockenv02 Nothing "(m2.readTbl)"
-      >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
-    runCont cenv blockenv02 pactId 1
-      >>= ((Just 1 @=?) . pactCheckStep)
-    _cpSave cp hash02
+    let pc02 = childOf pc01 hash02
+    rewindAndExtend pc01
+      [(pc02, \dbEnv -> do
+        void $ runExec cenv dbEnv (Just $ ksData "2") $ defModule "2"
+        runExec cenv dbEnv Nothing "(m2.readTbl)"
+          >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+        runCont cenv dbEnv pactId 1
+          >>= ((Just 1 @=?) . pactCheckStep)
+        )]
 
     ------------------------------------------------------------------
     -- s06 : new block 03
     ------------------------------------------------------------------
 
     next "Step 6 : new block 03"
-    blockenv03 <- _cpRestore cp (Just (BlockHeight 3, hash02))
-    void $ runExec cenv blockenv03 Nothing "(m2.insertTbl 'b 2)"
-    runExec cenv blockenv03 Nothing "(m2.readTbl)"
-      >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
-    _cpDiscard cp
+    readFrom pc02 $ \dbEnv -> do
+      void $ runExec cenv dbEnv Nothing "(m2.insertTbl 'b 2)"
+      runExec cenv dbEnv Nothing "(m2.readTbl)"
+        >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
 
     ------------------------------------------------------------------
     -- s07 : validate block 03
@@ -238,12 +253,14 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
 
     next "Step 7 : validate block 03"
     hash03 <- BlockHash <$> merkleLogHash "0000000000000000000000000000003a"
-    blockenv13 <- _cpRestore cp (Just (BlockHeight 3, hash02))
+    let pc03 = childOf pc02 hash03
+    rewindAndExtend pc02
+      [(pc03, \dbEnv -> do
+        void $ runExec cenv dbEnv Nothing "(m2.insertTbl 'b 2)"
+        runExec cenv dbEnv Nothing "(m2.readTbl)"
+          >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
+        )]
     -- insert here would fail if new block 03 had not been discarded
-    void $ runExec cenv blockenv13 Nothing "(m2.insertTbl 'b 2)"
-    runExec cenv blockenv13 Nothing "(m2.readTbl)"
-      >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
-    _cpSave cp hash03
 
     ------------------------------------------------------------------
     -- s08: FORK! block 02, new hash
@@ -251,130 +268,152 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
     -- exec next part of pact
     ------------------------------------------------------------------
 
-    let msgFork = "Step 8: FORK! block 02, new hash\n recreate m2 module, exercise RefStore checkpoint\n exec next part of pact"
-    next msgFork
+    next "Step 8: FORK! block 02, new hash\n recreate m2 module, exercise RefStore checkpoint\n exec next part of pact"
     hash02Fork <- BlockHash <$> merkleLogHash "0000000000000000000000000000002b"
-    blockenv02Fork <- _cpRestore cp (Just (BlockHeight 2, hash01))
-    void $ runExec cenv blockenv02Fork (Just $ ksData "2") $ defModule "2"
-    runExec cenv blockenv02Fork Nothing "(m2.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
-    -- this would fail if not a fork
-    runCont cenv blockenv02Fork pactId 1 >>= ((Just 1 @=?) . pactCheckStep)
-    _cpSave cp hash02Fork
+    let pc02Fork = childOf pc01 hash02Fork
+    rewindAndExtend pc01
+      [(pc02Fork, \dbEnv -> do
+        void $ runExec cenv dbEnv (Just $ ksData "2") $ defModule "2"
+        runExec cenv dbEnv Nothing "(m2.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+        -- this would fail if not a fork
+        runCont cenv dbEnv pactId 1 >>= ((Just 1 @=?) . pactCheckStep)
+        )]
 
-    let updatemsgA = "step 9: test update row: new block 03"
-    next updatemsgA
-    blockenv23 <- _cpRestore cp (Just (BlockHeight 3, hash02Fork))
+    next "step 9: test update row: new block 03"
+    readFrom pc02Fork $ \dbEnv -> do
+      void $ runExec cenv dbEnv Nothing "(m1.updateTbl 'b 3)"
+      runExec cenv dbEnv Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,3]]
     -- updating key previously written at blockheight 1 (the "restore point")
-    void $ runExec cenv blockenv23 Nothing "(m1.updateTbl 'b 3)"
-    runExec cenv blockenv23 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,3]]
-    _cpDiscard cp
 
-    let updatemsgB = "step 9: test update row: validate block 03"
-    next updatemsgB
+    next "step 10: test update row: validate block 03"
     hash13 <- BlockHash <$> merkleLogHash "0000000000000000000000000000003b"
-    blockenv33 <- _cpRestore cp (Just (BlockHeight 3, hash02Fork))
+    let pc13 = childOf pc02Fork hash13
+    rewindAndExtend pc02Fork
+      [(pc13, \dbEnv -> do
+        void $ runExec cenv dbEnv Nothing "(m1.updateTbl 'b 3)"
+        runExec cenv dbEnv Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,3]]
+        )]
     -- updating key previously written at blockheight 1 (the "restore point")
-    void $ runExec cenv blockenv33 Nothing "(m1.updateTbl 'b 3)"
-    runExec cenv blockenv33 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,3]]
-    _cpSave cp hash13
 
     next "mini-regression test for dropping user tables (part 1) empty block"
     hash04 <- BlockHash <$> merkleLogHash "0000000000000000000000000000004a"
-    _blockenv04 <- _cpRestore cp (Just (BlockHeight 4, hash13))
-    _cpSave cp hash04
+    let pc04 = childOf pc13 hash04
+    rewindAndExtend pc13
+      [(pc04, \_ -> return ())]
 
     next "mini-regression test for dropping user tables (part 2) (create module with offending table)"
     hash05 <- BlockHash <$> merkleLogHash "0000000000000000000000000000005a"
-    blockenv05 <- _cpRestore cp (Just (BlockHeight 5, hash04))
-    void $ runExec cenv blockenv05 (Just $ ksData "5") $ defModule "5"
-    runExec cenv blockenv05 Nothing "(m5.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
-    _cpSave cp hash05
+    let pc05 = childOf pc04 hash05
+    rewindAndExtend pc04
+      [(pc05, \dbEnv -> do
+        void $ runExec cenv dbEnv (Just $ ksData "5") $ defModule "5"
+        runExec cenv dbEnv Nothing "(m5.readTbl)" >>=
+          \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+        )]
+    -- blockenv05 <- _cpRestore cp (Just (BlockHeight 5, hash04))
 
     next "mini-regression test for dropping user tables (part 3) (reload the offending table)"
-    hash05Fork  <- BlockHash <$> merkleLogHash "0000000000000000000000000000005b"
-    blockenv05Fork <- _cpRestore cp (Just (BlockHeight 5, hash04))
-    void $ runExec cenv blockenv05Fork (Just $ ksData "5") $ defModule "5"
-    runExec cenv blockenv05Fork Nothing "(m5.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
-    _cpSave cp hash05Fork
+    hash05Fork <- BlockHash <$> merkleLogHash "0000000000000000000000000000005b"
+    let pc05Fork = childOf pc04 hash05Fork
+    rewindAndExtend pc04
+      [(pc05Fork, \dbEnv -> do
+        void $ runExec cenv dbEnv (Just $ ksData "5") $ defModule "5"
+        runExec cenv dbEnv Nothing "(m5.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+        )]
 
     next "mini-regression test for dropping user tables (part 4) fork on the empty block"
-    _blockenv04Fork <- _cpRestore cp (Just (BlockHeight 4, hash13))
-    _cpDiscard cp
+    readFrom pc13 $ \_ -> return ()
 
     next "2nd mini-regression test for debugging updates (part 1) empty block"
     hash14 <- BlockHash <$> merkleLogHash "0000000000000000000000000000004b"
-    _blockenv04 <- _cpRestore cp (Just (BlockHeight 4, hash13))
-    _cpSave cp hash14
+    let pc14 = childOf pc13 hash14
+    rewindAndExtend pc13
+      [(pc14, \_ -> return ())]
 
     next "2nd mini-regression test for debugging updates (part 2) create module & table"
     hash15 <- BlockHash <$> merkleLogHash "0000000000000000000000000000005c"
-    blockEnv06 <- _cpRestore cp (Just (BlockHeight 5, hash14))
-    void $ runExec cenv blockEnv06 (Just $ ksData "6") $ defModule "6"
-    runExec cenv blockEnv06 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
-    _cpSave cp hash15
+    let pc15 = childOf pc14 hash15
+    rewindAndExtend pc14
+      [(pc15, \dbEnv -> do
+        void $ runExec cenv dbEnv (Just $ ksData "6") $ defModule "6"
+        runExec cenv dbEnv Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+        )]
 
     next "2nd mini-regression test for debugging updates (part 3) step 1 of insert value then update twice"
     hash06 <- BlockHash <$> merkleLogHash "0000000000000000000000000000006a"
-    blockEnv07 <- _cpRestore cp (Just (BlockHeight 6, hash15))
-    void $ runExec cenv blockEnv07 Nothing "(m6.insertTbl 'b 2)"
-    _cpSave cp hash06
+    let pc06 = childOf pc15 hash06
+    rewindAndExtend pc15
+      [(pc06, \dbEnv -> do
+        void $ runExec cenv dbEnv Nothing "(m6.insertTbl 'b 2)"
+        )]
 
     next "2nd mini-regression test for debugging updates (part 4) step 2 of insert value then update twice"
     hash07 <- BlockHash <$> merkleLogHash "0000000000000000000000000000007a"
-    blockEnv08 <- _cpRestore cp (Just (BlockHeight 7, hash06))
-    void $ runExec cenv blockEnv08 Nothing "(m6.weirdUpdateTbl 'b 4)"
-    _cpSave cp hash07
+    let pc07 = childOf pc06 hash07
+    rewindAndExtend pc06
+      [(pc07, \dbEnv -> do
+        void $ runExec cenv dbEnv Nothing "(m6.weirdUpdateTbl 'b 4)"
+        )]
 
     next "2nd mini-regression test for debugging updates (part 5) step 3 of insert value then update twice"
     hash08 <- BlockHash <$> merkleLogHash "0000000000000000000000000000008a"
-    blockEnv09 <- _cpRestore cp (Just (BlockHeight 8, hash07))
+    let pc08 = childOf pc07 hash08
+    rewindAndExtend pc07
+      [(pc08, \dbEnv -> do
+        runExec cenv dbEnv Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,4]]
+        )]
     -- FOR DEBUGGING/INSPECTING VALUES AT SPECIFIC KEYS
     -- void $ runExec cenv blockEnv09 Nothing "(let ((written (at 'col (read m6.tbl 'a [\"col\"])))) (enforce (= written 1) \"key a\"))"
     -- void $ runExec cenv blockEnv09 Nothing "(let ((written (at 'col (read m6.tbl 'b [\"col\"])))) (enforce (= written 4) \"key b\"))"
     -- FOR DEBUGGING/INSPECTING VALUES AT SPECIFIC KEYS
-    runExec cenv blockEnv09 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,4]]
-    _cpSave cp hash08
 
     next "Create the free namespace for the test"
     hash09 <- BlockHash <$> merkleLogHash "0000000000000000000000000000009a"
-    blockEnv10 <- _cpRestore cp (Just (BlockHeight 9, hash08))
-    void $ runExec cenv blockEnv10 Nothing defFree
-    _cpSave cp hash09
-
+    let pc09 = childOf pc08 hash09
+    rewindAndExtend pc08
+      [(pc09, \dbEnv -> do
+        void $ runExec cenv dbEnv Nothing defFree
+      )]
     hash10 <- BlockHash <$> merkleLogHash "0000000000000000000000000000010a"
 
     next "Don't create the same table twice in the same block"
-    blockEnv11 <- _cpRestore cp (Just (BlockHeight 10, hash09))
-
     let tKeyset = object ["test-keyset" .= object ["keys" .= ([] :: [Text]), "pred" .= String ">="]]
-    void $ runExec cenv blockEnv11 (Just tKeyset) tablecode
-    expectException $ runExec cenv blockEnv11 (Just tKeyset) tablecode
-    _cpDiscard cp
+    readFrom pc09 $ \dbEnv -> do
+      void $ runExec cenv dbEnv (Just tKeyset) tablecode
+      expectException $ runExec cenv dbEnv (Just tKeyset) tablecode
+
 
     next "Don't create the same table twice in the same transaction."
 
-    blockEnv11a <- _cpRestore cp (Just (BlockHeight 10, hash09))
-    expectException $ runExec cenv blockEnv11a (Just tKeyset) (tablecode <> tablecode)
+    readFrom pc09 $ \dbEnv ->
+      expectException $ runExec cenv dbEnv (Just tKeyset) (tablecode <> tablecode)
 
-    _cpDiscard cp
 
     next "Don't create the same table twice over blocks."
 
-    blockEnv11b <- _cpRestore cp (Just (BlockHeight 10, hash09))
-    void $ runExec cenv blockEnv11b (Just tKeyset) tablecode
+    let pc10 = childOf pc09 hash10
+    rewindAndExtend pc09
+      [(pc10, \dbEnv -> do
+        void $ runExec cenv dbEnv (Just tKeyset) tablecode
+        )
+      ]
 
-    _cpSave cp hash10
 
     hash11 <- BlockHash <$> merkleLogHash "0000000000000000000000000000011a"
+    let pc11 = childOf pc10 hash11
+    rewindAndExtend pc10
+      [(pc11, \dbEnv -> do
+        expectException $ runExec cenv dbEnv (Just tKeyset) tablecode
+        )]
 
-    blockEnv12 <- _cpRestore cp (Just (BlockHeight 11, hash10))
-    expectException $ runExec cenv blockEnv12 (Just tKeyset) tablecode
-
-    _cpSave cp hash11
 
     next "Purposefully restore to an illegal checkpoint."
 
-    _blockEnvFailure <- expectException $ _cpRestore cp (Just (BlockHeight 13, hash10))
+    let pc10Invalid = case pc10 of
+          BlockParentContext v cid bh _bht bct -> BlockParentContext v cid bh 13 bct
+          _ -> error "impossible"
+    void $ expectException $
+      readFrom pc10Invalid $ \_ -> return ()
 
     when relational $ do
 
@@ -382,23 +421,22 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
 
         next "Run block 5b with pact 4.2.0 changes"
 
-        blockEnv5b <- _cpRestore cp (Just (BlockHeight 5, hash14))
-        void $ runExec cenv blockEnv5b (Just $ ksData "7") (defModule "7")
-        void $ runExec cenv blockEnv5b Nothing "(m7.insertTbl 'b 2)"
-        void $ runExec cenv blockEnv5b Nothing "(m7.insertTbl 'd 3)"
-        void $ runExec cenv blockEnv5b Nothing "(m7.insertTbl 'c 4)"
-        void $ runExec cenv blockEnv5b Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
-        _cpDiscard cp
+        readFrom pc14 $ \dbEnv -> do
+
+          void $ runExec cenv dbEnv (Just $ ksData "7") (defModule "7")
+          void $ runExec cenv dbEnv Nothing "(m7.insertTbl 'b 2)"
+          void $ runExec cenv dbEnv Nothing "(m7.insertTbl 'd 3)"
+          void $ runExec cenv dbEnv Nothing "(m7.insertTbl 'c 4)"
+          void $ runExec cenv dbEnv Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
 
         next "Rollback to block 4 and expect failure with pact 4.2.0 changes"
 
-        blockEnv4b <- _cpRestore cp (Just (BlockHeight 4, hash13))
-        void $ runExec cenv blockEnv4b (Just $ ksData "7") (defModule "7")
-        void $ runExec cenv blockEnv4b Nothing "(m7.insertTbl 'b 2)"
-        void $ runExec cenv blockEnv4b Nothing "(m7.insertTbl 'd 3)"
-        void $ runExec cenv blockEnv4b Nothing "(m7.insertTbl 'c 4)"
-        expectException $ runExec cenv blockEnv4b Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
-        _cpDiscard cp
+        readFrom pc13 $ \dbEnv -> do
+          void $ runExec cenv dbEnv (Just $ ksData "7") (defModule "7")
+          void $ runExec cenv dbEnv Nothing "(m7.insertTbl 'b 2)"
+          void $ runExec cenv dbEnv Nothing "(m7.insertTbl 'd 3)"
+          void $ runExec cenv dbEnv Nothing "(m7.insertTbl 'c 4)"
+          expectException $ runExec cenv dbEnv Nothing "(keys m7.tbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tStringList $ T.words "a b c d"]
 
   where
 
@@ -562,6 +600,9 @@ testVer = slowForkingCpmTestVersion peterson
 testChainId :: ChainId
 testChainId = unsafeChainId 0
 
+genesisPc :: ParentContext
+genesisPc = genesisParentContext testVer testChainId
+
 -- -------------------------------------------------------------------------- --
 -- Testing Utils
 
@@ -588,8 +629,8 @@ withRelationalCheckpointerResource
 withRelationalCheckpointerResource =
     withResource initializeSQLite freeSQLiteResource . runSQLite
 
-addKeyset :: PactDbEnv' logger -> KeySetName -> KeySet -> IO ()
-addKeyset (PactDbEnv' (PactDbEnv pactdb mvar)) keysetname keyset =
+addKeyset :: ChainwebPactDbEnv logger -> KeySetName -> KeySet -> IO ()
+addKeyset (PactDbEnv pactdb mvar) keysetname keyset =
     _writeRow pactdb Insert KeySets keysetname keyset mvar
 
 runTwice :: MonadIO m => (String -> IO ()) -> m () -> m ()
@@ -619,31 +660,60 @@ runSQLite' runTest sqlEnvIO = runTest $ do
     initialBlockState = set bsModuleNameFix True $ initBlockState defaultModuleCacheLimit $ genesisHeight testVer testChainId
     logger = addLabel ("sub-component", "relational-checkpointer") $ dummyLogger
 
-runExec :: (Logger logger) => Checkpointer logger -> PactDbEnv' logger -> Maybe Value -> Text -> IO EvalResult
-runExec cp (PactDbEnv' pactdbenv) eData eCode = do
+runExec :: forall logger. (Logger logger) => Checkpointer logger -> ChainwebPactDbEnv logger -> Maybe Value -> Text -> IO EvalResult
+runExec cp pactdbenv eData eCode = do
     execMsg <- buildExecParsedCode maxBound {- use latest parser version -} eData eCode
     evalTransactionM cmdenv cmdst $
       applyExec' 0 defaultInterpreter execMsg [] h' permissiveNamespacePolicy
   where
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-    cmdenv = TransactionEnv Transactional pactdbenv (_cpLogger cp) Nothing def
+    cmdenv :: TransactionEnv logger (BlockEnv logger SQLiteEnv)
+    cmdenv = TransactionEnv Transactional pactdbenv (_cpReadLogger $ _cpReadCp cp) Nothing def
              noSPVSupport Nothing 0.0 (RequestKey h') 0 def
     cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
-runCont :: Checkpointer logger -> PactDbEnv' logger -> PactId -> Int -> IO EvalResult
-runCont cp (PactDbEnv' pactdbenv) pactId step = do
+runCont :: Logger logger => Checkpointer logger -> ChainwebPactDbEnv logger -> PactId -> Int -> IO EvalResult
+runCont cp pactdbenv pactId step = do
     evalTransactionM cmdenv cmdst $
       applyContinuation' 0 defaultInterpreter contMsg [] h' permissiveNamespacePolicy
   where
     contMsg = ContMsg pactId step False (toLegacyJson Null) Nothing
 
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-    cmdenv = TransactionEnv Transactional pactdbenv (_cpLogger cp) Nothing def
+    cmdenv = TransactionEnv Transactional pactdbenv (_cpReadLogger $ _cpReadCp cp) Nothing def
              noSPVSupport Nothing 0.0 (RequestKey h') 0 def
     cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
 -- -------------------------------------------------------------------------- --
 -- Pact Utils
+
+-- witnessing that we only use the PactDbEnv portion
+-- of the CurrentBlockDbEnv
+cpReadFrom
+  :: Checkpointer logger
+  -> ParentContext
+  -> (ChainwebPactDbEnv logger -> IO q)
+  -> IO q
+cpReadFrom cp pc f = _cpReadFrom (_cpReadCp cp) pc $ \dbEnv -> f (_cpPactDbEnv dbEnv)
+
+-- allowing a straightforward list of blocks to be passed to the API,
+-- and only exposing the PactDbEnv part of the block context
+cpRewindAndExtend
+  :: (Monoid q)
+  => Checkpointer logger
+  -> ParentContext
+  -> [(ParentContext, ChainwebPactDbEnv logger -> IO q)]
+  -> IO q
+cpRewindAndExtend cp pc blks = snd <$> _cpRewindAndExtend cp pc
+  -- (\i -> fst $ blks !! i)
+  (traverse Stream.yield [0..length blks - 1])
+  (\dbenv _pc i -> (,fst (blks !! i)) <$> snd (blks !! i) (_cpPactDbEnv dbenv))
+
+childOf :: ParentContext -> BlockHash -> ParentContext
+childOf (BlockParentContext v cid _bhsh bht bct) bhsh =
+  BlockParentContext v cid bhsh (bht + 1) bct
+childOf (GenesisParentContext v cid) bhsh =
+  BlockParentContext v cid bhsh (genesisHeight v cid) (_genesisTime (_versionGenesis v) ^?! onChain cid)
 
 simpleBlockEnvInit
     :: (Logger logger)

@@ -111,5 +111,5 @@ withChainResources
                 }
   where
     pes requestQ
-        | v ^. versionCheats . disablePact = emptyPactExecutionService
+        | v ^. versionCheats . disablePact = emptyPactExecutionService v cid
         | otherwise = mkPactExecutionService requestQ

@@ -10,6 +10,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -1243,6 +1244,10 @@ data T2 a b = T2 !a !b
 instance Bifunctor T2 where
     bimap f g (T2 a b) =  T2 (f a) (g b)
     {-# INLINE bimap #-}
+instance Field1 (T2 a b) (T2 x b) a x where
+    _1 = lens (\(T2 a _b) -> a) (\(T2 _a b) x -> T2 x b)
+instance Field2 (T2 a b) (T2 a x) b x where
+    _2 = lens (\(T2 _a b) -> b) (\(T2 a _b) x -> T2 a x)
 
 data T3 a b c = T3 !a !b !c
     deriving (Show, Eq, Ord, Generic, NFData, Functor)
@@ -1250,6 +1255,12 @@ data T3 a b c = T3 !a !b !c
 instance Bifunctor (T3 a) where
     bimap f g (T3 a b c) =  T3 a (f b) (g c)
     {-# INLINE bimap #-}
+instance Field1 (T3 a b c) (T3 x b c) a x where
+    _1 = lens (\(T3 a _b _c) -> a) (\(T3 _a b c) x -> T3 x b c)
+instance Field2 (T3 a b c) (T3 a x c) b x where
+    _2 = lens (\(T3 _a b _c) -> b) (\(T3 a _b c) x -> T3 a x c)
+instance Field3 (T3 a b c) (T3 a b x) c x where
+    _3 = lens (\(T3 _a _b c) -> c) (\(T3 a b _c) x -> T3 a b x)
 
 sfst :: T2 a b -> a
 sfst (T2 a _) = a

@@ -65,6 +65,7 @@ import qualified Streaming.Prelude as S
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types(internalError)
 import Chainweb.Pact.Utils (aeson)
 import Chainweb.Payload
@@ -78,7 +79,6 @@ import qualified Chainweb.Version.Guards as CW
 
 import Chainweb.Storage.Table
 
-
 -- internal pact modules
 
 import qualified Pact.JSON.Encode as J
@@ -88,17 +88,17 @@ import Pact.Types.PactValue
 import Pact.Types.Runtime
 import Pact.Types.SPV
 
-catchAndDisplaySPVError :: BlockHeader -> ExceptT Text IO a -> ExceptT Text IO a
-catchAndDisplaySPVError bh =
-  if CW.chainweb219Pact (CW._chainwebVersion bh) (_blockChainId bh) (_blockHeight bh)
+catchAndDisplaySPVError :: ParentContext -> ExceptT Text IO a -> ExceptT Text IO a
+catchAndDisplaySPVError pc =
+  if CW.chainweb219Pact (CW._chainwebVersion pc) (CW._chainId pc) (_parentContextHeight pc)
   then flip catch $ \case
     SpvExceptionVerificationFailed m -> throwError ("spv verification failed: " <> m)
     spvErr -> throwM spvErr
   else id
 
-forkedThrower :: BlockHeader -> Text -> ExceptT Text IO a
-forkedThrower bh =
-  if CW.chainweb219Pact (CW._chainwebVersion bh) (_blockChainId bh) (_blockHeight bh)
+forkedThrower :: ParentContext -> Text -> ExceptT Text IO a
+forkedThrower pc =
+  if CW.chainweb219Pact (CW._chainwebVersion pc) (CW._chainId pc) (_parentContextHeight pc)
   then throwError
   else internalError
 
@@ -107,10 +107,10 @@ forkedThrower bh =
 pactSPV
     :: BlockHeaderDb
       -- ^ handle into the cutdb
-    -> BlockHeader
+    -> ParentContext
       -- ^ the context for verifying the proof
     -> SPVSupport
-pactSPV bdb bh = SPVSupport (verifySPV bdb bh) (verifyCont bdb bh)
+pactSPV bdb pc = SPVSupport (verifySPV bdb pc) (verifyCont bdb pc)
 
 -- | SPV transaction verification support. Calls to 'verify-spv' in Pact
 -- will thread through this function and verify an SPV receipt, making the
@@ -119,7 +119,7 @@ pactSPV bdb bh = SPVSupport (verifySPV bdb bh) (verifyCont bdb bh)
 verifySPV
     :: BlockHeaderDb
       -- ^ handle into the cut db
-    -> BlockHeader
+    -> ParentContext
         -- ^ the context for verifying the proof
     -> Text
       -- ^ TXOUT or TXIN - defines the type of proof
@@ -127,10 +127,10 @@ verifySPV
     -> Object Name
       -- ^ the proof object to validate
     -> IO (Either Text (Object Name))
-verifySPV bdb bh typ proof = runExceptT $ go typ proof
+verifySPV bdb pc typ proof = runExceptT $ go typ proof
   where
     cid = CW._chainId bdb
-    enableBridge = CW.enableSPVBridge (CW._chainwebVersion bh) cid (_blockHeight bh)
+    enableBridge = CW.enableSPVBridge (CW._chainwebVersion pc) cid (_parentContextHeight pc)
 
     mkSPVResult' cr j
         | enableBridge =
@@ -151,7 +151,7 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
       "TXOUT" -> do
         u <- except $ extractProof enableBridge o
         unless (view outputProofChainId u == cid) $
-          forkedThrower bh "cannot redeem spv proof on wrong target chain"
+          forkedThrower pc "cannot redeem spv proof on wrong target chain"
 
         -- SPV proof verification is a 3 step process:
         --
@@ -162,10 +162,10 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
         --  3. Extract tx outputs as a pact object and return the
         --  object.
 
-        TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u (_blockHash bh)
+        TransactionOutput p <- catchAndDisplaySPVError pc $ liftIO $ verifyTransactionOutputProofAt_ bdb u (_parentContextHash pc)
 
         q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
-          Nothing -> forkedThrower bh "unable to decode spv transaction output"
+          Nothing -> forkedThrower pc "unable to decode spv transaction output"
           Just cr -> return cr
 
         case _crResult q of
@@ -255,25 +255,25 @@ base64DowngradeErrorMessage msg = case msg of
 verifyCont
     :: BlockHeaderDb
       -- ^ handle into the cut db
-    -> BlockHeader
+    -> ParentContext
         -- ^ the context for verifying the proof
     -> ContProof
       -- ^ bytestring of 'TransactionOutputP roof' object to validate
     -> IO (Either Text PactExec)
-verifyCont bdb bh (ContProof cp) = runExceptT $ do
+verifyCont bdb pc (ContProof cp) = runExceptT $ do
     let errorMessageType =
           if CW.chainweb221Pact
-             (CW._chainwebVersion bh)
-             (_blockChainId bh)
-             (_blockHeight bh)
+             (CW._chainwebVersion pc)
+             (CW._chainId pc)
+             (_parentContextHeight pc)
           then Simplified
           else Legacy
     t <- decodeB64UrlNoPaddingTextWithFixedErrorMessage errorMessageType $ Text.decodeUtf8 cp
     case decodeStrict' t of
-      Nothing -> forkedThrower bh "unable to decode continuation proof"
+      Nothing -> forkedThrower pc "unable to decode continuation proof"
       Just u
         | view outputProofChainId u /= cid ->
-          forkedThrower bh "cannot redeem continuation proof on wrong target chain"
+          forkedThrower pc "cannot redeem continuation proof on wrong target chain"
         | otherwise -> do
 
           -- Cont proof verification is a 3 step process:
@@ -285,10 +285,10 @@ verifyCont bdb bh (ContProof cp) = runExceptT $ do
           --  3. Extract continuation 'PactExec' from decoded result
           --  and return the cont exec object
 
-          TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u (_blockHash bh)
+          TransactionOutput p <- catchAndDisplaySPVError pc $ liftIO $ verifyTransactionOutputProofAt_ bdb u (_parentContextHash pc)
 
           q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
-            Nothing -> forkedThrower bh "unable to decode spv transaction output"
+            Nothing -> forkedThrower pc "unable to decode spv transaction output"
             Just cr -> return cr
 
           case _crContinuation q of

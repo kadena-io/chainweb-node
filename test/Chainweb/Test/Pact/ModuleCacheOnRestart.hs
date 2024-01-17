@@ -49,6 +49,7 @@ import Chainweb.Time
 import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
+import Chainweb.Test.Pact.Utils(getPWOByHeader)
 import Chainweb.Test.TestVersions(fastForkingCpmTestVersion)
 import Chainweb.Utils (T2(..))
 import Chainweb.Version
@@ -85,7 +86,7 @@ tests rdb =
     , testCaseSteps "testDoUpgrades" $ withPact' bdbio ioSqlEnv iom (testCoinbase bdbio)
     , testCaseSteps "testRestart2" $ withPact' bdbio ioSqlEnv iom testRestart
     , testCaseSteps "testV3" $ withPact' bdbio ioSqlEnv iom (testV3 bdbio rewindDataM)
-    , testCaseSteps "testRestart3"$ withPact' bdbio ioSqlEnv iom testRestart
+    , testCaseSteps "testRestart3" $ withPact' bdbio ioSqlEnv iom testRestart
     , testCaseSteps "testV4" $ withPact' bdbio ioSqlEnv iom (testV4 bdbio rewindDataM)
     , testCaseSteps "testRestart4" $ withPact' bdbio ioSqlEnv iom testRestart
     , testCaseSteps "testRewindAfterFork" $ withPact' bdbio ioSqlEnv iom (testRewindAfterFork bdbio rewindDataM)
@@ -108,7 +109,7 @@ testInitial = (initPayloadState,snapshotCache)
 
 -- | Do restart load, test results of 'initialPayloadState' against snapshotted cache.
 testRestart
-  :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)
+  :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger, HasCallStack)
   => CacheTest logger tbl
 testRestart = (initPayloadState,checkLoadedCache)
   where
@@ -125,7 +126,7 @@ testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
   where
     doCoinbase = do
       bdb <- liftIO iobdb
-      pwo <- execNewBlock mempty (ParentHeader genblock) noMiner
+      T2 _ pwo <- execNewBlock mempty noMiner
       void $ liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
       void $ execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
@@ -222,7 +223,8 @@ testCw217CoinOnly iobdb _rewindM = (go, go')
         Nothing -> assertFailure "failed to lookup block at 20"
 
 assertNoCacheMismatch
-    :: HM.HashMap ModuleName (Maybe ModuleHash)
+    :: HasCallStack
+    => HM.HashMap ModuleName (Maybe ModuleHash)
     -> HM.HashMap ModuleName (Maybe ModuleHash)
     -> Assertion
 assertNoCacheMismatch c1 c2 = assertBool msg $ c1 == c2
@@ -243,7 +245,11 @@ doNextCoinbase :: (Logger logger, CanReadablePayloadCas tbl) => IO TestBlockDb -
 doNextCoinbase iobdb = do
       bdb <- liftIO iobdb
       prevH <- liftIO $ getParentTestBlockDb bdb testChainId
-      pwo <- execNewBlock mempty (ParentHeader prevH) noMiner
+      -- we have to execValidateBlock on `prevH` block height to update the parent header
+      pwo' <- liftIO $ getPWOByHeader prevH bdb
+      _ <- execValidateBlock mempty prevH (payloadWithOutputsToPayloadData pwo')
+
+      T2 _ pwo <- execNewBlock mempty noMiner
       void $ liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
       (valPWO, _g) <- execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
@@ -264,9 +270,6 @@ justModuleHashes = justModuleHashes' . snd . last . M.toList
 justModuleHashes' :: ModuleCache -> HM.HashMap ModuleName (Maybe ModuleHash)
 justModuleHashes' =
     fmap (preview (_1 . mdModule . _MDModule . mHash)) . moduleCacheToHashMap
-
-genblock :: BlockHeader
-genblock = genesisBlockHeader testVer testChainId
 
 initPayloadState
   :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)

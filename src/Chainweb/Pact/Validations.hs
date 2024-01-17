@@ -47,10 +47,11 @@ import Data.Word (Word8)
 
 -- internal modules
 
-import Chainweb.BlockHeader (ParentCreationTime(..), BlockHeader(..), ParentHeader(..))
+import Chainweb.BlockHeader (ParentCreationTime(..))
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (fromPactChainId)
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types
 import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
 import Chainweb.Transaction (cmdTimeToLive, cmdCreationTime, PayloadWithText, payloadBytes, payloadObj, IsWebAuthnPrefixLegal(..))
@@ -70,15 +71,15 @@ import qualified Pact.Parse as P
 --
 assertLocalMetadata
     :: P.Command (P.Payload P.PublicMeta c)
-    -> TxContext
     -> Maybe LocalSignatureVerification
-    -> PactServiceM logger tbl (Either (NonEmpty Text) ())
-assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
-    v <- view psVersion
-    cid <- view psChainId
-    bgl <- view psBlockGasLimit
-
-    let bh = ctxCurrentBlockHeight txCtx
+    -> PactBlockM logger tbl (Either (NonEmpty Text) ())
+assertLocalMetadata cmd@(P.Command pay sigs hsh) sigVerify = do
+    v <- view chainwebVersion
+    cid <- view chainId
+    pc <- view pactParentContext
+    bgl <- view (pactServiceEnv . psBlockGasLimit)
+    let bh = _parentContextHeight pc
+    let pct = ParentCreationTime (_parentContextCreationTime pc)
     let validSchemes = validPPKSchemes v cid bh
     let webAuthnPrefixLegal = isWebAuthnPrefixLegal v cid bh
 
@@ -104,12 +105,6 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
     sigValidate validSchemes webAuthnPrefixLegal signers
       | Just NoVerify <- sigVerify = True
       | otherwise = assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs
-
-    pct = ParentCreationTime
-      . _blockCreationTime
-      . _parentHeader
-      . _tcParentHeader
-      $ txCtx
 
     eUnless t assertion
       | assertion = Nothing

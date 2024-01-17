@@ -56,6 +56,7 @@ import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Templates
 import Chainweb.Pact.TransactionExec
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Types
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
@@ -250,7 +251,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
   where
     doCoinbaseExploit pdb mc height localCmd precompile testResult = do
-      let ctx = TxContext (mkTestParentHeader $ height - 1) def
+      let ctx = TxContext (parentToParentContext $ mkTestParentHeader $ height - 1) def
 
       void $ applyCoinbase Mainnet01 logger pdb miner 0.1 ctx
         (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled precompile) mc
@@ -282,8 +283,10 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 testCoinbaseEnforceFailure :: Assertion
 testCoinbaseEnforceFailure = do
     (pdb,mc) <- loadCC coinReplV4
-    r <- tryAllSynchronous $ applyCoinbase toyVersion logger pdb badMiner 0.1 (TxContext someParentHeader def)
-      (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
+    r <- tryAllSynchronous $
+      applyCoinbase toyVersion logger pdb badMiner 0.1
+        (TxContext (parentToParentContext someParentHeader) def)
+        (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left e ->
         if isInfixOf "CoinbaseFailure" (sshow e) then
@@ -358,7 +361,7 @@ testUpgradeScript
     -> IO ()
 testUpgradeScript script cid bh test = do
     (pdb, mc) <- loadScript script
-    r <- tryAllSynchronous $ applyCoinbase v logger pdb noMiner 0.1 (TxContext parent def)
+    r <- tryAllSynchronous $ applyCoinbase v logger pdb noMiner 0.1 (TxContext (parentToParentContext parent) def)
         (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left e -> assertFailure $ "tx execution failed: " ++ show e

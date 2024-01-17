@@ -35,7 +35,8 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Utils
 import Chainweb.Payload
 import Chainweb.Transaction
-import Chainweb.Utils (T2)
+import Chainweb.Utils (T2(..))
+import Chainweb.Version
 
 import Pact.Types.Hash
 import Pact.Types.Persistence (RowKey, TxLog, Domain)
@@ -55,9 +56,9 @@ data PactExecutionService = PactExecutionService
         )
       -- ^ Validate block payload data by running through pact service.
     , _pactNewBlock :: !(
+        ChainId ->
         Miner ->
-        ParentHeader ->
-        IO PayloadWithOutputs
+        IO (T2 ParentHeader PayloadWithOutputs)
         )
       -- ^ Request a new block to be formed using mempool
     , _pactLocal :: !(
@@ -69,8 +70,8 @@ data PactExecutionService = PactExecutionService
       -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
       -- Corresponds to `local` HTTP endpoint.
     , _pactLookup :: !(
-        Rewind
-        -- restore point, either a block header or the current "head" of the pact service.
+        ChainId
+        -- for routing
         -> Maybe ConfirmationDepth
         -- confirmation depth
         -> Vector PactHash
@@ -111,9 +112,9 @@ newtype WebPactExecutionService = WebPactExecutionService
 
 _webPactNewBlock
     :: WebPactExecutionService
+    -> ChainId
     -> Miner
-    -> ParentHeader
-    -> IO PayloadWithOutputs
+    -> IO (T2 ParentHeader PayloadWithOutputs)
 _webPactNewBlock = _pactNewBlock . _webPactExecutionService
 {-# INLINE _webPactNewBlock #-}
 
@@ -131,9 +132,9 @@ mkWebPactExecutionService
     -> WebPactExecutionService
 mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
     { _pactValidateBlock = \h pd -> withChainService (_chainId h) $ \p -> _pactValidateBlock p h pd
-    , _pactNewBlock = \m h -> withChainService (_chainId h) $ \p -> _pactNewBlock p m h
+    , _pactNewBlock = \cid m -> withChainService cid $ \p -> _pactNewBlock p cid m
     , _pactLocal = \_pf _sv _rd _ct -> throwM $ userError "Chainweb.WebPactExecutionService.mkPactExecutionService: No web-level local execution supported"
-    , _pactLookup = \h cd txs -> withChainService (_chainId h) $ \p -> _pactLookup p h cd txs
+    , _pactLookup = \cid cd txs -> withChainService cid $ \p -> _pactLookup p cid cd txs
     , _pactPreInsertCheck = \cid txs -> withChainService cid $ \p -> _pactPreInsertCheck p cid txs
     , _pactBlockTxHistory = \h d -> withChainService (_chainId h) $ \p -> _pactBlockTxHistory p h d
     , _pactHistoricalLookup = \h d k -> withChainService (_chainId h) $ \p -> _pactHistoricalLookup p h d k
@@ -155,14 +156,14 @@ mkPactExecutionService q = PactExecutionService
         case r of
           Right (!pdo) -> return pdo
           Left e -> throwM e
-    , _pactNewBlock = \m h -> do
-        mv <- newBlock m h q
+    , _pactNewBlock = \_ m -> do
+        mv <- newBlock m q
         r <- takeMVar mv
         either throwM evaluate r
     , _pactLocal = \pf sv rd ct ->
         local pf sv rd ct q >>= takeMVar
-    , _pactLookup = \h cd txs ->
-        lookupPactTxs h cd txs q >>= takeMVar
+    , _pactLookup = \_ cd txs ->
+        lookupPactTxs cd txs q >>= takeMVar
     , _pactPreInsertCheck = \_ txs ->
         pactPreInsertCheck txs q >>= takeMVar
     , _pactBlockTxHistory = \h d ->
@@ -177,10 +178,14 @@ mkPactExecutionService q = PactExecutionService
 -- | A mock execution service for testing scenarios. Throws out anything it's
 -- given.
 --
-emptyPactExecutionService :: HasCallStack => PactExecutionService
-emptyPactExecutionService = PactExecutionService
+-- Notable edge-case for the miner. newBlock will return a genesis parent header,
+-- which the miner does not like. It must stop using newBlock when Pact is
+-- disabled.
+emptyPactExecutionService :: HasCallStack => ChainwebVersion -> ChainId -> PactExecutionService
+emptyPactExecutionService v cid = PactExecutionService
     { _pactValidateBlock = \_ _ -> pure emptyPayload
-    , _pactNewBlock = \_ _ -> pure emptyPayload
+    , _pactNewBlock = \_ _ ->
+        pure (T2 (ParentHeader (genesisBlockHeader v cid)) emptyPayload)
     , _pactLocal = \_ _ _ _ -> throwM (userError "emptyPactExecutionService: attempted `local` call")
     , _pactLookup = \_ _ _ -> return $! Right $! HM.empty
     , _pactPreInsertCheck = \_ txs -> return $ Right $ V.map (const (Right ())) txs

@@ -264,16 +264,6 @@ pactLocalDepthTest = do
   runLocalWithDepth "3" (Just $ RewindDepth 2) cid getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the balance two blocks before" (pDecimal 100_000_000)
 
-  -- the negative depth turns into 18446744073709551611 and we expect the `LocalRewindLimitExceeded` exception
-  -- since `Depth` is a wrapper around `Word64`
-  handle
-    (\case
-      LocalRewindLimitExceeded _ _ -> return ()
-      err -> liftIO $ assertFailure $ "Expected LocalRewindLimitExceeded, but got " ++ show err)
-    (do
-      runLocalWithDepth "4" (Just $ RewindDepth (fromIntegral (-5 :: Int))) cid getSender00Balance >>= \_ ->
-        liftIO $ assertFailure "Expected LocalRewindLimitExceeded, but block succeeded")
-
   -- the genesis depth
   runLocalWithDepth "5" (Just $ RewindDepth 55) cid getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000)
@@ -555,7 +545,7 @@ chainweb215Test = do
         assertTxEvents "Transfer events @ block 53" evs cr
     ]
 
-    -- rewind to saved cut 50
+  -- rewind to saved cut 50
   rewindTo savedCut1
   runToHeight 53
 
@@ -1383,7 +1373,21 @@ currentCut :: PactTestM Cut
 currentCut = view menvBdb >>= liftIO . readMVar . _bdbCut
 
 rewindTo :: Cut -> PactTestM ()
-rewindTo c = view menvBdb >>= \bdb -> void $ liftIO $ swapMVar (_bdbCut bdb) c
+rewindTo c = do
+  pact <- view menvPact
+  bdb <- view menvBdb
+
+  forM_ (chainIds testVersion) $ \cid' -> do
+    let
+      ph = case HM.lookup cid' (_cutMap c) of
+          Just h -> h
+          Nothing -> error $ "rewindTo: can't find block header for " ++ show cid'
+
+    -- reset the parent header using validateBlock
+    pout <- liftIO $ getPWOByHeader ph bdb
+    void $ liftIO $ _webPactValidateBlock pact ph (payloadWithOutputsToPayloadData pout)
+
+    void $ liftIO $ swapMVar (_bdbCut bdb) c
 
 assertTxEvents :: (HasCallStack, MonadIO m) => String -> [PactEvent] -> CommandResult Hash -> m ()
 assertTxEvents msg evs = liftIO . assertEqual msg evs . _crEvents

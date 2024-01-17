@@ -56,7 +56,6 @@ import qualified Pact.JSON.Encode as J
 import Chainweb.BlockHash ( BlockHash )
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
-import Chainweb.ChainId
 import Chainweb.Mempool.Mempool (InsertError(..),TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.DbCache
@@ -85,8 +84,6 @@ data PactServiceConfig = PactServiceConfig
   { _pactReorgLimit :: !RewindLimit
     -- ^ Maximum allowed reorg depth, implemented as a rewind limit in validate. New block
     -- hardcodes this to 8 currently.
-  , _pactLocalRewindDepthLimit :: !RewindLimit
-    -- ^ Maximum allowed rewind depth in the local command.
   , _pactPreInsertCheckTimeout :: !Micros
     -- ^ Maximum allowed execution time for the transactions validation.
   , _pactAllowReadsInLocal :: !Bool
@@ -198,20 +195,15 @@ data PactException
   | RewindLimitExceeded
       { _rewindExceededLimit :: !RewindLimit
           -- ^ Rewind limit
-      , _rewindExceededLastHeight :: !BlockHeight
-          -- ^ current height
-      , _rewindExceededForkHeight :: !BlockHeight
-          -- ^ fork height
-      , _rewindExceededTarget :: !BlockHeader
+      , _rewindExceededLast :: !(Maybe BlockHeader)
+          -- ^ current header
+      , _rewindExceededTarget :: !(Maybe BlockHeader)
           -- ^ target header
       }
   | BlockHeaderLookupFailure !Text
   | BuyGasFailure !GasPurchaseFailure
   | MempoolFillFailure !Text
   | BlockGasLimitExceeded !Gas
-  | LocalRewindLimitExceeded
-    { _localRewindExceededLimit :: !RewindLimit
-    , _localRewindRequestedDepth :: !RewindDepth }
   | LocalRewindGenesisExceeded
   | FullHistoryRequired
     { _earliestBlockHeight :: !BlockHeight
@@ -233,18 +225,13 @@ instance J.Encode PactException where
   build (TransactionDecodeFailure msg) = tagged "TransactionDecodeFailure" msg
   build o@(RewindLimitExceeded{}) = tagged "RewindLimitExceeded" $ J.object
     [ "_rewindExceededLimit" J..= J.Aeson (_rewindLimit $ _rewindExceededLimit o)
-    , "_rewindExceededLastHeight" J..= J.Aeson @Int (fromIntegral $ _rewindExceededLastHeight o)
-    , "_rewindExceededForkHeight" J..= J.Aeson @Int (fromIntegral $ _rewindExceededForkHeight o)
-    , "_rewindExceededTarget" J..= J.encodeWithAeson (_rewindExceededTarget o)
+    , "_rewindExceededLast" J..= J.encodeWithAeson (ObjectEncoded <$> _rewindExceededLast o)
+    , "_rewindExceededTarget" J..= J.encodeWithAeson (ObjectEncoded <$> _rewindExceededTarget o)
     ]
   build (BlockHeaderLookupFailure msg) = tagged "BlockHeaderLookupFailure" msg
   build (BuyGasFailure failure) = tagged "BuyGasFailure" failure
   build (MempoolFillFailure msg) = tagged "MempoolFillFailure" msg
   build (BlockGasLimitExceeded gas) = tagged "BlockGasLimitExceeded" gas
-  build o@(LocalRewindLimitExceeded {}) = tagged "LocalRewindLimitExceeded" $ J.object
-    [ "_localRewindExceededLimit" J..= J.Aeson (_rewindLimit $ _localRewindExceededLimit o)
-    , "_localRewindRequestedDepth" J..= J.Aeson @Int (fromIntegral $ _rewindDepth $ _localRewindRequestedDepth o)
-    ]
   build LocalRewindGenesisExceeded = tagged "LocalRewindGenesisExceeded" J.null
   build o@(FullHistoryRequired{}) = tagged "FullHistoryRequired" $ J.object
     [ "_fullHistoryRequiredEarliestBlockHeight" J..= J.Aeson @Int (fromIntegral $ _earliestBlockHeight o)
@@ -303,11 +290,10 @@ data RequestMsg = NewBlockMsg !NewBlockReq
 type PactExMVar t = MVar (Either PactException t)
 
 data NewBlockReq = NewBlockReq
-    { _newBlockHeader :: !ParentHeader
-    , _newMiner :: !Miner
-    , _newResultVar :: !(PactExMVar PayloadWithOutputs)
+    { _newMiner :: !Miner
+    , _newResultVar :: !(PactExMVar (T2 ParentHeader PayloadWithOutputs))
     }
-instance Show NewBlockReq where show NewBlockReq{..} = show (_newBlockHeader, _newMiner)
+instance Show NewBlockReq where show NewBlockReq{..} = show _newMiner
 
 data ValidateBlockReq = ValidateBlockReq
     { _valBlockHeader :: !BlockHeader
@@ -326,14 +312,12 @@ data LocalReq = LocalReq
 instance Show LocalReq where show LocalReq{..} = show _localRequest
 
 data LookupPactTxsReq = LookupPactTxsReq
-    { _lookupRestorePoint :: !Rewind
-        -- here if the restore point is "Nothing" it means "we don't care"
-    , _lookupConfirmationDepth :: !(Maybe ConfirmationDepth)
+    { _lookupConfirmationDepth :: !(Maybe ConfirmationDepth)
     , _lookupKeys :: !(Vector PactHash)
     , _lookupResultVar :: !(PactExMVar (HashMap PactHash (T2 BlockHeight BlockHash)))
     }
 instance Show LookupPactTxsReq where
-    show (LookupPactTxsReq m _ _ _) =
+    show (LookupPactTxsReq m _ _) =
         "LookupPactTxsReq@" ++ show m
 
 data PreInsertCheckReq = PreInsertCheckReq
@@ -396,19 +380,3 @@ instance FromJSON SpvRequest where
 newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
     deriving stock (Eq, Show, Generic)
     deriving newtype (ToJSON, FromJSON)
-
--- | This data type marks whether or not a particular header is
--- expected to rewind or not. In the case of 'NoRewind', no
--- header data is given, and a chain id is given instead for
--- routing purposes
---
-data Rewind
-    = DoRewind !BlockHeader
-    | NoRewind {-# UNPACK #-} !ChainId
-    deriving (Eq, Show)
-
-instance HasChainId Rewind where
-    _chainId = \case
-      DoRewind !bh -> _chainId bh
-      NoRewind !cid -> cid
-    {-# INLINE _chainId #-}

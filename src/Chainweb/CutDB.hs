@@ -58,6 +58,7 @@ module Chainweb.CutDB
 , cutStm
 , awaitNewCut
 , awaitNewCutByChainId
+, awaitNewBlock
 , awaitNewCutByChainIdStm
 , cutStream
 , addCutHashes
@@ -341,6 +342,13 @@ awaitNewCut cdb c = atomically $ do
 awaitNewCutByChainId :: CutDb tbl -> ChainId -> Cut -> IO Cut
 awaitNewCutByChainId cdb cid c = atomically $ awaitNewCutByChainIdStm cdb cid c
 {-# INLINE awaitNewCutByChainId #-}
+
+awaitNewBlock :: CutDb tbl -> ChainId -> BlockHeader -> IO BlockHeader
+awaitNewBlock cdb cid bh = atomically $ do
+    c <- _cutStm cdb
+    case HM.lookup cid (_cutMap c) of
+        Just bh' | _blockHash bh' /= _blockHash bh -> return bh'
+        _ -> retry
 
 -- | As in `awaitNewCut`, but only updates when the specified `ChainId` has
 -- grown.
@@ -853,4 +861,3 @@ getQueueStats db = QueueStats
     <*> (int <$> TM.size (_webBlockHeaderStoreMemo $ view cutDbWebBlockHeaderStore db))
     <*> pQueueSize (_webBlockPayloadStoreQueue $ view cutDbPayloadStore db)
     <*> (int <$> TM.size (_webBlockPayloadStoreMemo $ view cutDbPayloadStore db))
-
