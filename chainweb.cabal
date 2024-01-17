@@ -820,6 +820,7 @@ benchmark bench
         , mtl >= 2.3
         , pact
         , random >= 1.2
+        , streaming
         , text >= 2.0
         , vector >= 0.12.2
         , yaml >= 0.11

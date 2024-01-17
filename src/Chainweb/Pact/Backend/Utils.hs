@@ -28,6 +28,7 @@ module Chainweb.Pact.Backend.Utils
   , beginSavepoint
   , commitSavepoint
   , rollbackSavepoint
+  , abortSavepoint
   , SavepointName(..)
   -- * SQLite conversions and assertions
   , toUtf8
@@ -161,11 +162,11 @@ withSavepoint
     -> BlockHandler logger SQLiteEnv a
     -> BlockHandler logger SQLiteEnv a
 withSavepoint name action = mask $ \resetMask -> do
-    resetMask $ beginSavepoint name
+    beginSavepoint name
     go resetMask `catches` handlers
   where
     go resetMask = do
-        r <- resetMask action `onException` rollbackSavepoint name
+        r <- resetMask action `onException` abortSavepoint name
         commitSavepoint name
         liftIO $ evaluate r
     throwErr s = internalError $ "withSavepoint (" <> toText name <> "): " <> s
@@ -196,7 +197,14 @@ rollbackSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
 rollbackSavepoint name =
   callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
 
-data SavepointName = BatchSavepoint | Block | DbTransaction |  PreBlock
+-- | @abortSavepoint n@ rolls back all database updates since the most recent
+-- savepoint with the name @n@ and removes it from the savepoint stack.
+abortSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
+abortSavepoint name = do
+  rollbackSavepoint name
+  commitSavepoint name
+
+data SavepointName = BatchSavepoint | DbTransaction | PreBlock
   deriving (Eq, Ord, Enum, Bounded)
 
 instance Show SavepointName where
@@ -204,13 +212,11 @@ instance Show SavepointName where
 
 instance HasTextRepresentation SavepointName where
     toText BatchSavepoint = "batch"
-    toText Block = "block"
     toText DbTransaction = "db-transaction"
     toText PreBlock = "preblock"
     {-# INLINE toText #-}
 
     fromText "batch" = pure BatchSavepoint
-    fromText "block" = pure Block
     fromText "db-transaction" = pure DbTransaction
     fromText "preblock" = pure PreBlock
     fromText t = throwM $ TextFormatException

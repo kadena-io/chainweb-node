@@ -31,7 +31,7 @@ loglevel = Warn
 
 -- note that because these tests run in parallel they must all use distinct rocksdb and sqlite dirs.
 suite :: TestTree
-suite = sequentialTestGroup "ChainwebSlowTests" AllSucceed
+suite = sequentialTestGroup "ChainwebSlowTests" AllFinish
     [ testCaseSteps "ConsensusNetwork - TimedConsensus - 10 nodes - 30 seconds" $ \step ->
         withTempRocksDb "multinode-tests-timedconsensus-peterson-twenty-rocks" $ \rdb ->
         withSystemTempDirectory "multinode-tests-timedconsensus-peterson-twenty-pact" $ \pactDbDir ->
