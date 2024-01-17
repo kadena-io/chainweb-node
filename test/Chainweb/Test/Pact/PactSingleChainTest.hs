@@ -99,16 +99,12 @@ testVersion = slowForkingCpmTestVersion petersonChainGraph
 cid :: ChainId
 cid = someChainId testVersion
 
-genesisHeader :: BlockHeader
-genesisHeader = genesisBlockHeader testVersion cid
-
 tests :: RocksDb -> TestTree
 tests rdb = testGroup testName
   [ test $ goldenNewBlock "new-block-0" goldenMemPool
   , test $ goldenNewBlock "empty-block-tests" mempty
   , test newBlockAndValidate
   , test newBlockAndValidationFailure
-  , test newBlockRewindValidate
   , test getHistory
   , test testHistLookup1
   , test testHistLookup2
@@ -174,7 +170,7 @@ runBlockE q bdb timeOffset = do
   ph <- getParentTestBlockDb bdb cid
   let blockTime = add timeOffset $ _bct $ _blockCreationTime ph
   nb <- forSuccess "newBlock" $
-        newBlock noMiner (ParentHeader ph) q
+        newBlock noMiner q
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
           | otherwise = emptyPayload
@@ -201,7 +197,7 @@ newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailur
   ph <- getParentTestBlockDb bdb cid
   let blockTime = add second $ _bct $ _blockCreationTime ph
   nb <- forSuccess ("newBlockAndValidate" <> ": newblock") $
-        newBlock noMiner (ParentHeader ph) q
+        newBlock noMiner q
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
           | otherwise = emptyPayload
@@ -216,7 +212,7 @@ newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailur
   takeMVar r >>= \case
     Left (PactInternalError err) -> do
       let txHash = fromRight (error "can't parse") $ fromText' "WgnuCg6L_l6lzbjWtBfMEuPtty_uGcNrUol5HGREO_o"
-      lookupResMvar <- lookupPactTxs (NoRewind cid) Nothing (V.fromList [txHash]) q
+      lookupResMvar <- lookupPactTxs Nothing (V.fromList [txHash]) q
       takeMVar lookupResMvar >>= \lookupRes ->
         assertEqual "The transaction from the latest block is not at the tip point" (Right mempty) lookupRes
 
@@ -432,7 +428,9 @@ compactionDoesNotDisruptDuplicateDetection rdb = do
           $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)")
           $ defaultCmd
 
-    let run = do
+    let
+        run :: HasCallStack => IO (Either PactException PayloadWithOutputs)
+        run = do
           runTxInBlock cr.mempoolRef cr.pactQueue cr.blockDb
             $ \_ _ _ _ -> makeTx
 
@@ -618,35 +616,6 @@ assertSender00Bal bal msg hist =
         , "balance" .= Number (fromRational bal)
         ])))
     hist
-
-newBlockRewindValidate :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
-newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
-  (_, q, bdb) <- reqIO
-  setOneShotMempool mpRefIO chainDataMemPool
-  cut0 <- readMVar $ _bdbCut bdb -- genesis cut
-
-  -- cut 1a
-  void $ runBlock q bdb second
-  cut1a <- readMVar $ _bdbCut bdb
-
-  -- rewind, cut 1b
-  void $ swapMVar (_bdbCut bdb) cut0
-  void $ runBlock q bdb second
-
-  -- rewind to cut 1a to trigger replay with chain data bug
-  void $ swapMVar (_bdbCut bdb) cut1a
-  void $ runBlock q bdb (secondsToTimeSpan 2)
-
-  where
-
-    chainDataMemPool = mempty {
-      mpaGetBlock = \_ _ _ _ bh -> do
-          fmap V.singleton $ buildCwCmd (sshow bh) testVersion
-              $ signSender00
-              $ setFromHeader bh
-              $ set cbRPC (mkExec' "(chain-data)")
-              $ defaultCmd
-      }
 
 signSender00 :: CmdBuilder -> CmdBuilder
 signSender00 = set cbSigners [mkEd25519Signer' sender00 []]
@@ -888,7 +857,7 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
     $ set cbRPC (mkExec' "(+ 1 2)")
     $ defaultCmd
   setOneShotMempool mpRefIO (badlistMPA badTx badHashRef)
-  resp <- forSuccess "badlistNewBlockTest" $ newBlock noMiner (ParentHeader genesisHeader) reqQ
+  resp <- forSuccess "badlistNewBlockTest" $ newBlock noMiner reqQ
   assertEqual "bad tx filtered from block" mempty (_payloadWithOutputsTransactions resp)
   badHash <- readIORef badHashRef
   assertEqual "Badlist should have badtx hash" (hashToTxHashList $ _cmdHash badTx) badHash
@@ -904,7 +873,7 @@ goldenNewBlock name mp mpRefIO reqIO = golden name $ do
     (_, reqQ, _) <- reqIO
     setOneShotMempool mpRefIO mp
     resp <- forSuccess ("goldenNewBlock:" ++ name) $
-      newBlock noMiner (ParentHeader genesisHeader) reqQ
+      newBlock noMiner reqQ
     -- ensure all golden txs succeed
     forM_ (_payloadWithOutputsTransactions resp) $ \(txIn,TransactionOutput out) -> do
       cr :: CommandResult Hash <- decodeStrictOrThrow out
@@ -999,7 +968,7 @@ compactionSetup pat rdb pactCfg f =
         , blockDb = blockDb
         }
 
-runTxInBlock :: ()
+runTxInBlock :: HasCallStack
   => IO (IORef MemPoolAccess) -- ^ mempoolRef
   -> PactQueue
   -> TestBlockDb

@@ -39,8 +39,8 @@ import Control.Monad.IO.Class
 import qualified Data.Aeson as A
 import Data.Aeson.Lens hiding (values)
 import Data.Bifunctor (first)
-import Control.Monad.Trans.Except (runExceptT, except)
 import Control.Monad.Except (throwError)
+import Control.Monad.Trans.Except (runExceptT, except)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Short as SB

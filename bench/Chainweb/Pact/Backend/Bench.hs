@@ -146,7 +146,7 @@ cpBenchNoRewindOverBlock transactionCount cp = C.env (setup' cp) $ \ ~(ut) ->
       ++ show transactionCount
     setup' Checkpointer{..} = do
         usertablename <- _cpRestore Nothing >>= \case
-          PactDbEnv' db ->
+          db ->
             setupUserTable db $ \ut -> writeRow db Insert ut f k 1
         _cpSave hash01
         return usertablename
@@ -169,7 +169,7 @@ cpBenchNoRewindOverBlock transactionCount cp = C.env (setup' cp) $ \ ~(ut) ->
     go Checkpointer{..} mblock (NoopNFData ut) = do
         (blockheight, bytestring, hash) <- readMVar mblock
         void $ _cpRestore (Just (blockheight, hash)) >>= \case
-          PactDbEnv' pactdbenv ->
+          pactdbenv ->
             replicateM_ transactionCount (transaction pactdbenv)
         let (bytestring', hash') = nextHash bytestring
         modifyMVar_ mblock
@@ -186,7 +186,7 @@ cpBenchOverBlock transactionCount cp = C.env (setup' cp) $ \ ~(ut) ->
     benchname = "overBlock/transactionCount=" ++ show transactionCount
     setup' Checkpointer{..} = do
         usertablename <- _cpRestore Nothing >>= \case
-            PactDbEnv' db ->
+            db ->
               setupUserTable db $ \ut -> writeRow db Insert ut f k 1
         _cpSave hash01
         return usertablename
@@ -199,7 +199,7 @@ cpBenchOverBlock transactionCount cp = C.env (setup' cp) $ \ ~(ut) ->
 
     go Checkpointer{..} (NoopNFData ut) = do
         _cpRestore (Just (BlockHeight 1, hash01)) >>= \case
-            PactDbEnv' pactdbenv ->
+            pactdbenv ->
               replicateM_ transactionCount (transaction pactdbenv)
         void $ _cpSave hash02
       where
@@ -320,7 +320,7 @@ _cpBenchKeys numKeys cp =
       ++ show numKeys
     setup' Checkpointer{..} = do
         usertablename <- _cpRestore Nothing >>= \case
-            PactDbEnv' db ->
+            db ->
               setupUserTable db $ \ut -> forM_ [1 .. numKeys] $ \i -> do
                   let rowkey = RowKey $ "k" <> sshow i
                   writeRow db Insert ut f rowkey (fromIntegral i)
@@ -335,7 +335,7 @@ _cpBenchKeys numKeys cp =
 
     go Checkpointer{..} (NoopNFData ut) = do
         _cpRestore (Just (BlockHeight 1, hash01)) >>= \case
-            PactDbEnv' pactdbenv -> forM_ [1 .. numKeys] (transaction pactdbenv)
+            pactdbenv -> forM_ [1 .. numKeys] (transaction pactdbenv)
         void $ _cpSave hash02
       where
         transaction db numkey = do
@@ -351,7 +351,7 @@ cpBenchSampleKeys numSampleEvents cp =
     numberOfKeys = 10
     setup' Checkpointer {..} = do
         usertablename <- _cpRestore Nothing >>= \case
-            PactDbEnv' db ->
+            db ->
               setupUserTable db $ \ut -> forM_ [1 .. numberOfKeys] $ \i -> do
                   let rowkey = RowKey $ "k" <> sshow i
                   writeRow db Insert ut f rowkey i
@@ -374,7 +374,7 @@ cpBenchSampleKeys numSampleEvents cp =
 
     go Checkpointer {..} (NoopNFData ut) = do
         _cpRestore (Just (BlockHeight 1, hash01)) >>= \case
-              PactDbEnv' db@(PactDbEnv pdb e) ->
+              db@(PactDbEnv pdb e) ->
                 forM_ [1 .. numSampleEvents] $ \_ -> do
                     let torowkey ind = RowKey $ "k" <> sshow ind
                     rowkeya <- torowkey <$> randomRIO (1,numberOfKeys)
@@ -394,12 +394,12 @@ cpBenchLookupProcessedTx transactionCount cp = C.env (setup' cp) $ \ ~(ut) ->
     transaction (NoopNFData ut) db = incIntegerAtKey db ut f k 1
     setup' Checkpointer{..} = do
         usertablename <- _cpRestore Nothing >>= \case
-            PactDbEnv' db ->
+            db ->
               setupUserTable db $ \ut -> writeRow db Insert ut f k 1
         _cpSave hash01
 
         _cpRestore (Just (BlockHeight 1, hash01)) >>= \case
-            PactDbEnv' pactdbenv ->
+            pactdbenv ->
               replicateM_ transactionCount (transaction usertablename pactdbenv)
         void $ _cpSave hash02
 
@@ -413,5 +413,5 @@ cpBenchLookupProcessedTx transactionCount cp = C.env (setup' cp) $ \ ~(ut) ->
 
     go Checkpointer{..} (NoopNFData _) = do
         _cpRestore (Just (BlockHeight 2, hash02)) >>= \case
-          PactDbEnv' _ ->
+          _ ->
             _cpLookupProcessedTx Nothing (V.fromList [Pact.TypedHash "" | _ <- [1..transactionCount]])

@@ -110,7 +110,7 @@ import Chainweb.HostAddress
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultLocalRewindDepthLimit, defaultPreInsertCheckTimeout)
+import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultPreInsertCheckTimeout)
 import Chainweb.Pact.Service.Types (RewindLimit(..))
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
@@ -391,7 +391,6 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configMinGasPrice :: !Mempool.GasPrice
     , _configPactQueueSize :: !Natural
     , _configReorgLimit :: !RewindLimit
-    , _configLocalRewindDepthLimit :: !RewindLimit
     , _configPreInsertCheckTimeout :: !Micros
     , _configAllowReadsInLocal :: !Bool
     , _configRosetta :: !Bool
@@ -453,7 +452,6 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configMinGasPrice = 1e-8
     , _configPactQueueSize = 2000
     , _configReorgLimit = defaultReorgLimit
-    , _configLocalRewindDepthLimit = defaultLocalRewindDepthLimit
     , _configPreInsertCheckTimeout = defaultPreInsertCheckTimeout
     , _configAllowReadsInLocal = False
     , _configRosetta = False
@@ -479,7 +477,6 @@ instance ToJSON ChainwebConfiguration where
         , "minGasPrice" .= J.toJsonViaEncode (_configMinGasPrice o)
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
-        , "localRewindDepthLimit" .= _configLocalRewindDepthLimit o
         , "preInsertCheckTimeout" .= _configPreInsertCheckTimeout o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
         , "rosetta" .= _configRosetta o
@@ -547,9 +544,6 @@ pChainwebConfiguration = id
         <> help "Max allowed reorg depth.\
                 \ Consult https://github.com/kadena-io/chainweb-node/blob/master/docs/RecoveringFromDeepForks.md for\
                 \ more information. "
-    <*< configLocalRewindDepthLimit .:: jsonOption
-        % long "local-rewind-depth-limit"
-        <> help "Max allowed rewind depth for the local command."
     <*< configPreInsertCheckTimeout .:: jsonOption
         % long "pre-insert-check-timeout"
         <> help "Max allowed time in microseconds for the transactions validation in the PreInsertCheck command."
@@ -605,4 +599,3 @@ parseVersion = constructVersion
         & versionCheats . disablePow .~ disablePow'
         where
         winningVersion = fromMaybe oldVersion cliVersion
-

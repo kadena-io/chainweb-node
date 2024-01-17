@@ -56,7 +56,6 @@ import qualified Pact.JSON.Encode as J
 import Chainweb.BlockHash ( BlockHash )
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
-import Chainweb.ChainId
 import Chainweb.Mempool.Mempool (InsertError(..),TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.DbCache
@@ -85,8 +84,6 @@ data PactServiceConfig = PactServiceConfig
   { _pactReorgLimit :: !RewindLimit
     -- ^ Maximum allowed reorg depth, implemented as a rewind limit in validate. New block
     -- hardcodes this to 8 currently.
-  , _pactLocalRewindDepthLimit :: !RewindLimit
-    -- ^ Maximum allowed rewind depth in the local command.
   , _pactPreInsertCheckTimeout :: !Micros
     -- ^ Maximum allowed execution time for the transactions validation.
   , _pactAllowReadsInLocal :: !Bool
@@ -303,11 +300,10 @@ data RequestMsg = NewBlockMsg !NewBlockReq
 type PactExMVar t = MVar (Either PactException t)
 
 data NewBlockReq = NewBlockReq
-    { _newBlockHeader :: !ParentHeader
-    , _newMiner :: !Miner
+    { _newMiner :: !Miner
     , _newResultVar :: !(PactExMVar PayloadWithOutputs)
     }
-instance Show NewBlockReq where show NewBlockReq{..} = show (_newBlockHeader, _newMiner)
+instance Show NewBlockReq where show NewBlockReq{..} = show _newMiner
 
 data ValidateBlockReq = ValidateBlockReq
     { _valBlockHeader :: !BlockHeader
@@ -326,14 +322,12 @@ data LocalReq = LocalReq
 instance Show LocalReq where show LocalReq{..} = show _localRequest
 
 data LookupPactTxsReq = LookupPactTxsReq
-    { _lookupRestorePoint :: !Rewind
-        -- here if the restore point is "Nothing" it means "we don't care"
-    , _lookupConfirmationDepth :: !(Maybe ConfirmationDepth)
+    { _lookupConfirmationDepth :: !(Maybe ConfirmationDepth)
     , _lookupKeys :: !(Vector PactHash)
     , _lookupResultVar :: !(PactExMVar (HashMap PactHash (T2 BlockHeight BlockHash)))
     }
 instance Show LookupPactTxsReq where
-    show (LookupPactTxsReq m _ _ _) =
+    show (LookupPactTxsReq m _ _) =
         "LookupPactTxsReq@" ++ show m
 
 data PreInsertCheckReq = PreInsertCheckReq
@@ -396,19 +390,3 @@ instance FromJSON SpvRequest where
 newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
     deriving stock (Eq, Show, Generic)
     deriving newtype (ToJSON, FromJSON)
-
--- | This data type marks whether or not a particular header is
--- expected to rewind or not. In the case of 'NoRewind', no
--- header data is given, and a chain id is given instead for
--- routing purposes
---
-data Rewind
-    = DoRewind !BlockHeader
-    | NoRewind {-# UNPACK #-} !ChainId
-    deriving (Eq, Show)
-
-instance HasChainId Rewind where
-    _chainId = \case
-      DoRewind !bh -> _chainId bh
-      NoRewind !cid -> cid
-    {-# INLINE _chainId #-}

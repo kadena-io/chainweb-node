@@ -212,7 +212,7 @@ instance HasTextRepresentation Fork where
     toText SPVBridge = "spvBridge"
     toText Pact4Coin3 = "pact4Coin3"
     toText EnforceKeysetFormats = "enforceKeysetFormats"
-    toText Pact42 = "Pact42"
+    toText Pact42 = "pact42"
     toText CheckTxHash = "checkTxHash"
     toText Chainweb213Pact = "chainweb213Pact"
     toText Chainweb214Pact = "chainweb214Pact"
@@ -241,7 +241,7 @@ instance HasTextRepresentation Fork where
     fromText "spvBridge" = return SPVBridge
     fromText "pact4Coin3" = return Pact4Coin3
     fromText "enforceKeysetFormats" = return EnforceKeysetFormats
-    fromText "Pact42" = return Pact42
+    fromText "pact42" = return Pact42
     fromText "checkTxHash" = return CheckTxHash
     fromText "chainweb213Pact" = return Chainweb213Pact
     fromText "chainweb214Pact" = return Chainweb214Pact

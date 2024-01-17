@@ -403,7 +403,7 @@ tryMineForChain
     -> ChainId
     -> IO (Either MineFailure (Cut, ChainId, PayloadWithOutputs))
 tryMineForChain miner webPact cutDb c cid = do
-    outputs <- _webPactNewBlock webPact miner parent
+    outputs <- _webPactNewBlock webPact cid miner
     let payloadHash = _payloadWithOutputsPayloadHash outputs
     t <- getCurrentTimeIntegral
     x <- testMineWithPayloadHash wdb (Nonce 0) t payloadHash cid c
@@ -416,7 +416,6 @@ tryMineForChain miner webPact cutDb c cid = do
             return $ Right (c', cid, outputs)
         Left e -> return $ Left e
   where
-    parent = ParentHeader $ c ^?! ixg cid -- parent to mine on
     wdb = view cutDbWebBlockHeaderDb cutDb
 
 -- | picks a random block header from a web chain. The result header is
@@ -543,4 +542,3 @@ testCutGet rdb = testCase "cut get" $ do
       assertGe "cut height is large enough" (Actual curHeight) (Expected $ 2 * int ch)
       retCut <- cutGetHandler cutDb (Just $ MaxRank (Max $ int halfCh))
       assertLe "cut hashes are too high" (Actual (_cutHashesHeight retCut)) (Expected halfCh)
-

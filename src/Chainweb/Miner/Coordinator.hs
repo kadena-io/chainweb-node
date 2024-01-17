@@ -312,7 +312,7 @@ work mr mcid m = do
         $ T3 m pd now
     return wh
   where
-    -- here we log the case that the work loop has stalled.
+-- here we log the case that the work loop has stalled.
     logDelays :: Int -> IO ()
     logDelays n = do
         threadDelay 1_000_000

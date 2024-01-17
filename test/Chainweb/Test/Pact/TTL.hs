@@ -220,7 +220,7 @@ doNewBlock ctxIO mempool parent nonce t = do
      ctx <- ctxIO
      unlessM (tryPutMVar (_ctxMempool ctx) mempool) $
         error "Test failure: mempool access is not empty. Some previous test step failed unexpectedly"
-     mv <- newBlock noMiner parent $ _ctxQueue ctx
+     mv <- newBlock noMiner $ _ctxQueue ctx
      payload <- assertNotLeft =<< takeMVar mv
 
      let bh = newBlockHeader

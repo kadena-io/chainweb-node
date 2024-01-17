@@ -171,7 +171,13 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
     -- cycle.
     pruneDbs
     restartPact
-    let T3 _ line1 _ = mainlineblocks !! 6
+    let T3 _ line1 pwo1 = mainlineblocks !! 6
+
+    (_, q, _) <- iop
+
+    -- reset the pact service state to line1
+    void $ validateBlock line1 (payloadWithOutputsToPayloadData pwo1) q
+
     void $ mineLine line1 nonceCounter 4
   where
     mineLine start ncounter len =
@@ -208,9 +214,19 @@ firstPlayThrough mpio genesisBlock iop = do
     setOneShotMempool mpio testMemPoolAccess
     nonceCounter <- newIORef (1 :: Word64)
     mainlineblocks <- mineLine genesisBlock nonceCounter 7
-    let T3 _ startline1 _ = head mainlineblocks
-    let T3 _ startline2 _ = mainlineblocks !! 1
+    let T3 _ startline1 pwo1 = head mainlineblocks
+    let T3 _ startline2 pwo2 = mainlineblocks !! 1
+
+    (_, q, _) <- iop
+
+    -- reset the pact service state to startline1
+    void $ validateBlock startline1 (payloadWithOutputsToPayloadData pwo1) q
+
     void $ mineLine startline1 nonceCounter 4
+
+    -- reset the pact service state to startline2
+    void $ validateBlock startline2 (payloadWithOutputsToPayloadData pwo2) q
+
     void $ mineLine startline2 nonceCounter 4
   where
     mineLine start ncounter len =
@@ -312,7 +328,7 @@ mineBlock ph nonce iop = timeout 5000000 go >>= \case
 
       -- assemble block without nonce and timestamp
       let r = (\(_, q, _) -> q) <$> iop
-      mv <- r >>= newBlock noMiner ph
+      mv <- r >>= newBlock noMiner
       payload <- assertNotLeft =<< takeMVar mv
 
       let bh = newBlockHeader

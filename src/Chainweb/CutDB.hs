@@ -853,4 +853,3 @@ getQueueStats db = QueueStats
     <*> (int <$> TM.size (_webBlockHeaderStoreMemo $ view cutDbWebBlockHeaderStore db))
     <*> pQueueSize (_webBlockPayloadStoreQueue $ view cutDbPayloadStore db)
     <*> (int <$> TM.size (_webBlockPayloadStoreMemo $ view cutDbPayloadStore db))
-
