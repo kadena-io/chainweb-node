@@ -191,4 +191,3 @@ getPactQueueStats q = PactQueueStats
     <$> readIORef (_pactQueuePactQueueValidateBlockMsgCounters q)
     <*> readIORef (_pactQueuePactQueueNewBlockMsgCounters q)
     <*> readIORef (_pactQueuePactQueueOtherMsgCounters q)
-

@@ -102,12 +102,12 @@ import Pact.Types.SPV
 
 -- internal Chainweb modules
 
-import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import qualified Chainweb.ChainId as Chainweb
 import Chainweb.Mempool.Mempool (requestKeyToTransactionHash)
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
 import Chainweb.Pact.Types hiding (logError)
@@ -140,7 +140,7 @@ magic_GENESIS = mkMagicCapSlot "GENESIS"
 
 onChainErrorPrintingFor :: TxContext -> UnexpectedErrorPrinting
 onChainErrorPrintingFor txCtx =
-  if chainweb219Pact (ctxVersion txCtx) (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
+  if chainweb219Pact (V._chainwebVersion txCtx) (V._chainId txCtx) (ctxCurrentBlockHeight txCtx)
   then CensorsUnexpectedError
   else PrintsUnexpectedError
 
@@ -155,7 +155,7 @@ applyCmd
       -- ^ Pact logger
     -> Maybe logger
       -- ^ Pact gas logger
-    -> PactDbEnv p
+    -> CurrentBlockDbEnv logger
       -- ^ Pact db environment
     -> Miner
       -- ^ The miner chosen to mine the block
@@ -174,7 +174,7 @@ applyCmd
     -> ApplyCmdExecutionContext
       -- ^ is this a local or send execution context?
     -> IO (T3 (CommandResult [TxLogJson]) ModuleCache (S.Set PactWarning))
-applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 callCtx = do
+applyCmd v logger gasLogger dbEnv miner gasModel txCtx spv cmd initialGas mcache0 callCtx = do
     T2 cr st <- runTransactionM cenv txst applyBuyGas
 
     let cache = _txCache st
@@ -193,9 +193,9 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
         ([ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
         ++ [ FlagPreserveModuleNameBug | not isModuleNameFix ]
         ++ [ FlagPreserveNsModuleInstallBug | not isModuleNameFix2 ])
-      <> flagsFor v (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
+      <> flagsFor v cid (ctxCurrentBlockHeight txCtx)
 
-    cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
+    cenv = TransactionEnv Transactional (_cpPactDbEnv dbEnv) logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
 
     requestKey = cmdToRequestKey cmd
@@ -203,7 +203,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     gasLimit = view cmdGasLimit cmd
     nid = networkIdOf cmd
     currHeight = ctxCurrentBlockHeight txCtx
-    cid = ctxChainId txCtx
+    cid = V._chainId txCtx
     isModuleNameFix = enableModuleNameFix v cid currHeight
     isModuleNameFix2 = enableModuleNameFix2 v cid currHeight
     isPactBackCompatV16 = pactBackCompat_v16 v cid currHeight
@@ -286,7 +286,7 @@ applyGenesisCmd
     :: (Logger logger)
     => logger
       -- ^ Pact logger
-    -> PactDbEnv p
+    -> CurrentBlockDbEnv logger
       -- ^ Pact db environment
     -> SPVSupport
       -- ^ SPV support (validates cont proofs)
@@ -302,7 +302,7 @@ applyGenesisCmd logger dbEnv spv txCtx cmd =
     rk = cmdToRequestKey cmd
     tenv = TransactionEnv
         { _txMode = Transactional
-        , _txDbEnv = dbEnv
+        , _txDbEnv = _cpPactDbEnv dbEnv
         , _txLogger = logger
         , _txGasLogger = Nothing
         , _txPublicData = def
@@ -312,7 +312,7 @@ applyGenesisCmd logger dbEnv spv txCtx cmd =
         , _txRequestKey = rk
         , _txGasLimit = 0
         , _txExecutionConfig = ExecutionConfig
-          $ flagsFor (ctxVersion txCtx) (ctxChainId txCtx) (_blockHeight $ ctxBlockHeader txCtx)
+          $ flagsFor (_chainwebVersion txCtx) (V._chainId txCtx) (_parentContextHeight (ctxParentContext txCtx))
           -- TODO this is very ugly. Genesis blocks need to install keysets
           -- outside of namespaces so we need to disable Pact 4.4. It would be
           -- preferable to have a flag specifically for the namespaced keyset
@@ -383,7 +383,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
   | fork1_3InEffect || enablePC = do
     when chainweb213Pact' $ enforceKeyFormats
         (\k -> throwM $ CoinbaseFailure $ "Invalid miner key: " <> sshow k)
-        (validKeyFormats v (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx))
+        (validKeyFormats v cid (ctxCurrentBlockHeight txCtx))
         mk
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
         interp = Interpreter $ \_ -> do put initState; fmap pure (eval cterm)
@@ -400,18 +400,17 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
     ec = ExecutionConfig $ S.delete FlagEnforceKeyFormats $ fold
       [ S.singleton FlagDisableModuleInstall
       , S.singleton FlagDisableHistoryInTransactionalMode
-      , flagsFor v (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
+      , flagsFor v cid (ctxCurrentBlockHeight txCtx)
       ]
     tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv) mempty
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     rk = RequestKey chash
-    parent = _tcParentHeader txCtx
 
     bh = ctxCurrentBlockHeight txCtx
-    cid = Chainweb._chainId parent
-    chash = Pact.Hash $ SB.toShort $ encodeToByteString $ _blockHash $ _parentHeader parent
+    cid = Chainweb._chainId txCtx
+    chash = Pact.Hash $ SB.toShort $ encodeToByteString $ _parentContextHash $ _tcParentContext txCtx
         -- NOTE: it holds that @ _pdPrevBlockHash pd == encode _blockHash@
         -- NOTE: chash includes the /quoted/ text of the parent header.
 
@@ -446,7 +445,7 @@ applyLocal
       -- ^ Pact logger
     -> Maybe logger
       -- ^ Pact gas logger
-    -> PactDbEnv p
+    -> CurrentBlockDbEnv logger
       -- ^ Pact db environment
     -> GasModel
       -- ^ Gas model (pact Service config)
@@ -469,7 +468,7 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     signers = _pSigners $ _cmdPayload cmd
     gasPrice = view cmdGasPrice cmd
     gasLimit = view cmdGasLimit cmd
-    tenv = TransactionEnv Local dbEnv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
+    tenv = TransactionEnv Local (_cpPactDbEnv dbEnv) logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
            rk (fromIntegral gasLimit) execConfig
     txst = TransactionState mc mempty 0 Nothing gasModel mempty
     gas0 = initialGasOf (_cmdPayload cmdIn)
@@ -490,10 +489,10 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
 
 
 readInitModules
-    :: forall logger p. (Logger logger)
+    :: forall logger. Logger logger
     => logger
       -- ^ Pact logger
-    -> PactDbEnv p
+    -> CurrentBlockDbEnv logger
       -- ^ Pact db environment
     -> TxContext
       -- ^ tx metadata and parent header
@@ -506,18 +505,17 @@ readInitModules logger dbEnv txCtx
     -- cache purging everything but coin and its
     -- dependencies.
     chainweb217Pact' = chainweb217Pact
-      (ctxVersion txCtx)
-      (ctxChainId txCtx)
+      (_chainwebVersion txCtx)
+      cid
       (ctxCurrentBlockHeight txCtx)
 
-    parent = _tcParentHeader txCtx
-    v = ctxVersion txCtx
-    cid = ctxChainId txCtx
-    h = _blockHeight (_parentHeader parent) + 1
+    v = _chainwebVersion txCtx
+    cid = V._chainId txCtx
+    h = ctxCurrentBlockHeight txCtx
     rk = RequestKey chash
     nid = Nothing
     chash = pactInitialHash
-    tenv = TransactionEnv Local dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
+    tenv = TransactionEnv Local (_cpPactDbEnv dbEnv) logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
            rk 0 def
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
     interp = defaultInterpreter

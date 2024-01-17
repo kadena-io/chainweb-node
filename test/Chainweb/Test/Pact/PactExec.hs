@@ -83,40 +83,40 @@ tests =
     -- fungible-v2 is installed at that block height 1. Because applying the
     -- update twice resuls in an validaton failures, we have to run each test on
     -- a fresh pact environment. Unfortunately, that's a bit slow.
-    [ withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    [ withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
         \ctx -> execTest ctx testReq2
-    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
         \ctx -> execTest ctx testReq3
-    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
         \ctx -> execTest ctx testReq4
-    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
         \ctx -> execTest ctx testReq5
-    , withPactCtxSQLite logger testEventsVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testEventsVersion (bhdbIO testEventsVersion rocksIO) pdb testPactServiceConfig $
         \ctx -> execTxsTest ctx "testTfrGas" testTfrGas
-    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
         \ctx -> execTxsTest ctx "testGasPayer" testGasPayer
-    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
         \ctx -> execTxsTest ctx "testContinuationGasPayer" testContinuationGasPayer
-    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
         \ctx -> execTxsTest ctx "testExecGasPayer" testExecGasPayer
-    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
       \ctx -> execTest ctx testReq6
-    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
       \ctx -> execTxsTest ctx "testTfrNoGasFails" testTfrNoGasFails
-    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
       \ctx -> execTxsTest ctx "testBadSenderFails" testBadSenderFails
-    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
       \ctx -> execTxsTest ctx "testFailureRedeem" testFailureRedeem
-    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb testPactServiceConfig $
+    , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
       \ctx -> execLocalTest ctx "testAllowReadsLocalFails" testAllowReadsLocalFails
-    , withPactCtxSQLite logger testVersion (bhdbIO rocksIO) pdb allowReads $
+    , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb allowReads $
       \ctx -> execLocalTest ctx "testAllowReadsLocalSuccess" testAllowReadsLocalSuccess
     ]
   where
-    bhdbIO :: IO RocksDb -> IO BlockHeaderDb
-    bhdbIO rocksIO = do
+    bhdbIO :: ChainwebVersion -> IO RocksDb -> IO BlockHeaderDb
+    bhdbIO v rocksIO = do
         rdb <- rocksIO
-        let genesisHeader = genesisBlockHeader testVersion cid
+        let genesisHeader = genesisBlockHeader v cid
         testBlockHeaderDb rdb genesisHeader
 
     label = "Chainweb.Test.Pact.PactExec"
@@ -232,7 +232,7 @@ testTfrNoGasFails =
 testTfrGas :: TxsTest
 testTfrGas = (V.singleton <$> tx,test)
   where
-    tx = buildCwCmd "testTfrGas" testVersion $ set cbSigners
+    tx = buildCwCmd "testTfrGas" testEventsVersion $ set cbSigners
          [ mkEd25519Signer' sender00
            [ mkTransferCap "sender00" "sender01" 1.0
            , mkGasCap
@@ -495,9 +495,9 @@ execTest
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     trans <- mkCmds cmdStrs
-    results <- runPact $ \pde ->
+    results <- runPact $
       execTransactions False defaultMiner
-        trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde Nothing Nothing
+        trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) Nothing Nothing
         >>= throwOnGasFailure
 
     let outputs = V.toList $ snd <$> _transactionPairs results
@@ -524,9 +524,9 @@ execTxsTest runPact name (trans',check) = testCase name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- tryAllSynchronous $ runPact $ \pde ->
+      results' <- tryAllSynchronous $ runPact $
         execTransactions False defaultMiner trans
-          (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) pde Nothing Nothing
+          (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) Nothing Nothing
           >>= throwOnGasFailure
       case results' of
         Right results -> Right <$> do
@@ -550,7 +550,8 @@ execLocalTest runPact name (trans',check) = testCase name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- tryAllSynchronous $ runPact $ \_ ->
+      results' <- tryAllSynchronous $ runPact $ liftPactServiceM $
+        -- TODO: this makes no sense.
         execLocal trans Nothing Nothing Nothing
       case results' of
         Right (MetadataValidationFailure e) ->
