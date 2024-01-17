@@ -70,8 +70,8 @@ data PactExecutionService = PactExecutionService
       -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
       -- Corresponds to `local` HTTP endpoint.
     , _pactLookup :: !(
-        Rewind
-        -- restore point, either a block header or the current "head" of the pact service.
+        ChainId
+        -- for routing
         -> Maybe ConfirmationDepth
         -- confirmation depth
         -> Vector PactHash
@@ -134,7 +134,7 @@ mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
     { _pactValidateBlock = \h pd -> withChainService (_chainId h) $ \p -> _pactValidateBlock p h pd
     , _pactNewBlock = \cid m -> withChainService cid $ \p -> _pactNewBlock p cid m
     , _pactLocal = \_pf _sv _rd _ct -> throwM $ userError "Chainweb.WebPactExecutionService.mkPactExecutionService: No web-level local execution supported"
-    , _pactLookup = \h cd txs -> withChainService (_chainId h) $ \p -> _pactLookup p h cd txs
+    , _pactLookup = \cid cd txs -> withChainService cid $ \p -> _pactLookup p cid cd txs
     , _pactPreInsertCheck = \cid txs -> withChainService cid $ \p -> _pactPreInsertCheck p cid txs
     , _pactBlockTxHistory = \h d -> withChainService (_chainId h) $ \p -> _pactBlockTxHistory p h d
     , _pactHistoricalLookup = \h d k -> withChainService (_chainId h) $ \p -> _pactHistoricalLookup p h d k
@@ -162,8 +162,8 @@ mkPactExecutionService q = PactExecutionService
         either throwM evaluate r
     , _pactLocal = \pf sv rd ct ->
         local pf sv rd ct q >>= takeMVar
-    , _pactLookup = \h cd txs ->
-        lookupPactTxs h cd txs q >>= takeMVar
+    , _pactLookup = \_ cd txs ->
+        lookupPactTxs cd txs q >>= takeMVar
     , _pactPreInsertCheck = \_ txs ->
         pactPreInsertCheck txs q >>= takeMVar
     , _pactBlockTxHistory = \h d ->

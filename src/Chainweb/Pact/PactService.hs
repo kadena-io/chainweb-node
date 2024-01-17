@@ -935,19 +935,15 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
 
 execLookupPactTxs
     :: (CanReadablePayloadCas tbl, Logger logger)
-    => Rewind
-    -> Maybe ConfirmationDepth
+    => Maybe ConfirmationDepth
     -> Vector P.PactHash
     -> PactServiceM logger tbl (HM.HashMap P.PactHash (T2 BlockHeight BlockHash))
-execLookupPactTxs restorePoint confDepth txs = pactLabel "execLookupPactTxs" $ do
+execLookupPactTxs confDepth txs = pactLabel "execLookupPactTxs" $ do
   if V.null txs then return mempty else go
   where
-    go = getCheckpointer >>= \(!cp) -> case restorePoint of
-      NoRewind _ ->
-        liftIO $! _cpLookupProcessedTx cp confDepth txs
-      DoRewind parent -> withDiscardedBatch $ do
-        withCheckpointerRewind Nothing (Just $ ParentHeader parent) "lookupPactTxs" $ \_ ->
-          liftIO $ Discard <$> _cpLookupProcessedTx cp confDepth txs
+    go = readFromNthParent (maybe 0 (fromIntegral . _confirmationDepth) confDepth) $ do
+      dbenv <- view pactDbEnv
+      liftIO $ _cpLookupProcessedTx dbenv txs
 
 -- | Modified table gas module with free module loads
 --
