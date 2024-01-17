@@ -18,6 +18,7 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 ( chainwebPactDb
 , handlePossibleRewind
 , blockHistoryInsert
+, rewoundPactDb
 , initSchema
 , indexPactTransaction
 , indexPendingPactTransactions
@@ -96,16 +97,24 @@ tbl t@(Utf8 b)
 
 chainwebPactDb :: (Logger logger) => PactDb (BlockEnv logger SQLiteEnv)
 chainwebPactDb = PactDb
-    { _readRow = \d k e -> runBlockEnv e $ doReadRow d k
-    , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow wt d k v
-    , _keys = \d e -> runBlockEnv e $ doKeys d
+    { _readRow = \d k e -> runBlockEnv e $ doReadRow Nothing d k
+    , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow Nothing wt d k v
+    , _keys = \d e -> runBlockEnv e $ doKeys Nothing d
     , _txids = \t txid e -> runBlockEnv e $ doTxIds t txid
-    , _createUserTable = \tn mn e -> runBlockEnv e $ doCreateUserTable tn mn
+    , _createUserTable = \tn mn e -> runBlockEnv e $ doCreateUserTable Nothing tn mn
     , _getUserTableInfo = \_ -> error "WILL BE DEPRECATED!"
     , _beginTx = \m e -> runBlockEnv e $ doBegin m
     , _commitTx = \e -> runBlockEnv e doCommit
     , _rollbackTx = \e -> runBlockEnv e doRollback
     , _getTxLog = \d tid e -> runBlockEnv e $ doGetTxLog d tid
+    }
+
+rewoundPactDb :: (Logger logger) => BlockHeight -> TxId -> PactDb (BlockEnv logger SQLiteEnv)
+rewoundPactDb bh endTxId = chainwebPactDb
+    { _readRow = \d k e -> runBlockEnv e $ doReadRow (Just (bh, endTxId)) d k
+    , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow (Just (bh, endTxId)) wt d k v
+    , _keys = \d e -> runBlockEnv e $ doKeys (Just (bh, endTxId)) d
+    , _createUserTable = \tn mn e -> runBlockEnv e $ doCreateUserTable (Just bh) tn mn
     }
 
 getPendingData :: BlockHandler logger SQLiteEnv [SQLitePendingData]
@@ -118,12 +127,17 @@ getPendingData = do
 forModuleNameFix :: (Bool -> BlockHandler logger e a) -> BlockHandler logger e a
 forModuleNameFix f = use bsModuleNameFix >>= f
 
+isUserTable :: Utf8 -> Bool
+isUserTable tableName =
+    not $ tableName `elem` ["SYS:Pacts", "SYS:Modules", "SYS:KeySets", "SYS:Namespaces"]
+
 doReadRow
     :: (IsString k, FromJSON v)
-    => Domain k v
+    => Maybe (BlockHeight, TxId)
+    -> Domain k v
     -> k
     -> BlockHandler logger SQLiteEnv (Maybe v)
-doReadRow d k = forModuleNameFix $ \mnFix ->
+doReadRow mlim d k = forModuleNameFix $ \mnFix ->
     case d of
         KeySets -> lookupWithKey (convKeySetName k) noCache
         -- TODO: This is incomplete (the modules case), due to namespace
@@ -137,7 +151,9 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
     (Utf8 tableNameBS) = tableName
 
     queryStmt =
-        "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ? ORDER BY txid DESC LIMIT 1;"
+        "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ?" <> blockLimitStmt <> " ORDER BY txid DESC LIMIT 1;"
+    -- we inject the endingtx limitation to reduce the scope up to the provided block height
+    blockLimitStmt = maybe "" (const " AND txid < ?") mlim
 
     lookupWithKey
         :: forall logger v . FromJSON v
@@ -174,8 +190,22 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
         -- First, check: did we create this table during this block? If so,
         -- there's no point in looking up the key.
         checkDbTableExists tableName
+        -- TODO: speed this up, cache it?
+        let tableExistsStmt =
+                "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight < ? AND lower(tablename) = lower(?)"
+        case mlim of
+            Just (bh, _) | isUserTable tableName -> do
+                r <- callDb "doReadRow.tableExists" $ \db ->
+                    qry db tableExistsStmt [SInt $ max 0 (fromIntegral bh), SText tableName] [RText]
+                case r of
+                    -- TODO: try to throw a DbError more cleanly. comment this.
+                    [] -> void $ callDb "doReadRow" $ \db -> qry db "garbage query" [] []
+                    [[SText _]] -> return ()
+                    _err -> internalError $ "doReadRow: what?"
+            _ -> return ()
+        let blockLimitParam = maybe [] (\(TxId txid) -> [SInt $ fromIntegral txid]) (snd <$> mlim)
         result <- lift $ callDb "doReadRow"
-                       $ \db -> qry db queryStmt [SText rowkey] [RBlob]
+                       $ \db -> qry db queryStmt ([SText rowkey] ++ blockLimitParam) [RBlob]
         case result of
             [] -> mzero
             [[SBlob a]] -> checkCache rowkey a
@@ -275,12 +305,13 @@ markTableMutation tablename blockheight db = do
     mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
 
 checkInsertIsOK
-    :: WriteType
+    :: Maybe (BlockHeight, TxId)
+    -> WriteType
     -> Domain RowKey RowData
     -> RowKey
     -> BlockHandler logger SQLiteEnv (Maybe RowData)
-checkInsertIsOK wt d k = do
-    olds <- doReadRow d k
+checkInsertIsOK mlim wt d k = do
+    olds <- doReadRow mlim d k
     case (olds, wt) of
         (Nothing, Insert) -> return Nothing
         (Just _, Insert) -> err "Insert: row found for key "
@@ -292,19 +323,20 @@ checkInsertIsOK wt d k = do
     err msg = internalError $ "checkInsertIsOK: " <> msg <> asString k
 
 writeUser
-    :: WriteType
+    :: Maybe (BlockHeight, TxId)
+    -> WriteType
     -> Domain RowKey RowData
     -> RowKey
     -> RowData
     -> BlockHandler logger SQLiteEnv ()
-writeUser wt d k rowdata@(RowData _ row) = gets _bsTxId >>= go
+writeUser mlim wt d k rowdata@(RowData _ row) = gets _bsTxId >>= go
   where
     toTableName = TableName . fromUtf8
     tn = domainTableName d
     ttn = toTableName tn
 
     go txid = do
-        m <- checkInsertIsOK wt d k
+        m <- checkInsertIsOK mlim wt d k
         row' <- case m of
                     Nothing -> ins
                     (Just old) -> upd old
@@ -322,20 +354,22 @@ writeUser wt d k rowdata@(RowData _ row) = gets _bsTxId >>= go
 
 doWriteRow
   :: (AsString k, J.Encode v)
-    => WriteType
+    => Maybe (BlockHeight, TxId)
+    -> WriteType
     -> Domain k v
     -> k
     -> v
     -> BlockHandler logger SQLiteEnv ()
-doWriteRow wt d k v = case d of
-    (UserTables _) -> writeUser wt d k v
+doWriteRow mlim wt d k v = case d of
+    (UserTables _) -> writeUser mlim wt d k v
     _ -> writeSys d k v
 
 doKeys
     :: (IsString k)
-    => Domain k v
+    => Maybe (BlockHeight, TxId)
+    -> Domain k v
     -> BlockHandler logger SQLiteEnv [k]
-doKeys d = do
+doKeys mlim d = do
     msort <- uses bsSortedKeys (\c -> if c then sort else id)
     dbKeys <- getDbKeys
     pb <- use bsPendingBlock
@@ -352,13 +386,27 @@ doKeys d = do
     return allKeys
 
   where
+    blockLimitStmt = maybe "" (const " WHERE txid < ?;") mlim
+    blockLimitParam = maybe [] (\(TxId txid) -> [SInt (fromIntegral txid)]) (snd <$> mlim)
     getDbKeys = do
         m <- runMaybeT $ checkDbTableExists $ Utf8 tnS
         case m of
             Nothing -> return mempty
             Just () -> do
+                let tableExistsStmt =
+                        "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight <= ? AND lower(tablename) = lower(?)"
+                case mlim of
+                    Just (bh, _) | isUserTable tn -> do
+                        r <- callDb "doKeys.tableExists" $ \db ->
+                            qry db tableExistsStmt [SInt $ fromIntegral bh - 1, SText tn] [RText]
+                        case r of
+                            -- TODO: try to throw a DbError more cleanly. comment this.
+                            [] -> void $ callDb "doKeys" $ \db -> qry db "garbage query" [] []
+                            [[SText _]] -> return ()
+                            _err -> internalError $ "doKeys: what?"
+                    _ -> return ()
                 ks <- callDb "doKeys" $ \db ->
-                          qry_ db  ("SELECT DISTINCT rowkey FROM " <> tbl tn) [RText]
+                          qry db ("SELECT DISTINCT rowkey FROM " <> tbl tn <> blockLimitStmt) blockLimitParam [RText]
                 forM ks $ \row -> do
                     case row of
                         [SText k] -> return $! T.unpack $ fromUtf8 k
@@ -439,8 +487,8 @@ modifyPendingData f = do
       Just d -> set bsPendingTx (Just $! f d)
       Nothing -> over bsPendingBlock f
 
-doCreateUserTable :: TableName -> ModuleName -> BlockHandler logger SQLiteEnv ()
-doCreateUserTable tn@(TableName ttxt) mn = do
+doCreateUserTable :: Maybe BlockHeight -> TableName -> ModuleName -> BlockHandler logger SQLiteEnv ()
+doCreateUserTable mbh tn@(TableName ttxt) mn = do
     -- first check if tablename already exists in pending queues
     m <- runMaybeT $ checkDbTableExists (Utf8 $ T.encodeUtf8 ttxt)
     case m of
@@ -457,11 +505,20 @@ doCreateUserTable tn@(TableName ttxt) mn = do
     inDb lcTables t =
       callDb "doCreateUserTable" $ \db -> do
         r <- qry db (tableLookupStmt lcTables) [SText t] [RText]
-        return $ case r of
-          -- if lowercase matching, no need to check equality
-          -- (wasn't needed before either but leaving alone for replay)
-          [[SText rname]] -> lcTables || rname == t
-          _ -> False
+        case r of
+          [[SText rname]] ->
+            case mbh of
+                -- if lowercase matching, no need to check equality
+                -- (wasn't needed before either but leaving alone for replay)
+                Nothing -> return (lcTables || rname == t)
+                Just bh -> do
+                    qry db
+                        "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight <= ? AND lower(tablename) = lower(?);"
+                        [SInt (fromIntegral bh - 1), SText t]
+                        [RText] <&> \case
+                        [] -> False
+                        _ -> lcTables || rname == t
+          _ -> return False
 
     tableLookupStmt False =
       "SELECT name FROM sqlite_master WHERE type='table' and name=?;"
