@@ -78,19 +78,13 @@ module Chainweb.Pact.Types
   , psGasModel
   , psMinerRewards
   , psReorgLimit
-  , psLocalRewindDepthLimit
   , psPreInsertCheckTimeout
   , psOnFatalError
   , psVersion
   , psLogger
   , psGasLogger
   , psAllowReadsInLocal
-  , psIsBatch
-  , psCheckpointerDepth
   , psBlockGasLimit
-  , psChainId
-
-  , getCheckpointer
 
     -- * TxContext
   , TxContext(..)
@@ -104,10 +98,7 @@ module Chainweb.Pact.Types
 
     -- * Pact Service State
   , PactServiceState(..)
-  , psStateValidated
   , psInitCache
-  , psParentHeader
-  , psSpvSupport
 
   -- * Module cache
   , ModuleCache(..)
@@ -118,6 +109,7 @@ module Chainweb.Pact.Types
   , ModuleInitCache
   , getInitCache
   , updateInitCache
+  , updateInitCacheM
 
     -- * Pact Service Monad
   , PactServiceM(..)
@@ -125,10 +117,18 @@ module Chainweb.Pact.Types
   , evalPactServiceM
   , execPactServiceM
 
+  , PactBlockM(..)
+  , liftPactServiceM
+  , PactBlockEnv(..)
+  , psBlockDbEnv
+  , psParentHeader
+  , psServiceEnv
+  , runPactBlockM
+
     -- * Logging with Pact logger
 
-  , tracePactServiceM
-  , tracePactServiceM'
+  , tracePactBlockM
+  , tracePactBlockM'
   , pactLoggers
   , logg_
   , logInfo_
@@ -143,6 +143,7 @@ module Chainweb.Pact.Types
   , logJsonTrace_
   , logJsonTrace
   , localLabel
+  , localLabelBlock
 
     -- * types
   , TxTimeout(..)
@@ -152,25 +153,27 @@ module Chainweb.Pact.Types
   -- * miscellaneous
   , defaultOnFatalError
   , defaultReorgLimit
-  , defaultLocalRewindDepthLimit
   , testPactServiceConfig
   , testBlockGasLimit
   , defaultModuleCacheLimit
   , catchesPactError
   , UnexpectedErrorPrinting(..)
   , defaultPreInsertCheckTimeout
+  , withPactState
   ) where
 
 import Control.DeepSeq
 import Control.Exception (asyncExceptionFromException, asyncExceptionToException)
 import Control.Exception.Safe
 import Control.Lens
+import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import Data.Aeson hiding (Error,(.=))
 import Data.Default (def)
 import qualified Data.HashMap.Strict as HM
+import Data.IORef
 import Data.LogMessage
 import Data.Set (Set)
 import qualified Data.Map.Strict as M
@@ -405,6 +408,11 @@ data TxContext = TxContext
   , _tcPublicMeta :: !PublicMeta
   } deriving Show
 
+instance HasChainId TxContext where
+  _chainId = _chainId . _tcParentHeader
+instance HasChainwebVersion TxContext where
+  _chainwebVersion = _chainwebVersion . _tcParentHeader
+
 -- -------------------------------------------------------------------- --
 -- Pact Service Monad
 
@@ -415,8 +423,6 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: !(TxContext -> GasModel)
     , _psMinerRewards :: !MinerRewards
-    , _psLocalRewindDepthLimit :: !RewindLimit
-    -- ^ The limit of rewind's depth in the `execLocal` command.
     , _psPreInsertCheckTimeout :: !Micros
     -- ^ Maximum allowed execution time for the transactions validation.
     , _psReorgLimit :: !RewindLimit
@@ -427,18 +433,7 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psLogger :: !logger
     , _psGasLogger :: !(Maybe logger)
 
-    -- The following two fields are used to enforce invariants for using the
-    -- checkpointer. These would better be enforced on the type level. But that
-    -- would require changing many function signatures and is postponed for now.
-    --
-    -- DO NOT use these fields if you don't know what they do!
-    --
-    , _psIsBatch :: !Bool
-        -- ^ True when within a `withBatch` or `withDiscardBatch` call.
-    , _psCheckpointerDepth :: !Int
-        -- ^ Number of nested checkpointer calls
     , _psBlockGasLimit :: !GasLimit
-    , _psChainId :: !ChainId
     }
 makeLenses ''PactServiceEnv
 
@@ -452,9 +447,6 @@ instance HasChainId (PactServiceEnv logger c) where
 
 defaultReorgLimit :: RewindLimit
 defaultReorgLimit = RewindLimit 480
-
-defaultLocalRewindDepthLimit :: RewindLimit
-defaultLocalRewindDepthLimit = RewindLimit 1000
 
 defaultPreInsertCheckTimeout :: Micros
 defaultPreInsertCheckTimeout = 1000000 -- 1 second
@@ -470,7 +462,6 @@ defaultModuleCacheLimit = DbCacheLimitBytes (60 * mebi)
 testPactServiceConfig :: PactServiceConfig
 testPactServiceConfig = PactServiceConfig
       { _pactReorgLimit = defaultReorgLimit
-      , _pactLocalRewindDepthLimit = defaultLocalRewindDepthLimit
       , _pactPreInsertCheckTimeout = defaultPreInsertCheckTimeout
       , _pactQueueSize = 1000
       , _pactResetDb = True
@@ -519,51 +510,23 @@ defaultOnFatalError lf pex t = do
 
 type ModuleInitCache = M.Map BlockHeight ModuleCache
 
+data PactBlockEnv logger tbl = PactBlockEnv
+  { _psServiceEnv :: PactServiceEnv logger tbl
+  , _psParentHeader :: !ParentHeader
+  , _psBlockDbEnv :: !(CurrentBlockDbEnv logger)
+  }
+
 data PactServiceState = PactServiceState
-    { _psStateValidated :: !(Maybe BlockHeader)
-    , _psInitCache :: !ModuleInitCache
-    , _psParentHeader :: !ParentHeader
-    , _psSpvSupport :: !SPVSupport
+    { _psInitCache :: !ModuleInitCache
     }
+
 makeLenses ''PactServiceState
+makeLenses ''PactBlockEnv
 
-tracePactServiceM :: (Logger logger, ToJSON param) => Text -> param -> Int -> PactServiceM logger tbl a -> PactServiceM logger tbl a
-tracePactServiceM label param weight a = tracePactServiceM' label param (const weight) a
-
-tracePactServiceM' :: (Logger logger, ToJSON param) => Text -> param -> (a -> Int) -> PactServiceM logger tbl a -> PactServiceM logger tbl a
-tracePactServiceM' label param calcWeight a = do
-    e <- ask
-    s <- get
-    T2 r s' <- liftIO $ trace' (logJsonTrace_ (_psLogger e)) label param (calcWeight . sfst) (runPactServiceM s e a)
-    put s'
-    return r
-
--- | Look up an init cache that is stored at or before the height of the current parent header.
-getInitCache :: PactServiceM logger tbl ModuleCache
-getInitCache = get >>= \PactServiceState{..} ->
-    case M.lookupLE (pbh _psParentHeader) _psInitCache of
-      Just (_,mc) -> return mc
-      Nothing -> return mempty
-  where
-    pbh = _blockHeight . _parentHeader
-
--- | Update init cache at adjusted parent block height (APBH).
--- Contents are merged with cache found at or before APBH.
--- APBH is 0 for genesis and (parent block height + 1) thereafter.
-updateInitCache :: ModuleCache -> PactServiceM logger tbl ()
-updateInitCache mc = get >>= \PactServiceState{..} -> do
-    let bf 0 = 0
-        bf h = succ h
-        pbh = bf . _blockHeight . _parentHeader $ _psParentHeader
-
-    v <- view psVersion
-
-    psInitCache .= case M.lookupLE pbh _psInitCache of
-      Nothing -> M.singleton pbh mc
-      Just (_,before)
-        | cleanModuleCache v (_chainId $ _psParentHeader) pbh ->
-          M.insert pbh mc _psInitCache
-        | otherwise -> M.insert pbh (before <> mc) _psInitCache
+instance HasChainwebVersion (PactBlockEnv logger tbl) where
+  chainwebVersion = psServiceEnv . chainwebVersion
+instance HasChainId (PactBlockEnv logger tbl) where
+  chainId = psServiceEnv . chainId
 
 -- | Convert context to datatype for Pact environment.
 --
@@ -618,10 +581,11 @@ ctxVersion :: TxContext -> ChainwebVersion
 ctxVersion = _chainwebVersion . ctxBlockHeader
 
 -- | Assemble tx context from transaction metadata and parent header.
-getTxContext :: PublicMeta -> PactServiceM logger tbl TxContext
-getTxContext pm = use psParentHeader >>= \ph -> return (TxContext ph pm)
+getTxContext :: PublicMeta -> PactBlockM logger tbl TxContext
+getTxContext pm = view psParentHeader >>= \ph -> return (TxContext ph pm)
 
-
+-- | The top level monad of PactService, notably allowing access to a
+-- checkpointer and module init cache and some configuration parameters.
 newtype PactServiceM logger tbl a = PactServiceM
   { _unPactServiceM ::
        ReaderT (PactServiceEnv logger tbl) (StateT PactServiceState IO) a
@@ -632,6 +596,90 @@ newtype PactServiceM logger tbl a = PactServiceM
     , MonadThrow, MonadCatch, MonadMask
     , MonadIO
     )
+
+-- | Support lifting bracket style continuations in 'IO' into 'PactServiceM' by
+-- providing a function that allows unwrapping pact actions in IO while
+-- threading through the pact service state.
+--
+-- /NOTE:/ This must not be used to access the pact service state from another
+-- thread.
+--
+withPactState
+    :: forall logger tbl b
+    . (Logger logger)
+    => ((forall a . PactServiceM logger tbl a -> IO a) -> IO b)
+    -> PactServiceM logger tbl b
+withPactState inner = bracket captureState releaseState $ \ref -> do
+    e <- ask
+    liftIO $ inner $ \act -> mask $ \umask -> do
+        s <- readIORef ref
+        T2 r s' <- umask $ runPactServiceM s e act
+        writeIORef ref s'
+        return r
+  where
+    captureState = liftIO . newIORef =<< get
+    releaseState = liftIO . readIORef >=> put
+
+-- | A sub-monad of PactServiceM, for actions taking place at a particular block.
+newtype PactBlockM logger tbl a = PactBlockM
+  { _unPactBlockM ::
+       ReaderT (PactBlockEnv logger tbl) (StateT PactServiceState IO) a
+  } deriving newtype
+    ( Functor, Applicative, Monad
+    , MonadReader (PactBlockEnv logger tbl)
+    , MonadState PactServiceState
+    , MonadThrow, MonadCatch, MonadMask
+    , MonadIO
+    )
+
+-- | Lifts PactServiceM to PactBlockM by forgetting about the current block.
+-- It is unsafe to use `runPactBlockM` inside the argument to this function.
+liftPactServiceM :: PactServiceM logger tbl a -> PactBlockM logger tbl a
+liftPactServiceM (PactServiceM a) = PactBlockM (magnify psServiceEnv a)
+
+-- | Look up an init cache that is stored at or before the height of the current parent header.
+getInitCache :: PactBlockM logger tbl ModuleCache
+getInitCache = do
+  ph <- views psParentHeader (_blockHeight . _parentHeader)
+  get >>= \PactServiceState{..} ->
+    case M.lookupLE ph _psInitCache of
+      Just (_,mc) -> return mc
+      Nothing -> return mempty
+
+-- | Update init cache at adjusted parent block height (APBH).
+-- Contents are merged with cache found at or before APBH.
+-- APBH is 0 for genesis and (parent block height + 1) thereafter.
+updateInitCache :: ModuleCache -> ParentHeader -> PactServiceM logger tbl ()
+updateInitCache mc ph = get >>= \PactServiceState{..} -> do
+    let bf 0 = 0
+        bf h = succ h
+    let pbh = bf (_blockHeight $ _parentHeader ph)
+
+    v <- view psVersion
+    cid <- view chainId
+
+    psInitCache .= case M.lookupLE pbh _psInitCache of
+      Nothing -> M.singleton pbh mc
+      Just (_,before)
+        | cleanModuleCache v cid pbh ->
+          M.insert pbh mc _psInitCache
+        | otherwise -> M.insert pbh (before <> mc) _psInitCache
+
+-- | A wrapper for 'updateInitCache' that uses the current block.
+updateInitCacheM :: ModuleCache -> PactBlockM logger tbl ()
+updateInitCacheM mc = do
+  pc <- view psParentHeader
+  liftPactServiceM $
+    updateInitCache mc pc
+
+-- | Run 'PactBlockM' by providing the block context, in the form of
+-- a database snapshot at that block and information about the parent header.
+-- It is unsafe to use this function in an argument to `liftPactServiceM`.
+runPactBlockM
+    :: ParentHeader -> CurrentBlockDbEnv logger
+    -> PactBlockM logger tbl a -> PactServiceM logger tbl a
+runPactBlockM pctx dbEnv (PactBlockM r) = PactServiceM $ ReaderT $ \e -> StateT $ \s ->
+  runStateT (runReaderT r (PactBlockEnv e pctx dbEnv)) s
 
 -- | Run a 'PactServiceM' computation given some initial
 -- reader and state values, returning final value and
@@ -669,8 +717,17 @@ execPactServiceM
 execPactServiceM st env act
     = execStateT (runReaderT (_unPactServiceM act) env) st
 
-getCheckpointer :: PactServiceM logger tbl (Checkpointer logger)
-getCheckpointer = view psCheckpointer
+tracePactBlockM :: (Logger logger, ToJSON param) => Text -> param -> Int -> PactBlockM logger tbl a -> PactBlockM logger tbl a
+tracePactBlockM label param weight a = tracePactBlockM' label param (const weight) a
+
+tracePactBlockM' :: (Logger logger, ToJSON param) => Text -> param -> (a -> Int) -> PactBlockM logger tbl a -> PactBlockM logger tbl a
+tracePactBlockM' label param calcWeight a = do
+    e <- ask
+    s <- get
+    (r, s') <- liftIO $ trace' (logJsonTrace_ (_psLogger $ _psServiceEnv e)) label param (calcWeight . fst)
+      $ runStateT (runReaderT (_unPactBlockM a) e) s
+    put s'
+    return r
 
 -- -------------------------------------------------------------------------- --
 -- Pact Logger
@@ -737,6 +794,10 @@ logJsonTrace level msg = view psLogger >>= \l -> logJsonTrace_ l level msg
 localLabel :: (Logger logger) => (Text, Text) -> PactServiceM logger tbl x -> PactServiceM logger tbl x
 localLabel lbl x = do
   locally psLogger (addLabel lbl) x
+
+localLabelBlock :: (Logger logger) => (Text, Text) -> PactBlockM logger tbl x -> PactBlockM logger tbl x
+localLabelBlock lbl x = do
+  locally (psServiceEnv . psLogger) (addLabel lbl) x
 
 data UnexpectedErrorPrinting = PrintsUnexpectedError | CensorsUnexpectedError
 

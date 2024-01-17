@@ -16,17 +16,17 @@
 
 module Chainweb.Pact.Backend.ChainwebPactDb
 ( chainwebPactDb
-, handlePossibleRewind
-, blockHistoryInsert
 , rewoundPactDb
+, prepareToPlayBlock
+, rewindDbTo
+, commitBlockStateToDatabase
 , initSchema
 , indexPactTransaction
-, indexPendingPactTransactions
 , clearPendingTxState
-, backendWriteUpdateBatch
-, createUserTable
 , vacuumDb
 , toTxLog
+, getEndTxId
+, getEndTxId'
 ) where
 
 import Control.Applicative
@@ -46,6 +46,7 @@ import Data.List(sort)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
+import qualified Data.List as List
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Data.Set as Set
@@ -53,14 +54,13 @@ import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
+import qualified Data.Vector.Algorithms.Tim as TimSort
 
 import Database.SQLite3.Direct as SQ3
 
 import GHC.Stack
 
 import Prelude hiding (concat, log)
-
-import Text.Printf (printf)
 
 -- pact
 
@@ -82,20 +82,21 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Pact.Backend.DbCache
-import qualified Chainweb.Pact.Backend.PactState as PS
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
 import Chainweb.Pact.Types (logInfo_, logError_)
-import Chainweb.Version
-import Chainweb.Utils (sshow)
+import Chainweb.Utils
 import Chainweb.Utils.Serialization
+import Chainweb.Version
+import Chainweb.Version.Guards
 
 tbl :: HasCallStack => Utf8 -> Utf8
 tbl t@(Utf8 b)
     | B8.elem ']' b = error $ "Chainweb.Pact.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
     | otherwise = "[" <> t <> "]"
 
+-- | Pact DB which reads from the tip of the checkpointer
 chainwebPactDb :: (Logger logger) => PactDb (BlockEnv logger SQLiteEnv)
 chainwebPactDb = PactDb
     { _readRow = \d k e -> runBlockEnv e $ doReadRow Nothing d k
@@ -110,6 +111,7 @@ chainwebPactDb = PactDb
     , _getTxLog = \d tid e -> runBlockEnv e $ doGetTxLog d tid
     }
 
+-- | Pact DB which reads from some past block height, instead of the tip of the checkpointer
 rewoundPactDb :: (Logger logger) => BlockHeight -> TxId -> PactDb (BlockEnv logger SQLiteEnv)
 rewoundPactDb bh endTxId = chainwebPactDb
     { _readRow = \d k e -> runBlockEnv e $ doReadRow (Just (bh, endTxId)) d k
@@ -129,15 +131,15 @@ forModuleNameFix :: (Bool -> BlockHandler logger e a) -> BlockHandler logger e a
 forModuleNameFix f = use bsModuleNameFix >>= f
 
 -- TODO: speed this up, cache it?
-tableExists :: Utf8 -> BlockHeight -> BlockHandler logger SQLiteEnv Bool
-tableExists tableName bh = do
-    let knownTbls = join
-          [ ["SYS:Pacts", "SYS:Modules", "SYS:KeySets", "SYS:Namespaces"]
-          ]
+tableExistsInDbAtHeight :: Utf8 -> BlockHeight -> BlockHandler logger SQLiteEnv Bool
+tableExistsInDbAtHeight tableName bh = do
+    let knownTbls =
+          ["SYS:Pacts", "SYS:Modules", "SYS:KeySets", "SYS:Namespaces"]
     if tableName `elem` knownTbls
     then return True
     else callDb "tableExists" $ \db -> do
       let tableExistsStmt =
+            -- table names are case-sensitive
             "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight < ? AND lower(tablename) = lower(?)"
       qry db tableExistsStmt [SInt $ max 0 (fromIntegral bh), SText tableName] [RText] >>= \case
         [] -> return False
@@ -146,6 +148,7 @@ tableExists tableName bh = do
 doReadRow
     :: (IsString k, FromJSON v)
     => Maybe (BlockHeight, TxId)
+    -- ^ the highest block we should be reading writes from
     -> Domain k v
     -> k
     -> BlockHandler logger SQLiteEnv (Maybe v)
@@ -161,11 +164,6 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
   where
     tableName = domainTableName d
     (Utf8 tableNameBS) = tableName
-
-    queryStmt =
-        "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ?" <> blockLimitStmt <> " ORDER BY txid DESC LIMIT 1;"
-    -- we inject the endingtx limitation to reduce the scope up to the provided block height
-    blockLimitStmt = maybe "" (const " AND txid < ?") mlim
 
     lookupWithKey
         :: forall logger v . FromJSON v
@@ -202,14 +200,14 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         -- First, check: did we create this table during this block? If so,
         -- there's no point in looking up the key.
         checkDbTablePendingCreation tableName
-        case mlim of
-            Nothing -> return ()
-            Just (bh, _) -> do
-                existsInDb <- lift $ tableExists tableName bh
-                unless existsInDb $
-                  -- TODO: try to throw a DbError more cleanly. comment this.
-                  void $ callDb "doReadRow" $ \db -> qry db "garbage query" [] []
+        lift $ forM_ mlim $ \(bh, _) ->
+            failIfTableDoesNotExistInDbAtHeight "doReadRow" tableName bh
+        -- we inject the endingtx limitation to reduce the scope up to the provided block height
+        let blockLimitStmt = maybe "" (const " AND txid < ?") mlim
         let blockLimitParam = maybe [] (\(TxId txid) -> [SInt $ fromIntegral txid]) (snd <$> mlim)
+        let queryStmt =
+                "SELECT rowdata FROM " <> tbl tableName <> " WHERE rowkey = ?" <> blockLimitStmt
+                <> " ORDER BY txid DESC LIMIT 1;"
         result <- lift $ callDb "doReadRow"
                        $ \db -> qry db queryStmt ([SText rowkey] ++ blockLimitParam) [RBlob]
         case result of
@@ -312,6 +310,7 @@ markTableMutation tablename blockheight db = do
 
 checkInsertIsOK
     :: Maybe (BlockHeight, TxId)
+    -- ^ the highest block we should be reading writes from
     -> WriteType
     -> Domain RowKey RowData
     -> RowKey
@@ -330,6 +329,7 @@ checkInsertIsOK mlim wt d k = do
 
 writeUser
     :: Maybe (BlockHeight, TxId)
+    -- ^ the highest block we should be reading writes from
     -> WriteType
     -> Domain RowKey RowData
     -> RowKey
@@ -361,6 +361,7 @@ writeUser mlim wt d k rowdata@(RowData _ row) = gets _bsTxId >>= go
 doWriteRow
   :: (AsString k, J.Encode v)
     => Maybe (BlockHeight, TxId)
+    -- ^ the highest block we should be reading writes from
     -> WriteType
     -> Domain k v
     -> k
@@ -373,6 +374,7 @@ doWriteRow mlim wt d k v = case d of
 doKeys
     :: (IsString k)
     => Maybe (BlockHeight, TxId)
+    -- ^ the highest block we should be reading writes from
     -> Domain k v
     -> BlockHandler logger SQLiteEnv [k]
 doKeys mlim d = do
@@ -399,12 +401,7 @@ doKeys mlim d = do
         case m of
             Nothing -> return mempty
             Just () -> do
-                case mlim of
-                    Nothing -> return ()
-                    Just (bh, _) -> do
-                        exists <- tableExists tn bh
-                        unless exists $ -- TODO: try to throw a DbError more cleanly. comment this.
-                            void $ callDb "doKeys" $ \db -> qry db "garbage query" [] []
+                forM_ mlim (failIfTableDoesNotExistInDbAtHeight "doKeys" tn . fst)
                 ks <- callDb "doKeys" $ \db ->
                           qry db ("SELECT DISTINCT rowkey FROM " <> tbl tn <> blockLimitStmt) blockLimitParam [RText]
                 forM ks $ \row -> do
@@ -418,6 +415,13 @@ doKeys mlim d = do
         let flt k _ = _dkTable k == tnS
         in DL.concat $ HashMap.elems $ HashMap.filterWithKey flt (_pendingWrites p)
 {-# INLINE doKeys #-}
+
+failIfTableDoesNotExistInDbAtHeight
+  :: Text -> Utf8 -> BlockHeight -> BlockHandler logger SQLiteEnv ()
+failIfTableDoesNotExistInDbAtHeight caller tn bh = do
+    exists <- tableExistsInDbAtHeight tn bh
+    unless exists $ -- TODO: try to throw a DbError more cleanly. comment this.
+        void $ callDb caller $ \db -> qry db "garbage query" [] []
 
 -- tid is non-inclusive lower bound for the search
 doTxIds :: TableName -> TxId -> BlockHandler logger SQLiteEnv [TxId]
@@ -487,7 +491,12 @@ modifyPendingData f = do
       Just d -> set bsPendingTx (Just $! f d)
       Nothing -> over bsPendingBlock f
 
-doCreateUserTable :: Maybe BlockHeight -> TableName -> ModuleName -> BlockHandler logger SQLiteEnv ()
+doCreateUserTable
+    :: Maybe BlockHeight
+    -- ^ the highest block we should be seeing tables from
+    -> TableName
+    -> ModuleName
+    -> BlockHandler logger SQLiteEnv ()
 doCreateUserTable mbh tn@(TableName ttxt) mn = do
     -- first check if tablename already exists in pending queues
     m <- runMaybeT $ checkDbTablePendingCreation (Utf8 $ T.encodeUtf8 ttxt)
@@ -502,23 +511,19 @@ doCreateUserTable mbh tn@(TableName ttxt) mn = do
             $ over pendingTableCreation (HashSet.insert (T.encodeUtf8 ttxt))
             . over pendingTxLogMap (M.insertWith DL.append (TableName txlogKey) txlogs)
   where
-    inDb lcTables t =
-      callDb "doCreateUserTable" $ \db -> do
-        r <- qry db (tableLookupStmt lcTables) [SText t] [RText]
-        case r of
-          [[SText rname]] ->
-            case mbh of
-                -- if lowercase matching, no need to check equality
-                -- (wasn't needed before either but leaving alone for replay)
-                Nothing -> return (lcTables || rname == t)
-                Just bh -> do
-                    qry db
-                        "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight <= ? AND lower(tablename) = lower(?);"
-                        [SInt (fromIntegral bh - 1), SText t]
-                        [RText] <&> \case
-                        [] -> False
-                        _ -> lcTables || rname == t
-          _ -> return False
+    inDb lcTables t = do
+      r <- callDb "doCreateUserTable" $ \db ->
+        qry db (tableLookupStmt lcTables) [SText t] [RText]
+      case r of
+        [[SText rname]] ->
+          case mbh of
+              -- if lowercase matching, no need to check equality
+              -- (wasn't needed before either but leaving alone for replay)
+              Nothing -> return (lcTables || rname == t)
+              Just bh -> do
+                  existsInDb <- tableExistsInDbAtHeight t bh
+                  return $ existsInDb && (lcTables || rname == t)
+        _ -> return False
 
     tableLookupStmt False =
       "SELECT name FROM sqlite_master WHERE type='table' and name=?;"
@@ -535,6 +540,7 @@ doRollback = modify'
     $ set bsMode Nothing
     . set bsPendingTx Nothing
 
+-- | Commit a Pact transaction
 doCommit :: BlockHandler logger SQLiteEnv [TxLogJson]
 doCommit = use bsMode >>= \case
     Nothing -> doRollback >> internalError "doCommit: Not in transaction"
@@ -572,6 +578,7 @@ clearPendingTxState = do
         . set bsPendingTx Nothing
     resetTemp
 
+-- | Begin a Pact transaction
 doBegin :: (Logger logger) => ExecutionMode -> BlockHandler logger SQLiteEnv (Maybe TxId)
 doBegin m = do
     logger <- view bdbenvLogger
@@ -613,9 +620,8 @@ doGetTxLog d txid = do
     takeHead (a:_) = [a]
 
     readFromPending = do
-        ptx <- maybeToList <$> use bsPendingTx
-        pb <- use bsPendingBlock
-        let deltas = (ptx ++ [pb]) >>= HashMap.elems . _pendingWrites >>= takeHead . DL.toList
+        pd <- getPendingData
+        let deltas = pd >>= HashMap.elems . _pendingWrites >>= takeHead . DL.toList
         let ourDeltas = filter predicate deltas
         mapM (\x -> toTxLog d (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
 
@@ -640,6 +646,7 @@ toTxLog d key value =
             Just v ->
               return $! TxLog (asString d) (fromUtf8 key) v
 
+-- | Record a block as being in the history of the checkpointer
 blockHistoryInsert :: BlockHeight -> BlockHash -> TxId -> BlockHandler logger SQLiteEnv ()
 blockHistoryInsert bh hsh t =
     callDb "blockHistoryInsert" $ \db ->
@@ -661,11 +668,12 @@ createTransactionIndexTable = callDb "createTransactionIndexTable" $ \db -> do
     exec_ db "CREATE INDEX IF NOT EXISTS \
              \ transactionIndexByBH ON TransactionIndex(blockheight)";
 
+-- | Register a successful transaction in the pending data for the block
 indexPactTransaction :: BS.ByteString -> BlockHandler logger SQLiteEnv ()
 indexPactTransaction h = modify' $
     over (bsPendingBlock . pendingSuccessfulTxs) $ HashSet.insert h
 
-
+-- | Commit the index of pending successful transactions to the database
 indexPendingPactTransactions :: BlockHandler logger SQLiteEnv ()
 indexPendingPactTransactions = do
     txs <- _pendingSuccessfulTxs <$> gets _bsPendingBlock
@@ -680,9 +688,9 @@ indexPendingPactTransactions = do
             execMulti db "INSERT INTO TransactionIndex (txhash, blockheight) \
                          \ VALUES (?, ?)" rows
 
-clearTxIndex :: BlockHandler logger SQLiteEnv ()
-clearTxIndex = do
-    bh <- gets _bsBlockHeight
+-- | Delete all future transactions from the index
+clearTxIndex :: BlockHeight -> BlockHandler logger SQLiteEnv ()
+clearTxIndex bh = do
     callDb "clearTxIndex" $ \db -> do
         exec' db "DELETE FROM TransactionIndex WHERE blockheight >= ?;"
               [ SInt (fromIntegral bh) ]
@@ -736,137 +744,98 @@ createVersionedTable tablename db = do
     indexcreationstmt =
         "CREATE INDEX IF NOT EXISTS " <> tbl ixName <> " ON " <> tbl tablename <> "(txid DESC);"
 
--- | Rewind the checkpoint in the current BlockHistory to the requested block
--- height and hash. This doesn't handle forks. The requested block hash must
--- exist in the history. Otherwise this function will fail.
---
--- /Precondition:/
---
--- For @handlePossibleRewind v c height parentHash@ the respective block for
--- @parentHash@ must be of blockHeight @height - 1@.
---
-handlePossibleRewind
-    :: forall logger. (Logger logger, HasCallStack)
-    => ChainwebVersion
-    -> ChainId
-    -> BlockHeight
-        -- ^ The block height to which the check pointer is restored. This is the
-        -- height off the block that is going to be validated.
+-- | set up the block state to prepare for a block being played on top of
+-- a parent header.
+prepareToPlayBlock
+  :: T.Text
+  -> ChainwebVersion
+  -> ChainId
+  -> Maybe ParentHeader
+  -> BlockHandler logger SQLiteEnv ()
+prepareToPlayBlock msg v cid mph = do
+  let currentHeight = maybe (genesisHeight v cid) (succ . _blockHeight . _parentHeader) mph
+  bsBlockHeight .= currentHeight
+  bsModuleNameFix .= enableModuleNameFix v cid currentHeight
+  bsSortedKeys .= pact42 v cid currentHeight
+  bsLowerCaseTables .= chainweb217Pact v cid currentHeight
+  txid <- getEndTxId (msg <> ".prepareToPlayBlock") mph
+  bsTxId .= txid
+  clearPendingTxState
 
-    -> ParentHash
-        -- ^ The parent of the block that is going to be validated. The height
-        -- of the respective block is one less than the height provided in the
-        -- previous argument.
 
-    -> BlockHandler logger SQLiteEnv TxId
-handlePossibleRewind v cid bRestore hsh = do
-    bCurrent <- getBCurrentHeight
-    checkHistoryInvariant (bCurrent + 1)
-    case compare bRestore (bCurrent + 1) of
-        GT -> internalError "handlePossibleRewind: Block_Restore invariant violation!"
-        EQ -> newChildBlock bCurrent
-        LT -> rewindBlock bRestore
+-- | Delete any state from the database newer than the input parent header.
+rewindDbTo
+    :: Logger logger
+    => Maybe ParentHeader
+    -> BlockHandler logger SQLiteEnv ()
+rewindDbTo Nothing = do
+    -- rewind before genesis, delete all user tables and all rows in all tables
+    withSavepoint DbTransaction $
+      callDb "doRestoreInitial: resetting tables" $ \db -> do
+      exec_ db "DELETE FROM BlockHistory;"
+      exec_ db "DELETE FROM [SYS:KeySets];"
+      exec_ db "DELETE FROM [SYS:Modules];"
+      exec_ db "DELETE FROM [SYS:Namespaces];"
+      exec_ db "DELETE FROM [SYS:Pacts];"
+      tblNames <- qry_ db "SELECT tablename FROM VersionedTableCreation;" [RText]
+      forM_ tblNames $ \t -> case t of
+        [SText tn] -> exec_ db ("DROP TABLE [" <> tn <> "];")
+        _ -> internalError "Something went wrong when resetting tables."
+      exec_ db "DELETE FROM VersionedTableCreation;"
+      exec_ db "DELETE FROM VersionedTableMutation;"
+      exec_ db "DELETE FROM TransactionIndex;"
+rewindDbTo (Just (ParentHeader ph)) = do
+    let currentHeight = succ (_blockHeight ph)
+    !endingtx <- getEndTxId "rewindDbToBlock" (Just (ParentHeader ph))
+    tableMaintenanceRowsVersionedSystemTables endingtx
+    callDb "rewindBlock" $ \db -> do
+      droppedtbls <- dropTablesAtRewind currentHeight db
+      vacuumTablesAtRewind currentHeight endingtx droppedtbls db
+    deleteHistory currentHeight
+    clearTxIndex currentHeight
   where
+    dropTablesAtRewind :: BlockHeight -> Database -> IO (HashSet BS.ByteString)
+    dropTablesAtRewind bh db = do
+        toDropTblNames <- qry db findTablesToDropStmt
+                          [SInt (fromIntegral bh)] [RText]
+        tbls <- fmap HashSet.fromList . forM toDropTblNames $ \case
+            [SText tblname@(Utf8 tn)] -> do
+                exec_ db $ "DROP TABLE IF EXISTS " <> tbl tblname
+                return tn
+            _ -> internalError rewindmsg
+        exec' db
+            "DELETE FROM VersionedTableCreation WHERE createBlockheight >= ?"
+            [SInt (fromIntegral bh)]
+        return tbls
+    findTablesToDropStmt =
+      "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight >= ?;"
+    rewindmsg =
+      "rewindBlock: dropTablesAtRewind: Couldn't resolve the name of the table to drop."
 
-    -- The maximum block height that is stored in the block history.
-    --
-    getBCurrentHeight = do
-        r <- callDb "handlePossibleRewind" $ \db ->
-             qry_ db "SELECT max(blockheight) AS current_block_height \
-                     \FROM BlockHistory;" [RInt]
-        bh <- liftIO $ expectSingleRowCol "handlePossibleRewind: (block):" r >>= \case
-            SInt x -> return x
-            _ -> error "Chainweb.Pact.ChainwebPactDb.handlePossibleRewind.newChildBlock: failed to match SInt"
-        return $! BlockHeight (fromIntegral bh)
+commitBlockStateToDatabase :: BlockHash -> BlockHandler logger SQLiteEnv ()
+commitBlockStateToDatabase hsh = do
+  bh <- use bsBlockHeight
+  newTables <- use $ bsPendingBlock . pendingTableCreation
+  mapM_ (\tn -> createUserTable (Utf8 tn) bh) newTables
+  writeV <- use (bsPendingBlock . pendingWrites) >>= toVectorChunks
+  callDb "save" $ backendWriteUpdateBatch bh writeV
+  indexPendingPactTransactions
+  nextTxId <- gets _bsTxId
+  blockHistoryInsert bh hsh nextTxId
+  clearPendingTxState
+  where
+  prepChunk [] = error "impossible: empty chunk from groupBy"
+  prepChunk chunk@(h:_) = (Utf8 $ _deltaTableName h, V.fromList chunk)
 
-    -- Check that @bRestore - 1@ exists in the BlockHistory. We expect to find
-    -- exactly one block with hash @hsh@.
-    --
-    checkHistoryInvariant succOfCurrent = do
-        -- enforce invariant that the history has
-        -- (B_restore-1,H_parent).
-        resultCount <- callDb "handlePossibleRewind" $ \db -> do
-            qry db "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? AND hash = ?;"
-                   [ SInt $! fromIntegral $ pred bRestore
-                   , SBlob (runPutS $ encodeBlockHash hsh) ]
-                   [RInt]
-                >>= expectSingleRowCol "handlePossibleRewind: (historyInvariant):"
-        when (resultCount /= SInt 1) $
-          internalError $ historyInvariantMessage resultCount
-      where
-        historyInvariantMessage (SInt entryCount)
-            | entryCount < 0 = error "impossible"
-            | entryCount == 0 && bRestore > succOfCurrent = futureRestorePointMessage
-            | entryCount == 0 && bRestore <= succOfCurrent = missingBlockMessage
-            | otherwise = rowCountErrorMessage entryCount
-        historyInvariantMessage _ = error "impossible"
-
-        missingBlockMessage :: T.Text
-        missingBlockMessage = T.pack $
-            printf "handlePossibleRewind: The checkpointer attempted to restore to block hash\
-                \ %s at block height %d, which is not in the current block history of the\
-                \ checkpointer at height %d."
-                (blockHashToText hsh) (getBlockHeight bRestore - 1) (getBlockHeight succOfCurrent - 1)
-
-        rowCountErrorMessage = T.pack .
-            printf "At this blockheight/blockhash (%d, %s) in BlockHistoryTable, there are %d entries."
-                (fromIntegral bRestore :: Int) (show hsh)
-
-        futureRestorePointMessage :: Text
-        futureRestorePointMessage = T.pack $
-            printf "handlePossibleRewind: The checkpointer attempted to restore to block hash %s\
-                \ at height %d, which is greater than the max entry in the block history of the\
-                \ checkpointer at height %d."
-                (blockHashToText hsh) (getBlockHeight bRestore - 1) (getBlockHeight succOfCurrent - 1)
-
-    newChildBlock bCurrent = do
-        assign bsBlockHeight bRestore
-        r <- callDb "getting txid" $ \db ->
-          expectSingleRowCol msg =<< qry db
-              "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?;"
-              [SInt (fromIntegral bCurrent)]
-              [RInt]
-        !txid <- case r of
-            SInt x -> return x
-            _ -> error "Chainweb.Pact.ChainwebPactDb.handlePossibleRewind.newChildBlock: failed to match SInt"
-        assign bsTxId (fromIntegral txid)
-        return $ fromIntegral txid
-      where msg = "handlePossibleRewind: newChildBlock: error finding txid"
-
-    rewindBlock bh = do
-        assign bsBlockHeight bh
-        !endingtx <- callDb "getEndingTxId" $ \db -> do
-          if bh == genesisHeight v cid
-          then return 0
-          else fromIntegral <$> PS.getEndingTxId db (pred bh)
-        tableMaintenanceRowsVersionedSystemTables endingtx
-        callDb "rewindBlock" $ \db -> do
-            droppedtbls <- dropTablesAtRewind bh db
-            vacuumTablesAtRewind bh endingtx droppedtbls db
-        deleteHistory bh
-        assign bsTxId endingtx
-        clearTxIndex
-        return endingtx
-
-dropTablesAtRewind :: BlockHeight -> Database -> IO (HashSet BS.ByteString)
-dropTablesAtRewind bh db = do
-    toDropTblNames <- qry db findTablesToDropStmt
-                      [SInt (fromIntegral bh)] [RText]
-    tbls <- fmap HashSet.fromList . forM toDropTblNames $ \case
-        [SText tblname@(Utf8 tn)] -> do
-            exec_ db $ "DROP TABLE IF EXISTS " <> tbl tblname
-            return tn
-        _ -> internalError rewindmsg
-    exec' db
-        "DELETE FROM VersionedTableCreation WHERE createBlockheight >= ?"
-        [SInt (fromIntegral bh)]
-    return tbls
-  where findTablesToDropStmt =
-          "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight >= ?;"
-        rewindmsg =
-          "rewindBlock:\
-          \ dropTablesAtRewind: \
-          \Couldn't resolve the name of the table to drop."
+  toVectorChunks writes = liftIO $ do
+      mv <- mutableVectorFromList . DL.toList . DL.concat $
+        HashMap.elems writes
+      -- TODO: make this faster. You will see the trouble with the
+      -- performance here if you look at the Ord instance for SQLiteRowDelta.
+      TimSort.sort mv
+      l' <- V.toList <$> V.unsafeFreeze mv
+      let ll = List.groupBy (\a b -> _deltaTableName a == _deltaTableName b) l'
+      return $ map prepChunk ll
 
 vacuumTablesAtRewind :: BlockHeight -> TxId -> HashSet BS.ByteString -> Database -> IO ()
 vacuumTablesAtRewind bh endingtx droppedtbls db = do
@@ -902,6 +871,7 @@ deleteHistory bh = do
         exec' db "DELETE FROM BlockHistory WHERE blockheight >= ?"
               [SInt (fromIntegral bh)]
 
+-- | Create all tables that exist pre-genesis
 initSchema :: (Logger logger) => BlockHandler logger SQLiteEnv ()
 initSchema = do
     withSavepoint DbTransaction $ do
@@ -919,7 +889,27 @@ initSchema = do
       logInfo_ logger $ "initSchema: "  <> fromUtf8 tablename
       callDb "initSchema" $ createVersionedTable tablename
 
--- Careful doing this! It's expensive and for our use case, probably pointless.
+getEndTxId :: Text -> Maybe ParentHeader -> BlockHandler logger SQLiteEnv TxId
+getEndTxId msg pc = case pc of
+  Nothing -> return 0
+  Just (ParentHeader ph) -> getEndTxId' msg (_blockHeight ph) (_blockHash ph)
+
+getEndTxId' :: Text -> BlockHeight -> BlockHash -> BlockHandler logger SQLiteEnv TxId
+getEndTxId' msg bh bhsh =
+  callDb "getEndTxId" $ \db -> do
+    r <- qry db
+      "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"
+      [ SInt $ fromIntegral bh
+      , SBlob $ runPutS (encodeBlockHash bhsh)
+      ]
+      [RInt]
+    case r of
+      [[SInt tid]] -> return (TxId (fromIntegral tid))
+      [] -> throwM $ BlockHeaderLookupFailure $ msg <> ".getEndTxId: not in db: " <>
+            sshow (bh, bhsh)
+      _ -> internalError $ msg <> ".getEndTxId: expected single-row int result, got " <> sshow r
+
+-- | Careful doing this! It's expensive and for our use case, probably pointless.
 -- We should reserve vacuuming for an offline process
 vacuumDb :: BlockHandler logger SQLiteEnv ()
 vacuumDb = callDb "vacuumDb" (`exec_` "VACUUM;")
