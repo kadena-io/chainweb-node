@@ -32,6 +32,7 @@ module Chainweb.Pact.Backend.PactState
   , getEarliestBlockHeight
   , ensureBlockHeightExists
   , withChainDb
+  , addChainIdLabel
   , doesPactDbExist
 
   , PactRow(..)
@@ -122,7 +123,7 @@ withChainDb :: (Logger logger)
   -> (logger -> SQLiteEnv -> IO x)
   -> IO x
 withChainDb cid logger' path f = do
-  let logger = addLabel ("chainId", chainIdToText cid) logger'
+  let logger = addChainIdLabel cid logger'
   let resetDb = False
   withSqliteDb cid logger path resetDb (f logger)
 
@@ -309,3 +310,9 @@ doesPactDbExist cid dbDir = do
         ]
   let file = dbDir </> chainDbFileName
   doesFileExist file
+
+addChainIdLabel :: (Logger logger)
+  => ChainId
+  -> logger
+  -> logger
+addChainIdLabel cid = addLabel ("chainId", chainIdToText cid)

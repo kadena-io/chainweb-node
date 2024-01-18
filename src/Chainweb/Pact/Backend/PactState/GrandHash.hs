@@ -18,27 +18,27 @@ module Chainweb.Pact.Backend.PactState.GrandHash
   )
   where
 
-import Control.Lens ((^?!), ix)
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB (cutHashesTable, readHighestCutHeaders)
 import Chainweb.Logger (Logger, logFunctionText)
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.PactState (PactRow(..), PactRowContents(..), getLatestPactStateAt, getLatestBlockHeight)
+import Chainweb.Pact.Backend.PactState (PactRow(..), PactRowContents(..), getLatestPactStateAt, getLatestBlockHeight, addChainIdLabel)
 import Chainweb.Pact.Backend.PactState.EmbeddedHashes (EncodedSnapshot(..), grands)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
+import Chainweb.Pact.Backend.Utils (startSqliteDb, stopSqliteDb)
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
-import Control.Exception (bracket)
 import Chainweb.TreeDB (seekAncestor)
 import Chainweb.Utils (fromText, toText)
-import Chainweb.Pact.Backend.Utils (startSqliteDb, stopSqliteDb)
 import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.WebBlockHeaderDB
 import Control.Applicative ((<|>), many, optional)
+import Control.Exception (bracket)
+import Control.Lens ((^?!), ix)
 import Control.Monad (forM, forM_, when)
 import Crypto.Hash (hashWith, hashInitWith, hashUpdate, hashFinalize)
 import Crypto.Hash.Algorithms (SHA3_256(..))
@@ -50,9 +50,9 @@ import Data.ByteString.Builder qualified as BB
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Lazy.Char8 qualified as BLC8
 import Data.Foldable qualified as F
-import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
+import Data.Hashable (Hashable)
 import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map (Map)
@@ -80,8 +80,8 @@ import System.LogLevel (LogLevel(..))
 import UnliftIO.Async (pooledForConcurrentlyN, pooledForConcurrentlyN_)
 
 -- | Compute the "Grand Hash" of a given chain.
-computeGrandHash :: Database -> BlockHeight -> IO ByteString
-computeGrandHash db bh = do
+computeGrandHash :: (Logger logger) => logger -> Database -> BlockHeight -> IO ByteString
+computeGrandHash logger db bh = do
   -- We map over the state of the chain (tables) at the given blockheight.
   -- For each table, we sort the rows by rowKey, lexicographically.
   -- Then we feed the sorted rows into the incremental 'hashAggregate' function.
@@ -92,17 +92,22 @@ computeGrandHash db bh = do
               $ List.sortOn (\pr -> pr.rowKey)
               $ List.map (\(rowKey, PactRowContents{..}) -> PactRow{..})
               $ Map.toList state
-        pure $ hashTable tblName rows
+        let tableHash = hashTable tblName rows
+        forM_ tableHash $ \h -> do
+          logFunctionText logger Debug $ "Table Hash of " <> tblName <> " is " <> hex h
+        pure tableHash
 
   -- This is a simple incremental hash over all of the table hashes.
   -- This is well-defined by its order because 'getLatestPactStateAt'
   -- guarantees that the stream of tables is ordered lexicographically by table
   -- name.
-  S.fold_
+  grandHash <- S.fold_
     (\ctx hash -> hashUpdate ctx (hashWith SHA3_256 hash))
     (hashInitWith SHA3_256)
     (Memory.convert . hashFinalize)
     hashStream
+  logFunctionText logger Debug $ "Grand Hash is " <> hex grandHash
+  pure grandHash
 
 -- | This is the grand hash of a table
 --
@@ -241,7 +246,7 @@ computeGrandHashesAt logger pactConns chainTargets = do
   pooledFor chainTargets $ \(x, cutHeader) -> do
     fmap ((x, ) . HM.fromList) $ pooledFor (HM.toList cutHeader) $ \(cid, blockHeader) -> do
       let SQLiteEnv db _ = pactConns ^?! ix cid
-      hash <- computeGrandHash db (_blockHeight blockHeader)
+      hash <- computeGrandHash (addChainIdLabel cid logger) db (_blockHeight blockHeader)
       pure (cid, (hash, blockHeader))
 
 -- | Like 'TargetBlockHeight', but supports multiple targets in the non-'Latest'
