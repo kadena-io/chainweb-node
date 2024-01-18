@@ -24,20 +24,20 @@ import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB (cutHashesTable, readHighestCutHeaders)
 import Chainweb.Logger (Logger, logFunctionText)
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.PactState (PactRow(..), PactRowContents(..), getLatestPactStateAt, getLatestBlockHeight, addChainIdLabel)
+import Chainweb.Pact.Backend.PactState (PactRow(..), PactRowContents(..), getLatestPactStateAt, getLatestBlockHeight, addChainIdLabel, withChainDb, getEndingTxId)
 import Chainweb.Pact.Backend.PactState.EmbeddedHashes (EncodedSnapshot(..), grands)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
-import Chainweb.Pact.Backend.Utils (startSqliteDb, stopSqliteDb)
+import Chainweb.Pact.Backend.Utils (startSqliteDb, stopSqliteDb, fromUtf8)
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
 import Chainweb.TreeDB (seekAncestor)
-import Chainweb.Utils (fromText, toText)
+import Chainweb.Utils (int, fromText, toText, sshow)
 import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.WebBlockHeaderDB
 import Control.Applicative ((<|>), many, optional)
-import Control.Exception (bracket)
+import Control.Exception (SomeException(..), bracket, catch, displayException)
 import Control.Lens ((^?!), ix)
 import Control.Monad (forM, forM_, when)
 import Crypto.Hash (hashWith, hashInitWith, hashUpdate, hashFinalize)
@@ -70,6 +70,8 @@ import GHC.Stack (HasCallStack)
 import Options.Applicative (ParserInfo, Parser, (<**>))
 import Options.Applicative qualified as O
 import Pact.JSON.Encode qualified as J
+import Pact.Types.SQLite qualified as Pact
+import Pact.Types.SQLite (SType(..), RType(..))
 import Patience.Map qualified as P
 import Streaming.Prelude (Stream, Of)
 import Streaming.Prelude qualified as S
@@ -318,9 +320,6 @@ pactImportMain :: IO ()
 pactImportMain = do
   cfg <- O.execParser opts
 
-  let cids = allChains cfg.chainwebVersion
-  checkPactDbsExist cfg.sourcePactDir cids
-
   C.withDefaultLogger Info $ \logger -> do
     withConnections logger cfg.sourcePactDir (allChains cfg.chainwebVersion) $ \pactConns -> do
       withReadOnlyRocksDb cfg.rocksDir modernDefaultOptions $ \rocksDb -> do
@@ -349,25 +348,26 @@ pactImportMain = do
         let deltas = P.diff expectedChainHashes (hashMapToMap chainHashes)
 
         forM_ (Map.toAscList deltas) $ \(cid, delta) -> do
+          let logger' = addChainIdLabel cid logger
           case delta of
             P.Same _ -> pure ()
-            P.Old _ -> error "pact-import: internal logic error: chain mismatch"
-            P.New _ -> error "pact-import: internal logic error: chain mismatch"
+            P.Old _ -> exitLog logger' "pact-import: internal logic error: chain mismatch"
+            P.New _ -> exitLog logger' "pact-import: internal logic error: chain mismatch"
             P.Delta (eHash, eHeader) (hash, header) -> do
               when (header /= eHeader) $ do
-                putStrLn $ unlines
-                  [ "Chain " <> Text.unpack (chainIdToText cid)
+                logFunctionText logger' Error $ Text.unlines
+                  [ "Chain " <> chainIdToText cid
                   , "Block Header mismatch"
-                  , "  Expected: " <> show (_blockHash eHeader)
-                  , "  Actual:   " <> show (_blockHash header)
+                  , "  Expected: " <> sshow (_blockHash eHeader)
+                  , "  Actual:   " <> sshow (_blockHash header)
                   ]
 
               when (hash /= eHash) $ do
-                putStrLn $ unlines
-                  [ "Chain " <> Text.unpack (chainIdToText cid)
+                logFunctionText logger' Error $ Text.unlines
+                  [ "Chain " <> chainIdToText cid
                   , "Grand Hash mismatch"
-                  , "  Expected: " <> Text.unpack (hex eHash)
-                  , "  Actual:   " <> Text.unpack (hex hash)
+                  , "  Expected: " <> hex eHash
+                  , "  Actual:   " <> hex hash
                   ]
         when (Map.size deltas > 0) exitFailure
 
@@ -378,11 +378,31 @@ pactImportMain = do
           Nothing -> do
             pure ()
           Just targetDir -> do
+            logFunctionText logger Info $ "Creating " <> Text.pack targetDir
             createDirectoryIfMissing False targetDir
-            forM_ (HM.keys chainHashes) $ \cid -> do
+
+            let chains = HM.keys chainHashes
+
+            forM_ chains $ \cid -> do
+              let srcDb = chainwebDbFilePath cid cfg.sourcePactDir
+              let tgtDb = chainwebDbFilePath cid targetDir
+              let logger' = addChainIdLabel cid logger
+
+              logFunctionText logger' Info
+                $ "Copying contents of "
+                  <> Text.pack srcDb
+                  <> " to "
+                  <> Text.pack tgtDb
               copyFile
                 (chainwebDbFilePath cid cfg.sourcePactDir)
                 (chainwebDbFilePath cid targetDir)
+
+            forM_ chains $ \cid -> do
+              withChainDb cid logger targetDir $ \logger' (SQLiteEnv db _) -> do
+                logFunctionText logger' Info
+                  $ "Dropping anything post verified state (BlockHeight " <> sshow recordedBlockHeight <> ")"
+                dropStateAfter logger' db recordedBlockHeight
+
   where
     opts :: ParserInfo PactImportConfig
     opts = O.info (parser <**> O.helper) (O.fullDesc <> O.progDesc helpText)
@@ -629,3 +649,57 @@ withConnections logger pactDir cids f = do
 
     closeConnections :: HashMap ChainId SQLiteEnv -> IO ()
     closeConnections = mapM_ stopSqliteDb
+
+-- FIXME: add savepoints
+dropStateAfter :: (Logger logger) => logger -> Database -> BlockHeight -> IO ()
+dropStateAfter logger db blockheight = do
+  withTx logger db $ do
+    endingTxId <- getEndingTxId db blockheight
+    let sb = SInt (int blockheight)
+
+    logFunctionText logger Info "Dropping tables created after target blockheight"
+    newTables <- do
+      let qry = "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight > ?1 ORDER BY createBlockheight"
+      Pact.qry db qry [sb] [RText] >>= mapM (\case
+        [SText tbl] -> pure tbl
+        _ -> error "expected text")
+    forM_ newTables $ \tbl -> do
+      logFunctionText logger Debug $ "Dropping " <> fromUtf8 tbl
+      Pact.exec_ db ("DROP TABLE IF EXISTS " <> tbl)
+
+    logFunctionText logger Info "Deleting state from versioned tables after blockheight"
+    versionedTables <- do
+      let qry = "SELECT DISTINCT tablename FROM VersionedTableMutation WHERE blockheight > ?1 ORDER BY blockheight"
+      tbls <- Pact.qry db qry [sb] [RText] >>= mapM (\case
+        [SText tbl] -> pure tbl
+        _ -> error "expected text")
+      -- Filter out tables we have already dropped
+      pure $ List.filter (`notElem` newTables) tbls
+    forM_ versionedTables $ \tbl -> do
+      logFunctionText logger Debug $ "Deleting from " <> fromUtf8 tbl
+      let qry = "DELETE FROM " <> tbl <> " WHERE txId > ?1"
+      Pact.exec' db qry [SInt endingTxId]
+
+    logFunctionText logger Info "Deleting Checkpointer state after blockheight"
+    let checkpointerTables = ["BlockHistory", "VersionedTableMutation", "VersionedTableCreation"]
+    forM_ checkpointerTables $ \tbl -> do
+      logFunctionText logger Debug $ "Deleting from " <> fromUtf8 tbl
+      let column =
+            if tbl == "VersionedTableCreation"
+            then "createBlockheight"
+            else "blockheight"
+      let qryText = "DELETE FROM " <> tbl <> " WHERE " <> column <> " > ?1"
+      Pact.exec' db qryText [SInt (int blockheight)]
+
+withTx :: HasCallStack => (Logger logger) => logger -> Database -> IO a -> IO a
+withTx logger db io = do
+  Pact.exec_ db "SAVEPOINT pact_import"
+  let action = do
+        a <- io
+        Pact.exec_ db "RELEASE SAVEPOINT pact_import"
+        pure a
+  catch action $ \e@SomeException{} -> do
+    Pact.exec_ db "ROLLBACK TRANSACTION TO SAVEPOINT pact_import"
+    exitLog logger $ "Execution failed. Rolling back transaction. Exception was: "
+      <> Text.pack (displayException e)
+

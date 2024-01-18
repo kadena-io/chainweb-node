@@ -331,14 +331,14 @@ sortedTableNames rows = M.elems $ M.fromListWith const $ flip List.map rows $ \c
 createCompactActiveRow :: CompactM ()
 createCompactActiveRow = do
   execNoTemplateM_ "createTable: CompactActiveRow"
-      " CREATE TABLE IF NOT EXISTS CompactActiveRow \
-      \ ( tablename TEXT NOT NULL \
-      \ , rowkey TEXT NOT NULL \
-      \ , vrowid INTEGER NOT NULL \
-      \ , UNIQUE (tablename,rowkey) ); "
+    " CREATE TABLE IF NOT EXISTS CompactActiveRow \
+    \ ( tablename TEXT NOT NULL \
+    \ , rowkey TEXT NOT NULL \
+    \ , vrowid INTEGER NOT NULL \
+    \ , UNIQUE (tablename,rowkey) ); "
 
   execNoTemplateM_ "deleteFrom: CompactActiveRow"
-      "DELETE FROM CompactActiveRow"
+    "DELETE FROM CompactActiveRow"
 
 locateTarget :: TargetBlockHeight -> CompactM BlockHeight
 locateTarget = \case

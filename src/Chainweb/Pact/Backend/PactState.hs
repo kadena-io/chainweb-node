@@ -30,6 +30,7 @@ module Chainweb.Pact.Backend.PactState
   , getLatestPactStateAtDiffable
   , getLatestBlockHeight
   , getEarliestBlockHeight
+  , getEndingTxId
   , ensureBlockHeightExists
   , withChainDb
   , addChainIdLabel
@@ -227,20 +228,26 @@ getLatestPactStateAtDiffable db bh = do
   flip S.map (getLatestPactStateAt db bh) $ \(tblName, state) ->
     TableDiffable tblName (M.map (\prc -> prc.rowData) state)
 
+getEndingTxId :: ()
+  => Database
+  -> BlockHeight
+  -> IO Int64
+getEndingTxId db bh = do
+  r <- liftIO $ Pact.qry db
+         "SELECT endingtxid FROM BlockHistory WHERE blockheight=?"
+         [SInt (int bh)]
+         [RInt]
+  case r of
+    [[SInt txId]] -> pure txId
+    _ -> error "getEndingTxId: expected int"
+
 -- | Get the Pact state at the given height.
 getLatestPactStateAt :: ()
   => Database
   -> BlockHeight
   -> Stream (Of (Text, Map ByteString PactRowContents)) IO ()
 getLatestPactStateAt db bh = do
-  endingTxId <- do
-    r <- liftIO $ Pact.qry db
-           "SELECT endingtxid FROM BlockHistory WHERE blockheight=?"
-           [SInt (int bh)]
-           [RInt]
-    case r of
-      [[SInt txId]] -> pure txId
-      _ -> error "expected int"
+  endingTxId <- liftIO $ getEndingTxId db bh
 
   tables <- liftIO $ getPactTableNames db
 
