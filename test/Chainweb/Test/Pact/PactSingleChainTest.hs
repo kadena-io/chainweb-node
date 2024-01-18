@@ -556,9 +556,10 @@ compactionGrandHashUnchanged rdb =
     let db = _sConn cr.sqlEnv
     let targetHeight = BlockHeight numBlocks
 
-    hashPreCompaction <- computeGrandHash db targetHeight
+    let logger = genericLogger Error (\_ -> pure ())
+    hashPreCompaction <- computeGrandHash logger db targetHeight
     Utils.compact Error [C.NoVacuum] cr.sqlEnv (C.Target targetHeight)
-    hashPostCompaction <- computeGrandHash db targetHeight
+    hashPostCompaction <- computeGrandHash logger db targetHeight
 
     assertEqual "GrandHash pre- and post-compaction are the same" hashPreCompaction hashPostCompaction
 
