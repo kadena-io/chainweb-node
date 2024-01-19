@@ -324,7 +324,7 @@ encodeHyperlaneMessage o = do
       hmVersion <- om ^? at "version" . _Just . _TLiteral . _1 . _LInteger . to fromIntegral
       hmNonce <- om ^? at "nonce" . _Just . _TLiteral . _1 . _LInteger . to fromIntegral
       hmOriginDomain <- om ^? at "originDomain" . _Just . _TLiteral . _1 . _LInteger . to fromIntegral
-      hmSender <- om ^? at "sender" . _Just . _TLiteral . _1 . _LString . to decodeHex . _Right
+      hmSender <- om ^? at "sender" . _Just . _TLiteral . _1 . _LString . to Text.encodeUtf8
       hmDestinationDomain <- om ^? at "destinationDomain" . _Just . _TLiteral . _1 . _LInteger . to fromIntegral
       hmRecipient <- om ^? at "recipient" . _Just . _TLiteral . _1 . _LString . to decodeHex . _Right
 
