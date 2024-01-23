@@ -121,8 +121,8 @@ hashTable tblName rows
       $ Memory.convert
       $ hashFinalize
       $ Vector.foldl'
-          (\ctx row -> hashUpdate ctx (hashWith alg (hashRow row)))
-          (hashUpdate (hashInitWith alg) tableInput)
+          (\ctx row -> hashUpdate ctx (hashWith alg (rowToHashInput row)))
+          (hashUpdate (hashInitWith alg) (hashWith alg tableInput))
           rows
   where
     alg = SHA3_256
@@ -154,11 +154,12 @@ hashTable tblName rows
 --   And thus the size of this will always be 28 bytes + the total size of
 --   all variable sized inputs. None of the variable-sized inputs can
 --   be empty (other than maybe rowdata?).
-hashRow :: PactRow -> ByteString
-hashRow pr =
+rowToHashInput :: PactRow -> ByteString
+rowToHashInput pr =
   BL.toStrict
   $ BB.toLazyByteString
-  $ BB.charUtf8 'K'
+  $
+       BB.charUtf8 'K'
     <> BB.word64LE (fromIntegral @Int @Word64 (BS.length pr.rowKey))
     <> BB.byteString pr.rowKey
 
@@ -166,6 +167,7 @@ hashRow pr =
     <> BB.word64LE (fromIntegral @Int64 @Word64 pr.txId)
 
     <> BB.charUtf8 'D'
+    <> BB.word64LE (fromIntegral @Int @Word64 (BS.length pr.rowData))
     <> BB.byteString pr.rowData
 
 limitCut :: (Logger logger)
