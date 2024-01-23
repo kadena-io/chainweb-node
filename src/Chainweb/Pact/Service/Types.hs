@@ -109,6 +109,9 @@ data PactServiceConfig = PactServiceConfig
   , _pactFullHistoryRequired :: !Bool
     -- ^ Whether or not the node requires that the full Pact history be
     --   available. Compaction can remove history.
+  , _pactPersistIntraBlockWrites :: !PersistIntraBlockWrites
+    -- ^ Whether or not the node requires that all writes made in a block
+    --   are persisted. Useful if you want to use PactService BlockTxHistory.
   } deriving (Eq,Show)
 
 data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError

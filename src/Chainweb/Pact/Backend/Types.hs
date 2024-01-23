@@ -40,7 +40,6 @@ module Chainweb.Pact.Backend.Types
     , pdbsDbEnv
 
     , SQLiteRowDelta(..)
-    , SQLiteDeltaKey(..)
     , SQLitePendingTableCreations
     , SQLitePendingWrites
     , SQLitePendingData(..)
@@ -171,14 +170,6 @@ instance Ord SQLiteRowDelta where
         bb = (_deltaTableName b, _deltaRowKey b, _deltaTxId b)
     {-# INLINE compare #-}
 
--- | When we index 'SQLiteRowDelta' values, we need a lookup key.
-data SQLiteDeltaKey = SQLiteDeltaKey
-    { _dkTable :: !ByteString
-    , _dkRowKey :: !ByteString
-    }
-  deriving (Show, Generic, Eq, Ord)
-  deriving anyclass Hashable
-
 -- | A map from table name to a list of 'TxLog' entries. This is maintained in
 -- 'BlockState' and is cleared upon pact transaction commit.
 type TxLogMap = Map TableName (DList TxLogJson)
@@ -192,7 +183,8 @@ type SQLitePendingTableCreations = HashSet ByteString
 type SQLitePendingSuccessfulTxs = HashSet ByteString
 
 -- | Pending writes to the pact db during a block, to be recorded in 'BlockState'.
-type SQLitePendingWrites = HashMap SQLiteDeltaKey (NonEmpty SQLiteRowDelta)
+-- Structured as a map from table name to a map from rowkey to inserted row delta.
+type SQLitePendingWrites = HashMap ByteString (HashMap ByteString (NonEmpty SQLiteRowDelta))
 
 -- | A collection of pending mutations to the pact db. We maintain two of
 -- these; one for the block as a whole, and one for any pending pact

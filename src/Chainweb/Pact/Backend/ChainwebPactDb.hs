@@ -53,7 +53,6 @@ import qualified Data.Set as Set
 import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.Vector as V
 
 import Database.SQLite3.Direct as SQ3
 
@@ -158,9 +157,9 @@ doReadRow d k = forModuleNameFix $ \mnFix ->
         -> SQLitePendingData
         -> MaybeT (BlockHandler logger SQLiteEnv) v
     lookupInPendingData (Utf8 rowkey) p = do
-        let deltaKey = SQLiteDeltaKey tableNameBS rowkey
         -- we get the latest-written value at this rowkey
-        ddata <- _deltaData . NE.head <$> MaybeT (return $ HashMap.lookup deltaKey (_pendingWrites p))
+        allKeys <- hoistMaybe $ HashMap.lookup tableNameBS (_pendingWrites p)
+        ddata <- _deltaData . NE.head <$> hoistMaybe (HashMap.lookup rowkey allKeys)
         MaybeT $ return $! decodeStrict' ddata
 
     lookupInDb
@@ -238,17 +237,17 @@ recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
   where
     !vs = J.encodeStrict v
     delta = SQLiteRowDelta tn txid key vs
-    deltaKey = SQLiteDeltaKey tn key
 
     modf = over pendingWrites upd
-    {- "const" is used here because prefer the latest update of the rowkey for
-    the current transaction -}
-    upd = HashMap.insertWith const deltaKey (delta :| [])
+    upd = HashMap.unionWith
+        HashMap.union
+        (HashMap.singleton tn
+            (HashMap.singleton key (NE.singleton delta)))
 
 
 backendWriteUpdateBatch
     :: BlockHeight
-    -> [(Utf8, V.Vector SQLiteRowDelta)]    -- ^ updates chunked on table name
+    -> [(Utf8, [SQLiteRowDelta])]    -- ^ updates chunked on table name
     -> Database
     -> IO ()
 backendWriteUpdateBatch bh writesByTable db = mapM_ writeTable writesByTable
@@ -260,7 +259,7 @@ backendWriteUpdateBatch bh writesByTable db = mapM_ writeTable writesByTable
         ]
 
     writeTable (tableName, writes) = do
-        execMulti db q (V.toList $ V.map prepRow writes)
+        execMulti db q (map prepRow writes)
         markTableMutation tableName bh db
       where
         q = "INSERT OR REPLACE INTO " <> tbl tableName <> "(rowkey,txid,rowdata) VALUES(?,?,?)"
@@ -339,8 +338,8 @@ doKeys d = do
     pb <- use bsPendingBlock
     mptx <- use bsPendingTx
 
-    let memKeys = fmap (B8.unpack . _deltaRowKey) $
-                  collect pb ++ maybe [] collect mptx
+    let memKeys = fmap (B8.unpack . _deltaRowKey)
+                  $ collect pb ++ maybe [] collect mptx
 
     let !allKeys = fmap fromString
                   $ msort -- becomes available with Pact42Upgrade
@@ -364,8 +363,7 @@ doKeys d = do
     tn = domainTableName d
     tnS = let (Utf8 x) = tn in x
     collect p =
-        let flt k _ = _dkTable k == tnS
-        in concatMap NE.toList $ HashMap.elems $ HashMap.filterWithKey flt (_pendingWrites p)
+        concatMap NE.toList $ HashMap.elems $ fromMaybe mempty $ HashMap.lookup tnS (_pendingWrites p)
 {-# INLINE doKeys #-}
 
 -- tid is non-inclusive lower bound for the search
@@ -400,11 +398,11 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
 
     tnS = T.encodeUtf8 tn
     collect p =
-        let flt k _ = _dkTable k == tnS
-            txids = fmap _deltaTxId $
+        let txids = fmap _deltaTxId $
                     concatMap NE.toList $
                     HashMap.elems $
-                    HashMap.filterWithKey flt (_pendingWrites p)
+                    fromMaybe mempty $
+                    HashMap.lookup tnS (_pendingWrites p)
         in filter (> _tid) txids
 {-# INLINE doTxIds #-}
 
@@ -495,7 +493,7 @@ doCommit = use bsMode >>= \case
     merge _ Nothing a = a
     merge persistIntraBlockWrites (Just txPending) blockPending = SQLitePendingData
         { _pendingTableCreation = HashSet.union (_pendingTableCreation txPending) (_pendingTableCreation blockPending)
-        , _pendingWrites = HashMap.unionWith mergeAtRowKey (_pendingWrites txPending) (_pendingWrites blockPending)
+        , _pendingWrites = HashMap.unionWith (HashMap.unionWith mergeAtRowKey) (_pendingWrites txPending) (_pendingWrites blockPending)
         , _pendingTxLogMap = _pendingTxLogMap txPending
         , _pendingSuccessfulTxs = _pendingSuccessfulTxs blockPending
         }
@@ -545,18 +543,30 @@ doGetTxLog d txid = do
     if null p then readFromDb else return p
 
   where
-    predicate delta = _deltaTxId delta == txid &&
-                      _deltaTableName delta == tableNameBS
-
     tableName = domainTableName d
     Utf8 tableNameBS = tableName
 
     readFromPending = do
         ptx <- maybeToList <$> use bsPendingTx
         pb <- use bsPendingBlock
-        let deltas = (ptx ++ [pb]) >>= map NE.toList . HashMap.elems . _pendingWrites >>= take 1
-        let ourDeltas = filter predicate deltas
-        mapM (\x -> toTxLog d (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
+        let deltas = do
+                -- grab all pending writes in this transaction and elsewhere in
+                -- this block
+                pending <- ptx ++ [pb]
+                -- all writes to the table
+                let writesAtTableByKey =
+                        fromMaybe mempty $ HashMap.lookup tableNameBS $ _pendingWrites pending
+                -- a list of all writes to the table for some particular key
+                allWritesForSomeKey <- HashMap.elems writesAtTableByKey
+                -- the single latest write to the table for that key which is
+                -- from this txid
+                latestWriteForSomeKey <- take 1
+                    [ writeForSomeKey
+                    | writeForSomeKey <- NE.toList allWritesForSomeKey
+                    , _deltaTxId writeForSomeKey == txid
+                    ]
+                return latestWriteForSomeKey
+        mapM (\x -> toTxLog d (Utf8 $ _deltaRowKey x) (_deltaData x)) deltas
 
     readFromDb = do
         rows <- callDb "doGetTxLog" $ \db -> qry db stmt

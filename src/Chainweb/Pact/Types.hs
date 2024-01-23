@@ -480,6 +480,7 @@ testPactServiceConfig = PactServiceConfig
       , _pactLogGas = False
       , _pactModuleCacheLimit = defaultModuleCacheLimit
       , _pactFullHistoryRequired = False
+      , _pactPersistIntraBlockWrites = DoNotPersistIntraBlockWrites
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@

@@ -35,12 +35,10 @@ import Data.Int
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Data.HashMap.Strict as HashMap
-import qualified Data.List as List
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
-import qualified Data.Vector.Algorithms.Tim as TimSort
 import GHC.Stack (HasCallStack)
 
 import Database.SQLite3.Direct
@@ -200,20 +198,13 @@ doSave dbenv hash = runBlockEnv dbenv $ do
         newTables <- use $ bsPendingBlock . pendingTableCreation
         writes <- use $ bsPendingBlock . pendingWrites
         createNewTables bh $ toList newTables
-        writeV <- toVectorChunks writes
+        let writeV = toChunks writes
         callDb "save" $ backendWriteUpdateBatch bh writeV
         indexPendingPactTransactions
 
-    prepChunk [] = error "impossible: empty chunk from groupBy"
-    prepChunk chunk@(h:_) = (Utf8 $ _deltaTableName h, V.fromList chunk)
-
-    toVectorChunks writes = liftIO $ do
-        mv <- mutableVectorFromList . concatMap toList $
-              HashMap.elems writes
-        TimSort.sort mv
-        l' <- V.toList <$> V.unsafeFreeze mv
-        let ll = List.groupBy (\a b -> _deltaTableName a == _deltaTableName b) l'
-        return $ map prepChunk ll
+    toChunks writes =
+        over _2 (concatMap toList . HashMap.elems) .
+        over _1 Utf8 <$> HashMap.toList writes
 
     createNewTables
         :: BlockHeight
