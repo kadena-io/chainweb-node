@@ -18,28 +18,30 @@ module Chainweb.Pact.Backend.PactState.GrandHash
   )
   where
 
-import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpointer)
+import Chainweb.BlockHeader (BlockHeader(..), genesisHeight)
+import Chainweb.Pact.Types (defaultModuleCacheLimit)
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB (cutHashesTable, readHighestCutHeaders)
 import Chainweb.Logger (Logger, logFunctionText)
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.PactState (PactRow(..), PactRowContents(..), getLatestPactStateAt, getLatestBlockHeight, addChainIdLabel, withChainDb, getEndingTxId)
+import Chainweb.Pact.Backend.PactState (PactRow(..), PactRowContents(..), getLatestPactStateAt, getLatestBlockHeight, addChainIdLabel, withChainDb)
 import Chainweb.Pact.Backend.PactState.EmbeddedHashes (EncodedSnapshot(..), grands)
-import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
-import Chainweb.Pact.Backend.Utils (startSqliteDb, stopSqliteDb, fromUtf8)
+import Chainweb.Pact.Backend.Types (Checkpointer(..), SQLiteEnv(..), initBlockState)
+import Chainweb.Pact.Backend.Utils (startSqliteDb, stopSqliteDb)
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
 import Chainweb.TreeDB (seekAncestor)
-import Chainweb.Utils (int, fromText, toText, sshow)
+import Chainweb.Utils (fromText, toText, sshow)
 import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.WebBlockHeaderDB
 import Control.Applicative ((<|>), many, optional)
-import Control.Exception (SomeException(..), bracket, catch, displayException)
+import Control.Exception (bracket)
 import Control.Lens ((^?!), ix)
-import Control.Monad (forM, forM_, when)
+import Control.Monad (forM, forM_, when, void)
 import Crypto.Hash (hashWith, hashInitWith, hashUpdate, hashFinalize)
 import Crypto.Hash.Algorithms (SHA3_256(..))
 import Data.ByteArray qualified as Memory
@@ -70,8 +72,6 @@ import GHC.Stack (HasCallStack)
 import Options.Applicative (ParserInfo, Parser, (<**>))
 import Options.Applicative qualified as O
 import Pact.JSON.Encode qualified as J
-import Pact.Types.SQLite qualified as Pact
-import Pact.Types.SQLite (SType(..), RType(..))
 import Patience.Map qualified as P
 import Streaming.Prelude (Stream, Of)
 import Streaming.Prelude qualified as S
@@ -400,10 +400,13 @@ pactImportMain = do
               copyFile srcDb tgtDb
 
             forM_ chains $ \cid -> do
-              withChainDb cid logger targetDir $ \logger' (SQLiteEnv db _) -> do
+              withChainDb cid logger targetDir $ \logger' sqliteEnv -> do
                 logFunctionText logger' Info
                   $ "Dropping anything post verified state (BlockHeight " <> sshow snapshotBlockHeight <> ")"
-                dropStateAfter logger' db snapshotBlockHeight
+                withProdRelationalCheckpointer logger (initBlockState defaultModuleCacheLimit (genesisHeight cfg.chainwebVersion cid)) sqliteEnv cfg.chainwebVersion cid $ \cp -> do
+                  let blockHash = _blockHash $ snd $ expectedChainHashes ^?! ix cid
+                  void $ _cpRestore cp (Just (snapshotBlockHeight + 1, blockHash))
+                  _cpSave cp blockHash
 
   where
     opts :: ParserInfo PactImportConfig
@@ -651,57 +654,3 @@ withConnections logger pactDir cids f = do
 
     closeConnections :: HashMap ChainId SQLiteEnv -> IO ()
     closeConnections = mapM_ stopSqliteDb
-
--- FIXME: add savepoints
-dropStateAfter :: (Logger logger) => logger -> Database -> BlockHeight -> IO ()
-dropStateAfter logger db blockheight = do
-  withTx logger db $ do
-    endingTxId <- getEndingTxId db blockheight
-    let sb = SInt (int blockheight)
-
-    logFunctionText logger Info "Dropping tables created after target blockheight"
-    newTables <- do
-      let qry = "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight > ?1 ORDER BY createBlockheight"
-      Pact.qry db qry [sb] [RText] >>= mapM (\case
-        [SText tbl] -> pure tbl
-        _ -> error "expected text")
-    forM_ newTables $ \tbl -> do
-      logFunctionText logger Debug $ "Dropping " <> fromUtf8 tbl
-      Pact.exec_ db ("DROP TABLE IF EXISTS " <> tbl)
-
-    logFunctionText logger Info "Deleting state from versioned tables after blockheight"
-    versionedTables <- do
-      let qry = "SELECT DISTINCT tablename FROM VersionedTableMutation WHERE blockheight > ?1 ORDER BY blockheight"
-      tbls <- Pact.qry db qry [sb] [RText] >>= mapM (\case
-        [SText tbl] -> pure tbl
-        _ -> error "expected text")
-      -- Filter out tables we have already dropped
-      pure $ List.filter (`notElem` newTables) tbls
-    forM_ versionedTables $ \tbl -> do
-      logFunctionText logger Debug $ "Deleting from " <> fromUtf8 tbl
-      let qry = "DELETE FROM " <> tbl <> " WHERE txId > ?1"
-      Pact.exec' db qry [SInt endingTxId]
-
-    logFunctionText logger Info "Deleting Checkpointer state after blockheight"
-    let checkpointerTables = ["BlockHistory", "VersionedTableMutation", "VersionedTableCreation"]
-    forM_ checkpointerTables $ \tbl -> do
-      logFunctionText logger Debug $ "Deleting from " <> fromUtf8 tbl
-      let column =
-            if tbl == "VersionedTableCreation"
-            then "createBlockheight"
-            else "blockheight"
-      let qryText = "DELETE FROM " <> tbl <> " WHERE " <> column <> " > ?1"
-      Pact.exec' db qryText [SInt (int blockheight)]
-
-withTx :: HasCallStack => (Logger logger) => logger -> Database -> IO a -> IO a
-withTx logger db io = do
-  Pact.exec_ db "SAVEPOINT pact_import"
-  let action = do
-        a <- io
-        Pact.exec_ db "RELEASE SAVEPOINT pact_import"
-        pure a
-  catch action $ \e@SomeException{} -> do
-    Pact.exec_ db "ROLLBACK TRANSACTION TO SAVEPOINT pact_import"
-    exitLog logger $ "Execution failed. Rolling back transaction. Exception was: "
-      <> Text.pack (displayException e)
-
