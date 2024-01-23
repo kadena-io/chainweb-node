@@ -44,6 +44,7 @@ evalHyperlaneCommand (_objectMap . _oObject -> om)
   , Just (TLitString sig) <- M.lookup "signature" om
   = recoverAddressValidatorAnnouncement storageLocation sig
 
+  -- process
   | Just (TLitString message) <- M.lookup "message" om
   , Just (TLitString metadata) <- M.lookup "metadata" om
   , Just (TList validators _ _) <- M.lookup "validators" om
@@ -54,6 +55,7 @@ evalHyperlaneCommand (_objectMap . _oObject -> om)
       _ -> throwError $ Text.pack $ "Only string validators are supported"
     verifySignatures message metadata parsedValidators (fromInteger threshold)
 
+  -- dispatch
   | Just (TObject o _) <- M.lookup "message" om
   = encodeHyperlaneMessage o
 
@@ -123,14 +125,13 @@ verifySignatures hexMessage hexMetadata validators threshold = do
   let TokenMessageERC20{..} = hmTokenMessage
   let
     encodedSender = encodeHex hmSender
-    encodedRecipient = encodeHex hmRecipient
     hmObj = obj
           [ ("version", tLit $ LInteger $ toInteger hmVersion)
           , ("nonce", tLit $ LInteger $ toInteger hmNonce)
           , ("originDomain", tLit $ LInteger $ toInteger hmOriginDomain)
           , ("sender", tStr $ asString encodedSender)
           , ("destinationDomain", tLit $ LInteger $ toInteger hmDestinationDomain)
-          , ("recipient", tStr $ asString encodedRecipient)
+          , ("recipient", tStr $ asString hmRecipient)
           , ("tokenMessage", obj
               ([ ("recipient", tStr $ asString tmRecipient)
                , ("amount", tLit $ LDecimal $ wordToDecimal tmAmount)
