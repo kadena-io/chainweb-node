@@ -76,7 +76,7 @@ import System.IO.Unsafe (unsafePerformIO)
 v :: ChainwebVersion
 v = fastForkingCpmTestVersion petersonChainGraph
 
-nodes :: Natural
+nodes :: Word
 nodes = 1
 
 cid :: ChainId
@@ -105,18 +105,18 @@ defMiningReward = 2.304523
 transferGasCost :: Decimal
 transferGasCost = gasCost 700
 
-type RosettaTest = IO (Time Micros) -> IO ClientEnv -> ScheduledTest
+type RosettaTest = IO (Time Micros) -> IO ClientEnv -> TestTree
 
 -- -------------------------------------------------------------------------- --
 -- Test Tree
 
-tests :: RocksDb -> ScheduledTest
-tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "Chainweb.Test.Rosetta.RestAPI" go
   where
     go = return $
       withResourceT (withNodesAtLatestBehavior v "rosettaRemoteTests-" rdb nodes) $ \envIo ->
-      withResource' getCurrentTimeIntegral $ \tio -> testGroup "Rosetta Api tests" $
-        schedule Sequential (tgroup tio $ _getServiceClientEnv <$> envIo)
+      withResource' getCurrentTimeIntegral $ \tio -> sequentialTestGroup "Rosetta Api tests" AllFinish $
+        tgroup tio $ _getServiceClientEnv <$> envIo
 
     -- Not supported:
     --
@@ -140,7 +140,7 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
       , networkListTests
       , networkOptionsTests
       , networkStatusTests
-      , blockKAccountAfterPact420
+      , blockKAccountAfterPact42
       , constructionTransferTests
       , blockCoinV3RemediationTests
       ]
@@ -149,7 +149,7 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta.RestAPI" go
 --
 accountBalanceTests :: RosettaTest
 accountBalanceTests tio envIo =
-    testCaseSchSteps "Account Balance Tests" $ \step -> do
+    testCaseSteps "Account Balance Tests" $ \step -> do
       step "check initial balance"
       cenv <- envIo
       resp0 <- accountBalance cenv req
@@ -177,9 +177,9 @@ accountBalanceTests tio envIo =
 --   TxLog parse error after fork to Pact 420.
 --   This assumes that this test occurs after the
 --   fork blockheight.
-blockKAccountAfterPact420 :: RosettaTest
-blockKAccountAfterPact420 tio envIo =
-  testCaseSchSteps "Block k Account After Pact 420 Test" $ \step -> do
+blockKAccountAfterPact42 :: RosettaTest
+blockKAccountAfterPact42 tio envIo =
+  testCaseSteps "Block k Account After Pact 420 Test" $ \step -> do
     cenv <- envIo
     rkmv <- newEmptyMVar @RequestKeys
 
@@ -199,7 +199,7 @@ blockKAccountAfterPact420 tio envIo =
 --
 blockTransactionTests :: RosettaTest
 blockTransactionTests tio envIo =
-    testCaseSchSteps "Block Transaction Tests" $ \step -> do
+    testCaseSteps "Block Transaction Tests" $ \step -> do
       cenv <- envIo
       rkmv <- newEmptyMVar @RequestKeys
 
@@ -247,7 +247,7 @@ blockTransactionTests tio envIo =
 -- | Rosetta block endpoint tests
 --
 blockTests :: String -> RosettaTest
-blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
+blockTests testname tio envIo = testCaseSteps testname $ \step -> do
     cenv <- envIo
     rkmv <- newEmptyMVar @RequestKeys
 
@@ -307,7 +307,7 @@ blockTests testname tio envIo = testCaseSchSteps testname $ \step -> do
 
 blockCoinV2RemediationTests :: RosettaTest
 blockCoinV2RemediationTests _ envIo =
-  testCaseSchSteps "Block CoinV2 Remediation Tests" $ \step -> do
+  testCaseSteps "Block CoinV2 Remediation Tests" $ \step -> do
     cenv <- envIo
 
     step "fetch coin v2 remediation block"
@@ -344,7 +344,7 @@ blockCoinV2RemediationTests _ envIo =
 
 block20ChainRemediationTests :: RosettaTest
 block20ChainRemediationTests _ envIo =
-  testCaseSchSteps "Block 20 Chain Remediation Tests" $ \step -> do
+  testCaseSteps "Block 20 Chain Remediation Tests" $ \step -> do
     cenv <- envIo
 
     step "fetch  remediation block"
@@ -384,7 +384,7 @@ block20ChainRemediationTests _ envIo =
 
 blockCoinV3RemediationTests :: RosettaTest
 blockCoinV3RemediationTests _ envIo =
-  testCaseSchSteps "Block CoinV3 Remediation Tests" $ \step -> do
+  testCaseSteps "Block CoinV3 Remediation Tests" $ \step -> do
     cenv <- envIo
 
     step "fetch coin v3 remediation block"
@@ -422,7 +422,7 @@ blockCoinV3RemediationTests _ envIo =
 --
 constructionTransferTests :: RosettaTest
 constructionTransferTests _ envIo =
-  testCaseSchSteps "Construction Flow Tests" $ \step -> do
+  testCaseSteps "Construction Flow Tests" $ \step -> do
     cenv <- envIo
     let submitToConstructionAPI' ops cid' res =
           submitToConstructionAPI ops cid' sender00KAcct getKeys res cenv step
@@ -596,18 +596,19 @@ submitToConstructionAPI expectOps chainId' payer getKeys expectResult cenv step 
       Right pk' <- pure $ P.parseB16TextOnly pk
       let akps = P.ApiKeyPair (P.PrivBS sk') (Just $ P.PubBS pk')
                  Nothing Nothing Nothing
-      [(kp,_)] <- P.mkKeyPairs [akps]
+      [(DynEd25519KeyPair kp,_)] <- P.mkKeyPairs [akps]
       (Right (hsh :: P.PactHash)) <- pure $ fmap
         (P.fromUntypedHash . P.Hash . BS.toShort)
         (P.parseB16TextOnly $ _rosettaSigningPayload_hexBytes payload)
-      sig <- P.signHash hsh kp
+      let
+        sig = P.signHash hsh kp
 
       pure $! RosettaSignature
         { _rosettaSignature_signingPayload = payload
         , _rosettaSignature_publicKey =
             RosettaPublicKey pk CurveEdwards25519
         , _rosettaSignature_signatureType = RosettaEd25519
-        , _rosettaSignature_hexBytes = P._usSig sig
+        , _rosettaSignature_hexBytes = sig
         }
 
     acct n = AccountId n Nothing Nothing
@@ -617,7 +618,7 @@ submitToConstructionAPI expectOps chainId' payer getKeys expectResult cenv step 
 -- | Rosetta mempool endpoint tests
 --
 mempoolTests :: RosettaTest
-mempoolTests tio envIo = testCaseSchSteps "Mempool Tests" $ \step -> do
+mempoolTests tio envIo = testCaseSteps "Mempool Tests" $ \step -> do
     cenv <- envIo
     rkmv <- newEmptyMVar @RequestKeys
 
@@ -637,7 +638,7 @@ mempoolTests tio envIo = testCaseSchSteps "Mempool Tests" $ \step -> do
 --
 networkListTests :: RosettaTest
 networkListTests _ envIo =
-    testCaseSchSteps "Network List Tests" $ \step -> do
+    testCaseSteps "Network List Tests" $ \step -> do
       cenv <- envIo
 
       step "send network list request"
@@ -656,7 +657,7 @@ networkListTests _ envIo =
 --
 networkOptionsTests :: RosettaTest
 networkOptionsTests _ envIo =
-    testCaseSchSteps "Network Options Tests" $ \step -> do
+    testCaseSteps "Network Options Tests" $ \step -> do
       cenv <- envIo
 
       step "send network options request"
@@ -684,7 +685,7 @@ networkOptionsTests _ envIo =
 --
 networkStatusTests :: RosettaTest
 networkStatusTests tio envIo =
-    testCaseSchSteps "Network Status Tests" $ \step -> do
+    testCaseSteps "Network Status Tests" $ \step -> do
       cenv <- envIo
 
       step "send network status request"
@@ -791,18 +792,17 @@ mkTransfer :: ChainId -> IO (Time Micros) -> IO SubmitBatch
 mkTransfer sid tio = do
     t <- toTxCreationTime <$> tio
     n <- readIORef nonceRef
-    c <- buildTextCmd
+    c <- buildTextCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n) v
       $ set cbSigners
-        [ mkSigner' sender00
+        [ mkEd25519Signer' sender00
           [ mkTransferCap "sender00" "sender01" 1.0
           , mkGasCap
           ]
         ]
       $ set cbCreationTime t
-      $ set cbNetworkId (Just v)
       $ set cbChainId sid
-      $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
-      $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+      $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)")
+      $ defaultCmd
 
     modifyIORef' nonceRef (+1)
     return $ SubmitBatch (pure c)
@@ -812,18 +812,19 @@ mkKCoinAccount sid tio = do
     let kAcct = "k:" <> fst sender00
     t <- toTxCreationTime <$> tio
     n <- readIORef nonceRef
-    c <- buildTextCmd
+    c <- buildTextCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n) v
       $ set cbSigners
-        [ mkSigner' sender00
+        [ mkEd25519Signer' sender00
           [ mkTransferCap "sender00" kAcct 20.0
           , mkGasCap ]
         ]
       $ set cbCreationTime t
-      $ set cbNetworkId (Just v)
       $ set cbChainId sid
-      $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
-      $ mkExec ("(coin.transfer-create \"sender00\" \"" <> kAcct <> "\" (read-keyset \"sender00\") 20.0)")
-      $ mkKeySetData "sender00" [sender00]
+      $ set cbRPC
+          (mkExec ("(coin.transfer-create \"sender00\" \"" <> kAcct <> "\" (read-keyset \"sender00\") 20.0)")
+            (mkKeySetData "sender00" [sender00]))
+
+      $ defaultCmd
 
     modifyIORef' nonceRef (+1)
     return $ SubmitBatch (pure c)

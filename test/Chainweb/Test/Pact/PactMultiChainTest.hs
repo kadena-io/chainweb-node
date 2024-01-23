@@ -15,7 +15,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
-import Data.Aeson (object, (.=))
+import Data.Aeson (Value, object, (.=))
 import Data.List(isPrefixOf)
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.HashMap.Strict as HM
@@ -113,41 +113,40 @@ data PactTxTest = PactTxTest
     , _pttTest :: CommandResult Hash -> Assertion
     }
 
-tests :: ScheduledTest
-tests = ScheduledTest testName go
+tests :: TestTree
+tests = testGroup testName
+  [ test generousConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
+  , test generousConfig freeGasModel "pact42UpgradeTest" pact42UpgradeTest
+  , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
+  , test timeoutConfig freeGasModel "txTimeoutTest" txTimeoutTest
+  , test generousConfig getGasModel "chainweb213Test" chainweb213Test
+  , test generousConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
+  , test generousConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
+  , test generousConfig getGasModel "chainweb215Test" chainweb215Test
+  , test generousConfig getGasModel "chainweb216Test" chainweb216Test
+  , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
+  , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
+  , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
+  , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
+  , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
+  , test generousConfig getGasModel "pact49UpgradeTest" pact49UpgradeTest
+  , test generousConfig getGasModel "pact410UpgradeTest" pact410UpgradeTest
+  ]
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
-    go = testGroup testName
-         [ test generousConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
-         , test generousConfig freeGasModel "pact420UpgradeTest" pact420UpgradeTest
-         , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
-         , test timeoutConfig freeGasModel "txTimeoutTest" txTimeoutTest
-         , test generousConfig getGasModel "chainweb213Test" chainweb213Test
-         , test generousConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
-         , test generousConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
-         , test generousConfig getGasModel "chainweb215Test" chainweb215Test
-         , test generousConfig getGasModel "chainweb216Test" chainweb216Test
-         , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
-         , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
-         , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
-         , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
-         , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
-         , test generousConfig getGasModel "pact49UpgradeTest" pact49UpgradeTest
-         ]
-      where
-          -- This is way more than what is used in production, but during testing
-          -- we can be generous.
-        generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
-        timeoutConfig = testPactServiceConfig { _pactBlockGasLimit = 100_000 }
+    -- This is way more than what is used in production, but during testing
+    -- we can be generous.
+    generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
+    timeoutConfig = testPactServiceConfig { _pactBlockGasLimit = 100_000 }
 
-        test pactConfig gasmodel tname f =
-          withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
-            withTestBlockDb testVersion $ \bdb -> do
-              (iompa,mpa) <- dmpio
-              let logger = hunitDummyLogger step
-              withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
-                runReaderT f $
-                MultiEnv bdb pact pacts (return iompa) noMiner cid
+    test pactConfig gasmodel tname f =
+      withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
+        withTestBlockDb testVersion $ \bdb -> do
+          (iompa,mpa) <- dmpio
+          let logger = hunitDummyLogger step
+          withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
+            runReaderT f $
+            MultiEnv bdb pact pacts (return iompa) noMiner cid
 
 minerKeysetTest :: PactTestM ()
 minerKeysetTest = do
@@ -252,18 +251,18 @@ pactLocalDepthTest = do
         assertTxGas "Coin post-fork" 1583
     ]
 
-  runLocalWithDepth (Just $ RewindDepth 0) cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the current balance" (pDecimal 99999997.6834)
+  runLocalWithDepth "0" (Just $ RewindDepth 0) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the current balance" (pDecimal 99_999_997.6834)
 
   -- checking that `Just $ RewindDepth 0` has the same behaviour as `Nothing`
-  runLocalWithDepth Nothing cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the current balance as well" (pDecimal 99999997.6834)
+  runLocalWithDepth "1" Nothing cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the current balance as well" (pDecimal 99_999_997.6834)
 
-  runLocalWithDepth (Just $ RewindDepth 1) cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the balance one block before" (pDecimal 99999998.8417)
+  runLocalWithDepth "2" (Just $ RewindDepth 1) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the balance one block before" (pDecimal 99_999_998.8417)
 
-  runLocalWithDepth (Just $ RewindDepth 2) cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the balance two blocks before" (pDecimal 100000000)
+  runLocalWithDepth "3" (Just $ RewindDepth 2) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the balance two blocks before" (pDecimal 100_000_000)
 
   -- the negative depth turns into 18446744073709551611 and we expect the `LocalRewindLimitExceeded` exception
   -- since `Depth` is a wrapper around `Word64`
@@ -272,11 +271,11 @@ pactLocalDepthTest = do
       LocalRewindLimitExceeded _ _ -> return ()
       err -> liftIO $ assertFailure $ "Expected LocalRewindLimitExceeded, but got " ++ show err)
     (do
-      runLocalWithDepth (Just $ RewindDepth (fromIntegral (-5 :: Int))) cid getSender00Balance >>= \_ ->
+      runLocalWithDepth "4" (Just $ RewindDepth (fromIntegral (-5 :: Int))) cid getSender00Balance >>= \_ ->
         liftIO $ assertFailure "Expected LocalRewindLimitExceeded, but block succeeded")
 
   -- the genesis depth
-  runLocalWithDepth (Just $ RewindDepth 55) cid getSender00Balance >>= \r ->
+  runLocalWithDepth "5" (Just $ RewindDepth 55) cid getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000)
 
   -- depth that goes after the genesis block should trigger the `LocalRewindLimitExceeded` exception
@@ -285,16 +284,16 @@ pactLocalDepthTest = do
       LocalRewindGenesisExceeded -> return ()
       err -> liftIO $ assertFailure $ "Expected LocalRewindGenesisExceeded, but got " ++ show err)
     (do
-      runLocalWithDepth (Just $ RewindDepth 56) cid getSender00Balance >>= \_ ->
+      runLocalWithDepth "6" (Just $ RewindDepth 56) cid getSender00Balance >>= \_ ->
         liftIO $ assertFailure "Expected LocalRewindGenesisExceeded, but block succeeded")
 
   where
   checkLocalResult r checkResult = case r of
     Right (LocalResultLegacy cr) -> checkResult cr
     res -> liftIO $ assertFailure $ "Expected LocalResultLegacy, but got: " ++ show res
-  getSender00Balance = set cbGasLimit 700 $ mkCmd "nonce" $ mkExec' "(coin.get-balance \"sender00\")"
+  getSender00Balance = set cbGasLimit 700 $ set cbRPC (mkExec' "(coin.get-balance \"sender00\")") $ defaultCmd
   buildCoinXfer code = buildBasic'
-    (set cbSigners [mkSigner' sender00 coinCaps] . set cbGasLimit 3000)
+    (set cbSigners [mkEd25519Signer' sender00 coinCaps] . set cbGasLimit 3000)
     $ mkExec' code
     where
     coinCaps = [ mkGasCap, mkTransferCap "sender00" "sender01" 1.0 ]
@@ -304,18 +303,18 @@ pact45UpgradeTest = do
   runToHeight 53 -- 2 before fork
   runBlockTest
     [ PactTxTest
-      (buildBasicGas 70000 $ tblModule "tbl") $
+      (buildBasicGas 70_000 $ tblModule "tbl") $
       assertTxSuccess "mod53 table created" $ pString "TableCreated"
     ]
   runBlockTest
     [ PactTxTest (buildSimpleCmd "(enforce false 'hi)") $
         assertTxFailure "Should fail with the error from the enforce" "hi"
     , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
-        assertTxGas "Enforce pre-fork evaluates the string with gas" 34
+        assertTxGas "Enforce pre-fork evaluates the string with gas" 35
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
-        assertTxGas "List functions pre-fork gas" 19
+        assertTxGas "List functions pre-fork gas" 20
     , PactTxTest
-      (buildBasicGas 70000 $ tblModule "Tbl") $
+      (buildBasicGas 70_000 $ tblModule "Tbl") $
       assertTxSuccess "mod53 table update succeeds" $ pString "TableCreated"
     , PactTxTest (buildCoinXfer "(coin.transfer 'sender00 'sender01 1.0)") $
         assertTxGas "Coin transfer pre-fork" 1583
@@ -325,17 +324,17 @@ pact45UpgradeTest = do
     [ PactTxTest (buildSimpleCmd "(+ 1 \'clearlyanerror)") $
       assertTxFailure "Should replace tx error with empty error" ""
     , PactTxTest (buildSimpleCmd "(enforce true (format  \"{}-{}\" [12345, 657859]))") $
-        assertTxGas "Enforce post fork does not eval the string" (14 + coinTxBuyTransferGas)
+        assertTxGas "Enforce post fork does not eval the string" (15 + coinTxBuyTransferGas)
     , PactTxTest (buildSimpleCmd "(enumerate 0 10) (str-to-list 'hi) (make-list 10 'hi)") $
-        assertTxGas "List functions post-fork change gas" (39 + coinTxBuyTransferGas)
+        assertTxGas "List functions post-fork change gas" (40 + coinTxBuyTransferGas)
     , PactTxTest
-      (buildBasicGas 70000 $ tblModule "tBl") $
+      (buildBasicGas 70_000 $ tblModule "tBl") $
       assertTxFailure "mod53 table update fails after fork" ""
     , PactTxTest (buildCoinXfer "(coin.transfer 'sender00 'sender01 1.0)") $
         assertTxGas "Coin post-fork" 709
     ]
   -- run local to check error
-  lr <- runLocal cid $ set cbGasLimit 70000 $ mkCmd "nonce" (tblModule "tBl")
+  lr <- runLocal "0" cid $ set cbGasLimit 70_000 $ set cbRPC (tblModule "tBl") $ defaultCmd
   assertLocalFailure "mod53 table update error"
     (pretty $ show $ PactDuplicateTableError "free.mod53_tBl")
     lr
@@ -349,7 +348,7 @@ pact45UpgradeTest = do
       \   (deftable $TABLE$:{sch})) \
       \ (create-table $TABLE$)"
   buildCoinXfer code = buildBasic'
-    (set cbSigners [mkSigner' sender00 coinCaps] . set cbGasLimit 3000)
+    (set cbSigners [mkEd25519Signer' sender00 coinCaps] . set cbGasLimit 3000)
     $ mkExec' code
     where
     coinCaps = [ mkGasCap, mkTransferCap "sender00" "sender01" 1.0 ]
@@ -357,14 +356,19 @@ pact45UpgradeTest = do
   buildSimpleCmd code = buildBasicGas 3000
       $ mkExec' code
 
-runLocal :: ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
-runLocal cid' cmd = runLocalWithDepth Nothing cid' cmd
+runLocal :: T.Text -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
+runLocal nonce cid' cmd = runLocalWithDepth nonce Nothing cid' cmd
 
-runLocalWithDepth :: Maybe RewindDepth -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
-runLocalWithDepth depth cid' cmd = do
+runLocalWithDepth :: T.Text -> Maybe RewindDepth -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
+runLocalWithDepth nonce depth cid' cmd = do
+  pact <- getPactService cid'
+  cwCmd <- buildCwCmd nonce testVersion cmd
+  liftIO $ _pactLocal pact Nothing Nothing depth cwCmd
+
+getPactService :: ChainId -> PactTestM PactExecutionService
+getPactService cid' = do
   HM.lookup cid' <$> view menvPacts >>= \case
-    Just pact -> buildCwCmd cmd >>=
-      liftIO . _pactLocal pact Nothing Nothing depth
+    Just pact -> return pact
     Nothing -> liftIO $ assertFailure $ "No pact service found at chain id " ++ show cid'
 
 assertLocalFailure
@@ -486,8 +490,6 @@ pact43UpgradeTest = do
         ])
         $ mkKeySetData "k" [sender00]
 
-
-
 chainweb215Test :: PactTestM ()
 chainweb215Test = do
 
@@ -580,8 +582,6 @@ chainweb215Test = do
       , mkXResumeEvent "sender00" "sender00" 0.0123 sender00Ks "pact" h' (toText cid) "0"
       ]
 
-
-
 pact431UpgradeTest :: PactTestM ()
 pact431UpgradeTest = do
 
@@ -650,8 +650,8 @@ pact431UpgradeTest = do
         ])
 
 
-pact420UpgradeTest :: PactTestM ()
-pact420UpgradeTest = do
+pact42UpgradeTest :: PactTestM ()
+pact42UpgradeTest = do
 
   -- run past genesis, upgrades
   runToHeight 3
@@ -736,7 +736,7 @@ chainweb216Test = do
       [ PactTxTest (buildSimpleCmd formatGas) $
         assertTxGas "Pre-fork format gas" 21
       , PactTxTest (buildSimpleCmd tryGas) $
-        assertTxGas "Pre-fork try" 18
+        assertTxGas "Pre-fork try" 19
       , PactTxTest (buildSimpleCmd defineNonNamespacedPreFork) $
         assertTxSuccess
         "Should pass when defining a non-namespaced keyset"
@@ -752,7 +752,7 @@ chainweb216Test = do
       [ PactTxTest (buildSimpleCmd formatGas) $
         assertTxGas "Post-fork format gas increase" 48
       , PactTxTest (buildSimpleCmd tryGas) $
-        assertTxGas "Post-fork try should charge a bit more gas" 19
+        assertTxGas "Post-fork try should charge a bit more gas" 20
       , PactTxTest (buildSimpleCmd defineNonNamespacedPostFork1) $
         assertTxFailure
         "Should fail when defining a non-namespaced keyset post fork"
@@ -1003,34 +1003,34 @@ chainweb219UpgradeTest = do
       ]
 
   -- run local on RTC check
-  lr <- runLocal cid $ set cbGasLimit 70000 $ mkCmd "nonce" runIllTypedFunctionExec
+  lr <- runLocal "0" cid $ set cbGasLimit 70_000 $ set cbRPC runIllTypedFunctionExec $ defaultCmd
   assertLocalSuccess
     "User function return value types should not be checked in local"
     (pDecimal 1.0)
     lr
 
   where
-    addErrTx = buildBasicGas 10000
+    addErrTx = buildBasicGas 10_000
         $ mkExec' (mconcat
         [ "(+ 1 \"a\")"
         ])
-    mapErrTx = buildBasicGas 10000
+    mapErrTx = buildBasicGas 10_000
         $ mkExec' (mconcat
         [ "(map (+ 1) \"a\")"
         ])
-    decTx = buildBasicGas 10000
+    decTx = buildBasicGas 10_000
        $ mkExec' "(dec 1)"
     nativeDetailsMsg = "native `=`  Compare alike terms for equality"
-    nativeDetailsTx = buildBasicGas 10000
+    nativeDetailsTx = buildBasicGas 10_000
         $ mkExec' (mconcat
         [ "="
         ])
     fnDetailsMsg = "(defun coin.transfer:string"
-    fnDetailsTx = buildBasicGas 10000
+    fnDetailsTx = buildBasicGas 10_000
         $ mkExec' (mconcat
         [ "coin.transfer"
         ])
-    runIllTypedFunction = buildBasicGas 70000 runIllTypedFunctionExec
+    runIllTypedFunction = buildBasicGas 70_000 runIllTypedFunctionExec
     runIllTypedFunctionExec = mkExec' (mconcat
                   [ "(namespace 'free)"
                   , "(module m g (defcap g () true)"
@@ -1071,7 +1071,15 @@ pact48UpgradeTest = do
 
 pact49UpgradeTest :: PactTestM ()
 pact49UpgradeTest = do
-  runToHeight 98
+  runToHeight 97
+
+  -- Run block 98.
+  -- WebAuthn is not yet a valid PPK scheme, so this transaction
+  -- is not valid for insertion into the mempool.
+  expectInvalid
+    "WebAuthn should not yet be supported"
+    [ webAuthnSignedTransaction
+    ]
 
   -- run block 99 (before the pact-4.9 fork)
   runBlockTest
@@ -1080,7 +1088,6 @@ pact49UpgradeTest = do
         "Non-canonical messages decode before pact-4.9"
         (pString "d")
     , PactTxTest base64DecodeBadPadding $ assertTxFailure "decoding illegally padded string" "Could not decode string: Base64URL decode failed: invalid padding near offset 16"
-
     ]
 
   -- run block 100 (after the pact-4.9 fork)
@@ -1088,11 +1095,117 @@ pact49UpgradeTest = do
     [ PactTxTest base64DecodeNonCanonical $
         assertTxFailure "decoding non-canonical message" "Could not decode string: Could not base64-decode string"
     , PactTxTest base64DecodeBadPadding $ assertTxFailure "decoding illegally padded string" "Could not decode string: Could not base64-decode string"
+
+    , PactTxTest webAuthnSignedTransaction $
+      assertTxSuccess
+      "WebAuthn signatures should be valid now"
+      (pDecimal 3)
+
     ]
 
   where
+    webAuthnSignedTransaction = buildBasicGasWebAuthnBareSigner 1000 $ mkExec' "(+ 1 2)"
     base64DecodeNonCanonical = buildBasicGas 10000 $ mkExec' "(base64-decode \"ZE==\")"
     base64DecodeBadPadding = buildBasicGas 10000 $ mkExec' "(base64-decode \"aGVsbG8gd29ybGQh%\")"
+
+pact410UpgradeTest :: PactTestM ()
+pact410UpgradeTest = do
+  runToHeight 110
+
+  expectInvalid
+    "WebAuthn prefixed keys should not yet be supported in signatures"
+    [ prefixedSigned
+    ]
+  runBlockTest [
+    PactTxTest poseidonTx $
+      assertTxFailure "Should not resolve new pact native: poseidon-hash-hack-a-chain"
+      "Cannot resolve poseidon-hash-hack-a-chain"
+    ]
+
+  runToHeight 120
+  runBlockTest
+    [ PactTxTest prefixedSigned $
+      assertTxSuccess
+      "Prefixed WebAuthn signers should be legal"
+      (pDecimal 1)
+
+    , PactTxTest prefixedSignerPrefixedKey $
+      assertTxSuccess
+      "WebAuthn prefixed keys should be enforceable with prefixed signers"
+      (pBool True)
+
+    , PactTxTest bareSignerPrefixedKey $
+      assertTxFailure
+      "WebAuthn prefixed keys should not be enforceable with bare signers"
+      "Keyset failure (keys-all): [WEBAUTHN...]"
+
+    , PactTxTest definePrefixedKeySet $
+      assertTxSuccess
+      "WebAuthn prefixed keys should be enforceable after defining them"
+      (pBool True)
+
+    , PactTxTest prefixedSignerPrefixedKeyCreatePrincipal $
+      assertTxSuccess
+      "WebAuthn prefixed keys in a keyset should be possible to make into w: principals"
+      (pString "w:XrscJ2X8aFxFF7oilzFyjQuA1mUN8jgwdxbAd8rt21M:keys-all")
+
+    , PactTxTest prefixedSignerPrefixedKeyValidatePrincipal $
+      assertTxSuccess
+      "WebAuthn prefixed keys in a keyset should be possible to make into *valid* w: principals"
+      (pBool True)
+
+    , PactTxTest prefixedSignerBareKey $
+      assertTxFailure
+      "WebAuthn bare keys should throw an error when read"
+      "Invalid keyset"
+
+    , PactTxTest invalidPrefixedKey $
+      assertTxFailure
+      "Invalid WebAuthn prefixed keys should throw an error when read"
+      "Invalid keyset"
+
+    ,  PactTxTest poseidonTx $
+      assertTxSuccess "Should resolve new pact native: poseidon-hash-hack-a-chain"
+      (pDecimal 18586133768512220936620570745912940619677854269274689475585506675881198879027)
+    ]
+
+  where
+    poseidonTx = buildBasic $ mkExec' "(poseidon-hash-hack-a-chain 1)"
+    prefixedSigned = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec' "1"
+
+    prefixedSignerBareKey = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec
+      "(enforce-keyset (read-keyset 'k))"
+      (mkKeyEnvData "a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
+
+    bareSignerPrefixedKey = buildBasicGasWebAuthnBareSigner 1000 $ mkExec
+      "(enforce-keyset (read-keyset 'k))"
+      (mkKeyEnvData "WEBAUTHN-a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
+
+    prefixedSignerPrefixedKey = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec
+      "(enforce-keyset (read-keyset 'k))"
+      (mkKeyEnvData "WEBAUTHN-a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
+
+    definePrefixedKeySet = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec
+      "(namespace 'free) (define-keyset \"free.edmund\" (read-keyset 'k)) (enforce-keyset \"free.edmund\")"
+      (mkKeyEnvData "WEBAUTHN-a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
+
+    prefixedSignerPrefixedKeyCreatePrincipal = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec
+      "(create-principal (read-keyset 'k))"
+      (mkKeyEnvData "WEBAUTHN-a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
+
+    prefixedSignerPrefixedKeyValidatePrincipal = buildBasicGasWebAuthnPrefixedSigner 1000 $ mkExec
+      "(let ((ks (read-keyset 'k))) (validate-principal ks (create-principal ks)))"
+      (mkKeyEnvData "WEBAUTHN-a4010103272006215820c18831c6f15306d6271e154842906b68f26c1af79b132dde6f6add79710303bf")
+
+    -- This hardcoded public key is the same as the valid one above, except that the first
+    -- character is changed. CBOR parsing will fail.
+    invalidPrefixedKey = buildBasicGas 1000 $ mkExec
+      "(read-keyset 'k)"
+      (mkKeyEnvData "WEBAUTHN-a401010327200add79710303bf")
+
+    mkKeyEnvData :: String -> Value
+    mkKeyEnvData key = object [ "k" .= [key] ]
+
 
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
@@ -1146,7 +1259,7 @@ pact4coin3UpgradeTest = do
                        "coin" v3Hash
             assertTxEvents "Events for tx1 @ block 22" [gasEv1,allocEv,allocTfr] cr
         , PactTxTest (buildXSend []) $ \cr -> do
-            gasEv2 <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
+            gasEv2 <- mkTransferEvent "sender00" "NoMiner" 0.0015 "coin" v3Hash
             sendTfr <- mkTransferEvent "sender00" "" 0.0123 "coin" v3Hash
             yieldEv <- mkXYieldEvent "sender00" "sender00" 0.0123 sender00Ks "pact" v3Hash "0" "0"
             assertTxEvents "Events for tx2 @ block 22" [gasEv2,sendTfr, yieldEv] cr
@@ -1206,8 +1319,8 @@ pact4coin3UpgradeTest = do
           ]
 
     buildReleaseCommand = buildBasic'
-      (set cbSigners [ mkSigner' sender00 []
-                     , mkSigner' allocation00KeyPair []])
+      (set cbSigners [ mkEd25519Signer' sender00 []
+                     , mkEd25519Signer' allocation00KeyPair []])
       $ mkExec' "(coin.release-allocation 'allocation00)"
 
     buildCont sendTx = do
@@ -1233,16 +1346,18 @@ setPactMempool (PactMempool fs) = do
     mpaGetBlock = go mpsRef
     }
   where
-    go ref bf _ _ _ bh = do
+    go ref bf mempoolPreBlockCheck bHeight bHash blockHeader = do
       mps <- readIORef ref
-      let mi = MempoolInput bf bh
+      let mi = MempoolInput bf blockHeader
           runMps i = \case
             [] -> return mempty
             (mp:r) -> case _mempoolBlock mp mi of
               Just bs -> do
                 writeIORef ref (take i mps ++ r)
-                fmap V.fromList $ forM bs $ \b ->
-                  buildCwCmd $ _mempoolCmdBuilder b mi
+                cmds <- fmap V.fromList $ forM bs $ \b ->
+                  buildCwCmd (sshow blockHeader) testVersion $ _mempoolCmdBuilder b mi
+                validationResults <- mempoolPreBlockCheck bHeight bHash cmds
+                return $ fmap fst $ V.filter snd (V.zip cmds validationResults)
               Nothing -> runMps (succ i) r
       runMps 0 mps
 
@@ -1325,7 +1440,7 @@ assertTxFailure' msg needle tx =
 -- | Run a single mempool block on current chain with tests for each tx.
 -- Limitations: can only run a single-chain, single-refill test for
 -- a given cut height.
-runBlockTest :: [PactTxTest] -> PactTestM ()
+runBlockTest :: HasCallStack => [PactTxTest] -> PactTestM ()
 runBlockTest pts = do
   chid <- view menvChainId
   setPactMempool $ PactMempool [testsToBlock chid pts]
@@ -1337,11 +1452,24 @@ testsToBlock :: ChainId -> [PactTxTest] -> MempoolBlock
 testsToBlock chid pts = blockForChain chid $ MempoolBlock $ \_ ->
   pure $ map _pttBuilder pts
 
+-- | No tests in this list should even be submitted to the mempool,
+-- they should be rejected early.
+expectInvalid :: String -> [MempoolCmdBuilder] -> PactTestM ()
+expectInvalid msg pts = do
+  chid <- view menvChainId
+  setPactMempool $ PactMempool [blockForChain chid $ MempoolBlock $ \_ -> pure pts]
+  _ <- runCut'
+  rs <- txResults
+  liftIO $ assertEqual msg mempty rs
+
 -- | Run tests on current cut and chain.
-runBlockTests :: [PactTxTest] -> PactTestM ()
+runBlockTests :: HasCallStack => [PactTxTest] -> PactTestM ()
 runBlockTests pts = do
-  txResults >>= zipWithM_ go pts . V.toList
+  rs <- txResults
+  liftIO $ assertEqual "Result length should equal transaction length" (length pts) (length rs)
+  zipWithM_ go pts (V.toList rs)
   where
+    go :: PactTxTest -> CommandResult Hash -> PactTestM ()
     go (PactTxTest _ t) cr = liftIO $ t cr
 
 -- | Run cuts to block height.
@@ -1355,13 +1483,13 @@ runToHeight bhi = do
 
 buildXSend :: [SigCapability] -> MempoolCmdBuilder
 buildXSend caps = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
-  set cbSigners [mkSigner' sender00 caps]
+  set cbSigners [mkEd25519Signer' sender00 caps]
   $ setFromHeader bh
-  $ mkCmd (sshow bh)
-  $ mkExec
-    "(coin.transfer-crosschain 'sender00 'sender00 (read-keyset 'k) \"0\" 0.0123)" $
-    mkKeySetData "k" [sender00]
-
+  $ set cbRPC
+      (mkExec
+         "(coin.transfer-crosschain 'sender00 'sender00 (read-keyset 'k) \"0\" 0.0123)" $
+         mkKeySetData "k" [sender00])
+  $ defaultCmd
 
 chain0 :: ChainId
 chain0 = unsafeChainId 0
@@ -1392,14 +1520,25 @@ buildXReceive
 buildXReceive (proof,pid) = buildBasic $
     mkCont ((mkContMsg pid 1) { _cmProof = Just proof })
 
+signWebAuthn00Prefixed :: CmdBuilder -> CmdBuilder
+signWebAuthn00Prefixed =
+  set cbSigners [mkWebAuthnSigner' sender02WebAuthnPrefixed []
+                ,mkEd25519Signer' sender00 []
+                ]
+
+signWebAuthn00 :: CmdBuilder -> CmdBuilder
+signWebAuthn00 =
+  set cbSigners [mkWebAuthnSigner' sender02WebAuthn []
+                ,mkEd25519Signer' sender00 []
+                ]
+
 signSender00 :: CmdBuilder -> CmdBuilder
-signSender00 = set cbSigners [mkSigner' sender00 []]
+signSender00 = set cbSigners [mkEd25519Signer' sender00 []]
 
 setFromHeader :: BlockHeader -> CmdBuilder -> CmdBuilder
 setFromHeader bh =
   set cbChainId (_blockChainId bh)
   . set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
-
 
 buildBasic
     :: PactRPC T.Text
@@ -1417,10 +1556,34 @@ buildBasic'
 buildBasic' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
   f $ signSender00
   $ setFromHeader bh
-  $ mkCmd (sshow bh) r
+  $ set cbRPC r
+  $ defaultCmd
 
+buildBasicWebAuthnBareSigner'
+    :: (CmdBuilder -> CmdBuilder)
+    -> PactRPC T.Text
+    -> MempoolCmdBuilder
+buildBasicWebAuthnBareSigner' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+  f $ signWebAuthn00
+  $ setFromHeader bh
+  $ set cbRPC r
+  $ defaultCmd
 
+buildBasicWebAuthnPrefixedSigner'
+    :: (CmdBuilder -> CmdBuilder)
+    -> PactRPC T.Text
+    -> MempoolCmdBuilder
+buildBasicWebAuthnPrefixedSigner' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+  f $ signWebAuthn00Prefixed
+  $ setFromHeader bh
+  $ set cbRPC r
+  $ defaultCmd
 
+buildBasicGasWebAuthnPrefixedSigner :: GasLimit -> PactRPC T.Text -> MempoolCmdBuilder
+buildBasicGasWebAuthnPrefixedSigner g = buildBasicWebAuthnPrefixedSigner' (set cbGasLimit g)
+
+buildBasicGasWebAuthnBareSigner :: GasLimit -> PactRPC T.Text -> MempoolCmdBuilder
+buildBasicGasWebAuthnBareSigner g = buildBasicWebAuthnBareSigner' (set cbGasLimit g)
 
 -- | Get output on latest cut for chain
 getPWO :: ChainId -> PactTestM (PayloadWithOutputs,BlockHeader)

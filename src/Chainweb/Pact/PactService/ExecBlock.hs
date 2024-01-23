@@ -102,8 +102,8 @@ setParentHeader msg ph@(ParentHeader bh) = do
 -- /NOTE:/
 --
 -- Any call of this function must occur within a dedicated call to
--- 'withChwithCheckpointerRewind', 'withCurrentCheckpointer' or
--- 'withCheckPointerWithoutRewind'.
+-- 'withCheckpointerRewind', 'withCurrentCheckpointer' or
+-- 'withCheckpointerWithoutRewind'.
 --
 execBlock
     :: (CanReadablePayloadCas tbl, Logger logger)
@@ -114,7 +114,7 @@ execBlock
         -- instead.
     -> PayloadData
     -> PactDbEnv' logger
-    -> PactServiceM logger tbl (T2 Miner (Transactions (P.CommandResult [P.TxLogJson])))
+    -> PactServiceM logger tbl (T2 (Transactions (P.CommandResult [P.TxLogJson])) PayloadWithOutputs)
 execBlock currHeader plData pdbenv = do
 
     unlessM ((> 0) <$> asks _psCheckpointerDepth) $ do
@@ -151,10 +151,10 @@ execBlock currHeader plData pdbenv = do
 
     modify' $ set psStateValidated $ Just currHeader
 
-    either throwM (void . return) $
+    validationResult <- either throwM return $
       validateHashes currHeader plData miner results
 
-    return $! T2 miner results
+    return $! T2 results validationResult
 
   where
     blockGasLimit =
@@ -250,13 +250,14 @@ validateChainwebTxs logger v cid cp txValidationTime bh txs doBuyGas
 
     checkTxSigs :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkTxSigs t
-      | assertValidateSigs validSchemes hsh signers sigs = pure $ Right t
+      | assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs = pure $ Right t
       | otherwise = return $ Left InsertErrorInvalidSigs
       where
         hsh = P._cmdHash t
         sigs = P._cmdSigs t
         signers = P._pSigners $ payloadObj $ P._cmdPayload t
         validSchemes = validPPKSchemes v cid bh
+        webAuthnPrefixLegal = isWebAuthnPrefixLegal v cid bh
 
     initTxList :: ValidateTxs
     initTxList = V.map Right txs
@@ -532,7 +533,8 @@ validateHashes bHeader pData miner transactions =
       then Right pwo
       else Left $ BlockValidationFailure $ BlockValidationFailureMsg $
         J.encodeJsonText $ J.object
-            [ "mismatch" J..= errorMsg "Payload hash" prevHash newHash
+            [ "header" J..= J.encodeWithAeson (ObjectEncoded bHeader)
+            , "mismatch" J..= errorMsg "Payload hash" prevHash newHash
             , "details" J..= details
             ]
   where
