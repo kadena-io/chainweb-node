@@ -106,9 +106,9 @@ data PactServiceConfig = PactServiceConfig
     -- ^ whether to write transaction gas logs at INFO
   , _pactModuleCacheLimit :: !DbCacheLimitBytes
     -- ^ limit of the database module cache in bytes of corresponding row data
-  , _pactPersistIntraBlockWrites :: !PersistIntraBlockWrites
-    -- ^ whether to write rows to the database even if they are replaced by
-    -- other rows in the same block
+  , _pactFullHistoryRequired :: !Bool
+    -- ^ Whether or not the node requires that the full Pact history be
+    --   available. Compaction can remove history.
   } deriving (Eq,Show)
 
 data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError
@@ -216,6 +216,10 @@ data PactException
     { _localRewindExceededLimit :: !RewindLimit
     , _localRewindRequestedDepth :: !RewindDepth }
   | LocalRewindGenesisExceeded
+  | FullHistoryRequired
+    { _earliestBlockHeight :: !BlockHeight
+    , _genesisHeight :: !BlockHeight
+    }
   deriving (Eq,Generic)
 
 instance Show PactException where
@@ -245,6 +249,10 @@ instance J.Encode PactException where
     , "_localRewindRequestedDepth" J..= J.Aeson @Int (fromIntegral $ _rewindDepth $ _localRewindRequestedDepth o)
     ]
   build LocalRewindGenesisExceeded = tagged "LocalRewindGenesisExceeded" J.null
+  build o@(FullHistoryRequired{}) = tagged "FullHistoryRequired" $ J.object
+    [ "_fullHistoryRequiredEarliestBlockHeight" J..= J.Aeson @Int (fromIntegral $ _earliestBlockHeight o)
+    , "_fullHistoryRequiredGenesisHeight" J..= J.Aeson @Int (fromIntegral $ _genesisHeight o)
+    ]
 
 tagged :: J.Encode v => Text -> v -> J.Builder
 tagged t v = J.object

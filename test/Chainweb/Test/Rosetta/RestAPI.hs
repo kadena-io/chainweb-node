@@ -76,7 +76,7 @@ import System.IO.Unsafe (unsafePerformIO)
 v :: ChainwebVersion
 v = fastForkingCpmTestVersion petersonChainGraph
 
-nodes :: Natural
+nodes :: Word
 nodes = 1
 
 cid :: ChainId
@@ -140,7 +140,7 @@ tests rdb = testGroup "Chainweb.Test.Rosetta.RestAPI" go
       , networkListTests
       , networkOptionsTests
       , networkStatusTests
-      , blockKAccountAfterPact420
+      , blockKAccountAfterPact42
       , constructionTransferTests
       , blockCoinV3RemediationTests
       ]
@@ -177,8 +177,8 @@ accountBalanceTests tio envIo =
 --   TxLog parse error after fork to Pact 420.
 --   This assumes that this test occurs after the
 --   fork blockheight.
-blockKAccountAfterPact420 :: RosettaTest
-blockKAccountAfterPact420 tio envIo =
+blockKAccountAfterPact42 :: RosettaTest
+blockKAccountAfterPact42 tio envIo =
   testCaseSteps "Block k Account After Pact 420 Test" $ \step -> do
     cenv <- envIo
     rkmv <- newEmptyMVar @RequestKeys
@@ -596,18 +596,19 @@ submitToConstructionAPI expectOps chainId' payer getKeys expectResult cenv step 
       Right pk' <- pure $ P.parseB16TextOnly pk
       let akps = P.ApiKeyPair (P.PrivBS sk') (Just $ P.PubBS pk')
                  Nothing Nothing Nothing
-      [(kp,_)] <- P.mkKeyPairs [akps]
+      [(DynEd25519KeyPair kp,_)] <- P.mkKeyPairs [akps]
       (Right (hsh :: P.PactHash)) <- pure $ fmap
         (P.fromUntypedHash . P.Hash . BS.toShort)
         (P.parseB16TextOnly $ _rosettaSigningPayload_hexBytes payload)
-      sig <- P.signHash hsh kp
+      let
+        sig = P.signHash hsh kp
 
       pure $! RosettaSignature
         { _rosettaSignature_signingPayload = payload
         , _rosettaSignature_publicKey =
             RosettaPublicKey pk CurveEdwards25519
         , _rosettaSignature_signatureType = RosettaEd25519
-        , _rosettaSignature_hexBytes = P._usSig sig
+        , _rosettaSignature_hexBytes = sig
         }
 
     acct n = AccountId n Nothing Nothing
@@ -791,18 +792,17 @@ mkTransfer :: ChainId -> IO (Time Micros) -> IO SubmitBatch
 mkTransfer sid tio = do
     t <- toTxCreationTime <$> tio
     n <- readIORef nonceRef
-    c <- buildTextCmd
+    c <- buildTextCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n) v
       $ set cbSigners
-        [ mkSigner' sender00
+        [ mkEd25519Signer' sender00
           [ mkTransferCap "sender00" "sender01" 1.0
           , mkGasCap
           ]
         ]
       $ set cbCreationTime t
-      $ set cbNetworkId (Just v)
       $ set cbChainId sid
-      $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
-      $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+      $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)")
+      $ defaultCmd
 
     modifyIORef' nonceRef (+1)
     return $ SubmitBatch (pure c)
@@ -812,18 +812,19 @@ mkKCoinAccount sid tio = do
     let kAcct = "k:" <> fst sender00
     t <- toTxCreationTime <$> tio
     n <- readIORef nonceRef
-    c <- buildTextCmd
+    c <- buildTextCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n) v
       $ set cbSigners
-        [ mkSigner' sender00
+        [ mkEd25519Signer' sender00
           [ mkTransferCap "sender00" kAcct 20.0
           , mkGasCap ]
         ]
       $ set cbCreationTime t
-      $ set cbNetworkId (Just v)
       $ set cbChainId sid
-      $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
-      $ mkExec ("(coin.transfer-create \"sender00\" \"" <> kAcct <> "\" (read-keyset \"sender00\") 20.0)")
-      $ mkKeySetData "sender00" [sender00]
+      $ set cbRPC
+          (mkExec ("(coin.transfer-create \"sender00\" \"" <> kAcct <> "\" (read-keyset \"sender00\") 20.0)")
+            (mkKeySetData "sender00" [sender00]))
+
+      $ defaultCmd
 
     modifyIORef' nonceRef (+1)
     return $ SubmitBatch (pure c)

@@ -343,7 +343,7 @@ doKeys d = do
                   collect pb ++ maybe [] collect mptx
 
     let !allKeys = fmap fromString
-                  $ msort -- becomes available with pact420Upgrade
+                  $ msort -- becomes available with Pact42Upgrade
                   $ LHM.sort
                   $ dbKeys ++ memKeys
     return allKeys

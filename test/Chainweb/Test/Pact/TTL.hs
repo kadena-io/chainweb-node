@@ -179,12 +179,12 @@ modAtTtl f (Seconds t) = mempty
     { mpaGetBlock = \_ validate bh hash ph -> do
         let txTime = toTxCreationTime $ f $ _bct $ _blockCreationTime ph
             tt = TTLSeconds (int t)
-        outtxs <- fmap V.singleton $ buildCwCmd
+        outtxs <- fmap V.singleton $ buildCwCmd (sshow bh) testVer
           $ set cbCreationTime txTime
           $ set cbTTL tt
-          $ set cbSigners [mkSigner' sender00 []]
-          $ mkCmd (sshow bh)
-          $ mkExec' "1"
+          $ set cbSigners [mkEd25519Signer' sender00 []]
+          $ set cbRPC (mkExec' "1")
+          $ defaultCmd
 
         unlessM (and <$> validate bh hash outtxs) $ throwM DoPreBlockFailure
         return outtxs
@@ -283,7 +283,7 @@ withTestPact rdb test =
   withResource' newEmptyMVar $ \mempoolVarIO ->
     withPactTestBlockDb testVer cid rdb (mempool mempoolVarIO) testPactServiceConfig $ \ios ->
       test $ do
-        (pq,bdb) <- ios
+        (_, pq, bdb) <- ios
         mp <- mempoolVarIO
         bhdb <- getBlockHeaderDb cid bdb
         return $ Ctx mp pq (_bdbPayloadDb bdb) bhdb

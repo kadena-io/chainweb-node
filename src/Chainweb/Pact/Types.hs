@@ -479,7 +479,7 @@ testPactServiceConfig = PactServiceConfig
       , _pactBlockGasLimit = testBlockGasLimit
       , _pactLogGas = False
       , _pactModuleCacheLimit = defaultModuleCacheLimit
-      , _pactPersistIntraBlockWrites = DoNotPersistIntraBlockWrites
+      , _pactFullHistoryRequired = False
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
@@ -668,7 +668,6 @@ execPactServiceM
     -> IO PactServiceState
 execPactServiceM st env act
     = execStateT (runReaderT (_unPactServiceM act) env) st
-
 
 getCheckpointer :: PactServiceM logger tbl (Checkpointer logger)
 getCheckpointer = view psCheckpointer

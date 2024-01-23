@@ -48,8 +48,8 @@ main = do
 
     putStrLn $ "Mainnet fork height (at " <> show mainnetForkTime <> "): " <> show mainnetForkHeight
     putStrLn $ "Testnet fork height (at " <> show testnetForkTime <> "): " <> show testnetForkHeight
-    let nextServiceDateDay = addDays (8 * 7) serviceDateDay
-    putStrLn $ "Next service date (+8 weeks): " <> show nextServiceDateDay
+    let nextServiceDateDay = addDays (12 * 7) serviceDateDay
+    putStrLn $ "Next service date (+12 weeks): " <> show nextServiceDateDay
     where
     heightOfChain0 :: String -> IO BlockHeight
     heightOfChain0 cutUrl =
