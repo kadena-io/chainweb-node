@@ -415,7 +415,8 @@ pactImportMain = do
     helpText :: String
     helpText = unlines
       [ "Compare the grand hash of a Pact database to an expected value."
-      , "If the hash matches, optionally import the database into a target directory."
+      , "If the hash matches, optionally import the database into a target directory"
+      , "and delete any newer state not included in the hash."
       ]
 
     parser :: Parser PactImportConfig
