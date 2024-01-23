@@ -329,23 +329,25 @@ pactImportMain = do
         -- Get the highest common blockheight across all chains.
         latestBlockHeight <- fst <$> resolveLatest logger cfg.chainwebVersion pactConns rocksDb
 
-        let (recordedBlockHeight, expectedChainHashes) =
+        (snapshotBlockHeight, expectedChainHashes) <- do
               -- Find the first element of 'grands' such that
               -- the blockheight therein is less than or equal to
               -- the argument latest common blockheight.
               case List.find (\g -> latestBlockHeight >= fst g) grands of
-                Nothing -> error "pact-import: no snapshot found"
-                Just (b, s) -> (b, Map.map (\es -> (es.pactHash, es.blockHeader)) s)
+                Nothing -> do
+                  exitLog logger "No snapshot older than latest block"
+                Just (b, s) -> do
+                  pure (b, Map.map (\snapshot -> (snapshot.pactHash, snapshot.blockHeader)) s)
 
         chainHashes <- do
-          chainTargets <- resolveTargets logger cfg.chainwebVersion pactConns rocksDb [recordedBlockHeight]
+          chainTargets <- resolveTargets logger cfg.chainwebVersion pactConns rocksDb [snapshotBlockHeight]
           computeGrandHashesAt logger pactConns chainTargets >>= \case
             [(_, chainHashes)] -> do
               pure chainHashes
             [] -> do
-              error "pact-import: computeGrandHashesAt unexpectedly returned 0 blocks"
+              exitLog logger "computeGrandHashesAt unexpectedly returned 0 blocks"
             _ -> do
-              error "pact-import: computeGrandHashesAt unexpectedly returned multiple blocks"
+              exitLog logger "computeGrandHashesAt unexpectedly returned multiple blocks"
 
         let deltas = P.diff expectedChainHashes (hashMapToMap chainHashes)
 
@@ -395,15 +397,13 @@ pactImportMain = do
                   <> Text.pack srcDb
                   <> " to "
                   <> Text.pack tgtDb
-              copyFile
-                (chainwebDbFilePath cid cfg.sourcePactDir)
-                (chainwebDbFilePath cid targetDir)
+              copyFile srcDb tgtDb
 
             forM_ chains $ \cid -> do
               withChainDb cid logger targetDir $ \logger' (SQLiteEnv db _) -> do
                 logFunctionText logger' Info
-                  $ "Dropping anything post verified state (BlockHeight " <> sshow recordedBlockHeight <> ")"
-                dropStateAfter logger' db recordedBlockHeight
+                  $ "Dropping anything post verified state (BlockHeight " <> sshow snapshotBlockHeight <> ")"
+                dropStateAfter logger' db snapshotBlockHeight
 
   where
     opts :: ParserInfo PactImportConfig
