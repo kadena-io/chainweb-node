@@ -33,7 +33,12 @@
 -- The configuration defines a scaled down, accelerated chain that tries to
 -- similulate a full-scale chain in a miniaturized settings.
 --
-module Chainweb.Test.MultiNode ( test, replayTest, compactAndResumeTest ) where
+module Chainweb.Test.MultiNode
+  ( test
+  , replayTest
+  , compactAndResumeTest
+  , pactImportTest
+  ) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
@@ -48,8 +53,10 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.IORef
 import qualified Data.List as L
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import Data.Word (Word64)
 
 import GHC.Generics
 
@@ -83,6 +90,8 @@ import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.PactState (allChains)
+import Chainweb.Pact.Backend.PactState.GrandHash qualified as GrandHash
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
 import Chainweb.Time (Seconds(..))
@@ -286,6 +295,58 @@ runNodesForSeconds
 runNodesForSeconds loglevel write baseConf n (Seconds seconds) rdb pactDbDir inner = do
     void $ timeout (int seconds * 1_000_000)
         $ runNodes loglevel write baseConf n rdb pactDbDir inner
+
+pactImportTest :: ()
+  => LogLevel
+  -> ChainwebVersion
+  -> Natural
+  -> RocksDb
+  -> FilePath
+  -> (String -> IO ())
+  -> IO ()
+pactImportTest logLevel v n rocksDb pactDir step = do
+  let logFun = step . T.unpack
+  let logger = genericLogger logLevel logFun
+
+  logFun "Phase 1... creating blocks"
+  logFun $ T.pack pactDir
+
+  -- N.B: This consensus state stuff counts the number of blocks
+  -- in RocksDB, rather than the number of blocks in all chains
+  -- on the current cut. This is fine because we ultimately just want
+  -- to make sure that we are making progress (i.e, new blocks).
+  stateVar <- newMVar (emptyConsensusState v)
+  let ct :: Int -> StartedChainweb logger -> IO ()
+      ct = harvestConsensusState logger stateVar
+  runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rocksDb pactDir ct
+  consensusState <- swapMVar stateVar (emptyConsensusState v)
+  Just stats1 <- pure $ consensusStateSummary consensusState
+  assertGe "average block count before proceeding" (Actual $ _statBlockCount stats1) (Expected 50)
+  logFun $ sshow stats1
+
+  -- eg if block count is 5343, this will produce [5000, 4000, 3000, 2000, 1000]
+  let targets =
+        let
+          blockCount = _statBlockCount stats1
+        in
+        Set.fromList
+        $ map BlockHeight
+        $ L.unfoldr
+            (\t -> if t >= 1000 then Just (t, t - 1000) else Nothing)
+            (fromIntegral @Natural @Word64 $ blockCount - blockCount `mod` 1000)
+
+  -- For each node
+  forM_ [0 .. n - 1] $ \nid -> do
+    logFun $ "Verifying node " <> sshow nid
+    GrandHash.withConnections logger (pactDir </> show nid) (allChains v) $ \pactConns -> do
+      logFun "Calculating grand hashes"
+
+      grands <- GrandHash.pactCalc logger v pactConns rocksDb (GrandHash.TargetAll targets)
+      logFun $ sshow grands
+
+      logFun "Verifying state"
+      stuff <- GrandHash.pactVerify logger v pactConns rocksDb grands
+      logFun $ sshow stuff
 
 -- | Run nodes
 --   Each node creates blocks
