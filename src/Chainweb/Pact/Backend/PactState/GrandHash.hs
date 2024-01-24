@@ -558,8 +558,8 @@ grandsToJson chainHashes =
                 in (chainIdToText cid, o)
     in (key J..= val)
 
--- | Output a Haskell module with the embedded hashes. This module produced
---   pact-calc, and embedded into the chainweb-node library.
+-- | Output a Haskell module with the embedded hashes. This module is produced
+--   by pact-calc, and embedded into the chainweb-node library.
 --
 --   The implementation is a little janky, but it works.
 chainHashesToModule :: ChainwebVersion -> [(BlockHeight, HashMap ChainId (ByteString, BlockHeader))] -> String
@@ -674,6 +674,13 @@ exitLog logger msg = do
 hashMapToMap :: (Hashable k, Ord k) => HashMap k a -> Map k a
 hashMapToMap = Map.fromList . HM.toList
 
+-- | Provide SQLite connections to all chains.
+--
+--   N.B. This is not at all exception-safe. This is not intended to be
+--   used in production code paths.
+--
+--   This should either use ResourceT or some other mechanism for exception
+--   safety.
 withConnections :: (Logger logger)
   => logger
   -> FilePath
