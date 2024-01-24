@@ -203,13 +203,13 @@ limitCut logger wbhdb latestCutHeaders pactConns blockHeight = do
       Nothing -> do
         pure Nothing
 
-resolveLatest :: (Logger logger)
+resolveLatestCutHeaders :: (Logger logger)
   => logger
   -> ChainwebVersion
   -> HashMap ChainId SQLiteEnv
   -> RocksDb
   -> IO (BlockHeight, HashMap ChainId BlockHeader)
-resolveLatest logger v pactConns rocksDb = do
+resolveLatestCutHeaders logger v pactConns rocksDb = do
   wbhdb <- initWebBlockHeaderDb rocksDb v
   let cutHashes = cutHashesTable rocksDb
   latestCutHeaders <- readHighestCutHeaders v (\_ _ -> pure ()) wbhdb cutHashes
@@ -217,14 +217,14 @@ resolveLatest logger v pactConns rocksDb = do
   headers <- limitCut logger wbhdb latestCutHeaders pactConns latestCommonBlockHeight
   pure (latestCommonBlockHeight, headers)
 
-resolveTargets :: (Logger logger)
+resolveCutHeadersAtHeights :: (Logger logger)
   => logger
   -> ChainwebVersion
   -> HashMap ChainId SQLiteEnv
   -> RocksDb
   -> [BlockHeight] -- ^ targets
   -> IO [(BlockHeight, HashMap ChainId BlockHeader)]
-resolveTargets logger v pactConns rocksDb targets = do
+resolveCutHeadersAtHeights logger v pactConns rocksDb targets = do
   wbhdb <- initWebBlockHeaderDb rocksDb v
   let cutHashes = cutHashesTable rocksDb
   latestCutHeaders <- readHighestCutHeaders v (\_ _ -> pure ()) wbhdb cutHashes
@@ -280,9 +280,9 @@ pactCalc cfg = do
       withReadOnlyRocksDb cfg.rocksDir modernDefaultOptions $ \rocksDb -> do
         chainTargets <- case cfg.targetBlockHeight of
           LatestAll -> do
-            List.singleton <$> resolveLatest logger cfg.chainwebVersion pactConns rocksDb
+            List.singleton <$> resolveLatestCutHeaders logger cfg.chainwebVersion pactConns rocksDb
           TargetAll ts -> do
-            resolveTargets logger cfg.chainwebVersion pactConns rocksDb (Set.toDescList ts)
+            resolveCutHeadersAtHeights logger cfg.chainwebVersion pactConns rocksDb (Set.toDescList ts)
         computeGrandHashesAt logger pactConns chainTargets
 
 -- | Calculate the hash at every provided blockheight across all chains.
@@ -338,7 +338,7 @@ pactVerify :: (Logger logger)
   -> IO (BlockHeight, HashMap ChainId (ByteString, BlockHeader))
 pactVerify logger v pactConns rocksDb grands = do
   -- Get the highest common blockheight across all chains.
-  latestBlockHeight <- fst <$> resolveLatest logger v pactConns rocksDb
+  latestBlockHeight <- fst <$> resolveLatestCutHeaders logger v pactConns rocksDb
 
   snapshot@(snapshotBlockHeight, expectedChainHashes) <- do
     -- Find the first element of 'grands' such that
@@ -351,7 +351,7 @@ pactVerify logger v pactConns rocksDb grands = do
         pure (b, HM.map (\snapshot -> (snapshot.pactHash, snapshot.blockHeader)) s)
 
   chainHashes <- do
-    chainTargets <- resolveTargets logger v pactConns rocksDb [snapshotBlockHeight]
+    chainTargets <- resolveCutHeadersAtHeights logger v pactConns rocksDb [snapshotBlockHeight]
     computeGrandHashesAt logger pactConns chainTargets >>= \case
       [(_, chainHashes)] -> do
         pure chainHashes
