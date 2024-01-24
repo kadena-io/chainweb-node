@@ -15,6 +15,10 @@ module Chainweb.Pact.Backend.PactState.GrandHash
   , pactCalcMain
 
   , computeGrandHash
+  , pactCalc
+  , pactVerify
+  , pactDropPostVerified
+  , BlockHeightTargets(..)
   )
   where
 
@@ -267,38 +271,45 @@ data PactCalcConfig = PactCalcConfig
   { pactDir :: FilePath
   , rocksDir :: FilePath
   , chainwebVersion :: ChainwebVersion
-  , targetBlockHeight :: BlockHeightTargets
+  , target :: BlockHeightTargets
   , writeModule :: Bool
   }
 
-pactCalc :: ()
-  => PactCalcConfig
+pactCalc :: (Logger logger)
+  => logger
+  -> ChainwebVersion
+  -> HashMap ChainId SQLiteEnv
+     -- ^ pact database dir
+  -> RocksDb
+     -- ^ rocksdb dir
+  -> BlockHeightTargets
+     -- ^ target for calculation
   -> IO [(BlockHeight, HashMap ChainId (ByteString, BlockHeader))]
-pactCalc cfg = do
-  C.withDefaultLogger Debug $ \logger -> do
-    withConnections logger cfg.pactDir (allChains cfg.chainwebVersion) $ \pactConns -> do
-      withReadOnlyRocksDb cfg.rocksDir modernDefaultOptions $ \rocksDb -> do
-        chainTargets <- case cfg.targetBlockHeight of
-          LatestAll -> do
-            List.singleton <$> resolveLatestCutHeaders logger cfg.chainwebVersion pactConns rocksDb
-          TargetAll ts -> do
-            resolveCutHeadersAtHeights logger cfg.chainwebVersion pactConns rocksDb (Set.toDescList ts)
-        computeGrandHashesAt logger pactConns chainTargets
+pactCalc logger v pactConns rocksDb target = do
+  chainTargets <- case target of
+    LatestAll -> do
+      List.singleton <$> resolveLatestCutHeaders logger v pactConns rocksDb
+    TargetAll ts -> do
+      resolveCutHeadersAtHeights logger v pactConns rocksDb (Set.toDescList ts)
+  computeGrandHashesAt logger pactConns chainTargets
 
 -- | Calculate the hash at every provided blockheight across all chains.
 --
 --   Note that for some chains, one or more of the requested blockheights
 --   won't be accessible. This could be due to compaction, or the blockheight
---   predating the genesis of the chain. In this case, you will receive a
---   warning.
+--   predating the genesis of the chain. In this case, a warning will be
+--   emitted, not an error.
 pactCalcMain :: IO ()
 pactCalcMain = do
   cfg <- O.execParser opts
-  chainHashes <- pactCalc cfg
-  when cfg.writeModule $ do
-    let modulePath = "src/Chainweb/Pact/Backend/PactState/EmbeddedSnapshot/" <> versionModuleName cfg.chainwebVersion <> ".hs"
-    writeFile modulePath (chainHashesToModule cfg.chainwebVersion chainHashes)
-  BLC8.putStrLn $ grandsToJson chainHashes
+  C.withDefaultLogger Debug $ \logger -> do
+    withConnections logger cfg.pactDir (allChains cfg.chainwebVersion) $ \pactConns -> do
+      withReadOnlyRocksDb cfg.rocksDir modernDefaultOptions $ \rocksDb -> do
+        chainHashes <- pactCalc logger cfg.chainwebVersion pactConns rocksDb cfg.target
+        when cfg.writeModule $ do
+          let modulePath = "src/Chainweb/Pact/Backend/PactState/EmbeddedSnapshot/" <> versionModuleName cfg.chainwebVersion <> ".hs"
+          writeFile modulePath (chainHashesToModule cfg.chainwebVersion chainHashes)
+        BLC8.putStrLn $ grandsToJson chainHashes
   where
     opts :: ParserInfo PactCalcConfig
     opts = O.info (parser <**> O.helper) (O.fullDesc <> O.progDesc helpText)
