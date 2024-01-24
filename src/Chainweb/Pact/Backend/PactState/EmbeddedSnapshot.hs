@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 
 module Chainweb.Pact.Backend.PactState.EmbeddedSnapshot
@@ -18,6 +19,7 @@ data Snapshot = Snapshot
   { pactHash :: ByteString
   , blockHeader :: BlockHeader
   }
+  deriving stock (Eq, Show)
 
 unsafeDecodeBlockHeader :: Text -> BlockHeader
 unsafeDecodeBlockHeader t = case A.decodeStrict (Text.encodeUtf8 t) of
