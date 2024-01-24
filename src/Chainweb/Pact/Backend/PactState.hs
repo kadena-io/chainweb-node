@@ -35,6 +35,7 @@ module Chainweb.Pact.Backend.PactState
   , withChainDb
   , addChainIdLabel
   , doesPactDbExist
+  , allChains
 
   , PactRow(..)
   , PactRowContents(..)
@@ -54,6 +55,7 @@ import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import Data.ByteString (ByteString)
 import Data.Int (Int64)
+import Data.Foldable qualified as F
 import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map.Strict qualified as M
@@ -68,7 +70,8 @@ import Chainweb.Logger (Logger, addLabel)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
 import Chainweb.Utils (int)
-import Chainweb.Version (ChainId, chainIdToText)
+import Chainweb.Version (ChainId, ChainwebVersion, chainIdToText)
+import Chainweb.Version.Utils (chainIdsAt)
 
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
@@ -323,3 +326,6 @@ addChainIdLabel :: (Logger logger)
   -> logger
   -> logger
 addChainIdLabel cid = addLabel ("chainId", chainIdToText cid)
+
+allChains :: ChainwebVersion -> [ChainId]
+allChains v = List.sort $ F.toList $ chainIdsAt v (BlockHeight maxBound)

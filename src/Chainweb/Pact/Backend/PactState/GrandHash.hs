@@ -30,7 +30,7 @@ import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB (cutHashesTable, readHighestCutHeaders)
 import Chainweb.Logger (Logger, logFunctionText)
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.PactState (PactRow(..), PactRowContents(..), getLatestPactStateAt, getLatestBlockHeight, addChainIdLabel)
+import Chainweb.Pact.Backend.PactState (PactRow(..), PactRowContents(..), getLatestPactStateAt, getLatestBlockHeight, addChainIdLabel, allChains)
 import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
 import Chainweb.Pact.Backend.Types (Checkpointer(..), SQLiteEnv(..), initBlockState)
 import Chainweb.Pact.Backend.Utils (startSqliteDb, stopSqliteDb)
@@ -43,8 +43,7 @@ import Chainweb.Version.FastDevelopment (fastDevnet)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Testnet (testnet)
 import Chainweb.Version.Registry (lookupVersionByName)
-import Chainweb.Version.Utils (chainIdsAt)
-import Chainweb.WebBlockHeaderDB
+import Chainweb.WebBlockHeaderDB (WebBlockHeaderDb, getWebBlockHeaderDb, initWebBlockHeaderDb)
 import Control.Applicative ((<|>), many, optional)
 import Control.Exception (bracket)
 import Control.Lens ((^?!), ix)
@@ -59,7 +58,6 @@ import Data.ByteString.Base16 qualified as Base16
 import Data.ByteString.Builder qualified as BB
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Lazy.Char8 qualified as BLC8
-import Data.Foldable qualified as F
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Hashable (Hashable)
@@ -541,9 +539,6 @@ pooledFor = pooledForConcurrentlyN 4
 
 pooledFor_ :: (Foldable t) => t a -> (a -> IO b) -> IO ()
 pooledFor_ = pooledForConcurrentlyN_ 4
-
-allChains :: ChainwebVersion -> [ChainId]
-allChains v = List.sort $ F.toList $ chainIdsAt v (BlockHeight maxBound)
 
 grandsToJson :: [(BlockHeight, HashMap ChainId (ByteString, BlockHeader))] -> BL.ByteString
 grandsToJson chainHashes =

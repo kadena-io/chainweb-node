@@ -28,8 +28,6 @@ import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Aeson ((.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
-import Data.Foldable qualified as F
-import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map.Merge.Strict qualified as Merge
 import Data.Map.Strict qualified as M
@@ -39,16 +37,14 @@ import Data.Text.IO qualified as Text
 import Data.Text.Encoding qualified as Text
 import Options.Applicative
 
-import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Logger (logFunctionText, logFunctionJson)
 import Chainweb.Utils (HasTextRepresentation, fromText, toText)
 import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName, ChainId, chainIdToText)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
-import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.PactState (TableDiffable(..), getLatestPactStateDiffable, doesPactDbExist, withChainDb)
+import Chainweb.Pact.Backend.PactState (TableDiffable(..), getLatestPactStateDiffable, doesPactDbExist, withChainDb, allChains)
 
 import System.Exit (exitFailure)
 import System.LogLevel (LogLevel(..))
@@ -82,7 +78,7 @@ pactDiffMain = do
     Text.putStrLn "Source and target Pact database directories cannot be the same."
     exitFailure
 
-  let cids = List.sort $ F.toList $ chainIdsAt cfg.chainwebVersion (BlockHeight maxBound)
+  let cids = allChains cfg.chainwebVersion
 
   diffyRef <- newIORef @(Map ChainId Diffy) M.empty
 
