@@ -27,14 +27,17 @@ import Chainweb.CutDB (cutHashesTable, readHighestCutHeaders)
 import Chainweb.Logger (Logger, logFunctionText)
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.PactState (PactRow(..), PactRowContents(..), getLatestPactStateAt, getLatestBlockHeight, addChainIdLabel, withChainDb)
-import Chainweb.Pact.Backend.PactState.EmbeddedHashes (EncodedSnapshot(..), grands)
+import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
 import Chainweb.Pact.Backend.Types (Checkpointer(..), SQLiteEnv(..), initBlockState)
 import Chainweb.Pact.Backend.Utils (startSqliteDb, stopSqliteDb)
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
 import Chainweb.TreeDB (seekAncestor)
 import Chainweb.Utils (fromText, toText, sshow)
-import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName)
+import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName(..))
+import Chainweb.Version.Development (devnet)
+import Chainweb.Version.FastDevelopment (fastDevnet)
 import Chainweb.Version.Mainnet (mainnet)
+import Chainweb.Version.Testnet (testnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
 import Chainweb.WebBlockHeaderDB
@@ -45,6 +48,7 @@ import Control.Monad (forM, forM_, when, void)
 import Crypto.Hash (hashWith, hashInitWith, hashUpdate, hashFinalize)
 import Crypto.Hash.Algorithms (SHA3_256(..))
 import Data.ByteArray qualified as Memory
+import Data.Char qualified as Char
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as Base16
@@ -267,6 +271,20 @@ data PactCalcConfig = PactCalcConfig
   , writeModule :: Bool
   }
 
+pactCalc :: ()
+  => PactCalcConfig
+  -> IO [(BlockHeight, HashMap ChainId (ByteString, BlockHeader))]
+pactCalc cfg = do
+  C.withDefaultLogger Debug $ \logger -> do
+    withConnections logger cfg.pactDir (allChains cfg.chainwebVersion) $ \pactConns -> do
+      withReadOnlyRocksDb cfg.rocksDir modernDefaultOptions $ \rocksDb -> do
+        chainTargets <- case cfg.targetBlockHeight of
+          LatestAll -> do
+            List.singleton <$> resolveLatest logger cfg.chainwebVersion pactConns rocksDb
+          TargetAll ts -> do
+            resolveTargets logger cfg.chainwebVersion pactConns rocksDb (Set.toDescList ts)
+        computeGrandHashesAt logger pactConns chainTargets
+
 -- | Calculate the hash at every provided blockheight across all chains.
 --
 --   Note that for some chains, one or more of the requested blockheights
@@ -276,26 +294,19 @@ data PactCalcConfig = PactCalcConfig
 pactCalcMain :: IO ()
 pactCalcMain = do
   cfg <- O.execParser opts
-
-  C.withDefaultLogger Debug $ \logger -> do
-    withConnections logger cfg.pactDir (allChains cfg.chainwebVersion) $ \pactConns -> do
-      withReadOnlyRocksDb cfg.rocksDir modernDefaultOptions $ \rocksDb -> do
-        chainTargets <- case cfg.targetBlockHeight of
-          LatestAll -> do
-            List.singleton <$> resolveLatest logger cfg.chainwebVersion pactConns rocksDb
-          TargetAll ts -> do
-            resolveTargets logger cfg.chainwebVersion pactConns rocksDb (Set.toDescList ts)
-        chainHashes <- computeGrandHashesAt logger pactConns chainTargets
-        when cfg.writeModule $ do
-          writeFile "src/Chainweb/Pact/Backend/PactState/EmbeddedHashes.hs" (chainHashesToModule chainHashes)
-        BLC8.putStrLn $ grandsToJson chainHashes
+  chainHashes <- pactCalc cfg
+  when cfg.writeModule $ do
+    let modulePath = "src/Chainweb/Pact/Backend/PactState/EmbeddedSnapshot/" <> versionModuleName cfg.chainwebVersion <> ".hs"
+    writeFile modulePath (chainHashesToModule cfg.chainwebVersion chainHashes)
+  BLC8.putStrLn $ grandsToJson chainHashes
   where
     opts :: ParserInfo PactCalcConfig
     opts = O.info (parser <**> O.helper) (O.fullDesc <> O.progDesc helpText)
 
     helpText :: String
     helpText = unlines
-      [ "Compute the grand hash of a Pact database at a particular height."
+      [ "Compute the grand hash of a Pact database at a particular height(s)."
+      , "If no height is specified, defaults to the latest state of consensus."
       ]
 
     parser :: Parser PactCalcConfig
@@ -318,6 +329,67 @@ data PactImportConfig = PactImportConfig
   , chainwebVersion :: ChainwebVersion
   }
 
+pactVerify :: (Logger logger)
+  => logger
+  -> ChainwebVersion
+  -> HashMap ChainId SQLiteEnv
+  -> RocksDb
+  -> [(BlockHeight, HashMap ChainId Snapshot)]
+  -> IO (BlockHeight, HashMap ChainId (ByteString, BlockHeader))
+pactVerify logger v pactConns rocksDb grands = do
+  -- Get the highest common blockheight across all chains.
+  latestBlockHeight <- fst <$> resolveLatest logger v pactConns rocksDb
+
+  snapshot@(snapshotBlockHeight, expectedChainHashes) <- do
+    -- Find the first element of 'grands' such that
+    -- the blockheight therein is less than or equal to
+    -- the argument latest common blockheight.
+    case List.find (\g -> latestBlockHeight >= fst g) grands of
+      Nothing -> do
+        exitLog logger "No snapshot older than latest block"
+      Just (b, s) -> do
+        pure (b, HM.map (\snapshot -> (snapshot.pactHash, snapshot.blockHeader)) s)
+
+  chainHashes <- do
+    chainTargets <- resolveTargets logger v pactConns rocksDb [snapshotBlockHeight]
+    computeGrandHashesAt logger pactConns chainTargets >>= \case
+      [(_, chainHashes)] -> do
+        pure chainHashes
+      [] -> do
+        exitLog logger "computeGrandHashesAt unexpectedly returned 0 blocks"
+      _ -> do
+        exitLog logger "computeGrandHashesAt unexpectedly returned multiple blocks"
+
+  let deltas = P.diff (hashMapToMap expectedChainHashes) (hashMapToMap chainHashes)
+
+  forM_ (Map.toAscList deltas) $ \(cid, delta) -> do
+    let logger' = addChainIdLabel cid logger
+    case delta of
+      P.Same _ -> pure ()
+      P.Old _ -> exitLog logger' "pact-import: internal logic error: chain mismatch"
+      P.New _ -> exitLog logger' "pact-import: internal logic error: chain mismatch"
+      P.Delta (eHash, eHeader) (hash, header) -> do
+        when (header /= eHeader) $ do
+          logFunctionText logger' Error $ Text.unlines
+            [ "Chain " <> chainIdToText cid
+            , "Block Header mismatch"
+            , "  Expected: " <> sshow (_blockHash eHeader)
+            , "  Actual:   " <> sshow (_blockHash header)
+            ]
+
+        when (hash /= eHash) $ do
+          logFunctionText logger' Error $ Text.unlines
+            [ "Chain " <> chainIdToText cid
+            , "Grand Hash mismatch"
+            , "  Expected: " <> hex eHash
+            , "  Actual:   " <> hex hash
+            ]
+  when (Map.size deltas > 0) exitFailure
+
+  logFunctionText logger Info "Hashes aligned"
+
+  pure snapshot
+
 pactImportMain :: IO ()
 pactImportMain = do
   cfg <- O.execParser opts
@@ -325,57 +397,7 @@ pactImportMain = do
   C.withDefaultLogger Info $ \logger -> do
     withConnections logger cfg.sourcePactDir (allChains cfg.chainwebVersion) $ \pactConns -> do
       withReadOnlyRocksDb cfg.rocksDir modernDefaultOptions $ \rocksDb -> do
-
-        -- Get the highest common blockheight across all chains.
-        latestBlockHeight <- fst <$> resolveLatest logger cfg.chainwebVersion pactConns rocksDb
-
-        (snapshotBlockHeight, expectedChainHashes) <- do
-              -- Find the first element of 'grands' such that
-              -- the blockheight therein is less than or equal to
-              -- the argument latest common blockheight.
-              case List.find (\g -> latestBlockHeight >= fst g) grands of
-                Nothing -> do
-                  exitLog logger "No snapshot older than latest block"
-                Just (b, s) -> do
-                  pure (b, Map.map (\snapshot -> (snapshot.pactHash, snapshot.blockHeader)) s)
-
-        chainHashes <- do
-          chainTargets <- resolveTargets logger cfg.chainwebVersion pactConns rocksDb [snapshotBlockHeight]
-          computeGrandHashesAt logger pactConns chainTargets >>= \case
-            [(_, chainHashes)] -> do
-              pure chainHashes
-            [] -> do
-              exitLog logger "computeGrandHashesAt unexpectedly returned 0 blocks"
-            _ -> do
-              exitLog logger "computeGrandHashesAt unexpectedly returned multiple blocks"
-
-        let deltas = P.diff expectedChainHashes (hashMapToMap chainHashes)
-
-        forM_ (Map.toAscList deltas) $ \(cid, delta) -> do
-          let logger' = addChainIdLabel cid logger
-          case delta of
-            P.Same _ -> pure ()
-            P.Old _ -> exitLog logger' "pact-import: internal logic error: chain mismatch"
-            P.New _ -> exitLog logger' "pact-import: internal logic error: chain mismatch"
-            P.Delta (eHash, eHeader) (hash, header) -> do
-              when (header /= eHeader) $ do
-                logFunctionText logger' Error $ Text.unlines
-                  [ "Chain " <> chainIdToText cid
-                  , "Block Header mismatch"
-                  , "  Expected: " <> sshow (_blockHash eHeader)
-                  , "  Actual:   " <> sshow (_blockHash header)
-                  ]
-
-              when (hash /= eHash) $ do
-                logFunctionText logger' Error $ Text.unlines
-                  [ "Chain " <> chainIdToText cid
-                  , "Grand Hash mismatch"
-                  , "  Expected: " <> hex eHash
-                  , "  Actual:   " <> hex hash
-                  ]
-        when (Map.size deltas > 0) exitFailure
-
-        logFunctionText logger Info "Hashes aligned"
+        (snapshotBlockHeight, snapshotChainHashes) <- pactVerify logger cfg.chainwebVersion pactConns rocksDb (error "replace me")
 
         -- TODO: drop things after the verified height?
         case cfg.targetPactDir of
@@ -385,7 +407,7 @@ pactImportMain = do
             logFunctionText logger Info $ "Creating " <> Text.pack targetDir
             createDirectoryIfMissing False targetDir
 
-            let chains = HM.keys chainHashes
+            let chains = HM.keys snapshotChainHashes
 
             forM_ chains $ \cid -> do
               let srcDb = chainwebDbFilePath cid cfg.sourcePactDir
@@ -404,7 +426,7 @@ pactImportMain = do
                 logFunctionText logger' Info
                   $ "Dropping anything post verified state (BlockHeight " <> sshow snapshotBlockHeight <> ")"
                 withProdRelationalCheckpointer logger (initBlockState defaultModuleCacheLimit (genesisHeight cfg.chainwebVersion cid)) sqliteEnv cfg.chainwebVersion cid $ \cp -> do
-                  let blockHash = _blockHash $ snd $ expectedChainHashes ^?! ix cid
+                  let blockHash = _blockHash $ snd $ snapshotChainHashes ^?! ix cid
                   void $ _cpRestore cp (Just (snapshotBlockHeight + 1, blockHash))
                   _cpSave cp blockHash
 
@@ -517,8 +539,8 @@ grandsToJson chainHashes =
 --   pact-calc, and embedded into the chainweb-node library.
 --
 --   The implementation is a little janky, but it works.
-chainHashesToModule :: [(BlockHeight, HashMap ChainId (ByteString, BlockHeader))] -> String
-chainHashesToModule input = prefix
+chainHashesToModule :: ChainwebVersion -> [(BlockHeight, HashMap ChainId (ByteString, BlockHeader))] -> String
+chainHashesToModule chainwebVersion input = prefix
   where
     indent :: Int -> String -> String
     indent n s = List.replicate n ' ' ++ s
@@ -545,6 +567,17 @@ chainHashesToModule input = prefix
     prepend :: String -> (String -> String)
     prepend p = \s -> p ++ s
 
+    formatUnderscores :: (Integral a, Show a) => a -> String
+    formatUnderscores n = reverse $ List.intercalate "_" $ chunksOf 3 $ reverse $ show n
+      where
+        chunksOf k =
+          let
+            go = \case
+              [] -> []
+              xs -> take k xs : go (drop k xs)
+          in
+          go
+
     makeEntries :: [(BlockHeight, HashMap ChainId (ByteString, BlockHeader))] -> [String]
     makeEntries =
       List.concatMap (List.map (indent 4))
@@ -553,8 +586,8 @@ chainHashesToModule input = prefix
 
     makeEntry :: BlockHeight -> HashMap ChainId (ByteString, BlockHeader) -> [String]
     makeEntry height chainMap =
-      [ "( BlockHeight " ++ show height
-      , ", Map.fromList"
+      [ "( BlockHeight " ++ formatUnderscores height
+      , ", HM.fromList"
       , "    ["
       ]
       ++ onHead ("  " ++) (List.map (indent 4) $ onTail (prepend ", ") (makeChainMap chainMap))
@@ -569,15 +602,15 @@ chainHashesToModule input = prefix
     makeChainEntry :: ChainId -> (ByteString, BlockHeader) -> String
     makeChainEntry cid (hash, header) =
       let
-        jsonDecode j = "unsafeJsonDecode @BlockHeader " ++ j
-        fromHex b = "unsafeFromHex " ++ b
+        jsonDecode j = "unsafeDecodeBlockHeader " ++ j
+        fromHex b = "unsafeBase16Decode " ++ b
         sCid = Text.unpack (chainIdToText cid)
         sHash = inQuotes $ Text.unpack (hex hash)
         sHeader = embedQuotes $ Text.unpack (J.encodeText (J.encodeWithAeson header))
       in
       concat
         [ "(unsafeChainId " ++ sCid ++ ", "
-        , "EncodedSnapshot (" ++ fromHex sHash ++ ") (" ++ jsonDecode sHeader ++ ")"
+        , "Snapshot (" ++ fromHex sHash ++ ") (" ++ jsonDecode sHeader ++ ")"
         , ")"
         ]
 
@@ -586,45 +619,24 @@ chainHashesToModule input = prefix
       , "-- Do not edit it."
       , ""
       , "{-# LANGUAGE ImportQualifiedPost #-}"
+      , "{-# LANGUAGE NumericUnderscores #-}"
       , "{-# LANGUAGE OverloadedStrings #-}"
-      , "{-# LANGUAGE TypeApplications #-}"
       , ""
-      , "module Chainweb.Pact.Backend.PactState.EmbeddedHashes"
-      , "  ( EncodedSnapshot(..)"
-      , "  , grands"
+      , "module Chainweb.Pact.Backend.PactState.EmbeddedSnapshot." <> versionModuleName chainwebVersion
+      , "  ( grands"
       , "  )"
       , "  where"
       , ""
-      , "import Chainweb.BlockHeader (BlockHeader)"
       , "import Chainweb.BlockHeight (BlockHeight(..))"
       , "import Chainweb.ChainId (ChainId, unsafeChainId)"
-      , "import Data.Aeson qualified as A"
-      , "import Data.ByteString (ByteString)"
-      , "import Data.ByteString.Base16 qualified as Base16"
+      , "import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..), unsafeDecodeBlockHeader, unsafeBase16Decode)"
+      , "import Data.HashMap.Strict (HashMap)"
+      , "import Data.HashMap.Strict qualified as HM"
       , "import Data.List qualified as List"
-      , "import Data.Map (Map)"
-      , "import Data.Map qualified as Map"
       , "import Data.Ord (Down(..))"
-      , "import Data.Text (Text)"
-      , "import Data.Text.Encoding qualified as Text"
-      , ""
-      , "data EncodedSnapshot = EncodedSnapshot"
-      , "  { pactHash :: ByteString"
-      , "  , blockHeader :: BlockHeader"
-      , "  }"
-      , ""
-      , "unsafeJsonDecode :: (A.FromJSON a) => Text -> a"
-      , "unsafeJsonDecode t = case A.decodeStrict (Text.encodeUtf8 t) of"
-      , "  Just a -> a"
-      , "  Nothing -> error \"EmbeddedHashes: invalid json construction\""
-      , ""
-      , "unsafeFromHex :: Text -> ByteString"
-      , "unsafeFromHex t = case Base16.decode (Text.encodeUtf8 t) of"
-      , "  Right a -> a"
-      , "  Left err -> error $ \"EmbeddedHashes: unsafeFromHex failed: \" ++ show err"
       , ""
       , "-- | sorted in descending order."
-      , "grands :: [(BlockHeight, Map ChainId EncodedSnapshot)]"
+      , "grands :: [(BlockHeight, HashMap ChainId Snapshot)]"
       , "grands = List.sortOn (Down . fst)"
       , "  ["
       , unlines (makeEntries input)
@@ -655,3 +667,14 @@ withConnections logger pactDir cids f = do
 
     closeConnections :: HashMap ChainId SQLiteEnv -> IO ()
     closeConnections = mapM_ stopSqliteDb
+
+versionModuleName :: ChainwebVersion -> String
+versionModuleName v
+  | v == mainnet = "Mainnet"
+  | v == testnet = "Testnet"
+  | v == devnet = "Devnet"
+  | v == fastDevnet = "FastDevnet"
+  | otherwise = case Text.unpack (getChainwebVersionName (_versionName v)) of
+      [] -> []
+      c : cs -> Char.toUpper c : cs
+
