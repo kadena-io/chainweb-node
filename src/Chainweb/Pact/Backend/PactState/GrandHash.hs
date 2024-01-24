@@ -14,10 +14,13 @@ module Chainweb.Pact.Backend.PactState.GrandHash
   ( pactImportMain
   , pactCalcMain
 
+    -- Remainder are exposed for testing purposes only.
   , computeGrandHash
   , pactCalc
   , pactVerify
   , pactDropPostVerified
+  , withConnections
+
   , BlockHeightTargets(..)
   )
   where
@@ -251,13 +254,13 @@ computeGrandHashesAt :: (Logger logger)
      --
      --   The 'a' is polymorphic to show that it is unused by this function,
      --   but we keep them paired up.
-  -> IO [(a, HashMap ChainId (ByteString, BlockHeader))]
+  -> IO [(a, HashMap ChainId Snapshot)]
 computeGrandHashesAt logger pactConns chainTargets = do
   pooledFor chainTargets $ \(x, cutHeader) -> do
     fmap ((x, ) . HM.fromList) $ pooledFor (HM.toList cutHeader) $ \(cid, blockHeader) -> do
       let SQLiteEnv db _ = pactConns ^?! ix cid
       hash <- computeGrandHash (addChainIdLabel cid logger) db (_blockHeight blockHeader)
-      pure (cid, (hash, blockHeader))
+      pure (cid, Snapshot hash blockHeader)
 
 -- | Like 'TargetBlockHeight', but supports multiple targets in the non-'Latest'
 --   case.
@@ -282,7 +285,7 @@ pactCalc :: (Logger logger)
      -- ^ rocksdb dir
   -> BlockHeightTargets
      -- ^ target for calculation
-  -> IO [(BlockHeight, HashMap ChainId (ByteString, BlockHeader))]
+  -> IO [(BlockHeight, HashMap ChainId Snapshot)]
 pactCalc logger v pactConns rocksDb target = do
   chainTargets <- case target of
     LatestAll -> do
@@ -344,7 +347,7 @@ pactVerify :: (Logger logger)
   -> HashMap ChainId SQLiteEnv
   -> RocksDb
   -> [(BlockHeight, HashMap ChainId Snapshot)]
-  -> IO (BlockHeight, HashMap ChainId (ByteString, BlockHeader))
+  -> IO (BlockHeight, HashMap ChainId Snapshot)
 pactVerify logger v pactConns rocksDb grands = do
   -- Get the highest common blockheight across all chains.
   latestBlockHeight <- fst <$> resolveLatestCutHeaders logger v pactConns rocksDb
@@ -357,7 +360,7 @@ pactVerify logger v pactConns rocksDb grands = do
       Nothing -> do
         exitLog logger "No snapshot older than latest block"
       Just (b, s) -> do
-        pure (b, HM.map (\snapshot -> (snapshot.pactHash, snapshot.blockHeader)) s)
+        pure (b, s)
 
   chainHashes <- do
     chainTargets <- resolveCutHeadersAtHeights logger v pactConns rocksDb [snapshotBlockHeight]
@@ -377,7 +380,7 @@ pactVerify logger v pactConns rocksDb grands = do
       P.Same _ -> pure ()
       P.Old _ -> exitLog logger' "pact-import: internal logic error: chain mismatch"
       P.New _ -> exitLog logger' "pact-import: internal logic error: chain mismatch"
-      P.Delta (eHash, eHeader) (hash, header) -> do
+      P.Delta (Snapshot eHash eHeader) (Snapshot hash header) -> do
         when (header /= eHeader) $ do
           logFunctionText logger' Error $ Text.unlines
             [ "Chain " <> chainIdToText cid
@@ -409,7 +412,7 @@ pactDropPostVerified :: (Logger logger)
      -- ^ Pact SQLite Connections
   -> BlockHeight
      -- ^ highest verified blockheight
-  -> HashMap ChainId (ByteString, BlockHeader)
+  -> HashMap ChainId Snapshot
      -- ^ Grand Hashes & BlockHeaders at this blockheight
   -> IO ()
 pactDropPostVerified logger v srcDir tgtDir pactConns snapshotBlockHeight snapshotChainHashes = do
@@ -436,7 +439,7 @@ pactDropPostVerified logger v srcDir tgtDir pactConns snapshotBlockHeight snapsh
     logFunctionText logger' Info
       $ "Dropping anything post verified state (BlockHeight " <> sshow snapshotBlockHeight <> ")"
     withProdRelationalCheckpointer logger (initBlockState defaultModuleCacheLimit (genesisHeight v cid)) sqliteEnv v cid $ \cp -> do
-      let blockHash = _blockHash $ snd $ snapshotChainHashes ^?! ix cid
+      let blockHash = _blockHash $ blockHeader $ snapshotChainHashes ^?! ix cid
       void $ _cpRestore cp (Just (snapshotBlockHeight + 1, blockHash))
       _cpSave cp blockHash
 
@@ -540,12 +543,12 @@ pooledFor = pooledForConcurrentlyN 4
 pooledFor_ :: (Foldable t) => t a -> (a -> IO b) -> IO ()
 pooledFor_ = pooledForConcurrentlyN_ 4
 
-grandsToJson :: [(BlockHeight, HashMap ChainId (ByteString, BlockHeader))] -> BL.ByteString
+grandsToJson :: [(BlockHeight, HashMap ChainId Snapshot)] -> BL.ByteString
 grandsToJson chainHashes =
   J.encode $ J.Object $ flip List.map chainHashes $ \(height, hashes) ->
     let sortedHashes = List.sortOn fst $ HM.toList hashes
         key = Text.pack $ show height
-        val = J.Object $ flip List.map sortedHashes $ \(cid, (hash, header)) ->
+        val = J.Object $ flip List.map sortedHashes $ \(cid, Snapshot hash header) ->
                 let o = J.Object
                       [ "hash" J..= hex hash
                       , "header" J..= J.encodeWithAeson header
@@ -557,7 +560,7 @@ grandsToJson chainHashes =
 --   by pact-calc, and embedded into the chainweb-node library.
 --
 --   The implementation is a little janky, but it works.
-chainHashesToModule :: ChainwebVersion -> [(BlockHeight, HashMap ChainId (ByteString, BlockHeader))] -> String
+chainHashesToModule :: ChainwebVersion -> [(BlockHeight, HashMap ChainId Snapshot)] -> String
 chainHashesToModule chainwebVersion input = prefix
   where
     indent :: Int -> String -> String
@@ -596,13 +599,13 @@ chainHashesToModule chainwebVersion input = prefix
           in
           go
 
-    makeEntries :: [(BlockHeight, HashMap ChainId (ByteString, BlockHeader))] -> [String]
+    makeEntries :: [(BlockHeight, HashMap ChainId Snapshot)] -> [String]
     makeEntries =
       List.concatMap (List.map (indent 4))
       . onTail (onTail (indent 2) . onHead (prepend ", "))
       . List.map (uncurry makeEntry)
 
-    makeEntry :: BlockHeight -> HashMap ChainId (ByteString, BlockHeader) -> [String]
+    makeEntry :: BlockHeight -> HashMap ChainId Snapshot -> [String]
     makeEntry height chainMap =
       [ "( BlockHeight " ++ formatUnderscores height
       , ", HM.fromList"
@@ -614,11 +617,11 @@ chainHashesToModule chainwebVersion input = prefix
       , ")"
       ]
 
-    makeChainMap :: HashMap ChainId (ByteString, BlockHeader) -> [String]
+    makeChainMap :: HashMap ChainId Snapshot -> [String]
     makeChainMap = map (uncurry makeChainEntry) . List.sortOn fst . HM.toList
 
-    makeChainEntry :: ChainId -> (ByteString, BlockHeader) -> String
-    makeChainEntry cid (hash, header) =
+    makeChainEntry :: ChainId -> Snapshot -> String
+    makeChainEntry cid (Snapshot hash header) =
       let
         jsonDecode j = "unsafeDecodeBlockHeader " ++ j
         fromHex b = "unsafeBase16Decode " ++ b
