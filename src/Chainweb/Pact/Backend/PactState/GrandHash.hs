@@ -26,7 +26,7 @@ import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB (cutHashesTable, readHighestCutHeaders)
 import Chainweb.Logger (Logger, logFunctionText)
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.PactState (PactRow(..), PactRowContents(..), getLatestPactStateAt, getLatestBlockHeight, addChainIdLabel, withChainDb)
+import Chainweb.Pact.Backend.PactState (PactRow(..), PactRowContents(..), getLatestPactStateAt, getLatestBlockHeight, addChainIdLabel)
 import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
 import Chainweb.Pact.Backend.Types (Checkpointer(..), SQLiteEnv(..), initBlockState)
 import Chainweb.Pact.Backend.Utils (startSqliteDb, stopSqliteDb)
@@ -387,8 +387,49 @@ pactVerify logger v pactConns rocksDb grands = do
   when (Map.size deltas > 0) exitFailure
 
   logFunctionText logger Info "Hashes aligned"
-
   pure snapshot
+
+pactDropPostVerified :: (Logger logger)
+  => logger
+  -> ChainwebVersion
+  -> FilePath
+     -- ^ source pact dir
+  -> FilePath
+     -- ^ target pact dir
+  -> HashMap ChainId SQLiteEnv
+     -- ^ Pact SQLite Connections
+  -> BlockHeight
+     -- ^ highest verified blockheight
+  -> HashMap ChainId (ByteString, BlockHeader)
+     -- ^ Grand Hashes & BlockHeaders at this blockheight
+  -> IO ()
+pactDropPostVerified logger v srcDir tgtDir pactConns snapshotBlockHeight snapshotChainHashes = do
+  logFunctionText logger Info $ "Creating " <> Text.pack tgtDir
+  createDirectoryIfMissing False tgtDir
+
+  let chains = HM.keys snapshotChainHashes
+
+  forM_ chains $ \cid -> do
+    let srcDb = chainwebDbFilePath cid srcDir
+    let tgtDb = chainwebDbFilePath cid tgtDir
+    let logger' = addChainIdLabel cid logger
+
+    logFunctionText logger' Info
+      $ "Copying contents of "
+        <> Text.pack srcDb
+        <> " to "
+        <> Text.pack tgtDb
+    copyFile srcDb tgtDb
+
+  forM_ chains $ \cid -> do
+    let sqliteEnv = pactConns ^?! ix cid
+    let logger' = addChainIdLabel cid logger
+    logFunctionText logger' Info
+      $ "Dropping anything post verified state (BlockHeight " <> sshow snapshotBlockHeight <> ")"
+    withProdRelationalCheckpointer logger (initBlockState defaultModuleCacheLimit (genesisHeight v cid)) sqliteEnv v cid $ \cp -> do
+      let blockHash = _blockHash $ snd $ snapshotChainHashes ^?! ix cid
+      void $ _cpRestore cp (Just (snapshotBlockHeight + 1, blockHash))
+      _cpSave cp blockHash
 
 pactImportMain :: IO ()
 pactImportMain = do
@@ -399,37 +440,8 @@ pactImportMain = do
       withReadOnlyRocksDb cfg.rocksDir modernDefaultOptions $ \rocksDb -> do
         (snapshotBlockHeight, snapshotChainHashes) <- pactVerify logger cfg.chainwebVersion pactConns rocksDb (error "replace me")
 
-        -- TODO: drop things after the verified height?
-        case cfg.targetPactDir of
-          Nothing -> do
-            pure ()
-          Just targetDir -> do
-            logFunctionText logger Info $ "Creating " <> Text.pack targetDir
-            createDirectoryIfMissing False targetDir
-
-            let chains = HM.keys snapshotChainHashes
-
-            forM_ chains $ \cid -> do
-              let srcDb = chainwebDbFilePath cid cfg.sourcePactDir
-              let tgtDb = chainwebDbFilePath cid targetDir
-              let logger' = addChainIdLabel cid logger
-
-              logFunctionText logger' Info
-                $ "Copying contents of "
-                  <> Text.pack srcDb
-                  <> " to "
-                  <> Text.pack tgtDb
-              copyFile srcDb tgtDb
-
-            forM_ chains $ \cid -> do
-              withChainDb cid logger targetDir $ \logger' sqliteEnv -> do
-                logFunctionText logger' Info
-                  $ "Dropping anything post verified state (BlockHeight " <> sshow snapshotBlockHeight <> ")"
-                withProdRelationalCheckpointer logger (initBlockState defaultModuleCacheLimit (genesisHeight cfg.chainwebVersion cid)) sqliteEnv cfg.chainwebVersion cid $ \cp -> do
-                  let blockHash = _blockHash $ snd $ snapshotChainHashes ^?! ix cid
-                  void $ _cpRestore cp (Just (snapshotBlockHeight + 1, blockHash))
-                  _cpSave cp blockHash
-
+        forM_ cfg.targetPactDir $ \targetDir -> do
+          pactDropPostVerified logger cfg.chainwebVersion cfg.sourcePactDir targetDir pactConns snapshotBlockHeight snapshotChainHashes
   where
     opts :: ParserInfo PactImportConfig
     opts = O.info (parser <**> O.helper) (O.fullDesc <> O.progDesc helpText)
