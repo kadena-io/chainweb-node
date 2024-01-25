@@ -55,6 +55,7 @@ import Crypto.Hash (hashWith, hashInitWith, hashUpdate, hashFinalize)
 import Crypto.Hash.Algorithms (SHA3_256(..))
 import Data.ByteArray qualified as Memory
 import Data.Char qualified as Char
+import Data.Ord (Down(..))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as Base16
@@ -188,24 +189,26 @@ limitCut :: (Logger logger)
   -> IO (HashMap ChainId BlockHeader)
 limitCut logger wbhdb latestCutHeaders pactConns blockHeight = do
   fmap (HM.mapMaybe id) $ flip HM.traverseWithKey latestCutHeaders $ \cid latestCutHeader -> do
+    let logger' = addChainIdLabel cid logger
     bdb <- getWebBlockHeaderDb wbhdb cid
     seekAncestor bdb latestCutHeader (fromIntegral blockHeight) >>= \case
       -- Block exists on that chain
       Just h -> do
         -- Sanity check, should absolutely never happen
         when (_blockHeight h /= blockHeight) $ do
-          exitLog logger "expected seekAncestor behaviour is broken"
+          exitLog logger' "expected seekAncestor behaviour is broken"
 
         -- Confirm that PactDB is not behind RocksDB (it can be ahead though)
         let SQLiteEnv db _ = pactConns ^?! ix cid
         latestPactHeight <- getLatestBlockHeight db
         when (latestPactHeight < blockHeight) $ do
-          exitLog logger "Pact State is behind RocksDB. This should never happen."
+          exitLog logger' "Pact State is behind RocksDB. This should never happen."
 
         pure (Just h)
 
       -- Block does not exist on that chain
       Nothing -> do
+        logFunctionText logger' Debug $ "Block " <> sshow blockHeight <> " is not accessible on this chain."
         pure Nothing
 
 resolveLatestCutHeaders :: (Logger logger)
@@ -341,12 +344,19 @@ data PactImportConfig = PactImportConfig
   , chainwebVersion :: ChainwebVersion
   }
 
+-- | Verifies that the hashes and headers match @grands@.
+--
+--   Returns the latest (highest) blockheight along with the snapshot
+--   thereat.
 pactVerify :: (Logger logger)
   => logger
   -> ChainwebVersion
   -> HashMap ChainId SQLiteEnv
+     -- ^ pact connections
   -> RocksDb
+     -- ^ rocksDb
   -> [(BlockHeight, HashMap ChainId Snapshot)]
+     -- ^ grands
   -> IO (BlockHeight, HashMap ChainId Snapshot)
 pactVerify logger v pactConns rocksDb grands = do
   -- Get the highest common blockheight across all chains.
@@ -356,11 +366,11 @@ pactVerify logger v pactConns rocksDb grands = do
     -- Find the first element of 'grands' such that
     -- the blockheight therein is less than or equal to
     -- the argument latest common blockheight.
-    case List.find (\g -> latestBlockHeight >= fst g) grands of
+    case List.find (\g -> latestBlockHeight >= fst g) (List.sortOn (Down . fst) grands) of
       Nothing -> do
         exitLog logger "No snapshot older than latest block"
-      Just (b, s) -> do
-        pure (b, s)
+      Just s -> do
+        pure s
 
   chainHashes <- do
     chainTargets <- resolveCutHeadersAtHeights logger v pactConns rocksDb [snapshotBlockHeight]
@@ -372,7 +382,8 @@ pactVerify logger v pactConns rocksDb grands = do
       _ -> do
         exitLog logger "computeGrandHashesAt unexpectedly returned multiple blocks"
 
-  let deltas = P.diff (hashMapToMap expectedChainHashes) (hashMapToMap chainHashes)
+  let deltas = Map.filter (not . P.isSame)
+        $ P.diff (hashMapToMap expectedChainHashes) (hashMapToMap chainHashes)
 
   forM_ (Map.toAscList deltas) $ \(cid, delta) -> do
     let logger' = addChainIdLabel cid logger
@@ -396,7 +407,8 @@ pactVerify logger v pactConns rocksDb grands = do
             , "  Expected: " <> hex eHash
             , "  Actual:   " <> hex hash
             ]
-  when (Map.size deltas > 0) exitFailure
+  when (Map.size deltas > 0) $ do
+    exitLog logger "Hashes did not align."
 
   logFunctionText logger Info "Hashes aligned"
   pure snapshot
@@ -417,7 +429,7 @@ pactDropPostVerified :: (Logger logger)
   -> IO ()
 pactDropPostVerified logger v srcDir tgtDir pactConns snapshotBlockHeight snapshotChainHashes = do
   logFunctionText logger Info $ "Creating " <> Text.pack tgtDir
-  createDirectoryIfMissing False tgtDir
+  createDirectoryIfMissing True tgtDir
 
   let chains = HM.keys snapshotChainHashes
 

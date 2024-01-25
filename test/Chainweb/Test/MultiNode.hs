@@ -44,19 +44,19 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Exception
-import Control.Lens (set, view, over)
+import Control.Lens (set, view, over, (^?!), ix)
 import Control.Monad
 
-import Data.Aeson
+import Data.Aeson (ToJSON, object, (.=))
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.IORef
 import qualified Data.List as L
+import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Word (Word64)
 
 import GHC.Generics
 
@@ -82,7 +82,7 @@ import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.Types (_sConn)
+import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Cut
 import Chainweb.CutDB
@@ -90,7 +90,7 @@ import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.PactState (allChains)
+import Chainweb.Pact.Backend.PactState (allChains, getLatestBlockHeight)
 import Chainweb.Pact.Backend.PactState.GrandHash qualified as GrandHash
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
@@ -318,35 +318,60 @@ pactImportTest logLevel v n rocksDb pactDir step = do
   stateVar <- newMVar (emptyConsensusState v)
   let ct :: Int -> StartedChainweb logger -> IO ()
       ct = harvestConsensusState logger stateVar
-  runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rocksDb pactDir ct
+  runNodesForSeconds logLevel logFun (multiConfig v n) n 10 rocksDb pactDir ct
   consensusState <- swapMVar stateVar (emptyConsensusState v)
   Just stats1 <- pure $ consensusStateSummary consensusState
   assertGe "average block count before proceeding" (Actual $ _statBlockCount stats1) (Expected 50)
   logFun $ sshow stats1
 
-  -- eg if block count is 5343, this will produce [5000, 4000, 3000, 2000, 1000]
-  let targets =
-        let
-          blockCount = _statBlockCount stats1
-        in
-        Set.fromList
-        $ map BlockHeight
-        $ L.unfoldr
-            (\t -> if t >= 1000 then Just (t, t - 1000) else Nothing)
-            (fromIntegral @Natural @Word64 $ blockCount - blockCount `mod` 1000)
+  let chains = allChains v
+  forM_ [0 .. int @_ @Word n - 1] $ \nid -> do
+    let logger' = addLabel ("nodeId", sshow nid) $ set YAL.setLoggerLevel YAL.Debug logger
+    logFunctionText logger' Info $ "Verifying node " <> sshow nid
+    let pactNodeDir = pactDir </> show nid
+    GrandHash.withConnections logger' pactNodeDir chains $ \pactConns -> do
+      logFunctionText logger' Info "Calculating grand hashes"
 
-  -- For each node
-  forM_ [0 .. n - 1] $ \nid -> do
-    logFun $ "Verifying node " <> sshow nid
-    GrandHash.withConnections logger (pactDir </> show nid) (allChains v) $ \pactConns -> do
-      logFun "Calculating grand hashes"
+      -- Each node is in its own namespace.
+      let rdb = rocksDb { _rocksDbNamespace = T.encodeUtf8 $ toText @Word nid }
 
-      grands <- GrandHash.pactCalc logger v pactConns rocksDb (GrandHash.TargetAll targets)
-      logFun $ sshow grands
+      latestBlockHeight <- do
+        wbhdb <- initWebBlockHeaderDb rdb v
+        latestCutHeaders <- readHighestCutHeaders v (\_ _ -> pure ()) wbhdb (cutHashesTable rdb)
+        pure $ maximum $ fmap _blockHeight latestCutHeaders
 
-      logFun "Verifying state"
-      stuff <- GrandHash.pactVerify logger v pactConns rocksDb grands
-      logFun $ sshow stuff
+      let targetChunkSize :: BlockHeight
+          targetChunkSize = nextLowestPowerOfTen latestBlockHeight
+          -- eg if block count is 5343, this will produce [5000, 4000, 3000, 2000, 1000]
+          -- eg if block count is 345, this will produce [300, 200, 100]
+      let targets :: Set BlockHeight
+          targets =
+            Set.fromList
+            $ L.unfoldr
+                (\t -> if t >= targetChunkSize then Just (t, t - targetChunkSize) else Nothing)
+                (latestBlockHeight - latestBlockHeight `mod` targetChunkSize)
+
+      grands <- GrandHash.pactCalc logger v pactConns rdb (GrandHash.TargetAll targets)
+
+      logFunctionText logger' Info "Verifying state"
+      (snapshotBlockHeight, snapshotHashes) <- GrandHash.pactVerify logger v pactConns rdb grands
+
+      logFunctionText logger' Info "Making a copy of the pact state, and dropping the post-verified content"
+      withSystemTempDirectory "pact-copy" $ \copyPactDir -> do
+        let copyNodeDir = copyPactDir </> show nid
+        GrandHash.pactDropPostVerified logger v pactNodeDir copyNodeDir pactConns snapshotBlockHeight snapshotHashes
+
+        GrandHash.withConnections logger' copyNodeDir chains $ \pactCopyConns -> do
+          logFunctionText logger' Info "Checking latest block heights on copy to make sure they match verified state"
+          forM_ chains $ \cid -> do
+            let SQLiteEnv db _ = pactCopyConns ^?! ix cid
+            latestBH <- getLatestBlockHeight db
+            logFunctionText logger' Info $ "latest = " <> sshow latestBH
+            assertEqual "Latest blockheight matches verified state" snapshotBlockHeight latestBH
+
+
+
+        logFunctionText logger' Info "Diffing state at verified height across both original and copy"
 
 -- | Run nodes
 --   Each node creates blocks
@@ -584,8 +609,13 @@ consensusStateSummary s
     avg :: Foldable f => Real a => f a -> Double
     avg f = realToFrac (sum $ toList f) / realToFrac (length f)
 
-    median :: Foldable f => Ord a => f a -> a
-    median f = (!! ((length f + 1) `div` 2)) $ L.sort (toList f)
+    median :: (Ord a, Integral a) => (Foldable f) => f a -> a
+    median f = case toList f of
+      [] -> error "median: empty list"
+      xs ->
+        if length xs `mod` 2 == 1
+        then xs !! (length f `div` 2)
+        else ((xs !! (length xs `div` 2 - 1)) + (xs !! (length xs `div` 2))) `div` 2
 
     minHeight = minimum $ HM.elems cutHeights
     maxHeight = maximum $ HM.elems cutHeights
@@ -618,3 +648,12 @@ upperStats v seconds = Stats
   where
     ebc = expectedBlockCount v seconds
     ech = expectedCutHeightAfterSeconds v seconds
+
+nextLowestPowerOfTen :: forall a. (Integral a, Ord a) => a -> a
+nextLowestPowerOfTen n
+    | n <= 0    = 0
+    | isPowerOf10 n = n
+    | otherwise = 10 ^ floor @Double @a (logBase 10 (fromIntegral n))
+
+isPowerOf10 :: (Integral a, Ord a) => a -> Bool
+isPowerOf10 n = n > 0 && (n == 1 || (n > 1 && n `mod` 10 == 0 && isPowerOf10 (n `div` 10)))

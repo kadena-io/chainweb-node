@@ -689,7 +689,7 @@ createVersionedTable tablename db = do
 -- @parentHash@ must be of blockHeight @height - 1@.
 --
 handlePossibleRewind
-    :: HasCallStack
+    :: forall logger. (Logger logger, HasCallStack)
     => ChainwebVersion
     -> ChainId
     -> BlockHeight
@@ -777,6 +777,8 @@ handlePossibleRewind v cid bRestore hsh = do
       where msg = "handlePossibleRewind: newChildBlock: error finding txid"
 
     rewindBlock bh = do
+        logger <- view bdbenvLogger
+        logInfo_ logger "rewind is actually happening!!!!!!!!!"
         assign bsBlockHeight bh
         !endingtx <- getEndingTxId v cid bh
         tableMaintenanceRowsVersionedSystemTables endingtx
@@ -836,8 +838,10 @@ tableMaintenanceRowsVersionedSystemTables endingtx = do
   where
     tx = [SInt $! fromIntegral endingtx]
 
-deleteHistory :: BlockHeight -> BlockHandler logger SQLiteEnv ()
+deleteHistory :: (Logger logger) => BlockHeight -> BlockHandler logger SQLiteEnv ()
 deleteHistory bh = do
+    logger <- view bdbenvLogger
+    logInfo_ logger "Deleting from BlockHistory"
     callDb "Deleting from BlockHistory, VersionHistory" $ \db -> do
         exec' db "DELETE FROM BlockHistory WHERE blockheight >= ?"
               [SInt (fromIntegral bh)]
