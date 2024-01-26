@@ -290,6 +290,8 @@ pactCalc :: (Logger logger)
      -- ^ target for calculation
   -> IO [(BlockHeight, HashMap ChainId Snapshot)]
 pactCalc logger v pactConns rocksDb target = do
+  logFunctionText logger Debug "Starting pact-calc"
+
   chainTargets <- case target of
     LatestAll -> do
       List.singleton <$> resolveLatestCutHeaders logger v pactConns rocksDb
@@ -359,6 +361,8 @@ pactVerify :: (Logger logger)
      -- ^ grands
   -> IO (BlockHeight, HashMap ChainId Snapshot)
 pactVerify logger v pactConns rocksDb grands = do
+  logFunctionText logger Debug "Starting pact-verify"
+
   -- Get the highest common blockheight across all chains.
   latestBlockHeight <- fst <$> resolveLatestCutHeaders logger v pactConns rocksDb
 
@@ -420,14 +424,12 @@ pactDropPostVerified :: (Logger logger)
      -- ^ source pact dir
   -> FilePath
      -- ^ target pact dir
-  -> HashMap ChainId SQLiteEnv
-     -- ^ Pact SQLite Connections
   -> BlockHeight
      -- ^ highest verified blockheight
   -> HashMap ChainId Snapshot
      -- ^ Grand Hashes & BlockHeaders at this blockheight
   -> IO ()
-pactDropPostVerified logger v srcDir tgtDir pactConns snapshotBlockHeight snapshotChainHashes = do
+pactDropPostVerified logger v srcDir tgtDir snapshotBlockHeight snapshotChainHashes = do
   logFunctionText logger Info $ "Creating " <> Text.pack tgtDir
   createDirectoryIfMissing True tgtDir
 
@@ -445,27 +447,31 @@ pactDropPostVerified logger v srcDir tgtDir pactConns snapshotBlockHeight snapsh
         <> Text.pack tgtDb
     copyFile srcDb tgtDb
 
-  forM_ chains $ \cid -> do
-    let sqliteEnv = pactConns ^?! ix cid
-    let logger' = addChainIdLabel cid logger
-    logFunctionText logger' Info
-      $ "Dropping anything post verified state (BlockHeight " <> sshow snapshotBlockHeight <> ")"
-    withProdRelationalCheckpointer logger (initBlockState defaultModuleCacheLimit (genesisHeight v cid)) sqliteEnv v cid $ \cp -> do
-      let blockHash = _blockHash $ blockHeader $ snapshotChainHashes ^?! ix cid
-      void $ _cpRestore cp (Just (snapshotBlockHeight + 1, blockHash))
-      _cpSave cp blockHash
+  withConnections logger tgtDir chains $ \tgtConns -> do
+    forM_ chains $ \cid -> do
+      let sqliteEnv = tgtConns ^?! ix cid
+      let logger' = addChainIdLabel cid logger
+      logFunctionText logger' Info
+        $ "Dropping anything post verified state (BlockHeight " <> sshow snapshotBlockHeight <> ")"
+      let bState = initBlockState defaultModuleCacheLimit (genesisHeight v cid)
+      withProdRelationalCheckpointer logger bState sqliteEnv v cid $ \cp -> do
+        let blockHash = _blockHash $ blockHeader $ snapshotChainHashes ^?! ix cid
+        void $ _cpRestore cp (Just (snapshotBlockHeight + 1, blockHash))
+        _cpDiscard cp
 
 pactImportMain :: IO ()
 pactImportMain = do
   cfg <- O.execParser opts
 
+  let chains = allChains cfg.chainwebVersion
+
   C.withDefaultLogger Info $ \logger -> do
-    withConnections logger cfg.sourcePactDir (allChains cfg.chainwebVersion) $ \pactConns -> do
+    withConnections logger cfg.sourcePactDir chains $ \srcConns -> do
       withReadOnlyRocksDb cfg.rocksDir modernDefaultOptions $ \rocksDb -> do
-        (snapshotBlockHeight, snapshotChainHashes) <- pactVerify logger cfg.chainwebVersion pactConns rocksDb (error "replace me")
+        (snapshotBlockHeight, snapshotChainHashes) <- pactVerify logger cfg.chainwebVersion srcConns rocksDb (error "replace me")
 
         forM_ cfg.targetPactDir $ \targetDir -> do
-          pactDropPostVerified logger cfg.chainwebVersion cfg.sourcePactDir targetDir pactConns snapshotBlockHeight snapshotChainHashes
+          pactDropPostVerified logger cfg.chainwebVersion cfg.sourcePactDir targetDir snapshotBlockHeight snapshotChainHashes
   where
     opts :: ParserInfo PactImportConfig
     opts = O.info (parser <**> O.helper) (O.fullDesc <> O.progDesc helpText)
