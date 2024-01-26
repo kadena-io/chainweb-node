@@ -319,41 +319,49 @@ doRegisterSuccessful dbenv (TypedHash hash) =
 
 doLookupSuccessful :: Db logger -> Maybe ConfirmationDepth -> V.Vector PactHash -> IO (HashMap.HashMap PactHash (T2 BlockHeight BlockHash))
 doLookupSuccessful dbenv confDepth hashes = runBlockEnv dbenv $ do
-    withSavepoint DbTransaction $ do
-      r <- callDb "doLookupSuccessful" $ \db -> do
-        let
-          currentHeightQ = "SELECT blockheight FROM BlockHistory \
-              \ ORDER BY blockheight DESC LIMIT 1"
-
+    withSavepoint DbTransaction $
+      fmap buildResultMap $ -- swizzle results of query into a HashMap
+      callDb "doLookupSuccessful" $ \db -> do
         -- if there is a confirmation depth, we get the current height and calculate
         -- the block height, to look for the transactions in range [0, current block height - confirmation depth]
         blockheight <- case confDepth of
           Nothing -> pure Nothing
           Just (ConfirmationDepth cd) -> do
+            let currentHeightQ = "SELECT blockheight FROM BlockHistory ORDER BY blockheight DESC LIMIT 1"
             currentHeight <- qry_ db currentHeightQ [RInt]
             case currentHeight of
               [[SInt bh]] -> pure $ Just (bh - fromIntegral cd)
               _ -> fail "impossible"
 
         let
-          blockheightval = maybe [] (\bh -> [SInt bh]) blockheight
-          qvals = [ SBlob (BS.fromShort hash) | (TypedHash hash) <- V.toList hashes ] ++ blockheightval
+          hss = V.toList hashes
+          params = Utf8 $ intercalate "," (map (const "?") hss)
+          qtext = "SELECT blockheight, hash, txhash FROM \
+                  \TransactionIndex INNER JOIN BlockHistory \
+                  \USING (blockheight) WHERE txhash IN (" <> params <> ")"
+                  <> maybe "" (const " AND blockheight <= ?") confDepth
+                  <> ";"
+          qvals 
+            -- match query params above. first, hashes
+            = map (\(TypedHash h) -> SBlob $ BS.fromShort h) hss
+            -- then, the block depth, if any
+            ++ maybe [] (\bh -> [SInt bh]) blockheight
 
         qry db qtext qvals [RInt, RBlob, RBlob] >>= mapM go
-      return $ HashMap.fromList (map (\(T3 blockheight blockhash txhash) -> (txhash, T2 blockheight blockhash)) r)
   where
-    qtext = "SELECT blockheight, hash, txhash FROM \
-            \TransactionIndex INNER JOIN BlockHistory \
-            \USING (blockheight) WHERE txhash IN (" <> hashesParams <> ")"
-            <> maybe "" (const " AND blockheight <= ?") confDepth
-            <> ";"
-    hashesParams = Utf8 $ intercalate "," [ "?" | _ <- V.toList hashes]
+    -- NOTE: it's useful to keep the types of 'go' and 'buildResultMap' in sync
+    -- for readability but also to ensure the compiler and reader infer the
+    -- right result types from the db query.
 
-    go :: [SType] -> IO (T3 BlockHeight BlockHash PactHash)
+    buildResultMap :: [T3 PactHash BlockHeight BlockHash] -> HashMap.HashMap PactHash (T2 BlockHeight BlockHash)
+    buildResultMap xs = HashMap.fromList $
+      map (\(T3 txhash blockheight blockhash) -> (txhash, T2 blockheight blockhash)) xs
+
+    go :: [SType] -> IO (T3 PactHash BlockHeight BlockHash)
     go (SInt blockheight:SBlob blockhash:SBlob txhash:_) = do
         !blockhash' <- either fail return $ runGetEitherS decodeBlockHash blockhash
         let !txhash' = TypedHash $ BS.toShort txhash
-        return $! T3 (fromIntegral blockheight) blockhash' txhash'
+        return $! T3 txhash' (fromIntegral blockheight) blockhash'
     go _ = fail "impossible"
 
 doGetBlockHistory :: Db logger -> BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory
