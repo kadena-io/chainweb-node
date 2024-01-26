@@ -3,4 +3,4 @@
 - cmd:
     contents: (test1.create-global-accounts)
     tag: Code
-  output: G15srpFoJgfoVchKV2ilyjMGtscxfNFlxwV0tvUC6bE
+  output: PC05AVVNYfsSZFSUQOOIWp6jFe5eSDDeJs6QhyemyeA

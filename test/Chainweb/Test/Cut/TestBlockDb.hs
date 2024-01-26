@@ -90,7 +90,7 @@ addTestBlockDb (TestBlockDb wdb pdb cmv) n gbt cid outs = do
         return False
 
     -- something went wrong
-    Left e -> throwM $ userError (show e)
+    Left e -> throwM $ userError ("addTestBlockDb: " <> show e)
 
 -- | Get header for chain on current cut.
 getParentTestBlockDb :: TestBlockDb -> ChainId -> IO BlockHeader
