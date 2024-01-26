@@ -702,6 +702,7 @@ executable cwtool
         , lens-aeson >= 1.2.2
         , async >= 2.2
         , base >= 4.12 && < 5
+        , base16-bytestring >= 0.1
         , bytestring >= 0.10.12
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
@@ -732,6 +733,7 @@ executable cwtool
         , optparse-applicative >= 0.14
         , pact
         , pact-json
+        , patience >= 0.3
         , process >= 1.5
         , quickcheck-instances >= 0.3
         , random >= 1.2
