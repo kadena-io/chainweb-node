@@ -777,8 +777,6 @@ handlePossibleRewind v cid bRestore hsh = do
       where msg = "handlePossibleRewind: newChildBlock: error finding txid"
 
     rewindBlock bh = do
-        logger <- view bdbenvLogger
-        logInfo_ logger "rewind is actually happening!!!!!!!!!"
         assign bsBlockHeight bh
         !endingtx <- getEndingTxId v cid bh
         tableMaintenanceRowsVersionedSystemTables endingtx
@@ -840,8 +838,6 @@ tableMaintenanceRowsVersionedSystemTables endingtx = do
 
 deleteHistory :: (Logger logger) => BlockHeight -> BlockHandler logger SQLiteEnv ()
 deleteHistory bh = do
-    logger <- view bdbenvLogger
-    logInfo_ logger "Deleting from BlockHistory"
     callDb "Deleting from BlockHistory, VersionHistory" $ \db -> do
         exec' db "DELETE FROM BlockHistory WHERE blockheight >= ?"
               [SInt (fromIntegral bh)]
