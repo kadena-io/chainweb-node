@@ -380,7 +380,7 @@ pactImportTest logLevel v n rocksDb pactDir step = do
           forM_ chains $ \cid -> do
             let SQLiteEnv db _ = pactCopyConns ^?! ix cid
             latestBH <- getLatestBlockHeight db
-            logFunctionText (addChainIdLabel cid logger') Info $ "Latest blockheight is " <> sshow latestBH
+            logFunctionText (addChainIdLabel cid logger') Debug $ "Latest blockheight is " <> sshow latestBH
             assertEqual "Latest blockheight matches verified state" snapshotBlockHeight latestBH
 
           logFunctionText logger' Info "Diffing state at verified height across both original and copy"
