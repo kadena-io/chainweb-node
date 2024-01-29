@@ -472,6 +472,7 @@ test-suite chainweb-tests
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
+        Chainweb.Test.Pact.GrandHash
         Chainweb.Test.Pact.PactMultiChainTest
         Chainweb.Test.Pact.PactSingleChainTest
         Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -525,6 +526,8 @@ test-suite chainweb-tests
         , async >= 2.2
         , base >= 4.12 && < 5
         , base64-bytestring-kadena == 0.1
+        , byteslice >= 0.2.12
+        , bytesmith >= 0.3.10
             -- due to change in error message that is inlined in pact
         , bytestring >= 0.10.12
         , case-insensitive >= 1.2
