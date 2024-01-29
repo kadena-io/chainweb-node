@@ -130,7 +130,7 @@ withPerChainFileLogger logDir chainId ll f = do
   let logFile = logDir </> ("chain-" <> cid <> ".log")
   !_ <- writeFile logFile ""
   let handleConfig = defaultHandleBackendConfig
-        { _handleBackendConfigHandle = FileHandle logFile
+        { _handleBackendConfigHandle = StdErr --FileHandle logFile
         }
   withHandleBackend_' logText handleConfig $ \h b -> do
 
