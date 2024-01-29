@@ -11,16 +11,25 @@
 {-# LANGUAGE TypeApplications #-}
 
 module Chainweb.Pact.Backend.PactState.GrandHash
-  ( pactImportMain
+  ( -- * Executable utilities
+    pactImportMain
   , pactCalcMain
 
-    -- Remainder are exposed for testing purposes only.
+    -- * Remainder are exposed for testing purposes only.
+    -- ** Hash algorithm
   , computeGrandHash
+  , rowToHashInput
+  , hashTable
+
+    -- ** Hash utilities
   , pactCalc
   , pactVerify
   , pactDropPostVerified
+
+    -- ** General utilities
   , withConnections
 
+    -- ** Types
   , BlockHeightTargets(..)
   )
   where
