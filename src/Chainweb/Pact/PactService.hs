@@ -4,6 +4,7 @@
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -31,6 +32,7 @@ module Chainweb.Pact.PactService
     , execPreInsertCheckReq
     , execBlockTxHistory
     , execHistoricalLookup
+    , execReadOnlyReplay
     , execSyncToBlock
     , runPactService
     , withPactService
@@ -38,6 +40,7 @@ module Chainweb.Pact.PactService
     , getGasModel
     ) where
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Exception (SomeAsyncException)
@@ -52,6 +55,7 @@ import Data.Default (def)
 import qualified Data.DList as DL
 import Data.Either
 import Data.Foldable (toList)
+import Data.IORef
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Maybe
@@ -71,6 +75,7 @@ import System.Timeout
 
 import Prelude hiding (lookup)
 
+import qualified Streaming as Stream
 import qualified Streaming.Prelude as Stream
 
 import qualified Pact.Gas as P
@@ -344,6 +349,11 @@ serviceRequests memPoolAccess reqQ = do
                     tryOne "syncToBlockBlock" _syncToResultVar $
                         execSyncToBlock _syncToBlockHeader
                 go
+            ReadOnlyReplayMsg ReadOnlyReplayReq {..} -> do
+                trace logFn "Chainweb.Pact.PactService.execReadOnlyReplay" (_readOnlyReplayLowerBound, _readOnlyReplayUpperBound) 1 $
+                    tryOne "readOnlyReplayBlock" _readOnlyReplayResultVar $
+                        execReadOnlyReplay _readOnlyReplayLowerBound _readOnlyReplayUpperBound
+                go
 
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
 
@@ -598,6 +608,70 @@ execNewGenesisBlock miner newTrans = pactLabel "execNewGenesisBlock" $ readFrom 
                (CoinbaseUsePrecompiled False) Nothing Nothing
                >>= throwOnGasFailure
     return $! toPayloadWithOutputs miner results
+
+execReadOnlyReplay
+    :: forall logger tbl
+    . (Logger logger, CanReadablePayloadCas tbl)
+    => BlockHeader
+    -> BlockHeader
+    -> PactServiceM logger tbl ()
+execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
+    ParentHeader cur <- findLatestValidBlockHeader
+    logger <- view psLogger
+    bhdb <- view psBlockHeaderDb
+    pdb <- view psPdb
+    v <- view chainwebVersion
+    cid <- view chainId
+    -- lower bound must be an ancestor of upper.
+    liftIO (ancestorOf bhdb (_blockHash lowerBound) (_blockHash upperBound)) >>=
+      flip unless (error "lower bound is not an ancestor of upper bound")
+
+    -- upper bound must be an ancestor of latest header.
+    liftIO (ancestorOf bhdb (_blockHash upperBound) (_blockHash cur)) >>=
+      flip unless (error "upper bound is not an ancestor of latest header")
+
+    let genHeight = genesisHeight v cid
+    -- we don't want to replay the genesis header in here.
+    let lowerHeight = max (succ genHeight) (_blockHeight lowerBound)
+    withPactState $ \runPact ->
+        liftIO $ getBranchIncreasing bhdb upperBound (int lowerHeight) $ \blocks -> do
+          heightRef <- newIORef lowerHeight
+          withAsync (heightProgress lowerHeight heightRef (logInfo_ logger)) $ \_ -> do
+              blocks
+                  & Stream.hoist liftIO
+                  & play bhdb pdb heightRef runPact
+    where
+    play
+      :: CanReadablePayloadCas tbl
+      => BlockHeaderDb
+      -> PayloadDb tbl
+      -> IORef BlockHeight
+      -> (forall a. PactServiceM logger tbl a -> IO a)
+      -> Stream.Stream (Stream.Of BlockHeader) IO r
+      -> IO r
+    play bhdb pdb heightRef runPact blocks = do
+        blocks & Stream.mapM_ (\bh -> do
+            bhParent <- liftIO $ lookupParentM GenesisParentThrow bhdb bh
+            runPact $ readFrom (Just $ ParentHeader bhParent) $ do
+                liftIO $ writeIORef heightRef (_blockHeight bh)
+                plData <- liftIO $ fromJuste <$> tableLookup
+                    (_transactionDb pdb)
+                    (_blockPayloadHash bh)
+                void $ execBlock bh plData
+            )
+
+    heightProgress :: BlockHeight -> IORef BlockHeight -> (Text -> IO ()) -> IO ()
+    heightProgress initialHeight ref logFun = do
+        r <- newIORef initialHeight
+        forever $ do
+          h <- readIORef r
+          h' <- readIORef ref
+          writeIORef r h'
+          logFun
+            $ "processed: " <> sshow (h' - initialHeight)
+            <> ", current height: " <> sshow h'
+            <> ", rate: " <> sshow ((h' - h) `div` 20) <> "blocks/sec"
+          threadDelay (20 * 1_000_000)
 
 execLocal
     :: (Logger logger, CanReadablePayloadCas tbl)

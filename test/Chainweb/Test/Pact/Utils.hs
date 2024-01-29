@@ -749,6 +749,8 @@ withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
               evalPactServiceM_ ctx $ Right <$> execHistoricalLookup h d k
           , _pactSyncToBlock = \h ->
               evalPactServiceM_ ctx $ execSyncToBlock h
+          , _pactReadOnlyReplay = \l u ->
+              evalPactServiceM_ ctx $ execReadOnlyReplay l u
           }
 
 -- | Noncer for 'runCut'
