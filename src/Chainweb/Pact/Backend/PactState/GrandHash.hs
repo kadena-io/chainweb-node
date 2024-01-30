@@ -18,8 +18,10 @@ module Chainweb.Pact.Backend.PactState.GrandHash
     -- * Remainder are exposed for testing purposes only.
     -- ** Hash algorithm
   , computeGrandHash
-  , rowToHashInput
   , hashTable
+  , rowToHashInput
+  , tableNameToHashInput
+  , hashStream
 
     -- ** Hash utilities
   , pactCalc
@@ -34,9 +36,7 @@ module Chainweb.Pact.Backend.PactState.GrandHash
   )
   where
 
-import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpointer)
 import Chainweb.BlockHeader (BlockHeader(..), genesisHeight)
-import Chainweb.Pact.Types (defaultModuleCacheLimit)
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB (cutHashesTable, readHighestCutHeaders)
@@ -44,8 +44,10 @@ import Chainweb.Logger (Logger, logFunctionText)
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.PactState (PactRow(..), PactRowContents(..), getLatestPactStateAt, getLatestBlockHeight, addChainIdLabel, allChains)
 import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
+import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types (Checkpointer(..), SQLiteEnv(..), initBlockState)
 import Chainweb.Pact.Backend.Utils (startSqliteDb, stopSqliteDb)
+import Chainweb.Pact.Types (defaultModuleCacheLimit)
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
 import Chainweb.TreeDB (seekAncestor)
 import Chainweb.Utils (fromText, toText, sshow)
@@ -53,24 +55,23 @@ import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName(..))
 import Chainweb.Version.Development (devnet)
 import Chainweb.Version.FastDevelopment (fastDevnet)
 import Chainweb.Version.Mainnet (mainnet)
-import Chainweb.Version.Testnet (testnet)
 import Chainweb.Version.Registry (lookupVersionByName)
+import Chainweb.Version.Testnet (testnet)
 import Chainweb.WebBlockHeaderDB (WebBlockHeaderDb, getWebBlockHeaderDb, initWebBlockHeaderDb)
 import Control.Applicative ((<|>), many, optional)
 import Control.Exception (bracket)
 import Control.Lens ((^?!), ix)
 import Control.Monad (forM, forM_, when, void)
-import Crypto.Hash (hashWith, hashInitWith, hashUpdate, hashFinalize)
+import Crypto.Hash (hashInitWith, hashUpdate, hashFinalize)
 import Crypto.Hash.Algorithms (SHA3_256(..))
 import Data.ByteArray qualified as Memory
-import Data.Char qualified as Char
-import Data.Ord (Down(..))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as Base16
 import Data.ByteString.Builder qualified as BB
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Lazy.Char8 qualified as BLC8
+import Data.Char qualified as Char
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Hashable (Hashable)
@@ -78,6 +79,7 @@ import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map.Strict qualified as Map
+import Data.Ord (Down(..))
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -106,8 +108,8 @@ computeGrandHash logger db bh = do
   -- We map over the state of the chain (tables) at the given blockheight.
   -- For each table, we sort the rows by rowKey, lexicographically.
   -- Then we feed the sorted rows into the incremental 'hashAggregate' function.
-  let hashStream :: Stream (Of ByteString) IO ()
-      hashStream = flip S.mapMaybeM (getLatestPactStateAt db bh) $ \(tblName, state) -> do
+  let tableHashes :: Stream (Of ByteString) IO ()
+      tableHashes = flip S.mapMaybeM (getLatestPactStateAt db bh) $ \(tblName, state) -> do
         let rows =
               Vector.fromList
               $ List.sortOn (\pr -> pr.rowKey)
@@ -122,13 +124,17 @@ computeGrandHash logger db bh = do
   -- This is well-defined by its order because 'getLatestPactStateAt'
   -- guarantees that the stream of tables is ordered lexicographically by table
   -- name.
-  grandHash <- S.fold_
-    (\ctx hash -> hashUpdate ctx (hashWith SHA3_256 hash))
-    (hashInitWith SHA3_256)
-    (Memory.convert . hashFinalize)
-    hashStream
+  grandHash <- hashStream tableHashes
   logFunctionText logger Debug $ "Grand Hash is " <> hex grandHash
   pure grandHash
+
+hashStream :: (Monad m) => Stream (Of ByteString) m () -> m ByteString
+hashStream s = do
+  S.fold_
+    hashUpdate
+    (hashInitWith alg)
+    (Memory.convert . hashFinalize)
+    s
 
 -- | This is the grand hash of a table
 --
@@ -140,21 +146,23 @@ hashTable tblName rows
       $ Memory.convert
       $ hashFinalize
       $ Vector.foldl'
-          (\ctx row -> hashUpdate ctx (hashWith alg (rowToHashInput row)))
-          (hashUpdate (hashInitWith alg) (hashWith alg tableInput))
+          (\ctx row -> hashUpdate ctx (rowToHashInput row))
+          (hashUpdate (hashInitWith alg) (tableNameToHashInput tblName))
           rows
-  where
-    alg = SHA3_256
 
-    tableInput =
-      let
-        tbl = Text.encodeUtf8 (Text.toLower tblName)
-      in
-      BL.toStrict
-      $ BB.toLazyByteString
-      $ BB.charUtf8 'T'
-        <> BB.word64LE (fromIntegral @Int @Word64 (BS.length tbl))
-        <> BB.byteString tbl
+alg :: SHA3_256
+alg = SHA3_256
+
+tableNameToHashInput :: Text -> ByteString
+tableNameToHashInput tblName =
+  let
+    tbl = Text.encodeUtf8 (Text.toLower tblName)
+  in
+  BL.toStrict
+  $ BB.toLazyByteString
+  $ BB.charUtf8 'T'
+    <> BB.word64LE (fromIntegral @Int @Word64 (BS.length tbl))
+    <> BB.byteString tbl
 
 -- | Turn a (TableName, PactRow) into the arguments for a hash function.
 --
