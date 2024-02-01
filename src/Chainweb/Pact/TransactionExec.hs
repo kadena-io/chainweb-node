@@ -872,7 +872,7 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
       supply <- gasSupplyOf <$> view txGasLimit <*> view txGasPrice
       logGas <- isJust <$> view txGasLogger
 
-      let (buyGasTerm, buyGasCmd) = mkBuyGasTerm mid mks sender supply
+      let (buyGasTerm, buyGasCmd) = mkFundTxTerm mid mks sender supply
           interp mc = Interpreter $ \_input ->
             put (initState mc logGas) >> run (pure <$> eval buyGasTerm)
 
