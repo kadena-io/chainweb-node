@@ -81,7 +81,6 @@ import qualified Streaming.Prelude as Stream
 import qualified Pact.Gas as P
 import Pact.Gas.Table
 import qualified Pact.JSON.Encode as J
-import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.RowData as P
@@ -919,6 +918,8 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
           pure $ V.map (const $ Left Mempool.InsertErrorTimedOut) txs
 
   where
+    -- | Performs a dry run of PactExecution's `buyGas` function for transactions being validated.
+    --
     attemptBuyGas
         :: forall logger tbl. (Logger logger)
         => Miner
@@ -927,66 +928,48 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
     attemptBuyGas miner txsOrErrs = localLabelBlock ("transaction", "attemptBuyGas") $ do
             mc <- getInitCache
             l <- view (psServiceEnv . psLogger)
-            V.fromList . toList . sfst <$> V.foldM (f l) (T2 mempty mc) txsOrErrs
+            V.fromList . toList . sfst <$> V.foldM (buyGasFor l) (T2 mempty mc) txsOrErrs
       where
-        f :: logger
+        buyGasFor :: logger
           -> T2 (DL.DList (Either InsertError ChainwebTransaction)) ModuleCache
           -> Either InsertError ChainwebTransaction
           -> PactBlockM logger tbl (T2 (DL.DList (Either InsertError ChainwebTransaction)) ModuleCache)
-        f l (T2 dl mcache) cmd = do
-            T2 mcache' !res <- runBuyGas l mcache cmd
+        buyGasFor _l (T2 dl mcache) err@Left {} = return (T2 (DL.snoc dl err) mcache)
+        buyGasFor l (T2 dl mcache) (Right tx) = do
+            T2 mcache' !res <- do
+              let txCmd = payloadObj <$> tx
+                  gasPrice = view cmdGasPrice txCmd
+                  gasLimit = fromIntegral $ view cmdGasLimit txCmd
+                  txst = TransactionState
+                      { _txCache = mcache
+                      , _txLogs = mempty
+                      , _txGasUsed = 0
+                      , _txGasId = Nothing
+                      , _txGasModel = P._geGasModel P.freeGasEnv
+                      , _txWarnings = mempty
+                      }
+              let !nid = networkIdOf txCmd
+              let !rk = P.cmdToRequestKey txCmd
+              pd <- getTxContext (publicMetaOf txCmd)
+              bhdb <- view (psServiceEnv . psBlockHeaderDb)
+              dbEnv <- view psBlockDbEnv
+              spv <- pactSPV bhdb . _parentHeader <$> view psParentHeader
+              let ec = P.mkExecutionConfig $
+                    [ P.FlagDisableModuleInstall
+                    , P.FlagDisableHistoryInTransactionalMode ] ++
+                    disableReturnRTC (ctxVersion pd) (ctxChainId pd) (ctxCurrentBlockHeight pd)
+
+              let buyGasEnv = TransactionEnv P.Transactional (_cpPactDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gasPrice rk gasLimit ec
+
+              cr <- liftIO
+                $! catchesPactError l CensorsUnexpectedError
+                $! execTransactionM buyGasEnv txst
+                $! buyGas False txCmd miner
+
+              case cr of
+                  Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
+                  Right t -> return (T2 (_txCache t) (Right tx))
             pure $! T2 (DL.snoc dl res) mcache'
-
-        createGasEnv
-            :: logger
-            -> P.Command (P.Payload P.PublicMeta P.ParsedCode)
-            -> P.GasPrice
-            -> P.Gas
-            -> PactBlockM logger tbl (TransactionEnv logger (BlockEnv logger SQLiteEnv))
-        createGasEnv l cmd gp gl = do
-            pd <- getTxContext (publicMetaOf cmd)
-            bhdb <- view (psServiceEnv . psBlockHeaderDb)
-            dbEnv <- view psBlockDbEnv
-            spv <- pactSPV bhdb . _parentHeader <$> view psParentHeader
-            let ec = P.mkExecutionConfig $
-                  [ P.FlagDisableModuleInstall
-                  , P.FlagDisableHistoryInTransactionalMode ] ++
-                  disableReturnRTC (_chainwebVersion pd) (_chainId pd) (ctxCurrentBlockHeight pd)
-            return $! TransactionEnv P.Transactional (_cpPactDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gp rk gl ec
-          where
-            !nid = networkIdOf cmd
-            !rk = P.cmdToRequestKey cmd
-
-        runBuyGas
-            :: logger
-            -> ModuleCache
-            -> Either InsertError ChainwebTransaction
-            -> PactBlockM logger tbl (T2 ModuleCache (Either InsertError ChainwebTransaction))
-        runBuyGas _l mcache l@Left {} = return (T2 mcache l)
-        runBuyGas l mcache (Right tx) = do
-            let cmd = payloadObj <$> tx
-                gasPrice = view cmdGasPrice cmd
-                gasLimit = fromIntegral $ view cmdGasLimit cmd
-                txst = TransactionState
-                    { _txCache = mcache
-                    , _txLogs = mempty
-                    , _txGasUsed = 0
-                    , _txGasId = Nothing
-                    , _txGasModel = P._geGasModel P.freeGasEnv
-                    , _txWarnings = mempty
-                    }
-
-            buyGasEnv <- createGasEnv l cmd gasPrice gasLimit
-
-            cr <- liftIO
-              $! catchesPactError l CensorsUnexpectedError
-              $! execTransactionM buyGasEnv txst
-              $! buyGas False cmd miner
-
-            case cr of
-                Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
-                Right t -> return (T2 (_txCache t) (Right tx))
-
 
 execLookupPactTxs
     :: (CanReadablePayloadCas tbl, Logger logger)
