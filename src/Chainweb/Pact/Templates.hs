@@ -15,7 +15,7 @@
 -- Prebuilt Term templates for automated operations (coinbase, gas buy)
 --
 module Chainweb.Pact.Templates
-( mkBuyGasTerm
+( mkFundTxTerm
 , mkCoinbaseTerm
 , mkCoinbaseCmd
 ) where
@@ -65,8 +65,8 @@ strArgSetter :: Int -> ASetter' (Term Name) Text
 strArgSetter idx = tApp . appArgs . ix idx . tLiteral . _LString
 {-# INLINE strArgSetter #-}
 
-buyGasTemplate :: (Term Name, ASetter' (Term Name) Text, ASetter' (Term Name) Text)
-buyGasTemplate =
+fundTxTemplate :: (Term Name, ASetter' (Term Name) Text, ASetter' (Term Name) Text)
+fundTxTemplate =
   ( app (qn "coin" "fund-tx")
       [ strLit "sender"
       , strLit "mid"
@@ -76,7 +76,7 @@ buyGasTemplate =
   , strArgSetter 0
   , strArgSetter 1
   )
-{-# NOINLINE buyGasTemplate #-}
+{-# NOINLINE fundTxTemplate #-}
 
 
 dummyParsedCode :: ParsedCode
@@ -84,21 +84,21 @@ dummyParsedCode = ParsedCode "1" [ELiteral $ LiteralExp (LInteger 1) def]
 {-# NOINLINE dummyParsedCode #-}
 
 
-mkBuyGasTerm
+mkFundTxTerm
   :: MinerId   -- ^ Id of the miner to fund
   -> MinerKeys -- ^ Miner keyset
   -> Text      -- ^ Address of the sender from the command
   -> GasSupply -- ^ The gas limit total * price
   -> (Term Name,ExecMsg ParsedCode)
-mkBuyGasTerm (MinerId mid) (MinerKeys ks) sender total = (populatedTerm, execMsg)
-  where (term, senderS, minerS) = buyGasTemplate
+mkFundTxTerm (MinerId mid) (MinerKeys ks) sender total = (populatedTerm, execMsg)
+  where (term, senderS, minerS) = fundTxTemplate
         populatedTerm = set senderS sender $ set minerS mid term
         execMsg = ExecMsg dummyParsedCode (toLegacyJsonViaEncode buyGasData)
         buyGasData = J.object
           [ "miner-keyset" J..= ks
           , "total" J..= total
           ]
-{-# INLINABLE mkBuyGasTerm #-}
+{-# INLINABLE mkFundTxTerm #-}
 
 
 coinbaseTemplate :: (Term Name,ASetter' (Term Name) Text)
