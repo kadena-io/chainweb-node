@@ -17,6 +17,7 @@
 module Chainweb.Pact.Templates
 ( mkFundTxTerm
 , mkBuyGasTerm
+, mkRedeemGasTerm
 , mkCoinbaseTerm
 , mkCoinbaseCmd
 ) where
@@ -88,6 +89,18 @@ buyGasTemplate =
   , strArgSetter 0
   )
 
+redeemGasTemplate :: (Term Name, ASetter' (Term Name) Text, ASetter' (Term Name) Text)
+redeemGasTemplate =
+  ( app (qn "coin" "redeem-gas")
+      [ strLit "mid"
+      , app (bn "read-keyset") [strLit "miner-keyset"]
+      , strLit "sender"
+      , app (bn "read-decimal") [strLit "total"]
+      ]
+  , strArgSetter 2
+  , strArgSetter 0
+  )
+
 dummyParsedCode :: ParsedCode
 dummyParsedCode = ParsedCode "1" [ELiteral $ LiteralExp (LInteger 1) def]
 {-# NOINLINE dummyParsedCode #-}
@@ -120,6 +133,24 @@ mkBuyGasTerm sender total = (populatedTerm, execMsg)
         buyGasData = J.object
           [ "total" J..= total ]
 {-# INLINABLE mkBuyGasTerm #-}
+
+mkRedeemGasTerm
+  :: MinerId   -- ^ Id of the miner to fund
+  -> MinerKeys -- ^ Miner keyset
+  -> Text      -- ^ Address of the sender from the command
+  -> GasSupply -- ^ The gas limit total * price
+  -> GasSupply -- ^ The gas used * price
+  -> (Term Name,ExecMsg ParsedCode)
+mkRedeemGasTerm (MinerId mid) (MinerKeys ks) sender total fee = (populatedTerm, execMsg)
+  where (term, senderS, minerS) = redeemGasTemplate
+        populatedTerm = set senderS sender $ set minerS mid term
+        execMsg = ExecMsg dummyParsedCode (toLegacyJsonViaEncode redeemGasData)
+        redeemGasData = J.object
+          [ "total" J..= total
+          , "fee" J..= J.toJsonViaEncode fee
+          , "miner-keyset" J..= ks
+          ]
+{-# INLINABLE mkRedeemGasTerm #-}
 
 coinbaseTemplate :: (Term Name,ASetter' (Term Name) Text)
 coinbaseTemplate =
