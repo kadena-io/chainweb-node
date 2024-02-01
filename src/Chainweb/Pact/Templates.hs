@@ -16,6 +16,7 @@
 --
 module Chainweb.Pact.Templates
 ( mkFundTxTerm
+, mkBuyGasTerm
 , mkCoinbaseTerm
 , mkCoinbaseCmd
 ) where
@@ -78,6 +79,14 @@ fundTxTemplate =
   )
 {-# NOINLINE fundTxTemplate #-}
 
+buyGasTemplate :: (Term Name, ASetter' (Term Name) Text)
+buyGasTemplate =
+  ( app (qn "coin" "buy-gas")
+      [ strLit "sender"
+      , app (bn "read-decimal") [strLit "total"]
+      ]
+  , strArgSetter 0
+  )
 
 dummyParsedCode :: ParsedCode
 dummyParsedCode = ParsedCode "1" [ELiteral $ LiteralExp (LInteger 1) def]
@@ -100,6 +109,17 @@ mkFundTxTerm (MinerId mid) (MinerKeys ks) sender total = (populatedTerm, execMsg
           ]
 {-# INLINABLE mkFundTxTerm #-}
 
+mkBuyGasTerm
+  :: Text      -- ^ Address of the sender from the command
+  -> GasSupply -- ^ The gas limit total * price
+  -> (Term Name,ExecMsg ParsedCode)
+mkBuyGasTerm sender total = (populatedTerm, execMsg)
+  where (term, senderS) = buyGasTemplate
+        populatedTerm = set senderS sender term
+        execMsg = ExecMsg dummyParsedCode (toLegacyJsonViaEncode buyGasData)
+        buyGasData = J.object
+          [ "total" J..= total ]
+{-# INLINABLE mkBuyGasTerm #-}
 
 coinbaseTemplate :: (Term Name,ASetter' (Term Name) Text)
 coinbaseTemplate =
