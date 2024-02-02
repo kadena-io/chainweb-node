@@ -103,7 +103,7 @@ defMiningReward :: Decimal
 defMiningReward = 2.304523
 
 transferGasCost :: Decimal
-transferGasCost = gasCost 700
+transferGasCost = gasCost 698
 
 type RosettaTest = IO (Time Micros) -> IO ClientEnv -> TestTree
 
@@ -153,7 +153,7 @@ accountBalanceTests tio envIo =
       step "check initial balance"
       cenv <- envIo
       resp0 <- accountBalance v cenv req
-      let startBal = 99999997.8600
+      let startBal = 99999997.8604
       checkBalance resp0 startBal
 
       step "send 1.0 tokens to sender00 from sender01"

@@ -71,6 +71,7 @@ import Data.Default (def)
 import Data.Foldable (fold, for_)
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
+import qualified Data.List as List
 import Data.Maybe
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -235,7 +236,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       applyRedeem r
 
     applyBuyGas =
-      catchesPactError logger (onChainErrorPrintingFor txCtx) (buyGas isPactBackCompatV16 cmd miner) >>= \case
+      catchesPactError logger (onChainErrorPrintingFor txCtx) (buyGas txCtx cmd miner) >>= \case
         Left e -> view txRequestKey >>= \rk ->
           throwM $ BuyGasFailure $ GasPurchaseFailure (requestKeyToTransactionHash rk) e
         Right _ -> checkTooBigTx initialGas gasLimit applyVerifiers redeemAllGas
@@ -290,7 +291,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     applyRedeem cr = do
       txGasModel .= _geGasModel freeGasEnv
 
-      r <- catchesPactError logger (onChainErrorPrintingFor txCtx) $! redeemGas cmd
+      r <- catchesPactError logger (onChainErrorPrintingFor txCtx) $! redeemGas txCtx cmd miner
       case r of
         Left e ->
           -- redeem gas failure is fatal (block-failing) so miner doesn't lose coins
@@ -937,16 +938,17 @@ applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh ns
 --
 -- see: 'pact/coin-contract/coin.pact#fund-tx'
 --
-buyGas :: (Logger logger) => Bool -> Command (Payload PublicMeta ParsedCode) -> Miner -> TransactionM logger p ()
-buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
+buyGas :: (Logger logger) => TxContext -> Command (Payload PublicMeta ParsedCode) -> Miner -> TransactionM logger p ()
+buyGas txCtx cmd (Miner mid mks) = go
   where
+    isChainweb224Pact = guardCtx chainweb224Pact txCtx
     sender = view (cmdPayload . pMeta . pmSender) cmd
 
     initState mc logGas =
       set evalLogGas (guard logGas >> Just [("GBuyGas",0)]) $ setModuleCache mc $ initCapabilities [magic_GAS]
 
     run input = do
-      (findPayer isPactBackCompatV16 cmd) >>= \r -> case r of
+      (findPayer txCtx cmd) >>= \r -> case r of
         Nothing -> input
         Just withPayerCap -> withPayerCap input
 
@@ -958,7 +960,15 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
       supply <- gasSupplyOf <$> view txGasLimit <*> view txGasPrice
       logGas <- isJust <$> view txGasLogger
 
-      let (buyGasTerm, buyGasCmd) = mkFundTxTerm mid mks sender supply
+      let (buyGasTerm, buyGasCmd) =
+            -- post-chainweb 2.24, we call buy-gas directly rather than
+            -- going through fund-tx which is a defpact.
+            if isChainweb224Pact
+            then mkBuyGasTerm sender supply
+            else mkFundTxTerm mid mks sender supply
+          -- I don't recall why exactly, but we set up an interpreter
+          -- that ignores its argument and instead executes a term
+          -- of our choice. we do the same to redeem gas.
           interp mc = Interpreter $ \_input ->
             put (initState mc logGas) >> run (pure <$> eval buyGasTerm)
 
@@ -969,16 +979,24 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
           (_pSigners $ _cmdPayload cmd) [] bgHash managedNamespacePolicy
 
       case _erExec result of
-        Nothing ->
-          -- should never occur: would mean coin.fund-tx is not a pact
-          fatal "buyGas: Internal error - empty continuation"
-        Just pe -> void $! txGasId .= (Just $! GasId (_pePactId pe))
+        Nothing
+          | isChainweb224Pact ->
+            return ()
+          | otherwise ->
+            -- should never occur pre-chainweb 2.24:
+            -- would mean coin.fund-tx is not a pact
+            fatal "buyGas: Internal error - empty continuation before 2.24 fork"
+        Just pe
+          | isChainweb224Pact ->
+            fatal "buyGas: Internal error - continuation found after 2.24 fork"
+          | otherwise ->
+            void $! txGasId .= (Just $! GasId (_pePactId pe))
 
 findPayer
-  :: Bool
+  :: TxContext
   -> Command (Payload PublicMeta ParsedCode)
   -> Eval e (Maybe (Eval e [Term Name] -> Eval e [Term Name]))
-findPayer isPactBackCompatV16 cmd = runMaybeT $ do
+findPayer txCtx cmd = runMaybeT $ do
     (!m,!qn,!as) <- MaybeT findPayerCap
     pMod <- MaybeT $ lookupModule qn m
     capRef <- MaybeT $ return $ lookupIfaceModRef qn pMod
@@ -1003,7 +1021,7 @@ findPayer isPactBackCompatV16 cmd = runMaybeT $ do
 
     runCap i capRef as input = do
       let msgBody = enrichedMsgBody cmd
-          enrichMsgBody | isPactBackCompatV16 = id
+          enrichMsgBody | guardCtx pactBackCompat_v16 txCtx = id
                         | otherwise = setEnvMsgBody (toLegacyJson msgBody)
       ar <- local enrichMsgBody $ do
         (cap, capDef, args) <- appToCap $ mkApp i capRef as
@@ -1039,28 +1057,49 @@ enrichedMsgBody cmd = case (_pPayload $ _cmdPayload cmd) of
 --
 -- see: 'pact/coin-contract/coin.pact#fund-tx'
 --
-redeemGas :: (Logger logger) => Command (Payload PublicMeta ParsedCode) -> TransactionM logger p [PactEvent]
-redeemGas cmd = do
+redeemGas :: (Logger logger) => TxContext -> Command (Payload PublicMeta ParsedCode) -> Miner -> TransactionM logger p [PactEvent]
+redeemGas txCtx cmd (Miner mid mks) = do
     mcache <- use txCache
-
-    gid <- use txGasId >>= \case
-      Nothing -> fatal $! "redeemGas: no gas id in scope for gas refunds"
-      Just g -> return g
-
+    let sender = view (cmdPayload . pMeta . pmSender) cmd
     fee <- gasSupplyOf <$> use txGasUsed <*> view txGasPrice
+    -- if we're past chainweb 2.24, we don't use defpacts for gas
+    if guardCtx chainweb224Pact txCtx
+    then do
+      total <- gasSupplyOf <$> view txGasLimit <*> view txGasPrice
+      let (redeemGasTerm, redeemGasCmd) =
+            mkRedeemGasTerm mid mks sender total fee
+          -- I don't recall why exactly, but we set up an interpreter
+          -- that ignores its argument and instead executes a term
+          -- of our choice. we do the same to buy gas.
+          interp = Interpreter $ \_input -> do
+            -- we don't log gas when redeeming, because nobody can pay for it
+            put (initCapabilities [magic_GAS] & setModuleCache mcache)
+            fmap List.singleton (eval redeemGasTerm)
+          (Hash chash) = toUntypedHash (_cmdHash cmd)
+          rgHash = Hash (chash <> "-redeemgas")
 
-    fmap _crEvents $ locally txQuirkGasFee (const Nothing) $
-      applyContinuation 0 (initState mcache) (redeemGasCmd fee gid)
-        (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
-        managedNamespacePolicy
+      locally txQuirkGasFee (const Nothing) $ _erEvents <$>
+        applyExec' 0 interp redeemGasCmd
+          (_pSigners $ _cmdPayload cmd)
+          []
+          rgHash
+          managedNamespacePolicy
+    else do
+      GasId gid <- use txGasId >>= \case
+        Nothing -> fatal $! "redeemGas: no gas id in scope for gas refunds"
+        Just g -> return g
+      let redeemGasCmd =
+            ContMsg gid 1 False (toLegacyJson $ object [ "fee" A..= toJsonViaEncode fee ]) Nothing
+
+      fmap _crEvents $ locally txQuirkGasFee (const Nothing) $
+        applyContinuation 0 (initState mcache) redeemGasCmd
+          (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
+          managedNamespacePolicy
 
   where
     initState mc = initStateInterpreter
       $ setModuleCache mc
       $ initCapabilities [magic_GAS]
-
-    redeemGasCmd fee (GasId pid) =
-      ContMsg pid 1 False (toLegacyJson $ object [ "fee" A..= toJsonViaEncode fee ]) Nothing
 
 
 -- ---------------------------------------------------------------------------- --
