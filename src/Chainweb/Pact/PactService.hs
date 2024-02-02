@@ -419,7 +419,6 @@ serviceRequests memPoolAccess reqQ = do
             put $! s'
             return $! r
 
-
 execNewBlock
     :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
     => MemPoolAccess
@@ -959,12 +958,16 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                     , P.FlagDisableHistoryInTransactionalMode ] ++
                     disableReturnRTC (ctxVersion pd) (ctxChainId pd) (ctxCurrentBlockHeight pd)
 
-              let buyGasEnv = TransactionEnv P.Transactional (_cpPactDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gasPrice rk gasLimit ec
+              let chainweb223Pact' =
+                    chainweb223Pact (ctxVersion pd) (ctxChainId pd) (ctxCurrentBlockHeight pd)
+
+              let buyGasEnv =
+                    TransactionEnv P.Transactional (_cpPactDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gasPrice rk gasLimit ec
 
               cr <- liftIO
                 $! catchesPactError l CensorsUnexpectedError
                 $! execTransactionM buyGasEnv txst
-                $! buyGas False txCmd miner
+                $! buyGas chainweb223Pact' False txCmd miner
 
               case cr of
                   Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
