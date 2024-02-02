@@ -1061,7 +1061,7 @@ allocationTest t cenv step = do
       $ ObjectMap
       $ M.fromList
         [ (FieldKey "account", PLiteral $ LString "allocation00")
-        , (FieldKey "balance", PLiteral $ LDecimal 1_099_993.89) -- balance = (1k + 1mm) - gas
+        , (FieldKey "balance", PLiteral $ LDecimal 1_099_993.91) -- balance = (1k + 1mm) - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation00" Nothing))
         ]
 
@@ -1085,7 +1085,7 @@ allocationTest t cenv step = do
       $ ObjectMap
       $ M.fromList
         [ (FieldKey "account", PLiteral $ LString "allocation02")
-        , (FieldKey "balance", PLiteral $ LDecimal 1_099_991.01) -- 1k + 1mm - gas
+        , (FieldKey "balance", PLiteral $ LDecimal 1_099_991.05) -- 1k + 1mm - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation02" Nothing))
         ]
 
