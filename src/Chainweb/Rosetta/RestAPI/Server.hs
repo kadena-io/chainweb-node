@@ -345,7 +345,7 @@ constructionParseH
     :: ChainwebVersion
     -> ConstructionParseReq
     -> Handler ConstructionParseResp
-constructionParseH v (ConstructionParseReq net isSigned tx) =
+constructionParseH v (ConstructionParseReq net isSigned tx) = do
   either throwRosettaError pure work
   where
     work :: Either RosettaError ConstructionParseResp
@@ -379,7 +379,7 @@ constructionParseH v (ConstructionParseReq net isSigned tx) =
 constructionCombineH
     :: ConstructionCombineReq
     -> Handler ConstructionCombineResp
-constructionCombineH (ConstructionCombineReq _ unsignedTx sigs) =
+constructionCombineH (ConstructionCombineReq _ unsignedTx sigs) = do
   either throwRosettaError pure work
   where
     work :: Either RosettaError ConstructionCombineResp
@@ -398,7 +398,7 @@ constructionCombineH (ConstructionCombineReq _ unsignedTx sigs) =
 constructionHashH
     :: ConstructionHashReq
     -> Handler TransactionIdResp
-constructionHashH (ConstructionHashReq _ signedTx) =
+constructionHashH (ConstructionHashReq _ signedTx) = do
   either throwRosetta pure work
   where
     work :: Either RosettaFailure TransactionIdResp

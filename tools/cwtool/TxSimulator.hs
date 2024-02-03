@@ -241,7 +241,8 @@ spvSim sc bh pwo = do
             case decodeStrict' t of
               Nothing -> internalError "unable to decode continuation proof"
               Just (TransactionOutputProof pcid p :: TransactionOutputProof SHA512t_256) -> do
-                unless (pcid == scChain sc) $
+                -- TODO: crossnetwork pacts
+                unless (pcid == ProofTargetChain (scChain sc)) $
                   internalError "cannot redeem continuation proof on wrong target chain"
                 TransactionOutput tout <- proofSubject p
                 case decodeStrict' tout :: Maybe (CommandResult Hash) of

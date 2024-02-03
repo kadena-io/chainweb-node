@@ -300,6 +300,7 @@ jsonTestCases f =
         , testProperty "SpvSubjectIdentifier" $ f @SpvSubjectIdentifier
         , testProperty "Spv2Request" $ f @Spv2Request
         , testProperty "TransactionProof" $ f @(TransactionProof ChainwebMerkleHashAlgorithm)
+        , testProperty "ProofTarget" $ f @ProofTarget
         , testProperty "TransactionOutputProof" $ f @(TransactionOutputProof ChainwebMerkleHashAlgorithm)
         , testProperty "PayloadProof" $ f @(PayloadProof ChainwebMerkleHashAlgorithm)
         , testProperty "SomePayloadProof" $ f @(SomePayloadProof)

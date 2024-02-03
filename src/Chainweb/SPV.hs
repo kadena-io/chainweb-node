@@ -1,11 +1,14 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -19,10 +22,11 @@
 --
 module Chainweb.SPV
 ( SpvException(..)
+, ProofTarget(..)
 , TransactionProof(..)
 , proofChainId
 , TransactionOutputProof(..)
-, outputProofChainId
+, outputProofTarget
 ) where
 
 import Control.Applicative
@@ -37,6 +41,7 @@ import Data.Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.ByteString as B
 import Data.MerkleLog hiding (Expected, Actual)
+import Data.Text (Text)
 import qualified Data.Text as T
 
 import GHC.Generics (Generic)
@@ -60,7 +65,7 @@ data SpvException
         { _spvExceptionMsg :: !T.Text
         , _spvExceptionSourceChainId :: !ChainId
         , _spvExceptionSourceHeight :: !BlockHeight
-        , _spvExceptionTargetChainId :: !ChainId
+        , _spvExceptionTargetChainId :: !ProofTarget
         , _spvExceptionTargetHeight :: !BlockHeight
         }
     | SpvExceptionInconsistentPayloadData
@@ -88,13 +93,13 @@ instance Exception SpvException
 -- legacy format for existing endpoints in order to not break existing clients.
 --
 proofProperties
-    :: forall e kv
+    :: forall kv e
     . KeyValue e kv
-    => ChainId
+    => ProofTarget
     -> MerkleProof SHA512t_256
     -> [kv]
-proofProperties cid p =
-    [ "chain" .= cid
+proofProperties tgt p =
+    [ "chain" .= tgt
     , "object" .= obj (_merkleProofObject p)
     , "subject" .= JsonProofSubject (_getMerkleProofSubject $ _merkleProofSubject p)
     , "algorithm" .= ("SHA512t_256" :: T.Text)
@@ -123,10 +128,10 @@ instance ToJSON JsonProofSubject where
 
 parseProof
     :: String
-    -> (ChainId -> MerkleProof SHA512t_256 -> a)
+    -> (ProofTarget -> MerkleProof SHA512t_256 -> Aeson.Parser a)
     -> Value
     -> Aeson.Parser a
-parseProof name mkProof = withObject name $ \o -> mkProof
+parseProof name mkProof = withObject name $ \o -> join $ mkProof
     <$> o .: "chain"
     <*> parse o
     <* (assertJSON ("SHA512t_256" :: T.Text) =<< o .: "algorithm")
@@ -169,13 +174,13 @@ data TransactionProof a = TransactionProof
     deriving (Show, Eq)
 
 instance ToJSON (TransactionProof SHA512t_256) where
-    toJSON (TransactionProof cid p) = object $ proofProperties cid p
-    toEncoding (TransactionProof cid p) = pairs . mconcat $ proofProperties cid p
+    toJSON (TransactionProof cid p) = object $ proofProperties (ProofTargetChain cid) p
+    toEncoding (TransactionProof cid p) = pairs . mconcat $ proofProperties (ProofTargetChain cid) p
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
 instance FromJSON (TransactionProof SHA512t_256) where
-    parseJSON = parseProof "TransactionProof" TransactionProof
+    parseJSON = parseProof "TransactionProof" (\tgt p -> do { ProofTargetChain cid <- return tgt; return (TransactionProof cid p) })
     {-# INLINE parseJSON #-}
 
 -- | Getter into the chain id of a 'TransactionProof'
@@ -185,12 +190,31 @@ proofChainId = to (\(TransactionProof cid _) -> cid)
 
 -- -------------------------------------------------------------------------- --
 -- Output Proofs
+--
+-- | Targets for proofs, usually a chain ID, but in the case of L2, a network
+-- and chain identifier. TODO: determine format, if any.
+data ProofTarget = ProofTargetChain !ChainId | ProofTargetCrossNetwork !Text
+    deriving stock (Show, Eq, Ord, Generic)
+    deriving anyclass NFData
+
+instance ToJSON ProofTarget where
+    toJSON (ProofTargetChain cid) = toJSON (toText cid)
+    toJSON (ProofTargetCrossNetwork subtgt) = toJSON ("crossnet:" <> subtgt)
+    toEncoding (ProofTargetChain cid) = toEncoding (toText cid)
+    toEncoding (ProofTargetCrossNetwork subtgt) = toEncoding ("crossnet:" <> subtgt)
+
+instance FromJSON ProofTarget where
+    parseJSON = withText "ProofTarget" $ \case
+        (T.stripPrefix "crossnet:" -> Just tgt) -> return $ ProofTargetCrossNetwork tgt
+        (chainIdFromText -> Just cid) -> return $ ProofTargetChain cid
+        _ -> fail "expected numeric chain ID or crossnet:<some string>"
+
 
 -- | Witness that a transaction output is included in the head of a chain in a
 -- chainweb.
 --
 data TransactionOutputProof a = TransactionOutputProof
-    !ChainId
+    !ProofTarget
         -- ^ the target chain of the proof, i.e the chain which contains
         -- the root of the proof.
     !(MerkleProof a)
@@ -199,16 +223,16 @@ data TransactionOutputProof a = TransactionOutputProof
     deriving (Show, Eq)
 
 instance ToJSON (TransactionOutputProof SHA512t_256) where
-    toJSON (TransactionOutputProof cid p) = object $ proofProperties cid p
-    toEncoding (TransactionOutputProof cid p) = pairs . mconcat $ proofProperties cid p
+    toJSON (TransactionOutputProof tgt p) = object $ proofProperties tgt p
+    toEncoding (TransactionOutputProof tgt p) = pairs . mconcat $ proofProperties tgt p
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
 
 instance FromJSON (TransactionOutputProof SHA512t_256) where
-    parseJSON = parseProof "TransactionOutputProof" TransactionOutputProof
+    parseJSON = parseProof "TransactionOutputProof" (\tgt p -> return (TransactionOutputProof tgt p))
     {-# INLINE parseJSON #-}
 
 -- | Getter into the chain id of a 'TransactionOutputProof'
 --
-outputProofChainId :: Getter (TransactionOutputProof a) ChainId
-outputProofChainId = to (\(TransactionOutputProof cid _) -> cid)
+outputProofTarget :: Getter (TransactionOutputProof a) ProofTarget
+outputProofTarget = to (\(TransactionOutputProof tgt _) -> tgt)
