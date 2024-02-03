@@ -5,7 +5,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -41,8 +43,11 @@ module Chainweb.Utils.RequestLog
 , RequestResponseLog(..)
 , requestResponseLogRequest
 , requestResponseLogStatus
+, requestResponseLogCode
 , requestResponseLogDurationMicro
 , requestResponseLogger
+, requestResponseLogger'
+, requestResponseLogger''
 ) where
 
 import Control.DeepSeq
@@ -69,6 +74,8 @@ import System.LogLevel
 
 import Chainweb.Logger
 import Chainweb.Utils
+
+import Data.LogMessage
 
 -- -------------------------------------------------------------------------- --
 -- Request Logger
@@ -152,6 +159,7 @@ requestLogger logger app req respond = do
 data RequestResponseLog = RequestResponseLog
     { _requestResponseLogRequest :: !RequestLog
     , _requestResponseLogStatus :: !T.Text
+    , _requestResponseLogCode :: !Natural
     , _requestResponseLogDurationMicro :: !Int
     }
     deriving (Show, Eq, Ord, Generic)
@@ -163,6 +171,7 @@ requestResponseLogProperties :: KeyValue e kv => RequestResponseLog -> [kv]
 requestResponseLogProperties o =
     [ "request" .= _requestResponseLogRequest o
     , "status" .= _requestResponseLogStatus o
+    , "code" .= _requestResponseLogCode o
     , "durationMicro" .= _requestResponseLogDurationMicro o
     ]
 
@@ -175,21 +184,79 @@ instance ToJSON RequestResponseLog where
 logRequestResponse :: RequestLog -> Response -> Int -> RequestResponseLog
 logRequestResponse reqLog res d = RequestResponseLog
     { _requestResponseLogRequest = reqLog
-    , _requestResponseLogStatus = sshow $ responseStatus res
+    , _requestResponseLogStatus = T.decodeUtf8 $ statusMessage $ responseStatus res
+    , _requestResponseLogCode = int (statusCode (responseStatus res))
     , _requestResponseLogDurationMicro = d
     }
 
--- | NOTE: this middleware should only be used for APIs that don't stream. Otherwise
--- the logg may be delayed for indefinite time.
+-- | Log request and response.
+--
+-- NOTES:
+-- - This middelware can produce a lot of data. Use with care.
+-- - This middleware should only be used for APIs that don't stream.
+--   Otherwise the logg may be delayed for indefinite time.
 --
 requestResponseLogger :: Logger l => l -> Middleware
-requestResponseLogger logger app req respond = do
-    let !reqLog = logRequest req
-    reqTime <- getTime Monotonic
-    app req $ \res -> do
-        r <- respond res
-        resTime <- getTime Monotonic
-        logFunctionJson logger Info
-            $ logRequestResponse reqLog res
-            $ (int $ toNanoSecs $ diffTimeSpec resTime reqTime) `div` 1000
-        return r
+requestResponseLogger = requestResponseLogger' (const True) (const True) Info
+
+-- | Log Requests and responses if the request and response both satisfy given
+-- predicates.
+--
+-- NOTES:
+-- - This middelware can produce a lot of data. Use with care.
+-- - This middleware should only be used for APIs that don't stream.
+--   Otherwise the logg may be delayed for indefinite time.
+--
+requestResponseLogger'
+    :: Logger l
+    => (Request -> Bool)
+    -> (Response -> Bool)
+    -> LogLevel
+    -> l
+    -> Middleware
+requestResponseLogger' checkReq checkResp level =
+    requestResponseLogger'' (getLevel checkReq) (getLevel checkResp) JsonLog
+  where
+    getLevel c r
+        | c r = Just level
+        | otherwise = Nothing
+
+-- | Log Requests and responses where the loglevel depends on the request and
+-- the response. The effective level is maximum level from request and response.
+--
+-- NOTES:
+-- - This middelware can produce a lot of data. Use with care.
+-- - This middleware should only be used for APIs that don't stream.
+--   Otherwise the logg may be delayed for indefinite time.
+--
+requestResponseLogger''
+    :: forall a l
+    . LogMessage a
+    => Logger l
+    => (Request -> Maybe LogLevel)
+    -> (Response -> Maybe LogLevel)
+    -> (RequestResponseLog -> a)
+    -> l
+    -> Middleware
+requestResponseLogger'' reqLevel respLevel toLog l app req respond =
+    -- TODO: is this needed?
+    reqLog `seq` reql `seq` do
+        reqTime <- getTime Monotonic
+        app req $ \res -> do
+            let mlevel = max (respLevel res) (reql)
+            r <- respond res
+            resTime <- getTime Monotonic
+            case mlevel of
+                Just level -> do
+                    logFunction l level
+                        $ toLog
+                        $ logRequestResponse reqLog res
+                        $ (int $ toNanoSecs $ diffTimeSpec resTime reqTime) `div` 1000
+                Nothing -> return ()
+            return r
+  where
+    -- we force reqLog in order to not keep the possibly large request body alive
+    -- longer than needed
+    !reqLog = logRequest req
+    !reql = reqLevel req
+

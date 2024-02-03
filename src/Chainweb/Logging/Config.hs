@@ -80,6 +80,7 @@ data LogConfig = LogConfig
     { _logConfigLogger :: !LoggerConfig
     , _logConfigBackend :: !BackendConfig
     , _logConfigTelemetryBackend :: !(EnableConfig BackendConfig)
+    , _logConfigSecurityBackend :: !(EnableConfig BackendConfig)
     , _logConfigClusterId :: !(Maybe ClusterId)
     , _logConfigFilter :: !LogFilter
     }
@@ -92,6 +93,7 @@ defaultLogConfig = LogConfig
     { _logConfigLogger = defaultLoggerConfig
     , _logConfigBackend = defaultBackendConfig
     , _logConfigTelemetryBackend = defaultEnableConfig defaultBackendConfig
+    , _logConfigSecurityBackend = defaultEnableConfig defaultBackendConfig
     , _logConfigClusterId = Nothing
     , _logConfigFilter = mempty
     }
@@ -101,12 +103,14 @@ validateLogConfig o = do
     validateLoggerConfig $ _logConfigLogger o
     validateBackendConfig $ _logConfigBackend o
     validateEnableConfig validateBackendConfig $ _logConfigTelemetryBackend o
+    validateEnableConfig validateBackendConfig $ _logConfigSecurityBackend o
 
 instance ToJSON LogConfig where
     toJSON o = object
         [ "logger" .= _logConfigLogger o
         , "backend" .= _logConfigBackend o
         , "telemetryBackend" .= _logConfigTelemetryBackend o
+        , "securityBackend" .= _logConfigSecurityBackend o
         , "clusterId" .= _logConfigClusterId o
         , "filter" .= _logConfigFilter o
         ]
@@ -116,6 +120,7 @@ instance FromJSON (LogConfig -> LogConfig) where
         <$< logConfigLogger %.: "logger" % o
         <*< logConfigBackend %.: "backend" % o
         <*< logConfigTelemetryBackend %.: "telemetryBackend" % o
+        <*< logConfigSecurityBackend %.: "securityBackend" % o
         <*< logConfigClusterId ..: "clusterId" % o
         <*< logConfigFilter . fromLeftMonoidalUpdate %.: "filter" % o
 
@@ -134,6 +139,8 @@ pLogConfig_ prefix = id
     <*< logConfigBackend %:: pBackendConfig_ prefix
     <*< logConfigTelemetryBackend %::
         pEnableConfig "telemetry-logger" (pBackendConfig_ $ "telemetry-" <> prefix)
+    <*< logConfigSecurityBackend %::
+        pEnableConfig "security-logger" (pBackendConfig_ $ "security-" <> prefix)
     <*< logConfigClusterId .:: fmap Just % textOption
         % prefixLong maybePrefix "cluster-id"
         <> help "a label that is added to all log messages from this node"
