@@ -15,10 +15,10 @@ import Data.ByteArray qualified as Memory
 import Data.Functor.Identity (Identity(..))
 import Data.ByteString.Base16 qualified as Base16
 import Data.Maybe (mapMaybe)
-import Crypto.Hash (hashWith, SHA3_256(..))
+import Crypto.Hash (hashWith)
 import Data.List qualified as List
 import Chainweb.Pact.Backend.PactState (PactRow(..), Table(..))
-import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (TableHash(..), rowToHashInput, hashTable, tableNameToHashInput, hashStream)
+import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (TableHash(..), rowToHashInput, hashTable, tableNameToHashInput, hashStream, hashAlgorithm)
 import Control.Monad (replicateM)
 import Data.ByteString (ByteString)
 import Data.ByteString.Builder qualified as BB
@@ -95,7 +95,7 @@ testHashTableNotIncremental tbl = if null tbl.rows
   then Nothing
   else Just
        $ Memory.convert
-       $ hashWith SHA3_256
+       $ hashWith hashAlgorithm
        $ BL.toStrict
        $ BB.toLazyByteString
        $ (BB.byteString (tableNameToHashInput tbl.name) <>)
@@ -110,7 +110,7 @@ propHashWholeChainEqualsIncremental tbls =
 
     incrementalHash = fst $ runIdentity $ hashStream @Identity (S.each tableHashes)
 
-    wholeHash = Memory.convert $ hashWith SHA3_256 $ BS.concat tableHashes
+    wholeHash = Memory.convert $ hashWith hashAlgorithm $ BS.concat tableHashes
   in
   incrementalHash === wholeHash
 
