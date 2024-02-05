@@ -195,9 +195,9 @@ diffTables t1 t2 = do
     t2.rows
 
 -- This assumes the same tables (essentially zipWith).
---   Note that this assumes we got the state from `getLatestPactState`,
---   because `getPactTableNames` sorts the table names, and `getLatestPactState`
---   sorts the [PactRow] by rowKey.
+--   Note that this assumes we got the state from `getLatestPactStateDiffable`,
+--   because `getPactTableNames` sorts the table names, and
+--   `getLatestPactStateDiffable` sorts the [PactRow] by rowKey.
 --
 -- If we ever step across two tables that do not have the same name, we throw an error.
 --

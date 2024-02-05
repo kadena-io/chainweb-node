@@ -24,7 +24,6 @@
 module Chainweb.Pact.Backend.PactState
   ( getPactTableNames
   , getPactTables
-  , getLatestPactState
   , getLatestPactStateDiffable
   , getLatestPactStateAt
   , getLatestPactStateAtDiffable
@@ -204,12 +203,6 @@ getLatestPactStateDiffable :: Database -> Stream (Of TableDiffable) IO ()
 getLatestPactStateDiffable db = do
   bh <- liftIO $ getLatestBlockHeight db
   getLatestPactStateAtDiffable db bh
-
--- | Get the latest Pact state.
-getLatestPactState :: Database -> Stream (Of (Text, Map ByteString PactRowContents)) IO ()
-getLatestPactState db = do
-  bh <- liftIO $ getLatestBlockHeight db
-  getLatestPactStateAt db bh
 
 -- | Get the Pact state (in a ready-to-diff form) at the given height.
 getLatestPactStateAtDiffable :: ()
