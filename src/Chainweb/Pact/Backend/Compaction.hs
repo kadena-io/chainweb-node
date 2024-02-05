@@ -54,6 +54,7 @@ import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map.Strict qualified as M
+import Data.Maybe (fromMaybe)
 import Data.Ord (Down(..))
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -76,8 +77,8 @@ import UnliftIO.Async (pooledMapConcurrentlyN_)
 
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Logger (l2l, setComponent)
-import Chainweb.Utils (sshow, HasTextRepresentation, fromText, toText, int)
-import Chainweb.Version (ChainId, ChainwebVersion(..), ChainwebVersionName, unsafeChainId, chainIdToText)
+import Chainweb.Utils (sshow, fromText, toText, int)
+import Chainweb.Version (ChainId, ChainwebVersion(..), unsafeChainId, chainIdToText)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
@@ -575,7 +576,7 @@ main = do
               <> long "pact-database-dir"
               <> metavar "DBDIR"
               <> help "Pact database directory")
-        <*> (lookupVersionByName . fromTextSilly @ChainwebVersionName <$> strOption
+        <*> (parseChainwebVersion <$> strOption
               (short 'v'
                <> long "graph-version"
                <> metavar "VERSION"
@@ -607,10 +608,8 @@ main = do
               <> value 4
               <> help "Number of threads for compaction processing")
 
-fromTextSilly :: HasTextRepresentation a => Text -> a
-fromTextSilly t = case fromText t of
-  Just a -> a
-  Nothing -> error "fromText failed"
+    parseChainwebVersion :: Text -> ChainwebVersion
+    parseChainwebVersion = lookupVersionByName . fromMaybe (error "ChainwebVersion parse failed") . fromText
 
 bhToSType :: BlockHeight -> SType
 bhToSType bh = SInt (int bh)

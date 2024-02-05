@@ -31,6 +31,7 @@ import Data.ByteString (ByteString)
 import Data.Map (Map)
 import Data.Map.Merge.Strict qualified as Merge
 import Data.Map.Strict qualified as M
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
@@ -38,8 +39,8 @@ import Data.Text.Encoding qualified as Text
 import Options.Applicative
 
 import Chainweb.Logger (logFunctionText, logFunctionJson)
-import Chainweb.Utils (HasTextRepresentation, fromText, toText)
-import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName, ChainId, chainIdToText)
+import Chainweb.Utils (fromText, toText)
+import Chainweb.Version (ChainwebVersion(..), ChainId, chainIdToText)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
@@ -136,7 +137,7 @@ pactDiffMain = do
            (long "second-database-dir"
             <> metavar "PACT_DB_DIRECTORY"
             <> help "Second Pact database directory")
-      <*> (fmap (lookupVersionByName . fromTextSilly @ChainwebVersionName) $ strOption
+      <*> (fmap parseChainwebVersion $ strOption
            (long "graph-version"
             <> metavar "CHAINWEB_VERSION"
             <> help "Chainweb version for graph. Only needed for non-standard graphs."
@@ -148,10 +149,8 @@ pactDiffMain = do
             <> help "Directory where logs will be placed"
             <> value ".")
 
-fromTextSilly :: HasTextRepresentation a => Text -> a
-fromTextSilly t = case fromText t of
-  Just a -> a
-  Nothing -> error "fromText failed"
+    parseChainwebVersion :: Text -> ChainwebVersion
+    parseChainwebVersion = lookupVersionByName . fromMaybe (error "ChainwebVersion parse failed") . fromText
 
 -- | We don't include the entire rowdata in the diff, only the rowkey.
 --   This is just a space-saving measure.
