@@ -82,6 +82,9 @@ coinReplV4 = "pact/coin-contract/v4/coin-v4.repl"
 coinReplV5 :: FilePath
 coinReplV5 = "pact/coin-contract/v5/coin-v5.repl"
 
+coinReplV6 :: FilePath
+coinReplV6 = "pact/coin-contract/v6/coin-v6.repl"
+
 nsReplV1 :: FilePath
 nsReplV1 = "pact/namespaces/v1/ns.repl"
 
@@ -110,6 +113,7 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
         -- v2 and v3 repl tests were consolidated in v4
       , testCase "v4" (ccReplTests coinReplV4)
       , testCase "v5" (ccReplTests coinReplV5)
+      , testCase "v6" (ccReplTests coinReplV6)
       ]
     , testGroup "Namespace repl unit tests"
       [ testCase "Ns-v1 repl tests" $ ccReplTests nsReplV1
