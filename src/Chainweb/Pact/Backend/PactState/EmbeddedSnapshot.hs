@@ -29,4 +29,4 @@ unsafeDecodeBlockHeader t = case A.decodeStrict (Text.encodeUtf8 t) of
 unsafeBase16Decode :: Text -> ByteString
 unsafeBase16Decode t = case Base16.decode (Text.encodeUtf8 t) of
   Right a -> a
-  Left err -> error ("unsafeBase16DDecode failed: " ++ show err)
+  Left err -> error ("unsafeBase16Decode failed: " ++ show err)
