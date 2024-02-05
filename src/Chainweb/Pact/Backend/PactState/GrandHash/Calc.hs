@@ -9,7 +9,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
--- TODO: DOC
+-- | Calculate the 'Snapshots'es against a pact database.
+--
+--   The 'pactCalcMain' tool (included in cwtool as pact-calc) allows
+--   users to calculate the snapshots, as well as generate haskell modules
+--   that embed the snapshots in them.
 module Chainweb.Pact.Backend.PactState.GrandHash.Calc
   (
     pactCalcMain
