@@ -18,7 +18,7 @@ import Data.Maybe (mapMaybe)
 import Crypto.Hash (hashWith, SHA3_256(..))
 import Data.List qualified as List
 import Chainweb.Pact.Backend.PactState (PactRow(..), Table(..))
-import Chainweb.Pact.Backend.PactState.GrandHash (rowToHashInput, hashTable, tableNameToHashInput, hashStream)
+import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (TableHash(..), rowToHashInput, hashTable, tableNameToHashInput, hashStream)
 import Control.Monad (replicateM)
 import Data.ByteString (ByteString)
 import Data.ByteString.Builder qualified as BB
@@ -47,6 +47,7 @@ tests =
     [ testCase "PactRow hash input roundtrip - habibti ascii" (testPactRow habibtiAscii)
     , testCase "PactRow hash input roundtrip - habibti utf8" (testPactRow habibtiUtf8)
     , testProperty "PactRow hash input roundtrip - arbitrary utf8" propPactRowHashInputRoundtrip
+    , testProperty "Table hash input roundtrip - arbitrary utf8" propTableHashInputRoundtrip
     , testProperty "Table hash: incremental equals non-incremental" propHashWholeTableEqualsIncremental
     , testProperty "Grand Hash of tables: incremental equals non-incremental" propHashWholeChainEqualsIncremental
     ]
@@ -69,10 +70,17 @@ propPactRowHashInputRoundtrip :: PactRow -> Property
 propPactRowHashInputRoundtrip row =
   Right row === parseRowHashInput (rowToHashInput row)
 
+propTableHashInputRoundtrip :: Text -> Property
+propTableHashInputRoundtrip tablename =
+  Right (len, tblName) === parseTableHashInput (tableNameToHashInput tablename)
+  where
+    tblName = Text.encodeUtf8 tablename
+    len = fromIntegral @Int @Word64 (BS.length tblName)
+
 propHashWholeTableEqualsIncremental :: Table -> Property
 propHashWholeTableEqualsIncremental tbl =
   let
-    incrementalHash :: Maybe ByteString
+    incrementalHash :: Maybe TableHash
     incrementalHash = hashTable tbl.name
       $ Vector.fromList
       $ List.sortOn (\pr -> pr.rowKey) tbl.rows
@@ -80,7 +88,7 @@ propHashWholeTableEqualsIncremental tbl =
     wholeHash :: Maybe ByteString
     wholeHash = testHashTableNotIncremental tbl
   in
-  fmap hex incrementalHash === fmap hex wholeHash
+  fmap (hex . getTableHash) incrementalHash === fmap hex wholeHash
 
 testHashTableNotIncremental :: Table -> Maybe ByteString
 testHashTableNotIncremental tbl = if null tbl.rows
@@ -100,7 +108,7 @@ propHashWholeChainEqualsIncremental tbls =
     sortedTables = List.sortOn (\tbl -> tbl.name) tbls
     tableHashes = mapMaybe testHashTableNotIncremental sortedTables
 
-    incrementalHash = runIdentity $ hashStream @Identity (S.each tableHashes)
+    incrementalHash = fst $ runIdentity $ hashStream @Identity (S.each tableHashes)
 
     wholeHash = Memory.convert $ hashWith SHA3_256 $ BS.concat tableHashes
   in
@@ -165,6 +173,16 @@ parseRowHashInput b = Smith.parseBytesEither parser (Bytes.fromByteString b)
         , txId = fromIntegral @Word64 @Int64 txid
         , rowData = Bytes.toByteString rd
         }
+
+parseTableHashInput :: ByteString -> Either Text (Word64, ByteString)
+parseTableHashInput b = Smith.parseBytesEither parser (Bytes.fromByteString b)
+  where
+    parser :: Parser Text s (Word64, ByteString)
+    parser = do
+      _ <- Smith.char "tablename tag" 'T'
+      len <- SmithLE.word64 "tablename len"
+      tablename <- Smith.take "tablename" (fromIntegral @Word64 @Int len)
+      pure (len, Bytes.toByteString tablename)
 
 hex :: ByteString -> Text
 hex = Text.decodeUtf8 . Base16.encode

@@ -99,7 +99,10 @@ import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.PactState (allChains, getLatestBlockHeight, getLatestPactStateAtDiffable, TableDiffable(..), addChainIdLabel)
-import Chainweb.Pact.Backend.PactState.GrandHash qualified as GrandHash
+import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (ChainGrandHash(..))
+import Chainweb.Pact.Backend.PactState.GrandHash.Calc qualified as GrandHash.Calc
+import Chainweb.Pact.Backend.PactState.GrandHash.Import qualified as GrandHash.Import
+import Chainweb.Pact.Backend.PactState.GrandHash.Utils qualified as GrandHash.Utils
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
 import Chainweb.Time (Seconds(..))
@@ -341,7 +344,7 @@ pactImportTest logLevel v n rocksDb pactDir step = do
     let logger' = addLabel ("nodeId", sshow nid) logger
     logFunctionText logger' Info $ "Verifying node " <> sshow nid
     let pactNodeDir = pactDir </> show nid
-    GrandHash.withConnections logger' pactNodeDir chains $ \pactConns -> do
+    GrandHash.Utils.withConnections logger' pactNodeDir chains $ \pactConns -> do
       logFunctionText logger' Info "Calculating grand hashes"
 
       -- Each node is in its own namespace.
@@ -363,19 +366,19 @@ pactImportTest logLevel v n rocksDb pactDir step = do
                 (\t -> if t >= targetChunkSize then Just (t, t - targetChunkSize) else Nothing)
                 (latestBlockHeight - latestBlockHeight `mod` targetChunkSize)
 
-      grands <- GrandHash.pactCalc logger' v pactConns rdb (GrandHash.TargetAll targets)
+      grands <- GrandHash.Calc.pactCalc logger' v pactConns rdb (GrandHash.Calc.TargetAll targets)
 
       logFunctionText logger' Info "Verifying state"
-      snapshot@(snapshotBlockHeight, snapshotHashes) <- GrandHash.pactVerify logger' v pactConns rdb grands
+      snapshot@(snapshotBlockHeight, snapshotHashes) <- GrandHash.Import.pactVerify logger' v pactConns rdb grands
       logFunctionText logger' Debug $ "SNAPSHOT BLOCKHEIGHT = " <> sshow (fst snapshot)
-      logFunctionText logger' Debug $ "SNAPSHOT HASHES = " <> sshow (HM.map (\s -> (T.decodeUtf8 (Base16.encode s.pactHash), _blockHeight s.blockHeader)) (snd snapshot))
+      logFunctionText logger' Debug $ "SNAPSHOT HASHES = " <> sshow (HM.map (\s -> (T.decodeUtf8 (Base16.encode (getChainGrandHash s.pactHash)), _blockHeight s.blockHeader)) (snd snapshot))
 
       logFunctionText logger' Info "Making a copy of the pact state, and dropping the post-verified content"
       withSystemTempDirectory "pact-copy" $ \copyPactDir -> do
         let copyNodeDir = copyPactDir </> show nid
-        GrandHash.pactDropPostVerified logger' v pactNodeDir copyNodeDir snapshotBlockHeight snapshotHashes
+        GrandHash.Import.pactDropPostVerified logger' v pactNodeDir copyNodeDir snapshotBlockHeight snapshotHashes
 
-        GrandHash.withConnections logger' copyNodeDir chains $ \pactCopyConns -> do
+        GrandHash.Utils.withConnections logger' copyNodeDir chains $ \pactCopyConns -> do
           logFunctionText logger' Info "Checking latest block heights on copy to make sure they match verified state"
           forM_ chains $ \cid -> do
             let SQLiteEnv db _ = pactCopyConns ^?! ix cid

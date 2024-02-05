@@ -68,7 +68,8 @@ import Chainweb.Mempool.Mempool
 import Chainweb.MerkleLogHash (unsafeMerkleLogHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.PactState.GrandHash (computeGrandHash)
+import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (computeGrandHash)
+import Chainweb.Pact.Backend.PactState qualified as PS
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation hiding (local)
 import Chainweb.Pact.Service.PactQueue (PactQueue, newPactQueue)
@@ -556,10 +557,9 @@ compactionGrandHashUnchanged rdb =
     let db = _sConn cr.sqlEnv
     let targetHeight = BlockHeight numBlocks
 
-    let logger = genericLogger Error (\_ -> pure ())
-    hashPreCompaction <- computeGrandHash logger db targetHeight
+    hashPreCompaction <- computeGrandHash (PS.getLatestPactStateAt db targetHeight)
     Utils.compact Error [C.NoVacuum] cr.sqlEnv (C.Target targetHeight)
-    hashPostCompaction <- computeGrandHash logger db targetHeight
+    hashPostCompaction <- computeGrandHash (PS.getLatestPactStateAt db targetHeight)
 
     assertEqual "GrandHash pre- and post-compaction are the same" hashPreCompaction hashPostCompaction
 

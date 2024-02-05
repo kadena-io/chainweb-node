@@ -1,22 +1,16 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Chainweb.Pact.Backend.PactState.GrandHash
-  (
-
-    ChainGrandHash(..)
+module Chainweb.Pact.Backend.PactState.GrandHash.Algorithm
+  ( ChainGrandHash(..)
   , TableHash(..)
   , computeGrandHash
   , hashTable
@@ -24,53 +18,10 @@ module Chainweb.Pact.Backend.PactState.GrandHash
   , tableNameToHashInput
   , hashStream
   , hashAlgorithm
-
-{-
-    -- * Executable utilities
---    pactImportMain
---  , pactCalcMain
-
-
-    -- ** Hash utilities
-  , pactCalc
-  , pactVerify
-  , pactDropPostVerified
-
-    -- ** General utilities
-  , withConnections
-
-    -- ** Types
-  , BlockHeightTargets(..)
--}
   )
   where
 
-import Chainweb.BlockHeader (BlockHeader(..), genesisHeight)
-import Chainweb.BlockHeight (BlockHeight(..))
-import Chainweb.ChainId (ChainId, chainIdToText)
-import Chainweb.CutDB (cutHashesTable, readHighestCutHeaders)
-import Chainweb.Logger (Logger, logFunctionText)
-import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.PactState (PactRow(..), PactRowContents(..), getLatestPactStateAt, getLatestBlockHeight, addChainIdLabel, allChains)
---import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
-import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpointer)
-import Chainweb.Pact.Backend.Types (Checkpointer(..), SQLiteEnv(..), initBlockState)
-import Chainweb.Pact.Backend.Utils (startSqliteDb, stopSqliteDb)
-import Chainweb.Pact.Types (defaultModuleCacheLimit)
-import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
-import Chainweb.TreeDB (seekAncestor)
-import Chainweb.Utils (fromText, toText, sshow)
-import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName(..))
-import Chainweb.Version.Development (devnet)
-import Chainweb.Version.FastDevelopment (fastDevnet)
-import Chainweb.Version.Mainnet (mainnet)
-import Chainweb.Version.Registry (lookupVersionByName)
-import Chainweb.Version.Testnet (testnet)
-import Chainweb.WebBlockHeaderDB (WebBlockHeaderDb, getWebBlockHeaderDb, initWebBlockHeaderDb)
-import Control.Applicative ((<|>), many, optional)
-import Control.Exception (bracket)
-import Control.Lens ((^?!), ix)
-import Control.Monad (forM, forM_, when, void)
+import Chainweb.Pact.Backend.PactState (PactRow(..), PactRowContents(..))
 import Crypto.Hash (hashInitWith, hashUpdate, hashFinalize)
 import Crypto.Hash.Algorithms (SHA3_256(..))
 import Data.Bifunctor (first)
@@ -80,37 +31,18 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as Base16
 import Data.ByteString.Builder qualified as BB
 import Data.ByteString.Lazy qualified as BL
-import Data.ByteString.Lazy.Char8 qualified as BLC8
-import Data.Char qualified as Char
-import Data.HashMap.Strict (HashMap)
-import Data.HashMap.Strict qualified as HM
-import Data.Hashable (Hashable)
 import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map.Strict qualified as Map
-import Data.Ord (Down(..))
-import Data.Set (Set)
-import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import Data.Word (Word64)
-import Database.SQLite3.Direct (Database)
-import GHC.Stack (HasCallStack)
-import Options.Applicative (ParserInfo, Parser, (<**>))
-import Options.Applicative qualified as O
-import Pact.JSON.Encode qualified as J
-import Patience.Map qualified as P
 import Streaming.Prelude (Stream, Of)
 import Streaming.Prelude qualified as S
-import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist)
-import System.Exit (exitFailure)
-import System.FilePath ((</>))
-import System.LogLevel (LogLevel(..))
-import UnliftIO.Async (pooledForConcurrentlyN, pooledForConcurrentlyN_)
 
 -- | The GrandHash of a chain. This is the hash of all 'TableHash'es,
 --   ordered and concatenated (or computed via incremental hash).
@@ -778,4 +710,20 @@ versionModuleName v
   | otherwise = case Text.unpack (getChainwebVersionName (_versionName v)) of
       [] -> []
       c : cs -> Char.toUpper c : cs
+
+    -- * Executable utilities
+--    pactImportMain
+--  , pactCalcMain
+
+
+    -- ** Hash utilities
+  , pactCalc
+  , pactVerify
+  , pactDropPostVerified
+
+    -- ** General utilities
+  , withConnections
+
+    -- ** Types
+  , BlockHeightTargets(..)
 -}

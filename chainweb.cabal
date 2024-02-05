@@ -280,7 +280,11 @@ library
         , Chainweb.Pact.Backend.PactState.Diff
         , Chainweb.Pact.Backend.PactState.EmbeddedSnapshot
         , Chainweb.Pact.Backend.PactState.EmbeddedSnapshot.Mainnet
-        , Chainweb.Pact.Backend.PactState.GrandHash
+        --, Chainweb.Pact.Backend.PactState.GrandHash
+        , Chainweb.Pact.Backend.PactState.GrandHash.Algorithm
+        , Chainweb.Pact.Backend.PactState.GrandHash.Calc
+        , Chainweb.Pact.Backend.PactState.GrandHash.Import
+        , Chainweb.Pact.Backend.PactState.GrandHash.Utils
         , Chainweb.Pact.Backend.RelationalCheckpointer
         , Chainweb.Pact.Backend.SQLite.DirectV2
         , Chainweb.Pact.Backend.SQLite.V2

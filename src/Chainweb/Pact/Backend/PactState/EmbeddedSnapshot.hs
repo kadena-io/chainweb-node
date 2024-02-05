@@ -9,6 +9,7 @@ module Chainweb.Pact.Backend.PactState.EmbeddedSnapshot
   where
 
 import Chainweb.BlockHeader (BlockHeader)
+import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (ChainGrandHash)
 import Data.Aeson qualified as A
 import Data.ByteString (ByteString)
 import Data.ByteString.Base16 qualified as Base16
@@ -16,7 +17,7 @@ import Data.Text (Text)
 import Data.Text.Encoding qualified as Text
 
 data Snapshot = Snapshot
-  { pactHash :: ByteString
+  { pactHash :: ChainGrandHash
   , blockHeader :: BlockHeader
   }
   deriving stock (Eq, Show)

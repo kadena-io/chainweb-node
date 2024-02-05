@@ -11,7 +11,8 @@ import Text.Printf
 
 import Chainweb.Pact.Backend.Compaction (main)
 import Chainweb.Pact.Backend.PactState.Diff (pactDiffMain)
-import Chainweb.Pact.Backend.PactState.GrandHash (pactCalcMain, pactImportMain)
+import Chainweb.Pact.Backend.PactState.GrandHash.Calc (pactCalcMain)
+import Chainweb.Pact.Backend.PactState.GrandHash.Import (pactImportMain)
 
 import qualified CheckpointerDBChecksum
 import qualified Ea
@@ -114,11 +115,11 @@ topLevelCommands =
   , CommandSpec
       "pact-calc"
       "Calculate the GrandHashes for a pact database at a particular blockheight"
-      Chainweb.Pact.Backend.PactState.GrandHash.pactCalcMain
+      Chainweb.Pact.Backend.PactState.GrandHash.Calc.pactCalcMain
   , CommandSpec
       "pact-import"
       "Cryptographically verify the pact database, and import it to be used in your node"
-      Chainweb.Pact.Backend.PactState.GrandHash.pactImportMain
+      Chainweb.Pact.Backend.PactState.GrandHash.Import.pactImportMain
   , CommandSpec
       "calculate-release"
       "Calculate next service date and block heights for upgrades"
