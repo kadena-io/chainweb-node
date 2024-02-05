@@ -29,7 +29,6 @@ module Chainweb.Pact.Backend.PactState
   , getLatestPactStateAt
   , getLatestPactStateAtDiffable
   , getLatestBlockHeight
-  , getEarliestBlockHeight
   , getEndingTxId
   , ensureBlockHeightExists
   , withChainDb
@@ -94,16 +93,6 @@ getLatestBlockHeight db = do
   Pact.qry db qryText [] [RInt] >>= \case
     [[SInt bh]] -> pure (BlockHeight (int bh))
     _ -> error "getLatestBlockHeight: expected int"
-
--- | Get the earliest blockheight on chain.
-getEarliestBlockHeight :: Database -> IO BlockHeight
-getEarliestBlockHeight db = do
-  r <- Pact.qry db "SELECT MIN(blockheight) FROM BlockHistory" [] [RInt]
-  case r of
-    [[SInt bh]] -> do
-      pure (fromIntegral bh)
-    _ -> do
-      error "getEarliestBlockHeight: no earliest blockheight"
 
 -- | Make sure that the blockheight exists on chain.
 --
