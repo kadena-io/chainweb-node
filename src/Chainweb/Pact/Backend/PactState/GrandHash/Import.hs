@@ -1,17 +1,11 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeApplications #-}
 
 module Chainweb.Pact.Backend.PactState.GrandHash.Import
   (
@@ -29,6 +23,7 @@ import Chainweb.Logger (Logger, logFunctionText)
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.PactState (addChainIdLabel, allChains)
 import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
+import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot.Mainnet qualified as MainnetSnapshots
 import Chainweb.Pact.Backend.PactState.GrandHash.Utils (resolveLatestCutHeaders, resolveCutHeadersAtHeight, computeGrandHashesAt, exitLog, withConnections, chainwebDbFilePath, rocksParser, cwvParser)
 import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types (Checkpointer(..), SQLiteEnv(..), initBlockState)
@@ -176,7 +171,7 @@ pactImportMain = do
   C.withDefaultLogger Info $ \logger -> do
     withConnections logger cfg.sourcePactDir chains $ \srcConns -> do
       withReadOnlyRocksDb cfg.rocksDir modernDefaultOptions $ \rocksDb -> do
-        (snapshotBlockHeight, snapshotChainHashes) <- pactVerify logger cfg.chainwebVersion srcConns rocksDb (error "replace me")
+        (snapshotBlockHeight, snapshotChainHashes) <- pactVerify logger cfg.chainwebVersion srcConns rocksDb MainnetSnapshots.grands
 
         forM_ cfg.targetPactDir $ \targetDir -> do
           pactDropPostVerified logger cfg.chainwebVersion cfg.sourcePactDir targetDir snapshotBlockHeight snapshotChainHashes

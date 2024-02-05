@@ -60,6 +60,11 @@ import System.FilePath ((</>))
 import System.LogLevel (LogLevel(..))
 import UnliftIO.Async (pooledForConcurrently, pooledForConcurrently_)
 
+-- | Get the cut headers at the specified blockheight.
+--
+--   This works by taking the latest cut headers (from 'readLatestCutHeaders')
+--   and calling 'seekAncestor' to find the 'BlockHeader's associated with the
+--   specified blockheight at each chain (this is the cut header).
 limitCut :: (Logger logger)
   => logger
   -> WebBlockHeaderDb
@@ -91,6 +96,10 @@ limitCut logger wbhdb latestCutHeaders pactConns blockHeight = do
         logFunctionText logger' Debug $ "Block " <> sshow blockHeight <> " is not accessible on this chain."
         pure Nothing
 
+-- | Get the latest cut headers.
+--   Note that the latest cut headers reflects the latest state of consensus.
+--
+--   Also returns a 'WebBlockHeaderDb' for convenience to callers.
 getLatestCutHeaders :: ()
   => ChainwebVersion
   -> RocksDb
@@ -101,6 +110,10 @@ getLatestCutHeaders v rocksDb = do
   latestCutHeaders <- readHighestCutHeaders v (\_ _ -> pure ()) wbhdb cutHashes
   pure (wbhdb, latestCutHeaders)
 
+-- | Take the latest cut headers, and find the minimum 'BlockHeight' across
+--   the 'BlockHeader's of each chain, i.e, the highest 'BlockHeight' shared
+--   amongst all chains. Then return the cut headers associated with that
+--   latest common 'BlockHeight'.
 resolveLatestCutHeaders :: (Logger logger)
   => logger
   -> ChainwebVersion
@@ -113,6 +126,8 @@ resolveLatestCutHeaders logger v pactConns rocksDb = do
   headers <- limitCut logger wbhdb latestCutHeaders pactConns latestCommonBlockHeight
   pure (latestCommonBlockHeight, headers)
 
+-- | Take the latest cut headers, and return the cut headers associated with
+--   the specified 'BlockHeight'.
 resolveCutHeadersAtHeight :: (Logger logger)
   => logger
   -> ChainwebVersion
@@ -124,6 +139,10 @@ resolveCutHeadersAtHeight logger v pactConns rocksDb target = do
   (wbhdb, latestCutHeaders) <- getLatestCutHeaders v rocksDb
   limitCut logger wbhdb latestCutHeaders pactConns target
 
+-- | Take the latest cut headers, and, for each specified 'BlockHeight',
+--   return the cut headers associated with that 'BlockHeight'.
+--
+--   The list returned pairs the input 'BlockHeight's with the found headers.
 resolveCutHeadersAtHeights :: (Logger logger)
   => logger
   -> ChainwebVersion
@@ -136,14 +155,9 @@ resolveCutHeadersAtHeights logger v pactConns rocksDb targets = do
   forM targets $ \target -> do
     fmap (target, ) $ limitCut logger wbhdb latestCutHeaders pactConns target
 
--- | Compute the GrandHashes at the specified targets.
---
---   The targets can either be the latest BlockHeight only,
---   or a set of specified targets (for computing many grand hashes per chain at
---   once).
---
---   The list this returns is in descending order by the BlockHeight.
---   This is to facilitate easier searching in the style of 'findGrandHash'.
+-- | Compute the 'ChainGrandHash'es for each Chain. A 'Snapshot' just pairs
+--   a 'BlockHeader' with the computed 'ChainGrandHash' at the header's
+--   'BlockHeight'.
 computeGrandHashesAt :: ()
   => HashMap ChainId SQLiteEnv
      -- ^ pact connections

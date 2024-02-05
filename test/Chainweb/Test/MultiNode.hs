@@ -311,6 +311,23 @@ runNodesForSeconds loglevel write baseConf n (Seconds seconds) rdb pactDbDir inn
     void $ timeout (int seconds * 1_000_000)
         $ runNodes loglevel write baseConf n rdb pactDbDir inner
 
+-- | This test is essentially just calling pact-calc followed by pact-import,
+--   and making sure that works end to end.
+--
+--   For details:
+--
+--   1. Run a number of chainweb nodes in a network for 10 seconds.
+--   2. Ensure that the nodes made sufficient progress.
+--   3. For each node, compute its 'ChainGrandHash'es at regularly offset
+--      heights (see targetChunkSize and targets in the test for more info)
+--   4. Verify that the latest state of consensus has a latest common
+--      blockheight which is verifiable against the computed 'ChainGrandHash'es.
+--      See 'GrandHash.Import.pactVerify' for the conditions of verifiability.
+--   5. Once we have verified the state against the computed grand hashes, we
+--      create a copy of the pact database, and drop any state in the copy past
+--      the verified 'BlockHeight'.
+--   6. Lastly, we compare the state between the two databases (original and
+--      copy) at the verified 'BlockHeight'. There should be no differences.
 pactImportTest :: ()
   => LogLevel
   -> ChainwebVersion
