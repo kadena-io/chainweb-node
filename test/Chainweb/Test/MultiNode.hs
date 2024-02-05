@@ -674,7 +674,7 @@ consensusStateSummary s
     avg f = realToFrac (sum $ toList f) / realToFrac (length f)
 
     median :: (Ord a, Integral a) => (Foldable f) => f a -> a
-    median f = case toList f of
+    median f = case L.sort (toList f) of
       [] -> error "median: empty list"
       xs ->
         if length xs `mod` 2 == 1
