@@ -85,6 +85,7 @@ main = void $ do
     genCoinV3Payloads
     genCoinV4Payloads
     genCoinV5Payloads
+    genCoinV6Payloads
     putStrLn "Done."
   where
     recapDevnet = mkPayloads
@@ -157,6 +158,11 @@ genCoinV4Payloads = genTxModule "CoinV4"
 genCoinV5Payloads :: IO ()
 genCoinV5Payloads = genTxModule "CoinV5"
   [ coinContractV5
+  ]
+
+genCoinV6Payloads :: IO ()
+genCoinV6Payloads = genTxModule "CoinV6"
+  [ coinContractV6
   ]
 
 ---------------------

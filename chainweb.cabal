@@ -308,7 +308,7 @@ library
         , Chainweb.Pact.Transactions.CoinV3Transactions
         , Chainweb.Pact.Transactions.CoinV4Transactions
         , Chainweb.Pact.Transactions.CoinV5Transactions
-        , Chainweb.Pact.Transactions.RecapDevelopmentTransactions
+        , Chainweb.Pact.Transactions.CoinV6Transactions
         , Chainweb.Pact.Transactions.Mainnet0Transactions
         , Chainweb.Pact.Transactions.Mainnet1Transactions
         , Chainweb.Pact.Transactions.Mainnet2Transactions
@@ -321,6 +321,7 @@ library
         , Chainweb.Pact.Transactions.Mainnet9Transactions
         , Chainweb.Pact.Transactions.MainnetKADTransactions
         , Chainweb.Pact.Transactions.OtherTransactions
+        , Chainweb.Pact.Transactions.RecapDevelopmentTransactions
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils
         , Chainweb.Pact.Validations
