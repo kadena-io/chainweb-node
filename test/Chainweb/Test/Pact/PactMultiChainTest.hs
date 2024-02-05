@@ -131,6 +131,7 @@ tests = testGroup testName
   , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
   , test generousConfig getGasModel "pact49UpgradeTest" pact49UpgradeTest
   , test generousConfig getGasModel "pact410UpgradeTest" pact410UpgradeTest
+  , test generousConfig getGasModel "chainweb223Test" chainweb223Test
   ]
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
@@ -1206,6 +1207,49 @@ pact410UpgradeTest = do
     mkKeyEnvData :: String -> Value
     mkKeyEnvData key = object [ "k" .= [key] ]
 
+
+chainweb223Test :: PactTestM ()
+chainweb223Test = do
+
+  -- run past genesis, upgrades
+  runToHeight 119
+
+  let sender00KAccount = "k:" <> fst sender00
+  -- run pre-fork, where rotating principals is allowed
+  runBlockTest
+    [ PactTxTest
+      (buildBasic'
+      (set cbGasLimit 10000 .
+      set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkCoinCap "ROTATE" [pString sender00KAccount]]]
+      ) $ mkExec
+      (T.unlines
+        ["(coin.create-account (read-msg 'sender00KAcct) (read-keyset 'sender00))"
+        ,"(coin.rotate (read-msg 'sender00KAcct) (read-keyset 'sender01))"
+        ])
+      (object ["sender00" .= [fst sender00], "sender00KAcct" .= sender00KAccount, "sender01" .= [fst sender01]]))
+      (assertTxSuccess "should allow rotating principals before fork" (pString "Write succeeded"))
+    ]
+
+  -- run post-fork, where rotating principals is only allowed to get back to
+  -- their original guards
+  runBlockTest
+    [ PactTxTest
+      (buildBasic'
+      (set cbGasLimit 10000 .
+      set cbSigners [mkEd25519Signer' sender00 [mkGasCap], mkEd25519Signer' sender01 [mkCoinCap "ROTATE" [pString sender00KAccount]]]
+      ) $ mkExec
+        "(coin.rotate (read-msg 'sender00KAcct) (read-keyset 'sender00))"
+      (object ["sender00" .= [fst sender00], "sender00KAcct" .= sender00KAccount, "sender01" .= [fst sender01]]))
+      (assertTxSuccess "should allow rotating principals back after fork" (pString "Write succeeded"))
+    , PactTxTest
+      (buildBasic'
+      (set cbGasLimit 10000 .
+      set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkCoinCap "ROTATE" [pString sender00KAccount]]]
+      ) $ mkExec
+        "(coin.rotate (read-msg 'sender00KAcct) (read-keyset 'sender01))"
+      (object ["sender00" .= [fst sender00], "sender00KAcct" .= sender00KAccount, "sender01" .= [fst sender01]]))
+      (assertTxFailure "should not allow rotating principals after fork" "It is unsafe for principal accounts to rotate their guard")
+    ]
 
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
