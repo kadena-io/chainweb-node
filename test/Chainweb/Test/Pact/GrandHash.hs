@@ -74,7 +74,7 @@ propTableHashInputRoundtrip :: Text -> Property
 propTableHashInputRoundtrip tablename =
   Right (len, tblName) === parseTableHashInput (tableNameToHashInput tablename)
   where
-    tblName = Text.encodeUtf8 tablename
+    tblName = Text.encodeUtf8 (Text.toLower tablename)
     len = fromIntegral @Int @Word64 (BS.length tblName)
 
 propHashWholeTableEqualsIncremental :: Table -> Property
