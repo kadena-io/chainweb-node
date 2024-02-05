@@ -13,6 +13,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -49,6 +50,7 @@ import Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
 import Data.Foldable qualified as F
 import Data.Function (fix)
 import Data.IORef (IORef, readIORef, newIORef, atomicModifyIORef')
+import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map.Strict qualified as M
@@ -61,6 +63,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Vector (Vector)
 import Data.Vector qualified as V
+import Data.Word (Word64)
 import Database.SQLite3.Direct (Utf8(..), Database)
 import GHC.Stack (HasCallStack)
 import Options.Applicative
@@ -78,6 +81,7 @@ import Chainweb.Version (ChainId, ChainwebVersion(..), ChainwebVersionName, unsa
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
+import Chainweb.Pact.Backend.PactState (getLatestBlockHeight, ensureBlockHeightExists, getEndingTxId)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
 
@@ -261,6 +265,14 @@ qryNoTemplateM msg q ins outs = do
   db <- view ceDb
   queryDebug msg Nothing $ Pact.qry db q ins outs
 
+ioQuery :: ()
+  => Text -- ^ query name (for logging purposes)
+  -> (Database -> IO a) -- ^ query function to run
+  -> CompactM a
+ioQuery msg f = do
+  db <- view ceDb
+  queryDebug msg Nothing $ f db
+
 queryDebug :: Text -> Maybe TableName -> IO x -> CompactM x
 queryDebug qryName mTblName performQuery = do
   logg Info $ "Starting query " <> qryName
@@ -343,52 +355,14 @@ createCompactActiveRow = do
 locateTarget :: TargetBlockHeight -> CompactM BlockHeight
 locateTarget = \case
   Target bh -> do
-    ensureBlockHeightExists bh
+    ioQuery "locateTarget.0" $ \db -> do
+      catch (ensureBlockHeightExists db bh) $ \(_ :: SomeException) -> do
+        throwM $ CompactExceptionInvalidBlockHeight bh
     pure bh
   Latest -> do
-    getLatestBlockHeight
-
-ensureBlockHeightExists :: BlockHeight -> CompactM ()
-ensureBlockHeightExists bh = do
-  r <- qryNoTemplateM
-    "ensureBlockHeightExists.0"
-    "SELECT blockheight FROM BlockHistory WHERE blockheight = ?1"
-    [bhToSType bh]
-    [RInt]
-  case r of
-    [[SInt rBH]] -> do
-      when (fromIntegral bh /= rBH) $ do
-        throwM $ CompactExceptionInvalidBlockHeight bh
-    _ -> do
-      error "ensureBlockHeightExists.0: impossible"
-
-getLatestBlockHeight :: CompactM BlockHeight
-getLatestBlockHeight = do
-  r <- qryNoTemplateM
-    "getLatestBlockHeight.0"
-    "SELECT blockheight FROM BlockHistory ORDER BY blockheight DESC LIMIT 1"
-    []
-    [RInt]
-  case r of
-    [[SInt bh]] -> do
-      pure (fromIntegral bh)
-    _ -> do
-      throwM CompactExceptionNoLatestBlockHeight
-
-getEndingTxId :: BlockHeight -> CompactM TxId
-getEndingTxId bh = do
-  r <- qryNoTemplateM
-       "getTxId.0"
-       "SELECT endingtxid FROM BlockHistory WHERE blockheight=?"
-       [bhToSType bh]
-       [RInt]
-  case r of
-    [] -> do
-      throwM (CompactExceptionInvalidBlockHeight bh)
-    [[SInt t]] -> do
-      pure (TxId (fromIntegral t))
-    _ -> do
-      internalError "initialize: expected single-row int"
+    ioQuery "locateTarget.1" $ \db -> do
+      catch (getLatestBlockHeight db) $ \(_ :: SomeException) -> do
+        throwM CompactExceptionNoLatestBlockHeight
 
 getVersionedTables :: BlockHeight -> CompactM (Vector TableName)
 getVersionedTables bh = do
@@ -491,7 +465,9 @@ compact tbh logger db flags = runCompactM (CompactEnv logger db flags) $ do
   withTx createCompactActiveRow
 
   blockHeight <- locateTarget tbh
-  txId <- getEndingTxId blockHeight
+  txId <- fmap (TxId . fromIntegral @Int64 @Word64) $ ioQuery "getEndingTxId" $ \_ -> do
+    catch (getEndingTxId db blockHeight) $ \(_ :: SomeException) -> do
+      throwM $ CompactExceptionInvalidBlockHeight blockHeight
 
   logg Info $ "Target blockheight: " <> sshow blockHeight
   logg Info $ "Ending TxId: " <> sshow txId
@@ -559,7 +535,7 @@ compactAll CompactConfig{..} = do
     withDefaultLogger LL.Error $ \logger -> do
       let resetDb = False
       withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) -> do
-        runCompactM (CompactEnv logger db []) getLatestBlockHeight
+        getLatestBlockHeight db
 
   let allCids = Set.fromList $ F.toList $ chainIdsAt ccVersion latestBlockHeightChain0
   let targetCids = Set.toList $ maybe allCids (Set.intersection allCids) ccChains
