@@ -676,10 +676,8 @@ consensusStateSummary s
     median :: (Ord a, Integral a) => (Foldable f) => f a -> a
     median f = case L.sort (toList f) of
       [] -> error "median: empty list"
-      xs ->
-        if length xs `mod` 2 == 1
-        then xs !! (length f `div` 2)
-        else ((xs !! (length xs `div` 2 - 1)) + (xs !! (length xs `div` 2))) `div` 2
+      xs | length xs `mod` 2 == 1 -> xs !! (length f `div` 2)
+         | otherwise -> ((xs !! (length xs `div` 2 - 1)) + (xs !! (length xs `div` 2))) `div` 2
 
     minHeight = minimum $ HM.elems cutHeights
     maxHeight = maximum $ HM.elems cutHeights
