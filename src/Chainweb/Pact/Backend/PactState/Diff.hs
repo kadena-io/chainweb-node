@@ -59,15 +59,15 @@ data PactDiffConfig = PactDiffConfig
   , logDir :: FilePath
   }
 
-data Diffy = Difference | NoDifference
+data IsDifferent = Difference | NoDifference
   deriving stock (Eq)
 
-instance Semigroup Diffy where
+instance Semigroup IsDifferent where
   Difference <> _ = Difference
   _ <> Difference = Difference
   _ <> _          = NoDifference
 
-instance Monoid Diffy where
+instance Monoid IsDifferent where
   mempty = NoDifference
 
 pactDiffMain :: IO ()
@@ -80,7 +80,7 @@ pactDiffMain = do
 
   let cids = allChains cfg.chainwebVersion
 
-  diffyRef <- newIORef @(Map ChainId Diffy) M.empty
+  isDifferentRef <- newIORef @(Map ChainId IsDifferent) M.empty
 
   forM_ cids $ \cid -> do
     C.withPerChainFileLogger cfg.logDir cid Info $ \logger -> do
@@ -97,8 +97,9 @@ pactDiffMain = do
              withChainDb cid logger cfg.firstDbDir $ \_ (SQLiteEnv db1 _) -> do
                withChainDb cid logger cfg.secondDbDir $ \_ (SQLiteEnv db2 _) -> do
                  logText Info "[Starting diff]"
-                 let diff = diffLatestPactState (getLatestPactStateDiffable db1) (getLatestPactStateDiffable db2)
-                 diffy <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
+                 let diff :: Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
+                     diff = diffLatestPactState (getLatestPactStateDiffable db1) (getLatestPactStateDiffable db2)
+                 isDifferent <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
                    logText Info $ "[Starting table " <> tblName <> "]"
                    d <- S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do
                      logFunctionJson logger Warn $ rowKeyDiffExistsToObject d
@@ -106,15 +107,15 @@ pactDiffMain = do
                    logText Info $ "[Finished table " <> tblName <> "]"
                    pure d
 
-                 logText Info $ case diffy of
+                 logText Info $ case isDifferent of
                    Difference -> "[Non-empty diff]"
                    NoDifference -> "[Empty diff]"
                  logText Info $ "[Finished chain " <> chainIdToText cid <> "]"
 
-                 atomicModifyIORef' diffyRef $ \m -> (M.insert cid diffy m, ())
+                 atomicModifyIORef' isDifferentRef $ \m -> (M.insert cid isDifferent m, ())
 
-  diffy <- readIORef diffyRef
-  case M.foldMapWithKey (\_ d -> d) diffy of
+  isDifferent <- readIORef isDifferentRef
+  case M.foldMapWithKey (\_ d -> d) isDifferent of
     Difference -> do
       Text.putStrLn "Diff complete. Differences found."
       exitFailure
