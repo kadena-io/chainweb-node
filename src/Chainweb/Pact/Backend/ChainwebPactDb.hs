@@ -81,6 +81,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Pact.Backend.DbCache
+import qualified Chainweb.Pact.Backend.PactState as PS
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
@@ -778,7 +779,10 @@ handlePossibleRewind v cid bRestore hsh = do
 
     rewindBlock bh = do
         assign bsBlockHeight bh
-        !endingtx <- getEndingTxId v cid bh
+        !endingtx <- callDb "getEndingTxId" $ \db -> do
+          if bh == genesisHeight v cid
+          then return 0
+          else fromIntegral <$> PS.getEndingTxId db (pred bh)
         tableMaintenanceRowsVersionedSystemTables endingtx
         callDb "rewindBlock" $ \db -> do
             droppedtbls <- dropTablesAtRewind bh db
@@ -858,19 +862,6 @@ initSchema = do
       logger <- view bdbenvLogger
       logInfo_ logger $ "initSchema: "  <> fromUtf8 tablename
       callDb "initSchema" $ createVersionedTable tablename
-
-getEndingTxId :: ChainwebVersion -> ChainId -> BlockHeight -> BlockHandler logger SQLiteEnv TxId
-getEndingTxId v cid bh = callDb "getEndingTxId" $ \db -> do
-    if bh == genesisHeight v cid
-      then return 0
-      else
-        qry db "SELECT endingtxid FROM BlockHistory where blockheight = ?"
-            [SInt (fromIntegral $ pred bh)]
-            [RInt]
-          >>= fmap convertInt . expectSingleRowCol "endingtxid for block"
-  where
-    convertInt (SInt thing) = fromIntegral thing
-    convertInt _ = error "impossible"
 
 -- Careful doing this! It's expensive and for our use case, probably pointless.
 -- We should reserve vacuuming for an offline process
