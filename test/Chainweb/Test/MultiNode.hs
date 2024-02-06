@@ -4,11 +4,13 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -33,29 +35,42 @@
 -- The configuration defines a scaled down, accelerated chain that tries to
 -- similulate a full-scale chain in a miniaturized settings.
 --
-module Chainweb.Test.MultiNode ( test, replayTest, compactAndResumeTest ) where
+module Chainweb.Test.MultiNode
+  ( test
+  , replayTest
+  , compactAndResumeTest
+  , pactImportTest
+  ) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Exception
-import Control.Lens (set, view, over)
+import Control.Lens (set, view, over, (^?!), ix)
 import Control.Monad
 
-import Data.Aeson
+import Patience.Map qualified as P
+import Data.ByteString.Base16 qualified as Base16
+import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
+import Data.Aeson (ToJSON, object, (.=))
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.IORef
 import qualified Data.List as L
+import Data.Set (Set)
+import qualified Data.Set as Set
 import qualified Data.Text as T
+import Data.Text (Text)
 import qualified Data.Text.Encoding as T
+import Data.ByteString (ByteString)
 
 import GHC.Generics
 
 import Numeric.Natural
 
 import qualified Streaming.Prelude as S
+import Prelude hiding (log)
 
 import System.FilePath
 import System.IO.Temp
@@ -75,7 +90,7 @@ import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.Types (_sConn)
+import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Cut
 import Chainweb.CutDB
@@ -83,6 +98,11 @@ import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.PactState (allChains, getLatestBlockHeight, getLatestPactStateAtDiffable, TableDiffable(..), addChainIdLabel)
+import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (ChainGrandHash(..))
+import Chainweb.Pact.Backend.PactState.GrandHash.Calc qualified as GrandHash.Calc
+import Chainweb.Pact.Backend.PactState.GrandHash.Import qualified as GrandHash.Import
+import Chainweb.Pact.Backend.PactState.GrandHash.Utils qualified as GrandHash.Utils
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
 import Chainweb.Time (Seconds(..))
@@ -95,6 +115,10 @@ import Chainweb.Storage.Table.RocksDB
 
 import P2P.Node.Configuration
 import P2P.Peer
+
+import Database.SQLite3.Direct (Database)
+import Data.Map (Map)
+import Data.Map.Strict qualified as Map
 
 -- -------------------------------------------------------------------------- --
 -- * Configuration
@@ -286,6 +310,132 @@ runNodesForSeconds
 runNodesForSeconds loglevel write baseConf n (Seconds seconds) rdb pactDbDir inner = do
     void $ timeout (int seconds * 1_000_000)
         $ runNodes loglevel write baseConf n rdb pactDbDir inner
+
+-- | This test is essentially just calling pact-calc followed by pact-import,
+--   and making sure that works end to end.
+--
+--   For details:
+--
+--   1. Run a number of chainweb nodes in a network for 10 seconds.
+--   2. Ensure that the nodes made sufficient progress.
+--   3. For each node, compute its 'ChainGrandHash'es at regularly offset
+--      heights (see targetChunkSize and targets in the test for more info)
+--   4. Verify that the latest state of consensus has a latest common
+--      blockheight which is verifiable against the computed 'ChainGrandHash'es.
+--      See 'GrandHash.Import.pactVerify' for the conditions of verifiability.
+--   5. Once we have verified the state against the computed grand hashes, we
+--      create a copy of the pact database, and drop any state in the copy past
+--      the verified 'BlockHeight'.
+--   6. Lastly, we compare the state between the two databases (original and
+--      copy) at the verified 'BlockHeight'. There should be no differences.
+pactImportTest :: ()
+  => LogLevel
+  -> ChainwebVersion
+  -> Natural
+  -> RocksDb
+  -> FilePath
+  -> (String -> IO ())
+  -> IO ()
+pactImportTest logLevel v n rocksDb pactDir step = do
+  let logFun = step . T.unpack
+  let logger = genericLogger logLevel logFun
+
+  logFun "Phase 1... creating blocks"
+  logFun $ T.pack pactDir
+
+  -- N.B: This consensus state stuff counts the number of blocks
+  -- in RocksDB, rather than the number of blocks in all chains
+  -- on the current cut. This is fine because we ultimately just want
+  -- to make sure that we are making progress (i.e, new blocks).
+  stateVar <- newMVar (emptyConsensusState v)
+  let ct :: Int -> StartedChainweb logger -> IO ()
+      ct = harvestConsensusState logger stateVar
+  runNodesForSeconds logLevel logFun (multiConfig v n) n 10 rocksDb pactDir ct
+  consensusState <- swapMVar stateVar (emptyConsensusState v)
+  Just stats1 <- pure $ consensusStateSummary consensusState
+  assertGe "average block count before proceeding" (Actual $ _statBlockCount stats1) (Expected 50)
+  logFun $ sshow stats1
+
+  let chains = allChains v
+  forM_ [0 .. int @_ @Word n - 1] $ \nid -> do
+    let logger' = addLabel ("nodeId", sshow nid) logger
+    logFunctionText logger' Info $ "Verifying node " <> sshow nid
+    let pactNodeDir = pactDir </> show nid
+    GrandHash.Utils.withConnections logger' pactNodeDir chains $ \pactConns -> do
+      logFunctionText logger' Info "Calculating grand hashes"
+
+      -- Each node is in its own namespace.
+      let rdb = rocksDb { _rocksDbNamespace = T.encodeUtf8 $ toText @Word nid }
+
+      latestBlockHeight <- do
+        wbhdb <- initWebBlockHeaderDb rdb v
+        latestCutHeaders <- readHighestCutHeaders v (\_ _ -> pure ()) wbhdb (cutHashesTable rdb)
+        pure $ maximum $ fmap _blockHeight latestCutHeaders
+
+      let targetChunkSize :: BlockHeight
+          targetChunkSize = nextLowestPowerOfTen latestBlockHeight
+          -- eg if block count is 5343, this will produce [5000, 4000, 3000, 2000, 1000]
+          -- eg if block count is 345, this will produce [300, 200, 100]
+      let targets :: Set BlockHeight
+          targets =
+            Set.fromList
+            $ L.unfoldr
+                (\t -> if t >= targetChunkSize then Just (t, t - targetChunkSize) else Nothing)
+                (latestBlockHeight - latestBlockHeight `mod` targetChunkSize)
+
+      grands <- GrandHash.Calc.pactCalc logger' v pactConns rdb (GrandHash.Calc.TargetAll targets)
+
+      logFunctionText logger' Info "Verifying state"
+      snapshot@(snapshotBlockHeight, snapshotHashes) <- GrandHash.Import.pactVerify logger' v pactConns rdb grands
+      logFunctionText logger' Debug $ "SNAPSHOT BLOCKHEIGHT = " <> sshow (fst snapshot)
+      logFunctionText logger' Debug $ "SNAPSHOT HASHES = " <> sshow (HM.map (\s -> (T.decodeUtf8 (Base16.encode (getChainGrandHash s.pactHash)), _blockHeight s.blockHeader)) (snd snapshot))
+
+      logFunctionText logger' Info "Making a copy of the pact state, and dropping the post-verified content"
+      withSystemTempDirectory "pact-copy" $ \copyPactDir -> do
+        let copyNodeDir = copyPactDir </> show nid
+        GrandHash.Import.pactDropPostVerified logger' v pactNodeDir copyNodeDir snapshotBlockHeight snapshotHashes
+
+        GrandHash.Utils.withConnections logger' copyNodeDir chains $ \pactCopyConns -> do
+          logFunctionText logger' Info "Checking latest block heights on copy to make sure they match verified state"
+          forM_ chains $ \cid -> do
+            let SQLiteEnv db _ = pactCopyConns ^?! ix cid
+            latestBH <- getLatestBlockHeight db
+            logFunctionText (addChainIdLabel cid logger') Debug $ "Latest blockheight is " <> sshow latestBH
+            assertEqual "Latest blockheight matches verified state" snapshotBlockHeight latestBH
+
+          logFunctionText logger' Info "Diffing state at verified height across both original and copy"
+          forM_ chains $ \cid -> do
+            let log :: LogLevel -> Text -> IO ()
+                log = logFunctionText
+                  (addLabel ("snapshotHeight", sshow snapshotBlockHeight) $ addChainIdLabel cid logger')
+            srcStateAt <- do
+              let SQLiteEnv db _ = pactConns ^?! ix cid
+              getPactStateAtDiffable db snapshotBlockHeight
+            tgtStateAt <- do
+              let SQLiteEnv db _ = pactCopyConns ^?! ix cid
+              getPactStateAtDiffable db snapshotBlockHeight
+            let stateDiff = Map.filter (not . P.isSame) (P.diff srcStateAt tgtStateAt)
+            when (not (null stateDiff)) $ do
+              forM_ (Map.toList stateDiff) $ \(tbl, delta) -> do
+                case delta of
+                  P.Same _ -> do
+                    pure ()
+                  P.Old _ -> do
+                    log Error $ "Table " <> tbl <> " appeared in the source pact db, but does not appear in the target."
+                  P.New _ -> do
+                    log Error $ "Table " <> tbl <> " appeared in the target pact db, but not appear in the source."
+                  P.Delta x1 x2 -> do
+                    log Error $ "Difference exists between source and target on table " <> tbl <> "."
+                    forM_ (Map.filter (not . P.isSame) (P.diff x1 x2)) $ \case
+                      P.Same _ -> do
+                        pure ()
+                      P.Old x -> do
+                        log Error $ "In table " <> tbl <> ", rowkey " <> T.decodeUtf8 x <> " exists on source but not target."
+                      P.New x -> do
+                        log Error $ "In table " <> tbl <> ", rowkey " <> T.decodeUtf8 x <> " exists on target but not source."
+                      P.Delta x _y -> do
+                        log Error $ "In table " <> tbl <> ", there was a difference in rowdata at rowkey " <> T.decodeUtf8 x <> "."
+              assertFailure "Diff failed"
 
 -- | Run nodes
 --   Each node creates blocks
@@ -523,8 +673,11 @@ consensusStateSummary s
     avg :: Foldable f => Real a => f a -> Double
     avg f = realToFrac (sum $ toList f) / realToFrac (length f)
 
-    median :: Foldable f => Ord a => f a -> a
-    median f = (!! ((length f + 1) `div` 2)) $ L.sort (toList f)
+    median :: (Ord a, Integral a) => (Foldable f) => f a -> a
+    median f = case L.sort (toList f) of
+      [] -> error "median: empty list"
+      xs | length xs `mod` 2 == 1 -> xs !! (length f `div` 2)
+         | otherwise -> ((xs !! (length xs `div` 2 - 1)) + (xs !! (length xs `div` 2))) `div` 2
 
     minHeight = minimum $ HM.elems cutHeights
     maxHeight = maximum $ HM.elems cutHeights
@@ -557,3 +710,20 @@ upperStats v seconds = Stats
   where
     ebc = expectedBlockCount v seconds
     ech = expectedCutHeightAfterSeconds v seconds
+
+nextLowestPowerOfTen :: forall a. (Integral a, Ord a) => a -> a
+nextLowestPowerOfTen n
+    | n <= 0    = 0
+    | isPowerOf10 n = n
+    | otherwise = 10 ^ floor @Double @a (logBase 10 (fromIntegral n))
+
+isPowerOf10 :: (Integral a, Ord a) => a -> Bool
+isPowerOf10 n = n > 0 && (n == 1 || (n > 1 && n `mod` 10 == 0 && isPowerOf10 (n `div` 10)))
+
+getPactStateAtDiffable :: Database -> BlockHeight -> IO (Map Text (Map ByteString ByteString))
+getPactStateAtDiffable db bh = do
+  S.foldM_
+    (\m td -> pure (Map.insert td.name td.rows m))
+    (pure Map.empty)
+    pure
+    (getLatestPactStateAtDiffable db bh)

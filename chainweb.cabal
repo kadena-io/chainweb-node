@@ -277,6 +277,13 @@ library
         , Chainweb.Pact.Backend.DbCache
         , Chainweb.Pact.Backend.Compaction
         , Chainweb.Pact.Backend.PactState
+        , Chainweb.Pact.Backend.PactState.Diff
+        , Chainweb.Pact.Backend.PactState.EmbeddedSnapshot
+        , Chainweb.Pact.Backend.PactState.EmbeddedSnapshot.Mainnet
+        , Chainweb.Pact.Backend.PactState.GrandHash.Algorithm
+        , Chainweb.Pact.Backend.PactState.GrandHash.Calc
+        , Chainweb.Pact.Backend.PactState.GrandHash.Import
+        , Chainweb.Pact.Backend.PactState.GrandHash.Utils
         , Chainweb.Pact.Backend.RelationalCheckpointer
         , Chainweb.Pact.Backend.SQLite.DirectV2
         , Chainweb.Pact.Backend.SQLite.V2
@@ -382,6 +389,7 @@ library
         , optparse-applicative >= 0.14
         , pact >= 4.2.0.1
         , pact-json >= 0.1
+        , patience >= 0.3
         , pem >=0.2
         , primitive >= 0.7.1.0
         , random >= 1.2
@@ -467,6 +475,7 @@ test-suite chainweb-tests
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
+        Chainweb.Test.Pact.GrandHash
         Chainweb.Test.Pact.PactMultiChainTest
         Chainweb.Test.Pact.PactSingleChainTest
         Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -519,7 +528,10 @@ test-suite chainweb-tests
         , aeson >= 2.2
         , async >= 2.2
         , base >= 4.12 && < 5
+        , base16-bytestring >= 0.1
         , base64-bytestring-kadena == 0.1
+        , byteslice >= 0.2.12
+        , bytesmith >= 0.3.10
             -- due to change in error message that is inlined in pact
         , bytestring >= 0.10.12
         , case-insensitive >= 1.2
@@ -542,6 +554,7 @@ test-suite chainweb-tests
         , lens >= 4.17
         , lens-aeson >= 1.2.2
         , loglevel >= 0.1
+        , memory >=0.14
         , merkle-log >=0.2
         , mtl >= 2.3
         , network >= 3.1.2
@@ -697,6 +710,7 @@ executable cwtool
         , lens-aeson >= 1.2.2
         , async >= 2.2
         , base >= 4.12 && < 5
+        , base16-bytestring >= 0.1
         , bytestring >= 0.10.12
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
@@ -727,6 +741,7 @@ executable cwtool
         , optparse-applicative >= 0.14
         , pact
         , pact-json
+        , patience >= 0.3
         , process >= 1.5
         , quickcheck-instances >= 0.3
         , random >= 1.2

@@ -68,6 +68,8 @@ import Chainweb.Mempool.Mempool
 import Chainweb.MerkleLogHash (unsafeMerkleLogHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Compaction qualified as C
+import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (computeGrandHash)
+import Chainweb.Pact.Backend.PactState qualified as PS
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation hiding (local)
 import Chainweb.Pact.Service.PactQueue (PactQueue, newPactQueue)
@@ -124,6 +126,7 @@ tests rdb = testGroup testName
   , pactStateSamePreAndPostCompaction rdb
   , compactionIsIdempotent rdb
   , compactionUserTablesDropped rdb
+  , compactionGrandHashUnchanged rdb
   , compactionDoesNotDisruptDuplicateDetection rdb
   ]
   where
@@ -529,6 +532,36 @@ compactionUserTablesDropped rdb =
 
     flip assertBool (isNothing (M.lookup freeAfterTbl statePost)) $
       T.unpack afterTable ++ " wasn't dropped; it was supposed to be."
+
+compactionGrandHashUnchanged :: ()
+  => RocksDb
+  -> TestTree
+compactionGrandHashUnchanged rdb =
+  compactionSetup "compactionGrandHashUnchanged" rdb testPactServiceConfig $ \cr -> do
+    setOneShotMempool cr.mempoolRef goldenMemPool
+
+    let numBlocks :: Num a => a
+        numBlocks = 100
+
+    let makeTx :: Word -> BlockHeader -> IO ChainwebTransaction
+        makeTx nth bh = buildCwCmd (sshow nth) testVersion
+          $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
+          $ setFromHeader bh
+          $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)")
+          $ defaultCmd
+
+    replicateM_ numBlocks
+      $ runTxInBlock_ cr.mempoolRef cr.pactQueue cr.blockDb
+      $ \n _ _ blockHeader -> makeTx n blockHeader
+
+    let db = _sConn cr.sqlEnv
+    let targetHeight = BlockHeight numBlocks
+
+    hashPreCompaction <- computeGrandHash (PS.getLatestPactStateAt db targetHeight)
+    Utils.compact Error [C.NoVacuum] cr.sqlEnv (C.Target targetHeight)
+    hashPostCompaction <- computeGrandHash (PS.getLatestPactStateAt db targetHeight)
+
+    assertEqual "GrandHash pre- and post-compaction are the same" hashPreCompaction hashPostCompaction
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do

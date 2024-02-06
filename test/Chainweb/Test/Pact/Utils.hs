@@ -1024,7 +1024,7 @@ getLatestPactState db = do
     (\m td -> pure (M.insert td.name td.rows m))
     (pure M.empty)
     pure
-    (PactState.getLatestPactState db)
+    (PactState.getLatestPactStateDiffable db)
 
 -- | Compaction utility for testing.
 --   Most of the time the flags will be ['C.NoVacuum']
