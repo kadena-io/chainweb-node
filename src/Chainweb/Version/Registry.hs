@@ -39,7 +39,7 @@ import System.IO.Unsafe
 import GHC.Stack
 
 import Chainweb.Version
-import Chainweb.Version.FastDevelopment
+import Chainweb.Version.Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet
@@ -108,7 +108,7 @@ lookupVersionByCode code
             HM.lookup code m
     notRegistered
       | code == _versionCode recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured"
-      | code == _versionCode fastDevnet = "fastDevnet version used but not registered, remember to do so after it's configured"
+      | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured"
       | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.legalizeTestVersion?"
 
 -- TODO: ideally all uses of this are deprecated. currently in use in
@@ -133,7 +133,7 @@ fabricateVersionWithName name =
 
 -- | Versions known to us by name.
 knownVersions :: [ChainwebVersion]
-knownVersions = [mainnet, testnet, recapDevnet, fastDevnet]
+knownVersions = [mainnet, testnet, recapDevnet, devnet]
 
 -- | Look up a known version by name, usually with `m` instantiated to some
 -- configuration parser monad.

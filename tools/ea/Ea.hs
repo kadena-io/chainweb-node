@@ -77,7 +77,7 @@ import Pact.Types.Command hiding (Payload)
 main :: IO ()
 main = void $ do
     recapDevnet
-    fastDevnet
+    devnet
     fastnet
     testnet
     mainnet
@@ -92,7 +92,7 @@ main = void $ do
       , recapDevelopmentN
       , recapDevelopmentKAD
       ]
-    fastDevnet = mkPayloads
+    devnet = mkPayloads
       [ fastDevelopment0
       , fastDevelopmentN
       ]

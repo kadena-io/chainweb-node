@@ -124,8 +124,8 @@ library
         , Chainweb.BlockHeader.Genesis.RecapDevelopment0Payload
         , Chainweb.BlockHeader.Genesis.RecapDevelopment1to9Payload
         , Chainweb.BlockHeader.Genesis.RecapDevelopment10to19Payload
-        , Chainweb.BlockHeader.Genesis.FastDevelopment0Payload
-        , Chainweb.BlockHeader.Genesis.FastDevelopment1to19Payload
+        , Chainweb.BlockHeader.Genesis.Development0Payload
+        , Chainweb.BlockHeader.Genesis.Development1to19Payload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM1to9Payload
         , Chainweb.BlockHeader.Genesis.Testnet0Payload
@@ -239,7 +239,7 @@ library
         , Chainweb.Utils.Rule
         , Chainweb.Utils.Serialization
         , Chainweb.Version
-        , Chainweb.Version.FastDevelopment
+        , Chainweb.Version.Development
         , Chainweb.Version.Guards
         , Chainweb.Version.Mainnet
         , Chainweb.Version.RecapDevelopment

@@ -5,7 +5,7 @@
 {-# language QuasiQuotes #-}
 {-# language ViewPatterns #-}
 
-module Chainweb.Version.FastDevelopment(fastDevnet, pattern FastDevelopment) where
+module Chainweb.Version.Development(devnet, pattern Development) where
 
 import Chainweb.BlockCreationTime
 import Chainweb.ChainId
@@ -16,17 +16,17 @@ import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
 
-import qualified Chainweb.BlockHeader.Genesis.FastDevelopment0Payload as FDN0
-import qualified Chainweb.BlockHeader.Genesis.FastDevelopment1to19Payload as FDNN
+import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
+import qualified Chainweb.BlockHeader.Genesis.Development1to19Payload as DNN
 
-pattern FastDevelopment :: ChainwebVersion
-pattern FastDevelopment <- ((== fastDevnet) -> True) where
-    FastDevelopment = fastDevnet
+pattern Development :: ChainwebVersion
+pattern Development <- ((== devnet) -> True) where
+    Development = devnet
 
-fastDevnet :: ChainwebVersion
-fastDevnet = ChainwebVersion
+devnet :: ChainwebVersion
+devnet = ChainwebVersion
     { _versionCode = ChainwebVersionCode 0x00000002
-    , _versionName = ChainwebVersionName "fast-development"
+    , _versionName = ChainwebVersionName "development"
     , _versionForks = tabulateHashMap $ \_ -> AllChains ForkAtGenesis
     , _versionUpgrades = AllChains mempty
     , _versionGraphs = End twentyChainGraph
@@ -38,8 +38,8 @@ fastDevnet = ChainwebVersion
         { _genesisBlockTarget = AllChains $ HashTarget (maxBound `div` 100_000)
         , _genesisTime = AllChains $ BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
         , _genesisBlockPayload = onChains $ concat
-            [ [(unsafeChainId 0, FDN0.payloadBlock)]
-            , [(unsafeChainId i, FDNN.payloadBlock) | i <- [1..19]]
+            [ [(unsafeChainId 0, DN0.payloadBlock)]
+            , [(unsafeChainId i, DNN.payloadBlock) | i <- [1..19]]
             ]
         }
 

@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import Chainweb.Version.FastDevelopment
+import Chainweb.Version.Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Registry
 
@@ -29,7 +29,7 @@ import qualified CalculateRelease
 main :: IO ()
 main = do
     registerVersion RecapDevelopment
-    registerVersion FastDevelopment
+    registerVersion Development
     args <- getArgs
     case args of
       [] -> printHelp topLevelCommands
