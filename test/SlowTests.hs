@@ -52,6 +52,10 @@ suite = sequentialTestGroup "ChainwebSlowTests" AllSucceed
         withTempRocksDb "pact-import-test-rocks" $ \rdb ->
         withSystemTempDirectory "pact-import-test-pact" $ \pactDbDir -> do
         Chainweb.Test.MultiNode.pactImportTest loglevel (fastForkingCpmTestVersion twentyChainGraph) 1 rdb pactDbDir step
+    , testCaseSteps "compact-live-node" $ \step ->
+        withTempRocksDb "pact-import-test-rocks" $ \rdb ->
+        withSystemTempDirectory "pact-import-test-pact" $ \pactDbDir -> do
+        Chainweb.Test.MultiNode.compactLiveNodeTest loglevel (fastForkingCpmTestVersion twentyChainGraph) 1 rdb pactDbDir step
     , testGroup "Network.X05.SelfSigned.Test"
         [ Network.X509.SelfSigned.Test.tests
         ]

@@ -716,6 +716,7 @@ executable cwtool
         , cassava >= 0.5.1
         , cereal >= 0.5
         , chainweb-storage >= 0.1
+        , chronos >= 1.1
         , configuration-tools >= 0.6
         , crypton-connection >=0.2
         , containers >= 0.5
