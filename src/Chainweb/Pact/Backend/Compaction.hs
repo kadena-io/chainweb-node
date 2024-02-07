@@ -47,6 +47,7 @@ import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, local)
 import Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
+import Data.Coerce (coerce)
 import Data.Foldable qualified as F
 import Data.Function (fix)
 import Data.IORef (IORef, readIORef, newIORef, atomicModifyIORef')
@@ -336,9 +337,11 @@ withTables ts a = do
 -- | Takes a bunch of singleton tablename rows, sorts them, returns them as
 --   @TableName@
 sortedTableNames :: [[SType]] -> [TableName]
-sortedTableNames rows = M.elems $ M.fromListWith const $ flip List.map rows $ \case
-  [SText n@(Utf8 s)] -> (Text.toLower (Text.decodeUtf8 s), TableName n)
-  _ -> error "sortedTableNames: expected text"
+sortedTableNames rows = coerce
+  $ List.sortOn (Text.toLower . Text.decodeUtf8)
+  $ flip List.map rows $ \case
+      [SText (Utf8 s)] -> s
+      _ -> error "sortedTableNames: expected text"
 
 -- | CompactActiveRow collects all active rows from all tables.
 createCompactActiveRow :: CompactM ()
