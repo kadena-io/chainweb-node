@@ -5,7 +5,7 @@
 {-# language QuasiQuotes #-}
 {-# language ViewPatterns #-}
 
-module Chainweb.Version.Development(devnet, pattern Development) where
+module Chainweb.Version.RecapDevelopment(recapDevnet, pattern RecapDevelopment) where
 
 import qualified Data.HashMap.Strict as HM
 
@@ -19,26 +19,26 @@ import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
 
-import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
-import qualified Chainweb.BlockHeader.Genesis.Development1to9Payload as DNN
-import qualified Chainweb.BlockHeader.Genesis.Development10to19Payload as DNKAD
-import qualified Chainweb.Pact.Transactions.DevelopmentTransactions as Devnet
+import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment0Payload as RDN0
+import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment1to9Payload as RDNN
+import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment10to19Payload as RDNKAD
+import qualified Chainweb.Pact.Transactions.RecapDevelopmentTransactions as RecapDevnet
 import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
 import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
 import qualified Chainweb.Pact.Transactions.CoinV5Transactions as CoinV5
 import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
 
-to20ChainsDevelopment :: BlockHeight
-to20ChainsDevelopment = 60
+to20ChainsHeight :: BlockHeight
+to20ChainsHeight = 60
 
-pattern Development :: ChainwebVersion
-pattern Development <- ((== devnet) -> True) where
-    Development = devnet
+pattern RecapDevelopment :: ChainwebVersion
+pattern RecapDevelopment <- ((== recapDevnet) -> True) where
+    RecapDevelopment = recapDevnet
 
-devnet :: ChainwebVersion
-devnet = ChainwebVersion
+recapDevnet :: ChainwebVersion
+recapDevnet = ChainwebVersion
     { _versionCode = ChainwebVersionCode 0x00000001
-    , _versionName = ChainwebVersionName "development"
+    , _versionName = ChainwebVersionName "recap-development"
 
     , _versionForks = tabulateHashMap $ \case
             SlowEpoch -> AllChains $ ForkAtBlockHeight $ BlockHeight 0
@@ -71,17 +71,17 @@ devnet = ChainwebVersion
             Chainweb223Pact -> AllChains ForkNever
 
     , _versionUpgrades = foldr (chainZip HM.union) (AllChains mempty)
-        [ forkUpgrades devnet
-            [ (CoinV2, onChains [(unsafeChainId i, upgrade Devnet.transactions) | i <- [0..9]])
+        [ forkUpgrades recapDevnet
+            [ (CoinV2, onChains [(unsafeChainId i, upgrade RecapDevnet.transactions) | i <- [0..9]])
             , (Pact4Coin3, AllChains (Upgrade CoinV3.transactions True))
             , (Chainweb214Pact, AllChains (Upgrade CoinV4.transactions True))
             , (Chainweb215Pact, AllChains (Upgrade CoinV5.transactions True))
             ]
-        , onChains [(unsafeChainId 0, HM.singleton to20ChainsDevelopment (upgrade MNKAD.transactions))]
+        , onChains [(unsafeChainId 0, HM.singleton to20ChainsHeight (upgrade MNKAD.transactions))]
         ]
 
     , _versionGraphs =
-        (to20ChainsDevelopment, twentyChainGraph) `Above`
+        (to20ChainsHeight, twentyChainGraph) `Above`
         End petersonChainGraph
 
     , _versionBlockDelay = BlockDelay 30_000_000
@@ -95,9 +95,9 @@ devnet = ChainwebVersion
             ]
         , _genesisTime = AllChains $ BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
         , _genesisBlockPayload = onChains $ concat
-            [ [(unsafeChainId 0, DN0.payloadBlock)]
-            , [(unsafeChainId i, DNN.payloadBlock) | i <- [1..9]]
-            , [(unsafeChainId i, DNKAD.payloadBlock) | i <- [10..19]]
+            [ [(unsafeChainId 0, RDN0.payloadBlock)]
+            , [(unsafeChainId i, RDNN.payloadBlock) | i <- [1..9]]
+            , [(unsafeChainId i, RDNKAD.payloadBlock) | i <- [10..19]]
             ]
         }
 

@@ -66,8 +66,8 @@ import Chainweb.Test.Utils
     (toyChainId, withToyDB)
 import qualified Chainweb.Test.Version (tests)
 import qualified Chainweb.Test.Chainweb.Utils.Paging (properties)
-import Chainweb.Version.Development
 import Chainweb.Version.FastDevelopment
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Registry
 
 import Chainweb.Storage.Table.RocksDB
@@ -80,7 +80,7 @@ import qualified P2P.Test.Node (properties)
 
 main :: IO ()
 main = do
-    registerVersion Development
+    registerVersion RecapDevelopment
     registerVersion FastDevelopment
     withTempRocksDb "chainweb-tests" $ \rdb ->
         runResourceT $ do
