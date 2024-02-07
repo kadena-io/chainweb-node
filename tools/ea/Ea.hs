@@ -76,7 +76,7 @@ import Pact.Types.Command hiding (Payload)
 
 main :: IO ()
 main = void $ do
-    devnet
+    recapDevnet
     fastDevnet
     fastnet
     testnet
@@ -87,10 +87,10 @@ main = void $ do
     genCoinV5Payloads
     putStrLn "Done."
   where
-    devnet = mkPayloads
-      [ development0
-      , developmentN
-      , developmentKAD
+    recapDevnet = mkPayloads
+      [ recapDevelopment0
+      , recapDevelopmentN
+      , recapDevelopmentKAD
       ]
     fastDevnet = mkPayloads
       [ fastDevelopment0
@@ -277,7 +277,7 @@ genTxModules = void $ do
   where
     gen tag remeds = genTxModule tag $ upgrades <> remeds
     genOtherTxs = gen "Other" []
-    genDevTxs = gen "Development"
+    genDevTxs = gen "RecapDevelopment"
       ["pact/coin-contract/remediations/devother/remediations.yaml"]
 
     genMain :: Int -> IO ()

@@ -121,9 +121,9 @@ library
         , Chainweb.BlockCreationTime
         , Chainweb.BlockHash
         , Chainweb.BlockHeader
-        , Chainweb.BlockHeader.Genesis.Development0Payload
-        , Chainweb.BlockHeader.Genesis.Development1to9Payload
-        , Chainweb.BlockHeader.Genesis.Development10to19Payload
+        , Chainweb.BlockHeader.Genesis.RecapDevelopment0Payload
+        , Chainweb.BlockHeader.Genesis.RecapDevelopment1to9Payload
+        , Chainweb.BlockHeader.Genesis.RecapDevelopment10to19Payload
         , Chainweb.BlockHeader.Genesis.FastDevelopment0Payload
         , Chainweb.BlockHeader.Genesis.FastDevelopment1to19Payload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload
@@ -239,10 +239,10 @@ library
         , Chainweb.Utils.Rule
         , Chainweb.Utils.Serialization
         , Chainweb.Version
-        , Chainweb.Version.Development
         , Chainweb.Version.FastDevelopment
         , Chainweb.Version.Guards
         , Chainweb.Version.Mainnet
+        , Chainweb.Version.RecapDevelopment
         , Chainweb.Version.Registry
         , Chainweb.Version.Testnet
         , Chainweb.Version.Utils
@@ -308,7 +308,7 @@ library
         , Chainweb.Pact.Transactions.CoinV3Transactions
         , Chainweb.Pact.Transactions.CoinV4Transactions
         , Chainweb.Pact.Transactions.CoinV5Transactions
-        , Chainweb.Pact.Transactions.DevelopmentTransactions
+        , Chainweb.Pact.Transactions.RecapDevelopmentTransactions
         , Chainweb.Pact.Transactions.Mainnet0Transactions
         , Chainweb.Pact.Transactions.Mainnet1Transactions
         , Chainweb.Pact.Transactions.Mainnet2Transactions

@@ -62,7 +62,7 @@ import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version as V
-import Chainweb.Version.Development
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Test.Pact.Utils
 
@@ -71,7 +71,7 @@ import Chainweb.Test.Pact.Utils
 -- Global settings
 
 v :: ChainwebVersion
-v = Development
+v = RecapDevelopment
 
 coinReplV1 :: FilePath
 coinReplV1 = "pact/coin-contract/coin.repl"

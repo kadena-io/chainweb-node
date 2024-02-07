@@ -39,12 +39,12 @@ import qualified Chainweb.BlockHeader.Genesis.Testnet0Payload as PN0
 import qualified Chainweb.BlockHeader.Genesis.Testnet1to19Payload as PNN
 
 -- | Initial hash target for testnet 20-chain transition. Based on the following
--- header from devnet running with 5 GPUs hash power. Using this target unchanged
+-- header from recap devnet running with 5 GPUs hash power. Using this target unchanged
 -- means, that we should do to the transition with the hash power of about
 -- 5 - 50 GPUs in the system for a smooth transition.
 --
 -- The value for the initial target is 38 times smaller larger than value of an
--- successful test run on devnet with 5 GPUs. During that test the initial
+-- successful test run on recap devnet with 5 GPUs. During that test the initial
 -- target was about 32 times larger than the actual target at the time of the
 -- transition.
 --
@@ -64,7 +64,7 @@ import qualified Chainweb.BlockHeader.Genesis.Testnet1to19Payload as PNN
 --     "3": "9WIBnxDGGZsy9FCCorvAUa4SlE5Rqs-cTLEsWCPOVbQ"
 --   },
 --   "payloadHash": "AOYQdE5xl_YueZSppW4MoadasjF149K28CON2GuH9Mc",
---   "chainwebVersion": "development",
+--   "chainwebVersion": "recap-development",
 --   "target": "NZIklpW6xujSPrX3gyhXInfxxOS6JDjkW_GbGwAAAAA",
 --   "nonce": "5805155470630695"
 -- }
@@ -74,7 +74,7 @@ import qualified Chainweb.BlockHeader.Genesis.Testnet1to19Payload as PNN
 --
 -- prop> Just testnet20InitialHashTarget == HashTarget <$> (runGet decodePowHashNat =<< decodeB64UrlNoPaddingText "NZIklpW6xujSPrX3gyhXInfxxOS6JDjkW_GbGwAAAAA")
 -- prop> _hashTarget testnet20InitialHashTarget `div` _hashTarget mainnet20InitialHashTarget == PowHashNat 8893
--- prop> _hashTarget (genesisBlockTarget Development (unsafeChainId 10)) `div` _hashTarget testnet20InitialHashTarget == PowHashNat 38
+-- prop> _hashTarget (genesisBlockTarget RecapDevelopment (unsafeChainId 10)) `div` _hashTarget testnet20InitialHashTarget == PowHashNat 38
 --
 testnet20InitialHashTarget :: HashTarget
 testnet20InitialHashTarget = HashTarget 0x000000001b9bf15be43824bae4c4f17722572883f7b53ed2e8c6ba9596249235

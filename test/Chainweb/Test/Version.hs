@@ -35,7 +35,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Utils.Serialization
 import Chainweb.Version
-import Chainweb.Version.Development
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet
 
@@ -53,7 +53,7 @@ propForVersions desc prop = testGroup desc
     [ testProperty "arbitrary versions" $ prop
     , testProperty "mainnet" $ prop Mainnet01
     , testProperty "testnet" $ prop Testnet04
-    , testProperty "devnet" $ prop Development
+    , testProperty "recapDevnet" $ prop RecapDevelopment
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -146,4 +146,3 @@ prop_workSizeBytes v = property $ do
         return
             $ counterexample ("header: " <> sshow h)
             $ workSizeBytes (_chainwebVersion h) (_blockHeight h) === l
-

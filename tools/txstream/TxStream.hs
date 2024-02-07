@@ -74,7 +74,7 @@ import Chainweb.TreeDB
 import Chainweb.TreeDB.RemoteDB
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Version.Development
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Registry
 import Chainweb.Version.Utils
 
@@ -109,8 +109,8 @@ defaultConfig :: Config
 defaultConfig = Config
     { _configLogHandle = Y.StdOut
     , _configLogLevel = Y.Info
-    , _configChainwebVersion = Development
-    , _configChainId = someChainId Development
+    , _configChainwebVersion = RecapDevelopment
+    , _configChainId = someChainId RecapDevelopment
     , _configNode = HostAddress (unsafeHostnameFromText "us1.tn1.chainweb.com") 443
     , _configPretty = True
     , _configOutputs = True

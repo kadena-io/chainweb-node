@@ -13,9 +13,9 @@ module Ea.Genesis
 , chainIdRangeTag
 
   -- * Devnet Genesis Txs
-, development0
-, developmentN
-, developmentKAD
+, recapDevelopment0
+, recapDevelopmentN
+, recapDevelopmentKAD
 , fastDevelopment0
 , fastDevelopmentN
 
@@ -63,8 +63,8 @@ import Data.Word
 import Chainweb.Graph
 import Chainweb.Test.TestVersions
 import Chainweb.Version
-import Chainweb.Version.Development
 import Chainweb.Version.FastDevelopment
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet
 
@@ -153,12 +153,12 @@ fungibleXChainV1 :: FilePath
 fungibleXChainV1 = "pact/coin-contract/v4/load-fungible-xchain-v1.yaml"
 
 -- ---------------------------------------------------------------------- --
--- Devnet - Development
+-- Devnet - RecapDevelopment
 
-development0 :: Genesis
-development0 = Genesis
-    { _version = Development
-    , _tag = "Development"
+recapDevelopment0 :: Genesis
+recapDevelopment0 = Genesis
+    { _version = RecapDevelopment
+    , _tag = "RecapDevelopment"
     , _txChainIds = onlyChainId 0
     , _coinbase = Just dev0Grants
     , _keysets = Just devKeysets
@@ -167,19 +167,22 @@ development0 = Genesis
     , _coinContract = [fungibleAssetV1, coinContractV1, gasPayer]
     }
 
-developmentN :: Genesis
-developmentN = development0
+recapDevelopmentN :: Genesis
+recapDevelopmentN = recapDevelopment0
     & txChainIds .~ mkChainIdRange 1 9
     & coinbase .~ Just devNGrants
 
-developmentKAD :: Genesis
-developmentKAD = development0
+recapDevelopmentKAD :: Genesis
+recapDevelopmentKAD = recapDevelopment0
     & txChainIds .~ mkChainIdRange 10 19
     & coinbase .~ Just devnetKadOps
     & keysets .~ Nothing
     & allocations .~ Nothing
     & namespaces .~ Just devNs
     & coinContract .~ [fungibleAssetV1, fungibleAssetV2, coinContractV2Install, gasPayer]
+
+-- ---------------------------------------------------------------------- --
+-- Devnet - FastDevelopment
 
 fastDevelopment0 :: Genesis
 fastDevelopment0 = Genesis

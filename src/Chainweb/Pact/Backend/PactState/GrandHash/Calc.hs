@@ -34,9 +34,9 @@ import Chainweb.Pact.Backend.PactState.GrandHash.Utils (resolveLatestCutHeaders,
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
 import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName(..))
-import Chainweb.Version.Development (devnet)
 import Chainweb.Version.FastDevelopment (fastDevnet)
 import Chainweb.Version.Mainnet (mainnet)
+import Chainweb.Version.RecapDevelopment (recapDevnet)
 import Chainweb.Version.Testnet (testnet)
 import Control.Applicative ((<|>), many)
 import Control.Monad (when)
@@ -276,7 +276,7 @@ versionModuleName :: ChainwebVersion -> String
 versionModuleName v
   | v == mainnet = "Mainnet"
   | v == testnet = "Testnet"
-  | v == devnet = "Devnet"
+  | v == recapDevnet = "RecapDevnet"
   | v == fastDevnet = "FastDevnet"
   | otherwise = case Text.unpack (getChainwebVersionName (_versionName v)) of
       [] -> []
