@@ -14,7 +14,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
-
+{-# LANGUAGE ViewPatterns #-}
 
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 -- |
@@ -60,7 +60,6 @@ module Chainweb.Test.Pact.Utils
 , mkXChainTransferCap
 -- * Command builder
 , defaultCmd
-, mkCmd
 , buildCwCmd
 , buildTextCmd
 , mkExec'
@@ -127,7 +126,7 @@ module Chainweb.Test.Pact.Utils
 import Control.Arrow ((&&&))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Lens (view, _2, makeLenses)
+import Control.Lens (set, view, _2, makeLenses)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -228,13 +227,6 @@ import Chainweb.Storage.Table.RocksDB
 -- Keys
 
 type SimpleKeyPair = (Text,Text)
-
--- | Legacy; better to use 'CmdSigner'/'CmdBuilder'.
--- if caps are empty, gas cap is implicit. otherwise it must be included
-testKeyPairs :: SimpleKeyPair -> Maybe [SigCapability] -> IO [(DynKeyPair, [SigCapability])]
-testKeyPairs skp capsm = do
-  kp <- toApiKp $ mkEd25519Signer' skp (fromMaybe [] capsm)
-  mkKeyPairs [kp]
 
 testPactFilesDir :: FilePath
 testPactFilesDir = "test/pact/"
@@ -486,6 +478,7 @@ data CmdSigner = CmdSigner
   { _csSigner :: !Signer
   , _csPrivKey :: !Text
   } deriving (Eq,Show,Ord,Generic)
+makeLenses ''CmdSigner
 
 -- | Make ED25519 signer.
 mkEd25519Signer :: Text -> Text -> [SigCapability] -> CmdSigner
@@ -530,6 +523,7 @@ data CmdBuilder = CmdBuilder
   , _cbTTL :: !TTLSeconds
   , _cbCreationTime :: !TxCreationTime
   } deriving (Eq,Show,Generic)
+makeLenses ''CmdBuilder
 
 -- | Make code-only Exec PactRPC
 mkExec' :: Text -> PactRPC Text
@@ -564,31 +558,24 @@ defaultCmd = CmdBuilder
   , _cbCreationTime = 0 -- epoch
   }
 
--- | Default builder with nonce and RPC
-mkCmd :: Text -> PactRPC Text -> CmdBuilder
-mkCmd nonce rpc = defaultCmd
-  { _cbRPC = rpc
-  , _cbNonce = nonce
-  }
-
 -- | Build parsed + verified Pact command
 --
 -- TODO: Use the new `assertCommand` function.
-buildCwCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m ChainwebTransaction
-buildCwCmd v cmd = buildRawCmd v cmd >>= \(c :: Command ByteString) ->
+buildCwCmd :: (MonadThrow m, MonadIO m) => Text -> ChainwebVersion -> CmdBuilder -> m ChainwebTransaction
+buildCwCmd nonce v cmd = buildRawCmd nonce v cmd >>= \(c :: Command ByteString) ->
   case validateCommand v (_cbChainId cmd) (T.decodeUtf8 <$> c) of
     Left err -> throwM $ userError $ "buildCmd failed: " ++ err
     Right cmd' -> return cmd'
 
 -- | Build unparsed, unverified command
 --
-buildTextCmd :: ChainwebVersion -> CmdBuilder -> IO (Command Text)
-buildTextCmd v = fmap (fmap T.decodeUtf8) . buildRawCmd v
+buildTextCmd :: Text -> ChainwebVersion -> CmdBuilder -> IO (Command Text)
+buildTextCmd nonce v = fmap (fmap T.decodeUtf8) . buildRawCmd nonce v
 
 -- | Build a raw bytestring command
 --
-buildRawCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m (Command ByteString)
-buildRawCmd v CmdBuilder{..} = do
+buildRawCmd :: (MonadThrow m, MonadIO m) => Text -> ChainwebVersion -> CmdBuilder -> m (Command ByteString)
+buildRawCmd nonce v (set cbNonce nonce -> CmdBuilder{..}) = do
     kps <- liftIO $ traverse mkDynKeyPairs _cbSigners
     cmd <- liftIO $ mkCommandWithDynKeys kps pm _cbNonce (Just nid) _cbRPC
     pure cmd
@@ -628,6 +615,12 @@ toApiKp (CmdSigner Signer{..} privKey) = do
   let keyPair = ApiKeyPair (PrivBS sk) (Just (PubBS pk)) _siAddress _siScheme (Just _siCapList)
   return $! keyPair
 
+-- | Legacy; better to use 'CmdSigner'/'CmdBuilder'.
+-- if caps are empty, gas cap is implicit. otherwise it must be included
+testKeyPairs :: SimpleKeyPair -> Maybe [SigCapability] -> IO [(DynKeyPair, [SigCapability])]
+testKeyPairs skp capsm = do
+  kp <- toApiKp $ mkEd25519Signer' skp (fromMaybe [] capsm)
+  mkKeyPairs [kp]
 
 -- ----------------------------------------------------------------------- --
 -- Service creation utilities
@@ -1005,9 +998,6 @@ someBlockHeader v h = (!! (int h - 1))
     $ ParentHeader
     $ genesisBlockHeader v (unsafeChainId 0)
 
-makeLenses ''CmdBuilder
-makeLenses ''CmdSigner
-
 -- | Get all pact user tables.
 --
 --   Note: This consumes a stream. If you are writing a test
@@ -1034,7 +1024,7 @@ getLatestPactState db = do
     (\m td -> pure (M.insert td.name td.rows m))
     (pure M.empty)
     pure
-    (PactState.getLatestPactState db)
+    (PactState.getLatestPactStateDiffable db)
 
 -- | Compaction utility for testing.
 --   Most of the time the flags will be ['C.NoVacuum']

@@ -91,7 +91,7 @@ import Chainweb.Storage.Table.RocksDB
 -- quickCheck instead of HUnit or should be derandomized.
 --
 tests :: RocksDb -> TestTree
-tests rdb =testGroup  "SPV tests"
+tests rdb = testGroup  "SPV tests"
     [ testCaseStepsN "SPV transaction proof" 10 (spvTransactionRoundtripTest rdb version)
     , testCaseStepsN "SPV transaction output proof" 10 (spvTransactionOutputRoundtripTest rdb version)
     , apiTests rdb version

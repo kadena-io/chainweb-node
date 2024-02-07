@@ -40,6 +40,7 @@ import qualified Chainweb.Test.Mining (tests)
 import qualified Chainweb.Test.Misc
 import qualified Chainweb.Test.Pact.DbCacheTest
 import qualified Chainweb.Test.Pact.Checkpointer
+import qualified Chainweb.Test.Pact.GrandHash
 import qualified Chainweb.Test.Pact.ModuleCacheOnRestart
 import qualified Chainweb.Test.Pact.NoCoinbase
 import qualified Chainweb.Test.Pact.PactExec
@@ -112,6 +113,7 @@ pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
     , Chainweb.Test.Pact.TTL.tests rdb
     , Chainweb.Test.Pact.RewardsTest.tests
     , Chainweb.Test.Pact.NoCoinbase.tests
+    , Chainweb.Test.Pact.GrandHash.tests
     ]
 
 rosettaTestSuite :: RocksDb -> TestTree

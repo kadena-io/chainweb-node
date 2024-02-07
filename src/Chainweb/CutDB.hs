@@ -44,6 +44,7 @@ module Chainweb.CutDB
 
 -- * Cut Hashes Table
 , cutHashesTable
+, readHighestCutHeaders
 
 -- * CutDb
 , CutDb
