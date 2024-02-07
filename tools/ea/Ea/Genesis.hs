@@ -63,7 +63,7 @@ import Data.Word
 import Chainweb.Graph
 import Chainweb.Test.TestVersions
 import Chainweb.Version
-import Chainweb.Version.FastDevelopment
+import Chainweb.Version.Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet
@@ -182,12 +182,12 @@ recapDevelopmentKAD = recapDevelopment0
     & coinContract .~ [fungibleAssetV1, fungibleAssetV2, coinContractV2Install, gasPayer]
 
 -- ---------------------------------------------------------------------- --
--- Devnet - FastDevelopment
+-- Devnet - Development
 
 fastDevelopment0 :: Genesis
 fastDevelopment0 = Genesis
-    { _version = FastDevelopment
-    , _tag = "FastDevelopment"
+    { _version = Development
+    , _tag = "Development"
     , _txChainIds = onlyChainId 0
     , _coinbase = Just dev0Grants
     , _keysets = Just devKeysets

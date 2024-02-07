@@ -16,13 +16,13 @@ import qualified JSONEncoding
 
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Version.RecapDevelopment
-import Chainweb.Version.FastDevelopment
+import Chainweb.Version.Development
 import Chainweb.Version.Registry
 
 main :: IO ()
 main = withTempRocksDb "benchmarks" $ \rdb -> do
   registerVersion RecapDevelopment
-  registerVersion FastDevelopment
+  registerVersion Development
   defaultMain
     [ Checkpointer.bench
     , ForkingBench.bench rdb

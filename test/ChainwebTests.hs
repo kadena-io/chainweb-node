@@ -66,7 +66,7 @@ import Chainweb.Test.Utils
     (toyChainId, withToyDB)
 import qualified Chainweb.Test.Version (tests)
 import qualified Chainweb.Test.Chainweb.Utils.Paging (properties)
-import Chainweb.Version.FastDevelopment
+import Chainweb.Version.Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Registry
 
@@ -81,7 +81,7 @@ import qualified P2P.Test.Node (properties)
 main :: IO ()
 main = do
     registerVersion RecapDevelopment
-    registerVersion FastDevelopment
+    registerVersion Development
     withTempRocksDb "chainweb-tests" $ \rdb ->
         runResourceT $ do
             (h0, db) <- withToyDB rdb toyChainId

@@ -115,7 +115,7 @@ import Chainweb.Pact.Service.Types (RewindLimit(..))
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Version.FastDevelopment
+import Chainweb.Version.Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Registry
@@ -424,11 +424,11 @@ validateChainwebVersion :: ConfigValidation ChainwebVersion []
 validateChainwebVersion v = unless (isDevelopment || elem v knownVersions) $
     throwError $ T.unwords
         [ "Specifying version properties is only legal with chainweb-version"
-        , "set to recap-development or fast-development, but version is set to"
+        , "set to recap-development or development, but version is set to"
         , sshow (_versionName v)
         ]
     where
-    isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [recapDevnet, fastDevnet]]
+    isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [recapDevnet, devnet]]
 
 validateBackupConfig :: ConfigValidation BackupConfig []
 validateBackupConfig c =
