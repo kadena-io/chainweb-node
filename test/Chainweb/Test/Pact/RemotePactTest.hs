@@ -155,55 +155,41 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
                   -- to run these two operations on is fine.
                   pure (fst (head m))
 
-            in testGroup "remote pact tests"
+            in sequentialTestGroup "remote pact tests" AllFinish
                 [ withResourceT (liftIO $ join $ withRequestKeys <$> iot <*> cenv) $ \reqkeys -> golden "remote-golden" $
                     join $ responseGolden <$> cenv <*> reqkeys
-                , after AllSucceed "remote-golden" $
-                    testCaseSteps "remote spv" $ \step ->
-                        join $ spvTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "remote-golden" $
-                    testCaseSteps "remote eth spv" $ \step ->
-                        join $ ethSpvTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "remote spv" $
-                    testCaseSteps "/send reports validation failure" $ \step ->
-                        join $ sendValidationTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "remote spv" $
-                    testCase "/poll reports badlisted txs" $
-                        join $ pollingBadlistTest <$> cenv
-                , after AllSucceed "remote spv" $
-                    testCase "trivialLocalCheck" $
-                        join $ localTest <$> iot <*> cenv
-                , after AllSucceed "remote spv" $
-                    testCase "txlogsCompactionTest" $
-                        join $ txlogsCompactionTest <$> iot <*> cenv <*> pactDir
-                , after AllSucceed "remote spv" $
-                    testCase "localChainData" $
-                        join $ localChainDataTest <$> iot <*> cenv
-                , after AllSucceed "remote spv" $
-                    testCaseSteps "transaction size gas tests" $ \step ->
-                        join $ txTooBigGasTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "remote spv" $
-                    testCaseSteps "genesisAllocations" $ \step ->
-                        join $ allocationTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "genesisAllocations" $
-                    testCaseSteps "caplist TRANSFER and FUND_TX test" $ \step ->
-                        join $ caplistTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "caplist TRANSFER and FUND_TX test" $
-                    testCaseSteps "local continuation test" $ \step ->
-                        join $ localContTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "caplist TRANSFER and FUND_TX test" $
-                    testCaseSteps "poll confirmation depth test" $ \step ->
-                        join $ pollingConfirmDepth <$> iot <*> cenv <*> pure step
-                , after AllSucceed "local continuation test" $
-                    testCaseSteps "/poll rejects keys of incorrect length" $ \step ->
-                        join $ pollBadKeyTest <$> cenv <*> pure step
-                , after AllSucceed "poll bad key test" $
-                    testCaseSteps "local preflight sim test" $ \step ->
-                        join $ localPreflightSimTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "poll returns correct results" $
-                    testCaseSteps "poll correct results test" $ \step ->
-                        join $ pollingCorrectResults <$> iot <*> cenv <*> pure step
-                , after AllSucceed "webauthn signatures" $ testCase "webauthn sig" $ join $ webAuthnSignatureTest <$> iot <*> cenv
+                , testCaseSteps "remote spv" $ \step ->
+                    join $ spvTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "remote eth spv" $ \step ->
+                    join $ ethSpvTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "/send reports validation failure" $ \step ->
+                    join $ sendValidationTest <$> iot <*> cenv <*> pure step
+                , testCase "/poll reports badlisted txs" $
+                    join $ pollingBadlistTest <$> cenv
+                , testCase "trivialLocalCheck" $
+                    join $ localTest <$> iot <*> cenv
+                , testCase "txlogsCompactionTest" $
+                    join $ txlogsCompactionTest <$> iot <*> cenv <*> pactDir
+                , testCase "localChainData" $
+                    join $ localChainDataTest <$> iot <*> cenv
+                , testCaseSteps "transaction size gas tests" $ \step ->
+                    join $ txTooBigGasTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "genesisAllocations" $ \step ->
+                    join $ allocationTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "caplist TRANSFER and FUND_TX test" $ \step ->
+                    join $ caplistTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "local continuation test" $ \step ->
+                    join $ localContTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "poll confirmation depth test" $ \step ->
+                    join $ pollingConfirmDepth <$> iot <*> cenv <*> pure step
+                , testCaseSteps "/poll rejects keys of incorrect length" $ \step ->
+                    join $ pollBadKeyTest <$> cenv <*> pure step
+                , testCaseSteps "local preflight sim test" $ \step ->
+                    join $ localPreflightSimTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "poll correct results test" $ \step ->
+                    join $ pollingCorrectResults <$> iot <*> cenv <*> pure step
+                , testCase "webauthn sig" $
+                    join $ webAuthnSignatureTest <$> iot <*> cenv
                 ]
     ]
 
