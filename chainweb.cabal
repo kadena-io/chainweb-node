@@ -682,6 +682,7 @@ executable cwtool
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
+        Chainweb.Test.Pact.Utils
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Utils
         Chainweb.Test.Utils.BlockHeader
@@ -723,6 +724,7 @@ executable cwtool
         , containers >= 0.5
         , crypton >= 0.31
         , data-default >=0.7
+        , Decimal >= 0.5.2
         , deepseq >= 1.4
         , digraph >= 0.2.3
         , direct-sqlite >= 2.3.27
