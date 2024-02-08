@@ -24,6 +24,7 @@ import P2P.BootstrapNodes
 import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
 import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
 import qualified Chainweb.Pact.Transactions.CoinV5Transactions as CoinV5
+import qualified Chainweb.Pact.Transactions.CoinV6Transactions as CoinV6
 import qualified Chainweb.Pact.Transactions.Mainnet0Transactions as MN0
 import qualified Chainweb.Pact.Transactions.Mainnet1Transactions as MN1
 import qualified Chainweb.Pact.Transactions.Mainnet2Transactions as MN2
@@ -163,6 +164,7 @@ testnet = ChainwebVersion
         , (Pact4Coin3, AllChains (Upgrade CoinV3.transactions True))
         , (Chainweb214Pact, AllChains (Upgrade CoinV4.transactions True))
         , (Chainweb215Pact, AllChains (Upgrade CoinV5.transactions True))
+        , (Chainweb223Pact, AllChains $ upgrade CoinV6.transactions)
         ])
         (onChains [(unsafeChainId 0, HM.singleton to20ChainsTestnet (upgrade MNKAD.transactions))])
     , _versionCheats = VersionCheats
