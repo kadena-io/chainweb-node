@@ -420,8 +420,10 @@ failIfTableDoesNotExistInDbAtHeight
   :: Text -> Utf8 -> BlockHeight -> BlockHandler logger SQLiteEnv ()
 failIfTableDoesNotExistInDbAtHeight caller tn bh = do
     exists <- tableExistsInDbAtHeight tn bh
-    unless exists $ -- TODO: try to throw a DbError more cleanly. comment this.
-        void $ callDb caller $ \db -> qry db "garbage query" [] []
+    -- we must reproduce errors that were thrown in earlier blocks from tables
+    -- not existing, if this table does not yet exist.
+    unless exists $
+        internalError $ "callDb (" <> caller <> "): user error (Database error: ErrorError)"
 
 -- tid is non-inclusive lower bound for the search
 doTxIds :: TableName -> TxId -> BlockHandler logger SQLiteEnv [TxId]
