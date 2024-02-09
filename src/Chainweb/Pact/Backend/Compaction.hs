@@ -28,6 +28,7 @@
 
 module Chainweb.Pact.Backend.Compaction
   ( CompactFlag(..)
+  , CompactException(..)
   , TargetBlockHeight(..)
   , compact
   , main

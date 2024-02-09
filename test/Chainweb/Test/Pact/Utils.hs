@@ -109,6 +109,7 @@ module Chainweb.Test.Pact.Utils
 , zeroNoncer
 -- * Pact State
 , compact
+, compactUntilAvailable
 , PactRow(..)
 , getLatestPactState
 , getPactUserTables
@@ -140,6 +141,7 @@ import Data.Default (def)
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
+import Data.LogMessage
 import Data.Map (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe
@@ -152,10 +154,12 @@ import qualified Data.Vector as V
 import Database.SQLite3.Direct (Database)
 
 import GHC.Generics
+import GHC.IO.Exception(IOException(..))
 
 import Streaming.Prelude qualified as S
 import System.Directory
 import System.IO.Temp (createTempDirectory)
+import qualified System.Logger as YAL
 import System.LogLevel
 
 import Test.Tasty
@@ -1036,5 +1040,21 @@ compact logLevel cFlags (SQLiteEnv db _) bh = do
   C.withDefaultLogger logLevel $ \logger -> do
     void $ C.compact bh logger db cFlags
 
+
 getPWOByHeader :: BlockHeader -> TestBlockDb -> IO PayloadWithOutputs
 getPWOByHeader h (TestBlockDb _ pdb _) = casLookupM pdb (_blockPayloadHash h)
+
+-- | Compaction function that retries until the database is available.
+compactUntilAvailable
+  :: C.TargetBlockHeight
+  -> YAL.Logger SomeLogMessage
+  -> SQLiteEnv
+  -> [C.CompactFlag]
+  -> IO ()
+compactUntilAvailable tbh logger dbEnv@(SQLiteEnv db _) flags = do
+    try (C.compact tbh logger db flags) >>= \case
+        Left (C.CompactExceptionDb (fromException ->
+            Just (ioe_description -> "Database error: (ErrorBusy,\"database is locked\")")))
+            -> compactUntilAvailable tbh logger dbEnv flags
+        Left e -> throwM e
+        Right _ -> return ()

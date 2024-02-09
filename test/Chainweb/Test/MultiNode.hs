@@ -106,6 +106,7 @@ import Chainweb.Pact.Backend.PactState.GrandHash.Calc qualified as GrandHash.Cal
 import Chainweb.Pact.Backend.PactState.GrandHash.Import qualified as GrandHash.Import
 import Chainweb.Pact.Backend.PactState.GrandHash.Utils qualified as GrandHash.Utils
 import Chainweb.Test.P2P.Peer.BootstrapConfig
+import Chainweb.Test.Pact.Utils (compactUntilAvailable)
 import Chainweb.Test.Utils
 import Chainweb.Time (Seconds(..))
 import Chainweb.Utils
@@ -537,9 +538,8 @@ compactAndResumeTest logLevel v n rdb pactDbDir step = do
         C.withDefaultLogger Warn $ \cLogger -> do
           let cLogger' = over YAL.setLoggerScope (\scope -> ("nodeId",sshow nid) : ("chainId",sshow cid) : scope) cLogger
           let flags = [C.NoVacuum]
-          let db = _sConn sqlEnv
           let bh = BlockHeight 5
-          void $ C.compact (C.Target bh) cLogger' db flags
+          void $ compactUntilAvailable (C.Target bh) cLogger' sqlEnv flags
 
     logFun "phase 3... restarting nodes and ensuring progress"
     runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rdb pactDbDir ct
