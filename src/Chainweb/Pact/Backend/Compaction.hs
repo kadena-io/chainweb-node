@@ -439,19 +439,24 @@ dropNewTables bh = do
 --   properly pruning RocksDB.
 compactSystemTables :: BlockHeight -> CompactM ()
 compactSystemTables bh = do
-  let systemTables = ["BlockHistory", "VersionedTableMutation", "VersionedTableCreation"]
+  let systemTables = ["BlockHistory", "VersionedTableMutation"]
   forM_ systemTables $ \tbl -> do
     let tblText = fromUtf8 (getTableName tbl)
     logg Info $ "Compacting system table " <> tblText
-    let column =
-          if tbl == "VersionedTableCreation"
-          then "createBlockheight"
-          else "blockheight"
     execM'
       ("compactSystemTables: " <> tblText)
       tbl
-      ("DELETE FROM $VTABLE$ WHERE " <> column <> " != ?1;")
+      "DELETE FROM $VTABLE$ WHERE blockheight != ?1;"
       [bhToSType bh]
+  -- we must treat VersionedTableCreation specially; read-only rewind
+  -- needs to know if tables have been created yet via this table, so
+  -- we don't delete from its past.
+  execM'
+      "compactSystemTables: VersionedTableCreation"
+      "VersionedTableCreation"
+      "DELETE FROM VersionedTableCreation WHERE createBlockheight > ?1;"
+      [bhToSType bh]
+
 
 dropCompactTables :: CompactM ()
 dropCompactTables = do

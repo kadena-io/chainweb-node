@@ -16,7 +16,7 @@ module Chainweb.Pact.Backend.PactState.GrandHash.Import
   )
   where
 
-import Chainweb.BlockHeader (BlockHeader(..), genesisHeight)
+import Chainweb.BlockHeader (BlockHeader(..), ParentHeader(..), genesisHeight)
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.Logger (Logger, logFunctionText)
@@ -26,14 +26,14 @@ import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
 import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot.Mainnet qualified as MainnetSnapshots
 import Chainweb.Pact.Backend.PactState.GrandHash.Utils (resolveLatestCutHeaders, resolveCutHeadersAtHeight, computeGrandHashesAt, exitLog, withConnections, chainwebDbFilePath, rocksParser, cwvParser)
 import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpointer)
-import Chainweb.Pact.Backend.Types (Checkpointer(..), SQLiteEnv(..), initBlockState)
+import Chainweb.Pact.Backend.Types (SQLiteEnv(..), initBlockState, _cpRewindTo)
 import Chainweb.Pact.Types (defaultModuleCacheLimit)
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
 import Chainweb.Utils (sshow)
 import Chainweb.Version (ChainwebVersion(..))
 import Control.Applicative (optional)
 import Control.Lens ((^?!), ix)
-import Control.Monad (forM_, when, void)
+import Control.Monad (forM_, when)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Hashable (Hashable)
@@ -151,9 +151,7 @@ pactDropPostVerified logger v srcDir tgtDir snapshotBlockHeight snapshotChainHas
         $ "Dropping anything post verified state (BlockHeight " <> sshow snapshotBlockHeight <> ")"
       let bState = initBlockState defaultModuleCacheLimit (genesisHeight v cid)
       withProdRelationalCheckpointer logger bState sqliteEnv v cid $ \cp -> do
-        let blockHash = _blockHash $ blockHeader $ snapshotChainHashes ^?! ix cid
-        void $ _cpRestore cp (Just (snapshotBlockHeight + 1, blockHash))
-        _cpDiscard cp
+        _cpRewindTo cp (Just $ ParentHeader $ blockHeader $ snapshotChainHashes ^?! ix cid)
 
 data PactImportConfig = PactImportConfig
   { sourcePactDir :: FilePath

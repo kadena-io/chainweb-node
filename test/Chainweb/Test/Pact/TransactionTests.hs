@@ -286,8 +286,10 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 testCoinbaseEnforceFailure :: Assertion
 testCoinbaseEnforceFailure = do
     (pdb,mc) <- loadCC coinReplV4
-    r <- tryAllSynchronous $ applyCoinbase toyVersion logger pdb badMiner 0.1 (TxContext someParentHeader def)
-      (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
+    r <- tryAllSynchronous $
+      applyCoinbase toyVersion logger pdb badMiner 0.1
+        (TxContext someParentHeader def)
+        (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left e ->
         if isInfixOf "CoinbaseFailure" (sshow e) then

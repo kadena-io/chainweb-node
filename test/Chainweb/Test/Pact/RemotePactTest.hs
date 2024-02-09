@@ -56,6 +56,7 @@ import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import GHC.Exts(the)
 import System.LogLevel (LogLevel(..))
 
 import Servant.Client
@@ -439,14 +440,19 @@ pollingConfirmDepth t cenv step = do
 
     step "/poll for the transactions until they appear"
 
-    beforePolling <- getCurrentBlockHeight v cenv cid'
     PollResponses m <- pollingWithDepth cid' cenv rks (Just $ ConfirmationDepth 10) ExpectPactResult
     afterPolling <- getCurrentBlockHeight v cenv cid'
+    -- here we rely on both txs being in the same block.
+    let txHeight = the
+          (m ^.. to HM.elems . folded . crMetaData . _Just . key "blockHeight" . _Integer)
 
     assertBool "there are two command results" $ length (HM.keys m) == 2
 
-    -- we are checking that we have waited at least 10 blocks using /poll for the transaction
-    assertBool "the difference between heights should be no less than the confirmation depth" $ (afterPolling - beforePolling) >= 10
+    -- we are checking that we have waited exactly 10 blocks using /poll for the transaction
+    -- this is technically a race, because a block could've been made after the poll response
+    -- and before we fetch the current height; so we give it 1 block's slack.
+    assertBool "the difference between heights should be within 1 block of the confirmation depth"
+      (afterPolling - int txHeight `elem` [10, 11])
   where
     cid' = unsafeChainId 0
     tx =
