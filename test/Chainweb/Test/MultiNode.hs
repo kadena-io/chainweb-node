@@ -359,7 +359,7 @@ compactLiveNodeTest logLevel v n rocksDb pactDir step = do
             forM_ (allChains v) $ \cid -> do
               let logger' = addLabel ("nodeId", sshow nid) $ addLabel ("chainId", chainIdToText cid) lgr
               withSqliteDb cid logger' (pactDir </> show nid) False $ \sqlEnv -> do
-                void $ C.compact (C.Target (BlockHeight 25)) logger' (_sConn sqlEnv) [C.NoVacuum]
+                void $ compactUntilAvailable (C.Target (BlockHeight 25)) logger' sqlEnv [C.NoVacuum]
   let run = Chronos.stopwatch_ $ do
         runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rocksDb pactDir ct
         Just stats2 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
