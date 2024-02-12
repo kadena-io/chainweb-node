@@ -477,7 +477,7 @@ testPactServiceConfig = PactServiceConfig
 -- is initialized from the @_configBlockGasLimit@ value of @ChainwebConfiguration@.
 --
 testBlockGasLimit :: GasLimit
-testBlockGasLimit = 20000
+testBlockGasLimit = 100000
 
 newtype ReorgLimitExceeded = ReorgLimitExceeded Text
 
