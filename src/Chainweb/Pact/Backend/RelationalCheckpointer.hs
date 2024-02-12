@@ -76,24 +76,26 @@ initRelationalCheckpointer
     :: (Logger logger)
     => DbCacheLimitBytes
     -> SQLiteEnv
+    -> IntraBlockPersistence
     -> logger
     -> ChainwebVersion
     -> ChainId
     -> IO (Checkpointer logger)
-initRelationalCheckpointer dbCacheLimit sqlenv loggr v cid =
-    snd <$!> initRelationalCheckpointer' dbCacheLimit sqlenv loggr v cid
+initRelationalCheckpointer dbCacheLimit sqlenv p loggr v cid =
+    snd <$!> initRelationalCheckpointer' dbCacheLimit sqlenv p loggr v cid
 
 withProdRelationalCheckpointer
     :: (Logger logger)
     => logger
     -> DbCacheLimitBytes
     -> SQLiteEnv
+    -> IntraBlockPersistence
     -> ChainwebVersion
     -> ChainId
     -> (Checkpointer logger -> IO a)
     -> IO a
-withProdRelationalCheckpointer logger dbCacheLimit sqlenv v cid inner = do
-    (moduleCacheVar, cp) <- initRelationalCheckpointer' dbCacheLimit sqlenv logger v cid
+withProdRelationalCheckpointer logger dbCacheLimit sqlenv p v cid inner = do
+    (moduleCacheVar, cp) <- initRelationalCheckpointer' dbCacheLimit sqlenv p logger v cid
     withAsync (logModuleCacheStats moduleCacheVar) $ \_ -> inner cp
   where
     logFun = logFunctionText logger
@@ -109,16 +111,17 @@ initRelationalCheckpointer'
     :: (Logger logger)
     => DbCacheLimitBytes
     -> SQLiteEnv
+    -> IntraBlockPersistence
     -> logger
     -> ChainwebVersion
     -> ChainId
     -> IO (MVar (DbCache PersistModuleData), Checkpointer logger)
-initRelationalCheckpointer' dbCacheLimit sqlenv loggr v cid = do
+initRelationalCheckpointer' dbCacheLimit sqlenv p loggr v cid = do
     initSchema loggr sqlenv
     moduleCacheVar <- newMVar (emptyDbCache dbCacheLimit)
     let
         checkpointer = Checkpointer
-            { _cpRestoreAndSave = doRestoreAndSave loggr v cid sqlenv moduleCacheVar
+            { _cpRestoreAndSave = doRestoreAndSave loggr v cid sqlenv p moduleCacheVar
             , _cpReadCp = ReadCheckpointer
                 { _cpReadFrom = doReadFrom loggr v cid sqlenv moduleCacheVar
                 , _cpGetBlockHistory = doGetBlockHistory sqlenv
@@ -146,7 +149,6 @@ doReadFrom
   -> IO a
 doReadFrom logger v cid sql moduleCacheVar parent doRead = do
   let currentHeight = maybe (genesisHeight v cid) (succ . _blockHeight . _parentHeader) parent
-  -- we use the same module cache as the read-write checkpointer component
 
   withMVar moduleCacheVar $ \sharedModuleCache -> do
     bracket
@@ -154,7 +156,7 @@ doReadFrom logger v cid sql moduleCacheVar parent doRead = do
       (\_ -> abortSavepoint sql BatchSavepoint) $ \() -> do
       txid <- getEndTxId "doReadFrom" sql parent
       newDbEnv <- newMVar $ BlockEnv
-        (mkBlockHandlerEnv v cid currentHeight sql logger)
+        (mkBlockHandlerEnv v cid currentHeight sql DoNotPersistIntraBlockWrites logger)
         (initBlockState defaultModuleCacheLimit txid)
           { _bsModuleCache = sharedModuleCache }
       -- NB it's important to do this *after* you start the savepoint (and thus
@@ -191,11 +193,12 @@ doRestoreAndSave
   -> ChainwebVersion
   -> ChainId
   -> SQLiteEnv
+  -> IntraBlockPersistence
   -> MVar (DbCache PersistModuleData)
   -> Maybe ParentHeader
   -> Stream (Of (RunnableBlock logger q)) IO r
   -> IO (r, q)
-doRestoreAndSave logger v cid sql moduleCacheVar parent blocks =
+doRestoreAndSave logger v cid sql p moduleCacheVar parent blocks =
     modifyMVar moduleCacheVar $ \moduleCache -> do
       fmap fst $ generalBracket
         (beginSavepoint sql BatchSavepoint)
@@ -217,7 +220,7 @@ doRestoreAndSave logger v cid sql moduleCacheVar parent blocks =
         let
           !bh = maybe (genesisHeight v cid) (succ . _blockHeight . _parentHeader) pc
         -- prepare the block state
-        let handlerEnv = mkBlockHandlerEnv v cid bh sql logger
+        let handlerEnv = mkBlockHandlerEnv v cid bh sql p logger
         let state = (initBlockState defaultModuleCacheLimit txid) { _bsModuleCache = moduleCache }
         dbMVar <- newMVar BlockEnv
           { _blockHandlerEnv = handlerEnv

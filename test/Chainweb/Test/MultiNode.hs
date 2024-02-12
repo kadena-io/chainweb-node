@@ -541,7 +541,7 @@ compactAndResumeTest logLevel v n rdb pactDbDir step = do
           void $ compactUntilAvailable (C.Target bh) cLogger' sqlEnv flags
 
     logFun "phase 3... restarting nodes and ensuring progress"
-    runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rdb pactDbDir ct
+    runNodesForSeconds logLevel logFun (multiConfig v n) { _configFullHistoricPactState = False } n 60 rdb pactDbDir ct
     Just stats2 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
     -- We ensure that we've gotten to at least 1.5x the previous block count
     assertGe "average block count post-compaction" (Actual $ _statBlockCount stats2) (Expected (3 * _statBlockCount stats1 `div` 2))

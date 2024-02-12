@@ -37,6 +37,7 @@ module Chainweb.Pact.Service.Types
   , RequestStatus(..)
   , RequestCancelled(..)
   , PactServiceConfig(..)
+  , IntraBlockPersistence(..)
 
   , LocalPreflightSimulation(..)
   , LocalSignatureVerification(..)
@@ -117,6 +118,12 @@ newtype ConfirmationDepth = ConfirmationDepth { _confirmationDepth :: Word64 }
   deriving (Eq, Ord)
   deriving newtype (Show, FromJSON, ToJSON, Enum, Bounded)
 
+-- | Whether we write rows to the database that were already overwritten
+-- in the same block. This is temporarily necessary to do while Rosetta uses
+-- those rows to determine the contents of historic transactions.
+data IntraBlockPersistence = PersistIntraBlockWrites | DoNotPersistIntraBlockWrites
+  deriving (Eq, Ord, Show)
+
 -- | Externally-injected PactService properties.
 --
 data PactServiceConfig = PactServiceConfig
@@ -144,6 +151,9 @@ data PactServiceConfig = PactServiceConfig
     --   available. Compaction can remove history.
   , _pactEnableLocalTimeout :: !Bool
     -- ^ Whether to enable the local timeout to prevent long-running transactions
+  , _pactPersistIntraBlockWrites :: !IntraBlockPersistence
+    -- ^ Whether or not the node requires that all writes made in a block
+    --   are persisted. Useful if you want to use PactService BlockTxHistory.
   } deriving (Eq,Show)
 
 data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError

@@ -45,7 +45,6 @@ module Chainweb.Pact.Backend.Types
     , pdbsDbEnv
 
     , SQLiteRowDelta(..)
-    , SQLiteDeltaKey(..)
     , SQLitePendingTableCreations
     , SQLitePendingWrites
     , SQLitePendingData(..)
@@ -68,15 +67,16 @@ module Chainweb.Pact.Backend.Types
     , runBlockEnv
     , SQLiteEnv
     , BlockHandler(..)
+    , BlockHandlerEnv(..)
+    , mkBlockHandlerEnv
     , blockHandlerBlockHeight
     , blockHandlerModuleNameFix
     , blockHandlerSortedKeys
     , blockHandlerLowerCaseTables
     , blockHandlerDb
     , blockHandlerLogger
+    , blockHandlerPersistIntraBlockWrites
     , ParentHash
-    , BlockHandlerEnv(..)
-    , mkBlockHandlerEnv
     , SQLiteFlag(..)
 
       -- * mempool
@@ -97,9 +97,9 @@ import Data.Bits
 import Data.ByteString (ByteString)
 import Data.DList (DList)
 import Data.Functor
-import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
+import Data.List.NonEmpty(NonEmpty(..))
 import Data.Map.Strict (Map)
 import Data.Vector (Vector)
 
@@ -180,14 +180,6 @@ instance Ord SQLiteRowDelta where
         bb = (_deltaTableName b, _deltaRowKey b, _deltaTxId b)
     {-# INLINE compare #-}
 
--- | When we index 'SQLiteRowDelta' values, we need a lookup key.
-data SQLiteDeltaKey = SQLiteDeltaKey
-    { _dkTable :: !ByteString
-    , _dkRowKey :: !ByteString
-    }
-  deriving (Show, Generic, Eq, Ord)
-  deriving anyclass Hashable
-
 -- | A map from table name to a list of 'TxLog' entries. This is maintained in
 -- 'BlockState' and is cleared upon pact transaction commit.
 type TxLogMap = Map TableName (DList TxLogJson)
@@ -201,7 +193,8 @@ type SQLitePendingTableCreations = HashSet ByteString
 type SQLitePendingSuccessfulTxs = HashSet ByteString
 
 -- | Pending writes to the pact db during a block, to be recorded in 'BlockState'.
-type SQLitePendingWrites = HashMap SQLiteDeltaKey (DList SQLiteRowDelta)
+-- Structured as a map from table name to a map from rowkey to inserted row delta.
+type SQLitePendingWrites = HashMap ByteString (HashMap ByteString (NonEmpty SQLiteRowDelta))
 
 -- | A collection of pending mutations to the pact db. We maintain two of
 -- these; one for the block as a whole, and one for any pending pact
@@ -258,18 +251,20 @@ data BlockHandlerEnv logger = BlockHandlerEnv
     , _blockHandlerModuleNameFix :: !Bool
     , _blockHandlerSortedKeys :: !Bool
     , _blockHandlerLowerCaseTables :: !Bool
+    , _blockHandlerPersistIntraBlockWrites :: !IntraBlockPersistence
     }
 
 mkBlockHandlerEnv
   :: ChainwebVersion -> ChainId -> BlockHeight
-  -> SQLiteEnv -> logger -> BlockHandlerEnv logger
-mkBlockHandlerEnv v cid bh sql logger = BlockHandlerEnv
+  -> SQLiteEnv -> IntraBlockPersistence -> logger -> BlockHandlerEnv logger
+mkBlockHandlerEnv v cid bh sql p logger = BlockHandlerEnv
     { _blockHandlerDb = sql
     , _blockHandlerLogger = logger
     , _blockHandlerBlockHeight = bh
     , _blockHandlerModuleNameFix = enableModuleNameFix v cid bh
     , _blockHandlerSortedKeys = pact42 v cid bh
     , _blockHandlerLowerCaseTables = chainweb217Pact v cid bh
+    , _blockHandlerPersistIntraBlockWrites = p
     }
 
 
