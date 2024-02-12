@@ -78,6 +78,11 @@ newtype ConfirmationDepth = ConfirmationDepth { _confirmationDepth :: Word64 }
   deriving (Eq, Ord)
   deriving newtype (Show, FromJSON, ToJSON, Enum, Bounded)
 
+-- | Should we write a row to the database, if it was going to be overwritten
+-- in that same block?
+data PersistIntraBlockWrites = PersistIntraBlockWrites | DoNotPersistIntraBlockWrites
+  deriving (Eq, Ord, Show)
+
 -- | Externally-injected PactService properties.
 --
 data PactServiceConfig = PactServiceConfig
@@ -103,6 +108,9 @@ data PactServiceConfig = PactServiceConfig
   , _pactFullHistoryRequired :: !Bool
     -- ^ Whether or not the node requires that the full Pact history be
     --   available. Compaction can remove history.
+  , _pactPersistIntraBlockWrites :: !PersistIntraBlockWrites
+    -- ^ Whether or not the node requires that all writes made in a block
+    --   are persisted. Useful if you want to use PactService BlockTxHistory.
   } deriving (Eq,Show)
 
 data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError

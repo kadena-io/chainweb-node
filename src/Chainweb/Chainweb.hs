@@ -158,7 +158,7 @@ import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import qualified Chainweb.OpenAPIValidation as OpenAPIValidation
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
-import Chainweb.Pact.Service.Types (PactServiceConfig(..))
+import Chainweb.Pact.Service.Types (PactServiceConfig(..), PersistIntraBlockWrites(..))
 import Chainweb.Pact.Validations
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
@@ -426,7 +426,11 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
       , _pactBlockGasLimit = maybe id min maxGasLimit (_configBlockGasLimit conf)
       , _pactLogGas = _configLogGas conf
       , _pactModuleCacheLimit = _configModuleCacheLimit conf
-      , _pactFullHistoryRequired = _configRosetta conf -- this could be OR'd with other things that require full history
+      , _pactFullHistoryRequired = _configFullHistoricPactState conf
+      , _pactPersistIntraBlockWrites =
+          if _configFullHistoricPactState conf
+          then PersistIntraBlockWrites
+          else DoNotPersistIntraBlockWrites
       }
 
     pruningLogger :: T.Text -> logger

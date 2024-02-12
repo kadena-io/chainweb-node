@@ -107,7 +107,10 @@ tests rdb = testGroup testName
   , test $ goldenNewBlock "empty-block-tests" mempty
   , test newBlockAndValidate
   , test newBlockAndValidationFailure
-  , test getHistory
+  -- this test needs to see all of the writes done in the block;
+  -- it uses the BlockTxHistory Pact request to see them.
+  , testWithConf getHistory
+    testPactServiceConfig { _pactPersistIntraBlockWrites = PersistIntraBlockWrites }
   , test testHistLookup1
   , test testHistLookup2
   , test testHistLookup3
@@ -128,6 +131,7 @@ tests rdb = testGroup testName
   where
     testName = "Chainweb.Test.Pact.PactSingleChainTest"
     test = test' rdb
+    testWithConf = testWithConf' rdb
     testTimeout = testTimeout' rdb
 
     testHistLookup1 = getHistoricalLookupNoTxs "sender00"
