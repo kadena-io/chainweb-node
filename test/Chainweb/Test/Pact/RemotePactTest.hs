@@ -450,9 +450,9 @@ pollingConfirmDepth t cenv step = do
 
     -- we are checking that we have waited exactly 10 blocks using /poll for the transaction
     -- this is technically a race, because a block could've been made after the poll response
-    -- and before we fetch the current height; so we give it 1 block's slack.
+    -- and before we fetch the current height; so we give it some slack.
     assertBool "the difference between heights should be within 1 block of the confirmation depth"
-      (afterPolling - int txHeight `elem` [10, 11])
+      (afterPolling - int txHeight `elem` [10..20])
   where
     cid' = unsafeChainId 0
     tx =

@@ -381,7 +381,7 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
 
     -- we don't log tx failures in replay
     let !txFailureHandler =
-            if _configOnlySyncPact chainwebCfg
+            if _configOnlySyncPact chainwebCfg || _configReadOnlyReplay chainwebCfg
             then dropLogHandler (Proxy :: Proxy TxFailureLog)
             else passthroughLogHandler
 

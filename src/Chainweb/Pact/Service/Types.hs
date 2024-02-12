@@ -20,7 +20,41 @@
 --
 -- Types module for Pact execution API
 
-module Chainweb.Pact.Service.Types where
+module Chainweb.Pact.Service.Types
+  ( NewBlockReq(..)
+  , ValidateBlockReq(..)
+  , SyncToBlockReq(..)
+  , LocalReq(..)
+  , LookupPactTxsReq(..)
+  , PreInsertCheckReq(..)
+  , BlockTxHistoryReq(..)
+  , HistoricalLookupReq(..)
+  , ReadOnlyReplayReq(..)
+
+  , RequestMsg(..)
+  , PactServiceConfig(..)
+
+  , LocalPreflightSimulation(..)
+  , LocalSignatureVerification(..)
+  , RewindDepth(..)
+  , ConfirmationDepth(..)
+  , RewindLimit(..)
+
+  , BlockValidationFailureMsg(..)
+  , LocalResult(..)
+  , _LocalResultLegacy
+  , BlockTxHistory(..)
+
+  , PactException(..)
+  , PactExceptionTag(..)
+  , GasPurchaseFailure(..)
+  , gasPurchaseFailureHash
+  , SpvRequest(..)
+
+  , TransactionOutputProofB64(..)
+
+  , internalError
+  ) where
 
 import Control.DeepSeq
 import Control.Concurrent.MVar.Strict
@@ -32,7 +66,7 @@ import Data.Aeson
 import Data.HashMap.Strict (HashMap)
 import Data.Map (Map)
 import qualified Data.List.NonEmpty as NE
-import Data.Text (Text, pack, unpack)
+import Data.Text (Text, unpack)
 import Data.Vector (Vector)
 import Data.Word (Word64)
 
@@ -271,9 +305,6 @@ instance NFData BlockTxHistory
 internalError :: MonadThrow m => Text -> m a
 internalError = throwM . PactInternalError
 
-internalError' :: MonadThrow m => String -> m a
-internalError' = internalError . pack
-
 data RequestMsg = NewBlockMsg !NewBlockReq
                 | ValidateBlockMsg !ValidateBlockReq
                 | LocalMsg !LocalReq
@@ -282,6 +313,7 @@ data RequestMsg = NewBlockMsg !NewBlockReq
                 | BlockTxHistoryMsg !BlockTxHistoryReq
                 | HistoricalLookupMsg !HistoricalLookupReq
                 | SyncToBlockMsg !SyncToBlockReq
+                | ReadOnlyReplayMsg !ReadOnlyReplayReq
                 | CloseMsg
                 deriving (Show)
 
@@ -349,6 +381,15 @@ data HistoricalLookupReq = HistoricalLookupReq
 instance Show HistoricalLookupReq where
   show (HistoricalLookupReq h d k _) =
     "HistoricalLookupReq@" ++ show h ++ ", " ++ show d ++ ", " ++ show k
+
+data ReadOnlyReplayReq = ReadOnlyReplayReq
+    { _readOnlyReplayLowerBound :: !BlockHeader
+    , _readOnlyReplayUpperBound :: !BlockHeader
+    , _readOnlyReplayResultVar :: !(PactExMVar ())
+    }
+instance Show ReadOnlyReplayReq where
+  show (ReadOnlyReplayReq l u _) =
+    "ReadOnlyReplayReq@" ++ show l ++ ", " ++ show u
 
 data SyncToBlockReq = SyncToBlockReq
     { _syncToBlockHeader :: !BlockHeader
