@@ -123,6 +123,7 @@ data BenchConfig = BenchConfig
     -- ^ whether or not to validate the blocks as part of the benchmark
   , compact :: Compact
     -- ^ whether or not to compact the pact database prior to benchmarking
+  , persistIntraBlockWrites :: IntraBlockPersistence
   }
 
 defBenchConfig :: BenchConfig
@@ -130,6 +131,7 @@ defBenchConfig = BenchConfig
   { numPriorBlocks = 100
   , validate = DontValidate
   , compact = DontCompact
+  , persistIntraBlockWrites = PersistIntraBlockWrites
   }
 
 data Compact = DoCompact | DontCompact
@@ -144,6 +146,8 @@ bench rdb = C.bgroup "PactService" $
     , doubleForkingBench
     ] ++ map (oneBlock defBenchConfig) [1, 10, 50, 100]
       ++ map (oneBlock validateCfg) [0, 1, 10, 50, 100]
+      ++ map (oneBlock validateCfg { persistIntraBlockWrites = DoNotPersistIntraBlockWrites })
+        [0, 1, 10, 50, 100]
       ++ map (oneBlock compactCfg) [0, 1, 10, 50, 100]
       ++ map (oneBlock compactValidateCfg) [1, 10, 50, 100]
   where
@@ -151,13 +155,13 @@ bench rdb = C.bgroup "PactService" $
     compactCfg = defBenchConfig { compact = DoCompact }
     compactValidateCfg = compactCfg { validate = DoValidate }
 
-    forkingBench = withResources rdb 10 Quiet DontCompact
+    forkingBench = withResources rdb 10 Quiet DontCompact PersistIntraBlockWrites
         $ \mainLineBlocks pdb bhdb nonceCounter pactQueue _ ->
             C.bench "forkingBench"  $ C.whnfIO $ do
               let (T3 _ join1 _) = mainLineBlocks !! 5
               void $ playLine pdb bhdb 5 join1 pactQueue nonceCounter
 
-    doubleForkingBench = withResources rdb 10 Quiet DontCompact
+    doubleForkingBench = withResources rdb 10 Quiet DontCompact PersistIntraBlockWrites
         $ \mainLineBlocks pdb bhdb nonceCounter pactQueue _ ->
             C.bench "doubleForkingBench"  $ C.whnfIO $ do
               let (T3 _ join1 _) = mainLineBlocks !! 5
@@ -167,7 +171,7 @@ bench rdb = C.bgroup "PactService" $
               void $ playLine pdb bhdb forkLength2 join1 pactQueue nonceCounter
 
     oneBlock :: BenchConfig -> Int -> C.Benchmark
-    oneBlock cfg txCount = withResources rdb cfg.numPriorBlocks Error cfg.compact go
+    oneBlock cfg txCount = withResources rdb cfg.numPriorBlocks Error cfg.compact cfg.persistIntraBlockWrites go
       where
         go _mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock = do
           C.bench name $ C.whnfIO $ do
@@ -178,6 +182,7 @@ bench rdb = C.bgroup "PactService" $
                [ "txCount=" ++ show txCount
                , "validate=" ++ show (cfg.validate == DoValidate)
                , "compact=" ++ show (cfg.compact == DoCompact)
+               , "persist=" ++ show cfg.persistIntraBlockWrites
                ]
           ++ "]"
 
@@ -276,9 +281,10 @@ withResources :: ()
   -> Word64
   -> LogLevel
   -> Compact
+  -> IntraBlockPersistence
   -> RunPactService
   -> C.Benchmark
-withResources rdb trunkLength logLevel compact f = C.envWithCleanup create destroy unwrap
+withResources rdb trunkLength logLevel compact p f = C.envWithCleanup create destroy unwrap
   where
 
     unwrap ~(NoopNFData (Resources {..})) =
@@ -314,6 +320,7 @@ withResources rdb trunkLength logLevel compact f = C.envWithCleanup create destr
         reqQ <- newPactQueue pactQueueSize
         a <- async $ runPactService version cid l reqQ mempool bhdb pdb sqlEnv testPactServiceConfig
             { _pactBlockGasLimit = 180_000
+            , _pactPersistIntraBlockWrites = p
             }
 
         return (a, reqQ)

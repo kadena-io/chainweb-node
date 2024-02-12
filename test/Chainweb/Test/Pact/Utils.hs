@@ -672,7 +672,7 @@ testPactCtxSQLite
   -> (TxContext -> GasModel)
   -> IO (TestPactCtx logger tbl)
 testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
-    cp <- initRelationalCheckpointer defaultModuleCacheLimit sqlenv cpLogger v cid
+    cp <- initRelationalCheckpointer defaultModuleCacheLimit sqlenv DoNotPersistIntraBlockWrites cpLogger v cid
     let rs = readRewards
     !ctx <- TestPactCtx
       <$!> newMVar (PactServiceState mempty)

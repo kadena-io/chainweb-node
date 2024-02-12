@@ -55,6 +55,7 @@ import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec
     (applyContinuation', applyExec', buildExecParsedCode)
 import Chainweb.Pact.Types
@@ -650,7 +651,7 @@ runSQLite'
     -> TestTree
 runSQLite' runTest sqlEnvIO = runTest $ do
     sqlenv <- sqlEnvIO
-    cp <- initRelationalCheckpointer defaultModuleCacheLimit sqlenv logger testVer testChainId
+    cp <- initRelationalCheckpointer defaultModuleCacheLimit sqlenv DoNotPersistIntraBlockWrites logger testVer testChainId
     return (cp, sqlenv)
   where
     logger = addLabel ("sub-component", "relational-checkpointer") $ dummyLogger
@@ -721,7 +722,7 @@ simpleBlockEnvInit logger f = withTempSQLiteConnection chainwebPragmas $ \sqlenv
     f chainwebPactDb (blockEnv sqlenv) (\_ -> initSchema logger sqlenv)
   where
     blockEnv sqlenv = BlockEnv
-      (mkBlockHandlerEnv testVer testChainId (BlockHeight 0) sqlenv logger)
+      (mkBlockHandlerEnv testVer testChainId (BlockHeight 0) sqlenv DoNotPersistIntraBlockWrites logger)
       (initBlockState defaultModuleCacheLimit (TxId 0))
 
 {- this should be moved to pact -}
