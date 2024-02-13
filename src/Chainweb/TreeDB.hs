@@ -43,6 +43,7 @@ module Chainweb.TreeDB
 , root
 , minRank
 , toTree
+, GenesisParent(..)
 
 -- ** Limiting and Seeking a Stream
 , Eos(..)
@@ -61,6 +62,7 @@ module Chainweb.TreeDB
 , lookupM
 , lookupRankedM
 , lookupStreamM
+, lookupParentM
 
 -- * Misc Utils
 , forkEntry

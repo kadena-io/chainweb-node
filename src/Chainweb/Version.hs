@@ -321,7 +321,7 @@ upgrade txs = Upgrade txs False
 
 -- | Chainweb versions are sets of properties that must remain consistent among
 -- all nodes on the same network. For examples see `Chainweb.Version.Mainnet`,
--- `Chainweb.Version.Testnet`, `Chainweb.Version.Development`, and
+-- `Chainweb.Version.Testnet`, `Chainweb.Version.RecapDevelopment`, and
 -- `Chainweb.Test.TestVersions`.
 --
 -- NOTE: none of the fields should be strict at any level, because of how we

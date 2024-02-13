@@ -378,20 +378,18 @@ burnGen v time pidv sid tid = do
             readIORef ref1 >>= \case
               True -> return mempty
               False -> do
-                cmd <- buildCwCmd v $
+                cmd <- buildCwCmd "0" v $
                   set cbSigners [mkEd25519Signer' sender00 []] $
                   set cbCreationTime (toTxCreationTime time) $
                   set cbChainId sid $
-                  mkCmd "0" $
-                  mkExec tx1Code tx1Data
+                  set cbRPC (mkExec tx1Code tx1Data) $
+                  defaultCmd
                 writeIORef ref0 True
 
                 let pid = toPactId $ toUntypedHash $ _cmdHash cmd
 
                 putMVar pidv pid `finally` writeIORef ref1 True
                 return $ Vector.singleton cmd
-
-
 
     tx1Code = T.unlines
       [ "(coin.transfer-crosschain"
@@ -429,16 +427,15 @@ transferGen v time pidv sid _tid = do
             readIORef ref1 >>= \case
               True -> return mempty
               False -> do
-                cmd <- buildCwCmd v $
+                cmd <- buildCwCmd "0" v $
                   set cbSigners
                     [mkEd25519Signer' sender00
                        [mkTransferCap "sender00" "sender01" 1.0
                        ,mkGasCap]] $
                   set cbCreationTime (toTxCreationTime time) $
                   set cbChainId sid $
-                  -- FIXME what about the network id? It is Nothing
-                  mkCmd "0" $
-                  mkExec' tx1Code
+                  set cbRPC (mkExec' tx1Code) $
+                  defaultCmd
                 writeIORef ref0 True
 
                 let pid = toPactId $ toUntypedHash $ _cmdHash cmd
@@ -460,14 +457,12 @@ createCont
 createCont v cid pidv proof time = do
   pid <- readMVar pidv
   fmap Vector.singleton $
-    buildCwCmd v $
+    buildCwCmd "1" v $
     set cbSigners [mkEd25519Signer' sender00 []] $
     set cbCreationTime (toTxCreationTime time) $
     set cbChainId cid $
-    mkCmd "1" $
-    mkCont $
-    ((mkContMsg pid 1) { _cmProof = proof })
-
+    set cbRPC (mkCont $ (mkContMsg pid 1) { _cmProof = proof }) $
+    defaultCmd
 
 -- | Generate a tx to run 'verify-spv' tests.
 --
@@ -486,14 +481,12 @@ createVerify bridge code mdata v time (TestBlockDb wdb pdb _c) _pidv sid tid bhe
                         [ ("proof", String $ encodeB64UrlNoPaddingText $ encodeToByteString pf)
                         ]
                       | otherwise = toJSON pf
-                cmd <- buildCwCmd v $
+                cmd <- buildCwCmd "0" v $
                   set cbSigners [mkEd25519Signer' sender00 []] $
                   set cbCreationTime (toTxCreationTime time) $
                   set cbChainId tid $
-                  mkCmd "0" $
-                  mkExec
-                    code
-                    (object [("proof",q),("data",mdata)])
+                  set cbRPC (mkExec code (object [("proof",q),("data",mdata)])) $
+                  defaultCmd
                 return (Vector.singleton cmd)
                     `finally` writeIORef ref True
 
@@ -511,14 +504,12 @@ createVerifyEth code v time (TestBlockDb _wdb _pdb _c) _pidv _sid tid _bhe = do
             True -> return mempty
             False -> do
                 -- q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
-                cmd <- buildCwCmd v $
+                cmd <- buildCwCmd "0" v $
                   set cbSigners [mkEd25519Signer' sender00 []] $
                   set cbCreationTime (toTxCreationTime time) $
                   set cbChainId tid $
-                  mkCmd "0" $
-                  mkExec
-                    code
-                    (object [("proof", toJSON q)])
+                  set cbRPC (mkExec code (object [("proof", toJSON q)])) $
+                  defaultCmd
                 return (Vector.singleton cmd)
                     `finally` writeIORef ref True
 

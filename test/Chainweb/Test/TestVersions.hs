@@ -42,6 +42,7 @@ import P2P.Peer
 import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
 import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
 import qualified Chainweb.Pact.Transactions.CoinV5Transactions as CoinV5
+import qualified Chainweb.Pact.Transactions.CoinV6Transactions as CoinV6
 import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
 import qualified Chainweb.Pact.Transactions.OtherTransactions as Other
 
@@ -142,8 +143,8 @@ fastForks = tabulateHashMap $ \case
     Chainweb220Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 30
     Chainweb221Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 33
     Chainweb222Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 36
-    Chainweb223Pact -> AllChains ForkNever
     EnableVerifiers -> AllChains $ ForkAtBlockHeight $ BlockHeight 35
+    Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 38
 
 -- | A test version without Pact or PoW, with only one chain graph.
 barebonesTestVersion :: ChainGraph -> ChainwebVersion
@@ -230,6 +231,7 @@ cpmTestVersion g v = v
             , (Pact4Coin3, AllChains (Upgrade CoinV3.transactions True))
             , (Chainweb214Pact, AllChains (Upgrade CoinV4.transactions True))
             , (Chainweb215Pact, AllChains (Upgrade CoinV5.transactions True))
+            , (Chainweb223Pact, AllChains (upgrade CoinV6.transactions))
             ])
         (onChains [(unsafeChainId 3, HM.singleton (BlockHeight 2) (Upgrade MNKAD.transactions False))])
 
@@ -267,7 +269,7 @@ slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
         Chainweb221Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 100)
         Chainweb222Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 115)
         EnableVerifiers -> AllChains $ ForkAtBlockHeight (BlockHeight 120)
-        Chainweb223Pact -> AllChains ForkNever
+        Chainweb223Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 120)
     & versionVerifierPluginNames .~ AllChains (End $ Set.fromList ["allow"])
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades quickly enabled.
