@@ -211,4 +211,3 @@ fastCheckTargetN n trgPtr powPtr = compare
     <$> peekElemOff trgPtr n
     <*> peekElemOff powPtr n
 {-# INLINE fastCheckTargetN #-}
-

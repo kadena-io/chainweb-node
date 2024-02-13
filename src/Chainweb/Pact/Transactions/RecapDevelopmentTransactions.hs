@@ -2,7 +2,7 @@
 
 -- This module is auto-generated. DO NOT EDIT IT MANUALLY.
 
-module Chainweb.Pact.Transactions.DevelopmentTransactions ( transactions ) where
+module Chainweb.Pact.Transactions.RecapDevelopmentTransactions ( transactions ) where
 
 import Data.Bifunctor (first)
 import System.IO.Unsafe

@@ -145,7 +145,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Utils.Serialization
 import Chainweb.Version
-import Chainweb.Version.Development
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Registry
 import Chainweb.Version.Testnet
@@ -190,7 +190,7 @@ instance Arbitrary ChainwebVersion where
         , timedConsensusVersion petersonChainGraph petersonChainGraph
         , timedConsensusVersion singletonChainGraph pairChainGraph
         , timedConsensusVersion petersonChainGraph twentyChainGraph
-        , Development
+        , RecapDevelopment
         , Testnet04
         , Mainnet01
         ]
@@ -773,6 +773,9 @@ instance Arbitrary NetworkId where
 
 instance Arbitrary ChainId where
     arbitrary = unsafeChainId <$> arbitrary
+
+instance Arbitrary Fork where
+    arbitrary = elements [minBound..maxBound]
 
 instance Arbitrary ChainDatabaseGcConfig where
     arbitrary = elements

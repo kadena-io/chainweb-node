@@ -115,16 +115,17 @@ library
     autogen-modules:
         Paths_chainweb
     c-sources: c/shathree.c
+    cc-options: -DSQLITE_CORE
     exposed-modules:
           Chainweb.Backup
         , Chainweb.BlockCreationTime
         , Chainweb.BlockHash
         , Chainweb.BlockHeader
+        , Chainweb.BlockHeader.Genesis.RecapDevelopment0Payload
+        , Chainweb.BlockHeader.Genesis.RecapDevelopment1to9Payload
+        , Chainweb.BlockHeader.Genesis.RecapDevelopment10to19Payload
         , Chainweb.BlockHeader.Genesis.Development0Payload
-        , Chainweb.BlockHeader.Genesis.Development1to9Payload
-        , Chainweb.BlockHeader.Genesis.Development10to19Payload
-        , Chainweb.BlockHeader.Genesis.FastDevelopment0Payload
-        , Chainweb.BlockHeader.Genesis.FastDevelopment1to19Payload
+        , Chainweb.BlockHeader.Genesis.Development1to19Payload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM1to9Payload
         , Chainweb.BlockHeader.Genesis.Testnet0Payload
@@ -241,9 +242,9 @@ library
         , Chainweb.VerifierPlugin.Allow
         , Chainweb.Version
         , Chainweb.Version.Development
-        , Chainweb.Version.FastDevelopment
         , Chainweb.Version.Guards
         , Chainweb.Version.Mainnet
+        , Chainweb.Version.RecapDevelopment
         , Chainweb.Version.Registry
         , Chainweb.Version.Testnet
         , Chainweb.Version.Utils
@@ -278,6 +279,13 @@ library
         , Chainweb.Pact.Backend.DbCache
         , Chainweb.Pact.Backend.Compaction
         , Chainweb.Pact.Backend.PactState
+        , Chainweb.Pact.Backend.PactState.Diff
+        , Chainweb.Pact.Backend.PactState.EmbeddedSnapshot
+        , Chainweb.Pact.Backend.PactState.EmbeddedSnapshot.Mainnet
+        , Chainweb.Pact.Backend.PactState.GrandHash.Algorithm
+        , Chainweb.Pact.Backend.PactState.GrandHash.Calc
+        , Chainweb.Pact.Backend.PactState.GrandHash.Import
+        , Chainweb.Pact.Backend.PactState.GrandHash.Utils
         , Chainweb.Pact.Backend.RelationalCheckpointer
         , Chainweb.Pact.Backend.SQLite.DirectV2
         , Chainweb.Pact.Backend.SQLite.V2
@@ -302,7 +310,7 @@ library
         , Chainweb.Pact.Transactions.CoinV3Transactions
         , Chainweb.Pact.Transactions.CoinV4Transactions
         , Chainweb.Pact.Transactions.CoinV5Transactions
-        , Chainweb.Pact.Transactions.DevelopmentTransactions
+        , Chainweb.Pact.Transactions.CoinV6Transactions
         , Chainweb.Pact.Transactions.Mainnet0Transactions
         , Chainweb.Pact.Transactions.Mainnet1Transactions
         , Chainweb.Pact.Transactions.Mainnet2Transactions
@@ -315,6 +323,7 @@ library
         , Chainweb.Pact.Transactions.Mainnet9Transactions
         , Chainweb.Pact.Transactions.MainnetKADTransactions
         , Chainweb.Pact.Transactions.OtherTransactions
+        , Chainweb.Pact.Transactions.RecapDevelopmentTransactions
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils
         , Chainweb.Pact.Validations
@@ -341,6 +350,7 @@ library
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
         , chainweb-storage >= 0.1
+        , chronos >= 1.1
         , clock >= 0.7
         , configuration-tools >= 0.6
         , crypton-connection >=0.2
@@ -384,6 +394,7 @@ library
         , pact >= 4.2.0.1
         , pact-json >= 0.1
         , parallel >= 3.2.2.0
+        , patience >= 0.3
         , pem >=0.2
         , primitive >= 0.7.1.0
         , random >= 1.2
@@ -469,6 +480,7 @@ test-suite chainweb-tests
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
+        Chainweb.Test.Pact.GrandHash
         Chainweb.Test.Pact.PactMultiChainTest
         Chainweb.Test.Pact.PactSingleChainTest
         Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -521,7 +533,10 @@ test-suite chainweb-tests
         , aeson >= 2.2
         , async >= 2.2
         , base >= 4.12 && < 5
+        , base16-bytestring >= 0.1
         , base64-bytestring-kadena == 0.1
+        , byteslice >= 0.2.12
+        , bytesmith >= 0.3.10
             -- due to change in error message that is inlined in pact
         , bytestring >= 0.10.12
         , case-insensitive >= 1.2
@@ -544,6 +559,7 @@ test-suite chainweb-tests
         , lens >= 4.17
         , lens-aeson >= 1.2.2
         , loglevel >= 0.1
+        , memory >=0.14
         , merkle-log >=0.2
         , mtl >= 2.3
         , network >= 3.1.2
@@ -575,6 +591,7 @@ test-suite chainweb-tests
         , text >=2.0
         , time >= 1.12.2
         , transformers >= 0.5
+        , unliftio >= 0.2.25
         , unordered-containers >= 0.2.16
         , vector >= 0.12.2
         , wai >= 3.2
@@ -670,6 +687,7 @@ executable cwtool
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
+        Chainweb.Test.Pact.Utils
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Utils
         Chainweb.Test.Utils.BlockHeader
@@ -699,16 +717,19 @@ executable cwtool
         , lens-aeson >= 1.2.2
         , async >= 2.2
         , base >= 4.12 && < 5
+        , base16-bytestring >= 0.1
         , bytestring >= 0.10.12
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
         , cereal >= 0.5
         , chainweb-storage >= 0.1
+        , chronos >= 1.1
         , configuration-tools >= 0.6
         , crypton-connection >=0.2
         , containers >= 0.5
         , crypton >= 0.31
         , data-default >=0.7
+        , Decimal >= 0.5.2
         , deepseq >= 1.4
         , digraph >= 0.2.3
         , direct-sqlite >= 2.3.27
@@ -729,6 +750,7 @@ executable cwtool
         , optparse-applicative >= 0.14
         , pact
         , pact-json
+        , patience >= 0.3
         , process >= 1.5
         , quickcheck-instances >= 0.3
         , random >= 1.2
@@ -740,6 +762,7 @@ executable cwtool
         , safe-exceptions >= 0.1
         , servant-client >= 0.18.2
         , servant-client-core >= 0.18.2
+        , stm >= 2.4
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
         , tasty >= 1.0
@@ -749,6 +772,7 @@ executable cwtool
         , temporary >= 1.3
         , time >= 1.9
         , text >= 2.0
+        , unliftio >= 0.2.25
         , unordered-containers >= 0.2.16
         , vector >= 0.12.2
         , wai >= 3.2
@@ -805,6 +829,7 @@ benchmark bench
         , mtl >= 2.3
         , pact
         , random >= 1.2
+        , streaming
         , text >= 2.0
         , vector >= 0.12.2
         , yaml >= 0.11

@@ -52,7 +52,7 @@ newtype VerifierPlugin
     = VerifierPlugin
     { runVerifierPlugin
         :: forall s
-        . [PactValue]
+        . PactValue
         -> Set SigCapability
         -> STRef s GasLimit
         -> ExceptT VerifierError (ST s) ()
@@ -77,9 +77,9 @@ runVerifierPlugins allVerifiers gl tx = try $ stToIO $ do
         (Merge.traverseMissing $ \k _ -> throwError $ VerifierError ("verifier does not exist: " <> k))
         Merge.dropMissing
         (Merge.zipWithAMatched $ \vn argsAndCaps verifierPlugin ->
-            for_ argsAndCaps $ \(args, caps) -> do
+            for_ argsAndCaps $ \(proof, caps) -> do
                 verifierGasLimit <- lift $ readSTRef gasRef
-                runVerifierPlugin verifierPlugin args caps gasRef
+                runVerifierPlugin verifierPlugin proof caps gasRef
                 verifierDoneGasLimit <- lift $ readSTRef gasRef
                 if verifierDoneGasLimit > verifierGasLimit
                 then throwError $ VerifierError ("Verifier attempted to charge negative gas: " <> vn)
@@ -88,10 +88,10 @@ runVerifierPlugins allVerifiers gl tx = try $ stToIO $ do
         usedVerifiers
         allVerifiers
     where
-    usedVerifiers :: Map Text [([PactValue], Set SigCapability)]
+    usedVerifiers :: Map Text [(PactValue, Set SigCapability)]
     usedVerifiers =
         Map.fromListWith (++) $
         fmap
-            (\Verifier {_verifierName = VerifierName name, _verifierArgs = ParsedVerifierArgs args, _verifierCaps = caps} ->
-                (name, [(args, Set.fromList caps)])) $
+            (\Verifier {_verifierName = VerifierName name, _verifierProof = ParsedVerifierProof proof, _verifierCaps = caps} ->
+                (name, [(proof, Set.fromList caps)])) $
         fromMaybe [] $ _pVerifiers (_cmdPayload tx)

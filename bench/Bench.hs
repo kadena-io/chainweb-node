@@ -15,17 +15,16 @@ import qualified Chainweb.Pact.Backend.ForkingBench as ForkingBench
 import qualified JSONEncoding
 
 import Chainweb.Storage.Table.RocksDB
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Development
-import Chainweb.Version.FastDevelopment
 import Chainweb.Version.Registry
 
 main :: IO ()
 main = withTempRocksDb "benchmarks" $ \rdb -> do
+  registerVersion RecapDevelopment
   registerVersion Development
-  registerVersion FastDevelopment
   defaultMain
     [ Checkpointer.bench
     , ForkingBench.bench rdb
     , JSONEncoding.benchmarks
     ]
-

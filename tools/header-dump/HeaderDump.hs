@@ -107,7 +107,7 @@ import Chainweb.Time
 import Chainweb.TreeDB hiding (key)
 import Chainweb.Utils hiding (progress)
 import Chainweb.Version
-import Chainweb.Version.Development
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Registry
 
 import Chainweb.Storage.Table
@@ -210,7 +210,7 @@ defaultConfig :: Config
 defaultConfig = Config
     { _configLogHandle = Y.StdOut
     , _configLogLevel = Y.Info
-    , _configChainwebVersion = Development
+    , _configChainwebVersion = RecapDevelopment
     , _configChainId = Nothing
     , _configPretty = True
     , _configDatabasePath = Nothing

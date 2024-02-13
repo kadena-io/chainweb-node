@@ -792,7 +792,7 @@ mkTransfer :: ChainId -> IO (Time Micros) -> IO SubmitBatch
 mkTransfer sid tio = do
     t <- toTxCreationTime <$> tio
     n <- readIORef nonceRef
-    c <- buildTextCmd v
+    c <- buildTextCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n) v
       $ set cbSigners
         [ mkEd25519Signer' sender00
           [ mkTransferCap "sender00" "sender01" 1.0
@@ -801,8 +801,8 @@ mkTransfer sid tio = do
         ]
       $ set cbCreationTime t
       $ set cbChainId sid
-      $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
-      $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+      $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)")
+      $ defaultCmd
 
     modifyIORef' nonceRef (+1)
     return $ SubmitBatch (pure c)
@@ -812,7 +812,7 @@ mkKCoinAccount sid tio = do
     let kAcct = "k:" <> fst sender00
     t <- toTxCreationTime <$> tio
     n <- readIORef nonceRef
-    c <- buildTextCmd v
+    c <- buildTextCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n) v
       $ set cbSigners
         [ mkEd25519Signer' sender00
           [ mkTransferCap "sender00" kAcct 20.0
@@ -820,9 +820,11 @@ mkKCoinAccount sid tio = do
         ]
       $ set cbCreationTime t
       $ set cbChainId sid
-      $ mkCmd ("nonce-transfer-" <> sshow t <> "-" <> sshow n)
-      $ mkExec ("(coin.transfer-create \"sender00\" \"" <> kAcct <> "\" (read-keyset \"sender00\") 20.0)")
-      $ mkKeySetData "sender00" [sender00]
+      $ set cbRPC
+          (mkExec ("(coin.transfer-create \"sender00\" \"" <> kAcct <> "\" (read-keyset \"sender00\") 20.0)")
+            (mkKeySetData "sender00" [sender00]))
+
+      $ defaultCmd
 
     modifyIORef' nonceRef (+1)
     return $ SubmitBatch (pure c)

@@ -56,7 +56,8 @@ import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import System.Logger.Types (LogLevel(..))
+import GHC.Exts(the)
+import System.LogLevel (LogLevel(..))
 
 import Servant.Client
 
@@ -155,55 +156,41 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
                   -- to run these two operations on is fine.
                   pure (fst (head m))
 
-            in testGroup "remote pact tests"
+            in sequentialTestGroup "remote pact tests" AllFinish
                 [ withResourceT (liftIO $ join $ withRequestKeys <$> iot <*> cenv) $ \reqkeys -> golden "remote-golden" $
                     join $ responseGolden <$> cenv <*> reqkeys
-                , after AllSucceed "remote-golden" $
-                    testCaseSteps "remote spv" $ \step ->
-                        join $ spvTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "remote-golden" $
-                    testCaseSteps "remote eth spv" $ \step ->
-                        join $ ethSpvTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "remote spv" $
-                    testCaseSteps "/send reports validation failure" $ \step ->
-                        join $ sendValidationTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "remote spv" $
-                    testCase "/poll reports badlisted txs" $
-                        join $ pollingBadlistTest <$> cenv
-                , after AllSucceed "remote spv" $
-                    testCase "trivialLocalCheck" $
-                        join $ localTest <$> iot <*> cenv
-                , after AllSucceed "remote spv" $
-                    testCase "txlogsCompactionTest" $
-                        join $ txlogsCompactionTest <$> iot <*> cenv <*> pactDir
-                , after AllSucceed "remote spv" $
-                    testCase "localChainData" $
-                        join $ localChainDataTest <$> iot <*> cenv
-                , after AllSucceed "remote spv" $
-                    testCaseSteps "transaction size gas tests" $ \step ->
-                        join $ txTooBigGasTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "remote spv" $
-                    testCaseSteps "genesisAllocations" $ \step ->
-                        join $ allocationTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "genesisAllocations" $
-                    testCaseSteps "caplist TRANSFER and FUND_TX test" $ \step ->
-                        join $ caplistTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "caplist TRANSFER and FUND_TX test" $
-                    testCaseSteps "local continuation test" $ \step ->
-                        join $ localContTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "caplist TRANSFER and FUND_TX test" $
-                    testCaseSteps "poll confirmation depth test" $ \step ->
-                        join $ pollingConfirmDepth <$> iot <*> cenv <*> pure step
-                , after AllSucceed "local continuation test" $
-                    testCaseSteps "/poll rejects keys of incorrect length" $ \step ->
-                        join $ pollBadKeyTest <$> cenv <*> pure step
-                , after AllSucceed "poll bad key test" $
-                    testCaseSteps "local preflight sim test" $ \step ->
-                        join $ localPreflightSimTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "poll returns correct results" $
-                    testCaseSteps "poll correct results test" $ \step ->
-                        join $ pollingCorrectResults <$> iot <*> cenv <*> pure step
-                , after AllSucceed "webauthn signatures" $ testCase "webauthn sig" $ join $ webAuthnSignatureTest <$> iot <*> cenv
+                , testCaseSteps "remote spv" $ \step ->
+                    join $ spvTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "remote eth spv" $ \step ->
+                    join $ ethSpvTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "/send reports validation failure" $ \step ->
+                    join $ sendValidationTest <$> iot <*> cenv <*> pure step
+                , testCase "/poll reports badlisted txs" $
+                    join $ pollingBadlistTest <$> cenv
+                , testCase "trivialLocalCheck" $
+                    join $ localTest <$> iot <*> cenv
+                , testCase "txlogsCompactionTest" $
+                    join $ txlogsCompactionTest <$> iot <*> cenv <*> pactDir
+                , testCase "localChainData" $
+                    join $ localChainDataTest <$> iot <*> cenv
+                , testCaseSteps "transaction size gas tests" $ \step ->
+                    join $ txTooBigGasTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "genesisAllocations" $ \step ->
+                    join $ allocationTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "caplist TRANSFER and FUND_TX test" $ \step ->
+                    join $ caplistTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "local continuation test" $ \step ->
+                    join $ localContTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "poll confirmation depth test" $ \step ->
+                    join $ pollingConfirmDepth <$> iot <*> cenv <*> pure step
+                , testCaseSteps "/poll rejects keys of incorrect length" $ \step ->
+                    join $ pollBadKeyTest <$> cenv <*> pure step
+                , testCaseSteps "local preflight sim test" $ \step ->
+                    join $ localPreflightSimTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "poll correct results test" $ \step ->
+                    join $ pollingCorrectResults <$> iot <*> cenv <*> pure step
+                , testCase "webauthn sig" $
+                    join $ webAuthnSignatureTest <$> iot <*> cenv
                 ]
     ]
 
@@ -246,19 +233,18 @@ responseGolden cenv rks = do
 --       appear in the `txLogs` anymore, and the two should be equivalent.
 txlogsCompactionTest :: Pact.TxCreationTime -> ClientEnv -> FilePath -> IO ()
 txlogsCompactionTest t cenv pactDbDir = do
-    let cmd :: Text -> Text -> CmdBuilder
-        cmd nonce tx = do
+    let cmd :: Text -> CmdBuilder
+        cmd tx = do
           set cbSigners [mkEd25519Signer' sender00 []]
             $ set cbTTL defaultMaxTTL
             $ set cbCreationTime t
             $ set cbChainId cid
-            $ mkCmd nonce
-            $ mkExec tx
-            $ mkKeySetData "sender00" [sender00]
+            $ set cbRPC (mkExec tx (mkKeySetData "sender00" [sender00]))
+            $ defaultCmd
 
-    createTableTx <- buildTextCmd v
+    createTableTx <- buildTextCmd "create-table-persons" v
       $ set cbGasLimit 300_000
-      $ cmd "create-table-persons"
+      $ cmd
       $ T.unlines
           [ "(namespace 'free)"
           , "(module m0 G"
@@ -328,9 +314,9 @@ txlogsCompactionTest t cenv pactDbDir = do
           -- Note there are two transactions that write to `persons`, which is
           -- why `numTxIds` = 2 (and not the number of rows).
           let gasLimit = 400_000
-          buildTextCmd v
+          buildTextCmd ("test-txlogs-" <> sshow n) v
             $ set cbGasLimit gasLimit
-            $ cmd ("test-txlogs-" <> sshow n)
+            $ cmd
             $ T.unlines
                 [ "(namespace 'free)"
                 , "(module m" <> sshow n <> " G"
@@ -344,9 +330,9 @@ txlogsCompactionTest t cenv pactDbDir = do
         createWriteTx n = do
           -- module = 60k, write = 100
           let gasLimit = 70_000
-          buildTextCmd v
+          buildTextCmd ("test-write-" <> sshow n) v
             $ set cbGasLimit gasLimit
-            $ cmd ("test-write-" <> sshow n)
+            $ cmd
             $ T.unlines
                 [ "(namespace 'free)"
                 , "(module m" <> sshow n <> " G"
@@ -379,11 +365,11 @@ txlogsCompactionTest t cenv pactDbDir = do
     submitAndCheckTx =<< createWriteTx =<< nextNonce
 
     C.withDefaultLogger Error $ \logger -> do
-      let flags = [C.NoVacuum, C.NoGrandHash]
+      let flags = [C.NoVacuum]
       let resetDb = False
 
-      Backend.withSqliteDb cid logger pactDbDir resetDb $ \(SQLiteEnv db _) -> do
-        void $ C.compact C.Latest logger db flags
+      Backend.withSqliteDb cid logger pactDbDir resetDb $ \dbEnv ->
+        compactUntilAvailable C.Latest logger dbEnv flags
 
     txLogs <- crGetTxLogs =<< local cid cenv =<< createTxLogsTx =<< nextNonce
 
@@ -430,20 +416,19 @@ localContTest t cenv step = do
     tx =
       "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
     firstStep = do
-      buildTextCmd v
+      buildTextCmd "nonce-cont-1" v
         $ set cbSigners [mkEd25519Signer' sender00 []]
         $ set cbCreationTime t
-        $ set cbGasLimit 70000
-        $ mkCmd "nonce-cont-1"
-        $ mkExec' tx
+        $ set cbGasLimit 70_000
+        $ set cbRPC (mkExec' tx)
+        $ defaultCmd
 
     secondStep pid = do
-      buildTextCmd v
+      buildTextCmd "nonce-cont-2" v
         $ set cbSigners [mkEd25519Signer' sender00 []]
         $ set cbCreationTime t
-        $ mkCmd "nonce-cont-2"
-        $ mkCont
-        $ mkContMsg pid 1
+        $ set cbRPC (mkCont (mkContMsg pid 1))
+        $ defaultCmd
 
 pollingConfirmDepth :: Pact.TxCreationTime -> ClientEnv -> (String -> IO ()) -> IO ()
 pollingConfirmDepth t cenv step = do
@@ -455,14 +440,19 @@ pollingConfirmDepth t cenv step = do
 
     step "/poll for the transactions until they appear"
 
-    beforePolling <- getCurrentBlockHeight v cenv cid'
     PollResponses m <- pollingWithDepth cid' cenv rks (Just $ ConfirmationDepth 10) ExpectPactResult
     afterPolling <- getCurrentBlockHeight v cenv cid'
+    -- here we rely on both txs being in the same block.
+    let txHeight = the
+          (m ^.. to HM.elems . folded . crMetaData . _Just . key "blockHeight" . _Integer)
 
     assertBool "there are two command results" $ length (HM.keys m) == 2
 
-    -- we are checking that we have waited at least 10 blocks using /poll for the transaction
-    assertBool "the difference between heights should be no less than the confirmation depth" $ (afterPolling - beforePolling) >= 10
+    -- we are checking that we have waited exactly 10 blocks using /poll for the transaction
+    -- this is technically a race, because a block could've been made after the poll response
+    -- and before we fetch the current height; so we give it some slack.
+    assertBool "the difference between heights should be within 1 block of the confirmation depth"
+      (afterPolling - int txHeight `elem` [10..20])
   where
     cid' = unsafeChainId 0
     tx =
@@ -470,12 +460,12 @@ pollingConfirmDepth t cenv step = do
     tx' =
       "43"
     firstStep transaction = do
-      buildTextCmd v
+      buildTextCmd "nonce-cont-1" v
         $ set cbSigners [mkEd25519Signer' sender00 []]
         $ set cbCreationTime t
-        $ set cbGasLimit 70000
-        $ mkCmd "nonce-cont-1"
-        $ mkExec' transaction
+        $ set cbGasLimit 70_000
+        $ set cbRPC (mkExec' transaction)
+        $ defaultCmd
 
 pollingCorrectResults :: Pact.TxCreationTime -> ClientEnv -> (String -> IO ()) -> IO ()
 pollingCorrectResults t cenv step = do
@@ -505,12 +495,12 @@ pollingCorrectResults t cenv step = do
     (tx, tx')  = ("42", "43")
 
     stepTx transaction = do
-      buildTextCmd v
+      buildTextCmd "nonce-cont-2" v
         $ set cbSigners [mkEd25519Signer' sender00 []]
         $ set cbCreationTime t
         $ set cbGasLimit 70_000
-        $ mkCmd "nonce-cont-2"
-        $ mkExec' transaction
+        $ set cbRPC (mkExec' transaction)
+        $ defaultCmd
 
 localChainDataTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
 localChainDataTest t cenv = do
@@ -687,12 +677,12 @@ localPreflightSimTest t cenv step = do
         $ set cbChainId pcid
         $ set cbSigners sigs
         $ set cbCreationTime t
-        $ mkCmd ""
-        $ mkExec' "(+ 1 2)"
+        $ set cbRPC (mkExec' "(+ 1 2)")
+        $ defaultCmd
 
     mkTx v' mv tx = modifyMVar mv $ \nn -> do
       let n = "nonce-" <> sshow nn
-      tx' <- buildTextCmd v' $ set cbNonce n tx
+      tx' <- buildTextCmd n v' tx
       pure (succ nn, tx')
 
 pollingBadlistTest :: ClientEnv -> IO ()
@@ -1100,23 +1090,22 @@ allocationTest t cenv step = do
 webAuthnSignatureTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
 webAuthnSignatureTest t cenv = do
 
-  cmd1 <- buildTextCmd v
+  cmd1 <- buildTextCmd "nonce-webauthn-1" v
     $ set cbSigners [mkWebAuthnSigner' sender02WebAuthn [], mkEd25519Signer' sender00 []]
     $ set cbCreationTime t
     $ set cbGasLimit 1000
-    $ mkCmd "nonce-webauthn-1"
-    $ mkExec' "(concat [\"chainweb-\" \"node\"])"
+    $ set cbRPC (mkExec' "(concat [\"chainweb-\" \"node\"])")
+    $ defaultCmd
 
   rks1 <- sending cid' cenv (SubmitBatch $ pure cmd1)
   PollResponses _resp1 <- polling cid' cenv rks1 ExpectPactResult
 
-  cmd2 <- buildTextCmd v
+  cmd2 <- buildTextCmd "nonce-webauthn-2" v
     $ set cbSigners [mkWebAuthnSigner' sender02WebAuthn [], mkEd25519Signer' sender00 []]
     $ set cbCreationTime t
     $ set cbGasLimit 1000
-    $ mkCmd "nonce-webauthn-2"
-    $ mkExec' "(concat [\"chainweb-\" \"node\"])"
-
+    $ set cbRPC (mkExec' "(concat [\"chainweb-\" \"node\"])")
+    $ defaultCmd
 
   rks2 <- sending cid' cenv (SubmitBatch $ pure cmd2)
   PollResponses _resp2 <- polling cid' cenv rks2 ExpectPactResult
