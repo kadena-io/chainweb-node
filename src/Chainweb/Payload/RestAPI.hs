@@ -28,6 +28,9 @@ module Chainweb.Payload.RestAPI
 , SomePayloadDb(..)
 , somePayloadDbVal
 
+, HeightenedPayloadPostApi
+, heightenedPayloadPostApi
+
 -- * Payload GET API
 , PayloadGetApi
 , payloadGetApi
@@ -144,6 +147,20 @@ payloadPostApi
     . Proxy (PayloadPostApi v c)
 payloadPostApi = Proxy
 
+type HeightenedPayloadPostApi_
+    = "payload"
+   :> "batch"
+   :> ReqBody '[JSON] [(BlockHeight, BlockPayloadHash)]
+   :> Post '[JSON] [PayloadData]
+
+type HeightenedPayloadPostApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> HeightenedPayloadPostApi_
+
+heightenedPayloadPostApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (HeightenedPayloadPostApi v c)
+heightenedPayloadPostApi = Proxy
+
 -- -------------------------------------------------------------------------- --
 -- Outputs GET API
 
@@ -193,6 +210,7 @@ type PayloadApi v c
     = PayloadGetApi v c
     :<|> OutputsGetApi v c
     :<|> PayloadPostApi v c
+    :<|> HeightenedPayloadPostApi v c
     :<|> OutputsPostApi v c
 
 payloadApi

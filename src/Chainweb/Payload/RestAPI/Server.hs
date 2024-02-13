@@ -98,6 +98,22 @@ payloadHandler db k h = run >>= \case
 -- -------------------------------------------------------------------------- --
 -- POST Payload Batch Handler
 
+fetchPayloads
+    :: CanReadablePayloadCas tbl
+    => PayloadDb tbl
+    -> [(BlockHeight, BlockPayloadHash)]
+    -> IO [PayloadData]
+fetchPayloads db hks = do
+    payloads <- catMaybes <$>
+        tableLookupBatch payloadsDb hks
+    txs <- zipWith (\a b -> payloadData <$> a <*> pure b)
+        <$> tableLookupBatch txsDb (_blockPayloadTransactionsHash <$> payloads)
+        <*> pure payloads
+    return $ catMaybes txs
+  where
+    payloadsDb = _transactionDbBlockPayloads $ _transactionDb db
+    txsDb = _transactionDbBlockTransactions $ _transactionDb db
+
 payloadBatchHandler
     :: CanReadablePayloadCas tbl
     => PayloadBatchLimit
@@ -105,19 +121,24 @@ payloadBatchHandler
     -> [BlockPayloadHash]
     -> Handler [PayloadData]
 payloadBatchHandler batchLimit db ks = liftIO $ do
-    heights <- mapMaybe (\(f, s) -> (,s) <$> f) <$>
+    heightened <- mapMaybe (\(f, s) -> (,s) <$> f) <$>
         tableLookupBatch' heightsDb (each . _1) (diag <$> take (int batchLimit) ks)
-    payloads <- catMaybes <$>
-        tableLookupBatch payloadsDb heights
-    txs <- zipWith (\a b -> payloadData <$> a <*> pure b)
-        <$> tableLookupBatch txsDb (_blockPayloadTransactionsHash <$> payloads)
-        <*> pure payloads
-    return $ catMaybes txs
+    fetchPayloads db heightened
   where
     diag x = (x, x)
-    payloadsDb = _transactionDbBlockPayloads $ _transactionDb db
     heightsDb = _transactionDbBlockPayloadHeights $ _transactionDb db
-    txsDb = _transactionDbBlockTransactions $ _transactionDb db
+
+-- -------------------------------------------------------------------------- --
+-- POST Payload Batch Handler
+
+heightenedPayloadBatchHandler
+    :: CanReadablePayloadCas tbl
+    => PayloadBatchLimit
+    -> PayloadDb tbl
+    -> [(BlockHeight, BlockPayloadHash)]
+    -> Handler [PayloadData]
+heightenedPayloadBatchHandler batchLimit db ks =
+    liftIO $ fetchPayloads db (take (int batchLimit) ks)
 
 -- -------------------------------------------------------------------------- --
 -- GET Outputs Handler
@@ -163,6 +184,7 @@ payloadServer batchLimit (PayloadDb' db)
     = payloadHandler @tbl db
     :<|> outputsHandler @tbl db
     :<|> payloadBatchHandler @tbl batchLimit db
+    :<|> heightenedPayloadBatchHandler @tbl batchLimit db
     :<|> outputsBatchHandler @tbl batchLimit db
 
 -- -------------------------------------------------------------------------- --
