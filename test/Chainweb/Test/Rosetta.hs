@@ -43,7 +43,7 @@ import Chainweb.Rosetta.Internal
 import Chainweb.Rosetta.RestAPI
 import Chainweb.Rosetta.Utils
 import Chainweb.Version
-import Chainweb.Version.Development
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Testnet
 import qualified Pact.Types.KeySet as P
 
@@ -387,9 +387,9 @@ checkValidateNetwork = do
     run :: (ChainwebVersion, NetworkId) -> Either RosettaFailure T.Text
     run (v,net) = either Left (pure . chainIdToText) (validateNetwork v net)
 
-    validNetId = (Development, NetworkId
+    validNetId = (RecapDevelopment, NetworkId
       { _networkId_blockchain = "kadena"
-      , _networkId_network = "development"
+      , _networkId_network = "recap-development"
       , _networkId_subNetworkId = Just $ SubNetworkId "0" Nothing
       })
     invalidBlockchainName =

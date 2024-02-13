@@ -29,6 +29,9 @@
   ;; coin v4
   (bless "BjZW0T2ac6qE_I5X8GE4fal6tTqjhLTC7my0ytQSxLU")
 
+  ;; coin v5
+  (bless "rE7DU8jlQL9x_MPYuniZJf5ICBTAEHAIFQCB4blofP4")
+
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
 
@@ -313,11 +316,16 @@
 
   (defun rotate:string (account:string new-guard:guard)
     (with-capability (ROTATE account)
+
+      ; Allow rotation only for vanity accounts, or
+      ; re-rotating a principal account back to its proper guard
+      (enforce (or (not (is-principal account))
+                  (validate-principal new-guard account))
+        "It is unsafe for principal accounts to rotate their guard")
+
       (with-read coin-table account
         { "guard" := old-guard }
-
         (enforce-guard old-guard)
-
         (update coin-table account
           { "guard" : new-guard }
           )))

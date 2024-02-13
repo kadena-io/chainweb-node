@@ -257,6 +257,7 @@ instance HasTextRepresentation Fork where
     fromText "chainweb219Pact" = return Chainweb219Pact
     fromText "chainweb220Pact" = return Chainweb220Pact
     fromText "chainweb221Pact" = return Chainweb221Pact
+    fromText "chainweb222Pact" = return Chainweb222Pact
     fromText "chainweb223Pact" = return Chainweb223Pact
     fromText "enableVerifiers" = return EnableVerifiers
     fromText t = throwM . TextFormatException $ "Unknown Chainweb fork: " <> t
@@ -320,7 +321,7 @@ upgrade txs = Upgrade txs False
 
 -- | Chainweb versions are sets of properties that must remain consistent among
 -- all nodes on the same network. For examples see `Chainweb.Version.Mainnet`,
--- `Chainweb.Version.Testnet`, `Chainweb.Version.Development`, and
+-- `Chainweb.Version.Testnet`, `Chainweb.Version.RecapDevelopment`, and
 -- `Chainweb.Test.TestVersions`.
 --
 -- NOTE: none of the fields should be strict at any level, because of how we

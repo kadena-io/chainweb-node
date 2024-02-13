@@ -353,7 +353,7 @@ node conf logger = do
             Replayed _ _ -> return ()
             StartedChainweb cw ->
                 concurrentlies_
-                    [ runChainweb cw
+                    [ runChainweb cw (\_ -> return ())
                     -- we should probably push 'onReady' deeper here but this should be ok
                     , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
                     , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
@@ -381,7 +381,7 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
 
     -- we don't log tx failures in replay
     let !txFailureHandler =
-            if _configOnlySyncPact chainwebCfg
+            if _configOnlySyncPact chainwebCfg || _configReadOnlyReplay chainwebCfg
             then dropLogHandler (Proxy :: Proxy TxFailureLog)
             else passthroughLogHandler
 

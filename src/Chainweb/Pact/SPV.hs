@@ -78,7 +78,6 @@ import qualified Chainweb.Version.Guards as CW
 
 import Chainweb.Storage.Table
 
-
 -- internal pact modules
 
 import qualified Pact.JSON.Encode as J

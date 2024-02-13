@@ -75,7 +75,7 @@ assertLocalMetadata
     -> PactServiceM logger tbl (Either (NonEmpty Text) ())
 assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
     v <- view psVersion
-    cid <- view psChainId
+    cid <- view chainId
     bgl <- view psBlockGasLimit
 
     let bh = ctxCurrentBlockHeight txCtx

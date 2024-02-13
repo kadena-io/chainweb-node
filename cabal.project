@@ -29,10 +29,18 @@ if os(darwin)
 package chainweb
     tests: True
     benchmarks: True
+    ghc-options: -Wno-missed-extra-shared-lib
 
 if impl(ghc >= 9.8.1)
     package chainweb
         ghc-options: -Wno-x-partial
+
+    -- Remove once we actually upgrade to GHC 9.8.1, these
+    -- will be released
+    allow-newer: bytesmith:bytestring
+    allow-newer: bytebuild:*
+    allow-newer: byteslice:*
+    constraints: haskell-src-meta >= 0.8.13
 
 package pact
     ghc-options: -Wwarn
@@ -63,7 +71,7 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: da0275e9bdffd84f672b45feb68a81aa268d7a32
+    tag: d37f549e6ce086f355b7448566a848019e8dc286
     --sha256: sha256-h7dYAn8ZSQygt7YVDT0KbHH3iTa+KyF6Z+tO1v1fhOg=
 
 source-repository-package
@@ -130,6 +138,12 @@ source-repository-package
     location: https://github.com/chessai/patience
     tag: 2f67d546ea6608fc6ebe5f2f6976503cbf340442
     --sha256: 0x137akvbh4kr3qagksw74xdj2xz5vjnx1fbr41bb54a0lkcb8mm
+
+source-repository-package
+    type: git
+    location: https://github.com/andrewthad/chronos
+    tag: b199bf6df1453af95832c2d2f9f0ef48c3622caa
+    --sha256: 056awkmdmkqdd5g3m8a1ibg2vp02kbppmidkfh4aildb1brq970a
 
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds

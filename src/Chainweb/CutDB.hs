@@ -38,13 +38,13 @@ module Chainweb.CutDB
 , cutDbParamsFetchTimeout
 , cutDbParamsAvgBlockHeightPruningDepth
 , cutDbParamsPruningFrequency
-, cutDbParamsWritingFrequency
 , cutDbParamsReadOnly
 , defaultCutDbParams
 , farAheadThreshold
 
 -- * Cut Hashes Table
 , cutHashesTable
+, readHighestCutHeaders
 
 -- * CutDb
 , CutDb
@@ -59,6 +59,7 @@ module Chainweb.CutDB
 , cutStm
 , awaitNewCut
 , awaitNewCutByChainId
+, awaitNewBlock
 , awaitNewCutByChainIdStm
 , cutStream
 , addCutHashes
@@ -171,10 +172,6 @@ data CutDbParams = CutDbParams
     -- (how far back do we expect that a fork can happen)
     , _cutDbParamsPruningFrequency :: !BlockHeight
     -- ^ After how many blocks do we prune cuts (on average)?
-    , _cutDbParamsWritingFrequency :: !BlockHeight
-    -- ^ After how many blocks do we write a cut (on average)?
-    -- should be much less than `blockHeightPruningDepth` or the
-    -- CutHashes table will always be empty.
     , _cutDbParamsReadOnly :: !Bool
     -- ^ Should the cut store be read-only?
     -- Enabled during replay-only mode.
@@ -195,7 +192,6 @@ defaultCutDbParams v ft = CutDbParams
     , _cutDbParamsFastForwardHeightLimit = Nothing
     , _cutDbParamsAvgBlockHeightPruningDepth = 5000
     , _cutDbParamsPruningFrequency = 10000
-    , _cutDbParamsWritingFrequency = 30
     , _cutDbParamsReadOnly = False
     }
   where
@@ -348,6 +344,15 @@ awaitNewCutByChainId :: CutDb tbl -> ChainId -> Cut -> IO Cut
 awaitNewCutByChainId cdb cid c = atomically $ awaitNewCutByChainIdStm cdb cid c
 {-# INLINE awaitNewCutByChainId #-}
 
+-- | As in `awaitNewCut`, but only updates when the header at the specified
+-- `ChainId` has changed, and only returns that new header.
+awaitNewBlock :: CutDb tbl -> ChainId -> BlockHeader -> IO BlockHeader
+awaitNewBlock cdb cid bh = atomically $ do
+    c <- _cutStm cdb
+    case HM.lookup cid (_cutMap c) of
+        Just bh' | _blockHash bh' /= _blockHash bh -> return bh'
+        _ -> retry
+
 -- | As in `awaitNewCut`, but only updates when the specified `ChainId` has
 -- grown.
 --
@@ -450,7 +455,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     readInitialCut :: IO Cut
     readInitialCut = do
         unsafeMkCut v <$> do
-            hm <- readHighestCutHeaders v logfun wbhdb cutHashesStore
+            hm <- readHighestCutHeaders v logg wbhdb cutHashesStore
             case _cutDbParamsInitialHeightLimit config of
                 Nothing -> return hm
                 Just h -> do
@@ -460,12 +465,11 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                         casInsert cutHashesStore (cutToCutHashes Nothing limitedCut)
                     return limitedCutHeaders
 
-readHighestCutHeaders :: ChainwebVersion -> LogFunction -> WebBlockHeaderDb -> Casify RocksDbTable CutHashes -> IO (HM.HashMap ChainId BlockHeader)
-readHighestCutHeaders v logfun wbhdb cutHashesStore = withTableIterator (unCasify cutHashesStore) $ \it -> do
+readHighestCutHeaders :: ChainwebVersion -> LogFunctionText -> WebBlockHeaderDb -> Casify RocksDbTable CutHashes -> IO (HM.HashMap ChainId BlockHeader)
+readHighestCutHeaders v logg wbhdb cutHashesStore = withTableIterator (unCasify cutHashesStore) $ \it -> do
     iterLast it
     go it
   where
-    logg = logfun @T.Text
     -- TODO: should we limit the search to a certain number of attempts
     -- or iterate in increasinly larger steps?
     go it = iterValue it >>= \case
@@ -474,7 +478,7 @@ readHighestCutHeaders v logfun wbhdb cutHashesStore = withTableIterator (unCasif
             return $ view cutMap $ genesisCut v
         Just ch -> try (lookupCutHashes wbhdb ch) >>= \case
             Left (e@(TreeDbKeyNotFound _) :: TreeDbException BlockHeaderDb) -> do
-                logfun @T.Text Warn
+                logg Warn
                     $ "Unable to load cut at height " <>  sshow (_cutHashesHeight ch)
                     <> " from database."
                     <> " Error: " <> sshow e <> "."
@@ -565,7 +569,8 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
                 $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
             unless (_cutDbParamsReadOnly conf) $ do
                 maybePrune rng (cutAvgBlockHeight v curCut)
-                maybeWrite rng resultCut
+                loggc Info newCut "writing cut"
+                casInsert cutHashesStore (cutToCutHashes Nothing resultCut)
             atomically $ writeTVar cutVar resultCut
             loggc Info resultCut "published cut"
             )
@@ -579,12 +584,6 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
         r :: Double <- Prob.uniform rng
         when (r < 1 / int (int (_cutDbParamsPruningFrequency conf) * chainCountAt v maxBound)) $
             pruneCuts logFun v conf curCutAvgBlockHeight cutHashesStore
-
-    maybeWrite rng newCut = do
-        r :: Double <- Prob.uniform rng
-        when (r < 1 / int (int (_cutDbParamsWritingFrequency conf) * chainCountAt v maxBound)) $ do
-            loggc Info newCut "writing cut"
-            casInsert cutHashesStore (cutToCutHashes Nothing newCut)
 
     hdrStore = _webBlockHeaderStoreCas headerStore
 
@@ -864,4 +863,3 @@ getQueueStats db = QueueStats
     <*> (int <$> TM.size (_webBlockHeaderStoreMemo $ view cutDbWebBlockHeaderStore db))
     <*> pQueueSize (_webBlockPayloadStoreQueue $ view cutDbPayloadStore db)
     <*> (int <$> TM.size (_webBlockPayloadStoreMemo $ view cutDbPayloadStore db))
-
