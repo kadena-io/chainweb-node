@@ -66,7 +66,7 @@ payloadBatchClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => [BlockPayloadHash]
+    => BatchBody
     -> ClientM [PayloadData]
 payloadBatchClient_ = client (payloadPostApi @v @c)
 
@@ -76,7 +76,7 @@ payloadBatchClient_ = client (payloadPostApi @v @c)
 payloadBatchClient
     :: ChainwebVersion
     -> ChainId
-    -> [BlockPayloadHash]
+    -> BatchBody
     -> ClientM [PayloadData]
 payloadBatchClient v c k = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v

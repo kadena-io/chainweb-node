@@ -3,6 +3,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
@@ -33,6 +34,7 @@ module Chainweb.Payload.RestAPI
 , payloadGetApi
 
 -- * Payload batch POST API
+, BatchBody(..)
 , PayloadPostApi
 , payloadPostApi
 
@@ -57,6 +59,7 @@ import Control.Monad.Identity
 
 import Data.Aeson
 import Data.Proxy
+import qualified Data.Vector as V
 
 import Numeric.Natural
 
@@ -125,6 +128,31 @@ payloadGetApi = Proxy
 -- -------------------------------------------------------------------------- --
 -- Payload POST API
 
+-- | The body of a batch payload request, which can be either a list of hashes
+-- or a list of hashes with their corresponding heights.
+data BatchBody
+    = WithoutHeights [BlockPayloadHash]
+    | WithHeights [(BlockHeight, BlockPayloadHash)]
+
+instance FromJSON BatchBody where
+    -- first, for backwards compat, parse the WithoutHeight variant
+    -- as a raw Array. this is for backwards compatibility; the original
+    -- /payload/batch endpoint only accepted an array of hashes without heights,
+    -- so we need to support that.
+    parseJSON (Array x) = WithoutHeights <$> traverse parseJSON (V.toList x)
+    -- then, try to parse the WithHeight variant as an Object like so:
+    --    { "heights": [ height1, height2, ... ], "hashes": [ "hash1", "hash2", ... ] }
+    parseJSON (Object o) = WithHeights <$> (zip <$> o .: "heights" <*> o .: "hashes")
+    -- anything else is invalid
+    parseJSON _ = fail "Invalid payload batch body"
+
+instance ToJSON BatchBody where
+    toJSON (WithoutHeights xs) = toJSON xs
+    toJSON (WithHeights xs) = object
+        [ "heights" .= map fst xs
+        , "hashes" .= map snd xs
+        ]
+
 -- | @POST \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/payload\/batch@
 --
 -- The query may return any number (including none) of the requested payload
@@ -133,7 +161,7 @@ payloadGetApi = Proxy
 type PayloadPostApi_
     = "payload"
     :> "batch"
-    :> ReqBody '[JSON] [BlockPayloadHash]
+    :> ReqBody '[JSON] BatchBody
     :> Post '[JSON] [PayloadData]
 
 type PayloadPostApi (v :: ChainwebVersionT) (c :: ChainIdT)

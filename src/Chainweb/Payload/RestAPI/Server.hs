@@ -28,6 +28,7 @@ module Chainweb.Payload.RestAPI.Server
 ) where
 
 import Control.Applicative
+import Control.Lens (over, _1)
 import Control.Monad
 import Control.Monad.IO.Class
 
@@ -86,11 +87,14 @@ payloadBatchHandler
     :: CanReadablePayloadCas tbl
     => PayloadBatchLimit
     -> PayloadDb tbl
-    -> [BlockPayloadHash]
+    -> BatchBody
     -> Handler [PayloadData]
-payloadBatchHandler batchLimit db ks = liftIO $ do
-    let ks' = take (int batchLimit) ks
-    catMaybes <$> lookupPayloadDataWithHeightBatch db (map (Nothing,) ks')
+payloadBatchHandler batchLimit db ks
+  = liftIO (catMaybes <$> lookupPayloadDataWithHeightBatch db ks')
+  where
+      limit = take (int batchLimit)
+      ks' | WithoutHeights xs <- ks = limit (fmap (Nothing,) xs)
+          | WithHeights    xs <- ks = limit (fmap (over _1 Just) xs)
 
 -- -------------------------------------------------------------------------- --
 -- GET Outputs Handler
