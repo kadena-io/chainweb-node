@@ -60,6 +60,7 @@ import Chainweb.Version
 import Data.Singletons
 
 import Servant.Client_
+import Chainweb.BlockHeight (BlockHeight)
 
 -- -------------------------------------------------------------------------- --
 -- Payload API
@@ -68,6 +69,7 @@ payloadGetClient'
     :: ChainwebVersion
     -> ChainId
     -> BlockPayloadHash
+    -> Maybe BlockHeight
     -> ClientM_ PayloadData
 payloadGetClient' v c = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)

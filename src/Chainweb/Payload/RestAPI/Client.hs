@@ -34,6 +34,7 @@ import Chainweb.Payload
 import Chainweb.Payload.RestAPI
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Version
+import Chainweb.BlockHeight (BlockHeight)
 
 -- -------------------------------------------------------------------------- --
 -- GET Payload Client
@@ -43,6 +44,7 @@ payloadClient_
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => BlockPayloadHash
+    -> Maybe BlockHeight
     -> ClientM PayloadData
 payloadClient_ = client (payloadGetApi @v @c)
 
@@ -50,11 +52,12 @@ payloadClient
     :: ChainwebVersion
     -> ChainId
     -> BlockPayloadHash
+    -> Maybe BlockHeight
     -> ClientM PayloadData
-payloadClient v c k = runIdentity $ do
+payloadClient v c k h = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ payloadClient_ @v @c k
+    return $ payloadClient_ @v @c k h
 
 -- -------------------------------------------------------------------------- --
 -- Post Payload Batch Client

@@ -342,7 +342,7 @@ devNetCut config mgr = runClientM (cutGetClient ver) (env mgr node) >>= \case
 -- Payloads
 
 devNetPayload :: Config -> Manager -> BlockPayloadHash -> IO PayloadData
-devNetPayload config  mgr x = runClientM (payloadClient ver cid x) (env mgr node) >>= \case
+devNetPayload config  mgr x = runClientM (payloadClient ver cid x Nothing) (env mgr node) >>= \case
     Left e -> error (show e)
     Right a -> return a
   where
