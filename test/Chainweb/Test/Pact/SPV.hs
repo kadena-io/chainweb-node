@@ -93,8 +93,6 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version as Chainweb
 import Chainweb.WebPactExecutionService
 
-import qualified Chainweb.Test.Pact.SPV.Hyperlane as Hyperlane
-
 import Chainweb.Storage.Table (casLookupM)
 
 import Data.LogMessage
@@ -113,8 +111,6 @@ tests = testGroup "Chainweb.Test.Pact.SPV"
     , testCaseSteps "wrong chain execution fails" wrongChain
     , testCaseSteps "invalid proof formats fail" invalidProof
     , testCaseSteps "wrong target chain in proofs fail" wrongChainProof
-
-    , Hyperlane.tests
     ]
 
 testVer :: ChainwebVersion

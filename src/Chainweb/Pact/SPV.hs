@@ -67,7 +67,6 @@ import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
 import Chainweb.Pact.Service.Types(internalError)
 import Chainweb.Pact.Utils (aeson)
-import Chainweb.Pact.SPV.Hyperlane
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV
@@ -484,3 +483,9 @@ mkSPVResult CommandResult{..} j =
         ]
 
     empty = obj []
+
+mkObject :: [(FieldKey, Term n)] -> Object n
+mkObject ps = Object (ObjectMap (M.fromList ps)) TyAny Nothing def
+
+obj :: [(FieldKey, Term n)] -> Term n
+obj = toTObject TyAny def

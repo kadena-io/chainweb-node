@@ -3,6 +3,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module: Chainweb.Version.Utils
@@ -65,6 +66,8 @@ import Chainweb.Difficulty
 import Chainweb.Time
 import Chainweb.VerifierPlugin
 import qualified Chainweb.VerifierPlugin.Allow
+import qualified Chainweb.VerifierPlugin.Hyperlane.Announcement
+import qualified Chainweb.VerifierPlugin.Hyperlane.Message
 
 import Control.Lens
 import Data.Foldable
@@ -470,4 +473,7 @@ verifiersAt v cid bh =
 allVerifierPlugins :: Map Text VerifierPlugin
 allVerifierPlugins = M.fromList
     [ ("allow", Chainweb.VerifierPlugin.Allow.plugin)
+
+    , ("hyperlane_announcement", Chainweb.VerifierPlugin.Hyperlane.Announcement.plugin)
+    , ("hyperlane_message", Chainweb.VerifierPlugin.Hyperlane.Message.plugin)
     ]

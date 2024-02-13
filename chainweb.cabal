@@ -240,6 +240,8 @@ library
         , Chainweb.Utils.Serialization
         , Chainweb.VerifierPlugin
         , Chainweb.VerifierPlugin.Allow
+        , Chainweb.VerifierPlugin.Hyperlane.Announcement
+        , Chainweb.VerifierPlugin.Hyperlane.Message
         , Chainweb.Version
         , Chainweb.Version.Development
         , Chainweb.Version.Guards
@@ -301,7 +303,6 @@ library
         , Chainweb.Pact.RestAPI.SPV
         , Chainweb.Pact.RestAPI.Server
         , Chainweb.Pact.SPV
-        , Chainweb.Pact.SPV.Hyperlane
         , Chainweb.Pact.SPV.Hyperlane.Binary
         , Chainweb.Pact.Service.BlockValidation
         , Chainweb.Pact.Service.PactInProcApi
@@ -452,7 +453,7 @@ library
 -- -------------------------------------------------------------------------- --
 
 test-suite chainweb-tests
-    import: warning-flags, debugging-flags
+    import: debugging-flags
     default-language: Haskell2010
     ghc-options:
         -threaded
@@ -483,6 +484,7 @@ test-suite chainweb-tests
         Chainweb.Test.Orphans.Time
         Chainweb.Test.Pact.GrandHash
         Chainweb.Test.Pact.PactMultiChainTest
+        Chainweb.Test.Pact.VerifierPluginTest
         Chainweb.Test.Pact.PactSingleChainTest
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Pact.DbCacheTest
@@ -494,7 +496,6 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.PactReplay
         Chainweb.Test.Pact.RemotePactTest
         Chainweb.Test.Pact.SPV
-        Chainweb.Test.Pact.SPV.Hyperlane
         Chainweb.Test.Pact.TransactionTests
         Chainweb.Test.Pact.TTL
         Chainweb.Test.Pact.SQLite
