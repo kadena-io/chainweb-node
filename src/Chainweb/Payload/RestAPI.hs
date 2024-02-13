@@ -71,6 +71,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
+import Chainweb.BlockHeight
 
 -- -------------------------------------------------------------------------- --
 -- Constants
@@ -110,6 +111,7 @@ somePayloadDbVal v cid db = runIdentity $ do
 type PayloadGetApi_
     = "payload"
     :> Capture "BlockPayloadHash" BlockPayloadHash
+    :> QueryParam "height" BlockHeight
     :> Get '[JSON] PayloadData
 
 type PayloadGetApi (v :: ChainwebVersionT) (c :: ChainIdT)

@@ -27,9 +27,9 @@ module Chainweb.Payload.RestAPI.Server
 , payloadApiLayout
 ) where
 
+import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Maybe
 
 import Data.Aeson
 import Data.Function
@@ -53,7 +53,7 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Utils (int)
 import Chainweb.Version
 
-import Chainweb.Storage.Table
+import Chainweb.BlockHeight (BlockHeight)
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -70,9 +70,9 @@ payloadHandler
     :: CanReadablePayloadCas tbl
     => PayloadDb tbl
     -> BlockPayloadHash
+    -> Maybe BlockHeight
     -> Handler PayloadData
-payloadHandler db k =
-    runMaybeT (MaybeT $ liftIO $ tableLookup (_transactionDb db) k) >>= \case
+payloadHandler db k mh = liftIO (lookupPayloadDataWithHeight db mh k) >>= \case
     Nothing -> throwError $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
