@@ -39,6 +39,7 @@ module Chainweb.Pact.Service.Types
   , RewindDepth(..)
   , ConfirmationDepth(..)
   , RewindLimit(..)
+  , PersistIntraBlockWrites(..)
 
   , BlockValidationFailureMsg(..)
   , LocalResult(..)
