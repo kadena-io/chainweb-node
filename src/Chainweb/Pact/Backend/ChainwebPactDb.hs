@@ -623,6 +623,8 @@ doGetTxLog d txid = do
                 allWritesForSomeKey <- HashMap.elems writesAtTableByKey
                 -- the single latest write to the table for that key which is
                 -- from this txid
+                -- this is the latest txid because of the invariant that
+                -- the result of `getPendingData` is ordered by txid descending.
                 latestWriteForSomeKey <- take 1
                     [ writeForSomeKey
                     | writeForSomeKey <- NE.toList allWritesForSomeKey
