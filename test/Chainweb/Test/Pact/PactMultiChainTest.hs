@@ -16,7 +16,6 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Data.Aeson (Value, object, (.=))
-import Data.Default
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
@@ -32,7 +31,6 @@ import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Continuation
 import Pact.Types.Hash
-import qualified Pact.JSON.Encode as PactJSON
 import Pact.Types.Lang(_LString)
 import Pact.Types.PactError
 import Pact.Types.PactValue

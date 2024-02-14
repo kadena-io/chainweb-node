@@ -5,7 +5,20 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module Chainweb.Pact.SPV.Hyperlane.Binary where
+module Chainweb.VerifierPlugin.Hyperlane.Binary
+  ( HyperlaneMessage(..)
+  , putHyperlaneMessage
+  , getHyperlaneMessage
+
+  , TokenMessageERC20(..)
+  , getTokenMessageERC20
+  , putTokenMessageERC20
+
+  , MessageIdMultisigIsmMetadata(..)
+  , getMessageIdMultisigIsmMetadata
+
+  , ethereumAddressSize
+  ) where
 
 import Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
