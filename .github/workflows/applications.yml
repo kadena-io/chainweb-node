@@ -67,8 +67,8 @@ jobs:
       id: compile-flags
       run: |
         TAG_SUFFIX=
-        
-        echo "chainweb-network-version=fast-development" >> $GITHUB_OUTPUT
+
+        echo "chainweb-network-version=development" >> $GITHUB_OUTPUT
 
         # Optimization
         OPT_LEVEL=${{ github.event.inputs.optimizationLevel }}
@@ -671,7 +671,7 @@ jobs:
           libbz2-1.0 \
           libgflags2.2 \
           zstd \
-          locales && 
+          locales &&
           rm -rf /var/lib/apt/lists/* &&
           locale-gen en_US.UTF-8 &&
           update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
@@ -765,4 +765,3 @@ jobs:
         repo: kadena-io/integration-tests
         display-workflow-run-url: true
         wait-for-completion: false # here you could make this pipeline wait them out
-

@@ -50,6 +50,7 @@ module Chainweb.Cut
 , lookupCutM
 , forkDepth
 , limitCut
+, tryLimitCut
 , limitCutHeaders
 , unsafeMkCut
 , chainHeights
@@ -155,7 +156,7 @@ import Chainweb.WebBlockHeaderDB
 -- 1. 'genesisCut',
 -- 2. 'monotonicCutExtension' and 'tryMonotonicCutExtension',
 -- 3. 'applyJoin' (preceeded by 'join'),
--- 4. 'limitCut'.
+-- 4. 'limitCut' and 'tryLimitCut'.
 --
 -- On startup a cut is created by
 -- 5. deserializing the cut that is persisted in the local cutDB.
@@ -426,6 +427,41 @@ limitCut wdb h c
             seekAncestor db bh (min (int $ _blockHeight bh) (int h))
         -- this is safe because it's guaranteed that the requested rank is
         -- smaller then the block height of the argument
+
+-- | Find a `Cut` that is a predecessor of the given one, and that has a block
+-- height that is as low as possible while not exceeding the given height and
+-- including all of the chains in the given cut.
+--
+-- If the requested limit is larger or equal to the current height, the given
+-- cut is returned.
+--
+tryLimitCut
+    :: HasCallStack
+    => WebBlockHeaderDb
+    -> BlockHeight
+        -- upper bound for the block height of each chain. This is not a tight bound.
+    -> Cut
+    -> IO Cut
+tryLimitCut wdb h c
+    | all (\bh -> h >= _blockHeight bh) (view cutHeaders c) =
+        return c
+    | otherwise = do
+        hdrs <- itraverse go $ view cutHeaders c
+        return $! set unsafeCutHeaders hdrs c
+  where
+    v = _chainwebVersion wdb
+    go :: ChainId -> BlockHeader -> IO BlockHeader
+    go cid bh = do
+        if h >= _blockHeight bh
+        then return bh
+        else do
+            !db <- getWebBlockHeaderDb wdb cid
+            -- this is safe because it's guaranteed that the requested rank is
+            -- smaller then the block height of the argument
+            let ancestorHeight = min (int $ _blockHeight bh) (int h)
+            if ancestorHeight <= fromIntegral (genesisHeight v cid)
+            then return $ genesisBlockHeader v cid
+            else fromJuste <$> seekAncestor db bh ancestorHeight
 
 -- | The resulting headers are valid cut headers only if the input headers are
 -- valid cut headers, too. The inverse is not true.

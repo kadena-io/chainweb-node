@@ -131,6 +131,7 @@ tests = testGroup testName
   , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
   , test generousConfig getGasModel "pact49UpgradeTest" pact49UpgradeTest
   , test generousConfig getGasModel "pact410UpgradeTest" pact410UpgradeTest
+  , test generousConfig getGasModel "chainweb223Test" chainweb223Test
   ]
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
@@ -264,28 +265,13 @@ pactLocalDepthTest = do
   runLocalWithDepth "3" (Just $ RewindDepth 2) cid getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the balance two blocks before" (pDecimal 100_000_000)
 
-  -- the negative depth turns into 18446744073709551611 and we expect the `LocalRewindLimitExceeded` exception
-  -- since `Depth` is a wrapper around `Word64`
-  handle
-    (\case
-      LocalRewindLimitExceeded _ _ -> return ()
-      err -> liftIO $ assertFailure $ "Expected LocalRewindLimitExceeded, but got " ++ show err)
-    (do
-      runLocalWithDepth "4" (Just $ RewindDepth (fromIntegral (-5 :: Int))) cid getSender00Balance >>= \_ ->
-        liftIO $ assertFailure "Expected LocalRewindLimitExceeded, but block succeeded")
-
   -- the genesis depth
   runLocalWithDepth "5" (Just $ RewindDepth 55) cid getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000)
 
-  -- depth that goes after the genesis block should trigger the `LocalRewindLimitExceeded` exception
-  handle
-    (\case
-      LocalRewindGenesisExceeded -> return ()
-      err -> liftIO $ assertFailure $ "Expected LocalRewindGenesisExceeded, but got " ++ show err)
-    (do
-      runLocalWithDepth "6" (Just $ RewindDepth 56) cid getSender00Balance >>= \_ ->
-        liftIO $ assertFailure "Expected LocalRewindGenesisExceeded, but block succeeded")
+  -- local rewinding past genesis should be the same as rewinding to genesis
+  runLocalWithDepth "6" (Just $ RewindDepth 56) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000)
 
   where
   checkLocalResult r checkResult = case r of
@@ -1207,6 +1193,49 @@ pact410UpgradeTest = do
     mkKeyEnvData key = object [ "k" .= [key] ]
 
 
+chainweb223Test :: PactTestM ()
+chainweb223Test = do
+
+  -- run past genesis, upgrades
+  runToHeight 119
+
+  let sender00KAccount = "k:" <> fst sender00
+  -- run pre-fork, where rotating principals is allowed
+  runBlockTest
+    [ PactTxTest
+      (buildBasic'
+      (set cbGasLimit 10000 .
+      set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkCoinCap "ROTATE" [pString sender00KAccount]]]
+      ) $ mkExec
+      (T.unlines
+        ["(coin.create-account (read-msg 'sender00KAcct) (read-keyset 'sender00))"
+        ,"(coin.rotate (read-msg 'sender00KAcct) (read-keyset 'sender01))"
+        ])
+      (object ["sender00" .= [fst sender00], "sender00KAcct" .= sender00KAccount, "sender01" .= [fst sender01]]))
+      (assertTxSuccess "should allow rotating principals before fork" (pString "Write succeeded"))
+    ]
+
+  -- run post-fork, where rotating principals is only allowed to get back to
+  -- their original guards
+  runBlockTest
+    [ PactTxTest
+      (buildBasic'
+      (set cbGasLimit 10000 .
+      set cbSigners [mkEd25519Signer' sender00 [mkGasCap], mkEd25519Signer' sender01 [mkCoinCap "ROTATE" [pString sender00KAccount]]]
+      ) $ mkExec
+        "(coin.rotate (read-msg 'sender00KAcct) (read-keyset 'sender00))"
+      (object ["sender00" .= [fst sender00], "sender00KAcct" .= sender00KAccount, "sender01" .= [fst sender01]]))
+      (assertTxSuccess "should allow rotating principals back after fork" (pString "Write succeeded"))
+    , PactTxTest
+      (buildBasic'
+      (set cbGasLimit 10000 .
+      set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkCoinCap "ROTATE" [pString sender00KAccount]]]
+      ) $ mkExec
+        "(coin.rotate (read-msg 'sender00KAcct) (read-keyset 'sender01))"
+      (object ["sender00" .= [fst sender00], "sender00KAcct" .= sender00KAccount, "sender01" .= [fst sender01]]))
+      (assertTxFailure "should not allow rotating principals after fork" "It is unsafe for principal accounts to rotate their guard")
+    ]
+
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
 
@@ -1383,7 +1412,21 @@ currentCut :: PactTestM Cut
 currentCut = view menvBdb >>= liftIO . readMVar . _bdbCut
 
 rewindTo :: Cut -> PactTestM ()
-rewindTo c = view menvBdb >>= \bdb -> void $ liftIO $ swapMVar (_bdbCut bdb) c
+rewindTo c = do
+  pact <- view menvPact
+  bdb <- view menvBdb
+
+  forM_ (chainIds testVersion) $ \cid' -> do
+    let
+      ph = case HM.lookup cid' (_cutMap c) of
+          Just h -> h
+          Nothing -> error $ "rewindTo: can't find block header for " ++ show cid'
+
+    -- reset the parent header using validateBlock
+    pout <- liftIO $ getPWOByHeader ph bdb
+    void $ liftIO $ _webPactValidateBlock pact ph (payloadWithOutputsToPayloadData pout)
+
+    void $ liftIO $ swapMVar (_bdbCut bdb) c
 
 assertTxEvents :: (HasCallStack, MonadIO m) => String -> [PactEvent] -> CommandResult Hash -> m ()
 assertTxEvents msg evs = liftIO . assertEqual msg evs . _crEvents

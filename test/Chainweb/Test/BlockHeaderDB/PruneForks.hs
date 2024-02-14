@@ -45,7 +45,7 @@ import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Version.Development
+import Chainweb.Version.RecapDevelopment
 
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
@@ -275,7 +275,7 @@ failIntrinsicCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
     let b = f0 !! int n
     delHdr bdb b
-    unsafeInsertBlockHeaderDb bdb $ b { _blockChainwebVersion = _versionCode Development }
+    unsafeInsertBlockHeaderDb bdb $ b { _blockChainwebVersion = _versionCode RecapDevelopment }
     try (pruneAllChains logger rdb toyVersion checks) >>= \case
         Left e
             | CheckFull `elem` checks
@@ -342,4 +342,3 @@ failPayloadCheck2 rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     return ()
   where
     logger = genericLogger testLogLevel (step . T.unpack)
-

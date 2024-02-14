@@ -110,13 +110,13 @@ import Chainweb.HostAddress
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultLocalRewindDepthLimit, defaultPreInsertCheckTimeout)
+import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultPreInsertCheckTimeout)
 import Chainweb.Pact.Service.Types (RewindLimit(..))
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Development
-import Chainweb.Version.FastDevelopment
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Registry
 import Chainweb.Time
@@ -391,12 +391,13 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configMinGasPrice :: !Mempool.GasPrice
     , _configPactQueueSize :: !Natural
     , _configReorgLimit :: !RewindLimit
-    , _configLocalRewindDepthLimit :: !RewindLimit
     , _configPreInsertCheckTimeout :: !Micros
     , _configAllowReadsInLocal :: !Bool
     , _configRosetta :: !Bool
     , _configBackup :: !BackupConfig
     , _configServiceApi :: !ServiceApiConfig
+    , _configReadOnlyReplay :: !Bool
+        -- ^ do a read-only replay using the cut db params for the block heights
     , _configOnlySyncPact :: !Bool
         -- ^ exit after synchronizing pact dbs to the latest cut
     , _configSyncPactChains :: !(Maybe [ChainId])
@@ -424,11 +425,11 @@ validateChainwebVersion :: ConfigValidation ChainwebVersion []
 validateChainwebVersion v = unless (isDevelopment || elem v knownVersions) $
     throwError $ T.unwords
         [ "Specifying version properties is only legal with chainweb-version"
-        , "set to development or fast-development, but version is set to"
+        , "set to recap-development or development, but version is set to"
         , sshow (_versionName v)
         ]
     where
-    isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [devnet, fastDevnet]]
+    isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [recapDevnet, devnet]]
 
 validateBackupConfig :: ConfigValidation BackupConfig []
 validateBackupConfig c =
@@ -453,12 +454,12 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configMinGasPrice = 1e-8
     , _configPactQueueSize = 2000
     , _configReorgLimit = defaultReorgLimit
-    , _configLocalRewindDepthLimit = defaultLocalRewindDepthLimit
     , _configPreInsertCheckTimeout = defaultPreInsertCheckTimeout
     , _configAllowReadsInLocal = False
     , _configRosetta = False
     , _configServiceApi = defaultServiceApiConfig
     , _configOnlySyncPact = False
+    , _configReadOnlyReplay = False
     , _configSyncPactChains = Nothing
     , _configBackup = defaultBackupConfig
     , _configModuleCacheLimit = defaultModuleCacheLimit
@@ -479,12 +480,12 @@ instance ToJSON ChainwebConfiguration where
         , "minGasPrice" .= J.toJsonViaEncode (_configMinGasPrice o)
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
-        , "localRewindDepthLimit" .= _configLocalRewindDepthLimit o
         , "preInsertCheckTimeout" .= _configPreInsertCheckTimeout o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
         , "rosetta" .= _configRosetta o
         , "serviceApi" .= _configServiceApi o
         , "onlySyncPact" .= _configOnlySyncPact o
+        , "readOnlyReplay" .= _configReadOnlyReplay o
         , "syncPactChains" .= _configSyncPactChains o
         , "backup" .= _configBackup o
         , "moduleCacheLimit" .= _configModuleCacheLimit o
@@ -514,6 +515,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configRosetta ..: "rosetta" % o
         <*< configServiceApi %.: "serviceApi" % o
         <*< configOnlySyncPact ..: "onlySyncPact" % o
+        <*< configReadOnlyReplay ..: "readOnlyReplay" % o
         <*< configSyncPactChains ..: "syncPactChains" % o
         <*< configBackup %.: "backup" % o
         <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
@@ -547,9 +549,6 @@ pChainwebConfiguration = id
         <> help "Max allowed reorg depth.\
                 \ Consult https://github.com/kadena-io/chainweb-node/blob/master/docs/RecoveringFromDeepForks.md for\
                 \ more information. "
-    <*< configLocalRewindDepthLimit .:: jsonOption
-        % long "local-rewind-depth-limit"
-        <> help "Max allowed rewind depth for the local command."
     <*< configPreInsertCheckTimeout .:: jsonOption
         % long "pre-insert-check-timeout"
         <> help "Max allowed time in microseconds for the transactions validation in the PreInsertCheck command."
@@ -605,4 +604,3 @@ parseVersion = constructVersion
         & versionCheats . disablePow .~ disablePow'
         where
         winningVersion = fromMaybe oldVersion cliVersion
-

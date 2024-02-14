@@ -121,7 +121,7 @@ module Chainweb.Test.Utils
 ) where
 
 import Control.Concurrent
-import Control.Concurrent.Async
+import Control.Concurrent.STM
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch (MonadCatch, catch, finally, bracket)
@@ -175,6 +175,8 @@ import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck (property, discard, (.&&.))
 
 import Text.Printf (printf)
+
+import UnliftIO.Async
 
 -- internal modules
 
@@ -912,17 +914,17 @@ withNodes_
     -> ResourceT IO ChainwebNetwork
 withNodes_ logger v testLabel rdb n = do
     nodeDbDirs <- withDbDirs n
-    (_rkey, (_async, (p2p, service))) <- allocate (start nodeDbDirs) (cancel . fst)
+    (p2p, service) <- start nodeDbDirs
     pure (ChainwebNetwork p2p service nodeDbDirs)
   where
-    start :: [(FilePath, FilePath)] -> IO (Async (), (ClientEnv, ClientEnv))
+    start :: [(FilePath, FilePath)] -> ResourceT IO (ClientEnv, ClientEnv)
     start dbDirs = do
-        peerInfoVar <- newEmptyMVar
-        a <- async $ runTestNodes testLabel rdb logger v peerInfoVar dbDirs
-        (i, servicePort) <- readMVar peerInfoVar
-        cwEnv <- getClientEnv $ getCwBaseUrl Https $ _hostAddressPort $ _peerAddr i
-        cwServiceEnv <- getClientEnv $ getCwBaseUrl Http servicePort
-        return (a, (cwEnv, cwServiceEnv))
+        peerInfoVar <- liftIO newEmptyMVar
+        runTestNodes testLabel rdb logger v peerInfoVar dbDirs
+        (i, servicePort) <- liftIO $ readMVar peerInfoVar
+        cwEnv <- liftIO $ getClientEnv $ getCwBaseUrl Https $ _hostAddressPort $ _peerAddr i
+        cwServiceEnv <- liftIO $ getClientEnv $ getCwBaseUrl Http servicePort
+        return (cwEnv, cwServiceEnv)
 
     getCwBaseUrl :: Scheme -> Port -> BaseUrl
     getCwBaseUrl prot p = BaseUrl
@@ -951,7 +953,7 @@ withNodesAtLatestBehavior
     -> ResourceT IO ChainwebNetwork
 withNodesAtLatestBehavior v testLabel rdb n = do
     net <- withNodes v testLabel rdb n
-    liftIO $ awaitBlockHeight v putStrLn (_getClientEnv net) (latestBehaviorAt v)
+    liftIO $ awaitBlockHeight v putStrLn (_getServiceClientEnv net) (latestBehaviorAt v)
     return net
 
 -- | Network initialization takes some time. Within my ghci session it took
@@ -989,43 +991,53 @@ awaitBlockHeight v step cenv i = do
                 <> " [" <> show (view rsIterNumberL s) <> "]"
             return True
 
-runTestNodes
-    :: Logger logger
+withAsyncR :: IO a -> ResourceT IO (Async a)
+withAsyncR action = snd <$> allocate (async action) uninterruptibleCancel
+
+runTestNodes :: Logger logger
     => B.ByteString
     -> RocksDb
     -> logger
     -> ChainwebVersion
     -> MVar (PeerInfo, Port)
     -> [(FilePath, FilePath)]
-       -- ^ A Map from Node Id to (Pact DB Dir, RocksDB Dir).
+       -- ^ A Map from Node Id to (Pact DB Dir, Backups Dir).
        --   The index is just the position in the list.
-    -> IO ()
+    -> ResourceT IO ()
 runTestNodes testLabel rdb logger ver portMVar dbDirs = do
-    forConcurrently_ (zip [0 ..] dbDirs) $ \(nid, (pactDbDir, rocksDbDir)) -> do
-        threadDelay (1000 * int nid)
+    forConcurrently_ (zip [0 ..] dbDirs) $ \(nid, (pactDbDir, backupsDir)) -> do
         let baseConf = config ver (int (length dbDirs))
-        conf <- if nid == 0
+        conf <- liftIO $ if nid == 0
           then return $ bootstrapConfig baseConf
           else setBootstrapPeerInfo <$> (fst <$> readMVar portMVar) <*> pure baseConf
-        node testLabel rdb logger portMVar conf pactDbDir rocksDbDir nid
+        nowServingRef <- liftIO $ newTVarIO NowServing
+            { _nowServingP2PAPI = False
+            , _nowServingServiceAPI = False
+            }
+        _ <- withAsyncR (node testLabel rdb logger nowServingRef portMVar conf pactDbDir backupsDir nid)
+        liftIO $ atomically $ do
+            nowServing <- readTVar nowServingRef
+            guard $ nowServing ==
+                NowServing { _nowServingP2PAPI = True, _nowServingServiceAPI = True }
 
 node
     :: Logger logger
     => B.ByteString
     -> RocksDb
     -> logger
+    -> TVar NowServing
     -> MVar (PeerInfo, Port)
     -> ChainwebConfiguration
     -> FilePath
        -- ^ pact db dir
     -> FilePath
-       -- ^ rocksdb dir
+       -- ^ dir for db backups
     -> Word
         -- ^ Unique Node Id. The node id 0 is used for the bootstrap node
     -> IO ()
-node testLabel rdb rawLogger peerInfoVar conf pactDbDir rocksDbDir nid = do
+node testLabel rdb rawLogger nowServingRef peerInfoVar conf pactDbDir backupDir nid = do
     rocksDb <- testRocksDb (testLabel <> T.encodeUtf8 (toText nid)) rdb
-    withChainweb conf logger rocksDb pactDbDir rocksDbDir False $ \case
+    withChainweb conf logger rocksDb pactDbDir backupDir False $ \case
         StartedChainweb cw -> do
             -- If this is the bootstrap node we extract the port number and publish via an MVar.
             when (nid == 0) $ do
@@ -1034,7 +1046,7 @@ node testLabel rdb rawLogger peerInfoVar conf pactDbDir rocksDbDir nid = do
                 putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
 
             poisonDeadBeef cw
-            runChainweb cw `finally` do
+            runChainweb cw (atomically . modifyTVar' nowServingRef) `finally` do
                 logFunctionText logger Info "write sample data"
                 logFunctionText logger Info "shutdown node"
             return ()
@@ -1056,7 +1068,7 @@ withDbDirs n = do
           targetDir2 <- getCanonicalTemporaryDirectory
 
           dir1 <- createTempDirectory targetDir1 ("pactdb-dir-" ++ show nid)
-          dir2 <- createTempDirectory targetDir2 ("rocksdb-dir-" ++ show nid)
+          dir2 <- createTempDirectory targetDir2 ("backups-dir-" ++ show nid)
 
           pure (dir1, dir2)
 

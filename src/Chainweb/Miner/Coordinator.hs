@@ -47,7 +47,7 @@ import Control.Concurrent.Async (withAsync)
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
-import Control.Lens (makeLenses, over, view)
+import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 
@@ -55,6 +55,7 @@ import Data.Aeson (ToJSON)
 import qualified Data.ByteString as BS
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
+import Data.List(sort)
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Data.Text as T
@@ -68,7 +69,6 @@ import System.LogLevel (LogLevel(..))
 -- internal modules
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Cut hiding (join)
 import Chainweb.Cut.Create
@@ -130,12 +130,14 @@ data MiningCoordination logger tbl = MiningCoordination
 -- made as often as desired, without clogging the Pact queue.
 --
 newtype PrimedWork =
-    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (Maybe (PayloadData, BlockHash))))
+    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (T2 ParentHeader (Maybe PayloadData))))
     deriving newtype (Semigroup, Monoid)
+    deriving stock Generic
+    deriving anyclass (Wrapped)
 
 resetPrimed :: MinerId -> ChainId -> PrimedWork -> PrimedWork
 resetPrimed mid cid (PrimedWork pw) = PrimedWork
-    $! HM.update (Just . HM.insert cid Nothing) mid pw
+    $! HM.adjust (HM.adjust (_2 .~ Nothing) cid) mid pw
 
 -- | Data shared between the mining threads represented by `newWork` and
 -- `publish`.
@@ -198,23 +200,25 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
     mpw <- atomically $ do
         PrimedWork pw <- readTVar tpw
         mpw <- maybe retry return (HM.lookup mid pw)
-        guard (any isJust mpw)
+        guard (any (isJust . ssnd) mpw)
         return mpw
     let mr = T2
-            <$> join (HM.lookup cid mpw)
+            <$> HM.lookup cid mpw
             <*> getCutExtension c cid
 
     case mr of
+        Just (T2 (T2 _ Nothing) _) -> do
+            logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " has stale work"
+            newWork logFun Anything eminer hdb pact tpw c
         Nothing -> do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " not mineable"
             newWork logFun Anything eminer hdb pact tpw c
-        Just (T2 (payload, primedParentHash) extension)
-            | primedParentHash == _blockHash (_parentHeader (_cutExtensionParent extension)) -> do
+        Just (T2 (T2 (ParentHeader primedParent) (Just payload)) extension)
+            | _blockHash primedParent == _blockHash (_parentHeader (_cutExtensionParent extension)) -> do
                 let !phash = _payloadDataPayloadHash payload
                 !wh <- newWorkHeader hdb extension phash
                 pure $ Just $ T2 wh payload
             | otherwise -> do
-
                 -- The cut is too old or the primed work is outdated. Probably
                 -- the former because it the mining coordination background job
                 -- is updating the primed work cache regularly. We could try
@@ -224,7 +228,8 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
                 let !extensionParent = _parentHeader (_cutExtensionParent extension)
                 logFun @T.Text Info
                     $ "newWork: chain " <> sshow cid <> " not mineable because of parent header mismatch"
-                    <> ". Primed parent hash: " <> toText primedParentHash
+                    <> ". Primed parent hash: " <> toText (_blockHash primedParent)
+                    <> ". Primed parent height: " <> sshow (_blockHeight primedParent)
                     <> ". Extension parent: " <> toText (_blockHash extensionParent)
                     <> ". Extension height: " <> sshow (_blockHeight extensionParent)
 
@@ -327,10 +332,10 @@ work mr mcid m = do
                     | HM.null mpw ->
                         "no chains have primed work"
                     | otherwise ->
-                        "all chains with primed work may be stalled, possible stalled chains: " <> sshow (HM.keys mpw)
+                        "all chains with primed work may be stalled, possible stalled chains: " <> sshow (sort $ HM.keys mpw)
           )
 
-        logDelays (n + 1)
+        logDelays n'
 
     -- There is no strict synchronization between the primed work cache and the
     -- new work selection. There is a chance that work selection picks a primed
