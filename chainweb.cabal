@@ -238,6 +238,8 @@ library
         , Chainweb.Utils.RequestLog
         , Chainweb.Utils.Rule
         , Chainweb.Utils.Serialization
+        , Chainweb.VerifierPlugin
+        , Chainweb.VerifierPlugin.Allow
         , Chainweb.Version
         , Chainweb.Version.Development
         , Chainweb.Version.Guards
@@ -390,6 +392,7 @@ library
         , optparse-applicative >= 0.14
         , pact >= 4.2.0.1
         , pact-json >= 0.1
+        , parallel >= 3.2.2.0
         , patience >= 0.3
         , pem >=0.2
         , primitive >= 0.7.1.0
