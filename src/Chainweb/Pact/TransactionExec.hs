@@ -719,7 +719,7 @@ applyExec
     -> Interpreter p
     -> ExecMsg ParsedCode
     -> [Signer]
-    -> [Verifier ParsedVerifierArgs]
+    -> [Verifier ParsedVerifierProof]
     -> Hash
     -> NamespacePolicy
     -> TransactionM logger p (CommandResult [TxLogJson])
@@ -747,7 +747,7 @@ applyExec'
     -> Interpreter p
     -> ExecMsg ParsedCode
     -> [Signer]
-    -> [Verifier ParsedVerifierArgs]
+    -> [Verifier ParsedVerifierProof]
     -> Hash
     -> NamespacePolicy
     -> TransactionM logger p EvalResult

@@ -30,7 +30,7 @@ import Chainweb.VerifierPlugin.Hyperlane.Utils
 import Chainweb.Utils (decodeB64UrlNoPaddingText)
 
 plugin :: VerifierPlugin
-plugin = VerifierPlugin $ \vals caps gasRef -> do
+plugin = VerifierPlugin $ \proof caps gasRef -> do
   -- extract capability values
   let SigCapability{..} = Set.elemAt 0 caps
   (capTokenMessage, capRecipient, capSigners) <- case _scArgs of
@@ -38,7 +38,7 @@ plugin = VerifierPlugin $ \vals caps gasRef -> do
       _ -> throwError $ VerifierError $ "Not enough capability arguments. Expected: HyperlaneMessage object, recipient and signers."
 
   -- extract proof object values
-  (encodedHyperlaneMessage, encodedMetadata) <- case vals !! 0 of
+  (encodedHyperlaneMessage, encodedMetadata) <- case proof of
     (PList values)
       | (PLiteral (LString msg)) : (PLiteral (LString mtdt)) : _ <- V.toList values ->
         pure (msg, mtdt)

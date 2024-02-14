@@ -171,7 +171,7 @@ verifierTest = do
         (set cbVerifiers
           [Verifier
             (VerifierName "allow")
-            (ParsedVerifierArgs [pString (PactJSON.encodeText cap)])
+            (ParsedVerifierProof $ pString (PactJSON.encodeText cap))
             [cap]])
             (mkExec' "(free.m.x)"))
       (\cr -> liftIO $ do
@@ -217,11 +217,11 @@ hyperlaneRecoverValidatorAnnouncementSuccess = do
         (set cbGasLimit 20000 . set cbVerifiers
           [Verifier
             (VerifierName "hyperlane_announcement")
-            (ParsedVerifierArgs
-              [PList $ V.fromList
+            (ParsedVerifierProof $
+              PList $ V.fromList
                 [ pString "storagelocation"
                 , pString "U7oftiGhn7rpWJydP6t0FKStdcRd223a8uSTqKjs8K8nJW7U84tzBOgPZTtGKnncwiu8l1185vB38c7-Ov7avBw"
-                ]]
+                ]
               )
             [cap]])
             (mkExec' "(free.m.x)"))
@@ -267,11 +267,11 @@ hyperlaneRecoverValidatorAnnouncementFailure = do
         (set cbGasLimit 20000 . set cbVerifiers
           [Verifier
             (VerifierName "hyperlane_announcement")
-            (ParsedVerifierArgs
-              [PList $ V.fromList
+            (ParsedVerifierProof $
+              PList $ V.fromList
                 [ pString "storagelocation"
                 , pString "Q7oftiGhn7rpWJydP6t0FKStdcRd223a8uSTqKjs8K8nJW7U84tzBOgPZTtGKnncwiu8l1185vB38c7-Ov7avBw"
-                ]]
+                ]
               )
             [cap]])
             (mkExec' "(free.m.x)"))
@@ -328,11 +328,11 @@ hyperlaneVerifySuccess = do
         (set cbGasLimit 20000 . set cbVerifiers
           [Verifier
             (VerifierName "hyperlane_message")
-            (ParsedVerifierArgs
-              [PList $ V.fromList
+            (ParsedVerifierProof $
+              PList $ V.fromList
                 [ pString "AwAAAAAAAHppAAAAAAAAAAAAAAAAdAsTPe23W9tY0AAFToc8rm_FZfsAAAJyNllLenFwRE5BVG1QaFVKemM1QTE3bUpiRlhILWRCa1YAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAmKfZuDFMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEJrOjk0YzM1YWIxYmQ3MDI0M2VjNjcwNDk1MDc3Zjc4NDYzNzNiNGRjNWU5Nzc5ZDdhNjczMmI1Y2ViNmZkZTA1OWMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
                 , pString "AAAAAAAAAAAAAAAAWvVWHDAXciof5CM4z1v8YV6seP8nGlCMb-CZnYe--Oj5XqAJdOHp36cJ9RYwxxw0jiAenwAAAADMNePpLBoZeRCFBsZ8d2gEepmo1vV4Kf-4Ir_6qBwbsll-DdroT5RbBGBkMG1FwOg4VIXPt3fcsWqEiQcyRN_rGw"
-                ]]
+                ]
               )
             [cap]])
             (mkExec' "(free.m.x)"))
@@ -390,11 +390,11 @@ hyperlaneVerifySuccessEmptyRecoveredSignatures = do
         (set cbGasLimit 20000 . set cbVerifiers
           [Verifier
             (VerifierName "hyperlane_message")
-            (ParsedVerifierArgs
-              [PList $ V.fromList
+            (ParsedVerifierProof $
+              PList $ V.fromList
                 [ pString "AwAAAAAAAHppAAAAAAAAAAAAAAAAdAsTPe23W9tY0AAFToc8rm_FZfsAAAJyNllLenFwRE5BVG1QaFVKemM1QTE3bUpiRlhILWRCa1YAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAmKfZuDFMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEJrOjk0YzM1YWIxYmQ3MDI0M2VjNjcwNDk1MDc3Zjc4NDYzNzNiNGRjNWU5Nzc5ZDdhNjczMmI1Y2ViNmZkZTA1OWMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
                 , pString "AAAAAAAAAAAAAAAAWvVWHDAXciof5CM4z1v8YV6seP8nGlCMb-CZnYe--Oj5XqAJdOHp36cJ9RYwxxw0jiAenwAAAAA"
-                ]]
+                ]
               )
             [cap]])
             (mkExec' "(free.m.x)"))
@@ -451,11 +451,11 @@ hyperlaneVerifyFailureWrongValidator = do
         (set cbGasLimit 20000 . set cbVerifiers
           [Verifier
             (VerifierName "hyperlane_message")
-            (ParsedVerifierArgs
-              [PList $ V.fromList
+            (ParsedVerifierProof $
+              PList $ V.fromList
                 [ pString "AwAAAAAAAHppAAAAAAAAAAAAAAAAdAsTPe23W9tY0AAFToc8rm_FZfsAAAJyNllLenFwRE5BVG1QaFVKemM1QTE3bUpiRlhILWRCa1YAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAmKfZuDFMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEJrOjk0YzM1YWIxYmQ3MDI0M2VjNjcwNDk1MDc3Zjc4NDYzNzNiNGRjNWU5Nzc5ZDdhNjczMmI1Y2ViNmZkZTA1OWMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
                 , pString "AAAAAAAAAAAAAAAAWvVWHDAXciof5CM4z1v8YV6seP8nGlCMb-CZnYe--Oj5XqAJdOHp36cJ9RYwxxw0jiAenwAAAADMNePpLBoZeRCFBsZ8d2gEepmo1vV4Kf-4Ir_6qBwbsll-DdroT5RbBGBkMG1FwOg4VIXPt3fcsWqEiQcyRN_rGw"
-                ]]
+                ]
               )
             [cap]])
             (mkExec' "(free.m.x)"))
@@ -513,11 +513,11 @@ hyperlaneVerifyFailureNotEnoughRecoveredSignatures = do
         (set cbGasLimit 20000 . set cbVerifiers
           [Verifier
             (VerifierName "hyperlane_message")
-            (ParsedVerifierArgs
-              [PList $ V.fromList
+            (ParsedVerifierProof $
+              PList $ V.fromList
                 [ pString "AwAAAAAAAHppAAAAAAAAAAAAAAAAdAsTPe23W9tY0AAFToc8rm_FZfsAAAJyNllLenFwRE5BVG1QaFVKemM1QTE3bUpiRlhILWRCa1YAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAmKfZuDFMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEJrOjk0YzM1YWIxYmQ3MDI0M2VjNjcwNDk1MDc3Zjc4NDYzNzNiNGRjNWU5Nzc5ZDdhNjczMmI1Y2ViNmZkZTA1OWMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
                 , pString "AAAAAAAAAAAAAAAAWvVWHDAXciof5CM4z1v8YV6seP8nGlCMb-CZnYe--Oj5XqAJdOHp36cJ9RYwxxw0jiAenwAAAAA"
-                ]]
+                ]
               )
             [cap]])
             (mkExec' "(free.m.x)"))
@@ -574,11 +574,11 @@ hyperlaneVerifyFailureNotEnoughCapabilitySignatures = do
         (set cbGasLimit 40000 . set cbVerifiers
           [Verifier
             (VerifierName "hyperlane_message")
-            (ParsedVerifierArgs
-              [PList $ V.fromList
+            (ParsedVerifierProof $
+              PList $ V.fromList
                 [ pString "AwAAAAAAAHppAAAAAAAAAAAAAAAAdAsTPe23W9tY0AAFToc8rm_FZfsAAAJyNllLenFwRE5BVG1QaFVKemM1QTE3bUpiRlhILWRCa1YAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAmKfZuDFMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEJrOjk0YzM1YWIxYmQ3MDI0M2VjNjcwNDk1MDc3Zjc4NDYzNzNiNGRjNWU5Nzc5ZDdhNjczMmI1Y2ViNmZkZTA1OWMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
                 , pString "AAAAAAAAAAAAAAAAWvVWHDAXciof5CM4z1v8YV6seP8nGlCMb-CZnYe--Oj5XqAJdOHp36cJ9RYwxxw0jiAenwAAAADMNePpLBoZeRCFBsZ8d2gEepmo1vV4Kf-4Ir_6qBwbsll-DdroT5RbBGBkMG1FwOg4VIXPt3fcsWqEiQcyRN_rG8w14-ksGhl5EIUGxnx3aAR6majW9Xgp_7giv_qoHBuyWX4N2uhPlFsEYGQwbUXA6DhUhc-3d9yxaoSJBzJE3-sb"
-                ]]
+                ]
               )
             [cap]])
             (mkExec' "(free.m.x)"))

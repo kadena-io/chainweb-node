@@ -521,7 +521,7 @@ mkWebAuthnSigner' (pub, priv) caps = mkWebAuthnSigner pub priv caps
 -- | Chainweb-oriented command builder.
 data CmdBuilder = CmdBuilder
   { _cbSigners :: ![CmdSigner]
-  , _cbVerifiers :: ![Verifier ParsedVerifierArgs]
+  , _cbVerifiers :: ![Verifier ParsedVerifierProof]
   , _cbRPC :: !(PactRPC Text)
   , _cbNonce :: !Text
   , _cbChainId :: !ChainId

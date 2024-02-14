@@ -28,7 +28,7 @@ import Chainweb.VerifierPlugin
 import Chainweb.Utils (decodeB64UrlNoPaddingText)
 
 plugin :: VerifierPlugin
-plugin = VerifierPlugin $ \vals caps gasRef -> do
+plugin = VerifierPlugin $ \proof caps gasRef -> do
   -- extract capability values
   let SigCapability{..} = Set.elemAt 0 caps
   capSigner <- case _scArgs of
@@ -36,7 +36,7 @@ plugin = VerifierPlugin $ \vals caps gasRef -> do
       _ -> throwError $ VerifierError $ "Not enough capability arguments. Expected: signer."
 
   -- extract proof object values
-  (storageLocation, encodedSignature) <- case vals !! 0 of
+  (storageLocation, encodedSignature) <- case proof of
     (PList values)
       | (PLiteral (LString loc)) : (PLiteral (LString sig)) : _ <- V.toList values ->
         pure (loc, sig)

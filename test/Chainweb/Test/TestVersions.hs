@@ -268,8 +268,8 @@ slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
         Chainweb220Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 85)
         Chainweb221Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 100)
         Chainweb222Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 115)
-        EnableVerifiers -> AllChains $ ForkAtBlockHeight (BlockHeight 120)
         Chainweb223Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 120)
+        EnableVerifiers -> AllChains $ ForkAtBlockHeight (BlockHeight 120)
     & versionVerifierPluginNames .~ AllChains (End $ Set.fromList ["allow", "hyperlane_announcement", "hyperlane_message"])
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades quickly enabled.
