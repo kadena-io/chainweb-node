@@ -432,7 +432,7 @@ createCoinAccount v meta name = do
     nameKeyset <- NEL.fromList <$> getKeyset name
     let attach = attachCaps "sender00" name 1000.0
     let theData = object [fromString name .= fmap (formatB16PubKey . fst) (attach nameKeyset)]
-    res <- mkExec (T.pack theCode) theData meta (NEL.toList $ attach sender00Keyset) (Just $ Pact.NetworkId $ toText (_versionName v)) Nothing
+    res <- mkExec (T.pack theCode) theData meta (NEL.toList $ attach sender00Keyset) [] (Just $ Pact.NetworkId $ toText (_versionName v)) Nothing
     pure (nameKeyset, res)
   where
     theCode = printf "(coin.transfer-create \"sender00\" \"%s\" (read-keyset \"%s\") 1000.0)" name name
@@ -572,6 +572,7 @@ createTransfer v meta ks request =
       let theData = object []
       mkExec (T.pack theCode) theData meta
         (NEL.toList ks)
+        []
         (Just $ Pact.NetworkId $ toText $ _versionName v)
         Nothing
 

@@ -1,6 +1,8 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -53,6 +55,9 @@ module Chainweb.Version.Utils
 , expectedCutHeightAfterSeconds
 , expectedBlockCountAfterSeconds
 , expectedGlobalBlockCountAfterSeconds
+
+-- * Verifiers
+, verifiersAt
 ) where
 
 import Chainweb.BlockHeight
@@ -60,10 +65,15 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Time
+import Chainweb.VerifierPlugin
+import qualified Chainweb.VerifierPlugin.Allow
 
+import Control.Lens
 import Data.Foldable
 import qualified Data.HashSet as HS
+import Data.Map.Strict(Map)
 import qualified Data.Map.Strict as M
+import Data.Text(Text)
 
 import GHC.Stack
 
@@ -443,3 +453,23 @@ expectedCutHeightAfterSeconds
 expectedCutHeightAfterSeconds v s = eh * int (chainCountAt v (round eh))
   where
     eh = expectedBlockHeightAfterSeconds v s
+
+-- | The verifier plugins enabled for a particular block.
+verifiersAt :: ChainwebVersion -> ChainId -> BlockHeight -> Map Text VerifierPlugin
+verifiersAt v cid bh =
+    M.restrictKeys allVerifierPlugins activeVerifierNames
+    where
+    activeVerifierNames =
+        case measureRule bh $ _versionVerifierPluginNames v ^?! onChain cid of
+            Bottom vs -> vs
+            Top (_, vs) -> vs
+            Between (_, vs) _ -> vs
+
+-- the mappings from names to verifier plugins is global. the list of verifier
+-- plugins active in any particular block validation context is the only thing
+-- that varies. this pedantry is only so that ChainwebVersion is plain data
+-- with no functions inside.
+allVerifierPlugins :: Map Text VerifierPlugin
+allVerifierPlugins = M.fromList
+    [ ("allow", Chainweb.VerifierPlugin.Allow.plugin)
+    ]

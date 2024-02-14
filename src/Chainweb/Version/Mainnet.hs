@@ -144,6 +144,7 @@ mainnet = ChainwebVersion
         Chainweb221Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_177_889) -- 2023-10-20 00:00:00+00:00
         Chainweb222Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_335_753) -- 2023-12-14 00:00:00+00:00
         Chainweb223Pact -> AllChains ForkNever
+        EnableVerifiers -> AllChains ForkNever
 
     , _versionGraphs =
         (to20ChainsMainnet, twentyChainGraph) `Above`
@@ -205,4 +206,5 @@ mainnet = ChainwebVersion
         { _disablePeerValidation = False
         , _disableMempoolSync = False
         }
+    , _versionVerifierPluginNames = AllChains $ End $ mempty
     }

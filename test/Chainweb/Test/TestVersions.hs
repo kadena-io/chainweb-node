@@ -18,6 +18,7 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.List as List
+import qualified Data.Set as Set
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload as TN0
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM1to9Payload as TNN
 
@@ -110,6 +111,7 @@ testVersionTemplate v = v
     & versionWindow .~ WindowWidth 120
     & versionMaxBlockGasLimit .~ End (Just 2_000_000)
     & versionBootstraps .~ [testBootstrapPeerInfos]
+    & versionVerifierPluginNames .~ AllChains (End mempty)
 
 -- | A set of fork heights which are relatively fast, but not fast enough to break anything.
 fastForks :: HashMap Fork (ChainMap ForkHeight)
@@ -142,6 +144,7 @@ fastForks = tabulateHashMap $ \case
     Chainweb221Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 33
     Chainweb222Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 36
     Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 38
+    EnableVerifiers -> AllChains $ ForkAtBlockHeight $ BlockHeight 35
 
 -- | A test version without Pact or PoW, with only one chain graph.
 barebonesTestVersion :: ChainGraph -> ChainwebVersion
@@ -266,6 +269,8 @@ slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
         Chainweb221Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 100)
         Chainweb222Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 115)
         Chainweb223Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 120)
+        EnableVerifiers -> AllChains $ ForkAtBlockHeight (BlockHeight 120)
+    & versionVerifierPluginNames .~ AllChains (End $ Set.fromList ["allow"])
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades quickly enabled.
 fastForkingCpmTestVersion :: ChainGraph -> ChainwebVersion

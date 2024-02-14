@@ -232,6 +232,7 @@ data InsertError = InsertErrorDuplicate
                  | InsertErrorOther Text
                  | InsertErrorInvalidHash
                  | InsertErrorInvalidSigs
+                 | InsertErrorInvalidVerifiers
                  | InsertErrorTimedOut
   deriving (Generic, Eq, NFData)
 
@@ -252,6 +253,7 @@ instance Show InsertError
     show (InsertErrorOther m) = "insert error: " <> T.unpack m
     show InsertErrorInvalidHash = "Invalid transaction hash"
     show InsertErrorInvalidSigs = "Invalid transaction sigs"
+    show InsertErrorInvalidVerifiers = "Invalid verifiers"
     show InsertErrorTimedOut = "Transaction validation timed out"
 
 instance Exception InsertError

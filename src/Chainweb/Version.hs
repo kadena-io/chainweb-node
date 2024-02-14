@@ -63,6 +63,7 @@ module Chainweb.Version
     , versionName
     , versionWindow
     , versionGenesis
+    , versionVerifierPluginNames
     , genesisBlockPayload
     , genesisBlockPayloadHash
     , genesisBlockTarget
@@ -133,6 +134,7 @@ import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import Data.Set(Set)
 import Data.Proxy
 import qualified Data.Text as T
 import Data.Word
@@ -193,6 +195,7 @@ data Fork
     | Chainweb221Pact
     | Chainweb222Pact
     | Chainweb223Pact
+    | EnableVerifiers
     -- always add new forks at the end, not in the middle of the constructors.
     deriving stock (Bounded, Generic, Eq, Enum, Ord, Show)
     deriving anyclass (NFData, Hashable)
@@ -226,6 +229,7 @@ instance HasTextRepresentation Fork where
     toText Chainweb221Pact = "chainweb221Pact"
     toText Chainweb222Pact = "chainweb222Pact"
     toText Chainweb223Pact = "chainweb223Pact"
+    toText EnableVerifiers = "enableVerifiers"
 
     fromText "slowEpoch" = return SlowEpoch
     fromText "vuln797Fix" = return Vuln797Fix
@@ -255,6 +259,7 @@ instance HasTextRepresentation Fork where
     fromText "chainweb221Pact" = return Chainweb221Pact
     fromText "chainweb222Pact" = return Chainweb222Pact
     fromText "chainweb223Pact" = return Chainweb223Pact
+    fromText "enableVerifiers" = return EnableVerifiers
     fromText t = throwM . TextFormatException $ "Unknown Chainweb fork: " <> t
 
 instance ToJSON Fork where
@@ -365,6 +370,8 @@ data ChainwebVersion
         -- ^ Whether to disable any core functionality.
     , _versionDefaults :: VersionDefaults
         -- ^ Version-specific defaults that can be overridden elsewhere.
+    , _versionVerifierPluginNames :: ChainMap (Rule BlockHeight (Set T.Text))
+        -- ^ Verifier plugins that can be run to verify transaction contents.
     }
     deriving stock (Generic)
     deriving anyclass NFData
@@ -388,6 +395,7 @@ instance Ord ChainwebVersion where
         -- genesis cannot be ordered because Payload in Pact cannot be ordered
         -- , _versionGenesis v `compare` _versionGenesis v'
         , _versionCheats v `compare` _versionCheats v'
+        , _versionVerifierPluginNames v `compare` _versionVerifierPluginNames v'
         ]
 
 instance Eq ChainwebVersion where
