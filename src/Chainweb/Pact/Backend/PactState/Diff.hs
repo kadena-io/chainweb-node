@@ -44,8 +44,9 @@ import Chainweb.Version (ChainwebVersion(..), ChainId, chainIdToText)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
+import Chainweb.Pact.Backend.Compaction (TargetBlockHeight(..))
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.PactState (TableDiffable(..), getLatestPactStateDiffable, doesPactDbExist, withChainDb, allChains)
+import Chainweb.Pact.Backend.PactState (TableDiffable(..), getLatestPactStateAtDiffable, getLatestPactStateDiffable, doesPactDbExist, withChainDb, allChains)
 
 import System.Exit (exitFailure)
 import System.LogLevel (LogLevel(..))
@@ -57,6 +58,7 @@ data PactDiffConfig = PactDiffConfig
   { firstDbDir :: FilePath
   , secondDbDir :: FilePath
   , chainwebVersion :: ChainwebVersion
+  , target :: TargetBlockHeight
   , logDir :: FilePath
   }
 
@@ -98,8 +100,11 @@ pactDiffMain = do
              withChainDb cid logger cfg.firstDbDir $ \_ (SQLiteEnv db1 _) -> do
                withChainDb cid logger cfg.secondDbDir $ \_ (SQLiteEnv db2 _) -> do
                  logText Info "[Starting diff]"
+                 let getPactState db = case cfg.target of
+                       Latest -> getLatestPactStateDiffable db
+                       Target bh -> getLatestPactStateAtDiffable db bh
                  let diff :: Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
-                     diff = diffLatestPactState (getLatestPactStateDiffable db1) (getLatestPactStateDiffable db2)
+                     diff = diffLatestPactState (getPactState db1) (getPactState db2)
                  isDifferent <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
                    logText Info $ "[Starting table " <> tblName <> "]"
                    d <- S.foldMap_ id $ flip S.mapM tblDiff $ \d -> do
@@ -143,6 +148,10 @@ pactDiffMain = do
             <> help "Chainweb version for graph. Only needed for non-standard graphs."
             <> value (toText (_versionName mainnet))
             <> showDefault))
+      <*> (fmap Target (fromIntegral @Int <$> option auto
+            (long "target-blockheight"
+             <> metavar "BLOCKHEIGHT"
+             <> help "Target Blockheight")) <|> pure Latest)
       <*> strOption
            (long "log-dir"
             <> metavar "LOG_DIRECTORY"
