@@ -396,6 +396,7 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
     gasLimitedCmd =
       set cmdGasLimit newTxGasLimit (payloadObj <$> cmd)
     initialGas = initialGasOf (P._cmdPayload cmd)
+  let !hsh = P._cmdHash cmd
   handle onBuyGasFailure $ do
     T2 result mcache' <- do
       txCtx <- getTxContext (publicMetaOf gasLimitedCmd)
@@ -406,14 +407,14 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
         parent <- view psParentHeader
         let spv = pactSPV bhdb (_parentHeader parent)
         let
-          timeoutError = TxTimeout (requestKeyToTransactionHash $ P.cmdToRequestKey cmd)
+          !timeoutError = TxTimeout (requestKeyToTransactionHash $ P.cmdToRequestKey cmd)
           txTimeout = case txTimeLimit of
             Nothing -> id
             Just limit ->
                maybe (throwM timeoutError) return <=< timeout (fromIntegral limit)
         let txGas (T3 r _ _) = fromIntegral $ P._crGas r
         T3 r c _warns <-
-          tracePactBlockM' "applyCmd" (J.toJsonViaEncode (P._cmdHash cmd)) txGas $
+          tracePactBlockM' "applyCmd" (J.toJsonViaEncode hsh) txGas $
             liftIO $ txTimeout $ applyCmd v logger gasLogger (_cpPactDbEnv env) miner (gasModel txCtx) txCtx spv gasLimitedCmd initialGas mcache ApplySend
         pure $ T2 r c
 
@@ -422,7 +423,7 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
     else liftPactServiceM $ debugResult "applyPactCmd" (P.crLogs %~ fmap J.Array $ result)
 
     -- mark the tx as processed at the checkpointer.
-    liftIO $ _cpRegisterProcessedTx env (P._cmdHash cmd)
+    liftIO $ _cpRegisterProcessedTx env hsh
     case maybeBlockGasRemaining of
       Just blockGasRemaining ->
         when (P._crGas result >= succ blockGasRemaining) $

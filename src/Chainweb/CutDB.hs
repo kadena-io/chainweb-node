@@ -455,7 +455,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     readInitialCut :: IO Cut
     readInitialCut = do
         unsafeMkCut v <$> do
-            hm <- readHighestCutHeaders v logfun wbhdb cutHashesStore
+            hm <- readHighestCutHeaders v logg wbhdb cutHashesStore
             case _cutDbParamsInitialHeightLimit config of
                 Nothing -> return hm
                 Just h -> do
@@ -465,12 +465,11 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                         casInsert cutHashesStore (cutToCutHashes Nothing limitedCut)
                     return limitedCutHeaders
 
-readHighestCutHeaders :: ChainwebVersion -> LogFunction -> WebBlockHeaderDb -> Casify RocksDbTable CutHashes -> IO (HM.HashMap ChainId BlockHeader)
-readHighestCutHeaders v logfun wbhdb cutHashesStore = withTableIterator (unCasify cutHashesStore) $ \it -> do
+readHighestCutHeaders :: ChainwebVersion -> LogFunctionText -> WebBlockHeaderDb -> Casify RocksDbTable CutHashes -> IO (HM.HashMap ChainId BlockHeader)
+readHighestCutHeaders v logg wbhdb cutHashesStore = withTableIterator (unCasify cutHashesStore) $ \it -> do
     iterLast it
     go it
   where
-    logg = logfun @T.Text
     -- TODO: should we limit the search to a certain number of attempts
     -- or iterate in increasinly larger steps?
     go it = iterValue it >>= \case
@@ -479,7 +478,7 @@ readHighestCutHeaders v logfun wbhdb cutHashesStore = withTableIterator (unCasif
             return $ view cutMap $ genesisCut v
         Just ch -> try (lookupCutHashes wbhdb ch) >>= \case
             Left (e@(TreeDbKeyNotFound _) :: TreeDbException BlockHeaderDb) -> do
-                logfun @T.Text Warn
+                logg Warn
                     $ "Unable to load cut at height " <>  sshow (_cutHashesHeight ch)
                     <> " from database."
                     <> " Error: " <> sshow e <> "."
