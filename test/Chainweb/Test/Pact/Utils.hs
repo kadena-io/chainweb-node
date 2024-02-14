@@ -73,6 +73,7 @@ module Chainweb.Test.Pact.Utils
 , mkWebAuthnSigner'
 , CmdBuilder(..)
 , cbSigners
+, cbVerifiers
 , cbRPC
 , cbNonce
 , cbChainId
@@ -186,6 +187,7 @@ import Pact.Types.Runtime (PactEvent(..))
 import Pact.Types.Term
 import Pact.Types.SQLite
 import Pact.Types.Util (parseB16TextOnly)
+import Pact.Types.Verifier
 
 -- internal modules
 
@@ -519,6 +521,7 @@ mkWebAuthnSigner' (pub, priv) caps = mkWebAuthnSigner pub priv caps
 -- | Chainweb-oriented command builder.
 data CmdBuilder = CmdBuilder
   { _cbSigners :: ![CmdSigner]
+  , _cbVerifiers :: ![Verifier ParsedVerifierProof]
   , _cbRPC :: !(PactRPC Text)
   , _cbNonce :: !Text
   , _cbChainId :: !ChainId
@@ -553,6 +556,7 @@ mkContMsg pid step = ContMsg
 defaultCmd :: CmdBuilder
 defaultCmd = CmdBuilder
   { _cbSigners = []
+  , _cbVerifiers = []
   , _cbRPC = mkExec' "1"
   , _cbNonce = "nonce"
   , _cbChainId = unsafeChainId 0
@@ -582,7 +586,7 @@ buildTextCmd nonce v = fmap (fmap T.decodeUtf8) . buildRawCmd nonce v
 buildRawCmd :: (MonadThrow m, MonadIO m) => Text -> ChainwebVersion -> CmdBuilder -> m (Command ByteString)
 buildRawCmd nonce v (set cbNonce nonce -> CmdBuilder{..}) = do
     kps <- liftIO $ traverse mkDynKeyPairs _cbSigners
-    cmd <- liftIO $ mkCommandWithDynKeys kps pm _cbNonce (Just nid) _cbRPC
+    cmd <- liftIO $ mkCommandWithDynKeys kps _cbVerifiers pm _cbNonce (Just nid) _cbRPC
     pure cmd
   where
     nid = P.NetworkId (sshow v)

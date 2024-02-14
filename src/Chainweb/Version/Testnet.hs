@@ -176,4 +176,5 @@ testnet = ChainwebVersion
         { _disablePeerValidation = False
         , _disableMempoolSync = False
         }
+    , _versionVerifierPluginNames = AllChains $ End mempty
     }
