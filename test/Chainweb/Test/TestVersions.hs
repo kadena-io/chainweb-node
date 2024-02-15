@@ -39,6 +39,8 @@ import Chainweb.Version
 import Chainweb.Version.Registry
 import P2P.Peer
 
+import Pact.Types.Verifier
+
 import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
 import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
 import qualified Chainweb.Pact.Transactions.CoinV5Transactions as CoinV5
@@ -144,7 +146,6 @@ fastForks = tabulateHashMap $ \case
     Chainweb221Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 33
     Chainweb222Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 36
     Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 38
-    EnableVerifiers -> AllChains $ ForkAtBlockHeight $ BlockHeight 35
 
 -- | A test version without Pact or PoW, with only one chain graph.
 barebonesTestVersion :: ChainGraph -> ChainwebVersion
@@ -269,8 +270,7 @@ slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
         Chainweb221Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 100)
         Chainweb222Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 115)
         Chainweb223Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 120)
-        EnableVerifiers -> AllChains $ ForkAtBlockHeight (BlockHeight 120)
-    & versionVerifierPluginNames .~ AllChains (End $ Set.fromList ["allow", "hyperlane_announcement", "hyperlane_message"])
+    & versionVerifierPluginNames .~ AllChains (End $ Set.fromList $ map VerifierName ["allow", "hyperlane_announcement", "hyperlane_message"])
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades quickly enabled.
 fastForkingCpmTestVersion :: ChainGraph -> ChainwebVersion

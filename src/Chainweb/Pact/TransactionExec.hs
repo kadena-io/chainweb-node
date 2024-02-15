@@ -61,7 +61,7 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
-import Control.Parallel.Strategies(usingIO, rseq)
+import Control.Parallel.Strategies(using, rseq)
 
 import Data.Aeson hiding ((.=))
 import qualified Data.Aeson as A
@@ -122,6 +122,12 @@ import Chainweb.Version.Guards as V
 import Chainweb.Version.Utils as V
 import Pact.JSON.Encode (toJsonViaEncode)
 
+-- Note [Throw out verifier proofs eagerly]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- We try to discard verifier proofs eagerly so that we don't hang onto them in
+-- the liveset. This implies that we also try to discard `Command`s for the same
+-- reason, because they contain the verifier proofs and other data we probably
+-- don't need.
 
 -- -------------------------------------------------------------------------- --
 
@@ -203,10 +209,10 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
 
-    requestKey = cmdToRequestKey cmd
-    gasPrice = view cmdGasPrice cmd
-    gasLimit = view cmdGasLimit cmd
-    nid = networkIdOf cmd
+    !requestKey = cmdToRequestKey cmd
+    !gasPrice = view cmdGasPrice cmd
+    !gasLimit = view cmdGasLimit cmd
+    !nid = networkIdOf cmd
     currHeight = ctxCurrentBlockHeight txCtx
     cid = ctxChainId txCtx
     isModuleNameFix = enableModuleNameFix v cid currHeight
@@ -246,16 +252,17 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
 
     applyVerifiers = do
       gasUsed <- use txGasUsed
-      let initGasLimit = gasLimit - fromIntegral gasUsed
-      verifierResult <- liftIO $ runVerifierPlugins allVerifiers initGasLimit cmd
+      let initGasRemaining = fromIntegral gasLimit - gasUsed
+      verifierResult <- liftIO $ runVerifierPlugins logger allVerifiers initGasRemaining cmd
       case verifierResult of
         Left err -> do
+          let errMsg = "Tx verifier error: " <> getVerifierError err
           cmdResult <- failTxWith
-            (PactError TxFailure def [] (pretty $ "Tx verifier error: " <> getVerifierError err))
-            "verifier error"
+            (PactError TxFailure def [] (pretty errMsg))
+            errMsg
           redeemAllGas cmdResult
-        Right finalGasLimit -> do
-          txGasUsed += fromIntegral (initGasLimit - finalGasLimit)
+        Right verifierGasRemaining -> do
+          txGasUsed += initGasRemaining - verifierGasRemaining
           applyPayload
 
     applyPayload = do
@@ -277,7 +284,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
         Right r -> applyRedeem r
 
     applyRedeem cr = do
-      txGasModel .= (_geGasModel freeGasEnv)
+      txGasModel .= _geGasModel freeGasEnv
 
       r <- catchesPactError logger (onChainErrorPrintingFor txCtx) $! redeemGas cmd
       case r of
@@ -483,32 +490,52 @@ applyLocal
 applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     evalTransactionM tenv txst go
   where
-    cmd = payloadObj <$> cmdIn
-    rk = cmdToRequestKey cmd
-    nid = networkIdOf cmd
-    chash = toUntypedHash $ _cmdHash cmd
-    signers = _pSigners $ _cmdPayload cmd
-    verifiers = fromMaybe [] $ _pVerifiers $ _cmdPayload cmd
-    gasPrice = view cmdGasPrice cmd
-    gasLimit = view cmdGasLimit cmd
+    !cmd = payloadObj <$> cmdIn `using` traverse rseq
+    !rk = cmdToRequestKey cmd
+    !nid = networkIdOf cmd
+    !chash = toUntypedHash $ _cmdHash cmd
+    !signers = _pSigners $ _cmdPayload cmd
+    !verifiers = fromMaybe [] $ _pVerifiers $ _cmdPayload cmd
+    !gasPrice = view cmdGasPrice cmd
+    !gasLimit = view cmdGasLimit cmd
     tenv = TransactionEnv Local dbEnv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
            rk (fromIntegral gasLimit) execConfig
     txst = TransactionState mc mempty 0 Nothing gasModel mempty
     gas0 = initialGasOf (_cmdPayload cmdIn)
+    cid = V._chainId txCtx
+    v = _chainwebVersion txCtx
+    allVerifiers = verifiersAt v cid (ctxCurrentBlockHeight txCtx)
+    -- Note [Throw out verifier proofs eagerly]
+    !verifiersWithNoProof =
+        (fmap . fmap) (\_ -> ()) verifiers
+        `using` (traverse . traverse) rseq
 
-    applyPayload m = do
-      interp <- gasInterpreter gas0
+    applyVerifiers m = do
+      let initGasRemaining = fromIntegral gasLimit - gas0
+      verifierResult <- liftIO $ runVerifierPlugins logger allVerifiers initGasRemaining cmd
+      case verifierResult of
+        Left err -> do
+          let errMsg = "Tx verifier error: " <> getVerifierError err
+          failTxWith
+            (PactError TxFailure def [] (pretty errMsg))
+            errMsg
+        Right verifierGasRemaining -> do
+          let gas1 = (initGasRemaining - verifierGasRemaining) + gas0
+          applyPayload gas1 m
+
+    applyPayload gas1 m = do
+      interp <- gasInterpreter gas1
       cr <- catchesPactError logger PrintsUnexpectedError $! case m of
         Exec em ->
-          applyExec gas0 interp em signers verifiers chash managedNamespacePolicy
+          applyExec gas1 interp em signers verifiersWithNoProof chash managedNamespacePolicy
         Continuation cm ->
-          applyContinuation gas0 interp cm signers chash managedNamespacePolicy
+          applyContinuation gas1 interp cm signers chash managedNamespacePolicy
 
       case cr of
         Left e -> failTxWith e "applyLocal"
         Right r -> return $! r { _crMetaData = Just (J.toJsonViaEncode $ ctxToPublicData' txCtx) }
 
-    go = checkTooBigTx gas0 gasLimit (applyPayload $ _pPayload $ _cmdPayload cmd) return
+    go = checkTooBigTx gas0 gasLimit (applyVerifiers $ _pPayload $ _cmdPayload cmd) return
 
 
 readInitModules
@@ -679,9 +706,14 @@ runPayload cmd nsp = do
     g0 <- use txGasUsed
     interp <- gasInterpreter g0
 
+    -- Note [Throw out verifier proofs eagerly]
+    let !verifiersWithNoProof =
+            (fmap . fmap) (\_ -> ()) verifiers
+            `using` (traverse . traverse) rseq
+
     case payload of
       Exec pm ->
-        applyExec g0 interp pm signers verifiers chash nsp
+        applyExec g0 interp pm signers verifiersWithNoProof chash nsp
       Continuation ym ->
         applyContinuation g0 interp ym signers chash nsp
 
@@ -702,12 +734,16 @@ runGenesis
     -> TransactionM logger p (CommandResult [TxLogJson])
 runGenesis cmd nsp interp = case payload of
     Exec pm ->
-      applyExec 0 interp pm signers verifiers chash nsp
+      applyExec 0 interp pm signers verifiersWithNoProof chash nsp
     Continuation ym ->
       applyContinuation 0 interp ym signers chash nsp
   where
     signers = _pSigners $ _cmdPayload cmd
     verifiers = fromMaybe [] $ _pVerifiers $ _cmdPayload cmd
+    -- Note [Throw out verifier proofs eagerly]
+    !verifiersWithNoProof =
+        (fmap . fmap) (\_ -> ()) verifiers
+        `using` (traverse . traverse) rseq
     chash = toUntypedHash $ _cmdHash cmd
     payload = _pPayload $ _cmdPayload cmd
 
@@ -719,7 +755,7 @@ applyExec
     -> Interpreter p
     -> ExecMsg ParsedCode
     -> [Signer]
-    -> [Verifier ParsedVerifierProof]
+    -> [Verifier ()]
     -> Hash
     -> NamespacePolicy
     -> TransactionM logger p (CommandResult [TxLogJson])
@@ -747,18 +783,15 @@ applyExec'
     -> Interpreter p
     -> ExecMsg ParsedCode
     -> [Signer]
-    -> [Verifier ParsedVerifierProof]
+    -> [Verifier ()]
     -> Hash
     -> NamespacePolicy
     -> TransactionM logger p EvalResult
-applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs verifiers hsh nsp
+applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs verifiersWithNoProof hsh nsp
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
 
-      discardVerifierArgs <- liftIO
-        (fmap (fmap (\_ -> ())) verifiers `usingIO` (traverse . traverse) rseq)
-
-      eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs discardVerifierArgs)
+      eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs verifiersWithNoProof)
 
       setEnvGas initialGas eenv
 
@@ -819,7 +852,7 @@ enablePact410 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enablePact410 v cid bh = [FlagDisablePact410 | not (chainweb222Pact v cid bh)]
 
 enablePactVerifiers :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
-enablePactVerifiers v cid bh = [FlagDisableVerifiers | not (enableVerifiers v cid bh)]
+enablePactVerifiers v cid bh = [FlagDisableVerifiers | not (chainweb223Pact v cid bh)]
 
 -- | Even though this is not forking, abstracting for future shutoffs
 disableReturnRTC :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]

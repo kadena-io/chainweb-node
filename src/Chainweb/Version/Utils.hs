@@ -5,7 +5,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module: Chainweb.Version.Utils
@@ -76,7 +75,6 @@ import Data.Foldable
 import qualified Data.HashSet as HS
 import Data.Map.Strict(Map)
 import qualified Data.Map.Strict as M
-import Data.Text(Text)
 
 import GHC.Stack
 
@@ -91,6 +89,8 @@ import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
 import Chainweb.Version.Mainnet
+
+import Pact.Types.Verifier
 
 -- -------------------------------------------------------------------------- --
 --  Utils
@@ -458,7 +458,7 @@ expectedCutHeightAfterSeconds v s = eh * int (chainCountAt v (round eh))
     eh = expectedBlockHeightAfterSeconds v s
 
 -- | The verifier plugins enabled for a particular block.
-verifiersAt :: ChainwebVersion -> ChainId -> BlockHeight -> Map Text VerifierPlugin
+verifiersAt :: ChainwebVersion -> ChainId -> BlockHeight -> Map VerifierName VerifierPlugin
 verifiersAt v cid bh =
     M.restrictKeys allVerifierPlugins activeVerifierNames
     where
@@ -472,8 +472,8 @@ verifiersAt v cid bh =
 -- plugins active in any particular block validation context is the only thing
 -- that varies. this pedantry is only so that ChainwebVersion is plain data
 -- with no functions inside.
-allVerifierPlugins :: Map Text VerifierPlugin
-allVerifierPlugins = M.fromList
+allVerifierPlugins :: Map VerifierName VerifierPlugin
+allVerifierPlugins = M.fromList $ map (over _1 VerifierName)
     [ ("allow", Chainweb.VerifierPlugin.Allow.plugin)
 
     , ("hyperlane_announcement", Chainweb.VerifierPlugin.Hyperlane.Announcement.plugin)

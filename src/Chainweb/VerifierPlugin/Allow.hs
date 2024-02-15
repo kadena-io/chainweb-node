@@ -16,13 +16,12 @@ import Pact.Types.PactValue
 
 import Chainweb.VerifierPlugin
 
--- This trivial verifier plugin takes as arguments a list of JSON-encoded
--- capabilities, and grants any subset of them.
+-- This trivial verifier plugin takes as its "proof" a JSON-encoded capability,
+-- and grants only that capability.
 plugin :: VerifierPlugin
 plugin = VerifierPlugin $ \proof caps gasRef -> do
     chargeGas gasRef 100
-    decodedCap :: UserCapability <-
-        decodeArgToCap proof
+    decodedCap <- decodeArgToCap proof
     unless (caps == Set.singleton decodedCap) $
         throwError $ VerifierError "granted capability is not the one in the proof"
     where
