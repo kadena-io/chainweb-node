@@ -71,7 +71,7 @@ recapDevnet = ChainwebVersion
             Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 600
 
     , _versionUpgrades = foldr (chainZip HM.union) (AllChains mempty)
-        [ forkUpgrades recapDevnet
+        [ indexByForkHeights recapDevnet
             [ (CoinV2, onChains [(unsafeChainId i, upgrade RecapDevnet.transactions) | i <- [0..9]])
             , (Pact4Coin3, AllChains (Upgrade CoinV3.transactions True))
             , (Chainweb214Pact, AllChains (Upgrade CoinV4.transactions True))
