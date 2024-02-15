@@ -139,11 +139,7 @@ verifierTest :: PactTestM ()
 verifierTest = do
   runToHeight 118
 
-  runBlockTest
-    [ PactTxTest
-        (buildBasic (mkExec' "(enforce-verifier 'allow)"))
-        (assertTxFailure "Should not resolve enforce-verifier" "Cannot resolve enforce-verifier")
-    ]
+  checkEnforceVerifer "allow"
 
   let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "G" def) []
 
@@ -184,11 +180,7 @@ hyperlaneRecoverValidatorAnnouncementSuccess :: PactTestM ()
 hyperlaneRecoverValidatorAnnouncementSuccess = do
   runToHeight 118
 
-  runBlockTest
-    [ PactTxTest
-        (buildBasic (mkExec' "(enforce-verifier 'hyperlane_announcement)"))
-        (assertTxFailure "Should not resolve enforce-verifier" "Cannot resolve enforce-verifier")
-    ]
+  checkEnforceVerifer "hyperlane_announcement"
 
   let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def) [pString "0x6c414e7a15088023e28af44ad0e1d593671e4b15"]
 
@@ -234,11 +226,7 @@ hyperlaneRecoverValidatorAnnouncementFailure :: PactTestM ()
 hyperlaneRecoverValidatorAnnouncementFailure = do
   runToHeight 118
 
-  runBlockTest
-    [ PactTxTest
-        (buildBasic (mkExec' "(enforce-verifier 'hyperlane_announcement)"))
-        (assertTxFailure "Should not resolve enforce-verifier" "Cannot resolve enforce-verifier")
-    ]
+  checkEnforceVerifer "hyperlane_announcement"
 
   let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def) [pString "0x6c414e7a15088023e28af44ad0e1d593671e4b15"]
 
@@ -284,11 +272,7 @@ hyperlaneVerifySuccess :: PactTestM ()
 hyperlaneVerifySuccess = do
   runToHeight 118
 
-  runBlockTest
-    [ PactTxTest
-        (buildBasic (mkExec' "(enforce-verifier 'hyperlane_message_mrc20)"))
-        (assertTxFailure "Should not resolve enforce-verifier" "Cannot resolve enforce-verifier")
-    ]
+  checkEnforceVerifer "hyperlane_message_mrc20"
 
   let
     tokenVal = PObject $ ObjectMap $ M.fromList
@@ -346,11 +330,7 @@ hyperlaneVerifySuccessEmptyRecoveredSignatures :: PactTestM ()
 hyperlaneVerifySuccessEmptyRecoveredSignatures = do
   runToHeight 118
 
-  runBlockTest
-    [ PactTxTest
-        (buildBasic (mkExec' "(enforce-verifier 'hyperlane_message_mrc20)"))
-        (assertTxFailure "Should not resolve enforce-verifier" "Cannot resolve enforce-verifier")
-    ]
+  checkEnforceVerifer "hyperlane_message_mrc20"
 
   let
     tokenVal = PObject $ ObjectMap $ M.fromList
@@ -407,11 +387,7 @@ hyperlaneVerifyFailureWrongValidator :: PactTestM ()
 hyperlaneVerifyFailureWrongValidator = do
   runToHeight 118
 
-  runBlockTest
-    [ PactTxTest
-        (buildBasic (mkExec' "(enforce-verifier 'hyperlane_message_mrc20)"))
-        (assertTxFailure "Should not resolve enforce-verifier" "Cannot resolve enforce-verifier")
-    ]
+  checkEnforceVerifer "hyperlane_message_mrc20"
 
   let
     tokenVal = PObject $ ObjectMap $ M.fromList
@@ -469,11 +445,7 @@ hyperlaneVerifyFailureNotEnoughRecoveredSignatures :: PactTestM ()
 hyperlaneVerifyFailureNotEnoughRecoveredSignatures = do
   runToHeight 118
 
-  runBlockTest
-    [ PactTxTest
-        (buildBasic (mkExec' "(enforce-verifier 'hyperlane_message_mrc20)"))
-        (assertTxFailure "Should not resolve enforce-verifier" "Cannot resolve enforce-verifier")
-    ]
+  checkEnforceVerifer "hyperlane_message_mrc20"
 
   let
     tokenVal = PObject $ ObjectMap $ M.fromList
@@ -530,11 +502,7 @@ hyperlaneVerifyFailureNotEnoughCapabilitySignatures :: PactTestM ()
 hyperlaneVerifyFailureNotEnoughCapabilitySignatures = do
   runToHeight 118
 
-  runBlockTest
-    [ PactTxTest
-        (buildBasic (mkExec' "(enforce-verifier 'hyperlane_message_mrc20)"))
-        (assertTxFailure "Should not resolve enforce-verifier" "Cannot resolve enforce-verifier")
-    ]
+  checkEnforceVerifer "hyperlane_message_mrc20"
 
   let
     tokenVal = PObject $ ObjectMap $ M.fromList
@@ -594,6 +562,13 @@ hyperlaneVerifyFailureNotEnoughCapabilitySignatures = do
 --
 -- =========================================================
 
+checkEnforceVerifer :: T.Text -> PactTestM ()
+checkEnforceVerifer v = do
+  runBlockTest
+    [ PactTxTest
+        (buildBasic (mkExec' $ "(enforce-verifier '" <> v <> ")"))
+        (assertTxFailure "Should not resolve enforce-verifier" "Cannot resolve enforce-verifier")
+    ]
 
 -- | Sets mempool with block fillers. A matched filler
 -- (returning a 'Just' result) is executed and removed from the list.
