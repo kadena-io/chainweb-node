@@ -424,6 +424,12 @@ getTxIdx bdb pdb bh th = do
     sindex :: Monad m => (a -> Bool) -> S.Stream (S.Of a) m () -> m (Maybe Natural)
     sindex p s = S.zip (S.each [0..]) s & sfind (p . snd) & fmap (fmap fst)
 
+mkObject :: [(FieldKey, Term n)] -> Object n
+mkObject ps = Object (ObjectMap (M.fromList ps)) TyAny Nothing def
+
+obj :: [(FieldKey, Term n)] -> Term n
+obj = toTObject TyAny def
+
 tInt :: Integral i => i -> Term Name
 tInt = toTerm . fromIntegral @_ @Integer
 
@@ -483,9 +489,3 @@ mkSPVResult CommandResult{..} j =
         ]
 
     empty = obj []
-
-mkObject :: [(FieldKey, Term n)] -> Object n
-mkObject ps = Object (ObjectMap (M.fromList ps)) TyAny Nothing def
-
-obj :: [(FieldKey, Term n)] -> Term n
-obj = toTObject TyAny def
