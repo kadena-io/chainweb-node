@@ -53,8 +53,7 @@ recoverAddress digest sig' = do
       v <- mkV (B.drop 32 sAndV)
       pure $ ECDSA.ecdsaRecoverPublicKey fnDigest r s v <&> getAddress
 
-  addr <- ecrecover sig'
-  pure addr
+  ecrecover sig'
 
 -- | Returns an address, a rightmost 160 bits (20 bytes) of the keccak hash of the public key.
 getAddress :: ECDSA.EcdsaPublicKey -> B.ByteString

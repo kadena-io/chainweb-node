@@ -39,8 +39,8 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
 
   -- extract proof object values
   (encodedHyperlaneMessage, encodedMetadata) <- case proof of
-    (PList values)
-      | (PLiteral (LString msg)) : (PLiteral (LString mtdt)) : _ <- V.toList values ->
+    PList values
+      | [PLiteral (LString msg), PLiteral (LString mtdt)] <- V.toList values ->
         pure (msg, mtdt)
     _ -> throwError $ VerifierError "Expected a proof data as a list"
 
@@ -101,4 +101,4 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
 
   unless (addressesVals == capSigners) $
     throwError $ VerifierError $
-      "Signers don't match. Expected: " <> (Text.pack $ show addressesVals) <> " but got " <> (Text.pack $ show capSigners)
+      "Signers don't match. Expected: " <> sshow addressesVals <> " but got " <> sshow capSigners
