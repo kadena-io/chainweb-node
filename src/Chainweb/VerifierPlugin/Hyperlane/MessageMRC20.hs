@@ -4,14 +4,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 
-module Chainweb.VerifierPlugin.Hyperlane.Message (plugin) where
+module Chainweb.VerifierPlugin.Hyperlane.MessageMRC20 (plugin) where
 
 import Control.Error
 import Control.Monad (unless)
 import Control.Monad.Except
 
 import qualified Data.Map.Strict as M
-import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Data.Vector as V
 import qualified Data.Set as Set
@@ -27,12 +26,15 @@ import Chainweb.Utils.Serialization (putRawByteString, runPutS, runGetS, putWord
 import Chainweb.VerifierPlugin
 import Chainweb.VerifierPlugin.Hyperlane.Binary
 import Chainweb.VerifierPlugin.Hyperlane.Utils
-import Chainweb.Utils (decodeB64UrlNoPaddingText)
+import Chainweb.Utils (decodeB64UrlNoPaddingText, sshow)
 
 plugin :: VerifierPlugin
 plugin = VerifierPlugin $ \proof caps gasRef -> do
   -- extract capability values
-  let SigCapability{..} = Set.elemAt 0 caps
+  SigCapability{..} <- case Set.toList caps of
+    [cap] -> return cap
+    _ -> throwError $ VerifierError "Expected one capability."
+
   (capTokenMessage, capRecipient, capSigners) <- case _scArgs of
       [o, r, sigs] -> return (o, r, sigs)
       _ -> throwError $ VerifierError $ "Not enough capability arguments. Expected: HyperlaneMessage object, recipient and signers."
@@ -59,11 +61,7 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
   let recipientVal = PLiteral $ LString $ Text.decodeUtf8 hmRecipient
   unless (recipientVal == capRecipient) $
     throwError $ VerifierError $
-      "Recipients don't match. Expected: " <> (Text.pack $ show recipientVal) <> " but got " <> (Text.pack $ show capRecipient)
-
-  -- validate token message
-  unless (_qnName _scName == "MRC20") $
-    throwError $ VerifierError $ "Only TokenMessageERC20 is supported at the moment. Expected capability name: MRC20 but got " <> (_qnName _scName)
+      "Recipients don't match. Expected: " <> sshow recipientVal <> " but got " <> sshow capRecipient
 
   let
     TokenMessageERC20{..} = hmTokenMessage
@@ -72,7 +70,7 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
 
   unless (tokenVal == capTokenMessage) $
     throwError $ VerifierError $
-      "Invalid TokenMessage. Expected: " <> (Text.pack $ show tokenVal) <> " but got " <> (Text.pack $ show capTokenMessage)
+      "Invalid TokenMessage. Expected: " <> sshow tokenVal <> " but got " <> sshow capTokenMessage
 
   -- validate signers
   let

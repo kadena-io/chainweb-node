@@ -25,15 +25,18 @@ import Chainweb.VerifierPlugin.Hyperlane.Utils
 import Chainweb.Utils.Serialization (putRawByteString, runPutS)
 
 import Chainweb.VerifierPlugin
-import Chainweb.Utils (decodeB64UrlNoPaddingText)
+import Chainweb.Utils (decodeB64UrlNoPaddingText, sshow)
 
 plugin :: VerifierPlugin
 plugin = VerifierPlugin $ \proof caps gasRef -> do
   -- extract capability values
-  let SigCapability{..} = Set.elemAt 0 caps
+  SigCapability{..} <- case Set.toList caps of
+    [cap] -> return cap
+    _ -> throwError $ VerifierError "Expected one capability."
+
   capSigner <- case _scArgs of
       [sig] -> return sig
-      _ -> throwError $ VerifierError $ "Not enough capability arguments. Expected: signer."
+      _ -> throwError $ VerifierError "Not enough capability arguments. Expected: signer."
 
   -- extract proof object values
   (storageLocation, encodedSignature) <- case proof of
@@ -77,6 +80,6 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
     Just addressVal' ->
       unless (addressVal' == capSigner) $
         throwError $ VerifierError $
-          "Incorrect signer. Expected: " <> (Text.pack $ show addressVal) <> " but got " <> (Text.pack $ show capSigner)
+          "Incorrect signer. Expected: " <> sshow addressVal <> " but got " <> sshow capSigner
     Nothing ->
         throwError $ VerifierError $ "Failed to recover the address from the signature"
