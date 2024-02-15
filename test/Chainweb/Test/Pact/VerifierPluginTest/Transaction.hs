@@ -139,7 +139,11 @@ verifierTest :: PactTestM ()
 verifierTest = do
   runToHeight 118
 
-  checkEnforceVerifer "allow"
+  runBlockTest
+    [ PactTxTest
+        (buildBasic (mkExec' $ "(enforce-verifier 'allow)"))
+        (assertTxFailure "Should not resolve enforce-verifier" "Cannot resolve enforce-verifier")
+    ]
 
   let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "G" def) []
 
@@ -154,14 +158,7 @@ verifierTest = do
       (assertTxSuccess
         "Should allow enforce-verifier in a capability"
         (pString "Loaded module free.m, hash QNTlTCp-KMPkT52CEo_0zGaLJ_PnAxsenyhUck1njcc"))
-    , PactTxTest
-      (buildBasic (mkExec' "(free.m.x)"))
-      (\cr -> liftIO $ do
-        assertTxFailure
-          "verifier not present"
-          "Verifier failure allow: not in transaction"
-          cr
-        assertTxGas "verifier errors charge all gas" 10000 cr)
+    , checkVerifierNotInTx "allow"
     , PactTxTest
       (buildBasic'
         (set cbVerifiers
@@ -178,11 +175,10 @@ verifierTest = do
 
 hyperlaneRecoverValidatorAnnouncementSuccess :: PactTestM ()
 hyperlaneRecoverValidatorAnnouncementSuccess = do
-  runToHeight 118
+  runToHeight 119
 
-  checkEnforceVerifer "hyperlane_announcement"
-
-  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def) [pString "0x6c414e7a15088023e28af44ad0e1d593671e4b15"]
+  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
+              [pString "storagelocation", pString "0x6c414e7a15088023e28af44ad0e1d593671e4b15", pString "kb-mailbox"]
 
   runBlockTest
     [ PactTxTest
@@ -191,19 +187,12 @@ hyperlaneRecoverValidatorAnnouncementSuccess = do
         [ "(namespace 'free)"
         , "(module m G"
         , "(defcap G () true)"
-        , "(defcap K (address:string) (enforce-verifier 'hyperlane_announcement))"
-        , "(defun x () (with-capability (K \"0x6c414e7a15088023e28af44ad0e1d593671e4b15\") 1)))"])
+        , "(defcap K (location:string signer:string mailbox:string) (enforce-verifier 'hyperlane_announcement))"
+        , "(defun x () (with-capability (K \"storagelocation\" \"0x6c414e7a15088023e28af44ad0e1d593671e4b15\" \"kb-mailbox\") 1)))"])
       (assertTxSuccess
-        "Should allow enforce-verifier in a capability"
-        (pString "Loaded module free.m, hash 9UnPjHMwwrA5JvbavnZejwKIcmgLmZJ44uAq-9MkQxI"))
-    , PactTxTest
-      (buildBasic (mkExec' "(free.m.x)"))
-      (\cr -> liftIO $ do
-        assertTxFailure
-          "verifier not present"
-          "Verifier failure hyperlane_announcement: not in transaction"
-          cr
-        assertTxGas "verifier errors charge all gas" 10000 cr)
+        "Should deploy module"
+        (pString "Loaded module free.m, hash 1JDzly5XUBLPnXoBQNlvPd91Rhsb6P0E5oZHjuKShjk"))
+    , checkVerifierNotInTx "hyperlane_announcement"
     , PactTxTest
       (buildBasic'
         (set cbGasLimit 20000 . set cbVerifiers
@@ -213,6 +202,7 @@ hyperlaneRecoverValidatorAnnouncementSuccess = do
               PList $ V.fromList
                 [ pString "storagelocation"
                 , pString "U7oftiGhn7rpWJydP6t0FKStdcRd223a8uSTqKjs8K8nJW7U84tzBOgPZTtGKnncwiu8l1185vB38c7-Ov7avBw"
+                , pString "kb-mailbox"
                 ]
               )
             [cap]])
@@ -224,11 +214,10 @@ hyperlaneRecoverValidatorAnnouncementSuccess = do
 
 hyperlaneRecoverValidatorAnnouncementFailure :: PactTestM ()
 hyperlaneRecoverValidatorAnnouncementFailure = do
-  runToHeight 118
+  runToHeight 119
 
-  checkEnforceVerifer "hyperlane_announcement"
-
-  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def) [pString "0x6c414e7a15088023e28af44ad0e1d593671e4b15"]
+  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
+              [pString "storagelocation", pString "0x6c414e7a15088023e28af44ad0e1d593671e4b15", pString "kb-mailbox"]
 
   runBlockTest
     [ PactTxTest
@@ -237,19 +226,12 @@ hyperlaneRecoverValidatorAnnouncementFailure = do
         [ "(namespace 'free)"
         , "(module m G"
         , "(defcap G () true)"
-        , "(defcap K (address:string) (enforce-verifier 'hyperlane_announcement))"
-        , "(defun x () (with-capability (K \"0x6c414e7a15088023e28af44ad0e1d593671e4b15\") 1)))"])
+        , "(defcap K (location:string signer:string mailbox:string) (enforce-verifier 'hyperlane_announcement))"
+        , "(defun x () (with-capability (K \"storagelocation\" \"0x6c414e7a15088023e28af44ad0e1d593671e4b15\" \"kb-mailbox\") 1)))"])
       (assertTxSuccess
-        "Should allow enforce-verifier in a capability"
-        (pString "Loaded module free.m, hash 9UnPjHMwwrA5JvbavnZejwKIcmgLmZJ44uAq-9MkQxI"))
-    , PactTxTest
-      (buildBasic (mkExec' "(free.m.x)"))
-      (\cr -> liftIO $ do
-        assertTxFailure
-          "verifier not present"
-          "Verifier failure hyperlane_announcement: not in transaction"
-          cr
-        assertTxGas "verifier errors charge all gas" 10000 cr)
+        "Should deploy module"
+        (pString "Loaded module free.m, hash 1JDzly5XUBLPnXoBQNlvPd91Rhsb6P0E5oZHjuKShjk"))
+    , checkVerifierNotInTx "hyperlane_announcement"
     , PactTxTest
       (buildBasic'
         (set cbGasLimit 20000 . set cbVerifiers
@@ -259,6 +241,7 @@ hyperlaneRecoverValidatorAnnouncementFailure = do
               PList $ V.fromList
                 [ pString "storagelocation"
                 , pString "Q7oftiGhn7rpWJydP6t0FKStdcRd223a8uSTqKjs8K8nJW7U84tzBOgPZTtGKnncwiu8l1185vB38c7-Ov7avBw"
+                , pString "kb-mailbox"
                 ]
               )
             [cap]])
@@ -270,9 +253,7 @@ hyperlaneRecoverValidatorAnnouncementFailure = do
 
 hyperlaneVerifySuccess :: PactTestM ()
 hyperlaneVerifySuccess = do
-  runToHeight 118
-
-  checkEnforceVerifer "hyperlane_message_mrc20"
+  runToHeight 119
 
   let
     tokenVal = PObject $ ObjectMap $ M.fromList
@@ -297,16 +278,9 @@ hyperlaneVerifySuccess = do
         , "(defun x () (with-capability (MRC20 {\"recipient\": \"k:94c35ab1bd70243ec670495077f7846373b4dc5e9779d7a6732b5ceb6fde059c\", \"amount\": 44.0} \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\" [\"0x71239e00ae942b394b3a91ab229e5264ad836f6f\"]) 1)))"
         ])
       (assertTxSuccess
-        "Should allow enforce-verifier in a capability"
+        "Should deploy module"
         (pString "Loaded module free.m, hash Sv_eCpI97oC_MEBVT7moFmZnCQm0Kw9N72IDyEJlaFc"))
-    , PactTxTest
-      (buildBasic (mkExec' "(free.m.x)"))
-      (\cr -> liftIO $ do
-        assertTxFailure
-          "verifier not present"
-          "Verifier failure hyperlane_message_mrc20: not in transaction"
-          cr
-        assertTxGas "verifier errors charge all gas" 10000 cr)
+    , checkVerifierNotInTx "hyperlane_message_mrc20"
     , PactTxTest
       (buildBasic'
         (set cbGasLimit 20000 . set cbVerifiers
@@ -328,9 +302,7 @@ hyperlaneVerifySuccess = do
 
 hyperlaneVerifySuccessEmptyRecoveredSignatures :: PactTestM ()
 hyperlaneVerifySuccessEmptyRecoveredSignatures = do
-  runToHeight 118
-
-  checkEnforceVerifer "hyperlane_message_mrc20"
+  runToHeight 119
 
   let
     tokenVal = PObject $ ObjectMap $ M.fromList
@@ -355,16 +327,9 @@ hyperlaneVerifySuccessEmptyRecoveredSignatures = do
         , "(defun x () (with-capability (MRC20 {\"recipient\": \"k:94c35ab1bd70243ec670495077f7846373b4dc5e9779d7a6732b5ceb6fde059c\", \"amount\": 44.0} \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\" []) 1)))"
         ])
       (assertTxSuccess
-        "Should allow enforce-verifier in a capability"
+        "Should deploy module"
         (pString "Loaded module free.m, hash flDIg-O0Wh4MF3Dh-7b5V5R7dAGZS1bAB2x0ZFhT5qY"))
-    , PactTxTest
-      (buildBasic (mkExec' "(free.m.x)"))
-      (\cr -> liftIO $ do
-        assertTxFailure
-          "verifier not present"
-          "Verifier failure hyperlane_message_mrc20: not in transaction"
-          cr
-        assertTxGas "verifier errors charge all gas" 10000 cr)
+    , checkVerifierNotInTx "hyperlane_message_mrc20"
     , PactTxTest
       (buildBasic'
         (set cbGasLimit 20000 . set cbVerifiers
@@ -385,9 +350,7 @@ hyperlaneVerifySuccessEmptyRecoveredSignatures = do
 
 hyperlaneVerifyFailureWrongValidator :: PactTestM ()
 hyperlaneVerifyFailureWrongValidator = do
-  runToHeight 118
-
-  checkEnforceVerifer "hyperlane_message_mrc20"
+  runToHeight 119
 
   let
     tokenVal = PObject $ ObjectMap $ M.fromList
@@ -412,16 +375,9 @@ hyperlaneVerifyFailureWrongValidator = do
         , "(defun x () (with-capability (MRC20 {\"recipient\": \"k:94c35ab1bd70243ec670495077f7846373b4dc5e9779d7a6732b5ceb6fde059c\", \"amount\": 44.0} \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\" [\"wrongValidator\"]) 1)))"
         ])
       (assertTxSuccess
-        "Should allow enforce-verifier in a capability"
+        "Should deploy module"
         (pString "Loaded module free.m, hash B6evuZRGMsh6duuA9Na8cePF0sZTEUBZ33vyLM0c3VY"))
-    , PactTxTest
-      (buildBasic (mkExec' "(free.m.x)"))
-      (\cr -> liftIO $ do
-        assertTxFailure
-          "verifier not present"
-          "Verifier failure hyperlane_message_mrc20: not in transaction"
-          cr
-        assertTxGas "verifier errors charge all gas" 10000 cr)
+    , checkVerifierNotInTx "hyperlane_message_mrc20"
     , PactTxTest
       (buildBasic'
         (set cbGasLimit 20000 . set cbVerifiers
@@ -443,9 +399,7 @@ hyperlaneVerifyFailureWrongValidator = do
 
 hyperlaneVerifyFailureNotEnoughRecoveredSignatures :: PactTestM ()
 hyperlaneVerifyFailureNotEnoughRecoveredSignatures = do
-  runToHeight 118
-
-  checkEnforceVerifer "hyperlane_message_mrc20"
+  runToHeight 119
 
   let
     tokenVal = PObject $ ObjectMap $ M.fromList
@@ -470,16 +424,9 @@ hyperlaneVerifyFailureNotEnoughRecoveredSignatures = do
         , "(defun x () (with-capability (MRC20 {\"recipient\": \"k:94c35ab1bd70243ec670495077f7846373b4dc5e9779d7a6732b5ceb6fde059c\", \"amount\": 44.0} \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\" [\"wrongValidator\"]) 1)))"
         ])
       (assertTxSuccess
-        "Should allow enforce-verifier in a capability"
+        "Should deploy module"
         (pString "Loaded module free.m, hash B6evuZRGMsh6duuA9Na8cePF0sZTEUBZ33vyLM0c3VY"))
-    , PactTxTest
-      (buildBasic (mkExec' "(free.m.x)"))
-      (\cr -> liftIO $ do
-        assertTxFailure
-          "verifier not present"
-          "Verifier failure hyperlane_message_mrc20: not in transaction"
-          cr
-        assertTxGas "verifier errors charge all gas" 10000 cr)
+    , checkVerifierNotInTx "hyperlane_message_mrc20"
     , PactTxTest
       (buildBasic'
         (set cbGasLimit 20000 . set cbVerifiers
@@ -500,9 +447,8 @@ hyperlaneVerifyFailureNotEnoughRecoveredSignatures = do
 
 hyperlaneVerifyFailureNotEnoughCapabilitySignatures :: PactTestM ()
 hyperlaneVerifyFailureNotEnoughCapabilitySignatures = do
-  runToHeight 118
-
-  checkEnforceVerifer "hyperlane_message_mrc20"
+  runToHeight 119
+  let veriferName = "hyperlane_message_mrc20"
 
   let
     tokenVal = PObject $ ObjectMap $ M.fromList
@@ -523,25 +469,19 @@ hyperlaneVerifyFailureNotEnoughCapabilitySignatures = do
         , "  recipient:string"
         , "  amount:decimal"
         , ")"
-        , "(defcap MRC20 (tokenVal:object{token} recipient:string signers:[string]) (enforce-verifier 'hyperlane_message_mrc20))"
-        , "(defun x () (with-capability (MRC20 {\"recipient\": \"k:94c35ab1bd70243ec670495077f7846373b4dc5e9779d7a6732b5ceb6fde059c\", \"amount\": 44.0} \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\" [\"0x71239e00ae942b394b3a91ab229e5264ad836f6f\"]) 1)))"
+        , "(defcap MRC20 (tokenVal:object{token} recipient:string signers:[string]) (enforce-verifier '" <> veriferName <> "))"
+        , "(defun x () (with-capability (MRC20 {\"recipient\": \"k:94c35ab1bd70243ec670495077f7846373b4dc5e9779d7a6732b5ceb6fde059c\","
+        , "\"amount\": 44.0} \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\" [\"0x71239e00ae942b394b3a91ab229e5264ad836f6f\"]) 1)))"
         ])
       (assertTxSuccess
-        "Should allow enforce-verifier in a capability"
-        (pString "Loaded module free.m, hash Sv_eCpI97oC_MEBVT7moFmZnCQm0Kw9N72IDyEJlaFc"))
-    , PactTxTest
-      (buildBasic (mkExec' "(free.m.x)"))
-      (\cr -> liftIO $ do
-        assertTxFailure
-          "verifier not present"
-          "Verifier failure hyperlane_message_mrc20: not in transaction"
-          cr
-        assertTxGas "verifier errors charge all gas" 10000 cr)
+        "Should deploy module"
+        (pString "Loaded module free.m, hash Ak7LykNpIbrXoZY2HXvlGsO8BQxzO9Km_edsYqGYnAQ"))
+    , checkVerifierNotInTx veriferName
     , PactTxTest
       (buildBasic'
         (set cbGasLimit 40000 . set cbVerifiers
           [Verifier
-            (VerifierName "hyperlane_message_mrc20")
+            (VerifierName veriferName)
             (ParsedVerifierProof $
               PList $ V.fromList
                 [ pString "AwAAAAAAAHppAAAAAAAAAAAAAAAAdAsTPe23W9tY0AAFToc8rm_FZfsAAAJyNllLenFwRE5BVG1QaFVKemM1QTE3bUpiRlhILWRCa1YAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAmKfZuDFMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEJrOjk0YzM1YWIxYmQ3MDI0M2VjNjcwNDk1MDc3Zjc4NDYzNzNiNGRjNWU5Nzc5ZDdhNjczMmI1Y2ViNmZkZTA1OWMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -562,13 +502,15 @@ hyperlaneVerifyFailureNotEnoughCapabilitySignatures = do
 --
 -- =========================================================
 
-checkEnforceVerifer :: T.Text -> PactTestM ()
-checkEnforceVerifer v = do
-  runBlockTest
-    [ PactTxTest
-        (buildBasic (mkExec' $ "(enforce-verifier '" <> v <> ")"))
-        (assertTxFailure "Should not resolve enforce-verifier" "Cannot resolve enforce-verifier")
-    ]
+checkVerifierNotInTx :: T.Text -> PactTxTest
+checkVerifierNotInTx v = PactTxTest
+  (buildBasic (mkExec' "(free.m.x)"))
+  (\cr -> liftIO $ do
+    assertTxFailure
+      "verifier not present"
+      ("Verifier failure " <> pretty v <> ": not in transaction")
+      cr
+    assertTxGas "verifier errors charge all gas" 10000 cr)
 
 -- | Sets mempool with block fillers. A matched filler
 -- (returning a 'Just' result) is executed and removed from the list.
