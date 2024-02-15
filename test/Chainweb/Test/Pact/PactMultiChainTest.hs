@@ -1202,13 +1202,23 @@ verifierTest :: PactTestM ()
 verifierTest = do
   runToHeight 118
 
+  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "G" def) []
+
   runBlockTest
     [ PactTxTest
         (buildBasic (mkExec' "(enforce-verifier 'allow)"))
         (assertTxFailure "Should not resolve enforce-verifier" "Cannot resolve enforce-verifier")
+    , PactTxTest
+        (buildBasic'
+          (set cbVerifiers
+            [Verifier
+              (VerifierName "missing")
+              (ParsedVerifierProof $ pString "")
+              [cap]])
+          (mkExec' "1"))
+        (assertTxSuccess
+          "Should not run verifiers before they're enabled" (pDecimal 1))
     ]
-
-  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "G" def) []
 
   runBlockTest
     [ PactTxTest
@@ -1249,6 +1259,20 @@ verifierTest = do
         -- The **Allow** verifier costs 100 gas flat
         assertEqual "gas should have been charged" 344 (_crGas cr)
       )
+    , PactTxTest
+      (buildBasic'
+        (set cbVerifiers
+          [Verifier
+            (VerifierName "missing")
+            (ParsedVerifierProof $ pString (PactJSON.encodeText cap))
+            [cap]
+          ]
+        )
+        (mkExec' "(free.m.x)")
+      )
+      (assertTxFailure
+        "should have failed, missing verifier"
+        "Tx verifier error: verifier does not exist: missing")
     ]
 
 chainweb223Test :: PactTestM ()
