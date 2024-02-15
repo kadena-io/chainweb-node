@@ -114,7 +114,7 @@ module Chainweb.Version
     , checkAdjacentChainIds
 
     -- ** Utilities for constructing Chainweb Version
-    , forkUpgrades
+    , indexByForkHeights
     , latestBehaviorAt
     , domainAddr2PeerInfo
 
@@ -553,17 +553,16 @@ instance HasChainGraph (ChainwebVersion, BlockHeight) where
 domainAddr2PeerInfo :: [HostAddress] -> [PeerInfo]
 domainAddr2PeerInfo = fmap (PeerInfo Nothing)
 
--- | Creates a map from fork heights to upgrades.
-forkUpgrades
+-- | A utility to allow indexing behavior by forks, returning that behavior
+-- indexed by the block heights of those forks.
+indexByForkHeights
     :: ChainwebVersion
-    -> [(Fork, ChainMap Upgrade)]
-    -> ChainMap (HashMap BlockHeight Upgrade)
-forkUpgrades v = OnChains . foldl' go (HM.empty <$ HS.toMap (chainIds v))
+    -> [(Fork, ChainMap a)]
+    -> ChainMap (HashMap BlockHeight a)
+indexByForkHeights v = OnChains . foldl' go (HM.empty <$ HS.toMap (chainIds v))
   where
     conflictError fork h =
-        error $ "conflicting upgrades at block height " <> show h <> " when adding upgrade for fork " <> show fork
-    emptyUpgradeError fork =
-        error $ "empty set of upgrade transactions for fork " <> show fork
+        error $ "conflicting behavior at block height " <> show h <> " when adding behavior for fork " <> show fork
     go acc (fork, txsPerChain) =
         HM.unionWith
             (HM.unionWithKey (conflictError fork))
@@ -573,7 +572,6 @@ forkUpgrades v = OnChains . foldl' go (HM.empty <$ HS.toMap (chainIds v))
             [ (cid, HM.singleton forkHeight upg)
             | cid <- HM.keys acc
             , Just upg <- [txsPerChain ^? onChain cid]
-            , not (null $ _upgradeTransactions upg) || emptyUpgradeError fork
             , ForkAtBlockHeight forkHeight <- [v ^?! versionForks . at fork . _Just . onChain cid]
             , forkHeight /= maxBound
             ]
