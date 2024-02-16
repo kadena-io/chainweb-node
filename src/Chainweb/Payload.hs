@@ -109,7 +109,7 @@ module Chainweb.Payload
 ) where
 
 import Control.DeepSeq
-import Control.Monad ((<$!>))
+import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson
@@ -474,6 +474,35 @@ data BlockTransactions_ a = BlockTransactions
         -- ^ Miner data for rewards
     }
     deriving (Show, Eq, Ord, Generic)
+
+encodeBlockTransactions :: BlockTransactions_ a -> Put
+encodeBlockTransactions txs = do
+    let hsh = BA.convert (_blockTransactionsHash txs)
+    putWord64be (fromIntegral $ B.length hsh)
+    putByteString hsh
+    putWord64be (fromIntegral $ V.length (_blockTransactions txs))
+    forM_ (_blockTransactions txs) $ \tx -> do
+        putWord64be (fromIntegral $ B.length (_transactionBytes tx))
+        putByteString (_transactionBytes tx)
+    putWord64be (fromIntegral $ B.length $ _minerData $ _blockMinerData txs)
+    putByteString (_minerData $ _blockMinerData txs)
+
+decodeBlockTransactions :: BA.ByteArray (MerkleLogHash a) => Get (BlockTransactions_ a)
+decodeBlockTransactions = do
+    hshSz <- fromIntegral <$> getWord64be
+    hsh <- getByteString hshSz
+    txsCount <- fromIntegral <$> getWord64be
+    txs <- replicateM txsCount $ do
+        txSz <- fromIntegral <$> getWord64be
+        txData <- getByteString txSz
+        pure $ Transaction txData
+    minerDataSz <- fromIntegral <$> getWord64be
+    minerData <- MinerData <$> getByteString minerDataSz
+    return BlockTransactions
+        { _blockTransactionsHash = BlockTransactionsHash $ BA.convert hsh
+        , _blockTransactions = V.fromList txs
+        , _blockMinerData = minerData
+        }
 
 blockTransactionsProperties
     :: MerkleHashAlgorithm a

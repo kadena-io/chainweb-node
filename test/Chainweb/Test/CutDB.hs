@@ -448,7 +448,7 @@ randomTransaction
 randomTransaction cutDb = do
     bh <- randomBlockHeader cutDb
     Just pd <- lookupPayloadDataWithHeight payloadDb (Just $ _blockHeight bh) (_blockPayloadHash bh)
-    let pay = BlockPayload 
+    let pay = BlockPayload
           { _blockPayloadTransactionsHash = _payloadDataTransactionsHash pd
           , _blockPayloadOutputsHash = _payloadDataOutputsHash pd
           , _blockPayloadPayloadHash = _payloadDataPayloadHash pd
@@ -456,13 +456,13 @@ randomTransaction cutDb = do
 
     Just btxs <-
         tableLookup
-            (_transactionDbBlockTransactions $ _transactionDb payloadDb)
-            (_blockPayloadTransactionsHash pay)
+            (_newTransactionDbBlockTransactionsTbl $ _transactionDb payloadDb)
+            (_blockHeight bh, _blockPayloadTransactionsHash pay)
     txIx <- generate $ choose (0, length (_blockTransactions btxs) - 1)
     Just outs <-
         tableLookup
-            (_payloadCacheBlockOutputs $ _payloadCache payloadDb)
-            (_blockPayloadOutputsHash pay)
+            (_newBlockOutputsTbl $ _payloadCacheBlockOutputs $ _payloadCache payloadDb)
+            (_blockHeight bh, _blockPayloadOutputsHash pay)
     return
         ( bh
         , txIx
