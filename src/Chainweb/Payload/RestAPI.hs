@@ -204,7 +204,7 @@ type OutputsPostApi_
     = "payload"
     :> "outputs"
     :> "batch"
-    :> ReqBody '[JSON] [BlockPayloadHash]
+    :> ReqBody '[JSON] BatchBody
     :> Post '[JSON] [PayloadWithOutputs]
 
 type OutputsPostApi (v :: ChainwebVersionT) (c :: ChainIdT)

@@ -121,12 +121,15 @@ outputsBatchHandler
     :: CanReadablePayloadCas tbl
     => PayloadBatchLimit
     -> PayloadDb tbl
-    -> [BlockPayloadHash]
+    -> BatchBody
     -> Handler [PayloadWithOutputs]
-outputsBatchHandler batchLimit db ks = liftIO
-    $ fmap catMaybes
-    $ lookupPayloadWithHeightBatch db
-    $ take (int batchLimit) (map (Nothing,) ks)
+outputsBatchHandler batchLimit db ks
+  = liftIO (catMaybes <$> lookupPayloadWithHeightBatch db ks')
+  where
+      limit = take (int batchLimit)
+      ks' | WithoutHeights xs <- ks = limit (fmap (Nothing,) xs)
+          | WithHeights    xs <- ks = limit (fmap (over _1 Just) xs)
+
 
 -- -------------------------------------------------------------------------- --
 -- Payload API Server

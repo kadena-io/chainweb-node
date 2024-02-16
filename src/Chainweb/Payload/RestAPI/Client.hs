@@ -113,14 +113,14 @@ outputsBatchClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => [BlockPayloadHash]
+    => BatchBody
     -> ClientM [PayloadWithOutputs]
 outputsBatchClient_ = client (outputsPostApi @v @c)
 
 outputsBatchClient
     :: ChainwebVersion
     -> ChainId
-    -> [BlockPayloadHash]
+    -> BatchBody
     -> ClientM [PayloadWithOutputs]
 outputsBatchClient v c k = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
