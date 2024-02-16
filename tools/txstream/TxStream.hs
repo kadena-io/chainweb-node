@@ -36,7 +36,6 @@ import Chainweb.Payload.RestAPI.Client
 
 import Configuration.Utils
 
-import Control.Arrow ((&&&))
 import Control.Lens hiding ((.=))
 import Control.Monad ((<=<), when)
 import Control.Monad.Reader
@@ -316,10 +315,8 @@ txOutputsStream config mgr logg = do
                 (\x -> when (_blockHeight x `mod` 100 == 0) $
                     logg @T.Text Info ("BlockHeight: " <> sshow (_blockHeight x))
                 )
-            & S.mapM
-                ( traverse (devNetPayloadWithOutput config mgr)
-                . (_blockHeight &&& _blockPayloadHash)
-                )
+
+            & S.mapM (\x -> (_blockHeight x,) <$> devNetPayloadWithOutput config mgr (_blockHeight x) (_blockPayloadHash x))
             & flip S.for
                 ( S.each
                 . traverse _payloadWithOutputsTransactions
@@ -351,9 +348,9 @@ devNetPayload config mgr h x = runClientM (payloadClient ver cid x (Just h)) (en
     ver = _configChainwebVersion config
     node = _configNode config
 
-devNetPayloadWithOutput :: Config -> Manager -> BlockPayloadHash -> IO PayloadWithOutputs
-devNetPayloadWithOutput config mgr x
-    = runClientM (outputsClient ver cid x) (env mgr node) >>= \case
+devNetPayloadWithOutput :: Config -> Manager -> BlockHeight -> BlockPayloadHash -> IO PayloadWithOutputs
+devNetPayloadWithOutput config mgr h x
+    = runClientM (outputsClient ver cid x (Just h)) (env mgr node) >>= \case
         Left e -> error (show e)
         Right a -> return a
   where

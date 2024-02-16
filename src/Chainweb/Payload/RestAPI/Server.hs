@@ -105,8 +105,9 @@ outputsHandler
     :: CanReadablePayloadCas tbl
     => PayloadDb tbl
     -> BlockPayloadHash
+    -> Maybe BlockHeight
     -> Handler PayloadWithOutputs
-outputsHandler db k = liftIO (lookupPayloadWithHeight db Nothing k) >>= \case
+outputsHandler db k mh = liftIO (lookupPayloadWithHeight db mh k) >>= \case
     Nothing -> throwError $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= k

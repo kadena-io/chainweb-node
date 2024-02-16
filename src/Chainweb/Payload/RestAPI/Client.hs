@@ -91,6 +91,7 @@ outputsClient_
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => BlockPayloadHash
+    -> Maybe BlockHeight
     -> ClientM PayloadWithOutputs
 outputsClient_ = client (outputsGetApi @v @c)
 
@@ -98,11 +99,12 @@ outputsClient
     :: ChainwebVersion
     -> ChainId
     -> BlockPayloadHash
+    -> Maybe BlockHeight
     -> ClientM PayloadWithOutputs
-outputsClient v c k = runIdentity $ do
+outputsClient v c k h = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ outputsClient_ @v @c k
+    return $ outputsClient_ @v @c k h
 
 -- -------------------------------------------------------------------------- --
 -- POST Outputs Batch Client

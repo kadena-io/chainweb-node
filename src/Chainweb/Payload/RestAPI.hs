@@ -181,6 +181,7 @@ type OutputsGetApi_
     = "payload"
     :> Capture "BlockPayloadHash" BlockPayloadHash
     :> "outputs"
+    :> QueryParam "height" BlockHeight
     :> Get '[JSON] PayloadWithOutputs
 
 type OutputsGetApi (v :: ChainwebVersionT) (c :: ChainIdT)

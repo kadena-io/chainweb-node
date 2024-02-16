@@ -80,6 +80,7 @@ outputsGetClient'
     :: ChainwebVersion
     -> ChainId
     -> BlockPayloadHash
+    -> Maybe BlockHeight
     -> ClientM_ PayloadWithOutputs
 outputsGetClient' v c = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
