@@ -9,7 +9,7 @@
 -- Copyright: Copyright © 2024 Kadena LLC.
 -- License: MIT
 --
--- Verifer plugin for Hyperlane Message with ERC20 token message.
+-- Verifier plugin for Hyperlane Message with ERC20 token message.
 -- Verifies the message using the provided metadata.
 --
 module Chainweb.VerifierPlugin.Hyperlane.MessageERC20 (plugin) where
@@ -105,7 +105,7 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
   let addressesVals = PList $ V.fromList $ map (PLiteral . LString . encodeHex) addresses
 
   -- Note, that we check the signers for the full equality including their order and amount.
-  -- Hyperlane's verifier uses a threshold and inclusion check.
+  -- Hyperlane's ISM uses a threshold and inclusion check.
   unless (addressesVals == capSigners) $
     throwError $ VerifierError $
       "Signers don't match. Expected: " <> sshow addressesVals <> " but got " <> sshow capSigners
