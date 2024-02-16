@@ -60,9 +60,9 @@ getHyperlaneMessage = do
   hmVersion <- getWord8
   hmNonce <- getWord32be
   hmOriginDomain <- getWord32be
-  hmSender <- BS.takeEnd ethereumAddressSize <$> getBS 32
+  hmSender <- BS.takeEnd ethereumAddressSize <$> getByteString 32
   hmDestinationDomain <- getWord32be
-  hmRecipient <- BS.dropWhile (== 0) <$> getBS 32
+  hmRecipient <- BS.dropWhile (== 0) <$> getByteString 32
   hmTokenMessage <- getTokenMessageERC20
 
   return $ HyperlaneMessage {..}
@@ -97,7 +97,7 @@ getTokenMessageERC20 = do
     tmAmount <- getWord256be
 
     recipientSize <- getWord256be
-    tmRecipient <- Text.decodeUtf8 <$> getBS recipientSize
+    tmRecipient <- Text.decodeUtf8 <$> getRecipient recipientSize
     return $ TokenMessageERC20 {..}
 
 data MessageIdMultisigIsmMetadata = MessageIdMultisigIsmMetadata
@@ -109,8 +109,8 @@ data MessageIdMultisigIsmMetadata = MessageIdMultisigIsmMetadata
 
 getMessageIdMultisigIsmMetadata :: Get MessageIdMultisigIsmMetadata
 getMessageIdMultisigIsmMetadata = do
-  mmimOriginMerkleTreeAddress <- getBS 32
-  mmimSignedCheckpointRoot <- getBS 32
+  mmimOriginMerkleTreeAddress <- getByteString 32
+  mmimSignedCheckpointRoot <- getByteString 32
   mmimSignedCheckpointIndex <- getWord32be
 
   signaturesBytes <- getRemainingLazyByteString
@@ -140,9 +140,10 @@ padRight s =
 restSize :: Integral a => a -> a
 restSize size = (32 - size) `mod` 32
 
+-- TODO: check the size?
 -- | Reads a given number of bytes and the rest because binary data padded up to 32 bytes.
-getBS :: Word256 -> Get BS.ByteString
-getBS size = BS.take (fromIntegral size) <$> getByteString (fromIntegral $ size + restSize size)
+getRecipient :: Word256 -> Get BS.ByteString
+getRecipient size = BS.take (fromIntegral size) <$> getByteString (fromIntegral $ size + restSize size)
 
 -- | Signatures are 65 bytes sized, we split the bytestring by 65 symbols segments.
 sliceSignatures :: BL.ByteString -> [ByteString]

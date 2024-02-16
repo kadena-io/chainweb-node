@@ -68,7 +68,7 @@ import Chainweb.Time
 import Chainweb.VerifierPlugin
 import qualified Chainweb.VerifierPlugin.Allow
 import qualified Chainweb.VerifierPlugin.Hyperlane.Announcement
-import qualified Chainweb.VerifierPlugin.Hyperlane.MessageMRC20
+import qualified Chainweb.VerifierPlugin.Hyperlane.MessageERC20
 
 import Control.Lens
 import Data.Foldable
@@ -477,5 +477,5 @@ allVerifierPlugins = M.fromList $ map (over _1 VerifierName)
     [ ("allow", Chainweb.VerifierPlugin.Allow.plugin)
 
     , ("hyperlane_announcement", Chainweb.VerifierPlugin.Hyperlane.Announcement.plugin)
-    , ("hyperlane_message_mrc20", Chainweb.VerifierPlugin.Hyperlane.MessageMRC20.plugin)
+    , ("hyperlane_message_erc20", Chainweb.VerifierPlugin.Hyperlane.MessageERC20.plugin)
     ]

@@ -4,7 +4,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 
-module Chainweb.VerifierPlugin.Hyperlane.MessageMRC20 (plugin) where
+-- |
+-- Chainweb.VerifierPlugin.Hyperlane.MessageERC20
+-- Copyright: Copyright © 2024 Kadena LLC.
+-- License: MIT
+--
+-- Verifer plugin for Hyperlane Message with ERC20 token message.
+-- Verifies the message using the provided metadata.
+--
+module Chainweb.VerifierPlugin.Hyperlane.MessageERC20 (plugin) where
 
 import Control.Error
 import Control.Monad (unless)
@@ -37,10 +45,10 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
 
   (capTokenMessage, capRecipient, capSigners) <- case _scArgs of
       [o, r, sigs] -> return (o, r, sigs)
-      _ -> throwError $ VerifierError $ "Not enough capability arguments. Expected: HyperlaneMessage object, recipient and signers."
+      _ -> throwError $ VerifierError $ "Incorrect number of capability arguments. Expected: HyperlaneMessage object, recipient, signers."
 
   -- extract proof object values
-  (encodedHyperlaneMessage, encodedMetadata) <- case proof of
+  (hyperlaneMessageBase64, metadataBase64) <- case proof of
     PList values
       | [PLiteral (LString msg), PLiteral (LString mtdt)] <- V.toList values ->
         pure (msg, mtdt)
@@ -48,29 +56,29 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
 
   (HyperlaneMessage{..}, hyperlaneMessageBinary) <- do
     chargeGas gasRef 5
-    msg <- decodeB64UrlNoPaddingText encodedHyperlaneMessage
+    msg <- decodeB64UrlNoPaddingText hyperlaneMessageBase64
     decoded <- runGetS getHyperlaneMessage msg
     return (decoded, msg)
 
   MessageIdMultisigIsmMetadata{..} <- do
     chargeGas gasRef 5
-    metadata <- decodeB64UrlNoPaddingText encodedMetadata
+    metadata <- decodeB64UrlNoPaddingText metadataBase64
     runGetS getMessageIdMultisigIsmMetadata metadata
 
   -- validate recipient
-  let recipientVal = PLiteral $ LString $ Text.decodeUtf8 hmRecipient
-  unless (recipientVal == capRecipient) $
+  let hmRecipientPactValue = PLiteral $ LString $ Text.decodeUtf8 hmRecipient
+  unless (hmRecipientPactValue == capRecipient) $
     throwError $ VerifierError $
-      "Recipients don't match. Expected: " <> sshow recipientVal <> " but got " <> sshow capRecipient
+      "Recipients don't match. Expected: " <> sshow hmRecipientPactValue <> " but got " <> sshow capRecipient
 
   let
     TokenMessageERC20{..} = hmTokenMessage
-    tokenVal = PObject $ ObjectMap $ M.fromList
+    hmTokenMessagePactValue = PObject $ ObjectMap $ M.fromList
         [ ("recipient", PLiteral $ LString tmRecipient), ("amount", PLiteral $ LDecimal $ wordToDecimal tmAmount) ]
 
-  unless (tokenVal == capTokenMessage) $
+  unless (hmTokenMessagePactValue == capTokenMessage) $
     throwError $ VerifierError $
-      "Invalid TokenMessage. Expected: " <> sshow tokenVal <> " but got " <> sshow capTokenMessage
+      "Invalid TokenMessage. Expected: " <> sshow hmTokenMessagePactValue <> " but got " <> sshow capTokenMessage
 
   -- validate signers
   let
@@ -83,20 +91,21 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
   let messageId = getKeccak256Hash hyperlaneMessageBinary
 
   let
-    hash' = getKeccak256Hash $ runPutS $ do
-      -- Corresponds to abi.encodePacked behaviour
-      putRawByteString domainHash
-      putRawByteString mmimSignedCheckpointRoot
-      putWord32be mmimSignedCheckpointIndex
-      putRawByteString messageId
-  let
     digest = keccak256 $ runPutS $ do
       -- Corresponds to abi.encodePacked behaviour
       putRawByteString ethereumHeader
-      putRawByteString hash'
+      putRawByteString $
+        getKeccak256Hash $ runPutS $ do
+          putRawByteString domainHash
+          putRawByteString mmimSignedCheckpointRoot
+          putWord32be mmimSignedCheckpointIndex
+          putRawByteString messageId
+
   addresses <- catMaybes <$> mapM (\sig -> chargeGas gasRef 16250 >> recoverAddress digest sig) mmimSignatures
   let addressesVals = PList $ V.fromList $ map (PLiteral . LString . encodeHex) addresses
 
+  -- Note, that we check the signers for the full equality including their order and amount.
+  -- Hyperlane's verifier uses a threshold and inclusion check.
   unless (addressesVals == capSigners) $
     throwError $ VerifierError $
       "Signers don't match. Expected: " <> sshow addressesVals <> " but got " <> sshow capSigners

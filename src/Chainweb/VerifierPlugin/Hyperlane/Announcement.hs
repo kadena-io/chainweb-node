@@ -51,15 +51,15 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
 
   -- validate storage location
   let storageLocationPactValue = PLiteral $ LString storageLocationText
-  unless (capLocation == storageLocationPactValue) $
+  unless (storageLocationPactValue == capLocation) $
     throwError $ VerifierError $
-      "Incorrect storageLocation. Expected: " <> sshow capLocation <> " but got " <> sshow storageLocationPactValue
+      "Incorrect storageLocation. Expected: " <> sshow storageLocationPactValue <> " but got " <> sshow capLocation
 
   -- validate mailbox address
   let mailboxAddressPactValue = PLiteral $ LString mailboxAddressText
-  unless (capMailboxAddress == mailboxAddressPactValue) $
+  unless (mailboxAddressPactValue == capMailboxAddress) $
     throwError $ VerifierError $
-      "Incorrect mailbox address. Expected: " <> sshow capMailboxAddress <> " but got " <> sshow mailboxAddressPactValue
+      "Incorrect mailbox address. Expected: " <> sshow mailboxAddressPactValue <> " but got " <> sshow capMailboxAddress
 
   -- validate signer
   let
@@ -91,8 +91,8 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
 
   case addressPactValue of
     Just addressPactValue' ->
-      unless (capSigner == addressPactValue') $
+      unless (addressPactValue' == capSigner) $
         throwError $ VerifierError $
-          "Incorrect signer. Expected: " <> sshow capSigner <> " but got " <> sshow addressPactValue
+          "Incorrect signer. Expected: " <> sshow addressPactValue' <> " but got " <> sshow capSigner
     Nothing ->
         throwError $ VerifierError $ "Failed to recover the address from the signature"
