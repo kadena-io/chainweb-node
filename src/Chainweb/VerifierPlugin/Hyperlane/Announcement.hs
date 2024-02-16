@@ -66,7 +66,7 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
     -- Hyperlane's domain id for Kadena bridge,
     -- for more details see https://docs.hyperlane.xyz/docs/reference/domains
     kadenaDomainId = 626
-    domainHash = getKeccak256Hash $ runPutS $ do
+    domainHash = keccak256ByteString $ runPutS $ do
       -- Corresponds to abi.encodePacked behaviour
       putWord32be kadenaDomainId
       putRawByteString $ Text.encodeUtf8 mailboxAddressText
@@ -77,7 +77,7 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
       -- Corresponds to abi.encodePacked behaviour
       putRawByteString ethereumHeader
       putRawByteString $
-        getKeccak256Hash $ runPutS $ do
+        keccak256ByteString $ runPutS $ do
           putRawByteString domainHash
           putRawByteString $ Text.encodeUtf8 storageLocationText
 

@@ -82,20 +82,20 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
 
   -- validate signers
   let
-    domainHash = getKeccak256Hash $ runPutS $ do
+    domainHash = keccak256ByteString $ runPutS $ do
       -- Corresponds to abi.encodePacked behaviour
       putWord32be hmOriginDomain
       putRawByteString mmimOriginMerkleTreeAddress
       putRawByteString "HYPERLANE"
 
-  let messageId = getKeccak256Hash hyperlaneMessageBinary
+  let messageId = keccak256ByteString hyperlaneMessageBinary
 
   let
     digest = keccak256 $ runPutS $ do
       -- Corresponds to abi.encodePacked behaviour
       putRawByteString ethereumHeader
       putRawByteString $
-        getKeccak256Hash $ runPutS $ do
+        keccak256ByteString $ runPutS $ do
           putRawByteString domainHash
           putRawByteString mmimSignedCheckpointRoot
           putWord32be mmimSignedCheckpointIndex

@@ -7,7 +7,7 @@
 module Chainweb.VerifierPlugin.Hyperlane.Utils
   ( recoverAddress
 
-  , getKeccak256Hash
+  , keccak256ByteString
 
   , wordToDecimal
   , decimalToWord
@@ -58,7 +58,7 @@ recoverAddress digest sig' = do
 -- | Returns an address, a rightmost 160 bits (20 bytes) of the keccak hash of the public key.
 getAddress :: ECDSA.EcdsaPublicKey -> B.ByteString
 getAddress pubkey = B.takeEnd ethereumAddressSize
-    $ getKeccak256Hash
+    $ keccak256ByteString
     $ BS.fromShort
     $ BS.drop 1 -- drop the first 0x04 byte the indicates that the key is encoded in compressed format
     $ ECDSA.ecdsaPublicKeyBytes pubkey
@@ -85,5 +85,5 @@ wordToDecimal w =
   let ethInWei = 1000000000000000000 -- 1e18
   in fromRational (toInteger w % ethInWei)
 
-getKeccak256Hash :: B.ByteString -> B.ByteString
-getKeccak256Hash = BS.fromShort . _getBytesN . _getKeccak256Hash . keccak256
+keccak256ByteString :: B.ByteString -> B.ByteString
+keccak256ByteString = BS.fromShort . _getBytesN . _getKeccak256Hash . keccak256
