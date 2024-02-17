@@ -589,8 +589,8 @@ createEventsProofDb_
     -> IO (PayloadProof a)
 createEventsProofDb_ headerDb payloadDb d h reqKey = do
     hdr <- casLookupM headerDb h
-    p <- casLookupM payloadDb (_blockPayloadHash hdr)
-    unless (_payloadWithOutputsPayloadHash p == _blockPayloadHash hdr) $
+    Just pwo <- lookupPayloadWithHeight payloadDb (Just $ _blockHeight hdr) (_blockPayloadHash hdr)
+    unless (_payloadWithOutputsPayloadHash pwo == _blockPayloadHash hdr) $
         throwM $ SpvExceptionInconsistentPayloadData
             { _spvExceptionMsg = "The stored payload hash doesn't match the the db index"
             , _spvExceptionMsgPayloadHash = _blockPayloadHash hdr
@@ -602,7 +602,7 @@ createEventsProofDb_ headerDb payloadDb d h reqKey = do
             , _spvExceptionExpectedDepth = Expected d
             , _spvExceptionActualDepth = Actual $ curRank `minusOrZero` int (_blockHeight hdr)
             }
-    createEventsProof_ p reqKey
+    createEventsProof_ pwo reqKey
 
 createEventsProofDb
     :: CanReadablePayloadCas tbl
@@ -657,4 +657,3 @@ runEventsProof p = do
     unless (t == RootBlockEvents) $ throwM
         $ MerkleRootMismatch (Expected RootBlockEvents) (Actual t)
     return (BlockEventsHash r, s)
-

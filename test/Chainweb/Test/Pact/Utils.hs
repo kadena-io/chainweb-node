@@ -227,7 +227,6 @@ import Chainweb.Version.Utils (someChainId)
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
-import Chainweb.Storage.Table (casLookupM)
 import Chainweb.Storage.Table.RocksDB
 
 -- ----------------------------------------------------------------------- --
@@ -779,11 +778,11 @@ runCut
     -> IO ()
 runCut v bdb pact genTime noncer miner =
   forM_ (chainIds v) $ \cid -> do
-    T2 _ pout <- _webPactNewBlock pact cid miner
+    T2 ph pout <- _webPactNewBlock pact cid miner
     n <- noncer cid
 
     -- skip this chain if mining fails and retry with the next chain.
-    whenM (addTestBlockDb bdb n genTime cid pout) $ do
+    whenM (addTestBlockDb bdb (succ $ _blockHeight $ _parentHeader ph) n genTime cid pout) $ do
         h <- getParentTestBlockDb bdb cid
         void $ _webPactValidateBlock pact h (payloadWithOutputsToPayloadData pout)
 
@@ -1048,7 +1047,10 @@ compact logLevel cFlags (SQLiteEnv db _) bh = do
 
 
 getPWOByHeader :: BlockHeader -> TestBlockDb -> IO PayloadWithOutputs
-getPWOByHeader h (TestBlockDb _ pdb _) = casLookupM pdb (_blockPayloadHash h)
+getPWOByHeader h (TestBlockDb _ pdb _) =
+  lookupPayloadWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h) >>= \case
+    Nothing -> throwM $ userError "getPWOByHeader: payload not found"
+    Just pwo -> return pwo
 
 -- | Compaction function that retries until the database is available.
 compactUntilAvailable

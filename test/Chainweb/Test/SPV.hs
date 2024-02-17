@@ -81,7 +81,6 @@ import Chainweb.TreeDB
 import Chainweb.Utils hiding ((==>))
 import Chainweb.Version
 
-import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 
 -- -------------------------------------------------------------------------- --
@@ -257,7 +256,7 @@ spvTest rdb v step = do
         -> BlockHeader
         -> S.Stream (Of (BlockHeader, Int, Int, TransactionOutput)) IO ()
     getPayloads cutDb h = do
-        pay <- liftIO $ casLookupM (view cutDbPayloadDb cutDb) (_blockPayloadHash h)
+        Just pay <- liftIO $ lookupPayloadWithHeight (view cutDbPayloadDb cutDb) (Just $ _blockHeight h) (_blockPayloadHash h)
         let n = length $ _payloadWithOutputsTransactions pay
         S.each (zip [0..] $ fmap snd $ toList $ _payloadWithOutputsTransactions pay)
             & S.map (\(b,c) -> (h,n,b,c))

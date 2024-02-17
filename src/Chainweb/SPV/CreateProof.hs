@@ -366,7 +366,12 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
             , _spvExceptionTargetHeight = _blockHeight trgHeader
             }
 
-    Just payload <- tableLookup pDb (_blockPayloadHash txHeader)
+    Just pd <- lookupPayloadDataWithHeight payloadDb (Just $ _blockHeight txHeader) (_blockPayloadHash txHeader)
+    let payload = BlockPayload 
+          { _blockPayloadTransactionsHash = _payloadDataTransactionsHash pd
+          , _blockPayloadOutputsHash = _payloadDataOutputsHash pd
+          , _blockPayloadPayloadHash = _payloadDataPayloadHash pd
+          }
 
     -- ----------------------------- --
     -- 1. Payload Proofs (TXs and Payload)
@@ -401,8 +406,6 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
         <> crossTrees
 
   where
-    pDb = _transactionDbBlockPayloads $ _transactionDb payloadDb
-
     append :: N.NonEmpty a -> [a] -> N.NonEmpty a
     append (h N.:| t) l = h N.:| (t <> l)
 
@@ -496,4 +499,3 @@ minimumTrgHeader headerDb tcid scid bh = do
     srcDistance = length $ shortestPath tcid scid srcGraph
     trgGraph = chainGraphAt headerDb (bh + int srcDistance)
     trgDistance = length $ shortestPath tcid scid trgGraph
-
