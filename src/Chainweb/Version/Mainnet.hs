@@ -177,7 +177,7 @@ mainnet = ChainwebVersion
             ]
         }
     , _versionUpgrades = chainZip HM.union
-        (forkUpgrades mainnet
+        (indexByForkHeights mainnet
         [ (CoinV2, onChains
             [ (unsafeChainId 0, upgrade MN0.transactions)
             , (unsafeChainId 1, upgrade MN1.transactions)

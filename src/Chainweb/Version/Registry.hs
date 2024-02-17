@@ -85,9 +85,11 @@ validateVersion v = do
                     , hasAllChains (_genesisBlockTarget $ _versionGenesis v)
                     , hasAllChains (_genesisTime $ _versionGenesis v)
                     ])]
+            , [ "validateVersion: some upgrade has no transactions"
+              | any (any (\upg -> null (_upgradeTransactions upg))) (_versionUpgrades v) ]
             ]
     unless (null errors) $
-        error $ unlines $ ["errors encountered validating version " <> show v <> ":"] <> errors
+        error $ unlines $ ["errors encountered validating version", show v] <> errors
 
 -- | Look up a version in the registry by code.
 lookupVersionByCode :: HasCallStack => ChainwebVersionCode -> ChainwebVersion

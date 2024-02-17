@@ -227,7 +227,7 @@ cpmTestVersion g v = v
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
     & versionUpgrades .~ chainZip HM.union
-        (forkUpgrades v
+        (indexByForkHeights v
             [ (CoinV2, AllChains (upgrade Other.transactions))
             , (Pact4Coin3, AllChains (Upgrade CoinV3.transactions True))
             , (Chainweb214Pact, AllChains (Upgrade CoinV4.transactions True))
