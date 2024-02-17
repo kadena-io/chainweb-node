@@ -7,6 +7,42 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
+-- | This module defines the pact-import tool. The tool is designed so
+--   that users can import a cryptographically verified pact database
+--   into their node. The design is a bit roundabout, because care is taken
+--   to make it hard for users to footgun themselves.
+--
+--   Some quick background knowledge:
+--     chainweb-node has 'Snapshot's embedded into it.
+--     Snapshots are tuples of 'ChainGrandHash' and 'BlockHeader'. They are
+--     indexed by 'BlockHeight' and then 'ChainId'. In other words,
+--     for an arbitrary number of unique 'BlockHeight's, there is a
+--     'Map' 'ChainId' 'Snapshot'. This means that the database has
+--     'Snapshot's across each chain for each 'BlockHeight'. These embedded
+--     snapshots are computed by the `pact-calc` tool.
+--
+--   The tool works like this:
+--     - See what the latest common (i.e, across all chains) blockheight in RocksDb is.
+--       E.g. if all chains are at blockheight 1_000 but one chain is at 999 and
+--       another chain is at 998, then the latest common blockheight across all
+--       chains is 998. Call this the latestCommonBlockHeight.
+--     - Find the first embedded snapshot associated with
+--       a blockheight <= latestCommonBlockHeight. Call this
+--       'snapshotBlockHeight'.
+--       E.g. say the db has latest height 3_980_000, but the latest embedded
+--       snapshot is at 3_800_000. This means that we will pick the embedded
+--       snapshot at blockheight 3_800_000.
+--     - Sets the environment variable `SNAPSHOT_BLOCKHEIGHT`, which is useful
+--       for debugging and/or consumption by other tools, such as pact-diff.
+--     - Go into the db and compute the blockheader and pact grandhash
+--       ('Snapshot') at 'snapshotBlockHeight'.
+--     - Compare the computed snapshot against what's embedded in the
+--       node. If there is a mismatch, we fail.
+--     - If the user specified a target database directory, we copy the
+--       sqlite files in the directory we've been operating on over to it.
+--     - Then, drop anything in the target directory after the verified state.
+--       This is accomplished via Checkpointer rewind.
+--
 module Chainweb.Pact.Backend.PactState.GrandHash.Import
   (
     pactImportMain
@@ -46,6 +82,7 @@ import Options.Applicative (ParserInfo, Parser, (<**>))
 import Options.Applicative qualified as O
 import Patience.Map qualified as P
 import System.Directory (copyFile, createDirectoryIfMissing)
+import System.Environment (setEnv)
 import System.LogLevel (LogLevel(..))
 
 -- | Verifies that the hashes and headers match @grands@.
@@ -108,9 +145,9 @@ pactVerify logger v pactConns rocksDb grands = do
             , "  Actual:   " <> sshow hash
             ]
   when (Map.size deltas > 0) $ do
-    exitLog logger "Hashes did not align."
+    exitLog logger $ "Hashes did not align at BlockHeight " <> sshow snapshotBlockHeight
 
-  logFunctionText logger Info "Hashes aligned"
+  logFunctionText logger Info $ "Hashes aligned at BlockHeight " <> sshow snapshotBlockHeight
   pure snapshot
 
 pactDropPostVerified :: (Logger logger)
@@ -171,6 +208,13 @@ pactImportMain = do
       withReadOnlyRocksDb cfg.rocksDir modernDefaultOptions $ \rocksDb -> do
         (snapshotBlockHeight, snapshotChainHashes) <- pactVerify logger cfg.chainwebVersion srcConns rocksDb MainnetSnapshots.grands
 
+        -- Set this before pactDropPostVerified, in case there's a failure, so
+        -- it's still recoverable.
+        --
+        -- pact-import doesn't use this environment variable; it's for
+        -- debugging and/or consumption by other tools.
+        setEnv "SNAPSHOT_BLOCKHEIGHT" (show snapshotBlockHeight)
+
         forM_ cfg.targetPactDir $ \targetDir -> do
           pactDropPostVerified logger cfg.chainwebVersion cfg.sourcePactDir targetDir snapshotBlockHeight snapshotChainHashes
   where
@@ -180,8 +224,12 @@ pactImportMain = do
     helpText :: String
     helpText = unlines
       [ "Compare the grand hash of a Pact database to an expected value."
-      , "If the hash matches, optionally import the database into a target directory"
-      , "and delete any newer state not included in the hash."
+      , "If the hash matches, and a target directory is specificied, the"
+      , "database will be copied to the target directory, and any state"
+      , "later than what is cryptographically verifiable will be dropped."
+      , "This tool sets the environment variable `SNAPSHOT_BLOCKHEIGHT` which"
+      , "can be useful for debugging, or if you want to use the blockheight"
+      , "for your own queries."
       ]
 
     parser :: Parser PactImportConfig
@@ -200,28 +248,6 @@ pactImportMain = do
             ))
       <*> rocksParser
       <*> cwvParser
-
-{-
-versionFromText :: (HasCallStack) => Text -> ChainwebVersion
-versionFromText t = case fromText @ChainwebVersionName t of
-  Just a -> lookupVersionByName a
-  Nothing -> error $ "Invalid chainweb version name: " ++ Text.unpack t
-
-checkPactDbsExist :: FilePath -> [ChainId] -> IO ()
-checkPactDbsExist dbDir cids = pooledFor_ cids $ \cid -> do
-  e <- doesFileExist (chainwebDbFilePath cid dbDir)
-  when (not e) $ do
-    error $ "Pact database doesn't exist for expected chain id " <> Text.unpack (chainIdToText cid)
-
-chainwebDbFilePath :: ChainId -> FilePath -> FilePath
-chainwebDbFilePath cid dbDir =
-  let fileName = mconcat
-        [ "pact-v1-chain-"
-        , Text.unpack (chainIdToText cid)
-        , ".sqlite"
-        ]
-  in dbDir </> fileName
--}
 
 hashMapToMap :: (Hashable k, Ord k) => HashMap k a -> Map k a
 hashMapToMap = Map.fromList . HM.toList

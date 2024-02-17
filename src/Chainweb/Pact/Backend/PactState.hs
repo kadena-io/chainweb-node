@@ -236,8 +236,15 @@ getLatestPactStateAt db bh = do
 
   tables <- liftIO $ getPactTableNames db
 
+  tablesCreatedAfter <- liftIO $ do
+    let qryText = "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight > ?1"
+    rows <- Pact.qry db qryText [SInt (int bh)] [RText]
+    forM rows $ \case
+      [SText tbl] -> pure tbl
+      _ -> error "getLatestPactStateAt.tablesCreatedAfter: expected text"
+
   forM_ tables $ \tbl -> do
-    when (tbl `notElem` excludedTables) $ do
+    when (tbl `notElem` (excludedTables ++ tablesCreatedAfter)) $ do
       let qryText = "SELECT rowkey, rowdata, txid FROM "
             <> "\"" <> tbl <> "\""
             <> " WHERE txid<?"

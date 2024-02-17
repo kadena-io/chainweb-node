@@ -61,6 +61,7 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
+import Control.Parallel.Strategies(using, rseq)
 
 import Data.Aeson hiding ((.=))
 import qualified Data.Aeson as A
@@ -86,6 +87,7 @@ import Pact.Interpreter
 import qualified Pact.JSON.Encode as J
 import Pact.JSON.Legacy.Value
 import Pact.Native.Capabilities (evalCap)
+import Pact.Native.Internal (appToCap)
 import Pact.Parse (ParsedDecimal(..))
 import Pact.Runtime.Capabilities (popCapStack)
 import Pact.Runtime.Utils (lookupModule)
@@ -99,6 +101,7 @@ import Pact.Types.RPC
 import Pact.Types.Runtime hiding (catchesPactError)
 import Pact.Types.Server
 import Pact.Types.SPV
+import Pact.Types.Verifier
 
 -- internal Chainweb modules
 
@@ -113,29 +116,37 @@ import Chainweb.Pact.Templates
 import Chainweb.Pact.Types hiding (logError)
 import Chainweb.Transaction
 import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous, T2(..), T3(..))
+import Chainweb.VerifierPlugin
 import Chainweb.Version as V
 import Chainweb.Version.Guards as V
+import Chainweb.Version.Utils as V
 import Pact.JSON.Encode (toJsonViaEncode)
 
+-- Note [Throw out verifier proofs eagerly]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- We try to discard verifier proofs eagerly so that we don't hang onto them in
+-- the liveset. This implies that we also try to discard `Command`s for the same
+-- reason, because they contain the verifier proofs and other data we probably
+-- don't need.
 
 -- -------------------------------------------------------------------------- --
 
 -- | "Magic" capability 'COINBASE' used in the coin contract to
 -- constrain coinbase calls.
 --
-magic_COINBASE :: CapSlot UserCapability
+magic_COINBASE :: CapSlot SigCapability
 magic_COINBASE = mkMagicCapSlot "COINBASE"
 
 -- | "Magic" capability 'GAS' used in the coin contract to
 -- constrain gas buy/redeem calls.
 --
-magic_GAS :: CapSlot UserCapability
+magic_GAS :: CapSlot SigCapability
 magic_GAS = mkMagicCapSlot "GAS"
 
 -- | "Magic" capability 'GENESIS' used in the coin contract to
 -- constrain genesis-only allocations
 --
-magic_GENESIS :: CapSlot UserCapability
+magic_GENESIS :: CapSlot SigCapability
 magic_GENESIS = mkMagicCapSlot "GENESIS"
 
 onChainErrorPrintingFor :: TxContext -> UnexpectedErrorPrinting
@@ -198,10 +209,10 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
 
-    requestKey = cmdToRequestKey cmd
-    gasPrice = view cmdGasPrice cmd
-    gasLimit = view cmdGasLimit cmd
-    nid = networkIdOf cmd
+    !requestKey = cmdToRequestKey cmd
+    !gasPrice = view cmdGasPrice cmd
+    !gasLimit = view cmdGasLimit cmd
+    !nid = networkIdOf cmd
     currHeight = ctxCurrentBlockHeight txCtx
     cid = ctxChainId txCtx
     isModuleNameFix = enableModuleNameFix v cid currHeight
@@ -210,6 +221,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     chainweb213Pact' = chainweb213Pact v cid currHeight
     chainweb217Pact' = chainweb217Pact v cid currHeight
     chainweb219Pact' = chainweb219Pact v cid currHeight
+    allVerifiers = verifiersAt v cid currHeight
     toEmptyPactError (PactError errty _ _ _) = PactError errty def [] mempty
 
     toOldListErr pe = pe { peDoc = listErrMsg }
@@ -225,7 +237,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       catchesPactError logger (onChainErrorPrintingFor txCtx) (buyGas isPactBackCompatV16 cmd miner) >>= \case
         Left e -> view txRequestKey >>= \rk ->
           throwM $ BuyGasFailure $ GasPurchaseFailure (requestKeyToTransactionHash rk) e
-        Right _ -> checkTooBigTx initialGas gasLimit applyPayload redeemAllGas
+        Right _ -> checkTooBigTx initialGas gasLimit applyVerifiers redeemAllGas
 
     displayPactError e = do
       r <- failTxWith e "tx failure for request key when running cmd"
@@ -237,6 +249,21 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
             ApplySend -> toEmptyPactError e
       r <- failTxWith e' "tx failure for request key when running cmd"
       redeemAllGas r
+
+    applyVerifiers = do
+      gasUsed <- use txGasUsed
+      let initGasRemaining = fromIntegral gasLimit - gasUsed
+      verifierResult <- liftIO $ runVerifierPlugins logger allVerifiers initGasRemaining cmd
+      case verifierResult of
+        Left err -> do
+          let errMsg = "Tx verifier error: " <> getVerifierError err
+          cmdResult <- failTxWith
+            (PactError TxFailure def [] (pretty errMsg))
+            errMsg
+          redeemAllGas cmdResult
+        Right verifierGasRemaining -> do
+          txGasUsed += initGasRemaining - verifierGasRemaining
+          applyPayload
 
     applyPayload = do
       txGasModel .= gasModel
@@ -257,7 +284,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
         Right r -> applyRedeem r
 
     applyRedeem cr = do
-      txGasModel .= (_geGasModel freeGasEnv)
+      txGasModel .= _geGasModel freeGasEnv
 
       r <- catchesPactError logger (onChainErrorPrintingFor txCtx) $! redeemGas cmd
       case r of
@@ -357,6 +384,7 @@ flagsFor v cid bh = S.fromList $ concat
   , disableReturnRTC v cid bh
   , enablePact49 v cid bh
   , enablePact410 v cid bh
+  , enablePact411 v cid bh
   ]
 
 applyCoinbase
@@ -417,7 +445,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
 
     go interp cexec = evalTransactionM tenv txst $! do
       cr <- catchesPactError logger (onChainErrorPrintingFor txCtx) $
-        applyExec' 0 interp cexec mempty chash managedNamespacePolicy
+        applyExec' 0 interp cexec [] [] chash managedNamespacePolicy
 
       case cr of
         Left e
@@ -462,31 +490,52 @@ applyLocal
 applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     evalTransactionM tenv txst go
   where
-    cmd = payloadObj <$> cmdIn
-    rk = cmdToRequestKey cmd
-    nid = networkIdOf cmd
-    chash = toUntypedHash $ _cmdHash cmd
-    signers = _pSigners $ _cmdPayload cmd
-    gasPrice = view cmdGasPrice cmd
-    gasLimit = view cmdGasLimit cmd
+    !cmd = payloadObj <$> cmdIn `using` traverse rseq
+    !rk = cmdToRequestKey cmd
+    !nid = networkIdOf cmd
+    !chash = toUntypedHash $ _cmdHash cmd
+    !signers = _pSigners $ _cmdPayload cmd
+    !verifiers = fromMaybe [] $ _pVerifiers $ _cmdPayload cmd
+    !gasPrice = view cmdGasPrice cmd
+    !gasLimit = view cmdGasLimit cmd
     tenv = TransactionEnv Local dbEnv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
            rk (fromIntegral gasLimit) execConfig
     txst = TransactionState mc mempty 0 Nothing gasModel mempty
     gas0 = initialGasOf (_cmdPayload cmdIn)
+    cid = V._chainId txCtx
+    v = _chainwebVersion txCtx
+    allVerifiers = verifiersAt v cid (ctxCurrentBlockHeight txCtx)
+    -- Note [Throw out verifier proofs eagerly]
+    !verifiersWithNoProof =
+        (fmap . fmap) (\_ -> ()) verifiers
+        `using` (traverse . traverse) rseq
 
-    applyPayload m = do
-      interp <- gasInterpreter gas0
+    applyVerifiers m = do
+      let initGasRemaining = fromIntegral gasLimit - gas0
+      verifierResult <- liftIO $ runVerifierPlugins logger allVerifiers initGasRemaining cmd
+      case verifierResult of
+        Left err -> do
+          let errMsg = "Tx verifier error: " <> getVerifierError err
+          failTxWith
+            (PactError TxFailure def [] (pretty errMsg))
+            errMsg
+        Right verifierGasRemaining -> do
+          let gas1 = (initGasRemaining - verifierGasRemaining) + gas0
+          applyPayload gas1 m
+
+    applyPayload gas1 m = do
+      interp <- gasInterpreter gas1
       cr <- catchesPactError logger PrintsUnexpectedError $! case m of
         Exec em ->
-          applyExec gas0 interp em signers chash managedNamespacePolicy
+          applyExec gas1 interp em signers verifiersWithNoProof chash managedNamespacePolicy
         Continuation cm ->
-          applyContinuation gas0 interp cm signers chash managedNamespacePolicy
+          applyContinuation gas1 interp cm signers chash managedNamespacePolicy
 
       case cr of
         Left e -> failTxWith e "applyLocal"
         Right r -> return $! r { _crMetaData = Just (J.toJsonViaEncode $ ctxToPublicData' txCtx) }
 
-    go = checkTooBigTx gas0 gasLimit (applyPayload $ _pPayload $ _cmdPayload cmd) return
+    go = checkTooBigTx gas0 gasLimit (applyVerifiers $ _pPayload $ _cmdPayload cmd) return
 
 
 readInitModules
@@ -525,7 +574,7 @@ readInitModules logger dbEnv txCtx
     mkCmd = buildExecParsedCode (pactParserVersion v cid h) Nothing
     run msg cmd = do
       er <- catchesPactError logger (onChainErrorPrintingFor txCtx) $!
-        applyExec' 0 interp cmd [] chash permissiveNamespacePolicy
+        applyExec' 0 interp cmd [] [] chash permissiveNamespacePolicy
       case er of
         Left e -> die $ msg <> ": failed: " <> sshow e
         Right r -> case _erOutput r of
@@ -657,14 +706,20 @@ runPayload cmd nsp = do
     g0 <- use txGasUsed
     interp <- gasInterpreter g0
 
+    -- Note [Throw out verifier proofs eagerly]
+    let !verifiersWithNoProof =
+            (fmap . fmap) (\_ -> ()) verifiers
+            `using` (traverse . traverse) rseq
+
     case payload of
       Exec pm ->
-        applyExec g0 interp pm signers chash nsp
+        applyExec g0 interp pm signers verifiersWithNoProof chash nsp
       Continuation ym ->
         applyContinuation g0 interp ym signers chash nsp
 
 
   where
+    verifiers = fromMaybe [] $ _pVerifiers $ _cmdPayload cmd
     signers = _pSigners $ _cmdPayload cmd
     chash = toUntypedHash $ _cmdHash cmd
     payload = _pPayload $ _cmdPayload cmd
@@ -679,11 +734,16 @@ runGenesis
     -> TransactionM logger p (CommandResult [TxLogJson])
 runGenesis cmd nsp interp = case payload of
     Exec pm ->
-      applyExec 0 interp pm signers chash nsp
+      applyExec 0 interp pm signers verifiersWithNoProof chash nsp
     Continuation ym ->
       applyContinuation 0 interp ym signers chash nsp
   where
     signers = _pSigners $ _cmdPayload cmd
+    verifiers = fromMaybe [] $ _pVerifiers $ _cmdPayload cmd
+    -- Note [Throw out verifier proofs eagerly]
+    !verifiersWithNoProof =
+        (fmap . fmap) (\_ -> ()) verifiers
+        `using` (traverse . traverse) rseq
     chash = toUntypedHash $ _cmdHash cmd
     payload = _pPayload $ _cmdPayload cmd
 
@@ -695,11 +755,12 @@ applyExec
     -> Interpreter p
     -> ExecMsg ParsedCode
     -> [Signer]
+    -> [Verifier ()]
     -> Hash
     -> NamespacePolicy
     -> TransactionM logger p (CommandResult [TxLogJson])
-applyExec initialGas interp em senderSigs hsh nsp = do
-    EvalResult{..} <- applyExec' initialGas interp em senderSigs hsh nsp
+applyExec initialGas interp em senderSigs verifiers hsh nsp = do
+    EvalResult{..} <- applyExec' initialGas interp em senderSigs verifiers hsh nsp
     for_ _erLogGas $ \gl -> gasLog $ "gas logs: " <> sshow gl
     !logs <- use txLogs
     !rk <- view txRequestKey
@@ -722,14 +783,15 @@ applyExec'
     -> Interpreter p
     -> ExecMsg ParsedCode
     -> [Signer]
+    -> [Verifier ()]
     -> Hash
     -> NamespacePolicy
     -> TransactionM logger p EvalResult
-applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs hsh nsp
+applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs verifiersWithNoProof hsh nsp
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
 
-      eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs)
+      eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs verifiersWithNoProof)
 
       setEnvGas initialGas eenv
 
@@ -789,6 +851,9 @@ enablePact49 v cid bh = [FlagDisablePact49 | not (chainweb221Pact v cid bh)]
 enablePact410 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enablePact410 v cid bh = [FlagDisablePact410 | not (chainweb222Pact v cid bh)]
 
+enablePact411 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact411 v cid bh = [FlagDisablePact411 | not (chainweb223Pact v cid bh)]
+
 -- | Even though this is not forking, abstracting for future shutoffs
 disableReturnRTC :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 disableReturnRTC _v _cid _bh = [FlagDisableRuntimeReturnTypeChecking]
@@ -834,7 +899,7 @@ applyContinuation'
     -> TransactionM logger p EvalResult
 applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
 
-    eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs)
+    eenv <- mkEvalEnv nsp (MsgData d pactStep hsh senderSigs [])
 
     setEnvGas initialGas eenv
 
@@ -876,8 +941,9 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
           interp mc = Interpreter $ \_input ->
             put (initState mc logGas) >> run (pure <$> eval buyGasTerm)
 
+      -- no verifiers are allowed in buy gas
       result <- applyExec' 0 (interp mcache) buyGasCmd
-        (_pSigners $ _cmdPayload cmd) bgHash managedNamespacePolicy
+        (_pSigners $ _cmdPayload cmd) [] bgHash managedNamespacePolicy
 
       case _erExec result of
         Nothing ->
@@ -916,8 +982,9 @@ findPayer isPactBackCompatV16 cmd = runMaybeT $ do
       let msgBody = enrichedMsgBody cmd
           enrichMsgBody | isPactBackCompatV16 = id
                         | otherwise = setEnvMsgBody (toLegacyJson msgBody)
-      ar <- local enrichMsgBody $
-        evalCap i CapCallStack False $ mkApp i capRef as
+      ar <- local enrichMsgBody $ do
+        (cap, capDef, args) <- appToCap $ mkApp i capRef as
+        evalCap i CapCallStack False (cap, capDef, args, i)
 
       case ar of
         NewlyAcquired -> do
@@ -979,7 +1046,7 @@ redeemGas cmd = do
 -- This is the way we inject the correct guards into the environment
 -- during Pact code execution
 --
-initCapabilities :: [CapSlot UserCapability] -> EvalState
+initCapabilities :: [CapSlot SigCapability] -> EvalState
 initCapabilities cs = set (evalCapabilities . capStack) cs def
 {-# INLINABLE initCapabilities #-}
 
@@ -998,7 +1065,6 @@ checkTooBigTx
     -> TransactionM logger p (CommandResult [TxLogJson])
 checkTooBigTx initialGas gasLimit next onFail
   | initialGas >= fromIntegral gasLimit = do
-      txGasUsed .= fromIntegral gasLimit -- all gas is consumed
 
       let !pe = PactError GasError def []
             $ "Tx too big (" <> pretty initialGas <> "), limit "
@@ -1091,7 +1157,7 @@ managedNamespacePolicy = SmartNamespacePolicy False
 
 -- | Builder for "magic" capabilities given a magic cap name
 --
-mkMagicCapSlot :: Text -> CapSlot UserCapability
+mkMagicCapSlot :: Text -> CapSlot SigCapability
 mkMagicCapSlot c = CapSlot CapCallStack cap []
   where
     mn = ModuleName "coin" Nothing

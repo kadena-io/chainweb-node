@@ -148,7 +148,7 @@ testnet = ChainwebVersion
             ]
         }
     , _versionUpgrades = chainZip HM.union
-        (forkUpgrades testnet
+        (indexByForkHeights testnet
         [ (CoinV2, onChains $
             [ (unsafeChainId 0, upgrade MN0.transactions)
             , (unsafeChainId 1, upgrade MN1.transactions)
@@ -176,4 +176,5 @@ testnet = ChainwebVersion
         { _disablePeerValidation = False
         , _disableMempoolSync = False
         }
+    , _versionVerifierPluginNames = AllChains $ End mempty
     }

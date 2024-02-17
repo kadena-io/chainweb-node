@@ -659,7 +659,7 @@ runExec :: forall logger. (Logger logger) => Checkpointer logger -> ChainwebPact
 runExec cp pactdbenv eData eCode = do
     execMsg <- buildExecParsedCode maxBound {- use latest parser version -} eData eCode
     evalTransactionM cmdenv cmdst $
-      applyExec' 0 defaultInterpreter execMsg [] h' permissiveNamespacePolicy
+      applyExec' 0 defaultInterpreter execMsg [] [] h' permissiveNamespacePolicy
   where
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
     cmdenv :: TransactionEnv logger (BlockEnv logger SQLiteEnv)

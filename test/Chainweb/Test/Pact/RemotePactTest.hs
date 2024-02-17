@@ -378,6 +378,10 @@ txlogsCompactionTest t cenv pactDbDir = do
       "txlogs match latest state"
       txLogs
       (map (\(rk, rd) -> (rk, J.toJsonViaEncode (_rdData rd))) (M.toList latestState))
+    -- FLAKE:
+    -- test/Chainweb/Test/Pact/RemotePactTest.hs:377:
+    -- expected: [("A",Object (fromList [("age",Object (fromList [("int",Number 42.0)])),("name",String "Lindsey Lohan")])),("B",Object (fromList [("age",Object (fromList [("int",Number 30.0)])),("name",String "Nico Robin")])),("C",Object (fromList [("age",Object (fromList [("int",Number 420.0)])),("name",String "chessai")])),("C",Object (fromList [("age",Object (fromList [("int",Number 69.0)])),("name",String "chessai")]))]
+    --  but got: [("A",Object (fromList [("age",Object (fromList [("int",Number 42.0)])),("name",String "Lindsey Lohan")])),("B",Object (fromList [("age",Object (fromList [("int",Number 30.0)])),("name",String "Nico Robin")])),("C",Object (fromList [("age",Object (fromList [("int",Number 69.0)])),("name",String "chessai")]))]
 
 localTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
 localTest t cenv = do
@@ -520,7 +524,7 @@ localChainDataTest t cenv = do
     localTestBatch mnonce = modifyMVar mnonce $ \(!nn) -> do
         let nonce = "nonce" <> sshow nn
         kps <- testKeyPairs sender00 Nothing
-        c <- Pact.mkExec "(chain-data)" A.Null (pm t) kps (Just "fastfork-CPM-peterson") (Just nonce)
+        c <- Pact.mkExec "(chain-data)" A.Null (pm t) kps [] (Just "fastfork-CPM-peterson") (Just nonce)
         pure (succ nn, SubmitBatch (pure c))
         where
           pm = Pact.PublicMeta pactCid "sender00" 1000 0.1 defaultMaxTTL
@@ -667,7 +671,7 @@ localPreflightSimTest t cenv step = do
       let nonce = "nonce" <> sshow nn
           pm = Pact.PublicMeta pcid "sender00" 1000 0.1 defaultMaxTTL
 
-      c <- Pact.mkExec code A.Null (pm t) kps (Just "fastfork-CPM-peterson") (Just nonce)
+      c <- Pact.mkExec code A.Null (pm t) kps [] (Just "fastfork-CPM-peterson") (Just nonce)
       pure (succ nn, c)
 
     mkCmdBuilder sigs pcid limit price = do
@@ -750,7 +754,7 @@ sendValidationTest t cenv step = do
     mkBadGasTxBatch code senderName senderKeyPair capList = do
       ks <- testKeyPairs senderKeyPair capList
       let pm = Pact.PublicMeta (Pact.ChainId "0") senderName 100_000 0.01 defaultMaxTTL t
-      let cmd (n :: Int) = liftIO $ Pact.mkExec code A.Null pm ks (Just "fastfork-CPM-peterson") (Just $ sshow n)
+      let cmd (n :: Int) = liftIO $ Pact.mkExec code A.Null pm ks [] (Just "fastfork-CPM-peterson") (Just $ sshow n)
       cmds <- mapM cmd (0 NEL.:| [1..5])
       return $ SubmitBatch cmds
 
@@ -800,7 +804,7 @@ ethSpvTest t cenv step = do
     mkTxBatch proof = do
       ks <- liftIO $ testKeyPairs sender00 Nothing
       let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100_000 0.01 defaultMaxTTL t
-      cmd <- liftIO $ Pact.mkExec txcode (txdata proof) pm ks (Just "fastfork-CPM-peterson") (Just "1")
+      cmd <- liftIO $ Pact.mkExec txcode (txdata proof) pm ks [] (Just "fastfork-CPM-peterson") (Just "1")
       return $ SubmitBatch (pure cmd)
 
     txcode = "(verify-spv 'ETH (read-msg))"
@@ -832,8 +836,8 @@ spvTest t cenv step = do
       ks <- liftIO $ testKeyPairs sender00
         (Just [mkGasCap, mkXChainTransferCap "sender00" "sender01" 1.0 "2"])
       let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100_000 0.01 defaultMaxTTL t
-      cmd1 <- liftIO $ Pact.mkExec txcode txdata pm ks (Just "fastfork-CPM-peterson") (Just "1")
-      cmd2 <- liftIO $ Pact.mkExec txcode txdata pm ks (Just "fastfork-CPM-peterson") (Just "2")
+      cmd1 <- liftIO $ Pact.mkExec txcode txdata pm ks [] (Just "fastfork-CPM-peterson") (Just "1")
+      cmd2 <- liftIO $ Pact.mkExec txcode txdata pm ks [] (Just "fastfork-CPM-peterson") (Just "2")
       return $ SubmitBatch (pure cmd1 <> pure cmd2)
 
     txcode = T.unlines
@@ -908,7 +912,7 @@ txTooBigGasTest t cenv step = do
     mkTxBatch code cdata limit n = do
       ks <- testKeyPairs sender00 Nothing
       let pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" limit 0.01 defaultMaxTTL t
-      cmd <- liftIO $ Pact.mkExec code cdata pm ks (Just "fastfork-CPM-peterson") n
+      cmd <- liftIO $ Pact.mkExec code cdata pm ks [] (Just "fastfork-CPM-peterson") n
       return $ SubmitBatch (pure cmd)
 
     txcode0 = T.concat ["[", T.replicate 10 " 1", "]"]
@@ -1140,7 +1144,7 @@ mkSingletonBatch
 mkSingletonBatch t kps (PactTransaction c d) nonce pmk clist = do
     ks <- testKeyPairs kps clist
     let dd = fromMaybe A.Null d
-    cmd <- liftIO $ Pact.mkExec c dd (pmk t) ks (Just "fastfork-CPM-peterson") nonce
+    cmd <- liftIO $ Pact.mkExec c dd (pmk t) ks [] (Just "fastfork-CPM-peterson") nonce
     return $ SubmitBatch (cmd NEL.:| [])
 
 testSend :: Pact.TxCreationTime -> MVar Int -> ClientEnv -> IO RequestKeys
@@ -1150,7 +1154,7 @@ testBatch'' :: Pact.ChainId -> Pact.TxCreationTime -> Pact.TTLSeconds -> MVar In
 testBatch'' chain t ttl mnonce gp' = modifyMVar mnonce $ \(!nn) -> do
     let nonce = "nonce" <> sshow nn
     kps <- testKeyPairs sender00 Nothing
-    c <- Pact.mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastfork-CPM-peterson") (Just nonce)
+    c <- Pact.mkExec "(+ 1 2)" A.Null (pm t) kps [] (Just "fastfork-CPM-peterson") (Just nonce)
     pure (succ nn, SubmitBatch (pure c))
   where
     pm :: Pact.TxCreationTime -> Pact.PublicMeta
