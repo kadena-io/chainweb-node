@@ -378,6 +378,10 @@ txlogsCompactionTest t cenv pactDbDir = do
       "txlogs match latest state"
       txLogs
       (map (\(rk, rd) -> (rk, J.toJsonViaEncode (_rdData rd))) (M.toList latestState))
+    -- FLAKE:
+    -- test/Chainweb/Test/Pact/RemotePactTest.hs:377:
+    -- expected: [("A",Object (fromList [("age",Object (fromList [("int",Number 42.0)])),("name",String "Lindsey Lohan")])),("B",Object (fromList [("age",Object (fromList [("int",Number 30.0)])),("name",String "Nico Robin")])),("C",Object (fromList [("age",Object (fromList [("int",Number 420.0)])),("name",String "chessai")])),("C",Object (fromList [("age",Object (fromList [("int",Number 69.0)])),("name",String "chessai")]))]
+    --  but got: [("A",Object (fromList [("age",Object (fromList [("int",Number 42.0)])),("name",String "Lindsey Lohan")])),("B",Object (fromList [("age",Object (fromList [("int",Number 30.0)])),("name",String "Nico Robin")])),("C",Object (fromList [("age",Object (fromList [("int",Number 69.0)])),("name",String "chessai")]))]
 
 localTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
 localTest t cenv = do
