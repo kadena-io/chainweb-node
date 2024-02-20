@@ -295,9 +295,12 @@ addPayload
     -> BlockOutputs_ a
     -> OutputTree_ a
     -> IO ()
-addPayload db height txs txTree outs outTree = do
-    tableInsert (_transactionDbBlockPayloads $ _transactionDb db) (height, casKey payload) payload
-    tableInsert (_transactionDbBlockPayloadHeights $ _transactionDb db) (casKey payload) height
+addPayload db _ txs txTree outs outTree = do
+    -- TODO (aseipp): we ignore _height and still input the payload into the old
+    -- transaction database. we will fix this in a future change to the payload
+    -- storage format, using the new database
+    casInsert (_oldTransactionDbBlockPayloads $ _transactionDb db) payload
+
     casInsert (_transactionDbBlockTransactions $ _transactionDb db) txs
     casInsert (_payloadCacheBlockOutputs $ _payloadCache db) outs
     casInsert (_payloadCacheTransactionTrees $ _payloadCache db) txTree

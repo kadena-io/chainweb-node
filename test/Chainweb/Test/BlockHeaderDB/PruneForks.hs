@@ -318,9 +318,12 @@ failIntrinsicCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
 failPayloadCheck :: IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO ()) -> IO ()
 failPayloadCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
-    let db = _transactionDbBlockPayloads $ _transactionDb pdb
+    -- TODO FIXME (aseipp): when we migrate to the new payload store format, we'll
+    -- need to transition this; it will probably start failing, and we'll need to
+    -- implement a proper deletePayload and refactor this to use it.
+    let db = _oldTransactionDbBlockPayloads $ _transactionDb pdb
     let b = f0 !! int n
-    tableDelete db (_blockHeight b, _blockPayloadHash b)
+    tableDelete db (_blockPayloadHash b)
     try (pruneAllChains logger rdb toyVersion checks) >>= \case
         Left (MissingPayloadException{}) -> return ()
         Left e -> assertFailure
