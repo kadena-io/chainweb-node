@@ -5,6 +5,7 @@ module Chainweb.WebPactExecutionService
   ( WebPactExecutionService(..)
   , _webPactNewBlock
   , _webPactValidateBlock
+  , _webPactSyncToBlock
   , PactExecutionService(..)
   , mkWebPactExecutionService
   , mkPactExecutionService
@@ -129,6 +130,13 @@ _webPactValidateBlock
     -> IO PayloadWithOutputs
 _webPactValidateBlock = _pactValidateBlock . _webPactExecutionService
 {-# INLINE _webPactValidateBlock #-}
+
+_webPactSyncToBlock
+    :: WebPactExecutionService
+    -> BlockHeader
+    -> IO ()
+_webPactSyncToBlock = _pactSyncToBlock . _webPactExecutionService
+{-# INLINE _webPactSyncToBlock #-}
 
 mkWebPactExecutionService
     :: HasCallStack
