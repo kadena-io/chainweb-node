@@ -146,6 +146,7 @@ fastForks = tabulateHashMap $ \case
     Chainweb221Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 33
     Chainweb222Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 36
     Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 38
+    Chainweb224Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 40
 
 -- | A test version without Pact or PoW, with only one chain graph.
 barebonesTestVersion :: ChainGraph -> ChainwebVersion
@@ -270,6 +271,7 @@ slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
         Chainweb221Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 100)
         Chainweb222Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 115)
         Chainweb223Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 120)
+        Chainweb224Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 125)
     & versionVerifierPluginNames .~ AllChains
         (End $ Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"])
 
