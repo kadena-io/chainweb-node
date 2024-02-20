@@ -176,7 +176,7 @@ runBlockE q bdb timeOffset = do
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
           | otherwise = emptyPayload
-    addTestBlockDb bdb (Nonce 0) (\_ _ -> blockTime) c o
+    addTestBlockDb bdb (succ $ _blockHeight ph) (Nonce 0) (\_ _ -> blockTime) c o
   nextH <- getParentTestBlockDb bdb cid
   validateBlock nextH (payloadWithOutputsToPayloadData nb) q
 
@@ -202,7 +202,7 @@ newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailur
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
           | otherwise = emptyPayload
-    addTestBlockDb bdb (Nonce 0) (\_ _ -> blockTime) c o
+    addTestBlockDb bdb (succ $ _blockHeight ph) (Nonce 0) (\_ _ -> blockTime) c o
 
   nextH <- getParentTestBlockDb bdb cid
 

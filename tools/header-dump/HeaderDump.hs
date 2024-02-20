@@ -110,7 +110,6 @@ import Chainweb.Version
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Registry
 
-import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 
 import qualified Pact.JSON.Encode as J
@@ -405,33 +404,33 @@ run config logger = withBlockHeaders logger config $ \pdb x -> x
             & S.map encodeJson
             & S.mapM_ T.putStrLn
         OutputRawPayload -> s
-            & payloadsCid pdb id
+            & S.mapM (payloadsCid pdb)
             & S.map encodeJson
             & S.mapM_ T.putStrLn
         OutputTransaction -> s
-            & payloadsCid pdb id
+            & S.mapM (payloadsCid pdb)
             & transactionsWithOutputs cdData
             & S.map encodeJson
             & S.mapM_ T.putStrLn
         OutputMiner -> s
-            & payloadsCid pdb id
+            & S.mapM (payloadsCid pdb)
             & miner cdData
             & S.filter ((/= "noMiner") . view (cdData . minerId))
             & S.map (encodeJson . fmap J.encodeText)
             & S.mapM_ T.putStrLn
         OutputCoinbaseOutput -> s
-            & payloadsCid pdb id
+            & S.mapM (payloadsCid pdb)
             & coinbaseOutput cdData
             & S.map encodeJson
             & S.mapM_ T.putStrLn
         OutputCoinebaseResult -> s
-            & payloadsCid pdb id
+            & S.mapM (payloadsCid pdb)
             & coinbaseResult cdData
             & S.map (fmap J.toJsonViaEncode)
             & S.map encodeJson
             & S.mapM_ T.putStrLn
         CoinbaseFailure -> s
-            & payloadsCid pdb id
+            & S.mapM (payloadsCid pdb)
             & coinbaseResult cdData
             & failures cdData
             & S.filter (isJust . view cdData)
@@ -439,13 +438,13 @@ run config logger = withBlockHeaders logger config $ \pdb x -> x
             & S.map encodeJson
             & S.mapM_ T.putStrLn
         OutputPayload -> s
-            & payloadsCid pdb id
+            & S.mapM (payloadsCid pdb)
             & transactionsWithOutputs cdData
             & S.map encodeJson
             & S.mapM_ T.putStrLn
         OutputAll -> s
             & S.map (\h -> (h,h))
-            & payloadsCid pdb _2
+            & S.mapM (_2 $ payloadsCid pdb)
             & S.map (\(a,b) -> b & cdData .~ object
                     [ "header" .= a
                     , "payload" .= view cdData b
@@ -543,19 +542,17 @@ payloadsCid
     :: MonadIO m
     => CanReadablePayloadCas tbl
     => PayloadDb tbl
-    -> Traversal a b BlockHeader (ChainData PayloadWithOutputs)
-    -> S.Stream (Of a) m r
-    -> S.Stream (Of b) m r
-payloadsCid pdb l =  S.mapM
-    $ l
-        ( cdData (liftIO . casLookupM pdb)
-        . (\x -> ChainData
-            { _cdChainId = _blockChainId x
-            , _cdHeight = _blockHeight x
-            , _cdData = _blockPayloadHash x
-            }
-          )
-        )
+    -> BlockHeader
+    -> m (ChainData PayloadWithOutputs)
+payloadsCid pdb bh = do
+    payload <- liftIO $ lookupPayloadWithHeight pdb (Just $ _blockHeight bh) (_blockPayloadHash bh) >>= \case
+        Nothing -> throwM $ userError "payload not found"
+        Just p -> return p
+    pure $ ChainData
+        { _cdChainId = _blockChainId bh
+        , _cdHeight = _blockHeight bh
+        , _cdData = payload
+        }
 
 coinbaseOutput
     :: Monad m

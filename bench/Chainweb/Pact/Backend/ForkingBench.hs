@@ -217,8 +217,8 @@ mineBlock
     -> PactQueue
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock nonce pdb bhdb pact = do
-    r@(T3 _ newHeader payload) <- createBlock DoValidate nonce pact
-    addNewPayload pdb payload
+    r@(T3 parent newHeader payload) <- createBlock DoValidate nonce pact
+    addNewPayload pdb (succ (_blockHeight (_parentHeader parent))) payload
     -- NOTE: this doesn't validate the block header, which is fine in this test case
     unsafeInsertBlockHeaderDb bhdb newHeader
     return r

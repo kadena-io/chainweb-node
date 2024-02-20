@@ -58,7 +58,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
-import Chainweb.Storage.Table (casLookupM)
+import Chainweb.Payload.PayloadStore (lookupPayloadWithHeight)
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion peterson
@@ -142,13 +142,23 @@ verifierTest :: PactTestM ()
 verifierTest = do
   runToHeight 118
 
+  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "G" def) []
+
   runBlockTest
     [ PactTxTest
-        (buildBasic (mkExec' $ "(enforce-verifier 'allow)"))
+        (buildBasic (mkExec' "(enforce-verifier 'allow)"))
         (assertTxFailure "Should not resolve enforce-verifier" "Cannot resolve enforce-verifier")
+    , PactTxTest
+        (buildBasic'
+          (set cbVerifiers
+            [Verifier
+              (VerifierName "missing")
+              (ParsedVerifierProof $ pString "")
+              [cap]])
+          (mkExec' "1"))
+        (assertTxSuccess
+          "Should not run verifiers before they're enabled" (pDecimal 1))
     ]
-
-  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "G" def) []
 
   runBlockTest
     [ PactTxTest
@@ -157,23 +167,52 @@ verifierTest = do
         [ "(namespace 'free)"
         , "(module m G"
         , "(defcap G () (enforce-verifier 'allow))"
-        , "(defun x () (with-capability (G) 1)))"])
+        , "(defun x () (with-capability (G) 1)))"
+        ]
+      )
       (assertTxSuccess
         "Should allow enforce-verifier in a capability"
-        (pString "Loaded module free.m, hash QNTlTCp-KMPkT52CEo_0zGaLJ_PnAxsenyhUck1njcc"))
-    , checkVerifierNotInTx "allow"
+        (pString "Loaded module free.m, hash QNTlTCp-KMPkT52CEo_0zGaLJ_PnAxsenyhUck1njcc")
+      )
+    , PactTxTest
+      (buildBasicGas 10000 (mkExec' "(free.m.x)"))
+      (\cr -> liftIO $ do
+        assertTxFailure
+          "verifier not present"
+          "Verifier failure allow: not in transaction"
+          cr
+        assertTxGas "verifier errors charge all gas" 10000 cr
+      )
     , PactTxTest
       (buildBasic'
         (set cbVerifiers
           [Verifier
             (VerifierName "allow")
             (ParsedVerifierProof $ pString (PactJSON.encodeText cap))
-            [cap]])
-            (mkExec' "(free.m.x)"))
+            [cap]
+          ]
+        )
+        (mkExec' "(free.m.x)")
+      )
       (\cr -> liftIO $ do
         assertTxSuccess "should have succeeded" (pDecimal 1) cr
         -- The **Allow** verifier costs 100 gas flat
-        assertEqual "gas should have been charged" 344 (_crGas cr))
+        assertEqual "gas should have been charged" 344 (_crGas cr)
+      )
+    , PactTxTest
+      (buildBasic'
+        (set cbVerifiers
+          [Verifier
+            (VerifierName "missing")
+            (ParsedVerifierProof $ pString (PactJSON.encodeText cap))
+            [cap]
+          ]
+        )
+        (mkExec' "(free.m.x)")
+      )
+      (assertTxFailure
+        "should have failed, missing verifier"
+        "Tx verifier error: verifier does not exist: missing")
     ]
 
 -- hyperlane validator announcement tests
@@ -726,7 +765,7 @@ getPWO :: ChainId -> PactTestM (PayloadWithOutputs,BlockHeader)
 getPWO chid = do
   (TestBlockDb _ pdb _) <- view menvBdb
   h <- getHeader chid
-  pwo <- liftIO $ casLookupM pdb (_blockPayloadHash h)
+  Just pwo <- liftIO $ lookupPayloadWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h)
   return (pwo,h)
 
 getHeader :: ChainId -> PactTestM BlockHeader

@@ -221,6 +221,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     chainweb213Pact' = chainweb213Pact v cid currHeight
     chainweb217Pact' = chainweb217Pact v cid currHeight
     chainweb219Pact' = chainweb219Pact v cid currHeight
+    chainweb223Pact' = chainweb223Pact v cid currHeight
     allVerifiers = verifiersAt v cid currHeight
     toEmptyPactError (PactError errty _ _ _) = PactError errty def [] mempty
 
@@ -251,19 +252,22 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       redeemAllGas r
 
     applyVerifiers = do
-      gasUsed <- use txGasUsed
-      let initGasRemaining = fromIntegral gasLimit - gasUsed
-      verifierResult <- liftIO $ runVerifierPlugins logger allVerifiers initGasRemaining cmd
-      case verifierResult of
-        Left err -> do
-          let errMsg = "Tx verifier error: " <> getVerifierError err
-          cmdResult <- failTxWith
-            (PactError TxFailure def [] (pretty errMsg))
-            errMsg
-          redeemAllGas cmdResult
-        Right verifierGasRemaining -> do
-          txGasUsed += initGasRemaining - verifierGasRemaining
-          applyPayload
+      if chainweb223Pact'
+      then do
+        gasUsed <- use txGasUsed
+        let initGasRemaining = fromIntegral gasLimit - gasUsed
+        verifierResult <- liftIO $ runVerifierPlugins logger allVerifiers initGasRemaining cmd
+        case verifierResult of
+          Left err -> do
+            let errMsg = "Tx verifier error: " <> getVerifierError err
+            cmdResult <- failTxWith
+              (PactError TxFailure def [] (pretty errMsg))
+              errMsg
+            redeemAllGas cmdResult
+          Right verifierGasRemaining -> do
+            txGasUsed += initGasRemaining - verifierGasRemaining
+            applyPayload
+      else applyPayload
 
     applyPayload = do
       txGasModel .= gasModel
@@ -384,7 +388,7 @@ flagsFor v cid bh = S.fromList $ concat
   , disableReturnRTC v cid bh
   , enablePact49 v cid bh
   , enablePact410 v cid bh
-  , enablePactVerifiers v cid bh
+  , enablePact411 v cid bh
   ]
 
 applyCoinbase
@@ -851,8 +855,8 @@ enablePact49 v cid bh = [FlagDisablePact49 | not (chainweb221Pact v cid bh)]
 enablePact410 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enablePact410 v cid bh = [FlagDisablePact410 | not (chainweb222Pact v cid bh)]
 
-enablePactVerifiers :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
-enablePactVerifiers v cid bh = [FlagDisableVerifiers | not (chainweb223Pact v cid bh)]
+enablePact411 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact411 v cid bh = [FlagDisablePact411 | not (chainweb223Pact v cid bh)]
 
 -- | Even though this is not forking, abstracting for future shutoffs
 disableReturnRTC :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]

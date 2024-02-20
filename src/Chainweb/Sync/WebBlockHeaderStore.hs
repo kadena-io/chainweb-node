@@ -63,6 +63,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.ChainValue
 import Chainweb.Payload
@@ -214,12 +215,12 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
     logfun Debug $ "getBlockPayload: " <> sshow h
     tableLookup candidateStore payloadHash >>= \case
         Just !x -> return x
-        Nothing -> tableLookup cas payloadHash >>= \case
-            (Just !x) -> return $! payloadWithOutputsToPayloadData x
+        Nothing -> lookupPayloadWithHeight cas (Just $ _blockHeight h) payloadHash >>= \case
+            Just !x -> return $! payloadWithOutputsToPayloadData x
             Nothing -> memo memoMap payloadHash $ \k ->
-                pullOrigin k maybeOrigin >>= \case
+                pullOrigin (_blockHeight h) k maybeOrigin >>= \case
                     Nothing -> do
-                        t <- queryPayloadTask k
+                        t <- queryPayloadTask (_blockHeight h) k
                         pQueueInsert queue t
                         awaitTask t
                     (Just !x) -> return x
@@ -247,15 +248,15 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
 
     -- | Try to pull a block payload from the given origin peer
     --
-    pullOrigin :: BlockPayloadHash -> Maybe PeerInfo -> IO (Maybe PayloadData)
-    pullOrigin k Nothing = do
+    pullOrigin :: BlockHeight -> BlockPayloadHash -> Maybe PeerInfo -> IO (Maybe PayloadData)
+    pullOrigin _ k Nothing = do
         logfun Debug $ taskMsg k "no origin"
         return Nothing
-    pullOrigin k (Just origin) = do
+    pullOrigin _ k (Just origin) = do
         let originEnv = setResponseTimeout pullOriginResponseTimeout $ peerInfoClientEnv mgr origin
         logfun Debug $ taskMsg k "lookup origin"
         !r <- trace traceLogfun (traceLabel "pullOrigin") k 0
-            $ runClientM (payloadClient v cid k) originEnv
+            $ runClientM (payloadClient v cid k Nothing) originEnv
         case r of
             (Right !x) -> do
                 logfun Debug $ taskMsg k "received from origin"
@@ -266,12 +267,12 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
 
     -- | Query a block payload via the task queue
     --
-    queryPayloadTask :: BlockPayloadHash -> IO (Task ClientEnv PayloadData)
-    queryPayloadTask k = newTask (sshow k) priority $ \logg env -> do
+    queryPayloadTask :: BlockHeight -> BlockPayloadHash -> IO (Task ClientEnv PayloadData)
+    queryPayloadTask _ k = newTask (sshow k) priority $ \logg env -> do
         logg @T.Text Debug $ taskMsg k "query remote block payload"
         let taskEnv = setResponseTimeout taskResponseTimeout env
         !r <- trace traceLogfun (traceLabel "queryPayloadTask") k (let Priority i = priority in i)
-            $ runClientM (payloadClient v cid k) taskEnv
+            $ runClientM (payloadClient v cid k Nothing) taskEnv
         case r of
             (Right !x) -> do
                 logg @T.Text Debug $ taskMsg k "received remote block payload"
@@ -480,7 +481,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
             (_blockHash hdr)
             (length (_payloadDataTransactions p))
             $ pact hdr p
-        casInsert (_webBlockPayloadStoreCas payloadStore) outs
+        addNewPayload (_webBlockPayloadStoreCas payloadStore) (_blockHeight hdr) outs
 
     queryBlockHeaderTask ck@(ChainValue cid k)
         = newTask (sshow ck) priority $ \l env -> chainValue <$> do
@@ -611,4 +612,3 @@ instance (CasKeyType (ChainValue BlockHeader) ~ k) => Table WebBlockHeaderCas k 
     -- instance is available only locally.
     --
     -- The instance requires that memoCache doesn't delete from the cas.
-

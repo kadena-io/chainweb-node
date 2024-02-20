@@ -176,7 +176,7 @@ syncPact cutDb pact =
   where
     bhdb = view cutDbWebBlockHeaderDb cutDb
     pdb = view cutDbPayloadDb cutDb
-    payload h = tableLookup pdb (_blockPayloadHash h) >>= \case
+    payload h = lookupPayloadWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h) >>= \case
         Nothing -> error $ "Corrupted database: failed to load payload data for block header " <> sshow h
         Just p -> return $ payloadWithOutputsToPayloadData p
 
@@ -447,9 +447,13 @@ randomTransaction
     -> IO (BlockHeader, Int, Transaction, TransactionOutput)
 randomTransaction cutDb = do
     bh <- randomBlockHeader cutDb
-    Just pay <- tableLookup
-        (_transactionDbBlockPayloads $ _transactionDb payloadDb)
-        (_blockPayloadHash bh)
+    Just pd <- lookupPayloadDataWithHeight payloadDb (Just $ _blockHeight bh) (_blockPayloadHash bh)
+    let pay = BlockPayload 
+          { _blockPayloadTransactionsHash = _payloadDataTransactionsHash pd
+          , _blockPayloadOutputsHash = _payloadDataOutputsHash pd
+          , _blockPayloadPayloadHash = _payloadDataPayloadHash pd
+          }
+
     Just btxs <-
         tableLookup
             (_transactionDbBlockTransactions $ _transactionDb payloadDb)
