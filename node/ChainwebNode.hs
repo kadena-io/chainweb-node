@@ -106,7 +106,6 @@ import Chainweb.Version
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Registry
 
-import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 
 import Data.LogMessage
@@ -249,14 +248,14 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
             & S.mapM toUpdate
             & S.mapM_ (logFunctionJson l Info)
   where
-    txsDb = view (cutDbPayloadDb . transactionDb . transactionDbBlockTransactions) db
-    payloadDb = view (cutDbPayloadDb . transactionDb . transactionDbBlockPayloads) db
+    payloadDb = view cutDbPayloadDb db
 
     txCount :: BlockHeader -> IO Int
     txCount bh = do
-        bp <- casLookupM payloadDb (_blockPayloadHash bh)
-        x <- casLookupM txsDb (_blockPayloadTransactionsHash bp)
-        return $ length $ _blockTransactions x
+        bp <- lookupPayloadDataWithHeight payloadDb (Just $ _blockHeight bh) (_blockPayloadHash bh) >>= \case
+            Nothing -> error "block payload not found"
+            Just x -> return x
+        return $ length $ _payloadDataTransactions bp
 
     toUpdate :: Either BlockHeader BlockHeader -> IO BlockUpdate
     toUpdate (Right bh) = BlockUpdate

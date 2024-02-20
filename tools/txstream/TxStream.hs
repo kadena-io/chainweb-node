@@ -12,6 +12,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: TxStream
@@ -35,7 +36,6 @@ import Chainweb.Payload.RestAPI.Client
 
 import Configuration.Utils
 
-import Control.Arrow ((&&&))
 import Control.Lens hiding ((.=))
 import Control.Monad ((<=<), when)
 import Control.Monad.Reader
@@ -260,7 +260,7 @@ txStream config mgr logg = do
                 (\x -> when (_blockHeight x `mod` 100 == 0) $
                     logg @T.Text Info ("BlockHeight: " <> sshow (_blockHeight x))
                 )
-            & S.mapM (traverse (devNetPayload config mgr) . (_blockHeight &&& _blockPayloadHash))
+            & S.mapM (\x -> (_blockHeight x,) <$> devNetPayload config mgr (_blockHeight x) (_blockPayloadHash x))
             & flip S.for (S.each . traverse _payloadDataTransactions)
             & S.map (fmap _transactionBytes)
             & S.mapM (traverse decodeStrictOrThrow')
@@ -315,10 +315,8 @@ txOutputsStream config mgr logg = do
                 (\x -> when (_blockHeight x `mod` 100 == 0) $
                     logg @T.Text Info ("BlockHeight: " <> sshow (_blockHeight x))
                 )
-            & S.mapM
-                ( traverse (devNetPayloadWithOutput config mgr)
-                . (_blockHeight &&& _blockPayloadHash)
-                )
+
+            & S.mapM (\x -> (_blockHeight x,) <$> devNetPayloadWithOutput config mgr (_blockHeight x) (_blockPayloadHash x))
             & flip S.for
                 ( S.each
                 . traverse _payloadWithOutputsTransactions
@@ -341,8 +339,8 @@ devNetCut config mgr = runClientM (cutGetClient ver) (env mgr node) >>= \case
 -- -------------------------------------------------------------------------- --
 -- Payloads
 
-devNetPayload :: Config -> Manager -> BlockPayloadHash -> IO PayloadData
-devNetPayload config  mgr x = runClientM (payloadClient ver cid x) (env mgr node) >>= \case
+devNetPayload :: Config -> Manager -> BlockHeight -> BlockPayloadHash -> IO PayloadData
+devNetPayload config mgr h x = runClientM (payloadClient ver cid x (Just h)) (env mgr node) >>= \case
     Left e -> error (show e)
     Right a -> return a
   where
@@ -350,9 +348,9 @@ devNetPayload config  mgr x = runClientM (payloadClient ver cid x) (env mgr node
     ver = _configChainwebVersion config
     node = _configNode config
 
-devNetPayloadWithOutput :: Config -> Manager -> BlockPayloadHash -> IO PayloadWithOutputs
-devNetPayloadWithOutput config mgr x
-    = runClientM (outputsClient ver cid x) (env mgr node) >>= \case
+devNetPayloadWithOutput :: Config -> Manager -> BlockHeight -> BlockPayloadHash -> IO PayloadWithOutputs
+devNetPayloadWithOutput config mgr h x
+    = runClientM (outputsClient ver cid x (Just h)) (env mgr node) >>= \case
         Left e -> error (show e)
         Right a -> return a
   where

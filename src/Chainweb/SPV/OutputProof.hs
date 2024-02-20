@@ -210,8 +210,8 @@ createOutputProofDb_
     -> IO (PayloadProof a)
 createOutputProofDb_ headerDb payloadDb d h reqKey = do
     hdr <- casLookupM headerDb h
-    p <- casLookupM payloadDb (_blockPayloadHash hdr)
-    unless (_payloadWithOutputsPayloadHash p /= _blockPayloadHash hdr) $
+    Just pwo <- lookupPayloadWithHeight payloadDb (Just $ _blockHeight hdr) (_blockPayloadHash hdr)
+    unless (_payloadWithOutputsPayloadHash pwo /= _blockPayloadHash hdr) $
         throwM $ SpvExceptionInconsistentPayloadData
             { _spvExceptionMsg = "The stored payload hash doesn't match the the db index"
             , _spvExceptionMsgPayloadHash = _blockPayloadHash hdr
@@ -223,7 +223,7 @@ createOutputProofDb_ headerDb payloadDb d h reqKey = do
             , _spvExceptionExpectedDepth = Expected d
             , _spvExceptionActualDepth = Actual $ curRank `minusOrZero` int (_blockHeight hdr)
             }
-    createOutputProof_ @a p reqKey
+    createOutputProof_ @a pwo reqKey
 
 -- | Creates a witness that a transaction is included in a chain of a chainweb
 -- at the given target header.
@@ -284,4 +284,3 @@ runOutputProof p = do
     unless (t == RootBlockPayload) $ throwM
         $ MerkleRootMismatch (Expected RootBlockPayload) (Actual t)
     return (BlockPayloadHash r, s)
-

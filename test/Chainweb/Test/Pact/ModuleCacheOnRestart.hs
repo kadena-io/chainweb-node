@@ -124,10 +124,11 @@ testCoinbase
   -> CacheTest logger tbl
 testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
   where
+    genHeight = genesisHeight testVer testChainId
     doCoinbase = do
       bdb <- liftIO iobdb
       T2 _ pwo <- execNewBlock mempty noMiner
-      void $ liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
+      void $ liftIO $ addTestBlockDb bdb (succ genHeight) (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
       void $ execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
 
@@ -250,7 +251,7 @@ doNextCoinbase iobdb = do
 
       T2 prevH' pwo <- execNewBlock mempty noMiner
       liftIO $ ParentHeader prevH @?= prevH'
-      void $ liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
+      void $ liftIO $ addTestBlockDb bdb (succ $ _blockHeight prevH) (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
       (valPWO, _g) <- execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
       return (nextH, valPWO)

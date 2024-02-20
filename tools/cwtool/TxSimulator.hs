@@ -83,6 +83,7 @@ import Pact.Types.Typecheck
 import qualified Pact.JSON.Encode as J
 
 import Utils.Logging.Trace
+import Chainweb.Payload.RestAPI (BatchBody(WithHeights))
 
 data SimConfig = SimConfig
     { scDbDir :: FilePath
@@ -257,7 +258,7 @@ fetchHeaders sc cenv = do
 fetchOutputs :: SimConfig -> ClientEnv -> [BlockHeader] -> IO [PayloadWithOutputs]
 fetchOutputs sc cenv bhs = do
   r <- (`runClientM` cenv) $ do
-    outputsBatchClient (scVersion sc) (scChain sc) (map _blockPayloadHash bhs)
+    outputsBatchClient (scVersion sc) (scChain sc) (WithHeights $ map (\bh -> (_blockHeight bh, _blockPayloadHash bh)) bhs)
   case r of
     Left e -> throwM e
     Right ps -> return ps

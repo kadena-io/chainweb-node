@@ -76,8 +76,6 @@ import Chainweb.Utils
 import qualified Chainweb.Version as CW
 import qualified Chainweb.Version.Guards as CW
 
-import Chainweb.Storage.Table
-
 -- internal pact modules
 
 import qualified Pact.JSON.Encode as J
@@ -400,10 +398,10 @@ getTxIdx bdb pdb bh th = do
       (Left !s) -> return $ Left s
       (Right !a) -> do
         -- get payload
-        payload <- _payloadWithOutputsTransactions <$> casLookupM pdb a
+        Just payload <- lookupPayloadWithHeight pdb (Just bh) a
 
         -- Find transaction index
-        r <- S.each payload
+        r <- S.each (_payloadWithOutputsTransactions payload)
           & S.map fst
           & S.mapM toTxHash
           & sindex (== th)
