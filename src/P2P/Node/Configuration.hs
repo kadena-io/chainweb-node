@@ -131,11 +131,17 @@ validateP2pConfiguration :: Applicative a => ConfigValidation P2pConfiguration a
 validateP2pConfiguration c = do
     validatePeerConfig $ _p2pConfigPeer c
 
-    when (_p2pConfigIgnoreBootstrapNodes c && null (_p2pConfigKnownPeers c)) $ tell
-        $ pure "Default bootstrap nodes are ignored and no known peers are configured. This node won't be able to communicate with the network."
+    when (null (_p2pConfigKnownPeers c)) $ do
+        if _p2pConfigPrivate c && _p2pConfigIgnoreBootstrapNodes c
+        then tell $ pure "This node is configured to not communicate with any other nodes, including bootstrap nodes."
 
-    when (_p2pConfigPrivate c && null (_p2pConfigKnownPeers c)) $ tell
-        $ pure "This node is configured to communicate only with the default bootstrap nodes."
+        else if _p2pConfigPrivate c
+        then tell $ pure "This node is configured to communicate only with the default bootstrap nodes."
+
+        else if _p2pConfigIgnoreBootstrapNodes c
+        then tell $ pure "Default bootstrap nodes are ignored and no known peers are configured. This node won't be able to communicate with the network."
+
+        else return ()
 
     validateRange "sessionTimeout" (60 {- 1 min -}, 900 {- 15 min -}) (_p2pConfigSessionTimeout c)
 
