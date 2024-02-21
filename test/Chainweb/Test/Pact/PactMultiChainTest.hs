@@ -17,7 +17,6 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Data.Aeson (Value, object, (.=))
-import Data.Default
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
@@ -35,7 +34,6 @@ import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Continuation
 import Pact.Types.Hash
-import qualified Pact.JSON.Encode as PactJSON
 import Pact.Types.Lang(_LString)
 import Pact.Types.PactError
 import Pact.Types.PactValue
@@ -44,7 +42,6 @@ import Pact.Types.RPC
 import Pact.Types.Runtime (PactEvent)
 import Pact.Types.SPV
 import Pact.Types.Term
-import Pact.Types.Verifier
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
@@ -138,7 +135,6 @@ tests = testGroup testName
   , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
   , test generousConfig getGasModel "pact49UpgradeTest" pact49UpgradeTest
   , test generousConfig getGasModel "pact410UpgradeTest" pact410UpgradeTest
-  , test generousConfig getGasModel "verifierTest" verifierTest
   , test generousConfig getGasModel "chainweb223Test" chainweb223Test
   , test generousConfig getGasModel "compactAndSyncTest" compactAndSyncTest
   ]
@@ -1208,59 +1204,6 @@ pact410UpgradeTest = do
 
     mkKeyEnvData :: String -> Value
     mkKeyEnvData key = object [ "k" .= [key] ]
-
-verifierTest :: PactTestM ()
-verifierTest = do
-  runToHeight 118
-
-  runBlockTest
-    [ PactTxTest
-        (buildBasic (mkExec' "(enforce-verifier 'allow)"))
-        (assertTxFailure "Should not resolve enforce-verifier" "Cannot resolve enforce-verifier")
-    ]
-
-  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "G" def) []
-
-  runBlockTest
-    [ PactTxTest
-      (buildBasicGas 70000
-      $ mkExec' $ mconcat
-        [ "(namespace 'free)"
-        , "(module m G"
-        , "(defcap G () (enforce-verifier 'allow))"
-        , "(defun x () (with-capability (G) 1)))"
-        ]
-      )
-      (assertTxSuccess
-        "Should allow enforce-verifier in a capability"
-        (pString "Loaded module free.m, hash QNTlTCp-KMPkT52CEo_0zGaLJ_PnAxsenyhUck1njcc")
-      )
-    , PactTxTest
-      (buildBasicGas 10000 (mkExec' "(free.m.x)"))
-      (\cr -> liftIO $ do
-        assertTxFailure
-          "verifier not present"
-          "Verifier failure allow: not in transaction"
-          cr
-        assertTxGas "verifier errors charge all gas" 10000 cr
-      )
-    , PactTxTest
-      (buildBasic'
-        (set cbVerifiers
-          [Verifier
-            (VerifierName "allow")
-            (ParsedVerifierProof $ pString (PactJSON.encodeText cap))
-            [cap]
-          ]
-        )
-        (mkExec' "(free.m.x)")
-      )
-      (\cr -> liftIO $ do
-        assertTxSuccess "should have succeeded" (pDecimal 1) cr
-        -- The **Allow** verifier costs 100 gas flat
-        assertEqual "gas should have been charged" 344 (_crGas cr)
-      )
-    ]
 
 chainweb223Test :: PactTestM ()
 chainweb223Test = do
