@@ -242,7 +242,7 @@ library
         , Chainweb.VerifierPlugin.Allow
         , Chainweb.VerifierPlugin.Hyperlane.Announcement
         , Chainweb.VerifierPlugin.Hyperlane.Binary
-        , Chainweb.VerifierPlugin.Hyperlane.MessageERC20
+        , Chainweb.VerifierPlugin.Hyperlane.Message
         , Chainweb.VerifierPlugin.Hyperlane.Utils
         , Chainweb.Version
         , Chainweb.Version.Development

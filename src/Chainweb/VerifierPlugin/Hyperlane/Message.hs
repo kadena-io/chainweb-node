@@ -5,14 +5,14 @@
 {-# LANGUAGE LambdaCase #-}
 
 -- |
--- Chainweb.VerifierPlugin.Hyperlane.MessageERC20
+-- Chainweb.VerifierPlugin.Hyperlane.Message
 -- Copyright: Copyright © 2024 Kadena LLC.
 -- License: MIT
 --
--- Verifier plugin for Hyperlane Message with ERC20 token message.
+-- Verifier plugin for Hyperlane Message.
 -- Verifies the message using the provided metadata.
 --
-module Chainweb.VerifierPlugin.Hyperlane.MessageERC20 (plugin) where
+module Chainweb.VerifierPlugin.Hyperlane.Message (plugin) where
 
 import Control.Error
 import Control.Monad (unless)
@@ -42,9 +42,9 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
     [cap] -> return cap
     _ -> throwError $ VerifierError "Expected one capability."
 
-  (capTokenMessage, capRecipient, capSigners) <- case _scArgs of
-      [o, r, sigs] -> return (o, r, sigs)
-      _ -> throwError $ VerifierError $ "Incorrect number of capability arguments. Expected: HyperlaneMessage object, recipient, signers."
+  (capMessageBody, capRecipient, capSigners) <- case _scArgs of
+      [mb, r, sigs] -> return (mb, r, sigs)
+      _ -> throwError $ VerifierError $ "Incorrect number of capability arguments. Expected: messageBody, recipient, signers."
 
   -- extract proof object values
   (hyperlaneMessageBase64, metadataBase64) <- case proof of
@@ -71,11 +71,11 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
       "Recipients don't match. Expected: " <> sshow hmRecipientPactValue <> " but got " <> sshow capRecipient
 
   let
-    hmTokenMessagePactValue = PLiteral $ LString $ encodeB64UrlNoPaddingText $ runPutS $ putTokenMessageERC20 hmTokenMessage
+    hmMessageBodyPactValue = PLiteral $ LString $ encodeB64UrlNoPaddingText hmMessageBody
 
-  unless (hmTokenMessagePactValue == capTokenMessage) $
+  unless (hmMessageBodyPactValue == capMessageBody) $
     throwError $ VerifierError $
-      "Invalid TokenMessage. Expected: " <> sshow hmTokenMessagePactValue <> " but got " <> sshow capTokenMessage
+      "Invalid TokenMessage. Expected: " <> sshow hmMessageBodyPactValue <> " but got " <> sshow capMessageBody
 
   -- validate signers
   let

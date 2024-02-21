@@ -59,5 +59,5 @@ devnet = ChainwebVersion
         { _disablePeerValidation = True
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = AllChains $ (End $ Set.fromList $ map VerifierName ["hyperlane_announcement", "hyperlane_message_erc20"])
+    , _versionVerifierPluginNames = AllChains $ (End $ Set.fromList $ map VerifierName ["hyperlane_v3_message"])
     }
