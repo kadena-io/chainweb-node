@@ -721,25 +721,25 @@ withWebPactExecutionService
     -> TestBlockDb
     -> MemPoolAccess
     -> (TxContext -> GasModel)
-    -> ((WebPactExecutionService,HM.HashMap ChainId PactExecutionService) -> IO a)
+    -> ((WebPactExecutionService,HM.HashMap ChainId (SQLiteEnv, PactExecutionService)) -> IO a)
     -> IO a
 withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
   withDbs $ \sqlenvs -> do
     pacts <- fmap HM.fromList
-           $ traverse mkPact
+           $ traverse (\(dbEnv, cid) -> (cid,) . (dbEnv,) <$> mkPact dbEnv cid)
            $ zip sqlenvs
            $ toList
            $ chainIds v
-    act (mkWebPactExecutionService pacts, pacts)
+    act (mkWebPactExecutionService (snd <$> pacts), pacts)
   where
     withDbs f = foldl' (\soFar _ -> withDb soFar) f (chainIds v) []
     withDb g envs = withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
 
-    mkPact :: (SQLiteEnv, ChainId) -> IO (ChainId, PactExecutionService)
-    mkPact (sqlenv, c) = do
+    mkPact :: SQLiteEnv -> ChainId -> IO PactExecutionService
+    mkPact sqlenv c = do
         bhdb <- getBlockHeaderDb c bdb
         (ctx,_,_) <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
-        return $ (c,) $ PactExecutionService
+        return $ PactExecutionService
           { _pactNewBlock = \_ m ->
               evalPactServiceM_ ctx $ execNewBlock mempoolAccess m
           , _pactValidateBlock = \h d ->

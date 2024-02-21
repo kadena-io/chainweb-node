@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -24,6 +25,8 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Test.Tasty
 import Test.Tasty.HUnit
+import System.Logger qualified as YAL
+import System.LogLevel
 
 -- internal modules
 
@@ -48,6 +51,7 @@ import Chainweb.Cut
 import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec (listErrMsg)
@@ -76,7 +80,7 @@ cid = unsafeChainId 9
 data MultiEnv = MultiEnv
     { _menvBdb :: !TestBlockDb
     , _menvPact :: !WebPactExecutionService
-    , _menvPacts :: !(HM.HashMap ChainId PactExecutionService)
+    , _menvPacts :: !(HM.HashMap ChainId (SQLiteEnv, PactExecutionService))
     , _menvMpa :: !(IO (IORef MemPoolAccess))
     , _menvMiner :: !Miner
     , _menvChainId :: !ChainId
@@ -132,6 +136,7 @@ tests = testGroup testName
   , test generousConfig getGasModel "pact49UpgradeTest" pact49UpgradeTest
   , test generousConfig getGasModel "pact410UpgradeTest" pact410UpgradeTest
   , test generousConfig getGasModel "chainweb223Test" chainweb223Test
+  , test generousConfig getGasModel "compactAndSyncTest" compactAndSyncTest
   ]
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
@@ -351,10 +356,16 @@ runLocalWithDepth nonce depth cid' cmd = do
   cwCmd <- buildCwCmd nonce testVersion cmd
   liftIO $ _pactLocal pact Nothing Nothing depth cwCmd
 
+getSqlite :: ChainId -> PactTestM SQLiteEnv
+getSqlite cid' = do
+  HM.lookup cid' <$> view menvPacts >>= \case
+    Just (dbEnv, _) -> return dbEnv
+    Nothing -> liftIO $ assertFailure $ "No SQLite found for chain id " ++ show cid'
+
 getPactService :: ChainId -> PactTestM PactExecutionService
 getPactService cid' = do
   HM.lookup cid' <$> view menvPacts >>= \case
-    Just pact -> return pact
+    Just (_, pact) -> return pact
     Nothing -> liftIO $ assertFailure $ "No pact service found at chain id " ++ show cid'
 
 assertLocalFailure
@@ -521,11 +532,11 @@ chainweb215Test = do
   currCut <- currentCut
 
     -- rewind to saved cut 43
-  rewindTo savedCut
+  syncTo savedCut
   runToHeight 43
 
   -- resume on original cut
-  rewindTo currCut
+  syncTo currCut
 
   -- run until post-fork xchain proof exists
   resetMempool
@@ -542,7 +553,7 @@ chainweb215Test = do
     ]
 
     -- rewind to saved cut 50
-  rewindTo savedCut1
+  syncTo savedCut1
   runToHeight 53
 
   where
@@ -1237,6 +1248,29 @@ chainweb223Test = do
       (assertTxFailure "should not allow rotating principals after fork" "It is unsafe for principal accounts to rotate their guard")
     ]
 
+compactAndSyncTest :: PactTestM ()
+compactAndSyncTest = do
+  -- start with all forks on.
+  let start = latestBehaviorAt testVersion
+  runToHeight start
+  -- we want to run a transaction but it doesn't matter what it does, as long
+  -- as it gets on-chain and thus affects the Pact state.
+  runBlockTest
+    [ PactTxTest (buildBasic $ mkExec' "1") (assertTxSuccess "should allow innocent transaction" (pDecimal 1))
+    ]
+  -- save the cut with the tx, we'll return to it after compaction
+  cutWithTx <- currentCut
+  currentCid <- view menvChainId
+  dbEnv <- getSqlite currentCid
+
+  liftIO $ C.withDefaultLogger Warn $ \cLogger -> do
+    let cLogger' = over YAL.setLoggerScope (\scope -> ("chainId",sshow currentCid) : scope) cLogger
+    let flags = [C.NoVacuum]
+    -- compact to before the tx happened
+    void $ compactUntilAvailable (C.Target start) cLogger' dbEnv flags
+  -- now sync to after the tx and expect no errors
+  syncTo cutWithTx
+
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
 
@@ -1326,7 +1360,7 @@ pact4coin3UpgradeTest = do
   withChain chain0 $ runBlockTests block22_0
 
   -- rewind to savedCut (cut 18)
-  rewindTo savedCut
+  syncTo savedCut
   runToHeight 22
 
   where
@@ -1412,8 +1446,8 @@ resetMempool = view menvMpa >>= \r -> setMempool r mempty
 currentCut :: PactTestM Cut
 currentCut = view menvBdb >>= liftIO . readMVar . _bdbCut
 
-rewindTo :: Cut -> PactTestM ()
-rewindTo c = do
+syncTo :: Cut -> PactTestM ()
+syncTo c = do
   pact <- view menvPact
   bdb <- view menvBdb
 
@@ -1421,11 +1455,10 @@ rewindTo c = do
     let
       ph = case HM.lookup cid' (_cutMap c) of
           Just h -> h
-          Nothing -> error $ "rewindTo: can't find block header for " ++ show cid'
+          Nothing -> error $ "syncTo: can't find block header for " ++ show cid'
 
-    -- reset the parent header using validateBlock
-    pout <- liftIO $ getPWOByHeader ph bdb
-    void $ liftIO $ _webPactValidateBlock pact ph (payloadWithOutputsToPayloadData pout)
+    -- reset the parent header using SyncToBlock
+    void $ liftIO $ _webPactSyncToBlock pact ph
 
     void $ liftIO $ swapMVar (_bdbCut bdb) c
 

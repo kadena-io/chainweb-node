@@ -435,8 +435,6 @@ dropNewTables bh = do
 
 -- | Delete all rows from Checkpointer system tables that are not for the target blockheight.
 --
---   We currently do not compact TransactionIndex. This will change once we are
---   properly pruning RocksDB.
 compactSystemTables :: BlockHeight -> CompactM ()
 compactSystemTables bh = do
   let systemTables = ["BlockHistory", "VersionedTableMutation"]
@@ -456,7 +454,13 @@ compactSystemTables bh = do
       "VersionedTableCreation"
       "DELETE FROM VersionedTableCreation WHERE createBlockheight > ?1;"
       [bhToSType bh]
-
+  -- We currently do not compact TransactionIndex. This will change once we are
+  -- properly pruning RocksDB.
+  execM'
+    "compactSystemTables: TransactionIndex"
+    "TransactionIndex"
+    "DELETE FROM TransactionIndex WHERE blockheight > ?1;"
+    [bhToSType bh]
 
 dropCompactTables :: CompactM ()
 dropCompactTables = do
