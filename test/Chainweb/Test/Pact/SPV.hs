@@ -10,7 +10,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 -- |
--- Module: Chainweb.Test.CutDB.Test
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>, Emily Pillmore <emily@kadena.io>
@@ -32,7 +31,7 @@ import Control.Arrow ((***))
 import Control.Concurrent.MVar
 import Control.Exception (SomeException, finally)
 import Control.Monad
-import Control.Lens (set)
+import Control.Lens hiding ((.=))
 
 import Data.Aeson as Aeson
 import qualified Data.ByteString.Base64.URL as B64U
@@ -69,7 +68,6 @@ import Pact.Types.PactValue
 import Pact.Types.Runtime (toPactId)
 import Pact.Types.SPV
 import Pact.Types.Term
-
 
 -- internal chainweb modules
 
@@ -133,7 +131,6 @@ _handle' e =
     let
       s = show e
     in logg System.LogLevel.Error (pack s) >> return (False, s)
-
 
 -- -------------------------------------------------------------------------- --
 -- tests

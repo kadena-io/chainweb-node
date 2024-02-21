@@ -7,6 +7,8 @@
 
 module Chainweb.Version.Development(devnet, pattern Development) where
 
+import qualified Data.Set as Set
+
 import Chainweb.BlockCreationTime
 import Chainweb.ChainId
 import Chainweb.Difficulty
@@ -15,6 +17,8 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
+
+import Pact.Types.Verifier
 
 import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
 import qualified Chainweb.BlockHeader.Genesis.Development1to19Payload as DNN
@@ -55,5 +59,5 @@ devnet = ChainwebVersion
         { _disablePeerValidation = True
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = AllChains $ End $ mempty
+    , _versionVerifierPluginNames = AllChains $ (End $ Set.fromList $ map VerifierName ["hyperlane_announcement", "hyperlane_message_erc20"])
     }

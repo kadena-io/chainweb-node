@@ -48,6 +48,7 @@ import qualified Chainweb.Test.Pact.PactMultiChainTest
 import qualified Chainweb.Test.Pact.PactSingleChainTest
 import qualified Chainweb.Test.Pact.PactReplay
 import qualified Chainweb.Test.Pact.RemotePactTest
+import qualified Chainweb.Test.Pact.VerifierPluginTest
 import qualified Chainweb.Test.Pact.RewardsTest
 import qualified Chainweb.Test.Pact.SQLite
 import qualified Chainweb.Test.Pact.SPV
@@ -106,6 +107,7 @@ pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
     , Chainweb.Test.Pact.DbCacheTest.tests
     , Chainweb.Test.Pact.Checkpointer.tests
     , Chainweb.Test.Pact.PactMultiChainTest.tests
+    , Chainweb.Test.Pact.VerifierPluginTest.tests
     , Chainweb.Test.Pact.PactSingleChainTest.tests rdb
     , Chainweb.Test.Pact.RemotePactTest.tests rdb
     , Chainweb.Test.Pact.PactReplay.tests rdb
