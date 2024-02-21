@@ -14,6 +14,7 @@ module Chainweb.VerifierPlugin.Hyperlane.Utils
 
   , encodeHex
   , decodeHex
+  , decodeHexUnsafe
 
   , ethereumHeader
   ) where
@@ -26,6 +27,7 @@ import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Builder as Builder
 import Data.Text (Text)
+import Data.Either (fromRight)
 import Data.DoubleWord
 import Data.Decimal
 import Data.Ratio
@@ -74,6 +76,9 @@ decodeHex :: Text -> Either String B.ByteString
 decodeHex s
   | Just h <- Text.stripPrefix "0x" s = B16.decode $ Text.encodeUtf8 h
   | otherwise = Left "decodeHex: does not start with 0x"
+
+decodeHexUnsafe :: Text -> B.ByteString
+decodeHexUnsafe = fromRight (error "decodeHexUnsafe: failed to decode hex") . decodeHex
 
 decimalToWord :: Decimal -> Word256
 decimalToWord d =

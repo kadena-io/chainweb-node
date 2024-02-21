@@ -18,7 +18,6 @@ import Control.Error
 import Control.Monad (unless)
 import Control.Monad.Except
 
-import qualified Data.Map.Strict as M
 import qualified Data.Text.Encoding as Text
 import qualified Data.Vector as V
 import qualified Data.Set as Set
@@ -34,7 +33,7 @@ import Chainweb.Utils.Serialization (putRawByteString, runPutS, runGetS, putWord
 import Chainweb.VerifierPlugin
 import Chainweb.VerifierPlugin.Hyperlane.Binary
 import Chainweb.VerifierPlugin.Hyperlane.Utils
-import Chainweb.Utils (decodeB64UrlNoPaddingText, sshow)
+import Chainweb.Utils (encodeB64UrlNoPaddingText, decodeB64UrlNoPaddingText, sshow)
 
 plugin :: VerifierPlugin
 plugin = VerifierPlugin $ \proof caps gasRef -> do
@@ -72,9 +71,7 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
       "Recipients don't match. Expected: " <> sshow hmRecipientPactValue <> " but got " <> sshow capRecipient
 
   let
-    TokenMessageERC20{..} = hmTokenMessage
-    hmTokenMessagePactValue = PObject $ ObjectMap $ M.fromList
-        [ ("recipient", PLiteral $ LString tmRecipient), ("amount", PLiteral $ LDecimal $ wordToDecimal tmAmount) ]
+    hmTokenMessagePactValue = PLiteral $ LString $ encodeB64UrlNoPaddingText $ runPutS $ putTokenMessageERC20 hmTokenMessage
 
   unless (hmTokenMessagePactValue == capTokenMessage) $
     throwError $ VerifierError $
