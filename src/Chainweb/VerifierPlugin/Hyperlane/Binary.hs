@@ -15,11 +15,13 @@ module Chainweb.VerifierPlugin.Hyperlane.Binary
   , putTokenMessageERC20
 
   , MessageIdMultisigIsmMetadata(..)
+  , putMessageIdMultisigIsmMetadata
   , getMessageIdMultisigIsmMetadata
 
   , ethereumAddressSize
   ) where
 
+import Data.Foldable
 import Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.DoubleWord
@@ -70,6 +72,7 @@ getHyperlaneMessage = do
 data TokenMessageERC20 = TokenMessageERC20
   { tmRecipient :: Text -- string
   , tmAmount :: Word256 -- uint256
+  , tmChainId :: Word256 -- uint256
   } deriving (Show, Eq)
 
 -- example encoded TokenMessageERC20
@@ -83,9 +86,10 @@ data TokenMessageERC20 = TokenMessageERC20
 putTokenMessageERC20 :: TokenMessageERC20 -> Put
 putTokenMessageERC20 (TokenMessageERC20 {..}) = do
   -- the first offset is constant
-  putWord256be (64 :: Word256) -- 32 bytes
+  putWord256be (96 :: Word256) -- 32 bytes
   putWord256be tmAmount        -- 32 bytes
-  -- 64 bytes
+  putWord256be tmChainId       -- 32 bytes
+  -- 96 bytes
   putWord256be recipientSize   -- 32 bytes
   putRawByteString recipient   -- recipientSize
   where
@@ -95,6 +99,7 @@ getTokenMessageERC20 :: Get TokenMessageERC20
 getTokenMessageERC20 = do
     _firstOffset <- getWord256be
     tmAmount <- getWord256be
+    tmChainId <- getWord256be
 
     recipientSize <- getWord256be
     tmRecipient <- Text.decodeUtf8 <$> getRecipient recipientSize
@@ -106,6 +111,15 @@ data MessageIdMultisigIsmMetadata = MessageIdMultisigIsmMetadata
   , mmimSignedCheckpointIndex :: Word32
   , mmimSignatures :: [ByteString]
   }
+
+putMessageIdMultisigIsmMetadata :: MessageIdMultisigIsmMetadata -> Put
+putMessageIdMultisigIsmMetadata (MessageIdMultisigIsmMetadata{..}) = do
+  putRawByteString (padLeft mmimOriginMerkleTreeAddress)
+  putRawByteString (padLeft mmimSignedCheckpointRoot)
+  putWord32be mmimSignedCheckpointIndex
+
+  forM_ mmimSignatures $ \s -> do
+    putRawByteString s
 
 getMessageIdMultisigIsmMetadata :: Get MessageIdMultisigIsmMetadata
 getMessageIdMultisigIsmMetadata = do
