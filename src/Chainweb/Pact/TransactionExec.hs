@@ -149,6 +149,9 @@ magic_GAS = mkMagicCapSlot "GAS"
 magic_GENESIS :: CapSlot SigCapability
 magic_GENESIS = mkMagicCapSlot "GENESIS"
 
+debitCap :: Text -> SigCapability
+debitCap s = mkCoinCap "DEBIT" [PLiteral (LString s)]
+
 onChainErrorPrintingFor :: TxContext -> UnexpectedErrorPrinting
 onChainErrorPrintingFor txCtx =
   if guardCtx chainweb219Pact txCtx
@@ -871,6 +874,9 @@ enablePact410 v cid bh = [FlagDisablePact410 | not (chainweb222Pact v cid bh)]
 enablePact411 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enablePact411 v cid bh = [FlagDisablePact411 | not (chainweb223Pact v cid bh)]
 
+enablePact412 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact412 v cid bh = [FlagDisablePact412]
+
 -- | Even though this is not forking, abstracting for future shutoffs
 disableReturnRTC :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 disableReturnRTC _v _cid _bh = [FlagDisableRuntimeReturnTypeChecking]
@@ -973,11 +979,17 @@ buyGas txCtx cmd (Miner mid mks) = go
           interp mc = Interpreter $ \_input ->
             put (initState mc logGas) >> run (pure <$> eval buyGasTerm)
 
+      let
+        addDebit signer =
+          signer & siCapList %~ (debitCap sender:)
+        addDebitToSigners =
+          fmap addDebit
+
       -- no verifiers are allowed in buy gas
       -- quirked gas is not used either
       result <- locally txQuirkGasFee (const Nothing) $
         applyExec' 0 (interp mcache) buyGasCmd
-          (_pSigners $ _cmdPayload cmd) [] bgHash managedNamespacePolicy
+          (addDebitToSigners $ _pSigners $ _cmdPayload cmd) [] bgHash managedNamespacePolicy
 
       case _erExec result of
         Nothing
@@ -1224,10 +1236,15 @@ managedNamespacePolicy = SmartNamespacePolicy False
 mkMagicCapSlot :: Text -> CapSlot SigCapability
 mkMagicCapSlot c = CapSlot CapCallStack cap []
   where
+    cap = mkCoinCap c []
+{-# INLINE mkMagicCapSlot #-}
+
+mkCoinCap :: Text -> [PactValue] -> SigCapability
+mkCoinCap c as = SigCapability fqn as
+  where
     mn = ModuleName "coin" Nothing
     fqn = QualifiedName mn c def
-    cap = SigCapability fqn []
-{-# INLINE mkMagicCapSlot #-}
+{-# INLINE mkCoinCap #-}
 
 -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
 -- parameter is for any possible environmental data that needs to go into

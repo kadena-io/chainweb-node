@@ -384,10 +384,8 @@ serviceRequests memPoolAccess reqQ = do
                         flip finally (tryPutMVar finishedLock ()) $ do
                             -- wait until we've been told to start.
                             -- we don't want to start if the request was cancelled
-                            -- already
-                            takeMVar goLock
-                            -- run and report the answer.
-                            tryAny (run act) >>= \case
+                            -- already. then run and report the answer.
+                            tryAny (takeMVar goLock >> run act) >>= \case
                                 Left ex -> atomically $ writeTVar statusRef (RequestFailed ex)
                                 Right r -> atomically $ writeTVar statusRef (RequestDone r)
                     )
