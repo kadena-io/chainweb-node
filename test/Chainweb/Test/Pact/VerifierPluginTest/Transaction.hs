@@ -221,6 +221,7 @@ verifierTest = do
 hyperlaneRecoverValidatorAnnouncementSuccess :: PactTestM ()
 hyperlaneRecoverValidatorAnnouncementSuccess = do
   runToHeight 119
+  let verifierName = "hyperlane_v3_announcement"
 
   let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
               [pString "storagelocation", pString "0x6c414e7a15088023e28af44ad0e1d593671e4b15", pString "kb-mailbox"]
@@ -232,17 +233,17 @@ hyperlaneRecoverValidatorAnnouncementSuccess = do
         [ "(namespace 'free)"
         , "(module m G"
         , "(defcap G () true)"
-        , "(defcap K (location:string signer:string mailbox:string) (enforce-verifier 'hyperlane_announcement))"
+        , "(defcap K (location:string signer:string mailbox:string) (enforce-verifier '" <> verifierName <> "))"
         , "(defun x () (with-capability (K \"storagelocation\" \"0x6c414e7a15088023e28af44ad0e1d593671e4b15\" \"kb-mailbox\") 1)))"])
       (assertTxSuccess
         "Should deploy module"
-        (pString "Loaded module free.m, hash 1JDzly5XUBLPnXoBQNlvPd91Rhsb6P0E5oZHjuKShjk"))
-    , checkVerifierNotInTx "hyperlane_announcement"
+        (pString "Loaded module free.m, hash JbKuarvFOs3FGnpQ3R2exafA2gKonqa5Ls1-l3rIh8I"))
+    , checkVerifierNotInTx verifierName
     , PactTxTest
       (buildBasic'
         (set cbGasLimit 20000 . set cbVerifiers
           [Verifier
-            (VerifierName "hyperlane_announcement")
+            (VerifierName verifierName)
             (ParsedVerifierProof $
               PList $ V.fromList
                 [ pString "storagelocation"
@@ -261,7 +262,7 @@ hyperlaneRecoverValidatorAnnouncementSuccess = do
 hyperlaneRecoverValidatorAnnouncementIncorrectSignatureFailure :: PactTestM ()
 hyperlaneRecoverValidatorAnnouncementIncorrectSignatureFailure = do
   runToHeight 119
-  let verifierName = "hyperlane_announcement"
+  let verifierName = "hyperlane_v3_announcement"
 
   let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
               [pString "storagelocation", pString "0x6c414e7a15088023e28af44ad0e1d593671e4b15", pString "kb-mailbox"]
@@ -277,7 +278,7 @@ hyperlaneRecoverValidatorAnnouncementIncorrectSignatureFailure = do
         , "(defun x () (with-capability (K \"storagelocation\" \"0x6c414e7a15088023e28af44ad0e1d593671e4b15\" \"kb-mailbox\") 1)))"])
       (assertTxSuccess
         "Should deploy module"
-        (pString "Loaded module free.m, hash 1JDzly5XUBLPnXoBQNlvPd91Rhsb6P0E5oZHjuKShjk"))
+        (pString "Loaded module free.m, hash JbKuarvFOs3FGnpQ3R2exafA2gKonqa5Ls1-l3rIh8I"))
     , checkVerifierNotInTx verifierName
     , PactTxTest
       (buildBasic'
@@ -304,7 +305,7 @@ hyperlaneRecoverValidatorAnnouncementIncorrectSignatureFailure = do
 hyperlaneRecoverValidatorAnnouncementDifferentSignerFailure :: PactTestM ()
 hyperlaneRecoverValidatorAnnouncementDifferentSignerFailure = do
   runToHeight 119
-  let verifierName = "hyperlane_announcement"
+  let verifierName = "hyperlane_v3_announcement"
 
   let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
               -- bad signer (same as from the previous test but the different first symbol)
@@ -321,7 +322,7 @@ hyperlaneRecoverValidatorAnnouncementDifferentSignerFailure = do
         , "(defun x () (with-capability (K \"storagelocation\" \"0x5c414e7a15088023e28af44ad0e1d593671e4b15\" \"kb-mailbox\") 1)))"])
       (assertTxSuccess
         "Should deploy module"
-        (pString "Loaded module free.m, hash AcLq0Za-N65GsqlUV_6MzbhhilHV-9EoXPVgR9hNoeQ"))
+        (pString "Loaded module free.m, hash jZR2sS2FjdR-3udU9-DNL1RfsjKISk4AuhNm43yueOA"))
     , checkVerifierNotInTx verifierName
     , PactTxTest
       (buildBasic'
@@ -346,17 +347,16 @@ hyperlaneRecoverValidatorAnnouncementDifferentSignerFailure = do
 
 -- hyperlane message tests
 
--- | Hyperlane test TokenMessageERC20
-hyperlaneTokenMessage :: TokenMessageERC20
-hyperlaneTokenMessage = TokenMessageERC20
-  { tmRecipient = "k:94c35ab1bd70243ec670495077f7846373b4dc5e9779d7a6732b5ceb6fde059c"
-  , tmAmount = decimalToWord 249
-  , tmChainId = 0
-  }
-
--- | Hyperlane test message TokenMessageERC20 encoded in base64
+-- | Hyperlane test message TokenMessageERC20 encoded in base64:
+--
+--  { tmRecipient = "k:94c35ab1bd70243ec670495077f7846373b4dc5e9779d7a6732b5ceb6fde059c"
+--  , tmAmount = decimalToWord 249
+--  , tmChainId = 0
+--  }
+--
+-- TODO: replace with pact native
 hyperlaneTokenMessageBase64 :: T.Text
-hyperlaneTokenMessageBase64 = encodeB64UrlNoPaddingText $ runPutS $ putTokenMessageERC20 hyperlaneTokenMessage
+hyperlaneTokenMessageBase64 = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1_kbS90EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEJrOjk0YzM1YWIxYmQ3MDI0M2VjNjcwNDk1MDc3Zjc4NDYzNzNiNGRjNWU5Nzc5ZDdhNjczMmI1Y2ViNmZkZTA1OWMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 -- | Hyperlane test message encoded in base64
 hyperlaneMessageBase64 :: T.Text
@@ -368,7 +368,7 @@ hyperlaneMessageBase64 = encodeB64UrlNoPaddingText $ runPutS $ putHyperlaneMessa
     , hmSender = decodeHexUnsafe "0x7fa9385be102ac3eac297483dd6233d62b3e1496"
     , hmDestinationDomain = 626
     , hmRecipient = "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV"
-    , hmTokenMessage = hyperlaneTokenMessage
+    , hmMessageBody = either (error . show) id $ decodeB64UrlNoPaddingText hyperlaneTokenMessageBase64
     }
 
 -- | Hyperlane test Metadata encoded in base64
@@ -384,7 +384,7 @@ mkHyperlaneMetadataBase64 signatures = encodeB64UrlNoPaddingText $ runPutS $ put
 hyperlaneVerifySuccess :: PactTestM ()
 hyperlaneVerifySuccess = do
   runToHeight 119
-  let verifierName = "hyperlane_message_erc20"
+  let verifierName = "hyperlane_v3_message"
 
   let
     recipient = pString "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV"
@@ -399,7 +399,7 @@ hyperlaneVerifySuccess = do
         [ "(namespace 'free)"
         , "(module m G"
         , "(defcap G () true)"
-        , "(defcap K (tokenVal:string recipient:string signers:[string])"
+        , "(defcap K (messageBody:string recipient:string signers:[string])"
         , "  (enforce-verifier '" <> verifierName <> ")"
         , "  (enforce (= signers [\"0xab36e79520d85f36fe5e2ca33c29cfe461eb48c6\"]) \"invalid signers\")"
         , "  (enforce (= recipient \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\") \"invalid recipient\")"
@@ -413,7 +413,7 @@ hyperlaneVerifySuccess = do
         ])
       (assertTxSuccess
         "Should deploy module"
-        (pString "Loaded module free.m, hash ivPVXbXGlZ7rsIdw2VwD7Qd2yeUybn3wY83FNewOuFc"))
+        (pString "Loaded module free.m, hash A7lPMvlHngX3fuN3qaZRvF2ih5wUBgjHyWWX9l39p-I"))
     , checkVerifierNotInTx verifierName
     , PactTxTest
       (buildBasic'
@@ -440,7 +440,7 @@ hyperlaneVerifySuccess = do
 hyperlaneVerifyEmptyRecoveredSignaturesSuccess :: PactTestM ()
 hyperlaneVerifyEmptyRecoveredSignaturesSuccess = do
   runToHeight 119
-  let verifierName = "hyperlane_message_erc20"
+  let verifierName = "hyperlane_v3_message"
 
   let
     recipient = pString "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV"
@@ -455,14 +455,14 @@ hyperlaneVerifyEmptyRecoveredSignaturesSuccess = do
         [ "(namespace 'free)"
         , "(module m G"
         , "(defcap G () true)"
-        , "(defcap K (tokenVal:string recipient:string signers:[string]) (enforce-verifier '" <> verifierName <> "))"
+        , "(defcap K (messageBody:string recipient:string signers:[string]) (enforce-verifier '" <> verifierName <> "))"
         , "(defun x () (with-capability (K"
         , " \"" <> hyperlaneTokenMessageBase64 <> "\""
         , " \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\" []) 1)))"
         ])
       (assertTxSuccess
         "Should deploy module"
-        (pString "Loaded module free.m, hash yWpXNRZaCS6vyKfSyozSw-aNXTpuGiTWDCkQL_s46-E"))
+        (pString "Loaded module free.m, hash s-EsSFcP7MMfVIDXZ7F9Lw6yOeGaeawdfWWC0pxvIbA"))
     , checkVerifierNotInTx verifierName
     , PactTxTest
       (buildBasic'
@@ -487,7 +487,7 @@ hyperlaneVerifyEmptyRecoveredSignaturesSuccess = do
 hyperlaneVerifyWrongSignersFailure :: PactTestM ()
 hyperlaneVerifyWrongSignersFailure = do
   runToHeight 119
-  let verifierName = "hyperlane_message_erc20"
+  let verifierName = "hyperlane_v3_message"
 
   let
     recipient = pString "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV"
@@ -503,14 +503,14 @@ hyperlaneVerifyWrongSignersFailure = do
         [ "(namespace 'free)"
         , "(module m G"
         , "(defcap G () true)"
-        , "(defcap K (tokenVal:string recipient:string signers:[string]) (enforce-verifier '" <> verifierName <> "))"
+        , "(defcap K (messageBody:string recipient:string signers:[string]) (enforce-verifier '" <> verifierName <> "))"
         , "(defun x () (with-capability (K"
         , " \"" <> hyperlaneTokenMessageBase64 <> "\""
         , " \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\" [\"wrongValidator\"]) 1)))"
         ])
       (assertTxSuccess
         "Should deploy module"
-        (pString "Loaded module free.m, hash maPH-om305AC3VoSx7TLPeV-0RdkF4FMIV4w0kygYxY"))
+        (pString "Loaded module free.m, hash GCYphpEUm2AqaTg5af31pdUu3Lre1K9BDTpN7Q74gq8"))
     , checkVerifierNotInTx verifierName
     , PactTxTest
       (buildBasic'
@@ -537,7 +537,7 @@ hyperlaneVerifyWrongSignersFailure = do
 hyperlaneVerifyNotEnoughRecoveredSignaturesFailure :: PactTestM ()
 hyperlaneVerifyNotEnoughRecoveredSignaturesFailure = do
   runToHeight 119
-  let verifierName = "hyperlane_message_erc20"
+  let verifierName = "hyperlane_v3_message"
 
   let
     recipient = pString "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV"
@@ -552,14 +552,14 @@ hyperlaneVerifyNotEnoughRecoveredSignaturesFailure = do
         [ "(namespace 'free)"
         , "(module m G"
         , "(defcap G () true)"
-        , "(defcap K (tokenVal:string recipient:string signers:[string]) (enforce-verifier '" <> verifierName <> "))"
+        , "(defcap K (messageBody:string recipient:string signers:[string]) (enforce-verifier '" <> verifierName <> "))"
         , "(defun x () (with-capability (K"
         , " \"" <> hyperlaneTokenMessageBase64 <> "\""
         , " \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\" [\"wrongValidator\"]) 1)))"
         ])
       (assertTxSuccess
         "Should deploy module"
-        (pString "Loaded module free.m, hash maPH-om305AC3VoSx7TLPeV-0RdkF4FMIV4w0kygYxY"))
+        (pString "Loaded module free.m, hash GCYphpEUm2AqaTg5af31pdUu3Lre1K9BDTpN7Q74gq8"))
     , checkVerifierNotInTx verifierName
     , PactTxTest
       (buildBasic'
@@ -585,7 +585,7 @@ hyperlaneVerifyNotEnoughRecoveredSignaturesFailure = do
 hyperlaneVerifyNotEnoughCapabilitySignaturesFailure :: PactTestM ()
 hyperlaneVerifyNotEnoughCapabilitySignaturesFailure = do
   runToHeight 119
-  let verifierName = "hyperlane_message_erc20"
+  let verifierName = "hyperlane_v3_message"
 
   let
     recipient = pString "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV"
@@ -600,14 +600,14 @@ hyperlaneVerifyNotEnoughCapabilitySignaturesFailure = do
         [ "(namespace 'free)"
         , "(module m G"
         , "(defcap G () true)"
-        , "(defcap K (tokenVal:string recipient:string signers:[string]) (enforce-verifier '" <> verifierName <> "))"
+        , "(defcap K (messageBody:string recipient:string signers:[string]) (enforce-verifier '" <> verifierName <> "))"
         , "(defun x () (with-capability (K"
         , " \"" <> hyperlaneTokenMessageBase64 <> "\""
         , " \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\" [\"0xab36e79520d85f36fe5e2ca33c29cfe461eb48c6\"]) 1)))"
         ])
       (assertTxSuccess
         "Should deploy module"
-        (pString "Loaded module free.m, hash OUIxFncJKTB1aykmhW8b3PI-7WYx3Yj_wPY6MnZUx48"))
+        (pString "Loaded module free.m, hash q3ZufEV8GtQOabbLFWUmRbXIkIozl_ceslXPCKaYzKo"))
     , checkVerifierNotInTx verifierName
     , PactTxTest
       (buildBasic'

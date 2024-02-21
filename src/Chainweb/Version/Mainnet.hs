@@ -143,7 +143,7 @@ mainnet = ChainwebVersion
         Chainweb220Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_056_499) -- 2023-09-08 00:00:00+00:00
         Chainweb221Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_177_889) -- 2023-10-20 00:00:00+00:00
         Chainweb222Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_335_753) -- 2023-12-14 00:00:00+00:00
-        Chainweb223Pact -> AllChains ForkNever
+        Chainweb223Pact -> AllChains ForkNever -- TODO: don't remember to enable the hyperlane_v3_message verifier plugin
 
     , _versionGraphs =
         (to20ChainsMainnet, twentyChainGraph) `Above`

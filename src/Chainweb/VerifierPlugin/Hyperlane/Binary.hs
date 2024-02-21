@@ -10,10 +10,6 @@ module Chainweb.VerifierPlugin.Hyperlane.Binary
   , putHyperlaneMessage
   , getHyperlaneMessage
 
-  , TokenMessageERC20(..)
-  , getTokenMessageERC20
-  , putTokenMessageERC20
-
   , MessageIdMultisigIsmMetadata(..)
   , putMessageIdMultisigIsmMetadata
   , getMessageIdMultisigIsmMetadata
@@ -24,9 +20,6 @@ module Chainweb.VerifierPlugin.Hyperlane.Binary
 import Data.Foldable
 import Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
-import Data.DoubleWord
-import Data.Text (Text)
-import qualified Data.Text.Encoding as Text
 import Data.Word
 
 import Chainweb.Utils.Serialization
@@ -42,7 +35,7 @@ data HyperlaneMessage = HyperlaneMessage
   , hmSender :: BS.ByteString     -- bytes32
   , hmDestinationDomain :: Word32 -- uint32
   , hmRecipient :: BS.ByteString  -- bytes32
-  , hmTokenMessage :: TokenMessageERC20
+  , hmMessageBody :: BS.ByteString
   }
 
 -- Corresponds to abi.encodePacked behaviour
@@ -55,7 +48,7 @@ putHyperlaneMessage (HyperlaneMessage {..}) = do
   putWord32be hmDestinationDomain
   putRawByteString (padLeft hmRecipient)
 
-  putTokenMessageERC20 hmTokenMessage
+  putRawByteString hmMessageBody
 
 getHyperlaneMessage :: Get HyperlaneMessage
 getHyperlaneMessage = do
@@ -65,45 +58,9 @@ getHyperlaneMessage = do
   hmSender <- BS.takeEnd ethereumAddressSize <$> getByteString 32
   hmDestinationDomain <- getWord32be
   hmRecipient <- BS.dropWhile (== 0) <$> getByteString 32
-  hmTokenMessage <- getTokenMessageERC20
+  hmMessageBody <- BL.toStrict <$> getRemainingLazyByteString
 
   return $ HyperlaneMessage {..}
-
-data TokenMessageERC20 = TokenMessageERC20
-  { tmRecipient :: Text -- string
-  , tmAmount :: Word256 -- uint256
-  , tmChainId :: Word256 -- uint256
-  } deriving (Show, Eq)
-
--- example encoded TokenMessageERC20
--- 0000000000000000000000000000000000000000000000000000000000000040 # 64
--- 0000000000000000000000000000000000000000000000008ac7230489e80000 # 10000000000000000000
--- 000000000000000000000000000000000000000000000000000000000000002a # 42
--- 3078373143373635364543376162383862303938646566423735314237343031 # "0x71C7656EC7ab88b098defB751B7401B5f6d8976F"
--- 4235663664383937364600000000000000000000000000000000000000000000
-
--- Corresponds to abi.encode behaviour
-putTokenMessageERC20 :: TokenMessageERC20 -> Put
-putTokenMessageERC20 (TokenMessageERC20 {..}) = do
-  -- the first offset is constant
-  putWord256be (96 :: Word256) -- 32 bytes
-  putWord256be tmAmount        -- 32 bytes
-  putWord256be tmChainId       -- 32 bytes
-  -- 96 bytes
-  putWord256be recipientSize   -- 32 bytes
-  putRawByteString recipient   -- recipientSize
-  where
-    (recipient, recipientSize) = padRight $ Text.encodeUtf8 tmRecipient
-
-getTokenMessageERC20 :: Get TokenMessageERC20
-getTokenMessageERC20 = do
-    _firstOffset <- getWord256be
-    tmAmount <- getWord256be
-    tmChainId <- getWord256be
-
-    recipientSize <- getWord256be
-    tmRecipient <- Text.decodeUtf8 <$> getRecipient recipientSize
-    return $ TokenMessageERC20 {..}
 
 data MessageIdMultisigIsmMetadata = MessageIdMultisigIsmMetadata
   { mmimOriginMerkleTreeAddress :: ByteString
@@ -138,26 +95,6 @@ getMessageIdMultisigIsmMetadata = do
 -- "\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NULhello world"
 padLeft :: ByteString -> ByteString
 padLeft s = BS.replicate (32 - BS.length s) 0 <> s
-
--- | Pad with zeroes on the right, such that the resulting size is a multiple of 32.
---
--- > padRight "hello world"
--- ("hello world\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL",11)
-padRight :: ByteString -> (ByteString, Word256)
-padRight s =
-  let
-    size = BS.length s
-    missingZeroes = restSize size
-  in (s <> BS.replicate missingZeroes 0, fromIntegral size)
-
--- | Returns the modular of 32 bytes.
-restSize :: Integral a => a -> a
-restSize size = (32 - size) `mod` 32
-
--- TODO: check the size?
--- | Reads a given number of bytes and the rest because binary data padded up to 32 bytes.
-getRecipient :: Word256 -> Get BS.ByteString
-getRecipient size = BS.take (fromIntegral size) <$> getByteString (fromIntegral $ size + restSize size)
 
 -- | Signatures are 65 bytes sized, we split the bytestring by 65 symbols segments.
 sliceSignatures :: BL.ByteString -> [ByteString]
