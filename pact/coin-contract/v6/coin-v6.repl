@@ -272,7 +272,7 @@
   "positive"
   (fund-tx 'emily 'doug (read-keyset 'doug) (- 1.0)))
 
-(env-sigs [{"key": "keys1", "caps": [(GAS)]}])
+(env-sigs [{"key": "keys1", "caps": [(GAS), (DEBIT 'emily)]}])
 
 (expect-failure
   "fund-tx fails for insufficient funds"
@@ -290,7 +290,7 @@
 
 (pact-state true)
 
-(env-sigs [{"key": "keys1", "caps": [(GAS),(TRANSFER "emily" "doug" 1.0)]}])
+(env-sigs [{"key": "keys1", "caps": [(GAS),(TRANSFER "emily" "doug" 1.0), (DEBIT 'emily)]}])
 
 (expect
   "fund-tx succeeds with gas cap and other cap"
@@ -644,30 +644,30 @@
   true
   (enforce-unit UNIT_GOOD))
 
-(env-keys ["keys1", "keys2"])
+ (env-keys ["keys1", "keys2"])
 
-(test-capability (TRANSFER "emily" "doug" UNIT_GOOD))
-;; Transfer
-(expect
-  "min transfer ok"
-  "Write succeeded"
-  (transfer 'emily 'doug UNIT_GOOD))
+ (test-capability (TRANSFER "emily" "doug" UNIT_GOOD))
+ ;; Transfer
+ (expect
+   "min transfer ok"
+   "Write succeeded"
+   (transfer 'emily 'doug UNIT_GOOD))
 
+  (expect-failure
+    "bad transfer fails"
+    "precision"
+    (transfer 'emily 'doug UNIT_BAD))
+
+ ;; transfer-create
  (expect-failure
-   "bad transfer fails"
-   "precision"
-   (transfer 'emily 'doug UNIT_BAD))
+   "TRANSFER capability fails when paid amount is exceeded"
+   "TRANSFER exceeded"
+   (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_GOOD))
+ (commit-tx)
+ (begin-tx)
 
-;; transfer-create
-(expect-failure
-  "TRANSFER capability fails when paid amount is exceeded"
-  "TRANSFER exceeded"
-  (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_GOOD))
-(commit-tx)
-(begin-tx)
-
-(use coin)
-(use T)
+ (use coin)
+ (use T)
 
 (test-capability (TRANSFER "emily" "doug" (* 2 UNIT_GOOD)))
 (expect
@@ -921,7 +921,7 @@
 (env-data {'k: ['keys2]})
 (env-sigs
   [{ 'key: 'keys2,
-     'caps: [(coin.TRANSFER 'doug 'emily 0.001),(coin.GAS)]}])
+     'caps: [(coin.TRANSFER 'doug 'emily 0.001),(coin.GAS), (coin.DEBIT 'doug)]}])
 
 (coin.transfer 'doug 'emily 0.0001)
 (expect "transfer event"

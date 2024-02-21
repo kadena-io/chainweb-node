@@ -149,6 +149,9 @@ magic_GAS = mkMagicCapSlot "GAS"
 magic_GENESIS :: CapSlot SigCapability
 magic_GENESIS = mkMagicCapSlot "GENESIS"
 
+debitCap :: Text -> SigCapability
+debitCap s = mkCoinCap "DEBIT" [PLiteral (LString s)]
+
 onChainErrorPrintingFor :: TxContext -> UnexpectedErrorPrinting
 onChainErrorPrintingFor txCtx =
   if chainweb219Pact (ctxVersion txCtx) (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
@@ -221,6 +224,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     chainweb213Pact' = chainweb213Pact v cid currHeight
     chainweb217Pact' = chainweb217Pact v cid currHeight
     chainweb219Pact' = chainweb219Pact v cid currHeight
+    chainweb222Pact' = chainweb222Pact v cid currHeight
     chainweb223Pact' = chainweb223Pact v cid currHeight
     allVerifiers = verifiersAt v cid currHeight
     toEmptyPactError (PactError errty _ _ _) = PactError errty def [] mempty
@@ -235,7 +239,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       applyRedeem r
 
     applyBuyGas =
-      catchesPactError logger (onChainErrorPrintingFor txCtx) (buyGas isPactBackCompatV16 cmd miner) >>= \case
+      catchesPactError logger (onChainErrorPrintingFor txCtx) (buyGas isPactBackCompatV16 chainweb222Pact' cmd miner) >>= \case
         Left e -> view txRequestKey >>= \rk ->
           throwM $ BuyGasFailure $ GasPurchaseFailure (requestKeyToTransactionHash rk) e
         Right _ -> checkTooBigTx initialGas gasLimit applyVerifiers redeemAllGas
@@ -920,8 +924,8 @@ applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh ns
 --
 -- see: 'pact/coin-contract/coin.pact#fund-tx'
 --
-buyGas :: (Logger logger) => Bool -> Command (Payload PublicMeta ParsedCode) -> Miner -> TransactionM logger p ()
-buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
+buyGas :: (Logger logger) => Bool -> Bool -> Command (Payload PublicMeta ParsedCode) -> Miner -> TransactionM logger p ()
+buyGas isPactBackCompatV16 isChainweb222 cmd (Miner mid mks) = go
   where
     sender = view (cmdPayload . pMeta . pmSender) cmd
 
@@ -945,9 +949,17 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
           interp mc = Interpreter $ \_input ->
             put (initState mc logGas) >> run (pure <$> eval buyGasTerm)
 
+      let
+        addDebit signer =
+          signer & siCapList %~ (debitCap sender:)
+        addDebitToSigners =
+          if isChainweb222
+          then fmap addDebit
+          else id
+
       -- no verifiers are allowed in buy gas
       result <- applyExec' 0 (interp mcache) buyGasCmd
-        (_pSigners $ _cmdPayload cmd) [] bgHash managedNamespacePolicy
+        (addDebitToSigners $ _pSigners $ _cmdPayload cmd) [] bgHash managedNamespacePolicy
 
       case _erExec result of
         Nothing ->
@@ -1164,10 +1176,15 @@ managedNamespacePolicy = SmartNamespacePolicy False
 mkMagicCapSlot :: Text -> CapSlot SigCapability
 mkMagicCapSlot c = CapSlot CapCallStack cap []
   where
+    cap = mkCoinCap c []
+{-# INLINE mkMagicCapSlot #-}
+
+mkCoinCap :: Text -> [PactValue] -> SigCapability
+mkCoinCap c as = SigCapability fqn as
+  where
     mn = ModuleName "coin" Nothing
     fqn = QualifiedName mn c def
-    cap = SigCapability fqn []
-{-# INLINE mkMagicCapSlot #-}
+{-# INLINE mkCoinCap #-}
 
 -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
 -- parameter is for any possible environmental data that needs to go into

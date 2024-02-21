@@ -981,7 +981,7 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
             cr <- liftIO
               $! catchesPactError l CensorsUnexpectedError
               $! execTransactionM buyGasEnv txst
-              $! buyGas False cmd miner
+              $! buyGas False True cmd miner
 
             case cr of
                 Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
