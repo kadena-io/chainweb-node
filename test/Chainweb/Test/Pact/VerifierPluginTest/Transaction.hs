@@ -349,14 +349,13 @@ hyperlaneRecoverValidatorAnnouncementDifferentSignerFailure = do
 
 -- | Hyperlane test message TokenMessageERC20 encoded in base64:
 --
---  { tmRecipient = "k:94c35ab1bd70243ec670495077f7846373b4dc5e9779d7a6732b5ceb6fde059c"
---  , tmAmount = decimalToWord 249
---  , tmChainId = 0
+--  { "amount": 0.000000000000000123
+--  , "chainId": "4"
+--  , "recipient": { "test-keys" : {"pred": "keys-all", "keys": ["da1a339bd82d2c2e9180626a00dc043275deb3ababb27b5738abf6b9dcee8db6"]} }
 --  }
 --
--- TODO: replace with pact native
 hyperlaneTokenMessageBase64 :: T.Text
-hyperlaneTokenMessageBase64 = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1_kbS90EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEJrOjk0YzM1YWIxYmQ3MDI0M2VjNjcwNDk1MDc3Zjc4NDYzNzNiNGRjNWU5Nzc5ZDdhNjczMmI1Y2ViNmZkZTA1OWMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+hyperlaneTokenMessageBase64 = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAewAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGF7InByZWQiOiAia2V5cy1hbGwiLCAia2V5cyI6WyJkYTFhMzM5YmQ4MmQyYzJlOTE4MDYyNmEwMGRjMDQzMjc1ZGViM2FiYWJiMjdiNTczOGFiZjZiOWRjZWU4ZGI2Il19AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 -- | Hyperlane test message encoded in base64
 hyperlaneMessageBase64 :: T.Text
@@ -388,7 +387,7 @@ hyperlaneVerifySuccess = do
 
   let
     recipient = pString "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV"
-    signers = PList $ V.fromList [ pString "0xab36e79520d85f36fe5e2ca33c29cfe461eb48c6" ]
+    signers = PList $ V.fromList [ pString "0x7e7fd712a8202d780b30551bd18baaa6a08e80a0" ]
     cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
             [pString hyperlaneTokenMessageBase64, recipient, signers]
 
@@ -401,19 +400,26 @@ hyperlaneVerifySuccess = do
         , "(defcap G () true)"
         , "(defcap K (messageBody:string recipient:string signers:[string])"
         , "  (enforce-verifier '" <> verifierName <> ")"
-        , "  (enforce (= signers [\"0xab36e79520d85f36fe5e2ca33c29cfe461eb48c6\"]) \"invalid signers\")"
+        , "  (enforce (= signers [\"0x7e7fd712a8202d780b30551bd18baaa6a08e80a0\"]) \"invalid signers\")"
         , "  (enforce (= recipient \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\") \"invalid recipient\")"
+        , "  (bind (hyperlane-decode-token-message \"" <> hyperlaneTokenMessageBase64 <> "\") "
+        , "    { \"amount\" := amount, "
+        , "      \"chainId\" := chain-id, "
+        , "      \"recipient\" := recipient-guard }"
+        , "    (enforce (= amount 0.000000000000000123) \"invalid amount\")"
+        , "    (enforce (= (create-principal recipient-guard) \"k:da1a339bd82d2c2e9180626a00dc043275deb3ababb27b5738abf6b9dcee8db6\") \"invalid recipient guard\")"
+        , "  )"
         , ")"
         , "(defun x () (with-capability (K "
         , "\"" <> hyperlaneTokenMessageBase64 <> "\""
         , " \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\""
-        , " [\"0xab36e79520d85f36fe5e2ca33c29cfe461eb48c6\"]"
+        , " [\"0x7e7fd712a8202d780b30551bd18baaa6a08e80a0\"]"
         , ")"
         , " \"succeeded\")))"
         ])
       (assertTxSuccess
         "Should deploy module"
-        (pString "Loaded module free.m, hash A7lPMvlHngX3fuN3qaZRvF2ih5wUBgjHyWWX9l39p-I"))
+        (pString "Loaded module free.m, hash HjslFu0oi0GhIWV5vLCR1QGGRDB9J2P3FK8YOWSDs9c"))
     , checkVerifierNotInTx verifierName
     , PactTxTest
       (buildBasic'
@@ -433,7 +439,7 @@ hyperlaneVerifySuccess = do
             (mkExec' "(free.m.x)"))
       (\cr -> liftIO $ do
         assertTxSuccess "should have succeeded" (pString "succeeded") cr
-        assertEqual "gas should have been charged" 16520 (_crGas cr))
+        assertEqual "gas should have been charged" 16539 (_crGas cr))
     ]
 
 
@@ -462,7 +468,7 @@ hyperlaneVerifyEmptyRecoveredSignaturesSuccess = do
         ])
       (assertTxSuccess
         "Should deploy module"
-        (pString "Loaded module free.m, hash s-EsSFcP7MMfVIDXZ7F9Lw6yOeGaeawdfWWC0pxvIbA"))
+        (pString "Loaded module free.m, hash rcDiCXgCn_usXl49NHhtB0lIQdbx8dku6gwooutbfL4"))
     , checkVerifierNotInTx verifierName
     , PactTxTest
       (buildBasic'
@@ -510,7 +516,7 @@ hyperlaneVerifyWrongSignersFailure = do
         ])
       (assertTxSuccess
         "Should deploy module"
-        (pString "Loaded module free.m, hash GCYphpEUm2AqaTg5af31pdUu3Lre1K9BDTpN7Q74gq8"))
+        (pString "Loaded module free.m, hash huIfAfZoKhCkfGoJbtCWRPPsh4fToxE2rhD0crsfZw0"))
     , checkVerifierNotInTx verifierName
     , PactTxTest
       (buildBasic'
@@ -529,7 +535,7 @@ hyperlaneVerifyWrongSignersFailure = do
             [cap]])
             (mkExec' "(free.m.x)"))
       (\cr -> liftIO $ do
-        let errMsg = "Tx verifier error: Signers don't match. Expected: PList [PLiteral (LString {_lString = \"0xab36e79520d85f36fe5e2ca33c29cfe461eb48c6\"})] but got PList [PLiteral (LString {_lString = \"wrongValidator\"})]"
+        let errMsg = "Tx verifier error: Signers don't match. Expected: PList [PLiteral (LString {_lString = \"0x7e7fd712a8202d780b30551bd18baaa6a08e80a0\"})] but got PList [PLiteral (LString {_lString = \"wrongValidator\"})]"
         assertTxFailure "should have failed with signers don't match" errMsg cr
         assertEqual "gas should have been charged" 20000 (_crGas cr))
     ]
@@ -559,7 +565,7 @@ hyperlaneVerifyNotEnoughRecoveredSignaturesFailure = do
         ])
       (assertTxSuccess
         "Should deploy module"
-        (pString "Loaded module free.m, hash GCYphpEUm2AqaTg5af31pdUu3Lre1K9BDTpN7Q74gq8"))
+        (pString "Loaded module free.m, hash huIfAfZoKhCkfGoJbtCWRPPsh4fToxE2rhD0crsfZw0"))
     , checkVerifierNotInTx verifierName
     , PactTxTest
       (buildBasic'
@@ -589,7 +595,7 @@ hyperlaneVerifyNotEnoughCapabilitySignaturesFailure = do
 
   let
     recipient = pString "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV"
-    signers = PList $ V.fromList [ pString "0xab36e79520d85f36fe5e2ca33c29cfe461eb48c6" ]
+    signers = PList $ V.fromList [ pString "0x7e7fd712a8202d780b30551bd18baaa6a08e80a0" ]
     cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
             [pString hyperlaneTokenMessageBase64, recipient, signers]
 
@@ -603,11 +609,11 @@ hyperlaneVerifyNotEnoughCapabilitySignaturesFailure = do
         , "(defcap K (messageBody:string recipient:string signers:[string]) (enforce-verifier '" <> verifierName <> "))"
         , "(defun x () (with-capability (K"
         , " \"" <> hyperlaneTokenMessageBase64 <> "\""
-        , " \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\" [\"0xab36e79520d85f36fe5e2ca33c29cfe461eb48c6\"]) 1)))"
+        , " \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\" [\"0x7e7fd712a8202d780b30551bd18baaa6a08e80a0\"]) 1)))"
         ])
       (assertTxSuccess
         "Should deploy module"
-        (pString "Loaded module free.m, hash q3ZufEV8GtQOabbLFWUmRbXIkIozl_ceslXPCKaYzKo"))
+        (pString "Loaded module free.m, hash enkr3p7d9JG9c39OjHSSHCQbquJwtYn9L1coIwqZWzE"))
     , checkVerifierNotInTx verifierName
     , PactTxTest
       (buildBasic'
@@ -628,7 +634,7 @@ hyperlaneVerifyNotEnoughCapabilitySignaturesFailure = do
             [cap]])
             (mkExec' "(free.m.x)"))
       (\cr -> liftIO $ do
-        let errMsg = "Tx verifier error: Signers don't match. Expected: PList [PLiteral (LString {_lString = \"0xab36e79520d85f36fe5e2ca33c29cfe461eb48c6\"}),PLiteral (LString {_lString = \"0xab36e79520d85f36fe5e2ca33c29cfe461eb48c6\"})] but got PList [PLiteral (LString {_lString = \"0xab36e79520d85f36fe5e2ca33c29cfe461eb48c6\"})]"
+        let errMsg = "Tx verifier error: Signers don't match. Expected: PList [PLiteral (LString {_lString = \"0x7e7fd712a8202d780b30551bd18baaa6a08e80a0\"}),PLiteral (LString {_lString = \"0x7e7fd712a8202d780b30551bd18baaa6a08e80a0\"})] but got PList [PLiteral (LString {_lString = \"0x7e7fd712a8202d780b30551bd18baaa6a08e80a0\"})]"
         assertTxFailure "should have failed with signers don't match" errMsg cr
         assertEqual "gas should have been charged" 40000 (_crGas cr))
     ]
