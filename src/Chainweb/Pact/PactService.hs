@@ -71,6 +71,7 @@ import GrowableVector.Lifted (Vec)
 import GrowableVector.Lifted qualified as Vec
 
 import System.IO
+import System.LogLevel
 import System.Timeout
 
 import Prelude hiding (lookup)
@@ -641,6 +642,7 @@ execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
                   & Stream.hoist liftIO
                   & play bhdb pdb heightRef runPact
     where
+
     play
       :: CanReadablePayloadCas tbl
       => BlockHeaderDb
@@ -650,15 +652,27 @@ execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
       -> Stream.Stream (Stream.Of BlockHeader) IO r
       -> IO r
     play bhdb pdb heightRef runPact blocks = do
-        blocks & Stream.mapM_ (\bh -> do
+        logger <- runPact $ view psLogger
+        validationFailedRef <- newIORef False
+        r <- blocks & Stream.mapM_ (\bh -> do
             bhParent <- liftIO $ lookupParentM GenesisParentThrow bhdb bh
-            runPact $ readFrom (Just $ ParentHeader bhParent) $ do
+            let
+                printError (BlockValidationFailure (BlockValidationFailureMsg m)) = do
+                    writeIORef validationFailedRef True
+                    logFunctionText logger Error (J.getJsonText m)
+                printError e = throwM e
+            handle printError $ runPact $ readFrom (Just $ ParentHeader bhParent) $ do
                 liftIO $ writeIORef heightRef (_blockHeight bh)
                 plData <- liftIO $ fromJuste <$> tableLookup
                     (_transactionDb pdb)
                     (_blockPayloadHash bh)
                 void $ execBlock bh plData
             )
+        validationFailed <- readIORef validationFailedRef
+        when validationFailed $
+            throwM $ BlockValidationFailure $ BlockValidationFailureMsg $
+              J.encodeJsonText ("Prior block validation errors" :: Text)
+        return r
 
     heightProgress :: BlockHeight -> IORef BlockHeight -> (Text -> IO ()) -> IO ()
     heightProgress initialHeight ref logFun = do
