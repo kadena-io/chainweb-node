@@ -925,7 +925,7 @@ applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh ns
 -- see: 'pact/coin-contract/coin.pact#fund-tx'
 --
 buyGas :: (Logger logger) => Bool -> Bool -> Command (Payload PublicMeta ParsedCode) -> Miner -> TransactionM logger p ()
-buyGas isPactBackCompatV16 isChainweb222 cmd (Miner mid mks) = go
+buyGas isPactBackCompatV16 _isChainweb222 cmd (Miner mid mks) = go
   where
     sender = view (cmdPayload . pMeta . pmSender) cmd
 
@@ -953,7 +953,7 @@ buyGas isPactBackCompatV16 isChainweb222 cmd (Miner mid mks) = go
         addDebit signer =
           signer & siCapList %~ (debitCap sender:)
         addDebitToSigners =
-          if isChainweb222
+          if True
           then fmap addDebit
           else id
 
