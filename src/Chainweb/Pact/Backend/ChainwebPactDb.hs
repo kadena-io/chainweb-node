@@ -19,6 +19,7 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 , rewoundPactDb
 , prepareToPlayBlock
 , rewindDbTo
+, rewindDbToBlock
 , commitBlockStateToDatabase
 , initSchema
 , indexPactTransaction
@@ -690,13 +691,6 @@ indexPendingPactTransactions = do
             execMulti db "INSERT INTO TransactionIndex (txhash, blockheight) \
                          \ VALUES (?, ?)" rows
 
--- | Delete all future transactions from the index
-clearTxIndex :: BlockHeight -> BlockHandler logger SQLiteEnv ()
-clearTxIndex bh = do
-    callDb "clearTxIndex" $ \db -> do
-        exec' db "DELETE FROM TransactionIndex WHERE blockheight >= ?;"
-              [ SInt (fromIntegral bh) ]
-
 createBlockHistoryTable :: BlockHandler logger SQLiteEnv ()
 createBlockHistoryTable =
     callDb "createBlockHistoryTable" $ \db -> exec_ db
@@ -764,40 +758,52 @@ prepareToPlayBlock msg v cid mph = do
   bsTxId .= txid
   clearPendingTxState
 
-
 -- | Delete any state from the database newer than the input parent header.
 rewindDbTo
     :: Logger logger
     => Maybe ParentHeader
     -> BlockHandler logger SQLiteEnv ()
-rewindDbTo Nothing = do
-    -- rewind before genesis, delete all user tables and all rows in all tables
-    withSavepoint DbTransaction $
-      callDb "doRestoreInitial: resetting tables" $ \db -> do
-      exec_ db "DELETE FROM BlockHistory;"
-      exec_ db "DELETE FROM [SYS:KeySets];"
-      exec_ db "DELETE FROM [SYS:Modules];"
-      exec_ db "DELETE FROM [SYS:Namespaces];"
-      exec_ db "DELETE FROM [SYS:Pacts];"
-      tblNames <- qry_ db "SELECT tablename FROM VersionedTableCreation;" [RText]
-      forM_ tblNames $ \t -> case t of
-        [SText tn] -> exec_ db ("DROP TABLE [" <> tn <> "];")
-        _ -> internalError "Something went wrong when resetting tables."
-      exec_ db "DELETE FROM VersionedTableCreation;"
-      exec_ db "DELETE FROM VersionedTableMutation;"
-      exec_ db "DELETE FROM TransactionIndex;"
-rewindDbTo (Just (ParentHeader ph)) = do
-    let currentHeight = succ (_blockHeight ph)
-    !endingtx <- getEndTxId "rewindDbToBlock" (Just (ParentHeader ph))
-    tableMaintenanceRowsVersionedSystemTables endingtx
-    callDb "rewindBlock" $ \db -> do
-      droppedtbls <- dropTablesAtRewind currentHeight db
-      vacuumTablesAtRewind currentHeight endingtx droppedtbls db
-    deleteHistory currentHeight
-    clearTxIndex currentHeight
+rewindDbTo Nothing = rewindDbToGenesis
+rewindDbTo mh@(Just (ParentHeader ph)) = do
+    !endingtxid <- getEndTxId "rewindDbToBlock" mh
+    callDb "rewindDbTo" $ \db -> do
+      rewindDbToBlock db (_blockHeight ph) endingtxid
+
+-- rewind before genesis, delete all user tables and all rows in all tables
+rewindDbToGenesis
+  :: Logger logger
+  => BlockHandler logger SQLiteEnv ()
+rewindDbToGenesis = withSavepoint DbTransaction $
+    callDb "doRestoreInitial: resetting tables" $ \db -> do
+    exec_ db "DELETE FROM BlockHistory;"
+    exec_ db "DELETE FROM [SYS:KeySets];"
+    exec_ db "DELETE FROM [SYS:Modules];"
+    exec_ db "DELETE FROM [SYS:Namespaces];"
+    exec_ db "DELETE FROM [SYS:Pacts];"
+    tblNames <- qry_ db "SELECT tablename FROM VersionedTableCreation;" [RText]
+    forM_ tblNames $ \t -> case t of
+      [SText tn] -> exec_ db ("DROP TABLE [" <> tn <> "];")
+      _ -> internalError "Something went wrong when resetting tables."
+    exec_ db "DELETE FROM VersionedTableCreation;"
+    exec_ db "DELETE FROM VersionedTableMutation;"
+    exec_ db "DELETE FROM TransactionIndex;"
+
+-- | Rewind the database to a particular block, given the end tx id of that
+-- block.
+rewindDbToBlock
+  :: Database
+  -> BlockHeight
+  -> TxId
+  -> IO ()
+rewindDbToBlock db bh endingTxId = do
+    tableMaintenanceRowsVersionedSystemTables
+    droppedtbls <- dropTablesAtRewind
+    vacuumTablesAtRewind droppedtbls
+    deleteHistory
+    clearTxIndex
   where
-    dropTablesAtRewind :: BlockHeight -> Database -> IO (HashSet BS.ByteString)
-    dropTablesAtRewind bh db = do
+    dropTablesAtRewind :: IO (HashSet BS.ByteString)
+    dropTablesAtRewind = do
         toDropTblNames <- qry db findTablesToDropStmt
                           [SInt (fromIntegral bh)] [RText]
         tbls <- fmap HashSet.fromList . forM toDropTblNames $ \case
@@ -806,13 +812,51 @@ rewindDbTo (Just (ParentHeader ph)) = do
                 return tn
             _ -> internalError rewindmsg
         exec' db
-            "DELETE FROM VersionedTableCreation WHERE createBlockheight >= ?"
+            "DELETE FROM VersionedTableCreation WHERE createBlockheight > ?"
             [SInt (fromIntegral bh)]
         return tbls
     findTablesToDropStmt =
-      "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight >= ?;"
+      "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight > ?;"
     rewindmsg =
       "rewindBlock: dropTablesAtRewind: Couldn't resolve the name of the table to drop."
+
+    deleteHistory :: IO ()
+    deleteHistory =
+        exec' db "DELETE FROM BlockHistory WHERE blockheight > ?"
+              [SInt (fromIntegral bh)]
+
+    vacuumTablesAtRewind :: HashSet BS.ByteString -> IO ()
+    vacuumTablesAtRewind droppedtbls = do
+        let processMutatedTables ms = fmap HashSet.fromList . forM ms $ \case
+              [SText (Utf8 tn)] -> return tn
+              _ -> internalError "rewindBlock: vacuumTablesAtRewind: Couldn't resolve the name \
+                                 \of the table to possibly vacuum."
+        mutatedTables <- qry db
+            "SELECT DISTINCT tablename FROM VersionedTableMutation WHERE blockheight > ?;"
+          [SInt (fromIntegral bh)]
+          [RText]
+          >>= processMutatedTables
+        let toVacuumTblNames = HashSet.difference mutatedTables droppedtbls
+        forM_ toVacuumTblNames $ \tblname ->
+            exec' db ("DELETE FROM " <> tbl (Utf8 tblname) <> " WHERE txid >= ?")
+                  [SInt $! fromIntegral endingTxId]
+        exec' db "DELETE FROM VersionedTableMutation WHERE blockheight > ?;"
+              [SInt (fromIntegral bh)]
+
+    tableMaintenanceRowsVersionedSystemTables :: IO ()
+    tableMaintenanceRowsVersionedSystemTables = do
+        exec' db "DELETE FROM [SYS:KeySets] WHERE txid >= ?" tx
+        exec' db "DELETE FROM [SYS:Modules] WHERE txid >= ?" tx
+        exec' db "DELETE FROM [SYS:Namespaces] WHERE txid >= ?" tx
+        exec' db "DELETE FROM [SYS:Pacts] WHERE txid >= ?" tx
+      where
+        tx = [SInt $! fromIntegral endingTxId]
+
+    -- | Delete all future transactions from the index
+    clearTxIndex :: IO ()
+    clearTxIndex =
+        exec' db "DELETE FROM TransactionIndex WHERE blockheight > ?;"
+              [ SInt (fromIntegral bh) ]
 
 commitBlockStateToDatabase :: BlockHash -> BlockHandler logger SQLiteEnv ()
 commitBlockStateToDatabase hsh = do
@@ -838,40 +882,6 @@ commitBlockStateToDatabase hsh = do
       l' <- V.toList <$> V.unsafeFreeze mv
       let ll = List.groupBy (\a b -> _deltaTableName a == _deltaTableName b) l'
       return $ map prepChunk ll
-
-vacuumTablesAtRewind :: BlockHeight -> TxId -> HashSet BS.ByteString -> Database -> IO ()
-vacuumTablesAtRewind bh endingtx droppedtbls db = do
-    let processMutatedTables ms = fmap HashSet.fromList . forM ms $ \case
-          [SText (Utf8 tn)] -> return tn
-          _ -> internalError "rewindBlock: vacuumTablesAtRewind: Couldn't resolve the name \
-                             \of the table to possibly vacuum."
-    mutatedTables <- qry db
-        "SELECT DISTINCT tablename FROM VersionedTableMutation WHERE blockheight >= ?;"
-      [SInt (fromIntegral bh)]
-      [RText]
-      >>= processMutatedTables
-    let toVacuumTblNames = HashSet.difference mutatedTables droppedtbls
-    forM_ toVacuumTblNames $ \tblname ->
-        exec' db ("DELETE FROM " <> tbl (Utf8 tblname) <> " WHERE txid >= ?")
-              [SInt $! fromIntegral endingtx]
-    exec' db "DELETE FROM VersionedTableMutation WHERE blockheight >= ?;"
-          [SInt (fromIntegral bh)]
-
-tableMaintenanceRowsVersionedSystemTables :: TxId -> BlockHandler logger SQLiteEnv ()
-tableMaintenanceRowsVersionedSystemTables endingtx = do
-    callDb "tableMaintenanceRowsVersionedSystemTables" $ \db -> do
-        exec' db "DELETE FROM [SYS:KeySets] WHERE txid >= ?" tx
-        exec' db "DELETE FROM [SYS:Modules] WHERE txid >= ?" tx
-        exec' db "DELETE FROM [SYS:Namespaces] WHERE txid >= ?" tx
-        exec' db "DELETE FROM [SYS:Pacts] WHERE txid >= ?" tx
-  where
-    tx = [SInt $! fromIntegral endingtx]
-
-deleteHistory :: (Logger logger) => BlockHeight -> BlockHandler logger SQLiteEnv ()
-deleteHistory bh = do
-    callDb "Deleting from BlockHistory, VersionHistory" $ \db -> do
-        exec' db "DELETE FROM BlockHistory WHERE blockheight >= ?"
-              [SInt (fromIntegral bh)]
 
 -- | Create all tables that exist pre-genesis
 initSchema :: (Logger logger) => BlockHandler logger SQLiteEnv ()
