@@ -84,6 +84,7 @@ import Chainweb.Version (ChainId, ChainwebVersion(..), unsafeChainId, chainIdToT
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
+import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.PactState (getLatestBlockHeight, ensureBlockHeightExists, getEndingTxId)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
@@ -203,17 +204,6 @@ instance MonadLog Text CompactM where
 -- | Run compaction monad
 runCompactM :: CompactEnv -> CompactM a -> IO a
 runCompactM e a = runReaderT (unCompactM a) e
-
--- | Prepare/Execute a "$VTABLE$"-templated query.
-execM_ :: ()
-  => Text -- ^ query name (for logging purposes)
-  -> TableName -- ^ table name
-  -> Text -- ^ "$VTABLE$"-templated query
-  -> CompactM ()
-execM_ msg tbl q = do
-  db <- view ceDb
-  q' <- templateStmt tbl q
-  queryDebug msg (Just tbl) $ Pact.exec_ db q'
 
 execNoTemplateM_ :: ()
   => Text -- ^ query name (for logging purposes)
@@ -420,23 +410,12 @@ compactTable tbl = do
       \  WHERE t.rowid = v.vrowid AND v.tablename=?1); "
       [tableNameToSType tbl]
 
--- | Drop any versioned tables created after target blockheight.
-dropNewTables :: BlockHeight -> CompactM ()
-dropNewTables bh = do
-  logg Info "dropNewTables"
-  nts <- V.fromList . sortedTableNames <$> qryNoTemplateM "dropNewTables.0"
-      " SELECT tablename FROM VersionedTableCreation \
-      \ WHERE createBlockheight > ?1 ORDER BY createBlockheight; "
-      [bhToSType bh]
-      [RText]
-
-  withTables nts $ \tbl -> do
-    execM_ "dropNewTables.1" tbl "DROP TABLE IF EXISTS $VTABLE$"
-
 -- | Delete all rows from Checkpointer system tables that are not for the target blockheight.
 --
 compactSystemTables :: BlockHeight -> CompactM ()
 compactSystemTables bh = do
+  -- we don't need past BlockHistory or VersionedTableMutation rows, because
+  -- those tables only exist to enable rewinds to the past.
   let systemTables = ["BlockHistory", "VersionedTableMutation"]
   forM_ systemTables $ \tbl -> do
     let tblText = fromUtf8 (getTableName tbl)
@@ -446,21 +425,6 @@ compactSystemTables bh = do
       tbl
       "DELETE FROM $VTABLE$ WHERE blockheight != ?1;"
       [bhToSType bh]
-  -- we must treat VersionedTableCreation specially; read-only rewind
-  -- needs to know if tables have been created yet via this table, so
-  -- we don't delete from its past.
-  execM'
-      "compactSystemTables: VersionedTableCreation"
-      "VersionedTableCreation"
-      "DELETE FROM VersionedTableCreation WHERE createBlockheight > ?1;"
-      [bhToSType bh]
-  -- We currently do not compact TransactionIndex. This will change once we are
-  -- properly pruning RocksDB.
-  execM'
-    "compactSystemTables: TransactionIndex"
-    "TransactionIndex"
-    "DELETE FROM TransactionIndex WHERE blockheight > ?1;"
-    [bhToSType bh]
 
 dropCompactTables :: CompactM ()
 dropCompactTables = do
@@ -491,9 +455,16 @@ compact tbh logger db flags = runCompactM (CompactEnv logger db flags) $ do
   withTables versionedTables $ \tbl -> collectTableRows txId tbl
 
   withTx $ do
+    -- first we delete all traces of data newer than the target.
+    -- this is safe, because subsequent compaction wouldn't see it anyway.
+    liftIO $
+      rewindDbTo' db blockHeight txId
+    -- then we compact each existing table at this height. note that all
+    -- nonexistent tables have been dropped by rewindDbTo'.
     withTables versionedTables $ \tbl -> do
       compactTable tbl
-    dropNewTables blockHeight
+    -- then we delete data in system tables which is block height-indexed
+    -- and is not needed, because we can't rewind to it anymore.
     compactSystemTables blockHeight
 
   unlessFlagSet KeepCompactTables $ do
