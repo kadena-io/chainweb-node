@@ -248,17 +248,17 @@ rosettaFailsWithoutFullHistory rdb =
   withTemporaryDir $ \iodir ->
   withSqliteDb cid iodir $ \sqlEnvIO ->
   withDelegateMempool $ \dm ->
+  withPactTestBlockDb' testVersion cid rdb sqlEnvIO mempty testPactServiceConfig $ \reqIO ->
     sequentialTestGroup "rosettaFailsWithoutFullHistory" AllSucceed
       [
         -- Run some blocks and then compact
-        withPactTestBlockDb' testVersion cid rdb sqlEnvIO mempty testPactServiceConfig $ \reqIO ->
         testCase "runBlocksAndCompact" $ do
           (sqlEnv, q, bdb) <- reqIO
 
           mempoolRef <- fmap (pure . fst) dm
 
           setOneShotMempool mempoolRef goldenMemPool
-          replicateM_ 10 $ void $ runBlock q bdb second
+          replicateM_ 100 $ void $ runBlock q bdb second
 
           Utils.compact Error [C.NoVacuum] sqlEnv (C.Target (BlockHeight 5))
 
@@ -266,15 +266,13 @@ rosettaFailsWithoutFullHistory rdb =
         -- Annoyingly, we must inline the PactService util starts here.
         -- ResourceT will help clean all this up
       , testCase "PactService Should fail" $ do
-          pactQueue <- newPactQueue 2000
-          blockDb <- mkTestBlockDb testVersion rdb
-          bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
-          sqlEnv <- sqlEnvIO
+          (sqlEnv, q, bdb) <- reqIO
           mempool <- fmap snd dm
-          let payloadDb = _bdbPayloadDb blockDb
+          let payloadDb = _bdbPayloadDb bdb
+          bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) cid
           let cfg = testPactServiceConfig { _pactFullHistoryRequired = True }
           let logger = genericLogger System.LogLevel.Error (\_ -> return ())
-          e <- try $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
+          e <- try $ runPactService testVersion cid logger q mempool bhdb payloadDb sqlEnv cfg
           case e of
             Left (FullHistoryRequired {}) -> do
               pure ()
