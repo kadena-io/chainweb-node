@@ -342,4 +342,3 @@ withConnectionLogger logger counter inner =
             logFunctionText logger Error ("Connection manager logger failed: " <> sshow e)
         logFunctionText logger Info "Restarting connection manager logger"
         runLogClientConnections umask
-
