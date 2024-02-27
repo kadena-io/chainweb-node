@@ -77,24 +77,26 @@ initRelationalCheckpointer
     :: (Logger logger)
     => BlockState
     -> SQLiteEnv
+    -> PersistIntraBlockWrites
     -> logger
     -> ChainwebVersion
     -> ChainId
     -> IO (Checkpointer logger)
-initRelationalCheckpointer bstate sqlenv loggr v cid =
-    snd <$!> initRelationalCheckpointer' bstate sqlenv loggr v cid
+initRelationalCheckpointer bstate sqlenv p loggr v cid =
+    snd <$!> initRelationalCheckpointer' bstate sqlenv p loggr v cid
 
 withProdRelationalCheckpointer
     :: (Logger logger)
     => logger
     -> BlockState
     -> SQLiteEnv
+    -> PersistIntraBlockWrites
     -> ChainwebVersion
     -> ChainId
     -> (Checkpointer logger -> IO a)
     -> IO a
-withProdRelationalCheckpointer logger bstate sqlenv v cid inner = do
-    (dbenv, cp) <- initRelationalCheckpointer' bstate sqlenv logger v cid
+withProdRelationalCheckpointer logger bstate sqlenv p v cid inner = do
+    (dbenv, cp) <- initRelationalCheckpointer' bstate sqlenv p logger v cid
     withAsync (logModuleCacheStats (_cpPactDbEnv dbenv)) $ \_ -> inner cp
   where
     logFun = logFunctionText logger
@@ -111,12 +113,13 @@ initRelationalCheckpointer'
     :: (Logger logger)
     => BlockState
     -> SQLiteEnv
+    -> PersistIntraBlockWrites
     -> logger
     -> ChainwebVersion
     -> ChainId
     -> IO (CurrentBlockDbEnv logger, Checkpointer logger)
-initRelationalCheckpointer' bstate sqlenv loggr v cid = do
-    let dbenv = BlockDbEnv sqlenv loggr
+initRelationalCheckpointer' bstate sqlenv p loggr v cid = do
+    let dbenv = BlockDbEnv sqlenv loggr p
     db <- newMVar (BlockEnv dbenv bstate)
     runBlockEnv db initSchema
     let
@@ -160,7 +163,7 @@ doReadFrom logger v cid db parent doRead = mask $ \resetMask -> do
   let sharedModuleCache = _bsModuleCache $ _benvBlockState sharedDbEnv
   let sql = _bdbenvDb $ _benvDb sharedDbEnv
   newDbEnv <- newMVar $ BlockEnv
-    (BlockDbEnv sql logger)
+    (BlockDbEnv sql logger DoNotPersistIntraBlockWrites)
     (initBlockState defaultModuleCacheLimit currentHeight)
       { _bsModuleCache = sharedModuleCache }
   runBlockEnv newDbEnv $ beginSavepoint BatchSavepoint
