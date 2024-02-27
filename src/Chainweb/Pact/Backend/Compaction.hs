@@ -359,14 +359,13 @@ locateTarget = \case
       catch (getLatestBlockHeight db) $ \(_ :: SomeException) -> do
         throwM CompactExceptionNoLatestBlockHeight
 
-getVersionedTables :: BlockHeight -> CompactM (Vector TableName)
-getVersionedTables bh = do
+getVersionedTables :: CompactM (Vector TableName)
+getVersionedTables = do
   logg Info "getVersionedTables"
   rs <- qryNoTemplateM
         "getVersionedTables.0"
-        " SELECT tablename FROM VersionedTableCreation \
-        \ WHERE createBlockheight <= ? ORDER BY createBlockheight; "
-        [bhToSType bh]
+        "SELECT tablename FROM VersionedTableCreation;"
+        []
         [RText]
   pure (V.fromList (sortedTableNames rs))
 
@@ -457,7 +456,7 @@ compact tbh logger db flags = runCompactM (CompactEnv logger db flags) $ do
 
   -- we get each existing user table at this height. note that all nonexisting
   -- tables have been dropped by rewindDbToBlock earlier.
-  versionedTables <- getVersionedTables blockHeight
+  versionedTables <- getVersionedTables
 
   withTables versionedTables $ \tbl -> collectTableRows txId tbl
 
