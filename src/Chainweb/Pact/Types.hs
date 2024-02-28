@@ -85,6 +85,7 @@ module Chainweb.Pact.Types
   , psGasLogger
   , psAllowReadsInLocal
   , psBlockGasLimit
+  , psEnableLocalTimeout
 
     -- * TxContext
   , TxContext(..)
@@ -434,6 +435,8 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psGasLogger :: !(Maybe logger)
 
     , _psBlockGasLimit :: !GasLimit
+
+    , _psEnableLocalTimeout :: !Bool
     }
 makeLenses ''PactServiceEnv
 
@@ -471,6 +474,7 @@ testPactServiceConfig = PactServiceConfig
       , _pactLogGas = False
       , _pactModuleCacheLimit = defaultModuleCacheLimit
       , _pactFullHistoryRequired = False
+      , _pactEnableLocalTimeout = False
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@

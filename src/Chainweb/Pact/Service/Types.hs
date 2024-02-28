@@ -137,6 +137,8 @@ data PactServiceConfig = PactServiceConfig
   , _pactFullHistoryRequired :: !Bool
     -- ^ Whether or not the node requires that the full Pact history be
     --   available. Compaction can remove history.
+  , _pactEnableLocalTimeout :: !Bool
+    -- ^ Whether to enable the local timeout to prevent long-running transactions
   } deriving (Eq,Show)
 
 data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError
@@ -179,6 +181,7 @@ data LocalResult
     = MetadataValidationFailure !(NE.NonEmpty Text)
     | LocalResultWithWarns !(CommandResult Hash) ![Text]
     | LocalResultLegacy !(CommandResult Hash)
+    | LocalTimeout
     deriving (Show, Generic)
 
 makePrisms ''LocalResult
@@ -187,6 +190,7 @@ instance NFData LocalResult where
     rnf (MetadataValidationFailure t) = rnf t
     rnf (LocalResultWithWarns cr ws) = rnf cr `seq` rnf ws
     rnf (LocalResultLegacy cr) = rnf cr
+    rnf LocalTimeout = ()
 
 instance J.Encode LocalResult where
     build (MetadataValidationFailure e) = J.object
@@ -197,15 +201,22 @@ instance J.Encode LocalResult where
         [ "preflightResult" J..= cr
         , "preflightWarnings" J..= J.Array (J.text <$> ws)
         ]
+    build LocalTimeout = J.text "Transaction timed out"
     {-# INLINE build #-}
 
 instance FromJSON LocalResult where
-    parseJSON v = withObject "LocalResult"
-        (\o -> metaFailureParser o
-            <|> localWithWarnParser o
-            <|> legacyFallbackParser o
-        )
-        v
+    parseJSON v =
+          withText
+            "LocalResult"
+            (\s -> if s == "Transaction timed out" then pure LocalTimeout else fail "Invalid LocalResult")
+            v
+      <|> withObject
+            "LocalResult"
+            (\o -> metaFailureParser o
+                <|> localWithWarnParser o
+                <|> legacyFallbackParser o
+            )
+            v
       where
         metaFailureParser o =
             MetadataValidationFailure <$> o .: "preflightValidationFailure"

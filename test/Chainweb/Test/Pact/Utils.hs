@@ -706,6 +706,7 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
                 $ _cpLogger $ _cpReadCp cp
 
         , _psBlockGasLimit = _pactBlockGasLimit conf
+        , _psEnableLocalTimeout = False
         }
 
 freeGasModel :: TxContext -> GasModel
