@@ -175,6 +175,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                 , _psLogger = logger
                 , _psGasLogger = gasLogger
                 , _psBlockGasLimit = testBlockGasLimit
+                , _psEnableLocalTimeout = False
                 }
               pss = PactServiceState
                 { _psInitCache = mempty
