@@ -8,6 +8,7 @@
 module Chainweb.Version.RecapDevelopment(recapDevnet, pattern RecapDevelopment) where
 
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Set as Set
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeight
@@ -18,6 +19,8 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
+
+import Pact.Types.Verifier
 
 import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment0Payload as RDN0
 import qualified Chainweb.BlockHeader.Genesis.RecapDevelopment1to9Payload as RDNN
@@ -112,5 +115,6 @@ recapDevnet = ChainwebVersion
         { _disablePeerValidation = True
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = AllChains (End mempty)
+    , _versionVerifierPluginNames = AllChains $ (600, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
+        End mempty
     }
