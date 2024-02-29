@@ -218,7 +218,6 @@ blockTransactionTests tio envIo =
           [a,b,c,d,e] -> return (a,b,c,d,e)
           _ -> assertFailure "transfer should have resulted in 5 transactions"
 
-
       step "validate initial gas buy at op index 0"
       validateOp 0 "FundTx" sender00ks Successful (negate defFundGas) fundtx
 

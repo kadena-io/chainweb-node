@@ -217,7 +217,7 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
     checkModuleCache u b = MaybeT $ do
         !txid <- use bsTxId -- cache priority
         mc <- use bsModuleCache
-        (r, mc') <- liftIO $ checkDbCache u b txid mc
+        (r, mc') <- liftIO $ checkDbCache u decodeStrict b txid mc
         modify' (bsModuleCache .~ mc')
         return r
 
@@ -541,6 +541,7 @@ doCommit = use bsMode >>= \case
         { _pendingTableCreation = HashSet.union (_pendingTableCreation a) (_pendingTableCreation b)
         , _pendingWrites = HashMap.unionWith mergeW (_pendingWrites a) (_pendingWrites b)
         , _pendingTxLogMap = _pendingTxLogMap a
+        , _pendingTxLogMapCore = _pendingTxLogMapCore a
         , _pendingSuccessfulTxs = _pendingSuccessfulTxs b
         }
 
@@ -555,7 +556,7 @@ doBegin m = do
     logger <- view blockHandlerLogger
     use bsMode >>= \case
         Just {} -> do
-            logError_ logger "beginTx: In transaction, rolling back"
+            logError_ logger "PactDb.beginTx: In transaction, rolling back"
             doRollback
         Nothing -> return ()
     resetTemp
@@ -594,14 +595,14 @@ doGetTxLog d txid = do
         pd <- getPendingData
         let deltas = pd >>= HashMap.elems . _pendingWrites >>= takeHead . DL.toList
         let ourDeltas = filter predicate deltas
-        mapM (\x -> toTxLog d (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
+        mapM (\x -> toTxLog (asString d) (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
 
     readFromDb = do
         rows <- callDb "doGetTxLog" $ \db -> qry db stmt
           [SInt (fromIntegral txid)]
           [RText, RBlob]
         forM rows $ \case
-            [SText key, SBlob value] -> toTxLog d key value
+            [SText key, SBlob value] -> toTxLog (asString d) key value
             err -> internalError $
               "readHistoryResult: Expected single row with two columns as the \
               \result, got: " <> T.pack (show err)
@@ -609,13 +610,12 @@ doGetTxLog d txid = do
 
 
 toTxLog :: MonadThrow m =>
-           Domain k v -> Utf8 -> BS.ByteString -> m (TxLog RowData)
+           T.Text -> Utf8 -> BS.ByteString -> m (TxLog RowData)
 toTxLog d key value =
         case Data.Aeson.decodeStrict' value of
-            Nothing -> internalError
-              "toTxLog: Unexpected value, unable to deserialize log"
+            Nothing -> internalError $ "toTxLog: Unexpected value, unable to deserialize log: " <> sshow value
             Just v ->
-              return $! TxLog (asString d) (fromUtf8 key) v
+              return $! TxLog d (fromUtf8 key) v
 
 -- | Register a successful transaction in the pending data for the block
 indexPactTransaction :: BS.ByteString -> BlockHandler logger ()

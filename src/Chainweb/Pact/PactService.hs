@@ -39,6 +39,7 @@ module Chainweb.Pact.PactService
     , withPactService
     , execNewGenesisBlock
     , getGasModel
+    , getGasModelCore
     ) where
 
 import Control.Concurrent hiding (throwTo)
@@ -54,6 +55,7 @@ import Control.Monad.Primitive (PrimState)
 
 import qualified Data.DList as DL
 import Data.Either
+import Data.Word (Word64)
 import Data.Foldable (toList)
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
@@ -68,7 +70,6 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
-import Data.Word (Word64)
 import GrowableVector.Lifted (Vec)
 import GrowableVector.Lifted qualified as Vec
 
@@ -88,6 +89,12 @@ import qualified Pact.Types.Hash as P
 import qualified Pact.Types.RowData as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Pretty as P
+import qualified Pact.Parse as P
+
+import qualified Pact.Core.Builtin as PCore
+import qualified Pact.Core.Persistence as PCore
+import qualified Pact.Core.Gas as PCore
+import qualified Pact.Core.Gas.TableGasModel as PCore
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -117,6 +124,7 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards
 import Utils.Logging.Trace
+
 
 runPactService
     :: Logger logger
@@ -156,6 +164,8 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psPdb = pdb
                     , _psBlockHeaderDb = bhDb
                     , _psGasModel = getGasModel
+                    , _psGasModelCore =
+                        getGasModelCore (_pactBlockGasLimit config)
                     , _psMinerRewards = rs
                     , _psReorgLimit = _pactReorgLimit config
                     , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout config
@@ -422,11 +432,14 @@ serviceRequests memPoolAccess reqQ = do
                                     RequestNotStarted -> error "PactService internal error: request not started after starting"
                     )
             case maybeException of
-              Left (fromException -> Just AsyncCancelled) ->
+              Left (fromException -> Just AsyncCancelled) -> do
+                liftIO $ putStrLn "Pact action was cancelled"
                 logDebug "Pact action was cancelled"
-              Left (fromException -> Just ThreadKilled) ->
+              Left (fromException -> Just ThreadKilled) -> do
+                liftIO $ putStrLn "Pact action thread was killed"
                 logWarn "Pact action thread was killed"
-              Left (exn :: SomeException) ->
+              Left (exn :: SomeException) -> do
+                liftIO $ putStrLn $ "Exception " ++ sshow exn
                 logError $ mconcat
                   [ "Received exception running pact service ("
                   , which
@@ -490,6 +503,7 @@ execNewBlock mpAccess miner = do
               txs <- Vec.toLiftedVector successes
               pure (toPayloadWithOutputs miner (Transactions txs cb))
             return pwo
+
       where
         handleTimeout :: TxTimeout -> PactBlockM logger cas a
         handleTimeout (TxTimeout h) = liftPactServiceM $ do
@@ -517,11 +531,11 @@ execNewBlock mpAccess miner = do
           liftIO $!
             mpaGetBlock mpAccess bfState validate (pHeight + 1) pHash (_parentHeader latestHeader)
 
-        refill :: Word64 -> Micros -> GrowableVec (ChainwebTransaction, P.CommandResult [P.TxLogJson]) -> GrowableVec TransactionHash -> ModuleCache -> BlockFill -> PactBlockM logger tbl BlockFill
+        refill :: Word64 -> Micros -> GrowableVec (ChainwebTransaction, P.CommandResult [P.TxLogJson]) -> GrowableVec TransactionHash -> (ModuleCache, CoreModuleCache) -> BlockFill -> PactBlockM logger tbl BlockFill
         refill fetchLimit txTimeLimit successes failures = go
           where
-            go :: ModuleCache -> BlockFill -> PactBlockM logger tbl BlockFill
-            go mc unchanged@bfState = do
+            go :: (ModuleCache, CoreModuleCache) -> BlockFill -> PactBlockM logger tbl BlockFill
+            go (mc, cmc) unchanged@bfState = do
               pdbenv <- view psBlockDbEnv
 
               case unchanged of
@@ -544,7 +558,7 @@ execNewBlock mpAccess miner = do
                       newTrans <- liftPactServiceM $ getBlockTxs pdbenv bfState
                       if V.null newTrans then pure unchanged else do
 
-                        T2 pairs mc' <- execTransactionsOnly miner newTrans mc
+                        T3 pairs mc' cmc' <- execTransactionsOnly miner newTrans (mc, cmc)
                           (Just txTimeLimit) `catch` handleTimeout
 
                         oldSuccessesLength <- liftIO $ Vec.length successes
@@ -569,7 +583,7 @@ execNewBlock mpAccess miner = do
                             $ "Invariant failure, gas did not decrease: "
                             <> sshow (bfState,newState,V.length newTrans,addedSuccessCount)
                         else
-                          go mc' (incCount newState)
+                          go (mc', cmc') (incCount newState)
 
         incCount :: BlockFill -> BlockFill
         incCount b = over bfCount succ b
@@ -748,6 +762,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                 let spv = pactSPV bhdb (_parentHeader pc)
                 ctx <- getTxContext pm
                 let gasModel = getGasModel ctx
+                let gasModelCore = getGasModelCore _psBlockGasLimit ctx
                 mc <- getInitCache
                 dbEnv <- view psBlockDbEnv
 
@@ -762,9 +777,10 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                     liftPactServiceM (assertLocalMetadata cmd ctx sigVerify) >>= \case
                       Right{} -> do
                         let initialGas = initialGasOf $ P._cmdPayload cwtx
-                        T3 cr _mc warns <- liftIO $ applyCmd
-                          _psVersion _psLogger _psGasLogger (_cpPactDbEnv dbEnv)
-                          noMiner gasModel ctx spv cmd
+                        -- TRACE.traceShowM ("execLocal.CACHE: ", LHM.keys $ _getModuleCache mcache, M.keys $ _getCoreModuleCache cmcache)
+                        T4 cr _mc _ warns <- liftIO $ applyCmd
+                          _psVersion _psLogger _psGasLogger (_cpPactDbEnv dbEnv, _cpPactCoreDbEnv dbEnv)
+                          noMiner (gasModel, gasModelCore) ctx spv cmd
                           initialGas mc ApplyLocal
 
                         let cr' = toHashCommandResult cr
@@ -779,8 +795,8 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                             disableReturnRTC (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx)
 
                     cr <- applyLocal
-                      _psLogger _psGasLogger (_cpPactDbEnv dbEnv)
-                      gasModel ctx spv
+                      _psLogger _psGasLogger (_cpPactDbEnv dbEnv, _cpPactCoreDbEnv dbEnv)
+                      (gasModel, gasModelCore)  ctx spv
                       cwtx mc execConfig
 
                     let cr' = toHashCommandResult cr
@@ -941,7 +957,7 @@ execHistoricalLookup
     => BlockHeader
     -> P.Domain P.RowKey P.RowData
     -> P.RowKey
-    -> PactServiceM logger tbl (Maybe (P.TxLog P.RowData))
+    -> PactServiceM logger tbl (Maybe (PCore.TxLog PCore.RowData))
 execHistoricalLookup bh d k = pactLabel "execHistoricalLookup" $ do
   !cp <- view psCheckpointer
   liftIO $ _cpGetHistoricalLookup (_cpReadCp cp) bh d k
@@ -982,26 +998,28 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
         -> Vector (Either InsertError ChainwebTransaction)
         -> PactBlockM logger tbl (Vector (Either InsertError ChainwebTransaction))
     attemptBuyGas miner txsOrErrs = localLabelBlock ("transaction", "attemptBuyGas") $ do
-            mc <- getInitCache
+            (mc, cmc) <- getInitCache
             l <- view (psServiceEnv . psLogger)
-            V.fromList . toList . sfst <$> V.foldM (buyGasFor l) (T2 mempty mc) txsOrErrs
+            V.fromList . toList . sfst <$> V.foldM (buyGasFor l) (T2 mempty (mc, cmc)) txsOrErrs
       where
         buyGasFor :: logger
-          -> T2 (DL.DList (Either InsertError ChainwebTransaction)) ModuleCache
+          -> T2 (DL.DList (Either InsertError ChainwebTransaction)) (ModuleCache, CoreModuleCache)
           -> Either InsertError ChainwebTransaction
-          -> PactBlockM logger tbl (T2 (DL.DList (Either InsertError ChainwebTransaction)) ModuleCache)
-        buyGasFor _l (T2 dl mcache) err@Left {} = return (T2 (DL.snoc dl err) mcache)
-        buyGasFor l (T2 dl mcache) (Right tx) = do
+          -> PactBlockM logger tbl (T2 (DL.DList (Either InsertError ChainwebTransaction)) (ModuleCache, CoreModuleCache))
+        buyGasFor _l (T2 dl (mcache,cmcache)) err@Left {} = return (T2 (DL.snoc dl err) (mcache,cmcache))
+        buyGasFor l (T2 dl (mcache,cmcache)) (Right tx) = do
             T2 mcache' !res <- do
               let cmd = payloadObj <$> tx
                   gasPrice = view cmdGasPrice cmd
                   gasLimit = fromIntegral $ view cmdGasLimit cmd
                   txst = TransactionState
                       { _txCache = mcache
+                      , _txCoreCache = cmcache
                       , _txLogs = mempty
                       , _txGasUsed = 0
                       , _txGasId = Nothing
                       , _txGasModel = P._geGasModel P.freeGasEnv
+                      , _txGasModelCore = PCore.freeGasModel
                       , _txWarnings = mempty
                       }
               let !nid = networkIdOf cmd
@@ -1014,8 +1032,8 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                     [ P.FlagDisableModuleInstall
                     , P.FlagDisableHistoryInTransactionalMode ] ++
                     disableReturnRTC (ctxVersion pd) (ctxChainId pd) (ctxCurrentBlockHeight pd)
-
-              let buyGasEnv = TransactionEnv P.Transactional (_cpPactDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gasPrice rk gasLimit ec Nothing
+              let usePactTng = False
+              let buyGasEnv = TransactionEnv P.Transactional (_cpPactDbEnv dbEnv) (_cpPactCoreDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gasPrice rk gasLimit ec Nothing usePactTng
 
               cr <- liftIO
                 $! catchesPactError l CensorsUnexpectedError
@@ -1023,8 +1041,8 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                 $! buyGas pd cmd miner
 
               case cr of
-                  Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
-                  Right t -> return (T2 (_txCache t) (Right tx))
+                  Left err -> return (T2 (mcache, cmcache) (Left (InsertErrorBuyGas (T.pack $ show err))))
+                  Right t -> return (T2 (_txCache t, _txCoreCache t) (Right tx))
             pure $! T2 (DL.snoc dl res) mcache'
 
 execLookupPactTxs
@@ -1085,6 +1103,13 @@ getGasModel ctx
     | guardCtx chainweb213Pact ctx = chainweb213GasModel
     | guardCtx chainweb224Pact ctx = chainweb224GasModel
     | otherwise = freeModuleLoadGasModel
+
+getGasModelCore :: GasLimit -> TxContext -> PCore.GasModel PCore.CoreBuiltin
+getGasModelCore l ctx
+    | chainweb213Pact (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) = PCore.tableGasModel ll
+    | otherwise = PCore.tableGasModel ll
+    where
+        ll = (let (P.GasLimit (P.ParsedInteger g)) = l in PCore.MilliGasLimit $ PCore.MilliGas $ 1000 * fromIntegral g)
 
 pactLabel :: (Logger logger) => Text -> PactServiceM logger tbl x -> PactServiceM logger tbl x
 pactLabel lbl x = localLabel ("pact-request", lbl) x

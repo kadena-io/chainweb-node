@@ -8,6 +8,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -24,13 +25,8 @@
 -- Pact Types module for Chainweb
 --
 module Chainweb.Pact.Types
-  ( -- * Pact Db State
-    PactDbStatePersist(..)
-  , pdbspRestoreFile
-  , pdbspPactDbState
-
-    -- * Misc helpers
-  , Transactions(..)
+  ( -- * Misc helpers
+    Transactions(..)
   , transactionCoinbase
   , transactionPairs
 
@@ -43,17 +39,20 @@ module Chainweb.Pact.Types
     -- * Transaction State
   , TransactionState(..)
   , txGasModel
+  , txGasModelCore
   , txGasLimit
   , txGasUsed
   , txGasId
   , txLogs
   , txCache
+  , txCoreCache
   , txWarnings
 
     -- * Transaction Env
   , TransactionEnv(..)
   , txMode
   , txDbEnv
+  , txCoreDb
   , txLogger
   , txGasLogger
   , txPublicData
@@ -63,6 +62,7 @@ module Chainweb.Pact.Types
   , txRequestKey
   , txExecutionConfig
   , txQuirkGasFee
+  , txUsePactTng
 
     -- * Transaction Execution Monad
   , TransactionM(..)
@@ -77,6 +77,7 @@ module Chainweb.Pact.Types
   , psPdb
   , psBlockHeaderDb
   , psGasModel
+  , psGasModelCore
   , psMinerRewards
   , psReorgLimit
   , psPreInsertCheckTimeout
@@ -113,6 +114,9 @@ module Chainweb.Pact.Types
   , getInitCache
   , updateInitCache
   , updateInitCacheM
+
+  , CoreModuleCache(..)
+  , filterCoreModuleCacheByKey
 
     -- * Pact Service Monad
   , PactServiceM(..)
@@ -226,18 +230,16 @@ import Chainweb.Utils
 import Chainweb.Version
 import Utils.Logging.Trace
 
+import qualified Pact.Core.Names as PCore
+import qualified Pact.Core.Persistence as PCore
+import qualified Pact.Core.Gas as PCore
+import qualified Pact.Core.Builtin as PCore
 
 data Transactions r = Transactions
     { _transactionPairs :: !(Vector (ChainwebTransaction, r))
     , _transactionCoinbase :: !(CommandResult [TxLogJson])
     } deriving (Functor, Foldable, Traversable, Eq, Show, Generic, NFData)
 makeLenses 'Transactions
-
-data PactDbStatePersist = PactDbStatePersist
-    { _pdbspRestoreFile :: !(Maybe FilePath)
-    , _pdbspPactDbState :: !PactDbState
-    }
-makeLenses ''PactDbStatePersist
 
 -- -------------------------------------------------------------------------- --
 -- Coinbase output utils
@@ -270,6 +272,9 @@ newtype CoinbaseUsePrecompiled = CoinbaseUsePrecompiled Bool
 newtype ModuleCache = ModuleCache { _getModuleCache :: LHM.HashMap ModuleName (ModuleData Ref, Bool) }
     deriving newtype (Semigroup, Monoid, NFData)
 
+newtype CoreModuleCache = CoreModuleCache { _getCoreModuleCache :: M.Map PCore.ModuleName (PCore.ModuleData PCore.CoreBuiltin ()) }
+    deriving newtype (Semigroup, Monoid, NFData)
+
 filterModuleCacheByKey
     :: (ModuleName -> Bool)
     -> ModuleCache
@@ -277,6 +282,14 @@ filterModuleCacheByKey
 filterModuleCacheByKey f (ModuleCache c) = ModuleCache $
     LHM.fromList $ filter (f . fst) $ LHM.toList c
 {-# INLINE filterModuleCacheByKey #-}
+
+filterCoreModuleCacheByKey
+    :: (PCore.ModuleName -> Bool)
+    -> CoreModuleCache
+    -> CoreModuleCache
+filterCoreModuleCacheByKey f (CoreModuleCache c) = CoreModuleCache $
+    M.fromList $ filter (f . fst) $ M.toList c
+{-# INLINE filterCoreModuleCacheByKey #-}
 
 moduleCacheToHashMap
     :: ModuleCache
@@ -315,10 +328,12 @@ data ApplyCmdExecutionContext = ApplyLocal | ApplySend
 --
 data TransactionState = TransactionState
     { _txCache :: !ModuleCache
+    , _txCoreCache :: !CoreModuleCache
     , _txLogs :: ![TxLogJson]
     , _txGasUsed :: !Gas
     , _txGasId :: !(Maybe GasId)
     , _txGasModel :: !GasModel
+    , _txGasModelCore :: !(PCore.GasModel PCore.CoreBuiltin)
     , _txWarnings :: !(Set PactWarning)
     }
 makeLenses ''TransactionState
@@ -328,6 +343,7 @@ makeLenses ''TransactionState
 data TransactionEnv logger db = TransactionEnv
     { _txMode :: !ExecutionMode
     , _txDbEnv :: !(PactDbEnv db)
+    , _txCoreDb :: !CoreDb
     , _txLogger :: !logger
     , _txGasLogger :: !(Maybe logger)
     , _txPublicData :: !PublicData
@@ -338,6 +354,7 @@ data TransactionEnv logger db = TransactionEnv
     , _txGasLimit :: !Gas
     , _txExecutionConfig :: !ExecutionConfig
     , _txQuirkGasFee :: !(Maybe Gas)
+    , _txUsePactTng :: !Bool
     }
 makeLenses ''TransactionEnv
 
@@ -426,6 +443,7 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psPdb :: !(PayloadDb tbl)
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: !(TxContext -> GasModel)
+    , _psGasModelCore :: !(TxContext -> PCore.GasModel PCore.CoreBuiltin)
     , _psMinerRewards :: !MinerRewards
     , _psPreInsertCheckTimeout :: !Micros
     -- ^ Maximum allowed execution time for the transactions validation.
@@ -515,7 +533,7 @@ defaultOnFatalError lf pex t = do
   where
     errMsg = pack (show pex) <> "\n" <> t
 
-type ModuleInitCache = M.Map BlockHeight ModuleCache
+type ModuleInitCache = M.Map BlockHeight (ModuleCache, CoreModuleCache)
 
 data PactBlockEnv logger tbl = PactBlockEnv
   { _psServiceEnv :: !(PactServiceEnv logger tbl)
@@ -648,7 +666,7 @@ liftPactServiceM :: PactServiceM logger tbl a -> PactBlockM logger tbl a
 liftPactServiceM (PactServiceM a) = PactBlockM (magnify psServiceEnv a)
 
 -- | Look up an init cache that is stored at or before the height of the current parent header.
-getInitCache :: PactBlockM logger tbl ModuleCache
+getInitCache :: PactBlockM logger tbl (ModuleCache, CoreModuleCache)
 getInitCache = do
   ph <- views psParentHeader (_blockHeight . _parentHeader)
   get >>= \PactServiceState{..} ->
@@ -659,8 +677,8 @@ getInitCache = do
 -- | Update init cache at adjusted parent block height (APBH).
 -- Contents are merged with cache found at or before APBH.
 -- APBH is 0 for genesis and (parent block height + 1) thereafter.
-updateInitCache :: ModuleCache -> ParentHeader -> PactServiceM logger tbl ()
-updateInitCache mc ph = get >>= \PactServiceState{..} -> do
+updateInitCache :: (ModuleCache, CoreModuleCache) -> ParentHeader -> PactServiceM logger tbl ()
+updateInitCache (mc, cmc) ph = get >>= \PactServiceState{..} -> do
     let bf 0 = 0
         bf h = succ h
     let pbh = bf (_blockHeight $ _parentHeader ph)
@@ -669,14 +687,14 @@ updateInitCache mc ph = get >>= \PactServiceState{..} -> do
     cid <- view chainId
 
     psInitCache .= case M.lookupLE pbh _psInitCache of
-      Nothing -> M.singleton pbh mc
-      Just (_,before)
+      Nothing -> M.singleton pbh (mc, cmc)
+      Just (_,(before,corebefore))
         | cleanModuleCache v cid pbh ->
-          M.insert pbh mc _psInitCache
-        | otherwise -> M.insert pbh (before <> mc) _psInitCache
+          M.insert pbh (mc, cmc) _psInitCache
+        | otherwise -> M.insert pbh (before <> mc, corebefore <> cmc) _psInitCache
 
 -- | A wrapper for 'updateInitCache' that uses the current block.
-updateInitCacheM :: ModuleCache -> PactBlockM logger tbl ()
+updateInitCacheM :: (ModuleCache, CoreModuleCache) -> PactBlockM logger tbl ()
 updateInitCacheM mc = do
   pc <- view psParentHeader
   liftPactServiceM $
@@ -820,6 +838,6 @@ catchesPactError logger exnPrinting action = catches (Right <$> action)
             return (viaShow e)
           CensorsUnexpectedError -> do
             liftIO $ logWarn_ logger ("catchesPactError: unknown error: " <> sshow e)
-            return "unknown error"
+            return ("unknown error " <> sshow e)
       return $ Left $ PactError EvalError def def err
   ]

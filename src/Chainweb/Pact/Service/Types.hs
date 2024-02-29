@@ -90,6 +90,8 @@ import Pact.Types.RowData
 
 import qualified Pact.JSON.Encode as J
 
+import qualified Pact.Core.Persistence as PCore
+
 -- internal chainweb modules
 
 import Chainweb.BlockHash ( BlockHash )
@@ -307,13 +309,14 @@ instance FromJSON PactExceptionTag where
 -- key in history, if any
 -- Not intended for public API use; ToJSONs are for logging output.
 data BlockTxHistory = BlockTxHistory
-  { _blockTxHistory :: !(Map TxId [TxLog RowData])
-  , _blockPrevHistory :: !(Map RowKey (TxLog RowData))
+  { _blockTxHistory :: !(Map TxId [PCore.TxLog PCore.RowData])
+  , _blockPrevHistory :: !(Map RowKey (PCore.TxLog PCore.RowData))
   }
   deriving (Eq,Generic)
 instance Show BlockTxHistory where
-  show = show . fmap (J.encodeText . J.Array) . _blockTxHistory
-instance NFData BlockTxHistory
+  show = show . fmap (show) . _blockTxHistory
+-- TODO: fix show above
+-- instance NFData BlockTxHistory -- TODO: add NFData for RowData
 
 
 
@@ -359,7 +362,7 @@ data RequestMsg r where
     LookupPactTxsMsg :: !LookupPactTxsReq -> RequestMsg (HashMap PactHash (T2 BlockHeight BlockHash))
     PreInsertCheckMsg :: !PreInsertCheckReq -> RequestMsg (Vector (Either InsertError ()))
     BlockTxHistoryMsg :: !BlockTxHistoryReq -> RequestMsg BlockTxHistory
-    HistoricalLookupMsg :: !HistoricalLookupReq -> RequestMsg (Maybe (TxLog RowData))
+    HistoricalLookupMsg :: !HistoricalLookupReq -> RequestMsg (Maybe (PCore.TxLog PCore.RowData))
     SyncToBlockMsg :: !SyncToBlockReq -> RequestMsg ()
     ReadOnlyReplayMsg :: !ReadOnlyReplayReq -> RequestMsg ()
     CloseMsg :: RequestMsg ()

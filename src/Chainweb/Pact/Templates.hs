@@ -19,6 +19,12 @@ module Chainweb.Pact.Templates
 , mkBuyGasTerm
 , mkRedeemGasTerm
 , mkCoinbaseTerm
+
+, mkFunxTxCoreTerm
+, mkBuyGasCoreTerm
+, mkRedeemGasCoreTerm
+, mkCoinbaseCoreTerm
+
 , mkCoinbaseCmd
 ) where
 
@@ -41,6 +47,10 @@ import Pact.Types.Runtime
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
 import Chainweb.Pact.Service.Types
+
+import qualified Pact.Core.Literal as Core
+import qualified Pact.Core.Names as Core
+import qualified Pact.Core.Syntax.ParseTree as CoreLisp
 
 
 inf :: Info
@@ -89,6 +99,22 @@ buyGasTemplate =
   , strArgSetter 0
   )
 
+fundTxTemplateCore :: Text -> Text -> CoreLisp.Expr ()
+fundTxTemplateCore sender mid =
+  let senderTerm = coreStrLit sender
+      midTerm = coreStrLit mid
+      varApp = coreQn "fund-tx" "coin"
+      rks = coreApp (coreBn "read-keyset") [coreStrLit "miner-keyset"]
+      rds = coreApp (coreBn "read-decimal") [coreStrLit "total"]
+  in coreApp varApp [senderTerm, midTerm, rks, rds]
+
+buyGasTemplateCore :: Text -> CoreLisp.Expr ()
+buyGasTemplateCore sender =
+  let senderTerm = coreStrLit sender
+      varApp = coreQn "buy-gas" "coin"
+      rds = coreApp (coreBn "read-decimal") [coreStrLit "total"]
+  in coreApp varApp [senderTerm, rds]
+
 redeemGasTemplate :: (Term Name, ASetter' (Term Name) Text, ASetter' (Term Name) Text)
 redeemGasTemplate =
   ( app (qn "coin" "redeem-gas")
@@ -100,6 +126,27 @@ redeemGasTemplate =
   , strArgSetter 2
   , strArgSetter 0
   )
+
+redeemGasTemplateCore :: Text -> Text -> CoreLisp.Expr ()
+redeemGasTemplateCore mid sender =
+  let midTerm = coreStrLit mid
+      senderTerm = coreStrLit sender
+      varApp = coreQn "redeem-gas" "coin"
+      rks = coreApp (coreBn "read-keyset") [coreStrLit "miner-keyset"]
+      rds = coreApp (coreBn "read-decimal") [coreStrLit "total"]
+  in coreApp varApp [midTerm, rks, senderTerm, rds]
+
+coreApp :: CoreLisp.Expr () -> [CoreLisp.Expr ()] -> CoreLisp.Expr ()
+coreApp arg args = CoreLisp.App arg args ()
+
+coreStrLit :: Text -> CoreLisp.Expr ()
+coreStrLit txt = CoreLisp.Constant (Core.LString txt) ()
+
+coreQn :: Text -> Text -> CoreLisp.Expr ()
+coreQn name modname = CoreLisp.Var (Core.QN (Core.QualifiedName name (Core.ModuleName modname Nothing))) ()
+
+coreBn :: Text -> CoreLisp.Expr ()
+coreBn name = CoreLisp.Var (Core.BN (Core.BareName name)) ()
 
 dummyParsedCode :: ParsedCode
 dummyParsedCode = ParsedCode "1" [ELiteral $ LiteralExp (LInteger 1) def]
@@ -152,6 +199,26 @@ mkRedeemGasTerm (MinerId mid) (MinerKeys ks) sender total fee = (populatedTerm, 
           ]
 {-# INLINABLE mkRedeemGasTerm #-}
 
+mkFunxTxCoreTerm
+  :: MinerId   -- ^ Id of the miner to fund
+  -> Text      -- ^ Address of the sender from the command
+  -> CoreLisp.Expr ()
+mkFunxTxCoreTerm (MinerId mid) sender = fundTxTemplateCore sender mid
+{-# INLINABLE mkFunxTxCoreTerm #-}
+
+mkBuyGasCoreTerm
+  :: Text      -- ^ Address of the sender from the command
+  -> CoreLisp.Expr ()
+mkBuyGasCoreTerm sender = buyGasTemplateCore sender
+{-# INLINABLE mkBuyGasCoreTerm #-}
+
+mkRedeemGasCoreTerm
+  :: MinerId   -- ^ Id of the miner to fund
+  -> Text      -- ^ Address of the sender from the command
+  -> CoreLisp.Expr ()
+mkRedeemGasCoreTerm (MinerId mid) sender = redeemGasTemplateCore mid sender
+{-# INLINABLE mkRedeemGasCoreTerm #-}
+
 coinbaseTemplate :: (Term Name,ASetter' (Term Name) Text)
 coinbaseTemplate =
   ( app (qn "coin" "coinbase")
@@ -163,6 +230,13 @@ coinbaseTemplate =
   )
 {-# NOINLINE coinbaseTemplate #-}
 
+coinbaseTemplateCore :: Text -> CoreLisp.Expr ()
+coinbaseTemplateCore mid =
+  let midTerm = coreStrLit mid
+      varApp = coreQn "coinbase" "coin"
+      rks = coreApp (coreBn "read-keyset") [coreStrLit "miner-keyset"]
+      rds = coreApp (coreBn "read-decimal") [coreStrLit "reward"]
+  in coreApp varApp [midTerm, rks, rds]
 
 mkCoinbaseTerm :: MinerId -> MinerKeys -> ParsedDecimal -> (Term Name,ExecMsg ParsedCode)
 mkCoinbaseTerm (MinerId mid) (MinerKeys ks) reward = (populatedTerm, execMsg)
@@ -175,6 +249,12 @@ mkCoinbaseTerm (MinerId mid) (MinerKeys ks) reward = (populatedTerm, execMsg)
       , "reward" J..= reward
       ]
 {-# INLINABLE mkCoinbaseTerm #-}
+
+mkCoinbaseCoreTerm
+  :: MinerId   -- ^ Id of the miner to fund
+  -> CoreLisp.Expr ()
+mkCoinbaseCoreTerm (MinerId mid) = coinbaseTemplateCore mid
+{-# INLINABLE mkCoinbaseCoreTerm #-}
 
 -- | "Old method" to build a coinbase 'ExecMsg' for back-compat.
 --

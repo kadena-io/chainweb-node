@@ -131,6 +131,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                       , _psPdb = payloadDb
                       , _psBlockHeaderDb = bdb
                       , _psGasModel = getGasModel
+                      , _psGasModelCore = (getGasModelCore 30000)
                       , _psMinerRewards = readRewards
                       , _psPreInsertCheckTimeout = defaultPreInsertCheckTimeout
                       , _psReorgLimit = RewindLimit 0
@@ -144,11 +145,11 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                       }
                 evalPactServiceM (PactServiceState mempty) psEnv $ readFrom (Just parent) $ do
                   mc <- readInitModules
-                  T3 !cr _mc _ <- do
+                  T4 !cr _mc _ _ <- do
                     dbEnv <- view psBlockDbEnv
                     liftIO $ trace (logFunction cwLogger) "applyCmd" () 1 $
-                      applyCmd ver logger gasLogger (_cpPactDbEnv dbEnv) miner (getGasModel txc)
-                        txc noSPVSupport cmd (initGas cmdPwt) mc ApplySend
+                      applyCmd ver logger gasLogger (_cpPactDbEnv dbEnv, _cpPactCoreDbEnv dbEnv) miner (getGasModel txc, getGasModelCore 300000 txc)
+                        txc noSPVSupport cmd (initGas cmdPwt)  mc ApplySend
                   liftIO $ T.putStrLn (J.encodeText (J.Array <$> cr))
       (_,True) -> do
         _cpReadFrom (_cpReadCp cp) (Just parent) $ \dbEnv -> do
@@ -190,6 +191,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                 , _psPdb = payloadDb
                 , _psBlockHeaderDb = bdb
                 , _psGasModel = getGasModel
+                , _psGasModelCore = getGasModelCore 300000
                 , _psMinerRewards = readRewards
                 , _psPreInsertCheckTimeout = defaultPreInsertCheckTimeout
                 , _psReorgLimit = RewindLimit 0
@@ -205,7 +207,6 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                 { _psInitCache = mempty
                 }
             evalPactServiceM pss pse $ doBlock True parent (zip hdrs pwos)
-
   where
 
     cwLogger = genericLogger Debug T.putStrLn

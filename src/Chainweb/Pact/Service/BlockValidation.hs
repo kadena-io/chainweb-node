@@ -29,8 +29,9 @@ import Data.Vector (Vector)
 import Data.HashMap.Strict (HashMap)
 
 import Pact.Types.Hash
-import Pact.Types.Persistence (RowKey, TxLog, Domain)
+import Pact.Types.Persistence (RowKey, Domain)
 import Pact.Types.RowData (RowData)
+import qualified Pact.Core.Persistence as PCore
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -125,7 +126,7 @@ pactHistoricalLookup
     -> Domain RowKey RowData
     -> RowKey
     -> PactQueue
-    -> IO (Maybe (TxLog RowData))
+    -> IO (Maybe (PCore.TxLog PCore.RowData))
 pactHistoricalLookup bh d k reqQ = do
   let !req = HistoricalLookupReq bh d k
   let !msg = HistoricalLookupMsg req

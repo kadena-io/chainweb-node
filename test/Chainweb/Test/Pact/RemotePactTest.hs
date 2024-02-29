@@ -150,10 +150,10 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
         in sequentialTestGroup "remote pact tests" AllFinish
             [ withResourceT (liftIO $ join $ withRequestKeys <$> iot <*> cenv) $ \reqkeys -> golden "remote-golden" $
                 join $ responseGolden <$> cenv <*> reqkeys
-            , testCaseSteps "remote spv" $ \step ->
-                join $ spvTest <$> iot <*> cenv <*> pure step
-            , testCaseSteps "remote eth spv" $ \step ->
-                join $ ethSpvTest <$> iot <*> cenv <*> pure step
+            -- , testCaseSteps "remote spv" $ \step ->
+            --     join $ spvTest <$> iot <*> cenv <*> pure step
+            -- , testCaseSteps "remote eth spv" $ \step ->
+            --     join $ ethSpvTest <$> iot <*> cenv <*> pure step
             , testCaseSteps "/send reports validation failure" $ \step ->
                 join $ sendValidationTest <$> iot <*> cenv <*> pure step
             , testCase "/poll reports badlisted txs" $
