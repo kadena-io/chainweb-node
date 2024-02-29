@@ -33,6 +33,7 @@ import Data.ByteString (intercalate)
 import qualified Data.ByteString.Short as BS
 import Data.Foldable (foldl')
 import Data.Int
+import Data.Coerce
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Data.HashMap.Strict as HashMap
@@ -58,12 +59,17 @@ import Pact.Types.Persistence
 import Pact.Types.RowData
 import Pact.Types.SQLite
 
+import qualified Pact.Core.Persistence.MockPersistence as PCore
+import qualified Pact.Core.Serialise as PCore
+import qualified Pact.Core.Persistence as PCore
+
 -- chainweb
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Pact.Backend.ChainwebPactDb
+import qualified Chainweb.Pact.Backend.ChainwebPactCoreDb as PCore
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Backend.DbCache (updateCacheStats)
@@ -122,6 +128,7 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
     let
       blockDbEnv = CurrentBlockDbEnv
           { _cpPactDbEnv = PactDbEnv chainwebPactDb db
+          , _cpPactCoreDbEnv = PCore.chainwebPactCoreDb db
           , _cpRegisterProcessedTx =
             \(TypedHash hash) -> runBlockEnv db (indexPactTransaction $ BS.fromShort hash)
           , _cpLookupProcessedTx = \hs -> runBlockEnv db $ doLookupSuccessful (_bsBlockHeight bstate) hs
@@ -184,8 +191,12 @@ doReadFrom logger v cid db parent doRead = mask $ \resetMask -> do
       pactDb
         | parentIsLatestHeader = chainwebPactDb
         | otherwise = rewoundPactDb currentHeight txid
+      pactCoreDb
+        | parentIsLatestHeader = PCore.chainwebPactCoreDb newDbEnv
+        | otherwise = PCore.rewoundPactCoreDb newDbEnv currentHeight (coerce txid)
       curBlockDbEnv = CurrentBlockDbEnv
         { _cpPactDbEnv = PactDbEnv pactDb newDbEnv
+        , _cpPactCoreDbEnv = pactCoreDb
         , _cpRegisterProcessedTx =
           \(TypedHash hash) -> runBlockEnv newDbEnv (indexPactTransaction $ BS.fromShort hash)
         , _cpLookupProcessedTx = \hs ->
@@ -225,6 +236,7 @@ doRestoreAndSave v cid dbenv parent blocks = mask $ \resetMask -> do
           !bh = maybe (genesisHeight v cid) (succ . _blockHeight . _parentHeader) pc
           curBlockDbEnv = CurrentBlockDbEnv
             { _cpPactDbEnv = PactDbEnv chainwebPactDb dbenv
+            , _cpPactCoreDbEnv = PCore.chainwebPactCoreDb dbenv
             , _cpRegisterProcessedTx =
               \(TypedHash hash) -> runBlockEnv dbenv (indexPactTransaction $ BS.fromShort hash)
             , _cpLookupProcessedTx = \hs -> runBlockEnv dbenv $ doLookupSuccessful bh hs

@@ -70,6 +70,11 @@ import Chainweb.TreeDB (getBranchIncreasing, forkEntry, lookup, seekAncestor)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 
+import Chainweb.Storage.Table
+
+import qualified Debug.Trace as TRACE
+
+
 exitOnRewindLimitExceeded :: PactServiceM logger tbl a -> PactServiceM logger tbl a
 exitOnRewindLimitExceeded = handle $ \case
     e@RewindLimitExceeded{} -> do

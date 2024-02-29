@@ -330,6 +330,7 @@ pactStateSamePreAndPostCompaction rdb =
 
     statePreCompaction <- getLatestPactState db
     Utils.compact Error [C.NoVacuum] cr.sqlEnv (C.Target (BlockHeight numBlocks))
+
     statePostCompaction <- getLatestPactState db
 
     let stateDiff = M.filter (not . PatienceM.isSame) (PatienceM.diff statePreCompaction statePostCompaction)

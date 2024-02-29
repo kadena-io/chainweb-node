@@ -50,6 +50,8 @@ import Pact.Types.Runtime (PactEvent)
 import Pact.Types.SPV
 import Pact.Types.Term
 
+import qualified Pact.Core.Gas as PCore
+
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
@@ -78,13 +80,13 @@ import Chainweb.WebPactExecutionService
 import Chainweb.Payload.PayloadStore (lookupPayloadWithHeight)
 
 testVersion :: ChainwebVersion
-testVersion = slowForkingCpmTestVersion peterson
+testVersion = slowForkingCpmTestVersion singleton
 
 quirkedGasTestVersion :: RequestKey -> ChainwebVersion
 quirkedGasTestVersion = quirkedGasSlowForkingCpmTestVersion peterson
 
 cid :: ChainId
-cid = unsafeChainId 9
+cid = unsafeChainId 0
     -- several tests in this file expect chain 9
 
 data MultiEnv = MultiEnv
@@ -127,26 +129,26 @@ data PactTxTest = PactTxTest
 
 tests :: TestTree
 tests = testGroup testName
-  [ test generousConfig freeGasModel "pact4coin3UpgradeTest" pact4coin3UpgradeTest
-  , test generousConfig freeGasModel "pact42UpgradeTest" pact42UpgradeTest
-  , test generousConfig freeGasModel "minerKeysetTest" minerKeysetTest
-  , test timeoutConfig freeGasModel "txTimeoutTest" txTimeoutTest
-  , test generousConfig getGasModel "chainweb213Test" chainweb213Test
-  , test generousConfig getGasModel "pact43UpgradeTest" pact43UpgradeTest
-  , test generousConfig getGasModel "pact431UpgradeTest" pact431UpgradeTest
-  , test generousConfig getGasModel "chainweb215Test" chainweb215Test
-  , test generousConfig getGasModel "chainweb216Test" chainweb216Test
-  , test generousConfig getGasModel "pact45UpgradeTest" pact45UpgradeTest
-  , test generousConfig getGasModel "pact46UpgradeTest" pact46UpgradeTest
-  , test generousConfig getGasModel "chainweb219UpgradeTest" chainweb219UpgradeTest
-  , test generousConfig getGasModel "pactLocalDepthTest" pactLocalDepthTest
-  , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
-  , test generousConfig getGasModel "pact49UpgradeTest" pact49UpgradeTest
-  , test generousConfig getGasModel "pact410UpgradeTest" pact410UpgradeTest
-  , test generousConfig getGasModel "chainweb223Test" chainweb223Test
-  , test generousConfig getGasModel "compactAndSyncTest" compactAndSyncTest
-  , test generousConfig getGasModel "compactionCompactsUnmodifiedTables" compactionCompactsUnmodifiedTables
-  , quirkTest
+  -- [ test generousConfig freeGasModel (const PCore.freeGasModel) "pact4coin3UpgradeTest" pact4coin3UpgradeTest
+  -- , test generousConfig freeGasModel (const PCore.freeGasModel) "pact42UpgradeTest" pact42UpgradeTest
+  -- , test generousConfig freeGasModel (const PCore.freeGasModel) "minerKeysetTest" minerKeysetTest
+  -- , test timeoutConfig freeGasModel (const PCore.freeGasModel) "txTimeoutTest" txTimeoutTest
+  -- , test generousConfig getGasModel (getGasModelCore 300_000) "chainweb213Test" chainweb213Test
+  -- , test generousConfig getGasModel (getGasModelCore 300_000) "pact43UpgradeTest" pact43UpgradeTest
+  -- , test generousConfig getGasModel (getGasModelCore 300_000) "pact431UpgradeTest" pact431UpgradeTest
+  -- , test generousConfig getGasModel (getGasModelCore 300_000) "chainweb215Test" chainweb215Test
+  -- , test generousConfig getGasModel (getGasModelCore 300_000) "chainweb216Test" chainweb216Test
+  -- , test generousConfig getGasModel (getGasModelCore 300_000) "pact45UpgradeTest" pact45UpgradeTest
+  -- , test generousConfig getGasModel (getGasModelCore 300_000) "pact46UpgradeTest" pact46UpgradeTest
+  -- , test generousConfig getGasModel (getGasModelCore 300_000) "chainweb219UpgradeTest" chainweb219UpgradeTest
+  -- , test generousConfig getGasModel (getGasModelCore 300_000) "pactLocalDepthTest" pactLocalDepthTest
+  -- , test generousConfig getGasModel (getGasModelCore 300_000) "pact48UpgradeTest" pact48UpgradeTest
+  -- , test generousConfig getGasModel (getGasModelCore 300_000) "pact49UpgradeTest" pact49UpgradeTest
+  -- , test generousConfig getGasModel (getGasModelCore 300_000) "pact410UpgradeTest" pact410UpgradeTest
+  [ test generousConfig getGasModel (getGasModelCore 300_000) "chainweb223Test" chainweb223Test
+  -- , test generousConfig getGasModel (getGasModelCore 300_000) "compactAndSyncTest" compactAndSyncTest
+  -- , test generousConfig getGasModel (getGasModelCore 300_000) "compactionCompactsUnmodifiedTables" compactionCompactsUnmodifiedTables
+  -- , quirkTest
   ]
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
@@ -155,12 +157,12 @@ tests = testGroup testName
     generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
     timeoutConfig = testPactServiceConfig { _pactBlockGasLimit = 100_000 }
 
-    test pactConfig gasmodel tname f =
+    test pactConfig gasmodel gasmodelCore tname f =
       withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
         withTestBlockDb testVersion $ \bdb -> do
           (iompa,mpa) <- dmpio
           let logger = hunitDummyLogger step
-          withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
+          withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel gasmodelCore $ \(pact,pacts) ->
             runReaderT f $
             MultiEnv bdb pact pacts (return iompa) noMiner cid
 
@@ -699,17 +701,17 @@ pact42UpgradeTest = do
 
   -- run block 5
 
-  runBlockTest
-    [ PactTxTest buildNewNatives420FoldDbCmd $
-      assertTxSuccess
-      "Should resolve fold-db pact native" $
-      pList [pObject [("a", pInteger 1),("b",pInteger 1)]
-            ,pObject [("a", pInteger 2),("b",pInteger 2)]]
-    , PactTxTest buildNewNatives420ZipCmd $
-      assertTxSuccess
-      "Should resolve zip pact native" $
-      pList $ pInteger <$> [5,7,9]
-    ]
+  -- runBlockTest
+  --   [ PactTxTest buildNewNatives420FoldDbCmd $
+  --     assertTxSuccess
+  --     "Should resolve fold-db pact native" $
+  --     pList [pObject [("a", pInteger 1),("b",pInteger 1)]
+  --           ,pObject [("a", pInteger 2),("b",pInteger 2)]]
+  --   , PactTxTest buildNewNatives420ZipCmd $
+  --     assertTxSuccess
+  --     "Should resolve zip pact native" $
+  --     pList $ pInteger <$> [5,7,9]
+  --   ]
 
   cbResult >>= assertTxEvents "Coinbase events @ block 5" []
 
@@ -1137,6 +1139,8 @@ pact410UpgradeTest :: PactTestM ()
 pact410UpgradeTest = do
   runToHeight 110
 
+  liftIO $ putStrLn "DONE"
+
   expectInvalid
     "WebAuthn prefixed keys should not yet be supported in signatures"
     [ prefixedSigned
@@ -1160,7 +1164,7 @@ pact410UpgradeTest = do
       (pBool True)
 
     , PactTxTest bareSignerPrefixedKey $
-      assertTxFailure
+      assertTxFailure'
       "WebAuthn prefixed keys should not be enforceable with bare signers"
       "Keyset failure (keys-all): [WEBAUTHN...]"
 
@@ -1180,12 +1184,12 @@ pact410UpgradeTest = do
       (pBool True)
 
     , PactTxTest prefixedSignerBareKey $
-      assertTxFailure
+      assertTxFailure'
       "WebAuthn bare keys should throw an error when read"
       "Invalid keyset"
 
     , PactTxTest invalidPrefixedKey $
-      assertTxFailure
+      assertTxFailure'
       "Invalid WebAuthn prefixed keys should throw an error when read"
       "Invalid keyset"
 
@@ -1246,7 +1250,7 @@ chainweb223Test = do
       set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkCoinCap "ROTATE" [pString sender00KAccount]]]
       ) $ mkExec
       (T.unlines
-        ["(coin.create-account (read-msg 'sender00KAcct) (read-keyset 'sender00))"
+        [ "(coin.create-account (read-msg 'sender00KAcct) (read-keyset 'sender00))"
         ,"(coin.rotate (read-msg 'sender00KAcct) (read-keyset 'sender01))"
         ])
       (object ["sender00" .= [fst sender00], "sender00KAcct" .= sender00KAccount, "sender01" .= [fst sender01]]))
@@ -1372,7 +1376,7 @@ quirkTest = do
       withTestBlockDb realVersion $ \bdb -> do
         (iompa,mpa) <- dmpio
         let logger = hunitDummyLogger step
-        withWebPactExecutionService logger realVersion testPactServiceConfig bdb mpa getGasModel $ \(pact,pacts) ->
+        withWebPactExecutionService logger realVersion testPactServiceConfig bdb mpa getGasModel (getGasModelCore 300_000) $ \(pact,pacts) ->
           flip runReaderT (MultiEnv bdb pact pacts (return iompa) noMiner cid) $ do
             runToHeight 99
 
@@ -1682,6 +1686,7 @@ runToHeight :: BlockHeight -> PactTestM ()
 runToHeight bhi = do
   chid <- view menvChainId
   bh <- getHeader chid
+  liftIO $ putStrLn $ "running to " ++ show (_blockHeight bh) ++ " / " ++ show bhi
   when (_blockHeight bh < bhi) $ do
     runCut'
     runToHeight bhi

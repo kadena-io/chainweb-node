@@ -80,7 +80,7 @@ testCache = testCase "testCache" $ do
   where
 
     doCheck msg k v txid = do
-      mc <- StateT (checkDbCache (Utf8 k) (toStrict (encode v)) txid)
+      mc <- StateT (checkDbCache (Utf8 k) decodeStrict (toStrict (encode v)) txid)
       liftIO $ assertEqual msg (Just v) mc
 
     assertEqual' msg ex act = get >>= liftIO . assertEqual msg ex . act

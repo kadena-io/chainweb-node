@@ -91,6 +91,8 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Guards
 
+import Debug.Trace
+
 tbl :: HasCallStack => Utf8 -> Utf8
 tbl t@(Utf8 b)
     | B8.elem ']' b = error $ "Chainweb.Pact.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
@@ -220,7 +222,7 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
     checkModuleCache u b = MaybeT $ do
         !txid <- use bsTxId -- cache priority
         mc <- use bsModuleCache
-        (r, mc') <- liftIO $ checkDbCache u b txid mc
+        (r, mc') <- liftIO $ checkDbCache u decodeStrict b txid mc
         modify' (bsModuleCache .~ mc')
         return r
 
@@ -565,6 +567,7 @@ doCommit = use bsMode >>= \case
         { _pendingTableCreation = HashSet.union (_pendingTableCreation a) (_pendingTableCreation b)
         , _pendingWrites = HashMap.unionWith mergeW (_pendingWrites a) (_pendingWrites b)
         , _pendingTxLogMap = _pendingTxLogMap a
+        , _pendingTxLogMapCore = _pendingTxLogMapCore a
         , _pendingSuccessfulTxs = _pendingSuccessfulTxs b
         }
 
@@ -586,7 +589,7 @@ doBegin m = do
     logger <- view bdbenvLogger
     use bsMode >>= \case
         Just {} -> do
-            logError_ logger "beginTx: In transaction, rolling back"
+            logError_ logger "PactDb.beginTx: In transaction, rolling back"
             doRollback
         Nothing -> return ()
     resetTemp

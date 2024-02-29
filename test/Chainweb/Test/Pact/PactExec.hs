@@ -501,6 +501,7 @@ execTest runPact request = _trEval request $ do
         >>= throwCommandInvalidError
 
     let outputs = V.toList $ snd <$> _transactionPairs results
+    -- print outputs
     return $ TestResponse
         (zip (_trCmds request) (toHashCommandResult <$> outputs))
         (toHashCommandResult $ _transactionCoinbase results)

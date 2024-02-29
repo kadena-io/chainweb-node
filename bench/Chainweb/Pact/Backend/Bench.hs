@@ -418,7 +418,7 @@ cpBenchLookupProcessedTx transactionCount cp = C.env setup' $ \ ~(ut) ->
     C.bench benchname $ C.nfIO (go ut)
   where
     benchname = "lookupProcessedTx/transactionCount=" ++ show transactionCount
-    transaction (NoopNFData ut) db = incIntegerAtKey db ut f k 1
+    transactiaon (NoopNFData ut) db = incIntegerAtKey db ut f k 1
     setup' = do
         [usertablename] <- cpRestoreAndSave cp Nothing
           [(pc01, \db ->

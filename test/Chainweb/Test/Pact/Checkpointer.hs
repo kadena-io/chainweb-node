@@ -41,6 +41,8 @@ import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.SQLite
 import qualified Pact.JSON.Encode as J
 
+import qualified Pact.Core.Gas as PCore
+
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -81,8 +83,10 @@ tests = testGroup "Checkpointer"
 -- Module Name Test
 
 testModuleName :: TestTree
-testModuleName = withResourceT withTempSQLiteResource $
-    runSQLite' $ \resIO -> testCase "testModuleName" $ do
+testModuleName = withResourceT withTempSQLiteResource $ \s ->
+    runSQLite' f s
+    where
+      f = \resIO -> testCase "testModuleName" $ do
 
         (cp, SQLiteEnv {..}) <- resIO
 
@@ -122,7 +126,7 @@ testModuleName = withResourceT withTempSQLiteResource $
 -- Key Set Test
 
 testKeyset :: TestTree
-testKeyset = withResource initializeSQLite freeSQLiteResource (runSQLite keysetTest)
+testKeyset = withResource initializeSQLite freeSQLiteResource $ \s -> runSQLite keysetTest s
 
 keysetTest ::  IO (Checkpointer logger) -> TestTree
 keysetTest c = testCaseSteps "Keyset test" $ \next -> do
@@ -621,8 +625,8 @@ withRelationalCheckpointerResource
     :: (Logger logger, logger ~ GenericLogger)
     => (IO (Checkpointer logger) -> TestTree)
     -> TestTree
-withRelationalCheckpointerResource =
-    withResource initializeSQLite freeSQLiteResource . runSQLite
+withRelationalCheckpointerResource f =
+    withResource initializeSQLite freeSQLiteResource $ \s -> runSQLite f s
 
 addKeyset :: ChainwebPactDbEnv logger -> KeySetName -> KeySet -> IO ()
 addKeyset (PactDbEnv pactdb mvar) keysetname keyset =
@@ -662,10 +666,11 @@ runExec cp pactdbenv eData eCode = do
       applyExec' 0 defaultInterpreter execMsg [] [] h' permissiveNamespacePolicy
   where
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
+    usePactTng = False
     cmdenv :: TransactionEnv logger (BlockEnv logger SQLiteEnv)
-    cmdenv = TransactionEnv Transactional pactdbenv (_cpLogger $ _cpReadCp cp) Nothing def
-             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing
-    cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
+    cmdenv = TransactionEnv Transactional pactdbenv undefined (_cpLogger $ _cpReadCp cp) Nothing def
+             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing usePactTng
+    cmdst = TransactionState mempty mempty mempty 0 Nothing (_geGasModel freeGasEnv) PCore.freeGasModel mempty
 
 runCont :: Logger logger => Checkpointer logger -> ChainwebPactDbEnv logger -> PactId -> Int -> IO EvalResult
 runCont cp pactdbenv pactId step = do
@@ -675,9 +680,10 @@ runCont cp pactdbenv pactId step = do
     contMsg = ContMsg pactId step False (toLegacyJson Null) Nothing
 
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-    cmdenv = TransactionEnv Transactional pactdbenv (_cpLogger $ _cpReadCp cp) Nothing def
-             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing
-    cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
+    usePactTng = False
+    cmdenv = TransactionEnv Transactional pactdbenv undefined (_cpLogger $ _cpReadCp cp) Nothing def
+             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing usePactTng
+    cmdst = TransactionState mempty mempty mempty 0 Nothing (_geGasModel freeGasEnv) PCore.freeGasModel mempty
 
 -- -------------------------------------------------------------------------- --
 -- Pact Utils

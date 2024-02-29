@@ -104,20 +104,20 @@ data PactTxTest = PactTxTest
 
 tests :: TestTree
 tests = testGroup testName
-  [ test generousConfig getGasModel "verifierTest" verifierTest
+  [ test generousConfig getGasModel (getGasModelCore 300_000) "verifierTest" verifierTest
 
-  , test generousConfig getGasModel "recoverValidatorAnnouncementSuccess" hyperlaneRecoverValidatorAnnouncementSuccess
-  , test generousConfig getGasModel "recoverValidatorAnnouncementIncorrectSignatureFailure"
+  , test generousConfig getGasModel (getGasModelCore 300_000) "recoverValidatorAnnouncementSuccess" hyperlaneRecoverValidatorAnnouncementSuccess
+  , test generousConfig getGasModel (getGasModelCore 300_000) "recoverValidatorAnnouncementIncorrectSignatureFailure"
     hyperlaneRecoverValidatorAnnouncementIncorrectSignatureFailure
-  , test generousConfig getGasModel "recoverValidatorAnnouncementDifferentSignerFailure"
+  , test generousConfig getGasModel (getGasModelCore 300_000) "recoverValidatorAnnouncementDifferentSignerFailure"
       hyperlaneRecoverValidatorAnnouncementDifferentSignerFailure
 
-  , test generousConfig getGasModel "verifySuccess" hyperlaneVerifySuccess
-  , test generousConfig getGasModel "verifyEmptyRecoveredSignaturesSuccess" hyperlaneVerifyEmptyRecoveredSignaturesSuccess
+  , test generousConfig getGasModel (getGasModelCore 300_000) "verifySuccess" hyperlaneVerifySuccess
+  , test generousConfig getGasModel (getGasModelCore 300_000) "verifyEmptyRecoveredSignaturesSuccess" hyperlaneVerifyEmptyRecoveredSignaturesSuccess
 
-  , test generousConfig getGasModel "verifyWrongSignersFailure" hyperlaneVerifyWrongSignersFailure
-  , test generousConfig getGasModel "verifyNotEnoughRecoveredSignaturesFailure" hyperlaneVerifyNotEnoughRecoveredSignaturesFailure
-  , test generousConfig getGasModel "verifyNotEnoughCapabilitySignaturesFailure" hyperlaneVerifyNotEnoughCapabilitySignaturesFailure
+  , test generousConfig getGasModel (getGasModelCore 300_000) "verifyWrongSignersFailure" hyperlaneVerifyWrongSignersFailure
+  , test generousConfig getGasModel (getGasModelCore 300_000) "verifyNotEnoughRecoveredSignaturesFailure" hyperlaneVerifyNotEnoughRecoveredSignaturesFailure
+  , test generousConfig getGasModel (getGasModelCore 300_000) "verifyNotEnoughCapabilitySignaturesFailure" hyperlaneVerifyNotEnoughCapabilitySignaturesFailure
   ]
   where
     testName = "Chainweb.Test.Pact.VerifierPluginTest.Transaction"
@@ -125,12 +125,12 @@ tests = testGroup testName
     -- we can be generous.
     generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
 
-    test pactConfig gasmodel tname f =
+    test pactConfig gasmodel gasmodelcore tname f =
       withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
         withTestBlockDb testVersion $ \bdb -> do
           (iompa,mpa) <- dmpio
           let logger = hunitDummyLogger step
-          withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,_) ->
+          withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel gasmodelcore $ \(pact,_) ->
             runReaderT f $
             MultiEnv bdb pact (return iompa) noMiner cid
 

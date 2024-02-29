@@ -191,6 +191,11 @@ import Pact.Types.SQLite
 import Pact.Types.Util (parseB16TextOnly)
 import Pact.Types.Verifier
 
+import qualified Pact.Core.Persistence.MockPersistence as PCore
+import qualified Pact.Core.Serialise as PCore
+import qualified Pact.Core.Builtin as PCore
+import qualified Pact.Core.Gas as PCore
+
 -- internal modules
 
 import Chainweb.BlockHeader
@@ -672,8 +677,9 @@ testPactCtxSQLite
   -> SQLiteEnv
   -> PactServiceConfig
   -> (TxContext -> GasModel)
+  -> (TxContext -> PCore.GasModel PCore.CoreBuiltin)
   -> IO (TestPactCtx logger tbl, ParentHeader, CurrentBlockDbEnv logger)
-testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
+testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel gasmodelCore = do
     (dbSt,cp) <- initRelationalCheckpointer' initialBlockState sqlenv cpLogger v cid
     let rs = readRewards
     let ph = ParentHeader $ genesisBlockHeader v cid
@@ -692,6 +698,7 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
         , _psPdb = pdb
         , _psBlockHeaderDb = bhdb
         , _psGasModel = gasmodel
+        , _psGasModelCore = gasmodelCore
         , _psMinerRewards = rs
         , _psReorgLimit = _pactReorgLimit conf
         , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout conf
@@ -724,9 +731,10 @@ withWebPactExecutionService
     -> TestBlockDb
     -> MemPoolAccess
     -> (TxContext -> GasModel)
+    -> (TxContext -> PCore.GasModel PCore.CoreBuiltin)
     -> ((WebPactExecutionService,HM.HashMap ChainId (SQLiteEnv, PactExecutionService)) -> IO a)
     -> IO a
-withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
+withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel gasmodelCore act =
   withDbs $ \sqlenvs -> do
     pacts <- fmap HM.fromList
            $ traverse (\(dbEnv, cid) -> (cid,) . (dbEnv,) <$> mkPact dbEnv cid)
@@ -741,7 +749,7 @@ withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
     mkPact :: SQLiteEnv -> ChainId -> IO PactExecutionService
     mkPact sqlenv c = do
         bhdb <- getBlockHeaderDb c bdb
-        (ctx,_,_) <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
+        (ctx,_,_) <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel gasmodelCore
         return $ PactExecutionService
           { _pactNewBlock = \_ m ->
               evalPactServiceM_ ctx $ execNewBlock mempoolAccess m
@@ -829,7 +837,7 @@ withPactCtxSQLite logger v bhdbIO pdbIO conf f =
         bhdb <- bhdbIO
         pdb <- pdbIO
         s <- ios
-        testPactCtxSQLite logger v cid bhdb pdb s conf freeGasModel
+        testPactCtxSQLite logger v cid bhdb pdb s conf freeGasModel (const $ PCore.freeGasModel)
 
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
 toTxCreationTime (Time timespan) = TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan

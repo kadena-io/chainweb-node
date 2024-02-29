@@ -38,6 +38,7 @@ module Chainweb.Pact.PactService
     , withPactService
     , execNewGenesisBlock
     , getGasModel
+    , getGasModelCore
     ) where
 
 import Control.Concurrent (threadDelay)
@@ -53,6 +54,9 @@ import Control.Monad.Primitive (PrimState)
 
 import qualified Data.DList as DL
 import Data.Either
+import Data.Coerce
+import Data.Word (Word64)
+import Data.Maybe (fromMaybe)
 import Data.Foldable (toList)
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
@@ -80,12 +84,18 @@ import qualified Streaming.Prelude as Stream
 import qualified Pact.Gas as P
 import Pact.Gas.Table
 import qualified Pact.JSON.Encode as J
+import qualified Pact.JSON.Legacy.HashMap as LHM
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.RowData as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Pretty as P
+import qualified Pact.Parse as P
+
+import qualified Pact.Core.Builtin as PCore
+import qualified Pact.Core.Gas as PCore
+import qualified Pact.Core.Gas.TableGasModel as PCore
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -115,6 +125,8 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards
 import Utils.Logging.Trace
+
+import qualified Debug.Trace as TRACE
 
 runPactService
     :: Logger logger
@@ -154,6 +166,8 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psPdb = pdb
                     , _psBlockHeaderDb = bhDb
                     , _psGasModel = getGasModel
+                    , _psGasModelCore =
+                        getGasModelCore (_pactBlockGasLimit config)
                     , _psMinerRewards = rs
                     , _psReorgLimit = _pactReorgLimit config
                     , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout config
@@ -241,8 +255,10 @@ initializeCoinContract memPoolAccess v cid pwo = do
     case latestBlock of
       Nothing -> do
         logWarn "initializeCoinContract: Checkpointer returned no latest block. Starting from genesis."
+        TRACE.traceShowM ("initializeCoinContract.validateGenesis", cid, latestBlock)
         validateGenesis
       Just currentBlockHeader -> do
+        TRACE.traceShowM ("initializeCoinContract.READ INIT MODULES", cid)
         -- We check the block hash because it's more principled and
         -- we don't have to compute it, so the comparison is still relatively
         -- cheap. We could also check the height but that would be redundant.
@@ -252,6 +268,7 @@ initializeCoinContract memPoolAccess v cid pwo = do
           updateInitCache mc currentBlockHeader
         else do
           logWarn "initializeCoinContract: Starting from genesis."
+          TRACE.traceShowM ("initializeCoinContract.validateGenesis2", cid)
           validateGenesis
   where
     validateGenesis = void $!
@@ -417,7 +434,6 @@ serviceRequests memPoolAccess reqQ = do
             put $! s'
             return $! r
 
-
 execNewBlock
     :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
     => MemPoolAccess
@@ -473,6 +489,7 @@ execNewBlock mpAccess miner = do
               txs <- Vec.toLiftedVector successes
               pure (toPayloadWithOutputs miner (Transactions txs cb))
             return pwo
+
       where
         handleTimeout :: TxTimeout -> PactBlockM logger cas a
         handleTimeout (TxTimeout h) = liftPactServiceM $ do
@@ -731,7 +748,8 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                 let spv = pactSPV bhdb (_parentHeader pc)
                 ctx <- getTxContext pm
                 let gasModel = getGasModel ctx
-                mc <- getInitCache
+                let gasModelCore = getGasModelCore _psBlockGasLimit ctx
+                mc@(mcache, cmcache) <- getInitCache
                 dbEnv <- view psBlockDbEnv
 
                 --
@@ -745,9 +763,10 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                     liftPactServiceM (assertLocalMetadata cmd ctx sigVerify) >>= \case
                       Right{} -> do
                         let initialGas = initialGasOf $ P._cmdPayload cwtx
-                        T3 cr _mc warns <- liftIO $ applyCmd
-                          _psVersion _psLogger _psGasLogger (_cpPactDbEnv dbEnv)
-                          noMiner gasModel ctx spv cmd
+                        -- TRACE.traceShowM ("execLocal.CACHE: ", LHM.keys $ _getModuleCache mcache, M.keys $ _getCoreModuleCache cmcache)
+                        T4 cr _mc _ warns <- liftIO $ applyCmd
+                          _psVersion _psLogger _psGasLogger (_cpPactDbEnv dbEnv, _cpPactCoreDbEnv dbEnv)
+                          noMiner (gasModel, gasModelCore) ctx spv cmd
                           initialGas mc ApplyLocal
 
                         let cr' = toHashCommandResult cr
@@ -762,8 +781,8 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                             disableReturnRTC (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx)
 
                     cr <- applyLocal
-                      _psLogger _psGasLogger (_cpPactDbEnv dbEnv)
-                      gasModel ctx spv
+                      _psLogger _psGasLogger (_cpPactDbEnv dbEnv, _cpPactCoreDbEnv dbEnv)
+                      (gasModel, gasModelCore)  ctx spv
                       cwtx mc execConfig
 
                     let cr' = toHashCommandResult cr
@@ -964,9 +983,9 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
             V.fromList . toList . sfst <$> V.foldM (f l) (T2 mempty mc) txsOrErrs
       where
         f :: logger
-          -> T2 (DL.DList (Either InsertError ChainwebTransaction)) ModuleCache
+          -> T2 (DL.DList (Either InsertError ChainwebTransaction)) (ModuleCache, CoreModuleCache)
           -> Either InsertError ChainwebTransaction
-          -> PactBlockM logger tbl (T2 (DL.DList (Either InsertError ChainwebTransaction)) ModuleCache)
+          -> PactBlockM logger tbl (T2 (DL.DList (Either InsertError ChainwebTransaction)) (ModuleCache, CoreModuleCache))
         f l (T2 dl mcache) cmd = do
             T2 mcache' !res <- runBuyGas l mcache cmd
             pure $! T2 (DL.snoc dl res) mcache'
@@ -986,27 +1005,30 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                   [ P.FlagDisableModuleInstall
                   , P.FlagDisableHistoryInTransactionalMode ] ++
                   disableReturnRTC (_chainwebVersion pd) (_chainId pd) (ctxCurrentBlockHeight pd)
-            return $! TransactionEnv P.Transactional (_cpPactDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gp rk gl ec Nothing
+                usePactTng = False
+            return $! TransactionEnv P.Transactional (_cpPactDbEnv dbEnv) (_cpPactCoreDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gp rk gl ec Nothing usePactTng
           where
             !nid = networkIdOf cmd
             !rk = P.cmdToRequestKey cmd
 
         runBuyGas
             :: logger
-            -> ModuleCache
+            -> (ModuleCache, CoreModuleCache)
             -> Either InsertError ChainwebTransaction
-            -> PactBlockM logger tbl (T2 ModuleCache (Either InsertError ChainwebTransaction))
-        runBuyGas _l mcache l@Left {} = return (T2 mcache l)
-        runBuyGas l mcache (Right tx) = do
+            -> PactBlockM logger tbl (T2 (ModuleCache, CoreModuleCache) (Either InsertError ChainwebTransaction))
+        runBuyGas _l (mcache, cmcache) l@Left {} = return (T2 (mcache, cmcache) l)
+        runBuyGas l (mcache, cmcache) (Right tx) = do
             let cmd = payloadObj <$> tx
                 gasPrice = view cmdGasPrice cmd
                 gasLimit = fromIntegral $ view cmdGasLimit cmd
                 txst = TransactionState
                     { _txCache = mcache
+                    , _txCoreCache = cmcache
                     , _txLogs = mempty
                     , _txGasUsed = 0
                     , _txGasId = Nothing
                     , _txGasModel = P._geGasModel P.freeGasEnv
+                    , _txGasModelCore = PCore.freeGasModel
                     , _txWarnings = mempty
                     }
 
@@ -1018,8 +1040,8 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
               $! buyGas False cmd miner
 
             case cr of
-                Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
-                Right t -> return (T2 (_txCache t) (Right tx))
+                Left err -> return (T2 (mcache, cmcache) (Left (InsertErrorBuyGas (T.pack $ show err))))
+                Right t -> return (T2 (_txCache t, _txCoreCache t) (Right tx))
 
 
 execLookupPactTxs
@@ -1072,6 +1094,13 @@ getGasModel :: TxContext -> P.GasModel
 getGasModel ctx
     | guardCtx chainweb213Pact ctx = chainweb213GasModel
     | otherwise = freeModuleLoadGasModel
+
+getGasModelCore :: GasLimit -> TxContext -> PCore.GasModel PCore.CoreBuiltin
+getGasModelCore l ctx
+    | chainweb213Pact (ctxVersion ctx) (ctxChainId ctx) (ctxCurrentBlockHeight ctx) = PCore.tableGasModel ll
+    | otherwise = PCore.tableGasModel ll
+    where
+        ll = (let (P.GasLimit (P.ParsedInteger g)) = l in PCore.MilliGasLimit $ PCore.MilliGas $ 1000 * fromIntegral g)
 
 pactLabel :: (Logger logger) => Text -> PactServiceM logger tbl x -> PactServiceM logger tbl x
 pactLabel lbl x = localLabel ("pact-request", lbl) x
