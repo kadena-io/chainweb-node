@@ -182,7 +182,7 @@ testRewindAfterFork iobdb rewindM = (go, checkLoadedCache)
       a <- ioa >>= readMVar
       case M.lookup 6 initCache of
         Nothing -> assertFailure "Cache not found at height 6"
-        Just c -> (justModuleHashes a) `assertNoCacheMismatch` (justModuleHashes' c)
+        Just (c, _) -> (justModuleHashes a) `assertNoCacheMismatch` (justModuleHashes' c)
 
 testRewindBeforeFork
   :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)
@@ -199,7 +199,7 @@ testRewindBeforeFork iobdb rewindM = (go, checkLoadedCache)
     checkLoadedCache ioa initCache = do
       a <- ioa >>= readMVar
       case (M.lookup 5 initCache, M.lookup 4 initCache) of
-        (Just c, Just d) -> do
+        (Just (c, _), Just (d, _)) -> do
           (justModuleHashes a) `assertNoCacheMismatch` (justModuleHashes' c)
           v3c <- rewindM >>= \rewind -> fmap v3Cache (readMVar rewind)
           assertNoCacheMismatch v3c (justModuleHashes' d)
@@ -219,7 +219,7 @@ testCw217CoinOnly iobdb _rewindM = (go, go')
     go' ioa initCache = do
       snapshotCache ioa initCache
       case M.lookup 20 initCache of
-        Just a -> assertEqual "module init cache contains only coin" ["coin"] (moduleCacheKeys a)
+        Just (a, _) -> assertEqual "module init cache contains only coin" ["coin"] (moduleCacheKeys a)
         Nothing -> assertFailure "failed to lookup block at 20"
 
 assertNoCacheMismatch
@@ -265,7 +265,7 @@ doNextCoinbaseN_ n iobdb = fmap last $ forM [1..n] $ \_ ->
 
 -- | Interfaces can't be upgraded, but modules can, so verify hash in that case.
 justModuleHashes :: ModuleInitCache -> HM.HashMap ModuleName (Maybe ModuleHash)
-justModuleHashes = justModuleHashes' . snd . last . M.toList
+justModuleHashes = justModuleHashes' . fst . snd . last . M.toList
 
 justModuleHashes' :: ModuleCache -> HM.HashMap ModuleName (Maybe ModuleHash)
 justModuleHashes' =

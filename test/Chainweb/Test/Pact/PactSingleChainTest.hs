@@ -57,6 +57,8 @@ import Pact.Types.Util (fromText')
 import Pact.JSON.Encode qualified as J
 import Pact.JSON.Yaml
 
+import qualified Pact.Core.Persistence as PCore
+
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader
@@ -219,7 +221,7 @@ newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailur
 
     _ -> assertFailure "newBlockAndValidationFailure: expected BlockValidationFailure"
 
-toRowData :: HasCallStack => Value -> RowData
+toRowData :: HasCallStack => Value -> PCore.RowData
 toRowData v = case eitherDecode encV of
     Left e -> error $
         "toRowData: failed to encode as row data. " <> e <> "\n" <> show encV
@@ -327,6 +329,7 @@ pactStateSamePreAndPostCompaction rdb =
 
     statePreCompaction <- getLatestPactState db
     Utils.compact Error [C.NoVacuum] cr.sqlEnv (C.Target (BlockHeight numBlocks))
+
     statePostCompaction <- getLatestPactState db
 
     let stateDiff = M.filter (not . PatienceM.isSame) (PatienceM.diff statePreCompaction statePostCompaction)
@@ -565,7 +568,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
   BlockTxHistory hist prevBals <- pactBlockTxHistory h (UserTables "coin_coin-table") q
   -- just check first one here
   assertEqual "check first entry of history"
-    (Just [TxLog "coin_coin-table" "sender00"
+    (Just [PCore.TxLog "coin_coin-table" "sender00"
       (toRowData $ object
        [ "guard" .= object
          [ "pred" .= ("keys-all" :: T.Text)
@@ -583,7 +586,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
   assertEqual "check previous balance"
     (M.fromList
      [(RowKey "sender00",
-       (TxLog "coin_coin-table" "sender00"
+       (PCore.TxLog "coin_coin-table" "sender00"
         (toRowData $ object
          [ "guard" .= object
            [ "pred" .= ("keys-all" :: T.Text)
@@ -598,7 +601,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
 
 getHistoricalLookupNoTxs
     :: T.Text
-    -> (Maybe (TxLog RowData) -> IO ())
+    -> (Maybe (PCore.TxLog PCore.RowData) -> IO ())
     -> IO (IORef MemPoolAccess)
     -> IO (SQLiteEnv, PactQueue, TestBlockDb)
     -> TestTree
@@ -612,7 +615,7 @@ getHistoricalLookupNoTxs key assertF refIO reqIO =
 
 getHistoricalLookupWithTxs
     :: T.Text
-    -> (Maybe (TxLog RowData) -> IO ())
+    -> (Maybe (PCore.TxLog PCore.RowData) -> IO ())
     -> IO (IORef MemPoolAccess)
     -> IO (SQLiteEnv, PactQueue, TestBlockDb)
     -> TestTree
@@ -624,14 +627,14 @@ getHistoricalLookupWithTxs key assertF refIO reqIO =
     h <- getParentTestBlockDb bdb cid
     histLookup q h key >>= assertF
 
-histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (TxLog RowData))
+histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (PCore.TxLog PCore.RowData))
 histLookup q bh k =
   pactHistoricalLookup bh (UserTables "coin_coin-table") (RowKey k) q
 
-assertSender00Bal :: Rational -> String -> Maybe (TxLog RowData) -> Assertion
+assertSender00Bal :: Rational -> String -> Maybe (PCore.TxLog PCore.RowData) -> Assertion
 assertSender00Bal bal msg hist =
   assertEqual msg
-    (Just (TxLog "coin_coin-table" "sender00"
+    (Just (PCore.TxLog "coin_coin-table" "sender00"
       (toRowData $ object
         [ "guard" .= object
           [ "pred" .= ("keys-all" :: T.Text)

@@ -32,6 +32,7 @@ import Data.ByteString (intercalate)
 import qualified Data.ByteString.Short as BS
 import Data.Foldable (foldl')
 import Data.Int
+import Data.Coerce
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Data.HashMap.Strict as HashMap
@@ -56,13 +57,17 @@ import Pact.Types.Hash (PactHash, TypedHash(..))
 import Pact.Types.Persistence
 import Pact.Types.RowData
 import Pact.Types.SQLite
+import Pact.Types.Util (AsString(..))
+
+import qualified Pact.Core.Persistence as PCore
 
 -- chainweb
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
-import Chainweb.Pact.Backend.ChainwebPactDb
+import qualified Chainweb.Pact.Backend.ChainwebPactDb as PactDb
+import qualified Chainweb.Pact.Backend.ChainwebPactCoreDb as PCore
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Backend.DbCache
@@ -117,7 +122,7 @@ initRelationalCheckpointer'
     -> ChainId
     -> IO (MVar (DbCache PersistModuleData), Checkpointer logger)
 initRelationalCheckpointer' dbCacheLimit sqlenv p loggr v cid = do
-    initSchema loggr sqlenv
+    PactDb.initSchema loggr sqlenv
     moduleCacheVar <- newMVar (emptyDbCache dbCacheLimit)
     let
         checkpointer = Checkpointer
@@ -154,7 +159,7 @@ doReadFrom logger v cid sql moduleCacheVar parent doRead = do
     bracket
       (beginSavepoint sql BatchSavepoint)
       (\_ -> abortSavepoint sql BatchSavepoint) $ \() -> do
-      txid <- getEndTxId "doReadFrom" sql parent
+      txid <- PactDb.getEndTxId "doReadFrom" sql parent
       newDbEnv <- newMVar $ BlockEnv
         (mkBlockHandlerEnv v cid currentHeight sql DoNotPersistIntraBlockWrites logger)
         (initBlockState defaultModuleCacheLimit txid)
@@ -172,12 +177,16 @@ doReadFrom logger v cid sql moduleCacheVar parent doRead = do
 
       let
         pactDb
-          | parentIsLatestHeader = chainwebPactDb
-          | otherwise = rewoundPactDb currentHeight txid
+          | parentIsLatestHeader = PactDb.chainwebPactDb
+          | otherwise = PactDb.rewoundPactDb currentHeight txid
+        pactCoreDb
+          | parentIsLatestHeader = PCore.chainwebPactCoreDb newDbEnv
+          | otherwise = PCore.rewoundPactCoreDb newDbEnv currentHeight (coerce txid)
         curBlockDbEnv = CurrentBlockDbEnv
           { _cpPactDbEnv = PactDbEnv pactDb newDbEnv
+          , _cpPactCoreDbEnv = pactCoreDb
           , _cpRegisterProcessedTx =
-            \(TypedHash hash) -> runBlockEnv newDbEnv (indexPactTransaction $ BS.fromShort hash)
+            \(TypedHash hash) -> runBlockEnv newDbEnv (PactDb.indexPactTransaction $ BS.fromShort hash)
           , _cpLookupProcessedTx = \hs ->
             runBlockEnv newDbEnv (doLookupSuccessful currentHeight hs)
           }
@@ -206,8 +215,8 @@ doRestoreAndSave logger v cid sql p moduleCacheVar parent blocks =
           ExitCaseSuccess {} -> commitSavepoint sql BatchSavepoint
           _ -> abortSavepoint sql BatchSavepoint
         ) $ \_ -> do
-          rewindDbTo sql parent
-          txid <- getEndTxId "restoreAndSave" sql parent
+          PactDb.rewindDbTo sql parent
+          txid <- PactDb.getEndTxId "restoreAndSave" sql parent
           ((q, _, _, finalModuleCache) :> r) <- extend txid moduleCache
           return (finalModuleCache, (r, q))
   where
@@ -219,6 +228,7 @@ doRestoreAndSave logger v cid sql p moduleCacheVar parent blocks =
       (\(m, pc, txid, moduleCache) block -> do
         let
           !bh = maybe (genesisHeight v cid) (succ . _blockHeight . _parentHeader) pc
+
         -- prepare the block state
         let handlerEnv = mkBlockHandlerEnv v cid bh sql p logger
         let state = (initBlockState defaultModuleCacheLimit txid) { _bsModuleCache = moduleCache }
@@ -228,9 +238,10 @@ doRestoreAndSave logger v cid sql p moduleCacheVar parent blocks =
           }
 
         let curBlockDbEnv = CurrentBlockDbEnv
-              { _cpPactDbEnv = PactDbEnv chainwebPactDb dbMVar
+              { _cpPactDbEnv = PactDbEnv PactDb.chainwebPactDb dbMVar
+              , _cpPactCoreDbEnv = PCore.chainwebPactCoreDb dbMVar
               , _cpRegisterProcessedTx =
-                \(TypedHash hash) -> runBlockEnv dbMVar (indexPactTransaction $ BS.fromShort hash)
+                \(TypedHash hash) -> runBlockEnv dbMVar (PactDb.indexPactTransaction $ BS.fromShort hash)
               , _cpLookupProcessedTx = \hs -> runBlockEnv dbMVar $ doLookupSuccessful bh hs
               }
         -- execute the block
@@ -253,7 +264,7 @@ doRestoreAndSave logger v cid sql p moduleCacheVar parent blocks =
                 <> sshow (_blockHeight ph) <> ", child height " <> sshow (_blockHeight newBh)
           _ -> return ()
         -- persist any changes to the database
-        commitBlockStateToDatabase sql (_blockHash newBh) (_blockHeight newBh) nextState
+        PactDb.commitBlockStateToDatabase sql (_blockHash newBh) (_blockHeight newBh) nextState
         return (m'', Just (ParentHeader newBh), nextTxId, nextModuleCache)
       )
       (return (mempty, parent, startTxId, startModuleCache))
@@ -357,13 +368,15 @@ doLookupSuccessful curHeight hashes = do
 doGetBlockHistory :: SQLiteEnv -> BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory
 doGetBlockHistory db blockHeader d = do
   endTxId <- fmap fromIntegral $
-    getEndTxId "doGetBlockHistory" db (Just $ ParentHeader blockHeader)
+    PactDb.getEndTxId "doGetBlockHistory" db (Just $ ParentHeader blockHeader)
   startTxId <- fmap fromIntegral $
     if bHeight == genesisHeight v cid
     then return 0
-    else getEndTxId' "doGetBlockHistory" db (pred bHeight) (_blockParent blockHeader)
+    else PactDb.getEndTxId' "doGetBlockHistory" db (pred bHeight) (_blockParent blockHeader)
+
   let tname = domainTableName d
-  history <- queryHistory tname startTxId endTxId
+  !history <- queryHistory tname startTxId endTxId
+
   let (!hkeys,tmap) = foldl' procTxHist (S.empty,mempty) history
   !prev <- M.fromList . catMaybes <$> mapM (queryPrev tname startTxId) (S.toList hkeys)
   return $ BlockTxHistory tmap prev
@@ -373,14 +386,14 @@ doGetBlockHistory db blockHeader d = do
     bHeight = _blockHeight blockHeader
 
     procTxHist
-      :: (S.Set Utf8, M.Map TxId [TxLog RowData])
-      -> (Utf8,TxId,TxLog RowData)
-      -> (S.Set Utf8,M.Map TxId [TxLog RowData])
+      :: (S.Set Utf8, M.Map TxId [PCore.TxLog PCore.RowData])
+      -> (Utf8,TxId,PCore.TxLog PCore.RowData)
+      -> (S.Set Utf8,M.Map TxId [PCore.TxLog PCore.RowData])
     procTxHist (ks,r) (uk,t,l) = (S.insert uk ks, M.insertWith (++) t [l] r)
 
     -- Start index is inclusive, while ending index is not.
     -- `endingtxid` in a block is the beginning txid of the following block.
-    queryHistory :: Utf8 -> Int64 -> Int64 -> IO [(Utf8,TxId,TxLog RowData)]
+    queryHistory :: Utf8 -> Int64 -> Int64 -> IO [(Utf8,TxId,PCore.TxLog PCore.RowData)]
     queryHistory tableName s e = do
       let sql = "SELECT txid, rowkey, rowdata FROM [" <> tableName <>
                 "] WHERE txid >= ? AND txid < ?"
@@ -388,13 +401,13 @@ doGetBlockHistory db blockHeader d = do
            [SInt s,SInt e]
            [RInt,RText,RBlob]
       forM r $ \case
-        [SInt txid, SText key, SBlob value] -> (key,fromIntegral txid,) <$> toTxLog d key value
+        [SInt txid, SText key, SBlob value] -> (key,fromIntegral txid,) <$> PCore.toTxLog (asString d) key value
         err -> internalError $
                "queryHistory: Expected single row with three columns as the \
                \result, got: " <> T.pack (show err)
 
     -- Get last tx data, if any, for key before start index.
-    queryPrev :: Utf8 -> Int64 -> Utf8 -> IO (Maybe (RowKey,TxLog RowData))
+    queryPrev :: Utf8 -> Int64 -> Utf8 -> IO (Maybe (RowKey,PCore.TxLog PCore.RowData))
     queryPrev tableName s k@(Utf8 sk) = do
       let sql = "SELECT rowdata FROM [" <> tableName <>
                 "] WHERE rowkey = ? AND txid < ? " <>
@@ -404,7 +417,7 @@ doGetBlockHistory db blockHeader d = do
            [RBlob]
       case r of
         [] -> return Nothing
-        [[SBlob value]] -> Just . (RowKey $ T.decodeUtf8 sk,) <$> toTxLog d k value
+        [[SBlob value]] -> Just . (RowKey $ T.decodeUtf8 sk,) <$> PCore.toTxLog (asString d) k value
         _ -> internalError $ "queryPrev: expected 0 or 1 rows, got: " <> T.pack (show r)
 
 
@@ -413,14 +426,14 @@ doGetHistoricalLookup
     -> BlockHeader
     -> Domain RowKey RowData
     -> RowKey
-    -> IO (Maybe (TxLog RowData))
+    -> IO (Maybe (PCore.TxLog PCore.RowData))
 doGetHistoricalLookup db blockHeader d k = do
   endTxId <-
-    fromIntegral <$> getEndTxId "doGetHistoricalLookup" db (Just $ ParentHeader blockHeader)
+    fromIntegral <$> PactDb.getEndTxId "doGetHistoricalLookup" db (Just $ ParentHeader blockHeader)
   latestEntry <- queryHistoryLookup (domainTableName d) endTxId (convRowKey k)
   return $! latestEntry
   where
-    queryHistoryLookup :: Utf8 -> Int64 -> Utf8 -> IO (Maybe (TxLog RowData))
+    queryHistoryLookup :: Utf8 -> Int64 -> Utf8 -> IO (Maybe (PCore.TxLog PCore.RowData))
     queryHistoryLookup tableName e rowKeyName = do
       let sql = "SELECT rowKey, rowdata FROM [" <> tableName <>
                 "] WHERE txid < ? AND rowkey = ? ORDER BY txid DESC LIMIT 1;"
@@ -428,6 +441,6 @@ doGetHistoricalLookup db blockHeader d k = do
            [SInt e, SText rowKeyName]
            [RText, RBlob]
       case r of
-        [[SText key, SBlob value]] -> Just <$> toTxLog d key value
+        [[SText key, SBlob value]] -> Just <$> PCore.toTxLog (asString d) key value
         [] -> pure Nothing
         _ -> internalError $ "doGetHistoricalLookup: expected single-row result, got " <> sshow r

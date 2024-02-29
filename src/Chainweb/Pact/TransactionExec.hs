@@ -8,6 +8,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
 -- Copyright   :  Copyright © 2018 Kadena LLC.
@@ -24,10 +25,15 @@ module Chainweb.Pact.TransactionExec
 , applyLocal
 , applyExec
 , applyExec'
+, applyExecTng
+, applyExecTng'
 , applyContinuation
 , applyContinuation'
+, applyContinuationTng
+, applyContinuationTng'
 , runPayload
 , readInitModules
+, readInitModulesCore
 , enablePactEvents'
 , enforceKeysetFormats'
 , disableReturnRTC
@@ -63,13 +69,16 @@ import Control.Parallel.Strategies(using, rseq)
 
 import Data.Aeson hiding ((.=))
 import qualified Data.Aeson as A
+import qualified Data.Aeson.Types as A
 import Data.Bifunctor
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
+import Data.Coerce (coerce)
 import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
 import Data.Foldable (fold, for_)
 import Data.IORef
+import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
 import qualified Data.List as List
 import qualified Data.Map.Strict as M
@@ -81,15 +90,15 @@ import qualified System.LogLevel as L
 
 -- internal Pact modules
 
-import Chainweb.Pact.Backend.Types (_cpPactDbEnv)
 import Pact.Eval (eval, liftTerm)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
+import qualified Pact.JSON.Decode as J
 import qualified Pact.JSON.Encode as J
 import Pact.JSON.Legacy.Value
 import Pact.Native.Capabilities (evalCap)
 import Pact.Native.Internal (appToCap)
-import Pact.Parse (ParsedDecimal(..))
+import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Runtime.Capabilities (popCapStack)
 import Pact.Runtime.Utils (lookupModule)
 import Pact.Types.Capability
@@ -106,7 +115,27 @@ import Pact.Types.Verifier
 
 import Pact.Types.Util as PU
 
+import Pact.Core.Serialise.LegacyPact ()
+import qualified Pact.Core.Compile as PCore
+import qualified Pact.Core.Evaluate as PCore
+import qualified Pact.Core.Capabilities as PCore
+import qualified Pact.Core.Names as PCore
+import qualified Pact.Core.Namespace as PCore
+import qualified Pact.Core.Persistence as PCore
+import qualified Pact.Core.Pretty as PCore
+import qualified Pact.Core.Gas as PCore
+import qualified Pact.Core.Hash as PCore
+import qualified Pact.Core.PactValue as PCore
+import qualified Pact.Core.Environment as PCore
+import qualified Pact.Core.Builtin as PCore
+import qualified Pact.Core.Syntax.ParseTree as PCore
+import qualified Pact.Core.DefPacts.Types as PCore
+import qualified Pact.Core.Scheme as PCore
+import qualified Pact.Core.StableEncoding as PCore
+import qualified Pact.Core.SPV as PCore
+
 -- internal Chainweb modules
+import qualified Chainweb.Pact.Transactions.CoinCoreV4Transactions as CoinCoreV4
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
@@ -117,13 +146,16 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
 import Chainweb.Pact.Types hiding (logError)
+import Chainweb.Pact.Backend.Types
 import Chainweb.Transaction
-import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous, T2(..), T3(..))
 import Chainweb.VerifierPlugin
+import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous, T2(..), T4(..))
 import Chainweb.Version as V
 import Chainweb.Version.Guards as V
 import Chainweb.Version.Utils as V
 import Pact.JSON.Encode (toJsonViaEncode)
+
+import qualified Debug.Trace as TRACE
 
 -- Note [Throw out verifier proofs eagerly]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -155,6 +187,15 @@ magic_GENESIS = mkMagicCapSlot "GENESIS"
 debitCap :: Text -> SigCapability
 debitCap s = mkCoinCap "DEBIT" [PLiteral (LString s)]
 
+core_magic_COINBASE :: PCore.CapSlot PCore.QualifiedName PCore.PactValue
+core_magic_COINBASE = mkMagicCoreCapSlot "COINBASE"
+
+core_magic_GAS :: PCore.CapSlot PCore.QualifiedName PCore.PactValue
+core_magic_GAS = mkMagicCoreCapSlot "GAS"
+
+-- core_magic_GENESIS :: PCore.CapSlot PCore.QualifiedName PCore.PactValue
+-- core_magic_GENESIS = mkMagicCoreCapSlot "GENESIS"
+
 onChainErrorPrintingFor :: TxContext -> UnexpectedErrorPrinting
 onChainErrorPrintingFor txCtx =
   if guardCtx chainweb219Pact txCtx
@@ -172,11 +213,11 @@ applyCmd
       -- ^ Pact logger
     -> Maybe logger
       -- ^ Pact gas logger
-    -> PactDbEnv p
+    -> (PactDbEnv p, CoreDb)
       -- ^ Pact db environment
     -> Miner
       -- ^ The miner chosen to mine the block
-    -> GasModel
+    -> (GasModel, PCore.GasModel PCore.CoreBuiltin)
       -- ^ Gas model (pact Service config)
     -> TxContext
       -- ^ tx metadata and parent header
@@ -186,23 +227,28 @@ applyCmd
       -- ^ command with payload to execute
     -> Gas
       -- ^ initial gas used
-    -> ModuleCache
+    -> (ModuleCache, CoreModuleCache)
       -- ^ cached module state
     -> ApplyCmdExecutionContext
       -- ^ is this a local or send execution context?
-    -> IO (T3 (CommandResult [TxLogJson]) ModuleCache (S.Set PactWarning))
-applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 callCtx = do
+    -> IO (T4 (CommandResult [TxLogJson]) ModuleCache CoreModuleCache (S.Set PactWarning))
+applyCmd v logger gasLogger (pdbenv, coreDb) miner (gasModel, gasModelCore) txCtx spv cmd initialGas (mcache0, mccache0) callCtx = do
     T2 cr st <- runTransactionM cenv txst applyBuyGas
 
     let cache = _txCache st
+        coreCache = _txCoreCache st
         warns = _txWarnings st
 
-    pure $ T3 cr cache warns
+    pure $ T4 cr cache coreCache warns
   where
     stGasModel
       | chainweb217Pact' = gasModel
       | otherwise = _geGasModel freeGasEnv
-    txst = TransactionState mcache0 mempty 0 Nothing stGasModel mempty
+
+    stGasModelCore
+      | chainweb217Pact' = gasModelCore
+      | otherwise = PCore.freeGasModel
+    txst = TransactionState mcache0 mccache0 mempty 0 Nothing stGasModel stGasModelCore mempty
     quirkGasFee = v ^? versionQuirks . quirkGasFees . ix requestKey
 
     executionConfigNoHistory = ExecutionConfig
@@ -213,8 +259,8 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
         ++ [ FlagPreserveNsModuleInstallBug | not isModuleNameFix2 ])
       <> flagsFor v (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
 
-    cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
-      requestKey (fromIntegral gasLimit) executionConfigNoHistory quirkGasFee
+    cenv = TransactionEnv Transactional pdbenv coreDb logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
+      requestKey (fromIntegral gasLimit) executionConfigNoHistory quirkGasFee usePactTng
 
     !requestKey = cmdToRequestKey cmd
     !gasPrice = view cmdGasPrice cmd
@@ -230,6 +276,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     chainweb219Pact' = guardCtx chainweb219Pact txCtx
     chainweb223Pact' = guardCtx chainweb223Pact txCtx
     allVerifiers = verifiersAt v cid currHeight
+    usePactTng = chainweb222Pact v cid currHeight
     toEmptyPactError (PactError errty _ _ _) = PactError errty def [] mempty
 
     toOldListErr pe = pe { peDoc = listErrMsg }
@@ -242,6 +289,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       applyRedeem r
 
     applyBuyGas =
+      -- TRACE.traceShowM ("applyBuyGas.CACHE: ", LHM.keys $ _getModuleCache mcache0, M.keys $ _getCoreModuleCache mccache0)
       catchesPactError logger (onChainErrorPrintingFor txCtx) (buyGas txCtx cmd miner) >>= \case
         Left e -> view txRequestKey >>= \rk ->
           throwM $ BuyGasFailure $ GasPurchaseFailure (requestKeyToTransactionHash rk) e
@@ -278,6 +326,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
 
     applyPayload = do
       txGasModel .= gasModel
+      txGasModelCore .= gasModelCore
       if chainweb217Pact' then txGasUsed += initialGas
       else txGasUsed .= initialGas
 
@@ -296,6 +345,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
 
     applyRedeem cr = do
       txGasModel .= _geGasModel freeGasEnv
+      txGasModelCore .= PCore.freeGasModel
 
       r <- catchesPactError logger (onChainErrorPrintingFor txCtx) $! redeemGas txCtx cmd miner
       case r of
@@ -324,7 +374,7 @@ applyGenesisCmd
     :: (Logger logger)
     => logger
       -- ^ Pact logger
-    -> PactDbEnv p
+    -> (PactDbEnv p, CoreDb)
       -- ^ Pact db environment
     -> SPVSupport
       -- ^ SPV support (validates cont proofs)
@@ -332,15 +382,16 @@ applyGenesisCmd
       -- ^ tx metadata
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
-    -> IO (T2 (CommandResult [TxLogJson]) ModuleCache)
-applyGenesisCmd logger dbEnv spv txCtx cmd =
-    second _txCache <$!> runTransactionM tenv txst go
+    -> IO (T2 (CommandResult [TxLogJson]) (ModuleCache, CoreModuleCache))
+applyGenesisCmd logger (dbEnv, coreDb) spv txCtx cmd =
+    second (\s -> (_txCache s, _txCoreCache s)) <$!> runTransactionM tenv txst go
   where
     nid = networkIdOf cmd
     rk = cmdToRequestKey cmd
     tenv = TransactionEnv
         { _txMode = Transactional
         , _txDbEnv = dbEnv
+        , _txCoreDb = coreDb
         , _txLogger = logger
         , _txGasLogger = Nothing
         , _txPublicData = def
@@ -358,18 +409,22 @@ applyGenesisCmd logger dbEnv spv txCtx cmd =
           -- after the block height where pact4.4 is on.
           <> S.fromList [ FlagDisableInlineMemCheck, FlagDisablePact44 ]
         , _txQuirkGasFee = Nothing
+        , _txUsePactTng = False
         }
     txst = TransactionState
         { _txCache = mempty
+        , _txCoreCache = mempty
         , _txLogs = mempty
         , _txGasUsed = 0
         , _txGasId = Nothing
         , _txGasModel = _geGasModel freeGasEnv
+        , _txGasModelCore = PCore.freeGasModel
         , _txWarnings = mempty
         }
 
     interp = initStateInterpreter
       $ initCapabilities [magic_GENESIS, magic_COINBASE]
+    -- coreState = initCoreCapabilities [core_magic_GENESIS, core_magic_COINBASE]
 
     go = do
       -- TODO: fix with version recordification so that this matches the flags at genesis heights.
@@ -405,7 +460,7 @@ applyCoinbase
     => ChainwebVersion
     -> logger
       -- ^ Pact logger
-    -> PactDbEnv p
+    -> (PactDbEnv p, CoreDb)
       -- ^ Pact db environment
     -> Miner
       -- ^ The miner chosen to mine the block
@@ -417,10 +472,10 @@ applyCoinbase
       -- ^ enforce coinbase failure or not
     -> CoinbaseUsePrecompiled
       -- ^ always enable precompilation
-    -> ModuleCache
-    -> IO (T2 (CommandResult [TxLogJson]) (Maybe ModuleCache))
-applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecimal d) txCtx
-  (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
+    -> (ModuleCache, CoreModuleCache)
+    -> IO (T2 (CommandResult [TxLogJson]) (Maybe (ModuleCache, CoreModuleCache)))
+applyCoinbase v logger (dbEnv, coreDb) (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecimal d) txCtx
+  (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) (mc, cmc)
   | fork1_3InEffect || enablePC = do
     when chainweb213Pact' $ enforceKeyFormats
         (\k -> throwM $ CoinbaseFailure $ "Invalid miner key: " <> sshow k)
@@ -428,12 +483,14 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
         mk
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
         interp = Interpreter $ \_ -> do put initState; fmap pure (eval cterm)
-
-    go interp cexec
+        coreState = setCoreModuleCache cmc $ initCoreCapabilities [core_magic_COINBASE]
+        coinbaseTerm = mkCoinbaseCoreTerm mid
+    go interp coreState cexec (Just coinbaseTerm)
   | otherwise = do
     cexec <- mkCoinbaseCmd mid mks reward
     let interp = initStateInterpreter initState
-    go interp cexec
+    let coreState = setCoreModuleCache cmc $ initCoreCapabilities [core_magic_COINBASE]
+    go interp coreState cexec Nothing
   where
     chainweb213Pact' = chainweb213Pact v cid bh
     fork1_3InEffect = vuln797Fix v cid bh
@@ -443,9 +500,10 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       , S.singleton FlagDisableHistoryInTransactionalMode
       , flagsFor v (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
       ]
-    tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
-           Nothing 0.0 rk 0 ec Nothing
-    txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv) mempty
+    usePactTng = chainweb222Pact v (ctxChainId txCtx) bh
+    tenv = TransactionEnv Transactional dbEnv coreDb logger Nothing (ctxToPublicData txCtx) noSPVSupport
+           Nothing 0.0 rk 0 ec Nothing usePactTng
+    txst = TransactionState mc cmc mempty 0 Nothing (_geGasModel freeGasEnv) (PCore.freeGasModel) mempty
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     rk = RequestKey chash
     parent = _tcParentHeader txCtx
@@ -456,37 +514,71 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
         -- NOTE: it holds that @ _pdPrevBlockHash pd == encode _blockHash@
         -- NOTE: chash includes the /quoted/ text of the parent header.
 
-    go interp cexec = evalTransactionM tenv txst $! do
-      cr <- catchesPactError logger (onChainErrorPrintingFor txCtx) $
-        applyExec' 0 interp cexec [] [] chash managedNamespacePolicy
+    go interp evState cexec@(ExecMsg _ execData) mCoinbaseTerm = evalTransactionM tenv txst $! do
+      case mCoinbaseTerm of
+        Just coinbaseTerm | usePactTng -> do
+          coreState <-
+            if (not $ (PCore.ModuleName "core" Nothing) `S.member` (M.keysSet $ _getCoreModuleCache cmc)) then do
+              cmc' <- liftIO (readInitModulesCore logger (dbEnv, coreDb) txCtx)
+              pure $ setCoreModuleCache cmc' evState
+            else pure evState
 
-      case cr of
-        Left e
-          | throwCritical -> throwM $ CoinbaseFailure $ sshow e
-          | otherwise -> (`T2` Nothing) <$> failTxWith e "coinbase tx failure"
-        Right er -> do
-          debug
-            $! "successful coinbase of "
-            <> T.take 18 (sshow d)
-            <> " to "
-            <> sshow mid
+          evalEnv <- mkCoreEvalEnv managedNamespacePolicy (MsgData execData Nothing chash mempty [])
+          cr <- liftIO $ PCore.evalTermExec evalEnv coreState coinbaseTerm
 
-          upgradedModuleCache <- applyUpgrades v cid bh
+          case cr of
+            Right er -> do
+              debug
+                $! "successful coinbase of "
+                <> T.take 18 (sshow d)
+                <> " to "
+                <> sshow mid
 
-          logs <- use txLogs
+              upgradedModuleCache <- applyUpgrades v cid bh
 
-          return $! T2
-            CommandResult
-              { _crReqKey = rk
-              , _crTxId = _erTxId er
-              , _crResult = PactResult (Right (last (_erOutput er)))
-              , _crGas = _erGas er
-              , _crLogs = Just logs
-              , _crContinuation = _erExec er
-              , _crMetaData = Nothing
-              , _crEvents = _erEvents er
-              }
-            upgradedModuleCache
+              txCoreCache .= (CoreModuleCache $ PCore._erLoadedModules er)
+
+              coreCr <- mkCommandResultFromCoreResult er
+
+              return $! T2
+                coreCr
+                upgradedModuleCache
+
+            Left e
+              | throwCritical -> throwM $ CoinbaseFailure $ sshow e
+              | otherwise -> (`T2` Nothing) <$> failTxWith (PactError EvalError (Info Nothing) [] mempty) "coinbase tx failure"
+        _ -> do
+          cr <- catchesPactError logger (onChainErrorPrintingFor txCtx) $
+            applyExec' 0 interp cexec [] [] chash managedNamespacePolicy
+
+          -- liftIO $ print cr
+          case cr of
+            Left e
+              | throwCritical -> throwM $ CoinbaseFailure $ sshow e
+              | otherwise -> (`T2` Nothing) <$> failTxWith e "coinbase tx failure"
+            Right er -> do
+              debug
+                $! "successful coinbase of "
+                <> T.take 18 (sshow d)
+                <> " to "
+                <> sshow mid
+
+              upgradedModuleCache <- applyUpgrades v cid bh
+
+              logs <- use txLogs
+
+              return $! T2
+                CommandResult
+                  { _crReqKey = rk
+                  , _crTxId = _erTxId er
+                  , _crResult = PactResult (Right (last (_erOutput er)))
+                  , _crGas = _erGas er
+                  , _crLogs = Just logs
+                  , _crContinuation = _erExec er
+                  , _crMetaData = Nothing
+                  , _crEvents = _erEvents er
+                  }
+                upgradedModuleCache
 
 applyLocal
     :: (Logger logger)
@@ -494,9 +586,9 @@ applyLocal
       -- ^ Pact logger
     -> Maybe logger
       -- ^ Pact gas logger
-    -> PactDbEnv p
+    -> (PactDbEnv p, CoreDb)
       -- ^ Pact db environment
-    -> GasModel
+    -> (GasModel, PCore.GasModel PCore.CoreBuiltin)
       -- ^ Gas model (pact Service config)
     -> TxContext
       -- ^ tx metadata and parent header
@@ -504,10 +596,10 @@ applyLocal
       -- ^ SPV support (validates cont proofs)
     -> Command PayloadWithText
       -- ^ command with payload to execute
-    -> ModuleCache
+    -> (ModuleCache, CoreModuleCache)
     -> ExecutionConfig
     -> IO (CommandResult [TxLogJson])
-applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
+applyLocal logger gasLogger (dbEnv, coreDb) (gasModel, gasModelCore) txCtx spv cmdIn (mc, cmc) execConfig =
     evalTransactionM tenv txst go
   where
     !cmd = payloadObj <$> cmdIn `using` traverse rseq
@@ -518,14 +610,15 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     !verifiers = fromMaybe [] $ _pVerifiers $ _cmdPayload cmd
     !gasPrice = view cmdGasPrice cmd
     !gasLimit = view cmdGasLimit cmd
-    tenv = TransactionEnv Local dbEnv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
-           rk (fromIntegral gasLimit) execConfig Nothing
-    txst = TransactionState mc mempty 0 Nothing gasModel mempty
+    tenv = TransactionEnv Local dbEnv coreDb logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
+           rk (fromIntegral gasLimit) execConfig Nothing usePactTng
+    txst = TransactionState mc cmc mempty 0 Nothing gasModel gasModelCore mempty
     gas0 = initialGasOf (_cmdPayload cmdIn)
     currHeight = ctxCurrentBlockHeight txCtx
     cid = V._chainId txCtx
     v = _chainwebVersion txCtx
     allVerifiers = verifiersAt v cid currHeight
+    usePactTng = chainweb222Pact (ctxVersion txCtx) (ctxChainId txCtx) currHeight
     -- Note [Throw out verifier proofs eagerly]
     !verifiersWithNoProof =
         (fmap . fmap) (\_ -> ()) verifiers
@@ -546,11 +639,17 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
 
     applyPayload gas1 m = do
       interp <- gasInterpreter gas1
+      coreState <- do
+          cmc' <- use txCoreCache
+          pure $ setCoreModuleCache cmc' def
       cr <- catchesPactError logger PrintsUnexpectedError $! case m of
-        Exec em ->
-          applyExec gas1 interp em signers verifiersWithNoProof chash managedNamespacePolicy
+        Exec em -> do
+          if usePactTng then applyExecTng gas1 coreState em signers chash managedNamespacePolicy
+          else applyExec gas1 interp em signers verifiersWithNoProof chash managedNamespacePolicy
         Continuation cm ->
-          applyContinuation gas1 interp cm signers chash managedNamespacePolicy
+          if usePactTng then applyContinuationTng gas1 coreState cm signers chash managedNamespacePolicy
+          else applyContinuation gas1 interp cm signers chash managedNamespacePolicy
+
 
       case cr of
         Left e -> failTxWith e "applyLocal"
@@ -558,12 +657,52 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
 
     go = checkTooBigTx gas0 gasLimit (applyVerifiers $ _pPayload $ _cmdPayload cmd) return
 
+readInitModulesCore
+    :: forall logger p. (Logger logger)
+    => logger
+      -- ^ Pact logger
+    -> (PactDbEnv p, CoreDb)
+      -- ^ Pact db environment
+    -> TxContext
+      -- ^ tx metadata and parent header
+    -> IO CoreModuleCache
+readInitModulesCore logger (dbEnv, coreDb) txCtx = do
+  let
+    chash = pactInitialHash
+    usePactTng = True
+    tenv = TransactionEnv Local dbEnv coreDb logger Nothing (ctxToPublicData txCtx) noSPVSupport Nothing 0.0
+           (RequestKey chash) 0 def Nothing usePactTng
+    txst = TransactionState mempty mempty mempty 0 Nothing (_geGasModel freeGasEnv) PCore.freeGasModel mempty
+
+    coinCoreModuleName = PCore.ModuleName "coin" Nothing
+    installCoreCoinModuleAdmin = set (PCore.esCaps . PCore.csModuleAdmin) $ S.singleton coinCoreModuleName
+    coreState = installCoreCoinModuleAdmin $ initCoreCapabilities [mkMagicCoreCapSlot "REMEDIATE"]
+
+    applyTx tx = do
+      coreCache <- use txCoreCache
+      let evState = setCoreModuleCache coreCache coreState
+      infoLog $ "readInitModulesCore. Running upgrade tx " <> sshow (_cmdHash tx)
+      tryAllSynchronous (runGenesisCore tx permissiveNamespacePolicy evState) >>= \case
+        Right _ -> pure ()
+        Left e -> do
+          logError $ "readInitModulesCore. Upgrade transaction failed! " <> sshow e
+          throwM e
+
+  evalTransactionM tenv txst $ do
+    let payloads = map (fmap payloadObj) (CoinCoreV4.transactions)
+    er <- catchesPactError logger (onChainErrorPrintingFor txCtx) $!
+      mapM applyTx payloads
+    case er of
+      Left e -> throwM $ PactInternalError $ "readInitModules: load modules: failed: " <> sshow e
+      Right _ -> use txCoreCache
+
 readInitModules
     :: forall logger tbl. (Logger logger)
-    => PactBlockM logger tbl ModuleCache
+    => PactBlockM logger tbl (ModuleCache, CoreModuleCache)
 readInitModules = do
   logger <- view (psServiceEnv . psLogger)
   dbEnv <- _cpPactDbEnv <$> view psBlockDbEnv
+  coreDb <- _cpPactCoreDbEnv <$> view psBlockDbEnv
   txCtx <- getTxContext def
 
   -- guarding chainweb 2.17 here to allow for
@@ -580,14 +719,15 @@ readInitModules = do
     rk = RequestKey chash
     nid = Nothing
     chash = pactInitialHash
-    tenv = TransactionEnv Local dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
-           rk 0 def Nothing
-    txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
+    usePactTng = True
+    tenv = TransactionEnv Local dbEnv coreDb logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
+           rk 0 def Nothing usePactTng
+    txst = TransactionState mempty mempty mempty 0 Nothing (_geGasModel freeGasEnv) PCore.freeGasModel mempty
     interp = defaultInterpreter
     die msg = throwM $ PactInternalError $ "readInitModules: " <> msg
     mkCmd = buildExecParsedCode (pactParserVersion v cid h) Nothing
     run msg cmd = do
-      er <- catchesPactError logger (onChainErrorPrintingFor txCtx) $!
+      er <- catchesPactError logger (onChainErrorPrintingFor txCtx) $! do
         applyExec' 0 interp cmd [] [] chash permissiveNamespacePolicy
       case er of
         Left e -> die $ msg <> ": failed: " <> sshow e
@@ -596,9 +736,8 @@ readInitModules = do
           (o:_) -> return o
 
 
-    go :: TransactionM logger p ModuleCache
+    go :: TransactionM logger p (ModuleCache, CoreModuleCache)
     go = do
-
       -- see if fungible-v2 is there
       checkCmd <- liftIO $ mkCmd "(contains \"fungible-v2\" (list-modules))"
       checkFv2 <- run "check fungible-v2" checkCmd
@@ -624,18 +763,22 @@ readInitModules = do
       void $ run "load modules" refModsCmd
 
       -- return loaded cache
-      use txCache
+      c <- use txCache
+      cc <- use txCoreCache
+      pure (c, cc)
 
     -- Only load coin and its dependencies for chainweb >=2.17
     -- Note: no need to check if things are there, because this
     -- requires a block height that witnesses the invariant.
     --
     -- if this changes, we must change the filter in 'updateInitCache'
-    goCw217 :: TransactionM logger p ModuleCache
+    goCw217 :: TransactionM logger p (ModuleCache, CoreModuleCache)
     goCw217 = do
       coinDepCmd <- liftIO $ mkCmd "coin.MINIMUM_PRECISION"
       void $ run "load modules" coinDepCmd
-      use txCache
+      c <- use txCache
+      cc <- use txCoreCache
+      pure (c, cc)
 
   if | chainweb224Pact' -> pure mempty
      | chainweb217Pact' -> liftIO $ evalTransactionM tenv txst goCw217
@@ -655,18 +798,25 @@ applyUpgrades
   => ChainwebVersion
   -> Chainweb.ChainId
   -> BlockHeight
-  -> TransactionM logger p (Maybe ModuleCache)
+  -> TransactionM logger p (Maybe (ModuleCache, CoreModuleCache))
 applyUpgrades v cid height
      | Just upg <-
          v ^? versionUpgrades . onChain cid . at height . _Just = applyUpgrade upg
      | cleanModuleCache v cid height = filterModuleCache
      | otherwise = return Nothing
   where
-    installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
+    coinModuleName = ModuleName "coin" Nothing
+    coinCoreModuleName = PCore.ModuleName "coin" Nothing
+    installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton coinModuleName
+    -- installCoreCoinModuleAdmin = set (PCore.esCaps . PCore.csModuleAdmin) $ S.singleton coinCoreModuleName
 
     filterModuleCache = do
       mc <- use txCache
-      pure $ Just $ filterModuleCacheByKey (== "coin") mc
+      cmc <- use txCoreCache
+      pure $ Just $
+        ( filterModuleCacheByKey (== coinModuleName) mc
+        , filterCoreModuleCacheByKey (== coinCoreModuleName) cmc
+        )
 
     applyUpgrade upg = do
       infoLog "Applying upgrade!"
@@ -683,17 +833,20 @@ applyUpgrades v cid height
       caches <- local
         (txExecutionConfig .~ ExecutionConfig flags)
         (mapM applyTx payloads)
-      return $ Just $ mconcat $ reverse caches
+      return $ Just $ bimap mconcat mconcat $ unzip $ reverse caches
 
     interp = initStateInterpreter
         $ installCoinModuleAdmin
         $ initCapabilities [mkMagicCapSlot "REMEDIATE"]
+    -- coreInitState = installCoreCoinModuleAdmin $ initCoreCapabilities [mkMagicCoreCapSlot "REMEDIATE"]
 
     applyTx tx = do
       infoLog $ "Running upgrade tx " <> sshow (_cmdHash tx)
-
       tryAllSynchronous (runGenesis tx permissiveNamespacePolicy interp) >>= \case
-        Right _ -> use txCache
+        Right _ -> do
+          c <- use txCache
+          cc <- use txCoreCache
+          pure (c, cc)
         Left e -> do
           logError $ "Upgrade transaction failed! " <> sshow e
           throwM e
@@ -723,17 +876,23 @@ runPayload
 runPayload cmd nsp = do
     g0 <- use txGasUsed
     interp <- gasInterpreter g0
+    coreState <- do
+        cmc <- use txCoreCache
+        pure $ setCoreModuleCache cmc def
 
     -- Note [Throw out verifier proofs eagerly]
     let !verifiersWithNoProof =
             (fmap . fmap) (\_ -> ()) verifiers
             `using` (traverse . traverse) rseq
 
+    usePactTng <- view txUsePactTng
     case payload of
-      Exec pm ->
-        applyExec g0 interp pm signers verifiersWithNoProof chash nsp
+      Exec pm -> do
+        if usePactTng then applyExecTng g0 coreState pm signers chash nsp
+        else applyExec g0 interp pm signers verifiersWithNoProof chash nsp
       Continuation ym ->
-        applyContinuation g0 interp ym signers chash nsp
+        if usePactTng then applyContinuationTng g0 coreState ym signers chash nsp
+        else applyContinuation g0 interp ym signers chash nsp
 
 
   where
@@ -765,6 +924,20 @@ runGenesis cmd nsp interp = case payload of
     chash = toUntypedHash $ _cmdHash cmd
     payload = _pPayload $ _cmdPayload cmd
 
+runGenesisCore
+    :: (Logger logger)
+    => Command (Payload PublicMeta ParsedCode)
+    -> NamespacePolicy
+    -> PCore.EvalState PCore.CoreBuiltin ()
+    -> TransactionM logger p ()
+runGenesisCore cmd nsp coreState = case payload of
+    Exec pm -> void $ applyExecTng' 0 coreState pm signers chash nsp
+    Continuation _ -> error "runGenesisCore Continuation not supported"
+  where
+    signers = _pSigners $ _cmdPayload cmd
+    chash = toUntypedHash $ _cmdHash cmd
+    payload = _pPayload $ _cmdPayload cmd
+
 -- | Execute an 'ExecMsg' and Return the result with module cache
 --
 applyExec
@@ -791,6 +964,94 @@ applyExec initialGas interp em senderSigs verifiers hsh nsp = do
     let !lastResult = force $ last _erOutput
     return $ CommandResult rk _erTxId (PactResult (Right lastResult))
       _erGas (Just logs) _erExec Nothing _erEvents
+
+mkCommandResultFromCoreResult
+    :: (Logger logger)
+    => PCore.EvalResult a
+    -> TransactionM logger p (CommandResult [TxLogJson])
+mkCommandResultFromCoreResult PCore.EvalResult{..} = do
+    !logs <- use txLogs
+    !rk <- view txRequestKey
+
+    let convertPactValue pv = J.decodeStrict $ PCore.encodeStable pv
+
+    let !lastResult = last _erOutput
+
+    let
+      toModuleName m =
+        ModuleName
+                { _mnName = PCore._mnName m
+                , _mnNamespace = coerce <$> PCore._mnNamespace m
+                }
+      toQualifiedName qn =
+        QualifiedName
+            { _qnQual = toModuleName $ PCore._qnModName qn
+            , _qnName = PCore._qnName qn
+            , _qnInfo = Info Nothing
+            }
+      toPactContinuation dpc =
+        PactContinuation
+            { _pcDef = QName $ toQualifiedName $ PCore._pcName dpc
+            , _pcArgs = catMaybes $ convertPactValue <$> PCore._pcArgs dpc
+            }
+      toYield y =
+        Yield
+            { _yData = ObjectMap $ Map.fromList $ map (\(f,s) -> (coerce f, fromJust $ convertPactValue s)) $ Map.toList $ PCore._yData y
+            , _yProvenance = PCore._yProvenance y <&> \p -> Provenance
+                { _pTargetChainId = coerce $ PCore._pTargetChainId p
+                , _pModuleHash = coerce $ PCore._pModuleHash p
+                }
+            , _ySourceChain = coerce <$> PCore._ySourceChain y
+            }
+      toNested dpe =
+        NestedPactExec
+            { _npeStepCount = PCore._peStepCount dpe
+            , _npeYield = toYield <$> PCore._peYield dpe
+            , _npeExecuted = Nothing
+            , _npeStep = PCore._peStep dpe
+            , _npePactId = coerce $ PCore._peDefPactId dpe
+            , _npeContinuation = toPactContinuation $ PCore._peContinuation dpe
+            , _npeNested = Map.fromList $ map (\(f, s) -> (coerce f, toNested s)) $ Map.toList $ PCore._peNestedDefPactExec dpe
+            }
+      toPactExec dpe =
+        PactExec
+            { _peStepCount = PCore._peStepCount dpe
+            , _peYield = toYield <$> PCore._peYield dpe
+            , _peExecuted = Nothing
+            , _peStep = PCore._peStep dpe
+            , _pePactId = coerce $ PCore._peDefPactId dpe
+            , _peContinuation = toPactContinuation $ PCore._peContinuation dpe
+            , _peStepHasRollback = PCore._peStepHasRollback dpe
+            , _peNested = Map.fromList $ map (\(f, s) -> (coerce f, toNested s)) $ Map.toList $ PCore._peNestedDefPactExec dpe
+            }
+      toValResult = \case
+          PCore.InterpretValue v _ -> fromJust $ convertPactValue v
+          _ -> undefined
+      toPactEvent e =
+          PactEvent
+            { _eventName = PCore._peName e
+            , _eventParams = catMaybes $ convertPactValue <$> PCore._peArgs e
+            , _eventModule = toModuleName $ PCore._peModule e
+            , _eventModuleHash = coerce $ PCore._peModuleHash e
+            }
+
+    return $ CommandResult rk (coerce _erTxId) (PactResult (Right $ toValResult lastResult))
+      (case _erGas of { PCore.Gas g -> Gas $ fromIntegral g })
+      (Just logs) (toPactExec <$> _erExec) Nothing (map toPactEvent _erEvents)
+
+applyExecTng
+    :: (Logger logger)
+    => Gas
+    -> PCore.EvalState PCore.CoreBuiltin ()
+    -> ExecMsg ParsedCode
+    -> [Signer]
+    -> Hash
+    -> NamespacePolicy
+    -> TransactionM logger p (CommandResult [TxLogJson])
+applyExecTng initialGas coreState em senderSigs hsh nsp = do
+    er <- applyExecTng' initialGas coreState em senderSigs hsh nsp
+
+    mkCommandResultFromCoreResult er
 
 -- | Variation on 'applyExec' that returns 'EvalResult' as opposed to
 -- wrapping it up in a JSON result.
@@ -829,6 +1090,42 @@ applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs verifiersW
       setTxResultState quirkedEvalResult
 
       return quirkedEvalResult
+
+applyExecTng'
+    :: (Logger logger)
+    => Gas
+    -> PCore.EvalState PCore.CoreBuiltin ()
+    -> ExecMsg ParsedCode
+    -> [Signer]
+    -> Hash
+    -> NamespacePolicy
+    -> TransactionM logger p (PCore.EvalResult [PCore.TopLevel ()])
+applyExecTng' (Gas initialGas) coreState (ExecMsg parsedCode execData) senderSigs hsh nsp
+    | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
+    | otherwise = do
+
+      evalEnv <- mkCoreEvalEnv nsp (MsgData execData Nothing hsh senderSigs [])
+
+      setEnvGasCore (PCore.Gas $ fromIntegral initialGas) evalEnv
+
+      er <- liftIO $! PCore.evalExec evalEnv coreState (PCore.RawCode $ _pcCode parsedCode)
+      case er of
+        Right er' -> do
+          -- liftIO $ print ("PCORE._erOutput", PCore._erOutput er')
+
+          -- if we specified this transaction's gas fee manually as a "quirk",
+          -- here we set the result's gas fee to agree with that
+          quirkGasFee <- view txQuirkGasFee
+          let quirkedEvalResult = case quirkGasFee of
+                Nothing -> er'
+                Just (Gas fee) -> er' { PCore._erGas = PCore.Gas $ fromIntegral fee }
+
+          txCoreCache .= (CoreModuleCache $ PCore._erLoadedModules er')
+          return quirkedEvalResult
+        Left err -> do
+          -- ccache <- use txCoreCache
+          TRACE.traceShowM ("CORE.applyExec'!!!!" :: String, show $ PCore.pretty err)
+          fatal $ "Pact Tng execution failed: " <> (T.pack $ show $ PCore.pretty err)
 
 enablePactEvents' :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enablePactEvents' v cid bh = [FlagDisablePactEvents | not (enablePactEvents v cid bh)]
@@ -909,9 +1206,30 @@ applyContinuation initialGas interp cm senderSigs hsh nsp = do
     return $! CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just logs) _erExec Nothing _erEvents
 
+applyContinuationTng
+    :: (Logger logger)
+    => Gas
+    -> PCore.EvalState PCore.CoreBuiltin ()
+    -> ContMsg
+    -> [Signer]
+    -> Hash
+    -> NamespacePolicy
+    -> TransactionM logger p (CommandResult [TxLogJson])
+applyContinuationTng initialGas coreState cm senderSigs hsh nsp = do
+    er <- applyContinuationTng' initialGas coreState cm senderSigs hsh nsp
+    cr <- mkCommandResultFromCoreResult er
+    -- for_ _erLogGas $ \gl -> gasLog $ "gas logs: " <> sshow gl
+
+    -- TODO: set tx warnings to eval warnings
+    -- txWarnings <>= _erWarnings
+
+    return cr
 
 setEnvGas :: Gas -> EvalEnv e -> TransactionM logger p ()
 setEnvGas initialGas = liftIO . views eeGas (`writeIORef` gasToMilliGas initialGas)
+
+setEnvGasCore :: PCore.Gas -> PCore.EvalEnv PCore.CoreBuiltin () -> TransactionM logger p ()
+setEnvGasCore initialGas = liftIO . views PCore.eeGasRef (`writeIORef` PCore.gasToMilliGas initialGas)
 
 -- | Execute a 'ContMsg' and return just eval result, not wrapped in a
 -- 'CommandResult' wrapper
@@ -944,6 +1262,50 @@ applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh ns
   where
     pactStep = Just $ PactStep s rb pid Nothing
 
+applyContinuationTng'
+    :: (Logger logger)
+    => Gas
+    -> PCore.EvalState PCore.CoreBuiltin ()
+    -> ContMsg
+    -> [Signer]
+    -> Hash
+    -> NamespacePolicy
+    -> TransactionM logger p (PCore.EvalResult [PCore.TopLevel ()])
+applyContinuationTng' initialGas coreState (ContMsg pid s rb d proof) senderSigs hsh nsp = do
+
+    evalEnv <- mkCoreEvalEnv nsp (MsgData d pactStep hsh senderSigs [])
+
+    setEnvGasCore (PCore.Gas $ fromIntegral initialGas) evalEnv
+
+    let
+      convertPactValue pv = J.decode $ J.encode pv
+
+      coreCm = PCore.ContMsg
+          { PCore._cmPactId = coerce pid
+          , PCore._cmStep = s
+          , PCore._cmRollback = rb
+          , PCore._cmData = maybe (error "applyContinuationTng': failed to convert pact value") id $ convertPactValue d
+          , PCore._cmProof = coerce proof
+          }
+
+    er <- liftIO $! PCore.evalContinuation evalEnv coreState coreCm
+    case er of
+      Right er' -> do
+        -- if we specified this transaction's gas fee manually as a "quirk",
+        -- here we set the result's gas fee to agree with that
+        quirkGasFee <- view txQuirkGasFee
+        let quirkedEvalResult = case quirkGasFee of
+              Nothing -> er'
+              Just (Gas fee) -> er' { PCore._erGas = PCore.Gas $ fromIntegral fee }
+
+        txCoreCache .= (CoreModuleCache $ PCore._erLoadedModules er')
+        return quirkedEvalResult
+      Left err -> do
+        fatal $ "Pact Tng execution failed: " <> (T.pack $ show $ PCore.pretty err)
+
+  where
+    pactStep = Just $ PactStep s rb pid Nothing
+
 -- | Build and execute 'coin.buygas' command from miner info and user command
 -- info (see 'TransactionExec.applyCmd')
 --
@@ -968,10 +1330,11 @@ buyGas txCtx cmd (Miner mid mks) = go
 
     go = do
       mcache <- use txCache
+      cmcache <- use txCoreCache
       supply <- gasSupplyOf <$> view txGasLimit <*> view txGasPrice
       logGas <- isJust <$> view txGasLogger
 
-      let (buyGasTerm, buyGasCmd) =
+      let (buyGasTerm, buyGasCmd@(ExecMsg _ execData)) =
             -- post-chainweb 2.24, we call buy-gas directly rather than
             -- going through fund-tx which is a defpact.
             if isChainweb224Pact
@@ -982,6 +1345,7 @@ buyGas txCtx cmd (Miner mid mks) = go
           -- of our choice. we do the same to redeem gas.
           interp mc = Interpreter $ \_input ->
             put (initState mc logGas) >> run (pure <$> eval buyGasTerm)
+          coreState = setCoreModuleCache cmcache $ initCoreCapabilities [core_magic_GAS]
 
       let
         gasCapName = QualifiedName (ModuleName "coin" Nothing) "GAS" def
@@ -1000,19 +1364,55 @@ buyGas txCtx cmd (Miner mid mks) = go
         applyExec' 0 (interp mcache) buyGasCmd
           (addDebitToSigners $ _pSigners $ _cmdPayload cmd) [] bgHash managedNamespacePolicy
 
-      case _erExec result of
-        Nothing
-          | isChainweb224Pact ->
-            return ()
-          | otherwise ->
-            -- should never occur pre-chainweb 2.24:
-            -- would mean coin.fund-tx is not a pact
-            fatal "buyGas: Internal error - empty continuation before 2.24 fork"
-        Just pe
-          | isChainweb224Pact ->
-            fatal "buyGas: Internal error - continuation found after 2.24 fork"
-          | otherwise ->
-            void $! txGasId .= (Just $! GasId (_pePactId pe))
+      usePactTng <- view txUsePactTng
+      if usePactTng then do
+        evalEnv <- mkCoreEvalEnv managedNamespacePolicy (MsgData execData Nothing bgHash (_pSigners $ _cmdPayload cmd) [])
+
+        let
+          t = if isChainweb224Pact
+                then mkBuyGasCoreTerm sender
+                else mkFundTxCoreTerm mid sender
+
+        er <- liftIO $ PCore.evalTermExec evalEnv coreState t
+        case er of
+          Right er' -> do
+            case PCore._erExec er' of
+              Nothing
+                | isChainweb224Pact ->
+                  return ()
+                | otherwise ->
+                  -- should never occur pre-chainweb 2.24:
+                  -- would mean coin.fund-tx is not a pact
+                  fatal "buyGas: Internal error - empty continuation before 2.24 fork"
+              Just pe
+                | isChainweb224Pact ->
+                  fatal "buyGas: Internal error - continuation found after 2.24 fork"
+                | otherwise -> do
+                  void $! txGasId .= (Just $! GasId (coerce $ PCore._peDefPactId pe))
+                  txCoreCache .= (CoreModuleCache $ PCore._erLoadedModules er')
+          Left err -> do
+            TRACE.traceM $ "CORE.buyGas failed!!" <> sshow err
+            fatal $ "buyGas: Internal error - " <> sshow err
+      else do
+        -- no verifiers are allowed in buy gas
+        -- quirked gas is not used either
+        result <- locally txQuirkGasFee (const Nothing) $
+          applyExec' 0 (interp mcache) buyGasCmd
+            (_pSigners $ _cmdPayload cmd) [] bgHash managedNamespacePolicy
+
+        case _erExec result of
+          Nothing
+            | isChainweb224Pact ->
+              return ()
+            | otherwise ->
+              -- should never occur pre-chainweb 2.24:
+              -- would mean coin.fund-tx is not a pact
+              fatal "buyGas: Internal error - empty continuation before 2.24 fork"
+          Just pe
+            | isChainweb224Pact ->
+              fatal "buyGas: Internal error - continuation found after 2.24 fork"
+            | otherwise ->
+              void $! txGasId .= (Just $! GasId (_pePactId pe))
 
 findPayer
   :: TxContext
@@ -1082,13 +1482,19 @@ enrichedMsgBody cmd = case (_pPayload $ _cmdPayload cmd) of
 redeemGas :: (Logger logger) => TxContext -> Command (Payload PublicMeta ParsedCode) -> Miner -> TransactionM logger p [PactEvent]
 redeemGas txCtx cmd (Miner mid mks) = do
     mcache <- use txCache
+    cmcache <- use txCoreCache
     let sender = view (cmdPayload . pMeta . pmSender) cmd
     fee <- gasSupplyOf <$> use txGasUsed <*> view txGasPrice
     -- if we're past chainweb 2.24, we don't use defpacts for gas
+    usePactTng <- view txUsePactTng
+
+    let
+      coreState = setCoreModuleCache cmcache $ initCoreCapabilities [core_magic_GAS]
+
     if guardCtx chainweb224Pact txCtx
     then do
       total <- gasSupplyOf <$> view txGasLimit <*> view txGasPrice
-      let (redeemGasTerm, redeemGasCmd) =
+      let (redeemGasTerm, redeemGasCmd@(ExecMsg _ execData)) =
             mkRedeemGasTerm mid mks sender total fee
           -- I don't recall why exactly, but we set up an interpreter
           -- that ignores its argument and instead executes a term
@@ -1099,24 +1505,56 @@ redeemGas txCtx cmd (Miner mid mks) = do
             fmap List.singleton (eval redeemGasTerm)
           (Hash chash) = toUntypedHash (_cmdHash cmd)
           rgHash = Hash (chash <> "-redeemgas")
+      locally txQuirkGasFee (const Nothing) $
+        if usePactTng then do
+          evalEnv <- mkCoreEvalEnv managedNamespacePolicy (MsgData execData Nothing rgHash (_pSigners $ _cmdPayload cmd) [])
 
-      locally txQuirkGasFee (const Nothing) $ _erEvents <$>
-        applyExec' 0 interp redeemGasCmd
-          (_pSigners $ _cmdPayload cmd)
-          []
-          rgHash
-          managedNamespacePolicy
+          er <- liftIO $ PCore.evalTermExec evalEnv coreState $ mkRedeemGasCoreTerm mid sender
+          case er of
+            Right er' -> do
+              let
+                convertPactValue pv = J.decodeStrict $ PCore.encodeStable pv
+                toModuleName m =
+                  ModuleName
+                          { _mnName = PCore._mnName m
+                          , _mnNamespace = coerce <$> PCore._mnNamespace m
+                          }
+                toPactEvent e =
+                    PactEvent
+                      { _eventName = PCore._peName e
+                      , _eventParams = catMaybes $ convertPactValue <$> PCore._peArgs e
+                      , _eventModule = toModuleName $ PCore._peModule e
+                      , _eventModuleHash = coerce $ PCore._peModuleHash e
+                      }
+              txCoreCache .= (CoreModuleCache $ PCore._erLoadedModules er')
+              return $ map toPactEvent $ PCore._erEvents er'
+
+            Left err -> do
+              TRACE.traceM $ "CORE.redeemGas failed!!" <> sshow err
+              fatal $ "redeemGas: Internal error - " <> sshow err
+        else _erEvents <$>
+            applyExec' 0 interp redeemGasCmd
+              (_pSigners $ _cmdPayload cmd)
+              []
+              rgHash
+              managedNamespacePolicy
     else do
       GasId gid <- use txGasId >>= \case
         Nothing -> fatal $! "redeemGas: no gas id in scope for gas refunds"
         Just g -> return g
       let redeemGasCmd =
             ContMsg gid 1 False (toLegacyJson $ object [ "fee" A..= toJsonViaEncode fee ]) Nothing
+      -- evalEnv <- mkCoreEvalEnv managedNamespacePolicy (MsgData execData Nothing rgHash (_pSigners $ _cmdPayload cmd) [])
 
       fmap _crEvents $ locally txQuirkGasFee (const Nothing) $
-        applyContinuation 0 (initState mcache) redeemGasCmd
-          (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
-          managedNamespacePolicy
+        if usePactTng then
+          applyContinuationTng 0 coreState redeemGasCmd
+            (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
+            managedNamespacePolicy
+        else
+          applyContinuation 0 (initState mcache) redeemGasCmd
+            (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
+            managedNamespacePolicy
 
   where
     initState mc = initStateInterpreter
@@ -1134,6 +1572,10 @@ redeemGas txCtx cmd (Miner mid mks) = do
 initCapabilities :: [CapSlot SigCapability] -> EvalState
 initCapabilities cs = set (evalCapabilities . capStack) cs def
 {-# INLINABLE initCapabilities #-}
+
+initCoreCapabilities :: [PCore.CapSlot PCore.QualifiedName PCore.PactValue] -> PCore.EvalState PCore.CoreBuiltin ()
+initCoreCapabilities cs = set (PCore.esCaps . PCore.csSlots) cs def
+{-# INLINABLE initCoreCapabilities #-}
 
 initStateInterpreter :: EvalState -> Interpreter e
 initStateInterpreter s = Interpreter (put s >>)
@@ -1195,7 +1637,7 @@ txSizeAccelerationFee costPerByte = total
     power :: Integer = 7
 {-# INLINE txSizeAccelerationFee #-}
 
--- | Set the module cache of a pact 'EvalState'
+-- | Set the module cache of a pact 'coreState
 --
 setModuleCache
   :: ModuleCache
@@ -1207,6 +1649,17 @@ setModuleCache mcache es =
  where
   c = moduleCacheToHashMap mcache
 {-# INLINE setModuleCache #-}
+
+setCoreModuleCache
+  :: CoreModuleCache
+  -> PCore.EvalState PCore.CoreBuiltin ()
+  -> PCore.EvalState PCore.CoreBuiltin ()
+setCoreModuleCache mcache es =
+  let allDeps = foldMap PCore.allModuleExports $ _getCoreModuleCache mcache
+  in set (PCore.esLoaded . PCore.loAllLoaded) allDeps $ set (PCore.esLoaded . PCore.loModules) c es
+ where
+  c = _getCoreModuleCache mcache
+{-# INLINE setCoreModuleCache #-}
 
 -- | Set tx result state
 --
@@ -1296,6 +1749,97 @@ unsafeModuleHashFromB64Text :: Text -> ModuleHash
 unsafeModuleHashFromB64Text =
   either error ModuleHash . PU.fromText'
 
+mkCoreEvalEnv
+    :: NamespacePolicy
+    -> MsgData
+    -> TransactionM logger db (PCore.EvalEnv PCore.CoreBuiltin ())
+mkCoreEvalEnv nsp MsgData{..} = do
+    tenv <- ask
+
+    let
+      convertPactValue pv = J.decode $ J.encode pv
+      convertQualName QualifiedName{..} = PCore.QualifiedName
+        { PCore._qnName = _qnName
+        , PCore._qnModName = _qnQual & \ModuleName{..} ->
+            PCore.ModuleName
+              { PCore._mnName = _mnName
+              , PCore._mnNamespace = fmap coerce _mnNamespace
+              }
+        }
+
+    let
+      txMode' = case _txMode tenv of
+        Transactional -> PCore.Transactional
+        Local -> PCore.Local
+
+    let
+      coreMsg = PCore.MsgData
+        { PCore.mdData = maybe (PCore.PObject mempty) id $ A.parseMaybe A.parseJSON $ _getLegacyValue mdData
+        , PCore.mdStep = mdStep <&> \PactStep{..} ->
+            PCore.DefPactStep
+              { PCore._psStep = _psStep
+              , PCore._psRollback = _psRollback
+              , PCore._psDefPactId = coerce _psPactId
+              , PCore._psResume = _psResume <&> \Yield{..} ->
+                  PCore.Yield
+                    { PCore._yData = M.fromList $ mapMaybe (\(k, v) -> fmap (coerce k,) $ convertPactValue v) $ M.toList $ _objectMap _yData
+                    , PCore._yProvenance = _yProvenance <&> \Provenance{..} ->
+                        PCore.Provenance
+                          { PCore._pTargetChainId = coerce _pTargetChainId
+                          , PCore._pModuleHash = let (ModuleHash h) = _pModuleHash in PCore.ModuleHash $ coerce h
+                          }
+                    , PCore._ySourceChain = coerce _ySourceChain
+                    }
+              }
+        , PCore.mdHash = coerce $ mdHash
+        , PCore.mdSigners = mdSigners <&> \Signer{..} ->
+            PCore.Signer
+              { PCore._siScheme = _siScheme <&> \case
+                  ED25519 -> PCore.ED25519
+                  WebAuthn -> PCore.WebAuthn
+              , PCore._siPubKey = _siPubKey
+              , PCore._siAddress = _siAddress
+              , PCore._siCapList = _siCapList <&> \SigCapability{..} ->
+                  PCore.CapToken (convertQualName _scName) (mapMaybe convertPactValue _scArgs)
+              }
+        }
+
+    let
+      coreNsp = case nsp of
+        SimpleNamespacePolicy _ -> PCore.SimpleNamespacePolicy
+        SmartNamespacePolicy rootUsage name -> PCore.SmartNamespacePolicy rootUsage (convertQualName name)
+
+    let
+      pd = _txPublicData tenv
+      convertPublicMeta pm = PCore.PublicMeta
+        { PCore._pmChainId = coerce $ _pmChainId pm
+        , PCore._pmSender = _pmSender pm
+        , PCore._pmGasLimit =
+            let (GasLimit (ParsedInteger g)) = _pmGasLimit pm in PCore.Gas $ fromIntegral g
+        , PCore._pmGasPrice = coerce $ _pmGasPrice pm
+        , PCore._pmTTL =
+            let (TTLSeconds (ParsedInteger s)) = _pmTTL pm in PCore.TTLSeconds s
+        , PCore._pmCreationTime = coerce $ _pmCreationTime pm
+        }
+      cpd = PCore.PublicData
+        { PCore._pdPublicMeta = convertPublicMeta $ _pdPublicMeta pd
+        , PCore._pdBlockHeight = _pdBlockHeight pd
+        , PCore._pdBlockTime = _pdBlockTime pd
+        , PCore._pdPrevBlockHash = _pdPrevBlockHash pd
+        }
+
+    gasModel <- use txGasModelCore
+    let
+      toCoreExFlag = \case
+        FlagDisableModuleInstall -> Just PCore.FlagDisableModuleInstall
+        FlagDisableHistoryInTransactionalMode -> Just PCore.FlagDisableHistoryInTransactionalMode
+        FlagAllowReadInLocal -> Just PCore.FlagAllowReadInLocal
+        FlagDisablePactEvents -> Just PCore.FlagDisablePactEvents
+        FlagEnforceKeyFormats -> Just PCore.FlagEnforceKeyFormats
+        _ -> Nothing
+      executionFlags = mapMaybe toCoreExFlag $ S.toList $ _ecFlags $ _txExecutionConfig tenv
+    liftIO $ PCore.setupEvalEnv (_txCoreDb tenv) txMode' coreMsg gasModel coreNsp cpd (S.fromList executionFlags) PCore.noSPVSupport
+
 -- | Managed namespace policy CAF
 --
 managedNamespacePolicy :: NamespacePolicy
@@ -1315,6 +1859,14 @@ mkCoinCap c as = SigCapability fqn as
     mn = ModuleName "coin" Nothing
     fqn = QualifiedName mn c def
 {-# INLINE mkCoinCap #-}
+
+mkMagicCoreCapSlot :: Text -> PCore.CapSlot PCore.QualifiedName PCore.PactValue
+mkMagicCoreCapSlot c = PCore.CapSlot cap []
+  where
+    mn = PCore.ModuleName "coin" Nothing
+    fqn = PCore.QualifiedName c mn
+    cap = PCore.CapToken fqn []
+{-# INLINE mkMagicCoreCapSlot #-}
 
 -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
 -- parameter is for any possible environmental data that needs to go into

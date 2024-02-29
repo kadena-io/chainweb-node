@@ -41,6 +41,8 @@ import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.SQLite
 import qualified Pact.JSON.Encode as J
 
+import qualified Pact.Core.Gas as PCore
+
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -83,8 +85,10 @@ tests = testGroup "Checkpointer"
 -- Module Name Test
 
 testModuleName :: TestTree
-testModuleName = withResourceT withTempSQLiteResource $
-    runSQLite' $ \resIO -> testCase "testModuleName" $ do
+testModuleName = withResourceT withTempSQLiteResource $ \s ->
+    runSQLite' f s
+    where
+      f = \resIO -> testCase "testModuleName" $ do
 
         (cp, sql) <- resIO
 
@@ -105,7 +109,7 @@ testModuleName = withResourceT withTempSQLiteResource $
           hash02 = getArbitrary 2
           pc02 = childOf (Just pc01) hash02
         cpRestoreAndSave cp (Just pc01)
-          [(pc02, \(PactDbEnv pactdb mvar) -> do
+          [(pc02, \(PactDbEnv pactdb mvar, _) -> do
             -- block 2: write module records
             (_,_,mod') <- loadModule
             -- write qualified
@@ -124,7 +128,7 @@ testModuleName = withResourceT withTempSQLiteResource $
 -- Key Set Test
 
 testKeyset :: TestTree
-testKeyset = withResource initializeSQLite freeSQLiteResource (runSQLite keysetTest)
+testKeyset = withResource initializeSQLite freeSQLiteResource $ \s -> runSQLite keysetTest s
 
 keysetTest ::  IO (Checkpointer logger) -> TestTree
 keysetTest c = testCaseSteps "Keyset test" $ \next -> do
@@ -138,14 +142,14 @@ keysetTest c = testCaseSteps "Keyset test" $ \next -> do
     cpRestoreAndSave cp Nothing [(pc00, \_ -> pure ())]
 
     next "next block (blockheight 1, version 0)"
-    cpReadFrom cp (Just pc00) $ \dbEnv ->
+    cpReadFrom cp (Just pc00) $ \(dbEnv, _) ->
       addKeyset dbEnv "k2" (mkKeySet [] ">=")
 
 
     next "fork on blockheight = 1"
     hash11 <- BlockHash <$> liftIO (merkleLogHash @_ @ChainwebMerkleHashAlgorithm "0000000000000000000000000000001b")
     let pc11 = childOf (Just pc00) hash11
-    cpRestoreAndSave cp (Just pc00) [(pc11, \dbEnv ->
+    cpRestoreAndSave cp (Just pc00) [(pc11, \(dbEnv, _) ->
       addKeyset dbEnv "k1" (mkKeySet [] ">=")
       )]
 
@@ -623,8 +627,8 @@ withRelationalCheckpointerResource
     :: (Logger logger, logger ~ GenericLogger)
     => (IO (Checkpointer logger) -> TestTree)
     -> TestTree
-withRelationalCheckpointerResource =
-    withResource initializeSQLite freeSQLiteResource . runSQLite
+withRelationalCheckpointerResource f =
+    withResource initializeSQLite freeSQLiteResource $ \s -> runSQLite f s
 
 addKeyset :: ChainwebPactDbEnv logger -> KeySetName -> KeySet -> IO ()
 addKeyset (PactDbEnv pactdb mvar) keysetname keyset =
@@ -656,29 +660,31 @@ runSQLite' runTest sqlEnvIO = runTest $ do
   where
     logger = addLabel ("sub-component", "relational-checkpointer") $ dummyLogger
 
-runExec :: forall logger. (Logger logger) => Checkpointer logger -> ChainwebPactDbEnv logger -> Maybe Value -> Text -> IO EvalResult
-runExec cp pactdbenv eData eCode = do
+runExec :: forall logger. (Logger logger) => Checkpointer logger -> (ChainwebPactDbEnv logger, CoreDb) -> Maybe Value -> Text -> IO EvalResult
+runExec cp (pactdbenv, coredb) eData eCode = do
     execMsg <- buildExecParsedCode maxBound {- use latest parser version -} eData eCode
     evalTransactionM cmdenv cmdst $
       applyExec' 0 defaultInterpreter execMsg [] [] h' permissiveNamespacePolicy
   where
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
+    usePactTng = False
     cmdenv :: TransactionEnv logger (BlockEnv logger)
-    cmdenv = TransactionEnv Transactional pactdbenv (_cpLogger $ _cpReadCp cp) Nothing def
-             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing
-    cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
+    cmdenv = TransactionEnv Transactional pactdbenv coredb (_cpLogger $ _cpReadCp cp) Nothing def
+             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing usePactTng
+    cmdst = TransactionState mempty mempty mempty 0 Nothing (_geGasModel freeGasEnv) PCore.freeGasModel mempty
 
-runCont :: Logger logger => Checkpointer logger -> ChainwebPactDbEnv logger -> PactId -> Int -> IO EvalResult
-runCont cp pactdbenv pactId step = do
+runCont :: Logger logger => Checkpointer logger -> (ChainwebPactDbEnv logger, CoreDb) -> PactId -> Int -> IO EvalResult
+runCont cp (pactdbenv, coredb) pactId step = do
     evalTransactionM cmdenv cmdst $
       applyContinuation' 0 defaultInterpreter contMsg [] h' permissiveNamespacePolicy
   where
     contMsg = ContMsg pactId step False (toLegacyJson Null) Nothing
 
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-    cmdenv = TransactionEnv Transactional pactdbenv (_cpLogger $ _cpReadCp cp) Nothing def
-             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing
-    cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
+    usePactTng = False
+    cmdenv = TransactionEnv Transactional pactdbenv coredb (_cpLogger $ _cpReadCp cp) Nothing def
+             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing usePactTng
+    cmdst = TransactionState mempty mempty mempty 0 Nothing (_geGasModel freeGasEnv) PCore.freeGasModel mempty
 
 -- -------------------------------------------------------------------------- --
 -- Pact Utils
@@ -688,10 +694,10 @@ runCont cp pactdbenv pactId step = do
 cpReadFrom
   :: Checkpointer logger
   -> Maybe BlockHeader
-  -> (ChainwebPactDbEnv logger -> IO q)
+  -> ((ChainwebPactDbEnv logger, CoreDb) -> IO q)
   -> IO q
-cpReadFrom cp pc f = _cpReadFrom (_cpReadCp cp) (ParentHeader <$> pc) $
-  f . _cpPactDbEnv
+cpReadFrom cp pc f = _cpReadFrom (_cpReadCp cp) (ParentHeader <$> pc) $ \env ->
+  f (_cpPactDbEnv env, _cpPactCoreDbEnv env)
 
 -- allowing a straightforward list of blocks to be passed to the API,
 -- and only exposing the PactDbEnv part of the block context
@@ -699,10 +705,10 @@ cpRestoreAndSave
   :: (Monoid q)
   => Checkpointer logger
   -> Maybe BlockHeader
-  -> [(BlockHeader, ChainwebPactDbEnv logger -> IO q)]
+  -> [(BlockHeader, (ChainwebPactDbEnv logger, CoreDb) -> IO q)]
   -> IO q
 cpRestoreAndSave cp pc blks = snd <$> _cpRestoreAndSave cp (ParentHeader <$> pc)
-  (traverse Stream.yield [RunnableBlock $ \dbEnv _ -> (,bh) <$> fun (_cpPactDbEnv dbEnv) | (bh, fun) <- blks])
+  (traverse Stream.yield [RunnableBlock $ \dbEnv _ -> (,bh) <$> fun (_cpPactDbEnv dbEnv, _cpPactCoreDbEnv dbEnv) | (bh, fun) <- blks])
 
 -- | fabricate a `BlockHeader` for a block given its hash and its parent.
 childOf :: Maybe BlockHeader -> BlockHash -> BlockHeader

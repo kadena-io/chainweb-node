@@ -37,8 +37,9 @@ import Chainweb.Transaction
 import Chainweb.Utils (T2(..))
 
 import Pact.Types.Hash
-import Pact.Types.Persistence (RowKey, TxLog, Domain)
+import Pact.Types.Persistence (RowKey, Domain)
 import Pact.Types.RowData (RowData)
+import qualified Pact.Core.Persistence as PCore
 
 -- -------------------------------------------------------------------------- --
 -- PactExecutionService
@@ -97,7 +98,7 @@ data PactExecutionService = PactExecutionService
         BlockHeader ->
         Domain RowKey RowData ->
         RowKey ->
-        IO (Maybe (TxLog RowData))
+        IO (Maybe (PCore.TxLog PCore.RowData))
         )
       -- ^ Obtain latest entry at or before the given block for specified table/domain and row key.
     , _pactSyncToBlock :: !(
