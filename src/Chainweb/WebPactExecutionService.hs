@@ -42,8 +42,9 @@ import Chainweb.Transaction
 import Chainweb.Utils
 
 import Pact.Types.Hash
-import Pact.Types.Persistence (RowKey, TxLog, Domain)
+import Pact.Types.Persistence (RowKey, Domain)
 import Pact.Types.RowData (RowData)
+import qualified Pact.Core.Persistence as Pact5
 
 -- -------------------------------------------------------------------------- --
 -- PactExecutionService
@@ -90,7 +91,7 @@ data PactExecutionService = PactExecutionService
         Maybe LocalPreflightSimulation ->
         Maybe LocalSignatureVerification ->
         Maybe RewindDepth ->
-        ChainwebTransaction ->
+        Pact4Transaction ->
         IO LocalResult)
       -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
       -- Corresponds to `local` HTTP endpoint.
@@ -111,7 +112,7 @@ data PactExecutionService = PactExecutionService
       -- ^ Lookup pact hashes as of a block header to detect duplicates
     , _pactPreInsertCheck :: !(
         ChainId
-        -> Vector ChainwebTransaction
+        -> Vector Pact4Transaction
         -> IO (Vector (Either InsertError ())))
       -- ^ Run speculative checks to find bad transactions (ie gas buy failures, etc)
     , _pactBlockTxHistory :: !(
@@ -124,7 +125,7 @@ data PactExecutionService = PactExecutionService
         BlockHeader ->
         Domain RowKey RowData ->
         RowKey ->
-        IO (Historical (Maybe (TxLog RowData)))
+        IO (Historical (Maybe (Pact5.TxLog Pact5.RowData)))
         )
       -- ^ Obtain latest entry at or before the given block for specified table/domain and row key.
     , _pactSyncToBlock :: !(

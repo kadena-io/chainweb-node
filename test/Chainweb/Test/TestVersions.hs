@@ -147,6 +147,7 @@ fastForks = tabulateHashMap $ \case
     PactEvents -> AllChains ForkAtGenesis
     CoinV2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
     Pact42 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
+    Pact5 -> AllChains $ ForkAtBlockHeight 42
     SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
     ModuleNameFix -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
     ModuleNameFix2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
@@ -268,6 +269,7 @@ slowForks = tabulateHashMap \case
     ModuleNameFix -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
     ModuleNameFix2 -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
     Pact42 -> AllChains $ ForkAtBlockHeight (BlockHeight 5)
+    Pact5 -> AllChains $ ForkAtBlockHeight (BlockHeight 115)
     CheckTxHash -> AllChains $ ForkAtBlockHeight (BlockHeight 7)
     EnforceKeysetFormats -> AllChains $ ForkAtBlockHeight (BlockHeight 10)
     PactEvents -> AllChains $ ForkAtBlockHeight (BlockHeight 10)
@@ -337,3 +339,9 @@ instantCpmTestVersion g = buildTestVersion $ \v -> v
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
     & versionUpgrades .~ AllChains mempty
+
+pact5EarlyTestVersion :: ChainGraph -> ChainwebVersion
+pact5EarlyTestVersion g = buildTestVersion $ \v -> v
+    & cpmTestVersion g
+    & versionName .~ ChainwebVersionName ("pact5-early-" <> toText g)
+    & versionForks .~ (fastForks & at Pact5 .~ Just (AllChains $ ForkAtBlockHeight 115))

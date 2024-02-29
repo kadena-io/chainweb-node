@@ -120,7 +120,7 @@ localTest lf v coord m cdb gen miners =
 --
 mempoolNoopMiner
     :: LogFunction
-    -> HashMap ChainId (MempoolBackend ChainwebTransaction)
+    -> HashMap ChainId (MempoolBackend Pact4Transaction)
     -> IO ()
 mempoolNoopMiner lf chainRes =
     runForever lf "Chainweb.Miner.Miners.mempoolNoopMiner" $ do

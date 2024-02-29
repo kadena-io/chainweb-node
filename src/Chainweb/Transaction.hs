@@ -8,12 +8,14 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Chainweb.Transaction
-  ( ChainwebTransaction
+  ( Pact4Transaction
+  , Pact5Transaction
   , HashableTrans(..)
   , PayloadWithText
   , PactParserVersion(..)
   , IsWebAuthnPrefixLegal(..)
-  , chainwebPayloadCodec
+  , pact4PayloadCodec
+  , pact5PayloadCodec
   , encodePayload
   , decodePayload
   , cmdGasLimit
@@ -39,6 +41,8 @@ import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 
 import GHC.Generics (Generic)
+
+import qualified Pact.Core.Command as Pact5
 
 import qualified Pact.Parse as P (parsePact, legacyParsePact)
 import Pact.Types.ChainMeta
@@ -79,7 +83,8 @@ mkPayloadWithTextOld p = PayloadWithText
     , _payloadObj = p
     }
 
-type ChainwebTransaction = Command PayloadWithText
+type Pact4Transaction = Command PayloadWithText
+type Pact5Transaction = Pact5.Command PayloadWithText
 
 data PactParserVersion
     = PactParserGenesis
@@ -91,7 +96,7 @@ data IsWebAuthnPrefixLegal
     | WebAuthnPrefixLegal
     deriving (Eq, Ord, Bounded, Show, Enum)
 
--- | Hashable newtype of ChainwebTransaction
+-- | Hashable newtype of Pact4Transaction
 newtype HashableTrans a = HashableTrans { unHashable :: Command a }
     deriving (Eq, Functor, Ord)
 
@@ -103,12 +108,24 @@ instance Hashable (HashableTrans PayloadWithText) where
         !hashCode = either error id $ decHC (B.take 8 $ SB.fromShort hc)
     {-# INLINE hashWithSalt #-}
 
--- | A codec for (Command PayloadWithText) transactions.
+-- | A codec for Pact4's (Command PayloadWithText) transactions.
 --
-chainwebPayloadCodec
+pact4PayloadCodec
     :: PactParserVersion
     -> Codec (Command PayloadWithText)
-chainwebPayloadCodec ppv = Codec enc dec
+pact4PayloadCodec ppv = Codec enc dec
+  where
+    enc c = J.encodeStrict $ fmap (decodeUtf8 . encodePayload) c
+    dec bs = case Aeson.decodeStrict' bs of
+               Just cmd -> traverse (decodePayload ppv . encodeUtf8) cmd
+               Nothing -> Left "decode PayloadWithText failed"
+
+-- | A codec for Pact5's (Command PayloadWithText) transactions.
+--
+pact5PayloadCodec
+    :: PactParserVersion
+    -> Codec (Pact5.Command PayloadWithText)
+pact5PayloadCodec ppv = Codec enc dec
   where
     enc c = J.encodeStrict $ fmap (decodeUtf8 . encodePayload) c
     dec bs = case Aeson.decodeStrict' bs of

@@ -6,6 +6,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE GADTs #-}
+
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -36,11 +38,18 @@ module Chainweb.Pact.Backend.Utils
   , toTextUtf8
   , asStringUtf8
   , domainTableName
+  , domainTableNameCore
+  , tableNameCore
   , convKeySetName
+  , convKeySetNameCore
   , convModuleName
+  , convModuleNameCore
   , convNamespaceName
+  , convNamespaceNameCore
   , convRowKey
+  , convRowKeyCore
   , convPactId
+  , convPactIdCore
   , convSavepointName
   , expectSingleRowCol
   , expectSingle
@@ -88,6 +97,11 @@ import Pact.Types.Term
     (KeySetName(..), ModuleName(..), NamespaceName(..), PactId(..))
 import Pact.Types.Util (AsString(..))
 
+import qualified Pact.Core.Names as PCore
+import qualified Pact.Core.Persistence as PCore
+import qualified Pact.Core.Guards as PCore
+
+
 -- chainweb
 
 import Chainweb.Logger
@@ -99,6 +113,17 @@ import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
 -- SQ3.Utf8 Encodings
+instance AsString (PCore.Domain k v b i) where
+    asString (PCore.DUserTables t) = asString t
+    asString PCore.DKeySets = "SYS:KeySets"
+    asString PCore.DModules = "SYS:Modules"
+    asString PCore.DNamespaces = "SYS:Namespaces"
+    asString PCore.DDefPacts = "SYS:Pacts"
+
+
+instance AsString (PCore.TableName) where
+    asString (PCore.TableName tn (PCore.ModuleName mn ns)) =
+      maybe "" (\(PCore.NamespaceName n) -> n <> ".") ns <> mn <> "_" <> tn
 
 toUtf8 :: T.Text -> SQ3.Utf8
 toUtf8 = SQ3.Utf8 . T.encodeUtf8
@@ -122,6 +147,15 @@ domainTableName = asStringUtf8
 convKeySetName :: KeySetName -> SQ3.Utf8
 convKeySetName = toUtf8 . asString
 
+domainTableNameCore :: PCore.Domain k v b i -> SQ3.Utf8
+domainTableNameCore = asStringUtf8
+
+tableNameCore :: PCore.TableName -> SQ3.Utf8
+tableNameCore = asStringUtf8
+
+convKeySetNameCore :: PCore.KeySetName -> SQ3.Utf8
+convKeySetNameCore = toUtf8 . PCore.renderKeySetName
+
 convModuleName
   :: Bool
      -- ^ whether to apply module name fix
@@ -130,14 +164,32 @@ convModuleName
 convModuleName False (ModuleName name _) = toUtf8 name
 convModuleName True mn = asStringUtf8 mn
 
+convModuleNameCore
+  :: Bool
+     -- ^ whether to apply module name fix
+  -> PCore.ModuleName
+  -> SQ3.Utf8
+convModuleNameCore False (PCore.ModuleName name _) = toUtf8 name
+convModuleNameCore True mn = toUtf8 $ PCore.renderModuleName mn
+
+
 convNamespaceName :: NamespaceName -> SQ3.Utf8
 convNamespaceName (NamespaceName name) = toUtf8 name
+
+convNamespaceNameCore :: PCore.NamespaceName -> SQ3.Utf8
+convNamespaceNameCore (PCore.NamespaceName name) = toUtf8 name
 
 convRowKey :: RowKey -> SQ3.Utf8
 convRowKey (RowKey name) = toUtf8 name
 
+convRowKeyCore :: PCore.RowKey -> SQ3.Utf8
+convRowKeyCore (PCore.RowKey name) = toUtf8 name
+
 convPactId :: PactId -> SQ3.Utf8
 convPactId = toUtf8 . sshow
+
+convPactIdCore :: PCore.DefPactId -> SQ3.Utf8
+convPactIdCore = toUtf8 . PCore.renderDefPactId
 
 convSavepointName :: SavepointName -> SQ3.Utf8
 convSavepointName = toTextUtf8

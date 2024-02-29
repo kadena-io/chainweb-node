@@ -14,11 +14,12 @@
 --
 -- Prebuilt Term templates for automated operations (coinbase, gas buy)
 --
-module Chainweb.Pact.Templates
+module Chainweb.Pact.Templates.Pact4
 ( mkFundTxTerm
 , mkBuyGasTerm
 , mkRedeemGasTerm
 , mkCoinbaseTerm
+
 , mkCoinbaseCmd
 ) where
 
@@ -41,7 +42,6 @@ import Pact.Types.Runtime
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
 import Chainweb.Pact.Service.Types
-
 
 inf :: Info
 inf = Info $ Just (Code "",Parsed (Columns 0 0) 0)
@@ -162,7 +162,6 @@ coinbaseTemplate =
   , strArgSetter 0
   )
 {-# NOINLINE coinbaseTemplate #-}
-
 
 mkCoinbaseTerm :: MinerId -> MinerKeys -> ParsedDecimal -> (Term Name,ExecMsg ParsedCode)
 mkCoinbaseTerm (MinerId mid) (MinerKeys ks) reward = (populatedTerm, execMsg)

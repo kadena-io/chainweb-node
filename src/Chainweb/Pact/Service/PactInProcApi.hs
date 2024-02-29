@@ -130,11 +130,11 @@ pactMemPoolGetBlock
     => MempoolConsensus
     -> logger
     -> BlockFill
-    -> (MempoolPreBlockCheck ChainwebTransaction
+    -> (MempoolPreBlockCheck Pact4Transaction
             -> BlockHeight
             -> BlockHash
             -> BlockHeader
-            -> IO (Vector ChainwebTransaction))
+            -> IO (Vector Pact4Transaction))
 pactMemPoolGetBlock mpc theLogger bf validate height hash _bHeader = do
     logFn theLogger Debug $! "pactMemPoolAccess - getting new block of transactions for "
         <> "height = " <> sshow height <> ", hash = " <> sshow hash

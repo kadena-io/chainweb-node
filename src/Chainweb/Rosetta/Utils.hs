@@ -37,16 +37,21 @@ import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.RPC as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Parse as P
+import qualified Pact.JSON.Decode as J
 import qualified Data.Set as S
-import Data.Maybe ( fromMaybe )
-import qualified Pact.Types.RowData as P
+import Data.Maybe (fromMaybe)
 
 import Numeric.Natural ( Natural )
 
 import Pact.Types.Command
 import Pact.Types.PactValue (PactValue(..))
-import Pact.Types.Exp (Literal(..))
 import Pact.JSON.Legacy.Value
+
+import qualified Pact.Core.Persistence as PCore
+import qualified Pact.Core.PactValue as PCore
+import qualified Pact.Core.Literal as PCore
+import qualified Pact.Core.Names as PCore
+import qualified Pact.Core.StableEncoding as PCore
 
 import Rosetta
 
@@ -1231,11 +1236,11 @@ rowDataToAccountLog (currKey, currBal, currGuard) prev = do
         }
 
 -- | Parse TxLog Value into fungible asset account columns
-txLogToAccountRow :: P.TxLog P.RowData -> Maybe AccountRow
-txLogToAccountRow (P.TxLog _ key (P.RowData _ (P.ObjectMap row))) = do
-  LegacyValue guard <- toLegacyJsonViaEncode . P.rowDataToPactValue <$> M.lookup "guard" row
-  case M.lookup "balance" row of
-    Just (P.RDLiteral (LDecimal bal)) -> pure (key, bal, guard)
+txLogToAccountRow :: PCore.TxLog PCore.RowData -> Maybe AccountRow
+txLogToAccountRow (PCore.TxLog _ key (PCore.RowData row)) = do
+  LegacyValue guard <- (maybe (error "txLogToAccountRow: can't decode PactValue") id . J.decodeStrict . PCore.encodeStable) <$> M.lookup (PCore.Field "guard") row
+  case M.lookup (PCore.Field "balance") row of
+    Just (PCore.PLiteral (PCore.LDecimal bal)) -> pure (key, bal, guard)
     _ -> Nothing
 
 hushResult :: Result a -> Maybe a

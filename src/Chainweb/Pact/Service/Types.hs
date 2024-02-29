@@ -73,6 +73,9 @@ module Chainweb.Pact.Service.Types
   , moduleCacheKeys
   , cleanModuleCache
 
+  , CoreModuleCache(..)
+  , filterCoreModuleCacheByKey
+
   , BlockInProgress(..)
   , blockInProgressPendingData
   , blockInProgressTxId
@@ -102,6 +105,7 @@ import Data.Aeson
 import qualified Data.ByteString.Short as SB
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Map as M
 import qualified Data.List.NonEmpty as NE
 import Data.Text (Text, unpack)
 import qualified Data.Text.Encoding as T
@@ -123,6 +127,11 @@ import Pact.Types.RowData
 import Pact.Types.Runtime hiding (ChainId)
 import qualified Pact.JSON.Encode as J
 import qualified Pact.JSON.Legacy.HashMap as LHM
+
+import qualified Pact.Core.Persistence as Pact5
+import qualified Pact.Core.Builtin as Pact5
+import qualified Pact.Core.Info as Pact5
+import qualified Pact.Core.Names as Pact5
 
 -- internal chainweb modules
 
@@ -347,6 +356,29 @@ instance FromJSON PactExceptionTag where
     parseJSON = withObject "PactExceptionTag" $ \o -> PactExceptionTag
         <$> o .: "tag"
 
+-- --- | Gather tx logs for a block, along with last tx for each
+-- --- key in history, if any
+-- --- Not intended for public API use; ToJSONs are for logging output.
+-- -data BlockTxHistory = BlockTxHistory
+-- -  { _blockTxHistory :: !(Map TxId [TxLog RowData])
+-- -  , _blockPrevHistory :: !(Map RowKey (TxLog RowData))
+-- -  }
+-- -  deriving (Eq,Generic)
+-- -instance Show BlockTxHistory where
+-- -  show = show . fmap (J.encodeText . J.Array) . _blockTxHistory
+-- -instance NFData BlockTxHistory
+-- | Gather tx logs for a block, along with last tx for each
+-- key in history, if any
+-- Not intended for public API use; ToJSONs are for logging output.
+-- data BlockTxHistory = BlockTxHistory
+--   { _blockTxHistory :: !(Map TxId [Pact5.TxLog Pact5.RowData])
+--   , _blockPrevHistory :: !(Map RowKey (Pact5.TxLog Pact5.RowData))
+--   }
+--   deriving (Eq,Generic)
+-- instance Show BlockTxHistory where
+--   show = show . fmap (show) . _blockTxHistory
+-- TODO: fix show above
+-- instance NFData BlockTxHistory -- TODO: add NFData for RowData
 
 internalError :: (HasCallStack, MonadThrow m) => Text -> m a
 internalError = throwM . PactInternalError callStack
@@ -395,7 +427,7 @@ data RequestMsg r where
     LookupPactTxsMsg :: !LookupPactTxsReq -> RequestMsg (HashMap PactHash (T2 BlockHeight BlockHash))
     PreInsertCheckMsg :: !PreInsertCheckReq -> RequestMsg (Vector (Either InsertError ()))
     BlockTxHistoryMsg :: !BlockTxHistoryReq -> RequestMsg (Historical BlockTxHistory)
-    HistoricalLookupMsg :: !HistoricalLookupReq -> RequestMsg (Historical (Maybe (TxLog RowData)))
+    HistoricalLookupMsg :: !HistoricalLookupReq -> RequestMsg (Historical (Maybe (Pact5.TxLog Pact5.RowData)))
     SyncToBlockMsg :: !SyncToBlockReq -> RequestMsg ()
     ReadOnlyReplayMsg :: !ReadOnlyReplayReq -> RequestMsg ()
     CloseMsg :: RequestMsg ()
@@ -436,7 +468,7 @@ data ValidateBlockReq = ValidateBlockReq
     } deriving stock Show
 
 data LocalReq = LocalReq
-    { _localRequest :: !ChainwebTransaction
+    { _localRequest :: !Pact4Transaction
     , _localPreflight :: !(Maybe LocalPreflightSimulation)
     , _localSigVerification :: !(Maybe LocalSignatureVerification)
     , _localRewindDepth :: !(Maybe RewindDepth)
@@ -452,7 +484,7 @@ instance Show LookupPactTxsReq where
         "LookupPactTxsReq@" ++ show m
 
 data PreInsertCheckReq = PreInsertCheckReq
-    { _preInsCheckTxs :: !(Vector ChainwebTransaction)
+    { _preInsCheckTxs :: !(Vector Pact4Transaction)
     }
 instance Show PreInsertCheckReq where
     show (PreInsertCheckReq v) =
@@ -518,6 +550,17 @@ newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
 --
 newtype ModuleCache = ModuleCache { _getModuleCache :: LHM.HashMap ModuleName (ModuleData Ref, Bool) }
     deriving newtype (Show, Eq, Semigroup, Monoid, NFData)
+
+newtype CoreModuleCache = CoreModuleCache { _getCoreModuleCache :: M.Map Pact5.ModuleName (Pact5.ModuleData Pact5.CoreBuiltin Pact5.SpanInfo) }
+    deriving newtype (Semigroup, Monoid, NFData)
+
+filterCoreModuleCacheByKey
+    :: (Pact5.ModuleName -> Bool)
+    -> CoreModuleCache
+    -> CoreModuleCache
+filterCoreModuleCacheByKey f (CoreModuleCache c) = CoreModuleCache $
+    M.fromList $ filter (f . fst) $ M.toList c
+{-# INLINE filterCoreModuleCacheByKey #-}
 
 filterModuleCacheByKey
     :: (ModuleName -> Bool)
@@ -616,7 +659,7 @@ toHashCommandResult :: CommandResult [TxLogJson] -> CommandResult Hash
 toHashCommandResult = over (crLogs . _Just) $ pactHash . encodeTxLogJsonArray
 
 data Transactions r = Transactions
-    { _transactionPairs :: !(Vector (ChainwebTransaction, r))
+    { _transactionPairs :: !(Vector (Pact4Transaction, r))
     , _transactionCoinbase :: !(CommandResult [TxLogJson])
     }
     deriving stock (Functor, Foldable, Traversable, Eq, Show, Generic)
