@@ -192,6 +192,7 @@ data Fork
     | Pact4Coin3
     | EnforceKeysetFormats
     | Pact42
+    | Pact5
     | CheckTxHash
     | Chainweb213Pact
     | Chainweb214Pact
@@ -227,6 +228,7 @@ instance HasTextRepresentation Fork where
     toText Pact4Coin3 = "pact4Coin3"
     toText EnforceKeysetFormats = "enforceKeysetFormats"
     toText Pact42 = "Pact42"
+    toText Pact5 = "Pact5"
     toText CheckTxHash = "checkTxHash"
     toText Chainweb213Pact = "chainweb213Pact"
     toText Chainweb214Pact = "chainweb214Pact"
@@ -319,7 +321,7 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVer
 -- heights during coinbase.
 --
 data Upgrade = Upgrade
-    { _upgradeTransactions :: [ChainwebTransaction]
+    { _upgradeTransactions :: [Pact4Transaction]
     , _legacyUpgradeIsPrecocious :: Bool
         -- ^ when set to `True`, the upgrade transactions are executed using the
         -- forks of the next block, rather than the block the upgrade
@@ -332,7 +334,7 @@ data Upgrade = Upgrade
 instance Show Upgrade where
     show _ = "<upgrade>"
 
-upgrade :: [ChainwebTransaction] -> Upgrade
+upgrade :: [Pact4Transaction] -> Upgrade
 upgrade txs = Upgrade txs False
 
 -- The type of quirks, i.e. special validation behaviors that are in some

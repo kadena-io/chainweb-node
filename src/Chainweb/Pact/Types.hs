@@ -9,6 +9,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -25,14 +26,7 @@
 -- Pact Types module for Chainweb
 --
 module Chainweb.Pact.Types
-  ( -- * Pact Db State
-    PactDbStatePersist(..)
-  , pdbspRestoreFile
-  , pdbspPactDbState
-
-    -- * Misc helpers
-
-  , GasSupply(..)
+  ( GasSupply(..)
   , GasId(..)
   , EnforceCoinbaseFailure(..)
   , CoinbaseUsePrecompiled(..)
@@ -76,6 +70,7 @@ module Chainweb.Pact.Types
   , psPdb
   , psBlockHeaderDb
   , psGasModel
+  , psGasModelCore
   , psMinerRewards
   , psReorgLimit
   , psPreInsertCheckTimeout
@@ -108,6 +103,9 @@ module Chainweb.Pact.Types
   , getInitCache
   , updateInitCache
   , updateInitCacheM
+
+  , CoreModuleCache(..)
+  , filterCoreModuleCacheByKey
 
     -- * Pact Service Monad
   , PactServiceM(..)
@@ -146,7 +144,8 @@ module Chainweb.Pact.Types
     -- * types
   , TxTimeout(..)
   , ApplyCmdExecutionContext(..)
-  , TxFailureLog(..)
+  , Pact4TxFailureLog(..)
+  , Pact5TxFailureLog(..)
 
   -- * miscellaneous
   , defaultOnFatalError
@@ -196,6 +195,11 @@ import Pact.Types.SPV
 import Pact.Types.Term
 import qualified Pact.Types.Logger as P
 
+import qualified Pact.Core.Builtin as Pact5
+import qualified Pact.Core.Gas as Pact5
+import qualified Pact.Core.Errors as Pact5
+import qualified Pact.Core.Info as Pact5
+
 -- internal chainweb modules
 
 import Chainweb.BlockCreationTime
@@ -216,12 +220,6 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 import Utils.Logging.Trace
-
-data PactDbStatePersist = PactDbStatePersist
-    { _pdbspRestoreFile :: !(Maybe FilePath)
-    , _pdbspPactDbState :: !PactDbState
-    }
-makeLenses ''PactDbStatePersist
 
 -- -------------------------------------------------------------------------- --
 -- Coinbase output utils
@@ -261,7 +259,7 @@ data TransactionState = TransactionState
     , _txLogs :: ![TxLogJson]
     , _txGasUsed :: !Gas
     , _txGasId :: !(Maybe GasId)
-    , _txGasModel :: !GasModel
+    , _txGasModel :: !(Either GasModel (Pact5.GasModel Pact5.CoreBuiltin))
     , _txWarnings :: !(Set PactWarning)
     }
 makeLenses ''TransactionState
@@ -270,7 +268,7 @@ makeLenses ''TransactionState
 --
 data TransactionEnv logger db = TransactionEnv
     { _txMode :: !ExecutionMode
-    , _txDbEnv :: !(PactDbEnv db)
+    , _txDbEnv :: !(Either (PactDbEnv db) CoreDb)
     , _txLogger :: !logger
     , _txGasLogger :: !(Maybe logger)
     , _txPublicData :: !PublicData
@@ -370,6 +368,7 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psPdb :: !(PayloadDb tbl)
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: !(TxContext -> GasModel)
+    , _psGasModelCore :: !(TxContext -> Pact5.GasModel Pact5.CoreBuiltin)
     , _psMinerRewards :: !MinerRewards
     , _psPreInsertCheckTimeout :: !Micros
     -- ^ Maximum allowed execution time for the transactions validation.
@@ -445,13 +444,22 @@ newtype TxTimeout = TxTimeout TransactionHash
     deriving Show
 instance Exception TxTimeout
 
-data TxFailureLog = TxFailureLog !RequestKey !PactError !Text
+data Pact4TxFailureLog = Pact4TxFailureLog !RequestKey !PactError !Text
   deriving stock (Generic)
   deriving anyclass (NFData, Typeable)
-instance LogMessage TxFailureLog where
-  logText (TxFailureLog rk err msg) =
+instance LogMessage Pact4TxFailureLog where
+  logText (Pact4TxFailureLog rk err msg) =
     msg <> ": " <> sshow rk <> ": " <> sshow err
-instance Show TxFailureLog where
+instance Show Pact4TxFailureLog where
+  show m = unpack (logText m)
+
+data Pact5TxFailureLog = Pact5TxFailureLog !RequestKey !(Pact5.PactError Pact5.SpanInfo) !Text
+  deriving stock (Generic)
+  deriving anyclass (NFData, Typeable)
+instance LogMessage Pact5TxFailureLog where
+  logText (Pact5TxFailureLog rk err msg) =
+    msg <> ": " <> sshow rk <> ": " <> sshow err
+instance Show Pact5TxFailureLog where
   show m = unpack (logText m)
 
 defaultOnFatalError :: forall a. (LogLevel -> Text -> IO ()) -> PactException -> Text -> IO a
@@ -766,6 +774,6 @@ catchesPactError logger exnPrinting action = catches (Right <$> action)
             return (viaShow e)
           CensorsUnexpectedError -> do
             liftIO $ logWarn_ logger ("catchesPactError: unknown error: " <> sshow e)
-            return "unknown error"
+            return ("unknown error " <> sshow e)
       return $ Left $ PactError EvalError def def err
   ]

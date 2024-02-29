@@ -122,7 +122,7 @@ custom-setup
 -- -------------------------------------------------------------------------- --
 
 library
-    import: warning-flags, debugging-flags
+    import: debugging-flags
     default-language: Haskell2010
     hs-source-dirs: src
     other-modules:
@@ -299,6 +299,7 @@ library
 
         -- pact
         , Chainweb.Pact.Backend.ChainwebPactDb
+        , Chainweb.Pact.Backend.ChainwebPactCoreDb
         , Chainweb.Pact.Backend.DbCache
         , Chainweb.Pact.Backend.Compaction
         , Chainweb.Pact.Backend.PactState
@@ -314,6 +315,7 @@ library
         , Chainweb.Pact.Backend.SQLite.V2
         , Chainweb.Pact.Backend.Types
         , Chainweb.Pact.Backend.Utils
+        , Chainweb.Pact.Conversion
         , Chainweb.Pact.NoCoinbase
         , Chainweb.Pact.PactService
         , Chainweb.Pact.PactService.Checkpointer
@@ -328,10 +330,14 @@ library
         , Chainweb.Pact.Service.PactInProcApi
         , Chainweb.Pact.Service.PactQueue
         , Chainweb.Pact.Service.Types
-        , Chainweb.Pact.Templates
-        , Chainweb.Pact.TransactionExec
+        , Chainweb.Pact.Templates.Pact4
+        , Chainweb.Pact.Templates.Pact5
+        , Chainweb.Pact.TransactionExec.Pact4
+        , Chainweb.Pact.TransactionExec.Pact5
+        , Chainweb.Pact.Transactions.FungibleV2Transactions
         , Chainweb.Pact.Transactions.CoinV3Transactions
         , Chainweb.Pact.Transactions.CoinV4Transactions
+        , Chainweb.Pact.Transactions.CoinCoreV4Transactions
         , Chainweb.Pact.Transactions.CoinV5Transactions
         , Chainweb.Pact.Transactions.CoinV6Transactions
         , Chainweb.Pact.Transactions.Mainnet0Transactions
@@ -368,6 +374,7 @@ library
         , base16-bytestring >= 0.1
         , base64-bytestring-kadena == 0.1
         , binary >= 0.8
+        , bound >= 2
         , bytestring >= 0.10.12
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
@@ -418,6 +425,7 @@ library
         , pact-json >= 0.1
         , parallel >= 3.2.2.0
         , patience >= 0.3
+        , pact-tng
         , pem >=0.2
         , primitive >= 0.7.1.0
         , random >= 1.2
@@ -473,7 +481,7 @@ library
 -- -------------------------------------------------------------------------- --
 
 test-suite chainweb-tests
-    import: warning-flags, debugging-flags
+    import: debugging-flags
     default-language: Haskell2010
     ghc-options:
         -threaded
@@ -594,6 +602,7 @@ test-suite chainweb-tests
         , patience >= 0.3
         , http-client-tls >=0.3
         , pact
+        , pact-tng
         , pact-json >= 0.1
         , quickcheck-instances >= 0.3
         , random >= 1.2
@@ -778,6 +787,7 @@ executable cwtool
         , optparse-applicative >= 0.14
         , pact
         , pact-json
+        , pact-tng
         , patience >= 0.3
         , process >= 1.5
         , quickcheck-instances >= 0.3

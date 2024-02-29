@@ -17,6 +17,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.Types
@@ -36,7 +38,6 @@ module Chainweb.Pact.Backend.Types
     , ReadCheckpointer(..)
     , CurrentBlockDbEnv(..)
     , Env'(..)
-    , EnvPersist'(..)
     , PactDbConfig(..)
     , pdbcGasLimit
     , pdbcGasRate
@@ -44,11 +45,7 @@ module Chainweb.Pact.Backend.Types
     , pdbcPersistDir
     , pdbcPragmas
     , ChainwebPactDbEnv
-    , PactDbEnvPersist(..)
-    , pdepEnv
-    , pdepPactDb
-    , PactDbState(..)
-    , pdbsDbEnv
+    , CoreDb
 
     , SQLiteRowDelta(..)
     , SQLitePendingTableCreations
@@ -57,8 +54,10 @@ module Chainweb.Pact.Backend.Types
     , pendingTableCreation
     , pendingWrites
     , pendingTxLogMap
+    , pendingTxLogMapPact5
     , pendingSuccessfulTxs
     , emptySQLitePendingData
+    , fromCoreExecutionMode
 
     , BlockState(..)
     , initBlockState
@@ -67,6 +66,7 @@ module Chainweb.Pact.Backend.Types
     , bsPendingBlock
     , bsPendingTx
     , bsModuleCache
+    , bsModuleCacheCore
     , BlockEnv(..)
     , benvBlockState
     , blockHandlerEnv
@@ -129,6 +129,11 @@ import Pact.Types.Runtime (TableName)
 
 import qualified Pact.JSON.Encode as J
 
+import qualified Pact.Core.Builtin as Pact5
+import qualified Pact.Core.Persistence as Pact5
+import qualified Pact.Core.Info as Pact5
+
+
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -144,20 +149,6 @@ import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
 import Streaming(Stream, Of)
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
-
-data PactDbEnvPersist p = PactDbEnvPersist
-    { _pdepPactDb :: !(PactDb (DbEnv p))
-    , _pdepEnv :: !(DbEnv p)
-    }
-
-makeLenses ''PactDbEnvPersist
-
-
-data EnvPersist' = forall a. EnvPersist' (PactDbEnvPersist a)
-
-newtype PactDbState = PactDbState { _pdbsDbEnv :: EnvPersist' }
-
-makeLenses ''PactDbState
 
 data PactDbConfig = PactDbConfig
     { _pdbcPersistDir :: !(Maybe FilePath)
@@ -194,6 +185,8 @@ instance Ord SQLiteRowDelta where
 -- 'BlockState' and is cleared upon pact transaction commit.
 type TxLogMap = Map TableName (DList TxLogJson)
 
+type TxLogMapPact5 = Map TableName (DList (Pact5.TxLog ByteString))
+
 -- | Between a @restore..save@ bracket, we also need to record which tables
 -- were created during this block (so the necessary @CREATE TABLE@ statements
 -- can be performed upon block save).
@@ -214,6 +207,7 @@ data SQLitePendingData = SQLitePendingData
     { _pendingTableCreation :: !SQLitePendingTableCreations
     , _pendingWrites :: !SQLitePendingWrites
     , _pendingTxLogMap :: !TxLogMap
+    , _pendingTxLogMapPact5 :: !TxLogMapPact5
     , _pendingSuccessfulTxs :: !SQLitePendingSuccessfulTxs
     }
     deriving (Eq, Show)
@@ -233,10 +227,16 @@ data BlockState = BlockState
     , _bsPendingTx :: !(Maybe SQLitePendingData)
     , _bsMode :: !(Maybe ExecutionMode)
     , _bsModuleCache :: !(DbCache PersistModuleData)
+    , _bsModuleCacheCore :: !(DbCache (Pact5.ModuleData Pact5.CoreBuiltin Pact5.SpanInfo))
     }
 
+fromCoreExecutionMode :: Pact5.ExecutionMode -> ExecutionMode
+fromCoreExecutionMode = \case
+  Pact5.Transactional -> Transactional
+  Pact5.Local -> Local
+
 emptySQLitePendingData :: SQLitePendingData
-emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
+emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty mempty
 
 initBlockState
     :: DbCacheLimitBytes
@@ -250,6 +250,7 @@ initBlockState cl txid = BlockState
     , _bsPendingBlock = emptySQLitePendingData
     , _bsPendingTx = Nothing
     , _bsModuleCache = emptyDbCache cl
+    , _bsModuleCacheCore = emptyDbCache cl
     }
 
 makeLenses ''BlockState
@@ -319,6 +320,7 @@ newtype BlockHandler logger a = BlockHandler
         )
 
 type ChainwebPactDbEnv logger = PactDbEnv (BlockEnv logger)
+type CoreDb = Pact5.PactDb Pact5.CoreBuiltin Pact5.SpanInfo
 
 type ParentHash = BlockHash
 
@@ -346,7 +348,7 @@ data ReadCheckpointer logger = ReadCheckpointer
   , _cpGetBlockHistory ::
        !(BlockHeader -> Domain RowKey RowData -> IO (Historical BlockTxHistory))
   , _cpGetHistoricalLookup ::
-      !(BlockHeader -> Domain RowKey RowData -> RowKey -> IO (Historical (Maybe (TxLog RowData))))
+      !(BlockHeader -> Domain RowKey RowData -> RowKey -> IO (Historical (Maybe (Pact5.TxLog Pact5.RowData))))
   , _cpLogger :: logger
   }
 
@@ -405,6 +407,7 @@ _cpRewindTo cp ancestor = void $ _cpRestoreAndSave cp
 -- this is effectively a read-write snapshot of the Pact state at a block.
 data CurrentBlockDbEnv logger = CurrentBlockDbEnv
     { _cpPactDbEnv :: !(ChainwebPactDbEnv logger)
+    , _cpPactCoreDbEnv :: !CoreDb
     , _cpRegisterProcessedTx :: !(P.PactHash -> IO ())
     , _cpLookupProcessedTx ::
         !(Vector P.PactHash -> IO (HashMap P.PactHash (T2 BlockHeight BlockHash)))
@@ -417,11 +420,11 @@ newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
 data MemPoolAccess = MemPoolAccess
   { mpaGetBlock
         :: !(BlockFill
-        -> MempoolPreBlockCheck ChainwebTransaction
+        -> MempoolPreBlockCheck Pact4Transaction
         -> BlockHeight
         -> BlockHash
         -> BlockHeader
-        -> IO (Vector ChainwebTransaction)
+        -> IO (Vector Pact4Transaction)
         )
   , mpaSetLastHeader :: !(BlockHeader -> IO ())
   , mpaProcessFork :: !(BlockHeader -> IO ())
@@ -455,13 +458,14 @@ instance Exception PactServiceException
 -- key in history, if any
 -- Not intended for public API use; ToJSONs are for logging output.
 data BlockTxHistory = BlockTxHistory
-  { _blockTxHistory :: !(Map TxId [TxLog RowData])
-  , _blockPrevHistory :: !(Map RowKey (TxLog RowData))
+  { _blockTxHistory :: !(Map TxId [Pact5.TxLog Pact5.RowData])
+  , _blockPrevHistory :: !(Map RowKey (Pact5.TxLog Pact5.RowData))
   }
   deriving (Eq,Generic)
 instance Show BlockTxHistory where
-  show = show . fmap (J.encodeText . J.Array) . _blockTxHistory
-instance NFData BlockTxHistory
+  show = show . fmap (show) . _blockTxHistory
+-- instance NFData BlockTxHistory -- TODO: add NFData for RowData
+
 
 -- | The result of a historical lookup which might fail to even find the
 -- header the history is being queried for.

@@ -32,8 +32,9 @@ import Data.Vector (Vector)
 import Data.HashMap.Strict (HashMap)
 
 import Pact.Types.Hash
-import Pact.Types.Persistence (RowKey, TxLog, Domain)
+import Pact.Types.Persistence (RowKey, Domain)
 import Pact.Types.RowData (RowData)
+import qualified Pact.Core.Persistence as Pact5
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -77,7 +78,7 @@ local
     :: Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
     -> Maybe RewindDepth
-    -> ChainwebTransaction
+    -> Pact4Transaction
     -> PactQueue
     -> IO LocalResult
 local preflight sigVerify rd ct reqQ = do
@@ -112,7 +113,7 @@ pactReadOnlyReplay l u reqQ = do
     submitRequestAndWait reqQ msg
 
 pactPreInsertCheck
-    :: Vector ChainwebTransaction
+    :: Vector Pact4Transaction
     -> PactQueue
     -> IO (Vector (Either InsertError ()))
 pactPreInsertCheck txs reqQ = do
@@ -135,7 +136,7 @@ pactHistoricalLookup
     -> Domain RowKey RowData
     -> RowKey
     -> PactQueue
-    -> IO (Historical (Maybe (TxLog RowData)))
+    -> IO (Historical (Maybe (Pact5.TxLog Pact5.RowData)))
 pactHistoricalLookup bh d k reqQ = do
   let !req = HistoricalLookupReq bh d k
   let !msg = HistoricalLookupMsg req

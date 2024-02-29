@@ -493,7 +493,7 @@ safeCapitalize = maybe [] (uncurry (:) . bimap toUpper (Prelude.map toLower)) . 
 
 
 -- TODO: Use the new `assertCommand` function.
-validateCommand :: Command Text -> Either String ChainwebTransaction
+validateCommand :: Command Text -> Either String Pact4Transaction
 validateCommand cmdText = case verifyCommand cmdBS of
     ProcSucc cmd -> Right (mkPayloadWithTextOld <$> cmd)
     ProcFail err -> Left err

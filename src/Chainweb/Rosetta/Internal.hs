@@ -44,10 +44,10 @@ import qualified Pact.Types.Runtime as P
 
 import Pact.Types.Command
 import Pact.Types.Hash
-import Pact.Types.Runtime (TxId(..), Domain(..), TxLog(..))
+import Pact.Types.Runtime (TxId(..), Domain(..))
 import Pact.Types.Persistence (RowKey(..))
-import Pact.Types.RowData (RowData)
 import Pact.Types.PactValue
+import qualified Pact.Core.Persistence as Pact5
 
 import Rosetta
 import Servant.Server
@@ -583,7 +583,7 @@ getTxLogs cr bh = do
     d = UserTables "coin_coin-table"
 
     parseHist
-        :: Map TxId [TxLog RowData]
+        :: Map TxId [Pact5.TxLog Pact5.RowData]
         -> Either RosettaFailure (Map TxId [AccountRow])
     parseHist m
       | M.size parsed == M.size m = pure $! parsed
@@ -592,7 +592,7 @@ getTxLogs cr bh = do
         parsed = M.mapMaybe (mapM txLogToAccountRow) m
 
     parsePrevTxs
-        :: Map RowKey (TxLog RowData)
+        :: Map RowKey (Pact5.TxLog Pact5.RowData)
         -> Either RosettaFailure (Map RowKey AccountRow)
     parsePrevTxs m
       | M.size parsed == M.size m = pure $! parsed
