@@ -12,6 +12,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -40,13 +41,13 @@ module Chainweb.Pact.PactService
     , getGasModel
     ) where
 
-import Control.Concurrent (threadDelay)
+import Control.Concurrent hiding (throwTo)
 import Control.Concurrent.Async
-import Control.Concurrent.MVar
-import Control.Exception (SomeAsyncException)
+import Control.Concurrent.STM
+import Control.Exception (AsyncException(ThreadKilled))
+import Control.Exception.Safe
 import Control.Lens hiding ((:>))
 import Control.Monad
-import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Primitive (PrimState)
@@ -56,6 +57,7 @@ import Data.Either
 import Data.Foldable (toList)
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
+import Data.LogMessage
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Monoid
@@ -291,130 +293,150 @@ serviceRequests memPoolAccess reqQ = do
     logInfo "Starting service"
     go `finally` logInfo "Stopping service"
   where
+    go :: PactServiceM logger tbl ()
     go = do
         PactServiceEnv{_psLogger} <- ask
         logDebug "serviceRequests: wait"
-        msg <- liftIO $ getNextRequest reqQ
+        SubmittedRequestMsg msg statusRef <- liftIO $ getNextRequest reqQ
         requestId <- liftIO $ UUID.toText <$> UUID.nextRandom
-        let logFn = logFunction $ addLabel ("pact-request-id", requestId) _psLogger
+        let
+          logFn :: LogFunction
+          logFn = logFunction $ addLabel ("pact-request-id", requestId) _psLogger
         logDebug $ "serviceRequests: " <> sshow msg
         case msg of
-            CloseMsg -> return ()
-            LocalMsg (LocalReq localRequest preflight sigVerify rewindDepth localResultVar)  -> do
+            CloseMsg ->
+                tryOne "execClose" statusRef $ return ()
+            LocalMsg (LocalReq localRequest preflight sigVerify rewindDepth) -> do
                 trace logFn "Chainweb.Pact.PactService.execLocal" () 0 $
-                    tryOne "execLocal" localResultVar $
+                    tryOne "execLocal" statusRef $
                         execLocal localRequest preflight sigVerify rewindDepth
                 go
             NewBlockMsg NewBlockReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execNewBlock"
                     () 1 $
-                    tryOne "execNewBlock" _newResultVar $
+                    tryOne "execNewBlock" statusRef $
                         execNewBlock memPoolAccess _newMiner
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
-                tryOne "execValidateBlock" _valResultVar $
+                tryOne "execValidateBlock" statusRef $
                   fmap fst $ trace' logFn "Chainweb.Pact.PactService.execValidateBlock"
                     _valBlockHeader
                     (\(_, g) -> fromIntegral g)
                     (execValidateBlock memPoolAccess _valBlockHeader _valPayloadData)
                 go
-            LookupPactTxsMsg (LookupPactTxsReq confDepth txHashes resultVar) -> do
+            LookupPactTxsMsg (LookupPactTxsReq confDepth txHashes) -> do
                 trace logFn "Chainweb.Pact.PactService.execLookupPactTxs" ()
                     (length txHashes) $
-                    tryOne "execLookupPactTxs" resultVar $
+                    tryOne "execLookupPactTxs" statusRef $
                         execLookupPactTxs confDepth txHashes
                 go
-            PreInsertCheckMsg (PreInsertCheckReq txs resultVar) -> do
+            PreInsertCheckMsg (PreInsertCheckReq txs) -> do
                 trace logFn "Chainweb.Pact.PactService.execPreInsertCheckReq" ()
                     (length txs) $
-                    tryOne "execPreInsertCheckReq" resultVar $
+                    tryOne "execPreInsertCheckReq" statusRef $
                         V.map (() <$) <$> execPreInsertCheckReq txs
                 go
-            BlockTxHistoryMsg (BlockTxHistoryReq bh d resultVar) -> do
+            BlockTxHistoryMsg (BlockTxHistoryReq bh d) -> do
                 trace logFn "Chainweb.Pact.PactService.execBlockTxHistory" bh 1 $
-                    tryOne "execBlockTxHistory" resultVar $
+                    tryOne "execBlockTxHistory" statusRef $
                         execBlockTxHistory bh d
                 go
-            HistoricalLookupMsg (HistoricalLookupReq bh d k resultVar) -> do
+            HistoricalLookupMsg (HistoricalLookupReq bh d k) -> do
                 trace logFn "Chainweb.Pact.PactService.execHistoricalLookup" bh 1 $
-                    tryOne "execHistoricalLookup" resultVar $
+                    tryOne "execHistoricalLookup" statusRef $
                         execHistoricalLookup bh d k
                 go
             SyncToBlockMsg SyncToBlockReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execSyncToBlock" _syncToBlockHeader 1 $
-                    tryOne "syncToBlockBlock" _syncToResultVar $
+                    tryOne "syncToBlockBlock" statusRef $
                         execSyncToBlock _syncToBlockHeader
                 go
             ReadOnlyReplayMsg ReadOnlyReplayReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execReadOnlyReplay" (_readOnlyReplayLowerBound, _readOnlyReplayUpperBound) 1 $
-                    tryOne "readOnlyReplayBlock" _readOnlyReplayResultVar $
+                    tryOne "readOnlyReplayBlock" statusRef $
                         execReadOnlyReplay _readOnlyReplayLowerBound _readOnlyReplayUpperBound
                 go
 
-    toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
-
     tryOne
-        :: Text
-        -> MVar (Either PactException a)
+        :: forall a. Text
+        -> TVar (RequestStatus a)
         -> PactServiceM logger tbl a
         -> PactServiceM logger tbl ()
-    tryOne which mvar = tryOne' which mvar Right
-
-    tryOne'
-        :: Text
-        -> MVar (Either PactException b)
-        -> (a -> Either PactException b)
-        -> PactServiceM logger tbl a
-        -> PactServiceM logger tbl ()
-    tryOne' which mvar post m =
-        (evalPactOnThread (post <$> m) >>= (liftIO . putMVar mvar))
+    tryOne which statusRef act =
+        evalPactOnThread
         `catches`
-            [ Handler $ \(e :: SomeAsyncException) -> do
-                logWarn $ T.concat
-                    [ "Received asynchronous exception running pact service ("
-                    , which
-                    , "): "
-                    , sshow e
-                    ]
-                liftIO $ do
-                    void $ tryPutMVar mvar $! toPactInternalError e
-                    throwM e
-            , Handler $ \(e :: SomeException) -> do
+            [ Handler $ \(e :: SomeException) -> do
                 logError $ mconcat
                     [ "Received exception running pact service ("
                     , which
                     , "): "
                     , sshow e
                     ]
-                liftIO $ do
-                    void $ tryPutMVar mvar $! toPactInternalError e
+                liftIO $ throwIO e
            ]
       where
-        -- Pact turns AsyncExceptions into textual exceptions within
-        -- PactInternalError. So there is no easy way for us to distinguish
-        -- whether an exception originates from within pact or from the outside.
-        --
-        -- A common strategy to deal with this is to run the computation (pact)
-        -- on a "hidden" internal thread. Lifting `forkIO` into a state
-        -- monad is generally not thread-safe. It is fine to do here, since
-        -- there is no concurrency. We use a thread here only to shield the
-        -- computation from external exceptions.
-        --
-        -- This solution isn't bullet-proof and only meant as a temporary fix. A
-        -- proper solution is to fix pact, to handle asynchronous exceptions
-        -- gracefully.
-        --
-        -- No mask is needed here. Asynchronous exceptions are handled
-        -- by the outer handlers and cause an abort. So no state is lost.
-        --
-        evalPactOnThread :: PactServiceM logger tbl a -> PactServiceM logger tbl a
-        evalPactOnThread act = do
-            e <- ask
-            s <- get
-            T2 r s' <- liftIO $
-                withAsync (runPactServiceM s e act) wait
-            put $! s'
-            return $! r
+        -- here we start a thread to service the request
+        evalPactOnThread :: PactServiceM logger tbl ()
+        evalPactOnThread = do
+            maybeException <- withPactState $ \run -> do
+                goLock <- newEmptyMVar
+                finishedLock <- newEmptyMVar
+                -- fork a thread to service the request
+                bracket
+                    (forkIO $
+                        flip finally (tryPutMVar finishedLock ()) $ do
+                            -- wait until we've been told to start.
+                            -- we don't want to start if the request was cancelled
+                            -- already
+                            takeMVar goLock
+                            -- run and report the answer.
+                            tryAny (run act) >>= \case
+                                Left ex -> atomically $ writeTVar statusRef (RequestFailed ex)
+                                Right r -> atomically $ writeTVar statusRef (RequestDone r)
+                    )
+                    -- if Pact itself is killed, kill the request thread too.
+                    (\tid -> throwTo tid RequestCancelled >> takeMVar finishedLock)
+                    (\_tid -> do
+                        -- check first if the request has been cancelled before
+                        -- starting work on it
+                        beforeStarting <- atomically $ do
+                            readTVar statusRef >>= \case
+                                RequestInProgress ->
+                                    error "PactService internal error: request in progress before starting"
+                                RequestDone _ ->
+                                    error "PactService internal error: request finished before starting"
+                                RequestFailed e ->
+                                    return (Left e)
+                                RequestNotStarted -> do
+                                    writeTVar statusRef RequestInProgress
+                                    return (Right ())
+                        case beforeStarting of
+                            -- the request has already been cancelled, don't
+                            -- start work on it.
+                            Left ex -> return (Left ex)
+                            Right () -> do
+                                -- let the request thread start working
+                                putMVar goLock ()
+                                -- wait until the request thread has finished
+                                atomically $ readTVar statusRef >>= \case
+                                    RequestInProgress -> retry
+                                    RequestDone _ -> return (Right ())
+                                    RequestFailed e -> return (Left e)
+                                    RequestNotStarted -> error "PactService internal error: request not started after starting"
+                    )
+            case maybeException of
+              Left (fromException -> Just AsyncCancelled) ->
+                logDebug "Pact action was cancelled"
+              Left (fromException -> Just ThreadKilled) ->
+                logWarn "Pact action thread was killed"
+              Left (exn :: SomeException) ->
+                logError $ mconcat
+                  [ "Received exception running pact service ("
+                  , which
+                  , "): "
+                  , sshow exn
+                  ]
+              Right () -> return ()
 
 execNewBlock
     :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
@@ -694,7 +716,7 @@ execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
             $ "processed: " <> sshow (h' - initialHeight)
             <> ", current height: " <> sshow h'
             <> ", rate: " <> sshow ((h' - h) `div` fromIntegral delaySecs) <> "blocks/sec"
-          threadDelay (delaySecs * 1_000_000)
+          liftIO $ threadDelay (delaySecs * 1_000_000)
 
 execLocal
     :: (Logger logger, CanReadablePayloadCas tbl)
@@ -937,19 +959,20 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
     psEnv <- ask
     psState <- get
     logger <- view psLogger
-    readFromLatest $ do
-      pdb <- view psBlockDbEnv
-      pc <- view psParentHeader
-      let
-          parentTime = ParentCreationTime (_blockCreationTime $ _parentHeader pc)
-          currHeight = succ $ _blockHeight $ _parentHeader pc
-          v = _chainwebVersion pc
-          cid = _chainId pc
-          timeoutLimit = fromIntegral $ (\(Micros n) -> n) $ _psPreInsertCheckTimeout psEnv
-          act = validateChainwebTxs logger v cid pdb parentTime currHeight txs
-            (evalPactServiceM psState psEnv . runPactBlockM pc pdb . attemptBuyGas noMiner)
-
-      liftIO $ timeoutYield timeoutLimit act >>= \case
+    let timeoutLimit = fromIntegral $ (\(Micros n) -> n) $ _psPreInsertCheckTimeout psEnv
+    let act =
+          readFromLatest $ do
+            pdb <- view psBlockDbEnv
+            pc <- view psParentHeader
+            let
+                parentTime = ParentCreationTime (_blockCreationTime $ _parentHeader pc)
+                currHeight = succ $ _blockHeight $ _parentHeader pc
+                v = _chainwebVersion pc
+                cid = _chainId pc
+            liftIO $ validateChainwebTxs logger v cid pdb parentTime currHeight txs
+              (evalPactServiceM psState psEnv . runPactBlockM pc pdb . attemptBuyGas noMiner)
+    withPactState $ \run ->
+      timeoutYield timeoutLimit (run act) >>= \case
         Just r -> pure r
         Nothing -> do
           logError_ logger $ "Mempool pre-insert check timed out for txs:\n" <> sshow txs
