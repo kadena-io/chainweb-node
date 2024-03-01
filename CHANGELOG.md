@@ -15,7 +15,7 @@ Changes:
 - The `coin` contract was updated to version 6, implementing KIP-0022 (#1807)
 - Pact "verifier plugins" are now available, implementing KIP-0028 (#1777)
 - Fix a bug where nodes could take too long to start up if they took too long to
-  to rewind to their latest cut. (#1791)
+  rewind to their latest cut. (#1791)
 - Rename two user-visible network IDs (#1810)
   - `development` was renamed to `recap-development`
   - `fast-development` was renamed to `development`
