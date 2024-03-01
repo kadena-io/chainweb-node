@@ -746,15 +746,15 @@ withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
           , _pactValidateBlock = \h d ->
               evalPactServiceM_ ctx $ fst <$> execValidateBlock mempoolAccess h d
           , _pactLocal = \pf sv rd cmd ->
-              evalPactServiceM_ ctx $ Right <$> execLocal cmd pf sv rd
+              evalPactServiceM_ ctx $ execLocal cmd pf sv rd
           , _pactLookup = \_cid cd hashes ->
-              evalPactServiceM_ ctx $ Right <$> execLookupPactTxs cd hashes
+              evalPactServiceM_ ctx $ execLookupPactTxs cd hashes
           , _pactPreInsertCheck = \_ txs ->
-              evalPactServiceM_ ctx $ (Right . V.map (() <$)) <$> execPreInsertCheckReq txs
+              evalPactServiceM_ ctx $ V.map (() <$) <$> execPreInsertCheckReq txs
           , _pactBlockTxHistory = \h d ->
-              evalPactServiceM_ ctx $ Right <$> execBlockTxHistory h d
+              evalPactServiceM_ ctx $ execBlockTxHistory h d
           , _pactHistoricalLookup = \h d k ->
-              evalPactServiceM_ ctx $ Right <$> execHistoricalLookup h d k
+              evalPactServiceM_ ctx $ execHistoricalLookup h d k
           , _pactSyncToBlock = \h ->
               evalPactServiceM_ ctx $ execSyncToBlock h
           , _pactReadOnlyReplay = \l u ->

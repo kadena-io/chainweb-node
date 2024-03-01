@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -32,6 +33,8 @@ module Chainweb.Pact.Service.Types
   , ReadOnlyReplayReq(..)
 
   , RequestMsg(..)
+  , SubmittedRequestMsg(..)
+  , RequestStatus(..)
   , PactServiceConfig(..)
 
   , LocalPreflightSimulation(..)
@@ -57,7 +60,8 @@ module Chainweb.Pact.Service.Types
   ) where
 
 import Control.DeepSeq
-import Control.Concurrent.MVar.Strict
+import Control.Concurrent
+import Control.Concurrent.STM
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
 import Control.Applicative
@@ -316,30 +320,48 @@ instance NFData BlockTxHistory
 internalError :: MonadThrow m => Text -> m a
 internalError = throwM . PactInternalError
 
-data RequestMsg = NewBlockMsg !NewBlockReq
-                | ValidateBlockMsg !ValidateBlockReq
-                | LocalMsg !LocalReq
-                | LookupPactTxsMsg !LookupPactTxsReq
-                | PreInsertCheckMsg !PreInsertCheckReq
-                | BlockTxHistoryMsg !BlockTxHistoryReq
-                | HistoricalLookupMsg !HistoricalLookupReq
-                | SyncToBlockMsg !SyncToBlockReq
-                | ReadOnlyReplayMsg !ReadOnlyReplayReq
-                | CloseMsg
-                deriving (Show)
+data RequestStatus r
+    = RequestDone !r
+    | RequestInProgress !ThreadId
+    | RequestNotStarted
+    | RequestFailed !SomeException
+data SubmittedRequestMsg
+    = forall r. SubmittedRequestMsg (RequestMsg r) (TVar (RequestStatus r))
+instance Show SubmittedRequestMsg where
+    show (SubmittedRequestMsg msg _) = show msg
 
-type PactExMVar t = MVar (Either PactException t)
+data RequestMsg r where
+    NewBlockMsg :: !NewBlockReq -> RequestMsg (T2 ParentHeader PayloadWithOutputs)
+    ValidateBlockMsg :: !ValidateBlockReq -> RequestMsg PayloadWithOutputs
+    LocalMsg :: !LocalReq -> RequestMsg LocalResult
+    LookupPactTxsMsg :: !LookupPactTxsReq -> RequestMsg (HashMap PactHash (T2 BlockHeight BlockHash))
+    PreInsertCheckMsg :: !PreInsertCheckReq -> RequestMsg (Vector (Either InsertError ()))
+    BlockTxHistoryMsg :: !BlockTxHistoryReq -> RequestMsg BlockTxHistory
+    HistoricalLookupMsg :: !HistoricalLookupReq -> RequestMsg (Maybe (TxLog RowData))
+    SyncToBlockMsg :: !SyncToBlockReq -> RequestMsg ()
+    ReadOnlyReplayMsg :: !ReadOnlyReplayReq -> RequestMsg ()
+    CloseMsg :: RequestMsg ()
+
+instance Show (RequestMsg r) where
+    show (NewBlockMsg req) = show req
+    show (ValidateBlockMsg req) = show req
+    show (LocalMsg req) = show req
+    show (LookupPactTxsMsg req) = show req
+    show (PreInsertCheckMsg req) = show req
+    show (BlockTxHistoryMsg req) = show req
+    show (HistoricalLookupMsg req) = show req
+    show (SyncToBlockMsg req) = show req
+    show (ReadOnlyReplayMsg req) = show req
+    show CloseMsg = "CloseReq"
 
 data NewBlockReq = NewBlockReq
     { _newMiner :: !Miner
-    , _newResultVar :: !(PactExMVar (T2 ParentHeader PayloadWithOutputs))
     }
 instance Show NewBlockReq where show NewBlockReq{..} = show _newMiner
 
 data ValidateBlockReq = ValidateBlockReq
     { _valBlockHeader :: !BlockHeader
     , _valPayloadData :: !PayloadData
-    , _valResultVar :: !(PactExMVar PayloadWithOutputs)
     }
 instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlockHeader, _valPayloadData)
 
@@ -348,25 +370,22 @@ data LocalReq = LocalReq
     , _localPreflight :: !(Maybe LocalPreflightSimulation)
     , _localSigVerification :: !(Maybe LocalSignatureVerification)
     , _localRewindDepth :: !(Maybe RewindDepth)
-    , _localResultVar :: !(PactExMVar LocalResult)
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest
 
 data LookupPactTxsReq = LookupPactTxsReq
     { _lookupConfirmationDepth :: !(Maybe ConfirmationDepth)
     , _lookupKeys :: !(Vector PactHash)
-    , _lookupResultVar :: !(PactExMVar (HashMap PactHash (T2 BlockHeight BlockHash)))
     }
 instance Show LookupPactTxsReq where
-    show (LookupPactTxsReq m _ _) =
+    show (LookupPactTxsReq m _) =
         "LookupPactTxsReq@" ++ show m
 
 data PreInsertCheckReq = PreInsertCheckReq
     { _preInsCheckTxs :: !(Vector ChainwebTransaction)
-    , _preInsCheckResult :: !(PactExMVar (Vector (Either InsertError ())))
     }
 instance Show PreInsertCheckReq where
-    show (PreInsertCheckReq v _) =
+    show (PreInsertCheckReq v) =
         "PreInsertCheckReq@" ++ show v
 
 -- | Existential wrapper for a Pact persistence domain.
@@ -377,34 +396,30 @@ instance Show Domain' where
 data BlockTxHistoryReq = BlockTxHistoryReq
   { _blockTxHistoryHeader :: !BlockHeader
   , _blockTxHistoryDomain :: !(Domain RowKey RowData)
-  , _blockTxHistoryResult :: !(PactExMVar BlockTxHistory)
   }
 instance Show BlockTxHistoryReq where
-  show (BlockTxHistoryReq h d _) =
+  show (BlockTxHistoryReq h d) =
     "BlockTxHistoryReq@" ++ show h ++ ", " ++ show d
 
 data HistoricalLookupReq = HistoricalLookupReq
   { _historicalLookupHeader :: !BlockHeader
   , _historicalLookupDomain :: !(Domain RowKey RowData)
   , _historicalLookupRowKey :: !RowKey
-  , _historicalLookupResult :: !(PactExMVar (Maybe (TxLog RowData)))
   }
 instance Show HistoricalLookupReq where
-  show (HistoricalLookupReq h d k _) =
+  show (HistoricalLookupReq h d k) =
     "HistoricalLookupReq@" ++ show h ++ ", " ++ show d ++ ", " ++ show k
 
 data ReadOnlyReplayReq = ReadOnlyReplayReq
     { _readOnlyReplayLowerBound :: !BlockHeader
     , _readOnlyReplayUpperBound :: !BlockHeader
-    , _readOnlyReplayResultVar :: !(PactExMVar ())
     }
 instance Show ReadOnlyReplayReq where
-  show (ReadOnlyReplayReq l u _) =
+  show (ReadOnlyReplayReq l u) =
     "ReadOnlyReplayReq@" ++ show l ++ ", " ++ show u
 
 data SyncToBlockReq = SyncToBlockReq
     { _syncToBlockHeader :: !BlockHeader
-    , _syncToResultVar :: !(PactExMVar ())
     }
 instance Show SyncToBlockReq where show SyncToBlockReq{..} = show _syncToBlockHeader
 

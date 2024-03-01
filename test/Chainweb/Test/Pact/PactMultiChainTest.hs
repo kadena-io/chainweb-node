@@ -355,7 +355,7 @@ runLocalWithDepth :: T.Text -> Maybe RewindDepth -> ChainId -> CmdBuilder -> Pac
 runLocalWithDepth nonce depth cid' cmd = do
   pact <- getPactService cid'
   cwCmd <- buildCwCmd nonce testVersion cmd
-  liftIO $ _pactLocal pact Nothing Nothing depth cwCmd
+  liftIO $ try @_ @PactException $ _pactLocal pact Nothing Nothing depth cwCmd
 
 getSqlite :: ChainId -> PactTestM SQLiteEnv
 getSqlite cid' = do

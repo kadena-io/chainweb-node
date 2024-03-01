@@ -12,6 +12,7 @@ module Chainweb.WebPactExecutionService
   , emptyPactExecutionService
   ) where
 
+import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Exception (evaluate)
 import Control.Monad.Catch
@@ -66,7 +67,7 @@ data PactExecutionService = PactExecutionService
         Maybe LocalSignatureVerification ->
         Maybe RewindDepth ->
         ChainwebTransaction ->
-        IO (Either PactException LocalResult))
+        IO LocalResult)
       -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
       -- Corresponds to `local` HTTP endpoint.
     , _pactLookup :: !(
@@ -76,7 +77,7 @@ data PactExecutionService = PactExecutionService
         -- confirmation depth
         -> Vector PactHash
         -- txs to lookup
-        -> IO (Either PactException (HM.HashMap PactHash (T2 BlockHeight BlockHash)))
+        -> IO (HM.HashMap PactHash (T2 BlockHeight BlockHash))
         )
     , _pactReadOnlyReplay :: !(
         BlockHeader ->
@@ -87,19 +88,19 @@ data PactExecutionService = PactExecutionService
     , _pactPreInsertCheck :: !(
         ChainId
         -> Vector ChainwebTransaction
-        -> IO (Either PactException (Vector (Either InsertError ()))))
+        -> IO (Vector (Either InsertError ())))
       -- ^ Run speculative checks to find bad transactions (ie gas buy failures, etc)
     , _pactBlockTxHistory :: !(
         BlockHeader ->
         Domain RowKey RowData ->
-        IO (Either PactException BlockTxHistory)
+        IO BlockTxHistory
         )
       -- ^ Obtain all transaction history in block for specified table/domain.
     , _pactHistoricalLookup :: !(
         BlockHeader ->
         Domain RowKey RowData ->
         RowKey ->
-        IO (Either PactException (Maybe (TxLog RowData)))
+        IO (Maybe (TxLog RowData))
         )
       -- ^ Obtain latest entry at or before the given block for specified table/domain and row key.
     , _pactSyncToBlock :: !(
@@ -164,31 +165,21 @@ mkPactExecutionService
     -> PactExecutionService
 mkPactExecutionService q = PactExecutionService
     { _pactValidateBlock = \h pd -> do
-        mv <- validateBlock h pd q
-        r <- takeMVar mv
-        case r of
-          Right (!pdo) -> return pdo
-          Left e -> throwM e
+        validateBlock h pd q
     , _pactNewBlock = \_ m -> do
-        mv <- newBlock m q
-        r <- takeMVar mv
-        either throwM evaluate r
+        newBlock m q
     , _pactLocal = \pf sv rd ct ->
-        local pf sv rd ct q >>= takeMVar
+        local pf sv rd ct q
     , _pactLookup = \_ cd txs ->
-        lookupPactTxs cd txs q >>= takeMVar
+        lookupPactTxs cd txs q
     , _pactPreInsertCheck = \_ txs ->
-        pactPreInsertCheck txs q >>= takeMVar
+        pactPreInsertCheck txs q
     , _pactBlockTxHistory = \h d ->
-        pactBlockTxHistory h d q >>= takeMVar
+        pactBlockTxHistory h d q
     , _pactHistoricalLookup = \h d k ->
-        pactHistoricalLookup h d k q >>= takeMVar
-    , _pactSyncToBlock = \h -> pactSyncToBlock h q >>= takeMVar >>= \case
-        Right () -> return ()
-        Left e -> throwM e
-   , _pactReadOnlyReplay = \l u -> pactReadOnlyReplay l u q >>= takeMVar >>= \case
-       Right () -> return ()
-       Left e -> throwM e
+        pactHistoricalLookup h d k q
+    , _pactSyncToBlock = \h -> pactSyncToBlock h q
+   , _pactReadOnlyReplay = \l u -> pactReadOnlyReplay l u q
     }
 
 -- | A mock execution service for testing scenarios. Throws out anything it's
@@ -199,8 +190,8 @@ emptyPactExecutionService = PactExecutionService
     { _pactValidateBlock = \_ _ -> pure emptyPayload
     , _pactNewBlock = \_ _ -> throwM (userError "emptyPactExecutionService: attempted `newBlock` call")
     , _pactLocal = \_ _ _ _ -> throwM (userError "emptyPactExecutionService: attempted `local` call")
-    , _pactLookup = \_ _ _ -> return $! Right $! HM.empty
-    , _pactPreInsertCheck = \_ txs -> return $ Right $ V.map (const (Right ())) txs
+    , _pactLookup = \_ _ _ -> return $! HM.empty
+    , _pactPreInsertCheck = \_ txs -> return $ V.map (const (Right ())) txs
     , _pactBlockTxHistory = \_ _ -> throwM (userError "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactBlockTxHistory unsupported")
     , _pactHistoricalLookup = \_ _ _ -> throwM (userError "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactHistoryLookup unsupported")
     , _pactSyncToBlock = \_ -> return ()
