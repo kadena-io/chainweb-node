@@ -415,7 +415,6 @@ library
         , stopwatch >= 0.1
         , streaming >= 0.2
         , streaming-commons >= 0.2
-        , strict-concurrency >= 0.2
         , template-haskell >= 2.14
         , text >= 2.0
         , trifecta >= 2.1
