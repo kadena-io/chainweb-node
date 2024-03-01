@@ -54,7 +54,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Cut (_cutMap)
-import Chainweb.CutDB (CutDb, awaitNewBlock, cutDbPactService, _cut)
+import Chainweb.CutDB (CutDb, awaitNewBlockInCut, cutDbPactService, _cut)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
@@ -144,10 +144,18 @@ withMiningCoordination logger conf cdb inner
                 ourMiner :: Traversal' PrimedWork (T2 ParentHeader (Maybe PayloadData))
                 ourMiner = _Wrapped' . at (view minerId miner) . _Just . at cid . _Just
             let !(T2 ph _) = fromJuste $ pw ^? ourMiner
-            -- wait for a block different from what we've got primed work for
-            new <- awaitNewBlock cdb cid (_parentHeader ph)
             -- Temporarily block this chain from being considered for queries
-            atomically $ modifyTVar' tpw (ourMiner . _2 .~ Nothing)
+            let blockChain = atomically $ modifyTVar' tpw (ourMiner . _2 .~ Nothing)
+            -- wait for a block different from what we've got primed work for.
+            -- if we get that, we should block the chain until our new payload
+            -- is done, because old payloads are *definitely* not good to mine,
+            -- seeing as their parents are out of date. if we wait for 15
+            -- seconds, then we make a new payload anyway to avoid it being
+            -- stale; but we don't block the chain because the old payload is
+            -- still good to mine, just a bit old.
+            new <- awaitNewBlockInCut cdb cid (_parentHeader ph) <* blockChain
+                `race` (ph <$ threadDelay 15_000_000)
+
             -- Generate new payload for this miner
             newParentAndPayload <- getPayload (ParentHeader new) cid miner
             atomically $ modifyTVar' tpw (ourMiner .~ over _2 Just newParentAndPayload)
