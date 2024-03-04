@@ -557,6 +557,7 @@ execLocalTest runPact name (trans',check) = testCase name (go >>= check)
       case results' of
         Right (MetadataValidationFailure e) ->
           return $ Left $ show e
+        Right LocalTimeout -> return $ Left "LocalTimeout"
         Right (LocalResultLegacy cr) -> return $ Right cr
         Right (LocalResultWithWarns cr _) -> return $ Right cr
         Left e -> return $ Left $ show e

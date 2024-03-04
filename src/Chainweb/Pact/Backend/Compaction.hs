@@ -374,8 +374,8 @@ getVersionedTables bh = do
   logg Info "getVersionedTables"
   rs <- qryNoTemplateM
         "getVersionedTables.0"
-        " SELECT DISTINCT tablename FROM VersionedTableMutation \
-        \ WHERE blockheight <= ? ORDER BY blockheight; "
+        " SELECT tablename FROM VersionedTableCreation \
+        \ WHERE createBlockheight <= ? ORDER BY createBlockheight; "
         [bhToSType bh]
         [RText]
   pure (V.fromList (sortedTableNames rs))

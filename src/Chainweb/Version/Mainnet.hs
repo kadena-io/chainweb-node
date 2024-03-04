@@ -9,6 +9,7 @@ module Chainweb.Version.Mainnet(mainnet, pattern Mainnet01) where
 
 import Control.Lens
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Set as Set
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeight
@@ -20,6 +21,8 @@ import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
 import P2P.BootstrapNodes
+
+import Pact.Types.Verifier
 
 import qualified Chainweb.BlockHeader.Genesis.Mainnet0Payload as MN0
 import qualified Chainweb.BlockHeader.Genesis.Mainnet1Payload as MN1
@@ -143,7 +146,8 @@ mainnet = ChainwebVersion
         Chainweb220Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_056_499) -- 2023-09-08 00:00:00+00:00
         Chainweb221Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_177_889) -- 2023-10-20 00:00:00+00:00
         Chainweb222Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_335_753) -- 2023-12-14 00:00:00+00:00
-        Chainweb223Pact -> AllChains ForkNever -- TODO: don't forget to enable the hyperlane_v3_message verifier plugin
+        Chainweb223Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_577_530) -- 2024-03-07 00:00:00+00:00
+        Chainweb224Pact -> AllChains ForkNever
 
     , _versionGraphs =
         (to20ChainsMainnet, twentyChainGraph) `Above`
@@ -205,5 +209,6 @@ mainnet = ChainwebVersion
         { _disablePeerValidation = False
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = AllChains $ End mempty
+    , _versionVerifierPluginNames = AllChains $ (4_577_530, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
+        End mempty
     }

@@ -70,6 +70,7 @@ module Chainweb.Chainweb.Configuration
 , configServiceApi
 , configOnlySyncPact
 , configSyncPactChains
+, configEnableLocalTimeout
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -405,6 +406,7 @@ data ChainwebConfiguration = ChainwebConfiguration
         --   if unset, all chains will be synchronized.
     , _configModuleCacheLimit :: !DbCacheLimitBytes
         -- ^ module cache size limit in bytes
+    , _configEnableLocalTimeout :: !Bool
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -463,6 +465,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configSyncPactChains = Nothing
     , _configBackup = defaultBackupConfig
     , _configModuleCacheLimit = defaultModuleCacheLimit
+    , _configEnableLocalTimeout = False
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -489,6 +492,7 @@ instance ToJSON ChainwebConfiguration where
         , "syncPactChains" .= _configSyncPactChains o
         , "backup" .= _configBackup o
         , "moduleCacheLimit" .= _configModuleCacheLimit o
+        , "enableLocalTimeout" .= _configEnableLocalTimeout o
         ]
 
 instance FromJSON ChainwebConfiguration where
@@ -519,6 +523,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configSyncPactChains ..: "syncPactChains" % o
         <*< configBackup %.: "backup" % o
         <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
+        <*< configEnableLocalTimeout ..: "enableLocalTimeout" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -573,7 +578,9 @@ pChainwebConfiguration = id
         % long "module-cache-limit"
         <> help "Maximum size of the per-chain checkpointer module cache in bytes"
         <> metavar "INT"
-    where
+    <*< configEnableLocalTimeout .:: option auto
+        % long "enable-local-timeout"
+        <> help "Enable timeout support on /local endpoints"
 
 parseVersion :: MParser ChainwebVersion
 parseVersion = constructVersion

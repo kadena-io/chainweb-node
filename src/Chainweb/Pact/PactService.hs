@@ -165,6 +165,7 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psLogger = pactServiceLogger
                     , _psGasLogger = gasLogger <$ guard (_pactLogGas config)
                     , _psBlockGasLimit = _pactBlockGasLimit config
+                    , _psEnableLocalTimeout = _pactEnableLocalTimeout config
                     }
             !pst = PactServiceState mempty
 
@@ -712,50 +713,62 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
     -- (i.e. setting rewind to 0).
     let rewindDepth = maybe 0 _rewindDepth rdepth
 
-    readFromNthParent (fromIntegral rewindDepth) $ do
-        pc <- view psParentHeader
-        let spv = pactSPV bhdb (_parentHeader pc)
-        ctx <- getTxContext pm
-        let gasModel = getGasModel ctx
-        mc <- getInitCache
-        dbEnv <- view psBlockDbEnv
+    let timeoutLimit
+          | _psEnableLocalTimeout = Just (2 * 1_000_000)
+          | otherwise = Nothing
 
-        --
-        -- if the ?preflight query parameter is set to True, we run the `applyCmd` workflow
-        -- otherwise, we prefer the old (default) behavior. When no preflight flag is
-        -- specified, we run the old behavior. When it is set to true, we also do metadata
-        -- validations.
-        --
-        r <- case preflight of
-          Just PreflightSimulation -> do
-            liftPactServiceM (assertLocalMetadata cmd ctx sigVerify) >>= \case
-              Right{} -> do
-                let initialGas = initialGasOf $ P._cmdPayload cwtx
-                T3 cr _mc warns <- liftIO $ applyCmd
-                  _psVersion _psLogger _psGasLogger (_cpPactDbEnv dbEnv)
-                  noMiner gasModel ctx spv cmd
-                  initialGas mc ApplyLocal
+    let act = readFromNthParent (fromIntegral rewindDepth) $ do
+                pc <- view psParentHeader
+                let spv = pactSPV bhdb (_parentHeader pc)
+                ctx <- getTxContext pm
+                let gasModel = getGasModel ctx
+                mc <- getInitCache
+                dbEnv <- view psBlockDbEnv
+        
+                --
+                -- if the ?preflight query parameter is set to True, we run the `applyCmd` workflow
+                -- otherwise, we prefer the old (default) behavior. When no preflight flag is
+                -- specified, we run the old behavior. When it is set to true, we also do metadata
+                -- validations.
+                --
+                r <- case preflight of
+                  Just PreflightSimulation -> do
+                    liftPactServiceM (assertLocalMetadata cmd ctx sigVerify) >>= \case
+                      Right{} -> do
+                        let initialGas = initialGasOf $ P._cmdPayload cwtx
+                        T3 cr _mc warns <- liftIO $ applyCmd
+                          _psVersion _psLogger _psGasLogger (_cpPactDbEnv dbEnv)
+                          noMiner gasModel ctx spv cmd
+                          initialGas mc ApplyLocal
+        
+                        let cr' = toHashCommandResult cr
+                            warns' = P.renderCompactText <$> toList warns
+                        pure $ LocalResultWithWarns cr' warns'
+                      Left e -> pure $ MetadataValidationFailure e
+                  _ -> liftIO $ do
+                    let execConfig = P.mkExecutionConfig $
+                            [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
+                            enablePactEvents' (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx) ++
+                            enforceKeysetFormats' (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx) ++
+                            disableReturnRTC (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx)
+        
+                    cr <- applyLocal
+                      _psLogger _psGasLogger (_cpPactDbEnv dbEnv)
+                      gasModel ctx spv
+                      cwtx mc execConfig
+        
+                    let cr' = toHashCommandResult cr
+                    pure $ LocalResultLegacy cr'
+        
+                return r
 
-                let cr' = toHashCommandResult cr
-                    warns' = P.renderCompactText <$> toList warns
-                pure $ LocalResultWithWarns cr' warns'
-              Left e -> pure $ MetadataValidationFailure e
-          _ -> liftIO $ do
-            let execConfig = P.mkExecutionConfig $
-                    [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
-                    enablePactEvents' (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx) ++
-                    enforceKeysetFormats' (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx) ++
-                    disableReturnRTC (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx)
-
-            cr <- applyLocal
-              _psLogger _psGasLogger (_cpPactDbEnv dbEnv)
-              gasModel ctx spv
-              cwtx mc execConfig
-
-            let cr' = toHashCommandResult cr
-            pure $ LocalResultLegacy cr'
-
-        return r
+    case timeoutLimit of
+      Nothing -> act
+      Just limit -> withPactState $ \run -> timeout limit (run act) >>= \case
+        Just r -> pure r
+        Nothing -> do
+          logError_ _psLogger $ "Mempool local action timed out for cwtx:\n" <> sshow cwtx
+          pure LocalTimeout
 
 execSyncToBlock
     :: (CanReadablePayloadCas tbl, Logger logger)

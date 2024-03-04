@@ -180,6 +180,8 @@ runBlockE q bdb timeOffset = do
   nextH <- getParentTestBlockDb bdb cid
   validateBlock nextH (payloadWithOutputsToPayloadData nb) q
 
+-- edmundn: why does any of this return PayloadWithOutputs instead of a
+-- list of Pact CommandResult?
 runBlock :: (HasCallStack) => PactQueue -> TestBlockDb -> TimeSpan Micros -> IO PayloadWithOutputs
 runBlock q bdb timeOffset = do
   forSuccess "newBlockAndValidate: validate" $

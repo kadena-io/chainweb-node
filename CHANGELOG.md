@@ -1,8 +1,85 @@
 # `chainweb-node` Changelog
 
+## 2.23 (2023-02-XX)
+This version replaces all previous versions. Any prior version will stop working
+on **2024-03-06T00:00:00Z**. Node administrators must upgrade to this version
+before that date. The 2.23 feature upgrade will occur at block height 4,577,530
+which is estimated to be mined at **2024-03-07T00:00:00Z**.
+
+This version will expire on **2024-05-29T00:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+- Updated to Pact 4.11: https://github.com/kadena-io/pact/releases/tag/v4.11.0
+- The `coin` contract was updated to version 6, implementing KIP-0022 (#1807)
+- Pact "verifier plugins" are now available, implementing KIP-0028 (#1777)
+- Fix a bug where nodes could take too long to start up if they took too long to
+  rewind to their latest cut. (#1791)
+- Rename two user-visible network IDs (#1810)
+  - `development` was renamed to `recap-development`
+  - `fast-development` was renamed to `development`
+- Running a node and making queries to `/local` should be much faster when the
+  `?rewindDepth` query parameter is provided.
+- Introduced new `--enable-local-timeout` (or `chainweb.enableLocalTimeout`)
+  configuration option to enable a timeout for `/local` queries. This is
+  disabled by default. (#1838)
+- New REST API endpoint features (#1800):
+  - The `/payload` GET endpoint now:
+    - Takes a `?height` query parameter, allowing you to specify the block
+      height of the payload you are querying. This parameter will become
+      mandatory in the future.
+    - The batch query endpoint now supports submitting block heights along with
+      their hashes. Instead of submitting a list of hashes, submit a JSON object
+      such as:
+
+      ```
+      { "hashes": ["hash1", "hash2", "hash3"], "heights": [1, 2, 3] }
+      ```
+
+      See the Chainweb OpenAPI specification for more information on how to use
+      this feature. This parameter will become mandatory in the future.
+  - The `/payload/outputs` POST endpoint now:
+    - Takes a `?height` query parameter, allowing you to specify the block
+      height of the payload you are querying. This parameter will become
+      mandatory in the future.
+    - The batch query endpoint now supports submitting block heights along with
+      their hashes. Instead of submitting a list of hashes, submit a JSON object
+      such as:
+
+
+      ```
+      { "hashes": ["hash1", "hash2", "hash3"], "heights": [1, 2, 3] }
+      ```
+
+      See the Chainweb OpenAPI specification for more information on how to use
+      this feature. This parameter will become mandatory in the future.
+
+Upcoming features:
+- Internal reworks to support a new, more efficient storage format for block
+  payloads (#1800)
+  - This new format is not complete, and will appear in a future release.
+  - In the mean time, this has enabled the `/payload` API changes mentioned above.
+- Major internal reworks for an upcoming feature known as _compaction_ which
+  will help reduce the amount of storage space for chainweb. (#1793, #1792,
+  #1812, #1820)
+  - **Compaction IS NOT STABLE**
+  - Usage of "compacted nodes" or tools is **NOT** currently supported
+
+Internal Changes:
+- Major scalability improvements to core "checkpointing" infrastructure, allowing
+  faster full-chain replays and other operations (#1803, #1804)
+- Update RocksDB build to 8.3.2 (#1738)
+- Migrate to a unified Nix flake for Haskell developers on Chainweb (#1778)
+- Fix some perfectly benign, but scary warning messages, when compiling Chainweb
+  (#1779)
+- Several changes to address various test "flakes" and internal test
+  infrastructure improvements (#1811, #1822, #1813, #1814, #1816, et cetera)
+- Better logging in the mining loop (#1766)
+
 ## 2.22 (2023-11-24)
 This version replaces all previous versions. Any prior version will stop working
-on **2023-12-13T:00:00Z**. Node administrators must upgrade to this version before
+on **2023-12-13T00:00:00Z**. Node administrators must upgrade to this version before
 that date.
 
 This version will expire on **2023-03-06T:00:00Z**.

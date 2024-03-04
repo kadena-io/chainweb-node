@@ -554,6 +554,8 @@ localPreflightSimTest t cenv step = do
         assertFailure "Preflight /local call produced legacy result"
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
+      Right LocalTimeout ->
+        assertFailure "Preflight should never produce a timeout"
       Right LocalResultWithWarns{} -> pure ()
 
     step "Execute preflight /local tx - preflight+signoverify known /send success"
@@ -606,6 +608,8 @@ localPreflightSimTest t cenv step = do
       Left e -> assertFailure $ show e
       Right LocalResultLegacy{} ->
         assertFailure "Preflight /local call produced legacy result"
+      Right LocalTimeout ->
+        assertFailure "Preflight should never produce a timeout"
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
       Right (LocalResultWithWarns cr' ws) -> do
@@ -627,6 +631,8 @@ localPreflightSimTest t cenv step = do
       Left e -> assertFailure $ show e
       Right LocalResultLegacy{} ->
         assertFailure "Preflight /local call produced legacy result"
+      Right LocalTimeout ->
+        assertFailure "Preflight should never produce a timeout"
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
       Right (LocalResultWithWarns cr' ws) -> do

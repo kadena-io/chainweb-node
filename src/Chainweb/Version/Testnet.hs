@@ -9,6 +9,7 @@ module Chainweb.Version.Testnet(testnet, pattern Testnet04) where
 
 import Control.Lens
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Set as Set
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeight
@@ -20,6 +21,8 @@ import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
 import P2P.BootstrapNodes
+
+import Pact.Types.Verifier
 
 import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
 import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
@@ -123,7 +126,8 @@ testnet = ChainwebVersion
         Chainweb220Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_580_964 -- 2023-09-08 12:00:00+00:00
         Chainweb221Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_702_250 -- 2023-10-19 12:00:00+00:00
         Chainweb222Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 3_859_808 -- 2023-12-13 12:00:00+00:00
-        Chainweb223Pact -> AllChains ForkNever
+        Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 4_100_681 -- 2024-03-06 12:00:00+00:00
+        Chainweb224Pact -> AllChains ForkNever
 
     , _versionGraphs =
         (to20ChainsTestnet, twentyChainGraph) `Above`
@@ -176,5 +180,6 @@ testnet = ChainwebVersion
         { _disablePeerValidation = False
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = AllChains $ End mempty
+    , _versionVerifierPluginNames = AllChains $ (4_100_681, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
+        End mempty
     }

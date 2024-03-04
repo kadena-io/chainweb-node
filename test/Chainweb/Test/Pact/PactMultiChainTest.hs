@@ -137,6 +137,7 @@ tests = testGroup testName
   , test generousConfig getGasModel "pact410UpgradeTest" pact410UpgradeTest
   , test generousConfig getGasModel "chainweb223Test" chainweb223Test
   , test generousConfig getGasModel "compactAndSyncTest" compactAndSyncTest
+  , test generousConfig getGasModel "compactionCompactsUnmodifiedTables" compactionCompactsUnmodifiedTables
   ]
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
@@ -1270,6 +1271,51 @@ compactAndSyncTest = do
     void $ compactUntilAvailable (C.Target start) cLogger' dbEnv flags
   -- now sync to after the tx and expect no errors
   syncTo cutWithTx
+
+compactionCompactsUnmodifiedTables :: PactTestM ()
+compactionCompactsUnmodifiedTables = do
+  let start = latestBehaviorAt testVersion
+  runToHeight start
+  runBlockTest
+    -- create table
+    [ PactTxTest
+      (buildBasicGas 70000 $ mkExec' $ mconcat
+        [ "(namespace 'free)"
+        , "(module dbmod G (defcap G () true)"
+        , "  (defschema sch i:integer)"
+        , "  (deftable tbl:{sch})"
+        , "  (defun do-write () (insert tbl 'key {'i: 2})))"
+        , "(create-table tbl)"
+        ]
+      ) (assertTxSuccess "should create a table" (pString "TableCreated"))
+    ]
+  -- empty block, this regression requires an extra block before
+  -- any modifications
+  runBlockTest []
+
+  -- write to table
+  runBlockTest
+    [ PactTxTest
+      (buildBasic $ mkExec' "(free.dbmod.do-write)")
+      (assertTxSuccess "should write to that table" (pString "Write succeeded"))
+    ]
+
+  -- grab current cut so that we can fast-forward to here after
+  -- compaction
+  afterWrite <- currentCut
+
+  -- compact to the empty block, before we've written to the table but after
+  -- creating it
+  currentCid <- view menvChainId
+  dbEnv <- getSqlite currentCid
+  liftIO $ C.withDefaultLogger Warn $ \cLogger -> do
+    let cLogger' = over YAL.setLoggerScope (\scope -> ("chainId",sshow currentCid) : scope) cLogger
+    let flags = [C.NoVacuum]
+    void $ compactUntilAvailable (C.Target (start + 2)) cLogger' dbEnv flags
+
+  -- fast forward to after we did the write, expecting the write to not fail
+  -- due to a duplicate row
+  syncTo afterWrite
 
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
