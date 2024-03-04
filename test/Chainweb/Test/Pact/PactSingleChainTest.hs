@@ -271,12 +271,13 @@ rosettaFailsWithoutFullHistory rdb =
           pactQueue <- newPactQueue 2000
           blockDb <- mkTestBlockDb testVersion rdb
           bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
-          sqlEnv <- sqlEnvIO
+          writeSqlEnv <- sqlEnvIO
+          readSqlEnv <- sqlEnvIO
           mempool <- fmap snd dm
           let payloadDb = _bdbPayloadDb blockDb
           let cfg = testPactServiceConfig { _pactFullHistoryRequired = True }
           let logger = genericLogger System.LogLevel.Error (\_ -> return ())
-          e <- try $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
+          e <- try $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb (writeSqlEnv, readSqlEnv) cfg
           case e of
             Left (FullHistoryRequired {}) -> do
               pure ()
@@ -979,7 +980,8 @@ compactionSetup pat rdb pactCfg f =
       blockDb <- mkTestBlockDb testVersion rdb
       bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
       let payloadDb = _bdbPayloadDb blockDb
-      sqlEnv <- sqlEnvIO
+      writeSqlEnv <- sqlEnvIO
+      readSqlEnv <- sqlEnvIO
       (mempoolRef, mempool) <- do
         (ref, nonRef) <- dm
         pure (pure ref, nonRef)
@@ -987,14 +989,14 @@ compactionSetup pat rdb pactCfg f =
 
       let logger = genericLogger System.LogLevel.Error (\_ -> return ())
 
-      void $ forkIO $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb sqlEnv pactCfg
+      void $ forkIO $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb (writeSqlEnv,readSqlEnv) pactCfg
 
       setOneShotMempool mempoolRef goldenMemPool
 
       f $ CompactionResources
         { mempoolRef = mempoolRef
         , mempool = mempool
-        , sqlEnv = sqlEnv
+        , sqlEnv = writeSqlEnv
         , pactQueue = pactQueue
         , blockDb = blockDb
         }

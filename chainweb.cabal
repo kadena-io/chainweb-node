@@ -829,6 +829,7 @@ benchmark bench
         , containers >= 0.5
         , criterion
         , deepseq >= 1.4
+        , directory >= 1.3
         , exceptions >= 0.8
         , file-embed >= 0.0
         , lens >= 4.17

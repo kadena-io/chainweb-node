@@ -904,13 +904,14 @@ withPactTestBlockDb' version cid rdb sqlEnvIO mempoolIO pactConfig f =
     startPact bdbio = do
         reqQ <- newPactQueue 2000
         bdb <- bdbio
-        sqlEnv <- sqlEnvIO
+        writeSqlEnv <- sqlEnvIO
+        readSqlEnv <- sqlEnvIO
         mempool <- mempoolIO
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) cid
         let pdb = _bdbPayloadDb bdb
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
-            runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
-        return (a, (sqlEnv,reqQ,bdb))
+            runPactService version cid logger reqQ mempool bhdb pdb (writeSqlEnv, readSqlEnv) pactConfig
+        return (a, (writeSqlEnv,reqQ,bdb))
 
     stopPact (a, _) = cancel a
 
@@ -963,10 +964,11 @@ withPactTestBlockDb version cid rdb mempoolIO pactConfig f =
         mempool <- mempoolIO
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) cid
         let pdb = _bdbPayloadDb bdb
-        sqlEnv <- startSqliteDb cid logger dir False
+        writeSqlEnv <- startSqliteDb cid logger dir False
+        readSqlEnv <- startSqliteDb cid logger dir False
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
-            runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
-        return (a, (sqlEnv,reqQ,bdb))
+            runPactService version cid logger reqQ mempool bhdb pdb (writeSqlEnv, readSqlEnv) pactConfig
+        return (a, (writeSqlEnv,reqQ,bdb))
 
     stopPact (a, (sqlEnv, _, _)) = cancel a >> stopSqliteDb sqlEnv
 
