@@ -146,7 +146,7 @@ The Universe is defined at kind level. Each type constructor of the universe
 kind is used as tag for a type in the domain. The purpose of the universe is
 that we can't accidentally mix values from different contexts within a single
 Merkle tree and mix different hash algorithms within a tree. It also makes sure
-that each leaf entry in the tree is tagged with it's type. These are important
+that each leaf entry in the tree is tagged with its type. These are important
 security properties that ensure that the inclusion proofs are sound. Any
 violation could potentially allow an attacker to issue phony proofs.
 
@@ -164,17 +164,17 @@ instance MerkleUniverse BugReportTag where
 # Merkle tree entries
 
 After we fix our universe, we have to define how the individual entries are
-mapped to Merkle tree nodes. A Merkle tree node is either an input node or an
+mapped to Merkle tree nodes. A Merkle tree node is either an input node or a
 tree node. Tree nodes are roots of nested Merkle trees. Input nodes are leafs of
 the tree and hold a binary representation of the respective value. It is up to
 the user to define the binary representation for each Input node type.
 
 In addition the user has to assign a tag from the universe to each entry type.
 The tag is used to create a unique representation for each type in the tree so
-that it is guarantee that there can't be collisions of values of different types
+that it is guaranteed that there can't be collisions of values of different types
 in the tree. It is possible to assign the same tag to different types in the
 universe, which means that an inclusion proofs can't differentiate between both
-types. For instance, a if the user would assign the same tag, say `TextTag`, for
+types. For instance, if the user would assign the same tag, say `TextTag`, for
 `BugDescription` and `BugComment` one could now proof "There is a comment or
 description that contains the word `@john`", but one couldn't prove this fact
 just for comments. Actually, one would prove that "there is an entry, that is

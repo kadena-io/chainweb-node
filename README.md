@@ -81,7 +81,7 @@ can be found in [this repository](https://github.com/kadena-io/docker-compose-ch
 
 ### Ubuntu Linux
 
-The following packages must be installed the on the host system:
+The following packages must be installed on the host system:
 
 *   ubuntu-20.04:
     ```bash
@@ -218,12 +218,12 @@ have to perform Port Forwarding if your machine is behind a router (by default
 port 1789 is used by the node).
 
 **NOTE**: When you start chainweb-node for the first time it creates a new
-empty database and start to synchronize and catch up with other nodes in the
+empty database and starts to synchronize and catch up with other nodes in the
 Kadena network. This process takes a long time -- several days. It is much
 faster (depending on hardware one to a few hours) to just synchronize the chain
 database or get a snapshot of it and only rebuild the pact databases from the
 chain-database. Please, consult the documentation of the docker images for
-chainweb-node about details how to obtain an initial chain database.
+chainweb-node about details on how to obtain an initial chain database.
 
 Run your node:
 
@@ -287,7 +287,7 @@ $ chainweb-node --log-level <desired-log-level>
 ```
 
 For production scenarios we recommend that you use log-level `warn` or `error`.
-For trouble shooting or improved monitoring you can also use `info`.
+For troubleshooting or improved monitoring you can also use `info`.
 
 Once your node is running, go through the following checks to verify that you have a healthy node:
 *   run the command in your terminal:

@@ -22,7 +22,7 @@ main components.
         → m ()
     ```
 
-    The session callback doesn't expose any anything about the identity of the
+    The session callback doesn't expose anything about the identity of the
     remote endpoint or about how and when a connection is established.
 
     Sessions have access to IO and can thus manage and persist local state
@@ -44,7 +44,7 @@ main components.
     sessions*. It listens for incoming connections and makes outgoing requests
     for connections. When a connection is established it runs a session on that
     connection. At any time it tries to maintain a configurable number of active
-    sessions. It also implements the topological invaraints and other
+    sessions. It also implements the topological invariants and other
     requirements of the P2P network.
 
     ```haskell
@@ -55,7 +55,7 @@ main components.
     ```
 
     The interface of a *P2P Node* is defined in `p2p/signatures/P2P/Node.hsig`.
-    An prototype (that runs all nodes in a single process) is implemented in
+    A prototype (that runs all nodes in a single process) is implemented in
     `p2p/inprocess/P2P/Node/InProcess.hs`.
 
 There is one instance of a `P2P.Node` per single chain. All P2P instances of a
