@@ -32,7 +32,7 @@ import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
 import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot.Mainnet qualified as MainnetSnapshot
 import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (ChainGrandHash(..))
 import Chainweb.Pact.Backend.PactState.GrandHash.Utils (resolveLatestCutHeaders, resolveCutHeadersAtHeights, computeGrandHashesAt, withConnections, hex, rocksParser, cwvParser)
-import Chainweb.Pact.Backend.Types (SQLiteEnv)
+import Chainweb.Pact.Backend.Types (Database)
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
 import Chainweb.Utils (sshow)
 import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName(..))
@@ -75,7 +75,7 @@ data BlockHeightTargets
 pactCalc :: (Logger logger)
   => logger
   -> ChainwebVersion
-  -> HashMap ChainId SQLiteEnv
+  -> HashMap ChainId Database
      -- ^ pact database dir
   -> RocksDb
      -- ^ rocksdb dir

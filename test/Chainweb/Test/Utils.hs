@@ -205,7 +205,7 @@ import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..), BlockF
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.Types (SQLiteEnv)
+import Chainweb.Pact.Backend.Types (Database)
 import Chainweb.Pact.Backend.Utils (openSQLiteConnection, closeSQLiteConnection, chainwebPragmas)
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
@@ -309,15 +309,15 @@ withRocksResource = view _2 . snd <$> allocate create destroy
 --
 withSQLiteResource
     :: String
-    -> ResourceT IO SQLiteEnv
+    -> ResourceT IO Database
 withSQLiteResource file = snd <$> allocate
     (openSQLiteConnection file chainwebPragmas)
     closeSQLiteConnection
 
-withTempSQLiteResource :: ResourceT IO SQLiteEnv
+withTempSQLiteResource :: ResourceT IO Database
 withTempSQLiteResource = withSQLiteResource ""
 
-withInMemSQLiteResource :: ResourceT IO SQLiteEnv
+withInMemSQLiteResource :: ResourceT IO Database
 withInMemSQLiteResource = withSQLiteResource ":memory:"
 
 -- -------------------------------------------------------------------------- --
@@ -967,7 +967,8 @@ awaitBlockHeight v cenv i = do
     result <- retrying testRetryPolicy checkRetry
         $ const $ runClientM (cutGetClient v) cenv
     case result of
-        Left e -> throwM e
+        Left e ->
+            throwM e
         Right x
             | all (\bh -> _bhwhHeight bh >= i) (_cutHashes x) -> return ()
             | otherwise -> error

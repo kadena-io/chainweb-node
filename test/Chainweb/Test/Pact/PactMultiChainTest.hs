@@ -90,7 +90,7 @@ cid = unsafeChainId 9
 data MultiEnv = MultiEnv
     { _menvBdb :: !TestBlockDb
     , _menvPact :: !WebPactExecutionService
-    , _menvPacts :: !(HM.HashMap ChainId (SQLiteEnv, PactExecutionService))
+    , _menvPacts :: !(HM.HashMap ChainId (Database, PactExecutionService))
     , _menvMpa :: !(IO (IORef MemPoolAccess))
     , _menvMiner :: !Miner
     , _menvChainId :: !ChainId
@@ -390,7 +390,7 @@ runLocalWithDepth nonce depth cid' cmd = do
   cwCmd <- buildCwCmd nonce testVersion cmd
   liftIO $ try @_ @PactException $ _pactLocal pact Nothing Nothing depth cwCmd
 
-getSqlite :: ChainId -> PactTestM SQLiteEnv
+getSqlite :: ChainId -> PactTestM Database
 getSqlite cid' = do
   HM.lookup cid' <$> view menvPacts >>= \case
     Just (dbEnv, _) -> return dbEnv

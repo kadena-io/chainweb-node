@@ -65,7 +65,9 @@ module Chainweb.Pact.Backend.Types
     , benvBlockState
     , blockHandlerEnv
     , runBlockEnv
-    , SQLiteEnv
+    , SQLiteConnectionType(..)
+    , SQLiteEnv(..)
+    , Database
     , BlockHandler(..)
     , BlockHandlerEnv(..)
     , mkBlockHandlerEnv
@@ -210,7 +212,8 @@ data SQLitePendingData = SQLitePendingData
 
 makeLenses ''SQLitePendingData
 
-type SQLiteEnv = Database
+data SQLiteConnectionType = ReadWrite | ReadOnly deriving Eq
+data SQLiteEnv = SQLiteEnv SQLiteConnectionType Database
 
 -- | Monad state for 'BlockHandler.
 -- This notably contains all of the information that's being mutated during
@@ -245,7 +248,7 @@ initBlockState cl txid = BlockState
 makeLenses ''BlockState
 
 data BlockHandlerEnv logger = BlockHandlerEnv
-    { _blockHandlerDb :: !SQLiteEnv
+    { _blockHandlerDb :: !Database
     , _blockHandlerLogger :: !logger
     , _blockHandlerBlockHeight :: !BlockHeight
     , _blockHandlerModuleNameFix :: !Bool
@@ -256,7 +259,7 @@ data BlockHandlerEnv logger = BlockHandlerEnv
 
 mkBlockHandlerEnv
   :: ChainwebVersion -> ChainId -> BlockHeight
-  -> SQLiteEnv -> IntraBlockPersistence -> logger -> BlockHandlerEnv logger
+  -> Database -> IntraBlockPersistence -> logger -> BlockHandlerEnv logger
 mkBlockHandlerEnv v cid bh sql p logger = BlockHandlerEnv
     { _blockHandlerDb = sql
     , _blockHandlerLogger = logger

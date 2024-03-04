@@ -284,7 +284,7 @@ snapshotCache iomcache initCache = do
 withPact'
     :: (Logger logger, logger ~ GenericLogger)
     => IO TestBlockDb
-    -> IO SQLiteEnv
+    -> IO Database
     -> IO (MVar ModuleInitCache)
     -> CacheTest logger RocksDbTable
     -> (String -> IO ())
@@ -295,7 +295,7 @@ withPact' bdbio ioSqlEnv r (ps, cacheTest) tastylog = do
     let pdb = _bdbPayloadDb bdb
     sqlEnv <- ioSqlEnv
     T2 _ pstate <- withPactService
-        testVer testChainId logger bhdb pdb sqlEnv testPactServiceConfig ps
+        testVer testChainId logger bhdb pdb (SQLiteEnv ReadWrite sqlEnv) testPactServiceConfig ps
     cacheTest r (_psInitCache pstate)
   where
     logger = genericLogger Quiet (tastylog . T.unpack)

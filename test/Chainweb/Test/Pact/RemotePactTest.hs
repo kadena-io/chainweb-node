@@ -142,7 +142,7 @@ withRequestKeys t cenv = do
 -- random chain sampling works with our test harnesses.
 --
 tests :: RocksDb -> TestTree
-tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
+tests rdb = sequentialTestGroup "Chainweb.Test.Pact.RemotePactTest" AllFinish
     [ withResourceT (withNodeDbDirs rdb nNodes) $ \dbDirs ->
       withResourceT (withNodesAtLatestBehavior v id =<< liftIO dbDirs) $ \net ->
         let cenv = _getServiceClientEnv <$> net

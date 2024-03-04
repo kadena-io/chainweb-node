@@ -62,7 +62,7 @@ import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
 import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot.Mainnet qualified as MainnetSnapshots
 import Chainweb.Pact.Backend.PactState.GrandHash.Utils (resolveLatestCutHeaders, resolveCutHeadersAtHeight, computeGrandHashesAt, exitLog, withConnections, chainwebDbFilePath, rocksParser, cwvParser)
 import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpointer)
-import Chainweb.Pact.Backend.Types (SQLiteEnv, _cpRewindTo)
+import Chainweb.Pact.Backend.Types (Database, _cpRewindTo, SQLiteEnv(..), SQLiteConnectionType(..))
 import Chainweb.Pact.Service.Types (IntraBlockPersistence(..))
 import Chainweb.Pact.Types (defaultModuleCacheLimit)
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
@@ -93,7 +93,7 @@ import System.LogLevel (LogLevel(..))
 pactVerify :: (Logger logger)
   => logger
   -> ChainwebVersion
-  -> HashMap ChainId SQLiteEnv
+  -> HashMap ChainId Database
      -- ^ pact connections
   -> RocksDb
      -- ^ rocksDb
@@ -187,7 +187,7 @@ pactDropPostVerified logger v srcDir tgtDir snapshotBlockHeight snapshotChainHas
       let logger' = addChainIdLabel cid logger
       logFunctionText logger' Info
         $ "Dropping anything post verified state (BlockHeight " <> sshow snapshotBlockHeight <> ")"
-      withProdRelationalCheckpointer logger defaultModuleCacheLimit sqliteEnv DoNotPersistIntraBlockWrites v cid $ \cp -> do
+      withProdRelationalCheckpointer logger defaultModuleCacheLimit (SQLiteEnv ReadWrite sqliteEnv) DoNotPersistIntraBlockWrites v cid $ \cp -> do
         _cpRewindTo cp (Just $ ParentHeader $ blockHeader $ snapshotChainHashes ^?! ix cid)
 
 data PactImportConfig = PactImportConfig

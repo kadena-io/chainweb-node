@@ -87,7 +87,7 @@ import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
-import Chainweb.Pact.Service.BlockValidation
+import Chainweb.Pact.Service.BlockValidation as BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
@@ -264,7 +264,8 @@ data Resources
     , coinAccounts :: !(MVar (Map Account (NonEmpty (DynKeyPair, [SigCapability]))))
     , nonceCounter :: !(IORef Word64)
     , txPerBlock :: !(IORef Int)
-    , sqlEnv :: !SQLiteEnv
+    , writeSqlEnv :: !Database
+    , readSqlEnv :: !Database
     }
 
 type RunPactService =
@@ -296,46 +297,38 @@ withResources rdb trunkLength logLevel compact p f = C.envWithCleanup create des
         coinAccounts <- newMVar mempty
         nonceCounter <- newIORef 1
         txPerBlock <- newIORef 10
-        sqlEnv <- openSQLiteConnection "" {- temporary SQLite db -} chainwebBenchPragmas
+
+        writeSqlEnv <- openSQLiteConnection "" {- temporary SQLite db -} chainwebPragmas
+        readSqlEnv <- openSQLiteConnection "" {- temporary SQLite db -} chainwebPragmas
         mp <- testMemPoolAccess txPerBlock coinAccounts
         pactService <-
-          startPact testVer logger blockHeaderDb payloadDb mp sqlEnv
+          startPact testVer logger blockHeaderDb payloadDb mp (writeSqlEnv, readSqlEnv)
         mainTrunkBlocks <-
           playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
         when (compact == DoCompact) $ do
           C.withDefaultLogger Error $ \lgr -> do
-            void $ C.compact (BlockHeight trunkLength) lgr sqlEnv []
+            void $ C.compact (BlockHeight trunkLength) lgr writeSqlEnv []
 
         return $ NoopNFData $ Resources {..}
 
     destroy (NoopNFData (Resources {..})) = do
       stopPact pactService
-      stopSqliteDb sqlEnv
+      stopSqliteDb writeSqlEnv
+      stopSqliteDb readSqlEnv
 
     pactQueueSize = 2000
 
     logger = genericLogger logLevel T.putStrLn
 
-    startPact version l bhdb pdb mempool sqlEnv = do
+    startPact version l bhdb pdb mempool sqlEnvs = do
         reqQ <- newPactQueue pactQueueSize
-        a <- async $ runPactService version cid l reqQ mempool bhdb pdb sqlEnv testPactServiceConfig
+        a <- async $ runPactService version cid l reqQ mempool bhdb pdb sqlEnvs testPactServiceConfig
             { _pactBlockGasLimit = 180_000
             , _pactPersistIntraBlockWrites = p
             }
-
         return (a, reqQ)
 
     stopPact (a, _) = cancel a
-
-    chainwebBenchPragmas =
-        [ "synchronous = NORMAL"
-        , "journal_mode = WAL"
-        , "locking_mode = EXCLUSIVE"
-            -- this is different from the prodcution database that uses @NORMAL@
-        , "temp_store = MEMORY"
-        , "auto_vacuum = NONE"
-        , "page_size = 1024"
-        ]
 
     genesisBlock :: BlockHeader
     genesisBlock = genesisBlockHeader testVer cid
@@ -373,7 +366,7 @@ testMemPoolAccess txsPerBlock accounts = do
     getTestBlock mVarAccounts txOrigTime validate bHeight hash
         | bHeight == 1 = do
             meta <- setTime txOrigTime <$> makeMeta cid
-            (as, kss, cmds) <- unzip3 . toList <$> createCoinAccounts testVer meta
+            (as, kss, cmds) <- unzip3 <$> createCoinAccounts testVer meta twoNames
             case traverse validateCommand cmds of
               Left err -> throwM $ userError err
               Right !r -> do
@@ -468,15 +461,20 @@ stockKey s = do
 stockKeyFile :: ByteString
 stockKeyFile = $(embedFile "pact/genesis/devnet/keys.yaml")
 
-createCoinAccounts :: ChainwebVersion -> PublicMeta -> IO (NonEmpty (Account, NonEmpty (DynKeyPair, [SigCapability]), Command Text))
-createCoinAccounts v meta = traverse (go <*> createCoinAccount v meta) names
+createCoinAccounts :: ChainwebVersion -> PublicMeta -> [String] -> IO [(Account, NonEmpty (DynKeyPair, [SigCapability]), Command Text)]
+createCoinAccounts v meta names' = traverse (go <*> createCoinAccount v meta) names'
   where
     go a m = do
       (b,c) <- m
       return (Account a,b,c)
 
-names :: NonEmpty String
-names = NEL.map safeCapitalize . NEL.fromList $ Prelude.take 2 $ words "mary elizabeth patricia jennifer linda barbara margaret susan dorothy jessica james john robert michael william david richard joseph charles thomas"
+twoNames :: [String]
+twoNames = take 2 names
+
+names :: [String]
+names = map safeCapitalize $ names' ++ [(n ++ show x) | n <- names', x <- [0 :: Int ..1000]]
+  where
+    names' = words "mary elizabeth patricia jennifer linda barbara margaret susan dorothy jessica james john robert michael william david richard joseph charles thomas"
 
 formatB16PubKey :: DynKeyPair -> Text
 formatB16PubKey = \case

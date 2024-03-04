@@ -9,6 +9,7 @@
 
 module Chainweb.Test.Pact.PactReplay where
 
+-- import Control.Concurrent (threadDelay)
 import Control.Monad (forM_, unless, void)
 import Control.Monad.Catch
 import Control.Monad.Reader
@@ -87,7 +88,7 @@ tests rdb =
 
 onRestart
     :: IO (IORef MemPoolAccess)
-    -> IO (SQLiteEnv, PactQueue, TestBlockDb)
+    -> IO (Database, PactQueue, TestBlockDb)
     -> (String -> IO ())
     -> Assertion
 onRestart mpio iop step = do
@@ -161,7 +162,7 @@ dupegenMemPoolAccess = do
 serviceInitializationAfterFork
     :: IO (IORef MemPoolAccess)
     -> BlockHeader
-    -> IO (SQLiteEnv, PactQueue, TestBlockDb)
+    -> IO (Database, PactQueue, TestBlockDb)
     -> Assertion
 serviceInitializationAfterFork mpio genesisBlock iop = do
     setOneShotMempool mpio testMemPoolAccess
@@ -205,7 +206,7 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
 firstPlayThrough
     :: IO (IORef MemPoolAccess)
     -> BlockHeader
-    -> IO (SQLiteEnv, PactQueue, TestBlockDb)
+    -> IO (Database, PactQueue, TestBlockDb)
     -> Assertion
 firstPlayThrough mpio genesisBlock iop = do
     setOneShotMempool mpio testMemPoolAccess
@@ -239,7 +240,7 @@ firstPlayThrough mpio genesisBlock iop = do
 
 testDupes
   :: IO (IORef MemPoolAccess)
-  -> IO (SQLiteEnv, PactQueue, TestBlockDb)
+  -> IO (Database, PactQueue, TestBlockDb)
   -> Assertion
 testDupes mpio iop = do
     setMempool mpio =<< dupegenMemPoolAccess
@@ -270,7 +271,7 @@ testDupes mpio iop = do
 testDeepForkLimit
   :: IO (IORef MemPoolAccess)
   -> RewindLimit
-  -> IO (SQLiteEnv, PactQueue,TestBlockDb)
+  -> IO (Database, PactQueue,TestBlockDb)
   -> (String -> IO ())
   -> Assertion
 testDeepForkLimit mpio (RewindLimit deepForkLimit) iop step = do
@@ -314,7 +315,7 @@ testDeepForkLimit mpio (RewindLimit deepForkLimit) iop step = do
 
 mineBlock
     :: Nonce
-    -> IO (SQLiteEnv, PactQueue, TestBlockDb)
+    -> IO (Database, PactQueue, TestBlockDb)
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock nonce iop = timeout 5000000 go >>= \case
     Nothing -> error "PactReplay.mineBlock: Test timeout. Most likely a test case caused a pact service failure that wasn't caught, and the test was blocked while waiting for the result"

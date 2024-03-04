@@ -33,7 +33,7 @@ import Chainweb.Logger (Logger, logFunctionText)
 import Chainweb.Pact.Backend.PactState (getLatestPactStateAt, getLatestBlockHeight, addChainIdLabel)
 import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
 import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (computeGrandHash)
-import Chainweb.Pact.Backend.Types (SQLiteEnv)
+import Chainweb.Pact.Backend.Types (Database)
 import Chainweb.Pact.Backend.Utils (startSqliteDb, stopSqliteDb)
 import Chainweb.Storage.Table.RocksDB (RocksDb)
 import Chainweb.TreeDB (seekAncestor)
@@ -69,7 +69,7 @@ limitCut :: (Logger logger)
   => logger
   -> WebBlockHeaderDb
   -> HashMap ChainId BlockHeader -- ^ latest cut headers
-  -> HashMap ChainId SQLiteEnv
+  -> HashMap ChainId Database
   -> BlockHeight
   -> IO (HashMap ChainId BlockHeader)
 limitCut logger wbhdb latestCutHeaders pactConns blockHeight = do
@@ -117,7 +117,7 @@ getLatestCutHeaders v rocksDb = do
 resolveLatestCutHeaders :: (Logger logger)
   => logger
   -> ChainwebVersion
-  -> HashMap ChainId SQLiteEnv
+  -> HashMap ChainId Database
   -> RocksDb
   -> IO (BlockHeight, HashMap ChainId BlockHeader)
 resolveLatestCutHeaders logger v pactConns rocksDb = do
@@ -131,7 +131,7 @@ resolveLatestCutHeaders logger v pactConns rocksDb = do
 resolveCutHeadersAtHeight :: (Logger logger)
   => logger
   -> ChainwebVersion
-  -> HashMap ChainId SQLiteEnv
+  -> HashMap ChainId Database
   -> RocksDb
   -> BlockHeight
   -> IO (HashMap ChainId BlockHeader)
@@ -146,7 +146,7 @@ resolveCutHeadersAtHeight logger v pactConns rocksDb target = do
 resolveCutHeadersAtHeights :: (Logger logger)
   => logger
   -> ChainwebVersion
-  -> HashMap ChainId SQLiteEnv
+  -> HashMap ChainId Database
   -> RocksDb
   -> [BlockHeight] -- ^ targets
   -> IO [(BlockHeight, HashMap ChainId BlockHeader)]
@@ -159,7 +159,7 @@ resolveCutHeadersAtHeights logger v pactConns rocksDb targets = do
 --   a 'BlockHeader' with the computed 'ChainGrandHash' at the header's
 --   'BlockHeight'.
 computeGrandHashesAt :: ()
-  => HashMap ChainId SQLiteEnv
+  => HashMap ChainId Database
      -- ^ pact connections
   -> HashMap ChainId BlockHeader
      -- ^ Resolved targets, i.e, blockheights that are accessible per each
@@ -202,17 +202,17 @@ withConnections :: (Logger logger)
   => logger
   -> FilePath
   -> [ChainId]
-  -> (HashMap ChainId SQLiteEnv -> IO x)
+  -> (HashMap ChainId Database -> IO x)
   -> IO x
 withConnections logger pactDir cids f = do
   checkPactDbsExist pactDir cids
   bracket openConnections closeConnections f
   where
-    openConnections :: IO (HashMap ChainId SQLiteEnv)
+    openConnections :: IO (HashMap ChainId Database)
     openConnections = fmap HM.fromList $ forM cids $ \cid -> do
       (cid, ) <$> startSqliteDb cid logger pactDir False
 
-    closeConnections :: HashMap ChainId SQLiteEnv -> IO ()
+    closeConnections :: HashMap ChainId Database -> IO ()
     closeConnections = mapM_ stopSqliteDb
 
 hex :: ByteString -> Text

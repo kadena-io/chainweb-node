@@ -241,9 +241,10 @@ doValidateBlock
 doValidateBlock ctxIO header payload = do
     ctx <- ctxIO
     _mv' <- validateBlock header (CheckablePayloadWithOutputs payload) $ _ctxQueue ctx
+
     addNewPayload (_ctxPdb ctx) (_blockHeight header) payload
     unsafeInsertBlockHeaderDb (_ctxBdb ctx) header
-    -- FIXME FIXME FIXME: do at least some checks?
+    -- FIXME FIXME: do at least some checks?
 
 -- -------------------------------------------------------------------------- --
 -- Misc Utils

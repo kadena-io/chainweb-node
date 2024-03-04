@@ -68,7 +68,6 @@ import Database.SQLite3.Direct qualified as SQL
 
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Logger (Logger, addLabel)
-import Chainweb.Pact.Backend.Types (SQLiteEnv)
 import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
 import Chainweb.Utils (int)
 import Chainweb.Version (ChainId, ChainwebVersion, chainIdToText)
@@ -140,7 +139,7 @@ withChainDb :: (Logger logger)
   => ChainId
   -> logger
   -> FilePath
-  -> (logger -> SQLiteEnv -> IO x)
+  -> (logger -> Database -> IO x)
   -> IO x
 withChainDb cid logger' path f = do
   let logger = addChainIdLabel cid logger'

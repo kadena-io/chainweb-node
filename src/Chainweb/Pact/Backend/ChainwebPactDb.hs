@@ -646,7 +646,7 @@ createVersionedTable tablename db = do
 
 -- | Delete any state from the database newer than the input parent header.
 rewindDbTo
-    :: SQLiteEnv
+    :: Database
     -> Maybe ParentHeader
     -> IO ()
 rewindDbTo db Nothing = rewindDbToGenesis db
@@ -656,7 +656,7 @@ rewindDbTo db mh@(Just (ParentHeader ph)) = do
 
 -- rewind before genesis, delete all user tables and all rows in all tables
 rewindDbToGenesis
-  :: SQLiteEnv
+  :: Database
   -> IO ()
 rewindDbToGenesis db = do
     exec_ db "DELETE FROM BlockHistory;"
@@ -742,7 +742,7 @@ rewindDbToBlock db bh endingTxId = do
         exec' db "DELETE FROM TransactionIndex WHERE blockheight > ?;"
               [ SInt (fromIntegral bh) ]
 
-commitBlockStateToDatabase :: SQLiteEnv -> BlockHash -> BlockHeight -> BlockState -> IO ()
+commitBlockStateToDatabase :: Database -> BlockHash -> BlockHeight -> BlockState -> IO ()
 commitBlockStateToDatabase db hsh bh blockState = do
   let newTables = _pendingTableCreation $ _bsPendingBlock blockState
   mapM_ (\tn -> createUserTable (Utf8 tn)) newTables
@@ -808,7 +808,7 @@ commitBlockStateToDatabase db hsh bh blockState = do
 
 
 -- | Create all tables that exist pre-genesis
-initSchema :: (Logger logger) => logger -> SQLiteEnv -> IO ()
+initSchema :: (Logger logger) => logger -> Database -> IO ()
 initSchema logger sql =
     withSavepoint sql DbTransaction $ do
         createBlockHistoryTable
@@ -860,12 +860,12 @@ initSchema logger sql =
         "CREATE INDEX IF NOT EXISTS \
          \ transactionIndexByBH ON TransactionIndex(blockheight)";
 
-getEndTxId :: Text -> SQLiteEnv -> Maybe ParentHeader -> IO TxId
+getEndTxId :: Text -> Database -> Maybe ParentHeader -> IO TxId
 getEndTxId msg sql pc = case pc of
   Nothing -> return 0
   Just (ParentHeader ph) -> getEndTxId' msg sql (_blockHeight ph) (_blockHash ph)
 
-getEndTxId' :: Text -> SQLiteEnv -> BlockHeight -> BlockHash -> IO TxId
+getEndTxId' :: Text -> Database -> BlockHeight -> BlockHash -> IO TxId
 getEndTxId' msg sql bh bhsh = do
     r <- qry sql
       "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"

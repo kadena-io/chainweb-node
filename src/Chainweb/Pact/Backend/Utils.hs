@@ -47,6 +47,7 @@ module Chainweb.Pact.Backend.Utils
   , execMulti
   -- * SQLite runners
   , withSqliteDb
+  , withReadOnlySqliteDb
   , startSqliteDb
   , stopSqliteDb
   , withSQLiteConnection
@@ -158,7 +159,7 @@ callDb callerName action = do
     Right r -> return r
 
 withSavepoint
-    :: SQLiteEnv
+    :: Database
     -> SavepointName
     -> IO a
     -> IO a
@@ -176,11 +177,11 @@ withSavepoint db name action = mask $ \resetMask -> do
                , Handler $ \(e :: SomeException) -> throwErr ("non-pact exception: " <> sshow e)
                ]
 
-beginSavepoint :: SQLiteEnv -> SavepointName -> IO ()
+beginSavepoint :: Database -> SavepointName -> IO ()
 beginSavepoint db name =
   exec_ db $ "SAVEPOINT [" <> convSavepointName name <> "];"
 
-commitSavepoint :: SQLiteEnv -> SavepointName -> IO ()
+commitSavepoint :: Database -> SavepointName -> IO ()
 commitSavepoint db name =
   exec_ db $ "RELEASE SAVEPOINT [" <> convSavepointName name <> "];"
 
@@ -194,13 +195,13 @@ commitSavepoint db name =
 -- Cf. <https://www.sqlite.org/lang_savepoint.html> for details about
 -- savepoints.
 --
-rollbackSavepoint :: SQLiteEnv -> SavepointName -> IO ()
+rollbackSavepoint :: Database -> SavepointName -> IO ()
 rollbackSavepoint db name =
   exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
 
 -- | @abortSavepoint n@ rolls back all database updates since the most recent
 -- savepoint with the name @n@ and removes it from the savepoint stack.
-abortSavepoint :: SQLiteEnv -> SavepointName -> IO ()
+abortSavepoint :: Database -> SavepointName -> IO ()
 abortSavepoint db name = do
   rollbackSavepoint db name
   commitSavepoint db name
@@ -281,11 +282,41 @@ withSqliteDb
     -> logger
     -> FilePath
     -> Bool
-    -> (SQLiteEnv -> IO a)
+    -> (Database -> IO a)
     -> IO a
 withSqliteDb cid logger dbDir resetDb = bracket
     (startSqliteDb cid logger dbDir resetDb)
     stopSqliteDb
+
+withReadOnlySqliteDb
+    :: Logger logger
+    => ChainId
+    -> logger
+    -> FilePath
+    -> (Database -> IO a)
+    -> IO a
+withReadOnlySqliteDb cid logger dbDir = bracket
+    (startReadOnlySqliteDb cid logger dbDir)
+    stopSqliteDb
+
+startReadOnlySqliteDb
+    :: Logger logger
+    => ChainId
+    -> logger
+    -> FilePath
+    -> IO Database
+startReadOnlySqliteDb cid logger dbDir = do
+    textLog Info $ mconcat
+        [ "opened sqlitedb for "
+        , sshow cid
+        , " in directory "
+        , sshow dbDir
+        ]
+    textLog Info $ "opening sqlitedb named " <> T.pack sqliteFile
+    openReadOnlySQLiteConnection sqliteFile chainwebPragmas
+  where
+    textLog = logFunctionText logger
+    sqliteFile = dbDir </> chainDbFileName cid
 
 startSqliteDb
     :: Logger logger
@@ -293,7 +324,7 @@ startSqliteDb
     -> logger
     -> FilePath
     -> Bool
-    -> IO SQLiteEnv
+    -> IO Database
 startSqliteDb cid logger dbDir doResetDb = do
     when doResetDb resetDb
     createDirectoryIfMissing True dbDir
@@ -317,15 +348,16 @@ chainDbFileName cid = fold
     , ".sqlite"
     ]
 
-stopSqliteDb :: SQLiteEnv -> IO ()
+stopSqliteDb :: Database -> IO ()
 stopSqliteDb = closeSQLiteConnection
 
-withSQLiteConnection :: String -> [Pragma] -> (SQLiteEnv -> IO c) -> IO c
+withSQLiteConnection :: String -> [Pragma] -> (Database -> IO c) -> IO c
 withSQLiteConnection file ps =
     bracket (openSQLiteConnection file ps) closeSQLiteConnection
 
-openSQLiteConnection :: String -> [Pragma] -> IO SQLiteEnv
-openSQLiteConnection file ps = open2 file >>= \case
+openSQLiteConnection :: String -> [Pragma] -> IO Database
+openSQLiteConnection file ps = do
+  open2 file >>= \case
     Left (err, msg) ->
       internalError $
       "withSQLiteConnection: Can't open db with "
@@ -334,7 +366,18 @@ openSQLiteConnection file ps = open2 file >>= \case
       runPragmas r ps
       return r
 
-closeSQLiteConnection :: SQLiteEnv -> IO ()
+openReadOnlySQLiteConnection :: String -> [Pragma] -> IO Database
+openReadOnlySQLiteConnection file ps = do
+  openReadOnly2 file >>= \case
+    Left (err, msg) ->
+      internalError $
+      "withSQLiteConnection: Can't open db with "
+      <> asString (show err) <> ": " <> asString (show msg)
+    Right r -> do
+      runPragmas r ps
+      return r
+
+closeSQLiteConnection :: Database -> IO ()
 closeSQLiteConnection c = void $ close_v2 c
 
 -- passing the empty string as filename causes sqlite to use a temporary file
@@ -343,7 +386,7 @@ closeSQLiteConnection c = void $ close_v2 c
 --
 -- Cf. https://www.sqlite.org/inmemorydb.html
 --
-withTempSQLiteConnection :: [Pragma] -> (SQLiteEnv -> IO c) -> IO c
+withTempSQLiteConnection :: [Pragma] -> (Database -> IO c) -> IO c
 withTempSQLiteConnection = withSQLiteConnection ""
 
 -- Using the special file name @:memory:@ causes sqlite to create a temporary in-memory
@@ -351,21 +394,30 @@ withTempSQLiteConnection = withSQLiteConnection ""
 --
 -- Cf. https://www.sqlite.org/inmemorydb.html
 --
-withInMemSQLiteConnection :: [Pragma] -> (SQLiteEnv -> IO c) -> IO c
+withInMemSQLiteConnection :: [Pragma] -> (Database -> IO c) -> IO c
 withInMemSQLiteConnection = withSQLiteConnection ":memory:"
 
 open2 :: String -> IO (Either (SQ3.Error, SQ3.Utf8) SQ3.Database)
 open2 file = open_v2
     (fromString file)
-    (collapseFlags [sqlite_open_readwrite , sqlite_open_create , sqlite_open_fullmutex])
+    (collapseFlags [sqlite_open_readwrite , sqlite_open_create, sqlite_open_nomutex])
     Nothing -- Nothing corresponds to the nullPtr
+
+openReadOnly2 :: String -> IO (Either (SQ3.Error, SQ3.Utf8) SQ3.Database)
+openReadOnly2 file = open_v2
+    (fromString file)
+    (collapseFlags [sqlite_open_readonly , sqlite_open_nomutex])
+    Nothing -- Nothing corresponds to the nullPtr
+
 
 collapseFlags :: [SQLiteFlag] -> SQLiteFlag
 collapseFlags xs =
     if Prelude.null xs then error "collapseFlags: You must pass a non-empty list"
     else Prelude.foldr1 (.|.) xs
 
-sqlite_open_readwrite, sqlite_open_create, sqlite_open_fullmutex :: SQLiteFlag
+sqlite_open_readonly, sqlite_open_readwrite, sqlite_open_create, sqlite_open_nomutex :: SQLiteFlag
+sqlite_open_readonly = 0x00000001
 sqlite_open_readwrite = 0x00000002
 sqlite_open_create = 0x00000004
-sqlite_open_fullmutex = 0x00010000
+sqlite_open_nomutex = 0x00008000
+-- sqlite_open_fullmutex = 0x00010000
