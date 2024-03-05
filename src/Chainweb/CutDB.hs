@@ -60,6 +60,7 @@ module Chainweb.CutDB
 , awaitNewCut
 , awaitNewCutByChainId
 , awaitNewBlock
+, awaitNewBlockStm
 , awaitNewCutByChainIdStm
 , cutStream
 , addCutHashes
@@ -347,7 +348,12 @@ awaitNewCutByChainId cdb cid c = atomically $ awaitNewCutByChainIdStm cdb cid c
 -- | As in `awaitNewCut`, but only updates when the header at the specified
 -- `ChainId` has changed, and only returns that new header.
 awaitNewBlock :: CutDb tbl -> ChainId -> BlockHeader -> IO BlockHeader
-awaitNewBlock cdb cid bh = atomically $ do
+awaitNewBlock cdb cid bh = atomically $ awaitNewBlockStm cdb cid bh
+
+-- | As in `awaitNewCut`, but only updates when the header at the specified
+-- `ChainId` has changed, and only returns that new header.
+awaitNewBlockStm :: CutDb tbl -> ChainId -> BlockHeader -> STM BlockHeader
+awaitNewBlockStm cdb cid bh = do
     c <- _cutStm cdb
     case HM.lookup cid (_cutMap c) of
         Just bh' | _blockHash bh' /= _blockHash bh -> return bh'

@@ -32,7 +32,7 @@ module Chainweb.Pact.RestAPI.Server
 ) where
 
 import Control.Applicative
-import Control.Concurrent.STM (atomically, retry)
+import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
 import Control.Lens (set, view, preview)
@@ -327,33 +327,34 @@ listenHandler logger cdb cid pact mem (ListenerRequest key) = do
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
     logg = logFunctionJson (setComponent "listen-handler" logger)
     runListen :: TVar Bool -> IO ListenResponse
-    runListen timedOut = go Nothing
+    runListen timedOut = do
+      startCut <- CutDB._cut cdb
+      case HM.lookup cid (_cutMap startCut) of
+        Nothing -> pure $! ListenTimeout defaultTimeout
+        Just bh -> poll bh
       where
-        go :: Maybe Cut -> IO ListenResponse
-        go !prevCut = do
-            m <- waitForNewCut prevCut
-            case m of
-                Nothing -> return $! ListenTimeout defaultTimeout
-                (Just cut) -> poll cut
+        go :: BlockHeader -> IO ListenResponse
+        go !prevBlock = do
+          m <- waitForNewBlock prevBlock
+          case m of
+            Nothing -> pure $! ListenTimeout defaultTimeout
+            Just block -> poll block
 
-        poll :: Cut -> IO ListenResponse
-        poll cut = do
-            hm <- internalPoll pdb bdb mem pact Nothing (pure key)
-            if HM.null hm
-              then go (Just cut)
-              else return $! ListenResponse $ snd $ head $ HM.toList hm
+        poll :: BlockHeader -> IO ListenResponse
+        poll bh = do
+          hm <- internalPoll pdb bdb mem pact Nothing (pure key)
+          if HM.null hm
+          then go bh
+          else pure $! ListenResponse $ snd $ head $ HM.toList hm
 
-        waitForNewCut :: Maybe Cut -> IO (Maybe Cut)
-        waitForNewCut lastCut = atomically $ do
-             -- TODO: we should compute greatest common ancestor here to bound the
-             -- search
-             t <- readTVar timedOut
-             if t
-                 then return Nothing
-                 else Just <$> do
-                     !cut <- CutDB._cutStm cdb
-                     when (lastCut == Just cut) retry
-                     return cut
+        waitForNewBlock :: BlockHeader -> IO (Maybe BlockHeader)
+        waitForNewBlock lastBlockHeader = atomically $ do
+          isTimedOut <- readTVar timedOut
+          if isTimedOut
+          then do
+            pure Nothing
+          else do
+            Just <$!> CutDB.awaitNewBlockStm cdb cid lastBlockHeader
 
     -- TODO: make configurable
     defaultTimeout = 180 * 1000000 -- two minutes
