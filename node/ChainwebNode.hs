@@ -104,6 +104,7 @@ import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
 import Chainweb.Version.Mainnet
+import Chainweb.Version.Testnet (testnet)
 import Chainweb.Version.Registry
 
 import Chainweb.Storage.Table.RocksDB
@@ -477,37 +478,46 @@ instance Exception ServiceDate where
     toException = asyncExceptionToException
 
 withServiceDate
-    :: (LogLevel -> Text -> IO ())
+    :: ChainwebVersion
+    -> (LogLevel -> Text -> IO ())
     -> Maybe UTCTime
     -> IO a
     -> IO a
-withServiceDate _ Nothing inner = inner
-withServiceDate lf (Just t) inner = race timer inner >>= \case
-    Left () -> error "Service date thread terminated unexpectedly"
-    Right a -> return a
+withServiceDate v lf msd inner = case msd of
+  Nothing -> do
+    inner
+  Just sd -> do
+    if _versionCode v == _versionCode mainnet || _versionCode v == _versionCode testnet
+    then do
+      race (timer sd) inner >>= \case
+        Left () -> error "Service date thread terminated unexpectedly"
+        Right a -> return a
+    else do
+      inner
   where
-    timer = runForever lf "ServiceDate" $ do
-        now <- getCurrentTime
-        when (now >= t) $ do
-            lf Error shutdownMessage
-            throw $ ServiceDate shutdownMessage
+    timer t = runForever lf "ServiceDate" $ do
+      now <- getCurrentTime
+      when (now >= t) $ do
+        lf Error shutdownMessage
+        throw $ ServiceDate shutdownMessage
 
-        let w = diffUTCTime t now
-        let micros = round $ w * 1_000_000
-        lf Warn warning
-        threadDelay $ min (10 * 60 * 1_000_000) micros
+      let w = diffUTCTime t now
+      let micros = round $ w * 1_000_000
+      lf Warn warning
+      threadDelay $ min (10 * 60 * 1_000_000) micros
 
-    warning :: Text
-    warning = T.concat
-        [ "This version of chainweb node will stop working at " <> sshow t <> "."
-        , " Please upgrade to a new version before that date."
-        ]
+      where
+        warning :: Text
+        warning = T.concat
+          [ "This version of chainweb node will stop working at " <> sshow t <> "."
+          , " Please upgrade to a new version before that date."
+          ]
 
-    shutdownMessage :: Text
-    shutdownMessage = T.concat
-        [ "Shutting down. This version of chainweb was only valid until" <> sshow t <> "."
-        , " Please upgrade to a new version."
-        ]
+        shutdownMessage :: Text
+        shutdownMessage = T.concat
+          [ "Shutting down. This version of chainweb was only valid until" <> sshow t <> "."
+          , " Please upgrade to a new version."
+          ]
 
 -- -------------------------------------------------------------------------- --
 -- Encode Package Info into Log mesage scopes
@@ -557,7 +567,7 @@ main = do
                     logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
                 ] $ do
                 kt <- mapM iso8601ParseM serviceDate
-                withServiceDate (logFunctionText logger) kt $ void $
+                withServiceDate (_configChainwebVersion (_nodeConfigChainweb conf)) (logFunctionText logger) kt $ void $
                     race (node conf logger) (gcRunner (logFunctionText logger))
     where
     gcRunner lf = runForever lf "GarbageCollect" $ do
