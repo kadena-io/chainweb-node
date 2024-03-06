@@ -79,6 +79,7 @@ module Chainweb.Utils
 , minusOrZero
 , interleaveIO
 , mutableVectorFromList
+, timeoutYield
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -217,7 +218,7 @@ module Chainweb.Utils
 
 import Configuration.Utils hiding (Error, Lens)
 
-import Control.Concurrent (threadDelay)
+import Control.Concurrent (threadDelay, yield)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.TokenBucket
@@ -279,7 +280,7 @@ import System.IO.Unsafe (unsafeInterleaveIO, unsafePerformIO)
 import System.LogLevel
 import qualified System.Random.MWC as Prob
 import qualified System.Random.MWC.Probability as Prob
-import System.Timeout
+import qualified System.Timeout as Timeout
 
 import Text.Printf (printf)
 import Text.Read (readEither)
@@ -1048,7 +1049,7 @@ timeoutStream
     -> S.Stream (Of a) IO (Maybe r)
 timeoutStream msecs = go
   where
-    go s = lift (timeout msecs (S.next s)) >>= \case
+    go s = lift (Timeout.timeout msecs (S.next s)) >>= \case
         Nothing -> return Nothing
         Just (Left r) -> return (Just r)
         Just (Right (a, s')) -> S.yield a >> go s'
@@ -1394,3 +1395,9 @@ parseUtcTime d = case parseTimeM False defaultTimeLocale fmt d of
     Just x -> return x
   where
     fmt = iso8601DateTimeFormat
+
+-- | Timeout.timeout with a `yield` after the action to more consistently
+-- trigger the timeout.
+timeoutYield :: Int -> IO a -> IO (Maybe a)
+timeoutYield time act =
+    Timeout.timeout time (act <* yield)

@@ -72,7 +72,6 @@ import GrowableVector.Lifted qualified as Vec
 
 import System.IO
 import System.LogLevel
-import System.Timeout
 
 import Prelude hiding (lookup)
 
@@ -724,7 +723,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                 let gasModel = getGasModel ctx
                 mc <- getInitCache
                 dbEnv <- view psBlockDbEnv
-        
+
                 --
                 -- if the ?preflight query parameter is set to True, we run the `applyCmd` workflow
                 -- otherwise, we prefer the old (default) behavior. When no preflight flag is
@@ -740,7 +739,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                           _psVersion _psLogger _psGasLogger (_cpPactDbEnv dbEnv)
                           noMiner gasModel ctx spv cmd
                           initialGas mc ApplyLocal
-        
+
                         let cr' = toHashCommandResult cr
                             warns' = P.renderCompactText <$> toList warns
                         pure $ LocalResultWithWarns cr' warns'
@@ -751,20 +750,20 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                             enablePactEvents' (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx) ++
                             enforceKeysetFormats' (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx) ++
                             disableReturnRTC (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx)
-        
+
                     cr <- applyLocal
                       _psLogger _psGasLogger (_cpPactDbEnv dbEnv)
                       gasModel ctx spv
                       cwtx mc execConfig
-        
+
                     let cr' = toHashCommandResult cr
                     pure $ LocalResultLegacy cr'
-        
+
                 return r
 
     case timeoutLimit of
       Nothing -> act
-      Just limit -> withPactState $ \run -> timeout limit (run act) >>= \case
+      Just limit -> withPactState $ \run -> timeoutYield limit (run act) >>= \case
         Just r -> pure r
         Nothing -> do
           logError_ _psLogger $ "Mempool local action timed out for cwtx:\n" <> sshow cwtx
@@ -939,7 +938,7 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
           act = validateChainwebTxs logger v cid pdb parentTime currHeight txs
             (evalPactServiceM psState psEnv . runPactBlockM pc pdb . attemptBuyGas noMiner)
 
-      liftIO $ timeout timeoutLimit act >>= \case
+      liftIO $ timeoutYield timeoutLimit act >>= \case
         Just r -> pure r
         Nothing -> do
           logError_ logger $ "Mempool pre-insert check timed out for txs:\n" <> sshow txs
