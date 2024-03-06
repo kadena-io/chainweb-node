@@ -91,7 +91,7 @@ main = do
                 $ testGroup "Chainweb Tests"
                 $ pactTestSuite rdb
                 : mempoolTestSuite db h0
-                : rosettaTestSuite rdb
+                : nodeTestSuite rdb
                 : suite rdb
   where
     adj NoTimeout = Timeout (1_000_000 * 60 * 10) "10m"
@@ -109,7 +109,6 @@ pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
     , Chainweb.Test.Pact.PactMultiChainTest.tests
     , Chainweb.Test.Pact.VerifierPluginTest.tests
     , Chainweb.Test.Pact.PactSingleChainTest.tests rdb
-    , Chainweb.Test.Pact.RemotePactTest.tests rdb
     , Chainweb.Test.Pact.PactReplay.tests rdb
     , Chainweb.Test.Pact.ModuleCacheOnRestart.tests rdb
     , Chainweb.Test.Pact.TTL.tests rdb
@@ -118,9 +117,10 @@ pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
     , Chainweb.Test.Pact.GrandHash.tests
     ]
 
-rosettaTestSuite :: RocksDb -> TestTree
-rosettaTestSuite rdb = testGroup "Chainweb-Rosetta API Tests"
+nodeTestSuite :: RocksDb -> TestTree
+nodeTestSuite rdb = sequentialTestGroup "Tests starting nodes" AllFinish
     [ Chainweb.Test.Rosetta.RestAPI.tests rdb
+    , Chainweb.Test.Pact.RemotePactTest.tests rdb
     ]
 
 suite :: RocksDb -> [TestTree]
