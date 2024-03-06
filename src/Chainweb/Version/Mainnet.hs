@@ -9,6 +9,7 @@ module Chainweb.Version.Mainnet(mainnet, pattern Mainnet01) where
 
 import Control.Lens
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Set as Set
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeight
@@ -20,6 +21,8 @@ import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
 import P2P.BootstrapNodes
+
+import Pact.Types.Verifier
 
 import qualified Chainweb.BlockHeader.Genesis.Mainnet0Payload as MN0
 import qualified Chainweb.BlockHeader.Genesis.Mainnet1Payload as MN1
@@ -35,6 +38,7 @@ import qualified Chainweb.BlockHeader.Genesis.Mainnet10to19Payload as MNKAD
 import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
 import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
 import qualified Chainweb.Pact.Transactions.CoinV5Transactions as CoinV5
+import qualified Chainweb.Pact.Transactions.CoinV6Transactions as CoinV6
 import qualified Chainweb.Pact.Transactions.Mainnet0Transactions as MN0
 import qualified Chainweb.Pact.Transactions.Mainnet1Transactions as MN1
 import qualified Chainweb.Pact.Transactions.Mainnet2Transactions as MN2
@@ -142,7 +146,8 @@ mainnet = ChainwebVersion
         Chainweb220Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_056_499) -- 2023-09-08 00:00:00+00:00
         Chainweb221Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_177_889) -- 2023-10-20 00:00:00+00:00
         Chainweb222Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_335_753) -- 2023-12-14 00:00:00+00:00
-        Chainweb223Pact -> AllChains ForkNever
+        Chainweb223Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_577_530) -- 2024-03-07 00:00:00+00:00
+        Chainweb224Pact -> AllChains ForkNever
 
     , _versionGraphs =
         (to20ChainsMainnet, twentyChainGraph) `Above`
@@ -176,7 +181,7 @@ mainnet = ChainwebVersion
             ]
         }
     , _versionUpgrades = chainZip HM.union
-        (forkUpgrades mainnet
+        (indexByForkHeights mainnet
         [ (CoinV2, onChains
             [ (unsafeChainId 0, upgrade MN0.transactions)
             , (unsafeChainId 1, upgrade MN1.transactions)
@@ -192,6 +197,7 @@ mainnet = ChainwebVersion
         , (Pact4Coin3, AllChains $ Upgrade CoinV3.transactions True)
         , (Chainweb214Pact, AllChains $ Upgrade CoinV4.transactions True)
         , (Chainweb215Pact, AllChains $ Upgrade CoinV5.transactions True)
+        , (Chainweb223Pact, AllChains $ upgrade CoinV6.transactions)
         ])
         (onChains [(unsafeChainId 0, HM.singleton to20ChainsMainnet (upgrade MNKAD.transactions))])
     , _versionCheats = VersionCheats
@@ -203,4 +209,6 @@ mainnet = ChainwebVersion
         { _disablePeerValidation = False
         , _disableMempoolSync = False
         }
+    , _versionVerifierPluginNames = AllChains $ (4_577_530, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
+        End mempty
     }

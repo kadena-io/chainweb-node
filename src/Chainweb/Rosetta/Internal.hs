@@ -549,7 +549,7 @@ getBlockOutputs
     -> BlockHeader
     -> ExceptT RosettaFailure Handler (CoinbaseTx (CommandResult Hash), V.Vector (CommandResult Hash))
 getBlockOutputs payloadDb bh = do
-  someOut <- liftIO $ tableLookup payloadDb (_blockPayloadHash bh)
+  someOut <- liftIO $ lookupPayloadWithHeight payloadDb (Just $ _blockHeight bh) (_blockPayloadHash bh)
   outputs <- someOut ?? RosettaPayloadNotFound
   txsOut <- decodeTxsOut outputs ?? RosettaUnparsableTxOut
   coinbaseOut <- decodeCoinbaseOut outputs ?? RosettaUnparsableTxOut

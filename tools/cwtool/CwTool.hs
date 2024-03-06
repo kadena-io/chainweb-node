@@ -2,15 +2,17 @@
 module Main where
 
 import Chainweb.Version.Development
-import Chainweb.Version.FastDevelopment
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Registry
 
 import System.Environment
 import System.Exit
 import Text.Printf
 
-import qualified Chainweb.Pact.Backend.Compaction (main)
-import qualified Chainweb.Pact.Backend.PactState (pactDiffMain)
+import Chainweb.Pact.Backend.Compaction (main)
+import Chainweb.Pact.Backend.PactState.Diff (pactDiffMain)
+import Chainweb.Pact.Backend.PactState.GrandHash.Calc (pactCalcMain)
+import Chainweb.Pact.Backend.PactState.GrandHash.Import (pactImportMain)
 
 import qualified CheckpointerDBChecksum
 import qualified Ea
@@ -26,8 +28,8 @@ import qualified CalculateRelease
 
 main :: IO ()
 main = do
+    registerVersion RecapDevelopment
     registerVersion Development
-    registerVersion FastDevelopment
     args <- getArgs
     case args of
       [] -> printHelp topLevelCommands
@@ -109,7 +111,15 @@ topLevelCommands =
   , CommandSpec
       "pact-diff"
       "Diff the latest state of two pact databases"
-      Chainweb.Pact.Backend.PactState.pactDiffMain
+      Chainweb.Pact.Backend.PactState.Diff.pactDiffMain
+  , CommandSpec
+      "pact-calc"
+      "Calculate the GrandHashes for a pact database at a particular blockheight"
+      Chainweb.Pact.Backend.PactState.GrandHash.Calc.pactCalcMain
+  , CommandSpec
+      "pact-import"
+      "Cryptographically verify the pact database, and import it to be used in your node"
+      Chainweb.Pact.Backend.PactState.GrandHash.Import.pactImportMain
   , CommandSpec
       "calculate-release"
       "Calculate next service date and block heights for upgrades"

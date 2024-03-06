@@ -40,6 +40,7 @@ import qualified Chainweb.Test.Mining (tests)
 import qualified Chainweb.Test.Misc
 import qualified Chainweb.Test.Pact.DbCacheTest
 import qualified Chainweb.Test.Pact.Checkpointer
+import qualified Chainweb.Test.Pact.GrandHash
 import qualified Chainweb.Test.Pact.ModuleCacheOnRestart
 import qualified Chainweb.Test.Pact.NoCoinbase
 import qualified Chainweb.Test.Pact.PactExec
@@ -47,6 +48,7 @@ import qualified Chainweb.Test.Pact.PactMultiChainTest
 import qualified Chainweb.Test.Pact.PactSingleChainTest
 import qualified Chainweb.Test.Pact.PactReplay
 import qualified Chainweb.Test.Pact.RemotePactTest
+import qualified Chainweb.Test.Pact.VerifierPluginTest
 import qualified Chainweb.Test.Pact.RewardsTest
 import qualified Chainweb.Test.Pact.SQLite
 import qualified Chainweb.Test.Pact.SPV
@@ -66,7 +68,7 @@ import Chainweb.Test.Utils
 import qualified Chainweb.Test.Version (tests)
 import qualified Chainweb.Test.Chainweb.Utils.Paging (properties)
 import Chainweb.Version.Development
-import Chainweb.Version.FastDevelopment
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Registry
 
 import Chainweb.Storage.Table.RocksDB
@@ -79,8 +81,8 @@ import qualified P2P.Test.Node (properties)
 
 main :: IO ()
 main = do
+    registerVersion RecapDevelopment
     registerVersion Development
-    registerVersion FastDevelopment
     withTempRocksDb "chainweb-tests" $ \rdb ->
         runResourceT $ do
             (h0, db) <- withToyDB rdb toyChainId
@@ -105,6 +107,7 @@ pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
     , Chainweb.Test.Pact.DbCacheTest.tests
     , Chainweb.Test.Pact.Checkpointer.tests
     , Chainweb.Test.Pact.PactMultiChainTest.tests
+    , Chainweb.Test.Pact.VerifierPluginTest.tests
     , Chainweb.Test.Pact.PactSingleChainTest.tests rdb
     , Chainweb.Test.Pact.RemotePactTest.tests rdb
     , Chainweb.Test.Pact.PactReplay.tests rdb
@@ -112,6 +115,7 @@ pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
     , Chainweb.Test.Pact.TTL.tests rdb
     , Chainweb.Test.Pact.RewardsTest.tests
     , Chainweb.Test.Pact.NoCoinbase.tests
+    , Chainweb.Test.Pact.GrandHash.tests
     ]
 
 rosettaTestSuite :: RocksDb -> TestTree

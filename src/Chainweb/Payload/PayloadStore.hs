@@ -33,6 +33,8 @@ module Chainweb.Payload.PayloadStore
 , TransactionDb_(..)
 , transactionDbBlockTransactions
 , transactionDbBlockPayloads
+, transactionDbBlockPayloadHeights
+, oldTransactionDbBlockPayloads
 
 -- * Caches
 , OutputTreeStore
@@ -55,6 +57,10 @@ module Chainweb.Payload.PayloadStore
 , CanReadablePayloadCas
 , payloadCache
 , transactionDb
+, lookupPayloadWithHeight
+, lookupPayloadWithHeightBatch
+, lookupPayloadDataWithHeight
+, lookupPayloadDataWithHeightBatch
 
 -- ** Initialize Payload Database with Genesis Payloads
 , initializePayloadDb
@@ -62,11 +68,14 @@ module Chainweb.Payload.PayloadStore
 -- **  insert new payload
 , addPayload
 , addNewPayload
+-- ** delete old payload
+, deletePayload
 ) where
 
 import Control.DeepSeq
 import Control.Exception
 import Control.Lens
+import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
 
 import Data.Hashable
@@ -77,6 +86,7 @@ import GHC.Generics
 
 -- internal modules
 
+import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
@@ -84,6 +94,8 @@ import Chainweb.Payload
 import Chainweb.Version
 
 import Chainweb.Storage.Table
+import Chainweb.BlockHeight
+import Control.Applicative
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -108,40 +120,16 @@ data TransactionDb_ a tbl = TransactionDb
         -- ^ The block transactions of the block chain. This data is strictly
         -- needed to rebuild the payload data.
 
-    , _transactionDbBlockPayloads :: !(Casify tbl (BlockPayload_ a))
+    , _transactionDbBlockPayloads :: !(tbl (BlockHeight, BlockPayloadHash_ a) (BlockPayload_ a))
         -- ^ While the content of this store can be computed from the block
         -- transactions, it is needed as an index into the block transaction
         -- store. If it would be lost one would have to recompute all of it in
         -- order to look up the data for a single transation.
+    
+    , _transactionDbBlockPayloadHeights :: !(tbl (BlockPayloadHash_ a) BlockHeight)
+    
+    , _oldTransactionDbBlockPayloads :: !(Casify tbl (BlockPayload_ a))
     }
-
-makeLenses ''TransactionDb_
-
-type CanCas tbl a = Cas (tbl (CasKeyType a) a) a
-type CanReadableCas tbl a = ReadableCas (tbl (CasKeyType a) a) a
-
-type CanReadableTransactionDbCas_ a tbl =
-    ( CanReadableCas tbl (BlockTransactions_ a)
-    , CanReadableCas tbl (BlockPayload_ a)
-    )
-
-instance (pk ~ CasKeyType (PayloadData_ a), CanReadableTransactionDbCas_ a tbl) => ReadableTable (TransactionDb_ a tbl) pk (PayloadData_ a) where
-    tableLookup db k = runMaybeT $ do
-        pd <- MaybeT $ tableLookup (_transactionDbBlockPayloads db) k
-        let txsHash = _blockPayloadTransactionsHash pd
-        let outsHash = _blockPayloadOutputsHash pd
-        txs <- MaybeT $ tableLookup (_transactionDbBlockTransactions db) txsHash
-        return $ PayloadData
-            { _payloadDataTransactions = _blockTransactions txs
-            , _payloadDataMiner = _blockMinerData txs
-            , _payloadDataPayloadHash = k
-            , _payloadDataTransactionsHash = txsHash
-            , _payloadDataOutputsHash = outsHash
-            }
-    {-# INLINE tableLookup #-}
-
--- -------------------------------------------------------------------------- --
--- Caches
 
 -- | Store of the 'BlockOutputs' for all blocks.
 --
@@ -176,19 +164,12 @@ data PayloadCache_ a tbl = PayloadCache
         -- (tens of thousands blocks per second)
     }
 
-makeLenses ''PayloadCache_
-
--- -------------------------------------------------------------------------- --
--- Payload Database
-
 type PayloadDb tbl = PayloadDb_ ChainwebMerkleHashAlgorithm tbl
 
 data PayloadDb_ a tbl = PayloadDb
     { _transactionDb :: !(TransactionDb_ a tbl)
     , _payloadCache :: !(PayloadCache_ a tbl)
     }
-
-makeLenses ''PayloadDb_
 
 type CanReadablePayloadCas tbl = CanReadablePayloadCas_ ChainwebMerkleHashAlgorithm tbl
 type CanReadablePayloadCas_ a tbl =
@@ -197,6 +178,8 @@ type CanReadablePayloadCas_ a tbl =
     , CanReadableCas tbl (OutputTree_ a)
     , CanReadableCas tbl (BlockTransactions_ a)
     , CanReadableCas tbl (BlockPayload_ a)
+    , ReadableTable (tbl (BlockHeight, BlockPayloadHash_ a) (BlockPayload_ a)) (BlockHeight, BlockPayloadHash_ a) (BlockPayload_ a)
+    , ReadableTable (tbl (BlockPayloadHash_ a) BlockHeight) (BlockPayloadHash_ a) BlockHeight
     )
 
 type CanPayloadCas tbl = CanPayloadCas_ ChainwebMerkleHashAlgorithm tbl
@@ -206,7 +189,80 @@ type CanPayloadCas_ a tbl =
     , CanCas tbl (OutputTree_ a)
     , CanCas tbl (BlockTransactions_ a)
     , CanCas tbl (BlockPayload_ a)
+    , Table (tbl (BlockHeight, BlockPayloadHash_ a) (BlockPayload_ a)) (BlockHeight, BlockPayloadHash_ a) (BlockPayload_ a)
+    , Table (tbl (BlockPayloadHash_ a) BlockHeight) (BlockPayloadHash_ a) BlockHeight
     )
+
+-- -------------------------------------------------------------------------- --
+-- Caches
+
+type CanCas tbl a = Cas (tbl (CasKeyType a) a) a
+type CanReadableCas tbl a = ReadableCas (tbl (CasKeyType a) a) a
+
+type CanReadableTransactionDbCas_ a tbl =
+    ( CanReadableCas tbl (BlockTransactions_ a)
+    , CanReadableCas tbl (BlockPayload_ a)
+    , ReadableTable (tbl (BlockHeight, BlockPayloadHash_ a) (BlockPayload_ a)) (BlockHeight, BlockPayloadHash_ a) (BlockPayload_ a)
+    , ReadableTable (tbl (BlockPayloadHash_ a) BlockHeight) (BlockPayloadHash_ a) BlockHeight
+    )
+
+-- non-exported; only used with a weaker set of constraints in tableLookup below
+lookupPayloadDataWithHeight'
+  :: CanReadableTransactionDbCas_ a tbl
+  => TransactionDb_ a tbl
+  -> Maybe BlockHeight
+  -> BlockPayloadHash_ a
+  -> IO (Maybe (PayloadData_ a))
+lookupPayloadDataWithHeight' tdb mh k = runMaybeT $ do
+    let
+      lookupHeight = MaybeT (tableLookup (_transactionDbBlockPayloadHeights tdb) k)
+      lookupOld    = MaybeT (tableLookup (_oldTransactionDbBlockPayloads tdb) k)
+      lookupNew h  = MaybeT (tableLookup (_transactionDbBlockPayloads tdb) (h, k))
+      height       = MaybeT (pure mh) <|> lookupHeight 
+
+    pd <- (height >>= lookupNew) <|> lookupOld
+
+    let txsHash = _blockPayloadTransactionsHash pd
+    txs <- MaybeT $ tableLookup (_transactionDbBlockTransactions tdb) txsHash
+    return $ payloadData txs pd
+
+lookupPayloadDataWithHeight
+  :: CanReadablePayloadCas_ a tbl
+  => PayloadDb_ a tbl
+  -> Maybe BlockHeight
+  -> BlockPayloadHash_ a
+  -> IO (Maybe (PayloadData_ a))
+lookupPayloadDataWithHeight db = lookupPayloadDataWithHeight' (_transactionDb db)
+
+lookupPayloadDataWithHeightBatch
+  :: CanReadablePayloadCas_ a tbl
+  => PayloadDb_ a tbl
+  -> [(Maybe BlockHeight, BlockPayloadHash_ a)]
+  -> IO [Maybe (PayloadData_ a)]
+lookupPayloadDataWithHeightBatch db = traverse (uncurry $ lookupPayloadDataWithHeight db)
+
+lookupPayloadWithHeight
+  :: CanReadablePayloadCas_ a tbl
+  => PayloadDb_ a tbl
+  -> Maybe BlockHeight
+  -> BlockPayloadHash_ a
+  -> IO (Maybe (PayloadWithOutputs_ a))
+lookupPayloadWithHeight db h k = runMaybeT $ do
+    pd <- MaybeT (lookupPayloadDataWithHeight db h k)
+    let outsHash = _payloadDataOutputsHash pd
+    outs <- MaybeT $ tableLookup (_payloadCacheBlockOutputs $ _payloadCache db) outsHash
+    liftIO . evaluate $
+        payloadWithOutputs pd (_blockCoinbaseOutput outs) (_blockOutputs outs)
+
+lookupPayloadWithHeightBatch
+  :: CanReadablePayloadCas_ a tbl
+  => PayloadDb_ a tbl
+  -> [(Maybe BlockHeight, BlockPayloadHash_ a)]
+  -> IO [Maybe (PayloadWithOutputs_ a)]
+lookupPayloadWithHeightBatch db = traverse (uncurry $ lookupPayloadWithHeight db)
+
+instance (pk ~ CasKeyType (PayloadData_ a), CanReadableTransactionDbCas_ a tbl) => ReadableTable (TransactionDb_ a tbl) pk (PayloadData_ a) where
+    tableLookup db = lookupPayloadDataWithHeight' db Nothing
 
 -- -------------------------------------------------------------------------- --
 -- Initialize a PayloadDb with Genesis Payloads
@@ -222,7 +278,7 @@ initializePayloadDb
 initializePayloadDb v db = traverse_ initForChain $ chainIds v
   where
     initForChain cid =
-        addNewPayload db $ v ^?! versionGenesis . genesisBlockPayload . onChain cid
+        addNewPayload db (genesisHeight v cid) $ v ^?! versionGenesis . genesisBlockPayload . onChain cid
 
 -- -------------------------------------------------------------------------- --
 -- Insert new Payload
@@ -233,13 +289,18 @@ addPayload
     :: MerkleHashAlgorithm a
     => CanPayloadCas_ a tbl
     => PayloadDb_ a tbl
+    -> BlockHeight
     -> BlockTransactions_ a
     -> TransactionTree_ a
     -> BlockOutputs_ a
     -> OutputTree_ a
     -> IO ()
-addPayload db txs txTree outs outTree = do
-    casInsert (_transactionDbBlockPayloads $ _transactionDb db) payload
+addPayload db _ txs txTree outs outTree = do
+    -- TODO (aseipp): we ignore _height and still input the payload into the old
+    -- transaction database. we will fix this in a future change to the payload
+    -- storage format, using the new database
+    casInsert (_oldTransactionDbBlockPayloads $ _transactionDb db) payload
+
     casInsert (_transactionDbBlockTransactions $ _transactionDb db) txs
     casInsert (_payloadCacheBlockOutputs $ _payloadCache db) outs
     casInsert (_payloadCacheTransactionTrees $ _payloadCache db) txTree
@@ -254,67 +315,32 @@ addNewPayload
     :: MerkleHashAlgorithm a
     => CanPayloadCas_ a tbl
     => PayloadDb_ a tbl
+    -> BlockHeight
     -> PayloadWithOutputs_ a
     -> IO ()
-addNewPayload db s = addPayload db txs txTree outs outTree
+addNewPayload db height s = addPayload db height txs txTree outs outTree
   where
     (bts, bos) = payloadWithOutputsToBlockObjects s
     (txTree, txs) = newBlockTransactions (_blockMinerData bts) (_blockTransactions bts)
     (outTree, outs) = newBlockOutputs (_blockCoinbaseOutput bos) (_blockOutputs bos)
 
--- -------------------------------------------------------------------------- --
--- IsCas instance for PayloadDb
+deletePayload
+    :: CanPayloadCas_ a tbl
+    => PayloadDb_ a tbl
+    -> BlockPayload_ a
+    -> IO ()
+deletePayload db p = do
+    let
+      tdb = _transactionDb db
+      pdb = _transactionDbBlockPayloads $ _transactionDb db
+    height <- tableLookup (_transactionDbBlockPayloadHeights tdb) (casKey p)
+    case height of
+        Just h  -> tableDelete pdb (h, _blockPayloadPayloadHash p)
+        Nothing -> tableDelete (_oldTransactionDbBlockPayloads tdb) (_blockPayloadPayloadHash p)
 
--- | Combine all Payload related stores into a single content addressed
--- store. We want the invariant that if a key is present in the store also all
--- of its dependencies are present. For that we must be careful about the order
--- of insertion and deletions.
---
-instance (pk ~ CasKeyType (PayloadWithOutputs_ a), CanReadablePayloadCas_ a tbl, MerkleHashAlgorithm a) => ReadableTable (PayloadDb_ a tbl) pk (PayloadWithOutputs_ a) where
-    tableLookup db k = runMaybeT $ do
-        bpd <- MaybeT $ tableLookup
-            (_transactionDbBlockPayloads $ _transactionDb db)
-            k
-        let txsHash = _blockPayloadTransactionsHash bpd
-        let outsHash = _blockPayloadOutputsHash bpd
-        txs <- MaybeT $ tableLookup
-            (_transactionDbBlockTransactions $ _transactionDb db)
-            txsHash
-        outs <- MaybeT $ tableLookup
-            (_payloadCacheBlockOutputs $ _payloadCache db)
-            outsHash
-        let
-            pd = PayloadData
-                { _payloadDataTransactions = _blockTransactions txs
-                , _payloadDataMiner = _blockMinerData txs
-                , _payloadDataPayloadHash = _blockPayloadPayloadHash bpd
-                , _payloadDataTransactionsHash = txsHash
-                , _payloadDataOutputsHash = outsHash
-                }
-        return $ payloadWithOutputs pd (_blockCoinbaseOutput outs) (_blockOutputs outs)
-    {-# INLINE tableLookup #-}
+-- lens exports
 
-
--- | Combine all Payload related stores into a single content addressed
--- store. We want the invariant that if a key is present in the store also all
--- of its dependencies are present. For that we must be careful about the order
--- of insertion and deletions.
---
-instance (pk ~ CasKeyType (PayloadWithOutputs_ a), MerkleHashAlgorithm a, CanPayloadCas_ a tbl) => Table (PayloadDb_ a tbl) pk (PayloadWithOutputs_ a) where
-    tableInsert db _ v = addNewPayload db v
-    {-# INLINE tableInsert #-}
-
-    tableDelete db k =
-        tableLookup (_transactionDbBlockPayloads $ _transactionDb db) k >>= \case
-            Just pd -> do
-                tableDelete
-                    (_transactionDbBlockPayloads $ _transactionDb db)
-                    k
-                tableDelete
-                    (_transactionDbBlockTransactions $ _transactionDb db)
-                    (_blockPayloadTransactionsHash pd)
-                tableDelete
-                    (_payloadCacheBlockOutputs $ _payloadCache db)
-                    (_blockPayloadOutputsHash pd)
-            Nothing -> return ()
-    {-# INLINE tableDelete #-}
+-- XXX TODO (aseipp): delete these, since they're probably useless and have no callers
+makeLenses ''PayloadDb_
+makeLenses ''PayloadCache_
+makeLenses ''TransactionDb_

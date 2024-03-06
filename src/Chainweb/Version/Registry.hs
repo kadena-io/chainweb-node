@@ -40,7 +40,7 @@ import GHC.Stack
 
 import Chainweb.Version
 import Chainweb.Version.Development
-import Chainweb.Version.FastDevelopment
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet
 import Chainweb.Utils.Rule
@@ -85,9 +85,11 @@ validateVersion v = do
                     , hasAllChains (_genesisBlockTarget $ _versionGenesis v)
                     , hasAllChains (_genesisTime $ _versionGenesis v)
                     ])]
+            , [ "validateVersion: some upgrade has no transactions"
+              | any (any (\upg -> null (_upgradeTransactions upg))) (_versionUpgrades v) ]
             ]
     unless (null errors) $
-        error $ unlines $ ["errors encountered validating version " <> show v <> ":"] <> errors
+        error $ unlines $ ["errors encountered validating version", show v] <> errors
 
 -- | Look up a version in the registry by code.
 lookupVersionByCode :: HasCallStack => ChainwebVersionCode -> ChainwebVersion
@@ -107,8 +109,8 @@ lookupVersionByCode code
         return $ fromMaybe (error notRegistered) $
             HM.lookup code m
     notRegistered
+      | code == _versionCode recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured"
       | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured"
-      | code == _versionCode fastDevnet = "fastDevnet version used but not registered, remember to do so after it's configured"
       | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.legalizeTestVersion?"
 
 -- TODO: ideally all uses of this are deprecated. currently in use in
@@ -124,7 +126,7 @@ lookupVersionByName name
         return $ fromMaybe (error notRegistered) $
             listToMaybe [ v | v <- HM.elems m, _versionName v == name ]
     notRegistered
-      | name == _versionName devnet = "devnet version used but not registered, remember to do so after it's configured"
+      | name == _versionName recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured"
       | otherwise = "version not registered with name " <> show name <> ", have you seen Chainweb.Test.TestVersions.legalizeTestVersion?"
 
 fabricateVersionWithName :: HasCallStack => ChainwebVersionName -> ChainwebVersion
@@ -133,7 +135,7 @@ fabricateVersionWithName name =
 
 -- | Versions known to us by name.
 knownVersions :: [ChainwebVersion]
-knownVersions = [mainnet, testnet, devnet, fastDevnet]
+knownVersions = [mainnet, testnet, recapDevnet, devnet]
 
 -- | Look up a known version by name, usually with `m` instantiated to some
 -- configuration parser monad.

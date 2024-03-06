@@ -169,11 +169,10 @@ bench rdb = C.bgroup "PactService" $
     oneBlock :: BenchConfig -> Int -> C.Benchmark
     oneBlock cfg txCount = withResources rdb cfg.numPriorBlocks Error cfg.compact go
       where
-        go mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock = do
+        go _mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock = do
           C.bench name $ C.whnfIO $ do
             writeIORef txsPerBlock txCount
-            let (T3 _ join1 _) = last mainLineBlocks
-            createBlock cfg.validate (ParentHeader join1) (Nonce 1234) pactQueue
+            createBlock cfg.validate (Nonce 1234) pactQueue
         name = "block-new ["
           ++ List.intercalate ","
                [ "txCount=" ++ show txCount
@@ -193,51 +192,49 @@ playLine
     -> PactQueue
     -> IORef Word64
     -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
-playLine pdb bhdb trunkLength startingBlock pactQueue counter =
+playLine pdb bhdb trunkLength startingBlock pactQueue counter = do
+    assertNotLeft =<< takeMVar =<< pactSyncToBlock startingBlock pactQueue
     mineLine startingBlock trunkLength counter
   where
     mineLine :: BlockHeader -> Word64 -> IORef Word64 -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
     mineLine start l ncounter =
-        evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. startHeight + l - 1]) pactQueue) start
+        evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. pred (startHeight + l)]) pactQueue) start
       where
         startHeight :: Num a => a
         startHeight = fromIntegral $ _blockHeight start
         go = do
             r <- ask
-            pblock <- gets ParentHeader
             n <- liftIO $ Nonce <$> readIORef ncounter
-            ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n pdb bhdb r
+            ret@(T3 _ newblock _) <- liftIO $ mineBlock n pdb bhdb r
             liftIO $ modifyIORef' ncounter succ
             put newblock
             return ret
 
 mineBlock
-    :: ParentHeader
-    -> Nonce
+    :: Nonce
     -> PayloadDb HashMapTable
     -> BlockHeaderDb
     -> PactQueue
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-mineBlock parent nonce pdb bhdb pact = do
-    r@(T3 _ newHeader payload) <- createBlock DoValidate parent nonce pact
-    addNewPayload pdb payload
+mineBlock nonce pdb bhdb pact = do
+    r@(T3 parent newHeader payload) <- createBlock DoValidate nonce pact
+    addNewPayload pdb (succ (_blockHeight (_parentHeader parent))) payload
     -- NOTE: this doesn't validate the block header, which is fine in this test case
     unsafeInsertBlockHeaderDb bhdb newHeader
     return r
 
 createBlock
     :: Validate
-    -> ParentHeader
     -> Nonce
     -> PactQueue
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-createBlock validate parent nonce pact = do
+createBlock validate nonce pact = do
 
      -- assemble block without nonce and timestamp
 
-     mv <- newBlock noMiner parent pact
+     mv <- newBlock noMiner pact
 
-     payload <- assertNotLeft =<< takeMVar mv
+     T2 parent payload <- assertNotLeft =<< takeMVar mv
 
      let creationTime = add second $ _blockCreationTime $ _parentHeader parent
      let bh = newBlockHeader
@@ -321,7 +318,7 @@ withResources rdb trunkLength logLevel compact f = C.envWithCleanup create destr
     startPact version l bhdb pdb mempool sqlEnv = do
         reqQ <- newPactQueue pactQueueSize
         a <- async $ runPactService version cid l reqQ mempool bhdb pdb sqlEnv testPactServiceConfig
-            { _pactBlockGasLimit = 150000
+            { _pactBlockGasLimit = 180000
             }
 
         return (a, reqQ)
@@ -435,7 +432,7 @@ createCoinAccount v meta name = do
     nameKeyset <- NEL.fromList <$> getKeyset name
     let attach = attachCaps "sender00" name 1000.0
     let theData = object [fromString name .= fmap (formatB16PubKey . fst) (attach nameKeyset)]
-    res <- mkExec (T.pack theCode) theData meta (NEL.toList $ attach sender00Keyset) (Just $ Pact.NetworkId $ toText (_versionName v)) Nothing
+    res <- mkExec (T.pack theCode) theData meta (NEL.toList $ attach sender00Keyset) [] (Just $ Pact.NetworkId $ toText (_versionName v)) Nothing
     pure (nameKeyset, res)
   where
     theCode = printf "(coin.transfer-create \"sender00\" \"%s\" (read-keyset \"%s\") 1000.0)" name name
@@ -575,6 +572,7 @@ createTransfer v meta ks request =
       let theData = object []
       mkExec (T.pack theCode) theData meta
         (NEL.toList ks)
+        []
         (Just $ Pact.NetworkId $ toText $ _versionName v)
         Nothing
 

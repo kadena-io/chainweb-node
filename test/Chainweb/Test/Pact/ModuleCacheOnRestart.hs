@@ -49,6 +49,7 @@ import Chainweb.Time
 import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
+import Chainweb.Test.Pact.Utils(getPWOByHeader)
 import Chainweb.Test.TestVersions(fastForkingCpmTestVersion)
 import Chainweb.Utils (T2(..))
 import Chainweb.Version
@@ -123,10 +124,11 @@ testCoinbase
   -> CacheTest logger tbl
 testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
   where
+    genHeight = genesisHeight testVer testChainId
     doCoinbase = do
       bdb <- liftIO iobdb
-      pwo <- execNewBlock mempty (ParentHeader genblock) noMiner
-      void $ liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
+      T2 _ pwo <- execNewBlock mempty noMiner
+      void $ liftIO $ addTestBlockDb bdb (succ genHeight) (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
       void $ execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
 
@@ -243,8 +245,13 @@ doNextCoinbase :: (Logger logger, CanReadablePayloadCas tbl) => IO TestBlockDb -
 doNextCoinbase iobdb = do
       bdb <- liftIO iobdb
       prevH <- liftIO $ getParentTestBlockDb bdb testChainId
-      pwo <- execNewBlock mempty (ParentHeader prevH) noMiner
-      void $ liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
+      -- we have to execValidateBlock on `prevH` block height to update the parent header
+      pwo' <- liftIO $ getPWOByHeader prevH bdb
+      _ <- execValidateBlock mempty prevH (payloadWithOutputsToPayloadData pwo')
+
+      T2 prevH' pwo <- execNewBlock mempty noMiner
+      liftIO $ ParentHeader prevH @?= prevH'
+      void $ liftIO $ addTestBlockDb bdb (succ $ _blockHeight prevH) (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
       (valPWO, _g) <- execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
       return (nextH, valPWO)
@@ -264,9 +271,6 @@ justModuleHashes = justModuleHashes' . snd . last . M.toList
 justModuleHashes' :: ModuleCache -> HM.HashMap ModuleName (Maybe ModuleHash)
 justModuleHashes' =
     fmap (preview (_1 . mdModule . _MDModule . mHash)) . moduleCacheToHashMap
-
-genblock :: BlockHeader
-genblock = genesisBlockHeader testVer testChainId
 
 initPayloadState
   :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)

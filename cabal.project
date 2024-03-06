@@ -71,8 +71,8 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 495c8738acaa0157958ab23a06cd94abbc99d2d5
-    --sha256: 1dn322m5mx43bn3ki37zdk9daknnr6sz8y7d89si75m84rl0w27k
+    tag: a1c7906efbf32095883e71594a53a21162fbe5a7
+    --sha256: sha256-Mtgz/ilxa81TDUoBKQv5x3BlOftFjNV1Ak0uYzSguNQ=
 
 source-repository-package
     type: git
@@ -89,8 +89,8 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/rocksdb-haskell.git
-    tag: b35d82bad2194a916c821457069388410662b58c
-    --sha256: 0p60xjqv7ayy6vh263id6l2fpa4rr95vnhisa691ix9h8rnwc7hk
+    tag: 1a82da5660a4cc2681eb90da6505b6897d1b12e9
+    --sha256: 020n6knl8psh5y9766amrsh706ka83fz3vfm77lrzngg5mcz45qs
 
 source-repository-package
     type: git
@@ -101,8 +101,8 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
-    tag: 7119860463f05e452288eac651c38313a04d6b6b
-    --sha256: 191iy36rpb3rk15kk48n8vqiawaablcms9imgld5sg15gb7859vf
+    tag: a32d901e4a79be62af9c27c01152c9a4c3912a62
+    --sha256: sha256-xdawv/tdjh61MbJKcBqm9Fje36+gVljuZsAxOTX1gP0=
 
 source-repository-package
     type: git

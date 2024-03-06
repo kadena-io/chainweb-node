@@ -32,7 +32,7 @@ module Chainweb.Pact.RestAPI.Server
 ) where
 
 import Control.Applicative
-import Control.Concurrent.STM (atomically, retry)
+import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
 import Control.Lens (set, view, preview)
@@ -40,8 +40,7 @@ import Control.Monad
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-import Control.Monad.Trans.Except (ExceptT)
-import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Except (ExceptT, runExceptT, except)
 
 import Data.Aeson as Aeson
 import Data.Bifunctor (second)
@@ -120,8 +119,6 @@ import Chainweb.Pact.Validations (assertCommand)
 import Chainweb.Version.Guards (isWebAuthnPrefixLegal, pactParserVersion, validPPKSchemes)
 import Chainweb.WebPactExecutionService
 
-import Chainweb.Storage.Table
-
 import qualified Pact.JSON.Encode as J
 import qualified Pact.Parse as Pact
 import Pact.Types.API
@@ -131,6 +128,7 @@ import Pact.Types.Hash (Hash(..))
 import qualified Pact.Types.Hash as Pact
 import Pact.Types.PactError (PactError(..), PactErrorType(..))
 import Pact.Types.Pretty (pretty)
+import Control.Error (note, rights)
 
 -- -------------------------------------------------------------------------- --
 
@@ -300,9 +298,7 @@ pollHandler logger cdb cid pact mem confDepth (Poll request) = do
     traverse_ validateRequestKey request
 
     liftIO $! logg Info $ PactCmdLogPoll $ fmap requestKeyToB16Text request
-    -- get current best cut
-    cut <- liftIO $! CutDB._cut cdb
-    PollResponses <$!> liftIO (internalPoll pdb bdb mem pact cut confDepth request)
+    PollResponses <$!> liftIO (internalPoll pdb bdb mem pact confDepth request)
   where
     pdb = view CutDB.cutDbPayloadDb cdb
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
@@ -331,33 +327,34 @@ listenHandler logger cdb cid pact mem (ListenerRequest key) = do
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
     logg = logFunctionJson (setComponent "listen-handler" logger)
     runListen :: TVar Bool -> IO ListenResponse
-    runListen timedOut = go Nothing
+    runListen timedOut = do
+      startCut <- CutDB._cut cdb
+      case HM.lookup cid (_cutMap startCut) of
+        Nothing -> pure $! ListenTimeout defaultTimeout
+        Just bh -> poll bh
       where
-        go :: Maybe Cut -> IO ListenResponse
-        go !prevCut = do
-            m <- waitForNewCut prevCut
-            case m of
-                Nothing -> return $! ListenTimeout defaultTimeout
-                (Just cut) -> poll cut
+        go :: BlockHeader -> IO ListenResponse
+        go !prevBlock = do
+          m <- waitForNewBlock prevBlock
+          case m of
+            Nothing -> pure $! ListenTimeout defaultTimeout
+            Just block -> poll block
 
-        poll :: Cut -> IO ListenResponse
-        poll cut = do
-            hm <- internalPoll pdb bdb mem pact cut Nothing (pure key)
-            if HM.null hm
-              then go (Just cut)
-              else return $! ListenResponse $ snd $ head $ HM.toList hm
+        poll :: BlockHeader -> IO ListenResponse
+        poll bh = do
+          hm <- internalPoll pdb bdb mem pact Nothing (pure key)
+          if HM.null hm
+          then go bh
+          else pure $! ListenResponse $ snd $ head $ HM.toList hm
 
-        waitForNewCut :: Maybe Cut -> IO (Maybe Cut)
-        waitForNewCut lastCut = atomically $ do
-             -- TODO: we should compute greatest common ancestor here to bound the
-             -- search
-             t <- readTVar timedOut
-             if t
-                 then return Nothing
-                 else Just <$> do
-                     !cut <- CutDB._cutStm cdb
-                     when (lastCut == Just cut) retry
-                     return cut
+        waitForNewBlock :: BlockHeader -> IO (Maybe BlockHeader)
+        waitForNewBlock lastBlockHeader = atomically $ do
+          isTimedOut <- readTVar timedOut
+          if isTimedOut
+          then do
+            pure Nothing
+          else do
+            Just <$!> CutDB.awaitNewBlockStm cdb cid lastBlockHeader
 
     -- TODO: make configurable
     defaultTimeout = 180 * 1000000 -- two minutes
@@ -441,7 +438,7 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
 
     liftIO $! logg (sshow ph)
 
-    T2 bhe _bha <- liftIO (_pactLookup pe (NoRewind cid) Nothing (pure ph)) >>= \case
+    T2 bhe _bha <- liftIO (_pactLookup pe cid Nothing (pure ph)) >>= \case
       Left e ->
         toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
       Right v -> case HM.lookup ph v of
@@ -520,7 +517,7 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
     proof f = SomePayloadProof <$> do
         validateRequestKey rk
         liftIO $! logg (sshow ph)
-        T2 bhe bha <- liftIO (_pactLookup pe (NoRewind cid) Nothing (pure ph)) >>= \case
+        T2 bhe bha <- liftIO (_pactLookup pe cid Nothing (pure ph)) >>= \case
             Left e ->
                 toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
             Right v -> case HM.lookup ph v of
@@ -606,23 +603,21 @@ internalPoll
     -> BlockHeaderDb
     -> MempoolBackend ChainwebTransaction
     -> PactExecutionService
-    -> Cut
     -> Maybe ConfirmationDepth
     -> NonEmpty RequestKey
     -> IO (HashMap RequestKey (CommandResult Hash))
-internalPoll pdb bhdb mempool pactEx cut confDepth requestKeys0 = do
+internalPoll pdb bhdb mempool pactEx confDepth requestKeys0 = do
     -- get leaf block header for our chain from current best cut
-    chainLeaf <- lookupCutM cid cut
-    results0 <- _pactLookup pactEx (DoRewind chainLeaf) confDepth requestKeys >>= either throwM return
+    results0 <- _pactLookup pactEx cid confDepth requestKeys >>= either throwM return
         -- TODO: are we sure that all of these are raised locally. This will cause the
         -- server to shut down the connection without returning a result to the user.
     let results1 = V.map (\rk -> (rk, HM.lookup (Pact.fromUntypedHash $ unRequestKey rk) results0)) requestKeysV
     let (present0, missing) = V.unstablePartition (isJust . snd) results1
     let present = V.map (second fromJuste) present0
-    lookedUp <- catMaybes . V.toList <$> mapM lookup present
     badlisted <- V.toList <$> checkBadList (V.map fst missing)
-    let outputs = lookedUp ++ badlisted
-    return $! HM.fromList outputs
+    vs <- mapM lookup present
+    let good = rights $ V.toList vs
+    return $! HM.fromList (good ++ badlisted)
   where
     cid = _chainId bhdb
     !requestKeysV = V.fromList $ NEL.toList requestKeys0
@@ -630,28 +625,29 @@ internalPoll pdb bhdb mempool pactEx cut confDepth requestKeys0 = do
 
     lookup
         :: (RequestKey, T2 BlockHeight BlockHash)
-        -> IO (Maybe (RequestKey, CommandResult Hash))
+        -> IO (Either String (RequestKey, CommandResult Hash))
     lookup (key, T2 _ ha) = fmap (key,) <$> lookupRequestKey key ha
 
     -- TODO: group by block for performance (not very important right now)
-    lookupRequestKey key bHash = runMaybeT $ do
+    lookupRequestKey key bHash = runExceptT $ do
         let keyHash = unRequestKey key
         let pactHash = Pact.fromUntypedHash keyHash
         let matchingHash = (== pactHash) . _cmdHash . fst
         blockHeader <- liftIO $ TreeDB.lookupM bhdb bHash
         let payloadHash = _blockPayloadHash blockHeader
-        (_payloadWithOutputsTransactions -> txsBs) <- MaybeT $ tableLookup pdb payloadHash
+        (_payloadWithOutputsTransactions -> txsBs) <- barf "tablelookupFailed" =<< liftIO (lookupPayloadWithHeight pdb (Just $ _blockHeight blockHeader) payloadHash)
         !txs <- mapM fromTx txsBs
         case find matchingHash txs of
             Just (_cmd, TransactionOutput output) -> do
-                out <- MaybeT $ return $! decodeStrict' output
+                out <- barf "decodeStrict' output" $! decodeStrict' output
                 when (_crReqKey out /= key) $
                     fail "internal error: Transaction output doesn't match its hash!"
                 enrichCR blockHeader out
-            Nothing -> mzero
+            Nothing -> throwError $ "Request key not found: " <> sshow keyHash
 
+    fromTx :: (Transaction, TransactionOutput) -> ExceptT String IO (Command Text, TransactionOutput)
     fromTx (!tx, !out) = do
-        !tx' <- MaybeT (return (toPactTx tx))
+        !tx' <- except $ toPactTx tx
         return (tx', out)
 
     checkBadList :: Vector RequestKey -> IO (Vector (RequestKey, CommandResult Hash))
@@ -670,7 +666,7 @@ internalPoll pdb bhdb mempool pactEx cut confDepth requestKeys0 = do
             !cr = CommandResult rk Nothing res 0 Nothing Nothing Nothing []
         in (rk, cr)
 
-    enrichCR :: BlockHeader -> CommandResult Hash -> MaybeT IO (CommandResult Hash)
+    enrichCR :: BlockHeader -> CommandResult Hash -> ExceptT String IO (CommandResult Hash)
     enrichCR bh = return . set crMetaData
       (Just $ object
        [ "blockHeight" .= _blockHeight bh
@@ -682,9 +678,11 @@ internalPoll pdb bhdb mempool pactEx cut confDepth requestKeys0 = do
 -- -------------------------------------------------------------------------- --
 -- Misc Utils
 
-toPactTx :: Transaction -> Maybe (Command Text)
-toPactTx (Transaction b) = decodeStrict' b
+barf :: Monad m => e -> Maybe a -> ExceptT e m a
+barf e = maybe (throwError e) return
 
+toPactTx :: Transaction -> Either String (Command Text)
+toPactTx (Transaction b) = note "toPactTx failure" (decodeStrict' b)
 
 -- TODO: all of the functions in this module can instead grab the current block height from consensus
 -- and pass it here to get a better estimate of what behavior is correct.

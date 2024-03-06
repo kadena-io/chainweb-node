@@ -13,6 +13,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -27,6 +28,7 @@
 
 module Chainweb.Pact.Backend.Compaction
   ( CompactFlag(..)
+  , CompactException(..)
   , TargetBlockHeight(..)
   , compact
   , main
@@ -46,12 +48,15 @@ import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, local)
 import Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
+import Data.Coerce (coerce)
 import Data.Foldable qualified as F
 import Data.Function (fix)
 import Data.IORef (IORef, readIORef, newIORef, atomicModifyIORef')
+import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map.Strict qualified as M
+import Data.Maybe (fromMaybe)
 import Data.Ord (Down(..))
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -61,6 +66,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Vector (Vector)
 import Data.Vector qualified as V
+import Data.Word (Word64)
 import Database.SQLite3.Direct (Utf8(..), Database)
 import GHC.Stack (HasCallStack)
 import Options.Applicative
@@ -73,11 +79,12 @@ import UnliftIO.Async (pooledMapConcurrentlyN_)
 
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Logger (l2l, setComponent)
-import Chainweb.Utils (sshow, HasTextRepresentation, fromText, toText, int)
-import Chainweb.Version (ChainId, ChainwebVersion(..), ChainwebVersionName, unsafeChainId, chainIdToText)
+import Chainweb.Utils (sshow, fromText, toText, int)
+import Chainweb.Version (ChainId, ChainwebVersion(..), unsafeChainId, chainIdToText)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
+import Chainweb.Pact.Backend.PactState (getLatestBlockHeight, ensureBlockHeightExists, getEndingTxId)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
 
@@ -121,8 +128,12 @@ data CompactEnv = CompactEnv
 makeLenses ''CompactEnv
 
 withDefaultLogger :: LL.LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
-withDefaultLogger ll f = withHandleBackend_ logText defaultHandleBackendConfig $ \b ->
-    withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel (l2l ll) l)
+withDefaultLogger ll f = withHandleBackend_ logText handleCfg $ \b ->
+  withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel (l2l ll) l)
+  where
+    handleCfg = defaultHandleBackendConfig
+      { _handleBackendConfigHandle = StdErr
+      }
 
 withPerChainFileLogger :: FilePath -> ChainId -> LL.LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
 withPerChainFileLogger logDir chainId ll f = do
@@ -257,6 +268,14 @@ qryNoTemplateM msg q ins outs = do
   db <- view ceDb
   queryDebug msg Nothing $ Pact.qry db q ins outs
 
+ioQuery :: ()
+  => Text -- ^ query name (for logging purposes)
+  -> (Database -> IO a) -- ^ query function to run
+  -> CompactM a
+ioQuery msg f = do
+  db <- view ceDb
+  queryDebug msg Nothing $ f db
+
 queryDebug :: Text -> Maybe TableName -> IO x -> CompactM x
 queryDebug qryName mTblName performQuery = do
   logg Info $ "Starting query " <> qryName
@@ -319,80 +338,44 @@ withTables ts a = do
 -- | Takes a bunch of singleton tablename rows, sorts them, returns them as
 --   @TableName@
 sortedTableNames :: [[SType]] -> [TableName]
-sortedTableNames rows = M.elems $ M.fromListWith const $ flip List.map rows $ \case
-  [SText n@(Utf8 s)] -> (Text.toLower (Text.decodeUtf8 s), TableName n)
-  _ -> error "sortedTableNames: expected text"
+sortedTableNames rows = coerce
+  $ List.sortOn (Text.toLower . Text.decodeUtf8)
+  $ flip List.map rows $ \case
+      [SText (Utf8 s)] -> s
+      _ -> error "sortedTableNames: expected text"
 
 -- | CompactActiveRow collects all active rows from all tables.
 createCompactActiveRow :: CompactM ()
 createCompactActiveRow = do
   execNoTemplateM_ "createTable: CompactActiveRow"
-      " CREATE TABLE IF NOT EXISTS CompactActiveRow \
-      \ ( tablename TEXT NOT NULL \
-      \ , rowkey TEXT NOT NULL \
-      \ , vrowid INTEGER NOT NULL \
-      \ , UNIQUE (tablename,rowkey) ); "
+    " CREATE TABLE IF NOT EXISTS CompactActiveRow \
+    \ ( tablename TEXT NOT NULL \
+    \ , rowkey TEXT NOT NULL \
+    \ , vrowid INTEGER NOT NULL \
+    \ , UNIQUE (tablename,rowkey) ); "
 
   execNoTemplateM_ "deleteFrom: CompactActiveRow"
-      "DELETE FROM CompactActiveRow"
+    "DELETE FROM CompactActiveRow"
 
 locateTarget :: TargetBlockHeight -> CompactM BlockHeight
 locateTarget = \case
   Target bh -> do
-    ensureBlockHeightExists bh
+    ioQuery "locateTarget.0" $ \db -> do
+      catch (ensureBlockHeightExists db bh) $ \(_ :: SomeException) -> do
+        throwM $ CompactExceptionInvalidBlockHeight bh
     pure bh
   Latest -> do
-    getLatestBlockHeight
-
-ensureBlockHeightExists :: BlockHeight -> CompactM ()
-ensureBlockHeightExists bh = do
-  r <- qryNoTemplateM
-    "ensureBlockHeightExists.0"
-    "SELECT blockheight FROM BlockHistory WHERE blockheight = ?1"
-    [bhToSType bh]
-    [RInt]
-  case r of
-    [[SInt rBH]] -> do
-      when (fromIntegral bh /= rBH) $ do
-        throwM $ CompactExceptionInvalidBlockHeight bh
-    _ -> do
-      error "ensureBlockHeightExists.0: impossible"
-
-getLatestBlockHeight :: CompactM BlockHeight
-getLatestBlockHeight = do
-  r <- qryNoTemplateM
-    "getLatestBlockHeight.0"
-    "SELECT blockheight FROM BlockHistory ORDER BY blockheight DESC LIMIT 1"
-    []
-    [RInt]
-  case r of
-    [[SInt bh]] -> do
-      pure (fromIntegral bh)
-    _ -> do
-      throwM CompactExceptionNoLatestBlockHeight
-
-getEndingTxId :: BlockHeight -> CompactM TxId
-getEndingTxId bh = do
-  r <- qryNoTemplateM
-       "getTxId.0"
-       "SELECT endingtxid FROM BlockHistory WHERE blockheight=?"
-       [bhToSType bh]
-       [RInt]
-  case r of
-    [] -> do
-      throwM (CompactExceptionInvalidBlockHeight bh)
-    [[SInt t]] -> do
-      pure (TxId (fromIntegral t))
-    _ -> do
-      internalError "initialize: expected single-row int"
+    ioQuery "locateTarget.1" $ \db -> do
+      catch (getLatestBlockHeight db) $ \(_ :: SomeException) -> do
+        throwM CompactExceptionNoLatestBlockHeight
 
 getVersionedTables :: BlockHeight -> CompactM (Vector TableName)
 getVersionedTables bh = do
   logg Info "getVersionedTables"
   rs <- qryNoTemplateM
         "getVersionedTables.0"
-        " SELECT DISTINCT tablename FROM VersionedTableMutation \
-        \ WHERE blockheight <= ? ORDER BY blockheight; "
+        " SELECT tablename FROM VersionedTableCreation \
+        \ WHERE createBlockheight <= ? ORDER BY createBlockheight; "
         [bhToSType bh]
         [RText]
   pure (V.fromList (sortedTableNames rs))
@@ -452,23 +435,32 @@ dropNewTables bh = do
 
 -- | Delete all rows from Checkpointer system tables that are not for the target blockheight.
 --
---   We currently do not compact TransactionIndex. This will change once we are
---   properly pruning RocksDB.
 compactSystemTables :: BlockHeight -> CompactM ()
 compactSystemTables bh = do
-  let systemTables = ["BlockHistory", "VersionedTableMutation", "VersionedTableCreation"]
+  let systemTables = ["BlockHistory", "VersionedTableMutation"]
   forM_ systemTables $ \tbl -> do
     let tblText = fromUtf8 (getTableName tbl)
     logg Info $ "Compacting system table " <> tblText
-    let column =
-          if tbl == "VersionedTableCreation"
-          then "createBlockheight"
-          else "blockheight"
     execM'
       ("compactSystemTables: " <> tblText)
       tbl
-      ("DELETE FROM $VTABLE$ WHERE " <> column <> " != ?1;")
+      "DELETE FROM $VTABLE$ WHERE blockheight != ?1;"
       [bhToSType bh]
+  -- we must treat VersionedTableCreation specially; read-only rewind
+  -- needs to know if tables have been created yet via this table, so
+  -- we don't delete from its past.
+  execM'
+      "compactSystemTables: VersionedTableCreation"
+      "VersionedTableCreation"
+      "DELETE FROM VersionedTableCreation WHERE createBlockheight > ?1;"
+      [bhToSType bh]
+  -- We currently do not compact TransactionIndex. This will change once we are
+  -- properly pruning RocksDB.
+  execM'
+    "compactSystemTables: TransactionIndex"
+    "TransactionIndex"
+    "DELETE FROM TransactionIndex WHERE blockheight > ?1;"
+    [bhToSType bh]
 
 dropCompactTables :: CompactM ()
 dropCompactTables = do
@@ -487,7 +479,9 @@ compact tbh logger db flags = runCompactM (CompactEnv logger db flags) $ do
   withTx createCompactActiveRow
 
   blockHeight <- locateTarget tbh
-  txId <- getEndingTxId blockHeight
+  txId <- fmap (TxId . fromIntegral @Int64 @Word64) $ ioQuery "getEndingTxId" $ \_ -> do
+    catch (getEndingTxId db blockHeight) $ \(_ :: SomeException) -> do
+      throwM $ CompactExceptionInvalidBlockHeight blockHeight
 
   logg Info $ "Target blockheight: " <> sshow blockHeight
   logg Info $ "Ending TxId: " <> sshow txId
@@ -555,7 +549,7 @@ compactAll CompactConfig{..} = do
     withDefaultLogger LL.Error $ \logger -> do
       let resetDb = False
       withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) -> do
-        runCompactM (CompactEnv logger db []) getLatestBlockHeight
+        getLatestBlockHeight db
 
   let allCids = Set.fromList $ F.toList $ chainIdsAt ccVersion latestBlockHeightChain0
   let targetCids = Set.toList $ maybe allCids (Set.intersection allCids) ccChains
@@ -595,7 +589,7 @@ main = do
               <> long "pact-database-dir"
               <> metavar "DBDIR"
               <> help "Pact database directory")
-        <*> (lookupVersionByName . fromTextSilly @ChainwebVersionName <$> strOption
+        <*> (parseChainwebVersion <$> strOption
               (short 'v'
                <> long "graph-version"
                <> metavar "VERSION"
@@ -627,10 +621,8 @@ main = do
               <> value 4
               <> help "Number of threads for compaction processing")
 
-fromTextSilly :: HasTextRepresentation a => Text -> a
-fromTextSilly t = case fromText t of
-  Just a -> a
-  Nothing -> error "fromText failed"
+    parseChainwebVersion :: Text -> ChainwebVersion
+    parseChainwebVersion = lookupVersionByName . fromMaybe (error "ChainwebVersion parse failed") . fromText
 
 bhToSType :: BlockHeight -> SType
 bhToSType bh = SInt (int bh)

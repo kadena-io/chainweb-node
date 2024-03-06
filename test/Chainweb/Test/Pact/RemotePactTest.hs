@@ -56,6 +56,7 @@ import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import GHC.Exts(the)
 import System.LogLevel (LogLevel(..))
 
 import Servant.Client
@@ -155,55 +156,41 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
                   -- to run these two operations on is fine.
                   pure (fst (head m))
 
-            in testGroup "remote pact tests"
+            in sequentialTestGroup "remote pact tests" AllFinish
                 [ withResourceT (liftIO $ join $ withRequestKeys <$> iot <*> cenv) $ \reqkeys -> golden "remote-golden" $
                     join $ responseGolden <$> cenv <*> reqkeys
-                , after AllSucceed "remote-golden" $
-                    testCaseSteps "remote spv" $ \step ->
-                        join $ spvTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "remote-golden" $
-                    testCaseSteps "remote eth spv" $ \step ->
-                        join $ ethSpvTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "remote spv" $
-                    testCaseSteps "/send reports validation failure" $ \step ->
-                        join $ sendValidationTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "remote spv" $
-                    testCase "/poll reports badlisted txs" $
-                        join $ pollingBadlistTest <$> cenv
-                , after AllSucceed "remote spv" $
-                    testCase "trivialLocalCheck" $
-                        join $ localTest <$> iot <*> cenv
-                , after AllSucceed "remote spv" $
-                    testCase "txlogsCompactionTest" $
-                        join $ txlogsCompactionTest <$> iot <*> cenv <*> pactDir
-                , after AllSucceed "remote spv" $
-                    testCase "localChainData" $
-                        join $ localChainDataTest <$> iot <*> cenv
-                , after AllSucceed "remote spv" $
-                    testCaseSteps "transaction size gas tests" $ \step ->
-                        join $ txTooBigGasTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "remote spv" $
-                    testCaseSteps "genesisAllocations" $ \step ->
-                        join $ allocationTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "genesisAllocations" $
-                    testCaseSteps "caplist TRANSFER and FUND_TX test" $ \step ->
-                        join $ caplistTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "caplist TRANSFER and FUND_TX test" $
-                    testCaseSteps "local continuation test" $ \step ->
-                        join $ localContTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "caplist TRANSFER and FUND_TX test" $
-                    testCaseSteps "poll confirmation depth test" $ \step ->
-                        join $ pollingConfirmDepth <$> iot <*> cenv <*> pure step
-                , after AllSucceed "local continuation test" $
-                    testCaseSteps "/poll rejects keys of incorrect length" $ \step ->
-                        join $ pollBadKeyTest <$> cenv <*> pure step
-                , after AllSucceed "poll bad key test" $
-                    testCaseSteps "local preflight sim test" $ \step ->
-                        join $ localPreflightSimTest <$> iot <*> cenv <*> pure step
-                , after AllSucceed "poll returns correct results" $
-                    testCaseSteps "poll correct results test" $ \step ->
-                        join $ pollingCorrectResults <$> iot <*> cenv <*> pure step
-                , after AllSucceed "webauthn signatures" $ testCase "webauthn sig" $ join $ webAuthnSignatureTest <$> iot <*> cenv
+                , testCaseSteps "remote spv" $ \step ->
+                    join $ spvTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "remote eth spv" $ \step ->
+                    join $ ethSpvTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "/send reports validation failure" $ \step ->
+                    join $ sendValidationTest <$> iot <*> cenv <*> pure step
+                , testCase "/poll reports badlisted txs" $
+                    join $ pollingBadlistTest <$> cenv
+                , testCase "trivialLocalCheck" $
+                    join $ localTest <$> iot <*> cenv
+                , testCase "txlogsCompactionTest" $
+                    join $ txlogsCompactionTest <$> iot <*> cenv <*> pactDir
+                , testCase "localChainData" $
+                    join $ localChainDataTest <$> iot <*> cenv
+                , testCaseSteps "transaction size gas tests" $ \step ->
+                    join $ txTooBigGasTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "genesisAllocations" $ \step ->
+                    join $ allocationTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "caplist TRANSFER and FUND_TX test" $ \step ->
+                    join $ caplistTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "local continuation test" $ \step ->
+                    join $ localContTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "poll confirmation depth test" $ \step ->
+                    join $ pollingConfirmDepth <$> iot <*> cenv <*> pure step
+                , testCaseSteps "/poll rejects keys of incorrect length" $ \step ->
+                    join $ pollBadKeyTest <$> cenv <*> pure step
+                , testCaseSteps "local preflight sim test" $ \step ->
+                    join $ localPreflightSimTest <$> iot <*> cenv <*> pure step
+                , testCaseSteps "poll correct results test" $ \step ->
+                    join $ pollingCorrectResults <$> iot <*> cenv <*> pure step
+                , testCase "webauthn sig" $
+                    join $ webAuthnSignatureTest <$> iot <*> cenv
                 ]
     ]
 
@@ -381,8 +368,8 @@ txlogsCompactionTest t cenv pactDbDir = do
       let flags = [C.NoVacuum]
       let resetDb = False
 
-      Backend.withSqliteDb cid logger pactDbDir resetDb $ \(SQLiteEnv db _) -> do
-        void $ C.compact C.Latest logger db flags
+      Backend.withSqliteDb cid logger pactDbDir resetDb $ \dbEnv ->
+        compactUntilAvailable C.Latest logger dbEnv flags
 
     txLogs <- crGetTxLogs =<< local cid cenv =<< createTxLogsTx =<< nextNonce
 
@@ -391,6 +378,10 @@ txlogsCompactionTest t cenv pactDbDir = do
       "txlogs match latest state"
       txLogs
       (map (\(rk, rd) -> (rk, J.toJsonViaEncode (_rdData rd))) (M.toList latestState))
+    -- FLAKE:
+    -- test/Chainweb/Test/Pact/RemotePactTest.hs:377:
+    -- expected: [("A",Object (fromList [("age",Object (fromList [("int",Number 42.0)])),("name",String "Lindsey Lohan")])),("B",Object (fromList [("age",Object (fromList [("int",Number 30.0)])),("name",String "Nico Robin")])),("C",Object (fromList [("age",Object (fromList [("int",Number 420.0)])),("name",String "chessai")])),("C",Object (fromList [("age",Object (fromList [("int",Number 69.0)])),("name",String "chessai")]))]
+    --  but got: [("A",Object (fromList [("age",Object (fromList [("int",Number 42.0)])),("name",String "Lindsey Lohan")])),("B",Object (fromList [("age",Object (fromList [("int",Number 30.0)])),("name",String "Nico Robin")])),("C",Object (fromList [("age",Object (fromList [("int",Number 69.0)])),("name",String "chessai")]))]
 
 localTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
 localTest t cenv = do
@@ -453,14 +444,19 @@ pollingConfirmDepth t cenv step = do
 
     step "/poll for the transactions until they appear"
 
-    beforePolling <- getCurrentBlockHeight v cenv cid'
     PollResponses m <- pollingWithDepth cid' cenv rks (Just $ ConfirmationDepth 10) ExpectPactResult
     afterPolling <- getCurrentBlockHeight v cenv cid'
+    -- here we rely on both txs being in the same block.
+    let txHeight = the
+          (m ^.. to HM.elems . folded . crMetaData . _Just . key "blockHeight" . _Integer)
 
     assertBool "there are two command results" $ length (HM.keys m) == 2
 
-    -- we are checking that we have waited at least 10 blocks using /poll for the transaction
-    assertBool "the difference between heights should be no less than the confirmation depth" $ (afterPolling - beforePolling) >= 10
+    -- we are checking that we have waited exactly 10 blocks using /poll for the transaction
+    -- this is technically a race, because a block could've been made after the poll response
+    -- and before we fetch the current height; so we give it some slack.
+    assertBool "the difference between heights should be within 1 block of the confirmation depth"
+      (afterPolling - int txHeight `elem` [10..20])
   where
     cid' = unsafeChainId 0
     tx =
@@ -528,7 +524,7 @@ localChainDataTest t cenv = do
     localTestBatch mnonce = modifyMVar mnonce $ \(!nn) -> do
         let nonce = "nonce" <> sshow nn
         kps <- testKeyPairs sender00 Nothing
-        c <- Pact.mkExec "(chain-data)" A.Null (pm t) kps (Just "fastfork-CPM-peterson") (Just nonce)
+        c <- Pact.mkExec "(chain-data)" A.Null (pm t) kps [] (Just "fastfork-CPM-peterson") (Just nonce)
         pure (succ nn, SubmitBatch (pure c))
         where
           pm = Pact.PublicMeta pactCid "sender00" 1000 0.1 defaultMaxTTL
@@ -558,6 +554,8 @@ localPreflightSimTest t cenv step = do
         assertFailure "Preflight /local call produced legacy result"
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
+      Right LocalTimeout ->
+        assertFailure "Preflight should never produce a timeout"
       Right LocalResultWithWarns{} -> pure ()
 
     step "Execute preflight /local tx - preflight+signoverify known /send success"
@@ -610,6 +608,8 @@ localPreflightSimTest t cenv step = do
       Left e -> assertFailure $ show e
       Right LocalResultLegacy{} ->
         assertFailure "Preflight /local call produced legacy result"
+      Right LocalTimeout ->
+        assertFailure "Preflight should never produce a timeout"
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
       Right (LocalResultWithWarns cr' ws) -> do
@@ -631,6 +631,8 @@ localPreflightSimTest t cenv step = do
       Left e -> assertFailure $ show e
       Right LocalResultLegacy{} ->
         assertFailure "Preflight /local call produced legacy result"
+      Right LocalTimeout ->
+        assertFailure "Preflight should never produce a timeout"
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
       Right (LocalResultWithWarns cr' ws) -> do
@@ -675,7 +677,7 @@ localPreflightSimTest t cenv step = do
       let nonce = "nonce" <> sshow nn
           pm = Pact.PublicMeta pcid "sender00" 1000 0.1 defaultMaxTTL
 
-      c <- Pact.mkExec code A.Null (pm t) kps (Just "fastfork-CPM-peterson") (Just nonce)
+      c <- Pact.mkExec code A.Null (pm t) kps [] (Just "fastfork-CPM-peterson") (Just nonce)
       pure (succ nn, c)
 
     mkCmdBuilder sigs pcid limit price = do
@@ -758,7 +760,7 @@ sendValidationTest t cenv step = do
     mkBadGasTxBatch code senderName senderKeyPair capList = do
       ks <- testKeyPairs senderKeyPair capList
       let pm = Pact.PublicMeta (Pact.ChainId "0") senderName 100_000 0.01 defaultMaxTTL t
-      let cmd (n :: Int) = liftIO $ Pact.mkExec code A.Null pm ks (Just "fastfork-CPM-peterson") (Just $ sshow n)
+      let cmd (n :: Int) = liftIO $ Pact.mkExec code A.Null pm ks [] (Just "fastfork-CPM-peterson") (Just $ sshow n)
       cmds <- mapM cmd (0 NEL.:| [1..5])
       return $ SubmitBatch cmds
 
@@ -808,7 +810,7 @@ ethSpvTest t cenv step = do
     mkTxBatch proof = do
       ks <- liftIO $ testKeyPairs sender00 Nothing
       let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100_000 0.01 defaultMaxTTL t
-      cmd <- liftIO $ Pact.mkExec txcode (txdata proof) pm ks (Just "fastfork-CPM-peterson") (Just "1")
+      cmd <- liftIO $ Pact.mkExec txcode (txdata proof) pm ks [] (Just "fastfork-CPM-peterson") (Just "1")
       return $ SubmitBatch (pure cmd)
 
     txcode = "(verify-spv 'ETH (read-msg))"
@@ -840,8 +842,8 @@ spvTest t cenv step = do
       ks <- liftIO $ testKeyPairs sender00
         (Just [mkGasCap, mkXChainTransferCap "sender00" "sender01" 1.0 "2"])
       let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100_000 0.01 defaultMaxTTL t
-      cmd1 <- liftIO $ Pact.mkExec txcode txdata pm ks (Just "fastfork-CPM-peterson") (Just "1")
-      cmd2 <- liftIO $ Pact.mkExec txcode txdata pm ks (Just "fastfork-CPM-peterson") (Just "2")
+      cmd1 <- liftIO $ Pact.mkExec txcode txdata pm ks [] (Just "fastfork-CPM-peterson") (Just "1")
+      cmd2 <- liftIO $ Pact.mkExec txcode txdata pm ks [] (Just "fastfork-CPM-peterson") (Just "2")
       return $ SubmitBatch (pure cmd1 <> pure cmd2)
 
     txcode = T.unlines
@@ -916,7 +918,7 @@ txTooBigGasTest t cenv step = do
     mkTxBatch code cdata limit n = do
       ks <- testKeyPairs sender00 Nothing
       let pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" limit 0.01 defaultMaxTTL t
-      cmd <- liftIO $ Pact.mkExec code cdata pm ks (Just "fastfork-CPM-peterson") n
+      cmd <- liftIO $ Pact.mkExec code cdata pm ks [] (Just "fastfork-CPM-peterson") n
       return $ SubmitBatch (pure cmd)
 
     txcode0 = T.concat ["[", T.replicate 10 " 1", "]"]
@@ -1148,7 +1150,7 @@ mkSingletonBatch
 mkSingletonBatch t kps (PactTransaction c d) nonce pmk clist = do
     ks <- testKeyPairs kps clist
     let dd = fromMaybe A.Null d
-    cmd <- liftIO $ Pact.mkExec c dd (pmk t) ks (Just "fastfork-CPM-peterson") nonce
+    cmd <- liftIO $ Pact.mkExec c dd (pmk t) ks [] (Just "fastfork-CPM-peterson") nonce
     return $ SubmitBatch (cmd NEL.:| [])
 
 testSend :: Pact.TxCreationTime -> MVar Int -> ClientEnv -> IO RequestKeys
@@ -1158,7 +1160,7 @@ testBatch'' :: Pact.ChainId -> Pact.TxCreationTime -> Pact.TTLSeconds -> MVar In
 testBatch'' chain t ttl mnonce gp' = modifyMVar mnonce $ \(!nn) -> do
     let nonce = "nonce" <> sshow nn
     kps <- testKeyPairs sender00 Nothing
-    c <- Pact.mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastfork-CPM-peterson") (Just nonce)
+    c <- Pact.mkExec "(+ 1 2)" A.Null (pm t) kps [] (Just "fastfork-CPM-peterson") (Just nonce)
     pure (succ nn, SubmitBatch (pure c))
   where
     pm :: Pact.TxCreationTime -> Pact.PublicMeta

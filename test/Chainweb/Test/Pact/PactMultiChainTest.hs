@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -16,14 +17,16 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Data.Aeson (Value, object, (.=))
-import Data.List(isPrefixOf)
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
+import Data.List(isPrefixOf)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Test.Tasty
 import Test.Tasty.HUnit
+import System.Logger qualified as YAL
+import System.LogLevel
 
 -- internal modules
 
@@ -31,6 +34,7 @@ import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Continuation
 import Pact.Types.Hash
+import Pact.Types.Lang(_LString)
 import Pact.Types.PactError
 import Pact.Types.PactValue
 import Pact.Types.Pretty
@@ -38,7 +42,6 @@ import Pact.Types.RPC
 import Pact.Types.Runtime (PactEvent)
 import Pact.Types.SPV
 import Pact.Types.Term
-import Pact.Types.Lang(_LString)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
@@ -48,6 +51,7 @@ import Chainweb.Cut
 import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec (listErrMsg)
@@ -64,7 +68,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
-import Chainweb.Storage.Table (casLookupM)
+import Chainweb.Payload.PayloadStore (lookupPayloadWithHeight)
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion peterson
@@ -76,7 +80,7 @@ cid = unsafeChainId 9
 data MultiEnv = MultiEnv
     { _menvBdb :: !TestBlockDb
     , _menvPact :: !WebPactExecutionService
-    , _menvPacts :: !(HM.HashMap ChainId PactExecutionService)
+    , _menvPacts :: !(HM.HashMap ChainId (SQLiteEnv, PactExecutionService))
     , _menvMpa :: !(IO (IORef MemPoolAccess))
     , _menvMiner :: !Miner
     , _menvChainId :: !ChainId
@@ -131,6 +135,9 @@ tests = testGroup testName
   , test generousConfig getGasModel "pact48UpgradeTest" pact48UpgradeTest
   , test generousConfig getGasModel "pact49UpgradeTest" pact49UpgradeTest
   , test generousConfig getGasModel "pact410UpgradeTest" pact410UpgradeTest
+  , test generousConfig getGasModel "chainweb223Test" chainweb223Test
+  , test generousConfig getGasModel "compactAndSyncTest" compactAndSyncTest
+  , test generousConfig getGasModel "compactionCompactsUnmodifiedTables" compactionCompactsUnmodifiedTables
   ]
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
@@ -264,28 +271,13 @@ pactLocalDepthTest = do
   runLocalWithDepth "3" (Just $ RewindDepth 2) cid getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the balance two blocks before" (pDecimal 100_000_000)
 
-  -- the negative depth turns into 18446744073709551611 and we expect the `LocalRewindLimitExceeded` exception
-  -- since `Depth` is a wrapper around `Word64`
-  handle
-    (\case
-      LocalRewindLimitExceeded _ _ -> return ()
-      err -> liftIO $ assertFailure $ "Expected LocalRewindLimitExceeded, but got " ++ show err)
-    (do
-      runLocalWithDepth "4" (Just $ RewindDepth (fromIntegral (-5 :: Int))) cid getSender00Balance >>= \_ ->
-        liftIO $ assertFailure "Expected LocalRewindLimitExceeded, but block succeeded")
-
   -- the genesis depth
   runLocalWithDepth "5" (Just $ RewindDepth 55) cid getSender00Balance >>= \r ->
     checkLocalResult r $ assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000)
 
-  -- depth that goes after the genesis block should trigger the `LocalRewindLimitExceeded` exception
-  handle
-    (\case
-      LocalRewindGenesisExceeded -> return ()
-      err -> liftIO $ assertFailure $ "Expected LocalRewindGenesisExceeded, but got " ++ show err)
-    (do
-      runLocalWithDepth "6" (Just $ RewindDepth 56) cid getSender00Balance >>= \_ ->
-        liftIO $ assertFailure "Expected LocalRewindGenesisExceeded, but block succeeded")
+  -- local rewinding past genesis should be the same as rewinding to genesis
+  runLocalWithDepth "6" (Just $ RewindDepth 56) cid getSender00Balance >>= \r ->
+    checkLocalResult r $ assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000)
 
   where
   checkLocalResult r checkResult = case r of
@@ -365,10 +357,16 @@ runLocalWithDepth nonce depth cid' cmd = do
   cwCmd <- buildCwCmd nonce testVersion cmd
   liftIO $ _pactLocal pact Nothing Nothing depth cwCmd
 
+getSqlite :: ChainId -> PactTestM SQLiteEnv
+getSqlite cid' = do
+  HM.lookup cid' <$> view menvPacts >>= \case
+    Just (dbEnv, _) -> return dbEnv
+    Nothing -> liftIO $ assertFailure $ "No SQLite found for chain id " ++ show cid'
+
 getPactService :: ChainId -> PactTestM PactExecutionService
 getPactService cid' = do
   HM.lookup cid' <$> view menvPacts >>= \case
-    Just pact -> return pact
+    Just (_, pact) -> return pact
     Nothing -> liftIO $ assertFailure $ "No pact service found at chain id " ++ show cid'
 
 assertLocalFailure
@@ -535,11 +533,11 @@ chainweb215Test = do
   currCut <- currentCut
 
     -- rewind to saved cut 43
-  rewindTo savedCut
+  syncTo savedCut
   runToHeight 43
 
   -- resume on original cut
-  rewindTo currCut
+  syncTo currCut
 
   -- run until post-fork xchain proof exists
   resetMempool
@@ -556,7 +554,7 @@ chainweb215Test = do
     ]
 
     -- rewind to saved cut 50
-  rewindTo savedCut1
+  syncTo savedCut1
   runToHeight 53
 
   where
@@ -792,7 +790,9 @@ chainweb216Test = do
         assertTxSuccess
         "Should call a module with a namespaced keyset correctly"
         (pDecimal 1)
-      , PactTxTest (buildSimpleCmd "(^ 15.034465284692086701747761395233132973944448512421004399685858401206740385711739229018307610943234609057822959334669087436253689423614206061665462283698768757790600552385430913941421707844383369633809803959413869974997415115322843838226312287673293352959835 3.466120406090666777582519661568003549307295836842780244500133445635634490670936927006970368136648330889718447039413255137656971927890831071689768359173260960739254160211017410322799793419223796996260056081828170546988461285168124170297427792046640116184356)") $
+      , PactTxTest (buildSimpleCmd "(^ \
+        \ 15.034465284692086701747761395233132973944448512421004399685858401206740385711739229018307610943234609057822959334669087436253689423614206061665462283698768757790600552385430913941421707844383369633809803959413869974997415115322843838226312287673293352959835 \
+        \ 3.466120406090666777582519661568003549307295836842780244500133445635634490670936927006970368136648330889718447039413255137656971927890831071689768359173260960739254160211017410322799793419223796996260056081828170546988461285168124170297427792046640116184356)") $
         assertTxSuccess
         "musl exponentiation regression"
         (pDecimal 12020.67042599064370733685791492462158203125)
@@ -1206,6 +1206,116 @@ pact410UpgradeTest = do
     mkKeyEnvData :: String -> Value
     mkKeyEnvData key = object [ "k" .= [key] ]
 
+chainweb223Test :: PactTestM ()
+chainweb223Test = do
+
+  -- run past genesis, upgrades
+  runToHeight 119
+
+  let sender00KAccount = "k:" <> fst sender00
+  -- run pre-fork, where rotating principals is allowed
+  runBlockTest
+    [ PactTxTest
+      (buildBasic'
+      (set cbGasLimit 10000 .
+      set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkCoinCap "ROTATE" [pString sender00KAccount]]]
+      ) $ mkExec
+      (T.unlines
+        ["(coin.create-account (read-msg 'sender00KAcct) (read-keyset 'sender00))"
+        ,"(coin.rotate (read-msg 'sender00KAcct) (read-keyset 'sender01))"
+        ])
+      (object ["sender00" .= [fst sender00], "sender00KAcct" .= sender00KAccount, "sender01" .= [fst sender01]]))
+      (assertTxSuccess "should allow rotating principals before fork" (pString "Write succeeded"))
+    ]
+
+  -- run post-fork, where rotating principals is only allowed to get back to
+  -- their original guards
+  runBlockTest
+    [ PactTxTest
+      (buildBasic'
+      (set cbGasLimit 10000 .
+      set cbSigners [mkEd25519Signer' sender00 [mkGasCap], mkEd25519Signer' sender01 [mkCoinCap "ROTATE" [pString sender00KAccount]]]
+      ) $ mkExec
+        "(coin.rotate (read-msg 'sender00KAcct) (read-keyset 'sender00))"
+      (object ["sender00" .= [fst sender00], "sender00KAcct" .= sender00KAccount, "sender01" .= [fst sender01]]))
+      (assertTxSuccess "should allow rotating principals back after fork" (pString "Write succeeded"))
+    , PactTxTest
+      (buildBasic'
+      (set cbGasLimit 10000 .
+      set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkCoinCap "ROTATE" [pString sender00KAccount]]]
+      ) $ mkExec
+        "(coin.rotate (read-msg 'sender00KAcct) (read-keyset 'sender01))"
+      (object ["sender00" .= [fst sender00], "sender00KAcct" .= sender00KAccount, "sender01" .= [fst sender01]]))
+      (assertTxFailure "should not allow rotating principals after fork" "It is unsafe for principal accounts to rotate their guard")
+    ]
+
+compactAndSyncTest :: PactTestM ()
+compactAndSyncTest = do
+  -- start with all forks on.
+  let start = latestBehaviorAt testVersion
+  runToHeight start
+  -- we want to run a transaction but it doesn't matter what it does, as long
+  -- as it gets on-chain and thus affects the Pact state.
+  runBlockTest
+    [ PactTxTest (buildBasic $ mkExec' "1") (assertTxSuccess "should allow innocent transaction" (pDecimal 1))
+    ]
+  -- save the cut with the tx, we'll return to it after compaction
+  cutWithTx <- currentCut
+  currentCid <- view menvChainId
+  dbEnv <- getSqlite currentCid
+
+  liftIO $ C.withDefaultLogger Warn $ \cLogger -> do
+    let cLogger' = over YAL.setLoggerScope (\scope -> ("chainId",sshow currentCid) : scope) cLogger
+    let flags = [C.NoVacuum]
+    -- compact to before the tx happened
+    void $ compactUntilAvailable (C.Target start) cLogger' dbEnv flags
+  -- now sync to after the tx and expect no errors
+  syncTo cutWithTx
+
+compactionCompactsUnmodifiedTables :: PactTestM ()
+compactionCompactsUnmodifiedTables = do
+  let start = latestBehaviorAt testVersion
+  runToHeight start
+  runBlockTest
+    -- create table
+    [ PactTxTest
+      (buildBasicGas 70000 $ mkExec' $ mconcat
+        [ "(namespace 'free)"
+        , "(module dbmod G (defcap G () true)"
+        , "  (defschema sch i:integer)"
+        , "  (deftable tbl:{sch})"
+        , "  (defun do-write () (insert tbl 'key {'i: 2})))"
+        , "(create-table tbl)"
+        ]
+      ) (assertTxSuccess "should create a table" (pString "TableCreated"))
+    ]
+  -- empty block, this regression requires an extra block before
+  -- any modifications
+  runBlockTest []
+
+  -- write to table
+  runBlockTest
+    [ PactTxTest
+      (buildBasic $ mkExec' "(free.dbmod.do-write)")
+      (assertTxSuccess "should write to that table" (pString "Write succeeded"))
+    ]
+
+  -- grab current cut so that we can fast-forward to here after
+  -- compaction
+  afterWrite <- currentCut
+
+  -- compact to the empty block, before we've written to the table but after
+  -- creating it
+  currentCid <- view menvChainId
+  dbEnv <- getSqlite currentCid
+  liftIO $ C.withDefaultLogger Warn $ \cLogger -> do
+    let cLogger' = over YAL.setLoggerScope (\scope -> ("chainId",sshow currentCid) : scope) cLogger
+    let flags = [C.NoVacuum]
+    void $ compactUntilAvailable (C.Target (start + 2)) cLogger' dbEnv flags
+
+  -- fast forward to after we did the write, expecting the write to not fail
+  -- due to a duplicate row
+  syncTo afterWrite
 
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
@@ -1296,7 +1406,7 @@ pact4coin3UpgradeTest = do
   withChain chain0 $ runBlockTests block22_0
 
   -- rewind to savedCut (cut 18)
-  rewindTo savedCut
+  syncTo savedCut
   runToHeight 22
 
   where
@@ -1382,8 +1492,21 @@ resetMempool = view menvMpa >>= \r -> setMempool r mempty
 currentCut :: PactTestM Cut
 currentCut = view menvBdb >>= liftIO . readMVar . _bdbCut
 
-rewindTo :: Cut -> PactTestM ()
-rewindTo c = view menvBdb >>= \bdb -> void $ liftIO $ swapMVar (_bdbCut bdb) c
+syncTo :: Cut -> PactTestM ()
+syncTo c = do
+  pact <- view menvPact
+  bdb <- view menvBdb
+
+  forM_ (chainIds testVersion) $ \cid' -> do
+    let
+      ph = case HM.lookup cid' (_cutMap c) of
+          Just h -> h
+          Nothing -> error $ "syncTo: can't find block header for " ++ show cid'
+
+    -- reset the parent header using SyncToBlock
+    void $ liftIO $ _webPactSyncToBlock pact ph
+
+    void $ liftIO $ swapMVar (_bdbCut bdb) c
 
 assertTxEvents :: (HasCallStack, MonadIO m) => String -> [PactEvent] -> CommandResult Hash -> m ()
 assertTxEvents msg evs = liftIO . assertEqual msg evs . _crEvents
@@ -1590,7 +1713,7 @@ getPWO :: ChainId -> PactTestM (PayloadWithOutputs,BlockHeader)
 getPWO chid = do
   (TestBlockDb _ pdb _) <- view menvBdb
   h <- getHeader chid
-  pwo <- liftIO $ casLookupM pdb (_blockPayloadHash h)
+  Just pwo <- liftIO $ lookupPayloadWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h)
   return (pwo,h)
 
 getHeader :: ChainId -> PactTestM BlockHeader

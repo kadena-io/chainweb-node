@@ -45,10 +45,11 @@ import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Version.Development
+import Chainweb.Version.RecapDevelopment
 
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
+import Chainweb.BlockHeight
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -101,7 +102,9 @@ insertWithPayloads
     -> IO [BlockHeader]
 insertWithPayloads bdb pdb h n l = do
     hdrs <- insertN_ n l h bdb
-    forM_ hdrs $ casInsert pdb . testBlockPayload_
+    forM_ hdrs $ \hd ->
+        let payload = testBlockPayload_ hd
+        in addNewPayload pdb (_blockHeight hd) payload
     return hdrs
 
 cid :: ChainId
@@ -190,21 +193,32 @@ assertPrunedHeaders db f =
         assertFailure "failed to prune some block header"
 
 assertPayloads :: PayloadDb RocksDbTable -> [BlockHeader] -> IO ()
-assertPayloads db f =
-    unlessM (fmap and $ mapM (tableMember db) $ _blockPayloadHash <$> f) $
+assertPayloads db f = do
+    let fs = (\h -> (Just $ _blockHeight h, _blockPayloadHash h)) <$> f
+    unlessM (and <$> mapM (uncurry $ lookupPayloadWithHeightExists db) fs) $
         assertFailure "missing block payload that should not have been garbage collected"
 
 -- | This can fail due to the probabilistic nature of the GC algorithms
 --
 assertPrunedPayloads :: PayloadDb RocksDbTable -> [BlockHeader] -> IO ()
 assertPrunedPayloads db f = do
-    results <- mapM (tableMember db) $ _blockPayloadHash <$> f
+    let fs = (\h -> (Just $ _blockHeight h, _blockPayloadHash h)) <$> f
+    results <- mapM (uncurry $ lookupPayloadWithHeightExists db) fs
     let remained = length (filter id results)
     when (remained > 1) $
         assertFailure $ "failed to garage collect some block payloads"
             <> ". " <> sshow remained <> " remaining"
             <> ". Since can happen due to the probabilistic natures of the garabage collection algorithm"
             <> ". But it should very rare. Try to rerun the test."
+
+lookupPayloadWithHeightExists
+    :: PayloadDb RocksDbTable
+    -> Maybe BlockHeight
+    -> BlockPayloadHash
+    -> IO Bool
+lookupPayloadWithHeightExists db h k = lookupPayloadWithHeight db h k >>= \case
+    Nothing -> pure False
+    Just _ -> pure True
 
 -- -------------------------------------------------------------------------- --
 -- Header Pruning Tests
@@ -275,7 +289,7 @@ failIntrinsicCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
     let b = f0 !! int n
     delHdr bdb b
-    unsafeInsertBlockHeaderDb bdb $ b { _blockChainwebVersion = _versionCode Development }
+    unsafeInsertBlockHeaderDb bdb $ b { _blockChainwebVersion = _versionCode RecapDevelopment }
     try (pruneAllChains logger rdb toyVersion checks) >>= \case
         Left e
             | CheckFull `elem` checks
@@ -304,8 +318,12 @@ failIntrinsicCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
 failPayloadCheck :: IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO ()) -> IO ()
 failPayloadCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
-    let db = _transactionDbBlockPayloads $ _transactionDb pdb
-    tableDelete db (_blockPayloadHash $ f0 !! int n)
+    -- TODO FIXME (aseipp): when we migrate to the new payload store format, we'll
+    -- need to transition this; it will probably start failing, and we'll need to
+    -- implement a proper deletePayload and refactor this to use it.
+    let db = _oldTransactionDbBlockPayloads $ _transactionDb pdb
+    let b = f0 !! int n
+    tableDelete db (_blockPayloadHash b)
     try (pruneAllChains logger rdb toyVersion checks) >>= \case
         Left (MissingPayloadException{}) -> return ()
         Left e -> assertFailure
@@ -327,7 +345,9 @@ failPayloadCheck2 :: IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO (
 failPayloadCheck2 rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
     let b = f0 !! int n
-    payload <- casLookupM pdb (_blockPayloadHash b)
+    payload <- lookupPayloadWithHeight pdb (Just $ _blockHeight b) (_blockPayloadHash b) >>= \case
+        Nothing -> assertFailure "missing payload"
+        Just x -> return x
     tableDelete (_transactionDbBlockTransactions $ _transactionDb pdb)
         $ _payloadWithOutputsTransactionsHash payload
     try (pruneAllChains logger rdb toyVersion checks) >>= \case
@@ -342,4 +362,3 @@ failPayloadCheck2 rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     return ()
   where
     logger = genericLogger testLogLevel (step . T.unpack)
-
