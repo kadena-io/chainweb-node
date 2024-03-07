@@ -332,7 +332,8 @@ work mr mcid m = do
                     | HM.null mpw ->
                         "no chains have primed work"
                     | otherwise ->
-                        "all chains with primed work may be stalled, possible stalled chains: " <> sshow (sort $ HM.keys mpw)
+                        "all chains with primed work may be stalled. chains with primed payloads: "
+                        <> sshow (sort [cid | (cid, T2 _ (Just _)) <- HM.toList mpw])
           )
 
         logDelays n'
