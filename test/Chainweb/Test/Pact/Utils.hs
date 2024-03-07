@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE BangPatterns #-}
@@ -142,6 +143,7 @@ import Data.Default (def)
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
+import Data.List qualified as List
 import Data.LogMessage
 import Data.Map (Map)
 import qualified Data.Map.Strict as M
@@ -1046,7 +1048,6 @@ compact logLevel cFlags (SQLiteEnv db _) bh = do
   C.withDefaultLogger logLevel $ \logger -> do
     void $ C.compact bh logger db cFlags
 
-
 getPWOByHeader :: BlockHeader -> TestBlockDb -> IO PayloadWithOutputs
 getPWOByHeader h (TestBlockDb _ pdb _) =
   lookupPayloadWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h) >>= \case
@@ -1060,10 +1061,15 @@ compactUntilAvailable
   -> SQLiteEnv
   -> [C.CompactFlag]
   -> IO ()
-compactUntilAvailable tbh logger dbEnv@(SQLiteEnv db _) flags = do
-    try (C.compact tbh logger db flags) >>= \case
-        Left (C.CompactExceptionDb (fromException ->
-            Just (ioe_description -> "Database error: (ErrorBusy,\"database is locked\")")))
-            -> compactUntilAvailable tbh logger dbEnv flags
-        Left e -> throwM e
-        Right _ -> return ()
+compactUntilAvailable tbh logger (SQLiteEnv db _) flags = go
+  where
+    go = do
+      e <- try (C.compact tbh logger db flags)
+      case e of
+        Right _ -> pure ()
+        Left err
+          | Just ioErr <- fromException err
+            -- someone, somewhere, is calling "show" on an exception
+          , "ErrorBusy" `List.isInfixOf` ioe_description ioErr
+          -> go
+          | otherwise -> throwM err
