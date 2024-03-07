@@ -320,7 +320,7 @@ work mr mcid m = do
     -- here we log the case that the work loop has stalled.
     logDelays :: Int -> IO ()
     logDelays n = do
-        threadDelay 1_000_000
+        threadDelay 10_000_000
         let !n' = n + 1
         PrimedWork primedWork <- readTVarIO (_coordPrimedWork mr)
         logf @T.Text Warn
@@ -332,7 +332,8 @@ work mr mcid m = do
                     | HM.null mpw ->
                         "no chains have primed work"
                     | otherwise ->
-                        "all chains with primed work may be stalled, possible stalled chains: " <> sshow (sort $ HM.keys mpw)
+                        "all chains with primed work may be stalled. chains with primed payloads: "
+                        <> sshow (sort [cid | (cid, T2 _ (Just _)) <- HM.toList mpw])
           )
 
         logDelays n'
