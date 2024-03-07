@@ -320,7 +320,7 @@ work mr mcid m = do
     -- here we log the case that the work loop has stalled.
     logDelays :: Int -> IO ()
     logDelays n = do
-        threadDelay 1_000_000
+        threadDelay 10_000_000
         let !n' = n + 1
         PrimedWork primedWork <- readTVarIO (_coordPrimedWork mr)
         logf @T.Text Warn
