@@ -1,6 +1,26 @@
 # `chainweb-node` Changelog
 
-## 2.23 (2023-02-XX)
+## 2.23.1 (2023-03-XX)
+This version replaces all previous versions. Any prior version will stop working
+on **2024-03-06T00:00:00Z**. Node administrators must upgrade to this version
+before that date. The 2.23 feature upgrade will occur at block height 4,577,530
+which is estimated to be mined at **2024-03-07T00:00:00Z**.
+
+This version will expire on **2024-05-29T00:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+- The mining loop will more persistently attempt to create new block payloads. (#1851)
+- The service date for `chainweb-node` is now only respected on Mainnet and
+  Testnet. (#1843)
+
+Internal changes:
+- The pact `/listen` endpoint should take less memory and CPU time. (#1844)
+- Fix some invalid log messages. (#1850, #1852)
+- Various tests have been "deflaked", to hopefully make them more reliable. (#1848, #1849)
+
+## 2.23 (2023-03-03)
 This version replaces all previous versions. Any prior version will stop working
 on **2024-03-06T00:00:00Z**. Node administrators must upgrade to this version
 before that date. The 2.23 feature upgrade will occur at block height 4,577,530
