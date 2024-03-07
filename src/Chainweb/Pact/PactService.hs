@@ -455,28 +455,22 @@ execNewBlock mpAccess miner = do
                 txTimeLimit :: Micros
                 txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit
 
-            -- Heuristic: limit fetches to count of 1000-gas txs in block.
-            let fetchLimit = fromIntegral $ blockGasLimit `div` 1000
-            pdbenv <- view psBlockDbEnv
-
-            newTrans <- liftPactServiceM $ getBlockTxs pdbenv initState
-
-            -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-            Transactions pairs cb <- execTransactions False miner newTrans
-              (EnforceCoinbaseFailure True)
-              (CoinbaseUsePrecompiled True)
-              Nothing
-              (Just txTimeLimit) `catch` handleTimeout
+            -- Get and update the module cache
+            mc <- initModuleCacheForBlock False
+            -- Run the coinbase transaction
+            cb <- runCoinbase False miner (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) mc
 
             successes <- liftIO $ Vec.new @_ @_ @(ChainwebTransaction, P.CommandResult [P.TxLogJson])
-            failures <- liftIO $ Vec.new @_ @_ @GasPurchaseFailure
-            BlockFill _ requestKeys _ <- refill fetchLimit txTimeLimit successes failures =<<
-              foldM (splitResults successes failures) (incCount initState) pairs
+            failures <- liftIO $ Vec.new @_ @_ @TransactionHash
+
+            -- Heuristic: limit fetches to count of 1000-gas txs in block.
+            let fetchLimit = fromIntegral $ blockGasLimit `div` 1000
+            BlockFill _ requestKeys _ <- refill fetchLimit txTimeLimit successes failures initState
 
             liftPactServiceM $ logInfo $ "(request keys = " <> sshow requestKeys <> ")"
 
             liftIO $ do
-              txHashes <- Vec.toLiftedVectorWith (\_ failure -> pure (gasPurchaseFailureHash failure)) failures
+              txHashes <- Vec.toLiftedVector failures
               mpaBadlistTx mpAccess txHashes
 
             !pwo <- liftIO $ do
@@ -510,7 +504,7 @@ execNewBlock mpAccess miner = do
           liftIO $!
             mpaGetBlock mpAccess bfState validate (pHeight + 1) pHash (_parentHeader latestHeader)
 
-        refill :: Word64 -> Micros -> GrowableVec (ChainwebTransaction, P.CommandResult [P.TxLogJson]) -> GrowableVec GasPurchaseFailure -> BlockFill -> PactBlockM logger tbl BlockFill
+        refill :: Word64 -> Micros -> GrowableVec (ChainwebTransaction, P.CommandResult [P.TxLogJson]) -> GrowableVec TransactionHash -> BlockFill -> PactBlockM logger tbl BlockFill
         refill fetchLimit txTimeLimit successes failures = go
           where
             go :: BlockFill -> PactBlockM logger tbl BlockFill
@@ -544,7 +538,7 @@ execNewBlock mpAccess miner = do
                           <$> Vec.length successes
                           <*> Vec.length failures
 
-                        newState <- foldM (splitResults successes failures) unchanged pairs
+                        newState <- splitResults successes failures unchanged (V.toList pairs)
 
                         -- LOOP INVARIANT: gas must not increase
                         when (_bfGasLimit newState > _bfGasLimit bfState) $
@@ -568,18 +562,38 @@ execNewBlock mpAccess miner = do
         incCount :: BlockFill -> BlockFill
         incCount b = over bfCount succ b
 
-        splitResults success fails (BlockFill g rks i) (t,r) = case r of
-          Right cr -> do
-            !rks' <- enforceUnique rks (requestKeyToTransactionHash $ P._crReqKey cr)
-            -- Decrement actual gas used from block limit
-            let !g' = g - fromIntegral (P._crGas cr)
-            liftIO $ Vec.push success (t, cr)
-            return $ BlockFill g' rks' i
-          Left f -> do
-            !rks' <- enforceUnique rks (gasPurchaseFailureHash f)
-            -- Gas buy failure adds failed request key to fail list only
-            liftIO $ Vec.push fails f
-            return $ BlockFill g rks' i
+        -- | Split the results of applying each command into successes and failures,
+        --   and return the final 'BlockFill'.
+        --
+        --   If we encounter a 'TxTimeout', we short-circuit, and only return
+        --   what we've put into the block before the timeout.
+        --
+        --   The failed txs are later badlisted.
+        splitResults :: ()
+          => GrowableVec (ChainwebTransaction, P.CommandResult [P.TxLogJson])
+          -> GrowableVec TransactionHash -- ^ failed txs
+          -> BlockFill
+          -> [(ChainwebTransaction, Either CommandInvalidError (P.CommandResult [P.TxLogJson]))]
+          -> PactBlockM logger tbl BlockFill
+        splitResults successes failures = go
+          where
+            go acc@(BlockFill g rks i) = \case
+              [] -> pure acc
+              (t, r) : rest -> case r of
+                Right cr -> do
+                  !rks' <- enforceUnique rks (requestKeyToTransactionHash $ P._crReqKey cr)
+                  -- Decrement actual gas used from block limit
+                  let !g' = g - fromIntegral (P._crGas cr)
+                  liftIO $ Vec.push successes (t, cr)
+                  go (BlockFill g' rks' i) rest
+                Left (CommandInvalidGasPurchaseFailure (GasPurchaseFailure h _)) -> do
+                  !rks' <- enforceUnique rks h
+                  -- Gas buy failure adds failed request key to fail list only
+                  liftIO $ Vec.push failures h
+                  go (BlockFill g rks' i) rest
+                Left (CommandInvalidTxTimeout (TxTimeout h)) -> do
+                  liftIO $ Vec.push failures h
+                  return acc
 
         enforceUnique rks rk
           | S.member rk rks =
@@ -607,7 +621,7 @@ execNewGenesisBlock miner newTrans = pactLabel "execNewGenesisBlock" $ readFrom 
     results <- execTransactions True miner newTrans
                (EnforceCoinbaseFailure True)
                (CoinbaseUsePrecompiled False) Nothing Nothing
-               >>= throwOnGasFailure
+               >>= throwCommandInvalidError
     return $! toPayloadWithOutputs miner results
 
 execReadOnlyReplay
