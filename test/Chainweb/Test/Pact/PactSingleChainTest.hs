@@ -157,7 +157,7 @@ testTimeout' :: ()
   => RocksDb
   -> (IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree)
   -> TestTree
-testTimeout' rdb f = testWithConf' rdb f (testPactServiceConfig { _pactPreInsertCheckTimeout = 5 })
+testTimeout' rdb f = testWithConf' rdb f (testPactServiceConfig { _pactPreInsertCheckTimeout = 1 })
 
 forSuccess :: (NFData a, HasCallStack) => String -> IO (MVar (Either PactException a)) -> IO a
 forSuccess msg mvio = (`catchAllSynchronous` handler) $ do
