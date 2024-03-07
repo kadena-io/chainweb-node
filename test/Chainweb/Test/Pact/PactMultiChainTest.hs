@@ -17,6 +17,9 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Data.Aeson (Value, object, (.=))
+import Data.List qualified as List
+import Data.Set (Set)
+import Data.Set qualified as Set
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
@@ -55,7 +58,6 @@ import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec (listErrMsg)
-import Chainweb.Pact.Types (TxTimeout(..))
 import Chainweb.Payload
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.Cut
@@ -108,7 +110,7 @@ newtype MempoolBlock = MempoolBlock
 newtype PactMempool = PactMempool
   { _pactMempool :: [MempoolBlock]
   }
-  deriving (Semigroup,Monoid)
+  deriving (Semigroup, Monoid)
 
 
 -- | Pair a builder with a test
@@ -179,12 +181,27 @@ txTimeoutTest :: PactTestM ()
 txTimeoutTest = do
   -- get access to `enumerate`
   runToHeight 20
-  handle (\(TxTimeout _) -> return ()) $ do
-    runBlockTest
-      -- deliberately time out in newblock
-      [PactTxTest (buildBasicGas 1000 $ mkExec' "(enumerate 0 999999999999)") (\_ -> assertFailure "tx succeeded")]
-    liftIO $ assertFailure "block succeeded"
-  runToHeight 26
+
+  -- we inline some of runBlockTest here because its assertions
+  -- don't make sense for tx timeout
+  let pts = [buildBasic $ mkExec' "(+ 1 1)", buildBasicGas 1000 $ mkExec' "(enumerate 0 999999999999)"]
+  chid <- view menvChainId
+
+  mempoolBadlistRef <- setPactMempool $ PactMempool $ List.singleton $ blockForChain chid $ MempoolBlock $ \_ -> pure pts
+
+  liftIO $ do
+    badlisted <- readIORef mempoolBadlistRef
+    assertEqual "number of badlisted transactions is 0 before runCut'" 0 (Set.size badlisted)
+  runCut'
+
+  -- Ideally, we want to check the actual hash, but the DSL in this module
+  -- doesn't make that possible
+  liftIO $ do
+    badlisted <- readIORef mempoolBadlistRef
+    assertEqual "number of badlisted transactions is 1 after runCut'" 1 (Set.size badlisted)
+
+  rs <- txResults
+  liftIO $ assertEqual "number of transactions in block should be one (1) when second transaction times out" 1 (length rs)
 
 chainweb213Test :: PactTestM ()
 chainweb213Test = do
@@ -521,9 +538,10 @@ chainweb215Test = do
             assertTxEvents "Transfer events @ block 42" evs cr
         ]
 
-  setPactMempool $ PactMempool
+  void $ setPactMempool $ PactMempool
       [ testsToBlock cid blockSend42
-      , testsToBlock chain0 blockRecv42 ]
+      , testsToBlock chain0 blockRecv42
+      ]
   runCut'
   withChain cid $ runBlockTests blockSend42
   withChain chain0 $ runBlockTests blockRecv42
@@ -1394,7 +1412,7 @@ pact4coin3UpgradeTest = do
             assertTxEvents "Events for txRcv" [gasEvRcv,rcvTfr] cr
         ]
 
-  setPactMempool $ PactMempool
+  void $ setPactMempool $ PactMempool
       [ testsToBlock cid block22
       , testsToBlock chain0 block22_0
       ]
@@ -1448,13 +1466,16 @@ pact4coin3UpgradeTest = do
 -- | Sets mempool with block fillers. A matched filler
 -- (returning a 'Just' result) is executed and removed from the list.
 -- Fillers are tested in order.
-setPactMempool :: PactMempool -> PactTestM ()
+setPactMempool :: PactMempool -> PactTestM (IORef (Set TransactionHash))
 setPactMempool (PactMempool fs) = do
   mpa <- view menvMpa
   mpsRef <- liftIO $ newIORef fs
+  badTxs <- liftIO $ newIORef Set.empty
   setMempool mpa $ mempty {
-    mpaGetBlock = go mpsRef
-    }
+    mpaGetBlock = go mpsRef,
+    mpaBadlistTx = \txs -> modifyIORef' badTxs (\hashes -> foldr Set.insert hashes txs)
+  }
+  pure badTxs
   where
     go ref bf mempoolPreBlockCheck bHeight bHash blockHeader = do
       mps <- readIORef ref
@@ -1559,14 +1580,13 @@ assertTxFailure' msg needle tx =
       Nothing -> False
       Just d -> T.isInfixOf needle (sshow d)
 
-
 -- | Run a single mempool block on current chain with tests for each tx.
 -- Limitations: can only run a single-chain, single-refill test for
 -- a given cut height.
 runBlockTest :: HasCallStack => [PactTxTest] -> PactTestM ()
 runBlockTest pts = do
   chid <- view menvChainId
-  setPactMempool $ PactMempool [testsToBlock chid pts]
+  void $ setPactMempool $ PactMempool [testsToBlock chid pts]
   runCut'
   runBlockTests pts
 
@@ -1580,7 +1600,7 @@ testsToBlock chid pts = blockForChain chid $ MempoolBlock $ \_ ->
 expectInvalid :: String -> [MempoolCmdBuilder] -> PactTestM ()
 expectInvalid msg pts = do
   chid <- view menvChainId
-  setPactMempool $ PactMempool [blockForChain chid $ MempoolBlock $ \_ -> pure pts]
+  void $ setPactMempool $ PactMempool [blockForChain chid $ MempoolBlock $ \_ -> pure pts]
   _ <- runCut'
   rs <- txResults
   liftIO $ assertEqual msg mempty rs

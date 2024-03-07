@@ -498,7 +498,7 @@ execTest runPact request = _trEval request $ do
     results <- runPact $
       execTransactions False defaultMiner
         trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) Nothing Nothing
-        >>= throwOnGasFailure
+        >>= throwCommandInvalidError
 
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
@@ -527,7 +527,7 @@ execTxsTest runPact name (trans',check) = testCase name (go >>= check)
       results' <- tryAllSynchronous $ runPact $
         execTransactions False defaultMiner trans
           (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) Nothing Nothing
-          >>= throwOnGasFailure
+          >>= throwCommandInvalidError
       case results' of
         Right results -> Right <$> do
           let outputs = V.toList $ snd <$> _transactionPairs results
