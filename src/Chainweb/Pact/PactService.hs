@@ -766,7 +766,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
       Just limit -> withPactState $ \run -> timeoutYield limit (run act) >>= \case
         Just r -> pure r
         Nothing -> do
-          logError_ _psLogger $ "Mempool local action timed out for cwtx:\n" <> sshow cwtx
+          logError_ _psLogger $ "Local action timed out for cwtx:\n" <> sshow cwtx
           pure LocalTimeout
 
 execSyncToBlock
