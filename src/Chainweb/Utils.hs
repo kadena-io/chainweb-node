@@ -462,6 +462,7 @@ data EncodingException where
     EncodeException :: T.Text -> EncodingException
     DecodeException :: T.Text -> EncodingException
     Base64DecodeException :: T.Text -> EncodingException
+    Base64DecodeExceptionFull :: T.Text -> T.Text -> EncodingException
     ItemCountDecodeException :: Expected Natural -> Actual Natural -> EncodingException
     TextFormatException :: T.Text -> EncodingException
     JsonDecodeException :: T.Text -> EncodingException
@@ -471,6 +472,9 @@ data EncodingException where
     deriving anyclass (NFData)
 
 instance Exception EncodingException
+
+mkBase64DecodeException :: T.Text -> String -> EncodingException
+mkBase64DecodeException thingToDecode errMsg = Base64DecodeExceptionFull (T.pack errMsg) thingToDecode
 
 -- -------------------------------------------------------------------------- --
 -- ** Text
@@ -593,10 +597,11 @@ iso8601DateTimeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
 -- encoding.
 --
 decodeB64Text :: MonadThrow m => T.Text -> m B.ByteString
-decodeB64Text = fromEitherM
-    . first (Base64DecodeException . T.pack)
+decodeB64Text input = fromEitherM
+    . first (mkBase64DecodeException input)
     . B64.decode
     . T.encodeUtf8
+    $ input
 {-# INLINE decodeB64Text #-}
 
 -- | Encode a binary value to a textual base64 representation.
@@ -610,10 +615,11 @@ encodeB64Text = T.decodeUtf8 . B64.encode
 -- encoding.
 --
 decodeB64UrlText :: MonadThrow m => T.Text -> m B.ByteString
-decodeB64UrlText = fromEitherM
-    . first (Base64DecodeException . T.pack)
+decodeB64UrlText input = fromEitherM
+    . first (mkBase64DecodeException input)
     . B64U.decode
     . T.encodeUtf8
+    $ input
 {-# INLINE decodeB64UrlText #-}
 
 -- | Encode a binary value to a textual base64-url representation.
@@ -627,11 +633,12 @@ encodeB64UrlText = T.decodeUtf8 . B64U.encode
 -- valid base64-url without padding encoding.
 --
 decodeB64UrlNoPaddingText :: MonadThrow m => T.Text -> m B.ByteString
-decodeB64UrlNoPaddingText = fromEitherM
-    . first (Base64DecodeException . T.pack)
+decodeB64UrlNoPaddingText input = fromEitherM
+    . first (mkBase64DecodeException input)
     . B64U.decode
     . T.encodeUtf8
     . pad
+    $ input
   where
     pad t = let s = T.length t `mod` 4 in t <> T.replicate ((4 - s) `mod` 4) "="
 {-# INLINE decodeB64UrlNoPaddingText #-}
@@ -1401,3 +1408,4 @@ parseUtcTime d = case parseTimeM False defaultTimeLocale fmt d of
 timeoutYield :: Int -> IO a -> IO (Maybe a)
 timeoutYield time act =
     Timeout.timeout time (act <* yield)
+
