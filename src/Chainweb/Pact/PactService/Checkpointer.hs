@@ -37,6 +37,7 @@ import Control.Lens hiding ((:>))
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
+import Control.Monad.State
 
 import Data.IORef
 import Data.Maybe
@@ -128,9 +129,10 @@ readFrom
 readFrom ph doRead = do
     cp <- view psCheckpointer
     pactParent <- getPactParent ph
-    withPactState $ \runPact ->
-        _cpReadFrom (_cpReadCp cp) ph $
-            (\dbenv -> runPact $ runPactBlockM pactParent dbenv doRead)
+    s <- get
+    e <- ask
+    liftIO $ _cpReadFrom (_cpReadCp cp) ph $
+        (\dbenv -> evalPactServiceM s e $ runPactBlockM pactParent dbenv doRead)
 
 -- here we cheat, making the genesis block header's parent the genesis
 -- block header, only for Pact's information, *not* for the checkpointer;
