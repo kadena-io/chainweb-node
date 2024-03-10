@@ -1068,9 +1068,17 @@ chainweb213GasModel = modifiedGasModel
       _ -> P.milliGasToGas $ fullRunFunction name ga
     modifiedGasModel = defGasModel { P.runGasModel = \t g -> P.gasToMilliGas (modifiedRunFunction t g) }
 
+chainweb224GasModel :: P.GasModel
+chainweb224GasModel = chainweb213GasModel
+  { P.runGasModel = \name -> \case
+    P.GPostRead P.ReadInterface {} -> P.MilliGas 0
+    ga -> P.runGasModel chainweb213GasModel name ga
+  }
+
 getGasModel :: TxContext -> P.GasModel
 getGasModel ctx
     | guardCtx chainweb213Pact ctx = chainweb213GasModel
+    | guardCtx chainweb224Pact ctx = chainweb224GasModel
     | otherwise = freeModuleLoadGasModel
 
 pactLabel :: (Logger logger) => Text -> PactServiceM logger tbl x -> PactServiceM logger tbl x
