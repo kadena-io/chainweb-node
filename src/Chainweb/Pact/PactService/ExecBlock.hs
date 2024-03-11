@@ -292,6 +292,8 @@ execTransactions
     -> PactBlockM logger tbl (Transactions (Either CommandInvalidError (P.CommandResult [P.TxLogJson])))
 execTransactions isGenesis miner ctxs enfCBFail usePrecomp gasLimit timeLimit = do
     mc <- initModuleCacheForBlock isGenesis
+    -- for legacy reasons (ask Emily) we don't use the module cache resulting
+    -- from coinbase to run the pact cmds
     coinOut <- runCoinbase isGenesis miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis ctxs miner mc gasLimit timeLimit
     return $! Transactions (V.zip ctxs txOuts) coinOut
