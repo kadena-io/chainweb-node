@@ -316,10 +316,7 @@ initModuleCacheForBlock isGenesis = do
     Nothing -> if isGenesis
       then return mempty
       else do
-        l <- view (psServiceEnv . psLogger)
-        dbEnv <- view psBlockDbEnv
-        txCtx <- getTxContext def
-        mc <- liftIO (readInitModules l (_cpPactDbEnv dbEnv) txCtx)
+        mc <- readInitModules
         updateInitCacheM mc
         return mc
     Just (_,mc) -> return mc
@@ -374,7 +371,7 @@ applyPactCmds
     -> PactBlockM logger tbl (Vector (Either CommandInvalidError (P.CommandResult [P.TxLogJson])))
 applyPactCmds isGenesis cmds miner mc blockGas txTimeLimit = do
     let txsGas txs = fromIntegral $ sumOf (traversed . _Right . to P._crGas) txs
-    txs <- tracePactBlockM' "applyPactCmds" () txsGas $
+    tracePactBlockM' "applyPactCmds" () txsGas $
       flip evalStateT (T2 mc blockGas) $ do
         let go :: ()
                => [Either CommandInvalidError (P.CommandResult [P.TxLogJson])]
@@ -396,7 +393,6 @@ applyPactCmds isGenesis cmds miner mc blockGas txTimeLimit = do
                   Right a -> do
                     go (Right a : acc) rest
         V.fromList . List.reverse <$> go [] (V.toList cmds)
-    return txs
 
 applyPactCmd
   :: (Logger logger)
@@ -416,8 +412,8 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
   v <- view chainwebVersion
   let
     onBuyGasFailure e
-      | Just (BuyGasFailure f) <- fromException e = pure $! (Left (CommandInvalidGasPurchaseFailure f), T2 mcache maybeBlockGasRemaining)
-      | Just t@(TxTimeout {}) <- fromException e = pure $! (Left (CommandInvalidTxTimeout t), T2 mcache maybeBlockGasRemaining)
+      | Just (BuyGasFailure f) <- fromException e = pure (Left (CommandInvalidGasPurchaseFailure f), T2 mcache maybeBlockGasRemaining)
+      | Just t@(TxTimeout {}) <- fromException e = pure (Left (CommandInvalidTxTimeout t), T2 mcache maybeBlockGasRemaining)
       | otherwise = throwM e
     requestedTxGasLimit = view cmdGasLimit (payloadObj <$> cmd)
     -- notice that we add 1 to the remaining block gas here, to distinguish the

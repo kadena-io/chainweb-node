@@ -1,11 +1,9 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -81,6 +79,7 @@ import qualified System.LogLevel as L
 
 -- internal Pact modules
 
+import Chainweb.Pact.Backend.Types (_cpPactDbEnv)
 import Pact.Eval (eval, liftTerm)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
@@ -151,7 +150,7 @@ magic_GENESIS = mkMagicCapSlot "GENESIS"
 
 onChainErrorPrintingFor :: TxContext -> UnexpectedErrorPrinting
 onChainErrorPrintingFor txCtx =
-  if chainweb219Pact (ctxVersion txCtx) (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
+  if guardCtx chainweb219Pact txCtx
   then CensorsUnexpectedError
   else PrintsUnexpectedError
 
@@ -219,10 +218,10 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     isModuleNameFix = enableModuleNameFix v cid currHeight
     isModuleNameFix2 = enableModuleNameFix2 v cid currHeight
     isPactBackCompatV16 = pactBackCompat_v16 v cid currHeight
-    chainweb213Pact' = chainweb213Pact v cid currHeight
-    chainweb217Pact' = chainweb217Pact v cid currHeight
-    chainweb219Pact' = chainweb219Pact v cid currHeight
-    chainweb223Pact' = chainweb223Pact v cid currHeight
+    chainweb213Pact' = guardCtx chainweb213Pact txCtx
+    chainweb217Pact' = guardCtx chainweb217Pact txCtx
+    chainweb219Pact' = guardCtx chainweb219Pact txCtx
+    chainweb223Pact' = guardCtx chainweb223Pact txCtx
     allVerifiers = verifiersAt v cid currHeight
     toEmptyPactError (PactError errty _ _ _) = PactError errty def [] mempty
 
@@ -469,10 +468,17 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
           logs <- use txLogs
 
           return $! T2
-            (CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
-              (_erGas er) (Just logs) (_erExec er) Nothing (_erEvents er))
+            CommandResult
+              { _crReqKey = rk
+              , _crTxId = _erTxId er
+              , _crResult = PactResult (Right (last (_erOutput er)))
+              , _crGas = _erGas er
+              , _crLogs = Just logs
+              , _crContinuation = _erExec er
+              , _crMetaData = Nothing
+              , _crEvents = _erEvents er
+              }
             upgradedModuleCache
-
 
 applyLocal
     :: (Logger logger)
@@ -543,27 +549,20 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
 
     go = checkTooBigTx gas0 gasLimit (applyVerifiers $ _pPayload $ _cmdPayload cmd) return
 
-
 readInitModules
-    :: forall logger p. (Logger logger)
-    => logger
-      -- ^ Pact logger
-    -> PactDbEnv p
-      -- ^ Pact db environment
-    -> TxContext
-      -- ^ tx metadata and parent header
-    -> IO ModuleCache
-readInitModules logger dbEnv txCtx
-    | chainweb217Pact' = evalTransactionM tenv txst goCw217
-    | otherwise = evalTransactionM tenv txst go
-  where
-    -- guarding chainweb 2.17 here to allow for
-    -- cache purging everything but coin and its
-    -- dependencies.
-    chainweb217Pact' = chainweb217Pact
-      (ctxVersion txCtx)
-      (ctxChainId txCtx)
-      (ctxCurrentBlockHeight txCtx)
+    :: forall logger tbl. (Logger logger)
+    => PactBlockM logger tbl ModuleCache
+readInitModules = do
+  logger <- view (psServiceEnv . psLogger)
+  dbEnv <- _cpPactDbEnv <$> view psBlockDbEnv
+  txCtx <- getTxContext def
+
+  -- guarding chainweb 2.17 here to allow for
+  -- cache purging everything but coin and its
+  -- dependencies.
+  let
+    chainweb217Pact' = guardCtx chainweb217Pact txCtx
+    chainweb224Pact' = guardCtx chainweb224Pact txCtx
 
     parent = _tcParentHeader txCtx
     v = ctxVersion txCtx
@@ -628,6 +627,10 @@ readInitModules logger dbEnv txCtx
       coinDepCmd <- liftIO $ mkCmd "coin.MINIMUM_PRECISION"
       void $ run "load modules" coinDepCmd
       use txCache
+
+  if | chainweb224Pact' -> pure mempty
+     | chainweb217Pact' -> liftIO $ evalTransactionM tenv txst goCw217
+     | otherwise -> liftIO $ evalTransactionM tenv txst go
 
 -- | Apply (forking) upgrade transactions and module cache updates
 -- at a particular blockheight.
@@ -1148,9 +1151,9 @@ setModuleCache mcache es =
 --
 setTxResultState :: EvalResult -> TransactionM logger db ()
 setTxResultState er = do
-    txLogs <>= (_erLogs er)
+    txLogs <>= _erLogs er
     txCache .= moduleCacheFromHashMap (_erLoadedModules er)
-    txGasUsed .= (_erGas er)
+    txGasUsed .= _erGas er
 {-# INLINE setTxResultState #-}
 
 -- | Make an 'EvalEnv' given a tx env + state
@@ -1244,7 +1247,6 @@ debug s = do
     l <- view txLogger
     rk <- view txRequestKey
     logDebug_ l $ s <> ": " <> sshow rk
-
 
 -- | Denotes fatal failure points in the tx exec process
 --

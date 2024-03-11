@@ -51,7 +51,6 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Primitive (PrimState)
 
-import Data.Default (def)
 import qualified Data.DList as DL
 import Data.Either
 import Data.Foldable (toList)
@@ -249,10 +248,7 @@ initializeCoinContract memPoolAccess v cid pwo = do
         -- cheap. We could also check the height but that would be redundant.
         if _blockHash (_parentHeader currentBlockHeader) /= _blockHash genesisHeader
         then do
-          logger <- view psLogger
-          !mc <- liftIO $ _cpReadFrom (_cpReadCp cp) (Just currentBlockHeader) $ \pdbenv -> do
-            let pd = TxContext currentBlockHeader def
-            readInitModules logger (_cpPactDbEnv pdbenv) pd
+          !mc <- readFrom (Just currentBlockHeader) readInitModules
           updateInitCache mc currentBlockHeader
         else do
           logWarn "initializeCoinContract: Starting from genesis."
@@ -744,7 +740,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                 -- specified, we run the old behavior. When it is set to true, we also do metadata
                 -- validations.
                 --
-                r <- case preflight of
+                case preflight of
                   Just PreflightSimulation -> do
                     liftPactServiceM (assertLocalMetadata cmd ctx sigVerify) >>= \case
                       Right{} -> do
@@ -772,8 +768,6 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
 
                     let cr' = toHashCommandResult cr
                     pure $ LocalResultLegacy cr'
-
-                return r
 
     case timeoutLimit of
       Nothing -> act
@@ -1076,7 +1070,7 @@ chainweb213GasModel = modifiedGasModel
 
 getGasModel :: TxContext -> P.GasModel
 getGasModel ctx
-    | chainweb213Pact (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx) = chainweb213GasModel
+    | guardCtx chainweb213Pact ctx = chainweb213GasModel
     | otherwise = freeModuleLoadGasModel
 
 pactLabel :: (Logger logger) => Text -> PactServiceM logger tbl x -> PactServiceM logger tbl x
