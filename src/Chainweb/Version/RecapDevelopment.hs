@@ -117,4 +117,5 @@ recapDevnet = ChainwebVersion
         }
     , _versionVerifierPluginNames = AllChains $ (600, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
         End mempty
+    , _versionQuirks = noQuirks
     }

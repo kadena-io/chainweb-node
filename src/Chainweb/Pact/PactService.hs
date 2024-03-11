@@ -992,7 +992,7 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                   [ P.FlagDisableModuleInstall
                   , P.FlagDisableHistoryInTransactionalMode ] ++
                   disableReturnRTC (_chainwebVersion pd) (_chainId pd) (ctxCurrentBlockHeight pd)
-            return $! TransactionEnv P.Transactional (_cpPactDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gp rk gl ec
+            return $! TransactionEnv P.Transactional (_cpPactDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gp rk gl ec Nothing
           where
             !nid = networkIdOf cmd
             !rk = P.cmdToRequestKey cmd

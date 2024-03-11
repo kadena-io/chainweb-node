@@ -22,6 +22,7 @@ import Chainweb.Utils.Rule
 import Chainweb.Version
 import P2P.BootstrapNodes
 
+import Pact.Types.Runtime (Gas(..))
 import Pact.Types.Verifier
 
 import qualified Chainweb.BlockHeader.Genesis.Mainnet0Payload as MN0
@@ -211,4 +212,9 @@ mainnet = ChainwebVersion
         }
     , _versionVerifierPluginNames = AllChains $ (4_577_530, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
         End mempty
+    , _versionQuirks = VersionQuirks
+        { _quirkGasFees = HM.fromList
+            [ (fromJuste (decodeStrictOrThrow' "\"s9fUspNaCHoV4rNI-Tw-JYU1DxqZAOXS-80oEy7Zfbo\""), Gas 67618)
+            ]
+        }
     }
