@@ -92,18 +92,13 @@ makeLenses ''MultiEnv
 
 type PactTestM = ReaderT MultiEnv IO
 
-data MempoolInput = MempoolInput
-    { _miBlockFill :: BlockFill
-    , _miBlockHeader :: BlockHeader
-    }
-
 newtype MempoolCmdBuilder = MempoolCmdBuilder
-    { _mempoolCmdBuilder :: MempoolInput -> CmdBuilder
+    { _mempoolCmdBuilder :: BlockHeader -> CmdBuilder
     }
 
 -- | Block filler. A 'Nothing' result means "skip this filler".
 newtype MempoolBlock = MempoolBlock
-    { _mempoolBlock :: MempoolInput -> Maybe [MempoolCmdBuilder]
+    { _mempoolBlock :: BlockHeader -> Maybe [MempoolCmdBuilder]
     }
 
 -- | Mempool with an ordered list of fillers.
@@ -1472,32 +1467,31 @@ setPactMempool (PactMempool fs) = do
   mpsRef <- liftIO $ newIORef fs
   badTxs <- liftIO $ newIORef Set.empty
   setMempool mpa $ mempty {
-    mpaGetBlock = go mpsRef,
+    mpaGetBlock = \_ -> go mpsRef,
     mpaBadlistTx = \txs -> modifyIORef' badTxs (\hashes -> foldr Set.insert hashes txs)
   }
   pure badTxs
   where
-    go ref bf mempoolPreBlockCheck bHeight bHash blockHeader = do
+    go ref mempoolPreBlockCheck bHeight bHash blockHeader = do
       mps <- readIORef ref
-      let mi = MempoolInput bf blockHeader
-          runMps i = \case
+      let runMps i = \case
             [] -> return mempty
-            (mp:r) -> case _mempoolBlock mp mi of
+            (mp:r) -> case _mempoolBlock mp blockHeader of
               Just bs -> do
                 writeIORef ref (take i mps ++ r)
                 cmds <- fmap V.fromList $ forM bs $ \b ->
-                  buildCwCmd (sshow blockHeader) testVersion $ _mempoolCmdBuilder b mi
+                  buildCwCmd (sshow blockHeader) testVersion $ _mempoolCmdBuilder b blockHeader
                 validationResults <- mempoolPreBlockCheck bHeight bHash cmds
                 return $ fmap fst $ V.filter snd (V.zip cmds validationResults)
               Nothing -> runMps (succ i) r
       runMps 0 mps
 
-filterBlock :: (MempoolInput -> Bool) -> MempoolBlock -> MempoolBlock
+filterBlock :: (BlockHeader -> Bool) -> MempoolBlock -> MempoolBlock
 filterBlock f (MempoolBlock b) = MempoolBlock $ \mi ->
   if f mi then b mi else Nothing
 
 blockForChain :: ChainId -> MempoolBlock -> MempoolBlock
-blockForChain chid = filterBlock $ \(MempoolInput _ bh) ->
+blockForChain chid = filterBlock $ \bh ->
   _blockChainId bh == chid
 
 runCut' :: PactTestM ()
@@ -1625,7 +1619,7 @@ runToHeight bhi = do
     runToHeight bhi
 
 buildXSend :: [SigCapability] -> MempoolCmdBuilder
-buildXSend caps = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+buildXSend caps = MempoolCmdBuilder $ \bh ->
   set cbSigners [mkEd25519Signer' sender00 caps]
   $ setFromHeader bh
   $ set cbRPC
@@ -1696,7 +1690,7 @@ buildBasic'
     :: (CmdBuilder -> CmdBuilder)
     -> PactRPC T.Text
     -> MempoolCmdBuilder
-buildBasic' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+buildBasic' f r = MempoolCmdBuilder $ \bh ->
   f $ signSender00
   $ setFromHeader bh
   $ set cbRPC r
@@ -1706,7 +1700,7 @@ buildBasicWebAuthnBareSigner'
     :: (CmdBuilder -> CmdBuilder)
     -> PactRPC T.Text
     -> MempoolCmdBuilder
-buildBasicWebAuthnBareSigner' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+buildBasicWebAuthnBareSigner' f r = MempoolCmdBuilder $ \bh ->
   f $ signWebAuthn00
   $ setFromHeader bh
   $ set cbRPC r
@@ -1716,7 +1710,7 @@ buildBasicWebAuthnPrefixedSigner'
     :: (CmdBuilder -> CmdBuilder)
     -> PactRPC T.Text
     -> MempoolCmdBuilder
-buildBasicWebAuthnPrefixedSigner' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+buildBasicWebAuthnPrefixedSigner' f r = MempoolCmdBuilder $ \bh ->
   f $ signWebAuthn00Prefixed
   $ setFromHeader bh
   $ set cbRPC r
