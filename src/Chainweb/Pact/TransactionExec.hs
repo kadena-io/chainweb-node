@@ -197,6 +197,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       | chainweb217Pact' = gasModel
       | otherwise = _geGasModel freeGasEnv
     txst = TransactionState mcache0 mempty 0 Nothing stGasModel mempty
+    quirkGasFee = v ^? versionQuirks . quirkGasFees . ix requestKey
 
     executionConfigNoHistory = ExecutionConfig
       $ S.singleton FlagDisableHistoryInTransactionalMode
@@ -207,7 +208,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       <> flagsFor v (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
 
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
-      requestKey (fromIntegral gasLimit) executionConfigNoHistory
+      requestKey (fromIntegral gasLimit) executionConfigNoHistory quirkGasFee
 
     !requestKey = cmdToRequestKey cmd
     !gasPrice = view cmdGasPrice cmd
@@ -350,6 +351,7 @@ applyGenesisCmd logger dbEnv spv txCtx cmd =
           -- stuff so that we retain this power in genesis and upgrade txs even
           -- after the block height where pact4.4 is on.
           <> S.fromList [ FlagDisableInlineMemCheck, FlagDisablePact44 ]
+        , _txQuirkGasFee = Nothing
         }
     txst = TransactionState
         { _txCache = mempty
@@ -435,7 +437,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       , flagsFor v (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
       ]
     tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
-           Nothing 0.0 rk 0 ec
+           Nothing 0.0 rk 0 ec Nothing
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv) mempty
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     rk = RequestKey chash
@@ -503,7 +505,7 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     !gasPrice = view cmdGasPrice cmd
     !gasLimit = view cmdGasLimit cmd
     tenv = TransactionEnv Local dbEnv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
-           rk (fromIntegral gasLimit) execConfig
+           rk (fromIntegral gasLimit) execConfig Nothing
     txst = TransactionState mc mempty 0 Nothing gasModel mempty
     gas0 = initialGasOf (_cmdPayload cmdIn)
     cid = V._chainId txCtx
@@ -571,7 +573,7 @@ readInitModules logger dbEnv txCtx
     nid = Nothing
     chash = pactInitialHash
     tenv = TransactionEnv Local dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
-           rk 0 def
+           rk 0 def Nothing
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
     interp = defaultInterpreter
     die msg = throwM $ PactInternalError $ "readInitModules: " <> msg
@@ -799,16 +801,22 @@ applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs verifiersW
 
       setEnvGas initialGas eenv
 
-      er <- liftIO $! evalExec interp eenv parsedCode
+      evalResult <- liftIO $! evalExec interp eenv parsedCode
+      -- if we specified this transaction's gas fee manually as a "quirk",
+      -- here we set the result's gas fee to agree with that
+      quirkGasFee <- view txQuirkGasFee
+      let quirkedEvalResult = case quirkGasFee of
+            Nothing -> evalResult
+            Just fee -> evalResult { _erGas = fee }
 
-      for_ (_erExec er) $ \pe -> debug
+      for_ (_erExec quirkedEvalResult) $ \pe -> debug
         $ "applyExec: new pact added: "
         <> sshow (_pePactId pe, _peStep pe, _peYield pe, _peExecuted pe)
 
       -- set log + cache updates + used gas
-      setTxResultState er
+      setTxResultState quirkedEvalResult
 
-      return er
+      return quirkedEvalResult
 
 enablePactEvents' :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enablePactEvents' v cid bh = [FlagDisablePactEvents | not (enablePactEvents v cid bh)]
@@ -907,11 +915,17 @@ applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh ns
 
     setEnvGas initialGas eenv
 
-    er <- liftIO $! evalContinuation interp eenv cm
+    evalResult <- liftIO $! evalContinuation interp eenv cm
+    -- if we specified this transaction's gas fee manually as a "quirk",
+    -- here we set the result's gas fee to agree with that
+    quirkGasFee <- view txQuirkGasFee
+    let quirkedEvalResult = case quirkGasFee of
+          Nothing -> evalResult
+          Just fee -> evalResult { _erGas = fee }
 
-    setTxResultState er
+    setTxResultState quirkedEvalResult
 
-    return er
+    return quirkedEvalResult
   where
     pactStep = Just $ PactStep s rb pid Nothing
 
@@ -946,8 +960,10 @@ buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
             put (initState mc logGas) >> run (pure <$> eval buyGasTerm)
 
       -- no verifiers are allowed in buy gas
-      result <- applyExec' 0 (interp mcache) buyGasCmd
-        (_pSigners $ _cmdPayload cmd) [] bgHash managedNamespacePolicy
+      -- quirked gas is not used either
+      result <- locally txQuirkGasFee (const Nothing) $
+        applyExec' 0 (interp mcache) buyGasCmd
+          (_pSigners $ _cmdPayload cmd) [] bgHash managedNamespacePolicy
 
       case _erExec result of
         Nothing ->
@@ -1030,9 +1046,10 @@ redeemGas cmd = do
 
     fee <- gasSupplyOf <$> use txGasUsed <*> view txGasPrice
 
-    _crEvents <$> applyContinuation 0 (initState mcache) (redeemGasCmd fee gid)
-      (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
-      managedNamespacePolicy
+    fmap _crEvents $ locally txQuirkGasFee (const Nothing) $
+      applyContinuation 0 (initState mcache) (redeemGasCmd fee gid)
+        (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
+        managedNamespacePolicy
 
   where
     initState mc = initStateInterpreter

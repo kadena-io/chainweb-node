@@ -50,6 +50,9 @@ module Chainweb.Version
     , ChainwebVersion(..)
     , Upgrade(..)
     , upgrade
+    , VersionQuirks(..)
+    , noQuirks
+    , quirkGasFees
     , versionForks
     , versionBlockDelay
     , versionCheats
@@ -64,6 +67,7 @@ module Chainweb.Version
     , versionWindow
     , versionGenesis
     , versionVerifierPluginNames
+    , versionQuirks
     , genesisBlockPayload
     , genesisBlockPayloadHash
     , genesisBlockTarget
@@ -143,6 +147,9 @@ import GHC.Generics(Generic)
 import GHC.TypeLits
 
 -- internal modules
+
+import Pact.Types.Command (RequestKey)
+import Pact.Types.Runtime (Gas)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeight
@@ -321,6 +328,24 @@ data Upgrade = Upgrade
 upgrade :: [ChainwebTransaction] -> Upgrade
 upgrade txs = Upgrade txs False
 
+-- The type of quirks, i.e. special validation behaviors that are in some
+-- sense one-offs which can't be expressed as upgrade transactions and must be
+-- preserved.
+data VersionQuirks = VersionQuirks
+    { _quirkGasFees :: !(HashMap RequestKey Gas)
+      -- ^ Gas fee to charge at particular 'RequestKey's.
+      --   This should be 'MilliGas' once 'applyCmd' is refactored
+      --   to use 'MilliGas' instead of 'Gas'.
+      --   Note: only works for user txs in blocks right now.
+    }
+    deriving stock (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
+
+noQuirks :: VersionQuirks
+noQuirks = VersionQuirks
+    { _quirkGasFees = HM.empty
+    }
+
 -- | Chainweb versions are sets of properties that must remain consistent among
 -- all nodes on the same network. For examples see `Chainweb.Version.Mainnet`,
 -- `Chainweb.Version.Testnet`, `Chainweb.Version.RecapDevelopment`, and
@@ -374,6 +399,8 @@ data ChainwebVersion
         -- ^ Version-specific defaults that can be overridden elsewhere.
     , _versionVerifierPluginNames :: ChainMap (Rule BlockHeight (Set VerifierName))
         -- ^ Verifier plugins that can be run to verify transaction contents.
+    , _versionQuirks :: VersionQuirks
+        -- ^ Modifications to behavior at particular blockheights
     }
     deriving stock (Generic)
     deriving anyclass NFData
@@ -442,6 +469,7 @@ makeLensesWith (lensRules & generateLazyPatterns .~ True) 'ChainwebVersion
 makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionGenesis
 makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionCheats
 makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionDefaults
+makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionQuirks
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
 genesisBlockPayloadHash v cid = v ^?! versionGenesis . genesisBlockPayload . onChain cid . to _payloadWithOutputsPayloadHash

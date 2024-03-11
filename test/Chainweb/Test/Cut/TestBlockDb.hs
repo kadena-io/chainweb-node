@@ -45,6 +45,9 @@ data TestBlockDb = TestBlockDb
   , _bdbCut :: MVar Cut
   }
 
+instance HasChainwebVersion TestBlockDb where
+  _chainwebVersion = _chainwebVersion . _bdbWebBlockHeaderDb
+
 -- | Initialize TestBlockDb.
 withTestBlockDb :: ChainwebVersion -> (TestBlockDb -> IO a) -> IO a
 withTestBlockDb cv a = do

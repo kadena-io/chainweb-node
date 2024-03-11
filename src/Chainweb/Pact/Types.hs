@@ -62,6 +62,7 @@ module Chainweb.Pact.Types
   , txGasPrice
   , txRequestKey
   , txExecutionConfig
+  , txQuirkGasFee
 
     -- * Transaction Execution Monad
   , TransactionM(..)
@@ -335,6 +336,7 @@ data TransactionEnv logger db = TransactionEnv
     , _txRequestKey :: !RequestKey
     , _txGasLimit :: !Gas
     , _txExecutionConfig :: !ExecutionConfig
+    , _txQuirkGasFee :: !(Maybe Gas)
     }
 makeLenses ''TransactionEnv
 

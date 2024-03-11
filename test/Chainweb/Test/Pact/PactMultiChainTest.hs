@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -17,17 +18,19 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Data.Aeson (Value, object, (.=))
-import Data.List qualified as List
-import Data.Set (Set)
-import Data.Set qualified as Set
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.List(isPrefixOf)
+import Data.List qualified as List
+import Data.Maybe
+import Data.Set (Set)
+import Data.Set qualified as Set
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Test.Tasty
 import Test.Tasty.HUnit
+import System.IO.Unsafe
 import System.Logger qualified as YAL
 import System.LogLevel
 
@@ -36,6 +39,7 @@ import System.LogLevel
 import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Continuation
+import Pact.Types.Gas
 import Pact.Types.Hash
 import Pact.Types.Lang(_LString)
 import Pact.Types.PactError
@@ -68,12 +72,16 @@ import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Registry
 import Chainweb.WebPactExecutionService
 
 import Chainweb.Payload.PayloadStore (lookupPayloadWithHeight)
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion peterson
+
+quirkedGasTestVersion :: RequestKey -> ChainwebVersion
+quirkedGasTestVersion = quirkedGasSlowForkingCpmTestVersion peterson
 
 cid :: ChainId
 cid = unsafeChainId 9
@@ -87,6 +95,9 @@ data MultiEnv = MultiEnv
     , _menvMiner :: !Miner
     , _menvChainId :: !ChainId
     }
+
+instance HasChainwebVersion MultiEnv where
+    _chainwebVersion = _chainwebVersion . _menvBdb
 
 makeLenses ''MultiEnv
 
@@ -135,6 +146,7 @@ tests = testGroup testName
   , test generousConfig getGasModel "chainweb223Test" chainweb223Test
   , test generousConfig getGasModel "compactAndSyncTest" compactAndSyncTest
   , test generousConfig getGasModel "compactionCompactsUnmodifiedTables" compactionCompactsUnmodifiedTables
+  , quirkTest
   ]
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
@@ -538,8 +550,8 @@ chainweb215Test = do
       , testsToBlock chain0 blockRecv42
       ]
   runCut'
-  withChain cid $ runBlockTests blockSend42
-  withChain chain0 $ runBlockTests blockRecv42
+  withChain cid $ testCurrentBlock blockSend42
+  withChain chain0 $ testCurrentBlock blockRecv42
 
   send1 <- withChain cid $ txResult 0
 
@@ -1330,6 +1342,57 @@ compactionCompactsUnmodifiedTables = do
   -- due to a duplicate row
   syncTo afterWrite
 
+quirkTest :: TestTree
+quirkTest = do
+  -- fake stand-in for the request key of the quirked command, so that we can
+  -- construct the version without knowing the request key of the command
+  -- that will use the version.
+  -- TODO: make this nicer once MempoolCmdBuilder is gone.
+  let fakeReqKey = RequestKey (Hash mempty)
+  let fakeVersion = quirkedGasTestVersion fakeReqKey
+  let genesisHeader = genesisBlockHeader fakeVersion cid
+  let mempoolCmdBuilder =
+        buildBasic (mkExec' "(+ 1 2)")
+  -- this is how setPactMempool builds the commands
+  -- we fake the header here to ensure the request key is consistent later on
+  let cmd = unsafeDupablePerformIO $
+        buildCwCmd
+          (sshow genesisHeader)
+          fakeVersion
+          (_mempoolCmdBuilder mempoolCmdBuilder genesisHeader)
+  -- once we have the request key, we can make it a quirk in the version
+  -- we use to actually run the command.
+  let !realReqKey = RequestKey (toUntypedHash $ _cmdHash cmd)
+  let realVersion = quirkedGasTestVersion realReqKey
+  -- we have to unregister the already registered fake version in order
+  -- for the real quirked version to be in the registry when we validate
+  -- blocks
+  withResource (unregisterVersion fakeVersion >> registerVersion realVersion) (\_ -> pure ()) $ \_ ->
+    withDelegateMempool $ \dmpio -> testCaseSteps "quirkTest" $ \step ->
+      withTestBlockDb realVersion $ \bdb -> do
+        (iompa,mpa) <- dmpio
+        let logger = hunitDummyLogger step
+        withWebPactExecutionService logger realVersion testPactServiceConfig bdb mpa getGasModel $ \(pact,pacts) ->
+          flip runReaderT (MultiEnv bdb pact pacts (return iompa) noMiner cid) $ do
+            runToHeight 99
+
+            -- run the command once without it being quirked, to establish
+            -- a baseline gas value
+            runBlockTest
+              [ PactTxTest mempoolCmdBuilder $
+                assertTxGas "not-quirked gas" 230
+              ]
+            -- run the command quirked, with the previously calculated request
+            -- key realReqKey, and assert that the gas has been changed
+            let quirkedTests =
+                  [ PactTxTest mempoolCmdBuilder $
+                    \cr -> assertTxGas "quirked gas" 1 cr
+                  ]
+            void $ setPactMempool' (Just genesisHeader)
+              $ PactMempool [testsToBlock cid quirkedTests]
+            runCut'
+            testCurrentBlock quirkedTests
+
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
 
@@ -1413,10 +1476,10 @@ pact4coin3UpgradeTest = do
       ]
   runCut'
   withChain cid $ do
-    runBlockTests block22
+    testCurrentBlock block22
     cbEv <- mkTransferEvent "" "NoMiner" 2.304523 "coin" v3Hash
     assertTxEvents "Coinbase events @ block 22" [cbEv] =<< cbResult
-  withChain chain0 $ runBlockTests block22_0
+  withChain chain0 $ testCurrentBlock block22_0
 
   -- rewind to savedCut (cut 18)
   syncTo savedCut
@@ -1462,25 +1525,30 @@ pact4coin3UpgradeTest = do
 -- (returning a 'Just' result) is executed and removed from the list.
 -- Fillers are tested in order.
 setPactMempool :: PactMempool -> PactTestM (IORef (Set TransactionHash))
-setPactMempool (PactMempool fs) = do
+setPactMempool = setPactMempool' Nothing
+
+setPactMempool' :: Maybe BlockHeader -> PactMempool -> PactTestM (IORef (Set TransactionHash))
+setPactMempool' fakeParentBh (PactMempool fs) = do
   mpa <- view menvMpa
   mpsRef <- liftIO $ newIORef fs
   badTxs <- liftIO $ newIORef Set.empty
+  v <- view chainwebVersion
   setMempool mpa $ mempty {
-    mpaGetBlock = \_ -> go mpsRef,
+    mpaGetBlock = \_ -> go v mpsRef,
     mpaBadlistTx = \txs -> modifyIORef' badTxs (\hashes -> foldr Set.insert hashes txs)
   }
   pure badTxs
   where
-    go ref mempoolPreBlockCheck bHeight bHash blockHeader = do
+    go v ref mempoolPreBlockCheck bHeight bHash blockHeader = do
       mps <- readIORef ref
       let runMps i = \case
             [] -> return mempty
             (mp:r) -> case _mempoolBlock mp blockHeader of
               Just bs -> do
                 writeIORef ref (take i mps ++ r)
+                let parentBh = fromMaybe blockHeader fakeParentBh
                 cmds <- fmap V.fromList $ forM bs $ \b ->
-                  buildCwCmd (sshow blockHeader) testVersion $ _mempoolCmdBuilder b blockHeader
+                  buildCwCmd (sshow parentBh) v $ _mempoolCmdBuilder b parentBh
                 validationResults <- mempoolPreBlockCheck bHeight bHash cmds
                 return $ fmap fst $ V.filter snd (V.zip cmds validationResults)
               Nothing -> runMps (succ i) r
@@ -1582,7 +1650,7 @@ runBlockTest pts = do
   chid <- view menvChainId
   void $ setPactMempool $ PactMempool [testsToBlock chid pts]
   runCut'
-  runBlockTests pts
+  testCurrentBlock pts
 
 -- | Convert tests to block for specified chain.
 testsToBlock :: ChainId -> [PactTxTest] -> MempoolBlock
@@ -1600,8 +1668,8 @@ expectInvalid msg pts = do
   liftIO $ assertEqual msg mempty rs
 
 -- | Run tests on current cut and chain.
-runBlockTests :: HasCallStack => [PactTxTest] -> PactTestM ()
-runBlockTests pts = do
+testCurrentBlock :: HasCallStack => [PactTxTest] -> PactTestM ()
+testCurrentBlock pts = do
   rs <- txResults
   liftIO $ assertEqual "Result length should equal transaction length" (length pts) (length rs)
   zipWithM_ go pts (V.toList rs)
