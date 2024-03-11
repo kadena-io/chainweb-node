@@ -80,18 +80,13 @@ makeLenses ''MultiEnv
 
 type PactTestM = ReaderT MultiEnv IO
 
-data MempoolInput = MempoolInput
-    { _miBlockFill :: BlockFill
-    , _miBlockHeader :: BlockHeader
-    }
-
 newtype MempoolCmdBuilder = MempoolCmdBuilder
-    { _mempoolCmdBuilder :: MempoolInput -> CmdBuilder
+    { _mempoolCmdBuilder :: BlockHeader -> CmdBuilder
     }
 
 -- | Block filler. A 'Nothing' result means "skip this filler".
 newtype MempoolBlock = MempoolBlock
-    { _mempoolBlock :: MempoolInput -> Maybe [MempoolCmdBuilder]
+    { _mempoolBlock :: BlockHeader -> Maybe [MempoolCmdBuilder]
     }
 
 -- | Mempool with an ordered list of fillers.
@@ -663,30 +658,29 @@ setPactMempool (PactMempool fs) = do
   mpa <- view menvMpa
   mpsRef <- liftIO $ newIORef fs
   setMempool mpa $ mempty {
-    mpaGetBlock = go mpsRef
+    mpaGetBlock = \_ -> go mpsRef
     }
   where
-    go ref bf mempoolPreBlockCheck bHeight bHash blockHeader = do
+    go ref mempoolPreBlockCheck bHeight bHash blockHeader = do
       mps <- readIORef ref
-      let mi = MempoolInput bf blockHeader
-          runMps i = \case
+      let runMps i = \case
             [] -> return mempty
-            (mp:r) -> case _mempoolBlock mp mi of
+            (mp:r) -> case _mempoolBlock mp blockHeader of
               Just bs -> do
                 writeIORef ref (take i mps ++ r)
                 cmds <- fmap V.fromList $ forM bs $ \b ->
-                  buildCwCmd (sshow blockHeader) testVersion $ _mempoolCmdBuilder b mi
+                  buildCwCmd (sshow blockHeader) testVersion $ _mempoolCmdBuilder b blockHeader
                 validationResults <- mempoolPreBlockCheck bHeight bHash cmds
                 return $ fmap fst $ V.filter snd (V.zip cmds validationResults)
               Nothing -> runMps (succ i) r
       runMps 0 mps
 
-filterBlock :: (MempoolInput -> Bool) -> MempoolBlock -> MempoolBlock
+filterBlock :: (BlockHeader -> Bool) -> MempoolBlock -> MempoolBlock
 filterBlock f (MempoolBlock b) = MempoolBlock $ \mi ->
   if f mi then b mi else Nothing
 
 blockForChain :: ChainId -> MempoolBlock -> MempoolBlock
-blockForChain chid = filterBlock $ \(MempoolInput _ bh) ->
+blockForChain chid = filterBlock $ \bh ->
   _blockChainId bh == chid
 
 runCut' :: PactTestM ()
@@ -771,7 +765,7 @@ buildBasic'
     :: (CmdBuilder -> CmdBuilder)
     -> PactRPC T.Text
     -> MempoolCmdBuilder
-buildBasic' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+buildBasic' f r = MempoolCmdBuilder $ \bh ->
   f $ signSender00
   $ setFromHeader bh
   $ set cbRPC r
@@ -797,4 +791,3 @@ txResults = do
   (o,_h) <- getPWO chid
   forM (_payloadWithOutputsTransactions o) $ \(_,txo) ->
     decodeStrictOrThrow @_ @(CommandResult Hash) (_transactionOutputBytes txo)
-
