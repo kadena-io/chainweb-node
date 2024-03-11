@@ -338,8 +338,17 @@ library
         , Utils.Logging.Config
         , Utils.Logging.Trace
 
+        , Script
+
     build-depends:
           Decimal >= 0.4.2
+
+        , req
+        , lens-aeson
+        , colonnade
+        , siphon
+        , profunctors
+
         , aeson >= 2.2
         , asn1-encoding >=0.9
         , asn1-types >=0.3
