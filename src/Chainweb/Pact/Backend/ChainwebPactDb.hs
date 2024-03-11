@@ -537,6 +537,7 @@ doCreateUserTable mbh tn@(TableName ttxt) mn = do
     txlogs = DL.singleton $ encodeTxLog $ TxLog txlogKey stn uti
 {-# INLINE doCreateUserTable #-}
 
+-- TODO: why doesn't this `succ bsTxId`?
 doRollback :: BlockHandler logger SQLiteEnv ()
 doRollback = modify'
     $ set bsMode Nothing

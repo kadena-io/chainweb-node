@@ -414,6 +414,17 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
   gasLogger <- view (psServiceEnv . psGasLogger)
   gasModel <- view (psServiceEnv . psGasModel)
   v <- view chainwebVersion
+
+  let !hsh = P._cmdHash cmd
+  txCtx <- getTxContext (publicMetaOf (payloadObj <$> cmd))
+  let quirkGasOffset :: P.Gas
+      quirkGasOffset = v
+        ^. versionQuirks
+        . onChain (ctxChainId txCtx)
+        . ix (ctxCurrentBlockHeight txCtx)
+        . quirkGasOffsets
+        . ix (P.RequestKey (P.toUntypedHash hsh))
+
   let
     onBuyGasFailure e
       | Just (BuyGasFailure f) <- fromException e = pure $! (Left (CommandInvalidGasPurchaseFailure f), T2 mcache maybeBlockGasRemaining)
@@ -431,12 +442,11 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
       Just blockGasRemaining -> min (fromIntegral (succ blockGasRemaining)) requestedTxGasLimit
     gasLimitedCmd =
       set cmdGasLimit newTxGasLimit (payloadObj <$> cmd)
-    initialGas = initialGasOf (P._cmdPayload cmd)
-  let !hsh = P._cmdHash cmd
+    initialGas = initialGasOf (P._cmdPayload cmd) <> quirkGasOffset
 
   handle onBuyGasFailure $ do
     T2 result mcache' <- do
-      txCtx <- getTxContext (publicMetaOf gasLimitedCmd)
+      --txCtx <- getTxContext (publicMetaOf gasLimitedCmd)
       if isGenesis
       then liftIO $! applyGenesisCmd logger (_cpPactDbEnv env) P.noSPVSupport txCtx gasLimitedCmd
       else do

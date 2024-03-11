@@ -60,4 +60,5 @@ devnet = ChainwebVersion
         , _disableMempoolSync = False
         }
     , _versionVerifierPluginNames = AllChains $ (End $ Set.fromList $ map VerifierName ["hyperlane_v3_message"])
+    , _versionQuirks = onChains []
     }

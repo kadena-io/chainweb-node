@@ -50,6 +50,8 @@ module Chainweb.Version
     , ChainwebVersion(..)
     , Upgrade(..)
     , upgrade
+    , Quirks(..)
+    , quirkGasOffsets
     , versionForks
     , versionBlockDelay
     , versionCheats
@@ -64,6 +66,7 @@ module Chainweb.Version
     , versionWindow
     , versionGenesis
     , versionVerifierPluginNames
+    , versionQuirks
     , genesisBlockPayload
     , genesisBlockPayloadHash
     , genesisBlockTarget
@@ -143,6 +146,9 @@ import GHC.Generics(Generic)
 import GHC.TypeLits
 
 -- internal modules
+
+import Pact.Types.Command (RequestKey)
+import Pact.Types.Runtime (Gas)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeight
@@ -321,6 +327,15 @@ data Upgrade = Upgrade
 upgrade :: [ChainwebTransaction] -> Upgrade
 upgrade txs = Upgrade txs False
 
+data Quirks = Quirks
+  { _quirkGasOffsets :: !(HashMap RequestKey Gas)
+    -- ^ Gas to change at particular 'RequestKey's.
+    --   This should be 'MilliGas' once 'applyCmd' is refactored
+    --   to use 'MilliGas' instead of 'Gas'.
+  }
+  deriving stock (Eq, Ord, Generic)
+  deriving anyclass (NFData)
+
 -- | Chainweb versions are sets of properties that must remain consistent among
 -- all nodes on the same network. For examples see `Chainweb.Version.Mainnet`,
 -- `Chainweb.Version.Testnet`, `Chainweb.Version.RecapDevelopment`, and
@@ -374,6 +389,8 @@ data ChainwebVersion
         -- ^ Version-specific defaults that can be overridden elsewhere.
     , _versionVerifierPluginNames :: ChainMap (Rule BlockHeight (Set VerifierName))
         -- ^ Verifier plugins that can be run to verify transaction contents.
+    , _versionQuirks :: ChainMap (HashMap BlockHeight Quirks)
+        -- ^ Modifications to behavior at particular blockheights
     }
     deriving stock (Generic)
     deriving anyclass NFData
@@ -589,3 +606,5 @@ latestBehaviorAt v = foldlOf' behaviorChanges max 0 v + 1
         , versionUpgrades . folded . ifolded . asIndex
         , versionGraphs . to ruleHead . _1 . _Just
         ]
+
+makeLenses ''Quirks
