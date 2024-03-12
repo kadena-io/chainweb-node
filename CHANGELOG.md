@@ -1,12 +1,20 @@
 # `chainweb-node` Changelog
 
-## 2.23.1 (2023-03-XX)
-This version replaces all previous versions. Any prior version will stop working
-on **2024-03-06T00:00:00Z**. Node administrators must upgrade to this version
-before that date. The 2.23 feature upgrade will occur at block height 4,577,530
-which is estimated to be mined at **2024-03-07T00:00:00Z**.
+## 2.23.2 (2023-03-13)
+This is a minor point release. Upgrading is recommended.
 
-This version will expire on **2024-05-29T00:00:00Z**.
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+- Fix catchup for nodes started at blocks before the service date (#1860)
+
+Internal changes:
+- Fix a small internal bug in the new read-only checkpointer (#1857)
+- Fix a small bug in compaction tests, causing flakiness (#1855)
+
+## 2.23.1 (2023-03-08)
+This is a minor point release. Mining nodes should be upgraded as soon as
+possible; for other nodes, upgrading is recommended.
 
 To upgrade, pull the latest docker image or download the binary and restart the node.
 
