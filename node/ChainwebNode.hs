@@ -339,7 +339,7 @@ node conf logger = do
     pactDbDir <- getPactDbDir conf
     dbBackupsDir <- getBackupsDir conf
     withRocksDb' <-
-        if _configOnlySyncPact cwConf
+        if _configOnlySyncPact cwConf || _configReadOnlyReplay cwConf
         then
             if _cutPruneChainDatabase (_configCuts cwConf) == GcNone
             then withReadOnlyRocksDb <$ logFunctionText logger Info "Opening RocksDB in read-only mode"
