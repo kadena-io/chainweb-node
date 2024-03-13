@@ -250,8 +250,8 @@ markValidatedInMem logger tcfg lock txs = withMVarMasked lock $ \mdata -> do
     x <- readIORef curTxIdxRef
     !x' <- currentTxsInsertBatch x (V.zip expiries hashes)
     when (currentTxsSize x /= currentTxsSize x') $ do
-      logg Info $ "previous current tx index size: " <> sshow (currentTxsSize x)
-      logg Info $ "new current tx index size: " <> sshow (currentTxsSize x')
+      logg Debug $ "previous current tx index size: " <> sshow (currentTxsSize x)
+      logg Debug $ "new current tx index size: " <> sshow (currentTxsSize x')
     writeIORef curTxIdxRef x'
   where
     hashes = txHasher tcfg <$> txs
