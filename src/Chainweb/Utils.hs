@@ -1242,6 +1242,13 @@ thd (_,_,c) = c
 data T2 a b = T2 !a !b
     deriving (Show, Eq, Ord, Generic, NFData, Functor)
 
+instance (Semigroup a, Semigroup b) => Semigroup (T2 a b) where
+    T2 a b <> T2 a' b' = T2 (a <> a') (b <> b')
+
+instance (Monoid a, Monoid b) => Monoid (T2 a b) where
+    mappend = (<>)
+    mempty = T2 mempty mempty
+
 instance Bifunctor T2 where
     bimap f g (T2 a b) =  T2 (f a) (g b)
     {-# INLINE bimap #-}
