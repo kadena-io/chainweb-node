@@ -59,6 +59,7 @@ import Data.IORef
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Maybe
+import Data.Monoid
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -849,13 +850,13 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
                     let forkStartHeight = maybe (genesisHeight v cid) (succ . _blockHeight) commonAncestor
                     in getBranchIncreasing bhdb parentHeaderOfHeaderToValidate (fromIntegral forkStartHeight) kont
 
-        (numBlocksExecuted, results) <-
+        ((), T2 results numForkBlocksPlayed) <-
             withPactState $ \runPact ->
                 withForkBlockStream $ \forkBlockHeaders -> do
 
                     -- given a header for a block in the fork, fetch its payload
                     -- and run its transactions, validating its hashes
-                    let runForkBlockHeader forkBh = do
+                    let runForkBlockHeaders = Stream.map (\forkBh -> do
                             payload <- liftIO $ lookupPayloadWithHeight payloadDb (Just $ _blockHeight forkBh) (_blockPayloadHash forkBh) >>= \case
                                 Nothing -> throwM $ PactInternalError
                                     $ "execValidateBlock: lookup of payload failed"
@@ -863,23 +864,28 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
                                     <> ". Block: " <> encodeToText (ObjectEncoded forkBh)
                                 Just x -> return $ payloadWithOutputsToPayloadData x
                             void $ execBlock forkBh payload
-                            return ([], forkBh)
+                            return (T2 [] (Sum (1 :: Word)), forkBh)
+                            ) forkBlockHeaders
 
                     -- run the new block, the one we're validating, and
                     -- validate its hashes
-                    let runThisBlock = do
-                            !r <- execBlock headerToValidate payloadToValidate
-                            return ([r], headerToValidate)
+                    let runThisBlock = Stream.yield $ do
+                            !output <- execBlock headerToValidate payloadToValidate
+                            return (T2 [output] (Sum (0 :: Word)), headerToValidate)
 
                     -- here we rewind to the common ancestor block, run the
                     -- transactions in all of its child blocks until the parent
                     -- of the block we're validating, then run the block we're
                     -- validating.
-                    runPact $ restoreAndSave (ParentHeader <$> commonAncestor) $ do
-                        forkBlockHeaders & Stream.map runForkBlockHeader
-                        Stream.yield runThisBlock
-
-        logInfo $ "execValidateBlock: replayed " <> sshow numBlocksExecuted <> " blocks"
+                    runPact $ restoreAndSave
+                        (ParentHeader <$> commonAncestor)
+                        (runForkBlockHeaders >> runThisBlock)
+        let logPlayed =
+                -- we consider a fork of height 3 or more to be notable.
+                if numForkBlocksPlayed > 3
+                then logWarn
+                else logDebug
+        logPlayed $ "execValidateBlock: played " <> sshow numForkBlocksPlayed <> " fork blocks"
         (totalGasUsed, result) <- case results of
             [r] -> return r
             _ -> throwM $ PactInternalError "execValidateBlock: wrong number of block results returned from _cpRestoreAndSave."
