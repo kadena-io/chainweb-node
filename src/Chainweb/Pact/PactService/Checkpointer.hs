@@ -131,8 +131,8 @@ readFrom ph doRead = do
     pactParent <- getPactParent ph
     s <- get
     e <- ask
-    liftIO $ _cpReadFrom (_cpReadCp cp) ph $
-        (\dbenv -> evalPactServiceM s e $ runPactBlockM pactParent dbenv doRead)
+    liftIO $ _cpReadFrom (_cpReadCp cp) ph $ \dbenv ->
+      evalPactServiceM s e $ runPactBlockM pactParent dbenv doRead
 
 -- here we cheat, making the genesis block header's parent the genesis
 -- block header, only for Pact's information, *not* for the checkpointer;

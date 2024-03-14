@@ -96,6 +96,7 @@ module Chainweb.Pact.Types
   , ctxCurrentBlockHeight
   , ctxChainId
   , ctxVersion
+  , guardCtx
   , getTxContext
 
     -- * Pact Service State
@@ -585,6 +586,9 @@ ctxChainId = _blockChainId . ctxBlockHeader
 
 ctxVersion :: TxContext -> ChainwebVersion
 ctxVersion = _chainwebVersion . ctxBlockHeader
+
+guardCtx :: (ChainwebVersion -> ChainId -> BlockHeight -> a) -> TxContext -> a
+guardCtx g txCtx = g (ctxVersion txCtx) (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
 
 -- | Assemble tx context from transaction metadata and parent header.
 getTxContext :: PublicMeta -> PactBlockM logger tbl TxContext
