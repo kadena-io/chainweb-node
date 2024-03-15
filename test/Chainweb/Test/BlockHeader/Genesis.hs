@@ -29,6 +29,7 @@ import Test.Tasty.QuickCheck (testProperty, testProperties)
 
 import Chainweb.BlockHash (encodeBlockHash)
 import Chainweb.BlockHeader hiding (blockHash)
+import qualified Chainweb.BlockHeader
 import Chainweb.Difficulty
 import Chainweb.Test.Utils (golden)
 import Chainweb.Utils
@@ -57,7 +58,7 @@ blockHashes =
     BB.toLazyByteString . foldMap (hash . snd) . sortBy (compare `on` fst) . HM.toList
   where
     hash :: BlockHeader -> BB.Builder
-    hash = BB.byteString . B64U.encode . runPutS . encodeBlockHash . _blockHash
+    hash = BB.byteString . B64U.encode . runPutS . encodeBlockHash . view Chainweb.BlockHeader.blockHash
 
 blockHash :: ChainwebVersion -> TestTree
 blockHash v = golden (sshow v <> "-block-hashes") $

@@ -166,8 +166,8 @@ validate_cases msg testCases = testCase msg $ do
                     $ "Validation of test case " <> sshow i <> " failed with unexpected errors for BlockHeader"
                     <> ", expected: " <> sshow expectedErrs
                     <> ", actual: " <> sshow errs
-                    <> ", header: " <> sshow (_blockHash $ _testHeaderHdr h)
-                    <> ", height: " <> sshow (_blockHeight $ _testHeaderHdr h)
+                    <> ", header: " <> sshow (view blockHash $ _testHeaderHdr h)
+                    <> ", height: " <> sshow (view blockHeight $ _testHeaderHdr h)
                 | otherwise -> return ()
 
 -- -------------------------------------------------------------------------- --
@@ -194,7 +194,7 @@ validateTestHeader h = case try val of
     Right _ -> property True
     Left err -> throw err
   where
-    now = add second $ _bct $ _blockCreationTime $ _testHeaderHdr h
+    now = add second $ _bct $ view blockCreationTime $ _testHeaderHdr h
     val = validateBlockHeaderM now (testHeaderChainLookup h) (_testHeaderHdr h)
     verify :: [ValidationFailureType] -> Property
     verify es = L.delete IncorrectPow es === []
@@ -213,7 +213,7 @@ validationFailures =
     , ( hdr & testHeaderHdr . blockHash .~ nullBlockHash
       , [IncorrectHash]
       )
-    , ( hdr & testHeaderHdr . blockCreationTime .~ (_blockCreationTime . _parentHeader $ _testHeaderParent hdr)
+    , ( hdr & testHeaderHdr . blockCreationTime .~ (view blockCreationTime . _parentHeader $ _testHeaderParent hdr)
       , [IncorrectHash, IncorrectPow, CreatedBeforeParent]
       )
     , ( hdr & testHeaderHdr . blockHash %~ messWords encodeBlockHash decodeBlockHash (flip complementBit 0)

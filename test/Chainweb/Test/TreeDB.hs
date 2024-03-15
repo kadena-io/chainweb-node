@@ -18,7 +18,7 @@ module Chainweb.Test.TreeDB
 , properties
 ) where
 
-import Control.Lens (each, from, over, to, (^.), (^..), view)
+import Control.Lens (each, from, over, (^.), (^..), view)
 
 import Data.Bool (bool)
 import Data.Foldable (foldlM, toList)
@@ -217,7 +217,7 @@ maxRank_prop
     -> Property
 maxRank_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db _ -> do
     r <- maxRank db
-    let h = fromIntegral . maximum . (^.. each . isoBH . to _blockHeight) $ treeLeaves t
+    let h = fromIntegral . maximum . (^.. each . isoBH . blockHeight) $ treeLeaves t
     pure $ r == h
   where
     t :: Tree (DbEntry db)
@@ -234,8 +234,8 @@ entryOrder_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db _ -> do
     hs <- entries db Nothing Nothing Nothing Nothing $ P.toList_ . P.map (^. isoBH)
     pure . isJust $ foldlM g S.empty hs
   where
-    g acc h = let acc' = S.insert (_blockHash h) acc
-              in bool Nothing (Just acc') $ isGenesisBlockHeader h || S.member (_blockParent h) acc'
+    g acc h = let acc' = S.insert (view blockHash h) acc
+              in bool Nothing (Just acc') $ isGenesisBlockHeader h || S.member (view blockParent h) acc'
 
     t :: Tree (DbEntry db)
     t = fmap (^. from isoBH) t0
@@ -369,7 +369,7 @@ prop_getBranchIncreasing_parents f (SparseTree t0) = forAll (int <$> choose (0,m
     ioProperty $ withTreeDb f t $ \db _ -> do
         e <- maxEntry db
         branch <- getBranchIncreasing db e i $ \s -> P.toList_ $ P.map (view isoBH) s
-        return $ and $ zipWith (\a b -> _blockHash a == _blockParent b) branch (drop 1 branch)
+        return $ and $ zipWith (\a b -> view blockHash a == view blockParent b) branch (drop 1 branch)
   where
     m = length $ levels t0
     t = fmap (^. from isoBH) t0

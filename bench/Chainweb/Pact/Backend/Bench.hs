@@ -14,6 +14,7 @@ module Chainweb.Pact.Backend.Bench
 
 
 import Control.Concurrent
+import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import qualified Criterion.Main as C
@@ -79,9 +80,13 @@ cpRestoreAndSave cp pc blks = snd <$> _cpRestoreAndSave cp (ParentHeader <$> pc)
 -- | fabricate a `BlockHeader` for a block given its hash and its parent.
 childOf :: Maybe BlockHeader -> BlockHash -> BlockHeader
 childOf (Just bh) bhsh =
-  bh { _blockHash = bhsh, _blockParent = _blockHash bh, _blockHeight = _blockHeight bh + 1 }
+  bh
+    & blockHash .~ bhsh
+    & blockParent .~ (view blockHash bh)
+    & blockHeight +~ 1
 childOf Nothing bhsh =
-  (genesisBlockHeader testVer testChainId) { _blockHash = bhsh }
+  genesisBlockHeader testVer testChainId
+    & blockHash .~ bhsh
 
 
 bench :: C.Benchmark
