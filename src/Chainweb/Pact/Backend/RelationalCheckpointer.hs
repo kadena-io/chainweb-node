@@ -155,7 +155,7 @@ doReadFrom
   -> (CurrentBlockDbEnv logger -> IO a)
   -> IO a
 doReadFrom logger v cid db parent doRead = mask $ \resetMask -> do
-  let currentHeight = maybe (genesisHeight v cid) (succ . _blockHeight . _parentHeader) parent
+  let currentHeight = maybe (genesisHeight v cid) (succ . view blockHeight . _parentHeader) parent
   sharedDbEnv <- readMVar db
   let sharedModuleCache = _bsModuleCache $ _benvBlockState sharedDbEnv
   let sql = _bdbenvDb $ _benvDb sharedDbEnv
@@ -174,7 +174,7 @@ doReadFrom logger v cid db parent doRead = mask $ \resetMask -> do
       parentIsLatestHeader = case (latestHeader, parent) of
         (Nothing, Nothing) -> True
         (Just (_, latestHash), Just (ParentHeader ph)) ->
-          _blockHash ph == latestHash
+          view blockHash ph == latestHash
         _ -> False
 
     txid <- runBlockEnv newDbEnv $ do
@@ -222,7 +222,7 @@ doRestoreAndSave v cid dbenv parent blocks = mask $ \resetMask -> do
     extend = Streaming.foldM
       (\(m, pc) block -> do
         let
-          !bh = maybe (genesisHeight v cid) (succ . _blockHeight . _parentHeader) pc
+          !bh = maybe (genesisHeight v cid) (succ . view blockHeight . _parentHeader) pc
           curBlockDbEnv = CurrentBlockDbEnv
             { _cpPactDbEnv = PactDbEnv chainwebPactDb dbenv
             , _cpRegisterProcessedTx =
@@ -240,16 +240,16 @@ doRestoreAndSave v cid dbenv parent blocks = mask $ \resetMask -> do
         -- of the previous block
         case pc of
           Nothing
-            | genesisHeight v cid /= _blockHeight newBh -> throwM $ PactInternalError
+            | genesisHeight v cid /= view blockHeight newBh -> throwM $ PactInternalError
               "doRestoreAndSave: block with no parent, genesis block, should have genesis height but doesn't,"
           Just (ParentHeader ph)
-            | succ (_blockHeight ph) /= _blockHeight newBh -> throwM $ PactInternalError $
+            | succ (view blockHeight ph) /= view blockHeight newBh -> throwM $ PactInternalError $
               "doRestoreAndSave: non-genesis block should be one higher than its parent. parent at "
-                <> sshow (_blockHeight ph) <> ", child height " <> sshow (_blockHeight newBh)
+                <> sshow (view blockHeight ph) <> ", child height " <> sshow (view blockHeight newBh)
           _ -> return ()
         -- persist any changes to the database
         runBlockEnv dbenv $
-          commitBlockStateToDatabase (_blockHash newBh)
+          commitBlockStateToDatabase (view blockHash newBh)
         return (m'', Just (ParentHeader newBh))
       ) (return (mempty, parent)) return blocks
 
@@ -357,7 +357,7 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
   startTxId <- fmap fromIntegral $
     if bHeight == genesisHeight v cid
     then return 0
-    else getEndTxId' "doGetBlockHistory" (pred bHeight) (_blockParent blockHeader)
+    else getEndTxId' "doGetBlockHistory" (pred bHeight) (view blockParent blockHeader)
   callDb "doGetBlockHistory" $ \db -> do
     let tname = domainTableName d
     history <- queryHistory db tname startTxId endTxId
@@ -366,8 +366,8 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
     return $ BlockTxHistory tmap prev
   where
     v = _chainwebVersion blockHeader
-    cid = _blockChainId blockHeader
-    bHeight = _blockHeight blockHeader
+    cid = view blockChainId blockHeader
+    bHeight = view blockHeight blockHeader
 
     procTxHist
       :: (S.Set Utf8, M.Map TxId [TxLog RowData])

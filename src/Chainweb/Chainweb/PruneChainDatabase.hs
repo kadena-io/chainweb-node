@@ -91,6 +91,7 @@ module Chainweb.Chainweb.PruneChainDatabase
 import Chainweb.BlockHeader
 
 import Control.Concurrent.Async
+import Control.Lens (view)
 import Control.Monad
 import Control.Monad.Catch
 
@@ -216,7 +217,7 @@ instance Exception DatabaseCheckException
 --
 checkPayloads :: PayloadDb RocksDbTable -> Bool -> BlockHeader -> IO ()
 checkPayloads _ True _ = return ()
-checkPayloads pdb False h = lookupPayloadWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h) >>= \case
+checkPayloads pdb False h = lookupPayloadWithHeight pdb (Just $ view blockHeight h) (view blockPayloadHash h) >>= \case
     Just p
         | verifyPayloadWithOutputs p -> return ()
         | otherwise -> throwM $ InconsistentPaylaod h p
@@ -232,7 +233,7 @@ checkPayloads pdb False h = lookupPayloadWithHeight pdb (Just $ _blockHeight h) 
 checkPayloadsExist :: PayloadDb RocksDbTable -> Bool -> BlockHeader -> IO ()
 checkPayloadsExist _ True _ = return ()
 checkPayloadsExist pdb False h = do
-    lookupPayloadDataWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h) >>= \case
+    lookupPayloadDataWithHeight pdb (Just $ view blockHeight h) (view blockPayloadHash h) >>= \case
         Just _ -> return ()
         Nothing -> throwM $ MissingPayloadException h
 {-# INLINE checkPayloadsExist #-}
@@ -333,8 +334,8 @@ fullGc logger rdb v = do
         chainLogg Info "start pruning block header database"
         x <- pruneForksLogg chainLogger cdb depth $ \isDeleted hdr -> case isDeleted of
             True -> chainLogg Debug
-                $ "pruned header " <> toText (_blockHash hdr)
-                <> " at height " <> sshow (_blockHeight hdr)
+                $ "pruned header " <> toText (view blockHash hdr)
+                <> " at height " <> sshow (view blockHeight hdr)
             False -> markPayload markedPayloads hdr
 
         chainLogg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
@@ -346,7 +347,7 @@ fullGc logger rdb v = do
 -- | Mark Payloads of non-deleted block headers.
 --
 markPayload :: Filter BlockPayloadHash -> BlockHeader -> IO ()
-markPayload f = tryInsert f "payload hash" . _blockPayloadHash
+markPayload f = tryInsert f "payload hash" . view blockPayloadHash
 {-# INLINE markPayload #-}
 
 -- | Mark Payload Transactions

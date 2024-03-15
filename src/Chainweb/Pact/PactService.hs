@@ -246,7 +246,7 @@ initializeCoinContract memPoolAccess v cid pwo = do
         -- We check the block hash because it's more principled and
         -- we don't have to compute it, so the comparison is still relatively
         -- cheap. We could also check the height but that would be redundant.
-        if _blockHash (_parentHeader currentBlockHeader) /= _blockHash genesisHeader
+        if view blockHash (_parentHeader currentBlockHeader) /= view blockHash genesisHeader
         then do
           !mc <- readFrom (Just currentBlockHeader) readInitModules
           updateInitCache mc currentBlockHeader
@@ -481,7 +481,7 @@ execNewBlock mpAccess miner = do
           throwM (TxTimeout h)
 
         !parentTime =
-          ParentCreationTime (_blockCreationTime $ _parentHeader latestHeader)
+          ParentCreationTime (view blockCreationTime $ _parentHeader latestHeader)
         getBlockTxs :: CurrentBlockDbEnv logger -> BlockFill -> PactServiceM logger tbl (Vector ChainwebTransaction)
         getBlockTxs dbEnv bfState = do
           psEnv <- ask
@@ -596,8 +596,8 @@ execNewBlock mpAccess miner = do
             throwM $ MempoolFillFailure $ "Duplicate transaction: " <> sshow rk
           | otherwise = return $ S.insert rk rks
 
-        pHeight = _blockHeight $ _parentHeader latestHeader
-        pHash = _blockHash $ _parentHeader latestHeader
+        pHeight = view blockHeight $ _parentHeader latestHeader
+        pHash = view blockHash $ _parentHeader latestHeader
 
         updateMempool = liftIO $ do
               mpaProcessFork mpAccess $ _parentHeader latestHeader
@@ -634,16 +634,16 @@ execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
     v <- view chainwebVersion
     cid <- view chainId
     -- lower bound must be an ancestor of upper.
-    liftIO (ancestorOf bhdb (_blockHash lowerBound) (_blockHash upperBound)) >>=
+    liftIO (ancestorOf bhdb (view blockHash lowerBound) (view blockHash upperBound)) >>=
       flip unless (throwM $ PactInternalError "lower bound is not an ancestor of upper bound")
 
     -- upper bound must be an ancestor of latest header.
-    liftIO (ancestorOf bhdb (_blockHash upperBound) (_blockHash cur)) >>=
+    liftIO (ancestorOf bhdb (view blockHash upperBound) (view blockHash cur)) >>=
       flip unless (throwM $ PactInternalError "upper bound is not an ancestor of latest header")
 
     let genHeight = genesisHeight v cid
     -- we don't want to replay the genesis header in here.
-    let lowerHeight = max (succ genHeight) (_blockHeight lowerBound)
+    let lowerHeight = max (succ genHeight) (view blockHeight lowerBound)
     withPactState $ \runPact ->
         liftIO $ getBranchIncreasing bhdb upperBound (int lowerHeight) $ \blocks -> do
           heightRef <- newIORef lowerHeight
@@ -672,10 +672,10 @@ execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
                     logFunctionText logger Error (J.getJsonText m)
                 printError e = throwM e
             handle printError $ runPact $ readFrom (Just $ ParentHeader bhParent) $ do
-                liftIO $ writeIORef heightRef (_blockHeight bh)
+                liftIO $ writeIORef heightRef (view blockHeight bh)
                 plData <- liftIO $ fromJuste <$> tableLookup
                     (_transactionDb pdb)
-                    (_blockPayloadHash bh)
+                    (view blockPayloadHash bh)
                 void $ execBlock bh plData
             )
         validationFailed <- readIORef validationFailedRef
@@ -811,7 +811,7 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
 
     -- Add block-hash to the logs if presented
     let logBlockHash =
-            localLabel ("block-hash", blockHashToText (_blockParent headerToValidate))
+            localLabel ("block-hash", blockHashToText (view blockParent headerToValidate))
 
     logBlockHash $ do
         currHeader <- findLatestValidBlockHeader'
@@ -825,8 +825,8 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
         -- of this check, the genesis block and the genesis parent
         -- have the same height.
         do
-            let !currHeight = maybe (genesisHeight v cid) _blockHeight currHeader
-            let !ancestorHeight = maybe (genesisHeight v cid) _blockHeight commonAncestor
+            let !currHeight = maybe (genesisHeight v cid) (view blockHeight) currHeader
+            let !ancestorHeight = maybe (genesisHeight v cid) (view blockHeight) commonAncestor
             let !rewindLimitSatisfied = ancestorHeight + fromIntegral reorgLimit >= currHeight
             unless rewindLimitSatisfied $
                 throwM $ RewindLimitExceeded
@@ -840,7 +840,7 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
                     -- we're validating a genesis block, so there are no fork blocks to speak of.
                     kont (pure ())
                 Just (ParentHeader parentHeaderOfHeaderToValidate) ->
-                    let forkStartHeight = maybe (genesisHeight v cid) (succ . _blockHeight) commonAncestor
+                    let forkStartHeight = maybe (genesisHeight v cid) (succ . view blockHeight) commonAncestor
                     in getBranchIncreasing bhdb parentHeaderOfHeaderToValidate (fromIntegral forkStartHeight) kont
 
         (numBlocksExecuted, results) <-
@@ -850,10 +850,10 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
                     -- given a header for a block in the fork, fetch its payload
                     -- and run its transactions, validating its hashes
                     let runForkBlockHeader forkBh = do
-                            payload <- liftIO $ lookupPayloadWithHeight payloadDb (Just $ _blockHeight forkBh) (_blockPayloadHash forkBh) >>= \case
+                            payload <- liftIO $ lookupPayloadWithHeight payloadDb (Just $ view blockHeight forkBh) (view blockPayloadHash forkBh) >>= \case
                                 Nothing -> throwM $ PactInternalError
                                     $ "execValidateBlock: lookup of payload failed"
-                                    <> ". BlockPayloadHash: " <> encodeToText (_blockPayloadHash forkBh)
+                                    <> ". BlockPayloadHash: " <> encodeToText (view blockPayloadHash forkBh)
                                     <> ". Block: " <> encodeToText (ObjectEncoded forkBh)
                                 Just x -> return $ payloadWithOutputsToPayloadData x
                             void $ execBlock forkBh payload
@@ -900,7 +900,7 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
     getTarget
         | isGenesisBlockHeader headerToValidate = return Nothing
         | otherwise = Just . ParentHeader
-            <$> lookupBlockHeader (_blockParent headerToValidate) "execValidateBlock"
+            <$> lookupBlockHeader (view blockParent headerToValidate) "execValidateBlock"
                 -- It is up to the user of pact service to guaranteed that this
                 -- succeeds. If this fails it usually means that the block
                 -- header database is corrupted.
@@ -938,8 +938,8 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
       pdb <- view psBlockDbEnv
       pc <- view psParentHeader
       let
-          parentTime = ParentCreationTime (_blockCreationTime $ _parentHeader pc)
-          currHeight = succ $ _blockHeight $ _parentHeader pc
+          parentTime = ParentCreationTime (view blockCreationTime $ _parentHeader pc)
+          currHeight = succ $ view blockHeight $ _parentHeader pc
           v = _chainwebVersion pc
           cid = _chainId pc
           timeoutLimit = fromIntegral $ (\(Micros n) -> n) $ _psPreInsertCheckTimeout psEnv

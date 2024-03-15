@@ -214,7 +214,7 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " not mineable"
             newWork logFun Anything eminer hdb pact tpw c
         Just (T2 (T2 (ParentHeader primedParent) (Just payload)) extension)
-            | _blockHash primedParent == _blockHash (_parentHeader (_cutExtensionParent extension)) -> do
+            | view blockHash primedParent == view blockHash (_parentHeader (_cutExtensionParent extension)) -> do
                 let !phash = _payloadDataPayloadHash payload
                 !wh <- newWorkHeader hdb extension phash
                 pure $ Just $ T2 wh payload
@@ -228,10 +228,10 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
                 let !extensionParent = _parentHeader (_cutExtensionParent extension)
                 logFun @T.Text Info
                     $ "newWork: chain " <> sshow cid <> " not mineable because of parent header mismatch"
-                    <> ". Primed parent hash: " <> toText (_blockHash primedParent)
-                    <> ". Primed parent height: " <> sshow (_blockHeight primedParent)
-                    <> ". Extension parent: " <> toText (_blockHash extensionParent)
-                    <> ". Extension height: " <> sshow (_blockHeight extensionParent)
+                    <> ". Primed parent hash: " <> toText (view blockHash primedParent)
+                    <> ". Primed parent height: " <> sshow (view blockHeight primedParent)
+                    <> ". Extension parent: " <> toText (view blockHash extensionParent)
+                    <> ". Extension height: " <> sshow (view blockHeight extensionParent)
 
                 return Nothing
 
@@ -390,7 +390,7 @@ solve mr solved@(SolvedWork hdr) = do
             -- doesn't get deleted. Items get GCed on a regular basis by
             -- the coordinator.
   where
-    key = _blockPayloadHash hdr
+    key = view blockPayloadHash hdr
     tms = _coordState mr
 
     lf :: LogFunction

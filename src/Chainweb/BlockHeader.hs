@@ -65,7 +65,7 @@ module Chainweb.BlockHeader
 , powTarget
 
 -- * BlockHeader
-, BlockHeader(..)
+, BlockHeader
 , blockNonce
 , blockChainId
 , blockHeight

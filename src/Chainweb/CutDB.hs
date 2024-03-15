@@ -356,7 +356,7 @@ awaitNewBlockStm :: CutDb tbl -> ChainId -> BlockHeader -> STM BlockHeader
 awaitNewBlockStm cdb cid bh = do
     c <- _cutStm cdb
     case HM.lookup cid (_cutMap c) of
-        Just bh' | _blockHash bh' /= _blockHash bh -> return bh'
+        Just bh' | view blockHash bh' /= view blockHash bh -> return bh'
         _ -> retry
 
 -- | As in `awaitNewCut`, but only updates when the specified `ChainId` has
@@ -691,8 +691,8 @@ cutStreamToHeaderStream db s = S.for (go Nothing s) $ \(T2 p n) ->
     branch :: ChainId -> BlockHeader -> BlockHeader -> S.Stream (Of BlockHeader) m ()
     branch cid p n = hoist liftIO $ getBranch
         (db ^?! cutDbBlockHeaderDb cid)
-        (HS.singleton $ LowerBound $ _blockHash p)
-        (HS.singleton $ UpperBound $ _blockHash n)
+        (HS.singleton $ LowerBound $ view blockHash p)
+        (HS.singleton $ UpperBound $ view blockHash n)
 
 -- | Given a stream of cuts, produce a stream of all blocks included in those
 -- cuts. Blocks of the same chain are sorted by block height.
@@ -737,7 +737,7 @@ cutStreamToHeaderDiffStream db s = S.for (cutUpdates Nothing s) $ \(T2 p n) ->
 --
 uniqueBlockNumber :: BlockHeader -> Natural
 uniqueBlockNumber bh
-    = chainIdInt (_chainId bh) + int (_blockHeight bh) * order (_chainGraph bh)
+    = chainIdInt (_chainId bh) + int (view blockHeight bh) * order (_chainGraph bh)
 
 blockStream :: MonadIO m => CutDb tbl -> S.Stream (Of BlockHeader) m r
 blockStream db = cutStreamToHeaderStream db $ cutStream db
@@ -809,9 +809,9 @@ memberOfHeader
 memberOfHeader db cid h ctx = do
     lookup chainDb h >>= \case
         Nothing -> return False
-        Just lh -> seekAncestor chainDb ctx (int $ _blockHeight lh) >>= \case
+        Just lh -> seekAncestor chainDb ctx (int $ view blockHeight lh) >>= \case
             Nothing -> return False
-            Just x -> return $ _blockHash x == h
+            Just x -> return $ view blockHash x == h
   where
     chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
 

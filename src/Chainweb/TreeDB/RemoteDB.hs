@@ -22,6 +22,7 @@ module Chainweb.TreeDB.RemoteDB
   ) where
 
 import Control.Error.Util (hush)
+import Control.Lens (view)
 import Control.Monad.Catch (handle, throwM)
 
 import qualified Data.Text as T
@@ -38,7 +39,7 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.BlockHash (BlockHash)
-import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.BlockHeader (BlockHeader, blockChainId)
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.TreeDB
 import Chainweb.Utils
@@ -137,4 +138,4 @@ remoteDb
     -> IO RemoteDb
 remoteDb db logg env = do
     h <- root db
-    pure $! RemoteDb env (ALogFunction logg) (_chainwebVersion h) (_blockChainId h)
+    pure $! RemoteDb env (ALogFunction logg) (_chainwebVersion h) (view blockChainId h)

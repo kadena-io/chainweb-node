@@ -343,16 +343,16 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
             , _spvExceptionSourceChainId = scid
             , _spvExceptionSourceHeight = txHeight
             , _spvExceptionTargetChainId = tcid
-            , _spvExceptionTargetHeight = _blockHeight trgHeader
+            , _spvExceptionTargetHeight = view blockHeight trgHeader
             }
 
-    unless (_blockHeight srcHeadHeader >= txHeight)
+    unless (view blockHeight srcHeadHeader >= txHeight)
         $ throwM $ SpvExceptionTargetNotReachable
             { _spvExceptionMsg = "Target of SPV proof can't be reached from the source transaction"
             , _spvExceptionSourceChainId = scid
             , _spvExceptionSourceHeight = txHeight
             , _spvExceptionTargetChainId = tcid
-            , _spvExceptionTargetHeight = _blockHeight trgHeader
+            , _spvExceptionTargetHeight = view blockHeight trgHeader
             }
 
     -- chain == [srcHeader, srcHeadHeader]
@@ -363,10 +363,10 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
             , _spvExceptionSourceChainId = scid
             , _spvExceptionSourceHeight = txHeight
             , _spvExceptionTargetChainId = tcid
-            , _spvExceptionTargetHeight = _blockHeight trgHeader
+            , _spvExceptionTargetHeight = view blockHeight trgHeader
             }
 
-    Just pd <- lookupPayloadDataWithHeight payloadDb (Just $ _blockHeight txHeader) (_blockPayloadHash txHeader)
+    Just pd <- lookupPayloadDataWithHeight payloadDb (Just $ view blockHeight txHeader) (view blockPayloadHash txHeader)
     let payload = BlockPayload 
           { _blockPayloadTransactionsHash = _payloadDataTransactionsHash pd
           , _blockPayloadOutputsHash = _payloadDataOutputsHash pd
@@ -382,10 +382,10 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
 
     -- 2. BlockHeader proof
     --
-    unless (_blockPayloadHash txHeader == _blockPayloadPayloadHash payload)
+    unless (view blockPayloadHash txHeader == _blockPayloadPayloadHash payload)
         $ throwM $ SpvExceptionInconsistentPayloadData
             { _spvExceptionMsg = "The stored payload hash doesn't match the the db index"
-            , _spvExceptionMsgPayloadHash = _blockPayloadHash txHeader
+            , _spvExceptionMsgPayloadHash = view blockPayloadHash txHeader
             }
             -- this indicates that the payload store is inconsistent
     let blockHeaderTree = headerTree_ @BlockPayloadHash txHeader
@@ -423,11 +423,11 @@ crumbsOnChain
     -> BlockHeight
     -> IO (Maybe (N.NonEmpty BlockHeader))
 crumbsOnChain db trgHeader srcHeight
-    | srcHeight > _blockHeight trgHeader = return Nothing
+    | srcHeight > view blockHeight trgHeader = return Nothing
     | otherwise = Just <$> go trgHeader []
   where
     go cur acc
-        | srcHeight == _blockHeight cur = return $! (cur N.:| acc)
+        | srcHeight == view blockHeight cur = return $! (cur N.:| acc)
         | otherwise = do
             p <- lookupParentHeader db cur
             go p (cur : acc)
@@ -444,10 +444,10 @@ crumbsToChain
     -> IO (Maybe (BlockHeader, [(Int, BlockHeader)]))
         -- ^ bread crumbs that lead from to source Chain to targetHeader
 crumbsToChain db srcCid trgHeader
-    | (int (_blockHeight trgHeader) + 1) < length path = return Nothing
+    | (int (view blockHeight trgHeader) + 1) < length path = return Nothing
     | otherwise = Just <$> go trgHeader path []
   where
-    graph = chainGraphAt db (_blockHeight trgHeader)
+    graph = chainGraphAt db (view blockHeight trgHeader)
     path = shortestPath (_chainId trgHeader) srcCid graph
 
     go
@@ -458,11 +458,11 @@ crumbsToChain db srcCid trgHeader
     go !cur [] !acc = return (cur, acc)
     go !cur ((!h):t) !acc = do
         adjpHdr <- lookupAdjacentParentHeader db cur h
-        unless (_blockHeight adjpHdr >= 0) $ throwM
+        unless (view blockHeight adjpHdr >= 0) $ throwM
             $ InternalInvariantViolation
             $ "crumbsToChain: Encountered Genesis block. Chain can't be reached for SPV proof."
 
-        let !adjIdx = fromJuste $ blockHashRecordChainIdx (_blockAdjacentHashes cur) h
+        let !adjIdx = fromJuste $ blockHashRecordChainIdx (view blockAdjacentHashes cur) h
         go adjpHdr t ((adjIdx, cur) : acc)
 
 minimumTrgHeader

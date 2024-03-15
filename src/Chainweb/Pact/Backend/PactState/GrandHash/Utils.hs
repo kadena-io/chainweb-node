@@ -25,7 +25,7 @@ module Chainweb.Pact.Backend.PactState.GrandHash.Utils
   )
   where
 
-import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.BlockHeader (BlockHeader, blockHeight)
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB (cutHashesTable, readHighestCutHeaders)
@@ -43,7 +43,7 @@ import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.WebBlockHeaderDB (WebBlockHeaderDb, getWebBlockHeaderDb, initWebBlockHeaderDb)
 import Control.Exception (bracket)
-import Control.Lens ((^?!), ix)
+import Control.Lens ((^?!), ix, view)
 import Control.Monad (forM, when)
 import Data.ByteString (ByteString)
 import Data.ByteString.Base16 qualified as Base16
@@ -72,28 +72,28 @@ limitCut :: (Logger logger)
   -> HashMap ChainId SQLiteEnv
   -> BlockHeight
   -> IO (HashMap ChainId BlockHeader)
-limitCut logger wbhdb latestCutHeaders pactConns blockHeight = do
+limitCut logger wbhdb latestCutHeaders pactConns blockHeight_ = do
   fmap (HM.mapMaybe id) $ flip HM.traverseWithKey latestCutHeaders $ \cid latestCutHeader -> do
     let logger' = addChainIdLabel cid logger
     bdb <- getWebBlockHeaderDb wbhdb cid
-    seekAncestor bdb latestCutHeader (fromIntegral blockHeight) >>= \case
+    seekAncestor bdb latestCutHeader (fromIntegral blockHeight_) >>= \case
       -- Block exists on that chain
       Just h -> do
         -- Sanity check, should absolutely never happen
-        when (_blockHeight h /= blockHeight) $ do
+        when (view blockHeight h /= blockHeight_) $ do
           exitLog logger' "expected seekAncestor behaviour is broken"
 
         -- Confirm that PactDB is not behind RocksDB (it can be ahead though)
         let SQLiteEnv db _ = pactConns ^?! ix cid
         latestPactHeight <- getLatestBlockHeight db
-        when (latestPactHeight < blockHeight) $ do
+        when (latestPactHeight < blockHeight_) $ do
           exitLog logger' "Pact State is behind RocksDB. This should never happen."
 
         pure (Just h)
 
       -- Block does not exist on that chain
       Nothing -> do
-        logFunctionText logger' Debug $ "Block " <> sshow blockHeight <> " is not accessible on this chain."
+        logFunctionText logger' Debug $ "Block " <> sshow blockHeight_ <> " is not accessible on this chain."
         pure Nothing
 
 -- | Get the latest cut headers.
@@ -122,7 +122,7 @@ resolveLatestCutHeaders :: (Logger logger)
   -> IO (BlockHeight, HashMap ChainId BlockHeader)
 resolveLatestCutHeaders logger v pactConns rocksDb = do
   (wbhdb, latestCutHeaders) <- getLatestCutHeaders v rocksDb
-  let latestCommonBlockHeight = minimum $ fmap _blockHeight latestCutHeaders
+  let latestCommonBlockHeight = minimum $ fmap (view blockHeight) latestCutHeaders
   headers <- limitCut logger wbhdb latestCutHeaders pactConns latestCommonBlockHeight
   pure (latestCommonBlockHeight, headers)
 
@@ -168,7 +168,7 @@ computeGrandHashesAt :: ()
 computeGrandHashesAt pactConns cutHeader = do
   fmap HM.fromList $ pooledForConcurrently (HM.toList cutHeader) $ \(cid, bHeader) -> do
     let SQLiteEnv db _ = pactConns ^?! ix cid
-    (hash, ()) <- computeGrandHash (getLatestPactStateAt db (_blockHeight bHeader))
+    (hash, ()) <- computeGrandHash (getLatestPactStateAt db (view blockHeight bHeader))
     pure (cid, Snapshot hash bHeader)
 
 checkPactDbsExist :: FilePath -> [ChainId] -> IO ()

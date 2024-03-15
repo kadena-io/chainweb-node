@@ -206,7 +206,7 @@ instance HasCutId (HM.HashMap x BlockHash) where
     {-# INLINE _cutId #-}
 
 instance HasCutId (HM.HashMap x BlockHeader) where
-    _cutId = _cutId . fmap _blockHash
+    _cutId = _cutId . fmap (view blockHash)
     {-# INLINE _cutId #-}
 
 instance HasCutId (HM.HashMap x (y, BlockHash)) where
@@ -355,7 +355,7 @@ instance FromJSON CutHashes where
 --
 cutToCutHashes :: Maybe PeerInfo -> Cut -> CutHashes
 cutToCutHashes p c = CutHashes
-    { _cutHashes = (\x -> BlockHashWithHeight (_blockHeight x) (_blockHash x)) <$> _cutMap c
+    { _cutHashes = (\x -> BlockHashWithHeight (view blockHeight x) (view blockHash x)) <$> _cutMap c
     , _cutOrigin = p
     , _cutHashesWeight = _cutWeight c
     , _cutHashesHeight = _cutHeight c

@@ -183,7 +183,7 @@ getCutExtension c cid = do
   where
     p = c ^?! ixg (_chainId cid)
     v = _chainwebVersion c
-    parentHeight = _blockHeight p
+    parentHeight = view blockHeight p
     targetHeight = parentHeight + 1
     parentGraph = chainGraphAt p parentHeight
     isGraphTransitionPost = isGraphChange c parentHeight
@@ -213,20 +213,20 @@ getCutExtension c cid = do
     tryAdj b
 
         -- When the block is behind, we can move ahead
-        | _blockHeight b == targetHeight = Just $! _blockParent b
+        | view blockHeight b == targetHeight = Just $! view blockParent b
 
         -- if the block is ahead it's blocked
-        | _blockHeight b + 1 == parentHeight = Nothing -- chain is blocked
+        | view blockHeight b + 1 == parentHeight = Nothing -- chain is blocked
 
         -- If this is not a graph transition cut we can move ahead
-        | _blockHeight b == parentHeight = Just $! _blockHash b
+        | view blockHeight b == parentHeight = Just $! view blockHash b
 
         -- The cut is invalid
-        | _blockHeight b > targetHeight = error $ T.unpack
+        | view blockHeight b > targetHeight = error $ T.unpack
             $ "getAdjacentParents: detected invalid cut (adjacent parent too far ahead)."
             <> " Parent: " <> encodeToText (ObjectEncoded p)
             <> " Conflict: " <> encodeToText (ObjectEncoded b)
-        | _blockHeight b + 1 < parentHeight = error $ T.unpack
+        | view blockHeight b + 1 < parentHeight = error $ T.unpack
             $ "getAdjacentParents: detected invalid cut (adjacent parent too far behind)."
             <> " Parent: " <> encodeToText (ObjectEncoded  p)
             <> " Conflict: " <> encodeToText (ObjectEncoded b)
@@ -304,7 +304,7 @@ newWorkHeaderPure hdb creationTime extension phash = do
                     -- FIXME: check that parents also include hashes on new chains!
         in WorkHeader
             { _workHeaderBytes = SB.toShort $ runPutS $ encodeBlockHeaderWithoutHash nh
-            , _workHeaderTarget = _blockTarget nh
+            , _workHeaderTarget = view blockTarget nh
             , _workHeaderChainId = _chainId nh
             }
 
@@ -338,7 +338,7 @@ getAdjacentParentHeaders hdb extension
     c = _cutExtensionCut extension
 
     select cid h = case c ^? ixg cid of
-        Just ch -> ParentHeader <$> if _blockHash ch == h
+        Just ch -> ParentHeader <$> if view blockHash ch == h
             then pure ch
             else hdb (ChainValue cid h)
 
@@ -397,8 +397,8 @@ extend c pd s = do
     return (bh, toCutHashes bh <$> mc)
   where
     toCutHashes bh c' = cutToCutHashes Nothing c'
-        & set cutHashesHeaders (HM.singleton (_blockHash bh) bh)
-        & set cutHashesPayloads (HM.singleton (_blockPayloadHash bh) pd)
+        & set cutHashesHeaders (HM.singleton (view blockHash bh) bh)
+        & set cutHashesPayloads (HM.singleton (view blockPayloadHash bh) pd)
 
 -- | For internal use and testing
 --
@@ -418,9 +418,9 @@ extendCut c ph (SolvedWork bh) = do
 
         -- Fail Early: check that the given payload matches the new block.
         --
-        unless (_blockPayloadHash bh == ph) $ throwM $ InvalidSolvedHeader bh
+        unless (view blockPayloadHash bh == ph) $ throwM $ InvalidSolvedHeader bh
             $ "Invalid payload hash"
-            <> ". Expected: " <> sshow (_blockPayloadHash bh)
+            <> ". Expected: " <> sshow (view blockPayloadHash bh)
             <> ", Got: " <> sshow ph
 
         -- If the `BlockHeader` is already stale and can't be appended to the

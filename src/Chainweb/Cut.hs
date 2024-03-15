@@ -286,7 +286,7 @@ cutAdjPairs = to _cutAdjPairs
 -- Chain Heights
 
 chainHeights :: Cut -> [BlockHeight]
-chainHeights = fmap (_blockHeight) . toList . _cutHeaders
+chainHeights = fmap (view blockHeight) . toList . _cutHeaders
 {-# INLINE chainHeights #-}
 
 meanChainHeight :: Cut -> BlockHeight
@@ -330,7 +330,7 @@ isTransitionCut c = minChainHeight c < lastGraphChange c (maxChainHeight c)
 -- old chains have transitioned to the minimum block height of the new graph.
 
 cutHeadersMinHeight :: HM.HashMap ChainId BlockHeader -> BlockHeight
-cutHeadersMinHeight = minimum . fmap _blockHeight
+cutHeadersMinHeight = minimum . fmap (view blockHeight)
 {-# INLINE cutHeadersMinHeight #-}
 
 cutHeadersChainwebVersion :: HM.HashMap ChainId BlockHeader -> ChainwebVersion
@@ -412,7 +412,7 @@ limitCut
     -> Cut
     -> IO Cut
 limitCut wdb h c
-    | all (\bh -> h >= _blockHeight bh) (view cutHeaders c) =
+    | all (\bh -> h >= view blockHeight bh) (view cutHeaders c) =
         return c
     | otherwise = do
         hdrs <- itraverse go $ view cutHeaders c
@@ -420,11 +420,11 @@ limitCut wdb h c
   where
     go :: ChainId -> BlockHeader -> IO (Maybe BlockHeader)
     go cid bh = do
-        if h >= _blockHeight bh
+        if h >= view blockHeight bh
         then return (Just bh)
         else do
             !db <- getWebBlockHeaderDb wdb cid
-            seekAncestor db bh (min (int $ _blockHeight bh) (int h))
+            seekAncestor db bh (min (int $ view blockHeight bh) (int h))
         -- this is safe because it's guaranteed that the requested rank is
         -- smaller then the block height of the argument
 
@@ -443,7 +443,7 @@ tryLimitCut
     -> Cut
     -> IO Cut
 tryLimitCut wdb h c
-    | all (\bh -> h >= _blockHeight bh) (view cutHeaders c) =
+    | all (\bh -> h >= view blockHeight bh) (view cutHeaders c) =
         return c
     | otherwise = do
         hdrs <- itraverse go $ view cutHeaders c
@@ -452,13 +452,13 @@ tryLimitCut wdb h c
     v = _chainwebVersion wdb
     go :: ChainId -> BlockHeader -> IO BlockHeader
     go cid bh = do
-        if h >= _blockHeight bh
+        if h >= view blockHeight bh
         then return bh
         else do
             !db <- getWebBlockHeaderDb wdb cid
             -- this is safe because it's guaranteed that the requested rank is
             -- smaller then the block height of the argument
-            let ancestorHeight = min (int $ _blockHeight bh) (int h)
+            let ancestorHeight = min (int $ view blockHeight bh) (int h)
             if ancestorHeight <= fromIntegral (genesisHeight v cid)
             then return $ genesisBlockHeader v cid
             else fromJuste <$> seekAncestor db bh ancestorHeight
@@ -597,9 +597,9 @@ isBraidingOfCutPair a b = do
     ab <- getAdjacentHash b a -- adjacent of a on chain of b
     ba <- getAdjacentHash a b -- adajcent of b on chain of a
     return
-        $! (_blockParent a == ba && _blockParent b == ab) -- same graph
-        || (_blockHeight a > _blockHeight b) && ab == _blockHash b
-        || (_blockHeight a < _blockHeight b) && True {- if same graph: ba == _blockHash a -}
+        $! (view blockParent a == ba && view blockParent b == ab) -- same graph
+        || (view blockHeight a > view blockHeight b) && ab == view blockHash b
+        || (view blockHeight a < view blockHeight b) && True {- if same graph: ba == _blockHash a -}
 
 -- -------------------------------------------------------------------------- --
 -- Extending Cuts
@@ -631,16 +631,16 @@ isMonotonicCutExtension c h = do
     checkBlockHeaderGraph h
     return $! monotonic && validBraiding
   where
-    monotonic = _blockParent h == case c ^? ixg (_chainId h) . blockHash of
+    monotonic = view blockParent h == case c ^? ixg (_chainId h) . blockHash of
         Nothing -> error $ T.unpack $ "isMonotonicCutExtension.monotonic: missing parent in cut. " <> encodeToText h
         Just x -> x
     validBraiding = getAll $ ifoldMap
         (\cid -> All . validBraidingCid cid)
-        (_getBlockHashRecord $ _blockAdjacentHashes h)
+        (_getBlockHashRecord $ view blockAdjacentHashes h)
 
     validBraidingCid cid a
-        | Just b <- c ^? ixg cid = _blockHash b == a || _blockParent b == a
-        | _blockHeight h == genesisHeight v cid = a == genesisParentBlockHash v cid
+        | Just b <- c ^? ixg cid = view blockHash b == a || view blockParent b == a
+        | view blockHeight h == genesisHeight v cid = a == genesisParentBlockHash v cid
         | otherwise = error $ T.unpack $ "isMonotonicCutExtension.validBraiding: missing adjacent parent on chain " <> sshow cid <> " in cut. " <> encodeToText h
 
     v = _chainwebVersion c
@@ -748,7 +748,7 @@ join_ wdb prioFun a b = do
         -> (BlockHeader, Maybe a)
         -> H.Heap (H.Entry (BlockHeight, a) BlockHeader)
     maybeInsert !q (_, Nothing) = q
-    maybeInsert !q (!h, (Just !p)) = H.insert (H.Entry (_blockHeight h, p) h) q
+    maybeInsert !q (!h, (Just !p)) = H.insert (H.Entry (view blockHeight h, p) h) q
 
     -- | Only chain ids of the intersection are included in the result.
     --
@@ -893,5 +893,5 @@ forkDepth wdb a b = do
     return $! int $ max (maxDepth m a) (maxDepth m b)
   where
     maxDepth l u = maximum
-        $ (\(_, x, y) -> _blockHeight y - _blockHeight x)
+        $ (\(_, x, y) -> view blockHeight y - view blockHeight x)
         <$> zipCuts l u

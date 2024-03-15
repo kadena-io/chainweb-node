@@ -755,7 +755,7 @@ prepareToPlayBlock
   -> Maybe ParentHeader
   -> BlockHandler logger SQLiteEnv ()
 prepareToPlayBlock msg v cid mph = do
-  let currentHeight = maybe (genesisHeight v cid) (succ . _blockHeight . _parentHeader) mph
+  let currentHeight = maybe (genesisHeight v cid) (succ . view blockHeight . _parentHeader) mph
   bsBlockHeight .= currentHeight
   bsModuleNameFix .= enableModuleNameFix v cid currentHeight
   bsSortedKeys .= pact42 v cid currentHeight
@@ -787,7 +787,7 @@ rewindDbTo Nothing = do
       exec_ db "DELETE FROM VersionedTableMutation;"
       exec_ db "DELETE FROM TransactionIndex;"
 rewindDbTo (Just (ParentHeader ph)) = do
-    let currentHeight = succ (_blockHeight ph)
+    let currentHeight = succ (view blockHeight ph)
     !endingtx <- getEndTxId "rewindDbToBlock" (Just (ParentHeader ph))
     tableMaintenanceRowsVersionedSystemTables endingtx
     callDb "rewindBlock" $ \db -> do
@@ -894,7 +894,7 @@ initSchema = do
 getEndTxId :: Text -> Maybe ParentHeader -> BlockHandler logger SQLiteEnv TxId
 getEndTxId msg pc = case pc of
   Nothing -> return 0
-  Just (ParentHeader ph) -> getEndTxId' msg (_blockHeight ph) (_blockHash ph)
+  Just (ParentHeader ph) -> getEndTxId' msg (view blockHeight ph) (view blockHash ph)
 
 getEndTxId' :: Text -> BlockHeight -> BlockHash -> BlockHandler logger SQLiteEnv TxId
 getEndTxId' msg bh bhsh =
