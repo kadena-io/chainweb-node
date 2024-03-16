@@ -215,7 +215,7 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
             newWork logFun Anything eminer hdb pact tpw c
         Just (T2 (T2 (ParentHeader primedParent) (Just payload)) extension)
             | view blockHash primedParent == view blockHash (_parentHeader (_cutExtensionParent extension)) -> do
-                let !phash = _payloadDataPayloadHash payload
+                let !phash = view payloadDataPayloadHash payload
                 !wh <- newWorkHeader hdb extension phash
                 pure $ Just $ T2 wh payload
             | otherwise -> do
@@ -263,10 +263,10 @@ publish lf cdb pwVar miner pd s = do
             addCutHashes cdb ch
 
             let bytes = sum . fmap (BS.length . _transactionBytes) $
-                        _payloadDataTransactions pd
+                        view payloadDataTransactions pd
             lf Info $ JsonLog $ NewMinedBlock
                 { _minedBlockHeader = ObjectEncoded bh
-                , _minedBlockTrans = int . V.length $ _payloadDataTransactions pd
+                , _minedBlockTrans = int . V.length $ view payloadDataTransactions pd
                 , _minedBlockSize = int bytes
                 , _minedBlockMiner = _minerId miner
                 , _minedBlockDiscoveredAt = now
@@ -313,7 +313,7 @@ work mr mcid m = do
     atomically
         . modifyTVar' (_coordState mr)
         . over miningState
-        . M.insert (_payloadDataPayloadHash pd)
+        . M.insert (view payloadDataPayloadHash pd)
         $ T3 m pd now
     return wh
   where

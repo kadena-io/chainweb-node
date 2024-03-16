@@ -106,7 +106,7 @@ execBlock
     -> PactBlockM logger tbl (P.Gas, PayloadWithOutputs)
 execBlock currHeader plData = do
     dbEnv <- view psBlockDbEnv
-    miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
+    miner <- decodeStrictOrThrow' (_minerData $ view payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload
       (pactParserVersion v (view blockChainId currHeader) (view blockHeight currHeader))
       plData
@@ -479,7 +479,7 @@ transactionsFromPayload
 transactionsFromPayload ppv plData = do
     vtrans <- fmap V.fromList $
               mapM toCWTransaction $
-              toList (_payloadDataTransactions plData)
+              toList (view payloadDataTransactions plData)
     let (theLefts, theRights) = partitionEithers $ V.toList vtrans
     unless (null theLefts) $ do
         let ls = map T.pack theLefts
@@ -555,16 +555,16 @@ validateHashes bHeader pData miner transactions =
     prevHash = view blockPayloadHash bHeader
 
     newTransactions = toList $ fst <$> (_payloadWithOutputsTransactions pwo)
-    prevTransactions = toList $ _payloadDataTransactions pData
+    prevTransactions = toList $ view payloadDataTransactions pData
 
     newMiner = _payloadWithOutputsMiner pwo
-    prevMiner = _payloadDataMiner pData
+    prevMiner = view payloadDataMiner pData
 
     newTransactionsHash = _payloadWithOutputsTransactionsHash pwo
-    prevTransactionsHash = _payloadDataTransactionsHash pData
+    prevTransactionsHash = view payloadDataTransactionsHash pData
 
     newOutputsHash = _payloadWithOutputsOutputsHash pwo
-    prevOutputsHash = _payloadDataOutputsHash pData
+    prevOutputsHash = view payloadDataOutputsHash pData
 
     -- The following JSON encodings are used in the BlockValidationFailure message
 

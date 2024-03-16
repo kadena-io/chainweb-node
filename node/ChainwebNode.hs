@@ -256,7 +256,7 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
         bp <- lookupPayloadDataWithHeight payloadDb (Just $ view blockHeight bh) (view blockPayloadHash bh) >>= \case
             Nothing -> error "block payload not found"
             Just x -> return x
-        return $ length $ _payloadDataTransactions bp
+        return $ length $ view payloadDataTransactions bp
 
     toUpdate :: Either BlockHeader BlockHeader -> IO BlockUpdate
     toUpdate (Right bh) = BlockUpdate

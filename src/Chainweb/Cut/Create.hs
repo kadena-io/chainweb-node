@@ -393,7 +393,7 @@ extend
     -> SolvedWork
     -> m (BlockHeader, Maybe CutHashes)
 extend c pd s = do
-    (bh, mc) <- extendCut c (_payloadDataPayloadHash pd) s
+    (bh, mc) <- extendCut c (view payloadDataPayloadHash pd) s
     return (bh, toCutHashes bh <$> mc)
   where
     toCutHashes bh c' = cutToCutHashes Nothing c'

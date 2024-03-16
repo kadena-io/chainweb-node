@@ -261,7 +261,7 @@ txStream config mgr logg = do
                     logg @T.Text Info ("BlockHeight: " <> sshow (view blockHeight x))
                 )
             & S.mapM (\x -> (view blockHeight x,) <$> devNetPayload config mgr (view blockHeight x) (view blockPayloadHash x))
-            & flip S.for (S.each . traverse _payloadDataTransactions)
+            & flip S.for (S.each . traverse (view payloadDataTransactions))
             & S.map (fmap _transactionBytes)
             & S.mapM (traverse decodeStrictOrThrow')
 

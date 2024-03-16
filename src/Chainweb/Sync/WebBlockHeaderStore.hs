@@ -479,7 +479,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         outs <- trace logfun
             (traceLabel "pact")
             (view blockHash hdr)
-            (length (_payloadDataTransactions p))
+            (length (view payloadDataTransactions p))
             $ pact hdr p
         addNewPayload (_webBlockPayloadStoreCas payloadStore) (view blockHeight hdr) outs
 

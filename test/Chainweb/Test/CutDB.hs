@@ -449,9 +449,9 @@ randomTransaction cutDb = do
     bh <- randomBlockHeader cutDb
     Just pd <- lookupPayloadDataWithHeight payloadDb (Just $ view blockHeight bh) (view blockPayloadHash bh)
     let pay = BlockPayload
-          { _blockPayloadTransactionsHash = _payloadDataTransactionsHash pd
-          , _blockPayloadOutputsHash = _payloadDataOutputsHash pd
-          , _blockPayloadPayloadHash = _payloadDataPayloadHash pd
+          { _blockPayloadTransactionsHash = view payloadDataTransactionsHash pd
+          , _blockPayloadOutputsHash = view payloadDataOutputsHash pd
+          , _blockPayloadPayloadHash = view payloadDataPayloadHash pd
           }
 
     Just btxs <-
@@ -484,7 +484,7 @@ fakePact = WebPactExecutionService $ PactExecutionService
   { _pactValidateBlock =
       \_ d -> return
               $ payloadWithOutputs d coinbase
-              $ getFakeOutput <$> _payloadDataTransactions d
+              $ getFakeOutput <$> view payloadDataTransactions d
   , _pactNewBlock = \_ _ -> do
         payloadDat <- generate $ V.fromList . getNonEmpty <$> arbitrary
         ph <- ParentHeader <$> generate arbitrary

@@ -210,7 +210,7 @@ withMiningCoordination logger conf cdb inner
         summed = M.foldl' (\acc (T3 _ ps _) -> acc + g ps) 0 ms
 
         g :: PayloadData -> Int
-        g = V.length . _payloadDataTransactions
+        g = V.length . view payloadDataTransactions
 
 -- | Miner resources are used by the test-miner when in-node mining is
 -- configured or by the mempool noop-miner (which keeps the mempool updated) in

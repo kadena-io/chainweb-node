@@ -368,9 +368,9 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
 
     Just pd <- lookupPayloadDataWithHeight payloadDb (Just $ view blockHeight txHeader) (view blockPayloadHash txHeader)
     let payload = BlockPayload 
-          { _blockPayloadTransactionsHash = _payloadDataTransactionsHash pd
-          , _blockPayloadOutputsHash = _payloadDataOutputsHash pd
-          , _blockPayloadPayloadHash = _payloadDataPayloadHash pd
+          { _blockPayloadTransactionsHash = view payloadDataTransactionsHash pd
+          , _blockPayloadOutputsHash = view payloadDataOutputsHash pd
+          , _blockPayloadPayloadHash = view payloadDataPayloadHash pd
           }
 
     -- ----------------------------- --

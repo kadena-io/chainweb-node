@@ -194,7 +194,7 @@ chainwebTxsFromPd
     -> PayloadData
     -> IO (HashSet (HashableTrans PayloadWithText))
 chainwebTxsFromPd ppv pd = do
-    let transSeq = _payloadDataTransactions pd
+    let transSeq = view payloadDataTransactions pd
     let bytes = _transactionBytes <$> transSeq
     let eithers = toCWTransaction <$> bytes
     -- Note: if any transactions fail to convert, the final validation hash will fail to match

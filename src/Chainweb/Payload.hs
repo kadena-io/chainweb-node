@@ -92,8 +92,13 @@ module Chainweb.Payload
 
 -- * API Payload Data
 , PayloadData
-, PayloadData_(..)
+, PayloadData_
 , payloadData
+, payloadDataTransactions
+, payloadDataMiner
+, payloadDataPayloadHash
+, payloadDataTransactionsHash
+, payloadDataOutputsHash
 , newPayloadData
 , PayloadDataCas
 , verifyPayloadData
@@ -109,6 +114,7 @@ module Chainweb.Payload
 ) where
 
 import Control.DeepSeq
+import Control.Lens (Lens', lens)
 import Control.Monad ((<$!>))
 import Control.Monad.Catch
 
@@ -927,6 +933,21 @@ data PayloadData_ a = PayloadData
     }
     deriving (Eq, Show, Generic)
     deriving anyclass (NFData)
+
+payloadDataTransactions :: Lens' (PayloadData_ a) (V.Vector Transaction)
+payloadDataTransactions = lens _payloadDataTransactions $ \s a -> s { _payloadDataTransactions = a }
+
+payloadDataMiner :: Lens' (PayloadData_ a) MinerData
+payloadDataMiner = lens _payloadDataMiner $ \s a -> s { _payloadDataMiner = a }
+
+payloadDataPayloadHash :: Lens' (PayloadData_ a) (BlockPayloadHash_ a)
+payloadDataPayloadHash = lens _payloadDataPayloadHash $ \s a -> s { _payloadDataPayloadHash = a }
+
+payloadDataTransactionsHash :: Lens' (PayloadData_ a) (BlockTransactionsHash_ a)
+payloadDataTransactionsHash = lens _payloadDataTransactionsHash $ \s a -> s { _payloadDataTransactionsHash = a }
+
+payloadDataOutputsHash :: Lens' (PayloadData_ a) (BlockOutputsHash_ a)
+payloadDataOutputsHash = lens _payloadDataOutputsHash $ \s a -> s { _payloadDataOutputsHash = a }
 
 payloadDataProperties
     :: MerkleHashAlgorithm a
