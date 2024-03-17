@@ -6,6 +6,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -56,14 +57,10 @@ module Chainweb.Pact.Backend.Types
 
     , BlockState(..)
     , initBlockState
-    , bsBlockHeight
     , bsMode
     , bsTxId
     , bsPendingBlock
     , bsPendingTx
-    , bsModuleNameFix
-    , bsSortedKeys
-    , bsLowerCaseTables
     , bsModuleCache
     , BlockEnv(..)
     , benvBlockState
@@ -71,10 +68,15 @@ module Chainweb.Pact.Backend.Types
     , runBlockEnv
     , SQLiteEnv
     , BlockHandler(..)
-    , ParentHash
-    , BlockHandlerEnv(..)
+    , blockHandlerBlockHeight
+    , blockHandlerModuleNameFix
+    , blockHandlerSortedKeys
+    , blockHandlerLowerCaseTables
     , blockHandlerDb
     , blockHandlerLogger
+    , ParentHash
+    , BlockHandlerEnv(..)
+    , mkBlockHandlerEnv
     , SQLiteFlag(..)
 
       -- * mempool
@@ -120,10 +122,13 @@ import Pact.Types.Runtime (TableName)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import Chainweb.ChainId
 import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
+import Chainweb.Version
+import Chainweb.Version.Guards
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
 
 import Streaming(Stream, Of)
@@ -224,10 +229,6 @@ data BlockState = BlockState
     , _bsPendingBlock :: !SQLitePendingData
     , _bsPendingTx :: !(Maybe SQLitePendingData)
     , _bsMode :: !(Maybe ExecutionMode)
-    , _bsBlockHeight :: !BlockHeight
-    , _bsModuleNameFix :: !Bool
-    , _bsSortedKeys :: !Bool
-    , _bsLowerCaseTables :: !Bool
     , _bsModuleCache :: !(DbCache PersistModuleData)
     }
 
@@ -236,18 +237,15 @@ emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
 initBlockState
     :: DbCacheLimitBytes
-        -- ^ Module Cache Limit (in bytes of corresponding rowdata)
-    -> BlockHeight
+    -- ^ Module Cache Limit (in bytes of corresponding rowdata)
+    -> TxId
+    -- ^ next tx id (end txid of previous block)
     -> BlockState
-initBlockState cl initialBlockHeight = BlockState
-    { _bsTxId = 0
+initBlockState cl txid = BlockState
+    { _bsTxId = txid
     , _bsMode = Nothing
-    , _bsBlockHeight = initialBlockHeight
     , _bsPendingBlock = emptySQLitePendingData
     , _bsPendingTx = Nothing
-    , _bsModuleNameFix = False
-    , _bsSortedKeys = False
-    , _bsLowerCaseTables = False
     , _bsModuleCache = emptyDbCache cl
     }
 
@@ -256,11 +254,29 @@ makeLenses ''BlockState
 data BlockHandlerEnv logger = BlockHandlerEnv
     { _blockHandlerDb :: !SQLiteEnv
     , _blockHandlerLogger :: !logger
+    , _blockHandlerBlockHeight :: !BlockHeight
+    , _blockHandlerModuleNameFix :: !Bool
+    , _blockHandlerSortedKeys :: !Bool
+    , _blockHandlerLowerCaseTables :: !Bool
     }
+
+mkBlockHandlerEnv
+  :: ChainwebVersion -> ChainId -> BlockHeight
+  -> SQLiteEnv -> logger -> BlockHandlerEnv logger
+mkBlockHandlerEnv v cid bh sql logger = BlockHandlerEnv
+    { _blockHandlerDb = sql
+    , _blockHandlerLogger = logger
+    , _blockHandlerBlockHeight = bh
+    , _blockHandlerModuleNameFix = enableModuleNameFix v cid bh
+    , _blockHandlerSortedKeys = pact42 v cid bh
+    , _blockHandlerLowerCaseTables = chainweb217Pact v cid bh
+    }
+
 
 makeLenses ''BlockHandlerEnv
 
-data BlockEnv logger = BlockEnv
+data BlockEnv logger =
+  BlockEnv
     { _blockHandlerEnv :: !(BlockHandlerEnv logger)
     , _benvBlockState :: !BlockState -- ^ The current block state.
     }

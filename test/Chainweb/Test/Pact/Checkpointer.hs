@@ -47,6 +47,7 @@ import Test.Tasty.HUnit
 -- internal imports
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.MerkleUniverse
@@ -502,8 +503,8 @@ testRegress logBackend =
         >>= assertEquals "The final block state is" finalBlockState
   where
     logger = hunitDummyLogger logBackend
-    finalBlockState = (2, 0)
-    toTup BlockState { _bsTxId = txid, _bsBlockHeight = blockVersion } = (txid, blockVersion)
+    finalBlockState = 2
+    toTup BlockState { _bsTxId = txid } = txid
 
 regressChainwebPactDb :: (Logger logger) => logger -> IO (MVar (BlockEnv logger))
 regressChainwebPactDb logger = simpleBlockEnvInit logger runRegression
@@ -649,10 +650,9 @@ runSQLite'
     -> TestTree
 runSQLite' runTest sqlEnvIO = runTest $ do
     sqlenv <- sqlEnvIO
-    cp <- initRelationalCheckpointer initialBlockState sqlenv logger testVer testChainId
+    cp <- initRelationalCheckpointer defaultModuleCacheLimit sqlenv logger testVer testChainId
     return (cp, sqlenv)
   where
-    initialBlockState = set bsModuleNameFix True $ initBlockState defaultModuleCacheLimit $ genesisHeight testVer testChainId
     logger = addLabel ("sub-component", "relational-checkpointer") $ dummyLogger
 
 runExec :: forall logger. (Logger logger) => Checkpointer logger -> ChainwebPactDbEnv logger -> Maybe Value -> Text -> IO EvalResult
@@ -710,17 +710,19 @@ childOf (Just bh) bhsh =
 childOf Nothing bhsh =
   (genesisBlockHeader testVer testChainId) { _blockHash = bhsh }
 
+-- initialize a block env without actually restoring the checkpointer, before
+-- genesis.
 simpleBlockEnvInit
     :: (Logger logger)
     => logger
     -> (PactDb (BlockEnv logger) -> BlockEnv logger -> (MVar (BlockEnv logger) -> IO ()) -> IO a)
     -> IO a
 simpleBlockEnvInit logger f = withTempSQLiteConnection chainwebPragmas $ \sqlenv ->
-    f chainwebPactDb (blockEnv sqlenv) (\v -> runBlockEnv v initSchema)
+    f chainwebPactDb (blockEnv sqlenv) (\_ -> initSchema logger sqlenv)
   where
-    blockEnv e = BlockEnv
-        (BlockHandlerEnv e (addLabel ("block-environment", "simpleBlockEnvInit") logger))
-        (initBlockState defaultModuleCacheLimit $ genesisHeight testVer testChainId)
+    blockEnv sqlenv = BlockEnv
+      (mkBlockHandlerEnv testVer testChainId (BlockHeight 0) sqlenv logger)
+      (initBlockState defaultModuleCacheLimit (TxId 0))
 
 {- this should be moved to pact -}
 begin :: PactDb e -> Method e (Maybe TxId)

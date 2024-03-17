@@ -147,7 +147,7 @@ withPactService
     -> PactServiceM logger tbl a
     -> IO (T2 a PactServiceState)
 withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
-    withProdRelationalCheckpointer checkpointerLogger initialBlockState sqlenv ver cid $ \checkpointer -> do
+    withProdRelationalCheckpointer checkpointerLogger (_pactModuleCacheLimit config) sqlenv ver cid $ \checkpointer -> do
         let !rs = readRewards
         let !pse = PactServiceEnv
                     { _psMempoolAccess = Nothing
@@ -199,7 +199,6 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
             exitOnRewindLimitExceeded $ initializeLatestBlock (_pactUnlimitedInitialRewind config)
             act
   where
-    initialBlockState = initBlockState (_pactModuleCacheLimit config) $ genesisHeight ver cid
     pactServiceLogger = setComponent "pact" chainwebLogger
     checkpointerLogger = addLabel ("sub-component", "checkpointer") pactServiceLogger
     gasLogger = addLabel ("transaction", "GasLogs") pactServiceLogger

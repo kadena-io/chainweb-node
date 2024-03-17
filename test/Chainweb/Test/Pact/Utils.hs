@@ -207,7 +207,6 @@ import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils hiding (withSqliteDb)
 import Chainweb.Pact.PactService
-import Chainweb.Pact.PactService.Checkpointer
 import Chainweb.Pact.RestAPI.Server (validateCommand)
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
@@ -673,7 +672,7 @@ testPactCtxSQLite
   -> (TxContext -> GasModel)
   -> IO (TestPactCtx logger tbl)
 testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
-    cp <- initRelationalCheckpointer initialBlockState sqlenv cpLogger v cid
+    cp <- initRelationalCheckpointer defaultModuleCacheLimit sqlenv cpLogger v cid
     let rs = readRewards
     !ctx <- TestPactCtx
       <$!> newMVar (PactServiceState mempty)
@@ -681,7 +680,6 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
     evalPactServiceM_ ctx (initialPayloadState mempty v cid)
     return ctx
   where
-    initialBlockState = initBlockState defaultModuleCacheLimit $ genesisHeight v cid
     cpLogger = addLabel ("chain-id", chainIdToText cid) $ addLabel ("sub-component", "checkpointer") $ logger
     mkPactServiceEnv :: Checkpointer logger -> MinerRewards -> PactServiceEnv logger tbl
     mkPactServiceEnv cp rs = PactServiceEnv
@@ -798,10 +796,7 @@ initializeSQLite = open2 file >>= \case
 freeSQLiteResource :: SQLiteEnv -> IO ()
 freeSQLiteResource sqlenv = void $ close_v2 sqlenv
 
--- | Run in 'PactBlockM' with direct db access and a parent header.
--- TODO: this seems like a broken idea. We should not be accessing the
--- database without restoring the checkpointer first, and this does that.
-type WithPactCtxSQLite logger tbl = forall a . PactBlockM logger tbl a -> IO a
+type WithPactCtxSQLite logger tbl = forall a . PactServiceM logger tbl a -> IO a
 
 -- | Used to run 'PactServiceM' functions directly on a database (ie not use checkpointer).
 withPactCtxSQLite
@@ -819,9 +814,8 @@ withPactCtxSQLite logger v bhdbIO pdbIO conf f =
     freeSQLiteResource $ \io ->
       withResource (start io) destroy $ \ctxIO -> f $ \toPact -> do
           ctx <- ctxIO
-          evalPactServiceM_ ctx (readFrom (Just (ParentHeader gh)) toPact)
+          evalPactServiceM_ ctx toPact
   where
-    gh = genesisBlockHeader v cid
     destroy = destroyTestPactCtx
     cid = someChainId v
     start ios = do
