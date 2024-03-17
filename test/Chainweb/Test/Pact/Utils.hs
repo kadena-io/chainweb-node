@@ -1064,12 +1064,13 @@ compactUntilAvailable
 compactUntilAvailable tbh logger (SQLiteEnv db _) flags = go
   where
     go = do
-      e <- try (C.compact tbh logger db flags)
-      case e of
+      r <- try (C.compact tbh logger db flags)
+      case r of
         Right _ -> pure ()
         Left err
-          | Just ioErr <- fromException err
+          | C.CompactExceptionDb e <- err
+          , Just ioErr <- fromException e
             -- someone, somewhere, is calling "show" on an exception
           , "ErrorBusy" `List.isInfixOf` ioe_description ioErr
-          -> go
+          -> putStrLn "Retrying compaction" >> go
           | otherwise -> throwM err
