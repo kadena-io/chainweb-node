@@ -982,7 +982,7 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
             -> P.Command (P.Payload P.PublicMeta P.ParsedCode)
             -> P.GasPrice
             -> P.Gas
-            -> PactBlockM logger tbl (TransactionEnv logger (BlockEnv logger SQLiteEnv))
+            -> PactBlockM logger tbl (TransactionEnv logger (BlockEnv logger))
         createGasEnv l cmd gp gl = do
             pd <- getTxContext (publicMetaOf cmd)
             bhdb <- view (psServiceEnv . psBlockHeaderDb)
