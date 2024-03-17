@@ -146,12 +146,12 @@ convSavepointName = toTextUtf8
 --
 
 callDb
-    :: (MonadCatch m, MonadReader (BlockDbEnv logger) m, MonadIO m)
+    :: (MonadCatch m, MonadReader (BlockHandlerEnv logger) m, MonadIO m)
     => T.Text
     -> (SQ3.Database -> IO b)
     -> m b
 callDb callerName action = do
-  c <- view (bdbenvDb . sConn)
+  c <- view (blockHandlerDb . sConn)
   res <- tryAny $ liftIO $ action c
   case res of
     Left err -> internalError $ "callDb (" <> callerName <> "): " <> sshow err

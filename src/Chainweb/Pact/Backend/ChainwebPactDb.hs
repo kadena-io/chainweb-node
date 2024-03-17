@@ -584,7 +584,7 @@ clearPendingTxState = do
 -- | Begin a Pact transaction
 doBegin :: (Logger logger) => ExecutionMode -> BlockHandler logger (Maybe TxId)
 doBegin m = do
-    logger <- view bdbenvLogger
+    logger <- view blockHandlerLogger
     use bsMode >>= \case
         Just {} -> do
             logError_ logger "beginTx: In transaction, rolling back"
@@ -897,7 +897,7 @@ initSchema = do
         create (domainTableName Pacts)
   where
     create tablename = do
-      logger <- view bdbenvLogger
+      logger <- view blockHandlerLogger
       logInfo_ logger $ "initSchema: "  <> fromUtf8 tablename
       callDb "initSchema" $ createVersionedTable tablename
 
