@@ -414,8 +414,9 @@ validateOne cfg badmap curTxIdx now t h =
 -- doesn't guarantee succesfull validation in the context of a block.
 --
 txTTLCheck :: TransactionConfig t -> Time Micros -> t -> Either InsertError ()
-txTTLCheck txcfg now t =
-    ebool_ InsertErrorInvalidTime (ct < now .+^ gracePeriod && now < et && ct < et)
+txTTLCheck txcfg now t = do
+    ebool_ InsertErrorTimeInFuture (ct < now .+^ gracePeriod)
+    ebool_ InsertErrorTTLExpired (now < et && ct < et)
   where
     TransactionMetadata ct et = txMetadata txcfg t
     gracePeriod = scaleTimeSpan @Int 10 second

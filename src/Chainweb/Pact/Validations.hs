@@ -26,6 +26,7 @@ module Chainweb.Pact.Validations
 , IsWebAuthnPrefixLegal(..)
 , assertValidateSigs
 , assertTxTimeRelativeToParent
+, assertTxNotInFuture
 , assertCommand
   -- * Defaults
 , defaultMaxCommandUserSigListSize
@@ -191,14 +192,26 @@ assertTxTimeRelativeToParent (ParentCreationTime (BlockCreationTime txValidation
     ttl > 0
     && txValidationTime >= timeFromSeconds 0
     && txOriginationTime >= 0
-    && timeFromSeconds (txOriginationTime) <= lenientTxValidationTime
     && timeFromSeconds (txOriginationTime + ttl) > txValidationTime
     && P.TTLSeconds ttl <= defaultMaxTTL
   where
     P.TTLSeconds ttl = view cmdTimeToLive tx
     timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
     P.TxCreationTime txOriginationTime = view cmdCreationTime tx
+
+-- | Check that the tx's creation time is not too far in the future relative
+-- to the block creation time
+assertTxNotInFuture
+    :: ParentCreationTime
+    -> P.Command (P.Payload P.PublicMeta c)
+    -> Bool
+assertTxNotInFuture (ParentCreationTime (BlockCreationTime txValidationTime)) tx =
+    timeFromSeconds txOriginationTime <= lenientTxValidationTime
+  where
+    timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
+    P.TxCreationTime txOriginationTime = view cmdCreationTime tx
     lenientTxValidationTime = add (scaleTimeSpan defaultLenientTimeSlop second) txValidationTime
+
 
 -- | Assert that the command hash matches its payload and
 -- its signatures are valid, without parsing the payload.
