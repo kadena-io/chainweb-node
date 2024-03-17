@@ -67,16 +67,16 @@ module Chainweb.Pact.Backend.Types
     , bsModuleCache
     , BlockEnv(..)
     , benvBlockState
-    , benvDb
+    , blockHandlerEnv
     , runBlockEnv
     , SQLiteEnv(..)
     , sConn
     , sConfig
     , BlockHandler(..)
     , ParentHash
-    , BlockDbEnv(..)
-    , bdbenvDb
-    , bdbenvLogger
+    , BlockHandlerEnv(..)
+    , blockHandlerDb
+    , blockHandlerLogger
     , SQLiteFlag(..)
 
       -- * mempool
@@ -228,10 +228,10 @@ makeLenses ''SQLiteEnv
 -- on tx failure.
 data BlockState = BlockState
     { _bsTxId :: !TxId
-    , _bsMode :: !(Maybe ExecutionMode)
-    , _bsBlockHeight :: !BlockHeight
     , _bsPendingBlock :: !SQLitePendingData
     , _bsPendingTx :: !(Maybe SQLitePendingData)
+    , _bsMode :: !(Maybe ExecutionMode)
+    , _bsBlockHeight :: !BlockHeight
     , _bsModuleNameFix :: !Bool
     , _bsSortedKeys :: !Bool
     , _bsLowerCaseTables :: !Bool
@@ -260,15 +260,15 @@ initBlockState cl initialBlockHeight = BlockState
 
 makeLenses ''BlockState
 
-data BlockDbEnv logger = BlockDbEnv
-    { _bdbenvDb :: !SQLiteEnv
-    , _bdbenvLogger :: !logger
+data BlockHandlerEnv logger = BlockHandlerEnv
+    { _blockHandlerDb :: !SQLiteEnv
+    , _blockHandlerLogger :: !logger
     }
 
-makeLenses ''BlockDbEnv
+makeLenses ''BlockHandlerEnv
 
 data BlockEnv logger = BlockEnv
-    { _benvDb :: !(BlockDbEnv logger)
+    { _blockHandlerEnv :: !(BlockHandlerEnv logger)
     , _benvBlockState :: !BlockState -- ^ The current block state.
     }
 
@@ -285,7 +285,7 @@ runBlockEnv e m = modifyMVar e $
 -- unfortunately, this is tied to a useless MVar via runBlockEnv, which will
 -- be deleted with pact 5.
 newtype BlockHandler logger a = BlockHandler
-    { runBlockHandler :: ReaderT (BlockDbEnv logger) (StateT BlockState IO) a
+    { runBlockHandler :: ReaderT (BlockHandlerEnv logger) (StateT BlockState IO) a
     } deriving newtype
         ( Functor
         , Applicative
@@ -295,8 +295,7 @@ newtype BlockHandler logger a = BlockHandler
         , MonadCatch
         , MonadMask
         , MonadIO
-        , MonadReader (BlockDbEnv logger)
-
+        , MonadReader (BlockHandlerEnv logger)
         )
 
 type ChainwebPactDbEnv logger = PactDbEnv (BlockEnv logger)

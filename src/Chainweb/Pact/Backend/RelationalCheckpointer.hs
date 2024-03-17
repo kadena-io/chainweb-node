@@ -116,8 +116,8 @@ initRelationalCheckpointer'
     -> ChainId
     -> IO (CurrentBlockDbEnv logger, Checkpointer logger)
 initRelationalCheckpointer' bstate sqlenv loggr v cid = do
-    let dbenv = BlockDbEnv sqlenv loggr
-    db <- newMVar (BlockEnv dbenv bstate)
+    let env = BlockHandlerEnv sqlenv loggr
+    db <- newMVar (BlockEnv env bstate)
     runBlockEnv db initSchema
     let
       blockDbEnv = CurrentBlockDbEnv
@@ -158,9 +158,9 @@ doReadFrom logger v cid db parent doRead = mask $ \resetMask -> do
   let currentHeight = maybe (genesisHeight v cid) (succ . _blockHeight . _parentHeader) parent
   sharedDbEnv <- readMVar db
   let sharedModuleCache = _bsModuleCache $ _benvBlockState sharedDbEnv
-  let sql = _bdbenvDb $ _benvDb sharedDbEnv
+  let sql = _blockHandlerDb $ _blockHandlerEnv sharedDbEnv
   newDbEnv <- newMVar $ BlockEnv
-    (BlockDbEnv sql logger)
+    (BlockHandlerEnv sql logger)
     (initBlockState defaultModuleCacheLimit currentHeight)
       { _bsModuleCache = sharedModuleCache }
   runBlockEnv newDbEnv $ beginSavepoint BatchSavepoint

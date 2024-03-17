@@ -719,7 +719,7 @@ simpleBlockEnvInit logger f = withTempSQLiteConnection chainwebPragmas $ \sqlenv
     f chainwebPactDb (blockEnv sqlenv) (\v -> runBlockEnv v initSchema)
   where
     blockEnv e = BlockEnv
-        (BlockDbEnv e (addLabel ("block-environment", "simpleBlockEnvInit") logger))
+        (BlockHandlerEnv e (addLabel ("block-environment", "simpleBlockEnvInit") logger))
         (initBlockState defaultModuleCacheLimit $ genesisHeight testVer testChainId)
 
 {- this should be moved to pact -}
