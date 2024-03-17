@@ -203,12 +203,12 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.PactState qualified as PactState
 import Chainweb.Pact.Backend.PactState (TableDiffable(..), Table(..), PactRow(..))
-import Chainweb.Pact.Backend.RelationalCheckpointer
-    (initRelationalCheckpointer')
+import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils hiding (withSqliteDb)
 import Chainweb.Pact.PactService
+import Chainweb.Pact.PactService.Checkpointer
 import Chainweb.Pact.RestAPI.Server (validateCommand)
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
@@ -672,16 +672,15 @@ testPactCtxSQLite
   -> SQLiteEnv
   -> PactServiceConfig
   -> (TxContext -> GasModel)
-  -> IO (TestPactCtx logger tbl, ParentHeader, CurrentBlockDbEnv logger)
+  -> IO (TestPactCtx logger tbl)
 testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
-    (dbSt,cp) <- initRelationalCheckpointer' initialBlockState sqlenv cpLogger v cid
+    cp <- initRelationalCheckpointer initialBlockState sqlenv cpLogger v cid
     let rs = readRewards
-    let ph = ParentHeader $ genesisBlockHeader v cid
     !ctx <- TestPactCtx
       <$!> newMVar (PactServiceState mempty)
       <*> pure (mkPactServiceEnv cp rs)
     evalPactServiceM_ ctx (initialPayloadState mempty v cid)
-    return (ctx, ph, dbSt)
+    return ctx
   where
     initialBlockState = initBlockState defaultModuleCacheLimit $ genesisHeight v cid
     cpLogger = addLabel ("chain-id", chainIdToText cid) $ addLabel ("sub-component", "checkpointer") $ logger
@@ -741,7 +740,7 @@ withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
     mkPact :: SQLiteEnv -> ChainId -> IO PactExecutionService
     mkPact sqlenv c = do
         bhdb <- getBlockHeaderDb c bdb
-        (ctx,_,_) <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
+        ctx <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
         return $ PactExecutionService
           { _pactNewBlock = \_ m ->
               evalPactServiceM_ ctx $ execNewBlock mempoolAccess m
@@ -820,12 +819,13 @@ withPactCtxSQLite logger v bhdbIO pdbIO conf f =
     initializeSQLite
     freeSQLiteResource $ \io ->
       withResource (start io) destroy $ \ctxIO -> f $ \toPact -> do
-          (ctx, pc, dbSt) <- ctxIO
-          evalPactServiceM_ ctx (runPactBlockM pc dbSt toPact)
+          ctx <- ctxIO
+          evalPactServiceM_ ctx (readFrom (Just (ParentHeader gh)) toPact)
   where
-    destroy = destroyTestPactCtx . view _1
+    gh = genesisBlockHeader v cid
+    destroy = destroyTestPactCtx
+    cid = someChainId v
     start ios = do
-        let cid = someChainId v
         bhdb <- bhdbIO
         pdb <- pdbIO
         s <- ios

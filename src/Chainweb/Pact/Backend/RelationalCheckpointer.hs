@@ -94,12 +94,12 @@ withProdRelationalCheckpointer
     -> (Checkpointer logger -> IO a)
     -> IO a
 withProdRelationalCheckpointer logger bstate sqlenv v cid inner = do
-    (dbenv, cp) <- initRelationalCheckpointer' bstate sqlenv logger v cid
-    withAsync (logModuleCacheStats (_cpPactDbEnv dbenv)) $ \_ -> inner cp
+    (blockEnv, cp) <- initRelationalCheckpointer' bstate sqlenv logger v cid
+    withAsync (logModuleCacheStats blockEnv) $ \_ -> inner cp
   where
     logFun = logFunctionText logger
     logModuleCacheStats e = runForever logFun "ModuleCacheStats" $ do
-        stats <- modifyMVar (pdPactDbVar e) $ \db -> do
+        stats <- modifyMVar e $ \db -> do
             let (s, !mc') = updateCacheStats $ _bsModuleCache $ _benvBlockState db
                 !db' = set (benvBlockState . bsModuleCache) mc' db
             return (db', s)
@@ -114,32 +114,26 @@ initRelationalCheckpointer'
     -> logger
     -> ChainwebVersion
     -> ChainId
-    -> IO (CurrentBlockDbEnv logger, Checkpointer logger)
+    -> IO (MVar (BlockEnv logger), Checkpointer logger)
 initRelationalCheckpointer' bstate sqlenv loggr v cid = do
     let env = BlockHandlerEnv sqlenv loggr
     db <- newMVar (BlockEnv env bstate)
     runBlockEnv db initSchema
     let
-      blockDbEnv = CurrentBlockDbEnv
-          { _cpPactDbEnv = PactDbEnv chainwebPactDb db
-          , _cpRegisterProcessedTx =
-            \(TypedHash hash) -> runBlockEnv db (indexPactTransaction $ BS.fromShort hash)
-          , _cpLookupProcessedTx = \hs -> runBlockEnv db $ doLookupSuccessful (_bsBlockHeight bstate) hs
-          }
-      checkpointer = Checkpointer
-          { _cpRestoreAndSave = doRestoreAndSave v cid db
-          , _cpReadCp = ReadCheckpointer
-              { _cpReadFrom = doReadFrom loggr v cid db
-              , _cpGetBlockHistory = doGetBlockHistory db
-              , _cpGetHistoricalLookup = doGetHistoricalLookup db
-              , _cpGetEarliestBlock = doGetEarliestBlock db
-              , _cpGetLatestBlock = doGetLatestBlock db
-              , _cpLookupBlockInCheckpointer = doLookupBlock db
-              , _cpGetBlockParent = doGetBlockParent v cid db
-              , _cpLogger = loggr
-              }
-          }
-    return (blockDbEnv, checkpointer)
+        checkpointer = Checkpointer
+            { _cpRestoreAndSave = doRestoreAndSave v cid db
+            , _cpReadCp = ReadCheckpointer
+                { _cpReadFrom = doReadFrom loggr v cid db
+                , _cpGetBlockHistory = doGetBlockHistory db
+                , _cpGetHistoricalLookup = doGetHistoricalLookup db
+                , _cpGetEarliestBlock = doGetEarliestBlock db
+                , _cpGetLatestBlock = doGetLatestBlock db
+                , _cpLookupBlockInCheckpointer = doLookupBlock db
+                , _cpGetBlockParent = doGetBlockParent v cid db
+                , _cpLogger = loggr
+                }
+            }
+    return (db, checkpointer)
 
 
 type Db logger = MVar (BlockEnv logger)
