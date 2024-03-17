@@ -17,13 +17,11 @@
 module Chainweb.Pact.Backend.ChainwebPactDb
 ( chainwebPactDb
 , rewoundPactDb
-, prepareToPlayBlock
 , rewindDbTo
 , rewindDbToBlock
 , commitBlockStateToDatabase
 , initSchema
 , indexPactTransaction
-, clearPendingTxState
 , vacuumDb
 , toTxLog
 , getEndTxId
@@ -89,8 +87,6 @@ import Chainweb.Pact.Service.Types (PactException(..), internalError)
 import Chainweb.Pact.Types (logInfo_, logError_)
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
-import Chainweb.Version
-import Chainweb.Version.Guards
 
 tbl :: HasCallStack => Utf8 -> Utf8
 tbl t@(Utf8 b)
@@ -129,7 +125,7 @@ getPendingData = do
     return $ ptx ++ [pb]
 
 forModuleNameFix :: (Bool -> BlockHandler logger a) -> BlockHandler logger a
-forModuleNameFix f = use bsModuleNameFix >>= f
+forModuleNameFix f = view blockHandlerModuleNameFix >>= f
 
 -- TODO: speed this up, cache it?
 tableExistsInDbAtHeight :: Utf8 -> BlockHeight -> BlockHandler logger Bool
@@ -282,27 +278,6 @@ recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
     the current transaction  -}
     upd = HashMap.insertWith const deltaKey (DL.singleton delta)
 
-
-backendWriteUpdateBatch
-    :: BlockHeight
-    -> [(Utf8, V.Vector SQLiteRowDelta)]    -- ^ updates chunked on table name
-    -> Database
-    -> IO ()
-backendWriteUpdateBatch bh writesByTable db = mapM_ writeTable writesByTable
-  where
-    prepRow (SQLiteRowDelta _ txid rowkey rowdata) =
-        [ SText (Utf8 rowkey)
-        , SInt (fromIntegral txid)
-        , SBlob rowdata
-        ]
-
-    writeTable (tableName, writes) = do
-        execMulti db q (V.toList $ V.map prepRow writes)
-        markTableMutation tableName bh db
-      where
-        q = "INSERT OR REPLACE INTO " <> tbl tableName <> "(rowkey,txid,rowdata) VALUES(?,?,?)"
-
-
 markTableMutation :: Utf8 -> BlockHeight -> Database -> IO ()
 markTableMutation tablename blockheight db = do
     exec' db mutq [SText tablename, SInt (fromIntegral blockheight)]
@@ -379,7 +354,7 @@ doKeys
     -> Domain k v
     -> BlockHandler logger [k]
 doKeys mlim d = do
-    msort <- uses bsSortedKeys (\c -> if c then sort else id)
+    msort <- views blockHandlerSortedKeys (\c -> if c then sort else id)
     dbKeys <- getDbKeys
     pb <- use bsPendingBlock
     mptx <- use bsPendingTx
@@ -507,7 +482,7 @@ doCreateUserTable mbh tn@(TableName ttxt) mn = do
       Nothing -> throwM $ PactDuplicateTableError ttxt
       Just () -> do
           -- then check if it is in the db
-          lcTables <- use bsLowerCaseTables
+          lcTables <- view blockHandlerLowerCaseTables
           cond <- inDb lcTables $ Utf8 $ T.encodeUtf8 ttxt
           when cond $ throwM $ PactDuplicateTableError ttxt
           modifyPendingData
@@ -573,13 +548,6 @@ doCommit = use bsMode >>= \case
         [] -> b
         (x:_) -> DL.cons x b
 {-# INLINE doCommit #-}
-
-clearPendingTxState :: BlockHandler logger ()
-clearPendingTxState = do
-    modify'
-        $ set bsPendingBlock emptySQLitePendingData
-        . set bsPendingTx Nothing
-    resetTemp
 
 -- | Begin a Pact transaction
 doBegin :: (Logger logger) => ExecutionMode -> BlockHandler logger (Maybe TxId)
@@ -649,81 +617,10 @@ toTxLog d key value =
             Just v ->
               return $! TxLog (asString d) (fromUtf8 key) v
 
--- | Record a block as being in the history of the checkpointer
-blockHistoryInsert :: BlockHeight -> BlockHash -> TxId -> BlockHandler logger ()
-blockHistoryInsert bh hsh t =
-    callDb "blockHistoryInsert" $ \db ->
-        exec' db stmt
-            [ SInt (fromIntegral bh)
-            , SBlob (runPutS (encodeBlockHash hsh))
-            , SInt (fromIntegral t)
-            ]
-  where
-    stmt =
-      "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
-
-createTransactionIndexTable :: BlockHandler logger ()
-createTransactionIndexTable = callDb "createTransactionIndexTable" $ \db -> do
-    exec_ db "CREATE TABLE IF NOT EXISTS TransactionIndex \
-             \ (txhash BLOB NOT NULL, \
-             \ blockheight UNSIGNED BIGINT NOT NULL, \
-             \ CONSTRAINT transactionIndexConstraint UNIQUE(txhash));"
-    exec_ db "CREATE INDEX IF NOT EXISTS \
-             \ transactionIndexByBH ON TransactionIndex(blockheight)";
-
 -- | Register a successful transaction in the pending data for the block
 indexPactTransaction :: BS.ByteString -> BlockHandler logger ()
 indexPactTransaction h = modify' $
     over (bsPendingBlock . pendingSuccessfulTxs) $ HashSet.insert h
-
--- | Commit the index of pending successful transactions to the database
-indexPendingPactTransactions :: BlockHandler logger ()
-indexPendingPactTransactions = do
-    txs <- _pendingSuccessfulTxs <$> gets _bsPendingBlock
-    dbIndexTransactions txs
-
-  where
-    toRow bh b = [SBlob b, SInt bh]
-    dbIndexTransactions txs = do
-        bh <- fromIntegral <$> gets _bsBlockHeight
-        let rows = map (toRow bh) $ toList txs
-        callDb "dbIndexTransactions" $ \db -> do
-            execMulti db "INSERT INTO TransactionIndex (txhash, blockheight) \
-                         \ VALUES (?, ?)" rows
-
-createBlockHistoryTable :: BlockHandler logger ()
-createBlockHistoryTable =
-    callDb "createBlockHistoryTable" $ \db -> exec_ db
-        "CREATE TABLE IF NOT EXISTS BlockHistory \
-        \(blockheight UNSIGNED BIGINT NOT NULL,\
-        \ hash BLOB NOT NULL,\
-        \ endingtxid UNSIGNED BIGINT NOT NULL, \
-        \ CONSTRAINT blockHashConstraint UNIQUE (blockheight));"
-
-createTableCreationTable :: BlockHandler logger ()
-createTableCreationTable =
-    callDb "createTableCreationTable" $ \db -> exec_ db
-      "CREATE TABLE IF NOT EXISTS VersionedTableCreation\
-      \(tablename TEXT NOT NULL\
-      \, createBlockheight UNSIGNED BIGINT NOT NULL\
-      \, CONSTRAINT creation_unique UNIQUE(createBlockheight, tablename));"
-
-createTableMutationTable :: BlockHandler logger ()
-createTableMutationTable =
-    callDb "createTableMutationTable" $ \db -> do
-        exec_ db "CREATE TABLE IF NOT EXISTS VersionedTableMutation\
-                 \(tablename TEXT NOT NULL\
-                 \, blockheight UNSIGNED BIGINT NOT NULL\
-                 \, CONSTRAINT mutation_unique UNIQUE(blockheight, tablename));"
-
-createUserTable :: Utf8 -> BlockHeight -> BlockHandler logger ()
-createUserTable tablename bh =
-    callDb "createUserTable" $ \db -> do
-        createVersionedTable tablename db
-        exec' db insertstmt insertargs
-  where
-    insertstmt = "INSERT OR IGNORE INTO VersionedTableCreation VALUES (?,?)"
-    insertargs =  [SText tablename, SInt (fromIntegral bh)]
 
 createVersionedTable :: Utf8 -> Database -> IO ()
 createVersionedTable tablename db = do
@@ -740,41 +637,21 @@ createVersionedTable tablename db = do
     indexcreationstmt =
         "CREATE INDEX IF NOT EXISTS " <> tbl ixName <> " ON " <> tbl tablename <> "(txid DESC);"
 
--- | set up the block state to prepare for a block being played on top of
--- a parent header.
-prepareToPlayBlock
-  :: T.Text
-  -> ChainwebVersion
-  -> ChainId
-  -> Maybe ParentHeader
-  -> BlockHandler logger ()
-prepareToPlayBlock msg v cid mph = do
-  let currentHeight = maybe (genesisHeight v cid) (succ . _blockHeight . _parentHeader) mph
-  bsBlockHeight .= currentHeight
-  bsModuleNameFix .= enableModuleNameFix v cid currentHeight
-  bsSortedKeys .= pact42 v cid currentHeight
-  bsLowerCaseTables .= chainweb217Pact v cid currentHeight
-  txid <- getEndTxId (msg <> ".prepareToPlayBlock") mph
-  bsTxId .= txid
-  clearPendingTxState
-
 -- | Delete any state from the database newer than the input parent header.
 rewindDbTo
-    :: Logger logger
-    => Maybe ParentHeader
-    -> BlockHandler logger ()
-rewindDbTo Nothing = rewindDbToGenesis
-rewindDbTo mh@(Just (ParentHeader ph)) = do
-    !endingtxid <- getEndTxId "rewindDbToBlock" mh
-    callDb "rewindDbTo" $ \db -> do
-      rewindDbToBlock db (_blockHeight ph) endingtxid
+    :: SQLiteEnv
+    -> Maybe ParentHeader
+    -> IO ()
+rewindDbTo db Nothing = rewindDbToGenesis db
+rewindDbTo db mh@(Just (ParentHeader ph)) = do
+    !endingtxid <- getEndTxId "rewindDbToBlock" db mh
+    rewindDbToBlock db (_blockHeight ph) endingtxid
 
 -- rewind before genesis, delete all user tables and all rows in all tables
 rewindDbToGenesis
-  :: Logger logger
-  => BlockHandler logger ()
-rewindDbToGenesis = withSavepoint DbTransaction $
-    callDb "doRestoreInitial: resetting tables" $ \db -> do
+  :: SQLiteEnv
+  -> IO ()
+rewindDbToGenesis db = do
     exec_ db "DELETE FROM BlockHistory;"
     exec_ db "DELETE FROM [SYS:KeySets];"
     exec_ db "DELETE FROM [SYS:Modules];"
@@ -858,35 +735,84 @@ rewindDbToBlock db bh endingTxId = do
         exec' db "DELETE FROM TransactionIndex WHERE blockheight > ?;"
               [ SInt (fromIntegral bh) ]
 
-commitBlockStateToDatabase :: BlockHash -> BlockHandler logger ()
-commitBlockStateToDatabase hsh = do
-  bh <- use bsBlockHeight
-  newTables <- use $ bsPendingBlock . pendingTableCreation
-  mapM_ (\tn -> createUserTable (Utf8 tn) bh) newTables
-  writeV <- use (bsPendingBlock . pendingWrites) >>= toVectorChunks
-  callDb "save" $ backendWriteUpdateBatch bh writeV
+commitBlockStateToDatabase :: SQLiteEnv -> BlockHash -> BlockHeight -> BlockState -> IO ()
+commitBlockStateToDatabase db hsh bh blockState = do
+  let newTables = _pendingTableCreation $ _bsPendingBlock blockState
+  mapM_ (\tn -> createUserTable (Utf8 tn)) newTables
+  writeV <- toVectorChunks $ _pendingWrites (_bsPendingBlock blockState)
+  backendWriteUpdateBatch writeV
   indexPendingPactTransactions
-  nextTxId <- gets _bsTxId
-  blockHistoryInsert bh hsh nextTxId
-  clearPendingTxState
+  let nextTxId = _bsTxId blockState
+  blockHistoryInsert nextTxId
   where
-  prepChunk [] = error "impossible: empty chunk from groupBy"
-  prepChunk chunk@(h:_) = (Utf8 $ _deltaTableName h, V.fromList chunk)
+    prepChunk [] = error "impossible: empty chunk from groupBy"
+    prepChunk chunk@(h:_) = (Utf8 $ _deltaTableName h, V.fromList chunk)
 
-  toVectorChunks writes = liftIO $ do
-      mv <- mutableVectorFromList . DL.toList . DL.concat $
-        HashMap.elems writes
-      -- TODO: make this faster. You will see the trouble with the
-      -- performance here if you look at the Ord instance for SQLiteRowDelta.
-      TimSort.sort mv
-      l' <- V.toList <$> V.unsafeFreeze mv
-      let ll = List.groupBy (\a b -> _deltaTableName a == _deltaTableName b) l'
-      return $ map prepChunk ll
+    toVectorChunks writes = liftIO $ do
+        mv <- mutableVectorFromList . DL.toList . DL.concat $
+          HashMap.elems writes
+        -- TODO: make this faster. You will see the trouble with the
+        -- performance here if you look at the Ord instance for SQLiteRowDelta.
+        TimSort.sort mv
+        l' <- V.toList <$> V.unsafeFreeze mv
+        let ll = List.groupBy (\a b -> _deltaTableName a == _deltaTableName b) l'
+        return $ map prepChunk ll
+
+    backendWriteUpdateBatch
+        :: [(Utf8, V.Vector SQLiteRowDelta)]    -- ^ updates chunked on table name
+        -> IO ()
+    backendWriteUpdateBatch writesByTable = mapM_ writeTable writesByTable
+      where
+        prepRow (SQLiteRowDelta _ txid rowkey rowdata) =
+            [ SText (Utf8 rowkey)
+            , SInt (fromIntegral txid)
+            , SBlob rowdata
+            ]
+
+        writeTable (tableName, writes) = do
+            execMulti db q (V.toList $ V.map prepRow writes)
+            markTableMutation tableName bh db
+          where
+            q = "INSERT OR REPLACE INTO " <> tbl tableName <> "(rowkey,txid,rowdata) VALUES(?,?,?)"
+
+    -- | Record a block as being in the history of the checkpointer
+    blockHistoryInsert :: TxId -> IO ()
+    blockHistoryInsert t =
+        exec' db stmt
+            [ SInt (fromIntegral bh)
+            , SBlob (runPutS (encodeBlockHash hsh))
+            , SInt (fromIntegral t)
+            ]
+      where
+        stmt =
+          "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
+
+    createUserTable :: Utf8 -> IO ()
+    createUserTable tablename = do
+        createVersionedTable tablename db
+        exec' db insertstmt insertargs
+      where
+        insertstmt = "INSERT OR IGNORE INTO VersionedTableCreation VALUES (?,?)"
+        insertargs =  [SText tablename, SInt (fromIntegral bh)]
+
+    -- | Commit the index of pending successful transactions to the database
+    indexPendingPactTransactions :: IO ()
+    indexPendingPactTransactions = do
+        let txs = _pendingSuccessfulTxs $ _bsPendingBlock blockState
+        dbIndexTransactions txs
+
+      where
+        toRow b = [SBlob b, SInt (fromIntegral bh)]
+        dbIndexTransactions txs = do
+            let rows = map toRow $ toList txs
+            execMulti db "INSERT INTO TransactionIndex (txhash, blockheight) \
+                         \ VALUES (?, ?)" rows
+
 
 -- | Create all tables that exist pre-genesis
-initSchema :: (Logger logger) => BlockHandler logger ()
-initSchema = do
-    withSavepoint DbTransaction $ do
+initSchema :: (Logger logger) => logger -> SQLiteEnv -> IO ()
+initSchema logger sql =
+    withSavepoint sql DbTransaction $ do
         createBlockHistoryTable
         createTableCreationTable
         createTableMutationTable
@@ -897,19 +823,53 @@ initSchema = do
         create (domainTableName Pacts)
   where
     create tablename = do
-      logger <- view blockHandlerLogger
       logInfo_ logger $ "initSchema: "  <> fromUtf8 tablename
-      callDb "initSchema" $ createVersionedTable tablename
+      createVersionedTable tablename sql
 
-getEndTxId :: Text -> Maybe ParentHeader -> BlockHandler logger TxId
-getEndTxId msg pc = case pc of
+    createBlockHistoryTable :: IO ()
+    createBlockHistoryTable =
+      exec_ sql
+        "CREATE TABLE IF NOT EXISTS BlockHistory \
+        \(blockheight UNSIGNED BIGINT NOT NULL,\
+        \ hash BLOB NOT NULL,\
+        \ endingtxid UNSIGNED BIGINT NOT NULL, \
+        \ CONSTRAINT blockHashConstraint UNIQUE (blockheight));"
+
+    createTableCreationTable :: IO ()
+    createTableCreationTable =
+      exec_ sql
+        "CREATE TABLE IF NOT EXISTS VersionedTableCreation\
+        \(tablename TEXT NOT NULL\
+        \, createBlockheight UNSIGNED BIGINT NOT NULL\
+        \, CONSTRAINT creation_unique UNIQUE(createBlockheight, tablename));"
+
+    createTableMutationTable :: IO ()
+    createTableMutationTable =
+      exec_ sql
+        "CREATE TABLE IF NOT EXISTS VersionedTableMutation\
+         \(tablename TEXT NOT NULL\
+         \, blockheight UNSIGNED BIGINT NOT NULL\
+         \, CONSTRAINT mutation_unique UNIQUE(blockheight, tablename));"
+
+    createTransactionIndexTable :: IO ()
+    createTransactionIndexTable = do
+      exec_ sql
+        "CREATE TABLE IF NOT EXISTS TransactionIndex \
+         \ (txhash BLOB NOT NULL, \
+         \ blockheight UNSIGNED BIGINT NOT NULL, \
+         \ CONSTRAINT transactionIndexConstraint UNIQUE(txhash));"
+      exec_ sql
+        "CREATE INDEX IF NOT EXISTS \
+         \ transactionIndexByBH ON TransactionIndex(blockheight)";
+
+getEndTxId :: Text -> SQLiteEnv -> Maybe ParentHeader -> IO TxId
+getEndTxId msg sql pc = case pc of
   Nothing -> return 0
-  Just (ParentHeader ph) -> getEndTxId' msg (_blockHeight ph) (_blockHash ph)
+  Just (ParentHeader ph) -> getEndTxId' msg sql (_blockHeight ph) (_blockHash ph)
 
-getEndTxId' :: Text -> BlockHeight -> BlockHash -> BlockHandler logger TxId
-getEndTxId' msg bh bhsh =
-  callDb "getEndTxId" $ \db -> do
-    r <- qry db
+getEndTxId' :: Text -> SQLiteEnv -> BlockHeight -> BlockHash -> IO TxId
+getEndTxId' msg sql bh bhsh = do
+    r <- qry sql
       "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"
       [ SInt $ fromIntegral bh
       , SBlob $ runPutS (encodeBlockHash bhsh)

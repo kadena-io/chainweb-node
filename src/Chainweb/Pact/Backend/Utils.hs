@@ -158,16 +158,17 @@ callDb callerName action = do
     Right r -> return r
 
 withSavepoint
-    :: SavepointName
-    -> BlockHandler logger a
-    -> BlockHandler logger a
-withSavepoint name action = mask $ \resetMask -> do
-    beginSavepoint name
+    :: SQLiteEnv
+    -> SavepointName
+    -> IO a
+    -> IO a
+withSavepoint db name action = mask $ \resetMask -> do
+    beginSavepoint db name
     go resetMask `catches` handlers
   where
     go resetMask = do
-        r <- resetMask action `onException` abortSavepoint name
-        commitSavepoint name
+        r <- resetMask action `onException` abortSavepoint db name
+        liftIO $ commitSavepoint db name
         liftIO $ evaluate r
     throwErr s = internalError $ "withSavepoint (" <> toText name <> "): " <> s
     handlers = [ Handler $ \(e :: PactException) -> throwErr (sshow e)
@@ -175,13 +176,13 @@ withSavepoint name action = mask $ \resetMask -> do
                , Handler $ \(e :: SomeException) -> throwErr ("non-pact exception: " <> sshow e)
                ]
 
-beginSavepoint :: SavepointName -> BlockHandler logger ()
-beginSavepoint name =
-  callDb "beginSavepoint" $ \db -> exec_ db $ "SAVEPOINT [" <> convSavepointName name <> "];"
+beginSavepoint :: SQLiteEnv -> SavepointName -> IO ()
+beginSavepoint db name =
+  exec_ db $ "SAVEPOINT [" <> convSavepointName name <> "];"
 
-commitSavepoint :: SavepointName -> BlockHandler logger ()
-commitSavepoint name =
-  callDb "commitSavepoint" $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> convSavepointName name <> "];"
+commitSavepoint :: SQLiteEnv -> SavepointName -> IO ()
+commitSavepoint db name =
+  exec_ db $ "RELEASE SAVEPOINT [" <> convSavepointName name <> "];"
 
 -- | @rollbackSavepoint n@ rolls back all database updates since the most recent
 -- savepoint with the name @n@ and restarts the transaction.
@@ -193,16 +194,16 @@ commitSavepoint name =
 -- Cf. <https://www.sqlite.org/lang_savepoint.html> for details about
 -- savepoints.
 --
-rollbackSavepoint :: SavepointName -> BlockHandler logger ()
-rollbackSavepoint name =
-  callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
+rollbackSavepoint :: SQLiteEnv -> SavepointName -> IO ()
+rollbackSavepoint db name =
+  exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
 
 -- | @abortSavepoint n@ rolls back all database updates since the most recent
 -- savepoint with the name @n@ and removes it from the savepoint stack.
-abortSavepoint :: SavepointName -> BlockHandler logger ()
-abortSavepoint name = do
-  rollbackSavepoint name
-  commitSavepoint name
+abortSavepoint :: SQLiteEnv -> SavepointName -> IO ()
+abortSavepoint db name = do
+  rollbackSavepoint db name
+  commitSavepoint db name
 
 data SavepointName = BatchSavepoint | DbTransaction | PreBlock
   deriving (Eq, Ord, Enum, Bounded)

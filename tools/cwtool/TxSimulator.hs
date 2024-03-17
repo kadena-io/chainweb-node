@@ -106,7 +106,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
   pwos <- fetchOutputs sc cenv hdrs
   withSqliteDb cid cwLogger dbDir False $ \sqlenv -> do
     cp <-
-      initRelationalCheckpointer (initBlockState defaultModuleCacheLimit 0) sqlenv logger ver cid
+      initRelationalCheckpointer defaultModuleCacheLimit sqlenv logger ver cid
     case (txIdx',doTypecheck) of
       (Just txIdx,_) -> do -- single-tx simulation
         let pwo = head pwos
