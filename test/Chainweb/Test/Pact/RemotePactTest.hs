@@ -142,55 +142,54 @@ withRequestKeys t cenv = do
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
     [ withResourceT (withNodesAtLatestBehavior v "remotePactTest-" rdb nNodes) $ \net ->
-        withResource' getCurrentTimeIntegral $ \(iotm :: IO (Time Micros)) ->
-            let cenv = _getServiceClientEnv <$> net
-                iot = toTxCreationTime <$> iotm
-                pactDir = do
-                  m <- _getNodeDbDirs <$> net
-                  -- This looks up the pactDbDir for node 0. This is
-                  -- kind of a hack, because there is only one node in
-                  -- this test. However, it doesn't matter much, because
-                  -- we are dealing with both submitting /local txs
-                  -- and compaction, so picking an arbitrary node
-                  -- to run these two operations on is fine.
-                  pure (fst (head m))
+        let cenv = _getServiceClientEnv <$> net
+            iot = toTxCreationTime @Integer <$> getCurrentTimeIntegral
+            pactDir = do
+              m <- _getNodeDbDirs <$> net
+              -- This looks up the pactDbDir for node 0. This is
+              -- kind of a hack, because there is only one node in
+              -- this test. However, it doesn't matter much, because
+              -- we are dealing with both submitting /local txs
+              -- and compaction, so picking an arbitrary node
+              -- to run these two operations on is fine.
+              pure (fst (head m))
 
-            in sequentialTestGroup "remote pact tests" AllFinish
-                [ withResourceT (liftIO $ join $ withRequestKeys <$> iot <*> cenv) $ \reqkeys -> golden "remote-golden" $
-                    join $ responseGolden <$> cenv <*> reqkeys
-                , testCaseSteps "remote spv" $ \step ->
-                    join $ spvTest <$> iot <*> cenv <*> pure step
-                , testCaseSteps "remote eth spv" $ \step ->
-                    join $ ethSpvTest <$> iot <*> cenv <*> pure step
-                , testCaseSteps "/send reports validation failure" $ \step ->
-                    join $ sendValidationTest <$> iot <*> cenv <*> pure step
-                , testCase "/poll reports badlisted txs" $
-                    join $ pollingBadlistTest <$> cenv
-                , testCase "trivialLocalCheck" $
-                    join $ localTest <$> iot <*> cenv
-                , testCase "txlogsCompactionTest" $
-                    join $ txlogsCompactionTest <$> iot <*> cenv <*> pactDir
-                , testCase "localChainData" $
-                    join $ localChainDataTest <$> iot <*> cenv
-                , testCaseSteps "transaction size gas tests" $ \step ->
-                    join $ txTooBigGasTest <$> iot <*> cenv <*> pure step
-                , testCaseSteps "genesisAllocations" $ \step ->
-                    join $ allocationTest <$> iot <*> cenv <*> pure step
-                , testCaseSteps "caplist TRANSFER and FUND_TX test" $ \step ->
-                    join $ caplistTest <$> iot <*> cenv <*> pure step
-                , testCaseSteps "local continuation test" $ \step ->
-                    join $ localContTest <$> iot <*> cenv <*> pure step
-                , testCaseSteps "poll confirmation depth test" $ \step ->
-                    join $ pollingConfirmDepth <$> iot <*> cenv <*> pure step
-                , testCaseSteps "/poll rejects keys of incorrect length" $ \step ->
-                    join $ pollBadKeyTest <$> cenv <*> pure step
-                , testCaseSteps "local preflight sim test" $ \step ->
-                    join $ localPreflightSimTest <$> iot <*> cenv <*> pure step
-                , testCaseSteps "poll correct results test" $ \step ->
-                    join $ pollingCorrectResults <$> iot <*> cenv <*> pure step
-                , testCase "webauthn sig" $
-                    join $ webAuthnSignatureTest <$> iot <*> cenv
-                ]
+        in sequentialTestGroup "remote pact tests" AllFinish
+            [ withResourceT (liftIO $ join $ withRequestKeys <$> iot <*> cenv) $ \reqkeys -> golden "remote-golden" $
+                join $ responseGolden <$> cenv <*> reqkeys
+            , testCaseSteps "remote spv" $ \step ->
+                join $ spvTest <$> iot <*> cenv <*> pure step
+            , testCaseSteps "remote eth spv" $ \step ->
+                join $ ethSpvTest <$> iot <*> cenv <*> pure step
+            , testCaseSteps "/send reports validation failure" $ \step ->
+                join $ sendValidationTest <$> iot <*> cenv <*> pure step
+            , testCase "/poll reports badlisted txs" $
+                join $ pollingBadlistTest <$> cenv
+            , testCase "trivialLocalCheck" $
+                join $ localTest <$> iot <*> cenv
+            , testCase "txlogsCompactionTest" $
+                join $ txlogsCompactionTest <$> iot <*> cenv <*> pactDir
+            , testCase "localChainData" $
+                join $ localChainDataTest <$> iot <*> cenv
+            , testCaseSteps "transaction size gas tests" $ \step ->
+                join $ txTooBigGasTest <$> iot <*> cenv <*> pure step
+            , testCaseSteps "genesisAllocations" $ \step ->
+                join $ allocationTest <$> iot <*> cenv <*> pure step
+            , testCaseSteps "caplist TRANSFER and FUND_TX test" $ \step ->
+                join $ caplistTest <$> iot <*> cenv <*> pure step
+            , testCaseSteps "local continuation test" $ \step ->
+                join $ localContTest <$> iot <*> cenv <*> pure step
+            , testCaseSteps "poll confirmation depth test" $ \step ->
+                join $ pollingConfirmDepth <$> iot <*> cenv <*> pure step
+            , testCaseSteps "/poll rejects keys of incorrect length" $ \step ->
+                join $ pollBadKeyTest <$> cenv <*> pure step
+            , testCaseSteps "local preflight sim test" $ \step ->
+                join $ localPreflightSimTest <$> iot <*> cenv <*> pure step
+            , testCaseSteps "poll correct results test" $ \step ->
+                join $ pollingCorrectResults <$> iot <*> cenv <*> pure step
+            , testCase "webauthn sig" $
+                join $ webAuthnSignatureTest <$> iot <*> cenv
+            ]
     ]
 
 responseGolden :: ClientEnv -> RequestKeys -> IO LBS.ByteString
