@@ -260,22 +260,22 @@ initBlockState cl initialBlockHeight = BlockState
 
 makeLenses ''BlockState
 
-data BlockDbEnv logger p = BlockDbEnv
-    { _bdbenvDb :: !p
+data BlockDbEnv logger = BlockDbEnv
+    { _bdbenvDb :: !SQLiteEnv
     , _bdbenvLogger :: !logger
     }
 
 makeLenses ''BlockDbEnv
 
-data BlockEnv logger p = BlockEnv
-    { _benvDb :: !(BlockDbEnv logger p)
+data BlockEnv logger = BlockEnv
+    { _benvDb :: !(BlockDbEnv logger)
     , _benvBlockState :: !BlockState -- ^ The current block state.
     }
 
 makeLenses ''BlockEnv
 
 
-runBlockEnv :: MVar (BlockEnv logger SQLiteEnv) -> BlockHandler logger SQLiteEnv a -> IO a
+runBlockEnv :: MVar (BlockEnv logger) -> BlockHandler logger a -> IO a
 runBlockEnv e m = modifyMVar e $
   \(BlockEnv dbenv bs) -> do
     (!a,!s) <- runStateT (runReaderT (runBlockHandler m) dbenv) bs
@@ -284,8 +284,8 @@ runBlockEnv e m = modifyMVar e $
 -- this monad allows access to the database environment "at" a particular block.
 -- unfortunately, this is tied to a useless MVar via runBlockEnv, which will
 -- be deleted with pact 5.
-newtype BlockHandler logger p a = BlockHandler
-    { runBlockHandler :: ReaderT (BlockDbEnv logger p) (StateT BlockState IO) a
+newtype BlockHandler logger a = BlockHandler
+    { runBlockHandler :: ReaderT (BlockDbEnv logger) (StateT BlockState IO) a
     } deriving newtype
         ( Functor
         , Applicative
@@ -295,11 +295,11 @@ newtype BlockHandler logger p a = BlockHandler
         , MonadCatch
         , MonadMask
         , MonadIO
-        , MonadReader (BlockDbEnv logger p)
+        , MonadReader (BlockDbEnv logger)
 
         )
 
-type ChainwebPactDbEnv logger = PactDbEnv (BlockEnv logger SQLiteEnv)
+type ChainwebPactDbEnv logger = PactDbEnv (BlockEnv logger)
 
 type ParentHash = BlockHash
 

@@ -505,7 +505,7 @@ testRegress logBackend =
     finalBlockState = (2, 0)
     toTup BlockState { _bsTxId = txid, _bsBlockHeight = blockVersion } = (txid, blockVersion)
 
-regressChainwebPactDb :: (Logger logger) => logger -> IO (MVar (BlockEnv logger SQLiteEnv))
+regressChainwebPactDb :: (Logger logger) => logger -> IO (MVar (BlockEnv logger))
 regressChainwebPactDb logger = simpleBlockEnvInit logger runRegression
 
 {- this should be moved to pact -}
@@ -662,7 +662,7 @@ runExec cp pactdbenv eData eCode = do
       applyExec' 0 defaultInterpreter execMsg [] [] h' permissiveNamespacePolicy
   where
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-    cmdenv :: TransactionEnv logger (BlockEnv logger SQLiteEnv)
+    cmdenv :: TransactionEnv logger (BlockEnv logger)
     cmdenv = TransactionEnv Transactional pactdbenv (_cpLogger $ _cpReadCp cp) Nothing def
              noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing
     cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
@@ -713,7 +713,7 @@ childOf Nothing bhsh =
 simpleBlockEnvInit
     :: (Logger logger)
     => logger
-    -> (PactDb (BlockEnv logger SQLiteEnv) -> BlockEnv logger SQLiteEnv -> (MVar (BlockEnv logger SQLiteEnv) -> IO ()) -> IO a)
+    -> (PactDb (BlockEnv logger) -> BlockEnv logger -> (MVar (BlockEnv logger) -> IO ()) -> IO a)
     -> IO a
 simpleBlockEnvInit logger f = withTempSQLiteConnection chainwebPragmas $ \sqlenv ->
     f chainwebPactDb (blockEnv sqlenv) (\v -> runBlockEnv v initSchema)

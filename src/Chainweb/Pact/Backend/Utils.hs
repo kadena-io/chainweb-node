@@ -146,7 +146,7 @@ convSavepointName = toTextUtf8
 --
 
 callDb
-    :: (MonadCatch m, MonadReader (BlockDbEnv logger SQLiteEnv) m, MonadIO m)
+    :: (MonadCatch m, MonadReader (BlockDbEnv logger) m, MonadIO m)
     => T.Text
     -> (SQ3.Database -> IO b)
     -> m b
@@ -159,8 +159,8 @@ callDb callerName action = do
 
 withSavepoint
     :: SavepointName
-    -> BlockHandler logger SQLiteEnv a
-    -> BlockHandler logger SQLiteEnv a
+    -> BlockHandler logger a
+    -> BlockHandler logger a
 withSavepoint name action = mask $ \resetMask -> do
     beginSavepoint name
     go resetMask `catches` handlers
@@ -175,11 +175,11 @@ withSavepoint name action = mask $ \resetMask -> do
                , Handler $ \(e :: SomeException) -> throwErr ("non-pact exception: " <> sshow e)
                ]
 
-beginSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
+beginSavepoint :: SavepointName -> BlockHandler logger ()
 beginSavepoint name =
   callDb "beginSavepoint" $ \db -> exec_ db $ "SAVEPOINT [" <> convSavepointName name <> "];"
 
-commitSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
+commitSavepoint :: SavepointName -> BlockHandler logger ()
 commitSavepoint name =
   callDb "commitSavepoint" $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> convSavepointName name <> "];"
 
@@ -193,13 +193,13 @@ commitSavepoint name =
 -- Cf. <https://www.sqlite.org/lang_savepoint.html> for details about
 -- savepoints.
 --
-rollbackSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
+rollbackSavepoint :: SavepointName -> BlockHandler logger ()
 rollbackSavepoint name =
   callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
 
 -- | @abortSavepoint n@ rolls back all database updates since the most recent
 -- savepoint with the name @n@ and removes it from the savepoint stack.
-abortSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
+abortSavepoint :: SavepointName -> BlockHandler logger ()
 abortSavepoint name = do
   rollbackSavepoint name
   commitSavepoint name

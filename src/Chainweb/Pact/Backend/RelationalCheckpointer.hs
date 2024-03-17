@@ -142,7 +142,7 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
     return (blockDbEnv, checkpointer)
 
 
-type Db logger = MVar (BlockEnv logger SQLiteEnv)
+type Db logger = MVar (BlockEnv logger)
 
 -- see the docs for _cpReadFrom
 doReadFrom
@@ -314,7 +314,7 @@ doGetBlockParent v cid dbenv (bh, hash)
     qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?"
 
 
-doLookupSuccessful :: BlockHeight -> V.Vector PactHash -> BlockHandler logger SQLiteEnv (HashMap.HashMap PactHash (T2 BlockHeight BlockHash))
+doLookupSuccessful :: BlockHeight -> V.Vector PactHash -> BlockHandler logger (HashMap.HashMap PactHash (T2 BlockHeight BlockHash))
 doLookupSuccessful curHeight hashes = do
     withSavepoint DbTransaction $
       fmap buildResultMap $ -- swizzle results of query into a HashMap
