@@ -46,6 +46,7 @@ import Data.Char qualified as Char
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.List qualified as List
+import Data.Ord (Down(..))
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
@@ -59,11 +60,14 @@ import UnliftIO.Async (pooledForConcurrently)
 data BlockHeightTargets
   = LatestAll
     -- ^ Latest blockheight of consensus.
-  | TargetAll (Set BlockHeight)
+  | Every !BlockHeight
+    -- ^ Every nth blockheight, starting from 0.
+    --   So, this is [0, n, 2n, 3n, ...].
+  | TargetAll !(Set BlockHeight)
     -- ^ Target blockheights across all chains. If a blockheight is not
     --   accessible from a chain, it is skipped.
 
--- | TODO: DOC
+-- | Calculate the snapshots at each BlockHeight target.
 pactCalc :: (Logger logger)
   => logger
   -> ChainwebVersion
@@ -82,6 +86,15 @@ pactCalc logger v pactConns rocksDb targets = do
       List.singleton <$> resolveLatestCutHeaders logger v pactConns rocksDb
     TargetAll ts -> do
       resolveCutHeadersAtHeights logger v pactConns rocksDb (Set.toDescList ts)
+    Every n -> do
+      -- Get the latest cut headers
+      (latestBlockHeight, _cutHeaders) <- resolveLatestCutHeaders logger v pactConns rocksDb
+      -- Then make sure we don't exceed them. It's okay if we attempt to access
+      -- history that doesn't exist, the code is resilient to that, it will just
+      -- emit warnings.
+      let ts = List.sortOn Down $ List.takeWhile (< latestBlockHeight) $ List.map (* n) [0 .. ]
+      -- Now it's just the same as the 'TargetAll' case.
+      resolveCutHeadersAtHeights logger v pactConns rocksDb ts
 
   pooledForConcurrently chainTargets $ \(b, cutHeader) -> do
     fmap (b,) $ computeGrandHashesAt pactConns cutHeader
@@ -146,8 +159,14 @@ targetsParser =
             <> O.metavar "BLOCKHEIGHT"
             <> O.help "BlockHeight to verify."
           )
+
+    every = fmap (Every . BlockHeight) $ O.option O.auto
+      (O.long "every"
+         <> O.metavar "BLOCKHEIGHT OFFSET"
+         <> O.help "Calculate snapshots at every offset of this many blocks."
+      )
   in
-  p <|> pure LatestAll
+  p <|> every <|> pure LatestAll
 
 grandsToJson :: [(BlockHeight, HashMap ChainId Snapshot)] -> BL.ByteString
 grandsToJson chainHashes =
