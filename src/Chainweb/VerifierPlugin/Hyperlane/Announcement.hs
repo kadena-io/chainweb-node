@@ -34,7 +34,7 @@ import Chainweb.VerifierPlugin
 import Chainweb.Utils (decodeB64UrlNoPaddingText, sshow)
 
 plugin :: VerifierPlugin
-plugin = VerifierPlugin $ \proof caps gasRef -> do
+plugin = VerifierPlugin $ \_ proof caps gasRef -> do
   -- extract capability values
   (capLocation, capSigner, capMailboxAddress) <- case Set.toList caps of
     [cap] -> case _scArgs cap of
