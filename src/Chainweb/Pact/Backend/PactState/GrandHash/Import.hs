@@ -62,7 +62,7 @@ import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
 import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot.Mainnet qualified as MainnetSnapshots
 import Chainweb.Pact.Backend.PactState.GrandHash.Utils (resolveLatestCutHeaders, resolveCutHeadersAtHeight, computeGrandHashesAt, exitLog, withConnections, chainwebDbFilePath, rocksParser, cwvParser)
 import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpointer)
-import Chainweb.Pact.Backend.Types (SQLiteEnv(..), initBlockState, _cpRewindTo)
+import Chainweb.Pact.Backend.Types (SQLiteEnv, initBlockState, _cpRewindTo)
 import Chainweb.Pact.Types (defaultModuleCacheLimit)
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
 import Chainweb.Utils (sshow)

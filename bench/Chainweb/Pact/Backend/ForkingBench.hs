@@ -301,8 +301,7 @@ withResources rdb trunkLength logLevel compact f = C.envWithCleanup create destr
           playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
         when (compact == DoCompact) $ do
           C.withDefaultLogger Error $ \lgr -> do
-            let db = _sConn sqlEnv
-            void $ C.compact (BlockHeight trunkLength) lgr db []
+            void $ C.compact (BlockHeight trunkLength) lgr sqlEnv []
 
         return $ NoopNFData $ Resources {..}
 

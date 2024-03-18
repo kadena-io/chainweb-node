@@ -88,9 +88,8 @@ import Chainweb.Version (ChainId, ChainwebVersion(..), unsafeChainId, chainIdToT
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
-import Chainweb.Pact.Backend.ChainwebPactDb (rewindDbToBlock)
+import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.PactState (getLatestBlockHeight, getLatestCommonBlockHeight, getEarliestCommonBlockHeight, ensureBlockHeightExists, getEndingTxId)
-import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
 
 import "yet-another-logger" System.Logger hiding (Logger)
@@ -362,14 +361,14 @@ locateTargets :: (Logger logger)
 locateTargets logger dbDir cids = \case
   Target height -> do
     forM_ cids $ \cid -> do
-      withSqliteDb cid logger dbDir False $ \(SQLiteEnv db _) -> do
+      withSqliteDb cid logger dbDir False $ \db -> do
         catch (ensureBlockHeightExists db height) $ \(_ :: SomeException) -> do
           throwM $ CompactExceptionInvalidBlockHeight height
     pure $ HM.fromList $ List.map (, height) cids
 
   LatestUnsafe -> do
     fmap HM.fromList $ forM cids $ \cid -> do
-      withSqliteDb cid logger dbDir False $ \(SQLiteEnv db _) -> do
+      withSqliteDb cid logger dbDir False $ \db -> do
         catch ((cid, ) <$> getLatestBlockHeight db) $ \(_ :: SomeException) -> do
           throwM CompactExceptionNoLatestBlockHeight
 
@@ -547,7 +546,7 @@ compactAll CompactConfig{..} = do
     let cid = unsafeChainId 0
     withDefaultLogger LL.Error $ \logger -> do
       let resetDb = False
-      withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) -> do
+      withSqliteDb cid logger ccDbDir resetDb $ \db -> do
         getLatestBlockHeight db
 
   let allCids = Set.fromList $ F.toList $ chainIdsAt ccVersion latestBlockHeightChain0
@@ -559,7 +558,7 @@ compactAll CompactConfig{..} = do
   flip (pooledMapConcurrentlyN_ ccThreads) targetCids $ \cid -> do
     withPerChainFileLogger logDir cid LL.Debug $ \logger -> do
       let resetDb = False
-      withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) -> do
+      withSqliteDb cid logger ccDbDir resetDb $ \db -> do
         let target = targets ^?! ix cid
         void $ compact target logger db ccFlags
 

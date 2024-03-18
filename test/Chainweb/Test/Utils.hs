@@ -203,7 +203,7 @@ import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..), BlockF
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
+import Chainweb.Pact.Backend.Types (SQLiteEnv)
 import Chainweb.Pact.Backend.Utils (openSQLiteConnection, closeSQLiteConnection, chainwebPragmas)
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI

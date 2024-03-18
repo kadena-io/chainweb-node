@@ -187,7 +187,6 @@ import Pact.Types.PactValue
 import Pact.Types.RPC
 import Pact.Types.Runtime (PactEvent(..))
 import Pact.Types.Term
-import Pact.Types.SQLite
 import Pact.Types.Util (parseB16TextOnly)
 import Pact.Types.Verifier
 
@@ -792,12 +791,12 @@ initializeSQLite :: IO SQLiteEnv
 initializeSQLite = open2 file >>= \case
     Left (_err, _msg) ->
         internalError "initializeSQLite: A connection could not be opened."
-    Right r ->  return (SQLiteEnv r (SQLiteConfig file chainwebPragmas))
+    Right r -> return r
   where
     file = "" {- temporary sqlitedb -}
 
 freeSQLiteResource :: SQLiteEnv -> IO ()
-freeSQLiteResource sqlenv = void $ close_v2 $ _sConn sqlenv
+freeSQLiteResource sqlenv = void $ close_v2 sqlenv
 
 -- | Run in 'PactBlockM' with direct db access and a parent header.
 -- TODO: this seems like a broken idea. We should not be accessing the
@@ -1040,7 +1039,7 @@ locateTarget :: ()
   => SQLiteEnv
   -> C.TargetBlockHeight
   -> IO BlockHeight
-locateTarget (SQLiteEnv db _) = \case
+locateTarget db = \case
   C.Target height -> do
     PactState.ensureBlockHeightExists db height
     pure height
@@ -1065,9 +1064,9 @@ compact :: ()
   -> SQLiteEnv
   -> C.TargetBlockHeight
   -> IO ()
-compact logLevel cFlags sqlEnv@(SQLiteEnv db _) target = do
+compact logLevel cFlags db target = do
   C.withDefaultLogger logLevel $ \logger -> do
-    height <- locateTarget sqlEnv target
+    height <- locateTarget db target
     void $ C.compact height logger db cFlags
 
 -- | Compaction function that retries until the database is available.
@@ -1077,8 +1076,8 @@ compactUntilAvailable
   -> SQLiteEnv
   -> [C.CompactFlag]
   -> IO ()
-compactUntilAvailable target logger sqlEnv@(SQLiteEnv db _) flags = do
-  height <- locateTarget sqlEnv target
+compactUntilAvailable target logger db flags = do
+  height <- locateTarget db target
   go height
   where
     go h = do
