@@ -69,9 +69,7 @@ module Chainweb.Pact.Backend.Types
     , benvBlockState
     , blockHandlerEnv
     , runBlockEnv
-    , SQLiteEnv(..)
-    , sConn
-    , sConfig
+    , SQLiteEnv
     , BlockHandler(..)
     , ParentHash
     , BlockHandlerEnv(..)
@@ -111,7 +109,7 @@ import GHC.Generics
 import GHC.Stack
 
 import Pact.Interpreter (PactDbEnv(..))
-import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
+import Pact.Persist.SQLite (Pragma(..))
 import Pact.PersistPactDb (DbEnv(..))
 import qualified Pact.Types.Hash as P
 import Pact.Types.Persistence
@@ -214,12 +212,7 @@ data SQLitePendingData = SQLitePendingData
 
 makeLenses ''SQLitePendingData
 
-data SQLiteEnv = SQLiteEnv
-    { _sConn :: !Database
-    , _sConfig :: !SQLiteConfig
-    }
-
-makeLenses ''SQLiteEnv
+type SQLiteEnv = Database
 
 -- | Monad state for 'BlockHandler.
 -- This notably contains all of the information that's being mutated during

@@ -89,7 +89,6 @@ import Chainweb.Graph
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.Utils qualified as Backend
-import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.Service.Types
@@ -293,7 +292,7 @@ txlogsCompactionTest t cenv pactDbDir = do
 
     let getLatestState :: IO (M.Map RowKey RowData)
         getLatestState = C.withDefaultLogger Error $ \logger -> do
-          Backend.withSqliteDb cid logger pactDbDir False $ \(SQLiteEnv db _) -> do
+          Backend.withSqliteDb cid logger pactDbDir False $ \db -> do
             st <- Utils.getLatestPactState db
             case M.lookup "free.m0_persons" st of
               Just ps -> fmap M.fromList $ forM (M.toList ps) $ \(rkBytes, rdBytes) -> do

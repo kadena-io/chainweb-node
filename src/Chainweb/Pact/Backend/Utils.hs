@@ -151,7 +151,7 @@ callDb
     -> (SQ3.Database -> IO b)
     -> m b
 callDb callerName action = do
-  c <- view (blockHandlerDb . sConn)
+  c <- view blockHandlerDb
   res <- tryAny $ liftIO $ action c
   case res of
     Left err -> internalError $ "callDb (" <> callerName <> "): " <> sshow err
@@ -331,11 +331,10 @@ openSQLiteConnection file ps = open2 file >>= \case
       <> asString (show err) <> ": " <> asString (show msg)
     Right r -> do
       runPragmas r ps
-      return $ SQLiteEnv r
-        (SQLiteConfig file ps)
+      return r
 
 closeSQLiteConnection :: SQLiteEnv -> IO ()
-closeSQLiteConnection c = void $ close_v2 $ _sConn c
+closeSQLiteConnection c = void $ close_v2 c
 
 -- passing the empty string as filename causes sqlite to use a temporary file
 -- that is deleted when the connection is closed. In practice, unless the database becomes

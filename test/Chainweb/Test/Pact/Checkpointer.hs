@@ -84,7 +84,7 @@ testModuleName :: TestTree
 testModuleName = withResourceT withTempSQLiteResource $
     runSQLite' $ \resIO -> testCase "testModuleName" $ do
 
-        (cp, SQLiteEnv {..}) <- resIO
+        (cp, sql) <- resIO
 
         -- init genesis
         let
@@ -112,10 +112,10 @@ testModuleName = withResourceT withTempSQLiteResource $
             _writeRow pactdb Insert Modules "baremod" mod' mvar
             )]
 
-        r1 <- qry_ _sConn "SELECT rowkey FROM [SYS:Modules] WHERE rowkey LIKE '%qual%'" [RText]
+        r1 <- qry_ sql "SELECT rowkey FROM [SYS:Modules] WHERE rowkey LIKE '%qual%'" [RText]
         assertEqual "correct namespaced module name" [[SText "nsname.qualmod"]] r1
 
-        r2 <- qry_ _sConn "SELECT rowkey FROM [SYS:Modules] WHERE rowkey LIKE '%bare%'" [RText]
+        r2 <- qry_ sql "SELECT rowkey FROM [SYS:Modules] WHERE rowkey LIKE '%bare%'" [RText]
         assertEqual "correct bare module name" [[SText "baremod"]] r2
 
 -- -------------------------------------------------------------------------- --

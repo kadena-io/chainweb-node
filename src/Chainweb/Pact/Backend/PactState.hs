@@ -68,7 +68,7 @@ import Database.SQLite3.Direct qualified as SQL
 
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Logger (Logger, addLabel)
-import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
+import Chainweb.Pact.Backend.Types (SQLiteEnv)
 import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
 import Chainweb.Utils (int)
 import Chainweb.Version (ChainId, ChainwebVersion, chainIdToText)
@@ -123,7 +123,7 @@ getLatestCommonBlockHeight :: (Logger logger)
   -> IO BlockHeight
 getLatestCommonBlockHeight logger path cids = do
   fmap minimum $ forM cids $ \cid -> withChainDb cid logger path $ \_ sqlEnv -> do
-    getLatestBlockHeight (_sConn sqlEnv)
+    getLatestBlockHeight sqlEnv
 
 getEarliestCommonBlockHeight :: (Logger logger)
   => logger
@@ -132,7 +132,7 @@ getEarliestCommonBlockHeight :: (Logger logger)
   -> IO BlockHeight
 getEarliestCommonBlockHeight logger path cids = do
   fmap maximum $ forM cids $ \cid -> withChainDb cid logger path $ \_ sqlEnv -> do
-    getEarliestBlockHeight (_sConn sqlEnv)
+    getEarliestBlockHeight sqlEnv
 
 -- | Wrapper around 'withSqliteDb' that adds the chainId label to the logger
 --   and sets resetDb to False.

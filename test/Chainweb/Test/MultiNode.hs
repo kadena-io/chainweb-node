@@ -92,7 +92,6 @@ import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Cut
 import Chainweb.CutDB
@@ -457,7 +456,7 @@ pactImportTest logLevel v n rocksDb pactDir step = do
         GrandHash.Utils.withConnections logger' copyNodeDir chains $ \pactCopyConns -> do
           logFunctionText logger' Info "Checking latest block heights on copy to make sure they match verified state"
           forM_ chains $ \cid -> do
-            let SQLiteEnv db _ = pactCopyConns ^?! ix cid
+            let db = pactCopyConns ^?! ix cid
             latestBH <- getLatestBlockHeight db
             logFunctionText (addChainIdLabel cid logger') Debug $ "Latest blockheight is " <> sshow latestBH
             assertEqual "Latest blockheight matches verified state" snapshotBlockHeight latestBH
@@ -468,10 +467,10 @@ pactImportTest logLevel v n rocksDb pactDir step = do
                 log = logFunctionText
                   (addLabel ("snapshotHeight", sshow snapshotBlockHeight) $ addChainIdLabel cid logger')
             srcStateAt <- do
-              let SQLiteEnv db _ = pactConns ^?! ix cid
+              let db = pactConns ^?! ix cid
               getPactStateAtDiffable db snapshotBlockHeight
             tgtStateAt <- do
-              let SQLiteEnv db _ = pactCopyConns ^?! ix cid
+              let db = pactCopyConns ^?! ix cid
               getPactStateAtDiffable db snapshotBlockHeight
             let stateDiff = Map.filter (not . P.isSame) (P.diff srcStateAt tgtStateAt)
             when (not (null stateDiff)) $ do
