@@ -453,16 +453,16 @@ execNewBlock mpAccess miner = do
                 txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit
 
             -- Get and update the module cache
-            mc <- initModuleCacheForBlock False
+            initCache <- initModuleCacheForBlock False
             -- Run the coinbase transaction
-            cb <- runCoinbase False miner (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) mc
+            cb <- runCoinbase False miner (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) initCache
 
             successes <- liftIO $ Vec.new @_ @_ @(ChainwebTransaction, P.CommandResult [P.TxLogJson])
             failures <- liftIO $ Vec.new @_ @_ @TransactionHash
 
             -- Heuristic: limit fetches to count of 1000-gas txs in block.
             let fetchLimit = fromIntegral $ blockGasLimit `div` 1000
-            BlockFill _ requestKeys _ <- refill fetchLimit txTimeLimit successes failures initState
+            BlockFill _ requestKeys _ <- refill fetchLimit txTimeLimit successes failures initCache initState
 
             liftPactServiceM $ logInfo $ "(request keys = " <> sshow requestKeys <> ")"
 
@@ -501,11 +501,11 @@ execNewBlock mpAccess miner = do
           liftIO $!
             mpaGetBlock mpAccess bfState validate (pHeight + 1) pHash (_parentHeader latestHeader)
 
-        refill :: Word64 -> Micros -> GrowableVec (ChainwebTransaction, P.CommandResult [P.TxLogJson]) -> GrowableVec TransactionHash -> BlockFill -> PactBlockM logger tbl BlockFill
+        refill :: Word64 -> Micros -> GrowableVec (ChainwebTransaction, P.CommandResult [P.TxLogJson]) -> GrowableVec TransactionHash -> ModuleCache -> BlockFill -> PactBlockM logger tbl BlockFill
         refill fetchLimit txTimeLimit successes failures = go
           where
-            go :: BlockFill -> PactBlockM logger tbl BlockFill
-            go unchanged@bfState = do
+            go :: ModuleCache -> BlockFill -> PactBlockM logger tbl BlockFill
+            go mc unchanged@bfState = do
               pdbenv <- view psBlockDbEnv
 
               case unchanged of
@@ -528,7 +528,7 @@ execNewBlock mpAccess miner = do
                       newTrans <- liftPactServiceM $ getBlockTxs pdbenv bfState
                       if V.null newTrans then pure unchanged else do
 
-                        pairs <- execTransactionsOnly miner newTrans
+                        T2 pairs mc' <- execTransactionsOnly miner newTrans mc
                           (Just txTimeLimit) `catch` handleTimeout
 
                         (oldPairsLength, oldFailsLength) <- liftIO $ (,)
@@ -551,7 +551,7 @@ execNewBlock mpAccess miner = do
                         if (_bfGasLimit newState < _bfGasLimit bfState)
                             -- ... OR only non-zero failures were returned.
                            || (newSuccessCount == 0  && newFailCount > 0)
-                            then go (incCount newState)
+                            then go mc' (incCount newState)
                             else throwM $ MempoolFillFailure $ "Invariant failure: " <>
                                  sshow (bfState,newState,V.length newTrans
                                        ,newPairsLength,newFailsLength)
