@@ -18,10 +18,7 @@ on:
       eventlog:
         description: link with -eventlog
         default: 'False'
-  push:
-    paths:
-    - '**'
-      #    - '!.github/**'
+  pull_request:
   merge_group:
 
 env:
