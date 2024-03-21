@@ -302,8 +302,7 @@ withResources rdb trunkLength logLevel compact f = C.envWithCleanup create destr
         when (compact == DoCompact) $ do
           C.withDefaultLogger Error $ \lgr -> do
             let db = _sConn sqlEnv
-            let bh = BlockHeight trunkLength
-            void $ C.compact (C.Target bh) lgr db []
+            void $ C.compact (BlockHeight trunkLength) lgr db []
 
         return $ NoopNFData $ Resources {..}
 

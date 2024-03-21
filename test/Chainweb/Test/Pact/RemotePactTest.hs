@@ -369,7 +369,7 @@ txlogsCompactionTest t cenv pactDbDir = do
       let resetDb = False
 
       Backend.withSqliteDb cid logger pactDbDir resetDb $ \dbEnv ->
-        compactUntilAvailable C.Latest logger dbEnv flags
+        compactUntilAvailable C.LatestUnsafe logger dbEnv flags
 
     txLogs <- crGetTxLogs =<< local cid cenv =<< createTxLogsTx =<< nextNonce
 

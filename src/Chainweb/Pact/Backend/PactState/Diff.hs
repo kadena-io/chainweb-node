@@ -101,7 +101,10 @@ pactDiffMain = do
                withChainDb cid logger cfg.secondDbDir $ \_ (SQLiteEnv db2 _) -> do
                  logText Info "[Starting diff]"
                  let getPactState db = case cfg.target of
-                       Latest -> getLatestPactStateDiffable db
+                       LatestUnsafe -> getLatestPactStateDiffable db
+                       LatestSafe -> liftIO $ do
+                         logText Error "LatestSafe is not supported by pact-diff, use Target instead"
+                         exitFailure
                        Target bh -> getLatestPactStateAtDiffable db bh
                  let diff :: Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
                      diff = diffLatestPactState (getPactState db1) (getPactState db2)
@@ -151,7 +154,7 @@ pactDiffMain = do
       <*> (fmap Target (fromIntegral @Int <$> option auto
             (long "target-blockheight"
              <> metavar "BLOCKHEIGHT"
-             <> help "Target Blockheight")) <|> pure Latest)
+             <> help "Target Blockheight")) <|> pure LatestUnsafe)
       <*> strOption
            (long "log-dir"
             <> metavar "LOG_DIRECTORY"
