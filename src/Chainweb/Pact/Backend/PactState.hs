@@ -28,6 +28,9 @@ module Chainweb.Pact.Backend.PactState
   , getLatestPactStateAt
   , getLatestPactStateAtDiffable
   , getLatestBlockHeight
+  , getEarliestBlockHeight
+  , getLatestCommonBlockHeight
+  , getEarliestCommonBlockHeight
   , getEndingTxId
   , ensureBlockHeightExists
   , withChainDb
@@ -93,6 +96,13 @@ getLatestBlockHeight db = do
     [[SInt bh]] -> pure (BlockHeight (int bh))
     _ -> error "getLatestBlockHeight: expected int"
 
+getEarliestBlockHeight :: Database -> IO BlockHeight
+getEarliestBlockHeight db = do
+  let qryText = "SELECT MIN(blockheight) FROM BlockHistory"
+  Pact.qry db qryText [] [RInt] >>= \case
+    [[SInt bh]] -> pure (BlockHeight (int bh))
+    _ -> error "getEarliestBlockHeight: expected int"
+
 -- | Make sure that the blockheight exists on chain.
 --
 --   Throws an exception if it doesn't.
@@ -105,6 +115,24 @@ ensureBlockHeightExists db bh = do
         error "ensureBlockHeightExists: malformed query"
     _ -> do
       error $ "ensureBlockHeightExists: empty BlockHistory: height=" ++ show bh
+
+getLatestCommonBlockHeight :: (Logger logger)
+  => logger
+  -> FilePath
+  -> [ChainId]
+  -> IO BlockHeight
+getLatestCommonBlockHeight logger path cids = do
+  fmap minimum $ forM cids $ \cid -> withChainDb cid logger path $ \_ sqlEnv -> do
+    getLatestBlockHeight (_sConn sqlEnv)
+
+getEarliestCommonBlockHeight :: (Logger logger)
+  => logger
+  -> FilePath
+  -> [ChainId]
+  -> IO BlockHeight
+getEarliestCommonBlockHeight logger path cids = do
+  fmap maximum $ forM cids $ \cid -> withChainDb cid logger path $ \_ sqlEnv -> do
+    getEarliestBlockHeight (_sConn sqlEnv)
 
 -- | Wrapper around 'withSqliteDb' that adds the chainId label to the logger
 --   and sets resetDb to False.
