@@ -29,23 +29,26 @@ import Chainweb.Logger (Logger, logFunctionText)
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.PactState (allChains)
 import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
+import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot.Mainnet qualified as MainnetSnapshot
 import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (ChainGrandHash(..))
 import Chainweb.Pact.Backend.PactState.GrandHash.Utils (resolveLatestCutHeaders, resolveCutHeadersAtHeights, computeGrandHashesAt, withConnections, hex, rocksParser, cwvParser)
 import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
+import Chainweb.Utils (sshow)
 import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName(..))
 import Chainweb.Version.Development (devnet)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.RecapDevelopment (recapDevnet)
 import Chainweb.Version.Testnet (testnet)
 import Control.Applicative ((<|>), many)
-import Control.Monad (when)
+import Control.Monad (forM_, when)
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Lazy.Char8 qualified as BLC8
 import Data.Char qualified as Char
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.List qualified as List
+import Data.Map.Strict qualified as Map
 import Data.Ord (Down(..))
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -53,6 +56,7 @@ import Data.Text qualified as Text
 import Options.Applicative (ParserInfo, Parser, (<**>))
 import Options.Applicative qualified as O
 import Pact.JSON.Encode qualified as J
+import Patience.Map qualified as P
 import System.LogLevel (LogLevel(..))
 import UnliftIO.Async (pooledForConcurrently)
 
@@ -121,6 +125,38 @@ pactCalcMain = do
       withReadOnlyRocksDb cfg.rocksDir modernDefaultOptions $ \rocksDb -> do
         chainHashes <- pactCalc logger cfg.chainwebVersion pactConns rocksDb cfg.target
         when cfg.writeModule $ do
+          when (cfg.chainwebVersion == mainnet) $ do
+            let snapshotToDiffable = Map.fromList . List.map (\(b, hm) -> (b, Map.fromList (HM.toList hm)))
+            let currentSnapshot = snapshotToDiffable MainnetSnapshot.grands
+            let newSnapshot = snapshotToDiffable chainHashes
+
+            forM_ (Map.toList (P.diff currentSnapshot newSnapshot)) $ \(height, d) -> do
+              case d of
+                -- We only care about pre-existing blockheights with differences.
+                --
+                -- - For 'Same', there is definitely no cause for concern.
+                -- - For 'Old', that probably means that we are just using a new offset (see 'Every').
+                -- - For 'New', that means that we are adding a new BlockHeight(s).
+                --
+                -- - But for 'Delta', we need to check if any of the hashes have
+                --   changed. If they have, that is very bad.
+                P.Delta cur new -> do
+                  forM_ (Map.toList (P.diff cur new)) $ \(cid, sd) -> do
+                    case sd of
+                      -- Here, similarly, we only care about changed
+                      -- pre-existing values.
+                      P.Delta _ _ -> do
+                        let msg = Text.concat
+                              [ "Hash mismatch when attempting to regenerate snapshot: "
+                              , "blockheight = ", sshow height, "; "
+                              , "chainId = ", chainIdToText cid, "; "
+                              ]
+                        logFunctionText logger Error msg
+                      _ -> do
+                        pure ()
+                _ -> do
+                  pure ()
+
           let modulePath = "src/Chainweb/Pact/Backend/PactState/EmbeddedSnapshot/" <> versionModuleName cfg.chainwebVersion <> ".hs"
           writeFile modulePath (chainHashesToModule cfg.chainwebVersion chainHashes)
         BLC8.putStrLn $ grandsToJson chainHashes
