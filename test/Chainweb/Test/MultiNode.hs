@@ -584,6 +584,8 @@ replayTest loglevel v n rdb pactDbDir step = do
                     writeIORef firstReplayCompleteRef True
                     _ <- flip HM.traverseWithKey (_cutMap l) $ \cid bh ->
                         assertEqual ("lower chain " <> sshow cid) replayInitialHeight (_blockHeight bh)
+                    -- TODO: this is flaky, presumably because a node's cutdb
+                    -- is not being cancelled synchronously enough
                     assertEqual "upper cut" (_stateCutMap state2 HM.! nid) u
                     _ <- flip HM.traverseWithKey (_cutMap u) $ \cid bh ->
                         assertGe ("upper chain " <> sshow cid) (Actual $ _blockHeight bh) (Expected replayInitialHeight)
