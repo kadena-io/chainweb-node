@@ -19,9 +19,9 @@ module Chainweb.Payload.PayloadStore.RocksDB
 , newBlockPayloadHeightsStore
 , newBlockTransactionsStore
 , newTransactionDb
-, newBlockOutputsStore
-, newTransactionTreeStore
-, newOutputTreeStore
+, blockOutputsStore
+, transactionTreeStore
+, outputTreeStore
 , newPayloadCache
 ) where
 
@@ -39,60 +39,107 @@ import Chainweb.Storage.Table.RocksDB
 -- -------------------------------------------------------------------------- --
 -- RocksDbCas
 
-oldBlockPayloadStore :: RocksDb -> Casify RocksDbTable BlockPayload
-oldBlockPayloadStore db = Casify $ newTable db
-    (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPutS . encodeBlockPayloadHash) (runGetS decodeBlockPayloadHash))
-    ["BlockPayload"]
-
-newBlockPayloadStore :: RocksDb -> RocksDbTable (BlockHeight, BlockPayloadHash) BlockPayload
-newBlockPayloadStore db = newTable db
-    (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (\(bh, bp) -> runPutS (encodeBlockHeight bh >> encodeBlockPayloadHash bp)) (runGetS ((,) <$> decodeBlockHeight <*> decodeBlockPayloadHash)))
-    ["BlockPayload2"]
-
-newBlockTransactionsStore :: RocksDb -> Casify RocksDbTable BlockTransactions 
-newBlockTransactionsStore db = Casify $ newTable db
-    (Codec encodeToByteString decodeStrictOrThrow')
-    (Codec (runPutS . encodeBlockTransactionsHash) (runGetS decodeBlockTransactionsHash))
-    ["BlockTransactions"]
-
 newBlockPayloadHeightsStore :: RocksDb -> RocksDbTable BlockPayloadHash BlockHeight
 newBlockPayloadHeightsStore db = newTable db
     (Codec (runPutS . encodeBlockHeight) (runGetS decodeBlockHeight))
     (Codec (runPutS . encodeBlockPayloadHash) (runGetS decodeBlockPayloadHash))
     ["BlockPayloadIndex"]
 
+newBlockPayloadStore :: RocksDb -> RocksDbTable (BlockHeight, BlockPayloadHash) BlockPayload
+newBlockPayloadStore db = newTable db
+    (Codec encodeToByteString decodeStrictOrThrow')
+    (Codec
+      (\(bh, bp) -> runPutS (encodeBlockHeight bh >> encodeBlockPayloadHash bp))
+      (runGetS ((,) <$> decodeBlockHeight <*> decodeBlockPayloadHash)))
+    ["BlockPayload2"]
+
+newBlockTransactionsStore :: RocksDb -> RocksDbTable (BlockHeight, BlockTransactionsHash) BlockTransactions
+newBlockTransactionsStore db = newTable db
+    (Codec encodeToByteString decodeStrictOrThrow')
+    (Codec
+      (\(h, hsh) -> runPutS $ encodeBlockHeight h >> encodeBlockTransactionsHash hsh)
+      (runGetS ((,) <$> decodeBlockHeight <*> decodeBlockTransactionsHash)))
+    ["BlockTransactions2"]
+
+oldBlockPayloadStore :: RocksDb -> Casify RocksDbTable BlockPayload
+oldBlockPayloadStore db = Casify $ newTable db
+    (Codec encodeToByteString decodeStrictOrThrow')
+    (Codec (runPutS . encodeBlockPayloadHash) (runGetS decodeBlockPayloadHash))
+    ["BlockPayload"]
+
+oldBlockTransactionsStore :: RocksDb -> Casify RocksDbTable BlockTransactions
+oldBlockTransactionsStore db = Casify $ newTable db
+    (Codec encodeToByteString decodeStrictOrThrow')
+    (Codec (runPutS . encodeBlockTransactionsHash) (runGetS decodeBlockTransactionsHash))
+    ["BlockTransactions"]
+
 newTransactionDb :: RocksDb -> TransactionDb RocksDbTable
 newTransactionDb db = TransactionDb
-    (newBlockTransactionsStore db)
-    (newBlockPayloadStore db)
     (newBlockPayloadHeightsStore db)
+    (newBlockPayloadStore db)
+    (newBlockTransactionsStore db)
     (oldBlockPayloadStore db)
+    (oldBlockTransactionsStore db)
 
-newBlockOutputsStore :: RocksDb -> BlockOutputsStore RocksDbTable
-newBlockOutputsStore db = Casify $ newTable db
+blockOutputsStore :: RocksDb -> BlockOutputsStore RocksDbTable
+blockOutputsStore db =
+    BlockOutputsStore (oldBlockOutputsTbl db) (newBlockOutputsTbl db)
+
+oldBlockOutputsTbl :: RocksDb -> Casify RocksDbTable BlockOutputs
+oldBlockOutputsTbl db = Casify $ newTable db
     (Codec encodeToByteString decodeStrictOrThrow')
     (Codec (runPutS . encodeBlockOutputsHash) (runGetS decodeBlockOutputsHash))
     ["BlockOutputs"]
 
-newTransactionTreeStore :: RocksDb -> TransactionTreeStore RocksDbTable
-newTransactionTreeStore db = Casify $ newTable db
+newBlockOutputsTbl :: RocksDb -> RocksDbTable (BlockHeight, BlockOutputsHash) BlockOutputs
+newBlockOutputsTbl db = newTable db
+    (Codec encodeToByteString decodeStrictOrThrow')
+    (Codec
+        (\(h, hsh) -> runPutS $ encodeBlockHeight h >> encodeBlockOutputsHash hsh)
+        (runGetS $ (,) <$> decodeBlockHeight <*> decodeBlockOutputsHash))
+    ["BlockOutputs2"]
+
+oldTransactionTreeTbl :: RocksDb -> Casify RocksDbTable TransactionTree
+oldTransactionTreeTbl db = Casify $ newTable db
     (Codec encodeToByteString decodeStrictOrThrow')
     (Codec (runPutS . encodeBlockTransactionsHash) (runGetS decodeBlockTransactionsHash))
     ["TransactionTree"]
 
-newOutputTreeStore :: RocksDb -> OutputTreeStore RocksDbTable
-newOutputTreeStore db = Casify $ newTable db
+newTransactionTreeTbl
+    :: RocksDb -> RocksDbTable (BlockHeight, BlockTransactionsHash) TransactionTree
+newTransactionTreeTbl db = newTable db
+    (Codec encodeToByteString decodeStrictOrThrow')
+    (Codec
+        (\(h, hsh) -> runPutS $ encodeBlockHeight h >> encodeBlockTransactionsHash hsh)
+        (runGetS $ (,) <$> decodeBlockHeight <*> decodeBlockTransactionsHash))
+    ["TransactionTree2"]
+
+transactionTreeStore :: RocksDb -> TransactionTreeStore RocksDbTable
+transactionTreeStore db =
+    TransactionTreeStore (oldTransactionTreeTbl db) (newTransactionTreeTbl db)
+
+oldOutputTreeTbl :: RocksDb -> Casify RocksDbTable OutputTree
+oldOutputTreeTbl db = Casify $ newTable db
     (Codec encodeToByteString decodeStrictOrThrow')
     (Codec (runPutS . encodeBlockOutputsHash) (runGetS decodeBlockOutputsHash))
     ["OutputTree"]
 
+newOutputTreeTbl :: RocksDb -> RocksDbTable (BlockHeight, BlockOutputsHash) OutputTree
+newOutputTreeTbl db = newTable db
+    (Codec encodeToByteString decodeStrictOrThrow')
+    (Codec
+        (\(h, hsh) -> runPutS $ encodeBlockHeight h >> encodeBlockOutputsHash hsh)
+        (runGetS $ (,) <$> decodeBlockHeight <*> decodeBlockOutputsHash))
+    ["OutputTree2"]
+
+outputTreeStore :: RocksDb -> OutputTreeStore RocksDbTable
+outputTreeStore db = OutputTreeStore (oldOutputTreeTbl db) (newOutputTreeTbl db)
+
 newPayloadCache :: RocksDb -> PayloadCache RocksDbTable
 newPayloadCache db = PayloadCache
-    (newBlockOutputsStore db)
-    (newTransactionTreeStore db)
-    (newOutputTreeStore db)
+    (blockOutputsStore db)
+    (transactionTreeStore db)
+    (outputTreeStore db)
 
 newPayloadDb :: RocksDb -> PayloadDb RocksDbTable
 newPayloadDb db = PayloadDb
