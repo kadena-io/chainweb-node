@@ -39,33 +39,45 @@ import qualified Chainweb.Storage.Table.HashMap as HashMapTable
 oldBlockPayloadStore :: IO (Casify HashMapTable BlockPayload)
 oldBlockPayloadStore = Casify <$> HashMapTable.emptyTable
 
-newBlockPayloadStore :: IO (HashMapTable (BlockHeight, BlockPayloadHash_ a) (BlockPayload_ a))
+newBlockPayloadStore :: IO (HashMapTable (BlockHeight, CasKeyType (BlockPayload_ a)) (BlockPayload_ a))
 newBlockPayloadStore = HashMapTable.emptyTable
 
-newBlockTransactionsStore :: IO (Casify HashMapTable BlockTransactions)
-newBlockTransactionsStore = Casify <$> HashMapTable.emptyTable
+newBlockTransactionsStore :: IO (HashMapTable (BlockHeight, CasKeyType (BlockTransactions_ a)) (BlockTransactions_ a))
+newBlockTransactionsStore = HashMapTable.emptyTable
+
+oldBlockTransactionsStore :: IO (Casify HashMapTable BlockTransactions)
+oldBlockTransactionsStore = Casify <$> HashMapTable.emptyTable
 
 newBlockPayloadHeightIndex :: IO (HashMapTable (BlockPayloadHash_ a) BlockHeight)
 newBlockPayloadHeightIndex = HashMapTable.emptyTable
 
 newTransactionDb :: IO (TransactionDb HashMapTable)
 newTransactionDb = TransactionDb
-    <$> newBlockTransactionsStore
+    <$> newBlockPayloadHeightIndex
     <*> newBlockPayloadStore
-    <*> newBlockPayloadHeightIndex
+    <*> newBlockTransactionsStore
     <*> oldBlockPayloadStore
+    <*> oldBlockTransactionsStore
 
 newBlockOutputsStore :: IO (BlockOutputsStore HashMapTable)
-newBlockOutputsStore = Casify <$> HashMapTable.emptyTable
+newBlockOutputsStore =
+    BlockOutputsStore
+    <$> (Casify <$> HashMapTable.emptyTable)
+    <*> HashMapTable.emptyTable
 
 newTransactionTreeStore :: IO (TransactionTreeStore HashMapTable)
-newTransactionTreeStore = Casify <$> HashMapTable.emptyTable
+newTransactionTreeStore = TransactionTreeStore
+    <$> (Casify <$> HashMapTable.emptyTable)
+    <*> HashMapTable.emptyTable
 
 newOutputTreeStore :: IO (OutputTreeStore HashMapTable)
-newOutputTreeStore = Casify <$> HashMapTable.emptyTable
+newOutputTreeStore = OutputTreeStore
+    <$> (Casify <$> HashMapTable.emptyTable)
+    <*> HashMapTable.emptyTable
 
 newPayloadCache :: IO (PayloadCache HashMapTable)
-newPayloadCache = PayloadCache <$> newBlockOutputsStore
+newPayloadCache = PayloadCache
+    <$> newBlockOutputsStore
     <*> newTransactionTreeStore
     <*> newOutputTreeStore
 

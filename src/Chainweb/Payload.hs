@@ -95,6 +95,7 @@ module Chainweb.Payload
 , PayloadData_(..)
 , payloadData
 , newPayloadData
+, payloadDataToBlockPayload
 , PayloadDataCas
 , verifyPayloadData
 
@@ -968,6 +969,13 @@ payloadData txs payload = PayloadData
     , _payloadDataPayloadHash = _blockPayloadPayloadHash payload
     , _payloadDataTransactionsHash = _blockPayloadTransactionsHash payload
     , _payloadDataOutputsHash = _blockPayloadOutputsHash payload
+    }
+
+payloadDataToBlockPayload :: PayloadData_ a -> BlockPayload_ a
+payloadDataToBlockPayload p = BlockPayload
+    { _blockPayloadPayloadHash = _payloadDataPayloadHash p
+    , _blockPayloadTransactionsHash = _payloadDataTransactionsHash p
+    , _blockPayloadOutputsHash = _payloadDataOutputsHash p
     }
 
 newPayloadData
