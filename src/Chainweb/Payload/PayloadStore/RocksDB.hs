@@ -45,7 +45,7 @@ newTransactionDb db = TransactionDb
 
     newBlockPayloadStore :: RocksDbTable (BlockHeight, BlockPayloadHash) BlockPayload
     newBlockPayloadStore = newTable db
-        (Codec encodeToByteString decodeStrictOrThrow')
+        (Codec encodeBlockPayloads decodeBlockPayloads)
         (Codec
           (\(bh, bp) -> runPutS (encodeBlockHeight bh >> encodeBlockPayloadHash bp))
           (runGetS ((,) <$> decodeBlockHeight <*> decodeBlockPayloadHash)))
@@ -53,7 +53,7 @@ newTransactionDb db = TransactionDb
 
     newBlockTransactionsStore :: RocksDbTable (BlockHeight, BlockTransactionsHash) BlockTransactions
     newBlockTransactionsStore = newTable db
-        (Codec encodeToByteString decodeStrictOrThrow')
+        (Codec encodeBlockTransactions decodeBlockTransactions)
         (Codec
           (\(h, hsh) -> runPutS $ encodeBlockHeight h >> encodeBlockTransactionsHash hsh)
           (runGetS ((,) <$> decodeBlockHeight <*> decodeBlockTransactionsHash)))
@@ -88,7 +88,7 @@ newPayloadDb db = PayloadDb (newTransactionDb db) newPayloadCache
 
         newBlockOutputsTbl :: RocksDbTable (BlockHeight, BlockOutputsHash) BlockOutputs
         newBlockOutputsTbl = newTable db
-            (Codec encodeToByteString decodeStrictOrThrow')
+            (Codec encodeBlockOutputs decodeBlockOutputs)
             (Codec
                 (\(h, hsh) -> runPutS $ encodeBlockHeight h >> encodeBlockOutputsHash hsh)
                 (runGetS $ (,) <$> decodeBlockHeight <*> decodeBlockOutputsHash))
@@ -105,7 +105,7 @@ newPayloadDb db = PayloadDb (newTransactionDb db) newPayloadCache
 
         newTransactionTreeTbl :: RocksDbTable (BlockHeight, BlockTransactionsHash) TransactionTree
         newTransactionTreeTbl = newTable db
-            (Codec encodeToByteString decodeStrictOrThrow')
+            (Codec encodeTransactionTree decodeTransactionTree)
             (Codec
                 (\(h, hsh) -> runPutS $ encodeBlockHeight h >> encodeBlockTransactionsHash hsh)
                 (runGetS $ (,) <$> decodeBlockHeight <*> decodeBlockTransactionsHash))
@@ -122,7 +122,7 @@ newPayloadDb db = PayloadDb (newTransactionDb db) newPayloadCache
 
         newOutputTreeTbl :: RocksDbTable (BlockHeight, BlockOutputsHash) OutputTree
         newOutputTreeTbl = newTable db
-            (Codec encodeToByteString decodeStrictOrThrow')
+            (Codec encodeOutputTree decodeOutputTree)
             (Codec
                 (\(h, hsh) -> runPutS $ encodeBlockHeight h >> encodeBlockOutputsHash hsh)
                 (runGetS $ (,) <$> decodeBlockHeight <*> decodeBlockOutputsHash))
