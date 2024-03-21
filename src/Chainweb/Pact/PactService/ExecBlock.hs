@@ -33,6 +33,7 @@ module Chainweb.Pact.PactService.ExecBlock
     , CommandInvalidError(..)
     ) where
 
+import Control.Concurrent.MVar
 import Control.DeepSeq
 import Control.Exception (evaluate)
 import Control.Lens
@@ -63,6 +64,7 @@ import System.Timeout
 import Prelude hiding (lookup)
 
 import Pact.Compile (compileExps)
+import Pact.Interpreter(PactDbEnv(..))
 import qualified Pact.JSON.Encode as J
 import qualified Pact.Parse as P
 import qualified Pact.Types.Command as P
@@ -412,15 +414,26 @@ applyPactCmd
       (PactBlockM logger tbl)
       (Either CommandInvalidError (P.CommandResult [P.TxLogJson]))
 applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
-  env <- view psBlockDbEnv
+  dbEnv <- view psBlockDbEnv
+  prevBlockState <- liftIO $ fmap _benvBlockState $
+    readMVar $ pdPactDbVar $ _cpPactDbEnv dbEnv
   logger <- view (psServiceEnv . psLogger)
   gasLogger <- view (psServiceEnv . psGasLogger)
   gasModel <- view (psServiceEnv . psGasModel)
   v <- view chainwebVersion
   let
-    onBuyGasFailure e
+    -- for errors so fatal that the tx doesn't make it in the block
+    onFatalError e
       | Just (BuyGasFailure f) <- fromException e = pure (Left (CommandInvalidGasPurchaseFailure f), T2 mcache maybeBlockGasRemaining)
-      | Just t@(TxTimeout {}) <- fromException e = pure (Left (CommandInvalidTxTimeout t), T2 mcache maybeBlockGasRemaining)
+      | Just t@(TxTimeout {}) <- fromException e = do
+        -- timeouts can occur at any point during the transaction, even after
+        -- gas has been bought (or even while gas is being redeemed, after the
+        -- transaction proper is done). therefore we need to revert the block
+        -- state ourselves if it happens.
+        liftIO $ P.modifyMVar'
+          (pdPactDbVar $ _cpPactDbEnv dbEnv)
+          (benvBlockState .~ prevBlockState)
+        pure (Left (CommandInvalidTxTimeout t), T2 mcache maybeBlockGasRemaining)
       | otherwise = throwM e
     requestedTxGasLimit = view cmdGasLimit (payloadObj <$> cmd)
     -- notice that we add 1 to the remaining block gas here, to distinguish the
@@ -437,11 +450,11 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
     initialGas = initialGasOf (P._cmdPayload cmd)
   let !hsh = P._cmdHash cmd
 
-  handle onBuyGasFailure $ do
+  handle onFatalError $ do
     T2 result mcache' <- do
       txCtx <- getTxContext (publicMetaOf gasLimitedCmd)
       if isGenesis
-      then liftIO $! applyGenesisCmd logger (_cpPactDbEnv env) P.noSPVSupport txCtx gasLimitedCmd
+      then liftIO $! applyGenesisCmd logger (_cpPactDbEnv dbEnv) P.noSPVSupport txCtx gasLimitedCmd
       else do
         bhdb <- view (psServiceEnv . psBlockHeaderDb)
         parent <- view psParentHeader
@@ -455,7 +468,7 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
         let txGas (T3 r _ _) = fromIntegral $ P._crGas r
         T3 r c _warns <-
           tracePactBlockM' "applyCmd" (J.toJsonViaEncode hsh) txGas $ do
-            liftIO $ txTimeout $ applyCmd v logger gasLogger (_cpPactDbEnv env) miner (gasModel txCtx) txCtx spv gasLimitedCmd initialGas mcache ApplySend
+            liftIO $ txTimeout $ applyCmd v logger gasLogger (_cpPactDbEnv dbEnv) miner (gasModel txCtx) txCtx spv gasLimitedCmd initialGas mcache ApplySend
         pure $ T2 r c
 
     if isGenesis
@@ -463,7 +476,7 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
     else liftPactServiceM $ debugResult "applyPactCmd" (P.crLogs %~ fmap J.Array $ result)
 
     -- mark the tx as processed at the checkpointer.
-    liftIO $ _cpRegisterProcessedTx env hsh
+    liftIO $ _cpRegisterProcessedTx dbEnv hsh
     case maybeBlockGasRemaining of
       Just blockGasRemaining ->
         when (P._crGas result >= succ blockGasRemaining) $
