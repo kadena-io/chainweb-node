@@ -403,10 +403,10 @@ sweepPayloads logg db markedPayloads = do
 
     -- Extract RocksDB Tables from Payload Db
     newPayloadsTable :: RocksDbTable (BlockHeight, BlockPayloadHash) BlockPayload
-    newPayloadsTable = _transactionDbBlockPayloads $ _transactionDb db
+    newPayloadsTable = _newTransactionDbBlockPayloadsTbl $ _transactionDb db
 
     oldPayloadsTable :: RocksDbTable BlockPayloadHash BlockPayload
-    oldPayloadsTable = unCasify (_oldTransactionDbBlockPayloads $ _transactionDb db)
+    oldPayloadsTable = unCasify (_oldTransactionDbBlockPayloadsTbl $ _transactionDb db)
 
 -- | Sweep Transations
 --
@@ -417,18 +417,16 @@ sweepTransactions
     -> IO ()
 sweepTransactions logg db marked = do
     logg Info "Sweeping BlockTransactions"
-    c1 <- withTableIterator table $ S.sum_ @_ @Int . S.mapM go . iterToKeyStream
-    logg Info $ "Swept " <> sshow c1 <> " block transactions hashes"
+    c1 <- withTableIterator (_newTransactionDbBlockTransactionsTbl $ _transactionDb db) $
+        S.sum_ @_ @Int . S.mapM (\(bh, hsh) -> go (Just bh, hsh)) . iterToKeyStream
+    logg Info $ "Swept " <> sshow c1 <> " block transactions hashes (new table)"
+    c2 <- withTableIterator (_oldTransactionDbBlockTransactionsTbl $ _transactionDb db) $
+        S.sum_ @_ @Int . S.mapM (\hsh -> go (Nothing, hsh)) . iterToKeyStream
+    logg Info $ "Swept " <> sshow c2 <> " block transactions hashes (old table)"
   where
-    go x = member marked (GcHash x) >>= \case
+    go (h, x) = member marked (GcHash x) >>= \case
         True -> return 0
-        False -> 1 <$ deleteBlockTransactions logg db x
-
-    -- Extract RocksDB Tables from Payload Db
-    table :: RocksDbTable BlockTransactionsHash BlockTransactions
-    table = unCasify t
-      where
-        t = _transactionDbBlockTransactions $ _transactionDb db
+        False -> 1 <$ deleteBlockTransactions logg db h x
 
 -- | Sweep Outputs
 --
@@ -439,18 +437,16 @@ sweepOutputs
     -> IO ()
 sweepOutputs logg db marked = do
     logg Info "Sweeping BlockOutputss"
-    c1 <- withTableIterator table $ S.sum_ @_ @Int . S.mapM go . iterToKeyStream
-    logg Info $ "Swept " <> sshow c1 <> " block output hashes"
+    c1 <- withTableIterator (_newBlockOutputsTbl $ _payloadCacheBlockOutputs $ _payloadCache db) $
+        S.sum_ @_ @Int . S.mapM (\(bh, hsh) -> go (Just bh, hsh)) . iterToKeyStream
+    logg Info $ "Swept " <> sshow c1 <> " block output hashes (new table)"
+    c2 <- withTableIterator (_oldBlockOutputsTbl $ _payloadCacheBlockOutputs $ _payloadCache db) $
+        S.sum_ @_ @Int . S.mapM (curry go Nothing) . iterToKeyStream
+    logg Info $ "Swept " <> sshow c2 <> " block output hashes (new table)"
   where
-    go x = member marked (GcHash x) >>= \case
+    go (h, x) = member marked (GcHash x) >>= \case
         True -> return 0
-        False -> 1 <$ deleteBlockOutputs logg db x
-
-    -- Extract RocksDB Tables from Payload Db
-    table :: RocksDbTable BlockOutputsHash BlockOutputs
-    table = unCasify t
-      where
-        t = _payloadCacheBlockOutputs $ _payloadCache db
+        False -> 1 <$ deleteBlockOutputs logg db h x
 
 -- -------------------------------------------------------------------------- --
 -- Utils for Mark and sweep GC for Payloads
@@ -542,15 +538,22 @@ deleteBlockOutputs
     :: CanPayloadCas tbl
     => LogFunctionText
     -> PayloadDb tbl
+    -> Maybe BlockHeight
     -> BlockOutputsHash
     -> IO ()
-deleteBlockOutputs logg db p = do
+deleteBlockOutputs logg db mh p = do
     logg Debug $ "Delete BlockOutputs for " <> encodeToText p
-    tableDelete odb p
-    tableDelete otdb p
-  where
-    odb = _payloadCacheBlockOutputs $ _payloadCache db
-    otdb = _payloadCacheOutputTrees $ _payloadCache db
+    case mh of
+        Just h -> do
+            flip tableDelete (h, p) $
+                _newOutputTreeStoreTbl $ _payloadCacheOutputTrees $ _payloadCache db
+            flip tableDelete (h, p) $
+                _newBlockOutputsTbl $ _payloadCacheBlockOutputs $ _payloadCache db
+        Nothing -> do
+            flip tableDelete p $
+                _oldOutputTreeStoreTbl $ _payloadCacheOutputTrees $ _payloadCache db
+            flip tableDelete p $
+                _oldBlockOutputsTbl $ _payloadCacheBlockOutputs $ _payloadCache db
 
 -- | Delete BlockTransactions and TransactionsTree
 --
@@ -558,12 +561,19 @@ deleteBlockTransactions
     :: CanPayloadCas tbl
     => LogFunctionText
     -> PayloadDb tbl
+    -> Maybe BlockHeight
     -> BlockTransactionsHash
     -> IO ()
-deleteBlockTransactions logg db p = do
+deleteBlockTransactions logg db mh p = do
     logg Debug $ "Delete BlockTransactions for " <> encodeToText p
-    tableDelete tdb p
-    tableDelete ttdb p
-  where
-    tdb = _transactionDbBlockTransactions $ _transactionDb db
-    ttdb = _payloadCacheTransactionTrees $ _payloadCache db
+    case mh of
+        Just h -> do
+            flip tableDelete (h, p) $
+                _newTransactionDbBlockTransactionsTbl $ _transactionDb db
+            flip tableDelete (h, p) $
+                _newTransactionTreeStoreTbl $ _payloadCacheTransactionTrees $ _payloadCache db
+        Nothing -> do
+            flip tableDelete p $
+                _oldTransactionDbBlockTransactionsTbl $ _transactionDb db
+            flip tableDelete p $
+                _oldTransactionTreeStoreTbl $ _payloadCacheTransactionTrees $ _payloadCache db
