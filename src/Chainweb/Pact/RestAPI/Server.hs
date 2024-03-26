@@ -383,9 +383,9 @@ localHandler logger v cid pact preflight sigVerify rewindDepth cmd = do
       Left err ->
         throwError $ setErrText ("Validation failed: " <> T.pack err) err400
 
-    r <- liftIO $ _pactLocal pact preflight sigVerify rewindDepth cmd'
+    r <- liftIO $ try $ _pactLocal pact preflight sigVerify rewindDepth cmd'
     case r of
-      Left err -> throwError $ setErrText
+      Left (err :: PactException)  -> throwError $ setErrText
         ("Execution failed: " <> T.pack (show err)) err400
       Right (MetadataValidationFailure e) -> do
         throwError $ setErrText
@@ -438,8 +438,8 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
 
     liftIO $! logg (sshow ph)
 
-    T2 bhe _bha <- liftIO (_pactLookup pe cid Nothing (pure ph)) >>= \case
-      Left e ->
+    T2 bhe _bha <- liftIO (try $ _pactLookup pe cid Nothing (pure ph)) >>= \case
+      Left (e :: PactException) ->
         toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
       Right v -> case HM.lookup ph v of
         Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
@@ -517,8 +517,8 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
     proof f = SomePayloadProof <$> do
         validateRequestKey rk
         liftIO $! logg (sshow ph)
-        T2 bhe bha <- liftIO (_pactLookup pe cid Nothing (pure ph)) >>= \case
-            Left e ->
+        T2 bhe bha <- liftIO (try $ _pactLookup pe cid Nothing (pure ph)) >>= \case
+            Left (e :: PactException) ->
                 toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
             Right v -> case HM.lookup ph v of
                 Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
@@ -608,7 +608,7 @@ internalPoll
     -> IO (HashMap RequestKey (CommandResult Hash))
 internalPoll pdb bhdb mempool pactEx confDepth requestKeys0 = do
     -- get leaf block header for our chain from current best cut
-    results0 <- _pactLookup pactEx cid confDepth requestKeys >>= either throwM return
+    results0 <- _pactLookup pactEx cid confDepth requestKeys
         -- TODO: are we sure that all of these are raised locally. This will cause the
         -- server to shut down the connection without returning a result to the user.
     let results1 = V.map (\rk -> (rk, HM.lookup (Pact.fromUntypedHash $ unRequestKey rk) results0)) requestKeysV
