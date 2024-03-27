@@ -158,25 +158,25 @@ msgTableTest dbVarIO n msgFile = do
     dbVar <- dbVarIO
     withMVar dbVar $ \db -> do
         msgTable db name msgFile
-        rows <- qry_ (_sConn db) query [RInt]
+        rows <- qry_ db query [RInt]
         h <- case rows of
             [[SInt r]] -> return r
             [[x]] -> error $ "unexpected return value: " <> show x
             [a] -> error $ "unexpected number of result fields: " <> show (length a)
             a -> error $ "unexpected number of result rows: " <> show (length a)
         h @?= 0
-        exec_ (_sConn db) ("DROP TABLE " <> fromString name)
+        exec_ db ("DROP TABLE " <> fromString name)
   where
     query = "SELECT sum(" <> sha n <> "(substr(msg,1,len)) != md) FROM " <> fromString name
     name = "msgTable_" <> show n
 
 msgTable :: SQLiteEnv -> String -> MsgFile -> IO ()
 msgTable db name msgFile = do
-    exec_ (_sConn db) ("CREATE TABLE " <> tbl <> " (len INT, msg BLOB, md BLOB)")
+    exec_ db ("CREATE TABLE " <> tbl <> " (len INT, msg BLOB, md BLOB)")
     forM_ (_msgVectors msgFile) $ \i -> do
         let l = fromIntegral $ _msgLen i
         exec'
-            (_sConn db)
+            db
             ("INSERT INTO " <> tbl <> " VALUES (?, ?, ?)")
             [SInt l, SBlob (_msgMsg i), SBlob (_msgMd i)]
   where
@@ -210,7 +210,7 @@ monteTableTest_ db n monteFile = do
                 , "LEFT JOIN " <> monteTableName
                 , "ON tmp2.count = " <> monteTableName <> ".count"
                 ]
-        rows <- qry (_sConn db) query [SBlob $ _monteSeed monteFile] [RInt]
+        rows <- qry db query [SBlob $ _monteSeed monteFile] [RInt]
         case rows of
             [[SInt r]] -> r @?= 0
             [[x]] -> error $ "unexpected return value: " <> show x
@@ -221,10 +221,10 @@ monteTableTest_ db n monteFile = do
 
 monteTable :: SQLiteEnv -> String -> MonteFile -> IO ()
 monteTable db name monteFile = do
-    exec_ (_sConn db) ("CREATE TABLE " <> tbl <> " (count INT, md BLOB)")
+    exec_ db ("CREATE TABLE " <> tbl <> " (count INT, md BLOB)")
     forM_ (_monteVectors monteFile) $ \i -> do
         exec'
-            (_sConn db)
+            db
             ("INSERT INTO " <> tbl <> " VALUES (?, ?)")
             [SInt (fromIntegral $ _monteCount i), SBlob (_monteMd i)]
   where
@@ -250,9 +250,9 @@ withAggTable dbVarIO rowCount chunkSize =
         withMVar dbVar $ \db -> do
             input <- getStdRandom $ runState $
                 replicateM rowCount $ state (genByteString chunkSize)
-            exec_ (_sConn db) ("CREATE TABLE " <> fromString tbl <> " (bytes BLOB)")
+            exec_ db ("CREATE TABLE " <> fromString tbl <> " (bytes BLOB)")
             forM_ input $ \i ->
-                exec' (_sConn db) ("INSERT INTO " <> fromString tbl <> " VALUES(?)") [SBlob i]
+                exec' db ("INSERT INTO " <> fromString tbl <> " VALUES(?)") [SBlob i]
             return (tbl, input)
 
 testAgg :: Int -> IO (MVar SQLiteEnv) -> IO (String, [B.ByteString]) -> IO ()
@@ -260,7 +260,7 @@ testAgg n dbVarIO tblIO = do
     dbVar <- dbVarIO
     (tbl, input) <- first fromString <$> tblIO
     withMVar dbVar $ \db -> do
-        rows <- qry_ (_sConn db) ("SELECT " <> shaa n <> "(bytes) FROM " <> tbl) [RBlob]
+        rows <- qry_ db ("SELECT " <> shaa n <> "(bytes) FROM " <> tbl) [RBlob]
         h <- case rows of
             [[SBlob r]] -> return r
             [[x]] -> error $ "unexpected return value: " <> show x
@@ -284,7 +284,7 @@ hashToByteString = BS.fromShort . coerce
 
 sqliteSha3 :: SQLiteEnv -> Int -> [Int] -> B.ByteString -> B.ByteString
 sqliteSha3 db n argSplit arg = unsafePerformIO $ do
-    rows <- qry (_sConn db) queryStr params [RBlob]
+    rows <- qry db queryStr params [RBlob]
     case rows of
         [[SBlob r]] -> return r
         [[x]] -> error $ "unexpected return value: " <> show x
@@ -300,4 +300,3 @@ sqliteSha3 db n argSplit arg = unsafePerformIO $ do
 
     go [] l = [SBlob l]
     go (h:t) bs = let (a,b) = B.splitAt h bs in SBlob a : go t b
-

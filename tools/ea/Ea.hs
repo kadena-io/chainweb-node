@@ -79,6 +79,7 @@ main = void $ do
     recapDevnet
     devnet
     fastnet
+    instantnet
     testnet
     mainnet
     genTxModules
@@ -98,6 +99,7 @@ main = void $ do
       , fastDevelopmentN
       ]
     fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
+    instantnet = mkPayloads [instantCPM0, instantCPMN]
     testnet = mkPayloads [testnet0, testnetN]
     mainnet = mkPayloads
       [ mainnet0

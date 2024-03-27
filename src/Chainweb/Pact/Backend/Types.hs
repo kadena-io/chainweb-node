@@ -6,6 +6,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -56,27 +57,26 @@ module Chainweb.Pact.Backend.Types
 
     , BlockState(..)
     , initBlockState
-    , bsBlockHeight
     , bsMode
     , bsTxId
     , bsPendingBlock
     , bsPendingTx
-    , bsModuleNameFix
-    , bsSortedKeys
-    , bsLowerCaseTables
     , bsModuleCache
     , BlockEnv(..)
     , benvBlockState
-    , benvDb
+    , blockHandlerEnv
     , runBlockEnv
-    , SQLiteEnv(..)
-    , sConn
-    , sConfig
+    , SQLiteEnv
     , BlockHandler(..)
+    , blockHandlerBlockHeight
+    , blockHandlerModuleNameFix
+    , blockHandlerSortedKeys
+    , blockHandlerLowerCaseTables
+    , blockHandlerDb
+    , blockHandlerLogger
     , ParentHash
-    , BlockDbEnv(..)
-    , bdbenvDb
-    , bdbenvLogger
+    , BlockHandlerEnv(..)
+    , mkBlockHandlerEnv
     , SQLiteFlag(..)
 
       -- * mempool
@@ -111,7 +111,7 @@ import GHC.Generics
 import GHC.Stack
 
 import Pact.Interpreter (PactDbEnv(..))
-import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
+import Pact.Persist.SQLite (Pragma(..))
 import Pact.PersistPactDb (DbEnv(..))
 import qualified Pact.Types.Hash as P
 import Pact.Types.Persistence
@@ -122,10 +122,13 @@ import Pact.Types.Runtime (TableName)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import Chainweb.ChainId
 import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
+import Chainweb.Version
+import Chainweb.Version.Guards
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
 
 import Streaming(Stream, Of)
@@ -214,12 +217,7 @@ data SQLitePendingData = SQLitePendingData
 
 makeLenses ''SQLitePendingData
 
-data SQLiteEnv = SQLiteEnv
-    { _sConn :: !Database
-    , _sConfig :: !SQLiteConfig
-    }
-
-makeLenses ''SQLiteEnv
+type SQLiteEnv = Database
 
 -- | Monad state for 'BlockHandler.
 -- This notably contains all of the information that's being mutated during
@@ -228,13 +226,9 @@ makeLenses ''SQLiteEnv
 -- on tx failure.
 data BlockState = BlockState
     { _bsTxId :: !TxId
-    , _bsMode :: !(Maybe ExecutionMode)
-    , _bsBlockHeight :: !BlockHeight
     , _bsPendingBlock :: !SQLitePendingData
     , _bsPendingTx :: !(Maybe SQLitePendingData)
-    , _bsModuleNameFix :: !Bool
-    , _bsSortedKeys :: !Bool
-    , _bsLowerCaseTables :: !Bool
+    , _bsMode :: !(Maybe ExecutionMode)
     , _bsModuleCache :: !(DbCache PersistModuleData)
     }
 
@@ -243,39 +237,54 @@ emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
 initBlockState
     :: DbCacheLimitBytes
-        -- ^ Module Cache Limit (in bytes of corresponding rowdata)
-    -> BlockHeight
+    -- ^ Module Cache Limit (in bytes of corresponding rowdata)
+    -> TxId
+    -- ^ next tx id (end txid of previous block)
     -> BlockState
-initBlockState cl initialBlockHeight = BlockState
-    { _bsTxId = 0
+initBlockState cl txid = BlockState
+    { _bsTxId = txid
     , _bsMode = Nothing
-    , _bsBlockHeight = initialBlockHeight
     , _bsPendingBlock = emptySQLitePendingData
     , _bsPendingTx = Nothing
-    , _bsModuleNameFix = False
-    , _bsSortedKeys = False
-    , _bsLowerCaseTables = False
     , _bsModuleCache = emptyDbCache cl
     }
 
 makeLenses ''BlockState
 
-data BlockDbEnv logger p = BlockDbEnv
-    { _bdbenvDb :: !p
-    , _bdbenvLogger :: !logger
+data BlockHandlerEnv logger = BlockHandlerEnv
+    { _blockHandlerDb :: !SQLiteEnv
+    , _blockHandlerLogger :: !logger
+    , _blockHandlerBlockHeight :: !BlockHeight
+    , _blockHandlerModuleNameFix :: !Bool
+    , _blockHandlerSortedKeys :: !Bool
+    , _blockHandlerLowerCaseTables :: !Bool
     }
 
-makeLenses ''BlockDbEnv
+mkBlockHandlerEnv
+  :: ChainwebVersion -> ChainId -> BlockHeight
+  -> SQLiteEnv -> logger -> BlockHandlerEnv logger
+mkBlockHandlerEnv v cid bh sql logger = BlockHandlerEnv
+    { _blockHandlerDb = sql
+    , _blockHandlerLogger = logger
+    , _blockHandlerBlockHeight = bh
+    , _blockHandlerModuleNameFix = enableModuleNameFix v cid bh
+    , _blockHandlerSortedKeys = pact42 v cid bh
+    , _blockHandlerLowerCaseTables = chainweb217Pact v cid bh
+    }
 
-data BlockEnv logger p = BlockEnv
-    { _benvDb :: !(BlockDbEnv logger p)
+
+makeLenses ''BlockHandlerEnv
+
+data BlockEnv logger =
+  BlockEnv
+    { _blockHandlerEnv :: !(BlockHandlerEnv logger)
     , _benvBlockState :: !BlockState -- ^ The current block state.
     }
 
 makeLenses ''BlockEnv
 
 
-runBlockEnv :: MVar (BlockEnv logger SQLiteEnv) -> BlockHandler logger SQLiteEnv a -> IO a
+runBlockEnv :: MVar (BlockEnv logger) -> BlockHandler logger a -> IO a
 runBlockEnv e m = modifyMVar e $
   \(BlockEnv dbenv bs) -> do
     (!a,!s) <- runStateT (runReaderT (runBlockHandler m) dbenv) bs
@@ -284,8 +293,8 @@ runBlockEnv e m = modifyMVar e $
 -- this monad allows access to the database environment "at" a particular block.
 -- unfortunately, this is tied to a useless MVar via runBlockEnv, which will
 -- be deleted with pact 5.
-newtype BlockHandler logger p a = BlockHandler
-    { runBlockHandler :: ReaderT (BlockDbEnv logger p) (StateT BlockState IO) a
+newtype BlockHandler logger a = BlockHandler
+    { runBlockHandler :: ReaderT (BlockHandlerEnv logger) (StateT BlockState IO) a
     } deriving newtype
         ( Functor
         , Applicative
@@ -295,11 +304,10 @@ newtype BlockHandler logger p a = BlockHandler
         , MonadCatch
         , MonadMask
         , MonadIO
-        , MonadReader (BlockDbEnv logger p)
-
+        , MonadReader (BlockHandlerEnv logger)
         )
 
-type ChainwebPactDbEnv logger = PactDbEnv (BlockEnv logger SQLiteEnv)
+type ChainwebPactDbEnv logger = PactDbEnv (BlockEnv logger)
 
 type ParentHash = BlockHash
 

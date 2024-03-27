@@ -15,6 +15,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -33,17 +34,18 @@ module Chainweb.Pact.Backend.Compaction
   , compact
   , main
 
-    -- * Used in various tools
+    -- * Used in various tools/testing
   , withDefaultLogger
   , withPerChainFileLogger
+  , locateTargets
   ) where
 
 import Chronos qualified
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (swapMVar, readMVar, newMVar)
 import Control.Exception (Exception, SomeException(..))
-import Control.Lens (makeLenses, set, over, view, (^.), _2)
-import Control.Monad (forM_, unless, void, when)
+import Control.Lens (makeLenses, set, over, view, (^.), _2, (^?!), ix)
+import Control.Monad (forM, forM_, unless, void, when)
 import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, local)
@@ -51,6 +53,8 @@ import Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
 import Data.Coerce (coerce)
 import Data.Foldable qualified as F
 import Data.Function (fix)
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HM
 import Data.IORef (IORef, readIORef, newIORef, atomicModifyIORef')
 import Data.Int (Int64)
 import Data.List qualified as List
@@ -78,17 +82,18 @@ import System.IO.Unsafe (unsafePerformIO)
 import UnliftIO.Async (pooledMapConcurrentlyN_)
 
 import Chainweb.BlockHeight (BlockHeight(..))
-import Chainweb.Logger (l2l, setComponent)
+import Chainweb.Logger (Logger, l2l, setComponent)
 import Chainweb.Utils (sshow, fromText, toText, int)
 import Chainweb.Version (ChainId, ChainwebVersion(..), unsafeChainId, chainIdToText)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
-import Chainweb.Pact.Backend.PactState (getLatestBlockHeight, ensureBlockHeightExists, getEndingTxId)
-import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
+import Chainweb.Pact.Backend.ChainwebPactDb
+import Chainweb.Pact.Backend.PactState (getLatestBlockHeight, getLatestCommonBlockHeight, getEarliestCommonBlockHeight, ensureBlockHeightExists, getEndingTxId)
 import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
 
-import "yet-another-logger" System.Logger
+import "yet-another-logger" System.Logger hiding (Logger)
+import "yet-another-logger" System.Logger qualified as YAL
 import "loglevel" System.LogLevel qualified as LL
 import System.Logger.Backend.ColorOption (useColor)
 import Data.LogMessage
@@ -107,6 +112,7 @@ data CompactException
   | CompactExceptionInvalidBlockHeight !BlockHeight
   | CompactExceptionTableVerificationFailure !TableName
   | CompactExceptionNoLatestBlockHeight
+  | CompactExceptionLatestSafeNotEnoughHistory
   deriving stock (Show)
   deriving anyclass (Exception)
 
@@ -121,13 +127,13 @@ internalError :: MonadThrow m => Text -> m a
 internalError = throwM . CompactExceptionInternal
 
 data CompactEnv = CompactEnv
-  { _ceLogger :: Logger SomeLogMessage
+  { _ceLogger :: YAL.Logger SomeLogMessage
   , _ceDb :: Database
   , _ceFlags :: [CompactFlag]
   }
 makeLenses ''CompactEnv
 
-withDefaultLogger :: LL.LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
+withDefaultLogger :: LL.LogLevel -> (YAL.Logger SomeLogMessage -> IO a) -> IO a
 withDefaultLogger ll f = withHandleBackend_ logText handleCfg $ \b ->
   withLogger defaultLoggerConfig b $ \l -> f (set setLoggerLevel (l2l ll) l)
   where
@@ -135,7 +141,7 @@ withDefaultLogger ll f = withHandleBackend_ logText handleCfg $ \b ->
       { _handleBackendConfigHandle = StdErr
       }
 
-withPerChainFileLogger :: FilePath -> ChainId -> LL.LogLevel -> (Logger SomeLogMessage -> IO a) -> IO a
+withPerChainFileLogger :: FilePath -> ChainId -> LL.LogLevel -> (YAL.Logger SomeLogMessage -> IO a) -> IO a
 withPerChainFileLogger logDir chainId ll f = do
   createDirectoryIfMissing False {- don't create parents -} logDir
   let logFile = logDir </> ("chain-" <> cid <> ".log")
@@ -203,17 +209,6 @@ instance MonadLog Text CompactM where
 -- | Run compaction monad
 runCompactM :: CompactEnv -> CompactM a -> IO a
 runCompactM e a = runReaderT (unCompactM a) e
-
--- | Prepare/Execute a "$VTABLE$"-templated query.
-execM_ :: ()
-  => Text -- ^ query name (for logging purposes)
-  -> TableName -- ^ table name
-  -> Text -- ^ "$VTABLE$"-templated query
-  -> CompactM ()
-execM_ msg tbl q = do
-  db <- view ceDb
-  q' <- templateStmt tbl q
-  queryDebug msg (Just tbl) $ Pact.exec_ db q'
 
 execNoTemplateM_ :: ()
   => Text -- ^ query name (for logging purposes)
@@ -357,26 +352,44 @@ createCompactActiveRow = do
   execNoTemplateM_ "deleteFrom: CompactActiveRow"
     "DELETE FROM CompactActiveRow"
 
-locateTarget :: TargetBlockHeight -> CompactM BlockHeight
-locateTarget = \case
-  Target bh -> do
-    ioQuery "locateTarget.0" $ \db -> do
-      catch (ensureBlockHeightExists db bh) $ \(_ :: SomeException) -> do
-        throwM $ CompactExceptionInvalidBlockHeight bh
-    pure bh
-  Latest -> do
-    ioQuery "locateTarget.1" $ \db -> do
-      catch (getLatestBlockHeight db) $ \(_ :: SomeException) -> do
-        throwM CompactExceptionNoLatestBlockHeight
+locateTargets :: (Logger logger)
+  => logger
+  -> FilePath
+  -> [ChainId]
+  -> TargetBlockHeight
+  -> IO (HashMap ChainId BlockHeight)
+locateTargets logger dbDir cids = \case
+  Target height -> do
+    forM_ cids $ \cid -> do
+      withSqliteDb cid logger dbDir False $ \db -> do
+        catch (ensureBlockHeightExists db height) $ \(_ :: SomeException) -> do
+          throwM $ CompactExceptionInvalidBlockHeight height
+    pure $ HM.fromList $ List.map (, height) cids
 
-getVersionedTables :: BlockHeight -> CompactM (Vector TableName)
-getVersionedTables bh = do
+  LatestUnsafe -> do
+    fmap HM.fromList $ forM cids $ \cid -> do
+      withSqliteDb cid logger dbDir False $ \db -> do
+        catch ((cid, ) <$> getLatestBlockHeight db) $ \(_ :: SomeException) -> do
+          throwM CompactExceptionNoLatestBlockHeight
+
+  LatestSafe -> do
+    latestCommon <- getLatestCommonBlockHeight logger dbDir cids
+    earliestCommon <- getEarliestCommonBlockHeight logger dbDir cids
+
+    let safeDepth = 1_000
+
+    when (latestCommon - earliestCommon < safeDepth) $ do
+      throwM CompactExceptionLatestSafeNotEnoughHistory
+
+    pure $ HM.fromList $ List.map (, latestCommon - safeDepth) cids
+
+getVersionedTables :: CompactM (Vector TableName)
+getVersionedTables = do
   logg Info "getVersionedTables"
   rs <- qryNoTemplateM
         "getVersionedTables.0"
-        " SELECT tablename FROM VersionedTableCreation \
-        \ WHERE createBlockheight <= ? ORDER BY createBlockheight; "
-        [bhToSType bh]
+        "SELECT tablename FROM VersionedTableCreation;"
+        []
         [RText]
   pure (V.fromList (sortedTableNames rs))
 
@@ -420,23 +433,12 @@ compactTable tbl = do
       \  WHERE t.rowid = v.vrowid AND v.tablename=?1); "
       [tableNameToSType tbl]
 
--- | Drop any versioned tables created after target blockheight.
-dropNewTables :: BlockHeight -> CompactM ()
-dropNewTables bh = do
-  logg Info "dropNewTables"
-  nts <- V.fromList . sortedTableNames <$> qryNoTemplateM "dropNewTables.0"
-      " SELECT tablename FROM VersionedTableCreation \
-      \ WHERE createBlockheight > ?1 ORDER BY createBlockheight; "
-      [bhToSType bh]
-      [RText]
-
-  withTables nts $ \tbl -> do
-    execM_ "dropNewTables.1" tbl "DROP TABLE IF EXISTS $VTABLE$"
-
 -- | Delete all rows from Checkpointer system tables that are not for the target blockheight.
 --
 compactSystemTables :: BlockHeight -> CompactM ()
 compactSystemTables bh = do
+  -- we don't need past BlockHistory or VersionedTableMutation rows, because
+  -- those tables only exist to enable rewinds to the past.
   let systemTables = ["BlockHistory", "VersionedTableMutation"]
   forM_ systemTables $ \tbl -> do
     let tblText = fromUtf8 (getTableName tbl)
@@ -446,21 +448,6 @@ compactSystemTables bh = do
       tbl
       "DELETE FROM $VTABLE$ WHERE blockheight != ?1;"
       [bhToSType bh]
-  -- we must treat VersionedTableCreation specially; read-only rewind
-  -- needs to know if tables have been created yet via this table, so
-  -- we don't delete from its past.
-  execM'
-      "compactSystemTables: VersionedTableCreation"
-      "VersionedTableCreation"
-      "DELETE FROM VersionedTableCreation WHERE createBlockheight > ?1;"
-      [bhToSType bh]
-  -- We currently do not compact TransactionIndex. This will change once we are
-  -- properly pruning RocksDB.
-  execM'
-    "compactSystemTables: TransactionIndex"
-    "TransactionIndex"
-    "DELETE FROM TransactionIndex WHERE blockheight > ?1;"
-    [bhToSType bh]
 
 dropCompactTables :: CompactM ()
 dropCompactTables = do
@@ -468,32 +455,39 @@ dropCompactTables = do
     "DROP TABLE CompactActiveRow"
 
 compact :: ()
-  => TargetBlockHeight
-  -> Logger SomeLogMessage
+  => BlockHeight
+  -> YAL.Logger SomeLogMessage
   -> Database
   -> [CompactFlag]
   -> IO ()
-compact tbh logger db flags = runCompactM (CompactEnv logger db flags) $ do
+compact blockHeight logger db flags = runCompactM (CompactEnv logger db flags) $ do
   logg Info "Beginning compaction"
 
   withTx createCompactActiveRow
 
-  blockHeight <- locateTarget tbh
   txId <- fmap (TxId . fromIntegral @Int64 @Word64) $ ioQuery "getEndingTxId" $ \_ -> do
     catch (getEndingTxId db blockHeight) $ \(_ :: SomeException) -> do
       throwM $ CompactExceptionInvalidBlockHeight blockHeight
 
   logg Info $ "Target blockheight: " <> sshow blockHeight
   logg Info $ "Ending TxId: " <> sshow txId
+  withTx $
+    -- first we delete all traces of data newer than the target.
+    -- this is safe, because subsequent compaction wouldn't see it anyway.
+    liftIO $
+      rewindDbToBlock db blockHeight txId
 
-  versionedTables <- getVersionedTables blockHeight
+  -- we get each existing user table at this height. note that all nonexisting
+  -- tables have been dropped by rewindDbToBlock earlier.
+  versionedTables <- getVersionedTables
 
   withTables versionedTables $ \tbl -> collectTableRows txId tbl
 
   withTx $ do
     withTables versionedTables $ \tbl -> do
       compactTable tbl
-    dropNewTables blockHeight
+    -- then we delete data in system tables which is block height-indexed and
+    -- is not needed, because we can't rewind to it anymore.
     compactSystemTables blockHeight
 
   unlessFlagSet KeepCompactTables $ do
@@ -527,8 +521,12 @@ compact tbh logger db flags = runCompactM (CompactEnv logger db flags) $ do
 data TargetBlockHeight
   = Target !BlockHeight
     -- ^ compact to this blockheight across all chains
-  | Latest
+  | LatestUnsafe
     -- ^ for each chain, compact to its latest blockheight
+    --
+    --   Unsafe due to the potential for forks.
+  | LatestSafe
+    -- ^ Compact to `latestCommonBlockHeight - someSafeConstant`
   deriving stock (Eq, Show)
 
 data CompactConfig = CompactConfig
@@ -548,17 +546,21 @@ compactAll CompactConfig{..} = do
     let cid = unsafeChainId 0
     withDefaultLogger LL.Error $ \logger -> do
       let resetDb = False
-      withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) -> do
+      withSqliteDb cid logger ccDbDir resetDb $ \db -> do
         getLatestBlockHeight db
 
   let allCids = Set.fromList $ F.toList $ chainIdsAt ccVersion latestBlockHeightChain0
   let targetCids = Set.toList $ maybe allCids (Set.intersection allCids) ccChains
 
+  targets <- withDefaultLogger LL.Error $ \logger -> do
+    locateTargets logger ccDbDir targetCids ccBlockHeight
+
   flip (pooledMapConcurrentlyN_ ccThreads) targetCids $ \cid -> do
     withPerChainFileLogger logDir cid LL.Debug $ \logger -> do
       let resetDb = False
-      withSqliteDb cid logger ccDbDir resetDb $ \(SQLiteEnv db _) -> do
-        void $ compact ccBlockHeight logger db ccFlags
+      withSqliteDb cid logger ccDbDir resetDb $ \db -> do
+        let target = targets ^?! ix cid
+        void $ compact target logger db ccFlags
 
 main :: IO ()
 main = do
@@ -577,18 +579,29 @@ main = do
       [] -> Nothing
       xs -> Just xs
 
+    parseTarget :: Parser TargetBlockHeight
+    parseTarget =
+      let target = fmap (Target . fromIntegral @Word) $ option auto
+            (long "target-blockheight"
+              <> metavar "BLOCKHEIGHT"
+              <> internal
+            )
+          latestUnsafe = flag' LatestUnsafe
+            (long "latest-unsafe" <> internal)
+          latestSafe = flag' LatestSafe
+            (long "latest-safe" <> internal)
+      in
+      target <|> latestUnsafe <|> latestSafe <|> pure LatestSafe
+
     parser :: Parser CompactConfig
     parser = CompactConfig
-        <$> (fmap Target (fromIntegral @Int <$> option auto
-             (short 'b'
-              <> long "target-blockheight"
-              <> metavar "BLOCKHEIGHT"
-              <> help "Target blockheight")) <|> pure Latest)
+        <$> parseTarget
         <*> strOption
              (short 'd'
               <> long "pact-database-dir"
               <> metavar "DBDIR"
-              <> help "Pact database directory")
+              <> help "Pact database directory"
+             )
         <*> (parseChainwebVersion <$> strOption
               (short 'v'
                <> long "graph-version"
@@ -599,27 +612,35 @@ main = do
         <*> collapseSum
                [ flag [] [KeepCompactTables]
                   (long "keep-compact-tables"
-                   <> help "Keep compaction tables post-compaction, for inspection.")
+                   <> help "Keep compaction tables post-compaction, for inspection."
+                   <> internal
+                  )
                , flag [] [NoVacuum]
                   (long "no-vacuum"
-                   <> help "Don't VACUUM database.")
+                   <> help "Don't VACUUM database."
+                   <> internal
+                  )
                ]
         <*> fmap (fmap Set.fromList . maybeList) (many (unsafeChainId <$> option auto
              (short 'c'
               <> long "chain"
               <> metavar "CHAINID"
-              <> help "Add this chain to the target set of ones to compact.")))
+              <> help "Add this chain to the target set of ones to compact."
+              <> internal
+             )))
         <*> strOption
               (long "log-dir"
                <> metavar "DIRECTORY"
                <> help "Directory where logs will be placed"
-               <> value ".")
+               <> value "."
+              )
         <*> option auto
              (short 't'
               <> long "threads"
               <> metavar "THREADS"
               <> value 4
-              <> help "Number of threads for compaction processing")
+              <> help "Number of threads for compaction processing"
+             )
 
     parseChainwebVersion :: Text -> ChainwebVersion
     parseChainwebVersion = lookupVersionByName . fromMaybe (error "ChainwebVersion parse failed") . fromText

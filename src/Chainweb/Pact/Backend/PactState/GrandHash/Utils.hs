@@ -33,7 +33,7 @@ import Chainweb.Logger (Logger, logFunctionText)
 import Chainweb.Pact.Backend.PactState (getLatestPactStateAt, getLatestBlockHeight, addChainIdLabel)
 import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
 import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (computeGrandHash)
-import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
+import Chainweb.Pact.Backend.Types (SQLiteEnv)
 import Chainweb.Pact.Backend.Utils (startSqliteDb, stopSqliteDb)
 import Chainweb.Storage.Table.RocksDB (RocksDb)
 import Chainweb.TreeDB (seekAncestor)
@@ -84,7 +84,7 @@ limitCut logger wbhdb latestCutHeaders pactConns blockHeight_ = do
           exitLog logger' "expected seekAncestor behaviour is broken"
 
         -- Confirm that PactDB is not behind RocksDB (it can be ahead though)
-        let SQLiteEnv db _ = pactConns ^?! ix cid
+        let db = pactConns ^?! ix cid
         latestPactHeight <- getLatestBlockHeight db
         when (latestPactHeight < blockHeight_) $ do
           exitLog logger' "Pact State is behind RocksDB. This should never happen."
@@ -167,7 +167,7 @@ computeGrandHashesAt :: ()
   -> IO (HashMap ChainId Snapshot)
 computeGrandHashesAt pactConns cutHeader = do
   fmap HM.fromList $ pooledForConcurrently (HM.toList cutHeader) $ \(cid, bHeader) -> do
-    let SQLiteEnv db _ = pactConns ^?! ix cid
+    let db = pactConns ^?! ix cid
     (hash, ()) <- computeGrandHash (getLatestPactStateAt db (view blockHeight bHeader))
     pure (cid, Snapshot hash bHeader)
 
@@ -235,4 +235,3 @@ rocksParser = O.strOption
    <> O.metavar "ROCKSDB DIR"
    <> O.help "Path to RocksDB directory"
   )
-

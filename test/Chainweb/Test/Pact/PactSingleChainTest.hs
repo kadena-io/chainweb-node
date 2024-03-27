@@ -326,7 +326,7 @@ pactStateSamePreAndPostCompaction rdb =
       runTxInBlock_ cr.mempoolRef cr.pactQueue cr.blockDb
         $ \n _ _ bHeader -> makeTx n bHeader
 
-    let db = _sConn cr.sqlEnv
+    let db = cr.sqlEnv
 
     statePreCompaction <- getLatestPactState db
     Utils.compact Error [C.NoVacuum] cr.sqlEnv (C.Target (BlockHeight numBlocks))
@@ -380,7 +380,7 @@ compactionIsIdempotent rdb =
       runTxInBlock_ cr.mempoolRef cr.pactQueue cr.blockDb
         $ \n _ _ bHeader -> makeTx n bHeader
 
-    let db = _sConn cr.sqlEnv
+    let db = cr.sqlEnv
 
     let compact h =
           Utils.compact Error [C.NoVacuum] cr.sqlEnv h
@@ -436,7 +436,7 @@ compactionDoesNotDisruptDuplicateDetection rdb = do
             $ \_ _ _ _ -> makeTx
 
     run >>= \e -> assertBool "First tx submission succeeds" (isRight e)
-    Utils.compact Error [C.NoVacuum] cr.sqlEnv C.Latest
+    Utils.compact Error [C.NoVacuum] cr.sqlEnv C.LatestUnsafe
     run >>= \e -> assertBool "First tx submission fails" (isLeft e)
 
     pure ()
@@ -511,7 +511,7 @@ compactionUserTablesDropped rdb =
     let freeBeforeTbl = "free.m0_" <> beforeTable
     let freeAfterTbl = "free.m1_" <> afterTable
 
-    let db = _sConn cr.sqlEnv
+    let db = cr.sqlEnv
 
     statePre <- getPactUserTables db
     let assertExists tbl = do
@@ -550,7 +550,7 @@ compactionGrandHashUnchanged rdb =
       $ runTxInBlock_ cr.mempoolRef cr.pactQueue cr.blockDb
       $ \n _ _ blockHeader -> makeTx n blockHeader
 
-    let db = _sConn cr.sqlEnv
+    let db = cr.sqlEnv
     let targetHeight = BlockHeight numBlocks
 
     hashPreCompaction <- computeGrandHash (PS.getLatestPactStateAt db targetHeight)

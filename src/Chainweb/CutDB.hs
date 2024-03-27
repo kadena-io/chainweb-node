@@ -568,7 +568,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
 
         -- using S.scanM would be slightly more efficient (one pointer dereference)
         -- by keeping the value of cutVar in memory. We use the S.mapM variant with
-        -- an redundant 'readTVarIO' because it is eaiser to read.
+        -- an redundant 'readTVarIO' because it is easier to read.
         & S.mapM_ (\newCut -> do
             curCut <- readTVarIO cutVar
             !resultCut <- trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1

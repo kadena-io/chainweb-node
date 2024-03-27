@@ -203,7 +203,7 @@ import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..), BlockF
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
+import Chainweb.Pact.Backend.Types (SQLiteEnv)
 import Chainweb.Pact.Backend.Utils (openSQLiteConnection, closeSQLiteConnection, chainwebPragmas)
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
@@ -954,6 +954,7 @@ withNodesAtLatestBehavior
 withNodesAtLatestBehavior v testLabel rdb n = do
     net <- withNodes v testLabel rdb n
     liftIO $ awaitBlockHeight v putStrLn (_getServiceClientEnv net) (latestBehaviorAt v)
+    liftIO $ putStrLn $ "waited for block height " <> show (latestBehaviorAt v)
     return net
 
 -- | Network initialization takes some time. Within my ghci session it took
@@ -1045,6 +1046,7 @@ node testLabel rdb rawLogger nowServingRef peerInfoVar conf pactDbDir backupDir 
                     bootStrapPort = view (chainwebServiceSocket . _1) cw
                 putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
 
+            putStrLn $ "node ready: " <> show nid
             poisonDeadBeef cw
             runChainweb cw (atomically . modifyTVar' nowServingRef) `finally` do
                 logFunctionText logger Info "write sample data"
@@ -1150,4 +1152,4 @@ testRetryPolicy = stepped <> limitRetries 150
       0 -> Just 20_000
       1 -> Just 50_000
       2 -> Just 100_000
-      _ -> Just 250_000
+      _ -> Just 500_000
