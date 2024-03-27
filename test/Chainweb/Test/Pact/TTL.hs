@@ -32,6 +32,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Validations (defaultLenientTimeSlop)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -215,7 +216,9 @@ doNewBlock ctxIO mempool nonce t = do
     unlessM (tryPutMVar (_ctxMempool ctx) mempool) $
         error "Test failure: mempool access is not empty. Some previous test step failed unexpectedly"
 
-    T2 parent payload <- newBlock noMiner (_ctxQueue ctx)
+    bip <- newBlock noMiner NewBlockFill (_ctxQueue ctx)
+    let parent = _blockInProgressParentHeader bip
+    let payload = blockInProgressToPayloadWithOutputs bip
     let
         creationTime = BlockCreationTime
             . add (secondsToTimeSpan t) -- 10 seconds
