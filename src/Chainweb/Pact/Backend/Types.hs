@@ -83,9 +83,11 @@ module Chainweb.Pact.Backend.Types
     , MemPoolAccess(..)
 
     , PactServiceException(..)
+    , BlockTxHistory(..)
     ) where
 
 import Control.Concurrent.MVar
+import Control.DeepSeq
 import Control.Exception
 import Control.Exception.Safe hiding (bracket)
 import Control.Lens
@@ -118,13 +120,14 @@ import Pact.Types.Persistence
 import Pact.Types.RowData (RowData)
 import Pact.Types.Runtime (TableName)
 
+import qualified Pact.JSON.Encode as J
+
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Pact.Backend.DbCache
-import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
 import Chainweb.Version
@@ -213,7 +216,7 @@ data SQLitePendingData = SQLitePendingData
     , _pendingTxLogMap :: !TxLogMap
     , _pendingSuccessfulTxs :: !SQLitePendingSuccessfulTxs
     }
-    deriving (Show)
+    deriving (Eq, Show)
 
 makeLenses ''SQLitePendingData
 
@@ -439,3 +442,15 @@ instance Show PactServiceException where
              ]
 
 instance Exception PactServiceException
+
+-- | Gather tx logs for a block, along with last tx for each
+-- key in history, if any
+-- Not intended for public API use; ToJSONs are for logging output.
+data BlockTxHistory = BlockTxHistory
+  { _blockTxHistory :: !(Map TxId [TxLog RowData])
+  , _blockPrevHistory :: !(Map RowKey (TxLog RowData))
+  }
+  deriving (Eq,Generic)
+instance Show BlockTxHistory where
+  show = show . fmap (J.encodeText . J.Array) . _blockTxHistory
+instance NFData BlockTxHistory

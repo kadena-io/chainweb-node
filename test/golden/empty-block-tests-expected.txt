@@ -1,3 +1,273 @@
+blockInProgress:
+  blockGasLimit: 100000
+  parentHeader: AAAAAAAAAAAAAAAAAAAAAIIzXn73OyOIp0jfSxHxAexuPSKF_tqZQwXk5WaUltwOAwACAAAA8vz8YnfG17F0Frzq7ZJzGnDHsJpOIP7qsrOF_qhM2zADAAAAAjlpGm9PgrNDif_JRlBUWhz_Glq7d6xsPXmHzWEWaTkFAAAAf5M620NHvX7CUIAR0TymFj-zeCo3Kb1YcgrNPi3UuCT__________________________________________-U1kxeUelXPOb1h6nJJU2PdZY5FepidcGHwyUoaKEwsAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJAACAAAAAAAAAAAAAAAAAAAAAAJC9BF5JNsHXTFq9kADAlg-rAe4tJTUle8VYF8Noz9xz
+  pendingData:
+    pendingSuccessfulTxs: []
+    pendingTableCreation: []
+    pendingWrites:
+      SYS:Modules:
+      - - fungible-v2
+        - - - 8
+            - '{"module":{"imports":[],"name":{"namespace":null,"name":"fungible-v2"},"code":"(interface
+              fungible-v2\n\n  \" Standard for fungible coins and tokens as specified
+              in KIP-0002. \"\n\n   ; ----------------------------------------------------------------------\n   ;
+              Schema\n\n   (defschema account-details\n    @doc \"Schema for results
+              of ''account'' operation.\"\n    @model [ (invariant (!= \"\" sender))
+              ]\n\n    account:string\n    balance:decimal\n    guard:guard)\n\n\n   ;
+              ----------------------------------------------------------------------\n   ;
+              Caps\n\n   (defcap TRANSFER:bool\n     ( sender:string\n       receiver:string\n       amount:decimal\n     )\n     @doc
+              \" Managed capability sealing AMOUNT for transfer from SENDER to \\\n          \\
+              RECEIVER. Permits any number of transfers up to AMOUNT.\"\n     @managed
+              amount TRANSFER-mgr\n     )\n\n   (defun TRANSFER-mgr:decimal\n     (
+              managed:decimal\n       requested:decimal\n     )\n     @doc \" Manages
+              TRANSFER AMOUNT linearly, \\\n          \\ such that a request for 1.0
+              amount on a 3.0 \\\n          \\ managed quantity emits updated amount
+              2.0.\"\n     )\n\n   ; ----------------------------------------------------------------------\n   ;
+              Functionality\n\n\n  (defun transfer:string\n    ( sender:string\n      receiver:string\n      amount:decimal\n    )\n    @doc
+              \" Transfer AMOUNT between accounts SENDER and RECEIVER. \\\n         \\
+              Fails if either SENDER or RECEIVER does not exist.\"\n    @model [ (property
+              (> amount 0.0))\n             (property (!= sender \"\"))\n             (property
+              (!= receiver \"\"))\n             (property (!= sender receiver))\n           ]\n    )\n\n   (defun
+              transfer-create:string\n     ( sender:string\n       receiver:string\n       receiver-guard:guard\n       amount:decimal\n     )\n     @doc
+              \" Transfer AMOUNT between accounts SENDER and RECEIVER. \\\n          \\
+              Fails if SENDER does not exist. If RECEIVER exists, guard \\\n          \\
+              must match existing value. If RECEIVER does not exist, \\\n          \\
+              RECEIVER account is created using RECEIVER-GUARD. \\\n          \\ Subject
+              to management by TRANSFER capability.\"\n     @model [ (property (>
+              amount 0.0))\n              (property (!= sender \"\"))\n              (property
+              (!= receiver \"\"))\n              (property (!= sender receiver))\n            ]\n     )\n\n   (defpact
+              transfer-crosschain:string\n     ( sender:string\n       receiver:string\n       receiver-guard:guard\n       target-chain:string\n       amount:decimal\n     )\n     @doc
+              \" 2-step pact to transfer AMOUNT from SENDER on current chain \\\n          \\
+              to RECEIVER on TARGET-CHAIN via SPV proof. \\\n          \\ TARGET-CHAIN
+              must be different than current chain id. \\\n          \\ First step
+              debits AMOUNT coins in SENDER account and yields \\\n          \\ RECEIVER,
+              RECEIVER_GUARD and AMOUNT to TARGET-CHAIN. \\\n          \\ Second step
+              continuation is sent into TARGET-CHAIN with proof \\\n          \\ obtained
+              from the spv ''output'' endpoint of Chainweb. \\\n          \\ Proof
+              is validated and RECEIVER is credited with AMOUNT \\\n          \\ creating
+              account with RECEIVER_GUARD as necessary.\"\n     @model [ (property
+              (> amount 0.0))\n              (property (!= sender \"\"))\n              (property
+              (!= receiver \"\"))\n              (property (!= sender receiver))\n              (property
+              (!= target-chain \"\"))\n            ]\n     )\n\n   (defun get-balance:decimal\n     (
+              account:string )\n     \" Get balance for ACCOUNT. Fails if account
+              does not exist.\"\n     )\n\n   (defun details:object{account-details}\n     (
+              account: string )\n     \" Get an object with details of ACCOUNT. \\\n     \\
+              Fails if account does not exist.\"\n     )\n\n   (defun precision:integer\n     ()\n     \"Return
+              the maximum allowed decimal precision.\"\n     )\n\n   (defun enforce-unit:bool\n     (
+              amount:decimal )\n     \" Enforce minimum precision allowed for transactions.\"\n     )\n\n   (defun
+              create-account:string\n     ( account:string\n       guard:guard\n     )\n     \"
+              Create ACCOUNT with 0.0 balance, with GUARD controlling access.\"\n     )\n\n   (defun
+              rotate:string\n     ( account:string\n       new-guard:guard\n     )\n     \"
+              Rotate guard for ACCOUNT. Transaction is validated against \\\n     \\
+              existing guard before installing new guard. \"\n     )\n\n)\n","meta":{"model":[],"docs":"
+              Standard for fungible coins and tokens as specified in KIP-0002. "}},"refMap":{"enforce-unit":{"ref":{"defType":"Defun","defMeta":null,"funType":{"args":[{"name":"amount","type":"decimal","info":{"d":[6,3603,3603],"c":"amount"}}],"return":"bool"},"defName":"enforce-unit","defBody":{"scope":{"list":[],"type":"*","i":{"d":[120,3571,3571],"c":"(defun
+              enforce-unit:bool\n     ( amount:decimal )\n     \" Enforce minimum
+              precision allowed for transactions.\"\n     )\n\n   "}}},"module":{"namespace":null,"name":"fungible-v2"},"meta":{"model":[],"docs":"
+              Enforce minimum precision allowed for transactions."},"info":{"d":[120,3571,3571],"c":"(defun
+              enforce-unit:bool\n     ( amount:decimal )\n     \" Enforce minimum
+              precision allowed for transactions.\"\n     )\n\n   "}}},"create-account":{"ref":{"defType":"Defun","defMeta":null,"funType":{"args":[{"name":"account","type":"string","info":{"d":[7,3727,3727],"c":"account"}},{"name":"guard","type":{"guard":null},"info":{"d":[5,3749,3749],"c":"guard"}}],"return":"string"},"defName":"create-account","defBody":{"scope":{"list":[],"type":"*","i":{"d":[160,3691,3691],"c":"(defun
+              create-account:string\n     ( account:string\n       guard:guard\n     )\n     \"
+              Create ACCOUNT with 0.0 balance, with GUARD controlling access.\"\n     )\n\n   "}}},"module":{"namespace":null,"name":"fungible-v2"},"meta":{"model":[],"docs":"
+              Create ACCOUNT with 0.0 balance, with GUARD controlling access."},"info":{"d":[160,3691,3691],"c":"(defun
+              create-account:string\n     ( account:string\n       guard:guard\n     )\n     \"
+              Create ACCOUNT with 0.0 balance, with GUARD controlling access.\"\n     )\n\n   "}}},"precision":{"ref":{"defType":"Defun","defMeta":null,"funType":{"args":[],"return":"integer"},"defName":"precision","defBody":{"scope":{"list":[],"type":"*","i":{"d":[97,3474,3474],"c":"(defun
+              precision:integer\n     ()\n     \"Return the maximum allowed decimal
+              precision.\"\n     )\n\n   "}}},"module":{"namespace":null,"name":"fungible-v2"},"meta":{"model":[],"docs":"Return
+              the maximum allowed decimal precision."},"info":{"d":[97,3474,3474],"c":"(defun
+              precision:integer\n     ()\n     \"Return the maximum allowed decimal
+              precision.\"\n     )\n\n   "}}},"transfer-create":{"ref":{"defType":"Defun","defMeta":null,"funType":{"args":[{"name":"sender","type":"string","info":{"d":[6,1543,1543],"c":"sender"}},{"name":"receiver","type":"string","info":{"d":[8,1564,1564],"c":"receiver"}},{"name":"receiver-guard","type":{"guard":null},"info":{"d":[14,1587,1587],"c":"receiver-guard"}},{"name":"amount","type":"decimal","info":{"d":[6,1615,1615],"c":"amount"}}],"return":"string"},"defName":"transfer-create","defBody":{"scope":{"list":[],"type":"*","i":{"d":[656,1506,1506],"c":"(defun
+              transfer-create:string\n     ( sender:string\n       receiver:string\n       receiver-guard:guard\n       amount:decimal\n     )\n     @doc
+              \" Transfer AMOUNT between accounts SENDER and RECEIVER. \\\n          \\
+              Fails if SENDER does not exist. If RECEIVER exists, guard \\\n          \\
+              must match existing value. If RECEIVER does not exist, \\\n          \\
+              RECEIVER account is created using RECEIVER-GUARD. \\\n          \\ Subject
+              to management by TRANSFER capability.\"\n     @model [ (property (>
+              amount 0.0))\n              (property (!= sender \"\"))\n              (property
+              (!= receiver \"\"))\n              (property (!= sender receiver))\n            ]\n     )\n\n   "}}},"module":{"namespace":null,"name":"fungible-v2"},"meta":{"model":[{"list":[{"atom":"property","q":[],"i":{"d":[9,1984,1984],"c":"property
+              "}},{"list":[{"atom":">","q":[],"i":{"d":[2,1994,1994],"c":"> "}},{"atom":"amount","q":[],"i":{"d":[7,1996,1996],"c":"amount
+              "}},{"i":{"d":[3,2003,2003],"c":"0.0"},"lit":0}],"d":"()","i":{"d":[14,1993,1993],"c":"(>
+              amount 0.0)"}}],"d":"()","i":{"d":[40,1983,1983],"c":"(property (> amount
+              0.0))\n              "}},{"list":[{"atom":"property","q":[],"i":{"d":[9,2024,2024],"c":"property
+              "}},{"list":[{"atom":"!=","q":[],"i":{"d":[3,2034,2034],"c":"!= "}},{"atom":"sender","q":[],"i":{"d":[7,2037,2037],"c":"sender
+              "}},{"i":{"d":[2,2044,2044],"c":"\"\""},"lit":""}],"d":"()","i":{"d":[14,2033,2033],"c":"(!=
+              sender \"\")"}}],"d":"()","i":{"d":[40,2023,2023],"c":"(property (!=
+              sender \"\"))\n              "}},{"list":[{"atom":"property","q":[],"i":{"d":[9,2064,2064],"c":"property
+              "}},{"list":[{"atom":"!=","q":[],"i":{"d":[3,2074,2074],"c":"!= "}},{"atom":"receiver","q":[],"i":{"d":[9,2077,2077],"c":"receiver
+              "}},{"i":{"d":[2,2086,2086],"c":"\"\""},"lit":""}],"d":"()","i":{"d":[16,2073,2073],"c":"(!=
+              receiver \"\")"}}],"d":"()","i":{"d":[42,2063,2063],"c":"(property (!=
+              receiver \"\"))\n              "}},{"list":[{"atom":"property","q":[],"i":{"d":[9,2106,2106],"c":"property
+              "}},{"list":[{"atom":"!=","q":[],"i":{"d":[3,2116,2116],"c":"!= "}},{"atom":"sender","q":[],"i":{"d":[7,2119,2119],"c":"sender
+              "}},{"atom":"receiver","q":[],"i":{"d":[8,2126,2126],"c":"receiver"}}],"d":"()","i":{"d":[20,2115,2115],"c":"(!=
+              sender receiver)"}}],"d":"()","i":{"d":[44,2105,2105],"c":"(property
+              (!= sender receiver))\n            "}}],"docs":" Transfer AMOUNT between
+              accounts SENDER and RECEIVER.  Fails if SENDER does not exist. If RECEIVER
+              exists, guard  must match existing value. If RECEIVER does not exist,  RECEIVER
+              account is created using RECEIVER-GUARD.  Subject to management by TRANSFER
+              capability."},"info":{"d":[656,1506,1506],"c":"(defun transfer-create:string\n     (
+              sender:string\n       receiver:string\n       receiver-guard:guard\n       amount:decimal\n     )\n     @doc
+              \" Transfer AMOUNT between accounts SENDER and RECEIVER. \\\n          \\
+              Fails if SENDER does not exist. If RECEIVER exists, guard \\\n          \\
+              must match existing value. If RECEIVER does not exist, \\\n          \\
+              RECEIVER account is created using RECEIVER-GUARD. \\\n          \\ Subject
+              to management by TRANSFER capability.\"\n     @model [ (property (>
+              amount 0.0))\n              (property (!= sender \"\"))\n              (property
+              (!= receiver \"\"))\n              (property (!= sender receiver))\n            ]\n     )\n\n   "}}},"details":{"ref":{"defType":"Defun","defMeta":null,"funType":{"args":[{"name":"account","type":"string","info":{"d":[7,3356,3356],"c":"account"}}],"return":{"schema":"object","type":{"var":{"ref":{"modname":{"namespace":null,"name":"fungible-v2"},"name":"account-details","meta":{"model":[{"list":[{"atom":"invariant","q":[],"i":{"d":[10,283,283],"c":"invariant
+              "}},{"list":[{"atom":"!=","q":[],"i":{"d":[3,294,294],"c":"!= "}},{"i":{"d":[3,297,297],"c":"\"\"
+              "},"lit":""},{"atom":"sender","q":[],"i":{"d":[6,300,300],"c":"sender"}}],"d":"()","i":{"d":[14,293,293],"c":"(!=
+              \"\" sender)"}}],"d":"()","i":{"d":[27,282,282],"c":"(invariant (!=
+              \"\" sender)) "}}],"docs":"Schema for results of ''account'' operation."},"i":{"d":[272,188,188],"c":"(defschema
+              account-details\n    @doc \"Schema for results of ''account'' operation.\"\n    @model
+              [ (invariant (!= \"\" sender)) ]\n\n    account:string\n    balance:decimal\n    guard:guard)\n\n\n   ;
+              ----------------------------------------------------------------------\n   ;
+              Caps\n\n   "},"fields":[{"name":"account","type":"string","info":{"d":[7,316,316],"c":"account"}},{"name":"balance","type":"decimal","info":{"d":[7,335,335],"c":"balance"}},{"name":"guard","type":{"guard":null},"info":{"d":[5,355,355],"c":"guard"}}]}},"i":{"d":[15,3332,3332],"c":"account-details"}},"partial":"full"}},"defName":"details","defBody":{"scope":{"list":[],"type":"*","i":{"d":[164,3310,3310],"c":"(defun
+              details:object{account-details}\n     ( account: string )\n     \" Get
+              an object with details of ACCOUNT. \\\n     \\ Fails if account does
+              not exist.\"\n     )\n\n   "}}},"module":{"namespace":null,"name":"fungible-v2"},"meta":{"model":[],"docs":"
+              Get an object with details of ACCOUNT.  Fails if account does not exist."},"info":{"d":[164,3310,3310],"c":"(defun
+              details:object{account-details}\n     ( account: string )\n     \" Get
+              an object with details of ACCOUNT. \\\n     \\ Fails if account does
+              not exist.\"\n     )\n\n   "}}},"get-balance":{"ref":{"defType":"Defun","defMeta":null,"funType":{"args":[{"name":"account","type":"string","info":{"d":[7,3216,3216],"c":"account"}}],"return":"decimal"},"defName":"get-balance","defBody":{"scope":{"list":[],"type":"*","i":{"d":[128,3182,3182],"c":"(defun
+              get-balance:decimal\n     ( account:string )\n     \" Get balance for
+              ACCOUNT. Fails if account does not exist.\"\n     )\n\n   "}}},"module":{"namespace":null,"name":"fungible-v2"},"meta":{"model":[],"docs":"
+              Get balance for ACCOUNT. Fails if account does not exist."},"info":{"d":[128,3182,3182],"c":"(defun
+              get-balance:decimal\n     ( account:string )\n     \" Get balance for
+              ACCOUNT. Fails if account does not exist.\"\n     )\n\n   "}}},"transfer-crosschain":{"ref":{"defType":"Defpact","defMeta":null,"funType":{"args":[{"name":"sender","type":"string","info":{"d":[6,2205,2205],"c":"sender"}},{"name":"receiver","type":"string","info":{"d":[8,2226,2226],"c":"receiver"}},{"name":"receiver-guard","type":{"guard":null},"info":{"d":[14,2249,2249],"c":"receiver-guard"}},{"name":"target-chain","type":"string","info":{"d":[12,2277,2277],"c":"target-chain"}},{"name":"amount","type":"decimal","info":{"d":[6,2304,2304],"c":"amount"}}],"return":"string"},"defName":"transfer-crosschain","defBody":{"scope":{"list":[],"type":"*","i":{"d":[1020,2162,2162],"c":"(defpact
+              transfer-crosschain:string\n     ( sender:string\n       receiver:string\n       receiver-guard:guard\n       target-chain:string\n       amount:decimal\n     )\n     @doc
+              \" 2-step pact to transfer AMOUNT from SENDER on current chain \\\n          \\
+              to RECEIVER on TARGET-CHAIN via SPV proof. \\\n          \\ TARGET-CHAIN
+              must be different than current chain id. \\\n          \\ First step
+              debits AMOUNT coins in SENDER account and yields \\\n          \\ RECEIVER,
+              RECEIVER_GUARD and AMOUNT to TARGET-CHAIN. \\\n          \\ Second step
+              continuation is sent into TARGET-CHAIN with proof \\\n          \\ obtained
+              from the spv ''output'' endpoint of Chainweb. \\\n          \\ Proof
+              is validated and RECEIVER is credited with AMOUNT \\\n          \\ creating
+              account with RECEIVER_GUARD as necessary.\"\n     @model [ (property
+              (> amount 0.0))\n              (property (!= sender \"\"))\n              (property
+              (!= receiver \"\"))\n              (property (!= sender receiver))\n              (property
+              (!= target-chain \"\"))\n            ]\n     )\n\n   "}}},"module":{"namespace":null,"name":"fungible-v2"},"meta":{"model":[{"list":[{"atom":"property","q":[],"i":{"d":[9,2958,2958],"c":"property
+              "}},{"list":[{"atom":">","q":[],"i":{"d":[2,2968,2968],"c":"> "}},{"atom":"amount","q":[],"i":{"d":[7,2970,2970],"c":"amount
+              "}},{"i":{"d":[3,2977,2977],"c":"0.0"},"lit":0}],"d":"()","i":{"d":[14,2967,2967],"c":"(>
+              amount 0.0)"}}],"d":"()","i":{"d":[40,2957,2957],"c":"(property (> amount
+              0.0))\n              "}},{"list":[{"atom":"property","q":[],"i":{"d":[9,2998,2998],"c":"property
+              "}},{"list":[{"atom":"!=","q":[],"i":{"d":[3,3008,3008],"c":"!= "}},{"atom":"sender","q":[],"i":{"d":[7,3011,3011],"c":"sender
+              "}},{"i":{"d":[2,3018,3018],"c":"\"\""},"lit":""}],"d":"()","i":{"d":[14,3007,3007],"c":"(!=
+              sender \"\")"}}],"d":"()","i":{"d":[40,2997,2997],"c":"(property (!=
+              sender \"\"))\n              "}},{"list":[{"atom":"property","q":[],"i":{"d":[9,3038,3038],"c":"property
+              "}},{"list":[{"atom":"!=","q":[],"i":{"d":[3,3048,3048],"c":"!= "}},{"atom":"receiver","q":[],"i":{"d":[9,3051,3051],"c":"receiver
+              "}},{"i":{"d":[2,3060,3060],"c":"\"\""},"lit":""}],"d":"()","i":{"d":[16,3047,3047],"c":"(!=
+              receiver \"\")"}}],"d":"()","i":{"d":[42,3037,3037],"c":"(property (!=
+              receiver \"\"))\n              "}},{"list":[{"atom":"property","q":[],"i":{"d":[9,3080,3080],"c":"property
+              "}},{"list":[{"atom":"!=","q":[],"i":{"d":[3,3090,3090],"c":"!= "}},{"atom":"sender","q":[],"i":{"d":[7,3093,3093],"c":"sender
+              "}},{"atom":"receiver","q":[],"i":{"d":[8,3100,3100],"c":"receiver"}}],"d":"()","i":{"d":[20,3089,3089],"c":"(!=
+              sender receiver)"}}],"d":"()","i":{"d":[46,3079,3079],"c":"(property
+              (!= sender receiver))\n              "}},{"list":[{"atom":"property","q":[],"i":{"d":[9,3126,3126],"c":"property
+              "}},{"list":[{"atom":"!=","q":[],"i":{"d":[3,3136,3136],"c":"!= "}},{"atom":"target-chain","q":[],"i":{"d":[13,3139,3139],"c":"target-chain
+              "}},{"i":{"d":[2,3152,3152],"c":"\"\""},"lit":""}],"d":"()","i":{"d":[20,3135,3135],"c":"(!=
+              target-chain \"\")"}}],"d":"()","i":{"d":[44,3125,3125],"c":"(property
+              (!= target-chain \"\"))\n            "}}],"docs":" 2-step pact to transfer
+              AMOUNT from SENDER on current chain  to RECEIVER on TARGET-CHAIN via
+              SPV proof.  TARGET-CHAIN must be different than current chain id.  First
+              step debits AMOUNT coins in SENDER account and yields  RECEIVER, RECEIVER_GUARD
+              and AMOUNT to TARGET-CHAIN.  Second step continuation is sent into TARGET-CHAIN
+              with proof  obtained from the spv ''output'' endpoint of Chainweb.  Proof
+              is validated and RECEIVER is credited with AMOUNT  creating account
+              with RECEIVER_GUARD as necessary."},"info":{"d":[1020,2162,2162],"c":"(defpact
+              transfer-crosschain:string\n     ( sender:string\n       receiver:string\n       receiver-guard:guard\n       target-chain:string\n       amount:decimal\n     )\n     @doc
+              \" 2-step pact to transfer AMOUNT from SENDER on current chain \\\n          \\
+              to RECEIVER on TARGET-CHAIN via SPV proof. \\\n          \\ TARGET-CHAIN
+              must be different than current chain id. \\\n          \\ First step
+              debits AMOUNT coins in SENDER account and yields \\\n          \\ RECEIVER,
+              RECEIVER_GUARD and AMOUNT to TARGET-CHAIN. \\\n          \\ Second step
+              continuation is sent into TARGET-CHAIN with proof \\\n          \\ obtained
+              from the spv ''output'' endpoint of Chainweb. \\\n          \\ Proof
+              is validated and RECEIVER is credited with AMOUNT \\\n          \\ creating
+              account with RECEIVER_GUARD as necessary.\"\n     @model [ (property
+              (> amount 0.0))\n              (property (!= sender \"\"))\n              (property
+              (!= receiver \"\"))\n              (property (!= sender receiver))\n              (property
+              (!= target-chain \"\"))\n            ]\n     )\n\n   "}}},"TRANSFER":{"ref":{"defType":"Defcap","defMeta":{"managedParam":"amount","managerFun":{"var":{"ref":{"defType":"Defun","defMeta":null,"funType":{"args":[{"name":"managed","type":"decimal","info":{"d":[7,780,780],"c":"managed"}},{"name":"requested","type":"decimal","info":{"d":[9,803,803],"c":"requested"}}],"return":"decimal"},"defName":"TRANSFER-mgr","defBody":{"scope":{"list":[],"type":"*","i":{"d":[352,745,745],"c":"(defun
+              TRANSFER-mgr:decimal\n     ( managed:decimal\n       requested:decimal\n     )\n     @doc
+              \" Manages TRANSFER AMOUNT linearly, \\\n          \\ such that a request
+              for 1.0 amount on a 3.0 \\\n          \\ managed quantity emits updated
+              amount 2.0.\"\n     )\n\n   ; ----------------------------------------------------------------------\n   ;
+              Functionality\n\n\n  "}}},"module":{"namespace":null,"name":"fungible-v2"},"meta":{"model":[],"docs":"
+              Manages TRANSFER AMOUNT linearly,  such that a request for 1.0 amount
+              on a 3.0  managed quantity emits updated amount 2.0."},"info":{"d":[352,745,745],"c":"(defun
+              TRANSFER-mgr:decimal\n     ( managed:decimal\n       requested:decimal\n     )\n     @doc
+              \" Manages TRANSFER AMOUNT linearly, \\\n          \\ such that a request
+              for 1.0 amount on a 3.0 \\\n          \\ managed quantity emits updated
+              amount 2.0.\"\n     )\n\n   ; ----------------------------------------------------------------------\n   ;
+              Functionality\n\n\n  "}}},"i":{"d":[18,721,721],"c":"TRANSFER-mgr\n     "}}},"funType":{"args":[{"name":"sender","type":"string","info":{"d":[6,489,489],"c":"sender"}},{"name":"receiver","type":"string","info":{"d":[8,510,510],"c":"receiver"}},{"name":"amount","type":"decimal","info":{"d":[6,533,533],"c":"amount"}}],"return":"bool"},"defName":"TRANSFER","defBody":{"scope":{"list":[],"type":"*","i":{"d":[285,460,460],"c":"(defcap
+              TRANSFER:bool\n     ( sender:string\n       receiver:string\n       amount:decimal\n     )\n     @doc
+              \" Managed capability sealing AMOUNT for transfer from SENDER to \\\n          \\
+              RECEIVER. Permits any number of transfers up to AMOUNT.\"\n     @managed
+              amount TRANSFER-mgr\n     )\n\n   "}}},"module":{"namespace":null,"name":"fungible-v2"},"meta":{"model":[],"docs":"
+              Managed capability sealing AMOUNT for transfer from SENDER to  RECEIVER.
+              Permits any number of transfers up to AMOUNT."},"info":{"d":[285,460,460],"c":"(defcap
+              TRANSFER:bool\n     ( sender:string\n       receiver:string\n       amount:decimal\n     )\n     @doc
+              \" Managed capability sealing AMOUNT for transfer from SENDER to \\\n          \\
+              RECEIVER. Permits any number of transfers up to AMOUNT.\"\n     @managed
+              amount TRANSFER-mgr\n     )\n\n   "}}},"transfer":{"ref":{"defType":"Defun","defMeta":null,"funType":{"args":[{"name":"sender","type":"string","info":{"d":[6,1126,1126],"c":"sender"}},{"name":"receiver","type":"string","info":{"d":[8,1146,1146],"c":"receiver"}},{"name":"amount","type":"decimal","info":{"d":[6,1168,1168],"c":"amount"}}],"return":"string"},"defName":"transfer","defBody":{"scope":{"list":[],"type":"*","i":{"d":[409,1097,1097],"c":"(defun
+              transfer:string\n    ( sender:string\n      receiver:string\n      amount:decimal\n    )\n    @doc
+              \" Transfer AMOUNT between accounts SENDER and RECEIVER. \\\n         \\
+              Fails if either SENDER or RECEIVER does not exist.\"\n    @model [ (property
+              (> amount 0.0))\n             (property (!= sender \"\"))\n             (property
+              (!= receiver \"\"))\n             (property (!= sender receiver))\n           ]\n    )\n\n   "}}},"module":{"namespace":null,"name":"fungible-v2"},"meta":{"model":[{"list":[{"atom":"property","q":[],"i":{"d":[9,1333,1333],"c":"property
+              "}},{"list":[{"atom":">","q":[],"i":{"d":[2,1343,1343],"c":"> "}},{"atom":"amount","q":[],"i":{"d":[7,1345,1345],"c":"amount
+              "}},{"i":{"d":[3,1352,1352],"c":"0.0"},"lit":0}],"d":"()","i":{"d":[14,1342,1342],"c":"(>
+              amount 0.0)"}}],"d":"()","i":{"d":[39,1332,1332],"c":"(property (> amount
+              0.0))\n             "}},{"list":[{"atom":"property","q":[],"i":{"d":[9,1372,1372],"c":"property
+              "}},{"list":[{"atom":"!=","q":[],"i":{"d":[3,1382,1382],"c":"!= "}},{"atom":"sender","q":[],"i":{"d":[7,1385,1385],"c":"sender
+              "}},{"i":{"d":[2,1392,1392],"c":"\"\""},"lit":""}],"d":"()","i":{"d":[14,1381,1381],"c":"(!=
+              sender \"\")"}}],"d":"()","i":{"d":[39,1371,1371],"c":"(property (!=
+              sender \"\"))\n             "}},{"list":[{"atom":"property","q":[],"i":{"d":[9,1411,1411],"c":"property
+              "}},{"list":[{"atom":"!=","q":[],"i":{"d":[3,1421,1421],"c":"!= "}},{"atom":"receiver","q":[],"i":{"d":[9,1424,1424],"c":"receiver
+              "}},{"i":{"d":[2,1433,1433],"c":"\"\""},"lit":""}],"d":"()","i":{"d":[16,1420,1420],"c":"(!=
+              receiver \"\")"}}],"d":"()","i":{"d":[41,1410,1410],"c":"(property (!=
+              receiver \"\"))\n             "}},{"list":[{"atom":"property","q":[],"i":{"d":[9,1452,1452],"c":"property
+              "}},{"list":[{"atom":"!=","q":[],"i":{"d":[3,1462,1462],"c":"!= "}},{"atom":"sender","q":[],"i":{"d":[7,1465,1465],"c":"sender
+              "}},{"atom":"receiver","q":[],"i":{"d":[8,1472,1472],"c":"receiver"}}],"d":"()","i":{"d":[20,1461,1461],"c":"(!=
+              sender receiver)"}}],"d":"()","i":{"d":[43,1451,1451],"c":"(property
+              (!= sender receiver))\n           "}}],"docs":" Transfer AMOUNT between
+              accounts SENDER and RECEIVER.  Fails if either SENDER or RECEIVER does
+              not exist."},"info":{"d":[409,1097,1097],"c":"(defun transfer:string\n    (
+              sender:string\n      receiver:string\n      amount:decimal\n    )\n    @doc
+              \" Transfer AMOUNT between accounts SENDER and RECEIVER. \\\n         \\
+              Fails if either SENDER or RECEIVER does not exist.\"\n    @model [ (property
+              (> amount 0.0))\n             (property (!= sender \"\"))\n             (property
+              (!= receiver \"\"))\n             (property (!= sender receiver))\n           ]\n    )\n\n   "}}},"TRANSFER-mgr":{"ref":{"defType":"Defun","defMeta":null,"funType":{"args":[{"name":"managed","type":"decimal","info":{"d":[7,780,780],"c":"managed"}},{"name":"requested","type":"decimal","info":{"d":[9,803,803],"c":"requested"}}],"return":"decimal"},"defName":"TRANSFER-mgr","defBody":{"scope":{"list":[],"type":"*","i":{"d":[352,745,745],"c":"(defun
+              TRANSFER-mgr:decimal\n     ( managed:decimal\n       requested:decimal\n     )\n     @doc
+              \" Manages TRANSFER AMOUNT linearly, \\\n          \\ such that a request
+              for 1.0 amount on a 3.0 \\\n          \\ managed quantity emits updated
+              amount 2.0.\"\n     )\n\n   ; ----------------------------------------------------------------------\n   ;
+              Functionality\n\n\n  "}}},"module":{"namespace":null,"name":"fungible-v2"},"meta":{"model":[],"docs":"
+              Manages TRANSFER AMOUNT linearly,  such that a request for 1.0 amount
+              on a 3.0  managed quantity emits updated amount 2.0."},"info":{"d":[352,745,745],"c":"(defun
+              TRANSFER-mgr:decimal\n     ( managed:decimal\n       requested:decimal\n     )\n     @doc
+              \" Manages TRANSFER AMOUNT linearly, \\\n          \\ such that a request
+              for 1.0 amount on a 3.0 \\\n          \\ managed quantity emits updated
+              amount 2.0.\"\n     )\n\n   ; ----------------------------------------------------------------------\n   ;
+              Functionality\n\n\n  "}}},"account-details":{"ref":{"modname":{"namespace":null,"name":"fungible-v2"},"name":"account-details","meta":{"model":[{"list":[{"atom":"invariant","q":[],"i":{"d":[10,283,283],"c":"invariant
+              "}},{"list":[{"atom":"!=","q":[],"i":{"d":[3,294,294],"c":"!= "}},{"i":{"d":[3,297,297],"c":"\"\"
+              "},"lit":""},{"atom":"sender","q":[],"i":{"d":[6,300,300],"c":"sender"}}],"d":"()","i":{"d":[14,293,293],"c":"(!=
+              \"\" sender)"}}],"d":"()","i":{"d":[27,282,282],"c":"(invariant (!=
+              \"\" sender)) "}}],"docs":"Schema for results of ''account'' operation."},"i":{"d":[272,188,188],"c":"(defschema
+              account-details\n    @doc \"Schema for results of ''account'' operation.\"\n    @model
+              [ (invariant (!= \"\" sender)) ]\n\n    account:string\n    balance:decimal\n    guard:guard)\n\n\n   ;
+              ----------------------------------------------------------------------\n   ;
+              Caps\n\n   "},"fields":[{"name":"account","type":"string","info":{"d":[7,316,316],"c":"account"}},{"name":"balance","type":"decimal","info":{"d":[7,335,335],"c":"balance"}},{"name":"guard","type":{"guard":null},"info":{"d":[5,355,355],"c":"guard"}}]}},"rotate":{"ref":{"defType":"Defun","defMeta":null,"funType":{"args":[{"name":"account","type":"string","info":{"d":[7,3879,3879],"c":"account"}},{"name":"new-guard","type":{"guard":null},"info":{"d":[9,3901,3901],"c":"new-guard"}}],"return":"string"},"defName":"rotate","defBody":{"scope":{"list":[],"type":"*","i":{"d":[202,3851,3851],"c":"(defun
+              rotate:string\n     ( account:string\n       new-guard:guard\n     )\n     \"
+              Rotate guard for ACCOUNT. Transaction is validated against \\\n     \\
+              existing guard before installing new guard. \"\n     )\n\n"}}},"module":{"namespace":null,"name":"fungible-v2"},"meta":{"model":[],"docs":"
+              Rotate guard for ACCOUNT. Transaction is validated against  existing
+              guard before installing new guard. "},"info":{"d":[202,3851,3851],"c":"(defun
+              rotate:string\n     ( account:string\n       new-guard:guard\n     )\n     \"
+              Rotate guard for ACCOUNT. Transaction is validated against \\\n     \\
+              existing guard before installing new guard. \"\n     )\n\n"}}}}}'
+      coin_coin-table:
+      - - NoMiner
+        - - - 7
+            - '{"guard":{"pred":"<","keys":[]},"balance":2.304523}'
+  txId: 10
 results:
   coinbase: eyJnYXMiOjAsInJlc3VsdCI6eyJzdGF0dXMiOiJzdWNjZXNzIiwiZGF0YSI6IldyaXRlIHN1Y2NlZWRlZCJ9LCJyZXFLZXkiOiJJbXRNTUVWWWEyc3lkMlJrVFZkeU1sRkJUVU5YUkRaelFqZHBNR3hPVTFZM2VGWm5XSGN5YWxBelNFMGkiLCJsb2dzIjoibFdaVWZjX0dKdGxUUy1LeDAtYm00aXRfSWE5bnNGZG5jZ2NwSE0td091OCIsIm1ldGFEYXRhIjpudWxsLCJjb250aW51YXRpb24iOm51bGwsInR4SWQiOjd9
   minerData: eyJhY2NvdW50IjoiTm9NaW5lciIsInByZWRpY2F0ZSI6IjwiLCJwdWJsaWMta2V5cyI6W119

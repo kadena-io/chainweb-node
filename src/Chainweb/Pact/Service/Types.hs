@@ -1,4 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
@@ -23,6 +27,7 @@
 
 module Chainweb.Pact.Service.Types
   ( NewBlockReq(..)
+  , ContinueBlockReq(..)
   , ValidateBlockReq(..)
   , SyncToBlockReq(..)
   , LocalReq(..)
@@ -58,6 +63,29 @@ module Chainweb.Pact.Service.Types
   , TransactionOutputProofB64(..)
 
   , internalError
+
+  , ModuleCache(..)
+  , filterModuleCacheByKey
+  , moduleCacheToHashMap
+  , moduleCacheFromHashMap
+  , moduleCacheKeys
+  , cleanModuleCache
+
+  , BlockInProgress(..)
+  , blockInProgressPendingData
+  , blockInProgressTxId
+  , blockInProgressModuleCache
+  , blockInProgressParentHeader
+  , blockInProgressRemainingGasLimit
+  , blockInProgressMiner
+  , blockInProgressTransactions
+  , emptyBlockInProgressForTesting
+  , blockInProgressToPayloadWithOutputs
+  , Transactions(..)
+  , transactionPairs
+  , transactionCoinbase
+  , toPayloadWithOutputs
+  , toHashCommandResult
   ) where
 
 import Control.DeepSeq
@@ -68,10 +96,12 @@ import Control.Monad.Catch
 import Control.Applicative
 
 import Data.Aeson
+import qualified Data.ByteString.Short as SB
 import Data.HashMap.Strict (HashMap)
-import Data.Map (Map)
+import qualified Data.HashMap.Strict as HM
 import qualified Data.List.NonEmpty as NE
 import Data.Text (Text, unpack)
+import qualified Data.Text.Encoding as T
 import Data.Vector (Vector)
 import Data.Word (Word64)
 
@@ -87,21 +117,27 @@ import Pact.Types.Gas
 import Pact.Types.Hash
 import Pact.Types.Persistence
 import Pact.Types.RowData
-
+import Pact.Types.Runtime hiding (ChainId)
 import qualified Pact.JSON.Encode as J
+import qualified Pact.JSON.Legacy.HashMap as LHM
 
 -- internal chainweb modules
 
 import Chainweb.BlockHash ( BlockHash )
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import Chainweb.ChainId
 import Chainweb.Mempool.Mempool (InsertError(..),TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.DbCache
+import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.NoCoinbase
 import Chainweb.Payload
-import Chainweb.Transaction
-import Chainweb.Utils (T2)
 import Chainweb.Time
+import Chainweb.Transaction
+import Chainweb.Utils
+import Chainweb.Version
+import Chainweb.Version.Mainnet
 
 -- | Value that represents a limitation for rewinding.
 newtype RewindLimit = RewindLimit { _rewindLimit :: Word64 }
@@ -303,17 +339,6 @@ instance FromJSON PactExceptionTag where
     parseJSON = withObject "PactExceptionTag" $ \o -> PactExceptionTag
         <$> o .: "tag"
 
--- | Gather tx logs for a block, along with last tx for each
--- key in history, if any
--- Not intended for public API use; ToJSONs are for logging output.
-data BlockTxHistory = BlockTxHistory
-  { _blockTxHistory :: !(Map TxId [TxLog RowData])
-  , _blockPrevHistory :: !(Map RowKey (TxLog RowData))
-  }
-  deriving (Eq,Generic)
-instance Show BlockTxHistory where
-  show = show . fmap (J.encodeText . J.Array) . _blockTxHistory
-instance NFData BlockTxHistory
 
 
 
@@ -353,7 +378,8 @@ instance Show SubmittedRequestMsg where
     show (SubmittedRequestMsg msg _) = show msg
 
 data RequestMsg r where
-    NewBlockMsg :: !NewBlockReq -> RequestMsg (T2 ParentHeader PayloadWithOutputs)
+    NewBlockMsg :: !NewBlockReq -> RequestMsg BlockInProgress
+    ContinueBlockMsg :: !ContinueBlockReq -> RequestMsg (Maybe BlockInProgress)
     ValidateBlockMsg :: !ValidateBlockReq -> RequestMsg PayloadWithOutputs
     LocalMsg :: !LocalReq -> RequestMsg LocalResult
     LookupPactTxsMsg :: !LookupPactTxsReq -> RequestMsg (HashMap PactHash (T2 BlockHeight BlockHash))
@@ -366,6 +392,7 @@ data RequestMsg r where
 
 instance Show (RequestMsg r) where
     show (NewBlockMsg req) = show req
+    show (ContinueBlockMsg req) = show req
     show (ValidateBlockMsg req) = show req
     show (LocalMsg req) = show req
     show (LookupPactTxsMsg req) = show req
@@ -376,9 +403,17 @@ instance Show (RequestMsg r) where
     show (ReadOnlyReplayMsg req) = show req
     show CloseMsg = "CloseReq"
 
-data NewBlockReq = NewBlockReq
-    { _newMiner :: !Miner
+data NewBlockReq
+    = NewBlockReq
+    { _newBlockMiner :: !Miner
+    , _newBlockFill :: !Bool
+    -- ^ whether to fill this block with transactions; if false, the block
+    -- will be empty.
     } deriving stock Show
+
+data ContinueBlockReq
+    = ContinueBlockReq !BlockInProgress
+    deriving stock Show
 
 data ValidateBlockReq = ValidateBlockReq
     { _valBlockHeader :: !BlockHeader
@@ -465,3 +500,116 @@ instance FromJSON SpvRequest where
 newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
     deriving stock (Eq, Show, Generic)
     deriving newtype (ToJSON, FromJSON)
+
+-- -------------------------------------------------------------------------- --
+-- Module Cache
+
+-- | Block scoped Module Cache
+--
+newtype ModuleCache = ModuleCache { _getModuleCache :: LHM.HashMap ModuleName (ModuleData Ref, Bool) }
+    deriving newtype (Show, Eq, Semigroup, Monoid, NFData)
+
+filterModuleCacheByKey
+    :: (ModuleName -> Bool)
+    -> ModuleCache
+    -> ModuleCache
+filterModuleCacheByKey f (ModuleCache c) = ModuleCache $
+    LHM.fromList $ filter (f . fst) $ LHM.toList c
+{-# INLINE filterModuleCacheByKey #-}
+
+moduleCacheToHashMap
+    :: ModuleCache
+    -> HM.HashMap ModuleName (ModuleData Ref, Bool)
+moduleCacheToHashMap (ModuleCache c) = HM.fromList $ LHM.toList c
+{-# INLINE moduleCacheToHashMap #-}
+
+moduleCacheFromHashMap
+    :: HM.HashMap ModuleName (ModuleData Ref, Bool)
+    -> ModuleCache
+moduleCacheFromHashMap = ModuleCache . LHM.fromList . HM.toList
+{-# INLINE moduleCacheFromHashMap #-}
+
+moduleCacheKeys :: ModuleCache -> [ModuleName]
+moduleCacheKeys (ModuleCache a) = fst <$> LHM.toList a
+{-# INLINE moduleCacheKeys #-}
+
+-- this can't go in Chainweb.Version.Guards because it causes an import cycle
+-- it uses genesisHeight which is from BlockHeader which imports Guards
+cleanModuleCache :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+cleanModuleCache v cid bh =
+  case v ^?! versionForks . at Chainweb217Pact . _Just . onChain cid of
+    ForkAtBlockHeight bh' -> bh == bh'
+    ForkAtGenesis -> bh == genesisHeight v cid
+    ForkNever -> False
+
+-- State from a block in progress, which is used to extend blocks after
+-- running their payloads.
+data BlockInProgress = BlockInProgress
+  { _blockInProgressPendingData :: !SQLitePendingData
+  , _blockInProgressTxId :: !TxId
+  , _blockInProgressModuleCache :: !ModuleCache
+  , _blockInProgressParentHeader :: !ParentHeader
+  , _blockInProgressRemainingGasLimit :: !GasLimit
+  , _blockInProgressMiner :: !Miner
+  , _blockInProgressTransactions :: !(Transactions (CommandResult [TxLogJson]))
+  } deriving stock (Eq, Show)
+
+-- This block is not really valid, don't use it outside tests.
+emptyBlockInProgressForTesting :: BlockInProgress
+emptyBlockInProgressForTesting = BlockInProgress
+  { _blockInProgressPendingData = emptySQLitePendingData
+  , _blockInProgressTxId = TxId 0
+  , _blockInProgressModuleCache = mempty
+  , _blockInProgressParentHeader =
+    ParentHeader (genesisBlockHeader mainnet (unsafeChainId 0))
+  , _blockInProgressRemainingGasLimit = GasLimit 0
+  , _blockInProgressMiner = noMiner
+  , _blockInProgressTransactions = Transactions
+    { _transactionCoinbase = noCoinbase
+    , _transactionPairs = mempty
+    }
+  }
+
+blockInProgressToPayloadWithOutputs :: BlockInProgress -> PayloadWithOutputs
+blockInProgressToPayloadWithOutputs bip = toPayloadWithOutputs
+  (_blockInProgressMiner bip)
+  (_blockInProgressTransactions bip)
+
+toPayloadWithOutputs :: Miner -> Transactions (CommandResult [TxLogJson]) -> PayloadWithOutputs
+toPayloadWithOutputs mi ts =
+    let oldSeq = _transactionPairs ts
+        trans = cmdBSToTx . fst <$> oldSeq
+        transOuts = toOutputBytes . toHashCommandResult . snd <$> oldSeq
+
+        miner = toMinerData mi
+        cb = CoinbaseOutput $ J.encodeStrict $ toHashCommandResult $ _transactionCoinbase ts
+        blockTrans = snd $ newBlockTransactions miner trans
+        cmdBSToTx = toTransactionBytes
+          . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
+        blockOuts = snd $ newBlockOutputs cb transOuts
+
+        blockPL = blockPayload blockTrans blockOuts
+        plData = payloadData blockTrans blockPL
+     in payloadWithOutputs plData cb transOuts
+
+toTransactionBytes :: Command Text -> Transaction
+toTransactionBytes cwTrans =
+    let plBytes = J.encodeStrict cwTrans
+    in Transaction { _transactionBytes = plBytes }
+
+toOutputBytes :: CommandResult Hash -> TransactionOutput
+toOutputBytes cr =
+    let outBytes = J.encodeStrict cr
+    in TransactionOutput { _transactionOutputBytes = outBytes }
+
+toHashCommandResult :: CommandResult [TxLogJson] -> CommandResult Hash
+toHashCommandResult = over (crLogs . _Just) $ pactHash . encodeTxLogJsonArray
+
+data Transactions r = Transactions
+    { _transactionPairs :: !(Vector (ChainwebTransaction, r))
+    , _transactionCoinbase :: !(CommandResult [TxLogJson])
+    }
+    deriving stock (Functor, Foldable, Traversable, Eq, Show, Generic)
+    deriving anyclass NFData
+makeLenses 'Transactions
+makeLenses 'BlockInProgress

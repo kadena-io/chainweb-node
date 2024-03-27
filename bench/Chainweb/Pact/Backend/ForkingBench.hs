@@ -232,7 +232,9 @@ createBlock validate nonce pact = do
 
      -- assemble block without nonce and timestamp
 
-     T2 parent payload <- newBlock noMiner pact
+     bip <- newBlock noMiner True pact
+     let parent = _blockInProgressParentHeader bip
+     let payload = blockInProgressToPayloadWithOutputs bip
 
      let creationTime = add second $ _blockCreationTime $ _parentHeader parent
      let bh = newBlockHeader

@@ -13,6 +13,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Miner.Coordinator
@@ -130,14 +131,14 @@ data MiningCoordination logger tbl = MiningCoordination
 -- made as often as desired, without clogging the Pact queue.
 --
 newtype PrimedWork =
-    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (T2 ParentHeader (Maybe PayloadWithOutputs))))
+    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (Maybe NewBlock)))
     deriving newtype (Semigroup, Monoid)
     deriving stock Generic
     deriving anyclass (Wrapped)
 
 resetPrimed :: MinerId -> ChainId -> PrimedWork -> PrimedWork
 resetPrimed mid cid (PrimedWork pw) = PrimedWork
-    $! HM.adjust (HM.adjust (_2 .~ Nothing) cid) mid pw
+    $! HM.adjust (HM.adjust (\_ -> Nothing) cid) mid pw
 
 -- | Data shared between the mining threads represented by `newWork` and
 -- `publish`.
@@ -200,21 +201,22 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
     mpw <- atomically $ do
         PrimedWork pw <- readTVar tpw
         mpw <- maybe retry return (HM.lookup mid pw)
-        guard (any (isJust . ssnd) mpw)
+        guard (any isJust mpw)
         return mpw
     let mr = T2
             <$> HM.lookup cid mpw
             <*> getCutExtension c cid
 
     case mr of
-        Just (T2 (T2 _ Nothing) _) -> do
+        Just (T2 Nothing _) -> do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " has stale work"
             newWork logFun Anything eminer hdb pact tpw c
         Nothing -> do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " not mineable"
             newWork logFun Anything eminer hdb pact tpw c
-        Just (T2 (T2 (ParentHeader primedParent) (Just payload)) extension)
+        Just (T2 (Just newBlock@(newBlockParentHeader -> ParentHeader primedParent)) extension)
             | _blockHash primedParent == _blockHash (_parentHeader (_cutExtensionParent extension)) -> do
+                let payload = newBlockToPayloadWithOutputs newBlock
                 let !phash = _payloadWithOutputsPayloadHash payload
                 !wh <- newWorkHeader hdb extension phash
                 pure $ Just $ T2 wh payload
@@ -333,7 +335,7 @@ work mr mcid m = do
                         "no chains have primed work"
                     | otherwise ->
                         "all chains with primed work may be stalled. chains with primed payloads: "
-                        <> sshow (sort [cid | (cid, T2 _ (Just _)) <- HM.toList mpw])
+                        <> sshow (sort [cid | (cid, Just _) <- HM.toList mpw])
           )
 
         logDelays n'
