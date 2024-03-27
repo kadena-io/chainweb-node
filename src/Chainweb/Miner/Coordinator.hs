@@ -215,31 +215,30 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
         Nothing -> do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " not mineable"
             newWork logFun Anything eminer hdb pact tpw c
-        Just (T2 (Just newBlock) extension)
-            | ParentHeader primedParent <- newBlockParentHeader newBlock ->
-                if _blockHash primedParent ==
-                    _blockHash (_parentHeader (_cutExtensionParent extension))
-                then do
-                    let payload = newBlockToPayloadWithOutputs newBlock
-                    let !phash = _payloadWithOutputsPayloadHash payload
-                    !wh <- newWorkHeader hdb extension phash
-                    pure $ Just $ T2 wh payload
-                else do
-                    -- The cut is too old or the primed work is outdated. Probably
-                    -- the former because it the mining coordination background job
-                    -- is updating the primed work cache regularly. We could try
-                    -- another chain, but it's safer to just return 'Nothing' here
-                    -- and retry with an updated cut.
-                    --
-                    let !extensionParent = _parentHeader (_cutExtensionParent extension)
-                    logFun @T.Text Info
-                        $ "newWork: chain " <> sshow cid <> " not mineable because of parent header mismatch"
-                        <> ". Primed parent hash: " <> toText (_blockHash primedParent)
-                        <> ". Primed parent height: " <> sshow (_blockHeight primedParent)
-                        <> ". Extension parent: " <> toText (_blockHash extensionParent)
-                        <> ". Extension height: " <> sshow (_blockHeight extensionParent)
+        Just (T2 (Just newBlock) extension) -> do
+            let ParentHeader primedParent = newBlockParentHeader newBlock
+            if _blockHash primedParent == _blockHash (_parentHeader (_cutExtensionParent extension))
+            then do
+                let payload = newBlockToPayloadWithOutputs newBlock
+                let !phash = _payloadWithOutputsPayloadHash payload
+                !wh <- newWorkHeader hdb extension phash
+                pure $ Just $ T2 wh payload
+            else do
+                -- The cut is too old or the primed work is outdated. Probably
+                -- the former because it the mining coordination background job
+                -- is updating the primed work cache regularly. We could try
+                -- another chain, but it's safer to just return 'Nothing' here
+                -- and retry with an updated cut.
+                --
+                let !extensionParent = _parentHeader (_cutExtensionParent extension)
+                logFun @T.Text Info
+                    $ "newWork: chain " <> sshow cid <> " not mineable because of parent header mismatch"
+                    <> ". Primed parent hash: " <> toText (_blockHash primedParent)
+                    <> ". Primed parent height: " <> sshow (_blockHeight primedParent)
+                    <> ". Extension parent: " <> toText (_blockHash extensionParent)
+                    <> ". Extension height: " <> sshow (_blockHeight extensionParent)
 
-                    return Nothing
+                return Nothing
 
 -- | Accepts a "solved" `BlockHeader` from some external source (e.g. a remote
 -- mining client), attempts to reassociate it with the current best `Cut`, and

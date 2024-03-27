@@ -743,7 +743,7 @@ withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
           { _pactNewBlock = \_ m fill ->
               evalPactServiceM_ ctx $ NewBlockInProgress <$> execNewBlock mempoolAccess m fill
           , _pactContinueBlock = \_ bip ->
-              evalPactServiceM_ ctx $ fmap NewBlockInProgress <$> execContinueBlock mempoolAccess bip
+              evalPactServiceM_ ctx $ execContinueBlock mempoolAccess bip
           , _pactValidateBlock = \h d ->
               evalPactServiceM_ ctx $ fst <$> execValidateBlock mempoolAccess h d
           , _pactLocal = \pf sv rd cmd ->
