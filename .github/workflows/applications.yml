@@ -338,7 +338,7 @@ jobs:
     - name: Build chainweb library
       run: cabal build --ghc-options=-j2 lib:chainweb
     - name: Build chainweb applications
-      run: cabal build -j2 --ghc-options=-j2 exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
+      run: cabal build -j2 --ghc-options=-j2 exe:chainweb-node exe:compact test:chainweb-tests exe:cwtool chainweb:bench:bench
 
     # Checks
     - name: Check that working directory tree is clean
@@ -360,6 +360,7 @@ jobs:
       run: |
         mkdir -p artifacts/chainweb
         cp $(cabal list-bin chainweb-node) artifacts/chainweb
+        cp $(cabal list-bin compact) artifacts/chainweb
         cp $(cabal list-bin chainweb-tests) artifacts/chainweb
         cp $(cabal list-bin cwtool) artifacts/chainweb
         cp $(cabal list-bin bench) artifacts/chainweb

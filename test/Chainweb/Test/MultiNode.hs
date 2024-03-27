@@ -47,7 +47,7 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Exception
-import Control.Lens (set, view, over, (^?!), ix)
+import Control.Lens (set, view, (^?!), ix)
 import Control.Monad
 import Chronos qualified
 
@@ -74,9 +74,9 @@ import Numeric.Natural
 import qualified Streaming.Prelude as S
 import Prelude hiding (log)
 
+import System.Directory (createDirectoryIfMissing)
 import System.FilePath
 import System.IO.Temp
-import System.Logger qualified as YAL
 import System.LogLevel
 import System.Timeout
 
@@ -91,7 +91,7 @@ import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.PeerResources
-import Chainweb.Pact.Backend.Compaction qualified as C
+import Chainweb.Pact.Backend.Compaction qualified as Sigma
 import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Cut
 import Chainweb.CutDB
@@ -105,7 +105,7 @@ import Chainweb.Pact.Backend.PactState.GrandHash.Calc qualified as GrandHash.Cal
 import Chainweb.Pact.Backend.PactState.GrandHash.Import qualified as GrandHash.Import
 import Chainweb.Pact.Backend.PactState.GrandHash.Utils qualified as GrandHash.Utils
 import Chainweb.Test.P2P.Peer.BootstrapConfig
-import Chainweb.Test.Pact.Utils (compactUntilAvailable)
+import Chainweb.Test.Pact.Utils (sigmaCompact)
 import Chainweb.Test.Utils
 import Chainweb.Time (Seconds(..))
 import Chainweb.Utils
@@ -330,14 +330,14 @@ compactLiveNodeTest :: ()
   -> Natural
   -> RocksDb
   -> FilePath
+  -> FilePath
   -> (String -> IO ())
   -> IO ()
-compactLiveNodeTest logLevel v n rocksDb pactDir step = do
+compactLiveNodeTest logLevel v n rocksDb srcPactDir targetPactDir step = do
   let logFun = step . T.unpack
   let logger = genericLogger logLevel logFun
 
   logFun "Phase 1... creating blocks"
-  logFun $ T.pack pactDir
 
   -- N.B: This consensus state stuff counts the number of blocks
   -- in RocksDB, rather than the number of blocks in all chains
@@ -347,21 +347,30 @@ compactLiveNodeTest logLevel v n rocksDb pactDir step = do
   let ct :: Int -> StartedChainweb logger -> IO ()
       ct = harvestConsensusState logger stateVar
   do
-    runNodesForSeconds logLevel logFun (multiConfig v n) n 10 rocksDb pactDir ct
+    runNodesForSeconds logLevel logFun (multiConfig v n) n 10 rocksDb srcPactDir ct
     Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
     assertGe "average block count before proceeding" (Actual $ _statBlockCount stats1) (Expected 50)
     logFun $ sshow stats1
 
   let compactAll = Chronos.stopwatch_ $ do
         threadDelay 5_000_000
-        C.withDefaultLogger logLevel $ \lgr -> do
+        Sigma.withDefaultLogger logLevel $ \lgr -> do
           forM_ [0 .. int @_ @Word n - 1] $ \nid -> do
+            -- We haven't gotten to run the node against the target yet,
+            -- and nothing has created its db directories, so we do that here.
+            createDirectoryIfMissing False (targetPactDir </> show nid)
             forM_ (allChains v) $ \cid -> do
               let logger' = addLabel ("nodeId", sshow nid) $ addLabel ("chainId", chainIdToText cid) lgr
-              withSqliteDb cid logger' (pactDir </> show nid) False $ \sqlEnv -> do
-                void $ compactUntilAvailable (C.Target (BlockHeight 25)) logger' sqlEnv [C.NoVacuum]
+              withSqliteDb cid logger' (srcPactDir </> show nid) False $ \srcDb -> do
+                withSqliteDb cid logger' (targetPactDir </> show nid) False $ \targetDb -> do
+                  sigmaCompact srcDb targetDb (BlockHeight 25)
+
   let run = Chronos.stopwatch_ $ do
-        runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rocksDb pactDir ct
+        -- It may seem a bit strange that we never run the node against the
+        -- compacted state (see that we are using 'srcPactDir' here). This is
+        -- because we are only trying to see that compacting a node as it is,
+        -- does not disrupt it.
+        runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rocksDb srcPactDir ct
         Just stats2 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
         assertGe "average block count before proceeding" (Actual $ _statBlockCount stats2) (Expected 100)
         logFun $ sshow stats2
@@ -500,7 +509,7 @@ pactImportTest logLevel v n rocksDb pactDir step = do
 --   Each node creates blocks
 --   We wait until they've made a sufficient amount of blocks
 --   We stop the nodes
---   We open sqlite connections to some of the database dirs and compact them
+--   We compact the databases of each node
 --   We restart all nodes with the same database dirs
 --   We observe that they can make progress
 compactAndResumeTest :: ()
@@ -508,10 +517,12 @@ compactAndResumeTest :: ()
   -> ChainwebVersion
   -> Natural
   -> RocksDb
+  -> RocksDb
+  -> FilePath
   -> FilePath
   -> (String -> IO ())
   -> IO ()
-compactAndResumeTest logLevel v n rdb pactDbDir step = do
+compactAndResumeTest logLevel v n srcRocksDb targetRocksDb srcPactDir targetPactDir step = do
     let logFun = step . T.unpack
     let logger = genericLogger logLevel logFun
 
@@ -523,26 +534,29 @@ compactAndResumeTest logLevel v n rdb pactDbDir step = do
     stateVar <- newMVar (emptyConsensusState v)
     let ct :: Int -> StartedChainweb logger -> IO ()
         ct = harvestConsensusState logger stateVar
-    runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rdb pactDbDir ct
+    runNodesForSeconds logLevel logFun (multiConfig v n) n 10 srcRocksDb srcPactDir ct
     Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
     assertGe "average block count before compaction" (Actual $ _statBlockCount stats1) (Expected 50)
     logFun $ sshow stats1
 
     logFun "phase 2... compacting"
-    let cid = unsafeChainId 0
-    -- compact only half of them
-    let nids = filter even [0 .. int @_ @Int n - 1]
-    forM_ nids $ \nid -> do
-      let dir = pactDbDir </> show nid
-      withSqliteDb cid logger dir False $ \sqlEnv -> do
-        C.withDefaultLogger Warn $ \cLogger -> do
-          let cLogger' = over YAL.setLoggerScope (\scope -> ("nodeId",sshow nid) : ("chainId",sshow cid) : scope) cLogger
-          let flags = [C.NoVacuum]
-          let bh = BlockHeight 5
-          void $ compactUntilAvailable (C.Target bh) cLogger' sqlEnv flags
+
+    logFun "phase 2.1...compacting pact state"
+    forM_ [0 .. int @_ @Word n - 1] $ \nid -> do
+      forM_ (allChains v) $ \cid -> do
+        let logger' = addLabel ("nodeId", sshow nid) $ addLabel ("chainId", chainIdToText cid) logger
+        withSqliteDb cid logger' (srcPactDir </> show nid) False $ \srcDb -> do
+          withSqliteDb cid logger' (targetPactDir </> show nid) False $ \targetDb -> do
+            sigmaCompact srcDb targetDb (BlockHeight 25)
+
+    logFun "phase 2.2...compacting RocksDB"
+    forM_ [0 .. int @_ @Word n - 1] $ \nid -> do
+      let srcRdb = srcRocksDb { _rocksDbNamespace = T.encodeUtf8 (toText nid) }
+      let tgtRdb = targetRocksDb { _rocksDbNamespace = T.encodeUtf8 (toText nid) }
+      Sigma.compactRocksDb (addLabel ("nodeId", sshow nid) logger) v (allChains v) 20 srcRdb tgtRdb
 
     logFun "phase 3... restarting nodes and ensuring progress"
-    runNodesForSeconds logLevel logFun (multiConfig v n) { _configFullHistoricPactState = False } n 60 rdb pactDbDir ct
+    runNodesForSeconds logLevel logFun (multiConfig v n) { _configFullHistoricPactState = False } n 10 targetRocksDb targetPactDir ct
     Just stats2 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
     -- We ensure that we've gotten to at least 1.5x the previous block count
     assertGe "average block count post-compaction" (Actual $ _statBlockCount stats2) (Expected (3 * _statBlockCount stats1 `div` 2))
