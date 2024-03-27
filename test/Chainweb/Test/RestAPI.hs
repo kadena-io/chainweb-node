@@ -47,7 +47,7 @@ import Text.Read (readEither)
 -- internal modules
 
 import Chainweb.BlockHash (BlockHash)
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.BlockHeaderDB.RestAPI (Block(..))
@@ -241,7 +241,7 @@ simpleClientSession envIO cid =
         void $ liftIO $ step "put 3 new blocks"
         let newHeaders = take 3 $ testBlockHeaders (ParentHeader gbh0)
         liftIO $ traverse_ (unsafeInsertBlockHeaderDb bhdb) newHeaders
-        liftIO $ traverse_ (\x -> addNewPayload pdb (view blockHeight x) (testBlockPayload_ x)) newHeaders
+        liftIO $ traverse_ (\x -> addNewPayload pdb (_blockHeight x) (testBlockPayload_ x)) newHeaders
 
         void $ liftIO $ step "headersClient: get all 4 block headers"
         bhs2 <- headersClient version cid Nothing Nothing Nothing Nothing
@@ -265,7 +265,7 @@ simpleClientSession envIO cid =
             (Actual $ _pageItems hs2)
 
         forM_ newHeaders $ \h -> do
-            void $ liftIO $ step $ "headerClient: " <> T.unpack (encodeToText (view blockHash h))
+            void $ liftIO $ step $ "headerClient: " <> T.unpack (encodeToText (_blockHash h))
             r <- headerClient version cid (key h)
             assertExpectation "header client returned wrong entry"
                 (Expected h)
@@ -406,7 +406,7 @@ simpleClientSession envIO cid =
         void $ liftIO $ step "headerPutClient: put 3 new blocks on a new fork"
         let newHeaders2 = take 3 $ testBlockHeadersWithNonce (Nonce 17) (ParentHeader gbh0)
         liftIO $ traverse_ (unsafeInsertBlockHeaderDb bhdb) newHeaders2
-        liftIO $ traverse_ (\x -> addNewPayload pdb (view blockHeight x) (testBlockPayload_ x)) newHeaders2
+        liftIO $ traverse_ (\x -> addNewPayload pdb (_blockHeight x) (testBlockPayload_ x)) newHeaders2
 
         let lower = last newHeaders
         forM_ ([1..] `zip` newHeaders2) $ \(i, h) -> do

@@ -90,7 +90,7 @@ import qualified Test.QuickCheck.Monadic as T
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.ChainId
 import Chainweb.ChainValue
 import Chainweb.Cut
@@ -131,7 +131,7 @@ type GenBlockTime = Cut -> ChainId -> Time Micros
 offsetBlockTime :: TimeSpan Micros -> GenBlockTime
 offsetBlockTime offset cut cid = add offset
     $ maximum
-    $ fmap (_bct . view blockCreationTime)
+    $ fmap (_bct . _blockCreationTime)
     $ HM.insert cid (cut ^?! ixg cid)
     $ cutAdjs cut cid
 
@@ -281,14 +281,14 @@ arbitraryCut v = T.sized $ \s -> do
     fst <$> foldlM (\x _ -> genCut x) (genesis, initDb) [0..(k-1)]
   where
     genesis = genesisCut v
-    initDb = foldl' (\d h -> HM.insert (view blockHash h) h d) mempty $ _cutMap genesis
+    initDb = foldl' (\d h -> HM.insert (_blockHash h) h d) mempty $ _cutMap genesis
 
     genCut :: (Cut, TestHeaderMap) -> T.Gen (Cut, TestHeaderMap)
     genCut (c, db) = do
         cids <- T.shuffle (toList $ chainIds v)
         S.each cids
             & S.mapMaybeM (mine db c)
-            & S.map (\(T2 h x) -> (x, HM.insert (view blockHash h) h db))
+            & S.map (\(T2 h x) -> (x, HM.insert (_blockHash h) h db))
             & S.head_
             & fmap fromJuste
 

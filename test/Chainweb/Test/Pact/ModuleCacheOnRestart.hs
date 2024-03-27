@@ -35,7 +35,7 @@ import Pact.Types.Term
 
 -- chainweb imports
 
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Logger
@@ -251,7 +251,7 @@ doNextCoinbase iobdb = do
 
       T2 prevH' pwo <- execNewBlock mempty noMiner
       liftIO $ ParentHeader prevH @?= prevH'
-      void $ liftIO $ addTestBlockDb bdb (succ $ view blockHeight prevH) (Nonce 0) (offsetBlockTime second) testChainId pwo
+      void $ liftIO $ addTestBlockDb bdb (succ $ _blockHeight prevH) (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
       (valPWO, _g) <- execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
       return (nextH, valPWO)

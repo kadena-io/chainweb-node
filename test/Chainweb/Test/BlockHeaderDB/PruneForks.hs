@@ -32,7 +32,7 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
@@ -105,7 +105,7 @@ insertWithPayloads bdb pdb h n l = do
     hdrs <- insertN_ n l h bdb
     forM_ hdrs $ \hd ->
         let payload = testBlockPayload_ hd
-        in addNewPayload pdb (view blockHeight hd) payload
+        in addNewPayload pdb (_blockHeight hd) payload
     return hdrs
 
 cid :: ChainId
@@ -114,7 +114,7 @@ cid = unsafeChainId 0
 delHdr :: BlockHeaderDb -> BlockHeader -> IO ()
 delHdr cdb k = do
     tableDelete (_chainDbCas cdb) (casKey $ RankedBlockHeader k)
-    tableDelete (_chainDbRankTable cdb) (view blockHash k)
+    tableDelete (_chainDbRankTable cdb) (_blockHash k)
 
 -- -------------------------------------------------------------------------- --
 -- Test cases
@@ -176,7 +176,7 @@ singleForkTest rio step d expect msg =
     withDbs rio $ \_rdb db pdb h -> do
         (f0, f1) <- createForks db pdb h
         n <- pruneForks logg db d $ \_ x ->
-            logg Info (sshow $ view blockHeight x)
+            logg Info (sshow $ _blockHeight x)
         assertHeaders db f0
         when (expect > 0) $ assertPrunedHeaders db f1
         assertEqual msg expect n
@@ -185,17 +185,17 @@ singleForkTest rio step d expect msg =
 
 assertHeaders :: BlockHeaderDb -> [BlockHeader] -> IO ()
 assertHeaders db f =
-    unlessM (fmap and $ mapM (tableMember db) $ view blockHash <$> f) $
+    unlessM (fmap and $ mapM (tableMember db) $ _blockHash <$> f) $
         assertFailure "missing block header that should not have been pruned"
 
 assertPrunedHeaders :: BlockHeaderDb -> [BlockHeader] -> IO ()
 assertPrunedHeaders db f =
-    whenM (fmap or $ mapM (tableMember db) $ view blockHash <$> f) $
+    whenM (fmap or $ mapM (tableMember db) $ _blockHash <$> f) $
         assertFailure "failed to prune some block header"
 
 assertPayloads :: PayloadDb RocksDbTable -> [BlockHeader] -> IO ()
 assertPayloads db f = do
-    let fs = (\h -> (Just $ view blockHeight h, view blockPayloadHash h)) <$> f
+    let fs = (\h -> (Just $ _blockHeight h, _blockPayloadHash h)) <$> f
     unlessM (and <$> mapM (uncurry $ lookupPayloadWithHeightExists db) fs) $
         assertFailure "missing block payload that should not have been garbage collected"
 
@@ -203,7 +203,7 @@ assertPayloads db f = do
 --
 assertPrunedPayloads :: PayloadDb RocksDbTable -> [BlockHeader] -> IO ()
 assertPrunedPayloads db f = do
-    let fs = (\h -> (Just $ view blockHeight h, view blockPayloadHash h)) <$> f
+    let fs = (\h -> (Just $ _blockHeight h, _blockPayloadHash h)) <$> f
     results <- mapM (uncurry $ lookupPayloadWithHeightExists db) fs
     let remained = length (filter id results)
     when (remained > 1) $
@@ -256,7 +256,7 @@ failTest rio n step = withDbs rio $ \_rdb db pdb h -> do
     return ()
   where
     prune db d = pruneForks logg db d $ \_ h ->
-        logg Info (sshow $ view blockHeight h)
+        logg Info (sshow $ _blockHeight h)
 
     logg = logFunctionText $ genericLogger testLogLevel (step . T.unpack)
 
@@ -325,7 +325,7 @@ failPayloadCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     -- implement a proper deletePayload and refactor this to use it.
     let db = _oldTransactionDbBlockPayloads $ _transactionDb pdb
     let b = f0 !! int n
-    tableDelete db (view blockPayloadHash b)
+    tableDelete db (_blockPayloadHash b)
     try (pruneAllChains logger rdb toyVersion checks) >>= \case
         Left (MissingPayloadException{}) -> return ()
         Left e -> assertFailure
@@ -347,7 +347,7 @@ failPayloadCheck2 :: IO RocksDb -> [PruningChecks] -> Natural -> (String -> IO (
 failPayloadCheck2 rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
     let b = f0 !! int n
-    payload <- lookupPayloadWithHeight pdb (Just $ view blockHeight b) (view blockPayloadHash b) >>= \case
+    payload <- lookupPayloadWithHeight pdb (Just $ _blockHeight b) (_blockPayloadHash b) >>= \case
         Nothing -> assertFailure "missing payload"
         Just x -> return x
     tableDelete (_transactionDbBlockTransactions $ _transactionDb pdb)

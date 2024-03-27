@@ -60,7 +60,6 @@ module Chainweb.Test.Orphans.Internal
 ) where
 
 import Control.Applicative
-import Control.Lens (view)
 import Control.Monad
 import Control.Monad.Catch
 
@@ -107,7 +106,7 @@ import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
@@ -417,7 +416,7 @@ instance Arbitrary WorkHeader where
         hdr <- arbitrary
         return $ WorkHeader
             { _workHeaderChainId = _chainId hdr
-            , _workHeaderTarget = view blockTarget hdr
+            , _workHeaderTarget = _blockTarget hdr
             , _workHeaderBytes = BS.toShort $ runPutS $ encodeBlockHeaderWithoutHash hdr
             }
 

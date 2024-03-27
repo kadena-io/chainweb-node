@@ -46,7 +46,7 @@ import Test.Tasty.HUnit
 
 -- internal imports
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.Logger
 import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.MerkleUniverse
@@ -708,7 +708,7 @@ childOf :: Maybe BlockHeader -> BlockHash -> BlockHeader
 childOf (Just bh) bhsh =
   bh
     & blockHash .~ bhsh
-    & blockParent .~ (view blockHash bh)
+    & blockParent .~ (_blockHash bh)
     & blockHeight +~ 1
 childOf Nothing bhsh =
   genesisBlockHeader testVer testChainId

@@ -37,7 +37,7 @@ import Pact.Types.Term
 import Pact.Types.Verifier hiding (verifierName)
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
@@ -681,7 +681,7 @@ filterBlock f (MempoolBlock b) = MempoolBlock $ \mi ->
 
 blockForChain :: ChainId -> MempoolBlock -> MempoolBlock
 blockForChain chid = filterBlock $ \bh ->
-  view blockChainId bh == chid
+  _blockChainId bh == chid
 
 runCut' :: PactTestM ()
 runCut' = do
@@ -740,7 +740,7 @@ runToHeight :: BlockHeight -> PactTestM ()
 runToHeight bhi = do
   chid <- view menvChainId
   bh <- getHeader chid
-  when (view blockHeight bh < bhi) $ do
+  when (_blockHeight bh < bhi) $ do
     runCut'
     runToHeight bhi
 
@@ -749,8 +749,8 @@ signSender00 = set cbSigners [mkEd25519Signer' sender00 []]
 
 setFromHeader :: BlockHeader -> CmdBuilder -> CmdBuilder
 setFromHeader bh =
-  set cbChainId (view blockChainId bh)
-  . set cbCreationTime (toTxCreationTime $ _bct $ view blockCreationTime bh)
+  set cbChainId (_blockChainId bh)
+  . set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
 
 buildBasic
     :: PactRPC T.Text
@@ -776,7 +776,7 @@ getPWO :: ChainId -> PactTestM (PayloadWithOutputs,BlockHeader)
 getPWO chid = do
   (TestBlockDb _ pdb _) <- view menvBdb
   h <- getHeader chid
-  Just pwo <- liftIO $ lookupPayloadWithHeight pdb (Just $ view blockHeight h) (view blockPayloadHash h)
+  Just pwo <- liftIO $ lookupPayloadWithHeight pdb (Just $ _blockHeight h) ( _blockPayloadHash h)
   return (pwo,h)
 
 getHeader :: ChainId -> PactTestM BlockHeader

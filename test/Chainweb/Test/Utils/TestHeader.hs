@@ -54,7 +54,7 @@ import Test.QuickCheck.Gen (Gen)
 -- internal modules
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeight
 import Chainweb.ChainValue
 import Chainweb.Test.Orphans.Internal
@@ -93,9 +93,9 @@ testHeaderLookup testHdr x = lookup x tbl
     p = _parentHeader $ _testHeaderParent testHdr
     a = _testHeaderAdjs testHdr
     tbl
-        = (view blockHash h, h)
-        : (view blockHash p, p)
-        : fmap (\(ParentHeader b) -> (view blockHash b, b)) a
+        = (_blockHash h, h)
+        : (_blockHash p, p)
+        : fmap (\(ParentHeader b) -> (_blockHash b, b)) a
 
 instance FromJSON TestHeader where
     parseJSON = withObject "TestHeader" $ \o -> TestHeader
@@ -149,7 +149,7 @@ arbitraryTestHeaderHeight v cid h = do
         $ adjacentChainIds (chainGraphAt v h) cid
     nonce <- arbitrary
     payloadHash <- arbitrary
-    let pt = maximum $ _bct . view blockCreationTime
+    let pt = maximum $ _bct . _blockCreationTime
             <$> HM.insert cid (_parentHeader parent) as
     t <- BlockCreationTime <$> chooseEnum (pt, maxBound)
     return $ TestHeader

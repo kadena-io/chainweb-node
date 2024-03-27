@@ -15,8 +15,6 @@ module Chainweb.Test.Version
 ( tests
 ) where
 
-import Control.Lens (view)
-
 import qualified Data.ByteString as B
 import Data.Foldable
 import qualified Data.List.NonEmpty as NE
@@ -28,7 +26,7 @@ import Test.Tasty.QuickCheck (testProperty)
 -- internal modules
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeight
 import Chainweb.Graph
 import Chainweb.Test.Orphans.Internal
@@ -109,7 +107,7 @@ prop_headerBaseSizeBytes v = property $ do
     cid <- elements $ toList $ chainIds v
     let genHdr = genesisBlockHeader v cid
         gen = runPutS $ encodeBlockHeader genHdr
-        as = runPutS $ encodeBlockHashRecord (view blockAdjacentHashes genHdr)
+        as = runPutS $ encodeBlockHashRecord (_blockAdjacentHashes genHdr)
     return $ _versionHeaderBaseSizeBytes v === int (B.length gen - B.length as)
 
 prop_headerSizes_sorted :: ChainwebVersion -> Property
@@ -128,7 +126,7 @@ prop_headerSizeBytes_gen v = property $ do
         l = int $ B.length $ runPutS $ encodeBlockHeader $ hdr
     return
         $ counterexample ("chain: " <> sshow cid)
-        $ headerSizeBytes v cid (view blockHeight hdr) === l
+        $ headerSizeBytes v cid (_blockHeight hdr) === l
 
 prop_headerSizeBytes :: ChainwebVersion -> Property
 prop_headerSizeBytes v = property $ do
@@ -136,15 +134,15 @@ prop_headerSizeBytes v = property $ do
     let l = int $ B.length $ runPutS $ encodeBlockHeader h
     return
         $ counterexample ("header: " <> sshow h)
-        $ headerSizeBytes (_chainwebVersion h) (view blockChainId h) (view blockHeight h) === l
+        $ headerSizeBytes (_chainwebVersion h) (_blockChainId h) (_blockHeight h) === l
 
 prop_workSizeBytes :: ChainwebVersion -> Property
 prop_workSizeBytes v = property $ do
     h <- arbitraryBlockHeaderVersion v
-    if (view blockHeight h == genesisHeight v (_chainId h))
+    if (_blockHeight h == genesisHeight v (_chainId h))
       then discard
       else do
         let l = int $ B.length $ runPutS $ encodeBlockHeaderWithoutHash h
         return
             $ counterexample ("header: " <> sshow h)
-            $ workSizeBytes (_chainwebVersion h) (view blockHeight h) === l
+            $ workSizeBytes (_chainwebVersion h) (_blockHeight h) === l

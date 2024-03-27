@@ -38,7 +38,7 @@ import GHC.Stack
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.ChainValue
 import Chainweb.Payload
 import Chainweb.Time
@@ -69,7 +69,7 @@ testPayload n = newPayloadWithOutputs
 testBlockPayloadFromParent :: ParentHeader -> PayloadWithOutputs
 testBlockPayloadFromParent (ParentHeader b) = testPayload $ B8.intercalate ","
     [ sshow (_chainwebVersion b)
-    , sshow (view blockHeight b + 1)
+    , sshow (_blockHeight b + 1)
     ]
 
 -- | Generate a test payload for a given header. Includes the block height of
@@ -81,7 +81,7 @@ testBlockPayloadFromParent (ParentHeader b) = testPayload $ B8.intercalate ","
 testBlockPayload :: BlockHeader -> PayloadWithOutputs
 testBlockPayload b = testPayload $ B8.intercalate ","
     [ sshow (_chainwebVersion b)
-    , sshow (view blockHeight b)
+    , sshow (_blockHeight b)
     ]
 
 -- | Generate a test payload for a given parent header. Includes the block
@@ -94,7 +94,7 @@ testBlockPayload b = testPayload $ B8.intercalate ","
 testBlockPayloadFromParent_ :: Nonce -> ParentHeader -> PayloadWithOutputs
 testBlockPayloadFromParent_ n (ParentHeader b) = testPayload $ B8.intercalate ","
     [ sshow (_chainwebVersion b)
-    , sshow (view blockHeight b + 1)
+    , sshow (_blockHeight b + 1)
     , sshow n
     ]
 
@@ -107,8 +107,8 @@ testBlockPayloadFromParent_ n (ParentHeader b) = testPayload $ B8.intercalate ",
 testBlockPayload_ :: BlockHeader -> PayloadWithOutputs
 testBlockPayload_ b = testPayload $ B8.intercalate ","
     [ sshow (_chainwebVersion b)
-    , sshow (view blockHeight b)
-    , sshow (view blockNonce b)
+    , sshow (_blockHeight b)
+    , sshow (_blockNonce b)
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -140,7 +140,7 @@ testBlockHeader adj nonce p@(ParentHeader b) =
     newBlockHeader adj payload nonce (BlockCreationTime $ add second t) p
   where
     payload = _payloadWithOutputsPayloadHash $ testBlockPayloadFromParent_ nonce p
-    BlockCreationTime t = view blockCreationTime b
+    BlockCreationTime t = _blockCreationTime b
 
 -- | Given a `BlockHeader` of some initial parent, generate an infinite stream
 -- of `BlockHeader`s which form a legal chain.
@@ -150,7 +150,7 @@ testBlockHeader adj nonce p@(ParentHeader b) =
 testBlockHeaders :: ParentHeader -> [BlockHeader]
 testBlockHeaders (ParentHeader p) = L.unfoldr (Just . (id &&& id) . f) p
   where
-    f b = testBlockHeader mempty (view blockNonce b) $ ParentHeader b
+    f b = testBlockHeader mempty (_blockNonce b) $ ParentHeader b
 
 -- | Given a `BlockHeader` of some initial parent, generate an infinite stream
 -- of `BlockHeader`s which form a legal chain.
