@@ -1,5 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Chainweb.WebPactExecutionService
   ( WebPactExecutionService(..)
@@ -90,14 +92,14 @@ data PactExecutionService = PactExecutionService
     , _pactBlockTxHistory :: !(
         BlockHeader ->
         Domain RowKey RowData ->
-        IO BlockTxHistory
+        IO (Historical BlockTxHistory)
         )
       -- ^ Obtain all transaction history in block for specified table/domain.
     , _pactHistoricalLookup :: !(
         BlockHeader ->
         Domain RowKey RowData ->
         RowKey ->
-        IO (Maybe (TxLog RowData))
+        IO (Historical (Maybe (TxLog RowData)))
         )
       -- ^ Obtain latest entry at or before the given block for specified table/domain and row key.
     , _pactSyncToBlock :: !(
@@ -189,8 +191,8 @@ emptyPactExecutionService = PactExecutionService
     , _pactLocal = \_ _ _ _ -> throwM (userError "emptyPactExecutionService: attempted `local` call")
     , _pactLookup = \_ _ _ -> return $! HM.empty
     , _pactPreInsertCheck = \_ txs -> return $ V.map (const (Right ())) txs
-    , _pactBlockTxHistory = \_ _ -> throwM (userError "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactBlockTxHistory unsupported")
-    , _pactHistoricalLookup = \_ _ _ -> throwM (userError "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactHistoryLookup unsupported")
+    , _pactBlockTxHistory = \_ _ -> error "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactBlockTxHistory unsupported"
+    , _pactHistoricalLookup = \_ _ _ -> error "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactHistoryLookup unsupported"
     , _pactSyncToBlock = \_ -> return ()
     , _pactReadOnlyReplay = \_ _ -> return ()
     }

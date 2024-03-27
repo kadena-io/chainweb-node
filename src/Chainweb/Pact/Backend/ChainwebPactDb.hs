@@ -645,14 +645,26 @@ createVersionedTable tablename db = do
         "CREATE INDEX IF NOT EXISTS " <> tbl ixName <> " ON " <> tbl tablename <> "(txid DESC);"
 
 -- | Delete any state from the database newer than the input parent header.
+-- Returns the ending txid of the input parent header.
 rewindDbTo
     :: SQLiteEnv
     -> Maybe ParentHeader
-    -> IO ()
-rewindDbTo db Nothing = rewindDbToGenesis db
+    -> IO TxId
+rewindDbTo db Nothing = do
+  rewindDbToGenesis db
+  return 0
 rewindDbTo db mh@(Just (ParentHeader ph)) = do
-    !endingtxid <- getEndTxId "rewindDbToBlock" db mh
-    rewindDbToBlock db (_blockHeight ph) endingtxid
+    !historicalEndingTxId <- getEndTxId "rewindDbToBlock" db mh
+    endingTxId <- case historicalEndingTxId of
+      NoHistory ->
+        throwM
+          $ BlockHeaderLookupFailure
+          $ "rewindDbTo.getEndTxId: not in db: "
+          <> sshow ph
+      Historical endingTxId ->
+        return endingTxId
+    rewindDbToBlock db (_blockHeight ph) endingTxId
+    return endingTxId
 
 -- rewind before genesis, delete all user tables and all rows in all tables
 rewindDbToGenesis
@@ -860,12 +872,12 @@ initSchema logger sql =
         "CREATE INDEX IF NOT EXISTS \
          \ transactionIndexByBH ON TransactionIndex(blockheight)";
 
-getEndTxId :: Text -> SQLiteEnv -> Maybe ParentHeader -> IO TxId
+getEndTxId :: Text -> SQLiteEnv -> Maybe ParentHeader -> IO (Historical TxId)
 getEndTxId msg sql pc = case pc of
-  Nothing -> return 0
-  Just (ParentHeader ph) -> getEndTxId' msg sql (_blockHeight ph) (_blockHash ph)
+    Nothing -> return (Historical 0)
+    Just (ParentHeader ph) -> getEndTxId' msg sql (_blockHeight ph) (_blockHash ph)
 
-getEndTxId' :: Text -> SQLiteEnv -> BlockHeight -> BlockHash -> IO TxId
+getEndTxId' :: Text -> SQLiteEnv -> BlockHeight -> BlockHash -> IO (Historical TxId)
 getEndTxId' msg sql bh bhsh = do
     r <- qry sql
       "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"
@@ -874,9 +886,8 @@ getEndTxId' msg sql bh bhsh = do
       ]
       [RInt]
     case r of
-      [[SInt tid]] -> return (TxId (fromIntegral tid))
-      [] -> throwM $ BlockHeaderLookupFailure $ msg <> ".getEndTxId: not in db: " <>
-            sshow (bh, bhsh)
+      [[SInt tid]] -> return $ Historical (TxId (fromIntegral tid))
+      [] -> return NoHistory
       _ -> internalError $ msg <> ".getEndTxId: expected single-row int result, got " <> sshow r
 
 -- | Careful doing this! It's expensive and for our use case, probably pointless.

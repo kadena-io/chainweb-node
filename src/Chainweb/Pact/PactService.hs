@@ -248,7 +248,10 @@ initializeCoinContract memPoolAccess v cid pwo = do
         -- cheap. We could also check the height but that would be redundant.
         if _blockHash (_parentHeader currentBlockHeader) /= _blockHash genesisHeader
         then do
-          !mc <- readFrom (Just currentBlockHeader) readInitModules
+          !mc <- readFrom (Just currentBlockHeader) readInitModules >>= \case
+            NoHistory -> throwM $ BlockHeaderLookupFailure
+              $ "initializeCoinContract: internal error: latest block not found: " <> sshow currentBlockHeader
+            Historical mc -> return mc
           updateInitCache mc currentBlockHeader
         else do
           logWarn "initializeCoinContract: Starting from genesis."
@@ -437,9 +440,11 @@ execNewBlock
     => MemPoolAccess
     -> Miner
     -> PactServiceM logger tbl (T2 ParentHeader PayloadWithOutputs)
-execNewBlock mpAccess miner = do
-    latestHeader <- findLatestValidBlockHeader
-    T2 latestHeader <$> execNewBlock' latestHeader
+execNewBlock mpAccess miner = pactLabel "execNewBlock" $
+    readFromLatest $ do
+        ph <- view psParentHeader
+        pwo <- execNewBlock' ph
+        return (T2 ph pwo)
     where
 
     -- | Note: The BlockHeader param here is the PARENT HEADER of the new
@@ -447,46 +452,46 @@ execNewBlock mpAccess miner = do
     --
     execNewBlock'
         :: ParentHeader
-        -> PactServiceM logger tbl PayloadWithOutputs
-    execNewBlock' latestHeader = pactLabel "execNewBlock" $ do
+        -> PactBlockM logger tbl PayloadWithOutputs
+    execNewBlock' latestHeader = do
         updateMempool
-        readFrom (Just latestHeader) $ do
-            liftPactServiceM $
-              logInfo $ "(parent height = " <> sshow pHeight <> ")"
-                    <> " (parent hash = " <> sshow pHash <> ")"
+        liftPactServiceM $
+          logInfo $ "(parent height = " <> sshow pHeight <> ")"
+                <> " (parent hash = " <> sshow pHash <> ")"
 
-            blockGasLimit <- view (psServiceEnv . psBlockGasLimit)
-            let initState = BlockFill blockGasLimit mempty 0
+        blockGasLimit <- view (psServiceEnv . psBlockGasLimit)
+        let initState = BlockFill blockGasLimit mempty 0
 
-            let
-                txTimeHeadroomFactor :: Double
-                txTimeHeadroomFactor = 5
-                -- 2.5 microseconds per unit gas
-                txTimeLimit :: Micros
-                txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit
+        let
+            txTimeHeadroomFactor :: Double
+            txTimeHeadroomFactor = 5
+            -- 2.5 microseconds per unit gas
+            txTimeLimit :: Micros
+            txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit
 
-            -- Get and update the module cache
-            initCache <- initModuleCacheForBlock False
-            -- Run the coinbase transaction
-            cb <- runCoinbase False miner (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) initCache
+        -- Get and update the module cache
+        initCache <- initModuleCacheForBlock False
+        -- Run the coinbase transaction
+        cb <- runCoinbase False miner (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) initCache
 
-            successes <- liftIO $ Vec.new @_ @_ @(ChainwebTransaction, P.CommandResult [P.TxLogJson])
-            failures <- liftIO $ Vec.new @_ @_ @TransactionHash
+        successes <- liftIO $ Vec.new @_ @_ @(ChainwebTransaction, P.CommandResult [P.TxLogJson])
+        failures <- liftIO $ Vec.new @_ @_ @TransactionHash
 
-            -- Heuristic: limit fetches to count of 1000-gas txs in block.
-            let fetchLimit = fromIntegral $ blockGasLimit `div` 1000
-            BlockFill _ requestKeys _ <- refill fetchLimit txTimeLimit successes failures initCache initState
+        -- Heuristic: limit fetches to count of 1000-gas txs in block.
+        let fetchLimit = fromIntegral $ blockGasLimit `div` 1000
+        BlockFill { _bfTxHashes = requestKeys }
+          <- refill fetchLimit txTimeLimit successes failures initCache initState
 
-            liftPactServiceM $ logInfo $ "(request keys = " <> sshow requestKeys <> ")"
+        liftPactServiceM $ logInfo $ "(request keys = " <> sshow requestKeys <> ")"
 
-            liftIO $ do
-              txHashes <- Vec.toLiftedVector failures
-              mpaBadlistTx mpAccess txHashes
+        liftIO $ do
+          txHashes <- Vec.toLiftedVector failures
+          mpaBadlistTx mpAccess txHashes
 
-            !pwo <- liftIO $ do
-              txs <- Vec.toLiftedVector successes
-              pure (toPayloadWithOutputs miner (Transactions txs cb))
-            return pwo
+        !pwo <- liftIO $ do
+          txs <- Vec.toLiftedVector successes
+          pure (toPayloadWithOutputs miner (Transactions txs cb))
+        return pwo
       where
         handleTimeout :: TxTimeout -> PactBlockM logger cas a
         handleTimeout (TxTimeout h) = liftPactServiceM $ do
@@ -627,13 +632,17 @@ execNewGenesisBlock
     => Miner
     -> Vector ChainwebTransaction
     -> PactServiceM logger tbl PayloadWithOutputs
-execNewGenesisBlock miner newTrans = pactLabel "execNewGenesisBlock" $ readFrom Nothing $ do
-    -- NEW GENESIS COINBASE: Reject bad coinbase, use date rule for precompilation
-    results <- execTransactions True miner newTrans
-               (EnforceCoinbaseFailure True)
-               (CoinbaseUsePrecompiled False) Nothing Nothing
-               >>= throwCommandInvalidError
-    return $! toPayloadWithOutputs miner results
+execNewGenesisBlock miner newTrans = pactLabel "execNewGenesisBlock" $ do
+    historicalBlock <- readFrom Nothing $ do
+      -- NEW GENESIS COINBASE: Reject bad coinbase, use date rule for precompilation
+      results <- execTransactions True miner newTrans
+                 (EnforceCoinbaseFailure True)
+                 (CoinbaseUsePrecompiled False) Nothing Nothing
+                 >>= throwCommandInvalidError
+      return $! toPayloadWithOutputs miner results
+    case historicalBlock of
+      NoHistory -> internalError "PactService.execNewGenesisBlock: Impossible error, unable to rewind before genesis"
+      Historical block -> return block
 
 execReadOnlyReplay
     :: forall logger tbl
@@ -652,16 +661,16 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
     upperBound <- case maybeUpperBound of
         Just upperBound -> do
             liftIO (ancestorOf bhdb (_blockHash lowerBound) (_blockHash upperBound)) >>=
-                flip unless (throwM $ PactInternalError "lower bound is not an ancestor of upper bound")
+                flip unless (internalError "lower bound is not an ancestor of upper bound")
 
             -- upper bound must be an ancestor of latest header.
             liftIO (ancestorOf bhdb (_blockHash upperBound) (_blockHash cur)) >>=
-                flip unless (throwM $ PactInternalError "upper bound is not an ancestor of latest header")
+                flip unless (internalError "upper bound is not an ancestor of latest header")
 
             return upperBound
         Nothing -> do
             liftIO (ancestorOf bhdb (_blockHash lowerBound) (_blockHash cur)) >>=
-                flip unless (throwM $ PactInternalError "lower bound is not an ancestor of latest header")
+                flip unless (internalError "lower bound is not an ancestor of latest header")
 
             return cur
     liftIO $ logFunctionText logger Info $ "pact db replaying between blocks "
@@ -694,15 +703,21 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
         r <- blocks & Stream.mapM_ (\bh -> do
             bhParent <- liftIO $ lookupParentM GenesisParentThrow bhdb bh
             let
-                printError (BlockValidationFailure (BlockValidationFailureMsg m)) = do
+                printValidationError (BlockValidationFailure (BlockValidationFailureMsg m)) = do
                     writeIORef validationFailedRef True
                     logFunctionText logger Error (J.getJsonText m)
-                printError e = throwM e
-            handle printError $ runPact $ readFrom (Just $ ParentHeader bhParent) $ do
-                liftIO $ writeIORef heightRef (_blockHeight bh)
-                payload <- liftIO $ fromJuste <$>
-                  lookupPayloadDataWithHeight pdb (Just $ _blockHeight bh) (_blockPayloadHash bh)
-                void $ execBlock bh (CheckablePayload payload)
+                printValidationError e = throwM e
+                handleMissingBlock NoHistory = throwM $ BlockHeaderLookupFailure $
+                  "execReadOnlyReplay: missing block: " <> sshow bh
+                handleMissingBlock (Historical ()) = return ()
+            handle printValidationError
+                $ (handleMissingBlock =<<)
+                $ runPact
+                $ readFrom (Just $ ParentHeader bhParent) $ do
+                    liftIO $ writeIORef heightRef (_blockHeight bh)
+                    payload <- liftIO $ fromJuste <$>
+                      lookupPayloadDataWithHeight pdb (Just $ _blockHeight bh) (_blockPayloadHash bh)
+                    void $ execBlock bh (CheckablePayload payload)
             )
         validationFailed <- readIORef validationFailedRef
         when validationFailed $
@@ -893,7 +908,7 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
                     -- and run its transactions, validating its hashes
                     let runForkBlockHeaders = Stream.map (\forkBh -> do
                             payload <- liftIO $ lookupPayloadWithHeight payloadDb (Just $ _blockHeight forkBh) (_blockPayloadHash forkBh) >>= \case
-                                Nothing -> throwM $ PactInternalError
+                                Nothing -> internalError
                                     $ "execValidateBlock: lookup of payload failed"
                                     <> ". BlockPayloadHash: " <> encodeToText (_blockPayloadHash forkBh)
                                     <> ". Block: " <> encodeToText (ObjectEncoded forkBh)
@@ -923,7 +938,7 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
         logPlayed $ "execValidateBlock: played " <> sshow numForkBlocksPlayed <> " fork blocks"
         (totalGasUsed, result) <- case results of
             [r] -> return r
-            _ -> throwM $ PactInternalError "execValidateBlock: wrong number of block results returned from _cpRestoreAndSave."
+            _ -> internalError "execValidateBlock: wrong number of block results returned from _cpRestoreAndSave."
 
         -- update mempool
         --
@@ -956,7 +971,7 @@ execBlockTxHistory
     :: Logger logger
     => BlockHeader
     -> P.Domain P.RowKey P.RowData
-    -> PactServiceM logger tbl BlockTxHistory
+    -> PactServiceM logger tbl (Historical BlockTxHistory)
 execBlockTxHistory bh d = pactLabel "execBlockTxHistory" $ do
   !cp <- view psCheckpointer
   liftIO $ _cpGetBlockHistory (_cpReadCp cp) bh d
@@ -966,7 +981,7 @@ execHistoricalLookup
     => BlockHeader
     -> P.Domain P.RowKey P.RowData
     -> P.RowKey
-    -> PactServiceM logger tbl (Maybe (P.TxLog P.RowData))
+    -> PactServiceM logger tbl (Historical (Maybe (P.TxLog P.RowData)))
 execHistoricalLookup bh d k = pactLabel "execHistoricalLookup" $ do
   !cp <- view psCheckpointer
   liftIO $ _cpGetHistoricalLookup (_cpReadCp cp) bh d k
