@@ -27,6 +27,7 @@ import Control.Concurrent.MVar
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Maybe
 
 import Data.ByteString (intercalate)
 import qualified Data.ByteString.Short as BS
@@ -146,22 +147,22 @@ doReadFrom
   -> MVar (DbCache PersistModuleData)
   -> Maybe ParentHeader
   -> (CurrentBlockDbEnv logger -> IO a)
-  -> IO a
+  -> IO (Maybe a)
 doReadFrom logger v cid sql moduleCacheVar parent doRead = do
   let currentHeight = maybe (genesisHeight v cid) (succ . _blockHeight . _parentHeader) parent
 
   withMVar moduleCacheVar $ \sharedModuleCache -> do
     bracket
       (beginSavepoint sql BatchSavepoint)
-      (\_ -> abortSavepoint sql BatchSavepoint) $ \() -> do
-      txid <- getEndTxId "doReadFrom" sql parent
-      newDbEnv <- newMVar $ BlockEnv
+      (\_ -> abortSavepoint sql BatchSavepoint) $ \() -> runMaybeT $ do
+      startTxId <- MaybeT $ getEndTxId "doReadFrom" sql parent
+      newDbEnv <- liftIO $ newMVar $ BlockEnv
         (mkBlockHandlerEnv v cid currentHeight sql DoNotPersistIntraBlockWrites logger)
-        (initBlockState defaultModuleCacheLimit txid)
+        (initBlockState defaultModuleCacheLimit startTxId)
           { _bsModuleCache = sharedModuleCache }
       -- NB it's important to do this *after* you start the savepoint (and thus
       -- the db transaction) to make sure that the latestHeader check is up to date.
-      latestHeader <- doGetLatestBlock sql
+      latestHeader <- liftIO $ doGetLatestBlock sql
       let
         -- is the parent the latest header, i.e., can we get away without rewinding?
         parentIsLatestHeader = case (latestHeader, parent) of
@@ -173,7 +174,7 @@ doReadFrom logger v cid sql moduleCacheVar parent doRead = do
       let
         pactDb
           | parentIsLatestHeader = chainwebPactDb
-          | otherwise = rewoundPactDb currentHeight txid
+          | otherwise = rewoundPactDb currentHeight startTxId
         curBlockDbEnv = CurrentBlockDbEnv
           { _cpPactDbEnv = PactDbEnv pactDb newDbEnv
           , _cpRegisterProcessedTx =
@@ -181,7 +182,7 @@ doReadFrom logger v cid sql moduleCacheVar parent doRead = do
           , _cpLookupProcessedTx = \hs ->
             runBlockEnv newDbEnv (doLookupSuccessful currentHeight hs)
           }
-      doRead curBlockDbEnv
+      liftIO $ doRead curBlockDbEnv
 
 
 -- TODO: log more?
@@ -206,9 +207,8 @@ doRestoreAndSave logger v cid sql p moduleCacheVar parent blocks =
           ExitCaseSuccess {} -> commitSavepoint sql BatchSavepoint
           _ -> abortSavepoint sql BatchSavepoint
         ) $ \_ -> do
-          rewindDbTo sql parent
-          txid <- getEndTxId "restoreAndSave" sql parent
-          ((q, _, _, finalModuleCache) :> r) <- extend txid moduleCache
+          startTxId <- rewindDbTo sql parent
+          ((q, _, _, finalModuleCache) :> r) <- extend startTxId moduleCache
           return (finalModuleCache, (r, q))
   where
 
@@ -354,18 +354,22 @@ doLookupSuccessful curHeight hashes = do
         return $! T3 txhash' (fromIntegral blockheight) blockhash'
     go _ = fail "impossible"
 
-doGetBlockHistory :: SQLiteEnv -> BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory
-doGetBlockHistory db blockHeader d = do
-  endTxId <- fmap fromIntegral $
-    getEndTxId "doGetBlockHistory" db (Just $ ParentHeader blockHeader)
-  startTxId <- fmap fromIntegral $
-    if bHeight == genesisHeight v cid
-    then return 0
-    else getEndTxId' "doGetBlockHistory" db (pred bHeight) (_blockParent blockHeader)
+doGetBlockHistory :: SQLiteEnv -> BlockHeader -> Domain RowKey RowData -> IO (Maybe BlockTxHistory)
+doGetBlockHistory db blockHeader d = runMaybeT $ do
+  endTxId <- MaybeT
+      $ fmap fromIntegral
+      <$> getEndTxId "doGetBlockHistory" db (Just $ ParentHeader blockHeader)
+  startTxId <-
+      if bHeight == genesisHeight v cid
+      then return 0
+      else MaybeT
+        $ fmap fromIntegral
+        <$> getEndTxId' "doGetBlockHistory" db (pred bHeight) (_blockParent blockHeader)
+
   let tname = domainTableName d
-  history <- queryHistory tname startTxId endTxId
+  history <- liftIO $ queryHistory tname startTxId endTxId
   let (!hkeys,tmap) = foldl' procTxHist (S.empty,mempty) history
-  !prev <- M.fromList . catMaybes <$> mapM (queryPrev tname startTxId) (S.toList hkeys)
+  !prev <- liftIO $ M.fromList . catMaybes <$> mapM (queryPrev tname startTxId) (S.toList hkeys)
   return $ BlockTxHistory tmap prev
   where
     v = _chainwebVersion blockHeader
@@ -416,7 +420,13 @@ doGetHistoricalLookup
     -> IO (Maybe (TxLog RowData))
 doGetHistoricalLookup db blockHeader d k = do
   endTxId <-
-    fromIntegral <$> getEndTxId "doGetHistoricalLookup" db (Just $ ParentHeader blockHeader)
+    maybe
+      (throwM
+        $ BlockHeaderLookupFailure
+        $ "doGetHistoricalLookup.getEndTxId: not in db: "
+        <> sshow blockHeader)
+      (return . fromIntegral)
+    =<< getEndTxId "doGetHistoricalLookup" db (Just $ ParentHeader blockHeader)
   latestEntry <- queryHistoryLookup (domainTableName d) endTxId (convRowKey k)
   return $! latestEntry
   where

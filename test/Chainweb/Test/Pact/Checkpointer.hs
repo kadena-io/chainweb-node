@@ -62,7 +62,7 @@ import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
-import Chainweb.Utils (catchAllSynchronous)
+import Chainweb.Utils
 import Chainweb.Version
 
 import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
@@ -690,8 +690,12 @@ cpReadFrom
   -> Maybe BlockHeader
   -> (ChainwebPactDbEnv logger -> IO q)
   -> IO q
-cpReadFrom cp pc f = _cpReadFrom (_cpReadCp cp) (ParentHeader <$> pc) $
-  f . _cpPactDbEnv
+cpReadFrom cp pc f = do
+  r <- _cpReadFrom
+    (_cpReadCp cp)
+    (ParentHeader <$> pc)
+    (f . _cpPactDbEnv)
+  evaluate (fromJuste r)
 
 -- allowing a straightforward list of blocks to be passed to the API,
 -- and only exposing the PactDbEnv part of the block context

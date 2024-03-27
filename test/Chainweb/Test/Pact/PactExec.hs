@@ -59,7 +59,7 @@ import Chainweb.Test.TestVersions
 import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.Version.Utils (someChainId)
-import Chainweb.Utils (sshow, tryAllSynchronous)
+import Chainweb.Utils hiding (check)
 
 import Pact.Types.Command
 import Pact.Types.Hash
@@ -500,7 +500,7 @@ execTest
 execTest v runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     trans <- mkCmds cmdStrs
-    results <- runPact $
+    results <- runPact $ fmap fromJuste $
       readFrom (Just $ ParentHeader $ genesisBlockHeader v cid) $
         execTransactions False defaultMiner
           trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) Nothing Nothing
@@ -531,7 +531,7 @@ execTxsTest v runPact name (trans',check) = testCase name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- tryAllSynchronous $ runPact $
+      results' <- tryAllSynchronous $ runPact $ fmap fromJuste $
         readFrom (Just $ ParentHeader $ genesisBlockHeader v cid) $
           execTransactions False defaultMiner trans
             (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) Nothing Nothing
