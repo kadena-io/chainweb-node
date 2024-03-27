@@ -324,7 +324,9 @@ mineBlock nonce iop = timeout 5000000 go >>= \case
 
       -- assemble block without nonce and timestamp
       (_, q, bdb) <- iop
-      T2 ph payload <- newBlock noMiner q
+      bip <- newBlock noMiner True q
+      let ph = _blockInProgressParentHeader bip
+      let payload = blockInProgressToPayloadWithOutputs bip
 
       let
         creationTime = BlockCreationTime

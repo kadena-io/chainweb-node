@@ -54,7 +54,6 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -492,9 +491,6 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
     let maybeBlockGasRemaining' = (\g -> g - P._crGas result) <$> maybeBlockGasRemaining
     pure (Right result, T2 mcache' maybeBlockGasRemaining')
 
-toHashCommandResult :: P.CommandResult [P.TxLogJson] -> P.CommandResult P.Hash
-toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . P.encodeTxLogJsonArray
-
 transactionsFromPayload
     :: PactParserVersion
     -> PayloadData
@@ -646,31 +642,3 @@ validateHashes bHeader payload miner transactions =
 
     toPairCR cr = over (P.crLogs . _Just)
         (CRLogPair (fromJuste $ P._crLogs (toHashCommandResult cr))) cr
-
-toTransactionBytes :: P.Command Text -> Transaction
-toTransactionBytes cwTrans =
-    let plBytes = J.encodeStrict cwTrans
-    in Transaction { _transactionBytes = plBytes }
-
-
-toOutputBytes :: P.CommandResult P.Hash -> TransactionOutput
-toOutputBytes cr =
-    let outBytes = J.encodeStrict cr
-    in TransactionOutput { _transactionOutputBytes = outBytes }
-
-toPayloadWithOutputs :: Miner -> Transactions (P.CommandResult [P.TxLogJson]) -> PayloadWithOutputs
-toPayloadWithOutputs mi ts =
-    let oldSeq = _transactionPairs ts
-        trans = cmdBSToTx . fst <$> oldSeq
-        transOuts = toOutputBytes . toHashCommandResult . snd <$> oldSeq
-
-        miner = toMinerData mi
-        cb = CoinbaseOutput $ J.encodeStrict $ toHashCommandResult $ _transactionCoinbase ts
-        blockTrans = snd $ newBlockTransactions miner trans
-        cmdBSToTx = toTransactionBytes
-          . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
-        blockOuts = snd $ newBlockOutputs cb transOuts
-
-        blockPL = blockPayload blockTrans blockOuts
-        plData = payloadData blockTrans blockPL
-     in payloadWithOutputs plData cb transOuts
