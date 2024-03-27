@@ -547,30 +547,29 @@ execNewBlock mpAccess miner = do
                         T2 pairs mc' <- execTransactionsOnly miner newTrans mc
                           (Just txTimeLimit) `catch` handleTimeout
 
-                        (oldPairsLength, oldFailsLength) <- liftIO $ (,)
-                          <$> Vec.length successes
-                          <*> Vec.length failures
+                        oldSuccessesLength <- liftIO $ Vec.length successes
 
-                        newState <- splitResults successes failures unchanged (V.toList pairs)
+                        (newState, timedOut) <- splitResults successes failures unchanged (V.toList pairs)
 
                         -- LOOP INVARIANT: gas must not increase
                         when (_bfGasLimit newState > _bfGasLimit bfState) $
                           throwM $ MempoolFillFailure $ "Gas must not increase: " <> sshow (bfState,newState)
 
-                        (newPairsLength, newFailsLength) <- liftIO $ (,)
-                          <$> Vec.length successes
-                          <*> Vec.length failures
-                        let newSuccessCount = newPairsLength - oldPairsLength
-                        let newFailCount = newFailsLength - oldFailsLength
+                        newSuccessesLength <- liftIO $ Vec.length successes
+                        let addedSuccessCount = newSuccessesLength - oldSuccessesLength
 
-                        -- LOOP INVARIANT: gas must decrease ...
-                        if (_bfGasLimit newState < _bfGasLimit bfState)
-                            -- ... OR only non-zero failures were returned.
-                           || (newSuccessCount == 0  && newFailCount > 0)
-                            then go mc' (incCount newState)
-                            else throwM $ MempoolFillFailure $ "Invariant failure: " <>
-                                 sshow (bfState,newState,V.length newTrans
-                                       ,newPairsLength,newFailsLength)
+                        if timedOut
+                        then
+                          -- a transaction timed out, so give up early and make the block
+                          pure (incCount newState)
+                        else if (_bfGasLimit newState >= _bfGasLimit bfState) && addedSuccessCount > 0
+                        then
+                          -- INVARIANT: gas must decrease if any transactions succeeded
+                          throwM $ MempoolFillFailure
+                            $ "Invariant failure, gas did not decrease: "
+                            <> sshow (bfState,newState,V.length newTrans,addedSuccessCount)
+                        else
+                          go mc' (incCount newState)
 
         incCount :: BlockFill -> BlockFill
         incCount b = over bfCount succ b
@@ -579,7 +578,8 @@ execNewBlock mpAccess miner = do
         --   and return the final 'BlockFill'.
         --
         --   If we encounter a 'TxTimeout', we short-circuit, and only return
-        --   what we've put into the block before the timeout.
+        --   what we've put into the block before the timeout. We also report
+        --   that we timed out, so that `refill` can stop early.
         --
         --   The failed txs are later badlisted.
         splitResults :: ()
@@ -587,11 +587,11 @@ execNewBlock mpAccess miner = do
           -> GrowableVec TransactionHash -- ^ failed txs
           -> BlockFill
           -> [(ChainwebTransaction, Either CommandInvalidError (P.CommandResult [P.TxLogJson]))]
-          -> PactBlockM logger tbl BlockFill
+          -> PactBlockM logger tbl (BlockFill, Bool)
         splitResults successes failures = go
           where
             go acc@(BlockFill g rks i) = \case
-              [] -> pure acc
+              [] -> pure (acc, False)
               (t, r) : rest -> case r of
                 Right cr -> do
                   !rks' <- enforceUnique rks (requestKeyToTransactionHash $ P._crReqKey cr)
@@ -606,7 +606,7 @@ execNewBlock mpAccess miner = do
                   go (BlockFill g rks' i) rest
                 Left (CommandInvalidTxTimeout (TxTimeout h)) -> do
                   liftIO $ Vec.push failures h
-                  return acc
+                  return (acc, True)
 
         enforceUnique rks rk
           | S.member rk rks =
