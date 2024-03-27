@@ -16,16 +16,18 @@ module Chainweb.Test.Pact.PactSingleChainTest
 ) where
 
 import Control.Arrow ((&&&))
-import Control.Concurrent (forkIO)
+import Control.Concurrent.Async (withAsync)
 import Control.Concurrent.MVar
 import Control.DeepSeq
 import Control.Lens hiding ((.=), matching)
 import Control.Monad
 import Control.Monad.Catch
-import Patience qualified as PatienceL
+import Data.Ord (Down(..))
 import Patience.Map qualified as PatienceM
 import Patience.Map (Delta(..))
+import Streaming.Prelude qualified as S
 
+import Data.Int (Int64)
 import Data.Aeson (object, (.=), Value(..), eitherDecode)
 import qualified Data.ByteString.Lazy as BL
 import Data.Either (isLeft, isRight, fromRight)
@@ -40,6 +42,7 @@ import Data.Text (Text)
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
 import qualified Data.Vector as V
+import Database.SQLite3 qualified as Lite
 
 import GHC.Stack
 
@@ -68,9 +71,9 @@ import Chainweb.Logger (genericLogger)
 import Chainweb.Mempool.Mempool
 import Chainweb.MerkleLogHash (unsafeMerkleLogHash)
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (computeGrandHash)
 import Chainweb.Pact.Backend.PactState qualified as PS
+import Chainweb.Pact.Backend.PactState (PactRowContents(..))
 import Chainweb.Pact.Backend.Types hiding (RunnableBlock(..))
 import Chainweb.Pact.Service.BlockValidation hiding (local)
 import Chainweb.Pact.Service.PactQueue (PactQueue, newPactQueue)
@@ -80,7 +83,7 @@ import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (emptyPayload)
 import Chainweb.Payload
 import Chainweb.Test.Cut.TestBlockDb
-import Chainweb.Test.Pact.Utils hiding (compact)
+import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Pact.Utils qualified as Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
@@ -90,6 +93,8 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb)
+import Pact.Types.SQLite (SType(..), RType(..))
+import Pact.Types.SQLite qualified as Pact
 
 import Chainweb.Storage.Table.RocksDB
 
@@ -133,6 +138,7 @@ tests rdb = testGroup testName
   , compactionUserTablesDropped rdb
   , compactionGrandHashUnchanged rdb
   , compactionDoesNotDisruptDuplicateDetection rdb
+  , compactionResilientToRowIdOrdering rdb
   ]
   where
     testName = "Chainweb.Test.Pact.PactSingleChainTest"
@@ -191,7 +197,7 @@ runBlockE q bdb timeOffset = do
   nextH <- getParentTestBlockDb bdb cid
   try (validateBlock nextH (CheckablePayloadWithOutputs nb) q)
 
--- edmundn: why does any of this return PayloadWithOutputs instead of a
+-- edmund: why does any of this return PayloadWithOutputs instead of a
 -- list of Pact CommandResult?
 runBlock :: (HasCallStack) => PactQueue -> TestBlockDb -> TimeSpan Micros -> IO PayloadWithOutputs
 runBlock q bdb timeOffset = do
@@ -341,22 +347,23 @@ rosettaFailsWithoutFullHistory :: ()
   => RocksDb
   -> TestTree
 rosettaFailsWithoutFullHistory rdb =
-  withTemporaryDir $ \iodir ->
-  withSqliteDb cid iodir $ \sqlEnvIO ->
+  withTemporaryDir $ \srcDir -> withSqliteDb cid srcDir $ \srcSqlEnvIO ->
+  withTemporaryDir $ \targetDir -> withSqliteDb cid targetDir $ \targetSqlEnvIO ->
   withDelegateMempool $ \dm ->
-    independentSequentialTestGroup "rosettaFailsWithoutFullHistory"
+    sequentialTestGroup "rosettaFailsWithoutFullHistory" AllSucceed
       [
         -- Run some blocks and then compact
-        withPactTestBlockDb' testVersion cid rdb sqlEnvIO mempty testPactServiceConfig $ \reqIO ->
+        withPactTestBlockDb' testVersion cid rdb srcSqlEnvIO mempty testPactServiceConfig $ \reqIO ->
         testCase "runBlocksAndCompact" $ do
-          (sqlEnv, q, bdb) <- reqIO
+          (srcSqlEnv, q, bdb) <- reqIO
 
           mempoolRef <- fmap (pure . fst) dm
 
           setOneShotMempool mempoolRef =<< goldenMemPool
           replicateM_ 10 $ void $ runBlock q bdb second
 
-          Utils.compact Error [C.NoVacuum] sqlEnv (C.Target (BlockHeight 5))
+          targetSqlEnv <- targetSqlEnvIO
+          Utils.sigmaCompact srcSqlEnv targetSqlEnv (BlockHeight 5)
 
         -- This needs to run after the previous test
         -- Annoyingly, we must inline the PactService util starts here.
@@ -365,7 +372,7 @@ rosettaFailsWithoutFullHistory rdb =
           pactQueue <- newPactQueue 2000
           blockDb <- mkTestBlockDb testVersion rdb
           bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
-          sqlEnv <- sqlEnvIO
+          sqlEnv <- targetSqlEnvIO
           mempool <- fmap snd dm
           let payloadDb = _bdbPayloadDb blockDb
           let cfg = testPactServiceConfig { _pactFullHistoryRequired = True }
@@ -385,14 +392,14 @@ rewindPastMinBlockHeightFails :: ()
   -> TestTree
 rewindPastMinBlockHeightFails rdb =
   compactionSetup "rewindPastMinBlockHeightFails" rdb testPactServiceConfig $ \cr -> do
-    replicateM_ 10 $ runBlock cr.pactQueue cr.blockDb second
+    replicateM_ 10 $ runBlock cr.srcPactQueue cr.blockDb second
 
-    Utils.compact Error [C.NoVacuum] cr.sqlEnv (C.Target (BlockHeight 5))
+    Utils.sigmaCompact cr.srcSqlEnv cr.targetSqlEnv (BlockHeight 5)
 
     -- Genesis block header; compacted away by now
     let bh = genesisBlockHeader testVersion cid
 
-    syncResult <- try (pactSyncToBlock bh cr.pactQueue)
+    syncResult <- try (pactSyncToBlock bh cr.targetPactQueue)
     case syncResult of
       Left (BlockHeaderLookupFailure {}) -> do
         return ()
@@ -417,49 +424,23 @@ pactStateSamePreAndPostCompaction rdb =
           $ defaultCmd
 
     replicateM_ numBlocks $ do
-      runTxInBlock_ cr.mempoolRef cr.pactQueue cr.blockDb
+      runBlockWithTx_ cr.mempoolRef cr.srcPactQueue cr.blockDb
         $ \n _ _ bHeader -> makeTx n bHeader
 
-    let db = cr.sqlEnv
+    statePreCompaction <- getLatestPactState cr.srcSqlEnv
+    Utils.sigmaCompact cr.srcSqlEnv cr.targetSqlEnv (BlockHeight numBlocks)
+    statePostCompaction <- getLatestPactState cr.targetSqlEnv
 
-    statePreCompaction <- getLatestPactState db
-    Utils.compact Error [C.NoVacuum] cr.sqlEnv (C.Target (BlockHeight numBlocks))
-    statePostCompaction <- getLatestPactState db
-
-    let stateDiff = M.filter (not . PatienceM.isSame) (PatienceM.diff statePreCompaction statePostCompaction)
-    when (not (null stateDiff)) $ do
-      T.putStrLn ""
-      forM_ (M.toList stateDiff) $ \(tbl, delta) -> do
-        T.putStrLn ""
-        T.putStrLn tbl
-        case delta of
-          Same _ -> do
-            pure ()
-          Old x -> do
-            putStrLn $ "a pre-only value appeared in the pre- and post-compaction diff: " ++ show x
-          New x -> do
-            putStrLn $ "a post-only value appeared in the pre- and post-compaction diff: " ++ show x
-          Delta x1 x2 -> do
-            let daDiff = M.filter (not . PatienceM.isSame) (PatienceM.diff x1 x2)
-            forM_ daDiff $ \item -> do
-              case item of
-                Old x -> do
-                  putStrLn $ "old: " ++ show x
-                New x -> do
-                  putStrLn $ "new: " ++ show x
-                Same _ -> do
-                  pure ()
-                Delta x y -> do
-                  putStrLn $ "old: " ++ show x
-                  putStrLn $ "new: " ++ show y
-                  putStrLn ""
-      assertFailure "pact state check failed"
+    comparePactStateBeforeAndAfter statePreCompaction statePostCompaction
 
 compactionIsIdempotent :: ()
   => RocksDb
   -> TestTree
 compactionIsIdempotent rdb =
-  compactionSetup "compactionIdempotent" rdb testPactServiceConfig $ \cr -> do
+  -- This requires a bit more than 'compactionSetup', since we
+  -- are compacting more than once.
+  withTemporaryDir $ \twiceDir -> withSqliteDb cid twiceDir $ \twiceSqlEnvIO ->
+  compactionSetup "compactionIsIdempotent" rdb testPactServiceConfig $ \cr -> do
     let numBlocks :: Num a => a
         numBlocks = 100
 
@@ -471,48 +452,34 @@ compactionIsIdempotent rdb =
           $ defaultCmd
 
     replicateM_ numBlocks $ do
-      runTxInBlock_ cr.mempoolRef cr.pactQueue cr.blockDb
+      runBlockWithTx_ cr.mempoolRef cr.srcPactQueue cr.blockDb
         $ \n _ _ bHeader -> makeTx n bHeader
 
-    let db = cr.sqlEnv
+    twiceSqlEnv <- twiceSqlEnvIO
+    let targetHeight = BlockHeight numBlocks
+    -- Compact 'src' into 'target'
+    Utils.sigmaCompact cr.srcSqlEnv cr.targetSqlEnv targetHeight
+    -- Get table contents of 'target'
+    statePostCompaction1 <- getPactUserTables cr.targetSqlEnv
+    -- Compact 'target' into 'twice'
+    Utils.sigmaCompact cr.targetSqlEnv twiceSqlEnv targetHeight
+    -- Get table state of 'twice'
+    statePostCompaction2 <- getPactUserTables twiceSqlEnv
 
-    let compact h =
-          Utils.compact Error [C.NoVacuum] cr.sqlEnv h
+    -- In order to use `comparePactStateBeforeAndAfter`, we need to ensure that the rows are properly compacted,
+    -- and then put them into a map.
+    let ensureIsCompactedAndSortRows :: M.Map Text [PactRow] -> IO (M.Map Text (M.Map Text PactRowContents))
+        ensureIsCompactedAndSortRows state = do
+          flip M.traverseWithKey state $ \_ rows -> do
+            let sortedRows = List.sort rows
+            assertBool "Each rowkey only has one entry" $
+              List.sort (List.nubBy (\r1 r2 -> r1.rowKey == r2.rowKey) rows) == sortedRows
+            pure $ M.fromList $ List.map (\r -> (T.decodeUtf8 r.rowKey, PactRowContents r.rowData r.txId)) sortedRows
 
-    let compactionHeight = C.Target (BlockHeight numBlocks)
-    compact compactionHeight
-    statePostCompaction1 <- getPactUserTables db
-    compact compactionHeight
-    statePostCompaction2 <- getPactUserTables db
+    state1 <- ensureIsCompactedAndSortRows statePostCompaction1
+    state2 <- ensureIsCompactedAndSortRows statePostCompaction2
 
-    let stateDiff = M.filter (not . PatienceM.isSame) (PatienceM.diff statePostCompaction1 statePostCompaction2)
-    when (not (null stateDiff)) $ do
-      T.putStrLn ""
-      forM_ (M.toList stateDiff) $ \(tbl, delta) -> do
-        T.putStrLn ""
-        T.putStrLn tbl
-        case delta of
-          Same _ -> do
-            pure ()
-          Old x -> do
-            putStrLn $ "a pre-only value appeared in the compaction idempotency diff: " ++ show x
-          New x -> do
-            putStrLn $ "a post-only value appeared in the compaction idempotency diff: " ++ show x
-          Delta x1 x2 -> do
-            let daDiff = PatienceL.pairItems (\a b -> rowKey a == rowKey b) (PatienceL.diff x1 x2)
-            forM_ daDiff $ \item -> do
-              case item of
-                Old x -> do
-                  putStrLn $ "old: " ++ show x
-                New x -> do
-                  putStrLn $ "new: " ++ show x
-                Same _ -> do
-                  pure ()
-                Delta x y -> do
-                  putStrLn $ "old: " ++ show x
-                  putStrLn $ "new: " ++ show y
-                  putStrLn ""
-      assertFailure "pact state check failed"
+    comparePactStateBeforeAndAfter state1 state2
 
 compactionDoesNotDisruptDuplicateDetection :: ()
   => RocksDb
@@ -525,15 +492,13 @@ compactionDoesNotDisruptDuplicateDetection rdb = do
           $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)")
           $ defaultCmd
 
-    let run = do
-          runTxInBlock cr.mempoolRef cr.pactQueue cr.blockDb
-            $ \_ _ _ _ -> makeTx
+    e1 <- runBlockWithTx cr.mempoolRef cr.srcPactQueue cr.blockDb (\_ _ _ _ -> makeTx)
+    assertBool "First tx submission succeeds" (isRight e1)
 
-    run >>= \e -> assertBool "First tx submission succeeds" (isRight e)
-    Utils.compact Error [C.NoVacuum] cr.sqlEnv C.LatestUnsafe
-    run >>= \e -> assertBool "First tx submission fails" (isLeft e)
+    Utils.sigmaCompact cr.srcSqlEnv cr.targetSqlEnv =<< PS.getLatestBlockHeight cr.srcSqlEnv
 
-    pure ()
+    e2 <- runBlockWithTx cr.mempoolRef cr.targetPactQueue cr.blockDb (\_ _ _ _ -> makeTx)
+    assertBool "First tx submission fails" (isLeft e2)
 
 -- | Test that user tables created before the compaction height are kept,
 --   while those created after the compaction height are dropped.
@@ -600,23 +565,19 @@ compactionUserTablesDropped rdb =
           else do
             mkTable madeAfterTable afterTable
       }
-      void $ runBlock cr.pactQueue cr.blockDb second
+      void $ runBlock cr.srcPactQueue cr.blockDb second
 
     let freeBeforeTbl = "free.m0_" <> beforeTable
     let freeAfterTbl = "free.m1_" <> afterTable
 
-    let db = cr.sqlEnv
+    statePre <- getPactUserTables cr.srcSqlEnv
+    forM_ [freeBeforeTbl, freeAfterTbl] $ \tbl -> do
+      let msg = "Table " ++ T.unpack tbl ++ " should exist pre-compaction, but it doesn't."
+      assertBool msg (isJust (M.lookup tbl statePre))
 
-    statePre <- getPactUserTables db
-    let assertExists tbl = do
-          let msg = "Table " ++ T.unpack tbl ++ " should exist pre-compaction, but it doesn't."
-          assertBool msg (isJust (M.lookup tbl statePre))
-    assertExists freeBeforeTbl
-    assertExists freeAfterTbl
+    Utils.sigmaCompact cr.srcSqlEnv cr.targetSqlEnv (BlockHeight halfwayPoint)
 
-    Utils.compact Error [C.NoVacuum] cr.sqlEnv (C.Target (BlockHeight halfwayPoint))
-
-    statePost <- getPactUserTables db
+    statePost <- getPactUserTables cr.targetSqlEnv
     flip assertBool (isJust (M.lookup freeBeforeTbl statePost)) $
       T.unpack beforeTable ++ " was dropped; it wasn't supposed to be."
 
@@ -641,17 +602,102 @@ compactionGrandHashUnchanged rdb =
           $ defaultCmd
 
     replicateM_ numBlocks
-      $ runTxInBlock_ cr.mempoolRef cr.pactQueue cr.blockDb
+      $ runBlockWithTx_ cr.mempoolRef cr.srcPactQueue cr.blockDb
       $ \n _ _ blockHeader -> makeTx n blockHeader
 
-    let db = cr.sqlEnv
     let targetHeight = BlockHeight numBlocks
 
-    hashPreCompaction <- computeGrandHash (PS.getLatestPactStateAt db targetHeight)
-    Utils.compact Error [C.NoVacuum] cr.sqlEnv (C.Target targetHeight)
-    hashPostCompaction <- computeGrandHash (PS.getLatestPactStateAt db targetHeight)
+    hashPreCompaction <- computeGrandHash (PS.getLatestPactStateAt cr.srcSqlEnv targetHeight)
+    Utils.sigmaCompact cr.srcSqlEnv cr.targetSqlEnv targetHeight
+    hashPostCompaction <- computeGrandHash (PS.getLatestPactStateAt cr.targetSqlEnv targetHeight)
 
     assertEqual "GrandHash pre- and post-compaction are the same" hashPreCompaction hashPostCompaction
+
+compactionResilientToRowIdOrdering :: ()
+  => RocksDb
+  -> TestTree
+compactionResilientToRowIdOrdering rdb =
+  compactionSetup "compactionResilientToRowIdOrdering" rdb testPactServiceConfig $ \cr -> do
+
+    let numBlocks :: Num a => a
+        numBlocks = 100
+
+    -- Just run a bunch of blocks
+    setOneShotMempool cr.mempoolRef =<< goldenMemPool
+    let makeTx :: Word -> BlockHeader -> IO ChainwebTransaction
+        makeTx nth bh = buildCwCmd (sshow nth) testVersion
+          $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
+          $ setFromHeader bh
+          $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)")
+          $ defaultCmd
+    replicateM_ numBlocks
+      $ runBlockWithTx_ cr.mempoolRef cr.srcPactQueue cr.blockDb
+      $ \n _ _ blockHeader -> makeTx n blockHeader
+
+    -- Get the state after running the blocks but before doing anything else
+    statePreCompaction <- getLatestPactState cr.srcSqlEnv
+
+    -- Reverse all of the rowids in the table. We get all the rows in txid DESC order, like so:
+    --   rk1, txid=100, rowid=100
+    --   rk1, txid=99,  rowid=99
+    --   ...
+    --
+    -- Then we reverse the rowids, so that the table looks like this:
+    --   rk1, txid=100, rowid=10_000
+    --   rk1, txid=99,  rowid=10_001
+    --   ...
+    --
+    -- Since the compaction algorithm orders by rowid DESC, it will get the rows in reverse order to how they were inserted.
+    -- If compaction still results in the same end state, this confirms that the compaction algorithm is resilient to rowid ordering.
+    e <- PS.qryStream cr.srcSqlEnv "SELECT rowkey, txid FROM [coin_coin-table] ORDER BY txid ASC" [] [RText, RInt] $ \rows -> do
+      Lite.withStatement cr.srcSqlEnv "UPDATE [coin_coin-table] SET rowid = ?3 WHERE rowkey = ?1 AND txid = ?2" $ \stmt -> do
+        flip S.mapM_ (S.zip (S.enumFrom @_ @(Down Int64) 10_000) rows) $ \(Down newRowId, row) -> case row of
+          [SText rowkey, SInt txid] -> do
+            Pact.bindParams stmt [SText rowkey, SInt txid, SInt newRowId]
+            stepThenReset stmt
+
+          _ -> error "unexpected row shape"
+    assertBool "Didn't encounter a sqlite error during rowid shuffling" (isRight e)
+
+    -- Compact to the tip
+    Utils.sigmaCompact cr.srcSqlEnv cr.targetSqlEnv (BlockHeight numBlocks)
+
+    -- Get the state post-randomisation and post-compaction
+    statePostCompaction <- getLatestPactState cr.targetSqlEnv
+
+    -- Same logic as in 'pactStateSamePreAndPostCompaction'
+    comparePactStateBeforeAndAfter statePreCompaction statePostCompaction
+
+comparePactStateBeforeAndAfter :: (Ord k, Eq a, Show k, Show a) => M.Map Text (M.Map k a) -> M.Map Text (M.Map k a) -> IO ()
+comparePactStateBeforeAndAfter statePreCompaction statePostCompaction = do
+  let stateDiff = M.filter (not . PatienceM.isSame) (PatienceM.diff statePreCompaction statePostCompaction)
+  when (not (null stateDiff)) $ do
+    T.putStrLn ""
+    forM_ (M.toList stateDiff) $ \(tbl, delta) -> do
+      T.putStrLn ""
+      T.putStrLn tbl
+      case delta of
+        Same _ -> do
+          pure ()
+        Old x -> do
+          putStrLn $ "a pre-only value appeared in the pre- and post-compaction diff: " ++ show x
+        New x -> do
+          putStrLn $ "a post-only value appeared in the pre- and post-compaction diff: " ++ show x
+        Delta x1 x2 -> do
+          let daDiff = M.filter (not . PatienceM.isSame) (PatienceM.diff x1 x2)
+          forM_ daDiff $ \item -> do
+            case item of
+              Old x -> do
+                putStrLn $ "old: " ++ show x
+              New x -> do
+                putStrLn $ "new: " ++ show x
+              Same _ -> do
+                pure ()
+              Delta x y -> do
+                putStrLn $ "old: " ++ show x
+                putStrLn $ "new: " ++ show y
+                putStrLn ""
+    assertFailure "pact state check failed"
 
 getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do
@@ -893,7 +939,6 @@ moduleNameMempool ns mn = mempty
           set cbRPC (mkExec' code) $
           defaultCmd
 
-
 mempoolCreationTimeTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
 
@@ -1087,8 +1132,10 @@ mempoolOf blocks = do
 data CompactionResources = CompactionResources
   { mempoolRef :: IO (IORef MemPoolAccess)
   , mempool :: MemPoolAccess
-  , sqlEnv :: SQLiteEnv
-  , pactQueue :: PactQueue
+  , srcSqlEnv :: SQLiteEnv
+  , targetSqlEnv :: SQLiteEnv
+  , srcPactQueue :: PactQueue
+  , targetPactQueue :: PactQueue
   , blockDb :: TestBlockDb
   }
 
@@ -1100,40 +1147,48 @@ compactionSetup :: ()
   -> (CompactionResources -> IO ())
   -> TestTree
 compactionSetup pat rdb pactCfg f =
-  withTemporaryDir $ \iodir ->
-  withSqliteDb cid iodir $ \sqlEnvIO ->
+  withTemporaryDir $ \srcDir -> withSqliteDb cid srcDir $ \srcSqlEnvIO ->
+  withTemporaryDir $ \targetDir -> withSqliteDb cid targetDir $ \targetSqlEnvIO ->
   withDelegateMempool $ \dm ->
     testCase pat $ do
       blockDb <- mkTestBlockDb testVersion rdb
       bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
       let payloadDb = _bdbPayloadDb blockDb
-      sqlEnv <- sqlEnvIO
+      srcSqlEnv <- srcSqlEnvIO
+      targetSqlEnv <- targetSqlEnvIO
       (mempoolRef, mempool) <- do
         (ref, nonRef) <- dm
         pure (pure ref, nonRef)
-      pactQueue <- newPactQueue 2000
+      srcPactQueue <- newPactQueue 2_000
+      targetPactQueue <- newPactQueue 2_000
 
       let logger = genericLogger System.LogLevel.Error (\_ -> return ())
 
-      void $ forkIO $ runPactService testVersion cid logger Nothing pactQueue mempool bhDb payloadDb sqlEnv pactCfg
+      -- Start pact service for the src and target
+      let srcPactService = runPactService testVersion cid logger Nothing    srcPactQueue mempool bhDb payloadDb    srcSqlEnv pactCfg
+      let targetPactService = runPactService testVersion cid logger Nothing targetPactQueue mempool bhDb payloadDb targetSqlEnv pactCfg
 
       setOneShotMempool mempoolRef =<< goldenMemPool
 
-      f $ CompactionResources
-        { mempoolRef = mempoolRef
-        , mempool = mempool
-        , sqlEnv = sqlEnv
-        , pactQueue = pactQueue
-        , blockDb = blockDb
-        }
+      withAsync srcPactService $ \_ -> do
+        withAsync targetPactService $ \_ -> do
+          f $ CompactionResources
+            { mempoolRef = mempoolRef
+            , mempool = mempool
+            , srcSqlEnv = srcSqlEnv
+            , targetSqlEnv = targetSqlEnv
+            , srcPactQueue = srcPactQueue
+            , targetPactQueue = targetPactQueue
+            , blockDb = blockDb
+            }
 
-runTxInBlock :: ()
+runBlockWithTx :: ()
   => IO (IORef MemPoolAccess) -- ^ mempoolRef
   -> PactQueue
   -> TestBlockDb
   -> (Word -> BlockHeight -> BlockHash -> BlockHeader -> IO ChainwebTransaction)
   -> IO (Either PactException PayloadWithOutputs)
-runTxInBlock mempoolRef pactQueue blockDb makeTx = do
+runBlockWithTx mempoolRef pactQueue blockDb makeTx = do
   madeTx <- newIORef @Bool False
   supply <- newIORef @Word 0
   setMempool mempoolRef $ mempty {
@@ -1152,13 +1207,19 @@ runTxInBlock mempoolRef pactQueue blockDb makeTx = do
   writeIORef madeTx False
   pure e
 
-runTxInBlock_ :: ()
+runBlockWithTx_ :: ()
   => IO (IORef MemPoolAccess) -- ^ mempoolRef
   -> PactQueue
   -> TestBlockDb
   -> (Word -> BlockHeight -> BlockHash -> BlockHeader -> IO ChainwebTransaction)
   -> IO PayloadWithOutputs
-runTxInBlock_ mempoolRef pactQueue blockDb makeTx = do
-  runTxInBlock mempoolRef pactQueue blockDb makeTx >>= \case
+runBlockWithTx_ mempoolRef pactQueue blockDb makeTx = do
+  runBlockWithTx mempoolRef pactQueue blockDb makeTx >>= \case
     Left e -> assertFailure $ "newBlockAndValidate: validate: got failure result: " ++ show e
     Right v -> pure v
+
+-- | Step through a prepared statement, then clear the statement's bindings
+--   and reset the statement.
+stepThenReset :: Lite.Statement -> IO Lite.StepResult
+stepThenReset stmt = do
+  Lite.stepNoCB stmt `finally` (Lite.clearBindings stmt >> Lite.reset stmt)

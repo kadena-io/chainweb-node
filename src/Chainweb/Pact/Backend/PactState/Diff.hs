@@ -5,6 +5,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -18,46 +19,43 @@
 --
 -- Diff Pact state between two databases.
 module Chainweb.Pact.Backend.PactState.Diff
-  ( pactDiffMain
+  ( main
   )
   where
 
-import Data.IORef (newIORef, readIORef, atomicModifyIORef')
+import Streaming.Prelude qualified as S
+import Chainweb.BlockHeight (BlockHeight)
+import Chainweb.Logger (logFunctionText, logFunctionJson)
+import Chainweb.Pact.Backend.Compaction qualified as C
+import Chainweb.Pact.Backend.PactState (TableDiffable(..), getLatestPactStateAtDiffable, doesPactDbExist, withChainDb, allChains)
+import Chainweb.Utils (fromText, toText)
+import Chainweb.Version (ChainwebVersion(..), ChainId, chainIdToText)
+import Chainweb.Version.Mainnet (mainnet)
+import Chainweb.Version.Registry (lookupVersionByName)
 import Control.Monad (forM_, when, void)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Aeson ((.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
+import Data.IORef (newIORef, readIORef, atomicModifyIORef')
 import Data.Map (Map)
 import Data.Map.Merge.Strict qualified as Merge
 import Data.Map.Strict qualified as M
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.IO qualified as Text
 import Data.Text.Encoding qualified as Text
+import Data.Text.IO qualified as Text
 import Options.Applicative
-
-import Chainweb.Logger (logFunctionText, logFunctionJson)
-import Chainweb.Utils (fromText, toText)
-import Chainweb.Version (ChainwebVersion(..), ChainId, chainIdToText)
-import Chainweb.Version.Mainnet (mainnet)
-import Chainweb.Version.Registry (lookupVersionByName)
-import Chainweb.Pact.Backend.Compaction (TargetBlockHeight(..))
-import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.PactState (TableDiffable(..), getLatestPactStateAtDiffable, getLatestPactStateDiffable, doesPactDbExist, withChainDb, allChains)
-
+import Streaming.Prelude (Stream, Of)
 import System.Exit (exitFailure)
 import System.LogLevel (LogLevel(..))
-
-import Streaming.Prelude (Stream, Of)
-import Streaming.Prelude qualified as S
 
 data PactDiffConfig = PactDiffConfig
   { firstDbDir :: FilePath
   , secondDbDir :: FilePath
   , chainwebVersion :: ChainwebVersion
-  , target :: TargetBlockHeight
+  , target :: BlockHeight
   , logDir :: FilePath
   }
 
@@ -72,8 +70,8 @@ instance Semigroup IsDifferent where
 instance Monoid IsDifferent where
   mempty = NoDifference
 
-pactDiffMain :: IO ()
-pactDiffMain = do
+main :: IO ()
+main = do
   cfg <- execParser opts
 
   when (cfg.firstDbDir == cfg.secondDbDir) $ do
@@ -99,12 +97,7 @@ pactDiffMain = do
              withChainDb cid logger cfg.firstDbDir $ \_ db1 -> do
                withChainDb cid logger cfg.secondDbDir $ \_ db2 -> do
                  logText Info "[Starting diff]"
-                 let getPactState db = case cfg.target of
-                       LatestUnsafe -> getLatestPactStateDiffable db
-                       LatestSafe -> liftIO $ do
-                         logText Error "LatestSafe is not supported by pact-diff, use Target instead"
-                         exitFailure
-                       Target bh -> getLatestPactStateAtDiffable db bh
+                 let getPactState db = getLatestPactStateAtDiffable db cfg.target
                  let diff :: Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
                      diff = diffLatestPactState (getPactState db1) (getPactState db2)
                  isDifferent <- S.foldMap_ id $ flip S.mapM diff $ \(tblName, tblDiff) -> do
@@ -136,29 +129,11 @@ pactDiffMain = do
 
     parser :: Parser PactDiffConfig
     parser = PactDiffConfig
-      <$> strOption
-           (long "first-database-dir"
-            <> metavar "PACT_DB_DIRECTORY"
-            <> help "First Pact database directory")
-      <*> strOption
-           (long "second-database-dir"
-            <> metavar "PACT_DB_DIRECTORY"
-            <> help "Second Pact database directory")
-      <*> (fmap parseChainwebVersion $ strOption
-           (long "graph-version"
-            <> metavar "CHAINWEB_VERSION"
-            <> help "Chainweb version for graph. Only needed for non-standard graphs."
-            <> value (toText (_versionName mainnet))
-            <> showDefault))
-      <*> (fmap Target (fromIntegral @Int <$> option auto
-            (long "target-blockheight"
-             <> metavar "BLOCKHEIGHT"
-             <> help "Target Blockheight")) <|> pure LatestUnsafe)
-      <*> strOption
-           (long "log-dir"
-            <> metavar "LOG_DIRECTORY"
-            <> help "Directory where logs will be placed"
-            <> value ".")
+      <$> strOption (long "first-database-dir" <> help "First Pact database directory")
+      <*> strOption (long "second-database-dir" <> help "Second Pact database directory")
+      <*> fmap parseChainwebVersion (strOption (long "graph-version" <> help "Chainweb version for graph. Only needed for non-standard graphs." <> value (toText (_versionName mainnet)) <> showDefault))
+      <*> fmap (fromIntegral @Int) (option auto (long "target-blockheight" <> metavar "BLOCKHEIGHT" <> help "Target Blockheight"))
+      <*> strOption (long "log-dir" <> help "Directory where logs will be placed" <> value ".")
 
     parseChainwebVersion :: Text -> ChainwebVersion
     parseChainwebVersion = lookupVersionByName . fromMaybe (error "ChainwebVersion parse failed") . fromText
@@ -235,6 +210,6 @@ diffLatestPactState = go
         error "right stream longer than left"
       (Right (t1, next1), Right (t2, next2)) -> do
         when (t1.name /= t2.name) $ do
-          error "diffLatestPactState: mismatched table names"
+          error $ "diffLatestPactState: mismatched table names: " <> Text.unpack t1.name <> " vs. " <> Text.unpack t2.name
         S.yield (t1.name, diffTables t1 t2)
         go next1 next2

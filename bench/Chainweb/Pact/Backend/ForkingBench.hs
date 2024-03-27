@@ -301,15 +301,32 @@ withResources rdb trunkLength logLevel compact p f = C.envWithCleanup create des
         coinAccounts <- newMVar mempty
         nonceCounter <- newIORef 1
         txPerBlock <- newIORef 10
-        sqlEnv <- openSQLiteConnection "" {- temporary SQLite db -} chainwebBenchPragmas
         mp <- testMemPoolAccess txPerBlock coinAccounts
-        pactService <-
-          startPact testVer logger blockHeaderDb payloadDb mp sqlEnv
-        mainTrunkBlocks <-
-          playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
-        when (compact == DoCompact) $ do
-          C.withDefaultLogger Error $ \lgr -> do
-            void $ C.compact (BlockHeight trunkLength) lgr sqlEnv []
+        (sqlEnv, pactService, mainTrunkBlocks) <- do
+          srcSqlEnv <- openSQLiteConnection "" {- temporary SQLite db -} chainwebBenchPragmas
+          srcPactService <-
+            startPact testVer logger blockHeaderDb payloadDb mp srcSqlEnv
+          mainTrunkBlocks <-
+            playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd srcPactService) nonceCounter
+
+          (sqlEnv, pactService) <- do
+            if compact == DoCompact
+            then do
+              targetSqlEnv <- openSQLiteConnection "" {- temporary SQLite db -} chainwebBenchPragmas
+              C.withDefaultLogger Error $ \lgr -> do
+                C.compactPactState lgr C.defaultRetainment (BlockHeight trunkLength) srcSqlEnv targetSqlEnv
+              targetPactService <-
+                startPact testVer logger blockHeaderDb payloadDb mp targetSqlEnv
+
+              -- Stop the previous pact service/close the sqlite connection
+              stopPact srcPactService
+              stopSqliteDb srcSqlEnv
+
+              pure (targetSqlEnv, targetPactService)
+            else do
+              pure (srcSqlEnv, srcPactService)
+
+          pure (sqlEnv, pactService, mainTrunkBlocks)
 
         return $ NoopNFData $ Resources {..}
 

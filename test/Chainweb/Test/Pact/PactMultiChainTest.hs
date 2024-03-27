@@ -24,6 +24,7 @@ import Data.IORef
 import Data.List(isPrefixOf)
 import Data.List qualified as List
 import Data.Maybe
+import Data.Map qualified as M
 import Data.Set (Set)
 import Data.Set qualified as Set
 import qualified Data.Text as T
@@ -31,8 +32,6 @@ import qualified Data.Vector as V
 import Test.Tasty
 import Test.Tasty.HUnit
 import System.IO.Unsafe
-import System.Logger qualified as YAL
-import System.LogLevel
 
 -- internal modules
 
@@ -58,7 +57,6 @@ import Chainweb.Cut
 import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec (listErrMsg)
@@ -91,6 +89,7 @@ data MultiEnv = MultiEnv
     { _menvBdb :: !TestBlockDb
     , _menvPact :: !WebPactExecutionService
     , _menvPacts :: !(HM.HashMap ChainId (SQLiteEnv, PactExecutionService))
+    , _menvCompactedPacts :: !(HM.HashMap ChainId (SQLiteEnv, PactExecutionService))
     , _menvMpa :: !(IO (IORef MemPoolAccess))
     , _menvMiner :: !Miner
     , _menvChainId :: !ChainId
@@ -160,9 +159,9 @@ tests = testGroup testName
         withTestBlockDb testVersion $ \bdb -> do
           (iompa,mpa) <- dmpio
           let logger = hunitDummyLogger step
-          withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
+          withWebPactExecutionServiceCompaction logger testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts,_cPact,cPacts) ->
             runReaderT f $
-            MultiEnv bdb pact pacts (return iompa) noMiner cid
+            MultiEnv bdb pact pacts cPacts (return iompa) noMiner cid
 
 minerKeysetTest :: PactTestM ()
 minerKeysetTest = do
@@ -389,12 +388,6 @@ runLocalWithDepth nonce depth cid' cmd = do
   pact <- getPactService cid'
   cwCmd <- buildCwCmd nonce testVersion cmd
   liftIO $ try @_ @PactException $ _pactLocal pact Nothing Nothing depth cwCmd
-
-getSqlite :: ChainId -> PactTestM SQLiteEnv
-getSqlite cid' = do
-  HM.lookup cid' <$> view menvPacts >>= \case
-    Just (dbEnv, _) -> return dbEnv
-    Nothing -> liftIO $ assertFailure $ "No SQLite found for chain id " ++ show cid'
 
 getPactService :: ChainId -> PactTestM PactExecutionService
 getPactService cid' = do
@@ -1293,18 +1286,10 @@ compactAndSyncTest = do
   runBlockTest
     [ PactTxTest (buildBasic $ mkExec' "1") (assertTxSuccess "should allow innocent transaction" (pDecimal 1))
     ]
+
   -- save the cut with the tx, we'll return to it after compaction
   cutWithTx <- currentCut
-  currentCid <- view menvChainId
-  dbEnv <- getSqlite currentCid
-
-  liftIO $ C.withDefaultLogger Warn $ \cLogger -> do
-    let cLogger' = over YAL.setLoggerScope (\scope -> ("chainId",sshow currentCid) : scope) cLogger
-    let flags = [C.NoVacuum]
-    -- compact to before the tx happened
-    void $ compactUntilAvailable (C.Target start) cLogger' dbEnv flags
-  -- now sync to after the tx and expect no errors
-  syncTo cutWithTx
+  withCompacted start $ syncTo cutWithTx
 
 compactionCompactsUnmodifiedTables :: PactTestM ()
 compactionCompactsUnmodifiedTables = do
@@ -1313,7 +1298,7 @@ compactionCompactsUnmodifiedTables = do
   runBlockTest
     -- create table
     [ PactTxTest
-      (buildBasicGas 70000 $ mkExec' $ mconcat
+      (buildBasicGas 70_000 $ mkExec' $ mconcat
         [ "(namespace 'free)"
         , "(module dbmod G (defcap G () true)"
         , "  (defschema sch i:integer)"
@@ -1340,16 +1325,10 @@ compactionCompactsUnmodifiedTables = do
 
   -- compact to the empty block, before we've written to the table but after
   -- creating it
-  currentCid <- view menvChainId
-  dbEnv <- getSqlite currentCid
-  liftIO $ C.withDefaultLogger Warn $ \cLogger -> do
-    let cLogger' = over YAL.setLoggerScope (\scope -> ("chainId",sshow currentCid) : scope) cLogger
-    let flags = [C.NoVacuum]
-    void $ compactUntilAvailable (C.Target (start + 2)) cLogger' dbEnv flags
-
-  -- fast forward to after we did the write, expecting the write to not fail
-  -- due to a duplicate row
-  syncTo afterWrite
+  withCompacted (start + 2) $ do
+    -- fast forward to after we did the write, expecting the write to not fail
+    -- due to a duplicate row
+    syncTo afterWrite
 
 quirkTest :: TestTree
 quirkTest = do
@@ -1381,8 +1360,8 @@ quirkTest = do
       withTestBlockDb realVersion $ \bdb -> do
         (iompa,mpa) <- dmpio
         let logger = hunitDummyLogger step
-        withWebPactExecutionService logger realVersion testPactServiceConfig bdb mpa getGasModel $ \(pact,pacts) ->
-          flip runReaderT (MultiEnv bdb pact pacts (return iompa) noMiner cid) $ do
+        withWebPactExecutionServiceCompaction logger realVersion testPactServiceConfig bdb mpa getGasModel $ \(pact,pacts,_cPact,cPacts) ->
+          flip runReaderT (MultiEnv bdb pact pacts cPacts (return iompa) noMiner cid) $ do
             runToHeight 99
 
             -- run the command once without it being quirked, to establish
@@ -1834,3 +1813,16 @@ cbResult = do
   (o,_h) <- getPWO chid
   liftIO $
     decodeStrictOrThrow @_ @(CommandResult Hash) (_coinbaseOutput $ _payloadWithOutputsCoinbase o)
+
+-- Compact and return a new MultiEnv
+withCompacted :: BlockHeight -> PactTestM x -> PactTestM x
+withCompacted height pt  = do
+  srcDbs <- fmap (M.fromList . HM.toList) $ view menvPacts
+  targetDbs <- fmap (M.fromList . HM.toList) $ view menvCompactedPacts
+  let dbs :: M.Map ChainId (SQLiteEnv, SQLiteEnv)
+      dbs = M.intersectionWith (\e1 e2 -> (fst e1, fst e2)) srcDbs targetDbs
+  forM_ (M.toList dbs) $ \(_, (srcDb, targetDb)) -> do
+    liftIO $ sigmaCompact srcDb targetDb height
+
+  targetPacts <- view menvCompactedPacts
+  local (\me -> me & menvPacts .~ targetPacts) pt
