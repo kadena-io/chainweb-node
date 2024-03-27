@@ -159,7 +159,8 @@ import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import qualified Chainweb.OpenAPIValidation as OpenAPIValidation
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
-import Chainweb.Pact.Service.Types (PactServiceConfig(..), IntraBlockPersistence(..))
+import Chainweb.Pact.Service.Types (PactServiceConfig(..))
+import Chainweb.Pact.Backend.Types (IntraBlockPersistence(..))
 import Chainweb.Pact.Validations
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB

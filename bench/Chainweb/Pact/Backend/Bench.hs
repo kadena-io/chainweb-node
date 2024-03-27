@@ -53,7 +53,6 @@ import Chainweb.MerkleLogHash
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Test.TestVersions
 import Chainweb.Utils.Bench
