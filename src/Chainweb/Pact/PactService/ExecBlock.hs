@@ -379,10 +379,10 @@ applyPactCmds
     -> Maybe P.Gas
     -> Maybe Micros
     -> PactBlockM logger tbl (T2 (Vector (Either CommandInvalidError (P.CommandResult [P.TxLogJson]))) ModuleCache)
-applyPactCmds isGenesis cmds miner mc blockGas txTimeLimit = do
+applyPactCmds isGenesis cmds miner startModuleCache blockGas txTimeLimit = do
     let txsGas txs = fromIntegral $ sumOf (traversed . _Right . to P._crGas) txs
     (txOuts, T2 mcOut _) <- tracePactBlockM' "applyPactCmds" () (txsGas . fst) $
-      flip runStateT (T2 mc blockGas) $
+      flip runStateT (T2 startModuleCache blockGas) $
         go [] (V.toList cmds)
     return $! T2 (V.fromList . List.reverse $ txOuts) mcOut
   where
