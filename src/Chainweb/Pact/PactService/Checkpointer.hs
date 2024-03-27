@@ -87,44 +87,59 @@ exitOnRewindLimitExceeded = handle $ \case
         ]
 
 -- read-only rewind to the latest block.
+-- note: because there is a race between getting the latest header
+-- and doing the rewind, there's a chance that the latest header
+-- will be unavailable when we do the rewind. in that case
+-- we just keep grabbing the new "latest header" until we succeed.
 -- note: this function will never rewind before genesis.
 readFromLatest
   :: Logger logger
   => PactBlockM logger tbl a
   -> PactServiceM logger tbl a
-readFromLatest doRead = do
-  latestBlockHeader <- findLatestValidBlockHeader
-  readFrom (Just latestBlockHeader) doRead
+readFromLatest doRead = readFromNthParent 0 doRead
 
 -- read-only rewind to the nth parent before the latest block.
 -- note: this function will never rewind before genesis.
 readFromNthParent
-  :: Logger logger
+  :: forall logger tbl a
+  . Logger logger
   => Word
   -> PactBlockM logger tbl a
   -> PactServiceM logger tbl a
-readFromNthParent n doRead = do
-    bhdb <- view psBlockHeaderDb
-    ParentHeader latest <- findLatestValidBlockHeader
-    v <- view chainwebVersion
-    cid <- view chainId
-    let parentHeight =
-            -- guarantees that the subtraction doesn't overflow
-            -- this will never give us before genesis
-            fromIntegral $ max (genesisHeight v cid + fromIntegral n) (_blockHeight latest) - fromIntegral n
-    nthParent <- liftIO $
-        seekAncestor bhdb latest parentHeight >>= \case
-            Nothing -> throwM $ PactInternalError
-                $ "readFromNthParent: Failed to lookup nth ancestor, block " <> sshow latest
-                <> ", depth " <> sshow n
-            Just nthParentHeader ->
-                return $ ParentHeader nthParentHeader
-    readFrom (Just nthParent) doRead
+readFromNthParent n doRead = go 0
+    where
+    go :: Int -> PactServiceM logger tbl a
+    go retryCount = do
+        bhdb <- view psBlockHeaderDb
+        ParentHeader latest <- findLatestValidBlockHeader
+        v <- view chainwebVersion
+        cid <- view chainId
+        let parentHeight =
+                -- guarantees that the subtraction doesn't overflow
+                -- this will never give us before genesis
+                fromIntegral $ max (genesisHeight v cid + fromIntegral n) (_blockHeight latest) - fromIntegral n
+        nthParent <- liftIO $
+            seekAncestor bhdb latest parentHeight >>= \case
+                Nothing -> internalError
+                    $ "readFromNthParent: Failed to lookup nth ancestor, block " <> sshow latest
+                    <> ", depth " <> sshow n
+                Just nthParentHeader ->
+                    return $ ParentHeader nthParentHeader
+        readFrom (Just nthParent) doRead >>= \case
+          -- note: because there is a race between getting the nth header
+          -- and doing the rewind, there's a chance that the nth header
+          -- will be unavailable when we do the rewind. in that case
+          -- we just keep grabbing the new "nth header" until we succeed.
+            NoHistory
+                | retryCount < 10 ->
+                    go (retryCount + 1)
+                | otherwise -> internalError "readFromNthParent: failed after 10 retries"
+            Historical r -> return r
 
 -- read-only rewind to a target block.
 readFrom
     :: Logger logger
-    => Maybe ParentHeader -> PactBlockM logger tbl a -> PactServiceM logger tbl a
+    => Maybe ParentHeader -> PactBlockM logger tbl a -> PactServiceM logger tbl (Historical a)
 readFrom ph doRead = do
     cp <- view psCheckpointer
     pactParent <- getPactParent ph
@@ -187,7 +202,7 @@ findLatestValidBlockHeader' = do
                     <> " Continuing with parent."
                 cp <- view psCheckpointer
                 liftIO (_cpGetBlockParent (_cpReadCp cp) (height, hash)) >>= \case
-                    Nothing -> throwM $ PactInternalError
+                    Nothing -> internalError
                         $ "missing block parent of last hash " <> sshow (height, hash)
                     Just predHash -> go (pred height) predHash
             x -> return x
@@ -270,7 +285,7 @@ rewindToIncremental rewindLimit (ParentHeader parent) = do
                             (\blockHeader -> do
 
                                 payload <- liftIO $ lookupPayloadWithHeight payloadDb (Just $ _blockHeight blockHeader) (_blockPayloadHash blockHeader) >>= \case
-                                    Nothing -> throwM $ PactInternalError
+                                    Nothing -> internalError
                                         $ "Checkpointer.rewindTo.fastForward: lookup of payload failed"
                                         <> ". BlockPayloadHash: " <> encodeToText (_blockPayloadHash blockHeader)
                                         <> ". Block: "<> encodeToText (ObjectEncoded blockHeader)

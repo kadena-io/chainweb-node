@@ -562,7 +562,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
   setOneShotMempool refIO goldenMemPool
   void $ runBlock q bdb second
   h <- getParentTestBlockDb bdb cid
-  BlockTxHistory hist prevBals <- pactBlockTxHistory h (UserTables "coin_coin-table") q
+  Historical (BlockTxHistory hist prevBals) <- pactBlockTxHistory h (UserTables "coin_coin-table") q
   -- just check first one here
   assertEqual "check first entry of history"
     (Just [TxLog "coin_coin-table" "sender00"
@@ -626,7 +626,7 @@ getHistoricalLookupWithTxs key assertF refIO reqIO =
 
 histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (TxLog RowData))
 histLookup q bh k =
-  pactHistoricalLookup bh (UserTables "coin_coin-table") (RowKey k) q
+  throwIfNoHistory =<< pactHistoricalLookup bh (UserTables "coin_coin-table") (RowKey k) q
 
 assertSender00Bal :: Rational -> String -> Maybe (TxLog RowData) -> Assertion
 assertSender00Bal bal msg hist =
