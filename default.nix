@@ -76,6 +76,9 @@ let haskellSrc = with nix-filter.lib; filter {
       shell.buildInputs = with pkgs; [
         zlib
         pkg-config
+        sqlite
+        valgrind
+        massif-visualizer
       ];
       modules = [
         {

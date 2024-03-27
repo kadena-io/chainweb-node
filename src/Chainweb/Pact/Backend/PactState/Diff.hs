@@ -22,36 +22,33 @@ module Chainweb.Pact.Backend.PactState.Diff
   )
   where
 
-import Data.IORef (newIORef, readIORef, atomicModifyIORef')
+import Chainweb.Logger (logFunctionText, logFunctionJson)
+import Chainweb.Pact.Backend.Compaction (TargetBlockHeight(..))
+import Chainweb.Pact.Backend.Compaction qualified as C
+import Chainweb.Pact.Backend.PactState (TableDiffable(..), getLatestPactStateAtDiffable, getLatestPactStateDiffable, doesPactDbExist, withChainDb, allChains)
+import Chainweb.Utils (fromText, toText)
+import Chainweb.Version (ChainwebVersion(..), ChainId, chainIdToText)
+import Chainweb.Version.Mainnet (mainnet)
+import Chainweb.Version.Registry (lookupVersionByName)
 import Control.Monad (forM_, when, void)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Aeson ((.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
+import Data.IORef (newIORef, readIORef, atomicModifyIORef')
 import Data.Map (Map)
 import Data.Map.Merge.Strict qualified as Merge
 import Data.Map.Strict qualified as M
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.IO qualified as Text
 import Data.Text.Encoding qualified as Text
+import Data.Text.IO qualified as Text
 import Options.Applicative
-
-import Chainweb.Logger (logFunctionText, logFunctionJson)
-import Chainweb.Utils (fromText, toText)
-import Chainweb.Version (ChainwebVersion(..), ChainId, chainIdToText)
-import Chainweb.Version.Mainnet (mainnet)
-import Chainweb.Version.Registry (lookupVersionByName)
-import Chainweb.Pact.Backend.Compaction (TargetBlockHeight(..))
-import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.PactState (TableDiffable(..), getLatestPactStateAtDiffable, getLatestPactStateDiffable, doesPactDbExist, withChainDb, allChains)
-
-import System.Exit (exitFailure)
-import System.LogLevel (LogLevel(..))
-
 import Streaming.Prelude (Stream, Of)
 import Streaming.Prelude qualified as S
+import System.Exit (exitFailure)
+import System.LogLevel (LogLevel(..))
 
 data PactDiffConfig = PactDiffConfig
   { firstDbDir :: FilePath
@@ -235,6 +232,6 @@ diffLatestPactState = go
         error "right stream longer than left"
       (Right (t1, next1), Right (t2, next2)) -> do
         when (t1.name /= t2.name) $ do
-          error "diffLatestPactState: mismatched table names"
+          error $ "diffLatestPactState: mismatched table names: " <> Text.unpack t1.name <> " vs. " <> Text.unpack t2.name
         S.yield (t1.name, diffTables t1 t2)
         go next1 next2
