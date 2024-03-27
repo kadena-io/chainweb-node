@@ -87,6 +87,10 @@ exitOnRewindLimitExceeded = handle $ \case
         ]
 
 -- read-only rewind to the latest block.
+-- note: because there is a race between getting the latest header
+-- and doing the rewind, there's a chance that the latest header
+-- will be unavailable when we do the rewind. in that case
+-- we just keep grabbing the new "latest header" until we succeed.
 -- note: this function will never rewind before genesis.
 readFromLatest
   :: Logger logger
@@ -94,9 +98,15 @@ readFromLatest
   -> PactServiceM logger tbl a
 readFromLatest doRead = do
   latestBlockHeader <- findLatestValidBlockHeader
-  readFrom (Just latestBlockHeader) doRead
+  readFrom (Just latestBlockHeader) doRead >>= \case
+    Nothing -> readFromLatest doRead
+    Just r -> return r
 
 -- read-only rewind to the nth parent before the latest block.
+-- note: because there is a race between getting the nth header
+-- and doing the rewind, there's a chance that the nth header
+-- will be unavailable when we do the rewind. in that case
+-- we just keep grabbing the new "nth header" until we succeed.
 -- note: this function will never rewind before genesis.
 readFromNthParent
   :: Logger logger
@@ -119,12 +129,14 @@ readFromNthParent n doRead = do
                 <> ", depth " <> sshow n
             Just nthParentHeader ->
                 return $ ParentHeader nthParentHeader
-    readFrom (Just nthParent) doRead
+    readFrom (Just nthParent) doRead >>= \case
+      Nothing -> readFromNthParent n doRead
+      Just r -> return r
 
 -- read-only rewind to a target block.
 readFrom
     :: Logger logger
-    => Maybe ParentHeader -> PactBlockM logger tbl a -> PactServiceM logger tbl a
+    => Maybe ParentHeader -> PactBlockM logger tbl a -> PactServiceM logger tbl (Maybe a)
 readFrom ph doRead = do
     cp <- view psCheckpointer
     pactParent <- getPactParent ph

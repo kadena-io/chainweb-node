@@ -562,7 +562,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
   setOneShotMempool refIO goldenMemPool
   void $ runBlock q bdb second
   h <- getParentTestBlockDb bdb cid
-  BlockTxHistory hist prevBals <- pactBlockTxHistory h (UserTables "coin_coin-table") q
+  Just (BlockTxHistory hist prevBals) <- pactBlockTxHistory h (UserTables "coin_coin-table") q
   -- just check first one here
   assertEqual "check first entry of history"
     (Just [TxLog "coin_coin-table" "sender00"

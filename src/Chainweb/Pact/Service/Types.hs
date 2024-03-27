@@ -368,7 +368,7 @@ data RequestMsg r where
     LocalMsg :: !LocalReq -> RequestMsg LocalResult
     LookupPactTxsMsg :: !LookupPactTxsReq -> RequestMsg (HashMap PactHash (T2 BlockHeight BlockHash))
     PreInsertCheckMsg :: !PreInsertCheckReq -> RequestMsg (Vector (Either InsertError ()))
-    BlockTxHistoryMsg :: !BlockTxHistoryReq -> RequestMsg BlockTxHistory
+    BlockTxHistoryMsg :: !BlockTxHistoryReq -> RequestMsg (Maybe BlockTxHistory)
     HistoricalLookupMsg :: !HistoricalLookupReq -> RequestMsg (Maybe (TxLog RowData))
     SyncToBlockMsg :: !SyncToBlockReq -> RequestMsg ()
     ReadOnlyReplayMsg :: !ReadOnlyReplayReq -> RequestMsg ()

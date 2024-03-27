@@ -570,8 +570,11 @@ getTxLogs
     -> BlockHeader
     -> ExceptT RosettaFailure Handler (Map TxId [AccountLog])
 getTxLogs cr bh = do
-  someHist <- liftIO $ try @_ @PactException $ _pactBlockTxHistory cr bh d
-  (BlockTxHistory hist prevTxs) <- hush someHist ?? RosettaPactExceptionThrown
+  exnOrMaybeSomeHist <- liftIO $ try @_ @PactException $ _pactBlockTxHistory cr bh d
+  maybeSomeHist <- hush exnOrMaybeSomeHist ?? RosettaPactExceptionThrown
+  BlockTxHistory hist prevTxs <- case maybeSomeHist of
+    Nothing -> throwError RosettaTxIdNotFound
+    Just hist -> return hist
   lastBalSeen <- hoistEither $ parsePrevTxs prevTxs
   histAcctRow <- hoistEither $ parseHist hist
   pure $ getBalanceDeltas histAcctRow lastBalSeen

@@ -114,7 +114,7 @@ pactBlockTxHistory
   :: BlockHeader
   -> Domain RowKey RowData
   -> PactQueue
-  -> IO BlockTxHistory
+  -> IO (Maybe BlockTxHistory)
 pactBlockTxHistory bh d reqQ = do
   let !req = BlockTxHistoryReq bh d
   let !msg = BlockTxHistoryMsg req
