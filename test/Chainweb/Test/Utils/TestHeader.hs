@@ -54,7 +54,7 @@ import Test.QuickCheck.Gen (Gen)
 -- internal modules
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeight
 import Chainweb.ChainValue
 import Chainweb.Test.Orphans.Internal

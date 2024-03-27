@@ -121,6 +121,7 @@ library
         , Chainweb.BlockCreationTime
         , Chainweb.BlockHash
         , Chainweb.BlockHeader
+        , Chainweb.BlockHeader.Internal
         , Chainweb.BlockHeader.Genesis.RecapDevelopment0Payload
         , Chainweb.BlockHeader.Genesis.RecapDevelopment1to9Payload
         , Chainweb.BlockHeader.Genesis.RecapDevelopment10to19Payload
@@ -201,6 +202,7 @@ library
         , Chainweb.NodeVersion
         , Chainweb.OpenAPIValidation
         , Chainweb.Payload
+        , Chainweb.Payload.Internal
         , Chainweb.Payload.PayloadStore
         , Chainweb.Payload.PayloadStore.InMemory
         , Chainweb.Payload.PayloadStore.RocksDB

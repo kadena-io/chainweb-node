@@ -645,7 +645,7 @@ rewindDbTo
 rewindDbTo db Nothing = rewindDbToGenesis db
 rewindDbTo db mh@(Just (ParentHeader ph)) = do
     !endingtxid <- getEndTxId "rewindDbToBlock" db mh
-    rewindDbToBlock db (_blockHeight ph) endingtxid
+    rewindDbToBlock db (view blockHeight ph) endingtxid
 
 -- rewind before genesis, delete all user tables and all rows in all tables
 rewindDbToGenesis
@@ -865,7 +865,7 @@ initSchema logger sql =
 getEndTxId :: Text -> SQLiteEnv -> Maybe ParentHeader -> IO TxId
 getEndTxId msg sql pc = case pc of
   Nothing -> return 0
-  Just (ParentHeader ph) -> getEndTxId' msg sql (_blockHeight ph) (_blockHash ph)
+  Just (ParentHeader ph) -> getEndTxId' msg sql (view blockHeight ph) (view blockHash ph)
 
 getEndTxId' :: Text -> SQLiteEnv -> BlockHeight -> BlockHash -> IO TxId
 getEndTxId' msg sql bh bhsh = do

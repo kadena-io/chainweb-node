@@ -108,9 +108,9 @@ execBlock
     -> PactBlockM logger tbl (P.Gas, PayloadWithOutputs)
 execBlock currHeader plData = do
     dbEnv <- view psBlockDbEnv
-    miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
+    miner <- decodeStrictOrThrow' (_minerData $ view payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload
-      (pactParserVersion v (_blockChainId currHeader) (_blockHeight currHeader))
+      (pactParserVersion v (view blockChainId currHeader) (view blockHeight currHeader))
       plData
     logger <- view (psServiceEnv . psLogger)
 
@@ -120,13 +120,13 @@ execBlock currHeader plData = do
     -- The new default behavior is to use the creation time of the /parent/ header.
     --
     txValidationTime <- if isGenesisBlockHeader currHeader
-      then return (ParentCreationTime $ _blockCreationTime currHeader)
-      else ParentCreationTime . _blockCreationTime . _parentHeader <$> view psParentHeader
+      then return (ParentCreationTime $ view blockCreationTime currHeader)
+      else ParentCreationTime . view blockCreationTime . _parentHeader <$> view psParentHeader
 
     -- prop_tx_ttl_validate
     valids <- liftIO $ V.zip trans <$>
         validateChainwebTxs logger v cid dbEnv txValidationTime
-            (_blockHeight currHeader) trans skipDebitGas
+            (view blockHeight currHeader) trans skipDebitGas
 
     case foldr handleValids [] valids of
       [] -> return ()
@@ -143,7 +143,7 @@ execBlock currHeader plData = do
     return (totalGasUsed, pwo)
   where
     blockGasLimit =
-      fromIntegral <$> maxBlockGasLimit v (_blockHeight currHeader)
+      fromIntegral <$> maxBlockGasLimit v (view blockHeight currHeader)
 
     logInitCache = liftPactServiceM $ do
       mc <- fmap (fmap instr . _getModuleCache) <$> use psInitCache
@@ -320,7 +320,7 @@ execTransactionsOnly miner ctxs mc txTimeLimit = do
 initModuleCacheForBlock :: (Logger logger) => Bool -> PactBlockM logger tbl ModuleCache
 initModuleCacheForBlock isGenesis = do
   PactServiceState{..} <- get
-  pbh <- views psParentHeader (_blockHeight . _parentHeader)
+  pbh <- views psParentHeader (view blockHeight . _parentHeader)
   case Map.lookupLE pbh _psInitCache of
     Nothing -> if isGenesis
       then return mempty
@@ -501,7 +501,7 @@ transactionsFromPayload
 transactionsFromPayload ppv plData = do
     vtrans <- fmap V.fromList $
               mapM toCWTransaction $
-              toList (_payloadDataTransactions plData)
+              toList (view payloadDataTransactions plData)
     let (theLefts, theRights) = partitionEithers $ V.toList vtrans
     unless (null theLefts) $ do
         let ls = map T.pack theLefts
@@ -574,19 +574,19 @@ validateHashes bHeader pData miner transactions =
     pwo = toPayloadWithOutputs miner transactions
 
     newHash = _payloadWithOutputsPayloadHash pwo
-    prevHash = _blockPayloadHash bHeader
+    prevHash = view blockPayloadHash bHeader
 
     newTransactions = toList $ fst <$> (_payloadWithOutputsTransactions pwo)
-    prevTransactions = toList $ _payloadDataTransactions pData
+    prevTransactions = toList $ view payloadDataTransactions pData
 
     newMiner = _payloadWithOutputsMiner pwo
-    prevMiner = _payloadDataMiner pData
+    prevMiner = view payloadDataMiner pData
 
     newTransactionsHash = _payloadWithOutputsTransactionsHash pwo
-    prevTransactionsHash = _payloadDataTransactionsHash pData
+    prevTransactionsHash = view payloadDataTransactionsHash pData
 
     newOutputsHash = _payloadWithOutputsOutputsHash pwo
-    prevOutputsHash = _payloadDataOutputsHash pData
+    prevOutputsHash = view payloadDataOutputsHash pData
 
     -- The following JSON encodings are used in the BlockValidationFailure message
 

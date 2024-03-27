@@ -26,7 +26,7 @@ import Test.Tasty.QuickCheck (testProperty)
 -- internal modules
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeight
 import Chainweb.Graph
 import Chainweb.Test.Orphans.Internal

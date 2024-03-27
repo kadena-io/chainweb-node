@@ -25,7 +25,7 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.Miner.Pact

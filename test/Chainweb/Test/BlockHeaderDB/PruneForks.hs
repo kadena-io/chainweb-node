@@ -16,6 +16,7 @@ module Chainweb.Test.BlockHeaderDB.PruneForks
 ( tests
 ) where
 
+import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 
@@ -31,7 +32,7 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
@@ -289,7 +290,8 @@ failIntrinsicCheck rio checks n step = withDbs rio $ \rdb bdb pdb h -> do
     (f0, _) <- createForks bdb pdb h
     let b = f0 !! int n
     delHdr bdb b
-    unsafeInsertBlockHeaderDb bdb $ b { _blockChainwebVersion = _versionCode RecapDevelopment }
+    unsafeInsertBlockHeaderDb bdb $ b
+      & blockChainwebVersion .~ _versionCode RecapDevelopment
     try (pruneAllChains logger rdb toyVersion checks) >>= \case
         Left e
             | CheckFull `elem` checks

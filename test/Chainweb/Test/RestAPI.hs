@@ -47,7 +47,7 @@ import Text.Read (readEither)
 -- internal modules
 
 import Chainweb.BlockHash (BlockHash)
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.BlockHeaderDB.RestAPI (Block(..))

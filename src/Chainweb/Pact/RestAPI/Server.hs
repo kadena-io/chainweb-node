@@ -634,8 +634,8 @@ internalPoll pdb bhdb mempool pactEx confDepth requestKeys0 = do
         let pactHash = Pact.fromUntypedHash keyHash
         let matchingHash = (== pactHash) . _cmdHash . fst
         blockHeader <- liftIO $ TreeDB.lookupM bhdb bHash
-        let payloadHash = _blockPayloadHash blockHeader
-        (_payloadWithOutputsTransactions -> txsBs) <- barf "tablelookupFailed" =<< liftIO (lookupPayloadWithHeight pdb (Just $ _blockHeight blockHeader) payloadHash)
+        let payloadHash = view blockPayloadHash blockHeader
+        (_payloadWithOutputsTransactions -> txsBs) <- barf "tablelookupFailed" =<< liftIO (lookupPayloadWithHeight pdb (Just $ view blockHeight blockHeader) payloadHash)
         !txs <- mapM fromTx txsBs
         case find matchingHash txs of
             Just (_cmd, TransactionOutput output) -> do
@@ -669,10 +669,10 @@ internalPoll pdb bhdb mempool pactEx confDepth requestKeys0 = do
     enrichCR :: BlockHeader -> CommandResult Hash -> ExceptT String IO (CommandResult Hash)
     enrichCR bh = return . set crMetaData
       (Just $ object
-       [ "blockHeight" .= _blockHeight bh
-       , "blockTime" .= _blockCreationTime bh
-       , "blockHash" .= _blockHash bh
-       , "prevBlockHash" .= _blockParent bh
+       [ "blockHeight" .= view Chainweb.BlockHeader.blockHeight bh
+       , "blockTime" .= view Chainweb.BlockHeader.blockCreationTime bh
+       , "blockHash" .= view Chainweb.BlockHeader.blockHash bh
+       , "prevBlockHash" .= view blockParent bh
        ])
 
 -- -------------------------------------------------------------------------- --

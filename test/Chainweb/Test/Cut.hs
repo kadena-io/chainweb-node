@@ -90,7 +90,7 @@ import qualified Test.QuickCheck.Monadic as T
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.ChainId
 import Chainweb.ChainValue
 import Chainweb.Cut

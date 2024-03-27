@@ -112,7 +112,7 @@ readFromNthParent n doRead = do
     let parentHeight =
             -- guarantees that the subtraction doesn't overflow
             -- this will never give us before genesis
-            fromIntegral $ max (genesisHeight v cid + fromIntegral n) (_blockHeight latest) - fromIntegral n
+            fromIntegral $ max (genesisHeight v cid + fromIntegral n) (view blockHeight latest) - fromIntegral n
     nthParent <- liftIO $
         seekAncestor bhdb latest parentHeight >>= \case
             Nothing -> throwM $ PactInternalError
@@ -224,8 +224,8 @@ rewindToIncremental rewindLimit (ParentHeader parent) = do
 
     lastHeader <- findLatestValidBlockHeader' >>= maybe failNonGenesisOnEmptyDb return
     logInfo $ "rewind from last to checkpointer target"
-        <> ". last height: " <> sshow (_blockHeight lastHeader)
-        <> "; last hash: " <> blockHashToText (_blockHash lastHeader)
+        <> ". last height: " <> sshow (view blockHeight lastHeader)
+        <> "; last hash: " <> blockHashToText (view blockHash lastHeader)
         <> "; target height: " <> sshow parentHeight
         <> "; target hash: " <> blockHashToText parentHash
 
@@ -233,8 +233,8 @@ rewindToIncremental rewindLimit (ParentHeader parent) = do
     playFork lastHeader
 
   where
-    parentHeight = _blockHeight parent
-    parentHash = _blockHash parent
+    parentHeight = view blockHeight parent
+    parentHash = view blockHash parent
 
 
     failOnTooLowRequestedHeight lastHeader = case rewindLimit of
@@ -244,7 +244,7 @@ rewindToIncremental rewindLimit (ParentHeader parent) = do
                 throwM $ RewindLimitExceeded limit (Just lastHeader) (Just parent)
         _ -> return ()
       where
-        lastHeight = _blockHeight lastHeader
+        lastHeight = view blockHeight lastHeader
 
     failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
 
@@ -254,11 +254,11 @@ rewindToIncremental rewindLimit (ParentHeader parent) = do
         commonAncestor <- liftIO $ forkEntry bhdb lastHeader parent
         cp <- view psCheckpointer
         payloadDb <- view psPdb
-        let ancestorHeight = _blockHeight commonAncestor
+        let ancestorHeight = view blockHeight commonAncestor
 
         logInfo $ "rewindTo.playFork"
-            <> ": checkpointer is at height: " <> sshow (_blockHeight lastHeader)
-            <> ", target height: " <> sshow (_blockHeight parent)
+            <> ": checkpointer is at height: " <> sshow (view blockHeight lastHeader)
+            <> ", target height: " <> sshow (view blockHeight parent)
             <> ", common ancestor height " <> sshow ancestorHeight
 
         logger <- view psLogger
@@ -281,13 +281,13 @@ rewindToIncremental rewindLimit (ParentHeader parent) = do
                             $ blockChunk & S.map
                             (\blockHeader -> do
 
-                                payload <- liftIO $ lookupPayloadWithHeight payloadDb (Just $ _blockHeight blockHeader) (_blockPayloadHash blockHeader) >>= \case
+                                payload <- liftIO $ lookupPayloadWithHeight payloadDb (Just $ view blockHeight blockHeader) (view blockPayloadHash blockHeader) >>= \case
                                     Nothing -> throwM $ PactInternalError
                                         $ "Checkpointer.rewindTo.fastForward: lookup of payload failed"
-                                        <> ". BlockPayloadHash: " <> encodeToText (_blockPayloadHash blockHeader)
+                                        <> ". BlockPayloadHash: " <> encodeToText (view blockPayloadHash blockHeader)
                                         <> ". Block: "<> encodeToText (ObjectEncoded blockHeader)
                                     Just x -> return $ payloadWithOutputsToPayloadData x
-                                liftIO $ writeIORef heightRef (_blockHeight blockHeader)
+                                liftIO $ writeIORef heightRef (view blockHeight blockHeader)
                                 void $ execBlock blockHeader payload
                                 return (Last (Just blockHeader), blockHeader)
                                 -- double check output hash here?
@@ -303,8 +303,8 @@ rewindToIncremental rewindLimit (ParentHeader parent) = do
                 _cpRewindTo cp
                     (Just $ ParentHeader curHdr)
 
-                heightRef <- newIORef (_blockHeight curHdr)
-                withAsync (heightProgress (_blockHeight curHdr) heightRef (logInfo_ logger)) $ \_ ->
+                heightRef <- newIORef (view blockHeight curHdr)
+                withAsync (heightProgress (view blockHeight curHdr) heightRef (logInfo_ logger)) $ \_ ->
                   remaining
                       & S.copy
                       & S.length_

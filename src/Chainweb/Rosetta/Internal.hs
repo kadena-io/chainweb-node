@@ -123,8 +123,8 @@ matchLogs typ bh logs coinbase txs
   | Just upg <- v ^? versionUpgrades . onChain cid . at bheight . _Just = matchRemediation upg
   | otherwise = matchRest
   where
-    bheight = _blockHeight bh
-    cid = _blockChainId bh
+    bheight = view blockHeight bh
+    cid = view blockChainId bh
     v = _chainwebVersion bh
 
     matchGenesis = hoistEither $ case typ of
@@ -526,7 +526,7 @@ findBlockHeaderInCurrFork cutDb cid someHeight someHash = do
     (Just hi, Just hsh) -> do
       bh <- byHeight chainDb latestBlock hi
       bhashExpected <- blockHashFromText hsh ?? RosettaUnparsableBlockHash
-      if _blockHash bh == bhashExpected
+      if view blockHash bh == bhashExpected
         then pure bh
         else throwError RosettaMismatchBlockHashHeight
     (Nothing, Just hsh) -> do
@@ -549,7 +549,7 @@ getBlockOutputs
     -> BlockHeader
     -> ExceptT RosettaFailure Handler (CoinbaseTx (CommandResult Hash), V.Vector (CommandResult Hash))
 getBlockOutputs payloadDb bh = do
-  someOut <- liftIO $ lookupPayloadWithHeight payloadDb (Just $ _blockHeight bh) (_blockPayloadHash bh)
+  someOut <- liftIO $ lookupPayloadWithHeight payloadDb (Just $ view blockHeight bh) (view blockPayloadHash bh)
   outputs <- someOut ?? RosettaPayloadNotFound
   txsOut <- decodeTxsOut outputs ?? RosettaUnparsableTxOut
   coinbaseOut <- decodeCoinbaseOut outputs ?? RosettaUnparsableTxOut

@@ -18,7 +18,7 @@ module Chainweb.Test.TreeDB
 , properties
 ) where
 
-import Control.Lens (each, from, over, to, (^.), (^..), view)
+import Control.Lens (each, from, over, (^.), (^..), view)
 
 import Data.Bool (bool)
 import Data.Foldable (foldlM, toList)
@@ -41,7 +41,7 @@ import Test.Tasty.QuickCheck
 
 -- internal modules
 
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeader.Validation
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
@@ -217,7 +217,7 @@ maxRank_prop
     -> Property
 maxRank_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db _ -> do
     r <- maxRank db
-    let h = fromIntegral . maximum . (^.. each . isoBH . to _blockHeight) $ treeLeaves t
+    let h = fromIntegral . maximum . (^.. each . isoBH . blockHeight) $ treeLeaves t
     pure $ r == h
   where
     t :: Tree (DbEntry db)

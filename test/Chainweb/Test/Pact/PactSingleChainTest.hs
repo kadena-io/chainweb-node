@@ -60,7 +60,7 @@ import Pact.JSON.Yaml
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash (BlockHash)
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Graph
 import Chainweb.Logger (genericLogger)
@@ -208,7 +208,7 @@ newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailur
 
   nextH <- getParentTestBlockDb bdb cid
 
-  let nextH' = nextH { _blockPayloadHash = BlockPayloadHash $ unsafeMerkleLogHash "0000000000000000000000000000001d" }
+  let nextH' = nextH & blockPayloadHash .~ (BlockPayloadHash $ unsafeMerkleLogHash "0000000000000000000000000000001d")
   let nb' = nb { _payloadWithOutputsOutputsHash = BlockOutputsHash (unsafeMerkleLogHash "0000000000000000000000000000001d")}
   r <- validateBlock nextH' (payloadWithOutputsToPayloadData nb') q
 

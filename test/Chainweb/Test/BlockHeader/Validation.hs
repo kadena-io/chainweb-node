@@ -42,7 +42,7 @@ import Test.Tasty.QuickCheck
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
 import Chainweb.Difficulty

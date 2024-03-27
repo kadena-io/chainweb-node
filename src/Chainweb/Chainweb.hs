@@ -510,8 +510,8 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                                 $ addLabel ("sub-component", "init")
                                 $ _chainResLogger cr
                         logCr Info $ "pact db replaying between blocks "
-                            <> T.pack (show (_blockHeight l, _blockHash l)) <> " and "
-                            <> T.pack (show (_blockHeight u, _blockHash u))
+                            <> T.pack (show (view blockHeight l, view blockHash l)) <> " and "
+                            <> T.pack (show (view blockHeight u, view blockHash u))
                         void $ _pactReadOnlyReplay chainPact l u
                         logCr Info "pact db synchronized"
                 mapConcurrently_ replayOneChain $
@@ -623,8 +623,8 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                     $ addLabel ("component", "pact")
                     $ addLabel ("sub-component", "init")
                     $ _chainResLogger cr
-            let hsh = _blockHash bh
-            let h = _blockHeight bh
+            let hsh = view blockHash bh
+            let h = view blockHeight bh
             logCr Info $ "pact db synchronizing to block "
                 <> T.pack (show (h, hsh))
             void $ _pactSyncToBlock pact bh

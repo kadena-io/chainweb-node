@@ -87,7 +87,7 @@ import Pact.Types.SPV
 
 catchAndDisplaySPVError :: BlockHeader -> ExceptT Text IO a -> ExceptT Text IO a
 catchAndDisplaySPVError bh =
-  if CW.chainweb219Pact (CW._chainwebVersion bh) (_blockChainId bh) (_blockHeight bh)
+  if CW.chainweb219Pact (CW._chainwebVersion bh) (view blockChainId bh) (view blockHeight bh)
   then flip catch $ \case
     SpvExceptionVerificationFailed m -> throwError ("spv verification failed: " <> m)
     spvErr -> throwM spvErr
@@ -95,7 +95,7 @@ catchAndDisplaySPVError bh =
 
 forkedThrower :: BlockHeader -> Text -> ExceptT Text IO a
 forkedThrower bh =
-  if CW.chainweb219Pact (CW._chainwebVersion bh) (_blockChainId bh) (_blockHeight bh)
+  if CW.chainweb219Pact (CW._chainwebVersion bh) (view blockChainId bh) (view blockHeight bh)
   then throwError
   else internalError
 
@@ -127,7 +127,7 @@ verifySPV
 verifySPV bdb bh typ proof = runExceptT $ go typ proof
   where
     cid = CW._chainId bdb
-    enableBridge = CW.enableSPVBridge (CW._chainwebVersion bh) cid (_blockHeight bh)
+    enableBridge = CW.enableSPVBridge (CW._chainwebVersion bh) cid (view blockHeight bh)
 
     mkSPVResult' cr j
         | enableBridge =
@@ -159,7 +159,7 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
         --  3. Extract tx outputs as a pact object and return the
         --  object.
 
-        TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u (_blockHash bh)
+        TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u (view Chainweb.BlockHeader.blockHash bh)
 
         q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
           Nothing -> forkedThrower bh "unable to decode spv transaction output"
@@ -261,8 +261,8 @@ verifyCont bdb bh (ContProof cp) = runExceptT $ do
     let errorMessageType =
           if CW.chainweb221Pact
              (CW._chainwebVersion bh)
-             (_blockChainId bh)
-             (_blockHeight bh)
+             (view blockChainId bh)
+             (view blockHeight bh)
           then Simplified
           else Legacy
     t <- decodeB64UrlNoPaddingTextWithFixedErrorMessage errorMessageType $ Text.decodeUtf8 cp
@@ -282,7 +282,7 @@ verifyCont bdb bh (ContProof cp) = runExceptT $ do
           --  3. Extract continuation 'PactExec' from decoded result
           --  and return the cont exec object
 
-          TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u (_blockHash bh)
+          TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u (view Chainweb.BlockHeader.blockHash bh)
 
           q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
             Nothing -> forkedThrower bh "unable to decode spv transaction output"
@@ -391,7 +391,7 @@ getTxIdx bdb pdb bh th = do
     -- get BlockPayloadHash
     m <- maxEntry bdb
     ph <- seekAncestor bdb m (int bh) >>= \case
-        Just x -> return $ Right $! _blockPayloadHash x
+        Just x -> return $ Right $! view blockPayloadHash x
         Nothing -> return $ Left "unable to find payload associated with transaction hash"
 
     case ph of

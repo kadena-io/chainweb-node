@@ -249,7 +249,7 @@ lookupPayloadWithHeight
   -> IO (Maybe (PayloadWithOutputs_ a))
 lookupPayloadWithHeight db h k = runMaybeT $ do
     pd <- MaybeT (lookupPayloadDataWithHeight db h k)
-    let outsHash = _payloadDataOutputsHash pd
+    let outsHash = view payloadDataOutputsHash pd
     outs <- MaybeT $ tableLookup (_payloadCacheBlockOutputs $ _payloadCache db) outsHash
     liftIO . evaluate $
         payloadWithOutputs pd (_blockCoinbaseOutput outs) (_blockOutputs outs)

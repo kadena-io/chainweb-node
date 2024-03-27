@@ -214,8 +214,8 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " not mineable"
             newWork logFun Anything eminer hdb pact tpw c
         Just (T2 (T2 (ParentHeader primedParent) (Just payload)) extension)
-            | _blockHash primedParent == _blockHash (_parentHeader (_cutExtensionParent extension)) -> do
-                let !phash = _payloadDataPayloadHash payload
+            | view blockHash primedParent == view blockHash (_parentHeader (_cutExtensionParent extension)) -> do
+                let !phash = view payloadDataPayloadHash payload
                 !wh <- newWorkHeader hdb extension phash
                 pure $ Just $ T2 wh payload
             | otherwise -> do
@@ -228,10 +228,10 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
                 let !extensionParent = _parentHeader (_cutExtensionParent extension)
                 logFun @T.Text Info
                     $ "newWork: chain " <> sshow cid <> " not mineable because of parent header mismatch"
-                    <> ". Primed parent hash: " <> toText (_blockHash primedParent)
-                    <> ". Primed parent height: " <> sshow (_blockHeight primedParent)
-                    <> ". Extension parent: " <> toText (_blockHash extensionParent)
-                    <> ". Extension height: " <> sshow (_blockHeight extensionParent)
+                    <> ". Primed parent hash: " <> toText (view blockHash primedParent)
+                    <> ". Primed parent height: " <> sshow (view blockHeight primedParent)
+                    <> ". Extension parent: " <> toText (view blockHash extensionParent)
+                    <> ". Extension height: " <> sshow (view blockHeight extensionParent)
 
                 return Nothing
 
@@ -263,10 +263,10 @@ publish lf cdb pwVar miner pd s = do
             addCutHashes cdb ch
 
             let bytes = sum . fmap (BS.length . _transactionBytes) $
-                        _payloadDataTransactions pd
+                        view payloadDataTransactions pd
             lf Info $ JsonLog $ NewMinedBlock
                 { _minedBlockHeader = ObjectEncoded bh
-                , _minedBlockTrans = int . V.length $ _payloadDataTransactions pd
+                , _minedBlockTrans = int . V.length $ view payloadDataTransactions pd
                 , _minedBlockSize = int bytes
                 , _minedBlockMiner = _minerId miner
                 , _minedBlockDiscoveredAt = now
@@ -313,7 +313,7 @@ work mr mcid m = do
     atomically
         . modifyTVar' (_coordState mr)
         . over miningState
-        . M.insert (_payloadDataPayloadHash pd)
+        . M.insert (view payloadDataPayloadHash pd)
         $ T3 m pd now
     return wh
   where
@@ -390,7 +390,7 @@ solve mr solved@(SolvedWork hdr) = do
             -- doesn't get deleted. Items get GCed on a regular basis by
             -- the coordinator.
   where
-    key = _blockPayloadHash hdr
+    key = view blockPayloadHash hdr
     tms = _coordState mr
 
     lf :: LogFunction

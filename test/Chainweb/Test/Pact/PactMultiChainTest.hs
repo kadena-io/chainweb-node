@@ -51,7 +51,7 @@ import Pact.Types.SPV
 import Pact.Types.Term
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut

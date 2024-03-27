@@ -36,7 +36,7 @@ import Test.Tasty.QuickCheck
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.BlockWeight
@@ -446,11 +446,11 @@ instance Show ForkInfo where
 
 ----------------------------------------------------------------------------------------------------
 debugHeader :: String -> BlockHeader -> String
-debugHeader context BlockHeader{..} =
+debugHeader context bh =
     "\nBlockheader from " ++ context ++ ": "
-    ++ "\n\t\tblockHeight: " ++ show _blockHeight ++ " (0-based)"
-    ++ "\n\t\tblockHash: " ++ show _blockHash
-    ++ "\n\t\tparentHash: " ++ show _blockParent
+    ++ "\n\t\tblockHeight: " ++ show (_blockHeight bh) ++ " (0-based)"
+    ++ "\n\t\tblockHash: " ++ show (_blockHash bh)
+    ++ "\n\t\tparentHash: " ++ show (_blockParent bh)
     ++ "\n"
 
 ----------------------------------------------------------------------------------------------------

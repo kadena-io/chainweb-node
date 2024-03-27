@@ -37,7 +37,7 @@ import Pact.Types.Term
 import Pact.Types.Verifier hiding (verifierName)
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
@@ -776,7 +776,7 @@ getPWO :: ChainId -> PactTestM (PayloadWithOutputs,BlockHeader)
 getPWO chid = do
   (TestBlockDb _ pdb _) <- view menvBdb
   h <- getHeader chid
-  Just pwo <- liftIO $ lookupPayloadWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h)
+  Just pwo <- liftIO $ lookupPayloadWithHeight pdb (Just $ _blockHeight h) ( _blockPayloadHash h)
   return (pwo,h)
 
 getHeader :: ChainId -> PactTestM BlockHeader

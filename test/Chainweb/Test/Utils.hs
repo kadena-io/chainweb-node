@@ -181,7 +181,7 @@ import UnliftIO.Async
 -- internal modules
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight

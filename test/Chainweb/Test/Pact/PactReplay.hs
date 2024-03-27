@@ -29,7 +29,7 @@ import Test.Tasty.HUnit
 -- chainweb imports
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.Graph
 import Chainweb.Test.Cut.TestBlockDb

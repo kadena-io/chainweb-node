@@ -73,7 +73,7 @@ import Pact.Types.Term
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeight
 import Chainweb.Cut
 import Chainweb.Graph

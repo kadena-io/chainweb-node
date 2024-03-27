@@ -57,7 +57,7 @@ import Test.Tasty.QuickCheck
 
 -- internal modules
 
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Cut hiding (join)

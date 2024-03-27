@@ -56,7 +56,7 @@ import Test.Tasty
 
 -- internal modules
 
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
@@ -66,7 +66,7 @@ import Chainweb.Test.Cut
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.Miner.Pact
-import Chainweb.Payload
+import Chainweb.Payload.Internal
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
@@ -376,14 +376,14 @@ getRandomUnblockedChain c = do
     shuffled <- generate $ shuffle $ toList $ _cutMap c
     S.each shuffled
         & S.filter isUnblocked
-        & S.map _blockChainId
+        & S.map (_blockChainId)
         & S.head_
         & fmap fromJuste
   where
     isUnblocked h =
         let bh = _blockHeight h
             cid = _blockChainId h
-        in all (>= bh) $ fmap _blockHeight $ toList $ cutAdjs c cid
+        in all (>= bh) $ fmap (_blockHeight) $ toList $ cutAdjs c cid
 
 -- | Build a linear chainweb (no forks). No POW or poison delay is applied.
 -- Block times are real times.
@@ -448,7 +448,7 @@ randomTransaction
 randomTransaction cutDb = do
     bh <- randomBlockHeader cutDb
     Just pd <- lookupPayloadDataWithHeight payloadDb (Just $ _blockHeight bh) (_blockPayloadHash bh)
-    let pay = BlockPayload 
+    let pay = BlockPayload
           { _blockPayloadTransactionsHash = _payloadDataTransactionsHash pd
           , _blockPayloadOutputsHash = _payloadDataOutputsHash pd
           , _blockPayloadPayloadHash = _payloadDataPayloadHash pd

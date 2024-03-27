@@ -24,6 +24,7 @@ module Chainweb.Pact.Backend.RelationalCheckpointer
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
+import Control.Lens (view)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -145,7 +146,7 @@ doReadFrom
   -> (CurrentBlockDbEnv logger -> IO a)
   -> IO a
 doReadFrom logger v cid sql moduleCacheVar parent doRead = do
-  let currentHeight = maybe (genesisHeight v cid) (succ . _blockHeight . _parentHeader) parent
+  let currentHeight = maybe (genesisHeight v cid) (succ . view blockHeight . _parentHeader) parent
   -- we use the same module cache as the read-write checkpointer component
 
   withMVar moduleCacheVar $ \sharedModuleCache -> do
@@ -165,7 +166,7 @@ doReadFrom logger v cid sql moduleCacheVar parent doRead = do
         parentIsLatestHeader = case (latestHeader, parent) of
           (Nothing, Nothing) -> True
           (Just (_, latestHash), Just (ParentHeader ph)) ->
-            _blockHash ph == latestHash
+            view blockHash ph == latestHash
           _ -> False
 
       let
@@ -215,7 +216,7 @@ doRestoreAndSave logger v cid sql moduleCacheVar parent blocks =
     extend startTxId startModuleCache = Streaming.foldM
       (\(m, pc, txid, moduleCache) block -> do
         let
-          !bh = maybe (genesisHeight v cid) (succ . _blockHeight . _parentHeader) pc
+          !bh = maybe (genesisHeight v cid) (succ . view blockHeight . _parentHeader) pc
         -- prepare the block state
         let handlerEnv = mkBlockHandlerEnv v cid bh sql logger
         let state = (initBlockState defaultModuleCacheLimit txid) { _bsModuleCache = moduleCache }
@@ -242,15 +243,15 @@ doRestoreAndSave logger v cid sql moduleCacheVar parent blocks =
         -- of the previous block
         case pc of
           Nothing
-            | genesisHeight v cid /= _blockHeight newBh -> throwM $ PactInternalError
+            | genesisHeight v cid /= view blockHeight newBh -> throwM $ PactInternalError
               "doRestoreAndSave: block with no parent, genesis block, should have genesis height but doesn't,"
           Just (ParentHeader ph)
-            | succ (_blockHeight ph) /= _blockHeight newBh -> throwM $ PactInternalError $
+            | succ (view blockHeight ph) /= view blockHeight newBh -> throwM $ PactInternalError $
               "doRestoreAndSave: non-genesis block should be one higher than its parent. parent at "
-                <> sshow (_blockHeight ph) <> ", child height " <> sshow (_blockHeight newBh)
+                <> sshow (view blockHeight ph) <> ", child height " <> sshow (view blockHeight newBh)
           _ -> return ()
         -- persist any changes to the database
-        commitBlockStateToDatabase sql (_blockHash newBh) (_blockHeight newBh) nextState
+        commitBlockStateToDatabase sql (view blockHash newBh) (view blockHeight newBh) nextState
         return (m'', Just (ParentHeader newBh), nextTxId, nextModuleCache)
       )
       (return (mempty, parent, startTxId, startModuleCache))
@@ -357,7 +358,7 @@ doGetBlockHistory db blockHeader d = do
   startTxId <- fmap fromIntegral $
     if bHeight == genesisHeight v cid
     then return 0
-    else getEndTxId' "doGetBlockHistory" db (pred bHeight) (_blockParent blockHeader)
+    else getEndTxId' "doGetBlockHistory" db (pred bHeight) (view blockParent blockHeader)
   let tname = domainTableName d
   history <- queryHistory tname startTxId endTxId
   let (!hkeys,tmap) = foldl' procTxHist (S.empty,mempty) history
@@ -365,8 +366,8 @@ doGetBlockHistory db blockHeader d = do
   return $ BlockTxHistory tmap prev
   where
     v = _chainwebVersion blockHeader
-    cid = _blockChainId blockHeader
-    bHeight = _blockHeight blockHeader
+    cid = view blockChainId blockHeader
+    bHeight = view blockHeight blockHeader
 
     procTxHist
       :: (S.Set Utf8, M.Map TxId [TxLog RowData])

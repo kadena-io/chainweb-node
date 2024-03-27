@@ -192,7 +192,7 @@ import Pact.Types.Verifier
 
 -- internal modules
 
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeight
 import Chainweb.ChainId

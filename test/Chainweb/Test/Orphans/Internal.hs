@@ -106,7 +106,7 @@ import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight

@@ -110,7 +110,7 @@ processFork blockHeaderDb payloadStore lastHeaderRef logFun newHeader = do
     lastHeader <- readIORef lastHeaderRef
     let v = _chainwebVersion blockHeaderDb
         cid = _chainId blockHeaderDb
-        height = _blockHeight newHeader
+        height = view blockHeight newHeader
     (a, b) <- processFork' logFun blockHeaderDb newHeader lastHeader
                            (payloadLookup payloadStore)
                            (processForkCheckTTL (pactParserVersion v cid height) now)
@@ -178,8 +178,8 @@ payloadLookup payloadStore bh =
     case payloadStore of
         Nothing -> return mempty
         Just s -> do
-            pd <- casLookupM' (view transactionDb s) (_blockPayloadHash bh)
-            chainwebTxsFromPd (pactParserVersion (_chainwebVersion bh) (_chainId bh) (_blockHeight bh)) pd
+            pd <- casLookupM' (view transactionDb s) (view blockPayloadHash bh)
+            chainwebTxsFromPd (pactParserVersion (_chainwebVersion bh) (_chainId bh) (view blockHeight bh)) pd
   where
     casLookupM' s h = do
         x <- tableLookup s h
@@ -194,7 +194,7 @@ chainwebTxsFromPd
     -> PayloadData
     -> IO (HashSet (HashableTrans PayloadWithText))
 chainwebTxsFromPd ppv pd = do
-    let transSeq = _payloadDataTransactions pd
+    let transSeq = view payloadDataTransactions pd
     let bytes = _transactionBytes <$> transSeq
     let eithers = toCWTransaction <$> bytes
     -- Note: if any transactions fail to convert, the final validation hash will fail to match

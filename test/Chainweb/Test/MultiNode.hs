@@ -85,7 +85,7 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeight
 import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
@@ -446,7 +446,7 @@ pactImportTest logLevel v n rocksDb pactDir step = do
       logFunctionText logger' Info "Verifying state"
       snapshot@(snapshotBlockHeight, snapshotHashes) <- GrandHash.Import.pactVerify logger' v pactConns rdb grands
       logFunctionText logger' Debug $ "SNAPSHOT BLOCKHEIGHT = " <> sshow (fst snapshot)
-      logFunctionText logger' Debug $ "SNAPSHOT HASHES = " <> sshow (HM.map (\s -> (T.decodeUtf8 (Base16.encode (getChainGrandHash s.pactHash)), _blockHeight s.blockHeader)) (snd snapshot))
+      logFunctionText logger' Debug $ "SNAPSHOT HASHES = " <> sshow (HM.map (\s -> (T.decodeUtf8 (Base16.encode (getChainGrandHash s.pactHash)), (_blockHeight) s.blockHeader)) (snd snapshot))
 
       logFunctionText logger' Info "Making a copy of the pact state, and dropping the post-verified content"
       withSystemTempDirectory "pact-copy" $ \copyPactDir -> do
