@@ -214,7 +214,13 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
         Nothing -> do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " not mineable"
             newWork logFun Anything eminer hdb pact tpw c
-        Just (T2 (Just newBlock@(newBlockParentHeader -> ParentHeader primedParent)) extension)
+        Just
+            (T2
+                (Just
+                    newBlock@(newBlockParentHeader -> ParentHeader primedParent)
+                )
+                extension
+            )
             | _blockHash primedParent == _blockHash (_parentHeader (_cutExtensionParent extension)) -> do
                 let payload = newBlockToPayloadWithOutputs newBlock
                 let !phash = _payloadWithOutputsPayloadHash payload
