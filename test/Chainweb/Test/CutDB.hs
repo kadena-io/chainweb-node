@@ -66,7 +66,7 @@ import Chainweb.Test.Cut
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.Miner.Pact
-import Chainweb.Payload
+import Chainweb.Payload.Internal
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
@@ -449,9 +449,9 @@ randomTransaction cutDb = do
     bh <- randomBlockHeader cutDb
     Just pd <- lookupPayloadDataWithHeight payloadDb (Just $ _blockHeight bh) (_blockPayloadHash bh)
     let pay = BlockPayload
-          { _blockPayloadTransactionsHash = view payloadDataTransactionsHash pd
-          , _blockPayloadOutputsHash = view payloadDataOutputsHash pd
-          , _blockPayloadPayloadHash = view payloadDataPayloadHash pd
+          { _blockPayloadTransactionsHash = _payloadDataTransactionsHash pd
+          , _blockPayloadOutputsHash = _payloadDataOutputsHash pd
+          , _blockPayloadPayloadHash = _payloadDataPayloadHash pd
           }
 
     Just btxs <-
@@ -484,7 +484,7 @@ fakePact = WebPactExecutionService $ PactExecutionService
   { _pactValidateBlock =
       \_ d -> return
               $ payloadWithOutputs d coinbase
-              $ getFakeOutput <$> view payloadDataTransactions d
+              $ getFakeOutput <$> _payloadDataTransactions d
   , _pactNewBlock = \_ _ -> do
         payloadDat <- generate $ V.fromList . getNonEmpty <$> arbitrary
         ph <- ParentHeader <$> generate arbitrary

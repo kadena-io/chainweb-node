@@ -47,7 +47,7 @@ import qualified Pact.Types.SQLite as PSQL
 -- chainweb imports
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.MerkleLogHash
@@ -82,7 +82,7 @@ childOf :: Maybe BlockHeader -> BlockHash -> BlockHeader
 childOf (Just bh) bhsh =
   bh
     & blockHash .~ bhsh
-    & blockParent .~ (view blockHash bh)
+    & blockParent .~ (_blockHash bh)
     & blockHeight +~ 1
 childOf Nothing bhsh =
   genesisBlockHeader testVer testChainId

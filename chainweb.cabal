@@ -200,6 +200,7 @@ library
         , Chainweb.NodeVersion
         , Chainweb.OpenAPIValidation
         , Chainweb.Payload
+        , Chainweb.Payload.Internal
         , Chainweb.Payload.PayloadStore
         , Chainweb.Payload.PayloadStore.InMemory
         , Chainweb.Payload.PayloadStore.RocksDB

@@ -74,7 +74,7 @@ import Pact.Types.Util hiding (unwrap)
 -- chainweb imports
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight (BlockHeight(..))
@@ -201,7 +201,7 @@ playLine pdb bhdb trunkLength startingBlock pactQueue counter = do
         evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. pred (startHeight + l)]) pactQueue) start
       where
         startHeight :: Num a => a
-        startHeight = fromIntegral $ view blockHeight start
+        startHeight = fromIntegral $ _blockHeight start
         go = do
             r <- ask
             n <- liftIO $ Nonce <$> readIORef ncounter
@@ -218,7 +218,7 @@ mineBlock
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock nonce pdb bhdb pact = do
     r@(T3 parent newHeader payload) <- createBlock DoValidate nonce pact
-    addNewPayload pdb (succ (view blockHeight (_parentHeader parent))) payload
+    addNewPayload pdb (succ (_blockHeight (_parentHeader parent))) payload
     -- NOTE: this doesn't validate the block header, which is fine in this test case
     unsafeInsertBlockHeaderDb bhdb newHeader
     return r
@@ -236,7 +236,7 @@ createBlock validate nonce pact = do
 
      T2 parent payload <- assertNotLeft =<< takeMVar mv
 
-     let creationTime = add second $ view blockCreationTime $ _parentHeader parent
+     let creationTime = add second $ _blockCreationTime $ _parentHeader parent
      let bh = newBlockHeader
               mempty
               (_payloadWithOutputsPayloadHash payload)
@@ -361,7 +361,7 @@ testMemPoolAccess txsPerBlock accounts = do
   return $ mempty
     { mpaGetBlock = \bf validate bh hash header -> do
         if _bfCount bf /= 0 then pure mempty else do
-          testBlock <- getTestBlock accounts (_bct $ view blockCreationTime header) validate bh hash
+          testBlock <- getTestBlock accounts (_bct $ _blockCreationTime header) validate bh hash
           pure testBlock
     }
   where
