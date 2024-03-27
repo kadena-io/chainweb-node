@@ -65,9 +65,9 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros, Time, minute, getCurrentTimeIntegral, scaleTimeSpan)
-import Chainweb.Utils (fromJuste, runForever, thd, T2(..), T3(..))
+import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.WebPactExecutionService (_webPactExecutionService)
+import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (JsonLog(..), LogFunction)
 
@@ -96,8 +96,9 @@ withMiningCoordination logger conf cdb inner
                 in fmap ((mid,) . HM.fromList) $
                     forM cids $ \cid -> do
                         let bh = fromMaybe (genesisBlockHeader v cid) (HM.lookup cid (_cutMap cut))
-                        fmap ((cid,) . over _2 Just) $
-                            getPayload (ParentHeader bh) cid miner
+                        newBlock <- getPayload (ParentHeader bh) cid miner
+                        return (cid, Just newBlock)
+
         m <- newTVarIO initialPw
         c503 <- newIORef 0
         c403 <- newIORef 0
@@ -141,18 +142,20 @@ withMiningCoordination logger conf cdb inner
             pw <- readTVarIO tpw
             let
                 -- we assume that this path always exists in PrimedWork and never delete it.
-                ourMiner :: Traversal' PrimedWork (T2 ParentHeader (Maybe PayloadWithOutputs))
-                ourMiner = _Wrapped' . at (view minerId miner) . _Just . at cid . _Just
-            let !(T2 ph _) = fromJuste $ pw ^? ourMiner
+                ourMiner :: Traversal' PrimedWork (Maybe NewBlock)
+                ourMiner = _Wrapped' . ix (view minerId miner) . ix cid
+            let !nb = pw ^?! ourMiner . _Just
+            let ph = newBlockParentHeader nb
             -- wait for a block different from what we've got primed work for
             new <- awaitNewBlock cdb cid (_parentHeader ph)
             -- Temporarily block this chain from being considered for queries
-            atomically $ modifyTVar' tpw (ourMiner . _2 .~ Nothing)
+            atomically $ modifyTVar' tpw (ourMiner .~ Nothing)
             -- Generate new payload for this miner
-            newParentAndPayload <- getPayload (ParentHeader new) cid miner
-            atomically $ modifyTVar' tpw (ourMiner .~ over _2 Just newParentAndPayload)
+            newBlock <- getPayload (ParentHeader new) cid miner
 
-    getPayload :: ParentHeader -> ChainId -> Miner -> IO (T2 ParentHeader PayloadWithOutputs)
+            atomically $ modifyTVar' tpw (ourMiner .~ Just newBlock)
+
+    getPayload :: ParentHeader -> ChainId -> Miner -> IO NewBlock
     getPayload new cid m =
         if v ^. versionCheats . disablePact
         -- if pact is disabled, we must keep track of the latest header
@@ -161,10 +164,10 @@ withMiningCoordination logger conf cdb inner
         -- with rocksdb though that shouldn't cause a problem, just wasted work,
         -- see docs for
         -- Chainweb.Pact.PactService.Checkpointer.findLatestValidBlockHeader'
-        then return $ T2 new emptyPayload
+        then return $ NewBlockPayload new emptyPayload
         else trace (logFunction logger)
             "Chainweb.Chainweb.MinerResources.withMiningCoordination.newBlock"
-            () 1 (_pactNewBlock pact cid m)
+            () 1 (_pactNewBlock pact cid m True)
 
     pact :: PactExecutionService
     pact = _webPactExecutionService $ view cutDbPactService cdb
