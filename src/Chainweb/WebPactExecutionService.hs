@@ -90,7 +90,7 @@ data PactExecutionService = PactExecutionService
     , _pactBlockTxHistory :: !(
         BlockHeader ->
         Domain RowKey RowData ->
-        IO BlockTxHistory
+        IO (Maybe BlockTxHistory)
         )
       -- ^ Obtain all transaction history in block for specified table/domain.
     , _pactHistoricalLookup :: !(
