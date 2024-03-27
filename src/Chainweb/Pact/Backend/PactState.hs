@@ -6,6 +6,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StrictData #-}
@@ -36,6 +37,7 @@ module Chainweb.Pact.Backend.PactState
   , withChainDb
   , addChainIdLabel
   , doesPactDbExist
+  , chainDbFileName
   , allChains
 
   , PactRow(..)
@@ -45,18 +47,24 @@ module Chainweb.Pact.Backend.PactState
   )
   where
 
+import Chainweb.BlockHeight (BlockHeight(..))
+import Chainweb.Logger (Logger, addLabel)
+import Chainweb.Pact.Backend.Types (SQLiteEnv)
+import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
+import Chainweb.Utils (int)
+import Chainweb.Version (ChainId, ChainwebVersion, chainIdToText)
+import Chainweb.Version.Utils (chainIdsAt)
 import Control.Exception (bracket)
-import Control.Monad (forM, forM_, when)
+import Control.Monad (forM, when)
+import Control.Monad.Except (ExceptT(..), runExceptT, throwError)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Except (ExceptT(..), runExceptT, throwError)
 import Data.Aeson (ToJSON(..), (.=))
 import Data.Aeson qualified as Aeson
-import Data.Vector (Vector)
-import Data.Vector qualified as Vector
 import Data.ByteString (ByteString)
-import Data.Int (Int64)
 import Data.Foldable qualified as F
+import Data.Function ((&))
+import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map.Strict qualified as M
@@ -65,22 +73,12 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Database.SQLite3.Direct (Utf8(..), Database)
 import Database.SQLite3.Direct qualified as SQL
-
-import Chainweb.BlockHeight (BlockHeight(..))
-import Chainweb.Logger (Logger, addLabel)
-import Chainweb.Pact.Backend.Types (SQLiteEnv)
-import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
-import Chainweb.Utils (int)
-import Chainweb.Version (ChainId, ChainwebVersion, chainIdToText)
-import Chainweb.Version.Utils (chainIdsAt)
-
-import System.Directory (doesFileExist)
-import System.FilePath ((</>))
-
 import Pact.Types.SQLite (SType(..), RType(..))
 import Pact.Types.SQLite qualified as Pact
 import Streaming.Prelude (Stream, Of)
 import Streaming.Prelude qualified as S
+import System.Directory (doesFileExist)
+import System.FilePath ((</>))
 
 excludedTables :: [Utf8]
 excludedTables = checkpointerTables ++ compactionTables
@@ -148,14 +146,14 @@ withChainDb cid logger' path f = do
   withSqliteDb cid logger path resetDb (f logger)
 
 -- | Get all Pact table names in the database.
-getPactTableNames :: Database -> IO (Vector Utf8)
-getPactTableNames db = do
+getPactTableNames :: Database -> Stream (Of Utf8) IO ()
+getPactTableNames db = eachIO $ do
   let sortedTableNames :: [[SType]] -> [Utf8]
       sortedTableNames rows = List.sortOn (Text.toLower . fromUtf8) $ flip List.map rows $ \case
         [SText u] -> u
         _ -> error "getPactTableNames.sortedTableNames: expected text"
 
-  tables <- fmap sortedTableNames $ do
+  fmap sortedTableNames $ do
     let qryText =
           "SELECT name FROM sqlite_schema \
           \WHERE \
@@ -163,8 +161,11 @@ getPactTableNames db = do
           \AND \
           \  name NOT LIKE 'sqlite_%'"
     Pact.qry db qryText [] [RText]
-
-  pure (Vector.fromList tables)
+  where
+    eachIO :: (Foldable f) => IO (f a) -> Stream (Of a) IO ()
+    eachIO m_xs = do
+      xs <- liftIO m_xs
+      S.each xs
 
 -- | Get all of the rows for each table. The tables will be appear sorted
 --   lexicographically by table name.
@@ -172,21 +173,18 @@ getPactTables :: Database -> Stream (Of Table) IO ()
 getPactTables db = do
   let fmtTable x = "\"" <> x <> "\""
 
-  tables <- liftIO $ getPactTableNames db
-
-  forM_ tables $ \tbl -> do
-    if tbl `notElem` excludedTables
-    then do
-      let qryText = "SELECT rowkey, rowdata, txid FROM "
-            <> fmtTable tbl
-      userRows <- liftIO $ Pact.qry db qryText [] [RText, RBlob, RInt]
-      shapedRows <- forM userRows $ \case
-        [SText (Utf8 rowKey), SBlob rowData, SInt txId] -> do
-          pure $ PactRow {..}
-        _ -> error "getPactTableNames: unexpected shape of user table row"
-      S.yield $ Table (fromUtf8 tbl) shapedRows
-    else do
-      pure ()
+  getPactTableNames db
+    & S.filter (\tbl -> tbl `notElem` excludedTables)
+    & S.mapM (\tbl -> do
+        let qryText = "SELECT rowkey, rowdata, txid FROM "
+              <> fmtTable tbl
+        userRows <- liftIO $ Pact.qry db qryText [] [RText, RBlob, RInt]
+        shapedRows <- forM userRows $ \case
+          [SText (Utf8 rowKey), SBlob rowData, SInt txId] -> do
+            pure $ PactRow {..}
+          _ -> error "getPactTableNames: unexpected shape of user table row"
+        pure $ Table (fromUtf8 tbl) shapedRows
+      )
 
 -- streaming SQLite step; see Pact SQLite module
 stepStatement :: SQL.Statement -> [RType] -> Stream (Of [SType]) IO (Either SQL.Error ())
@@ -262,8 +260,6 @@ getLatestPactStateAt :: ()
 getLatestPactStateAt db bh = do
   endingTxId <- liftIO $ getEndingTxId db bh
 
-  tables <- liftIO $ getPactTableNames db
-
   tablesCreatedAfter <- liftIO $ do
     let qryText = "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight > ?1"
     rows <- Pact.qry db qryText [SInt (int bh)] [RText]
@@ -271,19 +267,21 @@ getLatestPactStateAt db bh = do
       [SText tbl] -> pure tbl
       _ -> error "getLatestPactStateAt.tablesCreatedAfter: expected text"
 
-  forM_ tables $ \tbl -> do
-    when (tbl `notElem` (excludedTables ++ tablesCreatedAfter)) $ do
-      let qryText = "SELECT rowkey, rowdata, txid FROM "
-            <> "\"" <> tbl <> "\""
-            <> " WHERE txid<?"
-      latestState <- liftIO $ qry db qryText [SInt endingTxId] [RText, RBlob, RInt] $ \rows -> do
-        let go :: Map ByteString PactRowContents -> [SType] -> Map ByteString PactRowContents
-            go m = \case
-              [SText (Utf8 rowKey), SBlob rowData, SInt txId] ->
-                M.insertWith (\prc1 prc2 -> if prc1.txId > prc2.txId then prc1 else prc2) rowKey (PactRowContents rowData txId) m
-              _ -> error "getLatestPactState: unexpected shape of user table row"
-        S.fold_ go M.empty id rows
-      S.yield (fromUtf8 tbl, latestState)
+  getPactTableNames db
+    & S.filter (\tbl -> tbl `notElem` (excludedTables ++ tablesCreatedAfter))
+    & S.mapM (\tbl -> do
+        let qryText = "SELECT rowkey, rowdata, txid FROM "
+              <> "\"" <> tbl <> "\""
+              <> " WHERE txid<?"
+        latestState <- liftIO $ qry db qryText [SInt endingTxId] [RText, RBlob, RInt] $ \rows -> do
+          let go :: Map ByteString PactRowContents -> [SType] -> Map ByteString PactRowContents
+              go m = \case
+                [SText (Utf8 rowKey), SBlob rowData, SInt txId] ->
+                  M.insertWith (\prc1 prc2 -> if prc1.txId > prc2.txId then prc1 else prc2) rowKey (PactRowContents rowData txId) m
+                _ -> error "getLatestPactState: unexpected shape of user table row"
+          S.fold_ go M.empty id rows
+        pure (fromUtf8 tbl, latestState)
+      )
 
 -- | A pact table - just its name and its rows.
 data Table = Table
@@ -330,13 +328,17 @@ data PactRowContents = PactRowContents
 --   contains the pact db for the given ChainId.
 doesPactDbExist :: ChainId -> FilePath -> IO Bool
 doesPactDbExist cid dbDir = do
-  let chainDbFileName = mconcat
-        [ "pact-v1-chain-"
-        , Text.unpack (chainIdToText cid)
-        , ".sqlite"
-        ]
-  let file = dbDir </> chainDbFileName
-  doesFileExist file
+  doesFileExist (chainDbFileName cid dbDir)
+
+-- | Given a pact database directory, return the SQLite
+--   path chainweb uses for the given ChainId.
+chainDbFileName :: ChainId -> FilePath -> FilePath
+chainDbFileName cid dbDir = dbDir </> mconcat
+  [ "pact-v1-chain-"
+  , Text.unpack (chainIdToText cid)
+  , ".sqlite"
+  ]
+
 
 addChainIdLabel :: (Logger logger)
   => ChainId
