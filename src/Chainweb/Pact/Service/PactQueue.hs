@@ -17,7 +17,8 @@
 --
 module Chainweb.Pact.Service.PactQueue
 ( addRequest
-, getNextRequest
+, getNextWriteRequest
+, getNextReadRequest
 , getPactQueueStats
 , newPactQueue
 , resetPactQueueStats
@@ -51,9 +52,10 @@ import Chainweb.Utils
 -- other requests.
 --
 data PactQueue = PactQueue
-    { _pactQueueValidateBlock :: !(TBQueue (T2 RequestMsg (Time Micros)))
-    , _pactQueueNewBlock :: !(TBQueue (T2 RequestMsg (Time Micros)))
-    , _pactQueueOtherMsg :: !(TBQueue (T2 RequestMsg (Time Micros)))
+    { _pactQueueWriteRequests :: !(TBQueue (T2 RequestMsg (Time Micros)))
+    -- NewBlock requests are Read-requests as well but prioritize them with their own queue
+    , _pactQueueNewBlockRequests :: !(TBQueue (T2 RequestMsg (Time Micros)))
+    , _pactQueueReadRequests :: !(TBQueue (T2 RequestMsg (Time Micros)))
     , _pactQueuePactQueueValidateBlockMsgCounters :: !(IORef PactQueueCounters)
     , _pactQueuePactQueueNewBlockMsgCounters :: !(IORef PactQueueCounters)
     , _pactQueuePactQueueOtherMsgCounters :: !(IORef PactQueueCounters)
@@ -84,18 +86,18 @@ addRequest q msg =  do
     atomically $ writeTBQueue priority (T2 msg entranceTime)
   where
     priority = case msg of
-        ValidateBlockMsg {} -> _pactQueueValidateBlock q
-        NewBlockMsg {} -> _pactQueueNewBlock q
-        _ -> _pactQueueOtherMsg q
+        -- Write-requests
+        ValidateBlockMsg {} -> _pactQueueWriteRequests q
+        SyncToBlockMsg {} -> _pactQueueWriteRequests q
+        -- Read-requests
+        NewBlockMsg {} -> _pactQueueNewBlockRequests q
+        _ -> _pactQueueReadRequests q
 
--- | Get the next available request from the Pact execution queue
+-- | Get the next available Write-request from the Pact execution queue
 --
-getNextRequest :: PactQueue -> IO RequestMsg
-getNextRequest q = do
-    T2 req entranceTime <- atomically
-        $ tryReadTBQueueOrRetry (_pactQueueValidateBlock q)
-        <|> tryReadTBQueueOrRetry (_pactQueueNewBlock q)
-        <|> tryReadTBQueueOrRetry (_pactQueueOtherMsg q)
+getNextWriteRequest :: PactQueue -> IO RequestMsg
+getNextWriteRequest q = do
+    T2 req entranceTime <- atomically $ tryReadTBQueueOrRetry (_pactQueueWriteRequests q) <|> tryReadTBQueueOrRetry (_pactQueueNewBlockRequests q)
     requestTime <- diff <$> getCurrentTimeIntegral <*> pure entranceTime
     updatePactQueueCounters (counters req q) requestTime
     return req
@@ -105,7 +107,23 @@ getNextRequest q = do
         Just msg -> return msg
 
     counters ValidateBlockMsg{} = _pactQueuePactQueueValidateBlockMsgCounters
-    counters NewBlockMsg{} = _pactQueuePactQueueNewBlockMsgCounters
+    counters NewBlockMsg{} =  _pactQueuePactQueueNewBlockMsgCounters 
+    counters _ = _pactQueuePactQueueOtherMsgCounters
+
+-- | Get the next available Read-request from the Pact execution queue
+getNextReadRequest :: PactQueue -> IO RequestMsg
+getNextReadRequest q = do
+    T2 req entranceTime <- atomically $ tryReadTBQueueOrRetry (_pactQueueReadRequests q)
+    requestTime <- diff <$> getCurrentTimeIntegral <*> pure entranceTime
+    updatePactQueueCounters (counters req q) requestTime
+    return req
+  where
+    tryReadTBQueueOrRetry = tryReadTBQueue >=> \case
+        Nothing -> retry
+        Just msg -> return msg
+
+    counters ValidateBlockMsg{} = error "getNextReadRequest.counters.impossible"
+    counters NewBlockMsg{} = error "getNextReadRequest.counters.impossible"
     counters _ = _pactQueuePactQueueOtherMsgCounters
 
 -- -------------------------------------------------------------------------- --
