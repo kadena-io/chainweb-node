@@ -79,7 +79,7 @@ data PactExecutionService = PactExecutionService
     , _pactContinueBlock :: !(
         ChainId ->
         BlockInProgress ->
-        IO (Maybe NewBlock)
+        IO (Maybe BlockInProgress)
         )
       -- ^ Request a new block to be formed using mempool
     , _pactLocal :: !(
@@ -149,7 +149,7 @@ _webPactContinueBlock
     :: WebPactExecutionService
     -> ChainId
     -> BlockInProgress
-    -> IO (Maybe NewBlock)
+    -> IO (Maybe BlockInProgress)
 _webPactContinueBlock = _pactContinueBlock . _webPactExecutionService
 {-# INLINE _webPactContinueBlock #-}
 
@@ -199,7 +199,7 @@ mkPactExecutionService q = PactExecutionService
     , _pactNewBlock = \_ m fill -> do
         NewBlockInProgress <$> newBlock m fill q
     , _pactContinueBlock = \_ bip -> do
-        fmap NewBlockInProgress <$> continueBlock bip q
+        continueBlock bip q
     , _pactLocal = \pf sv rd ct ->
         local pf sv rd ct q
     , _pactLookup = \_ cd txs ->
