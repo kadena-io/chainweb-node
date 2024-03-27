@@ -17,6 +17,7 @@
 module Chainweb.Pact.Service.BlockValidation
 ( validateBlock
 , newBlock
+, continueBlock
 , local
 , lookupPactTxs
 , pactPreInsertCheck
@@ -43,14 +44,20 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Transaction
-import Chainweb.Utils (T2)
+import Chainweb.Utils
 
 
-newBlock :: Miner -> PactQueue ->
-            IO (T2 ParentHeader PayloadWithOutputs)
-newBlock mi reqQ = do
+newBlock :: Miner -> NewBlockFill -> PactQueue -> IO BlockInProgress
+newBlock mi fill reqQ = do
     let !msg = NewBlockMsg NewBlockReq
-          { _newMiner = mi }
+            { _newBlockMiner = mi
+            , _newBlockFill = fill
+            }
+    submitRequestAndWait reqQ msg
+
+continueBlock :: BlockInProgress -> PactQueue -> IO (Historical BlockInProgress)
+continueBlock bip reqQ = do
+    let !msg = ContinueBlockMsg (ContinueBlockReq bip)
     submitRequestAndWait reqQ msg
 
 validateBlock

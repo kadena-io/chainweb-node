@@ -42,6 +42,7 @@ import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -51,7 +52,7 @@ import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
 import Chainweb.Test.Pact.Utils(getPWOByHeader)
 import Chainweb.Test.TestVersions(fastForkingCpmTestVersion)
-import Chainweb.Utils (T2(..))
+import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
@@ -126,7 +127,8 @@ testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
     genHeight = genesisHeight testVer testChainId
     doCoinbase = do
       bdb <- liftIO iobdb
-      T2 _ pwo <- execNewBlock mempty noMiner
+      bip <- execNewBlock mempty noMiner NewBlockFill
+      let pwo = blockInProgressToPayloadWithOutputs bip
       void $ liftIO $ addTestBlockDb bdb (succ genHeight) (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
       void $ execValidateBlock mempty nextH (CheckablePayloadWithOutputs pwo)
@@ -248,7 +250,9 @@ doNextCoinbase iobdb = do
       pwo' <- liftIO $ getPWOByHeader prevH bdb
       _ <- execValidateBlock mempty prevH (CheckablePayloadWithOutputs pwo')
 
-      T2 prevH' pwo <- execNewBlock mempty noMiner
+      bip <- execNewBlock mempty noMiner NewBlockFill
+      let prevH' = _blockInProgressParentHeader bip
+      let pwo = blockInProgressToPayloadWithOutputs bip
       liftIO $ ParentHeader prevH @?= prevH'
       void $ liftIO $ addTestBlockDb bdb (succ $ _blockHeight prevH) (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
