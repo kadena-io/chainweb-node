@@ -315,11 +315,12 @@ type ParentHash = BlockHash
 data ReadCheckpointer logger = ReadCheckpointer
   { _cpReadFrom ::
     !(forall a. Maybe ParentHeader ->
-      (CurrentBlockDbEnv logger -> IO a) -> IO a)
+      (CurrentBlockDbEnv logger -> IO a) -> IO (Maybe a))
     -- ^ rewind to a particular block *in-memory*, producing a read-write snapshot
     -- ^ of the database at that block to compute some value, after which the snapshot
     -- is discarded and nothing is saved to the database.
-    -- ^ prerequisite: ParentHeader is an ancestor of the "latest block"
+    -- ^ prerequisite: ParentHeader is an ancestor of the "latest block".
+    -- if that isn't the case, Nothing is returned.
   , _cpGetEarliestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
     -- ^ get the checkpointer's idea of the earliest block. The block height
     --   is the height of the block of the block hash.
@@ -332,7 +333,7 @@ data ReadCheckpointer logger = ReadCheckpointer
     -- ^ is the checkpointer aware of the given block?
   , _cpGetBlockParent :: !((BlockHeight, BlockHash) -> IO (Maybe BlockHash))
   , _cpGetBlockHistory ::
-      !(BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory)
+      !(BlockHeader -> Domain RowKey RowData -> IO (Maybe BlockTxHistory))
   , _cpGetHistoricalLookup ::
       !(BlockHeader -> Domain RowKey RowData -> RowKey -> IO (Maybe (TxLog RowData)))
   , _cpLogger :: logger
