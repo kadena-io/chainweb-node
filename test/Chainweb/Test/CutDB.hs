@@ -66,6 +66,7 @@ import Chainweb.Test.Cut
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
@@ -403,7 +404,8 @@ tryMineForChain
     -> ChainId
     -> IO (Either MineFailure (Cut, ChainId, PayloadWithOutputs))
 tryMineForChain miner webPact cutDb c cid = do
-    T2 _ outputs <- _webPactNewBlock webPact cid miner
+    newBlock <- _webPactNewBlock webPact cid miner NewBlockFill
+    let outputs = newBlockToPayloadWithOutputs newBlock
     let payloadHash = _payloadWithOutputsPayloadHash outputs
     t <- getCurrentTimeIntegral
     x <- testMineWithPayloadHash wdb (Nonce 0) t payloadHash cid c
@@ -487,13 +489,14 @@ fakePact = WebPactExecutionService $ PactExecutionService
         return
             $ payloadWithOutputs d coinbase
             $ getFakeOutput <$> _payloadDataTransactions d
-  , _pactNewBlock = \_ _ -> do
+  , _pactNewBlock = \_ _ _ -> do
         payloadDat <- generate $ V.fromList . getNonEmpty <$> arbitrary
         ph <- ParentHeader <$> generate arbitrary
         return
-            $ T2 ph
-            $ newPayloadWithOutputs fakeMiner coinbase
-            $ (\x -> (x, getFakeOutput x)) <$> payloadDat
+            $ NewBlockPayload ph
+                $ newPayloadWithOutputs fakeMiner coinbase
+                $ (\x -> (x, getFakeOutput x)) <$> payloadDat
+  , _pactContinueBlock = \_ -> error "Unimplemented"
 
   , _pactLocal = \_t -> error "Unimplemented"
   , _pactLookup = \_ _ -> error "Unimplemented"

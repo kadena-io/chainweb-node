@@ -81,7 +81,6 @@ import qualified System.LogLevel as L
 
 -- internal Pact modules
 
-import Chainweb.Pact.Backend.Types (_cpPactDbEnv)
 import Pact.Eval (eval, liftTerm)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
