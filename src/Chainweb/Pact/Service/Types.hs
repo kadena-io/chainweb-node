@@ -1,5 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
@@ -45,6 +49,10 @@ module Chainweb.Pact.Service.Types
   , ConfirmationDepth(..)
   , RewindLimit(..)
 
+  , Historical(..)
+  , _NoHistory
+  , _Historical
+
   , BlockValidationFailureMsg(..)
   , LocalResult(..)
   , _LocalResultLegacy
@@ -59,6 +67,7 @@ module Chainweb.Pact.Service.Types
   , TransactionOutputProofB64(..)
 
   , internalError
+  , throwIfNoHistory
   ) where
 
 import Control.DeepSeq
@@ -103,6 +112,9 @@ import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
 import Chainweb.Time
+import Chainweb.Version
+import Chainweb.Version.Mainnet
+import GHC.Stack
 
 -- | Value that represents a limitation for rewinding.
 newtype RewindLimit = RewindLimit { _rewindLimit :: Word64 }
@@ -245,7 +257,7 @@ instance FromJSON LocalResult where
 --
 data PactException
   = BlockValidationFailure !BlockValidationFailureMsg
-  | PactInternalError !Text
+  | PactInternalError !CallStack !Text
   | PactTransactionExecError !PactHash !Text
   | CoinbaseFailure !Text
   | NoBlockValidatedYet
@@ -268,14 +280,14 @@ data PactException
     { _earliestBlockHeight :: !BlockHeight
     , _genesisHeight :: !BlockHeight
     }
-  deriving (Eq,Generic)
+  deriving stock Generic
 
 instance Show PactException where
     show = unpack . J.encodeText
 
 instance J.Encode PactException where
   build (BlockValidationFailure msg) = tagged "BlockValidationFailure" msg
-  build (PactInternalError msg) = tagged "PactInternalError" msg
+  build (PactInternalError _stack msg) = tagged "PactInternalError" msg
   build (PactTransactionExecError h msg) = tagged "PactTransactionExecError" (J.Array (h, msg))
   build (CoinbaseFailure msg) = tagged "CoinbaseFailure" msg
   build NoBlockValidatedYet = tagged "NoBlockValidatedYet" J.null
@@ -325,10 +337,12 @@ instance Show BlockTxHistory where
   show = show . fmap (J.encodeText . J.Array) . _blockTxHistory
 instance NFData BlockTxHistory
 
+internalError :: (HasCallStack, MonadThrow m) => Text -> m a
+internalError = throwM . PactInternalError callStack
 
-
-internalError :: MonadThrow m => Text -> m a
-internalError = throwM . PactInternalError
+throwIfNoHistory :: (HasCallStack, MonadThrow m) => Historical a -> m a
+throwIfNoHistory NoHistory = internalError "missing history"
+throwIfNoHistory (Historical a) = return a
 
 data RequestCancelled = RequestCancelled
   deriving (Eq, Show)
@@ -368,8 +382,8 @@ data RequestMsg r where
     LocalMsg :: !LocalReq -> RequestMsg LocalResult
     LookupPactTxsMsg :: !LookupPactTxsReq -> RequestMsg (HashMap PactHash (T2 BlockHeight BlockHash))
     PreInsertCheckMsg :: !PreInsertCheckReq -> RequestMsg (Vector (Either InsertError ()))
-    BlockTxHistoryMsg :: !BlockTxHistoryReq -> RequestMsg BlockTxHistory
-    HistoricalLookupMsg :: !HistoricalLookupReq -> RequestMsg (Maybe (TxLog RowData))
+    BlockTxHistoryMsg :: !BlockTxHistoryReq -> RequestMsg (Historical BlockTxHistory)
+    HistoricalLookupMsg :: !HistoricalLookupReq -> RequestMsg (Historical (Maybe (TxLog RowData)))
     SyncToBlockMsg :: !SyncToBlockReq -> RequestMsg ()
     ReadOnlyReplayMsg :: !ReadOnlyReplayReq -> RequestMsg ()
     CloseMsg :: RequestMsg ()
@@ -475,3 +489,13 @@ instance FromJSON SpvRequest where
 newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
     deriving stock (Eq, Show, Generic)
     deriving newtype (ToJSON, FromJSON)
+
+-- | The result of a historical lookup which might fail to even find the
+-- header the history is being queried for.
+data Historical a
+  = Historical a
+  | NoHistory
+  deriving stock (Foldable, Functor, Generic, Traversable)
+  deriving anyclass NFData
+
+makePrisms ''Historical

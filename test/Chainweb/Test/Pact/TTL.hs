@@ -215,7 +215,7 @@ doNewBlock ctxIO mempool nonce t = do
     unlessM (tryPutMVar (_ctxMempool ctx) mempool) $
         error "Test failure: mempool access is not empty. Some previous test step failed unexpectedly"
 
-    T2 parent payload <- newBlock noMiner $ _ctxQueue ctx
+    T2 parent payload <- newBlock noMiner (_ctxQueue ctx)
     let
         creationTime = BlockCreationTime
             . add (secondsToTimeSpan t) -- 10 seconds

@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module      :  Chainweb.Pact.Service.BlockValidation
@@ -38,6 +40,7 @@ import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool (InsertError)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.PactQueue
+import Chainweb.Pact.Backend.Types(Historical)
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Transaction
@@ -114,7 +117,7 @@ pactBlockTxHistory
   :: BlockHeader
   -> Domain RowKey RowData
   -> PactQueue
-  -> IO BlockTxHistory
+  -> IO (Historical BlockTxHistory)
 pactBlockTxHistory bh d reqQ = do
   let !req = BlockTxHistoryReq bh d
   let !msg = BlockTxHistoryMsg req
@@ -125,7 +128,7 @@ pactHistoricalLookup
     -> Domain RowKey RowData
     -> RowKey
     -> PactQueue
-    -> IO (Maybe (TxLog RowData))
+    -> IO (Historical (Maybe (TxLog RowData)))
 pactHistoricalLookup bh d k reqQ = do
   let !req = HistoricalLookupReq bh d k
   let !msg = HistoricalLookupMsg req

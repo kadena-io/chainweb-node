@@ -584,7 +584,7 @@ readInitModules = do
            rk 0 def Nothing
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
     interp = defaultInterpreter
-    die msg = throwM $ PactInternalError $ "readInitModules: " <> msg
+    die msg = internalError $ "readInitModules: " <> msg
     mkCmd = buildExecParsedCode (pactParserVersion v cid h) Nothing
     run msg cmd = do
       er <- catchesPactError logger (onChainErrorPrintingFor txCtx) $!
