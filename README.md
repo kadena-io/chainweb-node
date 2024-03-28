@@ -1,5 +1,5 @@
 <p align="center">
-<img src="https://cdn.sanity.io/images/agrhq0bu/production/3914c91a76778ba6b2c774a8fb0c751272377cbb-2918x672.png" width="450" height="243" alt="Kadena" title="Kadena">
+<img src="https://cdn.sanity.io/images/agrhq0bu/production/3914c91a76778ba6b2c774a8fb0c751272377cbb-2918x672.png" alt="Kadena" title="Kadena">
 </p>
 
 <p>&nbsp;</p>
