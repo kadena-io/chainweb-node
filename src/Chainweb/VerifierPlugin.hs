@@ -43,6 +43,8 @@ import Pact.Types.Gas
 import Pact.Types.PactValue
 import Pact.Types.Verifier
 
+import Chainweb.Version
+import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Utils
 
@@ -55,7 +57,8 @@ newtype VerifierPlugin
     = VerifierPlugin
     { runVerifierPlugin
         :: forall s
-        . PactValue
+        . (ChainwebVersion, ChainId, BlockHeight)
+        -> PactValue
         -> Set SigCapability
         -> STRef s Gas
         -> ExceptT VerifierError (ST s) ()
@@ -73,8 +76,15 @@ chargeGas r g = do
         " with only " <> sshow (case gasRemaining of Gas gasRemaining' -> gasRemaining') <> " remaining."
     lift $ writeSTRef r (gasRemaining - g)
 
-runVerifierPlugins :: Logger logger => logger -> Map VerifierName VerifierPlugin -> Gas -> Command (Payload PublicMeta ParsedCode) -> IO (Either VerifierError Gas)
-runVerifierPlugins logger allVerifiers gasRemaining tx = try $ do
+runVerifierPlugins
+    :: Logger logger
+    => (ChainwebVersion, ChainId, BlockHeight)
+    -> logger
+    -> Map VerifierName VerifierPlugin
+    -> Gas
+    -> Command (Payload PublicMeta ParsedCode)
+    -> IO (Either VerifierError Gas)
+runVerifierPlugins chainContext logger allVerifiers gasRemaining tx = try $ do
     gasRef <- stToIO $ newSTRef gasRemaining
     either throw (\_ -> stToIO $ readSTRef gasRef) <=< runExceptT $ Merge.mergeA
         -- verifier in command does not exist in list of all valid verifiers
@@ -86,7 +96,7 @@ runVerifierPlugins logger allVerifiers gasRemaining tx = try $ do
         (Merge.zipWithAMatched $ \(VerifierName vn) proofsAndCaps verifierPlugin ->
             for_ proofsAndCaps $ \(ParsedVerifierProof proof, caps) -> do
                 verifierGasRemaining <- lift $ stToIO $ readSTRef gasRef
-                tryAny (hoist stToIO (runVerifierPlugin verifierPlugin proof caps gasRef)) >>= \case
+                tryAny (hoist stToIO (runVerifierPlugin verifierPlugin chainContext proof caps gasRef)) >>= \case
                     Left ex -> do
                         liftIO $ logFunctionText logger Warn ("Uncaught exception in verifier: " <> sshow ex)
                         throwError $ VerifierError "Uncaught exception in verifier"

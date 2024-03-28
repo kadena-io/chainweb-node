@@ -19,7 +19,7 @@ import Chainweb.VerifierPlugin
 -- This trivial verifier plugin takes as its "proof" a JSON-encoded capability,
 -- and grants only that capability.
 plugin :: VerifierPlugin
-plugin = VerifierPlugin $ \proof caps gasRef -> do
+plugin = VerifierPlugin $ \_ proof caps gasRef -> do
     chargeGas gasRef 100
     decodedCap <- decodeArgToCap proof
     unless (caps == Set.singleton decodedCap) $

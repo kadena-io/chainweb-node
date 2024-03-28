@@ -14,8 +14,9 @@
 --
 module Chainweb.VerifierPlugin.Hyperlane.Message (plugin) where
 
+import Control.Applicative
 import Control.Error
-import Control.Monad (unless)
+import Control.Monad (unless, guard)
 import Control.Monad.Except
 
 import qualified Data.Text.Encoding as Text
@@ -30,13 +31,14 @@ import Pact.Types.Capability
 
 import Chainweb.Utils.Serialization (putRawByteString, runPutS, runGetS, putWord32be)
 
+import Chainweb.Version.Guards
 import Chainweb.VerifierPlugin
 import Chainweb.VerifierPlugin.Hyperlane.Binary
 import Chainweb.VerifierPlugin.Hyperlane.Utils
 import Chainweb.Utils (encodeB64UrlNoPaddingText, decodeB64UrlNoPaddingText, sshow)
 
 plugin :: VerifierPlugin
-plugin = VerifierPlugin $ \proof caps gasRef -> do
+plugin = VerifierPlugin $ \(v, cid, bh) proof caps gasRef -> do
   -- extract capability values
   SigCapability{..} <- case Set.toList caps of
     [cap] -> return cap
@@ -59,10 +61,14 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
     decoded <- runGetS getHyperlaneMessage msg
     return (decoded, msg)
 
-  MessageIdMultisigIsmMetadata{..} <- do
+  metadata <- do
     chargeGas gasRef 5
-    metadata <- decodeB64UrlNoPaddingText metadataBase64
-    runGetS getMessageIdMultisigIsmMetadata metadata
+    metadataBytes <- decodeB64UrlNoPaddingText metadataBase64
+
+    let
+      getMerkleMetadata = guard (chainweb224Pact v cid bh) >> Right <$> getMerkleRootMultisigIsmMetadata
+      getMessageIdMetadata = Left <$> getMessageIdMultisigIsmMetadata
+    runGetS (getMerkleMetadata <|> getMessageIdMetadata) metadataBytes
 
   -- validate recipient
   let hmRecipientPactValue = PLiteral $ LString $ Text.decodeUtf8 hmRecipient
@@ -78,14 +84,29 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
       "Invalid TokenMessage. Expected: " <> sshow hmMessageBodyPactValue <> " but got " <> sshow capMessageBody
 
   -- validate signers
+  let messageId = keccak256ByteString hyperlaneMessageBinary
+
+  (originMerkleTreeAddress, root, checkpointIndex, messageId', signatures) <- case metadata of
+    Right MerkleRootMultisigIsmMetadata{..} -> do
+      chargeGas gasRef 18 -- gas cost of the `branchRoot`
+      pure ( mrmimOriginMerkleTreeAddress
+        , branchRoot messageId mrmimMerkleProof mrmimMessageIdIndex
+        , mrmimSignedCheckpointIndex
+        , mrmimSignedCheckpointMessageId
+        , mrmimSignatures)
+    Left MessageIdMultisigIsmMetadata{..} -> pure
+      ( mmimOriginMerkleTreeAddress
+      , mmimSignedCheckpointRoot
+      , mmimSignedCheckpointIndex
+      , messageId
+      , mmimSignatures)
+
   let
     domainHash = keccak256ByteString $ runPutS $ do
       -- Corresponds to abi.encodePacked behaviour
       putWord32be hmOriginDomain
-      putRawByteString mmimOriginMerkleTreeAddress
+      putRawByteString originMerkleTreeAddress
       putRawByteString "HYPERLANE"
-
-  let messageId = keccak256ByteString hyperlaneMessageBinary
 
   let
     digest = keccak256 $ runPutS $ do
@@ -94,11 +115,11 @@ plugin = VerifierPlugin $ \proof caps gasRef -> do
       putRawByteString $
         keccak256ByteString $ runPutS $ do
           putRawByteString domainHash
-          putRawByteString mmimSignedCheckpointRoot
-          putWord32be mmimSignedCheckpointIndex
-          putRawByteString messageId
+          putRawByteString root
+          putWord32be checkpointIndex
+          putRawByteString messageId'
 
-  addresses <- catMaybes <$> mapM (\sig -> chargeGas gasRef 16250 >> recoverAddress digest sig) mmimSignatures
+  addresses <- catMaybes <$> mapM (\sig -> chargeGas gasRef 16250 >> recoverAddress digest sig) signatures
   let addressesVals = PList $ V.fromList $ map (PLiteral . LString . encodeHex) addresses
 
   -- Note, that we check the signers for the full equality including their order and amount.
