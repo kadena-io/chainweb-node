@@ -41,7 +41,7 @@ import Chainweb.Version.Utils (chainIdsAt)
 import Chronos qualified
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (swapMVar, readMVar, newMVar)
-import Control.Exception (Exception, SomeException(..))
+import Control.Exception (Exception, SomeException(..), finally)
 import Control.Lens (makeLenses, set, over, view, (^.), _2, (^?!), ix)
 import Control.Monad (forM, forM_, unless, void, when)
 import Control.Monad.Catch (MonadCatch(catch), MonadThrow(throwM))
@@ -78,6 +78,7 @@ import Data.Text.Encoding qualified as Text
 import Data.Vector (Vector)
 import Data.Vector qualified as V
 import Data.Word (Word64)
+import Database.SQLite3 qualified as Lite
 import Database.SQLite3.Direct (Utf8(..), Database)
 import GHC.Stack (HasCallStack)
 import Options.Applicative qualified as O
@@ -188,8 +189,10 @@ compact cfg = do
           do
             log LL.Info "Compacting VersionedTableMutation"
             activeRows <- getVersionedTableMutationRowsAt logger srcDb targetBlockHeight
-            forM_ activeRows $ \row -> do
-              Pact.exec' targetDb "INSERT INTO VersionedTableMutation VALUES (?1, ?2)" row
+            Lite.withStatement targetDb "INSERT INTO VersionedTableMutation VALUES (?1, ?2)" $ \stmt -> do
+              forM_ activeRows $ \row -> do
+                Pact.bindParams stmt row
+                void $ stepThenReset stmt
 
           -- Compact user tables
           log LL.Debug "Starting user tables"
@@ -200,10 +203,13 @@ compact cfg = do
             createUserTable targetDb tblnameUtf8
 
             log LL.Info $ "Inserting compacted rows into " <> tblname
-            void $ flip S.mapM_ tblRows $ \pr -> do
-              let qryText = "INSERT INTO " <> tbl tblnameUtf8 <> " VALUES (?1, ?2, ?3)"
-              let row = [SText (Utf8 pr.rowKey), SInt pr.txId, SBlob pr.rowData]
-              Pact.exec' targetDb qryText row
+
+            let qryText = "INSERT INTO " <> fromUtf8 (tbl tblnameUtf8) <> " VALUES (?1, ?2, ?3)"
+            Lite.withStatement targetDb qryText $ \stmt -> do
+              void $ flip S.mapM_ tblRows $ \pr -> do
+                let row = [SText (Utf8 pr.rowKey), SInt pr.txId, SBlob pr.rowData]
+                Pact.bindParams stmt row
+                void $ stepThenReset stmt
 
             log LL.Info $ "Creating table indices for " <> tblname
             createUserTableIndex targetDb tblnameUtf8
@@ -355,3 +361,7 @@ exitLog :: (Logger logger)
 exitLog logger msg = do
   logFunctionText logger LL.Error msg
   exitFailure
+
+stepThenReset :: Lite.Statement -> IO Lite.StepResult
+stepThenReset stmt = do
+  Lite.stepNoCB stmt `finally` Lite.reset stmt
