@@ -203,13 +203,16 @@ compact cfg = do
             createUserTable targetDb tblnameUtf8
 
             log LL.Info $ "Inserting compacted rows into " <> tblname
+            Pact.exec_ targetDb "BEGIN;"
 
-            let qryText = "INSERT INTO " <> fromUtf8 (tbl tblnameUtf8) <> " VALUES (?1, ?2, ?3)"
+            let qryText = "INSERT INTO " <> fromUtf8 (tbl tblnameUtf8) <> " VALUES (?, ?, ?)"
             Lite.withStatement targetDb qryText $ \stmt -> do
               void $ flip S.mapM_ tblRows $ \pr -> do
                 let row = [SText (Utf8 pr.rowKey), SInt pr.txId, SBlob pr.rowData]
                 Pact.bindParams stmt row
                 void $ stepThenReset stmt
+
+            Pact.exec_ targetDb "COMMIT;"
 
             log LL.Info $ "Creating table indices for " <> tblname
             createUserTableIndex targetDb tblnameUtf8

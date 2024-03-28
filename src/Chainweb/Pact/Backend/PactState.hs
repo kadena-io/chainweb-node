@@ -65,6 +65,7 @@ import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.Foldable qualified as F
 import Data.Function ((&))
+import Data.Functor
 import Data.Int (Int64)
 import Data.List qualified as List
 import Data.Map (Map)
@@ -80,6 +81,7 @@ import Streaming.Prelude (Stream, Of)
 import Streaming.Prelude qualified as S
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
+import System.IO.Unsafe
 
 excludedTables :: [Utf8]
 excludedTables = checkpointerTables ++ compactionTables
@@ -196,14 +198,14 @@ stepStatement stmt rts = runExceptT $ do
         SQL.Done -> do
           pure ()
         SQL.Row -> do
-          as <- forM (List.zip [0..] rts) $ \(colIx, expectedColType) -> do
-            liftIO $ case expectedColType of
-              RInt -> SInt <$> SQL.columnInt64 stmt colIx
-              RDouble -> SDouble <$> SQL.columnDouble stmt colIx
-              RText -> SText <$> SQL.columnText stmt colIx
-              RBlob -> SBlob <$> SQL.columnBlob stmt colIx
+          let as = List.zip [0..] rts <&> \(colIx, expectedColType) ->
+                case expectedColType of
+                  RInt -> SInt $ unsafePerformIO $ SQL.columnInt64 stmt colIx
+                  RDouble -> SDouble $ unsafePerformIO $ SQL.columnDouble stmt colIx
+                  RText -> SText $ unsafePerformIO $ SQL.columnText stmt colIx
+                  RBlob -> SBlob $ unsafePerformIO $ SQL.columnBlob stmt colIx
           lift $ S.yield as
-          liftIO (SQL.step stmt) >>= \case
+          liftIO (SQL.stepNoCB stmt) >>= \case
             Left err -> do
               throwError err
             Right sr -> do
