@@ -677,6 +677,7 @@ jobs:
         WORKDIR /chainweb
         COPY chainweb/chainweb-node .
         COPY chainweb/chainweb-tests .
+        COPY chainweb/cwtool .
         COPY chainweb/LICENSE .
         COPY chainweb/README.md .
         COPY chainweb/CHANGELOG.md .
