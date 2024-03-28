@@ -14,6 +14,8 @@
 
 {-# options_ghc -fno-warn-unused-imports #-}
 
+-- TODO: check size of compacted db (sigma vs old)
+--
 module Chainweb.Pact.Backend.CompactionInMemory
   ( main
   )
@@ -137,6 +139,8 @@ main = do
 -- demo: compact a single chain.
 compact :: Config -> IO ()
 compact cfg = do
+  -- TODO (chessai): fail if targetDir exists at all
+
   -- TODO (chessai): these may need tuning
   --
   -- journal_mode = OFF is terrible for prod but probably OK here
@@ -169,8 +173,10 @@ compact cfg = do
           -- Create checkpointer tables on the target
           createCheckpointerTables targetDb logger
 
-          -- The target SQLite file for this chain
-          let chainDbFile = chainDbFileName cid cfg.targetDir
+          -- TODO (chessai): when compacting system tables,
+          -- we may want to try a few things to improve performance:
+          -- 1. creating all indices on them after inserting
+          -- 2. import-from-sql (is this a thing)?
 
           -- Compact BlockHistory
           do
@@ -182,53 +188,27 @@ compact cfg = do
           do
             log LL.Info "Compacting VersionedTableMutation"
             activeRows <- getVersionedTableMutationRowsAt logger srcDb targetBlockHeight
-
-            log LL.Debug "Writing CSV for VersionedTableMutation"
-            let csvPath = cfg.targetDir </> tableCsvName "VersionedTableMutation"
-            BS.writeFile csvPath (versionedTableMutationToCSV activeRows)
-
-            log LL.Debug "Importing CSV for VersionedTableMutation"
-            importCsv logger "VersionedTableMutation" chainDbFile csvPath
-
-            log LL.Debug "Deleting CSV for VersionedTableMutation"
-            removeFile csvPath
+            forM_ activeRows $ \row -> do
+              Pact.exec' targetDb "INSERT INTO VersionedTableMutation VALUES (?1, ?2)" row
 
           -- Compact user tables
           log LL.Debug "Starting user tables"
-          getLatestPactStateAt srcDb targetBlockHeight
-            & S.mapM_ (\(tblname, tableContents) -> do
-                log LL.Info $ "Creating table " <> tblname
-                createUserTable targetDb (toUtf8 tblname)
+          withLatestPactStateAt srcDb targetBlockHeight $ \tblname tblRows -> do
+            let tblnameUtf8 = toUtf8 tblname
 
-                log LL.Debug $ "Writing CSV for " <> tblname
-                let csvPath = cfg.targetDir </> tableCsvName tblname
-                BS.writeFile csvPath (userTableToCSV tableContents)
+            log LL.Info $ "Creating table " <> tblname
+            createUserTable targetDb tblnameUtf8
 
-                log LL.Debug $ "Importing CSV for " <> tblname
-                importCsv logger tblname chainDbFile csvPath
+            log LL.Info $ "Inserting compacted rows into " <> tblname
+            void $ flip S.mapM_ tblRows $ \pr -> do
+              let qryText = "INSERT INTO " <> tbl tblnameUtf8 <> " VALUES (?1, ?2, ?3)"
+              let row = [SText (Utf8 pr.rowKey), SInt pr.txId, SBlob pr.rowData]
+              Pact.exec' targetDb qryText row
 
-                log LL.Debug $ "Deleting CSV for " <> tblname
-                removeFile csvPath
-              )
+            log LL.Info $ "Creating table indices for " <> tblname
+            createUserTableIndex targetDb tblnameUtf8
 
-versionedTableMutationToCSV :: [(Utf8, Int64)] -> ByteString
-versionedTableMutationToCSV rs =
-  let
-    body = flip foldMap rs $ \(tblName, bHeight) ->
-      Csv.encodeRecord (fromUtf8 tblName, bHeight)
-    header = Csv.encodeHeader (V.fromList ["tablename", "blockheight"])
-  in
-  BL.toStrict (BB.toLazyByteString (header <> body))
-
-userTableToCSV :: Map ByteString PactRowContents -> ByteString
-userTableToCSV m =
-  let
-    body = flip M.foldMapWithKey m $ \rk (PactRowContents rd tid) ->
-      Csv.encodeRecord (Text.decodeUtf8 rk, tid, Text.decodeUtf8 rd)
-    header = Csv.encodeHeader (V.fromList ["rowkey", "txid", "rowdata"])
-  in
-  BL.toStrict (BB.toLazyByteString (header <> body))
-
+-- TODO: use initSchema
 createCheckpointerTables :: (Logger logger)
   => Database
   -> logger
@@ -285,15 +265,21 @@ createUserTable :: Database -> Utf8 -> IO ()
 createUserTable db tblname = do
   Pact.exec_ db $ mconcat
     [ "CREATE TABLE IF NOT EXISTS ", tbl tblname, " "
-    , "(rowkey TEXT NOT NULL"
+    , "(rowkey TEXT" -- investigate making this NOT NULL
     , ", txid UNSIGNED BIGINT NOT NULL"
     , ", rowdata BLOB NOT NULL"
-    , ", UNIQUE (rowkey, txid)"
+    -- , ", UNIQUE (rowkey, txid)"
     , ");"
     ]
 
   Pact.exec_ db $ "DELETE FROM " <> tbl tblname
 
+createUserTableIndex :: Database -> Utf8 -> IO ()
+createUserTableIndex db tblname = do
+  Pact.exec_ db $ mconcat
+    [ "CREATE UNIQUE INDEX IF NOT EXISTS ", tbl (tblname <> "rowkey_txid_unique_ix"), " ON "
+    , tbl tblname, " (rowkey, txid)"
+    ]
   Pact.exec_ db $ mconcat
     [ "CREATE INDEX IF NOT EXISTS ", tbl (tblname <> "_ix"), " ON "
     , tbl tblname, " (txid DESC)"
@@ -320,41 +306,19 @@ getVersionedTableMutationRowsAt :: (Logger logger)
   => logger
   -> Database
   -> BlockHeight
-  -> IO [(Utf8, Int64)]
+  -> IO [[SType]]
 getVersionedTableMutationRowsAt logger db target = do
   r <- Pact.qry db "SELECT tablename, blockheight FROM VersionedTableMutation WHERE blockheight = ?1" [SInt (int target)] [RText, RInt]
   forM r $ \case
-    [SText tblName, SInt bh] -> do
+    row@[SText _, SInt bh] -> do
       unless (target == int bh) $ do
         exitLog logger "BlockHeight mismatch in VersionedTableMutation query. This is a bug in the compaction tool. Please report it."
-      pure (tblName, bh)
+      pure row
     _ -> do
       exitLog logger "getVersionedTableMutationRowsAt query: invalid query"
 
 tbl :: Utf8 -> Utf8
 tbl u = "[" <> u <> "]"
-
-importCsv :: (Logger logger)
-  => logger
-  -> Text
-  -> FilePath
-  -> FilePath
-  -> IO ()
-importCsv logger tblname sqlitePath csvPath = do
-  -- note the `--skip 1`: this is skipping the header.
-  -- perhaps this should be configurable. probably doesn't matter.
-  let imp = shell $ "sqlite3 " <> sqlitePath <> " '.import --csv --skip 1 " <> csvPath <> " " <> Text.unpack tblname <> "'"
-
-  (exitCode, stdout, stderr) <- readCreateProcessWithExitCode imp ""
-  logFunctionText logger LL.Debug $ "stdout of import was: " <> Text.pack stdout
-  logFunctionText logger LL.Debug $ "stderr of import was: " <> Text.pack stderr
-
-  case exitCode of
-    ExitSuccess -> pure ()
-    ExitFailure {} -> exitWith exitCode
-
-tableCsvName :: Text -> FilePath
-tableCsvName tblname = addExtension (Text.unpack (Text.replace "." "__" tblname)) "csv"
 
 locateLatestSafeTarget :: (Logger logger)
   => logger

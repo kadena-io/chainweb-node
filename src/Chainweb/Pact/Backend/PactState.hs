@@ -27,6 +27,7 @@ module Chainweb.Pact.Backend.PactState
   , getPactTables
   , getLatestPactStateDiffable
   , getLatestPactStateAt
+  , withLatestPactStateAt
   , getLatestPactStateAtDiffable
   , getLatestBlockHeight
   , getEarliestBlockHeight
@@ -281,6 +282,63 @@ getLatestPactStateAt db bh = do
                 _ -> error "getLatestPactState: unexpected shape of user table row"
           S.fold_ go M.empty id rows
         pure (fromUtf8 tbl, latestState)
+      )
+
+-- | Use the Pact State at the given height.
+withLatestPactStateAt :: ()
+  => Database
+  -> BlockHeight
+  -> (forall r. Text -> Stream (Of PactRow) IO r -> IO ())
+  -> IO ()
+withLatestPactStateAt db bh withTable = do
+  endingTxId <- liftIO $ getEndingTxId db bh
+
+  tablesCreatedAfter <- liftIO $ do
+    let qryText = "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight > ?1"
+    rows <- Pact.qry db qryText [SInt (int bh)] [RText]
+    forM rows $ \case
+      [SText tbl] -> pure tbl
+      _ -> error "getLatestPactStateAt.tablesCreatedAfter: expected text"
+
+  getPactTableNames db
+    & S.filter (\tbl -> tbl `notElem` (excludedTables ++ tablesCreatedAfter))
+    & S.mapM_ (\tbl -> do
+        -- ❯ sqlite3 pact-v1-chain-0.sqlite 'EXPLAIN QUERY PLAN SELECT rowkey, txid, rowdata FROM [coin_coin-table] WHERE txid < 100 ORDER BY rowkey DESC, txid DESC'
+        -- QUERY PLAN
+        -- `--SCAN coin_coin-table USING INDEX sqlite_autoindex_coin_coin-table_
+        let qryText = "SELECT rowkey, txid, rowdata FROM "
+              <> "[" <> tbl <> "]"
+              <> " WHERE txid < ?1"
+              <> " ORDER BY rowkey DESC, txid DESC"
+
+        qry db qryText [SInt endingTxId] [RText, RInt, RBlob] $ \rows -> do
+          let skipRowKey :: ByteString -> [SType] -> Bool
+              skipRowKey rk0 = \case
+                [SText (Utf8 rk), SInt _, SBlob _] -> rk == rk0
+                _ -> error "getLatestPactState: invalid query"
+          let go :: ()
+                => Stream (Of [SType]) IO (Either SQL.Error ())
+                -> Stream (Of PactRow) IO ()
+              go s = do
+                e <- liftIO (S.next s)
+                case e of
+                  Left (Left sqlErr) -> do
+                    error $ "getLatestPactState: Encountered SQLite error: " <> show sqlErr
+                  Left (Right ()) -> do
+                    pure ()
+                  Right (row, rest) -> do
+                    case row of
+                      [SText (Utf8 rk), SInt tid, SBlob rd] -> do
+                        S.yield $ PactRow
+                          { rowKey = rk
+                          , rowData = rd
+                          , txId = tid
+                          }
+                        go (S.dropWhile (skipRowKey rk) rest)
+                      _ -> do
+                        error "getLatestPactState: invalid query"
+
+          withTable (fromUtf8 tbl) (go rows)
       )
 
 -- | A pact table - just its name and its rows.
