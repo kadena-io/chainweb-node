@@ -306,11 +306,12 @@ getBlockHeaderInternal
     -> WebBlockPayloadStore tbl
     -> candidateHeaderCas
     -> candidatePayloadCas
+    -> Maybe (BlockPayloadHash, PayloadWithOutputs)
     -> Priority
     -> Maybe PeerInfo
     -> ChainValue BlockHash
     -> IO (ChainValue BlockHeader)
-getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin h = do
+getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas localPayload priority maybeOrigin h = do
     logg Debug $ "getBlockHeaderInternal: " <> sshow h
     !bh <- memoInsert cas memoMap h $ \k@(ChainValue cid k') -> do
 
@@ -361,6 +362,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
                     payloadStore
                     candidateHeaderCas
                     candidatePayloadCas
+                    localPayload
                     priority
                     maybeOrigin'
                     p
@@ -378,6 +380,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
                     payloadStore
                     candidateHeaderCas
                     candidatePayloadCas
+                    localPayload
                     priority
                     maybeOrigin'
                     p
@@ -476,11 +479,16 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
 
     validateAndInsertPayload :: BlockHeader -> PayloadData -> IO ()
     validateAndInsertPayload hdr p = do
+        let payload = case localPayload of
+                Just (hsh, pwo)
+                    | hsh == _blockPayloadHash hdr
+                        -> CheckablePayloadWithOutputs pwo
+                _ -> CheckablePayload p
         outs <- trace logfun
             (traceLabel "pact")
             (_blockHash hdr)
             (length (_payloadDataTransactions p))
-            $ pact hdr p
+            $ pact hdr payload
         addNewPayload (_webBlockPayloadStoreCas payloadStore) (_blockHeight hdr) outs
 
     queryBlockHeaderTask ck@(ChainValue cid k)
@@ -574,12 +582,13 @@ getBlockHeader
     -> WebBlockPayloadStore tbl
     -> candidateHeaderCas
     -> candidatePayloadCas
+    -> Maybe (BlockPayloadHash, PayloadWithOutputs)
     -> ChainId
     -> Priority
     -> Maybe PeerInfo
     -> BlockHash
     -> IO BlockHeader
-getBlockHeader headerStore payloadStore candidateHeaderCas candidatePayloadCas cid priority maybeOrigin h
+getBlockHeader headerStore payloadStore candidateHeaderCas candidatePayloadCas localPayload cid priority maybeOrigin h
     = ((\(ChainValue _ b) -> b) <$> go)
         `catch` \(TaskFailed _es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h
   where
@@ -588,6 +597,7 @@ getBlockHeader headerStore payloadStore candidateHeaderCas candidatePayloadCas c
         payloadStore
         candidateHeaderCas
         candidatePayloadCas
+        localPayload
         priority
         maybeOrigin
         (ChainValue cid h)

@@ -243,7 +243,7 @@ createBlock validate nonce pact = do
               parent
 
      when (validate == DoValidate) $ do
-       void $ validateBlock bh (payloadWithOutputsToPayloadData payload) pact
+       void $ validateBlock bh (CheckablePayloadWithOutputs payload) pact
 
      return $ T3 parent bh payload
 

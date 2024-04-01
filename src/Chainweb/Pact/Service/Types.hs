@@ -317,7 +317,6 @@ instance NFData BlockTxHistory
 
 
 
-
 internalError :: MonadThrow m => Text -> m a
 internalError = throwM . PactInternalError
 
@@ -379,14 +378,12 @@ instance Show (RequestMsg r) where
 
 data NewBlockReq = NewBlockReq
     { _newMiner :: !Miner
-    }
-instance Show NewBlockReq where show NewBlockReq{..} = show _newMiner
+    } deriving stock Show
 
 data ValidateBlockReq = ValidateBlockReq
     { _valBlockHeader :: !BlockHeader
-    , _valPayloadData :: !PayloadData
-    }
-instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlockHeader, _valPayloadData)
+    , _valCheckablePayload :: !CheckablePayload
+    } deriving stock Show
 
 data LocalReq = LocalReq
     { _localRequest :: !ChainwebTransaction

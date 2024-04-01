@@ -228,7 +228,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
           mc <- readInitModules
           updateInitCacheM mc
         void $ trace (logFunction cwLogger) "execBlock" () 1 $
-            execBlock hdr (payloadWithOutputsToPayloadData pwo)
+            execBlock hdr (CheckablePayloadWithOutputs pwo)
       doBlock False (ParentHeader hdr) rest
 
 -- | Block-scoped SPV mock by matching cont proofs to payload txs.

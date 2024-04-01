@@ -389,16 +389,20 @@ instance Exception InvalidSolvedHeader
 extend
     :: MonadThrow m
     => Cut
-    -> PayloadData
+    -> PayloadWithOutputs
     -> SolvedWork
     -> m (BlockHeader, Maybe CutHashes)
-extend c pd s = do
-    (bh, mc) <- extendCut c (_payloadDataPayloadHash pd) s
+extend c pwo s = do
+    (bh, mc) <- extendCut c (_payloadWithOutputsPayloadHash pwo) s
     return (bh, toCutHashes bh <$> mc)
   where
     toCutHashes bh c' = cutToCutHashes Nothing c'
-        & set cutHashesHeaders (HM.singleton (_blockHash bh) bh)
-        & set cutHashesPayloads (HM.singleton (_blockPayloadHash bh) pd)
+        & set cutHashesHeaders
+            (HM.singleton (_blockHash bh) bh)
+        & set cutHashesPayloads
+            (HM.singleton (_blockPayloadHash bh) (payloadWithOutputsToPayloadData pwo))
+        & set cutHashesLocalPayload
+            (Just (_blockPayloadHash bh, pwo))
 
 -- | For internal use and testing
 --
