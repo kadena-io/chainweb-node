@@ -1,3 +1,4 @@
+
 (module coin GOVERNANCE
 
   @doc "'coin' represents the Kadena Coin Contract. This contract provides both the \
@@ -16,7 +17,20 @@
           (<= (length account) 256)))
     ]
 
-  (implements fungible-v1)
+  (implements fungible-v2)
+  (implements fungible-xchain-v1)
+
+  ;; coin-v2
+  (bless "ut_J_ZNkoyaPUEJhiwVeWnkSQn9JT9sQCWKdjjVVrWo")
+
+  ;; coin v3
+  (bless "1os_sLAUYvBzspn5jjawtRpJWiH1WPfhyNraeVvSIwU")
+
+  ;; coin v4
+  (bless "BjZW0T2ac6qE_I5X8GE4fal6tTqjhLTC7my0ytQSxLU")
+
+  ;; coin v5
+  (bless "rE7DU8jlQL9x_MPYuniZJf5ICBTAEHAIFQCB4blofP4")
 
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
@@ -48,6 +62,10 @@
     "Magic capability constraining genesis transactions"
     true)
 
+  (defcap REMEDIATE ()
+    "Magic capability for remediation transactions"
+    true)
+
   (defcap DEBIT (sender:string)
     "Capability for managing debiting operations"
     (enforce-guard (at 'guard (read coin-table sender)))
@@ -56,6 +74,11 @@
   (defcap CREDIT (receiver:string)
     "Capability for managing crediting operations"
     (enforce (!= receiver "") "valid receiver"))
+
+  (defcap ROTATE (account:string)
+    @doc "Autonomously managed capability for guard rotation"
+    @managed
+    true)
 
   (defcap TRANSFER:bool
     ( sender:string
@@ -81,6 +104,47 @@
       newbal)
   )
 
+  (defcap TRANSFER_XCHAIN:bool
+    ( sender:string
+      receiver:string
+      amount:decimal
+      target-chain:string
+    )
+
+    @managed amount TRANSFER_XCHAIN-mgr
+    (enforce-unit amount)
+    (enforce (> amount 0.0) "Cross-chain transfers require a positive amount")
+    (compose-capability (DEBIT sender))
+  )
+
+  (defun TRANSFER_XCHAIN-mgr:decimal
+    ( managed:decimal
+      requested:decimal
+    )
+
+    (enforce (>= managed requested)
+      (format "TRANSFER_XCHAIN exceeded for balance {}" [managed]))
+    0.0
+  )
+
+  (defcap TRANSFER_XCHAIN_RECD:bool
+    ( sender:string
+      receiver:string
+      amount:decimal
+      source-chain:string
+    )
+    @event true
+  )
+
+  ; v3 capabilities
+  (defcap RELEASE_ALLOCATION
+    ( account:string
+      amount:decimal
+    )
+    @doc "Event for allocation release, can be used for sig scoping."
+    @event true
+  )
+
   ; --------------------------------------------------------------------------
   ; Constants
 
@@ -95,6 +159,9 @@
 
   (defconst MAXIMUM_ACCOUNT_LENGTH 256
     "Maximum account name length admissible for coin accounts")
+
+  (defconst VALID_CHAIN_IDS (map (int-to-str 10) (enumerate 0 19))
+    "List of all valid Chainweb chain ids")
 
   ; --------------------------------------------------------------------------
   ; Utilities
@@ -198,6 +265,8 @@
       (enforce (>= refund 0.0)
         "refund must be a non-negative quantity")
 
+      (emit-event (TRANSFER sender miner fee)) ;v3
+
         ; directly update instead of credit
       (with-capability (CREDIT sender)
         (if (> refund 0.0)
@@ -220,6 +289,7 @@
     @model [ (property (valid-account account)) ]
 
     (validate-account account)
+    (enforce-reserved account guard)
 
     (insert coin-table account
       { "balance" : 0.0
@@ -234,7 +304,7 @@
       )
     )
 
-  (defun details:object{fungible-v1.account-details}
+  (defun details:object{fungible-v2.account-details}
     ( account:string )
     (with-read coin-table account
       { "balance" := bal
@@ -245,16 +315,21 @@
     )
 
   (defun rotate:string (account:string new-guard:guard)
+    (with-capability (ROTATE account)
 
-    (with-read coin-table account
-      { "guard" := old-guard }
+      ; Allow rotation only for vanity accounts, or
+      ; re-rotating a principal account back to its proper guard
+      (enforce (or (not (is-principal account))
+                  (validate-principal new-guard account))
+        "It is unsafe for principal accounts to rotate their guard")
 
-      (enforce-guard old-guard)
-      (enforce-guard new-guard)
-
-      (update coin-table account
-        { "guard" : new-guard }
-        )))
+      (with-read coin-table account
+        { "guard" := old-guard }
+        (enforce-guard old-guard)
+        (update coin-table account
+          { "guard" : new-guard }
+          )))
+    )
 
 
   (defun precision:integer
@@ -316,14 +391,43 @@
     @doc "Internal function for the initial creation of coins.  This function \
     \cannot be used outside of the coin contract."
 
-    @model [ (property (valid-account account)) ]
+    @model [ (property (valid-account account))
+             (property (> amount 0.0))
+           ]
 
     (validate-account account)
     (enforce-unit amount)
 
     (require-capability (COINBASE))
+    (emit-event (TRANSFER "" account amount)) ;v3
     (with-capability (CREDIT account)
       (credit account account-guard amount))
+    )
+
+  (defun remediate:string (account:string amount:decimal)
+    @doc "Allows for remediation transactions. This function \
+         \is protected by the REMEDIATE capability"
+    @model [ (property (valid-account account))
+             (property (> amount 0.0))
+           ]
+
+    (validate-account account)
+
+    (enforce (> amount 0.0)
+      "Remediation amount must be positive")
+
+    (enforce-unit amount)
+
+    (require-capability (REMEDIATE))
+    (emit-event (TRANSFER "" account amount)) ;v3
+    (with-read coin-table account
+      { "balance" := balance }
+
+      (enforce (<= amount balance) "Insufficient funds")
+
+      (update coin-table account
+        { "balance" : (- balance amount) }
+        ))
     )
 
   (defpact fund-tx (sender:string miner:string miner-guard:guard total:decimal)
@@ -386,24 +490,50 @@
 
     (require-capability (CREDIT account))
     (with-default-read coin-table account
-      { "balance" : 0.0, "guard" : guard }
+      { "balance" : -1.0, "guard" : guard }
       { "balance" := balance, "guard" := retg }
       ; we don't want to overwrite an existing guard with the user-supplied one
       (enforce (= retg guard)
         "account guards do not match")
 
-      (write coin-table account
-        { "balance" : (+ balance amount)
-        , "guard"   : retg
-        })
+      (let ((is-new
+             (if (= balance -1.0)
+                 (enforce-reserved account guard)
+               false)))
+
+        (write coin-table account
+          { "balance" : (if is-new amount (+ balance amount))
+          , "guard"   : retg
+          }))
       ))
+
+  (defun check-reserved:string (account:string)
+    " Checks ACCOUNT for reserved name and returns type if \
+    \ found or empty string. Reserved names start with a \
+    \ single char and colon, e.g. 'c:foo', which would return 'c' as type."
+    (let ((pfx (take 2 account)))
+      (if (= ":" (take -1 pfx)) (take 1 pfx) "")))
+
+  (defun enforce-reserved:bool (account:string guard:guard)
+    @doc "Enforce reserved account name protocols."
+    (if (validate-principal guard account)
+      true
+      (let ((r (check-reserved account)))
+        (if (= r "")
+          true
+          (if (= r "k")
+            (enforce false "Single-key account protocol violation")
+            (enforce false
+              (format "Reserved protocol guard violation: {}" [r]))
+            )))))
 
 
   (defschema crosschain-schema
     @doc "Schema for yielded value in cross-chain transfers"
     receiver:string
     receiver-guard:guard
-    amount:decimal)
+    amount:decimal
+    source-chain:string)
 
   (defpact transfer-crosschain:string
     ( sender:string
@@ -413,13 +543,13 @@
       amount:decimal )
 
     @model [ (property (> amount 0.0))
-             (property (!= receiver ""))
              (property (valid-account sender))
              (property (valid-account receiver))
            ]
 
     (step
-      (with-capability (DEBIT sender)
+      (with-capability
+        (TRANSFER_XCHAIN sender receiver amount target-chain)
 
         (validate-account sender)
         (validate-account receiver)
@@ -433,14 +563,19 @@
 
         (enforce-unit amount)
 
+        (enforce (contains target-chain VALID_CHAIN_IDS)
+          "target chain is not a valid chainweb chain id")
+
         ;; step 1 - debit delete-account on current chain
         (debit sender amount)
+        (emit-event (TRANSFER sender "" amount))
 
         (let
           ((crosschain-details:object{crosschain-schema}
             { "receiver" : receiver
             , "receiver-guard" : receiver-guard
             , "amount" : amount
+            , "source-chain" : (at 'chain-id (chain-data))
             }))
           (yield crosschain-details target-chain)
           )))
@@ -450,7 +585,11 @@
         { "receiver" := receiver
         , "receiver-guard" := receiver-guard
         , "amount" := amount
+        , "source-chain" := source-chain
         }
+
+        (emit-event (TRANSFER "" receiver amount))
+        (emit-event (TRANSFER_XCHAIN_RECD "" receiver amount source-chain))
 
         ;; step 2 - credit create account on target chain
         (with-capability (CREDIT receiver)
@@ -532,9 +671,12 @@
           (>= curr-time release-time)
           (format "funds locked until {}. current time: {}" [release-time curr-time]))
 
+        (with-capability (RELEASE_ALLOCATION account balance)
+
         (enforce-guard guard)
 
         (with-capability (CREDIT account)
+          (emit-event (TRANSFER "" account balance))
           (credit account guard balance)
 
           (update allocation-table account
@@ -542,10 +684,7 @@
             , "balance" : 0.0
             })
 
-          "Allocation successfully released to main ledger")
+          "Allocation successfully released to main ledger"))
     )))
 
 )
-
-(create-table coin-table)
-(create-table allocation-table)
