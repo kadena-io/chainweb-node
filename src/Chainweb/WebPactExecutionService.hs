@@ -49,7 +49,7 @@ import Pact.Types.RowData (RowData)
 data PactExecutionService = PactExecutionService
     { _pactValidateBlock :: !(
         BlockHeader ->
-        PayloadData ->
+        CheckablePayload ->
         IO PayloadWithOutputs
         )
       -- ^ Validate block payload data by running through pact service.
@@ -124,7 +124,7 @@ _webPactNewBlock = _pactNewBlock . _webPactExecutionService
 _webPactValidateBlock
     :: WebPactExecutionService
     -> BlockHeader
-    -> PayloadData
+    -> CheckablePayload
     -> IO PayloadWithOutputs
 _webPactValidateBlock = _pactValidateBlock . _webPactExecutionService
 {-# INLINE _webPactValidateBlock #-}

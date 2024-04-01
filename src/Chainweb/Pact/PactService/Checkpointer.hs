@@ -288,7 +288,7 @@ rewindToIncremental rewindLimit (ParentHeader parent) = do
                                         <> ". Block: "<> encodeToText (ObjectEncoded blockHeader)
                                     Just x -> return $ payloadWithOutputsToPayloadData x
                                 liftIO $ writeIORef heightRef (_blockHeight blockHeader)
-                                void $ execBlock blockHeader payload
+                                void $ execBlock blockHeader (CheckablePayload payload)
                                 return (Last (Just blockHeader), blockHeader)
                                 -- double check output hash here?
                             )

@@ -53,13 +53,14 @@ newBlock mi reqQ = do
 
 validateBlock
     :: BlockHeader
-    -> PayloadData
+    -> CheckablePayload
     -> PactQueue
     -> IO PayloadWithOutputs
-validateBlock bHeader plData reqQ = do
+validateBlock bHeader payload reqQ = do
     let !msg = ValidateBlockMsg ValidateBlockReq
           { _valBlockHeader = bHeader
-          , _valPayloadData = plData }
+          , _valCheckablePayload = payload
+          }
     submitRequestAndWait reqQ msg
 
 local

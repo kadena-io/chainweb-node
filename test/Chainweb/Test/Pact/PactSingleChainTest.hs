@@ -176,7 +176,7 @@ runBlockE q bdb timeOffset = do
           | otherwise = emptyPayload
     addTestBlockDb bdb (succ $ _blockHeight ph) (Nonce 0) (\_ _ -> blockTime) c o
   nextH <- getParentTestBlockDb bdb cid
-  try (validateBlock nextH (payloadWithOutputsToPayloadData nb) q)
+  try (validateBlock nextH (CheckablePayloadWithOutputs nb) q)
 
 -- edmundn: why does any of this return PayloadWithOutputs instead of a
 -- list of Pact CommandResult?
@@ -207,7 +207,7 @@ newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailur
 
   let nextH' = nextH { _blockPayloadHash = BlockPayloadHash $ unsafeMerkleLogHash "0000000000000000000000000000001d" }
   let nb' = nb { _payloadWithOutputsOutputsHash = BlockOutputsHash (unsafeMerkleLogHash "0000000000000000000000000000001d")}
-  try (validateBlock nextH' (payloadWithOutputsToPayloadData nb') q) >>= \case
+  try (validateBlock nextH' (CheckablePayloadWithOutputs nb') q) >>= \case
     Left BlockValidationFailure {} -> do
       let txHash = fromRight (error "can't parse") $ fromText' "WgnuCg6L_l6lzbjWtBfMEuPtty_uGcNrUol5HGREO_o"
       lookupRes <- lookupPactTxs Nothing (V.fromList [txHash]) q
@@ -671,7 +671,7 @@ blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
           (Nonce 0)
           (BlockCreationTime $ Time $ TimeSpan 0)
           (ParentHeader $ genesisBlockHeader testVersion cid)
-      try $ validateBlock bh (payloadWithOutputsToPayloadData payload) q
+      try $ validateBlock bh (CheckablePayloadWithOutputs payload) q
   -- we consume slightly more than the maximum block gas limit and provoke an error.
   useGas 2_000_001 >>= \case
     Left (BlockGasLimitExceeded _) ->

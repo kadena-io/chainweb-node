@@ -174,7 +174,7 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
     let T3 _ line1 pwo1 = mainlineblocks !! 6
     (_, q, _) <- iop
     -- reset the pact service state to line1
-    void $ validateBlock line1 (payloadWithOutputsToPayloadData pwo1) q
+    void $ validateBlock line1 (CheckablePayloadWithOutputs pwo1) q
     void $ mineLine line1 nonceCounter 4
   where
     mineLine start ncounter len =
@@ -216,12 +216,12 @@ firstPlayThrough mpio genesisBlock iop = do
     (_, q, _) <- iop
 
     -- reset the pact service state to startline1
-    void $ validateBlock startline1 (payloadWithOutputsToPayloadData pwo1) q
+    void $ validateBlock startline1 (CheckablePayloadWithOutputs pwo1) q
 
     void $ mineLine startline1 nonceCounter 4
 
     -- reset the pact service state to startline2
-    void $ validateBlock startline2 (payloadWithOutputsToPayloadData pwo2) q
+    void $ validateBlock startline2 (CheckablePayloadWithOutputs pwo2) q
 
     void $ mineLine startline2 nonceCounter 4
   where
@@ -282,7 +282,6 @@ testDeepForkLimit mpio (RewindLimit deepForkLimit) iop step = do
     pd <- lookupPayloadWithHeight pdb (Just $ _blockHeight maxblock) (_blockPayloadHash maxblock) >>= \case
       Nothing -> assertFailure "max block payload not found"
       Just x -> return x
-    let maxblockPayload = payloadWithOutputsToPayloadData pd
     step $ "max block has height " <> sshow (_blockHeight maxblock)
     nonceCounterMain <- newIORef (fromIntegral $ _blockHeight maxblock)
 
@@ -291,7 +290,7 @@ testDeepForkLimit mpio (RewindLimit deepForkLimit) iop step = do
     void $ mineLine maxblock nonceCounterMain (deepForkLimit + 1)
 
     step "try to rewind to max block"
-    try @_ @SomeException (validateBlock maxblock maxblockPayload q) >>= \case
+    try @_ @SomeException (validateBlock maxblock (CheckablePayloadWithOutputs pd) q) >>= \case
         Left _ -> return ()
         _ -> assertBool msg False
 
@@ -339,7 +338,7 @@ mineBlock nonce iop = timeout 5000000 go >>= \case
                creationTime
                ph
 
-      _ <- validateBlock bh (payloadWithOutputsToPayloadData payload) q
+      _ <- validateBlock bh (CheckablePayloadWithOutputs payload) q
 
       let pdb = _bdbPayloadDb bdb
       addNewPayload pdb (succ $ _blockHeight $ _parentHeader ph) payload

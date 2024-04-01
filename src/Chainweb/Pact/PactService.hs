@@ -256,10 +256,7 @@ initializeCoinContract memPoolAccess v cid pwo = do
           validateGenesis
   where
     validateGenesis = void $!
-        execValidateBlock memPoolAccess genesisHeader inputPayloadData
-
-    inputPayloadData :: PayloadData
-    inputPayloadData = payloadWithOutputsToPayloadData pwo
+        execValidateBlock memPoolAccess genesisHeader (CheckablePayloadWithOutputs pwo)
 
     genesisHeader :: BlockHeader
     genesisHeader = genesisBlockHeader v cid
@@ -322,7 +319,7 @@ serviceRequests memPoolAccess reqQ = do
                   fmap fst $ trace' logFn "Chainweb.Pact.PactService.execValidateBlock"
                     _valBlockHeader
                     (\(_, g) -> fromIntegral g)
-                    (execValidateBlock memPoolAccess _valBlockHeader _valPayloadData)
+                    (execValidateBlock memPoolAccess _valBlockHeader _valCheckablePayload)
                 go
             LookupPactTxsMsg (LookupPactTxsReq confDepth txHashes) -> do
                 trace logFn "Chainweb.Pact.PactService.execLookupPactTxs" ()
@@ -696,7 +693,7 @@ execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
                 plData <- liftIO $ fromJuste <$> tableLookup
                     (_transactionDb pdb)
                     (_blockPayloadHash bh)
-                void $ execBlock bh plData
+                void $ execBlock bh (CheckablePayload plData)
             )
         validationFailed <- readIORef validationFailedRef
         when validationFailed $
@@ -817,7 +814,7 @@ execValidateBlock
     :: (CanReadablePayloadCas tbl, Logger logger)
     => MemPoolAccess
     -> BlockHeader
-    -> PayloadData
+    -> CheckablePayload
     -> PactServiceM logger tbl (PayloadWithOutputs, P.Gas)
 execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "execValidateBlock" $ do
     bhdb <- view psBlockHeaderDb
@@ -876,7 +873,7 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
                                     <> ". BlockPayloadHash: " <> encodeToText (_blockPayloadHash forkBh)
                                     <> ". Block: " <> encodeToText (ObjectEncoded forkBh)
                                 Just x -> return $ payloadWithOutputsToPayloadData x
-                            void $ execBlock forkBh payload
+                            void $ execBlock forkBh (CheckablePayload payload)
                             return (T2 [] (Sum (1 :: Word)), forkBh)
                             ) forkBlockHeaders
 

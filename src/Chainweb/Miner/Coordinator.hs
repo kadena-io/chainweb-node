@@ -130,7 +130,7 @@ data MiningCoordination logger tbl = MiningCoordination
 -- made as often as desired, without clogging the Pact queue.
 --
 newtype PrimedWork =
-    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (T2 ParentHeader (Maybe PayloadData))))
+    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (T2 ParentHeader (Maybe PayloadWithOutputs))))
     deriving newtype (Semigroup, Monoid)
     deriving stock Generic
     deriving anyclass (Wrapped)
@@ -145,7 +145,7 @@ resetPrimed mid cid (PrimedWork pw) = PrimedWork
 -- The key is hash of the current block's payload.
 --
 newtype MiningState = MiningState
-    { _miningState :: M.Map BlockPayloadHash (T3 Miner PayloadData (Time Micros)) }
+    { _miningState :: M.Map BlockPayloadHash (T3 Miner PayloadWithOutputs (Time Micros)) }
     deriving stock (Generic)
     deriving newtype (Semigroup, Monoid)
 
@@ -181,7 +181,7 @@ newWork
     -> PactExecutionService
     -> TVar PrimedWork
     -> Cut
-    -> IO (Maybe (T2 WorkHeader PayloadData))
+    -> IO (Maybe (T2 WorkHeader PayloadWithOutputs))
 newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
 
     -- Randomly pick a chain to mine on. we no longer support the caller
@@ -215,7 +215,7 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
             newWork logFun Anything eminer hdb pact tpw c
         Just (T2 (T2 (ParentHeader primedParent) (Just payload)) extension)
             | _blockHash primedParent == _blockHash (_parentHeader (_cutExtensionParent extension)) -> do
-                let !phash = _payloadDataPayloadHash payload
+                let !phash = _payloadWithOutputsPayloadHash payload
                 !wh <- newWorkHeader hdb extension phash
                 pure $ Just $ T2 wh payload
             | otherwise -> do
@@ -247,13 +247,13 @@ publish
     -> CutDb tbl
     -> TVar PrimedWork
     -> MinerId
-    -> PayloadData
+    -> PayloadWithOutputs
     -> SolvedWork
     -> IO ()
-publish lf cdb pwVar miner pd s = do
+publish lf cdb pwVar miner pwo s = do
     c <- _cut cdb
     now <- getCurrentTimeIntegral
-    try (extend c pd s) >>= \case
+    try (extend c pwo s) >>= \case
 
         -- Publish CutHashes to CutDb and log success
         Right (bh, Just ch) -> do
@@ -262,11 +262,11 @@ publish lf cdb pwVar miner pd s = do
             atomically $ modifyTVar pwVar $ resetPrimed miner (_chainId bh)
             addCutHashes cdb ch
 
-            let bytes = sum . fmap (BS.length . _transactionBytes) $
-                        _payloadDataTransactions pd
+            let bytes = sum . fmap (BS.length . _transactionBytes . fst) $
+                        _payloadWithOutputsTransactions pwo
             lf Info $ JsonLog $ NewMinedBlock
                 { _minedBlockHeader = ObjectEncoded bh
-                , _minedBlockTrans = int . V.length $ _payloadDataTransactions pd
+                , _minedBlockTrans = int . V.length $ _payloadWithOutputsTransactions pwo
                 , _minedBlockSize = int bytes
                 , _minedBlockMiner = _minerId miner
                 , _minedBlockDiscoveredAt = now
@@ -307,14 +307,14 @@ work
     -> Miner
     -> IO WorkHeader
 work mr mcid m = do
-    T2 wh pd <-
+    T2 wh pwo <-
         withAsync (logDelays 0) $ \_ -> newWorkForCut
     now <- getCurrentTimeIntegral
     atomically
         . modifyTVar' (_coordState mr)
         . over miningState
-        . M.insert (_payloadDataPayloadHash pd)
-        $ T3 m pd now
+        . M.insert (_payloadWithOutputsPayloadHash pwo)
+        $ T3 m pwo now
     return wh
   where
     -- here we log the case that the work loop has stalled.
@@ -397,5 +397,5 @@ solve mr solved@(SolvedWork hdr) = do
     lf = logFunction $ _coordLogger mr
 
     deleteKey = atomically . modifyTVar' tms . over miningState $ M.delete key
-    publishWork (T3 m pd _) =
-        publish lf (_coordCutDb mr) (_coordPrimedWork mr) (view minerId m) pd solved
+    publishWork (T3 m pwo _) =
+        publish lf (_coordCutDb mr) (_coordPrimedWork mr) (view minerId m) pwo solved

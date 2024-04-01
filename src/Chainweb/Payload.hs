@@ -7,6 +7,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -120,6 +121,9 @@ module Chainweb.Payload
 , payloadWithOutputsToBlockObjects
 , payloadWithOutputsToPayloadData
 , verifyPayloadWithOutputs
+
+, CheckablePayload(..)
+, checkablePayloadToPayloadData
 ) where
 
 import Control.DeepSeq
@@ -355,7 +359,7 @@ type BlockPayload = BlockPayload_ ChainwebMerkleHashAlgorithm
 -- | The Payload of a block.
 --
 -- The transactions of a block at a given height in the chain are discovered by
--- @_blockPayloadTransactionsHash . _blockHeaderPayloadHash@.
+-- @_blockPayloadTransactionsHash . _blockPayloadHash@.
 --
 -- NOTES:
 --
@@ -1277,3 +1281,17 @@ verifyPayloadWithOutputs p
         (_payloadWithOutputsMiner p)
         (_payloadWithOutputsCoinbase p)
         (_payloadWithOutputsTransactions p)
+
+-- if this payload was produced locally we have the outputs from when we
+-- produced it originally. we can't just *use them* - ValidateBlock still has
+-- to run the payload to check if it's a valid block - but they are great
+-- for comparative error messages if the block is invalid.
+data CheckablePayload
+  = CheckablePayloadWithOutputs !PayloadWithOutputs
+  | CheckablePayload !PayloadData
+  deriving (Show)
+
+checkablePayloadToPayloadData :: CheckablePayload -> PayloadData
+checkablePayloadToPayloadData = \case
+  CheckablePayload pd -> pd
+  CheckablePayloadWithOutputs pwo -> payloadWithOutputsToPayloadData pwo
