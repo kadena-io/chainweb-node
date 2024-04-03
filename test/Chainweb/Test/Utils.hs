@@ -953,7 +953,7 @@ withNodesAtLatestBehavior
     -> ResourceT IO ChainwebNetwork
 withNodesAtLatestBehavior v testLabel rdb n = do
     net <- withNodes v testLabel rdb n
-    liftIO $ awaitBlockHeight v putStrLn (_getServiceClientEnv net) (latestBehaviorAt v)
+    liftIO $ awaitBlockHeight v (_getServiceClientEnv net) (latestBehaviorAt v)
     liftIO $ putStrLn $ "waited for block height " <> show (latestBehaviorAt v)
     return net
 
@@ -963,11 +963,10 @@ withNodesAtLatestBehavior v testLabel rdb n = do
 --
 awaitBlockHeight
     :: ChainwebVersion
-    -> (String -> IO ())
     -> ClientEnv
     -> BlockHeight
     -> IO ()
-awaitBlockHeight v step cenv i = do
+awaitBlockHeight v cenv i = do
     result <- retrying testRetryPolicy checkRetry
         $ const $ runClientM (cutGetClient v) cenv
     case result of
@@ -978,19 +977,10 @@ awaitBlockHeight v step cenv i = do
                 $ "retries exhausted: waiting for cut height " <> sshow i
                 <> " but only got " <> sshow (_cutHashesHeight x)
   where
-    checkRetry s (Left e) = do
-        step $ "awaiting cut of height " <> show i
-            <> ". No result from node: " <> show e
-            <> " [" <> show (view rsIterNumberL s) <> "]"
+    checkRetry _ (Left _) =
         return True
-    checkRetry s (Right c)
-        | all (\bh -> _bhwhHeight bh >= i) (_cutHashes c) = return False
-        | otherwise = do
-            step
-                $ "awaiting cut with all block heights >= " <> show i
-                <> ". Current min. block height: " <> show (minimum $ _bhwhHeight <$> _cutHashes c)
-                <> " [" <> show (view rsIterNumberL s) <> "]"
-            return True
+    checkRetry _ (Right c)
+        = return $ any (\bh -> _bhwhHeight bh < i) (_cutHashes c)
 
 withAsyncR :: IO a -> ResourceT IO (Async a)
 withAsyncR action = snd <$> allocate (async action) uninterruptibleCancel
