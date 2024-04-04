@@ -260,6 +260,8 @@ library
         , Chainweb.VerifierPlugin.Hyperlane.Announcement
         , Chainweb.VerifierPlugin.Hyperlane.Binary
         , Chainweb.VerifierPlugin.Hyperlane.Message
+        , Chainweb.VerifierPlugin.Hyperlane.Message.After224
+        , Chainweb.VerifierPlugin.Hyperlane.Message.Before224
         , Chainweb.VerifierPlugin.Hyperlane.Utils
         , Chainweb.Version
         , Chainweb.Version.Development
@@ -504,6 +506,9 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.PactMultiChainTest
         Chainweb.Test.Pact.VerifierPluginTest
         Chainweb.Test.Pact.VerifierPluginTest.Transaction
+        Chainweb.Test.Pact.VerifierPluginTest.Transaction.Message.After224
+        Chainweb.Test.Pact.VerifierPluginTest.Transaction.Message.Before224
+        Chainweb.Test.Pact.VerifierPluginTest.Transaction.Utils
         Chainweb.Test.Pact.VerifierPluginTest.Unit
         Chainweb.Test.Pact.PactSingleChainTest
         Chainweb.Test.P2P.Peer.BootstrapConfig

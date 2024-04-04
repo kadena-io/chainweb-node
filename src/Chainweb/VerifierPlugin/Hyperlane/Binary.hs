@@ -18,6 +18,7 @@ module Chainweb.VerifierPlugin.Hyperlane.Binary
   , putMerkleRootMultisigIsmMetadata
   , getMerkleRootMultisigIsmMetadata
 
+  , padLeft
   , ethereumAddressSize
   ) where
 
@@ -48,9 +49,9 @@ putHyperlaneMessage (HyperlaneMessage {..}) = do
   putWord8 hmVersion
   putWord32be hmNonce
   putWord32be hmOriginDomain
-  putRawByteString (padLeft hmSender)
+  putRawByteString hmSender
   putWord32be hmDestinationDomain
-  putRawByteString (padLeft hmRecipient)
+  putRawByteString hmRecipient
 
   putRawByteString hmMessageBody
 
@@ -59,9 +60,9 @@ getHyperlaneMessage = do
   hmVersion <- getWord8
   hmNonce <- getWord32be
   hmOriginDomain <- getWord32be
-  hmSender <- BS.takeEnd ethereumAddressSize <$> getByteString 32
+  hmSender <- getByteString 32
   hmDestinationDomain <- getWord32be
-  hmRecipient <- BS.dropWhile (== 0) <$> getByteString 32
+  hmRecipient <- getByteString 32
   hmMessageBody <- BL.toStrict <$> getRemainingLazyByteString
 
   return $ HyperlaneMessage {..}
