@@ -126,7 +126,8 @@ nodeTestSuite rdb = sequentialTestGroup "Tests starting nodes" AllFinish
 suite :: RocksDb -> [TestTree]
 suite rdb =
     [ testGroup "Chainweb Unit Tests"
-        [ testGroup "BlockHeaderDb"
+        [ testProperties "Chainweb.Test.Cut" (Chainweb.Test.Cut.properties rdb)
+        , testGroup "BlockHeaderDb"
             [ Chainweb.Test.BlockHeaderDB.tests rdb
             , Chainweb.Test.TreeDB.RemoteDB.tests
             , Chainweb.Test.BlockHeaderDB.PruneForks.tests
@@ -159,6 +160,5 @@ suite rdb =
         , testProperties "Data.Test.PQueue" Data.Test.PQueue.properties
         , testProperties "Chainweb.Test.Difficulty" Chainweb.Test.Difficulty.properties
         , testProperties "Data.Test.Word.Encoding" Data.Test.Word.Encoding.properties
-        , testProperties "Chainweb.Test.Cut" (Chainweb.Test.Cut.properties rdb)
         ]
     ]
