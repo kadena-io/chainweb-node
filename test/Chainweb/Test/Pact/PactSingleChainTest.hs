@@ -835,29 +835,16 @@ preInsertCheckTimeoutTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueu
 preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
   (_, q, _) <- reqIO
 
-  coinV3 <- T.readFile "pact/coin-contract/v3/coin-v3.pact"
-  coinV4 <- T.readFile "pact/coin-contract/v4/coin-v4.pact"
   coinV5 <- T.readFile "pact/coin-contract/v5/coin-v5.pact"
 
-  txCoinV3 <- buildCwCmd "tx-now-coinv3" testVersion
-        $ signSender00
-        $ set cbChainId cid
-        $ set cbRPC (mkExec' coinV3)
-        $ defaultCmd
-
-  txCoinV4 <- buildCwCmd "tx-now-coinv4" testVersion
-        $ signSender00
-        $ set cbChainId cid
-        $ set cbRPC (mkExec' coinV4)
-        $ defaultCmd
-
-  txCoinV5 <- buildCwCmd "tx-now-coinv5" testVersion
+  txsCoinV5 <- forM [(0 :: Int)..100] $ \n ->
+    buildCwCmd ("tx-" <> sshow n <> "-now-coinv5") testVersion
         $ signSender00
         $ set cbChainId cid
         $ set cbRPC (mkExec' coinV5)
         $ defaultCmd
 
-  rs <- pactPreInsertCheck (V.fromList [txCoinV3, txCoinV4, txCoinV5]) q
+  rs <- pactPreInsertCheck (V.fromList txsCoinV5) q
   assertBool ("should be InsertErrorTimedOut but got " ++ show rs) $ V.and $ V.map (== Left InsertErrorTimedOut) rs
 
 badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
