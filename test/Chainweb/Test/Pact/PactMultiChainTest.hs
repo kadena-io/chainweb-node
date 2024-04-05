@@ -191,21 +191,30 @@ txTimeoutTest = do
 
   -- we inline some of runBlockTest here because its assertions
   -- don't make sense for tx timeout
-  let pts = [buildBasic $ mkExec' "(+ 1 1)", buildBasicGas 1000 $ mkExec' "(enumerate 0 999999999999)"]
+  let pts =
+        [ buildBasic $ mkExec' "(+ 1 1)"
+        , buildBasicGas 1000 $ mkExec' "(enumerate 0 999999999999)"
+        , buildBasic $ mkExec' "(+ 2 2)"
+        ]
   chid <- view menvChainId
 
   mempoolBadlistRef <- setPactMempool $ PactMempool $ List.singleton $ blockForChain chid $ MempoolBlock $ \_ -> pure pts
+
+  blockBefore <- currentCut <&> (^?! (cutMap . ix chid))
 
   liftIO $ do
     badlisted <- readIORef mempoolBadlistRef
     assertEqual "number of badlisted transactions is 0 before runCut'" 0 (Set.size badlisted)
   runCut'
 
+  blockAfter <- currentCut <&> (^?! (cutMap . ix chid))
+
   -- Ideally, we want to check the actual hash, but the DSL in this module
   -- doesn't make that possible
   liftIO $ do
     badlisted <- readIORef mempoolBadlistRef
     assertEqual "number of badlisted transactions is 1 after runCut'" 1 (Set.size badlisted)
+    assertEqual "block is still made despite timeout" (succ (_blockHeight blockBefore)) (_blockHeight blockAfter)
 
   rs <- txResults
   liftIO $ assertEqual "number of transactions in block should be one (1) when second transaction times out" 1 (length rs)
