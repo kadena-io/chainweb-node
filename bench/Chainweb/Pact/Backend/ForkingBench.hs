@@ -177,7 +177,7 @@ bench rdb = C.bgroup "PactService" $
     oneBlock cfg txCount = withResources rdb cfg.numPriorBlocks Error cfg.compact cfg.persistIntraBlockWrites go
       where
         go mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock = do
-          C.bench name $ C.whnfIO $ do
+          C.bench name $ C.whnfIO $ withEvent "BENCH" $ do
             writeIORef txsPerBlock txCount
             let (T3 _ join1 _) = last mainLineBlocks
             createBlock cfg.validate (ParentHeader join1) (Nonce 1234) pactQueue

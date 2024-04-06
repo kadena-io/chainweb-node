@@ -163,6 +163,7 @@ import Chainweb.Pact4.ModuleCache
 import Chainweb.Pact4.Backend.ChainwebPactDb
 
 import Pact.Core.Errors (VerifierError(..))
+import Utils.Logging.Trace
 
 -- Note [Throw out verifier proofs eagerly]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -269,8 +270,6 @@ execTransactionM tenv txst act
     = execStateT (runReaderT (_unTransactionM act) tenv) txst
 
 
-
-
 -- | "Magic" capability 'COINBASE' used in the coin contract to
 -- constrain coinbase calls.
 --
@@ -333,7 +332,7 @@ applyCmd
     -> ApplyCmdExecutionContext
       -- ^ is this a local or send execution context?
     -> IO (T3 (CommandResult [TxLogJson]) ModuleCache (S.Set PactWarning))
-applyCmd v logger gasLogger txFailuresCounter pdbenv miner gasModel txCtx txIdxInBlock spv cmd initialGas mcache0 callCtx = do
+applyCmd v logger gasLogger txFailuresCounter pdbenv miner gasModel txCtx txIdxInBlock spv cmd initialGas mcache0 callCtx = withEvent "applyCmd" $ do
     T2 cr st <- runTransactionM cenv txst applyBuyGas
 
     let cache = _txCache st
@@ -877,7 +876,7 @@ runPayload
     => Command (Payload PublicMeta ParsedCode)
     -> NamespacePolicy
     -> TransactionM logger p (CommandResult [TxLogJson])
-runPayload cmd nsp = do
+runPayload cmd nsp = withEvent "runPayload" $ do
     g0 <- use txGasUsed
     interp <- gasInterpreter g0
 
@@ -907,7 +906,7 @@ runGenesis
     -> NamespacePolicy
     -> Interpreter p
     -> TransactionM logger p (CommandResult [TxLogJson])
-runGenesis cmd nsp interp = case payload of
+runGenesis cmd nsp interp = withEvent "runGenesis" $ case payload of
     Exec pm ->
       applyExec 0 interp pm signers verifiersWithNoProof chash nsp
     Continuation ym ->
@@ -1107,7 +1106,7 @@ applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh ns
 -- see: 'pact/coin-contract/coin.pact#fund-tx'
 --
 buyGas :: (Logger logger) => TxContext -> Command (Payload PublicMeta ParsedCode) -> Miner -> TransactionM logger p ()
-buyGas txCtx cmd (Miner mid mks) = go
+buyGas txCtx cmd (Miner mid mks) = withEvent "buyGas" $ go
   where
     isChainweb224Pact = guardCtx chainweb224Pact txCtx
     sender = view (cmdPayload . pMeta . pmSender) cmd
@@ -1243,7 +1242,7 @@ redeemGas txCtx cmd (Miner mid mks) = do
     fee <- gasSupplyOf <$> use txGasUsed <*> view txGasPrice
     -- if we're past chainweb 2.24, we don't use defpacts for gas
     if guardCtx chainweb224Pact txCtx
-    then do
+    then withEvent "redeemGas" $ do
       total <- gasSupplyOf <$> view txGasLimit <*> view txGasPrice
       let (redeemGasTerm, redeemGasCmd) =
             mkRedeemGasTerm mid mks sender total fee
@@ -1263,7 +1262,7 @@ redeemGas txCtx cmd (Miner mid mks) = do
           []
           rgHash
           managedNamespacePolicy
-    else do
+    else withEvent "redeemGasOld" $ do
       GasId gid <- use txGasId >>= \case
         Nothing -> fatal $! "redeemGas: no gas id in scope for gas refunds"
         Just g -> return g

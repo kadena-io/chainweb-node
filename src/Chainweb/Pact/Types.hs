@@ -102,6 +102,7 @@ module Chainweb.Pact.Types
   , LocalPreflightSimulation(..)
   , SyncToBlockReq(..)
   , RequestMsg(..)
+  , pactReqType
   , RewindLimit(..)
   , LookupPactTxsReq(..)
   , BlockTxHistoryReq(..)
@@ -980,6 +981,20 @@ data RequestMsg r where
     SyncToBlockMsg :: !SyncToBlockReq -> RequestMsg ()
     ReadOnlyReplayMsg :: !ReadOnlyReplayReq -> RequestMsg ()
     CloseMsg :: RequestMsg ()
+
+pactReqType :: RequestMsg r -> String
+pactReqType = \case
+    ContinueBlockMsg {} -> "ContinueBlock"
+    NewBlockMsg {} -> "NewBlock"
+    ValidateBlockMsg {} -> "ValidateBlock"
+    LocalMsg {} -> "Local"
+    LookupPactTxsMsg {} -> "LookupPactTxs"
+    PreInsertCheckMsg {} -> "PreInsertCheck"
+    BlockTxHistoryMsg {} -> "BlockTxHistory"
+    HistoricalLookupMsg {} -> "HistoricalLookup"
+    SyncToBlockMsg {} -> "SyncToBlock"
+    ReadOnlyReplayMsg {} -> "ReadOnlyReplay"
+    CloseMsg {} -> "Close"
 
 instance Show (RequestMsg r) where
     show (NewBlockMsg req) = show req

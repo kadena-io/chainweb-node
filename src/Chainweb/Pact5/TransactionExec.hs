@@ -131,6 +131,7 @@ import qualified Pact.Types.Capability as Pact4
 import qualified Pact.Types.Names as Pact4
 import qualified Pact.Types.Runtime as Pact4
 import qualified Pact.Core.Errors as Pact5
+import Utils.Logging.Trace
 
 -- Note [Throw out verifier proofs eagerly]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -161,6 +162,8 @@ newtype TransactionM logger a
   , MonadReader (TransactionEnv logger)
   , MonadError (Pact5.PactError Info)
   , MonadThrow
+  , MonadCatch
+  , MonadMask
   , MonadIO
   )
 
@@ -174,7 +177,7 @@ chargeGas info gasArgs = do
 -- nasty... perhaps later convert verifier plugins to use GasM instead of tracking "gas remaining"
 -- TODO: Verifiers are also tied to Pact enough that this is going to be an annoying migration
 runVerifiers :: Logger logger => TxContext -> Command (Payload PublicMeta ParsedCode) -> TransactionM logger ()
-runVerifiers txCtx cmd = do
+runVerifiers txCtx cmd = withEvent "runVerifiers" $ do
       logger <- view txEnvLogger
       let v = _chainwebVersion txCtx
       let gasLimit = cmd ^. cmdPayload . pMeta . pmGasLimit
@@ -252,7 +255,7 @@ applyLocal
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
     -> IO (CommandResult [TxLog ByteString] (Pact5.PactError Info))
-applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
+applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = withEvent "applyLocal" $ do
   let gasLogsEnabled = maybe GasLogsDisabled (const GasLogsEnabled) maybeGasLogger
   let
     gasLimitGas :: Gas = cmd ^. cmdPayload . pMeta . pmGasLimit . _GasLimit
@@ -331,7 +334,7 @@ applyCmd
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
     -> IO (Either Pact5GasPurchaseFailure (CommandResult [TxLog ByteString] (Pact5.PactError Info)))
-applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = do
+applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = withEvent "applyCmd" $ do
   logDebug_ logger $ "applyCmd: " <> sshow (_cmdHash cmd)
   let flags = Set.fromList
         [ FlagDisableRuntimeRTC
@@ -464,7 +467,7 @@ applyCoinbase
     -> TxContext
       -- ^ tx metadata and parent header
     -> IO (Either Pact5CoinbaseError (CommandResult [TxLog ByteString] Void))
-applyCoinbase logger db reward txCtx = do
+applyCoinbase logger db reward txCtx = withEvent "applyCoinbase" $ do
   -- for some reason this is the base64-encoded hash, rather than the binary hash
   let coinbaseHash = Hash $ SB.toShort $ T.encodeUtf8 $ blockHashToText parentBlockHash
   -- applyCoinbase is when upgrades happen, so we call applyUpgrades first
@@ -555,7 +558,7 @@ runGenesisPayload
   -> TxContext
   -> Command (Payload PublicMeta ParsedCode)
   -> IO (Either (Pact5.PactError Info) (CommandResult [TxLog ByteString] Void))
-runGenesisPayload logger db spv ctx cmd = do
+runGenesisPayload logger db spv ctx cmd = withEvent "runGenesisPayload" $ do
   gasRef <- newIORef (MilliGas 0)
   let gasEnv = GasEnv gasRef Nothing freeGasModel
   let txEnv = TransactionEnv logger gasEnv
@@ -605,7 +608,7 @@ runPayload
     -> TxIdxInBlock
     -> Command (Payload PublicMeta ParsedCode)
     -> TransactionM logger EvalResult
-runPayload execMode execFlags db spv specialCaps namespacePolicy gasEnv txCtx txIdxInBlock cmd = do
+runPayload execMode execFlags db spv specialCaps namespacePolicy gasEnv txCtx txIdxInBlock cmd = withEvent "runPayload" $ do
     -- Note [Throw out verifier proofs eagerly]
   let !verifiersWithNoProof =
           (fmap . fmap) (\_ -> ()) verifiers
@@ -670,7 +673,7 @@ runUpgrade
     -> TxContext
     -> Command (Payload PublicMeta ParsedCode)
     -> IO ()
-runUpgrade _logger db txContext cmd = case payload ^. pPayload of
+runUpgrade _logger db txContext cmd = withEvent "runUpgrade" $ case payload ^. pPayload of
     Exec pm -> do
       freeGasEnv <- mkFreeGasEnv GasLogsDisabled
       evalExec (RawCode (_pcCode (_pmCode pm))) Transactional
@@ -735,7 +738,7 @@ buyGas
   -> TxContext
   -> Command (Payload PublicMeta ParsedCode)
   -> IO (Either Pact5BuyGasError EvalResult)
-buyGas logger origGasEnv db txCtx cmd = do
+buyGas logger origGasEnv db txCtx cmd = withEvent "buyGas" $ do
   let gasEnv = origGasEnv & geGasModel . gmGasLimit .~ Just (MilliGasLimit (MilliGas 1_500_000))
   logFunctionText logger L.Debug $
     "buying gas for " <> sshow (_cmdHash cmd)
@@ -845,7 +848,7 @@ redeemGas :: (Logger logger)
   -> Command (Payload PublicMeta ParsedCode)
   -> IO (Either Pact5RedeemGasError EvalResult)
 redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
-    | isChainweb224Pact, Nothing <- maybeFundTxPactId = do
+    | isChainweb224Pact, Nothing <- maybeFundTxPactId = withEvent "redeemGas" $ do
       logFunctionText logger L.Debug $
         "redeeming gas (post-2.24) for " <> sshow (_cmdHash cmd)
       -- if we're past chainweb 2.24, we don't use defpacts for gas; see 'pact/coin-contract/coin.pact#redeem-gas'
@@ -870,7 +873,7 @@ redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
           Right evalResult -> do
             pure $ Right evalResult
 
-    | not isChainweb224Pact, Just fundTxPactId <- maybeFundTxPactId = do
+    | not isChainweb224Pact, Just fundTxPactId <- maybeFundTxPactId = withEvent "redeemGasOld" $ do
       freeGasEnv <- mkFreeGasEnv GasLogsDisabled
       logFunctionText logger L.Debug $
         "redeeming gas (pre-2.24) for " <> sshow (_cmdHash cmd)

@@ -381,4 +381,3 @@ insertBlockHeaderDb db = dbAddChecked db . _validatedHeader
 unsafeInsertBlockHeaderDb :: BlockHeaderDb -> BlockHeader -> IO ()
 unsafeInsertBlockHeaderDb = dbAddChecked
 {-# INLINE unsafeInsertBlockHeaderDb #-}
-

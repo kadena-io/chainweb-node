@@ -108,6 +108,7 @@ import Chainweb.Pact4.ModuleCache
 import Control.Monad.Except
 import qualified Data.List.NonEmpty as NE
 import Chainweb.Pact.Backend.Types (BlockHandle(..))
+import Utils.Logging.Trace
 
 
 -- | Execute a block -- only called in validate either for replay or for validating current block.
@@ -412,7 +413,7 @@ runCoinbase
     -> CoinbaseUsePrecompiled
     -> ModuleCache
     -> PactBlockM logger tbl (Pact4.CommandResult [Pact4.TxLogJson])
-runCoinbase miner enfCBFail usePrecomp mc = do
+runCoinbase miner enfCBFail usePrecomp mc = withEvent "runCoinbase" $ do
     isGenesis <- view psIsGenesis
     if isGenesis
     then return noCoinbase
@@ -454,7 +455,7 @@ applyPactCmds
     -> Maybe Pact4.Gas
     -> Maybe Micros
     -> PactBlockM logger tbl (T2 (Vector (Either CommandInvalidError (Pact4.CommandResult [Pact4.TxLogJson]))) ModuleCache)
-applyPactCmds cmds miner startModuleCache blockGas txTimeLimit = do
+applyPactCmds cmds miner startModuleCache blockGas txTimeLimit = withEvent "applyPactCmds" $ do
     let txsGas txs = fromIntegral $ sumOf (traversed . _Right . to Pact4._crGas) txs
     (txOuts, T2 mcOut _) <- tracePactBlockM' "applyPactCmds" (\_ -> ()) (txsGas . fst) $
       flip runStateT (T2 startModuleCache blockGas) $
@@ -709,7 +710,7 @@ continueBlock mpAccess blockInProgress = do
     T2
       finalModuleCache
       BlockFill { _bfTxHashes = requestKeys, _bfGasLimit = finalGasLimit }
-      <- refill fetchLimit txTimeLimit successes failures initCache initState
+      <- withEvent "refill" $ refill fetchLimit txTimeLimit successes failures initCache initState
 
     liftPactServiceM $ logInfoPact $ "(request keys = " <> sshow requestKeys <> ")"
 
@@ -751,7 +752,7 @@ continueBlock mpAccess blockInProgress = do
 
 
     getBlockTxs :: BlockFill -> PactBlockM logger tbl (Vector Pact4.Transaction)
-    getBlockTxs bfState = do
+    getBlockTxs bfState = withEvent "getBlockTxs" $ do
       dbEnv <- view psBlockDbEnv
       psEnv <- ask
       let v = _chainwebVersion psEnv

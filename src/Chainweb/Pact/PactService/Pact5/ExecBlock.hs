@@ -322,7 +322,7 @@ continueBlock mpAccess blockInProgress = do
         return (completedTxs, Pact5.RequestKey <$> invalidTxHashes, p4FinalRemainingGas, timedOut)
 
   getBlockTxs :: BlockFill -> PactBlockM logger tbl (Vector Pact5.Transaction)
-  getBlockTxs blockFillState = do
+  getBlockTxs blockFillState = withEvent "getBlockTxs" $ do
     liftPactServiceM $ logDebugPact "Refill: fetching transactions"
     v <- view chainwebVersion
     cid <- view chainId

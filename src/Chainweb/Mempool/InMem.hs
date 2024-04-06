@@ -84,6 +84,7 @@ import Numeric.AffineSpace
 import Data.ByteString (ByteString)
 import Data.Either (partitionEithers)
 import Control.Lens
+import Utils.Logging.Trace (withEvent)
 
 ------------------------------------------------------------------------------
 compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
@@ -575,7 +576,7 @@ getBlockInMem
     -> IO (Vector to)
 getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight phash = do
     logFunctionText logg Debug $ "getBlockInMem: " <> sshow (gasLimit,bheight,phash)
-    withMVar lock $ \mdata -> do
+    withMVar lock $ \mdata -> withEvent "getBlockInMem" $ do
         now <- getCurrentTimeIntegral
 
         pendingDataBeforePrune <- readIORef (_inmemPending mdata)
@@ -604,7 +605,7 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
         writeIORef (_inmemPending mdata) $! force psq''
         writeIORef (_inmemBadMap mdata) $! force badmap'
         mout <- V.thaw $ V.map (\(_, (_, t, tOut)) -> (t, tOut)) out
-        TimSort.sortBy (compareOnGasPrice txcfg `on` fst) mout
+        withEvent "Tim Sorton" $ TimSort.sortBy (compareOnGasPrice txcfg `on` fst) mout
         fmap snd <$> V.unsafeFreeze mout
 
   where
