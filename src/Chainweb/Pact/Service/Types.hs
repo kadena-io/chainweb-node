@@ -39,6 +39,8 @@ module Chainweb.Pact.Service.Types
   , ReadOnlyReplayReq(..)
 
   , RequestMsg(..)
+  , RequestId(..)
+  , pactReqType
   , SubmittedRequestMsg(..)
   , RequestStatus(..)
   , RequestCancelled(..)
@@ -104,6 +106,7 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.List.NonEmpty as NE
 import Data.Text (Text, unpack)
 import qualified Data.Text.Encoding as T
+import Data.UUID
 import Data.Vector (Vector)
 import Data.Word (Word64)
 
@@ -377,9 +380,12 @@ data RequestStatus r
     | RequestNotStarted
     | RequestFailed !SomeException
 data SubmittedRequestMsg
-    = forall r. SubmittedRequestMsg (RequestMsg r) (TVar (RequestStatus r))
+    = forall r. SubmittedRequestMsg !UUID (RequestMsg r) (TVar (RequestStatus r))
 instance Show SubmittedRequestMsg where
-    show (SubmittedRequestMsg msg _) = show msg
+    showsPrec d (SubmittedRequestMsg uuid msg _) = showParen (d > 10) $
+      showString "SubmittedRequestMsg "
+      . showsPrec 11 uuid . showString " "
+      . showsPrec 11 msg . showString " "
 
 data RequestMsg r where
     ContinueBlockMsg :: !ContinueBlockReq -> RequestMsg (Historical BlockInProgress)
@@ -393,6 +399,22 @@ data RequestMsg r where
     SyncToBlockMsg :: !SyncToBlockReq -> RequestMsg ()
     ReadOnlyReplayMsg :: !ReadOnlyReplayReq -> RequestMsg ()
     CloseMsg :: RequestMsg ()
+
+data RequestId = RequestId { requestIdUUID :: UUID, requestIdType :: String }
+
+pactReqType :: RequestMsg r -> String
+pactReqType = \case
+    ContinueBlockMsg {} -> "ContinueBlock"
+    NewBlockMsg {} -> "NewBlock"
+    ValidateBlockMsg {} -> "ValidateBlock"
+    LocalMsg {} -> "Local"
+    LookupPactTxsMsg {} -> "LookupPactTxs"
+    PreInsertCheckMsg {} -> "PreInsertCheck"
+    BlockTxHistoryMsg {} -> "BlockTxHistory"
+    HistoricalLookupMsg {} -> "HistoricalLookup"
+    SyncToBlockMsg {} -> "SyncToBlock"
+    ReadOnlyReplayMsg {} -> "ReadOnlyReplay"
+    CloseMsg {} -> "Close"
 
 instance Show (RequestMsg r) where
     show (NewBlockMsg req) = show req

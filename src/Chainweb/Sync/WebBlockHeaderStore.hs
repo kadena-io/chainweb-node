@@ -484,11 +484,12 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
                     | hsh == view blockPayloadHash hdr
                         -> CheckablePayloadWithOutputs pwo
                 _ -> CheckablePayload p
-        outs <- trace logfun
-            (traceLabel "pact")
-            (view blockHash hdr)
-            (length (view payloadDataTransactions p))
-            $ pact hdr payload
+        outs <- withEventOnChain (_chainId hdr) ("VALIDATE PAYLOAD " <> T.unpack (blockHeaderShortDescription hdr)) $
+            trace logfun
+                (traceLabel "pact")
+                (view blockHash hdr)
+                (length (view payloadDataTransactions p))
+                $ pact hdr payload
         addNewPayload (_webBlockPayloadStoreCas payloadStore) (view blockHeight hdr) outs
 
     queryBlockHeaderTask ck@(ChainValue cid k)
@@ -522,7 +523,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
     pullOrigin ck@(ChainValue cid k) (Just origin) = do
         let originEnv = setResponseTimeout pullOriginResponseTimeout $ peerInfoClientEnv mgr origin
         logg Debug $ taskMsg ck "lookup origin"
-        !r <- trace logfun (traceLabel "pullOrigin") k 0
+        !r <- withEventOnChain cid ("FETCH HEADER " <> T.unpack (blockHashToTextShort k)) $ trace logfun (traceLabel "pullOrigin") k 0
             $ TDB.lookup (rDb cid originEnv) k
         logg Debug $ taskMsg ck "received from origin"
         return r

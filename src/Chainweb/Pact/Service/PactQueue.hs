@@ -39,6 +39,7 @@ import Control.Monad
 
 import Data.Aeson
 import Data.IORef
+import qualified Data.UUID.V4 as UUID
 
 import GHC.Generics
 
@@ -49,6 +50,7 @@ import Numeric.Natural
 import Chainweb.Pact.Service.Types
 import Chainweb.Time
 import Chainweb.Utils
+import Utils.Logging.Trace
 
 -- -------------------------------------------------------------------------- --
 -- Pact Queue
@@ -84,13 +86,16 @@ newPactQueue sz = PactQueue
 
 -- | Add a request to the Pact execution queue
 --
-addRequest :: PactQueue -> RequestMsg r -> IO (TVar (RequestStatus r))
+addRequest :: PactQueue -> RequestMsg r -> IO (RequestId, TVar (RequestStatus r))
 addRequest q msg = do
+    uuid <- UUID.nextRandom
     statusRef <- newTVarIO RequestNotStarted
-    let submittedReq = SubmittedRequestMsg msg statusRef
+    let reqType = pactReqType msg
+    let submittedReq = SubmittedRequestMsg uuid msg statusRef
     entranceTime <- getCurrentTimeIntegral
     atomically $ writeTBQueue priority (T2 submittedReq entranceTime)
-    return statusRef
+    let requestId = RequestId { requestIdUUID = uuid, requestIdType = reqType }
+    return (requestId, statusRef)
   where
     priority = case msg of
         ValidateBlockMsg {} -> _pactQueueValidateBlock q
@@ -99,35 +104,40 @@ addRequest q msg = do
 
 -- | Cancel a request that's already been submitted to the Pact queue.
 --
-cancelSubmittedRequest :: TVar (RequestStatus r) -> IO ()
-cancelSubmittedRequest statusRef = atomically $ do
-    status <- readTVar statusRef
-    case status of
-        RequestFailed _ -> return ()
-        RequestInProgress -> writeTVar statusRef (RequestFailed (toException AsyncCancelled))
-        RequestDone _ -> return ()
-        RequestNotStarted -> writeTVar statusRef (RequestFailed (toException AsyncCancelled))
+cancelSubmittedRequest :: RequestId -> TVar (RequestStatus r) -> IO ()
+cancelSubmittedRequest requestId statusRef = do
+    atomically $ do
+        status <- readTVar statusRef
+        case status of
+            RequestFailed _ -> return ()
+            RequestInProgress -> writeTVar statusRef (RequestFailed (toException AsyncCancelled))
+            RequestDone _ -> return ()
+            RequestNotStarted -> writeTVar statusRef (RequestFailed (toException AsyncCancelled))
 
 -- | Block waiting for the result of a request that's already been submitted
 -- to the Pact queue.
 --
-waitForSubmittedRequest :: TVar (RequestStatus r) -> IO r
-waitForSubmittedRequest statusRef = atomically $ do
-    status <- readTVar statusRef
-    case status of
-        RequestFailed e -> throwIO e
-        RequestInProgress -> retry
-        RequestDone r -> return r
-        RequestNotStarted -> retry
+waitForSubmittedRequest :: RequestId -> TVar (RequestStatus r) -> IO r
+waitForSubmittedRequest requestId statusRef = do
+    r <- atomically $ do
+        status <- readTVar statusRef
+        case status of
+            -- deliberately lazy, so we don't throw until after
+            -- the end event
+            RequestFailed e -> throw e
+            RequestInProgress -> retry
+            RequestDone r -> return r
+            RequestNotStarted -> retry
+    return $! r
 
 -- | Submit a request and give a handle on its status to the continuation.
 -- When the continuation terminates, *cancel the request*.
 --
-submitRequestAnd :: PactQueue -> RequestMsg r -> (TVar (RequestStatus r) -> IO a) -> IO a
+submitRequestAnd :: PactQueue -> RequestMsg r -> (RequestId -> TVar (RequestStatus r) -> IO a) -> IO a
 submitRequestAnd q msg k = uninterruptibleMask $ \restore -> do
-    status <- addRequest q msg
-    restore (k status) `onException`
-        uninterruptibleMask_ (cancelSubmittedRequest status)
+    (requestId, status) <- addRequest q msg
+    restore (k requestId status) `onException`
+        uninterruptibleMask_ (cancelSubmittedRequest requestId status)
 
 -- | Submit a request and wait for it to finish; if interrupted by an
 -- asynchronous exception, *cancel the request*.
@@ -151,8 +161,8 @@ getNextRequest q = do
         Nothing -> retry
         Just msg -> return msg
 
-    counters (SubmittedRequestMsg ValidateBlockMsg{} _) = _pactQueuePactQueueValidateBlockMsgCounters
-    counters (SubmittedRequestMsg NewBlockMsg{} _) = _pactQueuePactQueueNewBlockMsgCounters
+    counters (SubmittedRequestMsg _ ValidateBlockMsg{} _) = _pactQueuePactQueueValidateBlockMsgCounters
+    counters (SubmittedRequestMsg _ NewBlockMsg{} _) = _pactQueuePactQueueNewBlockMsgCounters
     counters _ = _pactQueuePactQueueOtherMsgCounters
 
 -- -------------------------------------------------------------------------- --

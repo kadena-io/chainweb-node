@@ -763,6 +763,7 @@ cutHashesToBlockHeaderMap
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
 cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
+    withEvent "FETCH CUT" $
     trace logfun "Chainweb.CutDB.cutHashesToBlockHeaderMap" hsid 1 $ do
         timeout (_cutDbParamsFetchTimeout conf) go >>= \case
             Nothing -> do

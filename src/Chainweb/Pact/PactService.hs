@@ -69,7 +69,6 @@ import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.UUID as UUID
-import qualified Data.UUID.V4 as UUID
 import Data.Word (Word64)
 import GrowableVector.Lifted (Vec)
 import GrowableVector.Lifted qualified as Vec
@@ -304,71 +303,75 @@ serviceRequests memPoolAccess reqQ = go
     go = do
         PactServiceEnv{_psLogger} <- ask
         logDebug "serviceRequests: wait"
-        SubmittedRequestMsg msg statusRef <- liftIO $ getNextRequest reqQ
-        requestId <- liftIO $ UUID.toText <$> UUID.nextRandom
+        SubmittedRequestMsg requestUUID msg statusRef <- liftIO $ getNextRequest reqQ
         let
           logFn :: LogFunction
-          logFn = logFunction $ addLabel ("pact-request-id", requestId) _psLogger
+          logFn = logFunction $ addLabel ("pact-request-id", UUID.toText requestUUID) _psLogger
         logDebug $ "serviceRequests: " <> sshow msg
-        case msg of
-            CloseMsg ->
+        let eventName = "PACT " <> pactReqType msg
+        liftIO $ eventStart eventName
+        keepGoing <- case msg of
+            CloseMsg -> do
                 tryOne "execClose" statusRef $ return ()
+                return False
             LocalMsg (LocalReq localRequest preflight sigVerify rewindDepth) -> do
                 trace logFn "Chainweb.Pact.PactService.execLocal" () 0 $
                     tryOne "execLocal" statusRef $
                         execLocal localRequest preflight sigVerify rewindDepth
-                go
+                return True
             NewBlockMsg NewBlockReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execNewBlock"
                     () 1 $
                     tryOne "execNewBlock" statusRef $
                         execNewBlock memPoolAccess _newBlockMiner _newBlockFill _newBlockParent
-                go
+                return True
             ContinueBlockMsg (ContinueBlockReq bip) -> do
                 trace logFn "Chainweb.Pact.PactService.execContinueBlock"
                     () 1 $
                     tryOne "execContinueBlock" statusRef $
                         execContinueBlock memPoolAccess bip
-                go
+                return True
             ValidateBlockMsg ValidateBlockReq {..} -> do
                 tryOne "execValidateBlock" statusRef $
                   fmap fst $ trace' logFn "Chainweb.Pact.PactService.execValidateBlock"
                     _valBlockHeader
                     (\(_, g) -> fromIntegral g)
                     (execValidateBlock memPoolAccess _valBlockHeader _valCheckablePayload)
-                go
+                return True
             LookupPactTxsMsg (LookupPactTxsReq confDepth txHashes) -> do
                 trace logFn "Chainweb.Pact.PactService.execLookupPactTxs" ()
                     (length txHashes) $
                     tryOne "execLookupPactTxs" statusRef $
                         execLookupPactTxs confDepth txHashes
-                go
+                return True
             PreInsertCheckMsg (PreInsertCheckReq txs) -> do
                 trace logFn "Chainweb.Pact.PactService.execPreInsertCheckReq" ()
                     (length txs) $
                     tryOne "execPreInsertCheckReq" statusRef $
                         V.map (() <$) <$> execPreInsertCheckReq txs
-                go
+                return True
             BlockTxHistoryMsg (BlockTxHistoryReq bh d) -> do
                 trace logFn "Chainweb.Pact.PactService.execBlockTxHistory" bh 1 $
                     tryOne "execBlockTxHistory" statusRef $
                         execBlockTxHistory bh d
-                go
+                return True
             HistoricalLookupMsg (HistoricalLookupReq bh d k) -> do
                 trace logFn "Chainweb.Pact.PactService.execHistoricalLookup" bh 1 $
                     tryOne "execHistoricalLookup" statusRef $
                         execHistoricalLookup bh d k
-                go
+                return True
             SyncToBlockMsg SyncToBlockReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execSyncToBlock" _syncToBlockHeader 1 $
                     tryOne "syncToBlockBlock" statusRef $
                         execSyncToBlock _syncToBlockHeader
-                go
+                return True
             ReadOnlyReplayMsg ReadOnlyReplayReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execReadOnlyReplay" (_readOnlyReplayLowerBound, _readOnlyReplayUpperBound) 1 $
                     tryOne "readOnlyReplayBlock" statusRef $
                         execReadOnlyReplay _readOnlyReplayLowerBound _readOnlyReplayUpperBound
-                go
+                return True
+        liftIO $ eventEnd eventName
+        when keepGoing go
 
     tryOne
         :: forall a. Text
