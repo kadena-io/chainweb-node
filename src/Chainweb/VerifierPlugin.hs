@@ -99,7 +99,7 @@ runVerifierPlugins chainContext logger allVerifiers gasRemaining tx = try $ do
                 tryAny (hoist stToIO (runVerifierPlugin verifierPlugin chainContext proof caps gasRef)) >>= \case
                     Left ex -> do
                         liftIO $ logFunctionText logger Warn ("Uncaught exception in verifier: " <> sshow ex)
-                        throwError $ VerifierError "Uncaught exception in verifier"
+                        throwError $ VerifierError $ "Uncaught exception in verifier" <> sshow ex
                     Right () -> return ()
                 verifierDoneGasRemaining <- lift $ stToIO $ readSTRef gasRef
                 if verifierDoneGasRemaining > verifierGasRemaining

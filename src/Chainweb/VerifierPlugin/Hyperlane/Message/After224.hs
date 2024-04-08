@@ -20,7 +20,7 @@ import Control.Monad (unless)
 import Control.Monad.Except
 import Control.Monad.ST
 
-import qualified Data.Text.Encoding as Text
+import Data.Traversable (forM)
 import qualified Data.Vector as V
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as M
@@ -50,9 +50,13 @@ runPlugin proof caps gasRef = do
     [cap] -> return cap
     _ -> throwError $ VerifierError "Expected one capability."
 
-  (capMessageId, capMessage, capSigners) <- case _scArgs of
-      [mid, mb, sigs] -> return (mid, mb, sigs)
-      _ -> throwError $ VerifierError $ "Incorrect number of capability arguments. Expected: messageId, message, signers."
+  (capMessageId, capMessage, capSigners, capThreshold) <- case _scArgs of
+      [mid, mb, PList sigs, PLiteral (LInteger threshold)] -> do
+        parsedSigners <- forM sigs $ \case
+          (PLiteral (LString v)) -> pure v
+          _ -> throwError $ VerifierError "Only string signers are supported"
+        return (mid, mb, parsedSigners, fromIntegral threshold)
+      _ -> throwError $ VerifierError $ "Incorrect number of capability arguments. Expected: messageId, message, signers, threshold."
 
   -- extract proof object values
   (hyperlaneMessageBase64, metadataBase64) <- case proof of
@@ -87,8 +91,8 @@ runPlugin proof caps gasRef = do
     hmNoncePactValue = PLiteral $ LInteger $ fromIntegral hmNonce
     hmOriginDomainPactValue = PLiteral $ LInteger $ fromIntegral hmOriginDomain
     hmDestinationDomainPactValue = PLiteral $ LInteger $ fromIntegral hmDestinationDomain
-    hmSenderPactValue = PLiteral $ LString $ encodeHex hmSender
-    hmRecipientPactValue = PLiteral $ LString $ Text.decodeUtf8 hmRecipient
+    hmSenderPactValue = PLiteral $ LString $ encodeB64UrlNoPaddingText hmSender
+    hmRecipientPactValue = PLiteral $ LString $ encodeB64UrlNoPaddingText hmRecipient
 
     hmMessageBodyPactValue = PLiteral $ LString $ encodeB64UrlNoPaddingText hmMessageBody
     hmMessagePactValue = PObject . ObjectMap . M.fromList $
@@ -128,11 +132,24 @@ runPlugin proof caps gasRef = do
           putWord32be mrmimSignedCheckpointIndex
           putRawByteString mrmimSignedCheckpointMessageId
 
-  addresses <- catMaybes <$> mapM (\sig -> chargeGas gasRef 16250 >> recoverAddress digest sig) mrmimSignatures
-  let addressesVals = PList $ V.fromList $ map (PLiteral . LString . encodeHex) addresses
+  -- Requires that m-of-n validators verify a merkle root, and verifies a merkle proof of message against that root.
+  --
+  -- The signature addresses and validator addresses should be in the same order.
+  --
+  -- The original algorithm in hyperlane.
+  -- https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/v3/solidity/contracts/isms/multisig/AbstractMultisigIsm.sol#L67
+  unless (capThreshold > 0) $ throwError $ VerifierError $ "Threshold should be greater than 0"
 
-  -- Note, that we check the signers for the full equality including their order and amount.
-  -- Hyperlane's ISM uses a threshold and inclusion check.
-  unless (addressesVals == capSigners) $
-    throwError $ VerifierError $
-      "Signers don't match. Expected: " <> sshow addressesVals <> " but got " <> sshow capSigners
+  unless (length mrmimSignatures >= capThreshold) $ throwError $ VerifierError $ "The number of signatures can't be less than threshold"
+
+  let
+    verify [] _ = pure ()
+    verify (sig:sigs) validators =
+      chargeGas gasRef 16250 >> recoverAddress digest sig >>= \case
+        Just addr -> do
+          case V.elemIndex (encodeHex addr) validators of
+            Just i -> verify sigs (V.drop (i + 1) validators)
+            Nothing -> throwError $ VerifierError "Verification failed"
+        Nothing -> throwError $ VerifierError $ "Failed to recover an address: incorrect signature"
+
+  verify (take capThreshold mrmimSignatures) capSigners

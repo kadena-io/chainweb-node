@@ -42,11 +42,13 @@ import Chainweb.Test.Pact.VerifierPluginTest.Transaction.Utils
 tests :: TestTree
 tests = testGroup "After224"
   [ test generousConfig getGasModel "verifySuccess" hyperlaneVerifySuccess
-  , test generousConfig getGasModel "verifyEmptyRecoveredSignaturesSuccess" hyperlaneVerifyEmptyRecoveredSignaturesSuccess
+  , test generousConfig getGasModel "verifyMoreValidatorsSuccess" hyperlaneVerifyMoreValidatorsSuccess
+  , test generousConfig getGasModel "verifyEmptyRecoveredSignaturesFailure" hyperlaneVerifyEmptyRecoveredSignaturesFailure
   , test generousConfig getGasModel "verifyWrongSignersFailure" hyperlaneVerifyWrongSignersFailure
   , test generousConfig getGasModel "verifyNotEnoughRecoveredSignaturesFailure" hyperlaneVerifyNotEnoughRecoveredSignaturesFailure
   , test generousConfig getGasModel "verifyNotEnoughCapabilitySignaturesFailure" hyperlaneVerifyNotEnoughCapabilitySignaturesFailure
   , test generousConfig getGasModel "verifyIncorretProofFailure" hyperlaneVerifyMerkleIncorrectProofFailure
+  , test generousConfig getGasModel "verifyFailureNotEnoughSignaturesToPassThreshold" hyperlaneVerifyFailureNotEnoughSignaturesToPassThreshold
   ]
   where
     -- This is way more than what is used in production, but during testing
@@ -81,11 +83,14 @@ hyperlaneMessageBase64 = encodeB64UrlNoPaddingText $ runPutS $ putHyperlaneMessa
     { hmVersion = 3
     , hmNonce = 0
     , hmOriginDomain = 31337
-    , hmSender = decodeHexUnsafe "0x7fa9385be102ac3eac297483dd6233d62b3e1496"
+    , hmSender = either (error . show) id $ decodeB64UrlNoPaddingText "AAAAAAAAAAAAAAAAf6k4W-ECrD6sKXSD3WIz1is-FJY"
     , hmDestinationDomain = 626
-    , hmRecipient = "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV"
+    , hmRecipient = either (error . show) id $ decodeB64UrlNoPaddingText "AAAAAAAAAADpgrOqkM0BOY-FQnNzkDXuYlsVcf50GRU"
     , hmMessageBody = either (error . show) id $ decodeB64UrlNoPaddingText hyperlaneTokenMessageBase64
     }
+
+hyperlaneMessageId :: T.Text
+hyperlaneMessageId = encodeHex $ keccak256ByteString $ either (error . show) id $ decodeB64UrlNoPaddingText $ hyperlaneMessageBase64
 
 -- | Hyperlane test MerkleTree Metadata encoded in base64
 -- Test data was generated using the following test in the hyperlane codebase
@@ -95,7 +100,7 @@ mkHyperlaneMerkleTreeMetadataBase64 proof signatures = encodeB64UrlNoPaddingText
   MerkleRootMultisigIsmMetadata
     { mrmimOriginMerkleTreeAddress = decodeHexUnsafe "0x2e234dae75c793f67a35089c9d99245e1c58470b"
     , mrmimMessageIdIndex = 0
-    , mrmimSignedCheckpointMessageId = decodeHexUnsafe "0x6f370c453c86ad681e936741683cceca8f13c46f2a49b1c9f8c6a23b5bb97aae"
+    , mrmimSignedCheckpointMessageId = decodeHexUnsafe hyperlaneMessageId
     , mrmimMerkleProof = proof
     , mrmimSignedCheckpointIndex = 0
     , mrmimSignatures = signatures
@@ -110,9 +115,15 @@ hyperlaneMerkleTreeIncorrectProof
   <> "\x19"
   <> B.drop 32 hyperlaneMerkleTreeCorrectProof
 
+validSigner :: T.Text
+validSigner = "0x4bd34992e0994e9d3c53c1ccfe5c2e38d907338e"
+
+validSignature :: T.Text
+validSignature = "0xfabe80dd5bf4440e5e7fbc3cdf12325df9c00beb1281c5ddf12e77177046790c49f531ccebb29ba9c9664a581ed1870873850e0cf0c231b779e21f48a1d0dcea1b"
+
 -- | Deploys a contract with a valid signer
-deployContractWithValidSigner :: PactTxTest
-deployContractWithValidSigner =
+deployContractWith :: [T.Text] -> Integer -> T.Text -> PactTxTest
+deployContractWith signers threshold moduleHash =
   PactTxTest
     (buildBasicGas 70000
     $ mkExec' $ mconcat
@@ -128,91 +139,47 @@ deployContractWithValidSigner =
       , "    messageBody:string"
       , ")"
       , "(defcap G () true)"
-      , "(defcap K (messageId:string message:object{hyperlane_message} signers:[string])"
+      , "(defcap K (messageId:string message:object{hyperlane_message} signers:[string] threshold:integer)"
       , "  (enforce-verifier 'hyperlane_v3_message)"
-      , "  (enforce (= messageId \"0x6f370c453c86ad681e936741683cceca8f13c46f2a49b1c9f8c6a23b5bb97aae\") \"invalid messageId\")"
-      , "  (enforce (= signers [\"0x4bd34992e0994e9d3c53c1ccfe5c2e38d907338e\"]) \"invalid signers\")"
-      , "  (enforce (= (at \"recipient\" message) \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\") \"invalid recipient\")"
+      , "  (enforce (= messageId \"" <> hyperlaneMessageId <> "\") \"invalid messageId\")"
+      , "  (enforce (= messageId (hyperlane-message-id message)) \"invalid calculated messageId\")"
+      , "  (enforce (= signers [" <> (T.intercalate "," $ map (\s -> "\"" <> s <> "\"") signers) <> "]) \"invalid signers\")"
+      , "  (enforce (= (at \"sender\" message) \"AAAAAAAAAAAAAAAAf6k4W-ECrD6sKXSD3WIz1is-FJY\") \"invalid sender\")"
+      , "  (enforce (= (at \"recipient\" message) \"AAAAAAAAAADpgrOqkM0BOY-FQnNzkDXuYlsVcf50GRU\") \"invalid recipient\")"
       , "  (bind (hyperlane-decode-token-message (at \"messageBody\" message)) "
       , "    { \"amount\" := amount, "
       , "      \"chainId\" := chain-id, "
       , "      \"recipient\" := recipient-guard }"
       , "    (enforce (= amount 0.000000000000000123) \"invalid amount\")"
       , "    (enforce (= (create-principal recipient-guard) \"k:da1a339bd82d2c2e9180626a00dc043275deb3ababb27b5738abf6b9dcee8db6\") \"invalid recipient guard\")"
+      , "    (enforce (= (hyperlane-encode-token-message {\"amount\": amount, \"chainId\": chain-id, \"recipient\": "
+      , "  \"{\\\"pred\\\": \\\"keys-all\\\", \\\"keys\\\":[\\\"da1a339bd82d2c2e9180626a00dc043275deb3ababb27b5738abf6b9dcee8db6\\\"]}\""
+      , "}) (at \"messageBody\" message)) \"invalid encoded message\")"
       , "  )"
       , ")"
       , "(defun x () (with-capability (K "
-      , "\"0x6f370c453c86ad681e936741683cceca8f13c46f2a49b1c9f8c6a23b5bb97aae\""
+      , "\"" <> hyperlaneMessageId <> "\""
       , " {"
       , "  \"version\": 3,"
       , "  \"nonce\": 0,"
       , "  \"originDomain\": 31337,"
-      , "  \"sender\": \"0x7fa9385be102ac3eac297483dd6233d62b3e1496\","
+      , "  \"sender\": \"AAAAAAAAAAAAAAAAf6k4W-ECrD6sKXSD3WIz1is-FJY\","
       , "  \"destinationDomain\": 626,"
-      , "  \"recipient\": \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\","
+      , "  \"recipient\": \"AAAAAAAAAADpgrOqkM0BOY-FQnNzkDXuYlsVcf50GRU\","
       , "  \"messageBody\": \"" <> hyperlaneTokenMessageBase64 <> "\""
       , "}"
-      , " [\"0x4bd34992e0994e9d3c53c1ccfe5c2e38d907338e\"]"
+      , " [" <> (T.intercalate "," $ map (\s -> "\"" <> s <> "\"") signers) <> "]"
+      , " " <> sshow threshold
       , ")"
       , " \"succeeded\")))"
       ])
     (assertTxSuccess
       "Should deploy module"
-      (pString "Loaded module free.m, hash lJnbz74rDJQFwjIeA2ZdK0WmXJTScxGUGem-nre4TV4"))
-
--- | Deploys a contract with an invalid signer
-deployContractWithInvalidSigner :: PactTxTest
-deployContractWithInvalidSigner =
-  PactTxTest
-    (buildBasicGas 70000
-    $ mkExec' $ mconcat
-      [ "(namespace 'free)"
-      , "(module m G"
-      , "(defschema hyperlane_message"
-      , "    version:integer"
-      , "    nonce:integer"
-      , "    originDomain:integer"
-      , "    destinationDomain:integer"
-      , "    sender:string"
-      , "    recipient:string"
-      , "    messageBody:string"
-      , ")"
-      , "(defcap G () true)"
-      , "(defcap K (messageId:string message:object{hyperlane_message} signers:[string])"
-      , "  (enforce-verifier 'hyperlane_v3_message)"
-      , "  (enforce (= messageId \"0x6f370c453c86ad681e936741683cceca8f13c46f2a49b1c9f8c6a23b5bb97aae\") \"invalid messageId\")"
-      , "  (enforce (= signers [\"wrongValidator\"]) \"invalid signers\")"
-      , "  (enforce (= (at \"recipient\" message) \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\") \"invalid recipient\")"
-      , "  (bind (hyperlane-decode-token-message (at \"messageBody\" message)) "
-      , "    { \"amount\" := amount, "
-      , "      \"chainId\" := chain-id, "
-      , "      \"recipient\" := recipient-guard }"
-      , "    (enforce (= amount 0.000000000000000123) \"invalid amount\")"
-      , "    (enforce (= (create-principal recipient-guard) \"k:da1a339bd82d2c2e9180626a00dc043275deb3ababb27b5738abf6b9dcee8db6\") \"invalid recipient guard\")"
-      , "  )"
-      , ")"
-      , "(defun x () (with-capability (K "
-      , "\"0x6f370c453c86ad681e936741683cceca8f13c46f2a49b1c9f8c6a23b5bb97aae\""
-      , " {"
-      , "  \"version\": 3,"
-      , "  \"nonce\": 0,"
-      , "  \"originDomain\": 31337,"
-      , "  \"sender\": \"0x7fa9385be102ac3eac297483dd6233d62b3e1496\","
-      , "  \"destinationDomain\": 626,"
-      , "  \"recipient\": \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\","
-      , "  \"messageBody\": \"" <> hyperlaneTokenMessageBase64 <> "\""
-      , "}"
-      , " []"
-      , ")"
-      , " \"succeeded\")))"
-      ])
-      (assertTxSuccess
-        "Should deploy module"
-        (pString "Loaded module free.m, hash Yq0Z121-F0lVinDfjCtIwUZLZjz0ffIShYZfsO75WFk"))
+      (pString $ "Loaded module free.m, hash " <> moduleHash))
 
 -- | Calls '(free.m.x)' from 'deployContractWithValidSigner'
-mkMerkleMetadataCallWithGas :: GasLimit -> B.ByteString -> [T.Text] -> [T.Text] -> MempoolCmdBuilder
-mkMerkleMetadataCallWithGas gas merkleProof signatures signersText = buildBasic'
+mkMerkleMetadataCallWithGas :: GasLimit -> B.ByteString -> [T.Text] -> [T.Text] -> Integer -> MempoolCmdBuilder
+mkMerkleMetadataCallWithGas gas merkleProof signatures signersText threshold = buildBasic'
   (set cbGasLimit gas . set cbVerifiers
     [Verifier
       (VerifierName "hyperlane_v3_message")
@@ -226,43 +193,55 @@ mkMerkleMetadataCallWithGas gas merkleProof signatures signersText = buildBasic'
       [cap]])
       (mkExec' "(free.m.x)")
   where
-    messageId = pString "0x6f370c453c86ad681e936741683cceca8f13c46f2a49b1c9f8c6a23b5bb97aae"
+    messageId = pString hyperlaneMessageId
     message = PObject . ObjectMap . M.fromList $
       [ ("version", PLiteral $ LInteger 3)
       , ("nonce", PLiteral $ LInteger 0)
       , ("originDomain", PLiteral $ LInteger 31337)
       , ("destinationDomain", PLiteral $ LInteger 626)
-      , ("sender", pString "0x7fa9385be102ac3eac297483dd6233d62b3e1496")
-      , ("recipient", pString "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV")
+      , ("sender", pString "AAAAAAAAAAAAAAAAf6k4W-ECrD6sKXSD3WIz1is-FJY")
+      , ("recipient", pString "AAAAAAAAAADpgrOqkM0BOY-FQnNzkDXuYlsVcf50GRU")
       , ("messageBody", pString hyperlaneTokenMessageBase64)
       ]
 
     signers = PList $ V.fromList $ map pString signersText
     cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
-            [messageId, message, signers]
+            [messageId, message, signers, pInteger threshold]
 
-mkMerkleMetadataCall :: B.ByteString -> [T.Text] -> [T.Text] -> MempoolCmdBuilder
+mkMerkleMetadataCall :: B.ByteString -> [T.Text] -> [T.Text] -> Integer -> MempoolCmdBuilder
 mkMerkleMetadataCall = mkMerkleMetadataCallWithGas 20000
 
 hyperlaneVerifySuccess :: PactTestM ()
 hyperlaneVerifySuccess = do
   runToHeight 127
 
+  let threshold = 1
   runBlockTest
-    [ deployContractWithValidSigner
+    [ deployContractWith [validSigner] threshold "znuwHIZL7V0GhrGgyrMZDqQbjZ6dqVm_RiXHPw-k6CA"
     , checkVerifierNotInTx "hyperlane_v3_message"
-    , PactTxTest (mkMerkleMetadataCall
-        hyperlaneMerkleTreeCorrectProof
-        ["0xb3df841e9e3036f0858b0376280ef6692be293b53da3fba3384c82d6ca86704619cd7700147e3439fb66a985bdb310a4273204a0b5e5337deec0f00dfc8a5a171c"]
-        ["0x4bd34992e0994e9d3c53c1ccfe5c2e38d907338e"]
-        )
+    , PactTxTest (mkMerkleMetadataCall hyperlaneMerkleTreeCorrectProof [validSignature] [validSigner] threshold)
       (\cr -> liftIO $ do
         assertTxSuccess "should have succeeded" (pString "succeeded") cr
-        assertEqual "gas should have been charged" 16578 (_crGas cr))
+        assertEqual "gas should have been charged" 16595 (_crGas cr))
     ]
 
-hyperlaneVerifyEmptyRecoveredSignaturesSuccess :: PactTestM ()
-hyperlaneVerifyEmptyRecoveredSignaturesSuccess = do
+hyperlaneVerifyMoreValidatorsSuccess :: PactTestM ()
+hyperlaneVerifyMoreValidatorsSuccess = do
+  runToHeight 127
+
+  let threshold = 1
+  let signers = ["wrongSigner", validSigner]
+  runBlockTest
+    [ deployContractWith signers threshold "clENNco99p2SUOcghlM_YoGfC-WKJtzNT7lElVJis-0"
+    , checkVerifierNotInTx "hyperlane_v3_message"
+    , PactTxTest (mkMerkleMetadataCall hyperlaneMerkleTreeCorrectProof [validSignature] signers threshold)
+      (\cr -> liftIO $ do
+        assertTxSuccess "should have succeeded" (pString "succeeded") cr
+        assertEqual "gas should have been charged" 16595 (_crGas cr))
+    ]
+
+hyperlaneVerifyEmptyRecoveredSignaturesFailure :: PactTestM ()
+hyperlaneVerifyEmptyRecoveredSignaturesFailure = do
   runToHeight 127
 
   runBlockTest
@@ -272,49 +251,46 @@ hyperlaneVerifyEmptyRecoveredSignaturesSuccess = do
       [ "(namespace 'free)"
       , "(module m G"
       , "(defcap G () true)"
-      , "(defcap K (messageId:string message signers:[string])"
+      , "(defcap K (messageId:string message signers:[string] threshold:integer)"
       , "  (enforce-verifier 'hyperlane_v3_message)"
       , "  (enforce (= signers []) \"invalid signers\")"
       , ")"
       , "(defun x () (with-capability (K "
-      , "\"0x6f370c453c86ad681e936741683cceca8f13c46f2a49b1c9f8c6a23b5bb97aae\""
+      , "\"" <> hyperlaneMessageId <> "\""
       , " {"
       , "  \"version\": 3,"
       , "  \"nonce\": 0,"
       , "  \"originDomain\": 31337,"
-      , "  \"sender\": \"0x7fa9385be102ac3eac297483dd6233d62b3e1496\","
+      , "  \"sender\": \"AAAAAAAAAAAAAAAAf6k4W-ECrD6sKXSD3WIz1is-FJY\","
       , "  \"destinationDomain\": 626,"
-      , "  \"recipient\": \"6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV\","
+      , "  \"recipient\": \"AAAAAAAAAADpgrOqkM0BOY-FQnNzkDXuYlsVcf50GRU\","
       , "  \"messageBody\": \"" <> hyperlaneTokenMessageBase64 <> "\""
       , "}"
-      , " []"
+      , " [] 0"
       , ")"
       , " \"succeeded\")))"
       ])
       (assertTxSuccess
         "Should deploy module"
-        (pString "Loaded module free.m, hash dOUmd1arhUC2DGhDP1dLGad_JBXpLsvMhs98wP_ovJo"))
+        (pString "Loaded module free.m, hash kP1ToC2qen8p66JBmCawN_tBA_Sg_fX-KlbQ5ik9hIg"))
     , checkVerifierNotInTx "hyperlane_v3_message"
-    , PactTxTest (mkMerkleMetadataCall hyperlaneMerkleTreeCorrectProof [] [])
+    , PactTxTest (mkMerkleMetadataCall hyperlaneMerkleTreeCorrectProof [] [] 0)
       (\cr -> liftIO $ do
-        assertTxSuccess "should have succeeded" (pString "succeeded") cr
-        assertEqual "gas should have been charged" 299 (_crGas cr))
+        assertTxFailure "Verification should fail" "Tx verifier error: Threshold should be greater than 0" cr
+        assertEqual "gas should have been charged" 20000 (_crGas cr))
     ]
 
 hyperlaneVerifyWrongSignersFailure :: PactTestM ()
 hyperlaneVerifyWrongSignersFailure = do
   runToHeight 127
 
+  let threshold = 1
   runBlockTest
-    [ deployContractWithInvalidSigner
+    [ deployContractWith ["wrongSigner"] threshold "vp9FQJN_7F5RO_oFePUQP25cGKpdNVlUKmyXnpaANQM"
     , checkVerifierNotInTx "hyperlane_v3_message"
-    , PactTxTest (mkMerkleMetadataCall
-        hyperlaneMerkleTreeCorrectProof
-        ["0xb3df841e9e3036f0858b0376280ef6692be293b53da3fba3384c82d6ca86704619cd7700147e3439fb66a985bdb310a4273204a0b5e5337deec0f00dfc8a5a171c"]
-        ["wrongValidator"])
+    , PactTxTest (mkMerkleMetadataCall hyperlaneMerkleTreeCorrectProof [validSignature] ["wrongSigner"] threshold)
       (\cr -> liftIO $ do
-        let errMsg = "Tx verifier error: Signers don't match. Expected: PList [PLiteral (LString {_lString = \"0x4bd34992e0994e9d3c53c1ccfe5c2e38d907338e\"})] but got PList [PLiteral (LString {_lString = \"wrongValidator\"})]"
-        assertTxFailure "should have failed with signers don't match" errMsg cr
+        assertTxFailure "Verification should fail" "Tx verifier error: Verification failed" cr
         assertEqual "gas should have been charged" 20000 (_crGas cr))
     ]
 
@@ -322,14 +298,14 @@ hyperlaneVerifyNotEnoughRecoveredSignaturesFailure :: PactTestM ()
 hyperlaneVerifyNotEnoughRecoveredSignaturesFailure = do
   runToHeight 127
 
+  let threshold = 1
   runBlockTest
-    [ deployContractWithInvalidSigner
+    [ deployContractWith ["wrongSigner"] threshold "vp9FQJN_7F5RO_oFePUQP25cGKpdNVlUKmyXnpaANQM"
     , checkVerifierNotInTx "hyperlane_v3_message"
     , PactTxTest (mkMerkleMetadataCall
-        hyperlaneMerkleTreeCorrectProof [] ["wrongValidator"])
+        hyperlaneMerkleTreeCorrectProof [] ["wrongSigner"] threshold)
       (\cr -> liftIO $ do
-        let errMsg = "Tx verifier error: Signers don't match. Expected: PList [] but got PList [PLiteral (LString {_lString = \"wrongValidator\"})]"
-        assertTxFailure "should have failed with signers don't match" errMsg cr
+        assertTxFailure "Verification should fail with not enough recovered addresses" "Tx verifier error: The number of signatures can't be less than threshold" cr
         assertEqual "gas should have been charged" 20000 (_crGas cr))
     ]
 
@@ -337,19 +313,13 @@ hyperlaneVerifyNotEnoughCapabilitySignaturesFailure :: PactTestM ()
 hyperlaneVerifyNotEnoughCapabilitySignaturesFailure = do
   runToHeight 127
 
+  let threshold = 2
   runBlockTest
-    [ deployContractWithValidSigner
+    [ deployContractWith [validSigner] threshold "h-q8fikB1z-ipj0TTiT9Ou5d_-4Q1s1ewwjK7H4IMnU"
     , checkVerifierNotInTx "hyperlane_v3_message"
-    , PactTxTest (mkMerkleMetadataCallWithGas 40000
-        hyperlaneMerkleTreeCorrectProof
-        [ "0xb3df841e9e3036f0858b0376280ef6692be293b53da3fba3384c82d6ca86704619cd7700147e3439fb66a985bdb310a4273204a0b5e5337deec0f00dfc8a5a171c"
-        , "0xb3df841e9e3036f0858b0376280ef6692be293b53da3fba3384c82d6ca86704619cd7700147e3439fb66a985bdb310a4273204a0b5e5337deec0f00dfc8a5a171c"
-        ]
-        ["0x4bd34992e0994e9d3c53c1ccfe5c2e38d907338e"]
-        )
+    , PactTxTest (mkMerkleMetadataCallWithGas 40000 hyperlaneMerkleTreeCorrectProof [validSignature, validSignature] [validSigner] threshold)
       (\cr -> liftIO $ do
-        let errMsg = "Tx verifier error: Signers don't match. Expected: PList [PLiteral (LString {_lString = \"0x4bd34992e0994e9d3c53c1ccfe5c2e38d907338e\"}),PLiteral (LString {_lString = \"0x4bd34992e0994e9d3c53c1ccfe5c2e38d907338e\"})] but got PList [PLiteral (LString {_lString = \"0x4bd34992e0994e9d3c53c1ccfe5c2e38d907338e\"})]"
-        assertTxFailure "should have failed with signers don't match" errMsg cr
+        assertTxFailure "Verification should fail" "Tx verifier error: Verification failed" cr
         assertEqual "gas should have been charged" 40000 (_crGas cr))
     ]
 
@@ -357,16 +327,29 @@ hyperlaneVerifyMerkleIncorrectProofFailure :: PactTestM ()
 hyperlaneVerifyMerkleIncorrectProofFailure = do
   runToHeight 127
 
+  let threshold = 1
   runBlockTest
-    [ deployContractWithValidSigner
+    [ deployContractWith [validSigner] threshold "znuwHIZL7V0GhrGgyrMZDqQbjZ6dqVm_RiXHPw-k6CA"
     , checkVerifierNotInTx "hyperlane_v3_message"
-    , PactTxTest (mkMerkleMetadataCall
-        hyperlaneMerkleTreeIncorrectProof
-        ["0xb3df841e9e3036f0858b0376280ef6692be293b53da3fba3384c82d6ca86704619cd7700147e3439fb66a985bdb310a4273204a0b5e5337deec0f00dfc8a5a171c"]
-        ["0x4bd34992e0994e9d3c53c1ccfe5c2e38d907338e"]
-      )
+    , PactTxTest (mkMerkleMetadataCall hyperlaneMerkleTreeIncorrectProof [validSignature] [validSigner] threshold)
       (\cr -> liftIO $ do
-        let errMsg = "Tx verifier error: Signers don't match. Expected: PList [PLiteral (LString {_lString = \"0x6d49eb3534b546856da70706a745038e4f0fd88a\"})] but got PList [PLiteral (LString {_lString = \"0x4bd34992e0994e9d3c53c1ccfe5c2e38d907338e\"})]"
-        assertTxFailure "should have failed with signers don't match" errMsg cr
+        assertTxFailure "Verification should fail" "Tx verifier error: Verification failed" cr
         assertEqual "gas should have been charged" 20000 (_crGas cr))
+    ]
+
+-- | We pass 2 signatures, 1st one matches to the correct validator,
+-- but there is no second valid validator for the 2nd signature, and the verification fails.
+hyperlaneVerifyFailureNotEnoughSignaturesToPassThreshold :: PactTestM ()
+hyperlaneVerifyFailureNotEnoughSignaturesToPassThreshold = do
+  runToHeight 127
+
+  let threshold = 2
+  let signers = ["wrongSigner", validSigner, "wrongSigner"]
+  runBlockTest
+    [ deployContractWith [validSigner] threshold "h-q8fikB1z-ipj0TTiT9Ou5d_-4Q1s1ewwjK7H4IMnU"
+    , checkVerifierNotInTx "hyperlane_v3_message"
+    , PactTxTest (mkMerkleMetadataCallWithGas 40000 hyperlaneMerkleTreeCorrectProof [validSignature, validSignature] signers threshold)
+      (\cr -> liftIO $ do
+        assertTxFailure "Verification should fail" "Tx verifier error: Verification failed" cr
+        assertEqual "gas should have been charged" 40000 (_crGas cr))
     ]

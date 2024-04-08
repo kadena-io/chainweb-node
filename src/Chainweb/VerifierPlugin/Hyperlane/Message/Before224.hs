@@ -20,6 +20,7 @@ import Control.Monad (unless)
 import Control.Monad.Except
 import Control.Monad.ST
 
+import qualified Data.ByteString as BS
 import qualified Data.Text.Encoding as Text
 import qualified Data.Vector as V
 import qualified Data.Set as Set
@@ -72,7 +73,7 @@ runPlugin proof caps gasRef = do
     runGetS getMessageIdMultisigIsmMetadata metadata
 
   -- validate recipient
-  let hmRecipientPactValue = PLiteral $ LString $ Text.decodeUtf8 hmRecipient
+  let hmRecipientPactValue = PLiteral $ LString $ Text.decodeUtf8 $ BS.dropWhile (== 0) hmRecipient
   unless (hmRecipientPactValue == capRecipient) $
     throwError $ VerifierError $
       "Recipients don't match. Expected: " <> sshow hmRecipientPactValue <> " but got " <> sshow capRecipient

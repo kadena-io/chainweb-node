@@ -84,11 +84,12 @@ hyperlaneMessageBase64 = encodeB64UrlNoPaddingText $ runPutS $ putHyperlaneMessa
     { hmVersion = 3
     , hmNonce = 0
     , hmOriginDomain = 31337
-    , hmSender = decodeHexUnsafe "0x7fa9385be102ac3eac297483dd6233d62b3e1496"
+    , hmSender = padLeft $ decodeHexUnsafe "0x7fa9385be102ac3eac297483dd6233d62b3e1496"
     , hmDestinationDomain = 626
-    , hmRecipient = "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV"
+    , hmRecipient = padLeft $ "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV"
     , hmMessageBody = either (error . show) id $ decodeB64UrlNoPaddingText hyperlaneTokenMessageBase64
     }
+
 
 -- =========================================================
 --
