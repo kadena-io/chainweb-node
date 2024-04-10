@@ -946,6 +946,7 @@ blockAdjacentChainIds = to _blockAdjacentChainIds
 getAdjacentHash :: MonadThrow m => HasChainId p => p -> BlockHeader -> m BlockHash
 getAdjacentHash p b = firstOf (blockAdjacentHashes . ixg (_chainId p)) b
     ??? ChainNotAdjacentException
+        (_chainId b)
         (Expected $ _chainId p)
         (Actual $ _blockAdjacentChainIds b)
 {-# INLINE getAdjacentHash #-}
