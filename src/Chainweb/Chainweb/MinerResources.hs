@@ -130,6 +130,8 @@ withMiningCoordination logger conf cdb inner
     !miners = S.toList (_coordinationMiners coordConf)
         <> [ _nodeMiner inNodeConf | _nodeMiningEnabled inNodeConf ]
 
+    chainLogger cid = addLabel ("chain", toText cid)
+
     -- | THREAD: Keep a live-updated cache of Payloads for specific miners, such
     -- that when they request new work, the block can be instantly constructed
     -- without interacting with the Pact Queue.
@@ -137,7 +139,7 @@ withMiningCoordination logger conf cdb inner
     primeWork :: TVar PrimedWork -> ChainId -> IO ()
     primeWork tpw cid =
         forConcurrently_ miners $ \miner ->
-            runForever (logFunction logger) "primeWork" (go miner)
+            runForever (logFunction (chainLogger cid logger)) "primeWork" (go miner)
       where
         go :: Miner -> IO ()
         go miner = do
@@ -170,9 +172,8 @@ withMiningCoordination logger conf cdb inner
                                 NoHistory -> staleBlockInProgress
                                 Historical b -> b
 
-                        logFunctionText logger Info
-                            $ "refreshed block on chain " <> sshow cid
-                            <> ", old and new tx count "
+                        logFunctionText (chainLogger cid logger) Debug
+                            $ "refreshed block, old and new tx count: "
                             <> sshow (V.length $ _transactionPairs $ _blockInProgressTransactions staleBlockInProgress, V.length $ _transactionPairs $ _blockInProgressTransactions newBlock)
 
                         atomically $ modifyTVar' tpw $
@@ -206,7 +207,7 @@ withMiningCoordination logger conf cdb inner
         -- Chainweb.Pact.PactService.Checkpointer.findLatestValidBlockHeader'
         then return $
             NewBlockPayload ph emptyPayload
-        else trace (logFunction logger)
+        else trace (logFunction (chainLogger cid logger))
             "Chainweb.Chainweb.MinerResources.withMiningCoordination.newBlock"
             () 1 (_pactNewBlock pact cid m True)
 
