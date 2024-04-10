@@ -125,7 +125,8 @@ data ChainGraphException :: Type where
         -> Actual (HS.HashSet ChainId)
         -> ChainGraphException
     ChainNotAdjacentException
-        :: Expected ChainId
+        :: ChainId
+        -> Expected ChainId
         -> Actual (HS.HashSet ChainId)
         -> ChainGraphException
     deriving (Show, Eq, Generic)
