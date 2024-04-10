@@ -568,7 +568,7 @@ checkBraidingOfCutPair s t = do
 -- @
 -- isBraidingOfCutPair (AdjPair a b) = do
 --    ab <- getAdjacentHash b a -- adjacent of a on chain of b
---    ba <- getAdjacentHash a b -- adajcent of b on chain of a
+--    ba <- getAdjacentHash a b -- adjacent of b on chain of a
 --    return
 --        $! (_blockParent a == ba && _blockParent b == ab)
 --        || ab == _blockHash b
@@ -576,9 +576,9 @@ checkBraidingOfCutPair s t = do
 -- @
 --
 -- The actual implementation is a it more complex because headers of different
--- height in a cut may use a diferent chain graph during the transition from one
+-- height in a cut may use a different chain graph during the transition from one
 -- graph to another graph: instead of undirected adjacent pairs the condition
--- consideres directed adjacent pairs.
+-- considers directed adjacent pairs.
 --
 -- A corresponding function is currently implemented in 'Chainweb.Cut.Create'
 --
@@ -595,7 +595,7 @@ isBraidingOfCutPair
     -> m Bool
 isBraidingOfCutPair a b = do
     ab <- getAdjacentHash b a -- adjacent of a on chain of b
-    ba <- getAdjacentHash a b -- adajcent of b on chain of a
+    ba <- getAdjacentHash a b -- adjacent of b on chain of a
     return
         $! (_blockParent a == ba && _blockParent b == ab) -- same graph
         || (_blockHeight a > _blockHeight b) && ab == _blockHash b
@@ -712,7 +712,7 @@ join wdb f = join_ wdb f `on` _cutHeaders
 --
 -- Adds genesis blocks for chains that are not yet active. This purpose of this
 -- is to make sure that all chains of both inputs are preserved in the join, so
--- that the appliation of the join contains all chains of the original cuts.
+-- that the result of the join contains all chains of the original cuts.
 -- Otherwise the join would contain only the intersection of all chains and any
 -- information/blocks in the other chains would be lost when applying the join.
 --
@@ -736,8 +736,8 @@ join_ wdb prioFun a b = do
         -> IO (HM.HashMap ChainId BlockHeader, JoinQueue a)
     f (m, q) (cid, x, y) = do
         db <- getWebBlockHeaderDb wdb cid
-        (q' :> h) <- S.fold g q id $ branchDiff_ db x y
-        let !h' = q' `seq` h `seq` HM.insert cid h m
+        (q' :> !h) <- S.fold g q id $ branchDiff_ db x y
+        let h' = HM.insert cid h m
         return (h', q')
 
     g :: JoinQueue a -> DiffItem BlockHeader -> JoinQueue a
@@ -769,10 +769,13 @@ zipCuts
     :: Cut
     -> Cut
     -> [(ChainId, BlockHeader, BlockHeader)]
-zipCuts a b = catMaybes
-    [ (cida, x, y) <$ guard (cida == cidb)
-    | (cida, x) <- itoList $ _cutHeaders a
-    | (cidb, y) <- itoList $ _cutHeaders b
+zipCuts a b =
+    [ (cid, bha, bhb)
+    | (cid, (bha, bhb)) <-
+        HM.toList $ HM.intersectionWith
+            (,)
+            (_cutHeaders a)
+            (_cutHeaders b)
     ]
 
 -- This can't fail because of missing dependencies. It can't fail because
