@@ -35,6 +35,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Resource
 
 import qualified Data.Aeson as A
 import Data.Aeson.Lens hiding (values)
@@ -141,18 +142,10 @@ withRequestKeys t cenv = do
 --
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
-    [ withResourceT (withNodesAtLatestBehavior v "remotePactTest-" rdb nNodes) $ \net ->
+    [ withResourceT (withNodeDbDirs rdb nNodes) $ \dbDirs ->
+      withResourceT (withNodesAtLatestBehavior v id =<< liftIO dbDirs) $ \net ->
         let cenv = _getServiceClientEnv <$> net
             iot = toTxCreationTime @Integer <$> getCurrentTimeIntegral
-            pactDir = do
-              m <- _getNodeDbDirs <$> net
-              -- This looks up the pactDbDir for node 0. This is
-              -- kind of a hack, because there is only one node in
-              -- this test. However, it doesn't matter much, because
-              -- we are dealing with both submitting /local txs
-              -- and compaction, so picking an arbitrary node
-              -- to run these two operations on is fine.
-              pure (fst (head m))
 
         in sequentialTestGroup "remote pact tests" AllFinish
             [ withResourceT (liftIO $ join $ withRequestKeys <$> iot <*> cenv) $ \reqkeys -> golden "remote-golden" $
@@ -167,8 +160,6 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
                 join $ pollingBadlistTest <$> cenv
             , testCase "trivialLocalCheck" $
                 join $ localTest <$> iot <*> cenv
-            , testCase "txlogsCompactionTest" $
-                join $ txlogsCompactionTest <$> iot <*> cenv <*> pactDir
             , testCase "localChainData" $
                 join $ localChainDataTest <$> iot <*> cenv
             , testCaseSteps "transaction size gas tests" $ \step ->
@@ -190,6 +181,7 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
             , testCase "webauthn sig" $
                 join $ webAuthnSignatureTest <$> iot <*> cenv
             ]
+      , testCase "txlogsCompactionTest" $ txlogsCompactionTest rdb
     ]
 
 responseGolden :: ClientEnv -> RequestKeys -> IO LBS.ByteString
@@ -229,47 +221,33 @@ responseGolden cenv rks = do
 --       matches the latest pact state post-compaction. Because
 --       compaction sweeps away the out-of-date rows, they shouldn't
 --       appear in the `txLogs` anymore, and the two should be equivalent.
-txlogsCompactionTest :: Pact.TxCreationTime -> ClientEnv -> FilePath -> IO ()
-txlogsCompactionTest t cenv pactDbDir = do
+txlogsCompactionTest :: RocksDb -> IO ()
+txlogsCompactionTest rdb = runResourceT $ do
+    nodeDbDirs <- withNodeDbDirs rdb nNodes
+    -- This looks up the pactDbDir for node 0. This is
+    -- kind of a hack, because there is only one node in
+    -- this test. However, it doesn't matter much, because
+    -- we are dealing with both submitting /local txs
+    -- and compaction, so picking an arbitrary node
+    -- to run these two operations on is fine.
+    let pactDir = nodePactDbDir (head nodeDbDirs)
+    iot <- liftIO $ toTxCreationTime @Integer <$> getCurrentTimeIntegral
     let cmd :: Text -> CmdBuilder
         cmd tx = do
           set cbSigners [mkEd25519Signer' sender00 []]
             $ set cbTTL defaultMaxTTL
-            $ set cbCreationTime t
+            $ set cbCreationTime iot
             $ set cbChainId cid
             $ set cbRPC (mkExec tx (mkKeySetData "sender00" [sender00]))
             $ defaultCmd
 
-    createTableTx <- buildTextCmd "create-table-persons" v
-      $ set cbGasLimit 300_000
-      $ cmd
-      $ T.unlines
-          [ "(namespace 'free)"
-          , "(module m0 G"
-          , "  (defcap G () true)"
-          , "  (defschema person"
-          , "    name:string"
-          , "    age:integer"
-          , "  )"
-          , "  (deftable persons:{person})"
-          , "  (defun read-persons (k) (read persons k))"
-          , "  (defun insert-persons (id name age) (insert persons id { 'name:name, 'age:age }))"
-          , "  (defun write-persons (id name age) (write persons id { 'name:name, 'age:age }))"
-          , "  (defun persons-txlogs (i) (map (txlog persons) (txids persons i)))"
-          , ")"
-          , "(create-table persons)"
-          , "(insert-persons \"A\" \"Lindsey Lohan\" 42)"
-          , "(insert-persons \"B\" \"Nico Robin\" 30)"
-          , "(insert-persons \"C\" \"chessai\" 420)"
-          ]
-
-    nonceSupply <- newIORef @Word 1 -- starts at 1 since 0 is always the create-table tx
-    let nextNonce = do
+    nonceSupply <- liftIO $ newIORef @Word 1 -- starts at 1 since 0 is always the create-table tx
+    let nextNonce = liftIO $ do
           cur <- readIORef nonceSupply
           modifyIORef' nonceSupply (+ 1)
           pure cur
 
-    let submitAndCheckTx tx = do
+    let submitAndCheckTx cenv tx = do
           submitResult <- flip runClientM cenv $
             pactSendApiClient v cid $ SubmitBatch $ NEL.fromList [tx]
           case submitResult of
@@ -287,95 +265,115 @@ txlogsCompactionTest t cenv pactDbDir = do
                 Nothing -> do
                   assertFailure "impossible"
 
-    submitAndCheckTx createTableTx
+    -- phase 1: start nodes and populate tables
+    liftIO $ runResourceT $ do
+      net <- withNodesAtLatestBehavior v id nodeDbDirs
+      let cenv = _getServiceClientEnv net
 
-    let getLatestState :: IO (M.Map RowKey RowData)
-        getLatestState = C.withDefaultLogger Error $ \logger -> do
-          Backend.withSqliteDb cid logger pactDbDir False $ \db -> do
-            st <- Utils.getLatestPactState db
-            case M.lookup "free.m0_persons" st of
-              Just ps -> fmap M.fromList $ forM (M.toList ps) $ \(rkBytes, rdBytes) -> do
-                let rk = RowKey (T.decodeUtf8 rkBytes)
-                case A.eitherDecodeStrict' @RowData rdBytes of
-                  Left err -> do
-                    assertFailure $ "Failed decoding rowdata: " ++ err
-                  Right rd -> do
-                    pure (rk, rd)
-              Nothing -> error "getting state of free.m0_persons failed"
+      createTableTx <- liftIO $ buildTextCmd "create-table-persons" v
+        $ set cbGasLimit 300_000
+        $ cmd
+        $ T.unlines
+            [ "(namespace 'free)"
+            , "(module m0 G"
+            , "  (defcap G () true)"
+            , "  (defschema person"
+            , "    name:string"
+            , "    age:integer"
+            , "  )"
+            , "  (deftable persons:{person})"
+            , "  (defun read-persons (k) (read persons k))"
+            , "  (defun insert-persons (id name age) (insert persons id { 'name:name, 'age:age }))"
+            , "  (defun write-persons (id name age) (write persons id { 'name:name, 'age:age }))"
+            , "  (defun persons-txlogs (i) (map (txlog persons) (txids persons i)))"
+            , ")"
+            , "(create-table persons)"
+            , "(insert-persons \"A\" \"Lindsey Lohan\" 42)"
+            , "(insert-persons \"B\" \"Nico Robin\" 30)"
+            , "(insert-persons \"C\" \"chessai\" 420)"
+            ]
 
-    let createTxLogsTx :: Word -> IO (Command Text)
-        createTxLogsTx n = do
-          -- cost is about 360k.
-          -- cost = flatCost(module) + flatCost(map) + flatCost(txIds) + numTxIds * (costOf(txlog)) + C
-          --      = 60_000 + 4 + 100_000 + 2 * 100_000 + C
-          --      = 360_004 + C
-          -- Note there are two transactions that write to `persons`, which is
-          -- why `numTxIds` = 2 (and not the number of rows).
-          let gasLimit = 400_000
-          buildTextCmd ("test-txlogs-" <> sshow n) v
-            $ set cbGasLimit gasLimit
-            $ cmd
-            $ T.unlines
-                [ "(namespace 'free)"
-                , "(module m" <> sshow n <> " G"
-                , "  (defcap G () true)"
-                , "  (defun persons-txlogs (i) (m0.persons-txlogs i))"
-                , ")"
-                , "(persons-txlogs 0)"
-                ]
+      liftIO $ submitAndCheckTx cenv createTableTx
 
-    let createWriteTx :: Word -> IO (Command Text)
-        createWriteTx n = do
-          -- module = 60k, write = 100
-          let gasLimit = 70_000
-          buildTextCmd ("test-write-" <> sshow n) v
-            $ set cbGasLimit gasLimit
-            $ cmd
-            $ T.unlines
-                [ "(namespace 'free)"
-                , "(module m" <> sshow n <> " G"
-                , "  (defcap G () true)"
-                , "  (defun test-write (id name age) (m0.write-persons id name age))"
-                , ")"
-                , "(test-write \"C\" \"chessai\" 69)"
-                ]
+      let createWriteTx :: Word -> IO (Command Text)
+          createWriteTx n = liftIO $ do
+            let gasLimit = 500
+            buildTextCmd ("test-write-" <> sshow n) v
+              $ set cbGasLimit gasLimit
+              $ cmd
+              $ "(free.m0.write-persons \"C\" \"chessai\" 69)"
 
-    let -- This can't be a Map because the RowKeys aren't
-        -- necessarily unique, unlike in `getLatestPactState`.
-        crGetTxLogs :: CommandResult Hash -> IO [(RowKey, A.Value)]
-        crGetTxLogs cr = do
-          e <- runExceptT $ do
-            pv0 <- except (first show (_pactResult (_crResult cr)))
-            case pv0 of
-              PList arr -> do
-                fmap concat $ forM arr $ \pv -> do
-                  txLogs <- except (A.eitherDecode @[TxLog A.Value] (J.encode pv))
-                  pure $ flip map txLogs $ \txLog ->
-                    (RowKey (_txKey txLog), _txValue txLog)
-              _ -> do
-                throwError "expected outermost PList when decoding TxLogs"
-          case e of
-            Left err -> do
-              assertFailure $ "crGetTxLogs failed: " ++ err
-            Right txlogs -> do
-              pure txlogs
+      liftIO $ submitAndCheckTx cenv =<< createWriteTx =<< nextNonce
 
-    submitAndCheckTx =<< createWriteTx =<< nextNonce
-
-    C.withDefaultLogger Error $ \logger -> do
+    -- phase 2: compact
+    liftIO $ C.withDefaultLogger Error $ \logger -> do
       let flags = [C.NoVacuum]
       let resetDb = False
 
-      Backend.withSqliteDb cid logger pactDbDir resetDb $ \dbEnv ->
+      Backend.withSqliteDb cid logger pactDir resetDb $ \dbEnv ->
         compactUntilAvailable C.LatestUnsafe logger dbEnv flags
 
-    txLogs <- crGetTxLogs =<< local v cid cenv =<< createTxLogsTx =<< nextNonce
+    -- phase 3: restart nodes, query txlogs
+    liftIO $ runResourceT $ do
+      net <- withNodesAtLatestBehavior v id nodeDbDirs
+      let cenv = _getServiceClientEnv net
 
-    latestState <- getLatestState
-    assertEqual
-      "txlogs match latest state"
-      txLogs
-      (map (\(rk, rd) -> (rk, J.toJsonViaEncode (_rdData rd))) (M.toList latestState))
+      let createTxLogsTx :: Word -> IO (Command Text)
+          createTxLogsTx n = liftIO $ do
+            -- cost is about 310k.
+            -- cost = flatCost(map) + flatCost(txIds) + numTxIds * (costOf(txlog)) + C
+            --      = 4 + 100_000 + 2 * 100_000 + C
+            --      = 300_004 + C
+            -- Note there are two transactions that write to `persons`, which is
+            -- why `numTxIds` = 2 (and not the number of rows).
+            let gasLimit = 310_000
+            buildTextCmd ("test-txlogs-" <> sshow n) v
+              $ set cbGasLimit gasLimit
+              $ cmd
+              $ "(free.m0.persons-txlogs 0)"
+
+
+      let -- This can't be a Map because the RowKeys aren't
+          -- necessarily unique, unlike in `getLatestPactState`.
+          crGetTxLogs :: CommandResult Hash -> IO [(RowKey, A.Value)]
+          crGetTxLogs cr = do
+            e <- runExceptT $ do
+              pv0 <- except (first show (_pactResult (_crResult cr)))
+              case pv0 of
+                PList arr -> do
+                  fmap concat $ forM arr $ \pv -> do
+                    txLogs <- except (A.eitherDecode @[TxLog A.Value] (J.encode pv))
+                    pure $ flip map txLogs $ \txLog ->
+                      (RowKey (_txKey txLog), _txValue txLog)
+                _ -> do
+                  throwError "expected outermost PList when decoding TxLogs"
+            case e of
+              Left err -> do
+                assertFailure $ "crGetTxLogs failed: " ++ err
+              Right txlogs -> do
+                pure txlogs
+
+      txLogs <- liftIO $ crGetTxLogs =<< local v cid cenv =<< createTxLogsTx =<< nextNonce
+
+      let getLatestState :: IO (M.Map RowKey RowData)
+          getLatestState = C.withDefaultLogger Error $ \logger -> do
+            Backend.withSqliteDb cid logger pactDir False $ \db -> do
+              st <- Utils.getLatestPactState db
+              case M.lookup "free.m0_persons" st of
+                Just ps -> fmap M.fromList $ forM (M.toList ps) $ \(rkBytes, rdBytes) -> do
+                  let rk = RowKey (T.decodeUtf8 rkBytes)
+                  case A.eitherDecodeStrict' @RowData rdBytes of
+                    Left err -> do
+                      assertFailure $ "Failed decoding rowdata: " ++ err
+                    Right rd -> do
+                      pure (rk, rd)
+                Nothing -> error "getting state of free.m0_persons failed"
+
+      latestState <- liftIO getLatestState
+      liftIO $ assertEqual
+        "txlogs match latest state"
+        (map (\(rk, rd) -> (rk, J.toJsonViaEncode (_rdData rd))) (M.toList latestState))
+        txLogs
 
 localTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
 localTest t cenv = do

@@ -14,6 +14,7 @@ module Chainweb.Test.Rosetta.RestAPI
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Lens
+import Control.Monad.IO.Class
 
 import qualified Data.Aeson as A
 import qualified Data.Aeson.KeyMap as KM
@@ -49,6 +50,7 @@ import qualified Pact.Types.PactValue as P
 -- internal chainweb modules
 
 import Chainweb.BlockHeight
+import Chainweb.Chainweb.Configuration
 import Chainweb.Graph
 import Chainweb.Pact.Utils (aeson)
 import qualified Chainweb.Pact.Transactions.OtherTransactions as Other
@@ -114,7 +116,8 @@ tests :: RocksDb -> TestTree
 tests rdb = testGroup "Chainweb.Test.Rosetta.RestAPI" go
   where
     go = return $
-      withResourceT (withNodesAtLatestBehavior v "rosettaRemoteTests-" rdb nodes) $ \envIo ->
+      withResourceT (withNodeDbDirs rdb nodes) $ \dbdirs ->
+      withResourceT (withNodesAtLatestBehavior v (configRosetta .~ True) =<< liftIO dbdirs) $ \envIo ->
       withResource' getCurrentTimeIntegral $ \tio -> sequentialTestGroup "Rosetta Api tests" AllFinish $
         tgroup tio $ _getServiceClientEnv <$> envIo
 
