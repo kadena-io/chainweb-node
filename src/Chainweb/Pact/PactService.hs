@@ -860,7 +860,7 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
                     let forkStartHeight = maybe (genesisHeight v cid) (succ . _blockHeight) commonAncestor
                     in getBranchIncreasing bhdb parentHeaderOfHeaderToValidate (fromIntegral forkStartHeight) kont
 
-        ((), T2 results numForkBlocksPlayed) <-
+        ((), T2 results (Sum numForkBlocksPlayed)) <-
             withPactState $ \runPact ->
                 withForkBlockStream $ \forkBlockHeaders -> do
 
