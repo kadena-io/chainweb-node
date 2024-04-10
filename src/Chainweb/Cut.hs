@@ -554,8 +554,9 @@ checkBraidingOfCutPair
         -- ^ target header
     -> m ()
 checkBraidingOfCutPair s t = do
-    unless (absBlockHeightDiff s t <= 1) $ throwM $ InvalidCutPair s t
-    unlessM (isBraidingOfCutPair s t) $ throwM (InvalidCutPair s t)
+    unless (isGenesisBlockHeader t || isGenesisBlockHeader s) $ do
+        unless (absBlockHeightDiff s t <= 1) $ throwM $ InvalidCutPair s t
+        unlessM (isBraidingOfCutPair s t) $ throwM (InvalidCutPair s t)
 
 -- | Returns whether a directed adjacent pair in a cut is correctly braided.
 --
@@ -734,7 +735,7 @@ join_ wdb prioFun a b = do
         :: (HM.HashMap ChainId BlockHeader, JoinQueue a)
         -> (ChainId, BlockHeader, BlockHeader)
         -> IO (HM.HashMap ChainId BlockHeader, JoinQueue a)
-    f (m, q) (cid, x, y) = do
+    f (!m, !q) (cid, x, y) = do
         db <- getWebBlockHeaderDb wdb cid
         (q' :> !h) <- S.fold g q id $ branchDiff_ db x y
         let h' = HM.insert cid h m

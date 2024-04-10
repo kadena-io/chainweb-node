@@ -107,6 +107,7 @@ import Data.Function
 import Data.Functor.Of
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import qualified Data.List as List
 import Data.LogMessage
 import Data.Maybe
 import Data.Monoid
@@ -573,6 +574,24 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
             curCut <- readTVarIO cutVar
             !resultCut <- trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1
                 $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
+            case checkBraidingOfCut resultCut of
+                Left err -> error $ unlines
+                    [ ""
+                    , (show err)
+                    , ""
+                    , ""
+                    , "Current cut: "
+                    , showCut (_cutMap curCut)
+                    , ""
+                    , ""
+                    , "New cut: "
+                    , showCut newCut
+                    , ""
+                    , ""
+                    , "Merged cut: "
+                    , showCut (_cutMap resultCut)
+                    ]
+                Right () -> return ()
             unless (_cutDbParamsReadOnly conf) $ do
                 maybePrune rng (cutAvgBlockHeight v curCut)
                 loggc Info newCut "writing cut"
@@ -583,6 +602,19 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
   where
     loggc :: HasCutId c => LogLevel -> c -> T.Text -> IO ()
     loggc l c msg = logFun @T.Text l $  "cut " <> cutIdToTextShort (_cutId c) <> ": " <> msg
+
+    showCut c = unlines
+        $ List.sortOn _blockChainId (HM.elems c) <&> \bh ->
+            unlines $ concat
+            [ [ T.unpack (toText (_blockChainId bh))
+                <> " -> "
+                <> show (_blockHeight bh, _blockHash bh)
+                ]
+            , List.sortOn fst (HM.toList (_getBlockHashRecord $ _blockAdjacentHashes bh)) <&> \(cid, adjHash) ->
+                "    " <> T.unpack (toText cid)
+                    <> " --> "
+                    <> show adjHash
+            ]
 
     v = _chainwebVersion headerStore
 
