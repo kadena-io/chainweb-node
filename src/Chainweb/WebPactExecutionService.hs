@@ -47,8 +47,9 @@ import Pact.Types.RowData (RowData)
 -- PactExecutionService
 
 data NewBlock
-  = NewBlockInProgress !BlockInProgress
-  | NewBlockPayload !ParentHeader !PayloadWithOutputs
+    = NewBlockInProgress !BlockInProgress
+    | NewBlockPayload !ParentHeader !PayloadWithOutputs
+    deriving Show
 
 newBlockToPayloadWithOutputs :: NewBlock -> PayloadWithOutputs
 newBlockToPayloadWithOutputs (NewBlockInProgress bip)
