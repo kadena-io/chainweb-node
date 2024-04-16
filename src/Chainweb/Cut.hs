@@ -555,7 +555,7 @@ checkBraidingOfCutPair
     -> m ()
 checkBraidingOfCutPair s t = do
     unless (isGenesisBlockHeader t || isGenesisBlockHeader s) $ do
-        unless (absBlockHeightDiff s t <= 1) $ throwM $ InvalidCutPair s t
+        -- unless (_blockHeight t - _blockHeight s <= 1) $ throwM $ InvalidCutPair s t
         unlessM (isBraidingOfCutPair s t) $ throwM (InvalidCutPair s t)
 
 -- | Returns whether a directed adjacent pair in a cut is correctly braided.
@@ -567,13 +567,13 @@ checkBraidingOfCutPair s t = do
 -- guarantee a valid braiding:
 --
 -- @
--- isBraidingOfCutPair (AdjPair a b) = do
---    ab <- getAdjacentHash b a -- adjacent of a on chain of b
---    ba <- getAdjacentHash a b -- adjacent of b on chain of a
+-- isBraidingOfCutPair (AdjPair s t) = do
+--    st <- getAdjacentHash t s -- adjacent of s on chain of t
+--    ts <- getAdjacentHash s t -- adjacent of t on chain of s
 --    return
---        $! (_blockParent a == ba && _blockParent b == ab)
---        || ab == _blockHash b
---        || ba == _blockHash a
+--        $! (_blockParent s == ta && _blockParent t == st)
+--        || sb == _blockHash t
+--        || ts == _blockHash s
 -- @
 --
 -- The actual implementation is a it more complex because headers of different
@@ -594,13 +594,17 @@ isBraidingOfCutPair
     -> BlockHeader
         -- ^ target header
     -> m Bool
-isBraidingOfCutPair a b = do
-    ab <- getAdjacentHash b a -- adjacent of a on chain of b
-    ba <- getAdjacentHash a b -- adjacent of b on chain of a
-    return
-        $! (_blockParent a == ba && _blockParent b == ab) -- same graph
-        || (_blockHeight a > _blockHeight b) && ab == _blockHash b
-        || (_blockHeight a < _blockHeight b) && True {- if same graph: ba == _blockHash a -}
+isBraidingOfCutPair s t = do
+    if _blockHeight s < _blockHeight t && True {- if same graph: ts == _blockHash a -}
+    then return True
+    else do
+        st <- getAdjacentHash t s -- adjacent of s on chain of t
+        if _blockHeight s > _blockHeight t && st == _blockHash t
+        then return True
+        else do
+            ts <- getAdjacentHash s t -- adjacent of t on chain of s
+            return
+                $! (_blockParent s == ts && _blockParent t == st) -- same graph
 
 -- -------------------------------------------------------------------------- --
 -- Extending Cuts

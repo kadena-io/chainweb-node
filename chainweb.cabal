@@ -416,6 +416,7 @@ library
         , parallel >= 3.2.2.0
         , patience >= 0.3
         , pem >=0.2
+        , pretty-simple
         , primitive >= 0.7.1.0
         , random >= 1.2
         , rosetta >= 1.0

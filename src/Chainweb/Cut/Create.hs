@@ -176,13 +176,6 @@ getCutExtension c cid = do
     --
     guard (not $ isGraphTransitionCut && isGraphTransitionPost)
 
-    traceM $
-        "extending cut on chain "
-        <> sshow (_chainId cid)
-        <> ", with parent height "
-        <> sshow parentHeight
-        <> ", and parent graph "
-        <> sshow (toText $ parentGraph ^. chainGraphKnown)
     as <- BlockHashRecord <$> newAdjHashes parentGraph
 
     return CutExtension

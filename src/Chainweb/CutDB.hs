@@ -113,6 +113,7 @@ import Data.Maybe
 import Data.Monoid
 import Data.Ord
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
 import Data.These
 
 import GHC.Generics hiding (to)
@@ -126,6 +127,7 @@ import qualified Streaming.Prelude as S
 import System.LogLevel
 import qualified System.Random.MWC as Prob
 import System.Timeout
+import Text.Pretty.Simple
 
 -- internal modules
 
@@ -577,7 +579,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
             case checkBraidingOfCut resultCut of
                 Left err -> error $ unlines
                     [ ""
-                    , (show err)
+                    , TL.unpack (pShow err)
                     , ""
                     , ""
                     , "Current cut: "

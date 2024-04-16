@@ -35,7 +35,7 @@ suite = sequentialTestGroup "ChainwebSlowTests" AllFinish
     [ testCaseSteps "ConsensusNetwork - TimedConsensus - 10 nodes - 30 seconds" $ \step ->
         withTempRocksDb "multinode-tests-timedconsensus-peterson-twenty-rocks" $ \rdb ->
         withSystemTempDirectory "multinode-tests-timedconsensus-peterson-twenty-pact" $ \pactDbDir ->
-        Chainweb.Test.MultiNode.test loglevel (timedConsensusVersion petersonChainGraph twentyChainGraph) 10 30 rdb pactDbDir step
+        Chainweb.Test.MultiNode.test loglevel (timedConsensusVersion petersonChainGraph twentyChainGraph) 10 360 rdb pactDbDir step
     , testCaseSteps "compact-live-node" $ \step ->
         withTempRocksDb "pact-import-test-rocks" $ \rdb ->
         withSystemTempDirectory "pact-import-test-pact" $ \pactDbDir -> do
