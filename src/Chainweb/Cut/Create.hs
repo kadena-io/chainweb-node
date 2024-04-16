@@ -86,12 +86,15 @@ import Chainweb.ChainValue
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty
+import Chainweb.Graph
 import Chainweb.Payload
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
+
+import Debug.Trace
 
 -- -------------------------------------------------------------------------- --
 -- Adjacent Parent Hashes
@@ -173,6 +176,13 @@ getCutExtension c cid = do
     --
     guard (not $ isGraphTransitionCut && isGraphTransitionPost)
 
+    traceM $
+        "extending cut on chain "
+        <> sshow (_chainId cid)
+        <> ", with parent height "
+        <> sshow parentHeight
+        <> ", and parent graph "
+        <> sshow (toText $ parentGraph ^. chainGraphKnown)
     as <- BlockHashRecord <$> newAdjHashes parentGraph
 
     return CutExtension
