@@ -75,6 +75,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
 import Chainweb.BlockHeight
+import Chainweb.BlockHeaderDB.RestAPI ()
 
 -- -------------------------------------------------------------------------- --
 -- Constants
@@ -115,7 +116,7 @@ type PayloadGetApi_
     = "payload"
     :> Capture "BlockPayloadHash" BlockPayloadHash
     :> QueryParam "height" BlockHeight
-    :> Get '[JSON] PayloadData
+    :> Get '[JSON, OctetStream] PayloadData
 
 type PayloadGetApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> PayloadGetApi_
@@ -162,7 +163,7 @@ type PayloadPostApi_
     = "payload"
     :> "batch"
     :> ReqBody '[JSON] BatchBody
-    :> Post '[JSON] PayloadDataList
+    :> Post '[JSON, OctetStream] PayloadDataList
 
 type PayloadPostApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> PayloadPostApi_
@@ -182,7 +183,7 @@ type OutputsGetApi_
     :> Capture "BlockPayloadHash" BlockPayloadHash
     :> "outputs"
     :> QueryParam "height" BlockHeight
-    :> Get '[JSON] PayloadWithOutputs
+    :> Get '[JSON, OctetStream] PayloadWithOutputs
 
 type OutputsGetApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> OutputsGetApi_
@@ -205,7 +206,7 @@ type OutputsPostApi_
     :> "outputs"
     :> "batch"
     :> ReqBody '[JSON] BatchBody
-    :> Post '[JSON] PayloadWithOutputsList
+    :> Post '[JSON, OctetStream] PayloadWithOutputsList
 
 type OutputsPostApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> OutputsPostApi_
