@@ -18,8 +18,10 @@ on:
       eventlog:
         description: link with -eventlog
         default: 'False'
-  pull_request:
   merge_group:
+  push:
+    branches-ignore:
+      - 'gh-readonly-queue/**'
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
