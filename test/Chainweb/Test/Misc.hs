@@ -34,6 +34,8 @@ tests = testGroup "Misc. Unit Tests"
           [ testProperty "BlockPayload" propPayloadBinaryEncoding
           , testProperty "BlockTransactions" propBlockTransactionsEncoding
           , testProperty "BlockOutputs" propBlockOutputsEncoding
+          , testProperty "PayloadData" propPayloadDataEncoding
+          , testProperty "PayloadWithOutputs" propPayloadWithOutputsEncoding
           ]
     ]
 
@@ -60,4 +62,14 @@ propBlockTransactionsEncoding bt
 propBlockOutputsEncoding :: BlockOutputs -> Bool
 propBlockOutputsEncoding bo
   | Right x <- decodeBlockOutputs (encodeBlockOutputs bo) = x == bo
+  | otherwise = False
+
+propPayloadDataEncoding :: PayloadData -> Bool
+propPayloadDataEncoding pd
+  | Right x <- decodePayloadData (encodePayloadData pd) = x == pd
+  | otherwise = False
+
+propPayloadWithOutputsEncoding :: PayloadWithOutputs -> Bool
+propPayloadWithOutputsEncoding pwo
+  | Right x <- decodePayloadWithOutputs (encodePayloadWithOutputs pwo) = x == pwo
   | otherwise = False

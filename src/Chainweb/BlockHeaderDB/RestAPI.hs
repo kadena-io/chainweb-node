@@ -12,6 +12,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.BlockHeaderDB.RestAPI
@@ -90,6 +91,7 @@ module Chainweb.BlockHeaderDB.RestAPI
 
 import Data.Aeson
 import Data.Bifunctor
+import Data.ByteString.Lazy qualified as L
 import Data.Maybe
 import Data.Proxy
 import Data.Text (Text)
@@ -194,6 +196,80 @@ instance MimeUnrender JsonBlockHeaderObject BlockHeaderPage where
 instance MimeRender JsonBlockHeaderObject BlockHeaderPage where
     mimeRender _ = encode . fmap ObjectEncoded
     {-# INLINE mimeRender #-}
+
+-- -------------------------------------------------------------------------- --
+
+instance MimeRender OctetStream BlockPayload where
+    mimeRender _ = L.fromStrict . encodeBlockPayloads
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream BlockPayload where
+    mimeUnrender _ = first show . decodeBlockPayloads . L.toStrict
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender OctetStream BlockTransactions where
+    mimeRender _ = L.fromStrict . encodeBlockTransactions
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream BlockTransactions where
+    mimeUnrender _ = first show . decodeBlockTransactions . L.toStrict
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender OctetStream BlockOutputs where
+    mimeRender _ = L.fromStrict . encodeBlockOutputs
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream BlockOutputs where
+    mimeUnrender _ = first show . decodeBlockOutputs . L.toStrict
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender OctetStream TransactionTree where
+    mimeRender _ = L.fromStrict . encodeTransactionTree
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream TransactionTree where
+    mimeUnrender _ = first show . decodeTransactionTree . L.toStrict
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender OctetStream OutputTree where
+    mimeRender _ = L.fromStrict . encodeOutputTree
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream OutputTree where
+    mimeUnrender _ = first show . decodeOutputTree . L.toStrict
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender OctetStream PayloadWithOutputs where
+    mimeRender _ = L.fromStrict . encodePayloadWithOutputs
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream PayloadWithOutputs where
+    mimeUnrender _ = first show . decodePayloadWithOutputs . L.toStrict
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender OctetStream PayloadData where
+    mimeRender _ = L.fromStrict . encodePayloadData
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream PayloadData where
+    mimeUnrender _ = first show . decodePayloadData . L.toStrict
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender OctetStream PayloadDataList where
+    mimeRender _ = L.fromStrict . encodePayloadDataList
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream PayloadDataList where
+    mimeUnrender _ = first show . decodePayloadDataList . L.toStrict
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender OctetStream PayloadWithOutputsList where
+    mimeRender _ = L.fromStrict . encodePayloadWithOutputsList
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream PayloadWithOutputsList where
+    mimeUnrender _ = first show . decodePayloadWithOutputsList . L.toStrict
+    {-# INLINE mimeUnrender #-}
 
 -- -------------------------------------------------------------------------- --
 -- Type indexed BlockHeaderDb
@@ -492,4 +568,3 @@ type BlockStreamApi_ =
 -- | A stream of all new blocks that are accepted into the true `Cut`.
 --
 type BlockStreamApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> BlockStreamApi_
-
