@@ -51,12 +51,20 @@ runPlugin proof caps gasRef = do
     _ -> throwError $ VerifierError "Expected one capability."
 
   (capMessageId, capMessage, capSigners, capThreshold) <- case _scArgs of
-      [mid, mb, PList sigs, PLiteral (LInteger threshold)] -> do
-        parsedSigners <- forM sigs $ \case
-          (PLiteral (LString v)) -> pure v
-          _ -> throwError $ VerifierError "Only string signers are supported"
-        return (mid, mb, parsedSigners, fromIntegral threshold)
-      _ -> throwError $ VerifierError $ "Incorrect number of capability arguments. Expected: messageId, message, signers, threshold."
+    [mid, mb, PList sigs, PLiteral literalThreshold] -> do
+      threshold <- case literalThreshold of
+        LInteger intThreshold ->
+          return intThreshold
+        LDecimal decThreshold
+          | (intThreshold, 0) <- properFraction decThreshold
+          -> return intThreshold
+        _ ->
+          throwError $ VerifierError "Threshold is not an integer"
+      parsedSigners <- forM sigs $ \case
+        (PLiteral (LString v)) -> pure v
+        _ -> throwError $ VerifierError "Only string signers are supported"
+      return (mid, mb, parsedSigners, fromIntegral threshold)
+    _ -> throwError $ VerifierError $ "Incorrect number of capability arguments. Expected: messageId, message, signers, threshold."
 
   -- extract proof object values
   (hyperlaneMessageBase64, metadataBase64) <- case proof of
