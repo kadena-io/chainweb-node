@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
 -- Chainweb.VerifierPlugin.Hyperlane.Message
@@ -16,9 +17,12 @@
 module Chainweb.VerifierPlugin.Hyperlane.Message.After224 (runPlugin) where
 
 import Control.Error
+import Control.Exception (evaluate)
 import Control.Monad (unless)
 import Control.Monad.Except
 import Control.Monad.ST
+import Control.Monad.ST.Unsafe
+import Control.Monad.Trans.Class
 
 import Data.Traversable (forM)
 import qualified Data.Vector as V
@@ -38,6 +42,9 @@ import Chainweb.VerifierPlugin
 import Chainweb.VerifierPlugin.Hyperlane.Binary
 import Chainweb.VerifierPlugin.Hyperlane.Utils
 import Chainweb.Utils (encodeB64UrlNoPaddingText, decodeB64UrlNoPaddingText, sshow)
+
+evaluateST :: a -> ST s a
+evaluateST a = unsafeIOToST (evaluate a)
 
 runPlugin :: forall s
         . PactValue
@@ -79,11 +86,6 @@ runPlugin proof caps gasRef = do
     decoded <- runGetS getHyperlaneMessage msg
     return (decoded, msg)
 
-  MerkleRootMultisigIsmMetadata{..} <- do
-    chargeGas gasRef 5
-    metadata <- decodeB64UrlNoPaddingText metadataBase64
-    runGetS getMerkleRootMultisigIsmMetadata metadata
-
   -- validate messageId
   let
     messageId = keccak256ByteString hyperlaneMessageBinary
@@ -117,17 +119,42 @@ runPlugin proof caps gasRef = do
     throwError $ VerifierError $
       "Invalid message. Expected: " <> sshow hmMessagePactValue <> " but got " <> sshow capMessage
 
+  chargeGas gasRef 5
+  binMetadata <- maybe (throwError $ VerifierError "error decoding metadata from base64") return $
+    decodeB64UrlNoPaddingText metadataBase64
+  let
+    useMessageIdMetadata = do
+      MessageIdMultisigIsmMetadata{..} <- maybe
+        (throwError $ VerifierError "error decoding metadata from bytes") return $
+        runGetS getMessageIdMultisigIsmMetadata binMetadata
+      let digestEnd = do
+            putRawByteString mmimSignedCheckpointRoot
+            putWord32be mmimSignedCheckpointIndex
+            putRawByteString messageId
+      return (mmimOriginMerkleTreeAddress, digestEnd, mmimSignatures)
+  let
+    useMerkleTreeMetadata = do
+      MerkleRootMultisigIsmMetadata{..} <- maybe
+        (throwError $ VerifierError "error decoding metadata from bytes") return $
+        runGetS getMerkleRootMultisigIsmMetadata binMetadata
+      chargeGas gasRef 18 -- gas cost of the `branchRoot`
+      root <- lift $ evaluateST $ branchRoot messageId mrmimMerkleProof mrmimMessageIdIndex
+      let digestEnd = do
+            putRawByteString root
+            putWord32be mrmimSignedCheckpointIndex
+            putRawByteString mrmimSignedCheckpointMessageId
+      return (mrmimOriginMerkleTreeAddress, digestEnd, mrmimSignatures)
+
+  (originAddress, metadataDigestEnd, metadataSignatures) <-
+    useMerkleTreeMetadata `catchError` \_ -> useMessageIdMetadata
+
   -- validate signers
   let
     domainHash = keccak256ByteString $ runPutS $ do
       -- Corresponds to abi.encodePacked behaviour
       putWord32be hmOriginDomain
-      putRawByteString mrmimOriginMerkleTreeAddress
+      putRawByteString originAddress
       putRawByteString "HYPERLANE"
-
-  root <- do
-    chargeGas gasRef 18 -- gas cost of the `branchRoot`
-    return $ branchRoot messageId mrmimMerkleProof mrmimMessageIdIndex
 
   let
     digest = keccak256 $ runPutS $ do
@@ -136,9 +163,7 @@ runPlugin proof caps gasRef = do
       putRawByteString $
         keccak256ByteString $ runPutS $ do
           putRawByteString domainHash
-          putRawByteString root
-          putWord32be mrmimSignedCheckpointIndex
-          putRawByteString mrmimSignedCheckpointMessageId
+          metadataDigestEnd
 
   -- Requires that m-of-n validators verify a merkle root, and verifies a merkle proof of message against that root.
   --
@@ -148,7 +173,7 @@ runPlugin proof caps gasRef = do
   -- https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/v3/solidity/contracts/isms/multisig/AbstractMultisigIsm.sol#L67
   unless (capThreshold > 0) $ throwError $ VerifierError $ "Threshold should be greater than 0"
 
-  unless (length mrmimSignatures >= capThreshold) $ throwError $ VerifierError $ "The number of signatures can't be less than threshold"
+  unless (length metadataSignatures >= capThreshold) $ throwError $ VerifierError $ "The number of signatures can't be less than threshold"
 
   let
     verify [] _ = pure ()
@@ -160,4 +185,4 @@ runPlugin proof caps gasRef = do
             Nothing -> throwError $ VerifierError "Verification failed"
         Nothing -> throwError $ VerifierError $ "Failed to recover an address: incorrect signature"
 
-  verify (take capThreshold mrmimSignatures) capSigners
+  verify (take capThreshold metadataSignatures) capSigners
