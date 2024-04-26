@@ -5,6 +5,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 -- |
 -- Chainweb.VerifierPlugin.Hyperlane.Message
@@ -16,6 +17,7 @@
 --
 module Chainweb.VerifierPlugin.Hyperlane.Message.After224 (runPlugin) where
 
+import Control.Lens
 import Control.Error
 import Control.Exception (evaluate)
 import Control.Monad (unless)
@@ -57,20 +59,44 @@ runPlugin proof caps gasRef = do
     [cap] -> return cap
     _ -> throwError $ VerifierError "Expected one capability."
 
+  let
+    parseInt k l = case l of
+        LInteger i -> return i
+        LDecimal d
+          | (i, 0) <- properFraction d
+          -> return i
+        _ -> throwError $ VerifierError $ k <> " is not an integer"
+
   (capMessageId, capMessage, capSigners, capThreshold) <- case _scArgs of
     [mid, mb, PList sigs, PLiteral literalThreshold] -> do
-      threshold <- case literalThreshold of
-        LInteger intThreshold ->
-          return intThreshold
-        LDecimal decThreshold
-          | (intThreshold, 0) <- properFraction decThreshold
-          -> return intThreshold
-        _ ->
-          throwError $ VerifierError "Threshold is not an integer"
+      threshold <- parseInt "Threshold" literalThreshold
       parsedSigners <- forM sigs $ \case
         (PLiteral (LString v)) -> pure v
         _ -> throwError $ VerifierError "Only string signers are supported"
-      return (mid, mb, parsedSigners, fromIntegral threshold)
+
+      parsedObject <-
+        case mb of
+          PObject (ObjectMap m) -> do
+            let
+              parseField k = case (m ^? at (FieldKey k) . _Just . _PLiteral) of
+                  Just l -> PLiteral . LInteger <$> parseInt k l
+                  _ -> throwError $ VerifierError $ k <> " is missing"
+
+            version <- parseField "version"
+            nonce <- parseField "nonce"
+            origin <- parseField "originDomain"
+            destination <- parseField "destinationDomain"
+
+            return $ PObject $ ObjectMap $ m
+              & at "version" .~ Just version
+              & at "nonce" .~ Just nonce
+              & at "originDomain" .~ Just origin
+              & at "destinationDomain" .~ Just destination
+
+          _ -> throwError $ VerifierError "Message should be an object"
+
+
+      return (mid, parsedObject, parsedSigners, fromIntegral threshold)
     _ -> throwError $ VerifierError $ "Incorrect number of capability arguments. Expected: messageId, message, signers, threshold."
 
   -- extract proof object values
