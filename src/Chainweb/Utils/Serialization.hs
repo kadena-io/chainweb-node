@@ -50,6 +50,7 @@ module Chainweb.Utils.Serialization
     )
     where
 
+import Control.Applicative
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
@@ -70,7 +71,7 @@ import qualified Data.Binary.Put as Binary
 import Chainweb.Utils
 
 newtype Get a = Get (Binary.Get a)
-    deriving newtype (Functor, Applicative, Monad, MonadFail)
+    deriving newtype (Functor, Applicative, Monad, MonadFail, Alternative)
 newtype PutM a = PutM (Binary.PutM a)
     deriving newtype (Functor, Applicative, Monad)
 type Put = PutM ()

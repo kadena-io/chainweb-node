@@ -51,6 +51,7 @@ module Chainweb.Cut.CutHashes
 , cutHashesHeight
 , cutHashesHeaders
 , cutHashesPayloads
+, cutHashesLocalPayload
 , cutToCutHashes
 , CutHashesCas
 , _cutHashesMaxHeight
@@ -271,6 +272,9 @@ data CutHashes = CutHashes
         -- ^ optional block headers
     , _cutHashesPayloads :: !(HM.HashMap BlockPayloadHash PayloadData)
         -- ^ optional block payloads
+    , _cutHashesLocalPayload :: !(Maybe (BlockPayloadHash, PayloadWithOutputs))
+        -- ^ optional, and unused except for error reporting, outputs
+        -- Note: we cannot trust outputs from other nodes!
     }
     deriving (Show, Generic)
     deriving anyclass (NFData)
@@ -349,6 +353,7 @@ instance FromJSON CutHashes where
         <*> o .: "id"
         <*> o .:? "headers" .!= mempty
         <*> o .:? "payloads" .!= mempty
+        <*> pure Nothing
 
 -- | Compute a 'CutHashes' structure from a 'Cut'. The result doesn't include
 -- any block headers or payloads.
@@ -363,6 +368,7 @@ cutToCutHashes p c = CutHashes
     , _cutHashesId = _cutId c
     , _cutHashesHeaders = mempty
     , _cutHashesPayloads = mempty
+    , _cutHashesLocalPayload = Nothing
     }
 
 instance HasCutId CutHashes where

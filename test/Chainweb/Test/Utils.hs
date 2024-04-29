@@ -7,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
@@ -117,7 +118,8 @@ module Chainweb.Test.Utils
 , host
 , interface
 , testRetryPolicy
-, withDbDirs
+, withNodeDbDirs
+, NodeDbDirs(..)
 ) where
 
 import Control.Concurrent
@@ -139,7 +141,6 @@ import qualified Data.HashMap.Strict as HashMap
 import Data.IORef
 import Data.List (sortOn, isInfixOf)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 import Data.Tree
 import qualified Data.Tree.Lens as LT
 import qualified Data.Vector as V
@@ -901,26 +902,24 @@ matchTest pat = withArgs ["-p",pat]
 data ChainwebNetwork = ChainwebNetwork
     { _getClientEnv :: !ClientEnv
     , _getServiceClientEnv :: !ClientEnv
-    , _getNodeDbDirs :: ![(FilePath, FilePath)]
+    , _getNodeDbDirs :: ![NodeDbDirs]
     }
 
 withNodes_
     :: Logger logger
     => logger
     -> ChainwebVersion
-    -> B.ByteString
-    -> RocksDb
-    -> Word
+    -> (ChainwebConfiguration -> ChainwebConfiguration)
+    -> [NodeDbDirs]
     -> ResourceT IO ChainwebNetwork
-withNodes_ logger v testLabel rdb n = do
-    nodeDbDirs <- withDbDirs n
-    (p2p, service) <- start nodeDbDirs
+withNodes_ logger v confChange nodeDbDirs = do
+    (p2p, service) <- start
     pure (ChainwebNetwork p2p service nodeDbDirs)
   where
-    start :: [(FilePath, FilePath)] -> ResourceT IO (ClientEnv, ClientEnv)
-    start dbDirs = do
+    start :: ResourceT IO (ClientEnv, ClientEnv)
+    start = do
         peerInfoVar <- liftIO newEmptyMVar
-        runTestNodes testLabel rdb logger v peerInfoVar dbDirs
+        runTestNodes logger v confChange peerInfoVar nodeDbDirs
         (i, servicePort) <- liftIO $ readMVar peerInfoVar
         cwEnv <- liftIO $ getClientEnv $ getCwBaseUrl Https $ _hostAddressPort $ _peerAddr i
         cwServiceEnv <- liftIO $ getClientEnv $ getCwBaseUrl Http servicePort
@@ -936,9 +935,8 @@ withNodes_ logger v testLabel rdb n = do
 
 withNodes
     :: ChainwebVersion
-    -> B.ByteString
-    -> RocksDb
-    -> Word
+    -> (ChainwebConfiguration -> ChainwebConfiguration)
+    -> [NodeDbDirs]
     -> ResourceT IO ChainwebNetwork
 withNodes = withNodes_ (genericLogger Error (error . T.unpack))
     -- Test resources are part of test infrastructure and should never print
@@ -947,14 +945,12 @@ withNodes = withNodes_ (genericLogger Error (error . T.unpack))
 
 withNodesAtLatestBehavior
     :: ChainwebVersion
-    -> B.ByteString
-    -> RocksDb
-    -> Word
+    -> (ChainwebConfiguration -> ChainwebConfiguration)
+    -> [NodeDbDirs]
     -> ResourceT IO ChainwebNetwork
-withNodesAtLatestBehavior v testLabel rdb n = do
-    net <- withNodes v testLabel rdb n
-    liftIO $ awaitBlockHeight v putStrLn (_getServiceClientEnv net) (latestBehaviorAt v)
-    liftIO $ putStrLn $ "waited for block height " <> show (latestBehaviorAt v)
+withNodesAtLatestBehavior v conf dbDirs = do
+    net <- withNodes v conf dbDirs
+    liftIO $ awaitBlockHeight v (_getServiceClientEnv net) (latestBehaviorAt v)
     return net
 
 -- | Network initialization takes some time. Within my ghci session it took
@@ -963,11 +959,10 @@ withNodesAtLatestBehavior v testLabel rdb n = do
 --
 awaitBlockHeight
     :: ChainwebVersion
-    -> (String -> IO ())
     -> ClientEnv
     -> BlockHeight
     -> IO ()
-awaitBlockHeight v step cenv i = do
+awaitBlockHeight v cenv i = do
     result <- retrying testRetryPolicy checkRetry
         $ const $ runClientM (cutGetClient v) cenv
     case result of
@@ -978,36 +973,26 @@ awaitBlockHeight v step cenv i = do
                 $ "retries exhausted: waiting for cut height " <> sshow i
                 <> " but only got " <> sshow (_cutHashesHeight x)
   where
-    checkRetry s (Left e) = do
-        step $ "awaiting cut of height " <> show i
-            <> ". No result from node: " <> show e
-            <> " [" <> show (view rsIterNumberL s) <> "]"
-        return True
-    checkRetry s (Right c)
-        | all (\bh -> _bhwhHeight bh >= i) (_cutHashes c) = return False
-        | otherwise = do
-            step
-                $ "awaiting cut with all block heights >= " <> show i
-                <> ". Current min. block height: " <> show (minimum $ _bhwhHeight <$> _cutHashes c)
-                <> " [" <> show (view rsIterNumberL s) <> "]"
-            return True
+    checkRetry _ (Left _)
+        = return True
+    checkRetry _ (Right c)
+        = return $ any (\bh -> _bhwhHeight bh < i) (_cutHashes c)
 
 withAsyncR :: IO a -> ResourceT IO (Async a)
 withAsyncR action = snd <$> allocate (async action) uninterruptibleCancel
 
 runTestNodes :: Logger logger
-    => B.ByteString
-    -> RocksDb
-    -> logger
+    => logger
     -> ChainwebVersion
+    -> (ChainwebConfiguration -> ChainwebConfiguration)
     -> MVar (PeerInfo, Port)
-    -> [(FilePath, FilePath)]
+    -> [NodeDbDirs]
        -- ^ A Map from Node Id to (Pact DB Dir, Backups Dir).
        --   The index is just the position in the list.
     -> ResourceT IO ()
-runTestNodes testLabel rdb logger ver portMVar dbDirs = do
-    forConcurrently_ (zip [0 ..] dbDirs) $ \(nid, (pactDbDir, backupsDir)) -> do
-        let baseConf = config ver (int (length dbDirs))
+runTestNodes logger ver confChange portMVar nodesDbDirs = do
+    forConcurrently_ (zip [0 ..] nodesDbDirs) $ \(nid, NodeDbDirs {..}) -> do
+        let baseConf = confChange $ config ver (int (length nodesDbDirs))
         conf <- liftIO $ if nid == 0
           then return $ bootstrapConfig baseConf
           else setBootstrapPeerInfo <$> (fst <$> readMVar portMVar) <*> pure baseConf
@@ -1015,7 +1000,8 @@ runTestNodes testLabel rdb logger ver portMVar dbDirs = do
             { _nowServingP2PAPI = False
             , _nowServingServiceAPI = False
             }
-        _ <- withAsyncR (node testLabel rdb logger nowServingRef portMVar conf pactDbDir backupsDir nid)
+        _ <- withAsyncR
+            (node nodeRocksDb logger nowServingRef portMVar conf nodePactDbDir nodeBackupsDbDir nid)
         liftIO $ atomically $ do
             nowServing <- readTVar nowServingRef
             guard $ nowServing ==
@@ -1023,8 +1009,7 @@ runTestNodes testLabel rdb logger ver portMVar dbDirs = do
 
 node
     :: Logger logger
-    => B.ByteString
-    -> RocksDb
+    => RocksDb
     -> logger
     -> TVar NowServing
     -> MVar (PeerInfo, Port)
@@ -1036,9 +1021,8 @@ node
     -> Word
         -- ^ Unique Node Id. The node id 0 is used for the bootstrap node
     -> IO ()
-node testLabel rdb rawLogger nowServingRef peerInfoVar conf pactDbDir backupDir nid = do
-    rocksDb <- testRocksDb (testLabel <> T.encodeUtf8 (toText nid)) rdb
-    withChainweb conf logger rocksDb pactDbDir backupDir False $ \case
+node rdb rawLogger nowServingRef peerInfoVar conf pactDbDir backupDir nid = do
+    withChainweb conf logger rdb pactDbDir backupDir False $ \case
         StartedChainweb cw -> do
             -- If this is the bootstrap node we extract the port number and publish via an MVar.
             when (nid == 0) $ do
@@ -1046,7 +1030,6 @@ node testLabel rdb rawLogger nowServingRef peerInfoVar conf pactDbDir backupDir 
                     bootStrapPort = view (chainwebServiceSocket . _1) cw
                 putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
 
-            putStrLn $ "node ready: " <> show nid
             poisonDeadBeef cw
             runChainweb cw (atomically . modifyTVar' nowServingRef) `finally` do
                 logFunctionText logger Info "write sample data"
@@ -1061,24 +1044,33 @@ node testLabel rdb rawLogger nowServingRef peerInfoVar conf pactDbDir backupDir 
         crs = map snd $ HashMap.toList $ view chainwebChains cw
         poison cr = mempoolAddToBadList (view chainResMempool cr) (V.singleton deadbeef)
 
-withDbDirs :: Word -> ResourceT IO [(FilePath, FilePath)]
-withDbDirs n = do
-  let create :: IO [(FilePath, FilePath)]
+data NodeDbDirs = NodeDbDirs
+    { nodePactDbDir :: FilePath
+    , nodeBackupsDbDir :: FilePath
+    , nodeRocksDb :: RocksDb
+    }
+
+withNodeDbDirs :: RocksDb -> Word -> ResourceT IO [NodeDbDirs]
+withNodeDbDirs rdb n = do
+  let create :: IO [NodeDbDirs]
       create = do
         forM [0 .. n - 1] $ \nid -> do
           targetDir1 <- getCanonicalTemporaryDirectory
           targetDir2 <- getCanonicalTemporaryDirectory
 
-          dir1 <- createTempDirectory targetDir1 ("pactdb-dir-" ++ show nid)
-          dir2 <- createTempDirectory targetDir2 ("backups-dir-" ++ show nid)
+          nodePactDbDir <- createTempDirectory targetDir1 ("pactdb-dir-" ++ show nid)
+          nodeBackupsDbDir <- createTempDirectory targetDir2 ("backups-dir-" ++ show nid)
+          nodeRocksDb <- testRocksDb (sshow nid) rdb
 
-          pure (dir1, dir2)
+          pure NodeDbDirs { .. }
 
-  let destroy :: [(FilePath, FilePath)] -> IO ()
-      destroy m = flip foldMap m $ \(d1, d2) -> do
+  let destroy :: [NodeDbDirs] -> IO ()
+      destroy dirs = flip foldMap dirs $ \NodeDbDirs {..} -> do
         ignoringIOErrors $ do
-          removeDirectoryRecursive d1
-          removeDirectoryRecursive d2
+          removeDirectoryRecursive nodePactDbDir
+          removeDirectoryRecursive nodeBackupsDbDir
+          -- we can't delete a testRocksDb effectively, chainweb-storage only
+          -- offers DeleteRange on tables
 
   (_, m) <- allocate create destroy
   pure m
@@ -1104,7 +1096,6 @@ config ver n = defaultChainwebConfiguration ver
     & set (configMining . miningInNode) miner
     & set configReintroTxs True
     & set configBlockGasLimit 1_000_000
-    & set configRosetta True
     & set (configMining . miningCoordination . coordinationEnabled) True
     & set (configServiceApi . serviceApiConfigPort) 0
     & set (configServiceApi . serviceApiConfigInterface) interface

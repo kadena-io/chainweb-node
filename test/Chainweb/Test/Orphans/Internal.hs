@@ -403,6 +403,7 @@ instance Arbitrary CutHashes where
     arbitrary = CutHashes
         <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
         <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+        <*> return Nothing
 
 instance Arbitrary CutHeight where
     arbitrary = CutHeight <$> arbitrary

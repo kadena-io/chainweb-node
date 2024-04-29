@@ -257,7 +257,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       then do
         gasUsed <- use txGasUsed
         let initGasRemaining = fromIntegral gasLimit - gasUsed
-        verifierResult <- liftIO $ runVerifierPlugins logger allVerifiers initGasRemaining cmd
+        verifierResult <- liftIO $ runVerifierPlugins (ctxVersion txCtx, cid, currHeight) logger allVerifiers initGasRemaining cmd
         case verifierResult of
           Left err -> do
             let errMsg = "Tx verifier error: " <> getVerifierError err
@@ -515,9 +515,10 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
            rk (fromIntegral gasLimit) execConfig Nothing
     txst = TransactionState mc mempty 0 Nothing gasModel mempty
     gas0 = initialGasOf (_cmdPayload cmdIn)
+    currHeight = ctxCurrentBlockHeight txCtx
     cid = V._chainId txCtx
     v = _chainwebVersion txCtx
-    allVerifiers = verifiersAt v cid (ctxCurrentBlockHeight txCtx)
+    allVerifiers = verifiersAt v cid currHeight
     -- Note [Throw out verifier proofs eagerly]
     !verifiersWithNoProof =
         (fmap . fmap) (\_ -> ()) verifiers
@@ -525,7 +526,7 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
 
     applyVerifiers m = do
       let initGasRemaining = fromIntegral gasLimit - gas0
-      verifierResult <- liftIO $ runVerifierPlugins logger allVerifiers initGasRemaining cmd
+      verifierResult <- liftIO $ runVerifierPlugins (v, cid, currHeight) logger allVerifiers initGasRemaining cmd
       case verifierResult of
         Left err -> do
           let errMsg = "Tx verifier error: " <> getVerifierError err

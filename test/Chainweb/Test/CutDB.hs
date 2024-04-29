@@ -172,7 +172,7 @@ syncPact
 syncPact cutDb pact =
     void $ webEntries bhdb $ \s -> s
         & S.filter ((/= 0) . _blockHeight)
-        & S.mapM_ (\h -> payload h >>= _webPactValidateBlock pact h)
+        & S.mapM_ (\h -> payload h >>= _webPactValidateBlock pact h . CheckablePayload)
   where
     bhdb = view cutDbWebBlockHeaderDb cutDb
     pdb = view cutDbPayloadDb cutDb
@@ -456,13 +456,13 @@ randomTransaction cutDb = do
 
     Just btxs <-
         tableLookup
-            (_transactionDbBlockTransactions $ _transactionDb payloadDb)
-            (_blockPayloadTransactionsHash pay)
+            (_newTransactionDbBlockTransactionsTbl $ _transactionDb payloadDb)
+            (_blockHeight bh, _blockPayloadTransactionsHash pay)
     txIx <- generate $ choose (0, length (_blockTransactions btxs) - 1)
     Just outs <-
         tableLookup
-            (_payloadCacheBlockOutputs $ _payloadCache payloadDb)
-            (_blockPayloadOutputsHash pay)
+            (_newBlockOutputsTbl $ _payloadCacheBlockOutputs $ _payloadCache payloadDb)
+            (_blockHeight bh, _blockPayloadOutputsHash pay)
     return
         ( bh
         , txIx
@@ -482,9 +482,11 @@ randomTransaction cutDb = do
 fakePact :: WebPactExecutionService
 fakePact = WebPactExecutionService $ PactExecutionService
   { _pactValidateBlock =
-      \_ d -> return
-              $ payloadWithOutputs d coinbase
-              $ getFakeOutput <$> _payloadDataTransactions d
+      \_ p -> do
+        let d = checkablePayloadToPayloadData p
+        return
+            $ payloadWithOutputs d coinbase
+            $ getFakeOutput <$> _payloadDataTransactions d
   , _pactNewBlock = \_ _ -> do
         payloadDat <- generate $ V.fromList . getNonEmpty <$> arbitrary
         ph <- ParentHeader <$> generate arbitrary

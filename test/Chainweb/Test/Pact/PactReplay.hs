@@ -9,7 +9,6 @@
 
 module Chainweb.Test.Pact.PactReplay where
 
-import Control.Concurrent.MVar
 import Control.Monad (forM_, unless, void)
 import Control.Monad.Catch
 import Control.Monad.Reader
@@ -175,7 +174,7 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
     let T3 _ line1 pwo1 = mainlineblocks !! 6
     (_, q, _) <- iop
     -- reset the pact service state to line1
-    void $ validateBlock line1 (payloadWithOutputsToPayloadData pwo1) q
+    void $ validateBlock line1 (CheckablePayloadWithOutputs pwo1) q
     void $ mineLine line1 nonceCounter 4
   where
     mineLine start ncounter len =
@@ -192,7 +191,7 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
     restartPact :: IO ()
     restartPact = do
         (_, q, _) <- iop
-        addRequest q CloseMsg
+        submitRequestAndWait q CloseMsg
 
     pruneDbs = forM_ cids $ \c -> do
         (_, _, dbs) <- iop
@@ -217,12 +216,12 @@ firstPlayThrough mpio genesisBlock iop = do
     (_, q, _) <- iop
 
     -- reset the pact service state to startline1
-    void $ validateBlock startline1 (payloadWithOutputsToPayloadData pwo1) q
+    void $ validateBlock startline1 (CheckablePayloadWithOutputs pwo1) q
 
     void $ mineLine startline1 nonceCounter 4
 
     -- reset the pact service state to startline2
-    void $ validateBlock startline2 (payloadWithOutputsToPayloadData pwo2) q
+    void $ validateBlock startline2 (CheckablePayloadWithOutputs pwo2) q
 
     void $ mineLine startline2 nonceCounter 4
   where
@@ -283,7 +282,6 @@ testDeepForkLimit mpio (RewindLimit deepForkLimit) iop step = do
     pd <- lookupPayloadWithHeight pdb (Just $ _blockHeight maxblock) (_blockPayloadHash maxblock) >>= \case
       Nothing -> assertFailure "max block payload not found"
       Just x -> return x
-    let maxblockPayload = payloadWithOutputsToPayloadData pd
     step $ "max block has height " <> sshow (_blockHeight maxblock)
     nonceCounterMain <- newIORef (fromIntegral $ _blockHeight maxblock)
 
@@ -292,8 +290,8 @@ testDeepForkLimit mpio (RewindLimit deepForkLimit) iop step = do
     void $ mineLine maxblock nonceCounterMain (deepForkLimit + 1)
 
     step "try to rewind to max block"
-    validateBlock maxblock maxblockPayload q >>= takeMVar >>= \case
-        Left PactInternalError{} -> return ()
+    try @_ @SomeException (validateBlock maxblock (CheckablePayloadWithOutputs pd) q) >>= \case
+        Left _ -> return ()
         _ -> assertBool msg False
 
   where
@@ -324,9 +322,8 @@ mineBlock nonce iop = timeout 5000000 go >>= \case
     go = do
 
       -- assemble block without nonce and timestamp
-      let r = (\(_, q, _) -> q) <$> iop
-      mv <- r >>= newBlock noMiner
-      T2 ph payload <- assertNotLeft =<< takeMVar mv
+      (_, q, bdb) <- iop
+      T2 ph payload <- newBlock noMiner q
 
       let
         creationTime = BlockCreationTime
@@ -341,10 +338,8 @@ mineBlock nonce iop = timeout 5000000 go >>= \case
                creationTime
                ph
 
-      mv' <- r >>= validateBlock bh (payloadWithOutputsToPayloadData payload)
-      void $ assertNotLeft =<< takeMVar mv'
+      _ <- validateBlock bh (CheckablePayloadWithOutputs payload) q
 
-      (_, _, bdb) <- iop
       let pdb = _bdbPayloadDb bdb
       addNewPayload pdb (succ $ _blockHeight $ _parentHeader ph) payload
 

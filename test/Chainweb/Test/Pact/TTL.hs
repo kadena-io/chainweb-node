@@ -32,7 +32,6 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Validations (defaultLenientTimeSlop)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -216,8 +215,7 @@ doNewBlock ctxIO mempool nonce t = do
     unlessM (tryPutMVar (_ctxMempool ctx) mempool) $
         error "Test failure: mempool access is not empty. Some previous test step failed unexpectedly"
 
-    mv <- newBlock noMiner $ _ctxQueue ctx
-    T2 parent payload <- assertNotLeft =<< takeMVar mv
+    T2 parent payload <- newBlock noMiner $ _ctxQueue ctx
     let
         creationTime = BlockCreationTime
             . add (secondsToTimeSpan t) -- 10 seconds
@@ -242,7 +240,7 @@ doValidateBlock
     -> IO ()
 doValidateBlock ctxIO header payload = do
     ctx <- ctxIO
-    _mv' <- validateBlock header (payloadWithOutputsToPayloadData payload) $ _ctxQueue ctx
+    _mv' <- validateBlock header (CheckablePayloadWithOutputs payload) $ _ctxQueue ctx
     addNewPayload (_ctxPdb ctx) (_blockHeight header) payload
     unsafeInsertBlockHeaderDb (_ctxBdb ctx) header
     -- FIXME FIXME FIXME: do at least some checks?
@@ -259,9 +257,8 @@ instance Exception ValidationFailure
 assertDoPreBlockFailure
     :: IO a
     -> IO ()
-assertDoPreBlockFailure action = try @_ @PactException action >>= \case
-    Left (PactInternalError "DoPreBlockFailure") -> return ()
-    Left e -> throwM e
+assertDoPreBlockFailure action = try action >>= \case
+    Left DoPreBlockFailure -> return ()
     Right{} -> assertFailure "Expected DoPreBlockFailure but the action succeeded."
 
 data Ctx = Ctx
@@ -291,7 +288,3 @@ withTestPact rdb test =
                 Nothing -> mempty
                 Just mp -> mpaGetBlock mp g val he h p
         }
-
-assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
-assertNotLeft (Left l) = throwM l
-assertNotLeft (Right r) = return r

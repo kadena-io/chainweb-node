@@ -624,13 +624,13 @@ _showValidationFailure = do
         }
       miner = defaultMiner
       header = genesisBlockHeader testVersion $ someChainId testVersion
-      pd = payloadWithOutputsToPayloadData $ toPayloadWithOutputs miner outs1
+      pwo = toPayloadWithOutputs miner outs1
       cr2 = set crGas 1 cr1
       outs2 = Transactions
         { _transactionPairs = V.zip txs (V.singleton cr2)
         , _transactionCoinbase = cr2
         }
-      r = validateHashes header pd miner outs2
+      r = validateHashes header (CheckablePayloadWithOutputs pwo) miner outs2
 
   BL.putStrLn $ case r of
     Left e -> J.encode e

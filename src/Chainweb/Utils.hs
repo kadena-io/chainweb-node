@@ -218,7 +218,7 @@ module Chainweb.Utils
 
 import Configuration.Utils hiding (Error, Lens)
 
-import Control.Concurrent (threadDelay, yield)
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.TokenBucket
@@ -1403,8 +1403,8 @@ parseUtcTime d = case parseTimeM False defaultTimeLocale fmt d of
   where
     fmt = iso8601DateTimeFormat
 
--- | Timeout.timeout with a `yield` after the action to more consistently
+-- | Timeout.timeout with a `threadDelay` after the action to more consistently
 -- trigger the timeout.
 timeoutYield :: Int -> IO a -> IO (Maybe a)
 timeoutYield time act =
-    Timeout.timeout time (act <* yield)
+    Timeout.timeout time (act <* threadDelay 1)

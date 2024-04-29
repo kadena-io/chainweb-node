@@ -245,7 +245,7 @@ multiNode
     -> IO ()
 multiNode loglevel write bootstrapPeerInfoVar conf rdb pactDbDir nid inner = do
     withSystemTempDirectory "multiNode-backup-dir" $ \backupTmpDir ->
-            withChainweb conf logger nodeRocksDb (pactDbDir </> show nid) backupTmpDir False $ \cw -> do
+            withChainweb conf logger namespacedNodeRocksDb (pactDbDir </> show nid) backupTmpDir False $ \cw -> do
                 case cw of
                     StartedChainweb cw' ->
                         when (nid == 0) $ putMVar bootstrapPeerInfoVar
@@ -256,7 +256,7 @@ multiNode loglevel write bootstrapPeerInfoVar conf rdb pactDbDir nid inner = do
     logger :: GenericLogger
     logger = addLabel ("node", toText nid) $ genericLogger loglevel write
 
-    nodeRocksDb = rdb { _rocksDbNamespace = T.encodeUtf8 $ toText nid }
+    namespacedNodeRocksDb = rdb { _rocksDbNamespace = T.encodeUtf8 $ toText nid }
 
 -- -------------------------------------------------------------------------- --
 -- Run Nodes

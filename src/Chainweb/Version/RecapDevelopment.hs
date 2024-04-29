@@ -115,7 +115,8 @@ recapDevnet = ChainwebVersion
         { _disablePeerValidation = True
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = AllChains $ (600, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
+    , _versionVerifierPluginNames = AllChains $
+        (600, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow"]) `Above`
         End mempty
     , _versionQuirks = noQuirks
     }

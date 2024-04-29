@@ -293,8 +293,8 @@ doLookupBlock db (bheight, bhash) = do
     r <- qry db qtext [SInt $ fromIntegral bheight, SBlob (runPutS (encodeBlockHash bhash))]
                       [RInt]
     liftIO (expectSingle "row" r) >>= \case
-        [SInt n] -> return $! n /= 0
-        _ -> internalError "doLookupBlock: output mismatch"
+        [SInt n] -> return $! n == 1
+        _ -> internalError "doLookupBlock: output type mismatch"
   where
     qtext = "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? \
             \ AND hash = ?;"
@@ -311,7 +311,8 @@ doGetBlockParent v cid db (bh, hash)
             case r of
               [[SBlob blob]] ->
                 either (internalError . T.pack) (return . return) $! runGetEitherS decodeBlockHash blob
-              _ -> internalError "doGetBlockParent: output mismatch"
+              [] -> internalError "doGetBlockParent: block was found but its parent couldn't be found"
+              _ -> error "doGetBlockParent: output type mismatch"
   where
     qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?"
 

@@ -108,7 +108,7 @@ import Control.Concurrent.MVar (MVar, readMVar)
 import Control.DeepSeq
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
-import Control.Monad.Catch (fromException, throwM)
+import Control.Monad.Catch (fromException)
 
 import Data.Foldable
 import Data.Function (on)
@@ -319,7 +319,7 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
                                 (T2 Mempool.TransactionHash ChainwebTransaction)))
     preInsertBatch txs = do
         pex <- readMVar mv
-        rs <- _pactPreInsertCheck pex cid (V.map ssnd txs) >>= either throwM pure
+        rs <- _pactPreInsertCheck pex cid (V.map ssnd txs)
         pure $ alignWithV f rs txs
       where
         f (These r (T2 h t)) = case r of

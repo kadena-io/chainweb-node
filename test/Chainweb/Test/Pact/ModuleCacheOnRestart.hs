@@ -130,7 +130,7 @@ testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
       T2 _ pwo <- execNewBlock mempty noMiner
       void $ liftIO $ addTestBlockDb bdb (succ genHeight) (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
-      void $ execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
+      void $ execValidateBlock mempty nextH (CheckablePayloadWithOutputs pwo)
 
 testV3
   :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)
@@ -239,7 +239,7 @@ assertNoCacheMismatch c1 c2 = assertBool msg $ c1 == c2
       ]
 
 rewindToBlock :: (Logger logger) => CanReadablePayloadCas tbl => RewindPoint -> PactServiceM logger tbl ()
-rewindToBlock (rewindHeader, pwo) = void $ execValidateBlock mempty rewindHeader (payloadWithOutputsToPayloadData pwo)
+rewindToBlock (rewindHeader, pwo) = void $ execValidateBlock mempty rewindHeader (CheckablePayloadWithOutputs pwo)
 
 doNextCoinbase :: (Logger logger, CanReadablePayloadCas tbl) => IO TestBlockDb -> PactServiceM logger tbl (BlockHeader, PayloadWithOutputs)
 doNextCoinbase iobdb = do
@@ -247,13 +247,13 @@ doNextCoinbase iobdb = do
       prevH <- liftIO $ getParentTestBlockDb bdb testChainId
       -- we have to execValidateBlock on `prevH` block height to update the parent header
       pwo' <- liftIO $ getPWOByHeader prevH bdb
-      _ <- execValidateBlock mempty prevH (payloadWithOutputsToPayloadData pwo')
+      _ <- execValidateBlock mempty prevH (CheckablePayloadWithOutputs pwo')
 
       T2 prevH' pwo <- execNewBlock mempty noMiner
       liftIO $ ParentHeader prevH @?= prevH'
       void $ liftIO $ addTestBlockDb bdb (succ $ _blockHeight prevH) (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
-      (valPWO, _g) <- execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
+      (valPWO, _g) <- execValidateBlock mempty nextH (CheckablePayloadWithOutputs pwo)
       return (nextH, valPWO)
 
 doNextCoinbaseN_

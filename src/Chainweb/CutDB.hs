@@ -775,9 +775,13 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
             hdrs <- emptyTable
             casInsertBatch hdrs $ HM.elems $ _cutHashesHeaders hs
 
+            -- for better error messages on validation failure
+            -- must be a locally-produced payload
+            let localPayload = _cutHashesLocalPayload hs
+
             (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
                 & S.map (fmap _bhwhHash)
-                & S.mapM (tryGetBlockHeader hdrs plds)
+                & S.mapM (tryGetBlockHeader hdrs plds localPayload)
                 & S.partitionEithers
                 & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
                 & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
@@ -788,8 +792,8 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
 
-    tryGetBlockHeader hdrs plds cv@(cid, _) =
-        (Right <$> mapM (getBlockHeader headerStore payloadStore hdrs plds cid priority origin) cv)
+    tryGetBlockHeader hdrs plds localPayload cv@(cid, _) =
+        (Right <$> mapM (getBlockHeader headerStore payloadStore hdrs plds localPayload cid priority origin) cv)
             `catch` \case
                 (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
                     return (Left cv)

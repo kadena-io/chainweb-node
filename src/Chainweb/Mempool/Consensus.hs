@@ -53,7 +53,6 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Guards
 
-import Chainweb.Storage.Table
 import Data.LogMessage (JsonLog(..), LogFunction)
 
 ------------------------------------------------------------------------------
@@ -178,15 +177,9 @@ payloadLookup payloadStore bh =
     case payloadStore of
         Nothing -> return mempty
         Just s -> do
-            pd <- casLookupM' (view transactionDb s) (view blockPayloadHash bh)
-            chainwebTxsFromPd (pactParserVersion (_chainwebVersion bh) (_chainId bh) (view blockHeight bh)) pd
-  where
-    casLookupM' s h = do
-        x <- tableLookup s h
-        case x of
-            Nothing -> throwIO $ PayloadNotFoundException h
-            Just pd -> return pd
-
+            pd <- lookupPayloadDataWithHeight s (Just (view blockHeight bh)) (view blockPayloadHash bh)
+            pd' <- maybe (throwIO $ PayloadNotFoundException (view blockPayloadHash bh)) pure pd
+            chainwebTxsFromPd (pactParserVersion (_chainwebVersion bh) (_chainId bh) (view blockHeight bh)) pd'
 
 ------------------------------------------------------------------------------
 chainwebTxsFromPd

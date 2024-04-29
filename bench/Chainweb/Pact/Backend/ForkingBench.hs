@@ -193,7 +193,7 @@ playLine
     -> IORef Word64
     -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
 playLine pdb bhdb trunkLength startingBlock pactQueue counter = do
-    assertNotLeft =<< takeMVar =<< pactSyncToBlock startingBlock pactQueue
+    pactSyncToBlock startingBlock pactQueue
     mineLine startingBlock trunkLength counter
   where
     mineLine :: BlockHeader -> Word64 -> IORef Word64 -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
@@ -232,9 +232,7 @@ createBlock validate nonce pact = do
 
      -- assemble block without nonce and timestamp
 
-     mv <- newBlock noMiner pact
-
-     T2 parent payload <- assertNotLeft =<< takeMVar mv
+     T2 parent payload <- newBlock noMiner pact
 
      let creationTime = add second $ _blockCreationTime $ _parentHeader parent
      let bh = newBlockHeader
@@ -245,8 +243,7 @@ createBlock validate nonce pact = do
               parent
 
      when (validate == DoValidate) $ do
-       mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) pact
-       void $ assertNotLeft =<< takeMVar mv'
+       void $ validateBlock bh (CheckablePayloadWithOutputs payload) pact
 
      return $ T3 parent bh payload
 
@@ -413,10 +410,6 @@ cid = someChainId testVer
 
 testVer :: ChainwebVersion
 testVer = slowForkingCpmTestVersion petersonChainGraph
-
-assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
-assertNotLeft (Left l) = throwM l
-assertNotLeft (Right r) = return r
 
 -- MORE CODE DUPLICATION
 

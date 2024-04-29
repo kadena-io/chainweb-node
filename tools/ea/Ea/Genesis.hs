@@ -123,10 +123,10 @@ makeLensesFor [("_" <> fn, fn) | fn <- ["txChainIds", "coinbase", "keysets", "al
 --  Coin Contract Essentials
 
 coinContractV1 :: FilePath
-coinContractV1 = "pact/coin-contract/load-coin-contract.yaml"
+coinContractV1 = "pact/coin-contract/v1/load-coin-contract.yaml"
 
 fungibleAssetV1 :: FilePath
-fungibleAssetV1 = "pact/coin-contract/load-fungible-asset.yaml"
+fungibleAssetV1 = "pact/coin-contract/v1/load-fungible-asset.yaml"
 
 gasPayer :: FilePath
 gasPayer = "pact/gas-payer/load-gas-payer.yaml"
@@ -147,10 +147,10 @@ coinContractV5 :: FilePath
 coinContractV5 = "pact/coin-contract/v5/load-coin-contract-v5.yaml"
 
 coinContractV6 :: FilePath
-coinContractV6 = "pact/coin-contract/v6/load-coin-contract-v6.yaml"
+coinContractV6 = "pact/coin-contract/load-coin-contract.yaml"
 
 installCoinContractV6 :: FilePath
-installCoinContractV6 = "pact/coin-contract/v6/install-coin-contract-v6.yaml"
+installCoinContractV6 = "pact/coin-contract/install-coin-contract.yaml"
 
 fungibleAssetV2 :: FilePath
 fungibleAssetV2 = "pact/coin-contract/v2/load-fungible-asset-v2.yaml"

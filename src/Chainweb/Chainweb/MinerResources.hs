@@ -141,7 +141,7 @@ withMiningCoordination logger conf cdb inner
             pw <- readTVarIO tpw
             let
                 -- we assume that this path always exists in PrimedWork and never delete it.
-                ourMiner :: Traversal' PrimedWork (T2 ParentHeader (Maybe PayloadData))
+                ourMiner :: Traversal' PrimedWork (T2 ParentHeader (Maybe PayloadWithOutputs))
                 ourMiner = _Wrapped' . at (view minerId miner) . _Just . at cid . _Just
             let !(T2 ph _) = fromJuste $ pw ^? ourMiner
             -- wait for a block different from what we've got primed work for
@@ -152,7 +152,7 @@ withMiningCoordination logger conf cdb inner
             newParentAndPayload <- getPayload (ParentHeader new) cid miner
             atomically $ modifyTVar' tpw (ourMiner .~ over _2 Just newParentAndPayload)
 
-    getPayload :: ParentHeader -> ChainId -> Miner -> IO (T2 ParentHeader PayloadData)
+    getPayload :: ParentHeader -> ChainId -> Miner -> IO (T2 ParentHeader PayloadWithOutputs)
     getPayload new cid m =
         if v ^. versionCheats . disablePact
         -- if pact is disabled, we must keep track of the latest header
@@ -161,10 +161,10 @@ withMiningCoordination logger conf cdb inner
         -- with rocksdb though that shouldn't cause a problem, just wasted work,
         -- see docs for
         -- Chainweb.Pact.PactService.Checkpointer.findLatestValidBlockHeader'
-        then return $ T2 new $ payloadWithOutputsToPayloadData emptyPayload
+        then return $ T2 new emptyPayload
         else trace (logFunction logger)
             "Chainweb.Chainweb.MinerResources.withMiningCoordination.newBlock"
-            () 1 (over _2 payloadWithOutputsToPayloadData <$> _pactNewBlock pact cid m)
+            () 1 (_pactNewBlock pact cid m)
 
     pact :: PactExecutionService
     pact = _webPactExecutionService $ view cutDbPactService cdb
@@ -209,8 +209,8 @@ withMiningCoordination logger conf cdb inner
         summed :: Int
         summed = M.foldl' (\acc (T3 _ ps _) -> acc + g ps) 0 ms
 
-        g :: PayloadData -> Int
-        g = V.length . view payloadDataTransactions
+        g :: PayloadWithOutputs -> Int
+        g = V.length . _payloadWithOutputsTransactions
 
 -- | Miner resources are used by the test-miner when in-node mining is
 -- configured or by the mempool noop-miner (which keeps the mempool updated) in

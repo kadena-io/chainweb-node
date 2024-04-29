@@ -32,9 +32,24 @@ extra-source-files:
 
     -- pact test data
 
-    pact/coin-contract/coin.repl
-    pact/coin-contract/coin.pact
-    pact/coin-contract/load-coin-contract.yaml
+    pact/coin-contract/*.repl
+    pact/coin-contract/*.pact
+    pact/coin-contract/*.yaml
+    pact/coin-contract/v1/*.repl
+    pact/coin-contract/v1/*.pact
+    pact/coin-contract/v1/*.yaml
+    pact/coin-contract/v2/*.repl
+    pact/coin-contract/v2/*.pact
+    pact/coin-contract/v2/*.yaml
+    pact/coin-contract/v3/*.repl
+    pact/coin-contract/v3/*.pact
+    pact/coin-contract/v3/*.yaml
+    pact/coin-contract/v4/*.repl
+    pact/coin-contract/v4/*.pact
+    pact/coin-contract/v4/*.yaml
+    pact/coin-contract/v5/*.repl
+    pact/coin-contract/v5/*.pact
+    pact/coin-contract/v5/*.yaml
     test/pact/*.pact
     test/golden/*.txt
 
@@ -417,7 +432,6 @@ library
         , stopwatch >= 0.1
         , streaming >= 0.2
         , streaming-commons >= 0.2
-        , strict-concurrency >= 0.2
         , template-haskell >= 2.14
         , text >= 2.0
         , trifecta >= 2.1

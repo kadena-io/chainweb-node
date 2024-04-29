@@ -87,7 +87,7 @@ import Chainweb.Pact.SPV
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Pact.Validations
-import Chainweb.Payload
+import Chainweb.Payload.Internal
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Transaction
@@ -104,9 +104,10 @@ execBlock
         -- header to avoid confusion with new block and prevent using data from this
         -- header when we should use the respective values from the parent header
         -- instead.
-    -> PayloadData
+    -> CheckablePayload
     -> PactBlockM logger tbl (P.Gas, PayloadWithOutputs)
-execBlock currHeader plData = do
+execBlock currHeader payload = do
+    let plData = checkablePayloadToPayloadData payload
     dbEnv <- view psBlockDbEnv
     miner <- decodeStrictOrThrow' (_minerData $ view payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload
@@ -139,7 +140,7 @@ execBlock currHeader plData = do
     let !totalGasUsed = sumOf (folded . to P._crGas) results
 
     pwo <- either throwM return $
-      validateHashes currHeader plData miner results
+      validateHashes currHeader payload miner results
     return (totalGasUsed, pwo)
   where
     blockGasLimit =
@@ -556,11 +557,11 @@ instance J.Encode CRLogPair where
 validateHashes
     :: BlockHeader
         -- ^ Current Header
-    -> PayloadData
+    -> CheckablePayload
     -> Miner
     -> Transactions (P.CommandResult [P.TxLogJson])
     -> Either PactException PayloadWithOutputs
-validateHashes bHeader pData miner transactions =
+validateHashes bHeader payload miner transactions =
     if newHash == prevHash
       then Right pwo
       else Left $ BlockValidationFailure $ BlockValidationFailureMsg $
@@ -575,18 +576,6 @@ validateHashes bHeader pData miner transactions =
 
     newHash = _payloadWithOutputsPayloadHash pwo
     prevHash = view blockPayloadHash bHeader
-
-    newTransactions = toList $ fst <$> (_payloadWithOutputsTransactions pwo)
-    prevTransactions = toList $ view payloadDataTransactions pData
-
-    newMiner = _payloadWithOutputsMiner pwo
-    prevMiner = view payloadDataMiner pData
-
-    newTransactionsHash = _payloadWithOutputsTransactionsHash pwo
-    prevTransactionsHash = view payloadDataTransactionsHash pData
-
-    newOutputsHash = _payloadWithOutputsOutputsHash pwo
-    prevOutputsHash = view payloadDataOutputsHash pData
 
     -- The following JSON encodings are used in the BlockValidationFailure message
 
@@ -604,18 +593,50 @@ validateHashes bHeader pData miner transactions =
         , "expected" J..= J.encodeWithAeson expect
         ]
 
-    checkTransactions :: [Transaction] -> [Transaction] -> [Maybe J.KeyValue]
-    checkTransactions prev new =
-        [ "txs" J..?=
-            (J.Array <$> traverse (uncurry $ check "Tx" []) (zip prev new))
-        ]
-
-    addOutputs (Transactions pairs coinbase) =
-        [ "outputs" J..= J.object
-            [ "coinbase" J..=  toPairCR coinbase
-            , "txs" J..= J.array (addTxOuts <$> pairs)
+    details = case payload of
+        CheckablePayload pData -> J.Array $ catMaybes
+            [ check "Miner"
+                []
+                (_payloadDataMiner pData)
+                (_payloadWithOutputsMiner pwo)
+            , check "TransactionsHash"
+                [ "txs" J..?=
+                    (J.Array <$> traverse (uncurry $ check "Tx" []) (zip
+                      (toList $ fst <$> _payloadWithOutputsTransactions pwo)
+                      (toList $ _payloadDataTransactions pData)
+                    ))
+                ]
+                (_payloadDataTransactionsHash pData)
+                (_payloadWithOutputsTransactionsHash pwo)
+            , check "OutputsHash"
+                [ "outputs" J..= J.object
+                    [ "coinbase" J..= toPairCR (_transactionCoinbase transactions)
+                    , "txs" J..= J.array (addTxOuts <$> _transactionPairs transactions)
+                    ]
+                ]
+                (_payloadDataOutputsHash pData)
+                (_payloadWithOutputsOutputsHash pwo)
             ]
-        ]
+
+        CheckablePayloadWithOutputs localPwo -> J.Array $ catMaybes
+            [ check "Miner"
+                []
+                (_payloadWithOutputsMiner localPwo)
+                (_payloadWithOutputsMiner pwo)
+            , Just $ J.object
+              [ "transactions" J..= J.object
+                  [ "txs" J..?=
+                      (J.Array <$> traverse (uncurry $ check "Tx" []) (zip
+                        (toList $ _payloadWithOutputsTransactions pwo)
+                        (toList $ _payloadWithOutputsTransactions localPwo)
+                      ))
+                  , "coinbase" J..=
+                      check "Coinbase" []
+                        (_payloadWithOutputsCoinbase pwo)
+                        (_payloadWithOutputsCoinbase localPwo)
+                  ]
+              ]
+            ]
 
     addTxOuts :: (ChainwebTransaction, P.CommandResult [P.TxLogJson]) -> J.Builder
     addTxOuts (tx,cr) = J.object
@@ -625,14 +646,6 @@ validateHashes bHeader pData miner transactions =
 
     toPairCR cr = over (P.crLogs . _Just)
         (CRLogPair (fromJuste $ P._crLogs (toHashCommandResult cr))) cr
-
-    details = J.Array $ catMaybes
-        [ check "Miner" [] prevMiner newMiner
-        , check "TransactionsHash" (checkTransactions prevTransactions newTransactions)
-            prevTransactionsHash newTransactionsHash
-        , check "OutputsHash" (addOutputs transactions)
-            prevOutputsHash newOutputsHash
-        ]
 
 toTransactionBytes :: P.Command Text -> Transaction
 toTransactionBytes cwTrans =

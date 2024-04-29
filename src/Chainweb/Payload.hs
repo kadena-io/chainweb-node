@@ -1,15 +1,3 @@
--- Module: Chainweb.Payload
--- Copyright: Copyright © 2018 - 2020 Kadena LLC.
--- License: MIT
--- Maintainer: Lars Kuhtz <lars@kadena.io>
--- Stability: experimental
---
--- Block payloads in the format as they are stored in the Chainweb Merkle tree.
---
--- The format abstracts from the smart contract language. I.e. it does not
--- depend on any Pact data structure. The reason for this is to allow changes to
--- Pact without breaking the Merkle tree.
---
 module Chainweb.Payload
 (
 -- * Block Chain Data
@@ -41,6 +29,19 @@ module Chainweb.Payload
 , BlockTransactions
 , BlockTransactions_(..)
 , verifyBlockPayload
+
+-- * Binary encodings
+
+, encodeBlockPayloads
+, decodeBlockPayloads
+, encodeBlockTransactions
+, decodeBlockTransactions
+, encodeBlockOutputs
+, decodeBlockOutputs
+, encodeTransactionTree
+, decodeTransactionTree
+, encodeOutputTree
+, decodeOutputTree
 
 -- * Redundant Data / Caches
 
@@ -83,6 +84,7 @@ module Chainweb.Payload
 , payloadDataTransactionsHash
 , payloadDataOutputsHash
 , newPayloadData
+, payloadDataToBlockPayload
 , PayloadDataCas
 , verifyPayloadData
 
@@ -94,6 +96,9 @@ module Chainweb.Payload
 , payloadWithOutputsToBlockObjects
 , payloadWithOutputsToPayloadData
 , verifyPayloadWithOutputs
+
+, CheckablePayload(..)
+, checkablePayloadToPayloadData
 ) where
 
 import Chainweb.Payload.Internal

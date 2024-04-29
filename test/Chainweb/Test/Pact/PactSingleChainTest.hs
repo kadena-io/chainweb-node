@@ -28,7 +28,7 @@ import Patience qualified as PatienceL
 import Patience.Map qualified as PatienceM
 import Patience.Map (Delta(..))
 
-import Data.Aeson (object, (.=), Value(..), decodeStrict, eitherDecode)
+import Data.Aeson (object, (.=), Value(..), eitherDecode)
 import qualified Data.ByteString.Lazy as BL
 import Data.Either (isLeft, isRight, fromRight)
 import Data.IORef
@@ -37,7 +37,6 @@ import Data.Maybe (isJust, isNothing)
 import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.Text.IO as T
-import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 
 import GHC.Stack
@@ -159,26 +158,25 @@ testTimeout' :: ()
   -> TestTree
 testTimeout' rdb f = testWithConf' rdb f (testPactServiceConfig { _pactPreInsertCheckTimeout = 1 })
 
-forSuccess :: (NFData a, HasCallStack) => String -> IO (MVar (Either PactException a)) -> IO a
-forSuccess msg mvio = (`catchAllSynchronous` handler) $ do
-  mv <- mvio
-  takeMVar mv >>= \case
+forSuccess :: (NFData a, HasCallStack) => String -> IO (Either PactException a) -> IO a
+forSuccess msg act = (`catchAllSynchronous` handler) $ do
+  r <- act
+  case r of
     Left e -> assertFailure $ msg ++ ": got failure result: " ++ show e
     Right v -> return v
   where
     handler e = assertFailure $ msg ++ ": exception thrown: " ++ show e
 
-runBlockE :: (HasCallStack) => PactQueue -> TestBlockDb -> TimeSpan Micros -> IO (MVar (Either PactException PayloadWithOutputs))
+runBlockE :: (HasCallStack) => PactQueue -> TestBlockDb -> TimeSpan Micros -> IO (Either PactException PayloadWithOutputs)
 runBlockE q bdb timeOffset = do
-  T2 (ParentHeader ph) nb <- forSuccess "newBlock" $
-        newBlock noMiner q
+  T2 (ParentHeader ph) nb <- newBlock noMiner q
   let blockTime = add timeOffset $ _bct $ _blockCreationTime ph
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
           | otherwise = emptyPayload
     addTestBlockDb bdb (succ $ _blockHeight ph) (Nonce 0) (\_ _ -> blockTime) c o
   nextH <- getParentTestBlockDb bdb cid
-  validateBlock nextH (payloadWithOutputsToPayloadData nb) q
+  try (validateBlock nextH (CheckablePayloadWithOutputs nb) q)
 
 -- edmundn: why does any of this return PayloadWithOutputs instead of a
 -- list of Pact CommandResult?
@@ -198,8 +196,7 @@ newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailur
   (_, q, bdb) <- reqIO
   setOneShotMempool refIO goldenMemPool
 
-  T2 (ParentHeader ph) nb <- forSuccess ("newBlockAndValidate" <> ": newblock") $
-        newBlock noMiner q
+  T2 (ParentHeader ph) nb <- newBlock noMiner q
   let blockTime = add second $ _bct $ _blockCreationTime ph
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
@@ -210,17 +207,13 @@ newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailur
 
   let nextH' = nextH & blockPayloadHash .~ (BlockPayloadHash $ unsafeMerkleLogHash "0000000000000000000000000000001d")
   let nb' = nb { _payloadWithOutputsOutputsHash = BlockOutputsHash (unsafeMerkleLogHash "0000000000000000000000000000001d")}
-  r <- validateBlock nextH' (payloadWithOutputsToPayloadData nb') q
-
-  takeMVar r >>= \case
-    Left (PactInternalError err) -> do
+  try (validateBlock nextH' (CheckablePayloadWithOutputs nb') q) >>= \case
+    Left BlockValidationFailure {} -> do
       let txHash = fromRight (error "can't parse") $ fromText' "WgnuCg6L_l6lzbjWtBfMEuPtty_uGcNrUol5HGREO_o"
-      lookupResMvar <- lookupPactTxs Nothing (V.fromList [txHash]) q
-      takeMVar lookupResMvar >>= \lookupRes ->
-        assertEqual "The transaction from the latest block is not at the tip point" (Right mempty) lookupRes
+      lookupRes <- lookupPactTxs Nothing (V.fromList [txHash]) q
+      assertEqual "The transaction from the latest block is not at the tip point" mempty lookupRes
 
-      assertBool "Should be BlockValidationFailure" $ "BlockValidationFailure" `T.isInfixOf` err
-    _ -> assertFailure "newBlockAndValidationFailure: expected failure"
+    _ -> assertFailure "newBlockAndValidationFailure: expected BlockValidationFailure"
 
 toRowData :: HasCallStack => Value -> RowData
 toRowData v = case eitherDecode encV of
@@ -298,12 +291,12 @@ rewindPastMinBlockHeightFails rdb =
     -- Genesis block header; compacted away by now
     let bh = genesisBlockHeader testVersion cid
 
-    syncResult <- readMVar =<< pactSyncToBlock bh cr.pactQueue
+    syncResult <- try (pactSyncToBlock bh cr.pactQueue)
     case syncResult of
-      Left (PactInternalError {}) -> do
+      Left (BlockHeaderLookupFailure {}) -> do
         return ()
       Left err -> do
-        assertFailure $ "Expected a PactInternalError, but got: " ++ show err
+        assertFailure $ "Expected a BlockHeaderLookupFailure, but got: " ++ show err
       Right _ -> do
         assertFailure "Expected an exception, but didn't encounter one."
 
@@ -565,9 +558,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
   setOneShotMempool refIO goldenMemPool
   void $ runBlock q bdb second
   h <- getParentTestBlockDb bdb cid
-  mv <- pactBlockTxHistory h (UserTables "coin_coin-table") q
-
-  (BlockTxHistory hist prevBals) <- forSuccess "getHistory" (return mv)
+  BlockTxHistory hist prevBals <- pactBlockTxHistory h (UserTables "coin_coin-table") q
   -- just check first one here
   assertEqual "check first entry of history"
     (Just [TxLog "coin_coin-table" "sender00"
@@ -630,9 +621,8 @@ getHistoricalLookupWithTxs key assertF refIO reqIO =
     histLookup q h key >>= assertF
 
 histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (TxLog RowData))
-histLookup q bh k = do
-  mv <- pactHistoricalLookup bh (UserTables "coin_coin-table") (RowKey k) q
-  forSuccess "histLookup" (return mv)
+histLookup q bh k =
+  pactHistoricalLookup bh (UserTables "coin_coin-table") (RowKey k) q
 
 assertSender00Bal :: Rational -> String -> Maybe (TxLog RowData) -> Assertion
 assertSender00Bal bal msg hist =
@@ -656,10 +646,6 @@ setFromHeader bh =
   set cbChainId (_blockChainId bh)
   . set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
 
-
-pattern BlockGasLimitError :: forall b. Either PactException b
-pattern BlockGasLimitError <-
-  Left (PactInternalError (decodeStrict . T.encodeUtf8 -> Just (PactExceptionTag "BlockGasLimitExceeded")))
 
 -- this test relies on block gas errors being thrown before other Pact errors.
 blockGasLimitTest :: HasCallStack => IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
@@ -685,34 +671,34 @@ blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
           (Nonce 0)
           (BlockCreationTime $ Time $ TimeSpan 0)
           (ParentHeader $ genesisBlockHeader testVersion cid)
-      validateBlock bh (payloadWithOutputsToPayloadData payload) q >>= takeMVar
+      try $ validateBlock bh (CheckablePayloadWithOutputs payload) q
   -- we consume slightly more than the maximum block gas limit and provoke an error.
   useGas 2_000_001 >>= \case
-    BlockGasLimitError ->
+    Left (BlockGasLimitExceeded _) ->
       return ()
     r ->
       error $ "not a BlockGasLimitExceeded error: " <> sshow r
   -- we consume much more than the maximum block gas limit and expect an error.
   useGas 3_000_000 >>= \case
-    BlockGasLimitError ->
+    Left (BlockGasLimitExceeded _) ->
       return ()
     r ->
       error $ "not a BlockGasLimitExceeded error: " <> sshow r
   -- we consume exactly the maximum block gas limit and expect no such error.
   useGas 2_000_000 >>= \case
-    BlockGasLimitError ->
+    Left (BlockGasLimitExceeded _) ->
       error "consumed exactly block gas limit but errored"
     _ ->
       return ()
   -- we consume much less than the maximum block gas limit and expect no such error.
   useGas 1_000_000 >>= \case
-    BlockGasLimitError ->
+    Left (BlockGasLimitExceeded _) ->
       error "consumed much less than block gas limit but errored"
     _ ->
       return ()
   -- we consume zero gas and expect no such error.
   useGas 0 >>= \case
-    BlockGasLimitError ->
+    Left (BlockGasLimitExceeded _) ->
       error "consumed no gas but errored"
     _ ->
       return ()
@@ -820,8 +806,7 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
 
   -- do pre-insert check with transaction at start + 15s
   tx <- makeTx "tx-now" (add s15 start)
-  void $ forSuccess "mempoolCreationTimeTest: pre-insert tx" $
-    pactPreInsertCheck (V.singleton tx) q
+  void $ pactPreInsertCheck (V.singleton tx) q
 
   setOneShotMempool mpRefIO $ mp tx
   -- b2 will be made at start + 30s
@@ -872,8 +857,13 @@ preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
         $ set cbRPC (mkExec' coinV5)
         $ defaultCmd
 
-  rs <- forSuccess "preInsertCheckTimeoutTest" $ pactPreInsertCheck (V.fromList [txCoinV3, txCoinV4, txCoinV5]) q
-  assertBool ("should be InsertErrorTimedOut but got " ++ show rs) $ V.and $ V.map (== Left InsertErrorTimedOut) rs
+  -- timeouts are tricky to trigger in GH actions.
+  -- we're satisfied if it's triggered once in 100 runs.
+  rs <- replicateM 100
+    (pactPreInsertCheck (V.fromList [txCoinV3, txCoinV4, txCoinV5]) q)
+  assertBool "should get at least one InsertErrorTimedOut" $ any
+    (V.all (== Left InsertErrorTimedOut))
+    rs
 
 badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
@@ -888,7 +878,7 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
     $ set cbRPC (mkExec' "(+ 1 2)")
     $ defaultCmd
   setOneShotMempool mpRefIO (badlistMPA badTx badHashRef)
-  T2 _ resp <- forSuccess "badlistNewBlockTest" $ newBlock noMiner reqQ
+  T2 _ resp <- newBlock noMiner reqQ
   assertEqual "bad tx filtered from block" mempty (_payloadWithOutputsTransactions resp)
   badHash <- readIORef badHashRef
   assertEqual "Badlist should have badtx hash" (hashToTxHashList $ _cmdHash badTx) badHash
@@ -903,8 +893,7 @@ goldenNewBlock :: String -> MemPoolAccess -> IO (IORef MemPoolAccess) -> IO (SQL
 goldenNewBlock name mp mpRefIO reqIO = golden name $ do
     (_, reqQ, _) <- reqIO
     setOneShotMempool mpRefIO mp
-    T2 _ resp <- forSuccess ("goldenNewBlock:" ++ name) $
-      newBlock noMiner reqQ
+    T2 _ resp <- newBlock noMiner reqQ
     -- ensure all golden txs succeed
     forM_ (_payloadWithOutputsTransactions resp) $ \(txIn,TransactionOutput out) -> do
       cr :: CommandResult Hash <- decodeStrictOrThrow out
@@ -1020,7 +1009,7 @@ runTxInBlock mempoolRef pactQueue blockDb makeTx = do
         writeIORef madeTx True
         pure $ V.fromList [tx]
   }
-  e <- takeMVar =<< runBlockE pactQueue blockDb second
+  e <- runBlockE pactQueue blockDb second
   writeIORef madeTx False
   pure e
 

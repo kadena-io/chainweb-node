@@ -88,6 +88,6 @@ module Chainweb.BlockHeader
 -- * CAS Constraint
 , BlockHeaderCas
 
-)where
+) where
 
 import Chainweb.BlockHeader.Internal

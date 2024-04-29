@@ -23,13 +23,11 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- |
 -- Module: Chainweb.BlockHeader.Internal
--- Copyright: Copyright © 2018 Kadena LLC.
+-- Copyright: Copyright © 2024 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
---
 module Chainweb.BlockHeader.Internal
 (
 -- * Newtype wrappers for function parameters
@@ -129,7 +127,8 @@ module Chainweb.BlockHeader.Internal
 
 -- * CAS Constraint
 , BlockHeaderCas
-) where
+
+)where
 
 import Control.DeepSeq
 import Control.Exception
@@ -959,6 +958,7 @@ blockAdjacentChainIds = to _blockAdjacentChainIds
 getAdjacentHash :: MonadThrow m => HasChainId p => p -> BlockHeader -> m BlockHash
 getAdjacentHash p b = firstOf (blockAdjacentHashes . ixg (_chainId p)) b
     ??? ChainNotAdjacentException
+        (_chainId b)
         (Expected $ _chainId p)
         (Actual $ _blockAdjacentChainIds b)
 {-# INLINE getAdjacentHash #-}
