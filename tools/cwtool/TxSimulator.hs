@@ -285,7 +285,7 @@ fetchOutputs sc cenv bhs = do
     outputsBatchClient (scVersion sc) (scChain sc) (WithHeights $ map (\bh -> (_blockHeight bh, _blockPayloadHash bh)) bhs)
   case r of
     Left e -> throwM e
-    Right ps -> return ps
+    Right ps -> return (_payloadWithOutputsList ps)
 
 simulateMain :: IO ()
 simulateMain = do

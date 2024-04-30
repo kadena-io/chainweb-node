@@ -67,7 +67,7 @@ payloadBatchClient_
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => BatchBody
-    -> ClientM [PayloadData]
+    -> ClientM PayloadDataList
 payloadBatchClient_ = client (payloadPostApi @v @c)
 
 -- The query may return any number (including none) of the requested payload
@@ -77,7 +77,7 @@ payloadBatchClient
     :: ChainwebVersion
     -> ChainId
     -> BatchBody
-    -> ClientM [PayloadData]
+    -> ClientM PayloadDataList
 payloadBatchClient v c k = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
@@ -114,14 +114,14 @@ outputsBatchClient_
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => BatchBody
-    -> ClientM [PayloadWithOutputs]
+    -> ClientM PayloadWithOutputsList
 outputsBatchClient_ = client (outputsPostApi @v @c)
 
 outputsBatchClient
     :: ChainwebVersion
     -> ChainId
     -> BatchBody
-    -> ClientM [PayloadWithOutputs]
+    -> ClientM PayloadWithOutputsList
 outputsBatchClient v c k = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c

@@ -61,7 +61,8 @@ module Chainweb.Payload
 , verifyBlockPayload
 
 -- * Binary encodings
-
+, PayloadDataList(..)
+, PayloadWithOutputsList(..)
 , encodeBlockPayloads
 , decodeBlockPayloads
 , encodeBlockTransactions
@@ -493,6 +494,25 @@ data BlockTransactions_ a = BlockTransactions
         -- ^ Miner data for rewards
     }
     deriving (Show, Eq, Ord, Generic)
+
+-- -------------------------------------------------------------------------- --
+-- Type-wrappers for some REST API endpoints
+
+-- We want to use application/octet-stream as the content type for types
+-- like [PayloadData], but doing that requires encoding the list specifically
+-- with a specific binary instance. write some newtype wrappers to do this
+-- with a specific encoding function, so we can then later write MimeRender
+-- and MimeUnrender instances
+
+newtype PayloadDataList = PayloadDataList { _payloadDataList :: [PayloadData] }
+    deriving (Show, Eq, Generic)
+    deriving anyclass (NFData)
+    deriving newtype (ToJSON, FromJSON)
+
+newtype PayloadWithOutputsList = PayloadWithOutputsList { _payloadWithOutputsList :: [PayloadWithOutputs] }
+    deriving (Show, Eq, Generic)
+    deriving anyclass (NFData)
+    deriving newtype (ToJSON, FromJSON)
 
 -- -------------------------------------------------------------------------- --
 
