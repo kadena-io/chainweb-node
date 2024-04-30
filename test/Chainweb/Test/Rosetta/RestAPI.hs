@@ -118,7 +118,7 @@ tests rdb = testGroup "Chainweb.Test.Rosetta.RestAPI" go
     go = return $
       withResourceT (withNodeDbDirs rdb nodes) $ \dbdirs ->
       withResourceT (withNodesAtLatestBehavior v (configRosetta .~ True) =<< liftIO dbdirs) $ \envIo ->
-      withResource' getCurrentTimeIntegral $ \tio -> sequentialTestGroup "Rosetta Api tests" AllFinish $
+      withResource' getCurrentTimeIntegral $ \tio -> independentSequentialTestGroup "Rosetta Api tests" $
         tgroup tio $ _getServiceClientEnv <$> envIo
 
     -- Not supported:

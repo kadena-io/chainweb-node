@@ -32,6 +32,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.Graph
 import Chainweb.Test.Cut.TestBlockDb
+import Chainweb.Test.Utils
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
@@ -64,7 +65,7 @@ tests rdb =
     let mp = snd <$> dmp
         mpio = fst <$> dmp
     in
-    sequentialTestGroup label AllSucceed
+    independentSequentialTestGroup label
         [ withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
             (testCase "initial-playthrough" . firstPlayThrough mpio genblock)
         , withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)

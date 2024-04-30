@@ -79,10 +79,9 @@ tests rdb =
     withResource' newEmptyMVar $ \rewindDataM ->
     withResource' (mkTestBlockDb testVer rdb) $ \bdbio ->
     withResourceT withTempSQLiteResource $ \ioSqlEnv ->
-    sequentialTestGroup "Chainweb.Test.Pact.ModuleCacheOnRestart" AllSucceed
+    independentSequentialTestGroup "Chainweb.Test.Pact.ModuleCacheOnRestart"
     [ testCaseSteps "testInitial" $ withPact' bdbio ioSqlEnv iom testInitial
     , testCaseSteps "testRestart1" $ withPact' bdbio ioSqlEnv iom testRestart
-      -- wow, Tasty thinks there's a "loop" if the following test is called "testCoinbase"!!
     , testCaseSteps "testDoUpgrades" $ withPact' bdbio ioSqlEnv iom (testCoinbase bdbio)
     , testCaseSteps "testRestart2" $ withPact' bdbio ioSqlEnv iom testRestart
     , testCaseSteps "testV3" $ withPact' bdbio ioSqlEnv iom (testV3 bdbio rewindDataM)

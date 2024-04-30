@@ -148,7 +148,7 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
         let cenv = _getServiceClientEnv <$> net
             iot = toTxCreationTime @Integer <$> getCurrentTimeIntegral
 
-        in sequentialTestGroup "remote pact tests" AllFinish
+        in independentSequentialTestGroup "remote pact tests"
             [ withResourceT (liftIO $ join $ withRequestKeys <$> iot <*> cenv) $ \reqkeys -> golden "remote-golden" $
                 join $ responseGolden <$> cenv <*> reqkeys
             , testCaseSteps "remote spv" $ \step ->
