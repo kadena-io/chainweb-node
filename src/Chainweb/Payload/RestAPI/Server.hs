@@ -88,9 +88,9 @@ payloadBatchHandler
     => PayloadBatchLimit
     -> PayloadDb tbl
     -> BatchBody
-    -> Handler [PayloadData]
+    -> Handler PayloadDataList
 payloadBatchHandler batchLimit db ks
-  = liftIO (catMaybes <$> lookupPayloadDataWithHeightBatch db ks')
+  = liftIO (PayloadDataList . catMaybes <$> lookupPayloadDataWithHeightBatch db ks')
   where
       limit = take (int batchLimit)
       ks' | WithoutHeights xs <- ks = limit (fmap (Nothing,) xs)
@@ -122,9 +122,9 @@ outputsBatchHandler
     => PayloadBatchLimit
     -> PayloadDb tbl
     -> BatchBody
-    -> Handler [PayloadWithOutputs]
+    -> Handler PayloadWithOutputsList
 outputsBatchHandler batchLimit db ks
-  = liftIO (catMaybes <$> lookupPayloadWithHeightBatch db ks')
+  = liftIO (PayloadWithOutputsList . catMaybes <$> lookupPayloadWithHeightBatch db ks')
   where
       limit = take (int batchLimit)
       ks' | WithoutHeights xs <- ks = limit (fmap (Nothing,) xs)

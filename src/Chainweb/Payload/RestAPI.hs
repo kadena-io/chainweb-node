@@ -162,7 +162,7 @@ type PayloadPostApi_
     = "payload"
     :> "batch"
     :> ReqBody '[JSON] BatchBody
-    :> Post '[JSON] [PayloadData]
+    :> Post '[JSON] PayloadDataList
 
 type PayloadPostApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> PayloadPostApi_
@@ -205,7 +205,7 @@ type OutputsPostApi_
     :> "outputs"
     :> "batch"
     :> ReqBody '[JSON] BatchBody
-    :> Post '[JSON] [PayloadWithOutputs]
+    :> Post '[JSON] PayloadWithOutputsList
 
 type OutputsPostApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> OutputsPostApi_
