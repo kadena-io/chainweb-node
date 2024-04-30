@@ -86,6 +86,7 @@ import Pact.Types.Term
 -- internal modules
 
 import Chainweb.ChainId
+import Chainweb.Chainweb.Configuration
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Backend.Compaction qualified as C
@@ -315,7 +316,7 @@ txlogsCompactionTest rdb = runResourceT $ do
 
     -- phase 3: restart nodes, query txlogs
     liftIO $ runResourceT $ do
-      net <- withNodesAtLatestBehavior v id nodeDbDirs
+      net <- withNodesAtLatestBehavior v (configFullHistoricPactState .~ False) nodeDbDirs
       let cenv = _getServiceClientEnv net
 
       let createTxLogsTx :: Word -> IO (Command Text)
