@@ -139,7 +139,7 @@ jobs:
           "use-freeze-file": ["false"],
           "include": [
             {
-              "ghc": "9.6.3",
+              "ghc": "9.6.4",
               "cabal": "3.10",
               "os" : "ubuntu-20.04",
               "use-freeze-file": "true"
@@ -627,7 +627,7 @@ jobs:
         - ghc: "9.6.3"
           os: "ubuntu-20.04"
           use-freeze-file: "false"
-        - ghc: "9.6.3"
+        - ghc: "9.6.4"
           os: "ubuntu-20.04"
           use-freeze-file: "true"
     env:
