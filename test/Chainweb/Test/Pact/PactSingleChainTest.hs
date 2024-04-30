@@ -247,7 +247,7 @@ rosettaFailsWithoutFullHistory rdb =
   withTemporaryDir $ \iodir ->
   withSqliteDb cid iodir $ \sqlEnvIO ->
   withDelegateMempool $ \dm ->
-    sequentialTestGroup "rosettaFailsWithoutFullHistory" AllSucceed
+    independentSequentialTestGroup "rosettaFailsWithoutFullHistory"
       [
         -- Run some blocks and then compact
         withPactTestBlockDb' testVersion cid rdb sqlEnvIO mempty testPactServiceConfig $ \reqIO ->

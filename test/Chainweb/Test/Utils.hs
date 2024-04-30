@@ -26,6 +26,7 @@ module Chainweb.Test.Utils
   readFile'
 , withResource'
 , withResourceT
+, independentSequentialTestGroup
 
 -- * Test RocksDb
 , testRocksDb
@@ -1144,3 +1145,14 @@ testRetryPolicy = stepped <> limitRetries 150
       1 -> Just 50_000
       2 -> Just 100_000
       _ -> Just 500_000
+
+independentSequentialTestGroup :: TestName -> [TestTree] -> TestTree
+independentSequentialTestGroup tn tts =
+    withResource'
+        (newMVar ())
+        $ \mvarIO ->
+            testGroup tn $ tts <&> \tt ->
+                withResource
+                    (mvarIO >>= takeMVar)
+                    (\_ -> mvarIO >>= flip putMVar ())
+                    $ \_ -> tt

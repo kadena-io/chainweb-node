@@ -37,13 +37,15 @@ import Data.Vector qualified as Vector
 import Data.Word (Word8, Word32, Word64)
 import Streaming.Prelude qualified as S
 import Test.QuickCheck (Property, Arbitrary, Gen, Positive(..), (===), arbitrary, elements)
-import Test.Tasty (TestTree, DependencyType(..), sequentialTestGroup)
+import Test.Tasty (TestTree)
 import Test.Tasty.HUnit (Assertion, testCase, (@?=))
 import Test.Tasty.QuickCheck (testProperty)
 
+import Chainweb.Test.Utils
+
 tests :: TestTree
 tests =
-  sequentialTestGroup "Chainweb.Test.Pact.GrandHash" AllSucceed
+  independentSequentialTestGroup "Chainweb.Test.Pact.GrandHash"
     [ testCase "PactRow hash input roundtrip - habibti ascii" (testPactRow habibtiAscii)
     , testCase "PactRow hash input roundtrip - habibti utf8" (testPactRow habibtiUtf8)
     , testProperty "PactRow hash input roundtrip - arbitrary utf8" propPactRowHashInputRoundtrip

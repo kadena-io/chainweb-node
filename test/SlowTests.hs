@@ -16,6 +16,7 @@ module SlowTests ( main ) where
 import Chainweb.Graph
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.TestVersions
+import Chainweb.Test.Utils
 import System.IO.Temp
 import System.LogLevel
 import Test.Tasty
@@ -31,7 +32,7 @@ loglevel = Warn
 
 -- note that because these tests run in parallel they must all use distinct rocksdb and sqlite dirs.
 suite :: TestTree
-suite = sequentialTestGroup "ChainwebSlowTests" AllFinish
+suite = independentSequentialTestGroup "ChainwebSlowTests"
     [ testCaseSteps "compact-resume" $ \step ->
         withTempRocksDb "compact-resume-test-rocks" $ \rdb ->
         withSystemTempDirectory "compact-resume-test-pact" $ \pactDbDir -> do

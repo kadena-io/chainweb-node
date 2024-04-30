@@ -64,7 +64,7 @@ import qualified Chainweb.Test.Sync.WebBlockHeaderStore (properties)
 import qualified Chainweb.Test.TreeDB (properties)
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import Chainweb.Test.Utils
-    (toyChainId, withToyDB)
+    (independentSequentialTestGroup, toyChainId, withToyDB)
 import qualified Chainweb.Test.Version (tests)
 import qualified Chainweb.Test.Chainweb.Utils.Paging (properties)
 import Chainweb.Version.Development
@@ -118,7 +118,7 @@ pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
     ]
 
 nodeTestSuite :: RocksDb -> TestTree
-nodeTestSuite rdb = sequentialTestGroup "Tests starting nodes" AllFinish
+nodeTestSuite rdb = independentSequentialTestGroup "Tests starting nodes"
     [ Chainweb.Test.Rosetta.RestAPI.tests rdb
     , Chainweb.Test.Pact.RemotePactTest.tests rdb
     ]
