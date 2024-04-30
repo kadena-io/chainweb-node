@@ -337,7 +337,10 @@ branchHeadersClientJsonPretty v c limit start minr maxr bounds = runIdentity $ d
 -- Branch Blocks Client
 
 branchBlocksClient
-    :: ChainwebVersion
+    :: forall (ct :: Type)
+    . MimeUnrender ct BlockPage
+    => Proxy ct
+    -> ChainwebVersion
     -> ChainId
     -> Maybe Limit
     -> Maybe (NextItem BlockHash)
@@ -345,9 +348,9 @@ branchBlocksClient
     -> Maybe MaxRank
     -> BranchBounds BlockHeaderDb
     -> ClientM BlockPage
-branchBlocksClient (FromSingChainwebVersion (SChainwebVersion :: Sing v)) c limit start minr maxr bounds = runIdentity $ do
+branchBlocksClient _ (FromSingChainwebVersion (SChainwebVersion :: Sing v)) c limit start minr maxr bounds = runIdentity $ do
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
-    return $ client (Proxy @(SetRespBodyContentType JSON (BranchBlocksApi v c))) limit start minr maxr bounds
+    return $ client (Proxy @(SetRespBodyContentType ct (BranchBlocksApi v c))) limit start minr maxr bounds
 
 -- -------------------------------------------------------------------------- --
 -- Hashes Client

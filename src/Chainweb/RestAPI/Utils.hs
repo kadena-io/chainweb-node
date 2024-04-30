@@ -102,6 +102,7 @@ module Chainweb.RestAPI.Utils
 
 import Control.Exception (Exception, throw)
 import Control.Monad.Catch (bracket)
+import Control.Monad.Reader
 
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BSL
@@ -123,6 +124,7 @@ import Network.Wai.Handler.Warp (HostPreference)
 
 import Servant.API hiding (addHeader)
 import Servant.Client
+import Servant.Client.Core.Request hiding (addHeader)
 import Servant.Server
 
 -- internal modules
@@ -133,6 +135,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
+import qualified Data.Sequence as Data.Seq
 
 -- -------------------------------------------------------------------------- --
 -- Servant Utils
@@ -464,6 +467,18 @@ someServerApplication (SomeServer a server) = serve a server
 
 -- Response Body Content Type
 
+clientAccepting
+    :: forall ct api out r.
+    (HasClient ClientM api, Accept ct, SupportedRespBodyContentType ct api out)
+    => Proxy r -> Proxy api -> Client ClientM api -> Client ClientM api
+clientAccepting p api = hoistClient @api @ClientM @ClientM api
+    (local
+        (\cenv -> cenv
+            { makeClientRequest = \baseUrl req ->
+                makeClientRequest cenv baseUrl req { requestAccept = Data.Seq.fromList [contentType (Proxy @ct)] } }
+        )
+    )
+
 type family SetRespBodyContentType ct api where
     SetRespBodyContentType ct (Verb a b _ c) = Verb a b '[ct] c
     SetRespBodyContentType ct (a :> b) = a :> SetRespBodyContentType ct b
@@ -486,6 +501,8 @@ type family RespBodyContentTypeNotSupportedMsg ct api where
         )
 
 -- Request Body Content Type
+-- The request body's content type is... I don't know how it gets set, but you can't infer it really
+-- because there could be multiple valid ones from what I can tell.
 
 type SetReqBodyContentType :: Type -> k -> k1
 type family SetReqBodyContentType (ct :: Type) (api :: k) :: k1 where
@@ -531,4 +548,3 @@ deallocateSocket (_, sock) = N.close sock
 
 withSocket :: Port -> HostPreference -> ((Port, N.Socket) -> IO a) -> IO a
 withSocket port interface = bracket (allocateSocket port interface) deallocateSocket
-
