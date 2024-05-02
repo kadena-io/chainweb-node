@@ -72,6 +72,7 @@ import Data.Foldable (fold, for_)
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
 import qualified Data.List as List
+import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -102,6 +103,8 @@ import Pact.Types.Runtime hiding (catchesPactError)
 import Pact.Types.Server
 import Pact.Types.SPV
 import Pact.Types.Verifier
+
+import Pact.Types.Util as PU
 
 -- internal Chainweb modules
 
@@ -1220,9 +1223,24 @@ mkEvalEnv nsp msg = do
       <$> view (txGasLimit . to (MilliGasLimit . gasToMilliGas))
       <*> view txGasPrice
       <*> use txGasModel
-    liftIO $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
+    ee <- liftIO $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
       msg (versionedNativesRefStore (_txExecutionConfig tenv)) genv
       nsp (_txSpvSupport tenv) (_txPublicData tenv) (_txExecutionConfig tenv)
+    pure $ set eeCapWhitelist txCapWhitelist ee
+
+txCapWhitelist :: M.Map QualifiedName (S.Set QualifiedName, ModuleHash)
+txCapWhitelist =
+  M.fromList
+  [ (wizaDebit, (S.fromList [wizEquipmentOwner], wizaMH))
+  ]
+  where
+  wizaDebit = QualifiedName "free.wiza" "DEBIT" def
+  wizaMH = unsafeModuleHashFromB64Text "8b4USA1ZNVoLYRT1LBear4YKt3GB2_bl0AghZU8QxjI"
+  wizEquipmentOwner = QualifiedName "free.wiz-equipment" "OWNER" def
+
+unsafeModuleHashFromB64Text :: Text -> ModuleHash
+unsafeModuleHashFromB64Text =
+  either error ModuleHash . PU.fromText'
 
 -- | Managed namespace policy CAF
 --
