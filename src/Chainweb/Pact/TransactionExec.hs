@@ -68,7 +68,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
-import Data.Foldable (fold, for_)
+import Data.Foldable (fold, for_, find)
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
 import qualified Data.List as List
@@ -1223,20 +1223,48 @@ mkEvalEnv nsp msg = do
       <$> view (txGasLimit . to (MilliGasLimit . gasToMilliGas))
       <*> view txGasPrice
       <*> use txGasModel
-    ee <- liftIO $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
+    fmap (set eeCapWhitelist txCapWhitelist)
+      $ liftIO $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
       msg (versionedNativesRefStore (_txExecutionConfig tenv)) genv
       nsp (_txSpvSupport tenv) (_txPublicData tenv) (_txExecutionConfig tenv)
-    pure $ set eeCapWhitelist txCapWhitelist ee
-
-txCapWhitelist :: M.Map QualifiedName (S.Set QualifiedName, ModuleHash)
-txCapWhitelist =
-  M.fromList
-  [ (wizaDebit, (S.fromList [wizEquipmentOwner], wizaMH))
-  ]
   where
-  wizaDebit = QualifiedName "free.wiza" "DEBIT" def
-  wizaMH = unsafeModuleHashFromB64Text "8b4USA1ZNVoLYRT1LBear4YKt3GB2_bl0AghZU8QxjI"
-  wizEquipmentOwner = QualifiedName "free.wiz-equipment" "OWNER" def
+  txCapWhitelist =
+    M.fromList
+    [ (wizaDebit, (wizaWhitelist, wizaMH))
+    , (skdxDebit, (kdxWhitelist, skdxMH))
+    , (collectGallinasMarket, (collectGallinasWhitelist, collectGallinasMH))
+    ]
+    where
+    wizaDebit = QualifiedName "free.wiza" "DEBIT" def
+    wizaMH = unsafeModuleHashFromB64Text "8b4USA1ZNVoLYRT1LBear4YKt3GB2_bl0AghZU8QxjI"
+    wizEquipmentOwner = QualifiedName "free.wiz-equipment" "OWNER" def
+    wizArenaOwner = QualifiedName "free.wiz-arena" "OWNER" def
+    wizaTransfer = QualifiedName "free.wiza" "TRANSFER" def
+    skdxDebit = QualifiedName "kaddex.skdx" "DEBIT" def
+    skdxMH = unsafeModuleHashFromB64Text "g90VWmbKj87GkMkGs8uW947kh_Wg8JdQowa8rO_vZ1M"
+    kdxUnstake = QualifiedName "kaddex.staking" "UNSTAKE" def
+    collectGallinasMH = unsafeModuleHashFromB64Text "x3BLGdidqSjUQy5q3MorGco9mBDpoVTh_Yoagzu0hls"
+    collectGallinasMarket = QualifiedName "free.collect-gallinas" "MARKET" def
+    collectGallinasAcctGuard = QualifiedName "free.collect-gallinas" "ACCOUNT_GUARD" def
+
+    kdxWhitelist granted sigCaps =
+      let debits = filter ((== skdxDebit) . _scName) $ S.toList granted
+      in all (\c -> S.member (SigCapability kdxUnstake (_scArgs c)) sigCaps) debits
+
+    wizaWhitelist granted sigCaps =
+      let debits = filter ((== wizaDebit) . _scName) $ S.toList granted
+      in all (\c -> any (match c) sigCaps) debits
+      where
+      match prov sigCap = fromMaybe False $ do
+        guard $ _scName sigCap `elem` [wizArenaOwner, wizEquipmentOwner, wizaTransfer]
+        sender <- preview _head (_scArgs prov)
+        (== sender) <$> preview _head (_scArgs sigCap)
+
+    collectGallinasWhitelist granted sigCaps = fromMaybe False $ do
+      let mkt = filter ((== collectGallinasMarket) . _scName) $ S.toList granted
+      let matchingGuard provided toMatch = _scName toMatch == collectGallinasAcctGuard && (_scArgs provided == _scArgs toMatch)
+      pure $ all (\c -> any (matchingGuard c) sigCaps) mkt
+
 
 unsafeModuleHashFromB64Text :: Text -> ModuleHash
 unsafeModuleHashFromB64Text =
