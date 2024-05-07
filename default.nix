@@ -75,7 +75,7 @@ let haskellSrc = with nix-filter.lib; filter {
       };
       shell.buildInputs = with pkgs; [
         zlib
-        pkgconfig
+        pkg-config
       ];
       modules = [
         {
