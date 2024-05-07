@@ -1223,17 +1223,17 @@ mkEvalEnv nsp msg = do
       <$> view (txGasLimit . to (MilliGasLimit . gasToMilliGas))
       <*> view txGasPrice
       <*> use txGasModel
-    fmap (set eeCapWhitelist txCapWhitelist)
+    fmap (set eeSigCapBypass txCapBypass)
       $ liftIO $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
       msg (versionedNativesRefStore (_txExecutionConfig tenv)) genv
       nsp (_txSpvSupport tenv) (_txPublicData tenv) (_txExecutionConfig tenv)
   where
-  txCapWhitelist =
+  txCapBypass =
     M.fromList
-    [ (wizaDebit, (wizaWhitelist, wizaMH))
-    , (skdxDebit, (kdxWhitelist, skdxMH))
-    , (collectGallinasMarket, (collectGallinasWhitelist, collectGallinasMH))
-    , (marmaladeGuardPolicyMint, (marmaladeWhitelist, marmaladeGuardPolicyMH))
+    [ (wizaDebit, (wizaBypass, wizaMH))
+    , (skdxDebit, (kdxBypass, skdxMH))
+    , (collectGallinasMarket, (collectGallinasBypass, collectGallinasMH))
+    , (marmaladeGuardPolicyMint, (marmaladeBypass, marmaladeGuardPolicyMH))
     ]
     where
     -- wiza code
@@ -1256,11 +1256,11 @@ mkEvalEnv nsp msg = do
     marmaladeGuardPolicyMint = QualifiedName "marmalade-v2.guard-policy-v1" "MINT" def
     marmaladeLedgerMint = QualifiedName "marmalade-v2.ledger" "MINT-CALL" def
 
-    kdxWhitelist granted sigCaps =
+    kdxBypass granted sigCaps =
       let debits = filter ((== skdxDebit) . _scName) $ S.toList granted
       in all (\c -> S.member (SigCapability kdxUnstake (_scArgs c)) sigCaps) debits
 
-    wizaWhitelist granted sigCaps =
+    wizaBypass granted sigCaps =
       let debits = filter ((== wizaDebit) . _scName) $ S.toList granted
       in all (\c -> any (match c) sigCaps) debits
       where
@@ -1269,12 +1269,12 @@ mkEvalEnv nsp msg = do
         sender <- preview _head (_scArgs prov)
         (== sender) <$> preview _head (_scArgs sigCap)
 
-    collectGallinasWhitelist granted sigCaps = fromMaybe False $ do
+    collectGallinasBypass granted sigCaps = fromMaybe False $ do
       let mkt = filter ((== collectGallinasMarket) . _scName) $ S.toList granted
       let matchingGuard provided toMatch = _scName toMatch == collectGallinasAcctGuard && (_scArgs provided == _scArgs toMatch)
       pure $ all (\c -> any (matchingGuard c) sigCaps) mkt
 
-    marmaladeWhitelist granted sigCaps = fromMaybe False $ do
+    marmaladeBypass granted sigCaps = fromMaybe False $ do
       let mkt = filter ((== marmaladeGuardPolicyMint) . _scName) $ S.toList granted
       let matchingGuard provided toMatch = _scName toMatch == marmaladeLedgerMint && (_scArgs provided == _scArgs toMatch)
       pure $ all (\c -> any (matchingGuard c) sigCaps) mkt
