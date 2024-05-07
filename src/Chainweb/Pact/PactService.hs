@@ -117,6 +117,7 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards
 import Utils.Logging.Trace
+import Pact.Types.Command (Command(_cmdHash))
 
 runPactService
     :: Logger logger
@@ -724,7 +725,7 @@ execLocal
       -- ^ turn off signature verification checks?
     -> Maybe RewindDepth
       -- ^ rewind depth
-    -> PactServiceM logger tbl LocalResult
+    -> PactServiceM logger tbl (Either TxTimeout LocalResult)
 execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
 
     PactServiceEnv{..} <- ask
@@ -758,7 +759,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                 -- validations.
                 --
                 case preflight of
-                  Just PreflightSimulation -> do
+                  Just PreflightSimulation -> LocalPreflightResult <$> do
                     liftPactServiceM (assertLocalMetadata cmd ctx sigVerify) >>= \case
                       Right{} -> do
                         let initialGas = initialGasOf $ P._cmdPayload cwtx
@@ -769,8 +770,11 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
 
                         let cr' = toHashCommandResult cr
                             warns' = P.renderCompactText <$> toList warns
-                        pure $ LocalResultWithWarns cr' warns'
-                      Left e -> pure $ MetadataValidationFailure e
+                        pure $ PreflightResult
+                          { _preflightResult = cr'
+                          , _preflightWarns = warns'
+                          }
+                      Left e -> pure $ PreflightValidationFailure e
                   _ -> liftIO $ do
                     let execConfig = P.mkExecutionConfig $
                             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
@@ -787,12 +791,13 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                     pure $ LocalResultLegacy cr'
 
     case timeoutLimit of
-      Nothing -> act
+      Nothing -> Right <$> act
       Just limit -> withPactState $ \run -> timeoutYield limit (run act) >>= \case
-        Just r -> pure r
+        Just r -> pure $ Right r
         Nothing -> do
           logError_ _psLogger $ "Local action timed out for cwtx:\n" <> sshow cwtx
-          pure LocalTimeout
+          return $ Left $ TxTimeout
+            (TransactionHash . P.unHash . P.toUntypedHash $ _cmdHash cmd)
 
 execSyncToBlock
     :: (CanReadablePayloadCas tbl, Logger logger)

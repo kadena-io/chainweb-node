@@ -125,11 +125,11 @@ module Chainweb.Test.Utils
 
 import Control.Concurrent
 import Control.Concurrent.STM
+import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch (MonadCatch, catch, finally, bracket)
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Resource
+import Control.Monad.Trans.Resource hiding (throwM)
 import Control.Retry
 
 import Data.Aeson (FromJSON, ToJSON)
@@ -158,7 +158,8 @@ import Network.Wai.Handler.WarpTLS as W (runTLSSocket)
 
 import Numeric.Natural
 
-import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv, runClientM)
+-- import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv, runClientM)
+import Web.DeepRoute.Client
 
 import System.Directory (removeDirectoryRecursive)
 import System.Environment (withArgs)
@@ -186,6 +187,7 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
+import Chainweb.BlockHeaderDB.RestAPI.Server
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
@@ -196,6 +198,7 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
+import Chainweb.CutDB.RestAPI
 import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
@@ -538,7 +541,7 @@ starBlockHeaderDbs n dbs = do
 -- -------------------------------------------------------------------------- --
 -- Tasty TestTree Server and Client Environment
 
-testHost :: String
+testHost :: B.ByteString
 testHost = "localhost"
 
 data TestClientEnv t tbl = TestClientEnv
@@ -671,14 +674,23 @@ clientEnvWithChainwebTestServer shouldValidateSpec tls v dbs = do
     -- includes this API for testing. We should create comprehensive tests for the
     -- service API and move the tests over there.
     --
-    let app = chainwebApplicationWithHashesAndSpvApi (defaultChainwebConfiguration v) dbs
+    let p2pApiOptions = P2pApiOptions
+            { blockHeaderDbServerOptions = BlockHeaderDbServerOptions
+                { enableHashesEndpoints = True
+                , enableBlocksEndpoints = False
+                , entryLimit = 360
+                }
+            , spvServerEnabled = True
+            }
+    let app = chainwebApplication p2pApiOptions (defaultChainwebConfiguration v) dbs
+
     port <- withChainwebTestServer shouldValidateSpec tls v app
     mgrSettings <- if
         | tls -> liftIO $ certificateCacheManagerSettings TlsInsecure
         | otherwise -> return HTTP.defaultManagerSettings
     mgr <- liftIO $ HTTP.newManager mgrSettings
     return $ TestClientEnv
-        (mkClientEnv mgr (BaseUrl (if tls then Https else Http) testHost port ""))
+        (ClientEnv testHost port tls mgr id)
         (_chainwebServerCutDb dbs)
         (_chainwebServerBlockHeaderDbs dbs)
         (_chainwebServerMempools dbs)
@@ -808,7 +820,7 @@ prop_decode_failMissing d e a
 -- | Assert that the actual value equals the expected value
 --
 assertExpectation
-    :: MonadIO m
+    :: (HasCallStack, MonadIO m)
     => Eq a
     => Show a
     => T.Text
@@ -822,7 +834,7 @@ assertExpectation msg expected actual = liftIO $ assertBool
 -- | Assert that the actual value is smaller or equal than the expected value
 --
 assertLe
-    :: Show a
+    :: (HasCallStack, Show a)
     => Ord a
     => T.Text
     -> Actual a
@@ -838,7 +850,7 @@ assertLe msg actual expected = assertBool msg_
 -- | Assert that the actual value is greater or equal than the expected value
 --
 assertGe
-    :: Show a
+    :: (HasCallStack, Show a)
     => Ord a
     => T.Text
     -> Actual a
@@ -853,7 +865,7 @@ assertGe msg actual expected = assertBool msg_
 
 -- | Assert that predicate holds.
 assertSatisfies
-  :: MonadIO m
+  :: (HasCallStack, MonadIO m)
   => Show a
   => String
   -> a
@@ -865,7 +877,7 @@ assertSatisfies msg value predf
   where result = predf value
 
 -- | Assert that string rep of value contains contents.
-assertInfix :: Show a => String -> String -> a -> Assertion
+assertInfix :: (HasCallStack, Show a) => String -> String -> a -> Assertion
 assertInfix msg contents value = assertSatisfies
   (msg ++ ": should contain '" ++ contents ++ "'")
   (show value) (isInfixOf contents)
@@ -922,17 +934,31 @@ withNodes_ logger v confChange nodeDbDirs = do
         peerInfoVar <- liftIO newEmptyMVar
         runTestNodes logger v confChange peerInfoVar nodeDbDirs
         (i, servicePort) <- liftIO $ readMVar peerInfoVar
-        cwEnv <- liftIO $ getClientEnv $ getCwBaseUrl Https $ _hostAddressPort $ _peerAddr i
-        cwServiceEnv <- liftIO $ getClientEnv $ getCwBaseUrl Http servicePort
+        cwEnv <- liftIO $ getClientEnv True $ _hostAddressPort $ _peerAddr i
+        cwServiceEnv <- liftIO $ getClientEnv False servicePort
         return (cwEnv, cwServiceEnv)
 
-    getCwBaseUrl :: Scheme -> Port -> BaseUrl
-    getCwBaseUrl prot p = BaseUrl
-        { baseUrlScheme = prot
-        , baseUrlHost = "127.0.0.1"
-        , baseUrlPort = fromIntegral p
-        , baseUrlPath = ""
-        }
+    -- getCwBaseUrl :: Scheme -> Port -> BaseUrl
+    -- getCwBaseUrl prot p = BaseUrl
+    --     { baseUrlScheme = prot
+    --     , baseUrlHost = "127.0.0.1"
+    --     , baseUrlPort = fromIntegral p
+    --     , baseUrlPath = ""
+    --     }
+
+    getClientEnv :: Bool -> Port -> IO ClientEnv
+    getClientEnv sec p = do
+        let mgrSettings = HTTP.mkManagerSettings
+               (HTTP.TLSSettingsSimple True False False)
+               Nothing
+        mgr <- HTTP.newTlsManagerWith mgrSettings
+        return ClientEnv
+            { _clientEnvHost = "127.0.0.1"
+            , _clientEnvPort = fromIntegral p
+            , _clientEnvSecure = sec
+            , _clientEnvManager = mgr
+            , _clientEnvRequestModifier = id
+            }
 
 withNodes
     :: ChainwebVersion
@@ -965,7 +991,7 @@ awaitBlockHeight
     -> IO ()
 awaitBlockHeight v cenv i = do
     result <- retrying testRetryPolicy checkRetry
-        $ const $ runClientM (cutGetClient v) cenv
+        $ const $ fmap (fmap HTTP.responseBody) $ doRequestEither cenv $ getCutJSON v Nothing
     case result of
         Left e -> throwM e
         Right x
@@ -1127,13 +1153,6 @@ host = unsafeHostnameFromText "localhost"
 interface :: W.HostPreference
 -- interface = "::1"
 interface = "127.0.0.1"
-
-getClientEnv :: BaseUrl -> IO ClientEnv
-getClientEnv url = flip mkClientEnv url <$> HTTP.newTlsManagerWith mgrSettings
-    where
-      mgrSettings = HTTP.mkManagerSettings
-       (HTTP.TLSSettingsSimple True False False)
-       Nothing
 
 -- | Backoff up to a constant 250ms, limiting to ~40s
 -- (actually saw a test have to wait > 22s)

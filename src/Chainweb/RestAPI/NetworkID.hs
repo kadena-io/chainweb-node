@@ -59,6 +59,7 @@ import Chainweb.ChainId
 import Chainweb.Utils hiding (check)
 
 import Data.Singletons
+import Web.HttpApiData
 
 -- -------------------------------------------------------------------------- --
 -- Network ID
@@ -69,6 +70,13 @@ data NetworkId
     | CutNetwork
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
+
+instance ToHttpApiData NetworkId where
+    toUrlPiece = networkIdToText
+    toQueryParam _ =
+        error "ToHttpApiData NetworkId -> toQueryParam: network ID is not a legal query parameter"
+    toEncodedQueryParam _ =
+        error "ToHttpApiData NetworkId -> toEncodedQueryParam: network ID is not a legal query parameter"
 
 -- | Textual representation of NetworkId.
 --

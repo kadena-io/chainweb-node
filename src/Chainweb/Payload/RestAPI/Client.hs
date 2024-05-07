@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -14,17 +15,24 @@
 -- Client implementation of the block payload REST API
 --
 module Chainweb.Payload.RestAPI.Client
-( payloadClient
+( getPayloadJSON
+, payloadClient
 , payloadBatchClient
 , outputsClient
 , outputsBatchClient
 ) where
 
-import Control.Monad.Identity
+import Control.Lens
 
 import Data.Proxy
 
-import Servant.Client
+import Network.HTTP.Media
+import Network.HTTP.Types
+
+import Web.DeepRoute.Client
+import Web.HttpApiData
+
+import Servant.Client hiding ((//))
 
 -- internal modules
 
@@ -35,6 +43,8 @@ import Chainweb.Payload.RestAPI
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Version
 import Chainweb.BlockHeight (BlockHeight)
+import qualified Network.HTTP.Client as Client
+import Data.Aeson (AesonException)
 
 -- -------------------------------------------------------------------------- --
 -- GET Payload Client
@@ -58,6 +68,19 @@ payloadClient v c k h = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ payloadClient_ @v @c k h
+
+getPayloadJSON
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockPayloadHash
+    -> Maybe BlockHeight
+    -> ApiRequest (Either AesonException PayloadData)
+getPayloadJSON v cid bph mbh = mkApiRequest
+    methodPost
+    (traverse jsonBody)
+    ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "payload" /@@ bph)
+    & requestQuery .~ [ ("height", Just (toQueryParam bh)) | Just bh <- [mbh] ]
+    & requestAcceptable ?~ [maxQuality "application/json"]
 
 -- -------------------------------------------------------------------------- --
 -- Post Payload Batch Client

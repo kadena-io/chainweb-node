@@ -33,7 +33,6 @@ import Control.Concurrent.MVar.Strict
 import Control.DeepSeq
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
 
@@ -56,11 +55,13 @@ import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
 import GHC.Exts(the)
 import System.LogLevel (LogLevel(..))
 
-import Servant.Client
+import qualified Network.HTTP.Client as Client
+import Web.DeepRoute.Client
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -105,6 +106,13 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Mainnet
 import Chainweb.Storage.Table.RocksDB
+import Chainweb.Pact.RestAPI.Server (sendReq, localReq, pollReq)
+import Network.HTTP.Client (Response(responseBody))
+import Control.Exception.Safe
+import Network.HTTP.Types
+import Chainweb.Pact.RestAPI.Server
+import Control.Monad.Except
+import Data.ByteString.Lazy (LazyByteString)
 
 -- -------------------------------------------------------------------------- --
 -- Global Settings
@@ -187,7 +195,7 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
 
 responseGolden :: ClientEnv -> RequestKeys -> IO LBS.ByteString
 responseGolden cenv rks = do
-    PollResponses theMap <- polling v cid cenv rks ExpectPactResult
+    PollResponses theMap <- polling cenv v cid rks ExpectPactResult
     let values = mapMaybe (\rk -> _crResult <$> HM.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
     return $ foldMap J.encode values
@@ -249,22 +257,17 @@ txlogsCompactionTest rdb = runResourceT $ do
           pure cur
 
     let submitAndCheckTx cenv tx = do
-          submitResult <- flip runClientM cenv $
-            pactSendApiClient v cid $ SubmitBatch $ NEL.fromList [tx]
-          case submitResult of
-            Left err -> do
-              assertFailure $ "Error when sending tx: " ++ show err
-            Right rks -> do
-              PollResponses m <- polling v cid cenv rks ExpectPactResult
-              case HM.lookup (NEL.head (_rkRequestKeys rks)) m of
-                Just cr -> do
-                  case _crResult cr of
-                    PactResult (Left err) -> do
-                      assertFailure $ "validation failure on tx: " ++ show err
-                    PactResult _ -> do
-                      pure ()
-                Nothing -> do
-                  assertFailure "impossible"
+          rks <- fmap Client.responseBody $ doRequestThrow cenv $ sendReq v cid $ SubmitBatch $ NEL.fromList [tx]
+          PollResponses m <- polling cenv v cid rks ExpectPactResult
+          case HM.lookup (NEL.head (_rkRequestKeys rks)) m of
+            Just cr -> do
+              case _crResult cr of
+                PactResult (Left err) -> do
+                  assertFailure $ "validation failure on tx: " ++ show err
+                PactResult _ -> do
+                  pure ()
+            Nothing -> do
+              assertFailure "impossible"
 
     -- phase 1: start nodes and populate tables
     liftIO $ runResourceT $ do
@@ -391,10 +394,10 @@ localContTest t cenv step = do
 
     step "execute /send with initial pact continuation tx"
     cmd1 <- firstStep
-    rks <- sending v cid' cenv (SubmitBatch $ pure cmd1)
+    rks <- sending cenv v cid' (SubmitBatch $ pure cmd1)
 
     step "check /poll responses to extract pact id for continuation"
-    PollResponses m <- polling v cid' cenv rks ExpectPactResult
+    PollResponses m <- polling cenv v cid' rks ExpectPactResult
     pid <- case _rkRequestKeys rks of
       rk NEL.:| [] -> maybe (assertFailure "impossible") (return . _pePactId)
         $ HM.lookup rk m >>= _crContinuation
@@ -433,12 +436,12 @@ pollingConfirmDepth t cenv step = do
     step "/send transactions"
     cmd1 <- firstStep tx
     cmd2 <- firstStep tx'
-    rks <- sending v cid' cenv (SubmitBatch $ cmd1 NEL.:| [cmd2])
+    rks <- sending cenv v cid' (SubmitBatch $ cmd1 NEL.:| [cmd2])
 
     step "/poll for the transactions until they appear"
 
-    PollResponses m <- pollingWithDepth v cid' cenv rks (Just $ ConfirmationDepth 10) ExpectPactResult
-    afterPolling <- getCurrentBlockHeight v cenv cid'
+    PollResponses m <- pollingWithDepth cenv v cid' rks (Just $ ConfirmationDepth 10) ExpectPactResult
+    afterPolling <- getCurrentBlockHeight cenv v cid'
     -- here we rely on both txs being in the same block.
     let txHeight = the
           (m ^.. to HM.elems . folded . crMetaData . _Just . key "blockHeight" . _Integer)
@@ -470,12 +473,12 @@ pollingCorrectResults t cenv step = do
 
     -- submit the first one, then poll to confirm its in a block
     cmd1 <- stepTx tx
-    rks1@(RequestKeys (rk1 NEL.:| [])) <- sending v cid' cenv (SubmitBatch $ cmd1 NEL.:| [])
-    PollResponses _ <- pollingWithDepth v cid' cenv rks1 (Just $ ConfirmationDepth 10) ExpectPactResult
+    rks1@(RequestKeys (rk1 NEL.:| [])) <- sending cenv v cid' (SubmitBatch $ cmd1 NEL.:| [])
+    PollResponses _ <- pollingWithDepth cenv v cid' rks1 (Just $ ConfirmationDepth 10) ExpectPactResult
 
     -- submit the second...
     cmd2 <- stepTx tx'
-    RequestKeys (rk2 NEL.:| []) <- sending v cid' cenv (SubmitBatch $ cmd2 NEL.:| [])
+    RequestKeys (rk2 NEL.:| []) <- sending cenv v cid' (SubmitBatch $ cmd2 NEL.:| [])
 
     -- now request both. the second transaction will by definition go into another block.
     -- do it in two different orders, and ensure it works either way.
@@ -483,8 +486,8 @@ pollingCorrectResults t cenv step = do
       together1 = RequestKeys $ rk1 NEL.:| [rk2]
       together2 = RequestKeys $ rk2 NEL.:| [rk1]
 
-    PollResponses resp1 <- polling v cid' cenv together1 ExpectPactResult
-    PollResponses resp2 <- polling v cid' cenv together2 ExpectPactResult
+    PollResponses resp1 <- polling cenv v cid' together1 ExpectPactResult
+    PollResponses resp2 <- polling cenv v cid' together2 ExpectPactResult
 
     assertEqual "the two responses should be the same" resp1 resp2
   where
@@ -504,15 +507,16 @@ localChainDataTest t cenv = do
     mv <- newMVar (0 :: Int)
     SubmitBatch batch <- localTestBatch mv
     let cmd = head $ toList batch
-    sid <- mkChainId v maxBound 0
-    res <- flip runClientM cenv $ pactLocalApiClient v sid cmd
+    chain <- mkChainId v maxBound 0
+    res <- fmap (fmap responseBody) $ doRequestEither cenv $ localReq v chain Nothing Nothing Nothing cmd
     checkCommandResult res
   where
 
-    checkCommandResult (Left e) = throwM $ LocalFailure (show e)
-    checkCommandResult (Right cr) =
+    checkCommandResult (Left e) = throwIO $ LocalFailure (show e)
+    checkCommandResult (Right (LocalResultLegacy cr)) =
         let (PactResult e) = _crResult cr
         in mapM_ expectedResult e
+    checkCommandResult (Right _) = throwIO $ LocalFailure "didn't get legacy result type"
 
     localTestBatch mnonce = modifyMVar mnonce $ \(!nn) -> do
         let nonce = "nonce" <> sshow nn
@@ -541,21 +545,18 @@ localPreflightSimTest t cenv step = do
     let psid = Pact.ChainId $ chainIdToText sid
     psigs <- testKeyPairs sender00 Nothing
     cmd0 <- mkRawTx mv psid psigs
-    runLocalPreflightClient sid cenv cmd0 >>= \case
+    resp <- runLocalPreflightClient sid cenv cmd0
+    case responseBody <$> resp of
       Left e -> assertFailure $ show e
-      Right LocalResultLegacy{} ->
-        assertFailure "Preflight /local call produced legacy result"
-      Right MetadataValidationFailure{} ->
+      Right PreflightValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
-      Right LocalTimeout ->
-        assertFailure "Preflight should never produce a timeout"
-      Right LocalResultWithWarns{} -> pure ()
+      Right PreflightResult{} ->
+        return ()
 
     step "Execute preflight /local tx - preflight+signoverify known /send success"
     cmd0' <- mkRawTx mv psid psigs
-    cr <- runClientM
-      (pactLocalWithQueryApiClient v sid
-         (Just PreflightSimulation) (Just NoVerify) Nothing cmd0') cenv
+    cr <- doRequestEither cenv $ localReq v sid
+         (Just PreflightSimulation) (Just NoVerify) Nothing cmd0'
     void $ case cr of
       Left e -> assertFailure $ show e
       Right{} -> pure ()
@@ -596,68 +597,64 @@ localPreflightSimTest t cenv step = do
     step "Execute preflight /local tx - collect warnings"
     cmd7 <- mkRawTx' mv pcid sigs0 "(+ 1 2.0)"
 
-    currentBlockHeight <- getCurrentBlockHeight v cenv sid
-    runLocalPreflightClient sid cenv cmd7 >>= \case
+    currentBlockHeight <- getCurrentBlockHeight cenv v sid
+    (fmap responseBody <$> runLocalPreflightClient sid cenv cmd7) >>= \case
       Left e -> assertFailure $ show e
-      Right LocalResultLegacy{} ->
-        assertFailure "Preflight /local call produced legacy result"
-      Right LocalTimeout ->
-        assertFailure "Preflight should never produce a timeout"
-      Right MetadataValidationFailure{} ->
+      Right PreflightValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
-      Right (LocalResultWithWarns cr' ws) -> do
+      Right (PreflightResult cr' ws) -> do
         let crbh :: Integer = fromIntegral $ fromMaybe 0 $ crGetBlockHeight cr'
             expectedbh = 1 + fromIntegral currentBlockHeight
-        assertBool "Preflight's metadata should have increment block height"
+        assertLe "Preflight's metadata should have increment block height"
           -- we don't control the node in remote tests and the data can get oudated,
           -- to make test less flaky we use a small range for validation
-          (abs (expectedbh - crbh) <= 2)
+          (Actual $ abs (expectedbh - crbh)) (Expected 2)
 
         case ws of
           [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
             pure ()
           ws' -> assertFailure $ "Incorrect warns: " ++ show ws'
 
+
+    -- to rewind n blocks before, we must have made at least that many blocks first!
     let rewindDepth = 10
-    currentBlockHeight' <- getCurrentBlockHeight v cenv sid
-    runLocalPreflightClientWithDepth sid cenv cmd7 rewindDepth >>= \case
+    awaitBlockHeight v cenv (int rewindDepth)
+    currentBlockHeight' <- getCurrentBlockHeight cenv v sid
+    (fmap responseBody <$> runLocalPreflightClientWithDepth sid cenv cmd7 rewindDepth) >>= \case
       Left e -> assertFailure $ show e
-      Right LocalResultLegacy{} ->
-        assertFailure "Preflight /local call produced legacy result"
-      Right LocalTimeout ->
-        assertFailure "Preflight should never produce a timeout"
-      Right MetadataValidationFailure{} ->
+      Right PreflightValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
-      Right (LocalResultWithWarns cr' ws) -> do
+      Right (PreflightResult cr' ws) -> do
         let crbh :: Integer = fromIntegral $ fromMaybe 0 $ crGetBlockHeight cr'
             expectedbh = toInteger $ 1 + (fromIntegral currentBlockHeight') - rewindDepth
-        assertBool "Preflight's metadata block height should reflect the rewind depth"
+        assertLe "Preflight's metadata block height should reflect the rewind depth"
           -- we don't control the node in remote tests and the data can get oudated,
           -- to make test less flaky we use a small range for validation
-          (abs (expectedbh - crbh) <= 2)
+          (Actual $ abs (expectedbh - crbh)) (Expected 2)
 
         case ws of
           [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
             pure ()
           ws' -> assertFailure $ "Incorrect warns: " ++ show ws'
   where
-    runLocalPreflightClient sid e cmd = flip runClientM e $
-      pactLocalWithQueryApiClient v sid
-        (Just PreflightSimulation)
+    runLocalPreflightClient sid e cmd =
+      doRequestEither e $ preflightReq v sid
         (Just Verify) Nothing cmd
 
-    runLocalPreflightClientWithDepth sid e cmd d = flip runClientM e $
-      pactLocalWithQueryApiClient v sid
-        (Just PreflightSimulation)
+    runLocalPreflightClientWithDepth sid e cmd d =
+      doRequestEither e $ preflightReq v sid
         (Just Verify) (Just $ RewindDepth d) cmd
 
     runClientFailureAssertion sid e cmd msg =
-      runLocalPreflightClient sid e cmd >>= \case
-        Left err -> checkClientErrText err msg
-        r -> assertFailure $ "Unintended success: " ++ show r
+      doRequestUnchecked e
+        (preflightReq v sid (Just Verify) Nothing cmd) >>= \case
+        resp
+          | not (statusIsSuccessful (Client.responseStatus resp)) ->
+            checkClientErrText resp msg
+          | otherwise -> assertFailure $ "Unexpected success: " ++ show resp
 
-    checkClientErrText (FailureResponse _ (Response _ _ _ body)) e
-      | BS.isInfixOf e $ LBS.toStrict body = pure ()
+    checkClientErrText resp e
+      | BS.isInfixOf e (Client.responseBody resp) = pure ()
     checkClientErrText _ e = assertFailure $ show e
 
     -- cmd builder is more correct by construction than
@@ -692,7 +689,7 @@ pollingBadlistTest :: ClientEnv -> IO ()
 pollingBadlistTest cenv = do
     let rks = RequestKeys $ NEL.fromList [pactDeadBeef]
     sid <- mkChainId v maxBound 0
-    void $ polling v sid cenv rks ExpectPactError
+    void $ polling cenv v sid rks ExpectPactError
 
 -- | Check request key length validation in the /poll endpoints
 --
@@ -704,12 +701,12 @@ pollBadKeyTest cenv step = do
     sid <- liftIO $ mkChainId v maxBound 0
 
     step "RequestKeys of length > 32 fail fast"
-    runClientM (pactPollApiClient v sid (Poll tooBig)) cenv >>= \case
+    doRequestEither cenv (pollReq v sid Nothing (Poll tooBig)) >>= \case
       Left _ -> return ()
       Right r -> assertFailure $ "Poll succeeded with response: " <> show r
 
     step "RequestKeys of length < 32 fail fast"
-    runClientM (pactPollApiClient v sid (Poll tooSmall)) cenv >>= \case
+    doRequestEither cenv (pollReq v sid Nothing (Poll tooSmall)) >>= \case
       Left _ -> return ()
       Right r -> assertFailure $ "Poll succeeded with response: " <> show r
   where
@@ -725,29 +722,29 @@ sendValidationTest t cenv step = do
           testBatch' (toTxCreationTime (Time (TimeSpan 0) :: Time Micros)) 2 mv gp
         let batch = SubmitBatch $ batch1 <> batch2
         expectSendFailure "Transaction time-to-live is expired" $
-          flip runClientM cenv $
-            pactSendApiClient v cid batch
+          doRequestUnchecked cenv $
+            sendReq v cid batch
 
         step "check sending mismatched chain id"
         cid0 <- mkChainId v maxBound 0
         batch3 <- testBatch'' "40" t 20_000 mv gp
         expectSendFailure "Transaction metadata (chain id, chainweb version) conflicts with this endpoint" $
-          flip runClientM cenv $
-            pactSendApiClient v cid0 batch3
+          doRequestUnchecked cenv $
+            sendReq v cid0 batch3
 
         step "check insufficient gas"
         batch4 <- testBatch' t 10_000 mv 10_000_000_000
         expectSendFailure
-          "Attempt to buy gas failed with: (enforce (<= amount balance) \\\"...: Failure: Tx Failed: Insufficient funds\"" $
-          flip runClientM cenv $
-            pactSendApiClient v cid batch4
+          "Attempt to buy gas failed with: (enforce (<= amount balance) \"...: Failure: Tx Failed: Insufficient funds" $
+          doRequestUnchecked cenv $
+            sendReq v cid batch4
 
         step "check bad sender"
         batch5 <- mkBadGasTxBatch "(+ 1 2)" "invalid-sender" sender00 Nothing
         expectSendFailure
           "Attempt to buy gas failed with: (read coin-table sender): Failure: Tx Failed: read: row not found: invalid-sender" $
-          flip runClientM cenv $
-            pactSendApiClient v cid0 batch5
+          doRequestUnchecked cenv $
+            sendReq v cid0 batch5
 
   where
     mkBadGasTxBatch code senderName senderKeyPair capList = do
@@ -758,19 +755,20 @@ sendValidationTest t cenv step = do
       return $ SubmitBatch cmds
 
 expectSendFailure
-    :: NFData a
-    => NFData b
-    => Show a
-    => Show b
-    => String
-    -> IO (Either b a)
+    :: HasCallStack
+    => Text
+    -> IO (Response BS.ByteString)
     -> Assertion
-expectSendFailure expectErr act = tryAllSynchronous act >>= \case
-    (Right (Left e)) -> test $ show e
-    (Right (Right out)) -> assertFailure $ "expected exception on bad tx, got: " <> show out
-    (Left e) -> test $ show e
+expectSendFailure expectErr act = do
+    resp <- act
+    if statusIsSuccessful (Client.responseStatus resp)
+    then assertFailure $ "expected exception on bad tx, got: " <> show resp
+    else test $ T.decodeUtf8 (Client.responseBody resp)
   where
-    test er = assertSatisfies ("Expected message containing '" ++ expectErr ++ "'") er (L.isInfixOf expectErr)
+    test er = assertSatisfies
+      ("Expected message containing '" <> T.unpack expectErr <> "'\n")
+      er
+      (expectErr `T.isInfixOf`)
 
 ethSpvTest :: Pact.TxCreationTime -> ClientEnv -> (String -> IO ()) -> IO ()
 ethSpvTest t cenv step = do
@@ -780,18 +778,18 @@ ethSpvTest t cenv step = do
         Right x -> return (x :: EthSpvRequest)
 
     c <- mkChainId v maxBound 1
-    r <- flip runClientM cenv $ do
+    r <- runExceptT $ do
 
         void $ liftIO $ step "ethSpvApiClient: submit eth proof request"
-        proof <- liftIO $ ethSpv v c cenv req
+        proof <- fmap responseBody $ ExceptT $ doRequestEither cenv $ ethSpvReq v c req
 
         batch <- liftIO $ mkTxBatch proof
 
         void $ liftIO $ step "sendApiClient: submit batch for proof validation"
-        rks <- liftIO $ sending v c cenv batch
+        rks <- liftIO $ sending cenv v c batch
 
         void $ liftIO $ step "pollApiClient: poll until key is found"
-        void $ liftIO $ polling v c cenv rks ExpectPactResult
+        void $ liftIO $ polling cenv v c rks ExpectPactResult
 
         return ()
 
@@ -814,19 +812,19 @@ spvTest :: Pact.TxCreationTime -> ClientEnv -> (String -> IO ()) -> IO ()
 spvTest t cenv step = do
     batch <- mkTxBatch
     sid <- mkChainId v maxBound 1
-    r <- flip runClientM cenv $ do
+    r <- try $ do
 
       void $ liftIO $ step "sendApiClient: submit batch"
-      rks <- liftIO $ sending v sid cenv batch
+      rks <- liftIO $ sending cenv v sid batch
 
       void $ liftIO $ step "pollApiClient: poll until key is found"
-      void $ liftIO $ polling v sid cenv rks ExpectPactResult
+      void $ liftIO $ polling cenv v sid rks ExpectPactResult
 
       void $ liftIO $ step "spvApiClient: submit request key"
       liftIO $ spv v sid cenv (SpvRequest (NEL.head $ _rkRequestKeys rks) tid)
 
     case r of
-      Left e -> assertFailure $ "output proof failed: " <> sshow e
+      Left (e :: PactTestFailure) -> assertFailure $ "output proof failed: " <> sshow e
       Right _ -> return ()
   where
     tid = Pact.ChainId "2"
@@ -859,10 +857,10 @@ txTooBigGasTest t cenv step = do
     let
       runSend batch expectation = try @IO @PactTestFailure $ do
           void $ step "sendApiClient: submit transaction"
-          rks <- sending v sid cenv batch
+          rks <- sending cenv v sid batch
 
           void $ step "pollApiClient: polling for request key"
-          PollResponses resp <- polling v sid cenv rks expectation
+          PollResponses resp <- polling cenv v sid rks expectation
           return (HM.lookup (NEL.head $ _rkRequestKeys rks) resp)
 
       runLocal (SubmitBatch cmds) = do
@@ -922,20 +920,20 @@ caplistTest :: Pact.TxCreationTime -> ClientEnv -> (String -> IO ()) -> IO ()
 caplistTest t cenv step = do
     let testCaseStep = liftIO . step
 
-    r <- flip runClientM cenv $ do
+    r <- try $ do
       batch <- liftIO
         $ mkSingletonBatch t sender00 tx0 n0 (pm "sender00") clist
 
       testCaseStep "send transfer request with caplist sender00 -> sender01"
-      rks <- liftIO $ sending v sid cenv batch
+      rks <- liftIO $ sending cenv v sid batch
 
       testCaseStep "poll for transfer results"
-      PollResponses rs <- liftIO $ polling v sid cenv rks ExpectPactResult
+      PollResponses rs <- liftIO $ polling cenv v sid rks ExpectPactResult
 
       return (HM.lookup (NEL.head $ _rkRequestKeys rks) rs)
 
     case r of
-      Left e -> assertFailure $ "test failure for TRANSFER + FUND_TX: " <> show e
+      Left (e :: PactTestFailure) -> assertFailure $ "test failure for TRANSFER + FUND_TX: " <> show e
       Right res -> do
         assertEqual "TRANSFER + FUND_TX test" result0 (resultOf <$> res)
         assertSatisfies "meta in output" (preview (_Just . crMetaData . _Just . _Object . at "blockHash") res) isJust
@@ -990,10 +988,10 @@ allocationTest t cenv step = do
       SubmitBatch batch1 <- liftIO
         $ mkSingletonBatch t allocation00KeyPair tx1 n1 (pm "allocation00") Nothing
       step "sendApiClient: submit allocation release request"
-      rks0 <- liftIO $ sending v sid cenv batch0
+      rks0 <- liftIO $ sending cenv v sid batch0
 
       step "pollApiClient: polling for allocation key"
-      _ <- liftIO $ polling v sid cenv rks0 ExpectPactResult
+      _ <- liftIO $ polling cenv v sid rks0 ExpectPactResult
 
       step "localApiClient: submit local account balance request"
       liftIO $ localTestToRetry v sid cenv (head (toList batch1)) (localAfterBlockHeight 4)
@@ -1020,17 +1018,17 @@ allocationTest t cenv step = do
       batch0 <- mkSingletonBatch t allocation02KeyPair tx3 n3 (pm "allocation02") Nothing
 
       step "senderApiClient: submit keyset rotation request"
-      rks <- sending v sid cenv batch0
+      rks <- sending cenv v sid batch0
 
       step "pollApiClient: polling for successful rotation"
-      void $ polling v sid cenv rks ExpectPactResult
+      void $ polling cenv v sid rks ExpectPactResult
 
       step "senderApiClient: submit allocation release request"
       batch1 <- mkSingletonBatch t allocation02KeyPair' tx4 n4 (pm "allocation02") Nothing
 
-      rks' <- sending v sid cenv batch1
+      rks' <- sending cenv v sid batch1
       step "pollingApiClient: polling for successful release"
-      pr <- polling v sid cenv rks' ExpectPactResult
+      pr <- polling cenv v sid rks' ExpectPactResult
 
       step "localApiClient: retrieving account info for allocation02"
       SubmitBatch batch2 <- mkSingletonBatch t allocation02KeyPair' tx5 n5 (pm "allocation02") Nothing
@@ -1100,8 +1098,8 @@ webAuthnSignatureTest t cenv = do
     $ set cbRPC (mkExec' "(concat [\"chainweb-\" \"node\"])")
     $ defaultCmd
 
-  rks1 <- sending v cid' cenv (SubmitBatch $ pure cmd1)
-  PollResponses _resp1 <- polling v cid' cenv rks1 ExpectPactResult
+  rks1 <- sending cenv v cid' (SubmitBatch $ pure cmd1)
+  PollResponses _resp1 <- polling cenv v cid' rks1 ExpectPactResult
 
   cmd2 <- buildTextCmd "nonce-webauthn-2" v
     $ set cbSigners [mkWebAuthnSigner' sender02WebAuthn [], mkEd25519Signer' sender00 []]
@@ -1110,8 +1108,8 @@ webAuthnSignatureTest t cenv = do
     $ set cbRPC (mkExec' "(concat [\"chainweb-\" \"node\"])")
     $ defaultCmd
 
-  rks2 <- sending v cid' cenv (SubmitBatch $ pure cmd2)
-  PollResponses _resp2 <- polling v cid' cenv rks2 ExpectPactResult
+  rks2 <- sending cenv v cid' (SubmitBatch $ pure cmd2)
+  PollResponses _resp2 <- polling cenv v cid' rks2 ExpectPactResult
 
   return ()
 
@@ -1147,7 +1145,7 @@ mkSingletonBatch t kps (PactTransaction c d) nonce pmk clist = do
     return $ SubmitBatch (cmd NEL.:| [])
 
 testSend :: Pact.TxCreationTime -> MVar Int -> ClientEnv -> IO RequestKeys
-testSend t mNonce env = testBatch t mNonce gp >>= sending v cid env
+testSend t mNonce env = testBatch t mNonce gp >>= sending env v cid
 
 testBatch'' :: Pact.ChainId -> Pact.TxCreationTime -> Pact.TTLSeconds -> MVar Int -> GasPrice -> IO SubmitBatch
 testBatch'' chain t ttl mnonce gp' = modifyMVar mnonce $ \(!nn) -> do

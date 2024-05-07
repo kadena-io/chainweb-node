@@ -264,13 +264,6 @@ newManagerCounter = ManagerCounter
     <*> newCounter
     -- <*> newCounterMap
 
--- | Timeout connection-attempts to estabilished peers in the P2P network.
---
--- This timeout can be overwritten on a per-request base.
---
-p2pResponseTimeout :: HTTP.ResponseTimeout
-p2pResponseTimeout = HTTP.responseTimeoutMicro 3_000_000
-
 -- Default Connection Manager for P2P Connections.
 --
 -- This manager uses the P2P peer database to validate server certificates.

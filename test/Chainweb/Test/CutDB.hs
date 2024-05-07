@@ -64,7 +64,8 @@ import Chainweb.Cut.CutHashes
 import Chainweb.Graph
 import Chainweb.Test.Cut
 import Chainweb.CutDB
-import Chainweb.CutDB.RestAPI.Server
+import Chainweb.CutDB.RestAPI
+import Chainweb.Graph
 import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore

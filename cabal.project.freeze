@@ -1,7 +1,5 @@
 active-repositories: hackage.haskell.org:merge
 constraints: any.Boolean ==0.2.4,
-             any.Cabal ==3.10.1.0,
-             any.Cabal-syntax ==3.10.1.0,
              any.Decimal ==0.5.2,
              any.Glob ==0.10.2,
              any.HUnit ==1.6.2.0,

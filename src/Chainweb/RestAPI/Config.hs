@@ -18,6 +18,7 @@ module Chainweb.RestAPI.Config
 ( GetConfigApi
 , someGetConfigApi
 , someGetConfigServer
+, newGetConfigServer
 ) where
 
 import Control.Lens
@@ -25,6 +26,9 @@ import Control.Lens
 import Data.Proxy
 
 import Servant
+import Network.HTTP.Types
+import Web.DeepRoute
+import Web.DeepRoute.Wai
 
 -- internal modules
 import Chainweb.Chainweb.Configuration
@@ -43,12 +47,12 @@ type GetConfigApi = "config" :> Get '[JSON] ChainwebConfiguration
 someGetConfigApi :: SomeApi
 someGetConfigApi = SomeApi (Proxy @GetConfigApi)
 
-someGetConfigServer :: ChainwebConfiguration -> SomeServer
-someGetConfigServer config = SomeServer (Proxy @GetConfigApi) $ return
-    -- hide sensible information
+censorConfig :: ChainwebConfiguration -> ChainwebConfiguration
+censorConfig config =
+    -- hide sensitive information
 
     -- SSL certificates
-    $ set (configP2p . p2pConfigPeer . peerConfigCertificateChain) Nothing
+    set (configP2p . p2pConfigPeer . peerConfigCertificateChain) Nothing
     $ set (configP2p . p2pConfigPeer . peerConfigCertificateChainFile) Nothing
     $ set (configP2p . p2pConfigPeer . peerConfigKey) Nothing
     $ set (configP2p . p2pConfigPeer . peerConfigKeyFile) Nothing
@@ -63,3 +67,10 @@ someGetConfigServer config = SomeServer (Proxy @GetConfigApi) $ return
     $ set configBackup defaultBackupConfig
     config
 
+someGetConfigServer :: ChainwebConfiguration -> SomeServer
+someGetConfigServer config = SomeServer (Proxy @GetConfigApi) $ return $ censorConfig config
+
+newGetConfigServer :: ChainwebConfiguration -> Route Application
+newGetConfigServer config =
+    endpoint methodGet ("application/json") $ \_ resp ->
+        resp $ responseJSON ok200 [] $ censorConfig config

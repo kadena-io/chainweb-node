@@ -2,8 +2,11 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 
 #ifndef CURRENT_PACKAGE_VERSION
 #define CURRENT_PACKAGE_VERSION "UNKNOWN"
@@ -35,9 +38,9 @@ module Chainweb.RestAPI
 , Rosetta(..)
 
 -- * Chainweb P2P API Server
-, someChainwebServer
+, defaultP2pApiOptions
+, P2pApiOptions(..)
 , chainwebApplication
-, chainwebApplicationWithHashesAndSpvApi
 , serveChainwebOnPort
 , serveChainweb
 , serveChainwebSocket
@@ -47,7 +50,6 @@ module Chainweb.RestAPI
 , servePeerDbSocketTls
 
 -- * Service API Server
-, someServiceApiServer
 , serviceApiApplication
 , serveServiceApiSocket
 
@@ -60,23 +62,27 @@ module Chainweb.RestAPI
 , module P2P.Node.RestAPI.Client
 ) where
 
+import Control.Lens
 import Control.Monad (guard)
 
 import Data.Bifunctor
 import Data.Bool (bool)
+import Data.Foldable
 
 import GHC.Generics (Generic)
 
+import Network.HTTP.Types
 import Network.Socket
 import qualified Network.TLS.SessionManager as TLS
-import Network.Wai (Middleware, mapResponseHeaders, remoteHost)
+import Network.Wai
 import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS (TLSSettings(..), runTLSSocket)
 import Network.Wai.Middleware.Cors
 
-import Servant.Server
-
 import System.Clock
+
+import Web.DeepRoute
+import Web.DeepRoute.Wai
 
 -- internal modules
 
@@ -88,12 +94,12 @@ import Chainweb.ChainId
 import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.CutDB
-import Chainweb.CutDB.RestAPI.Server
+import Chainweb.CutDB.RestAPI
 import Chainweb.HostAddress
 import Chainweb.Logger (Logger)
 import Chainweb.Mempool.Mempool (MempoolBackend)
-import qualified Chainweb.Mempool.RestAPI.Server as Mempool
-import qualified Chainweb.Miner.RestAPI.Server as Mining
+import qualified Chainweb.Mempool.RestAPI as Mempool
+import qualified Chainweb.Miner.RestAPI as Mining
 import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI
@@ -105,7 +111,7 @@ import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.NodeInfo
 import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.RestAPI.Server
-import Chainweb.SPV.RestAPI.Server (someSpvServers)
+import Chainweb.SPV.RestAPI.Server
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -114,6 +120,7 @@ import Network.X509.SelfSigned
 import P2P.Node.PeerDB
 import P2P.Node.RestAPI.Client
 import P2P.Node.RestAPI.Server
+import Chainweb.Pact.RestAPI.Server (newPactServer)
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -212,85 +219,63 @@ chainwebServiceMiddlewares
     . chainwebCors
 
 -- -------------------------------------------------------------------------- --
--- Chainweb Peer Server
-
-someChainwebServer
-    :: Show t
-    => CanReadablePayloadCas tbl
-    => ChainwebConfiguration
-    -> ChainwebServerDbs t tbl
-    -> SomeServer
-someChainwebServer config dbs =
-    maybe mempty (someCutServer v cutPeerDb) cuts
-    <> somePayloadServers v p2pPayloadBatchLimit payloads
-    <> someP2pBlockHeaderDbServers v blocks
-    <> Mempool.someMempoolServers v mempools
-    <> someP2pServers v peers
-    <> someGetConfigServer config
-  where
-    payloads = _chainwebServerPayloadDbs dbs
-    blocks = _chainwebServerBlockHeaderDbs dbs
-    cuts = _chainwebServerCutDb dbs
-    peers = _chainwebServerPeerDbs dbs
-    mempools = _chainwebServerMempools dbs
-    cutPeerDb = fromJuste $ lookup CutNetwork peers
-    v = _configChainwebVersion config
-
--- | Legacy version with Hashes API that is used in tests
---
--- When we have comprehensive testing for the service API we can remove this
---
-someChainwebServerWithHashesAndSpvApi
-    :: Show t
-    => CanReadablePayloadCas tbl
-    => ChainwebConfiguration
-    -> ChainwebServerDbs t tbl
-    -> SomeServer
-someChainwebServerWithHashesAndSpvApi config dbs =
-    maybe mempty (someCutServer v cutPeerDb) cuts
-    <> somePayloadServers v p2pPayloadBatchLimit payloads
-    <> someBlockHeaderDbServers v blocks payloads
-    <> Mempool.someMempoolServers v mempools
-    <> someP2pServers v peers
-    <> someGetConfigServer config
-    <> maybe mempty (someSpvServers v) cuts
-  where
-    payloads = _chainwebServerPayloadDbs dbs
-    blocks = _chainwebServerBlockHeaderDbs dbs
-    cuts = _chainwebServerCutDb dbs
-    peers = _chainwebServerPeerDbs dbs
-    mempools = _chainwebServerMempools dbs
-    cutPeerDb = fromJuste $ lookup CutNetwork peers
-    v = _configChainwebVersion config
-
--- -------------------------------------------------------------------------- --
 -- Chainweb P2P API Application
+
+data P2pApiOptions = P2pApiOptions
+    { blockHeaderDbServerOptions :: !BlockHeaderDbServerOptions
+    , spvServerEnabled :: !Bool
+    }
+
+defaultP2pApiOptions :: P2pApiOptions
+defaultP2pApiOptions = P2pApiOptions
+    { blockHeaderDbServerOptions = BlockHeaderDbServerOptions
+        { enableHashesEndpoints = False
+        , enableBlocksEndpoints = False
+        , entryLimit = 20
+        }
+    , spvServerEnabled = False
+    }
 
 chainwebApplication
     :: Show t
     => CanReadablePayloadCas tbl
-    => ChainwebConfiguration
+    => P2pApiOptions
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t tbl
     -> Application
-chainwebApplication config dbs
+chainwebApplication apiOptions config dbs
     = chainwebP2pMiddlewares
-    . someServerApplication
-    $ someChainwebServer config dbs
-
--- | Legacy version with Hashes API that is used in tests
---
--- When we have comprehensive testing for the service API we can remove this
---
-chainwebApplicationWithHashesAndSpvApi
-    :: Show t
-    => CanReadablePayloadCas tbl
-    => ChainwebConfiguration
-    -> ChainwebServerDbs t tbl
-    -> Application
-chainwebApplicationWithHashesAndSpvApi config dbs
-    = chainwebP2pMiddlewares
-    . someServerApplication
-    $ someChainwebServerWithHashesAndSpvApi config dbs
+    $ \req resp -> routeWaiApp req resp
+        (resp $ responseLBS notFound404 [] mempty)
+        $ fold
+            [ seg "chainweb" $ seg "0.0" $ seg (toText $ _versionName v) $ fold
+                [ seg "cut" $ fold
+                    [ maybe mempty (newCutServer cutPeerDb) cuts
+                    , seg "peer" $ newP2pServer v ?? (cutPeerDb, CutNetwork)
+                    ]
+                , seg "chain" $
+                    captureValidChainId v $ fold
+                        [ fold [ seg "spv" $ seg "chain" $ captureValidChainId v $ maybe mempty newSpvServer cuts | spvServerEnabled apiOptions ]
+                        , seg "payload" $ newPayloadServer p2pPayloadBatchLimit $<$ lookupResource payloads
+                        , newBlockHeaderDbServer (blockHeaderDbServerOptions apiOptions) $<$ lookupResource blocks
+                        , seg "peer" $ newP2pServer v $<$ p2pOn ChainNetwork
+                        , seg "mempool" $ fold
+                            [ Mempool.newMempoolServer $<$ lookupResource mempools
+                            , seg "peer" $ newP2pServer v $<$ p2pOn MempoolNetwork
+                            ]
+                        ]
+                ]
+            , seg "config" $ newGetConfigServer config
+            ]
+  where
+    p2pOn makeNetworkId (makeNetworkId -> nid) = (lookupResource peers nid, nid)
+    payloads = _chainwebServerPayloadDbs dbs
+    blocks = _chainwebServerBlockHeaderDbs dbs
+    cuts = _chainwebServerCutDb dbs
+    peers = _chainwebServerPeerDbs dbs
+    mempools = _chainwebServerMempools dbs
+    cutPeerDb = fromJuste $ lookup CutNetwork peers
+    v = _configChainwebVersion config
 
 serveChainwebOnPort
     :: Show t
@@ -299,7 +284,7 @@ serveChainwebOnPort
     -> ChainwebConfiguration
     -> ChainwebServerDbs t tbl
     -> IO ()
-serveChainwebOnPort p c dbs = run (int p) $ chainwebApplication c dbs
+serveChainwebOnPort p c dbs = run (int p) $ chainwebApplication defaultP2pApiOptions c dbs
 
 serveChainweb
     :: Show t
@@ -308,7 +293,7 @@ serveChainweb
     -> ChainwebConfiguration
     -> ChainwebServerDbs t tbl
     -> IO ()
-serveChainweb s c dbs = runSettings s $ chainwebApplication c dbs
+serveChainweb s c dbs = runSettings s $ chainwebApplication defaultP2pApiOptions c dbs
 
 serveChainwebSocket
     :: Show t
@@ -320,7 +305,7 @@ serveChainwebSocket
     -> Middleware
     -> IO ()
 serveChainwebSocket settings sock c dbs m =
-    runSettingsSocket settings sock $ m $ chainwebApplication c dbs
+    runSettingsSocket settings sock $ m $ chainwebApplication defaultP2pApiOptions c dbs
 
 serveChainwebSocketTls
     :: Show t
@@ -335,7 +320,7 @@ serveChainwebSocketTls
     -> IO ()
 serveChainwebSocketTls settings certChain key sock c dbs m =
     serveSocketTls settings certChain key sock $ m
-        $ chainwebApplication c dbs
+        $ chainwebApplication defaultP2pApiOptions c dbs
 
 -- -------------------------------------------------------------------------- --
 -- Run Chainweb P2P Server that serves a single PeerDb
@@ -360,50 +345,11 @@ servePeerDbSocketTls settings certChain key sock v nid pdb m =
 -- -------------------------------------------------------------------------- --
 -- Chainweb Service API Application
 
-someServiceApiServer
-    :: Show t
-    => CanReadablePayloadCas tbl
-    => Logger logger
-    => ChainwebVersion
-    -> ChainwebServerDbs t tbl
-    -> [(ChainId, PactAPI.PactServerData logger tbl)]
-    -> Maybe (MiningCoordination logger tbl)
-    -> HeaderStream
-    -> Rosetta
-    -> Maybe (BackupEnv logger)
-    -> PayloadBatchLimit
-    -> SomeServer
-someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv pbl =
-    someHealthCheckServer
-    <> maybe mempty (someBackupServer v) backupEnv
-    <> maybe mempty (someNodeInfoServer v) cuts
-    <> PactAPI.somePactServers v pacts
-    <> maybe mempty (Mining.someMiningServer v) mr
-    <> maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
-        -- TODO: not sure if passing the correct PeerDb here
-        -- TODO: why does Rosetta need a peer db at all?
-        -- TODO: simplify number of resources passing to rosetta
-    -- <> maybe mempty (someSpvServers v) cuts -- AFAIK currently not used
-
-    -- GET Cut, Payload, and Headers endpoints
-    <> maybe mempty (someCutGetServer v) cuts
-    <> somePayloadServers v pbl payloads
-    <> someBlockHeaderDbServers v blocks payloads -- TODO make max limits configurable
-    <> maybe mempty (someBlockStreamServer v) (bool Nothing cuts hs)
-  where
-    cuts = _chainwebServerCutDb dbs
-    peers = _chainwebServerPeerDbs dbs
-    concreteMs = second PactAPI._pactServerDataMempool <$> pacts
-    concretePacts = second PactAPI._pactServerDataPact <$> pacts
-    cutPeerDb = fromJuste $ lookup CutNetwork peers
-    payloads = _chainwebServerPayloadDbs dbs
-    blocks = _chainwebServerBlockHeaderDbs dbs
-
 serviceApiApplication
     :: Show t
     => CanReadablePayloadCas tbl
     => Logger logger
-    => ChainwebVersion
+    => ChainwebConfiguration
     -> ChainwebServerDbs t tbl
     -> [(ChainId, PactAPI.PactServerData logger tbl)]
     -> Maybe (MiningCoordination logger tbl)
@@ -412,18 +358,57 @@ serviceApiApplication
     -> Maybe (BackupEnv logger)
     -> PayloadBatchLimit
     -> Application
-serviceApiApplication v dbs pacts mr hs r be pbl
-    = chainwebServiceMiddlewares
-    . someServerApplication
-    $ someServiceApiServer v dbs pacts mr hs r be pbl
+serviceApiApplication config dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv pbl
+     = chainwebServiceMiddlewares
+     $ \req resp -> routeWaiApp req resp
+         (someServerApplication (fold
+             -- TODO: not sure if passing the correct PeerDb here
+             -- TODO: why does Rosetta need a peer db at all?
+             -- TODO: simplify number of resources passing to rosetta
+             [ maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
+             , PactAPI.somePactServers v pacts
+             ]) req resp)
+         $ fold
+         [ newHealthCheckServer
+         , maybe mempty (nodeInfoApi v) cuts
+         , maybe mempty Mining.miningApi mr
+         , seg "config" $ newGetConfigServer config
+         , seg "chainweb" $ seg "0.0" $ seg (toText $ _versionName v) $ fold
+             [ maybe mempty headerStreamServer (bool Nothing cuts hs)
+             , seg "backup" $ maybe mempty newBackupApi backupEnv
+             , seg "cut" $ maybe mempty newCutGetServer cuts
+             , seg "chain" $
+                 captureValidChainId v $ fold
+                     [ seg "payload" $ newPayloadServer pbl $<$ lookupResource payloads
+                     , seg "pact" $ newPactServer v $<$ lookupResource pacts
+                     , seg "spv" $ seg "chain" $ captureValidChainId v $ maybe mempty newSpvServer cuts
+                     , newBlockHeaderDbServer
+                        BlockHeaderDbServerOptions
+                            { enableHashesEndpoints = True
+                            , enableBlocksEndpoints = True
+                            , entryLimit = 360
+                            }
+                            $<$ lookupResource blocks
+                     ]
+             ]
+         ]
+  where
+    v = _chainwebVersion config
+    cuts = _chainwebServerCutDb dbs
+    peers = _chainwebServerPeerDbs dbs
+    concreteMs = second PactAPI._pactServerDataMempool <$> pacts
+    concretePacts = second PactAPI._pactServerDataPact <$> pacts
+    cutPeerDb = fromJuste $ lookup CutNetwork peers
+    payloads = _chainwebServerPayloadDbs dbs
+    blocks = _chainwebServerBlockHeaderDbs dbs
 
 serveServiceApiSocket
     :: Show t
     => CanReadablePayloadCas tbl
     => Logger logger
-    => Settings
+    => ChainwebConfiguration
+    -> Settings
     -> Socket
-    -> ChainwebVersion
     -> ChainwebServerDbs t tbl
     -> [(ChainId, PactAPI.PactServerData logger tbl)]
     -> Maybe (MiningCoordination logger tbl)
@@ -433,6 +418,5 @@ serveServiceApiSocket
     -> PayloadBatchLimit
     -> Middleware
     -> IO ()
-serveServiceApiSocket s sock v dbs pacts mr hs r be pbl m =
-    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r be pbl
-
+serveServiceApiSocket conf s sock dbs pacts mr hs r be pbl m =
+    runSettingsSocket s sock $ m $ serviceApiApplication conf dbs pacts mr hs r be pbl

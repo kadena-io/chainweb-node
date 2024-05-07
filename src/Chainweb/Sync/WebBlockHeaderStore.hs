@@ -41,9 +41,9 @@ module Chainweb.Sync.WebBlockHeaderStore
 ) where
 
 import Control.Concurrent.Async
+import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch
 
 import Data.Foldable
 import Data.Hashable
@@ -53,7 +53,7 @@ import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
 
-import Servant.Client
+import Web.DeepRoute.Client
 
 import System.LogLevel
 
@@ -88,6 +88,8 @@ import P2P.TaskQueue
 import Utils.Logging.Trace
 
 import Chainweb.Storage.Table
+import qualified Network.HTTP.Client as Client
+import Control.Monad.Except
 
 -- -------------------------------------------------------------------------- --
 -- Response Timeout Constants
@@ -104,16 +106,6 @@ taskResponseTimeout = HTTP.responseTimeoutMicro 500_000
 
 pullOriginResponseTimeout :: HTTP.ResponseTimeout
 pullOriginResponseTimeout = HTTP.responseTimeoutMicro 1_000_000
-
--- | Set the response timeout on all requests made with the ClientEnv This
--- overwrites the default response timeout of the connection manager.
---
-setResponseTimeout :: HTTP.ResponseTimeout -> ClientEnv -> ClientEnv
-setResponseTimeout t env =  env
-    { makeClientRequest = \u r -> defaultMakeClientRequest u r <&> \req -> req
-        { HTTP.responseTimeout = t
-        }
-    }
 
 -- -------------------------------------------------------------------------- --
 -- Append Only CAS for WebBlockHeaderDb
@@ -253,15 +245,17 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
         logfun Debug $ taskMsg k "no origin"
         return Nothing
     pullOrigin _ k (Just origin) = do
-        let originEnv = setResponseTimeout pullOriginResponseTimeout $ peerInfoClientEnv mgr origin
+        let originEnv = (peerInfoClientEnv mgr origin)
+                { _clientEnvRequestModifier = \r ->
+                    r { Client.responseTimeout = pullOriginResponseTimeout } }
         logfun Debug $ taskMsg k "lookup origin"
         !r <- trace traceLogfun (traceLabel "pullOrigin") k 0
-            $ runClientM (payloadClient v cid k Nothing) originEnv
+            $ doRequestEither originEnv $ getPayloadJSON v cid k Nothing
         case r of
             (Right !x) -> do
                 logfun Debug $ taskMsg k "received from origin"
-                return $ Just x
-            Left (e :: ClientError) -> do
+                return $ Just (Client.responseBody x)
+            Left e -> do
                 logfun Debug $ taskMsg k $ "failed to receive from origin: " <> sshow e
                 return Nothing
 
@@ -270,14 +264,16 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
     queryPayloadTask :: BlockHeight -> BlockPayloadHash -> IO (Task ClientEnv PayloadData)
     queryPayloadTask _ k = newTask (sshow k) priority $ \logg env -> do
         logg @T.Text Debug $ taskMsg k "query remote block payload"
-        let taskEnv = setResponseTimeout taskResponseTimeout env
+        let taskEnv = env
+                { _clientEnvRequestModifier = \r ->
+                    r { Client.responseTimeout = taskResponseTimeout } }
         !r <- trace traceLogfun (traceLabel "queryPayloadTask") k (let Priority i = priority in i)
-            $ runClientM (payloadClient v cid k Nothing) taskEnv
+            $ doRequestEither taskEnv $ getPayloadJSON v cid k Nothing
         case r of
             (Right !x) -> do
                 logg @T.Text Debug $ taskMsg k "received remote block payload"
-                return x
-            Left (e :: ClientError) -> do
+                return (Client.responseBody x)
+            Left e -> do
                 logg @T.Text Debug $ taskMsg k $ "failed: " <> sshow e
                 throwM e
 
@@ -494,7 +490,9 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
     queryBlockHeaderTask ck@(ChainValue cid k)
         = newTask (sshow ck) priority $ \l env -> chainValue <$> do
             l @T.Text Debug $ taskMsg ck "query remote block header"
-            let taskEnv = setResponseTimeout taskResponseTimeout env
+            let taskEnv = env
+                    { _clientEnvRequestModifier = \r ->
+                        r { Client.responseTimeout = taskResponseTimeout } }
             !r <- trace l (traceLabel "queryBlockHeaderTask") k (let Priority i = priority in i)
                 $ TDB.lookupM (rDb cid taskEnv) k `catchAllSynchronous` \e -> do
                     l @T.Text Debug $ taskMsg ck $ "failed: " <> sshow e
@@ -520,7 +518,9 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         logg Debug $ taskMsg ck "no origin"
         return Nothing
     pullOrigin ck@(ChainValue cid k) (Just origin) = do
-        let originEnv = setResponseTimeout pullOriginResponseTimeout $ peerInfoClientEnv mgr origin
+        let originEnv = (peerInfoClientEnv mgr origin)
+                { _clientEnvRequestModifier = \r ->
+                    r { Client.responseTimeout = pullOriginResponseTimeout } }
         logg Debug $ taskMsg ck "lookup origin"
         !r <- trace logfun (traceLabel "pullOrigin") k 0
             $ TDB.lookup (rDb cid originEnv) k
@@ -533,7 +533,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
     --     curRank <- liftIO $ do
     --         cdb <- give (_webBlockHeaderStoreCas headerStore) (getWebBlockHeaderDb cid)
     --         maxRank cdb
-    --     (l, _) <- TDB.branchEntries (rDb cid originEnv)
+    --     (l, _) <- TDB.branchEntries (rDb v cid originEnv)
     --         Nothing (Just 1000)
     --         (Just $ int curRank) Nothing
     --         mempty (HS.singleton (UpperBound k))

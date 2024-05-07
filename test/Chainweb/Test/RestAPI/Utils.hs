@@ -3,15 +3,16 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 module Chainweb.Test.RestAPI.Utils
   -- * Debugging
 ( debug
 
   -- * Utils
 , repeatUntil
-, clientErrorStatusCode
-, isFailureResponse
-, getStatusCode
+-- , clientErrorStatusCode
+-- , isFailureResponse
+-- , getStatusCode
 
   -- * Pact client DSL
 , PactTestFailure(..)
@@ -27,27 +28,26 @@ module Chainweb.Test.RestAPI.Utils
 
   -- * Rosetta client DSL
 , RosettaTestException(..)
-, accountBalance
-, blockTransaction
-, block
-, constructionDerive
-, constructionPreprocess
-, constructionMetadata
-, constructionPayloads
-, constructionParse
-, constructionCombine
-, constructionHash
-, constructionSubmit
-, mempoolTransaction
-, mempool
-, networkOptions
-, networkList
-, networkStatus
+-- , accountBalance
+-- , blockTransaction
+-- , block
+-- , constructionDerive
+-- , constructionPreprocess
+-- , constructionMetadata
+-- , constructionPayloads
+-- , constructionParse
+-- , constructionCombine
+-- , constructionHash
+-- , constructionSubmit
+-- , mempoolTransaction
+-- , mempool
+-- , networkOptions
+-- , networkList
+-- , networkStatus
 ) where
 
 
 import Control.Lens
-import Control.Monad.Catch
 import Control.Retry
 
 import Data.Either
@@ -60,7 +60,7 @@ import Network.HTTP.Types.Status (Status(..))
 
 import Rosetta
 
-import Servant.Client
+import Web.DeepRoute.Client
 
 -- internal chainweb modules
 
@@ -81,6 +81,10 @@ import qualified Pact.JSON.Encode as J
 import Pact.Types.API
 import Pact.Types.Command
 import Pact.Types.Hash
+import Chainweb.Pact.RestAPI.Server (pollReq, localReq, spvReq, ethSpvReq, sendReq)
+import Control.Exception.Safe
+import Network.HTTP.Client (responseBody)
+import Chainweb.CutDB.RestAPI (getCutJSON)
 
 -- ------------------------------------------------------------------ --
 -- Defaults
@@ -133,9 +137,9 @@ localWithQueryParams v sid cenv pf sv rd cmd =
 
       -- send a single local request and return the result
       --
-      runClientM (pactLocalWithQueryApiClient v sid pf sv rd cmd) cenv >>= \case
+      doRequestEither cenv (localReq v sid pf sv rd cmd) >>= \case
         Left e -> throwM $ LocalFailure (show e)
-        Right t -> return t
+        Right t -> return (responseBody t)
   where
     h _ = Handler $ \case
       LocalFailure _ -> pure True
@@ -181,9 +185,9 @@ spv v sid cenv r =
 
       -- send a single spv request and return the result
       --
-      runClientM (pactSpvApiClient v sid r) cenv >>= \case
+      doRequestEither cenv (spvReq v sid r) >>= \case
         Left e -> throwM $ SpvFailure (show e)
-        Right t -> return t
+        Right t -> return (responseBody t)
   where
     h _ = Handler $ \case
       SpvFailure _ -> return True
@@ -205,9 +209,9 @@ ethSpv v sid cenv r =
 
       -- send a single spv request and return the result
       --
-      runClientM (ethSpvApiClient v sid r) cenv >>= \case
+      doRequestEither cenv (ethSpvReq v sid r) >>= \case
         Left e -> throwM $ SpvFailure (show e)
-        Right t -> return t
+        Right t -> return (responseBody t)
   where
     h _ = Handler $ \case
       SpvFailure _ -> return True
@@ -215,12 +219,12 @@ ethSpv v sid cenv r =
 
 -- | Send a batch with retry logic waiting for success.
 sending
-    :: ChainwebVersion
+    :: ClientEnv
+    -> ChainwebVersion
     -> ChainId
-    -> ClientEnv
     -> SubmitBatch
     -> IO RequestKeys
-sending v sid cenv batch =
+sending cenv v sid batch =
     recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "sending requestkeys " <> show (_cmdHash <$> toList ss)
@@ -228,9 +232,9 @@ sending v sid cenv batch =
 
       -- Send and return naively
       --
-      runClientM (pactSendApiClient v sid batch) cenv >>= \case
+      doRequestEither cenv (sendReq v sid batch) >>= \case
         Left e -> throwM $ SendFailure (show e)
-        Right rs -> return rs
+        Right resp -> return (responseBody resp)
 
   where
     ss = _sbCmds batch
@@ -244,24 +248,24 @@ sending v sid cenv batch =
 data PollingExpectation = ExpectPactError | ExpectPactResult
 
 polling
-    :: ChainwebVersion
+    :: ClientEnv
+    -> ChainwebVersion
     -> ChainId
-    -> ClientEnv
     -> RequestKeys
     -> PollingExpectation
     -> IO PollResponses
-polling v sid cenv rks pollingExpectation =
-  pollingWithDepth v sid cenv rks Nothing pollingExpectation
+polling cenv v sid rks pollingExpectation =
+  pollingWithDepth cenv v sid rks Nothing pollingExpectation
 
 pollingWithDepth
-    :: ChainwebVersion
+    :: ClientEnv
+    -> ChainwebVersion
     -> ChainId
-    -> ClientEnv
     -> RequestKeys
     -> Maybe ConfirmationDepth
     -> PollingExpectation
     -> IO PollResponses
-pollingWithDepth v sid cenv rks confirmationDepth pollingExpectation =
+pollingWithDepth cenv v sid rks confirmationDepth pollingExpectation =
     recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
@@ -271,9 +275,9 @@ pollingWithDepth v sid cenv rks confirmationDepth pollingExpectation =
       -- by making sure results are successful and request keys
       -- are sane
 
-      runClientM (pactPollWithQueryApiClient v sid confirmationDepth $ Poll rs) cenv >>= \case
+      doRequestEither cenv (pollReq v sid confirmationDepth (Poll rs)) >>= \case
         Left e -> throwM $ PollingFailure (show e)
-        Right r@(PollResponses mp) ->
+        Right (responseBody -> r@(PollResponses mp)) ->
           if all (go mp) (toList rs)
           then return r
           else throwM $ PollingFailure $ T.unpack $ "polling check failed: " <> J.encodeText r
@@ -292,11 +296,12 @@ pollingWithDepth v sid cenv rks confirmationDepth pollingExpectation =
       Just cr ->  _crReqKey cr == rk && validate (_crResult cr)
       Nothing -> False
 
-getCurrentBlockHeight :: ChainwebVersion -> ClientEnv -> ChainId -> IO BlockHeight
-getCurrentBlockHeight сv cenv cid =
-  runClientM (cutGetClient сv) cenv >>= \case
+getCurrentBlockHeight :: ClientEnv -> ChainwebVersion -> ChainId -> IO BlockHeight
+getCurrentBlockHeight cenv v cid =
+  doRequestEither cenv (getCutJSON v Nothing) >>= \case
     Left e -> throwM $ GetBlockHeightFailure $ "Failed to get cuts: " ++ show e
-    Right cuts -> return $ fromJust $ _bhwhHeight <$> HM.lookup cid (_cutHashes cuts)
+    Right resp | cuts <- responseBody resp ->
+      return $ fromJust $ _bhwhHeight <$> HM.lookup cid (_cutHashes cuts)
 
 -- ------------------------------------------------------------------ --
 -- Rosetta api client utils w/ retry
@@ -321,322 +326,322 @@ data RosettaTestException
 
 instance Exception RosettaTestException
 
-accountBalance
-    :: ChainwebVersion
-    -> ClientEnv
-    -> AccountBalanceReq
-    -> IO AccountBalanceResp
-accountBalance v cenv req =
-    recovering testRetryPolicy [h] $ \s -> do
-    debug
-      $ "requesting account balance for " <> show req
-      <> " [" <> show (view rsIterNumberL s) <> "]"
+-- accountBalance
+--     :: ChainwebVersion
+--     -> ClientEnv
+--     -> AccountBalanceReq
+--     -> IO AccountBalanceResp
+-- accountBalance v cenv req =
+--     recovering testRetryPolicy [h] $ \s -> do
+--     debug
+--       $ "requesting account balance for " <> show req
+--       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaAccountBalanceApiClient v req) cenv >>= \case
-      Left e -> throwM $ AccountBalanceFailure (show e)
-      Right t -> return t
-  where
-    h _ = Handler $ \case
-      AccountBalanceFailure _ -> return True
-      _ -> return False
+--     runClientM (rosettaAccountBalanceApiClient v req) cenv >>= \case
+--       Left e -> throwM $ AccountBalanceFailure (show e)
+--       Right t -> return t
+--   where
+--     h _ = Handler $ \case
+--       AccountBalanceFailure _ -> return True
+--       _ -> return False
 
-blockTransaction
-    :: ChainwebVersion
-    -> ClientEnv
-    -> BlockTransactionReq
-    -> IO BlockTransactionResp
-blockTransaction v cenv req =
-    recovering testRetryPolicy [h] $ \s -> do
-    debug
-      $ "requesting block transaction for " <> show req
-      <> " [" <> show (view rsIterNumberL s) <> "]"
+-- blockTransaction
+--     :: ChainwebVersion
+--     -> ClientEnv
+--     -> BlockTransactionReq
+--     -> IO BlockTransactionResp
+-- blockTransaction v cenv req =
+--     recovering testRetryPolicy [h] $ \s -> do
+--     debug
+--       $ "requesting block transaction for " <> show req
+--       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaBlockTransactionApiClient v req) cenv >>= \case
-      Left e -> throwM $ BlockTransactionFailure (show e)
-      Right t -> return t
-  where
-    h _ = Handler $ \case
-      BlockTransactionFailure _ -> return True
-      _ -> return False
+--     runClientM (rosettaBlockTransactionApiClient v req) cenv >>= \case
+--       Left e -> throwM $ BlockTransactionFailure (show e)
+--       Right t -> return t
+--   where
+--     h _ = Handler $ \case
+--       BlockTransactionFailure _ -> return True
+--       _ -> return False
 
-block
-    :: ChainwebVersion
-    -> ClientEnv
-    -> BlockReq
-    -> IO BlockResp
-block v cenv req =
-    recovering testRetryPolicy [h] $ \s -> do
-    debug
-      $ "requesting block for " <> show req
-      <> " [" <> show (view rsIterNumberL s) <> "]"
+-- block
+--     :: ChainwebVersion
+--     -> ClientEnv
+--     -> BlockReq
+--     -> IO BlockResp
+-- block v cenv req =
+--     recovering testRetryPolicy [h] $ \s -> do
+--     debug
+--       $ "requesting block for " <> show req
+--       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaBlockApiClient v req) cenv >>= \case
-      Left e -> throwM $ BlockFailure (show e)
-      Right t -> return t
-  where
-    h _ = Handler $ \case
-      BlockFailure _ -> return True
-      _ -> return False
+--     runClientM (rosettaBlockApiClient v req) cenv >>= \case
+--       Left e -> throwM $ BlockFailure (show e)
+--       Right t -> return t
+--   where
+--     h _ = Handler $ \case
+--       BlockFailure _ -> return True
+--       _ -> return False
 
-constructionDerive
-    :: ChainwebVersion
-    -> ClientEnv
-    -> ConstructionDeriveReq
-    -> IO ConstructionDeriveResp
-constructionDerive v cenv req =
-  recovering testRetryPolicy [h] $ \s -> do
-    debug
-      $ "requesting derive preprocess for " <> (show req)
-      <> " [" <> show (view rsIterNumberL s) <> "]"
+-- constructionDerive
+--     :: ChainwebVersion
+--     -> ClientEnv
+--     -> ConstructionDeriveReq
+--     -> IO ConstructionDeriveResp
+-- constructionDerive v cenv req =
+--   recovering testRetryPolicy [h] $ \s -> do
+--     debug
+--       $ "requesting derive preprocess for " <> (show req)
+--       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaConstructionDeriveApiClient v req) cenv >>= \case
-      Left e -> throwM $ ConstructionPreprocessFailure (show e)
-      Right t -> return t
-  where
-    h _ = Handler $ \case
-      ConstructionPreprocessFailure _ -> return True
-      _ -> return False
+--     runClientM (rosettaConstructionDeriveApiClient v req) cenv >>= \case
+--       Left e -> throwM $ ConstructionPreprocessFailure (show e)
+--       Right t -> return t
+--   where
+--     h _ = Handler $ \case
+--       ConstructionPreprocessFailure _ -> return True
+--       _ -> return False
 
-constructionPreprocess
-    :: ChainwebVersion
-    -> ClientEnv
-    -> ConstructionPreprocessReq
-    -> IO ConstructionPreprocessResp
-constructionPreprocess v cenv req =
-  recovering testRetryPolicy [h] $ \s -> do
-    debug
-      $ "requesting construction preprocess for " <> (show req)
-      <> " [" <> show (view rsIterNumberL s) <> "]"
+-- constructionPreprocess
+--     :: ChainwebVersion
+--     -> ClientEnv
+--     -> ConstructionPreprocessReq
+--     -> IO ConstructionPreprocessResp
+-- constructionPreprocess v cenv req =
+--   recovering testRetryPolicy [h] $ \s -> do
+--     debug
+--       $ "requesting construction preprocess for " <> (show req)
+--       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaConstructionPreprocessApiClient v req) cenv >>= \case
-      Left e -> throwM $ ConstructionPreprocessFailure (show e)
-      Right t -> return t
-  where
-    h _ = Handler $ \case
-      ConstructionPreprocessFailure _ -> return True
-      _ -> return False
+--     runClientM (rosettaConstructionPreprocessApiClient v req) cenv >>= \case
+--       Left e -> throwM $ ConstructionPreprocessFailure (show e)
+--       Right t -> return t
+--   where
+--     h _ = Handler $ \case
+--       ConstructionPreprocessFailure _ -> return True
+--       _ -> return False
 
-constructionMetadata
-    :: ChainwebVersion
-    -> ClientEnv
-    -> ConstructionMetadataReq
-    -> IO ConstructionMetadataResp
-constructionMetadata v cenv req =
-    recovering testRetryPolicy [h] $ \s -> do
-    debug
-      $ "requesting construction metadata for " <> show req
-      <> " [" <> show (view rsIterNumberL s) <> "]"
+-- constructionMetadata
+--     :: ChainwebVersion
+--     -> ClientEnv
+--     -> ConstructionMetadataReq
+--     -> IO ConstructionMetadataResp
+-- constructionMetadata v cenv req =
+--     recovering testRetryPolicy [h] $ \s -> do
+--     debug
+--       $ "requesting construction metadata for " <> show req
+--       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaConstructionMetadataApiClient v req) cenv >>= \case
-      Left e -> throwM $ ConstructionMetadataFailure (show e)
-      Right t -> return t
-  where
-    h _ = Handler $ \case
-      ConstructionMetadataFailure _ -> return True
-      _ -> return False
+--     runClientM (rosettaConstructionMetadataApiClient v req) cenv >>= \case
+--       Left e -> throwM $ ConstructionMetadataFailure (show e)
+--       Right t -> return t
+--   where
+--     h _ = Handler $ \case
+--       ConstructionMetadataFailure _ -> return True
+--       _ -> return False
 
-constructionPayloads
-    :: ChainwebVersion
-    -> ClientEnv
-    -> ConstructionPayloadsReq
-    -> IO ConstructionPayloadsResp
-constructionPayloads v cenv req =
-  recovering testRetryPolicy [h] $ \s -> do
-    debug
-      $ "requesting construction payloads for " <> (show req)
-      <> " [" <> show (view rsIterNumberL s) <> "]"
+-- constructionPayloads
+--     :: ChainwebVersion
+--     -> ClientEnv
+--     -> ConstructionPayloadsReq
+--     -> IO ConstructionPayloadsResp
+-- constructionPayloads v cenv req =
+--   recovering testRetryPolicy [h] $ \s -> do
+--     debug
+--       $ "requesting construction payloads for " <> (show req)
+--       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaConstructionPayloadsApiClient v req) cenv >>= \case
-      Left e -> throwM $ ConstructionPayloadsFailure (show e)
-      Right t -> return t
-  where
-    h _ = Handler $ \case
-      ConstructionPayloadsFailure _ -> return True
-      _ -> return False
+--     runClientM (rosettaConstructionPayloadsApiClient v req) cenv >>= \case
+--       Left e -> throwM $ ConstructionPayloadsFailure (show e)
+--       Right t -> return t
+--   where
+--     h _ = Handler $ \case
+--       ConstructionPayloadsFailure _ -> return True
+--       _ -> return False
 
-constructionParse
-    :: ChainwebVersion
-    -> ClientEnv
-    -> ConstructionParseReq
-    -> IO ConstructionParseResp
-constructionParse v cenv req =
-  recovering testRetryPolicy [h] $ \s -> do
-    debug
-      $ "requesting construction parse for " <> (show req)
-      <> " [" <> show (view rsIterNumberL s) <> "]"
+-- constructionParse
+--     :: ChainwebVersion
+--     -> ClientEnv
+--     -> ConstructionParseReq
+--     -> IO ConstructionParseResp
+-- constructionParse v cenv req =
+--   recovering testRetryPolicy [h] $ \s -> do
+--     debug
+--       $ "requesting construction parse for " <> (show req)
+--       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaConstructionParseApiClient v req) cenv >>= \case
-      Left e -> throwM $ ConstructionParseFailure (show e)
-      Right t -> return t
-  where
-    h _ = Handler $ \case
-      ConstructionParseFailure _ -> return True
-      _ -> return False
+--     runClientM (rosettaConstructionParseApiClient v req) cenv >>= \case
+--       Left e -> throwM $ ConstructionParseFailure (show e)
+--       Right t -> return t
+--   where
+--     h _ = Handler $ \case
+--       ConstructionParseFailure _ -> return True
+--       _ -> return False
 
-constructionCombine
-    :: ChainwebVersion
-    -> ClientEnv
-    -> ConstructionCombineReq
-    -> IO ConstructionCombineResp
-constructionCombine v cenv req =
-  recovering testRetryPolicy [h] $ \s -> do
-    debug
-      $ "requesting construction combine for " <> (show req)
-      <> " [" <> show (view rsIterNumberL s) <> "]"
+-- constructionCombine
+--     :: ChainwebVersion
+--     -> ClientEnv
+--     -> ConstructionCombineReq
+--     -> IO ConstructionCombineResp
+-- constructionCombine v cenv req =
+--   recovering testRetryPolicy [h] $ \s -> do
+--     debug
+--       $ "requesting construction combine for " <> (show req)
+--       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaConstructionCombineApiClient v req) cenv >>= \case
-      Left e -> throwM $ ConstructionCombineFailure (show e)
-      Right t -> return t
-  where
-    h _ = Handler $ \case
-      ConstructionCombineFailure _ -> return True
-      _ -> return False
+--     runClientM (rosettaConstructionCombineApiClient v req) cenv >>= \case
+--       Left e -> throwM $ ConstructionCombineFailure (show e)
+--       Right t -> return t
+--   where
+--     h _ = Handler $ \case
+--       ConstructionCombineFailure _ -> return True
+--       _ -> return False
 
-constructionHash
-    :: ChainwebVersion
-    -> ClientEnv
-    -> ConstructionHashReq
-    -> IO TransactionIdResp
-constructionHash v cenv req =
-  recovering testRetryPolicy [h] $ \s -> do
-    debug
-      $ "requesting construction hash for " <> (show req)
-      <> " [" <> show (view rsIterNumberL s) <> "]"
+-- constructionHash
+--     :: ChainwebVersion
+--     -> ClientEnv
+--     -> ConstructionHashReq
+--     -> IO TransactionIdResp
+-- constructionHash v cenv req =
+--   recovering testRetryPolicy [h] $ \s -> do
+--     debug
+--       $ "requesting construction hash for " <> (show req)
+--       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaConstructionHashApiClient v req) cenv >>= \case
-      Left e -> throwM $ ConstructionHashFailure (show e)
-      Right t -> return t
-  where
-    h _ = Handler $ \case
-      ConstructionHashFailure _ -> return True
-      _ -> return False
+--     runClientM (rosettaConstructionHashApiClient v req) cenv >>= \case
+--       Left e -> throwM $ ConstructionHashFailure (show e)
+--       Right t -> return t
+--   where
+--     h _ = Handler $ \case
+--       ConstructionHashFailure _ -> return True
+--       _ -> return False
 
-constructionSubmit
-    :: ChainwebVersion
-    -> ClientEnv
-    -> ConstructionSubmitReq
-    -> IO TransactionIdResp
-constructionSubmit v cenv req =
-    recovering testRetryPolicy [h] $ \s -> do
-    debug
-      $ "requesting construction submit for " <> show req
-      <> " [" <> show (view rsIterNumberL s) <> "]"
+-- constructionSubmit
+--     :: ChainwebVersion
+--     -> ClientEnv
+--     -> ConstructionSubmitReq
+--     -> IO TransactionIdResp
+-- constructionSubmit v cenv req =
+--     recovering testRetryPolicy [h] $ \s -> do
+--     debug
+--       $ "requesting construction submit for " <> show req
+--       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaConstructionSubmitApiClient v req) cenv >>= \case
-      Left e -> throwM $ ConstructionSubmitFailure (show e)
-      Right t -> return t
-  where
-    h _ = Handler $ \case
-      ConstructionSubmitFailure _ -> return True
-      _ -> return False
+--     runClientM (rosettaConstructionSubmitApiClient v req) cenv >>= \case
+--       Left e -> throwM $ ConstructionSubmitFailure (show e)
+--       Right t -> return t
+--   where
+--     h _ = Handler $ \case
+--       ConstructionSubmitFailure _ -> return True
+--       _ -> return False
 
-mempoolTransaction
-    :: ChainwebVersion
-    -> ClientEnv
-    -> MempoolTransactionReq
-    -> IO MempoolTransactionResp
-mempoolTransaction v cenv req =
-    recovering testRetryPolicy [h] $ \s -> do
-    debug
-      $ "requesting mempool transaction for " <> show req
-      <> " [" <> show (view rsIterNumberL s) <> "]"
+-- mempoolTransaction
+--     :: ChainwebVersion
+--     -> ClientEnv
+--     -> MempoolTransactionReq
+--     -> IO MempoolTransactionResp
+-- mempoolTransaction v cenv req =
+--     recovering testRetryPolicy [h] $ \s -> do
+--     debug
+--       $ "requesting mempool transaction for " <> show req
+--       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaMempoolTransactionApiClient v req) cenv >>= \case
-      Left e -> throwM $ MempoolTransactionFailure (show e)
-      Right t -> return t
-  where
-    h _ = Handler $ \case
-      MempoolTransactionFailure _ -> return True
-      _ -> return False
+--     runClientM (rosettaMempoolTransactionApiClient v req) cenv >>= \case
+--       Left e -> throwM $ MempoolTransactionFailure (show e)
+--       Right t -> return t
+--   where
+--     h _ = Handler $ \case
+--       MempoolTransactionFailure _ -> return True
+--       _ -> return False
 
-mempool
-    :: ChainwebVersion
-    -> ClientEnv
-    -> NetworkReq
-    -> IO MempoolResp
-mempool v cenv req =
-    recovering testRetryPolicy [h] $ \s -> do
-    debug
-      $ "requesting mempool for " <> show req
-      <> " [" <> show (view rsIterNumberL s) <> "]"
+-- mempool
+--     :: ChainwebVersion
+--     -> ClientEnv
+--     -> NetworkReq
+--     -> IO MempoolResp
+-- mempool v cenv req =
+--     recovering testRetryPolicy [h] $ \s -> do
+--     debug
+--       $ "requesting mempool for " <> show req
+--       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaMempoolApiClient v req) cenv >>= \case
-      Left e -> throwM $ MempoolFailure (show e)
-      Right t -> return t
-  where
-    h _ = Handler $ \case
-      MempoolFailure _ -> return True
-      _ -> return False
+--     runClientM (rosettaMempoolApiClient v req) cenv >>= \case
+--       Left e -> throwM $ MempoolFailure (show e)
+--       Right t -> return t
+--   where
+--     h _ = Handler $ \case
+--       MempoolFailure _ -> return True
+--       _ -> return False
 
-networkList
-    :: ChainwebVersion
-    -> ClientEnv
-    -> MetadataReq
-    -> IO NetworkListResp
-networkList v cenv req =
-    recovering testRetryPolicy [h] $ \s -> do
-    debug
-      $ "requesting network list for " <> show req
-      <> " [" <> show (view rsIterNumberL s) <> "]"
+-- networkList
+--     :: ChainwebVersion
+--     -> ClientEnv
+--     -> MetadataReq
+--     -> IO NetworkListResp
+-- networkList v cenv req =
+--     recovering testRetryPolicy [h] $ \s -> do
+--     debug
+--       $ "requesting network list for " <> show req
+--       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaNetworkListApiClient v req) cenv >>= \case
-      Left e -> throwM $ NetworkListFailure (show e)
-      Right t -> return t
-  where
-    h _ = Handler $ \case
-      NetworkListFailure _ -> return True
-      _ -> return False
+--     runClientM (rosettaNetworkListApiClient v req) cenv >>= \case
+--       Left e -> throwM $ NetworkListFailure (show e)
+--       Right t -> return t
+--   where
+--     h _ = Handler $ \case
+--       NetworkListFailure _ -> return True
+--       _ -> return False
 
-networkOptions
-    :: ChainwebVersion
-    -> ClientEnv
-    -> NetworkReq
-    -> IO NetworkOptionsResp
-networkOptions v cenv req =
-    recovering testRetryPolicy [h] $ \s -> do
-    debug
-      $ "requesting network options for " <> show req
-      <> " [" <> show (view rsIterNumberL s) <> "]"
+-- networkOptions
+--     :: ChainwebVersion
+--     -> ClientEnv
+--     -> NetworkReq
+--     -> IO NetworkOptionsResp
+-- networkOptions v cenv req =
+--     recovering testRetryPolicy [h] $ \s -> do
+--     debug
+--       $ "requesting network options for " <> show req
+--       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaNetworkOptionsApiClient v req) cenv >>= \case
-      Left e -> throwM $ NetworkOptionsFailure (show e)
-      Right t -> return t
-  where
-    h _ = Handler $ \case
-      NetworkOptionsFailure _ -> return True
-      _ -> return False
+--     runClientM (rosettaNetworkOptionsApiClient v req) cenv >>= \case
+--       Left e -> throwM $ NetworkOptionsFailure (show e)
+--       Right t -> return t
+--   where
+--     h _ = Handler $ \case
+--       NetworkOptionsFailure _ -> return True
+--       _ -> return False
 
-networkStatus
-    :: ChainwebVersion
-    -> ClientEnv
-    -> NetworkReq
-    -> IO NetworkStatusResp
-networkStatus v cenv req =
-    recovering testRetryPolicy [h] $ \s -> do
-    debug
-      $ "requesting network status for " <> show req
-      <> " [" <> show (view rsIterNumberL s) <> "]"
+-- networkStatus
+--     :: ChainwebVersion
+--     -> ClientEnv
+--     -> NetworkReq
+--     -> IO NetworkStatusResp
+-- networkStatus v cenv req =
+--     recovering testRetryPolicy [h] $ \s -> do
+--     debug
+--       $ "requesting network status for " <> show req
+--       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaNetworkStatusApiClient v req) cenv >>= \case
-      Left e -> throwM $ NetworkStatusFailure (show e)
-      Right t -> return t
-  where
-    h _ = Handler $ \case
-      NetworkStatusFailure _ -> return True
-      _ -> return False
+--     runClientM (rosettaNetworkStatusApiClient v req) cenv >>= \case
+--       Left e -> throwM $ NetworkStatusFailure (show e)
+--       Right t -> return t
+--   where
+--     h _ = Handler $ \case
+--       NetworkStatusFailure _ -> return True
+--       _ -> return False
 
-clientErrorStatusCode :: ClientError -> Maybe Int
-clientErrorStatusCode = \case
-  FailureResponse _ resp -> Just $ getStatusCode resp
-  DecodeFailure _ resp -> Just $ getStatusCode resp
-  UnsupportedContentType _ resp -> Just $ getStatusCode resp
-  InvalidContentTypeHeader resp -> Just $ getStatusCode resp
-  ConnectionError _ -> Nothing
+-- clientErrorStatusCode :: ClientError -> Maybe Int
+-- clientErrorStatusCode = \case
+--   FailureResponse _ resp -> Just $ getStatusCode resp
+--   DecodeFailure _ resp -> Just $ getStatusCode resp
+--   UnsupportedContentType _ resp -> Just $ getStatusCode resp
+--   InvalidContentTypeHeader resp -> Just $ getStatusCode resp
+--   ConnectionError _ -> Nothing
 
-isFailureResponse :: ClientError -> Bool
-isFailureResponse = \case
-  FailureResponse {} -> True
-  _ -> False
+-- isFailureResponse :: ClientError -> Bool
+-- isFailureResponse = \case
+--   FailureResponse {} -> True
+--   _ -> False
 
-getStatusCode :: ResponseF a -> Int
-getStatusCode resp = statusCode (responseStatusCode resp)
+-- getStatusCode :: ResponseF a -> Int
+-- getStatusCode resp = statusCode (responseStatusCode resp)

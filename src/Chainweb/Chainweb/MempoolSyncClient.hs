@@ -24,6 +24,7 @@ import Control.Monad
 import Control.Monad.Catch
 
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
 import qualified Network.HTTP.Client as HTTP
 
@@ -48,7 +49,7 @@ import P2P.Node.Configuration
 import P2P.Session
 import P2P.Node
 
-import qualified Servant.Client as Sv
+import qualified Web.DeepRoute.Client as Dp
 
 -- -------------------------------------------------------------------------- --
 -- Mempool sync.
@@ -104,7 +105,7 @@ mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env _ = do
     syncIntervalUs :: Int
     syncIntervalUs = int pollInterval * 500000
 
-    remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
+    remote = T.decodeUtf8 $ Dp._clientEnvHost env
     logg d m = logg0 d $ T.concat ["[mempool sync@", remote, "]:", m]
 
     pool = _chainResMempool chain

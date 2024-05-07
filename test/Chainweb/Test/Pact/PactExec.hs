@@ -68,6 +68,7 @@ import Pact.Types.Persistence
 import Pact.Types.Pretty
 
 import qualified Pact.JSON.Encode as J
+import Control.Exception.Safe
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion petersonChainGraph
@@ -558,14 +559,13 @@ execLocalTest runPact name (trans',check) = testCase name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- tryAllSynchronous $ runPact $
+      results' <- tryAny $ runPact $
         execLocal trans Nothing Nothing Nothing
       case results' of
-        Right (MetadataValidationFailure e) ->
-          return $ Left $ show e
-        Right LocalTimeout -> return $ Left "LocalTimeout"
-        Right (LocalResultLegacy cr) -> return $ Right cr
-        Right (LocalResultWithWarns cr _) -> return $ Right cr
+        Right (Right (LocalPreflightResult r)) ->
+          return $ Left $ show r
+        Right (Left (TxTimeout _)) -> return $ Left "LocalTimeout"
+        Right (Right (LocalResultLegacy cr)) -> return $ Right cr
         Left e -> return $ Left $ show e
 
 getPactCode :: TestSource -> IO Text

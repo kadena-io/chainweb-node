@@ -16,7 +16,7 @@ build-type:   Custom
 
 tested-with:
     GHC == 9.6
-
+    GHC == 9.6.4
 extra-source-files:
     CHANGELOG.md
     README.md
@@ -211,8 +211,6 @@ library
         , Chainweb.Miner.Miners
         , Chainweb.Miner.Pact
         , Chainweb.Miner.RestAPI
-        , Chainweb.Miner.RestAPI.Client
-        , Chainweb.Miner.RestAPI.Server
         , Chainweb.NodeVersion
         , Chainweb.OpenAPIValidation
         , Chainweb.Payload
@@ -380,6 +378,9 @@ library
         , data-default >=0.7
         , data-dword >= 0.3
         , deepseq >= 1.4
+        , deeproute
+        , deeproute:deeproute-wai
+        , deeproute:deeproute-client
         , digraph >= 0.2.3
         , direct-sqlite >= 2.3.27
         , directory >= 1.3
@@ -394,6 +395,7 @@ library
         , hashable >= 1.4
         , heaps >= 0.3
         , hourglass >=0.2
+        , http-api-data >=0.4.3
         , http-client >= 0.5
         , http-client-tls >=0.3
         , http-media >= 0.7
@@ -523,7 +525,7 @@ test-suite chainweb-tests
         Chainweb.Test.RestAPI.Client_
         Chainweb.Test.RestAPI.Utils
         Chainweb.Test.Rosetta
-        Chainweb.Test.Rosetta.RestAPI
+        -- Chainweb.Test.Rosetta.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
         Chainweb.Test.SPV.EventProof
@@ -569,6 +571,9 @@ test-suite chainweb-tests
         , data-default >=0.7
         , data-dword >= 0.3
         , data-ordlist >= 0.4.7
+        , deeproute
+        , deeproute:deeproute-wai
+        , deeproute:deeproute-client
         , deepseq >= 1.4
         , direct-sqlite >= 2.3.27
         , directory >= 1.2
@@ -596,6 +601,7 @@ test-suite chainweb-tests
         , retry >= 0.7
         , rocksdb-haskell-kadena >= 1.1.0
         , rosetta >= 1.0
+        , safe-exceptions
         , scheduler >= 1.4
         , servant >= 0.20.1
         , servant-client >= 0.18.2

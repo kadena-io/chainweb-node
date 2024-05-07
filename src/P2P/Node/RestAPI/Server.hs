@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -24,6 +25,7 @@ module P2P.Node.RestAPI.Server
 
 -- * P2P Server
 , p2pServer
+, newP2pServer
 
 -- * Application for a single P2P Network
 , chainP2pApp
@@ -40,7 +42,6 @@ module P2P.Node.RestAPI.Server
 
 import Control.Applicative
 import Control.Lens
-import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class
 
 import Data.Bifunctor
@@ -48,13 +49,19 @@ import Data.IxSet.Typed (getEQ, toAscList)
 import Data.Proxy
 import qualified Data.Text.IO as T
 
+import Network.HTTP.Media
+import Network.HTTP.Types
 import Network.Socket
+import Network.Wai
 import Network.Wai.Handler.Warp hiding (Port)
 
 import P2P.Node
 
 import Servant.API
 import Servant.Server
+
+import Web.DeepRoute
+import Web.DeepRoute.Wai
 
 import qualified Streaming.Prelude as SP
 
@@ -84,11 +91,12 @@ maxPeerInfoLimit :: Num a => a
 maxPeerInfoLimit = 512
 
 peerGetHandler
-    :: PeerDb
+    :: MonadIO m
+    => PeerDb
     -> NetworkId
     -> Maybe Limit
     -> Maybe (NextItem Int)
-    -> Handler (Page (NextItem Int) PeerInfo)
+    -> m (Page (NextItem Int) PeerInfo)
 peerGetHandler db nid limit next = do
     !sn <- liftIO $ peerDbSnapshot db
     !page <- seekFiniteStreamToPage fst next effectiveLimit
@@ -105,14 +113,15 @@ peerGetHandler db nid limit next = do
         (limit <|> Just defaultPeerInfoLimit)
 
 peerPutHandler
-    :: PeerDb
+    :: MonadIO m
+    => PeerDb
     -> ChainwebVersion
     -> NetworkId
     -> PeerInfo
-    -> Handler NoContent
+    -> m NoContent
 peerPutHandler db v nid e = liftIO (guardPeerDb v nid db e) >>= \case
-    Left failure ->
-        throwError $ setErrText ("Invalid hostaddress: " <> sshow failure) err400
+    Left failure -> liftIO $ errorWithStatus badRequest400
+        $ "Invalid hostaddress: " <> sshow failure
     Right _ -> NoContent <$ liftIO (peerDbInsert db nid e)
 
 -- -------------------------------------------------------------------------- --
@@ -165,6 +174,17 @@ chainP2pApiLayout _ = case sing @_ @n of
 -- -------------------------------------------------------------------------- --
 -- Multichain Server
 
+newP2pServer :: ChainwebVersion -> Route ((PeerDb, NetworkId) -> Application)
+newP2pServer v = endpoint'
+    [ (methodGet, "application/json",) $ \(pdb, networkId) req resp -> do
+        (next, limit) <- getParams req $
+            (,) <$> queryParamMaybe "next" <*> queryParamMaybe "limit"
+        resp . responseJSON ok200 [] =<< peerGetHandler pdb networkId limit next
+    , (methodPut, "text" // "plain" /: ("charset", "utf-8"),) $ \(pdb, networkId) req resp -> do
+        NoContent <- peerPutHandler pdb v networkId =<< requestFromJSON req
+        resp $ responseLBS noContent204 [] ""
+    ]
+
 someP2pServer :: SomePeerDb -> SomeServer
 someP2pServer (SomePeerDb (db :: PeerDbT v n)) = case sing @_ @n of
     SCutNetwork -> SomeServer (Proxy @(P2pApi v n)) (p2pServer db)
@@ -192,4 +212,3 @@ serveP2pSocket
     -> [(NetworkId, PeerDb)]
     -> IO ()
 serveP2pSocket s sock v = runSettingsSocket s sock . someServerApplication . someP2pServers v
-

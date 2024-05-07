@@ -27,8 +27,11 @@ module P2P.Session
 import Control.Monad
 
 import qualified Data.Text.IO as T
+import Data.ByteString.Lazy(LazyByteString)
+import Data.Void
 
-import Servant.Client
+import Web.DeepRoute.Client
+import qualified Network.HTTP.Client as Client
 
 import System.LogLevel
 

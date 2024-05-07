@@ -21,7 +21,6 @@ module Chainweb.Mempool.RestAPI.Client
 ------------------------------------------------------------------------------
 
 import Control.DeepSeq
-import Control.Exception
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Identity
@@ -31,7 +30,8 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 import Prelude hiding (lookup)
 import Servant.API
-import Servant.Client
+import Servant.Client hiding (ClientEnv)
+import Web.DeepRoute.Client
 
 ------------------------------------------------------------------------------
 
@@ -40,6 +40,8 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Mempool.RestAPI
 import Chainweb.Utils
 import Chainweb.Version
+import qualified Network.HTTP.Client as Client
+import Data.Void (Void)
 
 ------------------------------------------------------------------------------
 
@@ -67,18 +69,21 @@ toMempool version chain txcfg env =
     , mempoolClear = clear
     }
   where
-    go m = runClientM m env >>= either throwIO return
 
-    member v = V.fromList <$> go (memberClient version chain (V.toList v))
-    lookup v = V.fromList <$> go (lookupClient txcfg version chain (V.toList v))
-    insert _ v = void $ go (insertClient txcfg version chain (V.toList v))
+    member v =
+        V.fromList . Client.responseBody <$>
+        doRequestThrow env (memberTx version chain (V.toList v))
+    lookup v =
+        V.fromList . Client.responseBody <$>
+        doRequestThrow env (lookupTx version chain txcfg (V.toList v))
+    insert _ v = void $
+        doRequestThrow env (Right @Void <$> insertTx version chain txcfg (V.toList v))
 
     getPending hw cb = do
-        runClientM (getPendingClient version chain hw) env >>= \case
-            Left e -> throwIO e
-            Right ptxs -> do
-                void $ cb (V.fromList $ _pendingTransationsHashes ptxs)
-                return (_pendingTransactionsHighwaterMark ptxs)
+        doRequestThrow env (getPendingTxs version chain hw) >>= \resp -> do
+            let ptxs = Client.responseBody resp
+            void $ cb (V.fromList $ _pendingTransationsHashes ptxs)
+            return (_pendingTransactionsHighwaterMark ptxs)
 
     unsupported = fail "unsupported"
     clear = unsupported
@@ -102,7 +107,6 @@ insertClient txcfg v c k0 = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ insertClient_ @v @c k
-
 
 ------------------------------------------------------------------------------
 memberClient_

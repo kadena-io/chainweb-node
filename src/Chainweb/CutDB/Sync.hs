@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -26,7 +27,7 @@ import qualified Data.Text as T
 
 import GHC.Generics
 
-import Servant.Client
+import Web.DeepRoute.Client
 
 import qualified Streaming.Prelude as S
 
@@ -38,12 +39,17 @@ import Chainweb.BlockHeight
 import Chainweb.Cut (_cutHeight, cutMap)
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
-import Chainweb.CutDB.RestAPI.Client
+import Chainweb.CutDB.RestAPI
 import Chainweb.Utils
 import Chainweb.Version
 
 import P2P.Peer
-import P2P.Session
+import P2P.Session hiding (ClientEnv)
+import qualified Network.HTTP.Client as Client
+import Control.Monad.Except (runExceptT)
+import Data.Aeson (AesonException)
+import Data.Void (Void)
+import Control.Exception (Exception(displayException))
 
 -- -------------------------------------------------------------------------- --
 -- Client Env
@@ -54,20 +60,20 @@ data CutClientEnv = CutClientEnv
     }
     deriving (Generic)
 
-runClientThrowM :: ClientM a -> ClientEnv -> IO a
-runClientThrowM req = fromEitherM <=< runClientM req
-
 putCut
     :: CutClientEnv
     -> CutHashes
-    -> IO ()
-putCut (CutClientEnv v env) = void . flip runClientThrowM env . cutPutClient v
+    -> IO (Either (ClientError Void) ())
+putCut (CutClientEnv v env) ch =
+    fmap Client.responseBody <$> doRequestEither env (Right <$> putCutJSON v ch)
 
 getCut
     :: CutClientEnv
     -> CutHeight
-    -> IO CutHashes
-getCut (CutClientEnv v env) h = runClientThrowM (cutGetClientLimit v (int h)) env
+    -> IO (Either (ClientError AesonException) CutHashes)
+getCut (CutClientEnv v env) _h =
+    -- TODO: use h
+    fmap Client.responseBody <$> doRequestEither env (getCutJSON v Nothing)
 
 -- -------------------------------------------------------------------------- --
 -- Sync Session
@@ -105,8 +111,9 @@ syncSession v p db logg env pinf = do
     cenv = CutClientEnv v env
 
     send c = do
-        putCut cenv c
-        logg @T.Text Debug $ "put cut " <> encodeToText c
+        putCut cenv c >>= \case
+            Left ex -> logg @T.Text Debug $ "error putting cut: " <> T.pack (displayException ex)
+            Right () -> logg @T.Text Debug $ "put cut " <> encodeToText c
 
     receive = do
         cur <- _cut db
@@ -120,8 +127,10 @@ syncSession v p db logg env pinf = do
                 -- 'BlockHeight'. So we multiply it with the (current) number
                 -- chains to get an upper bound on the cut height.
 
-        c <- getCut cenv limit
-
-        let c' = set cutOrigin (Just pinf) c
-        logg @T.Text Debug $ "received cut " <> encodeToText c'
-        addCutHashes db c'
+        getCut cenv limit >>= \case
+            Right cutGot -> do
+                let cutGot' = set cutOrigin (Just pinf) cutGot
+                logg @T.Text Debug $ "received cut " <> encodeToText cutGot'
+                addCutHashes db cutGot'
+            Left err ->
+                logg @T.Text Debug $ "error getting cut " <> T.pack (displayException err)

@@ -3,11 +3,13 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 -- |
 -- Module: P2P.Node.RestAPI
@@ -31,8 +33,12 @@ module P2P.Node.RestAPI
 -- * Some P2P API
 , someP2pApi
 , someP2pApis
+
+, peerGet
+, peerPut
 ) where
 
+import Control.Lens
 import Data.Proxy
 
 import Servant
@@ -48,6 +54,12 @@ import Chainweb.Version
 import P2P.Peer
 
 import Chainweb.RestAPI.Orphans ()
+import Web.DeepRoute.Client
+import Network.HTTP.Types
+import Data.Aeson (encode, AesonException)
+import Network.HTTP.Client (RequestBody(..), Response)
+import Data.Functor
+import Network.HTTP.Media (maxQuality)
 
 -- -------------------------------------------------------------------------- --
 -- @GET /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/peer/@
@@ -64,6 +76,23 @@ peerGetApi
     :: forall (v :: ChainwebVersionT) (n :: NetworkIdT)
     . Proxy (PeerGetApi v n)
 peerGetApi = Proxy
+
+peerGet
+    :: ChainwebVersion -> NetworkId -> Maybe Limit -> Maybe (NextItem Int)
+    -> ApiRequest (Either AesonException (Page (NextItem Int) PeerInfo))
+peerGet v networkId limit next = mkApiRequest
+    methodGet
+    (traverse jsonBody)
+    ("chainweb" /@ "0.0" /@@ v /@@ networkId /@ "peer")
+    & requestAcceptable ?~ [maxQuality "application/json"]
+    & includePageParams limit next
+
+peerPut :: ChainwebVersion -> NetworkId -> PeerInfo -> ApiRequest ()
+peerPut v networkId peer = mkApiRequest
+    methodPut
+    (\resp -> return (() <$ resp))
+    ("chainweb" /@ "0.0" /@@ v /@@ networkId /@ "peer")
+    & requestBody .~ RequestBodyLBS (encode peer)
 
 -- -------------------------------------------------------------------------- --
 -- @PUT /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/peer/@

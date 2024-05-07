@@ -6,6 +6,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -58,6 +59,7 @@ module P2P.Peer
 , peerInfoHostname
 , peerInfoPort
 , shortPeerInfo
+, p2pResponseTimeout
 
 -- * Peer
 , Peer(..)
@@ -75,27 +77,30 @@ import Configuration.Utils.Validation
 
 import Control.DeepSeq
 import Control.Exception (evaluate)
+import Control.Exception.Safe
 import Control.Lens hiding ((.=))
 import Control.Monad
-import Control.Monad.Catch
+import Control.Monad.Except
 import Control.Monad.Writer
 
 import qualified Data.Attoparsec.Text as A
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
+import qualified Data.ByteString.Lazy as LB
 import Data.Hashable
 import Data.Maybe
 import Data.Streaming.Network
 import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
+import Data.Void
 
 import GHC.Generics (Generic)
 import GHC.Stack
 
 import qualified Network.HTTP.Client as HTTP
 
-import Servant.Client
+import Web.DeepRoute.Client
 
 -- internal modules
 
@@ -103,6 +108,7 @@ import Chainweb.HostAddress
 import Chainweb.Utils hiding (check)
 
 import Network.X509.SelfSigned
+import qualified Network.HTTP.Client as Client
 
 -- -------------------------------------------------------------------------- --
 -- Peer Id
@@ -249,15 +255,26 @@ pPeerInfoCompact service = textOption
     <> suffixHelp service "peer info"
     <> metavar "[<PEERID>@]<HOSTADDRESS>"
 
+-- | Timeout connection-attempts to estabilished peers in the P2P network.
+--
+-- This timeout can be overwritten on a per-request basis.
+--
+p2pResponseTimeout :: HTTP.ResponseTimeout
+p2pResponseTimeout = HTTP.responseTimeoutMicro 3_000_000
+
 -- | Create a ClientEnv for querying HTTP API of a PeerInfo
 --
 peerInfoClientEnv :: HTTP.Manager -> PeerInfo -> ClientEnv
-peerInfoClientEnv mgr = mkClientEnv mgr . peerBaseUrl . _peerAddr
+peerInfoClientEnv mgr inf =
+    ClientEnv
+        { _clientEnvHost = hostnameBytes $ view hostAddressHost addr
+        , _clientEnvPort = int $ view hostAddressPort addr
+        , _clientEnvSecure = True
+        , _clientEnvManager = mgr
+        , _clientEnvRequestModifier = \r -> r { Client.responseTimeout = p2pResponseTimeout }
+        }
   where
-    peerBaseUrl a = BaseUrl Https
-        (B8.unpack . hostnameBytes $ view hostAddressHost a)
-        (int $ view hostAddressPort a)
-        ""
+    addr = _peerAddr inf
 
 -- -------------------------------------------------------------------------- --
 -- Peer Configuration
@@ -469,4 +486,3 @@ instance FromJSON Peer where
         <*> o .: "certificateChain"
         <*> o .: "key"
     {-# INLINE parseJSON #-}
-

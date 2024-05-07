@@ -9,6 +9,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
@@ -28,17 +29,27 @@ module Chainweb.Pact.RestAPI.Server
 , spvHandler
 , somePactServer
 , somePactServers
+, newPactServer
 , validateCommand
+
+, sendReq
+, pollReq
+, listenReq
+, localReq
+, preflightReq
+, spv2Req
+, spvReq
+, ethSpvReq
 ) where
 
 import Control.Applicative
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
-import Control.Lens (set, view, preview)
+import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (Handler)
-import Control.Monad.Reader
+import Control.Monad.Reader hiding (local)
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Except (ExceptT, runExceptT, except)
 
@@ -129,6 +140,13 @@ import qualified Pact.Types.Hash as Pact
 import Pact.Types.PactError (PactError(..), PactErrorType(..))
 import Pact.Types.Pretty (pretty)
 import Control.Error (note, rights)
+import qualified Web.DeepRoute as DR
+import Network.HTTP.Types (badRequest400, methodPost, ok200, gatewayTimeout504)
+import qualified Web.DeepRoute.Wai as DR
+import Web.DeepRoute (errorWithStatus)
+import Web.DeepRoute.Wai (responseJSON)
+import Web.DeepRoute.Client
+import Network.HTTP.Client (RequestBody(RequestBodyLBS))
 
 -- -------------------------------------------------------------------------- --
 
@@ -137,7 +155,11 @@ data PactServerData logger tbl = PactServerData
     , _pactServerDataMempool :: !(MempoolBackend ChainwebTransaction)
     , _pactServerDataLogger :: !logger
     , _pactServerDataPact :: !PactExecutionService
+    , _pactServerChainId :: !ChainId
     }
+
+instance HasChainId (PactServerData logger tbl) where
+    _chainId = _pactServerChainId
 
 newtype PactServerData_ (v :: ChainwebVersionT) (c :: ChainIdT) logger tbl
     = PactServerData_ { _unPactServerData :: PactServerData logger tbl }
@@ -163,6 +185,10 @@ somePactServerData v cid db =
           case someChainIdVal cid of
               (SomeChainIdT (Proxy :: Proxy cidt)) ->
                   SomePactServerData (PactServerData_ @vt @cidt db)
+
+somePactServer :: SomePactServerData -> SomeServer
+somePactServer (SomePactServerData (db :: PactServerData_ v c logger tbl))
+    = SomeServer (Proxy @(PactServiceApi v c)) (pactServer @v @c $ _unPactServerData db)
 
 
 pactServer
@@ -195,10 +221,158 @@ pactServer d =
     pactSpvHandler = spvHandler logger cdb cid
     pactSpv2Handler = spv2Handler logger cdb cid
 
-somePactServer :: SomePactServerData -> SomeServer
-somePactServer (SomePactServerData (db :: PactServerData_ v c logger tbl))
-    = SomeServer (Proxy @(PactServiceApi v c)) (pactServer @v @c $ _unPactServerData db)
+sendReq :: ChainwebVersion -> ChainId -> SubmitBatch -> ApiRequest (Either AesonException RequestKeys)
+sendReq v cid batch = mkApiRequest
+  methodPost
+  (traverse jsonBody)
+  ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "pact" /@ "api" /@ "v1" /@ "send")
+  & requestBody .~ RequestBodyLBS (J.encode batch)
 
+pollReq :: ChainwebVersion -> ChainId -> Maybe ConfirmationDepth -> Poll -> ApiRequest (Either AesonException PollResponses)
+pollReq v cid confirmationDepth poll = mkApiRequest
+  methodPost
+  (traverse jsonBody)
+  ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "pact" /@ "api" /@ "v1" /@ "poll")
+  & requestQuery .~ [("confirmationDepth", toQueryParam <$> confirmationDepth)]
+  & requestBody .~ RequestBodyLBS (J.encode poll)
+
+listenReq :: ChainwebVersion -> ChainId -> ListenerRequest -> ApiRequest (Either AesonException RequestKeys)
+listenReq v cid listenerRequest = mkApiRequest
+  methodPost
+  (traverse jsonBody)
+  ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "pact" /@ "api" /@ "v1" /@ "listen")
+  & requestBody .~ RequestBodyLBS (J.encode listenerRequest)
+
+localReq
+  :: ChainwebVersion -> ChainId
+  -> Maybe LocalPreflightSimulation -> Maybe LocalSignatureVerification -> Maybe RewindDepth
+  -> Command Text
+  -> ApiRequest (Either AesonException LocalResult)
+localReq v cid preflight signatureVerification rewindDepth localCommand = mkApiRequest
+  methodPost
+  (traverse jsonBody)
+  ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "pact" /@ "api" /@ "v1" /@ "local")
+  & requestQuery .~
+    [ ("preflight", toQueryParam <$> preflight)
+    , ("signatureVerification", toQueryParam <$> signatureVerification)
+    , ("rewindDepth", toQueryParam <$> rewindDepth)
+    ]
+  & requestBody .~ RequestBodyLBS (J.encode localCommand)
+
+preflightReq
+  :: ChainwebVersion -> ChainId
+  -> Maybe LocalSignatureVerification -> Maybe RewindDepth
+  -> Command Text
+  -> ApiRequest (Either AesonException PreflightResult)
+preflightReq v cid signatureVerification rewindDepth command = mkApiRequest
+  methodPost
+  (traverse jsonBody)
+  ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "pact" /@ "api" /@ "v1" /@ "local")
+  & requestQuery .~
+    [ ("preflight", Just $ toQueryParam True)
+    , ("signatureVerification", toQueryParam <$> signatureVerification)
+    , ("rewindDepth", toQueryParam <$> rewindDepth)
+    ]
+  & requestBody .~ RequestBodyLBS (J.encode command)
+
+
+spvReq
+  :: ChainwebVersion -> ChainId
+  -> SpvRequest
+  -> ApiRequest (Either AesonException TransactionOutputProofB64)
+spvReq v cid req = mkApiRequest
+  methodPost
+  (traverse jsonBody)
+  ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "pact" /@ "spv")
+  & requestBody .~ RequestBodyLBS (J.encode req)
+
+spv2Req
+  :: ChainwebVersion -> ChainId
+  -> Spv2Request
+  -> ApiRequest (Either AesonException SomePayloadProof)
+spv2Req v cid req = mkApiRequest
+  methodPost
+  (traverse jsonBody)
+  ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "pact" /@ "spv2")
+  & requestBody .~ RequestBodyLBS (encode req)
+
+ethSpvReq
+  :: ChainwebVersion -> ChainId
+  -> EthSpvRequest
+  -> ApiRequest (Either AesonException EthSpvResponse)
+ethSpvReq v cid req = mkApiRequest
+  methodPost
+  (traverse jsonBody)
+  ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "pact" /@ "spv" /@ "eth")
+  & requestBody .~ RequestBodyLBS (encode req)
+
+newPactServer
+  :: CanReadablePayloadCas tbl
+  => Logger logger
+  => ChainwebVersion
+  -> DR.Route (PactServerData logger tbl -> Application)
+newPactServer v = fold
+  [ DR.seg "api" $ fold
+
+    [ DR.seg "v1" $ fold
+
+      [ DR.seg "send" $
+        DR.endpoint methodPost "application/json" $ \PactServerData{..} req resp -> do
+          submitBatch <- DR.requestFromJSON req
+          rks <- sendHandler _pactServerDataLogger v _pactServerChainId _pactServerDataMempool submitBatch
+          resp $ responsePactJSON ok200 [] rks
+
+      , DR.seg "poll" $
+        DR.endpoint methodPost "application/json" $ \PactServerData{..} req resp -> do
+          poll <- DR.requestFromJSON req
+          confirmationDepth <- DR.getParams req (DR.queryParamMaybe "confirmationDepth")
+          responses <-
+            pollHandler _pactServerDataLogger _pactServerDataCutDb _pactServerChainId _pactServerDataPact _pactServerDataMempool confirmationDepth poll
+          resp $ responsePactJSON ok200 [] responses
+
+      , DR.seg "listen" $
+        DR.endpoint methodPost "application/json" $ \PactServerData{..} req resp -> do
+          listenerRequest <- DR.requestFromJSON req
+          response <- listenHandler _pactServerDataLogger _pactServerDataCutDb _pactServerChainId _pactServerDataPact _pactServerDataMempool listenerRequest
+          resp $ responsePactJSON ok200 [] response
+
+      , DR.seg "local" $
+        DR.endpoint methodPost "application/json" $ \PactServerData{..} req resp -> do
+          localCommand <- DR.requestFromJSON req
+          (preflight, signatureVerification, rewindDepth) <- DR.getParams req $ (,,)
+            <$> DR.queryParamMaybe "preflight"
+            <*> DR.queryParamMaybe "signatureVerification"
+            <*> DR.queryParamMaybe "rewindDepth"
+          response <- localHandler
+            _pactServerDataLogger v _pactServerChainId _pactServerDataPact
+            preflight signatureVerification rewindDepth
+            localCommand
+          resp $ responsePactJSON ok200 [] response
+      ]
+    ]
+
+  , DR.seg "spv" $ fold
+
+    [ DR.seg "eth" $
+      DR.endpoint methodPost "application/json" $ \_ req resp -> do
+        ethSpvRequest <- DR.requestFromJSON req
+        resp . responseJSON ok200 [] =<<
+          ethSpvHandler ethSpvRequest
+
+    , DR.endpoint methodPost "application/json" $ \PactServerData{..} req resp -> do
+        spvRequest <- DR.requestFromJSON req
+        resp . responseJSON ok200 [] =<<
+          spvHandler _pactServerDataLogger _pactServerDataCutDb _pactServerChainId spvRequest
+
+    ]
+
+  , DR.seg "spv2" $
+    DR.endpoint methodPost "application/json" $ \PactServerData{..} req resp -> do
+      spv2Request <- DR.requestFromJSON req
+      resp . responseJSON ok200 [] =<<
+        spv2Handler _pactServerDataLogger _pactServerDataCutDb _pactServerChainId spv2Request
+
+  ]
 
 somePactServers
     :: CanReadablePayloadCas tbl
@@ -244,46 +418,46 @@ instance ToJSON PactCmdLog where
 -- Send Handler
 
 sendHandler
-    :: Logger logger
+    :: (Logger logger, MonadIO m)
     => logger
     -> ChainwebVersion
     -> ChainId
     -> MempoolBackend ChainwebTransaction
     -> SubmitBatch
-    -> Handler RequestKeys
-sendHandler logger v cid mempool (SubmitBatch cmds) = Handler $ do
-    liftIO $ logg Info (PactCmdLogSend cmds)
+    -> m RequestKeys
+sendHandler logger v cid mempool (SubmitBatch cmds) = liftIO $ do
+    logg Info (PactCmdLogSend cmds)
     case traverse (validateCommand v cid) cmds of
        Right enriched -> do
            let txs = V.fromList $ NEL.toList enriched
            -- If any of the txs in the batch fail validation, we reject them all.
-           liftIO (mempoolInsertCheck mempool txs) >>= checkResult
-           liftIO (mempoolInsert mempool UncheckedInsert txs)
+           mempoolInsertCheck mempool txs >>= checkResult
+           mempoolInsert mempool UncheckedInsert txs
            return $! RequestKeys $ NEL.map cmdToRequestKey enriched
-       Left err -> failWith $ "Validation failed: " <> T.pack err
+       Left err -> errorWithStatus badRequest400 $ "Validation failed: " <> T.pack err
   where
-    failWith :: Text -> ExceptT ServerError IO a
-    failWith err = throwError $ setErrText err err400
-
     logg = logFunctionJson (setComponent "send-handler" logger)
 
     toPactHash :: TransactionHash -> Pact.TypedHash h
     toPactHash (TransactionHash h) = Pact.TypedHash h
 
-    checkResult :: Either (T2 TransactionHash InsertError) () -> ExceptT ServerError IO ()
+    checkResult :: Either (T2 TransactionHash InsertError) () -> IO ()
     checkResult (Right _) = pure ()
-    checkResult (Left (T2 hash insErr)) = failWith $ fold
-        [ "Validation failed for hash "
-        , sshow $ toPactHash hash
-        , ": "
-        , sshow insErr
-        ]
+    checkResult (Left (T2 hash insErr)) = do
+      let msg = fold [ "Validation failed for hash "
+            , sshow $ toPactHash hash
+            , ": "
+            , sshow insErr
+            ]
+      errorWithStatus badRequest400 msg
+
 
 -- -------------------------------------------------------------------------- --
 -- Poll Handler
 
 pollHandler
-    :: HasCallStack
+    :: MonadIO m
+    => HasCallStack
     => CanReadablePayloadCas tbl
     => Logger logger
     => logger
@@ -293,12 +467,12 @@ pollHandler
     -> MempoolBackend ChainwebTransaction
     -> Maybe ConfirmationDepth
     -> Poll
-    -> Handler PollResponses
-pollHandler logger cdb cid pact mem confDepth (Poll request) = do
+    -> m PollResponses
+pollHandler logger cdb cid pact mem confDepth (Poll request) = liftIO $ do
     traverse_ validateRequestKey request
 
-    liftIO $! logg Info $ PactCmdLogPoll $ fmap requestKeyToB16Text request
-    PollResponses <$!> liftIO (internalPoll pdb bdb mem pact confDepth request)
+    logg Info $ PactCmdLogPoll $ fmap requestKeyToB16Text request
+    PollResponses <$!> internalPoll pdb bdb mem pact confDepth request
   where
     pdb = view CutDB.cutDbPayloadDb cdb
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
@@ -308,7 +482,8 @@ pollHandler logger cdb cid pact mem confDepth (Poll request) = do
 -- Listen Handler
 
 listenHandler
-    :: CanReadablePayloadCas tbl
+    :: MonadIO m
+    => CanReadablePayloadCas tbl
     => Logger logger
     => logger
     -> CutDB.CutDb tbl
@@ -316,12 +491,12 @@ listenHandler
     -> PactExecutionService
     -> MempoolBackend ChainwebTransaction
     -> ListenerRequest
-    -> Handler ListenResponse
-listenHandler logger cdb cid pact mem (ListenerRequest key) = do
+    -> m ListenResponse
+listenHandler logger cdb cid pact mem (ListenerRequest key) = liftIO $ do
     validateRequestKey key
 
-    liftIO $ logg Info $ PactCmdLogListen $ requestKeyToB16Text key
-    liftIO (registerDelay defaultTimeout >>= runListen)
+    logg Info $ PactCmdLogListen $ requestKeyToB16Text key
+    registerDelay defaultTimeout >>= runListen
   where
     pdb = view CutDB.cutDbPayloadDb cdb
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
@@ -363,7 +538,8 @@ listenHandler logger cdb cid pact mem (ListenerRequest key) = do
 -- Local Handler
 
 localHandler
-    :: Logger logger
+    :: MonadIO m
+    => Logger logger
     => logger
     -> ChainwebVersion
     -> ChainId
@@ -375,22 +551,25 @@ localHandler
     -> Maybe RewindDepth
       -- ^ Rewind depth
     -> Command Text
-    -> Handler LocalResult
-localHandler logger v cid pact preflight sigVerify rewindDepth cmd = do
-    liftIO $ logg Info $ PactCmdLogLocal cmd
+    -> m LocalResult
+localHandler logger v cid pact preflight sigVerify rewindDepth cmd = liftIO $ do
+    logg Info $ PactCmdLogLocal cmd
     cmd' <- case validatedCommand of
       Right c -> return c
       Left err ->
-        throwError $ setErrText ("Validation failed: " <> T.pack err) err400
+        errorWithStatus badRequest400 $ "Validation failed: " <> T.pack err
 
-    r <- liftIO $ try $ _pactLocal pact preflight sigVerify rewindDepth cmd'
+    r <- try $ _pactLocal pact preflight sigVerify rewindDepth cmd'
     case r of
-      Left (err :: PactException)  -> throwError $ setErrText
-        ("Execution failed: " <> T.pack (show err)) err400
-      Right (MetadataValidationFailure e) -> do
-        throwError $ setErrText
-          ("Metadata validation failed: " <> decodeUtf8 (BSL.toStrict (Aeson.encode e))) err400
-      Right lr -> return $! lr
+      Left (err :: PactException)  -> errorWithStatus badRequest400 $
+        ("Execution failed: " <> T.pack (show err))
+      Right (Left (TxTimeout h)) ->
+        errorWithStatus gatewayTimeout504 $
+          "Local request timed out: " <> sshow h
+      Right (Right (LocalPreflightResult (PreflightValidationFailure e))) -> do
+        errorWithStatus badRequest400 $
+          ("Metadata validation failed: " <> decodeUtf8 (BSL.toStrict (Aeson.encode e)))
+      Right (Right lr) -> return $! lr
   where
     logg = logFunctionJson (setComponent "local-handler" logger)
 
@@ -417,9 +596,11 @@ localHandler logger v cid pact preflight sigVerify rewindDepth cmd = do
 -- Cross Chain SPV Handler
 
 spvHandler
-    :: forall tbl l
+    :: forall tbl l m
     . ( Logger l
       , CanReadablePayloadCas tbl
+      , MonadIO m
+      , MonadThrow m
       )
     => l
     -> CutDB.CutDb tbl
@@ -432,7 +613,7 @@ spvHandler
         -- 'target-chain' field of a cross-chain-transfer.
         -- Also contains the request key of of the cross-chain transfer
         -- tx request.
-    -> Handler TransactionOutputProofB64
+    -> m TransactionOutputProofB64
 spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
     validateRequestKey rk
 
@@ -440,13 +621,13 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
 
     T2 bhe _bha <- liftIO (try $ _pactLookup pe cid Nothing (pure ph)) >>= \case
       Left (e :: PactException) ->
-        toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
+        liftIO $ DR.errorWithStatus badRequest400 $ "Internal error: transaction hash lookup failed: " <> sshow e
       Right v -> case HM.lookup ph v of
-        Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
+        Nothing -> liftIO $ DR.errorWithStatus badRequest400 $ "Transaction hash not found: " <> sshow ph
         Just t -> return t
 
     idx <- liftIO (getTxIdx bdb pdb bhe ph) >>= \case
-      Left e -> toErr
+      Left e -> liftIO $ DR.errorWithStatus badRequest400
         $ "Internal error: Index lookup for hash failed: "
         <> sshow e
       Right i -> return i
@@ -454,11 +635,11 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
     tid <- chainIdFromText ptid
     p <- liftIO (try $ createTransactionOutputProof cdb tid cid bhe idx) >>= \case
       Left e@SpvExceptionTargetNotReachable{} ->
-        toErr $ "SPV target not reachable: " <> _spvExceptionMsg e
+        liftIO $ DR.errorWithStatus badRequest400 $ "SPV target not reachable: " <> _spvExceptionMsg e
       Left e@SpvExceptionVerificationFailed{} ->
-        toErr $ "SPV verification failed: " <> _spvExceptionMsg e
+        liftIO $ DR.errorWithStatus badRequest400 $ "SPV verification failed: " <> _spvExceptionMsg e
       Left e ->
-        toErr $ "Internal error: SPV verification failed: " <> _spvExceptionMsg e
+        liftIO $ DR.errorWithStatus badRequest400 $ "Internal error: SPV verification failed: " <> _spvExceptionMsg e
       Right q -> return q
 
     return $! b64 p
@@ -475,15 +656,14 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
     logg = logFunctionJson (setComponent "spv-handler" l) Info
       . PactCmdLogSpv
 
-    toErr e = throwError $ setErrText e err400
-
 -- -------------------------------------------------------------------------- --
 -- SPV2 Handler
 
 spv2Handler
-    :: forall tbl l
+    :: forall m tbl l
     . ( Logger l
       , CanReadablePayloadCas tbl
+      , MonadIO m
       )
     => l
     -> CutDB.CutDb tbl
@@ -495,15 +675,15 @@ spv2Handler
         -- 'target-chain' field of a cross-chain-transfer.
         -- Also contains the request key of of the cross-chain transfer
         -- tx request.
-    -> Handler SomePayloadProof
+    -> m SomePayloadProof
 spv2Handler l cdb cid r = case _spvSubjectIdType sid of
     SpvSubjectResult
         |  _spv2ReqAlgorithm r /= SpvSHA512t_256 ->
-            toErr $ "Algorithm " <> sshow r <> " is not supported with SPV result proofs."
+            liftIO $ DR.errorWithStatus badRequest400 $ "Algorithm " <> sshow r <> " is not supported with SPV result proofs."
         | otherwise -> proof createOutputProofDb
     SpvSubjectEvents
         | cid /= _spvSubjectIdChain sid ->
-            toErr "Cross chain SPV proofs for are not supported for Pact events"
+            liftIO $ DR.errorWithStatus badRequest400 "Cross chain SPV proofs for are not supported for Pact events"
         | otherwise -> case _spv2ReqAlgorithm r of
             SpvSHA512t_256 -> proof createEventsProofDb
             SpvKeccak_256 -> proof createEventsProofDbKeccak256
@@ -513,21 +693,21 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
         . MerkleHashAlgorithm a
         => MerkleHashAlgorithmName a
         => (BlockHeaderDb -> PayloadDb tbl -> Natural -> BlockHash -> RequestKey -> IO (PayloadProof a))
-        -> Handler SomePayloadProof
+        -> m SomePayloadProof
     proof f = SomePayloadProof <$> do
         validateRequestKey rk
         liftIO $! logg (sshow ph)
         T2 bhe bha <- liftIO (try $ _pactLookup pe cid Nothing (pure ph)) >>= \case
             Left (e :: PactException) ->
-                toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
+                liftIO $ DR.errorWithStatus badRequest400 $ "Internal error: transaction hash lookup failed: " <> sshow e
             Right v -> case HM.lookup ph v of
-                Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
+                Nothing -> liftIO $ DR.errorWithStatus badRequest400 $ "Transaction hash not found: " <> sshow ph
                 Just t -> return t
 
         let confDepth = fromMaybe (diameter (chainGraphAt cdb bhe)) $ _spv2ReqMinimalProofDepth r
 
         liftIO (tryAllSynchronous $ f bdb pdb confDepth bha rk) >>= \case
-            Left e -> toErr $ "SPV proof creation failed:" <> sshow e
+            Left e -> liftIO $ DR.errorWithStatus badRequest400 $ "SPV proof creation failed:" <> sshow e
             Right q -> return q
 
     sid = _spv2ReqSubjectIdentifier r
@@ -541,19 +721,18 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
     logg = logFunctionJson (setComponent "spv-handler" l) Info
       . PactCmdLogSpv
 
-    toErr e = throwError $ err400 { errBody = e }
-
 -- -------------------------------------------------------------------------- --
 -- Eth SPV Handler
 
 ethSpvHandler
-    :: EthSpvRequest
-    -> Handler EthSpvResponse
-ethSpvHandler req = do
+    :: MonadIO m
+    => EthSpvRequest
+    -> m EthSpvResponse
+ethSpvHandler req = liftIO $ do
 
     -- find block with transaction
     (block, rest) <- case evalState start Nothing of
-        Left () -> toErr $ "the transaction " <> sshow tx <> " is not contained in any of the provided blocks"
+        Left () -> liftIO $ DR.errorWithStatus badRequest400 $ "the transaction " <> sshow tx <> " is not contained in any of the provided blocks"
         Right x -> return x
 
     -- select and order set of receipts in the block
@@ -562,12 +741,12 @@ ethSpvHandler req = do
     --
     rcs <- forM (_rpcBlockTransactions block) $ \t -> do
         case L.find (\r -> _rpcReceiptTransactionHash r == t) receipts of
-            Nothing -> toErr $ "missing receipt for tx " <> sshow t
+            Nothing -> liftIO $ DR.errorWithStatus badRequest400 $ "missing receipt for tx " <> sshow t
             Just x -> return x
 
     -- select and order set of extra headers and create proof
     case rpcReceiptProof (_rpcBlockHeader block) (hdrs block rest) rcs (TransactionIndex 28) of
-        Left e -> toErr $ "failed to create proof: " <> sshow e
+        Left e -> liftIO $ DR.errorWithStatus badRequest400 $ "failed to create proof: " <> sshow e
         Right proof -> return $ EthSpvResponse $
             encodeB64UrlNoPaddingText (putRlpByteString proof)
 
@@ -591,8 +770,6 @@ ethSpvHandler req = do
         )
         & S.map _rpcBlockHeader
         & S.toList_
-
-    toErr e = throwError $ err400 { errBody = e }
 
 -- --------------------------------------------------------------------------- --
 -- Poll Helper
@@ -705,15 +882,15 @@ validateCommand v cid (fmap encodeUtf8 -> cmdBs) = case parsedCmd of
 
 -- | Validate the length of the request key's underlying hash.
 --
-validateRequestKey :: RequestKey -> Handler ()
+validateRequestKey :: MonadIO m => RequestKey -> m ()
 validateRequestKey (RequestKey h'@(Hash h))
     | keyLength == blakeHashLength = return ()
-    | otherwise = throwError $ setErrText
+    | otherwise = liftIO $ DR.errorWithStatus badRequest400
         ( "Request Key "
         <> Pact.hashToText h'
         <> " has incorrect hash of length "
         <> sshow keyLength
-        ) err400
+        )
   where
     -- length of the encoded request key hash
     --

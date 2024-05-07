@@ -99,6 +99,9 @@ instance FromHttpApiData ChainwebVersionName where
 instance ToHttpApiData ChainwebVersionName where
     toUrlPiece = toText
 
+instance ToHttpApiData ChainwebVersion where
+    toUrlPiece = toText . _versionName
+
 instance FromHttpApiData ChainId where
     parseUrlPiece = first sshow . chainIdFromText
 

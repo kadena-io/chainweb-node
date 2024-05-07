@@ -69,7 +69,7 @@ local
     -> Maybe RewindDepth
     -> ChainwebTransaction
     -> PactQueue
-    -> IO LocalResult
+    -> IO (Either TxTimeout LocalResult)
 local preflight sigVerify rd ct reqQ = do
     let !msg = LocalMsg LocalReq
           { _localRequest = ct

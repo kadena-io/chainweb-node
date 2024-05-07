@@ -1,0 +1,8 @@
+cradle:
+  cabal:
+    - path: "./test/"
+      component: "chainweb:chainweb-tests"
+    - path: "./src/"
+      component: "chainweb:chainweb"
+    - path: "./node/"
+      component: "chainweb:chainweb-node"

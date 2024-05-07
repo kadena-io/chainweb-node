@@ -149,7 +149,6 @@ module Chainweb.Pact.Types
   , localLabelBlock
 
     -- * types
-  , TxTimeout(..)
   , ApplyCmdExecutionContext(..)
   , TxFailureLog(..)
 
@@ -495,10 +494,6 @@ instance Show ReorgLimitExceeded where
 instance Exception ReorgLimitExceeded where
     fromException = asyncExceptionFromException
     toException = asyncExceptionToException
-
-newtype TxTimeout = TxTimeout TransactionHash
-    deriving Show
-instance Exception TxTimeout
 
 data TxFailureLog = TxFailureLog !RequestKey !PactError !Text
   deriving stock (Generic)

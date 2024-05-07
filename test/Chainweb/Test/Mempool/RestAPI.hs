@@ -1,3 +1,4 @@
+{-# language OverloadedStrings #-}
 module Chainweb.Test.Mempool.RestAPI (tests) where
 
 import Control.Concurrent
@@ -10,7 +11,8 @@ import qualified Data.Vector as V
 import qualified Network.HTTP.Client as HTTP
 import Network.Wai (Application)
 
-import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
+-- import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
+import Web.DeepRoute.Client(ClientEnv(..))
 
 import Test.Tasty
 
@@ -34,6 +36,7 @@ import Chainweb.Version.Utils
 import Chainweb.Storage.Table.RocksDB
 
 import Network.X509.SelfSigned
+import Data.ByteString (ByteString)
 
 ------------------------------------------------------------------------------
 tests :: TestTree
@@ -78,14 +81,14 @@ newTestServer = mask_ $ do
     version :: ChainwebVersion
     version = barebonesTestVersion singletonChainGraph
 
-    host :: String
+    host :: ByteString
     host = "127.0.0.1"
 
     chain :: ChainId
     chain = someChainId version
 
     mkApp :: MempoolBackend MockTx -> Application
-    mkApp mp = chainwebApplication conf (serverMempools [(chain, mp)])
+    mkApp mp = chainwebApplication defaultP2pApiOptions conf (serverMempools [(chain, mp)])
 
     conf = defaultChainwebConfiguration version
 
@@ -93,7 +96,13 @@ newTestServer = mask_ $ do
     mkEnv port = do
         mgrSettings <- certificateCacheManagerSettings TlsInsecure
         mgr <- HTTP.newManager mgrSettings
-        return $! mkClientEnv mgr $ BaseUrl Https host port ""
+        return $! ClientEnv
+            { _clientEnvHost = host
+            , _clientEnvPort = port
+            , _clientEnvSecure = True
+            , _clientEnvManager = mgr
+            , _clientEnvRequestModifier = id
+            }
 
 destroyTestServer :: TestServer -> IO ()
 destroyTestServer = killThread . _tsServerThread

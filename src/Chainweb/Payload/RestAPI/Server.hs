@@ -19,7 +19,8 @@
 --
 module Chainweb.Payload.RestAPI.Server
 (
-  somePayloadServer
+  newPayloadServer
+, somePayloadServer
 , somePayloadServers
 
 -- * Single Chain Server
@@ -34,13 +35,19 @@ import Control.Monad.IO.Class
 
 import Data.Aeson
 import Data.Function
+import Data.Foldable
 import Data.Maybe
 import Data.Proxy
 import qualified Data.Text.IO as T
 
-import Prelude hiding (lookup)
+import Prelude
 
+import Network.HTTP.Types
+import Network.Wai
 import Servant
+
+import Web.DeepRoute
+import Web.DeepRoute.Wai
 
 -- internal modules
 
@@ -57,12 +64,6 @@ import Chainweb.Version
 import Chainweb.BlockHeight (BlockHeight)
 
 -- -------------------------------------------------------------------------- --
--- Utils
-
-err404Msg :: ToJSON msg  => msg -> ServerError
-err404Msg msg = setErrJSON msg err404
-
--- -------------------------------------------------------------------------- --
 -- GET Payload Handler
 
 -- | Query the 'BlockPayload' by its 'BlockPayloadHash'
@@ -72,13 +73,13 @@ payloadHandler
     => PayloadDb tbl
     -> BlockPayloadHash
     -> Maybe BlockHeight
-    -> Handler PayloadData
-payloadHandler db k mh = liftIO (lookupPayloadDataWithHeight db mh k) >>= \case
-    Nothing -> throwError $ err404Msg $ object
+    -> IO PayloadData
+payloadHandler db k mh = lookupPayloadDataWithHeight db mh k >>= \case
+    Nothing -> jsonErrorWithStatus notFound404 $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
         ]
-    Just e -> return e 
+    Just e -> return e
 
 -- -------------------------------------------------------------------------- --
 -- POST Payload Batch Handler
@@ -88,9 +89,9 @@ payloadBatchHandler
     => PayloadBatchLimit
     -> PayloadDb tbl
     -> BatchBody
-    -> Handler [PayloadData]
+    -> IO [PayloadData]
 payloadBatchHandler batchLimit db ks
-  = liftIO (catMaybes <$> lookupPayloadDataWithHeightBatch db ks')
+  = catMaybes <$> lookupPayloadDataWithHeightBatch db ks'
   where
       limit = take (int batchLimit)
       ks' | WithoutHeights xs <- ks = limit (fmap (Nothing,) xs)
@@ -106,9 +107,9 @@ outputsHandler
     => PayloadDb tbl
     -> BlockPayloadHash
     -> Maybe BlockHeight
-    -> Handler PayloadWithOutputs
+    -> IO PayloadWithOutputs
 outputsHandler db k mh = liftIO (lookupPayloadWithHeight db mh k) >>= \case
-    Nothing -> throwError $ err404Msg $ object
+    Nothing -> jsonErrorWithStatus notFound404 $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
         ]
@@ -122,9 +123,9 @@ outputsBatchHandler
     => PayloadBatchLimit
     -> PayloadDb tbl
     -> BatchBody
-    -> Handler [PayloadWithOutputs]
+    -> IO [PayloadWithOutputs]
 outputsBatchHandler batchLimit db ks
-  = liftIO (catMaybes <$> lookupPayloadWithHeightBatch db ks')
+  = catMaybes <$> lookupPayloadWithHeightBatch db ks'
   where
       limit = take (int batchLimit)
       ks' | WithoutHeights xs <- ks = limit (fmap (Nothing,) xs)
@@ -141,10 +142,10 @@ payloadServer
     -> PayloadDb' tbl v c
     -> Server (PayloadApi v c)
 payloadServer batchLimit (PayloadDb' db)
-    = payloadHandler @tbl db
-    :<|> outputsHandler @tbl db
-    :<|> payloadBatchHandler @tbl batchLimit db
-    :<|> outputsBatchHandler @tbl batchLimit db
+    = (liftIO .) . payloadHandler @tbl db
+    :<|> (liftIO .) . outputsHandler @tbl db
+    :<|> liftIO . payloadBatchHandler @tbl batchLimit db
+    :<|> liftIO . outputsBatchHandler @tbl batchLimit db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single PayloadDb
@@ -166,6 +167,25 @@ payloadApiLayout
     => PayloadDb' tbl v c
     -> IO ()
 payloadApiLayout _ = T.putStrLn $ layout (Proxy @(PayloadApi v c))
+
+newPayloadServer :: CanReadablePayloadCas tbl => PayloadBatchLimit -> Route (PayloadDb tbl -> Application)
+newPayloadServer batchLimit = fold
+    [ seg "batch" $
+        endpoint methodGet ("application/json") $ \pdb req resp ->
+            resp . responseJSON ok200 [] . toJSON =<< payloadBatchHandler batchLimit pdb =<< requestFromJSON req
+    , seg "outputs" $
+        seg "batch" $
+            endpoint methodPost ("application/json") $ \pdb req resp ->
+            resp . responseJSON ok200 [] . toJSON =<< outputsBatchHandler batchLimit pdb =<< requestFromJSON req
+    , capture $ fold
+        [ seg "outputs" $ endpoint methodGet ("application/json") $ \k pdb req resp -> do
+            mbh <- getParams req $ queryParamMaybe "height"
+            resp . responseJSON ok200 [] . toJSON =<< outputsHandler pdb k mbh
+        , endpoint methodGet ("application/json") $ \k pdb req resp -> do
+            mbh <- getParams req $ queryParamMaybe "height"
+            resp . responseJSON ok200 [] . toJSON =<< payloadHandler pdb k mbh
+        ]
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- Multichain Server

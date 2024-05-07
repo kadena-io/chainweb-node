@@ -73,9 +73,9 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
+import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.STM
 import Control.Scheduler (Comp(..), traverseConcurrently)
@@ -101,7 +101,7 @@ import qualified Network.HTTP.Client as HTTP
 
 import Numeric.Natural
 
-import Servant.Client
+import Web.DeepRoute.Client
 
 import System.IO.Unsafe
 import System.LogLevel
@@ -124,9 +124,11 @@ import Network.X509.SelfSigned
 
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
-import P2P.Node.RestAPI.Client
+import P2P.Node.RestAPI
 import P2P.Peer
 import P2P.Session
+import Network.HTTP.Client (Response(responseBody))
+import Data.Void
 
 -- -------------------------------------------------------------------------- --
 -- P2pNodeStats
@@ -433,7 +435,7 @@ peerClientEnv node = peerInfoClientEnv (_p2pNodeManager node)
 syncFromPeer :: P2pNode -> PeerInfo -> IO Bool
 syncFromPeer node info = do
     prunePeerDb peerDb
-    runClientM sync env >>= \case
+    tryAny sync >>= \case
         Left e
             | isCertMismatch e -> do
                 logg node Warn $ "failed to sync peers from " <> showInfo info <> ": unknown certificate. Deleting peer from peer db"
@@ -465,11 +467,11 @@ syncFromPeer node info = do
     me :: Maybe PeerId
     me = _peerId $ _p2pNodePeerInfo node
 
-    sync :: ClientM (Page (NextItem Int) PeerInfo)
+    sync :: IO (Page (NextItem Int) PeerInfo)
     sync = do
-        !p <- peerGetClient v nid Nothing Nothing
+        !p <- responseBody <$> doRequestThrow env (peerGet v nid Nothing Nothing)
         liftIO $ logg node Debug $ "got " <> sshow (_pageLimit p) <> " peers " <> showInfo info
-        void $ peerPutClient v nid (_p2pNodePeerInfo node)
+        _ <- doRequestThrow env (Right @Void <$> peerPut v nid (_p2pNodePeerInfo node))
         liftIO $ logg node Debug $ "put own peer info to " <> showInfo info
 
         return p
@@ -477,17 +479,17 @@ syncFromPeer node info = do
     -- If the certificate check fails because the certificate is unknown, the
     -- peer is removed from the database. That is, we allow only connection to
     -- peers that we know through explicitly being added to the db.
-    --
+
     -- We explicitly don't update the certificate fingerprint. The only we to
     -- introduce a new peer into the network is by propagating it to the peer
     -- databased. This allows to implement reputation management, gray-, and
     -- black listing.
-    --
-    isCertMismatch (ConnectionError e) = case fromException e of
+
+    -- TODO: is this correct still?
+    isCertMismatch e = case fromException e of
         Just x
             | isCertificateMismatchException x -> True
         _ -> False
-    isCertMismatch _ = False
 
 -- -------------------------------------------------------------------------- --
 -- Sample Peer from PeerDb

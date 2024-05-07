@@ -2,6 +2,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
@@ -19,22 +20,19 @@
 -- Stability: experimental
 --
 module Chainweb.BlockHeaderDB.RestAPI.Client
-( headerClient_
-, headerClient
-, headerClientContentType_
-, headerClientJson
-, headerClientJsonPretty
-, headerClientJsonBinary
+( headerClient
+, getHeaderBinary
+, getHeaderJSON
+, getHeaderJSONPretty
 
-, hashesClient_
 , hashesClient
-, headersClient_
 , headersClient
-, headersClientContentType_
-, headersClientJson
-, headersClientJsonPretty
-
-, blocksClient
+, getHashesJSON
+, getHeadersJSON
+, getBlocksJSON
+, getBranchHashes
+, getBranchHeadersJSON
+, getBranchHeadersJSONPretty
 
 , branchHashesClient_
 , branchHashesClient
@@ -44,18 +42,30 @@ module Chainweb.BlockHeaderDB.RestAPI.Client
 , branchHeadersClientContentType_
 , branchHeadersClientJson
 , branchHeadersClientJsonPretty
-
 , branchBlocksClient
+, headersClientJsonPretty
+, blocksClient
+, headersClient_
+, headerClientJson
+, headerClientJsonPretty
+, headerClient_
 ) where
 
-import Control.Monad.Identity
+import Control.Lens
 
+import Data.Aeson(encode, AesonException)
 import Data.Kind
 import Data.Proxy
 import Data.Singletons
 
 import Servant.API
-import Servant.Client
+import Servant.Client (ClientM, client)
+
+import Network.HTTP.Client(RequestBody(..), responseBody)
+import Network.HTTP.Media
+import Network.HTTP.Types
+
+import Web.DeepRoute.Client
 
 -- internal modules
 
@@ -67,7 +77,12 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils.Paging
+import Chainweb.Utils.Serialization
 import Chainweb.Version
+import qualified Network.HTTP.Client as Client
+import Control.Exception (evaluate)
+import qualified Data.Text as T
+import Chainweb.Utils (EncodingException(..))
 
 -- -------------------------------------------------------------------------- --
 -- GET Header Client
@@ -91,7 +106,7 @@ headerClientContentType_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (ct :: Type) x
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => Accept ct
+    => Servant.API.Accept ct
     => SupportedRespBodyContentType ct x BlockHeader
     => (HeaderApi v c) ~ x
     => BlockHash
@@ -127,6 +142,39 @@ headerClientJsonBinary v c k = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ headerClientContentType_ @v @c @OctetStream k
+
+getHeaderBinary
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockHash
+    -> ApiRequest (Either EncodingException BlockHeader)
+getHeaderBinary v cid bh = mkApiRequest
+    methodGet
+    (evaluate . fmap (over _Left (DecodeException . T.pack) . runGetEitherL decodeBlockHeader))
+    ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "header" /@@ bh)
+    & requestAcceptable ?~ [maxQuality $ "application" // "octet-stream"]
+
+getHeaderJSON
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockHash
+    -> ApiRequest (Either AesonException BlockHeader)
+getHeaderJSON v cid bh = mkApiRequest
+    methodGet
+    (traverse jsonBody)
+    ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "header" /@@ bh)
+    & requestAcceptable ?~ [maxQuality "application/json"]
+
+getHeaderJSONPretty
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockHash
+    -> ApiRequest (Either AesonException BlockHeader)
+getHeaderJSONPretty v cid bh = mkApiRequest
+    methodGet
+    (traverse ((fmap . fmap) _objectEncoded . jsonBody))
+    ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "header" /@@ bh)
+    & requestAcceptable ?~ [maxQuality "application/json;blockheader-encoding=object"]
 
 -- -------------------------------------------------------------------------- --
 -- Headers Client
@@ -164,7 +212,7 @@ headersClientContentType_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (ct :: Type) x
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => Accept ct
+    => Servant.API.Accept ct
     => HeadersApi v c ~ x
     => SupportedRespBodyContentType ct x BlockHeaderPage
     => Maybe Limit
@@ -194,6 +242,108 @@ headersClientJson v c limit start minr maxr = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ headersClientContentType_ @v @c @JSON limit start minr maxr
+
+getHeadersJSON
+    :: ChainwebVersion
+    -> ChainId
+    -> Maybe Limit
+    -> Maybe (NextItem BlockHash)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> ApiRequest (Either AesonException BlockHeaderPage)
+getHeadersJSON v cid limit start minr maxr = mkApiRequest
+    methodGet
+    (traverse jsonBody)
+    ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "header")
+    & requestAcceptable ?~ [maxQuality "application/json"]
+    & includePageParams limit start
+    & includeFilterParams minr maxr
+
+getBlocksJSON
+    :: ChainwebVersion
+    -> ChainId
+    -> Maybe Limit
+    -> Maybe (NextItem BlockHash)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> ApiRequest (Either AesonException BlockPage)
+getBlocksJSON v cid limit start minr maxr = mkApiRequest
+    methodGet
+    (traverse jsonBody)
+    ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "block")
+    & requestAcceptable ?~ [maxQuality "application/json"]
+    & includePageParams limit start
+    & includeFilterParams minr maxr
+
+getHashesJSON
+    :: ChainwebVersion
+    -> ChainId
+    -> Maybe Limit
+    -> Maybe (NextItem BlockHash)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> ApiRequest (Either AesonException BlockHashPage)
+getHashesJSON v cid limit start minr maxr = mkApiRequest
+    methodGet
+    (traverse jsonBody)
+    ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "hash")
+    & requestAcceptable ?~ [maxQuality "application/json"]
+    & includePageParams limit start
+    & includeFilterParams minr maxr
+
+getBranchHeadersJSON
+    :: ChainwebVersion
+    -> ChainId
+    -> Maybe Limit
+    -> Maybe (NextItem BlockHash)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> BranchBounds BlockHeaderDb
+    -> ApiRequest (Either AesonException BlockHeaderPage)
+getBranchHeadersJSON v cid limit start minr maxr bb = mkApiRequest
+    methodPost
+    (traverse jsonBody)
+    ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "header" /@ "branch")
+    & requestAcceptable ?~ [maxQuality "application/json"]
+    & includePageParams limit start
+    & includeFilterParams minr maxr
+    & requestBody .~ RequestBodyLBS (encode bb)
+
+getBranchHeadersJSONPretty
+    :: ChainwebVersion
+    -> ChainId
+    -> Maybe Limit
+    -> Maybe (NextItem BlockHash)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> BranchBounds BlockHeaderDb
+    -> ApiRequest (Either AesonException BlockHeaderPage)
+getBranchHeadersJSONPretty v cid limit start minr maxr bb = mkApiRequest
+    methodPost
+    (traverse (fmap (fmap (fmap _objectEncoded)) . jsonBody))
+    ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "header" /@ "branch")
+    & requestAcceptable ?~ [maxQuality "application/json;blockheader-encoding=object"]
+    & includePageParams limit start
+    & includeFilterParams minr maxr
+    & requestBody .~ RequestBodyLBS (encode bb)
+
+getBranchHashes
+    :: ChainwebVersion
+    -> ChainId
+    -> Maybe Limit
+    -> Maybe (NextItem BlockHash)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> BranchBounds BlockHeaderDb
+    -> ApiRequest (Either AesonException BlockHashPage)
+getBranchHashes v cid limit start minr maxr bb = mkApiRequest
+    methodPost
+    (traverse jsonBody)
+    ("chainweb" /@ "0.0" /@@ v /@ "chain" /@@ cid /@ "hash" /@ "branch")
+    & requestAcceptable ?~ [maxQuality "application/json"]
+    & includePageParams limit start
+    & includeFilterParams minr maxr
+    & requestBody .~ RequestBodyLBS (encode bb)
 
 headersClientJsonPretty
     :: ChainwebVersion

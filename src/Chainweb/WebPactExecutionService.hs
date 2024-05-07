@@ -64,7 +64,8 @@ data PactExecutionService = PactExecutionService
         Maybe LocalSignatureVerification ->
         Maybe RewindDepth ->
         ChainwebTransaction ->
-        IO LocalResult)
+        IO (Either TxTimeout LocalResult)
+        )
       -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
       -- Corresponds to `local` HTTP endpoint.
     , _pactLookup :: !(

@@ -94,7 +94,7 @@ import Data.Maybe
 import Data.Proxy
 import Data.Text (Text)
 
-import Network.HTTP.Media ((//), (/:))
+import Network.HTTP.Media ((/:))
 
 import Servant.API
 
@@ -177,7 +177,7 @@ instance MimeRender JSON BlockPage where
 data JsonBlockHeaderObject
 
 instance Accept JsonBlockHeaderObject where
-    contentType _ = "application" // "json" /: ("blockheader-encoding", "object")
+    contentType _ = "application/json" /: ("blockheader-encoding", "object")
 
 instance MimeUnrender JsonBlockHeaderObject BlockHeader where
     mimeUnrender _ = second _objectEncoded . eitherDecode
@@ -221,15 +221,60 @@ type FilterParams = MinHeightParam :> MaxHeightParam
 
 type MinHeightParam = QueryParam "minheight" MinRank
 type MaxHeightParam = QueryParam "maxheight" MaxRank
+-- type PageParams k = LimitParam :> NextParam k
+
+-- type LimitParam = QueryParam "limit" Limit
+-- type NextParam k = QueryParam "next" k
 
 -- -------------------------------------------------------------------------- --
 type BranchHashesApi_
     = "hash" :> "branch"
     :> PageParams (NextItem BlockHash)
+    :> FilterParams
+    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
+    :> Post '[JSON] BlockHashPage
+-- -------------------------------------------------------------------------- --
+type HashesApi_
+    = "hash"
+    :> PageParams (NextItem BlockHash)
+    :> FilterParams
+    :> Get '[JSON] BlockHashPage
+
+-- -------------------------------------------------------------------------- --
+type BranchHeadersApi_
+    = "header" :> "branch"
+    :> PageParams (NextItem BlockHash)
+    :> FilterParams
+    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
+    :> Post '[JSON, JsonBlockHeaderObject] BlockHeaderPage
+type P2pBranchHeadersApi_
+    = "header" :> "branch"
+    :> PageParams (NextItem BlockHash)
     :> MinHeightParam
     :> MaxHeightParam
     :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
-    :> Post '[JSON] BlockHashPage
+    :> Post '[JSON] BlockHeaderPage
+
+-- -------------------------------------------------------------------------- --
+type HeaderApi_
+    = "header"
+    :> Capture "BlockHash" BlockHash
+    :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
+type P2pHeaderApi_
+    = "header"
+    :> Capture "BlockHash" BlockHash
+    :> Get '[JSON, OctetStream] BlockHeader
+-- -------------------------------------------------------------------------- --
+type HeadersApi_
+    = "header"
+    :> PageParams (NextItem BlockHash)
+    :> FilterParams
+    :> Get '[JSON, JsonBlockHeaderObject] BlockHeaderPage
+type P2pHeadersApi_
+    = "header"
+    :> PageParams (NextItem BlockHash)
+    :> FilterParams
+    :> Get '[JSON] BlockHeaderPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/hash\/branch@
 --
@@ -257,22 +302,6 @@ branchHashesApi
 branchHashesApi = Proxy
 
 -- -------------------------------------------------------------------------- --
-type BranchHeadersApi_
-    = "header" :> "branch"
-    :> PageParams (NextItem BlockHash)
-    :> MinHeightParam
-    :> MaxHeightParam
-    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
-    :> Post '[JSON, JsonBlockHeaderObject] BlockHeaderPage
-
-type P2pBranchHeadersApi_
-    = "header" :> "branch"
-    :> PageParams (NextItem BlockHash)
-    :> MinHeightParam
-    :> MaxHeightParam
-    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
-    :> Post '[JSON] BlockHeaderPage
-
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/branch@
 --
 -- Returns a set of branches. A branch is obtained by traversing the block
@@ -306,12 +335,6 @@ p2pBranchHeadersApi
 p2pBranchHeadersApi = Proxy
 
 -- -------------------------------------------------------------------------- --
-type HashesApi_
-    = "hash"
-    :> PageParams (NextItem BlockHash)
-    :> FilterParams
-    :> Get '[JSON] BlockHashPage
-
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/hash@
 --
 -- Returns hashes in the block header tree database in ascending order with
@@ -330,18 +353,6 @@ hashesApi
 hashesApi = Proxy
 
 -- -------------------------------------------------------------------------- --
-type HeadersApi_
-    = "header"
-    :> PageParams (NextItem BlockHash)
-    :> FilterParams
-    :> Get '[JSON, JsonBlockHeaderObject] BlockHeaderPage
-
-type P2pHeadersApi_
-    = "header"
-    :> PageParams (NextItem BlockHash)
-    :> FilterParams
-    :> Get '[JSON] BlockHeaderPage
-
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
 --
 -- Returns block headers in the block header tree database in ascending order
@@ -361,22 +372,11 @@ headersApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (HeadersApi v c)
 headersApi = Proxy
-
 p2pHeadersApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (P2pHeadersApi v c)
 p2pHeadersApi = Proxy
-
 -- -------------------------------------------------------------------------- --
-type HeaderApi_
-    = "header"
-    :> Capture "BlockHash" BlockHash
-    :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
-
-type P2pHeaderApi_
-    = "header"
-    :> Capture "BlockHash" BlockHash
-    :> Get '[JSON, OctetStream] BlockHeader
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/\<BlockHash\>@
 --
@@ -465,7 +465,7 @@ headerUpdateProperties o =
     , "txCount" .= _huTxCount o
     , "powHash" .= _huPowHash o
     , "target"  .= _huTarget o
-    ] <> concatMap maybeToList
+    ] <> catMaybes
     [ ("payloadWithOutputs" .=) <$> _huPayloadWithOutputs o
     ]
 {-# INLINE headerUpdateProperties #-}
@@ -492,4 +492,3 @@ type BlockStreamApi_ =
 -- | A stream of all new blocks that are accepted into the true `Cut`.
 --
 type BlockStreamApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> BlockStreamApi_
-

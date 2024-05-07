@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Chainweb.CheckReachability
@@ -22,7 +23,6 @@ import Configuration.Utils hiding (Error, Lens')
 
 import Control.Concurrent.Async
 import Control.Monad
-import Control.Monad.Catch
 
 import Data.Either
 import Data.Foldable
@@ -37,8 +37,6 @@ import Numeric.Natural
 
 import Prelude hiding (log)
 
-import Servant.Client
-
 import System.LogLevel
 
 -- internal modules
@@ -51,7 +49,11 @@ import Chainweb.Utils
 import Chainweb.Version
 
 import P2P.Node.PeerDB
+import P2P.Node.RestAPI
 import P2P.Peer
+import Control.Exception.Safe
+import Web.DeepRoute.Client
+import Data.Void
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -93,13 +95,10 @@ checkReachability sock mgr v logger pdb peers peer threshold = do
       then return []
       else withPeerDbServer $ do
         forConcurrently peers $ \p ->
-            tryAllSynchronous (run p) >>= \case
-                Right (Right x) -> True <$ do
+            run p >>= \case
+                Right x -> True <$ do
                     logg Info $ "reachable from " <> toText (_peerAddr p)
                     logg Info $ sshow x
-                Right (Left e) -> False <$ do
-                    logg Warn $ "failed to be reachabled from " <> toText (_peerAddr p)
-                        <> ": " <> sshow e
                 Left e -> False <$ do
                     logg Warn $ "failed to be reachabled from " <> toText (_peerAddr p)
                         <> ": " <> sshow e
@@ -121,9 +120,8 @@ checkReachability sock mgr v logger pdb peers peer threshold = do
     pinf = _peerInfo peer
     logg = logFunctionText logger
 
-    run p = runClientM
-        (peerPutClient v CutNetwork pinf)
-        (peerInfoClientEnv mgr p)
+    run p =
+        doRequestEither (peerInfoClientEnv mgr p) $ Right @Void <$> peerPut v CutNetwork pinf
 
     withPeerDbServer inner = withAsync servePeerDb $ const inner
 
@@ -150,4 +148,3 @@ peerServerSettings peer
     = W.setPort (int . _hostAddressPort . _peerAddr $ _peerInfo peer)
     . W.setHost (_peerInterface peer)
     $ W.defaultSettings
-

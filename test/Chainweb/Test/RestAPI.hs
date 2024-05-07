@@ -19,6 +19,7 @@ module Chainweb.Test.RestAPI
 ( tests
 ) where
 
+import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
@@ -35,7 +36,7 @@ import Data.Time.Clock.POSIX
 
 import Network.HTTP.Types.Status
 
-import Servant.Client
+import Web.DeepRoute.Client
 
 import qualified Streaming.Prelude as SP
 
@@ -58,7 +59,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI
 import Chainweb.Test.RestAPI.Client_
-import Chainweb.Test.RestAPI.Utils (isFailureResponse, clientErrorStatusCode)
+import Chainweb.Test.RestAPI.Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Test.TestVersions (barebonesTestVersion)
@@ -70,6 +71,7 @@ import Chainweb.Version
 import Chainweb.Storage.Table.RocksDB
 
 import Servant.Client_
+import Network.HTTP.Client
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb queries
@@ -98,10 +100,10 @@ missingKey db = key
 -- -------------------------------------------------------------------------- --
 -- Response Predicates
 
-isErrorCode :: Int -> Either ClientError a -> Bool
-isErrorCode code (Left (FailureResponse _ Response { responseStatusCode = status}))
-    | statusCode status == code = True
-isErrorCode _ _ = False
+-- isErrorCode :: Int -> Either ClientError a -> Bool
+-- isErrorCode code (Left (FailureResponse _ Response { responseStatusCode = status}))
+--     | statusCode status == code = True
+-- isErrorCode _ _ = False
 
 -- -------------------------------------------------------------------------- --
 -- Tests
@@ -185,12 +187,12 @@ simpleClientSession envIO cid =
         env <- _envClientEnv <$> envIO
         bhdbs <- _envBlockHeaderDbs <$> envIO
         pdbs <- _envPayloadDbs <$> envIO
-        res <- runClientM (session bhdbs pdbs step) env
+        res <- session env bhdbs pdbs step
         assertBool ("test failed: " <> sshow res) (isRight res)
   where
 
-    session :: [(ChainId, BlockHeaderDb)] -> [(ChainId, PayloadDb RocksDbTable)] -> (String -> IO a) -> ClientM ()
-    session bhdbs pdbs step = do
+    session :: ClientEnv -> [(ChainId, BlockHeaderDb)] -> [(ChainId, PayloadDb RocksDbTable)] -> (String -> IO a) -> IO ()
+    session env bhdbs pdbs step = do
 
         let gbh0 = genesisBlockHeader version cid
 
@@ -203,19 +205,19 @@ simpleClientSession envIO cid =
             Nothing -> error "Chainweb.Test.RestAPI.simpleClientSession: missing payload db in test"
 
         void $ liftIO $ step "headerClient: get genesis block header"
-        gen0 <- headerClient version cid (key gbh0)
+        gen0 <- newHeaderClient env version cid (key gbh0)
         assertExpectation "header client returned wrong entry"
             (Expected gbh0)
             (Actual gen0)
 
         void $ liftIO $ step "headerClient: get genesis block header pretty"
-        gen01 <- headerClientJsonPretty version cid (key gbh0)
+        gen01 <- newHeaderClientJSONPretty env version cid (key gbh0)
         assertExpectation "header client returned wrong entry"
             (Expected gbh0)
             (Actual gen01)
 
         void $ liftIO $ step "headerClient: get genesis block header binary"
-        gen02 <- headerClientJsonBinary version cid (key gbh0)
+        gen02 <- newHeaderClient env version cid (key gbh0)
         assertExpectation "header client returned wrong entry"
             (Expected gbh0)
             (Actual gen02)
@@ -244,31 +246,33 @@ simpleClientSession envIO cid =
         liftIO $ traverse_ (\x -> addNewPayload pdb (_blockHeight x) (testBlockPayload_ x)) newHeaders
 
         void $ liftIO $ step "headersClient: get all 4 block headers"
-        bhs2 <- headersClient version cid Nothing Nothing Nothing Nothing
+        bhs2 <- fmap (fmap responseBody) $ doRequestEither env $
+            getHeadersJSON version cid Nothing Nothing Nothing Nothing
         assertExpectation "headersClient returned wrong number of entries"
-            (Expected 4)
-            (Actual $ _pageLimit bhs2)
+            (Expected (Right 4))
+            (Actual $ _pageLimit <$> bhs2)
 
         void $ liftIO $ step "blocksClient: get all 4 blocks"
-        blocks2 <- blocksClient version cid Nothing Nothing Nothing Nothing
+        blocks2 <- fmap (fmap responseBody) $ doRequestEither env $
+            getBlocks version cid Nothing Nothing Nothing Nothing
         assertExpectation "blocksClient returned wrong number of entries"
-            (Expected 4)
-            (Actual $ _pageLimit blocks2)
+            (Expected (Right 4))
+            (Actual $ _pageLimit <$> blocks2)
 
         void $ liftIO $ step "hashesClient: get all 4 block hashes"
-        hs2 <- hashesClient version cid Nothing Nothing Nothing Nothing
+        hs2 <- fmap (fmap responseBody) $ doRequestEither env $ getHashesJSON version cid Nothing Nothing Nothing Nothing
         assertExpectation "hashesClient returned wrong number of entries"
-            (Expected $ _pageLimit bhs2)
-            (Actual $ _pageLimit hs2)
+            (Expected $ Right (_pageLimit bhs2))
+            (Actual $ _pageLimit <$> hs2)
         assertExpectation "hashesClient returned wrong hashes"
-            (Expected $ key <$> _pageItems bhs2)
-            (Actual $ _pageItems hs2)
+            (Expected $ Right (key <$> _pageItems bhs2))
+            (Actual $ _pageItems <$> hs2)
 
         forM_ newHeaders $ \h -> do
             void $ liftIO $ step $ "headerClient: " <> T.unpack (encodeToText (_blockHash h))
-            r <- headerClient version cid (key h)
+            r <- fmap (fmap responseBody) $ doRequestEither env $ getHeaderBinary version cid (key h)
             assertExpectation "header client returned wrong entry"
-                (Expected h)
+                (Expected (Right h))
                 (Actual r)
 
         -- branchHeaders
@@ -276,9 +280,8 @@ simpleClientSession envIO cid =
         do
           void $ liftIO $ step "branchHeadersClient: BranchBounds limits exceeded"
           clientEnv <- liftIO $ _envClientEnv <$> envIO
-          let query bounds = liftIO
-                $ flip runClientM clientEnv
-                $ branchHeadersClient
+          let query bounds = liftIO $ doRequestEither clientEnv
+                $ getBranchHeadersJSON
                     version cid Nothing Nothing Nothing Nothing bounds
           let limit = 32
           let blockHeaders = testBlockHeaders (ParentHeader gbh0)
@@ -298,8 +301,10 @@ simpleClientSession envIO cid =
           let badUpper = mkUpper excessBlockHeaders
           let goodUpper = mkUpper maxBlockHeaders
 
-          let badRespCheck :: Int -> ClientError -> Bool
-              badRespCheck s e = isFailureResponse e && clientErrorStatusCode e == Just s
+          let badRespCheck :: Int -> ClientError e -> Bool
+              badRespCheck s (UnsuccessfulStatus status)
+                | statusCode status == s = True
+              badRespCheck _ _ = False
 
           badLowerResponse <- query (BranchBounds badLower emptyUpper)
           assertExpectation "branchHeadersClient returned a 400 error code on excess lower"
@@ -444,7 +449,7 @@ pagingTest
     -> Bool
         -- ^ whether the result represents an finite (True) or infinite (False)
         -- set
-    -> (ChainId -> Maybe Limit -> Maybe (NextItem (DbKey BlockHeaderDb)) -> ClientM (Page (NextItem (DbKey BlockHeaderDb)) a))
+    -> (ClientEnv -> ChainId -> Maybe Limit -> Maybe (NextItem (DbKey BlockHeaderDb)) -> IO (Page (NextItem (DbKey BlockHeaderDb)) a))
         -- ^ Request with paging parameters
     -> IO TestClientEnv_
         -- ^ Test environment
@@ -455,8 +460,8 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
         [(cid, db)] <- _envBlockHeaderDbs <$> envIO
         ents <- getDbItems db
         let l = len ents
-        res <- flip runClientM env $ forM_ [0 .. (l+2)] $ \i ->
-            session step ents cid (Just i) Nothing
+        res <- forM_ [0 .. (l+2)] $ \i ->
+            tryAny (session env step ents cid (Just i) Nothing)
         assertBool ("test of limit failed: " <> sshow res) (isRight res)
 
     -- TODO Did a limit value of 0 mean something else previously?
@@ -520,9 +525,9 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
 testPageLimitHeadersClient :: IO TestClientEnv_ -> TestTree
 testPageLimitHeadersClient = pagingTest "headersClient" headers key False request
   where
-    request cid l n = headersClient version cid l n Nothing Nothing
+    request cid l n = newHeadersClient version cid l n Nothing Nothing
 
 testPageLimitHashesClient :: IO TestClientEnv_ -> TestTree
 testPageLimitHashesClient = pagingTest "hashesClient" hashes id False request
   where
-    request cid l n = hashesClient version cid l n Nothing Nothing
+    request cid l n = newHashesClient version cid l n Nothing Nothing

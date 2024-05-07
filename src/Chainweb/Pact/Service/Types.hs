@@ -12,6 +12,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveAnyClass #-}
 -- |
 -- Module: Chainweb.Pact.Service.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -47,6 +48,8 @@ module Chainweb.Pact.Service.Types
 
   , BlockValidationFailureMsg(..)
   , LocalResult(..)
+  , TxTimeout(..)
+  , PreflightResult(..)
   , _LocalResultLegacy
   , BlockTxHistory(..)
 
@@ -190,55 +193,60 @@ newtype BlockValidationFailureMsg = BlockValidationFailureMsg J.JsonText
 instance FromJSON BlockValidationFailureMsg where
     parseJSON = pure . BlockValidationFailureMsg . J.encodeWithAeson
 
+newtype TxTimeout = TxTimeout TransactionHash
+    deriving Show
+instance Exception TxTimeout
+
 -- | The type of local results (used in /local endpoint)
 --
 data LocalResult
-    = MetadataValidationFailure !(NE.NonEmpty Text)
-    | LocalResultWithWarns !(CommandResult Hash) ![Text]
+    = LocalPreflightResult !PreflightResult
     | LocalResultLegacy !(CommandResult Hash)
-    | LocalTimeout
     deriving (Show, Generic)
+    deriving anyclass NFData
+
+data PreflightResult = PreflightResult
+  { _preflightResult :: !(CommandResult Hash)
+  , _preflightWarns :: ![Text]
+  }
+  | PreflightValidationFailure !(NE.NonEmpty Text)
+  deriving stock (Show, Generic)
+  deriving anyclass NFData
 
 makePrisms ''LocalResult
 
-instance NFData LocalResult where
-    rnf (MetadataValidationFailure t) = rnf t
-    rnf (LocalResultWithWarns cr ws) = rnf cr `seq` rnf ws
-    rnf (LocalResultLegacy cr) = rnf cr
-    rnf LocalTimeout = ()
-
-instance J.Encode LocalResult where
-    build (MetadataValidationFailure e) = J.object
+instance J.Encode PreflightResult where
+    build (PreflightResult {..}) = J.object
+        [ "preflightResult" J..= _preflightResult
+        , "preflightWarnings" J..= J.Array (J.text <$> _preflightWarns)
+        ]
+    build (PreflightValidationFailure e) = J.object
         [ "preflightValidationFailures" J..= J.Array (J.text <$> e)
         ]
+
+instance J.Encode LocalResult where
     build (LocalResultLegacy cr) = J.build cr
-    build (LocalResultWithWarns cr ws) = J.object
-        [ "preflightResult" J..= cr
-        , "preflightWarnings" J..= J.Array (J.text <$> ws)
-        ]
-    build LocalTimeout = J.text "Transaction timed out"
+    build (LocalPreflightResult pr) = J.build pr
     {-# INLINE build #-}
 
 instance FromJSON LocalResult where
     parseJSON v =
-          withText
+      withObject
             "LocalResult"
-            (\s -> if s == "Transaction timed out" then pure LocalTimeout else fail "Invalid LocalResult")
-            v
-      <|> withObject
-            "LocalResult"
-            (\o -> metaFailureParser o
-                <|> localWithWarnParser o
-                <|> legacyFallbackParser o
+            (\o -> legacyFallbackParser o
             )
             v
+      <|> LocalPreflightResult <$> parseJSON v
       where
-        metaFailureParser o =
-            MetadataValidationFailure <$> o .: "preflightValidationFailure"
-        localWithWarnParser o = LocalResultWithWarns
+        legacyFallbackParser _ = LocalResultLegacy <$> parseJSON v
+
+instance FromJSON PreflightResult where
+    parseJSON = withObject "PreflightResult" $ \o ->
+        PreflightResult
             <$> o .: "preflightResult"
             <*> o .: "preflightWarnings"
-        legacyFallbackParser _ = LocalResultLegacy <$> parseJSON v
+        <|> PreflightValidationFailure
+            <$> o .: "preflightValidationFailure"
 
 -- | Exceptions thrown by PactService components that
 -- are _not_ recorded in blockchain record.
@@ -365,7 +373,7 @@ instance Show SubmittedRequestMsg where
 data RequestMsg r where
     NewBlockMsg :: !NewBlockReq -> RequestMsg (T2 ParentHeader PayloadWithOutputs)
     ValidateBlockMsg :: !ValidateBlockReq -> RequestMsg PayloadWithOutputs
-    LocalMsg :: !LocalReq -> RequestMsg LocalResult
+    LocalMsg :: !LocalReq -> RequestMsg (Either TxTimeout LocalResult)
     LookupPactTxsMsg :: !LookupPactTxsReq -> RequestMsg (HashMap PactHash (T2 BlockHeight BlockHash))
     PreInsertCheckMsg :: !PreInsertCheckReq -> RequestMsg (Vector (Either InsertError ()))
     BlockTxHistoryMsg :: !BlockTxHistoryReq -> RequestMsg BlockTxHistory

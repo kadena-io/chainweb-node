@@ -460,13 +460,14 @@ txApiTests envIO step = do
     -- Transaction Proof:
 
     step "request transaction proof"
-    txProof <- flip runClientM env $
-        spvGetTransactionProofClient v trgChain (_chainId h) (_blockHeight h) (int txIx)
+    txProof <- undefined -- flip runClientM env $
+        -- spvGetTransactionProofClient v trgChain (_chainId h) (_blockHeight h) (int txIx)
 
     case txProof of
 
         Left err ->
-            assertFailure $ "request for transaction proof failed: " <> sshow err
+            undefined
+            -- assertFailure $ "request for transaction proof failed: " <> sshow err
 
         Right proof -> do
             step "verify transaction proof"
@@ -478,13 +479,14 @@ txApiTests envIO step = do
     -- Transaction Output Proof:
 
     step "request transaction output proof"
-    outProof <- flip runClientM env $
-        spvGetTransactionOutputProofClient v trgChain (_chainId h) (_blockHeight h) (int txIx)
+    outProof <- undefined -- flip runClientM env $
+        -- spvGetTransactionOutputProofClient v trgChain (_chainId h) (_blockHeight h) (int txIx)
 
     case outProof of
 
         Left err ->
-            assertFailure $ "request for transaction output proof failed: " <> sshow err
+            -- assertFailure $ "request for transaction output proof failed: " <> sshow err
+            undefined
 
         Right proof -> do
             step "verify transaction output proof"

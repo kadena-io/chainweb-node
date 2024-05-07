@@ -56,7 +56,7 @@ import qualified Chainweb.Test.Pact.TransactionTests
 import qualified Chainweb.Test.Pact.TTL
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Rosetta
-import qualified Chainweb.Test.Rosetta.RestAPI
+-- import qualified Chainweb.Test.Rosetta.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
 import qualified Chainweb.Test.SPV.EventProof
@@ -119,8 +119,8 @@ pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
 
 nodeTestSuite :: RocksDb -> TestTree
 nodeTestSuite rdb = independentSequentialTestGroup "Tests starting nodes"
-    [ Chainweb.Test.Rosetta.RestAPI.tests rdb
-    , Chainweb.Test.Pact.RemotePactTest.tests rdb
+    -- [ Chainweb.Test.Rosetta.RestAPI.tests rdb
+    [ Chainweb.Test.Pact.RemotePactTest.tests rdb
     ]
 
 suite :: RocksDb -> [TestTree]

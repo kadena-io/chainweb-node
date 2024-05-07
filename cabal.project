@@ -1,4 +1,6 @@
-packages: chainweb.cabal
+packages:
+  chainweb.cabal
+  /home/edmundn/kadena/deeproute/deeproute.cabal
 
 debug-info: True
 

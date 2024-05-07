@@ -66,6 +66,7 @@ module Chainweb.Utils
 , int
 , len
 , (==>)
+, ($<$)
 , keySet
 , tabulateHashMap
 , maxBy
@@ -350,6 +351,12 @@ len = int . length
 a ==> b = not a || b
 infixr 1 ==>
 {-# INLINE (==>) #-}
+
+-- Functorial function composition operator, occasionally useful defining deeproutes.
+($<$) :: Functor f => f (b -> c) -> (a -> b) -> f (a -> c)
+($<$) a b = (. b) <$> a
+infixr 4 $<$
+{-# INLINE ($<$) #-}
 
 -- | The set of keys of a 'HM.HashMap'.
 --

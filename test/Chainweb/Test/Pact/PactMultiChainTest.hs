@@ -314,7 +314,7 @@ pactLocalDepthTest = do
 
   where
   checkLocalResult r checkResult = case r of
-    Right (LocalResultLegacy cr) -> checkResult cr
+    Right (Right (LocalResultLegacy cr)) -> checkResult cr
     res -> liftIO $ assertFailure $ "Expected LocalResultLegacy, but got: " ++ show res
   getSender00Balance = set cbGasLimit 700 $ set cbRPC (mkExec' "(coin.get-balance \"sender00\")") $ defaultCmd
   buildCoinXfer code = buildBasic'
@@ -381,10 +381,10 @@ pact45UpgradeTest = do
   buildSimpleCmd code = buildBasicGas 3000
       $ mkExec' code
 
-runLocal :: T.Text -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
+runLocal :: T.Text -> ChainId -> CmdBuilder -> PactTestM (Either PactException (Either TxTimeout LocalResult))
 runLocal nonce cid' cmd = runLocalWithDepth nonce Nothing cid' cmd
 
-runLocalWithDepth :: T.Text -> Maybe RewindDepth -> ChainId -> CmdBuilder -> PactTestM (Either PactException LocalResult)
+runLocalWithDepth :: T.Text -> Maybe RewindDepth -> ChainId -> CmdBuilder -> PactTestM (Either PactException (Either TxTimeout LocalResult))
 runLocalWithDepth nonce depth cid' cmd = do
   pact <- getPactService cid'
   cwCmd <- buildCwCmd nonce testVersion cmd
@@ -406,21 +406,21 @@ assertLocalFailure
     :: (HasCallStack, MonadIO m)
     => String
     -> Doc
-    -> Either PactException LocalResult
+    -> Either PactException (Either TxTimeout LocalResult)
     -> m ()
 assertLocalFailure s d lr =
   liftIO $ assertEqual s (Just d) $
-    lr ^? _Right . _LocalResultLegacy . crResult . to _pactResult . _Left . to peDoc
+    lr ^? _Right . _Right . _LocalResultLegacy . crResult . to _pactResult . _Left . to peDoc
 
 assertLocalSuccess
     :: (HasCallStack, MonadIO m)
     => String
     -> PactValue
-    -> Either PactException LocalResult
+    -> Either PactException (Either TxTimeout LocalResult)
     -> m ()
 assertLocalSuccess s pv lr =
   liftIO $ assertEqual s (Just pv) $
-    lr ^? _Right . _LocalResultLegacy . crResult . to _pactResult . _Right
+    lr ^? _Right . _Right . _LocalResultLegacy . crResult . to _pactResult . _Right
 
 pact43UpgradeTest :: PactTestM ()
 pact43UpgradeTest = do

@@ -97,10 +97,16 @@ module Chainweb.RestAPI.Utils
 , SetReqBodyContentType
 , SupportedRespBodyContentType
 , SetRespBodyContentType
+, includePageParams
+, includeFilterParams
+, captureValidChainId
+, lookupResource
+, responsePactJSON
 
 ) where
 
 import Control.Exception (Exception, throw)
+import Control.Lens
 import Control.Monad.Catch (bracket)
 
 import Data.Aeson
@@ -121,6 +127,7 @@ import qualified Network.HTTP.Types.Header as HTTP
 import qualified Network.Socket as N
 import Network.Wai.Handler.Warp (HostPreference)
 
+import Web.DeepRoute.Client (ApiRequest, requestQuery)
 import Servant.API hiding (addHeader)
 import Servant.Client
 import Servant.Server
@@ -130,9 +137,19 @@ import Chainweb.ChainId
 import Chainweb.HostAddress
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Orphans ()
+import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
+import Web.DeepRoute (Route, capture')
+import GHC.Stack
+import Web.HttpApiData (parseUrlPieceMaybe)
+import Control.Monad (guard)
+import qualified Data.HashSet as HS
+import Data.Maybe (fromMaybe)
+import Pact.JSON.Encode
+import Network.Wai (responseLBS, Response)
+import Network.HTTP.Types (Status)
 
 -- -------------------------------------------------------------------------- --
 -- Servant Utils
@@ -164,7 +181,7 @@ setErrText m e = e
 
 setErrJSON :: ToJSON a => a -> ServerError -> ServerError
 setErrJSON m e = e
-    { errBody = encode m
+    { errBody = Data.Aeson.encode m
     , errHeaders = addHeader ("Content-Type", "application/json;charset=utf-8") (errHeaders e)
     }
 
@@ -532,3 +549,27 @@ deallocateSocket (_, sock) = N.close sock
 withSocket :: Port -> HostPreference -> ((Port, N.Socket) -> IO a) -> IO a
 withSocket port interface = bracket (allocateSocket port interface) deallocateSocket
 
+includePageParams :: ToHttpApiData (NextItem k) => Maybe Limit -> Maybe (NextItem k) -> ApiRequest a -> ApiRequest a
+includePageParams limit start r = r
+    & requestQuery <>~ [ ("limit", Just $ toQueryParam lim) | Just lim <- [limit] ]
+    & requestQuery <>~ [ ("next", Just $ toQueryParam next) | Just next <- [start] ]
+
+includeFilterParams :: Maybe MinRank -> Maybe MaxRank -> ApiRequest a -> ApiRequest a
+includeFilterParams minr maxr r = r
+    & requestQuery <>~ [ ("minheight", Just $ toQueryParam mh) | Just mh <- [minr] ]
+    & requestQuery <>~ [ ("maxheight", Just $ toQueryParam mh) | Just mh <- [maxr] ]
+
+captureValidChainId :: HasChainwebVersion v => v -> Route (ChainId -> a) -> Route a
+captureValidChainId v = capture' $ \p -> do
+    cid <- parseUrlPieceMaybe p
+    guard (HS.member cid (chainIds v))
+    return cid
+
+lookupResource :: (HasCallStack, Eq a) => [(a, b)] -> a -> b
+lookupResource ress ident =
+    fromMaybe (error "internal error: failed to look up resource by identifier") $
+        Prelude.lookup ident ress
+
+responsePactJSON :: Encode a => Status -> HTTP.ResponseHeaders -> a -> Network.Wai.Response
+responsePactJSON status headers body =
+    responseLBS status headers (Pact.JSON.Encode.encode body)

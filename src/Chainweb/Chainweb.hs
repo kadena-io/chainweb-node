@@ -592,11 +592,12 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
         -> IO b
     withPactData cs cuts m = do
         let l = sortBy (compare `on` fst) (HM.toList cs)
-        m $ l <&> fmap (\cr -> PactServerData
+        m $ l <&> (\(cid, cr) -> (cid,) PactServerData
             { _pactServerDataCutDb = _cutResCutDb cuts
             , _pactServerDataMempool = _chainResMempool cr
             , _pactServerDataLogger = _chainResLogger cr
             , _pactServerDataPact = _chainResPact cr
+            , _pactServerChainId = cid
             })
 
     v = _configChainwebVersion conf
@@ -880,9 +881,9 @@ runChainweb cw nowServing = do
 
     serveServiceApi :: Middleware -> IO ()
     serveServiceApi = serveServiceApiSocket
+        (_chainwebConfig cw)
         (serviceApiServerSettings (fst $ _chainwebServiceSocket cw) serviceApiHost)
         (snd $ _chainwebServiceSocket cw)
-        (_chainwebVersion cw)
         ChainwebServerDbs
             { _chainwebServerCutDb = Just cutDb
             , _chainwebServerBlockHeaderDbs = chainDbsToServe
