@@ -1233,19 +1233,28 @@ mkEvalEnv nsp msg = do
     [ (wizaDebit, (wizaWhitelist, wizaMH))
     , (skdxDebit, (kdxWhitelist, skdxMH))
     , (collectGallinasMarket, (collectGallinasWhitelist, collectGallinasMH))
+    , (marmaladeGuardPolicyMint, (marmaladeWhitelist, marmaladeGuardPolicyMH))
     ]
     where
+    -- wiza code
     wizaDebit = QualifiedName "free.wiza" "DEBIT" def
     wizaMH = unsafeModuleHashFromB64Text "8b4USA1ZNVoLYRT1LBear4YKt3GB2_bl0AghZU8QxjI"
     wizEquipmentOwner = QualifiedName "free.wiz-equipment" "OWNER" def
+    wizEquipmentAcctGuard = QualifiedName "free.wiz-equipment" "ACCOUNT_GUARD" def
     wizArenaOwner = QualifiedName "free.wiz-arena" "OWNER" def
     wizaTransfer = QualifiedName "free.wiza" "TRANSFER" def
+    -- kaddex code
     skdxDebit = QualifiedName "kaddex.skdx" "DEBIT" def
     skdxMH = unsafeModuleHashFromB64Text "g90VWmbKj87GkMkGs8uW947kh_Wg8JdQowa8rO_vZ1M"
     kdxUnstake = QualifiedName "kaddex.staking" "UNSTAKE" def
+    -- Collect-gallinas code
     collectGallinasMH = unsafeModuleHashFromB64Text "x3BLGdidqSjUQy5q3MorGco9mBDpoVTh_Yoagzu0hls"
     collectGallinasMarket = QualifiedName "free.collect-gallinas" "MARKET" def
     collectGallinasAcctGuard = QualifiedName "free.collect-gallinas" "ACCOUNT_GUARD" def
+    -- marmalade code
+    marmaladeGuardPolicyMH = unsafeModuleHashFromB64Text "LB5sRKx8jN3FP9ZK-rxDK7Bqh0gyznprzS8L4jYlT5o"
+    marmaladeGuardPolicyMint = QualifiedName "marmalade-v2.guard-policy-v1" "MINT" def
+    marmaladeLedgerMint = QualifiedName "marmalade-v2.ledger" "MINT-CALL" def
 
     kdxWhitelist granted sigCaps =
       let debits = filter ((== skdxDebit) . _scName) $ S.toList granted
@@ -1256,7 +1265,7 @@ mkEvalEnv nsp msg = do
       in all (\c -> any (match c) sigCaps) debits
       where
       match prov sigCap = fromMaybe False $ do
-        guard $ _scName sigCap `elem` [wizArenaOwner, wizEquipmentOwner, wizaTransfer]
+        guard $ _scName sigCap `elem` [wizArenaOwner, wizEquipmentOwner, wizaTransfer, wizEquipmentAcctGuard]
         sender <- preview _head (_scArgs prov)
         (== sender) <$> preview _head (_scArgs sigCap)
 
@@ -1265,6 +1274,10 @@ mkEvalEnv nsp msg = do
       let matchingGuard provided toMatch = _scName toMatch == collectGallinasAcctGuard && (_scArgs provided == _scArgs toMatch)
       pure $ all (\c -> any (matchingGuard c) sigCaps) mkt
 
+    marmaladeWhitelist granted sigCaps = fromMaybe False $ do
+      let mkt = filter ((== marmaladeGuardPolicyMint) . _scName) $ S.toList granted
+      let matchingGuard provided toMatch = _scName toMatch == marmaladeLedgerMint && (_scArgs provided == _scArgs toMatch)
+      pure $ all (\c -> any (matchingGuard c) sigCaps) mkt
 
 unsafeModuleHashFromB64Text :: Text -> ModuleHash
 unsafeModuleHashFromB64Text =
