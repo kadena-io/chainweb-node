@@ -118,7 +118,6 @@ library
     -Wsign-compare
     -Wshadow
     -Wunused-parameter
-    -Werror
     -std=c++2a
     -faligned-new
     -DNO_THREEWAY_CRC32C
