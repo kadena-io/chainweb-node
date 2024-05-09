@@ -57,6 +57,7 @@ import Options.Applicative (ParserInfo, Parser, (<**>))
 import Options.Applicative qualified as O
 import Pact.JSON.Encode qualified as J
 import Patience.Map qualified as P
+import System.Directory (createDirectoryIfMissing)
 import System.LogLevel (LogLevel(..))
 import UnliftIO.Async (pooledForConcurrently)
 
@@ -158,6 +159,7 @@ pactCalcMain = do
                   pure ()
 
           let modulePath = "src/Chainweb/Pact/Backend/PactState/EmbeddedSnapshot/" <> versionModuleName cfg.chainwebVersion <> ".hs"
+          createDirectoryIfMissing True "src/Chainweb/Pact/Backend/PactState/EmbeddedSnapshot/"
           writeFile modulePath (chainHashesToModule cfg.chainwebVersion chainHashes)
         BLC8.putStrLn $ grandsToJson chainHashes
   where
