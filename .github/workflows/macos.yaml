@@ -24,10 +24,29 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
-    # work around for https://github.com/haskell/actions/issues/187
-    - name: Set permissions for .ghcup
-      if: startsWith(matrix.os, 'ubuntu-')
-      run: sudo chown -R $USER /usr/local/.ghcup
+    - uses: actions/cache/restore@v4
+      name: Restore ghc & cabal binaries cache
+      id: ghc-cabal-cache
+      env:
+        key: ${{ runner.os }}-ghc-cabal
+      with:
+        path: |
+          /Users/runner/.ghcup
+        key: ${{ env.key }}-${{ hashFiles('bin/cabal', 'bin/ghc') }}
+        restore-keys: ${{ env.key }}-
+
+    - uses: actions/cache/restore@v4
+      name: Restore dist-newstyle cache
+      id: cabal-dist-cache
+      with:
+        path: |
+          ~/.cabal/packages
+          ~/.cabal/store
+          dist-newstyle
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
+        restore-keys: |
+          ${{ matrix.os }}-${{ matrix.ghc }}-
+
     - name: Install GHC and Cabal
       uses: haskell-actions/setup@v2
       with:
@@ -37,8 +56,16 @@ jobs:
       run: |
         ghc --version
         cabal --version
+
+    - uses: actions/cache/save@v4
+      name: Cache ghc & cabal binaries
+      if: steps.ghc-cabal-cache.outputs.cache-hit != 'true'
+      with:
+        path: |
+          /Users/runner/.ghcup
+        key: ${{ steps.ghc-cabal-cache.outputs.cache-primary-key }}
+
     - name: Install non-Haskell dependencies (macOS)
-      if: contains(matrix.os, 'mac')
       run: |
         brew update && brew install gflags llvm snappy || true
     - name: Create cabal.project.local
@@ -53,21 +80,15 @@ jobs:
         package pact
           documentation: False
         EOF
-    - name: Create date file for dist-newstyle cache key
-      id: cache-date
-      run: |
-        echo "value=$(date +%Y.%j)" >> $GITHUB_OUTPUT
-    - uses: actions/cache@v3
-      name: Cache dist-newstyle
+    - uses: actions/cache/save@v4
+      name: Save dist-newstyle cache
+      if: steps.cabal-dist-cache.outputs.cache-hit != 'true'
       with:
         path: |
           ~/.cabal/packages
           ~/.cabal/store
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-2-${{ steps.cache-date.outputs.value }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
-        restore-keys: |
-          ${{ matrix.os }}-${{ matrix.ghc }}-2-${{ steps.cache-date.outputs.value }}-
-          ${{ matrix.os }}-${{ matrix.ghc }}-2-
+        key: ${{ steps.cabal-dist-cache.outputs.cache-primary-key }}
 
     # Build
     - name: Delete Freeze file if it exists
