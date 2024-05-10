@@ -19,9 +19,13 @@ if os(darwin)
             extra-include-dirs:
                 /opt/local/include
                 /usr/local/opt/openssl/include
+                /opt/homebrew/include
+                /opt/homebrew/opt/openssl/include
             extra-lib-dirs:
                 /opt/local/lib
                 /usr/local/opt/openssl/lib/
+                /opt/homebrew/lib
+                /opt/homebrew/opt/openssl/lib
 
 -- -------------------------------------------------------------------------- --
 -- Package Specific Build Settings
