@@ -111,6 +111,7 @@ import Data.LogMessage
 import Data.Maybe
 import Data.Monoid
 import Data.Ord
+import Data.Text (Text)
 import qualified Data.Text as T
 import Data.These
 
@@ -759,11 +760,15 @@ cutHashesToBlockHeaderMap
 cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
     timeout (_cutDbParamsFetchTimeout conf) go >>= \case
         Nothing -> do
-            logfun Warn
+            let cutOriginText = case _cutHashesLocalPayload hs of
+                    Nothing -> "from " <> maybe "unknown origin" (\p -> "origin " <> toText p) origin
+                    Just _ -> "which was locally mined - the mining loop will stall until unstuck by another miner"
+
+            logfun (maybe Warn (\_ -> Error) (_cutHashesLocalPayload hs))
                 $ "Timeout while processing cut "
                     <> cutIdToTextShort hsid
                     <> " at height " <> sshow (_cutHashesHeight hs)
-                    <> maybe " from unknown origin" (\p -> " from origin " <> toText p) origin
+                    <> cutOriginText
             return $! Left $! T2 hsid mempty
         Just x -> return $! x
   where
@@ -787,8 +792,12 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
                 & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
                 & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
             if null missing
-                then return (Right headers)
-                else return $! Left $! T2 hsid missing
+            then return (Right headers)
+            else do
+                when (isJust $ _cutHashesLocalPayload hs) $
+                    logfun @Text Error
+                        "error validating locally mined cut; the mining loop will stall until unstuck by another mining node"
+                return $! Left $! T2 hsid missing
 
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
