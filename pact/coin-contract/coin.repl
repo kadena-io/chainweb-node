@@ -272,7 +272,7 @@
   "positive"
   (fund-tx 'emily 'doug (read-keyset 'doug) (- 1.0)))
 
-(env-sigs [{"key": "keys1", "caps": [(GAS)]}])
+(env-sigs [{"key": "keys1", "caps": [(GAS), (DEBIT "emily")]}])
 
 (expect-failure
   "fund-tx fails for insufficient funds"
@@ -282,7 +282,7 @@
 (env-keys ["keys1"])
 (test-capability (CREDIT "emily"))
 (credit "emily" (read-keyset "emily") 3.0)
-
+(env-sigs [{"key": "keys1", "caps": [(GAS), (DEBIT "emily")]}])
 (expect
   "fund-tx succeeds with gas cap"
   "Write succeeded"
@@ -290,7 +290,7 @@
 
 (pact-state true)
 
-(env-sigs [{"key": "keys1", "caps": [(GAS),(TRANSFER "emily" "doug" 1.0)]}])
+(env-sigs [{"key": "keys1", "caps": [(GAS),(TRANSFER "emily" "doug" 1.0), (DEBIT "emily")]}])
 
 (expect
   "fund-tx succeeds with gas cap and other cap"
@@ -933,6 +933,8 @@
   [{"name": "coin.TRANSFER","params": ["doug" "emily" 0.0002]}]
   (map (remove 'module-hash) (env-events true)))
 
+(env-sigs
+  [{"key":"keys2", "caps":[(coin.GAS), (coin.DEBIT "doug")]}])
 (test-capability (coin.GAS))
 (coin.fund-tx 'doug 'emily (read-keyset 'k) 0.0005)
 (env-data { 'fee: 0.0004 })

@@ -72,6 +72,7 @@ import Data.Foldable (fold, for_)
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
 import qualified Data.List as List
+import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -102,6 +103,8 @@ import Pact.Types.Runtime hiding (catchesPactError)
 import Pact.Types.Server
 import Pact.Types.SPV
 import Pact.Types.Verifier
+
+import Pact.Types.Util as PU
 
 -- internal Chainweb modules
 
@@ -148,6 +151,9 @@ magic_GAS = mkMagicCapSlot "GAS"
 --
 magic_GENESIS :: CapSlot SigCapability
 magic_GENESIS = mkMagicCapSlot "GENESIS"
+
+debitCap :: Text -> SigCapability
+debitCap s = mkCoinCap "DEBIT" [PLiteral (LString s)]
 
 onChainErrorPrintingFor :: TxContext -> UnexpectedErrorPrinting
 onChainErrorPrintingFor txCtx =
@@ -391,6 +397,7 @@ flagsFor v cid bh = S.fromList $ concat
   , enablePact49 v cid bh
   , enablePact410 v cid bh
   , enablePact411 v cid bh
+  , enablePact412 v cid bh
   ]
 
 applyCoinbase
@@ -871,6 +878,9 @@ enablePact410 v cid bh = [FlagDisablePact410 | not (chainweb222Pact v cid bh)]
 enablePact411 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 enablePact411 v cid bh = [FlagDisablePact411 | not (chainweb223Pact v cid bh)]
 
+enablePact412 :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
+enablePact412 v cid bh = [FlagDisablePact412 | not (chainweb224Pact v cid bh)]
+
 -- | Even though this is not forking, abstracting for future shutoffs
 disableReturnRTC :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
 disableReturnRTC _v _cid _bh = [FlagDisableRuntimeReturnTypeChecking]
@@ -973,11 +983,22 @@ buyGas txCtx cmd (Miner mid mks) = go
           interp mc = Interpreter $ \_input ->
             put (initState mc logGas) >> run (pure <$> eval buyGasTerm)
 
+      let
+        gasCapName = QualifiedName (ModuleName "coin" Nothing) "GAS" def
+        signedForGas signer =
+          any (\sc -> _scName sc == gasCapName) (_siCapList signer)
+        addDebit signer
+          | signedForGas signer =
+            signer & siCapList %~ (debitCap sender:)
+          | otherwise = signer
+        addDebitToSigners =
+          fmap addDebit
+
       -- no verifiers are allowed in buy gas
       -- quirked gas is not used either
       result <- locally txQuirkGasFee (const Nothing) $
         applyExec' 0 (interp mcache) buyGasCmd
-          (_pSigners $ _cmdPayload cmd) [] bgHash managedNamespacePolicy
+          (addDebitToSigners $ _pSigners $ _cmdPayload cmd) [] bgHash managedNamespacePolicy
 
       case _erExec result of
         Nothing
@@ -1208,9 +1229,72 @@ mkEvalEnv nsp msg = do
       <$> view (txGasLimit . to (MilliGasLimit . gasToMilliGas))
       <*> view txGasPrice
       <*> use txGasModel
-    liftIO $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
+    fmap (set eeSigCapBypass txCapBypass)
+      $ liftIO $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
       msg (versionedNativesRefStore (_txExecutionConfig tenv)) genv
       nsp (_txSpvSupport tenv) (_txPublicData tenv) (_txExecutionConfig tenv)
+  where
+  txCapBypass =
+    M.fromList
+    [ (wizaDebit, (wizaBypass, wizaMH))
+    , (skdxDebit, (kdxBypass, skdxMH))
+    , (collectGallinasMarket, (collectGallinasBypass, collectGallinasMH))
+    , (marmaladeGuardPolicyMint, (marmaladeBypass, marmaladeGuardPolicyMH))
+    ]
+    where
+    -- wiza code
+    wizaDebit = QualifiedName "free.wiza" "DEBIT" def
+    wizaMH = unsafeModuleHashFromB64Text "8b4USA1ZNVoLYRT1LBear4YKt3GB2_bl0AghZU8QxjI"
+    wizEquipmentOwner = QualifiedName "free.wiz-equipment" "OWNER" def
+    wizEquipmentAcctGuard = QualifiedName "free.wiz-equipment" "ACCOUNT_GUARD" def
+    wizArenaAcctGuard = QualifiedName "free.wiz-arena" "ACCOUNT_GUARD" def
+    wizArenaOwner = QualifiedName "free.wiz-arena" "OWNER" def
+    wizaTransfer = QualifiedName "free.wiza" "TRANSFER" def
+
+    wizaBypass granted sigCaps =
+      let debits = filter ((== wizaDebit) . _scName) $ S.toList granted
+      in all (\c -> any (match c) sigCaps) debits
+      where
+      match prov sigCap = fromMaybe False $ do
+        guard $ _scName sigCap `elem` wizaBypassList
+        sender <- preview _head (_scArgs prov)
+        (== sender) <$> preview _head (_scArgs sigCap)
+      wizaBypassList =
+        [ wizArenaOwner
+        , wizEquipmentOwner
+        , wizaTransfer
+        , wizEquipmentAcctGuard
+        , wizArenaAcctGuard]
+    -- kaddex code
+    skdxDebit = QualifiedName "kaddex.skdx" "DEBIT" def
+    skdxMH = unsafeModuleHashFromB64Text "g90VWmbKj87GkMkGs8uW947kh_Wg8JdQowa8rO_vZ1M"
+    kdxUnstake = QualifiedName "kaddex.staking" "UNSTAKE" def
+
+    kdxBypass granted sigCaps =
+      let debits = filter ((== skdxDebit) . _scName) $ S.toList granted
+      in all (\c -> S.member (SigCapability kdxUnstake (_scArgs c)) sigCaps) debits
+    -- Collect-gallinas code
+    collectGallinasMH = unsafeModuleHashFromB64Text "x3BLGdidqSjUQy5q3MorGco9mBDpoVTh_Yoagzu0hls"
+    collectGallinasMarket = QualifiedName "free.collect-gallinas" "MARKET" def
+    collectGallinasAcctGuard = QualifiedName "free.collect-gallinas" "ACCOUNT_GUARD" def
+
+    collectGallinasBypass granted sigCaps = fromMaybe False $ do
+      let mkt = filter ((== collectGallinasMarket) . _scName) $ S.toList granted
+      let matchingGuard provided toMatch = _scName toMatch == collectGallinasAcctGuard && (_scArgs provided == _scArgs toMatch)
+      pure $ all (\c -> any (matchingGuard c) sigCaps) mkt
+    -- marmalade code
+    marmaladeGuardPolicyMH = unsafeModuleHashFromB64Text "LB5sRKx8jN3FP9ZK-rxDK7Bqh0gyznprzS8L4jYlT5o"
+    marmaladeGuardPolicyMint = QualifiedName "marmalade-v2.guard-policy-v1" "MINT" def
+    marmaladeLedgerMint = QualifiedName "marmalade-v2.ledger" "MINT-CALL" def
+
+    marmaladeBypass granted sigCaps = fromMaybe False $ do
+      let mkt = filter ((== marmaladeGuardPolicyMint) . _scName) $ S.toList granted
+      let matchingGuard provided toMatch = _scName toMatch == marmaladeLedgerMint && (_scArgs provided == _scArgs toMatch)
+      pure $ all (\c -> any (matchingGuard c) sigCaps) mkt
+
+unsafeModuleHashFromB64Text :: Text -> ModuleHash
+unsafeModuleHashFromB64Text =
+  either error ModuleHash . PU.fromText'
 
 -- | Managed namespace policy CAF
 --
@@ -1222,12 +1306,15 @@ managedNamespacePolicy = SmartNamespacePolicy False
 -- | Builder for "magic" capabilities given a magic cap name
 --
 mkMagicCapSlot :: Text -> CapSlot SigCapability
-mkMagicCapSlot c = CapSlot CapCallStack cap []
+mkMagicCapSlot c = CapSlot CapCallStack (mkCoinCap c []) []
+{-# INLINE mkMagicCapSlot #-}
+
+mkCoinCap :: Text -> [PactValue] -> SigCapability
+mkCoinCap c as = SigCapability fqn as
   where
     mn = ModuleName "coin" Nothing
     fqn = QualifiedName mn c def
-    cap = SigCapability fqn []
-{-# INLINE mkMagicCapSlot #-}
+{-# INLINE mkCoinCap #-}
 
 -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
 -- parameter is for any possible environmental data that needs to go into

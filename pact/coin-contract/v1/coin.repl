@@ -1,5 +1,5 @@
 ;; Enable the table gas model
-(env-exec-config ["DisableInlineMemCheck", "DisablePact43", "DisablePact44", "DisablePact45", "DisablePact48"])
+(env-exec-config ["DisableInlineMemCheck", "DisablePact43", "DisablePact44", "DisablePact45", "DisablePact48", "DisablePact412"])
 (env-gasmodel "table")
 (env-gaslimit 30000)
 
