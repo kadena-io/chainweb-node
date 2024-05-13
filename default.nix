@@ -13,7 +13,7 @@ let flakeDefaultNix = (import (
     };
 in
 { pkgs ? pkgsDef
-, compiler ? "ghc963"
+, compiler ? "ghc964"
 , flakePath ? flakeDefaultNix.outPath
 , nix-filter ? inputs.nix-filter
 , pact ? null
@@ -75,7 +75,7 @@ let haskellSrc = with nix-filter.lib; filter {
       };
       shell.buildInputs = with pkgs; [
         zlib
-        pkgconfig
+        pkg-config
       ];
       modules = [
         {
