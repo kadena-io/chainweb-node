@@ -539,7 +539,8 @@ createUserTable :: Database -> Utf8 -> IO ()
 createUserTable db tblname = do
   Pact.exec_ db $ mconcat
     [ "CREATE TABLE IF NOT EXISTS ", tbl tblname, " "
-    , "(rowkey TEXT" -- This should probably be NOT NULL, but we have no proof of that, so for now this is just kept the same as chainweb-node's implementation.
+    , "(rowid INTEGER PRIMARY KEY AUTOINCREMENT"
+    , ", rowkey TEXT" -- This should probably be NOT NULL, but we have no proof of that, so for now this is just kept the same as chainweb-node's implementation.
     , ", txid UNSIGNED BIGINT NOT NULL"
     , ", rowdata BLOB NOT NULL"
     , ");"
