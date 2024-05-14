@@ -66,7 +66,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.TreeDB (getBranchIncreasing, forkEntry, lookup, seekAncestor)
+import Chainweb.TreeDB (getBranchIncreasing, forkEntry, lookupRanked, seekAncestor)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 
@@ -181,7 +181,7 @@ findLatestValidBlockHeader' = do
   where
     go height hash = do
         bhdb <- view psBlockHeaderDb
-        liftIO (lookup bhdb hash) >>= \case
+        liftIO (lookupRanked bhdb (fromIntegral height) hash) >>= \case
             Nothing -> do
                 logInfo $ "Latest block isn't valid."
                     <> " Failed to lookup hash " <> sshow (height, hash) <> " in block header db."
