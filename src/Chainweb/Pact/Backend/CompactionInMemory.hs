@@ -24,6 +24,7 @@ module Chainweb.Pact.Backend.CompactionInMemory
   )
   where
 
+import Data.Semigroup (Min(..))
 import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, writeTVar, retry)
 import Control.Exception hiding (Handler)
 import Foreign.C.Types (CInt)
@@ -196,13 +197,13 @@ getConfig = do
 
 main :: IO ()
 main = do
-  status <- newTVarIO Running
-  installFatalSignalHandlers status [ sigHUP, sigTERM, sigXCPU, sigXFSZ ]
+  --status <- newTVarIO Running
+  --installFatalSignalHandlers status [ sigHUP, sigTERM, sigXCPU, sigXFSZ ]
 
-  compact status =<< getConfig
+  compact =<< getConfig
 
-compact :: TVar Status -> Config -> IO ()
-compact statusVar cfg = do
+compact :: Config -> IO ()
+compact cfg = do
   let cids = allChains cfg.chainwebVersion
 
   targetBlockHeight <- withDefaultLogger LL.Error $ \logger -> do
@@ -255,7 +256,7 @@ compact statusVar cfg = do
   let fastBulkInsertPragmas =
         [ "journal_mode = OFF"
         , "synchronous = OFF"
-        -- , "cache_size = -9766" -- 10 Megabytes
+        , "cache_size = -9766" -- 10 Megabytes
         , "temp_store = FILE"
         , "shrink_memory"
         ]
@@ -272,7 +273,7 @@ compact statusVar cfg = do
           -- Note that we can't apply pragmas to the src
           -- because we can't guarantee it's not being accessed
           -- by another process.
-          --Pact.runPragmas targetDb fastBulkInsertPragmas
+          Pact.runPragmas targetDb fastBulkInsertPragmas
 
           -- Create checkpointer tables on the target
           createCheckpointerTables targetDb logger
@@ -623,6 +624,23 @@ locateLatestSafeTarget logger v dbDir cids = do
   log LL.Debug $ "Compaction target blockheight is: " <> sshow target
   pure target
 
+{-
+locateEarliestBlock :: (Logger logger)
+  => logger
+  -> ChainwebVersion
+  -> FilePath
+  -> [ChainId]
+  -> IO BlockHeight
+locateEarliestBlock logger v dbDir cids = do
+  let logger' = set setLoggerLevel (l2l LL.Error) logger
+
+  Min minBlockHeight <- flip foldMap cids $ \cid -> do
+    withChainDb cid logger' dbDir $ \_ sqlEnv -> do
+      Min <$> getEarliestBlockHeight sqlEnv
+
+  pure minBlockHeight
+-}
+
 exitLog :: (Logger logger)
   => logger
   -> Text
@@ -742,6 +760,7 @@ trimRocksDb cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
                   go
       go
 
+{-
 -- -------------------------------------------------------------------------- --
 -- Windows (mingw) implementatin of 'installHandler'
 
@@ -835,3 +854,4 @@ data Status
   | Interrupted
   | Done
   deriving stock (Eq)
+-}
