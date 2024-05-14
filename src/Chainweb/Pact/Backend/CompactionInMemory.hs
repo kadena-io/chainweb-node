@@ -211,10 +211,11 @@ compact cfg = do
   targetBlockHeight <- withDefaultLogger LL.Error $ \logger -> do
     targetBlockHeight <- locateLatestSafeTarget logger cfg.chainwebVersion cfg.sourcePactDir cids
 
-    targetDirExists <- doesDirectoryExist cfg.targetPactDir
-    when targetDirExists $ do
-      exitLog logger "Target SQLite directory already exists. Aborting."
-    createDirectoryIfMissing True cfg.targetPactDir
+    when (not cfg.onlyRocksDb) $ do
+      targetDirExists <- doesDirectoryExist cfg.targetPactDir
+      when targetDirExists $ do
+        exitLog logger "Target SQLite directory already exists. Aborting."
+      createDirectoryIfMissing True cfg.targetPactDir
 
     targetRocksDirExists <- doesDirectoryExist cfg.targetRocksDir
     when targetRocksDirExists $ do
