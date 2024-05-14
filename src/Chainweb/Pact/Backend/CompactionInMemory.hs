@@ -39,7 +39,7 @@ import Foreign.Ptr
 
 import System.ProgressBar qualified as ProgressBar
 import System.ProgressBar (Progress(..), newProgressBar)
-import "base" System.Exit (exitFailure)
+import "base" System.Exit (exitFailure, exitSuccess)
 import "loglevel" System.LogLevel qualified as LL
 import "yet-another-logger" System.Logger hiding (Logger)
 import "yet-another-logger" System.Logger qualified as YAL
@@ -167,6 +167,7 @@ data Config = Config
   , targetRocksDir :: FilePath
   , concurrent :: ConcurrentChains
   , logDir :: FilePath
+  , onlyRocksDb :: Bool
   }
 
 data ConcurrentChains = SingleChain | ManyChainsAtOnce
@@ -188,6 +189,7 @@ getConfig = do
       <*> O.strOption (O.long "target-rocksdb-directory")
       <*> O.flag SingleChain ManyChainsAtOnce (O.long "parallel")
       <*> O.strOption (O.long "log-dir")
+      <*> O.switch (O.long "only-rocksdb" <> O.hidden)
 
     parseVersion :: Text -> ChainwebVersion
     parseVersion =
@@ -247,7 +249,8 @@ compact cfg = do
     withRocksDb cfg.targetRocksDir (modernDefaultOptions { compression = NoCompression }) $ \targetRocksDb -> do
       trimRocksDb cfg.chainwebVersion cids minBlockHeight maxBlockHeight srcRocksDb targetRocksDb
 
-  --error "take a nap now :)"
+  when cfg.onlyRocksDb $ do
+    exitSuccess
 
   -- TODO (chessai): these may need tuning
   --
@@ -699,7 +702,7 @@ trimRocksDb :: ()
   -> RocksDb -- ^ source db, should be opened read-only
   -> RocksDb -- ^ target db
   -> IO ()
-trimRocksDb cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
+trimRocksDb cwVersion cids _minBlockHeight maxBlockHeight srcDb targetDb = do
   -- Copy over entirety of CutHashes table
   let srcCutHashes = cutHashesTable srcDb
   let targetCutHashes = cutHashesTable targetDb
@@ -720,11 +723,6 @@ trimRocksDb cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
 
   initializePayloadDb cwVersion targetPayloads
 
-  let progressStyle = ProgressBar.defStyle
-        { ProgressBar.styleWidth = ProgressBar.ConstantWidth 50
-        }
-  progressBar <- newProgressBar progressStyle 10 (Progress 0 (length cids * int (maxBlockHeight - minBlockHeight + 1)) ("Trimming RocksDB" :: Text))
-
   srcWbhdb <- initWebBlockHeaderDb srcDb cwVersion
   targetWbhdb <- initWebBlockHeaderDb targetDb cwVersion
   forM_ cids $ \cid -> do
@@ -732,7 +730,25 @@ trimRocksDb cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
     targetBlockHeaderDb <- getWebBlockHeaderDb targetWbhdb cid
 
     withTableIterator (_chainDbCas srcBlockHeaderDb) $ \it -> do
-      iterSeek it (RankedBlockHash minBlockHeight nullBlockHash)
+      -- Go to the earliest entry
+      iterFirst it
+
+      -- Set up progress bar
+      progressBar <- do
+        iterValue it >>= \case
+          Nothing -> do
+            newProgressBar ProgressBar.defStyle 10 (Progress 0 0 "")
+          Just rbh -> do
+            let minBH = _blockHeight (_getRankedBlockHeader rbh)
+            let progressStyle = ProgressBar.defStyle
+                  { ProgressBar.styleWidth = ProgressBar.ConstantWidth 50
+                  }
+            newProgressBar
+              progressStyle
+              10
+              (Progress 0 (length cids * int (maxBlockHeight - minBH + 1)) ("Trimming RocksDB" :: Text))
+
+      --iterSeek it (RankedBlockHash minBlockHeight nullBlockHash)
       let go = do
             iterValue it >>= \case
               Nothing -> do
@@ -742,23 +758,23 @@ trimRocksDb cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
                 let blockHeight = _blockHeight blockHeader
                 let blockHash   = _blockHash blockHeader
 
-                when (blockHeight <= maxBlockHeight) $ do
-                  -- Migrate the ranked block table and rank table over for
-                  -- each interesting block
-                  tableInsert (_chainDbCas targetBlockHeaderDb) (RankedBlockHash blockHeight blockHash) rankedBlockHeader
-                  tableInsert (_chainDbRankTable targetBlockHeaderDb) blockHash blockHeight
+                --when (blockHeight <= maxBlockHeight) $ do
+                -- Migrate the ranked block table and rank table over for
+                -- each interesting block
+                tableInsert (_chainDbCas targetBlockHeaderDb) (RankedBlockHash blockHeight blockHash) rankedBlockHeader
+                tableInsert (_chainDbRankTable targetBlockHeaderDb) blockHash blockHeight
 
-                  -- Insert the payload into the new database
-                  lookupPayloadWithHeight srcPayloads (Just blockHeight) (_blockPayloadHash blockHeader) >>= \case
-                    Nothing -> do
-                      error "PAYLOAD FAILURE: TODO BETTER ERROR"
-                    Just payloadWithOutputs -> do
-                      addNewPayload targetPayloads blockHeight payloadWithOutputs
+                -- Insert the payload into the new database
+                lookupPayloadWithHeight srcPayloads (Just blockHeight) (_blockPayloadHash blockHeader) >>= \case
+                  Nothing -> do
+                    error "PAYLOAD FAILURE: TODO BETTER ERROR"
+                  Just payloadWithOutputs -> do
+                    addNewPayload targetPayloads blockHeight payloadWithOutputs
 
-                  ProgressBar.incProgress progressBar 1
+                ProgressBar.incProgress progressBar 1
 
-                  iterNext it
-                  go
+                iterNext it
+                go
       go
 
 {-
