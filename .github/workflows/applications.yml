@@ -305,8 +305,6 @@ jobs:
       name: Cache dist-newstyle
       with:
         path: |
-          ~/.cabal/packages
-          ~/.cabal/store
           dist-newstyle
         key: ${{ matrix.os }}-${{ matrix.ghc }}-2-${{ steps.cache-date.outputs.value }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
         restore-keys: |
