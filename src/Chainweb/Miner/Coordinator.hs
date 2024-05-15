@@ -50,9 +50,9 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
+import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch
 
 import Data.Aeson (ToJSON)
 import qualified Data.ByteString as BS
@@ -79,7 +79,7 @@ import Chainweb.Cut hiding (join)
 import Chainweb.Cut.Create
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
-import Chainweb.Logger (Logger, logFunction)
+import Chainweb.Logger
 import Chainweb.Logging.Miner
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact (Miner(..), MinerId(..), minerId)
@@ -304,9 +304,15 @@ getPayload logger cdb new cid m =
     -- see docs for
     -- Chainweb.Pact.PactService.Checkpointer.findLatestValidBlockHeader'
     then return $ T2 new emptyPayload
-    else trace (logFunction logger)
-        "Chainweb.Chainweb.MinerResources.withMiningCoordination.newBlock"
-        () 1 (_pactNewBlock pact cid m)
+    else
+        catchAny
+            (trace (logFunction logger)
+            "Chainweb.Chainweb.MinerResources.withMiningCoordination.newBlock"
+            () 1 (_pactNewBlock pact cid m))
+            $ \e -> do
+                logFunctionText logger Error $
+                    "ERROR: HALTING MINING LOOP. Exception occurred producing block: " <> sshow e
+                throwIO e
     where
     v = _chainwebVersion new
 
