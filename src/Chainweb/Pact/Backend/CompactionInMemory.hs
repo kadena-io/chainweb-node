@@ -703,7 +703,7 @@ trimRocksDb :: ()
   -> RocksDb -- ^ source db, should be opened read-only
   -> RocksDb -- ^ target db
   -> IO ()
-trimRocksDb cwVersion cids _minBlockHeight maxBlockHeight srcDb targetDb = do
+trimRocksDb cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
   -- Copy over entirety of CutHashes table
   let srcCutHashes = cutHashesTable srcDb
   let targetCutHashes = cutHashesTable targetDb
@@ -744,10 +744,11 @@ trimRocksDb cwVersion cids _minBlockHeight maxBlockHeight srcDb targetDb = do
             let progressStyle = ProgressBar.defStyle
                   { ProgressBar.styleWidth = ProgressBar.ConstantWidth 50
                   }
+            Text.putStrLn $ "Trimming RocksDB for Chain " <> chainIdToText cid
             newProgressBar
               progressStyle
               10
-              (Progress 0 (length cids * int (maxBlockHeight - minBH + 1)) ("Trimming RocksDB" :: Text))
+              (Progress 0 (int (maxBlockHeight - minBH + 1)) (chainIdToText cid))
 
       --iterSeek it (RankedBlockHash minBlockHeight nullBlockHash)
       let go = do
@@ -759,18 +760,19 @@ trimRocksDb cwVersion cids _minBlockHeight maxBlockHeight srcDb targetDb = do
                 let blockHeight = _blockHeight blockHeader
                 let blockHash   = _blockHash blockHeader
 
-                --when (blockHeight <= maxBlockHeight) $ do
                 -- Migrate the ranked block table and rank table over for
                 -- each interesting block
                 tableInsert (_chainDbCas targetBlockHeaderDb) (RankedBlockHash blockHeight blockHash) rankedBlockHeader
-                tableInsert (_chainDbRankTable targetBlockHeaderDb) blockHash blockHeight
 
-                -- Insert the payload into the new database
-                lookupPayloadWithHeight srcPayloads (Just blockHeight) (_blockPayloadHash blockHeader) >>= \case
-                  Nothing -> do
-                    error "PAYLOAD FAILURE: TODO BETTER ERROR"
-                  Just payloadWithOutputs -> do
-                    addNewPayload targetPayloads blockHeight payloadWithOutputs
+                when (blockHeight >= minBlockHeight && blockHeight <= maxBlockHeight) $ do
+                  tableInsert (_chainDbRankTable targetBlockHeaderDb) blockHash blockHeight
+
+                  -- Insert the payload into the new database
+                  lookupPayloadWithHeight srcPayloads (Just blockHeight) (_blockPayloadHash blockHeader) >>= \case
+                    Nothing -> do
+                      error "PAYLOAD FAILURE: TODO BETTER ERROR"
+                    Just payloadWithOutputs -> do
+                      addNewPayload targetPayloads blockHeight payloadWithOutputs
 
                 ProgressBar.incProgress progressBar 1
 
