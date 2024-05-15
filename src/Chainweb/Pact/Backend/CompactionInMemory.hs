@@ -760,13 +760,18 @@ trimRocksDb cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
                 let blockHeight = _blockHeight blockHeader
                 let blockHash   = _blockHash blockHeader
 
-                -- Migrate the ranked block table and rank table over for
-                -- each interesting block
+                -- Migrate the ranked block table and rank table
+                -- unconditionally.
+                -- Right now, the headers are definitely needed (we can't delete
+                -- any).
+                --
+                -- Not sure about the rank table, though.
                 tableInsert (_chainDbCas targetBlockHeaderDb) (RankedBlockHash blockHeight blockHash) rankedBlockHeader
+                tableInsert (_chainDbRankTable targetBlockHeaderDb) blockHash blockHeight
 
+                -- We only add the payloads for blocks that are in the
+                -- interesting range.
                 when (blockHeight >= minBlockHeight && blockHeight <= maxBlockHeight) $ do
-                  tableInsert (_chainDbRankTable targetBlockHeaderDb) blockHash blockHeight
-
                   -- Insert the payload into the new database
                   lookupPayloadWithHeight srcPayloads (Just blockHeight) (_blockPayloadHash blockHeader) >>= \case
                     Nothing -> do
