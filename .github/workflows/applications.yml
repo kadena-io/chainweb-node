@@ -306,10 +306,10 @@ jobs:
       with:
         path: |
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-2-${{ steps.cache-date.outputs.value }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ matrix.use-freeze-file }}-2-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
         restore-keys: |
-          ${{ matrix.os }}-${{ matrix.ghc }}-2-${{ steps.cache-date.outputs.value }}-
-          ${{ matrix.os }}-${{ matrix.ghc }}-2-
+          ${{ matrix.os }}-${{ matrix.ghc }}-${{ matrix.use-freeze-file }}-2-
+          ${{ matrix.os }}-${{ matrix.ghc }}-
 
     # Build
     - name: Delete Freeze file if it exists
