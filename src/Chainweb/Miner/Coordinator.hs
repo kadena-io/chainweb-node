@@ -14,6 +14,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE MultiWayIf #-}
 
 -- |
 -- Module: Chainweb.Miner.Coordinator
@@ -478,7 +479,7 @@ work
     -> IO WorkHeader
 work mr mcid m = do
     T2 wh pwo <-
-        withAsync (logDelays 0) $ \_ -> newWorkForCut
+        withAsync (logDelays False 0) $ \_ -> newWorkForCut
     now <- getCurrentTimeIntegral
     atomically
         . modifyTVar' (_coordState mr)
@@ -488,25 +489,49 @@ work mr mcid m = do
     return wh
   where
     -- here we log the case that the work loop has stalled.
-    logDelays :: Int -> IO ()
-    logDelays n = do
-        threadDelay 10_000_000
+    logDelays :: Bool -> Int -> IO ()
+    logDelays loggedOnce n = do
+        if loggedOnce
+        then threadDelay 60_000_000
+        else threadDelay 10_000_000
         let !n' = n + 1
         PrimedWork primedWork <- readTVarIO (_coordPrimedWork mr)
-        logf @T.Text Warn
-          ("findWork: stalled for " <> sshow n' <> "s. " <>
-            case HM.lookup (view minerId m) primedWork of
-                Nothing ->
-                     "no primed work for miner key" <> sshow m
-                Just mpw
-                    | HM.null mpw ->
-                        "no chains have primed work"
-                    | otherwise ->
-                        "all chains with primed work may be stalled. chains with primed payloads: "
-                        <> sshow (sort [cid | (cid, T2 _ (Just _)) <- HM.toList mpw])
-          )
+        -- technically this is in a race with the newWorkForCut function,
+        -- which is likely benign when the mining loop has stalled for 10 seconds.
+        currentCut <- _cut cdb
+        let primedWorkMsg =
+                case HM.lookup (view minerId m) primedWork of
+                    Nothing ->
+                        "no primed work for miner key" <> sshow m
+                    Just mpw ->
+                        let chainsWithBlocks = HS.fromMap $ flip HM.mapMaybe mpw $ \case
+                                T2 _ (Just _) -> Just ()
+                                _ -> Nothing
+                        in if
+                            | HS.null chainsWithBlocks ->
+                                "no chains have primed blocks"
+                            | cids == chainsWithBlocks ->
+                                "all chains have primed blocks"
+                            | otherwise ->
+                                "chains with primed blocks may be stalled. chains with primed work: "
+                                <> sshow (sort (HS.toList chainsWithBlocks))
+        let extensibleChains =
+                HS.fromList $ mapMaybe (\cid -> cid <$ getCutExtension currentCut cid) $ HS.toList cids
+        let extensibleChainsMsg =
+                if HS.null extensibleChains
+                then "no chains are extensible in the current cut! here it is: " <> sshow currentCut
+                else "the following chains can be extended in the current cut: " <> sshow (HS.toList extensibleChains)
+        logf @T.Text Warn $
+          "findWork: stalled for "
+          <> if loggedOnce
+          then "10s"
+          else (sshow n' <> "m")
+          <> ". " <> primedWorkMsg <> ". " <> extensibleChainsMsg
 
-        logDelays n'
+        logDelays True n'
+
+    v  = _chainwebVersion hdb
+    cids = chainIds v
 
     -- There is no strict synchronization between the primed work cache and the
     -- new work selection. There is a chance that work selection picks a primed
