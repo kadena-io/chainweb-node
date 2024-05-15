@@ -491,12 +491,6 @@ execNewBlock mpAccess miner = do
               pure (toPayloadWithOutputs miner (Transactions txs cb))
             return pwo
       where
-        handleTimeout :: TxTimeout -> PactBlockM logger cas a
-        handleTimeout (TxTimeout h) = liftPactServiceM $ do
-          logError $ "timed out on " <> sshow h
-          liftIO $ mpaBadlistTx mpAccess (V.singleton h)
-          throwM (TxTimeout h)
-
         !parentTime =
           ParentCreationTime (_blockCreationTime $ _parentHeader latestHeader)
         getBlockTxs :: CurrentBlockDbEnv logger -> BlockFill -> PactServiceM logger tbl (Vector ChainwebTransaction)
@@ -545,7 +539,7 @@ execNewBlock mpAccess miner = do
                       if V.null newTrans then pure unchanged else do
 
                         T2 pairs mc' <- execTransactionsOnly miner newTrans mc
-                          (Just txTimeLimit) `catch` handleTimeout
+                          (Just txTimeLimit)
 
                         oldSuccessesLength <- liftIO $ Vec.length successes
 
