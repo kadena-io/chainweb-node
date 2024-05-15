@@ -11,6 +11,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -40,10 +41,12 @@ module Chainweb.Miner.Coordinator
 
 -- ** Internal Functions
 , publish
+
+, withMiningCoordination
 ) where
 
 import Control.Concurrent
-import Control.Concurrent.Async (withAsync)
+import Control.Concurrent.Async
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
@@ -54,11 +57,13 @@ import Control.Monad.Catch
 import Data.Aeson (ToJSON)
 import qualified Data.ByteString as BS
 import qualified Data.HashMap.Strict as HM
-import Data.IORef
+import qualified Data.HashSet as HS
+import Data.IORef (IORef, atomicWriteIORef, newIORef, readIORef)
 import Data.List(sort)
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Data.Text as T
+import qualified Data.Set as S
 import qualified Data.Vector as V
 
 import GHC.Generics (Generic)
@@ -78,9 +83,10 @@ import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Logging.Miner
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact (Miner(..), MinerId(..), minerId)
+import Chainweb.Pact.Utils
 import Chainweb.Payload
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Time (Micros(..), Time(..), getCurrentTimeIntegral)
+import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Utils
@@ -88,6 +94,32 @@ import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (JsonLog(..), LogFunction)
+import Numeric.AffineSpace
+import Utils.Logging.Trace (trace)
+
+--
+-- | Data shared between the mining threads represented by `newWork` and
+-- `publish`.
+--
+-- The key is hash of the current block's payload.
+--
+newtype MiningState = MiningState
+    { _miningState :: M.Map BlockPayloadHash (T3 Miner PayloadWithOutputs (Time Micros)) }
+    deriving stock (Generic)
+    deriving newtype (Semigroup, Monoid)
+
+-- | For logging during `MiningState` manipulation.
+--
+data MiningStats = MiningStats
+    { _statsCacheSize :: !Int
+    , _stats503s :: !Int
+    , _stats403s :: !Int
+    , _statsAvgTxs :: !Int
+    , _statsPrimedSize :: !Int }
+    deriving stock (Generic)
+    deriving anyclass (ToJSON, NFData)
+
+makeLenses ''MiningState
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -126,6 +158,161 @@ data MiningCoordination logger tbl = MiningCoordination
     , _coordPrimedWork :: !(TVar PrimedWork)
     }
 
+withMiningCoordination
+    :: Logger logger
+    => logger
+    -> MiningConfig
+    -> CutDb tbl
+    -> (Maybe (MiningCoordination logger tbl) -> IO a)
+    -> IO a
+withMiningCoordination logger conf cdb inner
+    | not (_coordinationEnabled coordConf) = inner Nothing
+    | otherwise = do
+        initialCut <- _cut cdb
+        t <- newTVarIO mempty
+        initialPw <- fmap (PrimedWork . HM.fromList) $
+            forM miners $ \miner ->
+                let mid = view minerId miner
+                in fmap ((mid,) . HM.fromList) $
+                    forM cids $ \cid -> do
+                        let bh = fromMaybe
+                                (genesisBlockHeader v cid)
+                                (HM.lookup cid (_cutMap initialCut))
+                        fmap ((cid,) . over _2 Just) $
+                            getPayload logger cdb (ParentHeader bh) cid miner
+        m <- newTVarIO initialPw
+        c503 <- newIORef 0
+        c403 <- newIORef 0
+        l <- newIORef (_coordinationUpdateStreamLimit coordConf)
+        fmap thd . runConcurrently $ (,,)
+            <$> Concurrently (prune t m c503 c403)
+            <*> Concurrently (mapConcurrently_ (primeWork logger cdb miners m) cids)
+            <*> Concurrently (inner . Just $ MiningCoordination
+                { _coordLogger = logger
+                , _coordCutDb = cdb
+                , _coordState = t
+                , _coordLimit = _coordinationReqLimit coordConf
+                , _coord503s = c503
+                , _coord403s = c403
+                , _coordConf = coordConf
+                , _coordUpdateStreamCount = l
+                , _coordPrimedWork = m
+                })
+  where
+    coordConf = _miningCoordination conf
+    inNodeConf = _miningInNode conf
+    v = _chainwebVersion cdb
+
+    cids :: [ChainId]
+    cids = HS.toList (chainIds v)
+
+    !miners = S.toList (_coordinationMiners coordConf)
+        <> [ _nodeMiner inNodeConf | _nodeMiningEnabled inNodeConf ]
+
+    -- | THREAD: Periodically clear out the cached payloads kept for Mining
+    -- Coordination.
+    --
+    -- This cache is used so that, when a miner returns a solved header to the
+    -- node, the node knows the payload for that header.
+    --
+    prune :: TVar MiningState -> TVar PrimedWork -> IORef Int -> IORef Int -> IO ()
+    prune t tpw c503 c403 = runForever (logFunction logger) "MinerResources.prune" $ do
+        let !d = 30_000_000  -- 30 seconds
+        let !maxAge = (5 :: Int) `scaleTimeSpan` minute -- 5 minutes
+        threadDelay d
+        ago <- (.-^ maxAge) <$> getCurrentTimeIntegral
+        m@(MiningState ms) <- atomically $ do
+            ms <- readTVar t
+            modifyTVar' t . over miningState $ M.filter (f ago)
+            pure ms
+        count503 <- readIORef c503
+        count403 <- readIORef c403
+        PrimedWork pw <- readTVarIO tpw
+        atomicWriteIORef c503 0
+        atomicWriteIORef c403 0
+        logFunction logger Info . JsonLog $ MiningStats
+            { _statsCacheSize = M.size ms
+            , _stats503s = count503
+            , _stats403s = count403
+            , _statsAvgTxs = avgTxs m
+            , _statsPrimedSize = HM.foldl' (\acc xs -> acc + HM.size xs) 0 pw }
+
+    -- Filter for work items that are not older than maxAge
+    --
+    -- NOTE: Should difficulty ever become that hard that five minutes aren't
+    -- sufficient to mine a block this constant must be changed in order to
+    -- recover.
+    --
+    f :: Time Micros -> T3 a b (Time Micros) -> Bool
+    f ago (T3 _ _ added) = added > ago
+
+    avgTxs :: MiningState -> Int
+    avgTxs (MiningState ms) = summed `div` max 1 (M.size ms)
+      where
+        summed :: Int
+        summed = M.foldl' (\acc (T3 _ ps _) -> acc + g ps) 0 ms
+
+        g :: PayloadWithOutputs -> Int
+        g = V.length . _payloadWithOutputsTransactions
+
+-- | THREAD: Keep a live-updated cache of Payloads for specific miners, such
+-- that when they request new work, the block can be instantly constructed
+-- without interacting with the Pact Queue.
+--
+primeWork
+    :: Logger logger
+    => logger
+    -> CutDb tbl
+    -> [Miner]
+    -> TVar PrimedWork
+    -> ChainId
+    -> IO ()
+primeWork logger cdb miners tpw cid =
+    forConcurrently_ miners $ \miner ->
+        runForever (logFunction logger) "primeWork" (go miner)
+  where
+    go :: Miner -> IO ()
+    go miner = do
+        pw <- readTVarIO tpw
+        let
+            -- we assume that this path always exists in PrimedWork and never delete it.
+            ourMiner :: Traversal' PrimedWork (T2 ParentHeader (Maybe PayloadWithOutputs))
+            ourMiner = _Wrapped' . at (view minerId miner) . _Just . at cid . _Just
+        let !(T2 ph _) = fromJuste $ pw ^? ourMiner
+        -- wait for a block different from what we've got primed work for
+        new <- awaitNewBlock cdb cid (_parentHeader ph)
+        -- Temporarily block this chain from being considered for queries
+        atomically $ modifyTVar' tpw (ourMiner . _2 .~ Nothing)
+        -- Generate new payload for this miner
+        newParentAndPayload <- getPayload logger cdb (ParentHeader new) cid miner
+        atomically $ modifyTVar' tpw (ourMiner .~ over _2 Just newParentAndPayload)
+
+getPayload
+    :: Logger logger
+    => logger
+    -> CutDb tbl
+    -> ParentHeader
+    -> ChainId
+    -> Miner
+    -> IO (T2 ParentHeader PayloadWithOutputs)
+getPayload logger cdb new cid m =
+    if v ^. versionCheats . disablePact
+    -- if pact is disabled, we must keep track of the latest header
+    -- ourselves. otherwise we use the header we get from newBlock as the
+    -- real parent. newBlock may return a header in the past due to a race
+    -- with rocksdb though that shouldn't cause a problem, just wasted work,
+    -- see docs for
+    -- Chainweb.Pact.PactService.Checkpointer.findLatestValidBlockHeader'
+    then return $ T2 new emptyPayload
+    else trace (logFunction logger)
+        "Chainweb.Chainweb.MinerResources.withMiningCoordination.newBlock"
+        () 1 (_pactNewBlock pact cid m)
+    where
+    v = _chainwebVersion new
+
+    pact = _webPactExecutionService $ view cutDbPactService cdb
+
+
 -- | Precached payloads for Private Miners. This allows new work requests to be
 -- made as often as desired, without clogging the Pact queue.
 --
@@ -138,29 +325,6 @@ newtype PrimedWork =
 resetPrimed :: MinerId -> ChainId -> PrimedWork -> PrimedWork
 resetPrimed mid cid (PrimedWork pw) = PrimedWork
     $! HM.adjust (HM.adjust (_2 .~ Nothing) cid) mid pw
-
--- | Data shared between the mining threads represented by `newWork` and
--- `publish`.
---
--- The key is hash of the current block's payload.
---
-newtype MiningState = MiningState
-    { _miningState :: M.Map BlockPayloadHash (T3 Miner PayloadWithOutputs (Time Micros)) }
-    deriving stock (Generic)
-    deriving newtype (Semigroup, Monoid)
-
-makeLenses ''MiningState
-
--- | For logging during `MiningState` manipulation.
---
-data MiningStats = MiningStats
-    { _statsCacheSize :: !Int
-    , _stats503s :: !Int
-    , _stats403s :: !Int
-    , _statsAvgTxs :: !Int
-    , _statsPrimedSize :: !Int }
-    deriving stock (Generic)
-    deriving anyclass (ToJSON, NFData)
 
 -- | The `BlockCreationTime` of the parent of some current, "working"
 -- `BlockHeader`.

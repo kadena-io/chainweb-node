@@ -156,6 +156,7 @@ import Chainweb.Logger
 import qualified Chainweb.Mempool.InMemTypes as Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
+import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Config
 import qualified Chainweb.OpenAPIValidation as OpenAPIValidation
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
