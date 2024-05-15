@@ -299,7 +299,7 @@ startSqliteDb cid logger dbDir doResetDb = do
     createDirectoryIfMissing True dbDir
     textLog Info $ mconcat
         [ "opened sqlitedb for "
-        , sshow cid
+        , toText cid
         , " in directory "
         , sshow dbDir
         ]
