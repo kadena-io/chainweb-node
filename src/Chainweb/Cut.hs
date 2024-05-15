@@ -645,7 +645,7 @@ isMonotonicCutExtension c h = do
     validBraidingCid cid a
         | Just b <- c ^? ixg cid = _blockHash b == a || _blockParent b == a
         | _blockHeight h == genesisHeight v cid = a == genesisParentBlockHash v cid
-        | otherwise = error $ T.unpack $ "isMonotonicCutExtension.validBraiding: missing adjacent parent on chain " <> sshow cid <> " in cut. " <> encodeToText h
+        | otherwise = error $ T.unpack $ "isMonotonicCutExtension.validBraiding: missing adjacent parent on chain " <> toText cid <> " in cut. " <> encodeToText h
 
     v = _chainwebVersion c
 
