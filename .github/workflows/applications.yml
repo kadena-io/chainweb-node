@@ -617,15 +617,13 @@ jobs:
     name: Build and publish docker image
     needs: [config, build]
     runs-on: ${{ matrix.os }}
+    if: "${{ github.event_name != 'schedule' }}"
     strategy:
       fail-fast: false
       matrix:
         # when adding more than one build, use a different package name or
         # different tags
         include:
-        - ghc: "9.6.4"
-          os: "ubuntu-20.04"
-          use-freeze-file: "false"
         - ghc: "9.6.4"
           os: "ubuntu-20.04"
           use-freeze-file: "true"
