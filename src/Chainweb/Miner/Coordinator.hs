@@ -15,6 +15,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE MultiWayIf #-}
 
 -- |
 -- Module: Chainweb.Miner.Coordinator
@@ -57,9 +58,11 @@ import Control.Monad.Catch
 import Data.Aeson (ToJSON)
 import qualified Data.ByteString as BS
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.IORef
-import Data.List(sort)
+import qualified Data.List as List
 import qualified Data.Map.Strict as M
+import Data.Maybe(mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
@@ -206,7 +209,7 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
         Anything -> randomChainIdAt c (minChainHeight c)
         Suggestion cid' -> pure cid'
         TriedLast _ -> randomChainIdAt c (minChainHeight c)
-    logFun @T.Text Debug $ "newWork: picked chain " <> sshow cid
+    logFun @T.Text Debug $ "newWork: picked chain " <> toText cid
 
     -- wait until at least one chain has primed work. we don't wait until *our*
     -- chain has primed work, because if other chains have primed work, we want
@@ -223,13 +226,13 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
 
     case mr of
         Just (T2 WorkStale _) -> do
-            logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " has stale work"
+            logFun @T.Text Debug $ "newWork: chain " <> toText cid <> " has stale work"
             newWork logFun Anything eminer hdb pact tpw c
         Just (T2 (WorkAlreadyMined _) _) -> do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " has a payload that was already mined"
             newWork logFun Anything eminer hdb pact tpw c
         Nothing -> do
-            logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " not mineable"
+            logFun @T.Text Debug $ "newWork: chain " <> toText cid <> " not mineable"
             newWork logFun Anything eminer hdb pact tpw c
         Just (T2 (WorkReady newBlock) extension) -> do
             let ParentHeader primedParent = newBlockParentHeader newBlock
@@ -248,7 +251,7 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
                 --
                 let !extensionParent = _parentHeader (_cutExtensionParent extension)
                 logFun @T.Text Info
-                    $ "newWork: chain " <> sshow cid <> " not mineable because of parent header mismatch"
+                    $ "newWork: chain " <> toText cid <> " not mineable because of parent header mismatch"
                     <> ". Primed parent hash: " <> toText (_blockHash primedParent)
                     <> ". Primed parent height: " <> sshow (_blockHeight primedParent)
                     <> ". Extension parent: " <> toText (_blockHash extensionParent)
@@ -331,7 +334,7 @@ work
     -> IO WorkHeader
 work mr mcid m = do
     T2 wh pwo <-
-        withAsync (logDelays 0) $ \_ -> newWorkForCut
+        withAsync (logDelays False 0) $ \_ -> newWorkForCut
     now <- getCurrentTimeIntegral
     atomically
         . modifyTVar' (_coordState mr)
@@ -341,25 +344,51 @@ work mr mcid m = do
     return wh
   where
     -- here we log the case that the work loop has stalled.
-    logDelays :: Int -> IO ()
-    logDelays n = do
-        threadDelay 10_000_000
+    logDelays :: Bool -> Int -> IO ()
+    logDelays loggedOnce n = do
+        if loggedOnce
+        then threadDelay 60_000_000
+        else threadDelay 10_000_000
         let !n' = n + 1
         PrimedWork primedWork <- readTVarIO (_coordPrimedWork mr)
-        logf @T.Text Warn
-          ("findWork: stalled for " <> sshow n' <> "s. " <>
-            case HM.lookup (view minerId m) primedWork of
-                Nothing ->
-                     "no primed work for miner key" <> sshow m
-                Just mpw
-                    | HM.null mpw ->
-                        "no chains have primed work"
-                    | otherwise ->
-                        "all chains with primed work may be stalled. chains with primed payloads: "
-                        <> sshow (sort [cid | (cid, WorkReady _) <- HM.toList mpw])
-          )
+        -- technically this is in a race with the newWorkForCut function,
+        -- which is likely benign when the mining loop has stalled for 10 seconds.
+        currentCut <- _cut cdb
+        let primedWorkMsg =
+                case HM.lookup (view minerId m) primedWork of
+                    Nothing ->
+                        "no primed work for miner key" <> sshow m
+                    Just mpw ->
+                        let chainsWithBlocks = HS.fromMap $ flip HM.mapMaybe mpw $ \case
+                                WorkReady {} -> Just ()
+                                _ -> Nothing
+                        in if
+                            | HS.null chainsWithBlocks ->
+                                "no chains have primed blocks"
+                            | cids == chainsWithBlocks ->
+                                "all chains have primed blocks"
+                            | otherwise ->
+                                "chains with primed blocks may be stalled. chains with primed work: "
+                                <> sshow (toText <$> List.sort (HS.toList chainsWithBlocks))
+        let extensibleChains =
+                HS.fromList $ mapMaybe (\cid -> cid <$ getCutExtension currentCut cid) $ HS.toList cids
+        let extensibleChainsMsg =
+                if HS.null extensibleChains
+                then "no chains are extensible in the current cut! here it is: " <> sshow currentCut
+                else "the following chains can be extended in the current cut: " <> sshow (toText <$> HS.toList extensibleChains)
+        logf @T.Text Warn $
+          "findWork: stalled for " <>
+          (
+          if loggedOnce
+          then "10s"
+          else sshow n' <> "m"
+          ) <>
+          ". " <> primedWorkMsg <> ". " <> extensibleChainsMsg
 
-        logDelays n'
+        logDelays True n'
+
+    v  = _chainwebVersion hdb
+    cids = chainIds v
 
     -- There is no strict synchronization between the primed work cache and the
     -- new work selection. There is a chance that work selection picks a primed
