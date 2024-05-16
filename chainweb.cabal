@@ -426,7 +426,6 @@ library
         , patience >= 0.3
         , pem >=0.2
         , primitive >= 0.7.1.0
-        , process >= 1.6
         , random >= 1.2
         , rocksdb-haskell-kadena >= 1.1.0
         , rosetta >= 1.0
