@@ -77,8 +77,6 @@ let haskellSrc = with nix-filter.lib; filter {
         zlib
         pkg-config
         sqlite
-        valgrind
-        massif-visualizer
       ];
       modules = [
         {
