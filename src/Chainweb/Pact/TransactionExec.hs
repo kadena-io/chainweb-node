@@ -132,7 +132,7 @@ import qualified Pact.Core.Syntax.ParseTree as PCore
 import qualified Pact.Core.DefPacts.Types as PCore
 import qualified Pact.Core.Scheme as PCore
 import qualified Pact.Core.StableEncoding as PCore
-import qualified Pact.Core.SPV as PCore
+--import qualified Pact.Core.SPV as PCore
 
 -- internal Chainweb modules
 import qualified Chainweb.Pact.Transactions.CoinCoreV4Transactions as CoinCoreV4
@@ -658,43 +658,32 @@ applyLocal logger gasLogger (dbEnv, coreDb) (gasModel, gasModelCore) txCtx spv c
     go = checkTooBigTx gas0 gasLimit (applyVerifiers $ _pPayload $ _cmdPayload cmd) return
 
 readInitModulesCore
-    :: forall logger p. (Logger logger)
-    => logger
-      -- ^ Pact logger
-    -> (PactDbEnv p, CoreDb)
-      -- ^ Pact db environment
-    -> TxContext
-      -- ^ tx metadata and parent header
-    -> IO CoreModuleCache
-readInitModulesCore logger (dbEnv, coreDb) txCtx = do
-  let
-    chash = pactInitialHash
-    usePactTng = True
-    tenv = TransactionEnv Local dbEnv coreDb logger Nothing (ctxToPublicData txCtx) noSPVSupport Nothing 0.0
-           (RequestKey chash) 0 def Nothing usePactTng
-    txst = TransactionState mempty mempty mempty 0 Nothing (_geGasModel freeGasEnv) PCore.freeGasModel mempty
+    :: forall logger tbl. (Logger logger)
+    -> PactBlockM logger tbl CoreModuleCache
+readInitModulesCore = do
+  logger <- view (psServiceEnv . psLogger)
+  dbEnv <- _cpPactDbEnv <$> view psBlockDbEnv
+  coreDb <- _cpPactCoreDbEnv <$> view psBlockDbEnv
+  txCtx <- getTxContext def
 
-    coinCoreModuleName = PCore.ModuleName "coin" Nothing
-    installCoreCoinModuleAdmin = set (PCore.esCaps . PCore.csModuleAdmin) $ S.singleton coinCoreModuleName
-    coreState = installCoreCoinModuleAdmin $ initCoreCapabilities [mkMagicCoreCapSlot "REMEDIATE"]
+  let chainweb217Pact' = guardCtx chainweb217Pact txCtx
+  let chainweb224Pact' = guardCtx chainweb224Pact txCtx
 
-    applyTx tx = do
-      coreCache <- use txCoreCache
-      let evState = setCoreModuleCache coreCache coreState
-      infoLog $ "readInitModulesCore. Running upgrade tx " <> sshow (_cmdHash tx)
-      tryAllSynchronous (runGenesisCore tx permissiveNamespacePolicy evState) >>= \case
-        Right _ -> pure ()
-        Left e -> do
-          logError $ "readInitModulesCore. Upgrade transaction failed! " <> sshow e
-          throwM e
+    -- Only load coin and its dependencies for chainweb >=2.17
+    -- Note: no need to check if things are there, because this
+    -- requires a block height that witnesses the invariant.
+    --
+    -- if this changes, we must change the filter in 'updateInitCache'
+  let goCw217 :: TransactionM logger p CoreModuleCache
+      goCw217 = do
+        coinDepCmd <- liftIO $ mkCmd "coin.MINIMUM_PRECISION"
+        void $ run "load modules" coinDepCmd
+        c <- use txCoreCache
+        pure c
 
-  evalTransactionM tenv txst $ do
-    let payloads = map (fmap payloadObj) (CoinCoreV4.transactions)
-    er <- catchesPactError logger (onChainErrorPrintingFor txCtx) $!
-      mapM applyTx payloads
-    case er of
-      Left e -> throwM $ PactInternalError $ "readInitModules: load modules: failed: " <> sshow e
-      Right _ -> use txCoreCache
+  if | chainweb224Pact' -> pure mempty
+     | chainweb217Pact' -> liftIO $ evalTransactionM tenv txst goCw217
+     | otherwise -> fail "" --liftIO $ evalTransactionM tenv txst go
 
 readInitModules
     :: forall logger tbl. (Logger logger)
