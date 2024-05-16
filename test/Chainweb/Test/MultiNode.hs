@@ -181,6 +181,7 @@ multiConfig v n = defaultChainwebConfiguration v
 
     & set (configServiceApi . serviceApiConfigPort) 0
     & set (configServiceApi . serviceApiConfigInterface) interface
+    & set (configCuts . cutFetchTimeout) 10_000_000
   where
     miner = NodeMiningConfig
         { _nodeMiningEnabled = True
