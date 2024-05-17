@@ -314,7 +314,7 @@ serviceRequests memPoolAccess reqQ = go
                 trace logFn "Chainweb.Pact.PactService.execNewBlock"
                     () 1 $
                     tryOne "execNewBlock" statusRef $
-                        execNewBlock memPoolAccess _newBlockMiner _newBlockFill
+                        execNewBlock memPoolAccess _newBlockMiner _newBlockFill _newBlockParent
                 go
             ContinueBlockMsg (ContinueBlockReq bip) -> do
                 trace logFn "Chainweb.Pact.PactService.execContinueBlock"
@@ -448,10 +448,10 @@ execNewBlock
   => MemPoolAccess
   -> Miner
   -> Bool
-  -> PactServiceM logger tbl BlockInProgress
-execNewBlock mpAccess miner fill = pactLabel "execNewBlock" $ do
-    readFromLatest $ do
-      newBlockParent <- view psParentHeader
+  -> ParentHeader
+  -> PactServiceM logger tbl (Maybe BlockInProgress)
+execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
+    readFrom (Just newBlockParent) $ do
       blockDbEnv <- view psBlockDbEnv
       let pHeight = _blockHeight $ _parentHeader newBlockParent
       let pHash = _blockHash $ _parentHeader newBlockParent
