@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -70,12 +71,11 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
+import Utils.Logging.Trace
 
 import Data.LogMessage (JsonLog(..), LogFunction)
 
 import Numeric.AffineSpace
-
-import Utils.Logging.Trace (trace)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -98,7 +98,7 @@ withMiningCoordination logger conf cdb inner
                 in fmap ((mid,) . HM.fromList) $
                     forM cids $ \cid -> do
                         let bh = fromMaybe (genesisBlockHeader v cid) (HM.lookup cid (_cutMap cut))
-                        newBlock <- getPayload cid miner (ParentHeader bh)
+                        newBlock <- throwIfNoHistory =<< getPayload cid miner (ParentHeader bh)
                         return (cid, Just newBlock)
 
         m <- newTVarIO initialPw
@@ -189,12 +189,16 @@ withMiningCoordination logger conf cdb inner
             atomically $ modifyTVar' tpw (ourMiner .~ Nothing)
 
             -- Get a payload for the new block
-            newBlock <- getPayload cid miner newParent
+            getPayload cid miner newParent >>= \case
+                NoHistory -> do
+                    logFunctionText (addLabel ("chain", toText cid) logger) Warn
+                        "current block is not in the checkpointer; halting primed work loop temporarily"
+                    approximateThreadDelay 1_000_000
+                    atomically $ modifyTVar' tpw (ourMiner .~ Just outdatedPayload)
+                Historical newBlock ->
+                    atomically $ modifyTVar' tpw (ourMiner .~ Just newBlock)
 
-            atomically $ modifyTVar' tpw (ourMiner .~ Just newBlock)
-
-
-    getPayload :: ChainId -> Miner -> ParentHeader -> IO NewBlock
+    getPayload :: ChainId -> Miner -> ParentHeader -> IO (Historical NewBlock)
     getPayload cid m ph =
         if v ^. versionCheats . disablePact
         -- if pact is disabled, we must keep track of the latest header
@@ -203,11 +207,11 @@ withMiningCoordination logger conf cdb inner
         -- with rocksdb though that shouldn't cause a problem, just wasted work,
         -- see docs for
         -- Chainweb.Pact.PactService.Checkpointer.findLatestValidBlockHeader'
-        then return $
+        then return $ Historical $
             NewBlockPayload ph emptyPayload
         else trace (logFunction (chainLogger cid logger))
             "Chainweb.Chainweb.MinerResources.withMiningCoordination.newBlock"
-            () 1 (_pactNewBlock pact cid m NewBlockFill)
+            () 1 (_pactNewBlock pact cid m NewBlockFill ph)
 
     pact :: PactExecutionService
     pact = _webPactExecutionService $ view cutDbPactService cdb

@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -404,7 +405,7 @@ tryMineForChain
     -> ChainId
     -> IO (Either MineFailure (Cut, ChainId, PayloadWithOutputs))
 tryMineForChain miner webPact cutDb c cid = do
-    newBlock <- _webPactNewBlock webPact cid miner NewBlockFill
+    newBlock <- throwIfNoHistory =<< _webPactNewBlock webPact cid miner NewBlockFill parent
     let outputs = newBlockToPayloadWithOutputs newBlock
     let payloadHash = _payloadWithOutputsPayloadHash outputs
     t <- getCurrentTimeIntegral
@@ -418,6 +419,7 @@ tryMineForChain miner webPact cutDb c cid = do
             return $ Right (c', cid, outputs)
         Left e -> return $ Left e
   where
+    parent = ParentHeader $ c ^?! ixg cid -- parent to mine on
     wdb = view cutDbWebBlockHeaderDb cutDb
 
 -- | picks a random block header from a web chain. The result header is
@@ -489,10 +491,9 @@ fakePact = WebPactExecutionService $ PactExecutionService
         return
             $ payloadWithOutputs d coinbase
             $ getFakeOutput <$> _payloadDataTransactions d
-  , _pactNewBlock = \_ _ _ -> do
+  , _pactNewBlock = \_ _ _ ph -> do
         payloadDat <- generate $ V.fromList . getNonEmpty <$> arbitrary
-        ph <- ParentHeader <$> generate arbitrary
-        return
+        return $ Historical
             $ NewBlockPayload ph
                 $ newPayloadWithOutputs fakeMiner coinbase
                 $ (\x -> (x, getFakeOutput x)) <$> payloadDat
