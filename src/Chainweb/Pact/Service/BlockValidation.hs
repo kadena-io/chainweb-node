@@ -47,11 +47,12 @@ import Chainweb.Transaction
 import Chainweb.Utils
 
 
-newBlock :: Miner -> NewBlockFill -> PactQueue -> IO BlockInProgress
-newBlock mi fill reqQ = do
+newBlock :: Miner -> NewBlockFill -> ParentHeader -> PactQueue -> IO (Historical BlockInProgress)
+newBlock mi fill parent reqQ = do
     let !msg = NewBlockMsg NewBlockReq
             { _newBlockMiner = mi
             , _newBlockFill = fill
+            , _newBlockParent = parent
             }
     submitRequestAndWait reqQ msg
 
