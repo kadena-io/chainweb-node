@@ -357,7 +357,10 @@ awaitNewBlockStm :: CutDb tbl -> ChainId -> BlockHeader -> STM BlockHeader
 awaitNewBlockStm cdb cid bh = do
     c <- _cutStm cdb
     case HM.lookup cid (_cutMap c) of
-        Just bh' | _blockHash bh' /= _blockHash bh -> return bh'
+        Just bh'
+            -- we want a "newer" block than bh, this is an approximation of that
+            | _blockParent bh == _blockHash bh' -> retry
+            | _blockHash bh' /= _blockHash bh -> return bh'
         _ -> retry
 
 -- | As in `awaitNewCut`, but only updates when the specified `ChainId` has

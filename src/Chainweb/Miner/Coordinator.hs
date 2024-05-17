@@ -287,6 +287,7 @@ primeWork logger cdb miners tpw cid =
         -- Generate new payload for this miner
         newParentAndPayload <- getPayload logger cdb (ParentHeader new) cid miner
         atomically $ modifyTVar' tpw (ourMiner .~ over _2 Just newParentAndPayload)
+        threadDelay 100_000
 
 getPayload
     :: Logger logger
@@ -303,7 +304,9 @@ getPayload logger cdb new cid m =
     -- real parent. newBlock may return a header in the past due to a race
     -- with rocksdb though that shouldn't cause a problem, just wasted work,
     -- see docs for
-    -- Chainweb.Pact.PactService.Checkpointer.findLatestValidBlockHeader'
+    -- Chainweb.Pact.PactService.Checkpointer.findLatestValidBlockHeader';
+    -- still, this race is enough that the primed work loop should pause after
+    -- producing a new block
     then return $ T2 new emptyPayload
     else
         catchAny
