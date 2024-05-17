@@ -506,7 +506,7 @@ getBlockInMem
     -> BlockHash
     -> IO (Vector t)
 getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight phash = do
-    logFunctionText logg Info $ "getBlockInMem: " <> sshow (gasLimit,bheight,phash)
+    logFunctionText logg Debug $ "getBlockInMem: " <> sshow (gasLimit,bheight,phash)
     withMVar lock $ \mdata -> do
         now <- getCurrentTimeIntegral
 
