@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -103,6 +104,10 @@ testVersion = slowForkingCpmTestVersion petersonChainGraph
 cid :: ChainId
 cid = someChainId testVersion
 
+genesisHeader :: BlockHeader
+genesisHeader = genesisBlockHeader testVersion cid
+
+
 tests :: RocksDb -> TestTree
 tests rdb = testGroup testName
   [ test $ goldenNewBlock "new-block-0" goldenMemPool
@@ -178,8 +183,8 @@ forSuccess msg act = (`catchAllSynchronous` handler) $ do
 
 runBlockE :: (HasCallStack) => PactQueue -> TestBlockDb -> TimeSpan Micros -> IO (Either PactException PayloadWithOutputs)
 runBlockE q bdb timeOffset = do
-  bip <- newBlock noMiner True q
-  let ParentHeader ph = _blockInProgressParentHeader bip
+  ph <- getParentTestBlockDb bdb cid
+  bip <- throwIfNoHistory =<< newBlock noMiner True (ParentHeader ph) q
   let nb = blockInProgressToPayloadWithOutputs bip
   let blockTime = add timeOffset $ _bct $ _blockCreationTime ph
   forM_ (chainIds testVersion) $ \c -> do
@@ -226,10 +231,10 @@ newBlockAndContinue refIO reqIO = testCase "newBlockAndContinue" $ do
     , V.fromList [ c3 ]
     ]
 
-  bipStart <- newBlock noMiner True q
+  bipStart <- throwIfNoHistory =<< newBlock noMiner True (ParentHeader genesisHeader) q
   let ParentHeader ph = _blockInProgressParentHeader bipStart
-  Historical bipContinued <- continueBlock bipStart q
-  Historical bipFinal <- continueBlock bipContinued q
+  bipContinued <- throwIfNoHistory =<< continueBlock bipStart q
+  bipFinal <- throwIfNoHistory =<< continueBlock bipContinued q
   -- we must make progress on the same parent header
   assertEqual "same parent header after continuing block"
     (_blockInProgressParentHeader bipStart) (_blockInProgressParentHeader bipContinued)
@@ -256,7 +261,7 @@ newBlockAndContinue refIO reqIO = testCase "newBlockAndContinue" $ do
     [ V.fromList
       [ c1, c2, c3 ]
     ]
-  bipAllAtOnce <- newBlock noMiner True q
+  !bipAllAtOnce <- throwIfNoHistory =<< newBlock noMiner True (ParentHeader genesisHeader) q
   let nbAllAtOnce = blockInProgressToPayloadWithOutputs bipAllAtOnce
   assertEqual "a continued block, and one that's all done at once, should be exactly equal"
     nbContinued nbAllAtOnce
@@ -275,12 +280,14 @@ newBlockNoFill refIO reqIO = testCase "newBlockNoFill" $ do
     set cbRPC (mkExec "1" (object [])) $
     defaultCmd
   setMempool refIO =<< mempoolOf [V.fromList [c1]]
-  noFillPwo <- blockInProgressToPayloadWithOutputs <$> newBlock noMiner False q
+  !noFillPwo <- fmap blockInProgressToPayloadWithOutputs . throwIfNoHistory =<<
+    newBlock noMiner False (ParentHeader genesisHeader) q
   assertEqual
     "an unfilled newblock must have no transactions, even with a full mempool"
     mempty
     (_payloadWithOutputsTransactions noFillPwo)
-  fillPwo <- blockInProgressToPayloadWithOutputs <$> newBlock noMiner True q
+  !fillPwo <- fmap blockInProgressToPayloadWithOutputs . throwIfNoHistory =<<
+    newBlock noMiner True (ParentHeader genesisHeader) q
   assertEqual
     "an filled newblock has transactions with a full mempool"
     1
@@ -291,14 +298,13 @@ newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailur
   (_, q, bdb) <- reqIO
   setOneShotMempool refIO =<< goldenMemPool
 
-  bip <- newBlock noMiner True q
-  let (ParentHeader ph) = _blockInProgressParentHeader bip
+  bip <- throwIfNoHistory =<< newBlock noMiner True (ParentHeader genesisHeader) q
   let nb = blockInProgressToPayloadWithOutputs bip
-  let blockTime = add second $ _bct $ _blockCreationTime ph
+  let blockTime = add second $ _bct $ _blockCreationTime genesisHeader
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
           | otherwise = emptyPayload
-    addTestBlockDb bdb (succ $ _blockHeight ph) (Nonce 0) (\_ _ -> blockTime) c o
+    addTestBlockDb bdb (succ $ _blockHeight genesisHeader) (Nonce 0) (\_ _ -> blockTime) c o
 
   nextH <- getParentTestBlockDb bdb cid
 
@@ -976,7 +982,7 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
     $ set cbRPC (mkExec' "(+ 1 2)")
     $ defaultCmd
   setOneShotMempool mpRefIO (badlistMPA badTx badHashRef)
-  bip <- newBlock noMiner True reqQ
+  bip <- throwIfNoHistory =<< newBlock noMiner True (ParentHeader genesisHeader) reqQ
   let resp = blockInProgressToPayloadWithOutputs bip
   assertEqual "bad tx filtered from block" mempty (_payloadWithOutputsTransactions resp)
   badHash <- readIORef badHashRef
@@ -992,7 +998,7 @@ goldenNewBlock name mpIO mpRefIO reqIO = golden name $ do
     mp <- mpIO
     (_, reqQ, _) <- reqIO
     setOneShotMempool mpRefIO mp
-    blockInProgress <- newBlock noMiner True reqQ
+    blockInProgress <- throwIfNoHistory =<< newBlock noMiner True (ParentHeader genesisHeader) reqQ
     let resp = blockInProgressToPayloadWithOutputs blockInProgress
     -- ensure all golden txs succeed
     forM_ (_payloadWithOutputsTransactions resp) $ \(txIn,TransactionOutput out) -> do
