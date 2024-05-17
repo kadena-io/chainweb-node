@@ -34,6 +34,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
+import Control.Exception (evaluate)
 import Control.Lens
 import Control.Monad
 
@@ -62,7 +63,6 @@ import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Miners
 import Chainweb.Miner.Pact (Miner(..), minerId)
 import Chainweb.Pact.Service.Types(BlockInProgress(..), Transactions(..))
-import Chainweb.Pact.Utils
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
@@ -74,8 +74,6 @@ import Chainweb.WebPactExecutionService
 import Data.LogMessage (JsonLog(..), LogFunction)
 
 import Numeric.AffineSpace
-
-import Utils.Logging.Trace (trace)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -98,7 +96,8 @@ withMiningCoordination logger conf cdb inner
                 in fmap ((mid,) . HM.fromList) $
                     forM cids $ \cid -> do
                         let bh = fromMaybe (genesisBlockHeader v cid) (HM.lookup cid (_cutMap cut))
-                        newBlock <- getPayload cid miner (ParentHeader bh)
+                        maybeNewBlock <- _pactNewBlock pact cid miner True (ParentHeader bh)
+                        newBlock <- evaluate $ fromJuste maybeNewBlock
                         return (cid, Just newBlock)
 
         m <- newTVarIO initialPw
@@ -189,25 +188,16 @@ withMiningCoordination logger conf cdb inner
             atomically $ modifyTVar' tpw (ourMiner .~ Nothing)
 
             -- Get a payload for the new block
-            newBlock <- getPayload cid miner newParent
+            maybeNewBlock <- _pactNewBlock pact cid miner True newParent
 
-            atomically $ modifyTVar' tpw (ourMiner .~ Just newBlock)
-
-
-    getPayload :: ChainId -> Miner -> ParentHeader -> IO NewBlock
-    getPayload cid m ph =
-        if v ^. versionCheats . disablePact
-        -- if pact is disabled, we must keep track of the latest header
-        -- ourselves. otherwise we use the header we get from newBlock as the
-        -- real parent. newBlock may return a header in the past due to a race
-        -- with rocksdb though that shouldn't cause a problem, just wasted work,
-        -- see docs for
-        -- Chainweb.Pact.PactService.Checkpointer.findLatestValidBlockHeader'
-        then return $
-            NewBlockPayload ph emptyPayload
-        else trace (logFunction (chainLogger cid logger))
-            "Chainweb.Chainweb.MinerResources.withMiningCoordination.newBlock"
-            () 1 (_pactNewBlock pact cid m True)
+            case maybeNewBlock of
+                Nothing -> do
+                    logFunctionText (chainLogger cid logger) Warn
+                        "current block is not in the checkpointer; halting primed work loop temporarily"
+                    approximateThreadDelay 1_000_000
+                    atomically $ modifyTVar' tpw (ourMiner .~ Just outdatedPayload)
+                Just newBlock ->
+                    atomically $ modifyTVar' tpw (ourMiner .~ Just newBlock)
 
     pact :: PactExecutionService
     pact = _webPactExecutionService $ view cutDbPactService cdb
