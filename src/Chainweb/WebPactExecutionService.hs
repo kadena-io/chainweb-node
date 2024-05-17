@@ -75,7 +75,8 @@ data PactExecutionService = PactExecutionService
         ChainId ->
         Miner ->
         Bool ->
-        IO NewBlock
+        ParentHeader ->
+        IO (Maybe NewBlock)
         )
     , _pactContinueBlock :: !(
         ChainId ->
@@ -142,7 +143,8 @@ _webPactNewBlock
     -> ChainId
     -> Miner
     -> Bool
-    -> IO NewBlock
+    -> ParentHeader
+    -> IO (Maybe NewBlock)
 _webPactNewBlock = _pactNewBlock . _webPactExecutionService
 {-# INLINE _webPactNewBlock #-}
 
@@ -175,7 +177,7 @@ mkWebPactExecutionService
     -> WebPactExecutionService
 mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
     { _pactValidateBlock = \h pd -> withChainService (_chainId h) $ \p -> _pactValidateBlock p h pd
-    , _pactNewBlock = \cid m fill -> withChainService cid $ \p -> _pactNewBlock p cid m fill
+    , _pactNewBlock = \cid m fill parent -> withChainService cid $ \p -> _pactNewBlock p cid m fill parent
     , _pactContinueBlock = \cid bip -> withChainService cid $ \p -> _pactContinueBlock p cid bip
     , _pactLocal = \_pf _sv _rd _ct -> throwM $ userError "Chainweb.WebPactExecutionService.mkPactExecutionService: No web-level local execution supported"
     , _pactLookup = \cid cd txs -> withChainService cid $ \p -> _pactLookup p cid cd txs
@@ -197,8 +199,8 @@ mkPactExecutionService
 mkPactExecutionService q = PactExecutionService
     { _pactValidateBlock = \h pd -> do
         validateBlock h pd q
-    , _pactNewBlock = \_ m fill -> do
-        NewBlockInProgress <$> newBlock m fill q
+    , _pactNewBlock = \_ m fill parent -> do
+        fmap NewBlockInProgress <$> newBlock m fill parent q
     , _pactContinueBlock = \_ bip -> do
         continueBlock bip q
     , _pactLocal = \pf sv rd ct ->
@@ -221,7 +223,7 @@ mkPactExecutionService q = PactExecutionService
 emptyPactExecutionService :: HasCallStack => PactExecutionService
 emptyPactExecutionService = PactExecutionService
     { _pactValidateBlock = \_ _ -> pure emptyPayload
-    , _pactNewBlock = \_ _ _ -> throwM (userError "emptyPactExecutionService: attempted `newBlock` call")
+    , _pactNewBlock = \_ _ _ _ -> throwM (userError "emptyPactExecutionService: attempted `newBlock` call")
     , _pactContinueBlock = \_ _ -> throwM (userError "emptyPactExecutionService: attempted `continueBlock` call")
     , _pactLocal = \_ _ _ _ -> throwM (userError "emptyPactExecutionService: attempted `local` call")
     , _pactLookup = \_ _ _ -> return $! HM.empty
