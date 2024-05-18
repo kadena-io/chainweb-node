@@ -373,7 +373,7 @@ library
         , chronos >= 1.1
         , clock >= 0.7
         , configuration-tools >= 0.6
-        , crypton-connection >=0.2
+        , crypton-connection == 0.3.2
         , containers >= 0.5
         , crypton >= 0.31
         , cuckoo >= 0.3
@@ -563,7 +563,7 @@ test-suite chainweb-tests
         , bytestring >= 0.10.12
         , case-insensitive >= 1.2
         , chainweb-storage >= 0.1
-        , crypton-connection >=0.2
+        , crypton-connection == 0.3.2
         , containers >= 0.5
         , crypton >= 0.31
         , data-default >=0.7
@@ -747,7 +747,7 @@ executable cwtool
         , chainweb-storage >= 0.1
         , chronos >= 1.1
         , configuration-tools >= 0.6
-        , crypton-connection >=0.2
+        , crypton-connection == 0.3.2
         , containers >= 0.5
         , crypton >= 0.31
         , data-default >=0.7
