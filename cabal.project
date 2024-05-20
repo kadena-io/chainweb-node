@@ -214,3 +214,4 @@ allow-newer: base-compat-batteries:*
 allow-newer: webauthn:these
 allow-newer: webauthn:time
 allow-newer: webauthn:aeson
+allow-newer: lrucaching:base-compat
