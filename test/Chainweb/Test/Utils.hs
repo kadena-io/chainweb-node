@@ -180,6 +180,12 @@ import Text.Printf (printf)
 
 import UnliftIO.Async
 
+#if MIN_VERSION_crypton_connection(0,4,0)
+import Data.Default (def)
+import qualified Network.TLS as TLS
+import qualified Network.TLS.Extra.Cipher as TLS
+#endif
+
 -- internal modules
 
 import Chainweb.BlockCreationTime
@@ -1131,9 +1137,16 @@ interface = "127.0.0.1"
 getClientEnv :: BaseUrl -> IO ClientEnv
 getClientEnv url = flip mkClientEnv url <$> HTTP.newTlsManagerWith mgrSettings
     where
-      mgrSettings = HTTP.mkManagerSettings
-       (HTTP.TLSSettingsSimple True False False)
-       Nothing
+      mgrSettings = HTTP.mkManagerSettings tlsSettingsSimple Nothing
+
+      tlsSettingsSimple = HTTP.TLSSettingsSimple
+        { HTTP.settingDisableCertificateValidation = True
+        , HTTP.settingDisableSession = False
+        , HTTP.settingUseServerName = False
+#if MIN_VERSION_crypton_connection(0,4,0)
+        , HTTP.settingClientSupported = def { TLS.supportedCiphers = TLS.ciphersuite_default }
+#endif
+        }
 
 -- | Backoff up to a constant 250ms, limiting to ~40s
 -- (actually saw a test have to wait > 22s)

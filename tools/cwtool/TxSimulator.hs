@@ -5,6 +5,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+
 module TxSimulator
   where
 
@@ -57,6 +58,10 @@ import Chainweb.Version.Registry
 
 import Network.Connection
 import Network.HTTP.Client.TLS
+#if MIN_VERSION_crypton_connection(0,4,0)
+import qualified Network.TLS as TLS
+import qualified Network.TLS.Extra.Cipher as TLS
+#endif
 import Servant.Client.Core
 import Servant.Client
 
@@ -269,9 +274,18 @@ spvSim sc bh pwo = do
 setupClient :: SimConfig -> IO ClientEnv
 setupClient sc = flip mkClientEnv (scApiHostUrl sc) <$> newTlsManagerWith mgrSettings
   where
-    mgrSettings = mkManagerSettings
+    mgrSettings = mkManagerSettings tlsSettingsSimple Nothing
         (TLSSettingsSimple True False False)
         Nothing
+
+   tlsSettingsSimple = TLSSettingsSimple
+     { settingDisableCertificateValidation = True
+     , settingDisableSession = False
+     , settingUseServerName = False
+#if MIN_VERSION_crypton_connection(0,4,0)
+     , settingClientSupported = def { TLS.supportedCiphers = TLS.ciphersuite_default }
+#endif
+     }
 
 -- | note, fetches [low - 1, hi] to have parent headers
 fetchHeaders :: SimConfig -> ClientEnv -> IO [BlockHeader]
