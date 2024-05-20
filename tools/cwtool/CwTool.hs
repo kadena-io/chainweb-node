@@ -10,7 +10,6 @@ import System.Exit
 import Text.Printf
 
 import Chainweb.Pact.Backend.Compaction (main)
-import Chainweb.Pact.Backend.CompactionInMemory (main)
 import Chainweb.Pact.Backend.PactState.Diff (pactDiffMain)
 import Chainweb.Pact.Backend.PactState.GrandHash.Calc (pactCalcMain)
 import Chainweb.Pact.Backend.PactState.GrandHash.Import (pactImportMain)
@@ -109,10 +108,6 @@ topLevelCommands =
       "compact"
       "Compact pact database"
       Chainweb.Pact.Backend.Compaction.main
-  , CommandSpec
-      "sigma-compact"
-      "Compaction pact database (read-only)"
-      Chainweb.Pact.Backend.CompactionInMemory.main
   , CommandSpec
       "pact-diff"
       "Diff the latest state of two pact databases"
