@@ -191,6 +191,7 @@ data Fork
     | Pact4Coin3
     | EnforceKeysetFormats
     | Pact42
+    | Pact5
     | CheckTxHash
     | Chainweb213Pact
     | Chainweb214Pact
@@ -226,6 +227,7 @@ instance HasTextRepresentation Fork where
     toText Pact4Coin3 = "pact4Coin3"
     toText EnforceKeysetFormats = "enforceKeysetFormats"
     toText Pact42 = "Pact42"
+    toText Pact5 = "Pact5"
     toText CheckTxHash = "checkTxHash"
     toText Chainweb213Pact = "chainweb213Pact"
     toText Chainweb214Pact = "chainweb214Pact"

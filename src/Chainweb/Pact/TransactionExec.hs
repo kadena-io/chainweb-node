@@ -132,7 +132,7 @@ import qualified Pact.Core.Syntax.ParseTree as PCore
 import qualified Pact.Core.DefPacts.Types as PCore
 import qualified Pact.Core.Scheme as PCore
 import qualified Pact.Core.StableEncoding as PCore
---import qualified Pact.Core.SPV as PCore
+import qualified Pact.Core.SPV as PCore
 
 -- internal Chainweb modules
 import qualified Chainweb.Pact.Transactions.CoinCoreV4Transactions as CoinCoreV4
@@ -519,7 +519,7 @@ applyCoinbase v logger (dbEnv, coreDb) (Miner mid mks@(MinerKeys mk)) reward@(Pa
         Just coinbaseTerm | usePactTng -> do
           coreState <-
             if (not $ (PCore.ModuleName "core" Nothing) `S.member` (M.keysSet $ _getCoreModuleCache cmc)) then do
-              cmc' <- liftIO (readInitModulesCore logger (dbEnv, coreDb) txCtx)
+              cmc' <- undefined readInitModulesCore
               pure $ setCoreModuleCache cmc' evState
             else pure evState
 
@@ -536,7 +536,7 @@ applyCoinbase v logger (dbEnv, coreDb) (Miner mid mks@(MinerKeys mk)) reward@(Pa
 
               upgradedModuleCache <- applyUpgrades v cid bh
 
-              txCoreCache .= (CoreModuleCache $ PCore._erLoadedModules er)
+              txCoreCache .= (CoreModuleCache (PCore._erLoadedModules er))
 
               coreCr <- mkCommandResultFromCoreResult er
 
@@ -659,7 +659,7 @@ applyLocal logger gasLogger (dbEnv, coreDb) (gasModel, gasModelCore) txCtx spv c
 
 readInitModulesCore
     :: forall logger tbl. (Logger logger)
-    -> PactBlockM logger tbl CoreModuleCache
+    => PactBlockM logger tbl CoreModuleCache
 readInitModulesCore = do
   logger <- view (psServiceEnv . psLogger)
   dbEnv <- _cpPactDbEnv <$> view psBlockDbEnv
@@ -668,6 +668,46 @@ readInitModulesCore = do
 
   let chainweb217Pact' = guardCtx chainweb217Pact txCtx
   let chainweb224Pact' = guardCtx chainweb224Pact txCtx
+
+  let usePactTng = True
+  let emptyTxEnv =
+        TransactionEnv
+          { _txMode = Local
+          , _txDbEnv = dbEnv
+          , _txCoreDb = coreDb
+          , _txLogger = logger
+          , _txGasLogger = Nothing
+          , _txPublicData = ctxToPublicData txCtx
+          , _txSpvSupport = noSPVSupport
+          , _txNetworkId = Nothing
+          , _txGasPrice = 0.0
+          , _txRequestKey = RequestKey pactInitialHash
+          , _txGasLimit = 0
+          , _txExecutionConfig = def
+          , _txQuirkGasFee = Nothing
+          , _txUsePactTng = usePactTng
+          }
+  let emptyTxState =
+        TransactionState
+          { _txCache = mempty
+          , _txCoreCache = mempty
+          , _txLogs = []
+          , _txGasUsed = 0
+          , _txGasId = Nothing
+          , _txGasModel = _geGasModel freeGasEnv
+          , _txGasModelCore = PCore.freeGasModel
+          , _txWarnings = mempty
+          }
+  let die msg = throwM $ PactInternalError $ "readInitModules: " <> msg
+  let mkCmd = buildExecParsedCode (pactParserVersion (ctxVersion txCtx) (ctxChainId txCtx) (_blockHeight (_parentHeader (_tcParentHeader txCtx)) + 1)) Nothing
+  let run msg cmd = do
+        er <- catchesPactError logger (onChainErrorPrintingFor txCtx) $! do
+          applyExec' 0 defaultInterpreter cmd [] [] pactInitialHash permissiveNamespacePolicy
+        case er of
+          Left e -> die $ msg <> ": failed: " <> sshow e
+          Right r -> case _erOutput r of
+            [] -> die $ msg <> ": empty result"
+            (o:_) -> return o
 
     -- Only load coin and its dependencies for chainweb >=2.17
     -- Note: no need to check if things are there, because this
@@ -678,12 +718,11 @@ readInitModulesCore = do
       goCw217 = do
         coinDepCmd <- liftIO $ mkCmd "coin.MINIMUM_PRECISION"
         void $ run "load modules" coinDepCmd
-        c <- use txCoreCache
-        pure c
+        use txCoreCache
 
   if | chainweb224Pact' -> pure mempty
-     | chainweb217Pact' -> liftIO $ evalTransactionM tenv txst goCw217
-     | otherwise -> fail "" --liftIO $ evalTransactionM tenv txst go
+     | chainweb217Pact' -> liftIO $ evalTransactionM emptyTxEnv emptyTxState goCw217
+     | otherwise -> throwM $ PactInternalError $ "readInitModulesCore call prior Chainweb 2.17"
 
 readInitModules
     :: forall logger tbl. (Logger logger)
@@ -723,7 +762,6 @@ readInitModules = do
         Right r -> case _erOutput r of
           [] -> die $ msg <> ": empty result"
           (o:_) -> return o
-
 
     go :: TransactionM logger p (ModuleCache, CoreModuleCache)
     go = do
@@ -1827,7 +1865,7 @@ mkCoreEvalEnv nsp MsgData{..} = do
         FlagEnforceKeyFormats -> Just PCore.FlagEnforceKeyFormats
         _ -> Nothing
       executionFlags = mapMaybe toCoreExFlag $ S.toList $ _ecFlags $ _txExecutionConfig tenv
-    liftIO $ PCore.setupEvalEnv (_txCoreDb tenv) txMode' coreMsg gasModel coreNsp cpd (S.fromList executionFlags) PCore.noSPVSupport
+    liftIO $ PCore.setupEvalEnv (_txCoreDb tenv) txMode' coreMsg gasModel coreNsp PCore.noSPVSupport cpd (S.fromList executionFlags)
 
 -- | Managed namespace policy CAF
 --
