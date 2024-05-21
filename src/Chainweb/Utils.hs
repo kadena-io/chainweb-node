@@ -1,6 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -250,11 +249,6 @@ import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as CSV
 import Data.Decimal
-#if MIN_VERSION_crypton_connection(0,4,0)
-import Data.Default (def)
-import qualified Network.TLS as TLS
-import qualified Network.TLS.Extra.Cipher as TLS
-#endif
 import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
@@ -1354,27 +1348,17 @@ manager micros = HTTP.newManager
 unsafeManager :: Int -> IO HTTP.Manager
 unsafeManager micros = HTTP.newTlsManagerWith
     $ setManagerRequestTimeout micros
-    $ HTTP.mkManagerSettings unsafeSimpleTLSSettings Nothing
+    $ HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True True True) Nothing
 
 unsafeManagerWithSettings :: (HTTP.ManagerSettings -> HTTP.ManagerSettings) -> IO HTTP.Manager
 unsafeManagerWithSettings settings = HTTP.newTlsManagerWith
     $ settings
-    $ HTTP.mkManagerSettings unsafeSimpleTLSSettings Nothing
+    $ HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True True True) Nothing
 
 setManagerRequestTimeout :: Int -> HTTP.ManagerSettings -> HTTP.ManagerSettings
 setManagerRequestTimeout micros settings = settings
     { HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro micros
     }
-
-unsafeSimpleTLSSettings :: HTTP.TLSSettings
-unsafeSimpleTLSSettings = HTTP.TLSSettingsSimple
-  { HTTP.settingDisableCertificateValidation = True
-  , HTTP.settingDisableSession = True
-  , HTTP.settingUseServerName = True
-#if MIN_VERSION_crypton_connection(0,4,0)
-  , HTTP.settingClientSupported = def { TLS.supportedCiphers = TLS.ciphersuite_default }
-#endif
-  }
 
 -- -------------------------------------------------------------------------- --
 -- SockAddr from network package
