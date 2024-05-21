@@ -798,6 +798,7 @@ executable cwtool
         , rocksdb-haskell-kadena >= 1.1.0
         , safe-exceptions >= 0.1
         , servant-client >= 0.18.2
+        , servant-client-core >= 0.18.2
         , stm >= 2.4
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
