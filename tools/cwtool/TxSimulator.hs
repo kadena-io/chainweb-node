@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -279,14 +278,14 @@ setupClient sc = flip mkClientEnv (scApiHostUrl sc) <$> newTlsManagerWith mgrSet
         (TLSSettingsSimple True False False)
         Nothing
 
-    tlsSettingsSimple = TLSSettingsSimple
-      { settingDisableCertificateValidation = True
-      , settingDisableSession = False
-      , settingUseServerName = False
+   tlsSettingsSimple = TLSSettingsSimple
+     { settingDisableCertificateValidation = True
+     , settingDisableSession = False
+     , settingUseServerName = False
 #if MIN_VERSION_crypton_connection(0,4,0)
-      , settingClientSupported = def { TLS.supportedCiphers = TLS.ciphersuite_default }
+     , settingClientSupported = def { TLS.supportedCiphers = TLS.ciphersuite_default }
 #endif
-      }
+     }
 
 -- | note, fetches [low - 1, hi] to have parent headers
 fetchHeaders :: SimConfig -> ClientEnv -> IO [BlockHeader]
