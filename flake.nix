@@ -7,7 +7,7 @@
       flake = false;
     };
     hs-nix-infra = {
-      url = "github:kadena-io/hs-nix-infra";
+      url = "github:kadena-io/hs-nix-infra/b552dd580e1c9b583b93b03432333b1eb339ef06";
       inputs.hackage.follows = "hackage";
     };
     flake-utils.url = "github:numtide/flake-utils";
