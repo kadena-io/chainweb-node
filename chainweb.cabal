@@ -379,7 +379,7 @@ library
         , crypton-connection >= 0.2 && < 0.4
         , containers >= 0.5
         , crypton >= 0.31
-        , crypton-connection >=0.2
+        , crypton-connection >= 0.2 && < 0.4
         , crypton-x509 >=1.7
         , crypton-x509-system >=1.6
         , crypton-x509-validation >=1.6
