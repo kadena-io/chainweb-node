@@ -35,6 +35,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
 import Control.Exception (evaluate)
+import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
 
@@ -189,6 +190,12 @@ withMiningCoordination logger conf cdb inner
 
             -- Get a payload for the new block
             maybeNewBlock <- _pactNewBlock pact cid miner True newParent
+                `onException` do
+                    logFunctionText (chainLogger cid logger) Error
+                        "creating new payload failed, resetting to old payload"
+                    atomically $ modifyTVar' tpw (ourMiner .~ Just outdatedPayload)
+                    approximateThreadDelay 1_000_000
+
 
             case maybeNewBlock of
                 Nothing -> do
