@@ -349,16 +349,16 @@ awaitNewCutByChainId cdb cid c = atomically $ awaitNewCutByChainIdStm cdb cid c
 
 -- | As in `awaitNewCut`, but only updates when the header at the specified
 -- `ChainId` has changed, and only returns that new header.
-awaitNewBlock :: CutDb tbl -> ChainId -> BlockHeader -> IO BlockHeader
-awaitNewBlock cdb cid bh = atomically $ awaitNewBlockStm cdb cid bh
+awaitNewBlock :: CutDb tbl -> ChainId -> BlockHash -> IO BlockHeader
+awaitNewBlock cdb cid bHash = atomically $ awaitNewBlockStm cdb cid bHash
 
 -- | As in `awaitNewCut`, but only updates when the header at the specified
 -- `ChainId` has changed, and only returns that new header.
-awaitNewBlockStm :: CutDb tbl -> ChainId -> BlockHeader -> STM BlockHeader
-awaitNewBlockStm cdb cid bh = do
+awaitNewBlockStm :: CutDb tbl -> ChainId -> BlockHash -> STM BlockHeader
+awaitNewBlockStm cdb cid bHash = do
     c <- _cutStm cdb
     case HM.lookup cid (_cutMap c) of
-        Just bh' | _blockHash bh' /= _blockHash bh -> return bh'
+        Just bh' | _blockHash bh' /= bHash -> return bh'
         _ -> retry
 
 -- | As in `awaitNewCut`, but only updates when the specified `ChainId` has

@@ -99,7 +99,7 @@ withMiningCoordination logger conf cdb inner
                     forM cids $ \cid -> do
                         let bh = fromMaybe (genesisBlockHeader v cid) (HM.lookup cid (_cutMap cut))
                         newBlock <- throwIfNoHistory =<< getPayload cid miner (ParentHeader bh)
-                        return (cid, Just newBlock)
+                        return (cid, WorkReady newBlock)
 
         m <- newTVarIO initialPw
         c503 <- newIORef 0
@@ -132,6 +132,43 @@ withMiningCoordination logger conf cdb inner
 
     chainLogger cid = addLabel ("chain", toText cid)
 
+    -- we assume that this path always exists in PrimedWork and never delete it.
+    workForMiner :: Miner -> ChainId -> Traversal' PrimedWork WorkState
+    workForMiner miner cid = _Wrapped' . ix (view minerId miner) . ix cid
+
+    periodicallyRefreshPayload :: TVar PrimedWork -> ChainId -> Miner -> IO a
+    periodicallyRefreshPayload tpw cid ourMiner = forever $ do
+        let delay =
+                timeSpanToMicros $ _coordinationPayloadRefreshDelay coordConf
+        threadDelay (fromIntegral @Micros @Int delay)
+        when (not $ v ^. versionCheats . disablePact) $ do
+            -- "stale" in the sense of not having all of the transactions
+            -- that it could. it still has the latest possible parent
+            mContinuableBlockInProgress <- atomically $ do
+                primed <- readTVar tpw <&> (^?! workForMiner ourMiner cid)
+                case primed of
+                    WorkReady (NewBlockInProgress bip) -> return (Just bip)
+                    WorkReady (NewBlockPayload {}) ->
+                      error "periodicallyRefreshPayload: encountered NewBlockPayload in PrimedWork, which cannot be refreshed"
+                    WorkAlreadyMined {} -> return Nothing
+                    WorkStale -> return Nothing
+
+            forM_ mContinuableBlockInProgress $ \continuableBlockInProgress -> do
+                maybeNewBlock <- _pactContinueBlock pact cid continuableBlockInProgress
+                -- if continuing returns NoHistory then the parent header
+                -- isn't available in the checkpointer right now.
+                -- in that case we just mark the payload as not stale.
+                let newBlock = case maybeNewBlock of
+                        NoHistory -> continuableBlockInProgress
+                        Historical b -> b
+
+                logFunctionText (chainLogger cid logger) Debug
+                    $ "refreshed block, old and new tx count: "
+                    <> sshow (V.length $ _transactionPairs $ _blockInProgressTransactions continuableBlockInProgress, V.length $ _transactionPairs $ _blockInProgressTransactions newBlock)
+
+                atomically $ modifyTVar' tpw $
+                    workForMiner ourMiner cid .~ WorkReady (NewBlockInProgress newBlock)
+
     -- | THREAD: Keep a live-updated cache of Payloads for specific miners, such
     -- that when they request new work, the block can be instantly constructed
     -- without interacting with the Pact Queue.
@@ -146,47 +183,23 @@ withMiningCoordination logger conf cdb inner
             pw <- readTVarIO tpw
             let
                 -- we assume that this path always exists in PrimedWork and never delete it.
-                ourMiner :: Traversal' PrimedWork (Maybe NewBlock)
-                ourMiner = _Wrapped' . ix (view minerId miner) . ix cid
-            let !outdatedPayload = pw ^?! ourMiner . _Just
-            let ParentHeader outdatedParent = newBlockParentHeader outdatedPayload
-            let
-                periodicallyRefreshPayload = do
-                    let delay =
-                            timeSpanToMicros $ _coordinationPayloadRefreshDelay coordConf
-                    threadDelay (fromIntegral @Micros @Int delay)
-                    when (not $ v ^. versionCheats . disablePact) $ do
-                        continuableBlockInProgress <- atomically $ do
-                            primed <- readTVar tpw <&> (^?! (ourMiner . _Just))
-                            case primed of
-                                NewBlockInProgress bip -> return bip
-                                NewBlockPayload {} ->
-                                    error "periodicallyRefreshPayload: encountered NewBlockPayload in PrimedWork, which cannot be refreshed"
-                        maybeNewBlock <- _pactContinueBlock pact cid continuableBlockInProgress
-                        -- if continuing returns Nothing then the parent header
-                        -- isn't available in the checkpointer right now.
-                        -- in that case we just mark the payload as not stale
-                        let newBlock = case maybeNewBlock of
-                                NoHistory -> continuableBlockInProgress
-                                Historical b -> b
-
-                        logFunctionText (chainLogger cid logger) Debug
-                            $ "refreshed block, old and new tx count: "
-                            <> sshow (V.length $ _transactionPairs $ _blockInProgressTransactions continuableBlockInProgress, V.length $ _transactionPairs $ _blockInProgressTransactions newBlock)
-
-                        atomically $ modifyTVar' tpw $
-                            ourMiner .~ Just (NewBlockInProgress newBlock)
-                    periodicallyRefreshPayload
+                ourMiner :: Traversal' PrimedWork WorkState
+                ourMiner = workForMiner miner cid
+            let !outdatedPayload = fromJuste $ pw ^? ourMiner
+            let outdatedParentHash = case outdatedPayload of
+                  WorkReady outdatedBlock -> _blockHash (_parentHeader (newBlockParentHeader outdatedBlock))
+                  WorkAlreadyMined outdatedBlockHash -> outdatedBlockHash
+                  WorkStale -> error "primeWork loop: Invariant Violation: Stale work should be an impossibility"
 
             newParent <- either ParentHeader id <$> race
                 -- wait for a block different from what we've got primed work for
-                (awaitNewBlock cdb cid outdatedParent)
+                (awaitNewBlock cdb cid outdatedParentHash)
                 -- in the meantime, periodically refresh the payload to make sure
                 -- it has all of the transactions it can have
-                periodicallyRefreshPayload
+                (periodicallyRefreshPayload tpw cid miner)
 
             -- Temporarily block this chain from being considered for queries
-            atomically $ modifyTVar' tpw (ourMiner .~ Nothing)
+            atomically $ modifyTVar' tpw (ourMiner .~ WorkStale)
 
             -- Get a payload for the new block
             getPayload cid miner newParent >>= \case
@@ -194,9 +207,9 @@ withMiningCoordination logger conf cdb inner
                     logFunctionText (addLabel ("chain", toText cid) logger) Warn
                         "current block is not in the checkpointer; halting primed work loop temporarily"
                     approximateThreadDelay 1_000_000
-                    atomically $ modifyTVar' tpw (ourMiner .~ Just outdatedPayload)
+                    atomically $ modifyTVar' tpw (ourMiner .~ outdatedPayload)
                 Historical newBlock ->
-                    atomically $ modifyTVar' tpw (ourMiner .~ Just newBlock)
+                    atomically $ modifyTVar' tpw (ourMiner .~ WorkReady newBlock)
 
     getPayload :: ChainId -> Miner -> ParentHeader -> IO (Historical NewBlock)
     getPayload cid m ph =

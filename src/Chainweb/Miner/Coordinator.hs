@@ -33,6 +33,7 @@ module Chainweb.Miner.Coordinator
 , PrevTime(..)
 , ChainChoice(..)
 , PrimedWork(..)
+, WorkState(..)
 , MiningCoordination(..)
 , NoAsscociatedPayload(..)
 
@@ -59,7 +60,6 @@ import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.List(sort)
 import qualified Data.Map.Strict as M
-import Data.Maybe
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
@@ -71,6 +71,7 @@ import System.LogLevel (LogLevel(..))
 -- internal modules
 
 import Chainweb.BlockCreationTime
+import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader
 import Chainweb.Cut hiding (join)
 import Chainweb.Cut.Create
@@ -132,14 +133,26 @@ data MiningCoordination logger tbl = MiningCoordination
 -- made as often as desired, without clogging the Pact queue.
 --
 newtype PrimedWork =
-    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (Maybe NewBlock)))
+    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId WorkState))
     deriving newtype (Semigroup, Monoid)
     deriving stock Generic
     deriving anyclass (Wrapped)
 
-resetPrimed :: MinerId -> ChainId -> PrimedWork -> PrimedWork
-resetPrimed mid cid (PrimedWork pw) = PrimedWork
-    $! HM.adjust (HM.adjust (\_ -> Nothing) cid) mid pw
+data WorkState
+  = WorkReady NewBlock
+    -- ^ We have work ready for the miner
+  | WorkAlreadyMined BlockHash
+    -- ^ A block with this parent has already been mined and submitted to the
+    --   cut pipeline - we don't want to mine it again.
+  | WorkStale
+    -- ^ No work has been produced yet with the latest parent block on this
+    --   chain.
+  deriving stock (Show)
+
+isWorkReady :: WorkState -> Bool
+isWorkReady = \case
+  WorkReady {} -> True
+  _ -> False
 
 -- | Data shared between the mining threads represented by `newWork` and
 -- `publish`.
@@ -202,20 +215,23 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
     mpw <- atomically $ do
         PrimedWork pw <- readTVar tpw
         mpw <- maybe retry return (HM.lookup mid pw)
-        guard (any isJust mpw)
+        guard (any isWorkReady mpw)
         return mpw
     let mr = T2
             <$> HM.lookup cid mpw
             <*> getCutExtension c cid
 
     case mr of
-        Just (T2 Nothing _) -> do
+        Just (T2 WorkStale _) -> do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " has stale work"
+            newWork logFun Anything eminer hdb pact tpw c
+        Just (T2 (WorkAlreadyMined _) _) -> do
+            logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " has a payload that was already mined"
             newWork logFun Anything eminer hdb pact tpw c
         Nothing -> do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " not mineable"
             newWork logFun Anything eminer hdb pact tpw c
-        Just (T2 (Just newBlock) extension) -> do
+        Just (T2 (WorkReady newBlock) extension) -> do
             let ParentHeader primedParent = newBlockParentHeader newBlock
             if _blockHash primedParent == _blockHash (_parentHeader (_cutExtensionParent extension))
             then do
@@ -264,7 +280,9 @@ publish lf cdb pwVar miner pwo s = do
         Right (bh, Just ch) -> do
 
             -- reset the primed payload for this cut extension
-            atomically $ modifyTVar pwVar $ resetPrimed miner (_chainId bh)
+            atomically $ modifyTVar pwVar $ \(PrimedWork pw) ->
+              PrimedWork $! HM.adjust (HM.insert (_chainId bh) (WorkAlreadyMined (_blockParent bh))) miner pw
+
             addCutHashes cdb ch
 
             let bytes = sum . fmap (BS.length . _transactionBytes . fst) $
@@ -338,7 +356,7 @@ work mr mcid m = do
                         "no chains have primed work"
                     | otherwise ->
                         "all chains with primed work may be stalled. chains with primed payloads: "
-                        <> sshow (sort [cid | (cid, Just _) <- HM.toList mpw])
+                        <> sshow (sort [cid | (cid, WorkReady _) <- HM.toList mpw])
           )
 
         logDelays n'
