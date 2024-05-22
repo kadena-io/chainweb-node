@@ -739,8 +739,8 @@ withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
         bhdb <- getBlockHeaderDb c bdb
         ctx <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
         return $ PactExecutionService
-          { _pactNewBlock = \_ m fill ->
-              evalPactServiceM_ ctx $ NewBlockInProgress <$> execNewBlock mempoolAccess m fill
+          { _pactNewBlock = \_ m fill ph ->
+              evalPactServiceM_ ctx $ fmap NewBlockInProgress <$> execNewBlock mempoolAccess m fill ph
           , _pactContinueBlock = \_ bip ->
               evalPactServiceM_ ctx $ execContinueBlock mempoolAccess bip
           , _pactValidateBlock = \h d ->
@@ -779,8 +779,8 @@ runCut
     -> IO ()
 runCut v bdb pact genTime noncer miner =
   forM_ (chainIds v) $ \cid -> do
-    newBlock <- _webPactNewBlock pact cid miner NewBlockFill
-    let ph = newBlockParentHeader newBlock
+    ph <- ParentHeader <$> getParentTestBlockDb bdb cid
+    !newBlock <- throwIfNoHistory =<< _webPactNewBlock pact cid miner NewBlockFill ph
     let pout = newBlockToPayloadWithOutputs newBlock
     n <- noncer cid
 

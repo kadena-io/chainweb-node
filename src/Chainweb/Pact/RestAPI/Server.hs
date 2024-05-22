@@ -354,7 +354,7 @@ listenHandler logger cdb cid pact mem (ListenerRequest key) = do
           then do
             pure Nothing
           else do
-            Just <$!> CutDB.awaitNewBlockStm cdb cid lastBlockHeader
+            Just <$!> CutDB.awaitNewBlockStm cdb cid (_blockHash lastBlockHeader)
 
     -- TODO: make configurable
     defaultTimeout = 180 * 1000000 -- two minutes
