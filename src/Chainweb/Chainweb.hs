@@ -331,7 +331,7 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
 
 data StartedChainweb logger where
   StartedChainweb :: (CanReadablePayloadCas cas, Logger logger) => !(Chainweb logger cas) -> StartedChainweb logger
-  Replayed :: !Cut -> !Cut -> StartedChainweb logger
+  Replayed :: !Cut -> !(Maybe Cut) -> StartedChainweb logger
 
 data ChainwebStatus
     = ProcessStarted
@@ -506,25 +506,27 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                     unsafeMkCut v <$> readHighestCutHeaders v (logFunctionText logger) webchain (cutHashesTable rocksDb)
                 lowerBoundCut <-
                     tryLimitCut webchain (fromMaybe 0 $ _cutInitialBlockHeightLimit $ _configCuts conf) highestCut
-                upperBoundCut <-
-                    tryLimitCut webchain (fromMaybe maxBound $ _cutFastForwardBlockHeightLimit $ _configCuts conf) highestCut
+                upperBoundCut <- forM (_cutFastForwardBlockHeightLimit $ _configCuts conf) $ \upperBound ->
+                    tryLimitCut webchain upperBound highestCut
                 let
-                    replayOneChain :: (ChainResources logger, (BlockHeader, BlockHeader)) -> IO ()
+                    replayOneChain :: (ChainResources logger, (BlockHeader, Maybe BlockHeader)) -> IO ()
                     replayOneChain (cr, (l, u)) = do
                         let chainPact = _chainResPact cr
                         let logCr = logFunctionText
                                 $ addLabel ("component", "pact")
                                 $ addLabel ("sub-component", "init")
                                 $ _chainResLogger cr
-                        logCr Info $ "pact db replaying between blocks "
-                            <> T.pack (show (_blockHeight l, _blockHash l)) <> " and "
-                            <> T.pack (show (_blockHeight u, _blockHash u))
                         void $ _pactReadOnlyReplay chainPact l u
                         logCr Info "pact db synchronized"
-                mapConcurrently_ replayOneChain $
-                    HM.intersectionWith (,)
-                        pactSyncChains
-                        (HM.intersectionWith (,) (_cutMap lowerBoundCut) (_cutMap upperBoundCut))
+                let bounds =
+                        HM.intersectionWith (,)
+                            pactSyncChains
+                            (HM.mapWithKey
+                                (\cid bh ->
+                                    (bh, (HM.! cid) . _cutMap <$> upperBoundCut))
+                                (_cutMap lowerBoundCut)
+                            )
+                mapConcurrently_ replayOneChain bounds
                 logg Info "finished fast forward replay"
                 logFunctionJson logger Info PactReplaySuccessful
                 inner $ Replayed lowerBoundCut upperBoundCut
@@ -542,7 +544,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                 synchronizePactDb pactSyncChains newCut
                 logg Info "finished replaying Pact DBs to fast forward cut"
                 logFunctionJson logger Info PactReplaySuccessful
-                inner $ Replayed initialCut newCut
+                inner $ Replayed initialCut (Just newCut)
             else do
                 initialCut <- _cut mCutDb
                 logg Info "start synchronizing Pact DBs to initial cut"
