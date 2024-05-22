@@ -109,7 +109,6 @@ import Chainweb.Pact.Types
 import Chainweb.Pact.Validations
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Storage.Table
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB
@@ -641,9 +640,9 @@ execReadOnlyReplay
     :: forall logger tbl
     . (Logger logger, CanReadablePayloadCas tbl)
     => BlockHeader
-    -> BlockHeader
+    -> Maybe BlockHeader
     -> PactServiceM logger tbl ()
-execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
+execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $ do
     ParentHeader cur <- findLatestValidBlockHeader
     logger <- view psLogger
     bhdb <- view psBlockHeaderDb
@@ -651,12 +650,24 @@ execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
     v <- view chainwebVersion
     cid <- view chainId
     -- lower bound must be an ancestor of upper.
-    liftIO (ancestorOf bhdb (_blockHash lowerBound) (_blockHash upperBound)) >>=
-      flip unless (throwM $ PactInternalError "lower bound is not an ancestor of upper bound")
+    upperBound <- case maybeUpperBound of
+        Just upperBound -> do
+            liftIO (ancestorOf bhdb (_blockHash lowerBound) (_blockHash upperBound)) >>=
+                flip unless (throwM $ PactInternalError "lower bound is not an ancestor of upper bound")
 
-    -- upper bound must be an ancestor of latest header.
-    liftIO (ancestorOf bhdb (_blockHash upperBound) (_blockHash cur)) >>=
-      flip unless (throwM $ PactInternalError "upper bound is not an ancestor of latest header")
+            -- upper bound must be an ancestor of latest header.
+            liftIO (ancestorOf bhdb (_blockHash upperBound) (_blockHash cur)) >>=
+                flip unless (throwM $ PactInternalError "upper bound is not an ancestor of latest header")
+
+            return upperBound
+        Nothing -> do
+            liftIO (ancestorOf bhdb (_blockHash lowerBound) (_blockHash cur)) >>=
+                flip unless (throwM $ PactInternalError "lower bound is not an ancestor of latest header")
+
+            return cur
+    liftIO $ logFunctionText logger Info $ "pact db replaying between blocks "
+        <> sshow (_blockHeight lowerBound, _blockHash lowerBound) <> " and "
+        <> sshow (_blockHeight upperBound, _blockHash upperBound)
 
     let genHeight = genesisHeight v cid
     -- we don't want to replay the genesis header in here.
@@ -690,10 +701,9 @@ execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
                 printError e = throwM e
             handle printError $ runPact $ readFrom (Just $ ParentHeader bhParent) $ do
                 liftIO $ writeIORef heightRef (_blockHeight bh)
-                plData <- liftIO $ fromJuste <$> tableLookup
-                    (_transactionDb pdb)
-                    (_blockPayloadHash bh)
-                void $ execBlock bh (CheckablePayload plData)
+                payload <- liftIO $ fromJuste <$>
+                  lookupPayloadDataWithHeight pdb (Just $ _blockHeight bh) (_blockPayloadHash bh)
+                void $ execBlock bh (CheckablePayload payload)
             )
         validationFailed <- readIORef validationFailedRef
         when validationFailed $

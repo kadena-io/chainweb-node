@@ -442,7 +442,7 @@ instance Show HistoricalLookupReq where
 
 data ReadOnlyReplayReq = ReadOnlyReplayReq
     { _readOnlyReplayLowerBound :: !BlockHeader
-    , _readOnlyReplayUpperBound :: !BlockHeader
+    , _readOnlyReplayUpperBound :: !(Maybe BlockHeader)
     }
 instance Show ReadOnlyReplayReq where
   show (ReadOnlyReplayReq l u) =
