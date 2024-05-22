@@ -579,7 +579,7 @@ replayTest loglevel v n rdb pactDbDir step = do
                 & set (configCuts . cutInitialBlockHeightLimit) (Just replayInitialHeight)
                 & set configOnlySyncPact True)
             n (Seconds 20) rdb pactDbDir $ \nid cw -> case cw of
-                Replayed l u -> do
+                Replayed l (Just u) -> do
                     writeIORef firstReplayCompleteRef True
                     _ <- flip HM.traverseWithKey (_cutMap l) $ \cid bh ->
                         assertEqual ("lower chain " <> sshow cid) replayInitialHeight (_blockHeight bh)
@@ -589,6 +589,7 @@ replayTest loglevel v n rdb pactDbDir step = do
                     _ <- flip HM.traverseWithKey (_cutMap u) $ \cid bh ->
                         assertGe ("upper chain " <> sshow cid) (Actual $ _blockHeight bh) (Expected replayInitialHeight)
                     return ()
+                Replayed _ Nothing -> error "replayTest: no replay upper bound"
                 _ -> error "replayTest: not a replay"
         assertEqual "first replay completion" True =<< readIORef firstReplayCompleteRef
         let fastForwardHeight = 10
@@ -600,13 +601,15 @@ replayTest loglevel v n rdb pactDbDir step = do
                 & set (configCuts . cutFastForwardBlockHeightLimit) (Just fastForwardHeight)
                 & set configOnlySyncPact True)
             n (Seconds 20) rdb pactDbDir $ \_ cw -> case cw of
-                Replayed l u -> do
+                Replayed l (Just u) -> do
                     writeIORef secondReplayCompleteRef True
                     _ <- flip HM.traverseWithKey (_cutMap l) $ \cid bh ->
                         assertEqual ("lower chain " <> sshow cid) replayInitialHeight (_blockHeight bh)
                     _ <- flip HM.traverseWithKey (_cutMap u) $ \cid bh ->
                         assertEqual ("upper chain " <> sshow cid) fastForwardHeight (_blockHeight bh)
                     return ()
+                Replayed _ Nothing -> do
+                    error "replayTest: no replay upper bound"
                 _ -> error "replayTest: not a replay"
         assertEqual "second replay completion" True =<< readIORef secondReplayCompleteRef
         tastylog "done."

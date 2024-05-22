@@ -6,7 +6,7 @@ Changes:
 
 
 Internal Changes:
-
+- Fixed a crash when using read-only replay with no upper bound (#xxxx)
 
 ## 2.24 (2024-05-23)
 
