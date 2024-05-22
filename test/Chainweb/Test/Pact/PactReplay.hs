@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -73,7 +74,7 @@ tests rdb =
         , withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
             (testCaseSteps "on-restart" . onRestart mpio)
         , withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
-            (testCase "reject-dupes" . testDupes mpio)
+            (testCase "reject-dupes" . testDupes mpio genblock)
         , let deepForkLimit = RewindLimit 4
           in withPactTestBlockDb testVer cid rdb mp (forkLimit deepForkLimit)
             (testCaseSteps "deep-fork-limit" . testDeepForkLimit mpio deepForkLimit)
@@ -98,7 +99,7 @@ onRestart mpio iop step = do
     step $ "max block has height " <> sshow (_blockHeight block)
     let nonce = Nonce $ fromIntegral $ _blockHeight block
     step "mine block on top of max block"
-    T3 _ b _ <- mineBlock nonce iop
+    T3 _ b _ <- mineBlock (ParentHeader block) nonce iop
     assertEqual "Invalid BlockHeight" 1 (_blockHeight b)
 
 testMemPoolAccess :: MemPoolAccess
@@ -183,8 +184,9 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
         where
           startHeight = fromIntegral $ _blockHeight start
           go = do
+              pblock <- gets ParentHeader
               n <- liftIO $ Nonce <$> readIORef ncounter
-              ret@(T3 _ newblock _) <- liftIO $ mineBlock n iop
+              ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iop
               liftIO $ modifyIORef' ncounter succ
               put newblock
               return ret
@@ -231,21 +233,23 @@ firstPlayThrough mpio genesisBlock iop = do
         where
           startHeight = fromIntegral $ _blockHeight start
           go = do
+              pblock <- gets ParentHeader
               n <- liftIO $ Nonce <$> readIORef ncounter
-              ret@(T3 _ newblock _) <- liftIO $ mineBlock n iop
+              ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iop
               liftIO $ modifyIORef' ncounter succ
               put newblock
               return ret
 
 testDupes
   :: IO (IORef MemPoolAccess)
+  -> BlockHeader
   -> IO (SQLiteEnv, PactQueue, TestBlockDb)
   -> Assertion
-testDupes mpio iop = do
+testDupes mpio genesisBlock iop = do
     setMempool mpio =<< dupegenMemPoolAccess
-    (T3 _ newblock payload) <- liftIO $ mineBlock (Nonce 1) iop
+    (T3 _ newblock payload) <- liftIO $ mineBlock (ParentHeader genesisBlock) (Nonce 1) iop
     expectException newblock payload $ liftIO $
-        mineBlock (Nonce 3) iop
+        mineBlock (ParentHeader newblock) (Nonce 3) iop
   where
     expectException newblock payload act = do
         m <- wrap `catchAllSynchronous` h
@@ -306,17 +310,18 @@ testDeepForkLimit mpio (RewindLimit deepForkLimit) iop step = do
               pblock <- gets ParentHeader
               n <- liftIO $ Nonce <$> readIORef ncounter
               liftIO $ step $ "mine block on top of height " <> sshow (_blockHeight $ _parentHeader pblock)
-              ret@(T3 _ newblock _) <- liftIO $ mineBlock n iop
+              ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iop
               liftIO $ modifyIORef' ncounter succ
               put newblock
               return ret
 
 
 mineBlock
-    :: Nonce
+    :: ParentHeader
+    -> Nonce
     -> IO (SQLiteEnv, PactQueue, TestBlockDb)
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-mineBlock nonce iop = timeout 5000000 go >>= \case
+mineBlock ph nonce iop = timeout 5000000 go >>= \case
     Nothing -> error "PactReplay.mineBlock: Test timeout. Most likely a test case caused a pact service failure that wasn't caught, and the test was blocked while waiting for the result"
     Just x -> return x
   where
@@ -324,8 +329,7 @@ mineBlock nonce iop = timeout 5000000 go >>= \case
 
       -- assemble block without nonce and timestamp
       (_, q, bdb) <- iop
-      bip <- newBlock noMiner True q
-      let ph = _blockInProgressParentHeader bip
+      !bip <- throwIfNoHistory =<< newBlock noMiner True ph q
       let payload = blockInProgressToPayloadWithOutputs bip
 
       let

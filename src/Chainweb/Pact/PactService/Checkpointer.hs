@@ -134,6 +134,7 @@ readFromNthParent n doRead = do
       Historical r -> return r
 
 -- read-only rewind to a target block.
+-- if that target block is missing, return Nothing.
 readFrom
     :: Logger logger
     => Maybe ParentHeader -> PactBlockM logger tbl a -> PactServiceM logger tbl (Historical a)

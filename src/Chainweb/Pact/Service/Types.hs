@@ -386,8 +386,8 @@ instance Show SubmittedRequestMsg where
     show (SubmittedRequestMsg msg _) = show msg
 
 data RequestMsg r where
-    NewBlockMsg :: !NewBlockReq -> RequestMsg BlockInProgress
     ContinueBlockMsg :: !ContinueBlockReq -> RequestMsg (Historical BlockInProgress)
+    NewBlockMsg :: !NewBlockReq -> RequestMsg (Historical BlockInProgress)
     ValidateBlockMsg :: !ValidateBlockReq -> RequestMsg PayloadWithOutputs
     LocalMsg :: !LocalReq -> RequestMsg LocalResult
     LookupPactTxsMsg :: !LookupPactTxsReq -> RequestMsg (HashMap PactHash (T2 BlockHeight BlockHash))
@@ -417,6 +417,8 @@ data NewBlockReq
     , _newBlockFill :: !Bool
     -- ^ whether to fill this block with transactions; if false, the block
     -- will be empty.
+    , _newBlockParent :: !ParentHeader
+    -- ^ the parent to use for the new block
     } deriving stock Show
 
 newtype ContinueBlockReq
