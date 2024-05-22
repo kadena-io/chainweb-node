@@ -144,10 +144,12 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ d
         let (watchedMiner, minerBlocks) = HM.toList pw ^?! _head
         -- and that miner will always have this chain(?)
         -- if this chain doesn't exist yet just wait
-        blockOnChain <- maybe retry return
-            $ minerBlocks ^? ix watchedChain
+        blockOnChain <- do
+          case minerBlocks ^? ix watchedChain of
+            Just (WorkReady newBlock) -> return newBlock
+            _ -> retry
         return (watchedMiner, blockOnChain)
-    blockOnChainRef <- newIORef blockOnChain
+    blockOnChainRef <- newIORef (WorkReady blockOnChain)
 
     -- An update stream is closed after @timeout@ seconds. We add some jitter to
     -- availablility of streams is uniformily distributed over time and not
@@ -169,7 +171,7 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ d
     -- this is only different from WorkRefreshed for logging
     eventForWorkChangeType WorkRegressed = ServerEvent (Just $ fromByteString "Refreshed Block") Nothing []
 
-    go :: TVar Bool -> ChainId -> MinerId -> IORef (Maybe NewBlock) -> IO ServerEvent
+    go :: TVar Bool -> ChainId -> MinerId -> IORef WorkState -> IO ServerEvent
     go timer watchedChain watchedMiner blockOnChainRef = do
         lastBlockOnChain <- readIORef blockOnChainRef
 
@@ -200,20 +202,11 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ d
         let currentBlockOnChain = pw ^?! ix watchedMiner . ix watchedChain
         case (lastBlockOnChain, currentBlockOnChain) of
 
-            -- we just got new PrimedWork after it was outdated;
-            -- should only happen in case of a race, where the miner
-            -- subscribes for updates and its work becomes stale before
-            -- it receives an update
-            (Nothing, Just _) -> return (WorkOutdated, currentBlockOnChain)
-
-            -- we just lost our PrimedWork because it's outdated,
-            -- miner should grab new work.
-            (Just _, Nothing) -> return (WorkOutdated, currentBlockOnChain)
-
             -- there was no work, and that hasn't changed.
-            (Nothing, Nothing) -> retry
+            (WorkStale, WorkStale) -> retry
+            (WorkAlreadyMined _, WorkAlreadyMined _) -> retry
 
-            (Just (NewBlockInProgress lastBip), Just (NewBlockInProgress currentBip))
+            (WorkReady (NewBlockInProgress lastBip), WorkReady (NewBlockInProgress currentBip))
                 | ParentHeader lastPh <- _blockInProgressParentHeader lastBip
                 , ParentHeader currentPh <- _blockInProgressParentHeader currentBip
                 , lastPh /= currentPh ->
@@ -237,7 +230,7 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ d
 
                 -- no apparent change
                 | otherwise -> retry
-            (Just (NewBlockPayload lastPh lastPwo), Just (NewBlockPayload currentPh currentPwo))
+            (WorkReady (NewBlockPayload lastPh lastPwo), WorkReady (NewBlockPayload currentPh currentPwo))
                 | lastPh /= currentPh ->
                     -- we've got a new block on a new parent, we must've missed
                     -- the update where the old block became outdated.
@@ -252,8 +245,10 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ d
 
                 -- no apparent change
                 | otherwise -> retry
-            (Just _, Just _) ->
+            (WorkReady _, WorkReady _) ->
                 error "awaitNewPrimedWork: impossible: NewBlockInProgress replaced by a NewBlockPayload"
+
+            _ -> return (WorkOutdated, currentBlockOnChain)
 
     withLimit resp inner = bracket
         (atomicModifyIORef' count $ \x -> (x - 1, x - 1))
