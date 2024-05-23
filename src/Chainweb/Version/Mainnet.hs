@@ -216,6 +216,7 @@ mainnet = ChainwebVersion
     , _versionQuirks = VersionQuirks
         { _quirkGasFees = HM.fromList
             [ (fromJuste (decodeStrictOrThrow' "\"s9fUspNaCHoV4rNI-Tw-JYU1DxqZAOXS-80oEy7Zfbo\""), Gas 67618)
+            , (fromJuste (decodeStrictOrThrow' "\"_f1xkIQPGRcOBNBWkOvP0dGNOjmNtmXwOnXzfdwnmJQ\""), Gas 69092)
             ]
         }
     }
