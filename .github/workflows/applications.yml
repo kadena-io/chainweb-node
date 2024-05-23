@@ -55,7 +55,7 @@ jobs:
       chainweb-network-version: ${{ steps.compile-flags.outputs.chainweb-network-version }}
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
     - name: Git revision infos
       id: git-info
       run: |
@@ -193,7 +193,7 @@ jobs:
     - name: Sync chain database from S3
       run: aws s3 sync "$DB_SNAPSHOT_URI" db/0/rocksDb --delete --exclude=LOCK
     - name: Store chain database as artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: chain-db-${{ needs.config.outputs.chainweb-network-version }}
         path: db
@@ -216,7 +216,7 @@ jobs:
     steps:
     # Setup
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         fetch-depth: 0
     # This only works if also the times of the cache are adjusted accordingly
@@ -297,7 +297,7 @@ jobs:
     # dist cache
     # the cache-key forces uploading of cache at least once a day, which ensures that
     # upstream dependency changes are captured regularly.
-    - uses: actions/cache@v3
+    - uses: actions/cache@v4
       name: Cache dist-newstyle
       with:
         path: |
@@ -326,7 +326,7 @@ jobs:
         diff -w <(git show HEAD:cabal.project.freeze) cabal.project.freeze || true
     - name: Sync from cabal cache
       if: env.USE_CABAL_CACHE == 'true'
-      uses: larskuhtz/cabal-cache-action@018b7ae0c480ba3dc4fa0cfa3a0bc1f05b7724b3
+      uses: larskuhtz/cabal-cache-action@a0f263d898dd246217960262caa1d381cf066e9a
       with:
         bucket: "kadena-cabal-cache"
         region: "us-east-1"
@@ -376,7 +376,7 @@ jobs:
         tar -C ./artifacts/ -czf "$ARTIFACTS_ARCHIVE" chainweb
         ls ./artifacts
     - name: Safe artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: ${{ env.ARTIFACTS_ARCHIVE }}
@@ -395,9 +395,9 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Download build artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
@@ -429,9 +429,9 @@ jobs:
       BENCH_FOLDER: chainweb-benchmark-results/${{ matrix.ghc }}/${{ matrix.os }}
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Download build artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
@@ -462,14 +462,14 @@ jobs:
     env:
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Download ${{ needs.config.outputs.chainweb-network-version }} chain database artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: chain-db-${{ needs.config.outputs.chainweb-network-version }}
         path: db
     - name: Download build artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
@@ -553,9 +553,9 @@ jobs:
       TEST_RESULT_FOLDER: chainweb-test-results/ghc-${{ matrix.ghc }}/${{ matrix.os }}
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Download build artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
@@ -601,7 +601,7 @@ jobs:
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
     - name: Download build artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
@@ -634,7 +634,7 @@ jobs:
 
     steps:
     - name: Get build artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
@@ -674,16 +674,7 @@ jobs:
         EOF
         ENV LANG=en_US.UTF-8
         WORKDIR /chainweb
-        COPY chainweb/chainweb-node .
-        COPY chainweb/chainweb-tests .
-        COPY chainweb/cwtool .
-        COPY chainweb/LICENSE .
-        COPY chainweb/README.md .
-        COPY chainweb/CHANGELOG.md .
-        COPY chainweb/chainweb.cabal .
-        COPY chainweb/cabal.project .
-        COPY chainweb/cabal.project.local .
-        COPY chainweb/cabal.project.freeze .
+        COPY chainweb/* .
         STOPSIGNAL SIGTERM
         ENTRYPOINT [ "/chainweb/chainweb-node" ]
         DEOF
@@ -714,7 +705,7 @@ jobs:
       uses: docker/setup-buildx-action@v2
 
     - name: Cache Docker layers
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: /tmp/.buildx-cache
         key: ${{ runner.os }}-buildx-${{ github.sha }}
