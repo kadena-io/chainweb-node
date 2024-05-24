@@ -3,7 +3,7 @@
 ## Unreleased (2024-XX-YY)
 
 Changes:
-
+- Log warp HTTP server errors at Info level (#xxxx)
 
 Internal Changes:
 - Unify HTTP error logging across service and P2P APIs (#xxxx)

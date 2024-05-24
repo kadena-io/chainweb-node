@@ -786,7 +786,7 @@ runChainweb cw nowServing = do
             inc clientClosedConnectionsCounter
         | otherwise =
             when (defaultShouldDisplayException e) $
-                logg Warn $ loggServerError msg r e
+                logg Debug $ loggServerError msg r e
 
     -- P2P Server
 
