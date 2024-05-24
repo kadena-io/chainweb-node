@@ -3,7 +3,7 @@
 ## Unreleased (2024-XX-YY)
 
 Changes:
-
+- Stop logging ConnectionIsClosed (#xxxx)
 
 Internal Changes:
 - Unify HTTP error logging across service and P2P APIs (#xxxx)
