@@ -123,6 +123,7 @@ import qualified Data.Vector as V
 import GHC.Generics
 
 import qualified Network.HTTP.Client as HTTP
+import qualified Network.HTTP2.Client as HTTP2
 import Network.Socket (Socket)
 import Network.Wai
 import Network.Wai.Handler.Warp hiding (Port)
@@ -784,6 +785,10 @@ runChainweb cw nowServing = do
             return ()
         | Just ClientClosedConnectionPrematurely <- fromException e =
             inc clientClosedConnectionsCounter
+        -- this isn't really an error, this is a graceful close.
+        -- see https://github.com/kazu-yamamoto/http2/issues/102
+        | Just HTTP2.ConnectionIsClosed <- fromException e =
+            return ()
         | otherwise =
             when (defaultShouldDisplayException e) $
                 logg Warn $ loggServerError msg r e

@@ -394,6 +394,7 @@ library
         , hashable >= 1.4
         , heaps >= 0.3
         , hourglass >=0.2
+        , http2 >= 5.2.1
         , http-client >= 0.5
         , http-client-tls >=0.3
         , http-media >= 0.7
