@@ -3,6 +3,7 @@
 ## Unreleased (2024-XX-YY)
 
 Changes:
+- Add a logging backend for P2P stats so they aren't logged as text (#xxxx)
 
 
 Internal Changes:
