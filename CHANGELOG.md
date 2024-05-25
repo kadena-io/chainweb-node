@@ -3,7 +3,7 @@
 ## Unreleased (2024-XX-YY)
 
 Changes:
-
+- Reorganize ValidationFailure error message to be more readable (#xxxx)
 
 Internal Changes:
 
