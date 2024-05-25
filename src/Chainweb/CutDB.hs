@@ -17,6 +17,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: Chainweb.CutDB
@@ -532,6 +533,11 @@ lookupCutHashes wbhdb hs =
 cutAvgBlockHeight :: ChainwebVersion -> Cut -> BlockHeight
 cutAvgBlockHeight v = BlockHeight . round . avgBlockHeightAtCutHeight v . _cutHeight
 
+data CutValidateResult
+    = CutValidateTimedOut
+    | CutValidateMissingBlocks !(HM.HashMap ChainId BlockHash)
+    | CutValidateSuccessful !(HM.HashMap ChainId BlockHeader)
+
 -- | This is at the heart of 'Chainweb' POW: Deciding the current "longest" cut
 -- among the incoming candiates.
 --
@@ -560,14 +566,22 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
         & S.filterM (fmap not . farAhead)
         & S.filterM (fmap not . isOld)
         & S.filterM (fmap not . isCurrent)
-        & S.chain (\c -> loggCutId Debug c "fetch all prerequesites")
-        & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore payloadStore)
-        & S.chain (either
-            (\(T2 hsid c) -> loggCutId Warn hsid $ "failed to get prerequesites for some blocks. Missing: " <> encodeToText c)
-            (\_ -> return ())
+        & S.chain (\c -> loggCutId Debug c "fetch all prerequisites")
+        & S.mapM (\c -> (c,) <$> cutHashesToBlockHeaderMap conf logFun headerStore payloadStore c)
+        & S.chain (\case
+            (c, CutValidateMissingBlocks missing) ->
+                loggCutId Warn c $ "Failed to get prerequisites for some blocks. Missing: " <> encodeToText missing
+            (_, CutValidateTimedOut) ->
+                -- this is already logged well enough by cutHashesToBlockHeaderMap
+                return ()
+            (_, CutValidateSuccessful _) ->
+                return ()
             )
-        & S.concat
-            -- ignore left values for now
+        & S.mapMaybe (\case
+            (_, CutValidateSuccessful headers) -> Just headers
+            _ -> Nothing
+            )
+            -- ignore unsuccessful values for now
 
         -- using S.scanM would be slightly more efficient (one pointer dereference)
         -- by keeping the value of cutVar in memory. We use the S.mapM variant with
@@ -765,7 +779,7 @@ cutHashesToBlockHeaderMap
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore tbl
     -> CutHashes
-    -> IO (Either (T2 CutId (HM.HashMap ChainId BlockHash)) (HM.HashMap ChainId BlockHeader))
+    -> IO CutValidateResult
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
 cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
@@ -780,8 +794,8 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
                     <> cutIdToTextShort hsid
                     <> " at height " <> sshow (_cutHashesHeight hs)
                     <> cutOriginText
-            return $! Left $! T2 hsid mempty
-        Just x -> return $! x
+            return CutValidateTimedOut
+        Just x -> return x
   where
     hsid = _cutId hs
     go =
@@ -803,12 +817,12 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
                 & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
                 & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
             if null missing
-            then return (Right headers)
+            then return $! CutValidateSuccessful headers
             else do
                 when (isJust $ _cutHashesLocalPayload hs) $
                     logfun @Text Error
                         "error validating locally mined cut; the mining loop will stall until unstuck by another mining node"
-                return $! Left $! T2 hsid missing
+                return $! CutValidateMissingBlocks missing
 
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
