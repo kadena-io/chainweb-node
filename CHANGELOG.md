@@ -4,6 +4,7 @@
 
 Changes:
 
+- Logs are less verbose during initialization (#xxxx)
 
 Internal Changes:
 

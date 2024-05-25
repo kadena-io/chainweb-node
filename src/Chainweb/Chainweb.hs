@@ -369,7 +369,8 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
     -- Garbage Collection
     -- performed before PayloadDb and BlockHeaderDb used by other components
     logFunctionJson logger Info PruningDatabases
-    logg Info "start pruning databases"
+    when (_cutPruneChainDatabase (_configCuts conf) /= GcNone) $
+        logg Info "start pruning databases"
     case _cutPruneChainDatabase (_configCuts conf) of
         GcNone -> return ()
         GcHeaders ->
@@ -378,10 +379,12 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             pruneAllChains (pruningLogger "headers-checked") rocksDb v [CheckPayloads, CheckFull]
         GcFull ->
             fullGc (pruningLogger "full") rocksDb v
-    logg Info "finished pruning databases"
+    when (_cutPruneChainDatabase (_configCuts conf) /= GcNone) $
+        logg Info "finished pruning databases"
     logFunctionJson logger Info InitializingChainResources
 
-    logg Info "start initializing chain resources"
+    logg Debug "start initializing chain resources"
+    logFunctionText logger Info $ "opening pact db in directory " <> sshow pactDbDir
     concurrentWith
         -- initialize chains concurrently
         (\cid x -> do
@@ -410,7 +413,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
 
         -- initialize global resources after all chain resources are initialized
         (\cs -> do
-            logg Info "finished initializing chain resources"
+            logg Debug "finished initializing chain resources"
             global (HM.fromList $ zip cidsList cs)
         )
         cidsList
@@ -464,11 +467,11 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             !cutLogger = setComponent "cut" logger
             !mgr = _peerResManager peer
 
-        logg Info "start initializing cut resources"
+        logg Debug "start initializing cut resources"
         logFunctionJson logger Info InitializingCutResources
 
         withCutResources cutConfig peer cutLogger rocksDb webchain payloadDb mgr pact $ \cuts -> do
-            logg Info "finished initializing cut resources"
+            logg Debug "finished initializing cut resources"
 
             let !mLogger = setComponent "miner" logger
                 !mConf = _configMining conf
@@ -479,7 +482,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             throttler <- mkGenericThrottler $ _throttlingRate throt
             putPeerThrottler <- mkPutPeerThrottler $ _throttlingPeerRate throt
             mempoolThrottler <- mkMempoolThrottler $ _throttlingMempoolRate throt
-            logg Info "initialized throttlers"
+            logg Debug "initialized throttlers"
 
             -- synchronize pact dbs with latest cut before we start the server
             -- and clients and begin mining.
@@ -547,7 +550,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                 synchronizePactDb pactSyncChains initialCut
                 logg Info "finished synchronizing Pact DBs to initial cut"
                 withPactData cs cuts $ \pactData -> do
-                    logg Info "start initializing miner resources"
+                    logg Debug "start initializing miner resources"
                     logFunctionJson logger Info InitializingMinerResources
 
                     withMiningCoordination mLogger mConf mCutDb $ \mc ->
@@ -558,7 +561,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                         --
                         withMinerResources mLogger (_miningInNode mConf) cs mCutDb mc $ \m -> do
                             logFunctionJson logger Info ChainwebStarted
-                            logg Info "finished initializing miner resources"
+                            logg Debug "finished initializing miner resources"
                             let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
                             inner $ StartedChainweb Chainweb
                                 { _chainwebHostAddress = haddr
@@ -627,12 +630,8 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                     $ addLabel ("component", "pact")
                     $ addLabel ("sub-component", "init")
                     $ _chainResLogger cr
-            let hsh = _blockHash bh
-            let h = _blockHeight bh
-            logCr Info $ "pact db synchronizing to block "
-                <> T.pack (show (h, hsh))
             void $ _pactSyncToBlock pact bh
-            logCr Info "pact db synchronized"
+            logCr Debug "pact db synchronized"
 
 -- -------------------------------------------------------------------------- --
 -- Throttling
@@ -692,7 +691,7 @@ runChainweb
     -> ((NowServing -> NowServing) -> IO ())
     -> IO ()
 runChainweb cw nowServing = do
-    logg Info "start chainweb node"
+    logg Debug "start chainweb node"
     mkValidationMiddleware <- interleaveIO $
         OpenAPIValidation.mkValidationMiddleware (_chainwebLogger cw) (_chainwebVersion cw) (_chainwebManager cw)
     p2pValidationMiddleware <-

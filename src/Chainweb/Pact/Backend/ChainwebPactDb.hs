@@ -83,7 +83,7 @@ import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.Types (logInfo_, logError_)
+import Chainweb.Pact.Types (logDebug_, logError_)
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
@@ -821,7 +821,7 @@ initSchema logger sql =
         create (domainTableName Pacts)
   where
     create tablename = do
-      logInfo_ logger $ "initSchema: "  <> fromUtf8 tablename
+      logDebug_ logger $ "initSchema: "  <> fromUtf8 tablename
       createVersionedTable tablename sql
 
     createBlockHistoryTable :: IO ()

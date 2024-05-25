@@ -286,9 +286,7 @@ serviceRequests
     => MemPoolAccess
     -> PactQueue
     -> PactServiceM logger tbl ()
-serviceRequests memPoolAccess reqQ = do
-    logInfo "Starting service"
-    go `finally` logInfo "Stopping service"
+serviceRequests memPoolAccess reqQ = go
   where
     go :: PactServiceM logger tbl ()
     go = do
@@ -798,8 +796,24 @@ execSyncToBlock
     :: (CanReadablePayloadCas tbl, Logger logger)
     => BlockHeader
     -> PactServiceM logger tbl ()
-execSyncToBlock hdr = pactLabel "execSyncToBlock" $
-  rewindToIncremental Nothing (ParentHeader hdr)
+execSyncToBlock targetHeader = pactLabel "execSyncToBlock" $ do
+  latestHeader <- findLatestValidBlockHeader' >>= maybe failNonGenesisOnEmptyDb return
+  if latestHeader == targetHeader
+  then do
+      logInfo $ "checkpointer at checkpointer target"
+          <> ". target height: " <> sshow (_blockHeight latestHeader)
+          <> "; target hash: " <> blockHashToText (_blockHash latestHeader)
+  else do
+      logInfo $ "rewind to checkpointer target"
+          <> ". current height: " <> sshow (_blockHeight latestHeader)
+          <> "; current hash: " <> blockHashToText (_blockHash latestHeader)
+          <> "; target height: " <> sshow targetHeight
+          <> "; target hash: " <> blockHashToText targetHash
+  rewindToIncremental Nothing (ParentHeader targetHeader)
+  where
+  targetHeight = _blockHeight targetHeader
+  targetHash = _blockHash targetHeader
+  failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
 
 -- | Validate a mined block `(headerToValidate, payloadToValidate).
 -- Note: The BlockHeader here is the header of the block being validated.

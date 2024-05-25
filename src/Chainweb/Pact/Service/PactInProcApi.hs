@@ -102,7 +102,6 @@ withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
 runPactServiceQueueMonitor :: Logger logger => logger ->  PactQueue -> IO ()
 runPactServiceQueueMonitor l pq = do
     let lf = logFunction l
-    logFunctionText l Info "Initialized PactQueueMonitor"
     runForeverThrottled lf "Chainweb.Pact.Service.PactInProcApi.runPactServiceQueueMonitor" 10 (10 * mega) $ do
             queueStats <- getPactQueueStats pq
             logFunctionText l Debug "got latest set of stats from PactQueueMonitor"
