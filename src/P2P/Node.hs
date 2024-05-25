@@ -10,6 +10,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: P2P.Node
@@ -98,6 +99,7 @@ import GHC.Generics
 import GHC.Stack
 
 import qualified Network.HTTP.Client as HTTP
+import qualified Network.HTTP.Types as HTTP
 
 import Numeric.Natural
 
@@ -649,7 +651,7 @@ awaitSessions node = do
             Right Nothing -> P2pSessionTimeout <$ countTimeout node
             Right (Just True) -> P2pSessionResultSuccess <$ countSuccess node
             Right (Just False) -> P2pSessionResultFailure <$ countFailure node
-            Left e -> P2pSessionException (sshow e) <$ countException node
+            Left e -> P2pSessionException (showClientError e) <$ countException node
         return (p, i, a, result)
 
     -- update peer db entry
@@ -699,6 +701,11 @@ awaitSessions node = do
         $ loggFun node Info $ JsonLog stats
 
   where
+    showClientError e
+        | Just (FailureResponse _ resp) <- fromException e  =
+            "Error code " <> sshow (HTTP.statusCode $ responseStatusCode resp)
+        | otherwise =
+            sshow e
     peerDb = _p2pNodePeerDb node
 
 waitAnySession

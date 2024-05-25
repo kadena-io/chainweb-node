@@ -3,7 +3,7 @@
 ## Unreleased (2024-XX-YY)
 
 Changes:
-
+- Improve log message for failed P2P session (#xxxx)
 
 Internal Changes:
 
