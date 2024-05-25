@@ -393,7 +393,7 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
     rtsBackend <- managed
         $ mkTelemetryLogger @RTSStats mgr teleLogConfig
     counterBackend <- managed $ configureHandler
-        (withJsonHandleBackend @CounterLog "connectioncounters" mgr pkgInfoScopes)
+        (withJsonHandleBackend @CounterLog "counters" mgr pkgInfoScopes)
         teleLogConfig
     endpointBackend <- managed
         $ mkTelemetryLogger @PactCmdLog mgr teleLogConfig
