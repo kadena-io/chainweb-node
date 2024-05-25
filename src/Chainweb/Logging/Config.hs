@@ -91,7 +91,7 @@ defaultLogConfig :: LogConfig
 defaultLogConfig = LogConfig
     { _logConfigLogger = defaultLoggerConfig
     , _logConfigBackend = defaultBackendConfig
-    , _logConfigTelemetryBackend = defaultEnableConfig defaultBackendConfig
+    , _logConfigTelemetryBackend = defaultDisableConfig defaultBackendConfig
     , _logConfigClusterId = Nothing
     , _logConfigFilter = mempty
     }
@@ -183,4 +183,3 @@ pFilter_ prefix = id
                 then return $ LogFilter [] l (Probability r)
                 else Left "failed to read log rule rate. The value must be between zero and one"
         _ -> Left $ "expecting LOGLEVEL[:RATE], but got " <> s
-

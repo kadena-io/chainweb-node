@@ -154,6 +154,7 @@ module Chainweb.Utils
 , enableConfigConfig
 , enableConfigEnabled
 , defaultEnableConfig
+, defaultDisableConfig
 , pEnableConfig
 , enabledConfig
 , validateEnableConfig
@@ -983,6 +984,14 @@ makeLenses ''EnableConfig
 defaultEnableConfig :: a -> EnableConfig a
 defaultEnableConfig a = EnableConfig
     { _enableConfigEnabled = True
+    , _enableConfigConfig = a
+    }
+
+-- | The default is that the configured component is disabled.
+--
+defaultDisableConfig :: a -> EnableConfig a
+defaultDisableConfig a = EnableConfig
+    { _enableConfigEnabled = False
     , _enableConfigConfig = a
     }
 
