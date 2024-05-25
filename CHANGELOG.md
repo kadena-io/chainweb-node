@@ -6,7 +6,7 @@ Changes:
 
 
 Internal Changes:
-
+- Rename connectioncounters logging index to counters (#xxxx)
 
 ## 2.24 (2024-05-23)
 
