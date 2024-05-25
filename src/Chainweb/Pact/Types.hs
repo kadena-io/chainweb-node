@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
@@ -63,6 +64,7 @@ module Chainweb.Pact.Types
   , txRequestKey
   , txExecutionConfig
   , txQuirkGasFee
+  , txTxFailuresCounter
 
     -- * Transaction Execution Monad
   , TransactionM(..)
@@ -87,6 +89,7 @@ module Chainweb.Pact.Types
   , psAllowReadsInLocal
   , psBlockGasLimit
   , psEnableLocalTimeout
+  , psTxFailuresCounter
 
     -- * TxContext
   , TxContext(..)
@@ -213,6 +216,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
+import Chainweb.Counter
 import Chainweb.Mempool.Mempool (TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Logger
@@ -338,6 +342,7 @@ data TransactionEnv logger db = TransactionEnv
     , _txGasLimit :: !Gas
     , _txExecutionConfig :: !ExecutionConfig
     , _txQuirkGasFee :: !(Maybe Gas)
+    , _txTxFailuresCounter :: !(Maybe (Counter "txFailures"))
     }
 makeLenses ''TransactionEnv
 
@@ -440,6 +445,7 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psBlockGasLimit :: !GasLimit
 
     , _psEnableLocalTimeout :: !Bool
+    , _psTxFailuresCounter :: !(Maybe (Counter "txFailures"))
     }
 makeLenses ''PactServiceEnv
 
