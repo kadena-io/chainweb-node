@@ -80,6 +80,9 @@ module Chainweb.Utils
 , interleaveIO
 , mutableVectorFromList
 , timeoutYield
+, showClientError
+, showHTTPRequestException
+, matchOrDisplayException
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -285,6 +288,8 @@ import qualified System.Timeout as Timeout
 
 import Text.Printf (printf)
 import Text.Read (readEither)
+import qualified Servant.Client
+import qualified Network.HTTP.Types as HTTP
 
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
@@ -1417,3 +1422,34 @@ parseUtcTime d = case parseTimeM False defaultTimeLocale fmt d of
 timeoutYield :: Int -> IO a -> IO (Maybe a)
 timeoutYield time act =
     Timeout.timeout time (act <* threadDelay 1)
+
+showClientError :: Servant.Client.ClientError -> T.Text
+showClientError (Servant.Client.FailureResponse _ resp) =
+    "Error code " <> sshow (HTTP.statusCode $ Servant.Client.responseStatusCode resp)
+showClientError (Servant.Client.ConnectionError anyException) =
+    matchOrDisplayException @HTTP.HttpException showHTTPRequestException anyException
+showClientError e =
+    T.pack $ displayException e
+
+showHTTPRequestException :: HTTP.HttpException -> T.Text
+showHTTPRequestException (HTTP.HttpExceptionRequest _request content)
+    = case content of
+        HTTP.StatusCodeException resp _ ->
+            "Error status code: " <>
+            sshow (HTTP.statusCode $ HTTP.responseStatus resp)
+        HTTP.TooManyRedirects _ -> "Too many redirects"
+        HTTP.InternalException e
+            | Just (HTTP.HostCannotConnect _ es) <- fromException e
+                -> "Host cannot connect: " <> sshow es
+            | otherwise
+                -> sshow e
+        _ -> sshow content
+showHTTPRequestException ex
+    = T.pack $ displayException ex
+
+matchOrDisplayException :: Exception e => (e -> T.Text) -> SomeException -> T.Text
+matchOrDisplayException display anyException
+    | Just specificException <- fromException anyException
+    = display specificException
+    | otherwise
+    = T.pack $ displayException anyException
