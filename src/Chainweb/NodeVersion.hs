@@ -110,7 +110,9 @@ getNodeVersion mgr ver addr maybeReq = do
         --  $ recoverAll policy $ const
         $ HTTP.responseHeaders <$> HTTP.httpNoBody url mgr
     return $ do
-        r <- first sshow hdrs
+        r <- first
+            (matchOrDisplayException @HTTP.HttpException showHTTPRequestException)
+            hdrs
         h <- case lookup chainwebNodeVersionHeaderName r of
             Nothing -> Left
                 $ "missing " <> CI.original chainwebNodeVersionHeaderName <> " header"
