@@ -421,6 +421,8 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
         $ mkTelemetryLogger @DbStats mgr teleLogConfig
     pactQueueStatsBackend <- managed
         $ mkTelemetryLogger @PactQueueStats mgr teleLogConfig
+    p2pNodeStatsBackend <- managed
+        $ mkTelemetryLogger @P2pNodeStats mgr teleLogConfig
     topLevelStatusBackend <- managed
         $ mkTelemetryLogger @ChainwebStatus mgr teleLogConfig
 
@@ -445,6 +447,7 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
             , logHandler dbCacheBackend
             , logHandler dbStatsBackend
             , logHandler pactQueueStatsBackend
+            , logHandler p2pNodeStatsBackend
             , logHandler topLevelStatusBackend
             ] baseBackend
 
