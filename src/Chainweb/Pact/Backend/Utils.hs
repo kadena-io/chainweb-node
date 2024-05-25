@@ -297,16 +297,9 @@ startSqliteDb
 startSqliteDb cid logger dbDir doResetDb = do
     when doResetDb resetDb
     createDirectoryIfMissing True dbDir
-    textLog Info $ mconcat
-        [ "opened sqlitedb for "
-        , sshow cid
-        , " in directory "
-        , sshow dbDir
-        ]
-    textLog Info $ "opening sqlitedb named " <> T.pack sqliteFile
+    logFunctionText logger Debug $ "opening sqlitedb named " <> T.pack sqliteFile
     openSQLiteConnection sqliteFile chainwebPragmas
   where
-    textLog = logFunctionText logger
     resetDb = removeDirectoryRecursive dbDir
     sqliteFile = dbDir </> chainDbFileName cid
 

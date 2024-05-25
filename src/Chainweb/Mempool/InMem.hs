@@ -188,7 +188,7 @@ withInMemoryMempool_ l cfg _v f = do
   where
     monitor m = do
         let lf = logFunction l
-        logFunctionText l Info "Initialized Mempool Monitor"
+        logFunctionText l Debug "Initialized Mempool Monitor"
         runForeverThrottled lf "Chainweb.Mempool.InMem.withInMemoryMempool_.monitor" 10 (10 * mega) $ do
             stats <- getMempoolStats m
             logFunctionText l Debug "got stats"

@@ -215,7 +215,6 @@ runMonitorLoop actionLabel logger = runForeverThrottled
 runCutMonitor :: Logger logger => logger -> CutDb tbl -> IO ()
 runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger $ \l ->
     runMonitorLoop "ChainwebNode.runCutMonitor" l $ do
-        logFunctionText l Info $ "Initialized Cut Monitor"
         S.mapM_ (logFunctionJson l Info)
             $ S.map (cutToCutHashes Nothing)
             $ cutStream db
@@ -244,7 +243,6 @@ instance ToJSON BlockUpdate where
 runBlockUpdateMonitor :: CanReadablePayloadCas tbl => Logger logger => logger -> CutDb tbl -> IO ()
 runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-monitor") logger $ \l ->
     runMonitorLoop "ChainwebNode.runBlockUpdateMonitor" l $ do
-        logFunctionText l Info $ "Initialized tx counter"
         blockDiffStream db
             & S.mapM toUpdate
             & S.mapM_ (logFunctionJson l Info)
@@ -285,7 +283,6 @@ runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger go
         False -> do
             logFunctionText l Warn "RTS Stats isn't enabled. Run with '+RTS -T' to enable it."
         True -> do
-            logFunctionText l Info $ "Initialized RTS Monitor"
             runMonitorLoop "Chainweb.Node.runRtsMonitor" l $ do
                 logFunctionText l Debug $ "logging RTS stats"
                 stats <- getRTSStats
@@ -296,7 +293,6 @@ runQueueMonitor :: Logger logger => logger -> CutDb tbl -> IO ()
 runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") logger go
   where
     go l = do
-        logFunctionText l Info $ "Initialized Queue Monitor"
         runMonitorLoop "ChainwebNode.runQueueMonitor" l $ do
             logFunctionText l Debug $ "logging cut queue stats"
             stats <- getQueueStats cutDb
@@ -312,7 +308,6 @@ runDatabaseMonitor :: Logger logger => logger -> FilePath -> FilePath -> IO ()
 runDatabaseMonitor logger rocksDbDir pactDbDir = L.withLoggerLabel ("component", "database-monitor") logger go
   where
     go l = do
-        logFunctionText l Info "Initialized Database monitor"
         runMonitorLoop "ChainwebNode.runDatabaseMonitor" l $ do
             logFunctionText l Debug $ "logging database stats"
             logFunctionJson l Info . DbStats "rocksDb" =<< sizeOf rocksDbDir
@@ -348,7 +343,7 @@ node conf logger = do
             return withRocksDb
     withRocksDb' rocksDbDir modernDefaultOptions $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
-        logFunctionText logger Info $ "backup config: " <> sshow (_configBackup cwConf)
+        logFunctionText logger Debug $ "backup config: " <> sshow (_configBackup cwConf)
         withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir (_nodeConfigResetChainDbs conf) $ \case
             Replayed _ _ -> return ()
             StartedChainweb cw -> do

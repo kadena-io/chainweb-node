@@ -425,7 +425,7 @@ startCutDb
     -> Casify RocksDbTable CutHashes
     -> IO (CutDb tbl)
 startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
-    logg Info "obtain initial cut"
+    logg Debug "obtain initial cut"
     initialCut <- readInitialCut
     unless (_cutDbParamsReadOnly config) $
         deleteRangeRocksDb
@@ -436,7 +436,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     logg Info $ "got initial cut: " <> sshow c
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
-    logg Info "CutDB started"
+    logg Debug "CutDB started"
     unless (_cutDbParamsReadOnly config) $
         pruneCuts logfun (_chainwebVersion headerStore) config (cutAvgBlockHeight v initialCut) cutHashesStore
     return CutDb

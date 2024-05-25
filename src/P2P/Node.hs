@@ -778,7 +778,7 @@ p2pCreateNode cv nid peer logfun db mgr doPeerSync session = do
                 , _p2pNodeDoPeerSync = doPeerSync
                 }
 
-    logfun @T.Text Info "created node"
+    logfun @T.Text Debug "created node"
     return s
   where
     myInfo = _peerInfo peer

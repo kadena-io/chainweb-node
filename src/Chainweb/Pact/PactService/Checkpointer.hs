@@ -56,7 +56,6 @@ import qualified Streaming.Prelude as S
 
 -- internal modules
 
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
@@ -222,19 +221,13 @@ rewindToIncremental
     -> PactServiceM logger tbl ()
 rewindToIncremental rewindLimit (ParentHeader parent) = do
 
-    lastHeader <- findLatestValidBlockHeader' >>= maybe failNonGenesisOnEmptyDb return
-    logInfo $ "rewind from last to checkpointer target"
-        <> ". last height: " <> sshow (_blockHeight lastHeader)
-        <> "; last hash: " <> blockHashToText (_blockHash lastHeader)
-        <> "; target height: " <> sshow parentHeight
-        <> "; target hash: " <> blockHashToText parentHash
+    latestHeader <- findLatestValidBlockHeader' >>= maybe failNonGenesisOnEmptyDb return
 
-    failOnTooLowRequestedHeight lastHeader
-    playFork lastHeader
+    failOnTooLowRequestedHeight latestHeader
+    playFork latestHeader
 
   where
     parentHeight = _blockHeight parent
-    parentHash = _blockHash parent
 
 
     failOnTooLowRequestedHeight lastHeader = case rewindLimit of
@@ -255,11 +248,6 @@ rewindToIncremental rewindLimit (ParentHeader parent) = do
         cp <- view psCheckpointer
         payloadDb <- view psPdb
         let ancestorHeight = _blockHeight commonAncestor
-
-        logInfo $ "rewindTo.playFork"
-            <> ": checkpointer is at height: " <> sshow (_blockHeight lastHeader)
-            <> ", target height: " <> sshow (_blockHeight parent)
-            <> ", common ancestor height " <> sshow ancestorHeight
 
         logger <- view psLogger
 
@@ -311,15 +299,16 @@ rewindToIncremental rewindLimit (ParentHeader parent) = do
                       & S.chunksOf 1000
                       & foldChunksM (playChunk heightRef) curHdr
 
-        logInfo $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
+        when (c /= 0) $
+            logInfo $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
 
 -- -------------------------------------------------------------------------- --
 -- Utils
 
 heightProgress :: BlockHeight -> IORef BlockHeight -> (Text -> IO ()) -> IO ()
 heightProgress initialHeight ref logFun = forever $ do
+    threadDelay (20 * 1_000_000)
     h <- readIORef ref
     logFun
       $ "processed blocks: " <> sshow (h - initialHeight)
       <> ", current height: " <> sshow h
-    threadDelay (20 * 1_000_000)
