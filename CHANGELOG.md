@@ -6,7 +6,7 @@ Changes:
 
 
 Internal Changes:
-
+- Unify HTTP error logging across service and P2P APIs (#xxxx)
 
 ## 2.24 (2024-05-23)
 
