@@ -141,13 +141,14 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                       , _psGasLogger = gasLogger
                       , _psBlockGasLimit = testBlockGasLimit
                       , _psEnableLocalTimeout = False
+                      , _psTxFailuresCounter = Nothing
                       }
                 evalPactServiceM (PactServiceState mempty) psEnv $ readFrom (Just parent) $ do
                   mc <- readInitModules
                   T3 !cr _mc _ <- do
                     dbEnv <- view psBlockDbEnv
                     liftIO $ trace (logFunction cwLogger) "applyCmd" () 1 $
-                      applyCmd ver logger gasLogger (_cpPactDbEnv dbEnv) miner (getGasModel txc)
+                      applyCmd ver logger gasLogger Nothing (_cpPactDbEnv dbEnv) miner (getGasModel txc)
                         txc noSPVSupport cmd (initGas cmdPwt) mc ApplySend
                   liftIO $ T.putStrLn (J.encodeText (J.Array <$> cr))
       (_,True) -> do
@@ -200,6 +201,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                 , _psGasLogger = gasLogger
                 , _psBlockGasLimit = testBlockGasLimit
                 , _psEnableLocalTimeout = False
+                , _psTxFailuresCounter = Nothing
                 }
               pss = PactServiceState
                 { _psInitCache = mempty

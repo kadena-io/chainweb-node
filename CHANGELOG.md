@@ -3,6 +3,8 @@
 ## Unreleased (2024-XX-YY)
 
 Changes:
+- Logs are less verbose during initialization (#xxxx)
+- Failed transactions are logged at Debug rather than Info (#xxxx)
 
 
 Internal Changes:

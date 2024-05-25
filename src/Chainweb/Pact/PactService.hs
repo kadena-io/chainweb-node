@@ -13,6 +13,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE DataKinds #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -117,6 +118,7 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards
 import Utils.Logging.Trace
+import Chainweb.Counter
 
 runPactService
     :: Logger logger
@@ -124,6 +126,7 @@ runPactService
     => ChainwebVersion
     -> ChainId
     -> logger
+    -> Maybe (Counter "txFailures")
     -> PactQueue
     -> MemPoolAccess
     -> BlockHeaderDb
@@ -131,8 +134,8 @@ runPactService
     -> SQLiteEnv
     -> PactServiceConfig
     -> IO ()
-runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config =
-    void $ withPactService ver cid chainwebLogger bhDb pdb sqlenv config $ do
+runPactService ver cid chainwebLogger txFailuresCounter reqQ mempoolAccess bhDb pdb sqlenv config =
+    void $ withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv config $ do
         initialPayloadState mempoolAccess ver cid
         serviceRequests mempoolAccess reqQ
 
@@ -141,13 +144,14 @@ withPactService
     => ChainwebVersion
     -> ChainId
     -> logger
+    -> Maybe (Counter "txFailures")
     -> BlockHeaderDb
     -> PayloadDb tbl
     -> SQLiteEnv
     -> PactServiceConfig
     -> PactServiceM logger tbl a
     -> IO (T2 a PactServiceState)
-withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
+withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv config act =
     withProdRelationalCheckpointer checkpointerLogger (_pactModuleCacheLimit config) sqlenv (_pactPersistIntraBlockWrites config) ver cid $ \checkpointer -> do
         let !rs = readRewards
         let !pse = PactServiceEnv
@@ -166,6 +170,7 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psGasLogger = gasLogger <$ guard (_pactLogGas config)
                     , _psBlockGasLimit = _pactBlockGasLimit config
                     , _psEnableLocalTimeout = _pactEnableLocalTimeout config
+                    , _psTxFailuresCounter = txFailuresCounter
                     }
             !pst = PactServiceState mempty
 
@@ -763,7 +768,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                       Right{} -> do
                         let initialGas = initialGasOf $ P._cmdPayload cwtx
                         T3 cr _mc warns <- liftIO $ applyCmd
-                          _psVersion _psLogger _psGasLogger (_cpPactDbEnv dbEnv)
+                          _psVersion _psLogger _psGasLogger Nothing (_cpPactDbEnv dbEnv)
                           noMiner gasModel ctx spv cmd
                           initialGas mc ApplyLocal
 
@@ -1015,7 +1020,7 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                     , P.FlagDisableHistoryInTransactionalMode ] ++
                     disableReturnRTC (ctxVersion pd) (ctxChainId pd) (ctxCurrentBlockHeight pd)
 
-              let buyGasEnv = TransactionEnv P.Transactional (_cpPactDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gasPrice rk gasLimit ec Nothing
+              let buyGasEnv = TransactionEnv P.Transactional (_cpPactDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gasPrice rk gasLimit ec Nothing Nothing
 
               cr <- liftIO
                 $! catchesPactError l CensorsUnexpectedError
