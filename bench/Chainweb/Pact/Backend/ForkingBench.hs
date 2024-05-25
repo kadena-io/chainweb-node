@@ -318,7 +318,7 @@ withResources rdb trunkLength logLevel compact p f = C.envWithCleanup create des
 
     startPact version l bhdb pdb mempool sqlEnv = do
         reqQ <- newPactQueue pactQueueSize
-        a <- async $ runPactService version cid l reqQ mempool bhdb pdb sqlEnv testPactServiceConfig
+        a <- async $ runPactService version cid l Nothing reqQ mempool bhdb pdb sqlEnv testPactServiceConfig
             { _pactBlockGasLimit = 180_000
             , _pactPersistIntraBlockWrites = p
             }

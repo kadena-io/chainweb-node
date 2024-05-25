@@ -273,7 +273,7 @@ rosettaFailsWithoutFullHistory rdb =
           let payloadDb = _bdbPayloadDb blockDb
           let cfg = testPactServiceConfig { _pactFullHistoryRequired = True }
           let logger = genericLogger System.LogLevel.Error (\_ -> return ())
-          e <- try $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
+          e <- try $ runPactService testVersion cid logger Nothing pactQueue mempool bhDb payloadDb sqlEnv cfg
           case e of
             Left (FullHistoryRequired {}) -> do
               pure ()
@@ -980,7 +980,7 @@ compactionSetup pat rdb pactCfg f =
 
       let logger = genericLogger System.LogLevel.Error (\_ -> return ())
 
-      void $ forkIO $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb sqlEnv pactCfg
+      void $ forkIO $ runPactService testVersion cid logger Nothing pactQueue mempool bhDb payloadDb sqlEnv pactCfg
 
       setOneShotMempool mempoolRef goldenMemPool
 

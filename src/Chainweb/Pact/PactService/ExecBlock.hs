@@ -423,6 +423,7 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
   logger <- view (psServiceEnv . psLogger)
   gasLogger <- view (psServiceEnv . psGasLogger)
   gasModel <- view (psServiceEnv . psGasModel)
+  txFailuresCounter <- view (psServiceEnv . psTxFailuresCounter)
   v <- view chainwebVersion
   let
     -- for errors so fatal that the tx doesn't make it in the block
@@ -471,7 +472,8 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
         let txGas (T3 r _ _) = fromIntegral $ P._crGas r
         T3 r c _warns <-
           tracePactBlockM' "applyCmd" (J.toJsonViaEncode hsh) txGas $ do
-            liftIO $ txTimeout $ applyCmd v logger gasLogger (_cpPactDbEnv dbEnv) miner (gasModel txCtx) txCtx spv gasLimitedCmd initialGas mcache ApplySend
+            liftIO $ txTimeout $
+              applyCmd v logger gasLogger txFailuresCounter (_cpPactDbEnv dbEnv) miner (gasModel txCtx) txCtx spv gasLimitedCmd initialGas mcache ApplySend
         pure $ T2 r c
 
     if isGenesis
