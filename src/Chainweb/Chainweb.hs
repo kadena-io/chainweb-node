@@ -774,21 +774,26 @@ runChainweb cw nowServing = do
     pactDbsToServe :: [(ChainId, PactServerData logger tbl)]
     pactDbsToServe = _chainwebPactData cw
 
+    loggServerError msg (Just r) e =
+        "HTTP server error (" <> msg <> "): " <> sshow e <> ". Request: " <> sshow r
+    loggServerError msg Nothing e =
+        "HTTP server error (" <> msg <> "): " <> sshow e
+
+    logWarpException msg clientClosedConnectionsCounter r e
+        | Just InsecureConnectionDenied <- fromException e =
+            return ()
+        | Just ClientClosedConnectionPrematurely <- fromException e =
+            inc clientClosedConnectionsCounter
+        | otherwise =
+            when (defaultShouldDisplayException e) $
+                logg Warn $ loggServerError msg r e
+
     -- P2P Server
 
     serverSettings :: Counter "clientClosedConnections" -> Settings
-    serverSettings closedConnectionsCounter =
+    serverSettings clientClosedConnectionsCounter =
         peerServerSettings (_peerResPeer $ _chainwebPeer cw)
-        & setOnException
-            (\r e -> if
-                | Just InsecureConnectionDenied <- fromException e ->
-                    return ()
-                | Just ClientClosedConnectionPrematurely <- fromException e ->
-                    inc closedConnectionsCounter
-                | otherwise ->
-                    when (defaultShouldDisplayException e) $
-                        logg Warn $ loggServerError r e
-            )
+        & setOnException (logWarpException "P2P API" clientClosedConnectionsCounter)
         & setBeforeMainLoop (nowServing (nowServingP2PAPI .~ True))
 
     monitorConnectionsClosedByClient :: Counter "clientClosedConnections" -> IO ()
@@ -861,17 +866,16 @@ runChainweb cw nowServing = do
     httpLog :: Middleware
     httpLog = requestResponseLogger $ setComponent "http:p2p-api" (_chainwebLogger cw)
 
-    loggServerError (Just r) e = "HTTP server error: " <> sshow e <> ". Request: " <> sshow r
-    loggServerError Nothing e = "HTTP server error: " <> sshow e
-
     -- Service API Server
 
-    serviceApiServerSettings :: Port -> HostPreference -> Settings
-    serviceApiServerSettings port interface = defaultSettings
+    serviceApiServerSettings
+        :: Counter "clientClosedConnections"
+        -> Port -> HostPreference -> Settings
+    serviceApiServerSettings clientClosedConnectionsCounter port interface = defaultSettings
         & setPort (int port)
         & setHost interface
         & setOnException
-            (\r e -> when (defaultShouldDisplayException e) (logg Warn $ loggServiceApiServerError r e))
+            (logWarpException "Service API" clientClosedConnectionsCounter)
         & setBeforeMainLoop (nowServing (nowServingServiceAPI .~ True))
 
     serviceApiHost = _serviceApiConfigInterface $ _configServiceApi $ _chainwebConfig cw
@@ -879,29 +883,29 @@ runChainweb cw nowServing = do
     backupApiEnabled = _enableConfigEnabled $ _configBackupApi $ _configBackup $ _chainwebConfig cw
 
     serveServiceApi :: Middleware -> IO ()
-    serveServiceApi = serveServiceApiSocket
-        (serviceApiServerSettings (fst $ _chainwebServiceSocket cw) serviceApiHost)
-        (snd $ _chainwebServiceSocket cw)
-        (_chainwebVersion cw)
-        ChainwebServerDbs
-            { _chainwebServerCutDb = Just cutDb
-            , _chainwebServerBlockHeaderDbs = chainDbsToServe
-            , _chainwebServerMempools = mempoolsToServe
-            , _chainwebServerPayloadDbs = payloadDbsToServe
-            , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pToServe
-            }
-        pactDbsToServe
-        (_chainwebCoordinator cw)
-        (HeaderStream . _configHeaderStream $ _chainwebConfig cw)
-        (Rosetta . _configRosetta $ _chainwebConfig cw)
-        (_chainwebBackup cw <$ guard backupApiEnabled)
-        (_serviceApiPayloadBatchLimit . _configServiceApi $ _chainwebConfig cw)
+    serveServiceApi mw = do
+        clientClosedConnectionsCounter <- newCounter
+        serveServiceApiSocket
+            (serviceApiServerSettings clientClosedConnectionsCounter (fst $ _chainwebServiceSocket cw) serviceApiHost)
+            (snd $ _chainwebServiceSocket cw)
+            (_chainwebVersion cw)
+            ChainwebServerDbs
+                { _chainwebServerCutDb = Just cutDb
+                , _chainwebServerBlockHeaderDbs = chainDbsToServe
+                , _chainwebServerMempools = mempoolsToServe
+                , _chainwebServerPayloadDbs = payloadDbsToServe
+                , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pToServe
+                }
+            pactDbsToServe
+            (_chainwebCoordinator cw)
+            (HeaderStream . _configHeaderStream $ _chainwebConfig cw)
+            (Rosetta . _configRosetta $ _chainwebConfig cw)
+            (_chainwebBackup cw <$ guard backupApiEnabled)
+            (_serviceApiPayloadBatchLimit . _configServiceApi $ _chainwebConfig cw)
+            mw
 
     serviceHttpLog :: Middleware
     serviceHttpLog = requestResponseLogger $ setComponent "http:service-api" (_chainwebLogger cw)
-
-    loggServiceApiServerError (Just r) e = "HTTP service API server error: " <> sshow e <> ". Request: " <> sshow r
-    loggServiceApiServerError Nothing e = "HTTP service API server error: " <> sshow e
 
     -- HTTP Request Logger
 
