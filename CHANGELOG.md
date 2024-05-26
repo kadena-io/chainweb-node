@@ -3,7 +3,7 @@
 ## Unreleased (2024-XX-YY)
 
 Changes:
-
+- Cut pipeline logging is more descriptive
 
 Internal Changes:
 

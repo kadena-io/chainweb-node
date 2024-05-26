@@ -433,7 +433,8 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
             (Just $ over _1 succ $ casKey $ cutToCutHashes Nothing initialCut, Nothing)
     cutVar <- newTVarIO initialCut
     c <- readTVarIO cutVar
-    logg Info $ "got initial cut: " <> sshow c
+    logg Info $ T.unlines $
+        "got initial cut:" : ["    " <> block | block <- cutToTextShort c]
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
     logg Info "CutDB started"
@@ -554,16 +555,16 @@ processCuts
 processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = do
     rng <- Prob.createSystemRandom
     queueToStream
-        & S.chain (\c -> loggc Debug c "start processing")
+        & S.chain (\c -> loggCutId Debug c "start processing")
         & S.filterM (fmap not . isVeryOld)
         & S.filterM (fmap not . farAhead)
         & S.filterM (fmap not . isOld)
         & S.filterM (fmap not . isCurrent)
-        & S.chain (\c -> loggc Debug c "fetch all prerequesites")
+        & S.chain (\c -> loggCutId Debug c "fetch all prerequesites")
         & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore payloadStore)
         & S.chain (either
-            (\(T2 hsid c) -> loggc Warn hsid $ "failed to get prerequesites for some blocks. Missing: " <> encodeToText c)
-            (\c -> loggc Info c "got all prerequesites")
+            (\(T2 hsid c) -> loggCutId Warn hsid $ "failed to get prerequesites for some blocks. Missing: " <> encodeToText c)
+            (\_ -> return ())
             )
         & S.concat
             -- ignore left values for now
@@ -577,14 +578,24 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
                 $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
             unless (_cutDbParamsReadOnly conf) $ do
                 maybePrune rng (cutAvgBlockHeight v curCut)
-                loggc Info newCut "writing cut"
+                loggCutId Debug newCut "writing cut"
                 casInsert cutHashesStore (cutToCutHashes Nothing resultCut)
             atomically $ writeTVar cutVar resultCut
-            loggc Info resultCut "published cut"
+            let cutDiff = cutDiffToTextShort curCut resultCut
+            let currentCutIdMsg = T.unwords
+                    [ "current cut is now"
+                    , cutIdToTextShort (_cutId resultCut) <> ","
+                    , "diff:"
+                    ]
+            let catOverflowing x xs =
+                    if length xs == 1
+                    then T.unwords (x : xs)
+                    else T.intercalate "\n" (x : (map ("    " <>) xs))
+            logFun @T.Text Info $ catOverflowing currentCutIdMsg cutDiff
             )
   where
-    loggc :: HasCutId c => LogLevel -> c -> T.Text -> IO ()
-    loggc l c msg = logFun @T.Text l $  "cut " <> cutIdToTextShort (_cutId c) <> ": " <> msg
+    loggCutId :: HasCutId c => LogLevel -> c -> T.Text -> IO ()
+    loggCutId l c msg = logFun @T.Text l $  "cut " <> cutIdToTextShort (_cutId c) <> ": " <> msg
 
     v = _chainwebVersion headerStore
 
@@ -615,7 +626,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
         curMax <- maxChainHeight <$> readTVarIO cutVar
         let newMax = _cutHashesMaxHeight x
         let r = newMax >= curMax + farAheadThreshold
-        when r $ loggc Debug x
+        when r $ loggCutId Debug x
             $ "skip far ahead cut. Current maximum block height: " <> sshow curMax
             <> ", got: " <> sshow newMax
             -- log at debug level because this is a common case during catchup
@@ -635,7 +646,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
         let diam = diameter $ chainGraphAt headerStore curMin
             newMin = _cutHashesMinHeight x
         let r = newMin + 2 * (1 + int diam) <= curMin
-        when r $ loggc Debug x "skip very old cut"
+        when r $ loggCutId Debug x "skip very old cut"
             -- log at debug level because this is a common case during catchup
         return r
 
@@ -644,13 +655,13 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
     isOld x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
         let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . _bhwhHeight) . _cutHashes)) curHashes x
-        when r $ loggc Debug x "skip old cut"
+        when r $ loggCutId Debug x "skip old cut"
         return r
 
     isCurrent x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
         let r = _cutHashes curHashes == _cutHashes x
-        when r $ loggc Debug x "skip current cut"
+        when r $ loggCutId Debug x "skip current cut"
         return r
 
 -- | Stream of most recent cuts. This stream does not generally include the full
