@@ -89,6 +89,7 @@ module Chainweb.BlockHeader
 , decodeBlockHeaderWithoutHash
 , decodeBlockHeaderChecked
 , decodeBlockHeaderCheckedChainId
+, blockHeaderShortDescription
 , ObjectEncoded(..)
 
 , timeBetween
@@ -385,6 +386,18 @@ instance IsCasValue BlockHeader where
     {-# INLINE casKey #-}
 
 type BlockHeaderCas tbl = Cas tbl BlockHeader
+
+-- | Used for quickly identifying "which block" this is.
+-- Example output:
+-- "0 @ bSQgL5 (height 4810062)"
+blockHeaderShortDescription :: BlockHeader -> T.Text
+blockHeaderShortDescription bh =
+    T.unwords
+        [ toText (_chainId bh)
+        , "@"
+        , blockHashToTextShort (_blockHash bh)
+        , "(height " <> sshow (getBlockHeight $ _blockHeight bh) <> ")"
+        ]
 
 makeLenses ''BlockHeader
 
