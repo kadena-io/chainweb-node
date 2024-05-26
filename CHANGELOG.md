@@ -3,6 +3,7 @@
 ## Unreleased (2024-XX-YY)
 
 Changes:
+- Shorter P2P log messages (#xxxx)
 
 
 Internal Changes:
