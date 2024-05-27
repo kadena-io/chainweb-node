@@ -319,7 +319,10 @@ serviceRequests memPoolAccess reqQ = do
                   fmap fst $ trace' logFn "Chainweb.Pact.PactService.execValidateBlock"
                     _valBlockHeader
                     (\(_, g) -> fromIntegral g)
-                    (execValidateBlock memPoolAccess _valBlockHeader _valCheckablePayload)
+                    $ do
+                      liftIO $ logFunctionText _psLogger Info $
+                        "execValidateBlock: " <> blockHeaderShortDescription _valBlockHeader
+                      execValidateBlock memPoolAccess _valBlockHeader _valCheckablePayload
                 go
             LookupPactTxsMsg (LookupPactTxsReq confDepth txHashes) -> do
                 trace logFn "Chainweb.Pact.PactService.execLookupPactTxs" ()
