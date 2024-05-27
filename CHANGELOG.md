@@ -3,6 +3,7 @@
 ## Unreleased (2024-XX-YY)
 
 Changes:
+- Disable telemetry monitor threads when telemetry is disabled anyway (#xxxx)
 
 
 Internal Changes:
