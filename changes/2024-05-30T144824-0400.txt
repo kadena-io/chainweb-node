@@ -1,0 +1,2 @@
+Single P2P task failures are logged at Debug instead of Info level, while they're still being retried
+
