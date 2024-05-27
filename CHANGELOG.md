@@ -3,6 +3,7 @@
 ## Unreleased (2024-XX-YY)
 
 Changes:
+- Log rewound blocks during catchup instead of played blocks (#xxxx)
 
 
 Internal Changes:
