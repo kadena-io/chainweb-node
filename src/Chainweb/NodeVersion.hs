@@ -110,7 +110,7 @@ getNodeVersion mgr ver addr maybeReq = do
         --  $ recoverAll policy $ const
         $ HTTP.responseHeaders <$> HTTP.httpNoBody url mgr
     return $ do
-        r <- first sshow hdrs
+        r <- first displayRequestException hdrs
         h <- case lookup chainwebNodeVersionHeaderName r of
             Nothing -> Left
                 $ "missing " <> CI.original chainwebNodeVersionHeaderName <> " header"
@@ -119,6 +119,17 @@ getNodeVersion mgr ver addr maybeReq = do
         first sshow $ fromText $ T.decodeUtf8 h
   where
     -- policy = exponentialBackoff 100 <> limitRetries 2
+    displayRequestException ex
+        | Just (HTTP.HttpExceptionRequest _request content) <- fromException ex
+        = case content of
+            HTTP.StatusCodeException resp _ ->
+                "Error status code: " <>
+                sshow (HTTP.statusCode $ HTTP.responseStatus resp)
+            HTTP.TooManyRedirects _ -> "Too many redirects"
+            HTTP.InternalException e -> sshow e
+            _ -> sshow content
+        | otherwise
+        = T.pack $ displayException ex
 
     url = case maybeReq of
         Nothing -> cutReq ver addr

@@ -4,10 +4,20 @@
 
 Changes:
 - Log rewound blocks during catchup instead of played blocks (#xxxx)
-
+- Disable telemetry monitor threads when telemetry is disabled anyway (#xxxx)
+- Logs are less verbose during initialization (#xxxx)
+- Failed transactions are logged at Debug rather than Info (#xxxx)
+- Reorganize ValidationFailure error message to be more readable (#xxxx)
+- Stop logging ConnectionIsClosed (#xxxx)
+- Log warp HTTP server errors at Info level (#xxxx)
+- Cut pipeline logging is more descriptive
+- Shorter P2P log messages (#xxxx)
+- Add a logging backend for P2P stats so they aren't logged as text (#xxxx)
 
 Internal Changes:
-
+- Rename connectioncounters logging index to counters (#xxxx)
+- Unify HTTP error logging across service and P2P APIs (#xxxx)
+- Fixed a crash when using read-only replay with no upper bound (#xxxx)
 
 ## 2.24 (2024-05-23)
 

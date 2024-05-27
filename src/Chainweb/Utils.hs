@@ -154,6 +154,7 @@ module Chainweb.Utils
 , enableConfigConfig
 , enableConfigEnabled
 , defaultEnableConfig
+, defaultDisableConfig
 , pEnableConfig
 , enabledConfig
 , validateEnableConfig
@@ -267,7 +268,7 @@ import GHC.TypeLits (KnownSymbol, symbolVal)
 import qualified Network.Connection as HTTP
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTP
-import Network.Socket
+import Network.Socket hiding (Debug)
 
 import Numeric.Natural
 
@@ -928,7 +929,7 @@ tryAllSynchronous = trySynchronous
 --
 runForever :: (LogLevel -> T.Text -> IO ()) -> T.Text -> IO () -> IO ()
 runForever logfun name a = mask $ \umask -> do
-    logfun Info $ "start " <> name
+    logfun Debug $ "start " <> name
     let go = do
             forever (umask a) `catchAllSynchronous` \e ->
                 logfun Error $ name <> " failed: " <> sshow e <> ". Restarting ..."
@@ -955,7 +956,7 @@ runForeverThrottled
     -> IO ()
 runForeverThrottled logfun name burst rate a = mask $ \umask -> do
     tokenBucket <- newTokenBucket
-    logfun Info $ "start " <> name
+    logfun Debug $ "start " <> name
     let runThrottled = tokenBucketWait tokenBucket burst rate >> a
         go = do
             forever (umask runThrottled) `catchAllSynchronous` \e ->
@@ -983,6 +984,14 @@ makeLenses ''EnableConfig
 defaultEnableConfig :: a -> EnableConfig a
 defaultEnableConfig a = EnableConfig
     { _enableConfigEnabled = True
+    , _enableConfigConfig = a
+    }
+
+-- | The default is that the configured component is disabled.
+--
+defaultDisableConfig :: a -> EnableConfig a
+defaultDisableConfig a = EnableConfig
+    { _enableConfigEnabled = False
     , _enableConfigConfig = a
     }
 

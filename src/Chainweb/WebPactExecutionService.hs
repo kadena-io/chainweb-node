@@ -78,7 +78,7 @@ data PactExecutionService = PactExecutionService
         )
     , _pactReadOnlyReplay :: !(
         BlockHeader ->
-        BlockHeader ->
+        Maybe BlockHeader ->
         IO ()
       )
       -- ^ Lookup pact hashes as of a block header to detect duplicates

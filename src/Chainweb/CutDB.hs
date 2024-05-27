@@ -17,6 +17,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: Chainweb.CutDB
@@ -425,7 +426,7 @@ startCutDb
     -> Casify RocksDbTable CutHashes
     -> IO (CutDb tbl)
 startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
-    logg Info "obtain initial cut"
+    logg Debug "obtain initial cut"
     initialCut <- readInitialCut
     unless (_cutDbParamsReadOnly config) $
         deleteRangeRocksDb
@@ -433,10 +434,11 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
             (Just $ over _1 succ $ casKey $ cutToCutHashes Nothing initialCut, Nothing)
     cutVar <- newTVarIO initialCut
     c <- readTVarIO cutVar
-    logg Info $ "got initial cut: " <> sshow c
+    logg Info $ T.unlines $
+        "got initial cut:" : ["    " <> block | block <- cutToTextShort c]
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
-    logg Info "CutDB started"
+    logg Debug "CutDB started"
     unless (_cutDbParamsReadOnly config) $
         pruneCuts logfun (_chainwebVersion headerStore) config (cutAvgBlockHeight v initialCut) cutHashesStore
     return CutDb
@@ -531,6 +533,11 @@ lookupCutHashes wbhdb hs =
 cutAvgBlockHeight :: ChainwebVersion -> Cut -> BlockHeight
 cutAvgBlockHeight v = BlockHeight . round . avgBlockHeightAtCutHeight v . _cutHeight
 
+data CutValidateResult
+    = CutValidateTimedOut
+    | CutValidateMissingBlocks !(HM.HashMap ChainId BlockHash)
+    | CutValidateSuccessful !(HM.HashMap ChainId BlockHeader)
+
 -- | This is at the heart of 'Chainweb' POW: Deciding the current "longest" cut
 -- among the incoming candiates.
 --
@@ -554,19 +561,27 @@ processCuts
 processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = do
     rng <- Prob.createSystemRandom
     queueToStream
-        & S.chain (\c -> loggc Debug c "start processing")
+        & S.chain (\c -> loggCutId Debug c "start processing")
         & S.filterM (fmap not . isVeryOld)
         & S.filterM (fmap not . farAhead)
         & S.filterM (fmap not . isOld)
         & S.filterM (fmap not . isCurrent)
-        & S.chain (\c -> loggc Debug c "fetch all prerequesites")
-        & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore payloadStore)
-        & S.chain (either
-            (\(T2 hsid c) -> loggc Warn hsid $ "failed to get prerequesites for some blocks. Missing: " <> encodeToText c)
-            (\c -> loggc Info c "got all prerequesites")
+        & S.chain (\c -> loggCutId Debug c "fetch all prerequisites")
+        & S.mapM (\c -> (c,) <$> cutHashesToBlockHeaderMap conf logFun headerStore payloadStore c)
+        & S.chain (\case
+            (c, CutValidateMissingBlocks missing) ->
+                loggCutId Warn c $ "Failed to get prerequisites for some blocks. Missing: " <> encodeToText missing
+            (_, CutValidateTimedOut) ->
+                -- this is already logged well enough by cutHashesToBlockHeaderMap
+                return ()
+            (_, CutValidateSuccessful _) ->
+                return ()
             )
-        & S.concat
-            -- ignore left values for now
+        & S.mapMaybe (\case
+            (_, CutValidateSuccessful headers) -> Just headers
+            _ -> Nothing
+            )
+            -- ignore unsuccessful values for now
 
         -- using S.scanM would be slightly more efficient (one pointer dereference)
         -- by keeping the value of cutVar in memory. We use the S.mapM variant with
@@ -577,14 +592,24 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
                 $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
             unless (_cutDbParamsReadOnly conf) $ do
                 maybePrune rng (cutAvgBlockHeight v curCut)
-                loggc Info newCut "writing cut"
+                loggCutId Debug newCut "writing cut"
                 casInsert cutHashesStore (cutToCutHashes Nothing resultCut)
             atomically $ writeTVar cutVar resultCut
-            loggc Info resultCut "published cut"
+            let cutDiff = cutDiffToTextShort curCut resultCut
+            let currentCutIdMsg = T.unwords
+                    [ "current cut is now"
+                    , cutIdToTextShort (_cutId resultCut) <> ","
+                    , "diff:"
+                    ]
+            let catOverflowing x xs =
+                    if length xs == 1
+                    then T.unwords (x : xs)
+                    else T.intercalate "\n" (x : (map ("    " <>) xs))
+            logFun @T.Text Info $ catOverflowing currentCutIdMsg cutDiff
             )
   where
-    loggc :: HasCutId c => LogLevel -> c -> T.Text -> IO ()
-    loggc l c msg = logFun @T.Text l $  "cut " <> cutIdToTextShort (_cutId c) <> ": " <> msg
+    loggCutId :: HasCutId c => LogLevel -> c -> T.Text -> IO ()
+    loggCutId l c msg = logFun @T.Text l $  "cut " <> cutIdToTextShort (_cutId c) <> ": " <> msg
 
     v = _chainwebVersion headerStore
 
@@ -615,7 +640,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
         curMax <- maxChainHeight <$> readTVarIO cutVar
         let newMax = _cutHashesMaxHeight x
         let r = newMax >= curMax + farAheadThreshold
-        when r $ loggc Debug x
+        when r $ loggCutId Debug x
             $ "skip far ahead cut. Current maximum block height: " <> sshow curMax
             <> ", got: " <> sshow newMax
             -- log at debug level because this is a common case during catchup
@@ -635,7 +660,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
         let diam = diameter $ chainGraphAt headerStore curMin
             newMin = _cutHashesMinHeight x
         let r = newMin + 2 * (1 + int diam) <= curMin
-        when r $ loggc Debug x "skip very old cut"
+        when r $ loggCutId Debug x "skip very old cut"
             -- log at debug level because this is a common case during catchup
         return r
 
@@ -644,13 +669,13 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
     isOld x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
         let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . _bhwhHeight) . _cutHashes)) curHashes x
-        when r $ loggc Debug x "skip old cut"
+        when r $ loggCutId Debug x "skip old cut"
         return r
 
     isCurrent x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
         let r = _cutHashes curHashes == _cutHashes x
-        when r $ loggc Debug x "skip current cut"
+        when r $ loggCutId Debug x "skip current cut"
         return r
 
 -- | Stream of most recent cuts. This stream does not generally include the full
@@ -754,7 +779,7 @@ cutHashesToBlockHeaderMap
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore tbl
     -> CutHashes
-    -> IO (Either (T2 CutId (HM.HashMap ChainId BlockHash)) (HM.HashMap ChainId BlockHeader))
+    -> IO CutValidateResult
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
 cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
@@ -769,8 +794,8 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
                     <> cutIdToTextShort hsid
                     <> " at height " <> sshow (_cutHashesHeight hs)
                     <> cutOriginText
-            return $! Left $! T2 hsid mempty
-        Just x -> return $! x
+            return CutValidateTimedOut
+        Just x -> return x
   where
     hsid = _cutId hs
     go =
@@ -792,12 +817,12 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
                 & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
                 & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
             if null missing
-            then return (Right headers)
+            then return $! CutValidateSuccessful headers
             else do
                 when (isJust $ _cutHashesLocalPayload hs) $
                     logfun @Text Error
                         "error validating locally mined cut; the mining loop will stall until unstuck by another mining node"
-                return $! Left $! T2 hsid missing
+                return $! CutValidateMissingBlocks missing
 
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))

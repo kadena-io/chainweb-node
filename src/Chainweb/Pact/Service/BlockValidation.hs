@@ -91,7 +91,7 @@ lookupPactTxs confDepth txs reqQ = do
 
 pactReadOnlyReplay
     :: BlockHeader
-    -> BlockHeader
+    -> Maybe BlockHeader
     -> PactQueue
     -> IO ()
 pactReadOnlyReplay l u reqQ = do

@@ -201,7 +201,7 @@ mkCutNetworkSync mgr doPeerSync cuts label cutSync = bracket create destroy $ \n
 
     create = do
         !n <- p2pCreateNode v CutNetwork peer (logFunction logger) peerDb mgr doPeerSync s
-        logFunctionText logger Info $ label <> ": initialized"
+        logFunctionText logger Debug $ label <> ": initialized"
         return n
 
     destroy n = do

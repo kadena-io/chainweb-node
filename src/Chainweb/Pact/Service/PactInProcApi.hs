@@ -8,6 +8,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Pact.Service.PactInProcApi
@@ -51,6 +52,7 @@ import Chainweb.Version
 import Data.LogMessage
 
 import GHC.Stack (HasCallStack)
+import Chainweb.Counter (Counter)
 
 -- | Initialization for Pact (in process) Api
 withPactService
@@ -59,6 +61,7 @@ withPactService
     => ChainwebVersion
     -> ChainId
     -> logger
+    -> Maybe (Counter "txFailures")
     -> MempoolConsensus
     -> BlockHeaderDb
     -> PayloadDb tbl
@@ -66,9 +69,9 @@ withPactService
     -> PactServiceConfig
     -> (PactQueue -> IO a)
     -> IO a
-withPactService ver cid logger mpc bhdb pdb pactDbDir config action =
+withPactService ver cid logger txFailuresCounter mpc bhdb pdb pactDbDir config action =
     withSqliteDb cid logger pactDbDir (_pactResetDb config) $ \sqlenv ->
-        withPactService' ver cid logger mpa bhdb pdb sqlenv config action
+        withPactService' ver cid logger txFailuresCounter mpa bhdb pdb sqlenv config action
   where
     mpa = pactMemPoolAccess mpc $ addLabel ("sub-component", "MempoolAccess") logger
 
@@ -81,6 +84,7 @@ withPactService'
     => ChainwebVersion
     -> ChainId
     -> logger
+    -> Maybe (Counter "txFailures")
     -> MemPoolAccess
     -> BlockHeaderDb
     -> PayloadDb tbl
@@ -88,21 +92,20 @@ withPactService'
     -> PactServiceConfig
     -> (PactQueue -> IO a)
     -> IO a
-withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
+withPactService' ver cid logger txFailuresCounter memPoolAccess bhDb pdb sqlenv config action = do
     reqQ <- newPactQueue (_pactQueueSize config)
     race (concurrently_ (monitor reqQ) (server reqQ)) (action reqQ) >>= \case
         Left () -> error "Chainweb.Pact.Service.PactInProcApi: pact service terminated unexpectedly"
         Right a -> return a
   where
     server reqQ = runForever logg "pact-service"
-        $ PS.runPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv config
+        $ PS.runPactService ver cid logger txFailuresCounter reqQ memPoolAccess bhDb pdb sqlenv config
     logg = logFunction logger
     monitor = runPactServiceQueueMonitor $ addLabel ("sub-component", "PactQueue") logger
 
 runPactServiceQueueMonitor :: Logger logger => logger ->  PactQueue -> IO ()
 runPactServiceQueueMonitor l pq = do
     let lf = logFunction l
-    logFunctionText l Info "Initialized PactQueueMonitor"
     runForeverThrottled lf "Chainweb.Pact.Service.PactInProcApi.runPactServiceQueueMonitor" 10 (10 * mega) $ do
             queueStats <- getPactQueueStats pq
             logFunctionText l Debug "got latest set of stats from PactQueueMonitor"

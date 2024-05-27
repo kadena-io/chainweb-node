@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -68,7 +69,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
-import Data.Foldable (fold, for_)
+import Data.Foldable (fold, for_, traverse_)
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
 import qualified Data.List as List
@@ -81,6 +82,7 @@ import qualified System.LogLevel as L
 
 -- internal Pact modules
 
+import Chainweb.Counter
 import Chainweb.Pact.Backend.Types (_cpPactDbEnv)
 import Pact.Eval (eval, liftTerm)
 import Pact.Gas (freeGasEnv)
@@ -172,6 +174,7 @@ applyCmd
       -- ^ Pact logger
     -> Maybe logger
       -- ^ Pact gas logger
+    -> Maybe (Counter "txFailures")
     -> PactDbEnv p
       -- ^ Pact db environment
     -> Miner
@@ -191,7 +194,7 @@ applyCmd
     -> ApplyCmdExecutionContext
       -- ^ is this a local or send execution context?
     -> IO (T3 (CommandResult [TxLogJson]) ModuleCache (S.Set PactWarning))
-applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcache0 callCtx = do
+applyCmd v logger gasLogger txFailuresCounter pdbenv miner gasModel txCtx spv cmd initialGas mcache0 callCtx = do
     T2 cr st <- runTransactionM cenv txst applyBuyGas
 
     let cache = _txCache st
@@ -214,7 +217,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       <> flagsFor v (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
 
     cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
-      requestKey (fromIntegral gasLimit) executionConfigNoHistory quirkGasFee
+      requestKey (fromIntegral gasLimit) executionConfigNoHistory quirkGasFee txFailuresCounter
 
     !requestKey = cmdToRequestKey cmd
     !gasPrice = view cmdGasPrice cmd
@@ -358,6 +361,7 @@ applyGenesisCmd logger dbEnv spv txCtx cmd =
           -- after the block height where pact4.4 is on.
           <> S.fromList [ FlagDisableInlineMemCheck, FlagDisablePact44 ]
         , _txQuirkGasFee = Nothing
+        , _txTxFailuresCounter = Nothing
         }
     txst = TransactionState
         { _txCache = mempty
@@ -444,7 +448,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       , flagsFor v (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
       ]
     tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
-           Nothing 0.0 rk 0 ec Nothing
+           Nothing 0.0 rk 0 ec Nothing Nothing
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv) mempty
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     rk = RequestKey chash
@@ -519,7 +523,7 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     !gasPrice = view cmdGasPrice cmd
     !gasLimit = view cmdGasLimit cmd
     tenv = TransactionEnv Local dbEnv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
-           rk (fromIntegral gasLimit) execConfig Nothing
+           rk (fromIntegral gasLimit) execConfig Nothing Nothing
     txst = TransactionState mc mempty 0 Nothing gasModel mempty
     gas0 = initialGasOf (_cmdPayload cmdIn)
     currHeight = ctxCurrentBlockHeight txCtx
@@ -581,7 +585,7 @@ readInitModules = do
     nid = Nothing
     chash = pactInitialHash
     tenv = TransactionEnv Local dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
-           rk 0 def Nothing
+           rk 0 def Nothing Nothing
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
     interp = defaultInterpreter
     die msg = throwM $ PactInternalError $ "readInitModules: " <> msg
@@ -709,8 +713,10 @@ failTxWith err msg = do
     rk <- view txRequestKey
     l <- view txLogger
 
-    liftIO $ logFunction l L.Info
+    liftIO $ logFunction l L.Debug
       (TxFailureLog rk err msg)
+    liftIO . traverse_ inc
+      =<< view txTxFailuresCounter
 
     return $! CommandResult rk Nothing (PactResult (Left err))
       gas (Just logs) Nothing Nothing []

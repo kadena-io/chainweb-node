@@ -38,6 +38,8 @@
 --
 module Chainweb.Cut
 ( Cut
+, cutToTextShort
+, cutDiffToTextShort
 , _cutMap
 , cutMap
 , _cutHeight
@@ -106,9 +108,11 @@ import Data.Functor.Of
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Heap as H
+import qualified Data.List as List
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Monoid
 import Data.Ord
+import Data.Text (Text)
 import qualified Data.Text as T
 import Data.These
 
@@ -898,3 +902,22 @@ forkDepth wdb a b = do
     maxDepth l u = maximum
         $ (\(_, x, y) -> _blockHeight y - _blockHeight x)
         <$> zipCuts l u
+
+cutToTextShort :: Cut -> [Text]
+cutToTextShort c =
+    [ blockHeaderShortDescription bh
+    | (_, bh) <- List.sortOn fst $ HM.toList (_cutHeaders c)
+    ]
+
+cutDiffToTextShort :: Cut -> Cut -> [Text]
+cutDiffToTextShort c c' =
+    [ T.unwords
+        [ maybe "No block" blockHeaderShortDescription bh
+        , "->"
+        , maybe "No block" blockHeaderShortDescription bh'
+        ]
+    | cid <- List.sort $ HM.keys $ HM.union (_cutHeaders c) (_cutHeaders c')
+    , let bh = HM.lookup cid (_cutHeaders c)
+    , let bh' = HM.lookup cid (_cutHeaders c')
+    , bh /= bh'
+    ]

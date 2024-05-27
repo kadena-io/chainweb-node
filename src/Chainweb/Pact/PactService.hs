@@ -13,6 +13,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE DataKinds #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -109,7 +110,6 @@ import Chainweb.Pact.Types
 import Chainweb.Pact.Validations
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Storage.Table
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB
@@ -117,6 +117,7 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards
 import Utils.Logging.Trace
+import Chainweb.Counter
 
 runPactService
     :: Logger logger
@@ -124,6 +125,7 @@ runPactService
     => ChainwebVersion
     -> ChainId
     -> logger
+    -> Maybe (Counter "txFailures")
     -> PactQueue
     -> MemPoolAccess
     -> BlockHeaderDb
@@ -131,8 +133,8 @@ runPactService
     -> SQLiteEnv
     -> PactServiceConfig
     -> IO ()
-runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config =
-    void $ withPactService ver cid chainwebLogger bhDb pdb sqlenv config $ do
+runPactService ver cid chainwebLogger txFailuresCounter reqQ mempoolAccess bhDb pdb sqlenv config =
+    void $ withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv config $ do
         initialPayloadState mempoolAccess ver cid
         serviceRequests mempoolAccess reqQ
 
@@ -141,13 +143,14 @@ withPactService
     => ChainwebVersion
     -> ChainId
     -> logger
+    -> Maybe (Counter "txFailures")
     -> BlockHeaderDb
     -> PayloadDb tbl
     -> SQLiteEnv
     -> PactServiceConfig
     -> PactServiceM logger tbl a
     -> IO (T2 a PactServiceState)
-withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
+withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv config act =
     withProdRelationalCheckpointer checkpointerLogger (_pactModuleCacheLimit config) sqlenv (_pactPersistIntraBlockWrites config) ver cid $ \checkpointer -> do
         let !rs = readRewards
         let !pse = PactServiceEnv
@@ -166,6 +169,7 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                     , _psGasLogger = gasLogger <$ guard (_pactLogGas config)
                     , _psBlockGasLimit = _pactBlockGasLimit config
                     , _psEnableLocalTimeout = _pactEnableLocalTimeout config
+                    , _psTxFailuresCounter = txFailuresCounter
                     }
             !pst = PactServiceState mempty
 
@@ -286,9 +290,7 @@ serviceRequests
     => MemPoolAccess
     -> PactQueue
     -> PactServiceM logger tbl ()
-serviceRequests memPoolAccess reqQ = do
-    logInfo "Starting service"
-    go `finally` logInfo "Stopping service"
+serviceRequests memPoolAccess reqQ = go
   where
     go :: PactServiceM logger tbl ()
     go = do
@@ -641,9 +643,9 @@ execReadOnlyReplay
     :: forall logger tbl
     . (Logger logger, CanReadablePayloadCas tbl)
     => BlockHeader
-    -> BlockHeader
+    -> Maybe BlockHeader
     -> PactServiceM logger tbl ()
-execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
+execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $ do
     ParentHeader cur <- findLatestValidBlockHeader
     logger <- view psLogger
     bhdb <- view psBlockHeaderDb
@@ -651,12 +653,24 @@ execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
     v <- view chainwebVersion
     cid <- view chainId
     -- lower bound must be an ancestor of upper.
-    liftIO (ancestorOf bhdb (_blockHash lowerBound) (_blockHash upperBound)) >>=
-      flip unless (throwM $ PactInternalError "lower bound is not an ancestor of upper bound")
+    upperBound <- case maybeUpperBound of
+        Just upperBound -> do
+            liftIO (ancestorOf bhdb (_blockHash lowerBound) (_blockHash upperBound)) >>=
+                flip unless (throwM $ PactInternalError "lower bound is not an ancestor of upper bound")
 
-    -- upper bound must be an ancestor of latest header.
-    liftIO (ancestorOf bhdb (_blockHash upperBound) (_blockHash cur)) >>=
-      flip unless (throwM $ PactInternalError "upper bound is not an ancestor of latest header")
+            -- upper bound must be an ancestor of latest header.
+            liftIO (ancestorOf bhdb (_blockHash upperBound) (_blockHash cur)) >>=
+                flip unless (throwM $ PactInternalError "upper bound is not an ancestor of latest header")
+
+            return upperBound
+        Nothing -> do
+            liftIO (ancestorOf bhdb (_blockHash lowerBound) (_blockHash cur)) >>=
+                flip unless (throwM $ PactInternalError "lower bound is not an ancestor of latest header")
+
+            return cur
+    liftIO $ logFunctionText logger Info $ "pact db replaying between blocks "
+        <> sshow (_blockHeight lowerBound, _blockHash lowerBound) <> " and "
+        <> sshow (_blockHeight upperBound, _blockHash upperBound)
 
     let genHeight = genesisHeight v cid
     -- we don't want to replay the genesis header in here.
@@ -690,10 +704,9 @@ execReadOnlyReplay lowerBound upperBound = pactLabel "execReadOnlyReplay" $ do
                 printError e = throwM e
             handle printError $ runPact $ readFrom (Just $ ParentHeader bhParent) $ do
                 liftIO $ writeIORef heightRef (_blockHeight bh)
-                plData <- liftIO $ fromJuste <$> tableLookup
-                    (_transactionDb pdb)
-                    (_blockPayloadHash bh)
-                void $ execBlock bh (CheckablePayload plData)
+                payload <- liftIO $ fromJuste <$>
+                  lookupPayloadDataWithHeight pdb (Just $ _blockHeight bh) (_blockPayloadHash bh)
+                void $ execBlock bh (CheckablePayload payload)
             )
         validationFailed <- readIORef validationFailedRef
         when validationFailed $
@@ -763,7 +776,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                       Right{} -> do
                         let initialGas = initialGasOf $ P._cmdPayload cwtx
                         T3 cr _mc warns <- liftIO $ applyCmd
-                          _psVersion _psLogger _psGasLogger (_cpPactDbEnv dbEnv)
+                          _psVersion _psLogger _psGasLogger Nothing (_cpPactDbEnv dbEnv)
                           noMiner gasModel ctx spv cmd
                           initialGas mc ApplyLocal
 
@@ -798,8 +811,24 @@ execSyncToBlock
     :: (CanReadablePayloadCas tbl, Logger logger)
     => BlockHeader
     -> PactServiceM logger tbl ()
-execSyncToBlock hdr = pactLabel "execSyncToBlock" $
-  rewindToIncremental Nothing (ParentHeader hdr)
+execSyncToBlock targetHeader = pactLabel "execSyncToBlock" $ do
+  latestHeader <- findLatestValidBlockHeader' >>= maybe failNonGenesisOnEmptyDb return
+  if latestHeader == targetHeader
+  then do
+      logInfo $ "checkpointer at checkpointer target"
+          <> ". target height: " <> sshow (_blockHeight latestHeader)
+          <> "; target hash: " <> blockHashToText (_blockHash latestHeader)
+  else do
+      logInfo $ "rewind to checkpointer target"
+          <> ". current height: " <> sshow (_blockHeight latestHeader)
+          <> "; current hash: " <> blockHashToText (_blockHash latestHeader)
+          <> "; target height: " <> sshow targetHeight
+          <> "; target hash: " <> blockHashToText targetHash
+  rewindToIncremental Nothing (ParentHeader targetHeader)
+  where
+  targetHeight = _blockHeight targetHeader
+  targetHash = _blockHash targetHeader
+  failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
 
 -- | Validate a mined block `(headerToValidate, payloadToValidate).
 -- Note: The BlockHeader here is the header of the block being validated.
@@ -1015,7 +1044,7 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                     , P.FlagDisableHistoryInTransactionalMode ] ++
                     disableReturnRTC (ctxVersion pd) (ctxChainId pd) (ctxCurrentBlockHeight pd)
 
-              let buyGasEnv = TransactionEnv P.Transactional (_cpPactDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gasPrice rk gasLimit ec Nothing
+              let buyGasEnv = TransactionEnv P.Transactional (_cpPactDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gasPrice rk gasLimit ec Nothing Nothing
 
               cr <- liftIO
                 $! catchesPactError l CensorsUnexpectedError

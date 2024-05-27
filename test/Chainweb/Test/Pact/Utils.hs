@@ -705,6 +705,7 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
 
         , _psBlockGasLimit = _pactBlockGasLimit conf
         , _psEnableLocalTimeout = False
+        , _psTxFailuresCounter = Nothing
         }
 
 freeGasModel :: TxContext -> GasModel
@@ -909,7 +910,7 @@ withPactTestBlockDb' version cid rdb sqlEnvIO mempoolIO pactConfig f =
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) cid
         let pdb = _bdbPayloadDb bdb
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
-            runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
+            runPactService version cid logger Nothing reqQ mempool bhdb pdb sqlEnv pactConfig
         return (a, (sqlEnv,reqQ,bdb))
 
     stopPact (a, _) = cancel a
@@ -965,7 +966,7 @@ withPactTestBlockDb version cid rdb mempoolIO pactConfig f =
         let pdb = _bdbPayloadDb bdb
         sqlEnv <- startSqliteDb cid logger dir False
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
-            runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
+            runPactService version cid logger Nothing reqQ mempool bhdb pdb sqlEnv pactConfig
         return (a, (sqlEnv,reqQ,bdb))
 
     stopPact (a, (sqlEnv, _, _)) = cancel a >> stopSqliteDb sqlEnv

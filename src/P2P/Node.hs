@@ -337,21 +337,21 @@ getNewPeerManager = readIORef newPeerManager
 -- Guard PeerDB
 
 data PeerValidationFailure
-    = IsReservedHostAddress !PeerInfo
-    | IsNotReachable !PeerInfo !T.Text
-    | NodeVersionNotAccepted !PeerInfo !NodeVersion
-    | IsLocalPeerAddress !PeerInfo
+    = IsReservedHostAddress
+    | IsNotReachable !T.Text
+    | NodeVersionNotAccepted !NodeVersion
+    | IsLocalPeerAddress
     deriving (Show, Eq, Ord, Generic, NFData, ToJSON)
 
-instance Exception PeerValidationFailure where
-    displayException (IsReservedHostAddress p)
-        = "The peer info " <> T.unpack (showInfo p) <> " is form a reserved IP address range"
-    displayException (IsNotReachable p t)
-        = "The peer info " <> T.unpack (showInfo p) <> " can't be reached: " <> T.unpack t
-    displayException (NodeVersionNotAccepted p v)
-        = "The peer info " <> T.unpack (showInfo p) <> " has a chainweb node version that is not acceptable: " <> T.unpack (toText v)
-    displayException (IsLocalPeerAddress p)
-        = "The peer info " <> T.unpack (showInfo p) <> " is the address of the local peer"
+displayPeerValidationFailure :: PeerValidationFailure -> T.Text
+displayPeerValidationFailure IsReservedHostAddress
+    = "is from a reserved IP address range"
+displayPeerValidationFailure (IsNotReachable t)
+    = "can't be reached: " <> t
+displayPeerValidationFailure (NodeVersionNotAccepted v)
+    = "has a chainweb node version that is not acceptable: " <> toText v
+displayPeerValidationFailure IsLocalPeerAddress
+    = "is the address of the local peer"
 
 -- | Removes candidate `PeerInfo` that are:
 --
@@ -374,14 +374,14 @@ guardPeerDb
 guardPeerDb v nid peerDb pinf = do
     peers <- peerDbSnapshot peerDb
     if
-        | isMe -> return $ Left $ IsLocalPeerAddress pinf
+        | isMe -> return $ Left $ IsLocalPeerAddress
         | isKnown peers pinf -> return $ Right pinf
-        | isReserved -> return $ Left $ IsReservedHostAddress pinf
+        | isReserved -> return $ Left $ IsReservedHostAddress
         | otherwise -> canConnect >>= \case
-            Left e -> return $ Left $ IsNotReachable pinf (sshow e)
+            Left e -> return $ Left $ IsNotReachable e
             Right nodeVersion -> if isAcceptedVersion nodeVersion
                 then return $ Right pinf
-                else return $ Left $ NodeVersionNotAccepted pinf nodeVersion
+                else return $ Left $ NodeVersionNotAccepted nodeVersion
   where
     isReserved :: Bool
     isReserved = not (v ^. versionDefaults . disablePeerValidation) && isReservedHostAddress (_peerAddr pinf)
@@ -407,10 +407,13 @@ guardPeerDbOfNode
     -> PeerInfo
     -> IO (Maybe PeerInfo)
 guardPeerDbOfNode node pinf = go >>= \case
-    Left (IsLocalPeerAddress _) ->
+    Left IsLocalPeerAddress ->
         return Nothing
     Left e -> do
-        logg node Info $ "failed to validate peer " <> showInfo pinf <> ": " <> T.pack (displayException e)
+        logg node Info
+            $ "failed to validate peer "
+            <> showInfo pinf <> ": "
+            <> displayPeerValidationFailure e
         return Nothing
     Right x -> return (Just x)
   where
@@ -778,7 +781,7 @@ p2pCreateNode cv nid peer logfun db mgr doPeerSync session = do
                 , _p2pNodeDoPeerSync = doPeerSync
                 }
 
-    logfun @T.Text Info "created node"
+    logfun @T.Text Debug "created node"
     return s
   where
     myInfo = _peerInfo peer
