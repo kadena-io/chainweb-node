@@ -866,15 +866,14 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
         -- check that we don't exceed the rewind limit. for the purpose
         -- of this check, the genesis block and the genesis parent
         -- have the same height.
-        do
-            let !currHeight = maybe (genesisHeight v cid) _blockHeight currHeader
-            let !ancestorHeight = maybe (genesisHeight v cid) _blockHeight commonAncestor
-            let !rewindLimitSatisfied = ancestorHeight + fromIntegral reorgLimit >= currHeight
-            unless rewindLimitSatisfied $
-                throwM $ RewindLimitExceeded
-                    (RewindLimit reorgLimit)
-                    currHeader
-                    commonAncestor
+        let !currHeight = maybe (genesisHeight v cid) _blockHeight currHeader
+        let !ancestorHeight = maybe (genesisHeight v cid) _blockHeight commonAncestor
+        let !rewindLimitSatisfied = ancestorHeight + fromIntegral reorgLimit >= currHeight
+        unless rewindLimitSatisfied $
+            throwM $ RewindLimitExceeded
+                (RewindLimit reorgLimit)
+                currHeader
+                commonAncestor
         -- get all blocks on the fork we're going to play, up to the parent
         -- of the block we're validating
         let withForkBlockStream kont = case parentOfHeaderToValidate of
@@ -885,7 +884,7 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
                     let forkStartHeight = maybe (genesisHeight v cid) (succ . _blockHeight) commonAncestor
                     in getBranchIncreasing bhdb parentHeaderOfHeaderToValidate (fromIntegral forkStartHeight) kont
 
-        ((), T2 results (Sum numForkBlocksPlayed)) <-
+        ((), results) <-
             withPactState $ \runPact ->
                 withForkBlockStream $ \forkBlockHeaders -> do
 
@@ -899,14 +898,14 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
                                     <> ". Block: " <> encodeToText (ObjectEncoded forkBh)
                                 Just x -> return $ payloadWithOutputsToPayloadData x
                             void $ execBlock forkBh (CheckablePayload payload)
-                            return (T2 [] (Sum (1 :: Word)), forkBh)
+                            return ([], forkBh)
                             ) forkBlockHeaders
 
                     -- run the new block, the one we're validating, and
                     -- validate its hashes
                     let runThisBlock = Stream.yield $ do
                             !output <- execBlock headerToValidate payloadToValidate
-                            return (T2 [output] (Sum (0 :: Word)), headerToValidate)
+                            return ([output], headerToValidate)
 
                     -- here we rewind to the common ancestor block, run the
                     -- transactions in all of its child blocks until the parent
@@ -915,12 +914,13 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
                     runPact $ restoreAndSave
                         (ParentHeader <$> commonAncestor)
                         (runForkBlockHeaders >> runThisBlock)
-        let logPlayed =
-                -- we consider a fork of height 3 or more to be notable.
-                if numForkBlocksPlayed > 3
+        let logRewind =
+                -- we consider a fork of height more than 3 to be notable.
+                if ancestorHeight + 3 < currHeight
                 then logWarn
                 else logDebug
-        logPlayed $ "execValidateBlock: played " <> sshow numForkBlocksPlayed <> " fork blocks"
+        logRewind $
+            "execValidateBlock: rewound " <> sshow (currHeight - ancestorHeight) <> " blocks"
         (totalGasUsed, result) <- case results of
             [r] -> return r
             _ -> throwM $ PactInternalError "execValidateBlock: wrong number of block results returned from _cpRestoreAndSave."
