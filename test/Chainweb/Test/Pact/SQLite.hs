@@ -138,13 +138,13 @@ shaa i = "sha3a_" <> fromString (show i)
 -- -------------------------------------------------------------------------- --
 --
 
-runMsgTest :: IO (MVar SQLiteEnv) -> [Int] -> Int -> MsgFile -> IO ()
+runMsgTest :: IO (MVar Database) -> [Int] -> Int -> MsgFile -> IO ()
 runMsgTest dbVarIO splitArg n f = do
     dbVar <- dbVarIO
     withMVar dbVar $ \db -> do
         msgAssert (\_ a b -> a @?= b) (sqliteSha3 db n splitArg) f
 
-runMonteTest :: IO (MVar SQLiteEnv) -> [Int] -> Int -> MonteFile -> IO ()
+runMonteTest :: IO (MVar Database) -> [Int] -> Int -> MonteFile -> IO ()
 runMonteTest dbVarIO splitArg n f = do
     dbVar <- dbVarIO
     withMVar dbVar $ \db -> do
@@ -153,7 +153,7 @@ runMonteTest dbVarIO splitArg n f = do
 -- -------------------------------------------------------------------------- --
 -- Repeated use in a query
 
-msgTableTest :: IO (MVar SQLiteEnv) -> Int -> MsgFile -> IO ()
+msgTableTest :: IO (MVar Database) -> Int -> MsgFile -> IO ()
 msgTableTest dbVarIO n msgFile = do
     dbVar <- dbVarIO
     withMVar dbVar $ \db -> do
@@ -170,7 +170,7 @@ msgTableTest dbVarIO n msgFile = do
     query = "SELECT sum(" <> sha n <> "(substr(msg,1,len)) != md) FROM " <> fromString name
     name = "msgTable_" <> show n
 
-msgTable :: SQLiteEnv -> String -> MsgFile -> IO ()
+msgTable :: Database -> String -> MsgFile -> IO ()
 msgTable db name msgFile = do
     exec_ db ("CREATE TABLE " <> tbl <> " (len INT, msg BLOB, md BLOB)")
     forM_ (_msgVectors msgFile) $ \i -> do
@@ -185,13 +185,13 @@ msgTable db name msgFile = do
 -- -------------------------------------------------------------------------- --
 -- Repeated use in query for MonteFile
 
-monteTableTest :: IO (MVar SQLiteEnv) -> Int -> MonteFile -> IO ()
+monteTableTest :: IO (MVar Database) -> Int -> MonteFile -> IO ()
 monteTableTest dbVarIO n monteFile = do
     dbVar <- dbVarIO
     withMVar dbVar $ \db ->
         monteTableTest_ db n monteFile
 
-monteTableTest_ :: SQLiteEnv -> Int -> MonteFile -> IO ()
+monteTableTest_ :: Database -> Int -> MonteFile -> IO ()
 monteTableTest_ db n monteFile = do
         monteTable db monteTableName monteFile
         let query = fromString $ unwords
@@ -219,7 +219,7 @@ monteTableTest_ db n monteFile = do
   where
     monteTableName = "monteTable_" <> show n
 
-monteTable :: SQLiteEnv -> String -> MonteFile -> IO ()
+monteTable :: Database -> String -> MonteFile -> IO ()
 monteTable db name monteFile = do
     exec_ db ("CREATE TABLE " <> tbl <> " (count INT, md BLOB)")
     forM_ (_monteVectors monteFile) $ \i -> do
@@ -236,7 +236,7 @@ monteTable db name monteFile = do
 -- split a large input accross table rows
 
 withAggTable
-    :: IO (MVar SQLiteEnv)
+    :: IO (MVar Database)
     -> Int
     -> Int
     -> (IO (String, [B.ByteString]) -> TestTree)
@@ -255,7 +255,7 @@ withAggTable dbVarIO rowCount chunkSize =
                 exec' db ("INSERT INTO " <> fromString tbl <> " VALUES(?)") [SBlob i]
             return (tbl, input)
 
-testAgg :: Int -> IO (MVar SQLiteEnv) -> IO (String, [B.ByteString]) -> IO ()
+testAgg :: Int -> IO (MVar Database) -> IO (String, [B.ByteString]) -> IO ()
 testAgg n dbVarIO tblIO = do
     dbVar <- dbVarIO
     (tbl, input) <- first fromString <$> tblIO
@@ -282,7 +282,7 @@ hashToByteString = BS.fromShort . coerce
 -- -------------------------------------------------------------------------- --
 -- SHA3 Implementation
 
-sqliteSha3 :: SQLiteEnv -> Int -> [Int] -> B.ByteString -> B.ByteString
+sqliteSha3 :: Database -> Int -> [Int] -> B.ByteString -> B.ByteString
 sqliteSha3 db n argSplit arg = unsafePerformIO $ do
     rows <- qry db queryStr params [RBlob]
     case rows of

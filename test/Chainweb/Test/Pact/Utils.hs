@@ -154,8 +154,6 @@ import qualified Data.Text.Encoding as T
 import Data.String
 import qualified Data.Vector as V
 
-import Database.SQLite3.Direct (Database)
-
 import GHC.Generics
 import GHC.IO.Exception(IOException(..))
 
@@ -667,12 +665,12 @@ testPactCtxSQLite
   -> Version.ChainId
   -> BlockHeaderDb
   -> PayloadDb tbl
-  -> SQLiteEnv
+  -> Database
   -> PactServiceConfig
   -> (TxContext -> GasModel)
   -> IO (TestPactCtx logger tbl)
 testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
-    cp <- initRelationalCheckpointer defaultModuleCacheLimit sqlenv DoNotPersistIntraBlockWrites cpLogger v cid
+    cp <- initRelationalCheckpointer defaultModuleCacheLimit (SQLiteEnv ReadWrite sqlenv) DoNotPersistIntraBlockWrites cpLogger v cid
     let rs = readRewards
     !ctx <- TestPactCtx
       <$!> newMVar (PactServiceState mempty)
@@ -720,7 +718,7 @@ withWebPactExecutionService
     -> TestBlockDb
     -> MemPoolAccess
     -> (TxContext -> GasModel)
-    -> ((WebPactExecutionService,HM.HashMap ChainId (SQLiteEnv, PactExecutionService)) -> IO a)
+    -> ((WebPactExecutionService,HM.HashMap ChainId (Database, PactExecutionService)) -> IO a)
     -> IO a
 withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
   withDbs $ \sqlenvs -> do
@@ -734,7 +732,7 @@ withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
     withDbs f = foldl' (\soFar _ -> withDb soFar) f (chainIds v) []
     withDb g envs = withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
 
-    mkPact :: SQLiteEnv -> ChainId -> IO PactExecutionService
+    mkPact :: Database -> ChainId -> IO PactExecutionService
     mkPact sqlenv c = do
         bhdb <- getBlockHeaderDb c bdb
         ctx <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
@@ -785,7 +783,7 @@ runCut v bdb pact genTime noncer miner =
         h <- getParentTestBlockDb bdb cid
         void $ _webPactValidateBlock pact h (CheckablePayloadWithOutputs pout)
 
-initializeSQLite :: IO SQLiteEnv
+initializeSQLite :: IO Database
 initializeSQLite = open2 file >>= \case
     Left (_err, _msg) ->
         internalError "initializeSQLite: A connection could not be opened."
@@ -793,7 +791,7 @@ initializeSQLite = open2 file >>= \case
   where
     file = "" {- temporary sqlitedb -}
 
-freeSQLiteResource :: SQLiteEnv -> IO ()
+freeSQLiteResource :: Database -> IO ()
 freeSQLiteResource sqlenv = void $ close_v2 sqlenv
 
 type WithPactCtxSQLite logger tbl = forall a . PactServiceM logger tbl a -> IO a
@@ -884,7 +882,7 @@ withTemporaryDir = withResource
 -- | Single-chain Pact via service queue.
 --
 --   The difference between this and 'withPactTestBlockDb' is that,
---   this function takes a `SQLiteEnv` resource which it then exposes
+--   this function takes a `Database` resource which it then exposes
 --   to the test function.
 --
 --   TODO: Consolidate these two functions.
@@ -892,10 +890,10 @@ withPactTestBlockDb'
     :: ChainwebVersion
     -> ChainId
     -> RocksDb
-    -> IO SQLiteEnv
+    -> IO Database
     -> IO MemPoolAccess
     -> PactServiceConfig
-    -> (IO (SQLiteEnv,PactQueue,TestBlockDb) -> TestTree)
+    -> (IO (Database,PactQueue,TestBlockDb) -> TestTree)
     -> TestTree
 withPactTestBlockDb' version cid rdb sqlEnvIO mempoolIO pactConfig f =
   withResource' (mkTestBlockDb version rdb) $ \bdbio ->
@@ -904,13 +902,14 @@ withPactTestBlockDb' version cid rdb sqlEnvIO mempoolIO pactConfig f =
     startPact bdbio = do
         reqQ <- newPactQueue 2000
         bdb <- bdbio
-        sqlEnv <- sqlEnvIO
+        writeSqlEnv <- sqlEnvIO
+        readSqlEnv <- sqlEnvIO
         mempool <- mempoolIO
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) cid
         let pdb = _bdbPayloadDb bdb
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
-            runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
-        return (a, (sqlEnv,reqQ,bdb))
+            runPactService version cid logger reqQ mempool bhdb pdb (writeSqlEnv, readSqlEnv) pactConfig
+        return (a, (writeSqlEnv,reqQ,bdb))
 
     stopPact (a, _) = cancel a
 
@@ -924,7 +923,7 @@ withPactTestBlockDb' version cid rdb sqlEnvIO mempoolIO pactConfig f =
 withSqliteDb :: ()
   => ChainId
   -> IO FilePath
-  -> (IO SQLiteEnv -> TestTree)
+  -> (IO Database -> TestTree)
   -> TestTree
 withSqliteDb cid iodir s = withResource start stop s
   where
@@ -949,7 +948,7 @@ withPactTestBlockDb
     -> RocksDb
     -> IO MemPoolAccess
     -> PactServiceConfig
-    -> (IO (SQLiteEnv,PactQueue,TestBlockDb) -> TestTree)
+    -> (IO (Database,PactQueue,TestBlockDb) -> TestTree)
     -> TestTree
 withPactTestBlockDb version cid rdb mempoolIO pactConfig f =
   withTemporaryDir $ \iodir ->
@@ -963,10 +962,11 @@ withPactTestBlockDb version cid rdb mempoolIO pactConfig f =
         mempool <- mempoolIO
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) cid
         let pdb = _bdbPayloadDb bdb
-        sqlEnv <- startSqliteDb cid logger dir False
+        writeSqlEnv <- startSqliteDb cid logger dir False
+        readSqlEnv <- startSqliteDb cid logger dir False
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
-            runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
-        return (a, (sqlEnv,reqQ,bdb))
+            runPactService version cid logger reqQ mempool bhdb pdb (writeSqlEnv, readSqlEnv) pactConfig
+        return (a, (writeSqlEnv,reqQ,bdb))
 
     stopPact (a, (sqlEnv, _, _)) = cancel a >> stopSqliteDb sqlEnv
 
@@ -1030,7 +1030,7 @@ getLatestPactState db = do
     (PactState.getLatestPactStateDiffable db)
 
 locateTarget :: ()
-  => SQLiteEnv
+  => Database
   -> C.TargetBlockHeight
   -> IO BlockHeight
 locateTarget db = \case
@@ -1055,7 +1055,7 @@ locateTarget db = \case
 compact :: ()
   => LogLevel
   -> [C.CompactFlag]
-  -> SQLiteEnv
+  -> Database
   -> C.TargetBlockHeight
   -> IO ()
 compact logLevel cFlags db target = do
@@ -1067,7 +1067,7 @@ compact logLevel cFlags db target = do
 compactUntilAvailable
   :: C.TargetBlockHeight
   -> YAL.Logger SomeLogMessage
-  -> SQLiteEnv
+  -> Database
   -> [C.CompactFlag]
   -> IO ()
 compactUntilAvailable target logger db flags = do

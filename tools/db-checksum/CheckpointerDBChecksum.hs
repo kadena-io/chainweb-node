@@ -45,7 +45,6 @@ import Pact.Types.SQLite
 
 -- chainweb imports
 import Chainweb.BlockHeight
-import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils hiding (callDb)
 import Chainweb.Pact.Service.Types
 import Chainweb.Utils hiding (check)
@@ -197,14 +196,14 @@ work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas (runReaderT 
         <> Utf8 tbl
         <> "] WHERE txid > ? AND txid <= ? ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
 
-callDb :: T.Text -> (Database -> IO a) -> ReaderT SQLiteEnv IO a
+callDb :: T.Text -> (Database -> IO a) -> ReaderT Database IO a
 callDb callerName action = do
     c <- ask
     tryAny (liftIO $ action c) >>= \case
       Left err -> internalError $ "callDb (" <> callerName <> "): " <> sshow err
       Right r -> return r
 
-getUserTables :: BlockHeight -> BlockHeight -> ReaderT SQLiteEnv IO [B.ByteString]
+getUserTables :: BlockHeight -> BlockHeight -> ReaderT Database IO [B.ByteString]
 getUserTables low high = callDb "getUserTables" $ \db -> do
     usertables <-
       (traverse toByteString . concat) <$> qry db stmt (SInt . fromIntegral <$> [low, high]) [RText]

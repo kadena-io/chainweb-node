@@ -52,6 +52,7 @@ import Text.Printf
 import Chainweb.BlockHeaderDB
 import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Pact (noMiner)
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types (testPactServiceConfig)
@@ -179,7 +180,7 @@ genPayloadModule v tag cid cwTxs =
         pdb <- newPayloadDb
         withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> do
             T2 payloadWO _ <- withSqliteDb cid logger pactDbDir False $ \env ->
-                withPactService v cid logger bhdb pdb env testPactServiceConfig $
+                withPactService v cid logger bhdb pdb (SQLiteEnv ReadWrite env) testPactServiceConfig $
                     execNewGenesisBlock noMiner (V.fromList cwTxs)
             return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
 

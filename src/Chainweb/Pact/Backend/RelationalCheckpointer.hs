@@ -116,20 +116,21 @@ initRelationalCheckpointer'
     -> ChainwebVersion
     -> ChainId
     -> IO (MVar (DbCache PersistModuleData), Checkpointer logger)
-initRelationalCheckpointer' dbCacheLimit sqlenv p loggr v cid = do
-    initSchema loggr sqlenv
+initRelationalCheckpointer' dbCacheLimit (SQLiteEnv connType db) p loggr v cid = do
+    when (connType == ReadWrite) $ initSchema loggr db
+
     moduleCacheVar <- newMVar (emptyDbCache dbCacheLimit)
     let
         checkpointer = Checkpointer
-            { _cpRestoreAndSave = doRestoreAndSave loggr v cid sqlenv p moduleCacheVar
+            { _cpRestoreAndSave = doRestoreAndSave loggr v cid db p moduleCacheVar
             , _cpReadCp = ReadCheckpointer
-                { _cpReadFrom = doReadFrom loggr v cid sqlenv moduleCacheVar
-                , _cpGetBlockHistory = doGetBlockHistory sqlenv
-                , _cpGetHistoricalLookup = doGetHistoricalLookup sqlenv
-                , _cpGetEarliestBlock = doGetEarliestBlock sqlenv
-                , _cpGetLatestBlock = doGetLatestBlock sqlenv
-                , _cpLookupBlockInCheckpointer = doLookupBlock sqlenv
-                , _cpGetBlockParent = doGetBlockParent v cid sqlenv
+                { _cpReadFrom = doReadFrom loggr v cid db moduleCacheVar
+                , _cpGetBlockHistory = doGetBlockHistory db
+                , _cpGetHistoricalLookup = doGetHistoricalLookup db
+                , _cpGetEarliestBlock = doGetEarliestBlock db
+                , _cpGetLatestBlock = doGetLatestBlock db
+                , _cpLookupBlockInCheckpointer = doLookupBlock db
+                , _cpGetBlockParent = doGetBlockParent v cid db
                 , _cpLogger = loggr
                 }
             }
@@ -142,7 +143,7 @@ doReadFrom
   => logger
   -> ChainwebVersion
   -> ChainId
-  -> SQLiteEnv
+  -> Database
   -> MVar (DbCache PersistModuleData)
   -> Maybe ParentHeader
   -> (CurrentBlockDbEnv logger -> IO a)
@@ -192,7 +193,7 @@ doRestoreAndSave
   => logger
   -> ChainwebVersion
   -> ChainId
-  -> SQLiteEnv
+  -> Database
   -> IntraBlockPersistence
   -> MVar (DbCache PersistModuleData)
   -> Maybe ParentHeader
@@ -260,7 +261,7 @@ doRestoreAndSave logger v cid sql p moduleCacheVar parent blocks =
       return
       blocks
 
-doGetEarliestBlock :: HasCallStack => SQLiteEnv -> IO (Maybe (BlockHeight, BlockHash))
+doGetEarliestBlock :: HasCallStack => Database -> IO (Maybe (BlockHeight, BlockHash))
 doGetEarliestBlock db = do
   r <- qry_ db qtext [RInt, RBlob] >>= mapM go
   case r of
@@ -275,7 +276,7 @@ doGetEarliestBlock db = do
         in return (fromIntegral hgt, hash)
     go _ = fail "Chainweb.Pact.Backend.RelationalCheckpointer.doGetEarliest: impossible. This is a bug in chainweb-node."
 
-doGetLatestBlock :: HasCallStack => SQLiteEnv -> IO (Maybe (BlockHeight, BlockHash))
+doGetLatestBlock :: HasCallStack => Database -> IO (Maybe (BlockHeight, BlockHash))
 doGetLatestBlock db = do
   r <- qry_ db qtext [RInt, RBlob] >>= mapM go
   case r of
@@ -290,7 +291,7 @@ doGetLatestBlock db = do
         in return (fromIntegral hgt, hash)
     go _ = fail "Chainweb.Pact.Backend.RelationalCheckpointer.doGetLatest: impossible. This is a bug in chainweb-node."
 
-doLookupBlock :: SQLiteEnv -> (BlockHeight, BlockHash) -> IO Bool
+doLookupBlock :: Database -> (BlockHeight, BlockHash) -> IO Bool
 doLookupBlock db (bheight, bhash) = do
     r <- qry db qtext [SInt $ fromIntegral bheight, SBlob (runPutS (encodeBlockHash bhash))]
                       [RInt]
@@ -301,7 +302,7 @@ doLookupBlock db (bheight, bhash) = do
     qtext = "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? \
             \ AND hash = ?;"
 
-doGetBlockParent :: ChainwebVersion -> ChainId -> SQLiteEnv -> (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
+doGetBlockParent :: ChainwebVersion -> ChainId -> Database -> (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
 doGetBlockParent v cid db (bh, hash)
     | bh == genesisHeight v cid = return Nothing
     | otherwise = do
@@ -354,7 +355,7 @@ doLookupSuccessful curHeight hashes = do
         return $! T3 txhash' (fromIntegral blockheight) blockhash'
     go _ = fail "impossible"
 
-doGetBlockHistory :: SQLiteEnv -> BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory
+doGetBlockHistory :: Database -> BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory
 doGetBlockHistory db blockHeader d = do
   endTxId <- fmap fromIntegral $
     getEndTxId "doGetBlockHistory" db (Just $ ParentHeader blockHeader)
@@ -409,7 +410,7 @@ doGetBlockHistory db blockHeader d = do
 
 
 doGetHistoricalLookup
-    :: SQLiteEnv
+    :: Database
     -> BlockHeader
     -> Domain RowKey RowData
     -> RowKey

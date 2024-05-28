@@ -362,7 +362,6 @@ withChainwebInternal
     -> (StartedChainweb logger -> IO ())
     -> IO ()
 withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir resetDb inner = do
-
     unless (_configOnlySyncPact conf || _configReadOnlyReplay conf) $
         initializePayloadDb v payloadDb
 

@@ -22,7 +22,8 @@ module Chainweb.Pact.Service.PactQueue
 , waitForSubmittedRequest
 , submitRequestAnd
 , submitRequestAndWait
-, getNextRequest
+, getNextWriteRequest
+, getNextReadRequest
 , getPactQueueStats
 , newPactQueue
 , resetPactQueueStats
@@ -57,9 +58,10 @@ import Chainweb.Utils
 -- other requests.
 --
 data PactQueue = PactQueue
-    { _pactQueueValidateBlock :: !(TBQueue (T2 SubmittedRequestMsg (Time Micros)))
-    , _pactQueueNewBlock :: !(TBQueue (T2 SubmittedRequestMsg (Time Micros)))
-    , _pactQueueOtherMsg :: !(TBQueue (T2 SubmittedRequestMsg (Time Micros)))
+    { _pactQueueWriteRequests :: !(TBQueue (T2 SubmittedRequestMsg (Time Micros)))
+    , _pactQueueCloseRequests :: !(TBQueue (T2 SubmittedRequestMsg (Time Micros)))
+    , _pactQueueNewBlockRequests :: !(TBQueue (T2 SubmittedRequestMsg (Time Micros)))
+    , _pactQueueReadRequests :: !(TBQueue (T2 SubmittedRequestMsg (Time Micros)))
     , _pactQueuePactQueueValidateBlockMsgCounters :: !(IORef PactQueueCounters)
     , _pactQueuePactQueueNewBlockMsgCounters :: !(IORef PactQueueCounters)
     , _pactQueuePactQueueOtherMsgCounters :: !(IORef PactQueueCounters)
@@ -78,6 +80,7 @@ newPactQueue sz = PactQueue
     <$> newTBQueueIO sz
     <*> newTBQueueIO sz
     <*> newTBQueueIO sz
+    <*> newTBQueueIO sz
     <*> newIORef initPactQueueCounters
     <*> newIORef initPactQueueCounters
     <*> newIORef initPactQueueCounters
@@ -93,9 +96,13 @@ addRequest q msg = do
     return statusRef
   where
     priority = case msg of
-        ValidateBlockMsg {} -> _pactQueueValidateBlock q
-        NewBlockMsg {} -> _pactQueueNewBlock q
-        _ -> _pactQueueOtherMsg q
+        -- Write-requests
+        ValidateBlockMsg {} -> _pactQueueWriteRequests q
+        SyncToBlockMsg {} -> _pactQueueWriteRequests q
+        CloseMsg -> _pactQueueCloseRequests q
+        -- Read-requests
+        NewBlockMsg {} -> _pactQueueNewBlockRequests q
+        _ -> _pactQueueReadRequests q
 
 -- | Cancel a request that's already been submitted to the Pact queue.
 --
@@ -135,14 +142,12 @@ submitRequestAnd q msg k = mask $ \restore -> do
 submitRequestAndWait :: PactQueue -> RequestMsg r -> IO r
 submitRequestAndWait q msg = submitRequestAnd q msg waitForSubmittedRequest
 
--- | Get the next available request from the Pact execution queue
+-- | Get the next available Write-request from the Pact execution queue
 --
-getNextRequest :: PactQueue -> IO SubmittedRequestMsg
-getNextRequest q = do
-    T2 req entranceTime <- atomically
-        $ tryReadTBQueueOrRetry (_pactQueueValidateBlock q)
-        <|> tryReadTBQueueOrRetry (_pactQueueNewBlock q)
-        <|> tryReadTBQueueOrRetry (_pactQueueOtherMsg q)
+getNextWriteRequest :: PactQueue -> IO SubmittedRequestMsg
+getNextWriteRequest q = do
+    T2 req entranceTime <- atomically $ tryReadTBQueueOrRetry (_pactQueueWriteRequests q)
+        <|> tryReadTBQueueOrRetry (_pactQueueCloseRequests q)
     requestTime <- diff <$> getCurrentTimeIntegral <*> pure entranceTime
     updatePactQueueCounters (counters req q) requestTime
     return req
@@ -152,6 +157,23 @@ getNextRequest q = do
         Just msg -> return msg
 
     counters (SubmittedRequestMsg ValidateBlockMsg{} _) = _pactQueuePactQueueValidateBlockMsgCounters
+    counters (SubmittedRequestMsg NewBlockMsg{} _) = error "getNextWriteRequest.counters.impossible"
+    counters _ = _pactQueuePactQueueOtherMsgCounters
+
+-- | Get the next available Read-request from the Pact execution queue
+getNextReadRequest :: PactQueue -> IO SubmittedRequestMsg
+getNextReadRequest q = do
+    T2 req entranceTime <- atomically $ tryReadTBQueueOrRetry (_pactQueueNewBlockRequests q)
+        <|> tryReadTBQueueOrRetry (_pactQueueReadRequests q)
+    requestTime <- diff <$> getCurrentTimeIntegral <*> pure entranceTime
+    updatePactQueueCounters (counters req q) requestTime
+    return req
+  where
+    tryReadTBQueueOrRetry = tryReadTBQueue >=> \case
+        Nothing -> retry
+        Just msg -> return msg
+
+    counters (SubmittedRequestMsg ValidateBlockMsg{} _) = error "getNextReadRequest.counters.impossible"
     counters (SubmittedRequestMsg NewBlockMsg{} _) = _pactQueuePactQueueNewBlockMsgCounters
     counters _ = _pactQueuePactQueueOtherMsgCounters
 

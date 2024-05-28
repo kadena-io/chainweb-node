@@ -101,7 +101,7 @@ import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpoin
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.PactService.Checkpointer
-import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
+import Chainweb.Pact.Service.PactQueue (PactQueue, getNextWriteRequest, getNextReadRequest)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
 import Chainweb.Pact.TransactionExec
@@ -128,13 +128,26 @@ runPactService
     -> MemPoolAccess
     -> BlockHeaderDb
     -> PayloadDb tbl
-    -> SQLiteEnv
+    -> (Database, Database)
     -> PactServiceConfig
     -> IO ()
-runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config =
-    void $ withPactService ver cid chainwebLogger bhDb pdb sqlenv config $ do
+runPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb (writeSqlEnv, readSqlEnv) config = do
+    void $ withPactService ver cid chainwebLogger bhDb pdb (SQLiteEnv ReadWrite writeSqlEnv) config $ do
+        -- If the latest header that is stored in the checkpointer was on an
+        -- orphaned fork, there is no way to recover it in the call of
+        -- 'initalPayloadState.readContracts'. We therefore rewind to the latest
+        -- avaliable header in the block header database.
+        --
+        exitOnRewindLimitExceeded $ initializeLatestBlock (_pactUnlimitedInitialRewind config)
+
         initialPayloadState mempoolAccess ver cid
-        serviceRequests mempoolAccess reqQ
+
+        pst <- get
+        pse <- ask
+        liftIO $ race_
+            (runPactServiceM pst pse $ serviceWriteRequests mempoolAccess reqQ)
+            ((withPactService ver cid chainwebLogger bhDb pdb (SQLiteEnv ReadOnly readSqlEnv) config $
+                serviceReadRequests mempoolAccess reqQ))
 
 withPactService
     :: (Logger logger, CanReadablePayloadCas tbl)
@@ -191,14 +204,7 @@ withPactService ver cid chainwebLogger bhDb pdb sqlenv config act =
                 logError_ chainwebLogger (J.encodeText msg)
                 throwM e
 
-        runPactServiceM pst pse $ do
-            -- If the latest header that is stored in the checkpointer was on an
-            -- orphaned fork, there is no way to recover it in the call of
-            -- 'initalPayloadState.readContracts'. We therefore rewind to the latest
-            -- avaliable header in the block header database.
-            --
-            exitOnRewindLimitExceeded $ initializeLatestBlock (_pactUnlimitedInitialRewind config)
-            act
+        runPactServiceM pst pse act
   where
     pactServiceLogger = setComponent "pact" chainwebLogger
     checkpointerLogger = addLabel ("sub-component", "checkpointer") pactServiceLogger
@@ -280,46 +286,73 @@ lookupBlockHeader bhash ctx = do
         throwM $ BlockHeaderLookupFailure $
             "failed lookup of parent header in " <> ctx <> ": " <> sshow e
 
--- | Loop forever, serving Pact execution requests and reponses from the queues
-serviceRequests
+-- | Loop forever, serving Pact execution Write-requests
+serviceWriteRequests
     :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
     => MemPoolAccess
     -> PactQueue
     -> PactServiceM logger tbl ()
-serviceRequests memPoolAccess reqQ = do
-    logInfo "Starting service"
-    go `finally` logInfo "Stopping service"
+serviceWriteRequests memPoolAccess reqQ = do
+    logInfo "Starting write-requests handling service"
+    go `finally` logInfo "Stopping write-requests handling service"
   where
     go :: PactServiceM logger tbl ()
     go = do
         PactServiceEnv{_psLogger} <- ask
-        logDebug "serviceRequests: wait"
-        SubmittedRequestMsg msg statusRef <- liftIO $ getNextRequest reqQ
+        logDebug "serviceWriteRequests: wait"
+        SubmittedRequestMsg msg statusRef <- liftIO $ getNextWriteRequest reqQ
         requestId <- liftIO $ UUID.toText <$> UUID.nextRandom
         let
           logFn :: LogFunction
           logFn = logFunction $ addLabel ("pact-request-id", requestId) _psLogger
-        logDebug $ "serviceRequests: " <> sshow msg
+        logDebug $ "serviceWriteRequests: " <> sshow msg
         case msg of
             CloseMsg ->
                 tryOne "execClose" statusRef $ return ()
-            LocalMsg (LocalReq localRequest preflight sigVerify rewindDepth) -> do
-                trace logFn "Chainweb.Pact.PactService.execLocal" () 0 $
-                    tryOne "execLocal" statusRef $
-                        execLocal localRequest preflight sigVerify rewindDepth
-                go
-            NewBlockMsg NewBlockReq {..} -> do
-                trace logFn "Chainweb.Pact.PactService.execNewBlock"
-                    () 1 $
-                    tryOne "execNewBlock" statusRef $
-                        execNewBlock memPoolAccess _newMiner
-                go
             ValidateBlockMsg ValidateBlockReq {..} -> do
                 tryOne "execValidateBlock" statusRef $
                   fmap fst $ trace' logFn "Chainweb.Pact.PactService.execValidateBlock"
                     _valBlockHeader
                     (\(_, g) -> fromIntegral g)
                     (execValidateBlock memPoolAccess _valBlockHeader _valCheckablePayload)
+                go
+            SyncToBlockMsg SyncToBlockReq {..} -> do
+                trace logFn "Chainweb.Pact.PactService.execSyncToBlock" _syncToBlockHeader 1 $
+                    tryOne "syncToBlockBlock" statusRef $
+                        execSyncToBlock _syncToBlockHeader
+                go
+            _ -> error $ "impossible: unexpected request " ++ show msg
+
+-- | Loop forever, serving Pact execution Read-requests
+serviceReadRequests
+    :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
+    => MemPoolAccess
+    -> PactQueue
+    -> PactServiceM logger tbl ()
+serviceReadRequests memPoolAccess reqQ = do
+    logInfo "Starting read-requests handling service"
+    go `finally` (logInfo "Stopping read-requests handling service")
+  where
+    go = do
+        logDebug "serviceReadRequests: wait"
+        SubmittedRequestMsg msg statusRef <- liftIO $ getNextReadRequest reqQ
+        requestId <- liftIO $ UUID.toText <$> UUID.nextRandom
+        PactServiceEnv{_psLogger} <- ask
+        let
+          logFn :: LogFunction
+          logFn = logFunction $ addLabel ("pact-request-id", requestId) _psLogger
+        logDebug $ "serviceReadRequests: " <> sshow msg
+        case msg of
+            NewBlockMsg NewBlockReq {..} -> do
+                trace logFn "Chainweb.Pact.PactService.execNewBlock"
+                   () 1 $
+                   tryOne "execNewBlock" statusRef $
+                       execNewBlock memPoolAccess _newMiner
+                go
+            LocalMsg (LocalReq localRequest preflight sigVerify rewindDepth)  -> do
+                trace logFn "Chainweb.Pact.PactService.execLocal" () 0 $
+                    tryOne "execLocal" statusRef $
+                        execLocal localRequest preflight sigVerify rewindDepth
                 go
             LookupPactTxsMsg (LookupPactTxsReq confDepth txHashes) -> do
                 trace logFn "Chainweb.Pact.PactService.execLookupPactTxs" ()
@@ -343,97 +376,94 @@ serviceRequests memPoolAccess reqQ = do
                     tryOne "execHistoricalLookup" statusRef $
                         execHistoricalLookup bh d k
                 go
-            SyncToBlockMsg SyncToBlockReq {..} -> do
-                trace logFn "Chainweb.Pact.PactService.execSyncToBlock" _syncToBlockHeader 1 $
-                    tryOne "syncToBlockBlock" statusRef $
-                        execSyncToBlock _syncToBlockHeader
-                go
             ReadOnlyReplayMsg ReadOnlyReplayReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execReadOnlyReplay" (_readOnlyReplayLowerBound, _readOnlyReplayUpperBound) 1 $
                     tryOne "readOnlyReplayBlock" statusRef $
                         execReadOnlyReplay _readOnlyReplayLowerBound _readOnlyReplayUpperBound
                 go
+            _ -> error $ "impossible: unexpected request " ++ show msg
 
-    tryOne
-        :: forall a. Text
-        -> TVar (RequestStatus a)
-        -> PactServiceM logger tbl a
-        -> PactServiceM logger tbl ()
-    tryOne which statusRef act =
-        evalPactOnThread
-        `catches`
-            [ Handler $ \(e :: SomeException) -> do
-                logError $ mconcat
-                    [ "Received exception running pact service ("
-                    , which
-                    , "): "
-                    , sshow e
-                    ]
-                liftIO $ throwIO e
-           ]
-      where
-        -- here we start a thread to service the request
-        evalPactOnThread :: PactServiceM logger tbl ()
-        evalPactOnThread = do
-            maybeException <- withPactState $ \run -> do
-                goLock <- newEmptyMVar
-                finishedLock <- newEmptyMVar
-                -- fork a thread to service the request
-                bracket
-                    (forkIO $
-                        flip finally (tryPutMVar finishedLock ()) $ do
-                            -- wait until we've been told to start.
-                            -- we don't want to start if the request was cancelled
-                            -- already
-                            takeMVar goLock
-                            -- run and report the answer.
-                            tryAny (run act) >>= \case
-                                Left ex -> atomically $ writeTVar statusRef (RequestFailed ex)
-                                Right r -> atomically $ writeTVar statusRef (RequestDone r)
-                    )
-                    -- if Pact itself is killed, kill the request thread too.
-                    (\tid -> throwTo tid RequestCancelled >> takeMVar finishedLock)
-                    (\_tid -> do
-                        -- check first if the request has been cancelled before
-                        -- starting work on it
-                        beforeStarting <- atomically $ do
-                            readTVar statusRef >>= \case
-                                RequestInProgress ->
-                                    error "PactService internal error: request in progress before starting"
-                                RequestDone _ ->
-                                    error "PactService internal error: request finished before starting"
-                                RequestFailed e ->
-                                    return (Left e)
-                                RequestNotStarted -> do
-                                    writeTVar statusRef RequestInProgress
-                                    return (Right ())
-                        case beforeStarting of
-                            -- the request has already been cancelled, don't
-                            -- start work on it.
-                            Left ex -> return (Left ex)
-                            Right () -> do
-                                -- let the request thread start working
-                                putMVar goLock ()
-                                -- wait until the request thread has finished
-                                atomically $ readTVar statusRef >>= \case
-                                    RequestInProgress -> retry
-                                    RequestDone _ -> return (Right ())
-                                    RequestFailed e -> return (Left e)
-                                    RequestNotStarted -> error "PactService internal error: request not started after starting"
-                    )
-            case maybeException of
-              Left (fromException -> Just AsyncCancelled) ->
-                logDebug "Pact action was cancelled"
-              Left (fromException -> Just ThreadKilled) ->
-                logWarn "Pact action thread was killed"
-              Left (exn :: SomeException) ->
-                logError $ mconcat
-                  [ "Received exception running pact service ("
-                  , which
-                  , "): "
-                  , sshow exn
-                  ]
-              Right () -> return ()
+tryOne
+    :: forall logger tbl a. (Logger logger, CanReadablePayloadCas tbl)
+    => Text
+    -> TVar (RequestStatus a)
+    -> PactServiceM logger tbl a
+    -> PactServiceM logger tbl ()
+tryOne which statusRef act =
+    evalPactOnThread
+    `catches`
+        [ Handler $ \(e :: SomeException) -> do
+            logError $ mconcat
+                [ "Received exception running pact service ("
+                , which
+                , "): "
+                , sshow e
+                ]
+            liftIO $ throwIO e
+       ]
+  where
+    -- here we start a thread to service the request
+    evalPactOnThread :: PactServiceM logger tbl ()
+    evalPactOnThread = do
+        maybeException <- withPactState $ \run -> do
+            goLock <- newEmptyMVar
+            finishedLock <- newEmptyMVar
+            -- fork a thread to service the request
+            bracket
+                (forkIO $
+                    flip finally (tryPutMVar finishedLock ()) $ do
+                        -- wait until we've been told to start.
+                        -- we don't want to start if the request was cancelled
+                        -- already
+                        takeMVar goLock
+                        -- run and report the answer.
+                        tryAny (run act) >>= \case
+                            Left ex -> atomically $ writeTVar statusRef (RequestFailed ex)
+                            Right r -> atomically $ writeTVar statusRef (RequestDone r)
+                )
+                -- if Pact itself is killed, kill the request thread too.
+                (\tid -> throwTo tid RequestCancelled >> takeMVar finishedLock)
+                (\_tid -> do
+                    -- check first if the request has been cancelled before
+                    -- starting work on it
+                    beforeStarting <- atomically $ do
+                        readTVar statusRef >>= \case
+                            RequestInProgress ->
+                                error "PactService internal error: request in progress before starting"
+                            RequestDone _ ->
+                                error "PactService internal error: request finished before starting"
+                            RequestFailed e ->
+                                return (Left e)
+                            RequestNotStarted -> do
+                                writeTVar statusRef RequestInProgress
+                                return (Right ())
+                    case beforeStarting of
+                        -- the request has already been cancelled, don't
+                        -- start work on it.
+                        Left ex -> return (Left ex)
+                        Right () -> do
+                            -- let the request thread start working
+                            putMVar goLock ()
+                            -- wait until the request thread has finished
+                            atomically $ readTVar statusRef >>= \case
+                                RequestInProgress -> retry
+                                RequestDone _ -> return (Right ())
+                                RequestFailed e -> return (Left e)
+                                RequestNotStarted -> error "PactService internal error: request not started after starting"
+                )
+        case maybeException of
+          Left (fromException -> Just AsyncCancelled) ->
+            logDebug "Pact action was cancelled"
+          Left (fromException -> Just ThreadKilled) ->
+            logWarn "Pact action thread was killed"
+          Left (exn :: SomeException) ->
+            logError $ mconcat
+              [ "Received exception running pact service ("
+              , which
+              , "): "
+              , sshow exn
+              ]
+          Right () -> return ()
 
 execNewBlock
     :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)

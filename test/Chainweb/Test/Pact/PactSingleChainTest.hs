@@ -18,7 +18,7 @@ module Chainweb.Test.Pact.PactSingleChainTest
 ) where
 
 import Control.Arrow ((&&&))
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO) -- , threadDelay)
 import Control.Concurrent.MVar
 import Control.DeepSeq
 import Control.Lens hiding ((.=), matching)
@@ -142,7 +142,7 @@ tests rdb = testGroup testName
 
 testWithConf' :: ()
   => RocksDb
-  -> (IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree)
+  -> (IO (IORef MemPoolAccess) -> IO (Database, PactQueue, TestBlockDb) -> TestTree)
   -> PactServiceConfig
   -> TestTree
 testWithConf' rdb f conf =
@@ -152,13 +152,13 @@ testWithConf' rdb f conf =
 
 test' :: ()
   => RocksDb
-  -> (IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree)
+  -> (IO (IORef MemPoolAccess) -> IO (Database, PactQueue, TestBlockDb) -> TestTree)
   -> TestTree
 test' rdb f = testWithConf' rdb f testPactServiceConfig
 
 testTimeout' :: ()
   => RocksDb
-  -> (IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree)
+  -> (IO (IORef MemPoolAccess) -> IO (Database, PactQueue, TestBlockDb) -> TestTree)
   -> TestTree
 testTimeout' rdb f = testWithConf' rdb f (testPactServiceConfig { _pactPreInsertCheckTimeout = 1 })
 
@@ -189,13 +189,13 @@ runBlock q bdb timeOffset = do
   forSuccess "newBlockAndValidate: validate" $
     runBlockE q bdb timeOffset
 
-newBlockAndValidate :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
+newBlockAndValidate :: IO (IORef MemPoolAccess) -> IO (Database, PactQueue, TestBlockDb) -> TestTree
 newBlockAndValidate refIO reqIO = testCase "newBlockAndValidate" $ do
   (_, q, bdb) <- reqIO
   setOneShotMempool refIO goldenMemPool
   void $ runBlock q bdb second
 
-newBlockAndValidationFailure :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
+newBlockAndValidationFailure :: IO (IORef MemPoolAccess) -> IO (Database, PactQueue, TestBlockDb) -> TestTree
 newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailure" $ do
   (_, q, bdb) <- reqIO
   setOneShotMempool refIO goldenMemPool
@@ -268,12 +268,13 @@ rosettaFailsWithoutFullHistory rdb =
           pactQueue <- newPactQueue 2000
           blockDb <- mkTestBlockDb testVersion rdb
           bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
-          sqlEnv <- sqlEnvIO
+          writeSqlEnv <- sqlEnvIO
+          readSqlEnv <- sqlEnvIO
           mempool <- fmap snd dm
           let payloadDb = _bdbPayloadDb blockDb
           let cfg = testPactServiceConfig { _pactFullHistoryRequired = True }
           let logger = genericLogger System.LogLevel.Error (\_ -> return ())
-          e <- try $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
+          e <- try $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb (writeSqlEnv, readSqlEnv) cfg
           case e of
             Left (FullHistoryRequired {}) -> do
               pure ()
@@ -556,7 +557,7 @@ compactionGrandHashUnchanged rdb =
 
     assertEqual "GrandHash pre- and post-compaction are the same" hashPreCompaction hashPostCompaction
 
-getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
+getHistory :: IO (IORef MemPoolAccess) -> IO (Database, PactQueue, TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do
   (_, q, bdb) <- reqIO
   setOneShotMempool refIO goldenMemPool
@@ -600,7 +601,7 @@ getHistoricalLookupNoTxs
     :: T.Text
     -> (Maybe (TxLog RowData) -> IO ())
     -> IO (IORef MemPoolAccess)
-    -> IO (SQLiteEnv, PactQueue, TestBlockDb)
+    -> IO (Database, PactQueue, TestBlockDb)
     -> TestTree
 getHistoricalLookupNoTxs key assertF refIO reqIO =
   testCase (T.unpack ("getHistoricalLookupNoTxs: " <> key)) $ do
@@ -614,7 +615,7 @@ getHistoricalLookupWithTxs
     :: T.Text
     -> (Maybe (TxLog RowData) -> IO ())
     -> IO (IORef MemPoolAccess)
-    -> IO (SQLiteEnv, PactQueue, TestBlockDb)
+    -> IO (Database, PactQueue, TestBlockDb)
     -> TestTree
 getHistoricalLookupWithTxs key assertF refIO reqIO =
   testCase (T.unpack ("getHistoricalLookupWithTxs: " <> key)) $ do
@@ -652,7 +653,7 @@ setFromHeader bh =
 
 
 -- this test relies on block gas errors being thrown before other Pact errors.
-blockGasLimitTest :: HasCallStack => IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
+blockGasLimitTest :: HasCallStack => IO (IORef MemPoolAccess) -> IO (Database, PactQueue, TestBlockDb) -> TestTree
 blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
   (_, q, _) <- reqIO
 
@@ -707,7 +708,7 @@ blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
     _ ->
       return ()
 
-mempoolRefillTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
+mempoolRefillTest :: IO (IORef MemPoolAccess) -> IO (Database, PactQueue, TestBlockDb) -> TestTree
 mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
 
   (_, q, bdb) <- reqIO
@@ -756,7 +757,7 @@ mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
         $ set cbRPC (mkExec' "(+ 1 2)")
         $ defaultCmd
 
-moduleNameFork :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
+moduleNameFork :: IO (IORef MemPoolAccess) -> IO (Database, PactQueue, TestBlockDb) -> TestTree
 moduleNameFork mpRefIO reqIO = testCase "moduleNameFork" $ do
 
   (_, q, bdb) <- reqIO
@@ -796,7 +797,7 @@ moduleNameMempool ns mn = mempty
           defaultCmd
 
 
-mempoolCreationTimeTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
+mempoolCreationTimeTest :: IO (IORef MemPoolAccess) -> IO (Database, PactQueue, TestBlockDb) -> TestTree
 mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
 
   (_, q, bdb) <- reqIO
@@ -835,7 +836,7 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
       unless (V.and oks) $ throwM $ userError "Insert failed"
       return txs
 
-preInsertCheckTimeoutTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
+preInsertCheckTimeoutTest :: IO (IORef MemPoolAccess) -> IO (Database, PactQueue, TestBlockDb) -> TestTree
 preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
   (_, q, _) <- reqIO
 
@@ -869,7 +870,7 @@ preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
     (V.all (== Left InsertErrorTimedOut))
     rs
 
-badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
+badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (Database, PactQueue, TestBlockDb) -> TestTree
 badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
   (_, reqQ, _) <- reqIO
   let hashToTxHashList = V.singleton . requestKeyToTransactionHash . RequestKey . toUntypedHash @'Blake2b_256
@@ -893,7 +894,7 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
       }
 
 
-goldenNewBlock :: String -> MemPoolAccess -> IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
+goldenNewBlock :: String -> MemPoolAccess -> IO (IORef MemPoolAccess) -> IO (Database, PactQueue, TestBlockDb) -> TestTree
 goldenNewBlock name mp mpRefIO reqIO = golden name $ do
     (_, reqQ, _) <- reqIO
     setOneShotMempool mpRefIO mp
@@ -952,7 +953,7 @@ goldenMemPool = mempty
 data CompactionResources = CompactionResources
   { mempoolRef :: IO (IORef MemPoolAccess)
   , mempool :: MemPoolAccess
-  , sqlEnv :: SQLiteEnv
+  , sqlEnv :: Database
   , pactQueue :: PactQueue
   , blockDb :: TestBlockDb
   }
@@ -972,7 +973,8 @@ compactionSetup pat rdb pactCfg f =
       blockDb <- mkTestBlockDb testVersion rdb
       bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
       let payloadDb = _bdbPayloadDb blockDb
-      sqlEnv <- sqlEnvIO
+      writeSqlEnv <- sqlEnvIO
+      readSqlEnv <- sqlEnvIO
       (mempoolRef, mempool) <- do
         (ref, nonRef) <- dm
         pure (pure ref, nonRef)
@@ -980,14 +982,14 @@ compactionSetup pat rdb pactCfg f =
 
       let logger = genericLogger System.LogLevel.Error (\_ -> return ())
 
-      void $ forkIO $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb sqlEnv pactCfg
+      void $ forkIO $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb (writeSqlEnv,readSqlEnv) pactCfg
 
       setOneShotMempool mempoolRef goldenMemPool
 
       f $ CompactionResources
         { mempoolRef = mempoolRef
         , mempool = mempool
-        , sqlEnv = sqlEnv
+        , sqlEnv = writeSqlEnv
         , pactQueue = pactQueue
         , blockDb = blockDb
         }

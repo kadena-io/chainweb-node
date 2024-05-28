@@ -147,7 +147,7 @@ cpWithBench torun =
         let neverLogger = genericLogger Error (\_ -> return ())
         !sqliteEnv <- openSQLiteConnection dbFile chainwebPragmas
         !cenv <-
-          initRelationalCheckpointer defaultModuleCacheLimit sqliteEnv DoNotPersistIntraBlockWrites neverLogger testVer testChainId
+          initRelationalCheckpointer defaultModuleCacheLimit (SQLiteEnv ReadWrite sqliteEnv) DoNotPersistIntraBlockWrites neverLogger testVer testChainId
         return $ NoopNFData (sqliteEnv, cenv)
 
     teardown (NoopNFData (sqliteEnv, _cenv)) = closeSQLiteConnection sqliteEnv

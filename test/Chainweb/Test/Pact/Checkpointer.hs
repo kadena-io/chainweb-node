@@ -640,18 +640,18 @@ runTwice step action = do
 runSQLite
     :: (Logger logger, logger ~ GenericLogger)
     => (IO (Checkpointer logger) -> TestTree)
-    -> IO SQLiteEnv
+    -> IO Database
     -> TestTree
 runSQLite f = runSQLite' (f . fmap fst)
 
 runSQLite'
     :: (Logger logger, logger ~ GenericLogger)
-    => (IO (Checkpointer logger, SQLiteEnv) -> TestTree)
-    -> IO SQLiteEnv
+    => (IO (Checkpointer logger, Database) -> TestTree)
+    -> IO Database
     -> TestTree
 runSQLite' runTest sqlEnvIO = runTest $ do
     sqlenv <- sqlEnvIO
-    cp <- initRelationalCheckpointer defaultModuleCacheLimit sqlenv DoNotPersistIntraBlockWrites logger testVer testChainId
+    cp <- initRelationalCheckpointer defaultModuleCacheLimit (SQLiteEnv ReadWrite sqlenv) DoNotPersistIntraBlockWrites logger testVer testChainId
     return (cp, sqlenv)
   where
     logger = addLabel ("sub-component", "relational-checkpointer") $ dummyLogger
