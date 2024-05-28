@@ -86,8 +86,8 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact-5.git
-    tag: 8b1c652aad086d8026a34582f3012964602aead4
-    --sha256: 1hzpsbfzwm33jd1asws4d84kyqbw5kl98m926mkfkv4n7yadajpp
+    tag: 3e5454901b4480bdcebe32fdd06e07555bd9a103
+    --sha256: sha256-/bEUYaQFGlbYWTU+pBuqQd0SDDiD0az7zdq59mZnek0=
 
 source-repository-package
     type: git
@@ -144,9 +144,9 @@ source-repository-package
 -- Required for non-canonical decode in base64-bytestring (remove after 2.20 fork)
 source-repository-package
     type: git
-    location: https://github.com/emilypi/base64-bytestring-kadena
-    tag: 174af3523616c8fe01449da5ccbb9f16df097ac3
-    --sha256: sha256-kVFIy+Aj3TNJpsM1Cs/5uGmzeWwHKYWjjCQ+L1/XOj8=
+    location: https://github.com/kadena-io/base64-bytestring-kadena
+    tag: 90247042ab3b8662809210af2a78e6dee0f9b4ac
+    --sha256: sha256-xqIGml2asB+FxqVpsvVO59fdOGyJVBhZL6MyULvMGjc=
 
 source-repository-package
     type: git

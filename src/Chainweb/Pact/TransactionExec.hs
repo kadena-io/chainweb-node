@@ -519,7 +519,7 @@ applyCoinbase v logger (dbEnv, coreDb) (Miner mid mks@(MinerKeys mk)) reward@(Pa
         Just coinbaseTerm | usePactTng -> do
           coreState <-
             if (not $ (PCore.ModuleName "core" Nothing) `S.member` (M.keysSet $ _getCoreModuleCache cmc)) then do
-              cmc' <- undefined readInitModulesCore
+              cmc' <- undefined --readInitModulesCore
               pure $ setCoreModuleCache cmc' evState
             else pure evState
 
