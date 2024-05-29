@@ -97,7 +97,7 @@ jobs:
           ## This would be done in the runner build config, of course, not here normally
           git clone https://github.com/actions/runner-images
           HELPER_SCRIPTS=runner-images/images/ubuntu/scripts/helpers
-          source runner-images/main/images/ubuntu/scripts/build/install-haskell.sh
+          source runner-images/images/ubuntu/scripts/build/install-haskell.sh
     - name: Git revision infos
       id: git-info
       run: |
