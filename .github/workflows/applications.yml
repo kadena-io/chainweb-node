@@ -36,8 +36,8 @@ env:
 
   # For AWS runners
 
-  AMI_ID: "ami-0af864bfe621c0ca6"
-  INSTANCE_TYPE: ${{ inputs.instance_type }}
+  AMI_ID: ami-0af864bfe621c0ca6
+  INSTANCE_TYPE: c5.xlarge
   #INSTANCE_TYPE: c5.xlarge
   AWS_SUBNET_ID: subnet-0385170b301ec1af5
   AWS_SECURITY_GROUP_ID: sg-0f056a26b4fb1a118
