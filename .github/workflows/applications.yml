@@ -18,14 +18,6 @@ on:
       eventlog:
         description: link with -eventlog
         default: 'False'
-      ami_id:
-        description: "AWS AMI to use for runner"
-        type: string
-        default: "ami-0af864bfe621c0ca6"
-      instance_type:
-        description: "AWS instance type"
-        type: string
-        default: "c5.xlarge"
 
   merge_group:
   push:
@@ -41,8 +33,10 @@ env:
   S3_ARTIFACT_FOLDER: chainweb-node
 
   USE_CABAL_CACHE: true
-  #for AWS runners
 
+  # For AWS runners
+
+  AMI_ID: "ami-0af864bfe621c0ca6"
   INSTANCE_TYPE: ${{ inputs.instance_type }}
   #INSTANCE_TYPE: c5.xlarge
   AWS_SUBNET_ID: subnet-0385170b301ec1af5
@@ -70,7 +64,7 @@ jobs:
           mode: start
           runner-home-dir: /runner
           github-token: ${{ secrets.GH_RUNNER_PAT  }}
-          ec2-image-id: ${{ inputs.ami_id }} # ubuntu 22.04 server
+          ec2-image-id: ${{ env.AMI_ID }} # ubuntu 22.04 server
           ec2-instance-type: ${{ env.INSTANCE_TYPE}} # compute optimized
           subnet-id: ${{ env.AWS_SUBNET_ID }}
           security-group-id: ${{ env.AWS_SECURITY_GROUP_ID }} # created in kadena infra manually for runners
