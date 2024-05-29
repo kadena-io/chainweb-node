@@ -36,7 +36,7 @@ env:
 
   # For AWS runners
 
-  AMI_ID: ami-0af864bfe621c0ca6
+  AMI_ID: ami-0fed06a71debb4b9a
   INSTANCE_TYPE: c5.xlarge
   #INSTANCE_TYPE: c5.xlarge
   AWS_SUBNET_ID: subnet-0385170b301ec1af5
@@ -74,8 +74,7 @@ jobs:
   # Configure Workflow
 
   config:
-    needs: [start-runner]
-    runs-on: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
+    runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       git-sha-short: ${{ steps.git-info.outputs.git-sha-short }}
@@ -92,12 +91,6 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
-    - name: Configure runner
-      run: |
-          ## This would be done in the runner build config, of course, not here normally
-          git clone https://github.com/actions/runner-images
-          HELPER_SCRIPTS=runner-images/images/ubuntu/scripts/helpers
-          source runner-images/images/ubuntu/scripts/build/install-haskell.sh
     - name: Git revision infos
       id: git-info
       run: |
