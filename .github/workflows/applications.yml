@@ -95,7 +95,7 @@ jobs:
     - name: Configure runner
       run: |
           ## This would be done in the runner build config, of course, not here normally
-          git checkout https://github.com/actions/runner-images
+          git clone https://github.com/actions/runner-images
           HELPER_SCRIPTS=runner-images/images/ubuntu/scripts/helpers
           source runner-images/main/images/ubuntu/scripts/build/install-haskell.sh
     - name: Git revision infos
