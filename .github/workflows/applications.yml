@@ -75,6 +75,8 @@ jobs:
 
   config:
     runs-on: ubuntu-latest
+    needs: [start-runner]
+    runs-on: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       git-sha-short: ${{ steps.git-info.outputs.git-sha-short }}
@@ -91,6 +93,10 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
+    - name: Configure runner
+      run: |
+          ## This would be done in the runner build config, of course, not here normally
+          source <(curl -s https://raw.githubusercontent.com/actions/runner-images/main/images/ubuntu/scripts/build/install-haskell.sh)
     - name: Git revision infos
       id: git-info
       run: |
