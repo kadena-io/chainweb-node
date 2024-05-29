@@ -18,6 +18,15 @@ on:
       eventlog:
         description: link with -eventlog
         default: 'False'
+      ami_id:
+        description: "AWS AMI to use for runner"
+        type: string
+        default: "ami-0af864bfe621c0ca6"
+      instance_type:
+        description: "AWS instance type"
+        type: string
+        default: "c5.xlarge"
+
   merge_group:
   push:
     branches-ignore:
@@ -32,8 +41,40 @@ env:
   S3_ARTIFACT_FOLDER: chainweb-node
 
   USE_CABAL_CACHE: true
+  #for AWS runners
+
+  INSTANCE_TYPE: ${{ inputs.instance_type }}
+  #INSTANCE_TYPE: c5.xlarge
+  AWS_SUBNET_ID: subnet-0385170b301ec1af5
+  AWS_SECURITY_GROUP_ID: sg-0f056a26b4fb1a118
+
 
 jobs:
+  start-runner:
+    name: Start self-hosted EC2 runner
+    runs-on: ubuntu-latest
+    outputs:
+      label: ${{ steps.start-ec2-runner.outputs.label }}
+      ec2-instance-id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.CI_RUNNER_CREATOR_ID}}
+          aws-secret-access-key: ${{ secrets.CI_RUNNER_CREATOR_KEY }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+      - name: Start EC2 runner
+        id: start-ec2-runner
+        uses: devopsgoth/ec2-github-runner@v2
+        with:
+          mode: start
+          runner-home-dir: /runner
+          github-token: ${{ secrets.GH_RUNNER_PAT  }}
+          ec2-image-id: ${{ inputs.ami_id }} # ubuntu 22.04 server
+          ec2-instance-type: ${{ env.INSTANCE_TYPE}} # compute optimized
+          subnet-id: ${{ env.AWS_SUBNET_ID }}
+          security-group-id: ${{ env.AWS_SECURITY_GROUP_ID }} # created in kadena infra manually for runners
+          market-type: spot
 
   # ########################################################################## #
   # Configure Workflow
@@ -135,7 +176,7 @@ jobs:
         {
           "ghc": ["9.6.4", "9.8.1"],
           "cabal": ["3.10"],
-          "os": ["ubuntu-20.04", "ubuntu-22.04"],
+          "os": ["ubuntu-22.04"],
           "use-freeze-file": ["false"],
           "include": [
             {
@@ -198,8 +239,8 @@ jobs:
 
   build:
     name: Build
-    needs: [config]
-    runs-on: ${{ matrix.os }}
+    needs: [config, start-runner]
+    runs-on: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
@@ -389,7 +430,7 @@ jobs:
   slow-tests:
     name: Slow tests
     needs: [config, build]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
     env:
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     strategy:
@@ -423,7 +464,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
     env:
       BENCH_FILE: results.${{ github.run_id }}.${{ github.run_number }}.json
       BENCH_BUCKET: kadena-cabal-cache
@@ -459,7 +500,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
     env:
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
@@ -544,7 +585,7 @@ jobs:
   unit-tests:
     name: Unit tests
     needs: [config, build]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
@@ -593,7 +634,7 @@ jobs:
   publish:
     name: Publish
     needs: [config, build]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
@@ -617,7 +658,7 @@ jobs:
   docker-image:
     name: Build and publish docker image
     needs: [config, build]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
     strategy:
       fail-fast: false
       matrix:
@@ -765,3 +806,26 @@ jobs:
         repo: kadena-io/integration-tests
         display-workflow-run-url: true
         wait-for-completion: false # here you could make this pipeline wait them out
+
+
+  stop-runner:
+    name: Stop self-hosted EC2 runner
+    needs:
+      - start-runner # required to get output from the start-runner job
+      - docker-image 
+    runs-on: ubuntu-latest
+    if: ${{ always() }} # required to stop the runner even if the error happened in the previous jobs
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.CI_RUNNER_CREATOR_ID }}
+          aws-secret-access-key: ${{ secrets.CI_RUNNER_CREATOR_KEY }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+      - name: Stop EC2 runner
+        uses: devopsgoth/ec2-github-runner@v2
+        with:
+          mode: stop
+          github-token: ${{ secrets.GH_RUNNER_PAT }}
+          label: ${{ needs.start-runner.outputs.label }}
+          ec2-instance-id: ${{ needs.start-runner.outputs.ec2-instance-id }}
