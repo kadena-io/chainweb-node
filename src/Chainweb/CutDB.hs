@@ -765,50 +765,51 @@ cutHashesToBlockHeaderMap
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
 cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
-    timeout (_cutDbParamsFetchTimeout conf) go >>= \case
-        Nothing -> do
-            let cutOriginText = case _cutHashesLocalPayload hs of
-                    Nothing -> "from " <> maybe "unknown origin" (\p -> "origin " <> toText p) origin
-                    Just _ -> "which was locally mined - the mining loop will stall until unstuck by another miner"
+    trace logfun "Chainweb.CutDB.cutHashesToBlockHeaderMap" hsid 1 $ do
+        timeout (_cutDbParamsFetchTimeout conf) go >>= \case
+            Nothing -> do
+                let cutOriginText = case _cutHashesLocalPayload hs of
+                        Nothing -> "from " <> maybe "unknown origin" (\p -> "origin " <> toText p) origin
+                        Just _ -> "which was locally mined - the mining loop will stall until unstuck by another miner"
 
-            logfun (maybe Warn (\_ -> Error) (_cutHashesLocalPayload hs))
-                $ "Timeout while processing cut "
-                    <> cutIdToTextShort hsid
-                    <> " at height " <> sshow (_cutHashesHeight hs)
-                    <> " from origin " <> cutOriginText
-            return Nothing
-        Just (Left missing) -> do
-            loggCutId logfun Warn hs $ "Failed to get prerequisites for some blocks. Missing: " <> encodeToText missing
-            return Nothing
-        Just (Right headers) -> do
-            return (Just headers)
+                logfun (maybe Warn (\_ -> Error) (_cutHashesLocalPayload hs))
+                    $ "Timeout while processing cut "
+                        <> cutIdToTextShort hsid
+                        <> " at height " <> sshow (_cutHashesHeight hs)
+                        <> " from origin " <> cutOriginText
+                return Nothing
+            Just (Left missing) -> do
+                loggCutId logfun Warn hs $ "Failed to get prerequisites for some blocks. Missing: " <> encodeToText missing
+                return Nothing
+            Just (Right headers) -> do
+                return (Just headers)
   where
     hsid = _cutId hs
-    go =
-        trace logfun "Chainweb.CutDB.cutHashesToBlockHeaderMap" hsid 1 $ do
-            plds <- emptyTable
-            casInsertBatch plds $ HM.elems $ _cutHashesPayloads hs
+    go = do
 
-            hdrs <- emptyTable
-            casInsertBatch hdrs $ HM.elems $ _cutHashesHeaders hs
+        plds <- emptyTable
+        casInsertBatch plds $ HM.elems $ _cutHashesPayloads hs
 
-            -- for better error messages on validation failure
-            -- must be a locally-produced payload
-            let localPayload = _cutHashesLocalPayload hs
+        hdrs <- emptyTable
+        casInsertBatch hdrs $ HM.elems $ _cutHashesHeaders hs
 
-            (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
-                & S.map (fmap _bhwhHash)
-                & S.mapM (tryGetBlockHeader hdrs plds localPayload)
-                & S.partitionEithers
-                & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
-                & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
-            if null missing
-            then return $! Right headers
-            else do
-                when (isJust $ _cutHashesLocalPayload hs) $
-                    logfun @Text Error
-                        "error validating locally mined cut; the mining loop will stall until unstuck by another mining node"
-                return $! Left missing
+        -- for better error messages on validation failure
+        -- must be a locally-produced payload
+        let localPayload = _cutHashesLocalPayload hs
+
+        (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
+            & S.map (fmap _bhwhHash)
+            & S.mapM (tryGetBlockHeader hdrs plds localPayload)
+            & S.partitionEithers
+            & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
+            & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
+        if null missing
+        then return $! Right headers
+        else do
+            when (isJust $ _cutHashesLocalPayload hs) $
+                logfun @Text Error
+                    "error validating locally mined cut; the mining loop will stall until unstuck by another mining node"
+            return $! Left missing
 
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
