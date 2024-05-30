@@ -1,0 +1,1 @@
+Restore block timeout logging; a previous change accidentally removed this.
