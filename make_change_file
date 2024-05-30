@@ -1,4 +1,0 @@
-#!/bin/sh
-
-mkdir -p "changes"
-${EDITOR:-vi} "changes/$(date --iso-8601=seconds | tr -d ':').txt"
