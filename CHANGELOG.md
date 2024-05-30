@@ -1,9 +1,8 @@
-# `chainweb-node` Changelog
-
+# 2.24 (2024-05-23)
 This version replaces all previous versions. Any prior version will stop working
 on **2024-05-29T00:00:00Z**. Node administrators must upgrade to this version
-before that date. The 2.24 feature upgrade will occur at block height XXXXXXX
-which is estimated to be mined at XXXXXXX.
+before that date. The 2.24 feature upgrade will occur at block height 4,819,246
+which is estimated to be mined at **2024-05-30T00:00:00Z**.
 
 This version will expire on **2024-08-21T00:00:00Z**.
 
@@ -56,7 +55,7 @@ Internal changes:
 - The coin contract directory structure was reorganized to match the directory
   structure of the namespace contract for ease of maintenance (#1892)
 
-## 2.23.2 (2023-03-13)
+## 2.23.2 (2024-03-19)
 This is a minor point release. Upgrading is recommended.
 
 To upgrade, pull the latest docker image or download the binary and restart the node.
@@ -68,7 +67,7 @@ Internal changes:
 - Fix a small internal bug in the new read-only checkpointer (#1857)
 - Fix a small bug in compaction tests, causing flakiness (#1855)
 
-## 2.23.1 (2023-03-08)
+## 2.23.1 (2024-03-08)
 This is a minor point release. Mining nodes should be upgraded as soon as
 possible; for other nodes, upgrading is recommended.
 
@@ -84,7 +83,7 @@ Internal changes:
 - Fix some invalid log messages. (#1850, #1852)
 - Various tests have been "deflaked", to hopefully make them more reliable. (#1848, #1849)
 
-## 2.23 (2023-03-03)
+## 2.23 (2024-03-03)
 This version replaces all previous versions. Any prior version will stop working
 on **2024-03-06T00:00:00Z**. Node administrators must upgrade to this version
 before that date. The 2.23 feature upgrade will occur at block height 4,577,530
