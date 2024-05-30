@@ -437,8 +437,6 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
     logg Info "CutDB started"
-    unless (_cutDbParamsReadOnly config) $
-        pruneCuts logfun (_chainwebVersion headerStore) config (cutAvgBlockHeight v initialCut) cutHashesStore
     return CutDb
         { _cutDbCut = cutVar
         , _cutDbQueue = queue
