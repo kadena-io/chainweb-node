@@ -606,6 +606,7 @@ execNewBlock mpAccess miner = do
                   go (BlockFill g rks' i) rest
                 Left (CommandInvalidTxTimeout (TxTimeout h)) -> do
                   liftIO $ Vec.push failures h
+                  liftPactServiceM $ logError $ "timed out on " <> sshow h
                   return (acc, True)
 
         enforceUnique rks rk
