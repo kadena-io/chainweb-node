@@ -124,6 +124,12 @@ source-repository-package
 
 source-repository-package
     type: git
+    location: https://github.com/edmundnoble/hs-hashes.git
+    tag: b2bb32d49c0887b9e9084165c5fc2e90b1837bd9
+
+
+source-repository-package
+    type: git
     location: https://github.com/kadena-io/wai-middleware-validation.git
     tag: e0437bf82e9b4d3fec5ad42ef6e860f4bd04e1b4
     --sha256: 1az7jcggcj275djnfsvhdg3n7hjrj6vp8rj137fxrg4hazh0hyzv
