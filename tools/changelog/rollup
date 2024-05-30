@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+
+# for information on all this bullshit:
+# https://stackoverflow.com/questions/192249/how-do-i-parse-command-line-arguments-in-bash
+
+set -o errexit -o pipefail -o nounset
+
+# ignore errexit with `&& true`
+getopt --test > /dev/null && true
+if [[ $? -ne 4 ]]; then
+    echo 'I’m sorry, `getopt --test` failed in this environment.'
+    exit 1
+fi
+
+# option --output/-o requires 1 argument
+LONGOPTS=debug,major:,minor:
+OPTIONS=dM:m:
+
+# -temporarily store output to be able to check for errors
+# -activate quoting/enhanced mode (e.g. by writing out “--options”)
+# -pass arguments only via   -- "$@"   to separate them correctly
+# -if getopt fails, it complains itself to stdout
+PARSED=$(getopt --options=$OPTIONS --longoptions=$LONGOPTS --name "$0" -- "$@") || exit 2
+# read getopt’s output this way to handle the quoting right:
+eval set -- "$PARSED"
+
+major=-
+minor=-
+# now enjoy the options in order and nicely split until we see --
+while true; do
+    case "$1" in
+        -d|--debug)
+            set -x
+            shift
+            ;;
+        -M|--major)
+            major="$2"
+            shift 2
+            ;;
+        -m|--minor)
+            minor="$2"
+            shift 2
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            echo "Internal error"
+            exit 3
+            ;;
+    esac
+done
+
+# handle non-option arguments
+if [[ $# -ne 0 ]]; then
+    echo "$0: Extra arguments are not supported"
+    exit 6
+fi
+
+if [ "$major" = "-" ] && [ "$minor" = "-" ]; then
+    echo "$0: You must supply either --major=X.Y or --minor=X.Y.Z"
+    exit 4
+fi
+
+if [ "$major" != "-" ] && [ "$minor" != "-" ]; then
+    echo "$0: --major and --minor are mutually exclusive"
+    exit 5
+fi
+
+
+if [ "$major" != "-" ]; then
+newver="$major"
+TEMPLATE=$(cat <<-EOM
+# $major (FIXME)
+This is a major version update. This release replaces all previous versions.
+
+Any prior version will stop working on FIXME. Node administrators must
+upgrade to this version before that date. The $major feature upgrade will
+occur at block height FIXME which is estimated to be mined at FIXME.
+
+EOM
+)
+else
+newver="$minor"
+TEMPLATE=$(cat <<-EOM
+# $minor (FIXME)
+This is a minor point release. Upgrading is **strongly recommended**.
+
+To upgrade, pull the latest docker image, or download the binary and
+restart the node with the same configuration file as before.
+EOM
+)
+fi
+
+ROOT=$(git rev-parse --show-toplevel)
+
+# before going any further, ensure the version is in chainweb.cabal
+if ! grep -qP "version:\s+$newver" "$ROOT/chainweb.cabal"; then
+    echo "$0: error: the version '$newver' is not in chainweb.cabal"
+    echo "Please update the version in chainweb.cabal before running this script."
+    exit 7
+fi
+
+# first, get all the high-level changelog entries
+CHANGES="## Changes\n\n"
+for file in $(find "$ROOT/changes" -type f -iname '*.txt' | sort); do
+    CHANGES+=$(printf -- "- %s\\\\n" "$(cat "$file")")
+done
+
+# now, list every commit since the last tag, too
+COMMITS="## Commits\n\n"
+
+while IFS= read -r line; do
+    cid="${line%% *}"
+    msg="${line#* }"
+    COMMITS+=$(printf -- "- [\`%s\`](https://github.com/kadena-io/chainweb-node/commit/%s) %s\\\\n" "$cid" "$cid" "$msg")
+done < <(git log $(git describe --tags --abbrev=0)..HEAD --oneline)
+
+contents=$(printf -- "$TEMPLATE\n\n$CHANGES\n$COMMITS\n" | cat - "$ROOT/CHANGELOG.md")
+
+# delete the old changelog and write the new one, and delete the changes.txt files
+rm -f "$ROOT/changes/"*.txt
+echo -e "$contents" > "$ROOT/CHANGELOG.md"
+echo "Wrote new changelog to $ROOT/CHANGELOG.md; please review the changes before committing."
