@@ -381,7 +381,7 @@ pruneCuts
 pruneCuts logfun v conf curAvgBlockHeight cutHashesStore = do
     let avgBlockHeightPruningDepth = _cutDbParamsAvgBlockHeightPruningDepth conf
     let pruneCutHeight =
-            avgCutHeightAt v (curAvgBlockHeight - max curAvgBlockHeight avgBlockHeightPruningDepth)
+            avgCutHeightAt v (curAvgBlockHeight - min curAvgBlockHeight avgBlockHeightPruningDepth)
     logfun @T.Text Info $ "pruning CutDB before cut height " <> T.pack (show pruneCutHeight)
     deleteRangeRocksDb (unCasify cutHashesStore)
         (Nothing, Just (pruneCutHeight, 0, maxBound :: CutId))
