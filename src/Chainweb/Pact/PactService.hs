@@ -394,11 +394,22 @@ serviceRequests memPoolAccess reqQ = go
                 -- fork a thread to service the request
                 bracket
                     (forkIO $
-                        flip finally (tryPutMVar finishedLock ()) $ do
+                        -- We wrap this whole block in `tryAsync` because we
+                        -- want to ignore `RequestCancelled` exceptions that
+                        -- occur while we are waiting on `takeMVar goLock`.
+                        --
+                        -- Otherwise we get logs like `chainweb-node:
+                        -- RequestCancelled`.
+                        --
+                        -- We don't actually care about whether or not
+                        -- `RequestCancelled` was encountered, so we just `void`
+                        -- it.
+                        void $ tryAsync @_ @RequestCancelled $ flip finally (tryPutMVar finishedLock ()) $ do
                             -- wait until we've been told to start.
                             -- we don't want to start if the request was cancelled
                             -- already
                             takeMVar goLock
+
                             -- run and report the answer.
                             tryAny (run act) >>= \case
                                 Left ex -> atomically $ writeTVar statusRef (RequestFailed ex)
