@@ -58,6 +58,7 @@ import Pact.JSON.Encode qualified as J
 import Pact.JSON.Yaml
 
 import qualified Pact.Core.Persistence as PCore
+import qualified Pact.Core.Serialise.LegacyPact as PCore
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash (BlockHash)
@@ -222,10 +223,10 @@ newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailur
     _ -> assertFailure "newBlockAndValidationFailure: expected BlockValidationFailure"
 
 toRowData :: HasCallStack => Value -> PCore.RowData
-toRowData v = case eitherDecode encV of
-    Left e -> error $
-        "toRowData: failed to encode as row data. " <> e <> "\n" <> show encV
-    Right r -> r
+toRowData v = case PCore.decodeRowData $ BL.toStrict encV of
+    Nothing -> error $
+        "toRowData: failed to encode as row data. \n" <> show encV
+    Just r -> r
   where
     encV = J.encode v
 

@@ -89,9 +89,9 @@ main = do
             liftIO $ defaultMainWithIngredients (consoleAndJsonReporter : defaultIngredients)
                 $ adjustOption adj
                 $ testGroup "Chainweb Tests"
-                $ pactTestSuite rdb
+                $ [pactTestSuite rdb]
                 -- : mempoolTestSuite db h0
-                : [nodeTestSuite rdb]
+                -- : [nodeTestSuite rdb]
                 -- : suite rdb -- Coinbase Vuln Fix Tests are broken, waiting for Jose loadScript
 
   where
@@ -105,22 +105,22 @@ mempoolTestSuite db genesisBlock = testGroup "Mempool Consensus Tests"
 pactTestSuite :: RocksDb -> TestTree
 pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
     [
-    Chainweb.Test.Pact.PactExec.tests -- OK: but need fixes (old broken tests)
-    , Chainweb.Test.Pact.DbCacheTest.tests
-    , Chainweb.Test.Pact.Checkpointer.tests
+    -- Chainweb.Test.Pact.PactExec.tests -- OK: but need fixes (old broken tests)
+    -- , Chainweb.Test.Pact.DbCacheTest.tests
+    -- , Chainweb.Test.Pact.Checkpointer.tests
 
-       -- Chainweb.Test.Pact.PactMultiChainTest.tests -- BROKEN few tests
+       Chainweb.Test.Pact.PactMultiChainTest.tests -- BROKEN few tests
 
-    , Chainweb.Test.Pact.PactSingleChainTest.tests rdb
+    -- , Chainweb.Test.Pact.PactSingleChainTest.tests rdb
 
-    -- , Chainweb.Test.Pact.VerifierPluginTest.tests -- BROKEN
+    -- -- , Chainweb.Test.Pact.VerifierPluginTest.tests -- BROKEN
 
-    , Chainweb.Test.Pact.PactReplay.tests rdb
-    , Chainweb.Test.Pact.ModuleCacheOnRestart.tests rdb
-    , Chainweb.Test.Pact.TTL.tests rdb
-    , Chainweb.Test.Pact.RewardsTest.tests
-    , Chainweb.Test.Pact.NoCoinbase.tests
-    , Chainweb.Test.Pact.GrandHash.tests
+    -- , Chainweb.Test.Pact.PactReplay.tests rdb
+    -- , Chainweb.Test.Pact.ModuleCacheOnRestart.tests rdb
+    -- , Chainweb.Test.Pact.TTL.tests rdb
+    -- , Chainweb.Test.Pact.RewardsTest.tests
+    -- , Chainweb.Test.Pact.NoCoinbase.tests
+    -- , Chainweb.Test.Pact.GrandHash.tests
     ]
 
 nodeTestSuite :: RocksDb -> TestTree

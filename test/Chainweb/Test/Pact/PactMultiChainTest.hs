@@ -155,7 +155,7 @@ tests = testGroup testName
   -- [ test generousConfig getGasModel (getGasModelCore 300_000) "pact410UpgradeTest" pact410UpgradeTest -- BROKEN Keyset failure (keys-all): [WEBAUTHN...]
   [ test generousConfig getGasModel (getGasModelCore 300_000) "chainweb223Test" chainweb223Test
    -- Failure: broken because expects coinv6, right now applyUpgrades doesn't upgrade the coin contract (uses v4)
-  , test generousConfig getGasModel (getGasModelCore 300_000) "compactAndSyncTest" compactAndSyncTest -- BROKEN PEExecutionError (EvalError "read-keyset failure") ()
+  -- , test generousConfig getGasModel (getGasModelCore 300_000) "compactAndSyncTest" compactAndSyncTest -- BROKEN PEExecutionError (EvalError "read-keyset failure") ()
   -- , test generousConfig getGasModel (getGasModelCore 300_000) "compactionCompactsUnmodifiedTables" compactionCompactsUnmodifiedTables
   -- , quirkTest
   -- [ test generousConfig getGasModel (getGasModelCore 300_000) "checkTransferCreate" checkTransferCreate

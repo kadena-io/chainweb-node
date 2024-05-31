@@ -19,6 +19,7 @@ import Data.Coerce
 import Control.Applicative
 import Control.Lens
 import Control.Monad
+import Control.Monad.Except
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -61,6 +62,8 @@ import Pact.Core.Builtin
 import Pact.Core.Guards
 import Pact.Core.PactValue
 import Pact.Core.Literal
+import Pact.Core.Gas
+import Pact.Core.Errors
 
 -- chainweb
 
@@ -82,9 +85,13 @@ chainwebPactCoreDb :: (Logger logger) => MVar (BlockEnv logger) -> PactDb CoreBu
 chainwebPactCoreDb e = PactDb
     { _pdbPurity = PImpure
     , _pdbRead = \d k -> runBlockEnv e $ doReadRow Nothing d k
-    , _pdbWrite = \wt d k v -> runBlockEnv e $ doWriteRow Nothing wt d k v
+    , _pdbWrite = \wt d k v -> do
+        gasenv <- ask
+        liftIO $ runBlockEnv e $ doWriteRow gasenv Nothing wt d k v
     , _pdbKeys = \d -> runBlockEnv e $ doKeys Nothing d
-    , _pdbCreateUserTable = \tn -> runBlockEnv e $ doCreateUserTable Nothing tn
+    , _pdbCreateUserTable = \tn -> do
+        gasenv <- ask
+        liftIO $ runBlockEnv e $ doCreateUserTable gasenv Nothing tn
     , _pdbBeginTx = \m -> runBlockEnv e $ doBegin m
     , _pdbCommitTx = runBlockEnv e doCommit
     , _pdbRollbackTx = runBlockEnv e doRollback
@@ -96,9 +103,13 @@ chainwebPactCoreDb e = PactDb
 rewoundPactCoreDb :: (Logger logger) => MVar (BlockEnv logger) -> BlockHeight -> TxId -> PactDb CoreBuiltin ()
 rewoundPactCoreDb e bh endTxId = (chainwebPactCoreDb e)
     { _pdbRead = \d k -> runBlockEnv e $ doReadRow (Just (bh, endTxId)) d k
-    , _pdbWrite = \wt d k v -> runBlockEnv e $ doWriteRow (Just (bh, endTxId)) wt d k v
+    , _pdbWrite = \wt d k v -> do
+        gasenv <- ask
+        liftIO $ runBlockEnv e $ doWriteRow gasenv (Just (bh, endTxId)) wt d k v
     , _pdbKeys = \d -> runBlockEnv e $ doKeys (Just (bh, endTxId)) d
-    , _pdbCreateUserTable = \tn -> runBlockEnv e $ doCreateUserTable (Just bh) tn
+    , _pdbCreateUserTable = \tn -> do
+        gasenv <- ask
+        liftIO $ runBlockEnv e $ doCreateUserTable gasenv (Just bh) tn
     }
 
 getPendingData :: BlockHandler logger [SQLitePendingData]
@@ -275,14 +286,15 @@ checkInsertIsOK mlim wt d k = do
     err msg = internalError $ "checkInsertIsOK: " <> msg <> _rowKey k
 
 writeUser
-    :: Maybe (BlockHeight, TxId)
+    :: GasMEnv (PactError ()) CoreBuiltin
+    -> Maybe (BlockHeight, TxId)
     -- ^ the highest block we should be reading writes from
     -> WriteType
     -> Domain RowKey RowData CoreBuiltin ()
     -> RowKey
     -> RowData
     -> BlockHandler logger ()
-writeUser mlim wt d k rowdata@(RowData row) = gets _bsTxId >>= go
+writeUser gasenv mlim wt d k rowdata@(RowData row) = gets _bsTxId >>= go
   where
     tn = asString d
 
@@ -291,28 +303,37 @@ writeUser mlim wt d k rowdata@(RowData row) = gets _bsTxId >>= go
         row' <- case m of
                     Nothing -> ins
                     (Just old) -> upd old
-        recordTxLog (Pact4.TableName tn) d (convRowKeyCore k) (_encodeRowData serialisePact row')
+        (liftIO $ runGasM [] () gasenv $ _encodeRowData serialisePact row') >>= \case
+            Left e -> internalError $ "writeUser: row encoding error: " <> sshow e
+            Right encoded -> recordTxLog (Pact4.TableName tn) d (convRowKeyCore k) encoded
 
       where
         upd (RowData oldrow) = do
             let row' = RowData (M.union row oldrow)
-            recordPendingUpdate (convRowKeyCore k) (toUtf8 tn) (PCore.TxId txid) (_encodeRowData serialisePact row')
-            return row'
+            (liftIO $ runGasM [] () gasenv $ _encodeRowData serialisePact row') >>= \case
+                Left e -> internalError $ "writeUser.upd: row encoding error: " <> sshow e
+                Right encoded -> do
+                    recordPendingUpdate (convRowKeyCore k) (toUtf8 tn) (PCore.TxId txid) encoded
+                    return row'
 
         ins = do
-            recordPendingUpdate (convRowKeyCore k) (toUtf8 tn) (PCore.TxId txid) (_encodeRowData serialisePact rowdata)
-            return rowdata
+            (liftIO $ runGasM [] () gasenv $ _encodeRowData serialisePact rowdata) >>= \case
+                Left e -> internalError $ "writeUser.ins: row encoding error: " <> sshow e
+                Right encoded -> do
+                    recordPendingUpdate (convRowKeyCore k) (toUtf8 tn) (PCore.TxId txid) encoded
+                    return rowdata
 
 doWriteRow
-  :: Maybe (BlockHeight, TxId)
+  :: GasMEnv (PactError ()) CoreBuiltin
+    -> Maybe (BlockHeight, TxId)
     -- ^ the highest block we should be reading writes from
     -> WriteType
     -> Domain k v CoreBuiltin ()
     -> k
     -> v
     -> BlockHandler logger ()
-doWriteRow mlim wt d k v = case d of
-    (DUserTables _) -> writeUser mlim wt d k v
+doWriteRow gasenv mlim wt d k v = case d of
+    (DUserTables _) -> writeUser gasenv mlim wt d k v
     _ -> writeSys d k v
 
 doKeys
@@ -447,11 +468,12 @@ modifyPendingData f = do
       Nothing -> over bsPendingBlock f
 
 doCreateUserTable
-    :: Maybe BlockHeight
+    :: GasMEnv (PactError ()) CoreBuiltin
+    -> Maybe BlockHeight
     -- ^ the highest block we should be seeing tables from
     -> TableName
     -> BlockHandler logger ()
-doCreateUserTable mbh tn = do
+doCreateUserTable gasenv mbh tn = do
     -- first check if tablename already exists in pending queues
     -- traceShowM ("CORE", asString tn, _tableModuleName tn)
     m <- runMaybeT $ checkDbTablePendingCreation (tableNameCore tn)
@@ -462,9 +484,15 @@ doCreateUserTable mbh tn = do
           lcTables <- view blockHandlerLowerCaseTables
           cond <- inDb lcTables $ Utf8 $ T.encodeUtf8 $ asString tn
           when cond $ throwM $ PactDuplicateTableError $ asString tn
-          modifyPendingData
-            $ over pendingTableCreation (HashSet.insert (T.encodeUtf8 $ asString tn))
-            . over pendingTxLogMapCore (M.insertWith DL.append (Pact4.TableName txlogKey) txlogs)
+
+          (liftIO $ runGasM [] () gasenv $ _encodeRowData serialisePact rd) >>= \case
+            Left e -> internalError $ "doCreateUserTable: row encoding error: " <> sshow e
+            Right encoded ->
+              modifyPendingData
+                $ over pendingTableCreation (HashSet.insert (T.encodeUtf8 $ asString tn))
+                . over pendingTxLogMapCore
+                  (M.insertWith DL.append (Pact4.TableName txlogKey)
+                    (DL.singleton $ TxLog txlogKey (_tableName tn) encoded))
   where
     inDb lcTables t = do
       r <- callDb "doCreateUserTable" $ \db ->
@@ -490,8 +518,6 @@ doCreateUserTable mbh tn = do
           [ (Field "namespace", maybe (PLiteral LUnit) (PString . _namespaceName) (_mnNamespace $ _tableModuleName tn))
           , (Field "name", PString $ _tableName tn)
           ])
-    rdEnc = _encodeRowData serialisePact rd
-    txlogs = DL.singleton $ TxLog txlogKey (_tableName tn) rdEnc
 {-# INLINE doCreateUserTable #-}
 
 doRollback :: BlockHandler logger ()
