@@ -16,7 +16,7 @@ Read our [whitepapers](https://www.kadena.io/whitepapers):
 - [Chainweb: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput](https://d31d887a-c1e0-47c2-aa51-c69f9f998b07.filesusr.com/ugd/86a16f_029c9991469e4565a7c334dd716345f4.pdf)
 - [Agent-based Simulations of Blockchain Protocols illustrated via Kadena's *Chainweb*](https://d31d887a-c1e0-47c2-aa51-c69f9f998b07.filesusr.com/ugd/86a16f_3b2d0c58179d4edd9df6df4d55d61dda.pdf)
 
-For additional information, press, and development inquires, please refer to the Kadena [website](https://kadena.io)
+For additional information, press, and development inquiries, please refer to the Kadena [website](https://kadena.io)
 
 ## Table of Contents
 
