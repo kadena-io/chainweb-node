@@ -39,6 +39,7 @@ import Data.Maybe
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import Data.Default
 
 import Database.SQLite3.Direct
 
@@ -58,6 +59,7 @@ import qualified Pact.Types.Term as Pact4
 import Pact.Core.Persistence as PCore
 import Pact.Core.Serialise
 import Pact.Core.Names
+import Pact.Core.Info
 import Pact.Core.Builtin
 import Pact.Core.Guards
 import Pact.Core.PactValue
@@ -81,7 +83,7 @@ tbl t@(Utf8 b)
     | B8.elem ']' b =  error $ "Chainweb.Pact.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
     | otherwise = "[" <> t <> "]"
 
-chainwebPactCoreDb :: (Logger logger) => MVar (BlockEnv logger) -> PactDb CoreBuiltin ()
+chainwebPactCoreDb :: (Logger logger) => MVar (BlockEnv logger) -> PactDb CoreBuiltin SpanInfo
 chainwebPactCoreDb e = PactDb
     { _pdbPurity = PImpure
     , _pdbRead = \d k -> runBlockEnv e $ doReadRow Nothing d k
@@ -100,7 +102,7 @@ chainwebPactCoreDb e = PactDb
     }
 
 -- | Pact DB which reads from some past block height, instead of the tip of the checkpointer
-rewoundPactCoreDb :: (Logger logger) => MVar (BlockEnv logger) -> BlockHeight -> TxId -> PactDb CoreBuiltin ()
+rewoundPactCoreDb :: (Logger logger) => MVar (BlockEnv logger) -> BlockHeight -> TxId -> PactDb CoreBuiltin SpanInfo
 rewoundPactCoreDb e bh endTxId = (chainwebPactCoreDb e)
     { _pdbRead = \d k -> runBlockEnv e $ doReadRow (Just (bh, endTxId)) d k
     , _pdbWrite = \wt d k v -> do
@@ -140,22 +142,22 @@ tableExistsInDbAtHeight tablename bh = do
 doReadRow
     :: Maybe (BlockHeight, TxId)
     -- ^ the highest block we should be reading writes from
-    -> Domain k v CoreBuiltin ()
+    -> Domain k v CoreBuiltin SpanInfo
     -> k
     -> BlockHandler logger (Maybe v)
 doReadRow mlim d k = forModuleNameFix $ \mnFix ->
     case d of
-        DKeySets -> let f = (\v -> (view document <$> _decodeKeySet serialisePact v)) in
+        DKeySets -> let f = (\v -> (view document <$> _decodeKeySet serialisePact_raw_spaninfo_better v)) in
             lookupWithKey (convKeySetNameCore k) f (noCache f)
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
-        DModules -> let f = (\v -> (view document <$> _decodeModuleData serialisePact v)) in
+        DModules -> let f = (\v -> (view document <$> _decodeModuleData serialisePact_raw_spaninfo_better v)) in
             lookupWithKey (convModuleNameCore mnFix k) f (checkModuleCache f)
-        DNamespaces -> let f = (\v -> (view document <$> _decodeNamespace serialisePact v)) in
+        DNamespaces -> let f = (\v -> (view document <$> _decodeNamespace serialisePact_raw_spaninfo_better v)) in
             lookupWithKey (convNamespaceNameCore k) f (noCache f)
-        (DUserTables _) -> let f = (\v -> (view document <$> _decodeRowData serialisePact v)) in
+        (DUserTables _) -> let f = (\v -> (view document <$> _decodeRowData serialisePact_raw_spaninfo_better v)) in
             lookupWithKey (convRowKeyCore k) f (noCache f)
-        DDefPacts -> let f = (\v -> (view document <$> _decodeDefPactExec serialisePact v)) in
+        DDefPacts -> let f = (\v -> (view document <$> _decodeDefPactExec serialisePact_raw_spaninfo_better v)) in
             lookupWithKey (convPactIdCore k) f (noCache f)
   where
     tablename@(Utf8 tableNameBS) = domainTableNameCore d
@@ -233,7 +235,7 @@ checkDbTablePendingCreation (Utf8 tablename) = do
         when (HashSet.member tablename (_pendingTableCreation p)) mzero
 
 writeSys
-    :: Domain k v CoreBuiltin ()
+    :: Domain k v CoreBuiltin SpanInfo
     -> k
     -> v
     -> BlockHandler logger ()
@@ -241,10 +243,10 @@ writeSys d k v = gets _bsTxId >>= go
   where
     go txid = do
         (kk, vv) <- forModuleNameFix $ \mnFix -> pure $ case d of
-            DKeySets -> (convKeySetNameCore k, _encodeKeySet serialisePact v)
-            DModules ->  (convModuleNameCore mnFix k, _encodeModuleData serialisePact v)
-            DNamespaces -> (convNamespaceNameCore k, _encodeNamespace serialisePact v)
-            DDefPacts -> (convPactIdCore k, _encodeDefPactExec serialisePact v)
+            DKeySets -> (convKeySetNameCore k, _encodeKeySet serialisePact_raw_spaninfo_better v)
+            DModules ->  (convModuleNameCore mnFix k, _encodeModuleData serialisePact_raw_spaninfo_better v)
+            DNamespaces -> (convNamespaceNameCore k, _encodeNamespace serialisePact_raw_spaninfo_better v)
+            DDefPacts -> (convPactIdCore k, _encodeDefPactExec serialisePact_raw_spaninfo_better v)
             DUserTables _ -> error "impossible"
         recordPendingUpdate kk (toUtf8 tablename) (coerce txid) vv
         recordTxLog (Pact4.TableName tablename) d kk vv
@@ -270,7 +272,7 @@ checkInsertIsOK
     :: Maybe (BlockHeight, TxId)
     -- ^ the highest block we should be reading writes from
     -> WriteType
-    -> Domain RowKey RowData CoreBuiltin ()
+    -> Domain RowKey RowData CoreBuiltin SpanInfo
     -> RowKey
     -> BlockHandler logger (Maybe RowData)
 checkInsertIsOK mlim wt d k = do
@@ -286,11 +288,11 @@ checkInsertIsOK mlim wt d k = do
     err msg = internalError $ "checkInsertIsOK: " <> msg <> _rowKey k
 
 writeUser
-    :: GasMEnv (PactError ()) CoreBuiltin
+    :: GasMEnv (PactError SpanInfo) CoreBuiltin
     -> Maybe (BlockHeight, TxId)
     -- ^ the highest block we should be reading writes from
     -> WriteType
-    -> Domain RowKey RowData CoreBuiltin ()
+    -> Domain RowKey RowData CoreBuiltin SpanInfo
     -> RowKey
     -> RowData
     -> BlockHandler logger ()
@@ -303,32 +305,32 @@ writeUser gasenv mlim wt d k rowdata@(RowData row) = gets _bsTxId >>= go
         row' <- case m of
                     Nothing -> ins
                     (Just old) -> upd old
-        (liftIO $ runGasM [] () gasenv $ _encodeRowData serialisePact row') >>= \case
+        (liftIO $ runGasM [] def gasenv $ _encodeRowData serialisePact_raw_spaninfo_better row') >>= \case
             Left e -> internalError $ "writeUser: row encoding error: " <> sshow e
             Right encoded -> recordTxLog (Pact4.TableName tn) d (convRowKeyCore k) encoded
 
       where
         upd (RowData oldrow) = do
             let row' = RowData (M.union row oldrow)
-            (liftIO $ runGasM [] () gasenv $ _encodeRowData serialisePact row') >>= \case
+            (liftIO $ runGasM [] def gasenv $ _encodeRowData serialisePact_raw_spaninfo_better row') >>= \case
                 Left e -> internalError $ "writeUser.upd: row encoding error: " <> sshow e
                 Right encoded -> do
                     recordPendingUpdate (convRowKeyCore k) (toUtf8 tn) (PCore.TxId txid) encoded
                     return row'
 
         ins = do
-            (liftIO $ runGasM [] () gasenv $ _encodeRowData serialisePact rowdata) >>= \case
+            (liftIO $ runGasM [] def gasenv $ _encodeRowData serialisePact_raw_spaninfo_better rowdata) >>= \case
                 Left e -> internalError $ "writeUser.ins: row encoding error: " <> sshow e
                 Right encoded -> do
                     recordPendingUpdate (convRowKeyCore k) (toUtf8 tn) (PCore.TxId txid) encoded
                     return rowdata
 
 doWriteRow
-  :: GasMEnv (PactError ()) CoreBuiltin
+  :: GasMEnv (PactError SpanInfo) CoreBuiltin
     -> Maybe (BlockHeight, TxId)
     -- ^ the highest block we should be reading writes from
     -> WriteType
-    -> Domain k v CoreBuiltin ()
+    -> Domain k v CoreBuiltin SpanInfo
     -> k
     -> v
     -> BlockHandler logger ()
@@ -340,7 +342,7 @@ doKeys
     :: forall k v logger .
        Maybe (BlockHeight, TxId)
     -- ^ the highest block we should be reading writes from
-    -> Domain k v CoreBuiltin ()
+    -> Domain k v CoreBuiltin SpanInfo
     -> BlockHandler logger [k]
 doKeys mlim d = do
     msort <- views blockHandlerSortedKeys (\c -> if c then sort else id)
@@ -443,7 +445,7 @@ doTxIds tn _tid@(TxId tid) = do
 
 recordTxLog
     :: Pact4.TableName
-    -> Domain k v CoreBuiltin ()
+    -> Domain k v CoreBuiltin SpanInfo
     -> Utf8
     -> BS.ByteString
     -> BlockHandler logger ()
@@ -468,7 +470,7 @@ modifyPendingData f = do
       Nothing -> over bsPendingBlock f
 
 doCreateUserTable
-    :: GasMEnv (PactError ()) CoreBuiltin
+    :: GasMEnv (PactError SpanInfo) CoreBuiltin
     -> Maybe BlockHeight
     -- ^ the highest block we should be seeing tables from
     -> TableName
@@ -485,7 +487,7 @@ doCreateUserTable gasenv mbh tn = do
           cond <- inDb lcTables $ Utf8 $ T.encodeUtf8 $ asString tn
           when cond $ throwM $ PactDuplicateTableError $ asString tn
 
-          (liftIO $ runGasM [] () gasenv $ _encodeRowData serialisePact rd) >>= \case
+          (liftIO $ runGasM [] def gasenv $ _encodeRowData serialisePact_raw_spaninfo_better rd) >>= \case
             Left e -> internalError $ "doCreateUserTable: row encoding error: " <> sshow e
             Right encoded ->
               modifyPendingData
@@ -635,7 +637,7 @@ doGetTxLog tn txid@(TxId txid') = do
 
 toTxLog :: MonadThrow m => T.Text -> Utf8 -> BS.ByteString -> m (TxLog RowData)
 toTxLog d key value =
-        case fmap (view document) $ _decodeRowData serialisePact value of
+        case fmap (view document) $ _decodeRowData serialisePact_raw_spaninfo_better value of
             Nothing -> internalError $ "toTxLog: Unexpected value, unable to deserialize log: " <> sshow value
             Just v ->
               return $! TxLog d (fromUtf8 key) v

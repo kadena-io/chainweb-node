@@ -135,6 +135,7 @@ import qualified Pact.Core.StableEncoding as PCore
 import qualified Pact.Core.SPV as PCore
 import qualified Pact.Core.Serialise.LegacyPact as PCore
 import qualified Pact.Core.Verifiers as PCore
+import qualified Pact.Core.Info as PCore
 
 -- internal Chainweb modules
 import qualified Chainweb.Pact.Transactions.CoinCoreV4Transactions as CoinCoreV4
@@ -991,7 +992,7 @@ runGenesisCore
     :: (Logger logger)
     => Command (Payload PublicMeta ParsedCode)
     -> NamespacePolicy
-    -> PCore.EvalState PCore.CoreBuiltin ()
+    -> PCore.EvalState PCore.CoreBuiltin PCore.SpanInfo
     -> TransactionM logger p ()
 runGenesisCore cmd nsp coreState = case payload of
     Exec pm -> void $ applyExecTng' 0 coreState pm signers chash nsp
@@ -1105,7 +1106,7 @@ mkCommandResultFromCoreResult PCore.EvalResult{..} = do
 applyExecTng
     :: (Logger logger)
     => Gas
-    -> PCore.EvalState PCore.CoreBuiltin ()
+    -> PCore.EvalState PCore.CoreBuiltin PCore.SpanInfo
     -> ExecMsg ParsedCode
     -> [Signer]
     -> Hash
@@ -1157,12 +1158,12 @@ applyExec' initialGas interp (ExecMsg parsedCode execData) senderSigs verifiersW
 applyExecTng'
     :: (Logger logger)
     => Gas
-    -> PCore.EvalState PCore.CoreBuiltin ()
+    -> PCore.EvalState PCore.CoreBuiltin PCore.SpanInfo
     -> ExecMsg ParsedCode
     -> [Signer]
     -> Hash
     -> NamespacePolicy
-    -> TransactionM logger p (PCore.EvalResult [PCore.TopLevel ()])
+    -> TransactionM logger p (PCore.EvalResult [PCore.TopLevel PCore.SpanInfo])
 applyExecTng' (Gas initialGas) coreState (ExecMsg parsedCode execData) senderSigs hsh nsp
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
@@ -1170,6 +1171,9 @@ applyExecTng' (Gas initialGas) coreState (ExecMsg parsedCode execData) senderSig
       evalEnv <- mkCoreEvalEnv nsp (MsgData execData Nothing hsh senderSigs [])
 
       setEnvGasCore (PCore.Gas $ fromIntegral initialGas) evalEnv
+
+      ccache <- use txCoreCache
+
 
       er <- liftIO $! PCore.evalExec evalEnv coreState (PCore.RawCode $ _pcCode parsedCode)
       case er of
@@ -1186,8 +1190,9 @@ applyExecTng' (Gas initialGas) coreState (ExecMsg parsedCode execData) senderSig
           txCoreCache .= (CoreModuleCache $ PCore._erLoadedModules er')
           return quirkedEvalResult
         Left err -> do
-          -- ccache <- use txCoreCache
-          TRACE.traceShowM ("CORE.applyExec'!!!!" :: String, show $ PCore.pretty err)
+          TRACE.traceShowM ("CORE.applyExec' modulecache" :: String, show $ _getCoreModuleCache ccache)
+
+          TRACE.traceShowM ("CORE.applyExec'!!!!" :: String, show err, show $ PCore.RawCode $ _pcCode parsedCode)
           fatal $ "Pact Tng execution failed: " <> (T.pack $ show $ PCore.pretty err)
 
 enablePactEvents' :: ChainwebVersion -> V.ChainId -> BlockHeight -> [ExecutionFlag]
@@ -1272,7 +1277,7 @@ applyContinuation initialGas interp cm senderSigs hsh nsp = do
 applyContinuationTng
     :: (Logger logger)
     => Gas
-    -> PCore.EvalState PCore.CoreBuiltin ()
+    -> PCore.EvalState PCore.CoreBuiltin PCore.SpanInfo
     -> ContMsg
     -> [Signer]
     -> Hash
@@ -1291,7 +1296,7 @@ applyContinuationTng initialGas coreState cm senderSigs hsh nsp = do
 setEnvGas :: Gas -> EvalEnv e -> TransactionM logger p ()
 setEnvGas initialGas = liftIO . views eeGas (`writeIORef` gasToMilliGas initialGas)
 
-setEnvGasCore :: PCore.Gas -> PCore.EvalEnv PCore.CoreBuiltin () -> TransactionM logger p ()
+setEnvGasCore :: PCore.Gas -> PCore.EvalEnv PCore.CoreBuiltin PCore.SpanInfo -> TransactionM logger p ()
 setEnvGasCore initialGas = liftIO . views PCore.eeGasRef (`writeIORef` PCore.gasToMilliGas initialGas)
 
 -- | Execute a 'ContMsg' and return just eval result, not wrapped in a
@@ -1328,18 +1333,19 @@ applyContinuation' initialGas interp cm@(ContMsg pid s rb d _) senderSigs hsh ns
 applyContinuationTng'
     :: (Logger logger)
     => Gas
-    -> PCore.EvalState PCore.CoreBuiltin ()
+    -> PCore.EvalState PCore.CoreBuiltin PCore.SpanInfo
     -> ContMsg
     -> [Signer]
     -> Hash
     -> NamespacePolicy
-    -> TransactionM logger p (PCore.EvalResult [PCore.TopLevel ()])
+    -> TransactionM logger p (PCore.EvalResult [PCore.TopLevel PCore.SpanInfo])
 applyContinuationTng' initialGas coreState (ContMsg pid s rb d proof) senderSigs hsh nsp = do
 
     evalEnv <- mkCoreEvalEnv nsp (MsgData d pactStep hsh senderSigs [])
 
     setEnvGasCore (PCore.Gas $ fromIntegral initialGas) evalEnv
 
+--     Pact4.PactValue -> PCore.PactValue
     let
       convertPactValue :: LegacyValue -> Either String PCore.PactValue
       convertPactValue pv = PCore.fromLegacyPactValue $
@@ -1638,7 +1644,7 @@ initCapabilities :: [CapSlot SigCapability] -> EvalState
 initCapabilities cs = set (evalCapabilities . capStack) cs def
 {-# INLINABLE initCapabilities #-}
 
-initCoreCapabilities :: [PCore.CapSlot PCore.QualifiedName PCore.PactValue] -> PCore.EvalState PCore.CoreBuiltin ()
+initCoreCapabilities :: [PCore.CapSlot PCore.QualifiedName PCore.PactValue] -> PCore.EvalState PCore.CoreBuiltin PCore.SpanInfo
 initCoreCapabilities cs = set (PCore.esCaps . PCore.csSlots) cs def
 {-# INLINABLE initCoreCapabilities #-}
 
@@ -1717,8 +1723,8 @@ setModuleCache mcache es =
 
 setCoreModuleCache
   :: CoreModuleCache
-  -> PCore.EvalState PCore.CoreBuiltin ()
-  -> PCore.EvalState PCore.CoreBuiltin ()
+  -> PCore.EvalState PCore.CoreBuiltin PCore.SpanInfo
+  -> PCore.EvalState PCore.CoreBuiltin PCore.SpanInfo
 setCoreModuleCache mcache es =
   let allDeps = foldMap PCore.allModuleExports $ _getCoreModuleCache mcache
   in set (PCore.esLoaded . PCore.loAllLoaded) allDeps $ set (PCore.esLoaded . PCore.loModules) c es
@@ -1817,10 +1823,11 @@ unsafeModuleHashFromB64Text =
 mkCoreEvalEnv
     :: NamespacePolicy
     -> MsgData
-    -> TransactionM logger db (PCore.EvalEnv PCore.CoreBuiltin ())
+    -> TransactionM logger db (PCore.EvalEnv PCore.CoreBuiltin PCore.SpanInfo)
 mkCoreEvalEnv nsp MsgData{..} = do
     tenv <- ask
 
+    -- TODO: create a module to convert old pactvalues to new ones in chainweb
     let
       convertPactValue pv = J.decode $ J.encode pv
       convertQualName QualifiedName{..} = PCore.QualifiedName

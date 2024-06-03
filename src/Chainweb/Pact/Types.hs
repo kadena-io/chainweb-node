@@ -234,6 +234,7 @@ import qualified Pact.Core.Names as PCore
 import qualified Pact.Core.Persistence as PCore
 import qualified Pact.Core.Gas as PCore
 import qualified Pact.Core.Builtin as PCore
+import qualified Pact.Core.Info as PCore
 
 data Transactions r = Transactions
     { _transactionPairs :: !(Vector (ChainwebTransaction, r))
@@ -272,7 +273,7 @@ newtype CoinbaseUsePrecompiled = CoinbaseUsePrecompiled Bool
 newtype ModuleCache = ModuleCache { _getModuleCache :: LHM.HashMap ModuleName (ModuleData Ref, Bool) }
     deriving newtype (Semigroup, Monoid, NFData)
 
-newtype CoreModuleCache = CoreModuleCache { _getCoreModuleCache :: M.Map PCore.ModuleName (PCore.ModuleData PCore.CoreBuiltin ()) }
+newtype CoreModuleCache = CoreModuleCache { _getCoreModuleCache :: M.Map PCore.ModuleName (PCore.ModuleData PCore.CoreBuiltin PCore.SpanInfo) }
     deriving newtype (Semigroup, Monoid, NFData)
 
 filterModuleCacheByKey

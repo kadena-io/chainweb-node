@@ -166,7 +166,7 @@ loadScript fp = do
             (view (rEnv . eePactDb) rst)
             (view (rEnv . eePactDbVar) rst)
       mc = view (rEvalState . evalRefs . rsLoadedModules) rst
-  coreDb <- PCore.mockPactDb PCore.serialisePact
+  coreDb <- PCore.mockPactDb PCore.serialisePact_raw_spaninfo_better
   -- TODO: setup eval env & run the code & and pass
   return ((pdb, coreDb), (moduleCacheFromHashMap mc, undefined))
 

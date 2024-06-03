@@ -69,6 +69,9 @@ package vault
 package yet-another-logger
     flags: -tbmqueue
 
+packages:
+    ../pact-core
+
 -- -------------------------------------------------------------------------- --
 -- Source Repository Packages
 --
@@ -83,11 +86,11 @@ source-repository-package
     tag: 9ccef1fbeff545f07864896094eb2e2bd4c5ffb3
     --sha256: 0pai52mvyikhm527if4gxa1nwsmva3wg3nhvida7qg48rchjrxry
 
-source-repository-package
-    type: git
-    location: https://github.com/kadena-io/pact-5.git
-    tag: 2a6d350aa36cb83587242bf5e496b0621cff3dee
-    --sha256: sha256-hTWFbc17p/73VmLacTzY+8DzNCGhHwI1Nds18+aQUxg=
+-- source-repository-package
+--     type: git
+--     location: https://github.com/kadena-io/pact-5.git
+--     tag: 2a6d350aa36cb83587242bf5e496b0621cff3dee
+--     --sha256: sha256-hTWFbc17p/73VmLacTzY+8DzNCGhHwI1Nds18+aQUxg=
 
 source-repository-package
     type: git

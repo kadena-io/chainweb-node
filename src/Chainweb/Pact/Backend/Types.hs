@@ -120,6 +120,8 @@ import Pact.Types.Runtime (TableName)
 
 import qualified Pact.Core.Builtin as PCore
 import qualified Pact.Core.Persistence as PCore
+import qualified Pact.Core.Info as PCore
+
 
 -- internal modules
 import Chainweb.BlockHash
@@ -215,7 +217,7 @@ data BlockState = BlockState
     , _bsPendingTx :: !(Maybe SQLitePendingData)
     , _bsMode :: !(Maybe ExecutionMode)
     , _bsModuleCache :: !(DbCache PersistModuleData)
-    , _bsModuleCacheCore :: !(DbCache (PCore.ModuleData PCore.CoreBuiltin ()))
+    , _bsModuleCacheCore :: !(DbCache (PCore.ModuleData PCore.CoreBuiltin PCore.SpanInfo))
     }
 
 fromCoreExecutionMode :: PCore.ExecutionMode -> ExecutionMode
@@ -302,7 +304,7 @@ newtype BlockHandler logger a = BlockHandler
         )
 
 type ChainwebPactDbEnv logger = PactDbEnv (BlockEnv logger)
-type CoreDb = PCore.PactDb PCore.CoreBuiltin ()
+type CoreDb = PCore.PactDb PCore.CoreBuiltin PCore.SpanInfo
 
 type ParentHash = BlockHash
 

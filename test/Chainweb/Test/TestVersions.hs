@@ -343,4 +343,4 @@ instantCpmTestVersion g = buildTestVersion $ \v -> v
 -- pact5EarlyTestVersion g = buildTestVersion $ \v -> v
 --     & cpmTestVersion g
 --     & versionName .~ ChainwebVersionName ("pact5-early-" <> toText g)
---     & versionForks .~ (fastForks & at Pact5 ?~ (fastForks ^?! chainweb222Pact))
+--     & versionForks .~ (fastForks & at Pact5 ?~ (fastForks ^?! Chainweb222Pact))
