@@ -13,7 +13,7 @@ let flakeDefaultNix = (import (
     };
 in
 { pkgs ? pkgsDef
-, compiler ? "ghc964"
+, compiler ? "ghc965"
 , flakePath ? flakeDefaultNix.outPath
 , nix-filter ? inputs.nix-filter
 , pact ? null

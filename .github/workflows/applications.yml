@@ -134,7 +134,7 @@ jobs:
         if "${{ github.event_name == 'schedule' }}" == "true"; then
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.4", "9.8.1"],
+          "ghc": ["9.6.5", "9.8.1"],
           "cabal": ["3.10"],
           "os": ["ubuntu-20.04", "ubuntu-22.04"],
           "use-freeze-file": ["false"]
@@ -145,7 +145,7 @@ jobs:
         else
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.4"],
+          "ghc": ["9.6.5"],
           "cabal": ["3.10"],
           "os": ["ubuntu-20.04", "ubuntu-22.04"],
           "use-freeze-file": ["true"]
@@ -624,7 +624,7 @@ jobs:
         # when adding more than one build, use a different package name or
         # different tags
         include:
-        - ghc: "9.6.4"
+        - ghc: "9.6.5"
           os: "ubuntu-20.04"
           use-freeze-file: "true"
     env:
