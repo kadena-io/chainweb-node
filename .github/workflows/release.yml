@@ -165,7 +165,7 @@ jobs:
           VERSION_NEW: ${{ env.VERSION_NEW }}
         run: |
           
-          GHC_VER=9.6.4
+          GHC_VER=9.6.5
 
           UBUNTU_20_TAR=chainweb.false.$GHC_VER.ubuntu-20.04.$SHORT_REVISION.tar.gz
           UBUNTU_22_TAR=chainweb.false.$GHC_VER.ubuntu-22.04.$SHORT_REVISION.tar.gz
