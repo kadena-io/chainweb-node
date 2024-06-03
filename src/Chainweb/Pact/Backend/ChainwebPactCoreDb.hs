@@ -391,8 +391,6 @@ doKeys mlim d = do
     tn@(Utf8 tnBS) = asStringUtf8 d
     collect p =
         concatMap NE.toList $ HashMap.elems $ fromMaybe mempty $ HashMap.lookup tnBS (_pendingWrites p)
-        -- let flt k _ = _dkTable k == tnBS
-        -- in DL.concat $ HashMap.elems $ HashMap.filterWithKey flt (_pendingWrites p)
 {-# INLINE doKeys #-}
 
 failIfTableDoesNotExistInDbAtHeight
@@ -594,13 +592,7 @@ doGetTxLog tn txid@(TxId txid') = do
     if null p then readFromDb else return p
 
   where
-    predicate delta = _deltaTxId delta == (coerce txid) &&
-                      _deltaTableName delta == tableNameBS
-
     tablename@(Utf8 tableNameBS) = asStringUtf8 tn
-
-    takeHead [] = []
-    takeHead (a:_) = [a]
 
     readFromPending = do
         allPendingData <- getPendingData

@@ -338,10 +338,6 @@ initModuleCacheForBlock isGenesis = do
         updateInitCacheM mc
         return mc
     Just (_,(mc, cmc)) -> pure (mc, cmc)
-      -- if (not $ (PCore.ModuleName "core" Nothing) `Set.member` (M.keysSet $ _getCoreModuleCache cmc)) then do
-      --   cmc' <- liftIO (readInitModulesCore l (_cpPactDbEnv dbEnv, _cpPactCoreDbEnv dbEnv) txCtx)
-      --   pure (mc, cmc' <> cmc)
-      -- else pure (mc, cmc)
 
 runCoinbase
     :: (Logger logger)

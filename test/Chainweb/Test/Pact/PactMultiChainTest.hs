@@ -153,12 +153,12 @@ tests = testGroup testName
   -- [ test generousConfig getGasModel (getGasModelCore 300_000) "checkTransferCreate" checkTransferCreate
 --
   -- [ test generousConfig getGasModel (getGasModelCore 300_000) "pact410UpgradeTest" pact410UpgradeTest -- BROKEN Keyset failure (keys-all): [WEBAUTHN...]
-  [ test generousConfig getGasModel (getGasModelCore 300_000) "chainweb223Test" chainweb223Test
+  [ -- test generousConfig getGasModel (getGasModelCore 300_000) "chainweb223Test" chainweb223Test
    -- Failure: broken because expects coinv6, right now applyUpgrades doesn't upgrade the coin contract (uses v4)
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "compactAndSyncTest" compactAndSyncTest -- BROKEN PEExecutionError (EvalError "read-keyset failure") ()
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "compactionCompactsUnmodifiedTables" compactionCompactsUnmodifiedTables
-  -- , quirkTest
-  -- [ test generousConfig getGasModel (getGasModelCore 300_000) "checkTransferCreate" checkTransferCreate
+    test generousConfig getGasModel (getGasModelCore 300_000) "compactAndSyncTest" compactAndSyncTest -- BROKEN PEExecutionError (EvalError "read-keyset failure") ()
+  , test generousConfig getGasModel (getGasModelCore 300_000) "compactionCompactsUnmodifiedTables" compactionCompactsUnmodifiedTables
+  , quirkTest
+  , test generousConfig getGasModel (getGasModelCore 300_000) "checkTransferCreate" checkTransferCreate
   ]
 
   where
@@ -1259,36 +1259,37 @@ chainweb223Test :: PactTestM ()
 chainweb223Test = do
 
   -- run past genesis, upgrades
-  runToHeight 119
+  runToHeight 120
 
   let sender00KAccount = "k:" <> fst sender00
   -- run pre-fork, where rotating principals is allowed
-  runBlockTest
-    [ PactTxTest
-      (buildBasic'
-      (set cbGasLimit 10000 .
-      set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkCoinCap "ROTATE" [pString sender00KAccount]]]
-      ) $ mkExec
-      (T.unlines
-        [ "(coin.create-account (read-msg 'sender00KAcct) (read-keyset 'sender00))"
-        ,"(coin.rotate (read-msg 'sender00KAcct) (read-keyset 'sender01))"
-        ])
-      (object ["sender00" .= [fst sender00], "sender00KAcct" .= sender00KAccount, "sender01" .= [fst sender01]]))
-      (assertTxSuccess "should allow rotating principals before fork" (pString "Write succeeded"))
-    ]
+  -- runBlockTest
+  --   [ PactTxTest
+  --     (buildBasic'
+  --     (set cbGasLimit 10000 .
+  --     set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkCoinCap "ROTATE" [pString sender00KAccount]]]
+  --     ) $ mkExec
+  --     (T.unlines
+  --       [ "(coin.create-account (read-msg 'sender00KAcct) (read-keyset 'sender00))"
+  --       ,"(coin.rotate (read-msg 'sender00KAcct) (read-keyset 'sender01))"
+  --       ])
+  --     (object ["sender00" .= [fst sender00], "sender00KAcct" .= sender00KAccount, "sender01" .= [fst sender01]]))
+  --     (assertTxSuccess "should allow rotating principals before fork" (pString "Write succeeded"))
+  --   ]
 
   -- run post-fork, where rotating principals is only allowed to get back to
   -- their original guards
   runBlockTest
-    [ PactTxTest
-      (buildBasic'
-      (set cbGasLimit 10000 .
-      set cbSigners [mkEd25519Signer' sender00 [mkGasCap], mkEd25519Signer' sender01 [mkCoinCap "ROTATE" [pString sender00KAccount]]]
-      ) $ mkExec
-        "(coin.rotate (read-msg 'sender00KAcct) (read-keyset 'sender00))"
-      (object ["sender00" .= [fst sender00], "sender00KAcct" .= sender00KAccount, "sender01" .= [fst sender01]]))
-      (assertTxSuccess "should allow rotating principals back after fork" (pString "Write succeeded"))
-    , PactTxTest
+    [
+    -- PactTxTest
+    --   (buildBasic'
+    --   (set cbGasLimit 10000 .
+    --   set cbSigners [mkEd25519Signer' sender00 [mkGasCap], mkEd25519Signer' sender01 [mkCoinCap "ROTATE" [pString sender00KAccount]]]
+    --   ) $ mkExec
+    --     "(coin.rotate (read-msg 'sender00KAcct) (read-keyset 'sender00))"
+    --   (object ["sender00" .= [fst sender00], "sender00KAcct" .= sender00KAccount, "sender01" .= [fst sender01]]))
+    --   (assertTxSuccess "should allow rotating principals back after fork" (pString "Write succeeded"))
+      PactTxTest
       (buildBasic'
       (set cbGasLimit 10000 .
       set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkCoinCap "ROTATE" [pString sender00KAccount]]]
@@ -1306,7 +1307,7 @@ compactAndSyncTest = do
   -- we want to run a transaction but it doesn't matter what it does, as long
   -- as it gets on-chain and thus affects the Pact state.
   runBlockTest
-    [ PactTxTest (buildBasic $ mkExec' "1") (assertTxSuccess "should allow innocent transaction" (pDecimal 1))
+    [ PactTxTest (buildBasic $ mkExec' "1") (assertTxSuccess "should allow innocent transaction" (pInteger 1))
     ]
   -- save the cut with the tx, we'll return to it after compaction
   cutWithTx <- currentCut

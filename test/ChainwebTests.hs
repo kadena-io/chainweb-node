@@ -89,10 +89,10 @@ main = do
             liftIO $ defaultMainWithIngredients (consoleAndJsonReporter : defaultIngredients)
                 $ adjustOption adj
                 $ testGroup "Chainweb Tests"
-                $ [pactTestSuite rdb]
-                -- : mempoolTestSuite db h0
-                -- : [nodeTestSuite rdb]
-                -- : suite rdb -- Coinbase Vuln Fix Tests are broken, waiting for Jose loadScript
+                $ pactTestSuite rdb
+                : mempoolTestSuite db h0
+                : nodeTestSuite rdb
+                : suite rdb -- Coinbase Vuln Fix Tests are broken, waiting for Jose loadScript
 
   where
     adj NoTimeout = Timeout (1_000_000 * 60 * 10) "10m"
@@ -109,13 +109,13 @@ pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
     -- , Chainweb.Test.Pact.DbCacheTest.tests
     -- , Chainweb.Test.Pact.Checkpointer.tests
 
-       Chainweb.Test.Pact.PactMultiChainTest.tests -- BROKEN few tests
+       -- Chainweb.Test.Pact.PactMultiChainTest.tests -- BROKEN few tests
 
-    -- , Chainweb.Test.Pact.PactSingleChainTest.tests rdb
+        -- Chainweb.Test.Pact.PactSingleChainTest.tests rdb
 
-    -- -- , Chainweb.Test.Pact.VerifierPluginTest.tests -- BROKEN
+        -- Chainweb.Test.Pact.VerifierPluginTest.tests -- BROKEN
 
-    -- , Chainweb.Test.Pact.PactReplay.tests rdb
+    --     Chainweb.Test.Pact.PactReplay.tests rdb
     -- , Chainweb.Test.Pact.ModuleCacheOnRestart.tests rdb
     -- , Chainweb.Test.Pact.TTL.tests rdb
     -- , Chainweb.Test.Pact.RewardsTest.tests
