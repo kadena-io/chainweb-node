@@ -85,11 +85,11 @@
     "hackage": {
       "flake": false,
       "locked": {
-        "lastModified": 1707092608,
-        "narHash": "sha256-sN3NqWrAz9nGSQzWnrDALbA6oVgQ3n19zY+6hLXBYko=",
+        "lastModified": 1717374384,
+        "narHash": "sha256-YD87yUa2RkcR4Cno49rvHqshdwijQyni4stTKMt1HME=",
         "owner": "input-output-hk",
         "repo": "hackage.nix",
-        "rev": "5c4bbb4f270e26905f0b9cf0ed8ca7a224dc9c82",
+        "rev": "114e46a1de6c13d9dd2974aa076ea97d4557544f",
         "type": "github"
       },
       "original": {
@@ -125,11 +125,11 @@
           "hs-nix-infra",
           "empty"
         ],
-        "ghc98X": [
+        "ghc910X": [
           "hs-nix-infra",
           "empty"
         ],
-        "ghc99": [
+        "ghc911": [
           "hs-nix-infra",
           "empty"
         ],
@@ -162,6 +162,8 @@
           "empty"
         ],
         "hls-2.6": "hls-2.6",
+        "hls-2.7": "hls-2.7",
+        "hls-2.8": "hls-2.8",
         "hpc-coveralls": [
           "hs-nix-infra",
           "empty"
@@ -174,7 +176,6 @@
           "hs-nix-infra",
           "empty"
         ],
-        "nix-tools-static": "nix-tools-static",
         "nixpkgs": [
           "hs-nix-infra",
           "haskellNix",
@@ -219,11 +220,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1707876653,
-        "narHash": "sha256-hsj9chw/cy9h8XuxQkxnfFR22Ek8xEm33aON2+TcUaI=",
+        "lastModified": 1716252607,
+        "narHash": "sha256-QsljiA7KBPFviyUJRil++p/JxLvp7tF9+L0mBtS5fnU=",
         "owner": "input-output-hk",
         "repo": "haskell.nix",
-        "rev": "d1a608f84c9ed00ceca8571b253e79f67a1ae2d6",
+        "rev": "88f20f0876efc11eff32fffc1b9721e6bee3868f",
         "type": "github"
       },
       "original": {
@@ -249,6 +250,40 @@
         "type": "github"
       }
     },
+    "hls-2.7": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1708965829,
+        "narHash": "sha256-LfJ+TBcBFq/XKoiNI7pc4VoHg4WmuzsFxYJ3Fu+Jf+M=",
+        "owner": "haskell",
+        "repo": "haskell-language-server",
+        "rev": "50322b0a4aefb27adc5ec42f5055aaa8f8e38001",
+        "type": "github"
+      },
+      "original": {
+        "owner": "haskell",
+        "ref": "2.7.0.0",
+        "repo": "haskell-language-server",
+        "type": "github"
+      }
+    },
+    "hls-2.8": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1715153580,
+        "narHash": "sha256-Vi/iUt2pWyUJlo9VrYgTcbRviWE0cFO6rmGi9rmALw0=",
+        "owner": "haskell",
+        "repo": "haskell-language-server",
+        "rev": "dd1be1beb16700de59e0d6801957290bcf956a0a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "haskell",
+        "ref": "2.8.0.0",
+        "repo": "haskell-language-server",
+        "type": "github"
+      }
+    },
     "hs-nix-infra": {
       "inputs": {
         "empty": "empty_2",
@@ -261,11 +296,11 @@
         "nixpkgs-rec": "nixpkgs-rec"
       },
       "locked": {
-        "lastModified": 1708100161,
-        "narHash": "sha256-rWwE59SfmqXcVQL7GXovYvjbDPMsb4e1GgiNH+7tlrM=",
+        "lastModified": 1717427841,
+        "narHash": "sha256-8LszV//rTjrOL5hEn47TWdrw2k5F01SII0HM2Nrh9rM=",
         "owner": "kadena-io",
         "repo": "hs-nix-infra",
-        "rev": "bcbf823a0851b41d64d4f9c87053abc3153c126e",
+        "rev": "a2d4cbbb73d82ea462005013006112e09bbd802f",
         "type": "github"
       },
       "original": {
@@ -286,23 +321,6 @@
       "original": {
         "owner": "numtide",
         "repo": "nix-filter",
-        "type": "github"
-      }
-    },
-    "nix-tools-static": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1706266250,
-        "narHash": "sha256-9t+GRk3eO9muCtKdNAwBtNBZ5dH1xHcnS17WaQyftwA=",
-        "owner": "input-output-hk",
-        "repo": "haskell-nix-example",
-        "rev": "580cb6db546a7777dad3b9c0fa487a366c045c4e",
-        "type": "github"
-      },
-      "original": {
-        "owner": "input-output-hk",
-        "ref": "nix",
-        "repo": "haskell-nix-example",
         "type": "github"
       }
     },
