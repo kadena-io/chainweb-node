@@ -62,7 +62,7 @@ module Chainweb.Pact.Types
   , txRequestKey
   , txExecutionConfig
   , txQuirkGasFee
-  , txUsePactTng
+  , txusePact5
 
     -- * Transaction Execution Monad
   , TransactionM(..)
@@ -155,7 +155,8 @@ module Chainweb.Pact.Types
     -- * types
   , TxTimeout(..)
   , ApplyCmdExecutionContext(..)
-  , TxFailureLog(..)
+  , Pact4TxFailureLog(..)
+  , Pact5TxFailureLog(..)
 
   -- * miscellaneous
   , defaultOnFatalError
@@ -231,13 +232,14 @@ import Chainweb.Version
 import Utils.Logging.Trace
 
 import qualified Pact.Core.Names as PCore
+import qualified Pact.Core.Errors as PCore
 import qualified Pact.Core.Persistence as PCore
 import qualified Pact.Core.Gas as PCore
 import qualified Pact.Core.Builtin as PCore
 import qualified Pact.Core.Info as PCore
 
 data Transactions r = Transactions
-    { _transactionPairs :: !(Vector (ChainwebTransaction, r))
+    { _transactionPairs :: !(Vector (Pact4Transaction, r))
     , _transactionCoinbase :: !(CommandResult [TxLogJson])
     } deriving (Functor, Foldable, Traversable, Eq, Show, Generic, NFData)
 makeLenses 'Transactions
@@ -355,7 +357,7 @@ data TransactionEnv logger db = TransactionEnv
     , _txGasLimit :: !Gas
     , _txExecutionConfig :: !ExecutionConfig
     , _txQuirkGasFee :: !(Maybe Gas)
-    , _txUsePactTng :: !Bool
+    , _txusePact5 :: !Bool
     }
 makeLenses ''TransactionEnv
 
@@ -519,13 +521,22 @@ newtype TxTimeout = TxTimeout TransactionHash
     deriving Show
 instance Exception TxTimeout
 
-data TxFailureLog = TxFailureLog !RequestKey !PactError !Text
+data Pact4TxFailureLog = Pact4TxFailureLog !RequestKey !PactError !Text
   deriving stock (Generic)
   deriving anyclass (NFData, Typeable)
-instance LogMessage TxFailureLog where
-  logText (TxFailureLog rk err msg) =
+instance LogMessage Pact4TxFailureLog where
+  logText (Pact4TxFailureLog rk err msg) =
     msg <> ": " <> sshow rk <> ": " <> sshow err
-instance Show TxFailureLog where
+instance Show Pact4TxFailureLog where
+  show m = unpack (logText m)
+
+data Pact5TxFailureLog = Pact5TxFailureLog !RequestKey !(PCore.PactError PCore.SpanInfo) !Text
+  deriving stock (Generic)
+  deriving anyclass (NFData, Typeable)
+instance LogMessage Pact5TxFailureLog where
+  logText (Pact5TxFailureLog rk err msg) =
+    msg <> ": " <> sshow rk <> ": " <> sshow err
+instance Show Pact5TxFailureLog where
   show m = unpack (logText m)
 
 defaultOnFatalError :: forall a. (LogLevel -> Text -> IO ()) -> PactException -> Text -> IO a

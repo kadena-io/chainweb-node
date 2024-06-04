@@ -667,10 +667,10 @@ runExec cp (pactdbenv, coredb) eData eCode = do
       applyExec' 0 defaultInterpreter execMsg [] [] h' permissiveNamespacePolicy
   where
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-    usePactTng = False
+    usePact5 = False
     cmdenv :: TransactionEnv logger (BlockEnv logger)
     cmdenv = TransactionEnv Transactional pactdbenv coredb (_cpLogger $ _cpReadCp cp) Nothing def
-             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing usePactTng
+             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing usePact5
     cmdst = TransactionState mempty mempty mempty 0 Nothing (_geGasModel freeGasEnv) PCore.freeGasModel mempty
 
 runCont :: Logger logger => Checkpointer logger -> (ChainwebPactDbEnv logger, CoreDb) -> PactId -> Int -> IO EvalResult
@@ -681,9 +681,9 @@ runCont cp (pactdbenv, coredb) pactId step = do
     contMsg = ContMsg pactId step False (toLegacyJson Null) Nothing
 
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-    usePactTng = False
+    usePact5 = False
     cmdenv = TransactionEnv Transactional pactdbenv coredb (_cpLogger $ _cpReadCp cp) Nothing def
-             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing usePactTng
+             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing usePact5
     cmdst = TransactionState mempty mempty mempty 0 Nothing (_geGasModel freeGasEnv) PCore.freeGasModel mempty
 
 -- -------------------------------------------------------------------------- --

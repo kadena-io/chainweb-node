@@ -266,9 +266,9 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
         (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled precompile) mc
 
       let h = H.toUntypedHash (H.hash "" :: H.PactHash)
-          usePactTng = False
+          usePact5 = False
           tenv = TransactionEnv Transactional pdb coreDb logger Nothing def
-            noSPVSupport Nothing 0.0 (RequestKey h) 0 def Nothing usePactTng
+            noSPVSupport Nothing 0.0 (RequestKey h) 0 def Nothing usePact5
           txst = TransactionState mempty mempty mempty 0 Nothing (_geGasModel freeGasEnv) (PCore.freeGasModel) mempty
 
       CommandResult _ _ (PactResult pr) _ _ _ _ _ <- evalTransactionM tenv txst $!

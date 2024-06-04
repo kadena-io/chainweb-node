@@ -399,7 +399,7 @@ data ValidateBlockReq = ValidateBlockReq
     } deriving stock Show
 
 data LocalReq = LocalReq
-    { _localRequest :: !ChainwebTransaction
+    { _localRequest :: !Pact4Transaction
     , _localPreflight :: !(Maybe LocalPreflightSimulation)
     , _localSigVerification :: !(Maybe LocalSignatureVerification)
     , _localRewindDepth :: !(Maybe RewindDepth)
@@ -415,7 +415,7 @@ instance Show LookupPactTxsReq where
         "LookupPactTxsReq@" ++ show m
 
 data PreInsertCheckReq = PreInsertCheckReq
-    { _preInsCheckTxs :: !(Vector ChainwebTransaction)
+    { _preInsCheckTxs :: !(Vector Pact4Transaction)
     }
 instance Show PreInsertCheckReq where
     show (PreInsertCheckReq v) =

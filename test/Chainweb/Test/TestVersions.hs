@@ -339,8 +339,8 @@ instantCpmTestVersion g = buildTestVersion $ \v -> v
         }
     & versionUpgrades .~ AllChains mempty
 
--- pact5EarlyTestVersion :: ChainGraph -> ChainwebVersion
--- pact5EarlyTestVersion g = buildTestVersion $ \v -> v
---     & cpmTestVersion g
---     & versionName .~ ChainwebVersionName ("pact5-early-" <> toText g)
---     & versionForks .~ (fastForks & at Pact5 ?~ (fastForks ^?! Chainweb222Pact))
+pact5EarlyTestVersion :: ChainGraph -> ChainwebVersion
+pact5EarlyTestVersion g = buildTestVersion $ \v -> v
+    & cpmTestVersion g
+    & versionName .~ ChainwebVersionName ("pact5-early-" <> toText g)
+    & versionForks .~ (fastForks & at Pact5 .~ Just (AllChains $ ForkAtBlockHeight 115))

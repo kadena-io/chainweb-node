@@ -320,7 +320,7 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVer
 -- heights during coinbase.
 --
 data Upgrade = Upgrade
-    { _upgradeTransactions :: [ChainwebTransaction]
+    { _upgradeTransactions :: [Pact4Transaction]
     , _legacyUpgradeIsPrecocious :: Bool
         -- ^ when set to `True`, the upgrade transactions are executed using the
         -- forks of the next block, rather than the block the upgrade
@@ -333,7 +333,7 @@ data Upgrade = Upgrade
 instance Show Upgrade where
     show _ = "<upgrade>"
 
-upgrade :: [ChainwebTransaction] -> Upgrade
+upgrade :: [Pact4Transaction] -> Upgrade
 upgrade txs = Upgrade txs False
 
 -- The type of quirks, i.e. special validation behaviors that are in some

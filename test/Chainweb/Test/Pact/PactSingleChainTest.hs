@@ -87,7 +87,7 @@ import Chainweb.Test.Pact.Utils qualified as Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Time
-import Chainweb.Transaction (ChainwebTransaction)
+import Chainweb.Transaction (Pact4Transaction)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
@@ -315,7 +315,7 @@ pactStateSamePreAndPostCompaction rdb =
     let numBlocks :: Num a => a
         numBlocks = 100
 
-    let makeTx :: Word -> BlockHeader -> IO ChainwebTransaction
+    let makeTx :: Word -> BlockHeader -> IO Pact4Transaction
         makeTx nth bh = buildCwCmd (sshow (nth, bh)) testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
           $ setFromHeader bh
@@ -370,7 +370,7 @@ compactionIsIdempotent rdb =
     let numBlocks :: Num a => a
         numBlocks = 100
 
-    let makeTx :: Word -> BlockHeader -> IO ChainwebTransaction
+    let makeTx :: Word -> BlockHeader -> IO Pact4Transaction
         makeTx nth bh = buildCwCmd (sshow (nth, bh)) testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
           $ setFromHeader bh
@@ -426,7 +426,7 @@ compactionDoesNotDisruptDuplicateDetection :: ()
   -> TestTree
 compactionDoesNotDisruptDuplicateDetection rdb = do
   compactionSetup "compactionDoesNotDisruptDuplicateDetection" rdb testPactServiceConfig $ \cr -> do
-    let makeTx :: IO ChainwebTransaction
+    let makeTx :: IO Pact4Transaction
         makeTx = buildCwCmd (sshow @Word 0) testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
           $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)")
@@ -464,7 +464,7 @@ compactionUserTablesDropped rdb =
     let halfwayPoint :: Integral a => a
         halfwayPoint = numBlocks `div` 2
 
-    let createTable :: Word -> Text -> IO ChainwebTransaction
+    let createTable :: Word -> Text -> IO Pact4Transaction
         createTable n tblName = do
           let tx = T.unlines
                 [ "(namespace 'free)"
@@ -540,7 +540,7 @@ compactionGrandHashUnchanged rdb =
     let numBlocks :: Num a => a
         numBlocks = 100
 
-    let makeTx :: Word -> BlockHeader -> IO ChainwebTransaction
+    let makeTx :: Word -> BlockHeader -> IO Pact4Transaction
         makeTx nth bh = buildCwCmd (sshow nth) testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
           $ setFromHeader bh
@@ -1000,7 +1000,7 @@ runTxInBlock :: ()
   => IO (IORef MemPoolAccess) -- ^ mempoolRef
   -> PactQueue
   -> TestBlockDb
-  -> (Word -> BlockHeight -> BlockHash -> BlockHeader -> IO ChainwebTransaction)
+  -> (Word -> BlockHeight -> BlockHash -> BlockHeader -> IO Pact4Transaction)
   -> IO (Either PactException PayloadWithOutputs)
 runTxInBlock mempoolRef pactQueue blockDb makeTx = do
   madeTx <- newIORef @Bool False
@@ -1025,7 +1025,7 @@ runTxInBlock_ :: ()
   => IO (IORef MemPoolAccess) -- ^ mempoolRef
   -> PactQueue
   -> TestBlockDb
-  -> (Word -> BlockHeight -> BlockHash -> BlockHeader -> IO ChainwebTransaction)
+  -> (Word -> BlockHeight -> BlockHash -> BlockHeader -> IO Pact4Transaction)
   -> IO PayloadWithOutputs
 runTxInBlock_ mempoolRef pactQueue blockDb makeTx = do
   runTxInBlock mempoolRef pactQueue blockDb makeTx >>= \case

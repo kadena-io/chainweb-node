@@ -343,7 +343,7 @@ type TransactionGenerator
     -> BlockHeight
     -> BlockHash
     -> BlockHeader
-    -> IO (Vector ChainwebTransaction)
+    -> IO (Vector Pact4Transaction)
 
 type BurnGenerator
     = ChainwebVersion -> Time Micros -> MVar PactId -> Chainweb.ChainId -> Chainweb.ChainId -> IO TransactionGenerator
@@ -449,7 +449,7 @@ createCont
   -> MVar PactId
   -> Maybe ContProof
   -> Time Micros
-  -> IO (Vector ChainwebTransaction)
+  -> IO (Vector Pact4Transaction)
 createCont v cid pidv proof time = do
   pid <- readMVar pidv
   fmap Vector.singleton $

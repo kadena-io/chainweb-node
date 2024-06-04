@@ -64,7 +64,7 @@ data PactExecutionService = PactExecutionService
         Maybe LocalPreflightSimulation ->
         Maybe LocalSignatureVerification ->
         Maybe RewindDepth ->
-        ChainwebTransaction ->
+        Pact4Transaction ->
         IO LocalResult)
       -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
       -- Corresponds to `local` HTTP endpoint.
@@ -85,7 +85,7 @@ data PactExecutionService = PactExecutionService
       -- ^ Lookup pact hashes as of a block header to detect duplicates
     , _pactPreInsertCheck :: !(
         ChainId
-        -> Vector ChainwebTransaction
+        -> Vector Pact4Transaction
         -> IO (Vector (Either InsertError ())))
       -- ^ Run speculative checks to find bad transactions (ie gas buy failures, etc)
     , _pactBlockTxHistory :: !(

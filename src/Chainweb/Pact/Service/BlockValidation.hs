@@ -68,7 +68,7 @@ local
     :: Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
     -> Maybe RewindDepth
-    -> ChainwebTransaction
+    -> Pact4Transaction
     -> PactQueue
     -> IO LocalResult
 local preflight sigVerify rd ct reqQ = do
@@ -103,7 +103,7 @@ pactReadOnlyReplay l u reqQ = do
     submitRequestAndWait reqQ msg
 
 pactPreInsertCheck
-    :: Vector ChainwebTransaction
+    :: Vector Pact4Transaction
     -> PactQueue
     -> IO (Vector (Either InsertError ()))
 pactPreInsertCheck txs reqQ = do

@@ -243,7 +243,7 @@ spvSim sc bh pwo = do
     go mv cp = modifyMVar mv $ searchOuts cp
     searchOuts _ [] = return ([],Left "spv: proof not found")
     searchOuts cp@(ContProof pf) ((Transaction ti,TransactionOutput _o):txs) =
-      case codecDecode (chainwebPayloadCodec (pactParserVersion (scVersion sc) (_chainId bh) (_blockHeight bh))) ti of
+      case codecDecode (pact4PayloadCodec (pactParserVersion (scVersion sc) (_chainId bh) (_blockHeight bh))) ti of
         Left {} -> internalError "input decode failed"
         Right cmd -> case _pPayload $ payloadObj $ _cmdPayload cmd of
           Continuation cm | _cmProof cm == Just cp -> do

@@ -483,7 +483,7 @@ execNewBlock mpAccess miner = do
             -- Run the coinbase transaction
             cb <- runCoinbase False miner (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) initCache
 
-            successes <- liftIO $ Vec.new @_ @_ @(ChainwebTransaction, P.CommandResult [P.TxLogJson])
+            successes <- liftIO $ Vec.new @_ @_ @(Pact4Transaction, P.CommandResult [P.TxLogJson])
             failures <- liftIO $ Vec.new @_ @_ @TransactionHash
 
             -- Heuristic: limit fetches to count of 1000-gas txs in block.
@@ -510,7 +510,7 @@ execNewBlock mpAccess miner = do
 
         !parentTime =
           ParentCreationTime (_blockCreationTime $ _parentHeader latestHeader)
-        getBlockTxs :: CurrentBlockDbEnv logger -> BlockFill -> PactServiceM logger tbl (Vector ChainwebTransaction)
+        getBlockTxs :: CurrentBlockDbEnv logger -> BlockFill -> PactServiceM logger tbl (Vector Pact4Transaction)
         getBlockTxs dbEnv bfState = do
           psEnv <- ask
           logger <- view psLogger
@@ -528,7 +528,7 @@ execNewBlock mpAccess miner = do
           liftIO $!
             mpaGetBlock mpAccess bfState validate (pHeight + 1) pHash (_parentHeader latestHeader)
 
-        refill :: Word64 -> Micros -> GrowableVec (ChainwebTransaction, P.CommandResult [P.TxLogJson]) -> GrowableVec TransactionHash -> (ModuleCache, CoreModuleCache) -> BlockFill -> PactBlockM logger tbl BlockFill
+        refill :: Word64 -> Micros -> GrowableVec (Pact4Transaction, P.CommandResult [P.TxLogJson]) -> GrowableVec TransactionHash -> (ModuleCache, CoreModuleCache) -> BlockFill -> PactBlockM logger tbl BlockFill
         refill fetchLimit txTimeLimit successes failures = go
           where
             go :: (ModuleCache, CoreModuleCache) -> BlockFill -> PactBlockM logger tbl BlockFill
@@ -594,10 +594,10 @@ execNewBlock mpAccess miner = do
         --
         --   The failed txs are later badlisted.
         splitResults :: ()
-          => GrowableVec (ChainwebTransaction, P.CommandResult [P.TxLogJson])
+          => GrowableVec (Pact4Transaction, P.CommandResult [P.TxLogJson])
           -> GrowableVec TransactionHash -- ^ failed txs
           -> BlockFill
-          -> [(ChainwebTransaction, Either CommandInvalidError (P.CommandResult [P.TxLogJson]))]
+          -> [(Pact4Transaction, Either CommandInvalidError (P.CommandResult [P.TxLogJson]))]
           -> PactBlockM logger tbl (BlockFill, Bool)
         splitResults successes failures = go
           where
@@ -639,7 +639,7 @@ type GrowableVec = Vec (PrimState IO)
 execNewGenesisBlock
     :: (Logger logger, CanReadablePayloadCas tbl)
     => Miner
-    -> Vector ChainwebTransaction
+    -> Vector Pact4Transaction
     -> PactServiceM logger tbl PayloadWithOutputs
 execNewGenesisBlock miner newTrans = pactLabel "execNewGenesisBlock" $ readFrom Nothing $ do
     -- NEW GENESIS COINBASE: Reject bad coinbase, use date rule for precompilation
@@ -740,7 +740,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
 
 execLocal
     :: (Logger logger, CanReadablePayloadCas tbl)
-    => ChainwebTransaction
+    => Pact4Transaction
     -> Maybe LocalPreflightSimulation
       -- ^ preflight flag
     -> Maybe LocalSignatureVerification
@@ -989,8 +989,8 @@ execHistoricalLookup bh d k = pactLabel "execHistoricalLookup" $ do
 
 execPreInsertCheckReq
     :: (CanReadablePayloadCas tbl, Logger logger)
-    => Vector ChainwebTransaction
-    -> PactServiceM logger tbl (Vector (Either Mempool.InsertError ChainwebTransaction))
+    => Vector Pact4Transaction
+    -> PactServiceM logger tbl (Vector (Either Mempool.InsertError Pact4Transaction))
 execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
     let requestKeys = V.map P.cmdToRequestKey txs
     logInfo $ "(request keys = " <> sshow requestKeys <> ")"
@@ -1020,17 +1020,17 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
     attemptBuyGas
         :: forall logger tbl. (Logger logger)
         => Miner
-        -> Vector (Either InsertError ChainwebTransaction)
-        -> PactBlockM logger tbl (Vector (Either InsertError ChainwebTransaction))
+        -> Vector (Either InsertError Pact4Transaction)
+        -> PactBlockM logger tbl (Vector (Either InsertError Pact4Transaction))
     attemptBuyGas miner txsOrErrs = localLabelBlock ("transaction", "attemptBuyGas") $ do
             (mc, cmc) <- getInitCache
             l <- view (psServiceEnv . psLogger)
             V.fromList . toList . sfst <$> V.foldM (buyGasFor l) (T2 mempty (mc, cmc)) txsOrErrs
       where
         buyGasFor :: logger
-          -> T2 (DL.DList (Either InsertError ChainwebTransaction)) (ModuleCache, CoreModuleCache)
-          -> Either InsertError ChainwebTransaction
-          -> PactBlockM logger tbl (T2 (DL.DList (Either InsertError ChainwebTransaction)) (ModuleCache, CoreModuleCache))
+          -> T2 (DL.DList (Either InsertError Pact4Transaction)) (ModuleCache, CoreModuleCache)
+          -> Either InsertError Pact4Transaction
+          -> PactBlockM logger tbl (T2 (DL.DList (Either InsertError Pact4Transaction)) (ModuleCache, CoreModuleCache))
         buyGasFor _l (T2 dl (mcache,cmcache)) err@Left {} = return (T2 (DL.snoc dl err) (mcache,cmcache))
         buyGasFor l (T2 dl (mcache,cmcache)) (Right tx) = do
             T2 mcache' !res <- do
@@ -1057,8 +1057,8 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                     [ P.FlagDisableModuleInstall
                     , P.FlagDisableHistoryInTransactionalMode ] ++
                     disableReturnRTC (ctxVersion pd) (ctxChainId pd) (ctxCurrentBlockHeight pd)
-              let usePactTng = False
-              let buyGasEnv = TransactionEnv P.Transactional (_cpPactDbEnv dbEnv) (_cpPactCoreDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gasPrice rk gasLimit ec Nothing usePactTng
+              let usePact5 = False
+              let buyGasEnv = TransactionEnv P.Transactional (_cpPactDbEnv dbEnv) (_cpPactCoreDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gasPrice rk gasLimit ec Nothing usePact5
 
               cr <- liftIO
                 $! catchesPactError l CensorsUnexpectedError

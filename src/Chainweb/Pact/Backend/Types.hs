@@ -403,11 +403,11 @@ newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
 data MemPoolAccess = MemPoolAccess
   { mpaGetBlock
         :: !(BlockFill
-        -> MempoolPreBlockCheck ChainwebTransaction
+        -> MempoolPreBlockCheck Pact4Transaction
         -> BlockHeight
         -> BlockHash
         -> BlockHeader
-        -> IO (Vector ChainwebTransaction)
+        -> IO (Vector Pact4Transaction)
         )
   , mpaSetLastHeader :: !(BlockHeader -> IO ())
   , mpaProcessFork :: !(BlockHeader -> IO ())
