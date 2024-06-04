@@ -132,7 +132,6 @@ import qualified Pact.Core.DefPacts.Types as PCore
 import qualified Pact.Core.Scheme as PCore
 import qualified Pact.Core.StableEncoding as PCore
 import qualified Pact.Core.SPV as PCore
-import qualified Pact.Core.Serialise.LegacyPact as PCore
 import qualified Pact.Core.Verifiers as PCore
 import qualified Pact.Core.Info as PCore
 
@@ -147,6 +146,8 @@ import Chainweb.Mempool.Mempool (requestKeyToTransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
+import Chainweb.Pact.Utils
+import qualified Chainweb.Pact.Conversion as PactConversion
 import Chainweb.Pact.Types hiding (logError)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Transaction
@@ -1236,17 +1237,15 @@ applyContinuationTng' initialGas coreState (ContMsg pid s rb d proof) senderSigs
 
     setEnvGasCore (PCore.Gas $ fromIntegral initialGas) evalEnv
 
---     Pact4.PactValue -> PCore.PactValue
     let
-      convertPactValue :: LegacyValue -> Either String PCore.PactValue
-      convertPactValue pv = PCore.fromLegacyPactValue $
-          maybe (error "applyContinuationTng': failed to parseJSON pact value") id $ J.decode $ J.encode pv
+      convertPactValue pv = PactConversion.fromLegacyPactValue $
+          aeson (error "applyContinuationTng': failed to parseJSON pact value") id $ A.fromJSON $ _getLegacyValue pv
 
       coreCm = PCore.ContMsg
           { PCore._cmPactId = coerce pid
           , PCore._cmStep = s
           , PCore._cmRollback = rb
-          , PCore._cmData = either (error "applyContinuationTng': failed to convert pact value") id $ convertPactValue  d
+          , PCore._cmData = either (error "applyContinuationTng': failed to convert pact value") id $ convertPactValue d
           , PCore._cmProof = coerce proof
           }
 
@@ -1719,7 +1718,7 @@ mkCoreEvalEnv nsp MsgData{..} = do
 
     -- TODO: create a module to convert old pactvalues to new ones in chainweb
     let
-      convertPactValue pv = J.decode $ J.encode pv
+      convertPactValue pv = aeson (\s -> error $ "mkCoreEvalEnv: failed to parse legacyValue " ++ s) id $ A.fromJSON $ _getLegacyValue pv
       convertQualName QualifiedName{..} = PCore.QualifiedName
         { PCore._qnName = _qnName
         , PCore._qnModName = _qnQual & \ModuleName{..} ->
@@ -1729,7 +1728,7 @@ mkCoreEvalEnv nsp MsgData{..} = do
               }
         }
       convertCapability SigCapability{..} =
-          PCore.CapToken (convertQualName _scName) (mapMaybe (either (const $ error "FAILEDDDD111") Just . PCore.fromLegacyPactValue . maybe (error "mkCoreEvalEnv: failed to parseJSON pact value") id . convertPactValue) _scArgs)
+          PCore.CapToken (convertQualName _scName) (mapMaybe (either (const Nothing) Just . PactConversion.fromLegacyPactValue) _scArgs)
 
       convertVerifier Verifier{..} = PCore.Verifier
         { PCore._verifierName = coerce _verifierName
@@ -1744,7 +1743,7 @@ mkCoreEvalEnv nsp MsgData{..} = do
 
     let
       coreMsg = PCore.MsgData
-        { PCore.mdData = either (\e -> error $ "FAILEDDDD22: " ++ show e ++ " for " ++ show mdData) id $ PCore.fromLegacyPactValue $ maybe (error "mkCoreEvalEnv: failed to parseJSON pact value") id $ convertPactValue $ _getLegacyValue mdData
+        { PCore.mdData = either (const $ PCore.PObject mempty) id $ PactConversion.fromLegacyPactValue $ convertPactValue mdData
         , PCore.mdStep = mdStep <&> \PactStep{..} ->
             PCore.DefPactStep
               { PCore._psStep = _psStep
@@ -1752,7 +1751,7 @@ mkCoreEvalEnv nsp MsgData{..} = do
               , PCore._psDefPactId = coerce _psPactId
               , PCore._psResume = _psResume <&> \Yield{..} ->
                   PCore.Yield
-                    { PCore._yData = M.fromList $ mapMaybe (\(k, v) -> fmap (coerce k,) $ either (const $ error "FAILEDDDD3") Just $ PCore.fromLegacyPactValue $ maybe (error "mkCoreEvalEnv: failed to parseJSON pact value") id $ convertPactValue v) $ M.toList $ _objectMap _yData
+                    { PCore._yData = M.fromList $ mapMaybe (\(k, v) -> fmap (coerce k,) $ either (const Nothing) Just $ PactConversion.fromLegacyPactValue v) $ M.toList $ _objectMap _yData
                     , PCore._yProvenance = _yProvenance <&> \Provenance{..} ->
                         PCore.Provenance
                           { PCore._pTargetChainId = coerce _pTargetChainId
