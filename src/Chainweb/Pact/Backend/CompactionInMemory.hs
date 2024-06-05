@@ -208,15 +208,22 @@ compact :: Config -> IO ()
 compact cfg = do
   let cids = allChains cfg.chainwebVersion
 
+  -- Get the target blockheight.
   targetBlockHeight <- withDefaultLogger LL.Error $ \logger -> do
+    -- Locate the latest (safe) blockheight as per the pact state.
+    -- See 'locateLatestSafeTarget' for the definition of 'safe' here.
     targetBlockHeight <- locateLatestSafeTarget logger cfg.chainwebVersion cfg.sourcePactDir cids
 
     when (not cfg.onlyRocksDb) $ do
+      -- Check that the target sqlite directory doesn't exist already,
+      -- then create it.
       targetDirExists <- doesDirectoryExist cfg.targetPactDir
       when targetDirExists $ do
         exitLog logger "Target SQLite directory already exists. Aborting."
       createDirectoryIfMissing True cfg.targetPactDir
 
+    -- Check that the target rocksdb directory doesn't exist already,
+    -- then create it.
     targetRocksDirExists <- doesDirectoryExist cfg.targetRocksDir
     when targetRocksDirExists $ do
       exitLog logger "Target RocksDB directory already exists. Aborting."
@@ -227,9 +234,9 @@ compact cfg = do
   -- TODO: this logic is brittle right now, we need to make sure
   -- we have at least this amount, or abort.
   --
-  -- TODO: make 1k/3k constants; no magic numbers, it should be shared
-  -- with locateSafeTarget. The 2k can be derived from that and a
-  -- constant for the 3k.
+  -- TODO: make 1k/3k constants; no magic numbers. perhaps these constants
+  -- should be shared with locateLatestSafeTarget. The 2k can be derived
+  -- from that and a constant for the 3k.
 
   -- We are trying to make sure that we keep around at least 3k blocks.
   -- The compaction target is 1k blocks prior to the latest common
@@ -246,14 +253,15 @@ compact cfg = do
   let minBlockHeight = targetBlockHeight - 2_000
   let maxBlockHeight = targetBlockHeight + 1_000 + int (diameter (chainGraphAt cfg.chainwebVersion targetBlockHeight))
 
+  -- Trim RocksDB here
   withReadOnlyRocksDb cfg.sourceRocksDir modernDefaultOptions $ \srcRocksDb -> do
     withRocksDb cfg.targetRocksDir (modernDefaultOptions { compression = NoCompression }) $ \targetRocksDb -> do
       trimRocksDb cfg.chainwebVersion cids minBlockHeight maxBlockHeight srcRocksDb targetRocksDb
 
-  when cfg.onlyRocksDb $ do
-    exitSuccess
+  when cfg.onlyRocksDb exitSuccess
 
-  -- TODO (chessai): these may need tuning
+  -- These pragmas are tuned for fast insertion on systems with a wide range
+  -- of resources.
   --
   -- journal_mode = OFF is terrible for prod but probably OK here
   -- since we are just doing a bunch of bulk inserts
@@ -265,7 +273,6 @@ compact cfg = do
         , "shrink_memory"
         ]
 
-  -- TODO: add progress meter or something?
   forChains_ cfg.concurrent cids $ \cid -> do
     withPerChainFileLogger cfg.logDir cid LL.Debug $ \logger -> do
       withChainDb cid logger cfg.sourcePactDir $ \_ srcDb -> do
@@ -392,6 +399,9 @@ compactTable logger srcDb targetDb tblname targetBlockHeight = do
   -- target height
   endingTxId <- getEndingTxId srcDb targetBlockHeight
 
+  -- | Get the active pact state (a 'Stream' of 'PactRow').
+  --   Uses an LruCache of RowKeys - the LRU Cache internally just stores
+  --   hashes.
   let getActiveState :: ()
         => Lite.Statement
         -> LruCache ByteString ()
@@ -411,26 +421,27 @@ compactTable logger srcDb targetDb tblname targetBlockHeight = do
                   [SText (Utf8 rk), SInt tid, SBlob rd] -> do
                     -- Lookup in the LRU Cache, then fall back to the SQLite
                     -- cache
-                    let useCache :: IO (Maybe PactRow, LruCache ByteString ())
-                        useCache = do
-                          case Lru.lookup rk rkMemCache of
-                            Nothing -> do
-                              inTargetDb <- do
-                                Pact.qrys rkSqliteCache [SText (Utf8 rk)] [RInt] >>= \case
-                                  [] -> pure False
-                                  [[SInt 1]] -> pure True
-                                  _ -> exitLog logger "getActiveState: invalid membership query"
-                              let !newCache = Lru.insert rk () rkMemCache
-                              if inTargetDb
-                              then do
-                                pure (Nothing, newCache)
-                              else do
-                                pure (Just (PactRow rk rd tid), newCache)
-                            Just ((), newCache) -> do
-                              pure (Nothing, newCache)
+                    (maybeRow, newRkCache) <- liftIO $ do
+                      case Lru.lookup rk rkMemCache of
+                       Nothing -> do
+                         inTargetDb <- do
+                           Pact.qrys rkSqliteCache [SText (Utf8 rk)] [RInt] >>= \case
+                             [] -> pure False
+                             [[SInt 1]] -> pure True
+                             _ -> exitLog logger "getActiveState: invalid membership query"
+                         let !newCache = Lru.insert rk () rkMemCache
+                         if inTargetDb
+                         then do
+                           pure (Nothing, newCache)
+                         else do
+                           pure (Just (PactRow rk rd tid), newCache)
+                       Just ((), newCache) -> do
+                         pure (Nothing, newCache)
 
-                    (maybeRow, newRkCache) <- liftIO useCache
+                    -- Yield the row if it was found
                     forM_ maybeRow $ \r -> S.yield r
+
+                    -- Recurse with the new cache
                     go newRkCache rest
                   _ -> do
                     liftIO $ exitLog logger "Encountered invalid row shape during getActiveState"
@@ -446,8 +457,8 @@ compactTable logger srcDb targetDb tblname targetBlockHeight = do
   -- This query checks for rowkey membership in the target db (implements the
   -- SQLite part of the rowkey cache)
   let checkTargetForRkText = "SELECT 1 FROM [" <> tblname <> "] WHERE rowkey = ?1"
-  -- This query inserts rows into the target
-  -- TODO: Investigate if bulkInsert matters
+  -- This query inserts rows into the target.
+  -- I tried using bulk inserts and it didn't make a difference.
   let insertQryText = "INSERT INTO " <> fromUtf8 (tbl tblnameUtf8) <> " (rowkey, txid, rowdata) VALUES (?1, ?2, ?3)"
   -- The LRU rowkey cache. Right now a capacity of 500 is used. This was just
   -- determined by vibes. It can probably be larger because it just contains
@@ -473,6 +484,7 @@ compactTable logger srcDb targetDb tblname targetBlockHeight = do
 
   log LL.Info $ "Done compacting table " <> tblname
 
+-- | Create all the checkpointer tables
 createCheckpointerTables :: (Logger logger)
   => Database
   -> logger
@@ -517,6 +529,7 @@ createCheckpointerTables db logger = do
     log $ "Deleting from table " <> fromUtf8 tblname
     Pact.exec_ db $ "DELETE FROM " <> tbl tblname
 
+-- | Create all the indexes for the checkpointer tables.
 createCheckpointerIndexes :: (Logger logger) => Database -> logger -> IO ()
 createCheckpointerIndexes db logger = do
   let log = logFunctionText logger LL.Info
@@ -539,6 +552,7 @@ createCheckpointerIndexes db logger = do
   inTx db $ Pact.exec_ db
     "CREATE INDEX IF NOT EXISTS TransactionIndex_blockheight_ix ON TransactionIndex (blockheight)"
 
+-- | Create a single user table
 createUserTable :: Database -> Utf8 -> IO ()
 createUserTable db tblname = do
   Pact.exec_ db $ mconcat
@@ -552,6 +566,7 @@ createUserTable db tblname = do
 
   Pact.exec_ db $ "DELETE FROM " <> tbl tblname
 
+-- | Create the indexes for a single user table
 createUserTableIndex :: Database -> Utf8 -> IO ()
 createUserTableIndex db tblname = do
   inTx db $ do
@@ -599,6 +614,13 @@ getVersionedTableMutationRowsAt logger db target = do
 tbl :: Utf8 -> Utf8
 tbl u = "[" <> u <> "]"
 
+-- | Locate the latest "safe" target blockheight for compaction.
+--
+--   In mainnet/testnet, this is determined
+--   to be the @mininum (map latestBlockHeight chains) - 1000@.
+--
+--   In devnet, this is just the latest common blockheight
+--   (or @minimum (map latestBlockHeight chains)@).
 locateLatestSafeTarget :: (Logger logger)
   => logger
   -> ChainwebVersion
@@ -629,23 +651,7 @@ locateLatestSafeTarget logger v dbDir cids = do
   log LL.Debug $ "Compaction target blockheight is: " <> sshow target
   pure target
 
-{-
-locateEarliestBlock :: (Logger logger)
-  => logger
-  -> ChainwebVersion
-  -> FilePath
-  -> [ChainId]
-  -> IO BlockHeight
-locateEarliestBlock logger v dbDir cids = do
-  let logger' = set setLoggerLevel (l2l LL.Error) logger
-
-  Min minBlockHeight <- flip foldMap cids $ \cid -> do
-    withChainDb cid logger' dbDir $ \_ sqlEnv -> do
-      Min <$> getEarliestBlockHeight sqlEnv
-
-  pure minBlockHeight
--}
-
+-- | Log an error message, then exit with code 1.
 exitLog :: (Logger logger)
   => logger
   -> Text
@@ -654,15 +660,20 @@ exitLog logger msg = do
   logFunctionText logger LL.Error msg
   exitFailure
 
+-- | Step through a prepared statement, then clear the statement's bindings
+--   and reset the statement.
 stepThenReset :: Lite.Statement -> IO Lite.StepResult
 stepThenReset stmt = do
   Lite.stepNoCB stmt `finally` (Lite.clearBindings stmt >> Lite.reset stmt)
 
+-- | This is either 'forM_' or 'pooledForConcurrently_', depending on
+--   the 'ConcurrentChains' input.
 forChains_ :: ConcurrentChains -> [ChainId] -> (ChainId -> IO a) -> IO ()
 forChains_ = \case
   SingleChain -> forM_
   ManyChainsAtOnce -> pooledForConcurrently_
 
+-- | Swallow a SQLite 'Lite.Error' and throw it.
 throwSqlError :: IO (Either Lite.Error a) -> IO a
 throwSqlError ioe = do
   e <- ioe
@@ -670,6 +681,7 @@ throwSqlError ioe = do
     Left err -> error (show err)
     Right a -> pure a
 
+-- | Run the 'IO' action inside of a transaction.
 inTx :: Database -> IO a -> IO a
 inTx db io = do
   bracket_
@@ -677,24 +689,7 @@ inTx db io = do
     (Pact.exec_ db "COMMIT;")
     io
 
-{-
-there are 8 "block" tables:
-   - header table
-   - header rank table
-   - payload table
-   - payload transactions table
-   - payload outputs table
-   - 3 cache tables
-
-there is also the 1 cuthashes table
-
-we need to copy over the cut hashes table entirely. it's already periodically
-trimmed.
-
-for all of the "block" tables, we need to copy them over, but migrate
-them if necessary. We don't want any "old" tables around, only "new",
-blockheight-indexed tables.
--}
+-- | Copy over all CutHashes, all BlockHeaders, and only some Payloads.
 trimRocksDb :: ()
   => ChainwebVersion -- ^ cw version
   -> [ChainId] -- ^ ChainIds
@@ -704,6 +699,7 @@ trimRocksDb :: ()
   -> RocksDb -- ^ target db
   -> IO ()
 trimRocksDb cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
+
   -- Copy over entirety of CutHashes table
   let srcCutHashes = cutHashesTable srcDb
   let targetCutHashes = cutHashesTable targetDb
@@ -718,10 +714,11 @@ trimRocksDb cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
               go
     go
 
-  -- Migrate all relevant blockheaders
+  -- Migrate BlockHeaders and Payloads
   let srcPayloads = newPayloadDb srcDb
   let targetPayloads = newPayloadDb targetDb
 
+  -- The target payload db has to be initialised.
   initializePayloadDb cwVersion targetPayloads
 
   srcWbhdb <- initWebBlockHeaderDb srcDb cwVersion
@@ -731,26 +728,9 @@ trimRocksDb cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
     targetBlockHeaderDb <- getWebBlockHeaderDb targetWbhdb cid
 
     withTableIterator (_chainDbCas srcBlockHeaderDb) $ \it -> do
-      -- Go to the earliest entry
+      -- Go to the earliest entry. We migrate all BlockHeaders, for now
       iterFirst it
 
-      -- Set up progress bar
-      progressBar <- do
-        iterValue it >>= \case
-          Nothing -> do
-            newProgressBar ProgressBar.defStyle 10 (Progress 0 0 "")
-          Just rbh -> do
-            let minBH = _blockHeight (_getRankedBlockHeader rbh)
-            let progressStyle = ProgressBar.defStyle
-                  { ProgressBar.styleWidth = ProgressBar.ConstantWidth 50
-                  }
-            Text.putStrLn $ "Trimming RocksDB for Chain " <> chainIdToText cid
-            newProgressBar
-              progressStyle
-              10
-              (Progress 0 (int (maxBlockHeight - minBH + 1)) (chainIdToText cid))
-
-      --iterSeek it (RankedBlockHash minBlockHeight nullBlockHash)
       let go = do
             iterValue it >>= \case
               Nothing -> do
@@ -762,10 +742,10 @@ trimRocksDb cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
 
                 -- Migrate the ranked block table and rank table
                 -- unconditionally.
-                -- Right now, the headers are definitely needed (we can't delete
-                -- any).
+                -- Right now, the headers are definitely needed (we can't delete any).
                 --
-                -- Not sure about the rank table, though.
+                -- Not sure about the rank table, though. We keep it to be
+                -- conservative.
                 tableInsert (_chainDbCas targetBlockHeaderDb) (RankedBlockHash blockHeight blockHash) rankedBlockHeader
                 tableInsert (_chainDbRankTable targetBlockHeaderDb) blockHash blockHeight
 
@@ -775,108 +755,10 @@ trimRocksDb cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
                   -- Insert the payload into the new database
                   lookupPayloadWithHeight srcPayloads (Just blockHeight) (_blockPayloadHash blockHeader) >>= \case
                     Nothing -> do
-                      error "PAYLOAD FAILURE: TODO BETTER ERROR"
+                      error "Missing payload: This is likely due to a corrupted database."
                     Just payloadWithOutputs -> do
                       addNewPayload targetPayloads blockHeight payloadWithOutputs
-
-                ProgressBar.incProgress progressBar 1
 
                 iterNext it
                 go
       go
-
-{-
--- -------------------------------------------------------------------------- --
--- Windows (mingw) implementatin of 'installHandler'
-
-#if mingw32_HOST_OS
--- The windows (mingw32_HOST_OS) implementation of install Handler is an
--- adaption of <https://github.com/pmlodawski/signal>, which is copyright of
--- Copyright (c) 2015 Piotr Mlodawski.
-
-type Signal = CInt
-
-sigHUP, sigTERM, sigUSR1, sigUSR2, sigXCPU, sigXFSZ :: Signal
-sigHUP = 1
-sigTERM = 15
-sigUSR1 = 16
-sigUSR2 = 17
-sigXCPU = 30
-sigXFSZ = 31
-
-type Handler = Signal -> IO ()
-
-foreign import ccall "wrapper"
-    genHandler :: Handler -> IO (FunPtr Handler)
-
-foreign import ccall safe "signal.h signal"
-    install :: Signal -> FunPtr Handler -> IO Signal
-
-installHandler :: Signal -> Handler -> IO ()
-installHandler signal handler = do
-    result <- install signal =<< genHandler handler
-    return $ assert (result == 0) ()
-#endif
-
--- -------------------------------------------------------------------------- --
--- Install Signal Handlers
-
-newtype SignalException = SignalException Signal
-  deriving stock (Show, Generic)
-  deriving newtype (Eq)
-  deriving anyclass (Exception)
-
-installHandlerCross :: Signal -> (Signal -> IO ()) -> IO ()
-installHandlerCross s h =
-#ifdef mingw32_HOST_OS
-    installHandler s h
-#else
-    void $ installHandler s (Catch (h s)) Nothing
-#endif
-
--- | Handle SIGTERM (and other signals) that are supposed to terminate the
--- program. By default GHCs RTS only installs a handler for SIGINT (Ctrl-C).
--- This function install handlers that that raise an exception on the main
--- thread when a signal is received. This causes the execution of finalization
--- logic in brackets.
---
--- This is particularly important for the SQLite, because it resets the WAL
--- files. Otherwise the files would never be deallocated and would remain at
--- their maximum size forever. Graceful shutdown will also result in better
--- logging of issues and prevent data corruption or missing data in database
--- backends.
---
--- The implementation is copied fom
--- <https://ro-che.info/articles/2014-07-30-bracket>, which also explains
--- details.
---
--- This asssumes that threads are managed properly. Threads that are spawned by
--- just calling forkIO, won't be notified and terminate without executing
--- termination logic.
---
-installFatalSignalHandlers :: TVar Status -> [Signal] -> IO ()
-installFatalSignalHandlers status signals = do
-  main_thread_id <- myThreadId
-  weak_tid <- mkWeakThreadId main_thread_id
-  forM_ signals $ \sig ->
-    installHandlerCross sig $ \s -> do
-      atomically $ writeTVar status Interrupted
-      atomically $ do
-        readTVar status >>= \case
-          Running -> error "Application in 'Running' state after being interrupted. This should be impossible."
-          Interrupted -> retry -- waiting for the application to finish gracefully
-          Done -> pure ()
-      send_exception weak_tid s
-  where
-    send_exception weak_tid sig = do
-      m <- deRefWeak weak_tid
-      case m of
-        Nothing  -> return ()
-        Just tid -> throwTo tid (toException $ SignalException sig)
-
-data Status
-  = Running
-  | Interrupted
-  | Done
-  deriving stock (Eq)
--}
