@@ -1,0 +1,1 @@
+Expand /info endpoint with: historical fork heights, node package version, genesis heights, the upcoming service date, and the block delay.
