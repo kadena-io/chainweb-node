@@ -190,4 +190,5 @@ testnet = ChainwebVersion
             , (fromJuste (decodeStrictOrThrow' "\"3fpFnFUrRsu67ItHicBGa9PVlWp71AggrcWoikht3jk\""), Gas 65130)
             ]
         }
+    , _versionServiceDate = Just "2024-08-21T00:00:00Z"
     }

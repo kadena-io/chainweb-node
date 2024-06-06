@@ -571,6 +571,7 @@ test-suite chainweb-tests
         , data-dword >= 0.3
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
+        , digraph
         , direct-sqlite >= 2.3.27
         , directory >= 1.2
         , ethereum
@@ -844,6 +845,7 @@ benchmark bench
         , containers >= 0.5
         , criterion
         , deepseq >= 1.4
+        , digraph
         , exceptions >= 0.8
         , file-embed >= 0.0
         , lens >= 4.17

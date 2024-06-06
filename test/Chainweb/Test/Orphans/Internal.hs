@@ -60,6 +60,7 @@ module Chainweb.Test.Orphans.Internal
 ) where
 
 import Control.Applicative
+import Control.Lens ((^.))
 import Control.Monad
 import Control.Monad.Catch
 
@@ -68,9 +69,11 @@ import Crypto.Hash.Algorithms
 import Data.Aeson hiding (Error)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as BS
+import qualified Data.DiGraph as G
 import Data.Foldable
 import Data.Function
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.Kind
 import qualified Data.List as L
 import Data.MerkleLog
@@ -79,6 +82,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Type.Equality
 import qualified Data.Vector as V
+import Data.Word (Word32)
 
 import GHC.Stack
 
@@ -282,15 +286,20 @@ instance Arbitrary NodeInfo where
         v <- arbitrary
         curHeight <- arbitrary
         let graphs = unpackGraphs v
-            curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
-            curChains = map fst $ snd curGraph
+        let curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
+        let curChains = map fst $ snd curGraph
         return $ NodeInfo
             { nodeVersion = _versionName v
+            , nodePackageVersion = chainwebNodeVersionHeaderValue
             , nodeApiVersion = prettyApiVersion
             , nodeChains = T.pack . show <$> curChains
             , nodeNumberOfChains = length curChains
             , nodeGraphHistory = graphs
             , nodeLatestBehaviorHeight = latestBehaviorAt v
+            , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight v c)) $ map (unsafeChainId . int @Int @Word32) curChains
+            , nodeHistoricalChains = fmap (HS.toList . G.vertices . (^. chainGraphGraph)) (_versionGraphs v)
+            , nodeServiceDate = T.pack <$> _versionServiceDate v
+            , nodeBlockDelay = _versionBlockDelay v
             }
 
 -- -------------------------------------------------------------------------- --

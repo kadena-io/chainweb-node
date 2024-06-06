@@ -540,11 +540,6 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- SERVICE DATE for version 2.24
---
-serviceDate :: Maybe String
-serviceDate = Just "2024-08-21T00:00:00Z"
-
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
     "Chainweb Node"
@@ -571,7 +566,7 @@ main = do
                 , Handler $ \(e :: SomeException) ->
                     logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
                 ] $ do
-                kt <- mapM iso8601ParseM serviceDate
+                kt <- mapM iso8601ParseM (_versionServiceDate v)
                 withServiceDate (_configChainwebVersion (_nodeConfigChainweb conf)) (logFunctionText logger) kt $ void $
                     race (node conf logger) (gcRunner (logFunctionText logger))
     where

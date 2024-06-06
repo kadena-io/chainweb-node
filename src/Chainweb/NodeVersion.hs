@@ -39,7 +39,6 @@ module Chainweb.NodeVersion
 
 import Control.DeepSeq
 import Control.Lens hiding ((.=))
-import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson
@@ -236,10 +235,7 @@ requestRemoteNodeInfo mgr ver addr maybeReq =
 
 -- | Obtain 'NodeInfo' of a remote Chainweb node from response headers.
 --
--- This function throws 'NodeInfoUnsupported' for remote chainweb nodes
--- with a node version smaller or equal 2.5.
---
--- No retries are attempted in case of a failure.
+--   No retries are attempted in case of a failure.
 --
 getRemoteNodeInfo
     :: forall m
@@ -251,9 +247,6 @@ getRemoteNodeInfo addr hdrs = do
     vers <- case lookup chainwebNodeVersionHeaderName hdrs of
         Nothing -> throwM $ VersionHeaderMissing addr
         Just x -> hdrFromText x
-
-    -- can be removed once all nodes run version 2.4 or larger
-    unless (vers >= NodeVersion [2,5]) $ throwM $ NodeInfoUnsupported addr vers
 
     RemoteNodeInfo vers
         <$> case lookup serverTimestampHeaderName hdrs of

@@ -1,8 +1,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -16,9 +17,9 @@ import Control.Lens
 import Control.Monad.Trans
 import Data.Aeson
 import Data.Bifunctor
+import Data.HashSet qualified as HashSet
 import qualified Data.DiGraph as G
 import qualified Data.HashMap.Strict as HashMap
-import qualified Data.HashSet as HashSet
 import qualified Data.List.NonEmpty as NE
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -27,10 +28,12 @@ import GHC.Generics
 
 import Servant
 
+import Chainweb.BlockHeader (genesisHeight)
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
+import Chainweb.Difficulty (BlockDelay)
 import Chainweb.Graph
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils.Rule
@@ -46,39 +49,55 @@ someNodeInfoServer v c =
   SomeServer (Proxy @NodeInfoApi) (nodeInfoHandler v $ someCutDbVal v c)
 
 data NodeInfo = NodeInfo
-  {
-    nodeVersion :: ChainwebVersionName
+  { nodeVersion :: ChainwebVersionName
+    -- ^ ChainwebVersion the node is running
+  , nodePackageVersion :: Text
+    -- ^ Chainweb Package version that the node is running
   , nodeApiVersion :: Text
+    -- ^ Chainweb Node API version
   , nodeChains :: [Text]
-  -- ^ Current list of chains
+    -- ^ Current list of chains
   , nodeNumberOfChains :: !Int
-  -- ^ Current number of chains
+    -- ^ Current number of chains
   , nodeGraphHistory :: [(BlockHeight, [(Int, [Int])])]
-  -- ^ List of chain graphs and the block height they took effect. Sorted
-  -- descending by height so the current chain graph is at the beginning.
+    -- ^ List of chain graphs and the block height they took effect. Sorted
+    -- descending by height so the current chain graph is at the beginning.
   , nodeLatestBehaviorHeight :: BlockHeight
-  -- ^ Height at which the latest behavior of the node is activated. See
-  -- `Chainweb.Version.latestBehaviorAt`.
-  } deriving (Show, Eq, Generic)
-
-instance ToJSON NodeInfo
-instance FromJSON NodeInfo
+    -- ^ Height at which the latest behavior of the node is activated. See
+    -- `Chainweb.Version.latestBehaviorAt`.
+  , nodeGenesisHeights :: [(Text, BlockHeight)]
+    -- ^ Genesis heights of each chain.
+  , nodeHistoricalChains :: Rule BlockHeight [ChainId]
+    -- ^ The graph upgrades over time. For now, this is just the vertices,
+    --   instead of the full graph.
+  , nodeServiceDate :: Maybe Text
+    -- ^ The upcoming service date for the node.
+  , nodeBlockDelay :: BlockDelay
+    -- ^ The PoW block delay of the node (microseconds)
+  }
+  deriving (Show, Eq, Generic)
+  deriving anyclass (ToJSON, FromJSON)
 
 nodeInfoHandler :: ChainwebVersion -> SomeCutDb tbl -> Server NodeInfoApi
-nodeInfoHandler v (SomeCutDb ((CutDbT db) :: CutDbT cas v)) = do
+nodeInfoHandler v (SomeCutDb (CutDbT db :: CutDbT cas v)) = do
     curCut <- liftIO $ _cut db
     let ch = cutToCutHashes Nothing curCut
-        curHeight = maximum $ map _bhwhHeight $ HashMap.elems $ _cutHashes ch
-        graphs = unpackGraphs v
-        curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
-        curChains = map fst $ snd curGraph
+    let curHeight = maximum $ map _bhwhHeight $ HashMap.elems $ _cutHashes ch
+    let graphs = unpackGraphs v
+    let curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
+    let curChains = map fst $ snd curGraph
     return $ NodeInfo
       { nodeVersion = _versionName v
+      , nodePackageVersion = chainwebNodeVersionHeaderValue
       , nodeApiVersion = prettyApiVersion
       , nodeChains = T.pack . show <$> curChains
       , nodeNumberOfChains = length curChains
       , nodeGraphHistory = graphs
       , nodeLatestBehaviorHeight = latestBehaviorAt v
+      , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight v c)) $ HashMap.keys (_cutHashes ch)
+      , nodeHistoricalChains = fmap (HashSet.toList . G.vertices . (^. chainGraphGraph)) (_versionGraphs v)
+      , nodeServiceDate = T.pack <$> _versionServiceDate v
+      , nodeBlockDelay = _versionBlockDelay v
       }
 
 -- | Converts chainwebGraphs to a simpler structure that has invertible JSON

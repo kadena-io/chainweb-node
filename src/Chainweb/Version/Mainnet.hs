@@ -215,8 +215,9 @@ mainnet = ChainwebVersion
         End mempty
     , _versionQuirks = VersionQuirks
         { _quirkGasFees = HM.fromList
-            [ (fromJuste (decodeStrictOrThrow' "\"s9fUspNaCHoV4rNI-Tw-JYU1DxqZAOXS-80oEy7Zfbo\""), Gas 67618)
-            , (fromJuste (decodeStrictOrThrow' "\"_f1xkIQPGRcOBNBWkOvP0dGNOjmNtmXwOnXzfdwnmJQ\""), Gas 69092)
+            [ (fromJuste (decodeStrictOrThrow' "\"s9fUspNaCHoV4rNI-Tw-JYU1DxqZAOXS-80oEy7Zfbo\""), Gas 67_618)
+            , (fromJuste (decodeStrictOrThrow' "\"_f1xkIQPGRcOBNBWkOvP0dGNOjmNtmXwOnXzfdwnmJQ\""), Gas 69_092)
             ]
         }
+    , _versionServiceDate = Just "2024-08-21T00:00:00Z"
     }
