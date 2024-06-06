@@ -273,6 +273,8 @@ compact cfg = do
         , "shrink_memory"
         ]
 
+  -- Shallow Nodes notes:
+  --   - Users should bring up new nodes if they need maximal uptime
   forChains_ cfg.concurrent cids $ \cid -> do
     withPerChainFileLogger cfg.logDir cid LL.Debug $ \logger -> do
       withChainDb cid logger cfg.sourcePactDir $ \_ srcDb -> do
@@ -306,7 +308,9 @@ compact cfg = do
                 Pact.bindParams stmt row
                 void $ stepThenReset stmt
 
-          -- Copy over VersionedTableCreation (it isn't compacted)
+          -- Copy over VersionedTableCreation. Read-only rewind needs to know
+          -- when the table existed at that time, so we can't compact this.
+          --
           -- This is pretty fast and low residency
           do
             log LL.Info "Copying over VersionedTableCreation"
@@ -317,7 +321,13 @@ compact cfg = do
                   Pact.bindParams stmt row
                   void $ stepThenReset stmt
 
-          -- Copy over TransactionIndex
+          -- Copy over TransactionIndex.
+          --
+          -- TODO: Should we compact this based on the RocksDB 'minBlockHeight'?
+          -- /poll and SPV rely on having this table synchronised with RocksDB.
+          --
+          -- We should let users have the option to keep this around, as an
+          -- advanced option, and document those APIs which need it.
           --
           -- It isn't (currently) compacted so the amount of data is quite large
           -- This, SYS:Pacts, and coin_coin-table were all used as benchmarks
@@ -397,6 +407,10 @@ compactTable logger srcDb targetDb tblname targetBlockHeight = do
 
   -- Grab the endingtxid for determining latest state at the
   -- target height
+  --
+  -- TODO: move this out, doesn't need to be called for every table.
+  --
+  -- bh: 400, endingtxId: 10 (exclusive)
   endingTxId <- getEndingTxId srcDb targetBlockHeight
 
   -- | Get the active pact state (a 'Stream' of 'PactRow').
@@ -409,6 +423,8 @@ compactTable logger srcDb targetDb tblname targetBlockHeight = do
         -> Stream (Of PactRow) IO ()
       getActiveState rkSqliteCache = go
         where
+          -- TODO: check if there's a benefit to a cuckoo filter or bloom filter
+          -- for replacing the rkMemCache
           go rkMemCache s = do
             e <- liftIO (S.next s)
             case e of
@@ -423,20 +439,20 @@ compactTable logger srcDb targetDb tblname targetBlockHeight = do
                     -- cache
                     (maybeRow, newRkCache) <- liftIO $ do
                       case Lru.lookup rk rkMemCache of
-                       Nothing -> do
-                         inTargetDb <- do
-                           Pact.qrys rkSqliteCache [SText (Utf8 rk)] [RInt] >>= \case
-                             [] -> pure False
-                             [[SInt 1]] -> pure True
-                             _ -> exitLog logger "getActiveState: invalid membership query"
-                         let !newCache = Lru.insert rk () rkMemCache
-                         if inTargetDb
-                         then do
-                           pure (Nothing, newCache)
-                         else do
-                           pure (Just (PactRow rk rd tid), newCache)
-                       Just ((), newCache) -> do
-                         pure (Nothing, newCache)
+                        Nothing -> do
+                          inTargetDb <- do
+                            Pact.qrys rkSqliteCache [SText (Utf8 rk)] [RInt] >>= \case
+                              [] -> pure False
+                              [[SInt 1]] -> pure True
+                              _ -> exitLog logger "getActiveState: invalid membership query"
+                          let !newCache = Lru.insert rk () rkMemCache
+                          if inTargetDb
+                          then do
+                            pure (Nothing, newCache)
+                          else do
+                            pure (Just (PactRow rk rd tid), newCache)
+                        Just ((), newCache) -> do
+                          pure (Nothing, newCache)
 
                     -- Yield the row if it was found
                     forM_ maybeRow $ \r -> S.yield r
@@ -448,7 +464,7 @@ compactTable logger srcDb targetDb tblname targetBlockHeight = do
 
   -- This query gets all rows at or below (older than) the target blockheight
   let activeStateQryText = "SELECT rowkey, txid, rowdata FROM "
-              <>  "[" <> tblnameUtf8 <> "]"
+              <> "[" <> tblnameUtf8 <> "]"
               <> " WHERE txid < ?1"
               <> " ORDER BY rowid DESC" -- txid ordering agrees with rowid ordering, but rowid is much faster
   let activeStateQryArgs = [SInt endingTxId]
@@ -641,6 +657,7 @@ locateLatestSafeTarget logger v dbDir cids = do
   -- In devnet or testing versions we don't care.
   let safeDepth :: BlockHeight
       safeDepth
+        -- TODO: Lars thinks 1_000 is too conservative
         | v == mainnet || v == testnet = BlockHeight 1_000
         | otherwise = BlockHeight 0
 
@@ -728,7 +745,11 @@ trimRocksDb cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
     targetBlockHeaderDb <- getWebBlockHeaderDb targetWbhdb cid
 
     withTableIterator (_chainDbCas srcBlockHeaderDb) $ \it -> do
-      -- Go to the earliest entry. We migrate all BlockHeaders, for now
+      -- Go to the earliest entry. We migrate all BlockHeaders, for now.
+      -- They are needed for SPV.
+      --
+      -- Constructing SPV proofs actually needs the payloads, but validating
+      -- them does not.
       iterFirst it
 
       let go = do
