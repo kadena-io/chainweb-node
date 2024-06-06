@@ -14,7 +14,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
@@ -44,6 +43,7 @@ module Chainweb.Graph
 , chainGraphGraph
 , validChainGraph
 , adjacentChainIds
+, toAdjacencySets
 , HasChainGraph(..)
 
 -- * Undirected Edges
@@ -92,6 +92,7 @@ import Control.Monad.Catch (Exception, MonadThrow(..))
 import Data.Bits (xor)
 import Data.Function (on)
 import Data.Hashable (Hashable(..))
+import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Kind (Type)
 
@@ -196,6 +197,11 @@ adjacentChainIds graph@(ChainGraph g _ _ _) cid
     | isWebChain graph cid = G.adjacents (_chainId cid) g
     | otherwise = mempty
 {-# INLINE adjacentChainIds #-}
+
+-- | Return the adjacency set representation of the underlying graph
+--
+toAdjacencySets :: ChainGraph -> HM.HashMap ChainId (HS.HashSet ChainId)
+toAdjacencySets g = G.adjacencySets (_chainGraphGraph g)
 
 -- -------------------------------------------------------------------------- --
 -- Undirected Edges

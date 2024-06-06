@@ -71,6 +71,7 @@ import qualified Data.ByteString.Short as BS
 import Data.Foldable
 import Data.Function
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.Kind
 import qualified Data.List as L
 import Data.MerkleLog
@@ -143,6 +144,7 @@ import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Paging
+import Chainweb.Utils.Rule (ruleElems)
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.RecapDevelopment
@@ -282,15 +284,20 @@ instance Arbitrary NodeInfo where
         v <- arbitrary
         curHeight <- arbitrary
         let graphs = unpackGraphs v
-            curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
-            curChains = map fst $ snd curGraph
+        let curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
+        let curChains = map fst $ snd curGraph
         return $ NodeInfo
             { nodeVersion = _versionName v
+            , nodePackageVersion = chainwebNodeVersionHeaderValue
             , nodeApiVersion = prettyApiVersion
             , nodeChains = T.pack . show <$> curChains
             , nodeNumberOfChains = length curChains
             , nodeGraphHistory = graphs
             , nodeLatestBehaviorHeight = latestBehaviorAt v
+            , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight v c)) $ HS.toList $ chainIds v
+            , nodeHistoricalChains = ruleElems 0 $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs v
+            , nodeServiceDate = T.pack <$> _versionServiceDate v
+            , nodeBlockDelay = _versionBlockDelay v
             }
 
 -- -------------------------------------------------------------------------- --
