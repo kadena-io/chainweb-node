@@ -29,7 +29,7 @@ module Chainweb.Pact.PactService.ExecBlock
     , validateHashes
     , throwCommandInvalidError
     , initModuleCacheForBlock
-    , runCoinbase
+    , runPact4Coinbase
     , CommandInvalidError(..)
     ) where
 
@@ -89,7 +89,8 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.NoCoinbase
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
-import Chainweb.Pact.TransactionExec
+import Chainweb.Pact.TransactionExec.Pact4
+import qualified Chainweb.Pact.TransactionExec.Pact5 as Pact5
 import Chainweb.Pact.Types
 import Chainweb.Pact.Validations
 import Chainweb.Payload
@@ -116,6 +117,9 @@ execBlock currHeader payload = do
     let plData = checkablePayloadToPayloadData payload
     dbEnv <- view psBlockDbEnv
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
+
+    -- if
+
     trans <- liftIO $ pact4TransactionsFromPayload
       (pactParserVersion v (_blockChainId currHeader) (_blockHeight currHeader))
       plData
@@ -153,7 +157,7 @@ execBlock currHeader payload = do
       fromIntegral <$> maxBlockGasLimit v (_blockHeight currHeader)
 
     logInitCache = liftPactServiceM $ do
-      mc <- fmap (fmap instr . _getModuleCache . fst) <$> use psInitCache
+      mc <- fmap (fmap instr . _getModuleCache) <$> use psInitCache
       logDebug $ "execBlock: initCache: " <> sshow mc
 
     instr (md,_) = preview (P._MDModule . P.mHash) $ P._mdModule md
@@ -303,28 +307,28 @@ execTransactions
     -> CoinbaseUsePrecompiled
     -> Maybe P.Gas
     -> Maybe Micros
-    -> PactBlockM logger tbl (Transactions (Either CommandInvalidError (Either (P.CommandResult [P.TxLogJson]) PCore.CommandResult)))
+    -> PactBlockM logger tbl (Transactions (Either CommandInvalidError (P.CommandResult [P.TxLogJson])))
 execTransactions isGenesis miner ctxs enfCBFail usePrecomp gasLimit timeLimit = do
     mc <- initModuleCacheForBlock isGenesis
     -- for legacy reasons (ask Emily) we don't use the module cache resulting
     -- from coinbase to run the pact cmds
-    coinOut <- runCoinbase isGenesis miner enfCBFail usePrecomp mc
-    T3 txOuts _mcOut _cmcOut <- applyPactCmds isGenesis ctxs miner mc gasLimit timeLimit
+    coinOut <- runPact4Coinbase isGenesis miner enfCBFail usePrecomp mc
+    T2 txOuts _mcOut <- applyPactCmds isGenesis ctxs miner mc gasLimit timeLimit
     return $! Transactions (V.zip ctxs txOuts) coinOut
 
 execTransactionsOnly
     :: (Logger logger)
     => Miner
     -> Vector Pact4Transaction
-    -> (ModuleCache, CoreModuleCache)
+    -> ModuleCache
     -> Maybe Micros
     -> PactBlockM logger tbl
-       (T3 (Vector (Pact4Transaction, Either CommandInvalidError (P.CommandResult [P.TxLogJson]))) ModuleCache CoreModuleCache)
-execTransactionsOnly miner ctxs (mc, cmc) txTimeLimit = do
-    T3 txOuts mcOut cmcOut <- applyPactCmds False ctxs miner (mc, cmc) Nothing txTimeLimit
-    return $! T3 (V.force (V.zip ctxs txOuts)) mcOut cmcOut
+       (T2 (Vector (Pact4Transaction, Either CommandInvalidError (P.CommandResult [P.TxLogJson]))) ModuleCache)
+execTransactionsOnly miner ctxs mc txTimeLimit = do
+    T2 txOuts mcOut <- applyPactCmds False ctxs miner mc Nothing txTimeLimit
+    return $! T2 (V.force (V.zip ctxs txOuts)) mcOut
 
-initModuleCacheForBlock :: (Logger logger) => Bool -> PactBlockM logger tbl (ModuleCache, CoreModuleCache)
+initModuleCacheForBlock :: (Logger logger) => Bool -> PactBlockM logger tbl ModuleCache
 initModuleCacheForBlock isGenesis = do
   PactServiceState{..} <- get
   pbh <- views psParentHeader (_blockHeight . _parentHeader)
@@ -333,23 +337,23 @@ initModuleCacheForBlock isGenesis = do
   txCtx <- getTxContext def
   case Map.lookupLE pbh _psInitCache of
     Nothing -> if isGenesis
-      then return (mempty, mempty)
+      then return mempty
       else do
         mc <- readInitModules
         updateInitCacheM mc
         return mc
-    Just (_,(mc, cmc)) -> pure (mc, cmc)
+    Just (_,mc) -> pure mc
 
-runCoinbase
+runPact4Coinbase
     :: (Logger logger)
     => Bool
     -> Miner
     -> EnforceCoinbaseFailure
     -> CoinbaseUsePrecompiled
-    -> (ModuleCache, CoreModuleCache)
-    -> PactBlockM logger tbl (Either (P.CommandResult [P.TxLogJson]) PCore.CommandResult)
-runCoinbase True _ _ _ _ = return noCoinbase
-runCoinbase False miner enfCBFail usePrecomp (mc, cmc) = do
+    -> ModuleCache
+    -> PactBlockM logger tbl (P.CommandResult [P.TxLogJson])
+runPact4Coinbase True _ _ _ _ = return noCoinbase
+runPact4Coinbase False miner enfCBFail usePrecomp mc = do
     logger <- view (psServiceEnv . psLogger)
     rs <- view (psServiceEnv . psMinerRewards)
     v <- view chainwebVersion
@@ -361,9 +365,9 @@ runCoinbase False miner enfCBFail usePrecomp (mc, cmc) = do
     dbEnv <- view psBlockDbEnv
 
     T2 cr upgradedCacheM <-
-        liftIO $ applyCoinbase v logger (_cpPactDbEnv dbEnv, _cpPactCoreDbEnv dbEnv) miner reward txCtx enfCBFail usePrecomp (mc, cmc)
+        liftIO $ applyCoinbase v logger (_cpPactDbEnv dbEnv) miner reward txCtx enfCBFail usePrecomp mc
     mapM_ upgradeInitCache upgradedCacheM
-    liftPactServiceM $ debugResult "runCoinbase" (P.crLogs %~ fmap J.Array $ cr)
+    liftPactServiceM $ debugResult "runPact4Coinbase" (P.crLogs %~ fmap J.Array $ cr)
     return $! cr
 
   where
@@ -384,22 +388,22 @@ applyPactCmds
     => Bool
     -> Vector Pact4Transaction
     -> Miner
-    -> (ModuleCache, CoreModuleCache)
+    -> ModuleCache
     -> Maybe P.Gas
     -> Maybe Micros
-    -> PactBlockM logger tbl (T3 (Vector (Either CommandInvalidError (P.CommandResult [P.TxLogJson]))) ModuleCache CoreModuleCache)
-applyPactCmds isGenesis cmds miner (mc, cmc) blockGas txTimeLimit = do
+    -> PactBlockM logger tbl (T2 (Vector (Either CommandInvalidError (P.CommandResult [P.TxLogJson]))) ModuleCache)
+applyPactCmds isGenesis cmds miner mc blockGas txTimeLimit = do
     let txsGas txs = fromIntegral $ sumOf (traversed . _Right . to P._crGas) txs
-    (txOuts, T3 mcOut cmcOut _) <- tracePactBlockM' "applyPactCmds" () (txsGas . fst) $
-      flip runStateT (T3 mc cmc blockGas) $
+    (txOuts, T2 mcOut _) <- tracePactBlockM' "applyPactCmds" () (txsGas . fst) $
+      flip runStateT (T2 mc blockGas) $
         go [] (V.toList cmds)
-    return $! T3 (V.fromList . List.reverse $ txOuts) mcOut cmcOut
+    return $! T2 (V.fromList . List.reverse $ txOuts) mcOut
   where
     go
       :: [Either CommandInvalidError (P.CommandResult [P.TxLogJson])]
       -> [Pact4Transaction]
       -> StateT
-          (T3 ModuleCache CoreModuleCache (Maybe P.Gas))
+          (T2 ModuleCache (Maybe P.Gas))
           (PactBlockM logger tbl)
           [Either CommandInvalidError (P.CommandResult [P.TxLogJson])]
     go !acc = \case
@@ -422,10 +426,10 @@ applyPactCmd
   -> Maybe Micros
   -> Pact4Transaction
   -> StateT
-      (T3 ModuleCache CoreModuleCache (Maybe P.Gas))
+      (T2 ModuleCache (Maybe P.Gas))
       (PactBlockM logger tbl)
       (Either CommandInvalidError (P.CommandResult [P.TxLogJson]))
-applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T3 mcache cmcache maybeBlockGasRemaining) -> do
+applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
   dbEnv <- view psBlockDbEnv
   prevBlockState <- liftIO $ fmap _benvBlockState $
     readMVar $ pdPactDbVar $ _cpPactDbEnv dbEnv
@@ -437,7 +441,7 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T3 mcache cmcache mayb
   let
     -- for errors so fatal that the tx doesn't make it in the block
     onFatalError e
-      | Just (BuyGasFailure f) <- fromException e = pure (Left (CommandInvalidGasPurchaseFailure f), T3 mcache cmcache maybeBlockGasRemaining)
+      | Just (BuyGasFailure f) <- fromException e = pure (Left (CommandInvalidGasPurchaseFailure f), T2 mcache maybeBlockGasRemaining)
       | Just t@(TxTimeout {}) <- fromException e = do
         -- timeouts can occur at any point during the transaction, even after
         -- gas has been bought (or even while gas is being redeemed, after the
@@ -446,7 +450,7 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T3 mcache cmcache mayb
         liftIO $ P.modifyMVar'
           (pdPactDbVar $ _cpPactDbEnv dbEnv)
           (benvBlockState .~ prevBlockState)
-        pure (Left (CommandInvalidTxTimeout t), T3 mcache cmcache maybeBlockGasRemaining)
+        pure (Left (CommandInvalidTxTimeout t), T2 mcache maybeBlockGasRemaining)
       | otherwise = throwM e
     requestedTxGasLimit = view cmdGasLimit (payloadObj <$> cmd)
     -- notice that we add 1 to the remaining block gas here, to distinguish the
@@ -464,10 +468,10 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T3 mcache cmcache mayb
   let !hsh = P._cmdHash cmd
 
   handle onFatalError $ do
-    T2 result (mcache', cmcache') <- do
+    T2 result mcache' <- do
       txCtx <- getTxContext (publicMetaOf gasLimitedCmd)
       if isGenesis
-      then liftIO $! applyGenesisCmd logger (_cpPactDbEnv dbEnv, _cpPactCoreDbEnv dbEnv) P.noSPVSupport txCtx gasLimitedCmd
+      then liftIO $! applyGenesisCmd logger (_cpPactDbEnv dbEnv) P.noSPVSupport txCtx gasLimitedCmd
       else do
         bhdb <- view (psServiceEnv . psBlockHeaderDb)
         parent <- view psParentHeader
@@ -478,15 +482,15 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T3 mcache cmcache mayb
             Nothing -> id
             Just limit ->
                maybe (throwM timeoutError) return <=< timeout (fromIntegral limit)
-          txGas (T4 r _ _ _) = fromIntegral $ P._crGas r
-        T4 r c cc _warns <- do
+          txGas (T3 r _ _) = fromIntegral $ P._crGas r
+        T3 r c _warns <- do
           -- TRACE.traceShowM ("applyPactCmd.CACHE: ", LHM.keys $ _getModuleCache mcache, M.keys $ _getCoreModuleCache cmcache)
           tracePactBlockM' "applyCmd" (J.toJsonViaEncode hsh) txGas $ do
-            liftIO $ txTimeout $ applyCmd v logger gasLogger (_cpPactDbEnv dbEnv, _cpPactCoreDbEnv dbEnv) miner (gasModel txCtx, gasModelCore txCtx) txCtx spv gasLimitedCmd initialGas (mcache, cmcache) ApplySend
-        pure $ T2 r (c, cc)
+            liftIO $ txTimeout $ applyCmd v logger gasLogger (_cpPactDbEnv dbEnv) miner (gasModel txCtx) txCtx spv gasLimitedCmd initialGas mcache ApplySend
+        pure $ T2 r c
 
     if isGenesis
-    then updateInitCacheM (mcache', cmcache')
+    then updateInitCacheM mcache'
     else liftPactServiceM $ debugResult "applyPactCmd" (P.crLogs %~ fmap J.Array $ result)
 
     -- mark the tx as processed at the checkpointer.
@@ -501,7 +505,7 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T3 mcache cmcache mayb
           throwM $ BlockGasLimitExceeded (blockGasRemaining - fromIntegral requestedTxGasLimit)
       Nothing -> return ()
     let maybeBlockGasRemaining' = (\g -> g - P._crGas result) <$> maybeBlockGasRemaining
-    pure (Right result, T3 mcache' cmcache' maybeBlockGasRemaining')
+    pure (Right result, T2 mcache' maybeBlockGasRemaining')
 
 toHashCommandResult :: P.CommandResult [P.TxLogJson] -> P.CommandResult P.Hash
 toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . P.encodeTxLogJsonArray

@@ -96,6 +96,8 @@ import qualified Pact.Core.Persistence as PCore
 import qualified Pact.Core.Gas as PCore
 import qualified Pact.Core.Gas.TableGasModel as PCore
 
+import qualified Chainweb.Pact.TransactionExec.Pact4 as Pact4
+
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
@@ -111,7 +113,6 @@ import Chainweb.Pact.PactService.Checkpointer
 import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
-import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Pact.Validations
 import Chainweb.Payload
@@ -258,7 +259,7 @@ initializeCoinContract memPoolAccess v cid pwo = do
         -- cheap. We could also check the height but that would be redundant.
         if _blockHash (_parentHeader currentBlockHeader) /= _blockHash genesisHeader
         then do
-          !mc <- readFrom (Just currentBlockHeader) readInitModules
+          !mc <- readFrom (Just currentBlockHeader) Pact4.readInitModules
           updateInitCache mc currentBlockHeader
         else do
           logWarn "initializeCoinContract: Starting from genesis."
@@ -481,7 +482,7 @@ execNewBlock mpAccess miner = do
             -- Get and update the module cache
             initCache <- initModuleCacheForBlock False
             -- Run the coinbase transaction
-            cb <- runCoinbase False miner (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) initCache
+            cb <- runPact4Coinbase False miner (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) initCache
 
             successes <- liftIO $ Vec.new @_ @_ @(Pact4Transaction, P.CommandResult [P.TxLogJson])
             failures <- liftIO $ Vec.new @_ @_ @TransactionHash
@@ -528,11 +529,11 @@ execNewBlock mpAccess miner = do
           liftIO $!
             mpaGetBlock mpAccess bfState validate (pHeight + 1) pHash (_parentHeader latestHeader)
 
-        refill :: Word64 -> Micros -> GrowableVec (Pact4Transaction, P.CommandResult [P.TxLogJson]) -> GrowableVec TransactionHash -> (ModuleCache, CoreModuleCache) -> BlockFill -> PactBlockM logger tbl BlockFill
+        refill :: Word64 -> Micros -> GrowableVec (Pact4Transaction, P.CommandResult [P.TxLogJson]) -> GrowableVec TransactionHash -> ModuleCache -> BlockFill -> PactBlockM logger tbl BlockFill
         refill fetchLimit txTimeLimit successes failures = go
           where
-            go :: (ModuleCache, CoreModuleCache) -> BlockFill -> PactBlockM logger tbl BlockFill
-            go (mc, cmc) unchanged@bfState = do
+            go :: ModuleCache -> BlockFill -> PactBlockM logger tbl BlockFill
+            go mc unchanged@bfState = do
               pdbenv <- view psBlockDbEnv
 
               case unchanged of
@@ -555,7 +556,7 @@ execNewBlock mpAccess miner = do
                       newTrans <- liftPactServiceM $ getBlockTxs pdbenv bfState
                       if V.null newTrans then pure unchanged else do
 
-                        T3 pairs mc' cmc' <- execTransactionsOnly miner newTrans (mc, cmc)
+                        T2 pairs mc' <- execTransactionsOnly miner newTrans mc
                           (Just txTimeLimit) `catch` handleTimeout
 
                         oldSuccessesLength <- liftIO $ Vec.length successes
@@ -580,7 +581,7 @@ execNewBlock mpAccess miner = do
                             $ "Invariant failure, gas did not decrease: "
                             <> sshow (bfState,newState,V.length newTrans,addedSuccessCount)
                         else
-                          go (mc', cmc') (incCount newState)
+                          go mc' (incCount newState)
 
         incCount :: BlockFill -> BlockFill
         incCount b = over bfCount succ b
@@ -753,7 +754,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
     PactServiceEnv{..} <- ask
 
     let !cmd = payloadObj <$> cwtx
-        !pm = publicMetaOf cmd
+        !pm = Pact4.publicMetaOf cmd
 
     bhdb <- view psBlockHeaderDb
 
@@ -785,11 +786,11 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                   Just PreflightSimulation -> do
                     liftPactServiceM (assertLocalMetadata cmd ctx sigVerify) >>= \case
                       Right{} -> do
-                        let initialGas = initialGasOf $ P._cmdPayload cwtx
+                        let initialGas = Pact4.initialGasOf $ P._cmdPayload cwtx
                         -- TRACE.traceShowM ("execLocal.CACHE: ", LHM.keys $ _getModuleCache mcache, M.keys $ _getCoreModuleCache cmcache)
-                        T4 cr _mc _ warns <- liftIO $ applyCmd
-                          _psVersion _psLogger _psGasLogger (_cpPactDbEnv dbEnv, _cpPactCoreDbEnv dbEnv)
-                          noMiner (gasModel, gasModelCore) ctx spv cmd
+                        T3 cr _mc warns <- liftIO $ Pact4.applyCmd
+                          _psVersion _psLogger _psGasLogger (_cpPactDbEnv dbEnv)
+                          noMiner gasModel ctx spv cmd
                           initialGas mc ApplyLocal
 
                         let cr' = toHashCommandResult cr
@@ -799,13 +800,13 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                   _ -> liftIO $ do
                     let execConfig = P.mkExecutionConfig $
                             [ P.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
-                            enablePactEvents' (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx) ++
-                            enforceKeysetFormats' (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx) ++
-                            disableReturnRTC (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx)
+                            Pact4.enablePactEvents' (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx) ++
+                            Pact4.enforceKeysetFormats' (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx) ++
+                            Pact4.disableReturnRTC (_chainwebVersion ctx) (_chainId ctx) (ctxCurrentBlockHeight ctx)
 
-                    cr <- applyLocal
-                      _psLogger _psGasLogger (_cpPactDbEnv dbEnv, _cpPactCoreDbEnv dbEnv)
-                      (gasModel, gasModelCore)  ctx spv
+                    cr <- Pact4.applyLocal
+                      _psLogger _psGasLogger (_cpPactDbEnv dbEnv)
+                      gasModel  ctx spv
                       cwtx mc execConfig
 
                     let cr' = toHashCommandResult cr
@@ -1023,51 +1024,49 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
         -> Vector (Either InsertError Pact4Transaction)
         -> PactBlockM logger tbl (Vector (Either InsertError Pact4Transaction))
     attemptBuyGas miner txsOrErrs = localLabelBlock ("transaction", "attemptBuyGas") $ do
-            (mc, cmc) <- getInitCache
+            mc <- getInitCache
             l <- view (psServiceEnv . psLogger)
-            V.fromList . toList . sfst <$> V.foldM (buyGasFor l) (T2 mempty (mc, cmc)) txsOrErrs
+            V.fromList . toList . sfst <$> V.foldM (buyGasFor l) (T2 mempty mc) txsOrErrs
       where
         buyGasFor :: logger
-          -> T2 (DL.DList (Either InsertError Pact4Transaction)) (ModuleCache, CoreModuleCache)
+          -> T2 (DL.DList (Either InsertError Pact4Transaction)) ModuleCache
           -> Either InsertError Pact4Transaction
-          -> PactBlockM logger tbl (T2 (DL.DList (Either InsertError Pact4Transaction)) (ModuleCache, CoreModuleCache))
-        buyGasFor _l (T2 dl (mcache,cmcache)) err@Left {} = return (T2 (DL.snoc dl err) (mcache,cmcache))
-        buyGasFor l (T2 dl (mcache,cmcache)) (Right tx) = do
+          -> PactBlockM logger tbl (T2 (DL.DList (Either InsertError Pact4Transaction)) ModuleCache)
+        buyGasFor _l (T2 dl mcache) err@Left {} = return (T2 (DL.snoc dl err) mcache)
+        buyGasFor l (T2 dl mcache) (Right tx) = do
             T2 mcache' !res <- do
               let cmd = payloadObj <$> tx
                   gasPrice = view cmdGasPrice cmd
                   gasLimit = fromIntegral $ view cmdGasLimit cmd
                   txst = TransactionState
                       { _txCache = mcache
-                      , _txCoreCache = cmcache
                       , _txLogs = mempty
                       , _txGasUsed = 0
                       , _txGasId = Nothing
-                      , _txGasModel = P._geGasModel P.freeGasEnv
-                      , _txGasModelCore = PCore.freeGasModel
+                      , _txGasModel = Left (P._geGasModel P.freeGasEnv)
                       , _txWarnings = mempty
                       }
-              let !nid = networkIdOf cmd
+              let !nid = Pact4.networkIdOf cmd
               let !rk = P.cmdToRequestKey cmd
-              pd <- getTxContext (publicMetaOf cmd)
+              pd <- getTxContext (Pact4.publicMetaOf cmd)
               bhdb <- view (psServiceEnv . psBlockHeaderDb)
               dbEnv <- view psBlockDbEnv
               spv <- pactSPV bhdb . _parentHeader <$> view psParentHeader
               let ec = P.mkExecutionConfig $
                     [ P.FlagDisableModuleInstall
                     , P.FlagDisableHistoryInTransactionalMode ] ++
-                    disableReturnRTC (ctxVersion pd) (ctxChainId pd) (ctxCurrentBlockHeight pd)
+                    Pact4.disableReturnRTC (ctxVersion pd) (ctxChainId pd) (ctxCurrentBlockHeight pd)
               let usePact5 = False
-              let buyGasEnv = TransactionEnv P.Transactional (_cpPactDbEnv dbEnv) (_cpPactCoreDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gasPrice rk gasLimit ec Nothing usePact5
+              let buyGasEnv = TransactionEnv P.Transactional (Left $ _cpPactDbEnv dbEnv) l Nothing (ctxToPublicData pd) spv nid gasPrice rk gasLimit ec Nothing
 
               cr <- liftIO
                 $! catchesPactError l CensorsUnexpectedError
                 $! execTransactionM buyGasEnv txst
-                $! buyGas pd cmd miner
+                $! Pact4.buyGas pd cmd miner
 
               case cr of
-                  Left err -> return (T2 (mcache, cmcache) (Left (InsertErrorBuyGas (T.pack $ show err))))
-                  Right t -> return (T2 (_txCache t, _txCoreCache t) (Right tx))
+                  Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
+                  Right t -> return (T2 (_txCache t) (Right tx))
             pure $! T2 (DL.snoc dl res) mcache'
 
 execLookupPactTxs
