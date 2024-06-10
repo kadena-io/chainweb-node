@@ -39,20 +39,17 @@ module Chainweb.Pact.Types
     -- * Transaction State
   , TransactionState(..)
   , txGasModel
-  , txGasModelCore
   , txGasLimit
   , txGasUsed
   , txGasId
   , txLogs
   , txCache
-  , txCoreCache
   , txWarnings
 
     -- * Transaction Env
   , TransactionEnv(..)
   , txMode
   , txDbEnv
-  , txCoreDb
   , txLogger
   , txGasLogger
   , txPublicData
@@ -62,7 +59,6 @@ module Chainweb.Pact.Types
   , txRequestKey
   , txExecutionConfig
   , txQuirkGasFee
-  , txusePact5
 
     -- * Transaction Execution Monad
   , TransactionM(..)
@@ -331,12 +327,10 @@ data ApplyCmdExecutionContext = ApplyLocal | ApplySend
 --
 data TransactionState = TransactionState
     { _txCache :: !ModuleCache
-    , _txCoreCache :: !CoreModuleCache
     , _txLogs :: ![TxLogJson]
     , _txGasUsed :: !Gas
     , _txGasId :: !(Maybe GasId)
-    , _txGasModel :: !GasModel
-    , _txGasModelCore :: !(PCore.GasModel PCore.CoreBuiltin)
+    , _txGasModel :: !(Either GasModel (PCore.GasModel PCore.CoreBuiltin))
     , _txWarnings :: !(Set PactWarning)
     }
 makeLenses ''TransactionState
@@ -345,8 +339,7 @@ makeLenses ''TransactionState
 --
 data TransactionEnv logger db = TransactionEnv
     { _txMode :: !ExecutionMode
-    , _txDbEnv :: !(PactDbEnv db)
-    , _txCoreDb :: !CoreDb
+    , _txDbEnv :: !(Either (PactDbEnv db) CoreDb)
     , _txLogger :: !logger
     , _txGasLogger :: !(Maybe logger)
     , _txPublicData :: !PublicData
@@ -357,7 +350,6 @@ data TransactionEnv logger db = TransactionEnv
     , _txGasLimit :: !Gas
     , _txExecutionConfig :: !ExecutionConfig
     , _txQuirkGasFee :: !(Maybe Gas)
-    , _txusePact5 :: !Bool
     }
 makeLenses ''TransactionEnv
 

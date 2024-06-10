@@ -328,8 +328,10 @@ library
         , Chainweb.Pact.Service.PactInProcApi
         , Chainweb.Pact.Service.PactQueue
         , Chainweb.Pact.Service.Types
-        , Chainweb.Pact.Templates
-        , Chainweb.Pact.TransactionExec
+        , Chainweb.Pact.Templates.Pact4
+        , Chainweb.Pact.Templates.Pact5
+        , Chainweb.Pact.TransactionExec.Pact4
+        , Chainweb.Pact.TransactionExec.Pact5
         , Chainweb.Pact.Transactions.FungibleV2Transactions
         , Chainweb.Pact.Transactions.CoinV3Transactions
         , Chainweb.Pact.Transactions.CoinV4Transactions

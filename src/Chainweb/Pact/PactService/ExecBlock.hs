@@ -89,7 +89,8 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.NoCoinbase
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
-import Chainweb.Pact.TransactionExec
+import Chainweb.Pact.TransactionExec.Pact4
+import qualified Chainweb.Pact.TransactionExec.Pact5 as Pact5
 import Chainweb.Pact.Types
 import Chainweb.Pact.Validations
 import Chainweb.Payload
@@ -116,6 +117,9 @@ execBlock currHeader payload = do
     let plData = checkablePayloadToPayloadData payload
     dbEnv <- view psBlockDbEnv
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
+
+    -- if
+
     trans <- liftIO $ pact4TransactionsFromPayload
       (pactParserVersion v (_blockChainId currHeader) (_blockHeight currHeader))
       plData
@@ -303,7 +307,7 @@ execTransactions
     -> CoinbaseUsePrecompiled
     -> Maybe P.Gas
     -> Maybe Micros
-    -> PactBlockM logger tbl (Transactions (Either CommandInvalidError (Either (P.CommandResult [P.TxLogJson]) PCore.CommandResult)))
+    -> PactBlockM logger tbl (Transactions (Either CommandInvalidError (P.CommandResult [P.TxLogJson])))
 execTransactions isGenesis miner ctxs enfCBFail usePrecomp gasLimit timeLimit = do
     mc <- initModuleCacheForBlock isGenesis
     -- for legacy reasons (ask Emily) we don't use the module cache resulting
