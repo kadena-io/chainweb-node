@@ -441,7 +441,6 @@ library
         , streaming >= 0.2
         , streaming-commons >= 0.2
         , template-haskell >= 2.14
-        , terminal-progress-bar >= 0.4
         , text >= 2.0
         , these >= 1.0
         , time >= 1.12.2
@@ -829,7 +828,7 @@ executable compact
     ghc-options:
         -threaded
         -rtsopts
-        "-with-rtsopts=-N -A4M --disable-delayed-os-memory-return"
+        "-with-rtsopts=-N -A4M --disable-delayed-os-memory-return -qn1"
     hs-source-dirs:
         compact
     main-is: Main.hs

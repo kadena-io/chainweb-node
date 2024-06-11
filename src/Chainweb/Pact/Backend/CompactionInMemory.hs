@@ -16,7 +16,6 @@
   , TypeApplications
 #-}
 
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
 {-# OPTIONS_GHC -Wwarn #-}
 
 module Chainweb.Pact.Backend.CompactionInMemory
@@ -24,29 +23,21 @@ module Chainweb.Pact.Backend.CompactionInMemory
   )
   where
 
-import Data.Semigroup (Min(..))
-import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, writeTVar, retry)
-import Control.Exception hiding (Handler)
-import Foreign.C.Types (CInt)
-import GHC.Generics (Generic)
-import System.Mem.Weak (deRefWeak)
 
-#if !mingw32_HOST_OS
-import System.Posix.Signals
-#else
-import Foreign.Ptr
-#endif
+-- #if !mingw32_HOST_OS
+-- import System.Posix.Signals
+-- #else
+-- import Foreign.Ptr
+-- #endif
 
-import System.ProgressBar qualified as ProgressBar
-import System.ProgressBar (Progress(..), newProgressBar)
 import "base" System.Exit (exitFailure, exitSuccess)
 import "loglevel" System.LogLevel qualified as LL
 import "yet-another-logger" System.Logger hiding (Logger)
 import "yet-another-logger" System.Logger qualified as YAL
-import Chainweb.BlockHash (nullBlockHash)
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeaderDB.Internal (BlockHeaderDb(..), RankedBlockHash(..), RankedBlockHeader(..))
 import Chainweb.BlockHeight (BlockHeight(..))
+import Chainweb.Cut.CutHashes (cutIdToText)
 import Chainweb.CutDB (cutHashesTable)
 import Chainweb.Graph (diameter)
 import Chainweb.Logger (Logger, l2l, setComponent, logFunctionText)
@@ -56,33 +47,28 @@ import Chainweb.Pact.Backend.Utils (fromUtf8, toUtf8)
 import Chainweb.Payload.PayloadStore (initializePayloadDb, addNewPayload, lookupPayloadWithHeight)
 import Chainweb.Payload.PayloadStore.RocksDB (newPayloadDb)
 import Chainweb.Storage.Table (Iterator(..), Entry(..), withTableIterator, unCasify, tableInsert)
-import Chainweb.Storage.Table.RocksDB (RocksDb, RocksDbTableIter(..), withRocksDb, withReadOnlyRocksDb, modernDefaultOptions)
+import Chainweb.Storage.Table.RocksDB (RocksDb, withRocksDb, withReadOnlyRocksDb, modernDefaultOptions)
 import Chainweb.Utils (sshow, fromText, int)
 import Chainweb.Version (ChainId, ChainwebVersion(..), chainIdToText, chainGraphAt)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Testnet (testnet)
-import Chainweb.WebBlockHeaderDB (WebBlockHeaderDb, getWebBlockHeaderDb, initWebBlockHeaderDb)
-import Control.Concurrent (forkIO, threadDelay, myThreadId, mkWeakThreadId)
+import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb, initWebBlockHeaderDb)
+import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (swapMVar, readMVar, newMVar)
-import Control.Exception (bracket_, finally)
-import Control.Lens (set, over, (^.))
+import Control.Exception hiding (Handler)
+import Control.Lens (set, over, (^.), _3)
 import Control.Monad (forM, forM_, unless, void, when)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
 import Data.ByteString (ByteString)
-import Data.ByteString.Char8 qualified as BSC8
 import Data.Function (fix, (&))
-import Data.HashMap.Strict qualified as HM
-import Data.List qualified as List
 import Data.LogMessage (SomeLogMessage, logText)
 import Data.LruCache (LruCache)
 import Data.LruCache qualified as Lru
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import Data.Text.IO qualified as Text
 import Data.Text qualified as Text
-import Database.RocksDB.Iterator (iterGetError)
 import Database.RocksDB.Types (Options(..), Compression(..))
 import Database.SQLite3 qualified as Lite
 import Database.SQLite3 qualified as SQL
@@ -99,6 +85,7 @@ import System.FilePath ((</>))
 import System.IO (Handle)
 import System.IO qualified as IO
 import System.Logger.Backend.ColorOption (useColor)
+--import System.Mem.Weak (deRefWeak)
 import UnliftIO.Async (pooledForConcurrently_)
 
 withDefaultLogger :: LL.LogLevel -> (YAL.Logger SomeLogMessage -> IO a) -> IO a
@@ -108,6 +95,33 @@ withDefaultLogger ll f = withHandleBackend_ logText handleCfg $ \b ->
     handleCfg = defaultHandleBackendConfig
       { _handleBackendConfigHandle = StdErr
       }
+
+withRocksDbFileLogger :: FilePath -> LL.LogLevel -> (YAL.Logger SomeLogMessage -> IO a) -> IO a
+withRocksDbFileLogger ld ll f = do
+  createDirectoryIfMissing True {- do create parents -} ld
+  let logFile = ld </> "rocksDb.log"
+  let handleConfig = defaultHandleBackendConfig
+        { _handleBackendConfigHandle = FileHandle logFile
+        }
+  withHandleBackend_' logText handleConfig $ \h b -> do
+    done <- newMVar False
+    void $ forkIO $ fix $ \go -> do
+      doneYet <- readMVar done
+      let flush = do
+            w <- IO.hIsOpen h
+            when w (IO.hFlush h)
+      unless doneYet $ do
+        flush
+        threadDelay 5_000_000
+        go
+      flush
+
+    withLogger defaultLoggerConfig b $ \l -> do
+      let logger = setComponent "compaction"
+            $ set setLoggerLevel (l2l ll) l
+      a <- f logger
+      void $ swapMVar done True
+      pure a
 
 withPerChainFileLogger :: FilePath -> ChainId -> LL.LogLevel -> (YAL.Logger SomeLogMessage -> IO a) -> IO a
 withPerChainFileLogger ld chainId ll f = do
@@ -155,16 +169,10 @@ withHandleBackend_' format conf inner =
       colored <- liftIO $ useColor (conf ^. handleBackendConfigColor) h
       inner h (handleBackend_ format h colored)
 
-newtype TableName = TableName { getTableName :: Utf8 }
-  deriving newtype (Eq, Ord)
-  deriving stock (Show)
-
 data Config = Config
   { chainwebVersion :: ChainwebVersion
-  , sourcePactDir :: FilePath
-  , targetPactDir :: FilePath
-  , sourceRocksDir :: FilePath
-  , targetRocksDir :: FilePath
+  , fromDir :: FilePath
+  , toDir :: FilePath
   , concurrent :: ConcurrentChains
   , logDir :: FilePath
   , onlyRocksDb :: Bool
@@ -178,17 +186,15 @@ getConfig = do
   where
     opts :: O.ParserInfo Config
     opts = O.info (parser O.<**> O.helper)
-      (O.fullDesc <> O.progDesc "Pact DB Compaction Tool - create a compacted copy of the source directory Pact DB into the target directory.")
+      (O.fullDesc <> O.progDesc "Pact DB Compaction Tool - create a compacted copy of the source database directory Pact DB into the target directory.")
 
     parser :: O.Parser Config
     parser = Config
       <$> (parseVersion <$> O.strOption (O.long "chainweb-version" <> O.value "mainnet01"))
-      <*> O.strOption (O.long "source-sqlite-directory")
-      <*> O.strOption (O.long "target-sqlite-directory")
-      <*> O.strOption (O.long "source-rocksdb-directory")
-      <*> O.strOption (O.long "target-rocksdb-directory")
-      <*> O.flag SingleChain ManyChainsAtOnce (O.long "parallel")
-      <*> O.strOption (O.long "log-dir")
+      <*> O.strOption (O.long "from" <> O.help "Directory containing SQLite Pact state and RocksDB block data to compact (expected to be in $DIR/0/{sqlite,rocksDb}")
+      <*> O.strOption (O.long "to" <> O.help "Directory where to place the compacted Pact state and block data. It will place them in $DIR/0/{sqlite,rocksDb}, respectively.")
+      <*> O.flag SingleChain ManyChainsAtOnce (O.long "parallel" <> O.help "Turn on multi-threaded compaction. The threads are per-chain.")
+      <*> O.strOption (O.long "log-dir" <> O.help "Directory where compaction logs will be placed.")
       <*> O.switch (O.long "only-rocksdb" <> O.hidden)
 
     parseVersion :: Text -> ChainwebVersion
@@ -212,22 +218,16 @@ compact cfg = do
   targetBlockHeight <- withDefaultLogger LL.Error $ \logger -> do
     -- Locate the latest (safe) blockheight as per the pact state.
     -- See 'locateLatestSafeTarget' for the definition of 'safe' here.
-    targetBlockHeight <- locateLatestSafeTarget logger cfg.chainwebVersion cfg.sourcePactDir cids
+    targetBlockHeight <- locateLatestSafeTarget logger cfg.chainwebVersion (pactDir cfg.fromDir) cids
 
-    when (not cfg.onlyRocksDb) $ do
-      -- Check that the target sqlite directory doesn't exist already,
-      -- then create it.
-      targetDirExists <- doesDirectoryExist cfg.targetPactDir
-      when targetDirExists $ do
-        exitLog logger "Target SQLite directory already exists. Aborting."
-      createDirectoryIfMissing True cfg.targetPactDir
 
-    -- Check that the target rocksdb directory doesn't exist already,
-    -- then create it.
-    targetRocksDirExists <- doesDirectoryExist cfg.targetRocksDir
-    when targetRocksDirExists $ do
-      exitLog logger "Target RocksDB directory already exists. Aborting."
-    createDirectoryIfMissing True cfg.targetRocksDir
+    -- Check that the target directory doesn't exist already,
+    -- then create its entire tree.
+    toDirExists <- doesDirectoryExist cfg.toDir
+    when toDirExists $ do
+      exitLog logger "Compaction \"To\" directory already exists. Aborting."
+    createDirectoryIfMissing True (pactDir cfg.toDir)
+    createDirectoryIfMissing True (rocksDir cfg.toDir)
 
     pure targetBlockHeight
 
@@ -254,9 +254,11 @@ compact cfg = do
   let maxBlockHeight = targetBlockHeight + 1_000 + int (diameter (chainGraphAt cfg.chainwebVersion targetBlockHeight))
 
   -- Trim RocksDB here
-  withReadOnlyRocksDb cfg.sourceRocksDir modernDefaultOptions $ \srcRocksDb -> do
-    withRocksDb cfg.targetRocksDir (modernDefaultOptions { compression = NoCompression }) $ \targetRocksDb -> do
-      trimRocksDb cfg.chainwebVersion cids minBlockHeight maxBlockHeight srcRocksDb targetRocksDb
+
+  withRocksDbFileLogger cfg.logDir LL.Debug $ \logger -> do
+    withReadOnlyRocksDb (rocksDir cfg.fromDir) modernDefaultOptions $ \srcRocksDb -> do
+      withRocksDb (rocksDir cfg.toDir) (modernDefaultOptions { compression = NoCompression }) $ \targetRocksDb -> do
+        trimRocksDb logger cfg.chainwebVersion cids minBlockHeight maxBlockHeight srcRocksDb targetRocksDb
 
   when cfg.onlyRocksDb exitSuccess
 
@@ -277,8 +279,8 @@ compact cfg = do
   --   - Users should bring up new nodes if they need maximal uptime
   forChains_ cfg.concurrent cids $ \cid -> do
     withPerChainFileLogger cfg.logDir cid LL.Debug $ \logger -> do
-      withChainDb cid logger cfg.sourcePactDir $ \_ srcDb -> do
-        withChainDb cid logger cfg.targetPactDir $ \_ targetDb -> do
+      withChainDb cid logger (pactDir cfg.fromDir) $ \_ srcDb -> do
+        withChainDb cid logger (pactDir cfg.toDir) $ \_ targetDb -> do
           let log = logFunctionText logger
 
           -- Establish pragmas for bulk insert performance
@@ -706,26 +708,36 @@ inTx db io = do
     (Pact.exec_ db "COMMIT;")
     io
 
+pactDir :: FilePath -> FilePath
+pactDir db = db </> "0/sqlite"
+
+rocksDir :: FilePath -> FilePath
+rocksDir db = db </> "0/rocksDb"
+
 -- | Copy over all CutHashes, all BlockHeaders, and only some Payloads.
-trimRocksDb :: ()
-  => ChainwebVersion -- ^ cw version
+trimRocksDb :: (Logger logger)
+  => logger
+  -> ChainwebVersion -- ^ cw version
   -> [ChainId] -- ^ ChainIds
   -> BlockHeight -- ^ minBlockHeight
   -> BlockHeight -- ^ maxBlockHeight
   -> RocksDb -- ^ source db, should be opened read-only
   -> RocksDb -- ^ target db
   -> IO ()
-trimRocksDb cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
+trimRocksDb logger cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
+  let log = logFunctionText logger
 
   -- Copy over entirety of CutHashes table
   let srcCutHashes = cutHashesTable srcDb
   let targetCutHashes = cutHashesTable targetDb
+  log LL.Info "Copying over CutHashes table"
   withTableIterator (unCasify srcCutHashes) $ \srcIt -> do
     let go = do
           iterEntry srcIt >>= \case
             Nothing -> do
               pure ()
             Just (Entry k v) -> do
+              log LL.Debug $ "Copying over Cut " <> cutIdToText (k ^. _3)
               tableInsert targetCutHashes k v
               iterNext srcIt
               go
@@ -736,11 +748,13 @@ trimRocksDb cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
   let targetPayloads = newPayloadDb targetDb
 
   -- The target payload db has to be initialised.
+  log LL.Info "Initializing payload db"
   initializePayloadDb cwVersion targetPayloads
 
   srcWbhdb <- initWebBlockHeaderDb srcDb cwVersion
   targetWbhdb <- initWebBlockHeaderDb targetDb cwVersion
   forM_ cids $ \cid -> do
+    log LL.Info $ "Starting chain " <> chainIdToText cid
     srcBlockHeaderDb <- getWebBlockHeaderDb srcWbhdb cid
     targetBlockHeaderDb <- getWebBlockHeaderDb targetWbhdb cid
 
@@ -767,6 +781,7 @@ trimRocksDb cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
                 --
                 -- Not sure about the rank table, though. We keep it to be
                 -- conservative.
+                log LL.Info $ "Copying over BlockHeader <> " <> sshow blockHash
                 tableInsert (_chainDbCas targetBlockHeaderDb) (RankedBlockHash blockHeight blockHash) rankedBlockHeader
                 tableInsert (_chainDbRankTable targetBlockHeaderDb) blockHash blockHeight
 
@@ -774,9 +789,11 @@ trimRocksDb cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb = do
                 -- interesting range.
                 when (blockHeight >= minBlockHeight && blockHeight <= maxBlockHeight) $ do
                   -- Insert the payload into the new database
-                  lookupPayloadWithHeight srcPayloads (Just blockHeight) (_blockPayloadHash blockHeader) >>= \case
+                  let payloadHash = _blockPayloadHash blockHeader
+                  log LL.Info $ "Migrating block payload " <> sshow payloadHash
+                  lookupPayloadWithHeight srcPayloads (Just blockHeight) payloadHash >>= \case
                     Nothing -> do
-                      error "Missing payload: This is likely due to a corrupted database."
+                      exitLog logger "Missing payload: This is likely due to a corrupted database."
                     Just payloadWithOutputs -> do
                       addNewPayload targetPayloads blockHeight payloadWithOutputs
 
