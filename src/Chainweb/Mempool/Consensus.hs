@@ -56,10 +56,10 @@ import Data.LogMessage (JsonLog(..), LogFunction)
 
 ------------------------------------------------------------------------------
 data MempoolConsensus = MempoolConsensus
-    { mpcMempool :: !(MempoolBackend ChainwebTransaction)
+    { mpcMempool :: !(MempoolBackend Pact4Transaction)
     , mpcLastNewBlockParent :: !(IORef (Maybe BlockHeader))
     , mpcProcessFork
-        :: LogFunction -> BlockHeader -> IO (Vector ChainwebTransaction, Vector ChainwebTransaction)
+        :: LogFunction -> BlockHeader -> IO (Vector Pact4Transaction, Vector Pact4Transaction)
     }
 
 data ReintroducedTxsLog = ReintroducedTxsLog
@@ -80,7 +80,7 @@ instance Exception MempoolException
 ------------------------------------------------------------------------------
 mkMempoolConsensus
     :: CanReadablePayloadCas tbl
-    => MempoolBackend ChainwebTransaction
+    => MempoolBackend Pact4Transaction
     -> BlockHeaderDb
     -> Maybe (PayloadDb tbl)
     -> IO MempoolConsensus
@@ -102,7 +102,7 @@ processFork
     -> IORef (Maybe BlockHeader)
     -> LogFunction
     -> BlockHeader
-    -> IO (Vector ChainwebTransaction, Vector ChainwebTransaction)
+    -> IO (Vector Pact4Transaction, Vector Pact4Transaction)
 processFork blockHeaderDb payloadStore lastHeaderRef logFun newHeader = do
     now <- getCurrentTimeIntegral
     lastHeader <- readIORef lastHeaderRef
@@ -122,7 +122,7 @@ processForkCheckTTL
     -> HashableTrans PayloadWithText -> Bool
 processForkCheckTTL ppv now (HashableTrans t) =
     either (const False) (const True) $
-    txTTLCheck (chainwebTransactionConfig ppv) now t
+    txTTLCheck (pact4TransactionConfig ppv) now t
 
 
 ------------------------------------------------------------------------------
@@ -194,4 +194,4 @@ chainwebTxsFromPd ppv pd = do
     let theRights  =  rights $ toList eithers
     return $! HS.fromList $ HashableTrans <$!> theRights
   where
-    toCWTransaction = codecDecode (chainwebPayloadCodec ppv)
+    toCWTransaction = codecDecode (pact4PayloadCodec ppv)

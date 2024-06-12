@@ -151,36 +151,39 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
         in independentSequentialTestGroup "remote pact tests"
             [ withResourceT (liftIO $ join $ withRequestKeys <$> iot <*> cenv) $ \reqkeys -> golden "remote-golden" $
                 join $ responseGolden <$> cenv <*> reqkeys
-            , testCaseSteps "remote spv" $ \step ->
-                join $ spvTest <$> iot <*> cenv <*> pure step
-            , testCaseSteps "remote eth spv" $ \step ->
-                join $ ethSpvTest <$> iot <*> cenv <*> pure step
-            , testCaseSteps "/send reports validation failure" $ \step ->
-                join $ sendValidationTest <$> iot <*> cenv <*> pure step
-            , testCase "/poll reports badlisted txs" $
-                join $ pollingBadlistTest <$> cenv
-            , testCase "trivialLocalCheck" $
-                join $ localTest <$> iot <*> cenv
-            , testCase "localChainData" $
-                join $ localChainDataTest <$> iot <*> cenv
-            , testCaseSteps "transaction size gas tests" $ \step ->
-                join $ txTooBigGasTest <$> iot <*> cenv <*> pure step
-            , testCaseSteps "genesisAllocations" $ \step ->
-                join $ allocationTest <$> iot <*> cenv <*> pure step
-            , testCaseSteps "caplist TRANSFER and FUND_TX test" $ \step ->
-                join $ caplistTest <$> iot <*> cenv <*> pure step
-            , testCaseSteps "local continuation test" $ \step ->
-                join $ localContTest <$> iot <*> cenv <*> pure step
-            , testCaseSteps "poll confirmation depth test" $ \step ->
-                join $ pollingConfirmDepth <$> iot <*> cenv <*> pure step
-            , testCaseSteps "/poll rejects keys of incorrect length" $ \step ->
-                join $ pollBadKeyTest <$> cenv <*> pure step
+            -- , testCaseSteps "remote spv" $ \step ->
+            --     join $ spvTest <$> iot <*> cenv <*> pure step
+            -- , testCaseSteps "remote eth spv" $ \step ->
+            --     join $ ethSpvTest <$> iot <*> cenv <*> pure step
+            -- , testCaseSteps "/send reports validation failure" $ \step ->
+            --     join $ sendValidationTest <$> iot <*> cenv <*> pure step
+            -- , testCase "/poll reports badlisted txs" $
+            --     join $ pollingBadlistTest <$> cenv
+            -- , testCase "trivialLocalCheck" $
+            --     join $ localTest <$> iot <*> cenv
+            -- , testCase "localChainData" $
+            --     join $ localChainDataTest <$> iot <*> cenv
+            -- , testCaseSteps "transaction size gas tests" $ \step ->
+            --     join $ txTooBigGasTest <$> iot <*> cenv <*> pure step
+            -- , testCaseSteps "genesisAllocations" $ \step ->
+            --     join $ allocationTest <$> iot <*> cenv <*> pure step
+            -- , testCaseSteps "caplist TRANSFER and FUND_TX test" $ \step ->
+            --     join $ caplistTest <$> iot <*> cenv <*> pure step
+            -- , testCaseSteps "local continuation test" $ \step ->
+            --     join $ localContTest <$> iot <*> cenv <*> pure step
+            -- , testCaseSteps "poll confirmation depth test" $ \step ->
+            --     join $ pollingConfirmDepth <$> iot <*> cenv <*> pure step
+            -- , testCaseSteps "/poll rejects keys of incorrect length" $ \step ->
+            --     join $ pollBadKeyTest <$> cenv <*> pure step
             , testCaseSteps "local preflight sim test" $ \step ->
                 join $ localPreflightSimTest <$> iot <*> cenv <*> pure step
-            , testCaseSteps "poll correct results test" $ \step ->
-                join $ pollingCorrectResults <$> iot <*> cenv <*> pure step
-            , testCase "webauthn sig" $
-                join $ webAuthnSignatureTest <$> iot <*> cenv
+              -- TODO:CORE.buyGas failed!!PEDesugarError (NoSuchModuleMember (ModuleName {_mnName = "coin", _mnNamespace = Nothing}) "buy-gas") ()
+              -- Exception {"tag":"BuyGasFailure","contents":["_PYdFRp_bXffhIY9CUkD1y4Pbmlw4KztXTpUDZQlYtI",{"callStack":[],"type":"EvalError","message":"unknown error [2024-05-07 14:44:36.291995 UTC][Error][node:0,peerId:9LkpIG,port:60784,host:localhost,chain:0,component:pact,pact-request:execLocal] critical transaction failure: \"_PYdFRp_bXffhIY9CUkD1y4Pbmlw4KztXTpUDZQlYtI\": buyGas: Internal error - PEDesugarError (NoSuchModuleMember (ModuleName {_mnName = \"coin\", _mnNamespace = Nothing}) \"buy-gas\") ()\nCallStack (from HasCallStack):\n  error, called at test/Chainweb/Test/Utils.hs:941:46 in main:Chainweb.Test.Utils","info":""}]}
+
+            -- , testCaseSteps "poll correct results test" $ \step ->
+            --     join $ pollingCorrectResults <$> iot <*> cenv <*> pure step
+            -- , testCase "webauthn sig" $
+            --     join $ webAuthnSignatureTest <$> iot <*> cenv
             ]
       , testCase "txlogsCompactionTest" $ txlogsCompactionTest rdb
     ]

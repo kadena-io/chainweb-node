@@ -17,7 +17,7 @@
 --
 -- Pact command execution and coin-contract transaction logic for Chainweb
 --
-module Chainweb.Pact.TransactionExec
+module Chainweb.Pact.TransactionExec.Pact4
 ( -- * Transaction Execution
   applyCmd
 , applyGenesisCmd
@@ -115,7 +115,7 @@ import qualified Chainweb.ChainId as Chainweb
 import Chainweb.Mempool.Mempool (requestKeyToTransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.Templates
+import Chainweb.Pact.Templates.Pact4
 import Chainweb.Pact.Types hiding (logError)
 import Chainweb.Transaction
 import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous, T2(..), T3(..))
@@ -202,7 +202,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
     stGasModel
       | chainweb217Pact' = gasModel
       | otherwise = _geGasModel freeGasEnv
-    txst = TransactionState mcache0 mempty 0 Nothing stGasModel mempty
+    txst = TransactionState mcache0 mempty 0 Nothing (Left stGasModel) mempty
     quirkGasFee = v ^? versionQuirks . quirkGasFees . ix requestKey
 
     executionConfigNoHistory = ExecutionConfig
@@ -213,7 +213,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
         ++ [ FlagPreserveNsModuleInstallBug | not isModuleNameFix2 ])
       <> flagsFor v (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
 
-    cenv = TransactionEnv Transactional pdbenv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
+    cenv = TransactionEnv Transactional (Left pdbenv) logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory quirkGasFee
 
     !requestKey = cmdToRequestKey cmd
@@ -277,7 +277,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
       else applyPayload
 
     applyPayload = do
-      txGasModel .= gasModel
+      txGasModel .= (Left gasModel)
       if chainweb217Pact' then txGasUsed += initialGas
       else txGasUsed .= initialGas
 
@@ -295,7 +295,7 @@ applyCmd v logger gasLogger pdbenv miner gasModel txCtx spv cmd initialGas mcach
         Right r -> applyRedeem r
 
     applyRedeem cr = do
-      txGasModel .= _geGasModel freeGasEnv
+      txGasModel .= Left (_geGasModel freeGasEnv)
 
       r <- catchesPactError logger (onChainErrorPrintingFor txCtx) $! redeemGas txCtx cmd miner
       case r of
@@ -340,7 +340,7 @@ applyGenesisCmd logger dbEnv spv txCtx cmd =
     rk = cmdToRequestKey cmd
     tenv = TransactionEnv
         { _txMode = Transactional
-        , _txDbEnv = dbEnv
+        , _txDbEnv = Left dbEnv
         , _txLogger = logger
         , _txGasLogger = Nothing
         , _txPublicData = def
@@ -364,7 +364,7 @@ applyGenesisCmd logger dbEnv spv txCtx cmd =
         , _txLogs = mempty
         , _txGasUsed = 0
         , _txGasId = Nothing
-        , _txGasModel = _geGasModel freeGasEnv
+        , _txGasModel = Left $ _geGasModel freeGasEnv
         , _txWarnings = mempty
         }
 
@@ -443,9 +443,9 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
       , S.singleton FlagDisableHistoryInTransactionalMode
       , flagsFor v (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
       ]
-    tenv = TransactionEnv Transactional dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport
+    tenv = TransactionEnv Transactional (Left dbEnv) logger Nothing (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec Nothing
-    txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv) mempty
+    txst = TransactionState mc mempty 0 Nothing (Left $ _geGasModel freeGasEnv) mempty
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     rk = RequestKey chash
     parent = _tcParentHeader txCtx
@@ -518,9 +518,9 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     !verifiers = fromMaybe [] $ _pVerifiers $ _cmdPayload cmd
     !gasPrice = view cmdGasPrice cmd
     !gasLimit = view cmdGasLimit cmd
-    tenv = TransactionEnv Local dbEnv logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
+    tenv = TransactionEnv Local (Left dbEnv) logger gasLogger (ctxToPublicData txCtx) spv nid gasPrice
            rk (fromIntegral gasLimit) execConfig Nothing
-    txst = TransactionState mc mempty 0 Nothing gasModel mempty
+    txst = TransactionState mc mempty 0 Nothing (Left gasModel) mempty
     gas0 = initialGasOf (_cmdPayload cmdIn)
     currHeight = ctxCurrentBlockHeight txCtx
     cid = V._chainId txCtx
@@ -580,9 +580,9 @@ readInitModules = do
     rk = RequestKey chash
     nid = Nothing
     chash = pactInitialHash
-    tenv = TransactionEnv Local dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
+    tenv = TransactionEnv Local (Left dbEnv) logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
            rk 0 def Nothing
-    txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
+    txst = TransactionState mempty mempty 0 Nothing (Left $ _geGasModel freeGasEnv) mempty
     interp = defaultInterpreter
     die msg = throwM $ PactInternalError $ "readInitModules: " <> msg
     mkCmd = buildExecParsedCode (pactParserVersion v cid h) Nothing
@@ -710,7 +710,7 @@ failTxWith err msg = do
     l <- view txLogger
 
     liftIO $ logFunction l L.Info
-      (TxFailureLog rk err msg)
+      (Pact4TxFailureLog rk err msg)
 
     return $! CommandResult rk Nothing (PactResult (Left err))
       gas (Just logs) Nothing Nothing []
@@ -1228,12 +1228,13 @@ mkEvalEnv nsp msg = do
     genv <- GasEnv
       <$> view (txGasLimit . to (MilliGasLimit . gasToMilliGas))
       <*> view txGasPrice
-      <*> use txGasModel
+      <*> (either id (error "mkEvalEnv: pact5 impossible") <$> use txGasModel)
     fmap (set eeSigCapBypass txCapBypass)
-      $ liftIO $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
-      msg (versionedNativesRefStore (_txExecutionConfig tenv)) genv
-      nsp (_txSpvSupport tenv) (_txPublicData tenv) (_txExecutionConfig tenv)
+      $ liftIO $ setupEnv tenv genv
   where
+  setupEnv tenv genv = either (\db -> setupEvalEnv db Nothing (_txMode tenv)
+        msg (versionedNativesRefStore (_txExecutionConfig tenv)) genv
+        nsp (_txSpvSupport tenv) (_txPublicData tenv) (_txExecutionConfig tenv)) (error "mkEvalEnv: pact5 impossible") (_txDbEnv tenv)
   txCapBypass =
     M.fromList
     [ (wizaDebit, (wizaBypass, wizaMH))

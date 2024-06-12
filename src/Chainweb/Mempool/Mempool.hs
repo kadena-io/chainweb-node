@@ -74,7 +74,7 @@ module Chainweb.Mempool.Mempool
   , bfTxHashes
   , bfCount
 
-  , chainwebTransactionConfig
+  , pact4TransactionConfig
   , mockCodec
   , mockEncode
   , mockBlockGasLimit
@@ -363,11 +363,11 @@ noopMempool = do
 
 ------------------------------------------------------------------------------
 
-chainwebTransactionConfig
+pact4TransactionConfig
     :: PactParserVersion
-    -> TransactionConfig ChainwebTransaction
-chainwebTransactionConfig ppv = TransactionConfig
-    { txCodec = chainwebPayloadCodec ppv
+    -> TransactionConfig Pact4Transaction
+pact4TransactionConfig ppv = TransactionConfig
+    { txCodec = pact4PayloadCodec ppv
     , txHasher = commandHash
     , txHashMeta = chainwebTestHashMeta
     , txGasPrice = getGasPrice

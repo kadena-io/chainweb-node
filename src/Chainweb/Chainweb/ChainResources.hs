@@ -60,7 +60,7 @@ import Chainweb.Storage.Table.RocksDB
 data ChainResources logger = ChainResources
     { _chainResBlockHeaderDb :: !BlockHeaderDb
     , _chainResLogger :: !logger
-    , _chainResMempool :: !(MempoolBackend ChainwebTransaction)
+    , _chainResMempool :: !(MempoolBackend Pact4Transaction)
     , _chainResPact :: PactExecutionService
     }
 
@@ -83,7 +83,7 @@ withChainResources
     -> ChainId
     -> RocksDb
     -> logger
-    -> (MVar PactExecutionService -> Mempool.InMemConfig ChainwebTransaction)
+    -> (MVar PactExecutionService -> Mempool.InMemConfig Pact4Transaction)
     -> PayloadDb tbl
     -> FilePath
         -- ^ database directory for checkpointer

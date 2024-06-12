@@ -14,6 +14,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.Types
@@ -30,7 +32,6 @@ module Chainweb.Pact.Backend.Types
     , ReadCheckpointer(..)
     , CurrentBlockDbEnv(..)
     , Env'(..)
-    , EnvPersist'(..)
     , PactDbConfig(..)
     , pdbcGasLimit
     , pdbcGasRate
@@ -38,11 +39,7 @@ module Chainweb.Pact.Backend.Types
     , pdbcPersistDir
     , pdbcPragmas
     , ChainwebPactDbEnv
-    , PactDbEnvPersist(..)
-    , pdepEnv
-    , pdepPactDb
-    , PactDbState(..)
-    , pdbsDbEnv
+    , CoreDb
 
     , SQLiteRowDelta(..)
     , SQLitePendingTableCreations
@@ -51,8 +48,10 @@ module Chainweb.Pact.Backend.Types
     , pendingTableCreation
     , pendingWrites
     , pendingTxLogMap
+    , pendingTxLogMapCore
     , pendingSuccessfulTxs
     , emptySQLitePendingData
+    , fromCoreExecutionMode
 
     , BlockState(..)
     , initBlockState
@@ -61,6 +60,7 @@ module Chainweb.Pact.Backend.Types
     , bsPendingBlock
     , bsPendingTx
     , bsModuleCache
+    , bsModuleCacheCore
     , BlockEnv(..)
     , benvBlockState
     , blockHandlerEnv
@@ -118,6 +118,11 @@ import Pact.Types.Persistence
 import Pact.Types.RowData (RowData)
 import Pact.Types.Runtime (TableName)
 
+import qualified Pact.Core.Builtin as PCore
+import qualified Pact.Core.Persistence as PCore
+import qualified Pact.Core.Info as PCore
+
+
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -134,20 +139,6 @@ import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
 import Streaming(Stream, Of)
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
-
-data PactDbEnvPersist p = PactDbEnvPersist
-    { _pdepPactDb :: !(PactDb (DbEnv p))
-    , _pdepEnv :: !(DbEnv p)
-    }
-
-makeLenses ''PactDbEnvPersist
-
-
-data EnvPersist' = forall a. EnvPersist' (PactDbEnvPersist a)
-
-newtype PactDbState = PactDbState { _pdbsDbEnv :: EnvPersist' }
-
-makeLenses ''PactDbState
 
 data PactDbConfig = PactDbConfig
     { _pdbcPersistDir :: !(Maybe FilePath)
@@ -184,6 +175,8 @@ instance Ord SQLiteRowDelta where
 -- 'BlockState' and is cleared upon pact transaction commit.
 type TxLogMap = Map TableName (DList TxLogJson)
 
+type TxLogMapCore = Map TableName (DList (PCore.TxLog ByteString))
+
 -- | Between a @restore..save@ bracket, we also need to record which tables
 -- were created during this block (so the necessary @CREATE TABLE@ statements
 -- can be performed upon block save).
@@ -204,6 +197,7 @@ data SQLitePendingData = SQLitePendingData
     { _pendingTableCreation :: !SQLitePendingTableCreations
     , _pendingWrites :: !SQLitePendingWrites
     , _pendingTxLogMap :: !TxLogMap
+    , _pendingTxLogMapCore :: !TxLogMapCore
     , _pendingSuccessfulTxs :: !SQLitePendingSuccessfulTxs
     }
     deriving (Show)
@@ -223,10 +217,16 @@ data BlockState = BlockState
     , _bsPendingTx :: !(Maybe SQLitePendingData)
     , _bsMode :: !(Maybe ExecutionMode)
     , _bsModuleCache :: !(DbCache PersistModuleData)
+    , _bsModuleCacheCore :: !(DbCache (PCore.ModuleData PCore.CoreBuiltin PCore.SpanInfo))
     }
 
+fromCoreExecutionMode :: PCore.ExecutionMode -> ExecutionMode
+fromCoreExecutionMode = \case
+  PCore.Transactional -> Transactional
+  PCore.Local -> Local
+
 emptySQLitePendingData :: SQLitePendingData
-emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
+emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty mempty
 
 initBlockState
     :: DbCacheLimitBytes
@@ -240,6 +240,7 @@ initBlockState cl txid = BlockState
     , _bsPendingBlock = emptySQLitePendingData
     , _bsPendingTx = Nothing
     , _bsModuleCache = emptyDbCache cl
+    , _bsModuleCacheCore = emptyDbCache cl
     }
 
 makeLenses ''BlockState
@@ -303,6 +304,7 @@ newtype BlockHandler logger a = BlockHandler
         )
 
 type ChainwebPactDbEnv logger = PactDbEnv (BlockEnv logger)
+type CoreDb = PCore.PactDb PCore.CoreBuiltin PCore.SpanInfo
 
 type ParentHash = BlockHash
 
@@ -329,7 +331,7 @@ data ReadCheckpointer logger = ReadCheckpointer
   , _cpGetBlockHistory ::
       !(BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory)
   , _cpGetHistoricalLookup ::
-      !(BlockHeader -> Domain RowKey RowData -> RowKey -> IO (Maybe (TxLog RowData)))
+      !(BlockHeader -> Domain RowKey RowData -> RowKey -> IO (Maybe (PCore.TxLog PCore.RowData)))
   , _cpLogger :: logger
   }
 
@@ -388,6 +390,7 @@ _cpRewindTo cp ancestor = void $ _cpRestoreAndSave cp
 -- this is effectively a read-write snapshot of the Pact state at a block.
 data CurrentBlockDbEnv logger = CurrentBlockDbEnv
     { _cpPactDbEnv :: !(ChainwebPactDbEnv logger)
+    , _cpPactCoreDbEnv :: !CoreDb
     , _cpRegisterProcessedTx :: !(P.PactHash -> IO ())
     , _cpLookupProcessedTx ::
         !(Vector P.PactHash -> IO (HashMap P.PactHash (T2 BlockHeight BlockHash)))
@@ -400,11 +403,11 @@ newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
 data MemPoolAccess = MemPoolAccess
   { mpaGetBlock
         :: !(BlockFill
-        -> MempoolPreBlockCheck ChainwebTransaction
+        -> MempoolPreBlockCheck Pact4Transaction
         -> BlockHeight
         -> BlockHash
         -> BlockHeader
-        -> IO (Vector ChainwebTransaction)
+        -> IO (Vector Pact4Transaction)
         )
   , mpaSetLastHeader :: !(BlockHeader -> IO ())
   , mpaProcessFork :: !(BlockHeader -> IO ())

@@ -135,6 +135,7 @@ mainnet = ChainwebVersion
         Pact4Coin3 -> AllChains (ForkAtBlockHeight $ BlockHeight 1_722_500)      -- 2021-06-19T03:34:05+00:00
         EnforceKeysetFormats -> AllChains (ForkAtBlockHeight $ BlockHeight 2_162_000) -- 2022-01-17T17:51:12
         Pact42 -> AllChains (ForkAtBlockHeight $ BlockHeight 2_334_500) -- 2022-01-17T17:51:12+00:00
+        Pact5 -> AllChains ForkNever
         CheckTxHash -> AllChains (ForkAtBlockHeight $ BlockHeight 2_349_800) -- 2022-01-23T02:53:38
         Chainweb213Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 2_447_315) -- 2022-02-26T00:00:00+00:00
         Chainweb214Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 2_605_663) -- 2022-04-22T00:00:00+00:00

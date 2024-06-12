@@ -57,6 +57,9 @@ import Pact.Types.Util (fromText')
 import Pact.JSON.Encode qualified as J
 import Pact.JSON.Yaml
 
+import qualified Pact.Core.Persistence as PCore
+import qualified Pact.Core.Serialise.LegacyPact as PCore
+
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader
@@ -84,7 +87,7 @@ import Chainweb.Test.Pact.Utils qualified as Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Time
-import Chainweb.Transaction (ChainwebTransaction)
+import Chainweb.Transaction (Pact4Transaction)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
@@ -219,11 +222,11 @@ newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailur
 
     _ -> assertFailure "newBlockAndValidationFailure: expected BlockValidationFailure"
 
-toRowData :: HasCallStack => Value -> RowData
-toRowData v = case eitherDecode encV of
-    Left e -> error $
-        "toRowData: failed to encode as row data. " <> e <> "\n" <> show encV
-    Right r -> r
+toRowData :: HasCallStack => Value -> PCore.RowData
+toRowData v = case PCore.decodeRowData $ BL.toStrict encV of
+    Nothing -> error $
+        "toRowData: failed to encode as row data. \n" <> show encV
+    Just r -> r
   where
     encV = J.encode v
 
@@ -312,7 +315,7 @@ pactStateSamePreAndPostCompaction rdb =
     let numBlocks :: Num a => a
         numBlocks = 100
 
-    let makeTx :: Word -> BlockHeader -> IO ChainwebTransaction
+    let makeTx :: Word -> BlockHeader -> IO Pact4Transaction
         makeTx nth bh = buildCwCmd (sshow (nth, bh)) testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
           $ setFromHeader bh
@@ -327,6 +330,7 @@ pactStateSamePreAndPostCompaction rdb =
 
     statePreCompaction <- getLatestPactState db
     Utils.compact Error [C.NoVacuum] cr.sqlEnv (C.Target (BlockHeight numBlocks))
+
     statePostCompaction <- getLatestPactState db
 
     let stateDiff = M.filter (not . PatienceM.isSame) (PatienceM.diff statePreCompaction statePostCompaction)
@@ -366,7 +370,7 @@ compactionIsIdempotent rdb =
     let numBlocks :: Num a => a
         numBlocks = 100
 
-    let makeTx :: Word -> BlockHeader -> IO ChainwebTransaction
+    let makeTx :: Word -> BlockHeader -> IO Pact4Transaction
         makeTx nth bh = buildCwCmd (sshow (nth, bh)) testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
           $ setFromHeader bh
@@ -422,7 +426,7 @@ compactionDoesNotDisruptDuplicateDetection :: ()
   -> TestTree
 compactionDoesNotDisruptDuplicateDetection rdb = do
   compactionSetup "compactionDoesNotDisruptDuplicateDetection" rdb testPactServiceConfig $ \cr -> do
-    let makeTx :: IO ChainwebTransaction
+    let makeTx :: IO Pact4Transaction
         makeTx = buildCwCmd (sshow @Word 0) testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
           $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)")
@@ -460,7 +464,7 @@ compactionUserTablesDropped rdb =
     let halfwayPoint :: Integral a => a
         halfwayPoint = numBlocks `div` 2
 
-    let createTable :: Word -> Text -> IO ChainwebTransaction
+    let createTable :: Word -> Text -> IO Pact4Transaction
         createTable n tblName = do
           let tx = T.unlines
                 [ "(namespace 'free)"
@@ -536,7 +540,7 @@ compactionGrandHashUnchanged rdb =
     let numBlocks :: Num a => a
         numBlocks = 100
 
-    let makeTx :: Word -> BlockHeader -> IO ChainwebTransaction
+    let makeTx :: Word -> BlockHeader -> IO Pact4Transaction
         makeTx nth bh = buildCwCmd (sshow nth) testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
           $ setFromHeader bh
@@ -565,7 +569,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
   BlockTxHistory hist prevBals <- pactBlockTxHistory h (UserTables "coin_coin-table") q
   -- just check first one here
   assertEqual "check first entry of history"
-    (Just [TxLog "coin_coin-table" "sender00"
+    (Just [PCore.TxLog "coin_coin-table" "sender00"
       (toRowData $ object
        [ "guard" .= object
          [ "pred" .= ("keys-all" :: T.Text)
@@ -583,7 +587,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
   assertEqual "check previous balance"
     (M.fromList
      [(RowKey "sender00",
-       (TxLog "coin_coin-table" "sender00"
+       (PCore.TxLog "coin_coin-table" "sender00"
         (toRowData $ object
          [ "guard" .= object
            [ "pred" .= ("keys-all" :: T.Text)
@@ -598,7 +602,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
 
 getHistoricalLookupNoTxs
     :: T.Text
-    -> (Maybe (TxLog RowData) -> IO ())
+    -> (Maybe (PCore.TxLog PCore.RowData) -> IO ())
     -> IO (IORef MemPoolAccess)
     -> IO (SQLiteEnv, PactQueue, TestBlockDb)
     -> TestTree
@@ -612,7 +616,7 @@ getHistoricalLookupNoTxs key assertF refIO reqIO =
 
 getHistoricalLookupWithTxs
     :: T.Text
-    -> (Maybe (TxLog RowData) -> IO ())
+    -> (Maybe (PCore.TxLog PCore.RowData) -> IO ())
     -> IO (IORef MemPoolAccess)
     -> IO (SQLiteEnv, PactQueue, TestBlockDb)
     -> TestTree
@@ -624,14 +628,14 @@ getHistoricalLookupWithTxs key assertF refIO reqIO =
     h <- getParentTestBlockDb bdb cid
     histLookup q h key >>= assertF
 
-histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (TxLog RowData))
+histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (PCore.TxLog PCore.RowData))
 histLookup q bh k =
   pactHistoricalLookup bh (UserTables "coin_coin-table") (RowKey k) q
 
-assertSender00Bal :: Rational -> String -> Maybe (TxLog RowData) -> Assertion
+assertSender00Bal :: Rational -> String -> Maybe (PCore.TxLog PCore.RowData) -> Assertion
 assertSender00Bal bal msg hist =
   assertEqual msg
-    (Just (TxLog "coin_coin-table" "sender00"
+    (Just (PCore.TxLog "coin_coin-table" "sender00"
       (toRowData $ object
         [ "guard" .= object
           [ "pred" .= ("keys-all" :: T.Text)
@@ -996,7 +1000,7 @@ runTxInBlock :: ()
   => IO (IORef MemPoolAccess) -- ^ mempoolRef
   -> PactQueue
   -> TestBlockDb
-  -> (Word -> BlockHeight -> BlockHash -> BlockHeader -> IO ChainwebTransaction)
+  -> (Word -> BlockHeight -> BlockHash -> BlockHeader -> IO Pact4Transaction)
   -> IO (Either PactException PayloadWithOutputs)
 runTxInBlock mempoolRef pactQueue blockDb makeTx = do
   madeTx <- newIORef @Bool False
@@ -1021,7 +1025,7 @@ runTxInBlock_ :: ()
   => IO (IORef MemPoolAccess) -- ^ mempoolRef
   -> PactQueue
   -> TestBlockDb
-  -> (Word -> BlockHeight -> BlockHash -> BlockHeader -> IO ChainwebTransaction)
+  -> (Word -> BlockHeight -> BlockHash -> BlockHeader -> IO Pact4Transaction)
   -> IO PayloadWithOutputs
 runTxInBlock_ mempoolRef pactQueue blockDb makeTx = do
   runTxInBlock mempoolRef pactQueue blockDb makeTx >>= \case

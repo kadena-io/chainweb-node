@@ -40,7 +40,7 @@ pattern RecapDevelopment <- ((== recapDevnet) -> True) where
 
 recapDevnet :: ChainwebVersion
 recapDevnet = ChainwebVersion
-    { _versionCode = ChainwebVersionCode 0x00000001
+    { _versionCode = ChainwebVersionCode 0x0000_0001
     , _versionName = ChainwebVersionName "recap-development"
 
     , _versionForks = tabulateHashMap $ \case
@@ -59,6 +59,7 @@ recapDevnet = ChainwebVersion
             Pact4Coin3 -> AllChains $ ForkAtBlockHeight $ BlockHeight 80
             EnforceKeysetFormats -> AllChains $ ForkAtBlockHeight $ BlockHeight 100
             Pact42 -> AllChains $ ForkAtBlockHeight $ BlockHeight 90
+            Pact5 -> AllChains ForkNever
             CheckTxHash -> AllChains $ ForkAtBlockHeight $ BlockHeight 110
             Chainweb213Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 95
             Chainweb214Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 115

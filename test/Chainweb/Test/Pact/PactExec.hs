@@ -154,7 +154,7 @@ data TestResponse a = TestResponse
     }
     deriving (Generic, Show)
 
-type TxsTest = (IO (V.Vector ChainwebTransaction), Either String (TestResponse String) -> Assertion)
+type TxsTest = (IO (V.Vector Pact4Transaction), Either String (TestResponse String) -> Assertion)
 
 -- -------------------------------------------------------------------------- --
 -- sample data
@@ -546,7 +546,7 @@ execTxsTest v runPact name (trans',check) = testCase name (go >>= check)
             (toHashCommandResult $ _transactionCoinbase results)
         Left e -> return $ Left $ show e
 
-type LocalTest = (IO ChainwebTransaction,Either String (CommandResult Hash) -> Assertion)
+type LocalTest = (IO Pact4Transaction,Either String (CommandResult Hash) -> Assertion)
 
 execLocalTest
     :: (Logger logger, CanReadablePayloadCas tbl)

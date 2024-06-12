@@ -134,7 +134,7 @@ import Control.Error (note, rights)
 
 data PactServerData logger tbl = PactServerData
     { _pactServerDataCutDb :: !(CutDB.CutDb tbl)
-    , _pactServerDataMempool :: !(MempoolBackend ChainwebTransaction)
+    , _pactServerDataMempool :: !(MempoolBackend Pact4Transaction)
     , _pactServerDataLogger :: !logger
     , _pactServerDataPact :: !PactExecutionService
     }
@@ -248,7 +248,7 @@ sendHandler
     => logger
     -> ChainwebVersion
     -> ChainId
-    -> MempoolBackend ChainwebTransaction
+    -> MempoolBackend Pact4Transaction
     -> SubmitBatch
     -> Handler RequestKeys
 sendHandler logger v cid mempool (SubmitBatch cmds) = Handler $ do
@@ -290,7 +290,7 @@ pollHandler
     -> CutDB.CutDb tbl
     -> ChainId
     -> PactExecutionService
-    -> MempoolBackend ChainwebTransaction
+    -> MempoolBackend Pact4Transaction
     -> Maybe ConfirmationDepth
     -> Poll
     -> Handler PollResponses
@@ -314,7 +314,7 @@ listenHandler
     -> CutDB.CutDb tbl
     -> ChainId
     -> PactExecutionService
-    -> MempoolBackend ChainwebTransaction
+    -> MempoolBackend Pact4Transaction
     -> ListenerRequest
     -> Handler ListenResponse
 listenHandler logger cdb cid pact mem (ListenerRequest key) = do
@@ -601,7 +601,7 @@ internalPoll
     :: CanReadablePayloadCas tbl
     => PayloadDb tbl
     -> BlockHeaderDb
-    -> MempoolBackend ChainwebTransaction
+    -> MempoolBackend Pact4Transaction
     -> PactExecutionService
     -> Maybe ConfirmationDepth
     -> NonEmpty RequestKey
@@ -686,9 +686,9 @@ toPactTx (Transaction b) = note "toPactTx failure" (decodeStrict' b)
 
 -- TODO: all of the functions in this module can instead grab the current block height from consensus
 -- and pass it here to get a better estimate of what behavior is correct.
-validateCommand :: ChainwebVersion -> ChainId -> Command Text -> Either String ChainwebTransaction
+validateCommand :: ChainwebVersion -> ChainId -> Command Text -> Either String Pact4Transaction
 validateCommand v cid (fmap encodeUtf8 -> cmdBs) = case parsedCmd of
-  Right (commandParsed :: ChainwebTransaction) ->
+  Right (commandParsed :: Pact4Transaction) ->
     if assertCommand
          commandParsed
          (validPPKSchemes v cid bh)

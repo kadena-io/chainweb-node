@@ -52,6 +52,11 @@ package pact
     -- avoid conflict with cryptonite during linking
     flags: +cryptonite-ed25519 -build-tool
 
+package pact-tng
+    ghc-options: -Wwarn
+    -- avoid conflict with cryptonite during linking
+    flags: +cryptonite-ed25519 -build-tool
+
 package rocksdb-haskell-kadena
     ghc-options: -Wwarn -optc-w -optcxx-w
 
@@ -63,6 +68,9 @@ package vault
 
 package yet-another-logger
     flags: -tbmqueue
+
+packages:
+    ../pact-core
 
 -- -------------------------------------------------------------------------- --
 -- Source Repository Packages
@@ -77,6 +85,12 @@ source-repository-package
     location: https://github.com/kadena-io/pact.git
     tag: 9ccef1fbeff545f07864896094eb2e2bd4c5ffb3
     --sha256: 0pai52mvyikhm527if4gxa1nwsmva3wg3nhvida7qg48rchjrxry
+
+-- source-repository-package
+--     type: git
+--     location: https://github.com/kadena-io/pact-5.git
+--     tag: c065ebd60ea0460a98779968200e943044fe4939
+--     --sha256: sha256-pSDMa5QZDF5/dsccDgZFQMfhgo+/HjDqc0m9W9h7m3g=
 
 source-repository-package
     type: git
@@ -133,9 +147,9 @@ source-repository-package
 -- Required for non-canonical decode in base64-bytestring (remove after 2.20 fork)
 source-repository-package
     type: git
-    location: https://github.com/emilypi/base64-bytestring-kadena
-    tag: 174af3523616c8fe01449da5ccbb9f16df097ac3
-    --sha256: sha256-kVFIy+Aj3TNJpsM1Cs/5uGmzeWwHKYWjjCQ+L1/XOj8=
+    location: https://github.com/kadena-io/base64-bytestring-kadena
+    tag: 90247042ab3b8662809210af2a78e6dee0f9b4ac
+    --sha256: sha256-xqIGml2asB+FxqVpsvVO59fdOGyJVBhZL6MyULvMGjc=
 
 source-repository-package
     type: git

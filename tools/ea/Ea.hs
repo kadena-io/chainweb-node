@@ -62,7 +62,7 @@ import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Time
 import Chainweb.Transaction
-    (ChainwebTransaction, chainwebPayloadCodec, mkPayloadWithTextOld)
+    (Pact4Transaction, pact4PayloadCodec, mkPayloadWithTextOld)
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -171,7 +171,7 @@ genCoinV6Payloads = genTxModule "CoinV6"
 -- Payload Generation
 ---------------------
 
-genPayloadModule :: ChainwebVersion -> Text -> ChainId -> [ChainwebTransaction] -> IO Text
+genPayloadModule :: ChainwebVersion -> Text -> ChainId -> [Pact4Transaction] -> IO Text
 genPayloadModule v tag cid cwTxs =
     withTempRocksDb "chainweb-ea" $ \rocks ->
     withBlockHeaderDb rocks v cid $ \bhdb -> do
@@ -183,10 +183,10 @@ genPayloadModule v tag cid cwTxs =
                     execNewGenesisBlock noMiner (V.fromList cwTxs)
             return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
 
-mkChainwebTxs :: [FilePath] -> IO [ChainwebTransaction]
+mkChainwebTxs :: [FilePath] -> IO [Pact4Transaction]
 mkChainwebTxs txFiles = mkChainwebTxs' =<< traverse mkTx txFiles
 
-mkChainwebTxs' :: [Command Text] -> IO [ChainwebTransaction]
+mkChainwebTxs' :: [Command Text] -> IO [Pact4Transaction]
 mkChainwebTxs' rawTxs =
     forM rawTxs $ \cmd -> do
         let cmdBS = fmap TE.encodeUtf8 cmd
@@ -306,7 +306,7 @@ genTxModule tag txFiles = do
 
     let encTxs = map quoteTx cwTxs
         quoteTx tx = "    \"" <> encTx tx <> "\""
-        encTx = encodeB64UrlNoPaddingText . codecEncode (chainwebPayloadCodec maxBound)
+        encTx = encodeB64UrlNoPaddingText . codecEncode (pact4PayloadCodec maxBound)
         modl = T.unlines $ startTxModule tag <> [T.intercalate "\n    ,\n" encTxs] <> endTxModule
         fileName = "src/Chainweb/Pact/Transactions/" <> tag <> "Transactions.hs"
 
@@ -326,10 +326,10 @@ startTxModule tag =
     , "import Chainweb.Transaction"
     , "import Chainweb.Utils"
     , ""
-    , "transactions :: [ChainwebTransaction]"
+    , "transactions :: [Pact4Transaction]"
     , "transactions ="
     , "  let decodeTx t ="
-    , "        fromEitherM . (first (userError . show)) . codecDecode (chainwebPayloadCodec maxBound) =<< decodeB64UrlNoPaddingText t"
+    , "        fromEitherM . (first (userError . show)) . codecDecode (pact4PayloadCodec maxBound) =<< decodeB64UrlNoPaddingText t"
     , "  in unsafePerformIO $ mapM decodeTx ["
     ]
 
