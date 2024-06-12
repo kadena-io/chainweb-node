@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -213,6 +214,9 @@ module Chainweb.Utils
 , showIpv4
 , showIpv6
 , sockAddrJson
+
+-- * GHC Host Architecture
+, hostArch
 
 -- * Debugging Tools
 , estimateBlockHeight
@@ -1388,6 +1392,18 @@ showIpv6 ha = T.intercalate ":"
     $ T.pack . printf "%x" <$> [a0,a1,a2,a3,a4,a5,a6,a7]
   where
     (a0,a1,a2,a3,a4,a5,a6,a7) = hostAddress6ToTuple ha
+
+-- -------------------------------------------------------------------------- --
+-- GHC Host architecture
+
+hostArch :: String
+#if aarch64_HOST_ARCH == 1
+hostArch = "aarch64"
+#elif x86_64_HOST_ARCH == 1
+hostArch = "x86_64"
+#else
+hostArch = "unknown"
+#endif
 
 -- -------------------------------------------------------------------------- --
 -- Debugging Tools
