@@ -1,1 +1,0 @@
-Don't prune cuts on startup. This avoids a race condition where we prune cuts on startup, and we don't write a cut before shutting down.

@@ -1,1 +1,0 @@
-Log rewound blocks during catchup instead of played blocks 

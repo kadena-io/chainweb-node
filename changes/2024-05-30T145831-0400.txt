@@ -1,1 +1,0 @@
-Log warp HTTP server errors at Info level
