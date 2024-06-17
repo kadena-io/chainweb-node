@@ -1,1 +1,0 @@
-Silence unnecessary `chainweb-node: RequestCancelled` logs from PactService, by catching them in the request worker.

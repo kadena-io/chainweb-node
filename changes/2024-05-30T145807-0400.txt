@@ -1,1 +1,0 @@
-Unify HTTP error logging across service and P2P APIs
