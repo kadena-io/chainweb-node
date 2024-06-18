@@ -120,6 +120,9 @@ import Chainweb.Version
 import Chainweb.Version.Guards
 import Utils.Logging.Trace
 import Chainweb.Counter
+import Data.Time.Clock
+import Text.Printf
+import Data.Time.Format.ISO8601
 
 runPactService
     :: Logger logger
@@ -790,7 +793,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
     withPactState $ \runPact ->
         liftIO $ getBranchIncreasing bhdb upperBound (int lowerHeight) $ \blocks -> do
           heightRef <- newIORef lowerHeight
-          withAsync (heightProgress lowerHeight heightRef (logInfo_ logger)) $ \_ -> do
+          withAsync (heightProgress lowerHeight (_blockHeight upperBound) heightRef (logInfo_ logger)) $ \_ -> do
               blocks
                   & Stream.hoist liftIO
                   & play bhdb pdb heightRef runPact
@@ -832,19 +835,34 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
               J.encodeJsonText ("Prior block validation errors" :: Text)
         return r
 
-    heightProgress :: BlockHeight -> IORef BlockHeight -> (Text -> IO ()) -> IO ()
-    heightProgress initialHeight ref logFun = do
-        r <- newIORef initialHeight
-        let delaySecs = 20
+    heightProgress :: BlockHeight -> BlockHeight -> IORef BlockHeight -> (Text -> IO ()) -> IO ()
+    heightProgress initialHeight endHeight ref logFun = do
+        heightAndRateRef <- newIORef (initialHeight, 0.0 :: Double)
+        let delayMicros = 20_000_000
+        liftIO $ threadDelay (delayMicros `div` 2)
         forever $ do
-          h <- readIORef r
-          h' <- readIORef ref
-          writeIORef r h'
+          liftIO $ threadDelay delayMicros
+          (lastHeight, oldRate) <- readIORef heightAndRateRef
+          now' <- getCurrentTime
+          currentHeight <- readIORef ref
+          let blocksPerSecond
+                  = 0.8
+                    * oldRate
+                  + 0.2
+                    * fromIntegral (currentHeight - lastHeight)
+                    / (fromIntegral delayMicros / 1_000_000)
+          writeIORef heightAndRateRef (currentHeight, blocksPerSecond)
+          let est =
+                  flip addUTCTime now'
+                      $ realToFrac @Double @NominalDiffTime
+                      $ fromIntegral @BlockHeight @Double
+                          (endHeight - initialHeight)
+                      / blocksPerSecond
           logFun
-            $ "processed: " <> sshow (h' - initialHeight)
-            <> ", current height: " <> sshow h'
-            <> ", rate: " <> sshow ((h' - h) `div` fromIntegral delaySecs) <> "blocks/sec"
-          liftIO $ threadDelay (delaySecs * 1_000_000)
+            $ T.pack $ printf "height: %d | rate: %.1f blocks/sec | est. %s"
+                      (fromIntegral @BlockHeight @Int $ currentHeight - initialHeight)
+                      blocksPerSecond
+                      (formatShow iso8601Format est)
 
 execLocal
     :: (Logger logger, CanReadablePayloadCas tbl)
