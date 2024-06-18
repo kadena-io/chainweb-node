@@ -12,7 +12,7 @@ ever be pruned from RocksDB [`17622c62`](https://github.com/kadena-io/chainweb-n
 - Fixed a crash when using read-only replay with no upper bound [`4c494f0d`](https://github.com/kadena-io/chainweb-node/commit/4c494f0d7a360068cd8a40c03f58de0155ff27da)
 - Disable telemetry monitor threads when telemetry is disabled anyway [`b2e182ad`](https://github.com/kadena-io/chainweb-node/commit/b2e182ad57462027d6aecba72e8f6556cce2692f)
 - Reorganize ValidationFailure error message to be more readable [`3ab3e640`](https://github.com/kadena-io/chainweb-node/commit/3ab3e640e4f553d9bc798ad768aaa30fb8bf7700)
-- Expand /info endpoint with: historical fork heights, node package version, genesis heights, the upcoming service date, and the block delay. [`9fb14dac`](https://github.com/kadena-io/chainweb-node/commit/9fb14dac6e8433ba07cecddbb7eb146ab1ce380b)
+- Expand /info endpoint with: historical fork heights, historical chain graphs, node package version, genesis heights, the upcoming service date, and the block delay. [`9fb14dac`](https://github.com/kadena-io/chainweb-node/commit/9fb14dac6e8433ba07cecddbb7eb146ab1ce380b)
 - Update pact pin for Hyperlane natives fixes [`1a9eb996`](https://github.com/kadena-io/chainweb-node/commit/1a9eb9960fcfe1c7e2673b1d26915285ff033cd7)
 - Add message-id & message body validation & merkle tree metadata support to the Hyperlane message plugin. [`bc87c68b`](https://github.com/kadena-io/chainweb-node/commit/bc87c68bf0fc4ba427ff2cbf2858933b7470543a)
 - Add capability to resume blocks in progress. [`38f3a3a6`](https://github.com/kadena-io/chainweb-node/commit/38f3a3a605d73d8114eab4c4bab0c729125fa5da)
