@@ -1,0 +1,1 @@
+Speed up read-only replay by avoiding playing empty blocks
