@@ -13,8 +13,12 @@
 -- the devnet version, so we maintain a mutable registry mapping codes to
 -- versions in this module.
 --
+-- Be careful in this module. We hope to be able to delete it eventually,
+-- because it works badly with tests.
+--
 module Chainweb.Version.Registry
     ( registerVersion
+    , unregisterVersion
     , lookupVersionByCode
     , lookupVersionByName
     , fabricateVersionWithName
@@ -64,6 +68,13 @@ registerVersion v = do
             Nothing ->
                 (HM.insert (_versionCode v) v m, ())
 
+-- | Unregister a version from the registry. This is ONLY for testing versions.
+unregisterVersion :: HasCallStack => ChainwebVersion -> IO ()
+unregisterVersion v = do
+    if elem (_versionCode v) (_versionCode <$> [mainnet, testnet])
+    then error "You cannot unregister mainnet or testnet versions"
+    else atomicModifyIORef' versionMap $ \m -> (HM.delete (_versionCode v) m, ())
+
 validateVersion :: HasCallStack => ChainwebVersion -> IO ()
 validateVersion v = do
     evaluate (rnf v)
@@ -111,7 +122,7 @@ lookupVersionByCode code
     notRegistered
       | code == _versionCode recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured"
       | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured"
-      | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.legalizeTestVersion?"
+      | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.testVersions?"
 
 -- TODO: ideally all uses of this are deprecated. currently in use in
 -- ObjectEncoded block header decoder and CutHashes decoder.
@@ -127,7 +138,7 @@ lookupVersionByName name
             listToMaybe [ v | v <- HM.elems m, _versionName v == name ]
     notRegistered
       | name == _versionName recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured"
-      | otherwise = "version not registered with name " <> show name <> ", have you seen Chainweb.Test.TestVersions.legalizeTestVersion?"
+      | otherwise = "version not registered with name " <> show name <> ", have you seen Chainweb.Test.TestVersions.testVersions?"
 
 fabricateVersionWithName :: HasCallStack => ChainwebVersionName -> ChainwebVersion
 fabricateVersionWithName name =

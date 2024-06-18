@@ -27,7 +27,7 @@ on:
         description: "used to pull binary"
         type: string
         required: true
-        default: "9.6.3"
+        default: "9.6.5"
 #       tag_default_bump:
 #         description: "Auto-bump release version id"
 #         type: choice

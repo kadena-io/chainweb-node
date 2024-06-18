@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
@@ -30,9 +31,6 @@ module Chainweb.Pact.Types
   , pdbspPactDbState
 
     -- * Misc helpers
-  , Transactions(..)
-  , transactionCoinbase
-  , transactionPairs
 
   , GasSupply(..)
   , GasId(..)
@@ -62,6 +60,8 @@ module Chainweb.Pact.Types
   , txGasPrice
   , txRequestKey
   , txExecutionConfig
+  , txQuirkGasFee
+  , txTxFailuresCounter
 
     -- * Transaction Execution Monad
   , TransactionM(..)
@@ -86,6 +86,7 @@ module Chainweb.Pact.Types
   , psAllowReadsInLocal
   , psBlockGasLimit
   , psEnableLocalTimeout
+  , psTxFailuresCounter
 
     -- * TxContext
   , TxContext(..)
@@ -95,6 +96,7 @@ module Chainweb.Pact.Types
   , ctxCurrentBlockHeight
   , ctxChainId
   , ctxVersion
+  , guardCtx
   , getTxContext
 
     -- * Pact Service State
@@ -102,11 +104,6 @@ module Chainweb.Pact.Types
   , psInitCache
 
   -- * Module cache
-  , ModuleCache(..)
-  , filterModuleCacheByKey
-  , moduleCacheToHashMap
-  , moduleCacheFromHashMap
-  , moduleCacheKeys
   , ModuleInitCache
   , getInitCache
   , updateInitCache
@@ -173,13 +170,11 @@ import Control.Monad.State.Strict
 
 import Data.Aeson hiding (Error,(.=))
 import Data.Default (def)
-import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.LogMessage
 import Data.Set (Set)
 import qualified Data.Map.Strict as M
 import Data.Text (pack, unpack, Text)
-import Data.Vector (Vector)
 
 import GHC.Generics (Generic)
 
@@ -189,16 +184,14 @@ import System.LogLevel
 
 import Pact.Interpreter (PactDbEnv)
 import qualified Pact.JSON.Encode as J
-import qualified Pact.JSON.Legacy.HashMap as LHM
 import Pact.Parse (ParsedDecimal)
 import Pact.Types.ChainId (NetworkId)
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas
-import Pact.Types.Names
 import Pact.Types.Persistence (ExecutionMode, TxLogJson)
 import Pact.Types.Pretty (viaShow)
-import Pact.Types.Runtime (ExecutionConfig(..), ModuleData(..), PactWarning, PactError(..), PactErrorType(..))
+import Pact.Types.Runtime (ExecutionConfig(..), PactWarning, PactError(..), PactErrorType(..))
 import Pact.Types.SPV
 import Pact.Types.Term
 import qualified Pact.Types.Logger as P
@@ -211,6 +204,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
+import Chainweb.Counter
 import Chainweb.Mempool.Mempool (TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Logger
@@ -219,17 +213,9 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
-import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
 import Utils.Logging.Trace
-
-
-data Transactions r = Transactions
-    { _transactionPairs :: !(Vector (ChainwebTransaction, r))
-    , _transactionCoinbase :: !(CommandResult [TxLogJson])
-    } deriving (Functor, Foldable, Traversable, Eq, Show, Generic, NFData)
-makeLenses 'Transactions
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: !(Maybe FilePath)
@@ -259,47 +245,6 @@ newtype EnforceCoinbaseFailure = EnforceCoinbaseFailure Bool
 
 -- | Always use precompiled templates in coinbase or use date rule.
 newtype CoinbaseUsePrecompiled = CoinbaseUsePrecompiled Bool
-
--- -------------------------------------------------------------------------- --
--- Module Cache
-
--- | Block scoped Module Cache
---
-newtype ModuleCache = ModuleCache { _getModuleCache :: LHM.HashMap ModuleName (ModuleData Ref, Bool) }
-    deriving newtype (Semigroup, Monoid, NFData)
-
-filterModuleCacheByKey
-    :: (ModuleName -> Bool)
-    -> ModuleCache
-    -> ModuleCache
-filterModuleCacheByKey f (ModuleCache c) = ModuleCache $
-    LHM.fromList $ filter (f . fst) $ LHM.toList c
-{-# INLINE filterModuleCacheByKey #-}
-
-moduleCacheToHashMap
-    :: ModuleCache
-    -> HM.HashMap ModuleName (ModuleData Ref, Bool)
-moduleCacheToHashMap (ModuleCache c) = HM.fromList $ LHM.toList c
-{-# INLINE moduleCacheToHashMap #-}
-
-moduleCacheFromHashMap
-    :: HM.HashMap ModuleName (ModuleData Ref, Bool)
-    -> ModuleCache
-moduleCacheFromHashMap = ModuleCache . LHM.fromList . HM.toList
-{-# INLINE moduleCacheFromHashMap #-}
-
-moduleCacheKeys :: ModuleCache -> [ModuleName]
-moduleCacheKeys (ModuleCache a) = fst <$> LHM.toList a
-{-# INLINE moduleCacheKeys #-}
-
--- this can't go in Chainweb.Version.Guards because it causes an import cycle
--- it uses genesisHeight which is from BlockHeader which imports Guards
-cleanModuleCache :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-cleanModuleCache v cid bh =
-  case v ^?! versionForks . at Chainweb217Pact . _Just . onChain cid of
-    ForkAtBlockHeight bh' -> bh == bh'
-    ForkAtGenesis -> bh == genesisHeight v cid
-    ForkNever -> False
 
 -- -------------------------------------------------------------------- --
 -- Local vs. Send execution context flag
@@ -335,6 +280,8 @@ data TransactionEnv logger db = TransactionEnv
     , _txRequestKey :: !RequestKey
     , _txGasLimit :: !Gas
     , _txExecutionConfig :: !ExecutionConfig
+    , _txQuirkGasFee :: !(Maybe Gas)
+    , _txTxFailuresCounter :: !(Maybe (Counter "txFailures"))
     }
 makeLenses ''TransactionEnv
 
@@ -437,6 +384,7 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psBlockGasLimit :: !GasLimit
 
     , _psEnableLocalTimeout :: !Bool
+    , _psTxFailuresCounter :: !(Maybe (Counter "txFailures"))
     }
 makeLenses ''PactServiceEnv
 
@@ -475,6 +423,7 @@ testPactServiceConfig = PactServiceConfig
       , _pactModuleCacheLimit = defaultModuleCacheLimit
       , _pactFullHistoryRequired = False
       , _pactEnableLocalTimeout = False
+      , _pactPersistIntraBlockWrites = DoNotPersistIntraBlockWrites
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
@@ -583,6 +532,9 @@ ctxChainId = _blockChainId . ctxBlockHeader
 
 ctxVersion :: TxContext -> ChainwebVersion
 ctxVersion = _chainwebVersion . ctxBlockHeader
+
+guardCtx :: (ChainwebVersion -> ChainId -> BlockHeight -> a) -> TxContext -> a
+guardCtx g txCtx = g (ctxVersion txCtx) (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
 
 -- | Assemble tx context from transaction metadata and parent header.
 getTxContext :: PublicMeta -> PactBlockM logger tbl TxContext

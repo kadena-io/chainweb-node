@@ -60,7 +60,7 @@ import Chainweb.Utils (sshow)
 import Chainweb.Version
 
 testVer :: ChainwebVersion
-testVer = fastForkingCpmTestVersion petersonChainGraph
+testVer = instantCpmTestVersion petersonChainGraph
 
 testChainId :: ChainId
 testChainId = unsafeChainId 0
@@ -141,15 +141,12 @@ cpWithBench torun =
   where
     name = "batchedCheckpointer"
 
-    initialBlockState =
-      initBlockState defaultModuleCacheLimit $ genesisHeight testVer testChainId
-
     setup = do
         let dbFile = "" {- temporary SQLite db -}
         let neverLogger = genericLogger Error (\_ -> return ())
         !sqliteEnv <- openSQLiteConnection dbFile chainwebPragmas
         !cenv <-
-          initRelationalCheckpointer initialBlockState sqliteEnv neverLogger testVer testChainId
+          initRelationalCheckpointer defaultModuleCacheLimit sqliteEnv DoNotPersistIntraBlockWrites neverLogger testVer testChainId
         return $ NoopNFData (sqliteEnv, cenv)
 
     teardown (NoopNFData (sqliteEnv, _cenv)) = closeSQLiteConnection sqliteEnv

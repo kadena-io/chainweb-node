@@ -45,6 +45,7 @@ module Chainweb.Version.Guards
     , chainweb222Pact
     , chainweb223Pact
     , chainweb224Pact
+    , chainweb225Pact
     , pact44NewTrans
     , pactParserVersion
     , maxBlockGasLimit
@@ -175,8 +176,8 @@ pactBackCompat_v16 :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 pactBackCompat_v16 = checkFork before PactBackCompat_v16
 
 -- | Early versions of chainweb used the creation time of the current header
--- for validation of pact tx creation time and TTL. Nowadays the times of
--- the parent header a used.
+-- for validation of pact tx creation time and TTL. Nowadays the time of
+-- the parent header is used.
 --
 -- When this guard is enabled timing validation is skipped.
 --
@@ -252,6 +253,9 @@ chainweb223Pact = checkFork atOrAfter Chainweb223Pact
 
 chainweb224Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb224Pact = checkFork atOrAfter Chainweb224Pact
+
+chainweb225Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+chainweb225Pact = checkFork atOrAfter Chainweb225Pact
 
 pactParserVersion :: ChainwebVersion -> ChainId -> BlockHeight -> PactParserVersion
 pactParserVersion v cid bh

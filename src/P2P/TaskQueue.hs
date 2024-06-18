@@ -199,7 +199,7 @@ session_ limit q logFun env = E.mask $ \restore -> do
         let attempts = _taskAttemptsCount task'
         if
             | _taskAttemptsCount task' < limit -> do
-                logg task' Info $ "task failed: " <> sshow attempts
+                logg task' Debug $ "task failed: " <> sshow attempts
                 pQueueInsert q task'
                 return False
             | otherwise -> do

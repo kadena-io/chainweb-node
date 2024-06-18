@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -51,10 +52,13 @@ import Chainweb.Storage.Table.RocksDB
 -- Settings
 
 testVer :: ChainwebVersion
-testVer = fastForkingCpmTestVersion peterson
+testVer = instantCpmTestVersion peterson
 
 defTtl :: Seconds
 defTtl = 60 * 60 * 2 -- 2 hours
+
+genblock :: BlockHeader
+genblock = genesisBlockHeader testVer (someChainId testVer)
 
 -- -------------------------------------------------------------------------- --
 -- Tests
@@ -91,63 +95,63 @@ tests rdb = testGroup "Chainweb.Test.Pact.TTL"
 testTxTime :: IO Ctx -> TestTree
 testTxTime ctxIO =
     testCase "tx time of parent time and default ttl pass validation" $ do
-        _ <- mineBlock ctxIO mempty (Nonce 0) 1
-        _ <- mineBlock ctxIO (offset 0) (Nonce 1) 1
-        void $ mineBlock ctxIO (offset (-1)) (Nonce 2) 1
+        T2 hdr1 _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 0) 1
+        T2 hdr2 _ <- mineBlock ctxIO (offset 0) (ParentHeader hdr1) (Nonce 1) 1
+        void $ mineBlock ctxIO (offset (-1)) (ParentHeader hdr2) (Nonce 2) 1
 
 testTxTimeLenient :: IO Ctx -> TestTree
 testTxTimeLenient ctxIO =
     testCase "testTxTimeLenient: tx time of parent time + slop and default ttl succeeds during new block validation" $ do
-        _ <- mineBlock ctxIO mempty (Nonce 1) 1
-        void $ doNewBlock ctxIO (offset defaultLenientTimeSlop) (Nonce 2) 1
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
+        void $ doNewBlock ctxIO (offset defaultLenientTimeSlop) (ParentHeader hdr) (Nonce 2) 1
 
 testTxTimeFail1 :: IO Ctx -> TestTree
 testTxTimeFail1 ctxIO =
     testCase "testTxTimeFail1: tx time of parent time + slop + 1 and default ttl fails during new block validation" $ do
-        _ <- mineBlock ctxIO mempty (Nonce 1) 1
-        assertDoPreBlockFailure $ doNewBlock ctxIO (offset (succ defaultLenientTimeSlop)) (Nonce 2) 1
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
+        assertDoPreBlockFailure $ doNewBlock ctxIO (offset (succ defaultLenientTimeSlop)) (ParentHeader hdr) (Nonce 2) 1
 
 testTxTimeFail2 :: IO Ctx -> TestTree
 testTxTimeFail2 ctxIO =
     testCase "tx time of parent time + 1000 and default ttl fails during new block validation" $ do
-        _ <- mineBlock ctxIO mempty (Nonce 1) 1
-        assertDoPreBlockFailure $ doNewBlock ctxIO (offset 1000) (Nonce 2) 1
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
+        assertDoPreBlockFailure $ doNewBlock ctxIO (offset 1000) (ParentHeader hdr) (Nonce 2) 1
 
 testTtlTooLarge :: IO Ctx -> TestTree
 testTtlTooLarge ctxIO =
     testCase "too large TTL fails validation" $ do
-        _ <- mineBlock ctxIO mempty (Nonce 1) 1
-        assertDoPreBlockFailure $ doNewBlock ctxIO (ttl (100 * 24 * 3600)) (Nonce 2) 1
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
+        assertDoPreBlockFailure $ doNewBlock ctxIO (ttl (100 * 24 * 3600)) (ParentHeader hdr) (Nonce 2) 1
 
 testTtlSmall :: IO Ctx -> TestTree
 testTtlSmall ctxIO =
     testCase "testTtlSmall: small TTL passes validation" $ do
-        _ <- mineBlock ctxIO mempty (Nonce 1) 1
-        void $ doNewBlock ctxIO (ttl 5) (Nonce 2) 1
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
+        void $ doNewBlock ctxIO (ttl 5) (ParentHeader hdr) (Nonce 2) 1
 
 testExpired :: IO Ctx -> TestTree
 testExpired ctxIO =
     testCase "expired transaction fails validation" $ do
-        _ <- mineBlock ctxIO mempty (Nonce 1) 500
-        assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (-400) 300) (Nonce 2) 1
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 500
+        assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (-400) 300) (ParentHeader hdr) (Nonce 2) 1
 
 testExpiredTight :: IO Ctx -> TestTree
 testExpiredTight ctxIO =
     testCase "tightly expired transaction fails validation" $ do
-        _ <- mineBlock ctxIO mempty (Nonce 1) 500
-        assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (-300) 300) (Nonce 2) 1
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 500
+        assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (-300) 300) (ParentHeader hdr) (Nonce 2) 1
 
 testJustMadeItSmall :: IO Ctx -> TestTree
 testJustMadeItSmall ctxIO =
-    testCase "testJustMadeIdSmall" $ do
-        _ <- mineBlock ctxIO mempty (Nonce 1) 100
-        void $ doNewBlock ctxIO (offsetTtl (-99) 100) (Nonce 2) 1
+    testCase "testJustMadeItSmall" $ do
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 100
+        void $ doNewBlock ctxIO (offsetTtl (-99) 100) (ParentHeader hdr) (Nonce 2) 1
 
 testJustMadeItLarge :: IO Ctx -> TestTree
 testJustMadeItLarge ctxIO =
-    testCase "testJustMadeItLage" $ do
-        _ <- mineBlock ctxIO mempty (Nonce 1) 500
-        void $ doNewBlock ctxIO (offsetTtl (-399) 400) (Nonce 2) 1
+    testCase "testJustMadeItLarge" $ do
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 500
+        void $ doNewBlock ctxIO (offsetTtl (-399) 400) (ParentHeader hdr) (Nonce 2) 1
 
 -- -------------------------------------------------------------------------- --
 -- Mempool Access
@@ -193,12 +197,13 @@ modAtTtl f (Seconds t) = mempty
 mineBlock
     :: IO Ctx
     -> MemPoolAccess
+    -> ParentHeader
     -> Nonce
     -> Seconds
         -- ^ Block time
     -> IO (T2 BlockHeader PayloadWithOutputs)
-mineBlock ctxIO mempool nonce s = do
-    T2 hdr payload <- doNewBlock ctxIO mempool nonce s
+mineBlock ctxIO mempool parent nonce s = do
+    T2 hdr payload <- doNewBlock ctxIO mempool parent nonce s
     doValidateBlock ctxIO hdr payload
     return $ T2 hdr payload
 
@@ -207,17 +212,18 @@ mineBlock ctxIO mempool nonce s = do
 doNewBlock
     :: IO Ctx
     -> MemPoolAccess
+    -> ParentHeader
     -> Nonce
     -> Seconds
         -- ^ Block time
     -> IO (T2 BlockHeader PayloadWithOutputs)
-doNewBlock ctxIO mempool nonce t = do
+doNewBlock ctxIO mempool parent nonce t = do
     ctx <- ctxIO
     unlessM (tryPutMVar (_ctxMempool ctx) mempool) $
         error "Test failure: mempool access is not empty. Some previous test step failed unexpectedly"
 
-    mv <- newBlock noMiner $ _ctxQueue ctx
-    T2 parent payload <- assertNotLeft =<< takeMVar mv
+    bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill parent (_ctxQueue ctx)
+    let payload = blockInProgressToPayloadWithOutputs bip
     let
         creationTime = BlockCreationTime
             . add (secondsToTimeSpan t) -- 10 seconds
@@ -242,7 +248,7 @@ doValidateBlock
     -> IO ()
 doValidateBlock ctxIO header payload = do
     ctx <- ctxIO
-    _mv' <- validateBlock header (payloadWithOutputsToPayloadData payload) $ _ctxQueue ctx
+    _mv' <- validateBlock header (CheckablePayloadWithOutputs payload) $ _ctxQueue ctx
     addNewPayload (_ctxPdb ctx) (_blockHeight header) payload
     unsafeInsertBlockHeaderDb (_ctxBdb ctx) header
     -- FIXME FIXME FIXME: do at least some checks?
@@ -259,9 +265,8 @@ instance Exception ValidationFailure
 assertDoPreBlockFailure
     :: IO a
     -> IO ()
-assertDoPreBlockFailure action = try @_ @PactException action >>= \case
-    Left (PactInternalError "DoPreBlockFailure") -> return ()
-    Left e -> throwM e
+assertDoPreBlockFailure action = try action >>= \case
+    Left DoPreBlockFailure -> return ()
     Right{} -> assertFailure "Expected DoPreBlockFailure but the action succeeded."
 
 data Ctx = Ctx
@@ -291,7 +296,3 @@ withTestPact rdb test =
                 Nothing -> mempty
                 Just mp -> mpaGetBlock mp g val he h p
         }
-
-assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
-assertNotLeft (Left l) = throwM l
-assertNotLeft (Right r) = return r

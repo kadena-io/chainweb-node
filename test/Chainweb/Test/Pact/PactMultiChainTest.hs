@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -21,10 +22,15 @@ import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.List(isPrefixOf)
+import Data.List qualified as List
+import Data.Maybe
+import Data.Set (Set)
+import Data.Set qualified as Set
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Test.Tasty
 import Test.Tasty.HUnit
+import System.IO.Unsafe
 import System.Logger qualified as YAL
 import System.LogLevel
 
@@ -33,6 +39,7 @@ import System.LogLevel
 import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Continuation
+import Pact.Types.Gas
 import Pact.Types.Hash
 import Pact.Types.Lang(_LString)
 import Pact.Types.PactError
@@ -55,7 +62,6 @@ import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec (listErrMsg)
-import Chainweb.Pact.Types (TxTimeout(..))
 import Chainweb.Payload
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.Cut
@@ -66,12 +72,16 @@ import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Registry
 import Chainweb.WebPactExecutionService
 
 import Chainweb.Payload.PayloadStore (lookupPayloadWithHeight)
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion peterson
+
+quirkedGasTestVersion :: RequestKey -> ChainwebVersion
+quirkedGasTestVersion = quirkedGasSlowForkingCpmTestVersion peterson
 
 cid :: ChainId
 cid = unsafeChainId 9
@@ -86,29 +96,27 @@ data MultiEnv = MultiEnv
     , _menvChainId :: !ChainId
     }
 
+instance HasChainwebVersion MultiEnv where
+    _chainwebVersion = _chainwebVersion . _menvBdb
+
 makeLenses ''MultiEnv
 
 type PactTestM = ReaderT MultiEnv IO
 
-data MempoolInput = MempoolInput
-    { _miBlockFill :: BlockFill
-    , _miBlockHeader :: BlockHeader
-    }
-
 newtype MempoolCmdBuilder = MempoolCmdBuilder
-    { _mempoolCmdBuilder :: MempoolInput -> CmdBuilder
+    { _mempoolCmdBuilder :: BlockHeader -> CmdBuilder
     }
 
 -- | Block filler. A 'Nothing' result means "skip this filler".
 newtype MempoolBlock = MempoolBlock
-    { _mempoolBlock :: MempoolInput -> Maybe [MempoolCmdBuilder]
+    { _mempoolBlock :: BlockHeader -> Maybe [MempoolCmdBuilder]
     }
 
 -- | Mempool with an ordered list of fillers.
 newtype PactMempool = PactMempool
   { _pactMempool :: [MempoolBlock]
   }
-  deriving (Semigroup,Monoid)
+  deriving (Semigroup, Monoid)
 
 
 -- | Pair a builder with a test
@@ -138,6 +146,7 @@ tests = testGroup testName
   , test generousConfig getGasModel "chainweb223Test" chainweb223Test
   , test generousConfig getGasModel "compactAndSyncTest" compactAndSyncTest
   , test generousConfig getGasModel "compactionCompactsUnmodifiedTables" compactionCompactsUnmodifiedTables
+  , quirkTest
   ]
   where
     testName = "Chainweb.Test.Pact.PactMultiChainTest"
@@ -179,12 +188,36 @@ txTimeoutTest :: PactTestM ()
 txTimeoutTest = do
   -- get access to `enumerate`
   runToHeight 20
-  handle (\(TxTimeout _) -> return ()) $ do
-    runBlockTest
-      -- deliberately time out in newblock
-      [PactTxTest (buildBasicGas 1000 $ mkExec' "(enumerate 0 999999999999)") (\_ -> assertFailure "tx succeeded")]
-    liftIO $ assertFailure "block succeeded"
-  runToHeight 26
+
+  -- we inline some of runBlockTest here because its assertions
+  -- don't make sense for tx timeout
+  let pts =
+        [ buildBasic $ mkExec' "(+ 1 1)"
+        , buildBasicGas 1000 $ mkExec' "(enumerate 0 999999999999)"
+        , buildBasic $ mkExec' "(+ 2 2)"
+        ]
+  chid <- view menvChainId
+
+  mempoolBadlistRef <- setPactMempool $ PactMempool $ List.singleton $ blockForChain chid $ MempoolBlock $ \_ -> pure pts
+
+  blockBefore <- currentCut <&> (^?! (cutMap . ix chid))
+
+  liftIO $ do
+    badlisted <- readIORef mempoolBadlistRef
+    assertEqual "number of badlisted transactions is 0 before runCut'" 0 (Set.size badlisted)
+  runCut'
+
+  blockAfter <- currentCut <&> (^?! (cutMap . ix chid))
+
+  -- Ideally, we want to check the actual hash, but the DSL in this module
+  -- doesn't make that possible
+  liftIO $ do
+    badlisted <- readIORef mempoolBadlistRef
+    assertEqual "number of badlisted transactions is 1 after runCut'" 1 (Set.size badlisted)
+    assertEqual "block is still made despite timeout" (succ (_blockHeight blockBefore)) (_blockHeight blockAfter)
+
+  rs <- txResults
+  liftIO $ assertEqual "number of transactions in block should be one (1) when second transaction times out" 1 (length rs)
 
 chainweb213Test :: PactTestM ()
 chainweb213Test = do
@@ -355,7 +388,7 @@ runLocalWithDepth :: T.Text -> Maybe RewindDepth -> ChainId -> CmdBuilder -> Pac
 runLocalWithDepth nonce depth cid' cmd = do
   pact <- getPactService cid'
   cwCmd <- buildCwCmd nonce testVersion cmd
-  liftIO $ _pactLocal pact Nothing Nothing depth cwCmd
+  liftIO $ try @_ @PactException $ _pactLocal pact Nothing Nothing depth cwCmd
 
 getSqlite :: ChainId -> PactTestM SQLiteEnv
 getSqlite cid' = do
@@ -521,12 +554,13 @@ chainweb215Test = do
             assertTxEvents "Transfer events @ block 42" evs cr
         ]
 
-  setPactMempool $ PactMempool
+  void $ setPactMempool $ PactMempool
       [ testsToBlock cid blockSend42
-      , testsToBlock chain0 blockRecv42 ]
+      , testsToBlock chain0 blockRecv42
+      ]
   runCut'
-  withChain cid $ runBlockTests blockSend42
-  withChain chain0 $ runBlockTests blockRecv42
+  withChain cid $ testCurrentBlock blockSend42
+  withChain chain0 $ testCurrentBlock blockRecv42
 
   send1 <- withChain cid $ txResult 0
 
@@ -1317,6 +1351,57 @@ compactionCompactsUnmodifiedTables = do
   -- due to a duplicate row
   syncTo afterWrite
 
+quirkTest :: TestTree
+quirkTest = do
+  -- fake stand-in for the request key of the quirked command, so that we can
+  -- construct the version without knowing the request key of the command
+  -- that will use the version.
+  -- TODO: make this nicer once MempoolCmdBuilder is gone.
+  let fakeReqKey = RequestKey (Hash mempty)
+  let fakeVersion = quirkedGasTestVersion fakeReqKey
+  let genesisHeader = genesisBlockHeader fakeVersion cid
+  let mempoolCmdBuilder =
+        buildBasic (mkExec' "(+ 1 2)")
+  -- this is how setPactMempool builds the commands
+  -- we fake the header here to ensure the request key is consistent later on
+  let cmd = unsafeDupablePerformIO $
+        buildCwCmd
+          (sshow genesisHeader)
+          fakeVersion
+          (_mempoolCmdBuilder mempoolCmdBuilder genesisHeader)
+  -- once we have the request key, we can make it a quirk in the version
+  -- we use to actually run the command.
+  let !realReqKey = RequestKey (toUntypedHash $ _cmdHash cmd)
+  let realVersion = quirkedGasTestVersion realReqKey
+  -- we have to unregister the already registered fake version in order
+  -- for the real quirked version to be in the registry when we validate
+  -- blocks
+  withResource (unregisterVersion fakeVersion >> registerVersion realVersion) (\_ -> pure ()) $ \_ ->
+    withDelegateMempool $ \dmpio -> testCaseSteps "quirkTest" $ \step ->
+      withTestBlockDb realVersion $ \bdb -> do
+        (iompa,mpa) <- dmpio
+        let logger = hunitDummyLogger step
+        withWebPactExecutionService logger realVersion testPactServiceConfig bdb mpa getGasModel $ \(pact,pacts) ->
+          flip runReaderT (MultiEnv bdb pact pacts (return iompa) noMiner cid) $ do
+            runToHeight 99
+
+            -- run the command once without it being quirked, to establish
+            -- a baseline gas value
+            runBlockTest
+              [ PactTxTest mempoolCmdBuilder $
+                assertTxGas "not-quirked gas" 230
+              ]
+            -- run the command quirked, with the previously calculated request
+            -- key realReqKey, and assert that the gas has been changed
+            let quirkedTests =
+                  [ PactTxTest mempoolCmdBuilder $
+                    \cr -> assertTxGas "quirked gas" 1 cr
+                  ]
+            void $ setPactMempool' (Just genesisHeader)
+              $ PactMempool [testsToBlock cid quirkedTests]
+            runCut'
+            testCurrentBlock quirkedTests
+
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
 
@@ -1394,16 +1479,16 @@ pact4coin3UpgradeTest = do
             assertTxEvents "Events for txRcv" [gasEvRcv,rcvTfr] cr
         ]
 
-  setPactMempool $ PactMempool
+  void $ setPactMempool $ PactMempool
       [ testsToBlock cid block22
       , testsToBlock chain0 block22_0
       ]
   runCut'
   withChain cid $ do
-    runBlockTests block22
+    testCurrentBlock block22
     cbEv <- mkTransferEvent "" "NoMiner" 2.304523 "coin" v3Hash
     assertTxEvents "Coinbase events @ block 22" [cbEv] =<< cbResult
-  withChain chain0 $ runBlockTests block22_0
+  withChain chain0 $ testCurrentBlock block22_0
 
   -- rewind to savedCut (cut 18)
   syncTo savedCut
@@ -1448,35 +1533,42 @@ pact4coin3UpgradeTest = do
 -- | Sets mempool with block fillers. A matched filler
 -- (returning a 'Just' result) is executed and removed from the list.
 -- Fillers are tested in order.
-setPactMempool :: PactMempool -> PactTestM ()
-setPactMempool (PactMempool fs) = do
+setPactMempool :: PactMempool -> PactTestM (IORef (Set TransactionHash))
+setPactMempool = setPactMempool' Nothing
+
+setPactMempool' :: Maybe BlockHeader -> PactMempool -> PactTestM (IORef (Set TransactionHash))
+setPactMempool' fakeParentBh (PactMempool fs) = do
   mpa <- view menvMpa
   mpsRef <- liftIO $ newIORef fs
+  badTxs <- liftIO $ newIORef Set.empty
+  v <- view chainwebVersion
   setMempool mpa $ mempty {
-    mpaGetBlock = go mpsRef
-    }
+    mpaGetBlock = \_ -> go v mpsRef,
+    mpaBadlistTx = \txs -> modifyIORef' badTxs (\hashes -> foldr Set.insert hashes txs)
+  }
+  pure badTxs
   where
-    go ref bf mempoolPreBlockCheck bHeight bHash blockHeader = do
+    go v ref mempoolPreBlockCheck bHeight bHash blockHeader = do
       mps <- readIORef ref
-      let mi = MempoolInput bf blockHeader
-          runMps i = \case
+      let runMps i = \case
             [] -> return mempty
-            (mp:r) -> case _mempoolBlock mp mi of
+            (mp:r) -> case _mempoolBlock mp blockHeader of
               Just bs -> do
                 writeIORef ref (take i mps ++ r)
+                let parentBh = fromMaybe blockHeader fakeParentBh
                 cmds <- fmap V.fromList $ forM bs $ \b ->
-                  buildCwCmd (sshow blockHeader) testVersion $ _mempoolCmdBuilder b mi
+                  buildCwCmd (sshow parentBh) v $ _mempoolCmdBuilder b parentBh
                 validationResults <- mempoolPreBlockCheck bHeight bHash cmds
                 return $ fmap fst $ V.filter snd (V.zip cmds validationResults)
               Nothing -> runMps (succ i) r
       runMps 0 mps
 
-filterBlock :: (MempoolInput -> Bool) -> MempoolBlock -> MempoolBlock
+filterBlock :: (BlockHeader -> Bool) -> MempoolBlock -> MempoolBlock
 filterBlock f (MempoolBlock b) = MempoolBlock $ \mi ->
   if f mi then b mi else Nothing
 
 blockForChain :: ChainId -> MempoolBlock -> MempoolBlock
-blockForChain chid = filterBlock $ \(MempoolInput _ bh) ->
+blockForChain chid = filterBlock $ \bh ->
   _blockChainId bh == chid
 
 runCut' :: PactTestM ()
@@ -1559,16 +1651,15 @@ assertTxFailure' msg needle tx =
       Nothing -> False
       Just d -> T.isInfixOf needle (sshow d)
 
-
 -- | Run a single mempool block on current chain with tests for each tx.
 -- Limitations: can only run a single-chain, single-refill test for
 -- a given cut height.
 runBlockTest :: HasCallStack => [PactTxTest] -> PactTestM ()
 runBlockTest pts = do
   chid <- view menvChainId
-  setPactMempool $ PactMempool [testsToBlock chid pts]
+  void $ setPactMempool $ PactMempool [testsToBlock chid pts]
   runCut'
-  runBlockTests pts
+  testCurrentBlock pts
 
 -- | Convert tests to block for specified chain.
 testsToBlock :: ChainId -> [PactTxTest] -> MempoolBlock
@@ -1580,14 +1671,14 @@ testsToBlock chid pts = blockForChain chid $ MempoolBlock $ \_ ->
 expectInvalid :: String -> [MempoolCmdBuilder] -> PactTestM ()
 expectInvalid msg pts = do
   chid <- view menvChainId
-  setPactMempool $ PactMempool [blockForChain chid $ MempoolBlock $ \_ -> pure pts]
+  void $ setPactMempool $ PactMempool [blockForChain chid $ MempoolBlock $ \_ -> pure pts]
   _ <- runCut'
   rs <- txResults
   liftIO $ assertEqual msg mempty rs
 
 -- | Run tests on current cut and chain.
-runBlockTests :: HasCallStack => [PactTxTest] -> PactTestM ()
-runBlockTests pts = do
+testCurrentBlock :: HasCallStack => [PactTxTest] -> PactTestM ()
+testCurrentBlock pts = do
   rs <- txResults
   liftIO $ assertEqual "Result length should equal transaction length" (length pts) (length rs)
   zipWithM_ go pts (V.toList rs)
@@ -1605,7 +1696,7 @@ runToHeight bhi = do
     runToHeight bhi
 
 buildXSend :: [SigCapability] -> MempoolCmdBuilder
-buildXSend caps = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+buildXSend caps = MempoolCmdBuilder $ \bh ->
   set cbSigners [mkEd25519Signer' sender00 caps]
   $ setFromHeader bh
   $ set cbRPC
@@ -1676,7 +1767,7 @@ buildBasic'
     :: (CmdBuilder -> CmdBuilder)
     -> PactRPC T.Text
     -> MempoolCmdBuilder
-buildBasic' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+buildBasic' f r = MempoolCmdBuilder $ \bh ->
   f $ signSender00
   $ setFromHeader bh
   $ set cbRPC r
@@ -1686,7 +1777,7 @@ buildBasicWebAuthnBareSigner'
     :: (CmdBuilder -> CmdBuilder)
     -> PactRPC T.Text
     -> MempoolCmdBuilder
-buildBasicWebAuthnBareSigner' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+buildBasicWebAuthnBareSigner' f r = MempoolCmdBuilder $ \bh ->
   f $ signWebAuthn00
   $ setFromHeader bh
   $ set cbRPC r
@@ -1696,7 +1787,7 @@ buildBasicWebAuthnPrefixedSigner'
     :: (CmdBuilder -> CmdBuilder)
     -> PactRPC T.Text
     -> MempoolCmdBuilder
-buildBasicWebAuthnPrefixedSigner' f r = MempoolCmdBuilder $ \(MempoolInput _ bh) ->
+buildBasicWebAuthnPrefixedSigner' f r = MempoolCmdBuilder $ \bh ->
   f $ signWebAuthn00Prefixed
   $ setFromHeader bh
   $ set cbRPC r

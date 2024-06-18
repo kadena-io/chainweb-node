@@ -1,7 +1,7 @@
 cabal-version: 3.8
 
 name:         chainweb
-version:      2.22
+version:      2.24
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -32,9 +32,24 @@ extra-source-files:
 
     -- pact test data
 
-    pact/coin-contract/coin.repl
-    pact/coin-contract/coin.pact
-    pact/coin-contract/load-coin-contract.yaml
+    pact/coin-contract/*.repl
+    pact/coin-contract/*.pact
+    pact/coin-contract/*.yaml
+    pact/coin-contract/v1/*.repl
+    pact/coin-contract/v1/*.pact
+    pact/coin-contract/v1/*.yaml
+    pact/coin-contract/v2/*.repl
+    pact/coin-contract/v2/*.pact
+    pact/coin-contract/v2/*.yaml
+    pact/coin-contract/v3/*.repl
+    pact/coin-contract/v3/*.pact
+    pact/coin-contract/v3/*.yaml
+    pact/coin-contract/v4/*.repl
+    pact/coin-contract/v4/*.pact
+    pact/coin-contract/v4/*.yaml
+    pact/coin-contract/v5/*.repl
+    pact/coin-contract/v5/*.pact
+    pact/coin-contract/v5/*.yaml
     test/pact/*.pact
     test/golden/*.txt
 
@@ -128,6 +143,8 @@ library
         , Chainweb.BlockHeader.Genesis.Development1to19Payload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM1to9Payload
+        , Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload
+        , Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload
         , Chainweb.BlockHeader.Genesis.Testnet0Payload
         , Chainweb.BlockHeader.Genesis.Testnet1to19Payload
         , Chainweb.BlockHeader.Genesis.Mainnet0Payload
@@ -243,6 +260,8 @@ library
         , Chainweb.VerifierPlugin.Hyperlane.Announcement
         , Chainweb.VerifierPlugin.Hyperlane.Binary
         , Chainweb.VerifierPlugin.Hyperlane.Message
+        , Chainweb.VerifierPlugin.Hyperlane.Message.After225
+        , Chainweb.VerifierPlugin.Hyperlane.Message.Before225
         , Chainweb.VerifierPlugin.Hyperlane.Utils
         , Chainweb.Version
         , Chainweb.Version.Development
@@ -356,7 +375,7 @@ library
         , chronos >= 1.1
         , clock >= 0.7
         , configuration-tools >= 0.6
-        , crypton-connection >=0.2
+        , crypton-connection >= 0.2 && < 0.4
         , containers >= 0.5
         , crypton >= 0.31
         , cuckoo >= 0.3
@@ -377,6 +396,7 @@ library
         , hashable >= 1.4
         , heaps >= 0.3
         , hourglass >=0.2
+        , http2 >= 5.2.1
         , http-client >= 0.5
         , http-client-tls >=0.3
         , http-media >= 0.7
@@ -413,7 +433,6 @@ library
         , stopwatch >= 0.1
         , streaming >= 0.2
         , streaming-commons >= 0.2
-        , strict-concurrency >= 0.2
         , template-haskell >= 2.14
         , text >= 2.0
         , trifecta >= 2.1
@@ -487,6 +506,9 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.PactMultiChainTest
         Chainweb.Test.Pact.VerifierPluginTest
         Chainweb.Test.Pact.VerifierPluginTest.Transaction
+        Chainweb.Test.Pact.VerifierPluginTest.Transaction.Message.After225
+        Chainweb.Test.Pact.VerifierPluginTest.Transaction.Message.Before225
+        Chainweb.Test.Pact.VerifierPluginTest.Transaction.Utils
         Chainweb.Test.Pact.VerifierPluginTest.Unit
         Chainweb.Test.Pact.PactSingleChainTest
         Chainweb.Test.P2P.Peer.BootstrapConfig

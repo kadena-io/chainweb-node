@@ -7,6 +7,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -59,6 +60,28 @@ module Chainweb.Payload
 , BlockTransactions_(..)
 , verifyBlockPayload
 
+-- * Binary encodings
+, PayloadDataList(..)
+, PayloadWithOutputsList(..)
+, encodeBlockPayloads
+, decodeBlockPayloads
+, encodeBlockTransactions
+, decodeBlockTransactions
+, encodeBlockOutputs
+, decodeBlockOutputs
+, encodeTransactionTree
+, decodeTransactionTree
+, encodeOutputTree
+, decodeOutputTree
+, encodePayloadData
+, decodePayloadData
+, encodePayloadWithOutputs
+, decodePayloadWithOutputs
+, encodePayloadDataList
+, decodePayloadDataList
+, encodePayloadWithOutputsList
+, decodePayloadWithOutputsList
+
 -- * Redundant Data / Caches
 
 , BlockOutputs
@@ -95,6 +118,7 @@ module Chainweb.Payload
 , PayloadData_(..)
 , payloadData
 , newPayloadData
+, payloadDataToBlockPayload
 , PayloadDataCas
 , verifyPayloadData
 
@@ -106,10 +130,13 @@ module Chainweb.Payload
 , payloadWithOutputsToBlockObjects
 , payloadWithOutputsToPayloadData
 , verifyPayloadWithOutputs
+
+, CheckablePayload(..)
+, checkablePayloadToPayloadData
 ) where
 
 import Control.DeepSeq
-import Control.Monad ((<$!>))
+import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson
@@ -137,6 +164,7 @@ import Chainweb.Storage.Table
 
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
+import Crypto.Hash.Algorithms
 
 -- -------------------------------------------------------------------------- --
 -- Block Transactions Hash
@@ -340,7 +368,7 @@ type BlockPayload = BlockPayload_ ChainwebMerkleHashAlgorithm
 -- | The Payload of a block.
 --
 -- The transactions of a block at a given height in the chain are discovered by
--- @_blockPayloadTransactionsHash . _blockHeaderPayloadHash@.
+-- @_blockPayloadTransactionsHash . _blockPayloadHash@.
 --
 -- NOTES:
 --
@@ -474,6 +502,249 @@ data BlockTransactions_ a = BlockTransactions
         -- ^ Miner data for rewards
     }
     deriving (Show, Eq, Ord, Generic)
+
+-- -------------------------------------------------------------------------- --
+-- Type-wrappers for some REST API endpoints
+
+-- We want to use application/octet-stream as the content type for types
+-- like [PayloadData], but doing that requires encoding the list specifically
+-- with a specific binary instance. write some newtype wrappers to do this
+-- with a specific encoding function, so we can then later write MimeRender
+-- and MimeUnrender instances
+
+newtype PayloadDataList = PayloadDataList { _payloadDataList :: [PayloadData] }
+    deriving (Show, Eq, Generic)
+    deriving anyclass (NFData)
+    deriving newtype (ToJSON, FromJSON)
+
+newtype PayloadWithOutputsList = PayloadWithOutputsList { _payloadWithOutputsList :: [PayloadWithOutputs] }
+    deriving (Show, Eq, Generic)
+    deriving anyclass (NFData)
+    deriving newtype (ToJSON, FromJSON)
+
+-- -------------------------------------------------------------------------- --
+
+encodeBlockPayloads :: BlockPayload_ a -> B.ByteString
+encodeBlockPayloads BlockPayload{..} = runPutS $ do
+    encodeBlockPayloadHash _blockPayloadPayloadHash
+    encodeBlockTransactionsHash _blockPayloadTransactionsHash
+    encodeBlockOutputsHash _blockPayloadOutputsHash
+
+decodeBlockPayloads :: (MonadThrow m, MerkleHashAlgorithm a) => B.ByteString -> m (BlockPayload_ a)
+decodeBlockPayloads = runGetS $ BlockPayload
+    <$> decodeBlockPayloadHash
+    <*> decodeBlockTransactionsHash
+    <*> decodeBlockOutputsHash
+
+encodeBlockTransactions :: BlockTransactions_ a -> B.ByteString
+encodeBlockTransactions txs = runPutS $ do
+    encodeBlockTransactionsHash (_blockTransactionsHash txs)
+    putWord64be (fromIntegral $ V.length (_blockTransactions txs))
+    forM_ (_blockTransactions txs) $ \tx -> do
+        putWord64be (fromIntegral $ B.length (_transactionBytes tx))
+        putByteString (_transactionBytes tx)
+    putWord64be (fromIntegral $ B.length $ _minerData $ _blockMinerData txs)
+    putByteString (_minerData $ _blockMinerData txs)
+
+decodeBlockTransactions :: (MonadThrow m, HashAlgorithm a) => B.ByteString -> m (BlockTransactions_ a)
+decodeBlockTransactions = runGetS $ do
+    hsh <- decodeBlockTransactionsHash
+    txsCount <- fromIntegral <$> getWord64be
+    txs <- replicateM txsCount $ do
+        txSz <- fromIntegral <$> getWord64be
+        txData <- getByteString txSz
+        pure $ Transaction txData
+    minerDataSz <- fromIntegral <$> getWord64be
+    minerData <- MinerData <$> getByteString minerDataSz
+    return BlockTransactions
+        { _blockTransactionsHash = hsh
+        , _blockTransactions = V.fromList txs
+        , _blockMinerData = minerData
+        }
+
+encodeBlockOutputs :: BlockOutputs_ a -> B.ByteString
+encodeBlockOutputs bo = runPutS $ do
+    encodeBlockOutputsHash (_blockOutputsHash bo)
+    putWord64be (fromIntegral $ V.length (_blockOutputs bo))
+    forM_ (_blockOutputs bo) $ \tx -> do
+        putWord64be (fromIntegral $ B.length (_transactionOutputBytes tx))
+        putByteString (_transactionOutputBytes tx)
+    putWord64be (fromIntegral $ B.length $ _coinbaseOutput $ _blockCoinbaseOutput bo)
+    putByteString $ _coinbaseOutput $ _blockCoinbaseOutput bo
+
+decodeBlockOutputs :: (MonadThrow m, HashAlgorithm a) => B.ByteString -> m (BlockOutputs_ a)
+decodeBlockOutputs = runGetS $ do
+    hsh <- decodeBlockOutputsHash
+    txsCount <- fromIntegral <$> getWord64be
+    txs <- replicateM txsCount $ do
+        txSz <- fromIntegral <$> getWord64be
+        txData <- getByteString txSz
+        pure $ TransactionOutput txData
+    coinbaseSz <- fromIntegral <$> getWord64be
+    coinbaseData <- getByteString coinbaseSz
+    return BlockOutputs
+        { _blockOutputsHash = hsh
+        , _blockOutputs = V.fromList txs
+        , _blockCoinbaseOutput = CoinbaseOutput coinbaseData
+        }
+
+encodeTransactionTree :: TransactionTree_ a -> B.ByteString
+encodeTransactionTree tt = runPutS $ do
+    encodeBlockTransactionsHash (_transactionTreeHash tt)
+    let bs = encodeMerkleTree (_transactionTree tt)
+    putWord64be (fromIntegral $ B.length bs)
+    putByteString bs
+
+decodeTransactionTree :: (MonadThrow m, HashAlgorithm a) => B.ByteString -> m (TransactionTree_ a)
+decodeTransactionTree = runGetS $ do
+    hsh <- decodeBlockTransactionsHash
+    sz <- fromIntegral <$> getWord64be
+    bs <- getByteString sz
+    mt <- decodeMerkleTree bs
+    return TransactionTree
+        { _transactionTreeHash = hsh
+        , _transactionTree = mt
+        }
+
+encodeOutputTree :: OutputTree_ a -> B.ByteString
+encodeOutputTree ot = runPutS $ do
+    encodeBlockOutputsHash (_outputTreeHash ot)
+    let bs = encodeMerkleTree (_outputTree ot)
+    putWord64be (fromIntegral $ B.length bs)
+    putByteString bs
+
+decodeOutputTree :: (MonadThrow m, HashAlgorithm a) => B.ByteString -> m (OutputTree_ a)
+decodeOutputTree = runGetS $ do
+    hsh <- decodeBlockOutputsHash
+    sz <- fromIntegral <$> getWord64be
+    bs <- getByteString sz
+    mt <- decodeMerkleTree bs
+    return OutputTree
+        { _outputTreeHash = hsh
+        , _outputTree = mt
+        }
+
+encodeMinerData :: MinerData -> Put
+encodeMinerData (MinerData md) = do
+    putWord64be (fromIntegral $ B.length md)
+    putByteString md
+
+decodeMinerData :: Get MinerData
+decodeMinerData = do
+    sz <- fromIntegral <$> getWord64be
+    MinerData <$> getByteString sz
+
+putPayloadData :: PayloadData_ a -> Put
+putPayloadData pd = do
+    -- first encode _payloadDataTransactions: Vector Transaction
+    putWord64be (fromIntegral $ V.length (_payloadDataTransactions pd))
+    forM_ (_payloadDataTransactions pd) $ \tx -> do
+        putWord64be (fromIntegral $ B.length (_transactionBytes tx))
+        putByteString (_transactionBytes tx)
+    encodeMinerData (_payloadDataMiner pd)
+    encodeBlockPayloadHash (_payloadDataPayloadHash pd)
+    encodeBlockTransactionsHash (_payloadDataTransactionsHash pd)
+    encodeBlockOutputsHash (_payloadDataOutputsHash pd)
+
+getPayloadData :: HashAlgorithm a => Get (PayloadData_ a)
+getPayloadData = do
+    txsCount <- fromIntegral <$> getWord64be
+    txs <- replicateM txsCount $ do
+        txSz <- fromIntegral <$> getWord64be
+        txData <- getByteString txSz
+        pure $ Transaction txData
+    minerData <- decodeMinerData
+    payloadHash <- decodeBlockPayloadHash
+    txHash <- decodeBlockTransactionsHash
+    outHash <- decodeBlockOutputsHash
+    return PayloadData
+        { _payloadDataTransactions = V.fromList txs
+        , _payloadDataMiner = minerData
+        , _payloadDataPayloadHash = payloadHash
+        , _payloadDataTransactionsHash = txHash
+        , _payloadDataOutputsHash = outHash
+        }
+
+decodePayloadData :: (MonadThrow m, HashAlgorithm a) => B.ByteString -> m (PayloadData_ a)
+decodePayloadData = runGetS getPayloadData
+
+encodePayloadData :: PayloadData_ a -> B.ByteString
+encodePayloadData = runPutS . putPayloadData
+
+encodeCoinbaseOutput :: CoinbaseOutput -> Put
+encodeCoinbaseOutput (CoinbaseOutput co) = do
+    putWord64be (fromIntegral $ B.length co)
+    putByteString co
+
+decodeCoinbaseOutput :: Get CoinbaseOutput
+decodeCoinbaseOutput = do
+    sz <- fromIntegral <$> getWord64be
+    CoinbaseOutput <$> getByteString sz
+
+putPayloadWithOutputs :: PayloadWithOutputs_ a -> Put
+putPayloadWithOutputs pwo = do
+    putWord64be (fromIntegral $ V.length (_payloadWithOutputsTransactions pwo))
+    forM_ (_payloadWithOutputsTransactions pwo) $ \(tx, txo) -> do
+        putWord64be (fromIntegral $ B.length (_transactionBytes tx))
+        putByteString (_transactionBytes tx)
+        putWord64be (fromIntegral $ B.length (_transactionOutputBytes txo))
+        putByteString (_transactionOutputBytes txo)
+    encodeMinerData (_payloadWithOutputsMiner pwo)
+    encodeCoinbaseOutput (_payloadWithOutputsCoinbase pwo)
+    encodeBlockPayloadHash (_payloadWithOutputsPayloadHash pwo)
+    encodeBlockTransactionsHash (_payloadWithOutputsTransactionsHash pwo)
+    encodeBlockOutputsHash (_payloadWithOutputsOutputsHash pwo)
+
+encodePayloadWithOutputs :: PayloadWithOutputs_ a -> B.ByteString
+encodePayloadWithOutputs = runPutS . putPayloadWithOutputs
+
+getPayloadWithOutputs :: HashAlgorithm a => Get (PayloadWithOutputs_ a)
+getPayloadWithOutputs = do
+    txsCount <- fromIntegral <$> getWord64be
+    txs <- replicateM txsCount $ do
+        txSz <- fromIntegral <$> getWord64be
+        txData <- getByteString txSz
+        txoSz <- fromIntegral <$> getWord64be
+        txoData <- getByteString txoSz
+        pure (Transaction txData, TransactionOutput txoData)
+    minerData <- decodeMinerData
+    coinbaseOutput <- decodeCoinbaseOutput
+    payloadHash <- decodeBlockPayloadHash
+    txHash <- decodeBlockTransactionsHash
+    outHash <- decodeBlockOutputsHash
+    return PayloadWithOutputs
+        { _payloadWithOutputsTransactions = V.fromList txs
+        , _payloadWithOutputsMiner = minerData
+        , _payloadWithOutputsCoinbase = coinbaseOutput
+        , _payloadWithOutputsPayloadHash = payloadHash
+        , _payloadWithOutputsTransactionsHash = txHash
+        , _payloadWithOutputsOutputsHash = outHash
+        }
+
+decodePayloadWithOutputs :: (MonadThrow m, HashAlgorithm a) => B.ByteString -> m (PayloadWithOutputs_ a)
+decodePayloadWithOutputs = runGetS getPayloadWithOutputs
+
+encodePayloadDataList :: PayloadDataList -> B.ByteString
+encodePayloadDataList (PayloadDataList xs) = runPutS $ do
+    putWord64be (fromIntegral $ length xs)
+    forM_ xs putPayloadData
+
+decodePayloadDataList :: (MonadThrow m) => B.ByteString -> m PayloadDataList
+decodePayloadDataList = runGetS $ do
+    xsCount <- fromIntegral <$> getWord64be
+    PayloadDataList <$> replicateM xsCount getPayloadData
+
+encodePayloadWithOutputsList :: PayloadWithOutputsList -> B.ByteString
+encodePayloadWithOutputsList (PayloadWithOutputsList xs) = runPutS $ do
+    putWord64be (fromIntegral $ length xs)
+    forM_ xs putPayloadWithOutputs 
+
+decodePayloadWithOutputsList :: (MonadThrow m) => B.ByteString -> m PayloadWithOutputsList
+decodePayloadWithOutputsList = runGetS $ do
+    xsCount <- fromIntegral <$> getWord64be
+    PayloadWithOutputsList <$> replicateM xsCount getPayloadWithOutputs
+
+-- -------------------------------------------------------------------------- --
 
 blockTransactionsProperties
     :: MerkleHashAlgorithm a
@@ -970,6 +1241,13 @@ payloadData txs payload = PayloadData
     , _payloadDataOutputsHash = _blockPayloadOutputsHash payload
     }
 
+payloadDataToBlockPayload :: PayloadData_ a -> BlockPayload_ a
+payloadDataToBlockPayload p = BlockPayload
+    { _blockPayloadPayloadHash = _payloadDataPayloadHash p
+    , _blockPayloadTransactionsHash = _payloadDataTransactionsHash p
+    , _blockPayloadOutputsHash = _payloadDataOutputsHash p
+    }
+
 newPayloadData
     :: MerkleHashAlgorithm a
     => BlockTransactions_ a
@@ -1151,3 +1429,17 @@ verifyPayloadWithOutputs p
         (_payloadWithOutputsMiner p)
         (_payloadWithOutputsCoinbase p)
         (_payloadWithOutputsTransactions p)
+
+-- if this payload was produced locally we have the outputs from when we
+-- produced it originally. we can't just *use them* - ValidateBlock still has
+-- to run the payload to check if it's a valid block - but they are great
+-- for comparative error messages if the block is invalid.
+data CheckablePayload
+  = CheckablePayloadWithOutputs !PayloadWithOutputs
+  | CheckablePayload !PayloadData
+  deriving (Show)
+
+checkablePayloadToPayloadData :: CheckablePayload -> PayloadData
+checkablePayloadToPayloadData = \case
+  CheckablePayload pd -> pd
+  CheckablePayloadWithOutputs pwo -> payloadWithOutputsToPayloadData pwo

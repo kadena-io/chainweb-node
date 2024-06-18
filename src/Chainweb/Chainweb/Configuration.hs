@@ -66,6 +66,7 @@ module Chainweb.Chainweb.Configuration
 , configThrottling
 , configReorgLimit
 , configRosetta
+, configFullHistoricPactState
 , configBackup
 , configServiceApi
 , configOnlySyncPact
@@ -394,6 +395,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configReorgLimit :: !RewindLimit
     , _configPreInsertCheckTimeout :: !Micros
     , _configAllowReadsInLocal :: !Bool
+    , _configFullHistoricPactState :: !Bool
     , _configRosetta :: !Bool
     , _configBackup :: !BackupConfig
     , _configServiceApi :: !ServiceApiConfig
@@ -421,6 +423,11 @@ validateChainwebConfiguration c = do
     validateBackupConfig (_configBackup c)
     unless (c ^. chainwebVersion . versionDefaults . disablePeerValidation) $
         validateP2pConfiguration (_configP2p c)
+    when (_configRosetta c && not (_configFullHistoricPactState c)) $
+        throwError $ T.unwords
+            [ "To enable rosetta, full historic pact state must also be enabled or"
+            , "the Rosetta index will be incomplete."
+            ]
     validateChainwebVersion (_configChainwebVersion c)
 
 validateChainwebVersion :: ConfigValidation ChainwebVersion []
@@ -459,6 +466,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configPreInsertCheckTimeout = defaultPreInsertCheckTimeout
     , _configAllowReadsInLocal = False
     , _configRosetta = False
+    , _configFullHistoricPactState = True
     , _configServiceApi = defaultServiceApiConfig
     , _configOnlySyncPact = False
     , _configReadOnlyReplay = False
@@ -486,6 +494,7 @@ instance ToJSON ChainwebConfiguration where
         , "preInsertCheckTimeout" .= _configPreInsertCheckTimeout o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
         , "rosetta" .= _configRosetta o
+        , "fullHistoricPactState" .= _configFullHistoricPactState o
         , "serviceApi" .= _configServiceApi o
         , "onlySyncPact" .= _configOnlySyncPact o
         , "readOnlyReplay" .= _configReadOnlyReplay o
@@ -517,6 +526,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
         <*< configPreInsertCheckTimeout ..: "preInsertCheckTimeout" % o
         <*< configRosetta ..: "rosetta" % o
+        <*< configFullHistoricPactState ..: "fullHistoricPactState" % o
         <*< configServiceApi %.: "serviceApi" % o
         <*< configOnlySyncPact ..: "onlySyncPact" % o
         <*< configReadOnlyReplay ..: "readOnlyReplay" % o
@@ -563,12 +573,18 @@ pChainwebConfiguration = id
     <*< configRosetta .:: boolOption_
         % long "rosetta"
         <> help "Enable the Rosetta endpoints."
+    <*< configFullHistoricPactState .:: boolOption_
+        % long "full-historic-pact-state"
+        <> help "Write full historic Pact state; only enable for custodial or archival nodes."
     <*< configCuts %:: pCutConfig
     <*< configServiceApi %:: pServiceApiConfig
     <*< configMining %:: pMiningConfig
     <*< configOnlySyncPact .:: boolOption_
         % long "only-sync-pact"
         <> help "Terminate after synchronizing the pact databases to the latest cut"
+    <*< configReadOnlyReplay .:: boolOption_
+        % long "read-only-replay"
+        <> help "Replay the block history non-destructively"
     <*< configSyncPactChains .:: fmap Just % jsonOption
         % long "sync-pact-chains"
         <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."

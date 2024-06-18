@@ -1,10 +1,12 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -55,25 +57,25 @@ import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Cut (_cutMap)
 import Chainweb.CutDB (CutDb, awaitNewBlock, cutDbPactService, _cut)
-import Chainweb.Logger (Logger, logFunction)
+import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Miners
 import Chainweb.Miner.Pact (Miner(..), minerId)
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Utils
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Time (Micros, Time, minute, getCurrentTimeIntegral, scaleTimeSpan)
-import Chainweb.Utils (fromJuste, runForever, thd, T2(..), T3(..))
+import Chainweb.Time
+import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.WebPactExecutionService (_webPactExecutionService)
+import Chainweb.WebPactExecutionService
+import Utils.Logging.Trace
 
 import Data.LogMessage (JsonLog(..), LogFunction)
 
 import Numeric.AffineSpace
-
-import Utils.Logging.Trace (trace)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -96,8 +98,9 @@ withMiningCoordination logger conf cdb inner
                 in fmap ((mid,) . HM.fromList) $
                     forM cids $ \cid -> do
                         let bh = fromMaybe (genesisBlockHeader v cid) (HM.lookup cid (_cutMap cut))
-                        fmap ((cid,) . over _2 Just) $
-                            getPayload (ParentHeader bh) cid miner
+                        newBlock <- throwIfNoHistory =<< getPayload cid miner (ParentHeader bh)
+                        return (cid, WorkReady newBlock)
+
         m <- newTVarIO initialPw
         c503 <- newIORef 0
         c403 <- newIORef 0
@@ -127,6 +130,45 @@ withMiningCoordination logger conf cdb inner
     !miners = S.toList (_coordinationMiners coordConf)
         <> [ _nodeMiner inNodeConf | _nodeMiningEnabled inNodeConf ]
 
+    chainLogger cid = addLabel ("chain", toText cid)
+
+    -- we assume that this path always exists in PrimedWork and never delete it.
+    workForMiner :: Miner -> ChainId -> Traversal' PrimedWork WorkState
+    workForMiner miner cid = _Wrapped' . ix (view minerId miner) . ix cid
+
+    periodicallyRefreshPayload :: TVar PrimedWork -> ChainId -> Miner -> IO a
+    periodicallyRefreshPayload tpw cid ourMiner = forever $ do
+        let delay =
+                timeSpanToMicros $ _coordinationPayloadRefreshDelay coordConf
+        threadDelay (fromIntegral @Micros @Int delay)
+        when (not $ v ^. versionCheats . disablePact) $ do
+            -- "stale" in the sense of not having all of the transactions
+            -- that it could. it still has the latest possible parent
+            mContinuableBlockInProgress <- atomically $ do
+                primed <- readTVar tpw <&> (^?! workForMiner ourMiner cid)
+                case primed of
+                    WorkReady (NewBlockInProgress bip) -> return (Just bip)
+                    WorkReady (NewBlockPayload {}) ->
+                      error "periodicallyRefreshPayload: encountered NewBlockPayload in PrimedWork, which cannot be refreshed"
+                    WorkAlreadyMined {} -> return Nothing
+                    WorkStale -> return Nothing
+
+            forM_ mContinuableBlockInProgress $ \continuableBlockInProgress -> do
+                maybeNewBlock <- _pactContinueBlock pact cid continuableBlockInProgress
+                -- if continuing returns NoHistory then the parent header
+                -- isn't available in the checkpointer right now.
+                -- in that case we just mark the payload as not stale.
+                let newBlock = case maybeNewBlock of
+                        NoHistory -> continuableBlockInProgress
+                        Historical b -> b
+
+                logFunctionText (chainLogger cid logger) Debug
+                    $ "refreshed block, old and new tx count: "
+                    <> sshow (V.length $ _transactionPairs $ _blockInProgressTransactions continuableBlockInProgress, V.length $ _transactionPairs $ _blockInProgressTransactions newBlock)
+
+                atomically $ modifyTVar' tpw $
+                    workForMiner ourMiner cid .~ WorkReady (NewBlockInProgress newBlock)
+
     -- | THREAD: Keep a live-updated cache of Payloads for specific miners, such
     -- that when they request new work, the block can be instantly constructed
     -- without interacting with the Pact Queue.
@@ -134,26 +176,43 @@ withMiningCoordination logger conf cdb inner
     primeWork :: TVar PrimedWork -> ChainId -> IO ()
     primeWork tpw cid =
         forConcurrently_ miners $ \miner ->
-            runForever (logFunction logger) "primeWork" (go miner)
+            runForever (logFunction (chainLogger cid logger)) "primeWork" (go miner)
       where
         go :: Miner -> IO ()
         go miner = do
             pw <- readTVarIO tpw
             let
                 -- we assume that this path always exists in PrimedWork and never delete it.
-                ourMiner :: Traversal' PrimedWork (T2 ParentHeader (Maybe PayloadData))
-                ourMiner = _Wrapped' . at (view minerId miner) . _Just . at cid . _Just
-            let !(T2 ph _) = fromJuste $ pw ^? ourMiner
-            -- wait for a block different from what we've got primed work for
-            new <- awaitNewBlock cdb cid (_parentHeader ph)
-            -- Temporarily block this chain from being considered for queries
-            atomically $ modifyTVar' tpw (ourMiner . _2 .~ Nothing)
-            -- Generate new payload for this miner
-            newParentAndPayload <- getPayload (ParentHeader new) cid miner
-            atomically $ modifyTVar' tpw (ourMiner .~ over _2 Just newParentAndPayload)
+                ourMiner :: Traversal' PrimedWork WorkState
+                ourMiner = workForMiner miner cid
+            let !outdatedPayload = fromJuste $ pw ^? ourMiner
+            let outdatedParentHash = case outdatedPayload of
+                  WorkReady outdatedBlock -> _blockHash (_parentHeader (newBlockParentHeader outdatedBlock))
+                  WorkAlreadyMined outdatedBlockHash -> outdatedBlockHash
+                  WorkStale -> error "primeWork loop: Invariant Violation: Stale work should be an impossibility"
 
-    getPayload :: ParentHeader -> ChainId -> Miner -> IO (T2 ParentHeader PayloadData)
-    getPayload new cid m =
+            newParent <- either ParentHeader id <$> race
+                -- wait for a block different from what we've got primed work for
+                (awaitNewBlock cdb cid outdatedParentHash)
+                -- in the meantime, periodically refresh the payload to make sure
+                -- it has all of the transactions it can have
+                (periodicallyRefreshPayload tpw cid miner)
+
+            -- Temporarily block this chain from being considered for queries
+            atomically $ modifyTVar' tpw (ourMiner .~ WorkStale)
+
+            -- Get a payload for the new block
+            getPayload cid miner newParent >>= \case
+                NoHistory -> do
+                    logFunctionText (addLabel ("chain", toText cid) logger) Warn
+                        "current block is not in the checkpointer; halting primed work loop temporarily"
+                    approximateThreadDelay 1_000_000
+                    atomically $ modifyTVar' tpw (ourMiner .~ outdatedPayload)
+                Historical newBlock ->
+                    atomically $ modifyTVar' tpw (ourMiner .~ WorkReady newBlock)
+
+    getPayload :: ChainId -> Miner -> ParentHeader -> IO (Historical NewBlock)
+    getPayload cid m ph =
         if v ^. versionCheats . disablePact
         -- if pact is disabled, we must keep track of the latest header
         -- ourselves. otherwise we use the header we get from newBlock as the
@@ -161,10 +220,11 @@ withMiningCoordination logger conf cdb inner
         -- with rocksdb though that shouldn't cause a problem, just wasted work,
         -- see docs for
         -- Chainweb.Pact.PactService.Checkpointer.findLatestValidBlockHeader'
-        then return $ T2 new $ payloadWithOutputsToPayloadData emptyPayload
-        else trace (logFunction logger)
+        then return $ Historical $
+            NewBlockPayload ph emptyPayload
+        else trace (logFunction (chainLogger cid logger))
             "Chainweb.Chainweb.MinerResources.withMiningCoordination.newBlock"
-            () 1 (over _2 payloadWithOutputsToPayloadData <$> _pactNewBlock pact cid m)
+            () 1 (_pactNewBlock pact cid m NewBlockFill ph)
 
     pact :: PactExecutionService
     pact = _webPactExecutionService $ view cutDbPactService cdb
@@ -209,8 +269,8 @@ withMiningCoordination logger conf cdb inner
         summed :: Int
         summed = M.foldl' (\acc (T3 _ ps _) -> acc + g ps) 0 ms
 
-        g :: PayloadData -> Int
-        g = V.length . _payloadDataTransactions
+        g :: PayloadWithOutputs -> Int
+        g = V.length . _payloadWithOutputsTransactions
 
 -- | Miner resources are used by the test-miner when in-node mining is
 -- configured or by the mempool noop-miner (which keeps the mempool updated) in

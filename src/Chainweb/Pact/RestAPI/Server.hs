@@ -32,7 +32,7 @@ module Chainweb.Pact.RestAPI.Server
 ) where
 
 import Control.Applicative
-import Control.Concurrent.STM (atomically, retry)
+import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
 import Control.Lens (set, view, preview)
@@ -327,33 +327,34 @@ listenHandler logger cdb cid pact mem (ListenerRequest key) = do
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
     logg = logFunctionJson (setComponent "listen-handler" logger)
     runListen :: TVar Bool -> IO ListenResponse
-    runListen timedOut = go Nothing
+    runListen timedOut = do
+      startCut <- CutDB._cut cdb
+      case HM.lookup cid (_cutMap startCut) of
+        Nothing -> pure $! ListenTimeout defaultTimeout
+        Just bh -> poll bh
       where
-        go :: Maybe Cut -> IO ListenResponse
-        go !prevCut = do
-            m <- waitForNewCut prevCut
-            case m of
-                Nothing -> return $! ListenTimeout defaultTimeout
-                (Just cut) -> poll cut
+        go :: BlockHeader -> IO ListenResponse
+        go !prevBlock = do
+          m <- waitForNewBlock prevBlock
+          case m of
+            Nothing -> pure $! ListenTimeout defaultTimeout
+            Just block -> poll block
 
-        poll :: Cut -> IO ListenResponse
-        poll cut = do
-            hm <- internalPoll pdb bdb mem pact Nothing (pure key)
-            if HM.null hm
-              then go (Just cut)
-              else return $! ListenResponse $ snd $ head $ HM.toList hm
+        poll :: BlockHeader -> IO ListenResponse
+        poll bh = do
+          hm <- internalPoll pdb bdb mem pact Nothing (pure key)
+          if HM.null hm
+          then go bh
+          else pure $! ListenResponse $ snd $ head $ HM.toList hm
 
-        waitForNewCut :: Maybe Cut -> IO (Maybe Cut)
-        waitForNewCut lastCut = atomically $ do
-             -- TODO: we should compute greatest common ancestor here to bound the
-             -- search
-             t <- readTVar timedOut
-             if t
-                 then return Nothing
-                 else Just <$> do
-                     !cut <- CutDB._cutStm cdb
-                     when (lastCut == Just cut) retry
-                     return cut
+        waitForNewBlock :: BlockHeader -> IO (Maybe BlockHeader)
+        waitForNewBlock lastBlockHeader = atomically $ do
+          isTimedOut <- readTVar timedOut
+          if isTimedOut
+          then do
+            pure Nothing
+          else do
+            Just <$!> CutDB.awaitNewBlockStm cdb cid (_blockHash lastBlockHeader)
 
     -- TODO: make configurable
     defaultTimeout = 180 * 1000000 -- two minutes
@@ -382,9 +383,9 @@ localHandler logger v cid pact preflight sigVerify rewindDepth cmd = do
       Left err ->
         throwError $ setErrText ("Validation failed: " <> T.pack err) err400
 
-    r <- liftIO $ _pactLocal pact preflight sigVerify rewindDepth cmd'
+    r <- liftIO $ try $ _pactLocal pact preflight sigVerify rewindDepth cmd'
     case r of
-      Left err -> throwError $ setErrText
+      Left (err :: PactException)  -> throwError $ setErrText
         ("Execution failed: " <> T.pack (show err)) err400
       Right (MetadataValidationFailure e) -> do
         throwError $ setErrText
@@ -437,8 +438,8 @@ spvHandler l cdb cid (SpvRequest rk (Pact.ChainId ptid)) = do
 
     liftIO $! logg (sshow ph)
 
-    T2 bhe _bha <- liftIO (_pactLookup pe cid Nothing (pure ph)) >>= \case
-      Left e ->
+    T2 bhe _bha <- liftIO (try $ _pactLookup pe cid Nothing (pure ph)) >>= \case
+      Left (e :: PactException) ->
         toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
       Right v -> case HM.lookup ph v of
         Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
@@ -516,8 +517,8 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
     proof f = SomePayloadProof <$> do
         validateRequestKey rk
         liftIO $! logg (sshow ph)
-        T2 bhe bha <- liftIO (_pactLookup pe cid Nothing (pure ph)) >>= \case
-            Left e ->
+        T2 bhe bha <- liftIO (try $ _pactLookup pe cid Nothing (pure ph)) >>= \case
+            Left (e :: PactException) ->
                 toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
             Right v -> case HM.lookup ph v of
                 Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
@@ -607,7 +608,7 @@ internalPoll
     -> IO (HashMap RequestKey (CommandResult Hash))
 internalPoll pdb bhdb mempool pactEx confDepth requestKeys0 = do
     -- get leaf block header for our chain from current best cut
-    results0 <- _pactLookup pactEx cid confDepth requestKeys >>= either throwM return
+    results0 <- _pactLookup pactEx cid confDepth requestKeys
         -- TODO: are we sure that all of these are raised locally. This will cause the
         -- server to shut down the connection without returning a result to the user.
     let results1 = V.map (\rk -> (rk, HM.lookup (Pact.fromUntypedHash $ unRequestKey rk) results0)) requestKeysV

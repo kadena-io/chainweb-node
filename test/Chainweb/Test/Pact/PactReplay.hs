@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -9,7 +10,6 @@
 
 module Chainweb.Test.Pact.PactReplay where
 
-import Control.Concurrent.MVar
 import Control.Monad (forM_, unless, void)
 import Control.Monad.Catch
 import Control.Monad.Reader
@@ -33,6 +33,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.Graph
 import Chainweb.Test.Cut.TestBlockDb
+import Chainweb.Test.Utils
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
@@ -54,7 +55,7 @@ import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 
 testVer :: ChainwebVersion
-testVer = fastForkingCpmTestVersion petersonChainGraph
+testVer = instantCpmTestVersion petersonChainGraph
 
 cid :: ChainId
 cid = someChainId testVer
@@ -65,7 +66,7 @@ tests rdb =
     let mp = snd <$> dmp
         mpio = fst <$> dmp
     in
-    sequentialTestGroup label AllSucceed
+    independentSequentialTestGroup label
         [ withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
             (testCase "initial-playthrough" . firstPlayThrough mpio genblock)
         , withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
@@ -73,7 +74,7 @@ tests rdb =
         , withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
             (testCaseSteps "on-restart" . onRestart mpio)
         , withPactTestBlockDb testVer cid rdb mp (forkLimit $ RewindLimit 100_000)
-            (testCase "reject-dupes" . testDupes mpio)
+            (testCase "reject-dupes" . testDupes mpio genblock)
         , let deepForkLimit = RewindLimit 4
           in withPactTestBlockDb testVer cid rdb mp (forkLimit deepForkLimit)
             (testCaseSteps "deep-fork-limit" . testDeepForkLimit mpio deepForkLimit)
@@ -98,7 +99,7 @@ onRestart mpio iop step = do
     step $ "max block has height " <> sshow (_blockHeight block)
     let nonce = Nonce $ fromIntegral $ _blockHeight block
     step "mine block on top of max block"
-    T3 _ b _ <- mineBlock nonce iop
+    T3 _ b _ <- mineBlock (ParentHeader block) nonce iop
     assertEqual "Invalid BlockHeight" 1 (_blockHeight b)
 
 testMemPoolAccess :: MemPoolAccess
@@ -175,7 +176,7 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
     let T3 _ line1 pwo1 = mainlineblocks !! 6
     (_, q, _) <- iop
     -- reset the pact service state to line1
-    void $ validateBlock line1 (payloadWithOutputsToPayloadData pwo1) q
+    void $ validateBlock line1 (CheckablePayloadWithOutputs pwo1) q
     void $ mineLine line1 nonceCounter 4
   where
     mineLine start ncounter len =
@@ -183,8 +184,9 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
         where
           startHeight = fromIntegral $ _blockHeight start
           go = do
+              pblock <- gets ParentHeader
               n <- liftIO $ Nonce <$> readIORef ncounter
-              ret@(T3 _ newblock _) <- liftIO $ mineBlock n iop
+              ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iop
               liftIO $ modifyIORef' ncounter succ
               put newblock
               return ret
@@ -192,7 +194,7 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
     restartPact :: IO ()
     restartPact = do
         (_, q, _) <- iop
-        addRequest q CloseMsg
+        submitRequestAndWait q CloseMsg
 
     pruneDbs = forM_ cids $ \c -> do
         (_, _, dbs) <- iop
@@ -217,12 +219,12 @@ firstPlayThrough mpio genesisBlock iop = do
     (_, q, _) <- iop
 
     -- reset the pact service state to startline1
-    void $ validateBlock startline1 (payloadWithOutputsToPayloadData pwo1) q
+    void $ validateBlock startline1 (CheckablePayloadWithOutputs pwo1) q
 
     void $ mineLine startline1 nonceCounter 4
 
     -- reset the pact service state to startline2
-    void $ validateBlock startline2 (payloadWithOutputsToPayloadData pwo2) q
+    void $ validateBlock startline2 (CheckablePayloadWithOutputs pwo2) q
 
     void $ mineLine startline2 nonceCounter 4
   where
@@ -231,21 +233,23 @@ firstPlayThrough mpio genesisBlock iop = do
         where
           startHeight = fromIntegral $ _blockHeight start
           go = do
+              pblock <- gets ParentHeader
               n <- liftIO $ Nonce <$> readIORef ncounter
-              ret@(T3 _ newblock _) <- liftIO $ mineBlock n iop
+              ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iop
               liftIO $ modifyIORef' ncounter succ
               put newblock
               return ret
 
 testDupes
   :: IO (IORef MemPoolAccess)
+  -> BlockHeader
   -> IO (SQLiteEnv, PactQueue, TestBlockDb)
   -> Assertion
-testDupes mpio iop = do
+testDupes mpio genesisBlock iop = do
     setMempool mpio =<< dupegenMemPoolAccess
-    (T3 _ newblock payload) <- liftIO $ mineBlock (Nonce 1) iop
+    (T3 _ newblock payload) <- liftIO $ mineBlock (ParentHeader genesisBlock) (Nonce 1) iop
     expectException newblock payload $ liftIO $
-        mineBlock (Nonce 3) iop
+        mineBlock (ParentHeader newblock) (Nonce 3) iop
   where
     expectException newblock payload act = do
         m <- wrap `catchAllSynchronous` h
@@ -283,7 +287,6 @@ testDeepForkLimit mpio (RewindLimit deepForkLimit) iop step = do
     pd <- lookupPayloadWithHeight pdb (Just $ _blockHeight maxblock) (_blockPayloadHash maxblock) >>= \case
       Nothing -> assertFailure "max block payload not found"
       Just x -> return x
-    let maxblockPayload = payloadWithOutputsToPayloadData pd
     step $ "max block has height " <> sshow (_blockHeight maxblock)
     nonceCounterMain <- newIORef (fromIntegral $ _blockHeight maxblock)
 
@@ -292,8 +295,8 @@ testDeepForkLimit mpio (RewindLimit deepForkLimit) iop step = do
     void $ mineLine maxblock nonceCounterMain (deepForkLimit + 1)
 
     step "try to rewind to max block"
-    validateBlock maxblock maxblockPayload q >>= takeMVar >>= \case
-        Left PactInternalError{} -> return ()
+    try @_ @SomeException (validateBlock maxblock (CheckablePayloadWithOutputs pd) q) >>= \case
+        Left _ -> return ()
         _ -> assertBool msg False
 
   where
@@ -307,26 +310,27 @@ testDeepForkLimit mpio (RewindLimit deepForkLimit) iop step = do
               pblock <- gets ParentHeader
               n <- liftIO $ Nonce <$> readIORef ncounter
               liftIO $ step $ "mine block on top of height " <> sshow (_blockHeight $ _parentHeader pblock)
-              ret@(T3 _ newblock _) <- liftIO $ mineBlock n iop
+              ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iop
               liftIO $ modifyIORef' ncounter succ
               put newblock
               return ret
 
 
 mineBlock
-    :: Nonce
+    :: ParentHeader
+    -> Nonce
     -> IO (SQLiteEnv, PactQueue, TestBlockDb)
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-mineBlock nonce iop = timeout 5000000 go >>= \case
+mineBlock ph nonce iop = timeout 5000000 go >>= \case
     Nothing -> error "PactReplay.mineBlock: Test timeout. Most likely a test case caused a pact service failure that wasn't caught, and the test was blocked while waiting for the result"
     Just x -> return x
   where
     go = do
 
       -- assemble block without nonce and timestamp
-      let r = (\(_, q, _) -> q) <$> iop
-      mv <- r >>= newBlock noMiner
-      T2 ph payload <- assertNotLeft =<< takeMVar mv
+      (_, q, bdb) <- iop
+      bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill ph q
+      let payload = blockInProgressToPayloadWithOutputs bip
 
       let
         creationTime = BlockCreationTime
@@ -341,10 +345,8 @@ mineBlock nonce iop = timeout 5000000 go >>= \case
                creationTime
                ph
 
-      mv' <- r >>= validateBlock bh (payloadWithOutputsToPayloadData payload)
-      void $ assertNotLeft =<< takeMVar mv'
+      _ <- validateBlock bh (CheckablePayloadWithOutputs payload) q
 
-      (_, _, bdb) <- iop
       let pdb = _bdbPayloadDb bdb
       addNewPayload pdb (succ $ _blockHeight $ _parentHeader ph) payload
 

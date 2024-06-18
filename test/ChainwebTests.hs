@@ -64,7 +64,7 @@ import qualified Chainweb.Test.Sync.WebBlockHeaderStore (properties)
 import qualified Chainweb.Test.TreeDB (properties)
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import Chainweb.Test.Utils
-    (toyChainId, withToyDB)
+    (independentSequentialTestGroup, toyChainId, withToyDB)
 import qualified Chainweb.Test.Version (tests)
 import qualified Chainweb.Test.Chainweb.Utils.Paging (properties)
 import Chainweb.Version.Development
@@ -91,7 +91,7 @@ main = do
                 $ testGroup "Chainweb Tests"
                 $ pactTestSuite rdb
                 : mempoolTestSuite db h0
-                : rosettaTestSuite rdb
+                : nodeTestSuite rdb
                 : suite rdb
   where
     adj NoTimeout = Timeout (1_000_000 * 60 * 10) "10m"
@@ -109,7 +109,6 @@ pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
     , Chainweb.Test.Pact.PactMultiChainTest.tests
     , Chainweb.Test.Pact.VerifierPluginTest.tests
     , Chainweb.Test.Pact.PactSingleChainTest.tests rdb
-    , Chainweb.Test.Pact.RemotePactTest.tests rdb
     , Chainweb.Test.Pact.PactReplay.tests rdb
     , Chainweb.Test.Pact.ModuleCacheOnRestart.tests rdb
     , Chainweb.Test.Pact.TTL.tests rdb
@@ -118,15 +117,17 @@ pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
     , Chainweb.Test.Pact.GrandHash.tests
     ]
 
-rosettaTestSuite :: RocksDb -> TestTree
-rosettaTestSuite rdb = testGroup "Chainweb-Rosetta API Tests"
+nodeTestSuite :: RocksDb -> TestTree
+nodeTestSuite rdb = independentSequentialTestGroup "Tests starting nodes"
     [ Chainweb.Test.Rosetta.RestAPI.tests rdb
+    , Chainweb.Test.Pact.RemotePactTest.tests rdb
     ]
 
 suite :: RocksDb -> [TestTree]
 suite rdb =
     [ testGroup "Chainweb Unit Tests"
-        [ testGroup "BlockHeaderDb"
+        [ testProperties "Chainweb.Test.Cut" (Chainweb.Test.Cut.properties rdb)
+        , testGroup "BlockHeaderDb"
             [ Chainweb.Test.BlockHeaderDB.tests rdb
             , Chainweb.Test.TreeDB.RemoteDB.tests
             , Chainweb.Test.BlockHeaderDB.PruneForks.tests
@@ -159,6 +160,5 @@ suite rdb =
         , testProperties "Data.Test.PQueue" Data.Test.PQueue.properties
         , testProperties "Chainweb.Test.Difficulty" Chainweb.Test.Difficulty.properties
         , testProperties "Data.Test.Word.Encoding" Data.Test.Word.Encoding.properties
-        , testProperties "Chainweb.Test.Cut" (Chainweb.Test.Cut.properties rdb)
         ]
     ]

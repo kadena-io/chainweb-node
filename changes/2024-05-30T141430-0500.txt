@@ -1,0 +1,2 @@
+Fixes cut pruning logic; during a previous change, there was a math error that caused no cuts to
+ever be pruned from RocksDB

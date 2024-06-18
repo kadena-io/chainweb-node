@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+set -eux
+
+ROOT=$(git rev-parse --show-toplevel)
+mkdir -p "${ROOT}/changes"
+${EDITOR:-vi} "${ROOT}/changes/$(date --iso-8601=seconds | tr -d ':').txt"

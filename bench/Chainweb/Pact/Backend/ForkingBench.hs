@@ -123,6 +123,7 @@ data BenchConfig = BenchConfig
     -- ^ whether or not to validate the blocks as part of the benchmark
   , compact :: Compact
     -- ^ whether or not to compact the pact database prior to benchmarking
+  , persistIntraBlockWrites :: IntraBlockPersistence
   }
 
 defBenchConfig :: BenchConfig
@@ -130,6 +131,7 @@ defBenchConfig = BenchConfig
   { numPriorBlocks = 100
   , validate = DontValidate
   , compact = DontCompact
+  , persistIntraBlockWrites = PersistIntraBlockWrites
   }
 
 data Compact = DoCompact | DontCompact
@@ -144,6 +146,8 @@ bench rdb = C.bgroup "PactService" $
     , doubleForkingBench
     ] ++ map (oneBlock defBenchConfig) [1, 10, 50, 100]
       ++ map (oneBlock validateCfg) [0, 1, 10, 50, 100]
+      ++ map (oneBlock validateCfg { persistIntraBlockWrites = DoNotPersistIntraBlockWrites })
+        [0, 1, 10, 50, 100]
       ++ map (oneBlock compactCfg) [0, 1, 10, 50, 100]
       ++ map (oneBlock compactValidateCfg) [1, 10, 50, 100]
   where
@@ -151,13 +155,13 @@ bench rdb = C.bgroup "PactService" $
     compactCfg = defBenchConfig { compact = DoCompact }
     compactValidateCfg = compactCfg { validate = DoValidate }
 
-    forkingBench = withResources rdb 10 Quiet DontCompact
+    forkingBench = withResources rdb 10 Quiet DontCompact PersistIntraBlockWrites
         $ \mainLineBlocks pdb bhdb nonceCounter pactQueue _ ->
             C.bench "forkingBench"  $ C.whnfIO $ do
               let (T3 _ join1 _) = mainLineBlocks !! 5
               void $ playLine pdb bhdb 5 join1 pactQueue nonceCounter
 
-    doubleForkingBench = withResources rdb 10 Quiet DontCompact
+    doubleForkingBench = withResources rdb 10 Quiet DontCompact PersistIntraBlockWrites
         $ \mainLineBlocks pdb bhdb nonceCounter pactQueue _ ->
             C.bench "doubleForkingBench"  $ C.whnfIO $ do
               let (T3 _ join1 _) = mainLineBlocks !! 5
@@ -167,17 +171,19 @@ bench rdb = C.bgroup "PactService" $
               void $ playLine pdb bhdb forkLength2 join1 pactQueue nonceCounter
 
     oneBlock :: BenchConfig -> Int -> C.Benchmark
-    oneBlock cfg txCount = withResources rdb cfg.numPriorBlocks Error cfg.compact go
+    oneBlock cfg txCount = withResources rdb cfg.numPriorBlocks Error cfg.compact cfg.persistIntraBlockWrites go
       where
-        go _mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock = do
+        go mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock = do
           C.bench name $ C.whnfIO $ do
             writeIORef txsPerBlock txCount
-            createBlock cfg.validate (Nonce 1234) pactQueue
+            let (T3 _ join1 _) = last mainLineBlocks
+            createBlock cfg.validate (ParentHeader join1) (Nonce 1234) pactQueue
         name = "block-new ["
           ++ List.intercalate ","
                [ "txCount=" ++ show txCount
                , "validate=" ++ show (cfg.validate == DoValidate)
                , "compact=" ++ show (cfg.compact == DoCompact)
+               , "persist=" ++ show cfg.persistIntraBlockWrites
                ]
           ++ "]"
 
@@ -193,7 +199,7 @@ playLine
     -> IORef Word64
     -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
 playLine pdb bhdb trunkLength startingBlock pactQueue counter = do
-    assertNotLeft =<< takeMVar =<< pactSyncToBlock startingBlock pactQueue
+    pactSyncToBlock startingBlock pactQueue
     mineLine startingBlock trunkLength counter
   where
     mineLine :: BlockHeader -> Word64 -> IORef Word64 -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
@@ -204,20 +210,22 @@ playLine pdb bhdb trunkLength startingBlock pactQueue counter = do
         startHeight = fromIntegral $ _blockHeight start
         go = do
             r <- ask
+            pblock <- gets ParentHeader
             n <- liftIO $ Nonce <$> readIORef ncounter
-            ret@(T3 _ newblock _) <- liftIO $ mineBlock n pdb bhdb r
+            ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n pdb bhdb r
             liftIO $ modifyIORef' ncounter succ
             put newblock
             return ret
 
 mineBlock
-    :: Nonce
+    :: ParentHeader
+    -> Nonce
     -> PayloadDb HashMapTable
     -> BlockHeaderDb
     -> PactQueue
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-mineBlock nonce pdb bhdb pact = do
-    r@(T3 parent newHeader payload) <- createBlock DoValidate nonce pact
+mineBlock parent nonce pdb bhdb pact = do
+    r@(T3 _ newHeader payload) <- createBlock DoValidate parent nonce pact
     addNewPayload pdb (succ (_blockHeight (_parentHeader parent))) payload
     -- NOTE: this doesn't validate the block header, which is fine in this test case
     unsafeInsertBlockHeaderDb bhdb newHeader
@@ -225,16 +233,16 @@ mineBlock nonce pdb bhdb pact = do
 
 createBlock
     :: Validate
+    -> ParentHeader
     -> Nonce
     -> PactQueue
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-createBlock validate nonce pact = do
+createBlock validate parent nonce pact = do
 
      -- assemble block without nonce and timestamp
 
-     mv <- newBlock noMiner pact
-
-     T2 parent payload <- assertNotLeft =<< takeMVar mv
+     bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill parent pact
+     let payload = blockInProgressToPayloadWithOutputs bip
 
      let creationTime = add second $ _blockCreationTime $ _parentHeader parent
      let bh = newBlockHeader
@@ -245,8 +253,7 @@ createBlock validate nonce pact = do
               parent
 
      when (validate == DoValidate) $ do
-       mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) pact
-       void $ assertNotLeft =<< takeMVar mv'
+       void $ validateBlock bh (CheckablePayloadWithOutputs payload) pact
 
      return $ T3 parent bh payload
 
@@ -279,9 +286,10 @@ withResources :: ()
   -> Word64
   -> LogLevel
   -> Compact
+  -> IntraBlockPersistence
   -> RunPactService
   -> C.Benchmark
-withResources rdb trunkLength logLevel compact f = C.envWithCleanup create destroy unwrap
+withResources rdb trunkLength logLevel compact p f = C.envWithCleanup create destroy unwrap
   where
 
     unwrap ~(NoopNFData (Resources {..})) =
@@ -301,9 +309,7 @@ withResources rdb trunkLength logLevel compact f = C.envWithCleanup create destr
           playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
         when (compact == DoCompact) $ do
           C.withDefaultLogger Error $ \lgr -> do
-            let db = _sConn sqlEnv
-            let bh = BlockHeight trunkLength
-            void $ C.compact (C.Target bh) lgr db []
+            void $ C.compact (BlockHeight trunkLength) lgr sqlEnv []
 
         return $ NoopNFData $ Resources {..}
 
@@ -317,8 +323,9 @@ withResources rdb trunkLength logLevel compact f = C.envWithCleanup create destr
 
     startPact version l bhdb pdb mempool sqlEnv = do
         reqQ <- newPactQueue pactQueueSize
-        a <- async $ runPactService version cid l reqQ mempool bhdb pdb sqlEnv testPactServiceConfig
-            { _pactBlockGasLimit = 180000
+        a <- async $ runPactService version cid l Nothing reqQ mempool bhdb pdb sqlEnv testPactServiceConfig
+            { _pactBlockGasLimit = 180_000
+            , _pactPersistIntraBlockWrites = p
             }
 
         return (a, reqQ)
@@ -415,10 +422,6 @@ cid = someChainId testVer
 
 testVer :: ChainwebVersion
 testVer = slowForkingCpmTestVersion petersonChainGraph
-
-assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
-assertNotLeft (Left l) = throwM l
-assertNotLeft (Right r) = return r
 
 -- MORE CODE DUPLICATION
 

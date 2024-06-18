@@ -79,6 +79,7 @@ main = void $ do
     recapDevnet
     devnet
     fastnet
+    instantnet
     testnet
     mainnet
     genTxModules
@@ -98,6 +99,7 @@ main = void $ do
       , fastDevelopmentN
       ]
     fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
+    instantnet = mkPayloads [instantCPM0, instantCPMN]
     testnet = mkPayloads [testnet0, testnetN]
     mainnet = mkPayloads
       [ mainnet0
@@ -177,7 +179,7 @@ genPayloadModule v tag cid cwTxs =
         pdb <- newPayloadDb
         withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> do
             T2 payloadWO _ <- withSqliteDb cid logger pactDbDir False $ \env ->
-                withPactService v cid logger bhdb pdb env testPactServiceConfig $
+                withPactService v cid logger Nothing bhdb pdb env testPactServiceConfig $
                     execNewGenesisBlock noMiner (V.fromList cwTxs)
             return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
 

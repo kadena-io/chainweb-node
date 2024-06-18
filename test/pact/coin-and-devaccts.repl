@@ -1,6 +1,6 @@
 (begin-tx)
-(load "../../pact/coin-contract/fungible-v1.pact")
-(load "../../pact/coin-contract/coin.pact")
+(load "../../pact/coin-contract/v1/fungible-v1.pact")
+(load "../../pact/coin-contract/v1/coin.pact")
 (commit-tx)
 (begin-tx)
 

@@ -38,12 +38,14 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.BlockHeader (genesisBlockHeader)
+import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
+import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService
+import Chainweb.Pact.PactService.Checkpointer
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.Types
 import Chainweb.Pact.Service.Types
@@ -57,7 +59,7 @@ import Chainweb.Test.TestVersions
 import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..))
 import Chainweb.Version.Utils (someChainId)
-import Chainweb.Utils (sshow, tryAllSynchronous)
+import Chainweb.Utils hiding (check)
 
 import Pact.Types.Command
 import Pact.Types.Hash
@@ -73,6 +75,9 @@ testVersion = slowForkingCpmTestVersion petersonChainGraph
 testEventsVersion :: ChainwebVersion
 testEventsVersion = fastForkingCpmTestVersion singletonChainGraph
 
+cid :: ChainId
+cid = someChainId testVersion
+
 tests :: TestTree
 tests =
     withResource' newPayloadDb $ \pdb ->
@@ -81,32 +86,32 @@ tests =
 
     -- The test pact context evaluates the test code at block height 1.
     -- fungible-v2 is installed at that block height 1. Because applying the
-    -- update twice resuls in an validaton failures, we have to run each test on
+    -- update twice results in an validation failures, we have to run each test on
     -- a fresh pact environment. Unfortunately, that's a bit slow.
     [ withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
-        \ctx -> execTest ctx testReq2
+        \ctx -> execTest testVersion ctx testReq2
     , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
-        \ctx -> execTest ctx testReq3
+        \ctx -> execTest testVersion ctx testReq3
     , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
-        \ctx -> execTest ctx testReq4
+        \ctx -> execTest testVersion ctx testReq4
     , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
-        \ctx -> execTest ctx testReq5
+        \ctx -> execTest testVersion ctx testReq5
     , withPactCtxSQLite logger testEventsVersion (bhdbIO testEventsVersion rocksIO) pdb testPactServiceConfig $
-        \ctx -> execTxsTest ctx "testTfrGas" testTfrGas
+        \ctx -> execTxsTest testEventsVersion ctx "testTfrGas" testTfrGas
     , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
-        \ctx -> execTxsTest ctx "testGasPayer" testGasPayer
+        \ctx -> execTxsTest testVersion ctx "testGasPayer" testGasPayer
     , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
-        \ctx -> execTxsTest ctx "testContinuationGasPayer" testContinuationGasPayer
+        \ctx -> execTxsTest testVersion ctx "testContinuationGasPayer" testContinuationGasPayer
     , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
-        \ctx -> execTxsTest ctx "testExecGasPayer" testExecGasPayer
+        \ctx -> execTxsTest testVersion ctx "testExecGasPayer" testExecGasPayer
     , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
-      \ctx -> execTest ctx testReq6
+      \ctx -> execTest testVersion ctx testReq6
     , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
-      \ctx -> execTxsTest ctx "testTfrNoGasFails" testTfrNoGasFails
+      \ctx -> execTxsTest testVersion ctx "testTfrNoGasFails" testTfrNoGasFails
     , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
-      \ctx -> execTxsTest ctx "testBadSenderFails" testBadSenderFails
+      \ctx -> execTxsTest testVersion ctx "testBadSenderFails" testBadSenderFails
     , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
-      \ctx -> execTxsTest ctx "testFailureRedeem" testFailureRedeem
+      \ctx -> execTxsTest testVersion ctx "testFailureRedeem" testFailureRedeem
     , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb testPactServiceConfig $
       \ctx -> execLocalTest ctx "testAllowReadsLocalFails" testAllowReadsLocalFails
     , withPactCtxSQLite logger testVersion (bhdbIO testVersion rocksIO) pdb allowReads $
@@ -120,7 +125,6 @@ tests =
         testBlockHeaderDb rdb genesisHeader
 
     label = "Chainweb.Test.Pact.PactExec"
-    cid = someChainId testVersion
     allowReads = testPactServiceConfig { _pactAllowReadsInLocal = True }
 
     logger = dummyLogger
@@ -489,16 +493,18 @@ testAllowReadsLocalSuccess = (tx,test)
 
 execTest
     :: (Logger logger)
-    => WithPactCtxSQLite logger tbl
+    => ChainwebVersion
+    -> WithPactCtxSQLite logger tbl
     -> TestRequest
     -> TestTree
-execTest runPact request = _trEval request $ do
+execTest v runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     trans <- mkCmds cmdStrs
-    results <- runPact $
-      execTransactions False defaultMiner
-        trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) Nothing Nothing
-        >>= throwOnGasFailure
+    results <- runPact $ (throwIfNoHistory =<<) $
+      readFrom (Just $ ParentHeader $ genesisBlockHeader v cid) $
+        execTransactions False defaultMiner
+          trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) Nothing Nothing
+          >>= throwCommandInvalidError
 
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
@@ -516,18 +522,20 @@ execTest runPact request = _trEval request $ do
 
 execTxsTest
     :: (Logger logger)
-    => WithPactCtxSQLite logger tbl
+    => ChainwebVersion
+    -> WithPactCtxSQLite logger tbl
     -> String
     -> TxsTest
     -> TestTree
-execTxsTest runPact name (trans',check) = testCase name (go >>= check)
+execTxsTest v runPact name (trans',check) = testCase name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- tryAllSynchronous $ runPact $
-        execTransactions False defaultMiner trans
-          (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) Nothing Nothing
-          >>= throwOnGasFailure
+      results' <- tryAllSynchronous $ runPact $ (throwIfNoHistory =<<) $
+        readFrom (Just $ ParentHeader $ genesisBlockHeader v cid) $
+          execTransactions False defaultMiner trans
+            (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) Nothing Nothing
+            >>= throwCommandInvalidError
       case results' of
         Right results -> Right <$> do
           let outputs = V.toList $ snd <$> _transactionPairs results
@@ -550,9 +558,7 @@ execLocalTest runPact name (trans',check) = testCase name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- tryAllSynchronous $ runPact $ liftPactServiceM $
-        -- TODO: this *only* works because nobody is actually restoring
-        -- the checkpointer in `runPact`.
+      results' <- tryAllSynchronous $ runPact $
         execLocal trans Nothing Nothing Nothing
       case results' of
         Right (MetadataValidationFailure e) ->
@@ -618,13 +624,13 @@ _showValidationFailure = do
         }
       miner = defaultMiner
       header = genesisBlockHeader testVersion $ someChainId testVersion
-      pd = payloadWithOutputsToPayloadData $ toPayloadWithOutputs miner outs1
+      pwo = toPayloadWithOutputs miner outs1
       cr2 = set crGas 1 cr1
       outs2 = Transactions
         { _transactionPairs = V.zip txs (V.singleton cr2)
         , _transactionCoinbase = cr2
         }
-      r = validateHashes header pd miner outs2
+      r = validateHashes header (CheckablePayloadWithOutputs pwo) miner outs2
 
   BL.putStrLn $ case r of
     Left e -> J.encode e

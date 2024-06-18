@@ -14,6 +14,11 @@ module Chainweb.VerifierPlugin.Hyperlane.Binary
   , putMessageIdMultisigIsmMetadata
   , getMessageIdMultisigIsmMetadata
 
+  , MerkleRootMultisigIsmMetadata(..)
+  , putMerkleRootMultisigIsmMetadata
+  , getMerkleRootMultisigIsmMetadata
+
+  , padLeft
   , ethereumAddressSize
   ) where
 
@@ -44,9 +49,9 @@ putHyperlaneMessage (HyperlaneMessage {..}) = do
   putWord8 hmVersion
   putWord32be hmNonce
   putWord32be hmOriginDomain
-  putRawByteString (padLeft hmSender)
+  putRawByteString hmSender
   putWord32be hmDestinationDomain
-  putRawByteString (padLeft hmRecipient)
+  putRawByteString hmRecipient
 
   putRawByteString hmMessageBody
 
@@ -55,13 +60,23 @@ getHyperlaneMessage = do
   hmVersion <- getWord8
   hmNonce <- getWord32be
   hmOriginDomain <- getWord32be
-  hmSender <- BS.takeEnd ethereumAddressSize <$> getByteString 32
+  hmSender <- getByteString 32
   hmDestinationDomain <- getWord32be
-  hmRecipient <- BS.dropWhile (== 0) <$> getByteString 32
+  hmRecipient <- getByteString 32
   hmMessageBody <- BL.toStrict <$> getRemainingLazyByteString
 
   return $ HyperlaneMessage {..}
 
+{-
+  Format of metadata:
+  [   0:  32] Origin merkle tree address
+  [  32:  64] Signed checkpoint root
+  [  64:  68] Signed checkpoint index
+  [  68:????] Validator signatures (length := threshold * 65)
+
+  Copied from hyperlane code base
+  https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/b14f997810ebd7dbdff2ac6622a149ae77010ae3/solidity/contracts/isms/libs/MessageIdMultisigIsmMetadata.sol#L5
+-}
 data MessageIdMultisigIsmMetadata = MessageIdMultisigIsmMetadata
   { mmimOriginMerkleTreeAddress :: ByteString
   , mmimSignedCheckpointRoot :: ByteString
@@ -88,6 +103,51 @@ getMessageIdMultisigIsmMetadata = do
   let mmimSignatures = sliceSignatures signaturesBytes
 
   return $ MessageIdMultisigIsmMetadata{..}
+
+{-
+  Format of metadata:
+  [   0:  32] Origin merkle tree address
+  [  32:  36] Index of message ID in merkle tree
+  [  36:  68] Signed checkpoint message ID
+  [  68:1092] Merkle proof
+  [1092:1096] Signed checkpoint index (computed from proof and index)
+  [1096:????] Validator signatures (length := threshold * 65)
+
+  Copied from hyperlane code base
+  https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/b14f997810ebd7dbdff2ac6622a149ae77010ae3/solidity/contracts/isms/libs/MerkleRootMultisigIsmMetadata.sol#L5
+-}
+data MerkleRootMultisigIsmMetadata = MerkleRootMultisigIsmMetadata
+  { mrmimOriginMerkleTreeAddress :: ByteString
+  , mrmimMessageIdIndex :: Word32
+  , mrmimSignedCheckpointMessageId :: ByteString
+  , mrmimMerkleProof :: ByteString
+  , mrmimSignedCheckpointIndex :: Word32
+  , mrmimSignatures :: [ByteString]
+  }
+
+putMerkleRootMultisigIsmMetadata :: MerkleRootMultisigIsmMetadata -> Put
+putMerkleRootMultisigIsmMetadata (MerkleRootMultisigIsmMetadata{..}) = do
+  putRawByteString (padLeft mrmimOriginMerkleTreeAddress)
+  putWord32be mrmimMessageIdIndex
+  putRawByteString (padLeft mrmimSignedCheckpointMessageId)
+  putRawByteString mrmimMerkleProof
+  putWord32be mrmimSignedCheckpointIndex
+
+  forM_ mrmimSignatures $ \s -> do
+    putRawByteString s
+
+getMerkleRootMultisigIsmMetadata :: Get MerkleRootMultisigIsmMetadata
+getMerkleRootMultisigIsmMetadata = do
+  mrmimOriginMerkleTreeAddress <- getByteString 32
+  mrmimMessageIdIndex <- getWord32be
+  mrmimSignedCheckpointMessageId <- getByteString 32
+  mrmimMerkleProof <- getByteString 1024
+  mrmimSignedCheckpointIndex <- getWord32be
+
+  signaturesBytes <- getRemainingLazyByteString
+  let mrmimSignatures = sliceSignatures signaturesBytes
+
+  return $ MerkleRootMultisigIsmMetadata{..}
 
 -- | Pad with zeroes on the left to 32 bytes
 --

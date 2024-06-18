@@ -17,6 +17,8 @@ module Chainweb.VerifierPlugin.Hyperlane.Utils
   , decodeHexUnsafe
 
   , ethereumHeader
+
+  , branchRoot
   ) where
 
 import Control.Lens hiding (index)
@@ -26,11 +28,13 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Builder as Builder
+import Data.Bits
 import Data.Text (Text)
 import Data.Either (fromRight)
 import Data.DoubleWord
 import Data.Decimal
 import Data.Ratio
+import Data.Word
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Crypto.Secp256k1 as ECDSA
@@ -92,3 +96,20 @@ wordToDecimal w =
 
 keccak256ByteString :: B.ByteString -> B.ByteString
 keccak256ByteString = BS.fromShort . _getBytesN . _getKeccak256Hash . keccak256
+
+-- | Calculates and returns the merkle root for the given leaf `messageId`,
+-- a merkle branch `merkleProof`, and the index of `messageIdIndex` in the tree.
+--
+-- Corresponds to
+-- https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/b14f997810ebd7dbdff2ac6622a149ae77010ae3/solidity/contracts/libs/Merkle.sol#L124
+branchRoot :: B.ByteString -> B.ByteString -> Word32 -> B.ByteString
+branchRoot messageId merkleProof messageIdIndex = go 0 messageId
+  where
+    go :: Int -> B.ByteString -> B.ByteString
+    go 32 current = current
+    go i current =
+      let ithBit = (((fromIntegral messageIdIndex) :: Word256) `shiftR` i) .&. 0x01
+          next = B.take 32 $ B.drop (i * 32) merkleProof
+      in if ithBit == 1
+        then go (i + 1) (keccak256ByteString $ next <> current)
+        else go (i + 1) (keccak256ByteString $ current <> next)

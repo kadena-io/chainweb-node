@@ -16,6 +16,7 @@ module SlowTests ( main ) where
 import Chainweb.Graph
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.TestVersions
+import Chainweb.Test.Utils
 import System.IO.Temp
 import System.LogLevel
 import Test.Tasty
@@ -31,8 +32,12 @@ loglevel = Warn
 
 -- note that because these tests run in parallel they must all use distinct rocksdb and sqlite dirs.
 suite :: TestTree
-suite = sequentialTestGroup "ChainwebSlowTests" AllFinish
-    [ testCaseSteps "compact-live-node" $ \step ->
+suite = independentSequentialTestGroup "ChainwebSlowTests"
+    [ testCaseSteps "compact-resume" $ \step ->
+        withTempRocksDb "compact-resume-test-rocks" $ \rdb ->
+        withSystemTempDirectory "compact-resume-test-pact" $ \pactDbDir -> do
+        Chainweb.Test.MultiNode.compactAndResumeTest loglevel (fastForkingCpmTestVersion pairChainGraph) 6 rdb pactDbDir step
+    , testCaseSteps "compact-live-node" $ \step ->
         withTempRocksDb "pact-import-test-rocks" $ \rdb ->
         withSystemTempDirectory "pact-import-test-pact" $ \pactDbDir -> do
         Chainweb.Test.MultiNode.compactLiveNodeTest loglevel (fastForkingCpmTestVersion twentyChainGraph) 1 rdb pactDbDir step
@@ -48,10 +53,6 @@ suite = sequentialTestGroup "ChainwebSlowTests" AllFinish
         withTempRocksDb "replay-test-fasttimedcpm-pair-rocks" $ \rdb ->
         withSystemTempDirectory "replay-test-fasttimedcpm-pair-pact" $ \pactDbDir ->
         Chainweb.Test.MultiNode.replayTest loglevel (fastForkingCpmTestVersion pairChainGraph) 6 rdb pactDbDir step
-    , testCaseSteps "compact-resume" $ \step ->
-        withTempRocksDb "compact-resume-test-rocks" $ \rdb ->
-        withSystemTempDirectory "compact-resume-test-pact" $ \pactDbDir -> do
-        Chainweb.Test.MultiNode.compactAndResumeTest loglevel (fastForkingCpmTestVersion pairChainGraph) 6 rdb pactDbDir step
     , testCaseSteps "pact-import" $ \step ->
         withTempRocksDb "pact-import-test-rocks" $ \rdb ->
         withSystemTempDirectory "pact-import-test-pact" $ \pactDbDir -> do

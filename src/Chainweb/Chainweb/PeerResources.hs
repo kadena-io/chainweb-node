@@ -175,7 +175,7 @@ withHost
 withHost mgr v conf logger f
     | null peers = do
         logFunctionText logger Warn
-            $ "Unable verify configured host " <> toText confHost <> ": No peers are available."
+            $ "Unable to verify configured host " <> toText confHost <> ": No peers are available."
         f (set (p2pConfigPeer . peerConfigHost) confHost conf)
     | anyIpv4 == confHost = do
         h <- getHost mgr v logger peers >>= \case
@@ -342,4 +342,3 @@ withConnectionLogger logger counter inner =
             logFunctionText logger Error ("Connection manager logger failed: " <> sshow e)
         logFunctionText logger Info "Restarting connection manager logger"
         runLogClientConnections umask
-

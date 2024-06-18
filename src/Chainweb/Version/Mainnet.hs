@@ -22,6 +22,7 @@ import Chainweb.Utils.Rule
 import Chainweb.Version
 import P2P.BootstrapNodes
 
+import Pact.Types.Runtime (Gas(..))
 import Pact.Types.Verifier
 
 import qualified Chainweb.BlockHeader.Genesis.Mainnet0Payload as MN0
@@ -147,7 +148,8 @@ mainnet = ChainwebVersion
         Chainweb221Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_177_889) -- 2023-10-20 00:00:00+00:00
         Chainweb222Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_335_753) -- 2023-12-14 00:00:00+00:00
         Chainweb223Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_577_530) -- 2024-03-07 00:00:00+00:00
-        Chainweb224Pact -> AllChains ForkNever
+        Chainweb224Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_819_246) -- 2024-05-30 00:00:00+00:00
+        Chainweb225Pact -> AllChains ForkNever
 
     , _versionGraphs =
         (to20ChainsMainnet, twentyChainGraph) `Above`
@@ -211,4 +213,11 @@ mainnet = ChainwebVersion
         }
     , _versionVerifierPluginNames = AllChains $ (4_577_530, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
         End mempty
+    , _versionQuirks = VersionQuirks
+        { _quirkGasFees = HM.fromList
+            [ (fromJuste (decodeStrictOrThrow' "\"s9fUspNaCHoV4rNI-Tw-JYU1DxqZAOXS-80oEy7Zfbo\""), Gas 67_618)
+            , (fromJuste (decodeStrictOrThrow' "\"_f1xkIQPGRcOBNBWkOvP0dGNOjmNtmXwOnXzfdwnmJQ\""), Gas 69_092)
+            ]
+        }
+    , _versionServiceDate = Just "2024-08-21T00:00:00Z"
     }

@@ -18,11 +18,10 @@ on:
       eventlog:
         description: link with -eventlog
         default: 'False'
-  push:
-    paths:
-    - '**'
-      #    - '!.github/**'
   merge_group:
+  push:
+    branches-ignore:
+      - 'gh-readonly-queue/**'
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
@@ -56,7 +55,7 @@ jobs:
       chainweb-network-version: ${{ steps.compile-flags.outputs.chainweb-network-version }}
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
     - name: Git revision infos
       id: git-info
       run: |
@@ -132,23 +131,28 @@ jobs:
     - name: Create matrix
       id: set-matrix
       run: |
+        if "${{ github.event_name == 'schedule' }}" == "true"; then
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.3", "9.8.1"],
+          "ghc": ["9.6.5", "9.8.1"],
           "cabal": ["3.10"],
           "os": ["ubuntu-20.04", "ubuntu-22.04"],
-          "use-freeze-file": ["false"],
-          "include": [
-            {
-              "ghc": "9.6.3",
-              "cabal": "3.10",
-              "os" : "ubuntu-20.04",
-              "use-freeze-file": "true"
-            }
+          "use-freeze-file": ["false"]
           ]
         }
         EOF
         )"
+        else
+        MATRIX="$(jq -c '.' <<EOF
+        {
+          "ghc": ["9.6.5"],
+          "cabal": ["3.10"],
+          "os": ["ubuntu-20.04", "ubuntu-22.04"],
+          "use-freeze-file": ["true"]
+        }
+        EOF
+        )"
+        fi
         echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
     - name: Log config
       run: |
@@ -189,7 +193,7 @@ jobs:
     - name: Sync chain database from S3
       run: aws s3 sync "$DB_SNAPSHOT_URI" db/0/rocksDb --delete --exclude=LOCK
     - name: Store chain database as artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: chain-db-${{ needs.config.outputs.chainweb-network-version }}
         path: db
@@ -212,7 +216,7 @@ jobs:
     steps:
     # Setup
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         fetch-depth: 0
     # This only works if also the times of the cache are adjusted accordingly
@@ -231,7 +235,7 @@ jobs:
       if: startsWith(matrix.os, 'ubuntu-')
       run: sudo chown -R $USER /usr/local/.ghcup
     - name: Install GHC and Cabal
-      uses: haskell/actions/setup@v2
+      uses: haskell-actions/setup@v2
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
@@ -293,21 +297,15 @@ jobs:
     # dist cache
     # the cache-key forces uploading of cache at least once a day, which ensures that
     # upstream dependency changes are captured regularly.
-    - name: Create date file for dist-newstyle cache key
-      id: cache-date
-      run: |
-        echo "value=$(date +%Y.%j)" >> $GITHUB_OUTPUT
-    - uses: actions/cache@v3
+    - uses: actions/cache@v4
       name: Cache dist-newstyle
       with:
         path: |
-          ~/.cabal/packages
-          ~/.cabal/store
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-2-${{ steps.cache-date.outputs.value }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ matrix.use-freeze-file }}-2-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
         restore-keys: |
-          ${{ matrix.os }}-${{ matrix.ghc }}-2-${{ steps.cache-date.outputs.value }}-
-          ${{ matrix.os }}-${{ matrix.ghc }}-2-
+          ${{ matrix.os }}-${{ matrix.ghc }}-${{ matrix.use-freeze-file }}-2-
+          ${{ matrix.os }}-${{ matrix.ghc }}-
 
     # Build
     - name: Delete Freeze file if it exists
@@ -328,11 +326,11 @@ jobs:
         diff -w <(git show HEAD:cabal.project.freeze) cabal.project.freeze || true
     - name: Sync from cabal cache
       if: env.USE_CABAL_CACHE == 'true'
-      uses: larskuhtz/cabal-cache-action@018b7ae0c480ba3dc4fa0cfa3a0bc1f05b7724b3
+      uses: larskuhtz/cabal-cache-action@a0f263d898dd246217960262caa1d381cf066e9a
       with:
         bucket: "kadena-cabal-cache"
         region: "us-east-1"
-        folder: "${{ matrix.os }}-${{ matrix.ghc }}"
+        folder: "${{ matrix.os }}-${{ matrix.ghc }}-${{ matrix.use-freeze-file }}"
         aws_access_key_id: "${{ secrets.kadena_cabal_cache_aws_access_key_id }}"
         aws_secret_access_key: "${{ secrets.kadena_cabal_cache_aws_secret_access_key }}"
     - name: Install build dependencies
@@ -378,7 +376,7 @@ jobs:
         tar -C ./artifacts/ -czf "$ARTIFACTS_ARCHIVE" chainweb
         ls ./artifacts
     - name: Safe artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: ${{ env.ARTIFACTS_ARCHIVE }}
@@ -397,9 +395,9 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Download build artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
@@ -431,9 +429,9 @@ jobs:
       BENCH_FOLDER: chainweb-benchmark-results/${{ matrix.ghc }}/${{ matrix.os }}
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Download build artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
@@ -464,14 +462,14 @@ jobs:
     env:
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Download ${{ needs.config.outputs.chainweb-network-version }} chain database artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: chain-db-${{ needs.config.outputs.chainweb-network-version }}
         path: db
     - name: Download build artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
@@ -555,9 +553,9 @@ jobs:
       TEST_RESULT_FOLDER: chainweb-test-results/ghc-${{ matrix.ghc }}/${{ matrix.os }}
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Download build artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
@@ -603,7 +601,7 @@ jobs:
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
     steps:
     - name: Download build artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
@@ -619,16 +617,14 @@ jobs:
     name: Build and publish docker image
     needs: [config, build]
     runs-on: ${{ matrix.os }}
+    if: "${{ github.event_name != 'schedule' }}"
     strategy:
       fail-fast: false
       matrix:
         # when adding more than one build, use a different package name or
         # different tags
         include:
-        - ghc: "9.6.3"
-          os: "ubuntu-20.04"
-          use-freeze-file: "false"
-        - ghc: "9.6.3"
+        - ghc: "9.6.5"
           os: "ubuntu-20.04"
           use-freeze-file: "true"
     env:
@@ -638,7 +634,7 @@ jobs:
 
     steps:
     - name: Get build artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: ${{ env.ARTIFACTS_NAME }}
         path: .
@@ -678,15 +674,7 @@ jobs:
         EOF
         ENV LANG=en_US.UTF-8
         WORKDIR /chainweb
-        COPY chainweb/chainweb-node .
-        COPY chainweb/chainweb-tests .
-        COPY chainweb/LICENSE .
-        COPY chainweb/README.md .
-        COPY chainweb/CHANGELOG.md .
-        COPY chainweb/chainweb.cabal .
-        COPY chainweb/cabal.project .
-        COPY chainweb/cabal.project.local .
-        COPY chainweb/cabal.project.freeze .
+        COPY chainweb/* .
         STOPSIGNAL SIGTERM
         ENTRYPOINT [ "/chainweb/chainweb-node" ]
         DEOF
@@ -717,7 +705,7 @@ jobs:
       uses: docker/setup-buildx-action@v2
 
     - name: Cache Docker layers
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: /tmp/.buildx-cache
         key: ${{ runner.os }}-buildx-${{ github.sha }}

@@ -79,6 +79,10 @@ module Chainweb.Utils
 , minusOrZero
 , interleaveIO
 , mutableVectorFromList
+, timeoutYield
+, showClientError
+, showHTTPRequestException
+, matchOrDisplayException
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -153,6 +157,7 @@ module Chainweb.Utils
 , enableConfigConfig
 , enableConfigEnabled
 , defaultEnableConfig
+, defaultDisableConfig
 , pEnableConfig
 , enabledConfig
 , validateEnableConfig
@@ -266,7 +271,7 @@ import GHC.TypeLits (KnownSymbol, symbolVal)
 import qualified Network.Connection as HTTP
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTP
-import Network.Socket
+import Network.Socket hiding (Debug)
 
 import Numeric.Natural
 
@@ -279,10 +284,12 @@ import System.IO.Unsafe (unsafeInterleaveIO, unsafePerformIO)
 import System.LogLevel
 import qualified System.Random.MWC as Prob
 import qualified System.Random.MWC.Probability as Prob
-import System.Timeout
+import qualified System.Timeout as Timeout
 
 import Text.Printf (printf)
 import Text.Read (readEither)
+import qualified Servant.Client
+import qualified Network.HTTP.Types as HTTP
 
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
@@ -927,7 +934,7 @@ tryAllSynchronous = trySynchronous
 --
 runForever :: (LogLevel -> T.Text -> IO ()) -> T.Text -> IO () -> IO ()
 runForever logfun name a = mask $ \umask -> do
-    logfun Info $ "start " <> name
+    logfun Debug $ "start " <> name
     let go = do
             forever (umask a) `catchAllSynchronous` \e ->
                 logfun Error $ name <> " failed: " <> sshow e <> ". Restarting ..."
@@ -954,7 +961,7 @@ runForeverThrottled
     -> IO ()
 runForeverThrottled logfun name burst rate a = mask $ \umask -> do
     tokenBucket <- newTokenBucket
-    logfun Info $ "start " <> name
+    logfun Debug $ "start " <> name
     let runThrottled = tokenBucketWait tokenBucket burst rate >> a
         go = do
             forever (umask runThrottled) `catchAllSynchronous` \e ->
@@ -982,6 +989,14 @@ makeLenses ''EnableConfig
 defaultEnableConfig :: a -> EnableConfig a
 defaultEnableConfig a = EnableConfig
     { _enableConfigEnabled = True
+    , _enableConfigConfig = a
+    }
+
+-- | The default is that the configured component is disabled.
+--
+defaultDisableConfig :: a -> EnableConfig a
+defaultDisableConfig a = EnableConfig
+    { _enableConfigEnabled = False
     , _enableConfigConfig = a
     }
 
@@ -1048,7 +1063,7 @@ timeoutStream
     -> S.Stream (Of a) IO (Maybe r)
 timeoutStream msecs = go
   where
-    go s = lift (timeout msecs (S.next s)) >>= \case
+    go s = lift (Timeout.timeout msecs (S.next s)) >>= \case
         Nothing -> return Nothing
         Just (Left r) -> return (Just r)
         Just (Right (a, s')) -> S.yield a >> go s'
@@ -1241,6 +1256,13 @@ thd (_,_,c) = c
 data T2 a b = T2 !a !b
     deriving (Show, Eq, Ord, Generic, NFData, Functor)
 
+instance (Semigroup a, Semigroup b) => Semigroup (T2 a b) where
+    T2 a b <> T2 a' b' = T2 (a <> a') (b <> b')
+
+instance (Monoid a, Monoid b) => Monoid (T2 a b) where
+    mappend = (<>)
+    mempty = T2 mempty mempty
+
 instance Bifunctor T2 where
     bimap f g (T2 a b) =  T2 (f a) (g b)
     {-# INLINE bimap #-}
@@ -1394,3 +1416,40 @@ parseUtcTime d = case parseTimeM False defaultTimeLocale fmt d of
     Just x -> return x
   where
     fmt = iso8601DateTimeFormat
+
+-- | Timeout.timeout with a `threadDelay` after the action to more consistently
+-- trigger the timeout.
+timeoutYield :: Int -> IO a -> IO (Maybe a)
+timeoutYield time act =
+    Timeout.timeout time (act <* threadDelay 1)
+
+showClientError :: Servant.Client.ClientError -> T.Text
+showClientError (Servant.Client.FailureResponse _ resp) =
+    "Error code " <> sshow (HTTP.statusCode $ Servant.Client.responseStatusCode resp)
+showClientError (Servant.Client.ConnectionError anyException) =
+    matchOrDisplayException @HTTP.HttpException showHTTPRequestException anyException
+showClientError e =
+    T.pack $ displayException e
+
+showHTTPRequestException :: HTTP.HttpException -> T.Text
+showHTTPRequestException (HTTP.HttpExceptionRequest _request content)
+    = case content of
+        HTTP.StatusCodeException resp _ ->
+            "Error status code: " <>
+            sshow (HTTP.statusCode $ HTTP.responseStatus resp)
+        HTTP.TooManyRedirects _ -> "Too many redirects"
+        HTTP.InternalException e
+            | Just (HTTP.HostCannotConnect _ es) <- fromException e
+                -> "Host cannot connect: " <> sshow es
+            | otherwise
+                -> sshow e
+        _ -> sshow content
+showHTTPRequestException ex
+    = T.pack $ displayException ex
+
+matchOrDisplayException :: Exception e => (e -> T.Text) -> SomeException -> T.Text
+matchOrDisplayException display anyException
+    | Just specificException <- fromException anyException
+    = display specificException
+    | otherwise
+    = T.pack $ displayException anyException

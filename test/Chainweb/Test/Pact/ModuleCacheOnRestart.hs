@@ -42,6 +42,7 @@ import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -51,7 +52,7 @@ import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
 import Chainweb.Test.Pact.Utils(getPWOByHeader)
 import Chainweb.Test.TestVersions(fastForkingCpmTestVersion)
-import Chainweb.Utils (T2(..))
+import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
@@ -79,10 +80,9 @@ tests rdb =
     withResource' newEmptyMVar $ \rewindDataM ->
     withResource' (mkTestBlockDb testVer rdb) $ \bdbio ->
     withResourceT withTempSQLiteResource $ \ioSqlEnv ->
-    sequentialTestGroup "Chainweb.Test.Pact.ModuleCacheOnRestart" AllSucceed
+    independentSequentialTestGroup "Chainweb.Test.Pact.ModuleCacheOnRestart"
     [ testCaseSteps "testInitial" $ withPact' bdbio ioSqlEnv iom testInitial
     , testCaseSteps "testRestart1" $ withPact' bdbio ioSqlEnv iom testRestart
-      -- wow, Tasty thinks there's a "loop" if the following test is called "testCoinbase"!!
     , testCaseSteps "testDoUpgrades" $ withPact' bdbio ioSqlEnv iom (testCoinbase bdbio)
     , testCaseSteps "testRestart2" $ withPact' bdbio ioSqlEnv iom testRestart
     , testCaseSteps "testV3" $ withPact' bdbio ioSqlEnv iom (testV3 bdbio rewindDataM)
@@ -127,10 +127,12 @@ testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
     genHeight = genesisHeight testVer testChainId
     doCoinbase = do
       bdb <- liftIO iobdb
-      T2 _ pwo <- execNewBlock mempty noMiner
+      bip <- throwIfNoHistory =<< execNewBlock mempty noMiner NewBlockFill
+        (ParentHeader (genesisBlockHeader testVer testChainId))
+      let pwo = blockInProgressToPayloadWithOutputs bip
       void $ liftIO $ addTestBlockDb bdb (succ genHeight) (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
-      void $ execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
+      void $ execValidateBlock mempty nextH (CheckablePayloadWithOutputs pwo)
 
 testV3
   :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)
@@ -239,7 +241,7 @@ assertNoCacheMismatch c1 c2 = assertBool msg $ c1 == c2
       ]
 
 rewindToBlock :: (Logger logger) => CanReadablePayloadCas tbl => RewindPoint -> PactServiceM logger tbl ()
-rewindToBlock (rewindHeader, pwo) = void $ execValidateBlock mempty rewindHeader (payloadWithOutputsToPayloadData pwo)
+rewindToBlock (rewindHeader, pwo) = void $ execValidateBlock mempty rewindHeader (CheckablePayloadWithOutputs pwo)
 
 doNextCoinbase :: (Logger logger, CanReadablePayloadCas tbl) => IO TestBlockDb -> PactServiceM logger tbl (BlockHeader, PayloadWithOutputs)
 doNextCoinbase iobdb = do
@@ -247,13 +249,15 @@ doNextCoinbase iobdb = do
       prevH <- liftIO $ getParentTestBlockDb bdb testChainId
       -- we have to execValidateBlock on `prevH` block height to update the parent header
       pwo' <- liftIO $ getPWOByHeader prevH bdb
-      _ <- execValidateBlock mempty prevH (payloadWithOutputsToPayloadData pwo')
+      _ <- execValidateBlock mempty prevH (CheckablePayloadWithOutputs pwo')
 
-      T2 prevH' pwo <- execNewBlock mempty noMiner
+      bip <- throwIfNoHistory =<< execNewBlock mempty noMiner NewBlockFill (ParentHeader prevH)
+      let prevH' = _blockInProgressParentHeader bip
+      let pwo = blockInProgressToPayloadWithOutputs bip
       liftIO $ ParentHeader prevH @?= prevH'
       void $ liftIO $ addTestBlockDb bdb (succ $ _blockHeight prevH) (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
-      (valPWO, _g) <- execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
+      (valPWO, _g) <- execValidateBlock mempty nextH (CheckablePayloadWithOutputs pwo)
       return (nextH, valPWO)
 
 doNextCoinbaseN_
@@ -296,7 +300,7 @@ withPact' bdbio ioSqlEnv r (ps, cacheTest) tastylog = do
     let pdb = _bdbPayloadDb bdb
     sqlEnv <- ioSqlEnv
     T2 _ pstate <- withPactService
-        testVer testChainId logger bhdb pdb sqlEnv testPactServiceConfig ps
+        testVer testChainId logger Nothing bhdb pdb sqlEnv testPactServiceConfig ps
     cacheTest r (_psInitCache pstate)
   where
     logger = genericLogger Quiet (tastylog . T.unpack)

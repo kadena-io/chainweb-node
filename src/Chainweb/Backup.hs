@@ -36,7 +36,6 @@ import Servant
 
 import Chainweb.ChainId
 import Chainweb.Logger
-import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils(chainDbFileName, withSqliteDb)
 import Chainweb.Utils
 
@@ -100,7 +99,7 @@ makeBackup env options = do
             logCr Info $ "backing up pact databases" <> T.pack thisBackup
             forConcurrently_ (_backupChainIds env) $ \cid -> do
                 withSqliteDb cid (_backupLogger env) (_backupPactDbDir env) False $ \db ->
-                    void $ qry (_sConn db)
+                    void $ qry db
                         ("VACUUM main INTO ?")
                         [SText $ fromString (thisBackup </> "0" </> "sqlite" </> chainDbFileName cid)]
                         []

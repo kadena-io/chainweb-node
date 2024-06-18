@@ -1,0 +1,1 @@
+Failed transactions are logged at Debug rather than Info

@@ -1,11 +1,15 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -24,6 +28,9 @@
 -- Chainweb / Pact Types module for various database backends
 module Chainweb.Pact.Backend.Types
     ( RunnableBlock(..)
+    , Historical(..)
+    , _Historical
+    , _NoHistory
     , Checkpointer(..)
     , _cpRewindTo
     , ReadCheckpointer(..)
@@ -44,7 +51,6 @@ module Chainweb.Pact.Backend.Types
     , pdbsDbEnv
 
     , SQLiteRowDelta(..)
-    , SQLiteDeltaKey(..)
     , SQLitePendingTableCreations
     , SQLitePendingWrites
     , SQLitePendingData(..)
@@ -56,36 +62,39 @@ module Chainweb.Pact.Backend.Types
 
     , BlockState(..)
     , initBlockState
-    , bsBlockHeight
     , bsMode
     , bsTxId
     , bsPendingBlock
     , bsPendingTx
-    , bsModuleNameFix
-    , bsSortedKeys
-    , bsLowerCaseTables
     , bsModuleCache
     , BlockEnv(..)
     , benvBlockState
-    , benvDb
+    , blockHandlerEnv
     , runBlockEnv
-    , SQLiteEnv(..)
-    , sConn
-    , sConfig
+    , SQLiteEnv
+    , IntraBlockPersistence(..)
     , BlockHandler(..)
+    , BlockHandlerEnv(..)
+    , mkBlockHandlerEnv
+    , blockHandlerBlockHeight
+    , blockHandlerModuleNameFix
+    , blockHandlerSortedKeys
+    , blockHandlerLowerCaseTables
+    , blockHandlerDb
+    , blockHandlerLogger
+    , blockHandlerPersistIntraBlockWrites
     , ParentHash
-    , BlockDbEnv(..)
-    , bdbenvDb
-    , bdbenvLogger
     , SQLiteFlag(..)
 
       -- * mempool
     , MemPoolAccess(..)
 
     , PactServiceException(..)
+    , BlockTxHistory(..)
     ) where
 
 import Control.Concurrent.MVar
+import Control.DeepSeq
 import Control.Exception
 import Control.Exception.Safe hiding (bracket)
 import Control.Lens
@@ -97,9 +106,9 @@ import Data.Bits
 import Data.ByteString (ByteString)
 import Data.DList (DList)
 import Data.Functor
-import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
+import Data.List.NonEmpty(NonEmpty(..))
 import Data.Map.Strict (Map)
 import Data.Vector (Vector)
 
@@ -111,21 +120,25 @@ import GHC.Generics
 import GHC.Stack
 
 import Pact.Interpreter (PactDbEnv(..))
-import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
+import Pact.Persist.SQLite (Pragma(..))
 import Pact.PersistPactDb (DbEnv(..))
 import qualified Pact.Types.Hash as P
 import Pact.Types.Persistence
 import Pact.Types.RowData (RowData)
 import Pact.Types.Runtime (TableName)
 
+import qualified Pact.JSON.Encode as J
+
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
+import Chainweb.ChainId
 import Chainweb.Pact.Backend.DbCache
-import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
+import Chainweb.Version
+import Chainweb.Version.Guards
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
 
 import Streaming(Stream, Of)
@@ -177,14 +190,6 @@ instance Ord SQLiteRowDelta where
         bb = (_deltaTableName b, _deltaRowKey b, _deltaTxId b)
     {-# INLINE compare #-}
 
--- | When we index 'SQLiteRowDelta' values, we need a lookup key.
-data SQLiteDeltaKey = SQLiteDeltaKey
-    { _dkTable :: !ByteString
-    , _dkRowKey :: !ByteString
-    }
-  deriving (Show, Generic, Eq, Ord)
-  deriving anyclass Hashable
-
 -- | A map from table name to a list of 'TxLog' entries. This is maintained in
 -- 'BlockState' and is cleared upon pact transaction commit.
 type TxLogMap = Map TableName (DList TxLogJson)
@@ -198,7 +203,8 @@ type SQLitePendingTableCreations = HashSet ByteString
 type SQLitePendingSuccessfulTxs = HashSet ByteString
 
 -- | Pending writes to the pact db during a block, to be recorded in 'BlockState'.
-type SQLitePendingWrites = HashMap SQLiteDeltaKey (DList SQLiteRowDelta)
+-- Structured as a map from table name to a map from rowkey to inserted row delta.
+type SQLitePendingWrites = HashMap ByteString (HashMap ByteString (NonEmpty SQLiteRowDelta))
 
 -- | A collection of pending mutations to the pact db. We maintain two of
 -- these; one for the block as a whole, and one for any pending pact
@@ -210,16 +216,11 @@ data SQLitePendingData = SQLitePendingData
     , _pendingTxLogMap :: !TxLogMap
     , _pendingSuccessfulTxs :: !SQLitePendingSuccessfulTxs
     }
-    deriving (Show)
+    deriving (Eq, Show)
 
 makeLenses ''SQLitePendingData
 
-data SQLiteEnv = SQLiteEnv
-    { _sConn :: !Database
-    , _sConfig :: !SQLiteConfig
-    }
-
-makeLenses ''SQLiteEnv
+type SQLiteEnv = Database
 
 -- | Monad state for 'BlockHandler.
 -- This notably contains all of the information that's being mutated during
@@ -228,13 +229,9 @@ makeLenses ''SQLiteEnv
 -- on tx failure.
 data BlockState = BlockState
     { _bsTxId :: !TxId
-    , _bsMode :: !(Maybe ExecutionMode)
-    , _bsBlockHeight :: !BlockHeight
     , _bsPendingBlock :: !SQLitePendingData
     , _bsPendingTx :: !(Maybe SQLitePendingData)
-    , _bsModuleNameFix :: !Bool
-    , _bsSortedKeys :: !Bool
-    , _bsLowerCaseTables :: !Bool
+    , _bsMode :: !(Maybe ExecutionMode)
     , _bsModuleCache :: !(DbCache PersistModuleData)
     }
 
@@ -243,39 +240,62 @@ emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
 initBlockState
     :: DbCacheLimitBytes
-        -- ^ Module Cache Limit (in bytes of corresponding rowdata)
-    -> BlockHeight
+    -- ^ Module Cache Limit (in bytes of corresponding rowdata)
+    -> TxId
+    -- ^ next tx id (end txid of previous block)
     -> BlockState
-initBlockState cl initialBlockHeight = BlockState
-    { _bsTxId = 0
+initBlockState cl txid = BlockState
+    { _bsTxId = txid
     , _bsMode = Nothing
-    , _bsBlockHeight = initialBlockHeight
     , _bsPendingBlock = emptySQLitePendingData
     , _bsPendingTx = Nothing
-    , _bsModuleNameFix = False
-    , _bsSortedKeys = False
-    , _bsLowerCaseTables = False
     , _bsModuleCache = emptyDbCache cl
     }
 
 makeLenses ''BlockState
 
-data BlockDbEnv logger p = BlockDbEnv
-    { _bdbenvDb :: !p
-    , _bdbenvLogger :: !logger
+-- | Whether we write rows to the database that were already overwritten
+-- in the same block. This is temporarily necessary to do while Rosetta uses
+-- those rows to determine the contents of historic transactions.
+data IntraBlockPersistence = PersistIntraBlockWrites | DoNotPersistIntraBlockWrites
+  deriving (Eq, Ord, Show)
+
+data BlockHandlerEnv logger = BlockHandlerEnv
+    { _blockHandlerDb :: !SQLiteEnv
+    , _blockHandlerLogger :: !logger
+    , _blockHandlerBlockHeight :: !BlockHeight
+    , _blockHandlerModuleNameFix :: !Bool
+    , _blockHandlerSortedKeys :: !Bool
+    , _blockHandlerLowerCaseTables :: !Bool
+    , _blockHandlerPersistIntraBlockWrites :: !IntraBlockPersistence
     }
 
-makeLenses ''BlockDbEnv
+mkBlockHandlerEnv
+  :: ChainwebVersion -> ChainId -> BlockHeight
+  -> SQLiteEnv -> IntraBlockPersistence -> logger -> BlockHandlerEnv logger
+mkBlockHandlerEnv v cid bh sql p logger = BlockHandlerEnv
+    { _blockHandlerDb = sql
+    , _blockHandlerLogger = logger
+    , _blockHandlerBlockHeight = bh
+    , _blockHandlerModuleNameFix = enableModuleNameFix v cid bh
+    , _blockHandlerSortedKeys = pact42 v cid bh
+    , _blockHandlerLowerCaseTables = chainweb217Pact v cid bh
+    , _blockHandlerPersistIntraBlockWrites = p
+    }
 
-data BlockEnv logger p = BlockEnv
-    { _benvDb :: !(BlockDbEnv logger p)
+
+makeLenses ''BlockHandlerEnv
+
+data BlockEnv logger =
+  BlockEnv
+    { _blockHandlerEnv :: !(BlockHandlerEnv logger)
     , _benvBlockState :: !BlockState -- ^ The current block state.
     }
 
 makeLenses ''BlockEnv
 
 
-runBlockEnv :: MVar (BlockEnv logger SQLiteEnv) -> BlockHandler logger SQLiteEnv a -> IO a
+runBlockEnv :: MVar (BlockEnv logger) -> BlockHandler logger a -> IO a
 runBlockEnv e m = modifyMVar e $
   \(BlockEnv dbenv bs) -> do
     (!a,!s) <- runStateT (runReaderT (runBlockHandler m) dbenv) bs
@@ -284,8 +304,8 @@ runBlockEnv e m = modifyMVar e $
 -- this monad allows access to the database environment "at" a particular block.
 -- unfortunately, this is tied to a useless MVar via runBlockEnv, which will
 -- be deleted with pact 5.
-newtype BlockHandler logger p a = BlockHandler
-    { runBlockHandler :: ReaderT (BlockDbEnv logger p) (StateT BlockState IO) a
+newtype BlockHandler logger a = BlockHandler
+    { runBlockHandler :: ReaderT (BlockHandlerEnv logger) (StateT BlockState IO) a
     } deriving newtype
         ( Functor
         , Applicative
@@ -295,11 +315,10 @@ newtype BlockHandler logger p a = BlockHandler
         , MonadCatch
         , MonadMask
         , MonadIO
-        , MonadReader (BlockDbEnv logger p)
-
+        , MonadReader (BlockHandlerEnv logger)
         )
 
-type ChainwebPactDbEnv logger = PactDbEnv (BlockEnv logger SQLiteEnv)
+type ChainwebPactDbEnv logger = PactDbEnv (BlockEnv logger)
 
 type ParentHash = BlockHash
 
@@ -307,11 +326,12 @@ type ParentHash = BlockHash
 data ReadCheckpointer logger = ReadCheckpointer
   { _cpReadFrom ::
     !(forall a. Maybe ParentHeader ->
-      (CurrentBlockDbEnv logger -> IO a) -> IO a)
+      (CurrentBlockDbEnv logger -> IO a) -> IO (Historical a))
     -- ^ rewind to a particular block *in-memory*, producing a read-write snapshot
     -- ^ of the database at that block to compute some value, after which the snapshot
     -- is discarded and nothing is saved to the database.
-    -- ^ prerequisite: ParentHeader is an ancestor of the "latest block"
+    -- ^ prerequisite: ParentHeader is an ancestor of the "latest block".
+    -- if that isn't the case, Nothing is returned.
   , _cpGetEarliestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
     -- ^ get the checkpointer's idea of the earliest block. The block height
     --   is the height of the block of the block hash.
@@ -324,9 +344,9 @@ data ReadCheckpointer logger = ReadCheckpointer
     -- ^ is the checkpointer aware of the given block?
   , _cpGetBlockParent :: !((BlockHeight, BlockHash) -> IO (Maybe BlockHash))
   , _cpGetBlockHistory ::
-      !(BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory)
+       !(BlockHeader -> Domain RowKey RowData -> IO (Historical BlockTxHistory))
   , _cpGetHistoricalLookup ::
-      !(BlockHeader -> Domain RowKey RowData -> RowKey -> IO (Maybe (TxLog RowData)))
+      !(BlockHeader -> Domain RowKey RowData -> RowKey -> IO (Historical (Maybe (TxLog RowData))))
   , _cpLogger :: logger
   }
 
@@ -430,3 +450,25 @@ instance Show PactServiceException where
              ]
 
 instance Exception PactServiceException
+
+-- | Gather tx logs for a block, along with last tx for each
+-- key in history, if any
+-- Not intended for public API use; ToJSONs are for logging output.
+data BlockTxHistory = BlockTxHistory
+  { _blockTxHistory :: !(Map TxId [TxLog RowData])
+  , _blockPrevHistory :: !(Map RowKey (TxLog RowData))
+  }
+  deriving (Eq,Generic)
+instance Show BlockTxHistory where
+  show = show . fmap (J.encodeText . J.Array) . _blockTxHistory
+instance NFData BlockTxHistory
+
+-- | The result of a historical lookup which might fail to even find the
+-- header the history is being queried for.
+data Historical a
+  = Historical a
+  | NoHistory
+  deriving stock (Foldable, Functor, Generic, Traversable)
+  deriving anyclass NFData
+
+makePrisms ''Historical

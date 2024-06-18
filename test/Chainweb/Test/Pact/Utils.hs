@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE BangPatterns #-}
@@ -142,6 +143,7 @@ import Data.Default (def)
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
+import Data.List qualified as List
 import Data.LogMessage
 import Data.Map (Map)
 import qualified Data.Map.Strict as M
@@ -185,7 +187,6 @@ import Pact.Types.PactValue
 import Pact.Types.RPC
 import Pact.Types.Runtime (PactEvent(..))
 import Pact.Types.Term
-import Pact.Types.SQLite
 import Pact.Types.Util (parseB16TextOnly)
 import Pact.Types.Verifier
 
@@ -201,8 +202,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.PactState qualified as PactState
 import Chainweb.Pact.Backend.PactState (TableDiffable(..), Table(..), PactRow(..))
-import Chainweb.Pact.Backend.RelationalCheckpointer
-    (initRelationalCheckpointer')
+import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils hiding (withSqliteDb)
@@ -670,18 +670,16 @@ testPactCtxSQLite
   -> SQLiteEnv
   -> PactServiceConfig
   -> (TxContext -> GasModel)
-  -> IO (TestPactCtx logger tbl, ParentHeader, CurrentBlockDbEnv logger)
+  -> IO (TestPactCtx logger tbl)
 testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
-    (dbSt,cp) <- initRelationalCheckpointer' initialBlockState sqlenv cpLogger v cid
+    cp <- initRelationalCheckpointer defaultModuleCacheLimit sqlenv DoNotPersistIntraBlockWrites cpLogger v cid
     let rs = readRewards
-    let ph = ParentHeader $ genesisBlockHeader v cid
     !ctx <- TestPactCtx
       <$!> newMVar (PactServiceState mempty)
       <*> pure (mkPactServiceEnv cp rs)
     evalPactServiceM_ ctx (initialPayloadState mempty v cid)
-    return (ctx, ph, dbSt)
+    return ctx
   where
-    initialBlockState = initBlockState defaultModuleCacheLimit $ genesisHeight v cid
     cpLogger = addLabel ("chain-id", chainIdToText cid) $ addLabel ("sub-component", "checkpointer") $ logger
     mkPactServiceEnv :: Checkpointer logger -> MinerRewards -> PactServiceEnv logger tbl
     mkPactServiceEnv cp rs = PactServiceEnv
@@ -707,6 +705,7 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
 
         , _psBlockGasLimit = _pactBlockGasLimit conf
         , _psEnableLocalTimeout = False
+        , _psTxFailuresCounter = Nothing
         }
 
 freeGasModel :: TxContext -> GasModel
@@ -739,22 +738,24 @@ withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
     mkPact :: SQLiteEnv -> ChainId -> IO PactExecutionService
     mkPact sqlenv c = do
         bhdb <- getBlockHeaderDb c bdb
-        (ctx,_,_) <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
+        ctx <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
         return $ PactExecutionService
-          { _pactNewBlock = \_ m ->
-              evalPactServiceM_ ctx $ execNewBlock mempoolAccess m
+          { _pactNewBlock = \_ m fill ph ->
+              evalPactServiceM_ ctx $ fmap NewBlockInProgress <$> execNewBlock mempoolAccess m fill ph
+          , _pactContinueBlock = \_ bip ->
+              evalPactServiceM_ ctx $ execContinueBlock mempoolAccess bip
           , _pactValidateBlock = \h d ->
               evalPactServiceM_ ctx $ fst <$> execValidateBlock mempoolAccess h d
           , _pactLocal = \pf sv rd cmd ->
-              evalPactServiceM_ ctx $ Right <$> execLocal cmd pf sv rd
+              evalPactServiceM_ ctx $ execLocal cmd pf sv rd
           , _pactLookup = \_cid cd hashes ->
-              evalPactServiceM_ ctx $ Right <$> execLookupPactTxs cd hashes
+              evalPactServiceM_ ctx $ execLookupPactTxs cd hashes
           , _pactPreInsertCheck = \_ txs ->
-              evalPactServiceM_ ctx $ (Right . V.map (() <$)) <$> execPreInsertCheckReq txs
+              evalPactServiceM_ ctx $ V.map (() <$) <$> execPreInsertCheckReq txs
           , _pactBlockTxHistory = \h d ->
-              evalPactServiceM_ ctx $ Right <$> execBlockTxHistory h d
+              evalPactServiceM_ ctx $ execBlockTxHistory h d
           , _pactHistoricalLookup = \h d k ->
-              evalPactServiceM_ ctx $ Right <$> execHistoricalLookup h d k
+              evalPactServiceM_ ctx $ execHistoricalLookup h d k
           , _pactSyncToBlock = \h ->
               evalPactServiceM_ ctx $ execSyncToBlock h
           , _pactReadOnlyReplay = \l u ->
@@ -779,29 +780,28 @@ runCut
     -> IO ()
 runCut v bdb pact genTime noncer miner =
   forM_ (chainIds v) $ \cid -> do
-    T2 ph pout <- _webPactNewBlock pact cid miner
+    ph <- ParentHeader <$> getParentTestBlockDb bdb cid
+    !newBlock <- throwIfNoHistory =<< _webPactNewBlock pact cid miner NewBlockFill ph
+    let pout = newBlockToPayloadWithOutputs newBlock
     n <- noncer cid
 
     -- skip this chain if mining fails and retry with the next chain.
     whenM (addTestBlockDb bdb (succ $ _blockHeight $ _parentHeader ph) n genTime cid pout) $ do
         h <- getParentTestBlockDb bdb cid
-        void $ _webPactValidateBlock pact h (payloadWithOutputsToPayloadData pout)
+        void $ _webPactValidateBlock pact h (CheckablePayloadWithOutputs pout)
 
 initializeSQLite :: IO SQLiteEnv
 initializeSQLite = open2 file >>= \case
     Left (_err, _msg) ->
         internalError "initializeSQLite: A connection could not be opened."
-    Right r ->  return (SQLiteEnv r (SQLiteConfig file chainwebPragmas))
+    Right r -> return r
   where
     file = "" {- temporary sqlitedb -}
 
 freeSQLiteResource :: SQLiteEnv -> IO ()
-freeSQLiteResource sqlenv = void $ close_v2 $ _sConn sqlenv
+freeSQLiteResource sqlenv = void $ close_v2 sqlenv
 
--- | Run in 'PactBlockM' with direct db access and a parent header.
--- TODO: this seems like a broken idea. We should not be accessing the
--- database without restoring the checkpointer first, and this does that.
-type WithPactCtxSQLite logger tbl = forall a . PactBlockM logger tbl a -> IO a
+type WithPactCtxSQLite logger tbl = forall a . PactServiceM logger tbl a -> IO a
 
 -- | Used to run 'PactServiceM' functions directly on a database (ie not use checkpointer).
 withPactCtxSQLite
@@ -818,12 +818,12 @@ withPactCtxSQLite logger v bhdbIO pdbIO conf f =
     initializeSQLite
     freeSQLiteResource $ \io ->
       withResource (start io) destroy $ \ctxIO -> f $ \toPact -> do
-          (ctx, pc, dbSt) <- ctxIO
-          evalPactServiceM_ ctx (runPactBlockM pc dbSt toPact)
+          ctx <- ctxIO
+          evalPactServiceM_ ctx toPact
   where
-    destroy = destroyTestPactCtx . view _1
+    destroy = destroyTestPactCtx
+    cid = someChainId v
     start ios = do
-        let cid = someChainId v
         bhdb <- bhdbIO
         pdb <- pdbIO
         s <- ios
@@ -914,7 +914,7 @@ withPactTestBlockDb' version cid rdb sqlEnvIO mempoolIO pactConfig f =
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) cid
         let pdb = _bdbPayloadDb bdb
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
-            runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
+            runPactService version cid logger Nothing reqQ mempool bhdb pdb sqlEnv pactConfig
         return (a, (sqlEnv,reqQ,bdb))
 
     stopPact (a, _) = cancel a
@@ -970,7 +970,7 @@ withPactTestBlockDb version cid rdb mempoolIO pactConfig f =
         let pdb = _bdbPayloadDb bdb
         sqlEnv <- startSqliteDb cid logger dir False
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
-            runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
+            runPactService version cid logger Nothing reqQ mempool bhdb pdb sqlEnv pactConfig
         return (a, (sqlEnv,reqQ,bdb))
 
     stopPact (a, (sqlEnv, _, _)) = cancel a >> stopSqliteDb sqlEnv
@@ -989,7 +989,7 @@ hunitDummyLogger :: (String -> IO ()) -> GenericLogger
 hunitDummyLogger f = genericLogger Error (f . T.unpack)
 
 someTestVersion :: ChainwebVersion
-someTestVersion = fastForkingCpmTestVersion petersonChainGraph
+someTestVersion = instantCpmTestVersion petersonChainGraph
 
 someTestVersionHeader :: BlockHeader
 someTestVersionHeader = someBlockHeader someTestVersion 10
@@ -1034,6 +1034,27 @@ getLatestPactState db = do
     pure
     (PactState.getLatestPactStateDiffable db)
 
+locateTarget :: ()
+  => SQLiteEnv
+  -> C.TargetBlockHeight
+  -> IO BlockHeight
+locateTarget db = \case
+  C.Target height -> do
+    PactState.ensureBlockHeightExists db height
+    pure height
+  C.LatestUnsafe -> do
+    PactState.getLatestBlockHeight db
+  C.LatestSafe -> do
+    latest <- PactState.getLatestBlockHeight db
+    earliest <- PactState.getEarliestBlockHeight db
+
+    let safeDepth = 1_000
+
+    when (latest - earliest < safeDepth) $ do
+      error "not enough history for Compaction.LatestSafe"
+
+    pure (latest - safeDepth)
+
 -- | Compaction utility for testing.
 --   Most of the time the flags will be ['C.NoVacuum']
 compact :: ()
@@ -1042,16 +1063,10 @@ compact :: ()
   -> SQLiteEnv
   -> C.TargetBlockHeight
   -> IO ()
-compact logLevel cFlags (SQLiteEnv db _) bh = do
+compact logLevel cFlags db target = do
   C.withDefaultLogger logLevel $ \logger -> do
-    void $ C.compact bh logger db cFlags
-
-
-getPWOByHeader :: BlockHeader -> TestBlockDb -> IO PayloadWithOutputs
-getPWOByHeader h (TestBlockDb _ pdb _) =
-  lookupPayloadWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h) >>= \case
-    Nothing -> throwM $ userError "getPWOByHeader: payload not found"
-    Just pwo -> return pwo
+    height <- locateTarget db target
+    void $ C.compact height logger db cFlags
 
 -- | Compaction function that retries until the database is available.
 compactUntilAvailable
@@ -1060,10 +1075,24 @@ compactUntilAvailable
   -> SQLiteEnv
   -> [C.CompactFlag]
   -> IO ()
-compactUntilAvailable tbh logger dbEnv@(SQLiteEnv db _) flags = do
-    try (C.compact tbh logger db flags) >>= \case
-        Left (C.CompactExceptionDb (fromException ->
-            Just (ioe_description -> "Database error: (ErrorBusy,\"database is locked\")")))
-            -> compactUntilAvailable tbh logger dbEnv flags
-        Left e -> throwM e
-        Right _ -> return ()
+compactUntilAvailable target logger db flags = do
+  height <- locateTarget db target
+  go height
+  where
+    go h = do
+      r <- try (C.compact h logger db flags)
+      case r of
+        Right _ -> pure ()
+        Left err
+          | C.CompactExceptionDb e <- err
+          , Just ioErr <- fromException e
+            -- someone, somewhere, is calling "show" on an exception
+          , "ErrorBusy" `List.isInfixOf` ioe_description ioErr
+          -> putStrLn "Retrying compaction" >> go h
+          | otherwise -> throwM err
+
+getPWOByHeader :: BlockHeader -> TestBlockDb -> IO PayloadWithOutputs
+getPWOByHeader h (TestBlockDb _ pdb _) =
+  lookupPayloadWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h) >>= \case
+    Nothing -> throwM $ userError "getPWOByHeader: payload not found"
+    Just pwo -> return pwo

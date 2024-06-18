@@ -92,7 +92,6 @@ import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Utils (withSqliteDb)
 import Chainweb.Cut
 import Chainweb.CutDB
@@ -182,6 +181,7 @@ multiConfig v n = defaultChainwebConfiguration v
 
     & set (configServiceApi . serviceApiConfigPort) 0
     & set (configServiceApi . serviceApiConfigInterface) interface
+    & set (configCuts . cutFetchTimeout) 10_000_000
   where
     miner = NodeMiningConfig
         { _nodeMiningEnabled = True
@@ -246,7 +246,7 @@ multiNode
     -> IO ()
 multiNode loglevel write bootstrapPeerInfoVar conf rdb pactDbDir nid inner = do
     withSystemTempDirectory "multiNode-backup-dir" $ \backupTmpDir ->
-            withChainweb conf logger nodeRocksDb (pactDbDir </> show nid) backupTmpDir False $ \cw -> do
+            withChainweb conf logger namespacedNodeRocksDb (pactDbDir </> show nid) backupTmpDir False $ \cw -> do
                 case cw of
                     StartedChainweb cw' ->
                         when (nid == 0) $ putMVar bootstrapPeerInfoVar
@@ -257,7 +257,7 @@ multiNode loglevel write bootstrapPeerInfoVar conf rdb pactDbDir nid inner = do
     logger :: GenericLogger
     logger = addLabel ("node", toText nid) $ genericLogger loglevel write
 
-    nodeRocksDb = rdb { _rocksDbNamespace = T.encodeUtf8 $ toText nid }
+    namespacedNodeRocksDb = rdb { _rocksDbNamespace = T.encodeUtf8 $ toText nid }
 
 -- -------------------------------------------------------------------------- --
 -- Run Nodes
@@ -457,7 +457,7 @@ pactImportTest logLevel v n rocksDb pactDir step = do
         GrandHash.Utils.withConnections logger' copyNodeDir chains $ \pactCopyConns -> do
           logFunctionText logger' Info "Checking latest block heights on copy to make sure they match verified state"
           forM_ chains $ \cid -> do
-            let SQLiteEnv db _ = pactCopyConns ^?! ix cid
+            let db = pactCopyConns ^?! ix cid
             latestBH <- getLatestBlockHeight db
             logFunctionText (addChainIdLabel cid logger') Debug $ "Latest blockheight is " <> sshow latestBH
             assertEqual "Latest blockheight matches verified state" snapshotBlockHeight latestBH
@@ -468,10 +468,10 @@ pactImportTest logLevel v n rocksDb pactDir step = do
                 log = logFunctionText
                   (addLabel ("snapshotHeight", sshow snapshotBlockHeight) $ addChainIdLabel cid logger')
             srcStateAt <- do
-              let SQLiteEnv db _ = pactConns ^?! ix cid
+              let db = pactConns ^?! ix cid
               getPactStateAtDiffable db snapshotBlockHeight
             tgtStateAt <- do
-              let SQLiteEnv db _ = pactCopyConns ^?! ix cid
+              let db = pactCopyConns ^?! ix cid
               getPactStateAtDiffable db snapshotBlockHeight
             let stateDiff = Map.filter (not . P.isSame) (P.diff srcStateAt tgtStateAt)
             when (not (null stateDiff)) $ do
@@ -542,7 +542,7 @@ compactAndResumeTest logLevel v n rdb pactDbDir step = do
           void $ compactUntilAvailable (C.Target bh) cLogger' sqlEnv flags
 
     logFun "phase 3... restarting nodes and ensuring progress"
-    runNodesForSeconds logLevel logFun (multiConfig v n) n 60 rdb pactDbDir ct
+    runNodesForSeconds logLevel logFun (multiConfig v n) { _configFullHistoricPactState = False } n 60 rdb pactDbDir ct
     Just stats2 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
     -- We ensure that we've gotten to at least 1.5x the previous block count
     assertGe "average block count post-compaction" (Actual $ _statBlockCount stats2) (Expected (3 * _statBlockCount stats1 `div` 2))
@@ -580,14 +580,17 @@ replayTest loglevel v n rdb pactDbDir step = do
                 & set (configCuts . cutInitialBlockHeightLimit) (Just replayInitialHeight)
                 & set configOnlySyncPact True)
             n (Seconds 20) rdb pactDbDir $ \nid cw -> case cw of
-                Replayed l u -> do
+                Replayed l (Just u) -> do
                     writeIORef firstReplayCompleteRef True
                     _ <- flip HM.traverseWithKey (_cutMap l) $ \cid bh ->
                         assertEqual ("lower chain " <> sshow cid) replayInitialHeight (_blockHeight bh)
+                    -- TODO: this is flaky, presumably because a node's cutdb
+                    -- is not being cancelled synchronously enough
                     assertEqual "upper cut" (_stateCutMap state2 HM.! nid) u
                     _ <- flip HM.traverseWithKey (_cutMap u) $ \cid bh ->
                         assertGe ("upper chain " <> sshow cid) (Actual $ _blockHeight bh) (Expected replayInitialHeight)
                     return ()
+                Replayed _ Nothing -> error "replayTest: no replay upper bound"
                 _ -> error "replayTest: not a replay"
         assertEqual "first replay completion" True =<< readIORef firstReplayCompleteRef
         let fastForwardHeight = 10
@@ -599,13 +602,15 @@ replayTest loglevel v n rdb pactDbDir step = do
                 & set (configCuts . cutFastForwardBlockHeightLimit) (Just fastForwardHeight)
                 & set configOnlySyncPact True)
             n (Seconds 20) rdb pactDbDir $ \_ cw -> case cw of
-                Replayed l u -> do
+                Replayed l (Just u) -> do
                     writeIORef secondReplayCompleteRef True
                     _ <- flip HM.traverseWithKey (_cutMap l) $ \cid bh ->
                         assertEqual ("lower chain " <> sshow cid) replayInitialHeight (_blockHeight bh)
                     _ <- flip HM.traverseWithKey (_cutMap u) $ \cid bh ->
                         assertEqual ("upper chain " <> sshow cid) fastForwardHeight (_blockHeight bh)
                     return ()
+                Replayed _ Nothing -> do
+                    error "replayTest: no replay upper bound"
                 _ -> error "replayTest: not a replay"
         assertEqual "second replay completion" True =<< readIORef secondReplayCompleteRef
         tastylog "done."

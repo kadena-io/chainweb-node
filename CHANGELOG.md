@@ -1,6 +1,89 @@
-# `chainweb-node` Changelog
+# 2.24 (2024-05-23)
+This version replaces all previous versions. Any prior version will stop working
+on **2024-05-29T00:00:00Z**. Node administrators must upgrade to this version
+before that date. The 2.24 feature upgrade will occur at block height 4,819,246
+which is estimated to be mined at **2024-05-30T00:00:00Z**.
 
-## 2.23 (2023-02-XX)
+This version will expire on **2024-08-21T00:00:00Z**.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+- Transactions with expired TTLs and transactions with creation times in the
+  future now yield different errors (#1868)
+
+- Buying and redeeming gas were optimized, meaning all transactions now
+  require less space in the Pact state and take slightly less time (#1886)
+
+- Block payloads (i.e. transactions and their outputs) are now stored in a more
+  space-efficient binary format. They are also now indexed by block height in
+  addition to hash, improving overall performance of the payload store by
+  increasing data locality. Payloads already in the node's database will not
+  be automatically migrated; this change only applies to newly written payloads.
+
+  A migration tool may be released in future.
+  (#1885)
+
+- Nodes configured to run without contacting any other nodes now log this more
+  accurately (#1914)
+
+- Add a flag `--full-historic-pact-state` which is set by default. This flag
+  disallows use of a compacted Pact state. Unsetting this flag will not compact
+  the Pact state automatically, but it will decrease the amount of disk space
+  used by the Pact state in subsequent transactions to some extent. (#1910)
+
+- Add "allow" verifier to devnet, to allow testing verifier plugin integrations
+  in third-party tools (#1896)
+
+Internal changes:
+- Add a CLI flag for executing non-destructive replays of Pact history, to
+  augment the already existing config file field (#1915)
+- Pact requests are now cancellable, even before they start, and the interface
+  to the Pact service is now easier to use (#1871)
+- Mined blocks that fail validation on the mining node produce better errors
+  including the outputs of the block from when it was created (#1888)
+- Fix the block validation to correctly log the number of fork blocks played
+  (#1904, #1874)
+- Make tests more repeatable (#1902, #1903)
+- Make some tests faster (#1866, #1897)
+- Module cache contents should now be irrelevant to block validation, making
+  block validation less brittle (#1872)
+- Move some log messages from Info level to Debug level making it
+  more useful to run a node at log level Info with telemetry disabled (#1874)
+- cwtool is now included in the docker image produced by CI allowing
+  administrators to use it more easily (#1887)
+- The coin contract directory structure was reorganized to match the directory
+  structure of the namespace contract for ease of maintenance (#1892)
+
+## 2.23.2 (2024-03-19)
+This is a minor point release. Upgrading is recommended.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+- Fix catchup for nodes started at blocks before the service date (#1860)
+
+Internal changes:
+- Fix a small internal bug in the new read-only checkpointer (#1857)
+- Fix a small bug in compaction tests, causing flakiness (#1855)
+
+## 2.23.1 (2024-03-08)
+This is a minor point release. Mining nodes should be upgraded as soon as
+possible; for other nodes, upgrading is recommended.
+
+To upgrade, pull the latest docker image or download the binary and restart the node.
+
+Changes:
+- The mining loop will more persistently attempt to create new block payloads. (#1851)
+- The service date for `chainweb-node` is now only respected on Mainnet and
+  Testnet. (#1843)
+
+Internal changes:
+- The pact `/listen` endpoint should take less memory and CPU time. (#1844)
+- Fix some invalid log messages. (#1850, #1852)
+- Various tests have been "deflaked", to hopefully make them more reliable. (#1848, #1849)
+
+## 2.23 (2024-03-03)
 This version replaces all previous versions. Any prior version will stop working
 on **2024-03-06T00:00:00Z**. Node administrators must upgrade to this version
 before that date. The 2.23 feature upgrade will occur at block height 4,577,530

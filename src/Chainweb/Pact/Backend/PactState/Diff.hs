@@ -43,7 +43,6 @@ import Chainweb.Utils (fromText, toText)
 import Chainweb.Version (ChainwebVersion(..), ChainId, chainIdToText)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
-import Chainweb.Pact.Backend.Types (SQLiteEnv(..))
 import Chainweb.Pact.Backend.Compaction (TargetBlockHeight(..))
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.PactState (TableDiffable(..), getLatestPactStateAtDiffable, getLatestPactStateDiffable, doesPactDbExist, withChainDb, allChains)
@@ -97,11 +96,14 @@ pactDiffMain = do
          | not sqliteFileExists2 -> do
              logText Warn $ "[SQLite for chain in " <> Text.pack cfg.secondDbDir <> " doesn't exist. Skipping]"
          | otherwise -> do
-             withChainDb cid logger cfg.firstDbDir $ \_ (SQLiteEnv db1 _) -> do
-               withChainDb cid logger cfg.secondDbDir $ \_ (SQLiteEnv db2 _) -> do
+             withChainDb cid logger cfg.firstDbDir $ \_ db1 -> do
+               withChainDb cid logger cfg.secondDbDir $ \_ db2 -> do
                  logText Info "[Starting diff]"
                  let getPactState db = case cfg.target of
-                       Latest -> getLatestPactStateDiffable db
+                       LatestUnsafe -> getLatestPactStateDiffable db
+                       LatestSafe -> liftIO $ do
+                         logText Error "LatestSafe is not supported by pact-diff, use Target instead"
+                         exitFailure
                        Target bh -> getLatestPactStateAtDiffable db bh
                  let diff :: Stream (Of (Text, Stream (Of RowKeyDiffExists) IO ())) IO ()
                      diff = diffLatestPactState (getPactState db1) (getPactState db2)
@@ -151,7 +153,7 @@ pactDiffMain = do
       <*> (fmap Target (fromIntegral @Int <$> option auto
             (long "target-blockheight"
              <> metavar "BLOCKHEIGHT"
-             <> help "Target Blockheight")) <|> pure Latest)
+             <> help "Target Blockheight")) <|> pure LatestUnsafe)
       <*> strOption
            (long "log-dir"
             <> metavar "LOG_DIRECTORY"
@@ -236,4 +238,3 @@ diffLatestPactState = go
           error "diffLatestPactState: mismatched table names"
         S.yield (t1.name, diffTables t1 t2)
         go next1 next2
-

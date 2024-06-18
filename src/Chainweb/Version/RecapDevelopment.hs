@@ -73,6 +73,7 @@ recapDevnet = ChainwebVersion
             Chainweb222Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 590
             Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 600
             Chainweb224Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 610
+            Chainweb225Pact -> AllChains ForkNever
 
     , _versionUpgrades = foldr (chainZip HM.union) (AllChains mempty)
         [ indexByForkHeights recapDevnet
@@ -115,6 +116,9 @@ recapDevnet = ChainwebVersion
         { _disablePeerValidation = True
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = AllChains $ (600, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
+    , _versionVerifierPluginNames = AllChains $
+        (600, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow"]) `Above`
         End mempty
+    , _versionQuirks = noQuirks
+    , _versionServiceDate = Nothing
     }
