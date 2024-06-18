@@ -1,0 +1,2 @@
+Better progress messages for read-only replay, including a time
+estimate and smoothed rate calculation.
