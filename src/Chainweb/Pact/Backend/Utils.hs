@@ -28,6 +28,7 @@ module Chainweb.Pact.Backend.Utils
   , beginSavepoint
   , commitSavepoint
   , rollbackSavepoint
+  , abortSavepoint
   , SavepointName(..)
   -- * SQLite conversions and assertions
   , toUtf8
@@ -145,28 +146,29 @@ convSavepointName = toTextUtf8
 --
 
 callDb
-    :: (MonadCatch m, MonadReader (BlockDbEnv logger SQLiteEnv) m, MonadIO m)
+    :: (MonadCatch m, MonadReader (BlockHandlerEnv logger) m, MonadIO m)
     => T.Text
     -> (SQ3.Database -> IO b)
     -> m b
 callDb callerName action = do
-  c <- view (bdbenvDb . sConn)
+  c <- view blockHandlerDb
   res <- tryAny $ liftIO $ action c
   case res of
     Left err -> internalError $ "callDb (" <> callerName <> "): " <> sshow err
     Right r -> return r
 
 withSavepoint
-    :: SavepointName
-    -> BlockHandler logger SQLiteEnv a
-    -> BlockHandler logger SQLiteEnv a
-withSavepoint name action = mask $ \resetMask -> do
-    resetMask $ beginSavepoint name
+    :: SQLiteEnv
+    -> SavepointName
+    -> IO a
+    -> IO a
+withSavepoint db name action = mask $ \resetMask -> do
+    beginSavepoint db name
     go resetMask `catches` handlers
   where
     go resetMask = do
-        r <- resetMask action `onException` rollbackSavepoint name
-        commitSavepoint name
+        r <- resetMask action `onException` abortSavepoint db name
+        liftIO $ commitSavepoint db name
         liftIO $ evaluate r
     throwErr s = internalError $ "withSavepoint (" <> toText name <> "): " <> s
     handlers = [ Handler $ \(e :: PactException) -> throwErr (sshow e)
@@ -174,13 +176,13 @@ withSavepoint name action = mask $ \resetMask -> do
                , Handler $ \(e :: SomeException) -> throwErr ("non-pact exception: " <> sshow e)
                ]
 
-beginSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
-beginSavepoint name =
-  callDb "beginSavepoint" $ \db -> exec_ db $ "SAVEPOINT [" <> convSavepointName name <> "];"
+beginSavepoint :: SQLiteEnv -> SavepointName -> IO ()
+beginSavepoint db name =
+  exec_ db $ "SAVEPOINT [" <> convSavepointName name <> "];"
 
-commitSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
-commitSavepoint name =
-  callDb "commitSavepoint" $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> convSavepointName name <> "];"
+commitSavepoint :: SQLiteEnv -> SavepointName -> IO ()
+commitSavepoint db name =
+  exec_ db $ "RELEASE SAVEPOINT [" <> convSavepointName name <> "];"
 
 -- | @rollbackSavepoint n@ rolls back all database updates since the most recent
 -- savepoint with the name @n@ and restarts the transaction.
@@ -192,11 +194,18 @@ commitSavepoint name =
 -- Cf. <https://www.sqlite.org/lang_savepoint.html> for details about
 -- savepoints.
 --
-rollbackSavepoint :: SavepointName -> BlockHandler logger SQLiteEnv ()
-rollbackSavepoint name =
-  callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
+rollbackSavepoint :: SQLiteEnv -> SavepointName -> IO ()
+rollbackSavepoint db name =
+  exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
 
-data SavepointName = BatchSavepoint | Block | DbTransaction |  PreBlock
+-- | @abortSavepoint n@ rolls back all database updates since the most recent
+-- savepoint with the name @n@ and removes it from the savepoint stack.
+abortSavepoint :: SQLiteEnv -> SavepointName -> IO ()
+abortSavepoint db name = do
+  rollbackSavepoint db name
+  commitSavepoint db name
+
+data SavepointName = BatchSavepoint | DbTransaction | PreBlock
   deriving (Eq, Ord, Enum, Bounded)
 
 instance Show SavepointName where
@@ -204,13 +213,11 @@ instance Show SavepointName where
 
 instance HasTextRepresentation SavepointName where
     toText BatchSavepoint = "batch"
-    toText Block = "block"
     toText DbTransaction = "db-transaction"
     toText PreBlock = "preblock"
     {-# INLINE toText #-}
 
     fromText "batch" = pure BatchSavepoint
-    fromText "block" = pure Block
     fromText "db-transaction" = pure DbTransaction
     fromText "preblock" = pure PreBlock
     fromText t = throwM $ TextFormatException
@@ -290,16 +297,9 @@ startSqliteDb
 startSqliteDb cid logger dbDir doResetDb = do
     when doResetDb resetDb
     createDirectoryIfMissing True dbDir
-    textLog Info $ mconcat
-        [ "opened sqlitedb for "
-        , sshow cid
-        , " in directory "
-        , sshow dbDir
-        ]
-    textLog Info $ "opening sqlitedb named " <> T.pack sqliteFile
+    logFunctionText logger Debug $ "opening sqlitedb named " <> T.pack sqliteFile
     openSQLiteConnection sqliteFile chainwebPragmas
   where
-    textLog = logFunctionText logger
     resetDb = removeDirectoryRecursive dbDir
     sqliteFile = dbDir </> chainDbFileName cid
 
@@ -325,11 +325,10 @@ openSQLiteConnection file ps = open2 file >>= \case
       <> asString (show err) <> ": " <> asString (show msg)
     Right r -> do
       runPragmas r ps
-      return $ SQLiteEnv r
-        (SQLiteConfig file ps)
+      return r
 
 closeSQLiteConnection :: SQLiteEnv -> IO ()
-closeSQLiteConnection c = void $ close_v2 $ _sConn c
+closeSQLiteConnection c = void $ close_v2 c
 
 -- passing the empty string as filename causes sqlite to use a temporary file
 -- that is deleted when the connection is closed. In practice, unless the database becomes

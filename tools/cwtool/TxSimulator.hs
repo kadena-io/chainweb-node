@@ -36,6 +36,7 @@ import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
+import Chainweb.Pact.PactService.Checkpointer
 import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.RestAPI.Server
 import Chainweb.Pact.Service.Types
@@ -43,7 +44,7 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.PayloadStore.InMemory
+import Chainweb.Payload.PayloadStore.RocksDB (newPayloadDb)
 import Chainweb.Payload.RestAPI.Client
 import Chainweb.SPV
 import Chainweb.Transaction
@@ -82,6 +83,7 @@ import Pact.Types.Typecheck
 import qualified Pact.JSON.Encode as J
 
 import Utils.Logging.Trace
+import Chainweb.Payload.RestAPI (BatchBody(WithHeights))
 
 data SimConfig = SimConfig
     { scDbDir :: FilePath
@@ -99,39 +101,65 @@ data SimConfig = SimConfig
 simulate :: SimConfig -> IO ()
 simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
   cenv <- setupClient sc
-  (parent:hdrs) <- fetchHeaders sc cenv
+  (ph:hdrs) <- fetchHeaders sc cenv
+  let parent = ParentHeader ph
   pwos <- fetchOutputs sc cenv hdrs
   withSqliteDb cid cwLogger dbDir False $ \sqlenv -> do
     cp <-
-      initRelationalCheckpointer (initBlockState defaultModuleCacheLimit 0) sqlenv logger ver cid
-    bracket_
-      (_cpBeginCheckpointerBatch cp)
-      (_cpDiscardCheckpointerBatch cp) $ case (txIdx',doTypecheck) of
-        (Just txIdx,_) -> do -- single-tx simulation
-          let PayloadWithOutputs txs md _ _ _ _ :: PayloadWithOutputs = head pwos
-          miner <- decodeStrictOrThrow $ _minerData md
-          let Transaction tx = fst $ txs V.! txIdx
-          cmdTx <- decodeStrictOrThrow tx
-          case validateCommand cmdTx of
-            Left _ -> error "bad cmd"
-            Right cmdPwt -> do
-              let cmd = payloadObj <$> cmdPwt
-                  txc = txContext parent cmd
-              PactDbEnv' pde <-
-                _cpRestore cp $ Just (succ (_blockHeight parent), _blockHash parent)
-              mc <- readInitModules logger pde txc
-              T3 !cr _mc _ <-
-                trace (logFunction cwLogger) "applyCmd" () 1 $
-                  applyCmd ver logger gasLogger pde miner (getGasModel txc)
-                  txc noSPVSupport cmd (initGas cmdPwt) mc ApplySend
-              T.putStrLn (J.encodeText (J.Array <$> cr))
-        (_,True) -> do
-          PactDbEnv' pde <-
-              _cpRestore cp $ Just (succ (_blockHeight parent), _blockHash parent)
+      initRelationalCheckpointer defaultModuleCacheLimit sqlenv DoNotPersistIntraBlockWrites logger ver cid
+    case (txIdx',doTypecheck) of
+      (Just txIdx,_) -> do -- single-tx simulation
+        let pwo = head pwos
+        let txs = _payloadWithOutputsTransactions pwo
+        let md = _payloadWithOutputsMiner pwo
+        miner <- decodeStrictOrThrow $ _minerData md
+        let Transaction tx = fst $ txs V.! txIdx
+        cmdTx <- decodeStrictOrThrow tx
+        case validateCommand ver cid cmdTx of
+          Left _ -> error "bad cmd"
+          Right cmdPwt -> do
+            let cmd = payloadObj <$> cmdPwt
+            let txc = TxContext parent $ publicMetaOf cmd
+            -- This rocksdb isn't actually used, it's just to satisfy
+            -- PactServiceEnv
+            withTempRocksDb "txsim-rocksdb" $ \rdb -> do
+              withBlockHeaderDb rdb ver cid $ \bdb -> do
+                let payloadDb = newPayloadDb rdb
+                let psEnv = PactServiceEnv
+                      { _psMempoolAccess = Nothing
+                      , _psCheckpointer = cp
+                      , _psPdb = payloadDb
+                      , _psBlockHeaderDb = bdb
+                      , _psGasModel = getGasModel
+                      , _psMinerRewards = readRewards
+                      , _psPreInsertCheckTimeout = defaultPreInsertCheckTimeout
+                      , _psReorgLimit = RewindLimit 0
+                      , _psOnFatalError = ferr
+                      , _psVersion = ver
+                      , _psAllowReadsInLocal = False
+                      , _psLogger = logger
+                      , _psGasLogger = gasLogger
+                      , _psBlockGasLimit = testBlockGasLimit
+                      , _psEnableLocalTimeout = False
+                      , _psTxFailuresCounter = Nothing
+                      }
+                evalPactServiceM (PactServiceState mempty) psEnv
+                  $ (throwIfNoHistory =<<)
+                  $ readFrom (Just parent)
+                  $ do
+                    mc <- readInitModules
+                    T3 !cr _mc _ <- do
+                      dbEnv <- view psBlockDbEnv
+                      liftIO $ trace (logFunction cwLogger) "applyCmd" () 1 $
+                        applyCmd ver logger gasLogger Nothing (_cpPactDbEnv dbEnv) miner (getGasModel txc)
+                          txc noSPVSupport cmd (initGas cmdPwt) mc ApplySend
+                    liftIO $ T.putStrLn (J.encodeText (J.Array <$> cr))
+      (_,True) -> do
+        (throwIfNoHistory =<<) $ _cpReadFrom (_cpReadCp cp) (Just parent) $ \dbEnv -> do
           let refStore = RefStore nativeDefs
-              pd = ctxToPublicData $ TxContext (ParentHeader parent) def
+              pd = ctxToPublicData $ TxContext parent def
               loadMod = fmap inlineModuleData . getModule (def :: Info)
-          ee <- setupEvalEnv pde Nothing Local (initMsgData pactInitialHash) refStore freeGasEnv
+          ee <- setupEvalEnv (_cpPactDbEnv dbEnv) Nothing Local (initMsgData pactInitialHash) refStore freeGasEnv
               permissiveNamespacePolicy noSPVSupport pd def
           void $ runEval def ee $ do
             mods <- keys def Modules
@@ -154,39 +182,34 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                       ++ "Unable to resolve all types: " ++ show (length fails) ++ " failures"
 
 
-        (Nothing,False) -> do -- blocks simulation
-          paydb <- newPayloadDb
-          withRocksDb "txsim-rocksdb" modernDefaultOptions $ \rdb ->
-            withBlockHeaderDb rdb ver cid $ \bdb -> do
-              let
-                pse = PactServiceEnv
-                  { _psMempoolAccess = Nothing
-                  , _psCheckpointer = cp
-                  , _psPdb = paydb
-                  , _psBlockHeaderDb = bdb
-                  , _psGasModel = getGasModel
-                  , _psMinerRewards = readRewards
-                  , _psLocalRewindDepthLimit = RewindLimit 100
-                  , _psPreInsertCheckTimeout = defaultPreInsertCheckTimeout
-                  , _psReorgLimit = RewindLimit 0
-                  , _psOnFatalError = ferr
-                  , _psVersion = ver
-                  , _psAllowReadsInLocal = False
-                  , _psLogger = logger
-                  , _psGasLogger = gasLogger
-                  , _psIsBatch = False
-                  , _psCheckpointerDepth = 1
-                  , _psBlockGasLimit = testBlockGasLimit
-                  , _psChainId = cid
-                  }
-                pss = PactServiceState
-                  { _psStateValidated = Nothing
-                  , _psInitCache = mempty
-                  , _psParentHeader = ParentHeader parent
-                  , _psSpvSupport = noSPVSupport
-                  }
-              evalPactServiceM pss pse $ doBlock True parent (zip hdrs pwos)
-
+      (Nothing,False) -> do -- blocks simulation
+        -- This rocksdb is unused, it exists to satisfy PactServiceEnv
+        withTempRocksDb "txsim-rocksdb" $ \rdb ->
+          withBlockHeaderDb rdb ver cid $ \bdb -> do
+            let payloadDb = newPayloadDb rdb
+            let
+              pse = PactServiceEnv
+                { _psMempoolAccess = Nothing
+                , _psCheckpointer = cp
+                , _psPdb = payloadDb
+                , _psBlockHeaderDb = bdb
+                , _psGasModel = getGasModel
+                , _psMinerRewards = readRewards
+                , _psPreInsertCheckTimeout = defaultPreInsertCheckTimeout
+                , _psReorgLimit = RewindLimit 0
+                , _psOnFatalError = ferr
+                , _psVersion = ver
+                , _psAllowReadsInLocal = False
+                , _psLogger = logger
+                , _psGasLogger = gasLogger
+                , _psBlockGasLimit = testBlockGasLimit
+                , _psEnableLocalTimeout = False
+                , _psTxFailuresCounter = Nothing
+                }
+              pss = PactServiceState
+                { _psInitCache = mempty
+                }
+            evalPactServiceM pss pse $ doBlock True parent (zip hdrs pwos)
 
   where
 
@@ -195,29 +218,23 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
     logger = addLabel ("cwtool", "TxSimulator") $ cwLogger
     gasLogger | gasLog = Just cwLogger
               | otherwise = Nothing
-    txContext parent cmd = TxContext (ParentHeader parent) $ publicMetaOf cmd
     ferr e _ = throwM e
 
     doBlock
-        :: (CanReadablePayloadCas cas, Logger logger)
+        :: (CanReadablePayloadCas cas)
         => Bool
-        -> BlockHeader
+        -> ParentHeader
         -> [(BlockHeader,PayloadWithOutputs)]
-        -> PactServiceM logger cas ()
+        -> PactServiceM GenericLogger cas ()
     doBlock _ _ [] = return ()
     doBlock initMC parent ((hdr,pwo):rest) = do
-      !cp <- getCheckpointer
-      pde'@(PactDbEnv' pde) <-
-          liftIO $ _cpRestore cp $ Just (succ (_blockHeight parent), _blockHash parent)
-      when initMC $ do
-        mc <- liftIO $ readInitModules logger pde (TxContext (ParentHeader parent) def)
-        updateInitCache mc
-      psParentHeader .= ParentHeader parent
-      liftIO (spvSim sc hdr pwo) >>= assign psSpvSupport
-      _r <- trace (logFunction cwLogger) "execBlock" () 1 $
-          execBlock hdr (payloadWithOutputsToPayloadData pwo) pde'
-      liftIO $ _cpSave cp (_blockHash hdr)
-      doBlock False hdr rest
+      (throwIfNoHistory =<<) $ readFrom (Just parent) $ do
+        when initMC $ do
+          mc <- readInitModules
+          updateInitCacheM mc
+        void $ trace (logFunction cwLogger) "execBlock" () 1 $
+            execBlock hdr (CheckablePayloadWithOutputs pwo)
+      doBlock False (ParentHeader hdr) rest
 
 -- | Block-scoped SPV mock by matching cont proofs to payload txs.
 -- Transactions are eliminated by searching for matching proof in input;
@@ -270,10 +287,10 @@ fetchHeaders sc cenv = do
 fetchOutputs :: SimConfig -> ClientEnv -> [BlockHeader] -> IO [PayloadWithOutputs]
 fetchOutputs sc cenv bhs = do
   r <- (`runClientM` cenv) $ do
-    outputsBatchClient (scVersion sc) (scChain sc) (map _blockPayloadHash bhs)
+    outputsBatchClient (scVersion sc) (scChain sc) (WithHeights $ map (\bh -> (_blockHeight bh, _blockPayloadHash bh)) bhs)
   case r of
     Left e -> throwM e
-    Right ps -> return ps
+    Right ps -> return (_payloadWithOutputsList ps)
 
 simulateMain :: IO ()
 simulateMain = do

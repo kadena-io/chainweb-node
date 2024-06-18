@@ -13,8 +13,12 @@
 -- the devnet version, so we maintain a mutable registry mapping codes to
 -- versions in this module.
 --
+-- Be careful in this module. We hope to be able to delete it eventually,
+-- because it works badly with tests.
+--
 module Chainweb.Version.Registry
     ( registerVersion
+    , unregisterVersion
     , lookupVersionByCode
     , lookupVersionByName
     , fabricateVersionWithName
@@ -40,7 +44,7 @@ import GHC.Stack
 
 import Chainweb.Version
 import Chainweb.Version.Development
-import Chainweb.Version.FastDevelopment
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet
 import Chainweb.Utils.Rule
@@ -64,6 +68,13 @@ registerVersion v = do
             Nothing ->
                 (HM.insert (_versionCode v) v m, ())
 
+-- | Unregister a version from the registry. This is ONLY for testing versions.
+unregisterVersion :: HasCallStack => ChainwebVersion -> IO ()
+unregisterVersion v = do
+    if elem (_versionCode v) (_versionCode <$> [mainnet, testnet])
+    then error "You cannot unregister mainnet or testnet versions"
+    else atomicModifyIORef' versionMap $ \m -> (HM.delete (_versionCode v) m, ())
+
 validateVersion :: HasCallStack => ChainwebVersion -> IO ()
 validateVersion v = do
     evaluate (rnf v)
@@ -85,9 +96,11 @@ validateVersion v = do
                     , hasAllChains (_genesisBlockTarget $ _versionGenesis v)
                     , hasAllChains (_genesisTime $ _versionGenesis v)
                     ])]
+            , [ "validateVersion: some upgrade has no transactions"
+              | any (any (\upg -> null (_upgradeTransactions upg))) (_versionUpgrades v) ]
             ]
     unless (null errors) $
-        error $ unlines $ ["errors encountered validating version " <> show v <> ":"] <> errors
+        error $ unlines $ ["errors encountered validating version", show v] <> errors
 
 -- | Look up a version in the registry by code.
 lookupVersionByCode :: HasCallStack => ChainwebVersionCode -> ChainwebVersion
@@ -107,9 +120,9 @@ lookupVersionByCode code
         return $ fromMaybe (error notRegistered) $
             HM.lookup code m
     notRegistered
+      | code == _versionCode recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured"
       | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured"
-      | code == _versionCode fastDevnet = "fastDevnet version used but not registered, remember to do so after it's configured"
-      | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.legalizeTestVersion?"
+      | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.testVersions?"
 
 -- TODO: ideally all uses of this are deprecated. currently in use in
 -- ObjectEncoded block header decoder and CutHashes decoder.
@@ -124,8 +137,8 @@ lookupVersionByName name
         return $ fromMaybe (error notRegistered) $
             listToMaybe [ v | v <- HM.elems m, _versionName v == name ]
     notRegistered
-      | name == _versionName devnet = "devnet version used but not registered, remember to do so after it's configured"
-      | otherwise = "version not registered with name " <> show name <> ", have you seen Chainweb.Test.TestVersions.legalizeTestVersion?"
+      | name == _versionName recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured"
+      | otherwise = "version not registered with name " <> show name <> ", have you seen Chainweb.Test.TestVersions.testVersions?"
 
 fabricateVersionWithName :: HasCallStack => ChainwebVersionName -> ChainwebVersion
 fabricateVersionWithName name =
@@ -133,7 +146,7 @@ fabricateVersionWithName name =
 
 -- | Versions known to us by name.
 knownVersions :: [ChainwebVersion]
-knownVersions = [mainnet, testnet, devnet, fastDevnet]
+knownVersions = [mainnet, testnet, recapDevnet, devnet]
 
 -- | Look up a known version by name, usually with `m` instantiated to some
 -- configuration parser monad.

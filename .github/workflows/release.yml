@@ -83,7 +83,7 @@ jobs:
       - name: Get ghc version
         id: set-ghc-version
         run: |
-          VERSION=$(grep -Po '(?<="ghc": \[")(\d\.\d\.\d)' .github/workflows/applications.yml)
+          VERSION=$(grep -Po '(?<="ghc": \[")(\d\.\d\.\d)' .github/workflows/applications.yml | head -1)
             if [[ -z $VERSION ]]; then
               echo "Unable to get version from chainweb node build"
               exit 1
@@ -155,7 +155,6 @@ jobs:
       - name: run release script to generate images
         id: repack-binaries
         run: |
-          # this needs to be pulled from somewhere else tbh it will be a pita to update it
           GHC_VER=${{ env.GHC_VERSION }}
 
           UBUNTU_20_TAR=chainweb.false.$GHC_VER.ubuntu-20.04.$SHORT_REVISION.tar.gz

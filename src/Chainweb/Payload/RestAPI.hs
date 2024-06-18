@@ -3,6 +3,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
@@ -33,6 +34,7 @@ module Chainweb.Payload.RestAPI
 , payloadGetApi
 
 -- * Payload batch POST API
+, BatchBody(..)
 , PayloadPostApi
 , payloadPostApi
 
@@ -57,6 +59,7 @@ import Control.Monad.Identity
 
 import Data.Aeson
 import Data.Proxy
+import qualified Data.Vector as V
 
 import Numeric.Natural
 
@@ -71,6 +74,8 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
+import Chainweb.BlockHeight
+import Chainweb.BlockHeaderDB.RestAPI ()
 
 -- -------------------------------------------------------------------------- --
 -- Constants
@@ -110,7 +115,8 @@ somePayloadDbVal v cid db = runIdentity $ do
 type PayloadGetApi_
     = "payload"
     :> Capture "BlockPayloadHash" BlockPayloadHash
-    :> Get '[JSON] PayloadData
+    :> QueryParam "height" BlockHeight
+    :> Get '[JSON, OctetStream] PayloadData
 
 type PayloadGetApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> PayloadGetApi_
@@ -123,6 +129,31 @@ payloadGetApi = Proxy
 -- -------------------------------------------------------------------------- --
 -- Payload POST API
 
+-- | The body of a batch payload request, which can be either a list of hashes
+-- or a list of hashes with their corresponding heights.
+data BatchBody
+    = WithoutHeights [BlockPayloadHash]
+    | WithHeights [(BlockHeight, BlockPayloadHash)]
+
+instance FromJSON BatchBody where
+    -- first, for backwards compat, parse the WithoutHeight variant
+    -- as a raw Array. this is for backwards compatibility; the original
+    -- /payload/batch endpoint only accepted an array of hashes without heights,
+    -- so we need to support that.
+    parseJSON (Array x) = WithoutHeights <$> traverse parseJSON (V.toList x)
+    -- then, try to parse the WithHeight variant as an Object like so:
+    --    { "heights": [ height1, height2, ... ], "hashes": [ "hash1", "hash2", ... ] }
+    parseJSON (Object o) = WithHeights <$> (zip <$> o .: "heights" <*> o .: "hashes")
+    -- anything else is invalid
+    parseJSON _ = fail "Invalid payload batch body"
+
+instance ToJSON BatchBody where
+    toJSON (WithoutHeights xs) = toJSON xs
+    toJSON (WithHeights xs) = object
+        [ "heights" .= map fst xs
+        , "hashes" .= map snd xs
+        ]
+
 -- | @POST \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/payload\/batch@
 --
 -- The query may return any number (including none) of the requested payload
@@ -131,8 +162,8 @@ payloadGetApi = Proxy
 type PayloadPostApi_
     = "payload"
     :> "batch"
-    :> ReqBody '[JSON] [BlockPayloadHash]
-    :> Post '[JSON] [PayloadData]
+    :> ReqBody '[JSON] BatchBody
+    :> Post '[JSON, OctetStream] PayloadDataList
 
 type PayloadPostApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> PayloadPostApi_
@@ -151,7 +182,8 @@ type OutputsGetApi_
     = "payload"
     :> Capture "BlockPayloadHash" BlockPayloadHash
     :> "outputs"
-    :> Get '[JSON] PayloadWithOutputs
+    :> QueryParam "height" BlockHeight
+    :> Get '[JSON, OctetStream] PayloadWithOutputs
 
 type OutputsGetApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> OutputsGetApi_
@@ -173,8 +205,8 @@ type OutputsPostApi_
     = "payload"
     :> "outputs"
     :> "batch"
-    :> ReqBody '[JSON] [BlockPayloadHash]
-    :> Post '[JSON] [PayloadWithOutputs]
+    :> ReqBody '[JSON] BatchBody
+    :> Post '[JSON, OctetStream] PayloadWithOutputsList
 
 type OutputsPostApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> OutputsPostApi_

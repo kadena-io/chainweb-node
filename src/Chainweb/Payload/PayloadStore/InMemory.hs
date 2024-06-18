@@ -11,20 +11,13 @@
 --
 -- TODO: move to tests
 module Chainweb.Payload.PayloadStore.InMemory
-( newPayloadDb
-
--- * Internal
-, newBlockPayloadStore
-, newBlockTransactionsStore
-, newTransactionDb
-, newBlockOutputsStore
-, newTransactionTreeStore
-, newOutputTreeStore
-, newPayloadCache
+( newTransactionDb
+, newPayloadDb
 ) where
 
 -- internal modules
 
+import Chainweb.BlockHeight
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table
@@ -34,30 +27,49 @@ import qualified Chainweb.Storage.Table.HashMap as HashMapTable
 -- -------------------------------------------------------------------------- --
 -- HashMap CAS
 
-newBlockPayloadStore :: IO (Casify HashMapTable BlockPayload)
-newBlockPayloadStore = Casify <$> HashMapTable.emptyTable
-
-newBlockTransactionsStore :: IO (Casify HashMapTable BlockTransactions)
-newBlockTransactionsStore = Casify <$> HashMapTable.emptyTable
-
 newTransactionDb :: IO (TransactionDb HashMapTable)
 newTransactionDb = TransactionDb
-    <$> newBlockTransactionsStore
+    <$> newBlockPayloadHeightIndex
     <*> newBlockPayloadStore
+    <*> newBlockTransactionsStore
+    <*> oldBlockPayloadStore
+    <*> oldBlockTransactionsStore
+  where
+    newBlockPayloadHeightIndex :: IO (HashMapTable (BlockPayloadHash_ a) BlockHeight)
+    newBlockPayloadHeightIndex = HashMapTable.emptyTable
 
-newBlockOutputsStore :: IO (BlockOutputsStore HashMapTable)
-newBlockOutputsStore = Casify <$> HashMapTable.emptyTable
+    newBlockPayloadStore :: IO (HashMapTable (BlockHeight, CasKeyType (BlockPayload_ a)) (BlockPayload_ a))
+    newBlockPayloadStore = HashMapTable.emptyTable
 
-newTransactionTreeStore :: IO (TransactionTreeStore HashMapTable)
-newTransactionTreeStore = Casify <$> HashMapTable.emptyTable
+    newBlockTransactionsStore :: IO (HashMapTable (BlockHeight, CasKeyType (BlockTransactions_ a)) (BlockTransactions_ a))
+    newBlockTransactionsStore = HashMapTable.emptyTable
 
-newOutputTreeStore :: IO (OutputTreeStore HashMapTable)
-newOutputTreeStore = Casify <$> HashMapTable.emptyTable
+    oldBlockPayloadStore :: IO (Casify HashMapTable BlockPayload)
+    oldBlockPayloadStore = Casify <$> HashMapTable.emptyTable
 
-newPayloadCache :: IO (PayloadCache HashMapTable)
-newPayloadCache = PayloadCache <$> newBlockOutputsStore
-    <*> newTransactionTreeStore
-    <*> newOutputTreeStore
+    oldBlockTransactionsStore :: IO (Casify HashMapTable BlockTransactions)
+    oldBlockTransactionsStore = Casify <$> HashMapTable.emptyTable
 
 newPayloadDb :: IO (PayloadDb HashMapTable)
 newPayloadDb = PayloadDb <$> newTransactionDb <*> newPayloadCache
+  where
+    newPayloadCache :: IO (PayloadCache HashMapTable)
+    newPayloadCache = PayloadCache
+        <$> newBlockOutputsStore
+        <*> newTransactionTreeStore
+        <*> newOutputTreeStore
+
+    newBlockOutputsStore :: IO (BlockOutputsStore HashMapTable)
+    newBlockOutputsStore = BlockOutputsStore
+        <$> (Casify <$> HashMapTable.emptyTable)
+        <*> HashMapTable.emptyTable
+
+    newTransactionTreeStore :: IO (TransactionTreeStore HashMapTable)
+    newTransactionTreeStore = TransactionTreeStore
+        <$> (Casify <$> HashMapTable.emptyTable)
+        <*> HashMapTable.emptyTable
+
+    newOutputTreeStore :: IO (OutputTreeStore HashMapTable)
+    newOutputTreeStore = OutputTreeStore
+        <$> (Casify <$> HashMapTable.emptyTable)
+        <*> HashMapTable.emptyTable

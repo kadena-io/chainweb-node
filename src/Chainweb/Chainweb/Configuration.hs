@@ -66,10 +66,12 @@ module Chainweb.Chainweb.Configuration
 , configThrottling
 , configReorgLimit
 , configRosetta
+, configFullHistoricPactState
 , configBackup
 , configServiceApi
 , configOnlySyncPact
 , configSyncPactChains
+, configEnableLocalTimeout
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -110,13 +112,13 @@ import Chainweb.HostAddress
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultLocalRewindDepthLimit, defaultPreInsertCheckTimeout)
+import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultPreInsertCheckTimeout)
 import Chainweb.Pact.Service.Types (RewindLimit(..))
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Development
-import Chainweb.Version.FastDevelopment
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Registry
 import Chainweb.Time
@@ -391,12 +393,14 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configMinGasPrice :: !Mempool.GasPrice
     , _configPactQueueSize :: !Natural
     , _configReorgLimit :: !RewindLimit
-    , _configLocalRewindDepthLimit :: !RewindLimit
     , _configPreInsertCheckTimeout :: !Micros
     , _configAllowReadsInLocal :: !Bool
+    , _configFullHistoricPactState :: !Bool
     , _configRosetta :: !Bool
     , _configBackup :: !BackupConfig
     , _configServiceApi :: !ServiceApiConfig
+    , _configReadOnlyReplay :: !Bool
+        -- ^ do a read-only replay using the cut db params for the block heights
     , _configOnlySyncPact :: !Bool
         -- ^ exit after synchronizing pact dbs to the latest cut
     , _configSyncPactChains :: !(Maybe [ChainId])
@@ -404,6 +408,7 @@ data ChainwebConfiguration = ChainwebConfiguration
         --   if unset, all chains will be synchronized.
     , _configModuleCacheLimit :: !DbCacheLimitBytes
         -- ^ module cache size limit in bytes
+    , _configEnableLocalTimeout :: !Bool
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -418,17 +423,22 @@ validateChainwebConfiguration c = do
     validateBackupConfig (_configBackup c)
     unless (c ^. chainwebVersion . versionDefaults . disablePeerValidation) $
         validateP2pConfiguration (_configP2p c)
+    when (_configRosetta c && not (_configFullHistoricPactState c)) $
+        throwError $ T.unwords
+            [ "To enable rosetta, full historic pact state must also be enabled or"
+            , "the Rosetta index will be incomplete."
+            ]
     validateChainwebVersion (_configChainwebVersion c)
 
 validateChainwebVersion :: ConfigValidation ChainwebVersion []
 validateChainwebVersion v = unless (isDevelopment || elem v knownVersions) $
     throwError $ T.unwords
         [ "Specifying version properties is only legal with chainweb-version"
-        , "set to development or fast-development, but version is set to"
+        , "set to recap-development or development, but version is set to"
         , sshow (_versionName v)
         ]
     where
-    isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [devnet, fastDevnet]]
+    isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [recapDevnet, devnet]]
 
 validateBackupConfig :: ConfigValidation BackupConfig []
 validateBackupConfig c =
@@ -448,20 +458,22 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configP2p = defaultP2pConfiguration
     , _configThrottling = defaultThrottlingConfig
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
-    , _configBlockGasLimit = 150000
+    , _configBlockGasLimit = 150_000
     , _configLogGas = False
     , _configMinGasPrice = 1e-8
     , _configPactQueueSize = 2000
     , _configReorgLimit = defaultReorgLimit
-    , _configLocalRewindDepthLimit = defaultLocalRewindDepthLimit
     , _configPreInsertCheckTimeout = defaultPreInsertCheckTimeout
     , _configAllowReadsInLocal = False
     , _configRosetta = False
+    , _configFullHistoricPactState = True
     , _configServiceApi = defaultServiceApiConfig
     , _configOnlySyncPact = False
+    , _configReadOnlyReplay = False
     , _configSyncPactChains = Nothing
     , _configBackup = defaultBackupConfig
     , _configModuleCacheLimit = defaultModuleCacheLimit
+    , _configEnableLocalTimeout = False
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -479,15 +491,17 @@ instance ToJSON ChainwebConfiguration where
         , "minGasPrice" .= J.toJsonViaEncode (_configMinGasPrice o)
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
-        , "localRewindDepthLimit" .= _configLocalRewindDepthLimit o
         , "preInsertCheckTimeout" .= _configPreInsertCheckTimeout o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
         , "rosetta" .= _configRosetta o
+        , "fullHistoricPactState" .= _configFullHistoricPactState o
         , "serviceApi" .= _configServiceApi o
         , "onlySyncPact" .= _configOnlySyncPact o
+        , "readOnlyReplay" .= _configReadOnlyReplay o
         , "syncPactChains" .= _configSyncPactChains o
         , "backup" .= _configBackup o
         , "moduleCacheLimit" .= _configModuleCacheLimit o
+        , "enableLocalTimeout" .= _configEnableLocalTimeout o
         ]
 
 instance FromJSON ChainwebConfiguration where
@@ -512,11 +526,14 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
         <*< configPreInsertCheckTimeout ..: "preInsertCheckTimeout" % o
         <*< configRosetta ..: "rosetta" % o
+        <*< configFullHistoricPactState ..: "fullHistoricPactState" % o
         <*< configServiceApi %.: "serviceApi" % o
         <*< configOnlySyncPact ..: "onlySyncPact" % o
+        <*< configReadOnlyReplay ..: "readOnlyReplay" % o
         <*< configSyncPactChains ..: "syncPactChains" % o
         <*< configBackup %.: "backup" % o
         <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
+        <*< configEnableLocalTimeout ..: "enableLocalTimeout" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -547,9 +564,6 @@ pChainwebConfiguration = id
         <> help "Max allowed reorg depth.\
                 \ Consult https://github.com/kadena-io/chainweb-node/blob/master/docs/RecoveringFromDeepForks.md for\
                 \ more information. "
-    <*< configLocalRewindDepthLimit .:: jsonOption
-        % long "local-rewind-depth-limit"
-        <> help "Max allowed rewind depth for the local command."
     <*< configPreInsertCheckTimeout .:: jsonOption
         % long "pre-insert-check-timeout"
         <> help "Max allowed time in microseconds for the transactions validation in the PreInsertCheck command."
@@ -559,12 +573,18 @@ pChainwebConfiguration = id
     <*< configRosetta .:: boolOption_
         % long "rosetta"
         <> help "Enable the Rosetta endpoints."
+    <*< configFullHistoricPactState .:: boolOption_
+        % long "full-historic-pact-state"
+        <> help "Write full historic Pact state; only enable for custodial or archival nodes."
     <*< configCuts %:: pCutConfig
     <*< configServiceApi %:: pServiceApiConfig
     <*< configMining %:: pMiningConfig
     <*< configOnlySyncPact .:: boolOption_
         % long "only-sync-pact"
         <> help "Terminate after synchronizing the pact databases to the latest cut"
+    <*< configReadOnlyReplay .:: boolOption_
+        % long "read-only-replay"
+        <> help "Replay the block history non-destructively"
     <*< configSyncPactChains .:: fmap Just % jsonOption
         % long "sync-pact-chains"
         <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."
@@ -574,7 +594,9 @@ pChainwebConfiguration = id
         % long "module-cache-limit"
         <> help "Maximum size of the per-chain checkpointer module cache in bytes"
         <> metavar "INT"
-    where
+    <*< configEnableLocalTimeout .:: option auto
+        % long "enable-local-timeout"
+        <> help "Enable timeout support on /local endpoints"
 
 parseVersion :: MParser ChainwebVersion
 parseVersion = constructVersion
@@ -605,4 +627,3 @@ parseVersion = constructVersion
         & versionCheats . disablePow .~ disablePow'
         where
         winningVersion = fromMaybe oldVersion cliVersion
-

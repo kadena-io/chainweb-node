@@ -36,14 +36,17 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
-import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
+import Chainweb.BlockHeight
 
 data TestBlockDb = TestBlockDb
   { _bdbWebBlockHeaderDb :: WebBlockHeaderDb
   , _bdbPayloadDb :: PayloadDb RocksDbTable
   , _bdbCut :: MVar Cut
   }
+
+instance HasChainwebVersion TestBlockDb where
+  _chainwebVersion = _chainwebVersion . _bdbWebBlockHeaderDb
 
 -- | Initialize TestBlockDb.
 withTestBlockDb :: ChainwebVersion -> (TestBlockDb -> IO a) -> IO a
@@ -69,18 +72,19 @@ mkTestBlockDb cv rdb = do
 --
 addTestBlockDb
     :: TestBlockDb
+    -> BlockHeight
     -> Nonce
     -> GenBlockTime
     -> ChainId
     -> PayloadWithOutputs
     -> IO Bool
-addTestBlockDb (TestBlockDb wdb pdb cmv) n gbt cid outs = do
+addTestBlockDb (TestBlockDb wdb pdb cmv) bh n gbt cid outs = do
   c <- takeMVar cmv
   r <- testMine' wdb n gbt (_payloadWithOutputsPayloadHash outs) cid c
   case r of
     -- success
     Right (T2 _ c') -> do
-        casInsert pdb outs
+        addNewPayload pdb bh outs
         putMVar cmv c'
         return True
 
@@ -90,7 +94,7 @@ addTestBlockDb (TestBlockDb wdb pdb cmv) n gbt cid outs = do
         return False
 
     -- something went wrong
-    Left e -> throwM $ userError (show e)
+    Left e -> throwM $ userError ("addTestBlockDb: " <> show e)
 
 -- | Get header for chain on current cut.
 getParentTestBlockDb :: TestBlockDb -> ChainId -> IO BlockHeader

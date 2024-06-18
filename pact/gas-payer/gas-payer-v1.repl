@@ -1,6 +1,6 @@
 (begin-tx)
-(load "../coin-contract/fungible-v1.pact")
-(load "../coin-contract/coin.pact")
+(load "../coin-contract/v1/fungible-v1.pact")
+(load "../coin-contract/v1/coin.pact")
 (load "gas-payer-v1.pact")
 (commit-tx)
 (load "../namespaces/ns.repl")

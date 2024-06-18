@@ -12,7 +12,7 @@
   840 (env-gas))
 (commit-tx)
 
-(env-exec-config ["DisablePact44", "DisablePact45", "DisablePact48"])
+(env-exec-config ["DisablePact44", "DisablePact45", "DisablePact48", "DisablePact412"])
 (env-gasmodel "table")
 (env-gas 0) (env-gaslog)
 (begin-tx)

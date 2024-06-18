@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -66,6 +67,7 @@ import Chainweb.Test.Cut
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
@@ -172,11 +174,11 @@ syncPact
 syncPact cutDb pact =
     void $ webEntries bhdb $ \s -> s
         & S.filter ((/= 0) . _blockHeight)
-        & S.mapM_ (\h -> payload h >>= _webPactValidateBlock pact h)
+        & S.mapM_ (\h -> payload h >>= _webPactValidateBlock pact h . CheckablePayload)
   where
     bhdb = view cutDbWebBlockHeaderDb cutDb
     pdb = view cutDbPayloadDb cutDb
-    payload h = tableLookup pdb (_blockPayloadHash h) >>= \case
+    payload h = lookupPayloadWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h) >>= \case
         Nothing -> error $ "Corrupted database: failed to load payload data for block header " <> sshow h
         Just p -> return $ payloadWithOutputsToPayloadData p
 
@@ -403,7 +405,8 @@ tryMineForChain
     -> ChainId
     -> IO (Either MineFailure (Cut, ChainId, PayloadWithOutputs))
 tryMineForChain miner webPact cutDb c cid = do
-    outputs <- _webPactNewBlock webPact miner parent
+    newBlock <- throwIfNoHistory =<< _webPactNewBlock webPact cid miner NewBlockFill parent
+    let outputs = newBlockToPayloadWithOutputs newBlock
     let payloadHash = _payloadWithOutputsPayloadHash outputs
     t <- getCurrentTimeIntegral
     x <- testMineWithPayloadHash wdb (Nonce 0) t payloadHash cid c
@@ -448,18 +451,22 @@ randomTransaction
     -> IO (BlockHeader, Int, Transaction, TransactionOutput)
 randomTransaction cutDb = do
     bh <- randomBlockHeader cutDb
-    Just pay <- tableLookup
-        (_transactionDbBlockPayloads $ _transactionDb payloadDb)
-        (_blockPayloadHash bh)
+    Just pd <- lookupPayloadDataWithHeight payloadDb (Just $ _blockHeight bh) (_blockPayloadHash bh)
+    let pay = BlockPayload
+          { _blockPayloadTransactionsHash = _payloadDataTransactionsHash pd
+          , _blockPayloadOutputsHash = _payloadDataOutputsHash pd
+          , _blockPayloadPayloadHash = _payloadDataPayloadHash pd
+          }
+
     Just btxs <-
         tableLookup
-            (_transactionDbBlockTransactions $ _transactionDb payloadDb)
-            (_blockPayloadTransactionsHash pay)
+            (_newTransactionDbBlockTransactionsTbl $ _transactionDb payloadDb)
+            (_blockHeight bh, _blockPayloadTransactionsHash pay)
     txIx <- generate $ choose (0, length (_blockTransactions btxs) - 1)
     Just outs <-
         tableLookup
-            (_payloadCacheBlockOutputs $ _payloadCache payloadDb)
-            (_blockPayloadOutputsHash pay)
+            (_newBlockOutputsTbl $ _payloadCacheBlockOutputs $ _payloadCache payloadDb)
+            (_blockHeight bh, _blockPayloadOutputsHash pay)
     return
         ( bh
         , txIx
@@ -479,14 +486,18 @@ randomTransaction cutDb = do
 fakePact :: WebPactExecutionService
 fakePact = WebPactExecutionService $ PactExecutionService
   { _pactValidateBlock =
-      \_ d -> return
-              $ payloadWithOutputs d coinbase
-              $ getFakeOutput <$> _payloadDataTransactions d
-  , _pactNewBlock = \_ _ -> do
-        payloadDat <- generate $ V.fromList . getNonEmpty <$> arbitrary
+      \_ p -> do
+        let d = checkablePayloadToPayloadData p
         return
-            $ newPayloadWithOutputs fakeMiner coinbase
-            $ (\x -> (x, getFakeOutput x)) <$> payloadDat
+            $ payloadWithOutputs d coinbase
+            $ getFakeOutput <$> _payloadDataTransactions d
+  , _pactNewBlock = \_ _ _ ph -> do
+        payloadDat <- generate $ V.fromList . getNonEmpty <$> arbitrary
+        return $ Historical
+            $ NewBlockPayload ph
+                $ newPayloadWithOutputs fakeMiner coinbase
+                $ (\x -> (x, getFakeOutput x)) <$> payloadDat
+  , _pactContinueBlock = \_ -> error "Unimplemented"
 
   , _pactLocal = \_t -> error "Unimplemented"
   , _pactLookup = \_ _ -> error "Unimplemented"
@@ -494,6 +505,7 @@ fakePact = WebPactExecutionService $ PactExecutionService
   , _pactBlockTxHistory = \_ _ -> error "Unimplemented"
   , _pactHistoricalLookup = \_ _ _ -> error "Unimplemented"
   , _pactSyncToBlock = \_ -> error "Unimplemented"
+  , _pactReadOnlyReplay = \_ _ -> error "Unimplemented"
   }
   where
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes
@@ -528,8 +540,7 @@ testCutPruning rdb = testCase "cut pruning" $ do
   where
     alterPruningSettings =
         set cutDbParamsAvgBlockHeightPruningDepth 50 .
-        set cutDbParamsPruningFrequency 1 .
-        set cutDbParamsWritingFrequency 1
+        set cutDbParamsPruningFrequency 1
     minedBlockHeight = 300
 
 testCutGet :: RocksDb -> TestTree
@@ -544,4 +555,3 @@ testCutGet rdb = testCase "cut get" $ do
       assertGe "cut height is large enough" (Actual curHeight) (Expected $ 2 * int ch)
       retCut <- cutGetHandler cutDb (Just $ MaxRank (Max $ int halfCh))
       assertLe "cut hashes are too high" (Actual (_cutHashesHeight retCut)) (Expected halfCh)
-

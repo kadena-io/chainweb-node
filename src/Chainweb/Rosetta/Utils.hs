@@ -690,7 +690,7 @@ constructionTxToPactRPC txInfo =
 --   endpoint.
 createUnsignedCmd :: ChainwebVersion -> PayloadsMetaData -> IO EnrichedCommand
 createUnsignedCmd v meta = do
-  cmd <- mkUnsignedCommand pactSigners pubMeta nonce networkId pactRPC
+  cmd <- mkUnsignedCommand pactSigners [] pubMeta nonce networkId pactRPC
   let cmdText = T.decodeUtf8 <$> cmd
   pure $ EnrichedCommand cmdText txInfo signerAccts
   where
@@ -719,7 +719,7 @@ createSigningPayloads (EnrichedCommand cmd _ _) = map f
 
     toRosettaSigType Nothing = Just RosettaEd25519
     toRosettaSigType (Just P.ED25519) = Just RosettaEd25519
-    toRosettaSigType (Just P.WebAuthn) = Nothing 
+    toRosettaSigType (Just P.WebAuthn) = Nothing
     -- TODO: Linda Ortega (09/18/2023) -- Returning `Nothing` to discourage using WebAuthn for Rosetta. `sigToScheme` will eventually throw an error.
 
 --------------------------------------------------------------------------------
@@ -762,6 +762,8 @@ getCmdPayload (Command p _ _) =
     (decodeStrict' $! T.encodeUtf8 p)
 
 
+-- TODO: This assumes Rosettas signatures are all Ed25519 signatures
+-- (Not webauthn).
 matchSigs
     :: [RosettaSignature]
     -> [Signer]
@@ -782,14 +784,13 @@ matchSigs sigs signers = do
             $ HM.lookup addr m
 
     sigAndAddr (RosettaSignature _ (RosettaPublicKey pk ct) sigTyp sig) = do
-      _ <- toRosettaError RosettaInvalidSignature $! P.parseB16TextOnly sig
       sigScheme <- sigToScheme sigTyp
       pkScheme <- getScheme ct
       when (sigScheme /= pkScheme)
         (Left $ stringRosettaError RosettaInvalidSignature $
          "Expected the same Signature and PublicKey type for Signature=" ++ show sig)
 
-      let userSig = P.UserSig sig
+      let userSig = P.ED25519Sig sig
       addr <- toPactPubKeyAddr pk
       pure (addr, userSig)
 

@@ -55,6 +55,9 @@ module Chainweb.Version.Utils
 , expectedCutHeightAfterSeconds
 , expectedBlockCountAfterSeconds
 , expectedGlobalBlockCountAfterSeconds
+
+-- * Verifiers
+, verifiersAt
 ) where
 
 import Chainweb.BlockHeight
@@ -62,9 +65,15 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Time
+import Chainweb.VerifierPlugin
+import qualified Chainweb.VerifierPlugin.Allow
+import qualified Chainweb.VerifierPlugin.Hyperlane.Announcement
+import qualified Chainweb.VerifierPlugin.Hyperlane.Message
 
+import Control.Lens
 import Data.Foldable
 import qualified Data.HashSet as HS
+import Data.Map.Strict(Map)
 import qualified Data.Map.Strict as M
 
 import GHC.Stack
@@ -80,6 +89,8 @@ import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
 import Chainweb.Version.Mainnet
+
+import Pact.Types.Verifier
 
 -- -------------------------------------------------------------------------- --
 --  Utils
@@ -445,3 +456,26 @@ expectedCutHeightAfterSeconds
 expectedCutHeightAfterSeconds v s = eh * int (chainCountAt v (round eh))
   where
     eh = expectedBlockHeightAfterSeconds v s
+
+-- | The verifier plugins enabled for a particular block.
+verifiersAt :: ChainwebVersion -> ChainId -> BlockHeight -> Map VerifierName VerifierPlugin
+verifiersAt v cid bh =
+    M.restrictKeys allVerifierPlugins activeVerifierNames
+    where
+    activeVerifierNames =
+        case measureRule bh $ _versionVerifierPluginNames v ^?! onChain cid of
+            Bottom vs -> vs
+            Top (_, vs) -> vs
+            Between (_, vs) _ -> vs
+
+-- the mappings from names to verifier plugins is global. the list of verifier
+-- plugins active in any particular block validation context is the only thing
+-- that varies. this pedantry is only so that ChainwebVersion is plain data
+-- with no functions inside.
+allVerifierPlugins :: Map VerifierName VerifierPlugin
+allVerifierPlugins = M.fromList $ map (over _1 VerifierName)
+    [ ("allow", Chainweb.VerifierPlugin.Allow.plugin)
+
+    , ("hyperlane_v3_announcement", Chainweb.VerifierPlugin.Hyperlane.Announcement.plugin)
+    , ("hyperlane_v3_message", Chainweb.VerifierPlugin.Hyperlane.Message.plugin)
+    ]

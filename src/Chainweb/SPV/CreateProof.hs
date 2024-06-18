@@ -28,6 +28,7 @@ import Control.Applicative
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.Trans.Maybe
 
 import Crypto.Hash.Algorithms
 
@@ -139,14 +140,22 @@ createTransactionProof' cutDb tcid scid bh i = TransactionProof tcid
 transactionProofPrefix
     :: CanReadablePayloadCas tbl
     => Int
+    -> BlockHeight
     -> PayloadDb tbl
     -> BlockPayload
     -> IO PayloadProofPrefix
-transactionProofPrefix i db payload = do
+transactionProofPrefix i bh db payload = do
     -- 1. TX proof
-    Just outs <- tableLookup txTable $ _blockPayloadTransactionsHash payload
+    let
+        lookupOld = tableLookup
+            (_oldTransactionDbBlockTransactionsTbl $ _transactionDb db)
+            (_blockPayloadTransactionsHash payload)
+        lookupNew = tableLookup
+            (_newTransactionDbBlockTransactionsTbl $ _transactionDb db)
+            (bh, _blockPayloadTransactionsHash payload)
+    Just txs <- runMaybeT $ MaybeT lookupNew <|> MaybeT lookupOld
         -- TODO: use the transaction tree cache
-    let (!subj, pos, t) = bodyTree @_ @ChainwebHashTag outs i
+    let (!subj, pos, t) = bodyTree @_ @ChainwebHashTag txs i
         -- FIXME use log
     let !tree = (pos, t)
         -- we blindly trust the ix
@@ -154,8 +163,6 @@ transactionProofPrefix i db payload = do
     -- 2. Payload proof
     let !proof = tree N.:| [headerTree_ @BlockTransactionsHash payload]
     return (subj, proof)
-  where
-    txTable = _transactionDbBlockTransactions $ _transactionDb db
 
 -- -------------------------------------------------------------------------- --
 -- Creates Output Proof
@@ -241,12 +248,20 @@ outputProofPrefix
     :: CanReadablePayloadCas tbl
     => Int
         -- ^ transaction index
+    -> BlockHeight
     -> PayloadDb tbl
     -> BlockPayload
     -> IO PayloadProofPrefix
-outputProofPrefix i db payload = do
+outputProofPrefix i bh db payload = do
     -- 1. TX proof
-    Just outs <- tableLookup blockOutputTable $ _blockPayloadOutputsHash payload
+    let
+        lookupOld = tableLookup
+            (_oldBlockOutputsTbl blockOutputs)
+            (_blockPayloadOutputsHash payload)
+        lookupNew = tableLookup
+            (_newBlockOutputsTbl blockOutputs)
+            (bh, _blockPayloadOutputsHash payload)
+    Just outs <- runMaybeT $ MaybeT lookupNew <|> MaybeT lookupOld
         -- TODO: use the transaction tree cache
     let (!subj, pos, t) = bodyTree @_ @ChainwebHashTag outs i
         -- FIXME use log
@@ -257,7 +272,7 @@ outputProofPrefix i db payload = do
     let !proof = tree N.:| [headerTree_ @BlockOutputsHash payload]
     return (subj, proof)
   where
-    blockOutputTable = _payloadCacheBlockOutputs $ _payloadCache db
+    blockOutputs = _payloadCacheBlockOutputs $ _payloadCache db
 
 -- -------------------------------------------------------------------------- --
 -- Internal Proof Creation
@@ -273,7 +288,7 @@ type PayloadProofPrefix =
 createPayloadProof
     :: HasCallStack
     => CanReadablePayloadCas tbl
-    => (Int -> PayloadDb tbl -> BlockPayload -> IO PayloadProofPrefix)
+    => (Int -> BlockHeight -> PayloadDb tbl -> BlockPayload -> IO PayloadProofPrefix)
     -> CutDb tbl
         -- ^ Block Header Database
     -> ChainId
@@ -300,7 +315,7 @@ createPayloadProof getPrefix cutDb tcid scid txHeight txIx = do
 createPayloadProof_
     :: HasCallStack
     => CanReadablePayloadCas tbl
-    => (Int -> PayloadDb tbl -> BlockPayload -> IO PayloadProofPrefix)
+    => (Int -> BlockHeight -> PayloadDb tbl -> BlockPayload -> IO PayloadProofPrefix)
     -> WebBlockHeaderDb
     -> PayloadDb tbl
     -> ChainId
@@ -366,12 +381,17 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
             , _spvExceptionTargetHeight = _blockHeight trgHeader
             }
 
-    Just payload <- tableLookup pDb (_blockPayloadHash txHeader)
+    Just pd <- lookupPayloadDataWithHeight payloadDb (Just $ _blockHeight txHeader) (_blockPayloadHash txHeader)
+    let payload = BlockPayload
+          { _blockPayloadTransactionsHash = _payloadDataTransactionsHash pd
+          , _blockPayloadOutputsHash = _payloadDataOutputsHash pd
+          , _blockPayloadPayloadHash = _payloadDataPayloadHash pd
+          }
 
     -- ----------------------------- --
     -- 1. Payload Proofs (TXs and Payload)
 
-    (subj, prefix) <- getPrefix txIx payloadDb payload
+    (subj, prefix) <- getPrefix txIx txHeight payloadDb payload
 
     -- ----------------------------- --
 
@@ -401,8 +421,6 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
         <> crossTrees
 
   where
-    pDb = _transactionDbBlockPayloads $ _transactionDb payloadDb
-
     append :: N.NonEmpty a -> [a] -> N.NonEmpty a
     append (h N.:| t) l = h N.:| (t <> l)
 
@@ -496,4 +514,3 @@ minimumTrgHeader headerDb tcid scid bh = do
     srcDistance = length $ shortestPath tcid scid srcGraph
     trgGraph = chainGraphAt headerDb (bh + int srcDistance)
     trgDistance = length $ shortestPath tcid scid trgGraph
-

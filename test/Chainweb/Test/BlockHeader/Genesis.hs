@@ -34,7 +34,7 @@ import Chainweb.Test.Utils (golden)
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
-import Chainweb.Version.Development
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet
 
@@ -45,7 +45,7 @@ import Chainweb.Version.Testnet
 tests :: TestTree
 tests = testGroup "Chainweb.Test.BlockHeader.Genesis"
     [ testGroup "genesis header golden tests" $ blockHash <$>
-        [ Development
+        [ RecapDevelopment
         , Testnet04
         , Mainnet01
         ]
@@ -94,7 +94,7 @@ graphTransitionTargetTests = testGroup "graph transition genesis targets"
             _hashTarget (Mainnet01 ^?! versionGenesis . genesisBlockTarget . onChain (unsafeChainId 10))
         === PowHashNat 8893
     , testProperty "cross check development and testnet20InitialHashTarget" $
-        _hashTarget (Development ^?! versionGenesis . genesisBlockTarget . onChain (unsafeChainId 10)) `div`
+        _hashTarget (RecapDevelopment ^?! versionGenesis . genesisBlockTarget . onChain (unsafeChainId 10)) `div`
             _hashTarget (Testnet04 ^?! versionGenesis . genesisBlockTarget . onChain (unsafeChainId 10))
         === PowHashNat 20321
     ]
@@ -103,4 +103,3 @@ graphTransitionTargetTests = testGroup "graph transition genesis targets"
     forChain v target cid = (show cid, v ^?! versionGenesis . genesisBlockTarget . onChain cid === target)
     decodePowHashNat64 t = runGetS decodePowHashNat =<< decodeB64UrlNoPaddingText t
     decodePowHashNatJson t = decodeStrictOrThrow' @_ @PowHashNat $ "\"" <> t <> "\""
-

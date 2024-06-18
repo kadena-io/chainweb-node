@@ -30,7 +30,7 @@ module Chainweb.Version.Guards
     , enablePactEvents
     , enableSPVBridge
     , pact4Coin3
-    , pact420
+    , pact42
     , enforceKeysetFormats
     , doCheckTxHash
     , chainweb213Pact
@@ -42,10 +42,16 @@ module Chainweb.Version.Guards
     , chainweb219Pact
     , chainweb220Pact
     , chainweb221Pact
+    , chainweb222Pact
+    , chainweb223Pact
+    , chainweb224Pact
+    , chainweb225Pact
     , pact44NewTrans
     , pactParserVersion
     , maxBlockGasLimit
     , validPPKSchemes
+    , isWebAuthnPrefixLegal
+    , validKeyFormats
 
     -- ** BlockHeader Validation Guards
     , slowEpochGuard
@@ -57,6 +63,7 @@ module Chainweb.Version.Guards
 
 import Control.Lens
 import Numeric.Natural
+import Pact.Types.KeySet (PublicKeyText, ed25519HexFormat, webAuthnFormat)
 import Pact.Types.Scheme (PPKScheme(ED25519, WebAuthn))
 
 import Chainweb.BlockHeight
@@ -169,8 +176,8 @@ pactBackCompat_v16 :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 pactBackCompat_v16 = checkFork before PactBackCompat_v16
 
 -- | Early versions of chainweb used the creation time of the current header
--- for validation of pact tx creation time and TTL. Nowadays the times of
--- the parent header a used.
+-- for validation of pact tx creation time and TTL. Nowadays the time of
+-- the parent header is used.
 --
 -- When this guard is enabled timing validation is skipped.
 --
@@ -208,8 +215,8 @@ pact44NewTrans = checkFork atOrAfter Pact44NewTrans
 pact4Coin3 :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 pact4Coin3 = checkFork after Pact4Coin3
 
-pact420 :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-pact420 = checkFork atOrAfter Pact420
+pact42 :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+pact42 = checkFork atOrAfter Pact42
 
 chainweb213Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb213Pact = checkFork atOrAfter Chainweb213Pact
@@ -238,6 +245,18 @@ chainweb220Pact = checkFork atOrAfter Chainweb220Pact
 chainweb221Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb221Pact = checkFork atOrAfter Chainweb221Pact
 
+chainweb222Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+chainweb222Pact = checkFork atOrAfter Chainweb222Pact
+
+chainweb223Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+chainweb223Pact = checkFork atOrAfter Chainweb223Pact
+
+chainweb224Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+chainweb224Pact = checkFork atOrAfter Chainweb224Pact
+
+chainweb225Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+chainweb225Pact = checkFork atOrAfter Chainweb225Pact
+
 pactParserVersion :: ChainwebVersion -> ChainId -> BlockHeight -> PactParserVersion
 pactParserVersion v cid bh
     | chainweb213Pact v cid bh = PactParserChainweb213
@@ -257,3 +276,15 @@ validPPKSchemes v cid bh =
   if chainweb221Pact v cid bh
   then [ED25519, WebAuthn]
   else [ED25519]
+
+isWebAuthnPrefixLegal :: ChainwebVersion -> ChainId -> BlockHeight -> IsWebAuthnPrefixLegal
+isWebAuthnPrefixLegal v cid bh =
+    if chainweb222Pact v cid bh
+    then WebAuthnPrefixLegal
+    else WebAuthnPrefixIllegal
+
+validKeyFormats :: ChainwebVersion -> ChainId -> BlockHeight -> [PublicKeyText -> Bool]
+validKeyFormats v cid bh =
+  if chainweb222Pact v cid bh
+  then [ed25519HexFormat, webAuthnFormat]
+  else [ed25519HexFormat]

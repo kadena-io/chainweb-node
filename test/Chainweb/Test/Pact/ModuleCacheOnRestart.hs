@@ -42,6 +42,7 @@ import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -49,8 +50,9 @@ import Chainweb.Time
 import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
+import Chainweb.Test.Pact.Utils(getPWOByHeader)
 import Chainweb.Test.TestVersions(fastForkingCpmTestVersion)
-import Chainweb.Utils (T2(..))
+import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
@@ -72,43 +74,28 @@ data RewindData = RewindData
 
 instance NFData RewindData
 
-tests :: RocksDb -> ScheduledTest
+tests :: RocksDb -> TestTree
 tests rdb =
-      ScheduledTest label $
-      withResource' (newMVar mempty) $ \iom ->
-      withResource' newEmptyMVar $ \rewindDataM ->
-      withResource' (mkTestBlockDb testVer rdb) $ \bdbio ->
-      withResourceT withTempSQLiteResource $ \ioSqlEnv ->
-      testGroup label
-      [ testCaseSteps "testInitial" $ withPact' bdbio ioSqlEnv iom testInitial
-      , after AllSucceed "testInitial" $
-        testCaseSteps "testRestart1" $ withPact' bdbio ioSqlEnv iom testRestart
-      , after AllSucceed "testRestart1" $
-        -- wow, Tasty thinks there's a "loop" if the following test is called "testCoinbase"!!
-        testCaseSteps "testDoUpgrades" $ withPact' bdbio ioSqlEnv iom (testCoinbase bdbio)
-      , after AllSucceed "testDoUpgrades" $
-        testCaseSteps "testRestart2" $ withPact' bdbio ioSqlEnv iom testRestart
-      , after AllSucceed "testRestart2" $
-        testCaseSteps "testV3" $ withPact' bdbio ioSqlEnv iom (testV3 bdbio rewindDataM)
-      , after AllSucceed "testV3" $
-        testCaseSteps "testRestart3"$ withPact' bdbio ioSqlEnv iom testRestart
-      , after AllSucceed "testRestart3" $
-        testCaseSteps "testV4" $ withPact' bdbio ioSqlEnv iom (testV4 bdbio rewindDataM)
-      , after AllSucceed "testV4" $
-        testCaseSteps "testRestart4" $ withPact' bdbio ioSqlEnv iom testRestart
-      , after AllSucceed "testRestart4" $
-        testCaseSteps "testRewindAfterFork" $ withPact' bdbio ioSqlEnv iom (testRewindAfterFork bdbio rewindDataM)
-      , after AllSucceed "testRewindAfterFork" $
-        testCaseSteps "testRewindBeforeFork" $ withPact' bdbio ioSqlEnv iom (testRewindBeforeFork bdbio rewindDataM)
-      , after AllSucceed "testRewindBeforeFork" $
-        testCaseSteps "testCw217CoinOnly" $ withPact' bdbio ioSqlEnv iom $
-          testCw217CoinOnly bdbio rewindDataM
-      , after AllSucceed "testCw217CoinOnly" $
-        testCaseSteps "testRestartCw217" $
-        withPact' bdbio ioSqlEnv iom testRestart
-      ]
-  where
-    label = "Chainweb.Test.Pact.ModuleCacheOnRestart"
+    withResource' (newMVar mempty) $ \iom ->
+    withResource' newEmptyMVar $ \rewindDataM ->
+    withResource' (mkTestBlockDb testVer rdb) $ \bdbio ->
+    withResourceT withTempSQLiteResource $ \ioSqlEnv ->
+    independentSequentialTestGroup "Chainweb.Test.Pact.ModuleCacheOnRestart"
+    [ testCaseSteps "testInitial" $ withPact' bdbio ioSqlEnv iom testInitial
+    , testCaseSteps "testRestart1" $ withPact' bdbio ioSqlEnv iom testRestart
+    , testCaseSteps "testDoUpgrades" $ withPact' bdbio ioSqlEnv iom (testCoinbase bdbio)
+    , testCaseSteps "testRestart2" $ withPact' bdbio ioSqlEnv iom testRestart
+    , testCaseSteps "testV3" $ withPact' bdbio ioSqlEnv iom (testV3 bdbio rewindDataM)
+    , testCaseSteps "testRestart3"$ withPact' bdbio ioSqlEnv iom testRestart
+    , testCaseSteps "testV4" $ withPact' bdbio ioSqlEnv iom (testV4 bdbio rewindDataM)
+    , testCaseSteps "testRestart4" $ withPact' bdbio ioSqlEnv iom testRestart
+    , testCaseSteps "testRewindAfterFork" $ withPact' bdbio ioSqlEnv iom (testRewindAfterFork bdbio rewindDataM)
+    , testCaseSteps "testRewindBeforeFork" $ withPact' bdbio ioSqlEnv iom (testRewindBeforeFork bdbio rewindDataM)
+    , testCaseSteps "testCw217CoinOnly" $ withPact' bdbio ioSqlEnv iom $
+        testCw217CoinOnly bdbio rewindDataM
+    , testCaseSteps "testRestartCw217" $
+      withPact' bdbio ioSqlEnv iom testRestart
+    ]
 
 type CacheTest logger tbl =
   (PactServiceM logger tbl ()
@@ -137,12 +124,15 @@ testCoinbase
   -> CacheTest logger tbl
 testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
   where
+    genHeight = genesisHeight testVer testChainId
     doCoinbase = do
       bdb <- liftIO iobdb
-      pwo <- execNewBlock mempty (ParentHeader genblock) noMiner
-      void $ liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
+      bip <- throwIfNoHistory =<< execNewBlock mempty noMiner NewBlockFill
+        (ParentHeader (genesisBlockHeader testVer testChainId))
+      let pwo = blockInProgressToPayloadWithOutputs bip
+      void $ liftIO $ addTestBlockDb bdb (succ genHeight) (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
-      void $ execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
+      void $ execValidateBlock mempty nextH (CheckablePayloadWithOutputs pwo)
 
 testV3
   :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)
@@ -251,16 +241,23 @@ assertNoCacheMismatch c1 c2 = assertBool msg $ c1 == c2
       ]
 
 rewindToBlock :: (Logger logger) => CanReadablePayloadCas tbl => RewindPoint -> PactServiceM logger tbl ()
-rewindToBlock (rewindHeader, pwo) = void $ execValidateBlock mempty rewindHeader (payloadWithOutputsToPayloadData pwo)
+rewindToBlock (rewindHeader, pwo) = void $ execValidateBlock mempty rewindHeader (CheckablePayloadWithOutputs pwo)
 
 doNextCoinbase :: (Logger logger, CanReadablePayloadCas tbl) => IO TestBlockDb -> PactServiceM logger tbl (BlockHeader, PayloadWithOutputs)
 doNextCoinbase iobdb = do
       bdb <- liftIO iobdb
       prevH <- liftIO $ getParentTestBlockDb bdb testChainId
-      pwo <- execNewBlock mempty (ParentHeader prevH) noMiner
-      void $ liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
+      -- we have to execValidateBlock on `prevH` block height to update the parent header
+      pwo' <- liftIO $ getPWOByHeader prevH bdb
+      _ <- execValidateBlock mempty prevH (CheckablePayloadWithOutputs pwo')
+
+      bip <- throwIfNoHistory =<< execNewBlock mempty noMiner NewBlockFill (ParentHeader prevH)
+      let prevH' = _blockInProgressParentHeader bip
+      let pwo = blockInProgressToPayloadWithOutputs bip
+      liftIO $ ParentHeader prevH @?= prevH'
+      void $ liftIO $ addTestBlockDb bdb (succ $ _blockHeight prevH) (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
-      (valPWO, _g) <- execValidateBlock mempty nextH (payloadWithOutputsToPayloadData pwo)
+      (valPWO, _g) <- execValidateBlock mempty nextH (CheckablePayloadWithOutputs pwo)
       return (nextH, valPWO)
 
 doNextCoinbaseN_
@@ -278,9 +275,6 @@ justModuleHashes = justModuleHashes' . snd . last . M.toList
 justModuleHashes' :: ModuleCache -> HM.HashMap ModuleName (Maybe ModuleHash)
 justModuleHashes' =
     fmap (preview (_1 . mdModule . _MDModule . mHash)) . moduleCacheToHashMap
-
-genblock :: BlockHeader
-genblock = genesisBlockHeader testVer testChainId
 
 initPayloadState
   :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)
@@ -306,7 +300,7 @@ withPact' bdbio ioSqlEnv r (ps, cacheTest) tastylog = do
     let pdb = _bdbPayloadDb bdb
     sqlEnv <- ioSqlEnv
     T2 _ pstate <- withPactService
-        testVer testChainId logger bhdb pdb sqlEnv testPactServiceConfig ps
+        testVer testChainId logger Nothing bhdb pdb sqlEnv testPactServiceConfig ps
     cacheTest r (_psInitCache pstate)
   where
     logger = genericLogger Quiet (tastylog . T.unpack)

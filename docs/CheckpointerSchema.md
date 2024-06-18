@@ -128,7 +128,7 @@ meaning they are subject to data management by the checkpointer.
 
 ## Versioned Table Schema
 
-All versioned tables have an identical schema, indexed to faciliate
+All versioned tables have an identical schema, indexed to facilitate
 rewind deletions on `txid`, and queries on `rowkey` at a particular
 `txid`. The "current value" of a key is the `rowdata` at the maximum
 value for `txid` for that key.

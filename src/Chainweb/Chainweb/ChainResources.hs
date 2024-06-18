@@ -8,6 +8,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DataKinds #-}
 
 -- |
 -- Module: Chainweb.Chainweb.ChainResources
@@ -53,6 +54,7 @@ import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
 import Chainweb.Storage.Table.RocksDB
+import Chainweb.Counter
 
 -- -------------------------------------------------------------------------- --
 -- Single Chain Resources
@@ -88,16 +90,17 @@ withChainResources
     -> FilePath
         -- ^ database directory for checkpointer
     -> PactServiceConfig
+    -> Counter "txFailures"
     -> (ChainResources logger -> IO a)
     -> IO a
 withChainResources
-  v cid rdb logger mempoolCfg0 payloadDb pactDbDir pactConfig inner =
+  v cid rdb logger mempoolCfg0 payloadDb pactDbDir pactConfig txFailuresCounter inner =
     withBlockHeaderDb rdb v cid $ \cdb -> do
       pexMv <- newEmptyMVar
       let mempoolCfg = mempoolCfg0 pexMv
       Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg v $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
-        withPactService v cid logger mpc cdb
+        withPactService v cid logger (Just txFailuresCounter) mpc cdb
                         payloadDb pactDbDir pactConfig $ \requestQ -> do
             let pex = pes requestQ
             putMVar pexMv pex

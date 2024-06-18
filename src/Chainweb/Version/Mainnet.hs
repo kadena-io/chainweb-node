@@ -9,6 +9,7 @@ module Chainweb.Version.Mainnet(mainnet, pattern Mainnet01) where
 
 import Control.Lens
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Set as Set
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeight
@@ -20,6 +21,9 @@ import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
 import P2P.BootstrapNodes
+
+import Pact.Types.Runtime (Gas(..))
+import Pact.Types.Verifier
 
 import qualified Chainweb.BlockHeader.Genesis.Mainnet0Payload as MN0
 import qualified Chainweb.BlockHeader.Genesis.Mainnet1Payload as MN1
@@ -35,6 +39,7 @@ import qualified Chainweb.BlockHeader.Genesis.Mainnet10to19Payload as MNKAD
 import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
 import qualified Chainweb.Pact.Transactions.CoinV4Transactions as CoinV4
 import qualified Chainweb.Pact.Transactions.CoinV5Transactions as CoinV5
+import qualified Chainweb.Pact.Transactions.CoinV6Transactions as CoinV6
 import qualified Chainweb.Pact.Transactions.Mainnet0Transactions as MN0
 import qualified Chainweb.Pact.Transactions.Mainnet1Transactions as MN1
 import qualified Chainweb.Pact.Transactions.Mainnet2Transactions as MN2
@@ -129,18 +134,22 @@ mainnet = ChainwebVersion
         SPVBridge -> AllChains (ForkAtBlockHeight $ BlockHeight 1_275_000)
         Pact4Coin3 -> AllChains (ForkAtBlockHeight $ BlockHeight 1_722_500)      -- 2021-06-19T03:34:05+00:00
         EnforceKeysetFormats -> AllChains (ForkAtBlockHeight $ BlockHeight 2_162_000) -- 2022-01-17T17:51:12
-        Pact420 -> AllChains (ForkAtBlockHeight $ BlockHeight 2_334_500) -- 2022-01-17T17:51:12+00:00
+        Pact42 -> AllChains (ForkAtBlockHeight $ BlockHeight 2_334_500) -- 2022-01-17T17:51:12+00:00
         CheckTxHash -> AllChains (ForkAtBlockHeight $ BlockHeight 2_349_800) -- 2022-01-23T02:53:38
         Chainweb213Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 2_447_315) -- 2022-02-26T00:00:00+00:00
         Chainweb214Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 2_605_663) -- 2022-04-22T00:00:00+00:00
         Chainweb215Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 2_766_630) -- 2022-06-17T00:00:00+00:00
-        Pact44NewTrans -> AllChains (ForkAtBlockHeight $ BlockHeight 2_965_885) -- Todo: add date
+        Pact44NewTrans -> AllChains (ForkAtBlockHeight $ BlockHeight 2_939_323) -- Todo: add date
         Chainweb216Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 2_988_324) -- 2022-09-02T00:00:00+00:00
         Chainweb217Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 3_250_348) -- 2022-12-02T00:00:00+00:00
         Chainweb218Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 3_512_363) -- 2023-03-03 00:00:00+00:00
         Chainweb219Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 3_774_423) -- 2023-06-02 00:00:00+00:00
         Chainweb220Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_056_499) -- 2023-09-08 00:00:00+00:00
         Chainweb221Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_177_889) -- 2023-10-20 00:00:00+00:00
+        Chainweb222Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_335_753) -- 2023-12-14 00:00:00+00:00
+        Chainweb223Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_577_530) -- 2024-03-07 00:00:00+00:00
+        Chainweb224Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_819_246) -- 2024-05-30 00:00:00+00:00
+        Chainweb225Pact -> AllChains ForkNever
 
     , _versionGraphs =
         (to20ChainsMainnet, twentyChainGraph) `Above`
@@ -174,7 +183,7 @@ mainnet = ChainwebVersion
             ]
         }
     , _versionUpgrades = chainZip HM.union
-        (forkUpgrades mainnet
+        (indexByForkHeights mainnet
         [ (CoinV2, onChains
             [ (unsafeChainId 0, upgrade MN0.transactions)
             , (unsafeChainId 1, upgrade MN1.transactions)
@@ -190,6 +199,7 @@ mainnet = ChainwebVersion
         , (Pact4Coin3, AllChains $ Upgrade CoinV3.transactions True)
         , (Chainweb214Pact, AllChains $ Upgrade CoinV4.transactions True)
         , (Chainweb215Pact, AllChains $ Upgrade CoinV5.transactions True)
+        , (Chainweb223Pact, AllChains $ upgrade CoinV6.transactions)
         ])
         (onChains [(unsafeChainId 0, HM.singleton to20ChainsMainnet (upgrade MNKAD.transactions))])
     , _versionCheats = VersionCheats
@@ -201,4 +211,13 @@ mainnet = ChainwebVersion
         { _disablePeerValidation = False
         , _disableMempoolSync = False
         }
+    , _versionVerifierPluginNames = AllChains $ (4_577_530, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
+        End mempty
+    , _versionQuirks = VersionQuirks
+        { _quirkGasFees = HM.fromList
+            [ (fromJuste (decodeStrictOrThrow' "\"s9fUspNaCHoV4rNI-Tw-JYU1DxqZAOXS-80oEy7Zfbo\""), Gas 67_618)
+            , (fromJuste (decodeStrictOrThrow' "\"_f1xkIQPGRcOBNBWkOvP0dGNOjmNtmXwOnXzfdwnmJQ\""), Gas 69_092)
+            ]
+        }
+    , _versionServiceDate = Just "2024-08-21T00:00:00Z"
     }

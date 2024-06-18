@@ -31,8 +31,14 @@ module Chainweb.Utils.Serialization
     , getWord64le
     , putWord64be
     , getWord64be
+    , putWord128be
+    , getWord128be
+    , putWord256be
+    , getWord256be
     , putByteString
     , getByteString
+    , putRawByteString
+    , getRemainingLazyByteString
 
     -- abstract encoders and decoders
     , WordEncoding(..)
@@ -44,6 +50,7 @@ module Chainweb.Utils.Serialization
     )
     where
 
+import Control.Applicative
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
@@ -57,13 +64,14 @@ import qualified Data.Text as T
 import Data.Word
 
 import qualified Data.Binary as Binary
+import qualified Data.Binary.Builder as Builder
 import qualified Data.Binary.Get as Binary
 import qualified Data.Binary.Put as Binary
 
 import Chainweb.Utils
 
 newtype Get a = Get (Binary.Get a)
-    deriving newtype (Functor, Applicative, Monad, MonadFail)
+    deriving newtype (Functor, Applicative, Monad, MonadFail, Alternative)
 newtype PutM a = PutM (Binary.PutM a)
     deriving newtype (Functor, Applicative, Monad)
 type Put = PutM ()
@@ -146,6 +154,25 @@ getByteString :: Int -> Get B.ByteString
 getByteString = coerce Binary.getByteString
 putByteString :: B.ByteString -> Put
 putByteString = coerce Binary.putByteString
+
+putWord128be :: Word128 -> Put
+putWord128be = encodeWordBe
+
+getWord128be :: Get Word128
+getWord128be = decodeWordBe
+
+putWord256be :: Word256 -> Put
+putWord256be = encodeWordBe
+
+getWord256be :: Get Word256
+getWord256be = decodeWordBe
+
+-- | Puts bytestring without size using 'Builder'.
+putRawByteString :: B.ByteString -> Put
+putRawByteString = coerce (Binary.putBuilder . Builder.fromByteString)
+
+getRemainingLazyByteString :: Get BL.ByteString
+getRemainingLazyByteString = coerce Binary.getRemainingLazyByteString
 
 --------------------
 -- Abstract encoders/decoders

@@ -203,11 +203,11 @@ getCutExtension c cid = do
         | targetHeight == genesisHeight v acid = error $ T.unpack
             $ "getAdjacentParents: invalid cut extension, requested parent of a genesis block for chain "
             <> sshow acid
-            <> ". Parent: " <> encodeToText (ObjectEncoded p)
+            <> ".\n Parent: " <> encodeToText (ObjectEncoded p)
         | otherwise = error $ T.unpack
             $ "getAdjacentParents: invalid cut, can't find adjacent hash for chain "
             <> sshow acid
-            <> ". Parent: " <> encodeToText (ObjectEncoded p)
+            <> ".\n Cut: " <> sshow c
 
     tryAdj :: BlockHeader -> Maybe BlockHash
     tryAdj b
@@ -224,12 +224,12 @@ getCutExtension c cid = do
         -- The cut is invalid
         | _blockHeight b > targetHeight = error $ T.unpack
             $ "getAdjacentParents: detected invalid cut (adjacent parent too far ahead)."
-            <> " Parent: " <> encodeToText (ObjectEncoded p)
-            <> " Conflict: " <> encodeToText (ObjectEncoded b)
+            <> "\n Parent: " <> encodeToText (ObjectEncoded p)
+            <> "\n Conflict: " <> encodeToText (ObjectEncoded b)
         | _blockHeight b + 1 < parentHeight = error $ T.unpack
             $ "getAdjacentParents: detected invalid cut (adjacent parent too far behind)."
-            <> " Parent: " <> encodeToText (ObjectEncoded  p)
-            <> " Conflict: " <> encodeToText (ObjectEncoded b)
+            <> "\n Parent: " <> encodeToText (ObjectEncoded  p)
+            <> "\n Conflict: " <> encodeToText (ObjectEncoded b)
         | otherwise = error
             $ "Chainweb.Miner.Coordinator.getAdjacentParents: internal code invariant violation"
 
@@ -311,8 +311,8 @@ newWorkHeaderPure hdb creationTime extension phash = do
 -- | Get all adjacent parent headers for a new block header for a given cut.
 --
 -- This yields the same result as 'blockAdjacentParentHeaders', however, it is
--- more efficent when the cut and the adjacent parent hashes are already known.
--- Also, it works accross graph changes. It is not checked whether the given
+-- more efficient when the cut and the adjacent parent hashes are already known.
+-- Also, it works across graph changes. It is not checked whether the given
 -- adjacent parent hashes are consistent with the cut.
 --
 -- Only those parents are included that are not block parent hashes of genesis
@@ -389,16 +389,20 @@ instance Exception InvalidSolvedHeader
 extend
     :: MonadThrow m
     => Cut
-    -> PayloadData
+    -> PayloadWithOutputs
     -> SolvedWork
     -> m (BlockHeader, Maybe CutHashes)
-extend c pd s = do
-    (bh, mc) <- extendCut c (_payloadDataPayloadHash pd) s
+extend c pwo s = do
+    (bh, mc) <- extendCut c (_payloadWithOutputsPayloadHash pwo) s
     return (bh, toCutHashes bh <$> mc)
   where
     toCutHashes bh c' = cutToCutHashes Nothing c'
-        & set cutHashesHeaders (HM.singleton (_blockHash bh) bh)
-        & set cutHashesPayloads (HM.singleton (_blockPayloadHash bh) pd)
+        & set cutHashesHeaders
+            (HM.singleton (_blockHash bh) bh)
+        & set cutHashesPayloads
+            (HM.singleton (_blockPayloadHash bh) (payloadWithOutputsToPayloadData pwo))
+        & set cutHashesLocalPayload
+            (Just (_blockPayloadHash bh, pwo))
 
 -- | For internal use and testing
 --

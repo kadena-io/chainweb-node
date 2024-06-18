@@ -34,6 +34,7 @@ import Chainweb.Payload
 import Chainweb.Payload.RestAPI
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Version
+import Chainweb.BlockHeight (BlockHeight)
 
 -- -------------------------------------------------------------------------- --
 -- GET Payload Client
@@ -43,6 +44,7 @@ payloadClient_
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => BlockPayloadHash
+    -> Maybe BlockHeight
     -> ClientM PayloadData
 payloadClient_ = client (payloadGetApi @v @c)
 
@@ -50,11 +52,12 @@ payloadClient
     :: ChainwebVersion
     -> ChainId
     -> BlockPayloadHash
+    -> Maybe BlockHeight
     -> ClientM PayloadData
-payloadClient v c k = runIdentity $ do
+payloadClient v c k h = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ payloadClient_ @v @c k
+    return $ payloadClient_ @v @c k h
 
 -- -------------------------------------------------------------------------- --
 -- Post Payload Batch Client
@@ -63,8 +66,8 @@ payloadBatchClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => [BlockPayloadHash]
-    -> ClientM [PayloadData]
+    => BatchBody
+    -> ClientM PayloadDataList
 payloadBatchClient_ = client (payloadPostApi @v @c)
 
 -- The query may return any number (including none) of the requested payload
@@ -73,8 +76,8 @@ payloadBatchClient_ = client (payloadPostApi @v @c)
 payloadBatchClient
     :: ChainwebVersion
     -> ChainId
-    -> [BlockPayloadHash]
-    -> ClientM [PayloadData]
+    -> BatchBody
+    -> ClientM PayloadDataList
 payloadBatchClient v c k = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
@@ -88,6 +91,7 @@ outputsClient_
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => BlockPayloadHash
+    -> Maybe BlockHeight
     -> ClientM PayloadWithOutputs
 outputsClient_ = client (outputsGetApi @v @c)
 
@@ -95,11 +99,12 @@ outputsClient
     :: ChainwebVersion
     -> ChainId
     -> BlockPayloadHash
+    -> Maybe BlockHeight
     -> ClientM PayloadWithOutputs
-outputsClient v c k = runIdentity $ do
+outputsClient v c k h = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ outputsClient_ @v @c k
+    return $ outputsClient_ @v @c k h
 
 -- -------------------------------------------------------------------------- --
 -- POST Outputs Batch Client
@@ -108,15 +113,15 @@ outputsBatchClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => [BlockPayloadHash]
-    -> ClientM [PayloadWithOutputs]
+    => BatchBody
+    -> ClientM PayloadWithOutputsList
 outputsBatchClient_ = client (outputsPostApi @v @c)
 
 outputsBatchClient
     :: ChainwebVersion
     -> ChainId
-    -> [BlockPayloadHash]
-    -> ClientM [PayloadWithOutputs]
+    -> BatchBody
+    -> ClientM PayloadWithOutputsList
 outputsBatchClient v c k = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c

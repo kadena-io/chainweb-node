@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -55,7 +56,7 @@ import Pact.Types.Term (mkKeySet, PublicKeyText(..))
 -- internal modules
 
 import Chainweb.Miner.Pact (Miner(..), MinerKeys(..), MinerId(..), minerId)
-import Chainweb.Time (Seconds)
+import Chainweb.Time
 
 ---
 
@@ -138,6 +139,8 @@ data CoordinationConfig = CoordinationConfig
         -- ^ the maximum number of concurrent update streams that is supported
     , _coordinationUpdateStreamTimeout :: !Seconds
         -- ^ the duration that an update stream is kept open in seconds
+    , _coordinationPayloadRefreshDelay :: !(TimeSpan Micros)
+        -- ^ the duration between payload refreshes in microseconds
     } deriving stock (Eq, Show, Generic)
 
 coordinationEnabled :: Lens' CoordinationConfig Bool
@@ -157,6 +160,10 @@ coordinationUpdateStreamTimeout :: Lens' CoordinationConfig Seconds
 coordinationUpdateStreamTimeout =
     lens _coordinationUpdateStreamTimeout (\m c -> m { _coordinationUpdateStreamTimeout = c })
 
+coordinationPayloadRefreshDelay :: Lens' CoordinationConfig (TimeSpan Micros)
+coordinationPayloadRefreshDelay =
+    lens _coordinationPayloadRefreshDelay (\m c -> m { _coordinationPayloadRefreshDelay = c })
+
 instance ToJSON CoordinationConfig where
     toJSON o = object
         [ "enabled" .= _coordinationEnabled o
@@ -164,6 +171,7 @@ instance ToJSON CoordinationConfig where
         , "miners" .= (J.toJsonViaEncode <$> S.toList (_coordinationMiners o))
         , "updateStreamLimit" .= _coordinationUpdateStreamLimit o
         , "updateStreamTimeout" .= _coordinationUpdateStreamTimeout o
+        , "payloadRefreshDelay" .= _coordinationPayloadRefreshDelay o
         ]
 
 instance FromJSON (CoordinationConfig -> CoordinationConfig) where
@@ -173,6 +181,7 @@ instance FromJSON (CoordinationConfig -> CoordinationConfig) where
         <*< coordinationMiners .fromLeftMonoidalUpdate %.: "miners" % o
         <*< coordinationUpdateStreamLimit ..: "updateStreamLimit" % o
         <*< coordinationUpdateStreamTimeout ..: "updateStreamTimeout" % o
+        <*< coordinationPayloadRefreshDelay ..: "payloadRefreshDelay" % o
 
 defaultCoordination :: CoordinationConfig
 defaultCoordination = CoordinationConfig
@@ -181,6 +190,7 @@ defaultCoordination = CoordinationConfig
     , _coordinationReqLimit = 1200
     , _coordinationUpdateStreamLimit = 2000
     , _coordinationUpdateStreamTimeout = 240
+    , _coordinationPayloadRefreshDelay = TimeSpan (Micros 15_000_000)
     }
 
 pCoordinationConfig :: MParser CoordinationConfig
@@ -198,6 +208,9 @@ pCoordinationConfig = id
     <*< coordinationUpdateStreamTimeout .:: jsonOption
         % long "mining-update-stream-timeout"
         <> help "duration that an update stream is kept open in seconds"
+    <*< coordinationPayloadRefreshDelay .:: jsonOption
+        % long "mining-payload-refresh-delay"
+        <> help "frequency that the mining payload is refreshed"
 
 pMiner :: String -> Parser Miner
 pMiner prefix = pkToMiner <$> pPk
@@ -259,4 +272,3 @@ defaultNodeMining = NodeMiningConfig
 
 invalidMiner :: Miner
 invalidMiner = Miner "" . MinerKeys $ mkKeySet [] "keys-all"
-

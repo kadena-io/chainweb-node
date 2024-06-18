@@ -29,6 +29,7 @@ import GHC.Generics
 import Test.QuickCheck (quickCheck)
 import Test.QuickCheck.Gen
 import Test.QuickCheck.Monadic
+import Test.Tasty
 import Test.Tasty.QuickCheck
 
 -- internal modules
@@ -57,8 +58,8 @@ import Chainweb.Storage.Table.RocksDB
 import Data.LogMessage
 
 ----------------------------------------------------------------------------------------------------
-tests :: BlockHeaderDb -> BlockHeader -> ScheduledTest
-tests db h0 = testGroupSch "mempool-consensus-quickcheck-tests"
+tests :: BlockHeaderDb -> BlockHeader -> TestTree
+tests db h0 = testGroup "mempool-consensus-quickcheck-tests"
     [ testProperty "valid-transactions-source" (prop_validTxSource db h0)
     , testProperty "no-orphaned-txs" (prop_noOrphanedTxs db h0)
     , testProperty "test-processfork-filter" (prop_noOldCrap db h0)

@@ -1,0 +1,1 @@
+Rename connectioncounters logging index to counters

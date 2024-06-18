@@ -10,7 +10,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 -- |
--- Module: Chainweb.Test.CutDB.Test
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>, Emily Pillmore <emily@kadena.io>
@@ -32,7 +31,7 @@ import Control.Arrow ((***))
 import Control.Concurrent.MVar
 import Control.Exception (SomeException, finally)
 import Control.Monad
-import Control.Lens (set)
+import Control.Lens hiding ((.=))
 
 import Data.Aeson as Aeson
 import qualified Data.ByteString.Base64.URL as B64U
@@ -70,7 +69,6 @@ import Pact.Types.Runtime (toPactId)
 import Pact.Types.SPV
 import Pact.Types.Term
 
-
 -- internal chainweb modules
 
 import Chainweb.BlockCreationTime
@@ -94,8 +92,6 @@ import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
 import Chainweb.Version as Chainweb
 import Chainweb.WebPactExecutionService
-
-import Chainweb.Storage.Table (casLookupM)
 
 import Data.LogMessage
 
@@ -135,7 +131,6 @@ _handle' e =
     let
       s = show e
     in logg System.LogLevel.Error (pack s) >> return (False, s)
-
 
 -- -------------------------------------------------------------------------- --
 -- tests
@@ -281,7 +276,7 @@ roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
     step "cut 1: burn"
     -- Creating the parent took at least 1 second. So 1s is fine as creation time
     let t1 = add second epoch
-    txGen1 <- burn t1 pidv sid tid
+    txGen1 <- burn v t1 pidv sid tid
     void $ swapMVar tg txGen1
     co1 <- runCut' v bdb pact
 
@@ -289,7 +284,7 @@ roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
     step "setup create txgen with cut 1"
     (BlockCreationTime t2) <- _blockCreationTime <$> getParentTestBlockDb bdb tid
     hi <- _blockHeight <$> getParentTestBlockDb bdb sid
-    txGen2 <- create t2 bdb pidv sid tid hi
+    txGen2 <- create v t2 bdb pidv sid tid hi
 
     -- cut 2: empty cut for diameter 1
     step "cut 2: empty cut for diameter 1"
@@ -322,8 +317,8 @@ cutToPayloadOutputs
   -> IO CutOutputs
 cutToPayloadOutputs c pdb = do
   forM (_cutMap c) $ \bh -> do
-    outs <- casLookupM pdb (_blockPayloadHash bh)
-    let txs = Vector.map (toTx *** toCR) (_payloadWithOutputsTransactions outs)
+    Just pwo <- lookupPayloadWithHeight pdb (Just $ _blockHeight bh) (_blockPayloadHash bh)
+    let txs = Vector.map (toTx *** toCR) (_payloadWithOutputsTransactions pwo)
         toTx :: Transaction -> Command Text
         toTx (Transaction t) = fromJuste $ decodeStrict' t
         toCR :: TransactionOutput -> CommandResult Hash
@@ -349,10 +344,11 @@ type TransactionGenerator
     -> IO (Vector ChainwebTransaction)
 
 type BurnGenerator
-    = Time Micros -> MVar PactId -> Chainweb.ChainId -> Chainweb.ChainId -> IO TransactionGenerator
+    = ChainwebVersion -> Time Micros -> MVar PactId -> Chainweb.ChainId -> Chainweb.ChainId -> IO TransactionGenerator
 
 type CreatesGenerator
-    = Time Micros
+    = ChainwebVersion
+    -> Time Micros
     -> TestBlockDb
     -> MVar PactId
     -> Chainweb.ChainId
@@ -363,7 +359,7 @@ type CreatesGenerator
 -- | Generate burn/create Pact Service commands on arbitrarily many chains
 --
 burnGen :: BurnGenerator
-burnGen time pidv sid tid = do
+burnGen v time pidv sid tid = do
     ref0 <- newIORef False
     ref1 <- newIORef False
     return $ go ref0 ref1
@@ -376,20 +372,18 @@ burnGen time pidv sid tid = do
             readIORef ref1 >>= \case
               True -> return mempty
               False -> do
-                cmd <- buildCwCmd $
-                  set cbSigners [mkSigner' sender00 []] $
+                cmd <- buildCwCmd "0" v $
+                  set cbSigners [mkEd25519Signer' sender00 []] $
                   set cbCreationTime (toTxCreationTime time) $
                   set cbChainId sid $
-                  mkCmd "0" $
-                  mkExec tx1Code tx1Data
+                  set cbRPC (mkExec tx1Code tx1Data) $
+                  defaultCmd
                 writeIORef ref0 True
 
                 let pid = toPactId $ toUntypedHash $ _cmdHash cmd
 
                 putMVar pidv pid `finally` writeIORef ref1 True
                 return $ Vector.singleton cmd
-
-
 
     tx1Code = T.unlines
       [ "(coin.transfer-crosschain"
@@ -414,7 +408,7 @@ burnGen time pidv sid tid = do
 -- | Generate arbitrary coin.transfer call.
 --
 transferGen :: BurnGenerator
-transferGen time pidv sid _tid = do
+transferGen v time pidv sid _tid = do
     ref0 <- newIORef False
     ref1 <- newIORef False
     return $ go ref0 ref1
@@ -427,16 +421,15 @@ transferGen time pidv sid _tid = do
             readIORef ref1 >>= \case
               True -> return mempty
               False -> do
-                cmd <- buildCwCmd $
+                cmd <- buildCwCmd "0" v $
                   set cbSigners
-                    [mkSigner' sender00
+                    [mkEd25519Signer' sender00
                        [mkTransferCap "sender00" "sender01" 1.0
                        ,mkGasCap]] $
                   set cbCreationTime (toTxCreationTime time) $
                   set cbChainId sid $
-                  -- FIXME what about the network id? It is Nothing
-                  mkCmd "0" $
-                  mkExec' tx1Code
+                  set cbRPC (mkExec' tx1Code) $
+                  defaultCmd
                 writeIORef ref0 True
 
                 let pid = toPactId $ toUntypedHash $ _cmdHash cmd
@@ -449,27 +442,26 @@ transferGen time pidv sid _tid = do
     tx1Code = "(coin.transfer 'sender00 'sender01 1.0)"
 
 createCont
-  :: ChainId
-     -> MVar PactId
-     -> Maybe ContProof
-     -> Time Micros
-     -> IO (Vector ChainwebTransaction)
-createCont cid pidv proof time = do
+  :: ChainwebVersion
+  -> ChainId
+  -> MVar PactId
+  -> Maybe ContProof
+  -> Time Micros
+  -> IO (Vector ChainwebTransaction)
+createCont v cid pidv proof time = do
   pid <- readMVar pidv
   fmap Vector.singleton $
-    buildCwCmd $
-    set cbSigners [mkSigner' sender00 []] $
+    buildCwCmd "1" v $
+    set cbSigners [mkEd25519Signer' sender00 []] $
     set cbCreationTime (toTxCreationTime time) $
     set cbChainId cid $
-    mkCmd "1" $
-    mkCont $
-    ((mkContMsg pid 1) { _cmProof = proof })
-
+    set cbRPC (mkCont $ (mkContMsg pid 1) { _cmProof = proof }) $
+    defaultCmd
 
 -- | Generate a tx to run 'verify-spv' tests.
 --
 createVerify :: Bool -> Text -> Value -> CreatesGenerator
-createVerify bridge code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
+createVerify bridge code mdata v time (TestBlockDb wdb pdb _c) _pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
@@ -483,21 +475,19 @@ createVerify bridge code mdata time (TestBlockDb wdb pdb _c) _pidv sid tid bhe =
                         [ ("proof", String $ encodeB64UrlNoPaddingText $ encodeToByteString pf)
                         ]
                       | otherwise = toJSON pf
-                cmd <- buildCwCmd $
-                  set cbSigners [mkSigner' sender00 []] $
+                cmd <- buildCwCmd "0" v $
+                  set cbSigners [mkEd25519Signer' sender00 []] $
                   set cbCreationTime (toTxCreationTime time) $
                   set cbChainId tid $
-                  mkCmd "0" $
-                  mkExec
-                    code
-                    (object [("proof",q),("data",mdata)])
+                  set cbRPC (mkExec code (object [("proof",q),("data",mdata)])) $
+                  defaultCmd
                 return (Vector.singleton cmd)
                     `finally` writeIORef ref True
 
 -- | Generate a tx to run 'verify-spv' tests.
 --
 createVerifyEth :: Text -> CreatesGenerator
-createVerifyEth code time (TestBlockDb _wdb _pdb _c) _pidv _sid tid _bhe = do
+createVerifyEth code v time (TestBlockDb _wdb _pdb _c) _pidv _sid tid _bhe = do
     ref <- newIORef False
     q <- encodeB64UrlNoPaddingText . putRlpByteString <$> receiptProofTest 2
     return $ go q ref
@@ -508,14 +498,12 @@ createVerifyEth code time (TestBlockDb _wdb _pdb _c) _pidv _sid tid _bhe = do
             True -> return mempty
             False -> do
                 -- q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
-                cmd <- buildCwCmd $
-                  set cbSigners [mkSigner' sender00 []] $
+                cmd <- buildCwCmd "0" v $
+                  set cbSigners [mkEd25519Signer' sender00 []] $
                   set cbCreationTime (toTxCreationTime time) $
                   set cbChainId tid $
-                  mkCmd "0" $
-                  mkExec
-                    code
-                    (object [("proof", toJSON q)])
+                  set cbRPC (mkExec code (object [("proof", toJSON q)])) $
+                  defaultCmd
                 return (Vector.singleton cmd)
                     `finally` writeIORef ref True
 
@@ -534,7 +522,7 @@ receiptProofTest i = do
 -- has already called the 'create-coin' half of the transaction, it will not do so again.
 --
 createSuccess :: CreatesGenerator
-createSuccess time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
+createSuccess v time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
@@ -545,13 +533,13 @@ createSuccess time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
             False -> do
                 q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
                 let proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
-                createCont tid pidv proof time
+                createCont v tid pidv proof time
                     `finally` writeIORef ref True
 
 -- | Execute on the create-coin command on the wrong target chain
 --
 createWrongTargetChain :: CreatesGenerator
-createWrongTargetChain time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
+createWrongTargetChain v time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
@@ -564,13 +552,13 @@ createWrongTargetChain time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
 
                 let proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
 
-                createCont sid pidv proof time
+                createCont v sid pidv proof time
                     `finally` writeIORef ref True
 
 -- | Execute create-coin command with invalid proof
 --
 createInvalidProof :: CreatesGenerator
-createInvalidProof time _ pidv _ tid _ = do
+createInvalidProof v time _ pidv _ tid _ = do
     ref <- newIORef False
     return $ go ref
   where
@@ -579,14 +567,14 @@ createInvalidProof time _ pidv _ tid _ = do
         | otherwise = readIORef ref >>= \case
             True -> return mempty
             False ->
-                createCont tid pidv Nothing time
+                createCont v tid pidv Nothing time
                     `finally` writeIORef ref True
 
 -- | Execute on the create-coin command on the correct target chain, with a proof
 -- pointing at the wrong target chain
 --
 createProofBadTargetChain :: CreatesGenerator
-createProofBadTargetChain time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
+createProofBadTargetChain v time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
@@ -600,5 +588,5 @@ createProofBadTargetChain time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
 
                 let proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
 
-                createCont sid pidv proof time
+                createCont v sid pidv proof time
                     `finally` writeIORef ref True

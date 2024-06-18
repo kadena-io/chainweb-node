@@ -3,6 +3,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Rosetta.Internal
@@ -15,6 +17,7 @@
 module Chainweb.Rosetta.Internal where
 
 import Control.Error.Util
+import Control.Exception.Safe (try)
 import Control.Lens hiding ((??), from, to)
 import Control.Monad (foldM)
 import Control.Monad.Except (throwError)
@@ -56,7 +59,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB
-import Chainweb.Pact.Service.Types (BlockTxHistory(..))
+import Chainweb.Pact.Service.Types
 import Chainweb.Payload hiding (Transaction(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.Rosetta.Utils
@@ -186,7 +189,6 @@ genesisTransactions
 genesisTransactions logs cid txs =
   pure $ V.toList $ V.map (getGenesisLog logs cid) txs
 
-
 -- | Matches a single genesis transaction to its coin contract logs.
 genesisTransaction
     :: Map TxId [AccountLog]
@@ -199,7 +201,6 @@ genesisTransaction logs cid rest target = do
   cr <- note RosettaTxIdNotFound $
         V.find (\c -> _crReqKey c == target) rest
   pure $ getGenesisLog logs cid cr
-
 
 ------------------------
 -- Coinbase Helpers --
@@ -510,7 +511,6 @@ getLatestBlockHeader cutDb cid = do
   c <- liftIO $ _cut cutDb
   HM.lookup cid (_cutMap c) ?? RosettaInvalidChain
 
-
 findBlockHeaderInCurrFork
     :: CutDb tbl
     -> ChainId
@@ -545,7 +545,6 @@ findBlockHeaderInCurrFork cutDb cid someHeight someHash = do
       somebh <- liftIO $ seekAncestor db latest (int hi)
       somebh ?? RosettaInvalidBlockHeight
 
-
 getBlockOutputs
     :: forall tbl
     . CanReadablePayloadCas tbl
@@ -553,7 +552,7 @@ getBlockOutputs
     -> BlockHeader
     -> ExceptT RosettaFailure Handler (CoinbaseTx (CommandResult Hash), V.Vector (CommandResult Hash))
 getBlockOutputs payloadDb bh = do
-  someOut <- liftIO $ tableLookup payloadDb (_blockPayloadHash bh)
+  someOut <- liftIO $ lookupPayloadWithHeight payloadDb (Just $ _blockHeight bh) (_blockPayloadHash bh)
   outputs <- someOut ?? RosettaPayloadNotFound
   txsOut <- decodeTxsOut outputs ?? RosettaUnparsableTxOut
   coinbaseOut <- decodeCoinbaseOut outputs ?? RosettaUnparsableTxOut
@@ -572,8 +571,11 @@ getTxLogs
     -> BlockHeader
     -> ExceptT RosettaFailure Handler (Map TxId [AccountLog])
 getTxLogs cr bh = do
-  someHist <- liftIO $ _pactBlockTxHistory cr bh d
-  (BlockTxHistory hist prevTxs) <- hush someHist ?? RosettaPactExceptionThrown
+  exnOrSomeHist <- liftIO $ try @_ @PactException $ _pactBlockTxHistory cr bh d
+  someHist <- hush exnOrSomeHist ?? RosettaPactExceptionThrown
+  BlockTxHistory hist prevTxs <- case someHist of
+    NoHistory -> throwError RosettaTxIdNotFound
+    Historical hist -> return hist
   lastBalSeen <- hoistEither $ parsePrevTxs prevTxs
   histAcctRow <- hoistEither $ parseHist hist
   pure $ getBalanceDeltas histAcctRow lastBalSeen
@@ -651,8 +653,9 @@ getHistoricalLookupBalance'
     -> T.Text
     -> ExceptT RosettaFailure Handler (Maybe AccountRow)
 getHistoricalLookupBalance' cr bh k = do
-  someHist <- liftIO $ _pactHistoricalLookup cr bh d key
-  hist <- hush someHist ?? RosettaPactExceptionThrown
+  hist <- liftIO (_pactHistoricalLookup cr bh d key) >>= \case
+    NoHistory -> throwError (RosettaTxIdNotFound)
+    Historical hist -> return hist
   case hist of
     Nothing -> pure Nothing
     Just h -> do

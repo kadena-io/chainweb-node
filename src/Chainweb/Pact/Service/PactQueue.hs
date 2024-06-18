@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
@@ -17,6 +18,10 @@
 --
 module Chainweb.Pact.Service.PactQueue
 ( addRequest
+, cancelSubmittedRequest
+, waitForSubmittedRequest
+, submitRequestAnd
+, submitRequestAndWait
 , getNextRequest
 , getPactQueueStats
 , newPactQueue
@@ -26,10 +31,11 @@ module Chainweb.Pact.Service.PactQueue
 ) where
 
 import Control.Applicative
-import Control.Concurrent.STM.TBQueue
+import Control.Concurrent.Async
+import Control.Concurrent.STM
 import Control.DeepSeq (NFData)
-import Control.Monad ((>=>))
-import Control.Monad.STM
+import Control.Exception.Safe
+import Control.Monad
 
 import Data.Aeson
 import Data.IORef
@@ -51,9 +57,9 @@ import Chainweb.Utils
 -- other requests.
 --
 data PactQueue = PactQueue
-    { _pactQueueValidateBlock :: !(TBQueue (T2 RequestMsg (Time Micros)))
-    , _pactQueueNewBlock :: !(TBQueue (T2 RequestMsg (Time Micros)))
-    , _pactQueueOtherMsg :: !(TBQueue (T2 RequestMsg (Time Micros)))
+    { _pactQueueValidateBlock :: !(TBQueue (T2 SubmittedRequestMsg (Time Micros)))
+    , _pactQueueNewBlock :: !(TBQueue (T2 SubmittedRequestMsg (Time Micros)))
+    , _pactQueueOtherMsg :: !(TBQueue (T2 SubmittedRequestMsg (Time Micros)))
     , _pactQueuePactQueueValidateBlockMsgCounters :: !(IORef PactQueueCounters)
     , _pactQueuePactQueueNewBlockMsgCounters :: !(IORef PactQueueCounters)
     , _pactQueuePactQueueOtherMsgCounters :: !(IORef PactQueueCounters)
@@ -78,19 +84,60 @@ newPactQueue sz = PactQueue
 
 -- | Add a request to the Pact execution queue
 --
-addRequest :: PactQueue -> RequestMsg -> IO ()
-addRequest q msg =  do
+addRequest :: PactQueue -> RequestMsg r -> IO (TVar (RequestStatus r))
+addRequest q msg = do
+    statusRef <- newTVarIO RequestNotStarted
+    let submittedReq = SubmittedRequestMsg msg statusRef
     entranceTime <- getCurrentTimeIntegral
-    atomically $ writeTBQueue priority (T2 msg entranceTime)
+    atomically $ writeTBQueue priority (T2 submittedReq entranceTime)
+    return statusRef
   where
     priority = case msg of
         ValidateBlockMsg {} -> _pactQueueValidateBlock q
         NewBlockMsg {} -> _pactQueueNewBlock q
         _ -> _pactQueueOtherMsg q
 
+-- | Cancel a request that's already been submitted to the Pact queue.
+--
+cancelSubmittedRequest :: TVar (RequestStatus r) -> IO ()
+cancelSubmittedRequest statusRef = atomically $ do
+    status <- readTVar statusRef
+    case status of
+        RequestFailed _ -> return ()
+        RequestInProgress -> writeTVar statusRef (RequestFailed (toException AsyncCancelled))
+        RequestDone _ -> return ()
+        RequestNotStarted -> writeTVar statusRef (RequestFailed (toException AsyncCancelled))
+
+-- | Block waiting for the result of a request that's already been submitted
+-- to the Pact queue.
+--
+waitForSubmittedRequest :: TVar (RequestStatus r) -> IO r
+waitForSubmittedRequest statusRef = atomically $ do
+    status <- readTVar statusRef
+    case status of
+        RequestFailed e -> throwIO e
+        RequestInProgress -> retry
+        RequestDone r -> return r
+        RequestNotStarted -> retry
+
+-- | Submit a request and give a handle on its status to the continuation.
+-- When the continuation terminates, *cancel the request*.
+--
+submitRequestAnd :: PactQueue -> RequestMsg r -> (TVar (RequestStatus r) -> IO a) -> IO a
+submitRequestAnd q msg k = mask $ \restore -> do
+    status <- addRequest q msg
+    restore (k status) `finally`
+        uninterruptibleMask_ (cancelSubmittedRequest status)
+
+-- | Submit a request and wait for it to finish; if interrupted by an
+-- asynchronous exception, *cancel the request*.
+--
+submitRequestAndWait :: PactQueue -> RequestMsg r -> IO r
+submitRequestAndWait q msg = submitRequestAnd q msg waitForSubmittedRequest
+
 -- | Get the next available request from the Pact execution queue
 --
-getNextRequest :: PactQueue -> IO RequestMsg
+getNextRequest :: PactQueue -> IO SubmittedRequestMsg
 getNextRequest q = do
     T2 req entranceTime <- atomically
         $ tryReadTBQueueOrRetry (_pactQueueValidateBlock q)
@@ -104,8 +151,8 @@ getNextRequest q = do
         Nothing -> retry
         Just msg -> return msg
 
-    counters ValidateBlockMsg{} = _pactQueuePactQueueValidateBlockMsgCounters
-    counters NewBlockMsg{} = _pactQueuePactQueueNewBlockMsgCounters
+    counters (SubmittedRequestMsg ValidateBlockMsg{} _) = _pactQueuePactQueueValidateBlockMsgCounters
+    counters (SubmittedRequestMsg NewBlockMsg{} _) = _pactQueuePactQueueNewBlockMsgCounters
     counters _ = _pactQueuePactQueueOtherMsgCounters
 
 -- -------------------------------------------------------------------------- --
@@ -191,4 +238,3 @@ getPactQueueStats q = PactQueueStats
     <$> readIORef (_pactQueuePactQueueValidateBlockMsgCounters q)
     <*> readIORef (_pactQueuePactQueueNewBlockMsgCounters q)
     <*> readIORef (_pactQueuePactQueueOtherMsgCounters q)
-

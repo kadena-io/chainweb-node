@@ -76,27 +76,30 @@ import Pact.Types.Command hiding (Payload)
 
 main :: IO ()
 main = void $ do
+    recapDevnet
     devnet
-    fastDevnet
     fastnet
+    instantnet
     testnet
     mainnet
     genTxModules
     genCoinV3Payloads
     genCoinV4Payloads
     genCoinV5Payloads
+    genCoinV6Payloads
     putStrLn "Done."
   where
-    devnet = mkPayloads
-      [ development0
-      , developmentN
-      , developmentKAD
+    recapDevnet = mkPayloads
+      [ recapDevelopment0
+      , recapDevelopmentN
+      , recapDevelopmentKAD
       ]
-    fastDevnet = mkPayloads
+    devnet = mkPayloads
       [ fastDevelopment0
       , fastDevelopmentN
       ]
     fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
+    instantnet = mkPayloads [instantCPM0, instantCPMN]
     testnet = mkPayloads [testnet0, testnetN]
     mainnet = mkPayloads
       [ mainnet0
@@ -159,6 +162,11 @@ genCoinV5Payloads = genTxModule "CoinV5"
   [ coinContractV5
   ]
 
+genCoinV6Payloads :: IO ()
+genCoinV6Payloads = genTxModule "CoinV6"
+  [ coinContractV6
+  ]
+
 ---------------------
 -- Payload Generation
 ---------------------
@@ -171,7 +179,7 @@ genPayloadModule v tag cid cwTxs =
         pdb <- newPayloadDb
         withSystemTempDirectory "ea-pact-db" $ \pactDbDir -> do
             T2 payloadWO _ <- withSqliteDb cid logger pactDbDir False $ \env ->
-                withPactService v cid logger bhdb pdb env testPactServiceConfig $
+                withPactService v cid logger Nothing bhdb pdb env testPactServiceConfig $
                     execNewGenesisBlock noMiner (V.fromList cwTxs)
             return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
 
@@ -182,6 +190,11 @@ mkChainwebTxs' :: [Command Text] -> IO [ChainwebTransaction]
 mkChainwebTxs' rawTxs =
     forM rawTxs $ \cmd -> do
         let cmdBS = fmap TE.encodeUtf8 cmd
+            -- TODO: Use the new `assertCommand` function.
+            -- We want to delete `verifyCommand` at some point.
+            -- It's not critical for Ea because WebAuthn signatures (which
+            -- the new `assertCommand` knows how to handle) are not present
+            -- in Genesis blocks.
             procCmd = verifyCommand cmdBS
         case procCmd of
             f@ProcFail{} -> fail (show f)
@@ -272,7 +285,7 @@ genTxModules = void $ do
   where
     gen tag remeds = genTxModule tag $ upgrades <> remeds
     genOtherTxs = gen "Other" []
-    genDevTxs = gen "Development"
+    genDevTxs = gen "RecapDevelopment"
       ["pact/coin-contract/remediations/devother/remediations.yaml"]
 
     genMain :: Int -> IO ()

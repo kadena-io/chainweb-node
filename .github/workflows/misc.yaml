@@ -1,0 +1,17 @@
+name: Miscellaneous tasks
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions: read-all
+
+jobs:
+  no_changelog_fixme:
+    name: No FIXMEs in Changelog
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29
+      - run: grep -zqv FIXME CHANGELOG.md

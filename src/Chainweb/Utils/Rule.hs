@@ -2,6 +2,8 @@
 {-# language DeriveGeneric #-}
 {-# language DeriveTraversable #-}
 {-# language DerivingStrategies #-}
+{-# language InstanceSigs #-}
+{-# language LambdaCase #-}
 {-# language TupleSections #-}
 
 module Chainweb.Utils.Rule where
@@ -9,6 +11,7 @@ module Chainweb.Utils.Rule where
 import Control.DeepSeq
 
 import Data.Aeson
+import Data.Bifunctor
 import Data.Hashable
 import qualified Data.List.NonEmpty as NE
 import Data.Functor.Apply
@@ -29,6 +32,14 @@ import GHC.Generics
 data Rule h a = Above (h, a) (Rule h a) | End a
     deriving stock (Eq, Ord, Show, Foldable, Functor, Generic, Generic1, Traversable)
     deriving anyclass (Hashable, NFData)
+
+instance Bifunctor Rule where
+  bimap :: (h -> h') -> (a -> a') -> Rule h a -> Rule h' a'
+  bimap fh fa = go
+    where
+      go = \case
+        Above (h, a) r -> Above (fh h, fa a) (go r)
+        End a -> End (fa a)
 
 instance Foldable1 (Rule h) where foldMap1 = foldMap1Default
 instance Traversable1 (Rule h) where

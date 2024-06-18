@@ -19,9 +19,13 @@ if os(darwin)
             extra-include-dirs:
                 /opt/local/include
                 /usr/local/opt/openssl/include
+                /opt/homebrew/include
+                /opt/homebrew/opt/openssl/include
             extra-lib-dirs:
                 /opt/local/lib
                 /usr/local/opt/openssl/lib/
+                /opt/homebrew/lib
+                /opt/homebrew/opt/openssl/lib
 
 -- -------------------------------------------------------------------------- --
 -- Package Specific Build Settings
@@ -29,10 +33,18 @@ if os(darwin)
 package chainweb
     tests: True
     benchmarks: True
+    ghc-options: -Wno-missed-extra-shared-lib
 
 if impl(ghc >= 9.8.1)
     package chainweb
         ghc-options: -Wno-x-partial
+
+    -- Remove once we actually upgrade to GHC 9.8.1, these
+    -- will be released
+    allow-newer: bytesmith:bytestring
+    allow-newer: bytebuild:*
+    allow-newer: byteslice:*
+    constraints: haskell-src-meta >= 0.8.13
 
 package pact
     ghc-options: -Wwarn
@@ -63,8 +75,8 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 0c9cfe5e88659c762289f24c8be54ed8c5b13251
-    --sha256: 11kznkm05j3797g87qz4skh5q21pxsh4lh2qvp50lac6m2fcgwj3
+    tag: 4c0acc5fb322014b120c4a5942db8505968ab046
+    --sha256: 0kyh6xwm06npbw73dil5xpngfr7h6ppsn5jz7hjkirq9hj33aqqv
 
 source-repository-package
     type: git
@@ -81,8 +93,8 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/rocksdb-haskell.git
-    tag: b35d82bad2194a916c821457069388410662b58c
-    --sha256: 0p60xjqv7ayy6vh263id6l2fpa4rr95vnhisa691ix9h8rnwc7hk
+    tag: cede9de2932a4ead1bd82fd7709b19ab7b19b33d
+    --sha256: 1dngd44va6h66vwpdpwmnj0zcky87m4vzykjwv49p2km12lwq9mf
 
 source-repository-package
     type: git
@@ -93,8 +105,8 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
-    tag: 7119860463f05e452288eac651c38313a04d6b6b
-    --sha256: 191iy36rpb3rk15kk48n8vqiawaablcms9imgld5sg15gb7859vf
+    tag: a32d901e4a79be62af9c27c01152c9a4c3912a62
+    --sha256: sha256-xdawv/tdjh61MbJKcBqm9Fje36+gVljuZsAxOTX1gP0=
 
 source-repository-package
     type: git
@@ -124,6 +136,18 @@ source-repository-package
     location: https://github.com/emilypi/base64-bytestring-kadena
     tag: 174af3523616c8fe01449da5ccbb9f16df097ac3
     --sha256: sha256-kVFIy+Aj3TNJpsM1Cs/5uGmzeWwHKYWjjCQ+L1/XOj8=
+
+source-repository-package
+    type: git
+    location: https://github.com/chessai/patience
+    tag: 2f67d546ea6608fc6ebe5f2f6976503cbf340442
+    --sha256: 0x137akvbh4kr3qagksw74xdj2xz5vjnx1fbr41bb54a0lkcb8mm
+
+source-repository-package
+    type: git
+    location: https://github.com/andrewthad/chronos
+    tag: b199bf6df1453af95832c2d2f9f0ef48c3622caa
+    --sha256: 056awkmdmkqdd5g3m8a1ibg2vp02kbppmidkfh4aildb1brq970a
 
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds

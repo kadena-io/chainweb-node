@@ -1,0 +1,1 @@
+Disable telemetry monitor threads when telemetry is disabled anyway

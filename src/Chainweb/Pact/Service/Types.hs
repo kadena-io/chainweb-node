@@ -1,7 +1,12 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -20,19 +25,86 @@
 --
 -- Types module for Pact execution API
 
-module Chainweb.Pact.Service.Types where
+module Chainweb.Pact.Service.Types
+  ( NewBlockReq(..)
+  , NewBlockFill(..)
+  , ContinueBlockReq(..)
+  , ValidateBlockReq(..)
+  , SyncToBlockReq(..)
+  , LocalReq(..)
+  , LookupPactTxsReq(..)
+  , PreInsertCheckReq(..)
+  , BlockTxHistoryReq(..)
+  , HistoricalLookupReq(..)
+  , ReadOnlyReplayReq(..)
+
+  , RequestMsg(..)
+  , SubmittedRequestMsg(..)
+  , RequestStatus(..)
+  , RequestCancelled(..)
+  , PactServiceConfig(..)
+
+  , LocalPreflightSimulation(..)
+  , LocalSignatureVerification(..)
+  , RewindDepth(..)
+  , ConfirmationDepth(..)
+  , RewindLimit(..)
+
+  , BlockValidationFailureMsg(..)
+  , LocalResult(..)
+  , _LocalResultLegacy
+  , BlockTxHistory(..)
+
+  , PactException(..)
+  , PactExceptionTag(..)
+  , GasPurchaseFailure(..)
+  , gasPurchaseFailureHash
+  , SpvRequest(..)
+
+  , TransactionOutputProofB64(..)
+
+  , internalError
+  , throwIfNoHistory
+
+  , ModuleCache(..)
+  , filterModuleCacheByKey
+  , moduleCacheToHashMap
+  , moduleCacheFromHashMap
+  , moduleCacheKeys
+  , cleanModuleCache
+
+  , BlockInProgress(..)
+  , blockInProgressPendingData
+  , blockInProgressTxId
+  , blockInProgressModuleCache
+  , blockInProgressParentHeader
+  , blockInProgressRemainingGasLimit
+  , blockInProgressMiner
+  , blockInProgressTransactions
+  , emptyBlockInProgressForTesting
+  , blockInProgressToPayloadWithOutputs
+  , Transactions(..)
+  , transactionPairs
+  , transactionCoinbase
+  , toPayloadWithOutputs
+  , toHashCommandResult
+  , module Chainweb.Pact.Backend.Types
+  ) where
 
 import Control.DeepSeq
-import Control.Concurrent.MVar.Strict
+import Control.Exception (asyncExceptionFromException, asyncExceptionToException)
+import Control.Concurrent.STM
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
 import Control.Applicative
 
 import Data.Aeson
+import qualified Data.ByteString.Short as SB
 import Data.HashMap.Strict (HashMap)
-import Data.Map (Map)
+import qualified Data.HashMap.Strict as HM
 import qualified Data.List.NonEmpty as NE
-import Data.Text (Text, pack, unpack)
+import Data.Text (Text, unpack)
+import qualified Data.Text.Encoding as T
 import Data.Vector (Vector)
 import Data.Word (Word64)
 
@@ -48,8 +120,9 @@ import Pact.Types.Gas
 import Pact.Types.Hash
 import Pact.Types.Persistence
 import Pact.Types.RowData
-
+import Pact.Types.Runtime hiding (ChainId)
 import qualified Pact.JSON.Encode as J
+import qualified Pact.JSON.Legacy.HashMap as LHM
 
 -- internal chainweb modules
 
@@ -60,10 +133,15 @@ import Chainweb.ChainId
 import Chainweb.Mempool.Mempool (InsertError(..),TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.DbCache
+import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.NoCoinbase
 import Chainweb.Payload
-import Chainweb.Transaction
-import Chainweb.Utils (T2)
 import Chainweb.Time
+import Chainweb.Transaction
+import Chainweb.Utils
+import Chainweb.Version
+import Chainweb.Version.Mainnet
+import GHC.Stack
 
 -- | Value that represents a limitation for rewinding.
 newtype RewindLimit = RewindLimit { _rewindLimit :: Word64 }
@@ -85,8 +163,6 @@ data PactServiceConfig = PactServiceConfig
   { _pactReorgLimit :: !RewindLimit
     -- ^ Maximum allowed reorg depth, implemented as a rewind limit in validate. New block
     -- hardcodes this to 8 currently.
-  , _pactLocalRewindDepthLimit :: !RewindLimit
-    -- ^ Maximum allowed rewind depth in the local command.
   , _pactPreInsertCheckTimeout :: !Micros
     -- ^ Maximum allowed execution time for the transactions validation.
   , _pactAllowReadsInLocal :: !Bool
@@ -103,6 +179,14 @@ data PactServiceConfig = PactServiceConfig
     -- ^ whether to write transaction gas logs at INFO
   , _pactModuleCacheLimit :: !DbCacheLimitBytes
     -- ^ limit of the database module cache in bytes of corresponding row data
+  , _pactFullHistoryRequired :: !Bool
+    -- ^ Whether or not the node requires that the full Pact history be
+    --   available. Compaction can remove history.
+  , _pactEnableLocalTimeout :: !Bool
+    -- ^ Whether to enable the local timeout to prevent long-running transactions
+  , _pactPersistIntraBlockWrites :: !IntraBlockPersistence
+    -- ^ Whether or not the node requires that all writes made in a block
+    --   are persisted. Useful if you want to use PactService BlockTxHistory.
   } deriving (Eq,Show)
 
 data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError
@@ -145,6 +229,7 @@ data LocalResult
     = MetadataValidationFailure !(NE.NonEmpty Text)
     | LocalResultWithWarns !(CommandResult Hash) ![Text]
     | LocalResultLegacy !(CommandResult Hash)
+    | LocalTimeout
     deriving (Show, Generic)
 
 makePrisms ''LocalResult
@@ -153,6 +238,7 @@ instance NFData LocalResult where
     rnf (MetadataValidationFailure t) = rnf t
     rnf (LocalResultWithWarns cr ws) = rnf cr `seq` rnf ws
     rnf (LocalResultLegacy cr) = rnf cr
+    rnf LocalTimeout = ()
 
 instance J.Encode LocalResult where
     build (MetadataValidationFailure e) = J.object
@@ -163,15 +249,22 @@ instance J.Encode LocalResult where
         [ "preflightResult" J..= cr
         , "preflightWarnings" J..= J.Array (J.text <$> ws)
         ]
+    build LocalTimeout = J.text "Transaction timed out"
     {-# INLINE build #-}
 
 instance FromJSON LocalResult where
-    parseJSON v = withObject "LocalResult"
-        (\o -> metaFailureParser o
-            <|> localWithWarnParser o
-            <|> legacyFallbackParser o
-        )
-        v
+    parseJSON v =
+          withText
+            "LocalResult"
+            (\s -> if s == "Transaction timed out" then pure LocalTimeout else fail "Invalid LocalResult")
+            v
+      <|> withObject
+            "LocalResult"
+            (\o -> metaFailureParser o
+                <|> localWithWarnParser o
+                <|> legacyFallbackParser o
+            )
+            v
       where
         metaFailureParser o =
             MetadataValidationFailure <$> o .: "preflightValidationFailure"
@@ -185,7 +278,8 @@ instance FromJSON LocalResult where
 --
 data PactException
   = BlockValidationFailure !BlockValidationFailureMsg
-  | PactInternalError !Text
+  -- TODO: use this CallStack in the Show instance somehow, or the displayException impl.
+  | PactInternalError !CallStack !Text
   | PactTransactionExecError !PactHash !Text
   | CoinbaseFailure !Text
   | NoBlockValidatedYet
@@ -195,29 +289,27 @@ data PactException
   | RewindLimitExceeded
       { _rewindExceededLimit :: !RewindLimit
           -- ^ Rewind limit
-      , _rewindExceededLastHeight :: !BlockHeight
-          -- ^ current height
-      , _rewindExceededForkHeight :: !BlockHeight
-          -- ^ fork height
-      , _rewindExceededTarget :: !BlockHeader
+      , _rewindExceededLast :: !(Maybe BlockHeader)
+          -- ^ current header
+      , _rewindExceededTarget :: !(Maybe BlockHeader)
           -- ^ target header
       }
   | BlockHeaderLookupFailure !Text
   | BuyGasFailure !GasPurchaseFailure
   | MempoolFillFailure !Text
   | BlockGasLimitExceeded !Gas
-  | LocalRewindLimitExceeded
-    { _localRewindExceededLimit :: !RewindLimit
-    , _localRewindRequestedDepth :: !RewindDepth }
-  | LocalRewindGenesisExceeded
-  deriving (Eq,Generic)
+  | FullHistoryRequired
+    { _earliestBlockHeight :: !BlockHeight
+    , _genesisHeight :: !BlockHeight
+    }
+  deriving stock Generic
 
 instance Show PactException where
     show = unpack . J.encodeText
 
 instance J.Encode PactException where
   build (BlockValidationFailure msg) = tagged "BlockValidationFailure" msg
-  build (PactInternalError msg) = tagged "PactInternalError" msg
+  build (PactInternalError _stack msg) = tagged "PactInternalError" msg
   build (PactTransactionExecError h msg) = tagged "PactTransactionExecError" (J.Array (h, msg))
   build (CoinbaseFailure msg) = tagged "CoinbaseFailure" msg
   build NoBlockValidatedYet = tagged "NoBlockValidatedYet" J.null
@@ -226,19 +318,17 @@ instance J.Encode PactException where
   build (TransactionDecodeFailure msg) = tagged "TransactionDecodeFailure" msg
   build o@(RewindLimitExceeded{}) = tagged "RewindLimitExceeded" $ J.object
     [ "_rewindExceededLimit" J..= J.Aeson (_rewindLimit $ _rewindExceededLimit o)
-    , "_rewindExceededLastHeight" J..= J.Aeson @Int (fromIntegral $ _rewindExceededLastHeight o)
-    , "_rewindExceededForkHeight" J..= J.Aeson @Int (fromIntegral $ _rewindExceededForkHeight o)
-    , "_rewindExceededTarget" J..= J.encodeWithAeson (_rewindExceededTarget o)
+    , "_rewindExceededLast" J..= J.encodeWithAeson (ObjectEncoded <$> _rewindExceededLast o)
+    , "_rewindExceededTarget" J..= J.encodeWithAeson (ObjectEncoded <$> _rewindExceededTarget o)
     ]
   build (BlockHeaderLookupFailure msg) = tagged "BlockHeaderLookupFailure" msg
   build (BuyGasFailure failure) = tagged "BuyGasFailure" failure
   build (MempoolFillFailure msg) = tagged "MempoolFillFailure" msg
   build (BlockGasLimitExceeded gas) = tagged "BlockGasLimitExceeded" gas
-  build o@(LocalRewindLimitExceeded {}) = tagged "LocalRewindLimitExceeded" $ J.object
-    [ "_localRewindExceededLimit" J..= J.Aeson (_rewindLimit $ _localRewindExceededLimit o)
-    , "_localRewindRequestedDepth" J..= J.Aeson @Int (fromIntegral $ _rewindDepth $ _localRewindRequestedDepth o)
+  build o@(FullHistoryRequired{}) = tagged "FullHistoryRequired" $ J.object
+    [ "_fullHistoryRequiredEarliestBlockHeight" J..= J.Aeson @Int (fromIntegral $ _earliestBlockHeight o)
+    , "_fullHistoryRequiredGenesisHeight" J..= J.Aeson @Int (fromIntegral $ _genesisHeight o)
     ]
-  build LocalRewindGenesisExceeded = tagged "LocalRewindGenesisExceeded" J.null
 
 tagged :: J.Encode v => Text -> v -> J.Builder
 tagged t v = J.object
@@ -257,109 +347,144 @@ instance FromJSON PactExceptionTag where
     parseJSON = withObject "PactExceptionTag" $ \o -> PactExceptionTag
         <$> o .: "tag"
 
--- | Gather tx logs for a block, along with last tx for each
--- key in history, if any
--- Not intended for public API use; ToJSONs are for logging output.
-data BlockTxHistory = BlockTxHistory
-  { _blockTxHistory :: !(Map TxId [TxLog RowData])
-  , _blockPrevHistory :: !(Map RowKey (TxLog RowData))
-  }
-  deriving (Eq,Generic)
-instance Show BlockTxHistory where
-  show = show . fmap (J.encodeText . J.Array) . _blockTxHistory
-instance NFData BlockTxHistory
 
+internalError :: (HasCallStack, MonadThrow m) => Text -> m a
+internalError = throwM . PactInternalError callStack
 
+throwIfNoHistory :: (HasCallStack, MonadThrow m) => Historical a -> m a
+throwIfNoHistory NoHistory = internalError "missing history"
+throwIfNoHistory (Historical a) = return a
 
+data RequestCancelled = RequestCancelled
+  deriving (Eq, Show)
+instance Exception RequestCancelled where
+  toException = asyncExceptionToException
+  fromException = asyncExceptionFromException
 
-internalError :: MonadThrow m => Text -> m a
-internalError = throwM . PactInternalError
+-- graph-easy <<EOF
+-- > [ RequestNotStarted ] - cancelled -> [ RequestFailed ]
+-- > [ RequestNotStarted ] - started -> [ RequestInProgress ]
+-- > [ RequestInProgress ] - cancelled/failed -> [ RequestFailed ]
+-- > [ RequestInProgress ] - completed -> [ RequestDone ]
+-- > EOF
+--
+-- +-------------------+  started            +-------------------+  completed   +-------------+
+-- | RequestNotStarted | ------------------> | RequestInProgress | -----------> | RequestDone |
+-- +-------------------+                     +-------------------+              +-------------+
+--   |                                         |
+--   | cancelled                               |
+--   v                                         |
+-- +-------------------+  cancelled/failed     |
+-- |   RequestFailed   | <---------------------+
+-- +-------------------+
+data RequestStatus r
+    = RequestDone !r
+    | RequestInProgress
+    | RequestNotStarted
+    | RequestFailed !SomeException
+data SubmittedRequestMsg
+    = forall r. SubmittedRequestMsg (RequestMsg r) (TVar (RequestStatus r))
+instance Show SubmittedRequestMsg where
+    show (SubmittedRequestMsg msg _) = show msg
 
-internalError' :: MonadThrow m => String -> m a
-internalError' = internalError . pack
+data RequestMsg r where
+    ContinueBlockMsg :: !ContinueBlockReq -> RequestMsg (Historical BlockInProgress)
+    NewBlockMsg :: !NewBlockReq -> RequestMsg (Historical BlockInProgress)
+    ValidateBlockMsg :: !ValidateBlockReq -> RequestMsg PayloadWithOutputs
+    LocalMsg :: !LocalReq -> RequestMsg LocalResult
+    LookupPactTxsMsg :: !LookupPactTxsReq -> RequestMsg (HashMap PactHash (T2 BlockHeight BlockHash))
+    PreInsertCheckMsg :: !PreInsertCheckReq -> RequestMsg (Vector (Either InsertError ()))
+    BlockTxHistoryMsg :: !BlockTxHistoryReq -> RequestMsg (Historical BlockTxHistory)
+    HistoricalLookupMsg :: !HistoricalLookupReq -> RequestMsg (Historical (Maybe (TxLog RowData)))
+    SyncToBlockMsg :: !SyncToBlockReq -> RequestMsg ()
+    ReadOnlyReplayMsg :: !ReadOnlyReplayReq -> RequestMsg ()
+    CloseMsg :: RequestMsg ()
 
-data RequestMsg = NewBlockMsg !NewBlockReq
-                | ValidateBlockMsg !ValidateBlockReq
-                | LocalMsg !LocalReq
-                | LookupPactTxsMsg !LookupPactTxsReq
-                | PreInsertCheckMsg !PreInsertCheckReq
-                | BlockTxHistoryMsg !BlockTxHistoryReq
-                | HistoricalLookupMsg !HistoricalLookupReq
-                | SyncToBlockMsg !SyncToBlockReq
-                | CloseMsg
-                deriving (Show)
+instance Show (RequestMsg r) where
+    show (NewBlockMsg req) = show req
+    show (ContinueBlockMsg req) = show req
+    show (ValidateBlockMsg req) = show req
+    show (LocalMsg req) = show req
+    show (LookupPactTxsMsg req) = show req
+    show (PreInsertCheckMsg req) = show req
+    show (BlockTxHistoryMsg req) = show req
+    show (HistoricalLookupMsg req) = show req
+    show (SyncToBlockMsg req) = show req
+    show (ReadOnlyReplayMsg req) = show req
+    show CloseMsg = "CloseReq"
 
-type PactExMVar t = MVar (Either PactException t)
+data NewBlockReq
+    = NewBlockReq
+    { _newBlockMiner :: !Miner
+    , _newBlockFill :: !NewBlockFill
+    -- ^ whether to fill this block with transactions; if false, the block
+    -- will be empty.
+    , _newBlockParent :: !ParentHeader
+    -- ^ the parent to use for the new block
+    } deriving stock Show
 
-data NewBlockReq = NewBlockReq
-    { _newBlockHeader :: !ParentHeader
-    , _newMiner :: !Miner
-    , _newResultVar :: !(PactExMVar PayloadWithOutputs)
-    }
-instance Show NewBlockReq where show NewBlockReq{..} = show (_newBlockHeader, _newMiner)
+data NewBlockFill = NewBlockFill | NewBlockEmpty
+  deriving stock Show
+
+newtype ContinueBlockReq
+    = ContinueBlockReq BlockInProgress
+    deriving stock Show
 
 data ValidateBlockReq = ValidateBlockReq
     { _valBlockHeader :: !BlockHeader
-    , _valPayloadData :: !PayloadData
-    , _valResultVar :: !(PactExMVar PayloadWithOutputs)
-    }
-instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlockHeader, _valPayloadData)
+    , _valCheckablePayload :: !CheckablePayload
+    } deriving stock Show
 
 data LocalReq = LocalReq
     { _localRequest :: !ChainwebTransaction
     , _localPreflight :: !(Maybe LocalPreflightSimulation)
     , _localSigVerification :: !(Maybe LocalSignatureVerification)
     , _localRewindDepth :: !(Maybe RewindDepth)
-    , _localResultVar :: !(PactExMVar LocalResult)
     }
 instance Show LocalReq where show LocalReq{..} = show _localRequest
 
 data LookupPactTxsReq = LookupPactTxsReq
-    { _lookupRestorePoint :: !Rewind
-        -- here if the restore point is "Nothing" it means "we don't care"
-    , _lookupConfirmationDepth :: !(Maybe ConfirmationDepth)
+    { _lookupConfirmationDepth :: !(Maybe ConfirmationDepth)
     , _lookupKeys :: !(Vector PactHash)
-    , _lookupResultVar :: !(PactExMVar (HashMap PactHash (T2 BlockHeight BlockHash)))
     }
 instance Show LookupPactTxsReq where
-    show (LookupPactTxsReq m _ _ _) =
+    show (LookupPactTxsReq m _) =
         "LookupPactTxsReq@" ++ show m
 
 data PreInsertCheckReq = PreInsertCheckReq
     { _preInsCheckTxs :: !(Vector ChainwebTransaction)
-    , _preInsCheckResult :: !(PactExMVar (Vector (Either InsertError ())))
     }
 instance Show PreInsertCheckReq where
-    show (PreInsertCheckReq v _) =
+    show (PreInsertCheckReq v) =
         "PreInsertCheckReq@" ++ show v
-
--- | Existential wrapper for a Pact persistence domain.
-data Domain' = forall k v . (FromJSON v) => Domain' (Domain k v)
-instance Show Domain' where
-  show (Domain' d) = show d
 
 data BlockTxHistoryReq = BlockTxHistoryReq
   { _blockTxHistoryHeader :: !BlockHeader
   , _blockTxHistoryDomain :: !(Domain RowKey RowData)
-  , _blockTxHistoryResult :: !(PactExMVar BlockTxHistory)
   }
 instance Show BlockTxHistoryReq where
-  show (BlockTxHistoryReq h d _) =
+  show (BlockTxHistoryReq h d) =
     "BlockTxHistoryReq@" ++ show h ++ ", " ++ show d
 
 data HistoricalLookupReq = HistoricalLookupReq
   { _historicalLookupHeader :: !BlockHeader
   , _historicalLookupDomain :: !(Domain RowKey RowData)
   , _historicalLookupRowKey :: !RowKey
-  , _historicalLookupResult :: !(PactExMVar (Maybe (TxLog RowData)))
   }
 instance Show HistoricalLookupReq where
-  show (HistoricalLookupReq h d k _) =
+  show (HistoricalLookupReq h d k) =
     "HistoricalLookupReq@" ++ show h ++ ", " ++ show d ++ ", " ++ show k
+
+data ReadOnlyReplayReq = ReadOnlyReplayReq
+    { _readOnlyReplayLowerBound :: !BlockHeader
+    , _readOnlyReplayUpperBound :: !(Maybe BlockHeader)
+    }
+instance Show ReadOnlyReplayReq where
+  show (ReadOnlyReplayReq l u) =
+    "ReadOnlyReplayReq@" ++ show l ++ ", " ++ show u
 
 data SyncToBlockReq = SyncToBlockReq
     { _syncToBlockHeader :: !BlockHeader
-    , _syncToResultVar :: !(PactExMVar ())
     }
 instance Show SyncToBlockReq where show SyncToBlockReq{..} = show _syncToBlockHeader
 
@@ -386,18 +511,115 @@ newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
     deriving stock (Eq, Show, Generic)
     deriving newtype (ToJSON, FromJSON)
 
--- | This data type marks whether or not a particular header is
--- expected to rewind or not. In the case of 'NoRewind', no
--- header data is given, and a chain id is given instead for
--- routing purposes
---
-data Rewind
-    = DoRewind !BlockHeader
-    | NoRewind {-# UNPACK #-} !ChainId
-    deriving (Eq, Show)
+-- -------------------------------------------------------------------------- --
+-- Module Cache
 
-instance HasChainId Rewind where
-    _chainId = \case
-      DoRewind !bh -> _chainId bh
-      NoRewind !cid -> cid
-    {-# INLINE _chainId #-}
+-- | Block scoped Module Cache
+--
+newtype ModuleCache = ModuleCache { _getModuleCache :: LHM.HashMap ModuleName (ModuleData Ref, Bool) }
+    deriving newtype (Show, Eq, Semigroup, Monoid, NFData)
+
+filterModuleCacheByKey
+    :: (ModuleName -> Bool)
+    -> ModuleCache
+    -> ModuleCache
+filterModuleCacheByKey f (ModuleCache c) = ModuleCache $
+    LHM.fromList $ filter (f . fst) $ LHM.toList c
+{-# INLINE filterModuleCacheByKey #-}
+
+moduleCacheToHashMap
+    :: ModuleCache
+    -> HM.HashMap ModuleName (ModuleData Ref, Bool)
+moduleCacheToHashMap (ModuleCache c) = HM.fromList $ LHM.toList c
+{-# INLINE moduleCacheToHashMap #-}
+
+moduleCacheFromHashMap
+    :: HM.HashMap ModuleName (ModuleData Ref, Bool)
+    -> ModuleCache
+moduleCacheFromHashMap = ModuleCache . LHM.fromList . HM.toList
+{-# INLINE moduleCacheFromHashMap #-}
+
+moduleCacheKeys :: ModuleCache -> [ModuleName]
+moduleCacheKeys (ModuleCache a) = fst <$> LHM.toList a
+{-# INLINE moduleCacheKeys #-}
+
+-- this can't go in Chainweb.Version.Guards because it causes an import cycle
+-- it uses genesisHeight which is from BlockHeader which imports Guards
+cleanModuleCache :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+cleanModuleCache v cid bh =
+  case v ^?! versionForks . at Chainweb217Pact . _Just . onChain cid of
+    ForkAtBlockHeight bh' -> bh == bh'
+    ForkAtGenesis -> bh == genesisHeight v cid
+    ForkNever -> False
+
+-- State from a block in progress, which is used to extend blocks after
+-- running their payloads.
+data BlockInProgress = BlockInProgress
+  { _blockInProgressPendingData :: !SQLitePendingData
+  , _blockInProgressTxId :: !TxId
+  , _blockInProgressModuleCache :: !ModuleCache
+  , _blockInProgressParentHeader :: !ParentHeader
+  , _blockInProgressRemainingGasLimit :: !GasLimit
+  , _blockInProgressMiner :: !Miner
+  , _blockInProgressTransactions :: !(Transactions (CommandResult [TxLogJson]))
+  } deriving stock (Eq, Show)
+
+-- This block is not really valid, don't use it outside tests.
+emptyBlockInProgressForTesting :: BlockInProgress
+emptyBlockInProgressForTesting = BlockInProgress
+  { _blockInProgressPendingData = emptySQLitePendingData
+  , _blockInProgressTxId = TxId 0
+  , _blockInProgressModuleCache = mempty
+  , _blockInProgressParentHeader =
+    ParentHeader (genesisBlockHeader mainnet (unsafeChainId 0))
+  , _blockInProgressRemainingGasLimit = GasLimit 0
+  , _blockInProgressMiner = noMiner
+  , _blockInProgressTransactions = Transactions
+    { _transactionCoinbase = noCoinbase
+    , _transactionPairs = mempty
+    }
+  }
+
+blockInProgressToPayloadWithOutputs :: BlockInProgress -> PayloadWithOutputs
+blockInProgressToPayloadWithOutputs bip = toPayloadWithOutputs
+  (_blockInProgressMiner bip)
+  (_blockInProgressTransactions bip)
+
+toPayloadWithOutputs :: Miner -> Transactions (CommandResult [TxLogJson]) -> PayloadWithOutputs
+toPayloadWithOutputs mi ts =
+    let oldSeq = _transactionPairs ts
+        trans = cmdBSToTx . fst <$> oldSeq
+        transOuts = toOutputBytes . toHashCommandResult . snd <$> oldSeq
+
+        miner = toMinerData mi
+        cb = CoinbaseOutput $ J.encodeStrict $ toHashCommandResult $ _transactionCoinbase ts
+        blockTrans = snd $ newBlockTransactions miner trans
+        cmdBSToTx = toTransactionBytes
+          . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
+        blockOuts = snd $ newBlockOutputs cb transOuts
+
+        blockPL = blockPayload blockTrans blockOuts
+        plData = payloadData blockTrans blockPL
+     in payloadWithOutputs plData cb transOuts
+
+toTransactionBytes :: Command Text -> Transaction
+toTransactionBytes cwTrans =
+    let plBytes = J.encodeStrict cwTrans
+    in Transaction { _transactionBytes = plBytes }
+
+toOutputBytes :: CommandResult Hash -> TransactionOutput
+toOutputBytes cr =
+    let outBytes = J.encodeStrict cr
+    in TransactionOutput { _transactionOutputBytes = outBytes }
+
+toHashCommandResult :: CommandResult [TxLogJson] -> CommandResult Hash
+toHashCommandResult = over (crLogs . _Just) $ pactHash . encodeTxLogJsonArray
+
+data Transactions r = Transactions
+    { _transactionPairs :: !(Vector (ChainwebTransaction, r))
+    , _transactionCoinbase :: !(CommandResult [TxLogJson])
+    }
+    deriving stock (Functor, Foldable, Traversable, Eq, Show, Generic)
+    deriving anyclass NFData
+makeLenses 'Transactions
+makeLenses 'BlockInProgress

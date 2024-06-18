@@ -54,6 +54,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
@@ -62,7 +63,7 @@ import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version as V
-import Chainweb.Version.Development
+import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Test.Pact.Utils
 
@@ -71,16 +72,19 @@ import Chainweb.Test.Pact.Utils
 -- Global settings
 
 v :: ChainwebVersion
-v = Development
+v = RecapDevelopment
 
 coinReplV1 :: FilePath
-coinReplV1 = "pact/coin-contract/coin.repl"
+coinReplV1 = "pact/coin-contract/v1/coin.repl"
 
 coinReplV4 :: FilePath
 coinReplV4 = "pact/coin-contract/v4/coin-v4.repl"
 
 coinReplV5 :: FilePath
 coinReplV5 = "pact/coin-contract/v5/coin-v5.repl"
+
+coinReplV6 :: FilePath
+coinReplV6 = "pact/coin-contract/coin.repl"
 
 nsReplV1 :: FilePath
 nsReplV1 = "pact/namespaces/v1/ns.repl"
@@ -110,6 +114,7 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
         -- v2 and v3 repl tests were consolidated in v4
       , testCase "v4" (ccReplTests coinReplV4)
       , testCase "v5" (ccReplTests coinReplV5)
+      , testCase "v6" (ccReplTests coinReplV6)
       ]
     , testGroup "Namespace repl unit tests"
       [ testCase "Ns-v1 repl tests" $ ccReplTests nsReplV1
@@ -257,11 +262,11 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
       let h = H.toUntypedHash (H.hash "" :: H.PactHash)
           tenv = TransactionEnv Transactional pdb logger Nothing def
-            noSPVSupport Nothing 0.0 (RequestKey h) 0 def
+            noSPVSupport Nothing 0.0 (RequestKey h) 0 def Nothing Nothing
           txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
       CommandResult _ _ (PactResult pr) _ _ _ _ _ <- evalTransactionM tenv txst $!
-        applyExec 0 defaultInterpreter localCmd [] h permissiveNamespacePolicy
+        applyExec 0 defaultInterpreter localCmd [] [] h permissiveNamespacePolicy
 
       testResult pr
 
@@ -282,8 +287,10 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 testCoinbaseEnforceFailure :: Assertion
 testCoinbaseEnforceFailure = do
     (pdb,mc) <- loadCC coinReplV4
-    r <- tryAllSynchronous $ applyCoinbase toyVersion logger pdb badMiner 0.1 (TxContext someParentHeader def)
-      (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
+    r <- tryAllSynchronous $
+      applyCoinbase toyVersion logger pdb badMiner 0.1
+        (TxContext someParentHeader def)
+        (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left e ->
         if isInfixOf "CoinbaseFailure" (sshow e) then

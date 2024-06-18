@@ -12,6 +12,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.BlockHeaderDB.RestAPI
@@ -48,6 +49,8 @@ module Chainweb.BlockHeaderDB.RestAPI
 -- * API types
   BlockHashPage
 , BlockHeaderPage
+, Block(..)
+, BlockPage
 
 -- * Encodings
 , JsonBlockHeaderObject
@@ -63,7 +66,7 @@ module Chainweb.BlockHeaderDB.RestAPI
 
 -- * BlockHeader Event Stream
 , HeaderUpdate(..)
-, HeaderStreamApi
+, BlockStreamApi
 
 -- * Sub APIs
 , BranchHashesApi
@@ -82,10 +85,14 @@ module Chainweb.BlockHeaderDB.RestAPI
 , headersApi
 , HashesApi
 , hashesApi
+, BlocksApi
+, BranchBlocksApi
 ) where
 
 import Data.Aeson
 import Data.Bifunctor
+import Data.ByteString.Lazy qualified as L
+import Data.Maybe
 import Data.Proxy
 import Data.Text (Text)
 
@@ -98,6 +105,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
+import Chainweb.Payload
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
@@ -108,18 +116,42 @@ import Chainweb.Version
 -- -------------------------------------------------------------------------- --
 -- API types
 
--- | A page of BlockHashes
---
 type BlockHashPage = Page (NextItem BlockHash) BlockHash
 
--- | A page of BlockHeaders
---
 type BlockHeaderPage = Page (NextItem BlockHash) BlockHeader
+
+data Block = Block
+    { _blockHeader :: !BlockHeader
+    , _blockPayloadWithOutputs :: !PayloadWithOutputs
+    }
+    deriving (Eq, Show)
+
+-- because this endpoint is only used on the service API, we assume clients
+-- want object-encoded block headers.
+blockProperties :: KeyValue e kv => Block -> [kv]
+blockProperties o =
+    [ "header"  .= ObjectEncoded (_blockHeader o)
+    , "payloadWithOutputs" .= _blockPayloadWithOutputs o
+    ]
+
+instance ToJSON Block where
+    toJSON = object . blockProperties
+    toEncoding = pairs . mconcat . blockProperties
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance FromJSON Block where
+    parseJSON = withObject "Block" $ \o -> Block
+        <$> (_objectEncoded <$> o .: "header")
+        <*> o .: "payloadWithOutputs"
+    {-# INLINE parseJSON #-}
+
+type BlockPage = Page (NextItem BlockHash) Block
 
 -- -------------------------------------------------------------------------- --
 -- Encodings
 
--- | Orphan instance to encode BlockHeaders as OctetStream
+-- | Orphan instance to decode BlockHeaders from OctetStream
 --
 instance MimeUnrender OctetStream BlockHeader where
     mimeUnrender _ = runGetEitherL decodeBlockHeader
@@ -129,6 +161,11 @@ instance MimeUnrender OctetStream BlockHeader where
 --
 instance MimeRender OctetStream BlockHeader where
     mimeRender _ = runPutL . encodeBlockHeader
+    {-# INLINE mimeRender #-}
+
+-- | Orphan instance to encode pages of blocks as JSON
+instance MimeRender JSON BlockPage where
+    mimeRender _ = encode
     {-# INLINE mimeRender #-}
 
 -- | The default JSON instance of BlockHeader is an unpadded base64Url encoding of
@@ -159,6 +196,80 @@ instance MimeUnrender JsonBlockHeaderObject BlockHeaderPage where
 instance MimeRender JsonBlockHeaderObject BlockHeaderPage where
     mimeRender _ = encode . fmap ObjectEncoded
     {-# INLINE mimeRender #-}
+
+-- -------------------------------------------------------------------------- --
+
+instance MimeRender OctetStream BlockPayload where
+    mimeRender _ = L.fromStrict . encodeBlockPayloads
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream BlockPayload where
+    mimeUnrender _ = first show . decodeBlockPayloads . L.toStrict
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender OctetStream BlockTransactions where
+    mimeRender _ = L.fromStrict . encodeBlockTransactions
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream BlockTransactions where
+    mimeUnrender _ = first show . decodeBlockTransactions . L.toStrict
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender OctetStream BlockOutputs where
+    mimeRender _ = L.fromStrict . encodeBlockOutputs
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream BlockOutputs where
+    mimeUnrender _ = first show . decodeBlockOutputs . L.toStrict
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender OctetStream TransactionTree where
+    mimeRender _ = L.fromStrict . encodeTransactionTree
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream TransactionTree where
+    mimeUnrender _ = first show . decodeTransactionTree . L.toStrict
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender OctetStream OutputTree where
+    mimeRender _ = L.fromStrict . encodeOutputTree
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream OutputTree where
+    mimeUnrender _ = first show . decodeOutputTree . L.toStrict
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender OctetStream PayloadWithOutputs where
+    mimeRender _ = L.fromStrict . encodePayloadWithOutputs
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream PayloadWithOutputs where
+    mimeUnrender _ = first show . decodePayloadWithOutputs . L.toStrict
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender OctetStream PayloadData where
+    mimeRender _ = L.fromStrict . encodePayloadData
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream PayloadData where
+    mimeUnrender _ = first show . decodePayloadData . L.toStrict
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender OctetStream PayloadDataList where
+    mimeRender _ = L.fromStrict . encodePayloadDataList
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream PayloadDataList where
+    mimeUnrender _ = first show . decodePayloadDataList . L.toStrict
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender OctetStream PayloadWithOutputsList where
+    mimeRender _ = L.fromStrict . encodePayloadWithOutputsList
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream PayloadWithOutputsList where
+    mimeUnrender _ = first show . decodePayloadWithOutputsList . L.toStrict
+    {-# INLINE mimeUnrender #-}
 
 -- -------------------------------------------------------------------------- --
 -- Type indexed BlockHeaderDb
@@ -363,14 +474,47 @@ p2pHeaderApi
 p2pHeaderApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+type BlocksApi_
+    = "block"
+    :> PageParams (NextItem BlockHash)
+    :> FilterParams
+    :> Get '[JSON] BlockPage
+
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/block@
+--
+-- Returns blocks in the block header tree database in ascending order
+-- with respect to the children relation.
+--
+-- Note that for blocks on different branches, the order isn't determined.
+-- Therefore a block of higher block height can be returned before a block of
+-- lower block height.
+--
+type BlocksApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BlocksApi_
+
+-- -------------------------------------------------------------------------- --
+type BranchBlocksApi_
+    = "block" :> "branch"
+    :> PageParams (NextItem BlockHash)
+    :> MinHeightParam
+    :> MaxHeightParam
+    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
+    :> Post '[JSON] BlockPage
+
+type BranchBlocksApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchBlocksApi_
+
+-- -------------------------------------------------------------------------- --
 -- | BlockHeaderDb Api
 --
 type BlockHeaderDbApi v c
     = HashesApi v c
     :<|> HeadersApi v c
+    :<|> BlocksApi v c
     :<|> HeaderApi v c
     :<|> BranchHashesApi v c
     :<|> BranchHeadersApi v c
+    :<|> BranchBlocksApi v c
 
 -- | Restricted P2P BlockHeader DB API
 --
@@ -384,6 +528,7 @@ type P2pBlockHeaderDbApi v c
 
 data HeaderUpdate = HeaderUpdate
     { _huHeader :: !(ObjectEncoded BlockHeader)
+    , _huPayloadWithOutputs :: !(Maybe PayloadWithOutputs)
     , _huTxCount :: !Int
     , _huPowHash :: !Text
     , _huTarget :: !Text
@@ -396,6 +541,8 @@ headerUpdateProperties o =
     , "txCount" .= _huTxCount o
     , "powHash" .= _huPowHash o
     , "target"  .= _huTarget o
+    ] <> concatMap maybeToList
+    [ ("payloadWithOutputs" .=) <$> _huPayloadWithOutputs o
     ]
 {-# INLINE headerUpdateProperties #-}
 
@@ -408,14 +555,16 @@ instance ToJSON HeaderUpdate where
 instance FromJSON HeaderUpdate where
     parseJSON = withObject "HeaderUpdate" $ \o -> HeaderUpdate
         <$> o .: "header"
+        <*> o .:? "payloadWithOutputs"
         <*> o .: "txCount"
         <*> o .: "powHash"
         <*> o .: "target"
     {-# INLINE parseJSON #-}
 
-type HeaderStreamApi_ = "header" :> "updates" :> Raw
+type BlockStreamApi_ =
+    "block" :> "updates" :> Raw :<|>
+    "header" :> "updates" :> Raw
 
--- | A stream of all new `BlockHeader`s that are accepted into the true `Cut`.
+-- | A stream of all new blocks that are accepted into the true `Cut`.
 --
-type HeaderStreamApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> HeaderStreamApi_
-
+type BlockStreamApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> BlockStreamApi_

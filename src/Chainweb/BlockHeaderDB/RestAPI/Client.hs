@@ -34,6 +34,8 @@ module Chainweb.BlockHeaderDB.RestAPI.Client
 , headersClientJson
 , headersClientJsonPretty
 
+, blocksClient
+
 , branchHashesClient_
 , branchHashesClient
 
@@ -42,6 +44,8 @@ module Chainweb.BlockHeaderDB.RestAPI.Client
 , branchHeadersClientContentType_
 , branchHeadersClientJson
 , branchHeadersClientJsonPretty
+
+, branchBlocksClient
 ) where
 
 import Control.Monad.Identity
@@ -211,6 +215,26 @@ headersClientJsonPretty (FromSingChainwebVersion (SChainwebVersion :: Sing v)) c
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ headersClientContentType_ @v @c @JsonBlockHeaderObject limit start minr maxr
 
+blocksClient
+    :: ChainwebVersion
+        -- ^ The remote chainweb that you wish to query from.
+    -> ChainId
+        -- ^ The remote chain within the web that you wish to query from.
+    -> Maybe Limit
+        -- ^ The number of responses per-`Page` to return.
+    -> Maybe (NextItem BlockHash)
+        -- ^ The first header you want to see within the `Page`.
+        -- `Page` contains a field `_pageNext`, which can be used
+        -- to produce the value needed for subsequent calls.
+    -> Maybe MinRank
+        -- ^ Filter: no header of `BlockHeight` lower than this will be returned.
+    -> Maybe MaxRank
+        -- ^ Filter: no header of `BlockHeight` higher than this will be returned.
+    -> ClientM BlockPage
+blocksClient (FromSingChainwebVersion (SChainwebVersion :: Sing v)) c limit start minr maxr = runIdentity $ do
+    (SomeSing (SChainId :: Sing c)) <- return $ toSing c
+    return $ client (Proxy @(SetRespBodyContentType JSON (BlocksApi v c))) limit start minr maxr
+
 -- -------------------------------------------------------------------------- --
 -- Branch Hashes Client
 
@@ -308,6 +332,22 @@ branchHeadersClientJsonPretty v c limit start minr maxr bounds = runIdentity $ d
     SomeSing (SChainwebVersion :: Sing v) <- return $ toSing (_versionName v)
     SomeSing (SChainId :: Sing c) <- return $ toSing c
     return $ branchHeadersClientContentType_ @v @c @JsonBlockHeaderObject limit start minr maxr bounds
+
+-- -------------------------------------------------------------------------- --
+-- Branch Blocks Client
+
+branchBlocksClient
+    :: ChainwebVersion
+    -> ChainId
+    -> Maybe Limit
+    -> Maybe (NextItem BlockHash)
+    -> Maybe MinRank
+    -> Maybe MaxRank
+    -> BranchBounds BlockHeaderDb
+    -> ClientM BlockPage
+branchBlocksClient (FromSingChainwebVersion (SChainwebVersion :: Sing v)) c limit start minr maxr bounds = runIdentity $ do
+    (SomeSing (SChainId :: Sing c)) <- return $ toSing c
+    return $ client (Proxy @(SetRespBodyContentType JSON (BranchBlocksApi v c))) limit start minr maxr bounds
 
 -- -------------------------------------------------------------------------- --
 -- Hashes Client
