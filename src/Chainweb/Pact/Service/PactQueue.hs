@@ -124,9 +124,9 @@ waitForSubmittedRequest statusRef = atomically $ do
 -- When the continuation terminates, *cancel the request*.
 --
 submitRequestAnd :: PactQueue -> RequestMsg r -> (TVar (RequestStatus r) -> IO a) -> IO a
-submitRequestAnd q msg k = mask $ \restore -> do
+submitRequestAnd q msg k = uninterruptibleMask $ \restore -> do
     status <- addRequest q msg
-    restore (k status) `finally`
+    restore (k status) `onException`
         uninterruptibleMask_ (cancelSubmittedRequest status)
 
 -- | Submit a request and wait for it to finish; if interrupted by an
