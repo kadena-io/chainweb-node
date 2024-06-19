@@ -215,9 +215,9 @@ runMonitorLoop actionLabel logger = runForeverThrottled
 runCutMonitor :: Logger logger => logger -> CutDb tbl -> IO ()
 runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger $ \l ->
     runMonitorLoop "ChainwebNode.runCutMonitor" l $ do
-        S.mapM_ (logFunctionJson l Info)
-            $ S.map (cutToCutHashes Nothing)
-            $ cutStream db
+        logFunctionJson l Info . cutToCutHashes Nothing
+            =<< _cut db
+        threadDelay 15_000_000
 
 data BlockUpdate = BlockUpdate
     { _blockUpdateBlockHeader :: !(ObjectEncoded BlockHeader)
