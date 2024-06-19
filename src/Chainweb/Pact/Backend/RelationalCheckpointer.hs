@@ -153,11 +153,11 @@ doReadFrom logger v cid sql moduleCacheVar maybeParent doRead = do
         Nothing -> genesisHeight v cid
         Just parent -> succ . _blockHeight . _parentHeader $ parent
 
-  withMVar moduleCacheVar $ \sharedModuleCache -> do
+  modifyMVar moduleCacheVar $ \sharedModuleCache -> do
     bracket
       (beginSavepoint sql BatchSavepoint)
       (\_ -> abortSavepoint sql BatchSavepoint) $ \() -> do
-        getEndTxId "doReadFrom" sql maybeParent >>= traverse \startTxId -> do
+        h <- getEndTxId "doReadFrom" sql maybeParent >>= traverse \startTxId -> do
           newDbEnv <- newMVar $ BlockEnv
             (mkBlockHandlerEnv v cid currentHeight sql DoNotPersistIntraBlockWrites logger)
             (initBlockState defaultModuleCacheLimit startTxId)
@@ -184,7 +184,12 @@ doReadFrom logger v cid sql moduleCacheVar maybeParent doRead = do
               , _cpLookupProcessedTx = \hs ->
                 runBlockEnv newDbEnv (doLookupSuccessful currentHeight hs)
               }
-          doRead curBlockDbEnv
+          r <- doRead curBlockDbEnv
+          finalCache <- _bsModuleCache . _benvBlockState <$> readMVar newDbEnv
+          return (r, finalCache)
+        case h of
+          NoHistory -> return (sharedModuleCache, NoHistory)
+          Historical (r, finalCache) -> return (finalCache, Historical r)
 
 
 
