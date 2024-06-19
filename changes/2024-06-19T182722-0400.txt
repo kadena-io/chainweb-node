@@ -1,0 +1,2 @@
+Small fixes to exception safety result in Ctrl-C now working properly
+during read-only replay (and other scenarios)
