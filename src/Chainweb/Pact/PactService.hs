@@ -396,7 +396,7 @@ serviceRequests memPoolAccess reqQ = go
                 finishedLock <- newEmptyMVar
                 -- fork a thread to service the request
                 bracket
-                    (forkIO $
+                    (mask_ $ forkIOWithUnmask $ \restore ->
                         -- We wrap this whole block in `tryAsync` because we
                         -- want to ignore `RequestCancelled` exceptions that
                         -- occur while we are waiting on `takeMVar goLock`.
@@ -414,7 +414,7 @@ serviceRequests memPoolAccess reqQ = go
                             takeMVar goLock
 
                             -- run and report the answer.
-                            tryAny (run act) >>= \case
+                            restore (tryAny (run act)) >>= \case
                                 Left ex -> atomically $ writeTVar statusRef (RequestFailed ex)
                                 Right r -> atomically $ writeTVar statusRef (RequestDone r)
                     )
@@ -425,12 +425,9 @@ serviceRequests memPoolAccess reqQ = go
                         -- starting work on it
                         beforeStarting <- atomically $ do
                             readTVar statusRef >>= \case
-                                RequestInProgress ->
-                                    error "PactService internal error: request in progress before starting"
-                                RequestDone _ ->
-                                    error "PactService internal error: request finished before starting"
-                                RequestFailed e ->
-                                    return (Left e)
+                                RequestInProgress -> internalError "request in progress before starting"
+                                RequestDone _ -> internalError "request finished before starting"
+                                RequestFailed e -> return (Left e)
                                 RequestNotStarted -> do
                                     writeTVar statusRef RequestInProgress
                                     return (Right ())
@@ -446,7 +443,7 @@ serviceRequests memPoolAccess reqQ = go
                                     RequestInProgress -> retry
                                     RequestDone _ -> return (Right ())
                                     RequestFailed e -> return (Left e)
-                                    RequestNotStarted -> error "PactService internal error: request not started after starting"
+                                    RequestNotStarted -> internalError "request not started after starting"
                     )
             case maybeException of
               Left (fromException -> Just AsyncCancelled) ->
