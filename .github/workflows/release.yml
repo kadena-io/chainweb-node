@@ -157,8 +157,8 @@ jobs:
         run: |
           GHC_VER=${{ env.GHC_VERSION }}
 
-          UBUNTU_20_TAR=chainweb.false.$GHC_VER.ubuntu-20.04.$SHORT_REVISION.tar.gz
-          UBUNTU_22_TAR=chainweb.false.$GHC_VER.ubuntu-22.04.$SHORT_REVISION.tar.gz
+          UBUNTU_20_TAR=chainweb.true.$GHC_VER.ubuntu-20.04.$SHORT_REVISION.tar.gz
+          UBUNTU_22_TAR=chainweb.true.$GHC_VER.ubuntu-22.04.$SHORT_REVISION.tar.gz
           
           UBUNTU_20_NODE=chainweb-$VERSION_NEW.ghc-$GHC_VER.ubuntu-20.04.$SHORT_REVISION.tar.gz
           UBUNTU_22_NODE=chainweb-$VERSION_NEW.ghc-$GHC_VER.ubuntu-22.04.$SHORT_REVISION.tar.gz
