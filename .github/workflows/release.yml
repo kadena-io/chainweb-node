@@ -72,7 +72,7 @@ jobs:
           # echo "VERSION_OLD=${{ steps.tag_version.outputs.old_tag }}" >> $GITHUB_OUTPUT
           echo "VERSION_NEW=${{ inputs.new_tag }}" >> $GITHUB_OUTPUT
           echo "VERSION_OLD=${{ inputs.old_tag }}" >> $GITHUB_OUTPUT
-          echo "IMAGE=ghcr.io/kadena-io/chainweb-node:sha-$SHORT_REVISION" >> $GITHUB_OUTPUT
+          echo "IMAGE=ghcr.io/kadena-io/chainweb-node:sha-$SHORT_REVISION-frozen" >> $GITHUB_OUTPUT
           
       - uses: actions/checkout@v4
         with:
