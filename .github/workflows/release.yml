@@ -130,7 +130,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       
       - name: retag ghcr docker images
-        continue-on-error: true
+        continue-on-error: false
         run: |
           docker pull $IMAGE
           docker run --rm $IMAGE --version
@@ -143,7 +143,7 @@ jobs:
           docker image push --all-tags ghcr.io/kadena-io/chainweb-node/ubuntu
           docker image push --all-tags ghcr.io/kadena-io/chainweb-node
           
-          digest1=$(docker inspect ghcr.io/kadena-io/chainweb-node:sha-$SHORT_REVISION --format '{{ .RepoDigests }}')
+          digest1=$(docker inspect $IMAGE --format '{{ .RepoDigests }}')
           digest2=$(docker inspect ghcr.io/kadena-io/chainweb-node/ubuntu:$VERSION_NEW --format '{{ .RepoDigests }}')
           digest3=$(docker inspect ghcr.io/kadena-io/chainweb-node/ubuntu:latest --format '{{ .RepoDigests }}')
           if [[ "$digest1" != "$digest2" || "$digest2" != "$digest3" ]]; then
