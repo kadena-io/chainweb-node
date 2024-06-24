@@ -1,4 +1,45 @@
-# 2.24 (2024-05-23)
+## 2.24.1
+This is a minor point release. Upgrading is **strongly recommended**.
+
+To upgrade, pull the latest docker image, or download the binary and
+restart the node with the same configuration file as before.
+
+### Changes
+
+- Fixes cut pruning logic; during a previous change, there was a math error that caused no cuts to
+ever be pruned from RocksDB [`17622c62`](https://github.com/kadena-io/chainweb-node/commit/17622c6240c06d8ff7c2cd8c848fc58658186be9)
+- Don't prune cuts on startup. This avoids a race condition where we prune cuts on startup, and we don't write a cut before shutting down. [`f5f2be9b`](https://github.com/kadena-io/chainweb-node/commit/f5f2be9bca1f0aa4b4deb923f8623fd1834ffc44)
+- Fixed a crash when using read-only replay with no upper bound [`4c494f0d`](https://github.com/kadena-io/chainweb-node/commit/4c494f0d7a360068cd8a40c03f58de0155ff27da)
+- Disable telemetry monitor threads when telemetry is disabled anyway [`b2e182ad`](https://github.com/kadena-io/chainweb-node/commit/b2e182ad57462027d6aecba72e8f6556cce2692f)
+- Reorganize ValidationFailure error message to be more readable [`3ab3e640`](https://github.com/kadena-io/chainweb-node/commit/3ab3e640e4f553d9bc798ad768aaa30fb8bf7700)
+- Expand /info endpoint with: historical fork heights, historical chain graphs, node package version, genesis heights, the upcoming service date, and the block delay. [`9fb14dac`](https://github.com/kadena-io/chainweb-node/commit/9fb14dac6e8433ba07cecddbb7eb146ab1ce380b)
+- Update pact pin for Hyperlane natives fixes [`1a9eb996`](https://github.com/kadena-io/chainweb-node/commit/1a9eb9960fcfe1c7e2673b1d26915285ff033cd7)
+- Add message-id & message body validation & merkle tree metadata support to the Hyperlane message plugin. [`bc87c68b`](https://github.com/kadena-io/chainweb-node/commit/bc87c68bf0fc4ba427ff2cbf2858933b7470543a)
+- Add capability to resume blocks in progress. [`38f3a3a6`](https://github.com/kadena-io/chainweb-node/commit/38f3a3a605d73d8114eab4c4bab0c729125fa5da)
+- Miner now periodically "refreshes" blocks, ensuring that they use all transaction in the mempool, if possible. [`6e409ac8`](https://github.com/kadena-io/chainweb-node/commit/6e409ac8dcb221d4670372a8b57969d6ed7e56b9)
+- Report refreshed blocks to the miner update stream [`dc7279fd`](https://github.com/kadena-io/chainweb-node/commit/dc7279fd984f8ffddef6ce3760101068c81f2046)
+- Default compiler is now GHC 9.6.5, and update freeze deps [`8d1680ce`](https://github.com/kadena-io/chainweb-node/commit/8d1680ce3b6dcfbf3de6c3686bac553eedcfa72a)
+- Payloads Endpoint: Support octet-stream Content-Type with binary encoding. Client support will be added at a later time. [`ce4718e0`](https://github.com/kadena-io/chainweb-node/commit/ce4718e0a17983597d60d5a29a93f4d03163db4e)
+- Logging: move getBlockInMem to `Debug` level [`cae8f45b`](https://github.com/kadena-io/chainweb-node/commit/cae8f45bc04349be48e02b8f0faf42c1aa8e5939)
+- Logging: Make cut timeout logs more clear [`85698d54`](https://github.com/kadena-io/chainweb-node/commit/85698d5420c8c0dc5cacfc6b80b5ddff43ce289c)
+- Logging: Put cut fetch trace telemetry around cut timeouts instead of inside, so we still get telemetry even if a cut fetch times out. [`41c2a100`](https://github.com/kadena-io/chainweb-node/commit/41c2a10051f092d057f0c7052454ff8f53e2cb14 )
+- Logging: Move cut extensibility to `Info` level, and log less often after the first one [`0c54b73d`](https://github.com/kadena-io/chainweb-node/commit/0c54b73d78e66f76a8f5696d9dbbc00e1738e33f)
+- Logging: Failed transactions are now at `Debug` rather than `Info` level [`17baae4d`](https://github.com/kadena-io/chainweb-node/commit/17baae4d3d59cba847473963bf4dd1573bff7d8c)
+- Logging: Restore block timeout logging; a previous change accidentally removed this. [`8ea378c1`](https://github.com/kadena-io/chainweb-node/commit/8ea378c15399bdc52c9e668da45133bcedb8299c)
+- Logging: warp HTTP server errors are now at `Info` level [`fd043416`](https://github.com/kadena-io/chainweb-node/commit/fd0434169dcb5b6ed5ab233a931a5c7ec3cc7edb)
+- Logging: P2P log messages are shorter and improved [`a3e4c565`](https://github.com/kadena-io/chainweb-node/commit/a3e4c56579d5a494057757fb3aa90dbdf254385a)
+- Logging: Less verbose initialization [`8313a37e`](https://github.com/kadena-io/chainweb-node/commit/8313a37eaac4d38920fbffeea368d648028ed95e)
+- Logging: Disable telemetry backend by default for less verbosity [`2c894c1e`](https://github.com/kadena-io/chainweb-node/commit/2c894c1ec06f6f08d3eab724545beb07859ae802)
+- Logging: Cut pipeline logging is more descriptive [`27779aec`](https://github.com/kadena-io/chainweb-node/commit/27779aeca62cee5c00a9c515c006014f517f0558)
+- Logging: Rename `connectioncounters` index to `counters` [`c81a95eb`](https://github.com/kadena-io/chainweb-node/commit/c81a95ebaeba82f7114d1ff104b5125ee1471a89)
+- Logging: Single P2P task failures are now at `Debug` instead of `Info` level, while they're still being retried [`2952c7c2`](https://github.com/kadena-io/chainweb-node/commit/2952c7c2dd9432d3449e7a14b89bb776c103c5fb)
+- Logging: Unify HTTP error logging across service and P2P APIs [`ef7579fe`](https://github.com/kadena-io/chainweb-node/commit/ef7579fe88c4a4d5a69b389e3e66486c15916f6d)
+- Logging: Add a backend for P2P stats so they aren't logged as text [`24ff3ca7`](https://github.com/kadena-io/chainweb-node/commit/24ff3ca7ebff40c89041ee61fdf6cd48fb749a97)
+- Logging: Log rewound blocks during catchup instead of played blocks  [`3cead4be`](https://github.com/kadena-io/chainweb-node/commit/3cead4be42980aa4f85ffb1a9a698e99fa92a653)
+- Logging: Silence unnecessary `chainweb-node: RequestCancelled` logs from PactService, by catching them in the request worker. [`6c4db9d2`](https://github.com/kadena-io/chainweb-node/commit/6c4db9d2a49440a6d36734c9d11599bed2959491)
+- Logging: Stop logging ConnectionIsClosed [`a8c075e7`](https://github.com/kadena-io/chainweb-node/commit/a8c075e732f577cef849ac0b502ab1eefc77d853)
+
+## 2.24 (2024-05-23)
 This version replaces all previous versions. Any prior version will stop working
 on **2024-05-29T00:00:00Z**. Node administrators must upgrade to this version
 before that date. The 2.24 feature upgrade will occur at block height 4,819,246

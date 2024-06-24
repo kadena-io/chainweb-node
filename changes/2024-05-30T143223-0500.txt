@@ -1,1 +1,0 @@
-Automatically generate changelog; it now includes all new commits for each release.
