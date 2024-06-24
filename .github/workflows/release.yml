@@ -134,9 +134,9 @@ jobs:
         run: |
           docker pull $IMAGE
           docker run --rm $IMAGE --version
-          docker tag ghcr.io/kadena-io/chainweb-node:sha-$SHORT_REVISION ghcr.io/kadena-io/chainweb-node/ubuntu:$VERSION_NEW
-          docker tag ghcr.io/kadena-io/chainweb-node:sha-$SHORT_REVISION ghcr.io/kadena-io/chainweb-node/ubuntu:latest
-          docker tag ghcr.io/kadena-io/chainweb-node:sha-$SHORT_REVISION ghcr.io/kadena-io/chainweb-node:latest
+          docker tag $IMAGE ghcr.io/kadena-io/chainweb-node/ubuntu:$VERSION_NEW
+          docker tag $IMAGE ghcr.io/kadena-io/chainweb-node/ubuntu:latest
+          docker tag $IMAGE ghcr.io/kadena-io/chainweb-node:latest
           
           docker image ls
           
