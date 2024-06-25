@@ -61,8 +61,8 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Time
-import Chainweb.Transaction
-    (Pact4Transaction, pact4PayloadCodec, mkPayloadWithTextOld)
+import qualified Chainweb.Pact4.Transaction as Pact4
+    (Pact4.Transaction, Pact4.payloadCodec, mkPayloadWithTextOld)
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -171,7 +171,7 @@ genCoinV6Payloads = genTxModule "CoinV6"
 -- Payload Generation
 ---------------------
 
-genPayloadModule :: ChainwebVersion -> Text -> ChainId -> [Pact4Transaction] -> IO Text
+genPayloadModule :: ChainwebVersion -> Text -> ChainId -> [Pact4.Transaction] -> IO Text
 genPayloadModule v tag cid cwTxs =
     withTempRocksDb "chainweb-ea" $ \rocks ->
     withBlockHeaderDb rocks v cid $ \bhdb -> do
@@ -183,17 +183,17 @@ genPayloadModule v tag cid cwTxs =
                     execNewGenesisBlock noMiner (V.fromList cwTxs)
             return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
 
-mkChainwebTxs :: [FilePath] -> IO [Pact4Transaction]
+mkChainwebTxs :: [FilePath] -> IO [Pact4.Transaction]
 mkChainwebTxs txFiles = mkChainwebTxs' =<< traverse mkTx txFiles
 
-mkChainwebTxs' :: [Command Text] -> IO [Pact4Transaction]
+mkChainwebTxs' :: [Command Text] -> IO [Pact4.Transaction]
 mkChainwebTxs' rawTxs =
     forM rawTxs $ \cmd -> do
         let cmdBS = fmap TE.encodeUtf8 cmd
-            -- TODO: Use the new `assertCommand` function.
+            -- TODO: Use the new `assertPact4Command` function.
             -- We want to delete `verifyCommand` at some point.
             -- It's not critical for Ea because WebAuthn signatures (which
-            -- the new `assertCommand` knows how to handle) are not present
+            -- the new `assertPact4Command` knows how to handle) are not present
             -- in Genesis blocks.
             procCmd = verifyCommand cmdBS
         case procCmd of
@@ -306,7 +306,7 @@ genTxModule tag txFiles = do
 
     let encTxs = map quoteTx cwTxs
         quoteTx tx = "    \"" <> encTx tx <> "\""
-        encTx = encodeB64UrlNoPaddingText . codecEncode (pact4PayloadCodec maxBound)
+        encTx = encodeB64UrlNoPaddingText . codecEncode (Pact4.payloadCodec maxBound)
         modl = T.unlines $ startTxModule tag <> [T.intercalate "\n    ,\n" encTxs] <> endTxModule
         fileName = "src/Chainweb/Pact/Transactions/" <> tag <> "Transactions.hs"
 
@@ -323,13 +323,13 @@ startTxModule tag =
     , "import Data.Bifunctor (first)"
     , "import System.IO.Unsafe"
     , ""
-    , "import Chainweb.Transaction"
+    , "import qualified Chainweb.Pact4.Transaction as Pact4"
     , "import Chainweb.Utils"
     , ""
-    , "transactions :: [Pact4Transaction]"
+    , "transactions :: [Pact4.Transaction]"
     , "transactions ="
     , "  let decodeTx t ="
-    , "        fromEitherM . (first (userError . show)) . codecDecode (pact4PayloadCodec maxBound) =<< decodeB64UrlNoPaddingText t"
+    , "        fromEitherM . (first (userError . show)) . codecDecode (Pact4.payloadCodec maxBound) =<< decodeB64UrlNoPaddingText t"
     , "  in unsafePerformIO $ mapM decodeTx ["
     ]
 

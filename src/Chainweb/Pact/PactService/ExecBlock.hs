@@ -87,14 +87,16 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.NoCoinbase
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
-import Chainweb.Pact.TransactionExec.Pact4
-import qualified Chainweb.Pact.TransactionExec.Pact5 as Pact5
 import Chainweb.Pact.Types
-import Chainweb.Pact.Validations
+import qualified Chainweb.Pact4.Transaction as Pact4
+import qualified Chainweb.Pact5.Transaction as Pact5
+import qualified Chainweb.Pact4.TransactionExec as Pact4
+import qualified Chainweb.Pact5.TransactionExec as Pact5
+import qualified Chainweb.Pact4.Validations as Pact4
+import qualified Chainweb.Pact5.Validations as Pact5
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
-import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards
@@ -119,7 +121,7 @@ execBlock currHeader payload = do
     -- if
 
     trans <- liftIO $ pact4TransactionsFromPayload
-      (pactParserVersion v (_blockChainId currHeader) (_blockHeight currHeader))
+      (pact4ParserVersion v (_blockChainId currHeader) (_blockHeight currHeader))
       plData
     logger <- view (psServiceEnv . psLogger)
 
@@ -207,7 +209,7 @@ validateChainwebTxs
         -- ^ reference time for tx validation.
     -> BlockHeight
         -- ^ Current block height
-    -> Vector Pact4Transaction
+    -> Vector Pact4.Transaction
     -> RunGas
     -> IO ValidateTxs
 validateChainwebTxs logger v cid dbEnv txValidationTime bh txs doBuyGas
@@ -224,27 +226,27 @@ validateChainwebTxs logger v cid dbEnv txValidationTime bh txs doBuyGas
       >>= runValid checkTimes
       >>= runValid (return . checkCompile v cid bh)
 
-    checkUnique :: Pact4Transaction -> IO (Either InsertError Pact4Transaction)
+    checkUnique :: Pact4.Transaction -> IO (Either InsertError Pact4.Transaction)
     checkUnique t = do
       found <- HashMap.lookup (P._cmdHash t) <$> _cpLookupProcessedTx dbEnv (V.singleton $ P._cmdHash t)
       case found of
         Nothing -> pure $ Right t
         Just _ -> pure $ Left InsertErrorDuplicate
 
-    checkTimes :: Pact4Transaction -> IO (Either InsertError Pact4Transaction)
+    checkTimes :: Pact4.Transaction -> IO (Either InsertError Pact4.Transaction)
     checkTimes t
         | skipTxTimingValidation v cid bh =
           return $ Right t
-        | not (assertTxNotInFuture txValidationTime (payloadObj <$> t)) =
+        | not (Pact4.assertTxNotInFuture txValidationTime (Pact4.payloadObj <$> t)) =
           return $ Left InsertErrorTimeInFuture
-        | not (assertTxTimeRelativeToParent txValidationTime (payloadObj <$> t)) =
+        | not (Pact4.assertTxTimeRelativeToParent txValidationTime (Pact4.payloadObj <$> t)) =
           return $ Left InsertErrorTTLExpired
         | otherwise =
           return $ Right t
 
-    checkTxHash :: Pact4Transaction -> IO (Either InsertError Pact4Transaction)
+    checkTxHash :: Pact4.Transaction -> IO (Either InsertError Pact4.Transaction)
     checkTxHash t =
-        case P.verifyHash (P._cmdHash t) (SB.fromShort $ payloadBytes $ P._cmdPayload t) of
+        case P.verifyHash (P._cmdHash t) (SB.fromShort $ Pact4.payloadBytes $ P._cmdPayload t) of
             Left _
                 | doCheckTxHash v cid bh -> return $ Left InsertErrorInvalidHash
                 | otherwise -> do
@@ -253,14 +255,14 @@ validateChainwebTxs logger v cid dbEnv txValidationTime bh txs doBuyGas
             Right _ -> pure $ Right t
 
 
-    checkTxSigs :: Pact4Transaction -> IO (Either InsertError Pact4Transaction)
+    checkTxSigs :: Pact4.Transaction -> IO (Either InsertError Pact4.Transaction)
     checkTxSigs t
-      | assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs = pure $ Right t
+      | Pact4.assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs = pure $ Right t
       | otherwise = return $ Left InsertErrorInvalidSigs
       where
         hsh = P._cmdHash t
         sigs = P._cmdSigs t
-        signers = P._pSigners $ payloadObj $ P._cmdPayload t
+        signers = P._pSigners $ Pact4.payloadObj $ P._cmdPayload t
         validSchemes = validPPKSchemes v cid bh
         webAuthnPrefixLegal = isWebAuthnPrefixLegal v cid bh
 
@@ -272,15 +274,15 @@ validateChainwebTxs logger v cid dbEnv txValidationTime bh txs doBuyGas
     runValid _ l@Left{} = pure l
 
 
-type ValidateTxs = Vector (Either InsertError Pact4Transaction)
+type ValidateTxs = Vector (Either InsertError Pact4.Transaction)
 type RunGas = ValidateTxs -> IO ValidateTxs
 
 checkCompile
   :: ChainwebVersion
   -> ChainId
   -> BlockHeight
-  -> Pact4Transaction
-  -> Either InsertError Pact4Transaction
+  -> Pact4.Transaction
+  -> Either InsertError Pact4.Transaction
 checkCompile v cid bh tx = case payload of
   Exec (ExecMsg parsedCode _) ->
     case compileCode parsedCode of
@@ -288,7 +290,7 @@ checkCompile v cid bh tx = case payload of
       Right _ -> Right tx
   _ -> Right tx
   where
-    payload = P._pPayload $ payloadObj $ P._cmdPayload tx
+    payload = P._pPayload $ Pact4.payloadObj $ P._cmdPayload tx
     compileCode p =
       let e = ParseEnv (chainweb216Pact v cid bh)
       in compileExps e (mkTextInfo (P._pcCode p)) (P._pcExps p)
@@ -300,7 +302,7 @@ execTransactions
     :: (Logger logger)
     => Bool
     -> Miner
-    -> Vector Pact4Transaction
+    -> Vector Pact4.Transaction
     -> EnforceCoinbaseFailure
     -> CoinbaseUsePrecompiled
     -> Maybe P.Gas
@@ -317,11 +319,11 @@ execTransactions isGenesis miner ctxs enfCBFail usePrecomp gasLimit timeLimit = 
 execTransactionsOnly
     :: (Logger logger)
     => Miner
-    -> Vector Pact4Transaction
+    -> Vector Pact4.Transaction
     -> ModuleCache
     -> Maybe Micros
     -> PactBlockM logger tbl
-       (T2 (Vector (Pact4Transaction, Either CommandInvalidError (P.CommandResult [P.TxLogJson]))) ModuleCache)
+       (T2 (Vector (Pact4.Transaction, Either CommandInvalidError (P.CommandResult [P.TxLogJson]))) ModuleCache)
 execTransactionsOnly miner ctxs mc txTimeLimit = do
     T2 txOuts mcOut <- applyPactCmds False ctxs miner mc Nothing txTimeLimit
     return $! T2 (V.force (V.zip ctxs txOuts)) mcOut
@@ -332,12 +334,12 @@ initModuleCacheForBlock isGenesis = do
   pbh <- views psParentHeader (_blockHeight . _parentHeader)
   l <- view (psServiceEnv . psLogger)
   dbEnv <- view psBlockDbEnv
-  txCtx <- getTxContext def
+  txCtx <- getTxContext noMiner def
   case Map.lookupLE pbh _psInitCache of
     Nothing -> if isGenesis
       then return mempty
       else do
-        mc <- readInitModules
+        mc <- Pact4.readInitModules
         updateInitCacheM mc
         return mc
     Just (_,mc) -> pure mc
@@ -355,15 +357,16 @@ runPact4Coinbase False miner enfCBFail usePrecomp mc = do
     logger <- view (psServiceEnv . psLogger)
     rs <- view (psServiceEnv . psMinerRewards)
     v <- view chainwebVersion
-    txCtx <- getTxContext def
+    txCtx <- getTxContext miner def
 
     let !bh = ctxCurrentBlockHeight txCtx
 
     reward <- liftIO $! minerReward v rs bh
     dbEnv <- view psBlockDbEnv
+    pactDb <- liftIO $ assertDynamicPact4Db $ _cpPactDbEnv dbEnv
 
     T2 cr upgradedCacheM <-
-        liftIO $ applyCoinbase v logger (_cpPactDbEnv dbEnv) miner reward txCtx enfCBFail usePrecomp mc
+        liftIO $ Pact4.applyCoinbase v logger pactDb miner reward txCtx enfCBFail usePrecomp mc
     mapM_ upgradeInitCache upgradedCacheM
     liftPactServiceM $ debugResult "runPact4Coinbase" (P.crLogs %~ fmap J.Array $ cr)
     return $! cr
@@ -384,7 +387,7 @@ data CommandInvalidError
 applyPactCmds
     :: forall logger tbl. (Logger logger)
     => Bool
-    -> Vector Pact4Transaction
+    -> Vector Pact4.Transaction
     -> Miner
     -> ModuleCache
     -> Maybe P.Gas
@@ -399,7 +402,7 @@ applyPactCmds isGenesis cmds miner startModuleCache blockGas txTimeLimit = do
   where
     go
       :: [Either CommandInvalidError (P.CommandResult [P.TxLogJson])]
-      -> [Pact4Transaction]
+      -> [Pact4.Transaction]
       -> StateT
           (T2 ModuleCache (Maybe P.Gas))
           (PactBlockM logger tbl)
@@ -422,15 +425,16 @@ applyPactCmd
   => Bool
   -> Miner
   -> Maybe Micros
-  -> Pact4Transaction
+  -> Pact4.Transaction
   -> StateT
       (T2 ModuleCache (Maybe P.Gas))
       (PactBlockM logger tbl)
       (Either CommandInvalidError (P.CommandResult [P.TxLogJson]))
 applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
   dbEnv <- view psBlockDbEnv
+  pactDb <- liftIO $ assertDynamicPact4Db $ _cpPactDbEnv dbEnv
   prevBlockState <- liftIO $ fmap _benvBlockState $
-    readMVar $ pdPactDbVar $ _cpPactDbEnv dbEnv
+    readMVar $ pdPactDbVar pactDb
   logger <- view (psServiceEnv . psLogger)
   gasLogger <- view (psServiceEnv . psGasLogger)
   gasModel <- view (psServiceEnv . psGasModel)
@@ -446,11 +450,11 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
         -- transaction proper is done). therefore we need to revert the block
         -- state ourselves if it happens.
         liftIO $ P.modifyMVar'
-          (pdPactDbVar $ _cpPactDbEnv dbEnv)
+          (pdPactDbVar pactDb)
           (benvBlockState .~ prevBlockState)
         pure (Left (CommandInvalidTxTimeout t), T2 mcache maybeBlockGasRemaining)
       | otherwise = throwM e
-    requestedTxGasLimit = view cmdGasLimit (payloadObj <$> cmd)
+    requestedTxGasLimit = view Pact4.cmdGasLimit (Pact4.payloadObj <$> cmd)
     -- notice that we add 1 to the remaining block gas here, to distinguish the
     -- cases "tx used exactly as much gas remained in the block" (which is fine)
     -- and "tx attempted to use more gas than remains in the block" (which is
@@ -461,15 +465,15 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
       Nothing -> requestedTxGasLimit
       Just blockGasRemaining -> min (fromIntegral (succ blockGasRemaining)) requestedTxGasLimit
     gasLimitedCmd =
-      set cmdGasLimit newTxGasLimit (payloadObj <$> cmd)
-    initialGas = initialGasOf (P._cmdPayload cmd)
+      set Pact4.cmdGasLimit newTxGasLimit (Pact4.payloadObj <$> cmd)
+    initialGas = Pact4.initialGasOf (P._cmdPayload cmd)
   let !hsh = P._cmdHash cmd
 
   handle onFatalError $ do
     T2 result mcache' <- do
-      txCtx <- getTxContext (publicMetaOf gasLimitedCmd)
+      txCtx <- getTxContext miner (Pact4.publicMetaOf gasLimitedCmd)
       if isGenesis
-      then liftIO $! applyGenesisCmd logger (_cpPactDbEnv dbEnv) P.noSPVSupport txCtx gasLimitedCmd
+      then liftIO $! Pact4.applyGenesisCmd logger pactDb P.noSPVSupport txCtx gasLimitedCmd
       else do
         bhdb <- view (psServiceEnv . psBlockHeaderDb)
         parent <- view psParentHeader
@@ -485,7 +489,7 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
           -- TRACE.traceShowM ("applyPactCmd.CACHE: ", LHM.keys $ _getModuleCache mcache, M.keys $ _getCoreModuleCache cmcache)
           tracePactBlockM' "applyCmd" (J.toJsonViaEncode hsh) txGas $ do
             liftIO $ txTimeout $
-              applyCmd v logger gasLogger txFailuresCounter (_cpPactDbEnv dbEnv) miner (gasModel txCtx) txCtx spv gasLimitedCmd initialGas mcache ApplySend
+              Pact4.applyCmd v logger gasLogger txFailuresCounter pactDb miner (gasModel txCtx) txCtx spv gasLimitedCmd initialGas mcache ApplySend
         pure $ T2 r c
 
     if isGenesis
@@ -507,9 +511,9 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
     pure (Right result, T2 mcache' maybeBlockGasRemaining')
 
 pact4TransactionsFromPayload
-    :: PactParserVersion
+    :: Pact4.PactParserVersion
     -> PayloadData
-    -> IO (Vector Pact4Transaction)
+    -> IO (Vector Pact4.Transaction)
 pact4TransactionsFromPayload ppv plData = do
     vtrans <- fmap V.fromList $
               mapM toCWTransaction $
@@ -521,26 +525,26 @@ pact4TransactionsFromPayload ppv plData = do
             <> T.intercalate ". " ls
     return $! V.fromList theRights
   where
-    toCWTransaction bs = evaluate (force (codecDecode (pact4PayloadCodec ppv) $
+    toCWTransaction bs = evaluate (force (codecDecode (Pact4.payloadCodec ppv) $
                                           _transactionBytes bs))
 
-pact5TransactionsFromPayload
-    :: PactParserVersion
-    -> PayloadData
-    -> IO (Vector Pact5Transaction)
-pact5TransactionsFromPayload ppv plData = do
-    vtrans <- fmap V.fromList $
-              mapM toCWTransaction $
-              toList (_payloadDataTransactions plData)
-    let (theLefts, theRights) = partitionEithers $ V.toList vtrans
-    unless (null theLefts) $ do
-        let ls = map T.pack theLefts
-        throwM $ TransactionDecodeFailure $ "Failed to decode pact transactions: "
-            <> T.intercalate ". " ls
-    return $! V.fromList theRights
-  where
-    toCWTransaction bs = evaluate (force (codecDecode (pact5PayloadCodec ppv) $
-                                          _transactionBytes bs))
+-- pact5TransactionsFromPayload
+--     :: Pact4.PactParserVersion
+--     -> PayloadData
+--     -> IO (Vector Pact5.Transaction)
+-- pact5TransactionsFromPayload ppv plData = do
+--     vtrans <- fmap V.fromList $
+--               mapM toCWTransaction $
+--               toList (_payloadDataTransactions plData)
+--     let (theLefts, theRights) = partitionEithers $ V.toList vtrans
+--     unless (null theLefts) $ do
+--         let ls = map T.pack theLefts
+--         throwM $ TransactionDecodeFailure $ "Failed to decode pact transactions: "
+--             <> T.intercalate ". " ls
+--     return $! V.fromList theRights
+--   where
+--     toCWTransaction bs = evaluate (force (codecDecode (pact5PayloadCodec ppv) $
+--                                           _transactionBytes bs))
 
 debugResult :: J.Encode a => Logger logger => Text -> a -> PactServiceM logger tbl ()
 debugResult msg result =
@@ -667,9 +671,9 @@ validateHashes bHeader payload miner transactions =
               ]
             ]
 
-    addTxOuts :: (Pact4Transaction, P.CommandResult [P.TxLogJson]) -> J.Builder
+    addTxOuts :: (Pact4.Transaction, P.CommandResult [P.TxLogJson]) -> J.Builder
     addTxOuts (tx,cr) = J.object
-        [ "tx" J..= fmap (fmap _pcCode . payloadObj) tx
+        [ "tx" J..= fmap (fmap _pcCode . Pact4.payloadObj) tx
         , "result" J..= toPairCR cr
         ]
 

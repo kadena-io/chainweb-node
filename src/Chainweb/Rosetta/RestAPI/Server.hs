@@ -57,7 +57,7 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.Internal
 import Chainweb.Rosetta.RestAPI
 import Chainweb.Rosetta.Utils
-import Chainweb.Transaction (Pact4Transaction)
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
@@ -74,7 +74,7 @@ rosettaServer
     . CanReadablePayloadCas tbl
     => ChainwebVersion
     -> [(ChainId, PayloadDb tbl)]
-    -> [(ChainId, MempoolBackend Pact4Transaction)]
+    -> [(ChainId, MempoolBackend Pact4.Transaction)]
     -> PeerDb
     -> CutDb tbl
     -> [(ChainId, PactExecutionService)]
@@ -106,7 +106,7 @@ someRosettaServer
     :: CanReadablePayloadCas tbl
     => ChainwebVersion
     -> [(ChainId, PayloadDb tbl)]
-    -> [(ChainId, MempoolBackend Pact4Transaction)]
+    -> [(ChainId, MempoolBackend Pact4.Transaction)]
     -> PeerDb
     -> [(ChainId, PactExecutionService)]
     -> CutDb tbl
@@ -411,7 +411,7 @@ constructionHashH (ConstructionHashReq _ signedTx) =
 -- Note (linda): This code simulates the logic of `sendHandler` closely.
 constructionSubmitH
     :: ChainwebVersion
-    -> [(ChainId, MempoolBackend Pact4Transaction)]
+    -> [(ChainId, MempoolBackend Pact4.Transaction)]
     -> ConstructionSubmitReq
     -> Handler TransactionIdResp
 constructionSubmitH v ms (ConstructionSubmitReq net tx) =

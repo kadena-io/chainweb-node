@@ -97,7 +97,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Test.TestVersions (slowForkingCpmTestVersion)
 import Chainweb.Time
-import Chainweb.Transaction
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 import Chainweb.Utils.Bench
 import Chainweb.Version
@@ -492,8 +492,8 @@ safeCapitalize :: String -> String
 safeCapitalize = maybe [] (uncurry (:) . bimap toUpper (Prelude.map toLower)) . Data.List.uncons
 
 
--- TODO: Use the new `assertCommand` function.
-validateCommand :: Command Text -> Either String Pact4Transaction
+-- TODO: Use the new `assertPact4Command` function.
+validateCommand :: Command Text -> Either String Pact4.Transaction
 validateCommand cmdText = case verifyCommand cmdBS of
     ProcSucc cmd -> Right (mkPayloadWithTextOld <$> cmd)
     ProcFail err -> Left err

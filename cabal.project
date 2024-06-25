@@ -71,6 +71,7 @@ package yet-another-logger
 
 packages:
     ../pact-core
+    ../../workspace/predicate-transformers
 
 -- -------------------------------------------------------------------------- --
 -- Source Repository Packages
@@ -83,7 +84,7 @@ packages:
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 4c0acc5fb322014b120c4a5942db8505968ab046
+    tag: 532d74dcf36f1b0119412af8ec14bb0f3298fb91
     --sha256: 0kyh6xwm06npbw73dil5xpngfr7h6ppsn5jz7hjkirq9hj33aqqv
 
 -- source-repository-package
@@ -119,14 +120,13 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
-    tag: a32d901e4a79be62af9c27c01152c9a4c3912a62
+    tag: 8df1cff7f279750490fea8ff580294f3e5a3fcaf
     --sha256: sha256-xdawv/tdjh61MbJKcBqm9Fje36+gVljuZsAxOTX1gP0=
 
 source-repository-package
     type: git
     location: https://github.com/edmundnoble/hs-hashes.git
     tag: c14fc7dba9c5b92b7bf2f4ba14470dba1670eac3
-
 
 source-repository-package
     type: git

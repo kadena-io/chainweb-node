@@ -50,7 +50,7 @@ import Chainweb.Utils
 
 newtype VerifierError = VerifierError
     { getVerifierError :: Text }
-    deriving stock Show
+    deriving stock (Eq, Show)
 instance Exception VerifierError
 
 newtype VerifierPlugin

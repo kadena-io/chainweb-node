@@ -76,15 +76,16 @@ recapDevnet = ChainwebVersion
             Chainweb224Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 610
             Chainweb225Pact -> AllChains ForkNever
 
-    , _versionUpgrades = foldr (chainZip HM.union) (AllChains mempty)
+    , _versionPact4Upgrades = foldr (chainZip HM.union) (AllChains mempty)
         [ indexByForkHeights recapDevnet
-            [ (CoinV2, onChains [(unsafeChainId i, upgrade RecapDevnet.transactions) | i <- [0..9]])
-            , (Pact4Coin3, AllChains (Upgrade CoinV3.transactions True))
-            , (Chainweb214Pact, AllChains (Upgrade CoinV4.transactions True))
-            , (Chainweb215Pact, AllChains (Upgrade CoinV5.transactions True))
+            [ (CoinV2, onChains [(unsafeChainId i, pact4Upgrade RecapDevnet.transactions) | i <- [0..9]])
+            , (Pact4Coin3, AllChains (Pact4Upgrade CoinV3.transactions True))
+            , (Chainweb214Pact, AllChains (Pact4Upgrade CoinV4.transactions True))
+            , (Chainweb215Pact, AllChains (Pact4Upgrade CoinV5.transactions True))
             ]
-        , onChains [(unsafeChainId 0, HM.singleton to20ChainsHeight (upgrade MNKAD.transactions))]
+        , onChains [(unsafeChainId 0, HM.singleton to20ChainsHeight (pact4Upgrade MNKAD.transactions))]
         ]
+    , _versionPact5Upgrades = AllChains mempty
 
     , _versionGraphs =
         (to20ChainsHeight, twentyChainGraph) `Above`

@@ -138,7 +138,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeight
 import Chainweb.Time (Micros(..), Time(..), TimeSpan(..))
 import qualified Chainweb.Time as Time
-import Chainweb.Transaction
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Data.LogMessage (LogFunctionText)
@@ -364,10 +364,10 @@ noopMempool = do
 ------------------------------------------------------------------------------
 
 pact4TransactionConfig
-    :: PactParserVersion
-    -> TransactionConfig Pact4Transaction
+    :: Pact4.PactParserVersion
+    -> TransactionConfig Pact4.Transaction
 pact4TransactionConfig ppv = TransactionConfig
-    { txCodec = pact4PayloadCodec ppv
+    { txCodec = Pact4.payloadCodec ppv
     , txHasher = commandHash
     , txHashMeta = chainwebTestHashMeta
     , txGasPrice = getGasPrice
@@ -377,10 +377,10 @@ pact4TransactionConfig ppv = TransactionConfig
 
 
   where
-    getGasPrice = view cmdGasPrice . fmap payloadObj
-    getGasLimit = view cmdGasLimit . fmap payloadObj
-    getTimeToLive = view cmdTimeToLive . fmap payloadObj
-    getCreationTime = view cmdCreationTime . fmap payloadObj
+    getGasPrice = view Pact4.cmdGasPrice . fmap Pact4.payloadObj
+    getGasLimit = view Pact4.cmdGasLimit . fmap Pact4.payloadObj
+    getTimeToLive = view Pact4.cmdTimeToLive . fmap Pact4.payloadObj
+    getCreationTime = view Pact4.cmdCreationTime . fmap Pact4.payloadObj
     commandHash c = let (H.Hash !h) = H.toUntypedHash $ _cmdHash c
                     in TransactionHash h
     txmeta t =

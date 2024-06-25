@@ -21,6 +21,7 @@
 module Chainweb.Pact.SPV
 ( -- * spv support
   pactSPV
+, pact5SPV
 , verifySPV
 , verifyCont
   -- * spv api utilities
@@ -84,6 +85,7 @@ import Pact.Types.Hash
 import Pact.Types.PactValue
 import Pact.Types.Runtime
 import Pact.Types.SPV
+import qualified Pact.Core.SPV as Pact5
 
 catchAndDisplaySPVError :: BlockHeader -> ExceptT Text IO a -> ExceptT Text IO a
 catchAndDisplaySPVError bh =
@@ -108,6 +110,9 @@ pactSPV
       -- ^ the context for verifying the proof
     -> SPVSupport
 pactSPV bdb bh = SPVSupport (verifySPV bdb bh) (verifyCont bdb bh)
+
+pact5SPV :: BlockHeaderDb -> BlockHeader -> Pact5.SPVSupport
+pact5SPV bdb bh = Pact5.SPVSupport (\_ _ -> error "pact5SPV") (\_ -> error "pact5SPV")
 
 -- | SPV transaction verification support. Calls to 'verify-spv' in Pact
 -- will thread through this function and verify an SPV receipt, making the

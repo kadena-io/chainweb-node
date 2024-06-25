@@ -47,7 +47,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB (newPayloadDb)
 import Chainweb.Payload.RestAPI.Client
 import Chainweb.SPV
-import Chainweb.Transaction
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
@@ -118,7 +118,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
         case validateCommand ver cid cmdTx of
           Left _ -> error "bad cmd"
           Right cmdPwt -> do
-            let cmd = payloadObj <$> cmdPwt
+            let cmd = Pact4.payloadObj <$> cmdPwt
             let txc = TxContext parent $ publicMetaOf cmd
             -- This rocksdb isn't actually used, it's just to satisfy
             -- PactServiceEnv
@@ -131,7 +131,6 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                       , _psPdb = payloadDb
                       , _psBlockHeaderDb = bdb
                       , _psGasModel = getGasModel
-                      , _psGasModelCore = (getGasModelCore 30000)
                       , _psMinerRewards = readRewards
                       , _psPreInsertCheckTimeout = defaultPreInsertCheckTimeout
                       , _psReorgLimit = RewindLimit 0
@@ -195,7 +194,6 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                 , _psPdb = payloadDb
                 , _psBlockHeaderDb = bdb
                 , _psGasModel = getGasModel
-                , _psGasModelCore = getGasModelCore 300000
                 , _psMinerRewards = readRewards
                 , _psPreInsertCheckTimeout = defaultPreInsertCheckTimeout
                 , _psReorgLimit = RewindLimit 0
@@ -248,9 +246,9 @@ spvSim sc bh pwo = do
     go mv cp = modifyMVar mv $ searchOuts cp
     searchOuts _ [] = return ([],Left "spv: proof not found")
     searchOuts cp@(ContProof pf) ((Transaction ti,TransactionOutput _o):txs) =
-      case codecDecode (pact4PayloadCodec (pactParserVersion (scVersion sc) (_chainId bh) (_blockHeight bh))) ti of
+      case codecDecode (Pact4.payloadCodec (pactParserVersion (scVersion sc) (_chainId bh) (_blockHeight bh))) ti of
         Left {} -> internalError "input decode failed"
-        Right cmd -> case _pPayload $ payloadObj $ _cmdPayload cmd of
+        Right cmd -> case _pPayload $ Pact4.payloadObj $ _cmdPayload cmd of
           Continuation cm | _cmProof cm == Just cp -> do
             -- the following adapted from Chainweb.Pact.SPV.verifyCont with matching errors
             t <- decodeB64UrlNoPaddingText $ T.decodeUtf8 pf

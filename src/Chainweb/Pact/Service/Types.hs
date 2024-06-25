@@ -58,7 +58,8 @@ module Chainweb.Pact.Service.Types
   , PactException(..)
   , PactExceptionTag(..)
   , GasPurchaseFailure(..)
-  , gasPurchaseFailureHash
+  , pact4GasPurchaseFailureHash
+  , pact5GasPurchaseFailureHash
   , SpvRequest(..)
 
   , TransactionOutputProofB64(..)
@@ -72,9 +73,6 @@ module Chainweb.Pact.Service.Types
   , moduleCacheFromHashMap
   , moduleCacheKeys
   , cleanModuleCache
-
-  , CoreModuleCache(..)
-  , filterCoreModuleCacheByKey
 
   , BlockInProgress(..)
   , blockInProgressPendingData
@@ -147,11 +145,13 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.NoCoinbase
 import Chainweb.Payload
 import Chainweb.Time
-import Chainweb.Transaction
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Mainnet
 import GHC.Stack
+import qualified Pact.Core.Errors as Pact5
+import qualified Pact.Core.Command.Types as Pact5
 
 -- | Value that represents a limitation for rewinding.
 newtype RewindLimit = RewindLimit { _rewindLimit :: Word64 }
@@ -199,15 +199,23 @@ data PactServiceConfig = PactServiceConfig
     --   are persisted. Useful if you want to use PactService BlockTxHistory.
   } deriving (Eq,Show)
 
-data GasPurchaseFailure = GasPurchaseFailure TransactionHash PactError
+data GasPurchaseFailure
+  = Pact4GasPurchaseFailure TransactionHash PactError
+  | Pact5GasPurchaseFailure Pact5.RequestKey (Pact5.PactError Pact5.Info)
     deriving (Eq,Generic)
-instance Show GasPurchaseFailure where show = unpack . J.encodeText
+-- instance Show GasPurchaseFailure where show = unpack . J.encodeText
 
 instance J.Encode GasPurchaseFailure where
-    build (GasPurchaseFailure h e) = J.build (J.Array (h, e))
+    build (Pact4GasPurchaseFailure h e) = J.build (J.Array (h, e))
+    build (Pact5GasPurchaseFailure h _err) = J.build h
 
-gasPurchaseFailureHash :: GasPurchaseFailure -> TransactionHash
-gasPurchaseFailureHash (GasPurchaseFailure h _) = h
+pact4GasPurchaseFailureHash :: GasPurchaseFailure -> TransactionHash
+pact4GasPurchaseFailureHash (Pact4GasPurchaseFailure h _) = h
+pact4GasPurchaseFailureHash _ = error "Pact4 gas purchase failure expected, but the error was for Pact 5"
+
+pact5GasPurchaseFailureHash :: GasPurchaseFailure -> Pact5.RequestKey
+pact5GasPurchaseFailureHash (Pact5GasPurchaseFailure h _) = h
+pact5GasPurchaseFailureHash _ = error "Pact5 gas purchase failure expected, but the error was for Pact 4"
 
 -- | Used by /local to trigger user signature verification
 --
@@ -469,7 +477,7 @@ data ValidateBlockReq = ValidateBlockReq
     } deriving stock Show
 
 data LocalReq = LocalReq
-    { _localRequest :: !Pact4Transaction
+    { _localRequest :: !Pact4.Transaction
     , _localPreflight :: !(Maybe LocalPreflightSimulation)
     , _localSigVerification :: !(Maybe LocalSignatureVerification)
     , _localRewindDepth :: !(Maybe RewindDepth)
@@ -485,7 +493,7 @@ instance Show LookupPactTxsReq where
         "LookupPactTxsReq@" ++ show m
 
 data PreInsertCheckReq = PreInsertCheckReq
-    { _preInsCheckTxs :: !(Vector Pact4Transaction)
+    { _preInsCheckTxs :: !(Vector Pact4.Transaction)
     }
 instance Show PreInsertCheckReq where
     show (PreInsertCheckReq v) =
@@ -551,17 +559,6 @@ newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
 --
 newtype ModuleCache = ModuleCache { _getModuleCache :: LHM.HashMap ModuleName (ModuleData Ref, Bool) }
     deriving newtype (Show, Eq, Semigroup, Monoid, NFData)
-
-newtype CoreModuleCache = CoreModuleCache { _getCoreModuleCache :: M.Map Pact5.ModuleName (Pact5.ModuleData Pact5.CoreBuiltin Pact5.Info) }
-    deriving newtype (Semigroup, Monoid, NFData)
-
-filterCoreModuleCacheByKey
-    :: (Pact5.ModuleName -> Bool)
-    -> CoreModuleCache
-    -> CoreModuleCache
-filterCoreModuleCacheByKey f (CoreModuleCache c) = CoreModuleCache $
-    M.fromList $ filter (f . fst) $ M.toList c
-{-# INLINE filterCoreModuleCacheByKey #-}
 
 filterModuleCacheByKey
     :: (ModuleName -> Bool)
@@ -639,7 +636,7 @@ toPayloadWithOutputs mi ts =
         cb = CoinbaseOutput $ J.encodeStrict $ toHashCommandResult $ _transactionCoinbase ts
         blockTrans = snd $ newBlockTransactions miner trans
         cmdBSToTx = toTransactionBytes
-          . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
+          . fmap (T.decodeUtf8 . SB.fromShort . Pact4.payloadBytes)
         blockOuts = snd $ newBlockOutputs cb transOuts
 
         blockPL = blockPayload blockTrans blockOuts
@@ -660,7 +657,7 @@ toHashCommandResult :: CommandResult [TxLogJson] -> CommandResult Hash
 toHashCommandResult = over (crLogs . _Just) $ pactHash . encodeTxLogJsonArray
 
 data Transactions r = Transactions
-    { _transactionPairs :: !(Vector (Pact4Transaction, r))
+    { _transactionPairs :: !(Vector (Pact4.Transaction, r))
     , _transactionCoinbase :: !(CommandResult [TxLogJson])
     }
     deriving stock (Functor, Foldable, Traversable, Eq, Show, Generic)

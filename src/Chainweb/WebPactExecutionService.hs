@@ -38,7 +38,7 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Utils
 import Chainweb.Payload
-import Chainweb.Transaction
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 
 import Pact.Types.Hash
@@ -91,7 +91,7 @@ data PactExecutionService = PactExecutionService
         Maybe LocalPreflightSimulation ->
         Maybe LocalSignatureVerification ->
         Maybe RewindDepth ->
-        Pact4Transaction ->
+        Pact4.Transaction ->
         IO LocalResult)
       -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
       -- Corresponds to `local` HTTP endpoint.
@@ -112,7 +112,7 @@ data PactExecutionService = PactExecutionService
       -- ^ Lookup pact hashes as of a block header to detect duplicates
     , _pactPreInsertCheck :: !(
         ChainId
-        -> Vector Pact4Transaction
+        -> Vector Pact4.Transaction
         -> IO (Vector (Either InsertError ())))
       -- ^ Run speculative checks to find bad transactions (ie gas buy failures, etc)
     , _pactBlockTxHistory :: !(

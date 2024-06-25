@@ -57,7 +57,7 @@ import qualified Chainweb.Pact.Transactions.OtherTransactions as Other
 import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
 import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
 import Chainweb.Rosetta.Utils
-import Chainweb.Test.Pact.Utils
+import Chainweb.Test.Pact4.Utils
 import Chainweb.Test.RestAPI.Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
