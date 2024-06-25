@@ -132,6 +132,7 @@ import qualified Pact.Core.Persistence as Pact5
 import qualified Pact.Core.Builtin as Pact5
 import qualified Pact.Core.Info as Pact5
 import qualified Pact.Core.Names as Pact5
+import qualified Pact.Core.Evaluate as Pact5
 
 -- internal chainweb modules
 
@@ -551,7 +552,7 @@ newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
 newtype ModuleCache = ModuleCache { _getModuleCache :: LHM.HashMap ModuleName (ModuleData Ref, Bool) }
     deriving newtype (Show, Eq, Semigroup, Monoid, NFData)
 
-newtype CoreModuleCache = CoreModuleCache { _getCoreModuleCache :: M.Map Pact5.ModuleName (Pact5.ModuleData Pact5.CoreBuiltin Pact5.SpanInfo) }
+newtype CoreModuleCache = CoreModuleCache { _getCoreModuleCache :: M.Map Pact5.ModuleName (Pact5.ModuleData Pact5.CoreBuiltin Pact5.Info) }
     deriving newtype (Semigroup, Monoid, NFData)
 
 filterCoreModuleCacheByKey

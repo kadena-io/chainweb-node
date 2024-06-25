@@ -42,7 +42,7 @@ import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 
 import GHC.Generics (Generic)
 
-import qualified Pact.Core.Command as Pact5
+import qualified Pact.Core.Command.Types as Pact5
 
 import qualified Pact.Parse as P (parsePact, legacyParsePact)
 import Pact.Types.ChainMeta

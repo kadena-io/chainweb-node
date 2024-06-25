@@ -132,6 +132,7 @@ import qualified Pact.JSON.Encode as J
 import qualified Pact.Core.Builtin as Pact5
 import qualified Pact.Core.Persistence as Pact5
 import qualified Pact.Core.Info as Pact5
+import qualified Pact.Core.Evaluate as Pact5
 
 
 -- internal modules
@@ -227,7 +228,7 @@ data BlockState = BlockState
     , _bsPendingTx :: !(Maybe SQLitePendingData)
     , _bsMode :: !(Maybe ExecutionMode)
     , _bsModuleCache :: !(DbCache PersistModuleData)
-    , _bsModuleCacheCore :: !(DbCache (Pact5.ModuleData Pact5.CoreBuiltin Pact5.SpanInfo))
+    , _bsModuleCacheCore :: !(DbCache (Pact5.ModuleData Pact5.CoreBuiltin Pact5.Info))
     }
 
 fromCoreExecutionMode :: Pact5.ExecutionMode -> ExecutionMode
@@ -320,7 +321,7 @@ newtype BlockHandler logger a = BlockHandler
         )
 
 type ChainwebPactDbEnv logger = PactDbEnv (BlockEnv logger)
-type CoreDb = Pact5.PactDb Pact5.CoreBuiltin Pact5.SpanInfo
+type CoreDb = Pact5.PactDb Pact5.CoreBuiltin Pact5.Info
 
 type ParentHash = BlockHash
 

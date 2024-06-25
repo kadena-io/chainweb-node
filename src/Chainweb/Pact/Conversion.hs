@@ -40,6 +40,7 @@ import qualified Data.List.NonEmpty as NE
 import qualified Bound
 
 import Pact.Core.Builtin
+import Pact.Core.Evaluate
 import Pact.Core.ModRefs
 import Pact.Core.Literal
 import Pact.Core.Type
@@ -73,7 +74,7 @@ type TranslateM = ReaderT DeBruijn (StateT TranslateState (Except String))
 runTranslateM :: TranslateM a -> Either String a
 runTranslateM a = runExcept (evalStateT (runReaderT a 0) [])
 
-decodeModuleDataSpanInfo :: ByteString -> Maybe (ModuleData CoreBuiltin SpanInfo)
+decodeModuleDataSpanInfo :: ByteString -> Maybe (ModuleData CoreBuiltin Info)
 decodeModuleDataSpanInfo = (fmap $ fmap Default.def) . decodeModuleData
 
 decodeModuleData :: ByteString -> Maybe (ModuleData CoreBuiltin ())
@@ -430,8 +431,8 @@ fromLegacyPactValue = \case
       pure (PGuard $ GCapabilityGuard (CapabilityGuard qn args (fromLegacyPactId <$> i)))
   Legacy.PModRef (Legacy.ModRef mn mmn _) -> let
     mn' = fromLegacyModuleName mn
-    imp = fmap fromLegacyModuleName (fromMaybe [] mmn)
-    in pure (PModRef $ ModRef mn' imp Nothing)
+    imp = S.fromList $ maybe [] (map fromLegacyModuleName) mmn
+    in pure (PModRef $ ModRef mn' imp)
 
 
 fromLegacyPersistDirect
@@ -716,8 +717,8 @@ fromLegacyTerm mh = \case
 
   Legacy.TModRef (Legacy.ModRef mn mmn _) _ -> let
     mn' = fromLegacyModuleName mn
-    imp = fmap fromLegacyModuleName (fromMaybe [] mmn)
-    in pure (InlineValue (PModRef (ModRef mn' imp Nothing)) ())
+    imp = S.fromList $ maybe [] (fmap fromLegacyModuleName) mmn
+    in pure (InlineValue (PModRef (ModRef mn' imp)) ())
 
   _ -> throwError "fromLegacyTerm: invariant"
 

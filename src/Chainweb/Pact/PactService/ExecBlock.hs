@@ -76,7 +76,7 @@ import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
 
 import qualified Pact.Core.Names as PCore
-import qualified Pact.Core.Command as PCore
+import qualified Pact.Core.Command.Types as PCore
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
@@ -505,7 +505,7 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
       Nothing -> return ()
     let maybeBlockGasRemaining' = (\g -> g - P._crGas result) <$> maybeBlockGasRemaining
     pure (Right result, T2 mcache' maybeBlockGasRemaining')
- 
+
 pact4TransactionsFromPayload
     :: PactParserVersion
     -> PayloadData
