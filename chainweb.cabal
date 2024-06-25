@@ -426,6 +426,7 @@ library
         , parallel >= 3.2.2.0
         , patience >= 0.3
         , pact-tng
+        , pact-tng:pact-request-api
         , pem >=0.2
         , primitive >= 0.7.1.0
         , random >= 1.2
@@ -603,6 +604,7 @@ test-suite chainweb-tests
         , http-client-tls >=0.3
         , pact
         , pact-tng
+        , pact-tng:pact-request-api
         , pact-json >= 0.1
         , quickcheck-instances >= 0.3
         , random >= 1.2
@@ -788,6 +790,7 @@ executable cwtool
         , pact
         , pact-json
         , pact-tng
+        , pact-tng:pact-request-api
         , patience >= 0.3
         , process >= 1.5
         , quickcheck-instances >= 0.3

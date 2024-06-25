@@ -417,7 +417,7 @@ applyCoinbase v logger (dbEnv, coreDb) (Miner mid mks@(MinerKeys mk)) reward@(Pa
         interp = Interpreter $ \_ -> do put initState; fmap pure (eval cterm)
         coreState = setCoreModuleCache cmc $ initCoreCapabilities [core_magic_COINBASE]
         (coinbaseTerm, _) = Pact5.mkCoinbaseTerm mid mks (GasSupply reward)
-    go interp coreState cexec (Just coinbaseTerm)
+    go interp coreState cexec (Just (def <$ coinbaseTerm))
   | otherwise = do
     cexec <- mkCoinbaseCmd mid mks reward
     let interp = initStateInterpreter initState
@@ -655,7 +655,7 @@ runGenesisCore
     :: (Logger logger)
     => Command (Payload PublicMeta ParsedCode)
     -> NamespacePolicy
-    -> PCore.EvalState PCore.CoreBuiltin PCore.SpanInfo
+    -> PCore.EvalState PCore.CoreBuiltin PCore.Info
     -> TransactionM logger p ()
 runGenesisCore cmd nsp coreState = case payload of
     Exec pm -> void $ applyExec' 0 coreState pm signers chash nsp
@@ -742,7 +742,7 @@ mkCommandResultFromCoreResult PCore.EvalResult{..} = do
 applyExec
     :: (Logger logger)
     => Gas
-    -> PCore.EvalState PCore.CoreBuiltin PCore.SpanInfo
+    -> PCore.EvalState PCore.CoreBuiltin PCore.Info
     -> ExecMsg ParsedCode
     -> [Signer]
     -> Hash
@@ -756,12 +756,12 @@ applyExec initialGas coreState em senderSigs hsh nsp = do
 applyExec'
     :: (Logger logger)
     => Gas
-    -> PCore.EvalState PCore.CoreBuiltin PCore.SpanInfo
+    -> PCore.EvalState PCore.CoreBuiltin PCore.Info
     -> ExecMsg ParsedCode
     -> [Signer]
     -> Hash
     -> NamespacePolicy
-    -> TransactionM logger p (PCore.EvalResult [PCore.TopLevel PCore.SpanInfo])
+    -> TransactionM logger p (PCore.EvalResult [PCore.TopLevel PCore.Info])
 applyExec' (Gas initialGas) coreState (ExecMsg parsedCode execData) senderSigs hsh nsp
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
@@ -847,7 +847,7 @@ disableReturnRTC _v _cid _bh = [FlagDisableRuntimeReturnTypeChecking]
 applyContinuation
     :: (Logger logger)
     => Gas
-    -> PCore.EvalState PCore.CoreBuiltin PCore.SpanInfo
+    -> PCore.EvalState PCore.CoreBuiltin PCore.Info
     -> ContMsg
     -> [Signer]
     -> Hash
@@ -866,18 +866,18 @@ applyContinuation initialGas coreState cm senderSigs hsh nsp = do
 setEnvGas :: Gas -> EvalEnv e -> TransactionM logger p ()
 setEnvGas initialGas = liftIO . views eeGas (`writeIORef` gasToMilliGas initialGas)
 
-setEnvGasCore :: PCore.Gas -> PCore.EvalEnv PCore.CoreBuiltin PCore.SpanInfo -> TransactionM logger p ()
+setEnvGasCore :: PCore.Gas -> PCore.EvalEnv PCore.CoreBuiltin PCore.Info -> TransactionM logger p ()
 setEnvGasCore initialGas = liftIO . views PCore.eeGasRef (`writeIORef` PCore.gasToMilliGas initialGas)
 
 applyContinuation'
     :: (Logger logger)
     => Gas
-    -> PCore.EvalState PCore.CoreBuiltin PCore.SpanInfo
+    -> PCore.EvalState PCore.CoreBuiltin PCore.Info
     -> ContMsg
     -> [Signer]
     -> Hash
     -> NamespacePolicy
-    -> TransactionM logger p (PCore.EvalResult [PCore.TopLevel PCore.SpanInfo])
+    -> TransactionM logger p (PCore.EvalResult [PCore.TopLevel PCore.Info])
 applyContinuation' initialGas coreState (ContMsg pid s rb d proof) senderSigs hsh nsp = do
 
     evalEnv <- mkCoreEvalEnv nsp (MsgData d pactStep hsh senderSigs [])
@@ -975,7 +975,7 @@ buyGas txCtx cmd (Miner mid mks) = go
 
       -- no verifiers are allowed in buy gas
       -- quirked gas is not used either
-      er <- locally txQuirkGasFee (const Nothing) $ liftIO $ PCore.evalTermExec evalEnv coreState t
+      er <- locally txQuirkGasFee (const Nothing) $ liftIO $ PCore.evalTermExec evalEnv coreState (def <$ t)
       case er of
         Right er' -> do
           case PCore._erExec er' of
@@ -1088,7 +1088,7 @@ redeemGas txCtx cmd (Miner mid mks) = do
       locally txQuirkGasFee (const Nothing) $ do
         evalEnv <- mkCoreEvalEnv managedNamespacePolicy (MsgData execData Nothing rgHash (_pSigners $ _cmdPayload cmd) [])
 
-        er <- liftIO $ PCore.evalTermExec evalEnv coreState redeemGasTermCore
+        er <- liftIO $ PCore.evalTermExec evalEnv coreState (def <$ redeemGasTermCore)
         case er of
           Right er' -> do
             let
@@ -1139,7 +1139,7 @@ initCapabilities :: [CapSlot SigCapability] -> EvalState
 initCapabilities cs = set (evalCapabilities . capStack) cs def
 {-# INLINABLE initCapabilities #-}
 
-initCoreCapabilities :: [PCore.CapSlot PCore.QualifiedName PCore.PactValue] -> PCore.EvalState PCore.CoreBuiltin PCore.SpanInfo
+initCoreCapabilities :: [PCore.CapSlot PCore.QualifiedName PCore.PactValue] -> PCore.EvalState PCore.CoreBuiltin PCore.Info
 initCoreCapabilities cs = set (PCore.esCaps . PCore.csSlots) cs def
 {-# INLINABLE initCoreCapabilities #-}
 
@@ -1218,8 +1218,8 @@ setModuleCache mcache es =
 
 setCoreModuleCache
   :: CoreModuleCache
-  -> PCore.EvalState PCore.CoreBuiltin PCore.SpanInfo
-  -> PCore.EvalState PCore.CoreBuiltin PCore.SpanInfo
+  -> PCore.EvalState PCore.CoreBuiltin PCore.Info
+  -> PCore.EvalState PCore.CoreBuiltin PCore.Info
 setCoreModuleCache mcache es =
   let allDeps = foldMap PCore.allModuleExports $ _getCoreModuleCache mcache
   in set (PCore.esLoaded . PCore.loAllLoaded) allDeps $ set (PCore.esLoaded . PCore.loModules) c es
@@ -1243,7 +1243,7 @@ unsafeModuleHashFromB64Text =
 mkCoreEvalEnv
     :: NamespacePolicy
     -> MsgData
-    -> TransactionM logger db (PCore.EvalEnv PCore.CoreBuiltin PCore.SpanInfo)
+    -> TransactionM logger db (PCore.EvalEnv PCore.CoreBuiltin PCore.Info)
 mkCoreEvalEnv nsp MsgData{..} = do
     tenv <- ask
 

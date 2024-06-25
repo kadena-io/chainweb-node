@@ -198,6 +198,7 @@ import qualified Pact.Types.Logger as P
 import qualified Pact.Core.Builtin as Pact5
 import qualified Pact.Core.Gas as Pact5
 import qualified Pact.Core.Errors as Pact5
+import qualified Pact.Core.Evaluate as Pact5
 import qualified Pact.Core.Info as Pact5
 
 -- internal chainweb modules
@@ -453,7 +454,7 @@ instance LogMessage Pact4TxFailureLog where
 instance Show Pact4TxFailureLog where
   show m = unpack (logText m)
 
-data Pact5TxFailureLog = Pact5TxFailureLog !RequestKey !(Pact5.PactError Pact5.SpanInfo) !Text
+data Pact5TxFailureLog = Pact5TxFailureLog !RequestKey !(Pact5.PactError Pact5.Info) !Text
   deriving stock (Generic)
   deriving anyclass (NFData, Typeable)
 instance LogMessage Pact5TxFailureLog where
