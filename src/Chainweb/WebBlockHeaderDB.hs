@@ -69,6 +69,7 @@ import Chainweb.Version
 
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
+import Chainweb.Version.Registry (lookupVersionByCode)
 
 -- -------------------------------------------------------------------------- --
 -- Web Chain Database
@@ -258,7 +259,7 @@ checkBlockHeaderGraph b = void
   where
     graph
         | isGenesisBlockHeader b = _chainGraph b
-        | otherwise = chainGraphAt (_blockChainwebVersion b) (_blockHeight b - 1)
+        | otherwise = chainGraphAt (lookupVersionByCode $ _blockChainwebVersion b) (_blockHeight b - 1)
 {-# INLINE checkBlockHeaderGraph #-}
 
 -- | Given a 'WebBlockHeaderDb' @db@, @checkBlockAdjacentParents h@ checks that
@@ -270,4 +271,3 @@ checkBlockAdjacentParents
     -> IO ()
 checkBlockAdjacentParents db = void . blockAdjacentParentHeaders db
 {-# INLINE checkBlockAdjacentParents #-}
-

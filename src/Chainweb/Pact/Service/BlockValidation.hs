@@ -44,7 +44,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
-import Chainweb.Transaction
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 
 
@@ -78,7 +78,7 @@ local
     :: Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
     -> Maybe RewindDepth
-    -> Pact4Transaction
+    -> Pact4.Transaction
     -> PactQueue
     -> IO LocalResult
 local preflight sigVerify rd ct reqQ = do
@@ -113,7 +113,7 @@ pactReadOnlyReplay l u reqQ = do
     submitRequestAndWait reqQ msg
 
 pactPreInsertCheck
-    :: Vector Pact4Transaction
+    :: Vector Pact4.Transaction
     -> PactQueue
     -> IO (Vector (Either InsertError ()))
 pactPreInsertCheck txs reqQ = do

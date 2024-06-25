@@ -45,7 +45,7 @@ import Chainweb.Pact.Service.Types
 import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload.PayloadStore
-import Chainweb.Transaction
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -130,11 +130,11 @@ pactMemPoolGetBlock
     => MempoolConsensus
     -> logger
     -> BlockFill
-    -> (MempoolPreBlockCheck Pact4Transaction
+    -> (MempoolPreBlockCheck Pact4.Transaction
             -> BlockHeight
             -> BlockHash
             -> BlockHeader
-            -> IO (Vector Pact4Transaction))
+            -> IO (Vector Pact4.Transaction))
 pactMemPoolGetBlock mpc theLogger bf validate height hash _bHeader = do
     logFn theLogger Debug $! "pactMemPoolAccess - getting new block of transactions for "
         <> "height = " <> sshow height <> ", hash = " <> sshow hash

@@ -37,6 +37,10 @@ module Chainweb.Pact.Backend.Types
     , _cpRewindTo
     , ReadCheckpointer(..)
     , CurrentBlockDbEnv(..)
+    , DynamicPactDb(..)
+    , makeDynamicPactDb
+    , assertDynamicPact4Db
+    , assertDynamicPact5Db
     , Env'(..)
     , PactDbConfig(..)
     , pdbcGasLimit
@@ -141,13 +145,14 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Pact.Backend.DbCache
-import Chainweb.Transaction
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils (T2)
 import Chainweb.Version
 import Chainweb.Version.Guards
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck,TransactionHash,BlockFill)
 
 import Streaming(Stream, Of)
+import Data.Text (Text)
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
 
@@ -186,7 +191,7 @@ instance Ord SQLiteRowDelta where
 -- 'BlockState' and is cleared upon pact transaction commit.
 type TxLogMap = Map TableName (DList TxLogJson)
 
-type TxLogMapPact5 = Map TableName (DList (Pact5.TxLog ByteString))
+type TxLogMapPact5 = DList (Pact5.TxLog ByteString)
 
 -- | Between a @restore..save@ bracket, we also need to record which tables
 -- were created during this block (so the necessary @CREATE TABLE@ statements
@@ -405,10 +410,28 @@ _cpRewindTo cp ancestor = void $ _cpRestoreAndSave cp
     ancestor
     (pure () :: Stream (Of (RunnableBlock logger ())) IO ())
 
+data DynamicPactDb logger = Pact4Db (ChainwebPactDbEnv logger) | Pact5Db CoreDb
+
+makeDynamicPactDb
+  :: ChainwebVersion -> ChainId -> BlockHeight
+  -> ChainwebPactDbEnv logger -> CoreDb
+  -> DynamicPactDb logger
+makeDynamicPactDb v cid bh pact4Db pact5Db
+  | pact5 v cid bh = Pact5Db pact5Db
+  | otherwise = Pact4Db pact4Db
+
+-- TODO: make both of these errors InternalErrors, without incurring an import cycle
+assertDynamicPact4Db :: HasCallStack => DynamicPactDb logger -> IO (ChainwebPactDbEnv logger)
+assertDynamicPact4Db (Pact4Db pact4Db) = return pact4Db
+assertDynamicPact4Db (Pact5Db _pact5Db) = error "expected Pact4 DB, got Pact5 DB"
+
+assertDynamicPact5Db :: HasCallStack => DynamicPactDb logger -> IO CoreDb
+assertDynamicPact5Db (Pact5Db pact5Db) = return pact5Db
+assertDynamicPact5Db (Pact4Db _pact4Db) = error "expected Pact5 DB, got Pact4 DB"
+
 -- this is effectively a read-write snapshot of the Pact state at a block.
 data CurrentBlockDbEnv logger = CurrentBlockDbEnv
-    { _cpPactDbEnv :: !(ChainwebPactDbEnv logger)
-    , _cpPactCoreDbEnv :: !CoreDb
+    { _cpPactDbEnv :: !(DynamicPactDb logger)
     , _cpRegisterProcessedTx :: !(P.PactHash -> IO ())
     , _cpLookupProcessedTx ::
         !(Vector P.PactHash -> IO (HashMap P.PactHash (T2 BlockHeight BlockHash)))
@@ -421,11 +444,11 @@ newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
 data MemPoolAccess = MemPoolAccess
   { mpaGetBlock
         :: !(BlockFill
-        -> MempoolPreBlockCheck Pact4Transaction
+        -> MempoolPreBlockCheck Pact4.Transaction
         -> BlockHeight
         -> BlockHash
         -> BlockHeader
-        -> IO (Vector Pact4Transaction)
+        -> IO (Vector Pact4.Transaction)
         )
   , mpaSetLastHeader :: !(BlockHeader -> IO ())
   , mpaProcessFork :: !(BlockHeader -> IO ())
@@ -473,7 +496,7 @@ instance Show BlockTxHistory where
 data Historical a
   = Historical a
   | NoHistory
-  deriving stock (Foldable, Functor, Generic, Traversable)
+  deriving stock (Eq, Foldable, Functor, Generic, Traversable, Show)
   deriving anyclass NFData
 
 makePrisms ''Historical

@@ -26,42 +26,12 @@
 -- Pact Types module for Chainweb
 --
 module Chainweb.Pact.Types
-  ( GasSupply(..)
+  ( Pact4GasSupply(..)
+  , Pact5GasSupply(..)
   , GasId(..)
   , EnforceCoinbaseFailure(..)
   , CoinbaseUsePrecompiled(..)
   , cleanModuleCache
-
-    -- * Transaction State
-  , TransactionState(..)
-  , txGasModel
-  , txGasLimit
-  , txGasUsed
-  , txGasId
-  , txLogs
-  , txCache
-  , txWarnings
-
-    -- * Transaction Env
-  , TransactionEnv(..)
-  , txMode
-  , txDbEnv
-  , txLogger
-  , txGasLogger
-  , txPublicData
-  , txSpvSupport
-  , txNetworkId
-  , txGasPrice
-  , txRequestKey
-  , txExecutionConfig
-  , txQuirkGasFee
-  , txTxFailuresCounter
-
-    -- * Transaction Execution Monad
-  , TransactionM(..)
-  , runTransactionM
-  , evalTransactionM
-  , execTransactionM
 
     -- * Pact Service Env
   , PactServiceEnv(..)
@@ -70,7 +40,6 @@ module Chainweb.Pact.Types
   , psPdb
   , psBlockHeaderDb
   , psGasModel
-  , psGasModelCore
   , psMinerRewards
   , psReorgLimit
   , psPreInsertCheckTimeout
@@ -103,9 +72,6 @@ module Chainweb.Pact.Types
   , getInitCache
   , updateInitCache
   , updateInitCacheM
-
-  , CoreModuleCache(..)
-  , filterCoreModuleCacheByKey
 
     -- * Pact Service Monad
   , PactServiceM(..)
@@ -153,7 +119,8 @@ module Chainweb.Pact.Types
   , testPactServiceConfig
   , testBlockGasLimit
   , defaultModuleCacheLimit
-  , catchesPactError
+  , catchesPact4Error
+  , catchesPact5Error
   , UnexpectedErrorPrinting(..)
   , defaultPreInsertCheckTimeout
   , withPactState
@@ -221,18 +188,30 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 import Utils.Logging.Trace
+import Data.Decimal (Decimal)
+import qualified Pact.Core.StableEncoding as Pact5
+import qualified Pact.Core.Literal as Pact5
 
 -- -------------------------------------------------------------------------- --
 -- Coinbase output utils
 
 -- | Indicates a computed gas charge (gas amount * gas price)
-newtype GasSupply = GasSupply { _gasSupply :: ParsedDecimal }
+newtype Pact4GasSupply = Pact4GasSupply { _gasSupply :: ParsedDecimal }
    deriving (Eq,Ord)
    deriving newtype (Num,Real,Fractional,FromJSON)
-instance Show GasSupply where show (GasSupply g) = show g
+instance Show Pact4GasSupply where show (Pact4GasSupply g) = show g
 
-instance J.Encode GasSupply where
+instance J.Encode Pact4GasSupply where
     build = J.build . _gasSupply
+
+-- | Indicates a computed gas charge (gas amount * gas price)
+newtype Pact5GasSupply = Pact5GasSupply { _pact5GasSupply :: Decimal }
+   deriving (Eq,Ord)
+   deriving newtype (Num,Real,Fractional)
+
+instance J.Encode Pact5GasSupply where
+    build = J.build . Pact5.StableEncoding . Pact5.LDecimal . _pact5GasSupply
+instance Show Pact5GasSupply where show (Pact5GasSupply g) = show g
 
 newtype GasId = GasId PactId deriving (Eq, Show)
 
@@ -250,109 +229,13 @@ newtype CoinbaseUsePrecompiled = CoinbaseUsePrecompiled Bool
 
 data ApplyCmdExecutionContext = ApplyLocal | ApplySend
 
--- -------------------------------------------------------------------- --
--- Tx Execution Service Monad
-
--- | Transaction execution state
---
-data TransactionState = TransactionState
-    { _txCache :: !ModuleCache
-    , _txLogs :: ![TxLogJson]
-    , _txGasUsed :: !Gas
-    , _txGasId :: !(Maybe GasId)
-    , _txGasModel :: !(Either GasModel (Pact5.GasModel Pact5.CoreBuiltin))
-    , _txWarnings :: !(Set PactWarning)
-    }
-makeLenses ''TransactionState
-
--- | Transaction execution env
---
-data TransactionEnv logger db = TransactionEnv
-    { _txMode :: !ExecutionMode
-    , _txDbEnv :: !(Either (PactDbEnv db) CoreDb)
-    , _txLogger :: !logger
-    , _txGasLogger :: !(Maybe logger)
-    , _txPublicData :: !PublicData
-    , _txSpvSupport :: !SPVSupport
-    , _txNetworkId :: !(Maybe NetworkId)
-    , _txGasPrice :: !GasPrice
-    , _txRequestKey :: !RequestKey
-    , _txGasLimit :: !Gas
-    , _txExecutionConfig :: !ExecutionConfig
-    , _txQuirkGasFee :: !(Maybe Gas)
-    , _txTxFailuresCounter :: !(Maybe (Counter "txFailures"))
-    }
-makeLenses ''TransactionEnv
-
--- | The transaction monad used in transaction execute. The reader
--- environment is the a Pact command env, writer is a list of json-ified
--- tx logs, and transaction state consists of a module cache, gas env,
--- and log values.
---
-newtype TransactionM logger db a = TransactionM
-    { _unTransactionM
-        :: ReaderT (TransactionEnv logger db) (StateT TransactionState IO) a
-    } deriving newtype
-      ( Functor, Applicative, Monad
-      , MonadReader (TransactionEnv logger db)
-      , MonadState TransactionState
-      , MonadThrow, MonadCatch, MonadMask
-      , MonadIO
-      )
-
--- | Run a 'TransactionM' computation given some initial
--- reader and state values, returning the full range of
--- results in a strict tuple
---
-runTransactionM
-    :: forall logger db a
-    . TransactionEnv logger db
-      -- ^ initial reader env
-    -> TransactionState
-      -- ^ initial state
-    -> TransactionM logger db a
-      -- ^ computation to execute
-    -> IO (T2 a TransactionState)
-runTransactionM tenv txst act
-    = view (from _T2)
-    <$> runStateT (runReaderT (_unTransactionM act) tenv) txst
-
--- | Run a 'TransactionM' computation given some initial
--- reader and state values, discarding the final state.
---
-evalTransactionM
-    :: forall logger db a
-    . TransactionEnv logger db
-      -- ^ initial reader env
-    -> TransactionState
-      -- ^ initial state
-    -> TransactionM logger db a
-    -> IO a
-evalTransactionM tenv txst act
-    = evalStateT (runReaderT (_unTransactionM act) tenv) txst
-
--- | Run a 'TransactionM' computation given some initial
--- reader and state values, returning just the final state.
---
-execTransactionM
-    :: forall logger db a
-    . TransactionEnv logger db
-      -- ^ initial reader env
-    -> TransactionState
-      -- ^ initial state
-    -> TransactionM logger db a
-    -> IO TransactionState
-execTransactionM tenv txst act
-    = execStateT (runReaderT (_unTransactionM act) tenv) txst
-
-
-
 -- | Pair parent header with transaction metadata.
 -- In cases where there is no transaction/Command, 'PublicMeta'
 -- default value is used.
 data TxContext = TxContext
   { _tcParentHeader :: !ParentHeader
   , _tcPublicMeta :: !PublicMeta
+  , _tcMiner :: !Miner
   } deriving Show
 
 instance HasChainId TxContext where
@@ -368,8 +251,8 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psCheckpointer :: !(Checkpointer logger)
     , _psPdb :: !(PayloadDb tbl)
     , _psBlockHeaderDb :: !BlockHeaderDb
+    -- TODO: delete below
     , _psGasModel :: !(TxContext -> GasModel)
-    , _psGasModelCore :: !(TxContext -> Pact5.GasModel Pact5.CoreBuiltin)
     , _psMinerRewards :: !MinerRewards
     , _psPreInsertCheckTimeout :: !Micros
     -- ^ Maximum allowed execution time for the transactions validation.
@@ -496,8 +379,8 @@ instance HasChainId (PactBlockEnv logger tbl) where
 -- call fetches a grandparent, not the parent.
 --
 ctxToPublicData :: TxContext -> PublicData
-ctxToPublicData ctx@(TxContext _ pm) = PublicData
-    { _pdPublicMeta = pm
+ctxToPublicData ctx = PublicData
+    { _pdPublicMeta = _tcPublicMeta ctx
     , _pdBlockHeight = bh
     , _pdBlockTime = bt
     , _pdPrevBlockHash = toText hsh
@@ -513,20 +396,20 @@ ctxToPublicData ctx@(TxContext _ pm) = PublicData
 -- hash and blocktime data
 --
 ctxToPublicData' :: TxContext -> PublicData
-ctxToPublicData' (TxContext ph pm) = PublicData
-    { _pdPublicMeta = pm
+ctxToPublicData' ctx = PublicData
+    { _pdPublicMeta = _tcPublicMeta ctx
     , _pdBlockHeight = bh
     , _pdBlockTime = bt
     , _pdPrevBlockHash = toText h
     }
   where
-    bheader = _parentHeader ph
+    bheader = _parentHeader (_tcParentHeader ctx)
     BlockHeight !bh = succ $ _blockHeight bheader
     BlockCreationTime (Time (TimeSpan (Micros !bt))) =
       _blockCreationTime bheader
     BlockHash h = _blockHash bheader
 
--- | Retreive parent header as 'BlockHeader'
+-- | Retrieve parent header as 'BlockHeader'
 ctxBlockHeader :: TxContext -> BlockHeader
 ctxBlockHeader = _parentHeader . _tcParentHeader
 
@@ -546,8 +429,8 @@ guardCtx :: (ChainwebVersion -> ChainId -> BlockHeight -> a) -> TxContext -> a
 guardCtx g txCtx = g (ctxVersion txCtx) (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
 
 -- | Assemble tx context from transaction metadata and parent header.
-getTxContext :: PublicMeta -> PactBlockM logger tbl TxContext
-getTxContext pm = view psParentHeader >>= \ph -> return (TxContext ph pm)
+getTxContext :: Miner -> PublicMeta -> PactBlockM logger tbl TxContext
+getTxContext miner pm = view psParentHeader >>= \ph -> return (TxContext ph pm miner)
 
 -- | The top level monad of PactService, notably allowing access to a
 -- checkpointer and module init cache and some configuration parameters.
@@ -766,8 +649,8 @@ localLabelBlock lbl x = do
 
 data UnexpectedErrorPrinting = PrintsUnexpectedError | CensorsUnexpectedError
 
-catchesPactError :: (MonadCatch m, MonadIO m, Logger logger) => logger -> UnexpectedErrorPrinting -> m a -> m (Either PactError a)
-catchesPactError logger exnPrinting action = catches (Right <$> action)
+catchesPact4Error :: (MonadCatch m, MonadIO m, Logger logger) => logger -> UnexpectedErrorPrinting -> m a -> m (Either PactError a)
+catchesPact4Error logger exnPrinting action = catches (Right <$> action)
   [ Handler $ \(e :: PactError) -> return $ Left e
   , Handler $ \(e :: SomeException) -> do
       !err <- case exnPrinting of
@@ -777,4 +660,12 @@ catchesPactError logger exnPrinting action = catches (Right <$> action)
             liftIO $ logWarn_ logger ("catchesPactError: unknown error: " <> sshow e)
             return ("unknown error " <> sshow e)
       return $ Left $ PactError EvalError def def err
+  ]
+
+
+catchesPact5Error :: (MonadCatch m, MonadIO m, Logger logger) => logger -> m a -> m (Either (Pact5.PactError Pact5.Info) a)
+catchesPact5Error logger action = catches (Right <$> action)
+  [ Handler $ \(e :: SomeException) -> do
+      logWarn_ logger ("catchesPactError: unknown error: " <> sshow e)
+      return $ Left $ Pact5.PEExecutionError Pact5.UnknownException [] def
   ]

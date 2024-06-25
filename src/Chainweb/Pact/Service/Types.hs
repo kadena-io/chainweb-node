@@ -73,9 +73,6 @@ module Chainweb.Pact.Service.Types
   , moduleCacheKeys
   , cleanModuleCache
 
-  , CoreModuleCache(..)
-  , filterCoreModuleCacheByKey
-
   , BlockInProgress(..)
   , blockInProgressPendingData
   , blockInProgressTxId
@@ -147,7 +144,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.NoCoinbase
 import Chainweb.Payload
 import Chainweb.Time
-import Chainweb.Transaction
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Mainnet
@@ -469,7 +466,7 @@ data ValidateBlockReq = ValidateBlockReq
     } deriving stock Show
 
 data LocalReq = LocalReq
-    { _localRequest :: !Pact4Transaction
+    { _localRequest :: !Pact4.Transaction
     , _localPreflight :: !(Maybe LocalPreflightSimulation)
     , _localSigVerification :: !(Maybe LocalSignatureVerification)
     , _localRewindDepth :: !(Maybe RewindDepth)
@@ -485,7 +482,7 @@ instance Show LookupPactTxsReq where
         "LookupPactTxsReq@" ++ show m
 
 data PreInsertCheckReq = PreInsertCheckReq
-    { _preInsCheckTxs :: !(Vector Pact4Transaction)
+    { _preInsCheckTxs :: !(Vector Pact4.Transaction)
     }
 instance Show PreInsertCheckReq where
     show (PreInsertCheckReq v) =
@@ -551,17 +548,6 @@ newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
 --
 newtype ModuleCache = ModuleCache { _getModuleCache :: LHM.HashMap ModuleName (ModuleData Ref, Bool) }
     deriving newtype (Show, Eq, Semigroup, Monoid, NFData)
-
-newtype CoreModuleCache = CoreModuleCache { _getCoreModuleCache :: M.Map Pact5.ModuleName (Pact5.ModuleData Pact5.CoreBuiltin Pact5.Info) }
-    deriving newtype (Semigroup, Monoid, NFData)
-
-filterCoreModuleCacheByKey
-    :: (Pact5.ModuleName -> Bool)
-    -> CoreModuleCache
-    -> CoreModuleCache
-filterCoreModuleCacheByKey f (CoreModuleCache c) = CoreModuleCache $
-    M.fromList $ filter (f . fst) $ M.toList c
-{-# INLINE filterCoreModuleCacheByKey #-}
 
 filterModuleCacheByKey
     :: (ModuleName -> Bool)
@@ -639,7 +625,7 @@ toPayloadWithOutputs mi ts =
         cb = CoinbaseOutput $ J.encodeStrict $ toHashCommandResult $ _transactionCoinbase ts
         blockTrans = snd $ newBlockTransactions miner trans
         cmdBSToTx = toTransactionBytes
-          . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
+          . fmap (T.decodeUtf8 . SB.fromShort . Pact4.payloadBytes)
         blockOuts = snd $ newBlockOutputs cb transOuts
 
         blockPL = blockPayload blockTrans blockOuts
@@ -660,7 +646,7 @@ toHashCommandResult :: CommandResult [TxLogJson] -> CommandResult Hash
 toHashCommandResult = over (crLogs . _Just) $ pactHash . encodeTxLogJsonArray
 
 data Transactions r = Transactions
-    { _transactionPairs :: !(Vector (Pact4Transaction, r))
+    { _transactionPairs :: !(Vector (Pact4.Transaction, r))
     , _transactionCoinbase :: !(CommandResult [TxLogJson])
     }
     deriving stock (Functor, Foldable, Traversable, Eq, Show, Generic)

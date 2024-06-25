@@ -186,8 +186,8 @@ doReadFrom logger v cid sql moduleCacheVar maybeParent doRead = do
               | parentIsLatestHeader = Pact5.chainwebPactCoreDb newDbEnv
               | otherwise = Pact5.rewoundPactCoreDb newDbEnv currentHeight (coerce startTxId)
             curBlockDbEnv = CurrentBlockDbEnv
-              { _cpPactDbEnv = PactDbEnv pactDb newDbEnv
-              , _cpPactCoreDbEnv = pactCoreDb
+              { _cpPactDbEnv =
+                makeDynamicPactDb v cid currentHeight (PactDbEnv pactDb newDbEnv) pactCoreDb
               , _cpRegisterProcessedTx =
                 \(TypedHash hash) -> runBlockEnv newDbEnv (PactDb.indexPactTransaction $ BS.fromShort hash)
               , _cpLookupProcessedTx = \hs ->
@@ -211,7 +211,7 @@ doRestoreAndSave
   -> Maybe ParentHeader
   -> Stream (Of (RunnableBlock logger q)) IO r
   -> IO (r, q)
-doRestoreAndSave logger v cid sql p moduleCacheVar rewindParent blocks =
+doRestoreAndSave logger v cid sql p moduleCacheVar rewindParent blocks = do
     modifyMVar moduleCacheVar $ \moduleCache -> do
       fmap fst $ generalBracket
         (beginSavepoint sql BatchSavepoint)
@@ -236,18 +236,20 @@ doRestoreAndSave logger v cid sql p moduleCacheVar rewindParent blocks =
         -- prepare the block state
         let handlerEnv = mkBlockHandlerEnv v cid bh sql p logger
         let state = (initBlockState defaultModuleCacheLimit txid) { _bsModuleCache = moduleCache }
+        -- putStrLn "extend"
         dbMVar <- newMVar BlockEnv
           { _blockHandlerEnv = handlerEnv
           , _benvBlockState = state
           }
 
         let curBlockDbEnv = CurrentBlockDbEnv
-              { _cpPactDbEnv = PactDbEnv PactDb.chainwebPactDb dbMVar
-              , _cpPactCoreDbEnv = Pact5.chainwebPactCoreDb dbMVar
+              { _cpPactDbEnv = makeDynamicPactDb v cid bh (PactDbEnv PactDb.chainwebPactDb dbMVar) (Pact5.chainwebPactCoreDb dbMVar)
               , _cpRegisterProcessedTx =
                 \(TypedHash hash) -> runBlockEnv dbMVar (PactDb.indexPactTransaction $ BS.fromShort hash)
               , _cpLookupProcessedTx = \hs -> runBlockEnv dbMVar $ doLookupSuccessful bh hs
               }
+
+        -- putStrLn "run block"
         -- execute the block
         (m', newBh) <- runBlock block curBlockDbEnv maybeParent
         -- grab any resulting state that we're interested in keeping
@@ -268,7 +270,9 @@ doRestoreAndSave logger v cid sql p moduleCacheVar rewindParent blocks =
                 <> sshow (_blockHeight ph) <> ", child height " <> sshow (_blockHeight newBh)
           _ -> return ()
         -- persist any changes to the database
+        -- putStrLn "commit block"
         PactDb.commitBlockStateToDatabase sql (_blockHash newBh) (_blockHeight newBh) nextState
+        -- putStrLn "done block"
         return (m'', Just (ParentHeader newBh), nextTxId, nextModuleCache)
       )
       (return (mempty, rewindParent, startTxId, startModuleCache))

@@ -49,7 +49,7 @@ import Chainweb.Mempool.Mempool (MempoolBackend)
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload.PayloadStore
-import Chainweb.Transaction
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
@@ -62,7 +62,7 @@ import Chainweb.Counter
 data ChainResources logger = ChainResources
     { _chainResBlockHeaderDb :: !BlockHeaderDb
     , _chainResLogger :: !logger
-    , _chainResMempool :: !(MempoolBackend Pact4Transaction)
+    , _chainResMempool :: !(MempoolBackend Pact4.Transaction)
     , _chainResPact :: PactExecutionService
     }
 
@@ -85,7 +85,7 @@ withChainResources
     -> ChainId
     -> RocksDb
     -> logger
-    -> (MVar PactExecutionService -> Mempool.InMemConfig Pact4Transaction)
+    -> (MVar PactExecutionService -> Mempool.InMemConfig Pact4.Transaction)
     -> PayloadDb tbl
     -> FilePath
         -- ^ database directory for checkpointer

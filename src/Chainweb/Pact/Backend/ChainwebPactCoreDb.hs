@@ -6,6 +6,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 
 module Chainweb.Pact.Backend.ChainwebPactCoreDb
@@ -21,6 +24,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Catch
+import Control.Monad.Morph
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
@@ -78,6 +82,41 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError, IntraBlockPersistence(..))
 import Chainweb.Pact.Types (logError_)
 import Chainweb.Utils (sshow)
+import Pact.Core.StableEncoding (encodeStable)
+import Data.Text (Text)
+
+runBlockEnvGas :: MVar (BlockEnv logger) -> BlockHandlerGas logger a -> GasM CoreBuiltin Info a
+runBlockEnvGas e m = GasM $ ReaderT $ \ge -> ExceptT $
+    modifyMVar e $
+      \(BlockEnv dbenv bs) -> do
+        runExceptT
+            (flip runReaderT ge $ runGasM $ runStateT (runReaderT (runBlockHandlerGas m) dbenv) bs)
+            >>= \case
+                Left err -> return (BlockEnv dbenv bs, Left err)
+                Right (a, bs') -> return (BlockEnv dbenv bs', Right a)
+
+liftBlockHandlerToGas :: BlockHandler logger a -> BlockHandlerGas logger a
+liftBlockHandlerToGas (BlockHandler h) = BlockHandlerGas $ hoist (hoist liftIO) h
+
+liftGas :: GasM CoreBuiltin Info a -> BlockHandlerGas logger a
+liftGas g = BlockHandlerGas (lift (lift g))
+
+-- this monad allows access to the database environment "at" a particular block.
+-- unfortunately, this is tied to a useless MVar via runBlockEnv, which will
+-- be deleted with pact 5.
+newtype BlockHandlerGas logger a = BlockHandlerGas
+    { runBlockHandlerGas
+        :: ReaderT (BlockHandlerEnv logger)
+            (StateT BlockState (GasM CoreBuiltin Info)) a
+    } deriving newtype
+        ( Functor
+        , Applicative
+        , Monad
+        , MonadState BlockState
+        , MonadThrow
+        , MonadIO
+        , MonadReader (BlockHandlerEnv logger)
+        )
 
 tbl :: HasCallStack => Utf8 -> Utf8
 tbl t@(Utf8 b)
@@ -88,13 +127,11 @@ chainwebPactCoreDb :: (Logger logger) => MVar (BlockEnv logger) -> PactDb CoreBu
 chainwebPactCoreDb e = PactDb
     { _pdbPurity = PImpure
     , _pdbRead = \d k -> runBlockEnv e $ doReadRow Nothing d k
-    , _pdbWrite = \wt d k v -> do
-        gasenv <- ask
-        liftIO $ runBlockEnv e $ doWriteRow gasenv Nothing wt d k v
+    , _pdbWrite = \wt d k v ->
+        runBlockEnvGas e $ doWriteRow Nothing wt d k v
     , _pdbKeys = \d -> runBlockEnv e $ doKeys Nothing d
-    , _pdbCreateUserTable = \tn -> do
-        gasenv <- ask
-        liftIO $ runBlockEnv e $ doCreateUserTable gasenv Nothing tn
+    , _pdbCreateUserTable = \tn ->
+        runBlockEnvGas e $ doCreateUserTable Nothing tn
     , _pdbBeginTx = \m -> runBlockEnv e $ doBegin m
     , _pdbCommitTx = runBlockEnv e doCommit
     , _pdbRollbackTx = runBlockEnv e doRollback
@@ -107,12 +144,10 @@ rewoundPactCoreDb :: (Logger logger) => MVar (BlockEnv logger) -> BlockHeight ->
 rewoundPactCoreDb e bh endTxId = (chainwebPactCoreDb e)
     { _pdbRead = \d k -> runBlockEnv e $ doReadRow (Just (bh, endTxId)) d k
     , _pdbWrite = \wt d k v -> do
-        gasenv <- ask
-        liftIO $ runBlockEnv e $ doWriteRow gasenv (Just (bh, endTxId)) wt d k v
+        runBlockEnvGas e $ doWriteRow (Just (bh, endTxId)) wt d k v
     , _pdbKeys = \d -> runBlockEnv e $ doKeys (Just (bh, endTxId)) d
     , _pdbCreateUserTable = \tn -> do
-        gasenv <- ask
-        liftIO $ runBlockEnv e $ doCreateUserTable gasenv (Just bh) tn
+        runBlockEnvGas e $ doCreateUserTable (Just bh) tn
     }
 
 getPendingData :: BlockHandler logger [SQLitePendingData]
@@ -250,7 +285,7 @@ writeSys d k v = gets _bsTxId >>= go
             DDefPacts -> (convPactIdCore k, _encodeDefPactExec serialisePact_raw_spaninfo v)
             DUserTables _ -> error "impossible"
         recordPendingUpdate kk (toUtf8 tablename) (coerce txid) vv
-        recordTxLog (Pact4.TableName tablename) d kk vv
+        recordTxLog tablename d kk vv
     tablename = asString d
 
 recordPendingUpdate
@@ -275,9 +310,9 @@ checkInsertIsOK
     -> WriteType
     -> Domain RowKey RowData CoreBuiltin Info
     -> RowKey
-    -> BlockHandler logger (Maybe RowData)
+    -> BlockHandlerGas logger (Maybe RowData)
 checkInsertIsOK mlim wt d k = do
-    olds <- doReadRow mlim d k
+    olds <- liftBlockHandlerToGas $ doReadRow mlim d k
     case (olds, wt) of
         (Nothing, Insert) -> return Nothing
         (Just _, Insert) -> err "Insert: row found for key "
@@ -289,15 +324,14 @@ checkInsertIsOK mlim wt d k = do
     err msg = internalError $ "checkInsertIsOK: " <> msg <> _rowKey k
 
 writeUser
-    :: GasMEnv (PactError Info) CoreBuiltin
-    -> Maybe (BlockHeight, TxId)
+    :: Maybe (BlockHeight, TxId)
     -- ^ the highest block we should be reading writes from
     -> WriteType
     -> Domain RowKey RowData CoreBuiltin Info
     -> RowKey
     -> RowData
-    -> BlockHandler logger ()
-writeUser gasenv mlim wt d k rowdata@(RowData row) = gets _bsTxId >>= go
+    -> BlockHandlerGas logger ()
+writeUser mlim wt d k rowdata@(RowData row) = gets _bsTxId >>= go
   where
     tn = asString d
 
@@ -305,39 +339,35 @@ writeUser gasenv mlim wt d k rowdata@(RowData row) = gets _bsTxId >>= go
         m <- checkInsertIsOK mlim wt d k
         row' <- case m of
                     Nothing -> ins
-                    (Just old) -> upd old
-        (liftIO $ runGasM [] def gasenv $ _encodeRowData serialisePact_raw_spaninfo row') >>= \case
-            Left e -> internalError $ "writeUser: row encoding error: " <> sshow e
-            Right encoded -> recordTxLog (Pact4.TableName tn) d (convRowKeyCore k) encoded
+                    Just old -> upd old
+        liftGas (_encodeRowData serialisePact_raw_spaninfo row') >>=
+            \encoded -> liftBlockHandlerToGas $ recordTxLog tn d (convRowKeyCore k) encoded
 
       where
         upd (RowData oldrow) = do
             let row' = RowData (M.union row oldrow)
-            (liftIO $ runGasM [] def gasenv $ _encodeRowData serialisePact_raw_spaninfo row') >>= \case
-                Left e -> internalError $ "writeUser.upd: row encoding error: " <> sshow e
-                Right encoded -> do
-                    recordPendingUpdate (convRowKeyCore k) (toUtf8 tn) (PCore.TxId txid) encoded
+            liftGas (_encodeRowData serialisePact_raw_spaninfo row') >>=
+                \encoded -> do
+                    liftBlockHandlerToGas $ recordPendingUpdate (convRowKeyCore k) (toUtf8 tn) (PCore.TxId txid) encoded
                     return row'
 
         ins = do
-            (liftIO $ runGasM [] def gasenv $ _encodeRowData serialisePact_raw_spaninfo rowdata) >>= \case
-                Left e -> internalError $ "writeUser.ins: row encoding error: " <> sshow e
-                Right encoded -> do
-                    recordPendingUpdate (convRowKeyCore k) (toUtf8 tn) (PCore.TxId txid) encoded
+            liftGas (_encodeRowData serialisePact_raw_spaninfo rowdata) >>=
+                \encoded -> do
+                    liftBlockHandlerToGas $ recordPendingUpdate (convRowKeyCore k) (toUtf8 tn) (PCore.TxId txid) encoded
                     return rowdata
 
 doWriteRow
-  :: GasMEnv (PactError Info) CoreBuiltin
-    -> Maybe (BlockHeight, TxId)
+    :: Maybe (BlockHeight, TxId)
     -- ^ the highest block we should be reading writes from
     -> WriteType
     -> Domain k v CoreBuiltin Info
     -> k
     -> v
-    -> BlockHandler logger ()
-doWriteRow gasenv mlim wt d k v = case d of
-    (DUserTables _) -> writeUser gasenv mlim wt d k v
-    _ -> writeSys d k v
+    -> BlockHandlerGas logger ()
+doWriteRow mlim wt d k v = case d of
+    (DUserTables _) -> writeUser mlim wt d k v
+    _ -> liftBlockHandlerToGas $ writeSys d k v
 
 doKeys
     :: forall k v logger .
@@ -413,7 +443,7 @@ doTxIds tn _tid@(TxId tid) = do
     mptx <- use bsPendingTx
 
     -- uniquify txids before returning
-    return $ Set.toList
+    return $! Set.toList
            $! Set.fromList
            $ dbOut ++ collect pb ++ maybe [] collect mptx
 
@@ -431,19 +461,22 @@ doTxIds tn _tid@(TxId tid) = do
                     [SInt tid'] -> return $ TxId (fromIntegral tid')
                     _ -> internalError "doTxIds: the impossible happened"
 
-    stmt = "SELECT DISTINCT txid FROM " <> tbl (tableNameCore tn) <> " WHERE txid > ?"
+    -- this >= used to be a > pre-Pact 5, despite those older versions of Pact themselves
+    -- using >= in their db implementations
+    stmt = "SELECT DISTINCT txid FROM " <> tbl (tableNameCore tn) <> " WHERE txid >= ?"
 
     collect p =
-        let txids = fmap (coerce . _deltaTxId) $
+        let txids = fmap (coerce @Pact4.TxId @TxId . _deltaTxId) $
                     concatMap NE.toList $
                     HashMap.elems $
                     fromMaybe mempty $
                     HashMap.lookup (T.encodeUtf8 $ asString tn) (_pendingWrites p)
-        in filter (> _tid) txids
+        -- see above note re: >= vs >
+        in filter (>= _tid) txids
 {-# INLINE doTxIds #-}
 
 recordTxLog
-    :: Pact4.TableName
+    :: Text
     -> Domain k v CoreBuiltin Info
     -> Utf8
     -> BS.ByteString
@@ -456,8 +489,8 @@ recordTxLog tn d (Utf8 k) v = do
       (Just _) -> over (bsPendingTx . _Just . pendingTxLogMapPact5) upd
 
   where
-    !upd = M.insertWith DL.append tn txlogs
-    !txlogs = DL.singleton $! TxLog (asString d) (T.decodeUtf8 k) v
+    !upd = (`DL.append` txlogs)
+    !txlogs = DL.singleton $! TxLog (renderDomain d) (T.decodeUtf8 k) v
 
 modifyPendingData
     :: (SQLitePendingData -> SQLitePendingData)
@@ -469,31 +502,27 @@ modifyPendingData f = do
       Nothing -> over bsPendingBlock f
 
 doCreateUserTable
-    :: GasMEnv (PactError Info) CoreBuiltin
-    -> Maybe BlockHeight
+    :: Maybe BlockHeight
     -- ^ the highest block we should be seeing tables from
     -> TableName
-    -> BlockHandler logger ()
-doCreateUserTable gasenv mbh tn = do
+    -> BlockHandlerGas logger ()
+doCreateUserTable mbh tn = do
     -- first check if tablename already exists in pending queues
-    -- traceShowM ("CORE", asString tn, _tableModuleName tn)
-    m <- runMaybeT $ checkDbTablePendingCreation (tableNameCore tn)
+    m <- liftBlockHandlerToGas $ runMaybeT $ checkDbTablePendingCreation (tableNameCore tn)
     case m of
       Nothing -> throwM $ PactDuplicateTableError $ asString tn
       Just () -> do
           -- then check if it is in the db
           lcTables <- view blockHandlerLowerCaseTables
-          cond <- inDb lcTables $ Utf8 $ T.encodeUtf8 $ asString tn
+          cond <- liftBlockHandlerToGas $ inDb lcTables $ Utf8 $ T.encodeUtf8 $ asString tn
+          let uti = UserTableInfo (_tableModuleName tn)
           when cond $ throwM $ PactDuplicateTableError $ asString tn
 
-          (liftIO $ runGasM [] def gasenv $ _encodeRowData serialisePact_raw_spaninfo rd) >>= \case
-            Left e -> internalError $ "doCreateUserTable: row encoding error: " <> sshow e
-            Right encoded ->
-              modifyPendingData
-                $ over pendingTableCreation (HashSet.insert (T.encodeUtf8 $ asString tn))
-                . over pendingTxLogMapPact5
-                  (M.insertWith DL.append (Pact4.TableName txlogKey)
-                    (DL.singleton $ TxLog txlogKey (_tableName tn) encoded))
+          liftBlockHandlerToGas
+            $ modifyPendingData
+            $ over pendingTableCreation (HashSet.insert (T.encodeUtf8 $ asString tn))
+            . over pendingTxLogMapPact5
+              (DL.append (DL.singleton $ TxLog txlogKey (_tableName tn) (encodeStable uti)))
   where
     inDb lcTables t = do
       r <- callDb "doCreateUserTable" $ \db ->
@@ -543,7 +572,7 @@ doCommit = use bsMode >>= \case
               resetTemp
               return blockLogs
           else doRollback >> return mempty
-        return $! concatMap (reverse . DL.toList) txrs
+        return $! reverse $ DL.toList txrs
   where
     merge _ Nothing a = a
     merge persistIntraBlockWrites (Just txPending) blockPending = SQLitePendingData

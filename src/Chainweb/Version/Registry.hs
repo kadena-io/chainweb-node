@@ -96,8 +96,11 @@ validateVersion v = do
                     , hasAllChains (_genesisBlockTarget $ _versionGenesis v)
                     , hasAllChains (_genesisTime $ _versionGenesis v)
                     ])]
-            , [ "validateVersion: some upgrade has no transactions"
-              | any (any (\upg -> null (_upgradeTransactions upg))) (_versionUpgrades v) ]
+            , [ "validateVersion: some pact 4 upgrade has no transactions"
+              | any (any (\upg -> null (_pact4UpgradeTransactions upg))) (_versionPact4Upgrades v) ]
+            , [ "validateVersion: some pact 5 upgrade has no transactions"
+              | any (any (\upg -> null (_pact5UpgradeTransactions upg))) (_versionPact5Upgrades v) ]
+            -- TODO: check that pact 4 vs pact 5 flags respect the upgrades
             ]
     unless (null errors) $
         error $ unlines $ ["errors encountered validating version", show v] <> errors
@@ -115,6 +118,7 @@ lookupVersionByCode code
         -- the case that we don't actually need the version, just the code.
         lookupVersion & versionCode .~ code
   where
+    lookupVersion :: HasCallStack => ChainwebVersion
     lookupVersion = unsafeDupablePerformIO $ do
         m <- readIORef versionMap
         return $ fromMaybe (error notRegistered) $
@@ -155,6 +159,3 @@ findKnownVersion vn =
     case find (\v -> _versionName v == vn) knownVersions of
         Nothing -> fail $ T.unpack (getChainwebVersionName vn) <> " is not a known version: try development, mainnet01 or testnet04"
         Just v -> return v
-
-instance HasChainwebVersion ChainwebVersionCode where
-    _chainwebVersion = lookupVersionByCode
