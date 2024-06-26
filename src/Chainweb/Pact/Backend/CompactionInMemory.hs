@@ -754,22 +754,44 @@ trimRocksDb logger cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb =
   srcWbhdb <- initWebBlockHeaderDb srcDb cwVersion
   targetWbhdb <- initWebBlockHeaderDb targetDb cwVersion
   forM_ cids $ \cid -> do
-    log LL.Info $ "Starting chain " <> chainIdToText cid
+    let log' = logFunctionText (addChainIdLabel cid logger)
+    log' LL.Info $ "Starting chain " <> chainIdToText cid
     srcBlockHeaderDb <- getWebBlockHeaderDb srcWbhdb cid
     targetBlockHeaderDb <- getWebBlockHeaderDb targetWbhdb cid
 
     withTableIterator (_chainDbCas srcBlockHeaderDb) $ \it -> do
+      -- Grab the latest header, for progress logging purposes.
+      latestHeader <- do
+        iterLast it
+        iterValue it >>= \case
+          Nothing -> exitLog logger "Missing final payload. This is likely due to a corrupted database."
+          Just rbh -> pure (_blockHeight (_getRankedBlockHeader rbh))
+
       -- Go to the earliest entry. We migrate all BlockHeaders, for now.
       -- They are needed for SPV.
       --
       -- Constructing SPV proofs actually needs the payloads, but validating
       -- them does not.
       iterFirst it
+      earliestHeader <- do
+        iterValue it >>= \case
+          Nothing -> exitLog logger "Missing first payload. This is likely due to a corrupted database."
+          Just rbh -> pure (_blockHeight (_getRankedBlockHeader rbh))
+
+      -- Ensure that we log progress 100 times per chain
+      -- I just made this number up as something that felt somewhat sensible
+      let offset = (latestHeader - earliestHeader) `div` 100
+      let headerProgressPoints = [earliestHeader + i * offset | i <- [1..100]]
+
+      let logHeaderProgress bHeight = do
+            when (bHeight `elem` headerProgressPoints) $ do
+              let percentDone = sshow $ fromIntegral @_ @Double (bHeight - earliestHeader) / fromIntegral @_ @Double (latestHeader - earliestHeader)
+              log' LL.Info $ percentDone <> "% done."
 
       let go = do
             iterValue it >>= \case
               Nothing -> do
-                pure ()
+                log' LL.Info "Finished copying headers and payloads"
               Just rankedBlockHeader -> do
                 let blockHeader = _getRankedBlockHeader rankedBlockHeader
                 let blockHeight = _blockHeight blockHeader
@@ -781,7 +803,7 @@ trimRocksDb logger cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb =
                 --
                 -- Not sure about the rank table, though. We keep it to be
                 -- conservative.
-                log LL.Info $ "Copying over BlockHeader <> " <> sshow blockHash
+                log' LL.Info $ "Copying over BlockHeader <> " <> sshow blockHash
                 tableInsert (_chainDbCas targetBlockHeaderDb) (RankedBlockHash blockHeight blockHash) rankedBlockHeader
                 tableInsert (_chainDbRankTable targetBlockHeaderDb) blockHash blockHeight
 
@@ -790,12 +812,14 @@ trimRocksDb logger cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb =
                 when (blockHeight >= minBlockHeight && blockHeight <= maxBlockHeight) $ do
                   -- Insert the payload into the new database
                   let payloadHash = _blockPayloadHash blockHeader
-                  log LL.Info $ "Migrating block payload " <> sshow payloadHash
+                  log' LL.Info $ "Migrating block payload " <> sshow payloadHash
                   lookupPayloadWithHeight srcPayloads (Just blockHeight) payloadHash >>= \case
                     Nothing -> do
                       exitLog logger "Missing payload: This is likely due to a corrupted database."
                     Just payloadWithOutputs -> do
                       addNewPayload targetPayloads blockHeight payloadWithOutputs
+
+                logHeaderProgress blockHeight
 
                 iterNext it
                 go
