@@ -120,6 +120,7 @@ module Chainweb.Test.Utils
 , interface
 , testRetryPolicy
 , withNodeDbDirs
+, withPactDir
 , NodeDbDirs(..)
 ) where
 
@@ -1051,6 +1052,15 @@ data NodeDbDirs = NodeDbDirs
     , nodeRocksDb :: RocksDb
     }
 
+withPactDir :: Word -> ResourceT IO FilePath
+withPactDir nid = do
+  fmap snd $ allocate
+    (do
+      targetDir <- getCanonicalTemporaryDirectory
+      createTempDirectory targetDir ("pactdb-dir-" ++ show nid)
+    )
+    (\dir -> ignoringIOErrors $ removeDirectoryRecursive dir)
+
 withNodeDbDirs :: RocksDb -> Word -> ResourceT IO [NodeDbDirs]
 withNodeDbDirs rdb n = do
   let create :: IO [NodeDbDirs]
@@ -1075,9 +1085,9 @@ withNodeDbDirs rdb n = do
 
   (_, m) <- allocate create destroy
   pure m
-  where
-    ignoringIOErrors :: (MonadCatch m) => m () -> m ()
-    ignoringIOErrors ioe = ioe `catch` (\(_ :: IOError) -> pure ())
+
+ignoringIOErrors :: (MonadCatch m) => m () -> m ()
+ignoringIOErrors ioe = ioe `catch` (\(_ :: IOError) -> pure ())
 
 deadbeef :: TransactionHash
 deadbeef = TransactionHash "deadbeefdeadbeefdeadbeefdeadbeef"

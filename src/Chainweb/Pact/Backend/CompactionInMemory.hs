@@ -20,17 +20,12 @@
 
 module Chainweb.Pact.Backend.CompactionInMemory
   ( main
+  , withDefaultLogger
+  , compactPactState
   )
   where
 
-
--- #if !mingw32_HOST_OS
--- import System.Posix.Signals
--- #else
--- import Foreign.Ptr
--- #endif
-
-import "base" System.Exit (exitFailure, exitSuccess)
+import "base" System.Exit (exitFailure)
 import "loglevel" System.LogLevel qualified as LL
 import "yet-another-logger" System.Logger hiding (Logger)
 import "yet-another-logger" System.Logger qualified as YAL
@@ -47,6 +42,7 @@ import Chainweb.Pact.Backend.Utils (fromUtf8, toUtf8)
 import Chainweb.Payload.PayloadStore (initializePayloadDb, addNewPayload, lookupPayloadWithHeight)
 import Chainweb.Payload.PayloadStore.RocksDB (newPayloadDb)
 import Chainweb.Storage.Table (Iterator(..), Entry(..), withTableIterator, unCasify, tableInsert)
+import Chainweb.Pact.Backend.Types (SQLiteEnv)
 import Chainweb.Storage.Table.RocksDB (RocksDb, withRocksDb, withReadOnlyRocksDb, modernDefaultOptions)
 import Chainweb.Utils (sshow, fromText, int)
 import Chainweb.Version (ChainId, ChainwebVersion(..), chainIdToText, chainGraphAt)
@@ -175,7 +171,6 @@ data Config = Config
   , toDir :: FilePath
   , concurrent :: ConcurrentChains
   , logDir :: FilePath
-  , onlyRocksDb :: Bool
   }
 
 data ConcurrentChains = SingleChain | ManyChainsAtOnce
@@ -195,7 +190,6 @@ getConfig = do
       <*> O.strOption (O.long "to" <> O.help "Directory where to place the compacted Pact state and block data. It will place them in $DIR/0/{sqlite,rocksDb}, respectively.")
       <*> O.flag SingleChain ManyChainsAtOnce (O.long "parallel" <> O.help "Turn on multi-threaded compaction. The threads are per-chain.")
       <*> O.strOption (O.long "log-dir" <> O.help "Directory where compaction logs will be placed.")
-      <*> O.switch (O.long "only-rocksdb" <> O.hidden)
 
     parseVersion :: Text -> ChainwebVersion
     parseVersion =
@@ -210,60 +204,12 @@ main = do
 
   compact =<< getConfig
 
-compact :: Config -> IO ()
-compact cfg = do
-  let cids = allChains cfg.chainwebVersion
-
-  -- Get the target blockheight.
-  targetBlockHeight <- withDefaultLogger LL.Error $ \logger -> do
-    -- Locate the latest (safe) blockheight as per the pact state.
-    -- See 'locateLatestSafeTarget' for the definition of 'safe' here.
-    targetBlockHeight <- locateLatestSafeTarget logger cfg.chainwebVersion (pactDir cfg.fromDir) cids
-
-
-    -- Check that the target directory doesn't exist already,
-    -- then create its entire tree.
-    toDirExists <- doesDirectoryExist cfg.toDir
-    when toDirExists $ do
-      exitLog logger "Compaction \"To\" directory already exists. Aborting."
-    createDirectoryIfMissing True (pactDir cfg.toDir)
-    createDirectoryIfMissing True (rocksDir cfg.toDir)
-
-    pure targetBlockHeight
-
-  -- TODO: this logic is brittle right now, we need to make sure
-  -- we have at least this amount, or abort.
-  --
-  -- TODO: make 1k/3k constants; no magic numbers. perhaps these constants
-  -- should be shared with locateLatestSafeTarget. The 2k can be derived
-  -- from that and a constant for the 3k.
-
-  -- We are trying to make sure that we keep around at least 3k blocks.
-  -- The compaction target is 1k blocks prior to the latest common
-  -- blockheight (i.e. min (map blockHeight allChains)), so we take
-  -- the target and add 1k, but the chains can differ at most by the
-  -- diameter of the chaingraph, so we also add that to make sure that
-  -- we have full coverage of every chain.
-  --
-  -- To keep around another 2k blocks (to get to ~3k), we subtract 2k
-  -- from the target.
-  --
-  -- Note that the number 3k was arbitrary but chosen to be a safe
-  -- amount of data more than what is in SQLite.
-  let minBlockHeight = targetBlockHeight - 2_000
-  let maxBlockHeight = targetBlockHeight + 1_000 + int (diameter (chainGraphAt cfg.chainwebVersion targetBlockHeight))
-
-  -- Trim RocksDB here
-
-  withRocksDbFileLogger cfg.logDir LL.Debug $ \logger -> do
-    withReadOnlyRocksDb (rocksDir cfg.fromDir) modernDefaultOptions $ \srcRocksDb -> do
-      withRocksDb (rocksDir cfg.toDir) (modernDefaultOptions { compression = NoCompression }) $ \targetRocksDb -> do
-        trimRocksDb logger cfg.chainwebVersion cids minBlockHeight maxBlockHeight srcRocksDb targetRocksDb
-
-  when cfg.onlyRocksDb exitSuccess
+compactPactState :: (Logger logger) => logger -> ChainwebVersion -> BlockHeight -> SQLiteEnv -> SQLiteEnv -> IO ()
+compactPactState logger v targetBlockHeight srcDb targetDb = do
+  let log = logFunctionText logger
 
   -- These pragmas are tuned for fast insertion on systems with a wide range
-  -- of resources.
+  -- of system resources.
   --
   -- journal_mode = OFF is terrible for prod but probably OK here
   -- since we are just doing a bunch of bulk inserts
@@ -275,103 +221,159 @@ compact cfg = do
         , "shrink_memory"
         ]
 
+  -- Establish pragmas for bulk insert performance
+  --
+  -- Note that we can't apply pragmas to the src
+  -- because we can't guarantee it's not being accessed
+  -- by another process.
+  Pact.runPragmas targetDb fastBulkInsertPragmas
+
+  -- Create checkpointer tables on the target
+  createCheckpointerTables targetDb logger
+
+  -- Compact BlockHistory
+  -- This is extremely fast and low residency
+  do
+    log LL.Info "Compacting BlockHistory"
+    activeRow <- getBlockHistoryRowAt logger srcDb targetBlockHeight
+    Pact.exec' targetDb "INSERT INTO BlockHistory VALUES (?1, ?2, ?3)" activeRow
+
+  -- Compact VersionedTableMutation
+  -- This is extremely fast and low residency
+  do
+    log LL.Info "Compacting VersionedTableMutation"
+    activeRows <- getVersionedTableMutationRowsAt logger srcDb targetBlockHeight
+    Lite.withStatement targetDb "INSERT INTO VersionedTableMutation VALUES (?1, ?2)" $ \stmt -> do
+      forM_ activeRows $ \row -> do
+        Pact.bindParams stmt row
+        void $ stepThenReset stmt
+
+  -- Copy over VersionedTableCreation. Read-only rewind needs to know
+  -- when the table existed at that time, so we can't compact this.
+  --
+  -- This is pretty fast and low residency
+  do
+    log LL.Info "Copying over VersionedTableCreation"
+    let wholeTableQuery = "SELECT tablename, createBlockheight FROM VersionedTableCreation"
+    throwSqlError $ qryStream srcDb wholeTableQuery [] [RText, RInt] $ \tblRows -> do
+      Lite.withStatement targetDb "INSERT INTO VersionedTableCreation VALUES (?1, ?2)" $ \stmt -> do
+        flip S.mapM_ tblRows $ \row -> do
+          Pact.bindParams stmt row
+          void $ stepThenReset stmt
+
+  -- Copy over TransactionIndex.
+  --
+  -- TODO: Should we compact this based on the RocksDB 'minBlockHeight'?
+  -- /poll and SPV rely on having this table synchronised with RocksDB.
+  --
+  -- We should let users have the option to keep this around, as an
+  -- advanced option, and document those APIs which need it.
+  --
+  -- It isn't (currently) compacted so the amount of data is quite large
+  -- This, SYS:Pacts, and coin_coin-table were all used as benchmarks
+  -- for optimisations.
+  --
+  -- Maybe consider
+  -- https://tableplus.com/blog/2018/07/sqlite-how-to-copy-table-to-another-database.html
+  do
+    log LL.Info "Copying over TransactionIndex"
+    let wholeTableQuery = "SELECT txhash, blockheight FROM TransactionIndex WHERE blockheight >= ?1 ORDER BY blockheight"
+
+    let (minBlockHeight, _) = blockHeightRange v targetBlockHeight
+    throwSqlError $ qryStream srcDb wholeTableQuery [SInt (int minBlockHeight)] [RBlob, RInt] $ \tblRows -> do
+      Lite.withStatement targetDb "INSERT INTO TransactionIndex VALUES (?1, ?2)" $ \stmt -> do
+        -- I experimented a bunch with chunk sizes, to keep transactions
+        -- small. As far as I can tell, there isn't really much
+        -- difference in any of them wrt residency, but there is wrt
+        -- speed. More experimentation may be needed here, but 10k is
+        -- fine so far.
+        S.chunksOf 10_000 tblRows
+          & S.mapsM_ (\chunk -> do
+              inTx targetDb $ flip S.mapM_ chunk $ \row -> do
+                Pact.bindParams stmt row
+                void (stepThenReset stmt)
+            )
+
+    -- Vacuuming after copying over all of the TransactionIndex data,
+    -- but before creating its indices, makes a big differences in
+    -- memory residency (~0.5G), at the expense of speed (~20s increase)
+    Pact.exec_ targetDb "VACUUM;"
+
+  -- Create the checkpointer table indices after bulk-inserting into them
+  -- This is faster than creating the indices before
+  createCheckpointerIndexes targetDb logger
+
+  -- Compact all user tables
+  log LL.Info "Starting user tables"
+  getLatestPactTableNamesAt srcDb targetBlockHeight
+    & S.mapM_ (\tblname -> do
+        compactTable logger srcDb targetDb (fromUtf8 tblname) targetBlockHeight
+      )
+
+  log LL.Info "Compaction done"
+
+-- TODO: this logic is brittle right now, we need to make sure
+-- we have at least this amount, or abort.
+--
+-- TODO: make 1k/3k constants; no magic numbers. perhaps these constants
+-- should be shared with locateLatestSafeTarget. The 2k can be derived
+-- from that and a constant for the 3k.
+
+-- We are trying to make sure that we keep around at least 3k blocks.
+-- The compaction target is 1k blocks prior to the latest common
+-- blockheight (i.e. min (map blockHeight allChains)), so we take
+-- the target and add 1k, but the chains can differ at most by the
+-- diameter of the chaingraph, so we also add that to make sure that
+-- we have full coverage of every chain.
+--
+-- To keep around another 2k blocks (to get to ~3k), we subtract 2k
+-- from the target.
+--
+-- Note that the number 3k was arbitrary but chosen to be a safe
+-- amount of data more than what is in SQLite.
+blockHeightRange :: ChainwebVersion -> BlockHeight -> (BlockHeight, BlockHeight)
+blockHeightRange v target = (,)
+  (target - 2_000)
+  (target + 1_000 + int (diameter (chainGraphAt v target)))
+
+compact :: Config -> IO ()
+compact cfg = do
+  let cids = allChains cfg.chainwebVersion
+
+  -- Get the target blockheight.
+  targetBlockHeight <- withDefaultLogger LL.Error $ \logger -> do
+    logFunctionText logger LL.Info "doin it!"
+
+    threadDelay 5_000_000
+
+    -- Locate the latest (safe) blockheight as per the pact state.
+    -- See 'locateLatestSafeTarget' for the definition of 'safe' here.
+    targetBlockHeight <- locateLatestSafeTarget logger cfg.chainwebVersion (pactDir cfg.fromDir) cids
+
+    -- Check that the target directory doesn't exist already,
+    -- then create its entire tree.
+    toDirExists <- doesDirectoryExist cfg.toDir
+    when toDirExists $ do
+      exitLog logger "Compaction \"To\" directory already exists. Aborting."
+    createDirectoryIfMissing True (pactDir cfg.toDir)
+    createDirectoryIfMissing True (rocksDir cfg.toDir)
+
+    pure targetBlockHeight
+
+  -- Trim RocksDB here
+  let (minBlockHeight, maxBlockHeight) = blockHeightRange cfg.chainwebVersion targetBlockHeight
+  withRocksDbFileLogger cfg.logDir LL.Debug $ \logger -> do
+    withReadOnlyRocksDb (rocksDir cfg.fromDir) modernDefaultOptions $ \srcRocksDb -> do
+      withRocksDb (rocksDir cfg.toDir) (modernDefaultOptions { compression = NoCompression }) $ \targetRocksDb -> do
+        trimRocksDb logger cfg.chainwebVersion cids minBlockHeight maxBlockHeight srcRocksDb targetRocksDb
+
   -- Shallow Nodes notes:
   --   - Users should bring up new nodes if they need maximal uptime
   forChains_ cfg.concurrent cids $ \cid -> do
     withPerChainFileLogger cfg.logDir cid LL.Debug $ \logger -> do
       withChainDb cid logger (pactDir cfg.fromDir) $ \_ srcDb -> do
         withChainDb cid logger (pactDir cfg.toDir) $ \_ targetDb -> do
-          let log = logFunctionText logger
-
-          -- Establish pragmas for bulk insert performance
-          --
-          -- Note that we can't apply pragmas to the src
-          -- because we can't guarantee it's not being accessed
-          -- by another process.
-          Pact.runPragmas targetDb fastBulkInsertPragmas
-
-          -- Create checkpointer tables on the target
-          createCheckpointerTables targetDb logger
-
-          -- Compact BlockHistory
-          -- This is extremely fast and low residency
-          do
-            log LL.Info "Compacting BlockHistory"
-            activeRow <- getBlockHistoryRowAt logger srcDb targetBlockHeight
-            Pact.exec' targetDb "INSERT INTO BlockHistory VALUES (?1, ?2, ?3)" activeRow
-
-          -- Compact VersionedTableMutation
-          -- This is extremely fast and low residency
-          do
-            log LL.Info "Compacting VersionedTableMutation"
-            activeRows <- getVersionedTableMutationRowsAt logger srcDb targetBlockHeight
-            Lite.withStatement targetDb "INSERT INTO VersionedTableMutation VALUES (?1, ?2)" $ \stmt -> do
-              forM_ activeRows $ \row -> do
-                Pact.bindParams stmt row
-                void $ stepThenReset stmt
-
-          -- Copy over VersionedTableCreation. Read-only rewind needs to know
-          -- when the table existed at that time, so we can't compact this.
-          --
-          -- This is pretty fast and low residency
-          do
-            log LL.Info "Copying over VersionedTableCreation"
-            let wholeTableQuery = "SELECT tablename, createBlockheight FROM VersionedTableCreation"
-            throwSqlError $ qryStream srcDb wholeTableQuery [] [RText, RInt] $ \tblRows -> do
-              Lite.withStatement targetDb "INSERT INTO VersionedTableCreation VALUES (?1, ?2)" $ \stmt -> do
-                flip S.mapM_ tblRows $ \row -> do
-                  Pact.bindParams stmt row
-                  void $ stepThenReset stmt
-
-          -- Copy over TransactionIndex.
-          --
-          -- TODO: Should we compact this based on the RocksDB 'minBlockHeight'?
-          -- /poll and SPV rely on having this table synchronised with RocksDB.
-          --
-          -- We should let users have the option to keep this around, as an
-          -- advanced option, and document those APIs which need it.
-          --
-          -- It isn't (currently) compacted so the amount of data is quite large
-          -- This, SYS:Pacts, and coin_coin-table were all used as benchmarks
-          -- for optimisations.
-          --
-          -- Maybe consider
-          -- https://tableplus.com/blog/2018/07/sqlite-how-to-copy-table-to-another-database.html
-          do
-            log LL.Info "Copying over TransactionIndex"
-            let wholeTableQuery = "SELECT txhash, blockheight FROM TransactionIndex WHERE blockheight >= ?1 ORDER BY blockheight"
-
-            throwSqlError $ qryStream srcDb wholeTableQuery [SInt (int minBlockHeight)] [RBlob, RInt] $ \tblRows -> do
-              Lite.withStatement targetDb "INSERT INTO TransactionIndex VALUES (?1, ?2)" $ \stmt -> do
-                -- I experimented a bunch with chunk sizes, to keep transactions
-                -- small. As far as I can tell, there isn't really much
-                -- difference in any of them wrt residency, but there is wrt
-                -- speed. More experimentation may be needed here, but 10k is
-                -- fine so far.
-                S.chunksOf 10_000 tblRows
-                  & S.mapsM_ (\chunk -> do
-                      inTx targetDb $ flip S.mapM_ chunk $ \row -> do
-                        Pact.bindParams stmt row
-                        void (stepThenReset stmt)
-                    )
-
-            -- Vacuuming after copying over all of the TransactionIndex data,
-            -- but before creating its indices, makes a big differences in
-            -- memory residency (~0.5G), at the expense of speed (~20s increase)
-            Pact.exec_ targetDb "VACUUM;"
-
-          -- Create the checkpointer table indices after bulk-inserting into them
-          -- This is faster than creating the indices before
-          createCheckpointerIndexes targetDb logger
-
-          -- Compact all user tables
-          log LL.Info "Starting user tables"
-          getLatestPactTableNamesAt srcDb targetBlockHeight
-            & S.mapM_ (\tblname -> do
-                compactTable logger srcDb targetDb (fromUtf8 tblname) targetBlockHeight
-              )
-
-          log LL.Info "Compaction done"
+          compactPactState logger cfg.chainwebVersion targetBlockHeight srcDb targetDb
 
 compactTable :: (Logger logger)
   => logger      -- ^ logger
