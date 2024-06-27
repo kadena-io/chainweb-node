@@ -85,6 +85,11 @@ flag ghc-flags
     default: False
     manual: True
 
+flag rocksdb-with-tbb
+    description: Build RocksDB with tbb support
+    default: False
+    manual: True
+
 common debugging-flags
     if flag(debug)
         ghc-options:
@@ -111,6 +116,527 @@ common warning-flags
 -- -------------------------------------------------------------------------- --
 -- Chainweb Library
 -- -------------------------------------------------------------------------- --
+
+library rocksdb-haskell-kadena
+  import: warning-flags, debugging-flags
+  hs-source-dirs: vendored/rocksdb-haskell-kadena/src
+  default-language: Haskell2010
+
+  cxx-sources:
+    vendored/rocksdb-haskell-kadena/cpp/chainweb-rocksdb.cpp
+  include-dirs:
+    vendored/rocksdb-haskell-kadena/cpp
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/include
+
+  install-includes:
+    vendored/rocksdb-haskell-kadena/cpp/chainweb-rocksdb.h
+  exposed-modules:
+    Database.RocksDB
+    Database.RocksDB.Base
+    Database.RocksDB.C
+    Database.RocksDB.Internal
+    Database.RocksDB.Iterator
+    Database.RocksDB.ReadOptions
+    Database.RocksDB.Types
+
+  other-extensions:
+    CPP,
+    ForeignFunctionInterface,
+    EmptyDataDecls,
+    RecordWildCards
+
+  build-depends:
+    , base >= 4 && < 5
+    , binary
+    , bytestring
+    , data-default
+    , directory
+    , filepath
+    , transformers
+
+  ghc-options:
+    -optc-w
+    -optcxx-w
+    -- -optl-static-libstdc++
+  -- ld-options: -static-libstdc++
+
+  -- All of the following libraries are optional. If one of the libraries
+  -- is not available on the build host, it can be commented out in the
+  -- list below.
+  --
+  extra-libraries:
+    snappy
+    gflags
+    z
+    bz2
+    lz4
+    zstd
+    stdc++
+
+  if flag(rocksdb-with-tbb)
+    extra-libraries:
+      tbb
+
+  -- These options are extracted from CXXFLAGS the RocksDB Makefile
+  cxx-options:
+    -fno-rtti
+    -g
+    -W
+    -Wextra
+    -Wall
+    -Wno-invalid-offsetof
+    -Wsign-compare
+    -Wshadow
+    -Wunused-parameter
+    -std=c++2a
+    -faligned-new
+    -DNO_THREEWAY_CRC32C
+    -DHAVE_ALIGNED_NEW
+    -DROCKSDB_PLATFORM_POSIX
+    -DROCKSDB_LIB_IO_POSIX
+    -DSNAPPY
+    -DGFLAGS=1
+    -DZLIB
+    -DBZIP2
+    -DLZ4
+    -DZSTD
+    -DROCKSDB_BACKTRACE
+    -mtune=generic
+    -DROCKSDB_SUPPORT_THREAD_LOCAL
+    -fno-omit-frame-pointer
+    -momit-leaf-frame-pointer
+    -DNDEBUG
+    -Woverloaded-virtual
+    -Wnon-virtual-dtor
+    -Wno-missing-field-initializers
+    -O2
+
+  if arch(x86_64)
+    cxx-options:
+      -march=x86-64
+      -msse3
+
+  if flag(rocksdb-with-tbb)
+    cxx-options:
+      -DTBB
+
+  if os(linux)
+    cxx-options:
+      -DOS_LINUX
+      -fno-builtin-memcmp
+      -DROCKSDB_FALLOCATE_PRESENT
+      -DROCKSDB_MALLOC_USABLE_SIZE
+      -DROCKSDB_PTHREAD_ADAPTIVE_MUTEX
+      -DROCKSDB_RANGESYNC_PRESENT
+      -DROCKSDB_SCHED_GETCPU_PRESENT
+      -DROCKSDB_AUXV_GETAUXVAL_PRESENT
+
+  if os(darwin)
+    cxx-options:
+      -DOS_MACOSX
+      -Wshorten-64-to-32
+      -DHAVE_FULLFSYNC
+
+  -- These sources are extracted from LIB_OBJECTS the RocksDB Makefile
+  cxx-sources:
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/cache/cache.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/cache/cache_entry_roles.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/cache/cache_key.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/cache/cache_helpers.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/cache/cache_reservation_manager.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/cache/charged_cache.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/cache/clock_cache.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/cache/lru_cache.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/cache/compressed_secondary_cache.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/cache/secondary_cache.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/cache/secondary_cache_adapter.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/cache/sharded_cache.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/arena_wrapped_db_iter.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/blob/blob_contents.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/blob/blob_fetcher.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/blob/blob_file_addition.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/blob/blob_file_builder.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/blob/blob_file_cache.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/blob/blob_file_garbage.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/blob/blob_file_meta.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/blob/blob_file_reader.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/blob/blob_garbage_meter.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/blob/blob_log_format.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/blob/blob_log_sequential_reader.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/blob/blob_log_writer.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/blob/blob_source.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/blob/prefetch_buffer_collection.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/builder.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/c.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/column_family.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/compaction/compaction.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/compaction/compaction_iterator.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/compaction/compaction_job.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/compaction/compaction_picker.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/compaction/compaction_picker_fifo.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/compaction/compaction_picker_level.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/compaction/compaction_picker_universal.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/compaction/compaction_service_job.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/compaction/compaction_state.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/compaction/compaction_outputs.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/compaction/sst_partitioner.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/compaction/subcompaction_state.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/convenience.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/db_filesnapshot.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/db_impl/compacted_db_impl.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/db_impl/db_impl.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/db_impl/db_impl_compaction_flush.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/db_impl/db_impl_debug.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/db_impl/db_impl_experimental.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/db_impl/db_impl_files.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/db_impl/db_impl_open.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/db_impl/db_impl_readonly.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/db_impl/db_impl_secondary.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/db_impl/db_impl_write.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/db_info_dumper.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/db_iter.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/dbformat.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/error_handler.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/event_helpers.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/experimental.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/external_sst_file_ingestion_job.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/file_indexer.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/flush_job.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/flush_scheduler.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/forward_iterator.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/import_column_family_job.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/internal_stats.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/logs_with_prep_tracker.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/log_reader.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/log_writer.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/malloc_stats.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/memtable.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/memtable_list.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/merge_helper.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/merge_operator.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/output_validator.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/periodic_task_scheduler.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/range_del_aggregator.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/range_tombstone_fragmenter.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/repair.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/seqno_to_time_mapping.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/snapshot_impl.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/table_cache.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/table_properties_collector.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/transaction_log_impl.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/trim_history_scheduler.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/version_builder.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/version_edit.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/version_edit_handler.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/version_set.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/wal_edit.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/wal_manager.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/wide/wide_column_serialization.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/wide/wide_columns.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/write_batch.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/write_batch_base.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/write_controller.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/write_stall_stats.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/db/write_thread.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/env/composite_env.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/env/env.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/env/env_chroot.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/env/env_encryption.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/env/env_posix.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/env/file_system.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/env/fs_posix.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/env/fs_remap.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/env/file_system_tracer.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/env/io_posix.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/env/mock_env.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/env/unique_id_gen.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/file/delete_scheduler.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/file/file_prefetch_buffer.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/file/file_util.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/file/filename.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/file/line_file_reader.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/file/random_access_file_reader.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/file/read_write_util.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/file/readahead_raf.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/file/sequence_file_reader.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/file/sst_file_manager_impl.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/file/writable_file_writer.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/logging/auto_roll_logger.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/logging/event_logger.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/logging/log_buffer.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/memory/arena.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/memory/concurrent_arena.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/memory/jemalloc_nodump_allocator.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/memory/memkind_kmem_allocator.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/memory/memory_allocator.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/memtable/alloc_tracker.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/memtable/hash_linklist_rep.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/memtable/hash_skiplist_rep.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/memtable/skiplistrep.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/memtable/vectorrep.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/memtable/write_buffer_manager.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/monitoring/histogram.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/monitoring/histogram_windowing.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/monitoring/in_memory_stats_history.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/monitoring/instrumented_mutex.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/monitoring/iostats_context.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/monitoring/perf_context.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/monitoring/perf_level.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/monitoring/persistent_stats_history.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/monitoring/statistics.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/monitoring/thread_status_impl.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/monitoring/thread_status_updater.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/monitoring/thread_status_updater_debug.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/monitoring/thread_status_util.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/monitoring/thread_status_util_debug.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/options/cf_options.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/options/configurable.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/options/customizable.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/options/db_options.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/options/options.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/options/options_helper.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/options/options_parser.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/port/mmap.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/port/port_posix.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/port/win/env_default.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/port/win/env_win.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/port/win/io_win.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/port/win/port_win.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/port/win/win_logger.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/port/win/win_thread.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/port/stack_trace.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/adaptive/adaptive_table_factory.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/binary_search_index_reader.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/block.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/block_based_table_builder.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/block_based_table_factory.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/block_based_table_iterator.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/block_based_table_reader.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/block_builder.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/block_cache.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/block_prefetcher.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/block_prefix_index.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/data_block_hash_index.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/data_block_footer.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/filter_block_reader_common.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/filter_policy.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/flush_block_policy.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/full_filter_block.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/hash_index_reader.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/index_builder.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/index_reader_common.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/parsed_full_filter_block.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/partitioned_filter_block.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/partitioned_index_iterator.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/partitioned_index_reader.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/reader_common.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_based/uncompression_dict_reader.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/block_fetcher.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/cuckoo/cuckoo_table_builder.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/cuckoo/cuckoo_table_factory.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/cuckoo/cuckoo_table_reader.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/format.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/get_context.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/iterator.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/merging_iterator.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/compaction_merging_iterator.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/meta_blocks.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/persistent_cache_helper.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/plain/plain_table_bloom.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/plain/plain_table_builder.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/plain/plain_table_factory.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/plain/plain_table_index.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/plain/plain_table_key_coding.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/plain/plain_table_reader.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/sst_file_dumper.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/sst_file_reader.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/sst_file_writer.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/table_factory.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/table_properties.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/two_level_iterator.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/table/unique_id.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/test_util/sync_point.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/test_util/sync_point_impl.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/test_util/transaction_test_util.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/tools/dump/db_dump_tool.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/trace_replay/trace_record_handler.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/trace_replay/trace_record_result.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/trace_replay/trace_record.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/trace_replay/trace_replay.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/trace_replay/block_cache_tracer.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/trace_replay/io_tracer.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/async_file_reader.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/build_version.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/cleanable.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/coding.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/compaction_job_stats_impl.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/comparator.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/compression.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/compression_context_cache.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/concurrent_task_limiter_impl.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/crc32c.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/crc32c_arm64.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/data_structure.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/dynamic_bloom.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/hash.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/murmurhash.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/random.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/rate_limiter.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/ribbon_config.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/slice.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/file_checksum_helper.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/status.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/stderr_logger.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/string_util.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/thread_local.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/threadpool_imp.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/util/xxhash.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/agg_merge/agg_merge.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/backup/backup_engine.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/blob_db/blob_compaction_filter.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/blob_db/blob_db.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/blob_db/blob_db_impl.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/blob_db/blob_db_impl_filesnapshot.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/blob_db/blob_file.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/cache_dump_load.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/cache_dump_load_impl.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/cassandra/cassandra_compaction_filter.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/cassandra/format.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/cassandra/merge_operator.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/checkpoint/checkpoint_impl.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/compaction_filters.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/convenience/info_log_finder.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/counted_fs.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/debug.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/env_mirror.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/env_timed.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/fault_injection_env.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/fault_injection_fs.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/fault_injection_secondary_cache.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/leveldb_options/leveldb_options.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/memory/memory_util.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/merge_operators.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/merge_operators/max.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/merge_operators/put.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/merge_operators/sortlist.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/merge_operators/string_append/stringappend.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/merge_operators/string_append/stringappend2.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/merge_operators/uint64add.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/merge_operators/bytesxor.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/object_registry.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/option_change_migration/option_change_migration.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/options/options_util.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/persistent_cache/block_cache_tier.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/persistent_cache/block_cache_tier_file.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/persistent_cache/block_cache_tier_metadata.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/persistent_cache/persistent_cache_tier.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/persistent_cache/volatile_tier_impl.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/simulator_cache/cache_simulator.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/simulator_cache/sim_cache.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/table_properties_collectors/compact_on_deletion_collector.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/trace/file_trace_reader_writer.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/trace/replayer_impl.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/transactions/lock/lock_manager.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/transactions/lock/point/point_lock_tracker.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/transactions/lock/point/point_lock_manager.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/transactions/optimistic_transaction.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/transactions/optimistic_transaction_db_impl.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/transactions/pessimistic_transaction.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/transactions/pessimistic_transaction_db.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/transactions/snapshot_checker.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/transactions/transaction_base.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/transactions/transaction_db_mutex_impl.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/transactions/transaction_util.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/transactions/write_prepared_txn.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/transactions/write_prepared_txn_db.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/transactions/write_unprepared_txn.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/transactions/write_unprepared_txn_db.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/ttl/db_ttl_impl.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/wal_filter.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/write_batch_with_index/write_batch_with_index.cc
+    vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/utilities/write_batch_with_index/write_batch_with_index_internal.cc
+
+  if os(windows)
+    cxx-sources:
+      vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/port/win/env_default.cc
+      vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/port/win/env_win.cc
+      vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/port/win/io_win.cc
+      vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/port/win/port_win.cc
+      vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/port/win/win_logger.cc
+      vendored/rocksdb-haskell-kadena/rocksdb-8.3.2/port/win/win_thread.cc
+
+test-suite rocksdb-haskell-kadena-tests
+  import: warning-flags, debugging-flags
+  hs-source-dirs: vendored/rocksdb-haskell-kadena/test/
+  default-language: Haskell2010
+  main-is: Main.hs
+  type: exitcode-stdio-1.0
+  build-depends:
+    , base >= 4.10 && < 5
+    , chainweb:rocksdb-haskell-kadena
+    , hspec >= 1.8
+    , process >= 1.1.0.2
+    , bytestring >= 0.10.4.0
+    , data-default
+    , resourcet
+    , transformers
+    , temporary
+    , hspec-expectations
+    , QuickCheck
+
+library chainweb-storage
+  import: warning-flags, debugging-flags
+  hs-source-dirs: vendored/chainweb-storage/src
+  default-language: Haskell2010
+  exposed-modules:
+    Chainweb.Storage.Table
+    Chainweb.Storage.Table.Forgetful
+    Chainweb.Storage.Table.HashMap
+    Chainweb.Storage.Table.RocksDB
+    Chainweb.Storage.DedupStore
+  build-depends:
+    , base >=4.10 && <5
+    , bytestring >=0.10
+    , containers >=0.5
+    , cryptonite >= 0.25
+    , deepseq >=1.4
+    , directory >=1.3
+    , exceptions >=0.10
+    , filepath
+    , hashable >=1.2
+    , lens >=4.16
+    , memory >=0.14
+    , mtl >= 2.2
+    , nothunks >= 0.1.0.0
+    , chainweb:rocksdb-haskell-kadena
+    , stm >=2.4
+    , streaming >=0.2
+    , temporary >=1.3
+    , text >=1.2
+    , transformers >=0.5
+    , unordered-containers >=0.2
+    , vector >=0.12
+
+test-suite chainweb-storage-tests
+  import: warning-flags, debugging-flags
+  hs-source-dirs: vendored/chainweb-storage/test
+  default-language: Haskell2010
+  main-is: Main.hs
+  type: exitcode-stdio-1.0
+  ghc-options:
+    -threaded
+    -with-rtsopts=-N
+  build-depends:
+    , chainweb:chainweb-storage
+    , async >= 2.2
+    , base >=4.10 && < 5
+    , bytestring >= 0.10
+    , exceptions >= 0.10
+    , lens >= 4.16
+    , nothunks >= 0.1.0.0
+    , vector >= 0.12
 
 library
     import: warning-flags, debugging-flags
@@ -367,7 +893,8 @@ library
         , cabal-install-parsers >= 0.6
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
-        , chainweb-storage >= 0.1
+        , chainweb:chainweb-storage
+        , chronos >= 1.1
         , clock >= 0.7
         , configuration-tools >= 0.6
         , containers >= 0.5
@@ -563,7 +1090,7 @@ test-suite chainweb-tests
             -- due to change in error message that is inlined in pact
         , bytestring >= 0.10.12
         , case-insensitive >= 1.2
-        , chainweb-storage >= 0.1
+        , chainweb:chainweb-storage
         , crypton-connection >=0.2
         , containers >= 0.5
         , crypton >= 0.31
@@ -595,7 +1122,7 @@ test-suite chainweb-tests
         , resource-pool >= 0.4
         , resourcet >= 1.3
         , retry >= 0.7
-        , rocksdb-haskell-kadena >= 1.1.0
+        , chainweb:rocksdb-haskell-kadena
         , rosetta >= 1.0
         , scheduler >= 1.4
         , servant >= 0.20.1
@@ -661,7 +1188,7 @@ executable chainweb-node
         -- external
         , async >= 2.2
         , base >= 4.12 && < 5
-        , chainweb-storage >= 0.1
+        , chainweb:chainweb-storage
         , configuration-tools >= 0.6
         , deepseq >= 1.4
         , directory >= 1.3
@@ -743,7 +1270,7 @@ executable cwtool
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
         , cereal >= 0.5
-        , chainweb-storage >= 0.1
+        , chainweb:chainweb-storage
         , chronos >= 1.1
         , configuration-tools >= 0.6
         , crypton-connection >=0.2
@@ -778,7 +1305,7 @@ executable cwtool
         , resourcet >= 1.3
         , retry >= 0.9
         , wreq >= 0.5
-        , rocksdb-haskell-kadena >= 1.1.0
+        , chainweb:rocksdb-haskell-kadena >= 1.1.0
         , safe-exceptions >= 0.1
         , servant-client >= 0.18.2
         , servant-client-core >= 0.18.2
@@ -871,7 +1398,7 @@ benchmark bench
         , bytestring >= 0.10.12
         , case-insensitive >= 1.2
         , chainweb
-        , chainweb-storage >= 0.1
+        , chainweb:chainweb-storage
         , containers >= 0.5
         , criterion
         , deepseq >= 1.4
