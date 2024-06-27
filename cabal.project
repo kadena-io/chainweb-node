@@ -1,4 +1,4 @@
-packages: chainweb.cabal
+packages: .
 
 debug-info: True
 
@@ -83,12 +83,6 @@ source-repository-package
     location: https://github.com/kadena-io/pact-json.git
     tag: 1d260bfaa48312b54851057885de4c43c420e35f
     --sha256: 0fzq4mzaszj5clvixx9mn1x6r4dcrnwvbl2znd0p5mmy5h2jr0hh
-
-source-repository-package
-    type: git
-    location: https://github.com/kadena-io/chainweb-storage.git
-    tag: 4b45c1ab9c070c6d16a058bcbab0c06ac0fb6d4e
-    --sha256: 0m6c7kl6x5a3k02q2i7qzfx91kxz19dzav0piqfxra52bq0x3sm6
 
 source-repository-package
     type: git
