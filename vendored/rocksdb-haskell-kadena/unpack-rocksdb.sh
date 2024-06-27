@@ -1,0 +1,354 @@
+#!/usr/bin/env bash
+
+set -e
+
+ROCKSDB_VERSION=8.3.2
+
+ROCKSDB_ARCHIVE=v${ROCKSDB_VERSION}.tar.gz
+ROCKSDB_BASE=rocksdb-${ROCKSDB_VERSION}
+
+if [[ ! -f ${ROCKSDB_ARCHIVE} ]] ; then
+    wget https://github.com/facebook/rocksdb/archive/refs/tags/v${ROCKSDB_VERSION}.tar.gz
+fi
+
+# This list is based on LIB_OBJECTS from the Makefile. It must be generated when
+# the rocksdb version changes.
+#
+tar -xzf "$ROCKSDB_ARCHIVE" \
+    ${ROCKSDB_BASE}/include \
+    ${ROCKSDB_BASE}/cache/cache.cc   \
+    ${ROCKSDB_BASE}/cache/cache_entry_roles.cc   \
+    ${ROCKSDB_BASE}/cache/cache_key.cc   \
+    ${ROCKSDB_BASE}/cache/cache_helpers.cc   \
+    ${ROCKSDB_BASE}/cache/cache_reservation_manager.cc   \
+    ${ROCKSDB_BASE}/cache/charged_cache.cc   \
+    ${ROCKSDB_BASE}/cache/clock_cache.cc   \
+    ${ROCKSDB_BASE}/cache/lru_cache.cc   \
+    ${ROCKSDB_BASE}/cache/compressed_secondary_cache.cc   \
+    ${ROCKSDB_BASE}/cache/secondary_cache.cc   \
+    ${ROCKSDB_BASE}/cache/secondary_cache_adapter.cc   \
+    ${ROCKSDB_BASE}/cache/sharded_cache.cc   \
+    ${ROCKSDB_BASE}/db/arena_wrapped_db_iter.cc   \
+    ${ROCKSDB_BASE}/db/blob/blob_contents.cc   \
+    ${ROCKSDB_BASE}/db/blob/blob_fetcher.cc   \
+    ${ROCKSDB_BASE}/db/blob/blob_file_addition.cc   \
+    ${ROCKSDB_BASE}/db/blob/blob_file_builder.cc   \
+    ${ROCKSDB_BASE}/db/blob/blob_file_cache.cc   \
+    ${ROCKSDB_BASE}/db/blob/blob_file_garbage.cc   \
+    ${ROCKSDB_BASE}/db/blob/blob_file_meta.cc   \
+    ${ROCKSDB_BASE}/db/blob/blob_file_reader.cc   \
+    ${ROCKSDB_BASE}/db/blob/blob_garbage_meter.cc   \
+    ${ROCKSDB_BASE}/db/blob/blob_log_format.cc   \
+    ${ROCKSDB_BASE}/db/blob/blob_log_sequential_reader.cc   \
+    ${ROCKSDB_BASE}/db/blob/blob_log_writer.cc   \
+    ${ROCKSDB_BASE}/db/blob/blob_source.cc   \
+    ${ROCKSDB_BASE}/db/blob/prefetch_buffer_collection.cc   \
+    ${ROCKSDB_BASE}/db/builder.cc   \
+    ${ROCKSDB_BASE}/db/c.cc   \
+    ${ROCKSDB_BASE}/db/column_family.cc   \
+    ${ROCKSDB_BASE}/db/compaction/compaction.cc   \
+    ${ROCKSDB_BASE}/db/compaction/compaction_iterator.cc   \
+    ${ROCKSDB_BASE}/db/compaction/compaction_job.cc   \
+    ${ROCKSDB_BASE}/db/compaction/compaction_picker.cc   \
+    ${ROCKSDB_BASE}/db/compaction/compaction_picker_fifo.cc   \
+    ${ROCKSDB_BASE}/db/compaction/compaction_picker_level.cc   \
+    ${ROCKSDB_BASE}/db/compaction/compaction_picker_universal.cc   \
+    ${ROCKSDB_BASE}/db/compaction/compaction_service_job.cc   \
+    ${ROCKSDB_BASE}/db/compaction/compaction_state.cc   \
+    ${ROCKSDB_BASE}/db/compaction/compaction_outputs.cc   \
+    ${ROCKSDB_BASE}/db/compaction/sst_partitioner.cc   \
+    ${ROCKSDB_BASE}/db/compaction/subcompaction_state.cc   \
+    ${ROCKSDB_BASE}/db/convenience.cc   \
+    ${ROCKSDB_BASE}/db/db_filesnapshot.cc   \
+    ${ROCKSDB_BASE}/db/db_impl/compacted_db_impl.cc   \
+    ${ROCKSDB_BASE}/db/db_impl/db_impl.cc   \
+    ${ROCKSDB_BASE}/db/db_impl/db_impl_compaction_flush.cc   \
+    ${ROCKSDB_BASE}/db/db_impl/db_impl_debug.cc   \
+    ${ROCKSDB_BASE}/db/db_impl/db_impl_experimental.cc   \
+    ${ROCKSDB_BASE}/db/db_impl/db_impl_files.cc   \
+    ${ROCKSDB_BASE}/db/db_impl/db_impl_open.cc   \
+    ${ROCKSDB_BASE}/db/db_impl/db_impl_readonly.cc   \
+    ${ROCKSDB_BASE}/db/db_impl/db_impl_secondary.cc   \
+    ${ROCKSDB_BASE}/db/db_impl/db_impl_write.cc   \
+    ${ROCKSDB_BASE}/db/db_info_dumper.cc   \
+    ${ROCKSDB_BASE}/db/db_iter.cc   \
+    ${ROCKSDB_BASE}/db/dbformat.cc   \
+    ${ROCKSDB_BASE}/db/error_handler.cc   \
+    ${ROCKSDB_BASE}/db/event_helpers.cc   \
+    ${ROCKSDB_BASE}/db/experimental.cc   \
+    ${ROCKSDB_BASE}/db/external_sst_file_ingestion_job.cc   \
+    ${ROCKSDB_BASE}/db/file_indexer.cc   \
+    ${ROCKSDB_BASE}/db/flush_job.cc   \
+    ${ROCKSDB_BASE}/db/flush_scheduler.cc   \
+    ${ROCKSDB_BASE}/db/forward_iterator.cc   \
+    ${ROCKSDB_BASE}/db/import_column_family_job.cc   \
+    ${ROCKSDB_BASE}/db/internal_stats.cc   \
+    ${ROCKSDB_BASE}/db/logs_with_prep_tracker.cc   \
+    ${ROCKSDB_BASE}/db/log_reader.cc   \
+    ${ROCKSDB_BASE}/db/log_writer.cc   \
+    ${ROCKSDB_BASE}/db/malloc_stats.cc   \
+    ${ROCKSDB_BASE}/db/memtable.cc   \
+    ${ROCKSDB_BASE}/db/memtable_list.cc   \
+    ${ROCKSDB_BASE}/db/merge_helper.cc   \
+    ${ROCKSDB_BASE}/db/merge_operator.cc   \
+    ${ROCKSDB_BASE}/db/output_validator.cc   \
+    ${ROCKSDB_BASE}/db/periodic_task_scheduler.cc   \
+    ${ROCKSDB_BASE}/db/range_del_aggregator.cc   \
+    ${ROCKSDB_BASE}/db/range_tombstone_fragmenter.cc   \
+    ${ROCKSDB_BASE}/db/repair.cc   \
+    ${ROCKSDB_BASE}/db/seqno_to_time_mapping.cc   \
+    ${ROCKSDB_BASE}/db/snapshot_impl.cc   \
+    ${ROCKSDB_BASE}/db/table_cache.cc   \
+    ${ROCKSDB_BASE}/db/table_properties_collector.cc   \
+    ${ROCKSDB_BASE}/db/transaction_log_impl.cc   \
+    ${ROCKSDB_BASE}/db/trim_history_scheduler.cc   \
+    ${ROCKSDB_BASE}/db/version_builder.cc   \
+    ${ROCKSDB_BASE}/db/version_edit.cc   \
+    ${ROCKSDB_BASE}/db/version_edit_handler.cc   \
+    ${ROCKSDB_BASE}/db/version_set.cc   \
+    ${ROCKSDB_BASE}/db/wal_edit.cc   \
+    ${ROCKSDB_BASE}/db/wal_manager.cc   \
+    ${ROCKSDB_BASE}/db/wide/wide_column_serialization.cc   \
+    ${ROCKSDB_BASE}/db/wide/wide_columns.cc   \
+    ${ROCKSDB_BASE}/db/write_batch.cc   \
+    ${ROCKSDB_BASE}/db/write_batch_base.cc   \
+    ${ROCKSDB_BASE}/db/write_controller.cc   \
+    ${ROCKSDB_BASE}/db/write_stall_stats.cc   \
+    ${ROCKSDB_BASE}/db/write_thread.cc   \
+    ${ROCKSDB_BASE}/env/composite_env.cc   \
+    ${ROCKSDB_BASE}/env/env.cc   \
+    ${ROCKSDB_BASE}/env/env_chroot.cc   \
+    ${ROCKSDB_BASE}/env/env_encryption.cc   \
+    ${ROCKSDB_BASE}/env/env_posix.cc   \
+    ${ROCKSDB_BASE}/env/file_system.cc   \
+    ${ROCKSDB_BASE}/env/fs_posix.cc   \
+    ${ROCKSDB_BASE}/env/fs_remap.cc   \
+    ${ROCKSDB_BASE}/env/file_system_tracer.cc   \
+    ${ROCKSDB_BASE}/env/io_posix.cc   \
+    ${ROCKSDB_BASE}/env/mock_env.cc   \
+    ${ROCKSDB_BASE}/env/unique_id_gen.cc   \
+    ${ROCKSDB_BASE}/file/delete_scheduler.cc   \
+    ${ROCKSDB_BASE}/file/file_prefetch_buffer.cc   \
+    ${ROCKSDB_BASE}/file/file_util.cc   \
+    ${ROCKSDB_BASE}/file/filename.cc   \
+    ${ROCKSDB_BASE}/file/line_file_reader.cc   \
+    ${ROCKSDB_BASE}/file/random_access_file_reader.cc   \
+    ${ROCKSDB_BASE}/file/read_write_util.cc   \
+    ${ROCKSDB_BASE}/file/readahead_raf.cc   \
+    ${ROCKSDB_BASE}/file/sequence_file_reader.cc   \
+    ${ROCKSDB_BASE}/file/sst_file_manager_impl.cc   \
+    ${ROCKSDB_BASE}/file/writable_file_writer.cc   \
+    ${ROCKSDB_BASE}/logging/auto_roll_logger.cc   \
+    ${ROCKSDB_BASE}/logging/event_logger.cc   \
+    ${ROCKSDB_BASE}/logging/log_buffer.cc   \
+    ${ROCKSDB_BASE}/memory/arena.cc   \
+    ${ROCKSDB_BASE}/memory/concurrent_arena.cc   \
+    ${ROCKSDB_BASE}/memory/jemalloc_nodump_allocator.cc   \
+    ${ROCKSDB_BASE}/memory/memkind_kmem_allocator.cc   \
+    ${ROCKSDB_BASE}/memory/memory_allocator.cc   \
+    ${ROCKSDB_BASE}/memtable/alloc_tracker.cc   \
+    ${ROCKSDB_BASE}/memtable/hash_linklist_rep.cc   \
+    ${ROCKSDB_BASE}/memtable/hash_skiplist_rep.cc   \
+    ${ROCKSDB_BASE}/memtable/skiplistrep.cc   \
+    ${ROCKSDB_BASE}/memtable/vectorrep.cc   \
+    ${ROCKSDB_BASE}/memtable/write_buffer_manager.cc   \
+    ${ROCKSDB_BASE}/monitoring/histogram.cc   \
+    ${ROCKSDB_BASE}/monitoring/histogram_windowing.cc   \
+    ${ROCKSDB_BASE}/monitoring/in_memory_stats_history.cc   \
+    ${ROCKSDB_BASE}/monitoring/instrumented_mutex.cc   \
+    ${ROCKSDB_BASE}/monitoring/iostats_context.cc   \
+    ${ROCKSDB_BASE}/monitoring/perf_context.cc   \
+    ${ROCKSDB_BASE}/monitoring/perf_level.cc   \
+    ${ROCKSDB_BASE}/monitoring/persistent_stats_history.cc   \
+    ${ROCKSDB_BASE}/monitoring/statistics.cc   \
+    ${ROCKSDB_BASE}/monitoring/thread_status_impl.cc   \
+    ${ROCKSDB_BASE}/monitoring/thread_status_updater.cc   \
+    ${ROCKSDB_BASE}/monitoring/thread_status_updater_debug.cc   \
+    ${ROCKSDB_BASE}/monitoring/thread_status_util.cc   \
+    ${ROCKSDB_BASE}/monitoring/thread_status_util_debug.cc   \
+    ${ROCKSDB_BASE}/options/cf_options.cc   \
+    ${ROCKSDB_BASE}/options/configurable.cc   \
+    ${ROCKSDB_BASE}/options/customizable.cc   \
+    ${ROCKSDB_BASE}/options/db_options.cc   \
+    ${ROCKSDB_BASE}/options/options.cc   \
+    ${ROCKSDB_BASE}/options/options_helper.cc   \
+    ${ROCKSDB_BASE}/options/options_parser.cc   \
+    ${ROCKSDB_BASE}/port/mmap.cc   \
+    ${ROCKSDB_BASE}/port/port_posix.cc   \
+    ${ROCKSDB_BASE}/port/win/env_default.cc   \
+    ${ROCKSDB_BASE}/port/win/env_win.cc   \
+    ${ROCKSDB_BASE}/port/win/io_win.cc   \
+    ${ROCKSDB_BASE}/port/win/port_win.cc   \
+    ${ROCKSDB_BASE}/port/win/win_logger.cc   \
+    ${ROCKSDB_BASE}/port/win/win_thread.cc   \
+    ${ROCKSDB_BASE}/port/stack_trace.cc   \
+    ${ROCKSDB_BASE}/table/adaptive/adaptive_table_factory.cc   \
+    ${ROCKSDB_BASE}/table/block_based/binary_search_index_reader.cc   \
+    ${ROCKSDB_BASE}/table/block_based/block.cc   \
+    ${ROCKSDB_BASE}/table/block_based/block_based_table_builder.cc   \
+    ${ROCKSDB_BASE}/table/block_based/block_based_table_factory.cc   \
+    ${ROCKSDB_BASE}/table/block_based/block_based_table_iterator.cc   \
+    ${ROCKSDB_BASE}/table/block_based/block_based_table_reader.cc   \
+    ${ROCKSDB_BASE}/table/block_based/block_builder.cc   \
+    ${ROCKSDB_BASE}/table/block_based/block_cache.cc   \
+    ${ROCKSDB_BASE}/table/block_based/block_prefetcher.cc   \
+    ${ROCKSDB_BASE}/table/block_based/block_prefix_index.cc   \
+    ${ROCKSDB_BASE}/table/block_based/data_block_hash_index.cc   \
+    ${ROCKSDB_BASE}/table/block_based/data_block_footer.cc   \
+    ${ROCKSDB_BASE}/table/block_based/filter_block_reader_common.cc   \
+    ${ROCKSDB_BASE}/table/block_based/filter_policy.cc   \
+    ${ROCKSDB_BASE}/table/block_based/flush_block_policy.cc   \
+    ${ROCKSDB_BASE}/table/block_based/full_filter_block.cc   \
+    ${ROCKSDB_BASE}/table/block_based/hash_index_reader.cc   \
+    ${ROCKSDB_BASE}/table/block_based/index_builder.cc   \
+    ${ROCKSDB_BASE}/table/block_based/index_reader_common.cc   \
+    ${ROCKSDB_BASE}/table/block_based/parsed_full_filter_block.cc   \
+    ${ROCKSDB_BASE}/table/block_based/partitioned_filter_block.cc   \
+    ${ROCKSDB_BASE}/table/block_based/partitioned_index_iterator.cc   \
+    ${ROCKSDB_BASE}/table/block_based/partitioned_index_reader.cc   \
+    ${ROCKSDB_BASE}/table/block_based/reader_common.cc   \
+    ${ROCKSDB_BASE}/table/block_based/uncompression_dict_reader.cc   \
+    ${ROCKSDB_BASE}/table/block_fetcher.cc   \
+    ${ROCKSDB_BASE}/table/cuckoo/cuckoo_table_builder.cc   \
+    ${ROCKSDB_BASE}/table/cuckoo/cuckoo_table_factory.cc   \
+    ${ROCKSDB_BASE}/table/cuckoo/cuckoo_table_reader.cc   \
+    ${ROCKSDB_BASE}/table/format.cc   \
+    ${ROCKSDB_BASE}/table/get_context.cc   \
+    ${ROCKSDB_BASE}/table/iterator.cc   \
+    ${ROCKSDB_BASE}/table/merging_iterator.cc   \
+    ${ROCKSDB_BASE}/table/compaction_merging_iterator.cc   \
+    ${ROCKSDB_BASE}/table/meta_blocks.cc   \
+    ${ROCKSDB_BASE}/table/persistent_cache_helper.cc   \
+    ${ROCKSDB_BASE}/table/plain/plain_table_bloom.cc   \
+    ${ROCKSDB_BASE}/table/plain/plain_table_builder.cc   \
+    ${ROCKSDB_BASE}/table/plain/plain_table_factory.cc   \
+    ${ROCKSDB_BASE}/table/plain/plain_table_index.cc   \
+    ${ROCKSDB_BASE}/table/plain/plain_table_key_coding.cc   \
+    ${ROCKSDB_BASE}/table/plain/plain_table_reader.cc   \
+    ${ROCKSDB_BASE}/table/sst_file_dumper.cc   \
+    ${ROCKSDB_BASE}/table/sst_file_reader.cc   \
+    ${ROCKSDB_BASE}/table/sst_file_writer.cc   \
+    ${ROCKSDB_BASE}/table/table_factory.cc   \
+    ${ROCKSDB_BASE}/table/table_properties.cc   \
+    ${ROCKSDB_BASE}/table/two_level_iterator.cc   \
+    ${ROCKSDB_BASE}/table/unique_id.cc   \
+    ${ROCKSDB_BASE}/test_util/sync_point.cc   \
+    ${ROCKSDB_BASE}/test_util/sync_point_impl.cc   \
+    ${ROCKSDB_BASE}/test_util/transaction_test_util.cc   \
+    ${ROCKSDB_BASE}/tools/dump/db_dump_tool.cc   \
+    ${ROCKSDB_BASE}/trace_replay/trace_record_handler.cc   \
+    ${ROCKSDB_BASE}/trace_replay/trace_record_result.cc   \
+    ${ROCKSDB_BASE}/trace_replay/trace_record.cc   \
+    ${ROCKSDB_BASE}/trace_replay/trace_replay.cc   \
+    ${ROCKSDB_BASE}/trace_replay/block_cache_tracer.cc   \
+    ${ROCKSDB_BASE}/trace_replay/io_tracer.cc   \
+    ${ROCKSDB_BASE}/util/async_file_reader.cc   \
+    ${ROCKSDB_BASE}/util/build_version.cc.in   \
+    ${ROCKSDB_BASE}/util/cleanable.cc   \
+    ${ROCKSDB_BASE}/util/coding.cc   \
+    ${ROCKSDB_BASE}/util/compaction_job_stats_impl.cc   \
+    ${ROCKSDB_BASE}/util/comparator.cc   \
+    ${ROCKSDB_BASE}/util/compression.cc   \
+    ${ROCKSDB_BASE}/util/compression_context_cache.cc   \
+    ${ROCKSDB_BASE}/util/concurrent_task_limiter_impl.cc   \
+    ${ROCKSDB_BASE}/util/crc32c.cc   \
+    ${ROCKSDB_BASE}/util/crc32c_arm64.cc   \
+    ${ROCKSDB_BASE}/util/data_structure.cc   \
+    ${ROCKSDB_BASE}/util/dynamic_bloom.cc   \
+    ${ROCKSDB_BASE}/util/hash.cc   \
+    ${ROCKSDB_BASE}/util/murmurhash.cc   \
+    ${ROCKSDB_BASE}/util/random.cc   \
+    ${ROCKSDB_BASE}/util/rate_limiter.cc   \
+    ${ROCKSDB_BASE}/util/ribbon_config.cc   \
+    ${ROCKSDB_BASE}/util/slice.cc   \
+    ${ROCKSDB_BASE}/util/file_checksum_helper.cc   \
+    ${ROCKSDB_BASE}/util/status.cc   \
+    ${ROCKSDB_BASE}/util/stderr_logger.cc   \
+    ${ROCKSDB_BASE}/util/string_util.cc   \
+    ${ROCKSDB_BASE}/util/thread_local.cc   \
+    ${ROCKSDB_BASE}/util/threadpool_imp.cc   \
+    ${ROCKSDB_BASE}/util/xxhash.cc   \
+    ${ROCKSDB_BASE}/utilities/agg_merge/agg_merge.cc   \
+    ${ROCKSDB_BASE}/utilities/backup/backup_engine.cc   \
+    ${ROCKSDB_BASE}/utilities/blob_db/blob_compaction_filter.cc   \
+    ${ROCKSDB_BASE}/utilities/blob_db/blob_db.cc   \
+    ${ROCKSDB_BASE}/utilities/blob_db/blob_db_impl.cc   \
+    ${ROCKSDB_BASE}/utilities/blob_db/blob_db_impl_filesnapshot.cc   \
+    ${ROCKSDB_BASE}/utilities/blob_db/blob_file.cc   \
+    ${ROCKSDB_BASE}/utilities/cache_dump_load.cc   \
+    ${ROCKSDB_BASE}/utilities/cache_dump_load_impl.cc   \
+    ${ROCKSDB_BASE}/utilities/cassandra/cassandra_compaction_filter.cc   \
+    ${ROCKSDB_BASE}/utilities/cassandra/format.cc   \
+    ${ROCKSDB_BASE}/utilities/cassandra/merge_operator.cc   \
+    ${ROCKSDB_BASE}/utilities/checkpoint/checkpoint_impl.cc   \
+    ${ROCKSDB_BASE}/utilities/compaction_filters.cc   \
+    ${ROCKSDB_BASE}/utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc   \
+    ${ROCKSDB_BASE}/utilities/convenience/info_log_finder.cc   \
+    ${ROCKSDB_BASE}/utilities/counted_fs.cc   \
+    ${ROCKSDB_BASE}/utilities/debug.cc   \
+    ${ROCKSDB_BASE}/utilities/env_mirror.cc   \
+    ${ROCKSDB_BASE}/utilities/env_timed.cc   \
+    ${ROCKSDB_BASE}/utilities/fault_injection_env.cc   \
+    ${ROCKSDB_BASE}/utilities/fault_injection_fs.cc   \
+    ${ROCKSDB_BASE}/utilities/fault_injection_secondary_cache.cc   \
+    ${ROCKSDB_BASE}/utilities/leveldb_options/leveldb_options.cc   \
+    ${ROCKSDB_BASE}/utilities/memory/memory_util.cc   \
+    ${ROCKSDB_BASE}/utilities/merge_operators.cc   \
+    ${ROCKSDB_BASE}/utilities/merge_operators/max.cc   \
+    ${ROCKSDB_BASE}/utilities/merge_operators/put.cc   \
+    ${ROCKSDB_BASE}/utilities/merge_operators/sortlist.cc   \
+    ${ROCKSDB_BASE}/utilities/merge_operators/string_append/stringappend.cc   \
+    ${ROCKSDB_BASE}/utilities/merge_operators/string_append/stringappend2.cc   \
+    ${ROCKSDB_BASE}/utilities/merge_operators/uint64add.cc   \
+    ${ROCKSDB_BASE}/utilities/merge_operators/bytesxor.cc   \
+    ${ROCKSDB_BASE}/utilities/object_registry.cc   \
+    ${ROCKSDB_BASE}/utilities/option_change_migration/option_change_migration.cc   \
+    ${ROCKSDB_BASE}/utilities/options/options_util.cc   \
+    ${ROCKSDB_BASE}/utilities/persistent_cache/block_cache_tier.cc   \
+    ${ROCKSDB_BASE}/utilities/persistent_cache/block_cache_tier_file.cc   \
+    ${ROCKSDB_BASE}/utilities/persistent_cache/block_cache_tier_metadata.cc   \
+    ${ROCKSDB_BASE}/utilities/persistent_cache/persistent_cache_tier.cc   \
+    ${ROCKSDB_BASE}/utilities/persistent_cache/volatile_tier_impl.cc   \
+    ${ROCKSDB_BASE}/utilities/simulator_cache/cache_simulator.cc   \
+    ${ROCKSDB_BASE}/utilities/simulator_cache/sim_cache.cc   \
+    ${ROCKSDB_BASE}/utilities/table_properties_collectors/compact_on_deletion_collector.cc   \
+    ${ROCKSDB_BASE}/utilities/trace/file_trace_reader_writer.cc   \
+    ${ROCKSDB_BASE}/utilities/trace/replayer_impl.cc   \
+    ${ROCKSDB_BASE}/utilities/transactions/lock/lock_manager.cc   \
+    ${ROCKSDB_BASE}/utilities/transactions/lock/point/point_lock_tracker.cc   \
+    ${ROCKSDB_BASE}/utilities/transactions/lock/point/point_lock_manager.cc   \
+    ${ROCKSDB_BASE}/utilities/transactions/optimistic_transaction.cc   \
+    ${ROCKSDB_BASE}/utilities/transactions/optimistic_transaction_db_impl.cc   \
+    ${ROCKSDB_BASE}/utilities/transactions/pessimistic_transaction.cc   \
+    ${ROCKSDB_BASE}/utilities/transactions/pessimistic_transaction_db.cc   \
+    ${ROCKSDB_BASE}/utilities/transactions/snapshot_checker.cc   \
+    ${ROCKSDB_BASE}/utilities/transactions/transaction_base.cc   \
+    ${ROCKSDB_BASE}/utilities/transactions/transaction_db_mutex_impl.cc   \
+    ${ROCKSDB_BASE}/utilities/transactions/transaction_util.cc   \
+    ${ROCKSDB_BASE}/utilities/transactions/write_prepared_txn.cc   \
+    ${ROCKSDB_BASE}/utilities/transactions/write_prepared_txn_db.cc   \
+    ${ROCKSDB_BASE}/utilities/transactions/write_unprepared_txn.cc   \
+    ${ROCKSDB_BASE}/utilities/transactions/write_unprepared_txn_db.cc   \
+    ${ROCKSDB_BASE}/utilities/ttl/db_ttl_impl.cc   \
+    ${ROCKSDB_BASE}/utilities/wal_filter.cc   \
+    ${ROCKSDB_BASE}/utilities/write_batch_with_index/write_batch_with_index.cc   \
+    ${ROCKSDB_BASE}/utilities/write_batch_with_index/write_batch_with_index_internal.cc 
+
+# It's tedious to extract only relevant headers. Instead we just take them all, even
+# if it's more data.
+#
+tar --wildcards -xzf "$ROCKSDB_ARCHIVE" '*.h'
+
+# We build from a particular released version, so no git revision information
+# is available
+sed \
+    -e 's/@GIT_SHA@//' \
+    -e 's/@GIT_TAG@/""/' \
+    -e 's/@GIT_MOD@/0/' \
+    -e 's/@BUILD_DATE@/""/' \
+    -e 's/@GIT_DATE@/""/' \
+    -e 's/@ROCKSDB_PLUGIN_BUILTINS@//' \
+    -e 's/@ROCKSDB_PLUGIN_EXTERNS@//' \
+    "${ROCKSDB_BASE}/util/build_version.cc.in" > "${ROCKSDB_BASE}/util/build_version.cc"
+
+
