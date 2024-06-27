@@ -1,7 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
@@ -17,21 +19,19 @@ module Main
   )
 where
 
--- internal modules
-
-import Chainweb.Storage.Table
-import Chainweb.Storage.Table.RocksDB
-import Control.Concurrent.Async
-import Control.Exception
-import Control.Lens
-import Control.Monad
-import Control.Monad.Catch
-import qualified Data.ByteString.Char8 as B8
-import Data.Foldable
-import Data.List
-import GHC.Stack
-import NoThunks.Class
-import Text.Read
+import Chainweb.Storage.Table (IsCasValue(..), Iterator(..), IterableTable(..), Entry(..), ReadableTable(..), casInsert, casInsertBatch, casDelete, casDeleteBatch, tableInsert, tableInsertBatch, tableDelete, tableLookupBatch)
+import Chainweb.Storage.Table.RocksDB (RocksDb, RocksDbTable, RocksDbUpdate(..), Codec(..), updateBatch, newTable, tableMinKey, tableMaxKey, tableMinValue, tableMaxValue, withTempRocksDb)
+import Control.Concurrent.Async (mapConcurrently_)
+import Control.Exception (Exception)
+import Control.Lens (_1, _2, folded, firstOf, lastOf)
+import Control.Monad (unless)
+import Control.Monad.Catch (throwM)
+import Data.ByteString.Char8 qualified as B8
+import Data.Foldable (forM_, traverse_)
+import Data.List qualified as List
+import GHC.Stack (HasCallStack, callStack, prettyCallStack)
+import NoThunks.Class (NoThunks, unsafeNoThunks)
+import Text.Read (readEither)
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -66,7 +66,7 @@ assertIO f r =
                   , prettyCallStack callStack
                   ]
 
-assertNoThunks :: HasCallStack => NoThunks a => a -> IO ()
+assertNoThunks :: (HasCallStack, NoThunks a) => a -> IO ()
 assertNoThunks a = case unsafeNoThunks $! a of
   Nothing -> return ()
   Just e ->
@@ -76,6 +76,7 @@ assertNoThunks a = case unsafeNoThunks $! a of
         , unwords ["unexpected thunk:", show e]
         , prettyCallStack callStack
         ]
+{-# noinline assertNoThunks #-}
 
 -- -------------------------------------------------------------------------- --
 -- Test Table
@@ -129,7 +130,7 @@ assertEntries t l_ = do
             iterPrev i
         assertIO (iterValid i) False
   where
-    l = sort l_
+    l = List.sort l_
     (ks, vs) = unzip l
 
 tableTests :: HasCallStack => RocksDb -> B8.ByteString -> IO ()
@@ -137,19 +138,19 @@ tableTests db tableName = do
     assertNoThunks t
     assertEmptyTable t
 
-    tableInsert t 1 8 
+    tableInsert t 1 8
     assertEntries t [(1, 8)]
 
-    tableInsert t 2 9 
+    tableInsert t 2 9
     assertEntries t [(1, 8), (2, 9)]
 
-    tableDelete t 1 
+    tableDelete t 1
     assertEntries t [(2, 9)]
 
-    tableInsert t 2 8 
+    tableInsert t 2 8
     assertEntries t [(2, 8)]
 
-    tableDelete t 2 
+    tableDelete t 2
     assertEmptyTable t
   where
     !t = intTable db tableName
@@ -204,37 +205,37 @@ casBatchTests :: HasCallStack => RocksDb -> B8.ByteString -> IO ()
 casBatchTests db tableName = do
     assertEmptyTable t
 
-    tableInsertBatch t mempty 
+    tableInsertBatch t mempty
     assertEmptyTable t
 
-    casInsertBatch t [1] 
+    casInsertBatch t [1]
     assertCasEntries t [1]
 
-    casInsertBatch t [2] 
+    casInsertBatch t [2]
     assertCasEntries t [1, 2]
 
-    casDeleteBatch t [2] 
+    casDeleteBatch t [2]
     assertCasEntries t [1]
 
-    casInsertBatch t [1] 
+    casInsertBatch t [1]
     assertCasEntries t [1]
 
-    casInsertBatch t [2, 2, 2] 
+    casInsertBatch t [2, 2, 2]
     assertCasEntries t [1, 2]
 
-    casInsertBatch t [1, 2, 3, 4] 
+    casInsertBatch t [1, 2, 3, 4]
     assertCasEntries t [1, 2, 3, 4]
 
-    casDeleteBatch t [5] 
+    casDeleteBatch t [5]
     assertCasEntries t [1, 2, 3, 4]
 
-    casDeleteBatch t [1, 3, 1] 
+    casDeleteBatch t [1, 3, 1]
     assertCasEntries t [2, 4]
 
-    casDeleteBatch t [] 
+    casDeleteBatch t []
     assertCasEntries t [2, 4]
 
-    casDeleteBatch t [2, 4] 
+    casDeleteBatch t [2, 4]
     assertEmptyTable t
   where
     t = intTable db tableName
@@ -245,15 +246,15 @@ casTests db tableName = do
     assertIO (tableMember t 1) False
     assertIO (tableLookup t 1) Nothing
 
-    casInsertBatch t mempty 
+    casInsertBatch t mempty
     assertEmptyTable t
 
-    casInsert t 1 
+    casInsert t 1
     assertCasEntries t [1]
     assertIO (tableMember t (casKey @Int 1)) True
     assertIO (tableLookup t (casKey @Int 1)) (Just 1)
 
-    casInsert t 2 
+    casInsert t 2
     assertCasEntries t [1, 2]
     assertIO (tableMember t (casKey @Int 1)) True
     assertIO (tableMember t (casKey @Int 2)) True
@@ -278,7 +279,7 @@ casTests db tableName = do
     traverse_ @[] (casInsert t) [1, 2, 3, 4]
     assertCasEntries t [1, 2, 3, 4]
 
-    casDelete t (casKey @Int 5) 
+    casDelete t (casKey @Int 5)
     assertCasEntries t [1, 2, 3, 4]
 
     traverse_ @[] (casDelete t) [1, 3, 1]
@@ -299,6 +300,7 @@ assertCasEntries t l = do
 
 main :: IO ()
 main = withTempRocksDb "testDb" $ \db -> do
+    tableTests db "testTable0"
     mapConcurrently_
         (\i -> tableTests db $ "testTable" <> B8.pack (show i))
         ([0 .. 100] :: [Int])
