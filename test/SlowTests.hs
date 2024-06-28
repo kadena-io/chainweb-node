@@ -33,17 +33,17 @@ loglevel = Warn
 -- note that because these tests run in parallel they must all use distinct rocksdb and sqlite dirs.
 suite :: TestTree
 suite = independentSequentialTestGroup "ChainwebSlowTests"
-    [ {-testCaseSteps "compact-resume" $ \step ->
+    [ testCaseSteps "compact-resume" $ \step ->
         withTempRocksDb "compact-resume-test-rocks" $ \rdb ->
         withSystemTempDirectory "compact-resume-test-pact-src" $ \srcPactDbDir ->
         withSystemTempDirectory "compact-resume-test-pact-target" $ \targetPactDbDir -> do
         Chainweb.Test.MultiNode.compactAndResumeTest loglevel (fastForkingCpmTestVersion pairChainGraph) 6 rdb srcPactDbDir targetPactDbDir step
-    ,-} testCaseSteps "compact-live-node" $ \step ->
+    , testCaseSteps "compact-live-node" $ \step ->
         withTempRocksDb "pact-import-test-rocks" $ \rdb ->
         withSystemTempDirectory "pact-import-test-pact-src" $ \srcPactDbDir ->
         withSystemTempDirectory "pact-import-test-pact-target" $ \targetPactDbDir -> do
         Chainweb.Test.MultiNode.compactLiveNodeTest loglevel (fastForkingCpmTestVersion twentyChainGraph) 1 rdb srcPactDbDir targetPactDbDir step
-    {-, testCaseSteps "ConsensusNetwork - TimedConsensus - 10 nodes - 30 seconds" $ \step ->
+    , testCaseSteps "ConsensusNetwork - TimedConsensus - 10 nodes - 30 seconds" $ \step ->
         withTempRocksDb "multinode-tests-timedconsensus-peterson-twenty-rocks" $ \rdb ->
         withSystemTempDirectory "multinode-tests-timedconsensus-peterson-twenty-pact" $ \pactDbDir ->
         Chainweb.Test.MultiNode.test loglevel (timedConsensusVersion petersonChainGraph twentyChainGraph) 10 30 rdb pactDbDir step
@@ -62,5 +62,4 @@ suite = independentSequentialTestGroup "ChainwebSlowTests"
     , testGroup "Network.X05.SelfSigned.Test"
         [ Network.X509.SelfSigned.Test.tests
         ]
-    -}
     ]
