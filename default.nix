@@ -107,11 +107,11 @@ let haskellSrc = with nix-filter.lib; filter {
       mkdir -pv $out/bin
       cp ${flake.packages."chainweb:exe:chainweb-node"}/bin/chainweb-node $out/bin/chainweb-node
       cp ${flake.packages."chainweb:exe:cwtool"}/bin/cwtool $out/bin/cwtool
-      chmod +w $out/bin/{cwtool,chainweb-node}
-      $STRIP $out/bin/chainweb-node
-      $STRIP $out/bin/cwtool
+      cp ${flake.packages."chainweb:exe:compact"}/bin/compact $out/bin/compact
+      chmod +w $out/bin/{cwtool,chainweb-node,compact}
+      $STRIP $out/bin/{cwtool,chainweb-node,compact}
       ${pkgs.lib.optionalString (pkgs.stdenv.isLinux) ''
-        patchelf --shrink-rpath $out/bin/{cwtool,chainweb-node}
+        patchelf --shrink-rpath $out/bin/{cwtool,chainweb-node,compact}
       ''}
     '';
 in {
