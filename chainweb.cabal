@@ -373,7 +373,7 @@ library
         , chronos >= 1.1
         , clock >= 0.7
         , configuration-tools >= 0.6
-        , crypton-connection >= 0.2 && < 0.4
+        , crypton-connection >= 0.2
         , containers >= 0.5
         , crypton >= 0.31
         , cuckoo >= 0.3
