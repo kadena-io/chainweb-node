@@ -543,6 +543,7 @@ test-suite chainweb-tests
         Data.Test.Word.Encoding
 
         -- P2P
+        P2P.Test.Node
         P2P.Test.Orphans
         P2P.Test.TaskQueue
 
@@ -705,14 +706,18 @@ executable cwtool
     main-is: CwTool.hs
     other-modules:
         Allocations
+        Chainweb.Test.Cut
+        Chainweb.Test.Cut.TestBlockDb
         Chainweb.Test.HostAddress
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
-        Chainweb.Test.Pact.Utils
         Chainweb.Test.P2P.Peer.BootstrapConfig
+        Chainweb.Test.Pact.Utils
+        Chainweb.Test.TestVersions
         Chainweb.Test.Utils
+        Chainweb.Test.Utils.APIValidation
         Chainweb.Test.Utils.BlockHeader
         CheckpointerDBChecksum
         Ea
@@ -830,6 +835,7 @@ benchmark bench
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
+        Chainweb.Test.TestVersions
         P2P.Test.Orphans
 
     build-depends:
