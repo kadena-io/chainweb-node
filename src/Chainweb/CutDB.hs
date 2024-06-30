@@ -349,16 +349,16 @@ awaitNewCutByChainId cdb cid c = atomically $ awaitNewCutByChainIdStm cdb cid c
 
 -- | As in `awaitNewCut`, but only updates when the header at the specified
 -- `ChainId` has changed, and only returns that new header.
-awaitNewBlock :: CutDb tbl -> ChainId -> BlockHeader -> IO BlockHeader
-awaitNewBlock cdb cid bh = atomically $ awaitNewBlockStm cdb cid bh
+awaitNewBlock :: CutDb tbl -> ChainId -> BlockHash -> IO BlockHeader
+awaitNewBlock cdb cid bHash = atomically $ awaitNewBlockStm cdb cid bHash
 
 -- | As in `awaitNewCut`, but only updates when the header at the specified
 -- `ChainId` has changed, and only returns that new header.
-awaitNewBlockStm :: CutDb tbl -> ChainId -> BlockHeader -> STM BlockHeader
-awaitNewBlockStm cdb cid bh = do
+awaitNewBlockStm :: CutDb tbl -> ChainId -> BlockHash -> STM BlockHeader
+awaitNewBlockStm cdb cid bHash = do
     c <- _cutStm cdb
     case HM.lookup cid (_cutMap c) of
-        Just bh' | _blockHash bh' /= _blockHash bh -> return bh'
+        Just bh' | _blockHash bh' /= bHash -> return bh'
         _ -> retry
 
 -- | As in `awaitNewCut`, but only updates when the specified `ChainId` has
@@ -382,7 +382,7 @@ pruneCuts
 pruneCuts logfun v conf curAvgBlockHeight cutHashesStore = do
     let avgBlockHeightPruningDepth = _cutDbParamsAvgBlockHeightPruningDepth conf
     let pruneCutHeight =
-            avgCutHeightAt v (curAvgBlockHeight - max curAvgBlockHeight avgBlockHeightPruningDepth)
+            avgCutHeightAt v (curAvgBlockHeight - min curAvgBlockHeight avgBlockHeightPruningDepth)
     logfun @T.Text Info $ "pruning CutDB before cut height " <> T.pack (show pruneCutHeight)
     deleteRangeRocksDb (unCasify cutHashesStore)
         (Nothing, Just (pruneCutHeight, 0, maxBound :: CutId))
@@ -439,8 +439,6 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
     logg Debug "CutDB started"
-    unless (_cutDbParamsReadOnly config) $
-        pruneCuts logfun (_chainwebVersion headerStore) config (cutAvgBlockHeight v initialCut) cutHashesStore
     return CutDb
         { _cutDbCut = cutVar
         , _cutDbQueue = queue
@@ -765,50 +763,51 @@ cutHashesToBlockHeaderMap
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
 cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
-    timeout (_cutDbParamsFetchTimeout conf) go >>= \case
-        Nothing -> do
-            let cutOriginText = case _cutHashesLocalPayload hs of
-                    Nothing -> "from " <> maybe "unknown origin" (\p -> "origin " <> toText p) origin
-                    Just _ -> "which was locally mined - the mining loop will stall until unstuck by another miner"
+    trace logfun "Chainweb.CutDB.cutHashesToBlockHeaderMap" hsid 1 $ do
+        timeout (_cutDbParamsFetchTimeout conf) go >>= \case
+            Nothing -> do
+                let cutOriginText = case _cutHashesLocalPayload hs of
+                        Nothing -> "from " <> maybe "unknown origin" (\p -> "origin " <> toText p) origin
+                        Just _ -> "which was locally mined - the mining loop will stall until unstuck by another miner"
 
-            logfun (maybe Warn (\_ -> Error) (_cutHashesLocalPayload hs))
-                $ "Timeout while processing cut "
-                    <> cutIdToTextShort hsid
-                    <> " at height " <> sshow (_cutHashesHeight hs)
-                    <> " from origin " <> cutOriginText
-            return Nothing
-        Just (Left missing) -> do
-            loggCutId logfun Warn hs $ "Failed to get prerequisites for some blocks. Missing: " <> encodeToText missing
-            return Nothing
-        Just (Right headers) -> do
-            return (Just headers)
+                logfun (maybe Warn (\_ -> Error) (_cutHashesLocalPayload hs))
+                    $ "Timeout while processing cut "
+                        <> cutIdToTextShort hsid
+                        <> " at height " <> sshow (_cutHashesHeight hs)
+                        <> " from origin " <> cutOriginText
+                return Nothing
+            Just (Left missing) -> do
+                loggCutId logfun Warn hs $ "Failed to get prerequisites for some blocks. Missing: " <> encodeToText missing
+                return Nothing
+            Just (Right headers) -> do
+                return (Just headers)
   where
     hsid = _cutId hs
-    go =
-        trace logfun "Chainweb.CutDB.cutHashesToBlockHeaderMap" hsid 1 $ do
-            plds <- emptyTable
-            casInsertBatch plds $ HM.elems $ _cutHashesPayloads hs
+    go = do
 
-            hdrs <- emptyTable
-            casInsertBatch hdrs $ HM.elems $ _cutHashesHeaders hs
+        plds <- emptyTable
+        casInsertBatch plds $ HM.elems $ _cutHashesPayloads hs
 
-            -- for better error messages on validation failure
-            -- must be a locally-produced payload
-            let localPayload = _cutHashesLocalPayload hs
+        hdrs <- emptyTable
+        casInsertBatch hdrs $ HM.elems $ _cutHashesHeaders hs
 
-            (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
-                & S.map (fmap _bhwhHash)
-                & S.mapM (tryGetBlockHeader hdrs plds localPayload)
-                & S.partitionEithers
-                & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
-                & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
-            if null missing
-            then return $! Right headers
-            else do
-                when (isJust $ _cutHashesLocalPayload hs) $
-                    logfun @Text Error
-                        "error validating locally mined cut; the mining loop will stall until unstuck by another mining node"
-                return $! Left missing
+        -- for better error messages on validation failure
+        -- must be a locally-produced payload
+        let localPayload = _cutHashesLocalPayload hs
+
+        (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
+            & S.map (fmap _bhwhHash)
+            & S.mapM (tryGetBlockHeader hdrs plds localPayload)
+            & S.partitionEithers
+            & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
+            & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
+        if null missing
+        then return $! Right headers
+        else do
+            when (isJust $ _cutHashesLocalPayload hs) $
+                logfun @Text Error
+                    "error validating locally mined cut; the mining loop will stall until unstuck by another mining node"
+            return $! Left missing
 
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))

@@ -215,9 +215,9 @@ runMonitorLoop actionLabel logger = runForeverThrottled
 runCutMonitor :: Logger logger => logger -> CutDb tbl -> IO ()
 runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger $ \l ->
     runMonitorLoop "ChainwebNode.runCutMonitor" l $ do
-        S.mapM_ (logFunctionJson l Info)
-            $ S.map (cutToCutHashes Nothing)
-            $ cutStream db
+        logFunctionJson l Info . cutToCutHashes Nothing
+            =<< _cut db
+        threadDelay 15_000_000
 
 data BlockUpdate = BlockUpdate
     { _blockUpdateBlockHeader :: !(ObjectEncoded BlockHeader)
@@ -395,7 +395,7 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
     rtsBackend <- managed
         $ mkTelemetryLogger @RTSStats mgr teleLogConfig
     counterBackend <- managed $ configureHandler
-        (withJsonHandleBackend @CounterLog "connectioncounters" mgr pkgInfoScopes)
+        (withJsonHandleBackend @CounterLog "counters" mgr pkgInfoScopes)
         teleLogConfig
     endpointBackend <- managed
         $ mkTelemetryLogger @PactCmdLog mgr teleLogConfig
@@ -540,11 +540,6 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- SERVICE DATE for version 2.24
---
-serviceDate :: Maybe String
-serviceDate = Just "2024-08-21T00:00:00Z"
-
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
     "Chainweb Node"
@@ -571,7 +566,7 @@ main = do
                 , Handler $ \(e :: SomeException) ->
                     logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
                 ] $ do
-                kt <- mapM iso8601ParseM serviceDate
+                kt <- mapM iso8601ParseM (_versionServiceDate v)
                 withServiceDate (_configChainwebVersion (_nodeConfigChainweb conf)) (logFunctionText logger) kt $ void $
                     race (node conf logger) (gcRunner (logFunctionText logger))
     where

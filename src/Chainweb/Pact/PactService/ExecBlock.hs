@@ -54,7 +54,6 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -379,10 +378,10 @@ applyPactCmds
     -> Maybe P.Gas
     -> Maybe Micros
     -> PactBlockM logger tbl (T2 (Vector (Either CommandInvalidError (P.CommandResult [P.TxLogJson]))) ModuleCache)
-applyPactCmds isGenesis cmds miner mc blockGas txTimeLimit = do
+applyPactCmds isGenesis cmds miner startModuleCache blockGas txTimeLimit = do
     let txsGas txs = fromIntegral $ sumOf (traversed . _Right . to P._crGas) txs
     (txOuts, T2 mcOut _) <- tracePactBlockM' "applyPactCmds" () (txsGas . fst) $
-      flip runStateT (T2 mc blockGas) $
+      flip runStateT (T2 startModuleCache blockGas) $
         go [] (V.toList cmds)
     return $! T2 (V.fromList . List.reverse $ txOuts) mcOut
   where
@@ -423,6 +422,7 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
   logger <- view (psServiceEnv . psLogger)
   gasLogger <- view (psServiceEnv . psGasLogger)
   gasModel <- view (psServiceEnv . psGasModel)
+  txFailuresCounter <- view (psServiceEnv . psTxFailuresCounter)
   v <- view chainwebVersion
   let
     -- for errors so fatal that the tx doesn't make it in the block
@@ -471,7 +471,8 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
         let txGas (T3 r _ _) = fromIntegral $ P._crGas r
         T3 r c _warns <-
           tracePactBlockM' "applyCmd" (J.toJsonViaEncode hsh) txGas $ do
-            liftIO $ txTimeout $ applyCmd v logger gasLogger (_cpPactDbEnv dbEnv) miner (gasModel txCtx) txCtx spv gasLimitedCmd initialGas mcache ApplySend
+            liftIO $ txTimeout $
+              applyCmd v logger gasLogger txFailuresCounter (_cpPactDbEnv dbEnv) miner (gasModel txCtx) txCtx spv gasLimitedCmd initialGas mcache ApplySend
         pure $ T2 r c
 
     if isGenesis
@@ -491,9 +492,6 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
       Nothing -> return ()
     let maybeBlockGasRemaining' = (\g -> g - P._crGas result) <$> maybeBlockGasRemaining
     pure (Right result, T2 mcache' maybeBlockGasRemaining')
-
-toHashCommandResult :: P.CommandResult [P.TxLogJson] -> P.CommandResult P.Hash
-toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . P.encodeTxLogJsonArray
 
 transactionsFromPayload
     :: PactParserVersion
@@ -646,31 +644,3 @@ validateHashes bHeader payload miner transactions =
 
     toPairCR cr = over (P.crLogs . _Just)
         (CRLogPair (fromJuste $ P._crLogs (toHashCommandResult cr))) cr
-
-toTransactionBytes :: P.Command Text -> Transaction
-toTransactionBytes cwTrans =
-    let plBytes = J.encodeStrict cwTrans
-    in Transaction { _transactionBytes = plBytes }
-
-
-toOutputBytes :: P.CommandResult P.Hash -> TransactionOutput
-toOutputBytes cr =
-    let outBytes = J.encodeStrict cr
-    in TransactionOutput { _transactionOutputBytes = outBytes }
-
-toPayloadWithOutputs :: Miner -> Transactions (P.CommandResult [P.TxLogJson]) -> PayloadWithOutputs
-toPayloadWithOutputs mi ts =
-    let oldSeq = _transactionPairs ts
-        trans = cmdBSToTx . fst <$> oldSeq
-        transOuts = toOutputBytes . toHashCommandResult . snd <$> oldSeq
-
-        miner = toMinerData mi
-        cb = CoinbaseOutput $ J.encodeStrict $ toHashCommandResult $ _transactionCoinbase ts
-        blockTrans = snd $ newBlockTransactions miner trans
-        cmdBSToTx = toTransactionBytes
-          . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
-        blockOuts = snd $ newBlockOutputs cb transOuts
-
-        blockPL = blockPayload blockTrans blockOuts
-        plData = payloadData blockTrans blockPL
-     in payloadWithOutputs plData cb transOuts

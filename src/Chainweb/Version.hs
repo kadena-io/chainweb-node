@@ -68,6 +68,7 @@ module Chainweb.Version
     , versionGenesis
     , versionVerifierPluginNames
     , versionQuirks
+    , versionServiceDate
     , genesisBlockPayload
     , genesisBlockPayloadHash
     , genesisBlockTarget
@@ -407,6 +408,8 @@ data ChainwebVersion
         -- ^ Verifier plugins that can be run to verify transaction contents.
     , _versionQuirks :: VersionQuirks
         -- ^ Modifications to behavior at particular blockheights
+    , _versionServiceDate :: Maybe String
+        -- ^ The node service date for this version.
     }
     deriving stock (Generic)
     deriving anyclass NFData

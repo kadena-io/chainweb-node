@@ -1,6 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -25,6 +28,9 @@
 -- Chainweb / Pact Types module for various database backends
 module Chainweb.Pact.Backend.Types
     ( RunnableBlock(..)
+    , Historical(..)
+    , _Historical
+    , _NoHistory
     , Checkpointer(..)
     , _cpRewindTo
     , ReadCheckpointer(..)
@@ -66,6 +72,7 @@ module Chainweb.Pact.Backend.Types
     , blockHandlerEnv
     , runBlockEnv
     , SQLiteEnv
+    , IntraBlockPersistence(..)
     , BlockHandler(..)
     , BlockHandlerEnv(..)
     , mkBlockHandlerEnv
@@ -83,9 +90,11 @@ module Chainweb.Pact.Backend.Types
     , MemPoolAccess(..)
 
     , PactServiceException(..)
+    , BlockTxHistory(..)
     ) where
 
 import Control.Concurrent.MVar
+import Control.DeepSeq
 import Control.Exception
 import Control.Exception.Safe hiding (bracket)
 import Control.Lens
@@ -118,13 +127,14 @@ import Pact.Types.Persistence
 import Pact.Types.RowData (RowData)
 import Pact.Types.Runtime (TableName)
 
+import qualified Pact.JSON.Encode as J
+
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Pact.Backend.DbCache
-import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
 import Chainweb.Utils (T2)
 import Chainweb.Version
@@ -206,7 +216,7 @@ data SQLitePendingData = SQLitePendingData
     , _pendingTxLogMap :: !TxLogMap
     , _pendingSuccessfulTxs :: !SQLitePendingSuccessfulTxs
     }
-    deriving (Show)
+    deriving (Eq, Show)
 
 makeLenses ''SQLitePendingData
 
@@ -243,6 +253,12 @@ initBlockState cl txid = BlockState
     }
 
 makeLenses ''BlockState
+
+-- | Whether we write rows to the database that were already overwritten
+-- in the same block. This is temporarily necessary to do while Rosetta uses
+-- those rows to determine the contents of historic transactions.
+data IntraBlockPersistence = PersistIntraBlockWrites | DoNotPersistIntraBlockWrites
+  deriving (Eq, Ord, Show)
 
 data BlockHandlerEnv logger = BlockHandlerEnv
     { _blockHandlerDb :: !SQLiteEnv
@@ -310,11 +326,12 @@ type ParentHash = BlockHash
 data ReadCheckpointer logger = ReadCheckpointer
   { _cpReadFrom ::
     !(forall a. Maybe ParentHeader ->
-      (CurrentBlockDbEnv logger -> IO a) -> IO a)
+      (CurrentBlockDbEnv logger -> IO a) -> IO (Historical a))
     -- ^ rewind to a particular block *in-memory*, producing a read-write snapshot
     -- ^ of the database at that block to compute some value, after which the snapshot
     -- is discarded and nothing is saved to the database.
-    -- ^ prerequisite: ParentHeader is an ancestor of the "latest block"
+    -- ^ prerequisite: ParentHeader is an ancestor of the "latest block".
+    -- if that isn't the case, Nothing is returned.
   , _cpGetEarliestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
     -- ^ get the checkpointer's idea of the earliest block. The block height
     --   is the height of the block of the block hash.
@@ -327,9 +344,9 @@ data ReadCheckpointer logger = ReadCheckpointer
     -- ^ is the checkpointer aware of the given block?
   , _cpGetBlockParent :: !((BlockHeight, BlockHash) -> IO (Maybe BlockHash))
   , _cpGetBlockHistory ::
-      !(BlockHeader -> Domain RowKey RowData -> IO BlockTxHistory)
+       !(BlockHeader -> Domain RowKey RowData -> IO (Historical BlockTxHistory))
   , _cpGetHistoricalLookup ::
-      !(BlockHeader -> Domain RowKey RowData -> RowKey -> IO (Maybe (TxLog RowData)))
+      !(BlockHeader -> Domain RowKey RowData -> RowKey -> IO (Historical (Maybe (TxLog RowData))))
   , _cpLogger :: logger
   }
 
@@ -433,3 +450,25 @@ instance Show PactServiceException where
              ]
 
 instance Exception PactServiceException
+
+-- | Gather tx logs for a block, along with last tx for each
+-- key in history, if any
+-- Not intended for public API use; ToJSONs are for logging output.
+data BlockTxHistory = BlockTxHistory
+  { _blockTxHistory :: !(Map TxId [TxLog RowData])
+  , _blockPrevHistory :: !(Map RowKey (TxLog RowData))
+  }
+  deriving (Eq,Generic)
+instance Show BlockTxHistory where
+  show = show . fmap (J.encodeText . J.Array) . _blockTxHistory
+instance NFData BlockTxHistory
+
+-- | The result of a historical lookup which might fail to even find the
+-- header the history is being queried for.
+data Historical a
+  = Historical a
+  | NoHistory
+  deriving stock (Foldable, Functor, Generic, Traversable)
+  deriving anyclass NFData
+
+makePrisms ''Historical

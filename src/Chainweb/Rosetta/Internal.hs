@@ -3,6 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -58,7 +59,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB
-import Chainweb.Pact.Service.Types (BlockTxHistory(..), PactException(..))
+import Chainweb.Pact.Service.Types
 import Chainweb.Payload hiding (Transaction(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.Rosetta.Utils
@@ -570,8 +571,11 @@ getTxLogs
     -> BlockHeader
     -> ExceptT RosettaFailure Handler (Map TxId [AccountLog])
 getTxLogs cr bh = do
-  someHist <- liftIO $ try @_ @PactException $ _pactBlockTxHistory cr bh d
-  (BlockTxHistory hist prevTxs) <- hush someHist ?? RosettaPactExceptionThrown
+  exnOrSomeHist <- liftIO $ try @_ @PactException $ _pactBlockTxHistory cr bh d
+  someHist <- hush exnOrSomeHist ?? RosettaPactExceptionThrown
+  BlockTxHistory hist prevTxs <- case someHist of
+    NoHistory -> throwError RosettaTxIdNotFound
+    Historical hist -> return hist
   lastBalSeen <- hoistEither $ parsePrevTxs prevTxs
   histAcctRow <- hoistEither $ parseHist hist
   pure $ getBalanceDeltas histAcctRow lastBalSeen
@@ -649,8 +653,9 @@ getHistoricalLookupBalance'
     -> T.Text
     -> ExceptT RosettaFailure Handler (Maybe AccountRow)
 getHistoricalLookupBalance' cr bh k = do
-  someHist <- liftIO $ try @_ @PactException $ _pactHistoricalLookup cr bh d key
-  hist <- hush someHist ?? RosettaPactExceptionThrown
+  hist <- liftIO (_pactHistoricalLookup cr bh d key) >>= \case
+    NoHistory -> throwError (RosettaTxIdNotFound)
+    Historical hist -> return hist
   case hist of
     Nothing -> pure Nothing
     Just h -> do

@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -31,11 +32,15 @@ import Patience.Map (Delta(..))
 import Data.Aeson (object, (.=), Value(..), eitherDecode)
 import qualified Data.ByteString.Lazy as BL
 import Data.Either (isLeft, isRight, fromRight)
+import Data.Foldable
+import qualified Data.HashMap.Strict as HM
 import Data.IORef
+import qualified Data.List as List
 import qualified Data.Map.Strict as M
 import Data.Maybe (isJust, isNothing)
 import qualified Data.Text as T
 import Data.Text (Text)
+import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
 import qualified Data.Vector as V
 
@@ -72,9 +77,8 @@ import Chainweb.Pact.Backend.PactState qualified as PS
 import Chainweb.Pact.Backend.Types hiding (RunnableBlock(..))
 import Chainweb.Pact.Service.BlockValidation hiding (local)
 import Chainweb.Pact.Service.PactQueue (PactQueue, newPactQueue)
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Service.Types hiding (runBlock)
 import Chainweb.Pact.PactService (runPactService)
-import Chainweb.Pact.PactService.ExecBlock
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (emptyPayload)
 import Chainweb.Payload
@@ -100,11 +104,17 @@ testVersion = slowForkingCpmTestVersion petersonChainGraph
 cid :: ChainId
 cid = someChainId testVersion
 
+genesisHeader :: BlockHeader
+genesisHeader = genesisBlockHeader testVersion cid
+
+
 tests :: RocksDb -> TestTree
 tests rdb = testGroup testName
   [ test $ goldenNewBlock "new-block-0" goldenMemPool
-  , test $ goldenNewBlock "empty-block-tests" mempty
+  , test $ goldenNewBlock "empty-block-tests" (return mempty)
   , test newBlockAndValidate
+  , test newBlockNoFill
+  , test newBlockAndContinue
   , test newBlockAndValidationFailure
   -- this test needs to see all of the writes done in the block;
   -- it uses the BlockTxHistory Pact request to see them.
@@ -173,7 +183,9 @@ forSuccess msg act = (`catchAllSynchronous` handler) $ do
 
 runBlockE :: (HasCallStack) => PactQueue -> TestBlockDb -> TimeSpan Micros -> IO (Either PactException PayloadWithOutputs)
 runBlockE q bdb timeOffset = do
-  T2 (ParentHeader ph) nb <- newBlock noMiner q
+  ph <- getParentTestBlockDb bdb cid
+  bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) q
+  let nb = blockInProgressToPayloadWithOutputs bip
   let blockTime = add timeOffset $ _bct $ _blockCreationTime ph
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
@@ -192,20 +204,107 @@ runBlock q bdb timeOffset = do
 newBlockAndValidate :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 newBlockAndValidate refIO reqIO = testCase "newBlockAndValidate" $ do
   (_, q, bdb) <- reqIO
-  setOneShotMempool refIO goldenMemPool
+  setOneShotMempool refIO =<< goldenMemPool
   void $ runBlock q bdb second
+
+newBlockAndContinue :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
+newBlockAndContinue refIO reqIO = testCase "newBlockAndContinue" $ do
+  (_, q, bdb) <- reqIO
+  let mk = signSender00 . set cbGasPrice 0.01 . set cbTTL 1_000_000
+  c1 <- buildCwCmd "1" testVersion $
+        mk $
+        set cbRPC (mkExec "(+ 1 2)" (object [])) $
+        defaultCmd
+  c2 <- buildCwCmd "2" testVersion $
+        mk $
+        set cbRPC (mkExec "(+ 3 4)" (object [])) $
+        defaultCmd
+  c3 <- buildCwCmd "3" testVersion $
+        mk $
+        set cbRPC (mkExec "(+ 5 6)" (object [])) $
+        defaultCmd
+  setMempool refIO =<< mempoolOf
+    [ V.fromList [ c1 ]
+    , mempty
+    , V.fromList [ c2 ]
+    , mempty
+    , V.fromList [ c3 ]
+    ]
+
+  bipStart <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader genesisHeader) q
+  let ParentHeader ph = _blockInProgressParentHeader bipStart
+  bipContinued <- throwIfNoHistory =<< continueBlock bipStart q
+  bipFinal <- throwIfNoHistory =<< continueBlock bipContinued q
+  -- we must make progress on the same parent header
+  assertEqual "same parent header after continuing block"
+    (_blockInProgressParentHeader bipStart) (_blockInProgressParentHeader bipContinued)
+  assertBool "made progress (1)"
+    (bipStart /= bipContinued)
+  assertEqual "same parent header after finishing block"
+    (_blockInProgressParentHeader bipContinued) (_blockInProgressParentHeader bipFinal)
+  assertBool "made progress (2)"
+    (bipContinued /= bipFinal)
+  let nbContinued = blockInProgressToPayloadWithOutputs bipFinal
+  -- add block to database
+  let blockTime = add second $ _bct $ _blockCreationTime ph
+  forM_ (chainIds testVersion) $ \c -> do
+    let o | c == cid = nbContinued
+          | otherwise = emptyPayload
+    addTestBlockDb bdb (succ $ _blockHeight ph) (Nonce 0) (\_ _ -> blockTime) c o
+  nextH <- getParentTestBlockDb bdb cid
+  -- a continued block must be valid
+  _ <- validateBlock nextH (CheckablePayloadWithOutputs nbContinued) q
+
+  -- reset to parent
+  pactSyncToBlock ph q
+  setMempool refIO =<< mempoolOf
+    [ V.fromList
+      [ c1, c2, c3 ]
+    ]
+  bipAllAtOnce <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader genesisHeader) q
+  let nbAllAtOnce = blockInProgressToPayloadWithOutputs bipAllAtOnce
+  assertEqual "a continued block, and one that's all done at once, should be exactly equal"
+    nbContinued nbAllAtOnce
+  _ <- validateBlock nextH (CheckablePayloadWithOutputs nbAllAtOnce) q
+
+  return ()
+
+newBlockNoFill :: IO (IORef MemPoolAccess)
+               -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
+newBlockNoFill refIO reqIO = testCase "newBlockNoFill" $ do
+  (_, q, _) <- reqIO
+  c1 <- buildCwCmd "1" testVersion $
+    signSender00 $
+    set cbGasPrice 0.01 $
+    set cbTTL 1_000_000 $
+    set cbRPC (mkExec "1" (object [])) $
+    defaultCmd
+  setMempool refIO =<< mempoolOf [V.fromList [c1]]
+  noFillPwo <- fmap blockInProgressToPayloadWithOutputs . throwIfNoHistory =<<
+    newBlock noMiner NewBlockEmpty (ParentHeader genesisHeader) q
+  assertEqual
+    "an unfilled newblock must have no transactions, even with a full mempool"
+    mempty
+    (_payloadWithOutputsTransactions noFillPwo)
+  fillPwo <- fmap blockInProgressToPayloadWithOutputs . throwIfNoHistory =<<
+    newBlock noMiner NewBlockFill (ParentHeader genesisHeader) q
+  assertEqual
+    "an filled newblock has transactions with a full mempool"
+    1
+    (V.length $ _payloadWithOutputsTransactions fillPwo)
 
 newBlockAndValidationFailure :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailure" $ do
   (_, q, bdb) <- reqIO
-  setOneShotMempool refIO goldenMemPool
+  setOneShotMempool refIO =<< goldenMemPool
 
-  T2 (ParentHeader ph) nb <- newBlock noMiner q
-  let blockTime = add second $ _bct $ _blockCreationTime ph
+  bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader genesisHeader) q
+  let nb = blockInProgressToPayloadWithOutputs bip
+  let blockTime = add second $ _bct $ _blockCreationTime genesisHeader
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
           | otherwise = emptyPayload
-    addTestBlockDb bdb (succ $ _blockHeight ph) (Nonce 0) (\_ _ -> blockTime) c o
+    addTestBlockDb bdb (succ $ _blockHeight genesisHeader) (Nonce 0) (\_ _ -> blockTime) c o
 
   nextH <- getParentTestBlockDb bdb cid
 
@@ -256,7 +355,7 @@ rosettaFailsWithoutFullHistory rdb =
 
           mempoolRef <- fmap (pure . fst) dm
 
-          setOneShotMempool mempoolRef goldenMemPool
+          setOneShotMempool mempoolRef =<< goldenMemPool
           replicateM_ 10 $ void $ runBlock q bdb second
 
           Utils.compact Error [C.NoVacuum] sqlEnv (C.Target (BlockHeight 5))
@@ -273,7 +372,7 @@ rosettaFailsWithoutFullHistory rdb =
           let payloadDb = _bdbPayloadDb blockDb
           let cfg = testPactServiceConfig { _pactFullHistoryRequired = True }
           let logger = genericLogger System.LogLevel.Error (\_ -> return ())
-          e <- try $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb sqlEnv cfg
+          e <- try $ runPactService testVersion cid logger Nothing pactQueue mempool bhDb payloadDb sqlEnv cfg
           case e of
             Left (FullHistoryRequired {}) -> do
               pure ()
@@ -531,7 +630,7 @@ compactionGrandHashUnchanged :: ()
   -> TestTree
 compactionGrandHashUnchanged rdb =
   compactionSetup "compactionGrandHashUnchanged" rdb testPactServiceConfig $ \cr -> do
-    setOneShotMempool cr.mempoolRef goldenMemPool
+    setOneShotMempool cr.mempoolRef =<< goldenMemPool
 
     let numBlocks :: Num a => a
         numBlocks = 100
@@ -559,10 +658,10 @@ compactionGrandHashUnchanged rdb =
 getHistory :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 getHistory refIO reqIO = testCase "getHistory" $ do
   (_, q, bdb) <- reqIO
-  setOneShotMempool refIO goldenMemPool
+  setOneShotMempool refIO =<< goldenMemPool
   void $ runBlock q bdb second
   h <- getParentTestBlockDb bdb cid
-  BlockTxHistory hist prevBals <- pactBlockTxHistory h (UserTables "coin_coin-table") q
+  Historical (BlockTxHistory hist prevBals) <- pactBlockTxHistory h (UserTables "coin_coin-table") q
   -- just check first one here
   assertEqual "check first entry of history"
     (Just [TxLog "coin_coin-table" "sender00"
@@ -619,14 +718,14 @@ getHistoricalLookupWithTxs
 getHistoricalLookupWithTxs key assertF refIO reqIO =
   testCase (T.unpack ("getHistoricalLookupWithTxs: " <> key)) $ do
     (_, q, bdb) <- reqIO
-    setOneShotMempool refIO goldenMemPool
+    setOneShotMempool refIO =<< goldenMemPool
     void $ runBlock q bdb second
     h <- getParentTestBlockDb bdb cid
     histLookup q h key >>= assertF
 
 histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (TxLog RowData))
 histLookup q bh k =
-  pactHistoricalLookup bh (UserTables "coin_coin-table") (RowKey k) q
+  throwIfNoHistory =<< pactHistoricalLookup bh (UserTables "coin_coin-table") (RowKey k) q
 
 assertSender00Bal :: Rational -> String -> Maybe (TxLog RowData) -> Assertion
 assertSender00Bal bal msg hist =
@@ -730,6 +829,7 @@ mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
 
   where
 
+    checkCount :: HasCallStack => Int -> PayloadWithOutputs_ a -> Assertion
     checkCount n = assertEqual "tx return count" n . V.length . _payloadWithOutputsTransactions
 
     mp supply txRefillMap = setMempool mpRefIO $ mempty {
@@ -882,7 +982,8 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
     $ set cbRPC (mkExec' "(+ 1 2)")
     $ defaultCmd
   setOneShotMempool mpRefIO (badlistMPA badTx badHashRef)
-  T2 _ resp <- newBlock noMiner reqQ
+  bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader genesisHeader) reqQ
+  let resp = blockInProgressToPayloadWithOutputs bip
   assertEqual "bad tx filtered from block" mempty (_payloadWithOutputsTransactions resp)
   badHash <- readIORef badHashRef
   assertEqual "Badlist should have badtx hash" (hashToTxHashList $ _cmdHash badTx) badHash
@@ -892,62 +993,98 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
       , mpaBadlistTx = \v -> writeIORef badHashRef v
       }
 
-
-goldenNewBlock :: String -> MemPoolAccess -> IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
-goldenNewBlock name mp mpRefIO reqIO = golden name $ do
+goldenNewBlock :: String -> IO MemPoolAccess -> IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
+goldenNewBlock name mpIO mpRefIO reqIO = golden name $ do
+    mp <- mpIO
     (_, reqQ, _) <- reqIO
     setOneShotMempool mpRefIO mp
-    T2 _ resp <- newBlock noMiner reqQ
+    blockInProgress <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader genesisHeader) reqQ
+    let resp = blockInProgressToPayloadWithOutputs blockInProgress
     -- ensure all golden txs succeed
     forM_ (_payloadWithOutputsTransactions resp) $ \(txIn,TransactionOutput out) -> do
       cr :: CommandResult Hash <- decodeStrictOrThrow out
       assertSatisfies ("golden tx succeeds, input: " ++ show txIn) (_crResult cr) (isRight . (\(PactResult r) -> r))
-    goldenBytes resp
+    goldenBytes resp blockInProgress
   where
-    goldenBytes :: PayloadWithOutputs -> IO BL.ByteString
-    goldenBytes a = return $ BL.fromStrict $ encodeYaml $ object
+    hmToSortedList = List.sortOn fst . HM.toList
+    -- missing some fields, only includes the fields that are "outputs" of
+    -- running txs, but not the module cache
+    blockInProgressToJSON BlockInProgress {..} = object
+      [ "pendingData" .=
+        let SQLitePendingData{..} = _blockInProgressPendingData
+        in object
+            [ "pendingTableCreation" .=
+                (T.decodeUtf8 <$> toList _pendingTableCreation)
+            , "pendingWrites" .= HM.fromList
+                [ (T.decodeUtf8 _dkTable, HM.fromList
+                    [ (T.decodeUtf8 _dkRowKey, HM.fromList
+                        [ (fromIntegral @TxId @Word _deltaTxId, T.decodeUtf8 _deltaData)
+                        | SQLiteRowDelta {..} <- toList rowKeyWrites
+                        ])
+                    | (_dkRowKey, rowKeyWrites) <- hmToSortedList tableWrites
+                    ])
+                | (_dkTable, tableWrites) <- hmToSortedList _pendingWrites
+                ]
+          , "pendingSuccessfulTxs" .=
+            (encodeB64UrlNoPaddingText <$> toList _pendingSuccessfulTxs)
+          ]
+      , "txId" .= fromIntegral @TxId @Word _blockInProgressTxId
+      , "blockGasLimit" .= fromIntegral @GasLimit @Int _blockInProgressRemainingGasLimit
+      , "parentHeader" .= _parentHeader _blockInProgressParentHeader
+      ]
+    goldenBytes :: PayloadWithOutputs -> BlockInProgress -> IO BL.ByteString
+    goldenBytes a b = return $ BL.fromStrict $ encodeYaml $ object
       [ "test-group" .= ("new-block" :: T.Text)
       , "results" .= a
+      , "blockInProgress" .= blockInProgressToJSON b
       ]
 
-goldenMemPool :: MemPoolAccess
-goldenMemPool = mempty
-    { mpaGetBlock = getTestBlock
+goldenMemPool :: IO MemPoolAccess
+goldenMemPool = do
+    moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
+    let txs =
+          [ (T.pack moduleStr)
+          , "(create-table free.test1.accounts)"
+          , "(free.test1.create-global-accounts)"
+          , "(free.test1.transfer \"Acct1\" \"Acct2\" 1.00)"
+          , "(at 'prev-block-hash (chain-data))"
+          , "(at 'block-time (chain-data))"
+          , "(at 'block-height (chain-data))"
+          , "(at 'gas-limit (chain-data))"
+          , "(at 'gas-price (chain-data))"
+          , "(at 'chain-id (chain-data))"
+          , "(at 'sender (chain-data))"
+          ]
+    outTxs <- mkTxs txs
+    mempoolOf [outTxs]
+    where
+      mkTxs txs =
+          fmap V.fromList $ forM (zip txs [0..]) $ \(code,n :: Int) ->
+            buildCwCmd ("1" <> sshow n) testVersion $
+            signSender00 $
+            set cbGasPrice 0.01 $
+            set cbTTL 1_000_000 $ -- match old goldens
+            set cbRPC (mkExec code $ mkKeySetData "test-admin-keyset" [sender00]) $
+            defaultCmd
+
+mempoolOf :: [V.Vector ChainwebTransaction] -> IO MemPoolAccess
+mempoolOf blocks = do
+  blocksRemainingRef <- newIORef blocks
+  return mempty
+    { mpaGetBlock = getTestBlock blocksRemainingRef
     }
   where
-    getTestBlock _ validate bHeight bHash _parent = do
-        moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
-        let txs =
-              [ (T.pack moduleStr)
-              , "(create-table free.test1.accounts)"
-              , "(free.test1.create-global-accounts)"
-              , "(free.test1.transfer \"Acct1\" \"Acct2\" 1.00)"
-              , "(at 'prev-block-hash (chain-data))"
-              , "(at 'block-time (chain-data))"
-              , "(at 'block-height (chain-data))"
-              , "(at 'gas-limit (chain-data))"
-              , "(at 'gas-price (chain-data))"
-              , "(at 'chain-id (chain-data))"
-              , "(at 'sender (chain-data))"
-              ]
-        outtxs <- mkTxs txs
+    getTestBlock blocksRemainingRef _ validate bHeight bHash _parent = do
+        outtxs <- atomicModifyIORef' blocksRemainingRef $ \case
+          (b:bs) -> (bs, b)
+          [] -> ([], mempty)
         oks <- validate bHeight bHash outtxs
         unless (V.and oks) $ fail $ mconcat
-            [ "tx failed validation! input list: \n"
-            , show txs
-            , "\n\nouttxs: "
+            [ "tx failed validation! \nouttxs: \n"
             , show outtxs
-            , "\n\noks: "
+            , "\n\noks: \n"
             , show oks ]
         return outtxs
-    mkTxs txs =
-        fmap V.fromList $ forM (zip txs [0..]) $ \(code,n :: Int) ->
-          buildCwCmd ("1" <> sshow n) testVersion $
-          signSender00 $
-          set cbGasPrice 0.01 $
-          set cbTTL 1_000_000 $ -- match old goldens
-          set cbRPC (mkExec code $ mkKeySetData "test-admin-keyset" [sender00]) $
-          defaultCmd
 
 data CompactionResources = CompactionResources
   { mempoolRef :: IO (IORef MemPoolAccess)
@@ -980,9 +1117,9 @@ compactionSetup pat rdb pactCfg f =
 
       let logger = genericLogger System.LogLevel.Error (\_ -> return ())
 
-      void $ forkIO $ runPactService testVersion cid logger pactQueue mempool bhDb payloadDb sqlEnv pactCfg
+      void $ forkIO $ runPactService testVersion cid logger Nothing pactQueue mempool bhDb payloadDb sqlEnv pactCfg
 
-      setOneShotMempool mempoolRef goldenMemPool
+      setOneShotMempool mempoolRef =<< goldenMemPool
 
       f $ CompactionResources
         { mempoolRef = mempoolRef

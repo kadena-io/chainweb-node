@@ -42,6 +42,7 @@ import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -51,7 +52,7 @@ import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
 import Chainweb.Test.Pact.Utils(getPWOByHeader)
 import Chainweb.Test.TestVersions(fastForkingCpmTestVersion)
-import Chainweb.Utils (T2(..))
+import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
@@ -126,7 +127,9 @@ testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
     genHeight = genesisHeight testVer testChainId
     doCoinbase = do
       bdb <- liftIO iobdb
-      T2 _ pwo <- execNewBlock mempty noMiner
+      bip <- throwIfNoHistory =<< execNewBlock mempty noMiner NewBlockFill
+        (ParentHeader (genesisBlockHeader testVer testChainId))
+      let pwo = blockInProgressToPayloadWithOutputs bip
       void $ liftIO $ addTestBlockDb bdb (succ genHeight) (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
       void $ execValidateBlock mempty nextH (CheckablePayloadWithOutputs pwo)
@@ -248,7 +251,9 @@ doNextCoinbase iobdb = do
       pwo' <- liftIO $ getPWOByHeader prevH bdb
       _ <- execValidateBlock mempty prevH (CheckablePayloadWithOutputs pwo')
 
-      T2 prevH' pwo <- execNewBlock mempty noMiner
+      bip <- throwIfNoHistory =<< execNewBlock mempty noMiner NewBlockFill (ParentHeader prevH)
+      let prevH' = _blockInProgressParentHeader bip
+      let pwo = blockInProgressToPayloadWithOutputs bip
       liftIO $ ParentHeader prevH @?= prevH'
       void $ liftIO $ addTestBlockDb bdb (succ $ _blockHeight prevH) (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
@@ -295,7 +300,7 @@ withPact' bdbio ioSqlEnv r (ps, cacheTest) tastylog = do
     let pdb = _bdbPayloadDb bdb
     sqlEnv <- ioSqlEnv
     T2 _ pstate <- withPactService
-        testVer testChainId logger bhdb pdb sqlEnv testPactServiceConfig ps
+        testVer testChainId logger Nothing bhdb pdb sqlEnv testPactServiceConfig ps
     cacheTest r (_psInitCache pstate)
   where
     logger = genericLogger Quiet (tastylog . T.unpack)

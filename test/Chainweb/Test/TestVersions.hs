@@ -128,6 +128,7 @@ testVersionTemplate v = v
     & versionBootstraps .~ [testBootstrapPeerInfos]
     & versionVerifierPluginNames .~ AllChains (End mempty)
     & versionQuirks .~ noQuirks
+    & versionServiceDate .~ Nothing
 
 -- | A set of fork heights which are relatively fast, but not fast enough to break anything.
 fastForks :: HashMap Fork (ChainMap ForkHeight)

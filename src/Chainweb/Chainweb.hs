@@ -160,7 +160,8 @@ import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import qualified Chainweb.OpenAPIValidation as OpenAPIValidation
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
-import Chainweb.Pact.Service.Types (PactServiceConfig(..), IntraBlockPersistence(..))
+import Chainweb.Pact.Service.Types (PactServiceConfig(..))
+import Chainweb.Pact.Backend.Types (IntraBlockPersistence(..))
 import Chainweb.Pact.Validations
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
@@ -384,33 +385,41 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
         logg Info "finished pruning databases"
     logFunctionJson logger Info InitializingChainResources
 
+    txFailuresCounter <- newCounter @"txFailures"
+    let monitorTxFailuresCounter =
+            runForever (logFunctionText logger) "monitor txFailuresCounter" $ do
+                approximateThreadDelay 60_000_000 {- 1 minute -}
+                logFunctionCounter logger Info . (:[]) =<<
+                    roll txFailuresCounter
     logg Debug "start initializing chain resources"
     logFunctionText logger Info $ "opening pact db in directory " <> sshow pactDbDir
-    concurrentWith
-        -- initialize chains concurrently
-        (\cid x -> do
-            let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf) (_configMinGasPrice conf)
-            -- NOTE: the gas limit may be set based on block height in future, so this approach may not be valid.
-            let maxGasLimit = fromIntegral <$> maxBlockGasLimit v maxBound
-            case maxGasLimit of
-                Just maxGasLimit'
-                    | _configBlockGasLimit conf > maxGasLimit' ->
-                        logg Warn $ T.unwords
-                            [ "configured block gas limit is greater than the"
-                            , "maximum for this chain; the maximum will be used instead"
-                            ]
-                _ -> return ()
-            withChainResources
-                v
-                cid
-                rocksDb
-                (chainLogger cid)
-                mcfg
-                payloadDb
-                pactDbDir
-                (pactConfig maxGasLimit)
-                x
-        )
+    withAsync monitorTxFailuresCounter $ \_ ->
+        concurrentWith
+            -- initialize chains concurrently
+            (\cid x -> do
+                let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf) (_configMinGasPrice conf)
+                -- NOTE: the gas limit may be set based on block height in future, so this approach may not be valid.
+                let maxGasLimit = fromIntegral <$> maxBlockGasLimit v maxBound
+                case maxGasLimit of
+                    Just maxGasLimit'
+                        | _configBlockGasLimit conf > maxGasLimit' ->
+                            logg Warn $ T.unwords
+                                [ "configured block gas limit is greater than the"
+                                , "maximum for this chain; the maximum will be used instead"
+                                ]
+                    _ -> return ()
+                withChainResources
+                    v
+                    cid
+                    rocksDb
+                    (chainLogger cid)
+                    mcfg
+                    payloadDb
+                    pactDbDir
+                    (pactConfig maxGasLimit)
+                    txFailuresCounter
+                    x
+            )
 
         -- initialize global resources after all chain resources are initialized
         (\cs -> do
@@ -805,7 +814,7 @@ runChainweb cw nowServing = do
     monitorConnectionsClosedByClient :: Counter "clientClosedConnections" -> IO ()
     monitorConnectionsClosedByClient clientClosedConnectionsCounter =
         runForever logg "ConnectionClosedByClient.counter" $ do
-            approximateThreadDelay 60000000 {- 1 minute -}
+            approximateThreadDelay 60_000_000 {- 1 minute -}
             logFunctionCounter (_chainwebLogger cw) Info . (:[]) =<<
                 roll clientClosedConnectionsCounter
 

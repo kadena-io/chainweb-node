@@ -191,9 +191,7 @@ withInMemoryMempool_ l cfg _v f = do
         logFunctionText l Debug "Initialized Mempool Monitor"
         runForeverThrottled lf "Chainweb.Mempool.InMem.withInMemoryMempool_.monitor" 10 (10 * mega) $ do
             stats <- getMempoolStats m
-            logFunctionText l Debug "got stats"
             logFunctionJson l Info stats
-            logFunctionText l Debug "logged stats"
             approximateThreadDelay 60_000_000 {- 1 minute -}
 
 ------------------------------------------------------------------------------
@@ -506,7 +504,7 @@ getBlockInMem
     -> BlockHash
     -> IO (Vector t)
 getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight phash = do
-    logFunctionText logg Info $ "getBlockInMem: " <> sshow (gasLimit,bheight,phash)
+    logFunctionText logg Debug $ "getBlockInMem: " <> sshow (gasLimit,bheight,phash)
     withMVar lock $ \mdata -> do
         now <- getCurrentTimeIntegral
 

@@ -705,6 +705,7 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
 
         , _psBlockGasLimit = _pactBlockGasLimit conf
         , _psEnableLocalTimeout = False
+        , _psTxFailuresCounter = Nothing
         }
 
 freeGasModel :: TxContext -> GasModel
@@ -739,8 +740,10 @@ withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
         bhdb <- getBlockHeaderDb c bdb
         ctx <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
         return $ PactExecutionService
-          { _pactNewBlock = \_ m ->
-              evalPactServiceM_ ctx $ execNewBlock mempoolAccess m
+          { _pactNewBlock = \_ m fill ph ->
+              evalPactServiceM_ ctx $ fmap NewBlockInProgress <$> execNewBlock mempoolAccess m fill ph
+          , _pactContinueBlock = \_ bip ->
+              evalPactServiceM_ ctx $ execContinueBlock mempoolAccess bip
           , _pactValidateBlock = \h d ->
               evalPactServiceM_ ctx $ fst <$> execValidateBlock mempoolAccess h d
           , _pactLocal = \pf sv rd cmd ->
@@ -777,7 +780,9 @@ runCut
     -> IO ()
 runCut v bdb pact genTime noncer miner =
   forM_ (chainIds v) $ \cid -> do
-    T2 ph pout <- _webPactNewBlock pact cid miner
+    ph <- ParentHeader <$> getParentTestBlockDb bdb cid
+    !newBlock <- throwIfNoHistory =<< _webPactNewBlock pact cid miner NewBlockFill ph
+    let pout = newBlockToPayloadWithOutputs newBlock
     n <- noncer cid
 
     -- skip this chain if mining fails and retry with the next chain.
@@ -909,7 +914,7 @@ withPactTestBlockDb' version cid rdb sqlEnvIO mempoolIO pactConfig f =
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) cid
         let pdb = _bdbPayloadDb bdb
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
-            runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
+            runPactService version cid logger Nothing reqQ mempool bhdb pdb sqlEnv pactConfig
         return (a, (sqlEnv,reqQ,bdb))
 
     stopPact (a, _) = cancel a
@@ -965,7 +970,7 @@ withPactTestBlockDb version cid rdb mempoolIO pactConfig f =
         let pdb = _bdbPayloadDb bdb
         sqlEnv <- startSqliteDb cid logger dir False
         a <- async $ runForever (\_ _ -> return ()) "Chainweb.Test.Pact.Utils.withPactTestBlockDb" $
-            runPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
+            runPactService version cid logger Nothing reqQ mempool bhdb pdb sqlEnv pactConfig
         return (a, (sqlEnv,reqQ,bdb))
 
     stopPact (a, (sqlEnv, _, _)) = cancel a >> stopSqliteDb sqlEnv

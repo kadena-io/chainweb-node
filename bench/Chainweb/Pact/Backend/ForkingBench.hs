@@ -173,10 +173,11 @@ bench rdb = C.bgroup "PactService" $
     oneBlock :: BenchConfig -> Int -> C.Benchmark
     oneBlock cfg txCount = withResources rdb cfg.numPriorBlocks Error cfg.compact cfg.persistIntraBlockWrites go
       where
-        go _mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock = do
+        go mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock = do
           C.bench name $ C.whnfIO $ do
             writeIORef txsPerBlock txCount
-            createBlock cfg.validate (Nonce 1234) pactQueue
+            let (T3 _ join1 _) = last mainLineBlocks
+            createBlock cfg.validate (ParentHeader join1) (Nonce 1234) pactQueue
         name = "block-new ["
           ++ List.intercalate ","
                [ "txCount=" ++ show txCount
@@ -209,20 +210,22 @@ playLine pdb bhdb trunkLength startingBlock pactQueue counter = do
         startHeight = fromIntegral $ _blockHeight start
         go = do
             r <- ask
+            pblock <- gets ParentHeader
             n <- liftIO $ Nonce <$> readIORef ncounter
-            ret@(T3 _ newblock _) <- liftIO $ mineBlock n pdb bhdb r
+            ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n pdb bhdb r
             liftIO $ modifyIORef' ncounter succ
             put newblock
             return ret
 
 mineBlock
-    :: Nonce
+    :: ParentHeader
+    -> Nonce
     -> PayloadDb HashMapTable
     -> BlockHeaderDb
     -> PactQueue
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-mineBlock nonce pdb bhdb pact = do
-    r@(T3 parent newHeader payload) <- createBlock DoValidate nonce pact
+mineBlock parent nonce pdb bhdb pact = do
+    r@(T3 _ newHeader payload) <- createBlock DoValidate parent nonce pact
     addNewPayload pdb (succ (_blockHeight (_parentHeader parent))) payload
     -- NOTE: this doesn't validate the block header, which is fine in this test case
     unsafeInsertBlockHeaderDb bhdb newHeader
@@ -230,14 +233,16 @@ mineBlock nonce pdb bhdb pact = do
 
 createBlock
     :: Validate
+    -> ParentHeader
     -> Nonce
     -> PactQueue
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-createBlock validate nonce pact = do
+createBlock validate parent nonce pact = do
 
      -- assemble block without nonce and timestamp
 
-     T2 parent payload <- newBlock noMiner pact
+     bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill parent pact
+     let payload = blockInProgressToPayloadWithOutputs bip
 
      let creationTime = add second $ _blockCreationTime $ _parentHeader parent
      let bh = newBlockHeader
@@ -318,7 +323,7 @@ withResources rdb trunkLength logLevel compact p f = C.envWithCleanup create des
 
     startPact version l bhdb pdb mempool sqlEnv = do
         reqQ <- newPactQueue pactQueueSize
-        a <- async $ runPactService version cid l reqQ mempool bhdb pdb sqlEnv testPactServiceConfig
+        a <- async $ runPactService version cid l Nothing reqQ mempool bhdb pdb sqlEnv testPactServiceConfig
             { _pactBlockGasLimit = 180_000
             , _pactPersistIntraBlockWrites = p
             }

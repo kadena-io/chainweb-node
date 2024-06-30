@@ -6,6 +6,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Chainweb.Test.Pact.Checkpointer (tests) where
 
@@ -55,14 +56,13 @@ import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec
     (applyContinuation', applyExec', buildExecParsedCode)
 import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
-import Chainweb.Utils (catchAllSynchronous)
+import Chainweb.Utils
 import Chainweb.Version
 
 import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
@@ -665,7 +665,7 @@ runExec cp pactdbenv eData eCode = do
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
     cmdenv :: TransactionEnv logger (BlockEnv logger)
     cmdenv = TransactionEnv Transactional pactdbenv (_cpLogger $ _cpReadCp cp) Nothing def
-             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing
+             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing Nothing
     cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
 runCont :: Logger logger => Checkpointer logger -> ChainwebPactDbEnv logger -> PactId -> Int -> IO EvalResult
@@ -677,7 +677,7 @@ runCont cp pactdbenv pactId step = do
 
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
     cmdenv = TransactionEnv Transactional pactdbenv (_cpLogger $ _cpReadCp cp) Nothing def
-             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing
+             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing Nothing
     cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
 -- -------------------------------------------------------------------------- --
@@ -690,8 +690,16 @@ cpReadFrom
   -> Maybe BlockHeader
   -> (ChainwebPactDbEnv logger -> IO q)
   -> IO q
-cpReadFrom cp pc f = _cpReadFrom (_cpReadCp cp) (ParentHeader <$> pc) $
-  f . _cpPactDbEnv
+cpReadFrom cp pc f = do
+  _cpReadFrom
+    (_cpReadCp cp)
+    (ParentHeader <$> pc)
+    (f . _cpPactDbEnv) >>= \case
+    NoHistory -> error $ unwords
+      [ "Chainweb.Test.Pact.Checkpointer.cpReadFrom:"
+      , "parent header missing from the database"
+      ]
+    Historical r -> return r
 
 -- allowing a straightforward list of blocks to be passed to the API,
 -- and only exposing the PactDbEnv part of the block context

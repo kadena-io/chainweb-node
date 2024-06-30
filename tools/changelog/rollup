@@ -8,7 +8,7 @@ set -o errexit -o pipefail -o nounset
 # ignore errexit with `&& true`
 getopt --test > /dev/null && true
 if [[ $? -ne 4 ]]; then
-    echo 'I’m sorry, `getopt --test` failed in this environment.'
+    echo "I'm sorry, \`getopt --test\` failed in this environment."
     exit 1
 fi
 
@@ -72,7 +72,7 @@ fi
 if [ "$major" != "-" ]; then
 newver="$major"
 TEMPLATE=$(cat <<-EOM
-# $major (FIXME)
+## $major (FIXME)
 This is a major version update. This release replaces all previous versions.
 
 Any prior version will stop working on FIXME. Node administrators must
@@ -84,7 +84,7 @@ EOM
 else
 newver="$minor"
 TEMPLATE=$(cat <<-EOM
-# $minor (FIXME)
+## $minor (FIXME)
 This is a minor point release. Upgrading is **strongly recommended**.
 
 To upgrade, pull the latest docker image, or download the binary and
@@ -103,23 +103,41 @@ if ! grep -qP "version:\s+$newver" "$ROOT/chainweb.cabal"; then
 fi
 
 # first, get all the high-level changelog entries
-CHANGES="## Changes\n\n"
+CHANGES="### Changes\n\n"
+SHORT_COMMITS_MENTIONED=()
 for file in $(find "$ROOT/changes" -type f -iname '*.txt' | sort); do
-    CHANGES+=$(printf -- "- %s\\\\n" "$(cat "$file")")
+    full_commit="$(git log -1 --pretty=format:"%H" -- "$file")"
+    short_commit=${full_commit:0:8}
+    SHORT_COMMITS_MENTIONED+=("$short_commit")
+    CHANGES+=$(printf -- "- %s [\`%s\`](https://github.com/kadena-io/chainweb-node/commit/%s)\\\\n" "$(cat "$file")" "$short_commit" "$full_commit")
 done
 
-# now, list every commit since the last tag, too
-COMMITS="## Commits\n\n"
-
+# gather all commits made since the previous release, to compare with what's
+# mentioned in the changelog
+SHORT_COMMITS_ALL=()
 while IFS= read -r line; do
     cid="${line%% *}"
-    msg="${line#* }"
-    COMMITS+=$(printf -- "- [\`%s\`](https://github.com/kadena-io/chainweb-node/commit/%s) %s\\\\n" "$cid" "$cid" "$msg")
-done < <(git log $(git describe --tags --abbrev=0)..HEAD --oneline)
+    SHORT_COMMITS_ALL+=("$cid")
+done < <(git log "$(git describe --tags --abbrev=0)..HEAD" --oneline)
 
-contents=$(printf -- "$TEMPLATE\n\n$CHANGES\n$COMMITS\n" | cat - "$ROOT/CHANGELOG.md")
+contents=$(printf -- "%s\n\n%s\n" "$TEMPLATE" "$CHANGES" | cat - "$ROOT/CHANGELOG.md")
 
 # delete the old changelog and write the new one, and delete the changes.txt files
 rm -f "$ROOT/changes/"*.txt
 echo -e "$contents" > "$ROOT/CHANGELOG.md"
 echo "Wrote new changelog to $ROOT/CHANGELOG.md; please review the changes before committing."
+
+diff="$(echo "${SHORT_COMMITS_ALL[@]}" "${SHORT_COMMITS_MENTIONED[@]}" | tr ' ' '\n' | sort | uniq -u)"
+MISSING_COMMIT_MESSAGES=""
+COMMIT_SEP="--------------------------------------------------------------------------------"
+for commit in $diff; do
+    # replace tabs with 4 spaces, replace leading spaces that precede only a
+    # newline with just a newline
+    MISSING_COMMIT_MESSAGES+="$(git show -s "$commit" | tr '\t' '    ' | sed 's/^[[:blank:]]*$//')\n\n$COMMIT_SEP\n\n"
+done
+
+# Test if the string is empty
+if [[ -n "$MISSING_COMMIT_MESSAGES" ]]; then
+    printf -- "\n%s" "Note: There were commits made since the previous release, but not mentioned in the changelog. I've written these commits and their messages to $ROOT/changes/missing.txt. Please verify that each of these is acceptable to omit from the changelog. Manual intervention may be required to include any missing entries."
+    echo -e "$MISSING_COMMIT_MESSAGES" > "$ROOT/changes/missing.txt"
+fi

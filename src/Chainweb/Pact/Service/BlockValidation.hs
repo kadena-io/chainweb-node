@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module      :  Chainweb.Pact.Service.BlockValidation
@@ -15,6 +17,7 @@
 module Chainweb.Pact.Service.BlockValidation
 ( validateBlock
 , newBlock
+, continueBlock
 , local
 , lookupPactTxs
 , pactPreInsertCheck
@@ -41,14 +44,21 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Transaction
-import Chainweb.Utils (T2)
+import Chainweb.Utils
 
 
-newBlock :: Miner -> PactQueue ->
-            IO (T2 ParentHeader PayloadWithOutputs)
-newBlock mi reqQ = do
+newBlock :: Miner -> NewBlockFill -> ParentHeader -> PactQueue -> IO (Historical BlockInProgress)
+newBlock mi fill parent reqQ = do
     let !msg = NewBlockMsg NewBlockReq
-          { _newMiner = mi }
+            { _newBlockMiner = mi
+            , _newBlockFill = fill
+            , _newBlockParent = parent
+            }
+    submitRequestAndWait reqQ msg
+
+continueBlock :: BlockInProgress -> PactQueue -> IO (Historical BlockInProgress)
+continueBlock bip reqQ = do
+    let !msg = ContinueBlockMsg (ContinueBlockReq bip)
     submitRequestAndWait reqQ msg
 
 validateBlock
@@ -114,7 +124,7 @@ pactBlockTxHistory
   :: BlockHeader
   -> Domain RowKey RowData
   -> PactQueue
-  -> IO BlockTxHistory
+  -> IO (Historical BlockTxHistory)
 pactBlockTxHistory bh d reqQ = do
   let !req = BlockTxHistoryReq bh d
   let !msg = BlockTxHistoryMsg req
@@ -125,7 +135,7 @@ pactHistoricalLookup
     -> Domain RowKey RowData
     -> RowKey
     -> PactQueue
-    -> IO (Maybe (TxLog RowData))
+    -> IO (Historical (Maybe (TxLog RowData)))
 pactHistoricalLookup bh d k reqQ = do
   let !req = HistoricalLookupReq bh d k
   let !msg = HistoricalLookupMsg req
