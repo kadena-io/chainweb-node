@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -18,7 +19,9 @@ import Data.Aeson
 import Data.Aeson.Types (Pair)
 import qualified Data.Aeson.KeyMap as KM
 import Data.Bifunctor (first)
+#if !MIN_VERSION_base(4,20,0)
 import Data.Foldable (foldl')
+#endif
 import Data.Decimal ( Decimal, DecimalRaw(Decimal) )
 import Data.Hashable (Hashable(..))
 import Data.List (sortOn, inits)
