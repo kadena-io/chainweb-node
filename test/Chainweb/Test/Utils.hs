@@ -399,8 +399,8 @@ prettyTree :: Tree BlockHeader -> String
 prettyTree = drawTree . fmap f
   where
     f h = printf "%d - %s"
-        (coerce @BlockHeight @Word64 $ _blockHeight h)
-        (take 12 . drop 1 . show $ _blockHash h)
+        (coerce @BlockHeight @Word64 $ view blockHeight h)
+        (take 12 . drop 1 . show $ view blockHash h)
 
 normalizeTree :: Ord a => Tree a -> Tree a
 normalizeTree n@(Node _ []) = n
@@ -440,7 +440,7 @@ genesis v = either (error . sshow) return $ genesisBlockHeaderForChain v 0
 
 forest :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
 forest Randomly h = randomTrunk h
-forest g@(AtMost n) h | n < _blockHeight h = pure []
+forest g@(AtMost n) h | n < view blockHeight h = pure []
                       | otherwise = fixedTrunk g h
 
 fixedTrunk :: Growth -> BlockHeader -> Gen (Forest BlockHeader)
@@ -472,18 +472,18 @@ header p = do
         . newMerkleLog
         $ mkFeatureFlags
             :+: t'
-            :+: _blockHash p
+            :+: view blockHash p
             :+: target
             :+: casKey (testBlockPayloadFromParent (ParentHeader p))
             :+: _chainId p
-            :+: BlockWeight (targetToDifficulty target) + _blockWeight p
-            :+: succ (_blockHeight p)
+            :+: BlockWeight (targetToDifficulty target) + view blockWeight p
+            :+: succ (view blockHeight p)
             :+: _versionCode v
             :+: epochStart (ParentHeader p) mempty t'
             :+: nonce
             :+: MerkleLogBody mempty
    where
-    BlockCreationTime t = _blockCreationTime p
+    BlockCreationTime t = view blockCreationTime p
     target = powTarget (ParentHeader p) mempty t'
     v = _chainwebVersion p
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)

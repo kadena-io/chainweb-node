@@ -52,7 +52,7 @@ module Chainweb.Pact.Backend.PactState.GrandHash.Import
   )
   where
 
-import Chainweb.BlockHeader (BlockHeader(..), ParentHeader(..))
+import Chainweb.BlockHeader (ParentHeader(..), blockHash)
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.Logger (Logger, logFunctionText)
@@ -68,7 +68,7 @@ import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefau
 import Chainweb.Utils (sshow)
 import Chainweb.Version (ChainwebVersion(..))
 import Control.Applicative (optional)
-import Control.Lens ((^?!), ix)
+import Control.Lens ((^?!), ix, view)
 import Control.Monad (forM_, when)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
@@ -133,8 +133,8 @@ pactVerify logger v pactConns rocksDb grands = do
           logFunctionText logger' Error $ Text.unlines
             [ "Chain " <> chainIdToText cid
             , "Block Header mismatch"
-            , "  Expected: " <> sshow (_blockHash eHeader)
-            , "  Actual:   " <> sshow (_blockHash header)
+            , "  Expected: " <> sshow (view blockHash eHeader)
+            , "  Actual:   " <> sshow (view blockHash header)
             ]
 
         when (hash /= eHash) $ do

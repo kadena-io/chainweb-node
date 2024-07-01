@@ -352,7 +352,7 @@ applyGenesisCmd logger dbEnv spv txCtx cmd =
         , _txRequestKey = rk
         , _txGasLimit = 0
         , _txExecutionConfig = ExecutionConfig
-          $ flagsFor (ctxVersion txCtx) (ctxChainId txCtx) (_blockHeight $ ctxBlockHeader txCtx)
+          $ flagsFor (ctxVersion txCtx) (ctxChainId txCtx) (view blockHeight $ ctxBlockHeader txCtx)
           -- TODO this is very ugly. Genesis blocks need to install keysets
           -- outside of namespaces so we need to disable Pact 4.4. It would be
           -- preferable to have a flag specifically for the namespaced keyset
@@ -455,8 +455,8 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
 
     bh = ctxCurrentBlockHeight txCtx
     cid = Chainweb._chainId parent
-    chash = Pact.Hash $ SB.toShort $ encodeToByteString $ _blockHash $ _parentHeader parent
-        -- NOTE: it holds that @ _pdPrevBlockHash pd == encode _blockHash@
+    chash = Pact.Hash $ SB.toShort $ encodeToByteString $ view blockHash $ _parentHeader parent
+        -- NOTE: it holds that @ _pdPrevBlockHash pd == encode view blockHash@
         -- NOTE: chash includes the /quoted/ text of the parent header.
 
     go interp cexec = evalTransactionM tenv txst $! do
@@ -579,7 +579,7 @@ readInitModules = do
     parent = _tcParentHeader txCtx
     v = ctxVersion txCtx
     cid = ctxChainId txCtx
-    h = _blockHeight (_parentHeader parent) + 1
+    h = view blockHeight (_parentHeader parent) + 1
     rk = RequestKey chash
     nid = Nothing
     chash = pactInitialHash

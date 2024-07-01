@@ -28,7 +28,7 @@ import Test.Tasty.QuickCheck (testProperty, testProperties)
 -- internal modules
 
 import Chainweb.BlockHash (encodeBlockHash)
-import Chainweb.BlockHeader hiding (blockHash)
+import Chainweb.BlockHeader
 import Chainweb.Difficulty
 import Chainweb.Test.Utils (golden)
 import Chainweb.Utils
@@ -44,7 +44,7 @@ import Chainweb.Version.Testnet
 -- new `ChainwebVersion` value!
 tests :: TestTree
 tests = testGroup "Chainweb.Test.BlockHeader.Genesis"
-    [ testGroup "genesis header golden tests" $ blockHash <$>
+    [ testGroup "genesis header golden tests" $ blockHashTest <$>
         [ RecapDevelopment
         , Testnet04
         , Mainnet01
@@ -57,10 +57,10 @@ blockHashes =
     BB.toLazyByteString . foldMap (hash . snd) . sortBy (compare `on` fst) . HM.toList
   where
     hash :: BlockHeader -> BB.Builder
-    hash = BB.byteString . B64U.encode . runPutS . encodeBlockHash . _blockHash
+    hash = BB.byteString . B64U.encode . runPutS . encodeBlockHash . view blockHash
 
-blockHash :: ChainwebVersion -> TestTree
-blockHash v = golden (sshow v <> "-block-hashes") $
+blockHashTest :: ChainwebVersion -> TestTree
+blockHashTest v = golden (sshow v <> "-block-hashes") $
     pure $ blockHashes $ genesisBlockHeaders v
 
 -- -------------------------------------------------------------------------- --

@@ -1,18 +1,15 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Test.Pact.TTL
 ( tests ) where
 
 import Control.Concurrent.MVar
-import Control.Lens (set)
+import Control.Lens (set, view)
 import Control.Monad
 import Control.Monad.Catch
 
@@ -178,7 +175,7 @@ modAt f = modAtTtl f defTtl
 modAtTtl :: (Time Micros -> Time Micros) -> Seconds -> MemPoolAccess
 modAtTtl f (Seconds t) = mempty
     { mpaGetBlock = \_ validate bh hash ph -> do
-        let txTime = toTxCreationTime $ f $ _bct $ _blockCreationTime ph
+        let txTime = toTxCreationTime $ f $ _bct $ view blockCreationTime ph
             tt = TTLSeconds (int t)
         outtxs <- fmap V.singleton $ buildCwCmd (sshow bh) testVer
           $ set cbCreationTime txTime
@@ -227,7 +224,7 @@ doNewBlock ctxIO mempool parent nonce t = do
     let
         creationTime = BlockCreationTime
             . add (secondsToTimeSpan t) -- 10 seconds
-            . _bct . _blockCreationTime
+            . _bct . view blockCreationTime
             $ _parentHeader parent
         bh = newBlockHeader
             mempty
@@ -249,7 +246,7 @@ doValidateBlock
 doValidateBlock ctxIO header payload = do
     ctx <- ctxIO
     _mv' <- validateBlock header (CheckablePayloadWithOutputs payload) $ _ctxQueue ctx
-    addNewPayload (_ctxPdb ctx) (_blockHeight header) payload
+    addNewPayload (_ctxPdb ctx) (view blockHeight header) payload
     unsafeInsertBlockHeaderDb (_ctxBdb ctx) header
     -- FIXME FIXME FIXME: do at least some checks?
 
