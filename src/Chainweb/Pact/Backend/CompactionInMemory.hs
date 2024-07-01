@@ -44,7 +44,7 @@ import Chainweb.Payload.PayloadStore.RocksDB (newPayloadDb)
 import Chainweb.Storage.Table (Iterator(..), Entry(..), withTableIterator, unCasify, tableInsert)
 import Chainweb.Pact.Backend.Types (SQLiteEnv)
 import Chainweb.Storage.Table.RocksDB (RocksDb, withRocksDb, withReadOnlyRocksDb, modernDefaultOptions)
-import Chainweb.Utils (sshow, fromText, int)
+import Chainweb.Utils (sshow, fromText, toText, int)
 import Chainweb.Version (ChainId, ChainwebVersion(..), chainIdToText, chainGraphAt)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
@@ -805,7 +805,7 @@ trimRocksDb logger cwVersion cids minBlockHeight maxBlockHeight srcDb targetDb =
                 --
                 -- Not sure about the rank table, though. We keep it to be
                 -- conservative.
-                log' LL.Info $ "Copying over BlockHeader <> " <> sshow blockHash
+                log' LL.Info $ "Copying over BlockHeader " <> toText blockHash
                 tableInsert (_chainDbCas targetBlockHeaderDb) (RankedBlockHash blockHeight blockHash) rankedBlockHeader
                 tableInsert (_chainDbRankTable targetBlockHeaderDb) blockHash blockHeight
 
