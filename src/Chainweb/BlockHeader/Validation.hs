@@ -189,7 +189,7 @@ instance Exception InvalidValidationParameters where
 
 -- | Witnesses at runtime that
 --
--- prop> \(ChainStep p h) -> _blockParent h == _blockHash p
+-- prop> \(ChainStep p h) -> view blockParent h == view blockHash p
 --
 -- NOTE: the constructor of this type is intentionally NOT exported.
 --
@@ -212,13 +212,13 @@ chainStep
         -- ^ Block header under scrutiny
     -> m ChainStep
 chainStep p b
-    | _blockParent b == _blockHash (_parentHeader p)
+    | view blockParent b == view blockHash (_parentHeader p)
         = return $ ChainStep p b
     | otherwise = throwM $ InvalidChainStepParameters p b
 
 -- | Witnesses at runtime that
 --
--- prop> \(WebStep as (ChainStep _ h)) -> and $ HM.zipWith ((==) . _blockHash) as (_blockAdjacentHashes h)
+-- prop> \(WebStep as (ChainStep _ h)) -> and $ HM.zipWith ((==) . view blockHash) as (view blockAdjacentHashes h)
 --
 -- It doesn't witness that @as@ is of the same size as @_blockAdjacentHashes
 -- h@ or that @_blockAdjacentHashes h@ covers all adjacent chains.
@@ -242,7 +242,7 @@ webStep as hp@(ChainStep _ h) = WebStep
     f cid a = case HM.lookup cid as of
         Nothing -> throwM $ InvalidWebStepParameters as hp
         Just x
-            | _blockHash (_parentHeader x) == a -> return x
+            | view blockHash (_parentHeader x) == a -> return x
             | otherwise -> throwM $ InvalidWebStepParameters as hp
 
 _webStepAdjs :: WebStep -> HM.HashMap ChainId ParentHeader
@@ -546,7 +546,7 @@ validateBlockParentExists
     -> m (Either ValidationFailureType ChainStep)
 validateBlockParentExists lookupParent h
     | isGenesisBlockHeader h = return $ Right $ ChainStep (ParentHeader h) h
-    | otherwise = lookupParent (_blockParent h) >>= \case
+    | otherwise = lookupParent (view blockParent h) >>= \case
         (Just !p) -> return $ Right $ ChainStep (ParentHeader p) h
         Nothing -> return $ Left MissingParent
 
@@ -678,10 +678,10 @@ prop_block_pow b
     | isGenesisBlockHeader b = True
     -- Genesis block headers are not mined. So there's not need for POW
     | b ^. chainwebVersion . versionCheats . disablePow = True
-    | otherwise = checkTarget (_blockTarget b) (_blockPow b)
+    | otherwise = checkTarget (view blockTarget b) (view blockPow b)
 
 prop_block_hash :: BlockHeader -> Bool
-prop_block_hash b = _blockHash b == computeBlockHash b
+prop_block_hash b = view blockHash b == computeBlockHash b
 
 prop_block_genesis_parent :: BlockHeader -> Bool
 prop_block_genesis_parent b
@@ -689,22 +689,22 @@ prop_block_genesis_parent b
     && hasGenesisParentHash b ==> isGenesisBlockHeader b
   where
     hasGenesisParentHash b' =
-        _blockParent b' == genesisParentBlockHash (_chainwebVersion b') (_chainId b')
+        view blockParent b' == genesisParentBlockHash (_chainwebVersion b') (_chainId b')
 
 prop_block_genesis_target :: BlockHeader -> Bool
 prop_block_genesis_target b = isGenesisBlockHeader b
-    ==> _blockTarget b == _chainwebVersion b ^?! versionGenesis . genesisBlockTarget . onChain (_chainId b)
+    ==> view blockTarget b == _chainwebVersion b ^?! versionGenesis . genesisBlockTarget . onChain (_chainId b)
 
 prop_block_current :: Time Micros -> BlockHeader -> Bool
-prop_block_current t b = BlockCreationTime t >= _blockCreationTime b
+prop_block_current t b = BlockCreationTime t >= view blockCreationTime b
 
 prop_block_featureFlags :: BlockHeader -> Bool
 prop_block_featureFlags b
     | skipFeatureFlagValidationGuard v cid h = True
-    | otherwise = _blockFlags b == mkFeatureFlags
+    | otherwise = view blockFlags b == mkFeatureFlags
   where
     v = _chainwebVersion b
-    h = _blockHeight b
+    h = view blockHeight b
     cid = _chainId b
 
 -- | Verify that the adjacent hashes of the block are for the correct set of
@@ -712,11 +712,11 @@ prop_block_featureFlags b
 --
 prop_block_adjacent_chainIds :: BlockHeader -> Bool
 prop_block_adjacent_chainIds b
-    = isJust $ checkAdjacentChainIds adjGraph b (Expected $ _blockAdjacentChainIds b)
+    = isJust $ checkAdjacentChainIds adjGraph b (Expected $ view blockAdjacentChainIds b)
   where
     adjGraph
         | isGenesisBlockHeader b = _chainGraph b
-        | otherwise = chainGraphAt (_chainwebVersion b) (_blockHeight b - 1)
+        | otherwise = chainGraphAt (_chainwebVersion b) (view blockHeight b - 1)
 
 -- -------------------------------------------------------------------------- --
 -- Inductive BlockHeader Properties
@@ -727,50 +727,50 @@ prop_block_adjacent_chainIds b
 
 prop_block_height :: ChainStep -> Bool
 prop_block_height (ChainStep (ParentHeader p) b)
-    | isGenesisBlockHeader b = _blockHeight b == _blockHeight p
-    | otherwise = _blockHeight b == _blockHeight p + 1
+    | isGenesisBlockHeader b = view blockHeight b == view blockHeight p
+    | otherwise = view blockHeight b == view blockHeight p + 1
 
 prop_block_chainwebVersion :: ChainStep -> Bool
 prop_block_chainwebVersion (ChainStep (ParentHeader p) b) =
-    _blockChainwebVersion p == _blockChainwebVersion b
+    view blockChainwebVersion p == view blockChainwebVersion b
 
 prop_block_weight :: ChainStep -> Bool
 prop_block_weight (ChainStep (ParentHeader p) b)
-    | isGenesisBlockHeader b = _blockWeight b == _blockWeight p
-    | otherwise = _blockWeight b == expectedWeight
+    | isGenesisBlockHeader b = view blockWeight b == view blockWeight p
+    | otherwise = view blockWeight b == expectedWeight
   where
-    expectedWeight = int (targetToDifficulty (_blockTarget b)) + _blockWeight p
+    expectedWeight = int (targetToDifficulty (view blockTarget b)) + view blockWeight p
 
 prop_block_chainId :: ChainStep -> Bool
 prop_block_chainId (ChainStep (ParentHeader p) b)
-    = _blockChainId p == _blockChainId b
+    = view blockChainId p == view blockChainId b
 
 -- -------------------------------------------------------------------------- --
 -- Multi chain inductive properties
 
 prop_block_target :: WebStep -> Bool
 prop_block_target (WebStep as (ChainStep p b))
-    = _blockTarget b == powTarget p as (_blockCreationTime b)
+    = view blockTarget b == powTarget p as (view blockCreationTime b)
 
 prop_block_epoch :: WebStep -> Bool
 prop_block_epoch (WebStep as (ChainStep p b))
-    | oldDaGuard (_chainwebVersion b) (_chainId b) (_blockHeight b)
-        = _blockEpochStart b <= EpochStartTime (_bct $ _blockCreationTime b)
-        && _blockEpochStart (_parentHeader p) <= _blockEpochStart b
-        && _blockEpochStart b == epochStart p as (_blockCreationTime b)
+    | oldDaGuard (_chainwebVersion b) (_chainId b) (view blockHeight b)
+        = view blockEpochStart b <= EpochStartTime (_bct $ view blockCreationTime b)
+        && view blockEpochStart (_parentHeader p) <= view blockEpochStart b
+        && view blockEpochStart b == epochStart p as (view blockCreationTime b)
     | otherwise
-        = _blockEpochStart b <= EpochStartTime (_bct $ _blockCreationTime b)
-        && _blockEpochStart b == epochStart p as (_blockCreationTime b)
+        = view blockEpochStart b <= EpochStartTime (_bct $ view blockCreationTime b)
+        && view blockEpochStart b == epochStart p as (view blockCreationTime b)
 
 prop_block_creationTime :: WebStep -> Bool
 prop_block_creationTime (WebStep as (ChainStep (ParentHeader p) b))
     | isGenesisBlockHeader b
-        = _blockCreationTime b == _blockCreationTime p
-    | oldDaGuard (_chainwebVersion b) (_chainId b) (_blockHeight b)
-        = _blockCreationTime b > _blockCreationTime p
+        = view blockCreationTime b == view blockCreationTime p
+    | oldDaGuard (_chainwebVersion b) (_chainId b) (view blockHeight b)
+        = view blockCreationTime b > view blockCreationTime p
     | otherwise
-        = _blockCreationTime b > _blockCreationTime p
-        && all (\x -> _blockCreationTime b > _blockCreationTime (_parentHeader x)) as
+        = view blockCreationTime b > view blockCreationTime p
+        && all (\x -> view blockCreationTime b > view blockCreationTime (_parentHeader x)) as
 
 -- | The chainId index of the adjacent parents of the header and the blocks
 -- in the webstep reference the same hashes and the chain Ids in of the
@@ -787,21 +787,21 @@ prop_block_adjacent_parents (WebStep as (ChainStep _ b))
             -- chainId indexes in web adjadent parent record references the
             -- genesis block parent hashes
     | otherwise
-        = adjsHashes == (_blockHash . _parentHeader <$> as)
+        = adjsHashes == (view blockHash . _parentHeader <$> as)
             -- chainId indexes in web adjadent parent record and web step are
             -- referencing the same hashes
         && iall (\cid h -> cid == _chainId h) as
             -- chainIds of adjancent parent header match the chainId under which
             -- it is indexed
   where
-    adjsHashes = _getBlockHashRecord (_blockAdjacentHashes b)
+    adjsHashes = _getBlockHashRecord (view blockAdjacentHashes b)
     v = _chainwebVersion b
 
 prop_block_adjacent_parents_version :: WebStep -> Bool
 prop_block_adjacent_parents_version (WebStep as (ChainStep _ b))
-    = all ((== v) . _blockChainwebVersion . _parentHeader) as
+    = all ((== v) . view blockChainwebVersion . _parentHeader) as
   where
-    v = _blockChainwebVersion b
+    v = view blockChainwebVersion b
 
 -- | TODO: we don't current check this here. It is enforced in the cut merge
 -- algorithm , namely in 'monotonicCutExtension'. The property that is checked

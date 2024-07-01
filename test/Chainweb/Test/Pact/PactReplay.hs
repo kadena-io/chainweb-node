@@ -96,16 +96,16 @@ onRestart mpio iop step = do
     (_, _, bdb) <- iop
     bhdb' <- getBlockHeaderDb cid bdb
     block <- maxEntry bhdb'
-    step $ "max block has height " <> sshow (_blockHeight block)
-    let nonce = Nonce $ fromIntegral $ _blockHeight block
+    step $ "max block has height " <> sshow (view blockHeight block)
+    let nonce = Nonce $ fromIntegral $ view blockHeight block
     step "mine block on top of max block"
     T3 _ b _ <- mineBlock (ParentHeader block) nonce iop
-    assertEqual "Invalid BlockHeight" 1 (_blockHeight b)
+    assertEqual "Invalid BlockHeight" 1 (view blockHeight b)
 
 testMemPoolAccess :: MemPoolAccess
 testMemPoolAccess = mempty
     { mpaGetBlock = \_g validate bh hash ph -> do
-        let (BlockCreationTime t) = _blockCreationTime ph
+        let (BlockCreationTime t) = view blockCreationTime ph
         getTestBlock t validate bh hash
     }
   where
@@ -182,7 +182,7 @@ serviceInitializationAfterFork mpio genesisBlock iop = do
     mineLine start ncounter len =
       evalStateT (mapM (const go) [startHeight :: Word64 .. (startHeight + len)]) start
         where
-          startHeight = fromIntegral $ _blockHeight start
+          startHeight = fromIntegral $ view blockHeight start
           go = do
               pblock <- gets ParentHeader
               n <- liftIO $ Nonce <$> readIORef ncounter
@@ -231,7 +231,7 @@ firstPlayThrough mpio genesisBlock iop = do
     mineLine start ncounter len =
       evalStateT (mapM (const go) [startHeight :: Word64 .. (startHeight + len)]) start
         where
-          startHeight = fromIntegral $ _blockHeight start
+          startHeight = fromIntegral $ view blockHeight start
           go = do
               pblock <- gets ParentHeader
               n <- liftIO $ Nonce <$> readIORef ncounter
@@ -284,11 +284,11 @@ testDeepForkLimit mpio (RewindLimit deepForkLimit) iop step = do
     let pdb = _bdbPayloadDb bdb
     step "query max db entry"
     maxblock <- maxEntry bhdb
-    pd <- lookupPayloadWithHeight pdb (Just $ _blockHeight maxblock) (_blockPayloadHash maxblock) >>= \case
+    pd <- lookupPayloadWithHeight pdb (Just $ view blockHeight maxblock) (view blockPayloadHash maxblock) >>= \case
       Nothing -> assertFailure "max block payload not found"
       Just x -> return x
-    step $ "max block has height " <> sshow (_blockHeight maxblock)
-    nonceCounterMain <- newIORef (fromIntegral $ _blockHeight maxblock)
+    step $ "max block has height " <> sshow (view blockHeight maxblock)
+    nonceCounterMain <- newIORef (fromIntegral $ view blockHeight maxblock)
 
     -- mine the main line a bit more
     step "mine (deepForkLimit + 1) many blocks on top of max block"
@@ -305,11 +305,11 @@ testDeepForkLimit mpio (RewindLimit deepForkLimit) iop step = do
     mineLine start ncounter len =
       evalStateT (mapM (const go) [startHeight :: Word64 .. (startHeight + len)]) start
         where
-          startHeight = fromIntegral $ _blockHeight start
+          startHeight = fromIntegral $ view blockHeight start
           go = do
               pblock <- gets ParentHeader
               n <- liftIO $ Nonce <$> readIORef ncounter
-              liftIO $ step $ "mine block on top of height " <> sshow (_blockHeight $ _parentHeader pblock)
+              liftIO $ step $ "mine block on top of height " <> sshow (view blockHeight $ _parentHeader pblock)
               ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iop
               liftIO $ modifyIORef' ncounter succ
               put newblock
@@ -335,7 +335,7 @@ mineBlock ph nonce iop = timeout 5000000 go >>= \case
       let
         creationTime = BlockCreationTime
           . add (TimeSpan 1_000_000)
-          . _bct . _blockCreationTime
+          . _bct . view blockCreationTime
           $ _parentHeader ph
 
       let bh = newBlockHeader
@@ -348,7 +348,7 @@ mineBlock ph nonce iop = timeout 5000000 go >>= \case
       _ <- validateBlock bh (CheckablePayloadWithOutputs payload) q
 
       let pdb = _bdbPayloadDb bdb
-      addNewPayload pdb (succ $ _blockHeight $ _parentHeader ph) payload
+      addNewPayload pdb (succ $ view blockHeight $ _parentHeader ph) payload
 
       bhdb <- getBlockHeaderDb cid bdb
       unsafeInsertBlockHeaderDb bhdb bh

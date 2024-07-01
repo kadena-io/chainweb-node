@@ -187,7 +187,7 @@ withMiningCoordination logger conf cdb inner
                 ourMiner = workForMiner miner cid
             let !outdatedPayload = fromJuste $ pw ^? ourMiner
             let outdatedParentHash = case outdatedPayload of
-                  WorkReady outdatedBlock -> _blockHash (_parentHeader (newBlockParentHeader outdatedBlock))
+                  WorkReady outdatedBlock -> view blockHash (_parentHeader (newBlockParentHeader outdatedBlock))
                   WorkAlreadyMined outdatedBlockHash -> outdatedBlockHash
                   WorkStale -> error "primeWork loop: Invariant Violation: Stale work should be an impossibility"
 

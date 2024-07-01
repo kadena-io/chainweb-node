@@ -125,10 +125,10 @@ targetChain c srcBlock = do
         <> ". current cut: " <> sshow c
     go (h:t) = if isReachable h then return h else go t
 
-    chainHeight trgChain = _blockHeight (c ^?! ixg trgChain)
+    chainHeight trgChain = view blockHeight (c ^?! ixg trgChain)
 
     isReachable trgChain
-        = _blockHeight srcBlock <= chainHeight trgChain - distance trgChain
+        = view blockHeight srcBlock <= chainHeight trgChain - distance trgChain
 
     distance x = len $ shortestPath (_chainId srcBlock) x graph
 
@@ -221,7 +221,7 @@ spvTest rdb v step = do
         -- for each blockheader h in cut
         samples <- S.each (toList curCut)
             -- for each ancestor ah of h
-            & flip S.for (\h -> ancestors (cutDb ^?! cutDbBlockHeaderDb h) (_blockHash h))
+            & flip S.for (\h -> ancestors (cutDb ^?! cutDbBlockHeaderDb h) (view blockHash h))
             -- for each transaction in ah
             & flip S.for (getPayloads cutDb)
             -- for each target chain c
@@ -256,7 +256,7 @@ spvTest rdb v step = do
         -> BlockHeader
         -> S.Stream (Of (BlockHeader, Int, Int, TransactionOutput)) IO ()
     getPayloads cutDb h = do
-        Just pay <- liftIO $ lookupPayloadWithHeight (view cutDbPayloadDb cutDb) (Just $ _blockHeight h) (_blockPayloadHash h)
+        Just pay <- liftIO $ lookupPayloadWithHeight (view cutDbPayloadDb cutDb) (Just $ view blockHeight h) (view blockPayloadHash h)
         let n = length $ _payloadWithOutputsTransactions pay
         S.each (zip [0..] $ fmap snd $ toList $ _payloadWithOutputsTransactions pay)
             & S.map (\(b,c) -> (h,n,b,c))
@@ -286,7 +286,7 @@ spvTest rdb v step = do
                 -- create inclusion proof for transaction
                 proof <- createTransactionOutputProof cutDb trgChain
                     (_chainId h) -- source chain
-                    (_blockHeight h) -- source block height
+                    (view blockHeight h) -- source block height
                     txIx -- transaction index
                 subj <- verifyTransactionOutputProof cutDb proof
                 assertEqual "transaction output proof subject matches transaction" txOut subj
@@ -295,7 +295,7 @@ spvTest rdb v step = do
                 return
                     [ int $ BL.length $ encode proof
                     , int n
-                    , int $ _blockHeight h
+                    , int $ view blockHeight h
                     , int $ distance cutDb h trgChain
                     , int $ B.length (_transactionOutputBytes txOut)
                     ]
@@ -304,14 +304,14 @@ spvTest rdb v step = do
         try inner >>= \case
             Right x -> do
                 let msg = "SPV proof creation succeeded although target chain is not reachable ("
-                        <> "source height: " <> sshow (_blockHeight h)
+                        <> "source height: " <> sshow (view blockHeight h)
                         <> ", distance: " <> sshow (distance cutDb h trgChain)
                         <> ")"
                 assertBool msg isReachable
                 return (Just x)
             Left SpvExceptionTargetNotReachable{} -> do
                 let msg = "SPV proof creation failed although target chain is reachable ("
-                        <> "source height: " <> sshow (_blockHeight h)
+                        <> "source height: " <> sshow (view blockHeight h)
                         <> ", distance: " <> sshow (distance cutDb h trgChain)
                         <> ")"
                 assertBool msg (not isReachable)
@@ -322,14 +322,14 @@ spvTest rdb v step = do
     --
     distance cutDb h trgChain = length
         $ shortestPath (_chainId h) trgChain
-        $ chainGraphAt cutDb (_blockHeight h)
+        $ chainGraphAt cutDb (view blockHeight h)
 
     -- Check whether target chain is reachable from the source block
     --
     reachable :: CutDb as -> BlockHeader -> ChainId -> IO Bool
     reachable cutDb h trgChain = do
         m <- maxRank $ cutDb ^?! cutDbBlockHeaderDb trgChain
-        return $ (int m - int (_blockHeight h)) >= distance cutDb h trgChain
+        return $ (int m - int (view blockHeight h)) >= distance cutDb h trgChain
 
     -- regression model with @createTransactionOutputProof@. Proof size doesn't
     -- depend on target height.
@@ -373,7 +373,7 @@ spvTransactionRoundtripTest rdb v step = do
                 -- target chain
             (_chainId h)
                 -- source chain
-            (_blockHeight h)
+            (view blockHeight h)
                 -- source block height
             txIx
                 -- transaction index
@@ -409,7 +409,7 @@ spvTransactionOutputRoundtripTest rdb v step = do
                 -- target chain
             (_chainId h)
                 -- source chain
-            (_blockHeight h)
+            (view blockHeight h)
                 -- source block height
             outIx
                 -- transaction index
@@ -451,7 +451,7 @@ txApiTests envIO step = do
     step "pick random transaction"
     (h, txIx, tx, out) <- randomTransaction cutDb
 
-    step $ "picked random transaction, height: " <> sshow (_blockHeight h) <> ", ix: " <> sshow txIx
+    step $ "picked random transaction, height: " <> sshow (view blockHeight h) <> ", ix: " <> sshow txIx
 
     curCut <- _cut cutDb
     trgChain <- targetChain curCut h
@@ -461,7 +461,7 @@ txApiTests envIO step = do
 
     step "request transaction proof"
     txProof <- flip runClientM env $
-        spvGetTransactionProofClient v trgChain (_chainId h) (_blockHeight h) (int txIx)
+        spvGetTransactionProofClient v trgChain (_chainId h) (view blockHeight h) (int txIx)
 
     case txProof of
 
@@ -479,7 +479,7 @@ txApiTests envIO step = do
 
     step "request transaction output proof"
     outProof <- flip runClientM env $
-        spvGetTransactionOutputProofClient v trgChain (_chainId h) (_blockHeight h) (int txIx)
+        spvGetTransactionOutputProofClient v trgChain (_chainId h) (view blockHeight h) (int txIx)
 
     case outProof of
 

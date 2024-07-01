@@ -207,7 +207,7 @@ playLine pdb bhdb trunkLength startingBlock pactQueue counter = do
         evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. pred (startHeight + l)]) pactQueue) start
       where
         startHeight :: Num a => a
-        startHeight = fromIntegral $ _blockHeight start
+        startHeight = fromIntegral $ view blockHeight start
         go = do
             r <- ask
             pblock <- gets ParentHeader
@@ -226,7 +226,7 @@ mineBlock
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock parent nonce pdb bhdb pact = do
     r@(T3 _ newHeader payload) <- createBlock DoValidate parent nonce pact
-    addNewPayload pdb (succ (_blockHeight (_parentHeader parent))) payload
+    addNewPayload pdb (succ (view blockHeight (_parentHeader parent))) payload
     -- NOTE: this doesn't validate the block header, which is fine in this test case
     unsafeInsertBlockHeaderDb bhdb newHeader
     return r
@@ -244,7 +244,7 @@ createBlock validate parent nonce pact = do
      bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill parent pact
      let payload = blockInProgressToPayloadWithOutputs bip
 
-     let creationTime = add second $ _blockCreationTime $ _parentHeader parent
+     let creationTime = add second $ view blockCreationTime $ _parentHeader parent
      let bh = newBlockHeader
               mempty
               (_payloadWithOutputsPayloadHash payload)
@@ -368,7 +368,7 @@ testMemPoolAccess txsPerBlock accounts = do
   return $ mempty
     { mpaGetBlock = \bf validate bh hash header -> do
         if _bfCount bf /= 0 then pure mempty else do
-          testBlock <- getTestBlock accounts (_bct $ _blockCreationTime header) validate bh hash
+          testBlock <- getTestBlock accounts (_bct $ view blockCreationTime header) validate bh hash
           pure testBlock
     }
   where
