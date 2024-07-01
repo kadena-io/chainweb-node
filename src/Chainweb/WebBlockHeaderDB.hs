@@ -106,7 +106,7 @@ webEntries db f = go (view (webBlockHeaderDb . to HM.elems) db) mempty
   where
     go [] s = f s
     go (h:t) s = entries h Nothing Nothing Nothing Nothing $ \x ->
-        go t (() <$ S.mergeOn _blockCreationTime s x)
+        go t (() <$ S.mergeOn (view blockCreationTime) s x)
             -- FIXME: should we include the rank in the order?
 
 type instance Index WebBlockHeaderDb = ChainId
@@ -170,7 +170,7 @@ blockAdjacentParentHeaders
 blockAdjacentParentHeaders db h
     = itraverse (lookupWebBlockHeaderDb db)
     $ _getBlockHashRecord
-    $ _blockAdjacentHashes h
+    $ view blockAdjacentHashes h
 
 lookupAdjacentParentHeader
     :: WebBlockHeaderDb
@@ -178,7 +178,7 @@ lookupAdjacentParentHeader
     -> ChainId
     -> IO BlockHeader
 lookupAdjacentParentHeader db h cid = do
-    checkWebChainId (db, _blockHeight h) h
+    checkWebChainId (db, view blockHeight h) h
     let ph = h ^?! (blockAdjacentHashes . ix cid)
     lookupWebBlockHeaderDb db cid ph
 
@@ -187,8 +187,8 @@ lookupParentHeader
     -> BlockHeader
     -> IO BlockHeader
 lookupParentHeader db h = do
-    checkWebChainId (db, _blockHeight h) h
-    lookupWebBlockHeaderDb db (_chainId h) (_blockParent h)
+    checkWebChainId (db, view blockHeight h) h
+    lookupWebBlockHeaderDb db (_chainId h) (view blockParent h)
 
 -- -------------------------------------------------------------------------- --
 -- Insertion
@@ -254,11 +254,11 @@ checkBlockHeaderGraph
     => BlockHeader
     -> m ()
 checkBlockHeaderGraph b = void
-    $ checkAdjacentChainIds graph b $ Expected $ _blockAdjacentChainIds b
+    $ checkAdjacentChainIds graph b $ Expected $ view blockAdjacentChainIds b
   where
     graph
         | isGenesisBlockHeader b = _chainGraph b
-        | otherwise = chainGraphAt (_blockChainwebVersion b) (_blockHeight b - 1)
+        | otherwise = chainGraphAt (view blockChainwebVersion b) (view blockHeight b - 1)
 {-# INLINE checkBlockHeaderGraph #-}
 
 -- | Given a 'WebBlockHeaderDb' @db@, @checkBlockAdjacentParents h@ checks that

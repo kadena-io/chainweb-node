@@ -47,7 +47,7 @@ import Test.Tasty.HUnit
 
 -- internal imports
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.MerkleLogHash (merkleLogHash)
@@ -410,7 +410,7 @@ checkpointerTest name relational cenvIO = testCaseSteps name $ \next -> do
 
     next "Purposefully restore to an illegal checkpoint."
 
-    let pc10Invalid = pc10 { _blockHeight = 13 }
+    let pc10Invalid = pc10 & blockHeight .~ 13
     void $ expectException "Illegal checkpoint successfully restored to" $
       readFrom (Just pc10Invalid) $ \_ -> return ()
 
@@ -714,10 +714,13 @@ cpRestoreAndSave cp pc blks = snd <$> _cpRestoreAndSave cp (ParentHeader <$> pc)
 
 -- | fabricate a `BlockHeader` for a block given its hash and its parent.
 childOf :: Maybe BlockHeader -> BlockHash -> BlockHeader
-childOf (Just bh) bhsh =
-  bh { _blockHash = bhsh, _blockParent = _blockHash bh, _blockHeight = _blockHeight bh + 1 }
-childOf Nothing bhsh =
-  (genesisBlockHeader testVer testChainId) { _blockHash = bhsh }
+childOf m bhsh = case m of
+  Just bh -> bh
+    & blockHash .~ bhsh
+    & blockParent .~ view blockHash bh
+    & blockHeight .~ view blockHeight bh + 1
+  Nothing -> genesisBlockHeader testVer testChainId
+    & blockHash .~ bhsh
 
 -- initialize a block env without actually restoring the checkpointer, before
 -- genesis.

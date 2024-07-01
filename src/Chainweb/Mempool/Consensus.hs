@@ -22,6 +22,7 @@ module Chainweb.Mempool.Consensus
 ------------------------------------------------------------------------------
 import Control.DeepSeq
 import Control.Exception
+import Control.Lens (view)
 import Control.Monad
 
 import Data.Aeson
@@ -108,7 +109,7 @@ processFork blockHeaderDb payloadStore lastHeaderRef logFun newHeader = do
     lastHeader <- readIORef lastHeaderRef
     let v = _chainwebVersion blockHeaderDb
         cid = _chainId blockHeaderDb
-        height = _blockHeight newHeader
+        height = view blockHeight newHeader
     (a, b) <- processFork' logFun blockHeaderDb newHeader lastHeader
                            (payloadLookup payloadStore)
                            (processForkCheckTTL (pactParserVersion v cid height) now)
@@ -176,9 +177,9 @@ payloadLookup payloadStore bh =
     case payloadStore of
         Nothing -> return mempty
         Just s -> do
-            pd <- lookupPayloadDataWithHeight s (Just (_blockHeight bh)) (_blockPayloadHash bh)
-            pd' <- maybe (throwIO $ PayloadNotFoundException (_blockPayloadHash bh)) pure pd
-            chainwebTxsFromPd (pactParserVersion (_chainwebVersion bh) (_chainId bh) (_blockHeight bh)) pd'
+            pd <- lookupPayloadDataWithHeight s (Just (view blockHeight bh)) (view blockPayloadHash bh)
+            pd' <- maybe (throwIO $ PayloadNotFoundException (view blockPayloadHash bh)) pure pd
+            chainwebTxsFromPd (pactParserVersion (_chainwebVersion bh) (_chainId bh) (view blockHeight bh)) pd'
 
 ------------------------------------------------------------------------------
 chainwebTxsFromPd

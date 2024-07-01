@@ -26,6 +26,7 @@ module Chainweb.BlockHeaderDB.PruneForks
 
 import Control.DeepSeq
 import Control.Exception (evaluate)
+import Control.Lens (view)
 import Control.Monad
 import Control.Monad.Catch
 
@@ -121,18 +122,18 @@ pruneForks
 pruneForks logg cdb depth callback = do
     hdr <- maxEntry cdb
     if
-        | int (_blockHeight hdr) <= depth -> do
+        | int (view blockHeight hdr) <= depth -> do
             logg Info
                 $ "Skipping database pruning because the maximum block height "
-                <> sshow (_blockHeight hdr) <> " is not larger than then requested depth "
+                <> sshow (view blockHeight hdr) <> " is not larger than then requested depth "
                 <> sshow depth
             return 0
-        | int (_blockHeight hdr) <= int genHeight + depth -> do
+        | int (view blockHeight hdr) <= int genHeight + depth -> do
             logg Info $ "Skipping database pruning because there are not yet"
                 <> " enough block headers on the chain"
             return 0
         | otherwise -> do
-            let mar = MaxRank $ Max $ int (_blockHeight hdr) - depth
+            let mar = MaxRank $ Max $ int (view blockHeight hdr) - depth
             pruneForks_ logg cdb mar (MinRank $ Min $ int genHeight) callback
   where
     v = _chainwebVersion cdb
@@ -173,7 +174,7 @@ pruneForks_ logg cdb mar mir callback = do
     -- parent hashes of all blocks at height max rank @mar@.
     --
     !pivots <- entries cdb Nothing Nothing (Just $ MinRank $ Min $ _getMaxRank mar) (Just mar)
-        $ fmap (force . L.nub) . S.toList_ . S.map _blockParent
+        $ fmap (force . L.nub) . S.toList_ . S.map (view blockParent)
             -- the set of pivots is expected to be very small. In fact it is
             -- almost always a singleton set.
 
@@ -191,7 +192,7 @@ pruneForks_ logg cdb mar mir callback = do
     reportProgress i a = logg Info
         $ "inspected " <> sshow i
         <> " block headers. Current height "
-        <> sshow (_blockHeight a)
+        <> sshow (view blockHeight a)
 
     go :: ([BlockHash], BlockHeight, Int) -> BlockHeader -> IO ([BlockHash], BlockHeight, Int)
     go ([], _, _) cur = throwM $ InternalInvariantViolation
@@ -207,25 +208,25 @@ pruneForks_ logg cdb mar mir callback = do
                 <> ". Current pivots: " <> encodeToText pivots
                 <> ". Current header: " <> encodeToText (ObjectEncoded cur)
                 <> ". Previous height: " <> sshow prevHeight
-        | _blockHash cur `elem` pivots = do
+        | view blockHash cur `elem` pivots = do
             callback False cur
-            let !pivots' = force $ L.nub $ _blockParent cur : L.delete (_blockHash cur) pivots
+            let !pivots' = force $ L.nub $ view blockParent cur : L.delete (view blockHash cur) pivots
             return (pivots', curHeight, n)
         | otherwise = do
             deleteHdr cur
             callback True cur
             return (pivots, curHeight, n+1)
       where
-        curHeight = _blockHeight cur
+        curHeight = view blockHeight cur
 
     deleteHdr k = do
         -- TODO: make this atomic (create boilerplate to combine queries for
         -- different tables)
         casDelete (_chainDbCas cdb) (RankedBlockHeader k)
-        tableDelete (_chainDbRankTable cdb) (_blockHash k)
+        tableDelete (_chainDbRankTable cdb) (view blockHash k)
         logg Debug
-            $ "pruned block header " <> encodeToText (_blockHash k)
-            <> " at height " <> sshow (_blockHeight k)
+            $ "pruned block header " <> encodeToText (view blockHash k)
+            <> " at height " <> sshow (view blockHeight k)
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -243,7 +244,7 @@ withReverseHeaderStream db mar mir inner = withTableIterator headerTbl $ \it -> 
     iterPrev it
     inner $ iterToReverseValueStream it
         & S.map _getRankedBlockHeader
-        & S.takeWhile (\a -> int (_blockHeight a) >= mir)
+        & S.takeWhile (\a -> int (view blockHeight a) >= mir)
   where
     headerTbl = _chainDbCas db
 

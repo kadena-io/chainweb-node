@@ -257,10 +257,10 @@ txStream config mgr logg = do
         getBranch hdb mempty (HS.singleton (UpperBound h))
             & S.chain (logg @T.Text Debug . sshow)
             & S.chain
-                (\x -> when (_blockHeight x `mod` 100 == 0) $
-                    logg @T.Text Info ("BlockHeight: " <> sshow (_blockHeight x))
+                (\x -> when (view blockHeight x `mod` 100 == 0) $
+                    logg @T.Text Info ("BlockHeight: " <> sshow (view blockHeight x))
                 )
-            & S.mapM (\x -> (_blockHeight x,) <$> devNetPayload config mgr (_blockHeight x) (_blockPayloadHash x))
+            & S.mapM (\x -> (view blockHeight x,) <$> devNetPayload config mgr (view blockHeight x) (view blockPayloadHash x))
             & flip S.for (S.each . traverse _payloadDataTransactions)
             & S.map (fmap _transactionBytes)
             & S.mapM (traverse decodeStrictOrThrow')
@@ -312,11 +312,11 @@ txOutputsStream config mgr logg = do
         getBranch hdb mempty (HS.singleton (UpperBound h))
             & S.chain (logg @T.Text Debug . sshow)
             & S.chain
-                (\x -> when (_blockHeight x `mod` 100 == 0) $
-                    logg @T.Text Info ("BlockHeight: " <> sshow (_blockHeight x))
+                (\x -> when (view blockHeight x `mod` 100 == 0) $
+                    logg @T.Text Info ("BlockHeight: " <> sshow (view blockHeight x))
                 )
 
-            & S.mapM (\x -> (_blockHeight x,) <$> devNetPayloadWithOutput config mgr (_blockHeight x) (_blockPayloadHash x))
+            & S.mapM (\x -> (view blockHeight x,) <$> devNetPayloadWithOutput config mgr (view blockHeight x) (view blockPayloadHash x))
             & flip S.for
                 ( S.each
                 . traverse _payloadWithOutputsTransactions

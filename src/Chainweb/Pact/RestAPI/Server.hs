@@ -64,7 +64,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 
 import Ethereum.Block
-import Ethereum.Header
+import Ethereum.Header hiding (blockHash)
 import Ethereum.Misc (bytes)
 import Ethereum.Receipt
 import Ethereum.Receipt.ReceiptProof
@@ -354,7 +354,7 @@ listenHandler logger cdb cid pact mem (ListenerRequest key) = do
           then do
             pure Nothing
           else do
-            Just <$!> CutDB.awaitNewBlockStm cdb cid (_blockHash lastBlockHeader)
+            Just <$!> CutDB.awaitNewBlockStm cdb cid (view blockHash lastBlockHeader)
 
     -- TODO: make configurable
     defaultTimeout = 180 * 1000000 -- two minutes
@@ -634,8 +634,8 @@ internalPoll pdb bhdb mempool pactEx confDepth requestKeys0 = do
         let pactHash = Pact.fromUntypedHash keyHash
         let matchingHash = (== pactHash) . _cmdHash . fst
         blockHeader <- liftIO $ TreeDB.lookupM bhdb bHash
-        let payloadHash = _blockPayloadHash blockHeader
-        (_payloadWithOutputsTransactions -> txsBs) <- barf "tablelookupFailed" =<< liftIO (lookupPayloadWithHeight pdb (Just $ _blockHeight blockHeader) payloadHash)
+        let payloadHash = view blockPayloadHash blockHeader
+        (_payloadWithOutputsTransactions -> txsBs) <- barf "tablelookupFailed" =<< liftIO (lookupPayloadWithHeight pdb (Just $ view blockHeight blockHeader) payloadHash)
         !txs <- mapM fromTx txsBs
         case find matchingHash txs of
             Just (_cmd, TransactionOutput output) -> do
@@ -669,10 +669,10 @@ internalPoll pdb bhdb mempool pactEx confDepth requestKeys0 = do
     enrichCR :: BlockHeader -> CommandResult Hash -> ExceptT String IO (CommandResult Hash)
     enrichCR bh = return . set crMetaData
       (Just $ object
-       [ "blockHeight" .= _blockHeight bh
-       , "blockTime" .= _blockCreationTime bh
-       , "blockHash" .= _blockHash bh
-       , "prevBlockHash" .= _blockParent bh
+       [ "blockHeight" .= view blockHeight bh
+       , "blockTime" .= view blockCreationTime bh
+       , "blockHash" .= view blockHash bh
+       , "prevBlockHash" .= view blockParent bh
        ])
 
 -- -------------------------------------------------------------------------- --
