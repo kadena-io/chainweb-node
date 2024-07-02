@@ -134,10 +134,17 @@ jobs:
         if "${{ github.event_name == 'schedule' }}" == "true"; then
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.5", "9.8.1"],
-          "cabal": ["3.10"],
+          "ghc": ["9.6", "9.8", "9.10"],
+          "cabal": ["3.12"],
           "os": ["ubuntu-20.04", "ubuntu-22.04"],
-          "use-freeze-file": ["false"]
+          "use-freeze-file": ["false"],
+          "include" : [
+            {
+              "ghc": "9.6",
+              "cabal": "3.12",
+              "os": "ubuntu-22.04",
+              "use-freeze-file": "true"
+            }
           ]
         }
         EOF
@@ -145,10 +152,18 @@ jobs:
         else
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.5"],
-          "cabal": ["3.10"],
-          "os": ["ubuntu-20.04", "ubuntu-22.04"],
-          "use-freeze-file": ["true"]
+          "ghc": ["9.6", "9.8", "9.10"],
+          "cabal": ["3.12"],
+          "os": ["ubuntu-22.04"],
+          "use-freeze-file": ["false"],
+          "include" : [
+            {
+              "ghc": "9.6",
+              "cabal": "3.12",
+              "os": "ubuntu-22.04",
+              "use-freeze-file": "true"
+            }
+          ]
         }
         EOF
         )"
