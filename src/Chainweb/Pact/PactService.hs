@@ -826,8 +826,11 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                       lookupPayloadDataWithHeight pdb (Just $ _blockHeight bh) (_blockPayloadHash bh)
                     let isPayloadEmpty = V.null (_payloadDataTransactions payload)
                     let isUpgradeBlock = isJust $ _chainwebVersion bhdb ^? versionUpgrades . onChain (_chainId bhdb) . ix (_blockHeight bh)
-                    unless (isPayloadEmpty && not isUpgradeBlock) $
-                      void $ execBlock bh (CheckablePayload payload)
+                    unless (isPayloadEmpty && not isUpgradeBlock) $ do
+                      (_gas, p) <- execBlock bh (CheckablePayload payload)
+                      let coinbaseOutput = _payloadWithOutputsCoinbase p
+                      liftIO $ logFunctionText logger Info $ "Coinbase outputs: " <> sshow coinbaseOutput
+                      pure ()
             )
         validationFailed <- readIORef validationFailedRef
         when validationFailed $
