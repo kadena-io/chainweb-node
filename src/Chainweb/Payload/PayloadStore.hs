@@ -302,7 +302,7 @@ lookupPayloadWithHeight db mh k = runMaybeT $ do
     mh' <- liftIO $ runMaybeT $
         hoistMaybe mh <|> lookupHeight (_transactionDb db) k
     pd <- MaybeT (lookupPayloadDataWithHeight db mh' k)
-    let outsHash = _payloadDataOutputsHash pd
+    let outsHash = view payloadDataOutputsHash pd
     let lookupNew h = tableLookupMT (_newBlockOutputsTbl $ _payloadCacheBlockOutputs $ _payloadCache db) (h, outsHash)
     let lookupOld = tableLookupMT (_oldBlockOutputsTbl $ _payloadCacheBlockOutputs $ _payloadCache db) outsHash
 
