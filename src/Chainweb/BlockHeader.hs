@@ -1,5 +1,13 @@
 {-# LANGUAGE ImportQualifiedPost #-}
 
+-- Use this module to get read-only access to a 'BlockHeader' via 'Getter's.
+--
+-- Editing or manually constructing 'BlockHeader's outside of tests is dangerous
+-- and likely to result in invalid headers, whether through invalid block hashes
+-- or invalid adjacent hash records.
+--
+-- If you need to manually construct or overwrite a BlockHeader record or
+-- 'Setter', again only in tests, use 'Chainweb.BlockHeader.Internal' instead.
 module Chainweb.BlockHeader
 (
 -- * Newtype wrappers for function parameters

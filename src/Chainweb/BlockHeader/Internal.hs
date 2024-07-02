@@ -26,11 +26,19 @@
 
 -- |
 -- Module: Chainweb.BlockHeader
--- Copyright: Copyright © 2018 Kadena LLC.
+-- Copyright: Copyright © 2024 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
+-- This module contains the implementation of a 'BlockHeader', and provides
+-- read (via record and 'Getter') and write (via record and 'Setter') access to
+-- them. Editing or manually constructing 'BlockHeader's outside of tests is dangerous
+-- and likely to result in invalid headers, whether through invalid block hashes
+-- or invalid adjacent hash records.
+
+-- You should prefer using 'Chainweb.BlockHeader' over this module, unless you
+-- are writing tests.
 module Chainweb.BlockHeader.Internal
 (
 -- * Newtype wrappers for function parameters
