@@ -134,10 +134,17 @@ jobs:
         if "${{ github.event_name == 'schedule' }}" == "true"; then
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.5", "9.8.1"],
-          "cabal": ["3.10"],
+          "ghc": ["9.6.5", "9.8.2", "9.10.1"],
+          "cabal": ["3.12"],
           "os": ["ubuntu-20.04", "ubuntu-22.04"],
-          "use-freeze-file": ["false"]
+          "use-freeze-file": ["false"],
+          "include" : [
+            {
+              "ghc": "9.6.5",
+              "cabal": "3.12",
+              "os": "ubuntu-22.04",
+              "use-freeze-file": "true"
+            }
           ]
         }
         EOF
@@ -145,10 +152,18 @@ jobs:
         else
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.5"],
-          "cabal": ["3.10"],
-          "os": ["ubuntu-20.04", "ubuntu-22.04"],
-          "use-freeze-file": ["true"]
+          "ghc": ["9.6.5", "9.8.2", "9.10.1"],
+          "cabal": ["3.12"],
+          "os": ["ubuntu-22.04"],
+          "use-freeze-file": ["false"],
+          "include" : [
+            {
+              "ghc": "9.6.5",
+              "cabal": "3.12",
+              "os": "ubuntu-22.04",
+              "use-freeze-file": "true"
+            }
+          ]
         }
         EOF
         )"
@@ -235,12 +250,16 @@ jobs:
       if: startsWith(matrix.os, 'ubuntu-')
       run: sudo chown -R $USER /usr/local/.ghcup
     - name: Install GHC and Cabal
+      id: setup
       uses: haskell-actions/setup@v2
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
     - name: Confirm GHC and Cabal installation
       run: |
+        echo "setup ghc-version: ${{ steps.setup.outputs.ghc-version }}"
+        echo "setup cabal-version: ${{ steps.setup.outputs.cabal-version }}"
+        echo "setup cabal-store: ${{ steps.setup.outputs.cabal-store }}"
         ghc --version
         cabal --version
     - name: Install non-Haskell dependencies (ubuntu)
@@ -326,11 +345,12 @@ jobs:
         diff -w <(git show HEAD:cabal.project.freeze) cabal.project.freeze || true
     - name: Sync from cabal cache
       if: env.USE_CABAL_CACHE == 'true'
-      uses: larskuhtz/cabal-cache-action@a0f263d898dd246217960262caa1d381cf066e9a
+      uses: larskuhtz/cabal-cache-action@4b537195b33898fcd9adc62cee2a44986fd7b1b6
       with:
         bucket: "kadena-cabal-cache"
         region: "us-east-1"
-        folder: "${{ matrix.os }}-${{ matrix.ghc }}-${{ matrix.use-freeze-file }}"
+        folder: "packages/${{ matrix.os }}"
+        store_path: ${{ steps.setup.outputs.cabal-store }}
         aws_access_key_id: "${{ secrets.kadena_cabal_cache_aws_access_key_id }}"
         aws_secret_access_key: "${{ secrets.kadena_cabal_cache_aws_secret_access_key }}"
     - name: Install build dependencies
@@ -625,7 +645,7 @@ jobs:
         # different tags
         include:
         - ghc: "9.6.5"
-          os: "ubuntu-20.04"
+          os: "ubuntu-22.04"
           use-freeze-file: "true"
     env:
       OS: ${{ matrix.os }}
@@ -643,6 +663,7 @@ jobs:
       run: |
         tar -xzf "$ARTIFACTS_ARCHIVE"
 
+    # ubuntu-22.04 only include libssl3. ubuntu-20.04 uses libssl1.1
     - name: Create Dockerfile
       run: |
         cat > Dockerfile <<DEOF
@@ -660,7 +681,7 @@ jobs:
         apt-get install -y \
           ca-certificates \
           libgmp10 \
-          libssl1.1 \
+          libssl3 \
           libsnappy1v5 \
           zlib1g \
           liblz4-1 \
