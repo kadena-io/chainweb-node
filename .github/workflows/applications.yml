@@ -639,7 +639,7 @@ jobs:
         # when adding more than one build, use a different package name or
         # different tags
         include:
-        - ghc: "9.6.5"
+        - ghc: "9.6"
           os: "ubuntu-20.04"
           use-freeze-file: "true"
     env:
