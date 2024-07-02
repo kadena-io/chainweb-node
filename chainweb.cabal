@@ -283,8 +283,6 @@ library
         , Network.X509.SelfSigned
 
         , Numeric.Cast
-        , Numeric.Additive
-        , Numeric.AffineSpace
 
         , P2P.BootstrapNodes
         , P2P.Node
@@ -411,11 +409,12 @@ library
         , monad-control >= 1.0
         , mtl >= 2.3
         , mwc-random >= 0.13
-        , mwc-probability >= 2.0 && <2.4
+        , mwc-probability >= 2.0
         , network >= 3.1.2
         , optparse-applicative >= 0.14
         , pact >= 4.2.0.1
         , pact-json >= 0.1
+        , pact-time:numeric >=0.3.0.1
         , parallel >= 3.2.2.0
         , patience >= 0.3
         , pem >=0.2
@@ -595,6 +594,7 @@ test-suite chainweb-tests
         , http-client-tls >=0.3
         , pact
         , pact-json >= 0.1
+        , pact-time:numeric >=0.3.0.1
         , quickcheck-instances >= 0.3
         , random >= 1.2
         , resource-pool >= 0.4
@@ -778,6 +778,7 @@ executable cwtool
         , optparse-applicative >= 0.14
         , pact
         , pact-json
+        , pact-time:numeric >=0.3.0.1
         , patience >= 0.3
         , process >= 1.5
         , quickcheck-instances >= 0.3

@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -24,7 +25,11 @@ import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
 import Data.Map (Map)
+#if MIN_VERSION_base(4,20,0)
+import Data.List (find)
+#else
 import Data.List (foldl', find)
+#endif
 import Data.Default (def)
 import Data.Decimal
 import Data.Word (Word64)

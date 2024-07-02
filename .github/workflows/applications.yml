@@ -134,10 +134,17 @@ jobs:
         if "${{ github.event_name == 'schedule' }}" == "true"; then
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.5", "9.8.1"],
-          "cabal": ["3.10"],
+          "ghc": ["9.6", "9.8", "9.10"],
+          "cabal": ["3.12"],
           "os": ["ubuntu-20.04", "ubuntu-22.04"],
-          "use-freeze-file": ["false"]
+          "use-freeze-file": ["false"],
+          "include" : [
+            {
+              "ghc": "9.6",
+              "cabal": "3.12",
+              "os": "ubuntu-22.04",
+              "use-freeze-file": "true"
+            }
           ]
         }
         EOF
@@ -145,10 +152,18 @@ jobs:
         else
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.5"],
-          "cabal": ["3.10"],
-          "os": ["ubuntu-20.04", "ubuntu-22.04"],
-          "use-freeze-file": ["true"]
+          "ghc": ["9.6", "9.8", "9.10"],
+          "cabal": ["3.12"],
+          "os": ["ubuntu-22.04"],
+          "use-freeze-file": ["false"],
+          "include" : [
+            {
+              "ghc": "9.6",
+              "cabal": "3.12",
+              "os": "ubuntu-22.04",
+              "use-freeze-file": "true"
+            }
+          ]
         }
         EOF
         )"
@@ -330,7 +345,7 @@ jobs:
       with:
         bucket: "kadena-cabal-cache"
         region: "us-east-1"
-        folder: "${{ matrix.os }}-${{ matrix.ghc }}-${{ matrix.use-freeze-file }}"
+        folder: "packages/${{ matrix.os }}"
         aws_access_key_id: "${{ secrets.kadena_cabal_cache_aws_access_key_id }}"
         aws_secret_access_key: "${{ secrets.kadena_cabal_cache_aws_secret_access_key }}"
     - name: Install build dependencies
@@ -624,7 +639,7 @@ jobs:
         # when adding more than one build, use a different package name or
         # different tags
         include:
-        - ghc: "9.6.5"
+        - ghc: "9.6"
           os: "ubuntu-20.04"
           use-freeze-file: "true"
     env:

@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -85,7 +86,9 @@ import Control.Monad.STM
 
 import Data.Aeson
 import Data.Bits
+#if !MIN_VERSION_base(4,20,0)
 import Data.Foldable (foldl')
+#endif
 import qualified Data.Foldable as F
 import Data.Hashable
 import Data.IxSet.Typed
