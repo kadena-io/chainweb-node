@@ -110,7 +110,7 @@ instance HasChainGraph RankedBlockHeader where
     {-# INLINE _chainGraph #-}
 
 instance Ord RankedBlockHeader where
-    compare = compare `on` ((_blockHeight &&& id) . _getRankedBlockHeader)
+    compare = compare `on` ((view blockHeight &&& id) . _getRankedBlockHeader)
     {-# INLINE compare #-}
 
 -- -------------------------------------------------------------------------- --
@@ -126,7 +126,7 @@ data RankedBlockHash = RankedBlockHash
 instance IsCasValue RankedBlockHeader where
     type CasKeyType RankedBlockHeader = RankedBlockHash
     casKey (RankedBlockHeader bh)
-        = RankedBlockHash (_blockHeight bh) (_blockHash bh)
+        = RankedBlockHash (view blockHeight bh) (view blockHash bh)
     {-# INLINE casKey #-}
 
 -- -------------------------------------------------------------------------- --
@@ -205,7 +205,7 @@ dbAddChecked :: BlockHeaderDb -> BlockHeader -> IO ()
 dbAddChecked db e = unlessM (tableMember (_chainDbCas db) ek) dbAddCheckedInternal
   where
     r = int $ rank e
-    ek = RankedBlockHash r (_blockHash e)
+    ek = RankedBlockHash r (view blockHash e)
 
     -- Internal helper methods
 
@@ -227,7 +227,7 @@ dbAddChecked db e = unlessM (tableMember (_chainDbCas db) ek) dbAddCheckedIntern
 
     add = updateBatch
             [ RocksDbInsert (_chainDbCas db) (casKey rbh) rbh
-            , RocksDbInsert (_chainDbRankTable db) (_blockHash e) (_blockHeight e)
+            , RocksDbInsert (_chainDbRankTable db) (view blockHash e) (view blockHeight e)
             ]
       where
         rbh = RankedBlockHeader e
@@ -304,7 +304,7 @@ instance TreeDb BlockHeaderDb where
     entries db k l mir mar f = withSeekTreeDb db k mir $ \it -> f $ do
         iterToValueStream it
             & S.map _getRankedBlockHeader
-            & maybe id (\x -> S.takeWhile (\a -> int (_blockHeight a) <= x)) mar
+            & maybe id (\x -> S.takeWhile (\a -> int (view blockHeight a) <= x)) mar
             & limitStream l
     {-# INLINEABLE entries #-}
 

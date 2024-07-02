@@ -50,7 +50,7 @@ import Pact.Types.SPV
 -- internal chainweb modules
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Miner.Pact
@@ -281,8 +281,8 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
     -- of mining a full chain we fake the height.
     --
     mkTestParentHeader :: BlockHeight -> ParentHeader
-    mkTestParentHeader h = ParentHeader $ (someBlockHeader (slowForkingCpmTestVersion singleton) 10)
-        { _blockHeight = h }
+    mkTestParentHeader h = ParentHeader $ someBlockHeader (slowForkingCpmTestVersion singleton) 10
+      & blockHeight .~ h
 
 testCoinbaseEnforceFailure :: Assertion
 testCoinbaseEnforceFailure = do
@@ -301,9 +301,8 @@ testCoinbaseEnforceFailure = do
     badMiner = Miner (MinerId "") (MinerKeys $ mkKeySet [] "<")
     blockHeight' = 123
     someParentHeader = ParentHeader $ someTestVersionHeader
-      { _blockHeight = blockHeight'
-      , _blockCreationTime = BlockCreationTime [timeMicrosQQ| 2019-12-10T01:00:00.0 |]
-      }
+      & blockHeight .~ blockHeight'
+      & blockCreationTime .~ BlockCreationTime [timeMicrosQQ| 2019-12-10T01:00:00.0 |]
 
 testCoinbaseUpgradeDevnet :: V.ChainId -> BlockHeight -> Assertion
 testCoinbaseUpgradeDevnet cid upgradeHeight =
@@ -371,11 +370,11 @@ testUpgradeScript script cid bh test = do
       Left e -> assertFailure $ "tx execution failed: " ++ show e
       Right cr -> test cr
   where
-    parent = ParentHeader (someBlockHeader v bh)
-        { _blockChainwebVersion = _versionCode v
-        , _blockChainId = cid
-        , _blockHeight = pred bh
-        }
+    parent = ParentHeader $ someBlockHeader v bh
+      & blockChainwebVersion .~ _versionCode v
+      & blockChainId .~ cid
+      & blockHeight .~ pred bh
+
 matchLogs :: [(Text, Text, Maybe Value)] -> [(Text, Text, Maybe Value)] -> IO ()
 matchLogs expectedResults actualResults
     | length actualResults /= length expectedResults = void $

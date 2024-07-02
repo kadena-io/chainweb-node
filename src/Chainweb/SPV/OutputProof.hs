@@ -32,6 +32,7 @@ module Chainweb.SPV.OutputProof
 , getRequestKey
 ) where
 
+import Control.Lens (view)
 import Control.Monad
 import Control.Monad.Catch
 
@@ -210,18 +211,18 @@ createOutputProofDb_
     -> IO (PayloadProof a)
 createOutputProofDb_ headerDb payloadDb d h reqKey = do
     hdr <- casLookupM headerDb h
-    Just pwo <- lookupPayloadWithHeight payloadDb (Just $ _blockHeight hdr) (_blockPayloadHash hdr)
-    unless (_payloadWithOutputsPayloadHash pwo /= _blockPayloadHash hdr) $
+    Just pwo <- lookupPayloadWithHeight payloadDb (Just $ view blockHeight hdr) (view blockPayloadHash hdr)
+    unless (_payloadWithOutputsPayloadHash pwo /= view blockPayloadHash hdr) $
         throwM $ SpvExceptionInconsistentPayloadData
             { _spvExceptionMsg = "The stored payload hash doesn't match the the db index"
-            , _spvExceptionMsgPayloadHash = _blockPayloadHash hdr
+            , _spvExceptionMsgPayloadHash = view blockPayloadHash hdr
             }
     curRank <- maxRank headerDb
-    unless (int (_blockHeight hdr) + d <= curRank) $
+    unless (int (view blockHeight hdr) + d <= curRank) $
         throwM $ SpvExceptionInsufficientProofDepth
             { _spvExceptionMsg = "Insufficient depth of root header for SPV proof"
             , _spvExceptionExpectedDepth = Expected d
-            , _spvExceptionActualDepth = Actual $ curRank `minusOrZero` int (_blockHeight hdr)
+            , _spvExceptionActualDepth = Actual $ curRank `minusOrZero` int (view blockHeight hdr)
             }
     createOutputProof_ @a pwo reqKey
 

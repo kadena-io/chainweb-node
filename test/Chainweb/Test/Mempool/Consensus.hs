@@ -8,6 +8,7 @@ module Chainweb.Test.Mempool.Consensus
   ( tests
   ) where
 
+import Control.Lens (view)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
 
@@ -346,18 +347,18 @@ header' h = do
         . newMerkleLog
         $ mkFeatureFlags
             :+: t'
-            :+: _blockHash h
+            :+: view blockHash h
             :+: target
             :+: _payloadWithOutputsPayloadHash (testBlockPayload h)
             :+: _chainId h
-            :+: BlockWeight (targetToDifficulty target) + _blockWeight h
-            :+: succ (_blockHeight h)
+            :+: BlockWeight (targetToDifficulty target) + view blockWeight h
+            :+: succ (view blockHeight h)
             :+: _versionCode v
             :+: epochStart (ParentHeader h) mempty t'
             :+: nonce
             :+: MerkleLogBody mempty
    where
-    BlockCreationTime t = _blockCreationTime h
+    BlockCreationTime t = view blockCreationTime h
     target = powTarget (ParentHeader h) mempty t'
     v = _chainwebVersion h
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
@@ -433,12 +434,12 @@ instance Show ForkInfo where
         ++ debugTrans "newForkTrans" fiNewForkTrans
         ++ "\n\t"
         ++ "'head' of old fork:"
-        ++ "\n\t\tblock height: " ++ show (_blockHeight fiOldHeader)
-        ++ "\n\t\tblock hash: " ++ show (_blockHash fiOldHeader)
+        ++ "\n\t\tblock height: " ++ show (view blockHeight fiOldHeader)
+        ++ "\n\t\tblock hash: " ++ show (view blockHash fiOldHeader)
         ++ "\n\t"
         ++ "'head' of new fork:"
-        ++ "\n\t\tblock height: " ++ show (_blockHeight fiNewHeader)
-        ++ "\n\t\tblock hash: " ++ show (_blockHash fiNewHeader)
+        ++ "\n\t\tblock height: " ++ show (view blockHeight fiNewHeader)
+        ++ "\n\t\tblock hash: " ++ show (view blockHash fiNewHeader)
         ++ concatMap (debugHeader "main trunk headers") fiPreForkHeaders
         ++ concatMap (debugHeader "left fork headers") fiLeftForkHeaders
         ++ concatMap (debugHeader "right fork headers") fiRightForkHeaders
@@ -446,11 +447,11 @@ instance Show ForkInfo where
 
 ----------------------------------------------------------------------------------------------------
 debugHeader :: String -> BlockHeader -> String
-debugHeader context BlockHeader{..} =
+debugHeader context bh =
     "\nBlockheader from " ++ context ++ ": "
-    ++ "\n\t\tblockHeight: " ++ show _blockHeight ++ " (0-based)"
-    ++ "\n\t\tblockHash: " ++ show _blockHash
-    ++ "\n\t\tparentHash: " ++ show _blockParent
+    ++ "\n\t\tblockHeight: " ++ show (view blockHeight bh) ++ " (0-based)"
+    ++ "\n\t\tblockHash: " ++ show (view blockHash bh)
+    ++ "\n\t\tparentHash: " ++ show (view blockParent bh)
     ++ "\n"
 
 ----------------------------------------------------------------------------------------------------

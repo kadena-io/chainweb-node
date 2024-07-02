@@ -173,12 +173,12 @@ syncPact
     -> IO ()
 syncPact cutDb pact =
     void $ webEntries bhdb $ \s -> s
-        & S.filter ((/= 0) . _blockHeight)
+        & S.filter ((/= 0) . view blockHeight)
         & S.mapM_ (\h -> payload h >>= _webPactValidateBlock pact h . CheckablePayload)
   where
     bhdb = view cutDbWebBlockHeaderDb cutDb
     pdb = view cutDbPayloadDb cutDb
-    payload h = lookupPayloadWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h) >>= \case
+    payload h = lookupPayloadWithHeight pdb (Just $ view blockHeight h) (view blockPayloadHash h) >>= \case
         Nothing -> error $ "Corrupted database: failed to load payload data for block header " <> sshow h
         Just p -> return $ payloadWithOutputsToPayloadData p
 
@@ -235,7 +235,7 @@ awaitBlockHeight
     -> IO Cut
 awaitBlockHeight cdb bh cid = atomically $ do
     c <- _cutStm cdb
-    let bh2 = _blockHeight $ c ^?! ixg cid
+    let bh2 = view blockHeight $ c ^?! ixg cid
     STM.check $ bh < bh2
     return c
 
@@ -378,14 +378,14 @@ getRandomUnblockedChain c = do
     shuffled <- generate $ shuffle $ toList $ _cutMap c
     S.each shuffled
         & S.filter isUnblocked
-        & S.map _blockChainId
+        & S.map (view blockChainId)
         & S.head_
         & fmap fromJuste
   where
     isUnblocked h =
-        let bh = _blockHeight h
-            cid = _blockChainId h
-        in all (>= bh) $ fmap _blockHeight $ toList $ cutAdjs c cid
+        let bh = view blockHeight h
+            cid = view blockChainId h
+        in all (>= bh) $ fmap (view blockHeight) $ toList $ cutAdjs c cid
 
 -- | Build a linear chainweb (no forks). No POW or poison delay is applied.
 -- Block times are real times.
@@ -413,8 +413,8 @@ tryMineForChain miner webPact cutDb c cid = do
     case x of
         Right (T2 h c') -> do
             addCutHashes cutDb (cutToCutHashes Nothing c')
-                { _cutHashesHeaders = HM.singleton (_blockHash h) h
-                , _cutHashesPayloads = HM.singleton (_blockPayloadHash h) (payloadWithOutputsToPayloadData outputs)
+                { _cutHashesHeaders = HM.singleton (view blockHash h) h
+                , _cutHashesPayloads = HM.singleton (view blockPayloadHash h) (payloadWithOutputsToPayloadData outputs)
                 }
             return $ Right (c', cid, outputs)
         Left e -> return $ Left e
@@ -438,8 +438,8 @@ randomBlockHeader cutDb = do
         & S.toList_
     generate $ elements allBlockHeaders
   where
-    chainHeight curCut cid = _blockHeight (curCut ^?! ixg (_chainId cid))
-    checkHeight curCut x = (_blockHeight x /= 0) && (_blockHeight x <= chainHeight curCut x)
+    chainHeight curCut cid = view blockHeight (curCut ^?! ixg (_chainId cid))
+    checkHeight curCut x = (view blockHeight x /= 0) && (view blockHeight x <= chainHeight curCut x)
 
 -- | Picks a random transaction from a chain web, making sure that the
 -- transaction isn't ahead of the longest cut.
@@ -451,22 +451,22 @@ randomTransaction
     -> IO (BlockHeader, Int, Transaction, TransactionOutput)
 randomTransaction cutDb = do
     bh <- randomBlockHeader cutDb
-    Just pd <- lookupPayloadDataWithHeight payloadDb (Just $ _blockHeight bh) (_blockPayloadHash bh)
+    Just pd <- lookupPayloadDataWithHeight payloadDb (Just $ view blockHeight bh) (view blockPayloadHash bh)
     let pay = BlockPayload
-          { _blockPayloadTransactionsHash = _payloadDataTransactionsHash pd
-          , _blockPayloadOutputsHash = _payloadDataOutputsHash pd
-          , _blockPayloadPayloadHash = _payloadDataPayloadHash pd
+          { _blockPayloadTransactionsHash = view payloadDataTransactionsHash pd
+          , _blockPayloadOutputsHash = view payloadDataOutputsHash pd
+          , _blockPayloadPayloadHash = view payloadDataPayloadHash pd
           }
 
     Just btxs <-
         tableLookup
             (_newTransactionDbBlockTransactionsTbl $ _transactionDb payloadDb)
-            (_blockHeight bh, _blockPayloadTransactionsHash pay)
+            (view blockHeight bh, _blockPayloadTransactionsHash pay)
     txIx <- generate $ choose (0, length (_blockTransactions btxs) - 1)
     Just outs <-
         tableLookup
             (_newBlockOutputsTbl $ _payloadCacheBlockOutputs $ _payloadCache payloadDb)
-            (_blockHeight bh, _blockPayloadOutputsHash pay)
+            (view blockHeight bh, _blockPayloadOutputsHash pay)
     return
         ( bh
         , txIx
@@ -490,7 +490,7 @@ fakePact = WebPactExecutionService $ PactExecutionService
         let d = checkablePayloadToPayloadData p
         return
             $ payloadWithOutputs d coinbase
-            $ getFakeOutput <$> _payloadDataTransactions d
+            $ getFakeOutput <$> view payloadDataTransactions d
   , _pactNewBlock = \_ _ _ ph -> do
         payloadDat <- generate $ V.fromList . getNonEmpty <$> arbitrary
         return $ Historical

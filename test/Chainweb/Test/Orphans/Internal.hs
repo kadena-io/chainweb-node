@@ -60,6 +60,7 @@ module Chainweb.Test.Orphans.Internal
 ) where
 
 import Control.Applicative
+import Control.Lens (view)
 import Control.Monad
 import Control.Monad.Catch
 
@@ -424,7 +425,7 @@ instance Arbitrary WorkHeader where
         hdr <- arbitrary
         return $ WorkHeader
             { _workHeaderChainId = _chainId hdr
-            , _workHeaderTarget = _blockTarget hdr
+            , _workHeaderTarget = view blockTarget hdr
             , _workHeaderBytes = BS.toShort $ runPutS $ encodeBlockHeaderWithoutHash hdr
             }
 

@@ -282,8 +282,8 @@ roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
 
     -- setup create txgen with cut 1
     step "setup create txgen with cut 1"
-    (BlockCreationTime t2) <- _blockCreationTime <$> getParentTestBlockDb bdb tid
-    hi <- _blockHeight <$> getParentTestBlockDb bdb sid
+    (BlockCreationTime t2) <- view blockCreationTime <$> getParentTestBlockDb bdb tid
+    hi <- view blockHeight <$> getParentTestBlockDb bdb sid
     txGen2 <- create v t2 bdb pidv sid tid hi
 
     -- cut 2: empty cut for diameter 1
@@ -317,7 +317,7 @@ cutToPayloadOutputs
   -> IO CutOutputs
 cutToPayloadOutputs c pdb = do
   forM (_cutMap c) $ \bh -> do
-    Just pwo <- lookupPayloadWithHeight pdb (Just $ _blockHeight bh) (_blockPayloadHash bh)
+    Just pwo <- lookupPayloadWithHeight pdb (Just $ view blockHeight bh) (view blockPayloadHash bh)
     let txs = Vector.map (toTx *** toCR) (_payloadWithOutputsTransactions pwo)
         toTx :: Transaction -> Command Text
         toTx (Transaction t) = fromJuste $ decodeStrict' t
@@ -329,7 +329,7 @@ chainToMPA' :: MVar TransactionGenerator -> MemPoolAccess
 chainToMPA' f = mempty
     { mpaGetBlock = \_g _pc hi ha he -> do
         tg <- readMVar f
-        tg (_blockChainId he) hi ha he
+        tg (view blockChainId he) hi ha he
     }
 
 

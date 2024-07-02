@@ -429,7 +429,7 @@ pactImportTest logLevel v n rocksDb pactDir step = do
       latestBlockHeight <- do
         wbhdb <- initWebBlockHeaderDb rdb v
         latestCutHeaders <- readHighestCutHeaders v (\_ _ -> pure ()) wbhdb (cutHashesTable rdb)
-        pure $ maximum $ fmap _blockHeight latestCutHeaders
+        pure $ maximum $ fmap (view blockHeight) latestCutHeaders
 
       let targetChunkSize :: BlockHeight
           targetChunkSize = nextLowestPowerOfTen latestBlockHeight
@@ -447,7 +447,7 @@ pactImportTest logLevel v n rocksDb pactDir step = do
       logFunctionText logger' Info "Verifying state"
       snapshot@(snapshotBlockHeight, snapshotHashes) <- GrandHash.Import.pactVerify logger' v pactConns rdb grands
       logFunctionText logger' Debug $ "SNAPSHOT BLOCKHEIGHT = " <> sshow (fst snapshot)
-      logFunctionText logger' Debug $ "SNAPSHOT HASHES = " <> sshow (HM.map (\s -> (T.decodeUtf8 (Base16.encode (getChainGrandHash s.pactHash)), _blockHeight s.blockHeader)) (snd snapshot))
+      logFunctionText logger' Debug $ "SNAPSHOT HASHES = " <> sshow (HM.map (\s -> (T.decodeUtf8 (Base16.encode (getChainGrandHash s.pactHash)), view blockHeight s.blockHeader)) (snd snapshot))
 
       logFunctionText logger' Info "Making a copy of the pact state, and dropping the post-verified content"
       withSystemTempDirectory "pact-copy" $ \copyPactDir -> do
@@ -583,12 +583,12 @@ replayTest loglevel v n rdb pactDbDir step = do
                 Replayed l (Just u) -> do
                     writeIORef firstReplayCompleteRef True
                     _ <- flip HM.traverseWithKey (_cutMap l) $ \cid bh ->
-                        assertEqual ("lower chain " <> sshow cid) replayInitialHeight (_blockHeight bh)
+                        assertEqual ("lower chain " <> sshow cid) replayInitialHeight (view blockHeight bh)
                     -- TODO: this is flaky, presumably because a node's cutdb
                     -- is not being cancelled synchronously enough
                     assertEqual "upper cut" (_stateCutMap state2 HM.! nid) u
                     _ <- flip HM.traverseWithKey (_cutMap u) $ \cid bh ->
-                        assertGe ("upper chain " <> sshow cid) (Actual $ _blockHeight bh) (Expected replayInitialHeight)
+                        assertGe ("upper chain " <> sshow cid) (Actual $ view blockHeight bh) (Expected replayInitialHeight)
                     return ()
                 Replayed _ Nothing -> error "replayTest: no replay upper bound"
                 _ -> error "replayTest: not a replay"
@@ -605,9 +605,9 @@ replayTest loglevel v n rdb pactDbDir step = do
                 Replayed l (Just u) -> do
                     writeIORef secondReplayCompleteRef True
                     _ <- flip HM.traverseWithKey (_cutMap l) $ \cid bh ->
-                        assertEqual ("lower chain " <> sshow cid) replayInitialHeight (_blockHeight bh)
+                        assertEqual ("lower chain " <> sshow cid) replayInitialHeight (view blockHeight bh)
                     _ <- flip HM.traverseWithKey (_cutMap u) $ \cid bh ->
-                        assertEqual ("upper chain " <> sshow cid) fastForwardHeight (_blockHeight bh)
+                        assertEqual ("upper chain " <> sshow cid) fastForwardHeight (view blockHeight bh)
                     return ()
                 Replayed _ Nothing -> do
                     error "replayTest: no replay upper bound"
@@ -699,7 +699,7 @@ sampleConsensusState
 sampleConsensusState nid bhdb cutdb s = do
     !hashes' <- webEntries bhdb
         $ S.fold_ (flip HS.insert) (_stateBlockHashes s) id
-        . S.map _blockHash
+        . S.map (view blockHash)
     !c <- _cut cutdb
     return $! s
         { _stateBlockHashes = hashes'

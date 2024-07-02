@@ -215,19 +215,19 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
     logfun Debug $ "getBlockPayload: " <> sshow h
     tableLookup candidateStore payloadHash >>= \case
         Just !x -> return x
-        Nothing -> lookupPayloadWithHeight cas (Just $ _blockHeight h) payloadHash >>= \case
+        Nothing -> lookupPayloadWithHeight cas (Just $ view blockHeight h) payloadHash >>= \case
             Just !x -> return $! payloadWithOutputsToPayloadData x
             Nothing -> memo memoMap payloadHash $ \k ->
-                pullOrigin (_blockHeight h) k maybeOrigin >>= \case
+                pullOrigin (view blockHeight h) k maybeOrigin >>= \case
                     Nothing -> do
-                        t <- queryPayloadTask (_blockHeight h) k
+                        t <- queryPayloadTask (view blockHeight h) k
                         pQueueInsert queue t
                         awaitTask t
                     (Just !x) -> return x
 
   where
     v = _chainwebVersion h
-    payloadHash = _blockPayloadHash h
+    payloadHash = view blockPayloadHash h
     cid = _chainId h
 
     mgr = _webBlockPayloadStoreMgr s
@@ -241,7 +241,7 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
     traceLogfun :: LogMessage a => LogLevel -> a -> IO ()
     traceLogfun = _webBlockPayloadStoreLogFunction s
 
-    taskMsg k msg = "payload task " <> sshow k <> " @ " <> sshow (_blockHash h) <> ": " <> msg
+    taskMsg k msg = "payload task " <> sshow k <> " @ " <> sshow (view blockHash h) <> ": " <> msg
 
     traceLabel subfun =
         "Chainweb.Sync.WebBlockHeaderStore.getBlockPayload." <> subfun
@@ -394,7 +394,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
 
             -- query parent (recursively)
             --
-            <* queryParent (_blockParent <$> chainValue header)
+            <* queryParent (view blockParent <$> chainValue header)
 
             -- query adjacent parents (recursively)
             <* mconcat (queryAdjacentParent <$> adjParents header)
@@ -481,15 +481,15 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
     validateAndInsertPayload hdr p = do
         let payload = case localPayload of
                 Just (hsh, pwo)
-                    | hsh == _blockPayloadHash hdr
+                    | hsh == view blockPayloadHash hdr
                         -> CheckablePayloadWithOutputs pwo
                 _ -> CheckablePayload p
         outs <- trace logfun
             (traceLabel "pact")
-            (_blockHash hdr)
-            (length (_payloadDataTransactions p))
+            (view blockHash hdr)
+            (length (view payloadDataTransactions p))
             $ pact hdr payload
-        addNewPayload (_webBlockPayloadStoreCas payloadStore) (_blockHeight hdr) outs
+        addNewPayload (_webBlockPayloadStoreCas payloadStore) (view blockHeight hdr) outs
 
     queryBlockHeaderTask ck@(ChainValue cid k)
         = newTask (sshow ck) priority $ \l env -> chainValue <$> do
@@ -510,7 +510,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         , _remoteChainId = cid
         }
 
-    adjParents = toList . imap ChainValue . _getBlockHashRecord . _blockAdjacentHashes
+    adjParents = toList . imap ChainValue . _getBlockHashRecord . view blockAdjacentHashes
 
     pullOrigin
         :: ChainValue BlockHash

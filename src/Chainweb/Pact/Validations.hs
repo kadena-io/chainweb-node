@@ -48,7 +48,7 @@ import Data.Word (Word8)
 
 -- internal modules
 
-import Chainweb.BlockHeader (ParentCreationTime(..), BlockHeader(..), ParentHeader(..))
+import Chainweb.BlockHeader (ParentCreationTime(..), ParentHeader(..), blockCreationTime)
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (fromPactChainId)
@@ -107,7 +107,7 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
       | otherwise = assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs
 
     pct = ParentCreationTime
-      . _blockCreationTime
+      . view blockCreationTime
       . _parentHeader
       . _tcParentHeader
       $ txCtx

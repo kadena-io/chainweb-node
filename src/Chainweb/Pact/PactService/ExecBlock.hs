@@ -108,9 +108,9 @@ execBlock
 execBlock currHeader payload = do
     let plData = checkablePayloadToPayloadData payload
     dbEnv <- view psBlockDbEnv
-    miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
+    miner <- decodeStrictOrThrow' (_minerData $ view payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload
-      (pactParserVersion v (_blockChainId currHeader) (_blockHeight currHeader))
+      (pactParserVersion v (view blockChainId currHeader) (view blockHeight currHeader))
       plData
     logger <- view (psServiceEnv . psLogger)
 
@@ -120,13 +120,13 @@ execBlock currHeader payload = do
     -- The new default behavior is to use the creation time of the /parent/ header.
     --
     txValidationTime <- if isGenesisBlockHeader currHeader
-      then return (ParentCreationTime $ _blockCreationTime currHeader)
-      else ParentCreationTime . _blockCreationTime . _parentHeader <$> view psParentHeader
+      then return (ParentCreationTime $ view blockCreationTime currHeader)
+      else ParentCreationTime . view blockCreationTime . _parentHeader <$> view psParentHeader
 
     -- prop_tx_ttl_validate
     valids <- liftIO $ V.zip trans <$>
         validateChainwebTxs logger v cid dbEnv txValidationTime
-            (_blockHeight currHeader) trans skipDebitGas
+            (view blockHeight currHeader) trans skipDebitGas
 
     case foldr handleValids [] valids of
       [] -> return ()
@@ -143,7 +143,7 @@ execBlock currHeader payload = do
     return (totalGasUsed, pwo)
   where
     blockGasLimit =
-      fromIntegral <$> maxBlockGasLimit v (_blockHeight currHeader)
+      fromIntegral <$> maxBlockGasLimit v (view blockHeight currHeader)
 
     logInitCache = liftPactServiceM $ do
       mc <- fmap (fmap instr . _getModuleCache) <$> use psInitCache
@@ -320,7 +320,7 @@ execTransactionsOnly miner ctxs mc txTimeLimit = do
 initModuleCacheForBlock :: (Logger logger) => Bool -> PactBlockM logger tbl ModuleCache
 initModuleCacheForBlock isGenesis = do
   PactServiceState{..} <- get
-  pbh <- views psParentHeader (_blockHeight . _parentHeader)
+  pbh <- views psParentHeader (view blockHeight . _parentHeader)
   case Map.lookupLE pbh _psInitCache of
     Nothing -> if isGenesis
       then return mempty
@@ -500,7 +500,7 @@ transactionsFromPayload
 transactionsFromPayload ppv plData = do
     vtrans <- fmap V.fromList $
               mapM toCWTransaction $
-              toList (_payloadDataTransactions plData)
+              toList (view payloadDataTransactions plData)
     let (theLefts, theRights) = partitionEithers $ V.toList vtrans
     unless (null theLefts) $ do
         let ls = map T.pack theLefts
@@ -573,7 +573,7 @@ validateHashes bHeader payload miner transactions =
     pwo = toPayloadWithOutputs miner transactions
 
     newHash = _payloadWithOutputsPayloadHash pwo
-    prevHash = _blockPayloadHash bHeader
+    prevHash = view blockPayloadHash bHeader
 
     -- The following JSON encodings are used in the BlockValidationFailure message
 
@@ -595,16 +595,16 @@ validateHashes bHeader payload miner transactions =
         CheckablePayload pData -> J.Array $ catMaybes
             [ check "Miner"
                 []
-                (_payloadDataMiner pData)
+                (view payloadDataMiner pData)
                 (_payloadWithOutputsMiner pwo)
             , check "TransactionsHash"
                 [ "txs" J..?=
                     (J.Array <$> traverse (uncurry $ check "Tx" []) (zip
                       (toList $ fst <$> _payloadWithOutputsTransactions pwo)
-                      (toList $ _payloadDataTransactions pData)
+                      (toList $ view payloadDataTransactions pData)
                     ))
                 ]
-                (_payloadDataTransactionsHash pData)
+                (view payloadDataTransactionsHash pData)
                 (_payloadWithOutputsTransactionsHash pwo)
             , check "OutputsHash"
                 [ "outputs" J..= J.object
@@ -612,7 +612,7 @@ validateHashes bHeader payload miner transactions =
                     , "txs" J..= J.array (addTxOuts <$> _transactionPairs transactions)
                     ]
                 ]
-                (_payloadDataOutputsHash pData)
+                (view payloadDataOutputsHash pData)
                 (_payloadWithOutputsOutputsHash pwo)
             ]
 

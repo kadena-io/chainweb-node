@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -7,12 +6,10 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns #-}
 
 module Chainweb.Test.Pact.PactSingleChainTest
 ( tests
@@ -64,7 +61,7 @@ import Pact.JSON.Yaml
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash (BlockHash)
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Graph
 import Chainweb.Logger (genericLogger)
@@ -186,11 +183,11 @@ runBlockE q bdb timeOffset = do
   ph <- getParentTestBlockDb bdb cid
   bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) q
   let nb = blockInProgressToPayloadWithOutputs bip
-  let blockTime = add timeOffset $ _bct $ _blockCreationTime ph
+  let blockTime = add timeOffset $ _bct $ view blockCreationTime ph
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
           | otherwise = emptyPayload
-    addTestBlockDb bdb (succ $ _blockHeight ph) (Nonce 0) (\_ _ -> blockTime) c o
+    addTestBlockDb bdb (succ $ view blockHeight ph) (Nonce 0) (\_ _ -> blockTime) c o
   nextH <- getParentTestBlockDb bdb cid
   try (validateBlock nextH (CheckablePayloadWithOutputs nb) q)
 
@@ -246,11 +243,11 @@ newBlockAndContinue refIO reqIO = testCase "newBlockAndContinue" $ do
     (bipContinued /= bipFinal)
   let nbContinued = blockInProgressToPayloadWithOutputs bipFinal
   -- add block to database
-  let blockTime = add second $ _bct $ _blockCreationTime ph
+  let blockTime = add second $ _bct $ view blockCreationTime ph
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nbContinued
           | otherwise = emptyPayload
-    addTestBlockDb bdb (succ $ _blockHeight ph) (Nonce 0) (\_ _ -> blockTime) c o
+    addTestBlockDb bdb (succ $ view blockHeight ph) (Nonce 0) (\_ _ -> blockTime) c o
   nextH <- getParentTestBlockDb bdb cid
   -- a continued block must be valid
   _ <- validateBlock nextH (CheckablePayloadWithOutputs nbContinued) q
@@ -300,15 +297,16 @@ newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailur
 
   bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader genesisHeader) q
   let nb = blockInProgressToPayloadWithOutputs bip
-  let blockTime = add second $ _bct $ _blockCreationTime genesisHeader
+  let blockTime = add second $ _bct $ view blockCreationTime genesisHeader
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
           | otherwise = emptyPayload
-    addTestBlockDb bdb (succ $ _blockHeight genesisHeader) (Nonce 0) (\_ _ -> blockTime) c o
+    addTestBlockDb bdb (succ $ view blockHeight genesisHeader) (Nonce 0) (\_ _ -> blockTime) c o
 
   nextH <- getParentTestBlockDb bdb cid
 
-  let nextH' = nextH { _blockPayloadHash = BlockPayloadHash $ unsafeMerkleLogHash "0000000000000000000000000000001d" }
+  let nextH' = nextH
+        & blockPayloadHash .~ BlockPayloadHash (unsafeMerkleLogHash "0000000000000000000000000000001d")
   let nb' = nb { _payloadWithOutputsOutputsHash = BlockOutputsHash (unsafeMerkleLogHash "0000000000000000000000000000001d")}
   try (validateBlock nextH' (CheckablePayloadWithOutputs nb') q) >>= \case
     Left BlockValidationFailure {} -> do
@@ -746,8 +744,8 @@ signSender00 = set cbSigners [mkEd25519Signer' sender00 []]
 
 setFromHeader :: BlockHeader -> CmdBuilder -> CmdBuilder
 setFromHeader bh =
-  set cbChainId (_blockChainId bh)
-  . set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+  set cbChainId (view blockChainId bh)
+  . set cbCreationTime (toTxCreationTime $ _bct $ view blockCreationTime bh)
 
 
 -- this test relies on block gas errors being thrown before other Pact errors.
@@ -891,7 +889,7 @@ moduleNameMempool ns mn = mempty
         fmap V.fromList $ forM (zip txs [0..]) $ \(code,n :: Int) ->
           buildCwCmd ("1" <> sshow n) testVersion $
           signSender00 $
-          set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh) $
+          set cbCreationTime (toTxCreationTime $ _bct $ view blockCreationTime bh) $
           set cbRPC (mkExec' code) $
           defaultCmd
 
@@ -931,7 +929,7 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
 
     getBlock bh tx valid = do
       let txs = V.singleton tx
-      oks <- valid (_blockHeight bh) (_blockHash bh) txs
+      oks <- valid (view blockHeight bh) (view blockHash bh) txs
       unless (V.and oks) $ throwM $ userError "Insert failed"
       return txs
 

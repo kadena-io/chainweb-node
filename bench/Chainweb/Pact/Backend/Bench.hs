@@ -14,9 +14,11 @@ module Chainweb.Pact.Backend.Bench
 
 
 import Control.Concurrent
+import Control.Lens (view, (.~))
 import Control.Monad
 import Control.Monad.Catch
 import qualified Criterion.Main as C
+import Data.Function ((&))
 
 import qualified Data.Vector as V
 import qualified Data.ByteString as B
@@ -46,7 +48,7 @@ import qualified Pact.Types.SQLite as PSQL
 -- chainweb imports
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Internal
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.MerkleLogHash
@@ -78,11 +80,13 @@ cpRestoreAndSave cp pc blks = snd <$> _cpRestoreAndSave cp (ParentHeader <$> pc)
 
 -- | fabricate a `BlockHeader` for a block given its hash and its parent.
 childOf :: Maybe BlockHeader -> BlockHash -> BlockHeader
-childOf (Just bh) bhsh =
-  bh { _blockHash = bhsh, _blockParent = _blockHash bh, _blockHeight = _blockHeight bh + 1 }
-childOf Nothing bhsh =
-  (genesisBlockHeader testVer testChainId) { _blockHash = bhsh }
-
+childOf m bhsh = case m of
+  Just bh -> bh
+    & blockHash .~ bhsh
+    & blockParent .~ view blockHash bh
+    & blockHeight .~ view blockHeight bh + 1
+  Nothing -> genesisBlockHeader testVer testChainId
+    & blockHash .~ bhsh
 
 bench :: C.Benchmark
 bench = C.bgroup "pact-backend" $
