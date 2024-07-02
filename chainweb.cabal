@@ -409,7 +409,7 @@ library
         , monad-control >= 1.0
         , mtl >= 2.3
         , mwc-random >= 0.13
-        , mwc-probability >= 2.0 && <2.4
+        , mwc-probability >= 2.0
         , network >= 3.1.2
         , optparse-applicative >= 0.14
         , pact >= 4.2.0.1
