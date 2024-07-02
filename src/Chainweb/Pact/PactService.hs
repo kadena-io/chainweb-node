@@ -824,7 +824,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                     liftIO $ writeIORef heightRef (view blockHeight bh)
                     payload <- liftIO $ fromJuste <$>
                       lookupPayloadDataWithHeight pdb (Just $ view blockHeight bh) (view blockPayloadHash bh)
-                    let isPayloadEmpty = V.null (_payloadDataTransactions payload)
+                    let isPayloadEmpty = V.null (view payloadDataTransactions payload)
                     let isUpgradeBlock = isJust $ _chainwebVersion bhdb ^? versionUpgrades . onChain (_chainId bhdb) . ix (view blockHeight bh)
                     unless (isPayloadEmpty && not isUpgradeBlock) $
                       void $ execBlock bh (CheckablePayload payload)

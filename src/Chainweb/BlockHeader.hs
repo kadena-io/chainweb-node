@@ -1,5 +1,11 @@
 {-# LANGUAGE ImportQualifiedPost #-}
 
+-- Use this module to get access to a 'BlockHeader'.
+--
+-- This module only provides read-only access to a 'BlockHeader' via 'Getter's.
+--
+-- If you need to manually construct or overwrite a BlockHeader (via record or lens),
+-- use 'Chainweb.BlockHeader.Internal' instead.
 module Chainweb.BlockHeader
 (
 -- * Newtype wrappers for function parameters

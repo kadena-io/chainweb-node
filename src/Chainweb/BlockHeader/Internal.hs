@@ -26,11 +26,17 @@
 
 -- |
 -- Module: Chainweb.BlockHeader
--- Copyright: Copyright © 2018 Kadena LLC.
+-- Copyright: Copyright © 2014 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
+-- This module contains the implementation of a 'BlockHeader'.
+--
+-- You should prefer using 'Chainweb.BlockHeader' over this module.
+-- Do not use this module unless you need to be able to manually construct
+-- or override (via record or lens) a 'BlockHeader'. 'Chainweb.BlockHeader'
+-- does not export its constructor, and only exposes 'Getter's.
 module Chainweb.BlockHeader.Internal
 (
 -- * Newtype wrappers for function parameters

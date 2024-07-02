@@ -108,7 +108,7 @@ execBlock
 execBlock currHeader payload = do
     let plData = checkablePayloadToPayloadData payload
     dbEnv <- view psBlockDbEnv
-    miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
+    miner <- decodeStrictOrThrow' (_minerData $ view payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload
       (pactParserVersion v (view blockChainId currHeader) (view blockHeight currHeader))
       plData
@@ -500,7 +500,7 @@ transactionsFromPayload
 transactionsFromPayload ppv plData = do
     vtrans <- fmap V.fromList $
               mapM toCWTransaction $
-              toList (_payloadDataTransactions plData)
+              toList (view payloadDataTransactions plData)
     let (theLefts, theRights) = partitionEithers $ V.toList vtrans
     unless (null theLefts) $ do
         let ls = map T.pack theLefts
@@ -595,16 +595,16 @@ validateHashes bHeader payload miner transactions =
         CheckablePayload pData -> J.Array $ catMaybes
             [ check "Miner"
                 []
-                (_payloadDataMiner pData)
+                (view payloadDataMiner pData)
                 (_payloadWithOutputsMiner pwo)
             , check "TransactionsHash"
                 [ "txs" J..?=
                     (J.Array <$> traverse (uncurry $ check "Tx" []) (zip
                       (toList $ fst <$> _payloadWithOutputsTransactions pwo)
-                      (toList $ _payloadDataTransactions pData)
+                      (toList $ view payloadDataTransactions pData)
                     ))
                 ]
-                (_payloadDataTransactionsHash pData)
+                (view payloadDataTransactionsHash pData)
                 (_payloadWithOutputsTransactionsHash pwo)
             , check "OutputsHash"
                 [ "outputs" J..= J.object
@@ -612,7 +612,7 @@ validateHashes bHeader payload miner transactions =
                     , "txs" J..= J.array (addTxOuts <$> _transactionPairs transactions)
                     ]
                 ]
-                (_payloadDataOutputsHash pData)
+                (view payloadDataOutputsHash pData)
                 (_payloadWithOutputsOutputsHash pwo)
             ]
 
