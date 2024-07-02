@@ -135,6 +135,7 @@ execBlock currHeader payload = do
     logInitCache
 
     !results <- go miner trans >>= throwCommandInvalidError
+    liftPactServiceM $ logError $ J.encodeText $ fmap J.array $ _transactionCoinbase results
 
     let !totalGasUsed = sumOf (folded . to P._crGas) results
 
