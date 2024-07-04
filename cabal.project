@@ -75,8 +75,8 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 6098d8034a7e4efc3bf40b1c5b9d180a13772c3d
-    --sha256: sha256-c9WfZcnCXoAxk4N0/H8euCJZJrj+witro5mWsnkcdRo=
+    tag: 8e5d9f4f50e12a43b9dc534b9dc670ec09524dee
+    --sha256: 0sifa6mkpngg73y721bp3rr5pfdh60vvf5v230mglvvdnkgwn26l
 
 source-repository-package
     type: git
@@ -106,7 +106,7 @@ source-repository-package
     type: git
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
     tag: a32d901e4a79be62af9c27c01152c9a4c3912a62
-    --sha256: sha256-xdawv/tdjh61MbJKcBqm9Fje36+gVljuZsAxOTX1gP0=
+    --sha256: 1zc0ylskjcf0cvp5hmm0mzgxwn7llqd70jmj66six3jxzfzv1mn5
 
 source-repository-package
     type: git
@@ -129,14 +129,14 @@ source-repository-package
     type: git
     location: https://github.com/larskuhtz/sbv
     tag: 1f2d042718fcf9a140398bd3dedac77c207cce27
-    --sha256: sha256-Y2ZRU9lkrClYiNc8apwy4uO1TAvJ8JZEPKF73ZuGdlA=
+    --sha256: 0l3nhsdxsyx17i29dw691d6bbqz26af6lg6pi1c2kb34v59m2rk3
 
 -- Required for non-canonical decode in base64-bytestring (remove after 2.20 fork)
 source-repository-package
     type: git
     location: https://github.com/emilypi/base64-bytestring-kadena
     tag: 174af3523616c8fe01449da5ccbb9f16df097ac3
-    --sha256: sha256-kVFIy+Aj3TNJpsM1Cs/5uGmzeWwHKYWjjCQ+L1/XOj8=
+    --sha256: 0grssxgjygi4ijiqaa87diwv6sdqz77hldf3lr4k7p93w35lhlci
 
 source-repository-package
     type: git
