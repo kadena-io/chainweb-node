@@ -21,14 +21,12 @@
 
 -- |
 -- Module: ChainwebNode
--- Copyright: Copyright © 2018 Kadena LLC.
+-- Copyright: Copyright © 2024 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
---
-module Main
+module ChainwebNode
 (
 -- * Configuration
   ChainwebNodeConfiguration(..)
