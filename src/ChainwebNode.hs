@@ -30,6 +30,11 @@ module ChainwebNode
 (
 -- * Configuration
   ChainwebNodeConfiguration(..)
+, defaultChainwebNodeConfiguration
+, nodeConfigChainweb
+, nodeConfigLog
+, nodeConfigDatabaseDirectory
+, nodeConfigResetChainDbs
 
 -- * Monitor
 , runCutMonitor
@@ -38,6 +43,7 @@ module ChainwebNode
 -- * Chainweb Node
 , node
 , withNodeLogger
+, withServiceDate
 
 -- * Main function
 , main

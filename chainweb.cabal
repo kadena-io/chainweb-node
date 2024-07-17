@@ -676,6 +676,28 @@ executable chainweb-node
         -- external
         , base >= 4.12 && < 5
 
+executable replay
+    import: warning-flags, debugging-flags
+
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+        "-with-rtsopts=-N -H1G -A64M --disable-delayed-os-memory-return"
+        -rtsopts
+    hs-source-dirs: replay
+    main-is: Main.hs
+    build-depends:
+        -- internal
+        , chainweb
+
+        -- external
+        , base >= 4.12 && < 5
+        , lens >= 4.17
+        , loglevel >= 0.1
+        , optparse-applicative >= 0.14
+        , text >= 2.0
+        , time >= 1.12.2
+
 executable cwtool
     import: warning-flags, debugging-flags
     default-language: Haskell2010
