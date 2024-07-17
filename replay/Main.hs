@@ -9,7 +9,7 @@ module Main (main) where
 
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Chainweb (ChainwebStatus(..))
-import Chainweb.Chainweb.Configuration (ChainwebConfiguration(..), defaultChainwebConfiguration, defaultCutConfig, configP2p, configReadOnlyReplay, configOnlySyncPact, configCuts, cutInitialBlockHeightLimit, cutFastForwardBlockHeightLimit)
+import Chainweb.Chainweb.Configuration (ChainwebConfiguration(..), defaultChainwebConfiguration, defaultCutConfig, configP2p, configReadOnlyReplay, configFullHistoricPactState, configOnlySyncPact, configCuts, cutInitialBlockHeightLimit, cutFastForwardBlockHeightLimit)
 import Chainweb.Logger (logFunctionJson, logFunctionText)
 import Chainweb.Utils (fromText)
 import Chainweb.Version (ChainwebVersion(..))
@@ -51,14 +51,15 @@ mkReplayConfiguration cfg = defaultChainwebNodeConfiguration
   & nodeConfigChainweb .~ cwConfig
   where
     cwConfig = defaultChainwebConfiguration mainnet
-      & configReadOnlyReplay .~ cfg.readOnly
-      & configOnlySyncPact .~ not cfg.readOnly
+      & configReadOnlyReplay .~ not cfg.noReadOnly
+      & configOnlySyncPact .~ cfg.noReadOnly
       & configCuts .~ (defaultCutConfig & cutInitialBlockHeightLimit .~ cfg.initialBlockHeightLimit & cutFastForwardBlockHeightLimit .~ cfg.fastForwardBlockHeightLimit)
       & configP2p .~ (defaultP2pConfiguration & p2pConfigBootstrapReachability .~ 0 & p2pConfigIgnoreBootstrapNodes .~ True)
+      & configFullHistoricPactState .~ False
 
 data Config = Config
   { chainwebVersion :: ChainwebVersion
-  , readOnly :: Bool
+  , noReadOnly :: Bool
   , databaseDir :: FilePath
   , initialBlockHeightLimit :: Maybe BlockHeight
   , fastForwardBlockHeightLimit :: Maybe BlockHeight
@@ -74,7 +75,7 @@ getConfig = do
     parser :: O.Parser Config
     parser = Config
       <$> (parseVersion <$> O.strOption (O.long "chainweb-version" <> O.help "chainweb version (e.g. mainnet01, testnet04)" <> O.value "mainnet01"))
-      <*> O.switch (O.long "read-only" <> O.help "Run in read-only mode")
+      <*> O.switch (O.long "no-read-only" <> O.help "Don't run in read-only mode")
       <*> O.strOption (O.long "database-dir" <> O.help "Path to the database directory")
       <*> optional (BlockHeight <$> O.option O.auto (O.long "initial-block-height-limit" <> O.help "Initial block height limit"))
       <*> optional (BlockHeight <$> O.option O.auto (O.long "fast-forward-block-height-limit" <> O.help "Fast forward block height limit"))
