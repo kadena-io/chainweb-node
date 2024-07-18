@@ -53,6 +53,7 @@ jobs:
       eventlog: ${{ steps.compile-flags.outputs.eventlog }}
       tag-suffix: ${{ steps.compile-flags.outputs.tag-suffix }}
       chainweb-network-version: ${{ steps.compile-flags.outputs.chainweb-network-version }}
+      github-app-auth: ${{ steps.githubAppAuth.outputs.access-token }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -175,6 +176,12 @@ jobs:
         echo "config.outputs.matrix=${{ steps.set-matrix.outputs.matrix }}"
         echo "::endgroup::"
 
+    - uses: Nastaliss/get-github-app-pat@v1
+      id: githubAppAuth
+      with:
+        app-id: ${{ secrets.GH_KADENAINFRA_APP_ID }}
+        app-installation-id: ${{ secrets.GH_KADENAINFRA_APP_INSTALLATION_ID }}
+        app-private-key: ${{ secrets.GH_KADENAINFRA_APP_PRIVATE_KEY }}
   # ########################################################################## #
   # Download Development Database for Testing
   #
@@ -740,16 +747,12 @@ jobs:
     name: Run Integration Tests from remote repo
     needs: [ config, docker-image ]
     runs-on: ubuntu-latest
-
-    env:
-      GIT_SHA_SHORT: ${{ needs.config.outputs.git-sha-short }}
-
     steps:
     - name: Start remote integration tests
-      uses: aurelien-baudet/workflow-dispatch@93e95b157d791ae7f42aef8f8a0d3d723eba1c31
+      uses: aurelien-baudet/workflow-dispatch@2.1.1
       with:
         workflow: Integration Tests on devnet chain
-        token: ${{ secrets.GH_WORKFLOW_PAT_FOR_TESTS }}
+        token: ${{ needs.config.outputs.github-app-auth }}
         inputs: '{ "chainweb_node_container_id" : "sha-${{ needs.config.outputs.git-sha-short }}${{ needs.docker-image.outputs.docker-suffix }}" }'
         ref: refs/heads/master
         repo: kadena-io/integration-tests
