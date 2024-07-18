@@ -749,7 +749,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Start remote integration tests
-      uses: aurelien-baudet/workflow-dispatch@2.1.1
+      uses: the-actions-org/workflow-dispatch@v4.0.0
       with:
         workflow: Integration Tests on devnet chain
         token: ${{ needs.config.outputs.github-app-auth }}
