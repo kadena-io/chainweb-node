@@ -53,7 +53,6 @@ jobs:
       eventlog: ${{ steps.compile-flags.outputs.eventlog }}
       tag-suffix: ${{ steps.compile-flags.outputs.tag-suffix }}
       chainweb-network-version: ${{ steps.compile-flags.outputs.chainweb-network-version }}
-      github-app-auth: ${{ steps.githubAppAuth.outputs.access-token }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -176,12 +175,6 @@ jobs:
         echo "config.outputs.matrix=${{ steps.set-matrix.outputs.matrix }}"
         echo "::endgroup::"
 
-    - uses: Nastaliss/get-github-app-pat@v1
-      id: githubAppAuth
-      with:
-        app-id: ${{ secrets.GH_KADENAINFRA_APP_ID }}
-        app-installation-id: ${{ secrets.GH_KADENAINFRA_APP_INSTALLATION_ID }}
-        app-private-key: ${{ secrets.GH_KADENAINFRA_APP_PRIVATE_KEY }}
   # ########################################################################## #
   # Download Development Database for Testing
   #
@@ -748,11 +741,18 @@ jobs:
     needs: [ config, docker-image ]
     runs-on: ubuntu-latest
     steps:
+    - name: Get auth token
+      uses: Nastaliss/get-github-app-pat@683b0b370911354c411dbbc586b7c64f32b2b850
+      id: githubAppAuth
+      with:
+        app-id: ${{ secrets.GH_KADENAINFRA_APP_ID }}
+        app-installation-id: ${{ secrets.GH_KADENAINFRA_APP_INSTALLATION_ID }}
+        app-private-key: ${{ secrets.GH_KADENAINFRA_APP_PRIVATE_KEY }}
     - name: Start remote integration tests
       uses: the-actions-org/workflow-dispatch@v4.0.0
       with:
         workflow: Integration Tests on devnet chain
-        token: ${{ needs.config.outputs.github-app-auth }}
+        token: ${{ steps.githubAppAuth.outputs.access-token }}
         inputs: '{ "chainweb_node_container_id" : "sha-${{ needs.config.outputs.git-sha-short }}${{ needs.docker-image.outputs.docker-suffix }}" }'
         ref: refs/heads/master
         repo: kadena-io/integration-tests
