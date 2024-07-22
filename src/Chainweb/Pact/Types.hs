@@ -355,10 +355,10 @@ defaultOnFatalError lf pex t = do
 
 type ModuleInitCache = M.Map BlockHeight ModuleCache
 
-data PactBlockEnv logger tbl = PactBlockEnv
+data PactBlockEnv logger db tbl = PactBlockEnv
   { _psServiceEnv :: !(PactServiceEnv logger tbl)
   , _psParentHeader :: !ParentHeader
-  , _psBlockDbEnv :: !(CurrentBlockDbEnv logger)
+  , _psBlockDbEnv :: !db
   }
 
 data PactServiceState = PactServiceState
@@ -368,9 +368,9 @@ data PactServiceState = PactServiceState
 makeLenses ''PactServiceState
 makeLenses ''PactBlockEnv
 
-instance HasChainwebVersion (PactBlockEnv logger tbl) where
+instance HasChainwebVersion (PactBlockEnv logger db tbl) where
   chainwebVersion = psServiceEnv . chainwebVersion
-instance HasChainId (PactBlockEnv logger tbl) where
+instance HasChainId (PactBlockEnv logger db tbl) where
   chainId = psServiceEnv . chainId
 
 -- | Convert context to datatype for Pact environment.
@@ -429,7 +429,7 @@ guardCtx :: (ChainwebVersion -> ChainId -> BlockHeight -> a) -> TxContext -> a
 guardCtx g txCtx = g (ctxVersion txCtx) (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
 
 -- | Assemble tx context from transaction metadata and parent header.
-getTxContext :: Miner -> PublicMeta -> PactBlockM logger tbl TxContext
+getTxContext :: Miner -> PublicMeta -> PactBlockM logger db tbl TxContext
 getTxContext miner pm = view psParentHeader >>= \ph -> return (TxContext ph pm miner)
 
 -- | The top level monad of PactService, notably allowing access to a
@@ -469,12 +469,12 @@ withPactState inner = bracket captureState releaseState $ \ref -> do
     releaseState = liftIO . readIORef >=> put
 
 -- | A sub-monad of PactServiceM, for actions taking place at a particular block.
-newtype PactBlockM logger tbl a = PactBlockM
+newtype PactBlockM logger db tbl a = PactBlockM
   { _unPactBlockM ::
-       ReaderT (PactBlockEnv logger tbl) (StateT PactServiceState IO) a
+       ReaderT (PactBlockEnv logger db tbl) (StateT PactServiceState IO) a
   } deriving newtype
     ( Functor, Applicative, Monad
-    , MonadReader (PactBlockEnv logger tbl)
+    , MonadReader (PactBlockEnv logger db tbl)
     , MonadState PactServiceState
     , MonadThrow, MonadCatch, MonadMask
     , MonadIO
@@ -482,11 +482,11 @@ newtype PactBlockM logger tbl a = PactBlockM
 
 -- | Lifts PactServiceM to PactBlockM by forgetting about the current block.
 -- It is unsafe to use `runPactBlockM` inside the argument to this function.
-liftPactServiceM :: PactServiceM logger tbl a -> PactBlockM logger tbl a
+liftPactServiceM :: PactServiceM logger tbl a -> PactBlockM logger db tbl a
 liftPactServiceM (PactServiceM a) = PactBlockM (magnify psServiceEnv a)
 
 -- | Look up an init cache that is stored at or before the height of the current parent header.
-getInitCache :: PactBlockM logger tbl ModuleCache
+getInitCache :: PactBlockM logger db tbl ModuleCache
 getInitCache = do
   ph <- views psParentHeader (_blockHeight . _parentHeader)
   get >>= \PactServiceState{..} ->
@@ -514,7 +514,7 @@ updateInitCache mc ph = get >>= \PactServiceState{..} -> do
         | otherwise -> M.insert pbh (before <> mc) _psInitCache
 
 -- | A wrapper for 'updateInitCache' that uses the current block.
-updateInitCacheM :: ModuleCache -> PactBlockM logger tbl ()
+updateInitCacheM :: ModuleCache -> PactBlockM logger db tbl ()
 updateInitCacheM mc = do
   pc <- view psParentHeader
   liftPactServiceM $
@@ -524,8 +524,8 @@ updateInitCacheM mc = do
 -- a database snapshot at that block and information about the parent header.
 -- It is unsafe to use this function in an argument to `liftPactServiceM`.
 runPactBlockM
-    :: ParentHeader -> CurrentBlockDbEnv logger
-    -> PactBlockM logger tbl a -> PactServiceM logger tbl a
+    :: ParentHeader -> db
+    -> PactBlockM logger db tbl a -> PactServiceM logger tbl a
 runPactBlockM pctx dbEnv (PactBlockM r) = PactServiceM $ ReaderT $ \e -> StateT $ \s ->
   runStateT (runReaderT r (PactBlockEnv e pctx dbEnv)) s
 
@@ -565,10 +565,10 @@ execPactServiceM
 execPactServiceM st env act
     = execStateT (runReaderT (_unPactServiceM act) env) st
 
-tracePactBlockM :: (Logger logger, ToJSON param) => Text -> param -> Int -> PactBlockM logger tbl a -> PactBlockM logger tbl a
+tracePactBlockM :: (Logger logger, ToJSON param) => Text -> param -> Int -> PactBlockM logger db tbl a -> PactBlockM logger db tbl a
 tracePactBlockM label param weight a = tracePactBlockM' label param (const weight) a
 
-tracePactBlockM' :: (Logger logger, ToJSON param) => Text -> param -> (a -> Int) -> PactBlockM logger tbl a -> PactBlockM logger tbl a
+tracePactBlockM' :: (Logger logger, ToJSON param) => Text -> param -> (a -> Int) -> PactBlockM logger db tbl a -> PactBlockM logger db tbl a
 tracePactBlockM' label param calcWeight a = do
     e <- ask
     s <- get
@@ -643,7 +643,7 @@ localLabel :: (Logger logger) => (Text, Text) -> PactServiceM logger tbl x -> Pa
 localLabel lbl x = do
   locally psLogger (addLabel lbl) x
 
-localLabelBlock :: (Logger logger) => (Text, Text) -> PactBlockM logger tbl x -> PactBlockM logger tbl x
+localLabelBlock :: (Logger logger) => (Text, Text) -> PactBlockM logger db tbl x -> PactBlockM logger db tbl x
 localLabelBlock lbl x = do
   locally (psServiceEnv . psLogger) (addLabel lbl) x
 
