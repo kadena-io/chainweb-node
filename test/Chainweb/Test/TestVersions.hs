@@ -153,7 +153,7 @@ fastForks = tabulateHashMap $ \case
     PactEvents -> AllChains ForkAtGenesis
     CoinV2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
     Pact42 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
-    Pact5 -> AllChains $ ForkAtBlockHeight 42
+    Pact5Fork -> AllChains $ ForkAtBlockHeight 42
     SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
     ModuleNameFix -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
     ModuleNameFix2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
@@ -194,8 +194,7 @@ barebonesTestVersion g = buildTestVersion $ \v ->
             , _genesisTime = AllChains $ BlockCreationTime epoch
             }
         & versionForks .~ HM.fromList [ (f, AllChains ForkAtGenesis) | f <- [minBound..maxBound] ]
-        & versionPact4Upgrades .~ AllChains HM.empty
-        & versionPact5Upgrades .~ AllChains HM.empty
+        & versionUpgrades .~ AllChains HM.empty
 
 -- | A test version without Pact or PoW, with a chain graph upgrade at block height 8.
 timedConsensusVersion :: ChainGraph -> ChainGraph -> ChainwebVersion
@@ -209,8 +208,7 @@ timedConsensusVersion g1 g2 = buildTestVersion $ \v -> v
         -- pact is disabled, we don't care about pact forks
         _ -> AllChains ForkAtGenesis
     )
-    & versionPact4Upgrades .~ AllChains HM.empty
-    & versionPact5Upgrades .~ AllChains HM.empty
+    & versionUpgrades .~ AllChains HM.empty
     & versionGraphs .~ (BlockHeight 8, g2) `Above` (End g1)
     & versionCheats .~ VersionCheats
         { _disablePow = True
@@ -241,8 +239,7 @@ pact5CheckpointerTestVersion g1 = buildTestVersion $ \v -> v
         -- pact is disabled, we don't care about pact forks
         _ -> AllChains ForkAtGenesis
     )
-    & versionPact4Upgrades .~ AllChains HM.empty
-    & versionPact5Upgrades .~ AllChains HM.empty
+    & versionUpgrades .~ AllChains HM.empty
     & versionGraphs .~ End g1
     & versionCheats .~ VersionCheats
         { _disablePow = True
@@ -282,16 +279,15 @@ cpmTestVersion g v = v
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
-    & versionPact4Upgrades .~ chainZip HM.union
+    & versionUpgrades .~ chainZip HM.union
         (indexByForkHeights v
-            [ (CoinV2, AllChains (pact4Upgrade Other.transactions))
-            , (Pact4Coin3, AllChains (Pact4Upgrade CoinV3.transactions True))
-            , (Chainweb214Pact, AllChains (Pact4Upgrade CoinV4.transactions True))
-            , (Chainweb215Pact, AllChains (Pact4Upgrade CoinV5.transactions True))
-            , (Chainweb223Pact, AllChains (pact4Upgrade CoinV6.transactions))
+            [ (CoinV2, AllChains (ForPact4 $ pact4Upgrade Other.transactions))
+            , (Pact4Coin3, AllChains (ForPact4 $ Pact4Upgrade CoinV3.transactions True))
+            , (Chainweb214Pact, AllChains (ForPact4 $ Pact4Upgrade CoinV4.transactions True))
+            , (Chainweb215Pact, AllChains (ForPact4 $ Pact4Upgrade CoinV5.transactions True))
+            , (Chainweb223Pact, AllChains (ForPact4 $ pact4Upgrade CoinV6.transactions))
             ])
-        (onChains [(unsafeChainId 3, HM.singleton (BlockHeight 2) (Pact4Upgrade MNKAD.transactions False))])
-    & versionPact5Upgrades .~ AllChains HM.empty
+        (onChains [(unsafeChainId 3, HM.singleton (BlockHeight 2) (ForPact4 $ Pact4Upgrade MNKAD.transactions False))])
 
 slowForks :: HashMap Fork (ChainMap ForkHeight)
 slowForks = tabulateHashMap \case
@@ -308,7 +304,7 @@ slowForks = tabulateHashMap \case
     ModuleNameFix -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
     ModuleNameFix2 -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
     Pact42 -> AllChains $ ForkAtBlockHeight (BlockHeight 5)
-    Pact5 -> AllChains $ ForkAtBlockHeight (BlockHeight 115)
+    Pact5Fork -> AllChains $ ForkAtBlockHeight (BlockHeight 115)
     CheckTxHash -> AllChains $ ForkAtBlockHeight (BlockHeight 7)
     EnforceKeysetFormats -> AllChains $ ForkAtBlockHeight (BlockHeight 10)
     PactEvents -> AllChains $ ForkAtBlockHeight (BlockHeight 10)
@@ -371,7 +367,7 @@ instantCpmTestVersion g = buildTestVersion $ \v -> v
     & versionName .~ ChainwebVersionName ("instant-CPM-" <> toText g)
     & versionForks .~ tabulateHashMap (\case
         -- genesis blocks are not ever run with Pact 5
-        Pact5 -> onChains [ (cid, ForkAtBlockHeight (succ $ genesisHeightSlow v cid)) | cid <- HS.toList $ graphChainIds g ]
+        Pact5Fork -> onChains [ (cid, ForkAtBlockHeight (succ $ genesisHeightSlow v cid)) | cid <- HS.toList $ graphChainIds g ]
         _ -> AllChains ForkAtGenesis
         )
     & versionGenesis .~ VersionGenesis
@@ -381,8 +377,7 @@ instantCpmTestVersion g = buildTestVersion $ \v -> v
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
-    & versionPact4Upgrades .~ AllChains mempty
-    & versionPact5Upgrades .~ AllChains mempty
+    & versionUpgrades .~ AllChains mempty
     & versionVerifierPluginNames .~ AllChains
         (End $ Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"])
 
@@ -390,4 +385,4 @@ pact5EarlyTestVersion :: ChainGraph -> ChainwebVersion
 pact5EarlyTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("pact5-early-" <> toText g)
-    & versionForks .~ (fastForks & at Pact5 .~ Just (AllChains $ ForkAtBlockHeight 115))
+    & versionForks .~ (fastForks & at Pact5Fork .~ Just (AllChains $ ForkAtBlockHeight 115))

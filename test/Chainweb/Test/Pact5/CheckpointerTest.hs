@@ -131,7 +131,7 @@ hoistDbAction f (DbCreateTable tn es) = DbCreateTable tn (f es)
 tryShow :: IO a -> IO (Either String a)
 tryShow = fmap (over _Left show) . tryAny
 
-runDbAction :: CoreDb -> DbAction (Const ()) -> IO (DbAction Identity)
+runDbAction :: Pact5Db -> DbAction (Const ()) -> IO (DbAction Identity)
 runDbAction pactDb act =
     fmap (hoistDbAction (\(Pair (Const ()) fa) -> fa))
         $ runDbAction' pactDb act
@@ -139,7 +139,7 @@ runDbAction pactDb act =
 extractInt :: RowData -> IO Integer
 extractInt (RowData m) = evaluate (m ^?! ix (Field "k") . _PLiteral . _LInteger)
 
-runDbAction' :: CoreDb -> DbAction f -> IO (DbAction (Product f Identity))
+runDbAction' :: Pact5Db -> DbAction f -> IO (DbAction (Product f Identity))
 runDbAction' pactDb = \case
     DbRead tn k v -> do
             maybeValue <- tryShow $ _pdbRead pactDb (DUserTables (mkTableName tn)) k

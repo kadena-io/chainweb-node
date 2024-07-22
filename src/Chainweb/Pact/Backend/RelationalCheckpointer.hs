@@ -151,7 +151,7 @@ doReadFrom
   -> SQLiteEnv
   -> MVar (DbCache PersistModuleData)
   -> Maybe ParentHeader
-  -> (CurrentBlockDbEnv logger -> IO a)
+  -> (CurrentBlockDbEnv logger (DynamicPactDb logger) -> IO a)
   -> IO (Historical a)
 doReadFrom logger v cid sql moduleCacheVar maybeParent doRead = do
   let currentHeight = case maybeParent of
@@ -209,7 +209,7 @@ doRestoreAndSave
   -> IntraBlockPersistence
   -> MVar (DbCache PersistModuleData)
   -> Maybe ParentHeader
-  -> Stream (Of (RunnableBlock logger q)) IO r
+  -> Stream (Of (RunnableBlock logger (DynamicPactDb logger) q)) IO r
   -> IO (r, q)
 doRestoreAndSave logger v cid sql p moduleCacheVar rewindParent blocks = do
     modifyMVar moduleCacheVar $ \moduleCache -> do

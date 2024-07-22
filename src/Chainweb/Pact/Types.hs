@@ -16,6 +16,9 @@
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE UndecidableInstances #-}
 -- |
 -- Module: Chainweb.Pact.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -86,6 +89,9 @@ module Chainweb.Pact.Types
   , psParentHeader
   , psServiceEnv
   , runPactBlockM
+  , dispatchBlockOnPactVersion
+  , assertBlockPact4
+  , assertBlockPact5
 
     -- * Logging with Pact logger
 
@@ -191,6 +197,7 @@ import Utils.Logging.Trace
 import Data.Decimal (Decimal)
 import qualified Pact.Core.StableEncoding as Pact5
 import qualified Pact.Core.Literal as Pact5
+import Chainweb.Version.Guards (pact5)
 
 -- -------------------------------------------------------------------------- --
 -- Coinbase output utils
@@ -358,7 +365,7 @@ type ModuleInitCache = M.Map BlockHeight ModuleCache
 data PactBlockEnv logger db tbl = PactBlockEnv
   { _psServiceEnv :: !(PactServiceEnv logger tbl)
   , _psParentHeader :: !ParentHeader
-  , _psBlockDbEnv :: !db
+  , _psBlockDbEnv :: !(CurrentBlockDbEnv logger db)
   }
 
 data PactServiceState = PactServiceState
@@ -480,6 +487,35 @@ newtype PactBlockM logger db tbl a = PactBlockM
     , MonadIO
     )
 
+type instance Magnified (PactBlockM logger db tbl) = Magnified (ReaderT (PactBlockEnv logger db tbl) (StateT PactServiceState IO))
+instance Magnify
+  (PactBlockM logger db tbl) (PactBlockM logger db' tbl)
+  (PactBlockEnv logger db tbl) (PactBlockEnv logger db' tbl) where
+  magnify l (PactBlockM p) = PactBlockM (magnify l p)
+
+dispatchBlockOnPactVersion
+  :: ChainwebVersion
+  -> ChainId
+  -> BlockHeight
+  -> PactBlockM logger (Pact4Db logger) tbl a
+  -> PactBlockM logger Pact5Db tbl a
+  -> PactBlockM logger (DynamicPactDb logger) tbl a
+dispatchBlockOnPactVersion v cid bh ifPact4 ifPact5
+    | pact5 v cid bh = assertBlockPact4 ifPact4
+    | otherwise = assertBlockPact5 ifPact5
+
+assertBlockPact4 :: PactBlockM logger (Pact4Db logger) tbl a -> PactBlockM logger (DynamicPactDb logger) tbl a
+assertBlockPact4 act = do
+  env <- ask
+  env' <- env & traverseOf (psBlockDbEnv . cpPactDbEnv) assertDynamicPact4Db
+  magnify (to (\_ -> env')) act
+
+assertBlockPact5 :: PactBlockM logger Pact5Db tbl a -> PactBlockM logger (DynamicPactDb logger) tbl a
+assertBlockPact5 act = do
+  env <- ask
+  env' <- env & traverseOf (psBlockDbEnv . cpPactDbEnv) assertDynamicPact5Db
+  magnify (to (\_ -> env')) act
+
 -- | Lifts PactServiceM to PactBlockM by forgetting about the current block.
 -- It is unsafe to use `runPactBlockM` inside the argument to this function.
 liftPactServiceM :: PactServiceM logger tbl a -> PactBlockM logger db tbl a
@@ -524,7 +560,7 @@ updateInitCacheM mc = do
 -- a database snapshot at that block and information about the parent header.
 -- It is unsafe to use this function in an argument to `liftPactServiceM`.
 runPactBlockM
-    :: ParentHeader -> db
+    :: ParentHeader -> CurrentBlockDbEnv logger db
     -> PactBlockM logger db tbl a -> PactServiceM logger tbl a
 runPactBlockM pctx dbEnv (PactBlockM r) = PactServiceM $ ReaderT $ \e -> StateT $ \s ->
   runStateT (runReaderT r (PactBlockEnv e pctx dbEnv)) s

@@ -71,7 +71,7 @@ cpRestoreAndSave
   :: (Monoid q)
   => Checkpointer logger
   -> Maybe BlockHeader
-  -> [(BlockHeader, ChainwebPactDbEnv logger -> IO q)]
+  -> [(BlockHeader, Pact4Db logger -> IO q)]
   -> IO q
 cpRestoreAndSave cp pc blks = snd <$> _cpRestoreAndSave cp (ParentHeader <$> pc)
   (traverse Stream.yield [RunnableBlock $ \dbEnv _ -> (,bh) <$> fun (_cpPactDbEnv dbEnv) | (bh, fun) <- blks])

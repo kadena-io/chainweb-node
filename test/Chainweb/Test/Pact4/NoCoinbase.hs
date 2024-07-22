@@ -23,7 +23,7 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.Pact.NoCoinbase
+import Chainweb.Pact4.NoCoinbase
 import Chainweb.Payload
 
 tests :: TestTree

@@ -701,10 +701,10 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
 
 readInitModules
     :: forall logger tbl. (Logger logger)
-    => PactBlockM logger tbl ModuleCache
+    => PactBlockM logger (Pact4Db logger) tbl ModuleCache
 readInitModules = do
   logger <- view (psServiceEnv . psLogger)
-  dbEnv <- liftIO . assertDynamicPact4Db . _cpPactDbEnv =<< view psBlockDbEnv
+  dbEnv <- view (psBlockDbEnv . to _cpPactDbEnv)
   txCtx <- getTxContext noMiner def
 
   -- guarding chainweb 2.17 here to allow for
@@ -798,8 +798,8 @@ applyUpgrades
   -> BlockHeight
   -> TransactionM logger p (Maybe ModuleCache)
 applyUpgrades v cid height
-     | Just upg <-
-         v ^? versionPact4Upgrades . onChain cid . at height . _Just = applyUpgrade upg
+     | Just (ForPact4 upg) <-
+         v ^? versionUpgrades . onChain cid . at height . _Just = applyUpgrade upg
      | cleanModuleCache v cid height = filterModuleCache
      | otherwise = return Nothing
   where

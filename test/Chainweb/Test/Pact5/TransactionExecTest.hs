@@ -63,7 +63,7 @@ import qualified Chainweb.Pact5.TransactionExec
 import qualified Chainweb.Pact5.TransactionExec as Pact5
 import Chainweb.Pact5.Types (TxContext (..))
 import Chainweb.Payload (PayloadWithOutputs_ (_payloadWithOutputsPayloadHash), Transaction (Transaction))
-import Chainweb.Test.Pact4.Utils (stdoutDummyLogger, stdoutDummyLogger, withBlockHeaderDb)
+import Chainweb.Test.Pact4.Utils (dummyLogger, stdoutDummyLogger, withBlockHeaderDb)
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -74,7 +74,7 @@ import Chainweb.Version
 import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.PactService (initialPayloadState, withPactService)
 import Chainweb.Pact.PactService.Checkpointer (readFrom, restoreAndSave)
-import Chainweb.Pact.PactService.ExecBlock
+import Chainweb.Pact.PactService.Pact4.ExecBlock
 import Chainweb.Pact4.TransactionExec (applyGenesisCmd)
 import Chainweb.Pact5.Transaction
 import Chainweb.Pact5.TransactionExec
@@ -114,7 +114,20 @@ import Data.Maybe (fromMaybe)
 import GHC.Stack
 import Data.Decimal
 import PredicateTransformers as PT
+import Data.Text (Text)
 
+coinModule :: ModuleName
+coinModule = ModuleName "coin" Nothing
+
+-- usually we don't want to check the module hash
+event :: Predicatory p => Pred p Text -> Pred p [PactValue] -> Pred p ModuleName -> Pred p (PactEvent PactValue)
+event n args mod = satAll
+    [ pt _peName n
+    , pt _peArgs args
+    , pt _peModule mod
+    ]
+
+-- TODO: test for verifiers, test for upgrades, test for coin.transfer in an applyCmd call?
 tests :: RocksDb -> TestTree
 tests baseRdb = testGroup "Pact5 TransactionExecTest"
     [ testCase "buyGas should take gas tokens from the transaction sender" $ runResourceT $ do
@@ -123,7 +136,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
             cp <- initCheckpointer v cid sql
             tdb <- mkTestBlockDb v =<< testRocksDb "testBuyGas" baseRdb
             bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
-            T2 () _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+            T2 () _finalPactState <- withPactService v cid dummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
                 initialPayloadState v cid
                 (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader gh) $ do
                     db <- view psBlockDbEnv
@@ -144,7 +157,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                             }
 
                         let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
-                        buyGas stdoutDummyLogger pactDb txCtx (_payloadObj <$> cmd)
+                        buyGas dummyLogger pactDb txCtx (_payloadObj <$> cmd)
 
                         endSender00Bal <- readBal pactDb "sender00"
                         assertEqual "balance after buying gas" (Just $ 100_000_000 - 200 * 2) endSender00Bal
@@ -156,7 +169,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
           cp <- initCheckpointer v cid sql
           tdb <- mkTestBlockDb v =<< testRocksDb "testBuyGas" baseRdb
           bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
-          T2 () _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+          T2 () _finalPactState <- withPactService v cid dummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
             initialPayloadState v cid
             (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader gh) $ do
               db <- view psBlockDbEnv
@@ -177,7 +190,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                   , _cbGasLimit = GasLimit (Gas 100_000)
                   }
                 let txCtx' = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
-                e <- try @_ @SomeException $ buyGas stdoutDummyLogger pactDb txCtx' (_payloadObj <$> cmd)
+                e <- try @_ @SomeException $ buyGas dummyLogger pactDb txCtx' (_payloadObj <$> cmd)
                 case e of
                   _ -> print e
 
@@ -189,7 +202,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
             cp <- initCheckpointer v cid sql
             tdb <- mkTestBlockDb v =<< testRocksDb "testBuyGas" baseRdb
             bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
-            T2 () _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+            T2 () _finalPactState <- withPactService v cid dummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
                 initialPayloadState v cid
                 (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader gh) $ do
                     db <- view psBlockDbEnv
@@ -212,7 +225,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                         let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
                         -- redeeming gas with 3 gas used, with a limit of 10, should return 7 gas worth of tokens
                         -- to the gas payer
-                        redeemGasResult <- redeemGas stdoutDummyLogger pactDb txCtx (Gas 3) Nothing (_payloadObj <$> cmd)
+                        redeemGasResult <- redeemGas dummyLogger pactDb txCtx (Gas 3) Nothing (_payloadObj <$> cmd)
                         endSender00Bal <- readBal pactDb "sender00"
                         assertEqual "balance after redeeming gas" (Just $ 100_000_000 + (10 - 3) * 2) endSender00Bal
                         endMinerBal <- readBal pactDb "NoMiner"
@@ -225,7 +238,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
             cp <- initCheckpointer v cid sql
             tdb <- mkTestBlockDb v =<< testRocksDb "testApplyPayload" baseRdb
             bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
-            T2 () _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+            T2 () _finalPactState <- withPactService v cid dummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
                 initialPayloadState v cid
                 payloadResult <- (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader gh) $ do
                     db <- view psBlockDbEnv
@@ -255,7 +268,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                         payloadResult <- runExceptT $
                             runReaderT
                                 (runTransactionM (runPayload Transactional pactDb noSPVSupport txCtx (_payloadObj <$> cmd)))
-                                (TransactionEnv stdoutDummyLogger gasEnv)
+                                (TransactionEnv dummyLogger gasEnv)
                         gasUsed <- readIORef gasRef
                         return (gasUsed, payloadResult)
 
@@ -280,7 +293,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
             cp <- initCheckpointer v cid sql
             tdb <- mkTestBlockDb v =<< testRocksDb "testApplyPayload" baseRdb
             bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
-            T2 () _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+            T2 () _finalPactState <- withPactService v cid dummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
                 initialPayloadState v cid
                 (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader gh) $ do
                     db <- view psBlockDbEnv
@@ -299,7 +312,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                             , _cbGasLimit = GasLimit (Gas 500)
                             }
                         let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
-                        commandResult <- applyLocal stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd)
+                        commandResult <- applyLocal dummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd)
                         assertEqual "applyLocal output should reflect evaluation of the transaction code"
                             (PactResultOk $ PInteger 15)
                             (_crResult commandResult)
@@ -314,6 +327,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                             , pt _crLogs . equals $ Just []
                             ]
 
+
                         endSender00Bal <- readBal pactDb "sender00"
                         assertEqual "ending balance should be equal" startSender00Bal endSender00Bal
                         endMinerBal <- readBal pactDb "NoMiner"
@@ -327,7 +341,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
             cp <- initCheckpointer v cid sql
             tdb <- mkTestBlockDb v =<< testRocksDb "testApplyPayload" baseRdb
             bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
-            T2 () _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+            T2 () _finalPactState <- withPactService v cid dummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
                 initialPayloadState v cid
                 (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader gh) $ do
                     db <- view psBlockDbEnv
@@ -350,14 +364,15 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                             }
                         let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
                         let expectedGasConsumed = 159
-                        commandResult <- applyCmd v stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                        commandResult <- applyCmd dummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
                         () <- commandResult & satAll
                             -- gas buy event
-                            [ pt _crEvents . soleElement $ satAll
-                                [ pt _peName . equals $ "TRANSFER"
-                                , pt _peArgs . equals $ [PString "sender00", PString "NoMiner", PDecimal 318.0]
-                                , pt _peModule . equals $ ModuleName "coin" Nothing
-                                ]
+
+                            [ pt _crEvents . soleElement $
+                                event
+                                    (equals "TRANSFER")
+                                    (equals [PString "sender00", PString "NoMiner", PDecimal 318.0])
+                                    (equals coinModule)
                             , pt _crResult . equals $ PactResultOk (PInteger 15)
                             -- reflects buyGas gas usage, as well as that of the payload
                             , pt _crGas . equals $ Gas expectedGasConsumed
@@ -397,7 +412,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
             cp <- initCheckpointer v cid sql
             tdb <- mkTestBlockDb v =<< testRocksDb "testApplyPayload" baseRdb
             bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
-            T2 () _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+            T2 () _finalPactState <- withPactService v cid dummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
                 initialPayloadState v cid
                 (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader gh) $ do
                     db <- view psBlockDbEnv
@@ -424,15 +439,14 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                             , _cbGasLimit = GasLimit (Gas 70_000)
                             }
                           let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
-                          commandResult <- applyCmd v stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                          commandResult <- applyCmd dummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
                           commandResult & satAll @(IO ()) @_
                             -- gas buy event
                             [ pt _crEvents $ PT.list
-                              [ satAll
-                                [ pt _peName . equals $ "TRANSFER"
-                                , pt _peArgs . equals $ [PString "sender00", PString "NoMiner", PDecimal 120316]
-                                , pt _peModule . equals $ ModuleName "coin" Nothing
-                                ]
+                              [ event
+                                (equals "TRANSFER")
+                                (equals [PString "sender00", PString "NoMiner", PDecimal 120316])
+                                (equals coinModule)
                               ]
                             , pt _crResult . equals $ PactResultOk (PString "Loaded module 02ebLE2w4YnM0JLBWjqpAmUtqdpMsdJgb-4DEm7ZwIs")
                             -- reflects buyGas gas usage, as well as that of the payload
@@ -456,7 +470,6 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                                         [ pt _txDomain . equals $ "USER_coin_coin-table"
                                         , pt _txKey . equals $ "sender00"
                                         ]
-
                                     ]
                             ]
 
@@ -476,7 +489,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                         do
                           cmd <- buildCwCmd "nonce" v baseCmd
                           let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
-                          commandResult <- applyCmd v stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                          commandResult <- applyCmd dummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
                           case _crResult commandResult of
                             PactResultErr (TxPactError (PEUserRecoverableError userRecoverableError _ _)) -> do
                               assertEqual "verifier failure" userRecoverableError (VerifierFailure (VerifierName "allow") "not in transaction")
@@ -512,15 +525,14 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                                 ]
                             }
                           let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
-                          commandResult <- applyCmd v stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                          commandResult <- applyCmd dummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
                           commandResult & satAll @(IO ()) @_
                             -- gas buy event
                             [ pt _crEvents $ PT.list
-                              [ satAll
-                                [ pt _peName . equals $ "TRANSFER"
-                                , pt _peArgs . equals $ [PString "sender00", PString "NoMiner", PDecimal 336]
-                                , pt _peModule . equals $ ModuleName "coin" Nothing
-                                ]
+                              [ event
+                                (equals "TRANSFER")
+                                (equals [PString "sender00", PString "NoMiner", PDecimal 336])
+                                (equals coinModule)
                               ]
                             , pt _crResult . equals $ PactResultOk (PInteger 1)
                             -- reflects buyGas gas usage, as well as that of the payload
@@ -552,7 +564,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
             cp <- initCheckpointer v cid sql
             tdb <- mkTestBlockDb v =<< testRocksDb "testApplyPayload" baseRdb
             bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
-            T2 () _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+            T2 () _finalPactState <- withPactService v cid dummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
                 initialPayloadState v cid
                 (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader gh) $ do
                     db <- view psBlockDbEnv
@@ -561,7 +573,6 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                         startSender00Bal <- readBal pactDb "sender00"
                         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
                         startMinerBal <- readBal pactDb "NoMiner"
-                        let coinModule = ModuleName "coin" Nothing
 
                         cmd <- buildCwCmd "nonce" v defaultCmd
                             { _cbRPC = mkExec' "(coin.transfer 'sender00 'sender01 420.0)"
@@ -578,20 +589,18 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                         let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
                         -- Note: if/when core changes gas prices, tweak here.
                         let expectedGasConsumed = 509
-                        commandResult <- applyCmd v stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                        commandResult <- applyCmd dummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
                         () <- commandResult & satAll
                             -- gas buy event
                             [ pt _crEvents $ PT.list
-                              [ satAll
-                                [ pt _peName . equals $ "TRANSFER"
-                                , pt _peArgs . equals $ [PString "sender00", PString "sender01", PDecimal 420]
-                                , pt _peModule . equals $ coinModule
-                                ]
-                              , satAll
-                                [ pt _peName . equals $ "TRANSFER"
-                                , pt _peArgs . equals $ [PString "sender00", PString "NoMiner", PDecimal 1018]
-                                , pt _peModule . equals $ coinModule
-                                ]
+                              [ event
+                                (equals "TRANSFER")
+                                (equals [PString "sender00", PString "sender01", PDecimal 420])
+                                (equals coinModule)
+                              , event
+                                (equals "TRANSFER")
+                                (equals [PString "sender00", PString "NoMiner", PDecimal 1018])
+                                (equals coinModule)
                               ]
                             , pt _crResult . equals $ PactResultOk (PString "Write succeeded")
                             -- reflects buyGas gas usage, as well as that of the payload
@@ -640,7 +649,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
             cp <- initCheckpointer v cid sql
             tdb <- mkTestBlockDb v =<< testRocksDb "testApplyPayload" baseRdb
             bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
-            T2 () _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+            T2 () _finalPactState <- withPactService v cid dummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
                 initialPayloadState v cid
                 (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader gh) $ do
                     db <- view psBlockDbEnv
@@ -649,7 +658,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                         startMinerBal <- readBal pactDb "NoMiner"
 
                         let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
-                        r <- applyCoinbase v stdoutDummyLogger pactDb 5 txCtx
+                        r <- applyCoinbase dummyLogger pactDb 5 txCtx
                         () <- r & satAll
                             [ pt _crResult . equals $ PactResultOk (PString "Write succeeded")
                             , pt _crGas . equals $ Gas 0
@@ -659,11 +668,11 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                                   , pt _txKey . equals $ "NoMiner"
                                   ]
                                 ]
-                            , pt _crEvents . soleElement $ satAll
-                                [ pt _peName . equals $ "TRANSFER"
-                                , pt _peArgs . equals $ [PString "", PString "NoMiner", PDecimal 5.0]
-                                , pt _peModule . equals $ ModuleName "coin" Nothing
-                                ]
+                            , pt _crEvents . soleElement $
+                                event
+                                    (equals "TRANSFER")
+                                    (equals [PString "", PString "NoMiner", PDecimal 5.0])
+                                    (equals coinModule)
                             ]
                         endMinerBal <- readBal pactDb "NoMiner"
                         assertEqual "miner balance should include block reward"

@@ -37,6 +37,9 @@ module Chainweb.Pact.Backend.Types
     , _cpRewindTo
     , ReadCheckpointer(..)
     , CurrentBlockDbEnv(..)
+    , cpPactDbEnv
+    , cpRegisterProcessedTx
+    , cpLookupProcessedTx
     , DynamicPactDb(..)
     , makeDynamicPactDb
     , assertDynamicPact4Db
@@ -48,8 +51,8 @@ module Chainweb.Pact.Backend.Types
     , pdbcLogDir
     , pdbcPersistDir
     , pdbcPragmas
-    , ChainwebPactDbEnv
-    , CoreDb
+    , Pact4Db
+    , Pact5Db
 
     , SQLiteRowDelta(..)
     , SQLitePendingTableCreations
@@ -325,8 +328,8 @@ newtype BlockHandler logger a = BlockHandler
         , MonadReader (BlockHandlerEnv logger)
         )
 
-type ChainwebPactDbEnv logger = PactDbEnv (BlockEnv logger)
-type CoreDb = Pact5.PactDb Pact5.CoreBuiltin Pact5.Info
+type Pact4Db logger = PactDbEnv (BlockEnv logger)
+type Pact5Db = Pact5.PactDb Pact5.CoreBuiltin Pact5.Info
 
 type ParentHash = BlockHash
 
@@ -334,7 +337,7 @@ type ParentHash = BlockHash
 data ReadCheckpointer logger = ReadCheckpointer
   { _cpReadFrom ::
     !(forall a. Maybe ParentHeader ->
-      (CurrentBlockDbEnv logger -> IO a) -> IO (Historical a))
+      (CurrentBlockDbEnv logger (DynamicPactDb logger) -> IO a) -> IO (Historical a))
     -- ^ rewind to a particular block *in-memory*, producing a read-write snapshot
     -- ^ of the database at that block to compute some value, after which the snapshot
     -- is discarded and nothing is saved to the database.
@@ -361,8 +364,8 @@ data ReadCheckpointer logger = ReadCheckpointer
 -- | A callback which writes a block's data to the input database snapshot,
 -- and knows its parent header (Nothing if it's a genesis block).
 -- Reports back its own header and some extra value.
-newtype RunnableBlock logger a = RunnableBlock
-  { runBlock :: CurrentBlockDbEnv logger -> Maybe ParentHeader -> IO (a, BlockHeader) }
+newtype RunnableBlock db logger a = RunnableBlock
+  { runBlock :: CurrentBlockDbEnv db logger -> Maybe ParentHeader -> IO (a, BlockHeader) }
 
 -- | One makes requests to the checkpointer to query the pact state at the
 -- current block or any earlier block, to extend the pact state with new blocks, and
@@ -372,7 +375,7 @@ data Checkpointer logger = Checkpointer
     !(forall q r.
       (HasCallStack, Monoid q) =>
       Maybe ParentHeader ->
-      Stream (Of (RunnableBlock logger q)) IO r ->
+      Stream (Of (RunnableBlock logger (DynamicPactDb logger) q)) IO r ->
       IO (r, q))
   -- ^ rewind to a particular block, and play a stream of blocks afterward,
   -- extending the chain and saving the result persistently. for example,
@@ -408,30 +411,30 @@ data Checkpointer logger = Checkpointer
 _cpRewindTo :: Checkpointer logger -> Maybe ParentHeader -> IO ()
 _cpRewindTo cp ancestor = void $ _cpRestoreAndSave cp
     ancestor
-    (pure () :: Stream (Of (RunnableBlock logger ())) IO ())
+    (pure () :: Stream (Of (RunnableBlock logger (DynamicPactDb logger) ())) IO ())
 
-data DynamicPactDb logger = Pact4Db (ChainwebPactDbEnv logger) | Pact5Db CoreDb
+data DynamicPactDb logger = Pact4Db (Pact4Db logger) | Pact5Db Pact5Db
 
 makeDynamicPactDb
   :: ChainwebVersion -> ChainId -> BlockHeight
-  -> ChainwebPactDbEnv logger -> CoreDb
+  -> Pact4Db logger -> Pact5Db
   -> DynamicPactDb logger
 makeDynamicPactDb v cid bh pact4Db pact5Db
   | pact5 v cid bh = Pact5Db pact5Db
   | otherwise = Pact4Db pact4Db
 
 -- TODO: make both of these errors InternalErrors, without incurring an import cycle
-assertDynamicPact4Db :: HasCallStack => DynamicPactDb logger -> IO (ChainwebPactDbEnv logger)
+assertDynamicPact4Db :: (MonadThrow m, HasCallStack) => DynamicPactDb logger -> m (Pact4Db logger)
 assertDynamicPact4Db (Pact4Db pact4Db) = return pact4Db
 assertDynamicPact4Db (Pact5Db _pact5Db) = error "expected Pact4 DB, got Pact5 DB"
 
-assertDynamicPact5Db :: HasCallStack => DynamicPactDb logger -> IO CoreDb
+assertDynamicPact5Db :: (MonadThrow m, HasCallStack) => DynamicPactDb logger -> m Pact5Db
 assertDynamicPact5Db (Pact5Db pact5Db) = return pact5Db
 assertDynamicPact5Db (Pact4Db _pact4Db) = error "expected Pact5 DB, got Pact4 DB"
 
 -- this is effectively a read-write snapshot of the Pact state at a block.
-data CurrentBlockDbEnv logger = CurrentBlockDbEnv
-    { _cpPactDbEnv :: !(DynamicPactDb logger)
+data CurrentBlockDbEnv logger db = CurrentBlockDbEnv
+    { _cpPactDbEnv :: !db
     , _cpRegisterProcessedTx :: !(P.PactHash -> IO ())
     , _cpLookupProcessedTx ::
         !(Vector P.PactHash -> IO (HashMap P.PactHash (T2 BlockHeight BlockHash)))
@@ -500,3 +503,4 @@ data Historical a
   deriving anyclass NFData
 
 makePrisms ''Historical
+makeLenses ''CurrentBlockDbEnv

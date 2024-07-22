@@ -115,7 +115,6 @@ testnet = ChainwebVersion
         Pact4Coin3 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1_261_000  -- 2021-06-17T15:54:14
         EnforceKeysetFormats -> AllChains $ ForkAtBlockHeight $ BlockHeight 1_701_000 -- 2021-11-18T17:54:36
         Pact42 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1_862_000  -- 2021-06-19T03:34:05
-        Pact5 -> AllChains ForkNever
         CheckTxHash -> AllChains $ ForkAtBlockHeight $ BlockHeight 1_889_000 -- 2022-01-24T04:19:24
         Chainweb213Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 1_974_556  -- 2022-02-25 00:00:00
         Chainweb214Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 2_134_331  -- 2022-04-21T12:00:00Z
@@ -131,6 +130,7 @@ testnet = ChainwebVersion
         Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 4_100_681 -- 2024-03-06 12:00:00+00:00
         Chainweb224Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 4_333_587 -- 2024-05-29 12:00:00+00:00
         Chainweb225Pact -> AllChains ForkNever
+        Pact5Fork -> AllChains ForkNever
 
     , _versionGraphs =
         (to20ChainsTestnet, twentyChainGraph) `Above`
@@ -154,27 +154,26 @@ testnet = ChainwebVersion
             , [(unsafeChainId i, PNN.payloadBlock) | i <- [1..19]]
             ]
         }
-    , _versionPact4Upgrades = chainZip HM.union
+    , _versionUpgrades = chainZip HM.union
         (indexByForkHeights testnet
         [ (CoinV2, onChains $
-            [ (unsafeChainId 0, pact4Upgrade MN0.transactions)
-            , (unsafeChainId 1, pact4Upgrade MN1.transactions)
-            , (unsafeChainId 2, pact4Upgrade MN2.transactions)
-            , (unsafeChainId 3, pact4Upgrade MN3.transactions)
-            , (unsafeChainId 4, pact4Upgrade MN4.transactions)
-            , (unsafeChainId 5, pact4Upgrade MN5.transactions)
-            , (unsafeChainId 6, pact4Upgrade MN6.transactions)
-            , (unsafeChainId 7, pact4Upgrade MN7.transactions)
-            , (unsafeChainId 8, pact4Upgrade MN8.transactions)
-            , (unsafeChainId 9, pact4Upgrade MN9.transactions)
+            [ (unsafeChainId 0, ForPact4 $ pact4Upgrade MN0.transactions)
+            , (unsafeChainId 1, ForPact4 $ pact4Upgrade MN1.transactions)
+            , (unsafeChainId 2, ForPact4 $ pact4Upgrade MN2.transactions)
+            , (unsafeChainId 3, ForPact4 $ pact4Upgrade MN3.transactions)
+            , (unsafeChainId 4, ForPact4 $ pact4Upgrade MN4.transactions)
+            , (unsafeChainId 5, ForPact4 $ pact4Upgrade MN5.transactions)
+            , (unsafeChainId 6, ForPact4 $ pact4Upgrade MN6.transactions)
+            , (unsafeChainId 7, ForPact4 $ pact4Upgrade MN7.transactions)
+            , (unsafeChainId 8, ForPact4 $ pact4Upgrade MN8.transactions)
+            , (unsafeChainId 9, ForPact4 $ pact4Upgrade MN9.transactions)
             ])
-        , (Pact4Coin3, AllChains (Pact4Upgrade CoinV3.transactions True))
-        , (Chainweb214Pact, AllChains (Pact4Upgrade CoinV4.transactions True))
-        , (Chainweb215Pact, AllChains (Pact4Upgrade CoinV5.transactions True))
-        , (Chainweb223Pact, AllChains $ pact4Upgrade CoinV6.transactions)
+        , (Pact4Coin3, AllChains (ForPact4 $ Pact4Upgrade CoinV3.transactions True))
+        , (Chainweb214Pact, AllChains (ForPact4 $ Pact4Upgrade CoinV4.transactions True))
+        , (Chainweb215Pact, AllChains (ForPact4 $ Pact4Upgrade CoinV5.transactions True))
+        , (Chainweb223Pact, AllChains $ ForPact4 $ pact4Upgrade CoinV6.transactions)
         ])
-        (onChains [(unsafeChainId 0, HM.singleton to20ChainsTestnet (pact4Upgrade MNKAD.transactions))])
-    , _versionPact5Upgrades = AllChains mempty
+        (onChains [(unsafeChainId 0, HM.singleton to20ChainsTestnet (ForPact4 $ pact4Upgrade MNKAD.transactions))])
     , _versionCheats = VersionCheats
         { _disablePow = False
         , _fakeFirstEpochStart = False

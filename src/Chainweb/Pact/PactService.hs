@@ -110,7 +110,7 @@ import Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.PactService.ExecBlock
+import Chainweb.Pact.PactService.Pact4.ExecBlock
 import Chainweb.Pact.PactService.Checkpointer
 import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
 import Chainweb.Pact.Service.Types
@@ -127,6 +127,7 @@ import Chainweb.Version
 import Chainweb.Version.Guards
 import Utils.Logging.Trace
 import Chainweb.Counter
+import qualified Chainweb.Pact.PactService.Pact4.ExecBlock as Pact4
 
 
 runPactService
@@ -256,12 +257,11 @@ initializeCoinContract v cid pwo = do
         logWarn "initializeCoinContract: Checkpointer returned no latest block. Starting from genesis."
         validateGenesis
       Just currentBlockHeader -> do
-        -- We check the block hash because it's more principled and
-        -- we don't have to compute it, so the comparison is still relatively
-        -- cheap. We could also check the height but that would be redundant.
-        if _blockHash (_parentHeader currentBlockHeader) /= _blockHash genesisHeader
+        if
+          _parentHeader currentBlockHeader /= genesisHeader &&
+          not (pact5 v cid $ _blockHeight (_parentHeader currentBlockHeader))
         then do
-          !mc <- readFrom (Just currentBlockHeader) Pact4.readInitModules >>= \case
+          !mc <- readFrom (Just currentBlockHeader) (assertBlockPact4 Pact4.readInitModules) >>= \case
             NoHistory -> throwM $ BlockHeaderLookupFailure
               $ "initializeCoinContract: internal error: latest block not found: " <> sshow currentBlockHeader
             Historical mc -> return mc
@@ -474,7 +474,7 @@ execNewBlock
   -> Miner
   -> NewBlockFill
   -> ParentHeader
-  -> PactServiceM logger tbl (Historical BlockInProgress)
+  -> PactServiceM logger tbl (Historical (ForSomePactVersion BlockInProgress))
 execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
     readFrom (Just newBlockParent) $ do
       blockDbEnv <- view psBlockDbEnv
@@ -485,267 +485,55 @@ execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
           logInfo $ "(parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
       blockGasLimit <- view (psServiceEnv . psBlockGasLimit)
-      initCache <- initModuleCacheForBlock False
-      coinbaseOutput <-
-          runPact4Coinbase False miner (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) initCache
-      finalBlockState <- fmap _benvBlockState
-        $ liftIO
-        $ readMVar
-        $ pdPactDbVar
-        $ pactDb
-      let blockInProgress = BlockInProgress
-              { _blockInProgressModuleCache = initCache
-              -- ^ we do not use the module cache populated by coinbase in
-              -- subsequent transactions
-              , _blockInProgressPendingData = _bsPendingBlock finalBlockState
-              , _blockInProgressTxId = _bsTxId finalBlockState
-              , _blockInProgressParentHeader = newBlockParent
-              , _blockInProgressRemainingGasLimit = fromIntegral blockGasLimit
-              , _blockInProgressTransactions = Transactions
-                  { _transactionCoinbase = coinbaseOutput
-                  , _transactionPairs = mempty
-                  }
-              , _blockInProgressMiner = miner
-              }
-      case fill of
-        NewBlockFill -> continueBlock mpAccess blockInProgress
-        NewBlockEmpty -> return blockInProgress
+      if pact5 v cid (succ pHeight) then do
+        assertBlockPact5 $ do
+          undefined
+      else assertBlockPact4 $ do
+        initCache <- initModuleCacheForBlock False
+        coinbaseOutput <- runPact4Coinbase False miner (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) initCache
+        finalBlockState <- fmap _benvBlockState
+          $ liftIO
+          $ readMVar
+          $ pdPactDbVar
+          $ pactDb
+        let blockInProgress = BlockInProgress
+                { _blockInProgressModuleCache = Pact4ModuleCache initCache
+                -- ^ we do not use the module cache populated by coinbase in
+                -- subsequent transactions
+                , _blockInProgressPendingData = _bsPendingBlock finalBlockState
+                , _blockInProgressTxId = _bsTxId finalBlockState
+                , _blockInProgressParentHeader = newBlockParent
+                , _blockInProgressRemainingGasLimit = fromIntegral blockGasLimit
+                , _blockInProgressTransactions = Transactions
+                    { _transactionCoinbase = coinbaseOutput
+                    , _transactionPairs = mempty
+                    }
+                , _blockInProgressMiner = miner
+                , _blockInProgressPactVersion = Pact4T
+                }
+        case fill of
+          NewBlockFill -> undefined -- continueBlock mpAccess Pact4T blockInProgress
+          NewBlockEmpty -> return (ForPact4 blockInProgress)
+    where
+    v = _chainwebVersion newBlockParent
+    cid = _chainId newBlockParent
 
 execContinueBlock
-    :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
+    :: forall logger tbl pv. (Logger logger, CanReadablePayloadCas tbl)
     => MemPoolAccess
-    -> BlockInProgress
-    -> PactServiceM logger tbl (Historical BlockInProgress)
+    -> BlockInProgress pv
+    -> PactServiceM logger tbl (Historical (BlockInProgress pv))
 execContinueBlock mpAccess blockInProgress = pactLabel "execNewBlock" $ do
-    readFrom (Just newBlockParent) $ continueBlock mpAccess blockInProgress
+    readFrom (Just newBlockParent) $
+      case _blockInProgressPactVersion blockInProgress of
+        Pact4T -> assertBlockPact4 $ Pact4.continueBlock mpAccess blockInProgress
+        Pact5T -> undefined
     where
     newBlockParent = _blockInProgressParentHeader blockInProgress
 
--- | Note: The ParentHeader param here is the PARENT HEADER of the new
--- block-to-be.
---
-continueBlock
-    :: forall logger tbl
-    . (Logger logger, CanReadablePayloadCas tbl)
-    => MemPoolAccess
-    -> BlockInProgress
-    -> PactBlockM logger tbl BlockInProgress
-continueBlock mpAccess blockInProgress = do
-    updateMempool
-    liftPactServiceM $
-      logInfo $ "(parent height = " <> sshow pHeight <> ")"
-            <> " (parent hash = " <> sshow pHash <> ")"
 
-    blockDbEnv <- view psBlockDbEnv
-    pactDb <- liftIO $ assertDynamicPact4Db (_cpPactDbEnv blockDbEnv)
-    -- restore the block state from the block being continued
-    liftIO $
-      modifyMVar_ (pdPactDbVar pactDb) $ \blockEnv ->
-        return
-          $! blockEnv
-          & benvBlockState . bsPendingBlock .~ _blockInProgressPendingData blockInProgress
-          & benvBlockState . bsTxId .~ _blockInProgressTxId blockInProgress
-
-    blockGasLimit <- view (psServiceEnv . psBlockGasLimit)
-
-    let
-        txTimeHeadroomFactor :: Double
-        txTimeHeadroomFactor = 5
-        -- 2.5 microseconds per unit gas
-        txTimeLimit :: Micros
-        txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit
-
-    let initCache = _blockInProgressModuleCache blockInProgress
-    let cb = _transactionCoinbase (_blockInProgressTransactions blockInProgress)
-    let startTxs = _transactionPairs (_blockInProgressTransactions blockInProgress)
-
-    successes <- liftIO $ Vec.fromFoldable startTxs
-    failures <- liftIO $ Vec.new @_ @_ @TransactionHash
-
-    let initState = BlockFill
-          (_blockInProgressRemainingGasLimit blockInProgress)
-          (S.fromList $ requestKeyToTransactionHash . P._crReqKey . snd <$> V.toList startTxs)
-          0
-
-    -- Heuristic: limit fetches to count of 1000-gas txs in block.
-    let fetchLimit = fromIntegral $ blockGasLimit `div` 1000
-    T2
-      finalModuleCache
-      BlockFill { _bfTxHashes = requestKeys, _bfGasLimit = finalGasLimit }
-      <- refill fetchLimit txTimeLimit successes failures initCache initState
-
-    liftPactServiceM $ logInfo $ "(request keys = " <> sshow requestKeys <> ")"
-
-    liftIO $ do
-      txHashes <- Vec.toLiftedVector failures
-      mpaBadlistTx mpAccess txHashes
-
-    txs <- liftIO $ Vec.toLiftedVector successes
-    -- edmund: we need to be careful about timeouts.
-    -- If a tx times out, it must not be in the block state, otherwise
-    -- the "block in progress" will contain pieces of state from that tx.
-    --
-    -- this cannot happen now because applyPactCmd doesn't let it.
-    finalBlockState <- fmap _benvBlockState
-      $ liftIO
-      $ readMVar
-      $ pdPactDbVar
-      $ pactDb
-    let !blockInProgress' = BlockInProgress
-            { _blockInProgressModuleCache = finalModuleCache
-            , _blockInProgressPendingData = _bsPendingBlock finalBlockState
-            , _blockInProgressTxId = _bsTxId finalBlockState
-            , _blockInProgressParentHeader = newBlockParent
-            , _blockInProgressRemainingGasLimit = finalGasLimit
-            , _blockInProgressTransactions = Transactions
-                { _transactionCoinbase = cb
-                , _transactionPairs = txs
-                }
-            , _blockInProgressMiner = _blockInProgressMiner blockInProgress
-            }
-    return blockInProgress'
-  where
-    newBlockParent = _blockInProgressParentHeader blockInProgress
-
-    !parentTime =
-      ParentCreationTime (_blockCreationTime $ _parentHeader newBlockParent)
-
-    getBlockTxs :: BlockFill -> PactBlockM logger tbl (Vector Pact4.Transaction)
-    getBlockTxs bfState = do
-      dbEnv <- view psBlockDbEnv
-      psEnv <- ask
-      logger <- view (psServiceEnv . psLogger)
-      let validate bhi _bha txs = do
-            results <- do
-                let v = _chainwebVersion psEnv
-                    cid = _chainId psEnv
-                validateChainwebTxs logger v cid dbEnv parentTime bhi txs return
-
-            V.forM results $ \case
-                Right _ -> return True
-                Left _e -> return False
-
-      liftIO $!
-        mpaGetBlock mpAccess bfState validate (pHeight + 1) pHash (_parentHeader newBlockParent)
-
-    refill
-      :: Word64
-      -> Micros
-      -> GrowableVec (Pact4.Transaction, P.CommandResult [P.TxLogJson])
-      -> GrowableVec TransactionHash
-      -> ModuleCache -> BlockFill
-      -> PactBlockM logger tbl (T2 ModuleCache BlockFill)
-    refill fetchLimit txTimeLimit successes failures = go
-      where
-        go :: ModuleCache -> BlockFill -> PactBlockM logger tbl (T2 ModuleCache BlockFill)
-        go mc unchanged@bfState = do
-
-          case unchanged of
-            BlockFill g _ c -> do
-              (goodLength, badLength) <- liftIO $ (,) <$> Vec.length successes <*> Vec.length failures
-              liftPactServiceM $ logDebug $ "Block fill: count=" <> sshow c
-                <> ", gaslimit=" <> sshow g <> ", good="
-                <> sshow goodLength <> ", bad=" <> sshow badLength
-
-              -- LOOP INVARIANT: limit absolute recursion count
-              if _bfCount bfState > fetchLimit then liftPactServiceM $ do
-                logInfo $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
-                pure (T2 mc unchanged)
-              else do
-                when (_bfGasLimit bfState < 0) $
-                  throwM $ MempoolFillFailure $ "Internal error, negative gas limit: " <> sshow bfState
-
-                if _bfGasLimit bfState == 0 then pure (T2 mc unchanged) else do
-
-                  newTrans <- getBlockTxs bfState
-                  if V.null newTrans then pure (T2 mc unchanged) else do
-
-                    T2 pairs mc' <-
-                      execTransactionsOnly
-                        (_blockInProgressMiner blockInProgress)
-                        newTrans
-                        mc
-                        (Just txTimeLimit)
-
-                    oldSuccessesLength <- liftIO $ Vec.length successes
-
-                    (newState, timedOut) <- splitResults successes failures unchanged (V.toList pairs)
-
-                    -- LOOP INVARIANT: gas must not increase
-                    when (_bfGasLimit newState > _bfGasLimit bfState) $
-                      throwM $ MempoolFillFailure $ "Gas must not increase: " <> sshow (bfState,newState)
-
-                    newSuccessesLength <- liftIO $ Vec.length successes
-                    let addedSuccessCount = newSuccessesLength - oldSuccessesLength
-
-                    if timedOut
-                    then
-                      -- a transaction timed out, so give up early and make the block
-                      pure (T2 mc' (incCount newState))
-                    else if (_bfGasLimit newState >= _bfGasLimit bfState) && addedSuccessCount > 0
-                    then
-                      -- INVARIANT: gas must decrease if any transactions succeeded
-                      throwM $ MempoolFillFailure
-                        $ "Invariant failure, gas did not decrease: "
-                        <> sshow (bfState,newState,V.length newTrans,addedSuccessCount)
-                    else
-                      go mc' (incCount newState)
-
-    incCount :: BlockFill -> BlockFill
-    incCount b = over bfCount succ b
-
-    -- | Split the results of applying each command into successes and failures,
-    --   and return the final 'BlockFill'.
-    --
-    --   If we encounter a 'TxTimeout', we short-circuit, and only return
-    --   what we've put into the block before the timeout. We also report
-    --   that we timed out, so that `refill` can stop early.
-    --
-    --   The failed txs are later badlisted.
-    splitResults :: ()
-      => GrowableVec (Pact4.Transaction, P.CommandResult [P.TxLogJson])
-      -> GrowableVec TransactionHash -- ^ failed txs
-      -> BlockFill
-      -> [(Pact4.Transaction, Either CommandInvalidError (P.CommandResult [P.TxLogJson]))]
-      -> PactBlockM logger tbl (BlockFill, Bool)
-    splitResults successes failures = go
-      where
-        go acc@(BlockFill g rks i) = \case
-          [] -> pure (acc, False)
-          (t, r) : rest -> case r of
-            Right cr -> do
-              !rks' <- enforceUnique rks (requestKeyToTransactionHash $ P._crReqKey cr)
-              -- Decrement actual gas used from block limit
-              let !g' = g - fromIntegral (P._crGas cr)
-              liftIO $ Vec.push successes (t, cr)
-              go (BlockFill g' rks' i) rest
-            Left (CommandInvalidGasPurchaseFailure (Pact4GasPurchaseFailure h _)) -> do
-              !rks' <- enforceUnique rks h
-              -- Gas buy failure adds failed request key to fail list only
-              liftIO $ Vec.push failures h
-              go (BlockFill g rks' i) rest
-            Left (CommandInvalidGasPurchaseFailure (Pact5GasPurchaseFailure h _)) ->
-              error "Pact5GasPurchaseFailure"
-            Left (CommandInvalidTxTimeout (TxTimeout h)) -> do
-              liftIO $ Vec.push failures h
-              liftPactServiceM $ logError $ "timed out on " <> sshow h
-              return (acc, True)
-
-    enforceUnique rks rk
-      | S.member rk rks =
-        throwM $ MempoolFillFailure $ "Duplicate transaction: " <> sshow rk
-      | otherwise = return $ S.insert rk rks
-
-    pHeight = _blockHeight $ _parentHeader newBlockParent
-    pHash = _blockHash $ _parentHeader newBlockParent
-
-    updateMempool = liftIO $ do
-          mpaProcessFork mpAccess $ _parentHeader newBlockParent
-          mpaSetLastHeader mpAccess $ _parentHeader newBlockParent
-
-type GrowableVec = Vec (PrimState IO)
-
--- | only for use in generating genesis blocks in tools
+-- | only for use in generating genesis blocks in tools.
+--   only supports Pact 4.
 --
 execNewGenesisBlock
     :: (Logger logger, CanReadablePayloadCas tbl)
@@ -755,11 +543,12 @@ execNewGenesisBlock
 execNewGenesisBlock miner newTrans = pactLabel "execNewGenesisBlock" $ do
     historicalBlock <- readFrom Nothing $ do
       -- NEW GENESIS COINBASE: Reject bad coinbase, use date rule for precompilation
-      results <- execTransactions True miner newTrans
-                 (EnforceCoinbaseFailure True)
-                 (CoinbaseUsePrecompiled False) Nothing Nothing
-                 >>= throwCommandInvalidError
-      return $! toPayloadWithOutputs miner results
+      results <- assertBlockPact4 $
+        execTransactions True miner newTrans
+          (EnforceCoinbaseFailure True)
+          (CoinbaseUsePrecompiled False) Nothing Nothing
+          >>= throwCommandInvalidError
+      return $! toPayloadWithOutputs Pact4T miner results
     case historicalBlock of
       NoHistory -> internalError "PactService.execNewGenesisBlock: Impossible error, unable to rewind before genesis"
       Historical block -> return block
@@ -837,7 +626,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                     liftIO $ writeIORef heightRef (_blockHeight bh)
                     payload <- liftIO $ fromJuste <$>
                       lookupPayloadDataWithHeight pdb (Just $ _blockHeight bh) (_blockPayloadHash bh)
-                    void $ execBlock bh (CheckablePayload payload)
+                    void $ assertBlockPact4 $ Pact4.execBlock bh (CheckablePayload payload)
             )
         validationFailed <- readIORef validationFailedRef
         when validationFailed $
@@ -1032,14 +821,14 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
                                     <> ". BlockPayloadHash: " <> encodeToText (_blockPayloadHash forkBh)
                                     <> ". Block: " <> encodeToText (ObjectEncoded forkBh)
                                 Just x -> return $ payloadWithOutputsToPayloadData x
-                            void $ execBlock forkBh (CheckablePayload payload)
+                            void $ assertBlockPact4 $ Pact4.execBlock forkBh (CheckablePayload payload)
                             return ([], forkBh)
                             ) forkBlockHeaders
 
                     -- run the new block, the one we're validating, and
                     -- validate its hashes
                     let runThisBlock = Stream.yield $ do
-                            !output <- execBlock headerToValidate payloadToValidate
+                            !output <- assertBlockPact4 $ Pact4.execBlock headerToValidate payloadToValidate
                             return ([output], headerToValidate)
 
                     -- here we rewind to the common ancestor block, run the
@@ -1120,13 +909,14 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
     let act =
           readFromLatest $ do
             pdb <- view psBlockDbEnv
+            db' <- traverseOf cpPactDbEnv assertDynamicPact4Db pdb
             pc <- view psParentHeader
             let
                 parentTime = ParentCreationTime (_blockCreationTime $ _parentHeader pc)
                 currHeight = succ $ _blockHeight $ _parentHeader pc
                 v = _chainwebVersion pc
                 cid = _chainId pc
-            liftIO $ validateChainwebTxs logger v cid pdb parentTime currHeight txs
+            liftIO $ Pact4.validateChainwebTxs logger v cid db' parentTime currHeight txs
               (evalPactServiceM psState psEnv . runPactBlockM pc pdb . attemptBuyGas noMiner)
     withPactState $ \run ->
       timeoutYield timeoutLimit (run act) >>= \case
@@ -1140,7 +930,7 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
         :: forall logger tbl. (Logger logger)
         => Miner
         -> Vector (Either InsertError Pact4.Transaction)
-        -> PactBlockM logger tbl (Vector (Either InsertError Pact4.Transaction))
+        -> PactBlockM logger (DynamicPactDb logger) tbl (Vector (Either InsertError Pact4.Transaction))
     attemptBuyGas miner txsOrErrs = localLabelBlock ("transaction", "attemptBuyGas") $ do
             mc <- getInitCache
             l <- view (psServiceEnv . psLogger)
@@ -1149,7 +939,7 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
         buyGasFor :: logger
           -> T2 (DL.DList (Either InsertError Pact4.Transaction)) ModuleCache
           -> Either InsertError Pact4.Transaction
-          -> PactBlockM logger tbl (T2 (DL.DList (Either InsertError Pact4.Transaction)) ModuleCache)
+          -> PactBlockM logger (DynamicPactDb logger) tbl (T2 (DL.DList (Either InsertError Pact4.Transaction)) ModuleCache)
         buyGasFor _l (T2 dl mcache) err@Left {} = return (T2 (DL.snoc dl err) mcache)
         buyGasFor l (T2 dl mcache) (Right tx) = do
             T2 mcache' !res <- do

@@ -220,7 +220,7 @@ pact42 :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 pact42 = checkFork atOrAfter Pact42
 
 pact5 :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
-pact5 = checkFork atOrAfter Pact5
+pact5 = checkFork atOrAfter Pact5Fork
 
 chainweb213Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb213Pact = checkFork atOrAfter Chainweb213Pact

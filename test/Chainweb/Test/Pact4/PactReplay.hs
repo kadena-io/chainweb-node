@@ -330,7 +330,7 @@ mineBlock ph nonce iop = timeout 5000000 go >>= \case
       -- assemble block without nonce and timestamp
       (_, q, bdb) <- iop
       bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill ph q
-      let payload = blockInProgressToPayloadWithOutputs bip
+      let payload = forAnyPactVersion blockInProgressToPayloadWithOutputs bip
 
       let
         creationTime = BlockCreationTime

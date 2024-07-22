@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
--- Module: Chainweb.Pact.NoCoinbase
+-- Module: Chainweb.Pact4.NoCoinbase
 -- Copyright: Copyright © 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -10,7 +10,7 @@
 --
 -- A noop coin base for genesis transactions and testing purposes.
 --
-module Chainweb.Pact.NoCoinbase
+module Chainweb.Pact4.NoCoinbase
 ( noCoinbase
 ) where
 

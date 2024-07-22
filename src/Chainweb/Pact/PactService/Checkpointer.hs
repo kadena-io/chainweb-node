@@ -60,7 +60,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.PactService.ExecBlock
+import Chainweb.Pact.PactService.Pact4.ExecBlock
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
@@ -68,6 +68,9 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.TreeDB (getBranchIncreasing, forkEntry, lookup, seekAncestor)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
+import qualified Chainweb.Pact.PactService.Pact4.ExecBlock as Pact4
+import Chainweb.Version.Guards (pact5)
+import Control.Lens.Internal.Zoom (Effect(..))
 
 
 exitOnRewindLimitExceeded :: PactServiceM logger tbl a -> PactServiceM logger tbl a
@@ -95,7 +98,7 @@ exitOnRewindLimitExceeded = handle $ \case
 -- note: this function will never rewind before genesis.
 readFromLatest
   :: Logger logger
-  => PactBlockM logger tbl a
+  => PactBlockM logger (DynamicPactDb logger) tbl a
   -> PactServiceM logger tbl a
 readFromLatest doRead = readFromNthParent 0 doRead
 
@@ -105,7 +108,7 @@ readFromNthParent
   :: forall logger tbl a
   . Logger logger
   => Word
-  -> PactBlockM logger tbl a
+  -> PactBlockM logger (DynamicPactDb logger) tbl a
   -> PactServiceM logger tbl a
 readFromNthParent n doRead = go 0
     where
@@ -141,7 +144,9 @@ readFromNthParent n doRead = go 0
 -- if that target block is missing, return Nothing.
 readFrom
     :: Logger logger
-    => Maybe ParentHeader -> PactBlockM logger tbl a -> PactServiceM logger tbl (Historical a)
+    => Maybe ParentHeader
+    -> PactBlockM logger (DynamicPactDb logger) tbl a
+    -> PactServiceM logger tbl (Historical a)
 readFrom ph doRead = do
     cp <- view psCheckpointer
     pactParent <- getPactParent ph
@@ -166,7 +171,7 @@ getPactParent ph = do
 restoreAndSave
   :: (CanReadablePayloadCas tbl, Logger logger, Monoid q)
   => Maybe ParentHeader
-  -> Stream (Of (PactBlockM logger tbl (q, BlockHeader))) IO r
+  -> Stream (Of (PactBlockM logger (DynamicPactDb logger) tbl (q, BlockHeader))) IO r
   -> PactServiceM logger tbl (r, q)
 restoreAndSave ph blocks = do
     cp <- view psCheckpointer
@@ -293,7 +298,14 @@ rewindToIncremental rewindLimit (ParentHeader parent) = do
                                         <> ". Block: "<> encodeToText (ObjectEncoded blockHeader)
                                     Just x -> return $ payloadWithOutputsToPayloadData x
                                 liftIO $ writeIORef heightRef (_blockHeight blockHeader)
-                                void $ execBlock blockHeader (CheckablePayload payload)
+                                env <- ask
+                                if guardBlockHeader pact5 blockHeader
+                                then error "pact 5 block"
+                                else do
+                                    env' <- env & traverseOf (psBlockDbEnv . cpPactDbEnv) assertDynamicPact4Db
+                                    void $ magnify (to (const env')) $
+                                        Pact4.execBlock blockHeader (CheckablePayload payload)
+
                                 return (Last (Just blockHeader), blockHeader)
                                 -- double check output hash here?
                             )

@@ -613,25 +613,14 @@ parseVersion = constructVersion
     constructVersion cliVersion fub bd disablePow' oldVersion = winningVersion
         & versionBlockDelay .~ fromMaybe (_versionBlockDelay winningVersion) bd
         & versionForks %~ HM.filterWithKey (\fork _ -> fork <= fromMaybe maxBound fub)
-        & versionPact4Upgrades .~
-            maybe (_versionPact4Upgrades winningVersion) (\fub' ->
+        & versionUpgrades .~
+            maybe (_versionUpgrades winningVersion) (\fub' ->
                 OnChains $ HM.mapWithKey
                     (\cid _ ->
                         case winningVersion ^?! versionForks . at fub' . _Just . onChain cid of
                             ForkNever -> error "Chainweb.Chainweb.Configuration.parseVersion: the fork upper bound never occurs in this version."
-                            ForkAtBlockHeight fubHeight -> HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionPact4Upgrades . onChain cid)
-                            ForkAtGenesis -> winningVersion ^?! versionPact4Upgrades . onChain cid
-                    )
-                    (HS.toMap (chainIds winningVersion))
-            ) fub
-        & versionPact5Upgrades .~
-            maybe (_versionPact5Upgrades winningVersion) (\fub' ->
-                OnChains $ HM.mapWithKey
-                    (\cid _ ->
-                        case winningVersion ^?! versionForks . at fub' . _Just . onChain cid of
-                            ForkNever -> error "Chainweb.Chainweb.Configuration.parseVersion: the fork upper bound never occurs in this version."
-                            ForkAtBlockHeight fubHeight -> HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionPact5Upgrades . onChain cid)
-                            ForkAtGenesis -> winningVersion ^?! versionPact5Upgrades . onChain cid
+                            ForkAtBlockHeight fubHeight -> HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionUpgrades . onChain cid)
+                            ForkAtGenesis -> winningVersion ^?! versionUpgrades . onChain cid
                     )
                     (HS.toMap (chainIds winningVersion))
             ) fub

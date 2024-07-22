@@ -46,18 +46,20 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
+import Chainweb.Version
 
 
-newBlock :: Miner -> NewBlockFill -> ParentHeader -> PactQueue -> IO (Historical BlockInProgress)
+newBlock :: Miner -> NewBlockFill -> ParentHeader -> PactQueue -> IO (Historical (ForSomePactVersion BlockInProgress))
 newBlock mi fill parent reqQ = do
-    let !msg = NewBlockMsg NewBlockReq
+    let
+        !msg = NewBlockMsg NewBlockReq
             { _newBlockMiner = mi
             , _newBlockFill = fill
             , _newBlockParent = parent
             }
     submitRequestAndWait reqQ msg
 
-continueBlock :: BlockInProgress -> PactQueue -> IO (Historical BlockInProgress)
+continueBlock :: BlockInProgress pv -> PactQueue -> IO (Historical (BlockInProgress pv))
 continueBlock bip reqQ = do
     let !msg = ContinueBlockMsg (ContinueBlockReq bip)
     submitRequestAndWait reqQ msg

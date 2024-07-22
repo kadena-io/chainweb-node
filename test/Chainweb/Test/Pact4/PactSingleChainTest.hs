@@ -188,7 +188,7 @@ runBlockE :: (HasCallStack) => PactQueue -> TestBlockDb -> TimeSpan Micros -> IO
 runBlockE q bdb timeOffset = do
   ph <- getParentTestBlockDb bdb cid
   bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) q
-  let nb = blockInProgressToPayloadWithOutputs bip
+  let nb = forAnyPactVersion blockInProgressToPayloadWithOutputs bip
   let blockTime = add timeOffset $ _bct $ _blockCreationTime ph
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
@@ -234,7 +234,8 @@ newBlockAndContinue refIO reqIO = testCase "newBlockAndContinue" $ do
     , V.fromList [ c3 ]
     ]
 
-  bipStart <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader genesisHeader) q
+  -- TODO: assert?
+  ForPact4 bipStart <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader genesisHeader) q
   let ParentHeader ph = _blockInProgressParentHeader bipStart
   bipContinued <- throwIfNoHistory =<< continueBlock bipStart q
   bipFinal <- throwIfNoHistory =<< continueBlock bipContinued q
@@ -265,7 +266,7 @@ newBlockAndContinue refIO reqIO = testCase "newBlockAndContinue" $ do
       [ c1, c2, c3 ]
     ]
   bipAllAtOnce <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader genesisHeader) q
-  let nbAllAtOnce = blockInProgressToPayloadWithOutputs bipAllAtOnce
+  let nbAllAtOnce = forAnyPactVersion blockInProgressToPayloadWithOutputs bipAllAtOnce
   assertEqual "a continued block, and one that's all done at once, should be exactly equal"
     nbContinued nbAllAtOnce
   _ <- validateBlock nextH (CheckablePayloadWithOutputs nbAllAtOnce) q
@@ -283,13 +284,13 @@ newBlockNoFill refIO reqIO = testCase "newBlockNoFill" $ do
     set cbRPC (mkExec "1" (object [])) $
     defaultCmd
   setMempool refIO =<< mempoolOf [V.fromList [c1]]
-  noFillPwo <- fmap blockInProgressToPayloadWithOutputs . throwIfNoHistory =<<
+  noFillPwo <- fmap (forAnyPactVersion blockInProgressToPayloadWithOutputs) . throwIfNoHistory =<<
     newBlock noMiner NewBlockEmpty (ParentHeader genesisHeader) q
   assertEqual
     "an unfilled newblock must have no transactions, even with a full mempool"
     mempty
     (_payloadWithOutputsTransactions noFillPwo)
-  fillPwo <- fmap blockInProgressToPayloadWithOutputs . throwIfNoHistory =<<
+  fillPwo <- fmap (forAnyPactVersion blockInProgressToPayloadWithOutputs) . throwIfNoHistory =<<
     newBlock noMiner NewBlockFill (ParentHeader genesisHeader) q
   assertEqual
     "an filled newblock has transactions with a full mempool"
@@ -302,7 +303,7 @@ newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailur
   setOneShotMempool refIO =<< goldenMemPool
 
   bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader genesisHeader) q
-  let nb = blockInProgressToPayloadWithOutputs bip
+  let nb = forAnyPactVersion blockInProgressToPayloadWithOutputs bip
   let blockTime = add second $ _bct $ _blockCreationTime genesisHeader
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
@@ -771,7 +772,7 @@ blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
           (V.singleton (bigTx, cr))
           (CommandResult (RequestKey (Hash "h")) Nothing
             (PactResult $ Right $ pString "output") 0 Nothing Nothing Nothing [])
-        payload = toPayloadWithOutputs noMiner block
+        payload = toPayloadWithOutputs Pact4T noMiner block
         bh = newBlockHeader
           mempty
           (_payloadWithOutputsPayloadHash payload)
@@ -987,7 +988,7 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
     $ defaultCmd
   setOneShotMempool mpRefIO (badlistMPA badTx badHashRef)
   bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader genesisHeader) reqQ
-  let resp = blockInProgressToPayloadWithOutputs bip
+  let resp = forAnyPactVersion blockInProgressToPayloadWithOutputs bip
   assertEqual "bad tx filtered from block" mempty (_payloadWithOutputsTransactions resp)
   badHash <- readIORef badHashRef
   assertEqual "Badlist should have badtx hash" (hashToTxHashList $ _cmdHash badTx) badHash
@@ -1003,16 +1004,19 @@ goldenNewBlock name mpIO mpRefIO reqIO = golden name $ do
     (_, reqQ, _) <- reqIO
     setOneShotMempool mpRefIO mp
     blockInProgress <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader genesisHeader) reqQ
-    let resp = blockInProgressToPayloadWithOutputs blockInProgress
+    let resp = forAnyPactVersion blockInProgressToPayloadWithOutputs blockInProgress
     -- ensure all golden txs succeed
     forM_ (_payloadWithOutputsTransactions resp) $ \(txIn,TransactionOutput out) -> do
       cr :: CommandResult Hash <- decodeStrictOrThrow out
       assertSatisfies ("golden tx succeeds, input: " ++ show txIn) (_crResult cr) (isRight . (\(PactResult r) -> r))
-    goldenBytes resp blockInProgress
+    case blockInProgress of
+      ForPact4 bip -> goldenBytes resp bip
+      ForPact5 bip -> goldenBytes resp bip
   where
     hmToSortedList = List.sortOn fst . HM.toList
     -- missing some fields, only includes the fields that are "outputs" of
     -- running txs, but not the module cache
+    blockInProgressToJSON :: BlockInProgress pv -> Value
     blockInProgressToJSON BlockInProgress {..} = object
       [ "pendingData" .=
         let SQLitePendingData{..} = _blockInProgressPendingData
@@ -1036,7 +1040,7 @@ goldenNewBlock name mpIO mpRefIO reqIO = golden name $ do
       , "blockGasLimit" .= fromIntegral @GasLimit @Int _blockInProgressRemainingGasLimit
       , "parentHeader" .= _parentHeader _blockInProgressParentHeader
       ]
-    goldenBytes :: PayloadWithOutputs -> BlockInProgress -> IO BL.ByteString
+    goldenBytes :: PayloadWithOutputs -> BlockInProgress pv -> IO BL.ByteString
     goldenBytes a b = return $ BL.fromStrict $ encodeYaml $ object
       [ "test-group" .= ("new-block" :: T.Text)
       , "results" .= a

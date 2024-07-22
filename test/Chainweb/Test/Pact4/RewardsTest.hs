@@ -12,7 +12,7 @@ import Pact.Parse
 
 import Chainweb.Graph
 import Chainweb.Miner.Pact
-import Chainweb.Pact.PactService.ExecBlock
+import Chainweb.Pact.PactService.Pact4.ExecBlock
 import Chainweb.Test.TestVersions
 import Chainweb.Version
 

@@ -2,6 +2,7 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Chainweb.WebPactExecutionService
   ( WebPactExecutionService(..)
@@ -45,23 +46,25 @@ import Pact.Types.Hash
 import Pact.Types.Persistence (RowKey, Domain)
 import Pact.Types.RowData (RowData)
 import qualified Pact.Core.Persistence as Pact5
+import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
 -- PactExecutionService
 
 data NewBlock
-    = NewBlockInProgress !BlockInProgress
+    = NewBlockInProgress !(ForSomePactVersion BlockInProgress)
     | NewBlockPayload !ParentHeader !PayloadWithOutputs
     deriving Show
 
 newBlockToPayloadWithOutputs :: NewBlock -> PayloadWithOutputs
 newBlockToPayloadWithOutputs (NewBlockInProgress bip)
-    = blockInProgressToPayloadWithOutputs bip
+    = forAnyPactVersion blockInProgressToPayloadWithOutputs bip
 newBlockToPayloadWithOutputs (NewBlockPayload _ pwo)
     = pwo
 
 newBlockParentHeader :: NewBlock -> ParentHeader
-newBlockParentHeader (NewBlockInProgress bip) = _blockInProgressParentHeader bip
+newBlockParentHeader (NewBlockInProgress (ForPact4 bip)) = _blockInProgressParentHeader bip
+newBlockParentHeader (NewBlockInProgress (ForPact5 bip)) = _blockInProgressParentHeader bip
 newBlockParentHeader (NewBlockPayload ph _) = ph
 
 -- | Service API for interacting with a single or multi-chain ("Web") pact service.
@@ -82,9 +85,10 @@ data PactExecutionService = PactExecutionService
         IO (Historical NewBlock)
         )
     , _pactContinueBlock :: !(
+        forall pv.
         ChainId ->
-        BlockInProgress ->
-        IO (Historical BlockInProgress)
+        BlockInProgress pv ->
+        IO (Historical (BlockInProgress pv))
         )
       -- ^ Request a new block to be formed using mempool
     , _pactLocal :: !(
@@ -154,9 +158,9 @@ _webPactNewBlock = _pactNewBlock . _webPactExecutionService
 _webPactContinueBlock
     :: WebPactExecutionService
     -> ChainId
-    -> BlockInProgress
-    -> IO (Historical BlockInProgress)
-_webPactContinueBlock = _pactContinueBlock . _webPactExecutionService
+    -> BlockInProgress pv
+    -> IO (Historical (BlockInProgress pv))
+_webPactContinueBlock w cid bip = _pactContinueBlock (_webPactExecutionService w) cid bip
 {-# INLINE _webPactContinueBlock #-}
 
 _webPactValidateBlock

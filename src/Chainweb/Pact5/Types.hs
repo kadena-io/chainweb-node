@@ -69,5 +69,5 @@ guardCtx :: (ChainwebVersion -> Chainweb.ChainId.ChainId -> BlockHeight -> a) ->
 guardCtx g txCtx = g (ctxVersion txCtx) (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
 
 -- | Assemble tx context from transaction metadata and parent header.
-getTxContext :: Miner -> PactBlockM logger tbl TxContext
+getTxContext :: Miner -> PactBlockM logger db tbl TxContext
 getTxContext miner = view psParentHeader >>= \ph -> return (TxContext ph miner)

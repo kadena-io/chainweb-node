@@ -629,7 +629,7 @@ withRelationalCheckpointerResource
 withRelationalCheckpointerResource f =
     withResource initializeSQLite freeSQLiteResource $ \s -> runSQLite f s
 
-addKeyset :: ChainwebPactDbEnv logger -> KeySetName -> KeySet -> IO ()
+addKeyset :: Pact4Db logger -> KeySetName -> KeySet -> IO ()
 addKeyset (PactDbEnv pactdb mvar) keysetname keyset =
     _writeRow pactdb Insert KeySets keysetname keyset mvar
 
@@ -659,7 +659,7 @@ runSQLite' runTest sqlEnvIO = runTest $ do
   where
     logger = addLabel ("sub-component", "relational-checkpointer") $ dummyLogger
 
-runExec :: forall logger. (Logger logger) => Checkpointer logger -> ChainwebPactDbEnv logger -> Maybe Value -> Text -> IO EvalResult
+runExec :: forall logger. (Logger logger) => Checkpointer logger -> Pact4Db logger -> Maybe Value -> Text -> IO EvalResult
 runExec cp pactdbenv eData eCode = do
     execMsg <- buildExecParsedCode maxBound {- use latest parser version -} eData eCode
     evalTransactionM cmdenv cmdst $
@@ -672,7 +672,7 @@ runExec cp pactdbenv eData eCode = do
              noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing Nothing
     cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
-runCont :: Logger logger => Checkpointer logger -> ChainwebPactDbEnv logger -> PactId -> Int -> IO EvalResult
+runCont :: Logger logger => Checkpointer logger -> Pact4Db logger -> PactId -> Int -> IO EvalResult
 runCont cp pactdbenv pactId step = do
     evalTransactionM cmdenv cmdst $
       applyContinuation' 0 defaultInterpreter contMsg [] h' permissiveNamespacePolicy
@@ -692,7 +692,7 @@ runCont cp pactdbenv pactId step = do
 cpReadFrom
   :: Checkpointer logger
   -> Maybe BlockHeader
-  -> (ChainwebPactDbEnv logger -> IO q)
+  -> (Pact4Db logger -> IO q)
   -> IO q
 cpReadFrom cp pc f = do
   _cpReadFrom
@@ -711,7 +711,7 @@ cpRestoreAndSave
   :: (Monoid q)
   => Checkpointer logger
   -> Maybe BlockHeader
-  -> [(BlockHeader, ChainwebPactDbEnv logger -> IO q)]
+  -> [(BlockHeader, Pact4Db logger -> IO q)]
   -> IO q
 cpRestoreAndSave cp pc blks = snd <$> _cpRestoreAndSave cp (ParentHeader <$> pc)
   (traverse Stream.yield

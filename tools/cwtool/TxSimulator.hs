@@ -37,7 +37,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.PactService.Checkpointer
-import Chainweb.Pact.PactService.ExecBlock
+import Chainweb.Pact.PactService.Pact4.ExecBlock
 import Chainweb.Pact.RestAPI.Server
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.TransactionExec

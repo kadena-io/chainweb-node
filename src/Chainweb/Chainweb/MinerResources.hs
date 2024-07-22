@@ -154,7 +154,9 @@ withMiningCoordination logger conf cdb inner
                     WorkStale -> return Nothing
 
             forM_ mContinuableBlockInProgress $ \continuableBlockInProgress -> do
-                maybeNewBlock <- _pactContinueBlock pact cid continuableBlockInProgress
+                maybeNewBlock <- case continuableBlockInProgress of
+                    ForPact4 block -> fmap ForPact4 <$> _pactContinueBlock pact cid block
+                    ForPact5 block -> fmap ForPact5 <$> _pactContinueBlock pact cid block
                 -- if continuing returns NoHistory then the parent header
                 -- isn't available in the checkpointer right now.
                 -- in that case we just mark the payload as not stale.
@@ -164,7 +166,10 @@ withMiningCoordination logger conf cdb inner
 
                 logFunctionText (chainLogger cid logger) Debug
                     $ "refreshed block, old and new tx count: "
-                    <> sshow (V.length $ _transactionPairs $ _blockInProgressTransactions continuableBlockInProgress, V.length $ _transactionPairs $ _blockInProgressTransactions newBlock)
+                    <> sshow
+                        ( forAnyPactVersion (V.length . _transactionPairs . _blockInProgressTransactions) continuableBlockInProgress
+                        , forAnyPactVersion (V.length . _transactionPairs . _blockInProgressTransactions) newBlock
+                        )
 
                 atomically $ modifyTVar' tpw $
                     workForMiner ourMiner cid .~ WorkReady (NewBlockInProgress newBlock)

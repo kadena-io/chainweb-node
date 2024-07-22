@@ -59,7 +59,6 @@ recapDevnet = ChainwebVersion
             Pact4Coin3 -> AllChains $ ForkAtBlockHeight $ BlockHeight 80
             EnforceKeysetFormats -> AllChains $ ForkAtBlockHeight $ BlockHeight 100
             Pact42 -> AllChains $ ForkAtBlockHeight $ BlockHeight 90
-            Pact5 -> AllChains ForkNever
             CheckTxHash -> AllChains $ ForkAtBlockHeight $ BlockHeight 110
             Chainweb213Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 95
             Chainweb214Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 115
@@ -75,17 +74,17 @@ recapDevnet = ChainwebVersion
             Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 600
             Chainweb224Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 610
             Chainweb225Pact -> AllChains ForkNever
+            Pact5Fork -> AllChains ForkNever
 
-    , _versionPact4Upgrades = foldr (chainZip HM.union) (AllChains mempty)
+    , _versionUpgrades = foldr (chainZip HM.union) (AllChains mempty)
         [ indexByForkHeights recapDevnet
-            [ (CoinV2, onChains [(unsafeChainId i, pact4Upgrade RecapDevnet.transactions) | i <- [0..9]])
-            , (Pact4Coin3, AllChains (Pact4Upgrade CoinV3.transactions True))
-            , (Chainweb214Pact, AllChains (Pact4Upgrade CoinV4.transactions True))
-            , (Chainweb215Pact, AllChains (Pact4Upgrade CoinV5.transactions True))
+            [ (CoinV2, onChains [(unsafeChainId i, ForPact4 $ pact4Upgrade RecapDevnet.transactions) | i <- [0..9]])
+            , (Pact4Coin3, AllChains (ForPact4 $ Pact4Upgrade CoinV3.transactions True))
+            , (Chainweb214Pact, AllChains (ForPact4 $ Pact4Upgrade CoinV4.transactions True))
+            , (Chainweb215Pact, AllChains (ForPact4 $ Pact4Upgrade CoinV5.transactions True))
             ]
-        , onChains [(unsafeChainId 0, HM.singleton to20ChainsHeight (pact4Upgrade MNKAD.transactions))]
+        , onChains [(unsafeChainId 0, HM.singleton to20ChainsHeight (ForPact4 $ pact4Upgrade MNKAD.transactions))]
         ]
-    , _versionPact5Upgrades = AllChains mempty
 
     , _versionGraphs =
         (to20ChainsHeight, twentyChainGraph) `Above`

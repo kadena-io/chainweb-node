@@ -206,7 +206,7 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ d
             (WorkStale, WorkStale) -> retry
             (WorkAlreadyMined _, WorkAlreadyMined _) -> retry
 
-            (WorkReady (NewBlockInProgress lastBip), WorkReady (NewBlockInProgress currentBip))
+            (WorkReady (NewBlockInProgress (ForPact4 lastBip)), WorkReady (NewBlockInProgress (ForPact4 currentBip)))
                 | ParentHeader lastPh <- _blockInProgressParentHeader lastBip
                 , ParentHeader currentPh <- _blockInProgressParentHeader currentBip
                 , lastPh /= currentPh ->
@@ -230,6 +230,32 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ d
 
                 -- no apparent change
                 | otherwise -> retry
+
+            (WorkReady (NewBlockInProgress (ForPact5 lastBip)), WorkReady (NewBlockInProgress (ForPact5 currentBip)))
+                | ParentHeader lastPh <- _blockInProgressParentHeader lastBip
+                , ParentHeader currentPh <- _blockInProgressParentHeader currentBip
+                , lastPh /= currentPh ->
+                -- we've got a new block on a new parent, we must've missed
+                -- the update where the old block became outdated.
+                -- miner should restart
+                    return (WorkOutdated, currentBlockOnChain)
+
+                | lastTlen <- V.length (_transactionPairs $ _blockInProgressTransactions lastBip)
+                , currentTlen <- V.length (_transactionPairs $ _blockInProgressTransactions currentBip)
+                , lastTlen /= currentTlen ->
+                    if currentTlen < lastTlen
+                    then
+                        -- our refreshed block somehow has less transactions,
+                        -- but the same parent header, log this as a bizarre case
+                        return (WorkRegressed, currentBlockOnChain)
+                    else
+                        -- we've got a block that's been extended with new transactions
+                        -- miner should restart
+                        return (WorkRefreshed, currentBlockOnChain)
+
+                -- no apparent change
+                | otherwise -> retry
+
             (WorkReady (NewBlockPayload lastPh lastPwo), WorkReady (NewBlockPayload currentPh currentPwo))
                 | lastPh /= currentPh ->
                     -- we've got a new block on a new parent, we must've missed
@@ -245,6 +271,7 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ d
 
                 -- no apparent change
                 | otherwise -> retry
+
             (WorkReady _, WorkReady _) ->
                 error "awaitNewPrimedWork: impossible: NewBlockInProgress replaced by a NewBlockPayload"
 

@@ -16,6 +16,8 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- |
 -- Module: Chainweb.Version
@@ -48,8 +50,6 @@ module Chainweb.Version
     , decodeChainwebVersionCode
     , ChainwebVersionName(..)
     , ChainwebVersion(..)
-    , Pact4Upgrade(..)
-    , Pact5Upgrade(..)
     , pact4Upgrade
     , VersionQuirks(..)
     , noQuirks
@@ -58,8 +58,7 @@ module Chainweb.Version
     , versionBlockDelay
     , versionCheats
     , versionDefaults
-    , versionPact4Upgrades
-    , versionPact5Upgrades
+    , versionUpgrades
     , versionBootstraps
     , versionCode
     , versionGraphs
@@ -75,6 +74,13 @@ module Chainweb.Version
     , genesisBlockPayloadHash
     , genesisBlockTarget
     , genesisTime
+
+    , PactUpgrade(..)
+    , PactVersion(..)
+    , PactVersionT(..)
+    , ForBothPactVersions(..)
+    , ForSomePactVersion(..)
+    , forAnyPactVersion
 
     -- * Typelevel ChainwebVersionName
     , ChainwebVersionT(..)
@@ -174,6 +180,7 @@ import Pact.Types.Verifier
 import Data.Singletons
 
 import P2P.Peer
+import Data.Kind (Type)
 
 -- | Data type representing changes to block validation, whether in the payload
 -- or in the header. Always add new forks at the end, not in the middle of the
@@ -211,7 +218,7 @@ data Fork
     | Chainweb223Pact
     | Chainweb224Pact
     | Chainweb225Pact
-    | Pact5
+    | Pact5Fork
     -- always add new forks at the end, not in the middle of the constructors.
     deriving stock (Bounded, Generic, Eq, Enum, Ord, Show)
     deriving anyclass (NFData, Hashable)
@@ -247,7 +254,7 @@ instance HasTextRepresentation Fork where
     toText Chainweb223Pact = "chainweb223Pact"
     toText Chainweb224Pact = "chainweb224Pact"
     toText Chainweb225Pact = "chainweb225Pact"
-    toText Pact5 = "Pact5"
+    toText Pact5Fork = "Pact5"
 
     fromText "slowEpoch" = return SlowEpoch
     fromText "vuln797Fix" = return Vuln797Fix
@@ -279,7 +286,7 @@ instance HasTextRepresentation Fork where
     fromText "chainweb223Pact" = return Chainweb223Pact
     fromText "chainweb224Pact" = return Chainweb224Pact
     fromText "chainweb225Pact" = return Chainweb225Pact
-    fromText "pact5" = return Pact5
+    fromText "pact5" = return Pact5Fork
     fromText t = throwM . TextFormatException $ "Unknown Chainweb fork: " <> t
 
 instance ToJSON Fork where
@@ -322,10 +329,33 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVer
     toMerkleNode = encodeMerkleInputNode encodeChainwebVersionCode
     fromMerkleNode = decodeMerkleInputNode decodeChainwebVersionCode
 
+data PactVersion = Pact4 | Pact5
+data PactVersionT (v :: PactVersion) where
+    Pact4T :: PactVersionT Pact4
+    Pact5T :: PactVersionT Pact5
+deriving stock instance Eq (PactVersionT v)
+deriving stock instance Show (PactVersionT v)
+data ForSomePactVersion f = ForPact4 (f Pact4) | ForPact5 (f Pact5)
+forAnyPactVersion :: (forall pv. f pv -> a) -> ForSomePactVersion f -> a
+forAnyPactVersion k (ForPact4 f) = k f
+forAnyPactVersion k (ForPact5 f) = k f
+data ForBothPactVersions f = ForBothPactVersions
+    { _forPact4 :: (f Pact4), _forPact5 ::  (f Pact5) }
+deriving stock instance (Eq (f Pact4), Eq (f Pact5)) => Eq (ForBothPactVersions f)
+deriving stock instance (Show (f Pact4), Show (f Pact5)) => Show (ForBothPactVersions f)
+deriving stock instance (Eq (f Pact4), Eq (f Pact5)) => Eq (ForSomePactVersion f)
+deriving stock instance (Show (f Pact4), Show (f Pact5)) => Show (ForSomePactVersion f)
+instance (NFData (f Pact4), NFData (f Pact5)) => NFData (ForBothPactVersions f) where
+    rnf b = rnf (_forPact4 b) `seq` rnf (_forPact5 b)
+instance (NFData (f Pact4), NFData (f Pact5)) => NFData (ForSomePactVersion f) where
+    rnf (ForPact4 f) = rnf f
+    rnf (ForPact5 f) = rnf f
+
 -- The type of upgrades, which are sets of transactions to run at certain block
 -- heights during coinbase.
 --
-data Pact4Upgrade = Pact4Upgrade
+data family PactUpgrade (v :: PactVersion) :: Type
+data instance PactUpgrade Pact4 = Pact4Upgrade
     { _pact4UpgradeTransactions :: [Pact4.Transaction]
     , _legacyUpgradeIsPrecocious :: Bool
         -- ^ when set to `True`, the upgrade transactions are executed using the
@@ -335,23 +365,19 @@ data Pact4Upgrade = Pact4Upgrade
     }
     deriving stock (Generic, Eq)
     deriving anyclass (NFData)
-
--- The type of upgrades, which are sets of transactions to run at certain block
--- heights during coinbase.
---
-data Pact5Upgrade = Pact5Upgrade
+data instance PactUpgrade Pact5 = Pact5Upgrade
     { _pact5UpgradeTransactions :: [Pact5.Transaction]
     }
     deriving stock (Generic, Eq)
     deriving anyclass (NFData)
 
-instance Show Pact4Upgrade where
+instance Show (PactUpgrade Pact4) where
     show _ = "<pact4 upgrade>"
 
-instance Show Pact5Upgrade where
+instance Show (PactUpgrade Pact5) where
     show _ = "<pact5 upgrade>"
 
-pact4Upgrade :: [Pact4.Transaction] -> Pact4Upgrade
+pact4Upgrade :: [Pact4.Transaction] -> PactUpgrade Pact4
 pact4Upgrade txs = Pact4Upgrade txs False
 
 -- The type of quirks, i.e. special validation behaviors that are in some
@@ -398,11 +424,8 @@ data ChainwebVersion
         -- ^ The block heights on each chain to apply behavioral changes.
         -- Interpretation of these is up to the functions in
         -- `Chainweb.Version.Guards`.
-    , _versionPact4Upgrades :: ChainMap (HashMap BlockHeight Pact4Upgrade)
-        -- ^ The Pact 4 upgrade transactions to execute on each chain at certain block
-        -- heights.
-    , _versionPact5Upgrades :: ChainMap (HashMap BlockHeight Pact5Upgrade)
-        -- ^ The Pact 5 upgrade transactions to execute on each chain at certain block
+    , _versionUpgrades :: ChainMap (HashMap BlockHeight (ForSomePactVersion PactUpgrade))
+        -- ^ The Pact upgrade transactions to execute on each chain at certain block
         -- heights.
     , _versionBlockDelay :: BlockDelay
         -- ^ The Proof-of-Work `BlockDelay` for each `ChainwebVersion`. This is
@@ -461,8 +484,7 @@ instance Ord ChainwebVersion where
 instance Eq ChainwebVersion where
     v == v' = and
         [ compare v v' == EQ
-        , _versionPact4Upgrades v == _versionPact4Upgrades v'
-        , _versionPact5Upgrades v == _versionPact5Upgrades v'
+        , _versionUpgrades v == _versionUpgrades v'
         , _versionGenesis v == _versionGenesis v'
         ]
 
@@ -646,7 +668,6 @@ latestBehaviorAt v = foldlOf' behaviorChanges max 0 v + 1
     where
     behaviorChanges = fold
         [ versionForks . folded . folded . _ForkAtBlockHeight
-        , versionPact4Upgrades . folded . ifolded . asIndex
-        , versionPact5Upgrades . folded . ifolded . asIndex
+        , versionUpgrades . folded . ifolded . asIndex
         , versionGraphs . to ruleHead . _1 . _Just
         ]

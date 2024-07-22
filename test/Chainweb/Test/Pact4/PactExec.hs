@@ -46,7 +46,7 @@ import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService
 import Chainweb.Pact.PactService.Checkpointer
-import Chainweb.Pact.PactService.ExecBlock
+import Chainweb.Pact.PactService.Pact4.ExecBlock
 import Chainweb.Pact.Types
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
@@ -57,7 +57,7 @@ import Chainweb.Test.Pact4.Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
 import qualified Chainweb.Pact4.Transaction as Pact4
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version (ChainwebVersion(..), PactVersionT(..))
 import Chainweb.Version.Utils (someChainId)
 import Chainweb.Utils hiding (check)
 
@@ -502,9 +502,10 @@ execTest v runPact request = _trEval request $ do
     trans <- mkCmds cmdStrs
     results <- runPact $ (throwIfNoHistory =<<) $
       readFrom (Just $ ParentHeader $ genesisBlockHeader v cid) $
-        execTransactions False defaultMiner
-          trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) Nothing Nothing
-          >>= throwCommandInvalidError
+        assertBlockPact4 $
+          execTransactions False defaultMiner
+            trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) Nothing Nothing
+            >>= throwCommandInvalidError
 
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
@@ -533,9 +534,10 @@ execTxsTest v runPact name (trans',check) = testCase name (go >>= check)
       trans <- trans'
       results' <- tryAllSynchronous $ runPact $ (throwIfNoHistory =<<) $
         readFrom (Just $ ParentHeader $ genesisBlockHeader v cid) $
-          execTransactions False defaultMiner trans
-            (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) Nothing Nothing
-            >>= throwCommandInvalidError
+          assertBlockPact4 $
+            execTransactions False defaultMiner trans
+              (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) Nothing Nothing
+              >>= throwCommandInvalidError
       case results' of
         Right results -> Right <$> do
           let outputs = V.toList $ snd <$> _transactionPairs results
@@ -624,7 +626,7 @@ _showValidationFailure = do
         }
       miner = defaultMiner
       header = genesisBlockHeader testVersion $ someChainId testVersion
-      pwo = toPayloadWithOutputs miner outs1
+      pwo = toPayloadWithOutputs Pact4T miner outs1
       cr2 = set crGas 1 cr1
       outs2 = Transactions
         { _transactionPairs = V.zip txs (V.singleton cr2)

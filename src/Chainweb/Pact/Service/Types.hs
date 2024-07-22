@@ -16,6 +16,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE FlexibleInstances #-}
 -- |
 -- Module: Chainweb.Pact.Service.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -90,6 +95,7 @@ module Chainweb.Pact.Service.Types
   , toPayloadWithOutputs
   , toHashCommandResult
   , module Chainweb.Pact.Backend.Types
+  , ModuleCacheFor(..)
   ) where
 
 import Control.DeepSeq
@@ -142,7 +148,7 @@ import Chainweb.Mempool.Mempool (InsertError(..),TransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.NoCoinbase
+import Chainweb.Pact4.NoCoinbase
 import Chainweb.Payload
 import Chainweb.Time
 import qualified Chainweb.Pact4.Transaction as Pact4
@@ -152,6 +158,9 @@ import Chainweb.Version.Mainnet
 import GHC.Stack
 import qualified Pact.Core.Errors as Pact5
 import qualified Pact.Core.Command.Types as Pact5
+import Chainweb.Version (PactVersion)
+import qualified Chainweb.Pact5.Transaction as Pact5
+import Data.ByteString (ByteString)
 
 -- | Value that represents a limitation for rewinding.
 newtype RewindLimit = RewindLimit { _rewindLimit :: Word64 }
@@ -429,8 +438,8 @@ instance Show SubmittedRequestMsg where
     show (SubmittedRequestMsg msg _) = show msg
 
 data RequestMsg r where
-    ContinueBlockMsg :: !ContinueBlockReq -> RequestMsg (Historical BlockInProgress)
-    NewBlockMsg :: !NewBlockReq -> RequestMsg (Historical BlockInProgress)
+    ContinueBlockMsg :: !(ContinueBlockReq pv) -> RequestMsg (Historical (BlockInProgress pv))
+    NewBlockMsg :: !NewBlockReq -> RequestMsg (Historical (ForSomePactVersion BlockInProgress))
     ValidateBlockMsg :: !ValidateBlockReq -> RequestMsg PayloadWithOutputs
     LocalMsg :: !LocalReq -> RequestMsg LocalResult
     LookupPactTxsMsg :: !LookupPactTxsReq -> RequestMsg (HashMap PactHash (T2 BlockHeight BlockHash))
@@ -467,9 +476,13 @@ data NewBlockReq
 data NewBlockFill = NewBlockFill | NewBlockEmpty
   deriving stock Show
 
-newtype ContinueBlockReq
-    = ContinueBlockReq BlockInProgress
-    deriving stock Show
+data ContinueBlockReq pv
+    = ContinueBlockReq (BlockInProgress pv)
+instance Show (ContinueBlockReq pv) where
+  showsPrec p (ContinueBlockReq bip) =
+      showParen (p > 10) $
+        showString "ContinueBlockReq " . showsPrec 11 p . showString " " .
+        (case _blockInProgressPactVersion bip of {Pact4T -> showsPrec 11 bip; Pact5T -> showsPrec 11 bip})
 
 data ValidateBlockReq = ValidateBlockReq
     { _valBlockHeader :: !BlockHeader
@@ -593,20 +606,42 @@ cleanModuleCache v cid bh =
     ForkAtGenesis -> bh == genesisHeight v cid
     ForkNever -> False
 
+data family ModuleCacheFor (pv :: PactVersion)
+newtype instance ModuleCacheFor Pact4
+  = Pact4ModuleCache ModuleCache
+  deriving newtype (Eq, Show, Monoid, Semigroup)
+data instance ModuleCacheFor Pact5
+  = Pact5NoModuleCache
+  deriving (Eq, Show)
+instance Monoid (ModuleCacheFor Pact5) where
+  mempty = Pact5NoModuleCache
+instance Semigroup (ModuleCacheFor Pact5) where
+  _ <> _ = Pact5NoModuleCache
+
+type family CommandResultFor (pv :: PactVersion) where
+  CommandResultFor Pact4 = CommandResult [TxLogJson]
+  CommandResultFor Pact5 = Pact5.CommandResult [Pact5.TxLog ByteString] (Pact5.PactError Info)
+
 -- State from a block in progress, which is used to extend blocks after
 -- running their payloads.
-data BlockInProgress = BlockInProgress
+data BlockInProgress pv = BlockInProgress
   { _blockInProgressPendingData :: !SQLitePendingData
   , _blockInProgressTxId :: !TxId
-  , _blockInProgressModuleCache :: !ModuleCache
+  , _blockInProgressModuleCache :: !(ModuleCacheFor pv)
   , _blockInProgressParentHeader :: !ParentHeader
   , _blockInProgressRemainingGasLimit :: !GasLimit
   , _blockInProgressMiner :: !Miner
-  , _blockInProgressTransactions :: !(Transactions (CommandResult [TxLogJson]))
-  } deriving stock (Eq, Show)
+  , _blockInProgressTransactions :: !(Transactions pv (CommandResultFor pv))
+  , _blockInProgressPactVersion :: !(PactVersionT pv)
+  }
+deriving stock instance Eq (BlockInProgress Pact4)
+deriving stock instance Eq (BlockInProgress Pact5)
+deriving stock instance Show (BlockInProgress Pact4)
+deriving stock instance Show (BlockInProgress Pact5)
+
 
 -- This block is not really valid, don't use it outside tests.
-emptyBlockInProgressForTesting :: BlockInProgress
+emptyBlockInProgressForTesting :: BlockInProgress Pact4
 emptyBlockInProgressForTesting = BlockInProgress
   { _blockInProgressPendingData = emptySQLitePendingData
   , _blockInProgressTxId = TxId 0
@@ -619,15 +654,20 @@ emptyBlockInProgressForTesting = BlockInProgress
     { _transactionCoinbase = noCoinbase
     , _transactionPairs = mempty
     }
+  , _blockInProgressPactVersion = Pact4T
   }
 
-blockInProgressToPayloadWithOutputs :: BlockInProgress -> PayloadWithOutputs
-blockInProgressToPayloadWithOutputs bip = toPayloadWithOutputs
-  (_blockInProgressMiner bip)
-  (_blockInProgressTransactions bip)
+blockInProgressToPayloadWithOutputs :: BlockInProgress pv -> PayloadWithOutputs
+blockInProgressToPayloadWithOutputs bip = case _blockInProgressPactVersion bip of
+  Pact4T -> toPayloadWithOutputs
+    Pact4T
+    (_blockInProgressMiner bip)
+    (_blockInProgressTransactions bip)
+  -- TODO
+  Pact5T -> error "pact5"
 
-toPayloadWithOutputs :: Miner -> Transactions (CommandResult [TxLogJson]) -> PayloadWithOutputs
-toPayloadWithOutputs mi ts =
+toPayloadWithOutputs :: PactVersionT pv -> Miner -> Transactions pv (CommandResult [TxLogJson]) -> PayloadWithOutputs
+toPayloadWithOutputs Pact4T mi ts =
     let oldSeq = _transactionPairs ts
         trans = cmdBSToTx . fst <$> oldSeq
         transOuts = toOutputBytes . toHashCommandResult . snd <$> oldSeq
@@ -642,6 +682,7 @@ toPayloadWithOutputs mi ts =
         blockPL = blockPayload blockTrans blockOuts
         plData = payloadData blockTrans blockPL
      in payloadWithOutputs plData cb transOuts
+toPayloadWithOutputs Pact5T mi ts = error "pact5"
 
 toTransactionBytes :: Command Text -> Transaction
 toTransactionBytes cwTrans =
@@ -656,11 +697,26 @@ toOutputBytes cr =
 toHashCommandResult :: CommandResult [TxLogJson] -> CommandResult Hash
 toHashCommandResult = over (crLogs . _Just) $ pactHash . encodeTxLogJsonArray
 
-data Transactions r = Transactions
-    { _transactionPairs :: !(Vector (Pact4.Transaction, r))
-    , _transactionCoinbase :: !(CommandResult [TxLogJson])
+type family TransactionFor (pv :: PactVersion) where
+  TransactionFor Pact4 = Pact4.Transaction
+  TransactionFor Pact5 = Pact5.Transaction
+
+data Transactions (pv :: PactVersion) r = Transactions
+    { _transactionPairs :: !(Vector (TransactionFor pv, r))
+    , _transactionCoinbase :: !(CommandResultFor pv)
     }
-    deriving stock (Functor, Foldable, Traversable, Eq, Show, Generic)
-    deriving anyclass NFData
+    deriving stock (Functor, Foldable, Traversable, Generic)
+deriving stock instance Eq r => Eq (Transactions Pact4 r)
+deriving stock instance Eq r => Eq (Transactions Pact5 r)
+deriving stock instance Show r => Show (Transactions Pact4 r)
+deriving stock instance Show r => Show (Transactions Pact5 r)
+deriving anyclass instance NFData r => NFData (Transactions Pact4 r)
+-- why doesn't this compile?
+-- deriving anyclass instance NFData r => NFData (Transactions Pact5 r)
+instance NFData r => NFData (Transactions Pact5 r) where
+  rnf txs =
+    rnf (_transactionPairs txs)
+    `seq` rnf (_transactionCoinbase)
+
 makeLenses 'Transactions
 makeLenses 'BlockInProgress

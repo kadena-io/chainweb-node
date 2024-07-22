@@ -96,14 +96,15 @@ validateVersion v = do
                     , hasAllChains (_genesisBlockTarget $ _versionGenesis v)
                     , hasAllChains (_genesisTime $ _versionGenesis v)
                     ])]
-            , [ "validateVersion: some pact 4 upgrade has no transactions"
-              | any (any (\upg -> null (_pact4UpgradeTransactions upg))) (_versionPact4Upgrades v) ]
-            , [ "validateVersion: some pact 5 upgrade has no transactions"
-              | any (any (\upg -> null (_pact5UpgradeTransactions upg))) (_versionPact5Upgrades v) ]
-            -- TODO: check that pact 4 vs pact 5 flags respect the upgrades
+            , [ "validateVersion: some pact upgrade has no transactions"
+              | any (any isUpgradeEmpty) (_versionUpgrades v) ]
+            -- TODO: check that pact 4 vs pact 5 fork height respects the upgrades
             ]
     unless (null errors) $
         error $ unlines $ ["errors encountered validating version", show v] <> errors
+    where
+    isUpgradeEmpty (ForPact4 upg) = null (_pact4UpgradeTransactions upg)
+    isUpgradeEmpty (ForPact5 upg) = null (_pact5UpgradeTransactions upg)
 
 -- | Look up a version in the registry by code.
 lookupVersionByCode :: HasCallStack => ChainwebVersionCode -> ChainwebVersion
