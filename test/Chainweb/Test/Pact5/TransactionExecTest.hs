@@ -269,7 +269,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                             (_crResult commandResult)
                         () <- commandResult
                             -- gas buy event
-                            & _crEvents ! onlyContains
+                            & _crEvents ! sole
                                 (_peName ! equals "TRANSFER"
                                 `also` _peArgs ! equals [PString "sender00", PString "NoMiner", PDecimal 318.0]
                                 `also` _peModule ! equals (ModuleName "coin" Nothing)
