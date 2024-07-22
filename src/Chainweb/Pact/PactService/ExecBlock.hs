@@ -366,7 +366,7 @@ runPact4Coinbase False miner enfCBFail usePrecomp mc = do
     pactDb <- liftIO $ assertDynamicPact4Db $ _cpPactDbEnv dbEnv
 
     T2 cr upgradedCacheM <-
-        liftIO $ Pact4.applyCoinbase v logger pactDb miner reward txCtx enfCBFail usePrecomp mc
+        liftIO $ Pact4.applyCoinbase v logger pactDb reward txCtx enfCBFail usePrecomp mc
     mapM_ upgradeInitCache upgradedCacheM
     liftPactServiceM $ debugResult "runPact4Coinbase" (P.crLogs %~ fmap J.Array $ cr)
     return $! cr

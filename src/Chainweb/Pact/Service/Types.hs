@@ -201,7 +201,7 @@ data PactServiceConfig = PactServiceConfig
 
 data GasPurchaseFailure
   = Pact4GasPurchaseFailure TransactionHash PactError
-  | Pact5GasPurchaseFailure Pact5.RequestKey (Pact5.PactError Pact5.Info)
+  | Pact5GasPurchaseFailure Pact5.RequestKey Text
     deriving (Eq,Generic)
 -- instance Show GasPurchaseFailure where show = unpack . J.encodeText
 

@@ -107,7 +107,7 @@ import Chainweb.Utils (T2(..))
 import Data.Maybe (fromMaybe)
 import GHC.Stack
 import Data.Decimal
-import PredicateTransformers
+import PredicateTransformers as PT
 
 tests :: RocksDb -> TestTree
 tests baseRdb = testGroup "Pact5 TransactionExecTest"
@@ -267,17 +267,36 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                         assertEqual "applyCmd output should reflect evaluation of the transaction code"
                             (PactResultOk $ PInteger 15)
                             (_crResult commandResult)
-                        () <- commandResult
+                        () <- commandResult & satAll
                             -- gas buy event
-                            & _crEvents ! sole
-                                (_peName ! equals "TRANSFER"
-                                `also` _peArgs ! equals [PString "sender00", PString "NoMiner", PDecimal 318.0]
-                                `also` _peModule ! equals (ModuleName "coin" Nothing)
-                                )
-                            `also` _crResult ! equals (PactResultOk (PInteger 15))
+                            [ _crEvents ! soleElement ? satAll
+                                [ _peName ! equals "TRANSFER"
+                                , _peArgs ! equals [PString "sender00", PString "NoMiner", PDecimal 318.0]
+                                , _peModule ! equals ? ModuleName "coin" Nothing
+                                ]
+                            , _crResult ! equals ? PactResultOk (PInteger 15)
                             -- reflects buyGas gas usage, as well as that of the payload
-                            `also` _crGas ! equals (Gas 159)
-                            `also` _crContinuation ! equals Nothing
+                            , _crGas ! equals ? Gas 159
+                            , _crContinuation ! equals Nothing
+                            , _crLogs ! soleElementOf _Just ?
+                                PT.list
+                                    [ satAll
+                                        [ _txDomain ! equals "USER_coin_coin-table"
+                                        , _txKey ! equals "sender00"
+                                        -- TODO: test the values here?
+                                        -- here, we're only testing that the write pattern matches
+                                        -- gas buy and redeem, not the contents of the writes.
+                                        ]
+                                    , satAll
+                                        [ _txDomain ! equals "USER_coin_coin-table"
+                                        , _txKey ! equals "NoMiner"
+                                        ]
+                                    , satAll
+                                        [ _txDomain ! equals "USER_coin_coin-table"
+                                        , _txKey ! equals "sender00"
+                                        ]
+                                    ]
+                            ]
 
                         endSender00Bal <- readBal pactDb "sender00"
                         assertEqual "ending balance should be less gas money" (Just 99_999_682.0) endSender00Bal
@@ -287,7 +306,39 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                             endMinerBal
 
             return ()
+    , testCase "applyCoinbase spec" $ runResourceT $ do
+        sql <- withTempSQLiteResource
+        liftIO $ do
+            cp <- initCheckpointer v cid sql
+            tdb <- mkTestBlockDb v =<< testRocksDb "testApplyPayload" baseRdb
+            bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
+            T2 () _finalPactState <- withPactService v cid dummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+                initialPayloadState v cid
+                (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader gh) $ do
+                    db <- view psBlockDbEnv
+                    liftIO $ do
+                        pactDb <- assertDynamicPact5Db (_cpPactDbEnv db)
+                        startMinerBal <- readBal pactDb "NoMiner"
 
+                        let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
+                        r <- applyCoinbase v dummyLogger pactDb 5 txCtx
+                        () <- r & satAll
+                            [ _crResult ! equals ? PactResultOk (PString "Write succeeded")
+                            , _crGas ! equals ? Gas 0
+                            , _crLogs ! soleElementOf _Just ? PT.list
+                                [satAll [_txDomain ! equals "USER_coin_coin-table", _txKey ! equals "NoMiner"]]
+                            , _crEvents ! soleElement ? satAll
+                                [ _peName ! equals "TRANSFER"
+                                , _peArgs ! equals [PString "", PString "NoMiner", PDecimal 5.0]
+                                , _peModule ! equals ? ModuleName "coin" Nothing
+                                ]
+                            ]
+                        endMinerBal <- readBal pactDb "NoMiner"
+                        assertEqual "miner balance should include block reward"
+                            (Just $ fromMaybe 0 startMinerBal + 5)
+                            endMinerBal
+
+            return ()
     ]
 
 v = instantCpmTestVersion singletonChainGraph

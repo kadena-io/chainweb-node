@@ -266,14 +266,15 @@ testAgg n dbVarIO tblIO = do
             [[x]] -> error $ "unexpected return value: " <> show x
             [a] -> error $ "unexpected number of result fields: " <> show (length a)
             a -> error $ "unexpected number of result rows: " <> show (length a)
+        h' <- hash n (mconcat input)
 
-        h @?= hash n (mconcat input)
+        h @?= h'
   where
-    hash 0 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_256
-    hash 224 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_224
-    hash 256 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_256
-    hash 384 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_384
-    hash 512 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_512
+    hash 0 = fmap hashToByteString . SHA3.hashByteString @SHA3.Sha3_256
+    hash 224 = fmap hashToByteString . SHA3.hashByteString @SHA3.Sha3_224
+    hash 256 = fmap hashToByteString . SHA3.hashByteString @SHA3.Sha3_256
+    hash 384 = fmap hashToByteString . SHA3.hashByteString @SHA3.Sha3_384
+    hash 512 = fmap hashToByteString . SHA3.hashByteString @SHA3.Sha3_512
     hash x = error $ "unsupported SHA3 digest size: " <> show x
 
 hashToByteString :: SHA3.Hash a => Coercible a BS.ShortByteString => a -> B.ByteString

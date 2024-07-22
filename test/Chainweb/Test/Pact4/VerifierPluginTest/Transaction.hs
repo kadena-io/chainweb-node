@@ -39,12 +39,12 @@ import Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Utils
 
 tests :: TestTree
 tests = testGroup testName
-  [ test generousConfig getGasModel (getGasModelCore 300_000) "verifierTest" verifierTest
+  [ test generousConfig getGasModel "verifierTest" verifierTest
 
-  , test generousConfig getGasModel (getGasModelCore 300_000) "recoverValidatorAnnouncementSuccess" hyperlaneRecoverValidatorAnnouncementSuccess
-  , test generousConfig getGasModel (getGasModelCore 300_000) "recoverValidatorAnnouncementIncorrectSignatureFailure"
+  , test generousConfig getGasModel "recoverValidatorAnnouncementSuccess" hyperlaneRecoverValidatorAnnouncementSuccess
+  , test generousConfig getGasModel "recoverValidatorAnnouncementIncorrectSignatureFailure"
     hyperlaneRecoverValidatorAnnouncementIncorrectSignatureFailure
-  , test generousConfig getGasModel (getGasModelCore 300_000) "recoverValidatorAnnouncementDifferentSignerFailure"
+  , test generousConfig getGasModel "recoverValidatorAnnouncementDifferentSignerFailure"
       hyperlaneRecoverValidatorAnnouncementDifferentSignerFailure
 
   , testGroup "Message"
@@ -58,12 +58,12 @@ tests = testGroup testName
     -- we can be generous.
     generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
 
-    test pactConfig gasmodel gasmodelcore tname f =
+    test pactConfig gasmodel tname f =
       withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
         withTestBlockDb testVersion $ \bdb -> do
           (iompa,mpa) <- dmpio
           let logger = hunitDummyLogger step
-          withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel gasmodelcore $ \(pact,_) ->
+          withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,_) ->
             runReaderT f $
             SingleEnv bdb pact (return iompa) noMiner cid
 

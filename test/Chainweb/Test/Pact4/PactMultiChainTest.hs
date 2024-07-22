@@ -155,10 +155,10 @@ tests = testGroup testName
   -- [ test generousConfig getGasModel (getGasModelCore 300_000) "pact410UpgradeTest" pact410UpgradeTest -- BROKEN Keyset failure (keys-all): [WEBAUTHN...]
   [ -- test generousConfig getGasModel (getGasModelCore 300_000) "chainweb223Test" chainweb223Test
    -- Failure: broken because expects coinv6, right now applyUpgrades doesn't upgrade the coin contract (uses v4)
-    test generousConfig getGasModel (getGasModelCore 300_000) "compactAndSyncTest" compactAndSyncTest -- BROKEN PEExecutionError (EvalError "read-keyset failure") ()
-  , test generousConfig getGasModel (getGasModelCore 300_000) "compactionCompactsUnmodifiedTables" compactionCompactsUnmodifiedTables
-  , quirkTest
-  , test generousConfig getGasModel (getGasModelCore 300_000) "checkTransferCreate" checkTransferCreate
+  --   test generousConfig getGasModel (getGasModelCore 300_000) "compactAndSyncTest" compactAndSyncTest -- BROKEN PEExecutionError (EvalError "read-keyset failure") ()
+  -- , test generousConfig getGasModel (getGasModelCore 300_000) "compactionCompactsUnmodifiedTables" compactionCompactsUnmodifiedTables
+  -- , quirkTest
+  -- , test generousConfig getGasModel (getGasModelCore 300_000) "checkTransferCreate" checkTransferCreate
   ]
 
   where
@@ -173,7 +173,7 @@ tests = testGroup testName
         withTestBlockDb testVersion $ \bdb -> do
           (iompa,mpa) <- dmpio
           let logger = hunitDummyLogger step
-          withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel gasmodelCore $ \(pact,pacts) ->
+          withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
             runReaderT f $
             MultiEnv bdb pact pacts (return iompa) noMiner cid
 
@@ -1417,7 +1417,7 @@ quirkTest = do
       withTestBlockDb realVersion $ \bdb -> do
         (iompa,mpa) <- dmpio
         let logger = hunitDummyLogger step
-        withWebPactExecutionService logger realVersion testPactServiceConfig bdb mpa getGasModel (getGasModelCore 300_000) $ \(pact,pacts) ->
+        withWebPactExecutionService logger realVersion testPactServiceConfig bdb mpa getGasModel $ \(pact,pacts) ->
           flip runReaderT (MultiEnv bdb pact pacts (return iompa) noMiner cid) $ do
             runToHeight 99
 

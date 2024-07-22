@@ -82,9 +82,9 @@ runVerifierPlugins
     -> logger
     -> Map VerifierName VerifierPlugin
     -> Gas
-    -> Command (Payload PublicMeta ParsedCode)
+    -> [Verifier ParsedVerifierProof]
     -> IO (Either VerifierError Gas)
-runVerifierPlugins chainContext logger allVerifiers gasRemaining tx = try $ do
+runVerifierPlugins chainContext logger allVerifiers gasRemaining txVerifiers = try $ do
     gasRef <- stToIO $ newSTRef gasRemaining
     either throw (\_ -> stToIO $ readSTRef gasRef) <=< runExceptT $ Merge.mergeA
         -- verifier in command does not exist in list of all valid verifiers
@@ -115,4 +115,4 @@ runVerifierPlugins chainContext logger allVerifiers gasRemaining tx = try $ do
         fmap
             (\Verifier {_verifierName = name, _verifierProof = proof, _verifierCaps = caps} ->
                 (name, [(proof, Set.fromList caps)])) $
-        fromMaybe [] $ _pVerifiers (_cmdPayload tx)
+        txVerifiers

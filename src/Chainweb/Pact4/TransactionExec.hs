@@ -397,7 +397,11 @@ applyCmd v logger gasLogger txFailuresCounter pdbenv miner gasModel txCtx spv cm
       then do
         gasUsed <- use txGasUsed
         let initGasRemaining = fromIntegral gasLimit - gasUsed
-        verifierResult <- liftIO $ runVerifierPlugins (ctxVersion txCtx, cid, currHeight) logger allVerifiers initGasRemaining cmd
+        verifierResult <-
+          liftIO $ runVerifierPlugins
+            (ctxVersion txCtx, cid, currHeight)
+            logger allVerifiers initGasRemaining
+            (fromMaybe [] (cmd ^. cmdPayload . pVerifiers))
         case verifierResult of
           Left err -> do
             let errMsg = "Tx verifier error: " <> getVerifierError err
@@ -542,8 +546,6 @@ applyCoinbase
       -- ^ Pact logger
     -> PactDbEnv p
       -- ^ Pact db environment
-    -> Miner
-      -- ^ The miner chosen to mine the block
     -> ParsedDecimal
       -- ^ Miner reward
     -> TxContext
@@ -554,7 +556,7 @@ applyCoinbase
       -- ^ always enable precompilation
     -> ModuleCache
     -> IO (T2 (CommandResult [TxLogJson]) (Maybe ModuleCache))
-applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecimal d) txCtx
+applyCoinbase v logger dbEnv reward@(ParsedDecimal d) txCtx
   (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
   | fork1_3InEffect || enablePC = do
     when chainweb213Pact' $ enforceKeyFormats
@@ -570,6 +572,7 @@ applyCoinbase v logger dbEnv (Miner mid mks@(MinerKeys mk)) reward@(ParsedDecima
     let interp = initStateInterpreter initState
     go interp cexec
   where
+    (Miner mid mks@(MinerKeys mk)) = _tcMiner txCtx
     chainweb213Pact' = chainweb213Pact v cid bh
     fork1_3InEffect = vuln797Fix v cid bh
     throwCritical = fork1_3InEffect || enfCBFailure
@@ -668,7 +671,10 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
 
     applyVerifiers m = do
       let initGasRemaining = fromIntegral gasLimit - gas0
-      verifierResult <- liftIO $ runVerifierPlugins (v, cid, currHeight) logger allVerifiers initGasRemaining cmd
+      verifierResult <-
+        liftIO $ runVerifierPlugins
+          (v, cid, currHeight) logger allVerifiers initGasRemaining
+          (fromMaybe [] $ cmd ^. cmdPayload . pVerifiers)
       case verifierResult of
         Left err -> do
           let errMsg = "Tx verifier error: " <> getVerifierError err

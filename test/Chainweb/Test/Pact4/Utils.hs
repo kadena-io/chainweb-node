@@ -673,9 +673,8 @@ testPactCtxSQLite
   -> SQLiteEnv
   -> PactServiceConfig
   -> (TxContext -> GasModel)
-  -> (TxContext -> PCore.GasModel PCore.CoreBuiltin)
   -> IO (TestPactCtx logger tbl)
-testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel gasmodelCore = do
+testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
     cp <- initRelationalCheckpointer defaultModuleCacheLimit sqlenv DoNotPersistIntraBlockWrites cpLogger v cid
     let rs = readRewards
     !ctx <- TestPactCtx
@@ -725,10 +724,9 @@ withWebPactExecutionService
     -> TestBlockDb
     -> MemPoolAccess
     -> (TxContext -> GasModel)
-    -> (TxContext -> PCore.GasModel PCore.CoreBuiltin)
     -> ((WebPactExecutionService,HM.HashMap ChainId (SQLiteEnv, PactExecutionService)) -> IO a)
     -> IO a
-withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel gasmodelCore act =
+withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
   withDbs $ \sqlenvs -> do
     pacts <- fmap HM.fromList
            $ traverse (\(dbEnv, cid) -> (cid,) . (dbEnv,) <$> mkPact dbEnv cid)
@@ -743,7 +741,7 @@ withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel gasmo
     mkPact :: SQLiteEnv -> ChainId -> IO PactExecutionService
     mkPact sqlenv c = do
         bhdb <- getBlockHeaderDb c bdb
-        ctx <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel gasmodelCore
+        ctx <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
         return $ PactExecutionService
           { _pactNewBlock = \_ m fill ph ->
               evalPactServiceM_ ctx $ fmap NewBlockInProgress <$> execNewBlock mempoolAccess m fill ph
@@ -832,7 +830,7 @@ withPactCtxSQLite logger v bhdbIO pdbIO conf f =
         bhdb <- bhdbIO
         pdb <- pdbIO
         s <- ios
-        testPactCtxSQLite logger v cid bhdb pdb s conf freeGasModel (const $ PCore.freeGasModel)
+        testPactCtxSQLite logger v cid bhdb pdb s conf freeGasModel
 
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
 toTxCreationTime (Time timespan) = TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan

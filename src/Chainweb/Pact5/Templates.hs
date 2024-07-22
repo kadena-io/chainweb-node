@@ -148,11 +148,11 @@ coinbaseTemplate mid =
       rds = app (bn "read-decimal") [strLit "reward"]
   in app varApp [midTerm, rks, rds]
 
-mkCoinbaseTerm :: MinerId -> MinerKeys -> Pact5GasSupply -> (Expr (), PactValue)
+mkCoinbaseTerm :: MinerId -> MinerKeys -> Decimal -> (Expr (), PactValue)
 mkCoinbaseTerm (MinerId mid) (MinerKeys ks) reward = (coinbaseTemplate mid, coinbaseData)
   where
     coinbaseData = PObject $ Map.fromList
       [ ("miner-keyset", convertKeySet ks)
-      , ("reward", PDecimal $ _pact5GasSupply reward)
+      , ("reward", PDecimal reward)
       ]
 {-# INLINABLE mkCoinbaseTerm #-}

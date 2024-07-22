@@ -259,16 +259,16 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
       Right l -> assertFailure $ "wrong return type: " <> show l
 
   where
-    doCoinbaseExploit (pdb,coreDb) mc height localCmd precompile testResult = do
-      let ctx = TxContext (mkTestParentHeader $ height - 1) def
+    doCoinbaseExploit pdb mc height localCmd precompile testResult = do
+      let ctx = TxContext (mkTestParentHeader $ height - 1) def miner
 
-      void $ applyCoinbase Mainnet01 logger (pdb,coreDb) miner 0.1 ctx
+      void $ applyCoinbase Mainnet01 logger pdb 0.1 ctx
         (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled precompile) mc
 
       let h = H.toUntypedHash (H.hash "" :: H.PactHash)
-          tenv = TransactionEnv Transactional (Left pdb) logger Nothing def
+          tenv = TransactionEnv Transactional pdb logger Nothing def
             noSPVSupport Nothing 0.0 (RequestKey h) 0 def Nothing Nothing
-          txst = TransactionState mempty mempty 0 Nothing (Left $ _geGasModel freeGasEnv) mempty
+          txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
       CommandResult _ _ (PactResult pr) _ _ _ _ _ <- evalTransactionM tenv txst $!
         applyExec 0 defaultInterpreter localCmd [] [] h permissiveNamespacePolicy
@@ -293,8 +293,8 @@ testCoinbaseEnforceFailure :: Assertion
 testCoinbaseEnforceFailure = do
     (pdb,mc) <- loadCC coinReplV4
     r <- tryAllSynchronous $
-      applyCoinbase toyVersion logger pdb badMiner 0.1
-        (TxContext someParentHeader def)
+      applyCoinbase toyVersion logger pdb 0.1
+        (TxContext someParentHeader def badMiner)
         (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left e ->
@@ -370,7 +370,7 @@ testUpgradeScript
     -> IO ()
 testUpgradeScript script cid bh test = do
     (pdb, mc) <- loadScript script
-    r <- tryAllSynchronous $ applyCoinbase v logger pdb noMiner 0.1 (TxContext parent def)
+    r <- tryAllSynchronous $ applyCoinbase v logger pdb 0.1 (TxContext parent def noMiner)
         (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left e -> assertFailure $ "tx execution failed: " ++ show e

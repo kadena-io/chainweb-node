@@ -146,6 +146,7 @@ suite rdb =
         -- , Chainweb.Test.CutDB.tests rdb
         -- , Chainweb.Test.Pact4.TransactionTests.tests -- TODO: fix, awaiting for Jose to add loadScript function
         [ Chainweb.Test.Pact5.CheckpointerTest.tests
+        , Chainweb.Test.Pact5.TransactionExecTest.tests rdb
         -- , Chainweb.Test.Roundtrips.tests
         -- , Chainweb.Test.Rosetta.tests
         -- , Chainweb.Test.RestAPI.tests rdb
