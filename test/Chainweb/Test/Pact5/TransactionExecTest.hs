@@ -9,6 +9,7 @@
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE NumericUnderscores #-}
+
 module Chainweb.Test.Pact5.TransactionExecTest (tests) where
 
 import Control.Concurrent
@@ -235,6 +236,55 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                     payloadResult
             return ()
 
+    , testCase "applyLocal spec" $ runResourceT $ do
+        sql <- withTempSQLiteResource
+        liftIO $ do
+            cp <- initCheckpointer v cid sql
+            tdb <- mkTestBlockDb v =<< testRocksDb "testApplyPayload" baseRdb
+            bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
+            T2 () _finalPactState <- withPactService v cid dummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+                initialPayloadState v cid
+                (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader gh) $ do
+                    db <- view psBlockDbEnv
+                    liftIO $ do
+                        pactDb <- assertDynamicPact5Db (_cpPactDbEnv db)
+                        startSender00Bal <- readBal pactDb "sender00"
+                        assertEqual "starting balance" (Just 100_000_000) startSender00Bal
+                        startMinerBal <- readBal pactDb "NoMiner"
+
+                        cmd <- buildCwCmd "nonce" v defaultCmd
+                            { _cbRPC = mkExec' "(fold + 0 [1 2 3 4 5])"
+                            , _cbSigners =
+                                [ mkEd25519Signer' sender00
+                                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
+                                ]
+                            , _cbSender = "sender00"
+                            , _cbChainId = cid
+                            , _cbGasPrice = GasPrice 2
+                            , _cbGasLimit = GasLimit (Gas 500)
+                            }
+                        let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
+                        commandResult <- applyLocal dummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd)
+                        assertEqual "applyLocal output should reflect evaluation of the transaction code"
+                            (PactResultOk $ PInteger 15)
+                            (_crResult commandResult)
+                        () <- commandResult & satAll
+                            -- gas buy event
+                            [ _crEvents ! equals []
+                            , _crResult ! equals ? PactResultOk (PInteger 15)
+                            -- reflects buyGas gas usage, as well as that of the payload
+                            , _crGas ! equals ? Gas 1
+                            , _crContinuation ! equals Nothing
+                            , _crLogs ! equals ? Just []
+                            ]
+
+                        endSender00Bal <- readBal pactDb "sender00"
+                        assertEqual "ending balance should be equal" (Just 100_000_000) endSender00Bal
+                        endMinerBal <- readBal pactDb "NoMiner"
+                        assertEqual "miner balance after redeeming gas should have increased" startMinerBal endMinerBal
+
+            return ()
+
     , testCase "applyCmd spec" $ runResourceT $ do
         sql <- withTempSQLiteResource
         liftIO $ do
@@ -306,6 +356,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                             endMinerBal
 
             return ()
+
     , testCase "applyCoinbase spec" $ runResourceT $ do
         sql <- withTempSQLiteResource
         liftIO $ do
