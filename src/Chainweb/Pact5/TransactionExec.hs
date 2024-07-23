@@ -271,6 +271,75 @@ runVerifiers txCtx cmd = do
           chargeGas def $ GAConstant $ gasToMilliGas $ Gas $
             verifierGasRemaining - min (_gas (milliGasToGas initGasRemaining)) verifierGasRemaining
 
+applyLocal
+    :: (Logger logger)
+    => logger
+      -- ^ Pact logger
+    -> Maybe logger
+      -- ^ Pact gas logger
+    -> CoreDb
+      -- ^ Pact db environment
+    -> TxContext
+      -- ^ tx metadata and parent header
+    -> SPVSupport
+      -- ^ SPV support (validates cont proofs)
+    -> Command (Payload PublicMeta ParsedCode)
+      -- ^ command with payload to execute
+    -> IO (CommandResult [TxLog ByteString] TxFailedError)
+applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
+  let !gasLimit = view (cmdPayload . pMeta . pmGasLimit) cmd
+  gasRef <- newIORef mempty
+  gasLogRef <- forM maybeGasLogger $ \_ -> newIORef []
+  let runLocal = runVerifiers txCtx cmd *> runPayload Local coreDb spvSupport txCtx cmd
+  let gasEnv = GasEnv
+        { _geGasRef = gasRef
+        , _geGasLog = gasLogRef
+        , _geGasModel = tableGasModel (MilliGasLimit $ gasToMilliGas $ gasLimit ^. _GasLimit)
+        }
+  let txEnv = TransactionEnv
+        { _txEnvGasEnv = gasEnv
+        , _txEnvLogger = logger
+        }
+  runExceptT (runReaderT (runTransactionM runLocal) txEnv) >>= \case
+    Left err -> do
+      return CommandResult
+        { _crReqKey = RequestKey $ _cmdHash cmd
+        , _crTxId = Nothing
+        , _crResult = PactResultErr err
+        -- all gas is used when a command fails
+        , _crGas = cmd ^. cmdPayload . pMeta . pmGasLimit . _GasLimit
+        , _crLogs = Nothing
+        , _crContinuation = Nothing
+        , _crEvents = []
+        , _crMetaData = Nothing
+        }
+    Right payloadResult -> do
+      gasUsed <- milliGasToGas <$> readIORef gasRef
+      let result = case reverse (_erOutput payloadResult) of
+            x:_ -> x
+            _ -> InterpretValue PUnit (def :: Info)
+      return CommandResult
+        { _crReqKey = RequestKey $ _cmdHash cmd
+        , _crTxId = _erTxId payloadResult
+        , _crResult =
+          PactResultOk $ compileValueToPactValue $ result
+        , _crGas = gasUsed
+        , _crLogs = Just $ _erLogs payloadResult
+        , _crContinuation = _erExec payloadResult
+        , _crEvents =  _erEvents payloadResult
+        , _crMetaData = Nothing
+        }
+
+  where
+  localFlags = S.fromList
+    [ FlagDisableRuntimeRTC
+    , FlagEnforceKeyFormats
+    -- Note: this is currently not conditional
+    -- in pact-5 exec. This may change if it breaks
+    -- anyone's workflow
+    , FlagAllowReadInLocal
+    , FlagRequireKeysetNs]
+
 -- | The main entry point to executing transactions. From here,
 -- 'applyCmd' assembles the command environment for a command,
 -- purchases gas for the command, executes the command, and
@@ -309,7 +378,7 @@ applyCmd v logger maybeGasLogger coreDb txCtx spv cmd initialGas = do
         runVerifiers txCtx cmd
 
         -- run payload
-        runPayload coreDb spv txCtx cmd
+        runPayload Transactional coreDb spv txCtx cmd
 
   when (GasLimit initialGas > gasLimit) $
     throwM $ BuyGasFailure $ Pact5GasPurchaseFailure requestKey "tx too big for gas limit"
@@ -420,7 +489,7 @@ applyCoinbase v logger coreDb reward txCtx = do
     (coinbaseTerm, coinbaseData) = mkCoinbaseTerm mid mks reward
   coinbaseTxResult <-
     either (throwM . CoinbaseFailure . sshow) return . join =<< catchesPact5Error logger
-    (evalExec
+    (evalExec Transactional
       coreDb noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) managedNamespacePolicy
       (ctxToPublicData def txCtx)
       MsgData
@@ -502,12 +571,13 @@ compileValueToPactValue = \case
 runPayload
     :: forall logger err
     . (Logger logger)
-    => CoreDb
+    => ExecutionMode
+    -> CoreDb
     -> SPVSupport
     -> TxContext
     -> Command (Payload PublicMeta ParsedCode)
     -> TransactionM logger EvalResult
-runPayload coreDb spv txCtx cmd = do
+runPayload execMode coreDb spv txCtx cmd = do
 
     -- Note [Throw out verifier proofs eagerly]
   let !verifiersWithNoProof =
@@ -517,7 +587,7 @@ runPayload coreDb spv txCtx cmd = do
   res <- case _pPayload (_cmdPayload cmd) of
     Exec ExecMsg {..} -> do
       either (throwError . TxPactError) return =<< catchUnknownExceptions
-        (evalExec
+        (evalExec execMode
           coreDb spv gm (Set.fromList [FlagDisableRuntimeRTC]) managedNamespacePolicy
           (ctxToPublicData publicMeta txCtx)
           MsgData
@@ -532,7 +602,7 @@ runPayload coreDb spv txCtx cmd = do
         )
     Continuation ContMsg {..} -> do
       either (throwError . TxPactError) return =<< catchUnknownExceptions
-        (evalContinuation
+        (evalContinuation execMode
           coreDb spv gm (Set.fromList [FlagDisableRuntimeRTC]) managedNamespacePolicy
           (ctxToPublicData publicMeta txCtx)
           MsgData
@@ -576,7 +646,7 @@ runUpgrade
     -> IO ()
 runUpgrade logger coreDb txContext cmd = case payload of
     Exec pm ->
-      evalExec
+      evalExec Transactional
         coreDb noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
         (ctxToPublicData publicMeta txContext)
         MsgData
@@ -625,7 +695,7 @@ buyGas logger db txCtx cmd = do
       else mkFundTxTerm mid mks sender supply
   eval <- case gasPayerCaps of
     [gasPayerCap] -> return $ evalGasPayerCap gasPayerCap
-    [] -> return evalExecTerm
+    [] -> return (evalExecTerm Transactional)
     _ -> internalError "buyGas: error - multiple gas payer caps"
   eval
     -- TODO: magic constant, 1500 max gas limit for buyGas?
@@ -691,7 +761,7 @@ redeemGas logger pactDb txCtx gasUsed maybeFundTxPactId cmd
     | isChainweb224Pact, Nothing <- maybeFundTxPactId = do
       -- if we're past chainweb 2.24, we don't use defpacts for gas; see 'pact/coin-contract/coin.pact#redeem-gas'
       let (redeemGasTerm, redeemGasData) = mkRedeemGasTerm mid mks sender gasTotal gasFee
-      evalExec
+      evalExec Transactional
         -- TODO: more execution flags?
         pactDb noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
         (ctxToPublicData publicMeta txCtx)
@@ -711,7 +781,7 @@ redeemGas logger pactDb txCtx gasUsed maybeFundTxPactId cmd
     | not isChainweb224Pact, Just fundTxPactId <- maybeFundTxPactId = do
       -- before chainweb 2.24, we use defpacts for gas; see: 'pact/coin-contract/coin.pact#fund-tx'
       let redeemGasData = PObject $ Map.singleton "fee" (PDecimal $ _pact5GasSupply gasFee)
-      evalContinuation
+      evalContinuation Transactional
         pactDb noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
         (ctxToPublicData publicMeta txCtx)
         MsgData

@@ -71,7 +71,7 @@ package yet-another-logger
 
 packages:
     ../pact-core
-    ../../workspace/predicate-transformers
+--    ../../workspace/predicate-transformers
 
 -- -------------------------------------------------------------------------- --
 -- Source Repository Packages
