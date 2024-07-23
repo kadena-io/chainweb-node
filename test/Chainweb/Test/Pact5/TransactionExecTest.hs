@@ -104,6 +104,7 @@ import Pact.Core.Persistence
 import Pact.Core.SPV (noSPVSupport)
 import Pact.Core.Persistence (PactDb(_pdbRead))
 import Pact.Core.Names (ModuleName(ModuleName))
+import Pact.Core.Serialise
 import Chainweb.Utils (T2(..))
 import Data.Maybe (fromMaybe)
 import GHC.Stack
@@ -216,7 +217,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
 
                         payloadResult <- runExceptT $
                             runReaderT
-                                (runTransactionM (runPayload pactDb noSPVSupport txCtx (_payloadObj <$> cmd)))
+                                (runTransactionM (runPayload Transactional pactDb noSPVSupport txCtx (_payloadObj <$> cmd)))
                                 (TransactionEnv dummyLogger gasEnv)
                         gasUsed <- readIORef gasRef
                         return (gasUsed, payloadResult)
@@ -254,10 +255,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
 
                         cmd <- buildCwCmd "nonce" v defaultCmd
                             { _cbRPC = mkExec' "(fold + 0 [1 2 3 4 5])"
-                            , _cbSigners =
-                                [ mkEd25519Signer' sender00
-                                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
-                                ]
+                            , _cbSigners = []
                             , _cbSender = "sender00"
                             , _cbChainId = cid
                             , _cbGasPrice = GasPrice 2
@@ -269,17 +267,18 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                             (PactResultOk $ PInteger 15)
                             (_crResult commandResult)
                         () <- commandResult & satAll
-                            -- gas buy event
+                            -- Local has no buy gas, therefore
+                            -- no gas buy event
                             [ _crEvents ! equals []
                             , _crResult ! equals ? PactResultOk (PInteger 15)
-                            -- reflects buyGas gas usage, as well as that of the payload
+                            -- reflects payload gas usage
                             , _crGas ! equals ? Gas 1
                             , _crContinuation ! equals Nothing
                             , _crLogs ! equals ? Just []
                             ]
 
                         endSender00Bal <- readBal pactDb "sender00"
-                        assertEqual "ending balance should be equal" (Just 100_000_000) endSender00Bal
+                        assertEqual "ending balance should be equal" startSender00Bal endSender00Bal
                         endMinerBal <- readBal pactDb "NoMiner"
                         assertEqual "miner balance after redeeming gas should have increased" startMinerBal endMinerBal
 
@@ -313,10 +312,8 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                             , _cbGasLimit = GasLimit (Gas 500)
                             }
                         let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
+                        let expectedGasConsumed = 159
                         commandResult <- applyCmd v dummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
-                        assertEqual "applyCmd output should reflect evaluation of the transaction code"
-                            (PactResultOk $ PInteger 15)
-                            (_crResult commandResult)
                         () <- commandResult & satAll
                             -- gas buy event
                             [ _crEvents ! soleElement ? satAll
@@ -326,7 +323,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                                 ]
                             , _crResult ! equals ? PactResultOk (PInteger 15)
                             -- reflects buyGas gas usage, as well as that of the payload
-                            , _crGas ! equals ? Gas 159
+                            , _crGas ! equals ? Gas expectedGasConsumed
                             , _crContinuation ! equals Nothing
                             , _crLogs ! soleElementOf _Just ?
                                 PT.list
@@ -352,7 +349,94 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                         assertEqual "ending balance should be less gas money" (Just 99_999_682.0) endSender00Bal
                         endMinerBal <- readBal pactDb "NoMiner"
                         assertEqual "miner balance after redeeming gas should have increased"
-                            (Just $ fromMaybe 0 startMinerBal + 159 * 2)
+                            (Just $ fromMaybe 0 startMinerBal + (fromIntegral expectedGasConsumed) * 2)
+                            endMinerBal
+
+            return ()
+
+    , testCase "applyCmd coin.transfer" $ runResourceT $ do
+        sql <- withTempSQLiteResource
+        liftIO $ do
+            cp <- initCheckpointer v cid sql
+            tdb <- mkTestBlockDb v =<< testRocksDb "testApplyPayload" baseRdb
+            bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
+            T2 () _finalPactState <- withPactService v cid dummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+                initialPayloadState v cid
+                (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader gh) $ do
+                    db <- view psBlockDbEnv
+                    liftIO $ do
+                        pactDb <- assertDynamicPact5Db (_cpPactDbEnv db)
+                        startSender00Bal <- readBal pactDb "sender00"
+                        assertEqual "starting balance" (Just 100_000_000) startSender00Bal
+                        startMinerBal <- readBal pactDb "NoMiner"
+                        let coinModule = ModuleName "coin" Nothing
+
+                        cmd <- buildCwCmd "nonce" v defaultCmd
+                            { _cbRPC = mkExec' "(coin.transfer 'sender00 'sender01 420.0)"
+                            , _cbSigners =
+                                [ mkEd25519Signer' sender00
+                                    [ CapToken (QualifiedName "GAS" coinModule) []
+                                    , CapToken (QualifiedName "TRANSFER" coinModule) [PString "sender00", PString "sender01", PDecimal 420] ]
+                                ]
+                            , _cbSender = "sender00"
+                            , _cbChainId = cid
+                            , _cbGasPrice = GasPrice 2
+                            , _cbGasLimit = GasLimit (Gas 600)
+                            }
+                        let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
+                        -- Note: if/when core changes gas prices, tweak here.
+                        let expectedGasConsumed = 509
+                        commandResult <- applyCmd v dummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                        let
+                        () <- commandResult & satAll
+                            -- gas buy event
+                            [ _crEvents ! PT.list
+                              [ satAll
+                                [ _peName ! equals "TRANSFER"
+                                , _peArgs ! equals [PString "sender00", PString "sender01", PDecimal 420]
+                                , _peModule ! equals coinModule]
+                              , satAll
+                                [ _peName ! equals "TRANSFER"
+                                , _peArgs ! equals [PString "sender00", PString "NoMiner", PDecimal 1018]
+                                , _peModule ! equals coinModule]
+                              ]
+                            , _crResult ! equals ? PactResultOk (PString "Write succeeded")
+                            -- reflects buyGas gas usage, as well as that of the payload
+                            , _crGas ! equals ? Gas expectedGasConsumed
+                            , _crContinuation ! equals Nothing
+                            , _crLogs ! soleElementOf _Just ?
+                                PT.list
+                                    [ satAll
+                                        [ _txDomain ! equals "USER_coin_coin-table"
+                                        , _txKey ! equals "sender00"
+                                        -- TODO: test the values here?
+                                        -- here, we're only testing that the write pattern matches
+                                        -- gas buy and redeem, not the contents of the writes.
+                                        ]
+                                    , satAll
+                                        [ _txDomain ! equals "USER_coin_coin-table"
+                                        , _txKey ! equals "sender01"
+                                        ]
+                                    , satAll
+                                        [ _txDomain ! equals "USER_coin_coin-table"
+                                        , _txKey ! equals "sender00"
+                                        ]
+                                    , satAll
+                                        [ _txDomain ! equals "USER_coin_coin-table"
+                                        , _txKey ! equals "NoMiner"
+                                        ]
+                                    , satAll
+                                        [ _txDomain ! equals "USER_coin_coin-table"
+                                        , _txKey ! equals "sender00"
+                                        ]
+                                    ]
+                            ]
+
+                        endSender00Bal <- readBal pactDb "sender00"
+                        assertEqual "ending balance should be less gas money" (Just 99_998_562.0) endSender00Bal
+                        endMinerBal <- readBal pactDb "NoMiner"
+                        assertEqual "miner balance after redeeming gas should have increased"
+                            (Just $ fromMaybe 0 startMinerBal + (fromIntegral expectedGasConsumed * 2))
                             endMinerBal
 
             return ()

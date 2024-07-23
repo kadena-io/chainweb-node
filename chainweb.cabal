@@ -615,7 +615,7 @@ test-suite chainweb-tests
         , pact-tng:pact-request-api
         , pact-tng:test-utils
         , pact-json >= 0.1
-        , predicate-transformers == 0.11.0.0
+        , predicate-transformers == 0.12.0.0
         , quickcheck-instances >= 0.3
         , random >= 1.2
         , resource-pool >= 0.4

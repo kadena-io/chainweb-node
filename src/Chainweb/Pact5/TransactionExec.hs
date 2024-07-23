@@ -34,6 +34,7 @@ module Chainweb.Pact5.TransactionExec
 , runVerifiers
 , runPayload
 , redeemGas
+, applyLocal
 
 
 ) where
