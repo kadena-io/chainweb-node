@@ -69,10 +69,6 @@ package vault
 package yet-another-logger
     flags: -tbmqueue
 
-packages:
-    ../pact-core
---    ../../workspace/predicate-transformers
-
 -- -------------------------------------------------------------------------- --
 -- Source Repository Packages
 --
@@ -85,13 +81,13 @@ source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
     tag: 532d74dcf36f1b0119412af8ec14bb0f3298fb91
-    --sha256: 0kyh6xwm06npbw73dil5xpngfr7h6ppsn5jz7hjkirq9hj33aqqv
+    --sha256: sha256-2+eD0hyPmz+VflAlg4BMpc/ExOf3x+C29Q20Wj008/c=
 
--- source-repository-package
---     type: git
---     location: https://github.com/kadena-io/pact-5.git
---     tag: c065ebd60ea0460a98779968200e943044fe4939
---     --sha256: sha256-pSDMa5QZDF5/dsccDgZFQMfhgo+/HjDqc0m9W9h7m3g=
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/pact-5.git
+    tag: c929b9ea9bfd8e86e765c0e569d74797c1b0c7a8
+    --sha256: 0nv6rrk2vvyzsd2ia54cx6wp02nrj2fn0c2s45bhmpsb8c25q6jm
 
 source-repository-package
     type: git
@@ -121,12 +117,13 @@ source-repository-package
     type: git
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
     tag: 8df1cff7f279750490fea8ff580294f3e5a3fcaf
-    --sha256: sha256-xdawv/tdjh61MbJKcBqm9Fje36+gVljuZsAxOTX1gP0=
+    --sha256: sha256-HyWTEtw/dKQduXl5avRckS0oNc9Z5yxeUxvX09wDkDY=
 
 source-repository-package
     type: git
     location: https://github.com/edmundnoble/hs-hashes.git
     tag: c14fc7dba9c5b92b7bf2f4ba14470dba1670eac3
+    --sha256: 18xdml1fwqzb6lzcc53qy65d3i5y6fjs76q85dh4g17zzcaibl81
 
 source-repository-package
     type: git
