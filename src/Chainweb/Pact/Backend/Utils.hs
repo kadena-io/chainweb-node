@@ -22,8 +22,7 @@
 
 module Chainweb.Pact.Backend.Utils
   ( -- * General utils
-    callDb
-  , open2
+    open2
   , chainDbFileName
     -- * Savepoints
   , withSavepoint
@@ -196,18 +195,6 @@ convSavepointName = toTextUtf8
 
 -- -------------------------------------------------------------------------- --
 --
-
-callDb
-    :: (MonadCatch m, MonadReader (BlockHandlerEnv logger) m, MonadIO m)
-    => T.Text
-    -> (SQ3.Database -> IO b)
-    -> m b
-callDb callerName action = do
-  c <- view blockHandlerDb
-  res <- tryAny $ liftIO $ action c
-  case res of
-    Left err -> internalError $ "callDb (" <> callerName <> "): " <> sshow err
-    Right r -> return r
 
 withSavepoint
     :: SQLiteEnv

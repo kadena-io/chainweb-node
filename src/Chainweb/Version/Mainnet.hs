@@ -169,17 +169,18 @@ mainnet = ChainwebVersion
             ]
         , _genesisTime = AllChains $ BlockCreationTime [timeMicrosQQ| 2019-10-30T00:01:00.0 |]
         , _genesisBlockPayload = OnChains $ HM.fromList $ concat
-            [ [ (unsafeChainId 0, MN0.payloadBlock)
-              , (unsafeChainId 1, MN1.payloadBlock)
-              , (unsafeChainId 2, MN2.payloadBlock)
-              , (unsafeChainId 3, MN3.payloadBlock)
-              , (unsafeChainId 4, MN4.payloadBlock)
-              , (unsafeChainId 5, MN5.payloadBlock)
-              , (unsafeChainId 6, MN6.payloadBlock)
-              , (unsafeChainId 7, MN7.payloadBlock)
-              , (unsafeChainId 8, MN8.payloadBlock)
-              , (unsafeChainId 9, MN9.payloadBlock)
-              ]
+            [
+                [ (unsafeChainId 0, MN0.payloadBlock)
+                , (unsafeChainId 1, MN1.payloadBlock)
+                , (unsafeChainId 2, MN2.payloadBlock)
+                , (unsafeChainId 3, MN3.payloadBlock)
+                , (unsafeChainId 4, MN4.payloadBlock)
+                , (unsafeChainId 5, MN5.payloadBlock)
+                , (unsafeChainId 6, MN6.payloadBlock)
+                , (unsafeChainId 7, MN7.payloadBlock)
+                , (unsafeChainId 8, MN8.payloadBlock)
+                , (unsafeChainId 9, MN9.payloadBlock)
+                ]
             , [(unsafeChainId i, MNKAD.payloadBlock) | i <- [10..19]]
             ]
         }

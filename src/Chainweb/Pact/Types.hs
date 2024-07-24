@@ -29,20 +29,16 @@
 -- Pact Types module for Chainweb
 --
 module Chainweb.Pact.Types
-  ( Pact4GasSupply(..)
-  , Pact5GasSupply(..)
-  , GasId(..)
-  , EnforceCoinbaseFailure(..)
-  , CoinbaseUsePrecompiled(..)
-  , cleanModuleCache
+  -- ( Pact4GasSupply(..)
+  -- , Pact5GasSupply(..)
+  -- , cleanModuleCache
 
     -- * Pact Service Env
-  , PactServiceEnv(..)
+  ( PactServiceEnv(..)
   , psMempoolAccess
   , psCheckpointer
   , psPdb
   , psBlockHeaderDb
-  , psGasModel
   , psMinerRewards
   , psReorgLimit
   , psPreInsertCheckTimeout
@@ -54,27 +50,13 @@ module Chainweb.Pact.Types
   , psBlockGasLimit
   , psEnableLocalTimeout
   , psTxFailuresCounter
-
-    -- * TxContext
-  , TxContext(..)
-  , ctxToPublicData
-  , ctxToPublicData'
-  , ctxBlockHeader
-  , ctxCurrentBlockHeight
-  , ctxChainId
-  , ctxVersion
-  , guardCtx
-  , getTxContext
-
+    --
     -- * Pact Service State
   , PactServiceState(..)
   , psInitCache
 
   -- * Module cache
   , ModuleInitCache
-  , getInitCache
-  , updateInitCache
-  , updateInitCacheM
 
     -- * Pact Service Monad
   , PactServiceM(..)
@@ -82,21 +64,15 @@ module Chainweb.Pact.Types
   , evalPactServiceM
   , execPactServiceM
 
-  , PactBlockM(..)
-  , liftPactServiceM
   , PactBlockEnv(..)
   , psBlockDbEnv
   , psParentHeader
   , psServiceEnv
-  , runPactBlockM
-  , dispatchBlockOnPactVersion
-  , assertBlockPact4
-  , assertBlockPact5
 
     -- * Logging with Pact logger
 
-  , tracePactBlockM
-  , tracePactBlockM'
+  -- , tracePactBlockM
+  -- , tracePactBlockM'
   , pactLoggers
   , logg_
   , logInfo_
@@ -111,7 +87,6 @@ module Chainweb.Pact.Types
   , logJsonTrace_
   , logJsonTrace
   , localLabel
-  , localLabelBlock
 
     -- * types
   , TxTimeout(..)
@@ -125,9 +100,6 @@ module Chainweb.Pact.Types
   , testPactServiceConfig
   , testBlockGasLimit
   , defaultModuleCacheLimit
-  , catchesPact4Error
-  , catchesPact5Error
-  , UnexpectedErrorPrinting(..)
   , defaultPreInsertCheckTimeout
   , withPactState
   ) where
@@ -202,53 +174,10 @@ import Chainweb.Version.Guards (pact5)
 -- -------------------------------------------------------------------------- --
 -- Coinbase output utils
 
--- | Indicates a computed gas charge (gas amount * gas price)
-newtype Pact4GasSupply = Pact4GasSupply { _gasSupply :: ParsedDecimal }
-   deriving (Eq,Ord)
-   deriving newtype (Num,Real,Fractional,FromJSON)
-instance Show Pact4GasSupply where show (Pact4GasSupply g) = show g
-
-instance J.Encode Pact4GasSupply where
-    build = J.build . _gasSupply
-
--- | Indicates a computed gas charge (gas amount * gas price)
-newtype Pact5GasSupply = Pact5GasSupply { _pact5GasSupply :: Decimal }
-   deriving (Eq,Ord)
-   deriving newtype (Num,Real,Fractional)
-
-instance J.Encode Pact5GasSupply where
-    build = J.build . Pact5.StableEncoding . Pact5.LDecimal . _pact5GasSupply
-instance Show Pact5GasSupply where show (Pact5GasSupply g) = show g
-
-newtype GasId = GasId PactId deriving (Eq, Show)
-
--- | Whether to enforce coinbase failures, failing the block,
--- or be backward-compatible and allow.
--- Backward-compat fix is to enforce in new block, but ignore in validate.
---
-newtype EnforceCoinbaseFailure = EnforceCoinbaseFailure Bool
-
--- | Always use precompiled templates in coinbase or use date rule.
-newtype CoinbaseUsePrecompiled = CoinbaseUsePrecompiled Bool
-
 -- -------------------------------------------------------------------- --
 -- Local vs. Send execution context flag
 
 data ApplyCmdExecutionContext = ApplyLocal | ApplySend
-
--- | Pair parent header with transaction metadata.
--- In cases where there is no transaction/Command, 'PublicMeta'
--- default value is used.
-data TxContext = TxContext
-  { _tcParentHeader :: !ParentHeader
-  , _tcPublicMeta :: !PublicMeta
-  , _tcMiner :: !Miner
-  } deriving Show
-
-instance HasChainId TxContext where
-  _chainId = _chainId . _tcParentHeader
-instance HasChainwebVersion TxContext where
-  _chainwebVersion = _chainwebVersion . _tcParentHeader
 
 -- -------------------------------------------------------------------- --
 -- Pact Service Monad
@@ -258,8 +187,6 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psCheckpointer :: !(Checkpointer logger)
     , _psPdb :: !(PayloadDb tbl)
     , _psBlockHeaderDb :: !BlockHeaderDb
-    -- TODO: delete below
-    , _psGasModel :: !(TxContext -> GasModel)
     , _psMinerRewards :: !MinerRewards
     , _psPreInsertCheckTimeout :: !Micros
     -- ^ Maximum allowed execution time for the transactions validation.
@@ -362,17 +289,18 @@ defaultOnFatalError lf pex t = do
 
 type ModuleInitCache = M.Map BlockHeight ModuleCache
 
-data PactBlockEnv logger db tbl = PactBlockEnv
-  { _psServiceEnv :: !(PactServiceEnv logger tbl)
-  , _psParentHeader :: !ParentHeader
-  , _psBlockDbEnv :: !(CurrentBlockDbEnv logger db)
-  }
-
 data PactServiceState = PactServiceState
     { _psInitCache :: !ModuleInitCache
     }
 
 makeLenses ''PactServiceState
+
+data PactBlockEnv logger db tbl = PactBlockEnv
+  { _psServiceEnv :: !(PactServiceEnv logger tbl)
+  , _psParentHeader :: !ParentHeader
+  , _psBlockDbEnv :: !(PactDbFor logger db)
+  }
+
 makeLenses ''PactBlockEnv
 
 instance HasChainwebVersion (PactBlockEnv logger db tbl) where
@@ -380,70 +308,11 @@ instance HasChainwebVersion (PactBlockEnv logger db tbl) where
 instance HasChainId (PactBlockEnv logger db tbl) where
   chainId = psServiceEnv . chainId
 
--- | Convert context to datatype for Pact environment.
---
--- TODO: this should be deprecated, since the `ctxBlockHeader`
--- call fetches a grandparent, not the parent.
---
-ctxToPublicData :: TxContext -> PublicData
-ctxToPublicData ctx = PublicData
-    { _pdPublicMeta = _tcPublicMeta ctx
-    , _pdBlockHeight = bh
-    , _pdBlockTime = bt
-    , _pdPrevBlockHash = toText hsh
-    }
-  where
-    h = ctxBlockHeader ctx
-    BlockHeight bh = ctxCurrentBlockHeight ctx
-    BlockCreationTime (Time (TimeSpan (Micros !bt))) = _blockCreationTime h
-    BlockHash hsh = _blockParent h
-
--- | Convert context to datatype for Pact environment using the
--- current blockheight, referencing the parent header (not grandparent!)
--- hash and blocktime data
---
-ctxToPublicData' :: TxContext -> PublicData
-ctxToPublicData' ctx = PublicData
-    { _pdPublicMeta = _tcPublicMeta ctx
-    , _pdBlockHeight = bh
-    , _pdBlockTime = bt
-    , _pdPrevBlockHash = toText h
-    }
-  where
-    bheader = _parentHeader (_tcParentHeader ctx)
-    BlockHeight !bh = succ $ _blockHeight bheader
-    BlockCreationTime (Time (TimeSpan (Micros !bt))) =
-      _blockCreationTime bheader
-    BlockHash h = _blockHash bheader
-
--- | Retrieve parent header as 'BlockHeader'
-ctxBlockHeader :: TxContext -> BlockHeader
-ctxBlockHeader = _parentHeader . _tcParentHeader
-
--- | Get "current" block height, which means parent height + 1.
--- This reflects Pact environment focus on current block height,
--- which influenced legacy switch checks as well.
-ctxCurrentBlockHeight :: TxContext -> BlockHeight
-ctxCurrentBlockHeight = succ . _blockHeight . ctxBlockHeader
-
-ctxChainId :: TxContext -> ChainId
-ctxChainId = _blockChainId . ctxBlockHeader
-
-ctxVersion :: TxContext -> ChainwebVersion
-ctxVersion = _chainwebVersion . ctxBlockHeader
-
-guardCtx :: (ChainwebVersion -> ChainId -> BlockHeight -> a) -> TxContext -> a
-guardCtx g txCtx = g (ctxVersion txCtx) (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx)
-
--- | Assemble tx context from transaction metadata and parent header.
-getTxContext :: Miner -> PublicMeta -> PactBlockM logger db tbl TxContext
-getTxContext miner pm = view psParentHeader >>= \ph -> return (TxContext ph pm miner)
-
 -- | The top level monad of PactService, notably allowing access to a
 -- checkpointer and module init cache and some configuration parameters.
 newtype PactServiceM logger tbl a = PactServiceM
   { _unPactServiceM ::
-       ReaderT (PactServiceEnv logger tbl) (StateT PactServiceState IO) a
+      ReaderT (PactServiceEnv logger tbl) (StateT PactServiceState IO) a
   } deriving newtype
     ( Functor, Applicative, Monad
     , MonadReader (PactServiceEnv logger tbl)
@@ -475,95 +344,6 @@ withPactState inner = bracket captureState releaseState $ \ref -> do
     captureState = liftIO . newIORef =<< get
     releaseState = liftIO . readIORef >=> put
 
--- | A sub-monad of PactServiceM, for actions taking place at a particular block.
-newtype PactBlockM logger db tbl a = PactBlockM
-  { _unPactBlockM ::
-       ReaderT (PactBlockEnv logger db tbl) (StateT PactServiceState IO) a
-  } deriving newtype
-    ( Functor, Applicative, Monad
-    , MonadReader (PactBlockEnv logger db tbl)
-    , MonadState PactServiceState
-    , MonadThrow, MonadCatch, MonadMask
-    , MonadIO
-    )
-
-type instance Magnified (PactBlockM logger db tbl) = Magnified (ReaderT (PactBlockEnv logger db tbl) (StateT PactServiceState IO))
-instance Magnify
-  (PactBlockM logger db tbl) (PactBlockM logger db' tbl)
-  (PactBlockEnv logger db tbl) (PactBlockEnv logger db' tbl) where
-  magnify l (PactBlockM p) = PactBlockM (magnify l p)
-
-dispatchBlockOnPactVersion
-  :: ChainwebVersion
-  -> ChainId
-  -> BlockHeight
-  -> PactBlockM logger (Pact4Db logger) tbl a
-  -> PactBlockM logger Pact5Db tbl a
-  -> PactBlockM logger (DynamicPactDb logger) tbl a
-dispatchBlockOnPactVersion v cid bh ifPact4 ifPact5
-    | pact5 v cid bh = assertBlockPact4 ifPact4
-    | otherwise = assertBlockPact5 ifPact5
-
-assertBlockPact4 :: PactBlockM logger (Pact4Db logger) tbl a -> PactBlockM logger (DynamicPactDb logger) tbl a
-assertBlockPact4 act = do
-  env <- ask
-  env' <- env & traverseOf (psBlockDbEnv . cpPactDbEnv) assertDynamicPact4Db
-  magnify (to (\_ -> env')) act
-
-assertBlockPact5 :: PactBlockM logger Pact5Db tbl a -> PactBlockM logger (DynamicPactDb logger) tbl a
-assertBlockPact5 act = do
-  env <- ask
-  env' <- env & traverseOf (psBlockDbEnv . cpPactDbEnv) assertDynamicPact5Db
-  magnify (to (\_ -> env')) act
-
--- | Lifts PactServiceM to PactBlockM by forgetting about the current block.
--- It is unsafe to use `runPactBlockM` inside the argument to this function.
-liftPactServiceM :: PactServiceM logger tbl a -> PactBlockM logger db tbl a
-liftPactServiceM (PactServiceM a) = PactBlockM (magnify psServiceEnv a)
-
--- | Look up an init cache that is stored at or before the height of the current parent header.
-getInitCache :: PactBlockM logger db tbl ModuleCache
-getInitCache = do
-  ph <- views psParentHeader (_blockHeight . _parentHeader)
-  get >>= \PactServiceState{..} ->
-    case M.lookupLE ph _psInitCache of
-      Just (_,mc) -> return mc
-      Nothing -> return mempty
-
--- | Update init cache at adjusted parent block height (APBH).
--- Contents are merged with cache found at or before APBH.
--- APBH is 0 for genesis and (parent block height + 1) thereafter.
-updateInitCache :: ModuleCache -> ParentHeader -> PactServiceM logger tbl ()
-updateInitCache mc ph = get >>= \PactServiceState{..} -> do
-    let bf 0 = 0
-        bf h = succ h
-    let pbh = bf (_blockHeight $ _parentHeader ph)
-
-    v <- view psVersion
-    cid <- view chainId
-
-    psInitCache .= case M.lookupLE pbh _psInitCache of
-      Nothing -> M.singleton pbh mc
-      Just (_,before)
-        | cleanModuleCache v cid pbh ->
-          M.insert pbh mc _psInitCache
-        | otherwise -> M.insert pbh (before <> mc) _psInitCache
-
--- | A wrapper for 'updateInitCache' that uses the current block.
-updateInitCacheM :: ModuleCache -> PactBlockM logger db tbl ()
-updateInitCacheM mc = do
-  pc <- view psParentHeader
-  liftPactServiceM $
-    updateInitCache mc pc
-
--- | Run 'PactBlockM' by providing the block context, in the form of
--- a database snapshot at that block and information about the parent header.
--- It is unsafe to use this function in an argument to `liftPactServiceM`.
-runPactBlockM
-    :: ParentHeader -> CurrentBlockDbEnv logger db
-    -> PactBlockM logger db tbl a -> PactServiceM logger tbl a
-runPactBlockM pctx dbEnv (PactBlockM r) = PactServiceM $ ReaderT $ \e -> StateT $ \s ->
-  runStateT (runReaderT r (PactBlockEnv e pctx dbEnv)) s
 
 -- | Run a 'PactServiceM' computation given some initial
 -- reader and state values, returning final value and
@@ -577,7 +357,6 @@ runPactServiceM
 runPactServiceM st env act
     = view (from _T2)
     <$> runStateT (runReaderT (_unPactServiceM act) env) st
-
 
 -- | Run a 'PactServiceM' computation given some initial
 -- reader and state values, discarding final state
@@ -600,18 +379,6 @@ execPactServiceM
     -> IO PactServiceState
 execPactServiceM st env act
     = execStateT (runReaderT (_unPactServiceM act) env) st
-
-tracePactBlockM :: (Logger logger, ToJSON param) => Text -> param -> Int -> PactBlockM logger db tbl a -> PactBlockM logger db tbl a
-tracePactBlockM label param weight a = tracePactBlockM' label param (const weight) a
-
-tracePactBlockM' :: (Logger logger, ToJSON param) => Text -> param -> (a -> Int) -> PactBlockM logger db tbl a -> PactBlockM logger db tbl a
-tracePactBlockM' label param calcWeight a = do
-    e <- ask
-    s <- get
-    (r, s') <- liftIO $ trace' (logJsonTrace_ (_psLogger $ _psServiceEnv e)) label param (calcWeight . fst)
-      $ runStateT (runReaderT (_unPactBlockM a) e) s
-    put s'
-    return r
 
 -- -------------------------------------------------------------------------- --
 -- Pact Logger
@@ -678,29 +445,3 @@ logJsonTrace level msg = view psLogger >>= \l -> logJsonTrace_ l level msg
 localLabel :: (Logger logger) => (Text, Text) -> PactServiceM logger tbl x -> PactServiceM logger tbl x
 localLabel lbl x = do
   locally psLogger (addLabel lbl) x
-
-localLabelBlock :: (Logger logger) => (Text, Text) -> PactBlockM logger db tbl x -> PactBlockM logger db tbl x
-localLabelBlock lbl x = do
-  locally (psServiceEnv . psLogger) (addLabel lbl) x
-
-data UnexpectedErrorPrinting = PrintsUnexpectedError | CensorsUnexpectedError
-
-catchesPact4Error :: (MonadCatch m, MonadIO m, Logger logger) => logger -> UnexpectedErrorPrinting -> m a -> m (Either PactError a)
-catchesPact4Error logger exnPrinting action = catches (Right <$> action)
-  [ Handler $ \(e :: PactError) -> return $ Left e
-  , Handler $ \(e :: SomeException) -> do
-      !err <- case exnPrinting of
-          PrintsUnexpectedError ->
-            return (viaShow e)
-          CensorsUnexpectedError -> do
-            liftIO $ logWarn_ logger ("catchesPactError: unknown error: " <> sshow e)
-            return ("unknown error " <> sshow e)
-      return $ Left $ PactError EvalError def def err
-  ]
-
-catchesPact5Error :: (MonadCatch m, MonadIO m, Logger logger) => logger -> m a -> m (Either (Pact5.PactError Pact5.Info) a)
-catchesPact5Error logger action = catches (Right <$> action)
-  [ Handler $ \(e :: SomeException) -> do
-      logWarn_ logger ("catchesPactError: unknown error: " <> sshow e)
-      return $ Left $ Pact5.PEExecutionError Pact5.UnknownException [] def
-  ]

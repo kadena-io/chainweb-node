@@ -19,6 +19,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DataKinds #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.Types
@@ -36,14 +37,6 @@ module Chainweb.Pact.Backend.Types
     , Checkpointer(..)
     , _cpRewindTo
     , ReadCheckpointer(..)
-    , CurrentBlockDbEnv(..)
-    , cpPactDbEnv
-    , cpRegisterProcessedTx
-    , cpLookupProcessedTx
-    , DynamicPactDb(..)
-    , makeDynamicPactDb
-    , assertDynamicPact4Db
-    , assertDynamicPact5Db
     , Env'(..)
     , PactDbConfig(..)
     , pdbcGasLimit
@@ -51,8 +44,13 @@ module Chainweb.Pact.Backend.Types
     , pdbcLogDir
     , pdbcPersistDir
     , pdbcPragmas
-    , Pact4Db
-    , Pact5Db
+    -- , Pact4Db
+    -- , Pact5Db(..)
+    , BlockHandle(..)
+    , blockHandlePending
+    , blockHandleTxId
+    , emptyBlockHandle
+    , PactDbFor
 
     , SQLiteRowDelta(..)
     , SQLitePendingTableCreations
@@ -61,35 +59,33 @@ module Chainweb.Pact.Backend.Types
     , pendingTableCreation
     , pendingWrites
     , pendingTxLogMap
-    , pendingTxLogMapPact5
     , pendingSuccessfulTxs
     , emptySQLitePendingData
     , fromCoreExecutionMode
 
-    , BlockState(..)
-    , initBlockState
-    , bsMode
-    , bsTxId
-    , bsPendingBlock
-    , bsPendingTx
-    , bsModuleCache
-    , bsModuleCacheCore
-    , BlockEnv(..)
-    , benvBlockState
-    , blockHandlerEnv
-    , runBlockEnv
+    -- , BlockState(..)
+    -- , initBlockState
+    -- , bsMode
+    -- , bsTxId
+    -- , bsPendingBlock
+    -- , bsPendingTx
+    -- , bsModuleCache
+    -- , BlockEnv(..)
+    -- , benvBlockState
+    -- , blockHandlerEnv
+    -- , runBlockEnv
     , SQLiteEnv
     , IntraBlockPersistence(..)
-    , BlockHandler(..)
-    , BlockHandlerEnv(..)
-    , mkBlockHandlerEnv
-    , blockHandlerBlockHeight
-    , blockHandlerModuleNameFix
-    , blockHandlerSortedKeys
-    , blockHandlerLowerCaseTables
-    , blockHandlerDb
-    , blockHandlerLogger
-    , blockHandlerPersistIntraBlockWrites
+    -- , BlockHandler(..)
+    -- , BlockHandlerEnv(..)
+    -- , mkBlockHandlerEnv
+    -- , blockHandlerBlockHeight
+    -- , blockHandlerModuleNameFix
+    -- , blockHandlerSortedKeys
+    -- , blockHandlerLowerCaseTables
+    -- , blockHandlerDb
+    -- , blockHandlerLogger
+    -- , blockHandlerPersistIntraBlockWrites
     , ParentHash
     , SQLiteFlag(..)
 
@@ -111,6 +107,7 @@ import Control.Monad.State.Strict
 import Data.Aeson
 import Data.Bits
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Short as SB
 import Data.DList (DList)
 import Data.Functor
 import Data.HashMap.Strict (HashMap)
@@ -208,6 +205,14 @@ type SQLitePendingSuccessfulTxs = HashSet ByteString
 -- Structured as a map from table name to a map from rowkey to inserted row delta.
 type SQLitePendingWrites = HashMap ByteString (HashMap ByteString (NonEmpty SQLiteRowDelta))
 
+-- Note [TxLogs in SQLitePendingData]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- We should really not store TxLogs in SQLitePendingData,
+-- because this data structure is specifically for things that
+-- can exist both for the whole block and for specific transactions,
+-- and txlogs only exist on the transaction level.
+-- We don't do this in Pact 5 at all.
+
 -- | A collection of pending mutations to the pact db. We maintain two of
 -- these; one for the block as a whole, and one for any pending pact
 -- transaction. Upon pact transaction commit, the two 'SQLitePendingData'
@@ -215,8 +220,8 @@ type SQLitePendingWrites = HashMap ByteString (HashMap ByteString (NonEmpty SQLi
 data SQLitePendingData = SQLitePendingData
     { _pendingTableCreation :: !SQLitePendingTableCreations
     , _pendingWrites :: !SQLitePendingWrites
+    -- See Note [TxLogs in SQLitePendingData]
     , _pendingTxLogMap :: !TxLogMap
-    , _pendingTxLogMapPact5 :: !TxLogMapPact5
     , _pendingSuccessfulTxs :: !SQLitePendingSuccessfulTxs
     }
     deriving (Eq, Show)
@@ -225,19 +230,6 @@ makeLenses ''SQLitePendingData
 
 type SQLiteEnv = Database
 
--- | Monad state for 'BlockHandler.
--- This notably contains all of the information that's being mutated during
--- blocks, notably _bsPendingBlock, the pending writes in the block, and
--- _bsPendingTx, the pending writes in the transaction which will be discarded
--- on tx failure.
-data BlockState = BlockState
-    { _bsTxId :: !TxId
-    , _bsPendingBlock :: !SQLitePendingData
-    , _bsPendingTx :: !(Maybe SQLitePendingData)
-    , _bsMode :: !(Maybe ExecutionMode)
-    , _bsModuleCache :: !(DbCache PersistModuleData)
-    , _bsModuleCacheCore :: !(DbCache (Pact5.ModuleData Pact5.CoreBuiltin Pact5.Info))
-    }
 
 fromCoreExecutionMode :: Pact5.ExecutionMode -> ExecutionMode
 fromCoreExecutionMode = \case
@@ -245,24 +237,7 @@ fromCoreExecutionMode = \case
   Pact5.Local -> Local
 
 emptySQLitePendingData :: SQLitePendingData
-emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty mempty
-
-initBlockState
-    :: DbCacheLimitBytes
-    -- ^ Module Cache Limit (in bytes of corresponding rowdata)
-    -> TxId
-    -- ^ next tx id (end txid of previous block)
-    -> BlockState
-initBlockState cl txid = BlockState
-    { _bsTxId = txid
-    , _bsMode = Nothing
-    , _bsPendingBlock = emptySQLitePendingData
-    , _bsPendingTx = Nothing
-    , _bsModuleCache = emptyDbCache cl
-    , _bsModuleCacheCore = emptyDbCache cl
-    }
-
-makeLenses ''BlockState
+emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
 -- | Whether we write rows to the database that were already overwritten
 -- in the same block. This is temporarily necessary to do while Rosetta uses
@@ -270,74 +245,15 @@ makeLenses ''BlockState
 data IntraBlockPersistence = PersistIntraBlockWrites | DoNotPersistIntraBlockWrites
   deriving (Eq, Ord, Show)
 
-data BlockHandlerEnv logger = BlockHandlerEnv
-    { _blockHandlerDb :: !SQLiteEnv
-    , _blockHandlerLogger :: !logger
-    , _blockHandlerBlockHeight :: !BlockHeight
-    , _blockHandlerModuleNameFix :: !Bool
-    , _blockHandlerSortedKeys :: !Bool
-    , _blockHandlerLowerCaseTables :: !Bool
-    , _blockHandlerPersistIntraBlockWrites :: !IntraBlockPersistence
-    }
-
-mkBlockHandlerEnv
-  :: ChainwebVersion -> ChainId -> BlockHeight
-  -> SQLiteEnv -> IntraBlockPersistence -> logger -> BlockHandlerEnv logger
-mkBlockHandlerEnv v cid bh sql p logger = BlockHandlerEnv
-    { _blockHandlerDb = sql
-    , _blockHandlerLogger = logger
-    , _blockHandlerBlockHeight = bh
-    , _blockHandlerModuleNameFix = enableModuleNameFix v cid bh
-    , _blockHandlerSortedKeys = pact42 v cid bh
-    , _blockHandlerLowerCaseTables = chainweb217Pact v cid bh
-    , _blockHandlerPersistIntraBlockWrites = p
-    }
-
-
-makeLenses ''BlockHandlerEnv
-
-data BlockEnv logger =
-  BlockEnv
-    { _blockHandlerEnv :: !(BlockHandlerEnv logger)
-    , _benvBlockState :: !BlockState -- ^ The current block state.
-    }
-
-makeLenses ''BlockEnv
-
-
-runBlockEnv :: MVar (BlockEnv logger) -> BlockHandler logger a -> IO a
-runBlockEnv e m = modifyMVar e $
-  \(BlockEnv dbenv bs) -> do
-    (!a,!s) <- runStateT (runReaderT (runBlockHandler m) dbenv) bs
-    return (BlockEnv dbenv s, a)
-
--- this monad allows access to the database environment "at" a particular block.
--- unfortunately, this is tied to a useless MVar via runBlockEnv, which will
--- be deleted with pact 5.
-newtype BlockHandler logger a = BlockHandler
-    { runBlockHandler :: ReaderT (BlockHandlerEnv logger) (StateT BlockState IO) a
-    } deriving newtype
-        ( Functor
-        , Applicative
-        , Monad
-        , MonadState BlockState
-        , MonadThrow
-        , MonadCatch
-        , MonadMask
-        , MonadIO
-        , MonadReader (BlockHandlerEnv logger)
-        )
-
-type Pact4Db logger = PactDbEnv (BlockEnv logger)
-type Pact5Db = Pact5.PactDb Pact5.CoreBuiltin Pact5.Info
+type family PactDbFor logger (pv :: PactVersion)
 
 type ParentHash = BlockHash
 
 -- | The parts of the checkpointer that do not mutate the database.
 data ReadCheckpointer logger = ReadCheckpointer
   { _cpReadFrom ::
-    !(forall a. Maybe ParentHeader ->
-      (CurrentBlockDbEnv logger (DynamicPactDb logger) -> IO a) -> IO (Historical a))
+    !(forall pv a. Maybe ParentHeader -> PactVersionT pv
+      -> (PactDbFor logger pv -> IO a) -> IO (Historical a))
     -- ^ rewind to a particular block *in-memory*, producing a read-write snapshot
     -- ^ of the database at that block to compute some value, after which the snapshot
     -- is discarded and nothing is saved to the database.
@@ -355,17 +271,26 @@ data ReadCheckpointer logger = ReadCheckpointer
     -- ^ is the checkpointer aware of the given block?
   , _cpGetBlockParent :: !((BlockHeight, BlockHash) -> IO (Maybe BlockHash))
   , _cpGetBlockHistory ::
-       !(BlockHeader -> Domain RowKey RowData -> IO (Historical BlockTxHistory))
+      !(BlockHeader -> Domain RowKey RowData -> IO (Historical BlockTxHistory))
   , _cpGetHistoricalLookup ::
       !(BlockHeader -> Domain RowKey RowData -> RowKey -> IO (Historical (Maybe (Pact5.TxLog Pact5.RowData))))
   , _cpLogger :: logger
   }
 
+data BlockHandle = BlockHandle
+  { _blockHandleTxId :: TxId
+  , _blockHandlePending :: SQLitePendingData
+  }
+  deriving (Eq, Show)
+emptyBlockHandle :: TxId -> BlockHandle
+emptyBlockHandle txid = BlockHandle txid emptySQLitePendingData
+
 -- | A callback which writes a block's data to the input database snapshot,
 -- and knows its parent header (Nothing if it's a genesis block).
 -- Reports back its own header and some extra value.
-newtype RunnableBlock db logger a = RunnableBlock
-  { runBlock :: CurrentBlockDbEnv db logger -> Maybe ParentHeader -> IO (a, BlockHeader) }
+data RunnableBlock logger a
+  = Pact4RunnableBlock (PactDbFor logger Pact4 -> Maybe ParentHeader -> IO (a, BlockHeader))
+  | Pact5RunnableBlock (PactDbFor logger Pact5 -> Maybe ParentHeader -> IO (a, BlockHeader, BlockHandle))
 
 -- | One makes requests to the checkpointer to query the pact state at the
 -- current block or any earlier block, to extend the pact state with new blocks, and
@@ -375,7 +300,7 @@ data Checkpointer logger = Checkpointer
     !(forall q r.
       (HasCallStack, Monoid q) =>
       Maybe ParentHeader ->
-      Stream (Of (RunnableBlock logger (DynamicPactDb logger) q)) IO r ->
+      Stream (Of (RunnableBlock logger q)) IO r ->
       IO (r, q))
   -- ^ rewind to a particular block, and play a stream of blocks afterward,
   -- extending the chain and saving the result persistently. for example,
@@ -411,34 +336,7 @@ data Checkpointer logger = Checkpointer
 _cpRewindTo :: Checkpointer logger -> Maybe ParentHeader -> IO ()
 _cpRewindTo cp ancestor = void $ _cpRestoreAndSave cp
     ancestor
-    (pure () :: Stream (Of (RunnableBlock logger (DynamicPactDb logger) ())) IO ())
-
-data DynamicPactDb logger = Pact4Db (Pact4Db logger) | Pact5Db Pact5Db
-
-makeDynamicPactDb
-  :: ChainwebVersion -> ChainId -> BlockHeight
-  -> Pact4Db logger -> Pact5Db
-  -> DynamicPactDb logger
-makeDynamicPactDb v cid bh pact4Db pact5Db
-  | pact5 v cid bh = Pact5Db pact5Db
-  | otherwise = Pact4Db pact4Db
-
--- TODO: make both of these errors InternalErrors, without incurring an import cycle
-assertDynamicPact4Db :: (MonadThrow m, HasCallStack) => DynamicPactDb logger -> m (Pact4Db logger)
-assertDynamicPact4Db (Pact4Db pact4Db) = return pact4Db
-assertDynamicPact4Db (Pact5Db _pact5Db) = error "expected Pact4 DB, got Pact5 DB"
-
-assertDynamicPact5Db :: (MonadThrow m, HasCallStack) => DynamicPactDb logger -> m Pact5Db
-assertDynamicPact5Db (Pact5Db pact5Db) = return pact5Db
-assertDynamicPact5Db (Pact4Db _pact4Db) = error "expected Pact5 DB, got Pact4 DB"
-
--- this is effectively a read-write snapshot of the Pact state at a block.
-data CurrentBlockDbEnv logger db = CurrentBlockDbEnv
-    { _cpPactDbEnv :: !db
-    , _cpRegisterProcessedTx :: !(P.PactHash -> IO ())
-    , _cpLookupProcessedTx ::
-        !(Vector P.PactHash -> IO (HashMap P.PactHash (T2 BlockHeight BlockHash)))
-    }
+    (pure () :: Stream (Of (RunnableBlock logger ())) IO ())
 
 newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
   deriving newtype (Eq, Ord, Bits, Num)
@@ -473,11 +371,12 @@ data PactServiceException = PactServiceIllegalRewind
 
 instance Show PactServiceException where
   show (PactServiceIllegalRewind att l)
-    = concat [ "illegal rewind attempt to block "
-             , show att
-             , ", latest was "
-             , show l
-             ]
+    = concat
+      [ "illegal rewind attempt to block "
+      , show att
+      , ", latest was "
+      , show l
+      ]
 
 instance Exception PactServiceException
 
@@ -503,4 +402,4 @@ data Historical a
   deriving anyclass NFData
 
 makePrisms ''Historical
-makeLenses ''CurrentBlockDbEnv
+makeLenses ''BlockHandle

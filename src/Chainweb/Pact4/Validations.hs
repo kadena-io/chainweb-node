@@ -67,6 +67,7 @@ import qualified Pact.Types.KeySet as P
 import qualified Pact.Parse as P
 import qualified Chainweb.Pact5.Transaction as Pact5
 import qualified Pact.Core.Command.Types as Pact5
+import Chainweb.Pact4.Types
 
 
 -- | Check whether a local Api request has valid metadata

@@ -63,8 +63,8 @@ newBlockToPayloadWithOutputs (NewBlockPayload _ pwo)
     = pwo
 
 newBlockParentHeader :: NewBlock -> ParentHeader
-newBlockParentHeader (NewBlockInProgress (ForPact4 bip)) = _blockInProgressParentHeader bip
-newBlockParentHeader (NewBlockInProgress (ForPact5 bip)) = _blockInProgressParentHeader bip
+newBlockParentHeader (NewBlockInProgress (ForSomePactVersion Pact4T bip)) = _blockInProgressParentHeader bip
+newBlockParentHeader (NewBlockInProgress (ForSomePactVersion Pact5T bip)) = _blockInProgressParentHeader bip
 newBlockParentHeader (NewBlockPayload ph _) = ph
 
 -- | Service API for interacting with a single or multi-chain ("Web") pact service.
@@ -76,7 +76,7 @@ data PactExecutionService = PactExecutionService
         CheckablePayload ->
         IO PayloadWithOutputs
         )
-      -- ^ Validate block payload data by running through pact service.
+    -- ^ Validate block payload data by running through pact service.
     , _pactNewBlock :: !(
         ChainId ->
         Miner ->
@@ -90,15 +90,15 @@ data PactExecutionService = PactExecutionService
         BlockInProgress pv ->
         IO (Historical (BlockInProgress pv))
         )
-      -- ^ Request a new block to be formed using mempool
+    -- ^ Request a new block to be formed using mempool
     , _pactLocal :: !(
         Maybe LocalPreflightSimulation ->
         Maybe LocalSignatureVerification ->
         Maybe RewindDepth ->
         Pact4.Transaction ->
         IO LocalResult)
-      -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
-      -- Corresponds to `local` HTTP endpoint.
+    -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
+    -- Corresponds to `local` HTTP endpoint.
     , _pactLookup :: !(
         ChainId
         -- for routing
@@ -112,26 +112,26 @@ data PactExecutionService = PactExecutionService
         BlockHeader ->
         Maybe BlockHeader ->
         IO ()
-      )
-      -- ^ Lookup pact hashes as of a block header to detect duplicates
+    )
+    -- ^ Lookup pact hashes as of a block header to detect duplicates
     , _pactPreInsertCheck :: !(
         ChainId
         -> Vector Pact4.Transaction
         -> IO (Vector (Either InsertError ())))
-      -- ^ Run speculative checks to find bad transactions (ie gas buy failures, etc)
+    -- ^ Run speculative checks to find bad transactions (ie gas buy failures, etc)
     , _pactBlockTxHistory :: !(
         BlockHeader ->
         Domain RowKey RowData ->
         IO (Historical BlockTxHistory)
         )
-      -- ^ Obtain all transaction history in block for specified table/domain.
+    -- ^ Obtain all transaction history in block for specified table/domain.
     , _pactHistoricalLookup :: !(
         BlockHeader ->
         Domain RowKey RowData ->
         RowKey ->
         IO (Historical (Maybe (Pact5.TxLog Pact5.RowData)))
         )
-      -- ^ Obtain latest entry at or before the given block for specified table/domain and row key.
+    -- ^ Obtain latest entry at or before the given block for specified table/domain and row key.
     , _pactSyncToBlock :: !(
         BlockHeader ->
         IO ()

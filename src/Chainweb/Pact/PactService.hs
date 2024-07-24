@@ -169,7 +169,6 @@ withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv config 
                     , _psCheckpointer = checkpointer
                     , _psPdb = pdb
                     , _psBlockHeaderDb = bhDb
-                    , _psGasModel = getGasModel
                     , _psMinerRewards = rs
                     , _psReorgLimit = _pactReorgLimit config
                     , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout config
@@ -988,53 +987,6 @@ execLookupPactTxs confDepth txs = pactLabel "execLookupPactTxs" $ do
     go = readFromNthParent (maybe 0 (fromIntegral . _confirmationDepth) confDepth) $ do
       dbenv <- view psBlockDbEnv
       liftIO $ _cpLookupProcessedTx dbenv txs
-
--- | Modified table gas module with free module loads
---
-freeModuleLoadGasModel :: P.GasModel
-freeModuleLoadGasModel = modifiedGasModel
-  where
-    defGasModel = tableGasModel defaultGasConfig
-    fullRunFunction = P.runGasModel defGasModel
-    modifiedRunFunction name ga = case ga of
-      P.GPostRead P.ReadModule {} -> P.MilliGas 0
-      _ -> fullRunFunction name ga
-    modifiedGasModel = defGasModel { P.runGasModel = modifiedRunFunction }
-
-chainweb213GasModel :: P.GasModel
-chainweb213GasModel = modifiedGasModel
-  where
-    defGasModel = tableGasModel gasConfig
-    unknownOperationPenalty = 1000000
-    multiRowOperation = 40000
-    gasConfig = defaultGasConfig { _gasCostConfig_primTable = updTable }
-    updTable = M.union upd defaultGasTable
-    upd = M.fromList
-      [("keys",    multiRowOperation)
-      ,("select",  multiRowOperation)
-      ,("fold-db", multiRowOperation)
-      ]
-    fullRunFunction = P.runGasModel defGasModel
-    modifiedRunFunction name ga = case ga of
-      P.GPostRead P.ReadModule {} -> 0
-      P.GUnreduced _ts -> case M.lookup name updTable of
-        Just g -> g
-        Nothing -> unknownOperationPenalty
-      _ -> P.milliGasToGas $ fullRunFunction name ga
-    modifiedGasModel = defGasModel { P.runGasModel = \t g -> P.gasToMilliGas (modifiedRunFunction t g) }
-
-chainweb224GasModel :: P.GasModel
-chainweb224GasModel = chainweb213GasModel
-  { P.runGasModel = \name -> \case
-    P.GPostRead P.ReadInterface {} -> P.MilliGas 0
-    ga -> P.runGasModel chainweb213GasModel name ga
-  }
-
-getGasModel :: TxContext -> P.GasModel
-getGasModel ctx
-    | guardCtx chainweb213Pact ctx = chainweb213GasModel
-    | guardCtx chainweb224Pact ctx = chainweb224GasModel
-    | otherwise = freeModuleLoadGasModel
 
 pactLabel :: (Logger logger) => Text -> PactServiceM logger tbl x -> PactServiceM logger tbl x
 pactLabel lbl x = localLabel ("pact-request", lbl) x

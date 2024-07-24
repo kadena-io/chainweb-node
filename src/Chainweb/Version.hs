@@ -18,6 +18,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE QuantifiedConstraints #-}
 
 -- |
 -- Module: Chainweb.Version
@@ -80,6 +81,8 @@ module Chainweb.Version
     , PactVersionT(..)
     , ForBothPactVersions(..)
     , ForSomePactVersion(..)
+    , pattern ForPact4
+    , pattern ForPact5
     , forAnyPactVersion
 
     -- * Typelevel ChainwebVersionName
@@ -335,47 +338,60 @@ data PactVersionT (v :: PactVersion) where
     Pact5T :: PactVersionT Pact5
 deriving stock instance Eq (PactVersionT v)
 deriving stock instance Show (PactVersionT v)
-data ForSomePactVersion f = ForPact4 (f Pact4) | ForPact5 (f Pact5)
+instance NFData (PactVersionT v) where
+    rnf Pact4T = ()
+    rnf Pact5T = ()
+
+data ForSomePactVersion f = forall pv. ForSomePactVersion (PactVersionT pv) (f pv)
 forAnyPactVersion :: (forall pv. f pv -> a) -> ForSomePactVersion f -> a
-forAnyPactVersion k (ForPact4 f) = k f
-forAnyPactVersion k (ForPact5 f) = k f
+forAnyPactVersion k (ForSomePactVersion _ f) = k f
+instance (forall pv. Eq (f pv)) => Eq (ForSomePactVersion f) where
+    ForSomePactVersion Pact4T f == ForSomePactVersion Pact4T f' = f == f'
+    ForSomePactVersion Pact5T f == ForSomePactVersion Pact5T f' = f == f'
+deriving stock instance (forall pv. Show (f pv)) => Show (ForSomePactVersion f)
+instance (forall pv. NFData (f pv)) => NFData (ForSomePactVersion f) where
+    rnf (ForSomePactVersion pv f) = rnf pv `seq` rnf f
+pattern ForPact4 x = ForSomePactVersion Pact4T x
+pattern ForPact5 x = ForSomePactVersion Pact5T x
+{-# COMPLETE ForPact4, ForPact5 #-}
 data ForBothPactVersions f = ForBothPactVersions
-    { _forPact4 :: (f Pact4), _forPact5 ::  (f Pact5) }
+    { _forPact4 :: (f Pact4)
+    , _forPact5 :: (f Pact5)
+    }
 deriving stock instance (Eq (f Pact4), Eq (f Pact5)) => Eq (ForBothPactVersions f)
 deriving stock instance (Show (f Pact4), Show (f Pact5)) => Show (ForBothPactVersions f)
-deriving stock instance (Eq (f Pact4), Eq (f Pact5)) => Eq (ForSomePactVersion f)
-deriving stock instance (Show (f Pact4), Show (f Pact5)) => Show (ForSomePactVersion f)
 instance (NFData (f Pact4), NFData (f Pact5)) => NFData (ForBothPactVersions f) where
     rnf b = rnf (_forPact4 b) `seq` rnf (_forPact5 b)
-instance (NFData (f Pact4), NFData (f Pact5)) => NFData (ForSomePactVersion f) where
-    rnf (ForPact4 f) = rnf f
-    rnf (ForPact5 f) = rnf f
 
 -- The type of upgrades, which are sets of transactions to run at certain block
 -- heights during coinbase.
---
-data family PactUpgrade (v :: PactVersion) :: Type
-data instance PactUpgrade Pact4 = Pact4Upgrade
-    { _pact4UpgradeTransactions :: [Pact4.Transaction]
-    , _legacyUpgradeIsPrecocious :: Bool
+
+data PactUpgrade (v :: PactVersion) where
+    Pact4Upgrade ::
+        { _pact4UpgradeTransactions :: [Pact4.Transaction]
+        , _legacyUpgradeIsPrecocious :: Bool
         -- ^ when set to `True`, the upgrade transactions are executed using the
         -- forks of the next block, rather than the block the upgrade
         -- transactions are included in.  do not use this for new upgrades
         -- unless you are sure you need it, this mostly exists for old upgrades.
-    }
-    deriving stock (Generic, Eq)
-    deriving anyclass (NFData)
-data instance PactUpgrade Pact5 = Pact5Upgrade
-    { _pact5UpgradeTransactions :: [Pact5.Transaction]
-    }
-    deriving stock (Generic, Eq)
-    deriving anyclass (NFData)
+        } -> PactUpgrade Pact4
+    Pact5Upgrade ::
+        { _pact5UpgradeTransactions :: [Pact5.Transaction]
+        } -> PactUpgrade Pact5
 
-instance Show (PactUpgrade Pact4) where
-    show _ = "<pact4 upgrade>"
+instance Eq (PactUpgrade pv) where
+    Pact4Upgrade txs precocious == Pact4Upgrade txs' precocious' =
+        txs == txs' && precocious == precocious'
+    Pact5Upgrade txs == Pact5Upgrade txs' =
+        txs == txs'
 
-instance Show (PactUpgrade Pact5) where
-    show _ = "<pact5 upgrade>"
+instance Show (PactUpgrade pv) where
+    show Pact4Upgrade {} = "<pact4 upgrade>"
+    show Pact5Upgrade {} = "<pact5 upgrade>"
+
+instance NFData (PactUpgrade pv) where
+    rnf (Pact4Upgrade txs precocious) = rnf txs `seq` rnf precocious
+    rnf (Pact5Upgrade txs) = rnf txs
 
 pact4Upgrade :: [Pact4.Transaction] -> PactUpgrade Pact4
 pact4Upgrade txs = Pact4Upgrade txs False
@@ -385,10 +401,7 @@ pact4Upgrade txs = Pact4Upgrade txs False
 -- preserved.
 data VersionQuirks = VersionQuirks
     { _quirkGasFees :: !(HashMap RequestKey Gas)
-      -- ^ Gas fee to charge at particular 'RequestKey's.
-      --   This should be 'MilliGas' once 'applyCmd' is refactored
-      --   to use 'MilliGas' instead of 'Gas'.
-      --   Note: only works for user txs in blocks right now.
+    -- ^ Note: only works for user txs in blocks right now.
     }
     deriving stock (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)

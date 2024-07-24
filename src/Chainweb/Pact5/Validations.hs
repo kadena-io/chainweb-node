@@ -65,6 +65,7 @@ import qualified Pact.Core.Names as P
 import qualified Pact.Core.PactValue as P
 import qualified Pact.Types.Gas as Pact4
 import qualified Pact.Parse as Pact4
+import Chainweb.Pact5.Types
 
 
 -- | Check whether a local Api request has valid metadata

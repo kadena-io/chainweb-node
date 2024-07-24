@@ -85,8 +85,7 @@ module Chainweb.Pact.Service.Types
   , cleanModuleCache
 
   , BlockInProgress(..)
-  , blockInProgressPendingData
-  , blockInProgressTxId
+  , blockInProgressHandle
   , blockInProgressModuleCache
   , blockInProgressParentHeader
   , blockInProgressRemainingGasLimit
@@ -147,7 +146,7 @@ import qualified Pact.Core.Errors as Pact5
 
 -- internal chainweb modules
 
-import Chainweb.BlockHash ( BlockHash )
+import Chainweb.BlockHash ( BlockHash, blockHashToTextShort )
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainId
@@ -168,6 +167,8 @@ import qualified Pact.Core.Command.Types as Pact5
 import Chainweb.Version (PactVersion)
 import qualified Chainweb.Pact5.Transaction as Pact5
 import Data.ByteString (ByteString)
+import qualified Data.Vector as V
+import qualified Data.Text as T
 
 -- | Value that represents a limitation for rewinding.
 newtype RewindLimit = RewindLimit { _rewindLimit :: Word64 }
@@ -674,8 +675,7 @@ type family CommandResultFor (pv :: PactVersion) where
 -- State from a block in progress, which is used to extend blocks after
 -- running their payloads.
 data BlockInProgress pv = BlockInProgress
-  { _blockInProgressPendingData :: !SQLitePendingData
-  , _blockInProgressTxId :: !TxId
+  { _blockInProgressHandle :: !BlockHandle
   , _blockInProgressModuleCache :: !(ModuleCacheFor pv)
   , _blockInProgressParentHeader :: !ParentHeader
   , _blockInProgressRemainingGasLimit :: !GasLimit
@@ -683,17 +683,41 @@ data BlockInProgress pv = BlockInProgress
   , _blockInProgressTransactions :: !(Transactions pv (CommandResultFor pv))
   , _blockInProgressPactVersion :: !(PactVersionT pv)
   }
-deriving stock instance Eq (BlockInProgress Pact4)
-deriving stock instance Eq (BlockInProgress Pact5)
-deriving stock instance Show (BlockInProgress Pact4)
-deriving stock instance Show (BlockInProgress Pact5)
+instance Eq (BlockInProgress pv) where
+  bip == bip' =
+    case (_blockInProgressPactVersion bip, _blockInProgressPactVersion bip') of
+      (Pact4T, Pact4T) ->
+        _blockInProgressHandle bip == _blockInProgressHandle bip' &&
+        _blockInProgressModuleCache bip == _blockInProgressModuleCache bip' &&
+        _blockInProgressParentHeader bip == _blockInProgressParentHeader  bip' &&
+        _blockInProgressRemainingGasLimit bip == _blockInProgressRemainingGasLimit  bip' &&
+        _blockInProgressMiner bip == _blockInProgressMiner  bip' &&
+        _blockInProgressTransactions bip == _blockInProgressTransactions  bip'
+      (Pact5T, Pact5T) ->
+        _blockInProgressHandle bip == _blockInProgressHandle bip' &&
+        _blockInProgressModuleCache bip == _blockInProgressModuleCache bip' &&
+        _blockInProgressParentHeader bip == _blockInProgressParentHeader  bip' &&
+        _blockInProgressRemainingGasLimit bip == _blockInProgressRemainingGasLimit  bip' &&
+        _blockInProgressMiner bip == _blockInProgressMiner  bip' &&
+        _blockInProgressTransactions bip == _blockInProgressTransactions  bip'
 
+instance Show (BlockInProgress pv) where
+  show bip = unwords
+    [ case _blockInProgressPactVersion bip of
+      Pact4T ->
+        "Pact4 block,"
+      Pact5T ->
+        "Pact5 block,"
+    , T.unpack (blockHashToTextShort $ _blockHash $ _parentHeader $ _blockInProgressParentHeader bip)
+    , show (_blockInProgressMiner bip ^. minerId)
+    , "# transactions " <> show (V.length (_transactionPairs $ _blockInProgressTransactions bip)) <> ","
+    , "# gas remaining " <> show (_blockInProgressRemainingGasLimit bip)
+    ]
 
 -- This block is not really valid, don't use it outside tests.
 emptyBlockInProgressForTesting :: BlockInProgress Pact4
 emptyBlockInProgressForTesting = BlockInProgress
-  { _blockInProgressPendingData = emptySQLitePendingData
-  , _blockInProgressTxId = TxId 0
+  { _blockInProgressHandle = emptyBlockHandle (TxId 0)
   , _blockInProgressModuleCache = mempty
   , _blockInProgressParentHeader =
     ParentHeader (genesisBlockHeader mainnet (unsafeChainId 0))

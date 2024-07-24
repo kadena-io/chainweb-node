@@ -103,12 +103,15 @@ import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards
+import Chainweb.Pact.Backend.ChainwebPactDb
 import Data.Coerce
 import Data.Word
 import GrowableVector.Lifted (Vec)
 import Control.Monad.Primitive
 import qualified GrowableVector.Lifted as Vec
 import qualified Data.Set as S
+import Chainweb.Pact4.Types
+import Chainweb.Pact4.Types
 
 
 -- | Execute a block -- only called in validate either for replay or for validating current block.
@@ -121,7 +124,7 @@ execBlock
         -- header when we should use the respective values from the parent header
         -- instead.
     -> CheckablePayload
-    -> PactBlockM logger (Pact4Db logger) tbl (P.Gas, PayloadWithOutputs)
+    -> PactBlockM logger tbl (P.Gas, PayloadWithOutputs)
 execBlock currHeader payload = do
     let plData = checkablePayloadToPayloadData payload
     dbEnv <- view psBlockDbEnv
@@ -191,7 +194,7 @@ execBlock currHeader payload = do
 
 throwCommandInvalidError
     :: Transactions Pact4 (Either CommandInvalidError a)
-    -> PactBlockM logger (Pact4Db logger) tbl (Transactions Pact4 a)
+    -> PactBlockM logger tbl (Transactions Pact4 a)
 throwCommandInvalidError = (transactionPairs . traverse . _2) throwGasFailure
   where
     throwGasFailure = \case
@@ -213,7 +216,7 @@ validateChainwebTxs
     => logger
     -> ChainwebVersion
     -> ChainId
-    -> CurrentBlockDbEnv logger (Pact4Db logger)
+    -> PactDbFor logger Pact4
     -> ParentCreationTime
         -- ^ reference time for tx validation.
     -> BlockHeight
@@ -237,7 +240,10 @@ validateChainwebTxs logger v cid dbEnv txValidationTime bh txs doBuyGas
 
     checkUnique :: Pact4.Transaction -> IO (Either InsertError Pact4.Transaction)
     checkUnique t = do
-      found <- HashMap.lookup (P._cmdHash t) <$> _cpLookupProcessedTx dbEnv (V.singleton $ P._cmdHash t)
+      found <-
+        HashMap.lookup (P.unHash $ P.toUntypedHash $ P._cmdHash t) <$>
+          _cpLookupProcessedTx dbEnv
+            (V.singleton $ P.unHash $ P.toUntypedHash $ P._cmdHash t)
       case found of
         Nothing -> pure $ Right t
         Just _ -> pure $ Left InsertErrorDuplicate
@@ -316,7 +322,7 @@ execTransactions
     -> CoinbaseUsePrecompiled
     -> Maybe P.Gas
     -> Maybe Micros
-    -> PactBlockM logger (Pact4Db logger) tbl (Transactions Pact4 (Either CommandInvalidError (P.CommandResult [P.TxLogJson])))
+    -> PactBlockM logger tbl (Transactions Pact4 (Either CommandInvalidError (P.CommandResult [P.TxLogJson])))
 execTransactions isGenesis miner ctxs enfCBFail usePrecomp gasLimit timeLimit = do
     mc <- initModuleCacheForBlock isGenesis
     -- for legacy reasons (ask Emily) we don't use the module cache resulting
@@ -331,13 +337,13 @@ execTransactionsOnly
     -> Vector Pact4.Transaction
     -> ModuleCache
     -> Maybe Micros
-    -> PactBlockM logger (Pact4Db logger) tbl
+    -> PactBlockM logger tbl
        (T2 (Vector (Pact4.Transaction, Either CommandInvalidError (P.CommandResult [P.TxLogJson]))) ModuleCache)
 execTransactionsOnly miner ctxs mc txTimeLimit = do
     T2 txOuts mcOut <- applyPactCmds False ctxs miner mc Nothing txTimeLimit
     return $! T2 (V.force (V.zip ctxs txOuts)) mcOut
 
-initModuleCacheForBlock :: (Logger logger) => Bool -> PactBlockM logger (Pact4Db logger) tbl ModuleCache
+initModuleCacheForBlock :: (Logger logger) => Bool -> PactBlockM logger tbl ModuleCache
 initModuleCacheForBlock isGenesis = do
   PactServiceState{..} <- get
   pbh <- views psParentHeader (_blockHeight . _parentHeader)
@@ -360,7 +366,7 @@ runPact4Coinbase
     -> EnforceCoinbaseFailure
     -> CoinbaseUsePrecompiled
     -> ModuleCache
-    -> PactBlockM logger (Pact4Db logger) tbl (P.CommandResult [P.TxLogJson])
+    -> PactBlockM logger tbl (P.CommandResult [P.TxLogJson])
 runPact4Coinbase True _ _ _ _ = return noCoinbase
 runPact4Coinbase False miner enfCBFail usePrecomp mc = do
     logger <- view (psServiceEnv . psLogger)
@@ -401,10 +407,10 @@ applyPactCmds
     -> ModuleCache
     -> Maybe P.Gas
     -> Maybe Micros
-    -> PactBlockM logger (Pact4Db logger) tbl (T2 (Vector (Either CommandInvalidError (P.CommandResult [P.TxLogJson]))) ModuleCache)
+    -> PactBlockM logger tbl (T2 (Vector (Either CommandInvalidError (P.CommandResult [P.TxLogJson]))) ModuleCache)
 applyPactCmds isGenesis cmds miner startModuleCache blockGas txTimeLimit = do
     let txsGas txs = fromIntegral $ sumOf (traversed . _Right . to P._crGas) txs
-    (txOuts, T2 mcOut _) <- tracePactBlockM' "applyPactCmds" () (txsGas . fst) $
+    (txOuts, T2 mcOut _) <- tracePactBlockM' "applyPactCmds" (\_ -> ()) (txsGas . fst) $
       flip runStateT (T2 startModuleCache blockGas) $
         go [] (V.toList cmds)
     return $! T2 (V.fromList . List.reverse $ txOuts) mcOut
@@ -414,7 +420,7 @@ applyPactCmds isGenesis cmds miner startModuleCache blockGas txTimeLimit = do
       -> [Pact4.Transaction]
       -> StateT
           (T2 ModuleCache (Maybe P.Gas))
-          (PactBlockM logger (Pact4Db logger) tbl)
+          (PactBlockM logger tbl)
           [Either CommandInvalidError (P.CommandResult [P.TxLogJson])]
     go !acc = \case
         [] -> do
@@ -437,7 +443,7 @@ applyPactCmd
   -> Pact4.Transaction
   -> StateT
       (T2 ModuleCache (Maybe P.Gas))
-      (PactBlockM logger (Pact4Db logger) tbl)
+      (PactBlockM logger tbl)
       (Either CommandInvalidError (P.CommandResult [P.TxLogJson]))
 applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
   dbEnv <- view psBlockDbEnv
@@ -446,7 +452,6 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
     readMVar $ pdPactDbVar pactDb
   logger <- view (psServiceEnv . psLogger)
   gasLogger <- view (psServiceEnv . psGasLogger)
-  gasModel <- view (psServiceEnv . psGasModel)
   txFailuresCounter <- view (psServiceEnv . psTxFailuresCounter)
   v <- view chainwebVersion
   let
@@ -481,6 +486,7 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
   handle onFatalError $ do
     T2 result mcache' <- do
       txCtx <- getTxContext miner (Pact4.publicMetaOf gasLimitedCmd)
+      let gasModel = getGasModel txCtx
       if isGenesis
       then liftIO $! Pact4.applyGenesisCmd logger pactDb P.noSPVSupport txCtx gasLimitedCmd
       else do
@@ -492,13 +498,13 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
           txTimeout = case txTimeLimit of
             Nothing -> id
             Just limit ->
-               maybe (throwM timeoutError) return <=< timeout (fromIntegral limit)
+              maybe (throwM timeoutError) return <=< timeout (fromIntegral limit)
           txGas (T3 r _ _) = fromIntegral $ P._crGas r
         T3 r c _warns <- do
           -- TRACE.traceShowM ("applyPactCmd.CACHE: ", LHM.keys $ _getModuleCache mcache, M.keys $ _getCoreModuleCache cmcache)
-          tracePactBlockM' "applyCmd" (J.toJsonViaEncode hsh) txGas $ do
+          tracePactBlockM' "applyCmd" (\_ -> J.toJsonViaEncode hsh) txGas $ do
             liftIO $ txTimeout $
-              Pact4.applyCmd v logger gasLogger txFailuresCounter pactDb miner (gasModel txCtx) txCtx spv gasLimitedCmd initialGas mcache ApplySend
+              Pact4.applyCmd v logger gasLogger txFailuresCounter pactDb miner gasModel txCtx spv gasLimitedCmd initialGas mcache ApplySend
         pure $ T2 r c
 
     if isGenesis
@@ -506,7 +512,7 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
     else liftPactServiceM $ debugResult "applyPactCmd" (P.crLogs %~ fmap J.Array $ result)
 
     -- mark the tx as processed at the checkpointer.
-    liftIO $ _cpRegisterProcessedTx dbEnv hsh
+    liftIO $ _cpRegisterProcessedTx dbEnv (P.unHash $ P.toUntypedHash hsh)
     case maybeBlockGasRemaining of
       Just blockGasRemaining ->
         when (P._crGas result >= succ blockGasRemaining) $
@@ -679,7 +685,7 @@ continueBlock
     . (Logger logger, CanReadablePayloadCas tbl)
     => MemPoolAccess
     -> BlockInProgress Pact4
-    -> PactBlockM logger (Pact4Db logger) tbl (BlockInProgress Pact4)
+    -> PactBlockM logger tbl (BlockInProgress Pact4)
 continueBlock mpAccess blockInProgress = do
     updateMempool
     liftPactServiceM $
@@ -693,8 +699,8 @@ continueBlock mpAccess blockInProgress = do
       modifyMVar_ (pdPactDbVar pactDb) $ \blockEnv ->
         return
           $! blockEnv
-          & benvBlockState . bsPendingBlock .~ _blockInProgressPendingData blockInProgress
-          & benvBlockState . bsTxId .~ _blockInProgressTxId blockInProgress
+          & benvBlockState . bsPendingBlock .~ _blockHandlePending (_blockInProgressHandle blockInProgress)
+          & benvBlockState . bsTxId .~ _blockHandleTxId (_blockInProgressHandle blockInProgress)
 
     blockGasLimit <- view (psServiceEnv . psBlockGasLimit)
 
@@ -743,8 +749,10 @@ continueBlock mpAccess blockInProgress = do
       $ pactDb
     let !blockInProgress' = BlockInProgress
             { _blockInProgressModuleCache = Pact4ModuleCache finalModuleCache
-            , _blockInProgressPendingData = _bsPendingBlock finalBlockState
-            , _blockInProgressTxId = _bsTxId finalBlockState
+            , _blockInProgressHandle = BlockHandle
+              { _blockHandleTxId = _bsTxId finalBlockState
+              , _blockHandlePending = _bsPendingBlock finalBlockState
+              }
             , _blockInProgressParentHeader = newBlockParent
             , _blockInProgressRemainingGasLimit = finalGasLimit
             , _blockInProgressTransactions = Transactions
@@ -761,7 +769,7 @@ continueBlock mpAccess blockInProgress = do
     !parentTime =
       ParentCreationTime (_blockCreationTime $ _parentHeader newBlockParent)
 
-    getBlockTxs :: BlockFill -> PactBlockM logger (Pact4Db logger) tbl (Vector Pact4.Transaction)
+    getBlockTxs :: BlockFill -> PactBlockM logger tbl (Vector Pact4.Transaction)
     getBlockTxs bfState = do
       dbEnv <- view psBlockDbEnv
       psEnv <- ask
@@ -785,10 +793,10 @@ continueBlock mpAccess blockInProgress = do
       -> GrowableVec (Pact4.Transaction, P.CommandResult [P.TxLogJson])
       -> GrowableVec TransactionHash
       -> ModuleCache -> BlockFill
-      -> PactBlockM logger (Pact4Db logger) tbl (T2 ModuleCache BlockFill)
+      -> PactBlockM logger tbl (T2 ModuleCache BlockFill)
     refill fetchLimit txTimeLimit successes failures = go
       where
-        go :: ModuleCache -> BlockFill -> PactBlockM logger (Pact4Db logger) tbl (T2 ModuleCache BlockFill)
+        go :: ModuleCache -> BlockFill -> PactBlockM logger tbl (T2 ModuleCache BlockFill)
         go mc unchanged@bfState = do
 
           case unchanged of
@@ -857,7 +865,7 @@ continueBlock mpAccess blockInProgress = do
       -> GrowableVec TransactionHash -- ^ failed txs
       -> BlockFill
       -> [(Pact4.Transaction, Either CommandInvalidError (P.CommandResult [P.TxLogJson]))]
-      -> PactBlockM logger (Pact4Db logger) tbl (BlockFill, Bool)
+      -> PactBlockM logger tbl (BlockFill, Bool)
     splitResults successes failures = go
       where
         go acc@(BlockFill g rks i) = \case

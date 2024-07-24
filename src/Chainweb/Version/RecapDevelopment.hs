@@ -78,12 +78,12 @@ recapDevnet = ChainwebVersion
 
     , _versionUpgrades = foldr (chainZip HM.union) (AllChains mempty)
         [ indexByForkHeights recapDevnet
-            [ (CoinV2, onChains [(unsafeChainId i, ForPact4 $ pact4Upgrade RecapDevnet.transactions) | i <- [0..9]])
-            , (Pact4Coin3, AllChains (ForPact4 $ Pact4Upgrade CoinV3.transactions True))
-            , (Chainweb214Pact, AllChains (ForPact4 $ Pact4Upgrade CoinV4.transactions True))
-            , (Chainweb215Pact, AllChains (ForPact4 $ Pact4Upgrade CoinV5.transactions True))
+            [ (CoinV2, onChains [(unsafeChainId i, ForSomePactVersion Pact4T $ pact4Upgrade RecapDevnet.transactions) | i <- [0..9]])
+            , (Pact4Coin3, AllChains (ForSomePactVersion Pact4T $ Pact4Upgrade CoinV3.transactions True))
+            , (Chainweb214Pact, AllChains (ForSomePactVersion Pact4T $ Pact4Upgrade CoinV4.transactions True))
+            , (Chainweb215Pact, AllChains (ForSomePactVersion Pact4T $ Pact4Upgrade CoinV5.transactions True))
             ]
-        , onChains [(unsafeChainId 0, HM.singleton to20ChainsHeight (ForPact4 $ pact4Upgrade MNKAD.transactions))]
+        , onChains [(unsafeChainId 0, HM.singleton to20ChainsHeight (ForSomePactVersion Pact4T $ pact4Upgrade MNKAD.transactions))]
         ]
 
     , _versionGraphs =

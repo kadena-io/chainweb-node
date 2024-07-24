@@ -691,7 +691,6 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
         , _psCheckpointer = cp
         , _psPdb = pdb
         , _psBlockHeaderDb = bhdb
-        , _psGasModel = gasmodel
         , _psMinerRewards = rs
         , _psReorgLimit = _pactReorgLimit conf
         , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout conf
