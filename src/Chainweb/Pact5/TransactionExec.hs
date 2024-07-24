@@ -27,6 +27,7 @@ module Chainweb.Pact5.TransactionExec
 ( -- * Transaction Execution
   TransactionM(..)
 , TransactionEnv(..)
+, TxFailedError(..)
 
 , applyCoinbase
 , applyCmd
@@ -35,7 +36,6 @@ module Chainweb.Pact5.TransactionExec
 , runPayload
 , redeemGas
 , applyLocal
-
 
 ) where
 
