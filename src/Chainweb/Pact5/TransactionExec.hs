@@ -677,8 +677,10 @@ runUpgrade logger pact5Db txContext cmd = case payload of
 buyGas
   :: (Logger logger)
   => logger
-  -> PactDb CoreBuiltin Info -> TxContext
-  -> Command (Payload PublicMeta a) -> IO (Either (PactError Info) EvalResult)
+  -> PactDb CoreBuiltin Info
+  -> TxContext
+  -> Command (Payload PublicMeta a)
+  -> IO (Either (PactError Info) EvalResult)
 buyGas logger db txCtx cmd = do
   -- TODO: use quirked gas?
   let
