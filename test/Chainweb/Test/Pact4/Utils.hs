@@ -118,6 +118,7 @@ module Chainweb.Test.Pact4.Utils
 -- * miscellaneous
 , toTxCreationTime
 , dummyLogger
+, stdoutDummyLogger
 , hunitDummyLogger
 , pactTestLogger
 , someTestVersionHeader
@@ -987,6 +988,9 @@ withPactTestBlockDb version cid rdb mempoolIO pactConfig f =
 
 dummyLogger :: GenericLogger
 dummyLogger = genericLogger Error (error . T.unpack)
+
+stdoutDummyLogger :: GenericLogger
+stdoutDummyLogger = genericLogger Error (putStrLn . T.unpack)
 
 hunitDummyLogger :: (String -> IO ()) -> GenericLogger
 hunitDummyLogger f = genericLogger Error (f . T.unpack)
