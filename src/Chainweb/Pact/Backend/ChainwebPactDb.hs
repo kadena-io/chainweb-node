@@ -1,10 +1,14 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.ChainwebPactDb
@@ -26,12 +30,26 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 , toTxLog
 , getEndTxId
 , getEndTxId'
+, CurrentBlockDbEnv(..)
+, cpPactDbEnv
+, cpRegisterProcessedTx
+, cpLookupProcessedTx
+, callDb
+, BlockEnv(..)
+, benvBlockState
+, runBlockEnv
+, BlockState(..)
+, bsPendingBlock
+, bsTxId
+, initBlockState
+, BlockHandler(..)
+, BlockHandlerEnv(..)
+, mkBlockHandlerEnv
 ) where
 
 import Control.Applicative
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
@@ -80,17 +98,126 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Pact.Backend.DbCache
-import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.Types
-import Chainweb.Pact.Types (logDebug_, logError_)
+import Chainweb.Pact.Types
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
+import Chainweb.Version
+import Pact.Interpreter (PactDbEnv)
+import qualified Data.ByteString.Short as SB
+import Data.HashMap.Strict (HashMap)
+import Data.Vector (Vector)
+import Control.Concurrent
+import Chainweb.Version.Guards
+import Control.Exception.Safe
+import Pact.Types.Command (RequestKey)
 
-tbl :: HasCallStack => Utf8 -> Utf8
-tbl t@(Utf8 b)
-    | B8.elem ']' b = error $ "Chainweb.Pact.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
-    | otherwise = "[" <> t <> "]"
+callDb
+    :: (MonadCatch m, MonadReader (BlockHandlerEnv logger) m, MonadIO m)
+    => T.Text
+    -> (SQ3.Database -> IO b)
+    -> m b
+callDb callerName action = do
+  c <- asks _blockHandlerDb
+  res <- tryAny $ liftIO $ action c
+  case res of
+    Left err -> internalError $ "callDb (" <> callerName <> "): " <> sshow err
+    Right r -> return r
+
+data BlockHandlerEnv logger = BlockHandlerEnv
+    { _blockHandlerDb :: !SQLiteEnv
+    , _blockHandlerLogger :: !logger
+    , _blockHandlerBlockHeight :: !BlockHeight
+    , _blockHandlerModuleNameFix :: !Bool
+    , _blockHandlerSortedKeys :: !Bool
+    , _blockHandlerLowerCaseTables :: !Bool
+    , _blockHandlerPersistIntraBlockWrites :: !IntraBlockPersistence
+    }
+
+mkBlockHandlerEnv
+  :: ChainwebVersion -> ChainId -> BlockHeight
+  -> SQLiteEnv -> IntraBlockPersistence -> logger -> BlockHandlerEnv logger
+mkBlockHandlerEnv v cid bh sql p logger = BlockHandlerEnv
+    { _blockHandlerDb = sql
+    , _blockHandlerLogger = logger
+    , _blockHandlerBlockHeight = bh
+    , _blockHandlerModuleNameFix = enableModuleNameFix v cid bh
+    , _blockHandlerSortedKeys = pact42 v cid bh
+    , _blockHandlerLowerCaseTables = chainweb217Pact v cid bh
+    , _blockHandlerPersistIntraBlockWrites = p
+    }
+
+makeLenses ''BlockHandlerEnv
+
+data BlockEnv logger =
+  BlockEnv
+    { _blockHandlerEnv :: !(BlockHandlerEnv logger)
+    , _benvBlockState :: !BlockState -- ^ The current block state.
+    }
+
+runBlockEnv :: MVar (BlockEnv logger) -> BlockHandler logger a -> IO a
+runBlockEnv e m = modifyMVar e $
+  \(BlockEnv dbenv bs) -> do
+    (!a,!s) <- runStateT (runReaderT (runBlockHandler m) dbenv) bs
+    return (BlockEnv dbenv s, a)
+
+-- this monad allows access to the database environment "at" a particular block.
+-- unfortunately, this is tied to a useless MVar via runBlockEnv, which will
+-- be deleted with pact 5.
+newtype BlockHandler logger a = BlockHandler
+    { runBlockHandler :: ReaderT (BlockHandlerEnv logger) (StateT BlockState IO) a
+    } deriving newtype
+        ( Functor
+        , Applicative
+        , Monad
+        , MonadState BlockState
+        , MonadThrow
+        , MonadCatch
+        , MonadMask
+        , MonadIO
+        , MonadReader (BlockHandlerEnv logger)
+        )
+
+-- | Monad state for 'BlockHandler.
+-- This notably contains all of the information that's being mutated during
+-- blocks, notably _bsPendingBlock, the pending writes in the block, and
+-- _bsPendingTx, the pending writes in the transaction which will be discarded
+-- on tx failure.
+data BlockState = BlockState
+    { _bsTxId :: !TxId
+    , _bsPendingBlock :: !SQLitePendingData
+    , _bsPendingTx :: !(Maybe SQLitePendingData)
+    , _bsMode :: !(Maybe ExecutionMode)
+    , _bsModuleCache :: !(DbCache PersistModuleData)
+    }
+initBlockState
+    :: DbCacheLimitBytes
+    -- ^ Module Cache Limit (in bytes of corresponding rowdata)
+    -> TxId
+    -- ^ next tx id (end txid of previous block)
+    -> BlockState
+initBlockState cl txid = BlockState
+    { _bsTxId = txid
+    , _bsMode = Nothing
+    , _bsPendingBlock = emptySQLitePendingData
+    , _bsPendingTx = Nothing
+    , _bsModuleCache = emptyDbCache cl
+    }
+
+makeLenses ''BlockEnv
+makeLenses ''BlockState
+
+
+-- this is effectively a read-write snapshot of the Pact state at a block.
+data CurrentBlockDbEnv logger = CurrentBlockDbEnv
+    { _cpPactDbEnv :: !(PactDbEnv (BlockEnv logger))
+    , _cpRegisterProcessedTx :: !(RequestKey -> IO ())
+    , _cpLookupProcessedTx ::
+        !(Vector RequestKey -> IO (HashMap RequestKey (T2 BlockHeight BlockHash)))
+    }
+makeLenses ''CurrentBlockDbEnv
+
+type instance PactDbFor logger Pact4 = CurrentBlockDbEnv logger
 
 -- | Pact DB which reads from the tip of the checkpointer
 chainwebPactDb :: (Logger logger) => PactDb (BlockEnv logger)
@@ -274,12 +401,6 @@ recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
         (HashMap.singleton tn
             (HashMap.singleton key (NE.singleton delta)))
 
-
-markTableMutation :: Utf8 -> BlockHeight -> Database -> IO ()
-markTableMutation tablename blockheight db = do
-    exec' db mutq [SText tablename, SInt (fromIntegral blockheight)]
-  where
-    mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
 
 checkInsertIsOK
     :: Maybe (BlockHeight, TxId)
@@ -524,6 +645,10 @@ doCommit = use bsMode >>= \case
               pending <- use bsPendingTx
               persistIntraBlockWrites <- view blockHandlerPersistIntraBlockWrites
               modify' $ over bsPendingBlock (merge persistIntraBlockWrites pending)
+              -- this is mostly a lie; the previous `merge` call has already replaced the tx
+              -- logs from bsPendingBlock with those of the transaction.
+              -- from what I can tell, it's impossible for `pending` to be `Nothing` here,
+              -- but we don't throw an error for it.
               blockLogs <- use $ bsPendingBlock . pendingTxLogMap
               modify' $ set bsPendingTx Nothing
               resetTemp
@@ -536,7 +661,6 @@ doCommit = use bsMode >>= \case
         { _pendingTableCreation = HashSet.union (_pendingTableCreation txPending) (_pendingTableCreation blockPending)
         , _pendingWrites = HashMap.unionWith (HashMap.unionWith mergeAtRowKey) (_pendingWrites txPending) (_pendingWrites blockPending)
         , _pendingTxLogMap = _pendingTxLogMap txPending
-        , _pendingTxLogMapPact5 = _pendingTxLogMapPact5 txPending
         , _pendingSuccessfulTxs = _pendingSuccessfulTxs blockPending
         }
         where
@@ -628,21 +752,6 @@ toTxLog d key value =
 indexPactTransaction :: BS.ByteString -> BlockHandler logger ()
 indexPactTransaction h = modify' $
     over (bsPendingBlock . pendingSuccessfulTxs) $ HashSet.insert h
-
-createVersionedTable :: Utf8 -> Database -> IO ()
-createVersionedTable tablename db = do
-    exec_ db createtablestmt
-    exec_ db indexcreationstmt
-  where
-    ixName = tablename <> "_ix"
-    createtablestmt =
-      "CREATE TABLE IF NOT EXISTS " <> tbl tablename <> " \
-             \ (rowkey TEXT\
-             \, txid UNSIGNED BIGINT NOT NULL\
-             \, rowdata BLOB NOT NULL\
-             \, UNIQUE (rowkey, txid));"
-    indexcreationstmt =
-        "CREATE INDEX IF NOT EXISTS " <> tbl ixName <> " ON " <> tbl tablename <> "(txid DESC);"
 
 -- | Delete any state from the database newer than the input parent header.
 -- Returns the ending txid of the input parent header.
@@ -753,71 +862,6 @@ rewindDbToBlock db bh endingTxId = do
     clearTxIndex =
         exec' db "DELETE FROM TransactionIndex WHERE blockheight > ?;"
               [ SInt (fromIntegral bh) ]
-
-commitBlockStateToDatabase :: SQLiteEnv -> BlockHash -> BlockHeight -> BlockState -> IO ()
-commitBlockStateToDatabase db hsh bh blockState = do
-  let newTables = _pendingTableCreation $ _bsPendingBlock blockState
-  mapM_ (\tn -> createUserTable (Utf8 tn)) newTables
-  let writeV = toChunks $ _pendingWrites (_bsPendingBlock blockState)
-  backendWriteUpdateBatch writeV
-  indexPendingPactTransactions
-  let nextTxId = _bsTxId blockState
-  blockHistoryInsert nextTxId
-  where
-    toChunks writes =
-      over _2 (concatMap toList . HashMap.elems) .
-      over _1 Utf8 <$> HashMap.toList writes
-
-    backendWriteUpdateBatch
-        :: [(Utf8, [SQLiteRowDelta])]
-        -> IO ()
-    backendWriteUpdateBatch writesByTable = mapM_ writeTable writesByTable
-       where
-         prepRow (SQLiteRowDelta _ txid rowkey rowdata) =
-            [ SText (Utf8 rowkey)
-            , SInt (fromIntegral txid)
-            , SBlob rowdata
-            ]
-
-         writeTable (tableName, writes) = do
-            execMulti db q (map prepRow writes)
-            markTableMutation tableName bh db
-           where
-            q = "INSERT OR REPLACE INTO " <> tbl tableName <> "(rowkey,txid,rowdata) VALUES(?,?,?)"
-
-    -- | Record a block as being in the history of the checkpointer
-    blockHistoryInsert :: TxId -> IO ()
-    blockHistoryInsert t =
-        exec' db stmt
-            [ SInt (fromIntegral bh)
-            , SBlob (runPutS (encodeBlockHash hsh))
-            , SInt (fromIntegral t)
-            ]
-      where
-        stmt =
-          "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
-
-    createUserTable :: Utf8 -> IO ()
-    createUserTable tablename = do
-        createVersionedTable tablename db
-        exec' db insertstmt insertargs
-      where
-        insertstmt = "INSERT OR IGNORE INTO VersionedTableCreation VALUES (?,?)"
-        insertargs =  [SText tablename, SInt (fromIntegral bh)]
-
-    -- | Commit the index of pending successful transactions to the database
-    indexPendingPactTransactions :: IO ()
-    indexPendingPactTransactions = do
-        let txs = _pendingSuccessfulTxs $ _bsPendingBlock blockState
-        dbIndexTransactions txs
-
-      where
-        toRow b = [SBlob b, SInt (fromIntegral bh)]
-        dbIndexTransactions txs = do
-            let rows = map toRow $ toList txs
-            execMulti db "INSERT INTO TransactionIndex (txhash, blockheight) \
-                         \ VALUES (?, ?)" rows
-
 
 -- | Create all tables that exist pre-genesis
 initSchema :: (Logger logger) => logger -> SQLiteEnv -> IO ()

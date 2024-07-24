@@ -48,7 +48,7 @@ import Chainweb.Pact.PactService
 import Chainweb.Pact.PactService.Checkpointer
 import Chainweb.Pact.PactService.Pact4.ExecBlock
 import Chainweb.Pact.Types
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)
@@ -509,8 +509,8 @@ execTest v runPact request = _trEval request $ do
 
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
-        (zip (_trCmds request) (toHashCommandResult <$> outputs))
-        (toHashCommandResult $ _transactionCoinbase results)
+        (zip (_trCmds request) (hashPact4TxLogs <$> outputs))
+        (hashPact4TxLogs $ _transactionCoinbase results)
   where
     mkCmds cmdStrs =
       fmap V.fromList $ forM (zip cmdStrs [0..]) $ \(code,n :: Int) ->
@@ -544,8 +544,8 @@ execTxsTest v runPact name (trans',check) = testCase name (go >>= check)
               tcode = _pNonce . Pact4.payloadObj . _cmdPayload
               inputs = map (showPretty . tcode) $ V.toList trans
           return $ TestResponse
-            (zip inputs (toHashCommandResult <$> outputs))
-            (toHashCommandResult $ _transactionCoinbase results)
+            (zip inputs (hashPact4TxLogs <$> outputs))
+            (hashPact4TxLogs $ _transactionCoinbase results)
         Left e -> return $ Left $ show e
 
 type LocalTest = (IO Pact4.Transaction,Either String (CommandResult Hash) -> Assertion)

@@ -62,7 +62,7 @@ import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact
 import Chainweb.Miner.RestAPI (MiningApi)
-import Chainweb.Pact.Service.Types(BlockInProgress(..), Transactions(..))
+import Chainweb.Pact.Types(BlockInProgress(..), Transactions(..))
 import Chainweb.Payload
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils

@@ -59,10 +59,10 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.Types
+
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.PactService
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Pact4.TransactionExec (listErrMsg)
 import Chainweb.Payload
 import Chainweb.SPV.CreateProof

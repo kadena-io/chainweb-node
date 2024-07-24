@@ -77,10 +77,10 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (computeGrandHash)
 import Chainweb.Pact.Backend.PactState qualified as PS
-import Chainweb.Pact.Backend.Types hiding (RunnableBlock(..))
+ hiding (RunnableBlock(..))
 import Chainweb.Pact.Service.BlockValidation hiding (local)
 import Chainweb.Pact.Service.PactQueue (PactQueue, newPactQueue)
-import Chainweb.Pact.Service.Types hiding (runBlock)
+import Chainweb.Pact.Types hiding (runBlock)
 import Chainweb.Pact.PactService (runPactService)
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (emptyPayload)
@@ -977,7 +977,7 @@ preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
 badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
   (_, reqQ, _) <- reqIO
-  let hashToTxHashList = V.singleton . requestKeyToTransactionHash . RequestKey . toUntypedHash @'Blake2b_256
+  let hashToTxHashList = V.singleton . pact4RequestKeyToTransactionHash . RequestKey . toUntypedHash @'Blake2b_256
   badHashRef <- newIORef $ hashToTxHashList initialHash
   badTx <- buildCwCmd "badListMPA" testVersion
     $ signSender00

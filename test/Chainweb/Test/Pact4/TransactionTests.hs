@@ -57,11 +57,11 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Service.Types
-import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Types
 import Chainweb.Pact4.Templates
 import Chainweb.Pact4.TransactionExec
-import Chainweb.Pact.Types
+import qualified Chainweb.Pact4.Types as Pact4
+
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Time
@@ -70,6 +70,7 @@ import Chainweb.Version as V
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Test.Pact4.Utils
+import qualified Chainweb.Pact4.ModuleCache as Pact4
 
 
 -- ---------------------------------------------------------------------- --
@@ -156,10 +157,10 @@ ccReplTests ccFile = do
 
     failCC i e = assertFailure $ renderInfo (_faInfo i) <> ": " <> unpack e
 
-loadCC :: FilePath -> IO (PactDbEnv LibState, ModuleCache)
+loadCC :: FilePath -> IO (PactDbEnv LibState, Pact4.ModuleCache)
 loadCC = loadScript
 
-loadScript :: FilePath -> IO (PactDbEnv LibState, ModuleCache)
+loadScript :: FilePath -> IO (PactDbEnv LibState, Pact4.ModuleCache)
 loadScript fp = do
   (r, rst) <- execScript' Quiet fp
   either fail (const $ return ()) r
@@ -168,7 +169,7 @@ loadScript fp = do
             (view (rEnv . eePactDbVar) rst)
       mc = view (rEvalState . evalRefs . rsLoadedModules) rst
   -- TODO: setup eval env & run the code & and pass
-  return (pdb, moduleCacheFromHashMap mc)
+  return (pdb, Pact4.moduleCacheFromHashMap mc)
 
 -- ---------------------------------------------------------------------- --
 -- Template vuln tests
@@ -260,10 +261,10 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
   where
     doCoinbaseExploit pdb mc height localCmd precompile testResult = do
-      let ctx = TxContext (mkTestParentHeader $ height - 1) def miner
+      let ctx = Pact4.TxContext (mkTestParentHeader $ height - 1) def miner
 
       void $ applyCoinbase Mainnet01 logger pdb 0.1 ctx
-        (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled precompile) mc
+        (EnforceCoinbaseFailure True) (Pact4.CoinbaseUsePrecompiled precompile) mc
 
       let h = H.toUntypedHash (H.hash "" :: H.PactHash)
           tenv = TransactionEnv Transactional pdb logger Nothing def
@@ -294,8 +295,8 @@ testCoinbaseEnforceFailure = do
     (pdb,mc) <- loadCC coinReplV4
     r <- tryAllSynchronous $
       applyCoinbase toyVersion logger pdb 0.1
-        (TxContext someParentHeader def badMiner)
-        (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
+        (Pact4.TxContext someParentHeader def badMiner)
+        (EnforceCoinbaseFailure True) (Pact4.CoinbaseUsePrecompiled False) mc
     case r of
       Left e ->
         if isInfixOf "CoinbaseFailure" (sshow e) then
@@ -366,12 +367,12 @@ testUpgradeScript
     :: FilePath
     -> V.ChainId
     -> BlockHeight
-    -> (T2 (CommandResult [TxLogJson]) (Maybe ModuleCache) -> IO ())
+    -> (T2 (CommandResult [TxLogJson]) (Maybe Pact4.ModuleCache) -> IO ())
     -> IO ()
 testUpgradeScript script cid bh test = do
     (pdb, mc) <- loadScript script
-    r <- tryAllSynchronous $ applyCoinbase v logger pdb 0.1 (TxContext parent def noMiner)
-        (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
+    r <- tryAllSynchronous $ applyCoinbase v logger pdb 0.1 (Pact4.TxContext parent def noMiner)
+        (EnforceCoinbaseFailure True) (Pact4.CoinbaseUsePrecompiled False) mc
     case r of
       Left e -> assertFailure $ "tx execution failed: " ++ show e
       Right cr -> test cr

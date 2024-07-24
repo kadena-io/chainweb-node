@@ -6,11 +6,12 @@
 
 module Chainweb.Pact5.Transaction
   ( Transaction
-  , PayloadWithText(..)
+  , PayloadWithText
   , payloadBytes
   , payloadObj
   , payloadCodec
   , parseCommand
+  , parsePact4Command
   ) where
 
 import Control.DeepSeq
@@ -36,45 +37,51 @@ import qualified Pact.JSON.Encode as J
 
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
+import qualified Chainweb.Pact4.Transaction as Pact4
 
-type Transaction = Command PayloadWithText
+type Transaction = Command (PayloadWithText PublicMeta ParsedCode)
 
-data PayloadWithText = PayloadWithText
+data PayloadWithText meta code = UnsafePayloadWithText
     { _payloadBytes :: !SB.ShortByteString
-    , _payloadObj :: !(Payload PublicMeta ParsedCode)
+    , _payloadObj :: !(Payload meta code)
     }
     deriving stock (Show, Generic)
     deriving anyclass (NFData)
 
-instance Eq PayloadWithText where
+instance Eq (PayloadWithText meta code) where
     (==) = (==) `on` _payloadBytes
 
-payloadBytes :: PayloadWithText -> SB.ShortByteString
-payloadBytes = _payloadBytes
+payloadBytes :: Getter (PayloadWithText meta code) SB.ShortByteString
+payloadBytes = to _payloadBytes
+{-# inline conlike payloadBytes #-}
 
-payloadObj :: PayloadWithText -> Payload PublicMeta ParsedCode
-payloadObj = _payloadObj
+payloadObj :: Getter (PayloadWithText meta code) (Payload meta code)
+payloadObj = to _payloadObj
+{-# inline conlike payloadObj #-}
 
 -- | A codec for Pact5's (Command PayloadWithText) transactions.
 --
 payloadCodec
-    :: Codec (Command PayloadWithText)
+    :: Codec (Command (PayloadWithText PublicMeta ParsedCode))
 payloadCodec = Codec enc dec
-  where
+    where
     enc c = J.encodeStrict $ fmap (decodeUtf8 . encodePayload) c
     dec bs = case Aeson.decodeStrict' bs of
         Just (cmd :: Command Text) -> parseCommand cmd
         Nothing -> Left "decode PayloadWithText failed"
 
-parseCommand :: Command Text -> Either String (Command PayloadWithText)
+parseCommand :: Command Text -> Either String (Command (PayloadWithText PublicMeta ParsedCode))
 parseCommand cmd = do
     let cmd' = fmap encodeUtf8 cmd
     let code = SB.toShort (_cmdPayload cmd')
     parsedCmd <- over (_Right . cmdPayload . pMeta) _stableEncoding $ unsafeParseCommand cmd'
-    return (parsedCmd & cmdPayload %~ \obj -> PayloadWithText { _payloadBytes = code, _payloadObj = obj })
+    return (parsedCmd & cmdPayload %~ \obj -> UnsafePayloadWithText { _payloadBytes = code, _payloadObj = obj })
 
-encodePayload :: PayloadWithText -> ByteString
+encodePayload :: PayloadWithText meta code -> ByteString
 encodePayload = SB.fromShort . _payloadBytes
+
+parsePact4Command :: Pact4.UnparsedTransaction -> Either String Transaction
+parsePact4Command tx = undefined
 
 -- decodePayload
 --     :: ByteString

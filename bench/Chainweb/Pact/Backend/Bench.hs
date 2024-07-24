@@ -51,13 +51,14 @@ import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.MerkleLogHash
 import Chainweb.Pact.Backend.RelationalCheckpointer
-import Chainweb.Pact.Backend.Types
+
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Types
 import Chainweb.Test.TestVersions
 import Chainweb.Utils.Bench
 import Chainweb.Utils (sshow)
 import Chainweb.Version
+import Chainweb.Pact.Backend.ChainwebPactDb (BlockEnv)
 
 testVer :: ChainwebVersion
 testVer = instantCpmTestVersion petersonChainGraph
@@ -71,10 +72,10 @@ cpRestoreAndSave
   :: (Monoid q)
   => Checkpointer logger
   -> Maybe BlockHeader
-  -> [(BlockHeader, Pact4Db logger -> IO q)]
+  -> [(BlockHeader, PactDbEnv (BlockEnv logger) -> IO q)]
   -> IO q
 cpRestoreAndSave cp pc blks = snd <$> _cpRestoreAndSave cp (ParentHeader <$> pc)
-  (traverse Stream.yield [RunnableBlock $ \dbEnv _ -> (,bh) <$> fun (_cpPactDbEnv dbEnv) | (bh, fun) <- blks])
+  (traverse Stream.yield [Pact4RunnableBlock $ \dbEnv _ -> (,bh) <$> fun (Pact4._cpPactDbEnv dbEnv) | (bh, fun) <- blks])
 
 -- | fabricate a `BlockHeader` for a block given its hash and its parent.
 childOf :: Maybe BlockHeader -> BlockHash -> BlockHeader

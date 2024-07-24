@@ -107,7 +107,8 @@ fromLegacyInterface mh (Legacy.Interface n _ _ imp) mref = do
   let n' = fromLegacyModuleName n
       use' = fmap fromLegacyUse imp
   defs <- traverse (fromLegacyInterfaceDefRef mh) $ HM.elems mref
-  pure (Interface n' defs use' mh ())
+  -- TODO: Pact5. Is it okay to use pactInitialHash here?
+  pure (Interface n' defs use' mh pactInitialHash ())
 
 fromLegacyDeps
   :: ModuleHash
@@ -332,7 +333,8 @@ fromLegacyModule mh lm depMap = do
       gov = fromLegacyGovernance mh (Legacy._mGovernance lm)
 
   defs <- traverse (fromLegacyDefRef mh) $ HM.elems depMap
-  pure (Module mn gov defs (S.fromList blessed) imps impl mhash ())
+  -- TODO: Pact5. Is it okay to use pactInitialHash here?
+  pure (Module mn gov defs (S.fromList blessed) imps impl mhash pactInitialHash ())
 
 fromLegacyBodyForm'
   :: ModuleHash -- parent module hash

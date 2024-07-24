@@ -41,7 +41,8 @@ import Pact.Types.Runtime
 
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
+import Chainweb.Pact4.Types (GasSupply)
 
 inf :: Info
 inf = Info $ Just (Code "",Parsed (Columns 0 0) 0)
@@ -110,7 +111,7 @@ mkFundTxTerm
   :: MinerId   -- ^ Id of the miner to fund
   -> MinerKeys -- ^ Miner keyset
   -> Text      -- ^ Address of the sender from the command
-  -> Pact4GasSupply -- ^ The gas limit total * price
+  -> GasSupply -- ^ The gas limit total * price
   -> (Term Name,ExecMsg ParsedCode)
 mkFundTxTerm (MinerId mid) (MinerKeys ks) sender total = (populatedTerm, execMsg)
   where (term, senderS, minerS) = fundTxTemplate
@@ -124,7 +125,7 @@ mkFundTxTerm (MinerId mid) (MinerKeys ks) sender total = (populatedTerm, execMsg
 
 mkBuyGasTerm
   :: Text      -- ^ Address of the sender from the command
-  -> Pact4GasSupply -- ^ The gas limit total * price
+  -> GasSupply -- ^ The gas limit total * price
   -> (Term Name,ExecMsg ParsedCode)
 mkBuyGasTerm sender total = (populatedTerm, execMsg)
   where (term, senderS) = buyGasTemplate
@@ -138,8 +139,8 @@ mkRedeemGasTerm
   :: MinerId   -- ^ Id of the miner to fund
   -> MinerKeys -- ^ Miner keyset
   -> Text      -- ^ Address of the sender from the command
-  -> Pact4GasSupply -- ^ The gas limit total * price
-  -> Pact4GasSupply -- ^ The gas used * price
+  -> GasSupply -- ^ The gas limit total * price
+  -> GasSupply -- ^ The gas used * price
   -> (Term Name,ExecMsg ParsedCode)
 mkRedeemGasTerm (MinerId mid) (MinerKeys ks) sender total fee = (populatedTerm, execMsg)
   where (term, senderS, minerS) = redeemGasTemplate

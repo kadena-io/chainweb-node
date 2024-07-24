@@ -29,7 +29,7 @@ import Pact.Types.Verifier hiding (verifierName)
 
 import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact4.Utils
 import Chainweb.Utils
@@ -38,17 +38,18 @@ import Chainweb.VerifierPlugin.Hyperlane.Binary
 import Chainweb.VerifierPlugin.Hyperlane.Utils
 
 import Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Utils
+import qualified Chainweb.Pact4.Types as Pact4
 
 tests :: TestTree
 tests = testGroup "After225"
-  [ test generousConfig getGasModel "verifySuccess" hyperlaneVerifySuccess
-  , test generousConfig getGasModel "verifyMoreValidatorsSuccess" hyperlaneVerifyMoreValidatorsSuccess
-  , test generousConfig getGasModel "verifyThresholdZeroError" hyperlaneVerifyThresholdZeroError
-  , test generousConfig getGasModel "verifyWrongSignersFailure" hyperlaneVerifyWrongSignersFailure
-  , test generousConfig getGasModel "verifyNotEnoughRecoveredSignaturesFailure" hyperlaneVerifyNotEnoughRecoveredSignaturesFailure
-  , test generousConfig getGasModel "verifyNotEnoughCapabilitySignaturesFailure" hyperlaneVerifyNotEnoughCapabilitySignaturesFailure
-  , test generousConfig getGasModel "verifyIncorretProofFailure" hyperlaneVerifyMerkleIncorrectProofFailure
-  , test generousConfig getGasModel "verifyFailureNotEnoughSignaturesToPassThreshold" hyperlaneVerifyFailureNotEnoughSignaturesToPassThreshold
+  [ test generousConfig Pact4.getGasModel "verifySuccess" hyperlaneVerifySuccess
+  , test generousConfig Pact4.getGasModel "verifyMoreValidatorsSuccess" hyperlaneVerifyMoreValidatorsSuccess
+  , test generousConfig Pact4.getGasModel "verifyThresholdZeroError" hyperlaneVerifyThresholdZeroError
+  , test generousConfig Pact4.getGasModel "verifyWrongSignersFailure" hyperlaneVerifyWrongSignersFailure
+  , test generousConfig Pact4.getGasModel "verifyNotEnoughRecoveredSignaturesFailure" hyperlaneVerifyNotEnoughRecoveredSignaturesFailure
+  , test generousConfig Pact4.getGasModel "verifyNotEnoughCapabilitySignaturesFailure" hyperlaneVerifyNotEnoughCapabilitySignaturesFailure
+  , test generousConfig Pact4.getGasModel "verifyIncorretProofFailure" hyperlaneVerifyMerkleIncorrectProofFailure
+  , test generousConfig Pact4.getGasModel "verifyFailureNotEnoughSignaturesToPassThreshold" hyperlaneVerifyFailureNotEnoughSignaturesToPassThreshold
   ]
   where
     -- This is way more than what is used in production, but during testing

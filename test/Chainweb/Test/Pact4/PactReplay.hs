@@ -35,10 +35,10 @@ import Chainweb.Graph
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.Types
+
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Pact4.Utils

@@ -17,7 +17,7 @@ import Data.Aeson qualified as Aeson
 import Data.ByteString.Short qualified as SBS
 import Chainweb.Logger
 import Chainweb.Pact.Backend.RelationalCheckpointer
-import Chainweb.Pact.Backend.Types
+
 import Chainweb.Pact.Types
 import Chainweb.Version
 import qualified Data.Text as T
@@ -32,7 +32,7 @@ initCheckpointer :: ChainwebVersion -> ChainId -> SQLiteEnv -> IO (Checkpointer 
 initCheckpointer v cid sql = do
     initRelationalCheckpointer defaultModuleCacheLimit sql DoNotPersistIntraBlockWrites (genericLogger Error (error . T.unpack)) v cid
 
-pactTxFrom4To5 :: Pact4.Command Pact4.PayloadWithText -> Pact5.Command Pact5.PayloadWithText
+pactTxFrom4To5 :: Pact4.Transaction -> Pact5.Transaction
 pactTxFrom4To5 tx =
   let
     e = do

@@ -38,8 +38,9 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.Pact.Backend.Types
+
 import Chainweb.Test.Utils
+import Chainweb.Pact.Types (SQLiteEnv)
 
 -- -------------------------------------------------------------------------- --
 -- Tests

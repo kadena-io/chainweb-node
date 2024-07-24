@@ -1,4 +1,5 @@
 packages: chainweb.cabal
+packages: ../pact-core/pact-tng.cabal
 
 debug-info: True
 
@@ -85,12 +86,6 @@ source-repository-package
 
 source-repository-package
     type: git
-    location: https://github.com/kadena-io/pact-5.git
-    tag: 0234d4fde21c219fedb9cdc58684291f8bb42fd9
-    --sha256: 15y7fji71v3pnvw0l3000wmv49zidbjl81d3f9443nm9d2i4p22v
-
-source-repository-package
-    type: git
     location: https://github.com/kadena-io/pact-json.git
     tag: 1d260bfaa48312b54851057885de4c43c420e35f
     --sha256: 0fzq4mzaszj5clvixx9mn1x6r4dcrnwvbl2znd0p5mmy5h2jr0hh
@@ -122,7 +117,7 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/edmundnoble/hs-hashes.git
-    tag: c14fc7dba9c5b92b7bf2f4ba14470dba1670eac3
+    tag: 9665a5d82c9bf890ded0346f58e6bde9843a9320
     --sha256: 18xdml1fwqzb6lzcc53qy65d3i5y6fjs76q85dh4g17zzcaibl81
 
 source-repository-package

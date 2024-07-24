@@ -40,9 +40,9 @@ import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.Types
+
 import Chainweb.Pact.PactService
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -57,6 +57,7 @@ import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
 import Chainweb.Storage.Table.RocksDB
+import qualified Chainweb.Pact4.ModuleCache as Pact4
 
 testVer :: ChainwebVersion
 testVer = fastForkingCpmTestVersion singletonChainGraph
@@ -222,7 +223,7 @@ testCw217CoinOnly iobdb _rewindM = (go, go')
     go' ioa initCache = do
       snapshotCache ioa initCache
       case M.lookup 20 initCache of
-        Just a -> assertEqual "module init cache contains only coin" ["coin"] (moduleCacheKeys a)
+        Just a -> assertEqual "module init cache contains only coin" ["coin"] (Pact4.moduleCacheKeys a)
         Nothing -> assertFailure "failed to lookup block at 20"
 
 assertNoCacheMismatch
@@ -272,9 +273,9 @@ doNextCoinbaseN_ n iobdb = fmap last $ forM [1..n] $ \_ ->
 justModuleHashes :: ModuleInitCache -> HM.HashMap ModuleName (Maybe ModuleHash)
 justModuleHashes = justModuleHashes' . snd . last . M.toList
 
-justModuleHashes' :: ModuleCache -> HM.HashMap ModuleName (Maybe ModuleHash)
+justModuleHashes' :: Pact4.ModuleCache -> HM.HashMap ModuleName (Maybe ModuleHash)
 justModuleHashes' =
-    fmap (preview (_1 . mdModule . _MDModule . mHash)) . moduleCacheToHashMap
+    fmap (preview (_1 . mdModule . _MDModule . mHash)) . Pact4.moduleCacheToHashMap
 
 initPayloadState
   :: (CanReadablePayloadCas tbl, Logger logger, logger ~ GenericLogger)

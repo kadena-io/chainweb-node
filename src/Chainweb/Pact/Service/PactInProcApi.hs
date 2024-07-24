@@ -39,9 +39,9 @@ import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
-import Chainweb.Pact.Backend.Types
+
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload.PayloadStore
@@ -120,6 +120,7 @@ pactMemPoolAccess
     -> MemPoolAccess
 pactMemPoolAccess mpc logger = MemPoolAccess
     { mpaGetBlock = pactMemPoolGetBlock mpc logger
+    -- TODO: pact5
     , mpaSetLastHeader = pactMempoolSetLastHeader mpc logger
     , mpaProcessFork = pactProcessFork mpc logger
     , mpaBadlistTx = mempoolAddToBadList (mpcMempool mpc)
@@ -130,11 +131,11 @@ pactMemPoolGetBlock
     => MempoolConsensus
     -> logger
     -> BlockFill
-    -> (MempoolPreBlockCheck Pact4.Transaction
+    -> (MempoolPreBlockCheck Pact4.UnparsedTransaction to
             -> BlockHeight
             -> BlockHash
             -> BlockHeader
-            -> IO (Vector Pact4.Transaction))
+            -> IO (Vector to))
 pactMemPoolGetBlock mpc theLogger bf validate height hash _bHeader = do
     logFn theLogger Debug $! "pactMemPoolAccess - getting new block of transactions for "
         <> "height = " <> sshow height <> ", hash = " <> sshow hash

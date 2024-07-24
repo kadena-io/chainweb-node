@@ -27,7 +27,7 @@ import Pact.Types.Verifier hiding (verifierName)
 
 import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact4.Utils
 import Chainweb.Utils
@@ -36,19 +36,20 @@ import Chainweb.VerifierPlugin.Hyperlane.Binary
 import Chainweb.VerifierPlugin.Hyperlane.Utils
 
 import Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Utils
+import qualified Chainweb.Pact4.Types as Pact4
 
 tests :: TestTree
 tests = testGroup "Before225"
   [ testGroup "MessageId metadata tests"
-    [ test generousConfig getGasModel "verifySuccess" hyperlaneVerifyMessageIdSuccess
-    , test generousConfig getGasModel "verifyEmptyRecoveredSignaturesSuccess" hyperlaneVerifyMessageIdEmptyRecoveredSignaturesSuccess
-    , test generousConfig getGasModel "verifyWrongSignersFailure" hyperlaneVerifyMessageIdWrongSignersFailure
-    , test generousConfig getGasModel "verifyNotEnoughRecoveredSignaturesFailure" hyperlaneVerifyMessageIdNotEnoughRecoveredSignaturesFailure
-    , test generousConfig getGasModel "verifyNotEnoughCapabilitySignaturesFailure" hyperlaneVerifyMessageIdNotEnoughCapabilitySignaturesFailure
+    [ test generousConfig Pact4.getGasModel "verifySuccess" hyperlaneVerifyMessageIdSuccess
+    , test generousConfig Pact4.getGasModel "verifyEmptyRecoveredSignaturesSuccess" hyperlaneVerifyMessageIdEmptyRecoveredSignaturesSuccess
+    , test generousConfig Pact4.getGasModel "verifyWrongSignersFailure" hyperlaneVerifyMessageIdWrongSignersFailure
+    , test generousConfig Pact4.getGasModel "verifyNotEnoughRecoveredSignaturesFailure" hyperlaneVerifyMessageIdNotEnoughRecoveredSignaturesFailure
+    , test generousConfig Pact4.getGasModel "verifyNotEnoughCapabilitySignaturesFailure" hyperlaneVerifyMessageIdNotEnoughCapabilitySignaturesFailure
     ]
 
   , testGroup "MerkleTree metadata tests"
-    [ test generousConfig getGasModel "verifyNotEnabledFailure" hyperlaneVerifyMerkleNotEnabledFailure
+    [ test generousConfig Pact4.getGasModel "verifyNotEnabledFailure" hyperlaneVerifyMerkleNotEnabledFailure
     ]
   ]
   where

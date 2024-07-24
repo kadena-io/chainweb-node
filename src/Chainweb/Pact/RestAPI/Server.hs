@@ -98,11 +98,11 @@ import qualified Chainweb.CutDB as CutDB
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
-    (InsertError(..), InsertType(..), MempoolBackend(..), TransactionHash(..), requestKeyToTransactionHash)
+    (InsertError(..), InsertType(..), MempoolBackend(..), TransactionHash(..), pact4RequestKeyToTransactionHash)
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.RestAPI.SPV
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Pact.SPV
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -133,12 +133,13 @@ import qualified Pact.Types.Pretty as Pact4
 import qualified Pact.Core.Command.Types as Pact5
 import qualified Chainweb.Pact5.Transaction as Pact5
 import qualified Chainweb.Pact5.Validations as Pact5
+import Data.Coerce
 
 -- -------------------------------------------------------------------------- --
 
 data PactServerData logger tbl = PactServerData
     { _pactServerDataCutDb :: !(CutDB.CutDb tbl)
-    , _pactServerDataMempool :: !(MempoolBackend Pact4.Transaction)
+    , _pactServerDataMempool :: !(MempoolBackend Pact4.UnparsedTransaction)
     , _pactServerDataLogger :: !logger
     , _pactServerDataPact :: !PactExecutionService
     }
@@ -252,19 +253,22 @@ sendHandler
     => logger
     -> ChainwebVersion
     -> ChainId
-    -> MempoolBackend Pact4.Transaction
+    -> MempoolBackend Pact4.UnparsedTransaction
     -> Pact4.SubmitBatch
     -> Handler Pact4.RequestKeys
 sendHandler logger v cid mempool (Pact4.SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
+    -- TODO: Pact5 we need to try validating the command as both a Pact4 command and a Pact5 command
+    -- this only does Pact4
     case traverse (validateCommand v cid) cmds of
-       Right enriched -> do
-           let txs = V.fromList $ NEL.toList enriched
-           -- If any of the txs in the batch fail validation, we reject them all.
-           liftIO (mempoolInsertCheck mempool txs) >>= checkResult
-           liftIO (mempoolInsert mempool UncheckedInsert txs)
-           return $! Pact4.RequestKeys $ NEL.map Pact4.cmdToRequestKey enriched
-       Left err -> failWith $ "Validation failed: " <> T.pack err
+      Right enriched -> do
+          let txs = (fmap . fmap . fmap) Pact4._pcCode $
+                V.fromList $ NEL.toList enriched
+          -- If any of the txs in the batch fail validation, we reject them all.
+          liftIO (mempoolInsertCheck mempool txs) >>= checkResult
+          liftIO (mempoolInsert mempool UncheckedInsert txs)
+          return $! Pact4.RequestKeys $ NEL.map Pact4.cmdToRequestKey enriched
+      Left err -> failWith $ "Validation failed: " <> T.pack err
   where
     failWith :: Text -> ExceptT ServerError IO a
     failWith err = throwError $ setErrText err err400
@@ -294,7 +298,7 @@ pollHandler
     -> CutDB.CutDb tbl
     -> ChainId
     -> PactExecutionService
-    -> MempoolBackend Pact4.Transaction
+    -> MempoolBackend Pact4.UnparsedTransaction
     -> Maybe ConfirmationDepth
     -> Pact4.Poll
     -> Handler Pact4.PollResponses
@@ -318,7 +322,7 @@ listenHandler
     -> CutDB.CutDb tbl
     -> ChainId
     -> PactExecutionService
-    -> MempoolBackend Pact4.Transaction
+    -> MempoolBackend Pact4.UnparsedTransaction
     -> Pact4.ListenerRequest
     -> Handler Pact4.ListenResponse
 listenHandler logger cdb cid pact mem (Pact4.ListenerRequest key) = do
@@ -442,10 +446,10 @@ spvHandler l cdb cid (SpvRequest rk (Pact4.ChainId ptid)) = do
 
     liftIO $! logg (sshow ph)
 
-    T2 bhe _bha <- liftIO (try $ _pactLookup pe cid Nothing (pure ph)) >>= \case
+    T2 bhe _bha <- liftIO (try $ _pactLookup pe cid Nothing (pure $ coerce $ Pact4.toUntypedHash ph)) >>= \case
       Left (e :: PactException) ->
         toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
-      Right v -> case HM.lookup ph v of
+      Right v -> case HM.lookup (coerce $ Pact4.toUntypedHash ph) v of
         Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
         Just t -> return t
 
@@ -521,10 +525,10 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
     proof f = SomePayloadProof <$> do
         validateRequestKey rk
         liftIO $! logg (sshow ph)
-        T2 bhe bha <- liftIO (try $ _pactLookup pe cid Nothing (pure ph)) >>= \case
+        T2 bhe bha <- liftIO (try $ _pactLookup pe cid Nothing (pure $ coerce ph)) >>= \case
             Left (e :: PactException) ->
                 toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
-            Right v -> case HM.lookup ph v of
+            Right v -> case HM.lookup (coerce ph) v of
                 Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
                 Just t -> return t
 
@@ -538,7 +542,7 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
 
     rk = _spvSubjectIdReqKey sid
     pe = _webPactExecutionService $ view CutDB.cutDbPactService cdb
-    ph = Pact4.fromUntypedHash $ Pact4.unRequestKey rk
+    ph = Pact4.unRequestKey rk
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
     pdb = view CutDB.cutDbPayloadDb cdb
 
@@ -605,17 +609,17 @@ internalPoll
     :: CanReadablePayloadCas tbl
     => PayloadDb tbl
     -> BlockHeaderDb
-    -> MempoolBackend Pact4.Transaction
+    -> MempoolBackend Pact4.UnparsedTransaction
     -> PactExecutionService
     -> Maybe ConfirmationDepth
     -> NonEmpty Pact4.RequestKey
     -> IO (HashMap Pact4.RequestKey (Pact4.CommandResult Pact4.Hash))
 internalPoll pdb bhdb mempool pactEx confDepth requestKeys0 = do
     -- get leaf block header for our chain from current best cut
-    results0 <- _pactLookup pactEx cid confDepth requestKeys
+    results0 <- _pactLookup pactEx cid confDepth (coerce requestKeys)
         -- TODO: are we sure that all of these are raised locally. This will cause the
         -- server to shut down the connection without returning a result to the user.
-    let results1 = V.map (\rk -> (rk, HM.lookup (Pact4.fromUntypedHash $ Pact4.unRequestKey rk) results0)) requestKeysV
+    let results1 = V.map (\rk -> (rk, HM.lookup (coerce $ Pact4.unRequestKey rk) results0)) requestKeysV
     let (present0, missing) = V.unstablePartition (isJust . snd) results1
     let present = V.map (second fromJuste) present0
     badlisted <- V.toList <$> checkBadList (V.map fst missing)
@@ -625,7 +629,7 @@ internalPoll pdb bhdb mempool pactEx confDepth requestKeys0 = do
   where
     cid = _chainId bhdb
     !requestKeysV = V.fromList $ NEL.toList requestKeys0
-    !requestKeys = V.map (Pact4.fromUntypedHash . Pact4.unRequestKey) requestKeysV
+    !requestKeys = V.map (Pact4.unRequestKey) requestKeysV
 
     lookup
         :: (Pact4.RequestKey, T2 BlockHeight BlockHash)
@@ -656,7 +660,7 @@ internalPoll pdb bhdb mempool pactEx confDepth requestKeys0 = do
 
     checkBadList :: Vector Pact4.RequestKey -> IO (Vector (Pact4.RequestKey, Pact4.CommandResult Pact4.Hash))
     checkBadList rkeys = do
-        let !hashes = V.map requestKeyToTransactionHash rkeys
+        let !hashes = V.map pact4RequestKeyToTransactionHash rkeys
         out <- mempoolCheckBadList mempool hashes
         let bad = V.map (Pact4.RequestKey . Pact4.Hash . unTransactionHash . fst) $
                   V.filter snd $ V.zip hashes out
@@ -718,8 +722,6 @@ validatePact5Command v cid cmdText = case parsedCmd of
   Left e -> Left $ "Pact parsing error: " ++ e
   where
     bh = maxBound :: BlockHeight
-    decodeAndParse bs =
-        traverse (Pact4.parsePact) =<< Aeson.eitherDecodeStrict' bs
     parsedCmd = Pact5.parseCommand cmdText
 
 -- | Validate the length of the request key's underlying hash.

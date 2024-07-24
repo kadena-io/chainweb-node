@@ -70,7 +70,7 @@ import Servant
 import Chainweb.ChainId
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.RestAPI.SPV
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV.PayloadProof
 import Chainweb.Version

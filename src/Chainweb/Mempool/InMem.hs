@@ -74,6 +74,8 @@ import Chainweb.Version (ChainwebVersion)
 import qualified Pact.Types.ChainMeta as P
 
 import Numeric.AffineSpace
+import Data.Either (partitionEithers)
+import Control.Lens
 
 ------------------------------------------------------------------------------
 compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
@@ -107,7 +109,8 @@ newInMemMempoolData =
 
 ------------------------------------------------------------------------------
 toMempoolBackend
-    :: NFData t
+    :: forall t logger
+    . NFData t
     => Logger logger
     => logger
     -> InMemoryMempool t
@@ -140,6 +143,13 @@ toMempoolBackend logger mempool = do
     markValidated = markValidatedInMem logger tcfg lockMVar
     addToBadList = addToBadListInMem lockMVar
     checkBadList = checkBadListInMem lockMVar
+    getBlock :: forall to.
+      (NFData t)
+      => BlockFill
+      -> MempoolPreBlockCheck t to
+      -> BlockHeight
+      -> BlockHash
+      -> IO (Vector to)
     getBlock = getBlockInMem logger cfg lockMVar
     getPending = getPendingInMem cfg nonce lockMVar
     prune = pruneInMem lockMVar
@@ -495,17 +505,17 @@ insertInMem cfg lock runCheck txs0 = do
 
 ------------------------------------------------------------------------------
 getBlockInMem
-    :: forall t . NFData t
-    => forall l . Logger l
+    :: forall t l to.
+    (NFData t, Logger l)
     => l
     -> InMemConfig t
     -> MVar (InMemoryMempoolData t)
     -> BlockFill
-    -> MempoolPreBlockCheck t
+    -> MempoolPreBlockCheck t to
     -> BlockHeight
     -> BlockHash
-    -> IO (Vector t)
-getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight phash = do
+    -> IO (Vector to)
+getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight phash = do
     logFunctionText logg Debug $ "getBlockInMem: " <> sshow (gasLimit,bheight,phash)
     withMVar lock $ \mdata -> do
         now <- getCurrentTimeIntegral
@@ -525,9 +535,9 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight 
         let !psq'' = V.foldl' ins (HashMap.union seen psq') out
         writeIORef (_inmemPending mdata) $! force psq''
         writeIORef (_inmemBadMap mdata) $! force badmap'
-        mout <- V.thaw $ V.map (snd . snd) out
-        TimSort.sortBy (compareOnGasPrice txcfg) mout
-        V.unsafeFreeze mout
+        mout <- V.thaw $ V.map (\(_, (_, t, to)) -> (t, to)) out
+        TimSort.sortBy (compareOnGasPrice txcfg `on` fst) mout
+        fmap snd <$> V.unsafeFreeze mout
 
   where
 
@@ -535,14 +545,14 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight 
       if S.member k txHashes then (T2 unseens (HashMap.insert k v seens))
       else (T2 (HashMap.insert k v unseens) seens)
 
-    ins !m (!h,(!b,!t)) =
+    ins !m (!h,(!b,!t,_)) =
         let !pe = PendingEntry (txGasPrice txcfg t)
                                (txGasLimit txcfg t)
                                b
                                (txMetaExpiryTime $ txMetadata txcfg t)
         in HashMap.insert h pe m
 
-    insBadMap !m (!h,(_,!t)) = let endTime = txMetaExpiryTime (txMetadata txcfg t)
+    insBadMap !m (!h,!t) = let endTime = txMetaExpiryTime (txMetadata txcfg t)
                               in HashMap.insert h endTime m
 
     del !psq (h, _) = HashMap.delete h psq
@@ -560,27 +570,32 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight 
                         ]
     getSize = txGasLimit txcfg
     maxSize = _inmemTxBlockSizeLimit cfg
-    sizeOK tx = getSize tx <= maxSize
+    sizeOK tx = when (getSize tx > maxSize) (Left $ InsertErrorOversized maxSize)
 
     validateBatch
         :: PendingMap
         -> BadMap
         -> Vector (TransactionHash, (SB.ShortByteString, t))
-        -> IO (T3 (Vector (TransactionHash, (SB.ShortByteString, t)))
+        -> IO (T3 [(TransactionHash, (SB.ShortByteString, t, to))]
                   PendingMap
                   BadMap)
     validateBatch !psq0 !badmap q = do
         let txs = V.map (snd . snd) q
         oks1 <- txValidate bheight phash txs
         let oks2 = V.map sizeOK txs
-        let !oks = V.zipWith (&&) oks1 oks2
-        let (good, bad1) = V.partition snd $! V.zip q oks
+        let !oks = V.zipWith (\ok1 ok2 -> ok1 <* ok2) oks1 oks2
+        let (bad1, good) =
+              partitionEithers
+                [ either (\_err -> Left (txHash, t)) (\to -> Right (txHash, (bytes, t, to))) r
+                | ((txHash, (bytes, t)), r) <- V.toList (V.zip q oks)
+                ]
+          -- V.partition snd $! V.zip q oks
 
         -- remove considered txs -- successful ones will be re-added at the end
         let !psq' = V.foldl' del psq0 q
         -- txs that fail pre-block validation get sent to the naughty list.
-        let !badmap' = V.foldl' insBadMap badmap (V.map fst bad1)
-        return $! T3 (V.map fst good) psq' badmap'
+        let !badmap' = foldl' insBadMap badmap bad1
+        return $! T3 good psq' badmap'
 
     maxInARow :: Int
     maxInARow = 200
@@ -615,22 +630,21 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _)  txValidate bheight 
             let !tx = decodeTx txbytes
             let !txSz = getSize tx
             if txSz <= sz
-              then getBatch pendingTxs' (sz - txSz) ((h,(txbytes, tx)):soFar) 0
-              else getBatch pendingTxs' sz soFar (inARow + 1)
+            then getBatch pendingTxs' (sz - txSz) ((h,(txbytes, tx)):soFar) 0
+            else getBatch pendingTxs' sz soFar (inARow + 1)
 
     go :: PendingMap
-       -> BadMap
-       -> GasLimit
-       -> [Vector (TransactionHash, (SB.ShortByteString, t))]
-       -> IO (T3 PendingMap BadMap
-                 (Vector (TransactionHash, (SB.ShortByteString, t))))
+      -> BadMap
+      -> GasLimit
+      -> [[(TransactionHash, (SB.ShortByteString, t, to))]]
+      -> IO (T3 PendingMap BadMap (Vector (TransactionHash, (SB.ShortByteString, t, to))))
     go !psq !badmap !remainingGas !soFar = do
         nb <- nextBatch psq remainingGas
         if null nb
-          then return $! T3 psq badmap (V.concat soFar)
+          then return $! T3 psq badmap (V.fromList $ concat soFar)
           else do
             T3 good psq' badmap' <- validateBatch psq badmap $! V.fromList nb
-            let !newGas = V.foldl' (\s (_, (_, t)) -> s + getSize t) 0 good
+            let !newGas = foldl' (\s (_, (_, t, _)) -> s + getSize t) 0 good
             go psq' badmap' (remainingGas - newGas) (good : soFar)
 
 

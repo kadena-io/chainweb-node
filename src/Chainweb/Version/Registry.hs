@@ -1,4 +1,6 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# LANGUAGE MonoLocalBinds #-}
+{-# LANGUAGE NamedFieldPuns #-}
 -- |
 -- Module: Chainweb.Version.Registry
 -- Copyright: Copyright © 2023 Kadena LLC.
@@ -79,6 +81,7 @@ validateVersion :: HasCallStack => ChainwebVersion -> IO ()
 validateVersion v = do
     evaluate (rnf v)
     let
+        hasAllChains :: ChainMap a -> Bool
         hasAllChains (AllChains _) = True
         hasAllChains (OnChains m) = HS.fromMap (void m) == chainIds v
         errors = concat
@@ -97,14 +100,17 @@ validateVersion v = do
                     , hasAllChains (_genesisTime $ _versionGenesis v)
                     ])]
             , [ "validateVersion: some pact upgrade has no transactions"
-              | any (any isUpgradeEmpty) (_versionUpgrades v) ]
+                | any (any isUpgradeEmpty) (_versionUpgrades v) ]
             -- TODO: check that pact 4 vs pact 5 fork height respects the upgrades
             ]
     unless (null errors) $
         error $ unlines $ ["errors encountered validating version", show v] <> errors
     where
-    isUpgradeEmpty (ForPact4 upg) = null (_pact4UpgradeTransactions upg)
-    isUpgradeEmpty (ForPact5 upg) = null (_pact5UpgradeTransactions upg)
+    -- TODO: this is an annoying type sig, can we use NoMonoLocalBinds and disable the warning
+    -- about matching on GADTs?
+    isUpgradeEmpty :: ForSomePactVersion PactUpgrade -> Bool
+    isUpgradeEmpty (ForSomePactVersion Pact4T upg) = null (_pact4UpgradeTransactions upg)
+    isUpgradeEmpty (ForSomePactVersion Pact5T upg) = null (_pact5UpgradeTransactions upg)
 
 -- | Look up a version in the registry by code.
 lookupVersionByCode :: HasCallStack => ChainwebVersionCode -> ChainwebVersion
@@ -118,16 +124,16 @@ lookupVersionByCode code
         -- Setting the version code here allows us to delay doing the lookup in
         -- the case that we don't actually need the version, just the code.
         lookupVersion & versionCode .~ code
-  where
+    where
     lookupVersion :: HasCallStack => ChainwebVersion
     lookupVersion = unsafeDupablePerformIO $ do
         m <- readIORef versionMap
         return $ fromMaybe (error notRegistered) $
             HM.lookup code m
     notRegistered
-      | code == _versionCode recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured"
-      | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured"
-      | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.testVersions?"
+        | code == _versionCode recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured"
+        | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured"
+        | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.testVersions?"
 
 -- TODO: ideally all uses of this are deprecated. currently in use in
 -- ObjectEncoded block header decoder and CutHashes decoder.

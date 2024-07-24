@@ -11,6 +11,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MonoLocalBinds #-}
 -- |
 -- Module      :  Chainweb.Pact4.TransactionExec
 -- Copyright   :  Copyright © 2018 Kadena LLC.
@@ -133,7 +134,7 @@ import Pact.Types.KeySet
 import Pact.Types.PactValue
 import Pact.Types.Pretty
 import Pact.Types.RPC
-import Pact.Types.Runtime
+import Pact.Types.Runtime hiding (catchesPactError)
 import Pact.Types.Server
 import Pact.Types.SPV
 import Pact.Types.Verifier
@@ -146,9 +147,8 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import qualified Chainweb.ChainId as Chainweb
-import Chainweb.Mempool.Mempool (requestKeyToTransactionHash)
+import Chainweb.Mempool.Mempool (pact4RequestKeyToTransactionHash)
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Service.Types
 import Chainweb.Pact4.Templates
 import Chainweb.Pact.Types hiding (logError)
 import Chainweb.Pact4.Transaction
@@ -159,6 +159,9 @@ import Chainweb.Version.Guards as V
 import Chainweb.Version.Utils as V
 import Pact.JSON.Encode (toJsonViaEncode)
 import Data.Set (Set)
+import Chainweb.Pact4.Types hiding (logError)
+import Chainweb.Pact4.ModuleCache
+import Chainweb.Pact.Backend.ChainwebPactDb
 
 -- Note [Throw out verifier proofs eagerly]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -376,9 +379,9 @@ applyCmd v logger gasLogger txFailuresCounter pdbenv miner gasModel txCtx spv cm
       applyRedeem r
 
     applyBuyGas =
-      catchesPact4Error logger (onChainErrorPrintingFor txCtx) (buyGas txCtx cmd miner) >>= \case
+      catchesPactError logger (onChainErrorPrintingFor txCtx) (buyGas txCtx cmd miner) >>= \case
         Left e -> view txRequestKey >>= \rk ->
-          throwM $ BuyGasFailure $ Pact4GasPurchaseFailure (requestKeyToTransactionHash rk) e
+          throwM $ Pact4BuyGasFailure $ Pact4GasPurchaseFailure (pact4RequestKeyToTransactionHash rk) e
         Right _ -> checkTooBigTx initialGas gasLimit applyVerifiers redeemAllGas
 
     displayPactError e = do
@@ -419,7 +422,7 @@ applyCmd v logger gasLogger txFailuresCounter pdbenv miner gasModel txCtx spv cm
       if chainweb217Pact' then txGasUsed += initialGas
       else txGasUsed .= initialGas
 
-      cr <- catchesPact4Error logger (onChainErrorPrintingFor txCtx) $! runPayload cmd managedNamespacePolicy
+      cr <- catchesPactError logger (onChainErrorPrintingFor txCtx) $! runPayload cmd managedNamespacePolicy
       case cr of
         Left e
           -- 2.19 onwards errors return on chain
@@ -435,7 +438,7 @@ applyCmd v logger gasLogger txFailuresCounter pdbenv miner gasModel txCtx spv cm
     applyRedeem cr = do
       txGasModel .= _geGasModel freeGasEnv
 
-      r <- catchesPact4Error logger (onChainErrorPrintingFor txCtx) $! redeemGas txCtx cmd miner
+      r <- catchesPactError logger (onChainErrorPrintingFor txCtx) $! redeemGas txCtx cmd miner
       case r of
         Left e ->
           -- redeem gas failure is fatal (block-failing) so miner doesn't lose coins
@@ -512,7 +515,7 @@ applyGenesisCmd logger dbEnv spv txCtx cmd =
 
     go = do
       -- TODO: fix with version recordification so that this matches the flags at genesis heights.
-      cr <- catchesPact4Error logger (onChainErrorPrintingFor txCtx) $! runGenesis cmd permissiveNamespacePolicy interp
+      cr <- catchesPactError logger (onChainErrorPrintingFor txCtx) $! runGenesis cmd permissiveNamespacePolicy interp
       case cr of
         Left e -> fatal $ "Genesis command failed: " <> sshow e
         Right r -> r <$ debug "successful genesis tx for request key"
@@ -595,7 +598,7 @@ applyCoinbase v logger dbEnv reward@(ParsedDecimal d) txCtx
         -- NOTE: chash includes the /quoted/ text of the parent header.
 
     go interp cexec = evalTransactionM tenv txst $! do
-      cr <- catchesPact4Error logger (onChainErrorPrintingFor txCtx) $
+      cr <- catchesPactError logger (onChainErrorPrintingFor txCtx) $
         applyExec' 0 interp cexec [] [] chash managedNamespacePolicy
 
       case cr of
@@ -640,7 +643,7 @@ applyLocal
       -- ^ tx metadata and parent header
     -> SPVSupport
       -- ^ SPV support (validates cont proofs)
-    -> Command PayloadWithText
+    -> Transaction
       -- ^ command with payload to execute
     -> ModuleCache
     -> ExecutionConfig
@@ -687,7 +690,7 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
 
     applyPayload gas1 m = do
       interp <- gasInterpreter gas1
-      cr <- catchesPact4Error logger PrintsUnexpectedError $! case m of
+      cr <- catchesPactError logger PrintsUnexpectedError $! case m of
         Exec em ->
           applyExec gas1 interp em signers verifiersWithNoProof chash managedNamespacePolicy
         Continuation cm ->
@@ -701,7 +704,7 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
 
 readInitModules
     :: forall logger tbl. (Logger logger)
-    => PactBlockM logger (Pact4Db logger) tbl ModuleCache
+    => PactBlockM logger tbl ModuleCache
 readInitModules = do
   logger <- view (psServiceEnv . psLogger)
   dbEnv <- view (psBlockDbEnv . to _cpPactDbEnv)
@@ -722,13 +725,14 @@ readInitModules = do
     nid = Nothing
     chash = pactInitialHash
     tenv = TransactionEnv Local dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
-           rk 0 def Nothing Nothing
+          rk 0 def Nothing Nothing
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
     interp = defaultInterpreter
     die msg = internalError $ "readInitModules: " <> msg
     mkCmd = buildExecParsedCode (pact4ParserVersion v cid h) Nothing
+    run :: Text -> ExecMsg ParsedCode -> TransactionM logger p PactValue
     run msg cmd = do
-      er <- catchesPact4Error logger (onChainErrorPrintingFor txCtx) $!
+      er <- catchesPactError logger (onChainErrorPrintingFor txCtx) $!
         applyExec' 0 interp cmd [] [] chash permissiveNamespacePolicy
       case er of
         Left e -> die $ msg <> ": failed: " <> sshow e
@@ -778,9 +782,10 @@ readInitModules = do
       void $ run "load modules" coinDepCmd
       use txCache
 
-  if | chainweb224Pact' -> pure mempty
-     | chainweb217Pact' -> liftIO $ evalTransactionM tenv txst goCw217
-     | otherwise -> liftIO $ evalTransactionM tenv txst go
+  if
+    | chainweb224Pact' -> pure mempty
+    | chainweb217Pact' -> liftIO $ evalTransactionM tenv txst goCw217
+    | otherwise -> liftIO $ evalTransactionM tenv txst go
 
 -- | Apply (forking) upgrade transactions and module cache updates
 -- at a particular blockheight.
@@ -792,16 +797,17 @@ readInitModules = do
 -- which both hit the database.
 --
 applyUpgrades
-  :: (Logger logger)
+  :: forall logger p
+  . (Logger logger)
   => ChainwebVersion
   -> Chainweb.ChainId
   -> BlockHeight
   -> TransactionM logger p (Maybe ModuleCache)
 applyUpgrades v cid height
-     | Just (ForPact4 upg) <-
-         v ^? versionUpgrades . onChain cid . at height . _Just = applyUpgrade upg
-     | cleanModuleCache v cid height = filterModuleCache
-     | otherwise = return Nothing
+    | Just (ForSomePactVersion Pact4T upg) <-
+        v ^? versionUpgrades . onChain cid . ix height = applyUpgrade upg
+    | cleanModuleCache v cid height = filterModuleCache
+    | otherwise = return Nothing
   where
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
 
@@ -809,6 +815,7 @@ applyUpgrades v cid height
       mc <- use txCache
       pure $ Just $ filterModuleCacheByKey (== "coin") mc
 
+    applyUpgrade :: PactUpgrade Pact4 -> TransactionM logger p (Maybe ModuleCache)
     applyUpgrade upg = do
       infoLog "Applying upgrade!"
       let payloads = map (fmap payloadObj) $ _pact4UpgradeTransactions upg
@@ -1314,7 +1321,7 @@ gasInterpreter g = do
 -- | Initial gas charged for transaction size
 --   ignoring the size of a continuation proof, if present
 --
-initialGasOf :: PayloadWithText -> Gas
+initialGasOf :: PayloadWithText PublicMeta ParsedCode -> Gas
 initialGasOf payload = gasFee
   where
     feePerByte :: Rational = 0.01
@@ -1492,8 +1499,8 @@ networkIdOf = _pNetworkId . _cmdPayload
 -- | Calculate the gas fee (pact-generate gas cost * user-specified gas price),
 -- rounding to the nearest stu.
 --
-gasSupplyOf :: Gas -> GasPrice -> Pact4GasSupply
-gasSupplyOf gas (GasPrice (ParsedDecimal gp)) = Pact4GasSupply (ParsedDecimal gs)
+gasSupplyOf :: Gas -> GasPrice -> GasSupply
+gasSupplyOf gas (GasPrice (ParsedDecimal gp)) = GasSupply (ParsedDecimal gs)
   where
     gs = toCoinUnit ((fromIntegral gas) * gp)
 {-# INLINE gasSupplyOf #-}

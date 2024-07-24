@@ -50,7 +50,7 @@ import Chainweb.BlockHeader (ParentCreationTime(..), BlockHeader(..), ParentHead
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (fromPactChainId)
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
 import Chainweb.Version
 import Chainweb.Version.Guards (isWebAuthnPrefixLegal, validPPKSchemes)
@@ -65,6 +65,8 @@ import qualified Pact.Core.Names as P
 import qualified Pact.Core.PactValue as P
 import qualified Pact.Types.Gas as Pact4
 import qualified Pact.Parse as Pact4
+import Chainweb.Pact5.Types
+import qualified Chainweb.Pact5.Transaction as Pact5
 
 
 -- | Check whether a local Api request has valid metadata
@@ -207,15 +209,15 @@ assertTxNotInFuture (ParentCreationTime (BlockCreationTime txValidationTime)) tx
 
 -- | Assert that the command hash matches its payload and
 -- its signatures are valid, without parsing the payload.
-assertCommand :: P.Command P.PayloadWithText -> Bool
+assertCommand :: Pact5.Transaction -> Bool
 assertCommand cmd =
   isRight assertHash &&
   assertValidateSigs hsh signers (P._cmdSigs cmd)
   where
     hsh = P._cmdHash cmd
     pwt = P._cmdPayload cmd
-    cmdBS = SBS.fromShort $ P._payloadBytes pwt
-    signers = P._pSigners (P._payloadObj pwt)
+    cmdBS = SBS.fromShort $ pwt ^. P.payloadBytes
+    signers = pwt ^. P.payloadObj . P.pSigners
     assertHash = P.verifyHash hsh cmdBS
 
 -- -------------------------------------------------------------------- --

@@ -86,7 +86,8 @@ module Chainweb.Mempool.Mempool
   , syncMempools'
   , GasLimit(..)
   , GasPrice(..)
-  , requestKeyToTransactionHash
+  , pact4RequestKeyToTransactionHash
+  , pact5RequestKeyToTransactionHash
   ) where
 ------------------------------------------------------------------------------
 import Control.DeepSeq (NFData)
@@ -132,7 +133,7 @@ import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Types.ChainMeta (TTLSeconds(..), TxCreationTime(..))
 import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
-import qualified Pact.Types.Hash as H
+import qualified Pact.Types.Hash as Pact4
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
@@ -142,6 +143,10 @@ import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Data.LogMessage (LogFunctionText)
+import qualified Pact.Types.Command as Pact4
+import qualified Pact.Core.Command.Types as Pact5
+import qualified Pact.Core.Hash as Pact5
+import qualified Pact.Types.ChainMeta as Pact4
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
@@ -182,7 +187,7 @@ instance Traversable LookupResult where
                      Pending x -> Pending <$> f x
 
 ------------------------------------------------------------------------------
-type MempoolPreBlockCheck t = BlockHeight -> BlockHash -> Vector t -> IO (Vector Bool)
+type MempoolPreBlockCheck ti to = BlockHeight -> BlockHash -> Vector ti -> IO (Vector (Either InsertError to))
 
 ------------------------------------------------------------------------------
 -- | Mempool operates over a transaction type @t@. Mempool needs several
@@ -234,6 +239,7 @@ data InsertError = InsertErrorDuplicate
                  | InsertErrorInvalidHash
                  | InsertErrorInvalidSigs
                  | InsertErrorTimedOut
+                 | InsertErrorPactParseError Text
   deriving (Generic, Eq, NFData)
 
 instance Show InsertError
@@ -302,7 +308,7 @@ data MempoolBackend t = MempoolBackend {
     -- for mining.
     --
   , mempoolGetBlock
-      :: BlockFill -> MempoolPreBlockCheck t -> BlockHeight -> BlockHash -> IO (Vector t)
+      :: forall to. BlockFill -> MempoolPreBlockCheck t to -> BlockHeight -> BlockHash -> IO (Vector to)
 
     -- | Discard any expired transactions.
   , mempoolPrune :: IO ()
@@ -321,8 +327,8 @@ data MempoolBackend t = MempoolBackend {
   , mempoolClear :: IO ()
 }
 
-noopMempoolPreBlockCheck :: MempoolPreBlockCheck t
-noopMempoolPreBlockCheck _ _ v = return $! V.replicate (V.length v) True
+noopMempoolPreBlockCheck :: MempoolPreBlockCheck t t
+noopMempoolPreBlockCheck _ _ v = return $! V.map Right v
 
 noopMempool :: IO (MempoolBackend t)
 noopMempool = do
@@ -364,10 +370,9 @@ noopMempool = do
 ------------------------------------------------------------------------------
 
 pact4TransactionConfig
-    :: Pact4.PactParserVersion
-    -> TransactionConfig Pact4.Transaction
-pact4TransactionConfig ppv = TransactionConfig
-    { txCodec = Pact4.payloadCodec ppv
+    :: TransactionConfig Pact4.UnparsedTransaction
+pact4TransactionConfig = TransactionConfig
+    { txCodec = Pact4.rawCommandCodec
     , txHasher = commandHash
     , txHashMeta = chainwebTestHashMeta
     , txGasPrice = getGasPrice
@@ -381,7 +386,7 @@ pact4TransactionConfig ppv = TransactionConfig
     getGasLimit = view Pact4.cmdGasLimit . fmap Pact4.payloadObj
     getTimeToLive = view Pact4.cmdTimeToLive . fmap Pact4.payloadObj
     getCreationTime = view Pact4.cmdCreationTime . fmap Pact4.payloadObj
-    commandHash c = let (H.Hash !h) = H.toUntypedHash $ _cmdHash c
+    commandHash c = let (Pact4.Hash !h) = Pact4.toUntypedHash $ _cmdHash c
                     in TransactionHash h
     txmeta t =
         TransactionMetadata
@@ -603,8 +608,11 @@ instance HasTextRepresentation TransactionHash where
   {-# INLINE toText #-}
   {-# INLINE fromText #-}
 
-requestKeyToTransactionHash :: RequestKey -> TransactionHash
-requestKeyToTransactionHash = TransactionHash . H.unHash . unRequestKey
+pact4RequestKeyToTransactionHash :: Pact4.RequestKey -> TransactionHash
+pact4RequestKeyToTransactionHash = TransactionHash . Pact4.unHash . Pact4.unRequestKey
+
+pact5RequestKeyToTransactionHash :: Pact5.RequestKey -> TransactionHash
+pact5RequestKeyToTransactionHash = TransactionHash . Pact5.unHash . Pact5.unRequestKey
 
 ------------------------------------------------------------------------------
 --

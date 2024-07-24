@@ -208,13 +208,14 @@ import Chainweb.Pact.Backend.PactState qualified as PactState
 import Chainweb.Pact.Backend.PactState (TableDiffable(..), Table(..), PactRow(..))
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.SQLite.DirectV2
-import Chainweb.Pact.Backend.Types
+
 import Chainweb.Pact.Backend.Utils hiding (withSqliteDb)
 import Chainweb.Pact.PactService
 import Chainweb.Pact.RestAPI.Server (validateCommand)
 import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
+import Chainweb.Pact.Types
+import Chainweb.Pact4.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Cut
@@ -691,7 +692,6 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
         , _psCheckpointer = cp
         , _psPdb = pdb
         , _psBlockHeaderDb = bhdb
-        , _psGasModel = gasmodel
         , _psMinerRewards = rs
         , _psReorgLimit = _pactReorgLimit conf
         , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout conf
@@ -755,7 +755,7 @@ withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
           , _pactLookup = \_cid cd hashes ->
               evalPactServiceM_ ctx $ execLookupPactTxs cd hashes
           , _pactPreInsertCheck = \_ txs ->
-              evalPactServiceM_ ctx $ V.map (() <$) <$> execPreInsertCheckReq txs
+              evalPactServiceM_ ctx $ V.map (\_ -> Nothing) <$> execPreInsertCheckReq txs
           , _pactBlockTxHistory = \h d ->
               evalPactServiceM_ ctx $ execBlockTxHistory h d
           , _pactHistoricalLookup = \h d k ->
@@ -990,7 +990,7 @@ dummyLogger :: GenericLogger
 dummyLogger = genericLogger Error (error . T.unpack)
 
 stdoutDummyLogger :: GenericLogger
-stdoutDummyLogger = genericLogger Error (putStrLn . T.unpack)
+stdoutDummyLogger = genericLogger Warn (putStrLn . T.unpack)
 
 hunitDummyLogger :: (String -> IO ()) -> GenericLogger
 hunitDummyLogger f = genericLogger Error (f . T.unpack)

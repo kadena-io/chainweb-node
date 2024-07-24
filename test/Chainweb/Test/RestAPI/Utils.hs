@@ -70,7 +70,7 @@ import Chainweb.Cut.CutHashes (_cutHashes, _bhwhHeight)
 import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.EthSpv
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Rosetta.RestAPI.Client
 import Chainweb.Version
 import Chainweb.Test.Utils

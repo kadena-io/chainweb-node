@@ -66,7 +66,7 @@ import qualified Streaming.Prelude as S
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
-import Chainweb.Pact.Service.Types(internalError)
+import Chainweb.Pact.Types(internalError)
 import Chainweb.Pact.Utils (aeson)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore

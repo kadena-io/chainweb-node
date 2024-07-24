@@ -7,6 +7,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DataKinds #-}
 
 module Chainweb.Test.Pact4.Checkpointer (tests) where
 
@@ -56,7 +57,7 @@ import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.MerkleUniverse
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.RelationalCheckpointer
-import Chainweb.Pact.Backend.Types
+
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact4.TransactionExec
 import Chainweb.Pact.Types
@@ -629,7 +630,7 @@ withRelationalCheckpointerResource
 withRelationalCheckpointerResource f =
     withResource initializeSQLite freeSQLiteResource $ \s -> runSQLite f s
 
-addKeyset :: Pact4Db logger -> KeySetName -> KeySet -> IO ()
+addKeyset :: PactDbEnv (BlockEnv logger) -> KeySetName -> KeySet -> IO ()
 addKeyset (PactDbEnv pactdb mvar) keysetname keyset =
     _writeRow pactdb Insert KeySets keysetname keyset mvar
 
@@ -659,7 +660,7 @@ runSQLite' runTest sqlEnvIO = runTest $ do
   where
     logger = addLabel ("sub-component", "relational-checkpointer") $ dummyLogger
 
-runExec :: forall logger. (Logger logger) => Checkpointer logger -> Pact4Db logger -> Maybe Value -> Text -> IO EvalResult
+runExec :: forall logger. (Logger logger) => Checkpointer logger -> PactDbEnv (BlockEnv logger) -> Maybe Value -> Text -> IO EvalResult
 runExec cp pactdbenv eData eCode = do
     execMsg <- buildExecParsedCode maxBound {- use latest parser version -} eData eCode
     evalTransactionM cmdenv cmdst $
@@ -672,7 +673,7 @@ runExec cp pactdbenv eData eCode = do
              noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing Nothing
     cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
-runCont :: Logger logger => Checkpointer logger -> Pact4Db logger -> PactId -> Int -> IO EvalResult
+runCont :: Logger logger => Checkpointer logger -> PactDbEnv (BlockEnv logger) -> PactId -> Int -> IO EvalResult
 runCont cp pactdbenv pactId step = do
     evalTransactionM cmdenv cmdst $
       applyContinuation' 0 defaultInterpreter contMsg [] h' permissiveNamespacePolicy
@@ -692,13 +693,14 @@ runCont cp pactdbenv pactId step = do
 cpReadFrom
   :: Checkpointer logger
   -> Maybe BlockHeader
-  -> (Pact4Db logger -> IO q)
+  -> (PactDbEnv (BlockEnv logger) -> IO q)
   -> IO q
 cpReadFrom cp pc f = do
   _cpReadFrom
     (_cpReadCp cp)
     (ParentHeader <$> pc)
-    (\env -> f =<< assertDynamicPact4Db (_cpPactDbEnv env)) >>= \case
+    Pact4T
+    (\env _blockHandle -> f $ (_cpPactDbEnv env)) >>= \case
     NoHistory -> error $ unwords
       [ "Chainweb.Test.Pact4.Checkpointer.cpReadFrom:"
       , "parent header missing from the database"
@@ -711,11 +713,11 @@ cpRestoreAndSave
   :: (Monoid q)
   => Checkpointer logger
   -> Maybe BlockHeader
-  -> [(BlockHeader, Pact4Db logger -> IO q)]
+  -> [(BlockHeader, PactDbEnv (BlockEnv logger) -> IO q)]
   -> IO q
 cpRestoreAndSave cp pc blks = snd <$> _cpRestoreAndSave cp (ParentHeader <$> pc)
   (traverse Stream.yield
-    [RunnableBlock $ \dbEnv _ -> (,bh) <$> (fun =<< assertDynamicPact4Db (_cpPactDbEnv dbEnv)) | (bh, fun) <- blks])
+    [Pact4RunnableBlock $ \dbEnv _ -> (,bh) <$> (fun $ _cpPactDbEnv dbEnv) | (bh, fun) <- blks])
 
 -- | fabricate a `BlockHeader` for a block given its hash and its parent.
 childOf :: Maybe BlockHeader -> BlockHash -> BlockHeader

@@ -8,6 +8,7 @@
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE DataKinds #-}
 module Chainweb.Test.Pact5.CheckpointerTest (tests) where
 
 import Chainweb.BlockCreationTime
@@ -19,7 +20,7 @@ import Chainweb.MerkleUniverse (ChainwebMerkleHashAlgorithm)
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.SQLite.DirectV2 (close_v2)
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Pact.Types (defaultModuleCacheLimit)
 import Chainweb.Pact.Utils (emptyPayload)
 import qualified Chainweb.Pact4.TransactionExec
@@ -70,6 +71,8 @@ import Test.Tasty.HUnit (assertEqual, testCase)
 import Test.Tasty.Hedgehog
 import Text.Show.Pretty
 import Chainweb.Test.Pact5.Utils
+import Control.Monad.State
+import Chainweb.Pact.Backend.ChainwebPactCoreDb (Pact5Db(doPact5DbTransaction))
 
 -- | A @DbAction f@ is a description of some action on the database together with an f-full of results for it.
 type DbValue = Integer
@@ -131,7 +134,7 @@ hoistDbAction f (DbCreateTable tn es) = DbCreateTable tn (f es)
 tryShow :: IO a -> IO (Either String a)
 tryShow = fmap (over _Left show) . tryAny
 
-runDbAction :: Pact5Db -> DbAction (Const ()) -> IO (DbAction Identity)
+runDbAction :: PactDb CoreBuiltin Info -> DbAction (Const ()) -> IO (DbAction Identity)
 runDbAction pactDb act =
     fmap (hoistDbAction (\(Pair (Const ()) fa) -> fa))
         $ runDbAction' pactDb act
@@ -139,7 +142,7 @@ runDbAction pactDb act =
 extractInt :: RowData -> IO Integer
 extractInt (RowData m) = evaluate (m ^?! ix (Field "k") . _PLiteral . _LInteger)
 
-runDbAction' :: Pact5Db -> DbAction f -> IO (DbAction (Product f Identity))
+runDbAction' :: PactDb CoreBuiltin Info -> DbAction f -> IO (DbAction (Product f Identity))
 runDbAction' pactDb = \case
     DbRead tn k v -> do
             maybeValue <- tryShow $ _pdbRead pactDb (DUserTables (mkTableName tn)) k
@@ -193,48 +196,49 @@ runBlocks
     -> IO [(BlockHeader, DbBlock Identity)]
 runBlocks cp ph blks = do
     ((), finishedBlks) <- _cpRestoreAndSave cp (Just ph) $ traverse_ Stream.yield
-        [ RunnableBlock $ \db _ph -> do
-            pactDb <- assertDynamicPact5Db (_cpPactDbEnv db)
-            _pdbBeginTx pactDb Transactional
-            blk' <- traverse (runDbAction pactDb) blk
-            txLogs <- _pdbCommitTx pactDb
-            bh <- blockHeaderFromTxLogs (fromJuste _ph) txLogs
-            return ([(bh, blk')], bh)
+        [ Pact5RunnableBlock $ \db _ph startHandle -> do
+            doPact5DbTransaction db startHandle Nothing $ \txdb -> do
+                _pdbBeginTx txdb Transactional
+                blk' <- traverse (runDbAction txdb) blk
+                txLogs <- _pdbCommitTx txdb
+                bh <- blockHeaderFromTxLogs (fromJuste _ph) txLogs
+                return ([(bh, blk')], bh)
         | blk <- blks
         ]
     return finishedBlks
 
 assertBlock :: Checkpointer GenericLogger -> ParentHeader -> (BlockHeader, DbBlock Identity) -> IO ()
 assertBlock cp ph (expectedBh, blk) = do
-    hist <- _cpReadFrom (_cpReadCp cp) (Just ph) $ \db -> do
+    hist <- _cpReadFrom (_cpReadCp cp) (Just ph) Pact5T $ \db startHandle -> do
         now <- getCurrentTimeIntegral
-        pactDb <- assertDynamicPact5Db (_cpPactDbEnv db)
-        _pdbBeginTx pactDb Transactional
-        blk' <- forM blk (runDbAction' pactDb)
-        txLogs <- _pdbCommitTx pactDb
-        forM_ blk' $ \case
-            DbRead d k (Pair expected actual) ->
-                assertEqual "read result" expected actual
-            DbWrite wt d k v (Pair expected actual) ->
-                assertEqual "write result" expected actual
-            DbKeys d (Pair expected actual) ->
-                assertEqual "keys result" expected actual
-            DbSelect d (Pair expected actual) ->
-                assertEqual "select result" expected actual
-            DbCreateTable tn (Pair expected actual) ->
-                assertEqual "create table result" expected actual
+        ((), _endHandle) <- doPact5DbTransaction db startHandle Nothing $ \txdb -> do
+            _pdbBeginTx txdb Transactional
+            blk' <- forM blk (runDbAction' txdb)
+            txLogs <- _pdbCommitTx txdb
+            forM_ blk' $ \case
+                DbRead d k (Pair expected actual) ->
+                    assertEqual "read result" expected actual
+                DbWrite wt d k v (Pair expected actual) ->
+                    assertEqual "write result" expected actual
+                DbKeys d (Pair expected actual) ->
+                    assertEqual "keys result" expected actual
+                DbSelect d (Pair expected actual) ->
+                    assertEqual "select result" expected actual
+                DbCreateTable tn (Pair expected actual) ->
+                    assertEqual "create table result" expected actual
 
-        actualBh <- blockHeaderFromTxLogs ph txLogs
-        assertEqual "block header" expectedBh actualBh
+            actualBh <- blockHeaderFromTxLogs ph txLogs
+            assertEqual "block header" expectedBh actualBh
+        return ()
     throwIfNoHistory hist
 
 tests = testGroup "Pact5 Checkpointer tests"
     [ withResourceT (liftIO . initCheckpointer v cid =<< withTempSQLiteResource) $ \cpIO ->
         testCase "valid PactDb before genesis" $ do
             cp <- cpIO
-            _cpReadFrom (_cpReadCp cp) Nothing $ \db -> do
-                pactDb <- assertDynamicPact5Db (_cpPactDbEnv db)
-                Pact.Core.runPactDbRegression pactDb
+            _cpReadFrom (_cpReadCp cp) Nothing Pact5T $ \db handle -> do
+                doPact5DbTransaction db handle Nothing $ \txdb ->
+                    Pact.Core.runPactDbRegression txdb
             return ()
     , withResourceT (liftIO . initCheckpointer v cid =<< withTempSQLiteResource) $ \cpIO ->
         testProperty "linear block history validity" $ withTests 1000 $ property $ do
@@ -242,8 +246,8 @@ tests = testGroup "Pact5 Checkpointer tests"
             liftIO $ do
                 cp <- cpIO
                 -- extend this empty chain with the genesis block
-                _cpRestoreAndSave cp Nothing $ Stream.yield $ RunnableBlock $ \_ _ ->
-                    return ((), gh)
+                _cpRestoreAndSave cp Nothing $ Stream.yield $ Pact5RunnableBlock $ \_ _ hndl ->
+                    return (((), gh), hndl)
                 -- run all of the generated blocks
                 finishedBlocks <- runBlocks cp (ParentHeader gh) blocks
                 let

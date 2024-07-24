@@ -81,21 +81,21 @@ trace
     -> m a
     -> m a
 trace logg label param weight a =
-    trace' logg label param (const weight) a
+    trace' logg label (const param) (const weight) a
 
 trace'
     :: MonadIO m
     => ToJSON param
     => (LogLevel -> JsonLog Trace -> IO ())
     -> T.Text
-    -> param
+    -> (a -> param)
     -> (a -> Int)
     -> m a
     -> m a
-trace' logg label param calcWeight a = do
+trace' logg label calcParam calcWeight a = do
     (!r, t) <- stopWatch a
     liftIO $ logg Info $ JsonLog $ Trace label
-        (toJSON param)
+        (toJSON (calcParam r))
         (calcWeight r)
         (fromIntegral $ toNanoSecs t `div` 1000)
     return r

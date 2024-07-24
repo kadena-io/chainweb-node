@@ -53,13 +53,15 @@ import Chainweb.Version
 import Chainweb.Version.Guards
 
 import Data.LogMessage (JsonLog(..), LogFunction)
+import qualified Pact.Types.ChainMeta as Pact4
+import Data.Text (Text)
 
 ------------------------------------------------------------------------------
 data MempoolConsensus = MempoolConsensus
-    { mpcMempool :: !(MempoolBackend Pact4.Transaction)
+    { mpcMempool :: !(MempoolBackend Pact4.UnparsedTransaction)
     , mpcLastNewBlockParent :: !(IORef (Maybe BlockHeader))
     , mpcProcessFork
-        :: LogFunction -> BlockHeader -> IO (Vector Pact4.Transaction, Vector Pact4.Transaction)
+        :: LogFunction -> BlockHeader -> IO (Vector Pact4.UnparsedTransaction, Vector Pact4.UnparsedTransaction)
     }
 
 data ReintroducedTxsLog = ReintroducedTxsLog
@@ -80,7 +82,7 @@ instance Exception MempoolException
 ------------------------------------------------------------------------------
 mkMempoolConsensus
     :: CanReadablePayloadCas tbl
-    => MempoolBackend Pact4.Transaction
+    => MempoolBackend Pact4.UnparsedTransaction
     -> BlockHeaderDb
     -> Maybe (PayloadDb tbl)
     -> IO MempoolConsensus
@@ -102,7 +104,7 @@ processFork
     -> IORef (Maybe BlockHeader)
     -> LogFunction
     -> BlockHeader
-    -> IO (Vector Pact4.Transaction, Vector Pact4.Transaction)
+    -> IO (Vector Pact4.UnparsedTransaction, Vector Pact4.UnparsedTransaction)
 processFork blockHeaderDb payloadStore lastHeaderRef logFun newHeader = do
     now <- getCurrentTimeIntegral
     lastHeader <- readIORef lastHeaderRef
@@ -111,18 +113,17 @@ processFork blockHeaderDb payloadStore lastHeaderRef logFun newHeader = do
         height = _blockHeight newHeader
     (a, b) <- processFork' logFun blockHeaderDb newHeader lastHeader
                            (payloadLookup payloadStore)
-                           (processForkCheckTTL (pact4ParserVersion v cid height) now)
+                           (processForkCheckTTL now)
     return (V.map Pact4.unHashable a, V.map Pact4.unHashable b)
 
 
 ------------------------------------------------------------------------------
 processForkCheckTTL
-    :: Pact4.PactParserVersion
-    -> Time Micros
-    -> Pact4.HashableTrans Pact4.PayloadWithText -> Bool
-processForkCheckTTL ppv now (Pact4.HashableTrans t) =
+    :: Time Micros
+    -> Pact4.HashableTrans (Pact4.PayloadWithText Pact4.PublicMeta Text) -> Bool
+processForkCheckTTL now (Pact4.HashableTrans t) =
     either (const False) (const True) $
-    txTTLCheck (pact4TransactionConfig ppv) now t
+    txTTLCheck pact4TransactionConfig now t
 
 
 ------------------------------------------------------------------------------
@@ -171,27 +172,26 @@ payloadLookup
     :: CanReadablePayloadCas tbl
     => Maybe (PayloadDb tbl)
     -> BlockHeader
-    -> IO (HashSet (Pact4.HashableTrans Pact4.PayloadWithText))
+    -> IO (HashSet (Pact4.HashableTrans (Pact4.PayloadWithText Pact4.PublicMeta Text)))
 payloadLookup payloadStore bh =
     case payloadStore of
         Nothing -> return mempty
         Just s -> do
             pd <- lookupPayloadDataWithHeight s (Just (_blockHeight bh)) (_blockPayloadHash bh)
             pd' <- maybe (throwIO $ PayloadNotFoundException (_blockPayloadHash bh)) pure pd
-            chainwebTxsFromPd (pact4ParserVersion (_chainwebVersion bh) (_chainId bh) (_blockHeight bh)) pd'
+            chainwebTxsFromPd pd'
 
 ------------------------------------------------------------------------------
 chainwebTxsFromPd
-    :: Pact4.PactParserVersion
-    -> PayloadData
-    -> IO (HashSet (Pact4.HashableTrans Pact4.PayloadWithText))
-chainwebTxsFromPd ppv pd = do
+    :: PayloadData
+    -> IO (HashSet (Pact4.HashableTrans (Pact4.PayloadWithText Pact4.PublicMeta Text)))
+chainwebTxsFromPd pd = do
     let transSeq = _payloadDataTransactions pd
     let bytes = _transactionBytes <$> transSeq
     let eithers = toCWTransaction <$> bytes
     -- Note: if any transactions fail to convert, the final validation hash will fail to match
     -- the one computed during newBlock
-    let theRights  =  rights $ toList eithers
+    let theRights  = rights $ toList eithers
     return $! HS.fromList $ Pact4.HashableTrans <$!> theRights
   where
-    toCWTransaction = codecDecode (Pact4.payloadCodec ppv)
+    toCWTransaction = codecDecode Pact4.rawCommandCodec

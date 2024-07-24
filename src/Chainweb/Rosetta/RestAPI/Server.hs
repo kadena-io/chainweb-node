@@ -34,7 +34,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
-import Pact.Types.Command
+import qualified Pact.Types.Command as Pact4
 import Pact.Types.Util (fromText')
 
 import Rosetta
@@ -74,7 +74,7 @@ rosettaServer
     . CanReadablePayloadCas tbl
     => ChainwebVersion
     -> [(ChainId, PayloadDb tbl)]
-    -> [(ChainId, MempoolBackend Pact4.Transaction)]
+    -> [(ChainId, MempoolBackend Pact4.UnparsedTransaction)]
     -> PeerDb
     -> CutDb tbl
     -> [(ChainId, PactExecutionService)]
@@ -106,7 +106,7 @@ someRosettaServer
     :: CanReadablePayloadCas tbl
     => ChainwebVersion
     -> [(ChainId, PayloadDb tbl)]
-    -> [(ChainId, MempoolBackend Pact4.Transaction)]
+    -> [(ChainId, MempoolBackend Pact4.UnparsedTransaction)]
     -> PeerDb
     -> [(ChainId, PactExecutionService)]
     -> CutDb tbl
@@ -388,9 +388,9 @@ constructionCombineH (ConstructionCombineReq _ unsignedTx sigs) =
         (rosettaError' RosettaUnparsableTx)
         $ textToEnrichedCommand unsignedTx
       payload <- getCmdPayload unsignedCmd
-      userSigs <- matchSigs sigs (_pSigners $! payload)
+      userSigs <- matchSigs sigs (Pact4._pSigners $! payload)
 
-      let signedCmd = unsignedCmd { _cmdSigs = userSigs }
+      let signedCmd = unsignedCmd { Pact4._cmdSigs = userSigs }
           signedTx = enrichedCommandToText (EnrichedCommand signedCmd meta signAccts)
       pure $ ConstructionCombineResp signedTx
 
@@ -411,7 +411,7 @@ constructionHashH (ConstructionHashReq _ signedTx) =
 -- Note (linda): This code simulates the logic of `sendHandler` closely.
 constructionSubmitH
     :: ChainwebVersion
-    -> [(ChainId, MempoolBackend Pact4.Transaction)]
+    -> [(ChainId, MempoolBackend Pact4.UnparsedTransaction)]
     -> ConstructionSubmitReq
     -> Handler TransactionIdResp
 constructionSubmitH v ms (ConstructionSubmitReq net tx) =
@@ -437,9 +437,11 @@ constructionSubmitH v ms (ConstructionSubmitReq net tx) =
           note (rosettaError' RosettaUnparsableTx)
           $ textToEnrichedCommand tx
 
+        -- TODO: pact5... what do we do here?
         case validateCommand v cid cmd of
           Right validated -> do
-            let txs = V.fromList [validated]
+            let txs = (fmap . fmap . fmap) Pact4._pcCode $
+                  V.fromList [validated]
             -- If any of the txs in the batch fail validation, we reject them all.
             liftIO (mempoolInsertCheck mempool txs) >>= checkResult
             liftIO (mempoolInsert mempool UncheckedInsert txs)

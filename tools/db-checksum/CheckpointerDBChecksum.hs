@@ -45,9 +45,9 @@ import Pact.Types.SQLite
 
 -- chainweb imports
 import Chainweb.BlockHeight
-import Chainweb.Pact.Backend.Types
+
 import Chainweb.Pact.Backend.Utils hiding (callDb)
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Utils hiding (check)
 
 main :: IO ()

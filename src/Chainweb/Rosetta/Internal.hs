@@ -59,7 +59,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Payload hiding (Transaction(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.Rosetta.Utils
@@ -69,6 +69,7 @@ import Chainweb.Version
 import Chainweb.WebPactExecutionService (PactExecutionService(..))
 
 import Chainweb.Storage.Table
+import qualified Pact.Core.Names as Pact5
 
 ---
 
@@ -581,7 +582,7 @@ getTxLogs cr bh = do
   histAcctRow <- hoistEither $ parseHist hist
   pure $ getBalanceDeltas histAcctRow lastBalSeen
   where
-    d = UserTables "coin_coin-table"
+    d = Pact5.DUserTables (Pact5.TableName "coin-table" (Pact5.ModuleName "coin" Nothing))
 
     parseHist
         :: Map TxId [Pact5.TxLog Pact5.RowData]
@@ -663,8 +664,8 @@ getHistoricalLookupBalance' cr bh k = do
       row <- txLogToAccountRow h ?? RosettaUnparsableTxLog
       pure $ Just row
   where
-    d = UserTables "coin_coin-table"
-    key = RowKey k -- TODO: How to sanitize this further
+    d = Pact5.DUserTables (Pact5.TableName "coin-table" (Pact5.ModuleName "coin" Nothing))
+    key = Pact5.RowKey k -- TODO: How to sanitize this further
 
 getHistoricalLookupBalance
     :: PactExecutionService

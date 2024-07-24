@@ -35,7 +35,7 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.Types
+
 import Chainweb.Payload
 import Chainweb.Test.Cut
 import Chainweb.Test.Cut.TestBlockDb
@@ -47,6 +47,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 import Chainweb.Payload.PayloadStore (lookupPayloadWithHeight)
+import Chainweb.Pact.Types (MemPoolAccess, mpaGetBlock)
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion peterson
@@ -119,8 +120,12 @@ setPactMempool (PactMempool fs) = do
                 writeIORef ref (take i mps ++ r)
                 cmds <- fmap V.fromList $ forM bs $ \b ->
                   buildCwCmd (sshow blockHeader) testVersion $ _mempoolCmdBuilder b blockHeader
-                validationResults <- mempoolPreBlockCheck bHeight bHash cmds
-                return $ fmap fst $ V.filter snd (V.zip cmds validationResults)
+                tos <- mempoolPreBlockCheck bHeight bHash ((fmap . fmap . fmap) _pcCode cmds)
+                return $ V.fromList
+                  [ to
+                  | Right to <- V.toList tos
+                  ]
+                -- return $ fmap fst $ V.filter snd (V.zip cmds validationResults)
               Nothing -> runMps (succ i) r
       runMps 0 mps
 

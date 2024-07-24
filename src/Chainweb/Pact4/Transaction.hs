@@ -6,14 +6,18 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE DeriveTraversable #-}
 
 module Chainweb.Pact4.Transaction
   ( Transaction
+  , UnparsedTransaction
   , HashableTrans(..)
   , PayloadWithText
   , PactParserVersion(..)
   , IsWebAuthnPrefixLegal(..)
   , payloadCodec
+  , rawCommandCodec
   , encodePayload
   , decodePayload
   , cmdGasLimit
@@ -54,32 +58,33 @@ import Chainweb.Utils.Serialization
 -- | A product type representing a `Payload PublicMeta ParsedCode` coupled with
 -- the Text that generated it, to make gossiping easier.
 --
-data PayloadWithText = PayloadWithText
+data PayloadWithText meta code = PayloadWithText
     { _payloadBytes :: !SB.ShortByteString
-    , _payloadObj :: !(Payload PublicMeta ParsedCode)
+    , _payloadObj :: !(Payload meta code)
     }
-    deriving (Show, Eq, Generic)
+    deriving stock (Functor, Foldable, Traversable, Show, Eq, Generic)
     deriving anyclass (NFData)
 
-payloadBytes :: PayloadWithText -> SB.ShortByteString
+payloadBytes :: PayloadWithText meta code-> SB.ShortByteString
 payloadBytes = _payloadBytes
 
-payloadObj :: PayloadWithText -> Payload PublicMeta ParsedCode
+payloadObj :: PayloadWithText meta code-> Payload meta code
 payloadObj = _payloadObj
 
-mkPayloadWithText :: Command (ByteString, Payload PublicMeta ParsedCode) -> Command PayloadWithText
+mkPayloadWithText :: Command (ByteString, Payload meta code) -> Command (PayloadWithText meta code)
 mkPayloadWithText = over cmdPayload $ \(bs, p) -> PayloadWithText
     { _payloadBytes = SB.toShort bs
     , _payloadObj = p
     }
 
-mkPayloadWithTextOld :: Payload PublicMeta ParsedCode -> PayloadWithText
+mkPayloadWithTextOld :: Payload PublicMeta ParsedCode -> PayloadWithText PublicMeta ParsedCode
 mkPayloadWithTextOld p = PayloadWithText
     { _payloadBytes = SB.toShort $ J.encodeStrict $ toLegacyJsonViaEncode $ fmap _pcCode p
     , _payloadObj = p
     }
 
-type Transaction = Command PayloadWithText
+type Transaction = Command (PayloadWithText PublicMeta ParsedCode)
+type UnparsedTransaction = Command (PayloadWithText PublicMeta Text)
 
 data PactParserVersion
     = PactParserGenesis
@@ -95,7 +100,7 @@ data IsWebAuthnPrefixLegal
 newtype HashableTrans a = HashableTrans { unHashable :: Command a }
     deriving (Eq, Functor, Ord)
 
-instance Hashable (HashableTrans PayloadWithText) where
+instance (Eq code, Eq meta) => Hashable (HashableTrans (PayloadWithText meta code)) where
     hashWithSalt s (HashableTrans t) = hashWithSalt s hashCode
       where
         (TypedHash hc) = _cmdHash t
@@ -103,25 +108,36 @@ instance Hashable (HashableTrans PayloadWithText) where
         !hashCode = either error id $ decHC (B.take 8 $ SB.fromShort hc)
     {-# INLINE hashWithSalt #-}
 
+rawCommandCodec :: Codec (Command (PayloadWithText PublicMeta Text))
+rawCommandCodec = Codec enc dec
+    where
+    enc cmd = J.encodeStrict $ J.text . decodeUtf8 . SB.fromShort . _payloadBytes <$> cmd
+    dec bs = case Aeson.decodeStrict' bs of
+        Just cmd -> return $
+            (\p -> PayloadWithText { _payloadBytes = SB.toShort bs, _payloadObj = p }) <$>
+            cmd
+        Nothing -> Left "decoding Command failed"
+
 -- | A codec for Pact4's (Command PayloadWithText) transactions.
 --
 payloadCodec
     :: PactParserVersion
-    -> Codec (Command PayloadWithText)
+    -> Codec Transaction
 payloadCodec ppv = Codec enc dec
-  where
+    where
     enc c = J.encodeStrict $ fmap (decodeUtf8 . encodePayload) c
     dec bs = case Aeson.decodeStrict' bs of
-               Just cmd -> traverse (decodePayload ppv . encodeUtf8) cmd
-               Nothing -> Left "decode PayloadWithText failed"
+        Just cmd -> traverse (decodePayload ppv . encodeUtf8) cmd
+        Nothing -> Left "decode PayloadWithText failed"
 
-encodePayload :: PayloadWithText -> ByteString
+encodePayload :: PayloadWithText meta code -> ByteString
 encodePayload = SB.fromShort . _payloadBytes
 
 decodePayload
-    :: PactParserVersion
+    :: Aeson.FromJSON meta
+    => PactParserVersion
     -> ByteString
-    -> Either String PayloadWithText
+    -> Either String (PayloadWithText meta ParsedCode)
 decodePayload ppv bs = case Aeson.decodeStrict' bs of
     Just payload -> do
         p <- traverse (parsePact ppv) payload

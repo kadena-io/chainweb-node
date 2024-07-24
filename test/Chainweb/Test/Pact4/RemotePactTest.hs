@@ -93,7 +93,7 @@ import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.Utils qualified as Backend
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.EthSpv
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Pact4.Validations (defaultMaxTTL)
 import Chainweb.Test.Pact4.Utils
 import Chainweb.Test.Pact4.Utils qualified as Utils

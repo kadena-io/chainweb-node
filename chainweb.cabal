@@ -330,10 +330,11 @@ library
         , Chainweb.Pact.Service.BlockValidation
         , Chainweb.Pact.Service.PactInProcApi
         , Chainweb.Pact.Service.PactQueue
-        , Chainweb.Pact.Service.Types
+        , Chainweb.Pact4.ModuleCache
         , Chainweb.Pact4.NoCoinbase
         , Chainweb.Pact4.Templates
         , Chainweb.Pact4.TransactionExec
+        , Chainweb.Pact4.Types
         , Chainweb.Pact4.Validations
         , Chainweb.Pact5.NoCoinbase
         , Chainweb.Pact5.Templates
@@ -437,6 +438,7 @@ library
         , rosetta >= 1.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
+        , scientific >=0.3.8.0
         , semigroupoids >= 5.3.7
         , servant >= 0.20.1
         , servant-client >= 0.20
@@ -883,6 +885,8 @@ benchmark bench
         , merkle-log >=0.2
         , mtl >= 2.3
         , pact
+        , pact-tng
+        , pact-tng:pact-request-api
         , random >= 1.2
         , streaming
         , text >= 2.0

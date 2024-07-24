@@ -80,7 +80,7 @@ import Chainweb.BlockHeight
 import Chainweb.Cut
 import Chainweb.Graph
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.Types
+
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV.CreateProof
@@ -96,6 +96,7 @@ import Chainweb.Version as Chainweb
 import Chainweb.WebPactExecutionService
 
 import Data.LogMessage
+import Chainweb.Pact.Types (MemPoolAccess, mpaGetBlock)
 
 -- | Note: These tests are intermittently non-deterministic due to the way
 -- random chain sampling works with our test harnesses.
@@ -329,9 +330,13 @@ cutToPayloadOutputs c pdb = do
 
 chainToMPA' :: MVar TransactionGenerator -> MemPoolAccess
 chainToMPA' f = mempty
-    { mpaGetBlock = \_g _pc hi ha he -> do
+    { mpaGetBlock = \_g pc hi ha he -> do
         tg <- readMVar f
-        tg (_blockChainId he) hi ha he
+        txs <- tg (_blockChainId he) hi ha he
+        tos <- pc hi ha ((fmap . fmap . fmap) _pcCode txs)
+        forM tos $ \case
+          Left err -> error (sshow err)
+          Right to -> return to
     }
 
 

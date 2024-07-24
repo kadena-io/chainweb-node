@@ -42,11 +42,18 @@ import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool (InsertError)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Payload
 import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 import Chainweb.Version
+import Data.ByteString.Short (ShortByteString)
+import qualified Pact.Core.Names as Pact5
+import qualified Pact.Core.Builtin as Pact5
+import qualified Pact.Core.Evaluate as Pact5
+import qualified Pact.Types.ChainMeta as Pact4
+import Data.Text (Text)
+import qualified Pact.Types.Command as Pact4
 
 
 newBlock :: Miner -> NewBlockFill -> ParentHeader -> PactQueue -> IO (Historical (ForSomePactVersion BlockInProgress))
@@ -94,9 +101,9 @@ local preflight sigVerify rd ct reqQ = do
 
 lookupPactTxs
     :: Maybe ConfirmationDepth
-    -> Vector PactHash
+    -> Vector ShortByteString
     -> PactQueue
-    -> IO (HashMap PactHash (T2 BlockHeight BlockHash))
+    -> IO (HashMap ShortByteString (T2 BlockHeight BlockHash))
 lookupPactTxs confDepth txs reqQ = do
     let !req = LookupPactTxsReq confDepth txs
     let !msg = LookupPactTxsMsg req
@@ -115,9 +122,9 @@ pactReadOnlyReplay l u reqQ = do
     submitRequestAndWait reqQ msg
 
 pactPreInsertCheck
-    :: Vector Pact4.Transaction
+    :: Vector (Pact4.Command (Pact4.PayloadWithText Pact4.PublicMeta Text))
     -> PactQueue
-    -> IO (Vector (Either InsertError ()))
+    -> IO (Vector (Maybe InsertError))
 pactPreInsertCheck txs reqQ = do
     let !req = PreInsertCheckReq txs
     let !msg = PreInsertCheckMsg req
@@ -125,7 +132,7 @@ pactPreInsertCheck txs reqQ = do
 
 pactBlockTxHistory
   :: BlockHeader
-  -> Domain RowKey RowData
+  -> Pact5.Domain Pact5.RowKey Pact5.RowData Pact5.CoreBuiltin Pact5.Info
   -> PactQueue
   -> IO (Historical BlockTxHistory)
 pactBlockTxHistory bh d reqQ = do
@@ -135,8 +142,8 @@ pactBlockTxHistory bh d reqQ = do
 
 pactHistoricalLookup
     :: BlockHeader
-    -> Domain RowKey RowData
-    -> RowKey
+    -> Pact5.Domain Pact5.RowKey Pact5.RowData Pact5.CoreBuiltin Pact5.Info
+    -> Pact5.RowKey
     -> PactQueue
     -> IO (Historical (Maybe (Pact5.TxLog Pact5.RowData)))
 pactHistoricalLookup bh d k reqQ = do

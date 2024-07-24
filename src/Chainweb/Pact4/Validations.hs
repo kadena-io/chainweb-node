@@ -52,7 +52,7 @@ import Chainweb.BlockHeader (ParentCreationTime(..), BlockHeader(..), ParentHead
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (fromPactChainId)
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
 import Chainweb.Pact4.Transaction
 import Chainweb.Version
@@ -67,6 +67,7 @@ import qualified Pact.Types.KeySet as P
 import qualified Pact.Parse as P
 import qualified Chainweb.Pact5.Transaction as Pact5
 import qualified Pact.Core.Command.Types as Pact5
+import Chainweb.Pact4.Types
 
 
 -- | Check whether a local Api request has valid metadata
@@ -93,7 +94,7 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
           [ eUnless "Unparseable transaction chain id" $ assertParseChainId pcid
           , eUnless "Chain id mismatch" $ assertChainId cid pcid
           -- TODO
-          , eUnless "Transaction Gas limit exceeds block gas limit" $ assertBlockGasLimit (undefined bgl) gl
+          , eUnless "Transaction Gas limit exceeds block gas limit" $ assertBlockGasLimit bgl gl
           , eUnless "Gas price decimal precision too high" $ assertGasPrice gp
           , eUnless "Network id mismatch" $ assertNetworkId v nid
           , eUnless "Signature list size too big" $ assertSigSize sigs
@@ -218,7 +219,7 @@ assertTxNotInFuture (ParentCreationTime (BlockCreationTime txValidationTime)) tx
 
 -- | Assert that the command hash matches its payload and
 -- its signatures are valid, without parsing the payload.
-assertCommand :: P.Command PayloadWithText -> [P.PPKScheme] -> IsWebAuthnPrefixLegal -> Bool
+assertCommand :: Transaction -> [P.PPKScheme] -> IsWebAuthnPrefixLegal -> Bool
 assertCommand (P.Command pwt sigs hsh) ppkSchemePassList webAuthnPrefixLegal =
   isRight assertHash &&
   assertValidateSigs ppkSchemePassList webAuthnPrefixLegal hsh signers sigs

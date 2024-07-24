@@ -68,7 +68,7 @@ import Database.SQLite3.Direct qualified as SQL
 
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Logger (Logger, addLabel)
-import Chainweb.Pact.Backend.Types (SQLiteEnv)
+import Chainweb.Pact.Types
 import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
 import Chainweb.Utils (int)
 import Chainweb.Version (ChainId, ChainwebVersion, chainIdToText)

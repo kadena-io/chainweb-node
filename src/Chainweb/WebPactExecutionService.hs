@@ -36,7 +36,7 @@ import Chainweb.Mempool.Mempool (InsertError)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Pact.Utils
 import Chainweb.Payload
 import qualified Chainweb.Pact4.Transaction as Pact4
@@ -47,6 +47,13 @@ import Pact.Types.Persistence (RowKey, Domain)
 import Pact.Types.RowData (RowData)
 import qualified Pact.Core.Persistence as Pact5
 import Chainweb.Version
+import Data.ByteString.Short (ShortByteString)
+import qualified Pact.Core.Names as Pact5
+import qualified Pact.Core.Builtin as Pact5
+import qualified Pact.Core.Evaluate as Pact5
+import qualified Pact.Types.Command as Pact4
+import qualified Pact.Types.ChainMeta as Pact4
+import Data.Text (Text)
 
 -- -------------------------------------------------------------------------- --
 -- PactExecutionService
@@ -63,8 +70,8 @@ newBlockToPayloadWithOutputs (NewBlockPayload _ pwo)
     = pwo
 
 newBlockParentHeader :: NewBlock -> ParentHeader
-newBlockParentHeader (NewBlockInProgress (ForPact4 bip)) = _blockInProgressParentHeader bip
-newBlockParentHeader (NewBlockInProgress (ForPact5 bip)) = _blockInProgressParentHeader bip
+newBlockParentHeader (NewBlockInProgress (ForSomePactVersion Pact4T bip)) = _blockInProgressParentHeader bip
+newBlockParentHeader (NewBlockInProgress (ForSomePactVersion Pact5T bip)) = _blockInProgressParentHeader bip
 newBlockParentHeader (NewBlockPayload ph _) = ph
 
 -- | Service API for interacting with a single or multi-chain ("Web") pact service.
@@ -76,7 +83,7 @@ data PactExecutionService = PactExecutionService
         CheckablePayload ->
         IO PayloadWithOutputs
         )
-      -- ^ Validate block payload data by running through pact service.
+    -- ^ Validate block payload data by running through pact service.
     , _pactNewBlock :: !(
         ChainId ->
         Miner ->
@@ -90,48 +97,48 @@ data PactExecutionService = PactExecutionService
         BlockInProgress pv ->
         IO (Historical (BlockInProgress pv))
         )
-      -- ^ Request a new block to be formed using mempool
+    -- ^ Request a new block to be formed using mempool
     , _pactLocal :: !(
         Maybe LocalPreflightSimulation ->
         Maybe LocalSignatureVerification ->
         Maybe RewindDepth ->
         Pact4.Transaction ->
         IO LocalResult)
-      -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
-      -- Corresponds to `local` HTTP endpoint.
+    -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
+    -- Corresponds to `local` HTTP endpoint.
     , _pactLookup :: !(
         ChainId
         -- for routing
         -> Maybe ConfirmationDepth
         -- confirmation depth
-        -> Vector PactHash
+        -> Vector ShortByteString
         -- txs to lookup
-        -> IO (HM.HashMap PactHash (T2 BlockHeight BlockHash))
+        -> IO (HM.HashMap ShortByteString (T2 BlockHeight BlockHash))
         )
     , _pactReadOnlyReplay :: !(
         BlockHeader ->
         Maybe BlockHeader ->
         IO ()
-      )
-      -- ^ Lookup pact hashes as of a block header to detect duplicates
+    )
+    -- ^ Lookup pact hashes as of a block header to detect duplicates
     , _pactPreInsertCheck :: !(
         ChainId
-        -> Vector Pact4.Transaction
-        -> IO (Vector (Either InsertError ())))
-      -- ^ Run speculative checks to find bad transactions (ie gas buy failures, etc)
+        -> Vector (Pact4.Command (Pact4.PayloadWithText Pact4.PublicMeta Text))
+        -> IO (Vector (Maybe InsertError)))
+    -- ^ Run speculative checks to find bad transactions (ie gas buy failures, etc)
     , _pactBlockTxHistory :: !(
         BlockHeader ->
-        Domain RowKey RowData ->
+        Pact5.Domain Pact5.RowKey Pact5.RowData Pact5.CoreBuiltin Pact5.Info ->
         IO (Historical BlockTxHistory)
         )
-      -- ^ Obtain all transaction history in block for specified table/domain.
+    -- ^ Obtain all transaction history in block for specified table/domain.
     , _pactHistoricalLookup :: !(
         BlockHeader ->
-        Domain RowKey RowData ->
-        RowKey ->
+        Pact5.Domain Pact5.RowKey Pact5.RowData Pact5.CoreBuiltin Pact5.Info ->
+        Pact5.RowKey ->
         IO (Historical (Maybe (Pact5.TxLog Pact5.RowData)))
         )
-      -- ^ Obtain latest entry at or before the given block for specified table/domain and row key.
+    -- ^ Obtain latest entry at or before the given block for specified table/domain and row key.
     , _pactSyncToBlock :: !(
         BlockHeader ->
         IO ()
@@ -234,7 +241,7 @@ emptyPactExecutionService = PactExecutionService
     , _pactContinueBlock = \_ _ -> throwM (userError "emptyPactExecutionService: attempted `continueBlock` call")
     , _pactLocal = \_ _ _ _ -> throwM (userError "emptyPactExecutionService: attempted `local` call")
     , _pactLookup = \_ _ _ -> return $! HM.empty
-    , _pactPreInsertCheck = \_ txs -> return $ V.map (const (Right ())) txs
+    , _pactPreInsertCheck = \_ txs -> return $ Nothing <$ txs
     , _pactBlockTxHistory = \_ _ -> error "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactBlockTxHistory unsupported"
     , _pactHistoricalLookup = \_ _ _ -> error "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactHistoryLookup unsupported"
     , _pactSyncToBlock = \_ -> return ()

@@ -161,8 +161,7 @@ import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import qualified Chainweb.OpenAPIValidation as OpenAPIValidation
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
-import Chainweb.Pact.Service.Types (PactServiceConfig(..))
-import Chainweb.Pact.Backend.Types (IntraBlockPersistence(..))
+import Chainweb.Pact.Types (PactServiceConfig(..), IntraBlockPersistence(..))
 import Chainweb.Pact4.Validations
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
@@ -271,7 +270,7 @@ validatingMempoolConfig
     -> Mempool.GasLimit
     -> Mempool.GasPrice
     -> MVar PactExecutionService
-    -> Mempool.InMemConfig Pact4.Transaction
+    -> Mempool.InMemConfig Pact4.UnparsedTransaction
 validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
     { Mempool._inmemTxCfg = txcfg
     , Mempool._inmemTxBlockSizeLimit = gl
@@ -282,7 +281,7 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
     , Mempool._inmemCurrentTxsSize = currentTxsSize
     }
   where
-    txcfg = Mempool.pact4TransactionConfig (maxBound :: Pact4.PactParserVersion)
+    txcfg = Mempool.pact4TransactionConfig
         -- The mempool doesn't provide a chain context to the codec which means
         -- that the latest version of the parser is used.
 
@@ -295,7 +294,7 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
 
     -- | Validation: Is this TX associated with the correct `ChainId`?
     --
-    preInsertSingle :: Pact4.Transaction -> Either Mempool.InsertError Pact4.Transaction
+    preInsertSingle :: Pact4.UnparsedTransaction -> Either Mempool.InsertError Pact4.UnparsedTransaction
     preInsertSingle tx = do
         let !pay = Pact4.payloadObj . P._cmdPayload $ tx
             pcid = P._pmChainId $ P._pMeta pay
@@ -317,17 +316,17 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
     -- is gossiped to us from a peer's mempool.
     --
     preInsertBatch
-        :: V.Vector (T2 Mempool.TransactionHash Pact4.Transaction)
+        :: V.Vector (T2 Mempool.TransactionHash Pact4.UnparsedTransaction)
         -> IO (V.Vector (Either (T2 Mempool.TransactionHash Mempool.InsertError)
-                                (T2 Mempool.TransactionHash Pact4.Transaction)))
+                                (T2 Mempool.TransactionHash Pact4.UnparsedTransaction)))
     preInsertBatch txs = do
         pex <- readMVar mv
         rs <- _pactPreInsertCheck pex cid (V.map ssnd txs)
         pure $ alignWithV f rs txs
       where
         f (These r (T2 h t)) = case r of
-                                 Left e -> Left (T2 h e)
-                                 Right _ -> Right (T2 h t)
+                                 Just e -> Left (T2 h e)
+                                 Nothing -> Right (T2 h t)
         f (That (T2 h _)) = Left (T2 h $ Mempool.InsertErrorOther "preInsertBatch: align mismatch 0")
         f (This _) = Left (T2 (Mempool.TransactionHash "") (Mempool.InsertErrorOther "preInsertBatch: align mismatch 1"))
 
@@ -772,7 +771,7 @@ runChainweb cw nowServing = do
     chainDbsToServe :: [(ChainId, BlockHeaderDb)]
     chainDbsToServe = proj _chainResBlockHeaderDb
 
-    mempoolsToServe :: [(ChainId, Mempool.MempoolBackend Pact4.Transaction)]
+    mempoolsToServe :: [(ChainId, Mempool.MempoolBackend Pact4.UnparsedTransaction)]
     mempoolsToServe = proj _chainResMempool
 
     peerDb = _peerResDb (_chainwebPeer cw)

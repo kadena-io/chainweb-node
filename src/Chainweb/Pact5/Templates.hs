@@ -35,7 +35,7 @@ import qualified Pact.JSON.Legacy.Value as J
 
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 
 import Pact.Core.Evaluate
 import Pact.Core.Literal
@@ -53,6 +53,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import Pact.Core.StableEncoding (StableEncoding(_stableEncoding))
 import Control.Exception.Safe (throw, SomeException, impureThrow)
 import qualified Pact.Types.KeySet as Pact4
+import Chainweb.Pact5.Types
 
 fundTxTemplate :: Text -> Text -> Expr ()
 fundTxTemplate sender mid =
@@ -95,7 +96,7 @@ mkFundTxTerm
   :: MinerId   -- ^ Id of the miner to fund
   -> MinerKeys
   -> Text      -- ^ Address of the sender from the command
-  -> Pact5GasSupply
+  -> GasSupply
   -> (Expr (), PactValue)
 mkFundTxTerm (MinerId mid) (MinerKeys ks) sender total =
   let
@@ -115,7 +116,7 @@ convertKeySet =
 
 mkBuyGasTerm
   :: Text      -- ^ Address of the sender from the command
-  -> Pact5GasSupply
+  -> GasSupply
   -> (Expr (), PactValue)
 mkBuyGasTerm sender total = (buyGasTemplate sender, buyGasData)
   where
@@ -127,8 +128,8 @@ mkRedeemGasTerm
   :: MinerId   -- ^ Id of the miner to fund
   -> MinerKeys -- ^ Miner keyset
   -> Text      -- ^ Address of the sender from the command
-  -> Pact5GasSupply -- ^ The gas limit total * price
-  -> Pact5GasSupply -- ^ The gas used * price
+  -> GasSupply -- ^ The gas limit total * price
+  -> GasSupply -- ^ The gas used * price
   -> (Expr (), PactValue)
 mkRedeemGasTerm (MinerId mid) (MinerKeys ks) sender total fee =
   (redeemGasTemplate mid sender, redeemGasData)

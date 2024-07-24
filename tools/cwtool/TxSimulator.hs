@@ -33,13 +33,13 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.RelationalCheckpointer
-import Chainweb.Pact.Backend.Types
+
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.PactService.Checkpointer
 import Chainweb.Pact.PactService.Pact4.ExecBlock
 import Chainweb.Pact.RestAPI.Server
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Pact4.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Payload
@@ -130,7 +130,6 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                       , _psCheckpointer = cp
                       , _psPdb = payloadDb
                       , _psBlockHeaderDb = bdb
-                      , _psGasModel = getGasModel
                       , _psMinerRewards = readRewards
                       , _psPreInsertCheckTimeout = defaultPreInsertCheckTimeout
                       , _psReorgLimit = RewindLimit 0
@@ -194,7 +193,6 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                 , _psCheckpointer = cp
                 , _psPdb = payloadDb
                 , _psBlockHeaderDb = bdb
-                , _psGasModel = getGasModel
                 , _psMinerRewards = readRewards
                 , _psPreInsertCheckTimeout = defaultPreInsertCheckTimeout
                 , _psReorgLimit = RewindLimit 0
