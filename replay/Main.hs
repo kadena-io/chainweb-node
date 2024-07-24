@@ -24,7 +24,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Time.Format.ISO8601 (iso8601ParseM)
 import Options.Applicative qualified as O
-import P2P.Node.Configuration (defaultP2pConfiguration, p2pConfigBootstrapReachability, p2pConfigIgnoreBootstrapNodes)
+import P2P.Node.Configuration (defaultP2pConfiguration, p2pConfigBootstrapReachability, p2pConfigIgnoreBootstrapNodes, p2pConfigPrivate)
 import System.IO qualified as IO
 import System.LogLevel (LogLevel(..))
 
@@ -53,9 +53,18 @@ mkReplayConfiguration cfg = defaultChainwebNodeConfiguration
     cwConfig = defaultChainwebConfiguration mainnet
       & configReadOnlyReplay .~ not cfg.noReadOnly
       & configOnlySyncPact .~ cfg.noReadOnly
-      & configCuts .~ (defaultCutConfig & cutInitialBlockHeightLimit .~ cfg.initialBlockHeightLimit & cutFastForwardBlockHeightLimit .~ cfg.fastForwardBlockHeightLimit)
-      & configP2p .~ (defaultP2pConfiguration & p2pConfigBootstrapReachability .~ 0 & p2pConfigIgnoreBootstrapNodes .~ True)
+      & configCuts .~ cutConfig
+      & configP2p .~ p2pConfig
       & configFullHistoricPactState .~ False
+
+    cutConfig = defaultCutConfig
+      & cutInitialBlockHeightLimit .~ cfg.initialBlockHeightLimit
+      & cutFastForwardBlockHeightLimit .~ cfg.fastForwardBlockHeightLimit
+
+    p2pConfig = defaultP2pConfiguration
+      & p2pConfigBootstrapReachability .~ 0
+      & p2pConfigIgnoreBootstrapNodes .~ True
+      & p2pConfigPrivate .~ True
 
 data Config = Config
   { chainwebVersion :: ChainwebVersion
