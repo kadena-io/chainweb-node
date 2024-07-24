@@ -383,6 +383,8 @@ instantCpmTestVersion g = buildTestVersion $ \v -> v
         }
     & versionPact4Upgrades .~ AllChains mempty
     & versionPact5Upgrades .~ AllChains mempty
+    & versionVerifierPluginNames .~ AllChains
+        (End $ Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"])
 
 pact5EarlyTestVersion :: ChainGraph -> ChainwebVersion
 pact5EarlyTestVersion g = buildTestVersion $ \v -> v
