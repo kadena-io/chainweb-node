@@ -84,6 +84,8 @@ import Chainweb.Test.Pact5.CmdBuilder
 import Chainweb.Test.Pact5.Utils
 import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb)
 
+import Pact.Core.Verifiers
+import Pact.Core.StableEncoding (encodeStable)
 import Pact.Core.Builtin
 import Pact.Core.Capabilities
 import Pact.Core.ChainData (ChainId (ChainId))
@@ -269,12 +271,12 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                         () <- commandResult & satAll
                             -- Local has no buy gas, therefore
                             -- no gas buy event
-                            [ _crEvents ! equals []
-                            , _crResult ! equals ? PactResultOk (PInteger 15)
+                            [ pt _crEvents . equals $ []
+                            , pt _crResult . equals $ PactResultOk (PInteger 15)
                             -- reflects payload gas usage
-                            , _crGas ! equals ? Gas 1
-                            , _crContinuation ! equals Nothing
-                            , _crLogs ! equals ? Just []
+                            , pt _crGas . equals $ Gas 1
+                            , pt _crContinuation . equals $ Nothing
+                            , pt _crLogs . equals $ Just []
                             ]
 
                         endSender00Bal <- readBal pactDb "sender00"
@@ -316,31 +318,31 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                         commandResult <- applyCmd v dummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
                         () <- commandResult & satAll
                             -- gas buy event
-                            [ _crEvents ! soleElement ? satAll
-                                [ _peName ! equals "TRANSFER"
-                                , _peArgs ! equals [PString "sender00", PString "NoMiner", PDecimal 318.0]
-                                , _peModule ! equals ? ModuleName "coin" Nothing
+                            [ pt _crEvents . soleElement $ satAll
+                                [ pt _peName . equals $ "TRANSFER"
+                                , pt _peArgs . equals $ [PString "sender00", PString "NoMiner", PDecimal 318.0]
+                                , pt _peModule . equals $ ModuleName "coin" Nothing
                                 ]
-                            , _crResult ! equals ? PactResultOk (PInteger 15)
+                            , pt _crResult . equals $ PactResultOk (PInteger 15)
                             -- reflects buyGas gas usage, as well as that of the payload
-                            , _crGas ! equals ? Gas expectedGasConsumed
-                            , _crContinuation ! equals Nothing
-                            , _crLogs ! soleElementOf _Just ?
+                            , pt _crGas . equals $ Gas expectedGasConsumed
+                            , pt _crContinuation . equals $ Nothing
+                            , pt _crLogs . soleElementOf _Just $
                                 PT.list
                                     [ satAll
-                                        [ _txDomain ! equals "USER_coin_coin-table"
-                                        , _txKey ! equals "sender00"
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "sender00"
                                         -- TODO: test the values here?
                                         -- here, we're only testing that the write pattern matches
                                         -- gas buy and redeem, not the contents of the writes.
                                         ]
                                     , satAll
-                                        [ _txDomain ! equals "USER_coin_coin-table"
-                                        , _txKey ! equals "NoMiner"
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "NoMiner"
                                         ]
                                     , satAll
-                                        [ _txDomain ! equals "USER_coin_coin-table"
-                                        , _txKey ! equals "sender00"
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "sender00"
                                         ]
                                     ]
                             ]
@@ -351,6 +353,150 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                         assertEqual "miner balance after redeeming gas should have increased"
                             (Just $ fromMaybe 0 startMinerBal + (fromIntegral expectedGasConsumed) * 2)
                             endMinerBal
+
+            return ()
+
+    , testCase "applyCmd verifier" $ runResourceT $ do
+        sql <- withTempSQLiteResource
+        liftIO $ do
+            cp <- initCheckpointer v cid sql
+            tdb <- mkTestBlockDb v =<< testRocksDb "testApplyPayload" baseRdb
+            bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
+            T2 () _finalPactState <- withPactService v cid dummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+                initialPayloadState v cid
+                (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader gh) $ do
+                    db <- view psBlockDbEnv
+                    liftIO $ do
+                        pactDb <- assertDynamicPact5Db (_cpPactDbEnv db)
+
+                        -- Define module with capability
+                        do
+                          cmd <- buildCwCmd "nonce" v defaultCmd
+                            { _cbRPC = mkExec' $ T.unlines
+                                [ "(namespace 'free)"
+                                , "(module m G"
+                                , "  (defcap G () (enforce-verifier 'allow))"
+                                , "  (defun x () (with-capability (G) 1))"
+                                , ")"
+                                ]
+                            , _cbSigners =
+                                [ mkEd25519Signer' sender00
+                                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
+                                ]
+                            , _cbSender = "sender00"
+                            , _cbChainId = cid
+                            , _cbGasPrice = GasPrice 2
+                            , _cbGasLimit = GasLimit (Gas 70_000)
+                            }
+                          let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
+                          commandResult <- applyCmd v dummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                          commandResult & satAll @(IO ()) @_
+                            -- gas buy event
+                            [ pt _crEvents $ PT.list
+                              [ satAll
+                                [ pt _peName . equals $ "TRANSFER"
+                                , pt _peArgs . equals $ [PString "sender00", PString "NoMiner", PDecimal 120316]
+                                , pt _peModule . equals $ ModuleName "coin" Nothing
+                                ]
+                              ]
+                            , pt _crResult . equals $ PactResultOk (PString "Loaded module 02ebLE2w4YnM0JLBWjqpAmUtqdpMsdJgb-4DEm7ZwIs")
+                            -- reflects buyGas gas usage, as well as that of the payload
+                            , pt _crGas . equals $ Gas 60158
+                            , pt _crContinuation . equals $ Nothing
+                            , pt _crLogs . soleElementOf _Just $
+                                PT.list
+                                    [ satAll
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "sender00"
+                                        ]
+                                    , satAll
+                                        [ pt _txDomain . equals $ "SYS:Modules"
+                                        , pt _txKey . equals $ "free.m"
+                                        ]
+                                    , satAll
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "NoMiner"
+                                        ]
+                                    , satAll
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "sender00"
+                                        ]
+
+                                    ]
+                            ]
+
+                        -- Invoke module when verifier capability isn't present. Should fail.
+                        {-do
+                          cmd <- buildCwCmd "nonce" v defaultCmd
+                            { _cbRPC = mkExec' "(free.m.x)"
+                            , _cbSender = "sender00"
+                            , _cbSigners =
+                                [ mkEd25519Signer' sender00
+                                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
+                                ]
+                            , _cbChainId = cid
+                            , _cbGasPrice = GasPrice 2
+                            , _cbGasLimit = GasLimit (Gas 20_000)
+                            }
+                          let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
+                          commandResult <- applyCmd v dummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                          print commandResult
+                        -}
+
+                        -- Invoke module when verifier is present. Should succeed.
+                        do
+                          let cap :: CapToken QualifiedName PactValue
+                              cap = CapToken (QualifiedName "G" (ModuleName "m" (Just (NamespaceName "free")))) []
+                          cmd <- buildCwCmd "nonce" v defaultCmd
+                            { _cbRPC = mkExec' "(free.m.x)"
+                            , _cbVerifiers =
+                                [ Verifier
+                                    { _verifierName = VerifierName "allow"
+                                    , _verifierProof = ParsedVerifierProof $ PString $ T.decodeUtf8 $ encodeStable cap
+                                    , _verifierCaps = [cap]
+                                    }
+                                ]
+                            , _cbSender = "sender00"
+                            , _cbSigners =
+                                [ mkEd25519Signer' sender00
+                                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
+                                ]
+                            , _cbChainId = cid
+                            , _cbGasPrice = GasPrice 2
+                            , _cbGasLimit = GasLimit (Gas 300)
+                            }
+                          let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
+                          commandResult <- applyCmd v dummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                          commandResult & satAll @(IO ()) @_
+                            -- gas buy event
+                            [ pt _crEvents $ PT.list
+                              [ satAll
+                                [ pt _peName . equals $ "TRANSFER"
+                                , pt _peArgs . equals $ [PString "sender00", PString "NoMiner", PDecimal 336]
+                                , pt _peModule . equals $ ModuleName "coin" Nothing
+                                ]
+                              ]
+                            , pt _crResult . equals $ PactResultOk (PInteger 1)
+                            -- reflects buyGas gas usage, as well as that of the payload
+                            , pt _crGas . equals $ Gas 168
+                            , pt _crContinuation . equals $ Nothing
+                            , pt _crLogs . soleElementOf _Just $
+                                PT.list
+                                    [ satAll
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "sender00"
+                                        ]
+                                    , satAll
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "NoMiner"
+                                        ]
+                                    , satAll
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "sender00"
+                                        ]
+
+                                    ]
+                            ]
 
             return ()
 
@@ -387,47 +533,48 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                         -- Note: if/when core changes gas prices, tweak here.
                         let expectedGasConsumed = 509
                         commandResult <- applyCmd v dummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
-                        let
                         () <- commandResult & satAll
                             -- gas buy event
-                            [ _crEvents ! PT.list
+                            [ pt _crEvents $ PT.list
                               [ satAll
-                                [ _peName ! equals "TRANSFER"
-                                , _peArgs ! equals [PString "sender00", PString "sender01", PDecimal 420]
-                                , _peModule ! equals coinModule]
+                                [ pt _peName . equals $ "TRANSFER"
+                                , pt _peArgs . equals $ [PString "sender00", PString "sender01", PDecimal 420]
+                                , pt _peModule . equals $ coinModule
+                                ]
                               , satAll
-                                [ _peName ! equals "TRANSFER"
-                                , _peArgs ! equals [PString "sender00", PString "NoMiner", PDecimal 1018]
-                                , _peModule ! equals coinModule]
+                                [ pt _peName . equals $ "TRANSFER"
+                                , pt _peArgs . equals $ [PString "sender00", PString "NoMiner", PDecimal 1018]
+                                , pt _peModule . equals $ coinModule
+                                ]
                               ]
-                            , _crResult ! equals ? PactResultOk (PString "Write succeeded")
+                            , pt _crResult . equals $ PactResultOk (PString "Write succeeded")
                             -- reflects buyGas gas usage, as well as that of the payload
-                            , _crGas ! equals ? Gas expectedGasConsumed
-                            , _crContinuation ! equals Nothing
-                            , _crLogs ! soleElementOf _Just ?
+                            , pt _crGas . equals $ Gas expectedGasConsumed
+                            , pt _crContinuation . equals $ Nothing
+                            , pt _crLogs . soleElementOf _Just $
                                 PT.list
                                     [ satAll
-                                        [ _txDomain ! equals "USER_coin_coin-table"
-                                        , _txKey ! equals "sender00"
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "sender00"
                                         -- TODO: test the values here?
                                         -- here, we're only testing that the write pattern matches
                                         -- gas buy and redeem, not the contents of the writes.
                                         ]
                                     , satAll
-                                        [ _txDomain ! equals "USER_coin_coin-table"
-                                        , _txKey ! equals "sender01"
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "sender01"
                                         ]
                                     , satAll
-                                        [ _txDomain ! equals "USER_coin_coin-table"
-                                        , _txKey ! equals "sender00"
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "sender00"
                                         ]
                                     , satAll
-                                        [ _txDomain ! equals "USER_coin_coin-table"
-                                        , _txKey ! equals "NoMiner"
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "NoMiner"
                                         ]
                                     , satAll
-                                        [ _txDomain ! equals "USER_coin_coin-table"
-                                        , _txKey ! equals "sender00"
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "sender00"
                                         ]
                                     ]
                             ]
@@ -458,14 +605,18 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                         let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
                         r <- applyCoinbase v dummyLogger pactDb 5 txCtx
                         () <- r & satAll
-                            [ _crResult ! equals ? PactResultOk (PString "Write succeeded")
-                            , _crGas ! equals ? Gas 0
-                            , _crLogs ! soleElementOf _Just ? PT.list
-                                [satAll [_txDomain ! equals "USER_coin_coin-table", _txKey ! equals "NoMiner"]]
-                            , _crEvents ! soleElement ? satAll
-                                [ _peName ! equals "TRANSFER"
-                                , _peArgs ! equals [PString "", PString "NoMiner", PDecimal 5.0]
-                                , _peModule ! equals ? ModuleName "coin" Nothing
+                            [ pt _crResult . equals $ PactResultOk (PString "Write succeeded")
+                            , pt _crGas . equals $ Gas 0
+                            , pt _crLogs . soleElementOf _Just $ PT.list
+                                [ satAll
+                                  [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                  , pt _txKey . equals $ "NoMiner"
+                                  ]
+                                ]
+                            , pt _crEvents . soleElement $ satAll
+                                [ pt _peName . equals $ "TRANSFER"
+                                , pt _peArgs . equals $ [PString "", PString "NoMiner", PDecimal 5.0]
+                                , pt _peModule . equals $ ModuleName "coin" Nothing
                                 ]
                             ]
                         endMinerBal <- readBal pactDb "NoMiner"
