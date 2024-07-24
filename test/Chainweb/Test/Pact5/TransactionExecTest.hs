@@ -1,18 +1,54 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE QuantifiedConstraints #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Chainweb.Test.Pact5.TransactionExecTest (tests) where
 
+import Chainweb.BlockCreationTime
+import Chainweb.BlockHeader
+import Chainweb.Graph (singletonChainGraph)
+import Chainweb.Logger
+import Chainweb.MerkleLogHash
+import Chainweb.MerkleUniverse (ChainwebMerkleHashAlgorithm)
+import Chainweb.Miner.Pact (noMiner)
+import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
+import Chainweb.Pact.Backend.SQLite.DirectV2 (close_v2)
+import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.PactService (initialPayloadState, withPactService)
+import Chainweb.Pact.PactService.Checkpointer (readFrom, restoreAndSave)
+import Chainweb.Pact.PactService.Pact4.ExecBlock
+import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types (defaultModuleCacheLimit, psBlockDbEnv)
+import Chainweb.Pact.Utils (emptyPayload)
+import Chainweb.Pact4.TransactionExec (applyGenesisCmd)
+import Chainweb.Pact5.Transaction
+import Chainweb.Pact5.TransactionExec
+import Chainweb.Pact5.Types (TxContext (..))
+import Chainweb.Payload (PayloadWithOutputs_ (_payloadWithOutputsPayloadHash), Transaction (Transaction))
+import Chainweb.Storage.Table.RocksDB
+import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), mkTestBlockDb)
+import Chainweb.Test.Pact4.Utils (stdoutDummyLogger, stdoutDummyLogger, withBlockHeaderDb)
+import Chainweb.Test.Pact4.Utils (testPactServiceConfig)
+import Chainweb.Test.Pact5.CmdBuilder
+import Chainweb.Test.Pact5.Utils
+import Chainweb.Test.TestVersions
+import Chainweb.Test.Utils
+import Chainweb.Time
+import Chainweb.Utils (T2(..))
+import Chainweb.Utils (fromJuste)
+import Chainweb.Utils.Serialization (runGetS, runPutS)
+import Chainweb.Version
+import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb)
 import Control.Concurrent
 import Control.Exception (evaluate)
 import Control.Exception.Safe
@@ -23,6 +59,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Control.Monad.Trans.Resource
 import Data.ByteString (ByteString)
+import Data.Decimal
 import Data.Default
 import Data.Foldable
 import Data.Functor.Const
@@ -30,91 +67,52 @@ import Data.Functor.Identity
 import Data.Functor.Product
 import Data.Graph (Tree)
 import Data.IORef
-import qualified Data.Map as Map
+import Data.Maybe (fromMaybe)
 import Data.MerkleLog (MerkleNodeType (..), merkleLeaf, merkleRoot, merkleTree)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import qualified Data.Tree as Tree
+import Data.Text (Text)
+import GHC.Stack
 import Hedgehog hiding (Update)
 import Hedgehog.Gen hiding (print)
-import qualified Hedgehog.Range as Range
 import Numeric.AffineSpace
-import qualified Streaming.Prelude as Stream
-import System.LogLevel
-import Test.Tasty
-import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
-import Test.Tasty.Hedgehog
-import Text.Show.Pretty
-
-import Chainweb.BlockCreationTime
-import Chainweb.BlockHeader
-import Chainweb.Graph (singletonChainGraph)
-import Chainweb.Logger
-import Chainweb.MerkleLogHash
-import Chainweb.MerkleUniverse (ChainwebMerkleHashAlgorithm)
-import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
-import Chainweb.Pact.Backend.SQLite.DirectV2 (close_v2)
-import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.Types
-import Chainweb.Pact.Types (defaultModuleCacheLimit, psBlockDbEnv)
-import Chainweb.Pact.Utils (emptyPayload)
-import qualified Chainweb.Pact4.TransactionExec
-import qualified Chainweb.Pact5.TransactionExec
-import qualified Chainweb.Pact5.TransactionExec as Pact5
-import Chainweb.Pact5.Types (TxContext (..))
-import Chainweb.Payload (PayloadWithOutputs_ (_payloadWithOutputsPayloadHash), Transaction (Transaction))
-import Chainweb.Test.Pact4.Utils (stdoutDummyLogger, stdoutDummyLogger, withBlockHeaderDb)
-import Chainweb.Test.TestVersions
-import Chainweb.Test.Utils
-import Chainweb.Time
-import Chainweb.Utils (fromJuste)
-import Chainweb.Utils.Serialization (runGetS, runPutS)
-import Chainweb.Version
-
-import Chainweb.Miner.Pact (noMiner)
-import Chainweb.Pact.PactService (initialPayloadState, withPactService)
-import Chainweb.Pact.PactService.Checkpointer (readFrom, restoreAndSave)
-import Chainweb.Pact.PactService.Pact4.ExecBlock
-import Chainweb.Pact4.TransactionExec (applyGenesisCmd)
-import Chainweb.Pact5.Transaction
-import Chainweb.Pact5.TransactionExec
-import Chainweb.Storage.Table.RocksDB
-import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), mkTestBlockDb)
-import Chainweb.Test.Pact4.Utils (testPactServiceConfig)
-import Chainweb.Test.Pact5.CmdBuilder
-import Chainweb.Test.Pact5.Utils
-import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb)
-
-import Pact.Core.Verifiers
-import Pact.Core.StableEncoding (encodeStable)
 import Pact.Core.Builtin
 import Pact.Core.Capabilities
-import Pact.Core.ChainData (ChainId (ChainId))
 import Pact.Core.ChainData
+import Pact.Core.ChainData (ChainId (ChainId))
 import Pact.Core.Command.RPC
 import Pact.Core.Command.Types
 import Pact.Core.Compile(CompileValue(..))
 import Pact.Core.Errors
 import Pact.Core.Evaluate
-import Pact.Core.Gas.Types
 import Pact.Core.Gas.TableGasModel
+import Pact.Core.Gas.Types
 import Pact.Core.Gen
 import Pact.Core.Literal
 import Pact.Core.Names
+import Pact.Core.Names (ModuleName(ModuleName))
 import Pact.Core.PactDbRegression
-import qualified Pact.Core.PactDbRegression as Pact.Core
 import Pact.Core.PactValue
 import Pact.Core.Persistence
-import Pact.Core.SPV (noSPVSupport)
 import Pact.Core.Persistence (PactDb(_pdbRead))
-import Pact.Core.Names (ModuleName(ModuleName))
+import Pact.Core.SPV (noSPVSupport)
 import Pact.Core.Serialise
-import Chainweb.Utils (T2(..))
-import Data.Maybe (fromMaybe)
-import GHC.Stack
-import Data.Decimal
+import Pact.Core.StableEncoding (encodeStable)
+import Pact.Core.Verifiers
 import PredicateTransformers as PT
-import Data.Text (Text)
+import System.LogLevel
+import Test.Tasty
+import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
+import Test.Tasty.Hedgehog
+import Text.Show.Pretty
+import Chainweb.Pact4.TransactionExec qualified
+import Chainweb.Pact5.TransactionExec qualified
+import Chainweb.Pact5.TransactionExec qualified as Pact5
+import Data.Map qualified as Map
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
+import Data.Tree qualified as Tree
+import Hedgehog.Range qualified as Range
+import Pact.Core.PactDbRegression qualified as Pact.Core
+import Streaming.Prelude qualified as Stream
 
 coinModule :: ModuleName
 coinModule = ModuleName "coin" Nothing
@@ -163,7 +161,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                         assertEqual "balance after buying gas" (Just $ 100_000_000 - 200 * 2) endSender00Bal
             return ()
 
-    , testCase "buyGas failure" $ runResourceT $ do
+    , testCase "buyGas failures" $ runResourceT $ do
         sql <- withTempSQLiteResource
         liftIO $ do
           cp <- initCheckpointer v cid sql
@@ -178,24 +176,48 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                 startSender00Bal <- readBal pactDb "sender00"
                 assertEqual "starting balance" (Just 100_000_000) startSender00Bal
 
-                -- buying gas with insufficient balance should throw an exception
-                cmd <- buildCwCmd "nonce" v defaultCmd
-                  { _cbSigners =
-                      [ mkEd25519Signer' sender00
-                          [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
-                      ]
-                  , _cbSender = "sender00"
-                  , _cbChainId = cid
-                  , _cbGasPrice = GasPrice 70_000
-                  , _cbGasLimit = GasLimit (Gas 100_000)
-                  }
-                let txCtx' = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
-                e <- buyGas stdoutDummyLogger pactDb txCtx' (_payloadObj <$> cmd)
-                case e of
-                  Left (PEUserRecoverableError (UserEnforceError "Insufficient funds") _ _) -> do
-                    pure ()
-                  r -> do
-                    assertFailure $ "Expected Insufficient funds error, but got: " ++ show r
+                -- buying gas with insufficient balance should return an error
+                do
+                  cmd <- buildCwCmd "nonce" v defaultCmd
+                    { _cbSigners =
+                        [ mkEd25519Signer' sender00
+                            [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
+                        ]
+                    , _cbSender = "sender00"
+                    , _cbChainId = cid
+                    , _cbGasPrice = GasPrice 70_000
+                    , _cbGasLimit = GasLimit (Gas 100_000)
+                    }
+                  let txCtx' = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
+                  e <- buyGas stdoutDummyLogger pactDb txCtx' (_payloadObj <$> cmd)
+                  case e of
+                    Left (BuyGasPactError (PEUserRecoverableError (UserEnforceError "Insufficient funds") _ _)) -> do
+                      pure ()
+                    r -> do
+                      assertFailure $ "Expected Insufficient funds error, but got: " ++ show r
+
+                -- multiple gas payer caps
+                do
+                  cmd <- buildCwCmd "nonce" v defaultCmd
+                    { _cbSigners =
+                        [ mkEd25519Signer' sender00 [CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []]
+                        , mkEd25519Signer' sender00
+                            [ CapToken (QualifiedName "GAS_PAYER" (ModuleName "coin" Nothing)) []
+                            , CapToken (QualifiedName "GAS_PAYER" (ModuleName "coin" Nothing)) []
+                            ]
+                        ]
+                    , _cbSender = "sender00"
+                    , _cbChainId = cid
+                    , _cbGasPrice = GasPrice 2
+                    , _cbGasLimit = GasLimit (Gas 200)
+                    }
+                  let txCtx' = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
+                  e <- buyGas stdoutDummyLogger pactDb txCtx' (_payloadObj <$> cmd)
+                  case e of
+                    Left BuyGasMultipleGasPayerCaps -> do
+                      pure ()
+                    r -> do
+                      assertFailure $ "Expected MultipleGasPayerCaps error, but got: " ++ show r
 
           pure ()
 

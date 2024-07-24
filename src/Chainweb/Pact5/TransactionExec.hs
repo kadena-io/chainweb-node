@@ -29,6 +29,7 @@ module Chainweb.Pact5.TransactionExec
   TransactionM(..)
 , TransactionEnv(..)
 , TxFailedError(..)
+, BuyGasError(..)
 
 , applyCoinbase
 , applyCmd
@@ -384,10 +385,14 @@ applyCmd logger maybeGasLogger pact5Db txCtx spv cmd initialGas = do
   when (GasLimit initialGas > gasLimit) $
     throwM $ BuyGasFailure $ Pact5GasPurchaseFailure requestKey "tx too big for gas limit"
 
-  fmap join (catchesPact5Error logger (buyGas logger pact5Db txCtx cmd)) >>= \case
-    Left e ->
+  catchesPact5Error logger (buyGas logger pact5Db txCtx cmd) >>= \case
+    Left uknownPactError -> do
+      throwM $ BuyGasFailure $ Pact5GasPurchaseFailure requestKey (T.pack $ displayException uknownPactError)
+    Right (Left (BuyGasPactError e)) -> do
       throwM $ BuyGasFailure $ Pact5GasPurchaseFailure requestKey (T.pack $ displayException e)
-    Right buyGasResult -> do
+    Right (Left BuyGasMultipleGasPayerCaps) -> do
+      throwM $ BuyGasFailure $ Pact5GasPurchaseFailure requestKey "multiple GAS_PAYER capabilities"
+    Right (Right buyGasResult) -> do
       gasRef <- newIORef (MilliGas 0)
       gasLogRef <- forM maybeGasLogger $ \_ ->
         newIORef []
@@ -444,7 +449,6 @@ applyCmd logger maybeGasLogger pact5Db txCtx spv cmd initialGas = do
             , _crEvents = _erEvents buyGasResult <> _erEvents payloadResult <> _erEvents redeemGasResult
             , _crMetaData = Nothing
             }
-
   where
     v = _chainwebVersion txCtx
     !gasLimit = view (cmdPayload . pMeta . pmGasLimit) cmd
@@ -669,6 +673,11 @@ runUpgrade logger pact5Db txContext cmd = case payload of
     chash = _cmdHash cmd
     payload = _pPayload $ _cmdPayload cmd
 
+data BuyGasError
+  = BuyGasPactError (PactError Info)
+  | BuyGasMultipleGasPayerCaps
+  deriving stock (Eq, Show)
+
 -- | Build and execute 'coin.buygas' command from miner info and user command
 -- info (see 'TransactionExec.applyCmd' for more information).
 --
@@ -680,57 +689,66 @@ buyGas
   -> PactDb CoreBuiltin Info
   -> TxContext
   -> Command (Payload PublicMeta a)
-  -> IO (Either (PactError Info) EvalResult)
+  -> IO (Either BuyGasError EvalResult)
 buyGas logger db txCtx cmd = do
   -- TODO: use quirked gas?
-  let
-    gasPayerCaps =
-      [ cap
-      | signer <- signers
-      , cap <- _siCapList signer
-      , _qnName (_ctName cap) == "GAS_PAYER"
-      ]
-    gasLimit = publicMeta ^. pmGasLimit
-    supply = gasSupplyOf (gasLimit ^. _GasLimit) gasPrice
-    (buyGasTerm, buyGasData) =
-      if isChainweb224Pact
-      then mkBuyGasTerm sender supply
-      else mkFundTxTerm mid mks sender supply
-  eval <- case gasPayerCaps of
-    [gasPayerCap] -> return $ evalGasPayerCap gasPayerCap
-    [] -> return (evalExecTerm Transactional)
-    _ -> internalError "buyGas: error - multiple gas payer caps"
-  eval
-    -- TODO: magic constant, 1500 max gas limit for buyGas?
-    db noSPVSupport
-    (tableGasModel (MilliGasLimit $ gasToMilliGas $ min (Gas 3000) (gasLimit ^. _GasLimit)))
-    (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
-    (ctxToPublicData publicMeta txCtx)
-    -- no verifiers are allowed in buy gas
-    MsgData
-      { mdData = buyGasData
-      , mdHash = bgHash
-      , mdSigners = signersWithDebit
-      , mdVerifiers = []
-      }
-    (def & csSlots .~ [CapSlot (coinCap "GAS" []) []])
-    (def <$ buyGasTerm) >>= \case
-    Right er' -> do
-      case _erExec er' of
-        Nothing
-          | isChainweb224Pact ->
-            return $ Right er'
-          | otherwise ->
-            -- should never occur pre-chainweb 2.24:
-            -- would mean coin.fund-tx is not a pact
-            internalError "buyGas: Internal error - empty continuation before 2.24 fork"
-        Just pe
-          | isChainweb224Pact ->
-            internalError "buyGas: Internal error - continuation found after 2.24 fork"
-          | otherwise ->
-            return $ Right er'
-    Left err -> do
-      return $ Left err
+  let gasPayerCaps =
+        [ cap
+        | signer <- signers
+        , cap <- _siCapList signer
+        , _qnName (_ctName cap) == "GAS_PAYER"
+        ]
+  let gasLimit = publicMeta ^. pmGasLimit
+  let supply = gasSupplyOf (gasLimit ^. _GasLimit) gasPrice
+  let (buyGasTerm, buyGasData) =
+        if isChainweb224Pact
+        then mkBuyGasTerm sender supply
+        else mkFundTxTerm mid mks sender supply
+
+  runExceptT $ do
+    eval <- case gasPayerCaps of
+      [gasPayerCap] -> do
+        pure $ evalGasPayerCap gasPayerCap
+      [] -> do
+        pure $ evalExecTerm Transactional
+      _ -> do
+        throwError BuyGasMultipleGasPayerCaps
+
+    e <- liftIO $ eval
+      -- TODO: magic constant, 1500 max gas limit for buyGas?
+      db
+      noSPVSupport
+      (tableGasModel (MilliGasLimit $ gasToMilliGas $ min (Gas 3000) (gasLimit ^. _GasLimit)))
+      (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+      (ctxToPublicData publicMeta txCtx)
+      -- no verifiers are allowed in buy gas
+      MsgData
+        { mdData = buyGasData
+        , mdHash = bgHash
+        , mdSigners = signersWithDebit
+        , mdVerifiers = []
+        }
+      (def & csSlots .~ [CapSlot (coinCap "GAS" []) []])
+      (def <$ buyGasTerm)
+
+    case e of
+      Right er' -> do
+        case _erExec er' of
+          Nothing
+            | isChainweb224Pact ->
+              return er'
+            | otherwise ->
+              -- should never occur pre-chainweb 2.24:
+              -- would mean coin.fund-tx is not a pact
+              internalError "buyGas: Internal error - empty continuation before 2.24 fork"
+          Just pe
+            | isChainweb224Pact ->
+              internalError "buyGas: Internal error - continuation found after 2.24 fork"
+            | otherwise ->
+              return er'
+      Left err -> do
+        throwError $ BuyGasPactError err
+
   where
     isChainweb224Pact = guardCtx chainweb224Pact txCtx
     publicMeta = cmd ^. cmdPayload . pMeta
