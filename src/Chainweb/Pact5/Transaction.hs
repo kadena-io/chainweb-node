@@ -7,6 +7,8 @@
 module Chainweb.Pact5.Transaction
   ( Transaction
   , PayloadWithText(..)
+  , payloadBytes
+  , payloadObj
   , payloadCodec
   , parseCommand
   ) where
@@ -35,7 +37,6 @@ import qualified Pact.JSON.Encode as J
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
-
 type Transaction = Command PayloadWithText
 
 data PayloadWithText = PayloadWithText
@@ -47,6 +48,12 @@ data PayloadWithText = PayloadWithText
 
 instance Eq PayloadWithText where
     (==) = (==) `on` _payloadBytes
+
+payloadBytes :: PayloadWithText -> SB.ShortByteString
+payloadBytes = _payloadBytes
+
+payloadObj :: PayloadWithText -> Payload PublicMeta ParsedCode
+payloadObj = _payloadObj
 
 -- | A codec for Pact5's (Command PayloadWithText) transactions.
 --
