@@ -16,6 +16,7 @@ module Chainweb.Test.TestVersions
     , timedConsensusVersion
     , instantCpmTestVersion
     , pact5CheckpointerTestVersion
+    , pact5SlowCpmTestVersion
     ) where
 
 import Control.Lens hiding (elements)
@@ -121,6 +122,9 @@ testVersions = _versionName <$> concat
       | g :: KnownGraph <- [minBound..maxBound]
       ]
     , [ pact5CheckpointerTestVersion (knownChainGraph g)
+      | g :: KnownGraph <- [minBound..maxBound]
+      ]
+    , [ pact5SlowCpmTestVersion (knownChainGraph g)
       | g :: KnownGraph <- [minBound..maxBound]
       ]
     ]
@@ -389,13 +393,20 @@ pact5SlowCpmTestVersion :: ChainGraph -> ChainwebVersion
 pact5SlowCpmTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("pact5-slow-CPM-" <> toText g)
+    & versionGenesis .~ VersionGenesis
+        { _genesisBlockPayload = onChains $
+            (unsafeChainId 0, IN0.payloadBlock) :
+            [(n, INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+        , _genesisBlockTarget = AllChains maxTarget
+        , _genesisTime = AllChains $ BlockCreationTime epoch
+        }
     & versionForks .~ tabulateHashMap (\case
         -- genesis blocks are not ever run with Pact 5
         Pact5Fork -> onChains [ (cid, ForkAtBlockHeight (succ $ genesisHeightSlow v cid)) | cid <- HS.toList $ graphChainIds g ]
         _ -> AllChains ForkAtGenesis
         )
     & versionUpgrades .~ indexByForkHeights v
-        [ (Chainweb225Pact, AllChains (ForPact5 $ Pact5Upgrade (List.map pactTxFrom4To5 CoinV5.transactions)))
+        [ (Pact5Fork, AllChains (ForPact5 $ Pact5Upgrade (List.map pactTxFrom4To5 CoinV5.transactions)))
         ]
 
 pact5EarlyTestVersion :: ChainGraph -> ChainwebVersion
