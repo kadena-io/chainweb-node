@@ -164,6 +164,7 @@ import Data.Set (Set)
 import Control.Monad.Except (MonadError(..), liftEither)
 import qualified Pact.Core.Syntax.ParseTree as Lisp
 import Pact.Core.Command.Types (Payload(_pSigners))
+import Pact.Core.StableEncoding
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.Pact.SPV (pact5SPV)
 import Data.Void
@@ -330,7 +331,7 @@ applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
         , _crLogs = Just $ _erLogs payloadResult
         , _crContinuation = _erExec payloadResult
         , _crEvents =  _erEvents payloadResult
-        , _crMetaData = Nothing
+        , _crMetaData = Just (J.toJsonViaEncode $ StableEncoding $ ctxToPublicData (cmd ^. cmdPayload . pMeta) txCtx)
         }
 
   where
@@ -422,7 +423,7 @@ applyCmd logger maybeGasLogger pact5Db txCtx spv cmd initialGas = do
             , _crResult = PactResultErr err
             -- all gas is used when a command fails
             , _crGas = cmd ^. cmdPayload . pMeta . pmGasLimit . _GasLimit
-            , _crLogs = Nothing
+            , _crLogs = Just $ _erLogs buyGasResult <> _erLogs redeemGasResult
             , _crContinuation = Nothing
             , _crEvents = _erEvents buyGasResult <> _erEvents redeemGasResult
             , _crMetaData = Nothing

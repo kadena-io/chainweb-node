@@ -40,7 +40,7 @@ import Chainweb.Pact.PactService.Checkpointer
 import Chainweb.Pact.PactService.Pact4.ExecBlock
 import Chainweb.Pact.RestAPI.Server
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.TransactionExec
+import Chainweb.Pact4.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -119,7 +119,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
           Left _ -> error "bad cmd"
           Right cmdPwt -> do
             let cmd = Pact4.payloadObj <$> cmdPwt
-            let txc = TxContext parent $ publicMetaOf cmd
+            let txc = undefined -- TxContext parent $ publicMetaOf cmd
             -- This rocksdb isn't actually used, it's just to satisfy
             -- PactServiceEnv
             withTempRocksDb "txsim-rocksdb" $ \rdb -> do
@@ -147,19 +147,20 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
                   $ (throwIfNoHistory =<<)
                   $ readFrom (Just parent)
                   $ do
-                    mc <- readInitModules
+                    mc <- undefined -- readInitModules
                     T3 !cr _mc _ <- do
-                      dbEnv <- view psBlockDbEnv
+                      dbEnv <- undefined -- view psBlockDbEnv
                       liftIO $ trace (logFunction cwLogger) "applyCmd" () 1 $
-                        applyCmd ver logger gasLogger Nothing (_cpPactDbEnv dbEnv) miner (getGasModel txc)
+                        applyCmd ver logger gasLogger Nothing (_cpPactDbEnv dbEnv) miner undefined -- (getGasModel txc)
                           txc noSPVSupport cmd (initGas cmdPwt) mc ApplySend
                     liftIO $ T.putStrLn (J.encodeText (J.Array <$> cr))
       (_,True) -> do
         (throwIfNoHistory =<<) $ _cpReadFrom (_cpReadCp cp) (Just parent) $ \dbEnv -> do
           let refStore = RefStore nativeDefs
-              pd = ctxToPublicData $ TxContext parent def
+              pd = ctxToPublicData $ undefined -- TxContext parent def
               loadMod = fmap inlineModuleData . getModule (def :: Info)
-          ee <- setupEvalEnv (_cpPactDbEnv dbEnv) Nothing Local (initMsgData pactInitialHash) refStore freeGasEnv
+          -- ee <- setupEvalEnv (_cpPactDbEnv dbEnv) Nothing Local (initMsgData pactInitialHash) refStore freeGasEnv
+          ee <- setupEvalEnv undefined Nothing Local (initMsgData pactInitialHash) refStore freeGasEnv
               permissiveNamespacePolicy noSPVSupport pd def
           void $ runEval def ee $ do
             mods <- keys def Modules
@@ -229,10 +230,10 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
     doBlock initMC parent ((hdr,pwo):rest) = do
       (throwIfNoHistory =<<) $ readFrom (Just parent) $ do
         when initMC $ do
-          mc <- readInitModules
+          mc <- undefined -- readInitModules
           updateInitCacheM mc
-        void $ trace (logFunction cwLogger) "execBlock" () 1 $
-            execBlock hdr (CheckablePayloadWithOutputs pwo)
+        void $ trace (logFunction cwLogger) "execBlock" () 1 $ undefined
+            -- execBlock hdr (CheckablePayloadWithOutputs pwo)
       doBlock False (ParentHeader hdr) rest
 
 -- | Block-scoped SPV mock by matching cont proofs to payload txs.
@@ -246,7 +247,7 @@ spvSim sc bh pwo = do
     go mv cp = modifyMVar mv $ searchOuts cp
     searchOuts _ [] = return ([],Left "spv: proof not found")
     searchOuts cp@(ContProof pf) ((Transaction ti,TransactionOutput _o):txs) =
-      case codecDecode (Pact4.payloadCodec (pactParserVersion (scVersion sc) (_chainId bh) (_blockHeight bh))) ti of
+      case codecDecode (Pact4.payloadCodec (undefined (scVersion sc) (_chainId bh) (_blockHeight bh))) ti of
         Left {} -> internalError "input decode failed"
         Right cmd -> case _pPayload $ Pact4.payloadObj $ _cmdPayload cmd of
           Continuation cm | _cmProof cm == Just cp -> do

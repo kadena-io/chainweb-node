@@ -350,6 +350,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                             , pt _crGas . equals $ Gas 1
                             , pt _crContinuation . equals $ Nothing
                             , pt _crLogs . equals $ Just []
+                            , pt _crMetaData $ allOf1 _Just continue
                             ]
 
 
@@ -533,7 +534,17 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                             -- reflects buyGas gas usage, as well as that of the payload
                             , pt _crGas . equals $ Gas 300
                             , pt _crContinuation . equals $ Nothing
-                            , pt _crLogs . equals $ Nothing --Just []
+                            , pt _crLogs . soleElementOf _Just $
+                                PT.list
+                                    [ satAll
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "sender00"
+                                        ]
+                                    , satAll
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "NoMiner"
+                                        ]
+                                    ]
                             ]
 
                         -- Invoke module when verifier capability is present. Should succeed.
@@ -563,6 +574,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
                             -- reflects buyGas gas usage, as well as that of the payload
                             , pt _crGas . equals $ Gas 168
                             , pt _crContinuation . equals $ Nothing
+                            , pt _crMetaData . equals $ Nothing
                             , pt _crLogs . soleElementOf _Just $
                                 PT.list
                                     [ satAll
@@ -580,6 +592,71 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
 
                                     ]
                             ]
+
+            return ()
+
+    , testCase "applyCmd failure spec" $ runResourceT $ do
+        sql <- withTempSQLiteResource
+        liftIO $ do
+            cp <- initCheckpointer v cid sql
+            tdb <- mkTestBlockDb v =<< testRocksDb "testApplyPayload" baseRdb
+            bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
+            T2 () _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+                initialPayloadState v cid
+                (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader gh) $ do
+                    db <- view psBlockDbEnv
+                    liftIO $ do
+                        pactDb <- assertDynamicPact5Db (_cpPactDbEnv db)
+                        startSender00Bal <- readBal pactDb "sender00"
+                        assertEqual "starting balance" (Just 100_000_000) startSender00Bal
+                        startMinerBal <- readBal pactDb "NoMiner"
+
+                        cmd <- buildCwCmd "nonce" v defaultCmd
+                            { _cbRPC = mkExec' "(+ 1 \"abc\")"
+                            , _cbSigners =
+                                [ mkEd25519Signer' sender00
+                                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
+                                ]
+                            , _cbSender = "sender00"
+                            , _cbChainId = cid
+                            , _cbGasPrice = GasPrice 2
+                            , _cbGasLimit = GasLimit (Gas 500)
+                            }
+                        let txCtx = TxContext {_tcParentHeader = ParentHeader gh, _tcMiner = noMiner}
+                        let expectedGasConsumed = 500
+                        commandResult <- applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                        () <- commandResult & satAll
+                            -- gas buy event
+
+                            [ pt _crEvents ? PT.list [ event
+                                (equals "TRANSFER")
+                                (equals [PString "sender00", PString "NoMiner", PDecimal 1000])
+                                (equals coinModule)
+                              ]
+                            -- tx errored
+                            , pt _crResult ? allOf1 _PactResultErr continue
+                            -- reflects buyGas gas usage, as well as that of the payload
+                            , pt _crGas . equals $ Gas expectedGasConsumed
+                            , pt _crContinuation . equals $ Nothing
+                            , pt _crLogs . soleElementOf _Just $
+                                PT.list
+                                    [ satAll
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "sender00"
+                                        ]
+                                    , satAll
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "NoMiner"
+                                        ]
+                                    ]
+                            ]
+
+                        endSender00Bal <- readBal pactDb "sender00"
+                        assertEqual "ending balance should be less gas money" (Just 99_999_000) endSender00Bal
+                        endMinerBal <- readBal pactDb "NoMiner"
+                        assertEqual "miner balance after redeeming gas should have increased"
+                            (Just $ fromMaybe 0 startMinerBal + (fromIntegral expectedGasConsumed) * 2)
+                            endMinerBal
 
             return ()
 
