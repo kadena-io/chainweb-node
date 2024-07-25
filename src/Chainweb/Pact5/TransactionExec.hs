@@ -38,6 +38,7 @@ module Chainweb.Pact5.TransactionExec
 , runPayload
 , redeemGas
 , applyLocal
+, applyUpgrades
 
 ) where
 
@@ -294,7 +295,7 @@ applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
   let !gasLimit = view (cmdPayload . pMeta . pmGasLimit) cmd
   gasRef <- newIORef mempty
   gasLogRef <- forM maybeGasLogger $ \_ -> newIORef []
-  let runLocal = runVerifiers txCtx cmd *> runPayload Local coreDb spvSupport txCtx cmd
+  let runLocal = runVerifiers txCtx cmd *> runPayload Local localFlags coreDb spvSupport txCtx cmd
   let gasEnv = GasEnv
         { _geGasRef = gasRef
         , _geGasLog = gasLogRef
@@ -342,7 +343,8 @@ applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
     -- in pact-5 exec. This may change if it breaks
     -- anyone's workflow
     , FlagAllowReadInLocal
-    , FlagRequireKeysetNs]
+    , FlagRequireKeysetNs
+    ]
 
 -- | The main entry point to executing transactions. From here,
 -- 'applyCmd' assembles the command environment for a command,
@@ -367,6 +369,12 @@ applyCmd
       -- ^ initial gas used
     -> IO (CommandResult [TxLog ByteString] TxFailedError)
 applyCmd logger maybeGasLogger pact5Db txCtx spv cmd initialGas = do
+  let flags = Set.fromList
+        [ FlagDisableRuntimeRTC
+        , FlagDisableHistoryInTransactionalMode
+        , FlagEnforceKeyFormats
+        , FlagRequireKeysetNs
+        ]
   let !requestKey = cmdToRequestKey cmd
   -- this process is "paid for", i.e. it's powered by a supply of gas that was
   -- purchased by a user already. any errors here will result in the entire gas
@@ -381,7 +389,7 @@ applyCmd logger maybeGasLogger pact5Db txCtx spv cmd initialGas = do
         runVerifiers txCtx cmd
 
         -- run payload
-        runPayload Transactional pact5Db spv txCtx cmd
+        runPayload Transactional flags pact5Db spv txCtx cmd
 
   when (GasLimit initialGas > gasLimit) $
     throwM $ BuyGasFailure $ Pact5GasPurchaseFailure requestKey "tx too big for gas limit"
@@ -577,12 +585,13 @@ runPayload
     :: forall logger err
     . (Logger logger)
     => ExecutionMode
+    -> Set ExecutionFlag
     -> Pact5Db
     -> SPVSupport
     -> TxContext
     -> Command (Payload PublicMeta ParsedCode)
     -> TransactionM logger EvalResult
-runPayload execMode pact5Db spv txCtx cmd = do
+runPayload execMode execFlags pact5Db spv txCtx cmd = do
 
     -- Note [Throw out verifier proofs eagerly]
   let !verifiersWithNoProof =
@@ -593,7 +602,7 @@ runPayload execMode pact5Db spv txCtx cmd = do
     Exec ExecMsg {..} -> do
       either (throwError . TxPactError) return =<< catchUnknownExceptions
         (evalExec execMode
-          pact5Db spv gm (Set.fromList [FlagDisableRuntimeRTC]) managedNamespacePolicy
+          pact5Db spv gm execFlags managedNamespacePolicy
           (ctxToPublicData publicMeta txCtx)
           MsgData
             { mdHash = _cmdHash cmd
@@ -602,13 +611,12 @@ runPayload execMode pact5Db spv txCtx cmd = do
             , mdSigners = signers
             }
           (def :: CapState _ _)
-          -- TODO: better info here might be very valuable for debugging
-          [ def <$ exp | exp <- _pcExps _pmCode ]
+          (_pcExps _pmCode)
         )
     Continuation ContMsg {..} -> do
       either (throwError . TxPactError) return =<< catchUnknownExceptions
         (evalContinuation execMode
-          pact5Db spv gm (Set.fromList [FlagDisableRuntimeRTC]) managedNamespacePolicy
+          pact5Db spv gm execFlags managedNamespacePolicy
           (ctxToPublicData publicMeta txCtx)
           MsgData
             { mdHash = _cmdHash cmd
