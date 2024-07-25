@@ -1,9 +1,11 @@
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Chainweb.Test.TestVersions
     ( barebonesTestVersion
@@ -47,6 +49,8 @@ import P2P.Peer
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Hash as P
+import Chainweb.Test.Pact5.Utils (pactTxFrom4To5)
+
 import Pact.Types.Verifier
 
 import qualified Chainweb.Pact.Transactions.CoinV3Transactions as CoinV3
@@ -380,6 +384,19 @@ instantCpmTestVersion g = buildTestVersion $ \v -> v
     & versionUpgrades .~ AllChains mempty
     & versionVerifierPluginNames .~ AllChains
         (End $ Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"])
+
+pact5SlowCpmTestVersion :: ChainGraph -> ChainwebVersion
+pact5SlowCpmTestVersion g = buildTestVersion $ \v -> v
+    & cpmTestVersion g
+    & versionName .~ ChainwebVersionName ("pact5-slow-CPM-" <> toText g)
+    & versionForks .~ tabulateHashMap (\case
+        -- genesis blocks are not ever run with Pact 5
+        Pact5Fork -> onChains [ (cid, ForkAtBlockHeight (succ $ genesisHeightSlow v cid)) | cid <- HS.toList $ graphChainIds g ]
+        _ -> AllChains ForkAtGenesis
+        )
+    & versionUpgrades .~ indexByForkHeights v
+        [ (Chainweb225Pact, AllChains (ForPact5 $ Pact5Upgrade (List.map pactTxFrom4To5 CoinV5.transactions)))
+        ]
 
 pact5EarlyTestVersion :: ChainGraph -> ChainwebVersion
 pact5EarlyTestVersion g = buildTestVersion $ \v -> v
