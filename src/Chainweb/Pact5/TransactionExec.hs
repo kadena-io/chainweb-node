@@ -544,8 +544,7 @@ applyUpgrades logger db txCtx
      | Just (ForPact5 upg) <- _chainwebVersion txCtx
           ^? versionUpgrades
           . onChain (_chainId txCtx)
-          . at (ctxCurrentBlockHeight txCtx)
-          . _Just
+          . ix (ctxCurrentBlockHeight txCtx)
          = applyUpgrade upg
      | otherwise = return ()
   where
