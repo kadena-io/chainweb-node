@@ -876,15 +876,27 @@ testLocalOnlyFailsOutsideOfLocal baseRdb = runResourceT $ do
                             , _cbGasPrice = GasPrice 2
                             , _cbGasLimit = GasLimit (Gas 200_000)
                             }
-                          commandResult <- applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
-                          case _crResult commandResult of
+
+                          -- should succeed in local
+                          crLocal <- applyLocal stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd)
+                          case _crResult crLocal of
+                            PactResultOk _ -> do
+                              return ()
+                            r -> do
+                              assertFailure $ "Expected success, but got: " ++ show r
+
+                          -- should fail in non-local
+                          crNonLocal <- applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                          case _crResult crNonLocal of
                             PactResultErr (TxPactError (PEExecutionError (OperationIsLocalOnly _) _ _)) -> do
                               return ()
                             r -> do
                               assertFailure $ "Expected OperationIsLocalOnly error, but got: " ++ show r
 
-                    testLocalOnly "(at 'hash (describe-module 'coin))"
-                    --testLocalOnly "(txids \"coin.coin-table\" 0)"
+                    testLocalOnly "(describe-module \"coin\")"
+                    testLocalOnly "(txids coin.coin-table 0)"
+                    testLocalOnly "(txlog coin.coin-table 0)"
+                    testLocalOnly "(keylog coin.coin-table \"a\" 0)"
 
         pure ()
     pure ()
