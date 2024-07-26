@@ -393,16 +393,14 @@ applyCmd logger maybeGasLogger pact5Db txCtx spv cmd initialGas = do
         runPayload Transactional flags pact5Db spv txCtx cmd
 
   eBuyGasResult <- do
-    if (GasLimit initialGas > gasLimit)
+    if GasLimit initialGas > gasLimit
     then do
       pure $ Left (Pact5GasPurchaseFailure requestKey PurchaseGasTxTooBigForGasLimit)
     else do
-      catchesPact5Error logger (buyGas logger pact5Db txCtx cmd) >>= \case
-        Left uknownPactError -> do
-          pure $ Left (Pact5GasPurchaseFailure requestKey (PurchaseGasUnknownPactError uknownPactError))
-        Right (Left buyGasError) -> do
+      buyGas logger pact5Db txCtx cmd >>= \case
+        Left buyGasError -> do
           pure $ Left (Pact5GasPurchaseFailure requestKey (BuyGasError buyGasError))
-        Right (Right buyGasResult) -> do
+        Right buyGasResult -> do
           pure $ Right buyGasResult
 
   case eBuyGasResult of
@@ -426,45 +424,53 @@ applyCmd logger maybeGasLogger pact5Db txCtx spv cmd initialGas = do
           -- if any error occurs after buying gas, the output of the command is that error
           -- and all of the gas is sent to the miner.
           -- only buying gas and sending it to the miner are recorded.
-          redeemGasResult <- redeemGas
+          eRedeemGasResult <- redeemGas
             logger pact5Db txCtx
             (gasLimit ^. _GasLimit)
             (_peDefPactId <$> _erExec buyGasResult)
             cmd
-
-          return $ Right $ CommandResult
-            { _crReqKey = RequestKey $ _cmdHash cmd
-            , _crTxId = Nothing
-            , _crResult = PactResultErr err
-            -- all gas is used when a command fails
-            , _crGas = cmd ^. cmdPayload . pMeta . pmGasLimit . _GasLimit
-            , _crLogs = Just $ _erLogs buyGasResult <> _erLogs redeemGasResult
-            , _crContinuation = Nothing
-            , _crEvents = _erEvents buyGasResult <> _erEvents redeemGasResult
-            , _crMetaData = Nothing
-            }
+          case eRedeemGasResult of
+            Left redeemGasError -> do
+              pure (Left (Pact5GasPurchaseFailure requestKey (RedeemGasError redeemGasError)))
+            Right redeemGasResult -> do
+              return $ Right $ CommandResult
+                { _crReqKey = RequestKey $ _cmdHash cmd
+                , _crTxId = Nothing
+                , _crResult = PactResultErr err
+                -- all gas is used when a command fails
+                , _crGas = cmd ^. cmdPayload . pMeta . pmGasLimit . _GasLimit
+                , _crLogs = Just $ _erLogs buyGasResult <> _erLogs redeemGasResult
+                , _crContinuation = Nothing
+                , _crEvents = _erEvents buyGasResult <> _erEvents redeemGasResult
+                , _crMetaData = Nothing
+                }
         Right payloadResult -> do
           gasUsed <- milliGasToGas <$> readIORef gasRef
           -- immediately return all unused gas to the user and send all used
           -- gas to the miner.
-          redeemGasResult <- redeemGas
+          eRedeemGasResult <- redeemGas
             logger pact5Db txCtx
             gasUsed
             (_peDefPactId <$> _erExec buyGasResult)
             cmd
-          -- ensure we include the events and logs from buyGas and redeemGas
-          -- in the result
-          return $ Right $ CommandResult
-            { _crReqKey = RequestKey $ _cmdHash cmd
-            , _crTxId = _erTxId payloadResult
-            , _crResult =
-              PactResultOk $ compileValueToPactValue $ last (_erOutput payloadResult)
-            , _crGas = gasUsed
-            , _crLogs = Just $ _erLogs buyGasResult <> _erLogs payloadResult <> _erLogs redeemGasResult
-            , _crContinuation = _erExec payloadResult
-            , _crEvents = _erEvents buyGasResult <> _erEvents payloadResult <> _erEvents redeemGasResult
-            , _crMetaData = Nothing
-            }
+
+          case eRedeemGasResult of
+            Left redeemGasError -> do
+              pure (Left (Pact5GasPurchaseFailure requestKey (RedeemGasError redeemGasError)))
+            Right redeemGasResult -> do
+              -- ensure we include the events and logs from buyGas and redeemGas in the result
+              return $ Right $ CommandResult
+                { _crReqKey = RequestKey $ _cmdHash cmd
+                , _crTxId = _erTxId payloadResult
+                , _crResult =
+                    -- TODO: don't use `last` here for GHC 9.10 compat
+                    PactResultOk $ compileValueToPactValue $ last (_erOutput payloadResult)
+                , _crGas = gasUsed
+                , _crLogs = Just $ _erLogs buyGasResult <> _erLogs payloadResult <> _erLogs redeemGasResult
+                , _crContinuation = _erExec payloadResult
+                , _crEvents = _erEvents buyGasResult <> _erEvents payloadResult <> _erEvents redeemGasResult
+                , _crMetaData = Nothing
+                }
   where
     v = _chainwebVersion txCtx
     !gasLimit = view (cmdPayload . pMeta . pmGasLimit) cmd
@@ -787,51 +793,63 @@ redeemGas :: (Logger logger)
   -> PactDb CoreBuiltin Info -> TxContext
   -> Gas
   -> Maybe DefPactId
-  -> Command (Payload PublicMeta ParsedCode) -> IO EvalResult
+  -> Command (Payload PublicMeta ParsedCode)
+  -> IO (Either Pact5RedeemGasError EvalResult)
 redeemGas logger pactDb txCtx gasUsed maybeFundTxPactId cmd
     | isChainweb224Pact, Nothing <- maybeFundTxPactId = do
       -- if we're past chainweb 2.24, we don't use defpacts for gas; see 'pact/coin-contract/coin.pact#redeem-gas'
       let (redeemGasTerm, redeemGasData) = mkRedeemGasTerm mid mks sender gasTotal gasFee
-      evalExec Transactional
-        -- TODO: more execution flags?
-        pactDb noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
-        (ctxToPublicData publicMeta txCtx)
-        MsgData
-          { mdData = redeemGasData
-          , mdHash = rgHash
-          , mdSigners = cmd ^. cmdPayload . pSigners
-          , mdVerifiers = []
-          }
-        (def & csSlots .~ [CapSlot (coinCap "GAS" []) []])
-        [TLTerm (def <$ redeemGasTerm)] >>= \case
-        Right evalResult ->
-          return evalResult
-        Left err ->
-          internalError $ "redeemGas: Internal error - " <> sshow err
+
+      e <- catchesPact5Error logger $ do
+        evalExec
+          Transactional
+          -- TODO: more execution flags?
+          pactDb noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+          (ctxToPublicData publicMeta txCtx)
+          MsgData
+            { mdData = redeemGasData
+            , mdHash = rgHash
+            , mdSigners = cmd ^. cmdPayload . pSigners
+            , mdVerifiers = []
+            }
+          (def & csSlots .~ [CapSlot (coinCap "GAS" []) []])
+          [TLTerm (def <$ redeemGasTerm)]
+
+      case e of
+        Left unknownPactError -> do
+          pure $ Left (RedeemGasUnknownError unknownPactError)
+        Right (Left err) -> do
+          pure $ Left (RedeemGasPactError err)
+        Right (Right evalResult) -> do
+          pure $ Right evalResult
 
     | not isChainweb224Pact, Just fundTxPactId <- maybeFundTxPactId = do
       -- before chainweb 2.24, we use defpacts for gas; see: 'pact/coin-contract/coin.pact#fund-tx'
       let redeemGasData = PObject $ Map.singleton "fee" (PDecimal $ _pact5GasSupply gasFee)
-      evalContinuation Transactional
-        pactDb noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
-        (ctxToPublicData publicMeta txCtx)
-        MsgData
-          { mdData = redeemGasData
-          , mdHash = rgHash
-          , mdSigners = cmd ^. cmdPayload . pSigners
-          , mdVerifiers = []
+      e <- catchesPact5Error logger $ do
+        evalContinuation Transactional
+          pactDb noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+          (ctxToPublicData publicMeta txCtx)
+          MsgData
+            { mdData = redeemGasData
+            , mdHash = rgHash
+            , mdSigners = cmd ^. cmdPayload . pSigners
+            , mdVerifiers = []
+            }
+          (def & csSlots .~ [CapSlot (coinCap "GAS" []) []])
+          Cont
+          { _cPactId = fundTxPactId
+          , _cStep = 1
+          , _cRollback = False
+          , _cProof = Nothing
           }
-        (def & csSlots .~ [CapSlot (coinCap "GAS" []) []])
-        Cont
-        { _cPactId = fundTxPactId
-        , _cStep = 1
-        , _cRollback = False
-        , _cProof = Nothing
-        } >>= \case
-        Left err ->
-          internalError $ "redeemGas: Internal error - " <> sshow err
-        Right evalResult ->
-          return evalResult
+      case e of
+        Left unknownPactError -> do
+          pure $ Left (RedeemGasUnknownError unknownPactError)
+        Right (Left err) -> do
+          pure $ Left (RedeemGasPactError err)
+        Right (Right evalResult) -> do
+          return $ Right evalResult
 
     | otherwise =
       internalError "redeemGas: Internal error - defpact ID does not match chainweb224Pact flag"

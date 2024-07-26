@@ -63,6 +63,7 @@ module Chainweb.Pact.Service.Types
   , PactException(..)
   , PactExceptionTag(..)
   , Pact5BuyGasError(..)
+  , Pact5RedeemGasError(..)
   , Pact5GasPurchaseFailure(..)
   , GasPurchaseFailure(..)
   , pact4GasPurchaseFailureHash
@@ -211,6 +212,13 @@ data PactServiceConfig = PactServiceConfig
     --   are persisted. Useful if you want to use PactService BlockTxHistory.
   } deriving (Eq,Show)
 
+data Pact5RedeemGasError
+  = RedeemGasPactError (Pact5.PactError Pact5.Info)
+    -- ^ Expected pact error
+  | RedeemGasUnknownError (Pact5.PactError Pact5.Info)
+    -- ^ Unexpected pact error due to programmer error
+  deriving stock (Eq, Show)
+
 data Pact5BuyGasError
   = BuyGasPactError (Pact5.PactError Pact5.Info)
   | BuyGasMultipleGasPayerCaps
@@ -218,6 +226,7 @@ data Pact5BuyGasError
 
 data Pact5GasPurchaseFailure
   = BuyGasError Pact5BuyGasError
+  | RedeemGasError Pact5RedeemGasError
   | PurchaseGasTxTooBigForGasLimit
   | PurchaseGasUnknownPactError (Pact5.PactError Pact5.Info)
   deriving stock (Eq, Show)

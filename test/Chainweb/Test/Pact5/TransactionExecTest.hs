@@ -272,7 +272,9 @@ redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner baseRdb = runResource
                     let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
                     -- redeeming gas with 3 gas used, with a limit of 10, should return 7 gas worth of tokens
                     -- to the gas payer
-                    redeemGasResult <- redeemGas stdoutDummyLogger pactDb txCtx (Gas 3) Nothing (_payloadObj <$> cmd)
+
+                    -- TODO: should we be throwing some predicates at the redeem gas result?
+                    redeemGasResult <- throwIfError $ redeemGas stdoutDummyLogger pactDb txCtx (Gas 3) Nothing (_payloadObj <$> cmd)
                     endSender00Bal <- readBal pactDb "sender00"
                     assertEqual "balance after redeeming gas" (Just $ 100_000_000 + (10 - 3) * 2) endSender00Bal
                     endMinerBal <- readBal pactDb "NoMiner"
