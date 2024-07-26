@@ -141,6 +141,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
     , testCase "applyCoinbase spec" (applyCoinbaseSpec baseRdb)
     , testCase "test coin upgrade" (testCoinUpgrade baseRdb)
     , testCase "test local only fails outside of local" (testLocalOnlyFailsOutsideOfLocal baseRdb)
+    , testCase "payload failure all gas should go to the miner" (payloadFailureShouldPayAllGasToTheMiner baseRdb)
     ]
 
 
@@ -275,6 +276,71 @@ redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner baseRdb = runResource
                     endMinerBal <- readBal pactDb "NoMiner"
                     assertEqual "miner balance after redeeming gas" (Just $ fromMaybe 0 startMinerBal + 3 * 2) endMinerBal
         return ()
+
+payloadFailureShouldPayAllGasToTheMiner :: RocksDb -> IO ()
+payloadFailureShouldPayAllGasToTheMiner baseRdb = runResourceT $ do
+    sql <- withTempSQLiteResource
+    liftIO $ do
+        cp <- initCheckpointer v cid sql
+        tdb <- mkTestBlockDb v =<< testRocksDb "payloadFailureShouldPayAllGasToTheMiner" baseRdb
+        bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
+        T2 () _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+            initialPayloadState v cid
+            (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader (gh v cid)) $ do
+                db <- view psBlockDbEnv
+                liftIO $ do
+                    pactDb <- assertDynamicPact5Db (_cpPactDbEnv db)
+                    startSender00Bal <- readBal pactDb "sender00"
+                    assertEqual "starting balance" (Just 100_000_000) startSender00Bal
+                    startMinerBal <- readBal pactDb "NoMiner"
+
+                    cmd <- buildCwCmd "nonce" v defaultCmd
+                        { _cbRPC = mkExec' "(+ 1 \"hello\")"
+                        , _cbSigners =
+                            [ mkEd25519Signer' sender00
+                                [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
+                            ]
+                        , _cbSender = "sender00"
+                        , _cbChainId = cid
+                        , _cbGasPrice = GasPrice 2
+                        , _cbGasLimit = GasLimit (Gas 1000)
+                        }
+                    let gasToMiner = 2 * 1_000 -- gasPrice * gasLimit
+                    let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
+                    commandResult <- applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+
+                    -- TODO: Replace this with predicate-transformers once we have the necessary prisms
+                    case _crResult commandResult of
+                      PactResultErr (TxPactError (PEExecutionError (NativeArgumentsError _ _) _ _)) -> do
+                        return ()
+                      r -> do
+                        assertFailure $ "Expected NativeArgumentsError, but got: " ++ show r
+
+                    commandResult & satAll @(IO ()) @_
+                      [ pt _crEvents . soleElement $
+                          event
+                            (equals "TRANSFER")
+                            (equals [PString "sender00", PString "NoMiner", PDecimal 2000.0])
+                            (equals coinModuleName)
+                      , pt _crGas . equals $ Gas 1_000
+                      , pt _crLogs . soleElementOf _Just $
+                          PT.list
+                            [ satAll
+                              [ pt _txDomain . equals $ "USER_coin_coin-table"
+                              , pt _txKey . equals $ "sender00"
+                              ]
+                            , satAll
+                              [ pt _txDomain . equals $ "USER_coin_coin-table"
+                              , pt _txKey . equals $ "NoMiner"
+                              ]
+                            ]
+                      ]
+                    endSender00Bal <- readBal pactDb "sender00"
+                    assertEqual "sender balance after payload failure" (fmap (subtract gasToMiner) startSender00Bal) endSender00Bal
+                    endMinerBal <- readBal pactDb "NoMiner"
+                    assertEqual "miner balance after payload failure" (Just $ fromMaybe 0 startMinerBal + gasToMiner) endMinerBal
+        return ()
+
 
 runPayloadShouldReturnEvalResultRelatedToTheInputCommand :: RocksDb -> IO ()
 runPayloadShouldReturnEvalResultRelatedToTheInputCommand baseRdb = runResourceT $ do
