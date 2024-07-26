@@ -10,11 +10,13 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE PartialTypeSignatures #-}
-{-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DataKinds #-}
+
+-- {-# LANGUAGE PartialTypeSignatures #-}
+-- {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
+
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
 -- Copyright   :  Copyright © 2018 Kadena LLC.
@@ -29,7 +31,6 @@ module Chainweb.Pact5.TransactionExec
   TransactionM(..)
 , TransactionEnv(..)
 , TxFailedError(..)
-, BuyGasError(..)
 
 , applyCoinbase
 , applyCmd
@@ -213,7 +214,7 @@ newtype TransactionM logger a
   , MonadIO
   )
 
-chargeGas :: Info -> GasArgs _ -> TransactionM _ ()
+chargeGas :: Info -> GasArgs CoreBuiltin -> TransactionM logger ()
 chargeGas info gasArgs = do
   gasEnv <- view txEnvGasEnv
   either (throwError . TxPactError) return =<<
@@ -367,7 +368,7 @@ applyCmd
       -- ^ command with payload to execute
     -> Gas
       -- ^ initial gas used
-    -> IO (CommandResult [TxLog ByteString] TxFailedError)
+    -> IO (Either GasPurchaseFailure (CommandResult [TxLog ByteString] TxFailedError))
 applyCmd logger maybeGasLogger pact5Db txCtx spv cmd initialGas = do
   let flags = Set.fromList
         [ FlagDisableRuntimeRTC
@@ -391,17 +392,23 @@ applyCmd logger maybeGasLogger pact5Db txCtx spv cmd initialGas = do
         -- run payload
         runPayload Transactional flags pact5Db spv txCtx cmd
 
-  when (GasLimit initialGas > gasLimit) $
-    throwM $ BuyGasFailure $ Pact5GasPurchaseFailure requestKey "tx too big for gas limit"
+  eBuyGasResult <- do
+    if (GasLimit initialGas > gasLimit)
+    then do
+      pure $ Left (Pact5GasPurchaseFailure requestKey PurchaseGasTxTooBigForGasLimit)
+    else do
+      catchesPact5Error logger (buyGas logger pact5Db txCtx cmd) >>= \case
+        Left uknownPactError -> do
+          pure $ Left (Pact5GasPurchaseFailure requestKey (PurchaseGasUnknownPactError uknownPactError))
+        Right (Left buyGasError) -> do
+          pure $ Left (Pact5GasPurchaseFailure requestKey (BuyGasError buyGasError))
+        Right (Right buyGasResult) -> do
+          pure $ Right buyGasResult
 
-  catchesPact5Error logger (buyGas logger pact5Db txCtx cmd) >>= \case
-    Left uknownPactError -> do
-      throwM $ BuyGasFailure $ Pact5GasPurchaseFailure requestKey (T.pack $ displayException uknownPactError)
-    Right (Left (BuyGasPactError e)) -> do
-      throwM $ BuyGasFailure $ Pact5GasPurchaseFailure requestKey (T.pack $ displayException e)
-    Right (Left BuyGasMultipleGasPayerCaps) -> do
-      throwM $ BuyGasFailure $ Pact5GasPurchaseFailure requestKey "multiple GAS_PAYER capabilities"
-    Right (Right buyGasResult) -> do
+  case eBuyGasResult of
+    Left err -> do
+      pure (Left err)
+    Right buyGasResult -> do
       gasRef <- newIORef (MilliGas 0)
       gasLogRef <- forM maybeGasLogger $ \_ ->
         newIORef []
@@ -425,7 +432,7 @@ applyCmd logger maybeGasLogger pact5Db txCtx spv cmd initialGas = do
             (_peDefPactId <$> _erExec buyGasResult)
             cmd
 
-          return CommandResult
+          return $ Right $ CommandResult
             { _crReqKey = RequestKey $ _cmdHash cmd
             , _crTxId = Nothing
             , _crResult = PactResultErr err
@@ -447,7 +454,7 @@ applyCmd logger maybeGasLogger pact5Db txCtx spv cmd initialGas = do
             cmd
           -- ensure we include the events and logs from buyGas and redeemGas
           -- in the result
-          return CommandResult
+          return $ Right $ CommandResult
             { _crReqKey = RequestKey $ _cmdHash cmd
             , _crTxId = _erTxId payloadResult
             , _crResult =
@@ -610,7 +617,7 @@ runPayload execMode execFlags pact5Db spv txCtx cmd = do
             , mdVerifiers = verifiersWithNoProof
             , mdSigners = signers
             }
-          (def :: CapState _ _)
+          (def @(CapState _ _))
           (_pcExps _pmCode)
         )
     Continuation ContMsg {..} -> do
@@ -624,7 +631,7 @@ runPayload execMode execFlags pact5Db spv txCtx cmd = do
             , mdSigners = signers
             , mdVerifiers = verifiersWithNoProof
             }
-          (def :: CapState _ _)
+          (def @(CapState _ _))
           Cont
             { _cPactId = _cmPactId
             , _cStep = _cmStep
@@ -681,11 +688,6 @@ runUpgrade logger pact5Db txContext cmd = case payload of
     chash = _cmdHash cmd
     payload = _pPayload $ _cmdPayload cmd
 
-data BuyGasError
-  = BuyGasPactError (PactError Info)
-  | BuyGasMultipleGasPayerCaps
-  deriving stock (Eq, Show)
-
 -- | Build and execute 'coin.buygas' command from miner info and user command
 -- info (see 'TransactionExec.applyCmd' for more information).
 --
@@ -697,7 +699,7 @@ buyGas
   -> PactDb CoreBuiltin Info
   -> TxContext
   -> Command (Payload PublicMeta a)
-  -> IO (Either BuyGasError EvalResult)
+  -> IO (Either Pact5BuyGasError EvalResult)
 buyGas logger db txCtx cmd = do
   -- TODO: use quirked gas?
   let gasPayerCaps =

@@ -14,6 +14,7 @@
 
 module Chainweb.Test.Pact5.TransactionExecTest (tests) where
 
+import Data.String (fromString)
 import Data.Set qualified as Set
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
@@ -141,7 +142,8 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
     , testCase "applyCoinbase spec" (applyCoinbaseSpec baseRdb)
     , testCase "test coin upgrade" (testCoinUpgrade baseRdb)
     , testCase "test local only fails outside of local" (testLocalOnlyFailsOutsideOfLocal baseRdb)
-    , testCase "payload failure all gas should go to the miner" (payloadFailureShouldPayAllGasToTheMiner baseRdb)
+    , testCase "payload failure all gas should go to the miner - type error" (payloadFailureShouldPayAllGasToTheMinerTypeError baseRdb)
+    , testCase "payload failure all gas should go to the miner - insufficient funds" (payloadFailureShouldPayAllGasToTheMinerInsufficientFunds baseRdb)
     ]
 
 
@@ -277,12 +279,12 @@ redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner baseRdb = runResource
                     assertEqual "miner balance after redeeming gas" (Just $ fromMaybe 0 startMinerBal + 3 * 2) endMinerBal
         return ()
 
-payloadFailureShouldPayAllGasToTheMiner :: RocksDb -> IO ()
-payloadFailureShouldPayAllGasToTheMiner baseRdb = runResourceT $ do
+payloadFailureShouldPayAllGasToTheMinerTypeError :: RocksDb -> IO ()
+payloadFailureShouldPayAllGasToTheMinerTypeError baseRdb = runResourceT $ do
     sql <- withTempSQLiteResource
     liftIO $ do
         cp <- initCheckpointer v cid sql
-        tdb <- mkTestBlockDb v =<< testRocksDb "payloadFailureShouldPayAllGasToTheMiner" baseRdb
+        tdb <- mkTestBlockDb v =<< testRocksDb "payloadFailureShouldPayAllGasToTheMiner1" baseRdb
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
         T2 () _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
             initialPayloadState v cid
@@ -307,7 +309,7 @@ payloadFailureShouldPayAllGasToTheMiner baseRdb = runResourceT $ do
                         }
                     let gasToMiner = 2 * 1_000 -- gasPrice * gasLimit
                     let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
-                    commandResult <- applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                    commandResult <- throwIfError $ applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
 
                     -- TODO: Replace this with predicate-transformers once we have the necessary prisms
                     case _crResult commandResult of
@@ -341,6 +343,71 @@ payloadFailureShouldPayAllGasToTheMiner baseRdb = runResourceT $ do
                     assertEqual "miner balance after payload failure" (Just $ fromMaybe 0 startMinerBal + gasToMiner) endMinerBal
         return ()
 
+payloadFailureShouldPayAllGasToTheMinerInsufficientFunds :: RocksDb -> IO ()
+payloadFailureShouldPayAllGasToTheMinerInsufficientFunds baseRdb = runResourceT $ do
+    sql <- withTempSQLiteResource
+    liftIO $ do
+        cp <- initCheckpointer v cid sql
+        tdb <- mkTestBlockDb v =<< testRocksDb "payloadFailureShouldPayAllGasToTheMiner1" baseRdb
+        bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
+        T2 () _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+            initialPayloadState v cid
+            (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader (gh v cid)) $ do
+                db <- view psBlockDbEnv
+                liftIO $ do
+                    pactDb <- assertDynamicPact5Db (_cpPactDbEnv db)
+                    startSender00Bal <- readBal pactDb "sender00"
+                    assertEqual "starting balance" (Just 100_000_000) startSender00Bal
+                    startMinerBal <- readBal pactDb "NoMiner"
+
+                    cmd <- buildCwCmd "nonce" v defaultCmd
+                        { _cbRPC = mkExec' $ fromString $ "(coin.transfer \"sender00\" \"sender01\" " <> show (fromMaybe 0 startSender00Bal + 1) <> ".0 )"
+                        , _cbSigners =
+                            [ mkEd25519Signer' sender00
+                                [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
+                                , CapToken (QualifiedName "TRANSFER" coinModuleName) [PString "sender00", PString "sender01", PDecimal 1_000_000_000]
+                                ]
+                            ]
+                        , _cbSender = "sender00"
+                        , _cbChainId = cid
+                        , _cbGasPrice = GasPrice 2
+                        , _cbGasLimit = GasLimit (Gas 1000)
+                        }
+                    let gasToMiner = 2 * 1_000 -- gasPrice * gasLimit
+                    let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
+                    commandResult <- throwIfError $ applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+
+                    -- TODO: Replace this with predicate-transformers once we have the necessary prisms
+                    case _crResult commandResult of
+                      PactResultErr (TxPactError (PEUserRecoverableError (UserEnforceError "Insufficient funds") _ _)) -> do
+                        return ()
+                      r -> do
+                        assertFailure $ "Expected Insufficient funds error, but got: " ++ show r
+
+                    commandResult & satAll @(IO ()) @_
+                      [ pt _crEvents . soleElement $
+                          event
+                            (equals "TRANSFER")
+                            (equals [PString "sender00", PString "NoMiner", PDecimal 2000.0])
+                            (equals coinModuleName)
+                      , pt _crGas . equals $ Gas 1_000
+                      , pt _crLogs . soleElementOf _Just $
+                          PT.list
+                            [ satAll
+                              [ pt _txDomain . equals $ "USER_coin_coin-table"
+                              , pt _txKey . equals $ "sender00"
+                              ]
+                            , satAll
+                              [ pt _txDomain . equals $ "USER_coin_coin-table"
+                              , pt _txKey . equals $ "NoMiner"
+                              ]
+                            ]
+                      ]
+                    endSender00Bal <- readBal pactDb "sender00"
+                    assertEqual "sender balance after payload failure" (fmap (subtract gasToMiner) startSender00Bal) endSender00Bal
+                    endMinerBal <- readBal pactDb "NoMiner"
+                    assertEqual "miner balance after payload failure" (Just $ fromMaybe 0 startMinerBal + gasToMiner) endMinerBal
+        return ()
 
 runPayloadShouldReturnEvalResultRelatedToTheInputCommand :: RocksDb -> IO ()
 runPayloadShouldReturnEvalResultRelatedToTheInputCommand baseRdb = runResourceT $ do
@@ -478,7 +545,7 @@ applyCmdSpec baseRdb = runResourceT $ do
                         }
                     let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
                     let expectedGasConsumed = 159
-                    commandResult <- applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                    commandResult <- throwIfError $ applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
                     () <- commandResult & satAll
                         -- gas buy event
 
@@ -554,7 +621,7 @@ applyCmdVerifierSpec baseRdb = runResourceT $ do
                         , _cbGasLimit = GasLimit (Gas 70_000)
                         }
                       let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
-                      commandResult <- applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                      commandResult <- throwIfError $ applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
                       commandResult & satAll @(IO ()) @_
                         -- gas buy event
                         [ pt _crEvents $ PT.list
@@ -604,7 +671,7 @@ applyCmdVerifierSpec baseRdb = runResourceT $ do
                     do
                       cmd <- buildCwCmd "nonce" v baseCmd
                       let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
-                      commandResult <- applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                      commandResult <- throwIfError $ applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
                       case _crResult commandResult of
                         PactResultErr (TxPactError (PEUserRecoverableError userRecoverableError _ _)) -> do
                           assertEqual "verifier failure" userRecoverableError (VerifierFailure (VerifierName "allow") "not in transaction")
@@ -650,7 +717,7 @@ applyCmdVerifierSpec baseRdb = runResourceT $ do
                             ]
                         }
                       let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
-                      commandResult <- applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                      commandResult <- throwIfError $ applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
                       commandResult & satAll @(IO ()) @_
                         -- gas buy event
                         [ pt _crEvents $ PT.list
@@ -714,7 +781,7 @@ applyCmdFailureSpec baseRdb = runResourceT $ do
                         }
                     let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
                     let expectedGasConsumed = 500
-                    commandResult <- applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                    commandResult <- throwIfError $ applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
                     () <- commandResult & satAll
                         -- gas buy event
 
@@ -782,7 +849,7 @@ applyCmdCoinTransfer baseRdb = runResourceT $ do
                     let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
                     -- Note: if/when core changes gas prices, tweak here.
                     let expectedGasConsumed = 509
-                    commandResult <- applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                    commandResult <- throwIfError $ applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
                     () <- commandResult & satAll
                         -- gas buy event
                         [ pt _crEvents $ PT.list
@@ -952,7 +1019,7 @@ testLocalOnlyFailsOutsideOfLocal baseRdb = runResourceT $ do
                               assertFailure $ "Expected success, but got: " ++ show r
 
                           -- should fail in non-local
-                          crNonLocal <- applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                          crNonLocal <- throwIfError $ applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
                           case _crResult crNonLocal of
                             PactResultErr (TxPactError (PEExecutionError (OperationIsLocalOnly _) _ _)) -> do
                               return ()
@@ -985,3 +1052,8 @@ pactResultToEither :: PactResult err -> Either err PactValue
 pactResultToEither = \case
   PactResultOk pv -> Right pv
   PactResultErr err -> Left err
+
+throwIfError :: (Show e) => IO (Either e a) -> IO a
+throwIfError io = do
+  x <- io
+  Prelude.either (error . show) return x

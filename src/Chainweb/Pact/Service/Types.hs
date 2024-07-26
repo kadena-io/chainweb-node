@@ -62,6 +62,8 @@ module Chainweb.Pact.Service.Types
 
   , PactException(..)
   , PactExceptionTag(..)
+  , Pact5BuyGasError(..)
+  , Pact5GasPurchaseFailure(..)
   , GasPurchaseFailure(..)
   , pact4GasPurchaseFailureHash
   , pact5GasPurchaseFailureHash
@@ -137,6 +139,7 @@ import qualified Pact.Core.Builtin as Pact5
 import qualified Pact.Core.Info as Pact5
 import qualified Pact.Core.Names as Pact5
 import qualified Pact.Core.Evaluate as Pact5
+import qualified Pact.Core.Errors as Pact5
 
 -- internal chainweb modules
 
@@ -208,11 +211,21 @@ data PactServiceConfig = PactServiceConfig
     --   are persisted. Useful if you want to use PactService BlockTxHistory.
   } deriving (Eq,Show)
 
+data Pact5BuyGasError
+  = BuyGasPactError (Pact5.PactError Pact5.Info)
+  | BuyGasMultipleGasPayerCaps
+  deriving stock (Eq, Show)
+
+data Pact5GasPurchaseFailure
+  = BuyGasError Pact5BuyGasError
+  | PurchaseGasTxTooBigForGasLimit
+  | PurchaseGasUnknownPactError (Pact5.PactError Pact5.Info)
+  deriving stock (Eq, Show)
+
 data GasPurchaseFailure
   = Pact4GasPurchaseFailure TransactionHash PactError
-  | Pact5GasPurchaseFailure Pact5.RequestKey Text
-    deriving (Eq,Generic)
--- instance Show GasPurchaseFailure where show = unpack . J.encodeText
+  | Pact5GasPurchaseFailure Pact5.RequestKey Pact5GasPurchaseFailure
+  deriving (Eq, Show)
 
 instance J.Encode GasPurchaseFailure where
     build (Pact4GasPurchaseFailure h e) = J.build (J.Array (h, e))
