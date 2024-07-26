@@ -62,10 +62,12 @@ module Chainweb.Pact.Service.Types
 
   , PactException(..)
   , PactExceptionTag(..)
+  , Pact5CoinbaseError(..)
   , Pact5BuyGasError(..)
   , Pact5RedeemGasError(..)
   , Pact5GasPurchaseFailure(..)
   , GasPurchaseFailure(..)
+  , CoinbaseFailure(..)
   , pact4GasPurchaseFailureHash
   , pact5GasPurchaseFailureHash
   , SpvRequest(..)
@@ -114,7 +116,8 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as M
 import qualified Data.List.NonEmpty as NE
-import Data.Text (Text, unpack)
+import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Vector (Vector)
 import Data.Word (Word64)
@@ -212,28 +215,53 @@ data PactServiceConfig = PactServiceConfig
     --   are persisted. Useful if you want to use PactService BlockTxHistory.
   } deriving (Eq,Show)
 
+data CoinbaseFailure
+  = Pact4CoinbaseFailure !Text
+  | Pact5CoinbaseFailure !Pact5CoinbaseError
+
+instance J.Encode CoinbaseFailure where
+  build = \case
+    Pact4CoinbaseFailure e -> J.build e
+    Pact5CoinbaseFailure e -> J.build e
+
+data Pact5CoinbaseError
+  = CoinbasePactError !(Pact5.PactError Pact5.Info)
+  | CoinbaseUnknownError !(Pact5.PactError Pact5.Info)
+  deriving stock (Eq, Show)
+
+instance J.Encode Pact5CoinbaseError where
+  build = \case
+    CoinbasePactError e -> J.object
+      [ "tag" J..= ("CoinbasePactError" :: Text)
+      , "contents" J..= (T.pack (displayException e))
+      ]
+    CoinbaseUnknownError e -> J.object
+      [ "tag" J..= ("CoinbaseUnknownError" :: Text)
+      , "contents" J..= (T.pack (displayException e))
+      ]
+
 data Pact5RedeemGasError
-  = RedeemGasPactError (Pact5.PactError Pact5.Info)
+  = RedeemGasPactError !(Pact5.PactError Pact5.Info)
     -- ^ Expected pact error
-  | RedeemGasUnknownError (Pact5.PactError Pact5.Info)
+  | RedeemGasUnknownError !(Pact5.PactError Pact5.Info)
     -- ^ Unexpected pact error due to programmer error
   deriving stock (Eq, Show)
 
 data Pact5BuyGasError
-  = BuyGasPactError (Pact5.PactError Pact5.Info)
+  = BuyGasPactError !(Pact5.PactError Pact5.Info)
   | BuyGasMultipleGasPayerCaps
   deriving stock (Eq, Show)
 
 data Pact5GasPurchaseFailure
-  = BuyGasError Pact5BuyGasError
-  | RedeemGasError Pact5RedeemGasError
+  = BuyGasError !Pact5BuyGasError
+  | RedeemGasError !Pact5RedeemGasError
   | PurchaseGasTxTooBigForGasLimit
-  | PurchaseGasUnknownPactError (Pact5.PactError Pact5.Info)
+  | PurchaseGasUnknownPactError !(Pact5.PactError Pact5.Info)
   deriving stock (Eq, Show)
 
 data GasPurchaseFailure
-  = Pact4GasPurchaseFailure TransactionHash PactError
-  | Pact5GasPurchaseFailure Pact5.RequestKey Pact5GasPurchaseFailure
+  = Pact4GasPurchaseFailure !TransactionHash !PactError
+  | Pact5GasPurchaseFailure !Pact5.RequestKey !Pact5GasPurchaseFailure
   deriving (Eq, Show)
 
 instance J.Encode GasPurchaseFailure where
@@ -330,7 +358,7 @@ data PactException
   -- TODO: use this CallStack in the Show instance somehow, or the displayException impl.
   | PactInternalError !CallStack !Text
   | PactTransactionExecError !PactHash !Text
-  | CoinbaseFailure !Text
+  | CoinbaseFailure !CoinbaseFailure
   | NoBlockValidatedYet
   | TransactionValidationException ![(PactHash, Text)]
   | PactDuplicateTableError !Text
@@ -351,10 +379,11 @@ data PactException
     { _earliestBlockHeight :: !BlockHeight
     , _genesisHeight :: !BlockHeight
     }
-  deriving stock Generic
+  deriving stock (Generic)
+  deriving anyclass (Exception)
 
 instance Show PactException where
-    show = unpack . J.encodeText
+    show = T.unpack . J.encodeText
 
 instance J.Encode PactException where
   build (BlockValidationFailure msg) = tagged "BlockValidationFailure" msg
@@ -384,8 +413,6 @@ tagged t v = J.object
     [ "tag" J..= t
     , "contents" J..= v
     ]
-
-instance Exception PactException
 
 -- | Used in tests for matching on JSON serialized pact exceptions
 --

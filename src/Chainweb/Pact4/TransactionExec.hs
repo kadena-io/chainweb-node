@@ -560,7 +560,7 @@ applyCoinbase v logger dbEnv reward@(ParsedDecimal d) txCtx
   (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
   | fork1_3InEffect || enablePC = do
     when chainweb213Pact' $ enforceKeyFormats
-        (\k -> throwM $ CoinbaseFailure $ "Invalid miner key: " <> sshow k)
+        (\k -> throwM $ CoinbaseFailure $ Pact4CoinbaseFailure $ "Invalid miner key: " <> sshow k)
         (validKeyFormats v (ctxChainId txCtx) (ctxCurrentBlockHeight txCtx))
         mk
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
@@ -600,7 +600,7 @@ applyCoinbase v logger dbEnv reward@(ParsedDecimal d) txCtx
 
       case cr of
         Left e
-          | throwCritical -> throwM $ CoinbaseFailure $ sshow e
+          | throwCritical -> throwM $ CoinbaseFailure $ Pact4CoinbaseFailure $ sshow e
           | otherwise -> (`T2` Nothing) <$> failTxWith e "coinbase tx failure"
         Right er -> do
           debug

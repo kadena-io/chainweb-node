@@ -14,8 +14,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DataKinds #-}
 
--- {-# LANGUAGE PartialTypeSignatures #-}
--- {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
@@ -505,7 +505,7 @@ applyCoinbase
       -- ^ Miner reward
     -> TxContext
       -- ^ tx metadata and parent header
-    -> IO (CommandResult [TxLog ByteString] Void)
+    -> IO (Either Pact5CoinbaseError (CommandResult [TxLog ByteString] Void))
 applyCoinbase logger pact5Db reward txCtx = do
   -- for some reason this is the base64-encoded hash, rather than the binary hash
   let coinbaseHash = Hash $ SB.toShort $ T.encodeUtf8 $ blockHashToText parentBlockHash
@@ -514,9 +514,8 @@ applyCoinbase logger pact5Db reward txCtx = do
   -- we construct the coinbase term and evaluate it
   let
     (coinbaseTerm, coinbaseData) = mkCoinbaseTerm mid mks reward
-  coinbaseTxResult <-
-    either (throwM . CoinbaseFailure . sshow) return . join =<< catchesPact5Error logger
-    (evalExec Transactional
+  eCoinbaseTxResult <- catchesPact5Error logger $ do
+    evalExec Transactional
       pact5Db noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) managedNamespacePolicy
       (ctxToPublicData def txCtx)
       MsgData
@@ -529,19 +528,24 @@ applyCoinbase logger pact5Db reward txCtx = do
       (def & csSlots .~ [CapSlot (coinCap "COINBASE" []) []])
       -- TODO: better info here might be very valuable for debugging
       [ def <$ TLTerm coinbaseTerm ]
-    )
-
-  return CommandResult
-    { _crReqKey = RequestKey coinbaseHash
-    , _crTxId = _erTxId coinbaseTxResult
-    , _crResult =
-      PactResultOk $ compileValueToPactValue $ last $ _erOutput coinbaseTxResult
-    , _crGas = _erGas coinbaseTxResult
-    , _crLogs = Just $ _erLogs coinbaseTxResult
-    , _crContinuation = _erExec coinbaseTxResult
-    , _crMetaData = Nothing
-    , _crEvents = _erEvents coinbaseTxResult
-    }
+  case eCoinbaseTxResult of
+    Left unknownPactError -> do
+      pure $ Left $ CoinbaseUnknownError unknownPactError
+    Right (Left err) -> do
+      pure $ Left $ CoinbasePactError err
+    Right (Right coinbaseTxResult) -> do
+      return $ Right $ CommandResult
+        { _crReqKey = RequestKey coinbaseHash
+        , _crTxId = _erTxId coinbaseTxResult
+        , _crResult =
+          -- TODO: don't use `last` for GHC 9.10 compat
+          PactResultOk $ compileValueToPactValue $ last $ _erOutput coinbaseTxResult
+        , _crGas = _erGas coinbaseTxResult
+        , _crLogs = Just $ _erLogs coinbaseTxResult
+        , _crContinuation = _erExec coinbaseTxResult
+        , _crMetaData = Nothing
+        , _crEvents = _erEvents coinbaseTxResult
+        }
 
   where
   parentBlockHash = view blockHash $ _parentHeader $ _tcParentHeader txCtx

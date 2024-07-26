@@ -65,8 +65,8 @@ runPact5Coinbase
     :: (Logger logger)
     => Bool
     -> Miner
-    -> PactBlockM logger Pact5Db tbl (Pact5.CommandResult [Pact5.TxLog ByteString] Void)
-runPact5Coinbase True _ = return noCoinbase
+    -> PactBlockM logger Pact5Db tbl (Either Pact5CoinbaseError (Pact5.CommandResult [Pact5.TxLog ByteString] Void))
+runPact5Coinbase True _ = return (Right noCoinbase)
 runPact5Coinbase False miner = do
     logger <- view (psServiceEnv . psLogger)
     rs <- view (psServiceEnv . psMinerRewards)
@@ -78,9 +78,7 @@ runPact5Coinbase False miner = do
     reward <- liftIO $! minerReward v rs bh
     pactDb <- view (psBlockDbEnv . cpPactDbEnv)
 
-    !cr <- liftIO $ Pact5.applyCoinbase logger pactDb reward txCtx
-    return cr
-
+    liftIO $ Pact5.applyCoinbase logger pactDb reward txCtx
   where
     upgradeInitCache newCache = do
       liftPactServiceM $ logInfo "Updating init cache for upgrade"
