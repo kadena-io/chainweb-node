@@ -140,6 +140,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
     , testCase "applyCmd coin.transfer" (applyCmdCoinTransfer baseRdb)
     , testCase "applyCoinbase spec" (applyCoinbaseSpec baseRdb)
     , testCase "test coin upgrade" (testCoinUpgrade baseRdb)
+    , testCase "test local only fails outside of local" (testLocalOnlyFailsOutsideOfLocal baseRdb)
     ]
 
 
@@ -845,6 +846,46 @@ testCoinUpgrade baseRdb = runResourceT $ do
 
                     assertEqual "coin ModuleHash before upgrades" coinModuleHashBeforeUpgrades "wOTjNC3gtOAjqgCY8S9hQ-LBiwcPUE7j4iBDE0TmdJo"
                     assertEqual "coin ModuleHash after  upgrades" coinModuleHashAfterUpgrades  "DFsR46Z3vJzwyd68i0MuxIF0JxZ_OJfIaMyFFgAyI4w"
+        pure ()
+    pure ()
+
+testLocalOnlyFailsOutsideOfLocal :: RocksDb -> IO ()
+testLocalOnlyFailsOutsideOfLocal baseRdb = runResourceT $ do
+    sql <- withTempSQLiteResource
+    liftIO $ do
+        cp <- initCheckpointer v cid sql
+        tdb <- mkTestBlockDb v =<< testRocksDb "testLocalOnlyFailsOutsideOfLocal" baseRdb
+        bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
+        T2 () _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+            initialPayloadState v cid
+            (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader (gh v cid)) $ do
+                db <- view psBlockDbEnv
+                liftIO $ do
+                    pactDb <- assertDynamicPact5Db (_cpPactDbEnv db)
+
+                    let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
+
+                    let testLocalOnly txt = do
+                          cmd <- buildCwCmd "nonce" v defaultCmd
+                            { _cbRPC = mkExec' txt
+                            , _cbSigners =
+                                  [ mkEd25519Signer' sender00 [CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []]
+                                  ]
+                            , _cbSender = "sender00"
+                            , _cbChainId = cid
+                            , _cbGasPrice = GasPrice 2
+                            , _cbGasLimit = GasLimit (Gas 200_000)
+                            }
+                          commandResult <- applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (_payloadObj <$> cmd) (Gas 1)
+                          case _crResult commandResult of
+                            PactResultErr (TxPactError (PEExecutionError (OperationIsLocalOnly _) _ _)) -> do
+                              return ()
+                            r -> do
+                              assertFailure $ "Expected OperationIsLocalOnly error, but got: " ++ show r
+
+                    testLocalOnly "(at 'hash (describe-module 'coin))"
+                    --testLocalOnly "(txids \"coin.coin-table\" 0)"
+
         pure ()
     pure ()
 
