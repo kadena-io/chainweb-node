@@ -1,2 +1,0 @@
-Fix a performance bug in read-only replay which was not using a cache
-for module data
