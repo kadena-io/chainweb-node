@@ -169,7 +169,10 @@ emptyChainwebServerDbs = ChainwebServerDbs
 -- -------------------------------------------------------------------------- --
 -- Component Triggers
 
-newtype Rosetta = Rosetta Bool
+data Rosetta = Rosetta
+    { _rosettaDefault :: {-# UNPACK #-} !Bool
+    , _rosettaConstructionApi :: {-# UNPACK #-} !Bool
+    }
 
 newtype HeaderStream = HeaderStream Bool
 
@@ -373,16 +376,22 @@ someServiceApiServer
     -> Maybe (BackupEnv logger)
     -> PayloadBatchLimit
     -> SomeServer
-someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r) backupEnv pbl =
+someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r rc) backupEnv pbl =
     someHealthCheckServer
     <> maybe mempty (someBackupServer v) backupEnv
     <> maybe mempty (someNodeInfoServer v) cuts
     <> PactAPI.somePactServers v pacts
     <> maybe mempty (Mining.someMiningServer v) mr
     <> maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
-        -- TODO: not sure if passing the correct PeerDb here
-        -- TODO: why does Rosetta need a peer db at all?
-        -- TODO: simplify number of resources passing to rosetta
+    <> maybe mempty
+        (\cdb -> bool
+            -- if rosetta is enabled but the construction API is disabled the server
+            -- returns a failure with a descriptive failure message instead of 404.
+            (bool mempty (someRosettaConstructionDeprecationServer v) r)
+            (someRosettaConstructionServer v concreteMs concretePacts cdb)
+            rc
+        )
+        cuts
     -- <> maybe mempty (someSpvServers v) cuts -- AFAIK currently not used
 
     -- GET Cut, Payload, and Headers endpoints

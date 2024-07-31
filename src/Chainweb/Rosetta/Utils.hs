@@ -1104,6 +1104,7 @@ data RosettaFailure
     | RosettaInvalidSignature
     | RosettaInvalidAccountProvided
     | RosettaInvalidKAccount
+    | RosettaConstructionApiDeprecated
     deriving (Show, Enum, Bounded, Eq)
 
 
@@ -1145,6 +1146,7 @@ rosettaError RosettaInvalidPublicKey = RosettaError 31 "Invalid PublicKey" False
 rosettaError RosettaInvalidSignature = RosettaError 32 "Invalid Signature" False
 rosettaError RosettaInvalidAccountProvided = RosettaError 33 "Invalid Account was provided" False
 rosettaError RosettaInvalidKAccount = RosettaError 34 "Invalid k:Account" False
+rosettaError RosettaConstructionApiDeprecated = RosettaError 35 "The construction API is deprecated. It is disabled by default and can be enabled via the 'rosettaConstructionApi' configuration flag" False
 
 rosettaError' :: RosettaFailure -> RosettaError
 rosettaError' f = rosettaError f Nothing
