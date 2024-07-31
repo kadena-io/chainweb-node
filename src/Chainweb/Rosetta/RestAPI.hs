@@ -16,6 +16,8 @@ module Chainweb.Rosetta.RestAPI
   ( -- * Endpoints
     RosettaApi
   , rosettaApi
+  , RosettaConstructionApi
+  , rosettaConstructionApi
     -- * Standalone APIs for client derivation
   , RosettaAccountBalanceApi
   , rosettaAccountBalanceApi
@@ -82,15 +84,6 @@ type RosettaApi_ = "rosetta" :>
       -- Blocks --
     :<|> RosettaBlockTransactionApi_
     :<|> RosettaBlockApi_
-      -- Construction --
-    :<|> RosettaConstructionDeriveApi_
-    :<|> RosettaConstructionPreprocessApi_
-    :<|> RosettaConstructionMetadataApi_
-    :<|> RosettaConstructionPayloadsApi_
-    :<|> RosettaConstructionParseApi_
-    :<|> RosettaConstructionCombineApi_
-    :<|> RosettaConstructionHashApi_
-    :<|> RosettaConstructionSubmitApi_
       -- Mempool --
     :<|> RosettaMempoolTransactionApi_
     :<|> RosettaMempoolApi_
@@ -104,6 +97,27 @@ rosettaApi
     :: forall (v :: ChainwebVersionT)
     . Proxy (RosettaApi v)
 rosettaApi = Proxy
+
+-- ------------------------------------------------------------------ --
+-- Rosetta Construction Api
+
+type RosettaConstructionApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> Reassoc RosettaConstructionApi_
+
+type RosettaConstructionApi_ = "rosetta" :>
+    ( RosettaConstructionDeriveApi_
+    :<|> RosettaConstructionPreprocessApi_
+    :<|> RosettaConstructionMetadataApi_
+    :<|> RosettaConstructionPayloadsApi_
+    :<|> RosettaConstructionParseApi_
+    :<|> RosettaConstructionCombineApi_
+    :<|> RosettaConstructionHashApi_
+    :<|> RosettaConstructionSubmitApi_
+    )
+
+rosettaConstructionApi
+    :: forall (v :: ChainwebVersionT)
+    . Proxy (RosettaConstructionApi v)
+rosettaConstructionApi = Proxy
 
 -- ------------------------------------------------------------------ --
 -- Standalone Endpoints + Witnesses
