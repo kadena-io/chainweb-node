@@ -255,7 +255,7 @@ doNextCoinbase iobdb = do
       let prevH' = _blockInProgressParentHeader bip
       let pwo = blockInProgressToPayloadWithOutputs bip
       liftIO $ ParentHeader prevH @?= prevH'
-      void $ liftIO $ addTestBlockDb bdb (succ $ _blockHeight prevH) (Nonce 0) (offsetBlockTime second) testChainId pwo
+      void $ liftIO $ addTestBlockDb bdb (succ $ view blockHeight prevH) (Nonce 0) (offsetBlockTime second) testChainId pwo
       nextH <- liftIO $ getParentTestBlockDb bdb testChainId
       (valPWO, _g) <- execValidateBlock mempty nextH (CheckablePayloadWithOutputs pwo)
       return (nextH, valPWO)
@@ -265,8 +265,7 @@ doNextCoinbaseN_
     => Int
     -> IO TestBlockDb
     -> PactServiceM logger cas (BlockHeader, PayloadWithOutputs)
-doNextCoinbaseN_ n iobdb = fmap last $ forM [1..n] $ \_ ->
-    doNextCoinbase iobdb
+doNextCoinbaseN_ n iobdb = fmap last $ replicateM n $ doNextCoinbase iobdb
 
 -- | Interfaces can't be upgraded, but modules can, so verify hash in that case.
 justModuleHashes :: ModuleInitCache -> HM.HashMap ModuleName (Maybe ModuleHash)

@@ -89,7 +89,8 @@ import Chainweb.ChainId
 import Chainweb.Chainweb.Configuration
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool
-import Chainweb.Pact.Backend.Compaction qualified as C
+import Chainweb.Pact.Backend.Compaction qualified as Sigma
+import Chainweb.Pact.Backend.PactState (getLatestBlockHeight)
 import Chainweb.Pact.Backend.Utils qualified as Backend
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.EthSpv
@@ -231,7 +232,7 @@ txlogsCompactionTest rdb = runResourceT $ do
     -- we are dealing with both submitting /local txs
     -- and compaction, so picking an arbitrary node
     -- to run these two operations on is fine.
-    let pactDir = nodePactDbDir (head nodeDbDirs)
+    let srcPactDir = nodePactDbDir (head nodeDbDirs)
     iot <- liftIO $ toTxCreationTime @Integer <$> getCurrentTimeIntegral
     let cmd :: Text -> CmdBuilder
         cmd tx = do
@@ -307,16 +308,17 @@ txlogsCompactionTest rdb = runResourceT $ do
       liftIO $ submitAndCheckTx cenv =<< createWriteTx =<< nextNonce
 
     -- phase 2: compact
-    liftIO $ C.withDefaultLogger Error $ \logger -> do
-      let flags = [C.NoVacuum]
-      let resetDb = False
+    targetPactDir <- withPactDir 0
+    liftIO $ Sigma.withDefaultLogger Error $ \logger -> do
+      Backend.withSqliteDb cid logger srcPactDir False $ \srcDb -> do
+        Backend.withSqliteDb cid logger targetPactDir False $ \targetDb -> do
+          sigmaCompact srcDb targetDb =<< getLatestBlockHeight srcDb
 
-      Backend.withSqliteDb cid logger pactDir resetDb $ \dbEnv ->
-        compactUntilAvailable C.LatestUnsafe logger dbEnv flags
+    let newNodeDbDirs = (head nodeDbDirs) { nodePactDbDir = targetPactDir } : tail nodeDbDirs
 
     -- phase 3: restart nodes, query txlogs
     liftIO $ runResourceT $ do
-      net <- withNodesAtLatestBehavior v (configFullHistoricPactState .~ False) nodeDbDirs
+      net <- withNodesAtLatestBehavior v (configFullHistoricPactState .~ False) newNodeDbDirs
       let cenv = _getServiceClientEnv net
 
       let createTxLogsTx :: Word -> IO (Command Text)
@@ -357,8 +359,8 @@ txlogsCompactionTest rdb = runResourceT $ do
       txLogs <- liftIO $ crGetTxLogs =<< local v cid cenv =<< createTxLogsTx =<< nextNonce
 
       let getLatestState :: IO (M.Map RowKey RowData)
-          getLatestState = C.withDefaultLogger Error $ \logger -> do
-            Backend.withSqliteDb cid logger pactDir False $ \db -> do
+          getLatestState = Sigma.withDefaultLogger Error $ \logger -> do
+            Backend.withSqliteDb cid logger targetPactDir False $ \db -> do
               st <- Utils.getLatestPactState db
               case M.lookup "free.m0_persons" st of
                 Just ps -> fmap M.fromList $ forM (M.toList ps) $ \(rkBytes, rdBytes) -> do
@@ -373,8 +375,8 @@ txlogsCompactionTest rdb = runResourceT $ do
       latestState <- liftIO getLatestState
       liftIO $ assertEqual
         "txlogs match latest state"
-        (map (\(rk, rd) -> (rk, J.toJsonViaEncode (_rdData rd))) (M.toList latestState))
-        txLogs
+        (map (\(rk, rd) -> (rk, J.toJsonViaEncode (_rdData rd))) (M.toAscList latestState))
+        (L.sort txLogs)
 
 localTest :: Pact.TxCreationTime -> ClientEnv -> IO ()
 localTest t cenv = do

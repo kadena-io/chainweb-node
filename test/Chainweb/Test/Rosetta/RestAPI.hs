@@ -6,6 +6,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Chainweb.Test.Rosetta.RestAPI
 ( tests
@@ -18,7 +19,6 @@ import Control.Monad.IO.Class
 
 import qualified Data.Aeson as A
 import qualified Data.Aeson.KeyMap as KM
-import qualified Data.ByteString.Short as BS
 import Data.Decimal
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
@@ -37,15 +37,8 @@ import Test.Tasty.HUnit
 
 -- internal pact modules
 
-import qualified Pact.JSON.Encode as J
 import Pact.Types.API
 import Pact.Types.Command
-
-import qualified Pact.Types.Runtime as P
-import qualified Pact.Types.Command as P
-import qualified Pact.ApiReq as P
-import qualified Pact.Types.Crypto as P
-import qualified Pact.Types.PactValue as P
 
 -- internal chainweb modules
 
@@ -70,6 +63,7 @@ import Chainweb.Storage.Table.RocksDB
 import Rosetta
 
 import System.IO.Unsafe (unsafePerformIO)
+import Chainweb.Rosetta.RestAPI.Client (rosettaConstructionDeriveApiClient)
 
 
 -- -------------------------------------------------------------------------- --
@@ -113,13 +107,23 @@ type RosettaTest = IO (Time Micros) -> IO ClientEnv -> TestTree
 -- Test Tree
 
 tests :: RocksDb -> TestTree
-tests rdb = testGroup "Chainweb.Test.Rosetta.RestAPI" go
-  where
-    go = return $
-      withResourceT (withNodeDbDirs rdb nodes) $ \dbdirs ->
-      withResourceT (withNodesAtLatestBehavior v (configRosetta .~ True) =<< liftIO dbdirs) $ \envIo ->
-      withResource' getCurrentTimeIntegral $ \tio -> independentSequentialTestGroup "Rosetta Api tests" $
+tests rdb = testGroup "Chainweb.Test.Rosetta.RestAPI"
+    [ rosettaTests rdb
+    , constructionApiTests rdb
+    ]
+
+-- -------------------------------------------------------------------------- --
+-- General Rosetta Tests (construction API disabled)
+
+rosettaTests :: RocksDb -> TestTree
+rosettaTests rdb =
+    withResourceT (withNodeDbDirs rdb nodes) $ \dbdirs ->
+    withResourceT (withNodesAtLatestBehavior v mkConfig =<< liftIO dbdirs) $ \envIo ->
+    withResource' getCurrentTimeIntegral $ \tio ->
+    independentSequentialTestGroup "Rosetta Api tests" $
         tgroup tio $ _getServiceClientEnv <$> envIo
+  where
+    mkConfig = configRosetta .~ True
 
     -- Not supported:
     --
@@ -144,8 +148,8 @@ tests rdb = testGroup "Chainweb.Test.Rosetta.RestAPI" go
       , networkOptionsTests
       , networkStatusTests
       , blockKAccountAfterPact42
-      , constructionTransferTests
       , blockCoinV3RemediationTests
+      , constructionApiDeprecationTest
       ]
 
 -- | Rosetta account balance endpoint tests
@@ -420,204 +424,6 @@ blockCoinV3RemediationTests _ envIo =
     bhCoinV3Rem = v ^?! versionForks . at Pact4Coin3 . _Just . onChain cid . _ForkAtBlockHeight . to getBlockHeight
     req h = BlockReq nid $ PartialBlockId (Just h) Nothing
 
--- | Rosetta construction endpoints tests (i.e. tx formatting and submission)
--- for a transfer tx.
---
-constructionTransferTests :: RosettaTest
-constructionTransferTests _ envIo =
-  testCaseSteps "Construction Flow Tests" $ \step -> do
-    cenv <- envIo
-    let submitToConstructionAPI' ops cid' res =
-          submitToConstructionAPI ops cid' sender00KAcct getKeys res cenv step
-
-    step "--- TRANSFER TO A NEW k ACCOUNT ---"
-    void $ do
-      let netId = nid
-            { _networkId_subNetworkId = Just (SubNetworkId (chainIdToText cid) Nothing) }
-      step "derive k account name and ownership"
-      let rosettaPubKeySender01 = RosettaPublicKey (fst sender01) CurveEdwards25519
-          deriveReq = ConstructionDeriveReq netId rosettaPubKeySender01 Nothing
-      (ConstructionDeriveResp _ (Just (AccountId acctAddr _ _)) (Just deriveRespMeta)) <-
-        constructionDerive v cenv deriveReq
-
-      Right (DeriveRespMetaData toGuardSender01) <- pure $ extractMetaData deriveRespMeta
-      let toAcct1 = acctAddr
-          amt1 = 2.0
-          fromAcct1 = sender00KAcct
-          fromGuard1 = ks sender00ks
-          ops1 = [ mkOp toAcct1 amt1 toGuardSender01 1 []
-                 , mkOp fromAcct1 (negate amt1) fromGuard1 2 [1] ]
-          res1 = P.PLiteral $ P.LString "Write succeeded"
-      submitToConstructionAPI' ops1 cid res1
-
-    step "--- TRANSFER TO EXISTING k ACCOUNT ---"
-    void $ do
-      let toAcct2 = sender01KAcct
-          toGuard2 = ks sender01ks
-          amt2 = 1.0
-          fromAcct2 = sender00KAcct
-          fromGuard2 = ks sender00ks
-          ops2 = [ mkOp toAcct2 amt2 toGuard2 1 []
-                 , mkOp fromAcct2 (negate amt2) fromGuard2 2 [1]]
-          res2 = P.PLiteral $ P.LString "Write succeeded"
-      submitToConstructionAPI' ops2 cid res2
-
-    step "--- TRANSFER FROM NEWLY CREATED k ACCOUNT AGAIN ---"
-    void $ do
-      let toAcct3 = sender00KAcct
-          toGuard3 = ks sender00ks
-          amt3 = 1.0
-          fromAcct3 = sender01KAcct
-          fromGuard3 = ks sender01ks
-          -- NOTE: In this case, the negate amount operation occurs first.
-          -- The Rosetta validation doesn't care about the exact operation order,
-          -- so this test shouldn't either.
-          ops3 = [ mkOp fromAcct3 (negate amt3) fromGuard3 1 []
-                  , mkOp toAcct3 amt3 toGuard3 2 [1]]
-          res3 = P.PLiteral $ P.LString "Write succeeded"
-      submitToConstructionAPI' ops3 cid res3
-
-  where
-    mkOp name delta guard idx related =
-      operation Successful
-                TransferOrCreateAcct
-                (toAcctLog name delta guard)
-                idx
-                (map (`OperationId` Nothing) related)
-
-    toAcctLog name delta guard = AccountLog
-      { _accountLogKey = name
-      , _accountLogBalanceDelta = BalanceDelta delta
-      , _accountLogCurrGuard = J.toJsonViaEncode guard
-      , _accountLogPrevGuard = J.toJsonViaEncode guard
-      }
-
-    ks (TestKeySet _ Nothing pred') = P.mkKeySet [] pred'
-    ks (TestKeySet _ (Just (pk,_)) pred') =
-      P.mkKeySet [P.PublicKeyText pk] pred'
-
-    sender00KAcct = "k:" <> fst sender00
-    sender01KAcct = "k:" <> fst sender01
-
-    getKeys "sender00" = Just sender00
-    getKeys "sender01" = Just sender01
-    getKeys acct
-      | acct == sender00KAcct = Just sender00
-      | acct == sender01KAcct = Just sender01
-    getKeys _ = Nothing
-
-submitToConstructionAPI
-    :: [Operation]
-    -> ChainId
-    -> Text
-    -> (Text -> Maybe SimpleKeyPair)
-    -> P.PactValue
-    -> ClientEnv
-    -> (String -> IO ())
-    -> IO RequestKey
-submitToConstructionAPI expectOps chainId' payer getKeys expectResult cenv step = do
-  step "preprocess intended operations"
-  let preMeta = PreprocessReqMetaData (acct payer) Nothing
-      preReq = ConstructionPreprocessReq netId expectOps (Just $! toObject preMeta)
-               Nothing Nothing
-
-  (ConstructionPreprocessResp (Just preRespMetaObj) (Just reqAccts)) <-
-    constructionPreprocess v cenv preReq
-
-  step "feed preprocessed tx into metadata endpoint"
-  let opts = preRespMetaObj
-      pubKeys = concatMap toRosettaPk reqAccts
-      metaReq = ConstructionMetadataReq netId opts (Just pubKeys)
-
-  (ConstructionMetadataResp payloadMeta _) <- constructionMetadata v cenv metaReq
-
-  step "feed metadata to get payload"
-  let payloadReq = ConstructionPayloadsReq netId expectOps (Just payloadMeta) (Just pubKeys)
-  ConstructionPayloadsResp unsigned payloads <- constructionPayloads v cenv payloadReq
-
-  step "parse unsigned tx"
-  let parseReqUnsigned = ConstructionParseReq netId False unsigned
-  _ <- constructionParse v cenv parseReqUnsigned
-
-  step "combine tx signatures"
-  sigs <- mapM sign payloads
-  let combineReq = ConstructionCombineReq netId unsigned sigs
-  ConstructionCombineResp signed <- constructionCombine v cenv combineReq
-
-  step "parse signed tx"
-  let parseReqSigned = ConstructionParseReq netId True signed
-  _ <- constructionParse v cenv parseReqSigned
-
-  step "get hash (request key) of tx"
-  let hshReq = ConstructionHashReq netId signed
-  (TransactionIdResp (TransactionId tid) _) <- constructionHash v cenv hshReq
-  Right rk <- pure $ P.fromText' tid
-
-  step "run tx locally"
-  Just (EnrichedCommand cmd _ _) <- pure $ textToEnrichedCommand signed
-  crDryRun <- local v chainId' cenv cmd
-  isCorrectResult rk crDryRun
-
-  step "submit tx to blockchain"
-  let submitReq = ConstructionSubmitReq netId signed
-  _ <- constructionSubmit v cenv submitReq
-
-  step "confirm transaction details via poll"
-  PollResponses prs <- polling v cid cenv (RequestKeys $ pure rk) ExpectPactResult
-  case HM.lookup rk prs of
-    Nothing -> assertFailure $ "unable to find poll response for: " <> show rk
-    Just cr -> isCorrectResult rk cr
-
-  step "confirm that intended operations occurred"
-  cmdMeta <- KM.toMap <$> extractMetadata rk (PollResponses prs)
-  bheight <- cmdMeta ^?! mix "blockHeight"
-  bhash <- cmdMeta ^?! mix "blockHash"
-  let blockTxReq = BlockTransactionReq netId (BlockId bheight bhash) (TransactionId tid)
-  BlockTransactionResp (Transaction _ ops _) <- blockTransaction v cenv blockTxReq
-  let actualOps = filter (\o -> _operation_type o == "TransferOrCreateAcct") ops
-
-  step "confirm that the tx has the same number of TransferOrCreateAcct operations"
-  length actualOps @?= length expectOps
-  mapM_ (\(actual, expected) -> actual @?= expected) (zip actualOps expectOps)
-
-  pure rk
-
-  where
-
-    isCorrectResult rk cr = do
-      _crReqKey cr @?= rk
-      _crResult cr @?= PactResult (Right expectResult)
-
-    toRosettaPk (AccountId n _ _) = case getKeys n of
-      Nothing -> []
-      Just (pk,_) -> [ RosettaPublicKey pk CurveEdwards25519 ]
-
-    sign payload = do
-      Just a <- pure $ _rosettaSigningPayload_accountIdentifier payload
-      Just (pk,sk) <- pure $ getKeys $ _accountId_address a
-      Right sk' <- pure $ P.parseB16TextOnly sk
-      Right pk' <- pure $ P.parseB16TextOnly pk
-      let akps = P.ApiKeyPair (P.PrivBS sk') (Just $ P.PubBS pk')
-                 Nothing Nothing Nothing
-      [(DynEd25519KeyPair kp,_)] <- P.mkKeyPairs [akps]
-      (Right (hsh :: P.PactHash)) <- pure $ fmap
-        (P.fromUntypedHash . P.Hash . BS.toShort)
-        (P.parseB16TextOnly $ _rosettaSigningPayload_hexBytes payload)
-      let
-        sig = P.signHash hsh kp
-
-      pure $! RosettaSignature
-        { _rosettaSignature_signingPayload = payload
-        , _rosettaSignature_publicKey =
-            RosettaPublicKey pk CurveEdwards25519
-        , _rosettaSignature_signatureType = RosettaEd25519
-        , _rosettaSignature_hexBytes = sig
-        }
-
-    acct n = AccountId n Nothing Nothing
-    netId = nid
-      { _networkId_subNetworkId = Just (SubNetworkId (chainIdToText chainId') Nothing) }
-
 -- | Rosetta mempool endpoint tests
 --
 mempoolTests :: RosettaTest
@@ -708,6 +514,56 @@ networkStatusTests tio envIo =
     req = NetworkReq nid Nothing
 
     blockIdOf = _blockId_index . _networkStatusResp_currentBlockId
+
+-- | Test proper deprecation message when construction API is disabled
+--
+constructionApiDeprecationTest :: RosettaTest
+constructionApiDeprecationTest _ envIo =
+    testCaseSteps "Calling disabled construction Api results in failure" $ \step -> do
+        cenv <- envIo
+        step "rosetta API is enabled and ready to be used"
+        assertRosettaApi cenv
+        step "call construction API endpoint"
+        void $ callConstrunctionApi cenv >>= \case
+            Left (FailureResponse _ (Response { responseBody = x})) ->
+                case A.eitherDecode @(HM.HashMap String A.Value) x of
+                    Left e -> assertFailure $ "decoding of response failed: " <> e
+                    Right y -> case HM.lookup "code" y of
+                        Nothing -> assertFailure "decoding of response failed"
+                        Just c -> assertEqual "failure code is 35" (A.Number 35) c
+            Left e -> assertFailure $ "unexpected failure: " <> show e
+            Right t -> assertFailure $ "unexpected success: " <> show t
+
+-- -------------------------------------------------------------------------- --
+-- Construction API Tests
+
+-- | The implementation of the construction API is flaky and deprecated. We
+-- don't provide test coverage for its functionality. We only check whether it
+-- is enabled when the configuration requests it.
+--
+constructionApiTests :: RocksDb -> TestTree
+constructionApiTests rdb =
+    withResourceT (withNodeDbDirs rdb nodes) $ \dbdirs ->
+    withResourceT (withNodesAtLatestBehavior v mkConfig =<< liftIO dbdirs) $ \envIo ->
+
+    testCaseSteps "Construction API available" $ \step -> do
+        cenv <- _getServiceClientEnv <$> envIo
+        step "General Rosetta API is enabled and ready to be used"
+        assertRosettaApi cenv
+
+        step "call construction API endpoint"
+        void $ callConstrunctionApi cenv >>= \case
+            Right _ -> return ()
+            Left e -> assertFailure $ show e
+  where
+    mkConfig = (configRosetta .~ True) . (configRosettaConstructionApi .~ True)
+
+callConstrunctionApi :: ClientEnv -> IO (Either ClientError ConstructionDeriveResp)
+callConstrunctionApi = runClientM (rosettaConstructionDeriveApiClient v req)
+  where
+    netId = nid { _networkId_subNetworkId = Just (SubNetworkId (chainIdToText cid) Nothing) }
+    rosettaPubKeySender01 = RosettaPublicKey (fst sender01) CurveEdwards25519
+    req = ConstructionDeriveReq netId rosettaPubKeySender01 Nothing
 
 -- ------------------------------------------------------------------ --
 -- Test Data
@@ -903,6 +759,10 @@ mix
     -> Fold m (IO a)
 mix i = ix i . to A.fromJSON . to (aeson assertFailure return)
 
+assertRosettaApi :: ClientEnv -> IO ()
+assertRosettaApi cenv = do
+    resp <- networkStatus v cenv (NetworkReq nid Nothing)
+    genesisId @=? _networkStatusResp_genesisBlockId resp
 
 -- ------------------------------------------------------------------ --
 -- Key Sets

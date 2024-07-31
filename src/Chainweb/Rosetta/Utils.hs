@@ -15,6 +15,7 @@ module Chainweb.Rosetta.Utils where
 
 import Control.Monad (when)
 import Control.Error.Util
+import Control.Lens (view)
 import Data.Aeson
 import Data.Aeson.Types (Pair)
 import qualified Data.Aeson.KeyMap as KM
@@ -850,18 +851,18 @@ parentBlockId bh
   | bHeight == genesisHeight v cid = blockId bh  -- genesis
   | otherwise = parent
   where
-    bHeight = _blockHeight bh
-    cid = _blockChainId bh
-    v = _chainwebVersion bh
+    bHeight = view blockHeight bh
+    cid = view blockChainId bh
+    v = view chainwebVersion bh
     parent = BlockId
-      { _blockId_index = getBlockHeight (pred $ _blockHeight bh)
-      , _blockId_hash = blockHashToText (_blockParent bh)
+      { _blockId_index = getBlockHeight (pred $ view blockHeight bh)
+      , _blockId_hash = blockHashToText (view blockParent bh)
       }
 
 blockId :: BlockHeader -> BlockId
 blockId bh = BlockId
-  { _blockId_index = getBlockHeight (_blockHeight bh)
-  , _blockId_hash = blockHashToText (_blockHash bh)
+  { _blockId_index = getBlockHeight (view blockHeight bh)
+  , _blockId_hash = blockHashToText (view blockHash bh)
   }
 
 cmdToTransactionId :: Command T.Text -> TransactionId
@@ -1034,7 +1035,7 @@ rosettaTimestamp bh = BA.unLE . BA.toLE $ fromInteger msTime
   where
     msTime = int $ microTime `div` ms
     TimeSpan ms = millisecond
-    microTime = encodeTimeToWord64 $ _bct (_blockCreationTime bh)
+    microTime = encodeTimeToWord64 $ _bct (view blockCreationTime bh)
 
 
 -- | How to convert from atomic units to standard units in Rosetta Currency.
@@ -1106,6 +1107,7 @@ data RosettaFailure
     | RosettaInvalidSignature
     | RosettaInvalidAccountProvided
     | RosettaInvalidKAccount
+    | RosettaConstructionApiDeprecated
     deriving (Show, Enum, Bounded, Eq)
 
 
@@ -1147,6 +1149,7 @@ rosettaError RosettaInvalidPublicKey = RosettaError 31 "Invalid PublicKey" False
 rosettaError RosettaInvalidSignature = RosettaError 32 "Invalid Signature" False
 rosettaError RosettaInvalidAccountProvided = RosettaError 33 "Invalid Account was provided" False
 rosettaError RosettaInvalidKAccount = RosettaError 34 "Invalid k:Account" False
+rosettaError RosettaConstructionApiDeprecated = RosettaError 35 "The construction API is deprecated. It is disabled by default and can be enabled via the 'rosettaConstructionApi' configuration flag" False
 
 rosettaError' :: RosettaFailure -> RosettaError
 rosettaError' f = rosettaError f Nothing

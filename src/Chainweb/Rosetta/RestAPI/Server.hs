@@ -17,6 +17,8 @@
 --
 module Chainweb.Rosetta.RestAPI.Server
 ( someRosettaServer
+, someRosettaConstructionServer
+, someRosettaConstructionDeprecationServer
 ) where
 
 import Control.Error.Util
@@ -67,7 +69,8 @@ import P2P.Node.PeerDB
 import P2P.Node.RestAPI.Server (peerGetHandler)
 import P2P.Peer
 
----
+-- -------------------------------------------------------------------------- --
+-- Rosetta Server
 
 rosettaServer
     :: forall tbl (v :: ChainwebVersionT)
@@ -85,15 +88,6 @@ rosettaServer v ps ms peerDb cutDb pacts =
     -- Blocks --
     :<|> blockTransactionH v cutDb ps pacts
     :<|> blockH v cutDb ps pacts
-    -- Construction --
-    :<|> constructionDeriveH v
-    :<|> constructionPreprocessH v
-    :<|> constructionMetadataH v cutDb pacts
-    :<|> constructionPayloadsH v
-    :<|> constructionParseH v
-    :<|> constructionCombineH
-    :<|> constructionHashH
-    :<|> constructionSubmitH v ms
     -- Mempool --
     :<|> mempoolTransactionH v ms
     :<|> mempoolH v ms
@@ -114,7 +108,54 @@ someRosettaServer
 someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ps ms pdb pacts cdb =
     SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer v ps ms pdb cdb pacts
 
---------------------------------------------------------------------------------
+-- -------------------------------------------------------------------------- --
+-- Construction API Server
+
+rosettaConstructionServer
+    :: forall tbl (v :: ChainwebVersionT)
+    . CanReadablePayloadCas tbl
+    => ChainwebVersion
+    -> [(ChainId, MempoolBackend ChainwebTransaction)]
+    -> CutDb tbl
+    -> [(ChainId, PactExecutionService)]
+    -> Server (RosettaConstructionApi v)
+rosettaConstructionServer v ms cutDb pacts =
+    constructionDeriveH v
+    :<|> constructionPreprocessH v
+    :<|> constructionMetadataH v cutDb pacts
+    :<|> constructionPayloadsH v
+    :<|> constructionParseH v
+    :<|> constructionCombineH
+    :<|> constructionHashH
+    :<|> constructionSubmitH v ms
+
+
+someRosettaConstructionServer
+    :: CanReadablePayloadCas tbl
+    => ChainwebVersion
+    -> [(ChainId, MempoolBackend ChainwebTransaction)]
+    -> [(ChainId, PactExecutionService)]
+    -> CutDb tbl
+    -> SomeServer
+someRosettaConstructionServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms pacts cdb =
+    SomeServer (Proxy @(RosettaConstructionApi vT)) $ rosettaConstructionServer v ms cdb pacts
+
+-- Return a deprecation warning when Rosetta is generally enabled but the
+-- construction API is disabled.
+--
+someRosettaConstructionDeprecationServer :: ChainwebVersion -> SomeServer
+someRosettaConstructionDeprecationServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) =
+    SomeServer (Proxy @(RosettaConstructionApi vT)) $
+        (\_ -> throwRosettaError $ rosettaError RosettaConstructionApiDeprecated Nothing)
+        :<|> (\_ -> throwRosettaError $ rosettaError RosettaConstructionApiDeprecated Nothing)
+        :<|> (\_ -> throwRosettaError $ rosettaError RosettaConstructionApiDeprecated Nothing)
+        :<|> (\_ -> throwRosettaError $ rosettaError RosettaConstructionApiDeprecated Nothing)
+        :<|> (\_ -> throwRosettaError $ rosettaError RosettaConstructionApiDeprecated Nothing)
+        :<|> (\_ -> throwRosettaError $ rosettaError RosettaConstructionApiDeprecated Nothing)
+        :<|> (\_ -> throwRosettaError $ rosettaError RosettaConstructionApiDeprecated Nothing)
+        :<|> (\_ -> throwRosettaError $ rosettaError RosettaConstructionApiDeprecated Nothing)
+
+-- -------------------------------------------------------------------------- --
 -- Account Handlers
 
 accountBalanceH

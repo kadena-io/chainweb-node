@@ -26,6 +26,7 @@ module Chainweb.Pact.Backend.RelationalCheckpointer
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
+import Control.Lens (view)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -154,7 +155,7 @@ doReadFrom
 doReadFrom logger v cid sql moduleCacheVar maybeParent doRead = do
   let currentHeight = case maybeParent of
         Nothing -> genesisHeight v cid
-        Just parent -> succ . _blockHeight . _parentHeader $ parent
+        Just parent -> succ . view blockHeight . _parentHeader $ parent
 
   modifyMVar moduleCacheVar $ \sharedModuleCache -> do
     bracket
@@ -173,7 +174,7 @@ doReadFrom logger v cid sql moduleCacheVar maybeParent doRead = do
             parentIsLatestHeader = case (latestHeader, maybeParent) of
               (Nothing, Nothing) -> True
               (Just (_, latestHash), Just (ParentHeader ph)) ->
-                _blockHash ph == latestHash
+                view blockHash ph == latestHash
               _ -> False
 
           let
@@ -231,7 +232,7 @@ doRestoreAndSave logger v cid sql p moduleCacheVar rewindParent blocks =
         let
           !bh = case maybeParent of
             Nothing -> genesisHeight v cid
-            Just parent -> (succ . _blockHeight . _parentHeader) parent
+            Just parent -> (succ . view blockHeight . _parentHeader) parent
         -- prepare the block state
         let handlerEnv = mkBlockHandlerEnv v cid bh sql p logger
         let state = (initBlockState defaultModuleCacheLimit txid) { _bsModuleCache = moduleCache }
@@ -258,15 +259,15 @@ doRestoreAndSave logger v cid sql p moduleCacheVar rewindParent blocks =
         -- of the previous block
         case maybeParent of
           Nothing
-            | genesisHeight v cid /= _blockHeight newBh -> internalError
+            | genesisHeight v cid /= view blockHeight newBh -> internalError
               "doRestoreAndSave: block with no parent, genesis block, should have genesis height but doesn't,"
           Just (ParentHeader ph)
-            | succ (_blockHeight ph) /= _blockHeight newBh -> internalError $
+            | succ (view blockHeight ph) /= view blockHeight newBh -> internalError $
               "doRestoreAndSave: non-genesis block should be one higher than its parent. parent at "
-                <> sshow (_blockHeight ph) <> ", child height " <> sshow (_blockHeight newBh)
+                <> sshow (view blockHeight ph) <> ", child height " <> sshow (view blockHeight newBh)
           _ -> return ()
         -- persist any changes to the database
-        commitBlockStateToDatabase sql (_blockHash newBh) (_blockHeight newBh) nextState
+        commitBlockStateToDatabase sql (view blockHash newBh) (view blockHeight newBh) nextState
         return (m'', Just (ParentHeader newBh), nextTxId, nextModuleCache)
       )
       (return (mempty, rewindParent, startTxId, startModuleCache))
@@ -375,7 +376,7 @@ doGetBlockHistory db blockHeader d = do
     startTxId <-
       if bHeight == genesisHeight v cid
       then return 0
-      else getEndTxId' "doGetBlockHistory" db (pred bHeight) (_blockParent blockHeader) >>= \case
+      else getEndTxId' "doGetBlockHistory" db (pred bHeight) (view blockParent blockHeader) >>= \case
         NoHistory ->
           internalError $ "doGetBlockHistory: missing parent for: " <> sshow blockHeader
         Historical startTxId ->
@@ -388,8 +389,8 @@ doGetBlockHistory db blockHeader d = do
     return $ BlockTxHistory tmap prev
   where
     v = _chainwebVersion blockHeader
-    cid = _blockChainId blockHeader
-    bHeight = _blockHeight blockHeader
+    cid = view blockChainId blockHeader
+    bHeight = view blockHeight blockHeader
 
     procTxHist
       :: (S.Set Utf8, M.Map TxId [TxLog RowData])

@@ -247,7 +247,7 @@ spvSim sc bh pwo = do
     go mv cp = modifyMVar mv $ searchOuts cp
     searchOuts _ [] = return ([],Left "spv: proof not found")
     searchOuts cp@(ContProof pf) ((Transaction ti,TransactionOutput _o):txs) =
-      case codecDecode (chainwebPayloadCodec (pactParserVersion (scVersion sc) (_chainId bh) (_blockHeight bh))) ti of
+      case codecDecode (chainwebPayloadCodec (pactParserVersion (scVersion sc) (_chainId bh) (view blockHeight bh))) ti of
         Left {} -> internalError "input decode failed"
         Right cmd -> case _pPayload $ payloadObj $ _cmdPayload cmd of
           Continuation cm | _cmProof cm == Just cp -> do
@@ -287,7 +287,7 @@ fetchHeaders sc cenv = do
 fetchOutputs :: SimConfig -> ClientEnv -> [BlockHeader] -> IO [PayloadWithOutputs]
 fetchOutputs sc cenv bhs = do
   r <- (`runClientM` cenv) $ do
-    outputsBatchClient (scVersion sc) (scChain sc) (WithHeights $ map (\bh -> (_blockHeight bh, _blockPayloadHash bh)) bhs)
+    outputsBatchClient (scVersion sc) (scChain sc) (WithHeights $ map (\bh -> (view blockHeight bh, view blockPayloadHash bh)) bhs)
   case r of
     Left e -> throwM e
     Right ps -> return (_payloadWithOutputsList ps)

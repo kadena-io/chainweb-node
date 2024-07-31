@@ -207,7 +207,7 @@ playLine pdb bhdb trunkLength startingBlock pactQueue counter = do
         evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. pred (startHeight + l)]) pactQueue) start
       where
         startHeight :: Num a => a
-        startHeight = fromIntegral $ _blockHeight start
+        startHeight = fromIntegral $ view blockHeight start
         go = do
             r <- ask
             pblock <- gets ParentHeader
@@ -226,7 +226,7 @@ mineBlock
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock parent nonce pdb bhdb pact = do
     r@(T3 _ newHeader payload) <- createBlock DoValidate parent nonce pact
-    addNewPayload pdb (succ (_blockHeight (_parentHeader parent))) payload
+    addNewPayload pdb (succ (view blockHeight (_parentHeader parent))) payload
     -- NOTE: this doesn't validate the block header, which is fine in this test case
     unsafeInsertBlockHeaderDb bhdb newHeader
     return r
@@ -244,7 +244,7 @@ createBlock validate parent nonce pact = do
      bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill parent pact
      let payload = blockInProgressToPayloadWithOutputs bip
 
-     let creationTime = add second $ _blockCreationTime $ _parentHeader parent
+     let creationTime = add second $ view blockCreationTime $ _parentHeader parent
      let bh = newBlockHeader
               mempty
               (_payloadWithOutputsPayloadHash payload)
@@ -301,15 +301,32 @@ withResources rdb trunkLength logLevel compact p f = C.envWithCleanup create des
         coinAccounts <- newMVar mempty
         nonceCounter <- newIORef 1
         txPerBlock <- newIORef 10
-        sqlEnv <- openSQLiteConnection "" {- temporary SQLite db -} chainwebBenchPragmas
         mp <- testMemPoolAccess txPerBlock coinAccounts
-        pactService <-
-          startPact testVer logger blockHeaderDb payloadDb mp sqlEnv
-        mainTrunkBlocks <-
-          playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
-        when (compact == DoCompact) $ do
-          C.withDefaultLogger Error $ \lgr -> do
-            void $ C.compact (BlockHeight trunkLength) lgr sqlEnv []
+        (sqlEnv, pactService, mainTrunkBlocks) <- do
+          srcSqlEnv <- openSQLiteConnection "" {- temporary SQLite db -} chainwebBenchPragmas
+          srcPactService <-
+            startPact testVer logger blockHeaderDb payloadDb mp srcSqlEnv
+          mainTrunkBlocks <-
+            playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd srcPactService) nonceCounter
+
+          (sqlEnv, pactService) <- do
+            if compact == DoCompact
+            then do
+              targetSqlEnv <- openSQLiteConnection "" {- temporary SQLite db -} chainwebBenchPragmas
+              C.withDefaultLogger Error $ \lgr -> do
+                C.compactPactState lgr C.defaultRetainment (BlockHeight trunkLength) srcSqlEnv targetSqlEnv
+              targetPactService <-
+                startPact testVer logger blockHeaderDb payloadDb mp targetSqlEnv
+
+              -- Stop the previous pact service/close the sqlite connection
+              stopPact srcPactService
+              stopSqliteDb srcSqlEnv
+
+              pure (targetSqlEnv, targetPactService)
+            else do
+              pure (srcSqlEnv, srcPactService)
+
+          pure (sqlEnv, pactService, mainTrunkBlocks)
 
         return $ NoopNFData $ Resources {..}
 
@@ -368,7 +385,7 @@ testMemPoolAccess txsPerBlock accounts = do
   return $ mempty
     { mpaGetBlock = \bf validate bh hash header -> do
         if _bfCount bf /= 0 then pure mempty else do
-          testBlock <- getTestBlock accounts (_bct $ _blockCreationTime header) validate bh hash
+          testBlock <- getTestBlock accounts (_bct $ view blockCreationTime header) validate bh hash
           pure testBlock
     }
   where
