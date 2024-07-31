@@ -269,11 +269,11 @@ testAgg n dbVarIO tblIO = do
 
         h @?= hash n (mconcat input)
   where
-    hash 0 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_256
-    hash 224 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_224
-    hash 256 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_256
-    hash 384 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_384
-    hash 512 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_512
+    hash 0 = hashToByteString . SHA3.hashByteString_ @SHA3.Sha3_256
+    hash 224 = hashToByteString . SHA3.hashByteString_ @SHA3.Sha3_224
+    hash 256 = hashToByteString . SHA3.hashByteString_ @SHA3.Sha3_256
+    hash 384 = hashToByteString . SHA3.hashByteString_ @SHA3.Sha3_384
+    hash 512 = hashToByteString . SHA3.hashByteString_ @SHA3.Sha3_512
     hash x = error $ "unsupported SHA3 digest size: " <> show x
 
 hashToByteString :: SHA3.Hash a => Coercible a BS.ShortByteString => a -> B.ByteString
