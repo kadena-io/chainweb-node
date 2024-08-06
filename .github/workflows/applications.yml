@@ -243,6 +243,12 @@ jobs:
       run: |
         ghc --version
         cabal --version
+    - name: Install cabal-plan and confirm its installation
+      # only do this on master and release branches
+      if: ${{ startsWith(github.ref, 'refs/heads/release') || startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master'}}
+      run: |
+        cabal install cabal-plan --flags="exe license-report" --constraint="cabal-plan==0.7.3.0" --allow-newer
+        cabal-plan --version
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
       run: sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libsnappy-dev libbz2-dev
@@ -339,6 +345,10 @@ jobs:
       run: cabal build --ghc-options=-j2 lib:chainweb
     - name: Build chainweb applications
       run: cabal build -j2 --ghc-options=-j2 exe:chainweb-node exe:compact test:chainweb-tests exe:cwtool chainweb:bench:bench
+
+    - name: Check long-info output
+      run: |
+        $(cabal list-bin chainweb-node) --long-info
 
     # Checks
     - name: Check that working directory tree is clean
@@ -634,7 +644,7 @@ jobs:
       OS: ${{ matrix.os }}
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
       ARTIFACTS_ARCHIVE: chainweb.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
-  
+
     steps:
     - name: Get build artifacts
       uses: actions/download-artifact@v4

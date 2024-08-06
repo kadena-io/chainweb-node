@@ -44,8 +44,6 @@ import "base" Prelude hiding (log)
 import "base" System.Exit (exitFailure)
 import "base" System.IO (Handle)
 import "base" System.IO qualified as IO
-import "chainweb-storage" Chainweb.Storage.Table (Iterator(..), Entry(..), withTableIterator, unCasify, tableInsert)
-import "chainweb-storage" Chainweb.Storage.Table.RocksDB (RocksDb, withRocksDb, withReadOnlyRocksDb, modernDefaultOptions)
 import "direct-sqlite" Database.SQLite3 qualified as Lite
 import "direct-sqlite" Database.SQLite3.Direct (Utf8(..), Database)
 import "directory" System.Directory (createDirectoryIfMissing, doesDirectoryExist)
@@ -56,7 +54,6 @@ import "monad-control" Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp
 import "optparse-applicative" Options.Applicative qualified as O
 import "pact" Pact.Types.SQLite (SType(..), RType(..))
 import "pact" Pact.Types.SQLite qualified as Pact
-import "rocksdb-haskell-kadena" Database.RocksDB.Types (Options(..), Compression(..))
 import "streaming" Streaming qualified as S
 import "streaming" Streaming.Prelude qualified as S
 import "text" Data.Text (Text)
@@ -77,6 +74,8 @@ import Chainweb.Pact.Backend.Types (SQLiteEnv)
 import Chainweb.Pact.Backend.Utils (fromUtf8, toUtf8)
 import Chainweb.Payload.PayloadStore (initializePayloadDb, addNewPayload, lookupPayloadWithHeight)
 import Chainweb.Payload.PayloadStore.RocksDB (newPayloadDb)
+import Chainweb.Storage.Table (Iterator(..), Entry(..), withTableIterator, unCasify, tableInsert)
+import Chainweb.Storage.Table.RocksDB (RocksDb, withRocksDb, withReadOnlyRocksDb, modernDefaultOptions)
 import Chainweb.Utils (sshow, fromText, toText, int)
 import Chainweb.Version (ChainId, ChainwebVersion(..), chainIdToText)
 import Chainweb.Version.Mainnet (mainnet)
@@ -84,6 +83,7 @@ import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Testnet (testnet)
 import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb, initWebBlockHeaderDb)
 import Data.LogMessage (SomeLogMessage, logText)
+import Database.RocksDB.Types (Options(..), Compression(..))
 
 withDefaultLogger :: LL.LogLevel -> (YAL.Logger SomeLogMessage -> IO a) -> IO a
 withDefaultLogger ll f = withHandleBackend_ logText handleCfg $ \b ->

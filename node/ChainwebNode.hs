@@ -6,6 +6,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -113,11 +114,10 @@ import Data.LogMessage
 
 import P2P.Node
 
-import PkgInfo
-
 import Utils.Logging
 import Utils.Logging.Config
 import Utils.Logging.Trace
+import Utils.PackageInfo qualified as PackageInfo
 
 import Utils.CheckRLimits
 import Utils.InstallSignalHandlers
@@ -525,16 +525,13 @@ withServiceDate v lf msd inner = case msd of
           ]
 
 -- -------------------------------------------------------------------------- --
--- Encode Package Info into Log mesage scopes
+-- Encode Package Info into Log message scopes
 
 pkgInfoScopes :: [(Text, Text)]
 pkgInfoScopes =
-    [ ("revision", revision)
-    , ("branch", branch)
-    , ("compiler", compiler)
-    , ("optimisation", optimisation)
-    , ("architecture", arch)
-    , ("package", package)
+    [ ("revision", T.pack $$(PackageInfo.revisionExp))
+    , ("compiler", T.pack PackageInfo.compiler)
+    , ("architecture", T.pack PackageInfo.arch)
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -554,7 +551,7 @@ main :: IO ()
 main = do
     installFatalSignalHandlers [ sigHUP, sigTERM, sigXCPU, sigXFSZ ]
     checkRLimits
-    runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
+    runWithPkgInfoConfiguration mainInfo $$(PackageInfo.pkgInfo) $ \conf -> do
         let v = _configChainwebVersion $ _nodeConfigChainweb conf
         registerVersion v
         hSetBuffering stderr LineBuffering
