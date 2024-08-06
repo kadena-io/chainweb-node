@@ -41,6 +41,7 @@ module Chainweb.Test.MultiNode
   , compactAndResumeTest
   , pactImportTest
   , compactLiveNodeTest
+  , migrateRocksDbTest
   ) where
 
 import Control.Concurrent
@@ -378,6 +379,44 @@ compactLiveNodeTest logLevel v n rocksDb srcPactDir targetPactDir step = do
   (compactTime, nodeTime) <- concurrently compactAll run
 
   assertGe "node runs beyond compaction" (Actual nodeTime) (Expected compactTime)
+
+migrateRocksDbTest :: ()
+  => LogLevel
+  -> ChainwebVersion
+  -> Natural
+  -> FilePath
+  -> RocksDb
+  -> RocksDb
+  -> (String -> IO ())
+  -> IO ()
+migrateRocksDbTest logLevel v n srcPactDir srcRocksDb targetRocksDb step = do
+  let logFun = step . T.unpack
+  let logger = genericLogger logLevel logFun
+
+  logFun "Phase 1... creating blocks"
+
+  stateVar <- newMVar (emptyConsensusState v)
+  let ct :: Int -> StartedChainweb logger -> IO ()
+      ct = harvestConsensusState logger stateVar
+  -- Run node for 10 seconds
+  runNodesForSeconds logLevel logFun (multiConfig v n) n 10 srcRocksDb srcPactDir ct
+  Just stats1 <- consensusStateSummary <$> swapMVar stateVar (emptyConsensusState v)
+  assertGe "average block count before proceeding" (Actual $ _statBlockCount stats1) (Expected 50)
+  logFun $ sshow stats1
+
+  -- compact rocksdb and migrate the entire thing
+  forM_ [0 .. int @_ @Word n - 1] $ \nid -> do
+    let namespace = T.encodeUtf8 $ toText @Word nid
+    let srcRdb = srcRocksDb { _rocksDbNamespace = namespace }
+    let targetRdb = targetRocksDb { _rocksDbNamespace = namespace }
+    Sigma.compactRocksDb logger v (allChains v) 0 srcRdb targetRdb
+
+  runNodesForSeconds logLevel logFun (multiConfig v n) n 60 targetRocksDb srcPactDir ct
+
+  forM_ [0 .. int @_ @Word n - 1] $ \nid -> do
+    let namespace = T.encodeUtf8 $ toText @Word nid
+    let targetRdb = targetRocksDb { _rocksDbNamespace = namespace }
+    pruneCuts (logFunction logger) v (defaultCutDbParams v 3_000) 50 (cutHashesTable targetRdb)
 
 -- | This test is essentially just calling pact-calc followed by pact-import,
 --   and making sure that works end to end.

@@ -44,6 +44,11 @@ suite = independentSequentialTestGroup "ChainwebSlowTests"
         withSystemTempDirectory "pact-import-test-pact-src" $ \srcPactDbDir ->
         withSystemTempDirectory "pact-import-test-pact-target" $ \targetPactDbDir -> do
         Chainweb.Test.MultiNode.compactLiveNodeTest loglevel (fastForkingCpmTestVersion twentyChainGraph) 1 rdb srcPactDbDir targetPactDbDir step
+    , testCaseSteps "migrate-rocksdb" $ \step ->
+        withTempRocksDb "migrate-rocksdb-test-rocks-src" $ \srcRocksDb ->
+        withTempRocksDb "migrate-rocksdb-test-rocks-target" $ \targetRocksDb ->
+        withSystemTempDirectory "migrate-rocksdb-test-pact-src" $ \srcPactDbDir ->
+        Chainweb.Test.MultiNode.migrateRocksDbTest loglevel (fastForkingCpmTestVersion pairChainGraph) 6 srcPactDbDir srcRocksDb targetRocksDb step
     , testCaseSteps "ConsensusNetwork - TimedConsensus - 10 nodes - 30 seconds" $ \step ->
         withTempRocksDb "multinode-tests-timedconsensus-peterson-twenty-rocks" $ \rdb ->
         withSystemTempDirectory "multinode-tests-timedconsensus-peterson-twenty-pact" $ \pactDbDir ->
