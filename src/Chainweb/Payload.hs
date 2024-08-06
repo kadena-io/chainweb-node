@@ -115,12 +115,18 @@ module Chainweb.Payload
 
 -- * API Payload Data
 , PayloadData
-, PayloadData_(..)
+, PayloadData_
 , payloadData
 , newPayloadData
 , payloadDataToBlockPayload
 , PayloadDataCas
 , verifyPayloadData
+-- * Payload Data Lenses
+, payloadDataTransactions
+, payloadDataMiner
+, payloadDataPayloadHash
+, payloadDataTransactionsHash
+, payloadDataOutputsHash
 
 -- * All Payload Data in a Single Structure
 , PayloadWithOutputs
@@ -136,6 +142,7 @@ module Chainweb.Payload
 ) where
 
 import Control.DeepSeq
+import Control.Lens (Getter, to)
 import Control.Monad
 import Control.Monad.Catch
 
@@ -151,7 +158,7 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Data.Void
 
-import GHC.Generics
+import GHC.Generics (Generic)
 import GHC.Stack
 
 -- internal modules
@@ -737,7 +744,7 @@ decodePayloadDataList = runGetS $ do
 encodePayloadWithOutputsList :: PayloadWithOutputsList -> B.ByteString
 encodePayloadWithOutputsList (PayloadWithOutputsList xs) = runPutS $ do
     putWord64be (fromIntegral $ length xs)
-    forM_ xs putPayloadWithOutputs 
+    forM_ xs putPayloadWithOutputs
 
 decodePayloadWithOutputsList :: (MonadThrow m) => B.ByteString -> m PayloadWithOutputsList
 decodePayloadWithOutputsList = runGetS $ do
@@ -1198,6 +1205,21 @@ data PayloadData_ a = PayloadData
     }
     deriving (Eq, Show, Generic)
     deriving anyclass (NFData)
+
+payloadDataTransactions :: Getter (PayloadData_ a) (V.Vector Transaction)
+payloadDataTransactions = to _payloadDataTransactions
+
+payloadDataMiner :: Getter (PayloadData_ a) MinerData
+payloadDataMiner = to _payloadDataMiner
+
+payloadDataPayloadHash :: Getter (PayloadData_ a) (BlockPayloadHash_ a)
+payloadDataPayloadHash = to _payloadDataPayloadHash
+
+payloadDataTransactionsHash :: Getter (PayloadData_ a) (BlockTransactionsHash_ a)
+payloadDataTransactionsHash = to _payloadDataTransactionsHash
+
+payloadDataOutputsHash :: Getter (PayloadData_ a) (BlockOutputsHash_ a)
+payloadDataOutputsHash = to _payloadDataOutputsHash
 
 payloadDataProperties
     :: MerkleHashAlgorithm a

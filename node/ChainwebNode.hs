@@ -215,9 +215,9 @@ runMonitorLoop actionLabel logger = runForeverThrottled
 runCutMonitor :: Logger logger => logger -> CutDb tbl -> IO ()
 runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger $ \l ->
     runMonitorLoop "ChainwebNode.runCutMonitor" l $ do
-        S.mapM_ (logFunctionJson l Info)
-            $ S.map (cutToCutHashes Nothing)
-            $ cutStream db
+        logFunctionJson l Info . cutToCutHashes Nothing
+            =<< _cut db
+        threadDelay 15_000_000
 
 data BlockUpdate = BlockUpdate
     { _blockUpdateBlockHeader :: !(ObjectEncoded BlockHeader)
@@ -251,10 +251,10 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
 
     txCount :: BlockHeader -> IO Int
     txCount bh = do
-        bp <- lookupPayloadDataWithHeight payloadDb (Just $ _blockHeight bh) (_blockPayloadHash bh) >>= \case
+        bp <- lookupPayloadDataWithHeight payloadDb (Just $ view blockHeight bh) (view blockPayloadHash bh) >>= \case
             Nothing -> error "block payload not found"
             Just x -> return x
-        return $ length $ _payloadDataTransactions bp
+        return $ length $ view payloadDataTransactions bp
 
     toUpdate :: Either BlockHeader BlockHeader -> IO BlockUpdate
     toUpdate (Right bh) = BlockUpdate

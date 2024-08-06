@@ -491,10 +491,10 @@ validate s = do
         -> (BlockHeight, [BlockHeader], [BlockHeader], Bool)
     update (h, parents, currents, i) c
         -- initially set the block height to the current header
-        | i = (_blockHeight c, parents, c : currents, i)
-        | _blockHeight c == h = (h, parents, c : currents, i)
-        | _blockHeight c == (h + 1) = (h + 1, currents, [c], False)
-        | _blockHeight c < h = error "height invariant violation in enumeration of headers. Height of current header smaller than previous headers"
+        | i = (view blockHeight c, parents, c : currents, i)
+        | view blockHeight c == h = (h, parents, c : currents, i)
+        | view blockHeight c == (h + 1) = (h + 1, currents, [c], False)
+        | view blockHeight c < h = error "height invariant violation in enumeration of headers. Height of current header smaller than previous headers"
         | otherwise = error
             $ "height invariant violation in enumeration of headers."
             <> " Height of current header skips block height."
@@ -508,7 +508,7 @@ validate s = do
         => [BlockHeader]
         -> ChainValue BlockHash
         -> m (Maybe BlockHeader)
-    lookupHdr hdrs h = pure $ find ((== _chainValueValue h) . _blockHash) hdrs
+    lookupHdr hdrs h = pure $ find ((== _chainValueValue h) . view blockHash) hdrs
 
     val
         :: Time Micros
@@ -527,8 +527,8 @@ progress :: LogFunctionText -> S.Stream (Of BlockHeader) IO a -> S.Stream (Of Bl
 progress logg s = s
     & S.chain (logg Debug . sshow)
     & S.chain
-        (\x -> when (_blockHeight x `mod` 100 == 0) $
-            logg Info ("BlockHeight: " <> sshow (_blockHeight x))
+        (\x -> when (view blockHeight x `mod` 100 == 0) $
+            logg Info ("BlockHeight: " <> sshow (view blockHeight x))
         )
 miner
     :: MonadThrow m
@@ -545,12 +545,12 @@ payloadsCid
     -> BlockHeader
     -> m (ChainData PayloadWithOutputs)
 payloadsCid pdb bh = do
-    payload <- liftIO $ lookupPayloadWithHeight pdb (Just $ _blockHeight bh) (_blockPayloadHash bh) >>= \case
+    payload <- liftIO $ lookupPayloadWithHeight pdb (Just $ view blockHeight bh) (view blockPayloadHash bh) >>= \case
         Nothing -> throwM $ userError "payload not found"
         Just p -> return p
     pure $ ChainData
-        { _cdChainId = _blockChainId bh
-        , _cdHeight = _blockHeight bh
+        { _cdChainId = view blockChainId bh
+        , _cdHeight = view blockHeight bh
         , _cdData = payload
         }
 
@@ -640,7 +640,7 @@ withChainDbs rdb v cids doValidation start end f = go cids mempty
     go [] !s = f s
     go (cid:t) !s = withBlockHeaderDb rdb v cid $ \cdb ->
         entries cdb Nothing Nothing start end $ \x ->
-            go t (() <$ S.mergeOn _blockHeight s (val $ () <$ x))
+            go t (() <$ S.mergeOn (view blockHeight) s (val $ () <$ x))
 
     val = if doValidation then validate else id
 

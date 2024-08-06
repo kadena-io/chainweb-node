@@ -76,6 +76,7 @@ let haskellSrc = with nix-filter.lib; filter {
       shell.buildInputs = with pkgs; [
         zlib
         pkg-config
+        sqlite
       ];
       modules = [
         {
@@ -102,17 +103,28 @@ let haskellSrc = with nix-filter.lib; filter {
       };
       pact = pactFromCached pkgs pact passthru.cached;
     };
-    default = pkgs.runCommandCC "chainweb" { inherit passthru; } ''
-      mkdir -pv $out/bin
-      cp ${flake.packages."chainweb:exe:chainweb-node"}/bin/chainweb-node $out/bin/chainweb-node
-      cp ${flake.packages."chainweb:exe:cwtool"}/bin/cwtool $out/bin/cwtool
-      chmod +w $out/bin/{cwtool,chainweb-node}
-      $STRIP $out/bin/chainweb-node
-      $STRIP $out/bin/cwtool
-      ${pkgs.lib.optionalString (pkgs.stdenv.isLinux) ''
-        patchelf --shrink-rpath $out/bin/{cwtool,chainweb-node}
-      ''}
-    '';
+    default =
+      let
+        exes = [
+          "chainweb-node"
+          "cwtool"
+          "compact"
+          "pact-diff"
+        ];
+
+        for = xs: f: builtins.map f xs;
+      in
+      pkgs.runCommandCC "chainweb" { inherit passthru; } ''
+        mkdir -pv $out/bin
+        ${builtins.concatStringsSep "\n" (for exes (exe: ''
+          cp ${flake.packages."chainweb:exe:${exe}"}/bin/${exe} $out/bin/${exe}
+          chmod +w $out/bin/${exe}
+          $STRIP $out/bin/${exe}
+          ${pkgs.lib.optionalString (pkgs.stdenv.isLinux) ''
+            patchelf --shrink-rpath $out/bin/${exe}
+          ''}
+        ''))}
+      '';
 in {
   # The Haskell project flake: Used by flake.nix
   inherit flake;

@@ -10,7 +10,6 @@ import System.Exit
 import Text.Printf
 
 import Chainweb.Pact.Backend.Compaction (main)
-import Chainweb.Pact.Backend.PactState.Diff (pactDiffMain)
 import Chainweb.Pact.Backend.PactState.GrandHash.Calc (pactCalcMain)
 import Chainweb.Pact.Backend.PactState.GrandHash.Import (pactImportMain)
 
@@ -108,10 +107,6 @@ topLevelCommands =
       "compact"
       "Compact pact database"
       Chainweb.Pact.Backend.Compaction.main
-  , CommandSpec
-      "pact-diff"
-      "Diff the latest state of two pact databases"
-      Chainweb.Pact.Backend.PactState.Diff.pactDiffMain
   , CommandSpec
       "pact-calc"
       "Calculate the GrandHashes for a pact database at a particular blockheight"

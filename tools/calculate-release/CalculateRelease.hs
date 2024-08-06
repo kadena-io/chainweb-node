@@ -1,30 +1,28 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE TypeApplications #-}
 
 module CalculateRelease(main) where
 
+import Chainweb.BlockHeight
+import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version.Mainnet (mainnet)
 import Control.Lens
 import Control.Monad
 import Data.Aeson.Lens
-import qualified Data.ByteString.Lazy.Char8 as LBSC
+import Data.Maybe (fromMaybe)
 import Data.Time
-
+import Data.Time.Format.ISO8601 (formatParseM, iso8601Format)
 import Network.Wreq
 import System.Exit
-import Text.Regex.TDFA
-
-import Chainweb.BlockHeight
 
 main :: IO ()
 main = do
+    let v = fromMaybe (error "mainnet serviceDate not found") $ _versionServiceDate mainnet
     -- fetch current service date
-    nodeMainModule <- get "https://raw.githubusercontent.com/kadena-io/chainweb-node/master/node/ChainwebNode.hs" <&> (^. responseBody . to LBSC.unpack)
-    let serviceDateRegex :: String = "^\\s*serviceDate = Just \"([0-9]+-[0-9]+-[0-9]+)(T[0-9:]+Z)?\""
-    let serviceDateMatch :: (String, String, String, [String]) =
-            (nodeMainModule =~ serviceDateRegex)
-    serviceDateDay <- parseTimeM True defaultTimeLocale "%Y-%-m-%-d" $
-        (serviceDateMatch ^?! _4 . _head)
+    serviceDateDay <- utctDay <$> formatParseM (iso8601Format @UTCTime) v
     putStrLn $ "Current service date detected: " <> show serviceDateDay
     let serviceDateTime = UTCTime { utctDay = serviceDateDay, utctDayTime = 0 }
 

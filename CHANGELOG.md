@@ -1,3 +1,21 @@
+## 2.25 (2024-08-21)
+This is a major version update. This release replaces all previous versions.
+
+Any prior version will stop working on **2022-08-21T00:00:00Z**. Node administrators must
+upgrade to this version before that date. The 2.25 feature upgrade will
+occur at block height 5060924 which is estimated to be mined at **2022-08-21T00:00:00Z**.
+
+### Changes
+- Database compaction: Significant performance improvements [`da410fc7`](https://github.com/kadena-io/chainweb-node/commit/da410fc7db2df261d8ef808380d402876ccf79f5)
+- Verifier Plugin support for Hyperlane merkle proofs. This brings Chainweb into compliance with the latest version of the Hyperlane protocol. [`bc87c68b`](https://github.com/kadena-io/chainweb-node/commit/bc87c68bf0fc4ba427ff2cbf2858933b7470543a)
+- Log current cut periodically, instead of when it changes, for more consistency and less space use. [`f5a0cf15`](https://github.com/kadena-io/chainweb-node/commit/f5a0cf157139497c902e12caa65e68bdf716a8c7)
+- Better progress messages for read-only replay, including a time estimate and smoothed rate calculation. [`bc88b4c1`](https://github.com/kadena-io/chainweb-node/commit/bc88b4c179c2cf5c8931f1817caa36bf69731887)
+- Speed up read-only replay by avoiding playing empty blocks [`9f22b079`](https://github.com/kadena-io/chainweb-node/commit/9f22b07953621de709c0320176cef985f56aaa7d)
+- Fix a performance bug in read-only replay which was not using a cache for module data [`be7497d0`](https://github.com/kadena-io/chainweb-node/commit/be7497d00458a51bbec525764927cb444da1649c)
+- Small fixes to exception safety result in Ctrl-C now working properly during read-only replay (and other scenarios) [`f258a705`](https://github.com/kadena-io/chainweb-node/commit/f258a705e77ce28c08cf934980c7d12cb4f5be30)
+- Stop exporting constructor for BlockHeader from Chainweb.Blockheader [`efc1a8ad`](https://github.com/kadena-io/chainweb-node/commit/efc1a8ad0bec715c723a7d176bce00089f75ef79)
+- Stop exporting constructor for PayloadData from Chainweb.Payload [`efd12432`](https://github.com/kadena-io/chainweb-node/commit/efd1243213d59d7841b5c024d7d8e21edb0e0808)
+
 ## 2.24.1
 This is a minor point release. Upgrading is **strongly recommended**.
 

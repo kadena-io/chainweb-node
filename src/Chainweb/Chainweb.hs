@@ -914,7 +914,10 @@ runChainweb cw nowServing = do
             pactDbsToServe
             (_chainwebCoordinator cw)
             (HeaderStream . _configHeaderStream $ _chainwebConfig cw)
-            (Rosetta . _configRosetta $ _chainwebConfig cw)
+            (Rosetta
+                (_configRosetta $ _chainwebConfig cw)
+                (_configRosettaConstructionApi (_chainwebConfig cw))
+            )
             (_chainwebBackup cw <$ guard backupApiEnabled)
             (_serviceApiPayloadBatchLimit . _configServiceApi $ _chainwebConfig cw)
             mw

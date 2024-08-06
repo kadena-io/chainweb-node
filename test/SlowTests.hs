@@ -34,13 +34,16 @@ loglevel = Warn
 suite :: TestTree
 suite = independentSequentialTestGroup "ChainwebSlowTests"
     [ testCaseSteps "compact-resume" $ \step ->
-        withTempRocksDb "compact-resume-test-rocks" $ \rdb ->
-        withSystemTempDirectory "compact-resume-test-pact" $ \pactDbDir -> do
-        Chainweb.Test.MultiNode.compactAndResumeTest loglevel (fastForkingCpmTestVersion pairChainGraph) 6 rdb pactDbDir step
+        withTempRocksDb "compact-resume-test-rocks-src" $ \srcRocksDb ->
+        withTempRocksDb "compact-resume-test-rocks-target" $ \targetRocksDb ->
+        withSystemTempDirectory "compact-resume-test-pact-src" $ \srcPactDbDir ->
+        withSystemTempDirectory "compact-resume-test-pact-target" $ \targetPactDbDir -> do
+        Chainweb.Test.MultiNode.compactAndResumeTest loglevel (fastForkingCpmTestVersion pairChainGraph) 6 srcRocksDb targetRocksDb srcPactDbDir targetPactDbDir step
     , testCaseSteps "compact-live-node" $ \step ->
         withTempRocksDb "pact-import-test-rocks" $ \rdb ->
-        withSystemTempDirectory "pact-import-test-pact" $ \pactDbDir -> do
-        Chainweb.Test.MultiNode.compactLiveNodeTest loglevel (fastForkingCpmTestVersion twentyChainGraph) 1 rdb pactDbDir step
+        withSystemTempDirectory "pact-import-test-pact-src" $ \srcPactDbDir ->
+        withSystemTempDirectory "pact-import-test-pact-target" $ \targetPactDbDir -> do
+        Chainweb.Test.MultiNode.compactLiveNodeTest loglevel (fastForkingCpmTestVersion twentyChainGraph) 1 rdb srcPactDbDir targetPactDbDir step
     , testCaseSteps "ConsensusNetwork - TimedConsensus - 10 nodes - 30 seconds" $ \step ->
         withTempRocksDb "multinode-tests-timedconsensus-peterson-twenty-rocks" $ \rdb ->
         withSystemTempDirectory "multinode-tests-timedconsensus-peterson-twenty-pact" $ \pactDbDir ->

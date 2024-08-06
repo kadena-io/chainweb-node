@@ -62,7 +62,7 @@ import qualified Streaming.Prelude as SP
 -- internal modules
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader (BlockHeader(..), ObjectEncoded(..), _blockPow)
+import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
@@ -243,7 +243,7 @@ branchBlocksHandler bhdb pdb (BranchBoundsLimit boundsLimit) maxLimit limit next
     effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
     grabPayload :: BlockHeader -> IO Block
     grabPayload h = do
-        Just x <- lookupPayloadWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h)
+        Just x <- lookupPayloadWithHeight pdb (Just $ view blockHeight h) (view blockPayloadHash h)
         pure (Block h x)
 
 -- | Every `TreeDb` key within a given range.
@@ -315,7 +315,7 @@ blocksHandler bhdb pdb maxLimit limit next minr maxr = do
     effectiveLimit = min maxLimit <$> (limit <|> Just maxLimit)
     grabPayload :: BlockHeader -> IO Block
     grabPayload h = do
-        Just x <- lookupPayloadWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h)
+        Just x <- lookupPayloadWithHeight pdb (Just $ view blockHeight h) (view blockPayloadHash h)
         pure (Block h x)
 
 -- | Query a single 'BlockHeader' by its 'BlockHash'
@@ -416,14 +416,14 @@ blockStreamHandler db withPayloads = Tagged $ \req resp -> do
 
     g :: BlockHeader -> IO HeaderUpdate
     g bh = do
-        Just x <- lookupPayloadWithHeight cas (Just $ _blockHeight bh) (_blockPayloadHash bh)
+        Just x <- lookupPayloadWithHeight cas (Just $ view blockHeight bh) (view blockPayloadHash bh)
         pure $ HeaderUpdate
             { _huHeader = ObjectEncoded bh
             , _huPayloadWithOutputs =
                 x <$ guard withPayloads
             , _huTxCount = length $ _payloadWithOutputsTransactions x
-            , _huPowHash = decodeUtf8 . B16.encode . BS.reverse . fromShort . powHashBytes $ _blockPow bh
-            , _huTarget = showTargetHex $ _blockTarget bh
+            , _huPowHash = decodeUtf8 . B16.encode . BS.reverse . fromShort . powHashBytes $ view blockPow bh
+            , _huTarget = showTargetHex $ view blockTarget bh
             }
 
     f :: HeaderUpdate -> ServerEvent

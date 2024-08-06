@@ -130,7 +130,7 @@ filterBlock f (MempoolBlock b) = MempoolBlock $ \mi ->
 
 blockForChain :: ChainId -> MempoolBlock -> MempoolBlock
 blockForChain chid = filterBlock $ \bh ->
-  _blockChainId bh == chid
+  view blockChainId bh == chid
 
 runCut' :: PactTestM ()
 runCut' = do
@@ -189,7 +189,7 @@ runToHeight :: BlockHeight -> PactTestM ()
 runToHeight bhi = do
   chid <- view menvChainId
   bh <- getHeader chid
-  when (_blockHeight bh < bhi) $ do
+  when (view blockHeight bh < bhi) $ do
     runCut'
     runToHeight bhi
 
@@ -198,8 +198,8 @@ signSender00 = set cbSigners [mkEd25519Signer' sender00 []]
 
 setFromHeader :: BlockHeader -> CmdBuilder -> CmdBuilder
 setFromHeader bh =
-  set cbChainId (_blockChainId bh)
-  . set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+  set cbChainId (view blockChainId bh)
+  . set cbCreationTime (toTxCreationTime $ _bct $ view blockCreationTime bh)
 
 buildBasic
     :: PactRPC T.Text
@@ -225,7 +225,7 @@ getPWO :: ChainId -> PactTestM (PayloadWithOutputs,BlockHeader)
 getPWO chid = do
   (TestBlockDb _ pdb _) <- view menvBdb
   h <- getHeader chid
-  Just pwo <- liftIO $ lookupPayloadWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h)
+  Just pwo <- liftIO $ lookupPayloadWithHeight pdb (Just $ view blockHeight h) (view blockPayloadHash h)
   return (pwo,h)
 
 getHeader :: ChainId -> PactTestM BlockHeader

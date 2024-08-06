@@ -90,6 +90,7 @@ module Chainweb.Test.Pact.Utils
 , withPactTestBlockDb
 , withPactTestBlockDb'
 , withWebPactExecutionService
+, withWebPactExecutionServiceCompaction
 , withPactCtxSQLite
 , WithPactCtxSQLite
 -- * Other service creation
@@ -110,8 +111,7 @@ module Chainweb.Test.Pact.Utils
 , Noncer
 , zeroNoncer
 -- * Pact State
-, compact
-, compactUntilAvailable
+, sigmaCompact
 , PactRow(..)
 , getLatestPactState
 , getPactUserTables
@@ -144,7 +144,6 @@ import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.List qualified as List
-import Data.LogMessage
 import Data.Map (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe
@@ -157,12 +156,10 @@ import qualified Data.Vector as V
 import Database.SQLite3.Direct (Database)
 
 import GHC.Generics
-import GHC.IO.Exception(IOException(..))
 
 import Streaming.Prelude qualified as S
 import System.Directory
 import System.IO.Temp (createTempDirectory)
-import qualified System.Logger as YAL
 import System.LogLevel
 
 import Test.Tasty
@@ -199,7 +196,7 @@ import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.Compaction qualified as C
+import Chainweb.Pact.Backend.Compaction qualified as Sigma
 import Chainweb.Pact.Backend.PactState qualified as PactState
 import Chainweb.Pact.Backend.PactState (TableDiffable(..), Table(..), PactRow(..))
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
@@ -711,9 +708,7 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf gasmodel = do
 freeGasModel :: TxContext -> GasModel
 freeGasModel = const $ constGasModel 0
 
--- | A queue-less WebPactExecutionService (for all chains)
--- with direct chain access map for local.
-withWebPactExecutionService
+withWebPactExecutionServiceCompaction
     :: (Logger logger)
     => logger
     -> ChainwebVersion
@@ -721,22 +716,37 @@ withWebPactExecutionService
     -> TestBlockDb
     -> MemPoolAccess
     -> (TxContext -> GasModel)
-    -> ((WebPactExecutionService,HM.HashMap ChainId (SQLiteEnv, PactExecutionService)) -> IO a)
+    -> ((WebPactExecutionService, HM.HashMap ChainId (SQLiteEnv, PactExecutionService), WebPactExecutionService, HM.HashMap ChainId (SQLiteEnv, PactExecutionService)) -> IO a) -- TODO: second 'WebPactExecutionService' seems unnecessary?
     -> IO a
-withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
-  withDbs $ \sqlenvs -> do
-    pacts <- fmap HM.fromList
-           $ traverse (\(dbEnv, cid) -> (cid,) . (dbEnv,) <$> mkPact dbEnv cid)
-           $ zip sqlenvs
-           $ toList
-           $ chainIds v
-    act (mkWebPactExecutionService (snd <$> pacts), pacts)
+withWebPactExecutionServiceCompaction logger v pactConfig bdb mempoolAccess gasmodel act =
+  withDbs $ \srcSqlEnvs ->
+  withDbs $ \targetSqlEnvs -> do
+    srcPacts <- mkPacts srcSqlEnvs
+    let srcWeb = mkWebPactExecutionService (snd <$> srcPacts)
+
+    targetPacts <- mkPacts targetSqlEnvs
+    let targetWeb = mkWebPactExecutionService (snd <$> targetPacts)
+
+    act (srcWeb, srcPacts, targetWeb, targetPacts)
   where
+    mkPacts :: [SQLiteEnv] -> IO (HM.HashMap ChainId (SQLiteEnv, PactExecutionService))
+    mkPacts sqlEnvs = fmap HM.fromList
+      $ traverse (\(dbEnv, cid) -> (cid,) . (dbEnv,) <$> mkTestPactExecutionService dbEnv cid)
+      $ zip sqlEnvs
+      $ toList
+      $ chainIds v
+
+    withDbs :: ([SQLiteEnv] -> IO x) -> IO x
     withDbs f = foldl' (\soFar _ -> withDb soFar) f (chainIds v) []
+
+    withDb :: ([SQLiteEnv] -> IO x) -> [SQLiteEnv] -> IO x
     withDb g envs = withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
 
-    mkPact :: SQLiteEnv -> ChainId -> IO PactExecutionService
-    mkPact sqlenv c = do
+    mkTestPactExecutionService :: ()
+      => SQLiteEnv
+      -> ChainId
+      -> IO PactExecutionService
+    mkTestPactExecutionService sqlenv c = do
         bhdb <- getBlockHeaderDb c bdb
         ctx <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig gasmodel
         return $ PactExecutionService
@@ -762,6 +772,22 @@ withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
               evalPactServiceM_ ctx $ execReadOnlyReplay l u
           }
 
+-- | A queue-less WebPactExecutionService (for all chains)
+--   with direct chain access map for local.
+withWebPactExecutionService
+    :: (Logger logger)
+    => logger
+    -> ChainwebVersion
+    -> PactServiceConfig
+    -> TestBlockDb
+    -> MemPoolAccess
+    -> (TxContext -> GasModel)
+    -> ((WebPactExecutionService, HM.HashMap ChainId (SQLiteEnv, PactExecutionService)) -> IO a)
+    -> IO a
+withWebPactExecutionService logger v pactConfig bdb mempoolAccess gasmodel act =
+  withWebPactExecutionServiceCompaction logger v pactConfig bdb mempoolAccess gasmodel
+    $ \(pact, pacts, _, _) -> act (pact, pacts)
+
 -- | Noncer for 'runCut'
 type Noncer = ChainId -> IO Nonce
 
@@ -786,7 +812,7 @@ runCut v bdb pact genTime noncer miner =
     n <- noncer cid
 
     -- skip this chain if mining fails and retry with the next chain.
-    whenM (addTestBlockDb bdb (succ $ _blockHeight $ _parentHeader ph) n genTime cid pout) $ do
+    whenM (addTestBlockDb bdb (succ $ view blockHeight $ _parentHeader ph) n genTime cid pout) $ do
         h <- getParentTestBlockDb bdb cid
         void $ _webPactValidateBlock pact h (CheckablePayloadWithOutputs pout)
 
@@ -1013,7 +1039,7 @@ someBlockHeader v h = (!! (int h - 1))
 --   the streaming version of this function from
 --   'Chainweb.Pact.Backend.PactState'.
 getPactUserTables :: Database -> IO (Map Text [PactRow])
-getPactUserTables db = do
+getPactUserTables db = fmap (M.map (List.sortOn (\pr -> (pr.rowKey, pr.txId)))) $ do
   S.foldM_
     (\m tbl -> pure (M.insert tbl.name tbl.rows m))
     (pure M.empty)
@@ -1034,65 +1060,17 @@ getLatestPactState db = do
     pure
     (PactState.getLatestPactStateDiffable db)
 
-locateTarget :: ()
+sigmaCompact :: ()
   => SQLiteEnv
-  -> C.TargetBlockHeight
-  -> IO BlockHeight
-locateTarget db = \case
-  C.Target height -> do
-    PactState.ensureBlockHeightExists db height
-    pure height
-  C.LatestUnsafe -> do
-    PactState.getLatestBlockHeight db
-  C.LatestSafe -> do
-    latest <- PactState.getLatestBlockHeight db
-    earliest <- PactState.getEarliestBlockHeight db
-
-    let safeDepth = 1_000
-
-    when (latest - earliest < safeDepth) $ do
-      error "not enough history for Compaction.LatestSafe"
-
-    pure (latest - safeDepth)
-
--- | Compaction utility for testing.
---   Most of the time the flags will be ['C.NoVacuum']
-compact :: ()
-  => LogLevel
-  -> [C.CompactFlag]
   -> SQLiteEnv
-  -> C.TargetBlockHeight
+  -> BlockHeight
   -> IO ()
-compact logLevel cFlags db target = do
-  C.withDefaultLogger logLevel $ \logger -> do
-    height <- locateTarget db target
-    void $ C.compact height logger db cFlags
-
--- | Compaction function that retries until the database is available.
-compactUntilAvailable
-  :: C.TargetBlockHeight
-  -> YAL.Logger SomeLogMessage
-  -> SQLiteEnv
-  -> [C.CompactFlag]
-  -> IO ()
-compactUntilAvailable target logger db flags = do
-  height <- locateTarget db target
-  go height
-  where
-    go h = do
-      r <- try (C.compact h logger db flags)
-      case r of
-        Right _ -> pure ()
-        Left err
-          | C.CompactExceptionDb e <- err
-          , Just ioErr <- fromException e
-            -- someone, somewhere, is calling "show" on an exception
-          , "ErrorBusy" `List.isInfixOf` ioe_description ioErr
-          -> putStrLn "Retrying compaction" >> go h
-          | otherwise -> throwM err
+sigmaCompact srcDb targetDb targetBlockHeight = do
+  Sigma.withDefaultLogger Warn $ \logger -> do
+    Sigma.compactPactState logger Sigma.defaultRetainment targetBlockHeight srcDb targetDb
 
 getPWOByHeader :: BlockHeader -> TestBlockDb -> IO PayloadWithOutputs
 getPWOByHeader h (TestBlockDb _ pdb _) =
-  lookupPayloadWithHeight pdb (Just $ _blockHeight h) (_blockPayloadHash h) >>= \case
+  lookupPayloadWithHeight pdb (Just $ view blockHeight h) (view blockPayloadHash h) >>= \case
     Nothing -> throwM $ userError "getPWOByHeader: payload not found"
     Just pwo -> return pwo

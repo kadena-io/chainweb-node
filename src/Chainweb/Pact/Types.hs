@@ -496,8 +496,8 @@ ctxToPublicData ctx@(TxContext _ pm) = PublicData
   where
     h = ctxBlockHeader ctx
     BlockHeight bh = ctxCurrentBlockHeight ctx
-    BlockCreationTime (Time (TimeSpan (Micros !bt))) = _blockCreationTime h
-    BlockHash hsh = _blockParent h
+    BlockCreationTime (Time (TimeSpan (Micros !bt))) = view blockCreationTime h
+    BlockHash hsh = view blockParent h
 
 -- | Convert context to datatype for Pact environment using the
 -- current blockheight, referencing the parent header (not grandparent!)
@@ -512,10 +512,10 @@ ctxToPublicData' (TxContext ph pm) = PublicData
     }
   where
     bheader = _parentHeader ph
-    BlockHeight !bh = succ $ _blockHeight bheader
+    BlockHeight !bh = succ $ view blockHeight bheader
     BlockCreationTime (Time (TimeSpan (Micros !bt))) =
-      _blockCreationTime bheader
-    BlockHash h = _blockHash bheader
+      view blockCreationTime bheader
+    BlockHash h = view blockHash bheader
 
 -- | Retreive parent header as 'BlockHeader'
 ctxBlockHeader :: TxContext -> BlockHeader
@@ -525,10 +525,10 @@ ctxBlockHeader = _parentHeader . _tcParentHeader
 -- This reflects Pact environment focus on current block height,
 -- which influenced legacy switch checks as well.
 ctxCurrentBlockHeight :: TxContext -> BlockHeight
-ctxCurrentBlockHeight = succ . _blockHeight . ctxBlockHeader
+ctxCurrentBlockHeight = succ . view blockHeight . ctxBlockHeader
 
 ctxChainId :: TxContext -> ChainId
-ctxChainId = _blockChainId . ctxBlockHeader
+ctxChainId = view blockChainId . ctxBlockHeader
 
 ctxVersion :: TxContext -> ChainwebVersion
 ctxVersion = _chainwebVersion . ctxBlockHeader
@@ -596,7 +596,7 @@ liftPactServiceM (PactServiceM a) = PactBlockM (magnify psServiceEnv a)
 -- | Look up an init cache that is stored at or before the height of the current parent header.
 getInitCache :: PactBlockM logger tbl ModuleCache
 getInitCache = do
-  ph <- views psParentHeader (_blockHeight . _parentHeader)
+  ph <- views psParentHeader (view blockHeight . _parentHeader)
   get >>= \PactServiceState{..} ->
     case M.lookupLE ph _psInitCache of
       Just (_,mc) -> return mc
@@ -609,7 +609,7 @@ updateInitCache :: ModuleCache -> ParentHeader -> PactServiceM logger tbl ()
 updateInitCache mc ph = get >>= \PactServiceState{..} -> do
     let bf 0 = 0
         bf h = succ h
-    let pbh = bf (_blockHeight $ _parentHeader ph)
+    let pbh = bf (view blockHeight $ _parentHeader ph)
 
     v <- view psVersion
     cid <- view chainId
