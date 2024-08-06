@@ -29,6 +29,7 @@ module P2P.Node.Configuration
 , p2pConfigKnownPeers
 , p2pConfigIgnoreBootstrapNodes
 , p2pConfigBootstrapReachability
+, p2pConfigPrivate
 , defaultP2pConfiguration
 , validateP2pConfiguration
 , pP2pConfiguration

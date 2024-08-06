@@ -73,6 +73,7 @@ module Chainweb.Chainweb.Configuration
 , configOnlySyncPact
 , configSyncPactChains
 , configEnableLocalTimeout
+, configReadOnlyReplay
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
