@@ -1,2 +1,0 @@
-Log current cut periodically, instead of when it changes, for more
-consistency and less space use.

@@ -138,6 +138,6 @@ done
 
 # Test if the string is empty
 if [[ -n "$MISSING_COMMIT_MESSAGES" ]]; then
-    printf -- "\n%s" "Note: There were commits made since the previous release, but not mentioned in the changelog. I've written these commits and their messages to $ROOT/changes/missing.txt. Please verify that each of these is acceptable to omit from the changelog. Manual intervention may be required to include any missing entries."
+    printf -- "\n%s\n%s\n%s\n" "Note: There were commits made since the previous release, but not mentioned in the changelog. I've written" "these commits and their messages to $ROOT/changes/missing.txt. Please verify that" "each of these is acceptable to omit from the changelog. Manual intervention may be required to include any missing entries."
     echo -e "$MISSING_COMMIT_MESSAGES" > "$ROOT/changes/missing.txt"
 fi
