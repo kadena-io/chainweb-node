@@ -202,3 +202,7 @@ allow-newer: base-compat-batteries:*
 allow-newer: webauthn:these
 allow-newer: webauthn:time
 allow-newer: webauthn:aeson
+
+constraints: pact-time ==0.2.0.2,
+             any.vector-space ==0.16
+
