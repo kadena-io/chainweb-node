@@ -197,9 +197,12 @@ allow-newer: regex-base:*
 allow-newer: regex-tdfa:*
 allow-newer: base-compat-batteries:*
 
+-- webauthn also uses overly restrictive upper bounds
+allow-newer: webauthn:*
+
+-- many packages use an spurious <1.5 upper bound on hashable
+allow-newer: *:hashable
+
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
 
-allow-newer: webauthn:these
-allow-newer: webauthn:time
-allow-newer: webauthn:aeson
