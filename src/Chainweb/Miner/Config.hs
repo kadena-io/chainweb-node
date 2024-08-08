@@ -5,6 +5,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 -- |
 -- Module: Chainweb.Miner.Config
@@ -57,8 +58,12 @@ import Pact.Types.Term (mkKeySet, PublicKeyText(..))
 
 import Chainweb.Miner.Pact (Miner(..), MinerKeys(..), MinerId(..), minerId)
 import Chainweb.Time
+import Chainweb.Utils (hostArch, sshow)
+import Chainweb.Version
+import Chainweb.Version.Mainnet
+import Chainweb.Version.Testnet
 
----
+-- -------------------------------------------------------------------------- --
 
 -- | Strictly for testing.
 --
@@ -69,19 +74,33 @@ newtype MinerCount = MinerCount { _minerCount :: Natural }
 -- -------------------------------------------------------------------------- --
 -- Mining Config
 
-validateMinerConfig :: ConfigValidation MiningConfig []
-validateMinerConfig c = do
-    when (_nodeMiningEnabled nmc) $ tell
-        [ "In-node mining is enabled. This should only be used for testing"
-        , "In order to use in-node mining, mining-coordination must be enabled, too"
-        ]
-    when (_nodeMiningEnabled nmc && not (_coordinationEnabled cc))
-        $ throwError "In-node mining is enabled but mining coordination is disabled"
-    when (_nodeMiningEnabled nmc && view minerId (_nodeMiner nmc) == "")
-        $ throwError "In-node Mining is enabled but no miner id is configured"
+validateMinerConfig :: ChainwebVersion -> ConfigValidation MiningConfig []
+validateMinerConfig v c = do
+    when (_nodeMiningEnabled nmc) $ do
+        tell
+            [ "In-node mining is enabled. This should only be used for testing"
+            , "In order to use in-node mining, mining-coordination must be enabled, too"
+            ]
+        when (not (_coordinationEnabled cc))
+            $ throwError "In-node mining is enabled but mining coordination is disabled"
+        when (view minerId (_nodeMiner nmc) == "")
+            $ throwError "In-node Mining is enabled but no miner id is configured"
+
+    when (_coordinationEnabled cc && isProd) $ do
+        when (hostArch `notElem` supportedArchs) $ do
+            throwError $ mconcat
+                [ "Unsupported host architecture for mining on production networks: " <> sshow hostArch <> "."
+                , " Supported architectures are " <> sshow supportedArchs
+                ]
   where
     nmc = _miningInNode c
     cc = _miningCoordination c
+
+    -- This is a heuristic and we are rather a little too restrictiv. In the
+    -- future we may also consider uname -m and/or cpuinfo (including flags) here.
+    --
+    supportedArchs = [ "x86_64" ]
+    isProd = v `elem` [Mainnet01, Testnet04]
 
 -- | Full configuration for Mining.
 --

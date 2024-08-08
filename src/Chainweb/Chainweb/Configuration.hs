@@ -421,7 +421,7 @@ instance HasChainwebVersion ChainwebConfiguration where
 
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration []
 validateChainwebConfiguration c = do
-    validateMinerConfig (_configMining c)
+    validateMinerConfig (_configChainwebVersion c) (_configMining c)
     validateBackupConfig (_configBackup c)
     unless (c ^. chainwebVersion . versionDefaults . disablePeerValidation) $
         validateP2pConfiguration (_configP2p c)

@@ -418,9 +418,7 @@ effectiveWindow h = WindowWidth <$> case _versionWindow (_chainwebVersion h) of
 isLastInEpoch :: BlockHeader -> Bool
 isLastInEpoch h = case effectiveWindow h of
     Nothing -> False
-    Just (WindowWidth w)
-        | (int (_blockHeight h) + 1) `mod` w == 0 -> True
-        | otherwise -> False
+    Just (WindowWidth w) -> (int (_blockHeight h) + 1) `mod` w == 0
 
 -- | If it is discovered that the last DA occured significantly in the past, we
 -- assume that a large amount of hash power has suddenly dropped out of the
