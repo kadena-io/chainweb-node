@@ -1049,37 +1049,41 @@ goldenNewBlock name mpIO mpRefIO reqIO = golden name $ do
       assertSatisfies ("golden tx succeeds, input: " ++ show txIn) (_crResult cr) (isRight . (\(PactResult r) -> r))
     goldenBytes resp blockInProgress
   where
+    hmToSortedList :: Ord k => HM.HashMap k v -> [(k, v)]
     hmToSortedList = List.sortOn fst . HM.toList
     -- missing some fields, only includes the fields that are "outputs" of
     -- running txs, but not the module cache
-    blockInProgressToJSON BlockInProgress {..} = object
-      [ "pendingData" .=
-        let SQLitePendingData{..} = _blockInProgressPendingData
-        in object
-            [ "pendingTableCreation" .=
-                (T.decodeUtf8 <$> toList _pendingTableCreation)
-            , "pendingWrites" .= HM.fromList
-                [ (T.decodeUtf8 _dkTable, HM.fromList
-                    [ (T.decodeUtf8 _dkRowKey, HM.fromList
-                        [ (fromIntegral @TxId @Word _deltaTxId, T.decodeUtf8 _deltaData)
-                        | SQLiteRowDelta {..} <- toList rowKeyWrites
-                        ])
-                    | (_dkRowKey, rowKeyWrites) <- hmToSortedList tableWrites
-                    ])
-                | (_dkTable, tableWrites) <- hmToSortedList _pendingWrites
-                ]
-          , "pendingSuccessfulTxs" .=
-            (encodeB64UrlNoPaddingText <$> toList _pendingSuccessfulTxs)
-          ]
-      , "txId" .= fromIntegral @TxId @Word _blockInProgressTxId
-      , "blockGasLimit" .= fromIntegral @GasLimit @Int _blockInProgressRemainingGasLimit
-      , "parentHeader" .= _parentHeader _blockInProgressParentHeader
+
+    blockInProgressToJSON BlockInProgress {..} = J.object
+      [ "blockGasLimit" J..= J.Aeson (fromIntegral @_ @Int _blockInProgressRemainingGasLimit)
+      , "parentHeader" J..= J.encodeWithAeson (_parentHeader _blockInProgressParentHeader)
+      , "pendingData" J..= J.object
+        [ "pendingSuccessfulTxs" J..= J.array
+          (encodeB64UrlNoPaddingText <$> List.sort (toList _pendingSuccessfulTxs))
+        , "pendingTableCreation" J..= J.array
+            (T.decodeUtf8 <$> List.sort (toList _pendingTableCreation))
+        , "pendingWrites" J..= pendingWritesJson
+        ]
+      , "txId" J..= J.Aeson (fromIntegral @_ @Int _blockInProgressTxId)
       ]
+     where
+      SQLitePendingData{..} = _blockInProgressPendingData
+      pendingWritesJson = J.Object
+            [ (T.decodeUtf8 _dkTable, J.Object
+                [ (T.decodeUtf8 _dkRowKey, J.Object
+                    [ ((sshow @_ @T.Text. fromIntegral @TxId @Word) _deltaTxId, T.decodeUtf8 _deltaData)
+                    | SQLiteRowDelta {..} <- toList rowKeyWrites
+                    ])
+                | (_dkRowKey, rowKeyWrites) <- hmToSortedList tableWrites
+                ])
+            | (_dkTable, tableWrites) <- hmToSortedList _pendingWrites
+            ]
+
     goldenBytes :: PayloadWithOutputs -> BlockInProgress -> IO BL.ByteString
-    goldenBytes a b = return $ BL.fromStrict $ encodeYaml $ object
-      [ "test-group" .= ("new-block" :: T.Text)
-      , "results" .= a
-      , "blockInProgress" .= blockInProgressToJSON b
+    goldenBytes a b = return $ BL.fromStrict $ encodeYaml $ J.object
+      [ "test-group" J..= ("new-block" :: T.Text)
+      , "results" J..= J.encodeWithAeson a
+      , "blockInProgress" J..= blockInProgressToJSON b
       ]
 
 goldenMemPool :: IO MemPoolAccess
