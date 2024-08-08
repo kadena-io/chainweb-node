@@ -75,8 +75,11 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 4c0acc5fb322014b120c4a5942db8505968ab046
-    --sha256: 0kyh6xwm06npbw73dil5xpngfr7h6ppsn5jz7hjkirq9hj33aqqv
+    tag: bda595599236fb8edbc087ca9e209a0d83da7f72
+    --sha256: 01dq2sdf7zg6q2mn20w64bdbb5vmvpfxrifzxb8i98x93bvgqgi3
+
+--    tag: 4c0acc5fb322014b120c4a5942db8505968ab046
+--    --sha256: 0kyh6xwm06npbw73dil5xpngfr7h6ppsn5jz7hjkirq9hj33aqqv
 
 source-repository-package
     type: git
@@ -103,10 +106,10 @@ source-repository-package
     --sha256: 19pjy06xrx2siggzybcmly0qaq4ds3yzxcsvqwgs4qh9kkzh0kqh
 
 source-repository-package
-    type: git
-    location: https://github.com/kadena-io/kadena-ethereum-bridge.git
-    tag: a32d901e4a79be62af9c27c01152c9a4c3912a62
-    --sha256: sha256-xdawv/tdjh61MbJKcBqm9Fje36+gVljuZsAxOTX1gP0=
+  type: git
+  location: https://github.com/kadena-io/kadena-ethereum-bridge.git
+  tag: a32d901e4a79be62af9c27c01152c9a4c3912a62
+  --sha256: sha256-xdawv/tdjh61MbJKcBqm9Fje36+gVljuZsAxOTX1gP0=
 
 source-repository-package
     type: git

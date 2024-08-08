@@ -486,6 +486,7 @@ jobs:
           databaseDirectory: "db"
           chainweb:
             onlySyncPact: true
+            logGas: true
             chainwebVersion: ${{ needs.config.outputs.chainweb-network-version }}
             validateHashesOnReplay: true
             p2p:
@@ -634,7 +635,7 @@ jobs:
       OS: ${{ matrix.os }}
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
       ARTIFACTS_ARCHIVE: chainweb.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
-  
+
     steps:
     - name: Get build artifacts
       uses: actions/download-artifact@v4

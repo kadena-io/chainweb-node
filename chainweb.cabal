@@ -397,7 +397,8 @@ library
         , filepath >= 1.4
         , ghc-compact >= 0.1
         , growable-vector >= 0.1
-        , hashable >= 1.4
+        -- hash of bytestrings changed
+        , hashable >= 1.4 && < 1.4.5
         , heaps >= 0.3
         , hourglass >=0.2
         , http2 >= 5.2.1
@@ -632,7 +633,7 @@ test-suite chainweb-tests
         , yaml >= 0.11
         , yet-another-logger >= 0.4.1
         , sha-validation >=0.1
-        , hashes >=0.2.2.0
+        , hashes >=0.2.2.0 && < 0.3
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
