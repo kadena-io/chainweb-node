@@ -4,15 +4,15 @@ name:         chainweb
 version:      2.25
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
-homepage:     https://github.com/kadena-io/chainweb
-bug-reports:  https://github.com/kadena-io/chainweb/issues
+homepage:     https://github.com/kadena-io/chainweb-node
+bug-reports:  https://github.com/kadena-io/chainweb-node/issues
 license:      BSD-3-Clause
 license-file: LICENSE
 author:       Chainweb Dev Team
 maintainer:   chainweb-dev@kadena.io
-copyright:    Copyright (C) 2018 - 2023 Kadena LLC
+copyright:    Copyright (C) 2018 - 2024 Kadena LLC
 category:     Blockchain, Currency, Bitcoin, Kadena
-build-type:   Custom
+build-type:   Simple
 
 tested-with:
     GHC == 9.6
@@ -107,15 +107,6 @@ common warning-flags
         -- This needed because -Werror and missing-home-modules causes
         -- problems with ghci.
         -Wno-missing-home-modules
-
-custom-setup
-    setup-depends:
-          Cabal >= 3.8
-        , base >= 4.12 && < 5
-        , bytestring >= 0.10.12
-        , directory >= 1.3
-        , filepath >= 1.4
-        , process >= 1.5
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Library
@@ -357,9 +348,10 @@ library
         , Utils.Logging
         , Utils.Logging.Config
         , Utils.Logging.Trace
+        , Utils.PackageInfo
 
     build-depends:
-          Decimal >= 0.4.2
+        , Decimal >= 0.4.2
         , aeson >= 2.2
         , asn1-encoding >=0.9
         , asn1-types >=0.3
@@ -370,12 +362,14 @@ library
         , base64-bytestring-kadena == 0.1
         , binary >= 0.8
         , bytestring >= 0.10.12
+        , Cabal-syntax >= 3.8
+        , process >= 1.6
+        , cabal-install-parsers >= 0.6
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
         , chainweb-storage >= 0.1
         , clock >= 0.7
         , configuration-tools >= 0.6
-        , crypton-connection >= 0.2 && < 0.4
         , containers >= 0.5
         , crypton >= 0.31
         , crypton-connection >= 0.2 && < 0.4
@@ -400,11 +394,11 @@ library
         , hashable >= 1.4
         , heaps >= 0.3
         , hourglass >=0.2
-        , http2 >= 5.2.1
         , http-client >= 0.5
         , http-client-tls >=0.3
         , http-media >= 0.7
         , http-types >= 0.12
+        , http2 >= 5.2.1
         , iproute >= 1.7
         , ixset-typed >= 0.4
         , lens >= 4.17
@@ -462,7 +456,6 @@ library
         , warp-tls >= 3.4
         , yaml >= 0.11
         , yet-another-logger >= 0.4.1
-
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
     if flag(ghc-flags)
@@ -657,12 +650,10 @@ executable chainweb-node
     c-sources: node/c/rlim_utils.c
     other-modules:
         Paths_chainweb
-        PkgInfo
         Utils.CheckRLimits
         Utils.InstallSignalHandlers
     autogen-modules:
         Paths_chainweb
-        PkgInfo
     build-depends:
         -- internal
           chainweb
