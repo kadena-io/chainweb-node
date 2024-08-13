@@ -75,8 +75,8 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 4c0acc5fb322014b120c4a5942db8505968ab046
-    --sha256: 0kyh6xwm06npbw73dil5xpngfr7h6ppsn5jz7hjkirq9hj33aqqv
+    tag: f5980d1594122a65872980bf92d7295c32997116
+    --sha256: 1vwv8qrg2fpxalk3mdnj2zwzjynldvdsdmz2jzq5jyrcykfqafy2
 
 source-repository-package
     type: git
@@ -103,10 +103,10 @@ source-repository-package
     --sha256: 19pjy06xrx2siggzybcmly0qaq4ds3yzxcsvqwgs4qh9kkzh0kqh
 
 source-repository-package
-    type: git
-    location: https://github.com/kadena-io/kadena-ethereum-bridge.git
-    tag: a32d901e4a79be62af9c27c01152c9a4c3912a62
-    --sha256: sha256-xdawv/tdjh61MbJKcBqm9Fje36+gVljuZsAxOTX1gP0=
+  type: git
+  location: https://github.com/kadena-io/kadena-ethereum-bridge.git
+  tag: 3837c4c81f1beaffc1d52375e61576366d49170a
+  --sha256: 1knhscph2g3saz0pjd1d5a32mr281msapccfrillgd2qk4pj7xjc
 
 source-repository-package
     type: git
@@ -202,3 +202,6 @@ allow-newer: base-compat-batteries:*
 allow-newer: webauthn:these
 allow-newer: webauthn:time
 allow-newer: webauthn:aeson
+
+-- Hashable 1.4.5 changes the hashing of bytestring, which causes some issues.
+constraints: hashable < 1.4.5

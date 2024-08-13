@@ -496,6 +496,7 @@ jobs:
           databaseDirectory: "db"
           chainweb:
             onlySyncPact: true
+            logGas: true
             chainwebVersion: ${{ needs.config.outputs.chainweb-network-version }}
             validateHashesOnReplay: true
             p2p:
