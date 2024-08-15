@@ -1,7 +1,7 @@
 name: Release - chainweb-node - binary release scripts
 
 ## Release automation for chainweb-node
-# Designed to run systems in chainweb/binary-release 
+# Designed to run systems in chainweb/binary-release
 
 ## Currently has manual version setting and creates draft releases;
 # when we are confident in this process, it can auto-increment and publish non-drafts
@@ -34,8 +34,8 @@ on:
       dry_run:
         description: "dry run (debugging)"
         type: boolean
-        default: false 
-  
+        default: false
+
 jobs:
   release_vars:
     runs-on: ubuntu-latest
@@ -57,7 +57,7 @@ jobs:
 #           tag_prefix: ""
 #           commit_sha: ${{ inputs.release_sha }}
 
-          
+
       - name: Set variables for release
         id: set-vars
         run: |
@@ -73,13 +73,13 @@ jobs:
           echo "VERSION_NEW=${{ inputs.new_tag }}" >> $GITHUB_OUTPUT
           echo "VERSION_OLD=${{ inputs.old_tag }}" >> $GITHUB_OUTPUT
           echo "IMAGE=ghcr.io/kadena-io/chainweb-node:sha-$SHORT_REVISION-frozen" >> $GITHUB_OUTPUT
-          
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ steps.set-vars.outputs.RELEASE_SHA }}
           sparse-checkout: |
             .github/workflows/applications.yml
-        
+
       - name: Get ghc version
         id: set-ghc-version
         run: |
@@ -98,9 +98,9 @@ jobs:
       VERSION_NEW: ${{ needs.release_vars.outputs.VERSION_NEW }}
       GHC_VERSION: ${{ needs.release_vars.outputs.GHC_VERSION }}
     secrets: inherit
-  
+
   release_repo:
-    needs: 
+    needs:
       - release_vars
       - chainweb-node-dockerhub
     runs-on: ubuntu-latest
@@ -116,7 +116,7 @@ jobs:
         with:
            ref: ${{ env.RELEASE_SHA }}
            sparse-checkout: 'CHANGELOG.md'
-           
+
       - name: tag git sha with release version
         run: |
           git tag ${{ env.VERSION_NEW }} ${{ env.RELEASE_SHA }}
@@ -128,7 +128,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: retag ghcr docker images
         continue-on-error: false
         run: |
@@ -137,12 +137,12 @@ jobs:
           docker tag $IMAGE ghcr.io/kadena-io/chainweb-node/ubuntu:$VERSION_NEW
           docker tag $IMAGE ghcr.io/kadena-io/chainweb-node/ubuntu:latest
           docker tag $IMAGE ghcr.io/kadena-io/chainweb-node:latest
-          
+
           docker image ls
-          
+
           docker image push --all-tags ghcr.io/kadena-io/chainweb-node/ubuntu
           docker image push --all-tags ghcr.io/kadena-io/chainweb-node
-          
+
           digest1=$(docker inspect $IMAGE --format '{{ .RepoDigests }}')
           digest2=$(docker inspect ghcr.io/kadena-io/chainweb-node/ubuntu:$VERSION_NEW --format '{{ .RepoDigests }}')
           digest3=$(docker inspect ghcr.io/kadena-io/chainweb-node/ubuntu:latest --format '{{ .RepoDigests }}')
@@ -159,25 +159,25 @@ jobs:
 
           UBUNTU_20_TAR=chainweb.true.$GHC_VER.ubuntu-20.04.$SHORT_REVISION.tar.gz
           UBUNTU_22_TAR=chainweb.true.$GHC_VER.ubuntu-22.04.$SHORT_REVISION.tar.gz
-          
+
           UBUNTU_20_NODE=chainweb-$VERSION_NEW.ghc-$GHC_VER.ubuntu-20.04.$SHORT_REVISION.tar.gz
           UBUNTU_22_NODE=chainweb-$VERSION_NEW.ghc-$GHC_VER.ubuntu-22.04.$SHORT_REVISION.tar.gz
           echo $UBUNTU_22_TAR
           echo $UBUNTU_22_NODE
-          
+
           curl "s3.us-east-1.amazonaws.com/kadena-cabal-cache/chainweb-node/$UBUNTU_20_TAR" -o "./$UBUNTU_20_TAR"
           curl "s3.us-east-1.amazonaws.com/kadena-cabal-cache/chainweb-node/$UBUNTU_22_TAR" -o "./$UBUNTU_22_TAR"
-          
+
           tar xvfz "$UBUNTU_20_TAR" chainweb/chainweb-node
-          mv chainweb/chainweb-node .
+          mv chainweb/{chainweb-node,compact} .
           tar cvfz "$UBUNTU_20_NODE" chainweb-node
-          rm -fr chainweb-node chainweb         
-                   
+          rm -fr chainweb-node chainweb
+
           tar xvfz "$UBUNTU_22_TAR" chainweb/chainweb-node
-          mv chainweb/chainweb-node .
+          mv chainweb/{chainweb-node,compact} .
           tar cvfz "$UBUNTU_22_NODE" chainweb-node
           rm -fr chainweb-node chainweb
-          
+
           echo "UBUNTU_20_SHA=$(shasum -a 256 $UBUNTU_20_NODE)" >> $GITHUB_ENV
           echo "UBUNTU_22_SHA=$(shasum -a 256 $UBUNTU_22_NODE)" >> $GITHUB_ENV
           shasum -a 256 "$UBUNTU_22_NODE"
@@ -186,7 +186,7 @@ jobs:
 
       #- name: generate release message
       # could generate this from the changelog.md, though changelog.md could be itself generated...
-      #oom_score_adj: 
+      #oom_score_adj:
 
       - name: Generate release message
         continue-on-error: true
@@ -199,9 +199,9 @@ jobs:
           ls
           sed "/$VERSION_OLD\s/,\$d" CHANGELOG.md | sed "/$VERSION_NEW (20/d" | sed '/\sChangelog/d' | tee CHANGELOG.md
           echo 'Official release: https://github.com/kadena-io/chainweb-node/releases/tag/${{ env.VERSION_NEW }}
-          
+
             For full details refer to the [Changelog](https://github.com/kadena-io/chainweb-node/blob/master/CHANGELOG.md)
-          
+
             ### Container Images:
 
             *   [End-user image](https://hub.docker.com/r/kadena/chainweb-node)
@@ -209,24 +209,24 @@ jobs:
             ```sh
             docker pull kadena/chainweb-node:${{ env.VERSION_NEW }}
             ```
-            
+
             *   [Binary-only Ubuntu-20.04 ](ghcr.io/kadena-io/chainweb-node/ubuntu:${{ env.VERSION_NEW }})
             Image Digest: `${{ env.GHCR_DIGEST }}`
             ```sh
             docker pull ghcr.io/kadena-io/chainweb-node/ubuntu:${{ env.VERSION_NEW }}
             ```
-        
+
             ### Ubuntu Binaries:
-            
+
             SHA256 Hashes
-            
+
             ```
             ${{ env.UBUNTU_22_SHA }}
             ${{ env.UBUNTU_20_SHA }}
             ```
-          
+
             The following dependencies must be installed on the system:
-            
+
             *   ubuntu-22.04:
                 ```sh
                 apt-get install ca-certificates libgmp10 libssl3 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
@@ -237,7 +237,7 @@ jobs:
                 ```
           ' >> CHANGELOG.md
           cat CHANGELOG.md
-          
+
       - name: Release
         uses: ncipollo/release-action@v1
         #if: startsWith(github.ref, 'refs/tags/')
