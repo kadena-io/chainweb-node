@@ -168,7 +168,7 @@ jobs:
           curl "s3.us-east-1.amazonaws.com/kadena-cabal-cache/chainweb-node/$UBUNTU_20_TAR" -o "./$UBUNTU_20_TAR"
           curl "s3.us-east-1.amazonaws.com/kadena-cabal-cache/chainweb-node/$UBUNTU_22_TAR" -o "./$UBUNTU_22_TAR"
 
-          tar xvfz "$UBUNTU_20_TAR" chainweb/chainweb-node
+          tar xvfz "$UBUNTU_20_TAR" chainweb
           tree chainweb
           exit 1
           mv chainweb/chainweb-node .
