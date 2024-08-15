@@ -169,15 +169,13 @@ jobs:
           curl "s3.us-east-1.amazonaws.com/kadena-cabal-cache/chainweb-node/$UBUNTU_22_TAR" -o "./$UBUNTU_22_TAR"
 
           tar xvfz "$UBUNTU_20_TAR" chainweb
-          tree chainweb
-          exit 1
-          mv chainweb/chainweb-node .
-          tar cvfz "$UBUNTU_20_NODE" chainweb-node
+          mv chainweb/{LICENSE,README.md,chainweb-node,compact} .
+          tar cvfz "$UBUNTU_20_NODE" LICENSE README.md chainweb-node compact
           rm -fr chainweb-node chainweb
 
-          tar xvfz "$UBUNTU_22_TAR" chainweb/chainweb-node
-          mv chainweb/chainweb-node .
-          tar cvfz "$UBUNTU_22_NODE" chainweb-node
+          tar xvfz "$UBUNTU_22_TAR" chainweb
+          mv chainweb/{LICENSE,README.md,chainweb-node,compact} .
+          tar cvfz "$UBUNTU_22_NODE" LICENSE README.md chainweb-node compact
           rm -fr chainweb-node chainweb
 
           echo "UBUNTU_20_SHA=$(shasum -a 256 $UBUNTU_20_NODE)" >> $GITHUB_ENV
