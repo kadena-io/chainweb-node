@@ -256,7 +256,7 @@ pattern FromSingChainId sng <- ((\cid -> withSomeSing cid SomeSing) -> SomeSing 
 -- -------------------------------------------------------------------------- --
 -- Misc
 
--- | This function should be be rarely needed. Please consult the documentation
+-- | This function should be rarely needed. Please consult the documentation
 -- of 'ChainId' for alternative ways to obtain 'ChainId' values.
 --
 unsafeChainId :: Word32 -> ChainId

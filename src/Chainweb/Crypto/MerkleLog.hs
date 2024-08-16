@@ -64,7 +64,7 @@
 -- structured data. This makes it easier to maintain the consistency of the hash
 -- computations and generates hashes in a way that supports compact Merkle
 -- proofs. The module introduces a syntax for defining the structure of hashes
--- that makes it obvious how a hash is created and helps to to make sure that
+-- that makes it obvious how a hash is created and helps to make sure that
 -- the code complies with the specification.
 --
 -- The tools in the module also automate some of the tedious and error prone

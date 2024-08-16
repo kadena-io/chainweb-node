@@ -91,7 +91,7 @@ pruneForksLogg = pruneForks . logFunctionText
 -- of blocks.
 --
 -- This function guarantees that the predecessors of all remaining nodes also
--- remain in the database and that there are are no tangling references.
+-- remain in the database and that there are no tangling references.
 --
 -- This function doesn't guarantee to delete all blocks on forks. A small number
 -- of fork blocks may not get deleted.
