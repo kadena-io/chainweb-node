@@ -56,6 +56,7 @@ toMempool version chain txcfg env =
     { mempoolTxConfig = txcfg
     , mempoolMember = member
     , mempoolLookup = lookup
+    , mempoolLookupEncoded = const unsupported
     , mempoolInsert = insert
     , mempoolInsertCheck = const unsupported
     , mempoolMarkValidated = const unsupported
@@ -148,7 +149,6 @@ lookupClient txcfg v c txs = do
       Right t -> return t
 
     decode = codecDecode (txCodec txcfg) . T.encodeUtf8
-
 
 ------------------------------------------------------------------------------
 getPendingClient_
