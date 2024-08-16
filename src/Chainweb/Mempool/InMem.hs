@@ -74,6 +74,7 @@ import Chainweb.Version (ChainwebVersion)
 import qualified Pact.Types.ChainMeta as P
 
 import Numeric.AffineSpace
+import Data.ByteString (ByteString)
 
 ------------------------------------------------------------------------------
 compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
@@ -117,6 +118,7 @@ toMempoolBackend logger mempool = do
       { mempoolTxConfig = tcfg
       , mempoolMember = member
       , mempoolLookup = lookup
+      , mempoolLookupEncoded = lookupEncoded
       , mempoolInsert = insert
       , mempoolInsertCheck = insertCheck
       , mempoolMarkValidated = markValidated
@@ -135,6 +137,7 @@ toMempoolBackend logger mempool = do
     InMemConfig tcfg _ _ _ _ _ _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem tcfg lockMVar
+    lookupEncoded = lookupEncodedInMem lockMVar
     insert = insertInMem cfg lockMVar
     insertCheck = insertCheckInMem cfg lockMVar
     markValidated = markValidatedInMem logger tcfg lockMVar
@@ -225,6 +228,20 @@ lookupInMem txcfg lock txs = do
                $! SB.fromShort bs
     lookupQ q txHash = fixup <$!> HashMap.lookup txHash q
 
+------------------------------------------------------------------------------
+lookupEncodedInMem :: NFData t
+            => MVar (InMemoryMempoolData t)
+            -> Vector TransactionHash
+            -> IO (Vector (LookupResult ByteString))
+lookupEncodedInMem lock txs = do
+    q <- withMVarMasked lock (readIORef . _inmemPending)
+    V.mapM (evaluate . fromJuste . lookupOne q) txs
+  where
+    lookupOne q txHash = lookupQ q txHash <|> pure Missing
+    fixup pe =
+        let bs = _inmemPeBytes pe
+        in Pending $! SB.fromShort bs
+    lookupQ q txHash = fixup <$!> HashMap.lookup txHash q
 
 ------------------------------------------------------------------------------
 markValidatedInMem
