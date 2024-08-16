@@ -75,8 +75,8 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 532d74dcf36f1b0119412af8ec14bb0f3298fb91
-    --sha256: 1xzk6hymmd0dynvf1izpwz2c9kx59j0869ahgsakz6wg3k987ryv
+    tag: f5980d1594122a65872980bf92d7295c32997116
+    --sha256: 1vwv8qrg2fpxalk3mdnj2zwzjynldvdsdmz2jzq5jyrcykfqafy2
 
 source-repository-package
     type: git
@@ -205,4 +205,3 @@ allow-newer: *:hashable
 
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
-
