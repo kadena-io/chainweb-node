@@ -23,6 +23,11 @@ on:
         description: "The X.Y.Z of the old version"
         type: string
         required: true
+      ghc_version:
+        description: "used to pull binary"
+        type: string
+        required: true
+        default: "9.6.5"
 #       tag_default_bump:
 #         description: "Auto-bump release version id"
 #         type: choice
@@ -165,7 +170,7 @@ jobs:
           VERSION_NEW: ${{ env.VERSION_NEW }}
         run: |
           
-          GHC_VER=9.6.5
+          GHC_VER=${{ inputs.ghc_version }}
 
           UBUNTU_20_TAR=chainweb.false.$GHC_VER.ubuntu-20.04.$SHORT_REVISION.tar.gz
           UBUNTU_22_TAR=chainweb.false.$GHC_VER.ubuntu-22.04.$SHORT_REVISION.tar.gz
