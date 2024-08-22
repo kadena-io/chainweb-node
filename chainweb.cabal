@@ -543,6 +543,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact5.CheckpointerTest
         Chainweb.Test.Pact5.CmdBuilder
         Chainweb.Test.Pact5.TransactionExecTest
+        Chainweb.Test.Pact5.PactServiceTest
         Chainweb.Test.Pact5.Utils
         Chainweb.Test.RestAPI
         Chainweb.Test.RestAPI.Client_
@@ -619,7 +620,7 @@ test-suite chainweb-tests
         , pact-tng:pact-request-api
         , pact-tng:test-utils
         , pact-json >= 0.1
-        , predicate-transformers == 0.13.0.0
+        , predicate-transformers == 0.15.0.0
         , quickcheck-instances >= 0.3
         , random >= 1.2
         , resource-pool >= 0.4

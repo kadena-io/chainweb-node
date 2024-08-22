@@ -173,7 +173,7 @@ readFrom ph doRead = do
     e <- ask
     v <- view chainwebVersion
     cid <- view chainId
-    let currentHeight = maybe (genesisHeight v cid) _blockHeight bh
+    let currentHeight = maybe (genesisHeight v cid) (succ . _blockHeight) bh
     let execPact4 act =
             liftIO $ _cpReadFrom (_cpReadCp cp) ph Pact4T $ \dbenv _ ->
                 evalPactServiceM s e $
@@ -183,10 +183,9 @@ readFrom ph doRead = do
                 evalPactServiceM s e $ do
                     fst <$> Pact5.runPactBlockM pactParent dbenv handle act
     case doRead of
-        SomeBlockM (Pair forPact4 forPact5) ->
-            if pact5 v cid currentHeight
-            then execPact5 forPact5
-            else execPact4 forPact4
+        SomeBlockM (Pair forPact4 forPact5)
+            | pact5 v cid currentHeight -> execPact5 forPact5
+            | otherwise -> execPact4 forPact4
 
 -- here we cheat, making the genesis block header's parent the genesis
 -- block header, only for Pact's information, *not* for the checkpointer;

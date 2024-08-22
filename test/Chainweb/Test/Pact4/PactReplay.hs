@@ -54,6 +54,9 @@ import Chainweb.BlockHeaderDB.Internal (_chainDbCas, RankedBlockHeader(..))
 import Chainweb.Storage.Table
 import Chainweb.Storage.Table.RocksDB
 
+import Pact.Types.Exp(ParsedCode(..))
+import Data.Either
+
 testVer :: ChainwebVersion
 testVer = instantCpmTestVersion petersonChainGraph
 
@@ -118,16 +121,16 @@ testMemPoolAccess = mempty
         set cbRPC (mkExec' "1") $
         defaultCmd
       let outtxs = V.singleton tx
-      oks <- validate bHeight hash outtxs
-      unless (V.and oks) $ fail $ mconcat
+      oks <- validate bHeight hash $ (fmap . fmap . fmap) _pcCode outtxs
+      unless (V.all isRight oks) $ fail $ mconcat
           [ "testMemPoolAccess: tx failed validation! input list: \n"
           , show tx
           , "\n\nouttxs: "
           , show outtxs
           , "\n\noks: "
-          , show oks
+          , show [ fmap (bimap sshow (const ())) oks ]
           ]
-      return outtxs
+      return $ V.fromList [ to | Right to <- V.toList oks ]
 
 
 dupegenMemPoolAccess :: IO MemPoolAccess
@@ -143,14 +146,14 @@ dupegenMemPoolAccess = do
             set cbSigners [mkEd25519Signer' sender00 []] $
             set cbRPC (mkExec' "1") $
             defaultCmd
-          oks <- validate bHeight bHash outtxs
-          unless (V.and oks) $ fail $ mconcat
+          oks <- validate bHeight bHash ((fmap . fmap . fmap) _pcCode outtxs)
+          unless (V.all isRight oks) $ fail $ mconcat
               [ "dupegenMemPoolAccess: tx failed validation! input list: \n"
               , show outtxs
               , "\n\noks: "
-              , show oks
+              , show [ fmap (bimap sshow (const ())) oks ]
               ]
-          return outtxs
+          return $ V.fromList $ [ to | Right to <- V.toList oks ]
     }
 
 -- | This is a regression test for correct initialization of the checkpointer

@@ -53,6 +53,8 @@ import Pact.Core.StableEncoding
 import Chainweb.Pact.RestAPI.Server (validatePact5Command)
 import Pact.Core.Command.Client (ApiKeyPair (..), mkCommandWithDynKeys)
 import Pact.JSON.Legacy.Value (toLegacyJson)
+import System.Random
+import Control.Monad
 
 type TextKeyPair = (Text,Text)
 
@@ -139,7 +141,7 @@ data CmdBuilder = CmdBuilder
   { _cbSigners :: ![CmdSigner]
   , _cbVerifiers :: ![Verifier ParsedVerifierProof]
   , _cbRPC :: !(PactRPC Text)
-  , _cbNonce :: !Text
+  , _cbNonce :: !(Maybe Text)
   , _cbChainId :: !Chainweb.ChainId
   , _cbSender :: !Text
   , _cbGasLimit :: !GasLimit
@@ -174,7 +176,7 @@ defaultCmd = CmdBuilder
   { _cbSigners = []
   , _cbVerifiers = []
   , _cbRPC = mkExec' "1"
-  , _cbNonce = "nonce"
+  , _cbNonce = Nothing
   , _cbChainId = unsafeChainId 0
   , _cbSender = "sender00"
   , _cbGasLimit = GasLimit (Gas 10_000)
@@ -186,23 +188,24 @@ defaultCmd = CmdBuilder
 -- | Build parsed + verified Pact command
 
 -- TODO: Use the new `assertPact4Command` function.
-buildCwCmd :: (MonadThrow m, MonadIO m) => Text -> ChainwebVersion -> CmdBuilder -> m Pact5.Transaction
-buildCwCmd nonce v cmd = buildTextCmd nonce v cmd >>= \(c :: Command Text) ->
+buildCwCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m Pact5.Transaction
+buildCwCmd v cmd = buildTextCmd v cmd >>= \(c :: Command Text) ->
   case validatePact5Command v (_cbChainId cmd) c of
     Left err -> throwM $ userError $ "buildCmd failed: " ++ err
     Right cmd' -> return cmd'
 
 -- | Build unparsed, unverified command
 --
-buildTextCmd :: (MonadThrow m, MonadIO m) => Text -> ChainwebVersion -> CmdBuilder -> m (Command Text)
-buildTextCmd nonce v = fmap (fmap T.decodeUtf8) . buildRawCmd nonce v
+buildTextCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m (Command Text)
+buildTextCmd v = fmap (fmap T.decodeUtf8) . buildRawCmd v
 
 -- | Build a raw bytestring command
 --
-buildRawCmd :: (MonadThrow m, MonadIO m) => Text -> ChainwebVersion -> CmdBuilder -> m (Command ByteString)
-buildRawCmd nonce v (set cbNonce nonce -> CmdBuilder{..}) = do
+buildRawCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m (Command ByteString)
+buildRawCmd v CmdBuilder{..} = do
     kps <- liftIO $ traverse mkDynKeyPairs _cbSigners
-    cmd <- liftIO $ mkCommandWithDynKeys kps _cbVerifiers (StableEncoding pm) _cbNonce (Just nid) _cbRPC
+    nonce <- liftIO $ maybe (fmap T.pack $ replicateM 10 $ randomRIO ('a', 'z')) return _cbNonce
+    cmd <- liftIO $ mkCommandWithDynKeys kps _cbVerifiers (StableEncoding pm) nonce (Just nid) _cbRPC
     pure cmd
   where
     nid = NetworkId (sshow v)

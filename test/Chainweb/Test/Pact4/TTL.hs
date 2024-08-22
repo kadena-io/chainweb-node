@@ -19,6 +19,7 @@ import Control.Monad.Catch
 import qualified Data.Vector as V
 
 import Pact.Types.ChainMeta
+import Pact.Types.Exp(ParsedCode(..))
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -47,6 +48,7 @@ import Chainweb.Version
 import Chainweb.Version.Utils
 
 import Chainweb.Storage.Table.RocksDB
+import Data.Either (isRight)
 
 -- -------------------------------------------------------------------------- --
 -- Settings
@@ -187,8 +189,10 @@ modAtTtl f (Seconds t) = mempty
           $ set cbRPC (mkExec' "1")
           $ defaultCmd
 
-        unlessM (and <$> validate bh hash outtxs) $ throwM DoPreBlockFailure
-        return outtxs
+        tos <- validate bh hash $ (fmap . fmap . fmap) _pcCode outtxs
+
+        unless (all isRight tos) $ throwM DoPreBlockFailure
+        return $ V.fromList [ to | Right to <- V.toList tos ]
     }
 
 -- -------------------------------------------------------------------------- --

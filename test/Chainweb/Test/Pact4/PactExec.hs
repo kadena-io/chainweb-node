@@ -41,7 +41,7 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.ChainId
-import Chainweb.Graph
+import Chainweb.Graph hiding (KnownGraph(Pair))
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService
@@ -57,6 +57,7 @@ import Chainweb.Test.Pact4.Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
 import qualified Chainweb.Pact4.Transaction as Pact4
+import qualified Chainweb.Pact4.Types as Pact4
 import Chainweb.Version (ChainwebVersion(..), PactVersionT(..))
 import Chainweb.Version.Utils (someChainId)
 import Chainweb.Utils hiding (check)
@@ -68,6 +69,7 @@ import Pact.Types.Persistence
 import Pact.Types.Pretty
 
 import qualified Pact.JSON.Encode as J
+import Data.Functor.Product
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion petersonChainGraph
@@ -502,10 +504,12 @@ execTest v runPact request = _trEval request $ do
     trans <- mkCmds cmdStrs
     results <- runPact $ (throwIfNoHistory =<<) $
       readFrom (Just $ ParentHeader $ genesisBlockHeader v cid) $
-        assertBlockPact4 $
-          execTransactions False defaultMiner
-            trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) Nothing Nothing
+        SomeBlockM $ Pair
+          (execTransactions False defaultMiner
+            trans (Pact4.EnforceCoinbaseFailure True) (Pact4.CoinbaseUsePrecompiled True) Nothing Nothing
             >>= throwCommandInvalidError
+            )
+          (error "Pact5")
 
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
@@ -534,10 +538,12 @@ execTxsTest v runPact name (trans',check) = testCase name (go >>= check)
       trans <- trans'
       results' <- tryAllSynchronous $ runPact $ (throwIfNoHistory =<<) $
         readFrom (Just $ ParentHeader $ genesisBlockHeader v cid) $
-          assertBlockPact4 $
-            execTransactions False defaultMiner trans
-              (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True) Nothing Nothing
+          SomeBlockM $ Pair
+            (execTransactions False defaultMiner trans
+              (Pact4.EnforceCoinbaseFailure True) (Pact4.CoinbaseUsePrecompiled True) Nothing Nothing
               >>= throwCommandInvalidError
+              )
+            (error "Pact5")
       case results' of
         Right results -> Right <$> do
           let outputs = V.toList $ snd <$> _transactionPairs results
@@ -635,5 +641,5 @@ _showValidationFailure = do
       r = validateHashes header (CheckablePayloadWithOutputs pwo) miner outs2
 
   BL.putStrLn $ case r of
-    Left e -> J.encode e
+    Left e -> J.encode $ J.text (sshow e)
     Right x -> encode x

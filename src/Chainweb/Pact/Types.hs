@@ -98,6 +98,10 @@ module Chainweb.Pact.Types
   , ReadOnlyReplayReq(..)
   , ConfirmationDepth(..)
   , LocalPreflightSimulation(..)
+  , _MetadataValidationFailure
+  , _LocalResultWithWarns
+  , _LocalResultLegacy
+  , _LocalTimeout
   , SyncToBlockReq(..)
   , RequestMsg(..)
   , RewindLimit(..)
@@ -117,6 +121,8 @@ module Chainweb.Pact.Types
   , Pact5RedeemGasError(..)
   , Pact5GasPurchaseFailure(..)
   , TxFailedError(..)
+  , _TxPactError
+  , _TxVerifierError
   , Transactions(..)
   , transactionPairs
   , transactionCoinbase
@@ -1390,3 +1396,4 @@ instance NFData r => NFData (Transactions Pact5 r) where
 
 makeLenses 'Transactions
 makeLenses 'BlockInProgress
+makePrisms ''TxFailedError

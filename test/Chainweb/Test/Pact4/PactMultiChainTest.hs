@@ -78,6 +78,7 @@ import Chainweb.Version.Registry
 import Chainweb.WebPactExecutionService
 
 import Chainweb.Payload.PayloadStore (lookupPayloadWithHeight)
+import qualified Chainweb.Pact4.Types as Pact4
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion peterson
@@ -190,7 +191,7 @@ minerKeysetTest = do
     -- run block 5 (fork for chainweb213)
     r <- try $ runCut'
     assertSatisfies "badMiner fails after fork" r $ \case
-      Left (CoinbaseFailure t) -> "Invalid miner key" `T.isInfixOf` t
+      Left (CoinbaseFailure (Pact4CoinbaseFailure t)) -> "Invalid miner key" `T.isInfixOf` t
       _ -> False
 
   where
@@ -1417,7 +1418,7 @@ quirkTest = do
       withTestBlockDb realVersion $ \bdb -> do
         (iompa,mpa) <- dmpio
         let logger = hunitDummyLogger step
-        withWebPactExecutionService logger realVersion testPactServiceConfig bdb mpa getGasModel $ \(pact,pacts) ->
+        withWebPactExecutionService logger realVersion testPactServiceConfig bdb mpa Pact4.getGasModel $ \(pact,pacts) ->
           flip runReaderT (MultiEnv bdb pact pacts (return iompa) noMiner cid) $ do
             runToHeight 99
 
@@ -1594,8 +1595,9 @@ setPactMempool' fakeParentBh (PactMempool fs) = do
                 let parentBh = fromMaybe blockHeader fakeParentBh
                 cmds <- fmap V.fromList $ forM bs $ \b ->
                   buildCwCmd (sshow parentBh) v $ _mempoolCmdBuilder b parentBh
-                validationResults <- mempoolPreBlockCheck bHeight bHash cmds
-                return $ fmap fst $ V.filter snd (V.zip cmds validationResults)
+                validationResults <- mempoolPreBlockCheck bHeight bHash $
+                  (fmap . fmap . fmap) _pcCode cmds
+                return $ V.fromList [ to | Right to <- V.toList validationResults ]
               Nothing -> runMps (succ i) r
       runMps 0 mps
 

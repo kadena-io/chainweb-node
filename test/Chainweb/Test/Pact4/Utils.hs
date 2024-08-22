@@ -990,7 +990,7 @@ dummyLogger :: GenericLogger
 dummyLogger = genericLogger Error (error . T.unpack)
 
 stdoutDummyLogger :: GenericLogger
-stdoutDummyLogger = genericLogger Warn (putStrLn . T.unpack)
+stdoutDummyLogger = genericLogger Error (putStrLn . T.unpack)
 
 hunitDummyLogger :: (String -> IO ()) -> GenericLogger
 hunitDummyLogger f = genericLogger Error (f . T.unpack)

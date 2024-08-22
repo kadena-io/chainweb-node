@@ -52,6 +52,7 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Pact.Types.Command
+import Pact.Types.Exp(ParsedCode(..))
 import Pact.Types.Hash
 import Pact.Types.Info
 import Pact.Types.Persistence
@@ -100,6 +101,8 @@ import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb)
 import Chainweb.Storage.Table.RocksDB
 
 import System.LogLevel (LogLevel(..))
+import qualified Pact.Core.Names as PCore
+import qualified Data.ByteString.Short as SB
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion petersonChainGraph
@@ -316,7 +319,7 @@ newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailur
   let nb' = nb { _payloadWithOutputsOutputsHash = BlockOutputsHash (unsafeMerkleLogHash "0000000000000000000000000000001d")}
   try (validateBlock nextH' (CheckablePayloadWithOutputs nb') q) >>= \case
     Left BlockValidationFailure {} -> do
-      let txHash = fromRight (error "can't parse") $ fromText' "WgnuCg6L_l6lzbjWtBfMEuPtty_uGcNrUol5HGREO_o"
+      let txHash = SB.toShort "WgnuCg6L_l6lzbjWtBfMEuPtty_uGcNrUol5HGREO_o"
       lookupRes <- lookupPactTxs Nothing (V.fromList [txHash]) q
       assertEqual "The transaction from the latest block is not at the tip point" mempty lookupRes
 
@@ -589,7 +592,7 @@ compactionUserTablesDropped rdb =
     madeAfterTable <- newIORef @Bool False
     replicateM_ numBlocks $ do
       setMempool cr.mempoolRef $ mempty {
-        mpaGetBlock = \_ _ mBlockHeight _ _ -> do
+        mpaGetBlock = \_ validate mBlockHeight mBlockHash _ -> do
           let mkTable madeRef tbl = do
                 madeYet <- readIORef madeRef
                 if madeYet
@@ -599,7 +602,9 @@ compactionUserTablesDropped rdb =
                   n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
                   tx <- createTable n tbl
                   writeIORef madeRef True
-                  pure (V.fromList [tx])
+                  [Right to] <-
+                    V.toList <$> validate mBlockHeight mBlockHash ((fmap . fmap . fmap) _pcCode $ V.singleton tx)
+                  pure (V.singleton to)
 
           if mBlockHeight <= halfwayPoint
           then do
@@ -666,7 +671,9 @@ getHistory refIO reqIO = testCase "getHistory" $ do
   setOneShotMempool refIO =<< goldenMemPool
   void $ runBlock q bdb second
   h <- getParentTestBlockDb bdb cid
-  Historical (BlockTxHistory hist prevBals) <- pactBlockTxHistory h (UserTables "coin_coin-table") q
+  Historical (BlockTxHistory hist prevBals) <- pactBlockTxHistory h
+    (PCore.DUserTables (PCore.TableName "coin-table" (PCore.ModuleName "coin" Nothing)))
+    q
   -- just check first one here
   assertEqual "check first entry of history"
     (Just [PCore.TxLog "coin_coin-table" "sender00"
@@ -730,7 +737,9 @@ getHistoricalLookupWithTxs key assertF refIO reqIO =
 
 histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (PCore.TxLog PCore.RowData))
 histLookup q bh k =
-  throwIfNoHistory =<< pactHistoricalLookup bh (UserTables "coin_coin-table") (RowKey k) q
+  throwIfNoHistory =<< pactHistoricalLookup bh
+    (PCore.DUserTables (PCore.TableName "coin-table" (PCore.ModuleName "coin" Nothing)))
+    (PCore.RowKey k) q
 
 assertSender00Bal :: Rational -> String -> Maybe (PCore.TxLog PCore.RowData) -> Assertion
 assertSender00Bal bal msg hist =
@@ -838,9 +847,12 @@ mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
     checkCount n = assertEqual "tx return count" n . V.length . _payloadWithOutputsTransactions
 
     mp supply txRefillMap = setMempool mpRefIO $ mempty {
-      mpaGetBlock = \BlockFill{..} _ _ _ bh -> case M.lookup _bfCount (M.fromList txRefillMap) of
+      mpaGetBlock = \BlockFill{..} validate bheight bhash bh ->
+        case M.lookup _bfCount (M.fromList txRefillMap) of
           Nothing -> return mempty
-          Just txs -> fmap V.fromList $ sequence $ map (next supply bh) txs
+          Just txs -> do
+            tos <- validate bheight bhash =<< (fmap (V.fromList . (fmap . fmap . fmap) _pcCode) $ sequence $ map (next supply bh) txs)
+            return $ V.fromList [to | Right to <- V.toList tos]
       }
 
 
@@ -885,20 +897,21 @@ moduleNameFork mpRefIO reqIO = testCase "moduleNameFork" $ do
 
 moduleNameMempool :: T.Text -> T.Text -> MemPoolAccess
 moduleNameMempool ns mn = mempty
-    { mpaGetBlock = getTestBlock
-    }
-  where
-    getTestBlock _ _ _ _ bh = do
-        let txs =
-              [ "(namespace '" <> ns <> ") (module " <> mn <> " G (defcap G () (enforce false 'cannotupgrade)))"
-              , ns <> "." <> mn <> ".G"
-              ]
-        fmap V.fromList $ forM (zip txs [0..]) $ \(code,n :: Int) ->
-          buildCwCmd ("1" <> sshow n) testVersion $
-          signSender00 $
-          set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh) $
-          set cbRPC (mkExec' code) $
-          defaultCmd
+  { mpaGetBlock = \_ validate bheight bhash bh -> do
+    let txs =
+          [ "(namespace '" <> ns <> ") (module " <> mn <> " G (defcap G () (enforce false 'cannotupgrade)))"
+          , ns <> "." <> mn <> ".G"
+          ]
+    builtTxs <- fmap V.fromList $ forM (zip txs [0..]) $ \(code,n :: Int) ->
+      buildCwCmd ("1" <> sshow n) testVersion $
+      signSender00 $
+      set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh) $
+      set cbRPC (mkExec' code) $
+      defaultCmd
+    tos <- validate bheight bhash $ (fmap . fmap . fmap) _pcCode builtTxs
+    return $ V.fromList [to | Right to <- V.toList tos ]
+    -- undefined
+  }
 
 
 mempoolCreationTimeTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
@@ -915,7 +928,7 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
 
   -- do pre-insert check with transaction at start + 15s
   tx <- makeTx "tx-now" (add s15 start)
-  void $ pactPreInsertCheck (V.singleton tx) q
+  void $ pactPreInsertCheck (V.singleton $ fmap (fmap _pcCode) tx) q
 
   setOneShotMempool mpRefIO $ mp tx
   -- b2 will be made at start + 30s
@@ -935,10 +948,9 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
       }
 
     getBlock bh tx valid = do
-      let txs = V.singleton tx
-      oks <- valid (_blockHeight bh) (_blockHash bh) txs
-      unless (V.and oks) $ throwM $ userError "Insert failed"
-      return txs
+      let txs = V.singleton $ (fmap . fmap) _pcCode tx
+      [Right tx] <- V.toList <$> valid (_blockHeight bh) (_blockHash bh) txs
+      return (V.singleton tx)
 
 preInsertCheckTimeoutTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
@@ -969,9 +981,9 @@ preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
   -- timeouts are tricky to trigger in GH actions.
   -- we're satisfied if it's triggered once in 100 runs.
   rs <- replicateM 100
-    (pactPreInsertCheck (V.fromList [txCoinV3, txCoinV4, txCoinV5]) q)
+    (pactPreInsertCheck ((fmap . fmap . fmap) _pcCode $ V.fromList [txCoinV3, txCoinV4, txCoinV5]) q)
   assertBool "should get at least one InsertErrorTimedOut" $ any
-    (V.all (== Left InsertErrorTimedOut))
+    (V.all (== Just InsertErrorTimedOut))
     rs
 
 badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
@@ -994,7 +1006,9 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
   assertEqual "Badlist should have badtx hash" (hashToTxHashList $ _cmdHash badTx) badHash
   where
     badlistMPA badTx badHashRef = mempty
-      { mpaGetBlock = \_ _ _ _ _ -> return (V.singleton badTx)
+      { mpaGetBlock = \_ valid bheight bhash _ -> do
+        [Right to] <- V.toList <$> valid bheight bhash (V.singleton $ (fmap . fmap) _pcCode badTx)
+        return (V.singleton to)
       , mpaBadlistTx = \v -> writeIORef badHashRef v
       }
 
@@ -1019,7 +1033,7 @@ goldenNewBlock name mpIO mpRefIO reqIO = golden name $ do
     blockInProgressToJSON :: BlockInProgress pv -> Value
     blockInProgressToJSON BlockInProgress {..} = object
       [ "pendingData" .=
-        let SQLitePendingData{..} = _blockInProgressPendingData
+        let SQLitePendingData{..} = _blockHandlePending _blockInProgressHandle
         in object
             [ "pendingTableCreation" .=
                 (T.decodeUtf8 <$> toList _pendingTableCreation)
@@ -1036,7 +1050,7 @@ goldenNewBlock name mpIO mpRefIO reqIO = golden name $ do
           , "pendingSuccessfulTxs" .=
             (encodeB64UrlNoPaddingText <$> toList _pendingSuccessfulTxs)
           ]
-      , "txId" .= fromIntegral @TxId @Word _blockInProgressTxId
+      , "txId" .= fromIntegral @TxId @Word (_blockHandleTxId _blockInProgressHandle)
       , "blockGasLimit" .= fromIntegral @GasLimit @Int _blockInProgressRemainingGasLimit
       , "parentHeader" .= _parentHeader _blockInProgressParentHeader
       ]
@@ -1086,13 +1100,14 @@ mempoolOf blocks = do
         outtxs <- atomicModifyIORef' blocksRemainingRef $ \case
           (b:bs) -> (bs, b)
           [] -> ([], mempty)
-        oks <- validate bHeight bHash outtxs
-        unless (V.and oks) $ fail $ mconcat
+        oks <- validate bHeight bHash $ (fmap . fmap . fmap) _pcCode outtxs
+        unless (V.all isRight oks) $ fail $ mconcat
             [ "tx failed validation! \nouttxs: \n"
             , show outtxs
             , "\n\noks: \n"
-            , show oks ]
-        return outtxs
+            , show [ err | Left err <- V.toList oks ]
+            ]
+        return $ V.fromList [ to | Right to <- V.toList oks ]
 
 data CompactionResources = CompactionResources
   { mempoolRef :: IO (IORef MemPoolAccess)
@@ -1147,7 +1162,7 @@ runTxInBlock mempoolRef pactQueue blockDb makeTx = do
   madeTx <- newIORef @Bool False
   supply <- newIORef @Word 0
   setMempool mempoolRef $ mempty {
-    mpaGetBlock = \_ _ bHeight bHash bHeader -> do
+    mpaGetBlock = \_ valid bHeight bHash bHeader -> do
       madeTxYet <- readIORef madeTx
       if madeTxYet
       then do
@@ -1155,8 +1170,9 @@ runTxInBlock mempoolRef pactQueue blockDb makeTx = do
       else do
         n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
         tx <- makeTx n bHeight bHash bHeader
+        [Right to] <- V.toList <$> valid bHeight bHash (V.singleton $ (fmap . fmap) _pcCode tx)
         writeIORef madeTx True
-        pure $ V.fromList [tx]
+        pure $ V.singleton to
   }
   e <- runBlockE pactQueue blockDb second
   writeIORef madeTx False
