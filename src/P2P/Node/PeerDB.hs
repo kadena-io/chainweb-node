@@ -112,6 +112,7 @@ import Chainweb.Version
 import Data.Singletons
 
 import P2P.Peer
+import qualified Data.Text as T
 
 -- -------------------------------------------------------------------------- --
 -- Peer Database Entry
@@ -227,23 +228,27 @@ type PeerSet = IxSet PeerEntryIxs PeerEntry
 -- If the 'PeerAddr' exist with the same peer-id, the chain-id is added.
 --
 addPeerEntry :: PeerEntry -> PeerSet -> PeerSet
-addPeerEntry b m = m & case getOne (getEQ addr m) of
+addPeerEntry b m
+    -- nasty host
+    | "ovh-asia-145-86.poolmon.net" `T.isInfixOf` hostnameToText (_hostAddressHost addr) = m
+    | otherwise =
+        m & case getOne (getEQ addr m) of
 
-    -- new peer doesn't exist: insert
-    Nothing -> updateIx addr (force b)
+            -- new peer doesn't exist: insert
+            Nothing -> updateIx addr (force b)
 
-    -- existing peer addr
-    Just a -> case _peerId (_peerEntryInfo a) of
+            -- existing peer addr
+            Just a -> case _peerId (_peerEntryInfo a) of
 
-        -- existing peer without peer id: update peer id and chain ids
-        Nothing -> update a
+                -- existing peer without peer id: update peer id and chain ids
+                Nothing -> update a
 
-        Just pid
-            -- new peer id: replace existing peer
-            | Just pid /= _peerId (_peerEntryInfo b) -> replace
+                Just pid
+                    -- new peer id: replace existing peer
+                    | Just pid /= _peerId (_peerEntryInfo b) -> replace
 
-            -- existing peer: update chain-ids
-            | otherwise -> update a
+                    -- existing peer: update chain-ids
+                    | otherwise -> update a
   where
     addr = _peerAddr $ _peerEntryInfo b
     replace = updateIx addr b
@@ -463,4 +468,3 @@ somePeerDbVal (FromSingChainwebVersion (SChainwebVersion :: Sing v)) n db = f n
     f (FromSingNetworkId (SChainNetwork SChainId :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
     f (FromSingNetworkId (SMempoolNetwork SChainId :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
     f (FromSingNetworkId (SCutNetwork :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
-
