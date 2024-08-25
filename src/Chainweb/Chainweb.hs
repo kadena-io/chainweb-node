@@ -825,6 +825,7 @@ runChainweb cw nowServing = do
         clientClosedConnectionsCounter <- newCounter
         concurrently_
             (serveChainwebSocketTls
+                (_chainwebLogger cw)
                 (serverSettings clientClosedConnectionsCounter)
                 (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
                 (_peerKey $ _peerResPeer $ _chainwebPeer cw)
@@ -846,6 +847,7 @@ runChainweb cw nowServing = do
         clientClosedConnectionsCounter <- newCounter
         concurrently_
             (serveChainwebSocket
+                (_chainwebLogger cw)
                 (serverSettings clientClosedConnectionsCounter)
                 (_peerResSocket $ _chainwebPeer cw)
                 (_chainwebConfig cw)
@@ -903,6 +905,7 @@ runChainweb cw nowServing = do
     serveServiceApi mw = do
         clientClosedConnectionsCounter <- newCounter
         serveServiceApiSocket
+            (_chainwebLogger cw)
             (serviceApiServerSettings clientClosedConnectionsCounter (fst $ _chainwebServiceSocket cw) serviceApiHost)
             (snd $ _chainwebServiceSocket cw)
             (_chainwebVersion cw)

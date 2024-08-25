@@ -7,6 +7,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
 
 -- |
 -- Module: Chainweb.Payload.RestAPI
@@ -76,6 +78,8 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Version
 import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB.RestAPI ()
+import Control.DeepSeq
+import GHC.Generics
 
 -- -------------------------------------------------------------------------- --
 -- Constants
@@ -134,6 +138,8 @@ payloadGetApi = Proxy
 data BatchBody
     = WithoutHeights [BlockPayloadHash]
     | WithHeights [(BlockHeight, BlockPayloadHash)]
+    deriving stock Generic
+    deriving anyclass NFData
 
 instance FromJSON BatchBody where
     -- first, for backwards compat, parse the WithoutHeight variant

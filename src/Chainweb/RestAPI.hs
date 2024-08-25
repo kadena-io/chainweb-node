@@ -220,12 +220,13 @@ chainwebServiceMiddlewares
 someChainwebServer
     :: Show t
     => CanReadablePayloadCas tbl
-    => ChainwebConfiguration
+    => Logger logger => logger
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t tbl
     -> SomeServer
-someChainwebServer config dbs =
+someChainwebServer logg config dbs =
     maybe mempty (someCutServer v cutPeerDb) cuts
-    <> somePayloadServers v p2pPayloadBatchLimit payloads
+    <> somePayloadServers logg v p2pPayloadBatchLimit payloads
     <> someP2pBlockHeaderDbServers v blocks
     <> Mempool.someMempoolServers v mempools
     <> someP2pServers v peers
@@ -246,12 +247,13 @@ someChainwebServer config dbs =
 someChainwebServerWithHashesAndSpvApi
     :: Show t
     => CanReadablePayloadCas tbl
-    => ChainwebConfiguration
+    => Logger logger => logger
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t tbl
     -> SomeServer
-someChainwebServerWithHashesAndSpvApi config dbs =
+someChainwebServerWithHashesAndSpvApi logger config dbs =
     maybe mempty (someCutServer v cutPeerDb) cuts
-    <> somePayloadServers v p2pPayloadBatchLimit payloads
+    <> somePayloadServers logger v p2pPayloadBatchLimit payloads
     <> someBlockHeaderDbServers v blocks payloads
     <> Mempool.someMempoolServers v mempools
     <> someP2pServers v peers
@@ -272,13 +274,14 @@ someChainwebServerWithHashesAndSpvApi config dbs =
 chainwebApplication
     :: Show t
     => CanReadablePayloadCas tbl
-    => ChainwebConfiguration
+    => Logger logger => logger
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t tbl
     -> Application
-chainwebApplication config dbs
+chainwebApplication logg config dbs
     = chainwebP2pMiddlewares
     . someServerApplication
-    $ someChainwebServer config dbs
+    $ someChainwebServer logg config dbs
 
 -- | Legacy version with Hashes API that is used in tests
 --
@@ -287,48 +290,53 @@ chainwebApplication config dbs
 chainwebApplicationWithHashesAndSpvApi
     :: Show t
     => CanReadablePayloadCas tbl
-    => ChainwebConfiguration
+    => Logger logger => logger
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t tbl
     -> Application
-chainwebApplicationWithHashesAndSpvApi config dbs
+chainwebApplicationWithHashesAndSpvApi logger config dbs
     = chainwebP2pMiddlewares
     . someServerApplication
-    $ someChainwebServerWithHashesAndSpvApi config dbs
+    $ someChainwebServerWithHashesAndSpvApi logger config dbs
 
 serveChainwebOnPort
     :: Show t
     => CanReadablePayloadCas tbl
-    => Port
+    => Logger logger => logger
+    -> Port
     -> ChainwebConfiguration
     -> ChainwebServerDbs t tbl
     -> IO ()
-serveChainwebOnPort p c dbs = run (int p) $ chainwebApplication c dbs
+serveChainwebOnPort logg p c dbs = run (int p) $ chainwebApplication logg c dbs
 
 serveChainweb
     :: Show t
     => CanReadablePayloadCas tbl
-    => Settings
+    => Logger logger => logger
+    -> Settings
     -> ChainwebConfiguration
     -> ChainwebServerDbs t tbl
     -> IO ()
-serveChainweb s c dbs = runSettings s $ chainwebApplication c dbs
+serveChainweb logg s c dbs = runSettings s $ chainwebApplication logg c dbs
 
 serveChainwebSocket
     :: Show t
     => CanReadablePayloadCas tbl
-    => Settings
+    => Logger logger => logger
+    -> Settings
     -> Socket
     -> ChainwebConfiguration
     -> ChainwebServerDbs t tbl
     -> Middleware
     -> IO ()
-serveChainwebSocket settings sock c dbs m =
-    runSettingsSocket settings sock $ m $ chainwebApplication c dbs
+serveChainwebSocket logg settings sock c dbs m =
+    runSettingsSocket settings sock $ m $ chainwebApplication logg c dbs
 
 serveChainwebSocketTls
     :: Show t
     => CanReadablePayloadCas tbl
-    => Settings
+    => Logger logger => logger
+    -> Settings
     -> X509CertChainPem
     -> X509KeyPem
     -> Socket
@@ -336,9 +344,9 @@ serveChainwebSocketTls
     -> ChainwebServerDbs t tbl
     -> Middleware
     -> IO ()
-serveChainwebSocketTls settings certChain key sock c dbs m =
+serveChainwebSocketTls logg settings certChain key sock c dbs m =
     serveSocketTls settings certChain key sock $ m
-        $ chainwebApplication c dbs
+        $ chainwebApplication logg c dbs
 
 -- -------------------------------------------------------------------------- --
 -- Run Chainweb P2P Server that serves a single PeerDb
@@ -366,17 +374,18 @@ servePeerDbSocketTls settings certChain key sock v nid pdb m =
 someServiceApiServer
     :: Show t
     => CanReadablePayloadCas tbl
-    => Logger logger
-    => ChainwebVersion
+    => (Logger logger1, Logger logger)
+    => logger
+    -> ChainwebVersion
     -> ChainwebServerDbs t tbl
-    -> [(ChainId, PactAPI.PactServerData logger tbl)]
-    -> Maybe (MiningCoordination logger tbl)
+    -> [(ChainId, PactAPI.PactServerData logger1 tbl)]
+    -> Maybe (MiningCoordination logger1 tbl)
     -> HeaderStream
     -> Rosetta
-    -> Maybe (BackupEnv logger)
+    -> Maybe (BackupEnv logger1)
     -> PayloadBatchLimit
     -> SomeServer
-someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r rc) backupEnv pbl =
+someServiceApiServer logger v dbs pacts mr (HeaderStream hs) (Rosetta r rc) backupEnv pbl =
     someHealthCheckServer
     <> maybe mempty (someBackupServer v) backupEnv
     <> maybe mempty (someNodeInfoServer v) cuts
@@ -396,7 +405,7 @@ someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r rc) backupEnv p
 
     -- GET Cut, Payload, and Headers endpoints
     <> maybe mempty (someCutGetServer v) cuts
-    <> somePayloadServers v pbl payloads
+    <> somePayloadServers logger v pbl payloads
     <> someBlockHeaderDbServers v blocks payloads -- TODO make max limits configurable
     <> maybe mempty (someBlockStreamServer v) (bool Nothing cuts hs)
   where
@@ -411,37 +420,38 @@ someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r rc) backupEnv p
 serviceApiApplication
     :: Show t
     => CanReadablePayloadCas tbl
-    => Logger logger
-    => ChainwebVersion
+    => (Logger logger1, Logger logger)
+    => logger
+    -> ChainwebVersion
     -> ChainwebServerDbs t tbl
-    -> [(ChainId, PactAPI.PactServerData logger tbl)]
-    -> Maybe (MiningCoordination logger tbl)
+    -> [(ChainId, PactAPI.PactServerData logger1 tbl)]
+    -> Maybe (MiningCoordination logger1 tbl)
     -> HeaderStream
     -> Rosetta
-    -> Maybe (BackupEnv logger)
+    -> Maybe (BackupEnv logger1)
     -> PayloadBatchLimit
     -> Application
-serviceApiApplication v dbs pacts mr hs r be pbl
+serviceApiApplication logger v dbs pacts mr hs r be pbl
     = chainwebServiceMiddlewares
     . someServerApplication
-    $ someServiceApiServer v dbs pacts mr hs r be pbl
+    $ someServiceApiServer logger v dbs pacts mr hs r be pbl
 
 serveServiceApiSocket
     :: Show t
     => CanReadablePayloadCas tbl
-    => Logger logger
-    => Settings
+    => (Logger logger1, Logger logger)
+    => logger
+    -> Settings
     -> Socket
     -> ChainwebVersion
     -> ChainwebServerDbs t tbl
-    -> [(ChainId, PactAPI.PactServerData logger tbl)]
-    -> Maybe (MiningCoordination logger tbl)
+    -> [(ChainId, PactAPI.PactServerData logger1 tbl)]
+    -> Maybe (MiningCoordination logger1 tbl)
     -> HeaderStream
     -> Rosetta
-    -> Maybe (BackupEnv logger)
+    -> Maybe (BackupEnv logger1)
     -> PayloadBatchLimit
     -> Middleware
     -> IO ()
-serveServiceApiSocket s sock v dbs pacts mr hs r be pbl m =
-    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r be pbl
-
+serveServiceApiSocket logger s sock v dbs pacts mr hs r be pbl m =
+    runSettingsSocket s sock $ m $ serviceApiApplication logger v dbs pacts mr hs r be pbl

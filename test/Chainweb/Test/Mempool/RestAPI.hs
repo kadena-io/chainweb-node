@@ -34,6 +34,9 @@ import Chainweb.Version.Utils
 import Chainweb.Storage.Table.RocksDB
 
 import Network.X509.SelfSigned
+import qualified Data.Text as T
+import System.LogLevel
+import Chainweb.Logger (genericLogger)
 
 ------------------------------------------------------------------------------
 tests :: TestTree
@@ -85,7 +88,7 @@ newTestServer = mask_ $ do
     chain = someChainId version
 
     mkApp :: MempoolBackend MockTx -> Application
-    mkApp mp = chainwebApplication conf (serverMempools [(chain, mp)])
+    mkApp mp = chainwebApplication (genericLogger Error (error . T.unpack)) conf (serverMempools [(chain, mp)])
 
     conf = defaultChainwebConfiguration version
 

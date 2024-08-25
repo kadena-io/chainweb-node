@@ -55,6 +55,9 @@ import Chainweb.Utils (int)
 import Chainweb.Version
 
 import Chainweb.BlockHeight (BlockHeight)
+import Chainweb.Logger
+import System.LogLevel
+import qualified Data.Aeson as A
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -78,23 +81,21 @@ payloadHandler db k mh = liftIO (lookupPayloadDataWithHeight db mh k) >>= \case
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
         ]
-    Just e -> return e 
+    Just e -> return e
 
 -- -------------------------------------------------------------------------- --
 -- POST Payload Batch Handler
 
 payloadBatchHandler
-    :: CanReadablePayloadCas tbl
-    => PayloadBatchLimit
+    :: (CanReadablePayloadCas tbl, Logger logger)
+    => logger
+    -> PayloadBatchLimit
     -> PayloadDb tbl
     -> BatchBody
     -> Handler PayloadDataList
-payloadBatchHandler batchLimit db ks
-  = liftIO (PayloadDataList . catMaybes <$> lookupPayloadDataWithHeightBatch db ks')
-  where
-      limit = take (int batchLimit)
-      ks' | WithoutHeights xs <- ks = limit (fmap (Nothing,) xs)
-          | WithHeights    xs <- ks = limit (fmap (over _1 Just) xs)
+payloadBatchHandler logger _batchLimit _db ks = do
+    liftIO (logFunctionJson logger Warn $ A.object [ "batch" .= ks ])
+    throwError (ServerError 404 "" "" [])
 
 -- -------------------------------------------------------------------------- --
 -- GET Outputs Handler
@@ -135,29 +136,33 @@ outputsBatchHandler batchLimit db ks
 -- Payload API Server
 
 payloadServer
-    :: forall tbl v c
+    :: forall tbl v c logger
     . CanReadablePayloadCas tbl
-    => PayloadBatchLimit
+    => Logger logger
+    => logger
+    -> PayloadBatchLimit
     -> PayloadDb' tbl v c
     -> Server (PayloadApi v c)
-payloadServer batchLimit (PayloadDb' db)
+payloadServer logg batchLimit (PayloadDb' db)
     = payloadHandler @tbl db
     :<|> outputsHandler @tbl db
-    :<|> payloadBatchHandler @tbl batchLimit db
+    :<|> payloadBatchHandler @tbl logg batchLimit db
     :<|> outputsBatchHandler @tbl batchLimit db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single PayloadDb
 
 payloadApp
-    :: forall tbl v c
+    :: forall tbl v c logger
     . CanReadablePayloadCas tbl
     => KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => PayloadBatchLimit
+    => Logger logger
+    => logger
+    -> PayloadBatchLimit
     -> PayloadDb' tbl v c
     -> Application
-payloadApp batchLimit db = serve (Proxy @(PayloadApi v c)) (payloadServer batchLimit db)
+payloadApp logg batchLimit db = serve (Proxy @(PayloadApi v c)) (payloadServer logg batchLimit db)
 
 payloadApiLayout
     :: forall tbl v c
@@ -172,17 +177,19 @@ payloadApiLayout _ = T.putStrLn $ layout (Proxy @(PayloadApi v c))
 
 somePayloadServer
     :: CanReadablePayloadCas tbl
-    => PayloadBatchLimit
+    => Logger logger => logger
+    -> PayloadBatchLimit
     -> SomePayloadDb tbl
     -> SomeServer
-somePayloadServer batchLimit (SomePayloadDb (db :: PayloadDb' tbl v c))
-    = SomeServer (Proxy @(PayloadApi v c)) (payloadServer batchLimit db)
+somePayloadServer logg batchLimit (SomePayloadDb (db :: PayloadDb' tbl v c))
+    = SomeServer (Proxy @(PayloadApi v c)) (payloadServer logg batchLimit db)
 
 somePayloadServers
     :: CanReadablePayloadCas tbl
-    => ChainwebVersion
+    => Logger logger => logger
+    -> ChainwebVersion
     -> PayloadBatchLimit
     -> [(ChainId, PayloadDb tbl)]
     -> SomeServer
-somePayloadServers v batchLimit
-    = mconcat . fmap (somePayloadServer batchLimit . uncurry (somePayloadDbVal v))
+somePayloadServers logg v batchLimit
+    = mconcat . fmap (somePayloadServer logg batchLimit . uncurry (somePayloadDbVal v))
