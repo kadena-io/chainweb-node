@@ -78,7 +78,7 @@ payloadHandler db k mh = liftIO (lookupPayloadDataWithHeight db mh k) >>= \case
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
         ]
-    Just e -> return e
+    Just e -> return e 
 
 -- -------------------------------------------------------------------------- --
 -- POST Payload Batch Handler
@@ -89,8 +89,12 @@ payloadBatchHandler
     -> PayloadDb tbl
     -> BatchBody
     -> Handler PayloadDataList
-payloadBatchHandler _batchLimit _db _ks =
-    throwError (ServerError 404 "" "" [])
+payloadBatchHandler batchLimit db ks
+  = liftIO (PayloadDataList . catMaybes <$> lookupPayloadDataWithHeightBatch db ks')
+  where
+      limit = take (int batchLimit)
+      ks' | WithoutHeights xs <- ks = limit (fmap (Nothing,) xs)
+          | WithHeights    xs <- ks = limit (fmap (over _1 Just) xs)
 
 -- -------------------------------------------------------------------------- --
 -- GET Outputs Handler
