@@ -1,3 +1,12 @@
+## 2.25.1 (2024-08-25)
+This is a minor point release. Upgrading is **strongly recommended**.
+
+To upgrade, pull the latest docker image, or download the binary and
+restart the node with the same configuration file as before.
+
+### Changes
+- Disable the unused p2p payload batch endpoint. [`34df7ad`](https://github.com/kadena-io/chainweb-node/commit/34df7adaa8e22d6c64612a1c8f64a4209a6a7858)
+
 ## 2.25 (2024-08-21)
 This is a major version update. This release replaces all previous versions.
 
