@@ -21,17 +21,20 @@
 
 -- |
 -- Module: ChainwebNode
--- Copyright: Copyright © 2018 Kadena LLC.
+-- Copyright: Copyright © 2024 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
---
-module Main
+module ChainwebNode
 (
 -- * Configuration
   ChainwebNodeConfiguration(..)
+, defaultChainwebNodeConfiguration
+, nodeConfigChainweb
+, nodeConfigLog
+, nodeConfigDatabaseDirectory
+, nodeConfigResetChainDbs
 
 -- * Monitor
 , runCutMonitor
@@ -40,6 +43,7 @@ module Main
 -- * Chainweb Node
 , node
 , withNodeLogger
+, withServiceDate
 
 -- * Main function
 , main
