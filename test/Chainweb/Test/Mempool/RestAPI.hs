@@ -5,6 +5,7 @@ import Control.Concurrent.STM
 import Control.Exception
 
 import qualified Data.Pool as Pool
+import qualified Data.Text as T
 import qualified Data.Vector as V
 
 import qualified Network.HTTP.Client as HTTP
@@ -18,6 +19,7 @@ import Test.Tasty
 
 import Chainweb.Chainweb.Configuration
 import Chainweb.Graph
+import Chainweb.Logger
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.InMemTypes (InMemConfig(..))
 import Chainweb.Mempool.Mempool
@@ -30,6 +32,7 @@ import Chainweb.Test.TestVersions
 import Chainweb.Utils (Codec(..))
 import Chainweb.Version
 import Chainweb.Version.Utils
+import System.LogLevel
 
 import Chainweb.Storage.Table.RocksDB
 
@@ -85,7 +88,7 @@ newTestServer = mask_ $ do
     chain = someChainId version
 
     mkApp :: MempoolBackend MockTx -> Application
-    mkApp mp = chainwebApplication conf (serverMempools [(chain, mp)])
+    mkApp mp = chainwebApplication (genericLogger Error (error . T.unpack)) conf (serverMempools [(chain, mp)])
 
     conf = defaultChainwebConfiguration version
 

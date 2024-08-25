@@ -4,6 +4,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 #ifndef CURRENT_PACKAGE_VERSION
 #define CURRENT_PACKAGE_VERSION "UNKNOWN"
@@ -60,7 +62,7 @@ module Chainweb.RestAPI
 , module P2P.Node.RestAPI.Client
 ) where
 
-import Control.Monad (guard)
+import Control.Monad
 
 import Data.Bifunctor
 import Data.Bool (bool)
@@ -69,12 +71,10 @@ import GHC.Generics (Generic)
 
 import Network.Socket
 import qualified Network.TLS.SessionManager as TLS
-import Network.Wai (Middleware, mapResponseHeaders, remoteHost)
+import Network.Wai
 import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS (TLSSettings(..), runTLSSocket)
 import Network.Wai.Middleware.Cors
-
-import Servant.Server
 
 import System.Clock
 
@@ -90,7 +90,7 @@ import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.HostAddress
-import Chainweb.Logger (Logger)
+import Chainweb.Logger (Logger, logFunctionText)
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.RestAPI.Server as Mempool
 import qualified Chainweb.Miner.RestAPI.Server as Mining
@@ -114,6 +114,12 @@ import Network.X509.SelfSigned
 import P2P.Node.PeerDB
 import P2P.Node.RestAPI.Client
 import P2P.Node.RestAPI.Server
+import Data.IORef
+import qualified Data.ByteString.Builder as Builder
+import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString as BS
+import System.LogLevel
+import qualified Data.Text.Encoding as T
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -202,11 +208,45 @@ chainwebPeerAddr app req resp = app req $ \res ->
         ((peerAddrHeaderName, sshow (remoteHost req)) :)
         res
 
-chainwebP2pMiddlewares :: Middleware
-chainwebP2pMiddlewares
+largeResponseLogger :: Logger logger => logger -> Middleware
+largeResponseLogger logger app req resp = app req $ \res -> do
+    responseByteCounter <- newIORef 0
+    responseLoggedForSize <- newIORef False
+    -- deconstruct the outgoing response into a stream
+    let (status, headers, withResponseBody) = responseToStream res
+    let monitoredWriteChunk writeChunk b = do
+            let lbs = Builder.toLazyByteString b
+            let chunks = LBS.toChunks lbs
+            -- for each chunk of the outgoing stream, add its length to the accumulator.
+            -- if it's over the limit, log, and don't log next time.
+            -- always process the outgoing chunk after.
+            forM_ chunks $ \chunk -> do
+                responseByteCount' <- atomicModifyIORef' responseByteCounter $ \count ->
+                    let count' = count + BS.length chunk
+                    in (count', count')
+                loggedAlready <- readIORef responseLoggedForSize
+                when (responseByteCount' >= 50 * kilo && not loggedAlready) $ do
+                    logFunctionText logger Error $ "Large response body (>50KB) outbound from path " <> T.decodeUtf8 (rawPathInfo req)
+                    writeIORef responseLoggedForSize True
+                writeChunk (Builder.byteString chunk)
+    withResponseBody $ \originalBody -> do
+        respReceived <- resp $ responseStream status headers $ \writeChunk doFlush ->
+            originalBody (monitoredWriteChunk writeChunk) doFlush
+        finalResponseByteCount <- readIORef responseByteCounter
+        loggedAlready <- readIORef responseLoggedForSize
+        -- log the full response size, too, for good measure
+        when loggedAlready $
+            logFunctionText logger Error $
+                "Large response body (" <> sshow finalResponseByteCount <> "B) outbound from path "
+                <> T.decodeUtf8 (rawPathInfo req)
+        return respReceived
+
+chainwebP2pMiddlewares :: Logger logger => logger -> Middleware
+chainwebP2pMiddlewares logger
     = chainwebTime
     . chainwebPeerAddr
     . chainwebNodeVersion
+    . largeResponseLogger logger
 
 chainwebServiceMiddlewares :: Middleware
 chainwebServiceMiddlewares
@@ -272,11 +312,13 @@ someChainwebServerWithHashesAndSpvApi config dbs =
 chainwebApplication
     :: Show t
     => CanReadablePayloadCas tbl
-    => ChainwebConfiguration
+    => Logger logger
+    => logger
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t tbl
     -> Application
-chainwebApplication config dbs
-    = chainwebP2pMiddlewares
+chainwebApplication logger config dbs
+    = chainwebP2pMiddlewares logger
     . someServerApplication
     $ someChainwebServer config dbs
 
@@ -287,48 +329,58 @@ chainwebApplication config dbs
 chainwebApplicationWithHashesAndSpvApi
     :: Show t
     => CanReadablePayloadCas tbl
-    => ChainwebConfiguration
+    => Logger logger
+    => logger
+    -> ChainwebConfiguration
     -> ChainwebServerDbs t tbl
     -> Application
-chainwebApplicationWithHashesAndSpvApi config dbs
-    = chainwebP2pMiddlewares
+chainwebApplicationWithHashesAndSpvApi logger config dbs
+    = chainwebP2pMiddlewares logger
     . someServerApplication
     $ someChainwebServerWithHashesAndSpvApi config dbs
 
 serveChainwebOnPort
     :: Show t
     => CanReadablePayloadCas tbl
-    => Port
+    => Logger logger
+    => logger
+    -> Port
     -> ChainwebConfiguration
     -> ChainwebServerDbs t tbl
     -> IO ()
-serveChainwebOnPort p c dbs = run (int p) $ chainwebApplication c dbs
+serveChainwebOnPort logger p c dbs = run (int p) $ chainwebApplication logger c dbs
 
 serveChainweb
     :: Show t
     => CanReadablePayloadCas tbl
-    => Settings
+    => Logger logger
+    => logger
+    -> Settings
     -> ChainwebConfiguration
     -> ChainwebServerDbs t tbl
     -> IO ()
-serveChainweb s c dbs = runSettings s $ chainwebApplication c dbs
+serveChainweb logger s c dbs = runSettings s $ chainwebApplication logger c dbs
 
 serveChainwebSocket
     :: Show t
     => CanReadablePayloadCas tbl
-    => Settings
+    => Logger logger
+    => logger
+    -> Settings
     -> Socket
     -> ChainwebConfiguration
     -> ChainwebServerDbs t tbl
     -> Middleware
     -> IO ()
-serveChainwebSocket settings sock c dbs m =
-    runSettingsSocket settings sock $ m $ chainwebApplication c dbs
+serveChainwebSocket logger settings sock c dbs m =
+    runSettingsSocket settings sock $ m $ chainwebApplication logger c dbs
 
 serveChainwebSocketTls
     :: Show t
     => CanReadablePayloadCas tbl
-    => Settings
+    => Logger logger
+    => logger
+    -> Settings
     -> X509CertChainPem
     -> X509KeyPem
     -> Socket
@@ -336,15 +388,17 @@ serveChainwebSocketTls
     -> ChainwebServerDbs t tbl
     -> Middleware
     -> IO ()
-serveChainwebSocketTls settings certChain key sock c dbs m =
+serveChainwebSocketTls logger settings certChain key sock c dbs m =
     serveSocketTls settings certChain key sock $ m
-        $ chainwebApplication c dbs
+        $ chainwebApplication logger c dbs
 
 -- -------------------------------------------------------------------------- --
 -- Run Chainweb P2P Server that serves a single PeerDb
 
 servePeerDbSocketTls
-    :: Settings
+    :: Logger logger
+    => logger
+    -> Settings
     -> X509CertChainPem
     -> X509KeyPem
     -> Socket
@@ -353,9 +407,9 @@ servePeerDbSocketTls
     -> PeerDb
     -> Middleware
     -> IO ()
-servePeerDbSocketTls settings certChain key sock v nid pdb m =
+servePeerDbSocketTls logger settings certChain key sock v nid pdb m =
     serveSocketTls settings certChain key sock $ m
-        $ chainwebP2pMiddlewares
+        $ chainwebP2pMiddlewares logger
         $ someServerApplication
         $ someP2pServer
         $ somePeerDbVal v nid pdb
@@ -444,4 +498,3 @@ serveServiceApiSocket
     -> IO ()
 serveServiceApiSocket s sock v dbs pacts mr hs r be pbl m =
     runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r be pbl
-

@@ -128,6 +128,7 @@ checkReachability sock mgr v logger pdb peers peer threshold = do
     withPeerDbServer inner = withAsync servePeerDb $ const inner
 
     servePeerDb = servePeerDbSocketTls
+        logger
         serverSettings
         (_peerCertificateChain peer)
         (_peerKey peer)
@@ -150,4 +151,3 @@ peerServerSettings peer
     = W.setPort (int . _hostAddressPort . _peerAddr $ _peerInfo peer)
     . W.setHost (_peerInterface peer)
     $ W.defaultSettings
-

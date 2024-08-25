@@ -672,7 +672,7 @@ clientEnvWithChainwebTestServer shouldValidateSpec tls v dbs = do
     -- includes this API for testing. We should create comprehensive tests for the
     -- service API and move the tests over there.
     --
-    let app = chainwebApplicationWithHashesAndSpvApi (defaultChainwebConfiguration v) dbs
+    let app = chainwebApplicationWithHashesAndSpvApi (genericLogger Error (error . T.unpack)) (defaultChainwebConfiguration v) dbs
     port <- withChainwebTestServer shouldValidateSpec tls v app
     mgrSettings <- if
         | tls -> liftIO $ certificateCacheManagerSettings TlsInsecure
