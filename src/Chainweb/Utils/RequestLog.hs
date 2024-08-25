@@ -42,13 +42,14 @@ module Chainweb.Utils.RequestLog
 , requestResponseLogRequest
 , requestResponseLogStatus
 , requestResponseLogDurationMicro
+, requestResponseLogResponseSize
 , requestResponseLogger
 ) where
 
 import Control.DeepSeq
 import Control.Lens hiding ((.=))
 
-import Data.Aeson
+import Data.Aeson hiding (Error)
 import qualified Data.CaseInsensitive as CI
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
@@ -69,6 +70,11 @@ import System.LogLevel
 
 import Chainweb.Logger
 import Chainweb.Utils
+import Data.IORef
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as Builder
+import qualified Data.ByteString.Lazy as LBS
+import Control.Monad
 
 -- -------------------------------------------------------------------------- --
 -- Request Logger
@@ -153,6 +159,7 @@ data RequestResponseLog = RequestResponseLog
     { _requestResponseLogRequest :: !RequestLog
     , _requestResponseLogStatus :: !T.Text
     , _requestResponseLogDurationMicro :: !Int
+    , _requestResponseLogResponseSize :: !Int
     }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
@@ -164,6 +171,7 @@ requestResponseLogProperties o =
     [ "request" .= _requestResponseLogRequest o
     , "status" .= _requestResponseLogStatus o
     , "durationMicro" .= _requestResponseLogDurationMicro o
+    , "responseSize" .= _requestResponseLogResponseSize o
     ]
 
 instance ToJSON RequestResponseLog where
@@ -171,13 +179,6 @@ instance ToJSON RequestResponseLog where
     toEncoding = pairs . mconcat . requestResponseLogProperties
     {-# INLINE toJSON #-}
     {-# INLINE toEncoding #-}
-
-logRequestResponse :: RequestLog -> Response -> Int -> RequestResponseLog
-logRequestResponse reqLog res d = RequestResponseLog
-    { _requestResponseLogRequest = reqLog
-    , _requestResponseLogStatus = sshow $ responseStatus res
-    , _requestResponseLogDurationMicro = d
-    }
 
 -- | NOTE: this middleware should only be used for APIs that don't stream. Otherwise
 -- the logg may be delayed for indefinite time.
@@ -187,9 +188,35 @@ requestResponseLogger logger app req respond = do
     let !reqLog = logRequest req
     reqTime <- getTime Monotonic
     app req $ \res -> do
-        r <- respond res
+        responseByteCounter <- newIORef 0
+        responseLoggedForSize <- newIORef False
+        -- deconstruct the outgoing response body into a stream.
+        let (status, headers, withResponseBody) = responseToStream res
+        let monitoredWriteChunk writeChunk b = do
+                let lbs = Builder.toLazyByteString b
+                let chunks = LBS.toChunks lbs
+                -- for each chunk of the outgoing stream, add its length to the accumulator.
+                -- if it's over the limit, log, and don't log for any subsequent chunk.
+                forM_ chunks $ \chunk -> do
+                    responseByteCount' <- atomicModifyIORef' responseByteCounter $ \count ->
+                        let count' = count + BS.length chunk
+                        in (count', count')
+                    loggedAlready <- readIORef responseLoggedForSize
+                    when (responseByteCount' >= 50 * kilo && not loggedAlready) $ do
+                        logFunctionText logger Warn $ "Large response body (>50KB) outbound from path " <> T.decodeUtf8 (rawPathInfo req)
+                        writeIORef responseLoggedForSize True
+                    -- send the chunk, regardless of if we're over the limit
+                    writeChunk (Builder.byteString chunk)
+        respReceived <- withResponseBody $ \originalBody ->
+            respond $ responseStream status headers $ \writeChunk doFlush ->
+                originalBody (monitoredWriteChunk writeChunk) doFlush
+        finalResponseByteCount <- readIORef responseByteCounter
         resTime <- getTime Monotonic
         logFunctionJson logger Info
-            $ logRequestResponse reqLog res
-            $ (int $ toNanoSecs $ diffTimeSpec resTime reqTime) `div` 1000
-        return r
+            $ RequestResponseLog
+            { _requestResponseLogRequest = reqLog
+            , _requestResponseLogStatus = sshow $ responseStatus res
+            , _requestResponseLogDurationMicro = (int $ toNanoSecs $ diffTimeSpec resTime reqTime) `div` 1000
+            , _requestResponseLogResponseSize = finalResponseByteCount
+            }
+        return respReceived
