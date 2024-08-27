@@ -92,7 +92,7 @@ module Chainweb.Mempool.Mempool
 import Control.DeepSeq (NFData)
 import Control.Exception
 import Control.Lens hiding ((.=))
-import Control.Monad (replicateM, unless)
+import Control.Monad (replicateM, unless, forever)
 
 import Crypto.Hash (hash)
 import Crypto.Hash.Algorithms (SHA512t_256)
@@ -142,6 +142,7 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Data.LogMessage (LogFunctionText)
+import Control.Concurrent.Async
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
@@ -215,7 +216,7 @@ data TransactionConfig t = TransactionConfig {
 type MempoolTxId = Int64
 type ServerNonce = Int
 type HighwaterMark = (ServerNonce, MempoolTxId)
-data InsertType = CheckedInsert | UncheckedInsert
+data InsertType = CheckedInsert | UncheckedInsert | NewInsert
   deriving (Show, Eq)
 
 data InsertError = InsertErrorDuplicate
@@ -310,6 +311,10 @@ data MempoolBackend t = MempoolBackend {
     -- | Discard any expired transactions.
   , mempoolPrune :: IO ()
 
+  -- | Returns only transactions that have been newly constructed to send them
+  -- to the rest of the network for the first time.
+  , mempoolGetNewTransactions :: IO [t]
+
     -- | given a previous high-water mark and a chunk callback function, loops
     -- through the pending candidate transactions and supplies the hashes to
     -- the callback in chunks. No ordering of hashes is presupposed. Returns
@@ -342,6 +347,7 @@ noopMempool = do
     , mempoolGetBlock = noopGetBlock
     , mempoolPrune = return ()
     , mempoolGetPendingTransactions = noopGetPending
+    , mempoolGetNewTransactions = return []
     , mempoolClear = noopClear
     }
   where
@@ -407,6 +413,9 @@ data SyncState = SyncState {
   , _syncTooMany :: !Bool
   }
 
+-- sendNewTx :: t -> MempoolBackend t -> IO ()
+
+
 -- | Pulls any missing pending transactions from a remote mempool.
 --
 -- The initial sync procedure:
@@ -425,12 +434,14 @@ syncMempools'
     => LogFunctionText
     -> Int
         -- ^ polling interval in microseconds
+    -> Int
+        -- ^ sending new txs delay in microseconds
     -> MempoolBackend t
         -- ^ local mempool
     -> MempoolBackend t
         -- ^ remote mempool
     -> IO ()
-syncMempools' log0 us localMempool remoteMempool = sync
+syncMempools' log0 syncDelayMicros sendNewTxsDelayMicros localMempool remoteMempool = sync
 
   where
     maxCnt = 5000
@@ -489,7 +500,11 @@ syncMempools' log0 us localMempool remoteMempool = sync
     deb :: Text -> IO ()
     deb = log0 Debug
 
-    sync = finally (initialSync >>= subsequentSync) (deb "sync exiting")
+    sync = finally
+      (do
+        hw <- initialSync
+        subsequentSync hw `race_` sendNewTxs)
+      (deb "sync exiting")
 
     initialSync = do
         deb "Get full list of pending hashes from remote"
@@ -525,8 +540,16 @@ syncMempools' log0 us localMempool remoteMempool = sync
             , " new remote hashes need to be fetched"
             ]
         traverse_ fetchMissing missingChunks
-        approximateThreadDelay us
+        approximateThreadDelay syncDelayMicros
         subsequentSync remoteHw'
+
+    sendNewTxs = forever $ do
+      newTxs <- mempoolGetNewTransactions localMempool
+      deb $
+        "Sending newly constructed transactions: " <>
+        sshow (txHasher (mempoolTxConfig localMempool) <$> newTxs)
+      mempoolInsert remoteMempool CheckedInsert $! V.fromList newTxs
+      approximateThreadDelay sendNewTxsDelayMicros
 
     -- get pending hashes from remote since the given (optional) high water mark
     fetchSince oldRemoteHw = do
@@ -563,11 +586,12 @@ syncMempools
     :: Show t
     => LogFunctionText
     -> Int                  -- ^ polling interval in microseconds
+    -> Int                  -- ^ new tx sending delay in microseconds
     -> MempoolBackend t     -- ^ local mempool
     -> MempoolBackend t     -- ^ remote mempool
     -> IO ()
-syncMempools log us localMempool remoteMempool =
-    syncMempools' log us localMempool remoteMempool
+syncMempools log syncDelayMicros sendNewTxsDelayMicros localMempool remoteMempool =
+    syncMempools' log syncDelayMicros sendNewTxsDelayMicros localMempool remoteMempool
 
 ------------------------------------------------------------------------------
 -- | Raw/unencoded transaction hashes.

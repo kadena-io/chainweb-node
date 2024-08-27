@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE NumericUnderscores #-}
 
 -- |
 -- Module: Chainweb.Mempool.P2pConfig
@@ -19,6 +20,7 @@ module Chainweb.Mempool.P2pConfig
 , mempoolP2pConfigMaxSessionCount
 , mempoolP2pConfigSessionTimeout
 , mempoolP2pConfigPollInterval
+, mempoolP2pConfigSendNewTxsDelay
 , defaultMempoolP2pConfig
 , pMempoolP2pConfig
 ) where
@@ -42,6 +44,7 @@ data MempoolP2pConfig = MempoolP2pConfig
     , _mempoolP2pConfigSessionTimeout :: !Seconds
         -- ^ timeout in seconds
     , _mempoolP2pConfigPollInterval :: !Seconds
+    , _mempoolP2pConfigSendNewTxsDelay :: !Micros
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -51,7 +54,8 @@ defaultMempoolP2pConfig :: MempoolP2pConfig
 defaultMempoolP2pConfig = MempoolP2pConfig
     { _mempoolP2pConfigMaxSessionCount = 6
     , _mempoolP2pConfigSessionTimeout = 300
-    , _mempoolP2pConfigPollInterval = 30
+    , _mempoolP2pConfigPollInterval = Seconds 30
+    , _mempoolP2pConfigSendNewTxsDelay = Micros 500_000
     }
 
 instance ToJSON MempoolP2pConfig where
@@ -72,6 +76,7 @@ instance FromJSON MempoolP2pConfig where
         <$> o .: "maxSessionCount"
         <*> o .: "sessionTimeout"
         <*> o .: "pollInterval"
+        <*> o .: "sendNewTxsDelay"
 
 pMempoolP2pConfig :: MParser MempoolP2pConfig
 pMempoolP2pConfig = id
@@ -84,3 +89,6 @@ pMempoolP2pConfig = id
     <*< mempoolP2pConfigPollInterval .:: textOption
         % long "mempool-p2p-poll-interval"
         <> help "poll interval for synchronizing mempools in seconds"
+    <*< mempoolP2pConfigPollInterval .:: textOption
+        % long "mempool-p2p-send-new-txs-delay"
+        <> help "delay between sending new transactions to other mempools in micros"

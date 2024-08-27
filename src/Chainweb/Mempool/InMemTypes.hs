@@ -43,6 +43,7 @@ import Chainweb.Mempool.CurrentTxs
 import Chainweb.Mempool.Mempool
 import Chainweb.Time (Micros(..), Time(..))
 import Chainweb.Utils (T2)
+import Control.Concurrent.STM
 
 ------------------------------------------------------------------------------
 data PendingEntry = PendingEntry
@@ -80,6 +81,11 @@ data InMemConfig t = InMemConfig {
 data InMemoryMempool t = InMemoryMempool {
     _inmemCfg :: !(InMemConfig t)
   , _inmemDataLock :: !(MVar (InMemoryMempoolData t))
+  , _inmemNewTxs :: !(TVar [t])
+    -- ^ The set of new transactions that have been submitted to this mempool
+    -- by a user and not by another mempool, and which haven't been sent to
+    -- other mempools yet. This is used to quickly send these transactions
+    -- to other mempool without waiting for the usual polling period.
   , _inmemNonce :: !ServerNonce
 }
 
@@ -102,11 +108,12 @@ data InMemoryMempoolData t = InMemoryMempoolData {
     -- possibly have to pay gas for it several times.
 
   , _inmemCurrentTxs :: !(IORef CurrentTxs)
-    -- ^ The set of non-expired transactions that have been addeded to a block.
+    -- ^ The set of non-expired transactions that have been added to a block.
     -- Transactions are remove from the set of pending transactions when they
     -- are added to a block. This set is used to prevent transactions from being
     -- re-inserts when synchronizing with nodes that haven't yet validated the
     -- block.
+
 }
 
 ------------------------------------------------------------------------------

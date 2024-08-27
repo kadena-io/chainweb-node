@@ -34,6 +34,7 @@ import Chainweb.Utils (Codec(..))
 tests :: TestTree
 tests = testGroup "Chainweb.Mempool.sync"
     [ mempoolProperty "Mempool.syncMempools" gen propSync $ MempoolWithFunc wf
+    , mempoolProperty "Mempool.syncMempoolsSendNew" (pick arbitrary) propSendNew $ MempoolWithFunc wf
     ]
   where
     wf :: (InsertCheck -> MempoolBackend MockTx -> IO a) -> IO a
@@ -69,6 +70,27 @@ testInMemCfg :: InMemConfig MockTx
 testInMemCfg =
     InMemConfig txcfg mockBlockGasLimit 0 2048 Right (pure . V.map Right) (1024 * 10)
 
+propSendNew
+    :: Set MockTx
+    -> InsertCheck
+    -> MempoolBackend MockTx
+    -> IO (Either String ())
+propSendNew txs _ localMempool' =
+    withInMemoryMempool testInMemCfg (barebonesTestVersion singletonChainGraph) $ \remoteMempool -> do
+        inserted <- newEmptyMVar
+        -- make a mempool which puts to the above mvar when all txs are inserted
+        localMempool <- timebomb (V.length txsV) (putMVar inserted ()) localMempool'
+        mempoolInsert localMempool NewInsert txsV
+        -- never do a sync, only do sendNew
+        let sync = syncMempools (\_ _ -> return ()) maxBound 0 localMempool remoteMempool
+        -- wait 10 seconds for the insert to happen
+        m <- timeout 10_000_000 $ do
+            Async.withAsync sync $ \_ -> do
+                takeMVar inserted
+        maybe (fail "timeout") (pure . Right) m
+    where
+    txsV = V.fromList $ Set.toList txs
+
 propSync
     :: (Set MockTx, Set MockTx , Set MockTx)
     -> InsertCheck
@@ -90,7 +112,7 @@ propSync (txs, missing, later) _ localMempool' =
         localMempool <-
               timebomb nmissing onInitialSyncFinished =<<
               timebomb (nmissing + nlater) onFinalSyncFinished localMempool'
-        let syncThread = syncMempools noLog 10 localMempool remoteMempool
+        let syncThread = syncMempools noLog 10 10 localMempool remoteMempool
 
 
         -- expect remote to deliver transactions during sync.

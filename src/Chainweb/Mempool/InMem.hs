@@ -28,6 +28,7 @@ module Chainweb.Mempool.InMem
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
+import Control.Concurrent.STM
 import Control.DeepSeq
 import Control.Error.Util (hush)
 import Control.Exception (bracket, evaluate, mask_, throw)
@@ -35,6 +36,7 @@ import Control.Monad
 
 import Data.Aeson
 import Data.Bifunctor (bimap)
+import Data.ByteString (ByteString)
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
 #if MIN_VERSION_base(4,20,0)
@@ -79,7 +81,6 @@ import Chainweb.Version (ChainwebVersion)
 import qualified Pact.Types.ChainMeta as P
 
 import Numeric.AffineSpace
-import Data.ByteString (ByteString)
 
 ------------------------------------------------------------------------------
 compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
@@ -96,11 +97,11 @@ makeInMemPool :: InMemConfig t
 makeInMemPool cfg = mask_ $ do
     nonce <- randomIO
     dataLock <- newInMemMempoolData >>= newMVar
-    return $! InMemoryMempool cfg dataLock nonce
+    newTxsVar <- newTVarIO []
+    return $! InMemoryMempool cfg dataLock newTxsVar nonce
 
 destroyInMemPool :: InMemoryMempool t -> IO ()
 destroyInMemPool = const $ return ()
-
 
 ------------------------------------------------------------------------------
 newInMemMempoolData :: IO (InMemoryMempoolData t)
@@ -132,24 +133,27 @@ toMempoolBackend logger mempool = do
       , mempoolGetBlock = getBlock
       , mempoolPrune = prune
       , mempoolGetPendingTransactions = getPending
+      , mempoolGetNewTransactions = getNew
       , mempoolClear = clear
       }
   where
     cfg = _inmemCfg mempool
     nonce = _inmemNonce mempool
     lockMVar = _inmemDataLock mempool
+    newTxsVar = _inmemNewTxs mempool
 
     InMemConfig tcfg _ _ _ _ _ _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem tcfg lockMVar
     lookupEncoded = lookupEncodedInMem lockMVar
-    insert = insertInMem cfg lockMVar
+    insert = insertInMem cfg lockMVar newTxsVar
     insertCheck = insertCheckInMem cfg lockMVar
     markValidated = markValidatedInMem logger tcfg lockMVar
     addToBadList = addToBadListInMem lockMVar
     checkBadList = checkBadListInMem lockMVar
     getBlock = getBlockInMem logger cfg lockMVar
     getPending = getPendingInMem cfg nonce lockMVar
+    getNew = getNewInMem newTxsVar
     prune = pruneInMem lockMVar
     clear = clearInMem lockMVar
 
@@ -479,10 +483,11 @@ insertInMem
     .  NFData t
     => InMemConfig t    -- ^ in-memory config
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
+    -> TVar [t]
     -> InsertType
     -> Vector t  -- ^ new transactions
     -> IO ()
-insertInMem cfg lock runCheck txs0 = do
+insertInMem cfg lock newTxsVar runCheck txs0 = do
     txhashes <- insertCheck
     withMVarMasked lock $ \mdata -> do
         pending <- readIORef (_inmemPending mdata)
@@ -495,9 +500,13 @@ insertInMem cfg lock runCheck txs0 = do
             recordRecentTransactions maxRecent newHashes
   where
     insertCheck :: IO (Vector (T2 TransactionHash t))
-    insertCheck = if runCheck == CheckedInsert
-                  then insertCheckInMem' cfg lock txs0
-                  else return $! V.map (\tx -> T2 (hasher tx) tx) txs0
+    insertCheck = case runCheck of
+      CheckedInsert -> insertCheckInMem' cfg lock txs0
+      UncheckedInsert -> return $! V.map (\tx -> T2 (hasher tx) tx) txs0
+      NewInsert -> do
+        -- we trust the caller to have done all necessary pre-insert checks
+        atomically $ modifyTVar newTxsVar $ (V.toList txs0 ++)
+        return $! V.map (\tx -> T2 (hasher tx) tx) txs0
 
     txcfg = _inmemTxCfg cfg
     encodeTx = codecEncode (txCodec txcfg)
@@ -705,6 +714,13 @@ getPendingInMem cfg nonce lock since callback = do
 
     sendChunk _ 0 = return ()
     sendChunk dl _ = callback $! V.fromList $ dl []
+
+getNewInMem :: TVar [t] -> IO [t]
+getNewInMem v = atomically $ do
+  ts <- readTVar v
+  guard (not $ null ts)
+  writeTVar v []
+  return ts
 
 ------------------------------------------------------------------------------
 clearInMem :: MVar (InMemoryMempoolData t) -> IO ()

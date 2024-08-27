@@ -258,7 +258,7 @@ sendHandler logger v cid mempool (SubmitBatch cmds) = Handler $ do
            let txs = V.fromList $ NEL.toList enriched
            -- If any of the txs in the batch fail validation, we reject them all.
            liftIO (mempoolInsertCheck mempool txs) >>= checkResult
-           liftIO (mempoolInsert mempool UncheckedInsert txs)
+           liftIO (mempoolInsert mempool NewInsert txs)
            return $! RequestKeys $ NEL.map cmdToRequestKey enriched
        Left err -> failWith $ "Validation failed: " <> T.pack err
   where

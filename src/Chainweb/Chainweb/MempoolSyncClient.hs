@@ -69,7 +69,9 @@ runMempoolSyncClient mgr memP2pConfig peerRes chain = bracket create destroy go
     create = do
         logg Debug "starting mempool p2p sync"
         p2pCreateNode v netId peer (logFunction syncLogger) peerDb mgr True $
-            mempoolSyncP2pSession chain (_mempoolP2pConfigPollInterval memP2pConfig)
+            mempoolSyncP2pSession chain
+                (_mempoolP2pConfigPollInterval memP2pConfig)
+                (_mempoolP2pConfigSendNewTxsDelay memP2pConfig)
     go n = do
         -- Run P2P client node
         logg Debug "mempool sync p2p node initialized, starting session"
@@ -91,18 +93,19 @@ runMempoolSyncClient mgr memP2pConfig peerRes chain = bracket create destroy go
 mempoolSyncP2pSession
     :: ChainResources logger
     -> Seconds
+    -> Micros
     -> P2pSession
-mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env _ = do
+mempoolSyncP2pSession chain (Seconds pollInterval) (Micros sendNewTxsDelayMicros) logg0 env _ = do
     logg Debug "mempool sync session starting"
-    Mempool.syncMempools' logg syncIntervalUs pool peerMempool
+    Mempool.syncMempools' logg syncIntervalMicros (int sendNewTxsDelayMicros) pool peerMempool
     logg Debug "mempool sync session finished"
     return True
   where
     peerMempool = MPC.toMempool v cid txcfg env
 
     -- FIXME Potentially dangerous down-cast.
-    syncIntervalUs :: Int
-    syncIntervalUs = int pollInterval * 500000
+    syncIntervalMicros :: Int
+    syncIntervalMicros = int pollInterval * 500000
 
     remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
     logg d m = logg0 d $ T.concat ["[mempool sync@", remote, "]:", m]
