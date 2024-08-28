@@ -138,7 +138,7 @@ toMempoolBackend logger mempool = do
     InMemConfig tcfg _ _ _ _ _ _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem tcfg lockMVar
-    insert = insertInMem cfg lockMVar
+    insert = insertInMem logger cfg lockMVar
     insertCheck = insertCheckInMem cfg lockMVar
     markValidated = markValidatedInMem logger tcfg lockMVar
     addToBadList = addToBadListInMem lockMVar
@@ -152,7 +152,7 @@ toMempoolBackend logger mempool = do
       -> IO (Vector to)
     getBlock = getBlockInMem logger cfg lockMVar
     getPending = getPendingInMem cfg nonce lockMVar
-    prune = pruneInMem lockMVar
+    prune = pruneInMem logger lockMVar
     clear = clearInMem lockMVar
 
 
@@ -465,20 +465,23 @@ insertCheckInMem' cfg lock txs
     hasher = txHasher txcfg
 
 insertInMem
-    :: forall t
-    .  NFData t
-    => InMemConfig t    -- ^ in-memory config
+    :: forall t logger. (NFData t, Logger logger)
+    => logger
+    -> InMemConfig t    -- ^ in-memory config
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> InsertType
     -> Vector t  -- ^ new transactions
     -> IO ()
-insertInMem cfg lock runCheck txs0 = do
+insertInMem logger cfg lock runCheck txs0 = do
+    logFunctionText logger Debug $ "insertInMem: " <> sshow (runCheck, V.length txs0)
     txhashes <- insertCheck
     withMVarMasked lock $ \mdata -> do
         pending <- readIORef (_inmemPending mdata)
+        logFunctionText logger Debug $ "insertInMem: pending txs: " <> sshow (HashMap.keys pending)
         let cnt = HashMap.size pending
         let txs = V.take (max 0 (maxNumPending - cnt)) txhashes
         let T2 !pending' !newHashesDL = V.foldl' insOne (T2 pending id) txs
+        logFunctionText logger Debug $ "insertInMem: updated pending txs: " <> sshow (HashMap.keys pending')
         let !newHashes = V.fromList $ newHashesDL []
         writeIORef (_inmemPending mdata) $! force pending'
         modifyIORef' (_inmemRecentLog mdata) $
@@ -520,10 +523,20 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
     withMVar lock $ \mdata -> do
         now <- getCurrentTimeIntegral
 
+        pendingDataBeforePrune <- readIORef (_inmemPending mdata)
+        logFunctionText logg Debug $ "getBlockInMem: data before prune" <> sshow (HashMap.keys pendingDataBeforePrune)
+
         -- drop any expired transactions.
-        pruneInternal mdata now
+        pruneInternal logg mdata now
+
+        pendingData <- readIORef (_inmemPending mdata)
+        logFunctionText logg Debug $ "getBlockInMem: pending txs (pre filter-seen): " <> sshow (HashMap.keys pendingData)
+
         !(T2 psq seen) <- filterSeen <$> readIORef (_inmemPending mdata)
+        logFunctionText logg Debug $ "getBlockInMem: pending txs (post filter-seen): " <> sshow (HashMap.keys psq)
+        logFunctionText logg Debug $ "getBlockInMem: seen txs: " <> sshow (HashMap.keys seen)
         !badmap <- readIORef (_inmemBadMap mdata)
+        logFunctionText logg Debug $ "getBlockInMem: bad txs: " <> sshow (HashMap.keys badmap)
         let size0 = gasLimit
 
         -- get our batch of output transactions, along with a new pending map
@@ -541,9 +554,13 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
 
   where
 
-    filterSeen = (`HashMap.foldlWithKey'` (T2 mempty mempty)) $ \(T2 unseens seens) k v ->
-      if S.member k txHashes then (T2 unseens (HashMap.insert k v seens))
-      else (T2 (HashMap.insert k v unseens) seens)
+    filterSeen :: PendingMap -> T2 PendingMap (HashMap TransactionHash PendingEntry)
+    filterSeen p = HashMap.foldlWithKey' go (T2 mempty mempty) p
+      where
+        go (T2 unseens seens) k v =
+          if S.member k txHashes
+          then T2 unseens (HashMap.insert k v seens)
+          else T2 (HashMap.insert k v unseens) seens
 
     ins !m (!h,(!b,!t,_)) =
         let !pe = PendingEntry (txGasPrice txcfg t)
@@ -589,6 +606,7 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
                 [ either (\_err -> Left (txHash, t)) (\to -> Right (txHash, (bytes, t, to))) r
                 | ((txHash, (bytes, t)), r) <- V.toList (V.zip q oks)
                 ]
+        logFunctionText logg Debug $ "validateBatch badlisting: " <> sshow (map fst bad1)
           -- V.partition snd $! V.zip q oks
 
         -- remove considered txs -- successful ones will be re-added at the end
@@ -608,6 +626,7 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
         -> IO [(TransactionHash, (SB.ShortByteString, t))]
     nextBatch !psq !remainingGas = do
         let !pendingTxs0 = HashMap.toList psq
+        logFunctionText logg Debug $ "nextBatch pendingTxs: " <> sshow (map fst pendingTxs0)
         mPendingTxs <- mutableVectorFromList pendingTxs0
         TimSort.sortBy (compare `on` snd) mPendingTxs
         !pendingTxs <- V.unsafeFreeze mPendingTxs
@@ -641,8 +660,11 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
     go !psq !badmap !remainingGas !soFar = do
         nb <- nextBatch psq remainingGas
         if null nb
-          then return $! T3 psq badmap (V.fromList $ concat soFar)
+          then do
+            logFunctionText logg Debug "getBlockInMem: Batch empty"
+            return $! T3 psq badmap (V.fromList $ concat soFar)
           else do
+            logFunctionText logg Debug "validating batch..."
             T3 good psq' badmap' <- validateBatch psq badmap $! V.fromList nb
             let !newGas = foldl' (\s (_, (_, t, _)) -> s + getSize t) 0 good
             go psq' badmap' (remainingGas - newGas) (good : soFar)
@@ -750,31 +772,41 @@ getMempoolStats m = do
 -- | Prune the mempool's pending map and badmap.
 --
 -- Complexity is linear in the size of the mempool, which is fine if it isn't
--- applied to often and at a constant rate.
+-- applied too often and at a constant rate.
 --
 pruneInMem
-    :: forall t . NFData t
-    => MVar (InMemoryMempoolData t)
+    :: forall t logger. (NFData t, Logger logger)
+    => logger
+    -> MVar (InMemoryMempoolData t)
     -> IO ()
-pruneInMem lock = do
+pruneInMem logger lock = do
     now <- getCurrentTimeIntegral
-    withMVar lock $ \mdata -> pruneInternal mdata now
+    withMVar lock $ \mdata -> pruneInternal logger mdata now
 
 
 ------------------------------------------------------------------------------
 pruneInternal
-    :: forall t . NFData t
-    => InMemoryMempoolData t
+    :: forall t logger. (NFData t, Logger logger)
+    => logger
+    -> InMemoryMempoolData t
     -> Time Micros
     -> IO ()
-pruneInternal mdata now = do
+pruneInternal logger mdata now = do
     let pref = _inmemPending mdata
     !pending <- readIORef pref
+    logFunctionText logger Debug $ "pruneInternal: pending txs pre-filter: " <> sshow (HashMap.keys pending)
+    logFunctionText logger Debug $ "pruneInternal: current time (micros): " <> sshow now
+    forM_ (HashMap.toList pending) $ \(h, pe) ->
+        logFunctionText logger Debug $ "pruneInternal: (pending tx, expiration): " <> sshow (h, _inmemPeExpires pe)
     !pending' <- evaluate $ force $ HashMap.filter flt pending
+    logFunctionText logger Debug $ "pruneInternal: pending txs post-filter: " <> sshow (HashMap.keys pending')
     writeIORef pref pending'
 
     let bref = _inmemBadMap mdata
+    badMapBefore <- readIORef bref
+    logFunctionText logger Debug $ "pruneInternal: bad txs before prune: " <> sshow (HashMap.keys badMapBefore)
     !badmap <- (force . pruneBadMap) <$!> readIORef bref
+    logFunctionText logger Debug $ "pruneInternal: bad txs after prune: " <> sshow (HashMap.keys badMapBefore)
     writeIORef bref badmap
 
   where

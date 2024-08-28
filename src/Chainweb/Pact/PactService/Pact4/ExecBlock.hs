@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -46,6 +47,7 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
+import System.LogLevel (LogLevel(..))
 import qualified Data.Aeson as A
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
@@ -228,7 +230,7 @@ validateRawChainwebTx
     -> Pact4.UnparsedTransaction
     -> ExceptT InsertError IO Pact4.Transaction
 validateRawChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas tx = do
-  parsed <- checkParse v cid bh tx
+  parsed <- checkParse logger v cid bh tx
   validateParsedChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas parsed
   return parsed
 
@@ -254,18 +256,21 @@ validateParsedChainwebTx
 validateParsedChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas tx
   | bh == genesisHeight v cid = pure ()
   | otherwise = do
-    checkUnique dbEnv tx
-    checkTxHash v cid bh tx
-    checkTxSigs v cid bh tx
-    checkTimes v cid bh txValidationTime tx
-    checkCompile v cid bh tx
-    doBuyGas tx
+      checkUnique logger dbEnv tx
+      checkTxHash logger v cid bh tx
+      checkTxSigs logger v cid bh tx
+      checkTimes logger v cid bh txValidationTime tx
+      checkCompile logger v cid bh tx
+      doBuyGas tx
 
 checkUnique
-  :: PactDbFor logger Pact4
+  :: (Logger logger)
+  => logger
+  -> PactDbFor logger Pact4
   -> Pact4.Command (Pact4.PayloadWithText meta code)
   -> ExceptT InsertError IO ()
-checkUnique dbEnv t = do
+checkUnique logger dbEnv t = do
+  liftIO $ logFunctionText logger Debug $ "Pact4.checkUnique: " <> sshow (Pact4._cmdHash t)
   found <- liftIO $
     HashMap.lookup (coerce $ Pact4.toUntypedHash $ Pact4._cmdHash t) <$>
       _cpLookupProcessedTx dbEnv
@@ -275,25 +280,35 @@ checkUnique dbEnv t = do
     Just _ -> throwError InsertErrorDuplicate
 
 checkTimes
-  :: ChainwebVersion -> ChainId -> BlockHeight
+  :: (Logger logger)
+  => logger
+  -> ChainwebVersion
+  -> ChainId
+  -> BlockHeight
   -> ParentCreationTime
   -> Pact4.Command (Pact4.PayloadWithText Pact4.PublicMeta code)
   -> ExceptT InsertError IO ()
-checkTimes v cid bh txValidationTime t
-    | skipTxTimingValidation v cid bh =
-      return ()
-    | not (Pact4.assertTxNotInFuture txValidationTime (Pact4.payloadObj <$> t)) =
-      throwError InsertErrorTimeInFuture
-    | not (Pact4.assertTxTimeRelativeToParent txValidationTime (Pact4.payloadObj <$> t)) =
-      throwError InsertErrorTTLExpired
-    | otherwise =
-      return ()
+checkTimes logger v cid bh txValidationTime t = do
+    liftIO $ logFunctionText logger Debug $ "Pact4.checkTimes: " <> sshow (Pact4._cmdHash t)
+    if | skipTxTimingValidation v cid bh ->
+           return ()
+       | not (Pact4.assertTxNotInFuture txValidationTime (Pact4.payloadObj <$> t)) ->
+           throwError InsertErrorTimeInFuture
+       | not (Pact4.assertTxTimeRelativeToParent txValidationTime (Pact4.payloadObj <$> t)) ->
+           throwError InsertErrorTTLExpired
+       | otherwise ->
+           return ()
 
 checkTxHash
-  :: ChainwebVersion -> ChainId -> BlockHeight
+  :: (Logger logger)
+  => logger
+  -> ChainwebVersion
+  -> ChainId
+  -> BlockHeight
   -> Pact4.Command (Pact4.PayloadWithText Pact4.PublicMeta code)
   -> ExceptT InsertError IO ()
-checkTxHash v cid bh t =
+checkTxHash logger v cid bh t = do
+    liftIO $ logFunctionText logger Debug $ "Pact4.checkTxHash: " <> sshow (Pact4._cmdHash t)
     case Pact4.verifyHash (Pact4._cmdHash t) (SB.fromShort $ Pact4.payloadBytes $ Pact4._cmdPayload t) of
         Left _
             | doCheckTxHash v cid bh -> throwError InsertErrorInvalidHash
@@ -301,13 +316,17 @@ checkTxHash v cid bh t =
         Right _ -> pure ()
 
 checkTxSigs
-  :: MonadError InsertError f
-  => ChainwebVersion -> ChainId -> BlockHeight
+  :: (MonadIO f, MonadError InsertError f, Logger logger)
+  => logger
+  -> ChainwebVersion
+  -> ChainId
+  -> BlockHeight
   -> Pact4.Command (Pact4.PayloadWithText m c)
   -> f ()
-checkTxSigs v cid bh t
-  | Pact4.assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs = pure ()
-  | otherwise = throwError InsertErrorInvalidSigs
+checkTxSigs logger v cid bh t = do
+  liftIO $ logFunctionText logger Debug $ "Pact4.checkTxSigs: " <> sshow (Pact4._cmdHash t)
+  if | Pact4.assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs -> pure ()
+     | otherwise -> throwError InsertErrorInvalidSigs
   where
     hsh = Pact4._cmdHash t
     sigs = Pact4._cmdSigs t
@@ -316,15 +335,21 @@ checkTxSigs v cid bh t
     webAuthnPrefixLegal = isWebAuthnPrefixLegal v cid bh
 
 checkCompile
-  :: ChainwebVersion -> ChainId -> BlockHeight
+  :: (Logger logger)
+  => logger
+  -> ChainwebVersion
+  -> ChainId
+  -> BlockHeight
   -> Pact4.Command (Pact4.PayloadWithText Pact4.PublicMeta Pact4.ParsedCode)
   -> ExceptT InsertError IO Pact4.Transaction
-checkCompile v cid bh tx = case payload of
-  Exec (ExecMsg parsedCode _) ->
-    case compileCode parsedCode of
-      Left perr -> throwError $ InsertErrorCompilationFailed (sshow perr)
-      Right _ -> return tx
-  _ -> return tx
+checkCompile logger v cid bh tx = do
+  liftIO $ logFunctionText logger Debug $ "Pact4.checkCompile: " <> sshow (Pact4._cmdHash tx)
+  case payload of
+    Exec (ExecMsg parsedCode _) ->
+      case compileCode parsedCode of
+        Left perr -> throwError $ InsertErrorCompilationFailed (sshow perr)
+        Right _ -> return tx
+    _ -> return tx
   where
     payload = Pact4._pPayload $ Pact4.payloadObj $ Pact4._cmdPayload tx
     compileCode p =
@@ -332,10 +357,15 @@ checkCompile v cid bh tx = case payload of
       in compileExps e (mkTextInfo (Pact4._pcCode p)) (Pact4._pcExps p)
 
 checkParse
-  :: ChainwebVersion -> ChainId -> BlockHeight
+  :: (Logger logger)
+  => logger
+  -> ChainwebVersion
+  -> ChainId
+  -> BlockHeight
   -> Pact4.Command (Pact4.PayloadWithText Pact4.PublicMeta Text)
   -> ExceptT InsertError IO Pact4.Transaction
-checkParse v cid bh tx =
+checkParse logger v cid bh tx = do
+  liftIO $ logFunctionText logger Debug $ "Pact4.checkParse: " <> sshow (Pact4._cmdHash tx)
   forMOf (traversed . traversed) tx
     (either (throwError . InsertErrorPactParseError . T.pack) return . Pact4.parsePact (pact4ParserVersion v cid bh))
 
@@ -804,7 +834,7 @@ continueBlock mpAccess blockInProgress = do
       logger <- view (psServiceEnv . psLogger)
       let validate bhi _bha txs = forM txs $ \tx -> runExceptT $ do
             validateRawChainwebTx logger v cid dbEnv parentTime bhi (\_ -> pure ()) tx
-            checkParse v cid (pHeight + 1) tx
+            checkParse logger v cid (pHeight + 1) tx
 
       liftIO $!
         mpaGetBlock mpAccess bfState validate (pHeight + 1) pHash (_parentHeader newBlockParent)

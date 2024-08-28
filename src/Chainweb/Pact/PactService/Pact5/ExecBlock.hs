@@ -1,6 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
@@ -27,6 +29,8 @@ import Data.ByteString (ByteString)
 import Data.Decimal
 import Data.Vector (Vector)
 import Data.Void
+import Pact.Core.Command.Types (CommandResult(..), RequestKey(..))
+import Pact.Core.ChainData qualified as Pact5
 import qualified Pact.Core.Command.Types as Pact5
 import qualified Pact.Core.Persistence as Pact5
 import Pact.Core.Hash
@@ -157,6 +161,7 @@ continueBlock
     -> BlockInProgress Pact5
     -> PactBlockM logger tbl (BlockInProgress Pact5)
 continueBlock mpAccess blockInProgress = do
+  liftPactServiceM $ logDebug "starting continueBlock"
   -- update the mempool, ensuring that we reintroduce any transactions that
   -- were removed due to being completed in a block on a different fork.
   liftIO $ do
@@ -222,10 +227,18 @@ continueBlock mpAccess blockInProgress = do
       | otherwise = do
         newTxs <- getBlockTxs prevBlockFillState
         if V.null newTxs
-        then pure stop
+        then do
+          liftPactServiceM $ logDebug $ "Refill: no new transactions"
+          pure stop
         else do
+          -- all request keys from mempool
+          -- badlist vs included
           (newCompletedTransactions, newInvalidTransactions, newGasLimit, timedOut) <-
             execNewTransactions (_blockInProgressMiner blockInProgress) prevRemainingGas txTimeLimit newTxs
+          liftPactServiceM $ do
+            logDebug $ "Refill: included request keys: " <> sshow @[Hash] (fmap (unRequestKey . _crReqKey . snd) newCompletedTransactions)
+            logDebug $ "Refill: badlisted request keys: " <> sshow @[Hash] (fmap unRequestKey newInvalidTransactions)
+
           let newBlockFillState = BlockFill
                 { _bfCount = succ prevFillCount
                 , _bfGasLimit = newGasLimit
@@ -718,6 +731,7 @@ validateParsedChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas tx
 
     checkUnique :: Pact5.Transaction -> ExceptT InsertError IO Pact5.Transaction
     checkUnique t = do
+      logDebug_ logger $ "Pact5.checkUnique: " <> sshow (Pact5._cmdHash t)
       found <- liftIO $
         HashMap.lookup (coerce $ Pact5._cmdHash t) <$>
           Pact5.lookupPactTransactions dbEnv
@@ -727,18 +741,25 @@ validateParsedChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas tx
         Just _ -> throwError InsertErrorDuplicate
 
     checkTimes :: Pact5.Transaction -> ExceptT InsertError IO Pact5.Transaction
-    checkTimes t
-        | skipTxTimingValidation v cid bh =
-          pure t
-        | not (Pact5.assertTxNotInFuture txValidationTime (view Pact5.payloadObj <$> t)) =
-          throwError InsertErrorTimeInFuture
-        | not (Pact5.assertTxTimeRelativeToParent txValidationTime (view Pact5.payloadObj <$> t)) =
-          throwError InsertErrorTTLExpired
-        | otherwise =
-          pure t
+    checkTimes t = do
+        logDebug_ logger $ "Pact5.checkTimes: " <> sshow (Pact5._cmdHash t)
+        if | skipTxTimingValidation v cid bh -> do
+               pure t
+           | not (Pact5.assertTxNotInFuture txValidationTime (view Pact5.payloadObj <$> t)) -> do
+               logDebug_ logger $ "Pact5.checkTimes: (txValidationTime, txTime) = " <> sshow (_parentCreationTime txValidationTime, view (Pact5.cmdPayload . Pact5.payloadObj . Pact5.pMeta . Pact5.pmCreationTime) t)
+
+               --(_parentCreationTime txValidationTime, _creationTime . view Pact5.payloadObj <$> t)
+               logDebug_ logger $ "Pact5.checkTimes: InsertErrorTimeInFuture"
+               throwError InsertErrorTimeInFuture
+           | not (Pact5.assertTxTimeRelativeToParent txValidationTime (view Pact5.payloadObj <$> t)) -> do
+               logDebug_ logger $ "Pact5.checkTimes: InsertErrorTimeInPast"
+               throwError InsertErrorTTLExpired
+           | otherwise -> do
+               pure t
 
     checkTxHash :: Pact5.Transaction -> ExceptT InsertError IO Pact5.Transaction
-    checkTxHash t =
+    checkTxHash t = do
+        logDebug_ logger $ "Pact5.checkTxHash: " <> sshow (Pact5._cmdHash t)
         case Pact5.verifyHash (Pact5._cmdHash t) (SB.fromShort $ view Pact5.payloadBytes $ Pact5._cmdPayload t) of
             Left _
                 | doCheckTxHash v cid bh -> throwError InsertErrorInvalidHash
@@ -749,9 +770,10 @@ validateParsedChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas tx
 
 
     checkTxSigs :: Pact5.Transaction -> ExceptT InsertError IO Pact5.Transaction
-    checkTxSigs t
-      | Pact5.assertValidateSigs hsh signers sigs = pure t
-      | otherwise = throwError InsertErrorInvalidSigs
+    checkTxSigs t = do
+      logDebug_ logger $ "Pact5.checkTxSigs: " <> sshow (Pact5._cmdHash t)
+      if | Pact5.assertValidateSigs hsh signers sigs -> pure t
+         | otherwise -> throwError InsertErrorInvalidSigs
       where
         hsh = Pact5._cmdHash t
         sigs = Pact5._cmdSigs t

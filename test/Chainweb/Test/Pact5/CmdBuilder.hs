@@ -19,6 +19,7 @@
 
 module Chainweb.Test.Pact5.CmdBuilder where
 
+import Data.Int (Int64)
 import Control.Lens hiding ((.=))
 import Pact.Core.Command.Types
 import Data.Text (Text)
@@ -33,6 +34,7 @@ import Pact.Core.ChainData
 import Pact.Core.Gas.Types
 import Control.Exception.Safe
 import Control.Monad.IO.Class
+import Chainweb.Time
 import Chainweb.Version
 import qualified Chainweb.ChainId
 import qualified Chainweb.ChainId as Chainweb
@@ -40,6 +42,7 @@ import Data.ByteString (ByteString)
 import qualified Chainweb.Pact5.Transaction as Pact5
 import qualified Data.Text.Encoding as T
 import Chainweb.Utils
+import Chainweb.Pact.Utils
 import GHC.Exts (IsString(..))
 import Data.Maybe
 import Pact.Core.Command.Crypto
@@ -147,7 +150,7 @@ data CmdBuilder = CmdBuilder
   , _cbGasLimit :: !GasLimit
   , _cbGasPrice :: !GasPrice
   , _cbTTL :: !TTLSeconds
-  , _cbCreationTime :: !TxCreationTime
+  , _cbCreationTime :: !(Maybe TxCreationTime)
   } deriving (Eq,Show,Generic)
 makeLenses ''CmdBuilder
 
@@ -182,7 +185,7 @@ defaultCmd = CmdBuilder
   , _cbGasLimit = GasLimit (Gas 10_000)
   , _cbGasPrice = GasPrice 0.000_1
   , _cbTTL = TTLSeconds 300 -- 5 minutes
-  , _cbCreationTime = TxCreationTime 0 -- epoch
+  , _cbCreationTime = Nothing
   }
 
 -- | Build parsed + verified Pact command
@@ -205,12 +208,26 @@ buildRawCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m (
 buildRawCmd v CmdBuilder{..} = do
     kps <- liftIO $ traverse mkDynKeyPairs _cbSigners
     nonce <- liftIO $ maybe (fmap T.pack $ replicateM 10 $ randomRIO ('a', 'z')) return _cbNonce
+    creationTime <- liftIO $ do
+      case _cbCreationTime of
+        Nothing -> do
+          Time timespan <- getCurrentTimeIntegral
+          pure (TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan)
+        Just t -> do
+          return t
+    let pm = PublicMeta
+          { _pmChainId = cid
+          , _pmSender = _cbSender
+          , _pmGasLimit = _cbGasLimit
+          , _pmGasPrice = _cbGasPrice
+          , _pmTTL = _cbTTL
+          , _pmCreationTime = creationTime
+          }
     cmd <- liftIO $ mkCommandWithDynKeys kps _cbVerifiers (StableEncoding pm) nonce (Just nid) _cbRPC
     pure cmd
   where
     nid = NetworkId (sshow v)
     cid = ChainId $ sshow (chainIdInt _cbChainId :: Int)
-    pm = PublicMeta cid _cbSender _cbGasLimit _cbGasPrice _cbTTL _cbCreationTime
 
 dieL :: MonadThrow m => [Char] -> Either [Char] a -> m a
 dieL msg = either (\s -> throwM $ userError $ msg ++ ": " ++ s) return

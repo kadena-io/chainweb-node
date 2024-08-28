@@ -206,7 +206,6 @@ assertTxNotInFuture (ParentCreationTime (BlockCreationTime txValidationTime)) tx
     P.TxCreationTime txOriginationTime = view (P.cmdPayload . P.pMeta . P.pmCreationTime) tx
     lenientTxValidationTime = add (scaleTimeSpan defaultLenientTimeSlop second) txValidationTime
 
-
 -- | Assert that the command hash matches its payload and
 -- its signatures are valid, without parsing the payload.
 assertCommand :: Pact5.Transaction -> Bool

@@ -22,6 +22,7 @@
 module Chainweb.Pact.Service.PactInProcApi
     ( withPactService
     , withPactService'
+    , pactMemPoolAccess
     ) where
 
 import Control.Concurrent.Async

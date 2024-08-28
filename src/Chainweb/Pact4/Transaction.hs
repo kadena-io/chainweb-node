@@ -65,10 +65,10 @@ data PayloadWithText meta code = PayloadWithText
     deriving stock (Functor, Foldable, Traversable, Show, Eq, Generic)
     deriving anyclass (NFData)
 
-payloadBytes :: PayloadWithText meta code-> SB.ShortByteString
+payloadBytes :: PayloadWithText meta code -> SB.ShortByteString
 payloadBytes = _payloadBytes
 
-payloadObj :: PayloadWithText meta code-> Payload meta code
+payloadObj :: PayloadWithText meta code -> Payload meta code
 payloadObj = _payloadObj
 
 mkPayloadWithText :: Command (ByteString, Payload meta code) -> Command (PayloadWithText meta code)
@@ -112,11 +112,12 @@ rawCommandCodec :: Codec (Command (PayloadWithText PublicMeta Text))
 rawCommandCodec = Codec enc dec
     where
     enc cmd = J.encodeStrict $ J.text . decodeUtf8 . SB.fromShort . _payloadBytes <$> cmd
-    dec bs = case Aeson.decodeStrict' bs of
-        Just cmd -> return $
-            (\p -> PayloadWithText { _payloadBytes = SB.toShort bs, _payloadObj = p }) <$>
-            cmd
-        Nothing -> Left "decoding Command failed"
+    dec bs = do
+        cmd <- Aeson.eitherDecodeStrict' bs
+        let p = encodeUtf8 $ _cmdPayload cmd
+        payloadObject <- Aeson.eitherDecodeStrict' p
+        let payloadWithText = PayloadWithText { _payloadBytes = (SB.toShort p), _payloadObj = payloadObject }
+        return $ payloadWithText <$ cmd
 
 -- | A codec for Pact4's (Command PayloadWithText) transactions.
 --
