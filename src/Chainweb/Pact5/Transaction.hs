@@ -5,6 +5,7 @@
 {-# language FlexibleContexts #-}
 {-# language ImportQualifiedPost #-}
 {-# language LambdaCase #-}
+{-# language OverloadedStrings #-}
 {-# language PackageImports #-}
 {-# language ScopedTypeVariables #-}
 {-# language TypeApplications #-}
@@ -45,6 +46,7 @@ import "pact" Pact.Types.Term.Internal (PactId(..))
 import "pact" Pact.Types.Verifier (VerifierName(..))
 import "pact" Pact.Types.Verifier qualified as Pact4
 import "pact-json" Pact.JSON.Encode qualified as J
+import "pact-json" Pact.JSON.Encode (Encode(..))
 import "pact-json" Pact.JSON.Legacy.Value qualified as J
 import "pact-tng" Pact.Core.Capabilities
 import "pact-tng" Pact.Core.ChainData
@@ -80,6 +82,12 @@ data PayloadWithText meta code = UnsafePayloadWithText
 
 instance Eq (PayloadWithText meta code) where
     (==) = (==) `on` _payloadBytes
+
+instance (J.Encode meta, J.Encode code) => J.Encode (PayloadWithText meta code) where
+    build p = J.object
+      [ "payloadBytes" J..= J.encodeText (decodeUtf8 $ SB.fromShort $ _payloadBytes p)
+      , "payloadObject" J..= _payloadObj p
+      ]
 
 payloadBytes :: Getter (PayloadWithText meta code) SB.ShortByteString
 payloadBytes = to _payloadBytes

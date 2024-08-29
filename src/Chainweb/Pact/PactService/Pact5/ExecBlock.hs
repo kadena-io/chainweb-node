@@ -9,6 +9,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE RecordWildCards #-}
+
 module Chainweb.Pact.PactService.Pact5.ExecBlock
     ( runPact5Coinbase
     , continueBlock
@@ -18,6 +19,8 @@ module Chainweb.Pact.PactService.Pact5.ExecBlock
 
     ) where
 
+import Data.Bifunctor (first)
+import Data.Aeson.Encode.Pretty qualified as A
 import Chainweb.Logger
 import Chainweb.BlockHeader
 import Chainweb.Miner.Pact
@@ -26,13 +29,16 @@ import Chainweb.Pact.Types hiding (ctxCurrentBlockHeight, TxContext(..))
 import Chainweb.Pact5.Transaction
 import Chainweb.Payload
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Unsafe.Coerce (unsafeCoerce)
+import Data.ByteString.Builder qualified as BB
 import Data.Decimal
 import Data.Vector (Vector)
 import Data.Void
 import Pact.Core.Command.Types (CommandResult(..), RequestKey(..))
 import Pact.Core.ChainData qualified as Pact5
-import qualified Pact.Core.Command.Types as Pact5
-import qualified Pact.Core.Persistence as Pact5
+import Pact.Core.Command.Types qualified as Pact5
+import Pact.Core.Persistence qualified as Pact5
 import Pact.Core.Hash
 import Chainweb.Pact5.NoCoinbase
 import Control.Lens
@@ -40,16 +46,16 @@ import Chainweb.Version
 import Data.Default
 import Control.Monad.IO.Class
 import Chainweb.BlockHeight
-import qualified Data.Map as Map
+import Data.Map qualified as Map
 import Chainweb.Utils
 import Numeric.Natural
 import Chainweb.Pact5.TransactionExec
 import Chainweb.Pact5.Types
-import qualified Data.Vector as V
+import Data.Vector qualified as V
 import Data.Foldable
 import Data.Either (partitionEithers)
 import Control.Monad
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Control.Exception.Safe
 import Control.Exception (evaluate)
 import Control.DeepSeq
@@ -842,26 +848,61 @@ execExistingBlock currHeader payload = do
 
   let !totalGasUsed = foldOf (folded . _2 . to Pact5._crGas) results
 
-  pwo <- either throwM return $
-    validateHashes currHeader payload miner (Transactions results coinbaseResult)
+  pwo <- do
+    case validateHashes currHeader payload miner (Transactions results coinbaseResult) of
+      Left (e, PrettyBlockValidationFailure prettyFailure) -> do
+        logDebug_ logger $ "Block validation pretty failure:\n" <> prettyFailure
+        throwM e
+      Right pwo -> do
+        return pwo
   return (totalGasUsed, pwo)
 
+{-
+data PrettyBlockValidationFailure = PrettyBlockValidationFailure
+  { prettyHeader :: BlockHeader
+  , prettyPayloadHashActual :: BlockPayloadHash
+  , prettyPayloadHashExpected :: BlockPayloadHash
+  , prettyPayload :: PrettyCheckablePayload
+  }
+
+instance A.ToJSON PrettyBlockValidationFailure where
+  toJSON PrettyBlockValidationFailure{..} = A.object
+    [ "header" A..= prettyHeader
+    , "payloadHashActual" A..= prettyPayloadHashActual
+    , "payloadHashExpected" A..= prettyPayloadHashExpected
+    -- , "payload" A..= prettyPayload
+    ]
+
+data PrettyCheckablePayload = PrettyCheckablePayload
+  { prettyMinerDataActual :: MinerData
+  , prettyMinerDataExpected :: MinerData
+  }
+-}
+
+newtype PrettyBlockValidationFailure = PrettyBlockValidationFailure T.Text
 
 validateHashes
   :: BlockHeader
   -> CheckablePayload
   -> Miner
   -> Transactions Pact5 (Pact5.CommandResult [Pact5.TxLog ByteString] TxFailedError)
-  -> Either PactException PayloadWithOutputs
+  -> Either (PactException, PrettyBlockValidationFailure) PayloadWithOutputs
 validateHashes bHeader payload miner transactions =
     if newHash == prevHash
-      then Right pwo
-      else Left $ BlockValidationFailure $ BlockValidationFailureMsg $
-        J.encodeJsonText $ J.object
-            [ "header" J..= J.encodeWithAeson (ObjectEncoded bHeader)
-            , "mismatch" J..= errorMsg "Payload hash" prevHash newHash
-            , "details" J..= details
-            ]
+      then do
+        Right pwo
+      else do
+        let jsonText =
+              J.encodeJsonText $ J.object
+                [ "header" J..= J.encodeWithAeson (ObjectEncoded bHeader)
+                , "mismatch" J..= errorMsg "Payload hash" prevHash newHash
+                , "details" J..= details
+                ]
+        let prettyFailure = case A.decodeStrict @A.Value (T.encodeUtf8 (J.getJsonText jsonText)) of
+              Nothing -> error "Pact5.ExecBlock.validateHashes: Impossible. Failed to decode JSON of BlockValidationFailure for prettification."
+              Just json -> PrettyBlockValidationFailure $ T.decodeUtf8 $ BS.toStrict $ A.encodePretty json
+
+        Left (BlockValidationFailure $ BlockValidationFailureMsg jsonText, prettyFailure)
   where
 
     pwo = toPayloadWithOutputs Pact5T miner transactions
@@ -871,19 +912,48 @@ validateHashes bHeader payload miner transactions =
 
     -- The following JSON encodings are used in the BlockValidationFailure message
 
-    check :: Eq a => A.ToJSON a => T.Text -> [Maybe J.KeyValue] -> a -> a -> Maybe J.Builder
+    check :: (Eq a, A.ToJSON a) => T.Text -> [Maybe J.KeyValue] -> a -> a -> Maybe J.Builder
     check desc extra expect actual
         | expect == actual = Nothing
         | otherwise = Just $ J.object
             $ "mismatch" J..= errorMsg desc expect actual
             : extra
 
-    errorMsg :: A.ToJSON a => T.Text -> a -> a -> J.Builder
+    errorMsg :: (A.ToJSON a) => T.Text -> a -> a -> J.Builder
     errorMsg desc expect actual = J.object
         [ "type" J..= J.text desc
         , "actual" J..= J.encodeWithAeson actual
         , "expected" J..= J.encodeWithAeson expect
         ]
+
+    checkEncode :: (Eq a, J.Encode a) => T.Text -> [Maybe J.KeyValue] -> a -> a -> Maybe J.Builder
+    checkEncode desc extra expect actual
+        | expect == actual = Nothing
+        | otherwise = Just $ J.object
+            $ "mismatch" J..= errorMsgEncode desc expect actual
+            : extra
+
+    errorMsgEncode :: (J.Encode a) => T.Text -> a -> a -> J.Builder
+    errorMsgEncode desc expect actual = J.object
+      [ "type" J..= J.text desc
+      , "actual" J..= J.build actual
+      , "expected" J..= J.build expect
+      ]
+
+    encodeTuple :: (J.Encode a, J.Encode b) => (a, b) -> J.Array [J.Builder]
+    encodeTuple (a, b) = J.Array [J.build a, J.build b]
+
+    transactionBytesToCommand :: Chainweb.Payload.Transaction -> Pact5.Command (Pact5.PayloadWithText Pact5.PublicMeta Pact5.ParsedCode)
+    transactionBytesToCommand txBytes = case A.decodeStrict' @(Pact5.Command T.Text) (_transactionBytes txBytes) of
+      Nothing -> error $ "Pact5.ExecBlock.transactionBytesToJson: Failed to decode transaction bytes as Command Text"
+      Just cmd -> case Pact5.parseCommand cmd of
+        Left err -> error $ "Pact5.ExecBlock.transactionBytesToJson: Failed to parse transaction command payload: " <> show err
+        Right cmd' -> cmd'
+
+    transactionOutputsToCommandResult :: Chainweb.Payload.TransactionOutput -> Pact5.CommandResult A.Value A.Value
+    transactionOutputsToCommandResult txOuts = case A.decodeStrict' (_transactionOutputBytes txOuts) of
+      Nothing -> error $ "Pact5.ExecBlock.transactionOutputsToJson: Failed to decode transaction output bytes as CommandResult Text"
+      Just cmdRes -> cmdRes
 
     details = case payload of
         CheckablePayload pData -> J.Array $ catMaybes
@@ -893,9 +963,9 @@ validateHashes bHeader payload miner transactions =
                 (_payloadWithOutputsMiner pwo)
             , check "TransactionsHash"
                 [ "txs" J..?=
-                    (J.Array <$> traverse (uncurry $ check "Tx" []) (zip
-                      (toList $ fst <$> _payloadWithOutputsTransactions pwo)
-                      (toList $ _payloadDataTransactions pData)
+                    (J.Array <$> traverse (uncurry $ checkEncode "Tx" []) (zip
+                      (toList $ fmap (transactionBytesToCommand . fst) $ _payloadWithOutputsTransactions pwo)
+                      (toList $ fmap transactionBytesToCommand $ _payloadDataTransactions pData)
                     ))
                 ]
                 (_payloadDataTransactionsHash pData)
@@ -918,9 +988,9 @@ validateHashes bHeader payload miner transactions =
             , Just $ J.object
               [ "transactions" J..= J.object
                   [ "txs" J..?=
-                      (J.Array <$> traverse (uncurry $ check "Tx" []) (zip
-                        (toList $ _payloadWithOutputsTransactions pwo)
-                        (toList $ _payloadWithOutputsTransactions localPwo)
+                      (J.Array <$> traverse (uncurry $ checkEncode "Tx" []) (zip
+                        (toList $ fmap (encodeTuple . bimap transactionBytesToCommand transactionOutputsToCommandResult) $ _payloadWithOutputsTransactions pwo)
+                        (toList $ fmap (encodeTuple . bimap transactionBytesToCommand transactionOutputsToCommandResult) $ _payloadWithOutputsTransactions localPwo)
                       ))
                   , "coinbase" J..=
                       check "Coinbase" []
@@ -938,6 +1008,49 @@ validateHashes bHeader payload miner transactions =
 
     toPairCR cr = over (Pact5.crLogs . _Just)
         (CRLogPair (fromJuste $ Pact5._crLogs (hashPact5TxLogs cr))) cr
+
+-- Gross hack
+instance Eq J.Builder where
+  a == b = BB.toLazyByteString (unsafeCoerce @_ @BB.Builder a) == BB.toLazyByteString (unsafeCoerce @_ @BB.Builder b)
+
+-- This instance should exist in Pact
+instance J.Encode Pact5.PublicMeta where
+  build pm = J.object
+    [ "metaChainId" J..= _pmChainId pm
+    , "metaSender" J..= _pmSender pm
+    , "metaGasLimit" J..= _pmGasLimit pm
+    , "metaGasPrice" J..= _pmGasPrice pm
+    , "metaTTL" J..= _pmTTL pm
+    , "metaCreationTime" J..= _pmCreationTime pm
+    ]
+
+-- This instance should exist in Pact
+instance J.Encode Pact5.ChainId where
+  build = J.text . Pact5._chainId
+
+-- This instance should exist in Pact
+instance J.Encode Pact5.GasLimit where
+  build (Pact5.GasLimit gas) = J.build gas
+
+-- This instance should exist in Pact
+instance J.Encode Pact5.Gas where
+  build (Pact5.Gas gas) = J.number (fromIntegral gas)
+
+-- This instance should exist in Pact
+instance J.Encode Pact5.GasPrice where
+  build (Pact5.GasPrice gp) = J.number (fromRational . toRational $ gp)
+
+-- This instance should exist in Pact
+instance J.Encode Pact5.TTLSeconds where
+  build (Pact5.TTLSeconds ttl) = J.number (fromIntegral ttl)
+
+-- This instance should exist in Pact
+instance J.Encode Pact5.TxCreationTime where
+  build (Pact5.TxCreationTime t) = J.number (fromIntegral t)
+
+-- This instance should exist in Pact
+instance J.Encode Pact5.ParsedCode where
+  build = J.text . Pact5._pcCode
 
 data CRLogPair = CRLogPair Hash [Pact5.TxLog ByteString]
 

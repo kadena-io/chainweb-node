@@ -210,7 +210,9 @@ e2e baseRdb = runResourceT $ do
                         { _cbRPC = mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
                         , _cbSigners =
                             [ mkEd25519Signer' sender00
-                                [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
+                                [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
+                                , CapToken (QualifiedName "TRANSFER" coinModuleName) [PString "sender00", PString "sender01", PDecimal 1_000_000_000]
+                                ]
                             ]
                         , _cbSender = "sender00"
                         , _cbChainId = cid
@@ -286,3 +288,6 @@ tests = do
 cid = unsafeChainId 0
 gh = genesisBlockHeader
 v = instantCpmTestVersion singletonChainGraph
+
+coinModuleName :: ModuleName
+coinModuleName = ModuleName "coin" Nothing
