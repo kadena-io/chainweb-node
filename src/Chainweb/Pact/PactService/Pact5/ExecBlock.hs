@@ -208,7 +208,7 @@ continueBlock mpAccess blockInProgress = do
 
   let !blockInProgress' = blockInProgress
         & blockInProgressHandle .~ finalBlockHandle
-        & blockInProgressTransactions . transactionPairs %~ (\txs -> txs <> V.reverse (V.fromList (concat valids)))
+        & blockInProgressTransactions . transactionPairs %~ (\txs -> txs <> V.fromList (concat $ reverse valids))
         & blockInProgressRemainingGasLimit .~ finalGasLimit
 
   return blockInProgress'
@@ -322,219 +322,6 @@ continueBlock mpAccess blockInProgress = do
 type CompletedTransactions = [(Pact5.Transaction, Pact5.CommandResult [Pact5.TxLog ByteString] TxFailedError)]
 type InvalidTransactions = [Pact5.RequestKey]
 
-  --   updateMempool
-  --   liftPactServiceM $
-  --     logInfo $ "(parent height = " <> sshow pHeight <> ")"
-  --           <> " (parent hash = " <> sshow pHash <> ")"
-
-  --   blockDbEnv <- view psBlockDbEnv
-  --   let pactDb = _cpPactDbEnv blockDbEnv
-  --   -- restore the block state from the block being continued
-  --   liftIO $
-  --     modifyMVar_ (pdPactDbVar pactDb) $ \blockEnv ->
-  --       return
-  --         $! blockEnv
-  --         & benvBlockState . bsPendingBlock .~ _blockHandlePending (_blockInProgressHandle blockInProgress)
-  --         & benvBlockState . bsTxId .~ _blockHandleTxId (_blockInProgressHandle blockInProgress)
-
-  --   blockGasLimit <- view (psServiceEnv . psBlockGasLimit)
-
-  --   let
-  --       txTimeHeadroomFactor :: Double
-  --       txTimeHeadroomFactor = 5
-  --       -- 2.5 microseconds per unit gas
-  --       txTimeLimit :: Micros
-  --       txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit
-
-  --   let  initCache = _blockInProgressModuleCache blockInProgress
-  --   let cb = _transactionCoinbase (_blockInProgressTransactions blockInProgress)
-  --   let startTxs = _transactionPairs (_blockInProgressTransactions blockInProgress)
-
-  --   successes <- liftIO $ Vec.fromFoldable startTxs
-  --   failures <- liftIO $ Vec.new @_ @_ @TransactionHash
-
-  --   let initState = BlockFill
-  --         (_blockInProgressRemainingGasLimit blockInProgress)
-  --         (S.fromList $ pact4RequestKeyToTransactionHash . P._crReqKey . snd <$> V.toList startTxs)
-  --         0
-
-  --   -- Heuristic: limit fetches to count of 1000-gas txs in block.
-  --   let fetchLimit = fromIntegral $ blockGasLimit `div` 1000
-  --   T2
-  --     finalModuleCache
-  --     BlockFill { _bfTxHashes = requestKeys, _bfGasLimit = finalGasLimit }
-  --     <- refill fetchLimit txTimeLimit successes failures initCache initState
-
-  --   liftPactServiceM $ logInfo $ "(request keys = " <> sshow requestKeys <> ")"
-
-  --   liftIO $ do
-  --     txHashes <- Vec.toLiftedVector failures
-  --     mpaBadlistTx mpAccess txHashes
-
-  --   txs <- liftIO $ Vec.toLiftedVector successes
-  --   -- edmund: we need to be careful about timeouts.
-  --   -- If a tx times out, it must not be in the block state, otherwise
-  --   -- the "block in progress" will contain pieces of state from that tx.
-  --   --
-  --   -- this cannot happen now because applyPactCmd doesn't let it.
-  --   finalBlockState <- fmap _benvBlockState
-  --     $ liftIO
-  --     $ readMVar
-  --     $ pdPactDbVar
-  --     $ pactDb
-  --   let !blockInProgress' = BlockInProgress
-  --           { _blockInProgressModuleCache = Pact4ModuleCache finalModuleCache
-  --           , _blockInProgressHandle = BlockHandle
-  --             { _blockHandleTxId = _bsTxId finalBlockState
-  --             , _blockHandlePending = _bsPendingBlock finalBlockState
-  --             }
-  --           , _blockInProgressParentHeader = newBlockParent
-  --           , _blockInProgressRemainingGasLimit = finalGasLimit
-  --           , _blockInProgressTransactions = Transactions
-  --               { _transactionCoinbase = cb
-  --               , _transactionPairs = txs
-  --               }
-  --           , _blockInProgressMiner = _blockInProgressMiner blockInProgress
-  --           , _blockInProgressPactVersion = Pact4T
-  --           }
-  --   return blockInProgress'
-  -- where
-  --   newBlockParent = _blockInProgressParentHeader blockInProgress
-
-  --   !parentTime =
-  --     ParentCreationTime (_blockCreationTime $ _parentHeader newBlockParent)
-
-  --   getBlockTxs :: BlockFill -> PactBlockM logger tbl (Vector Pact4.Transaction)
-  --   getBlockTxs bfState = do
-  --     dbEnv <- view psBlockDbEnv
-  --     psEnv <- ask
-  --     logger <- view (psServiceEnv . psLogger)
-  --     let validate bhi _bha txs = do
-  --           results <- do
-  --               let v = _chainwebVersion psEnv
-  --                   cid = _chainId psEnv
-  --               validateChainwebTxs logger v cid dbEnv parentTime bhi txs return
-
-  --           V.forM results $ \case
-  --               Right _ -> return True
-  --               Left _e -> return False
-
-  --     liftIO $!
-  --       mpaGetBlock mpAccess bfState validate (pHeight + 1) pHash (_parentHeader newBlockParent)
-
-  --   refill
-  --     :: Word64
-  --     -> Micros
-  --     -> GrowableVec (Pact4.Transaction, P.CommandResult [P.TxLogJson])
-  --     -> GrowableVec TransactionHash
-  --     -> ModuleCache -> BlockFill
-  --     -> PactBlockM logger tbl (T2 ModuleCache BlockFill)
-  --   refill fetchLimit txTimeLimit successes failures = go
-  --     where
-  --       go :: ModuleCache -> BlockFill -> PactBlockM logger tbl (T2 ModuleCache BlockFill)
-  --       go mc unchanged@bfState = do
-
-  --         case unchanged of
-  --           BlockFill g _ c -> do
-  --             (goodLength, badLength) <- liftIO $ (,) <$> Vec.length successes <*> Vec.length failures
-  --             liftPactServiceM $ logDebug $ "Block fill: count=" <> sshow c
-  --               <> ", gaslimit=" <> sshow g <> ", good="
-  --               <> sshow goodLength <> ", bad=" <> sshow badLength
-
-  --             -- LOOP INVARIANT: limit absolute recursion count
-  --             if _bfCount bfState > fetchLimit then liftPactServiceM $ do
-  --               logInfo $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
-  --               pure (T2 mc unchanged)
-  --             else do
-  --               when (_bfGasLimit bfState < 0) $
-  --                 throwM $ MempoolFillFailure $ "Internal error, negative gas limit: " <> sshow bfState
-
-  --               if _bfGasLimit bfState == 0 then pure (T2 mc unchanged) else do
-
-  --                 newTrans <- getBlockTxs bfState
-  --                 if V.null newTrans then pure (T2 mc unchanged) else do
-
-  --                   T2 pairs mc' <- execTransactionsOnly
-  --                     (_blockInProgressMiner blockInProgress)
-  --                     newTrans
-  --                     mc
-  --                     (Just txTimeLimit)
-
-  --                   oldSuccessesLength <- liftIO $ Vec.length successes
-
-  --                   (newState, timedOut) <- splitResults successes failures unchanged (V.toList pairs)
-
-  --                   -- LOOP INVARIANT: gas must not increase
-  --                   when (_bfGasLimit newState > _bfGasLimit bfState) $
-  --                     throwM $ MempoolFillFailure $ "Gas must not increase: " <> sshow (bfState,newState)
-
-  --                   newSuccessesLength <- liftIO $ Vec.length successes
-  --                   let addedSuccessCount = newSuccessesLength - oldSuccessesLength
-
-  --                   if timedOut
-  --                   then
-  --                     -- a transaction timed out, so give up early and make the block
-  --                     pure (T2 mc' (incCount newState))
-  --                   else if (_bfGasLimit newState >= _bfGasLimit bfState) && addedSuccessCount > 0
-  --                   then
-  --                     -- INVARIANT: gas must decrease if any transactions succeeded
-  --                     throwM $ MempoolFillFailure
-  --                       $ "Invariant failure, gas did not decrease: "
-  --                       <> sshow (bfState,newState,V.length newTrans,addedSuccessCount)
-  --                   else
-  --                     go mc' (incCount newState)
-
-  --   incCount :: BlockFill -> BlockFill
-  --   incCount b = over bfCount succ b
-
-  --   -- | Split the results of applying each command into successes and failures,
-  --   --   and return the final 'BlockFill'.
-  --   --
-  --   --   If we encounter a 'TxTimeout', we short-circuit, and only return
-  --   --   what we've put into the block before the timeout. We also report
-  --   --   that we timed out, so that `refill` can stop early.
-  --   --
-  --   --   The failed txs are later badlisted.
-  --   splitResults :: ()
-  --     => GrowableVec (Pact4.Transaction, P.CommandResult [P.TxLogJson])
-  --     -> GrowableVec TransactionHash -- ^ failed txs
-  --     -> BlockFill
-  --     -> [(Pact4.Transaction, Either CommandInvalidError (P.CommandResult [P.TxLogJson]))]
-  --     -> PactBlockM logger tbl (BlockFill, Bool)
-  --   splitResults successes failures = go
-  --     where
-  --       go acc@(BlockFill g rks i) = \case
-  --         [] -> pure (acc, False)
-  --         (t, r) : rest -> case r of
-  --           Right cr -> do
-  --             !rks' <- enforceUnique rks (pact4RequestKeyToTransactionHash $ P._crReqKey cr)
-  --             -- Decrement actual gas used from block limit
-  --             let !g' = g - fromIntegral (P._crGas cr)
-  --             liftIO $ Vec.push successes (t, cr)
-  --             go (BlockFill g' rks' i) rest
-  --           Left (CommandInvalidGasPurchaseFailure (Pact4GasPurchaseFailure h _)) -> do
-  --             !rks' <- enforceUnique rks h
-  --             -- Gas buy failure adds failed request key to fail list only
-  --             liftIO $ Vec.push failures h
-  --             go (BlockFill g rks' i) rest
-  --           Left (CommandInvalidGasPurchaseFailure (Pact5GasPurchaseFailure h _)) ->
-  --             error "Pact5GasPurchaseFailure"
-  --           Left (CommandInvalidTxTimeout (TxTimeout h)) -> do
-  --             liftIO $ Vec.push failures h
-  --             liftPactServiceM $ logError $ "timed out on " <> sshow h
-  --             return (acc, True)
-
-  --   enforceUnique rks rk
-  --     | S.member rk rks =
-  --       throwM $ MempoolFillFailure $ "Duplicate transaction: " <> sshow rk
-  --     | otherwise = return $ S.insert rk rks
-
-  --   pHeight = _blockHeight $ _parentHeader newBlockParent
-  --   pHash = _blockHash $ _parentHeader newBlockParent
-
-  --   updateMempool = liftIO $ do
-  --         mpaProcessFork mpAccess $ _parentHeader newBlockParent
-  --         mpaSetLastHeader mpAccess $ _parentHeader newBlockParent
 
 -- Apply a Pact command in the current block.
 -- This function completely ignores timeouts!
@@ -561,8 +348,8 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
     Right (result, nextHandle)
       -- if there is a fixed remaining amount of gas in the block
       | Just blockGas <- blockGasRemaining ^? traversed
-      , let txGasLimit = tx ^. Pact5.cmdPayload . payloadObj . Pact5.pMeta . pmGasLimit
       -- and the transaction gas limit is more than that
+      , let txGasLimit = tx ^. Pact5.cmdPayload . payloadObj . Pact5.pMeta . pmGasLimit
       , txGasLimit > blockGas
       -- then the transaction is not allowed to fail, or it would consume more gas than remains in the block
       , Pact5.PactResultErr _ <- Pact5._crResult result
@@ -613,92 +400,6 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
           applyCmd logger gasLogger pactDb txCtx spv initialGas cmd
       return $ (,blockHandle') <$> resultOrError
 
--- applyPactCmd
---   :: (Logger logger)
---   => Bool
---   -> Miner
---   -> Maybe Micros
---   -> Pact5.Transaction
---   -- remaining block gas
---   -> StateT
---       (Maybe Pact5.Gas)
---       (PactBlockM logger tbl)
---       (Either CommandInvalidError (CommandResult [TxLog ByteString] TxFailedError))
--- applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \maybeBlockGasRemaining -> do
---   dbEnv <- view psBlockDbEnv
---   logger <- view (psServiceEnv . psLogger)
---   gasLogger <- view (psServiceEnv . psGasLogger)
---   txFailuresCounter <- view (psServiceEnv . psTxFailuresCounter)
---   v <- view chainwebVersion
---   let
---     requestedTxGasLimit = view (cmdPayload . pMeta . pmGasLimit) (_payloadObj <$> cmd)
---     -- notice that we add 1 to the remaining block gas here, to distinguish the
---     -- cases "tx used exactly as much gas remained in the block" (which is fine)
---     -- and "tx attempted to use more gas than remains in the block" (which is
---     -- illegal). for example: tx has a tx gas limit of 10000. the block has 5000
---     -- remaining gas. therefore the tx is applied with a tx gas limit of 5001.
---     -- if it uses 5001, that's illegal; if it uses 5000 or less, that's legal.
---     newTxGasLimit = case maybeBlockGasRemaining of
---       Nothing -> requestedTxGasLimit
---       Just blockGasRemaining ->
---         Pact5.GasLimit (Pact5.Gas (succ $ Pact5._gas blockGasRemaining))
---         `min` requestedTxGasLimit
---     gasLimitedCmd =
---       set (cmdPayload . pMeta . pmGasLimit) newTxGasLimit (_payloadObj <$> cmd)
---   let !hsh = _cmdHash cmd
---   bhdb <- view (psServiceEnv . psBlockHeaderDb)
---   parent <- view psParentHeader
-
---   let txCtx = TxContext parent miner
---   if isGenesis
---   -- TODO: can we make this error also happen way earlier?
---   -- TODO: test for timeouts
---   then error "pact5 does not support genesis"
---   else do
---     -- let spv = pactSPV bhdb (_parentHeader parent)
---     let
---       !txHash = TransactionHash $ unHash (_cmdHash cmd)
---       txTimeout = case txTimeLimit of
---         Nothing -> id
---         Just limit ->
---           fmap (maybe (Left (CommandInvalidTxTimeout txHash)) id) . timeout (fromIntegral limit)
---       txGas (Left _timedOut, _) = String "Timed out"
---       txGas (Right r, _) = Number $ fromIntegral @Word64 @Scientific $ Pact5._gas $ Pact5._crGas r
---       annotation r = [J.toJsonViaEncode hsh, toJSON $ txGas r]
---     resultOrFatalError <- tracePactBlockM' "applyCmd" (\_ -> ()) (\_ -> 0)
---       (pactTransaction (Just (RequestKey $ _cmdHash cmd)) $ \db -> runExceptT $ do
---         result <- ExceptT $ txTimeout $
---             -- TODO: SPV
---             over _Left CommandInvalidGasPurchaseFailure <$>
---               applyCmd logger gasLogger db txCtx noSPVSupport gasLimitedCmd (initialGasOf (cmd ^. cmdPayload))
---         case maybeBlockGasRemaining of
---           Just blockGasRemaining -> do
---             when (Pact5._crGas result >= succ blockGasRemaining) $
---                 -- this tx attempted to consume more gas than remains in the
---                 -- block, so the block is invalid. we don't know how much gas it
---                 -- would've consumed, because we stop early, so we guess that it
---                 -- needed its entire original gas limit.
---                 throwError CommandInvalidBlockGasLimitExceeded
---             let blockGasRemaining' =
---                   Pact5.Gas $ Pact5._gas blockGasRemaining - Pact5._gas (Pact5._crGas result)
---             return (result, Just blockGasRemaining')
---           Nothing ->
---             return (result, Nothing)
---       )
---     eitherResult <- runExceptT $ do
---       result <- liftEither resultOrFatalError
---       maybeGasRemainingAfterCommand <- case maybeBlockGasRemaining of
---         Just blockGasRemaining -> do
---           when (Pact5._crGas result >= succ blockGasRemaining) $
---             -- we subtract the gas used by the command from the remaining gas
---             return $ Just ()
---         Nothing -> return Nothing
---       pure (result, maybeGasRemainingAfterCommand)
---     -- either the command succeeded and we charge gas, or it failed and we don't
---     let maybeBlockGasRemaining' =
---           (eitherResult ^? _Right . _2 . _Just) <|> maybeBlockGasRemaining
---     return (fst <$> eitherResult, maybeBlockGasRemaining')
-
 -- | The principal validation logic for groups of Pact Transactions.
 --
 -- Skips validation for genesis transactions, since gas accounts, etc. don't
@@ -727,13 +428,6 @@ validateParsedChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas tx
       -- checkCompile tx
       return ()
   where
-
-  --   validations t =
-  --     runValid checkUnique t
-  --     >>= runValid checkTxHash
-  --     >>= runValid checkTxSigs
-  --     >>= runValid checkTimes
-  --     >>= runValid (return . checkCompile v cid bh)
 
     checkUnique :: Pact5.Transaction -> ExceptT InsertError IO Pact5.Transaction
     checkUnique t = do
@@ -943,12 +637,10 @@ validateHashes bHeader payload miner transactions =
     encodeTuple :: (J.Encode a, J.Encode b) => (a, b) -> J.Array [J.Builder]
     encodeTuple (a, b) = J.Array [J.build a, J.build b]
 
-    transactionBytesToCommand :: Chainweb.Payload.Transaction -> Pact5.Command (Pact5.PayloadWithText Pact5.PublicMeta Pact5.ParsedCode)
+    transactionBytesToCommand :: Chainweb.Payload.Transaction -> Pact5.Command T.Text
     transactionBytesToCommand txBytes = case A.decodeStrict' @(Pact5.Command T.Text) (_transactionBytes txBytes) of
       Nothing -> error $ "Pact5.ExecBlock.transactionBytesToJson: Failed to decode transaction bytes as Command Text"
-      Just cmd -> case Pact5.parseCommand cmd of
-        Left err -> error $ "Pact5.ExecBlock.transactionBytesToJson: Failed to parse transaction command payload: " <> show err
-        Right cmd' -> cmd'
+      Just cmd -> cmd
 
     transactionOutputsToCommandResult :: Chainweb.Payload.TransactionOutput -> Pact5.CommandResult A.Value A.Value
     transactionOutputsToCommandResult txOuts = case A.decodeStrict' (_transactionOutputBytes txOuts) of

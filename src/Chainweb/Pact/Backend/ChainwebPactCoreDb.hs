@@ -622,7 +622,7 @@ doCommit = view blockHandlerMode >>= \case
             modify' $ set bsPendingTx Nothing
             return txLogs
         else doRollback >> return mempty
-        return $! reverse $ DL.toList txrs
+        return $! DL.toList txrs
     where
     merge persistIntraBlockWrites txPending blockPending = SQLitePendingData
         { _pendingTableCreation = HashSet.union (_pendingTableCreation txPending) (_pendingTableCreation blockPending)

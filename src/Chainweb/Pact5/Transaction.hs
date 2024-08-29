@@ -121,8 +121,11 @@ encodePayload = SB.fromShort . _payloadBytes
 parsePact4Command :: Pact4.UnparsedTransaction -> Either String Transaction
 parsePact4Command cmd4 = do
   let cmd = fromPact4Command cmd4
-  parsedCode <- parsePact (decodeUtf8 $ SB.fromShort $ _payloadBytes $ _cmdPayload cmd)
-  pure $ fmap (parsedCode <$) cmd
+  payloadWithParsedCode :: Payload PublicMeta ParsedCode <-
+    (pPayload . _Exec . pmCode) parsePact (cmd ^. cmdPayload . payloadObj)
+  let payloadWithTextWithParsedCode =
+        UnsafePayloadWithText (cmd ^. cmdPayload . payloadBytes) payloadWithParsedCode
+  return $ cmd & cmdPayload .~ payloadWithTextWithParsedCode
 
 fromPact4Command :: Pact4.Command (Pact4.PayloadWithText Pact4.PublicMeta Text) -> Command (PayloadWithText PublicMeta Text)
 fromPact4Command cmd4 = Command

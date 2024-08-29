@@ -206,8 +206,8 @@ e2e baseRdb = runResourceT $ do
             let parent = ParentHeader headerOfEmptyBlock
             do
                 let Time creationTime = _bct $ add second $ _blockCreationTime $ _parentHeader parent
-                let simpleTransfer = defaultCmd
-                        { _cbRPC = mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+                let simpleTransfer n = defaultCmd
+                        { _cbRPC = mkExec' $ "(coin.transfer \"sender00\" \"sender01\" " <> sshow n <> ")"
                         , _cbSigners =
                             [ mkEd25519Signer' sender00
                                 [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
@@ -221,8 +221,8 @@ e2e baseRdb = runResourceT $ do
                         , _cbCreationTime = Just (TxCreationTime $ fromIntegral $ timeSpanToSeconds creationTime)
                         }
 
-                cmd1 <- buildCwCmd v simpleTransfer
-                cmd2 <- buildCwCmd v simpleTransfer
+                cmd1 <- buildCwCmd v (simpleTransfer 1.0)
+                cmd2 <- buildCwCmd v (simpleTransfer 2.0)
                 insertMempool mempool CheckedInsert [cmd1, cmd2]
 
             h <- newBlock noMiner NewBlockFill parent pactQueue
@@ -237,6 +237,7 @@ e2e baseRdb = runResourceT $ do
                     let pwo = blockInProgressToPayloadWithOutputs bip
                     let creationTime = add second $ _blockCreationTime $ _parentHeader parent
                     let blockHeader = newBlockHeader mempty (_payloadWithOutputsPayloadHash pwo) (Nonce 1234) creationTime parent
+                    threadDelay 1_000_000
                     pwo' <- validateBlock blockHeader (CheckablePayloadWithOutputs pwo) pactQueue
                     addTestBlockDb tdb (_blockHeight blockHeader) (Nonce 1234) (\_ _ -> (_bct creationTime)) cid pwo
                     assertEqual "payloadWithOutputs are the same before and after validation" pwo pwo'

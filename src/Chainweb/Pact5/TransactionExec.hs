@@ -467,7 +467,7 @@ applyCmd logger maybeGasLogger pactDb txCtx spv initialGas cmd = do
                 , _crTxId = _erTxId payloadResult
                 , _crResult =
                     -- TODO: don't use `last` here for GHC 9.10 compat
-                    PactResultOk $ compileValueToPactValue $ last (_erOutput payloadResult)
+                    PactResultOk $ compileValueToPactValue $ last $ traceShowId (_erOutput payloadResult)
                 , _crGas = gasUsed
                 , _crLogs = Just $ _erLogs buyGasResult <> _erLogs payloadResult <> _erLogs redeemGasResult
                 , _crContinuation = _erExec payloadResult

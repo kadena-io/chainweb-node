@@ -273,6 +273,8 @@ import Chainweb.Version.Mainnet
 import qualified Chainweb.Pact4.NoCoinbase as Pact4
 import qualified Data.Vector as V
 import qualified Pact.Core.Hash as Pact5
+import Debug.Trace
+import Pact.Core.Serialise
 
 -- | While a block is being run, mutations to the pact database are held
 -- in RAM to be written to the DB in batches at @save@ time. For any given db
@@ -1333,13 +1335,15 @@ pact5CommandToBytes tx = Transaction
 
 pact5CommandResultToBytes :: Pact5.CommandResult Pact5.Hash TxFailedError -> TransactionOutput
 pact5CommandResultToBytes cr = TransactionOutput
-  { _transactionOutputBytes =
+  { _transactionOutputBytes = traceShowId $
     -- TODO: pact5, error codes
     J.encodeStrict (fmap (sshow @_ @Text) cr)
   }
 
 hashPact5TxLogs :: Pact5.CommandResult [Pact5.TxLog ByteString] err -> Pact5.CommandResult Pact5.Hash err
-hashPact5TxLogs = over (Pact5.crLogs . _Just) Pact5.hashTxLogs
+hashPact5TxLogs cr = cr & over (Pact5.crLogs . _Just)
+  (\ls -> Pact5.hashTxLogs $
+     ls)
 
 toPayloadWithOutputs :: PactVersionT pv -> Miner -> Transactions pv (CommandResultFor pv) -> PayloadWithOutputs
 toPayloadWithOutputs Pact4T mi ts =
@@ -1358,18 +1362,29 @@ toPayloadWithOutputs Pact4T mi ts =
         plData = payloadData blockTrans blockPL
     in payloadWithOutputs plData cb transOuts
 toPayloadWithOutputs Pact5T mi ts =
-    let oldSeq = _transactionPairs ts
+    let
+        oldSeq :: Vector (TransactionFor Pact5, CommandResultFor Pact5)
+        oldSeq = _transactionPairs ts
+        trans :: Vector Transaction
         trans = cmdBSToTx . fst <$> oldSeq
+        transOuts :: Vector TransactionOutput
         transOuts = pact5CommandResultToBytes . hashPact5TxLogs . snd <$> oldSeq
 
+        miner :: MinerData
         miner = toMinerData mi
+        cb :: CoinbaseOutput
         cb = CoinbaseOutput $ J.encodeStrict $ hashPact5TxLogs $ _transactionCoinbase ts
+        blockTrans :: BlockTransactions
         blockTrans = snd $ newBlockTransactions miner trans
+        cmdBSToTx :: Pact5.Transaction -> Transaction
         cmdBSToTx = pact5CommandToBytes
           . fmap (T.decodeUtf8 . SB.fromShort . view Pact5.payloadBytes)
+        blockOuts :: BlockOutputs
         blockOuts = snd $ newBlockOutputs cb transOuts
 
+        blockPL :: BlockPayload
         blockPL = blockPayload blockTrans blockOuts
+        plData :: PayloadData
         plData = payloadData blockTrans blockPL
     in payloadWithOutputs plData cb transOuts
 
