@@ -330,7 +330,7 @@ payloadFailureShouldPayAllGasToTheMinerTypeError baseRdb = runResourceT $ do
                                         (equals [PString "sender00", PString "NoMiner", PDecimal 2000.0])
                                         (equals coinModuleName)
                                 , pt _crGas . equals $ Gas 1_000
-                                , pt _crLogs . soleElementOf _Just $
+                                , pt _crLogs . match _Just $
                                     PT.list
                                         [ satAll
                                         [ pt _txDomain . equals $ "USER_coin_coin-table"
@@ -397,7 +397,7 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds baseRdb = runResourceT 
                                     (equals [PString "sender00", PString "NoMiner", PDecimal 2000.0])
                                     (equals coinModuleName)
                             , pt _crGas . equals $ Gas 1_000
-                            , pt _crLogs . soleElementOf _Just $
+                            , pt _crLogs . match _Just $
                                 PT.list
                                     [ satAll
                                     [ pt _txDomain . equals $ "USER_coin_coin-table"
@@ -511,7 +511,7 @@ applyLocalSpec baseRdb = runResourceT $ do
                             , pt _crGas . equals $ Gas 1
                             , pt _crContinuation . equals $ Nothing
                             , pt _crLogs . equals $ Just []
-                            , pt _crMetaData $ allOf1 _Just continue
+                            , pt _crMetaData $ match _Just continue
                             ]
 
 
@@ -566,7 +566,7 @@ applyCmdSpec baseRdb = runResourceT $ do
                             -- reflects buyGas gas usage, as well as that of the payload
                             , pt _crGas . equals $ Gas expectedGasConsumed
                             , pt _crContinuation . equals $ Nothing
-                            , pt _crLogs . soleElementOf _Just $
+                            , pt _crLogs . match _Just $
                                 PT.list
                                     [ satAll
                                         [ pt _txDomain . equals $ "USER_coin_coin-table"
@@ -577,11 +577,11 @@ applyCmdSpec baseRdb = runResourceT $ do
                                         ]
                                     , satAll
                                         [ pt _txDomain . equals $ "USER_coin_coin-table"
-                                        , pt _txKey . equals $ "NoMiner"
+                                        , pt _txKey . equals $ "sender00"
                                         ]
                                     , satAll
                                         [ pt _txDomain . equals $ "USER_coin_coin-table"
-                                        , pt _txKey . equals $ "sender00"
+                                        , pt _txKey . equals $ "NoMiner"
                                         ]
                                     ]
                             ]
@@ -639,11 +639,11 @@ applyCmdVerifierSpec baseRdb = runResourceT $ do
                                         (equals [PString "sender00", PString "NoMiner", PDecimal 120316])
                                         (equals coinModuleName)
                                     ]
-                                , pt _crResult . traceFailShow . equals $ PactResultOk (PString "Loaded module 02ebLE2w4YnM0JLBWjqpAmUtqdpMsdJgb-4DEm7ZwIs")
+                                , pt _crResult . traceFailShow . equals $ PactResultOk (PString "Loaded module xV_PG5qzmg867u9_qowIxrTrqunsIm6AU6If_R0DZHE")
                                 -- reflects buyGas gas usage, as well as that of the payload
                                 , pt _crGas . equals $ Gas 60158
                                 , pt _crContinuation . equals $ Nothing
-                                , pt _crLogs . soleElementOf _Just $
+                                , pt _crLogs . match _Just $
                                     PT.list
                                         [ satAll
                                             [ pt _txDomain . equals $ "USER_coin_coin-table"
@@ -699,7 +699,7 @@ applyCmdVerifierSpec baseRdb = runResourceT $ do
                                 -- reflects buyGas gas usage, as well as that of the payload
                                 , pt _crGas . equals $ Gas 300
                                 , pt _crContinuation . equals $ Nothing
-                                , pt _crLogs . soleElementOf _Just $
+                                , pt _crLogs . match _Just $
                                     PT.list
                                         [ satAll
                                             [ pt _txDomain . equals $ "USER_coin_coin-table"
@@ -740,7 +740,7 @@ applyCmdVerifierSpec baseRdb = runResourceT $ do
                                 , pt _crGas . equals $ Gas 168
                                 , pt _crContinuation . equals $ Nothing
                                 , pt _crMetaData . equals $ Nothing
-                                , pt _crLogs . soleElementOf _Just $ PT.list
+                                , pt _crLogs . match _Just $ PT.list
                                     [ satAll
                                         [ pt _txDomain . equals $ "USER_coin_coin-table"
                                         , pt _txKey . equals $ "sender00"
@@ -799,11 +799,11 @@ applyCmdFailureSpec baseRdb = runResourceT $ do
                                 (equals coinModuleName)
                             ]
                             -- tx errored
-                            , pt _crResult ? allOf1 _PactResultErr continue
+                            , pt _crResult ? match _PactResultErr continue
                             -- reflects buyGas gas usage, as well as that of the payload
                             , pt _crGas . equals $ Gas expectedGasConsumed
                             , pt _crContinuation . equals $ Nothing
-                            , pt _crLogs . soleElementOf _Just $
+                            , pt _crLogs . match _Just $
                                 PT.list
                                     [ satAll
                                         [ pt _txDomain . equals $ "USER_coin_coin-table"
@@ -875,7 +875,7 @@ applyCmdCoinTransfer baseRdb = runResourceT $ do
                             -- reflects buyGas gas usage, as well as that of the payload
                             , pt _crGas . equals $ Gas expectedGasConsumed
                             , pt _crContinuation . equals $ Nothing
-                            , pt _crLogs . soleElementOf _Just $
+                            , pt _crLogs . match _Just $
                                 PT.list
                                     [ satAll
                                         [ pt _txDomain . equals $ "USER_coin_coin-table"
@@ -883,6 +883,10 @@ applyCmdCoinTransfer baseRdb = runResourceT $ do
                                         -- TODO: test the values here?
                                         -- here, we're only testing that the write pattern matches
                                         -- gas buy and redeem, not the contents of the writes.
+                                        ]
+                                    , satAll
+                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        , pt _txKey . equals $ "sender00"
                                         ]
                                     , satAll
                                         [ pt _txDomain . equals $ "USER_coin_coin-table"
@@ -895,10 +899,6 @@ applyCmdCoinTransfer baseRdb = runResourceT $ do
                                     , satAll
                                         [ pt _txDomain . equals $ "USER_coin_coin-table"
                                         , pt _txKey . equals $ "NoMiner"
-                                        ]
-                                    , satAll
-                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
-                                        , pt _txKey . equals $ "sender00"
                                         ]
                                     ]
                             ]
@@ -930,10 +930,10 @@ applyCoinbaseSpec baseRdb = runResourceT $ do
 
                         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
                         r <- applyCoinbase stdoutDummyLogger pactDb 5 txCtx
-                        () <- r & soleElementOf _Right ? satAll
+                        () <- r & match _Right ? satAll
                             [ pt _crResult . equals $ PactResultOk (PString "Write succeeded")
                             , pt _crGas . equals $ Gas 0
-                            , pt _crLogs . soleElementOf _Just $ PT.list
+                            , pt _crLogs . match _Just $ PT.list
                                 [ satAll
                                     [ pt _txDomain . equals $ "USER_coin_coin-table"
                                     , pt _txKey . equals $ "NoMiner"
@@ -989,7 +989,7 @@ testCoinUpgrade baseRdb = runResourceT $ do
                         coinModuleHashAfterUpgrades <- getCoinModuleHash
 
                         assertEqual "coin ModuleHash before upgrades" coinModuleHashBeforeUpgrades "wOTjNC3gtOAjqgCY8S9hQ-LBiwcPUE7j4iBDE0TmdJo"
-                        assertEqual "coin ModuleHash after  upgrades" coinModuleHashAfterUpgrades  "DFsR46Z3vJzwyd68i0MuxIF0JxZ_OJfIaMyFFgAyI4w"
+                        assertEqual "coin ModuleHash after  upgrades" coinModuleHashAfterUpgrades  "PG27-o-nnWSzJv5acPm7KNaW6QzSi5OpWw8JG-Ueoms"
         pure ()
     pure ()
 
@@ -1013,9 +1013,9 @@ testLocalOnlyFailsOutsideOfLocal baseRdb = runResourceT $ do
                         let testLocalOnly txt = do
                                 cmd <- buildCwCmd v defaultCmd
                                     { _cbRPC = mkExec' txt
-                                    , _cbSigners = []
-                                        -- [ mkEd25519Signer' sender00 [CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []]
-                                        -- ]
+                                    , _cbSigners =
+                                        [ mkEd25519Signer' sender00 [CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []]
+                                        ]
                                     , _cbSender = "sender00"
                                     , _cbChainId = cid
                                     , _cbGasPrice = GasPrice 2
@@ -1026,20 +1026,17 @@ testLocalOnlyFailsOutsideOfLocal baseRdb = runResourceT $ do
                                 -- TODO: what exactly is the difference between `applyLocal` and `applyCmd` now that
                                 -- we've deleted the txlogs and txids primitives?
                                 crLocal <- applyLocal stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (view payloadObj <$> cmd)
-                                () <- crLocal & pt _crResult (soleElementOf _PactResultOk something)
+                                () <- crLocal & pt _crResult (match _PactResultOk something)
 
                                 -- should fail in non-local
                                 crNonLocal <- applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
-                                crNonLocal & soleElementOf _Right
+                                crNonLocal & match _Right
                                     . pt _crResult
                                     . soleElementOf
                                         (_PactResultErr . _TxPactError . _PEExecutionError . _1 . _OperationIsLocalOnly)
                                     ? something
 
                         testLocalOnly "(describe-module \"coin\")"
-                        testLocalOnly "(txids coin.coin-table 0)"
-                        testLocalOnly "(txlog coin.coin-table 0)"
-                        testLocalOnly "(keylog coin.coin-table \"a\" 0)"
 
         pure ()
     pure ()
