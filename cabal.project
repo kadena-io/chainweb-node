@@ -169,7 +169,7 @@ source-repository-package
 source-repository-package
     type: git
     location: https://gitlab.com/edmundnoble/predicate-transformers
-    tag: 77d493515d0e01fc389da989469248c5c42cccbe
+    tag: 67c77e68ade204f56d91ad5952fe432188b40d23
 
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds

@@ -257,7 +257,7 @@ instance HasTextRepresentation Fork where
     toText Chainweb223Pact = "chainweb223Pact"
     toText Chainweb224Pact = "chainweb224Pact"
     toText Chainweb225Pact = "chainweb225Pact"
-    toText Pact5Fork = "Pact5"
+    toText Pact5Fork = "pact5"
 
     fromText "slowEpoch" = return SlowEpoch
     fromText "vuln797Fix" = return Vuln797Fix

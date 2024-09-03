@@ -9,6 +9,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ViewPatterns #-}
 module Chainweb.Test.Pact5.CheckpointerTest (tests) where
 
 import Chainweb.BlockCreationTime
@@ -28,7 +29,7 @@ import Chainweb.Payload (PayloadWithOutputs_ (_payloadWithOutputsPayloadHash), T
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 import Chainweb.Time
-import Chainweb.Utils (fromJuste)
+import Chainweb.Utils
 import Chainweb.Utils.Serialization (runGetS, runPutS)
 import Chainweb.Version
 import Control.Concurrent
@@ -47,12 +48,13 @@ import Data.Functor.Product
 import Data.Graph (Tree)
 import qualified Data.Map as Map
 import Data.MerkleLog (MerkleNodeType (..), merkleLeaf, merkleRoot, merkleTree)
+import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Tree as Tree
 import Debug.Trace (traceM)
 import Hedgehog hiding (Update)
-import Hedgehog.Gen hiding (print)
+import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import Numeric.AffineSpace
 import Pact.Core.Builtin
@@ -73,15 +75,16 @@ import Text.Show.Pretty
 import Chainweb.Test.Pact5.Utils
 import Control.Monad.State
 import Chainweb.Pact.Backend.ChainwebPactCoreDb (Pact5Db(doPact5DbTransaction))
+import GHC.Stack
 
 -- | A @DbAction f@ is a description of some action on the database together with an f-full of results for it.
 type DbValue = Integer
 data DbAction f
-    = forall k v. DbRead !T.Text RowKey (f (Either String (Maybe DbValue)))
-    | forall k v. DbWrite WriteType !T.Text RowKey DbValue (f (Either String ()))
-    | forall k v. DbKeys !T.Text (f (Either String [RowKey]))
-    | forall k v. DbSelect !T.Text (f (Either String [(RowKey, Integer)]))
-    | DbCreateTable T.Text (f (Either String ()))
+    = forall k v. DbRead !T.Text RowKey (f (Either Text (Maybe DbValue)))
+    | forall k v. DbWrite WriteType !T.Text RowKey DbValue (f (Either Text ()))
+    | forall k v. DbKeys !T.Text (f (Either Text [RowKey]))
+    | forall k v. DbSelect !T.Text (f (Either Text [(RowKey, Integer)]))
+    | DbCreateTable T.Text (f (Either Text ()))
 
 data SomeDomain = forall k v. SomeDomain (Domain k v CoreBuiltin Info)
 
@@ -90,21 +93,24 @@ mkTableName n = TableName n (ModuleName "mod" Nothing)
 
 genDbAction :: Gen (DbAction (Const ()))
 genDbAction = do
-    let tn = choice [pure "A", pure "B", pure "C"]
-    choice
-        [ DbRead <$> tn <*> choice (pure . RowKey <$> ["A", "B", "C"]) <*> pure (Const ())
+    let tn = Gen.choice [pure "A", pure "B", pure "C"]
+    Gen.choice
+        [ DbRead
+            <$> tn
+            <*> Gen.choice (pure . RowKey <$> ["A", "B", "C"])
+            <*> pure (Const ())
         , DbWrite
             <$> genWriteType
             <*> tn
-            <*> choice (pure . RowKey <$> ["A", "B", "C"])
-            <*> fmap fromIntegral (int (Range.constant 0 5))
+            <*> Gen.choice (pure . RowKey <$> ["A", "B", "C"])
+            <*> fmap fromIntegral (Gen.int (Range.constant 0 5))
             <*> pure (Const ())
         , DbKeys <$> tn <*> pure (Const ())
         , DbSelect <$> tn <*> pure (Const ())
         , DbCreateTable <$> tn <*> pure (Const ())
         ]
     where
-    genWriteType = choice $ fmap pure
+    genWriteType = Gen.choice $ fmap pure
         [ Write
         , Insert
         , Update
@@ -114,12 +120,12 @@ genDbAction = do
 type DbBlock f = [DbAction f]
 
 genDbBlock :: Gen (DbBlock (Const ()))
-genDbBlock = list (Range.linear 1 20) genDbAction
+genDbBlock = Gen.list (Range.linear 1 20) genDbAction
 
 genBlockHistory :: Gen [DbBlock (Const ())]
 genBlockHistory = do
     let create tn = DbCreateTable tn (Const ())
-    blocks <- list (Range.constant 1 20) genDbBlock
+    blocks <- Gen.list (Range.constant 1 20) genDbBlock
     -- we always start by making tables A and B to ensure the tests do something,
     -- but we leave table C uncreated to leave some room for divergent table sets
     return $ [create "A", create "B"] : blocks
@@ -131,8 +137,11 @@ hoistDbAction f (DbKeys tn ks) = DbKeys tn (f ks)
 hoistDbAction f (DbSelect tn rs) = DbSelect tn (f rs)
 hoistDbAction f (DbCreateTable tn es) = DbCreateTable tn (f es)
 
-tryShow :: IO a -> IO (Either String a)
-tryShow = fmap (over _Left show) . tryAny
+tryShow :: IO a -> IO (Either Text a)
+tryShow = handleAny (fmap Left . \case
+    (fromException -> Just (PactInternalError _ text)) -> return text
+    e -> return $ sshow e
+    ) . fmap Right
 
 runDbAction :: PactDb CoreBuiltin Info -> DbAction (Const ()) -> IO (DbAction Identity)
 runDbAction pactDb act =
@@ -145,9 +154,9 @@ extractInt (RowData m) = evaluate (m ^?! ix (Field "k") . _PLiteral . _LInteger)
 runDbAction' :: PactDb CoreBuiltin Info -> DbAction f -> IO (DbAction (Product f Identity))
 runDbAction' pactDb = \case
     DbRead tn k v -> do
-            maybeValue <- tryShow $ _pdbRead pactDb (DUserTables (mkTableName tn)) k
-            integerValue <- (traverse . traverse) extractInt maybeValue
-            return $ DbRead tn k $ Pair v (Identity integerValue)
+        maybeValue <- tryShow $ _pdbRead pactDb (DUserTables (mkTableName tn)) k
+        integerValue <- (traverse . traverse) extractInt maybeValue
+        return $ DbRead tn k $ Pair v (Identity integerValue)
     DbWrite wt tn k v s ->
         fmap (DbWrite wt tn k v . Pair s . Identity)
             $ tryShow $ ignoreGas def
@@ -207,7 +216,7 @@ runBlocks cp ph blks = do
         ]
     return finishedBlks
 
-assertBlock :: Checkpointer GenericLogger -> ParentHeader -> (BlockHeader, DbBlock Identity) -> IO ()
+assertBlock :: HasCallStack => Checkpointer GenericLogger -> ParentHeader -> (BlockHeader, DbBlock Identity) -> IO ()
 assertBlock cp ph (expectedBh, blk) = do
     hist <- _cpReadFrom (_cpReadCp cp) (Just ph) Pact5T $ \db startHandle -> do
         now <- getCurrentTimeIntegral

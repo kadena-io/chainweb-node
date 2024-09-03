@@ -107,6 +107,7 @@ import Data.Text.Encoding qualified as T
 import Data.Text.IO qualified as T
 import Data.Text.IO qualified as Text
 import Data.Tree qualified as Tree
+import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import GHC.Stack
 import Hedgehog hiding (Update)
@@ -148,9 +149,11 @@ import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 import Test.Tasty.Hedgehog
 import Text.Show.Pretty (pPrint)
 import Text.Printf (printf)
+import Control.Concurrent.Async (forConcurrently)
+import Data.Bool
 
--- converts Pact 5 tx back to a Pact 4 tx without parsing the code, before inserting
--- to the mempool
+-- converts Pact 5 tx so that it can be submitted to the mempool, which
+-- operates on Pact 4 txs with unparsed code.
 insertMempool :: MempoolBackend Pact4.UnparsedTransaction -> InsertType -> [Pact5.Transaction] -> IO ()
 insertMempool mp insertType txs = do
     let unparsedTxs :: [Pact4.UnparsedTransaction]
@@ -201,8 +204,8 @@ tests baseRdb = testGroup "Pact5 PactServiceTest"
     , testCase "new block empty" (newBlockEmpty baseRdb)
     ]
 
-txSucceeded :: Predicatory p => Pred p (CommandResult log err)
-txSucceeded = pt _crResult ? match _PactResultOk something
+successfulTx :: Predicatory p => Pred p (CommandResult log err)
+successfulTx = pt _crResult ? match _PactResultOk something
 
 simpleEndToEnd :: RocksDb -> IO ()
 simpleEndToEnd baseRdb = runResourceT $ do
@@ -214,9 +217,9 @@ simpleEndToEnd baseRdb = runResourceT $ do
         results <- advanceAllChainsWithTxs fixture $ onChain cid [cmd1, cmd2]
 
         -- we only care that they succeed; specifics regarding their outputs are in TransactionExecTest
-        results &
-            dist ? onChain cid ?
-            dist ? Vector.replicate 2 txSucceeded
+        predful ? onChain cid ?
+            predful ? Vector.replicate 2 successfulTx $
+                results
 
 newBlockEmpty :: RocksDb -> IO ()
 newBlockEmpty baseRdb = runResourceT $ do
@@ -237,12 +240,9 @@ newBlockEmpty baseRdb = runResourceT $ do
                 newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             return $ finalizeBlock nonEmptyBip
 
-        () <- results &
-            dist ? onChain cid ?
-            dist ? Vector.replicate 1 txSucceeded
-
-        return ()
-
+        predful ? onChain cid ?
+            predful ? Vector.replicate 1 successfulTx $
+                results
 
 continueBlockSpec :: RocksDb -> IO ()
 continueBlockSpec baseRdb = runResourceT $ do
@@ -263,9 +263,9 @@ continueBlockSpec baseRdb = runResourceT $ do
                 newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             return $ finalizeBlock bipAllAtOnce
         -- assert that 3 successful txs are in the block
-        () <- allAtOnceResults &
-            dist ? onChain cid ?
-            dist ? Vector.replicate 3 txSucceeded
+        predful ? onChain cid ?
+            predful ? Vector.replicate 3 successfulTx $
+                allAtOnceResults
 
         -- reset back to the empty block for the next phase
         -- next, produce the same block by repeatedly extending a block
@@ -301,11 +301,9 @@ continueBlockSpec baseRdb = runResourceT $ do
             return $ finalizeBlock bipFinal
 
         -- assert that 3 successful txs are in the block
-        () <- results &
-            dist ? onChain cid ?
-            dist ? Vector.replicate 3 txSucceeded
-
-        return ()
+        predful ? onChain cid ?
+            predful ? Vector.replicate 3 successfulTx $
+                results
 
 {-
 tests = do
@@ -349,35 +347,37 @@ advanceAllChainsWithTxs fixture txsPerChain =
 -- this mines a block on *all chains*. if you don't specify a payload on a chain,
 -- it adds empty blocks!
 advanceAllChains Fixture{..} blocks = do
-    commandResults <- iforM (HashSet.toMap (chainIds v)) $ \c () -> do
-        ph <- getParentTestBlockDb _fixtureBlockDb c
-        creationTime <- getCurrentTimeIntegral
-        let pactQueue = _fixturePactQueues ^?! atChain c
-        let mempool = _fixtureMempools ^?! atChain c
-        let makeEmptyBlock ph _ _ = do
-                bip <- throwIfNotPact5 =<< throwIfNoHistory =<<
-                    newBlock noMiner NewBlockEmpty (ParentHeader ph) pactQueue
-                return $! finalizeBlock bip
+    commandResults <-
+        forConcurrently (HashSet.toList (chainIds v)) $ \c -> do
+            ph <- getParentTestBlockDb _fixtureBlockDb c
+            creationTime <- getCurrentTimeIntegral
+            let pactQueue = _fixturePactQueues ^?! atChain c
+            let mempool = _fixtureMempools ^?! atChain c
+            let makeEmptyBlock ph _ _ = do
+                    bip <- throwIfNotPact5 =<< throwIfNoHistory =<<
+                        newBlock noMiner NewBlockEmpty (ParentHeader ph) pactQueue
+                    return $! finalizeBlock bip
 
-        payload <- fromMaybe makeEmptyBlock (blocks ^? atChain cid) ph pactQueue mempool
-        added <- addTestBlockDb _fixtureBlockDb
-            (succ $ _blockHeight ph)
-            (Nonce 0)
-            (\_ _ -> creationTime)
-            c
-            payload
-        when (not added) $
-            error "failed to mine block"
-        ph' <- getParentTestBlockDb _fixtureBlockDb c
-        payload' <- validateBlock ph' (CheckablePayloadWithOutputs payload) pactQueue
-        assertEqual "payloads must not be altered by validateBlock" payload payload'
-        commandResults :: Vector.Vector (CommandResult Pact5.Hash Text) <-
-                forM (_payloadWithOutputsTransactions payload')
-                (decodeOrThrow' . LBS.fromStrict . _transactionOutputBytes . snd)
-        -- assert on the command results
-        return commandResults
+            payload <- fromMaybe makeEmptyBlock (blocks ^? atChain cid) ph pactQueue mempool
+            added <- addTestBlockDb _fixtureBlockDb
+                (succ $ _blockHeight ph)
+                (Nonce 0)
+                (\_ _ -> creationTime)
+                c
+                payload
+            when (not added) $
+                error "failed to mine block"
+            ph' <- getParentTestBlockDb _fixtureBlockDb c
+            payload' <- validateBlock ph' (CheckablePayloadWithOutputs payload) pactQueue
+            assertEqual "payloads must not be altered by validateBlock" payload payload'
+            commandResults :: Vector (CommandResult Pact5.Hash Text)
+                <- forM
+                    (_payloadWithOutputsTransactions payload')
+                    (decodeOrThrow' . LBS.fromStrict . _transactionOutputBytes . snd)
+            -- assert on the command results
+            return (c, commandResults)
 
-    return (OnChains commandResults)
+    return (onChains commandResults)
 
 getCut Fixture{..} = getCutTestBlockDb _fixtureBlockDb
 
