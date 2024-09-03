@@ -6,40 +6,44 @@
   , OverloadedStrings
   , ScopedTypeVariables
   , TypeApplications
+  , TemplateHaskell
+  , ImpredicativeTypes
 #-}
 
 {-# options_ghc -fno-warn-gadt-mono-local-binds #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Chainweb.Test.Pact5.PactServiceTest
     ( tests
     ) where
 
-import Chainweb.Payload.PayloadStore
-import Chainweb.Pact.Service.BlockValidation
-import Chainweb.Pact.Service.PactInProcApi
-import Chainweb.Mempool.Consensus
-import Chainweb.Pact.PactService
-import Chainweb.Pact.Service.PactQueue
+import Chainweb.Block (Block (_blockPayloadWithOutputs))
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb
 import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Logger
+import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.InMem
-import Chainweb.Mempool.Mempool (MempoolBackend(..), InsertType(..))
+import Chainweb.Mempool.Mempool (InsertType (..), MempoolBackend (..))
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse (ChainwebMerkleHashAlgorithm)
 import Chainweb.Miner.Pact
 import Chainweb.Miner.Pact (noMiner)
-import Chainweb.Pact.Backend.ChainwebPactCoreDb (Pact5Db(doPact5DbTransaction))
+import Chainweb.Pact.Backend.ChainwebPactCoreDb (Pact5Db (doPact5DbTransaction))
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.SQLite.DirectV2 (close_v2)
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.PactService
 import Chainweb.Pact.PactService (initialPayloadState, withPactService)
-import Chainweb.Pact.PactService.Checkpointer (readFrom, restoreAndSave, SomeBlockM(..))
+import Chainweb.Pact.PactService.Checkpointer (SomeBlockM (..), readFrom, restoreAndSave)
 import Chainweb.Pact.PactService.Pact4.ExecBlock ()
+import Chainweb.Pact.Service.BlockValidation
+import Chainweb.Pact.Service.PactInProcApi
+import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
 import Chainweb.Pact.Types (defaultModuleCacheLimit, psBlockDbEnv)
 import Chainweb.Pact.Utils (emptyPayload)
@@ -54,18 +58,17 @@ import Chainweb.Pact5.TransactionExec qualified as Pact5
 import Chainweb.Pact5.Types
 import Chainweb.Payload
 import Chainweb.Payload (PayloadWithOutputs_ (_payloadWithOutputsPayloadHash), Transaction (Transaction))
+import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table.RocksDB
-import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), mkTestBlockDb, addTestBlockDb, getParentTestBlockDb, getCutTestBlockDb, setCutTestBlockDb)
-import Chainweb.Test.Pact4.Utils (stdoutDummyLogger, stdoutDummyLogger, withBlockHeaderDb)
-import Chainweb.Test.Pact4.Utils (testPactServiceConfig)
+import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), addTestBlockDb, getCutTestBlockDb, getParentTestBlockDb, mkTestBlockDb, setCutTestBlockDb)
+import Chainweb.Test.Pact4.Utils (stdoutDummyLogger, testPactServiceConfig, withBlockHeaderDb)
 import Chainweb.Test.Pact5.CmdBuilder
 import Chainweb.Test.Pact5.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
-import Chainweb.Utils (T2(..))
-import Chainweb.Utils (fromJuste)
+import Chainweb.Utils (T2 (..), fromJuste)
 import Chainweb.Utils.Serialization (runGetS, runPutS)
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb)
@@ -82,6 +85,7 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Resource
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Decimal
 import Data.Default
 import Data.Foldable
@@ -89,6 +93,8 @@ import Data.Functor.Const
 import Data.Functor.Identity
 import Data.Functor.Product
 import Data.Graph (Tree)
+import Data.HashMap.Strict qualified as HashMap
+import Data.HashSet qualified as HashSet
 import Data.IORef
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
@@ -98,34 +104,36 @@ import Data.String (fromString)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
+import Data.Text.IO qualified as T
 import Data.Text.IO qualified as Text
 import Data.Tree qualified as Tree
 import Data.Vector qualified as Vector
 import GHC.Stack
 import Hedgehog hiding (Update)
+import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Numeric.AffineSpace
 import Pact.Core.Builtin
 import Pact.Core.Capabilities
-import Pact.Core.ChainData
-import Pact.Core.ChainData (ChainId (ChainId))
+import Pact.Core.ChainData hiding (_chainId)
 import Pact.Core.Command.RPC
 import Pact.Core.Command.Types
-import Pact.Core.Compile(CompileValue(..))
+import Pact.Core.Compile (CompileValue (..))
 import Pact.Core.Errors
 import Pact.Core.Evaluate
 import Pact.Core.Gas.TableGasModel
 import Pact.Core.Gas.Types
 import Pact.Core.Gen
+import Pact.Core.Hash qualified as Pact5
 import Pact.Core.Info
 import Pact.Core.Literal
 import Pact.Core.Names
-import Pact.Core.Names (ModuleName(ModuleName))
+import Pact.Core.Names (ModuleName (ModuleName))
 import Pact.Core.PactDbRegression
 import Pact.Core.PactDbRegression qualified as Pact.Core
 import Pact.Core.PactValue
 import Pact.Core.Persistence
-import Pact.Core.Persistence (PactDb(_pdbRead))
+import Pact.Core.Persistence (PactDb (_pdbRead))
 import Pact.Core.SPV (noSPVSupport)
 import Pact.Core.Serialise
 import Pact.Core.StableEncoding (encodeStable)
@@ -134,17 +142,15 @@ import Pact.Types.Gas qualified as Pact4
 import PredicateTransformers as PT
 import Streaming.Prelude qualified as Stream
 import System.LogLevel
-import System.LogLevel (LogLevel(..))
+import System.LogLevel (LogLevel (..))
 import Test.Tasty
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 import Test.Tasty.Hedgehog
 import Text.Show.Pretty (pPrint)
-import qualified Hedgehog.Gen as Gen
-import qualified Data.HashSet as HashSet
-import qualified Data.HashMap.Strict as HashMap
-import Chainweb.Block (Block(_blockPayloadWithOutputs))
-import qualified Data.Text.IO as T
+import Text.Printf (printf)
 
+-- converts Pact 5 tx back to a Pact 4 tx without parsing the code, before inserting
+-- to the mempool
 insertMempool :: MempoolBackend Pact4.UnparsedTransaction -> InsertType -> [Pact5.Transaction] -> IO ()
 insertMempool mp insertType txs = do
     let unparsedTxs :: [Pact4.UnparsedTransaction]
@@ -154,6 +160,40 @@ insertMempool mp insertType txs = do
                 Right a -> a
     mempoolInsert mp insertType $ Vector.fromList unparsedTxs
 
+data Fixture = Fixture
+    { _fixtureBlockDb :: TestBlockDb
+    , _fixtureMempools :: ChainMap (MempoolBackend Pact4.UnparsedTransaction)
+    , _fixturePactQueues :: ChainMap PactQueue
+    }
+makeLenses ''Fixture
+
+mkFixture baseRdb = do
+    sqlite <- withTempSQLiteResource
+    liftIO $ do
+        tdb <- mkTestBlockDb v =<< testRocksDb "end to end" baseRdb
+        perChain <- iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
+            bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
+            cp <- initCheckpointer v chain sqlite
+            pactQueue <- newPactQueue 2_000
+            pactExecutionServiceVar <- newMVar (mkPactExecutionService pactQueue)
+            let mempoolCfg = validatingMempoolConfig cid v (Pact4.GasLimit 150_000) (Pact4.GasPrice 1e-8) pactExecutionServiceVar
+            let logger = genericLogger Error Text.putStrLn --stdoutDummyLogger
+            mempool <- startInMemoryMempoolTest mempoolCfg
+            mempoolConsensus <- mkMempoolConsensus mempool bhdb (Just (_bdbPayloadDb tdb))
+            let mempoolAccess = pactMemPoolAccess mempoolConsensus logger
+            forkIO $ runPactService v cid logger Nothing pactQueue mempoolAccess bhdb (_bdbPayloadDb tdb) sqlite testPactServiceConfig
+            return (mempool, pactQueue)
+        let fixture = Fixture
+                { _fixtureBlockDb = tdb
+                , _fixtureMempools = OnChains $ fst <$> perChain
+                , _fixturePactQueues = OnChains $ snd <$> perChain
+                }
+        -- The mempool expires txs based on current time, but newBlock expires txs based on parent creation time.
+        -- So by running an empty block with the creationTime set to the current time, we get these goals to align
+        -- for future blocks we run.
+        advanceAllChains fixture $ onChains []
+        return fixture
+
 tests :: RocksDb -> TestTree
 tests baseRdb = testGroup "Pact5 PactServiceTest"
     [ testCase "simple end to end" (simpleEndToEnd baseRdb)
@@ -161,164 +201,111 @@ tests baseRdb = testGroup "Pact5 PactServiceTest"
     , testCase "new block empty" (newBlockEmpty baseRdb)
     ]
 
+txSucceeded :: Predicatory p => Pred p (CommandResult log err)
+txSucceeded = pt _crResult ? match _PactResultOk something
+
 simpleEndToEnd :: RocksDb -> IO ()
 simpleEndToEnd baseRdb = runResourceT $ do
-    sqlite <- withTempSQLiteResource
+    fixture <- mkFixture baseRdb
     liftIO $ do
-        cp <- initCheckpointer v cid sqlite
-        tdb <- mkTestBlockDb v =<< testRocksDb "simpleEndToEnd" baseRdb
-        bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
-        pactQueue <- newPactQueue 2_000
+        cmd1 <- buildCwCmd v (transferCmd 1.0)
+        cmd2 <- buildCwCmd v (transferCmd 2.0)
 
-        pactExecutionServiceVar <- newMVar (mkPactExecutionService pactQueue)
-        let mempoolCfg = validatingMempoolConfig cid v (Pact4.GasLimit 150_000) (Pact4.GasPrice 1e-8) pactExecutionServiceVar
+        results <- advanceAllChainsWithTxs fixture $ onChain cid [cmd1, cmd2]
 
-        let logger = genericLogger Error Text.putStrLn --stdoutDummyLogger
-        withInMemoryMempool_ logger mempoolCfg v $ \mempool -> do
-            mempoolConsensus <- liftIO $ mkMempoolConsensus mempool bhdb (Just (_bdbPayloadDb tdb))
-            let mempoolAccess = pactMemPoolAccess mempoolConsensus logger
-
-            forkIO $ runPactService v cid logger Nothing pactQueue mempoolAccess bhdb (_bdbPayloadDb tdb) sqlite testPactServiceConfig
-
-            -- Run an empty block.
-            -- The mempool expires txs based on current time, but newBlock expires txs based on parent creation time.
-            -- So by running an empty block with the creationTime set to the current time, we get these goals to align
-            -- for future blocks we run.
-            advanceAllChains tdb pactQueue $ OnChains mempty
-
-            parent <- ParentHeader <$> getParentTestBlockDb tdb cid
-            do
-                let Time creationTime = _bct $ add second $ _blockCreationTime $ _parentHeader parent
-
-                cmd1 <- buildCwCmd v (transferCmd 1.0)
-                cmd2 <- buildCwCmd v (transferCmd 2.0)
-                insertMempool mempool CheckedInsert [cmd1, cmd2]
-
-            advanceAllChains tdb pactQueue $ onChain cid $ \ph -> do
-                blockInProgress <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill parent pactQueue
-                return $ blockInProgressToPayloadWithOutputs blockInProgress
-
-        return ()
+        -- we only care that they succeed; specifics regarding their outputs are in TransactionExecTest
+        results &
+            dist ? onChain cid ?
+            dist ? Vector.replicate 2 txSucceeded
 
 newBlockEmpty :: RocksDb -> IO ()
 newBlockEmpty baseRdb = runResourceT $ do
-    sqlite <- withTempSQLiteResource
+    fixture <- mkFixture baseRdb
     liftIO $ do
-        cp <- initCheckpointer v cid sqlite
-        tdb <- mkTestBlockDb v =<< testRocksDb "continueBlock" baseRdb
-        bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
-        pactQueue <- newPactQueue 2_000
-
-        pactExecutionServiceVar <- newMVar (mkPactExecutionService pactQueue)
-        let mempoolCfg = validatingMempoolConfig cid v (Pact4.GasLimit 150_000) (Pact4.GasPrice 1e-8) pactExecutionServiceVar
-
-        let logger = genericLogger Error Text.putStrLn --stdoutDummyLogger
-        withInMemoryMempool_ logger mempoolCfg v $ \mempool -> do
-            mempoolConsensus <- liftIO $ mkMempoolConsensus mempool bhdb (Just (_bdbPayloadDb tdb))
-            let mempoolAccess = pactMemPoolAccess mempoolConsensus logger
-
-            forkIO $ runPactService v cid logger Nothing pactQueue mempoolAccess bhdb (_bdbPayloadDb tdb) sqlite testPactServiceConfig
-
-            -- Run an empty block.
-            -- The mempool expires txs based on current time, but newBlock expires txs based on parent creation time.
-            -- So by running an empty block with the creationTime set to the current time, we get these goals to align
-            -- for future blocks we run.
-            advanceAllChains tdb pactQueue $ OnChains mempty
-
-            parent <- ParentHeader <$> getParentTestBlockDb tdb cid
-
-            cmd <- buildCwCmd v (transferCmd 1.0)
+        cmd <- buildCwCmd v (transferCmd 1.0)
+        _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
             insertMempool mempool CheckedInsert [cmd]
-
             -- -- Test that NewBlockEmpty ignores the mempool
-            emptyBip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockEmpty parent pactQueue
-            let emptyPwo = blockInProgressToPayloadWithOutputs emptyBip
+            emptyBip <- throwIfNotPact5 =<< throwIfNoHistory =<<
+                newBlock noMiner NewBlockEmpty (ParentHeader ph) pactQueue
+            let emptyPwo = finalizeBlock emptyBip
             assertEqual "empty block has no transactions" 0 (Vector.length $ _payloadWithOutputsTransactions emptyPwo)
+            return emptyPwo
 
-            nonEmptyBip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill parent pactQueue
-            let nonEmptyPwo = blockInProgressToPayloadWithOutputs nonEmptyBip
-            assertEqual "non-empty block has transactions" 1 (Vector.length $ _payloadWithOutputsTransactions nonEmptyPwo)
+        results <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
+            nonEmptyBip <- throwIfNotPact5 =<< throwIfNoHistory =<<
+                newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
+            return $ finalizeBlock nonEmptyBip
+
+        () <- results &
+            dist ? onChain cid ?
+            dist ? Vector.replicate 1 txSucceeded
 
         return ()
+
 
 continueBlockSpec :: RocksDb -> IO ()
 continueBlockSpec baseRdb = runResourceT $ do
-    sqlite <- withTempSQLiteResource
+    fixture <- mkFixture baseRdb
     liftIO $ do
-        cp <- initCheckpointer v cid sqlite
-        tdb <- mkTestBlockDb v =<< testRocksDb "end to end" baseRdb
-        bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
-        pactQueue <- newPactQueue 2_000
+        startCut <- getCut fixture
 
-        pactExecutionServiceVar <- newMVar (mkPactExecutionService pactQueue)
-        let mempoolCfg = validatingMempoolConfig cid v (Pact4.GasLimit 150_000) (Pact4.GasPrice 1e-8) pactExecutionServiceVar
+        -- construct some transactions that we plan to put into the block
+        cmd1 <- buildCwCmd v (transferCmd 1.0)
+        cmd2 <- buildCwCmd v (transferCmd 2.0)
+        cmd3 <- buildCwCmd v (transferCmd 3.0)
 
-        let logger = genericLogger Error Text.putStrLn --stdoutDummyLogger
-        withInMemoryMempool_ logger mempoolCfg v $ \mempool -> do
-            mempoolConsensus <- liftIO $ mkMempoolConsensus mempool bhdb (Just (_bdbPayloadDb tdb))
-            let mempoolAccess = pactMemPoolAccess mempoolConsensus logger
-
-            forkIO $ runPactService v cid logger Nothing pactQueue mempoolAccess bhdb (_bdbPayloadDb tdb) sqlite testPactServiceConfig
-
-            -- Run an empty block.
-            -- The mempool expires txs based on current time, but newBlock expires txs based on parent creation time.
-            -- So by running an empty block with the creationTime set to the current time, we get these goals to align
-            -- for future blocks we run.
-            advanceAllChains tdb pactQueue $ OnChains mempty
-            startCut <- getCutTestBlockDb tdb
-            headerOfEmptyBlock <- getParentTestBlockDb tdb cid
-
-            -- construct some transactions that we plan to put into the block
-            cmd1 <- buildCwCmd v (transferCmd 1.0)
-            cmd2 <- buildCwCmd v (transferCmd 2.0)
-            cmd3 <- buildCwCmd v (transferCmd 3.0)
-
+        allAtOnceResults <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
             -- insert all transactions
             insertMempool mempool CheckedInsert [cmd1, cmd2, cmd3]
-
             -- construct a new block with all of said transactions
-            advanceAllChains tdb pactQueue $ onChain cid $ \ph -> do
-                bipAllAtOnce <- throwIfNotPact5 =<< throwIfNoHistory =<<
-                    newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
-                return $ blockInProgressToPayloadWithOutputs bipAllAtOnce
+            bipAllAtOnce <- throwIfNotPact5 =<< throwIfNoHistory =<<
+                newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
+            return $ finalizeBlock bipAllAtOnce
+        -- assert that 3 successful txs are in the block
+        () <- allAtOnceResults &
+            dist ? onChain cid ?
+            dist ? Vector.replicate 3 txSucceeded
 
-            -- reset back to the empty block for the next phase
-            -- next, produce the same block by repeatedly extending a block
-            -- with the same transactions as were included in the original.
-            -- note that this will reinsert all txs in the full block into the
-            -- mempool, so we need to clear it after, or else the block will
-            -- contain all of the transactions before we extend it.
-            revert tdb pactQueue startCut
+        -- reset back to the empty block for the next phase
+        -- next, produce the same block by repeatedly extending a block
+        -- with the same transactions as were included in the original.
+        -- note that this will reinsert all txs in the full block into the
+        -- mempool, so we need to clear it after, or else the block will
+        -- contain all of the transactions before we extend it.
+        revert fixture startCut
+        results <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
             mempoolClear mempool
-            advanceAllChains tdb pactQueue $ onChain cid $ \ph -> do
-                insertMempool mempool CheckedInsert [cmd3]
-                bipStart <- throwIfNotPact5 =<< throwIfNoHistory =<<
-                    newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
+            insertMempool mempool CheckedInsert [cmd3]
+            bipStart <- throwIfNotPact5 =<< throwIfNoHistory =<<
+                newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
 
-                insertMempool mempool CheckedInsert [cmd2]
-                bipContinued <- throwIfNoHistory =<< continueBlock bipStart pactQueue
+            insertMempool mempool CheckedInsert [cmd2]
+            bipContinued <- throwIfNoHistory =<< continueBlock bipStart pactQueue
 
-                insertMempool mempool CheckedInsert [cmd1]
-                bipFinal <- throwIfNoHistory =<< continueBlock bipContinued pactQueue
+            insertMempool mempool CheckedInsert [cmd1]
+            bipFinal <- throwIfNoHistory =<< continueBlock bipContinued pactQueue
 
-                -- We must make progress on the same parent header
-                assertEqual "same parent header after continuing block"
-                    (_blockInProgressParentHeader bipStart)
-                    (_blockInProgressParentHeader bipContinued)
-                assertBool "made progress (1)"
-                    (bipStart /= bipContinued)
-                assertEqual "same parent header after finishing block"
-                    (_blockInProgressParentHeader bipContinued)
-                    (_blockInProgressParentHeader bipFinal)
-                assertBool "made progress (2)"
-                    (bipContinued /= bipFinal)
+            -- We must make progress on the same parent header
+            assertEqual "same parent header after continuing block"
+                (_blockInProgressParentHeader bipStart)
+                (_blockInProgressParentHeader bipContinued)
+            assertBool "made progress (1)"
+                (bipStart /= bipContinued)
+            assertEqual "same parent header after finishing block"
+                (_blockInProgressParentHeader bipContinued)
+                (_blockInProgressParentHeader bipFinal)
+            assertBool "made progress (2)"
+                (bipContinued /= bipFinal)
 
-                return $ blockInProgressToPayloadWithOutputs bipFinal
+            return $ finalizeBlock bipFinal
 
-            pure ()
+        -- assert that 3 successful txs are in the block
+        () <- results &
+            dist ? onChain cid ?
+            dist ? Vector.replicate 3 txSucceeded
 
         return ()
-
 
 {-
 tests = do
@@ -350,34 +337,55 @@ v = instantCpmTestVersion singletonChainGraph
 coinModuleName :: ModuleName
 coinModuleName = ModuleName "coin" Nothing
 
+advanceAllChainsWithTxs fixture txsPerChain =
+    advanceAllChains fixture $
+        txsPerChain <&> \txs ph pactQueue mempool -> do
+            mempoolClear mempool
+            insertMempool mempool CheckedInsert txs
+            nb <- throwIfNotPact5 =<< throwIfNoHistory =<<
+                newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
+            return $ finalizeBlock nb
+
 -- this mines a block on *all chains*. if you don't specify a payload on a chain,
 -- it adds empty blocks!
-advanceAllChains tdb pactQueue m =
-    forM_ (HashSet.toList (chainIds v)) $ \c -> do
-        ph <- getParentTestBlockDb tdb c
+advanceAllChains Fixture{..} blocks = do
+    commandResults <- iforM (HashSet.toMap (chainIds v)) $ \c () -> do
+        ph <- getParentTestBlockDb _fixtureBlockDb c
         creationTime <- getCurrentTimeIntegral
-        let makeEmptyBlock ph = do
-                bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockEmpty (ParentHeader ph) pactQueue
-                return $! blockInProgressToPayloadWithOutputs bip
+        let pactQueue = _fixturePactQueues ^?! atChain c
+        let mempool = _fixtureMempools ^?! atChain c
+        let makeEmptyBlock ph _ _ = do
+                bip <- throwIfNotPact5 =<< throwIfNoHistory =<<
+                    newBlock noMiner NewBlockEmpty (ParentHeader ph) pactQueue
+                return $! finalizeBlock bip
 
-        payload <- fromMaybe makeEmptyBlock (m ^? atChain cid) ph
-        True <- addTestBlockDb tdb
+        payload <- fromMaybe makeEmptyBlock (blocks ^? atChain cid) ph pactQueue mempool
+        added <- addTestBlockDb _fixtureBlockDb
             (succ $ _blockHeight ph)
             (Nonce 0)
             (\_ _ -> creationTime)
             c
             payload
-        ph' <- getParentTestBlockDb tdb c
+        when (not added) $
+            error "failed to mine block"
+        ph' <- getParentTestBlockDb _fixtureBlockDb c
         payload' <- validateBlock ph' (CheckablePayloadWithOutputs payload) pactQueue
         assertEqual "payloads must not be altered by validateBlock" payload payload'
-        return ()
+        commandResults :: Vector.Vector (CommandResult Pact5.Hash Text) <-
+                forM (_payloadWithOutputsTransactions payload')
+                (decodeOrThrow' . LBS.fromStrict . _transactionOutputBytes . snd)
+        -- assert on the command results
+        return commandResults
 
+    return (OnChains commandResults)
 
-revert tdb q c = do
-    setCutTestBlockDb tdb c
+getCut Fixture{..} = getCutTestBlockDb _fixtureBlockDb
+
+revert Fixture{..} c = do
+    setCutTestBlockDb _fixtureBlockDb c
     forM_ (HashSet.toList (chainIds v)) $ \chain -> do
-        ph <- getParentTestBlockDb tdb chain
-        pactSyncToBlock ph q
+        ph <- getParentTestBlockDb _fixtureBlockDb chain
+        pactSyncToBlock ph (_fixturePactQueues ^?! atChain chain)
 
 throwIfNotPact5 :: ForSomePactVersion f -> IO (f Pact5)
 throwIfNotPact5 h = case h of
@@ -388,7 +396,12 @@ throwIfNotPact5 h = case h of
 
 transferCmd :: Decimal -> CmdBuilder
 transferCmd transferAmount = defaultCmd
-    { _cbRPC = mkExec' $ "(coin.transfer \"sender00\" \"sender01\" " <> sshow transferAmount <> ")"
+    { _cbRPC = mkExec' $
+        "(coin.transfer \"sender00\" \"sender01\" " <>
+        -- if the number doesn't end with a decimal part, even if it's zero, Pact will
+        -- throw an error
+        T.pack (printf "%.4f" (realToFrac transferAmount :: Double)) <>
+        ")"
     , _cbSigners =
         [ mkEd25519Signer' sender00
             [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []

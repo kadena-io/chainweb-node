@@ -13,8 +13,8 @@
 module Chainweb.Mempool.InMem
   (
    -- * Initialization functions
-    withInMemoryMempool
-  , withInMemoryMempool_
+    startInMemoryMempoolTest
+  , withInMemoryMempool
 
     -- * Low-level create/destroy functions
   , makeInMemPool
@@ -94,9 +94,6 @@ makeInMemPool cfg = mask_ $ do
     dataLock <- newInMemMempoolData >>= newMVar
     return $! InMemoryMempool cfg dataLock nonce
 
-destroyInMemPool :: InMemoryMempool t -> IO ()
-destroyInMemPool = const $ return ()
-
 
 ------------------------------------------------------------------------------
 newInMemMempoolData :: IO (InMemoryMempoolData t)
@@ -159,34 +156,29 @@ toMempoolBackend logger mempool = do
 ------------------------------------------------------------------------------
 -- | A 'bracket' function for in-memory mempools.
 --
--- This function is only used in testing. Use 'withInMemoryMempool_' for
+-- This function is only used in testing. Use 'withInMemoryMempool' for
 -- production.
 --
-withInMemoryMempool :: ToJSON t
-                    => FromJSON t
-                    => NFData t
-                    => InMemConfig t
-                    -> ChainwebVersion
-                    -> (MempoolBackend t -> IO a)
-                    -> IO a
-withInMemoryMempool cfg _v f = do
-    let action inMem = do
-          back <- toMempoolBackend l inMem
-          f $! back
-    bracket (makeInMemPool cfg) destroyInMemPool action
+startInMemoryMempoolTest
+  :: NFData t
+  => InMemConfig t
+  -> IO (MempoolBackend t)
+startInMemoryMempoolTest cfg = do
+    toMempoolBackend l =<< makeInMemPool cfg
   where
     l = genericLogger Debug (\ _ -> return ())
 
 -- | A 'bracket' function for in-memory mempools.
 --
-withInMemoryMempool_ :: Logger logger
-                     => NFData t
-                     => logger
-                     -> InMemConfig t
-                     -> ChainwebVersion
-                     -> (MempoolBackend t -> IO a)
-                     -> IO a
-withInMemoryMempool_ l cfg _v f = do
+withInMemoryMempool
+  :: Logger logger
+  => NFData t
+  => logger
+  -> InMemConfig t
+  -> ChainwebVersion
+  -> (MempoolBackend t -> IO a)
+  -> IO a
+withInMemoryMempool l cfg _v f = do
     let action inMem = do
           r <- race (monitor inMem) $ do
             back <- toMempoolBackend l inMem
@@ -194,12 +186,12 @@ withInMemoryMempool_ l cfg _v f = do
           case r of
             Left () -> throw $ InternalInvariantViolation "mempool monitor exited unexpectedly"
             Right result -> return result
-    bracket (makeInMemPool cfg) destroyInMemPool action
+    action =<< makeInMemPool cfg
   where
     monitor m = do
         let lf = logFunction l
         logFunctionText l Debug "Initialized Mempool Monitor"
-        runForeverThrottled lf "Chainweb.Mempool.InMem.withInMemoryMempool_.monitor" 10 (10 * mega) $ do
+        runForeverThrottled lf "Chainweb.Mempool.InMem.withInMemoryMempool.monitor" 10 (10 * mega) $ do
             stats <- getMempoolStats m
             logFunctionText l Debug "got stats"
             logFunctionJson l Info stats

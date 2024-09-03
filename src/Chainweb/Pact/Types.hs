@@ -61,7 +61,7 @@ module Chainweb.Pact.Types
   , BlockHandle(..)
   , emptyBlockHandle
   , emptyBlockInProgressForTesting
-  , blockInProgressToPayloadWithOutputs
+  , finalizeBlock
   , blockHandlePending
   , blockHandleTxId
   , SQLiteRowDelta(..)
@@ -1302,8 +1302,8 @@ emptyBlockInProgressForTesting = BlockInProgress
   , _blockInProgressPactVersion = Pact4T
   }
 
-blockInProgressToPayloadWithOutputs :: BlockInProgress pv -> PayloadWithOutputs
-blockInProgressToPayloadWithOutputs bip = case _blockInProgressPactVersion bip of
+finalizeBlock :: BlockInProgress pv -> PayloadWithOutputs
+finalizeBlock bip = case _blockInProgressPactVersion bip of
   Pact4T -> toPayloadWithOutputs
     Pact4T
     (_blockInProgressMiner bip)

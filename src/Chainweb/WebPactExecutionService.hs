@@ -65,7 +65,7 @@ data NewBlock
 
 newBlockToPayloadWithOutputs :: NewBlock -> PayloadWithOutputs
 newBlockToPayloadWithOutputs (NewBlockInProgress bip)
-    = forAnyPactVersion blockInProgressToPayloadWithOutputs bip
+    = forAnyPactVersion finalizeBlock bip
 newBlockToPayloadWithOutputs (NewBlockPayload _ pwo)
     = pwo
 

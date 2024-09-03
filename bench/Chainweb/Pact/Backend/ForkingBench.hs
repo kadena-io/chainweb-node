@@ -242,7 +242,7 @@ createBlock validate parent nonce pact = do
      -- assemble block without nonce and timestamp
 
      bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill parent pact
-     let payload = blockInProgressToPayloadWithOutputs bip
+     let payload = finalizeBlock bip
 
      let creationTime = add second $ _blockCreationTime $ _parentHeader parent
      let bh = newBlockHeader

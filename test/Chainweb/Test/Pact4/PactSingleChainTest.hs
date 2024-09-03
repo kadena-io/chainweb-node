@@ -191,7 +191,7 @@ runBlockE :: (HasCallStack) => PactQueue -> TestBlockDb -> TimeSpan Micros -> IO
 runBlockE q bdb timeOffset = do
   ph <- getParentTestBlockDb bdb cid
   bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) q
-  let nb = forAnyPactVersion blockInProgressToPayloadWithOutputs bip
+  let nb = forAnyPactVersion finalizeBlock bip
   let blockTime = add timeOffset $ _bct $ _blockCreationTime ph
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
@@ -251,7 +251,7 @@ newBlockAndContinue refIO reqIO = testCase "newBlockAndContinue" $ do
     (_blockInProgressParentHeader bipContinued) (_blockInProgressParentHeader bipFinal)
   assertBool "made progress (2)"
     (bipContinued /= bipFinal)
-  let nbContinued = blockInProgressToPayloadWithOutputs bipFinal
+  let nbContinued = finalizeBlock bipFinal
   -- add block to database
   let blockTime = add second $ _bct $ _blockCreationTime ph
   forM_ (chainIds testVersion) $ \c -> do
@@ -269,7 +269,7 @@ newBlockAndContinue refIO reqIO = testCase "newBlockAndContinue" $ do
       [ c1, c2, c3 ]
     ]
   bipAllAtOnce <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader genesisHeader) q
-  let nbAllAtOnce = forAnyPactVersion blockInProgressToPayloadWithOutputs bipAllAtOnce
+  let nbAllAtOnce = forAnyPactVersion finalizeBlock bipAllAtOnce
   assertEqual "a continued block, and one that's all done at once, should be exactly equal"
     nbContinued nbAllAtOnce
   _ <- validateBlock nextH (CheckablePayloadWithOutputs nbAllAtOnce) q
@@ -287,13 +287,13 @@ newBlockNoFill refIO reqIO = testCase "newBlockNoFill" $ do
     set cbRPC (mkExec "1" (object [])) $
     defaultCmd
   setMempool refIO =<< mempoolOf [V.fromList [c1]]
-  noFillPwo <- fmap (forAnyPactVersion blockInProgressToPayloadWithOutputs) . throwIfNoHistory =<<
+  noFillPwo <- fmap (forAnyPactVersion finalizeBlock) . throwIfNoHistory =<<
     newBlock noMiner NewBlockEmpty (ParentHeader genesisHeader) q
   assertEqual
     "an unfilled newblock must have no transactions, even with a full mempool"
     mempty
     (_payloadWithOutputsTransactions noFillPwo)
-  fillPwo <- fmap (forAnyPactVersion blockInProgressToPayloadWithOutputs) . throwIfNoHistory =<<
+  fillPwo <- fmap (forAnyPactVersion finalizeBlock) . throwIfNoHistory =<<
     newBlock noMiner NewBlockFill (ParentHeader genesisHeader) q
   assertEqual
     "an filled newblock has transactions with a full mempool"
@@ -306,7 +306,7 @@ newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailur
   setOneShotMempool refIO =<< goldenMemPool
 
   bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader genesisHeader) q
-  let nb = forAnyPactVersion blockInProgressToPayloadWithOutputs bip
+  let nb = forAnyPactVersion finalizeBlock bip
   let blockTime = add second $ _bct $ _blockCreationTime genesisHeader
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
@@ -1000,7 +1000,7 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
     $ defaultCmd
   setOneShotMempool mpRefIO (badlistMPA badTx badHashRef)
   bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader genesisHeader) reqQ
-  let resp = forAnyPactVersion blockInProgressToPayloadWithOutputs bip
+  let resp = forAnyPactVersion finalizeBlock bip
   assertEqual "bad tx filtered from block" mempty (_payloadWithOutputsTransactions resp)
   badHash <- readIORef badHashRef
   assertEqual "Badlist should have badtx hash" (hashToTxHashList $ _cmdHash badTx) badHash
@@ -1018,7 +1018,7 @@ goldenNewBlock name mpIO mpRefIO reqIO = golden name $ do
     (_, reqQ, _) <- reqIO
     setOneShotMempool mpRefIO mp
     blockInProgress <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader genesisHeader) reqQ
-    let resp = forAnyPactVersion blockInProgressToPayloadWithOutputs blockInProgress
+    let resp = forAnyPactVersion finalizeBlock blockInProgress
     -- ensure all golden txs succeed
     forM_ (_payloadWithOutputsTransactions resp) $ \(txIn,TransactionOutput out) -> do
       cr :: CommandResult Hash <- decodeStrictOrThrow out

@@ -227,7 +227,7 @@ doNewBlock ctxIO mempool parent nonce t = do
         error "Test failure: mempool access is not empty. Some previous test step failed unexpectedly"
 
     bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill parent (_ctxQueue ctx)
-    let payload = forAnyPactVersion blockInProgressToPayloadWithOutputs bip
+    let payload = forAnyPactVersion finalizeBlock bip
     let
         creationTime = BlockCreationTime
             . add (secondsToTimeSpan t) -- 10 seconds
