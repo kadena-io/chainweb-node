@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -19,6 +20,9 @@ module Chainweb.Pact.PactService.Pact5.ExecBlock
 
     ) where
 
+import Chainweb.Pact.Conversion (decodeRowData)
+import Data.These (These(..))
+import "semialign" Data.Zip (align)
 import Data.Bifunctor (first)
 import Data.Aeson.Encode.Pretty qualified as A
 import Chainweb.Logger
@@ -208,6 +212,7 @@ continueBlock mpAccess blockInProgress = do
   liftIO $ mpaBadlistTx mpAccess
     (V.fromList $ fmap pact5RequestKeyToTransactionHash $ concat invalids)
 
+  liftPactServiceM $ logDebug $ "Order of completed transactions: " <> sshow (map (unRequestKey . _crReqKey . snd) $ concat $ reverse valids)
   let !blockInProgress' = blockInProgress
         & blockInProgressHandle .~
           finalBlockHandle
@@ -216,6 +221,8 @@ continueBlock mpAccess blockInProgress = do
         & blockInProgressRemainingGasLimit .~
           finalGasLimit
 
+  liftPactServiceM $ logDebug $ "Final block transaction order: " <> sshow (fmap (unRequestKey . _crReqKey . snd) $ _transactionPairs (_blockInProgressTransactions blockInProgress'))
+
   return blockInProgress'
 
   where
@@ -223,7 +230,8 @@ continueBlock mpAccess blockInProgress = do
   refill fetchLimit txTimeLimit blockFillState = over _2 reverse <$> go [] [] blockFillState
     where
     go
-      :: [CompletedTransactions] -> [InvalidTransactions]
+      :: [CompletedTransactions]
+      -> [InvalidTransactions]
       -> BlockFill
       -> PactBlockM logger tbl (BlockFill, [CompletedTransactions], [InvalidTransactions])
     go completedTransactions invalidTransactions prevBlockFillState@BlockFill
@@ -237,6 +245,7 @@ continueBlock mpAccess blockInProgress = do
         pure stop
       | otherwise = do
         newTxs <- getBlockTxs prevBlockFillState
+        liftPactServiceM $ logDebug $ "Refill: fetched transaction: " <> sshow (V.length newTxs)
         if V.null newTxs
         then do
           liftPactServiceM $ logDebug $ "Refill: no new transactions"
@@ -244,6 +253,7 @@ continueBlock mpAccess blockInProgress = do
         else do
           (newCompletedTransactions, newInvalidTransactions, newBlockGasLimit, timedOut) <-
             execNewTransactions (_blockInProgressMiner blockInProgress) prevRemainingGas txTimeLimit newTxs
+
           liftPactServiceM $ do
             logDebug $ "Refill: included request keys: " <> sshow @[Hash] (fmap (unRequestKey . _crReqKey . snd) newCompletedTransactions)
             logDebug $ "Refill: badlisted request keys: " <> sshow @[Hash] (fmap unRequestKey newInvalidTransactions)
@@ -575,28 +585,6 @@ execExistingBlock currHeader payload = do
         return pwo
   return (totalGasUsed, pwo)
 
-{-
-data PrettyBlockValidationFailure = PrettyBlockValidationFailure
-  { prettyHeader :: BlockHeader
-  , prettyPayloadHashActual :: BlockPayloadHash
-  , prettyPayloadHashExpected :: BlockPayloadHash
-  , prettyPayload :: PrettyCheckablePayload
-  }
-
-instance A.ToJSON PrettyBlockValidationFailure where
-  toJSON PrettyBlockValidationFailure{..} = A.object
-    [ "header" A..= prettyHeader
-    , "payloadHashActual" A..= prettyPayloadHashActual
-    , "payloadHashExpected" A..= prettyPayloadHashExpected
-    -- , "payload" A..= prettyPayload
-    ]
-
-data PrettyCheckablePayload = PrettyCheckablePayload
-  { prettyMinerDataActual :: MinerData
-  , prettyMinerDataExpected :: MinerData
-  }
--}
-
 newtype PrettyBlockValidationFailure = PrettyBlockValidationFailure T.Text
 
 -- | Check that the two payloads agree. If we have access to the outputs, we
@@ -646,14 +634,24 @@ validateHashes bHeader payload miner transactions =
         , "expected" J..= J.encodeWithAeson expect
         ]
 
-    checkEncode :: (Eq a, J.Encode a) => T.Text -> [Maybe J.KeyValue] -> a -> a -> Maybe J.Builder
-    checkEncode desc extra expect actual
-        | expect == actual = Nothing
-        | otherwise = Just $ J.object
+    checkEncode :: (Eq a, J.Encode a) => T.Text -> Word -> [Maybe J.KeyValue] -> These a a -> Maybe J.Builder
+    checkEncode desc index extra = \case
+        This expect -> Just $ J.object
+            $ "mismatch" J..= errorMsgEncode desc expect (Nothing @Bool)
+            : "index" J..= sshow @_ @T.Text index
+            : extra
+        That actual -> Just $ J.object
+            $ "mismatch" J..= errorMsgEncode desc (Nothing @Bool) actual
+            : "index" J..= sshow @_ @T.Text index
+            : extra
+        These expect actual -> do
+          guard (expect /= actual)
+          Just $ J.object
             $ "mismatch" J..= errorMsgEncode desc expect actual
+            : "index" J..= sshow @_ @T.Text index
             : extra
 
-    errorMsgEncode :: (J.Encode a) => T.Text -> a -> a -> J.Builder
+    errorMsgEncode :: (J.Encode a, J.Encode b) => T.Text -> a -> b -> J.Builder
     errorMsgEncode desc expect actual = J.object
       [ "type" J..= J.text desc
       , "actual" J..= J.build actual
@@ -680,8 +678,8 @@ validateHashes bHeader payload miner transactions =
                 (_payloadDataMiner pData)
                 (_payloadWithOutputsMiner pwo)
             , check "TransactionsHash"
-                [ "txs" J..?=
-                    (J.Array <$> traverse (uncurry $ checkEncode "Tx" []) (zip
+                [ "txs" J..=
+                    (J.array $ catMaybes $ map (\(i, tx) -> checkEncode "Tx" i [] tx) $ zip [0..] (align
                       (toList $ fmap (transactionBytesToCommand . fst) $ _payloadWithOutputsTransactions pwo)
                       (toList $ fmap transactionBytesToCommand $ _payloadDataTransactions pData)
                     ))
@@ -705,8 +703,8 @@ validateHashes bHeader payload miner transactions =
                 (_payloadWithOutputsMiner pwo)
             , Just $ J.object
               [ "transactions" J..= J.object
-                  [ "txs" J..?=
-                      (J.Array <$> traverse (uncurry $ checkEncode "Tx" []) (zip
+                  [ "txs" J..=
+                      (J.array $ catMaybes $ map (\(i, tx) -> checkEncode "Tx" i [] tx) $ zip [0..] (align
                         (toList $ fmap (encodeTuple . bimap transactionBytesToCommand transactionOutputsToCommandResult) $ _payloadWithOutputsTransactions pwo)
                         (toList $ fmap (encodeTuple . bimap transactionBytesToCommand transactionOutputsToCommandResult) $ _payloadWithOutputsTransactions localPwo)
                       ))
