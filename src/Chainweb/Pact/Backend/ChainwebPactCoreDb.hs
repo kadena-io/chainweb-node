@@ -613,7 +613,7 @@ doCommit = view blockHandlerMode >>= \case
     m -> do
         txrs <- if m == Transactional
         then do
-            modify' $ over latestTxId (\(TxId tid) -> TxId (tid + 1))
+            modify' $ over latestTxId (\(TxId tid) -> TxId (succ tid))
             pending <- use (bsPendingTxOrError "commit")
             persistIntraBlockWrites <- view blockHandlerPersistIntraBlockWrites
             -- merge pending tx into pending block data

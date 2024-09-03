@@ -139,7 +139,7 @@ testnet = ChainwebVersion
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionMaxBlockGasLimit =
-        (succ $ testnet ^?! versionForks . at Chainweb216Pact . _Just . onChain (unsafeChainId 0) . _ForkAtBlockHeight, Just 180_000) `Above`
+        (succ $ testnet ^?! versionForks . at Chainweb216Pact . _Just . atChain (unsafeChainId 0) . _ForkAtBlockHeight, Just 180_000) `Above`
         End Nothing
     , _versionBootstraps = domainAddr2PeerInfo testnetBootstrapHosts
     , _versionGenesis = VersionGenesis

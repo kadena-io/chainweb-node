@@ -805,7 +805,7 @@ applyUpgrades
   -> TransactionM logger p (Maybe ModuleCache)
 applyUpgrades v cid height
     | Just (ForSomePactVersion Pact4T upg) <-
-        v ^? versionUpgrades . onChain cid . ix height = applyUpgrade upg
+        v ^? versionUpgrades . atChain cid . ix height = applyUpgrade upg
     | cleanModuleCache v cid height = filterModuleCache
     | otherwise = return Nothing
   where

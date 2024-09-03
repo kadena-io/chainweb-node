@@ -27,6 +27,7 @@ module Chainweb.Test.Utils
 , withResource'
 , withResourceT
 , independentSequentialTestGroup
+, unsafeHeadOf
 
 -- * Test RocksDb
 , testRocksDb
@@ -233,6 +234,7 @@ import qualified P2P.Node.PeerDB as P2P
 import P2P.Peer
 
 import Chainweb.Test.Utils.APIValidation
+import Data.Semigroup
 
 -- -------------------------------------------------------------------------- --
 -- Intialize Test BlockHeader DB
@@ -1156,3 +1158,6 @@ independentSequentialTestGroup tn tts =
                     (mvarIO >>= takeMVar)
                     (\_ -> mvarIO >>= flip putMVar ())
                     $ \_ -> tt
+
+unsafeHeadOf :: HasCallStack => Getting (Endo a) s a -> s -> a
+unsafeHeadOf l s = s ^?! l

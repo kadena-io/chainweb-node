@@ -737,7 +737,7 @@ decodePayloadDataList = runGetS $ do
 encodePayloadWithOutputsList :: PayloadWithOutputsList -> B.ByteString
 encodePayloadWithOutputsList (PayloadWithOutputsList xs) = runPutS $ do
     putWord64be (fromIntegral $ length xs)
-    forM_ xs putPayloadWithOutputs 
+    forM_ xs putPayloadWithOutputs
 
 decodePayloadWithOutputsList :: (MonadThrow m) => B.ByteString -> m PayloadWithOutputsList
 decodePayloadWithOutputsList = runGetS $ do

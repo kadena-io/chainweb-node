@@ -693,7 +693,7 @@ prop_block_genesis_parent b
 
 prop_block_genesis_target :: BlockHeader -> Bool
 prop_block_genesis_target b = isGenesisBlockHeader b
-    ==> _blockTarget b == _chainwebVersion b ^?! versionGenesis . genesisBlockTarget . onChain (_chainId b)
+    ==> _blockTarget b == _chainwebVersion b ^?! versionGenesis . genesisBlockTarget . atChain (_chainId b)
 
 prop_block_current :: Time Micros -> BlockHeader -> Bool
 prop_block_current t b = BlockCreationTime t >= _blockCreationTime b

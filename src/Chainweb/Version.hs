@@ -539,7 +539,7 @@ makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionDefaults
 makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionQuirks
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
-genesisBlockPayloadHash v cid = v ^?! versionGenesis . genesisBlockPayload . onChain cid . to _payloadWithOutputsPayloadHash
+genesisBlockPayloadHash v cid = v ^?! versionGenesis . genesisBlockPayload . atChain cid . to _payloadWithOutputsPayloadHash
 
 instance HasTextRepresentation ChainwebVersionName where
     toText = getChainwebVersionName
@@ -669,8 +669,8 @@ indexByForkHeights v = OnChains . foldl' go (HM.empty <$ HS.toMap (chainIds v))
         newTxs = HM.fromList $
             [ (cid, HM.singleton forkHeight upg)
             | cid <- HM.keys acc
-            , Just upg <- [txsPerChain ^? onChain cid]
-            , ForkAtBlockHeight forkHeight <- [v ^?! versionForks . at fork . _Just . onChain cid]
+            , Just upg <- [txsPerChain ^? atChain cid]
+            , ForkAtBlockHeight forkHeight <- [v ^?! versionForks . at fork . _Just . atChain cid]
             , forkHeight /= maxBound
             ]
 

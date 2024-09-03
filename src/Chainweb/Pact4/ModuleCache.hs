@@ -120,7 +120,7 @@ moduleCacheKeys (ModuleCache a) = fst <$> LHM.toList a
 -- it uses genesisHeight which is from BlockHeader which imports Guards
 cleanModuleCache :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 cleanModuleCache v cid bh =
-    case v ^?! versionForks . at Chainweb217Pact . _Just . onChain cid of
+    case v ^?! versionForks . at Chainweb217Pact . _Just . atChain cid of
         ForkAtBlockHeight bh' -> bh == bh'
         ForkAtGenesis -> bh == genesisHeight v cid
         ForkNever -> False

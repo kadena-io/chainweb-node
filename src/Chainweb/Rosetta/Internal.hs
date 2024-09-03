@@ -124,7 +124,7 @@ matchLogs
     -> ExceptT RosettaFailure Handler tx
 matchLogs typ bh logs coinbase txs
   | bheight == genesisHeight v cid = matchGenesis
-  | Just (ForPact4 upg) <- v ^? versionUpgrades . onChain cid . at bheight . _Just = matchRemediation upg
+  | Just (ForPact4 upg) <- v ^? versionUpgrades . atChain cid . at bheight . _Just = matchRemediation upg
   -- TODO: integrate pact 5?
   | otherwise = matchRest
   where

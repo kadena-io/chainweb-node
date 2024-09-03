@@ -9,6 +9,7 @@
 #-}
 
 {-# options_ghc -fno-warn-gadt-mono-local-binds #-}
+{-# LANGUAGE TupleSections #-}
 
 module Chainweb.Test.Pact5.PactServiceTest
     ( tests
@@ -54,7 +55,7 @@ import Chainweb.Pact5.Types
 import Chainweb.Payload
 import Chainweb.Payload (PayloadWithOutputs_ (_payloadWithOutputsPayloadHash), Transaction (Transaction))
 import Chainweb.Storage.Table.RocksDB
-import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), mkTestBlockDb, addTestBlockDb, getParentTestBlockDb)
+import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), mkTestBlockDb, addTestBlockDb, getParentTestBlockDb, getCutTestBlockDb, setCutTestBlockDb)
 import Chainweb.Test.Pact4.Utils (stdoutDummyLogger, stdoutDummyLogger, withBlockHeaderDb)
 import Chainweb.Test.Pact4.Utils (testPactServiceConfig)
 import Chainweb.Test.Pact5.CmdBuilder
@@ -137,8 +138,12 @@ import System.LogLevel (LogLevel(..))
 import Test.Tasty
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 import Test.Tasty.Hedgehog
-import Text.Show.Pretty ()
+import Text.Show.Pretty (pPrint)
 import qualified Hedgehog.Gen as Gen
+import qualified Data.HashSet as HashSet
+import qualified Data.HashMap.Strict as HashMap
+import Chainweb.Block (Block(_blockPayloadWithOutputs))
+import qualified Data.Text.IO as T
 
 insertMempool :: MempoolBackend Pact4.UnparsedTransaction -> InsertType -> [Pact5.Transaction] -> IO ()
 insertMempool mp insertType txs = do
@@ -179,25 +184,19 @@ simpleEndToEnd baseRdb = runResourceT $ do
             -- The mempool expires txs based on current time, but newBlock expires txs based on parent creation time.
             -- So by running an empty block with the creationTime set to the current time, we get these goals to align
             -- for future blocks we run.
-            headerOfEmptyBlock <- mineEmptyBlock tdb (ParentHeader (gh v cid)) pactQueue
+            advanceAllChains tdb pactQueue $ OnChains mempty
 
-            let parent = ParentHeader headerOfEmptyBlock
+            parent <- ParentHeader <$> getParentTestBlockDb tdb cid
             do
                 let Time creationTime = _bct $ add second $ _blockCreationTime $ _parentHeader parent
 
-                cmd1 <- buildCwCmd v (simpleTransfer creationTime 1.0)
-                cmd2 <- buildCwCmd v (simpleTransfer creationTime 2.0)
+                cmd1 <- buildCwCmd v (transferCmd 1.0)
+                cmd2 <- buildCwCmd v (transferCmd 2.0)
                 insertMempool mempool CheckedInsert [cmd1, cmd2]
 
-            blockInProgress <- throwIfNotPact5 =<< newBlock noMiner NewBlockFill parent pactQueue
-            let pwo = blockInProgressToPayloadWithOutputs blockInProgress
-            let creationTime = add second $ _blockCreationTime $ _parentHeader parent
-            let blockHeader = newBlockHeader mempty (_payloadWithOutputsPayloadHash pwo) (Nonce 1234) creationTime parent
-            -- This threadDelay makes it so that we are not too fast for block validation.
-            threadDelay 1_000_000
-            pwo' <- validateBlock blockHeader (CheckablePayloadWithOutputs pwo) pactQueue
-            addTestBlockDb tdb (_blockHeight blockHeader) (Nonce 1234) (\_ _ -> (_bct creationTime)) cid pwo
-            assertEqual "payloadWithOutputs are the same before and after validation" pwo pwo'
+            advanceAllChains tdb pactQueue $ onChain cid $ \ph -> do
+                blockInProgress <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill parent pactQueue
+                return $ blockInProgressToPayloadWithOutputs blockInProgress
 
         return ()
 
@@ -224,20 +223,19 @@ newBlockEmpty baseRdb = runResourceT $ do
             -- The mempool expires txs based on current time, but newBlock expires txs based on parent creation time.
             -- So by running an empty block with the creationTime set to the current time, we get these goals to align
             -- for future blocks we run.
-            headerOfEmptyBlock <- mineEmptyBlock tdb (ParentHeader (gh v cid)) pactQueue
+            advanceAllChains tdb pactQueue $ OnChains mempty
 
-            let parent = ParentHeader headerOfEmptyBlock
+            parent <- ParentHeader <$> getParentTestBlockDb tdb cid
 
-            let Time txCreationTime = _bct $ add second $ _blockCreationTime $ _parentHeader parent
-            cmd <- buildCwCmd v (simpleTransfer txCreationTime 1.0)
+            cmd <- buildCwCmd v (transferCmd 1.0)
             insertMempool mempool CheckedInsert [cmd]
 
-            -- Test that NewBlockEmpty ignores the mempool
-            emptyBip <- throwIfNotPact5 =<< newBlock noMiner NewBlockEmpty parent pactQueue
+            -- -- Test that NewBlockEmpty ignores the mempool
+            emptyBip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockEmpty parent pactQueue
             let emptyPwo = blockInProgressToPayloadWithOutputs emptyBip
             assertEqual "empty block has no transactions" 0 (Vector.length $ _payloadWithOutputsTransactions emptyPwo)
 
-            nonEmptyBip <- throwIfNotPact5 =<< newBlock noMiner NewBlockFill parent pactQueue
+            nonEmptyBip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill parent pactQueue
             let nonEmptyPwo = blockInProgressToPayloadWithOutputs nonEmptyBip
             assertEqual "non-empty block has transactions" 1 (Vector.length $ _payloadWithOutputsTransactions nonEmptyPwo)
 
@@ -255,7 +253,7 @@ continueBlockSpec baseRdb = runResourceT $ do
         pactExecutionServiceVar <- newMVar (mkPactExecutionService pactQueue)
         let mempoolCfg = validatingMempoolConfig cid v (Pact4.GasLimit 150_000) (Pact4.GasPrice 1e-8) pactExecutionServiceVar
 
-        let logger = genericLogger Debug Text.putStrLn --stdoutDummyLogger
+        let logger = genericLogger Error Text.putStrLn --stdoutDummyLogger
         withInMemoryMempool_ logger mempoolCfg v $ \mempool -> do
             mempoolConsensus <- liftIO $ mkMempoolConsensus mempool bhdb (Just (_bdbPayloadDb tdb))
             let mempoolAccess = pactMemPoolAccess mempoolConsensus logger
@@ -266,69 +264,56 @@ continueBlockSpec baseRdb = runResourceT $ do
             -- The mempool expires txs based on current time, but newBlock expires txs based on parent creation time.
             -- So by running an empty block with the creationTime set to the current time, we get these goals to align
             -- for future blocks we run.
-            headerOfEmptyBlock <- mineEmptyBlock tdb (ParentHeader (gh v cid)) pactQueue
+            advanceAllChains tdb pactQueue $ OnChains mempty
+            startCut <- getCutTestBlockDb tdb
+            headerOfEmptyBlock <- getParentTestBlockDb tdb cid
 
-            let Time txCreationTime = _bct $ add second $ _blockCreationTime $ headerOfEmptyBlock
-            cmd1 <- buildCwCmd v (simpleTransfer txCreationTime 1.0)
-            cmd2 <- buildCwCmd v (simpleTransfer txCreationTime 2.0)
-            cmd3 <- buildCwCmd v (simpleTransfer txCreationTime 3.0)
+            -- construct some transactions that we plan to put into the block
+            cmd1 <- buildCwCmd v (transferCmd 1.0)
+            cmd2 <- buildCwCmd v (transferCmd 2.0)
+            cmd3 <- buildCwCmd v (transferCmd 3.0)
 
-
-            insertMempool mempool CheckedInsert [cmd1]
-            bipStart <- throwIfNotPact5 =<< newBlock noMiner NewBlockFill (ParentHeader headerOfEmptyBlock) pactQueue
-            let ParentHeader parentHeader = _blockInProgressParentHeader bipStart
-
-            insertMempool mempool CheckedInsert [cmd2]
-            bipContinued <- throwIfNoHistory =<< continueBlock bipStart pactQueue
-
-            insertMempool mempool CheckedInsert [cmd3]
-            bipFinal <- throwIfNoHistory =<< continueBlock bipContinued pactQueue
-
-            putStrLn ""
-            putStr "bipStart: " >> print bipStart
-            putStr "bipContinued: " >> print bipContinued
-            putStr "bipFinal: " >> print bipFinal
-
-            -- We must make progress on the same parent header
-            assertEqual "same parent header after continuing block"
-                (_blockInProgressParentHeader bipStart)
-                (_blockInProgressParentHeader bipContinued)
-            assertBool "made progress (1)"
-                (bipStart /= bipContinued)
-            assertEqual "same parent header after finishing block"
-                (_blockInProgressParentHeader bipContinued)
-                (_blockInProgressParentHeader bipFinal)
-            assertBool "made progress (2)"
-                (bipContinued /= bipFinal)
-
-            -- Add block to database
-            let pwoContinued = blockInProgressToPayloadWithOutputs bipFinal
-            let creationTime = add millisecond $ _blockCreationTime parentHeader
-            forM_ (chainIds v) $ \c -> do
-                let o | c == cid = pwoContinued
-                      | otherwise = emptyPayload
-                addTestBlockDb tdb (succ $ _blockHeight parentHeader) (Nonce 0) (\_ _ -> _bct creationTime) c o
-
-            putStr "pwoContinued: "
-            print pwoContinued
-
-            -- A continued block must be valid
-            nextHeader <- getParentTestBlockDb tdb cid
-            -- This threadDelay makes it so that we are not too fast for block validation.
-            threadDelay 1_000_000
-            _ <- validateBlock nextHeader (CheckablePayloadWithOutputs pwoContinued) pactQueue
-
-            -- reset to parent
-            {-
-            pactSyncToBlock parentHeader pactQueue
+            -- insert all transactions
             insertMempool mempool CheckedInsert [cmd1, cmd2, cmd3]
-            bipAllAtOnce <- throwIfNotPact5 =<< newBlock noMiner NewBlockFill (ParentHeader headerOfEmptyBlock) pactQueue
-            let pwoAllAtOnce = blockInProgressToPayloadWithOutputs bipAllAtOnce
-            assertEqual "a continued block, and one that's done all at once, should be exactly equal"
-                pwoContinued
-                pwoAllAtOnce
-            _ <- validateBlock nextHeader (CheckablePayloadWithOutputs pwoAllAtOnce) pactQueue
-            -}
+
+            -- construct a new block with all of said transactions
+            advanceAllChains tdb pactQueue $ onChain cid $ \ph -> do
+                bipAllAtOnce <- throwIfNotPact5 =<< throwIfNoHistory =<<
+                    newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
+                return $ blockInProgressToPayloadWithOutputs bipAllAtOnce
+
+            -- reset back to the empty block for the next phase
+            -- next, produce the same block by repeatedly extending a block
+            -- with the same transactions as were included in the original.
+            -- note that this will reinsert all txs in the full block into the
+            -- mempool, so we need to clear it after, or else the block will
+            -- contain all of the transactions before we extend it.
+            revert tdb pactQueue startCut
+            mempoolClear mempool
+            advanceAllChains tdb pactQueue $ onChain cid $ \ph -> do
+                insertMempool mempool CheckedInsert [cmd3]
+                bipStart <- throwIfNotPact5 =<< throwIfNoHistory =<<
+                    newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
+
+                insertMempool mempool CheckedInsert [cmd2]
+                bipContinued <- throwIfNoHistory =<< continueBlock bipStart pactQueue
+
+                insertMempool mempool CheckedInsert [cmd1]
+                bipFinal <- throwIfNoHistory =<< continueBlock bipContinued pactQueue
+
+                -- We must make progress on the same parent header
+                assertEqual "same parent header after continuing block"
+                    (_blockInProgressParentHeader bipStart)
+                    (_blockInProgressParentHeader bipContinued)
+                assertBool "made progress (1)"
+                    (bipStart /= bipContinued)
+                assertEqual "same parent header after finishing block"
+                    (_blockInProgressParentHeader bipContinued)
+                    (_blockInProgressParentHeader bipFinal)
+                assertBool "made progress (2)"
+                    (bipContinued /= bipFinal)
+
+                return $ blockInProgressToPayloadWithOutputs bipFinal
 
             pure ()
 
@@ -360,44 +345,59 @@ tests = do
 -}
 
 cid = unsafeChainId 0
-gh = genesisBlockHeader
 v = instantCpmTestVersion singletonChainGraph
 
 coinModuleName :: ModuleName
 coinModuleName = ModuleName "coin" Nothing
 
-mineEmptyBlock :: TestBlockDb -> ParentHeader -> PactQueue -> IO BlockHeader
-mineEmptyBlock tdb parent pactQueue = do
-    bip <- throwIfNotPact5 =<< newBlock noMiner NewBlockEmpty parent pactQueue
-    let pwo = blockInProgressToPayloadWithOutputs bip
-    creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-    let blockHeader = newBlockHeader mempty (_payloadWithOutputsPayloadHash pwo) (Nonce 1234) creationTime parent
-    pwo' <- validateBlock blockHeader (CheckablePayloadWithOutputs pwo) pactQueue
-    assertEqual "payloadWithOutputs are the same before and after validation" pwo pwo'
-    addTestBlockDb tdb (_blockHeight blockHeader) (Nonce 1234) (\_ _ -> (_bct creationTime)) cid pwo
-    pure blockHeader
+-- this mines a block on *all chains*. if you don't specify a payload on a chain,
+-- it adds empty blocks!
+advanceAllChains tdb pactQueue m =
+    forM_ (HashSet.toList (chainIds v)) $ \c -> do
+        ph <- getParentTestBlockDb tdb c
+        creationTime <- getCurrentTimeIntegral
+        let makeEmptyBlock ph = do
+                bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockEmpty (ParentHeader ph) pactQueue
+                return $! blockInProgressToPayloadWithOutputs bip
 
-throwIfNotPact5 :: Historical (ForSomePactVersion f) -> IO (f Pact5)
+        payload <- fromMaybe makeEmptyBlock (m ^? atChain cid) ph
+        True <- addTestBlockDb tdb
+            (succ $ _blockHeight ph)
+            (Nonce 0)
+            (\_ _ -> creationTime)
+            c
+            payload
+        ph' <- getParentTestBlockDb tdb c
+        payload' <- validateBlock ph' (CheckablePayloadWithOutputs payload) pactQueue
+        assertEqual "payloads must not be altered by validateBlock" payload payload'
+        return ()
+
+
+revert tdb q c = do
+    setCutTestBlockDb tdb c
+    forM_ (HashSet.toList (chainIds v)) $ \chain -> do
+        ph <- getParentTestBlockDb tdb chain
+        pactSyncToBlock ph q
+
+throwIfNotPact5 :: ForSomePactVersion f -> IO (f Pact5)
 throwIfNotPact5 h = case h of
-    NoHistory -> do
-        assertFailure "throwIfNotPact5: NoHistory"
-    Historical (ForSomePactVersion Pact4T _) -> do
+    ForSomePactVersion Pact4T _ -> do
         assertFailure "throwIfNotPact5: should be pact5"
-    Historical (ForSomePactVersion Pact5T a) -> do
+    ForSomePactVersion Pact5T a -> do
         pure a
 
-simpleTransfer :: TimeSpan Micros -> Double -> CmdBuilder
-simpleTransfer creationTime transferAmount = defaultCmd
+transferCmd :: Decimal -> CmdBuilder
+transferCmd transferAmount = defaultCmd
     { _cbRPC = mkExec' $ "(coin.transfer \"sender00\" \"sender01\" " <> sshow transferAmount <> ")"
     , _cbSigners =
         [ mkEd25519Signer' sender00
             [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
-            , CapToken (QualifiedName "TRANSFER" coinModuleName) [PString "sender00", PString "sender01", PDecimal 1_000_000_000]
+            , CapToken (QualifiedName "TRANSFER" coinModuleName) [PString "sender00", PString "sender01", PDecimal transferAmount]
             ]
         ]
     , _cbSender = "sender00"
     , _cbChainId = cid
-    , _cbGasPrice = GasPrice 2
+    -- for ordering the transactions as they appear in the block
+    , _cbGasPrice = GasPrice transferAmount
     , _cbGasLimit = GasLimit (Gas 1000)
-    , _cbCreationTime = Just (TxCreationTime $ fromIntegral $ timeSpanToSeconds creationTime)
     }

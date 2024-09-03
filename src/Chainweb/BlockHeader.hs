@@ -685,7 +685,7 @@ makeGenesisBlockHeaders v = HM.fromList [ (cid, makeGenesisBlockHeader v cid) | 
 
 makeGenesisBlockHeader :: ChainwebVersion -> ChainId -> BlockHeader
 makeGenesisBlockHeader v cid =
-    makeGenesisBlockHeader' v cid (_genesisTime (_versionGenesis v) ^?! onChain cid) (Nonce 0)
+    makeGenesisBlockHeader' v cid (_genesisTime (_versionGenesis v) ^?! atChain cid) (Nonce 0)
 
 -- this version does not rely on the genesis block headers, but just the version graphs
 genesisHeightSlow :: HasCallStack => ChainwebVersion -> ChainId -> BlockHeight
@@ -717,7 +717,7 @@ makeGenesisBlockHeader' v p ct@(BlockCreationTime t) n =
         $ mkFeatureFlags
         :+: ct
         :+: genesisParentBlockHash v cid
-        :+: (v ^?! versionGenesis . genesisBlockTarget . onChain cid)
+        :+: (v ^?! versionGenesis . genesisBlockTarget . atChain cid)
         :+: genesisBlockPayloadHash v cid
         :+: cid
         :+: BlockWeight 0

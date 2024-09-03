@@ -1335,7 +1335,7 @@ pact5CommandToBytes tx = Transaction
 
 pact5CommandResultToBytes :: Pact5.CommandResult Pact5.Hash TxFailedError -> TransactionOutput
 pact5CommandResultToBytes cr = TransactionOutput
-  { _transactionOutputBytes = traceShowId $
+  { _transactionOutputBytes =
     -- TODO: pact5, error codes
     J.encodeStrict (fmap (sshow @_ @Text) cr)
   }

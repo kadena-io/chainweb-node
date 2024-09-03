@@ -74,7 +74,7 @@ import Chainweb.Version
 import Chainweb.Utils.Rule
 
 getForkHeight :: Fork -> ChainwebVersion -> ChainId -> ForkHeight
-getForkHeight fork v cid = v ^?! versionForks . at fork . _Just . onChain cid
+getForkHeight fork v cid = v ^?! versionForks . at fork . _Just . atChain cid
 
 checkFork
     :: (BlockHeight -> ForkHeight -> Bool)

@@ -343,7 +343,7 @@ blockCoinV2RemediationTests _ envIo =
       _ -> assertFailure $ "coin v2 remediation block should have at least 3 transactions:"
            ++ " coinbase + 2 remediations"
   where
-    bhCoinV2Rem = v ^?! versionForks . at CoinV2 . _Just . onChain cid . _ForkAtBlockHeight . to getBlockHeight
+    bhCoinV2Rem = v ^?! versionForks . at CoinV2 . _Just . atChain cid . _ForkAtBlockHeight . to getBlockHeight
     req h = BlockReq nid $ PartialBlockId (Just h) Nothing
 
 block20ChainRemediationTests :: RosettaTest
@@ -418,7 +418,7 @@ blockCoinV3RemediationTests _ envIo =
       _ -> assertFailure $ "coin v3 remediation block should have at least 3 transactions:"
            ++ " coinbase + 2 remediations"
   where
-    bhCoinV3Rem = v ^?! versionForks . at Pact4Coin3 . _Just . onChain cid . _ForkAtBlockHeight . to getBlockHeight
+    bhCoinV3Rem = v ^?! versionForks . at Pact4Coin3 . _Just . atChain cid . _ForkAtBlockHeight . to getBlockHeight
     req h = BlockReq nid $ PartialBlockId (Just h) Nothing
 
 -- | Rosetta construction endpoints tests (i.e. tx formatting and submission)

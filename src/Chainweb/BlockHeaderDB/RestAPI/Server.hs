@@ -76,6 +76,7 @@ import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils.Paging
 import Chainweb.Version
+import Chainweb.Block
 
 -- -------------------------------------------------------------------------- --
 -- Handler Tools

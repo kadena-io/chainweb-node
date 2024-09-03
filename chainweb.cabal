@@ -133,6 +133,7 @@ library
     cc-options: -DSQLITE_CORE
     exposed-modules:
           Chainweb.Backup
+        , Chainweb.Block
         , Chainweb.BlockCreationTime
         , Chainweb.BlockHash
         , Chainweb.BlockHeader

@@ -141,10 +141,9 @@ pact5TransactionsFromPayload
     :: PayloadData
     -> IO (Vector Pact5.Transaction)
 pact5TransactionsFromPayload plData = do
-    vtrans <- fmap V.fromList $
-              mapM toCWTransaction $
+    vtrans <- mapM toCWTransaction $
               toList (_payloadDataTransactions plData)
-    let (theLefts, theRights) = partitionEithers $ V.toList vtrans
+    let (theLefts, theRights) = partitionEithers vtrans
     unless (null theLefts) $ do
         let ls = map T.pack theLefts
         throwM $ TransactionDecodeFailure $ "Failed to decode pact transactions: "
@@ -167,6 +166,7 @@ continueBlock
     -> BlockInProgress Pact5
     -> PactBlockM logger tbl (BlockInProgress Pact5)
 continueBlock mpAccess blockInProgress = do
+  pbBlockHandle .= _blockInProgressHandle blockInProgress
   liftPactServiceM $ logDebug "starting continueBlock"
   -- update the mempool, ensuring that we reintroduce any transactions that
   -- were removed due to being completed in a block on a different fork.
@@ -207,15 +207,18 @@ continueBlock mpAccess blockInProgress = do
     (V.fromList $ fmap pact5RequestKeyToTransactionHash $ concat invalids)
 
   let !blockInProgress' = blockInProgress
-        & blockInProgressHandle .~ finalBlockHandle
-        & blockInProgressTransactions . transactionPairs %~ (\txs -> txs <> V.fromList (concat $ reverse valids))
-        & blockInProgressRemainingGasLimit .~ finalGasLimit
+        & blockInProgressHandle .~
+          finalBlockHandle
+        & blockInProgressTransactions . transactionPairs .~
+          startTxs <> V.fromList (concat valids)
+        & blockInProgressRemainingGasLimit .~
+          finalGasLimit
 
   return blockInProgress'
 
   where
   blockParentHeader = _parentHeader $ _blockInProgressParentHeader blockInProgress
-  refill fetchLimit txTimeLimit = go [] []
+  refill fetchLimit txTimeLimit blockFillState = over _2 reverse <$> go [] [] blockFillState
     where
     go
       :: [CompletedTransactions] -> [InvalidTransactions]
@@ -239,7 +242,7 @@ continueBlock mpAccess blockInProgress = do
         else do
           -- all request keys from mempool
           -- badlist vs included
-          (newCompletedTransactions, newInvalidTransactions, newGasLimit, timedOut) <-
+          (newCompletedTransactions, newInvalidTransactions, newBlockGasLimit, timedOut) <-
             execNewTransactions (_blockInProgressMiner blockInProgress) prevRemainingGas txTimeLimit newTxs
           liftPactServiceM $ do
             logDebug $ "Refill: included request keys: " <> sshow @[Hash] (fmap (unRequestKey . _crReqKey . snd) newCompletedTransactions)
@@ -247,7 +250,7 @@ continueBlock mpAccess blockInProgress = do
 
           let newBlockFillState = BlockFill
                 { _bfCount = succ prevFillCount
-                , _bfGasLimit = newGasLimit
+                , _bfGasLimit = newBlockGasLimit
                 , _bfTxHashes =
                   flip
                     (foldr (S.insert . pact5RequestKeyToTransactionHash . view (_2 . Pact5.crReqKey)))

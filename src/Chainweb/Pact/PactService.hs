@@ -254,7 +254,7 @@ initialPayloadState
 initialPayloadState v cid
     | v ^. versionCheats . disablePact = pure ()
     | otherwise = initializeCoinContract v cid $
-        v ^?! versionGenesis . genesisBlockPayload . onChain cid
+        v ^?! versionGenesis . genesisBlockPayload . atChain cid
 
 initializeCoinContract
     :: forall tbl logger. (CanReadablePayloadCas tbl, Logger logger)

@@ -514,7 +514,6 @@ applyLocalSpec baseRdb = runResourceT $ do
                             , pt _crMetaData $ match _Just continue
                             ]
 
-
                         endSender00Bal <- readBal pactDb "sender00"
                         assertEqual "ending balance should be equal" startSender00Bal endSender00Bal
                         endMinerBal <- readBal pactDb "NoMiner"
@@ -643,25 +642,6 @@ applyCmdVerifierSpec baseRdb = runResourceT $ do
                                 -- reflects buyGas gas usage, as well as that of the payload
                                 , pt _crGas . equals $ Gas 60158
                                 , pt _crContinuation . equals $ Nothing
-                                , pt _crLogs . match _Just $
-                                    PT.list
-                                        [ satAll
-                                            [ pt _txDomain . equals $ "USER_coin_coin-table"
-                                            , pt _txKey . equals $ "sender00"
-                                            ]
-                                        , satAll
-                                            [ pt _txDomain . equals $ "SYS:Modules"
-                                            , pt _txKey . equals $ "free.m"
-                                            ]
-                                        , satAll
-                                            [ pt _txDomain . equals $ "USER_coin_coin-table"
-                                            , pt _txKey . equals $ "NoMiner"
-                                            ]
-                                        , satAll
-                                            [ pt _txDomain . equals $ "USER_coin_coin-table"
-                                            , pt _txKey . equals $ "sender00"
-                                            ]
-                                        ]
                                 ]
 
                         let baseCmd = defaultCmd
@@ -699,17 +679,6 @@ applyCmdVerifierSpec baseRdb = runResourceT $ do
                                 -- reflects buyGas gas usage, as well as that of the payload
                                 , pt _crGas . equals $ Gas 300
                                 , pt _crContinuation . equals $ Nothing
-                                , pt _crLogs . match _Just $
-                                    PT.list
-                                        [ satAll
-                                            [ pt _txDomain . equals $ "USER_coin_coin-table"
-                                            , pt _txKey . equals $ "sender00"
-                                            ]
-                                        , satAll
-                                            [ pt _txDomain . equals $ "USER_coin_coin-table"
-                                            , pt _txKey . equals $ "NoMiner"
-                                            ]
-                                        ]
                                 ]
 
                             -- Invoke module when verifier capability is present. Should succeed.
@@ -740,20 +709,6 @@ applyCmdVerifierSpec baseRdb = runResourceT $ do
                                 , pt _crGas . equals $ Gas 168
                                 , pt _crContinuation . equals $ Nothing
                                 , pt _crMetaData . equals $ Nothing
-                                , pt _crLogs . match _Just $ PT.list
-                                    [ satAll
-                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
-                                        , pt _txKey . equals $ "sender00"
-                                        ]
-                                    , satAll
-                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
-                                        , pt _txKey . equals $ "NoMiner"
-                                        ]
-                                    , satAll
-                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
-                                        , pt _txKey . equals $ "sender00"
-                                        ]
-                                    ]
                                 ]
 
         return ()

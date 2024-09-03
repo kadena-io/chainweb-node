@@ -467,7 +467,7 @@ applyCmd logger maybeGasLogger pactDb txCtx spv initialGas cmd = do
                 , _crTxId = _erTxId payloadResult
                 , _crResult =
                     -- TODO: don't use `last` here for GHC 9.10 compat
-                    PactResultOk $ compileValueToPactValue $ last $ traceShowId (_erOutput payloadResult)
+                    PactResultOk $ compileValueToPactValue $ last $ _erOutput payloadResult
                 , _crGas = gasUsed
                 , _crLogs = Just $ _erLogs buyGasResult <> _erLogs payloadResult <> _erLogs redeemGasResult
                 , _crContinuation = _erExec payloadResult
@@ -570,7 +570,7 @@ applyUpgrades
 applyUpgrades logger db txCtx
      | Just (ForPact5 upg) <- _chainwebVersion txCtx
           ^? versionUpgrades
-          . onChain (_chainId txCtx)
+          . atChain (_chainId txCtx)
           . ix (ctxCurrentBlockHeight txCtx)
          = applyUpgrade upg
      | otherwise = return ()
@@ -705,6 +705,8 @@ buyGas
   -> Command (Payload PublicMeta ParsedCode)
   -> IO (Either Pact5BuyGasError EvalResult)
 buyGas logger db txCtx cmd = do
+  logFunctionText logger L.Debug $
+    "buying gas for " <> sshow (_cmdHash cmd)
   -- TODO: use quirked gas?
   let gasPayerCaps =
         [ cap
@@ -795,6 +797,8 @@ redeemGas :: (Logger logger)
   -> IO (Either Pact5RedeemGasError EvalResult)
 redeemGas logger pactDb txCtx gasUsed maybeFundTxPactId cmd
     | isChainweb224Pact, Nothing <- maybeFundTxPactId = do
+      logFunctionText logger L.Debug $
+        "redeeming gas (post-2.24) for " <> sshow (_cmdHash cmd)
       -- if we're past chainweb 2.24, we don't use defpacts for gas; see 'pact/coin-contract/coin.pact#redeem-gas'
       let (redeemGasTerm, redeemGasData) = mkRedeemGasTerm mid mks sender gasTotal gasFee
 
@@ -817,6 +821,8 @@ redeemGas logger pactDb txCtx gasUsed maybeFundTxPactId cmd
             pure $ Right evalResult
 
     | not isChainweb224Pact, Just fundTxPactId <- maybeFundTxPactId = do
+      logFunctionText logger L.Debug $
+        "redeeming gas (pre-2.24) for " <> sshow (_cmdHash cmd)
       -- before chainweb 2.24, we use defpacts for gas; see: 'pact/coin-contract/coin.pact#fund-tx'
       let redeemGasData = PObject $ Map.singleton "fee" (PDecimal $ _pact5GasSupply gasFee)
       evalContinuation Transactional
