@@ -372,6 +372,7 @@ applyCmd
       -- ^ command with payload to execute
     -> IO (Either Pact5GasPurchaseFailure (CommandResult [TxLog ByteString] TxFailedError))
 applyCmd logger maybeGasLogger pactDb txCtx spv initialGas cmd = do
+  logDebug_ logger $ "applyCmd: " <> sshow (_cmdHash cmd)
   let flags = Set.fromList
         [ FlagDisableRuntimeRTC
         , FlagDisableHistoryInTransactionalMode
