@@ -100,7 +100,7 @@ prop_featureFlag v h = testCase ("Invalid feature flags fail validation for " <>
 -- The rule implements the correct property.
 --
 -- This is hard to test, since the rules themself are the respetive definition for
--- soundness of block headers. Testing this essentially means to to implementing
+-- soundness of block headers. Testing this essentially means to implementing
 -- the rule in anther way.
 
 -- -------------------------------------------------------------------------- --
