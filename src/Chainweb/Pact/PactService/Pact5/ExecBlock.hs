@@ -100,6 +100,8 @@ import qualified Pact.Core.Hash as Pact5
 import qualified Pact.Core.Evaluate as Pact5
 import qualified Pact.Core.Command.RPC as Pact5
 import qualified Chainweb.Pact4.Transaction as Pact4
+import System.LogLevel
+import qualified Data.Aeson as Aeson
 
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range. Rewards are calculated
@@ -280,6 +282,7 @@ continueBlock mpAccess blockInProgress = do
         env <- ask
         startBlockHandle <- use pbBlockHandle
         let p5RemainingGas = Pact5.GasLimit $ Pact5.Gas $ fromIntegral remainingGas
+        logger <- view (psServiceEnv . psLogger)
         ((txResults, timedOut), (finalBlockHandle, Identity finalRemainingGas)) <-
           liftIO $ flip runStateT (startBlockHandle, Identity p5RemainingGas) $ foldr
             (\tx rest -> StateT $ \s -> do
@@ -287,8 +290,15 @@ continueBlock mpAccess blockInProgress = do
                 (fromIntegral @Micros @Int timeLimit)
                 (runExceptT $ runStateT (applyPactCmd env miner tx) s)
               case m of
-                -- TODO: log?
-                Nothing -> return (([], True), s)
+                Nothing -> do
+                  logFunctionJson logger Warn $ Aeson.object
+                    [ "type" Aeson..= Aeson.String "newblock timeout"
+                    , "hash" Aeson..= Aeson.String (sshow (Pact5._cmdHash tx))
+                    , "payload" Aeson..= Aeson.String (
+                        T.decodeUtf8 $ SB.fromShort $ tx ^. Pact5.cmdPayload . Pact5.payloadBytes
+                        )
+                    ]
+                  return (([], True), s)
                 -- TODO: log?
                 Just (Left _err) -> do
                   ((as, timedOut), s') <- runStateT rest s
