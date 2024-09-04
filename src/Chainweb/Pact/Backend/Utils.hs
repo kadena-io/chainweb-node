@@ -494,7 +494,7 @@ commitBlockStateToDatabase db hsh bh blockHandle = do
 
 tbl :: HasCallStack => Utf8 -> Utf8
 tbl t@(Utf8 b)
-    | B8.elem ']' b = error $ "Chainweb.Pact.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
+    | B8.elem ']' b = error $ "Chainweb.Pact4.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
     | otherwise = "[" <> t <> "]"
 
 createVersionedTable :: Utf8 -> Database -> IO ()

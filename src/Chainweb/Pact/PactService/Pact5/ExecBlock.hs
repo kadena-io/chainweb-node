@@ -76,7 +76,7 @@ import System.Timeout
 import Data.Scientific
 import Data.Word
 import Data.Aeson(Value(..), toJSON)
-import Chainweb.Pact.Backend.ChainwebPactCoreDb (Pact5Db(doPact5DbTransaction))
+import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
 import Control.Monad.Except
 import Control.Applicative
 import Chainweb.Payload.PayloadStore
@@ -93,7 +93,7 @@ import qualified Data.Text.Encoding as T
 import Chainweb.Version.Guards
 import qualified Data.HashMap.Strict as HashMap
 import Data.Coerce
-import qualified Chainweb.Pact.Backend.ChainwebPactCoreDb as Pact5
+import qualified Chainweb.Pact5.Backend.ChainwebPactDb as Pact5
 import qualified Chainweb.Pact5.Validations as Pact5
 import qualified Data.ByteString.Short as SB
 import qualified Pact.Core.Hash as Pact5

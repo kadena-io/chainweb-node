@@ -88,7 +88,7 @@ import Chainweb.Version (ChainId, ChainwebVersion(..), unsafeChainId, chainIdToT
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Utils (chainIdsAt)
-import Chainweb.Pact.Backend.ChainwebPactDb
+import Chainweb.Pact4.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.PactState (getLatestBlockHeight, getLatestCommonBlockHeight, getEarliestCommonBlockHeight, ensureBlockHeightExists, getEndingTxId)
 import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
 

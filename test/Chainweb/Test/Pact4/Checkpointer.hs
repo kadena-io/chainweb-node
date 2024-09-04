@@ -55,7 +55,7 @@ import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.MerkleUniverse
-import Chainweb.Pact.Backend.ChainwebPactDb
+import Chainweb.Pact4.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.RelationalCheckpointer
 
 import Chainweb.Pact.Backend.Utils

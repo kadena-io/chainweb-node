@@ -116,7 +116,7 @@ import Data.Tree qualified as Tree
 import Hedgehog.Range qualified as Range
 import Pact.Core.PactDbRegression qualified as Pact.Core
 import Streaming.Prelude qualified as Stream
-import Chainweb.Pact.Backend.ChainwebPactCoreDb (Pact5Db(doPact5DbTransaction))
+import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
 
 coinModuleName :: ModuleName
 coinModuleName = ModuleName "coin" Nothing

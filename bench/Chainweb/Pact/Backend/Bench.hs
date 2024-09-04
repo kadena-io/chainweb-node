@@ -58,7 +58,7 @@ import Chainweb.Test.TestVersions
 import Chainweb.Utils.Bench
 import Chainweb.Utils (sshow)
 import Chainweb.Version
-import Chainweb.Pact.Backend.ChainwebPactDb (BlockEnv)
+import Chainweb.Pact4.Backend.ChainwebPactDb (BlockEnv)
 
 testVer :: ChainwebVersion
 testVer = instantCpmTestVersion petersonChainGraph

@@ -74,7 +74,7 @@ import Test.Tasty.Hedgehog
 import Text.Show.Pretty
 import Chainweb.Test.Pact5.Utils
 import Control.Monad.State
-import Chainweb.Pact.Backend.ChainwebPactCoreDb (Pact5Db(doPact5DbTransaction))
+import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
 import GHC.Stack
 
 -- | A @DbAction f@ is a description of some action on the database together with an f-full of results for it.

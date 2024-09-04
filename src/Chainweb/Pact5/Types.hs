@@ -56,7 +56,7 @@ import Pact.Core.Persistence
 import Pact.Core.Hash (Hash(unHash))
 import qualified Data.HashSet as HashSet
 import qualified Data.ByteString.Short as SB
-import Chainweb.Pact.Backend.ChainwebPactCoreDb (Pact5Db(..))
+import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(..))
 import qualified Pact.Core.Builtin as Pact5
 import Chainweb.Pact.Types
 import Pact.Core.Command.Types (RequestKey)

@@ -71,8 +71,8 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
-import qualified Chainweb.Pact.Backend.ChainwebPactDb as PactDb
-import qualified Chainweb.Pact.Backend.ChainwebPactCoreDb as Pact5
+import qualified Chainweb.Pact4.Backend.ChainwebPactDb as PactDb
+import qualified Chainweb.Pact5.Backend.ChainwebPactDb as Pact5
 
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Backend.DbCache
@@ -82,7 +82,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Guards
-import Chainweb.Pact.Backend.ChainwebPactDb (BlockState(_bsPendingBlock))
+import Chainweb.Pact4.Backend.ChainwebPactDb (BlockState(_bsPendingBlock))
 import Data.ByteString.Short (ShortByteString)
 import qualified Pact.Types.Persistence as Pact4
 import qualified Pact.Core.Builtin as Pact5

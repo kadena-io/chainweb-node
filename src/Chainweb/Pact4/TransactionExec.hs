@@ -161,7 +161,7 @@ import Pact.JSON.Encode (toJsonViaEncode)
 import Data.Set (Set)
 import Chainweb.Pact4.Types hiding (logError)
 import Chainweb.Pact4.ModuleCache
-import Chainweb.Pact.Backend.ChainwebPactDb
+import Chainweb.Pact4.Backend.ChainwebPactDb
 
 -- Note [Throw out verifier proofs eagerly]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

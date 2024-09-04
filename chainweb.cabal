@@ -300,8 +300,8 @@ library
         , P2P.TaskQueue
 
         -- pact
-        , Chainweb.Pact.Backend.ChainwebPactDb
-        , Chainweb.Pact.Backend.ChainwebPactCoreDb
+        , Chainweb.Pact4.Backend.ChainwebPactDb
+        , Chainweb.Pact5.Backend.ChainwebPactDb
         , Chainweb.Pact.Backend.DbCache
         , Chainweb.Pact.Backend.Compaction
         , Chainweb.Pact.Backend.PactState

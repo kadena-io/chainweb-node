@@ -111,7 +111,7 @@ import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpoin
 
 import Chainweb.Pact.PactService.Pact4.ExecBlock
 import Chainweb.Pact.PactService.Checkpointer
-import qualified Chainweb.Pact.Backend.ChainwebPactDb as Pact4
+import qualified Chainweb.Pact4.Backend.ChainwebPactDb as Pact4
 import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
 import Chainweb.Pact.Types
 import Chainweb.Pact.SPV
@@ -129,7 +129,7 @@ import Utils.Logging.Trace
 import Chainweb.Counter
 import qualified Chainweb.Pact.PactService.Pact4.ExecBlock as Pact4
 import qualified Chainweb.Pact4.Types as Pact4
-import qualified Chainweb.Pact.Backend.ChainwebPactCoreDb as Pact5
+import qualified Chainweb.Pact5.Backend.ChainwebPactDb as Pact5
 import qualified Pact.Core.Command.Types as Pact5
 import qualified Pact.Core.Hash as Pact5
 import qualified Data.ByteString.Short as SB

@@ -15,7 +15,7 @@
 {-# LANGUAGE BlockArguments #-}
 
 
-module Chainweb.Pact.Backend.ChainwebPactCoreDb
+module Chainweb.Pact5.Backend.ChainwebPactDb
     ( chainwebPactCoreBlockDb
     , Pact5Db(..)
     , BlockHandlerEnv(..)

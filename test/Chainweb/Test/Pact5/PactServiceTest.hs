@@ -33,7 +33,7 @@ import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse (ChainwebMerkleHashAlgorithm)
 import Chainweb.Miner.Pact
 import Chainweb.Miner.Pact (noMiner)
-import Chainweb.Pact.Backend.ChainwebPactCoreDb (Pact5Db (doPact5DbTransaction))
+import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db (doPact5DbTransaction))
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.SQLite.DirectV2 (close_v2)
 import Chainweb.Pact.Backend.Utils

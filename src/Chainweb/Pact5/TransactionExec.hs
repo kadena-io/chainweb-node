@@ -159,7 +159,7 @@ import Pact.Core.Command.Types
 import Data.ByteString (ByteString)
 import Pact.Core.Gas.TableGasModel (tableGasModel)
 import Pact.Core.Command.RPC
-import Chainweb.Pact.Backend.ChainwebPactCoreDb
+import Chainweb.Pact5.Backend.ChainwebPactDb
 import qualified Pact.Types.ChainId as Pact4
 import qualified Pact.Types.Gas as Pact4
 import qualified Pact.Parse as Pact4

@@ -11,14 +11,14 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
--- Module: Chainweb.Pact.Backend.ChainwebPactDb
+-- Module: Chainweb.Pact4.Backend.ChainwebPactDb
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
 --
 
-module Chainweb.Pact.Backend.ChainwebPactDb
+module Chainweb.Pact4.Backend.ChainwebPactDb
 ( chainwebPactDb
 , rewoundPactDb
 , rewindDbTo

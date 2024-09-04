@@ -104,7 +104,7 @@ import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards
-import Chainweb.Pact.Backend.ChainwebPactDb
+import Chainweb.Pact4.Backend.ChainwebPactDb
 import Data.Coerce
 import Data.Word
 import GrowableVector.Lifted (Vec)
