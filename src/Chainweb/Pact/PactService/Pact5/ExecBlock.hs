@@ -240,8 +240,6 @@ continueBlock mpAccess blockInProgress = do
           liftPactServiceM $ logDebug $ "Refill: no new transactions"
           pure stop
         else do
-          -- all request keys from mempool
-          -- badlist vs included
           (newCompletedTransactions, newInvalidTransactions, newBlockGasLimit, timedOut) <-
             execNewTransactions (_blockInProgressMiner blockInProgress) prevRemainingGas txTimeLimit newTxs
           liftPactServiceM $ do
