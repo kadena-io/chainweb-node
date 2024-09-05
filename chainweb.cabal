@@ -103,6 +103,7 @@ common warning-flags
         -Widentities
         -funclutter-valid-hole-fits
         -fmax-relevant-binds=0
+        -Wno-gadt-mono-local-binds
 
         -- This needed because -Werror and missing-home-modules causes
         -- problems with ghci.
@@ -122,7 +123,7 @@ custom-setup
 -- -------------------------------------------------------------------------- --
 
 library
-    import: debugging-flags
+    import: warning-flags, debugging-flags
     default-language: Haskell2010
     hs-source-dirs: src
     other-modules:
@@ -315,7 +316,6 @@ library
         , Chainweb.Pact.Backend.RelationalCheckpointer
         , Chainweb.Pact.Backend.SQLite.DirectV2
         , Chainweb.Pact.Backend.SQLite.V2
-        , Chainweb.Pact.Backend.Types
         , Chainweb.Pact.Backend.Utils
         , Chainweb.Pact.Conversion
         , Chainweb.Pact.PactService
@@ -492,7 +492,7 @@ library
 -- -------------------------------------------------------------------------- --
 
 test-suite chainweb-tests
-    import: debugging-flags
+    import: warning-flags, debugging-flags
     default-language: Haskell2010
     ghc-options:
         -threaded

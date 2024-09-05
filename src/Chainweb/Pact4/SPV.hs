@@ -84,7 +84,6 @@ import qualified Pact.Types.Hash as Pact4
 import qualified Pact.Types.PactValue as Pact4
 import qualified Pact.Types.Runtime as Pact4
 import qualified Pact.Types.SPV as Pact4
-import qualified Pact.Core.SPV as Pact5
 
 catchAndDisplaySPVError :: BlockHeader -> ExceptT Text IO a -> ExceptT Text IO a
 catchAndDisplaySPVError bh =

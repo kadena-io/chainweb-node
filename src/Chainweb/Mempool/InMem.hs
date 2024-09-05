@@ -29,11 +29,9 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.DeepSeq
 import Control.Error.Util (hush)
-import Control.Exception (bracket, evaluate, mask_, throw)
+import Control.Exception (evaluate, mask_, throw)
 import Control.Monad
 
-import Data.Aeson
-import Data.Bifunctor (bimap)
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
 import Data.Foldable (foldl', foldlM)
@@ -540,16 +538,16 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
         let !psq'' = V.foldl' ins (HashMap.union seen psq') out
         writeIORef (_inmemPending mdata) $! force psq''
         writeIORef (_inmemBadMap mdata) $! force badmap'
-        mout <- V.thaw $ V.map (\(_, (_, t, to)) -> (t, to)) out
+        mout <- V.thaw $ V.map (\(_, (_, t, tOut)) -> (t, tOut)) out
         TimSort.sortBy (compareOnGasPrice txcfg `on` fst) mout
         fmap snd <$> V.unsafeFreeze mout
 
   where
 
     filterSeen :: PendingMap -> T2 PendingMap (HashMap TransactionHash PendingEntry)
-    filterSeen p = HashMap.foldlWithKey' go (T2 mempty mempty) p
+    filterSeen p = HashMap.foldlWithKey' loop (T2 mempty mempty) p
       where
-        go (T2 unseens seens) k v =
+        loop (T2 unseens seens) k v =
           if S.member k txHashes
           then T2 unseens (HashMap.insert k v seens)
           else T2 (HashMap.insert k v unseens) seens
@@ -595,7 +593,7 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
         let !oks = V.zipWith (\ok1 ok2 -> ok1 <* ok2) oks1 oks2
         let (bad1, good) =
               partitionEithers
-                [ either (\_err -> Left (txHash, t)) (\to -> Right (txHash, (bytes, t, to))) r
+                [ either (\_err -> Left (txHash, t)) (\tOut -> Right (txHash, (bytes, t, tOut))) r
                 | ((txHash, (bytes, t)), r) <- V.toList (V.zip q oks)
                 ]
         logFunctionText logg Debug $ "validateBatch badlisting: " <> sshow (map fst bad1)

@@ -26,10 +26,8 @@ import "base" Data.Function
 import "base" Data.Word (Word64)
 import "base" GHC.Generics (Generic)
 import "bytestring" Data.ByteString.Char8 (ByteString)
-import "bytestring" Data.ByteString.Char8 qualified as B
 import "bytestring" Data.ByteString.Short qualified as SB
 import "deepseq" Control.DeepSeq
-import "hashable" Data.Hashable
 import "lens" Control.Lens
 import "pact" Pact.Parse qualified as Pact4
 import "pact" Pact.Types.Capability qualified as Pact4
@@ -53,14 +51,12 @@ import "pact-tng" Pact.Core.ChainData
 import "pact-tng" Pact.Core.Command.Crypto
 import "pact-tng" Pact.Core.Command.RPC
 import "pact-tng" Pact.Core.Command.Types
-import "pact-tng" Pact.Core.Evaluate
 import "pact-tng" Pact.Core.Gas.Types
 import "pact-tng" Pact.Core.Hash
 import "pact-tng" Pact.Core.Names
 import "pact-tng" Pact.Core.PactValue
 import "pact-tng" Pact.Core.SPV
 import "pact-tng" Pact.Core.StableEncoding
-import "pact-tng" Pact.Core.Syntax.ParseTree
 import "pact-tng" Pact.Core.Verifiers
 import "pact-tng" Pact.Core.Verifiers qualified as Pact5
 import "pact-tng" Pact.Core.Signer
@@ -69,7 +65,6 @@ import "text" Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Chainweb.Pact.Conversion
 import Chainweb.Pact4.Transaction qualified as Pact4
 import Chainweb.Utils
-import Chainweb.Utils.Serialization
 
 type Transaction = Command (PayloadWithText PublicMeta ParsedCode)
 
@@ -229,7 +224,7 @@ fromPact4Command cmd4 = Command
       | otherwise = fromIntegral i
 
     fromPact4GasLimit :: Pact4.GasLimit -> GasLimit
-    fromPact4GasLimit (Pact4.GasLimit pi) = GasLimit (Gas (fromPact4ParsedInteger pi))
+    fromPact4GasLimit (Pact4.GasLimit i) = GasLimit (Gas (fromPact4ParsedInteger i))
 
     fromPact4GasPrice :: Pact4.GasPrice -> GasPrice
     fromPact4GasPrice (Pact4.GasPrice (Pact4.ParsedDecimal d)) = GasPrice d
@@ -238,7 +233,7 @@ fromPact4Command cmd4 = Command
     fromPact4TTLSeconds (Pact4.TTLSeconds (Pact4.ParsedInteger i)) = TTLSeconds i
 
     fromPact4TxCreationTime :: Pact4.TxCreationTime -> TxCreationTime
-    fromPact4TxCreationTime (Pact4.TxCreationTime (Pact4.ParsedInteger pi)) = TxCreationTime pi
+    fromPact4TxCreationTime (Pact4.TxCreationTime (Pact4.ParsedInteger i)) = TxCreationTime i
 
 -- decodePayload
 --     :: ByteString

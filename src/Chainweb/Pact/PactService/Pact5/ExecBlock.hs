@@ -26,13 +26,11 @@ import "semialign" Data.Zip (align)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool(TransactionHash(..), BlockFill (..), pact5RequestKeyToTransactionHash, InsertError (..))
+import Chainweb.Mempool.Mempool(BlockFill (..), pact5RequestKeyToTransactionHash, InsertError (..))
 import Chainweb.Miner.Pact
 import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
 import Chainweb.Pact5.SPV qualified as Pact5
 import Chainweb.Pact.Types
-import Chainweb.Pact.Types hiding (ctxCurrentBlockHeight, TxContext(..))
-import Chainweb.Pact5.NoCoinbase
 import Chainweb.Pact5.Transaction
 import Chainweb.Pact5.TransactionExec
 import Chainweb.Pact5.Types
@@ -43,130 +41,55 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Guards
 import Chronos qualified
-import Control.Applicative
-import Control.Concurrent (myThreadId, killThread, threadDelay, forkIOWithUnmask, rtsSupportsBoundThreads, throwTo, yield)
-import Control.Concurrent.MVar (newEmptyMVar, isEmptyMVar, putMVar, tryPutMVar, takeMVar, tryTakeMVar)
 import Control.DeepSeq
-import Control.Exception (Exception(..), handleJust, bracket, uninterruptibleMask_, asyncExceptionToException, asyncExceptionFromException)
 import Control.Exception (evaluate)
-import Control.Exception.Safe (throwM)
 import Control.Lens
 import Control.Monad
-import Control.Monad (when, void)
 import Control.Monad.Except
 import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-import Data.Aeson(Value(..), toJSON)
 import Data.Aeson.Encode.Pretty qualified as A
-import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Data.ByteString.Builder qualified as BB
 import Data.Coerce
 import Data.Decimal
-import Data.Default
 import Data.Either (partitionEithers)
 import Data.Foldable
 import Data.Map qualified as Map
 import Data.Maybe
-import Data.Maybe (catMaybes, fromMaybe, listToMaybe)
-import Data.Scientific
 import Data.Text qualified as T
 import Data.These (These(..))
-import Data.Unique (Unique, newUnique)
 import Data.Vector (Vector)
 import Data.Vector qualified as V
 import Data.Void
 import Data.Word
-import GHC.Event (getSystemTimerManager, registerTimeout, unregisterTimeout)
 import Numeric.Natural
-import Pact.Core.Builtin
 import Pact.Core.ChainData hiding (ChainId)
-import Pact.Core.ChainData qualified as Pact5
 import Pact.Core.Command.Types (CommandResult(..), RequestKey(..))
 import Pact.Core.Command.Types qualified as Pact5
 import Pact.Core.Persistence qualified as Pact5
 import Pact.Core.StableEncoding qualified as Pact5
 import Pact.Core.Hash
-import Chainweb.Pact5.NoCoinbase
-import Control.Lens
-import Chainweb.Version
-import Data.Default
-import Control.Monad.IO.Class
-import Chainweb.BlockHeight
-import Data.Map qualified as Map
-import Chainweb.Utils
-import Numeric.Natural
-import Chainweb.Pact5.TransactionExec
-import Chainweb.Pact5.Types
-import Data.Vector qualified as V
-import Data.Foldable
-import Data.Either (partitionEithers)
-import Control.Monad
-import Data.Text qualified as T
 import Control.Exception.Safe
-import Control.Exception (evaluate)
-import Control.DeepSeq
-import Chainweb.Time
 import qualified Pact.Core.Gas as Pact5
-import Control.Monad.State.Strict
-import Pact.Core.Errors
-import Pact.Core.Evaluate (Info)
-import Pact.Core.Hash
-import Pact.Core.Names
-import Pact.Core.Persistence qualified as Pact5
-import Pact.Core.SPV
-import Pact.Core.StableEncoding
-import Pact.Core.ChainData hiding (ChainId)
-import Pact.Core.SPV
 import qualified Pact.JSON.Encode as J
-import Pact.Core.Names
-import Pact.Core.Builtin
-import Chainweb.Mempool.Mempool(TransactionHash(..), BlockFill (..), pact5RequestKeyToTransactionHash, InsertError (..))
 import System.Timeout
-import Data.Scientific
-import Data.Word
-import Data.Aeson(Value(..), toJSON)
-import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
-import Control.Monad.Except
-import Control.Applicative
-import Chainweb.Payload.PayloadStore
-import Chainweb.Pact4.SPV qualified as Pact4
-import Control.Monad.Reader
-import System.LogLevel (LogLevel(..))
-import Unsafe.Coerce (unsafeCoerce)
 import Utils.Logging.Trace
 import qualified Data.Set as S
 import qualified Pact.Types.Gas as Pact4
 import qualified Pact.Core.Gas as P
 import qualified Data.Aeson as A
-import Data.Maybe (catMaybes)
 import qualified Data.Text.Encoding as T
-import Chainweb.Version.Guards
 import qualified Data.HashMap.Strict as HashMap
-import Data.Coerce
 import qualified Chainweb.Pact5.Backend.ChainwebPactDb as Pact5
 import qualified Chainweb.Pact4.Transaction as Pact4
 import qualified Chainweb.Pact5.Transaction as Pact5
 import qualified Chainweb.Pact5.Validations as Pact5
-import qualified Data.Aeson as A
 import qualified Data.ByteString.Short as SB
-import qualified Data.HashMap.Strict as HashMap
-import qualified Data.Set as S
-import qualified Data.Text.Encoding as T
-import qualified Pact.Core.Command.RPC as Pact5
-import qualified Pact.Core.Evaluate as Pact5
-import qualified Pact.Core.Gas as P
-import qualified Pact.Core.Gas as Pact5
 import qualified Pact.Core.Hash as Pact5
-import qualified Pact.Core.Evaluate as Pact5
-import qualified Pact.Core.Command.RPC as Pact5
-import qualified Chainweb.Pact4.Transaction as Pact4
 import System.LogLevel
 import qualified Data.Aeson as Aeson
-import qualified Pact.JSON.Encode as J
-import qualified Pact.Types.Gas as Pact4
 
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range. Rewards are calculated
@@ -220,11 +143,6 @@ pact5TransactionsFromPayload plData = do
     toCWTransaction bs =
       evaluate (force (codecDecode payloadCodec $ _transactionBytes bs))
 
-data CommandInvalidError
-  = CommandInvalidGasPurchaseFailure !Pact5GasPurchaseFailure
-  | CommandInvalidTxTimeout !TransactionHash
-  | CommandInvalidBlockGasLimitExceeded
-
 -- | Continue adding transactions to an existing block.
 continueBlock
     :: forall logger tbl
@@ -240,26 +158,26 @@ continueBlock mpAccess blockInProgress = do
     mpaProcessFork mpAccess blockParentHeader
     mpaSetLastHeader mpAccess $ blockParentHeader
   liftPactServiceM $
-    logInfo $ T.unwords
+    logInfoPact $ T.unwords
         [ "(parent height = " <> sshow (_blockHeight blockParentHeader) <> ")"
         , "(parent hash = " <> sshow (_blockHash blockParentHeader) <> ")"
         ]
 
   blockGasLimit <- view (psServiceEnv . psBlockGasLimit)
   mTxTimeLimit <- view (psServiceEnv . psTxTimeLimit)
-  let txTimeHeadroomFactor = 5
+  let txTimeHeadroomFactor :: Double
+      txTimeHeadroomFactor = 5
   let txTimeLimit :: Micros
       -- 2.5 us per unit gas
       txTimeLimit = fromMaybe (round $ 2.5 * txTimeHeadroomFactor * fromIntegral blockGasLimit) mTxTimeLimit
   liftPactServiceM $ do
-    logDebug $ T.unwords
+    logDebugPact $ T.unwords
         [ "Block gas limit:"
         , sshow blockGasLimit <> ","
         , "Transaction time limit:"
         , sshow txTimeLimit
         ]
 
-  let cb = _transactionCoinbase (_blockInProgressTransactions blockInProgress)
   let startTxs = _transactionPairs (_blockInProgressTransactions blockInProgress)
   let startTxsRequestKeys =
         foldMap' (S.singleton . pact5RequestKeyToTransactionHash . view Pact5.crReqKey . snd) startTxs
@@ -271,7 +189,7 @@ continueBlock mpAccess blockInProgress = do
 
   let fetchLimit = fromIntegral $ blockGasLimit `div` 1000
 
-  (BlockFill { _bfTxHashes = requestKeys, _bfGasLimit = finalGasLimit }, valids, invalids) <-
+  (BlockFill { _bfGasLimit = finalGasLimit }, valids, invalids) <-
     refill fetchLimit txTimeLimit initState
 
   finalBlockHandle <- use pbBlockHandle
@@ -279,7 +197,7 @@ continueBlock mpAccess blockInProgress = do
   liftIO $ mpaBadlistTx mpAccess
     (V.fromList $ fmap pact5RequestKeyToTransactionHash $ concat invalids)
 
-  liftPactServiceM $ logDebug $ "Order of completed transactions: " <> sshow (map (unRequestKey . _crReqKey . snd) $ concat $ reverse valids)
+  liftPactServiceM $ logDebugPact $ "Order of completed transactions: " <> sshow (map (unRequestKey . _crReqKey . snd) $ concat $ reverse valids)
   let !blockInProgress' = blockInProgress
         & blockInProgressHandle .~
           finalBlockHandle
@@ -288,7 +206,7 @@ continueBlock mpAccess blockInProgress = do
         & blockInProgressRemainingGasLimit .~
           finalGasLimit
 
-  liftPactServiceM $ logDebug $ "Final block transaction order: " <> sshow (fmap (unRequestKey . _crReqKey . snd) $ _transactionPairs (_blockInProgressTransactions blockInProgress'))
+  liftPactServiceM $ logDebugPact $ "Final block transaction order: " <> sshow (fmap (unRequestKey . _crReqKey . snd) $ _transactionPairs (_blockInProgressTransactions blockInProgress'))
 
   return blockInProgress'
 
@@ -304,7 +222,7 @@ continueBlock mpAccess blockInProgress = do
     go completedTransactions invalidTransactions prevBlockFillState@BlockFill
       { _bfGasLimit = prevRemainingGas, _bfCount = prevFillCount, _bfTxHashes = prevTxHashes }
       | prevFillCount > fetchLimit = liftPactServiceM $ do
-        logInfo $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
+        logInfoPact $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
         pure stop
       | prevRemainingGas < 0 =
         throwM $ MempoolFillFailure $ "Internal error, negative gas limit: " <> sshow prevBlockFillState
@@ -312,18 +230,18 @@ continueBlock mpAccess blockInProgress = do
         pure stop
       | otherwise = do
         newTxs <- getBlockTxs prevBlockFillState
-        liftPactServiceM $ logDebug $ "Refill: fetched transaction: " <> sshow (V.length newTxs)
+        liftPactServiceM $ logDebugPact $ "Refill: fetched transaction: " <> sshow (V.length newTxs)
         if V.null newTxs
         then do
-          liftPactServiceM $ logDebug $ "Refill: no new transactions"
+          liftPactServiceM $ logDebugPact $ "Refill: no new transactions"
           pure stop
         else do
           (newCompletedTransactions, newInvalidTransactions, newBlockGasLimit, timedOut) <-
             execNewTransactions (_blockInProgressMiner blockInProgress) prevRemainingGas txTimeLimit newTxs
 
           liftPactServiceM $ do
-            logDebug $ "Refill: included request keys: " <> sshow @[Hash] (fmap (unRequestKey . _crReqKey . snd) newCompletedTransactions)
-            logDebug $ "Refill: badlisted request keys: " <> sshow @[Hash] (fmap unRequestKey newInvalidTransactions)
+            logDebugPact $ "Refill: included request keys: " <> sshow @[Hash] (fmap (unRequestKey . _crReqKey . snd) newCompletedTransactions)
+            logDebugPact $ "Refill: badlisted request keys: " <> sshow @[Hash] (fmap unRequestKey newInvalidTransactions)
 
           let newBlockFillState = BlockFill
                 { _bfCount = succ prevFillCount
@@ -382,10 +300,10 @@ continueBlock mpAccess blockInProgress = do
                     "applyCmd failed to buy gas " <> sshow err
                   ((as, timedOut), s') <- runStateT rest s
                   return ((Left (Pact5._cmdHash tx):as, timedOut), s')
-                Just (Right (a, s)) -> do
+                Just (Right (a, s')) -> do
                   logFunctionText logger Debug "applyCmd buy gas succeeded"
-                  ((as, timedOut), s') <- runStateT rest s
-                  return ((Right (tx, a):as, timedOut), s')
+                  ((as, timedOut), s'') <- runStateT rest s'
+                  return ((Right (tx, a):as, timedOut), s'')
               )
               (return ([], False))
               txs
@@ -430,7 +348,7 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
   let alteredTx = (view payloadObj <$> tx) & Pact5.cmdPayload . Pact5.pMeta . pmGasLimit %~ maybe id min (blockGasRemaining ^? traversed)
   -- TODO: pact5 genesis
   resultOrGasError <- liftIO $ runReaderT
-    (unsafeApplyPactCmd False miner blockHandle
+    (unsafeApplyPactCmd False blockHandle
       (initialGasOf (tx ^. Pact5.cmdPayload))
       alteredTx)
     env
@@ -464,7 +382,6 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
   unsafeApplyPactCmd
     :: (Logger logger)
     => Bool
-    -> Miner
     -> BlockHandle
     -> Pact5.Gas
     -> Pact5.Command (Pact5.Payload PublicMeta Pact5.ParsedCode)
@@ -473,11 +390,10 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
       IO
       (Either Pact5GasPurchaseFailure
         (Pact5.CommandResult [Pact5.TxLog ByteString] TxFailedError, BlockHandle))
-  unsafeApplyPactCmd isGenesis miner blockHandle initialGas cmd
+  unsafeApplyPactCmd isGenesis blockHandle initialGas cmd
     | isGenesis = error "pact5 does not support genesis"
     | otherwise = do
-      txFailuresCounter <- view (psServiceEnv . psTxFailuresCounter)
-      v <- view chainwebVersion
+      _txFailuresCounter <- view (psServiceEnv . psTxFailuresCounter)
       logger <- view (psServiceEnv . psLogger)
       gasLogger <- view (psServiceEnv . psGasLogger)
       dbEnv <- view psBlockDbEnv
@@ -494,13 +410,14 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
     computeTrace (Left gasPurchaseFailure, _) = Aeson.object
       [ "result" Aeson..= Aeson.String "gas purchase failure"
       , "hash" Aeson..= J.toJsonViaEncode (Pact5._cmdHash cmd)
+      , "error" Aeson..= Aeson.String (sshow gasPurchaseFailure)
       ]
     computeTrace (Right result, _) = Aeson.object
-      [ "gas" Aeson..= J.toJsonViaEncode (Pact5._crGas result)
+      [ "gas" Aeson..= Pact5._gas (Pact5._crGas result)
       , "result" Aeson..= Aeson.String (case Pact5._crResult result of
-        Pact5.PactResultOk pv ->
+        Pact5.PactResultOk _ ->
           "success"
-        Pact5.PactResultErr e ->
+        Pact5.PactResultErr _ ->
           "failure"
         )
       , "hash" Aeson..= J.toJsonViaEncode (Pact5._cmdHash cmd)
@@ -524,59 +441,54 @@ validateParsedChainwebTx
     -> (Pact5.Transaction -> ExceptT InsertError IO ())
     -> Pact5.Transaction
     -> ExceptT InsertError IO ()
-validateParsedChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas tx
+validateParsedChainwebTx _logger v cid dbEnv txValidationTime bh doBuyGas tx
   | bh == genesisHeight v cid = pure ()
   | otherwise = do
       checkUnique tx
       checkTxHash tx
       checkTxSigs tx
       checkTimes tx
+      doBuyGas tx
       return ()
   where
 
-    checkUnique :: Pact5.Transaction -> ExceptT InsertError IO Pact5.Transaction
+    checkUnique :: Pact5.Transaction -> ExceptT InsertError IO ()
     checkUnique t = do
       found <- liftIO $
         HashMap.lookup (coerce $ Pact5._cmdHash t) <$>
           Pact5.lookupPactTransactions dbEnv
             (V.singleton $ coerce $ Pact5._cmdHash t)
       case found of
-        Nothing -> pure t
+        Nothing -> pure ()
         Just _ -> throwError InsertErrorDuplicate
 
-    checkTimes :: Pact5.Transaction -> ExceptT InsertError IO Pact5.Transaction
+    checkTimes :: Pact5.Transaction -> ExceptT InsertError IO ()
     checkTimes t = do
-        if | skipTxTimingValidation v cid bh -> do
-               pure t
+        if | skipTxTimingValidation v cid bh -> pure ()
            | not (Pact5.assertTxNotInFuture txValidationTime (view Pact5.payloadObj <$> t)) -> do
-
-               --(_parentCreationTime txValidationTime, _creationTime . view Pact5.payloadObj <$> t)
                throwError InsertErrorTimeInFuture
            | not (Pact5.assertTxTimeRelativeToParent txValidationTime (view Pact5.payloadObj <$> t)) -> do
                throwError InsertErrorTTLExpired
            | otherwise -> do
-               pure t
+               pure ()
 
-    checkTxHash :: Pact5.Transaction -> ExceptT InsertError IO Pact5.Transaction
+    checkTxHash :: Pact5.Transaction -> ExceptT InsertError IO ()
     checkTxHash t = do
         case Pact5.verifyHash (Pact5._cmdHash t) (SB.fromShort $ view Pact5.payloadBytes $ Pact5._cmdPayload t) of
             Left _
                 | doCheckTxHash v cid bh -> throwError InsertErrorInvalidHash
-                | otherwise -> do
-                    pure t
-            Right _ -> pure t
+                | otherwise -> pure ()
+            Right _ -> pure ()
 
 
-    checkTxSigs :: Pact5.Transaction -> ExceptT InsertError IO Pact5.Transaction
+    checkTxSigs :: Pact5.Transaction -> ExceptT InsertError IO ()
     checkTxSigs t = do
-      if | Pact5.assertValidateSigs hsh signers sigs -> pure t
+      if | Pact5.assertValidateSigs hsh signers sigs -> pure ()
          | otherwise -> throwError InsertErrorInvalidSigs
       where
         hsh = Pact5._cmdHash t
         sigs = Pact5._cmdSigs t
         signers = Pact5._pSigners $ view Pact5.payloadObj $ Pact5._cmdPayload t
-        validSchemes = validPPKSchemes v cid bh
-        webAuthnPrefixLegal = isWebAuthnPrefixLegal v cid bh
 
 validateRawChainwebTx
     :: (Logger logger)
@@ -591,11 +503,11 @@ validateRawChainwebTx
     -> (Pact5.Transaction -> ExceptT InsertError IO ())
     -> Pact4.UnparsedTransaction
     -> ExceptT InsertError IO Pact5.Transaction
-validateRawChainwebTx logger v cid db parentTime bh buyGas tx = do
+validateRawChainwebTx logger v cid db parentTime bh maybeBuyGas tx = do
   tx' <- either (throwError . InsertErrorPactParseError . sshow) return $ Pact5.parsePact4Command tx
   liftIO $ do
     logDebug_ logger $ "validateRawChainwebTx: parse succeeded"
-  validateParsedChainwebTx logger v cid db parentTime bh buyGas tx'
+  validateParsedChainwebTx logger v cid db parentTime bh maybeBuyGas tx'
   return tx'
 
 execExistingBlock
@@ -609,21 +521,21 @@ execExistingBlock currHeader payload = do
   miner :: Miner <- decodeStrictOrThrow (_minerData $ _payloadDataMiner plData)
   txs <- liftIO $ pact5TransactionsFromPayload plData
   logger <- view (psServiceEnv . psLogger)
-  gasLogger <- view (psServiceEnv . psGasLogger)
+  -- TODO: Pact5
+  _gasLogger <- view (psServiceEnv . psGasLogger)
   v <- view chainwebVersion
   cid <- view chainId
   db <- view psBlockDbEnv
   -- TODO: pact5 genesis
   let
     txValidationTime = ParentCreationTime (_blockCreationTime $ _parentHeader parentBlockHeader)
-    -- TODO: pact5 test for validation
-  valids <- liftIO $ traverse (runExceptT . validateParsedChainwebTx logger v cid db txValidationTime (_blockHeight currHeader) (\_ -> pure ())) txs
+    -- TODO: pact5 use this
+  _valids <- liftIO $ traverse (runExceptT . validateParsedChainwebTx logger v cid db txValidationTime (_blockHeight currHeader) (\_ -> pure ())) txs
 
   coinbaseResult <- runPact5Coinbase miner >>= \case
     Left err -> throwM $ CoinbaseFailure (Pact5CoinbaseFailure err)
     Right r -> return (absurd <$> r)
 
-  v <- view chainwebVersion
   let blockGasLimit =
         Pact5.GasLimit . Pact5.Gas . fromIntegral <$> maxBlockGasLimit v (_blockHeight currHeader)
 
@@ -684,8 +596,8 @@ validateHashes bHeader payload miner transactions =
 
     -- The following JSON encodings are used in the BlockValidationFailure message
 
-    check :: (Eq a, A.ToJSON a) => T.Text -> [Maybe J.KeyValue] -> a -> a -> Maybe J.Builder
-    check desc extra expect actual
+    checkWithMsg :: (Eq a, A.ToJSON a) => T.Text -> [Maybe J.KeyValue] -> a -> a -> Maybe J.Builder
+    checkWithMsg desc extra expect actual
         | expect == actual = Nothing
         | otherwise = Just $ J.object
             $ "mismatch" J..= errorMsg desc expect actual
@@ -699,20 +611,20 @@ validateHashes bHeader payload miner transactions =
         ]
 
     checkEncode :: (Eq a, J.Encode a) => T.Text -> Word -> [Maybe J.KeyValue] -> These a a -> Maybe J.Builder
-    checkEncode desc index extra = \case
+    checkEncode desc idx extra = \case
         This expect -> Just $ J.object
             $ "mismatch" J..= errorMsgEncode desc expect (Nothing @Bool)
-            : "index" J..= sshow @_ @T.Text index
+            : "index" J..= sshow @_ @T.Text idx
             : extra
         That actual -> Just $ J.object
             $ "mismatch" J..= errorMsgEncode desc (Nothing @Bool) actual
-            : "index" J..= sshow @_ @T.Text index
+            : "index" J..= sshow @_ @T.Text idx
             : extra
         These expect actual -> do
           guard (expect /= actual)
           Just $ J.object
             $ "mismatch" J..= errorMsgEncode desc expect actual
-            : "index" J..= sshow @_ @T.Text index
+            : "index" J..= sshow @_ @T.Text idx
             : extra
 
     errorMsgEncode :: (J.Encode a, J.Encode b) => T.Text -> a -> b -> J.Builder
@@ -722,8 +634,8 @@ validateHashes bHeader payload miner transactions =
       , "expected" J..= J.build expect
       ]
 
-    encodeTuple :: (J.Encode a, J.Encode b) => (a, b) -> J.Array [J.Builder]
-    encodeTuple (a, b) = J.Array [J.build a, J.build b]
+    encodeTuple :: (J.Encode a, J.Encode b) => (a, b) -> J.Array [T.Text]
+    encodeTuple (a, b) = J.Array [J.encodeText a, J.encodeText b]
 
     transactionBytesToCommand :: Chainweb.Payload.Transaction -> Pact5.Command T.Text
     transactionBytesToCommand txBytes = case A.decodeStrict' @(Pact5.Command T.Text) (_transactionBytes txBytes) of
@@ -737,11 +649,11 @@ validateHashes bHeader payload miner transactions =
 
     details = case payload of
         CheckablePayload pData -> J.Array $ catMaybes
-            [ check "Miner"
+            [ checkWithMsg "Miner"
                 []
                 (_payloadDataMiner pData)
                 (_payloadWithOutputsMiner pwo)
-            , check "TransactionsHash"
+            , checkWithMsg "TransactionsHash"
                 [ "txs" J..=
                     (J.array $ catMaybes $ map (\(i, tx) -> checkEncode "Tx" i [] tx) $ zip [0..] (align
                       (toList $ fmap (transactionBytesToCommand . fst) $ _payloadWithOutputsTransactions pwo)
@@ -750,7 +662,7 @@ validateHashes bHeader payload miner transactions =
                 ]
                 (_payloadDataTransactionsHash pData)
                 (_payloadWithOutputsTransactionsHash pwo)
-            , check "OutputsHash"
+            , checkWithMsg "OutputsHash"
                 [ "outputs" J..= J.object
                     [ "coinbase" J..= toPairCR (_transactionCoinbase transactions)
                     , "txs" J..= J.array (addTxOuts <$> _transactionPairs transactions)
@@ -761,7 +673,7 @@ validateHashes bHeader payload miner transactions =
             ]
 
         CheckablePayloadWithOutputs localPwo -> J.Array $ catMaybes
-            [ check "Miner"
+            [ checkWithMsg "Miner"
                 []
                 (_payloadWithOutputsMiner localPwo)
                 (_payloadWithOutputsMiner pwo)
@@ -773,7 +685,7 @@ validateHashes bHeader payload miner transactions =
                         (toList $ fmap (encodeTuple . bimap transactionBytesToCommand transactionOutputsToCommandResult) $ _payloadWithOutputsTransactions localPwo)
                       ))
                   , "coinbase" J..=
-                      check "Coinbase" []
+                      checkWithMsg "Coinbase" []
                         (_payloadWithOutputsCoinbase pwo)
                         (_payloadWithOutputsCoinbase localPwo)
                   ]
@@ -790,47 +702,47 @@ validateHashes bHeader payload miner transactions =
         (CRLogPair (fromJuste $ Pact5._crLogs (hashPact5TxLogs cr))) cr
 
 -- Gross hack
-instance Eq J.Builder where
-  a == b = BB.toLazyByteString (unsafeCoerce @_ @BB.Builder a) == BB.toLazyByteString (unsafeCoerce @_ @BB.Builder b)
+-- instance Eq J.Builder where
+--   a == b = BB.toLazyByteString (unsafeCoerce @_ @BB.Builder a) == BB.toLazyByteString (unsafeCoerce @_ @BB.Builder b)
 
--- This instance should exist in Pact
-instance J.Encode Pact5.PublicMeta where
-  build pm = J.object
-    [ "metaChainId" J..= _pmChainId pm
-    , "metaSender" J..= _pmSender pm
-    , "metaGasLimit" J..= _pmGasLimit pm
-    , "metaGasPrice" J..= _pmGasPrice pm
-    , "metaTTL" J..= _pmTTL pm
-    , "metaCreationTime" J..= _pmCreationTime pm
-    ]
+-- -- This instance should exist in Pact
+-- instance J.Encode Pact5.PublicMeta where
+--   build pm = J.object
+--     [ "metaChainId" J..= _pmChainId pm
+--     , "metaSender" J..= _pmSender pm
+--     , "metaGasLimit" J..= _pmGasLimit pm
+--     , "metaGasPrice" J..= _pmGasPrice pm
+--     , "metaTTL" J..= _pmTTL pm
+--     , "metaCreationTime" J..= _pmCreationTime pm
+--     ]
 
--- This instance should exist in Pact
-instance J.Encode Pact5.ChainId where
-  build = J.text . Pact5._chainId
+-- -- This instance should exist in Pact
+-- instance J.Encode Pact5.ChainId where
+--   build = J.text . Pact5._chainId
 
--- This instance should exist in Pact
-instance J.Encode Pact5.GasLimit where
-  build (Pact5.GasLimit gas) = J.build gas
+-- -- This instance should exist in Pact
+-- instance J.Encode Pact5.GasLimit where
+--   build (Pact5.GasLimit gas) = J.build gas
 
--- This instance should exist in Pact
-instance J.Encode Pact5.Gas where
-  build (Pact5.Gas gas) = J.number (fromIntegral gas)
+-- -- This instance should exist in Pact
+-- instance J.Encode Pact5.Gas where
+--   build (Pact5.Gas gas) = J.number (fromIntegral gas)
 
--- This instance should exist in Pact
-instance J.Encode Pact5.GasPrice where
-  build (Pact5.GasPrice gp) = J.number (fromRational . toRational $ gp)
+-- -- This instance should exist in Pact
+-- instance J.Encode Pact5.GasPrice where
+--   build (Pact5.GasPrice gp) = J.number (fromRational . toRational $ gp)
 
--- This instance should exist in Pact
-instance J.Encode Pact5.TTLSeconds where
-  build (Pact5.TTLSeconds ttl) = J.number (fromIntegral ttl)
+-- -- This instance should exist in Pact
+-- instance J.Encode Pact5.TTLSeconds where
+--   build (Pact5.TTLSeconds ttl) = J.number (fromIntegral ttl)
 
--- This instance should exist in Pact
-instance J.Encode Pact5.TxCreationTime where
-  build (Pact5.TxCreationTime t) = J.number (fromIntegral t)
+-- -- This instance should exist in Pact
+-- instance J.Encode Pact5.TxCreationTime where
+--   build (Pact5.TxCreationTime t) = J.number (fromIntegral t)
 
--- This instance should exist in Pact
-instance J.Encode Pact5.ParsedCode where
-  build = J.text . Pact5._pcCode
+-- -- This instance should exist in Pact
+-- instance J.Encode Pact5.ParsedCode where
+--   build = J.text . Pact5._pcCode
 
 data CRLogPair = CRLogPair Hash [Pact5.TxLog ByteString]
 

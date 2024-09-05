@@ -26,23 +26,16 @@ module Chainweb.Pact5.Types
     where
 
 import Chainweb.BlockHeader
-import Pact.Core.ChainData
 import Chainweb.Miner.Pact (Miner)
-import Chainweb.Time
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHeight
 import Chainweb.Version
-import Chainweb.BlockHash
 import Chainweb.Pact.Types
 import qualified Chainweb.ChainId
-import Chainweb.Utils
 import Control.Lens
 import Control.Exception.Safe
 import Control.Monad.IO.Class
 import Chainweb.Logger
-import qualified Pact.Core.Errors as Pact5
 import qualified Pact.Core.Evaluate as Pact5
-import Data.Default
 import Data.Decimal
 import qualified Pact.JSON.Encode as J
 import qualified Pact.Core.StableEncoding as Pact5
@@ -53,12 +46,8 @@ import Data.Aeson (ToJSON)
 import Data.Text (Text)
 import Utils.Logging.Trace
 import Pact.Core.Persistence
-import Pact.Core.Hash (Hash(unHash))
-import qualified Data.HashSet as HashSet
-import qualified Data.ByteString.Short as SB
 import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(..))
 import qualified Pact.Core.Builtin as Pact5
-import Chainweb.Pact.Types
 import Pact.Core.Command.Types (RequestKey)
 
 -- | Pair parent header with transaction metadata.
@@ -73,24 +62,6 @@ instance HasChainId TxContext where
   _chainId = Chainweb.ChainId._chainId . _tcParentHeader
 instance HasChainwebVersion TxContext where
   _chainwebVersion = _chainwebVersion . _tcParentHeader
-
--- | Convert context to datatype for Pact environment using the
--- current blockheight, referencing the parent header (not grandparent!)
--- hash and blocktime data
---
-ctxToPublicData' :: PublicMeta -> TxContext -> PublicData
-ctxToPublicData' pm ctx = PublicData
-    { _pdPublicMeta = pm
-    , _pdBlockHeight = bh
-    , _pdBlockTime = bt
-    , _pdPrevBlockHash = toText h
-    }
-  where
-  bheader = _parentHeader (_tcParentHeader ctx)
-  BlockHeight !bh = succ $ _blockHeight bheader
-  BlockCreationTime (Time (TimeSpan (Micros !bt))) =
-    _blockCreationTime bheader
-  BlockHash h = _blockHash bheader
 
 -- | Retrieve parent header as 'BlockHeader'
 ctxBlockHeader :: TxContext -> BlockHeader
@@ -136,11 +107,11 @@ newtype PactBlockM logger tbl a = PactBlockM
 runPactBlockM
   :: ParentHeader -> PactDbFor logger Pact5 -> BlockHandle
   -> PactBlockM logger tbl a -> PactServiceM logger tbl (a, BlockHandle)
-runPactBlockM pctx dbEnv startBlockHandle (PactBlockM r) = PactServiceM $ ReaderT $ \e -> StateT $ \s -> do
-  (r, s') <- runStateT
-    (runReaderT r (PactBlockEnv e pctx dbEnv))
+runPactBlockM pctx dbEnv startBlockHandle (PactBlockM act) = PactServiceM $ ReaderT $ \e -> StateT $ \s -> do
+  (a, s') <- runStateT
+    (runReaderT act (PactBlockEnv e pctx dbEnv))
     (PactBlockState s startBlockHandle)
-  return ((r, _pbBlockHandle s'), _pbServiceState s')
+  return ((a, _pbBlockHandle s'), _pbServiceState s')
 
 tracePactBlockM :: (Logger logger, ToJSON param) => Text -> param -> Int -> PactBlockM logger tbl a -> PactBlockM logger tbl a
 tracePactBlockM label param weight a = tracePactBlockM' label (const param) (const weight) a
@@ -170,10 +141,6 @@ pactTransaction rk k = do
   (r, h') <- liftIO $ doPact5DbTransaction e h rk k
   pbBlockHandle .= h'
   return r
-
--- | Assemble tx context from transaction metadata and parent header.
-getTxContext :: Miner -> PactBlockM logger tbl TxContext
-getTxContext miner = view psParentHeader >>= \ph -> return (TxContext ph miner)
 
 -- | Indicates a computed gas charge (gas amount * gas price)
 newtype GasSupply = GasSupply { _pact5GasSupply :: Decimal }

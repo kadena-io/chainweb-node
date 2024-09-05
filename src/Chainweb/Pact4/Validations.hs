@@ -52,7 +52,6 @@ import Chainweb.BlockHeader (ParentCreationTime(..), BlockHeader(..), ParentHead
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (fromPactChainId)
-import Chainweb.Pact.Types
 import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
 import Chainweb.Pact4.Transaction
 import Chainweb.Version
@@ -65,8 +64,6 @@ import qualified Pact.Types.Command as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.KeySet as P
 import qualified Pact.Parse as P
-import qualified Chainweb.Pact5.Transaction as Pact5
-import qualified Pact.Core.Command.Types as Pact5
 import Chainweb.Pact4.Types
 
 

@@ -162,14 +162,14 @@ module Chainweb.Pact.Types
   , logWarn_
   , logError_
   , logDebug_
-  , logg
-  , logInfo
-  , logWarn
-  , logError
-  , logDebug
+  , logPact
+  , logInfoPact
+  , logWarnPact
+  , logErrorPact
+  , logDebugPact
   , logJsonTrace_
-  , logJsonTrace
-  , localLabel
+  , logJsonTracePact
+  , localLabelPact
 
     -- * types
   , TxTimeout(..)
@@ -199,7 +199,6 @@ import Data.Aeson hiding (Error,(.=))
 import Data.Default (def)
 import Data.IORef
 import Data.LogMessage
-import Data.Set (Set)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -212,14 +211,11 @@ import System.LogLevel
 -- internal pact modules
 
 import qualified Pact.Core.Builtin as Pact5
-import qualified Pact.Core.Gas as Pact5
 import qualified Pact.Core.Errors as Pact5
 import qualified Pact.Core.Evaluate as Pact5
-import qualified Pact.Core.Info as Pact5
 
 -- internal chainweb modules
 
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
@@ -235,11 +231,6 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
-import Utils.Logging.Trace
-import Data.Decimal (Decimal)
-import qualified Pact.Core.StableEncoding as Pact5
-import qualified Pact.Core.Literal as Pact5
-import Chainweb.Version.Guards (pact5)
 import Data.Word
 import qualified Chainweb.Pact4.Transaction as Pact4
 import qualified Chainweb.Pact4.ModuleCache as Pact4
@@ -267,15 +258,12 @@ import qualified Data.List.NonEmpty as NE
 import Control.Concurrent.STM
 import Chainweb.Payload
 import Data.ByteString.Short (ShortByteString)
-import qualified Pact.Core.ChainData as Pact5
 import Chainweb.VerifierPlugin
 import qualified Data.ByteString.Short as SB
 import Chainweb.Version.Mainnet
 import qualified Chainweb.Pact4.NoCoinbase as Pact4
 import qualified Data.Vector as V
 import qualified Pact.Core.Hash as Pact5
-import Debug.Trace
-import Pact.Core.Serialise
 
 -- | While a block is being run, mutations to the pact database are held
 -- in RAM to be written to the DB in batches at @save@ time. For any given db
@@ -299,8 +287,6 @@ instance Ord SQLiteRowDelta where
 -- | A map from table name to a list of 'TxLog' entries. This is maintained in
 -- 'BlockState' and is cleared upon pact transaction commit.
 type TxLogMap = Map Pact4.TableName (DList Pact4.TxLogJson)
-
-type TxLogMapPact5 = DList (Pact5.TxLog ByteString)
 
 -- | Between a @restore..save@ bracket, we also need to record which tables
 -- were created during this block (so the necessary @CREATE TABLE@ statements
@@ -338,12 +324,6 @@ data SQLitePendingData = SQLitePendingData
 makeLenses ''SQLitePendingData
 
 type SQLiteEnv = Database
-
-
-fromCoreExecutionMode :: Pact5.ExecutionMode -> Pact4.ExecutionMode
-fromCoreExecutionMode = \case
-  Pact5.Transactional -> Pact4.Transactional
-  Pact5.Local -> Pact4.Local
 
 emptySQLitePendingData :: SQLitePendingData
 emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
@@ -528,15 +508,6 @@ data Pact4GasPurchaseFailure = Pact4GasPurchaseFailure !TransactionHash !Pact4.P
 instance J.Encode Pact4GasPurchaseFailure where
     build (Pact4GasPurchaseFailure h e) = J.build (J.Array (h, e))
 
-pact4GasPurchaseFailureHash :: Pact4GasPurchaseFailure -> TransactionHash
-pact4GasPurchaseFailureHash (Pact4GasPurchaseFailure h _) = h
-
-pact5GasPurchaseFailureHash :: Pact5GasPurchaseFailure -> Pact5.RequestKey
-pact5GasPurchaseFailureHash (BuyGasError rk _) = rk
-pact5GasPurchaseFailureHash (RedeemGasError rk _) = rk
-pact5GasPurchaseFailureHash (PurchaseGasTxTooBigForGasLimit rk) = rk
-
-
 -- | Exceptions thrown by PactService components that
 -- are _not_ recorded in blockchain record.
 --
@@ -592,39 +563,7 @@ instance Eq PactException where
   BlockGasLimitExceeded g == BlockGasLimitExceeded g' = g == g'
   FullHistoryRequired e g == FullHistoryRequired e' g' =
     e == e' && g == g'
-
--- instance Show PactException where
---     show = T.unpack . J.encodeText
-
--- instance J.Encode PactException where
---   build (BlockValidationFailure msg) = tagged "BlockValidationFailure" msg
---   build (PactInternalError _stack msg) = tagged "PactInternalError" msg
---   build (PactTransactionExecError h msg) = tagged "PactTransactionExecError" (J.Array (h, msg))
---   build (CoinbaseFailure msg) = tagged "CoinbaseFailure" msg
---   build NoBlockValidatedYet = tagged "NoBlockValidatedYet" J.null
---   build (TransactionValidationException l) = tagged "TransactionValidationException" (J.Array $ J.Array <$> l)
---   build (PactDuplicateTableError msg) = tagged "PactDuplicateTableError" msg
---   build (TransactionDecodeFailure msg) = tagged "TransactionDecodeFailure" msg
---   build o@(RewindLimitExceeded{}) = tagged "RewindLimitExceeded" $ J.object
---     [ "_rewindExceededLimit" J..= J.Aeson (_rewindLimit $ _rewindExceededLimit o)
---     , "_rewindExceededLast" J..= J.encodeWithAeson (ObjectEncoded <$> _rewindExceededLast o)
---     , "_rewindExceededTarget" J..= J.encodeWithAeson (ObjectEncoded <$> _rewindExceededTarget o)
---     ]
---   build (BlockHeaderLookupFailure msg) = tagged "BlockHeaderLookupFailure" msg
---   build (Pact4BuyGasFailure failure) = tagged "Pact4BuyGasFailure" failure
---   build (Pact5BuyGasFailure failure) = tagged "Pact5BuyGasFailure" failure
---   build (MempoolFillFailure msg) = tagged "MempoolFillFailure" msg
---   build (BlockGasLimitExceeded gas) = tagged "BlockGasLimitExceeded" gas
---   build o@(FullHistoryRequired{}) = tagged "FullHistoryRequired" $ J.object
---     [ "_fullHistoryRequiredEarliestBlockHeight" J..= J.Aeson @Int (fromIntegral $ _earliestBlockHeight o)
---     , "_fullHistoryRequiredGenesisHeight" J..= J.Aeson @Int (fromIntegral $ _genesisHeight o)
---     ]
-
-tagged :: J.Encode v => Text -> v -> J.Builder
-tagged t v = J.object
-    [ "tag" J..= t
-    , "contents" J..= v
-    ]
+  _ == _ = False
 
 -- | Value that represents a limitation for rewinding.
 newtype RewindLimit = RewindLimit { _rewindLimit :: Word64 }
@@ -935,26 +874,26 @@ logJsonTrace_ logger level msg = liftIO $ logFunction logger level msg
 
 -- | Write log message using the logger in Checkpointer environment
 --
-logg :: (Logger logger) => LogLevel -> Text -> PactServiceM logger tbl ()
-logg level msg = view psLogger >>= \l -> logg_ l level msg
+logPact :: (Logger logger) => LogLevel -> Text -> PactServiceM logger tbl ()
+logPact level msg = view psLogger >>= \l -> logg_ l level msg
 
-logInfo :: (Logger logger) => Text -> PactServiceM logger tbl ()
-logInfo msg = view psLogger >>= \l -> logInfo_ l msg
+logInfoPact :: (Logger logger) => Text -> PactServiceM logger tbl ()
+logInfoPact msg = view psLogger >>= \l -> logInfo_ l msg
 
-logWarn :: (Logger logger) => Text -> PactServiceM logger tbl ()
-logWarn msg = view psLogger >>= \l -> logWarn_ l msg
+logWarnPact :: (Logger logger) => Text -> PactServiceM logger tbl ()
+logWarnPact msg = view psLogger >>= \l -> logWarn_ l msg
 
-logError :: (Logger logger) => Text -> PactServiceM logger tbl ()
-logError msg = view psLogger >>= \l -> logError_ l msg
+logErrorPact :: (Logger logger) => Text -> PactServiceM logger tbl ()
+logErrorPact msg = view psLogger >>= \l -> logError_ l msg
 
-logDebug :: (Logger logger) => Text -> PactServiceM logger tbl ()
-logDebug msg = view psLogger >>= \l -> logDebug_ l msg
+logDebugPact :: (Logger logger) => Text -> PactServiceM logger tbl ()
+logDebugPact msg = view psLogger >>= \l -> logDebug_ l msg
 
-logJsonTrace :: (ToJSON a, Typeable a, NFData a, Logger logger) => LogLevel -> JsonLog a -> PactServiceM logger tbl ()
-logJsonTrace level msg = view psLogger >>= \l -> logJsonTrace_ l level msg
+logJsonTracePact :: (ToJSON a, Typeable a, NFData a, Logger logger) => LogLevel -> JsonLog a -> PactServiceM logger tbl ()
+logJsonTracePact level msg = view psLogger >>= \l -> logJsonTrace_ l level msg
 
-localLabel :: (Logger logger) => (Text, Text) -> PactServiceM logger tbl x -> PactServiceM logger tbl x
-localLabel lbl x = do
+localLabelPact :: (Logger logger) => (Text, Text) -> PactServiceM logger tbl x -> PactServiceM logger tbl x
+localLabelPact lbl x = do
   locally psLogger (addLabel lbl) x
 
 

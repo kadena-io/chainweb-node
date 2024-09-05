@@ -24,14 +24,11 @@ import Pact.Types.Command qualified as Pact4
 import Pact.JSON.Legacy.Value qualified as J
 import Data.Aeson qualified as Aeson
 import Chainweb.Pact4.Transaction qualified as Pact4
-import Data.Int (Int64)
 import Control.Lens hiding ((.=))
 import Pact.Core.Command.Types
 import Data.Text (Text)
 import GHC.Generics
 import Pact.Core.Capabilities
-import Data.Aeson (Key)
-import Data.Aeson.Types (Value)
 import Pact.Core.Guards
 import Pact.Core.Verifiers (Verifier, ParsedVerifierProof)
 import Pact.Core.Command.RPC
@@ -41,15 +38,11 @@ import Control.Exception.Safe
 import Control.Monad.IO.Class
 import Chainweb.Time
 import Chainweb.Version
-import qualified Chainweb.ChainId
 import qualified Chainweb.ChainId as Chainweb
 import Data.ByteString (ByteString)
-import Data.ByteString.Short qualified as BShort
 import qualified Chainweb.Pact5.Transaction as Pact5
 import qualified Data.Text.Encoding as T
 import Chainweb.Utils
-import Chainweb.Pact.Utils
-import GHC.Exts (IsString(..))
 import Data.Maybe
 import Pact.Core.Command.Crypto
 import Pact.Core.Command.Util
@@ -62,7 +55,6 @@ import qualified Data.Set as Set
 import Pact.Core.StableEncoding
 import Chainweb.Pact.RestAPI.Server (validatePact5Command)
 import Pact.Core.Command.Client (ApiKeyPair (..), mkCommandWithDynKeys)
-import Pact.JSON.Legacy.Value (toLegacyJson)
 import System.Random
 import Control.Monad
 
@@ -195,19 +187,6 @@ defaultCmd = CmdBuilder
   , _cbCreationTime = Nothing
   }
 
-{-
-validatePact5Command :: ChainwebVersion -> ChainId -> Pact5.Command Text -> Either String Pact5.Transaction
-validatePact5Command v cid cmdText = case parsedCmd of
-  Right (commandParsed :: Pact5.Transaction) ->
-    if Pact5.assertCommand commandParsed
-    then Right commandParsed
-    else Left "Command failed validation"
-  Left e -> Left $ "Pact parsing error: " ++ e
-  where
-    bh = maxBound :: BlockHeight
-    parsedCmd = Pact5.parseCommand cmdText
--}
-
 -- | Build parsed + verified Pact command
 -- TODO: Use the new `assertPact4Command` function.
 buildCwCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m Pact5.Transaction
@@ -233,27 +212,6 @@ buildCwCmdNoParse v cmd = do
   payload <- decodePayload payloadBytes
   return $ Pact4.mkPayloadWithText $ fmap (\_ -> (payloadBytes, payload)) cmd4
 
-{-
-
-mkPayloadWithText :: Command (ByteString, Payload meta code) -> Command (PayloadWithText meta code)
-validateCommand :: ChainwebVersion -> ChainId -> Pact4.Command Text -> Either String Pact4.Transaction
-validateCommand v cid (fmap encodeUtf8 -> cmdBs) = case parsedCmd of
-  Right (commandParsed :: Pact4.Transaction) ->
-    if Pact4.assertCommand
-         commandParsed
-         (validPPKSchemes v cid bh)
-         (isWebAuthnPrefixLegal v cid bh)
-    then Right commandParsed
-    else Left "Command failed validation"
-  Left e -> Left $ "Pact parsing error: " ++ e
-  where
-    bh = maxBound :: BlockHeight
-    decodeAndParse bs =
-        traverse (Pact4.parsePact) =<< Aeson.eitherDecodeStrict' bs
-    parsedCmd = Pact4.mkPayloadWithText <$>
-        Pact4.cmdPayload (\bs -> (bs,) <$> decodeAndParse bs) cmdBs
--}
-
 -- | Build unparsed, unverified command
 --
 buildTextCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m (Command Text)
@@ -268,7 +226,7 @@ buildRawCmd v CmdBuilder{..} = do
     creationTime <- liftIO $ do
       case _cbCreationTime of
         Nothing -> do
-          Time timespan <- getCurrentTimeIntegral
+          Time timespan <- getCurrentTimeIntegral @Integer
           pure (TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan)
         Just t -> do
           return t

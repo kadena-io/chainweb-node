@@ -36,6 +36,7 @@ module Chainweb.Pact4.Backend.ChainwebPactDb
 , cpLookupProcessedTx
 , callDb
 , BlockEnv(..)
+, blockHandlerEnv
 , benvBlockState
 , runBlockEnv
 , BlockState(..)
@@ -44,6 +45,13 @@ module Chainweb.Pact4.Backend.ChainwebPactDb
 , initBlockState
 , BlockHandler(..)
 , BlockHandlerEnv(..)
+, blockHandlerDb
+, blockHandlerLogger
+, blockHandlerBlockHeight
+, blockHandlerModuleNameFix
+, blockHandlerSortedKeys
+, blockHandlerLowerCaseTables
+, blockHandlerPersistIntraBlockWrites
 , mkBlockHandlerEnv
 ) where
 
@@ -58,7 +66,6 @@ import Data.Aeson hiding ((.=))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.DList as DL
-import Data.Foldable (toList)
 import Data.List(sort)
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
@@ -73,8 +80,6 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
 import Database.SQLite3.Direct as SQ3
-
-import GHC.Stack
 
 import Prelude hiding (concat, log)
 
@@ -104,7 +109,6 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Pact.Interpreter (PactDbEnv)
-import qualified Data.ByteString.Short as SB
 import Data.HashMap.Strict (HashMap)
 import Data.Vector (Vector)
 import Control.Concurrent

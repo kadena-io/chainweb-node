@@ -49,8 +49,6 @@ import Chainweb.Time
 import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.TreeDB
 import Chainweb.Utils
-import Chainweb.Version
-import Chainweb.Version.Guards
 
 import Data.LogMessage (JsonLog(..), LogFunction)
 import qualified Pact.Types.ChainMeta as Pact4
@@ -108,9 +106,6 @@ processFork
 processFork blockHeaderDb payloadStore lastHeaderRef logFun newHeader = do
     now <- getCurrentTimeIntegral
     lastHeader <- readIORef lastHeaderRef
-    let v = _chainwebVersion blockHeaderDb
-        cid = _chainId blockHeaderDb
-        height = _blockHeight newHeader
     (a, b) <- processFork' logFun blockHeaderDb newHeader lastHeader
                            (payloadLookup payloadStore)
                            (processForkCheckTTL now)

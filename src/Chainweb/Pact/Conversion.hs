@@ -2,53 +2,29 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Chainweb.Pact.Conversion
-  ( fromLegacyQualifiedName
-  , fromLegacyPactValue) where
+  where
 
 import qualified Pact.Types.Persistence as Legacy
 import qualified Pact.Types.Term as Legacy
-import qualified Pact.Types.Type as Legacy
 import qualified Pact.Types.Hash as Legacy
 import qualified Pact.Types.Exp as Legacy
 import qualified Pact.Types.Continuation as Legacy
 import qualified Pact.Types.ChainId as Legacy
-import qualified Pact.Types.Names as Legacy
 import qualified Pact.Types.Namespace as Legacy
 import qualified Pact.Types.RowData as Legacy
 import qualified Pact.Types.PactValue as Legacy
 
-import Control.Lens
-import Bound (Scope)
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Except
-import Control.Monad
-import qualified Data.Default as Default
-import Data.List.NonEmpty(NonEmpty(..))
-import Data.List (findIndex)
 import Data.ByteString (ByteString)
-import Data.Maybe (fromMaybe)
-import Data.Default (def)
-import Data.Map.Strict(Map)
-import Data.Foldable (foldl', foldrM)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
 import qualified Data.Set as S
-import qualified Data.Vector as V
 import qualified Data.Map.Strict as M
-import qualified Data.List.NonEmpty as NE
-import qualified Bound
 
 import Pact.Core.Builtin
-import Pact.Core.Evaluate
 import Pact.Core.ModRefs
 import Pact.Core.Literal
 import Pact.Core.Type
-import Pact.Core.Imports
-import Pact.Core.IR.Desugar
-import Pact.Core.Capabilities
 import Pact.Core.ChainData
 import Pact.Core.Names
 import Pact.Core.Persistence
@@ -57,11 +33,9 @@ import Pact.Core.DefPacts.Types
 import Pact.Core.Namespace
 import Pact.Core.PactValue
 import Pact.Core.Hash
-import Pact.Core.Info
 
 import qualified Pact.JSON.Decode as JD
 import Pact.Core.IR.Term
-import qualified Pact.Core.Serialise.CBOR_V1 as CBOR
 
 type LegacyRef = Legacy.Ref' Legacy.PersistDirect
 type CoreTerm = EvalTerm CoreBuiltin ()
@@ -113,11 +87,11 @@ fromLegacyPactValue = \case
     Legacy.GKeySet (Legacy.KeySet k pred') ->  let
       ks = S.map (PublicKeyText . Legacy._pubKey)  k
       p' = \case
-        (Legacy.Name (Legacy.BareName bn def))
+        (Legacy.Name (Legacy.BareName bn _def))
           | bn == "keys-all" -> pure KeysAll
           | bn == "keys-any" -> pure KeysAny
           | bn == "keys-2"   -> pure Keys2
-        (Legacy.Name (Legacy.BareName bn def)) -> pure (CustomPredicate (TBN $ BareName bn))
+        (Legacy.Name (Legacy.BareName bn _def)) -> pure (CustomPredicate (TBN $ BareName bn))
         (Legacy.QName qn) -> pure (CustomPredicate (TQN $ fromLegacyQualifiedName qn))
         o -> Left $ "fromLegacyPactValue: pred invariant: " <> show o
       in (PGuard . GKeyset . KeySet ks <$> p' pred')

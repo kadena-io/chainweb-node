@@ -73,13 +73,10 @@ module Chainweb.Pact.Backend.Utils
   ) where
 
 import Control.Exception (SomeAsyncException, evaluate)
-import Control.Exception.Safe (tryAny)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.State.Strict
-
-import Control.Monad.Reader
 
 import Data.Bits
 import Data.Foldable
@@ -126,9 +123,6 @@ import Chainweb.Utils.Serialization
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString as BS
 import qualified Pact.Types.Persistence as Pact4
-import qualified Pact.Core.Persistence as Pact5
-import qualified Pact.Core.Builtin as Pact5
-import qualified Pact.Core.Evaluate as Pact5
 
 -- -------------------------------------------------------------------------- --
 -- SQ3.Utf8 Encodings

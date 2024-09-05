@@ -70,17 +70,14 @@ import Chainweb.Logger
 import qualified Chainweb.Pact.PactService.Pact4.ExecBlock as Pact4
 import qualified Chainweb.Pact.PactService.Pact5.ExecBlock as Pact5
 import Chainweb.Pact.Types
-import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.TreeDB (getBranchIncreasing, forkEntry, lookup, seekAncestor)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
-import qualified Chainweb.Pact.PactService.Pact4.ExecBlock as Pact4
 import qualified Chainweb.Pact4.Types as Pact4
 import qualified Chainweb.Pact5.Types as Pact5
 import Chainweb.Version.Guards (pact5)
-import Control.Lens.Internal.Zoom (Effect(..))
 
 exitOnRewindLimitExceeded :: PactServiceM logger tbl a -> PactServiceM logger tbl a
 exitOnRewindLimitExceeded = handle $ \case
@@ -123,7 +120,7 @@ readFromLatest doRead = readFromNthParent 0 doRead
 -- read-only rewind to the nth parent before the latest block.
 -- note: this function will never rewind before genesis.
 readFromNthParent
-    :: forall pv logger tbl a
+    :: forall logger tbl a
     . Logger logger
     => Word
     -> SomeBlockM logger tbl a
@@ -179,9 +176,9 @@ readFrom ph doRead = do
                 evalPactServiceM s e $
                     Pact4.runPactBlockM pactParent dbenv act
     let execPact5 act =
-            liftIO $ _cpReadFrom (_cpReadCp cp) ph Pact5T $ \dbenv handle ->
+            liftIO $ _cpReadFrom (_cpReadCp cp) ph Pact5T $ \dbenv blockHandle ->
                 evalPactServiceM s e $ do
-                    fst <$> Pact5.runPactBlockM pactParent dbenv handle act
+                    fst <$> Pact5.runPactBlockM pactParent dbenv blockHandle act
     case doRead of
         SomeBlockM (Pair forPact4 forPact5)
             | pact5 v cid currentHeight -> execPact5 forPact5
@@ -217,11 +214,11 @@ restoreAndSave ph blocks = do
         _cpRestoreAndSave cp ph
             $ blocks & S.zip (S.iterate succ firstBlockHeight) & S.map
                 (\case
-                    (blockHeight, SomeBlockM (Pair pact4Block pact5Block))
-                        | pact5 v cid blockHeight ->
-                            Pact5RunnableBlock $ \dbEnv mph handle -> runPact $ do
+                    (height, SomeBlockM (Pair pact4Block pact5Block))
+                        | pact5 v cid height ->
+                            Pact5RunnableBlock $ \dbEnv mph blockHandle -> runPact $ do
                                 pactParent <- getPactParent mph
-                                Pact5.runPactBlockM pactParent dbEnv handle pact5Block
+                                Pact5.runPactBlockM pactParent dbEnv blockHandle pact5Block
                         | otherwise ->
                             Pact4RunnableBlock $ \dbEnv mph -> runPact $ do
                                 pactParent <- getPactParent mph
@@ -252,7 +249,7 @@ findLatestValidBlockHeader' = do
         bhdb <- view psBlockHeaderDb
         liftIO (lookup bhdb hash) >>= \case
             Nothing -> do
-                logInfo $ "Latest block isn't valid."
+                logInfoPact $ "Latest block isn't valid."
                     <> " Failed to lookup hash " <> sshow (height, hash) <> " in block header db."
                     <> " Continuing with parent."
                 cp <- view psCheckpointer
@@ -370,7 +367,7 @@ rewindToIncremental rewindLimit (ParentHeader parent) = do
                         & foldChunksM (playChunk heightRef) curHdr
 
         when (c /= 0) $
-            logInfo $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
+            logInfoPact $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
 
 -- -------------------------------------------------------------------------- --
 -- Utils

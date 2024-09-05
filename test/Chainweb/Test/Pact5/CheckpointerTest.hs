@@ -219,21 +219,20 @@ runBlocks cp ph blks = do
 assertBlock :: HasCallStack => Checkpointer GenericLogger -> ParentHeader -> (BlockHeader, DbBlock Identity) -> IO ()
 assertBlock cp ph (expectedBh, blk) = do
     hist <- _cpReadFrom (_cpReadCp cp) (Just ph) Pact5T $ \db startHandle -> do
-        now <- getCurrentTimeIntegral
         ((), _endHandle) <- doPact5DbTransaction db startHandle Nothing $ \txdb -> do
-            _pdbBeginTx txdb Transactional
+            _ <- _pdbBeginTx txdb Transactional
             blk' <- forM blk (runDbAction' txdb)
             txLogs <- _pdbCommitTx txdb
             forM_ blk' $ \case
-                DbRead d k (Pair expected actual) ->
+                DbRead _d _k (Pair expected actual) ->
                     assertEqual "read result" expected actual
-                DbWrite wt d k v (Pair expected actual) ->
+                DbWrite _wt _d _k _v (Pair expected actual) ->
                     assertEqual "write result" expected actual
-                DbKeys d (Pair expected actual) ->
+                DbKeys _d (Pair expected actual) ->
                     assertEqual "keys result" expected actual
-                DbSelect d (Pair expected actual) ->
+                DbSelect _d (Pair expected actual) ->
                     assertEqual "select result" expected actual
-                DbCreateTable tn (Pair expected actual) ->
+                DbCreateTable _tn (Pair expected actual) ->
                     assertEqual "create table result" expected actual
 
             actualBh <- blockHeaderFromTxLogs ph txLogs
@@ -241,21 +240,23 @@ assertBlock cp ph (expectedBh, blk) = do
         return ()
     throwIfNoHistory hist
 
+tests :: TestTree
 tests = testGroup "Pact5 Checkpointer tests"
-    [ withResourceT (liftIO . initCheckpointer v cid =<< withTempSQLiteResource) $ \cpIO ->
+    [ withResourceT (liftIO . initCheckpointer testVer cid =<< withTempSQLiteResource) $ \cpIO ->
         testCase "valid PactDb before genesis" $ do
             cp <- cpIO
-            _cpReadFrom (_cpReadCp cp) Nothing Pact5T $ \db handle -> do
-                doPact5DbTransaction db handle Nothing $ \txdb ->
-                    Pact.Core.runPactDbRegression txdb
+            ((), _handle) <- (throwIfNoHistory =<<) $
+                _cpReadFrom (_cpReadCp cp) Nothing Pact5T $ \db handle -> do
+                    doPact5DbTransaction db handle Nothing $ \txdb ->
+                        Pact.Core.runPactDbRegression txdb
             return ()
-    , withResourceT (liftIO . initCheckpointer v cid =<< withTempSQLiteResource) $ \cpIO ->
+    , withResourceT (liftIO . initCheckpointer testVer cid =<< withTempSQLiteResource) $ \cpIO ->
         testProperty "linear block history validity" $ withTests 1000 $ property $ do
             blocks <- forAll genBlockHistory
             liftIO $ do
                 cp <- cpIO
                 -- extend this empty chain with the genesis block
-                _cpRestoreAndSave cp Nothing $ Stream.yield $ Pact5RunnableBlock $ \_ _ hndl ->
+                ((), ()) <- _cpRestoreAndSave cp Nothing $ Stream.yield $ Pact5RunnableBlock $ \_ _ hndl ->
                     return (((), gh), hndl)
                 -- run all of the generated blocks
                 finishedBlocks <- runBlocks cp (ParentHeader gh) blocks
@@ -268,9 +269,9 @@ tests = testGroup "Pact5 Checkpointer tests"
                     assertBlock cp ph block
     ]
 
-v = pact5CheckpointerTestVersion singletonChainGraph
+testVer = pact5CheckpointerTestVersion singletonChainGraph
 cid = unsafeChainId 0
-gh = genesisBlockHeader v cid
+gh = genesisBlockHeader testVer cid
 
 
 instance (forall a. Show a => Show (f a)) => Show (DbAction f) where

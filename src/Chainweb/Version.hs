@@ -183,7 +183,6 @@ import Pact.Types.Verifier
 import Data.Singletons
 
 import P2P.Peer
-import Data.Kind (Type)
 
 -- | Data type representing changes to block validation, whether in the payload
 -- or in the header. Always add new forks at the end, not in the middle of the
@@ -348,10 +347,13 @@ forAnyPactVersion k (ForSomePactVersion _ f) = k f
 instance (forall pv. Eq (f pv)) => Eq (ForSomePactVersion f) where
     ForSomePactVersion Pact4T f == ForSomePactVersion Pact4T f' = f == f'
     ForSomePactVersion Pact5T f == ForSomePactVersion Pact5T f' = f == f'
+    ForSomePactVersion _ _ == ForSomePactVersion _ _ = False
 deriving stock instance (forall pv. Show (f pv)) => Show (ForSomePactVersion f)
 instance (forall pv. NFData (f pv)) => NFData (ForSomePactVersion f) where
     rnf (ForSomePactVersion pv f) = rnf pv `seq` rnf f
+pattern ForPact4 :: f Pact4 -> ForSomePactVersion f
 pattern ForPact4 x = ForSomePactVersion Pact4T x
+pattern ForPact5 :: f Pact5 -> ForSomePactVersion f
 pattern ForPact5 x = ForSomePactVersion Pact5T x
 {-# COMPLETE ForPact4, ForPact5 #-}
 data ForBothPactVersions f = ForBothPactVersions

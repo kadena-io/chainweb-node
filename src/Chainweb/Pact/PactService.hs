@@ -51,27 +51,19 @@ import Control.Lens hiding ((:>))
 import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-import Control.Monad.Primitive (PrimState)
 
-import qualified Data.DList as DL
 import Data.Either
-import Data.Word (Word64)
 import Data.Foldable (toList)
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
 import Data.LogMessage
-import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Monoid
-import qualified Data.Set as S
 import Data.Text (Text)
-import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
-import GrowableVector.Lifted (Vec)
-import GrowableVector.Lifted qualified as Vec
 
 import System.IO
 import System.LogLevel
@@ -82,22 +74,19 @@ import qualified Streaming as Stream
 import qualified Streaming.Prelude as Stream
 
 import qualified Pact.Gas as Pact4
-import Pact.Gas.Table
 import Pact.Interpreter(PactDbEnv(..))
 import qualified Pact.JSON.Encode as J
 import qualified Pact.Types.Command as Pact4
 import qualified Pact.Types.Hash as Pact4
-import qualified Pact.Types.RowData as Pact4
 import qualified Pact.Types.Runtime as Pact4 hiding (catchesPactError)
 import qualified Pact.Types.Pretty as Pact4
-import qualified Pact.Parse as Pact4
 
 import qualified Pact.Core.Builtin as Pact5
 import qualified Pact.Core.Persistence as Pact5
 import qualified Pact.Core.Gas as Pact5
-import qualified Pact.Core.Gas.TableGasModel as Pact5
 
 import qualified Chainweb.Pact4.TransactionExec as Pact4
+import qualified Chainweb.Pact4.Validations as Pact4
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -115,8 +104,6 @@ import qualified Chainweb.Pact4.Backend.ChainwebPactDb as Pact4
 import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
 import Chainweb.Pact.Types
 import Chainweb.Pact4.SPV qualified as Pact4
-import Chainweb.Pact.Types
-import qualified Chainweb.Pact4.Validations as Pact4
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
@@ -138,13 +125,11 @@ import Chainweb.Pact.PactService.Pact5.ExecBlock (runPact5Coinbase)
 import Data.Void
 import qualified Chainweb.Pact5.Types as Pact5
 import qualified Chainweb.Pact.PactService.Pact5.ExecBlock as Pact5
-import qualified Chainweb.Pact4.ModuleCache as Pact4
 import qualified Pact.Core.Evaluate as Pact5
 import qualified Pact.Core.Names as Pact5
 import Data.Functor.Product
 import qualified Chainweb.Pact5.TransactionExec as Pact5
 import qualified Chainweb.Pact5.Transaction as Pact5
-import qualified Pact.Types.Command as Pact4
 import Control.Monad.Except
 
 
@@ -274,7 +259,7 @@ initializeCoinContract v cid pwo = do
 
     case latestBlock of
       Nothing -> do
-        logWarn "initializeCoinContract: Checkpointer returned no latest block. Starting from genesis."
+        logWarnPact "initializeCoinContract: Checkpointer returned no latest block. Starting from genesis."
         validateGenesis
       Just currentBlockHeader -> do
         if
@@ -287,7 +272,7 @@ initializeCoinContract v cid pwo = do
             Historical mc -> return mc
           Pact4.updateInitCache mc currentBlockHeader
         else do
-          logWarn "initializeCoinContract: Starting from genesis."
+          logWarnPact "initializeCoinContract: Starting from genesis."
           validateGenesis
   where
     validateGenesis = void $!
@@ -326,13 +311,13 @@ serviceRequests memPoolAccess reqQ = go
     go :: PactServiceM logger tbl ()
     go = do
         PactServiceEnv{_psLogger} <- ask
-        logDebug "serviceRequests: wait"
+        logDebugPact "serviceRequests: wait"
         SubmittedRequestMsg msg statusRef <- liftIO $ getNextRequest reqQ
         requestId <- liftIO $ UUID.toText <$> UUID.nextRandom
         let
           logFn :: LogFunction
           logFn = logFunction $ addLabel ("pact-request-id", requestId) _psLogger
-        logDebug $ "serviceRequests: " <> sshow msg
+        logDebugPact $ "serviceRequests: " <> sshow msg
         case msg of
             CloseMsg ->
                 tryOne "execClose" statusRef $ return ()
@@ -402,7 +387,7 @@ serviceRequests memPoolAccess reqQ = go
         evalPactOnThread
         `catches`
             [ Handler $ \(e :: SomeException) -> do
-                logError $ mconcat
+                logErrorPact $ mconcat
                     [ "Received exception running pact service ("
                     , which
                     , "): "
@@ -474,12 +459,12 @@ serviceRequests memPoolAccess reqQ = go
             case maybeException of
                 Left (fromException -> Just AsyncCancelled) -> do
                     liftIO $ putStrLn "Pact action was cancelled"
-                    logDebug "Pact action was cancelled"
+                    logDebugPact "Pact action was cancelled"
                 Left (fromException -> Just ThreadKilled) -> do
                     liftIO $ putStrLn "Pact action thread was killed"
-                    logWarn "Pact action thread was killed"
+                    logWarnPact "Pact action thread was killed"
                 Left (exn :: SomeException) -> do
-                    logError $ mconcat
+                    logErrorPact $ mconcat
                         [ "Received exception running pact service ("
                         , which
                         , "): "
@@ -497,7 +482,7 @@ execNewBlock
 execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
     let pHeight = _blockHeight $ _parentHeader newBlockParent
     let pHash = _blockHash $ _parentHeader newBlockParent
-    logInfo $ "(parent height = " <> sshow pHeight <> ")"
+    logInfoPact $ "(parent height = " <> sshow pHeight <> ")"
         <> " (parent hash = " <> sshow pHash <> ")"
     blockGasLimit <- view psBlockGasLimit
     readFrom (Just newBlockParent) $
@@ -521,7 +506,7 @@ execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
                         -- subsequent transactions
                         , _blockInProgressHandle = BlockHandle (Pact4._bsTxId finalBlockState) (Pact4._bsPendingBlock finalBlockState)
                         , _blockInProgressParentHeader = newBlockParent
-                        , _blockInProgressRemainingGasLimit = fromIntegral blockGasLimit
+                        , _blockInProgressRemainingGasLimit = blockGasLimit
                         , _blockInProgressTransactions = Transactions
                             { _transactionCoinbase = coinbaseOutput
                             , _transactionPairs = mempty
@@ -559,9 +544,6 @@ execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
                     NewBlockFill -> ForPact5 <$> Pact5.continueBlock mpAccess blockInProgress
                     NewBlockEmpty -> return (ForPact5 blockInProgress)
             )
-    where
-    v = _chainwebVersion newBlockParent
-    cid = _chainId newBlockParent
 
 execContinueBlock
     :: forall logger tbl pv. (Logger logger, CanReadablePayloadCas tbl)
@@ -783,11 +765,11 @@ execSyncToBlock targetHeader = pactLabel "execSyncToBlock" $ do
     latestHeader <- findLatestValidBlockHeader' >>= maybe failNonGenesisOnEmptyDb return
     if latestHeader == targetHeader
     then do
-        logInfo $ "checkpointer at checkpointer target"
+        logInfoPact $ "checkpointer at checkpointer target"
             <> ". target height: " <> sshow (_blockHeight latestHeader)
             <> "; target hash: " <> blockHashToText (_blockHash latestHeader)
     else do
-        logInfo $ "rewind to checkpointer target"
+        logInfoPact $ "rewind to checkpointer target"
                 <> ". current height: " <> sshow (_blockHeight latestHeader)
                 <> "; current hash: " <> blockHashToText (_blockHash latestHeader)
                 <> "; target height: " <> sshow targetHeight
@@ -825,7 +807,7 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
 
     -- Add block-hash to the logs if presented
     let logBlockHash =
-            localLabel ("block-hash", blockHashToText (_blockParent headerToValidate))
+            localLabelPact ("block-hash", blockHashToText (_blockParent headerToValidate))
 
     logBlockHash $ do
         currHeader <- findLatestValidBlockHeader'
@@ -899,8 +881,8 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
         let logRewind =
                 -- we consider a fork of height more than 3 to be notable.
                 if ancestorHeight + 3 < currHeight
-                then logWarn
-                else logDebug
+                then logWarnPact
+                else logDebugPact
         logRewind $
             "execValidateBlock: rewound " <> sshow (currHeight - ancestorHeight) <> " blocks"
         (totalGasUsed, result) <- case results of
@@ -959,7 +941,7 @@ execPreInsertCheckReq
     -> PactServiceM logger tbl (Vector (Maybe Mempool.InsertError))
 execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
     let requestKeys = V.map Pact4.cmdToRequestKey txs
-    logInfo $ "(request keys = " <> sshow requestKeys <> ")"
+    logInfoPact $ "(request keys = " <> sshow requestKeys <> ")"
     psEnv <- ask
     psState <- get
     logger <- view psLogger
@@ -967,7 +949,6 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
     let act = readFromLatest $ SomeBlockM $ Pair
             (do
                 pdb <- view psBlockDbEnv
-                let db' = Pact4._cpPactDbEnv pdb
                 pc <- view psParentHeader
                 let
                     parentTime = ParentCreationTime (_blockCreationTime $ _parentHeader pc)
@@ -986,8 +967,7 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                 ph <- view psParentHeader
                 v <- view chainwebVersion
                 cid <- view chainId
-                logger <- view (psServiceEnv . psLogger)
-                handle <- use Pact5.pbBlockHandle
+                blockHandle <- use Pact5.pbBlockHandle
                 let
                     parentTime = ParentCreationTime (_blockCreationTime $ _parentHeader ph)
                     currHeight = succ $ _blockHeight $ _parentHeader ph
@@ -995,7 +975,7 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                     fmap (either Just (\_ -> Nothing)) $ runExceptT $
                         Pact5.validateRawChainwebTx
                             logger v cid db parentTime currHeight
-                            (attemptBuyGasPact5 logger ph db handle noMiner)
+                            (attemptBuyGasPact5 logger ph db blockHandle noMiner)
                             tx
             )
     withPactState $ \run ->
@@ -1060,11 +1040,11 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
         -> Miner
         -> Pact5.Transaction
         -> ExceptT InsertError IO ()
-    attemptBuyGasPact5 logger ph db handle miner tx = do
+    attemptBuyGasPact5 logger ph db blockHandle miner tx = do
         let logger' = addLabel ("transaction", "attemptBuyGas") logger
-        (result, _handle') <- liftIO $ Pact5.doPact5DbTransaction db handle Nothing $ \pactDb -> do
+        (result, _handle') <- liftIO $ Pact5.doPact5DbTransaction db blockHandle Nothing $ \pactDb -> do
             let txCtx = Pact5.TxContext ph miner
-            (tx <$) <$> Pact5.buyGas logger pactDb txCtx (view Pact5.payloadObj <$> tx)
+            (tx <$) <$> Pact5.buyGas logger' pactDb txCtx (view Pact5.payloadObj <$> tx)
         either (throwError . InsertErrorBuyGas . sshow) (\_ -> pure ()) result
 
 execLookupPactTxs
@@ -1087,4 +1067,4 @@ execLookupPactTxs confDepth txs = pactLabel "execLookupPactTxs" $ do
         )
 
 pactLabel :: (Logger logger) => Text -> PactServiceM logger tbl x -> PactServiceM logger tbl x
-pactLabel lbl x = localLabel ("pact-request", lbl) x
+pactLabel lbl x = localLabelPact ("pact-request", lbl) x

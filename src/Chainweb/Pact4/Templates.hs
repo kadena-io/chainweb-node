@@ -41,7 +41,6 @@ import Pact.Types.Runtime
 
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
-import Chainweb.Pact.Types
 import Chainweb.Pact4.Types (GasSupply)
 
 inf :: Info

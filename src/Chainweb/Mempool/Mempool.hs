@@ -146,7 +146,6 @@ import Data.LogMessage (LogFunctionText)
 import qualified Pact.Types.Command as Pact4
 import qualified Pact.Core.Command.Types as Pact5
 import qualified Pact.Core.Hash as Pact5
-import qualified Pact.Types.ChainMeta as Pact4
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing

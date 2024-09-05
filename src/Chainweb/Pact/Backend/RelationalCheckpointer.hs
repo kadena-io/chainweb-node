@@ -32,7 +32,6 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
-import Data.ByteString (intercalate)
 import qualified Data.ByteString.Short as BS
 import Data.Foldable (foldl')
 import Data.Int
@@ -43,7 +42,6 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.Vector as V
 import GHC.Stack (HasCallStack)
 
 import Database.SQLite3.Direct
@@ -58,9 +56,8 @@ import System.LogLevel
 
 import Pact.Interpreter (PactDbEnv(..))
 import Pact.Types.Command(RequestKey(..))
-import Pact.Types.Hash (Hash(..), PactHash, TypedHash(..))
+import Pact.Types.Hash (Hash(..))
 import Pact.Types.Persistence
-import Pact.Types.RowData
 import Pact.Types.SQLite
 import Pact.Types.Util (AsString(..))
 
@@ -77,13 +74,10 @@ import qualified Chainweb.Pact5.Backend.ChainwebPactDb as Pact5
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Types
-import Chainweb.Pact.Types (defaultModuleCacheLimit)
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Guards
-import Chainweb.Pact4.Backend.ChainwebPactDb (BlockState(_bsPendingBlock))
-import Data.ByteString.Short (ShortByteString)
 import qualified Pact.Types.Persistence as Pact4
 import qualified Pact.Core.Builtin as Pact5
 import qualified Pact.Core.Evaluate as Pact5
@@ -199,9 +193,8 @@ doReadFrom logger v cid sql moduleCacheVar maybeParent pactVersion doRead = do
               , PactDb._cpRegisterProcessedTx = \hash ->
                 PactDb.runBlockEnv newDbEnv (PactDb.indexPactTransaction $ BS.fromShort $ coerce hash)
               , PactDb._cpLookupProcessedTx = \hs ->
-                PactDb.runBlockEnv newDbEnv (PactDb.callDb "lol" $ \sql ->
+                -- TODO: Pact 5
                   HashMap.mapKeys coerce <$> doLookupSuccessful sql currentHeight (coerce hs)
-                  )
               }
             pactDb
               | parentIsLatestHeader = PactDb.chainwebPactDb
@@ -232,7 +225,7 @@ doReadFrom logger v cid sql moduleCacheVar maybeParent pactVersion doRead = do
                 | parentIsLatestHeader = Nothing
                 | otherwise = Just (currentHeight, startTxId)
           let pactDb
-                = Pact5.chainwebPactCoreBlockDb upperBound Pact5.Transactional blockHandlerEnv
+                = Pact5.chainwebPactCoreBlockDb upperBound blockHandlerEnv
           doRead pactDb (emptyBlockHandle (coerce @Pact5.TxId @Pact4.TxId startTxId))
         | otherwise ->
           internalError $
@@ -292,17 +285,14 @@ doRestoreAndSave logger v cid sql p moduleCacheVar rewindParent blocks = do
                 }
 
               let
-                indexPactTransaction hash
-                  = PactDb.runBlockEnv dbMVar $ PactDb.indexPactTransaction $ BS.fromShort hash
                 mkBlockDbEnv db = PactDb.CurrentBlockDbEnv
                   { PactDb._cpPactDbEnv = db
                   , PactDb._cpRegisterProcessedTx = \hash ->
                     PactDb.runBlockEnv dbMVar (PactDb.indexPactTransaction $ BS.fromShort $ coerce hash)
-                  , PactDb._cpLookupProcessedTx = \hs -> PactDb.runBlockEnv dbMVar $
-                      PactDb.callDb "something" $ \sql ->
-                        fmap (HashMap.mapKeys coerce) $
-                        doLookupSuccessful sql bh $
-                        coerce hs
+                  , PactDb._cpLookupProcessedTx = \hs ->
+                      fmap (HashMap.mapKeys coerce) $
+                      doLookupSuccessful sql bh $
+                      coerce hs
                   }
 
               -- execute the block
@@ -346,25 +336,25 @@ doRestoreAndSave logger v cid sql p moduleCacheVar rewindParent blocks = do
                   , Pact5._blockHandlerMode = Pact5.Transactional
                   , Pact5._blockHandlerPersistIntraBlockWrites = p
                   }
-                pactDb = Pact5.chainwebPactCoreBlockDb Nothing Pact5.Transactional blockEnv
+                pactDb = Pact5.chainwebPactCoreBlockDb Nothing blockEnv
               -- run the block
-              ((m', newBlockHeader), blockHandle) <- runBlock pactDb maybeParent (emptyBlockHandle txid)
+              ((m', nextBlockHeader), blockHandle) <- runBlock pactDb maybeParent (emptyBlockHandle txid)
               -- compute the accumulator early
               let !m'' = m <> m'
               case maybeParent of
                 Nothing
-                  | genesisHeight v cid /= _blockHeight newBlockHeader -> internalError
+                  | genesisHeight v cid /= _blockHeight nextBlockHeader -> internalError
                     "doRestoreAndSave: block with no parent, genesis block, should have genesis height but doesn't,"
                 Just (ParentHeader ph)
-                  | succ (_blockHeight ph) /= _blockHeight newBlockHeader -> internalError $
+                  | succ (_blockHeight ph) /= _blockHeight nextBlockHeader -> internalError $
                     "doRestoreAndSave: non-genesis block should be one higher than its parent. parent at "
-                      <> sshow (_blockHeight ph) <> ", child height " <> sshow (_blockHeight newBlockHeader)
+                      <> sshow (_blockHeight ph) <> ", child height " <> sshow (_blockHeight nextBlockHeader)
                 _ -> return ()
               PactDb.commitBlockStateToDatabase sql
-                (_blockHash newBlockHeader) (_blockHeight newBlockHeader)
+                (_blockHash nextBlockHeader) (_blockHeight nextBlockHeader)
                 blockHandle
 
-              return (m'', Just (ParentHeader newBlockHeader), _blockHandleTxId blockHandle, moduleCache)
+              return (m'', Just (ParentHeader nextBlockHeader), _blockHandleTxId blockHandle, moduleCache)
 
             | otherwise -> internalError $
                 "Pact 5 block executed on block height before Pact 5 fork, height: " <> sshow bh

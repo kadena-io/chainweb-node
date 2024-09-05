@@ -44,7 +44,7 @@ import qualified Pact.Types.Runtime as P
 
 import Pact.Types.Command
 import Pact.Types.Hash
-import Pact.Types.Runtime (TxId(..), Domain(..))
+import Pact.Types.Runtime (TxId(..))
 import Pact.Types.Persistence (RowKey(..))
 import Pact.Types.PactValue
 import qualified Pact.Core.Persistence as Pact5

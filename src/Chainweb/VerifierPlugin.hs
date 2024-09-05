@@ -30,15 +30,12 @@ import Data.Foldable
 import Data.Map.Strict(Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Map.Merge.Strict as Merge
-import Data.Maybe
 import Data.Set(Set)
 import qualified Data.Set as Set
 import Data.STRef
 import Data.Text(Text)
 
 import Pact.Types.Capability
-import Pact.Types.ChainMeta
-import Pact.Types.Command
 import Pact.Types.Gas
 import Pact.Types.PactValue
 import Pact.Types.Verifier

@@ -31,9 +31,6 @@ module Chainweb.Pact.Service.BlockValidation
 import Data.Vector (Vector)
 import Data.HashMap.Strict (HashMap)
 
-import Pact.Types.Hash
-import Pact.Types.Persistence (RowKey, Domain)
-import Pact.Types.RowData (RowData)
 import qualified Pact.Core.Persistence as Pact5
 
 import Chainweb.BlockHash

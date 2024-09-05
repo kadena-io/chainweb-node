@@ -62,7 +62,6 @@ import Chainweb.Payload
 import Chainweb.Utils
 
 import qualified Pact.JSON.Encode as J
-import Pact.Types.Term (KeySet(..), mkKeySet)
 import qualified Pact.Types.KeySet as Pact5
 
 -- -------------------------------------------------------------------------- --

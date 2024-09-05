@@ -150,7 +150,8 @@ import qualified Chainweb.ChainId as Chainweb
 import Chainweb.Mempool.Mempool (pact4RequestKeyToTransactionHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact4.Templates
-import Chainweb.Pact.Types hiding (logError)
+import Chainweb.Pact.Types
+import Chainweb.Pact4.Types
 import Chainweb.Pact4.Transaction
 import Chainweb.Utils
 import Chainweb.VerifierPlugin
@@ -159,7 +160,6 @@ import Chainweb.Version.Guards as V
 import Chainweb.Version.Utils as V
 import Pact.JSON.Encode (toJsonViaEncode)
 import Data.Set (Set)
-import Chainweb.Pact4.Types hiding (logError)
 import Chainweb.Pact4.ModuleCache
 import Chainweb.Pact4.Backend.ChainwebPactDb
 

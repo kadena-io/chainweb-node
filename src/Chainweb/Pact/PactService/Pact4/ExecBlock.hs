@@ -57,7 +57,6 @@ import Data.Either
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map as Map
-import qualified Data.Set as Set
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -68,7 +67,6 @@ import System.IO
 import System.Timeout
 
 import Prelude hiding (lookup)
-import qualified Data.Map.Strict as M
 
 import Pact.Compile (compileExps)
 import Pact.Interpreter(PactDbEnv(..))
@@ -90,14 +88,10 @@ import Chainweb.Miner.Pact
 
 import Chainweb.Pact.Types
 import Chainweb.Pact4.SPV qualified as Pact4
-import Chainweb.Pact.Types
 import Chainweb.Pact4.NoCoinbase
 import qualified Chainweb.Pact4.Transaction as Pact4
-import qualified Chainweb.Pact5.Transaction as Pact5
 import qualified Chainweb.Pact4.TransactionExec as Pact4
-import qualified Chainweb.Pact5.TransactionExec as Pact5
 import qualified Chainweb.Pact4.Validations as Pact4
-import qualified Chainweb.Pact5.Validations as Pact5
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
@@ -114,7 +108,6 @@ import qualified Data.Set as S
 import Chainweb.Pact4.Types
 import Chainweb.Pact4.ModuleCache
 import Control.Monad.Except
-import Data.Functor.Compose (Compose(..))
 import qualified Data.List.NonEmpty as NE
 
 
@@ -175,12 +168,9 @@ execBlock currHeader payload = do
 
     logInitCache = liftPactServiceM $ do
       mc <- fmap (fmap instr . _getModuleCache) <$> use psInitCache
-      logDebug $ "execBlock: initCache: " <> sshow mc
+      logDebugPact $ "execBlock: initCache: " <> sshow mc
 
     instr (md,_) = preview (Pact4._MDModule . Pact4.mHash) $ Pact4._mdModule md
-
-    handleValids (tx,Left e) es = (Pact4._cmdHash tx, sshow e):es
-    handleValids _ es = es
 
     v = _chainwebVersion currHeader
     cid = _chainId currHeader
@@ -236,8 +226,7 @@ validateRawChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas tx = do
 -- exist yet.
 --
 validateParsedChainwebTx
-    :: forall logger t
-    . Logger logger
+    :: Logger logger
     => logger
     -> ChainwebVersion
     -> ChainId
@@ -256,7 +245,7 @@ validateParsedChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas tx
       checkTxHash logger v cid bh tx
       checkTxSigs logger v cid bh tx
       checkTimes logger v cid bh txValidationTime tx
-      checkCompile logger v cid bh tx
+      _ <- checkCompile logger v cid bh tx
       doBuyGas tx
 
 checkUnique
@@ -387,9 +376,6 @@ initModuleCacheForBlock :: (Logger logger) => Bool -> PactBlockM logger tbl Modu
 initModuleCacheForBlock isGenesis = do
   PactServiceState{..} <- get
   pbh <- views psParentHeader (_blockHeight . _parentHeader)
-  l <- view (psServiceEnv . psLogger)
-  dbEnv <- view psBlockDbEnv
-  txCtx <- getTxContext noMiner def
   case Map.lookupLE pbh _psInitCache of
     Nothing -> if isGenesis
       then return mempty
@@ -428,7 +414,7 @@ runPact4Coinbase False miner enfCBFail usePrecomp mc = do
 
   where
     upgradeInitCache newCache = do
-      liftPactServiceM $ logInfo "Updating init cache for upgrade"
+      liftPactServiceM $ logInfoPact "Updating init cache for upgrade"
       updateInitCacheM newCache
 
 
@@ -588,7 +574,7 @@ pact4TransactionsFromPayload ppv plData = do
 
 debugResult :: J.Encode a => Logger logger => Text -> a -> PactServiceM logger tbl ()
 debugResult msg result =
-  logDebug $ trunc $ msg <> " result: " <> J.encodeText result
+  logDebugPact $ trunc $ msg <> " result: " <> J.encodeText result
   where
     trunc t | T.length t < limit = t
             | otherwise = T.take limit t <> " [truncated]"
@@ -732,7 +718,7 @@ continueBlock
 continueBlock mpAccess blockInProgress = do
     updateMempool
     liftPactServiceM $
-      logInfo $ "(parent height = " <> sshow pHeight <> ")"
+      logInfoPact $ "(parent height = " <> sshow pHeight <> ")"
             <> " (parent hash = " <> sshow pHash <> ")"
 
     blockDbEnv <- view psBlockDbEnv
@@ -775,7 +761,7 @@ continueBlock mpAccess blockInProgress = do
       BlockFill { _bfTxHashes = requestKeys, _bfGasLimit = finalGasLimit }
       <- refill fetchLimit txTimeLimit successes failures initCache initState
 
-    liftPactServiceM $ logInfo $ "(request keys = " <> sshow requestKeys <> ")"
+    liftPactServiceM $ logInfoPact $ "(request keys = " <> sshow requestKeys <> ")"
 
     liftIO $ do
       txHashes <- Vec.toLiftedVector failures
@@ -823,7 +809,6 @@ continueBlock mpAccess blockInProgress = do
       logger <- view (psServiceEnv . psLogger)
       let validate bhi _bha txs = forM txs $ \tx -> runExceptT $ do
             validateRawChainwebTx logger v cid dbEnv parentTime bhi (\_ -> pure ()) tx
-            checkParse logger v cid (pHeight + 1) tx
 
       liftIO $!
         mpaGetBlock mpAccess bfState validate (pHeight + 1) pHash (_parentHeader newBlockParent)
@@ -844,13 +829,13 @@ continueBlock mpAccess blockInProgress = do
           case unchanged of
             BlockFill g _ c -> do
               (goodLength, badLength) <- liftIO $ (,) <$> Vec.length successes <*> Vec.length failures
-              liftPactServiceM $ logDebug $ "Block fill: count=" <> sshow c
+              liftPactServiceM $ logDebugPact $ "Block fill: count=" <> sshow c
                 <> ", gaslimit=" <> sshow g <> ", good="
                 <> sshow goodLength <> ", bad=" <> sshow badLength
 
               -- LOOP INVARIANT: limit absolute recursion count
               if _bfCount bfState > fetchLimit then liftPactServiceM $ do
-                logInfo $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
+                logInfoPact $ "Refill fetch limit exceeded (" <> sshow fetchLimit <> ")"
                 pure (T2 mc unchanged)
               else do
                 when (_bfGasLimit bfState < 0) $
@@ -924,7 +909,7 @@ continueBlock mpAccess blockInProgress = do
               go (BlockFill g rks' i) rest
             Left (CommandInvalidTxTimeout (TxTimeout h)) -> do
               liftIO $ Vec.push failures h
-              liftPactServiceM $ logError $ "timed out on " <> sshow h
+              liftPactServiceM $ logErrorPact $ "timed out on " <> sshow h
               return (acc, True)
 
     enforceUnique rks rk

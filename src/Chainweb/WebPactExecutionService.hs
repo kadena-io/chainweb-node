@@ -22,7 +22,6 @@ import Control.Monad.Catch
 
 import qualified Data.HashMap.Strict as HM
 import Data.Vector (Vector)
-import qualified Data.Vector as V
 
 import GHC.Stack
 
@@ -42,9 +41,6 @@ import Chainweb.Payload
 import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 
-import Pact.Types.Hash
-import Pact.Types.Persistence (RowKey, Domain)
-import Pact.Types.RowData (RowData)
 import qualified Pact.Core.Persistence as Pact5
 import Chainweb.Version
 import Data.ByteString.Short (ShortByteString)

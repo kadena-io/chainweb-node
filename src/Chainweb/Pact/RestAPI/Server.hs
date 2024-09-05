@@ -119,7 +119,7 @@ import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 import qualified Chainweb.Pact4.Validations as Pact4
-import Chainweb.Version.Guards (isWebAuthnPrefixLegal, pact4ParserVersion, validPPKSchemes)
+import Chainweb.Version.Guards (isWebAuthnPrefixLegal, validPPKSchemes)
 import Chainweb.WebPactExecutionService
 
 import qualified Pact.JSON.Encode as J
@@ -193,7 +193,7 @@ pactServer d =
     v = _chainwebVersion cdb
 
     pactApiHandlers
-      = sendHandler logger v cid mempool
+      = sendHandler logger mempool
       :<|> pollHandler logger cdb cid pact mempool
       :<|> listenHandler logger cdb cid pact mempool
       :<|> localHandler logger v cid pact
@@ -252,12 +252,10 @@ instance ToJSON PactCmdLog where
 sendHandler
     :: Logger logger
     => logger
-    -> ChainwebVersion
-    -> ChainId
     -> MempoolBackend Pact4.UnparsedTransaction
     -> Pact4.SubmitBatch
     -> Handler Pact4.RequestKeys
-sendHandler logger v cid mempool (Pact4.SubmitBatch cmds) = Handler $ do
+sendHandler logger mempool (Pact4.SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
     case (traverse . traverse) (\t -> (encodeUtf8 t,) <$> eitherDecodeStrictText t) cmds of
       Right (fmap Pact4.mkPayloadWithText -> cmdsWithParsedPayloads) -> do
@@ -714,14 +712,13 @@ validateCommand v cid (fmap encodeUtf8 -> cmdBs) = case parsedCmd of
 -- TODO: all of the functions in this module can instead grab the current block height from consensus
 -- and pass it here to get a better estimate of what behavior is correct.
 validatePact5Command :: ChainwebVersion -> ChainId -> Pact5.Command Text -> Either String Pact5.Transaction
-validatePact5Command v cid cmdText = case parsedCmd of
+validatePact5Command _v _cid cmdText = case parsedCmd of
   Right (commandParsed :: Pact5.Transaction) ->
     if Pact5.assertCommand commandParsed
     then Right commandParsed
     else Left "Command failed validation"
   Left e -> Left $ "Pact parsing error: " ++ e
   where
-    bh = maxBound :: BlockHeight
     parsedCmd = Pact5.parseCommand cmdText
 
 -- | Validate the length of the request key's underlying hash.

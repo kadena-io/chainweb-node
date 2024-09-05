@@ -23,7 +23,7 @@ import Chainweb.Utils (decodeB64UrlNoPaddingText)
 import Chainweb.Version qualified as CWVersion
 import Control.Lens
 import Control.Monad (when)
-import Control.Monad.Except (ExceptT, runExceptT, throwError)
+import Control.Monad.Except (runExceptT, throwError)
 import Control.Monad.IO.Class (liftIO)
 import Crypto.Hash.Algorithms (SHA512t_256)
 import Data.Aeson qualified as Aeson
@@ -102,9 +102,9 @@ verifySPV bdb bh proofType proof = runExceptT $ do
             --   2. Decode tx outputs to 'CommandResult' 'Hash' _
             --   3. Extract tx outputs as a pact object and return the object
 
-            TransactionOutput proof <- liftIO $ verifyTransactionOutputProofAt_ bdb outputProof (_blockHash bh)
+            TransactionOutput rawCommandResult <- liftIO $ verifyTransactionOutputProofAt_ bdb outputProof (_blockHash bh)
 
-            commandResult <- case Aeson.decodeStrict' @(CommandResult Hash Aeson.Value) proof of
+            commandResult <- case Aeson.decodeStrict' @(CommandResult Hash Aeson.Value) rawCommandResult of
                 Nothing -> throwError "verifySPV: Unable to decode SPV transaction output"
                 Just cr -> return cr
 

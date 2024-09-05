@@ -19,6 +19,8 @@ module Chainweb.Pact5.Backend.ChainwebPactDb
     ( chainwebPactCoreBlockDb
     , Pact5Db(..)
     , BlockHandlerEnv(..)
+    , blockHandlerDb
+    , blockHandlerLogger
     , toTxLog
     , toPactTxLog
     , getEndTxId
@@ -47,7 +49,6 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashSet as HashSet
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Default
@@ -64,26 +65,20 @@ import qualified Pact.JSON.Legacy.HashMap as LHM
 import qualified Pact.Types.Persistence as Pact4
 import Pact.Types.SQLite hiding (liftEither)
 import Pact.Types.Util (AsString(..))
-import qualified Pact.Types.Term as Pact4
 
 
 import Pact.Core.Evaluate
 import Pact.Core.Persistence as PCore
 import Pact.Core.Serialise
 import Pact.Core.Names
-import Pact.Core.Info
 import Pact.Core.Builtin
 import Pact.Core.Guards
-import Pact.Core.PactValue
-import Pact.Core.Literal
-import Pact.Core.Gas
 import Pact.Core.Errors
 
 -- chainweb
 
 import Chainweb.BlockHeight
 import Chainweb.Logger
-import Chainweb.Pact.Backend.DbCache
 
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Types
@@ -94,16 +89,13 @@ import Chainweb.Version
 import qualified Pact.Core.Persistence as Pact5
 import qualified Pact.Core.Builtin as Pact5
 import qualified Pact.Core.Evaluate as Pact5
-import Data.IORef
 import qualified Database.SQLite3 as SQ3
-import Control.Exception.Safe (tryAny)
 import Chainweb.Version.Guards (enableModuleNameFix, chainweb217Pact, pact42)
 import Data.DList (DList)
 import Data.ByteString (ByteString)
 import Chainweb.BlockHeader
 import Chainweb.BlockHash
 import Chainweb.Utils.Serialization
-import Data.ByteString.Short (ShortByteString)
 import Data.Vector (Vector)
 import qualified Data.ByteString.Short as SB
 import Data.HashMap.Strict (HashMap)
@@ -193,17 +185,17 @@ liftGas g = BlockHandler (lift (lift g))
 runOnBlockGassed :: BlockHandlerEnv logger -> MVar BlockState -> BlockHandler logger a -> GasM CoreBuiltin Info a
 runOnBlockGassed env stateVar act = do
     ge <- ask
-    r <- liftIO $ modifyMVar stateVar $ \state -> do
-        r <- runExceptT (runReaderT (runGasM (runStateT (runReaderT (runBlockHandler act) env) state)) ge)
-        let newState = either (\_ -> state) snd r
+    r <- liftIO $ modifyMVar stateVar $ \s -> do
+        r <- runExceptT (runReaderT (runGasM (runStateT (runReaderT (runBlockHandler act) env) s)) ge)
+        let newState = either (\_ -> s) snd r
         return (newState, fmap fst r)
     liftEither r
 
 runOnBlock :: BlockHandlerEnv logger -> MVar BlockState -> BlockHandler logger a -> IO a
 runOnBlock env stateVar = ignoreGas def . runOnBlockGassed env stateVar
 
-chainwebPactCoreBlockDb :: (Logger logger) => Maybe (BlockHeight, TxId) -> ExecutionMode -> BlockHandlerEnv logger -> Pact5Db
-chainwebPactCoreBlockDb maybeLimit mode env = Pact5Db
+chainwebPactCoreBlockDb :: (Logger logger) => Maybe (BlockHeight, TxId) -> BlockHandlerEnv logger -> Pact5Db
+chainwebPactCoreBlockDb maybeLimit env = Pact5Db
     { doPact5DbTransaction = \blockHandle maybeRequestKey kont -> do
         stateVar <- newMVar $ BlockState blockHandle Nothing
         let basePactDb = PactDb
@@ -385,7 +377,7 @@ writeSys d k v = do
       DDefPacts -> (convPactIdCore k, _encodeDefPactExec serialisePact_raw_spaninfo v)
       DUserTables _ -> error "impossible"
   recordPendingUpdate kk (toUtf8 tablename) txid vv
-  recordTxLog tablename d kk vv
+  recordTxLog d kk vv
     where
     tablename = asString d
 
@@ -439,7 +431,7 @@ writeUser mlim wt d k rowdata@(RowData row) = do
         Nothing -> ins txid
         Just old -> upd txid old
     liftGas (_encodeRowData serialisePact_raw_spaninfo row') >>=
-        \encoded -> recordTxLog tn d (convRowKeyCore k) encoded
+        \encoded -> recordTxLog d (convRowKeyCore k) encoded
   where
   tn = asString d
 
@@ -535,12 +527,11 @@ failIfTableDoesNotExistInDbAtHeight caller tn bh = do
         internalError $ "callDb (" <> caller <> "): user error (Database error: ErrorError)"
 
 recordTxLog
-    :: Text
-    -> Domain k v CoreBuiltin Info
+    :: Domain k v CoreBuiltin Info
     -> Utf8
     -> BS.ByteString
     -> BlockHandler logger ()
-recordTxLog tn d (Utf8 k) v = do
+recordTxLog d (Utf8 k) v = do
     -- are we in a tx? if not, error.
     (pendingSQLite, txlogs) <- use (bsPendingTxOrError "write")
     modify' (bsPendingTx .~ Just (pendingSQLite, DL.snoc txlogs newLog))
@@ -582,7 +573,6 @@ doCreateUserTable mbh tn = do
                 (_blockHandlerChainId e)
                 (_blockHandlerBlockHeight e)
             cond <- inDb lcTables $ Utf8 $ T.encodeUtf8 $ asString tn
-            let uti = UserTableInfo (_tableModuleName tn)
             when cond $ throwM $ PactDuplicateTableError $ asString tn
 
             modifyPendingData "create table"
@@ -607,12 +597,6 @@ doCreateUserTable mbh tn = do
         "SELECT name FROM sqlite_master WHERE type='table' and name=?;"
     tableLookupStmt True =
         "SELECT name FROM sqlite_master WHERE type='table' and lower(name)=lower(?);"
-    txlogKey = "SYS:usertables"
-    rd = RowData $ M.singleton (Field "utModule")
-        (PObject $ M.fromList
-            [ (Field "namespace", maybe (PLiteral LUnit) (PString . _namespaceName) (_mnNamespace $ _tableModuleName tn))
-            , (Field "name", PString $ _tableName tn)
-            ])
 
 doRollback :: BlockHandler logger ()
 doRollback = modify'
@@ -649,10 +633,9 @@ doCommit = view blockHandlerMode >>= \case
                 PersistIntraBlockWrites -> lastTxWrite `NE.cons` blockWrites
                 DoNotPersistIntraBlockWrites -> lastTxWrite :| []
 
--- | Begin a Pact transaction
+-- | Begin a Pact transaction. Note that we don't actually use the ExecutionMode anymore.
 doBegin :: (Logger logger) => ExecutionMode -> BlockHandler logger (Maybe TxId)
-doBegin m = do
-    logger <- view blockHandlerLogger
+doBegin _m = do
     use bsPendingTx >>= \case
         Just _ -> do
             txid <- use latestTxId

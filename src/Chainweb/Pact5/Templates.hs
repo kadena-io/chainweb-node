@@ -21,37 +21,23 @@ module Chainweb.Pact5.Templates
 , mkCoinbaseTerm
 ) where
 
-
-import Control.Lens
 import Data.Decimal
-import Data.Text (Text, pack)
-
-import Text.Trifecta.Delta (Delta(..))
+import Data.Text (Text)
 
 -- internal modules
 
 import qualified Pact.JSON.Encode as J
-import qualified Pact.JSON.Legacy.Value as J
 
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Types
-import Chainweb.Pact.Types
 
-import Pact.Core.Evaluate
 import Pact.Core.Literal
 import Pact.Core.Names
-import Pact.Core.Info
 import Pact.Core.Syntax.ParseTree
-import Debug.Trace
-import Pact.JSON.Legacy.Value
 import Pact.Core.PactValue
 import qualified Data.Map as Map
-import qualified Pact.Types.KeySet
-import Data.Aeson (fromJSON, decodeStrictText)
-import Chainweb.Utils (decodeStrictOrThrow, decodeOrThrow)
-import System.IO.Unsafe (unsafePerformIO)
+import Chainweb.Utils (decodeOrThrow)
 import Pact.Core.StableEncoding (StableEncoding(_stableEncoding))
-import Control.Exception.Safe (throw, SomeException, impureThrow)
+import Control.Exception.Safe (impureThrow)
 import qualified Pact.Types.KeySet as Pact4
 import Chainweb.Pact5.Types
 

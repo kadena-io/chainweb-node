@@ -36,11 +36,10 @@ module Chainweb.Pact5.Validations
 import Control.Lens
 
 import Data.Decimal (decimalPlaces)
-import Data.Maybe (isJust, catMaybes, fromMaybe)
+import Data.Maybe
 import Data.Either (isRight)
 import Data.List.NonEmpty (NonEmpty, nonEmpty)
 import Data.Text (Text)
-import qualified Data.Text as T
 import qualified Data.ByteString.Short as SBS
 import Data.Word (Word8, Word64)
 
@@ -49,20 +48,14 @@ import Data.Word (Word8, Word64)
 import Chainweb.BlockHeader (ParentCreationTime(..), BlockHeader(..), ParentHeader(..))
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.Pact.Types
-import Chainweb.Pact.Utils (fromPactChainId)
-import Chainweb.Pact.Types
 import Chainweb.Time (Seconds(..), Time(..), secondsToTimeSpan, scaleTimeSpan, second, add)
 import Chainweb.Version
-import Chainweb.Version.Guards (isWebAuthnPrefixLegal, validPPKSchemes)
 
 import qualified Pact.Core.Command.Types as P
 import qualified Pact.Core.ChainData as P
 import qualified Pact.Core.Gas.Types as P
 import qualified Pact.Core.Hash as P
 import qualified Chainweb.Pact5.Transaction as P
-import qualified Crypto.Hash as P
-import qualified Pact.Core.Names as P
-import qualified Pact.Core.PactValue as P
 import qualified Pact.Types.Gas as Pact4
 import qualified Pact.Parse as Pact4
 import Chainweb.Pact5.Types
@@ -80,10 +73,6 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
     v <- view psVersion
     cid <- view chainId
     Pact4.GasLimit (Pact4.ParsedInteger bgl) <- view psBlockGasLimit
-
-    let bh = ctxCurrentBlockHeight txCtx
-    let validSchemes = validPPKSchemes v cid bh
-    let webAuthnPrefixLegal = isWebAuthnPrefixLegal v cid bh
 
     let P.PublicMeta pcid _ gl gp _ _ = P._pMeta pay
         nid = P._pNetworkId pay
@@ -167,11 +156,7 @@ assertValidateSigs hsh signers sigs
     | otherwise = and $ zipWith verifyUserSig sigs signers
     where
         verifyUserSig sig signer =
-            let
-                sigScheme = fromMaybe P.ED25519 (P._siScheme signer)
-                okSignature = isRight $ P.verifyUserSig hsh sig signer
-            in
-                okSignature
+          isRight $ P.verifyUserSig hsh sig signer
 
 -- prop_tx_ttl_newBlock/validateBlock
 --
