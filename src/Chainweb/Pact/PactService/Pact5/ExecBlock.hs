@@ -436,7 +436,6 @@ validateParsedChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas tx
       checkTxHash tx
       checkTxSigs tx
       checkTimes tx
-      -- checkCompile tx
       return ()
   where
 
@@ -509,10 +508,6 @@ validateRawChainwebTx logger v cid db parentTime bh buyGas tx = do
   tx' <- either (throwError . InsertErrorPactParseError . sshow) return $ Pact5.parsePact4Command tx
   validateParsedChainwebTx logger v cid db parentTime bh buyGas tx'
   return tx'
-
-  --   runValid :: Monad m => (a -> m (Either e a)) -> Either e a -> m (Either e a)
-  --   runValid f (Right r) = f r
-  --   runValid _ l@Left{} = pure l
 
 execExistingBlock
   :: (CanReadablePayloadCas tbl, Logger logger)
