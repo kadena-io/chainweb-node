@@ -83,6 +83,11 @@ import qualified P2P.Test.TaskQueue (properties)
 import qualified P2P.Test.Node (properties)
 import Control.Monad (replicateM_)
 import Control.Exception.Safe (tryAny)
+import System.Environment
+import System.LogLevel
+
+setTestLogLevel :: LogLevel -> IO ()
+setTestLogLevel l = setEnv "CHAINWEB_TEST_LOG_LEVEL" (show l)
 
 main :: IO ()
 main = do

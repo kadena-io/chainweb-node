@@ -52,6 +52,7 @@ module Chainweb.Pact.Types
   , psBlockGasLimit
   , psEnableLocalTimeout
   , psTxFailuresCounter
+  , psTxTimeLimit
     --
     -- * Pact Service State
   , PactServiceState(..)
@@ -650,6 +651,7 @@ data PactServiceEnv logger tbl = PactServiceEnv
 
     , _psEnableLocalTimeout :: !Bool
     , _psTxFailuresCounter :: !(Maybe (Counter "txFailures"))
+    , _psTxTimeLimit :: !(Maybe Micros)
     }
 makeLenses ''PactServiceEnv
 
@@ -704,6 +706,10 @@ data PactServiceConfig = PactServiceConfig
   , _pactPersistIntraBlockWrites :: !IntraBlockPersistence
     -- ^ Whether or not the node requires that all writes made in a block
     --   are persisted. Useful if you want to use PactService BlockTxHistory.
+  , _pactTxTimeLimit :: !(Maybe Micros)
+    -- ^ *Only affects Pact5*
+    --   Maximum allowed execution time for a single transaction.
+    --   If 'Nothing', it's a function of the BlockGasLimit.
   } deriving (Eq,Show)
 
 
@@ -722,6 +728,7 @@ testPactServiceConfig = PactServiceConfig
       , _pactFullHistoryRequired = False
       , _pactEnableLocalTimeout = False
       , _pactPersistIntraBlockWrites = DoNotPersistIntraBlockWrites
+      , _pactTxTimeLimit = Nothing
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@

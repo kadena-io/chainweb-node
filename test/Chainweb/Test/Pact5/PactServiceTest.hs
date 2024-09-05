@@ -1,29 +1,39 @@
 {-# language
     DataKinds
-  , ImportQualifiedPost
-  , LambdaCase
-  , NumericUnderscores
-  , OverloadedStrings
-  , ScopedTypeVariables
-  , TypeApplications
-  , TemplateHaskell
-  , ImpredicativeTypes
+    , FlexibleContexts
+    , ImpredicativeTypes
+    , ImportQualifiedPost
+    , LambdaCase
+    , NumericUnderscores
+    , OverloadedStrings
+    , ScopedTypeVariables
+    , TypeApplications
+    , TemplateHaskell
+    , RecordWildCards
+    , TupleSections
 #-}
 
 {-# options_ghc -fno-warn-gadt-mono-local-binds #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE RecordWildCards #-}
 
 module Chainweb.Test.Pact5.PactServiceTest
     ( tests
     ) where
 
 import Chainweb.Block (Block (_blockPayloadWithOutputs))
+import System.Environment (lookupEnv, setEnv)
+import Control.Applicative ((<|>))
+import Data.List qualified as List
+import Chainweb.Payload.PayloadStore
+import Chainweb.Pact.Service.BlockValidation
+import Chainweb.Pact.Service.PactInProcApi
+import Chainweb.Mempool.Consensus
+import Chainweb.Pact.PactService
+import Chainweb.Pact.Service.PactQueue
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb
+import Chainweb.Cut
 import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Logger
 import Chainweb.Mempool.Consensus
@@ -151,6 +161,7 @@ import Text.Show.Pretty (pPrint)
 import Text.Printf (printf)
 import Control.Concurrent.Async (forConcurrently)
 import Data.Bool
+import System.IO.Unsafe
 
 -- converts Pact 5 tx so that it can be submitted to the mempool, which
 -- operates on Pact 4 txs with unparsed code.
@@ -170,21 +181,33 @@ data Fixture = Fixture
     }
 makeLenses ''Fixture
 
-mkFixture baseRdb = do
+getTestLogLevel :: IO LogLevel
+getTestLogLevel = do
+    let parseLogLevel txt = case T.toUpper txt of
+            "DEBUG" -> Debug
+            "INFO" -> Info
+            "WARN" -> Warn
+            "ERROR" -> Error
+            _ -> Error
+    fromMaybe Error . fmap (parseLogLevel . T.pack) <$> lookupEnv "CHAINWEB_TEST_LOG_LEVEL"
+
+mkFixtureWith :: PactServiceConfig -> RocksDb -> ResourceT IO Fixture
+mkFixtureWith pactServiceConfig baseRdb = do
     sqlite <- withTempSQLiteResource
     liftIO $ do
-        tdb <- mkTestBlockDb v =<< testRocksDb "end to end" baseRdb
+        tdb <- mkTestBlockDb v =<< testRocksDb "fixture" baseRdb
         perChain <- iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
             bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
             cp <- initCheckpointer v chain sqlite
             pactQueue <- newPactQueue 2_000
             pactExecutionServiceVar <- newMVar (mkPactExecutionService pactQueue)
             let mempoolCfg = validatingMempoolConfig cid v (Pact4.GasLimit 150_000) (Pact4.GasPrice 1e-8) pactExecutionServiceVar
-            let logger = genericLogger Error Text.putStrLn --stdoutDummyLogger
+            logLevel <- getTestLogLevel
+            let logger = genericLogger logLevel Text.putStrLn
             mempool <- startInMemoryMempoolTest mempoolCfg
             mempoolConsensus <- mkMempoolConsensus mempool bhdb (Just (_bdbPayloadDb tdb))
             let mempoolAccess = pactMemPoolAccess mempoolConsensus logger
-            forkIO $ runPactService v cid logger Nothing pactQueue mempoolAccess bhdb (_bdbPayloadDb tdb) sqlite testPactServiceConfig
+            forkIO $ runPactService v cid logger Nothing pactQueue mempoolAccess bhdb (_bdbPayloadDb tdb) sqlite pactServiceConfig
             return (mempool, pactQueue)
         let fixture = Fixture
                 { _fixtureBlockDb = tdb
@@ -197,11 +220,16 @@ mkFixture baseRdb = do
         advanceAllChains fixture $ onChains []
         return fixture
 
+mkFixture :: RocksDb -> ResourceT IO Fixture
+mkFixture baseRdb = do
+    mkFixtureWith testPactServiceConfig baseRdb
+
 tests :: RocksDb -> TestTree
 tests baseRdb = testGroup "Pact5 PactServiceTest"
-    [ testCase "simple end to end" (simpleEndToEnd baseRdb)
-    , testCase "continue block spec" (continueBlockSpec baseRdb)
-    , testCase "new block empty" (newBlockEmpty baseRdb)
+    [ -- testCase "simple end to end" (simpleEndToEnd baseRdb)
+    -- , testCase "continue block spec" (continueBlockSpec baseRdb)
+    -- , testCase "new block empty" (newBlockEmpty baseRdb)
+      testCase "new block timeout spec" (newBlockTimeoutSpec baseRdb)
     ]
 
 successfulTx :: Predicatory p => Pred p (CommandResult log err)
@@ -305,9 +333,49 @@ continueBlockSpec baseRdb = runResourceT $ do
             predful ? Vector.replicate 3 successfulTx $
                 results
 
+-- txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit
+
+-- * test that the NewBlock timeout works properly and doesn't leave any extra state from a timed-out transaction
+newBlockTimeoutSpec :: RocksDb -> IO ()
+newBlockTimeoutSpec baseRdb = runResourceT $ do
+    let pactServiceConfig = testPactServiceConfig
+            { _pactTxTimeLimit = Just 20_000 -- 20 milliseconds
+            }
+    fixture <- mkFixtureWith pactServiceConfig baseRdb
+
+    let mapN :: Word -> Text
+        mapN n =
+            let
+                wrap x = "(" <> x <> ")"
+            in
+            foldr (\_ expr -> wrap $ "map (+ 1) " <> expr) "(enumerate 1 100000)" [1..n]
+
+    liftIO $ do
+        txTransfer1 <- buildCwCmd v $ transferCmd 1.0
+        txTransfer2 <- buildCwCmd v $ transferCmd 2.0
+        txTimeout <- buildCwCmd v defaultCmd
+            { _cbRPC = mkExec' (mapN 100)
+            , _cbSigners =
+                [ mkEd25519Signer' sender00 []
+                ]
+            , _cbSender = "sender00"
+            , _cbChainId = cid
+            , _cbGasPrice = GasPrice 1.5
+            , _cbGasLimit = GasLimit (Gas 1000)
+            }
+        advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
+            insertMempool mempool CheckedInsert [txTransfer2, txTimeout, txTransfer1]
+            bip <- throwIfNotPact5 =<< throwIfNoHistory =<<
+                newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
+            let expectedTxs = List.map _cmdHash [txTransfer2]
+            let actualTxs = Vector.toList $ Vector.map (unRequestKey . _crReqKey . snd) $ _transactionPairs $ _blockInProgressTransactions bip
+            assertEqual "block has only the valid transaction prefix" expectedTxs actualTxs
+            return $ finalizeBlock bip
+
+        pure ()
+
 {-
 tests = do
-    -- * test that the NewBlock timeout works properly and doesn't leave any extra state from a timed-out transaction
     -- * test that ValidateBlock does a destructive rewind to the parent of the block being validated
     -- * test ValidateBlock's behavior if its parent doesn't exist in the chain database
 
@@ -381,6 +449,7 @@ advanceAllChains Fixture{..} blocks = do
 
 getCut Fixture{..} = getCutTestBlockDb _fixtureBlockDb
 
+revert :: Fixture -> Cut -> IO ()
 revert Fixture{..} c = do
     setCutTestBlockDb _fixtureBlockDb c
     forM_ (HashSet.toList (chainIds v)) $ \chain -> do

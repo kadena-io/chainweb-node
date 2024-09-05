@@ -198,6 +198,7 @@ withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv config 
                     , _psBlockGasLimit = _pactBlockGasLimit config
                     , _psEnableLocalTimeout = _pactEnableLocalTimeout config
                     , _psTxFailuresCounter = txFailuresCounter
+                    , _psTxTimeLimit = _pactTxTimeLimit config
                     }
             !pst = PactServiceState mempty
 

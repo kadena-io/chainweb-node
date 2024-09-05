@@ -446,6 +446,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
           if _configFullHistoricPactState conf
           then PersistIntraBlockWrites
           else DoNotPersistIntraBlockWrites
+      , _pactTxTimeLimit = Nothing
       }
 
     pruningLogger :: T.Text -> logger

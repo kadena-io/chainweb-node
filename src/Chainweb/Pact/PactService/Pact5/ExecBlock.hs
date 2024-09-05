@@ -1,15 +1,17 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Chainweb.Pact.PactService.Pact5.ExecBlock
     ( runPact5Coinbase
@@ -20,27 +22,70 @@ module Chainweb.Pact.PactService.Pact5.ExecBlock
 
     ) where
 
-import Chainweb.Pact.Conversion (decodeRowData)
-import Data.These (These(..))
 import "semialign" Data.Zip (align)
-import Data.Bifunctor (first)
-import Data.Aeson.Encode.Pretty qualified as A
-import Chainweb.Logger
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.Logger
+import Chainweb.Mempool.Mempool(TransactionHash(..), BlockFill (..), pact5RequestKeyToTransactionHash, InsertError (..))
 import Chainweb.Miner.Pact
+import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
+import Chainweb.Pact.Conversion (decodeRowData)
+import Chainweb.Pact.SPV (pact5SPV)
 import Chainweb.Pact.Types
 import Chainweb.Pact.Types hiding (ctxCurrentBlockHeight, TxContext(..))
+import Chainweb.Pact5.NoCoinbase
 import Chainweb.Pact5.Transaction
+import Chainweb.Pact5.TransactionExec
+import Chainweb.Pact5.Types
 import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
+import Chainweb.Time
+import Chainweb.Utils
+import Chainweb.Version
+import Chainweb.Version.Guards
+import Chronos qualified
+import Control.Applicative
+import Control.Concurrent (myThreadId, killThread, threadDelay, forkIOWithUnmask, rtsSupportsBoundThreads, throwTo, yield)
+import Control.Concurrent.MVar (newEmptyMVar, isEmptyMVar, putMVar, tryPutMVar, takeMVar, tryTakeMVar)
+import Control.DeepSeq
+import Control.Exception (Exception(..), handleJust, bracket, uninterruptibleMask_, asyncExceptionToException, asyncExceptionFromException)
+import Control.Exception (evaluate)
+import Control.Exception.Safe (throwM)
+import Control.Lens
+import Control.Monad
+import Control.Monad (when, void)
+import Control.Monad.Except
+import Control.Monad.IO.Class
+import Control.Monad.Reader
+import Control.Monad.State.Strict
+import Data.Aeson(Value(..), toJSON)
+import Data.Aeson.Encode.Pretty qualified as A
+import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Unsafe.Coerce (unsafeCoerce)
 import Data.ByteString.Builder qualified as BB
+import Data.Coerce
 import Data.Decimal
+import Data.Default
+import Data.Either (partitionEithers)
+import Data.Foldable
+import Data.Map qualified as Map
+import Data.Maybe
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe)
+import Data.Scientific
+import Data.Text qualified as T
+import Data.These (These(..))
+import Data.Unique (Unique, newUnique)
 import Data.Vector (Vector)
+import Data.Vector qualified as V
 import Data.Void
-import Pact.Core.Command.Types (CommandResult(..), RequestKey(..))
+import Data.Word
+import GHC.Event (getSystemTimerManager, registerTimeout, unregisterTimeout)
+import Numeric.Natural
+import Pact.Core.Builtin
+import Pact.Core.ChainData hiding (ChainId)
 import Pact.Core.ChainData qualified as Pact5
+import Pact.Core.Command.Types (CommandResult(..), RequestKey(..))
 import Pact.Core.Command.Types qualified as Pact5
 import Pact.Core.Persistence qualified as Pact5
 import Pact.Core.StableEncoding qualified as Pact5
@@ -69,8 +114,11 @@ import qualified Pact.Core.Gas as Pact5
 import Control.Monad.State.Strict
 import Pact.Core.Errors
 import Pact.Core.Evaluate (Info)
-import qualified Chainweb.Pact5.Transaction as Pact5
-import Pact.Types.Util (modifyMVar')
+import Pact.Core.Hash
+import Pact.Core.Names
+import Pact.Core.Persistence qualified as Pact5
+import Pact.Core.SPV
+import Pact.Core.StableEncoding
 import Pact.Core.ChainData hiding (ChainId)
 import Pact.Core.SPV
 import qualified Pact.JSON.Encode as J
@@ -87,6 +135,8 @@ import Control.Applicative
 import Chainweb.Payload.PayloadStore
 import Chainweb.Pact.SPV (pact5SPV)
 import Control.Monad.Reader
+import System.LogLevel (LogLevel(..))
+import Unsafe.Coerce (unsafeCoerce)
 import Utils.Logging.Trace
 import qualified Data.Set as S
 import qualified Pact.Types.Gas as Pact4
@@ -98,14 +148,26 @@ import Chainweb.Version.Guards
 import qualified Data.HashMap.Strict as HashMap
 import Data.Coerce
 import qualified Chainweb.Pact5.Backend.ChainwebPactDb as Pact5
+import qualified Chainweb.Pact4.Transaction as Pact4
+import qualified Chainweb.Pact5.Transaction as Pact5
 import qualified Chainweb.Pact5.Validations as Pact5
+import qualified Data.Aeson as A
 import qualified Data.ByteString.Short as SB
+import qualified Data.HashMap.Strict as HashMap
+import qualified Data.Set as S
+import qualified Data.Text.Encoding as T
+import qualified Pact.Core.Command.RPC as Pact5
+import qualified Pact.Core.Evaluate as Pact5
+import qualified Pact.Core.Gas as P
+import qualified Pact.Core.Gas as Pact5
 import qualified Pact.Core.Hash as Pact5
 import qualified Pact.Core.Evaluate as Pact5
 import qualified Pact.Core.Command.RPC as Pact5
 import qualified Chainweb.Pact4.Transaction as Pact4
 import System.LogLevel
 import qualified Data.Aeson as Aeson
+import qualified Pact.JSON.Encode as J
+import qualified Pact.Types.Gas as Pact4
 
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range. Rewards are calculated
@@ -173,7 +235,6 @@ continueBlock
     -> PactBlockM logger tbl (BlockInProgress Pact5)
 continueBlock mpAccess blockInProgress = do
   pbBlockHandle .= _blockInProgressHandle blockInProgress
-  liftPactServiceM $ logDebug "starting continueBlock"
   -- update the mempool, ensuring that we reintroduce any transactions that
   -- were removed due to being completed in a block on a different fork.
   liftIO $ do
@@ -186,11 +247,18 @@ continueBlock mpAccess blockInProgress = do
         ]
 
   blockGasLimit <- view (psServiceEnv . psBlockGasLimit)
-  let
-    txTimeHeadroomFactor = 5
-    txTimeLimit :: Micros
-    -- 2.5 us per unit gas
-    txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit
+  mTxTimeLimit <- view (psServiceEnv . psTxTimeLimit)
+  let txTimeHeadroomFactor = 5
+  let txTimeLimit :: Micros
+      -- 2.5 us per unit gas
+      txTimeLimit = fromMaybe (round $ 2.5 * txTimeHeadroomFactor * fromIntegral blockGasLimit) mTxTimeLimit
+  liftPactServiceM $ do
+    logDebug $ T.unwords
+        [ "Block gas limit:"
+        , sshow blockGasLimit <> ","
+        , "Transaction time limit:"
+        , sshow txTimeLimit
+        ]
 
   let cb = _transactionCoinbase (_blockInProgressTransactions blockInProgress)
   let startTxs = _transactionPairs (_blockInProgressTransactions blockInProgress)
@@ -292,11 +360,12 @@ continueBlock mpAccess blockInProgress = do
         env <- ask
         startBlockHandle <- use pbBlockHandle
         let p5RemainingGas = Pact5.GasLimit $ Pact5.Gas $ fromIntegral remainingGas
-        logger <- view (psServiceEnv . psLogger)
+        logger' <- view (psServiceEnv . psLogger)
         ((txResults, timedOut), (finalBlockHandle, Identity finalRemainingGas)) <-
           liftIO $ flip runStateT (startBlockHandle, Identity p5RemainingGas) $ foldr
             (\tx rest -> StateT $ \s -> do
-              m <- liftIO $ timeout
+              let logger = addLabel ("transactionHash", sshow (Pact5._cmdHash tx)) logger'
+              m <- liftIO $ newTimeout
                 (fromIntegral @Micros @Int timeLimit)
                 (runExceptT $ runStateT (applyPactCmd env miner tx) s)
               case m of
@@ -308,14 +377,19 @@ continueBlock mpAccess blockInProgress = do
                         T.decodeUtf8 $ SB.fromShort $ tx ^. Pact5.cmdPayload . Pact5.payloadBytes
                         )
                     ]
-                  return (([], True), s)
-                -- TODO: log?
+                  return (([Left (Pact5._cmdHash tx)], True), s)
                 Just (Left _err) -> do
+                  logFunctionText logger Debug "applyCmd failed to buy gas"
                   ((as, timedOut), s') <- runStateT rest s
                   return ((Left (Pact5._cmdHash tx):as, timedOut), s')
                 Just (Right (a, s)) -> do
+                  logFunctionText logger Debug "applyCmd buy gas succeeded"
                   ((as, timedOut), s') <- runStateT rest s
-                  return ((Right (tx, a):as, timedOut), s')
+                  case _crResult a of
+                    Pact5.PactResultErr _ -> do
+                      return ((Left (Pact5._cmdHash tx):as, timedOut), s')
+                    _ -> do
+                      return ((Right (tx, a):as, timedOut), s')
               )
               (return ([], False))
               txs
@@ -466,7 +540,6 @@ validateParsedChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas tx
 
     checkUnique :: Pact5.Transaction -> ExceptT InsertError IO Pact5.Transaction
     checkUnique t = do
-      logDebug_ logger $ "Pact5.checkUnique: " <> sshow (Pact5._cmdHash t)
       found <- liftIO $
         HashMap.lookup (coerce $ Pact5._cmdHash t) <$>
           Pact5.lookupPactTransactions dbEnv
@@ -477,36 +550,29 @@ validateParsedChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas tx
 
     checkTimes :: Pact5.Transaction -> ExceptT InsertError IO Pact5.Transaction
     checkTimes t = do
-        logDebug_ logger $ "Pact5.checkTimes: " <> sshow (Pact5._cmdHash t)
         if | skipTxTimingValidation v cid bh -> do
                pure t
            | not (Pact5.assertTxNotInFuture txValidationTime (view Pact5.payloadObj <$> t)) -> do
-               logDebug_ logger $ "Pact5.checkTimes: (txValidationTime, txTime) = " <> sshow (_parentCreationTime txValidationTime, view (Pact5.cmdPayload . Pact5.payloadObj . Pact5.pMeta . Pact5.pmCreationTime) t)
 
                --(_parentCreationTime txValidationTime, _creationTime . view Pact5.payloadObj <$> t)
-               logDebug_ logger $ "Pact5.checkTimes: InsertErrorTimeInFuture"
                throwError InsertErrorTimeInFuture
            | not (Pact5.assertTxTimeRelativeToParent txValidationTime (view Pact5.payloadObj <$> t)) -> do
-               logDebug_ logger $ "Pact5.checkTimes: InsertErrorTimeInPast"
                throwError InsertErrorTTLExpired
            | otherwise -> do
                pure t
 
     checkTxHash :: Pact5.Transaction -> ExceptT InsertError IO Pact5.Transaction
     checkTxHash t = do
-        logDebug_ logger $ "Pact5.checkTxHash: " <> sshow (Pact5._cmdHash t)
         case Pact5.verifyHash (Pact5._cmdHash t) (SB.fromShort $ view Pact5.payloadBytes $ Pact5._cmdPayload t) of
             Left _
                 | doCheckTxHash v cid bh -> throwError InsertErrorInvalidHash
                 | otherwise -> do
-                    logDebug_ logger "ignored legacy tx-hash failure"
                     pure t
             Right _ -> pure t
 
 
     checkTxSigs :: Pact5.Transaction -> ExceptT InsertError IO Pact5.Transaction
     checkTxSigs t = do
-      logDebug_ logger $ "Pact5.checkTxSigs: " <> sshow (Pact5._cmdHash t)
       if | Pact5.assertValidateSigs hsh signers sigs -> pure t
          | otherwise -> throwError InsertErrorInvalidSigs
       where
@@ -779,3 +845,12 @@ instance J.Encode CRLogPair where
       ]
     ]
   {-# INLINE build #-}
+
+-- | This timeout variant returns Nothing if the timeout elapsed, regardless of whether or not it was actually able to interrupt its argument.
+--   This is more robust in the face of scheduler behavior than the standard 'System.Timeout.timeout', with small timeouts.
+newTimeout :: Int -> IO a -> IO (Maybe a)
+newTimeout n f = do
+  (timeSpan, a) <- Chronos.stopwatch (timeout n f)
+  if Chronos.getTimespan timeSpan > fromIntegral (n * 1000)
+  then return Nothing
+  else return a
