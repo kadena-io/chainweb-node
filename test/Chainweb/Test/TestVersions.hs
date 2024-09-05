@@ -391,10 +391,18 @@ instantCpmTestVersion g = buildTestVersion $ \v -> v
     & versionVerifierPluginNames .~ AllChains
         (End $ Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"])
 
+-- | CPM version (see `cpmTestVersion`) with forks and upgrades instantly enabled
+-- at genesis. We also have an upgrade after genesis that redeploys Coin v5 as
+-- a Pact 5 module.
 pact5SlowCpmTestVersion :: ChainGraph -> ChainwebVersion
 pact5SlowCpmTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("pact5-slow-CPM-" <> toText g)
+    & versionForks .~ tabulateHashMap (\case
+        -- genesis blocks are not ever run with Pact 5
+        Pact5Fork -> onChains [ (cid, ForkAtBlockHeight (succ $ genesisHeightSlow v cid)) | cid <- HS.toList $ graphChainIds g ]
+        _ -> AllChains ForkAtGenesis
+        )
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
             (unsafeChainId 0, IN0.payloadBlock) :
@@ -402,14 +410,11 @@ pact5SlowCpmTestVersion g = buildTestVersion $ \v -> v
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
-    & versionForks .~ tabulateHashMap (\case
-        -- genesis blocks are not ever run with Pact 5
-        Pact5Fork -> onChains [ (cid, ForkAtBlockHeight (succ $ genesisHeightSlow v cid)) | cid <- HS.toList $ graphChainIds g ]
-        _ -> AllChains ForkAtGenesis
-        )
     & versionUpgrades .~ indexByForkHeights v
         [ (Pact5Fork, AllChains (ForPact5 $ Pact5Upgrade (List.map pactTxFrom4To5 CoinV5.transactions)))
         ]
+    & versionVerifierPluginNames .~ AllChains
+        (End $ Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"])
 
 pact5EarlyTestVersion :: ChainGraph -> ChainwebVersion
 pact5EarlyTestVersion g = buildTestVersion $ \v -> v
