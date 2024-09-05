@@ -526,11 +526,14 @@ execExistingBlock currHeader payload = do
   txs <- liftIO $ pact5TransactionsFromPayload plData
   logger <- view (psServiceEnv . psLogger)
   gasLogger <- view (psServiceEnv . psGasLogger)
+  v <- view chainwebVersion
+  cid <- view chainId
+  db <- view psBlockDbEnv
   -- TODO: pact5 genesis
   let
     txValidationTime = ParentCreationTime (_blockCreationTime $ _parentHeader parentBlockHeader)
     -- TODO: pact5 test for validation
-    valids = txs -- TODO: pact5 validation
+  valids <- liftIO $ traverse (runExceptT . validateParsedChainwebTx logger v cid db txValidationTime (_blockHeight currHeader) (\_ -> pure ())) txs
 
   coinbaseResult <- runPact5Coinbase miner >>= \case
     Left err -> throwM $ CoinbaseFailure (Pact5CoinbaseFailure err)
