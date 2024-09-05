@@ -39,6 +39,7 @@ import Pact.Core.Command.Types (CommandResult(..), RequestKey(..))
 import Pact.Core.ChainData qualified as Pact5
 import Pact.Core.Command.Types qualified as Pact5
 import Pact.Core.Persistence qualified as Pact5
+import Pact.Core.StableEncoding qualified as Pact5
 import Pact.Core.Hash
 import Chainweb.Pact5.NoCoinbase
 import Control.Lens
@@ -88,7 +89,6 @@ import qualified Pact.Types.Gas as Pact4
 import qualified Pact.Core.Gas as P
 import qualified Data.Aeson as A
 import Data.Maybe (catMaybes)
-import Pact.Core.StableEncoding
 import qualified Data.Text.Encoding as T
 import Chainweb.Version.Guards
 import qualified Data.HashMap.Strict as HashMap
@@ -406,10 +406,25 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
       let spv = pact5SPV bhdb (_parentHeader parent)
       let txCtx = TxContext parent miner
       -- TODO: trace more info?
-      (resultOrError, blockHandle') <- liftIO $ trace' (logFunction logger) "applyCmd" (\_ -> ()) (\_ -> 0) $
+      (resultOrError, blockHandle') <- liftIO $ trace' (logFunction logger) "applyCmd" computeTrace (\_ -> 0) $
         doPact5DbTransaction dbEnv blockHandle (Just (Pact5.RequestKey $ Pact5._cmdHash cmd)) $ \pactDb ->
           applyCmd logger gasLogger pactDb txCtx spv initialGas cmd
       return $ (,blockHandle') <$> resultOrError
+    where
+    computeTrace (Left gasPurchaseFailure, _) = Aeson.object
+      [ "result" Aeson..= Aeson.String "gas purchase failure"
+      , "hash" Aeson..= J.toJsonViaEncode (Pact5._cmdHash cmd)
+      ]
+    computeTrace (Right result, _) = Aeson.object
+      [ "gas" Aeson..= J.toJsonViaEncode (Pact5._crGas result)
+      , "result" Aeson..= Aeson.String (case Pact5._crResult result of
+        Pact5.PactResultOk pv ->
+          "success"
+        Pact5.PactResultErr e ->
+          "failure"
+        )
+      , "hash" Aeson..= J.toJsonViaEncode (Pact5._cmdHash cmd)
+      ]
 
 -- | The principal validation logic for groups of Pact Transactions.
 --
@@ -705,7 +720,7 @@ validateHashes bHeader payload miner transactions =
 
     addTxOuts :: (Pact5.Transaction, Pact5.CommandResult [Pact5.TxLog ByteString] TxFailedError) -> J.Builder
     addTxOuts (tx,cr) = J.object
-        [ "tx" J..= fmap (over Pact5.pMeta StableEncoding . fmap Pact5._pcCode . view payloadObj) tx
+        [ "tx" J..= fmap (over Pact5.pMeta Pact5.StableEncoding . fmap Pact5._pcCode . view payloadObj) tx
         , "result" J..= toPairCR cr
         ]
 
