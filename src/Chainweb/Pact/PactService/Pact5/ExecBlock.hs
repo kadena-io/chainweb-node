@@ -589,6 +589,8 @@ data PrettyCheckablePayload = PrettyCheckablePayload
 
 newtype PrettyBlockValidationFailure = PrettyBlockValidationFailure T.Text
 
+-- | Check that the two payloads agree. If we have access to the outputs, we
+-- check those too.
 validateHashes
   :: BlockHeader
   -> CheckablePayload

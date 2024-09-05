@@ -120,6 +120,9 @@ data BlockHandlerEnv logger = BlockHandlerEnv
     , _blockHandlerMode :: !ExecutionMode
     , _blockHandlerPersistIntraBlockWrites :: !IntraBlockPersistence
     }
+
+-- | The state used by database operations.
+-- Includes both the state re: the whole block, and the state re: a transaction in progress.
 data BlockState = BlockState
     { _bsBlockHandle :: !BlockHandle
     , _bsPendingTx :: !(Maybe (SQLitePendingData, DList (Pact5.TxLog ByteString)))
@@ -136,6 +139,7 @@ bsPendingTxOrError msg = lens
     )
     (\bs p -> set bsPendingTx (Just p) bs)
 
+-- | The Pact 5 database as it's provided by the checkpointer.
 data Pact5Db = Pact5Db
     { doPact5DbTransaction
         :: forall a
@@ -143,13 +147,20 @@ data Pact5Db = Pact5Db
         -> Maybe RequestKey
         -> (Pact5.PactDb Pact5.CoreBuiltin Pact5.Info -> IO a)
         -> IO (a, BlockHandle)
+    -- ^ Give this function a BlockHandle representing the state of a block so far,
+    -- and it will allow you to access a PactDb which contains the Pact state
+    -- as of that point in the block. After you're done, it passes you back
+    -- a BlockHandle representing the state of the block extended with any
+    -- writes you made to the PactDb. Note also that this function handles
+    -- registering transactions as completed, if you pass it a RequestKey.
     , lookupPactTransactions :: Vector RequestKey -> IO (HashMap RequestKey (T2 BlockHeight BlockHash))
+    -- ^ Used to implement transaction polling.
     }
 
 type instance PactDbFor logger Pact5 = Pact5Db
 
--- this monad allows access to the database environment "at" a particular block,
--- and allows charging gas.
+-- this monad allows access to the database environment "in" a particular
+-- transaction, and allows charging gas for database operations.
 newtype BlockHandler logger a = BlockHandler
     { runBlockHandler
         :: ReaderT (BlockHandlerEnv logger)
@@ -225,7 +236,7 @@ chainwebPactCoreBlockDb maybeLimit mode env = Pact5Db
         finalState <- readMVar stateVar
         when (isJust (_bsPendingTx finalState)) $
             internalError "dangling transaction"
-        -- | Register a successful transaction in the pending data for the block
+        -- Register a successful transaction in the pending data for the block
         let registerRequestKey = case maybeRequestKey of
                 Just requestKey -> HashSet.insert (SB.fromShort $ unHash $ unRequestKey requestKey)
                 Nothing -> id

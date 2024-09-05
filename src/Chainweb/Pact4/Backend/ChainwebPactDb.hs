@@ -743,8 +743,8 @@ doGetTxLog d txid = do
 toTxLog :: MonadThrow m =>
            T.Text -> Utf8 -> BS.ByteString -> m (TxLog RowData)
 toTxLog d key value =
-        case Data.Aeson.decodeStrict' value of
-            Nothing -> internalError $ "toTxLog: Unexpected value, unable to deserialize log: " <> sshow value
+      case Data.Aeson.decodeStrict' value of
+            Nothing -> internalError $ "toTxLog: Unexpected value, unable to deserialize log: " <> T.decodeUtf8 value
             Just v ->
               return $! TxLog d (fromUtf8 key) v
 

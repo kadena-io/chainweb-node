@@ -161,7 +161,6 @@ fastForks = tabulateHashMap $ \case
     PactEvents -> AllChains ForkAtGenesis
     CoinV2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
     Pact42 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
-    Pact5Fork -> AllChains $ ForkAtBlockHeight 42
     SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
     ModuleNameFix -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
     ModuleNameFix2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
@@ -178,6 +177,7 @@ fastForks = tabulateHashMap $ \case
     Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 38
     Chainweb224Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 40
     Chainweb225Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 42
+    Pact5Fork -> AllChains $ ForkAtBlockHeight 42
 
 -- | A test version without Pact or PoW, with only one chain graph.
 barebonesTestVersion :: ChainGraph -> ChainwebVersion
@@ -312,7 +312,6 @@ slowForks = tabulateHashMap \case
     ModuleNameFix -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
     ModuleNameFix2 -> AllChains $ ForkAtBlockHeight (BlockHeight 2)
     Pact42 -> AllChains $ ForkAtBlockHeight (BlockHeight 5)
-    Pact5Fork -> AllChains $ ForkAtBlockHeight (BlockHeight 115)
     CheckTxHash -> AllChains $ ForkAtBlockHeight (BlockHeight 7)
     EnforceKeysetFormats -> AllChains $ ForkAtBlockHeight (BlockHeight 10)
     PactEvents -> AllChains $ ForkAtBlockHeight (BlockHeight 10)
@@ -330,6 +329,7 @@ slowForks = tabulateHashMap \case
     Chainweb223Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 120)
     Chainweb224Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 125)
     Chainweb225Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 130)
+    Pact5Fork -> AllChains $ ForkAtBlockHeight (BlockHeight 115)
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades slowly enabled.
 slowForkingCpmTestVersion :: ChainGraph -> ChainwebVersion
@@ -375,7 +375,9 @@ instantCpmTestVersion g = buildTestVersion $ \v -> v
     & versionName .~ ChainwebVersionName ("instant-CPM-" <> toText g)
     & versionForks .~ tabulateHashMap (\case
         -- genesis blocks are not ever run with Pact 5
-        Pact5Fork -> onChains [ (cid, ForkAtBlockHeight (succ $ genesisHeightSlow v cid)) | cid <- HS.toList $ graphChainIds g ]
+        Pact5Fork -> onChains [
+            (cid, ForkAtBlockHeight (succ $ genesisHeightSlow v cid)) | cid <- HS.toList $ graphChainIds g
+            ]
         _ -> AllChains ForkAtGenesis
         )
     & versionGenesis .~ VersionGenesis
