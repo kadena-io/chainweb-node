@@ -415,9 +415,3 @@ pact5SlowCpmTestVersion g = buildTestVersion $ \v -> v
         ]
     & versionVerifierPluginNames .~ AllChains
         (End $ Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"])
-
-pact5EarlyTestVersion :: ChainGraph -> ChainwebVersion
-pact5EarlyTestVersion g = buildTestVersion $ \v -> v
-    & cpmTestVersion g
-    & versionName .~ ChainwebVersionName ("pact5-early-" <> toText g)
-    & versionForks .~ (fastForks & at Pact5Fork .~ Just (AllChains $ ForkAtBlockHeight 115))
