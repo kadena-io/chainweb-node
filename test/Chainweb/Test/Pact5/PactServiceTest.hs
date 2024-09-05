@@ -333,28 +333,19 @@ continueBlockSpec baseRdb = runResourceT $ do
             predful ? Vector.replicate 3 successfulTx $
                 results
 
--- txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit
-
 -- * test that the NewBlock timeout works properly and doesn't leave any extra state from a timed-out transaction
 newBlockTimeoutSpec :: RocksDb -> IO ()
 newBlockTimeoutSpec baseRdb = runResourceT $ do
     let pactServiceConfig = testPactServiceConfig
-            { _pactTxTimeLimit = Just 20_000 -- 20 milliseconds
+            { _pactTxTimeLimit = Just 50_000 -- 50 milliseconds. i added some buffer to help with CI runners
             }
     fixture <- mkFixtureWith pactServiceConfig baseRdb
-
-    let mapN :: Word -> Text
-        mapN n =
-            let
-                wrap x = "(" <> x <> ")"
-            in
-            foldr (\_ expr -> wrap $ "map (+ 1) " <> expr) "(enumerate 1 100000)" [1..n]
 
     liftIO $ do
         txTransfer1 <- buildCwCmd v $ transferCmd 1.0
         txTransfer2 <- buildCwCmd v $ transferCmd 2.0
         txTimeout <- buildCwCmd v defaultCmd
-            { _cbRPC = mkExec' (mapN 100)
+            { _cbRPC = mkExec' $ foldr (\_ expr -> "(map (+ 1) " <> expr <> ")") "(enumerate 1 100000)" [1..1_000] -- make a huge nested tx
             , _cbSigners =
                 [ mkEd25519Signer' sender00 []
                 ]
@@ -367,6 +358,8 @@ newBlockTimeoutSpec baseRdb = runResourceT $ do
             insertMempool mempool CheckedInsert [txTransfer2, txTimeout, txTransfer1]
             bip <- throwIfNotPact5 =<< throwIfNoHistory =<<
                 newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
+            -- Mempool orders by GasPrice. 'buildCwCmd' sets the gas price to the transfer amount.
+            -- We hope for 'txTimeout' to fail, meaning that only 'txTransfer2' is in the block.
             let expectedTxs = List.map _cmdHash [txTransfer2]
             let actualTxs = Vector.toList $ Vector.map (unRequestKey . _crReqKey . snd) $ _transactionPairs $ _blockInProgressTransactions bip
             assertEqual "block has only the valid transaction prefix" expectedTxs actualTxs
