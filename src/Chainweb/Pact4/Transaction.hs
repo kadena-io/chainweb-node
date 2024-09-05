@@ -56,7 +56,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
 -- | A product type representing a `Payload PublicMeta ParsedCode` coupled with
--- the Text that generated it, to make gossiping easier.
+-- the text that it was parsed from, to make gossiping easier.
 --
 data PayloadWithText meta code = PayloadWithText
     { _payloadBytes :: !SB.ShortByteString
@@ -83,7 +83,10 @@ mkPayloadWithTextOld p = PayloadWithText
     , _payloadObj = p
     }
 
+-- | Pact 4 transactions.
 type Transaction = Command (PayloadWithText PublicMeta ParsedCode)
+
+-- | Pact 4 commands with code left not parsed are used in the mempool.
 type UnparsedTransaction = Command (PayloadWithText PublicMeta Text)
 
 data PactParserVersion
@@ -91,6 +94,7 @@ data PactParserVersion
     | PactParserChainweb213
     deriving (Eq, Ord, Bounded, Show, Enum)
 
+-- | Denotes whether the `WEBAUTHN-` key prefix is valid at this point in the block history.
 data IsWebAuthnPrefixLegal
     = WebAuthnPrefixIllegal
     | WebAuthnPrefixLegal
@@ -108,7 +112,9 @@ instance (Eq code, Eq meta) => Hashable (HashableTrans (PayloadWithText meta cod
         !hashCode = either error id $ decHC (B.take 8 $ SB.fromShort hc)
     {-# INLINE hashWithSalt #-}
 
-rawCommandCodec :: Codec (Command (PayloadWithText PublicMeta Text))
+-- | A codec for the transaction type used in the mempool.
+--
+rawCommandCodec :: Codec UnparsedTransaction
 rawCommandCodec = Codec enc dec
     where
     enc cmd = J.encodeStrict $ J.text . decodeUtf8 . SB.fromShort . _payloadBytes <$> cmd
