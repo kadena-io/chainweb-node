@@ -19,6 +19,11 @@
 
 module Chainweb.Test.Pact5.CmdBuilder where
 
+import Pact.Types.ChainMeta qualified as Pact4
+import Pact.Types.Command qualified as Pact4
+import Pact.JSON.Legacy.Value qualified as J
+import Data.Aeson qualified as Aeson
+import Chainweb.Pact4.Transaction qualified as Pact4
 import Data.Int (Int64)
 import Control.Lens hiding ((.=))
 import Pact.Core.Command.Types
@@ -39,6 +44,7 @@ import Chainweb.Version
 import qualified Chainweb.ChainId
 import qualified Chainweb.ChainId as Chainweb
 import Data.ByteString (ByteString)
+import Data.ByteString.Short qualified as BShort
 import qualified Chainweb.Pact5.Transaction as Pact5
 import qualified Data.Text.Encoding as T
 import Chainweb.Utils
@@ -188,14 +194,64 @@ defaultCmd = CmdBuilder
   , _cbCreationTime = Nothing
   }
 
--- | Build parsed + verified Pact command
+{-
+validatePact5Command :: ChainwebVersion -> ChainId -> Pact5.Command Text -> Either String Pact5.Transaction
+validatePact5Command v cid cmdText = case parsedCmd of
+  Right (commandParsed :: Pact5.Transaction) ->
+    if Pact5.assertCommand commandParsed
+    then Right commandParsed
+    else Left "Command failed validation"
+  Left e -> Left $ "Pact parsing error: " ++ e
+  where
+    bh = maxBound :: BlockHeight
+    parsedCmd = Pact5.parseCommand cmdText
+-}
 
+-- | Build parsed + verified Pact command
 -- TODO: Use the new `assertPact4Command` function.
 buildCwCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m Pact5.Transaction
 buildCwCmd v cmd = buildTextCmd v cmd >>= \(c :: Command Text) ->
   case validatePact5Command v (_cbChainId cmd) c of
-    Left err -> throwM $ userError $ "buildCmd failed: " ++ err
+    Left err -> throwM $ userError $ "buildCwCmd failed: " ++ err
     Right cmd' -> return cmd'
+
+-- | Build a Pact4 command without parsing it. This can be useful for inserting txs directly into the mempool for testing.
+buildCwCmdNoParse :: forall m. (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m Pact4.UnparsedTransaction
+buildCwCmdNoParse v cmd = do
+  cmd5 <- buildTextCmd v cmd
+  cmd4 <- case Aeson.fromJSON @(Pact4.Command Text) $ J._getLegacyValue $ J.toLegacyJsonViaEncode cmd5 of
+    Aeson.Error e -> throwM $ userError $ "buildCwCmdNoParse failed: " ++ e
+    Aeson.Success c -> return c
+
+  let decodePayload :: ByteString -> m (Pact4.Payload Pact4.PublicMeta Text)
+      decodePayload bs = case Aeson.eitherDecodeStrict' bs of
+        Left err -> throwM $ userError $ "buildCwCmdNoParse failed to decode json payload: " ++ err
+        Right payload -> return payload
+
+  let payloadBytes = T.encodeUtf8 $ Pact4._cmdPayload cmd4
+  payload <- decodePayload payloadBytes
+  return $ Pact4.mkPayloadWithText $ fmap (\_ -> (payloadBytes, payload)) cmd4
+
+{-
+
+mkPayloadWithText :: Command (ByteString, Payload meta code) -> Command (PayloadWithText meta code)
+validateCommand :: ChainwebVersion -> ChainId -> Pact4.Command Text -> Either String Pact4.Transaction
+validateCommand v cid (fmap encodeUtf8 -> cmdBs) = case parsedCmd of
+  Right (commandParsed :: Pact4.Transaction) ->
+    if Pact4.assertCommand
+         commandParsed
+         (validPPKSchemes v cid bh)
+         (isWebAuthnPrefixLegal v cid bh)
+    then Right commandParsed
+    else Left "Command failed validation"
+  Left e -> Left $ "Pact parsing error: " ++ e
+  where
+    bh = maxBound :: BlockHeight
+    decodeAndParse bs =
+        traverse (Pact4.parsePact) =<< Aeson.eitherDecodeStrict' bs
+    parsedCmd = Pact4.mkPayloadWithText <$>
+        Pact4.cmdPayload (\bs -> (bs,) <$> decodeAndParse bs) cmdBs
+-}
 
 -- | Build unparsed, unverified command
 --

@@ -6,6 +6,7 @@
     , LambdaCase
     , NumericUnderscores
     , OverloadedStrings
+    , PackageImports
     , ScopedTypeVariables
     , TypeApplications
     , TemplateHaskell
@@ -19,6 +20,7 @@ module Chainweb.Test.Pact5.PactServiceTest
     ( tests
     ) where
 
+import Data.ByteString.Base16 qualified as Base16
 import Chainweb.Block (Block (_blockPayloadWithOutputs))
 import System.Environment (lookupEnv, setEnv)
 import Control.Applicative ((<|>))
@@ -38,7 +40,7 @@ import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Logger
 import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.InMem
-import Chainweb.Mempool.Mempool (InsertType (..), MempoolBackend (..))
+import Chainweb.Mempool.Mempool (InsertType (..), LookupResult(..), MempoolBackend (..), TransactionHash(..))
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse (ChainwebMerkleHashAlgorithm)
 import Chainweb.Miner.Pact
@@ -105,6 +107,7 @@ import Data.Functor.Product
 import Data.Graph (Tree)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
+import Data.HashSet (HashSet)
 import Data.IORef
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
@@ -123,6 +126,8 @@ import GHC.Stack
 import Hedgehog hiding (Update)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
+import "pact" Pact.Types.Command qualified as Pact4
+import "pact" Pact.Types.Hash qualified as Pact4
 import Numeric.AffineSpace
 import Pact.Core.Builtin
 import Pact.Core.Capabilities
@@ -173,6 +178,14 @@ insertMempool mp insertType txs = do
                 Left err -> error err
                 Right a -> a
     mempoolInsert mp insertType $ Vector.fromList unparsedTxs
+
+-- | Looks up transactions in the mempool. Returns a set which indicates pending membership of the mempool.
+lookupMempool :: MempoolBackend Pact4.UnparsedTransaction -> Vector Pact5.Hash -> IO (HashSet Pact5.Hash)
+lookupMempool mp hashes = do
+    results <- mempoolLookup mp $ Vector.map (TransactionHash . Pact5.unHash) hashes
+    return $ HashSet.fromList $ Vector.toList $ flip Vector.mapMaybe results $ \case
+        Missing -> Nothing
+        Pending tx -> Just $ Pact5.Hash $ Pact4.unHash $ Pact4.toUntypedHash $ Pact4._cmdHash tx
 
 data Fixture = Fixture
     { _fixtureBlockDb :: TestBlockDb
@@ -226,10 +239,11 @@ mkFixture baseRdb = do
 
 tests :: RocksDb -> TestTree
 tests baseRdb = testGroup "Pact5 PactServiceTest"
-    [ -- testCase "simple end to end" (simpleEndToEnd baseRdb)
-    -- , testCase "continue block spec" (continueBlockSpec baseRdb)
-    -- , testCase "new block empty" (newBlockEmpty baseRdb)
-      testCase "new block timeout spec" (newBlockTimeoutSpec baseRdb)
+    [ testCase "simple end to end" (simpleEndToEnd baseRdb)
+    , testCase "continue block spec" (continueBlockSpec baseRdb)
+    , testCase "new block empty" (newBlockEmpty baseRdb)
+    , testCase "new block timeout spec" (newBlockTimeoutSpec baseRdb)
+    , testCase "mempool excludes invalid transactions" (testMempoolExcludesInvalid baseRdb)
     ]
 
 successfulTx :: Predicatory p => Pred p (CommandResult log err)
@@ -366,6 +380,82 @@ newBlockTimeoutSpec baseRdb = runResourceT $ do
             return $ finalizeBlock bip
 
         pure ()
+
+testMempoolExcludesInvalid :: RocksDb -> IO ()
+testMempoolExcludesInvalid baseRdb = runResourceT $ do
+    fixture <- mkFixture baseRdb
+    liftIO $ do
+        -- The mempool should reject a tx that doesn't parse as valid pact.
+        badParse <- buildCwCmdNoParse v defaultCmd
+            { _cbRPC = mkExec' "(not a valid pact tx"
+            , _cbSigners =
+                [ mkEd25519Signer' sender00 []
+                ]
+            , _cbSender = "sender00"
+            , _cbChainId = cid
+            }
+
+        regularTx1 <- buildCwCmd v $ transferCmd 1.0
+        -- The mempool checks that a tx does not already exist in the chain before adding it.
+        let badUnique = regularTx1
+
+        -- The mempool checks that a tx does not have a creation time too far into the future.
+        badFuture <- buildCwCmd v $ (transferCmd 1.0)
+            { _cbCreationTime = Just $ TxCreationTime (2 ^ 32)
+            }
+
+        -- The mempool checks that a tx does not have a creation time too far into the past.
+        badPast <- buildCwCmd v $ (transferCmd 1.0)
+            { _cbCreationTime = Just $ TxCreationTime 0
+            }
+
+        regularTx2 <- buildCwCmd v $ transferCmd 1.0
+        -- The mempool checks that a tx has a valid hash.
+        let badTxHash = regularTx2
+                { _cmdHash = Pact5.Hash "bad hash"
+                }
+
+        badSigs <- buildCwCmdNoParse v defaultCmd
+            { _cbSigners =
+                [ CmdSigner
+                    { _csSigner = Signer
+                        { _siScheme = Nothing
+                        , _siPubKey = fst sender00
+                        , _siAddress = Nothing
+                        , _siCapList = []
+                        }
+                    , _csPrivKey = snd sender01
+                    }
+                ]
+            }
+
+        let pact4Hash = Pact5.Hash . Pact4.unHash . Pact4.toUntypedHash . Pact4._cmdHash
+        _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
+            insertMempool mempool CheckedInsert [regularTx1]
+            bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
+            return $ finalizeBlock bip
+
+        _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
+            mempoolInsert mempool CheckedInsert $ Vector.fromList [badParse, badSigs]
+            insertMempool mempool CheckedInsert [{-badUnique,-} badFuture, badPast, badTxHash]
+            let badTxHashes =
+                    [ pact4Hash badParse
+                    --, _cmdHash badUnique
+                    , _cmdHash badFuture
+                    , _cmdHash badPast
+                    , _cmdHash badTxHash
+                    , pact4Hash badSigs
+                    ]
+            inMempool <- lookupMempool mempool (Vector.fromList badTxHashes)
+            forM_ (zip [0..] badTxHashes) $ \(i, badTxHash) -> do
+                assertBool ("bad tx [index = " <> sshow i <> ", hash = " <> sshow badTxHash <> "] should have been evicted from the mempool") $ not $ HashSet.member badTxHash inMempool
+            bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
+            let expectedTxs = []
+            let actualTxs = Vector.toList $ Vector.map (unRequestKey . _crReqKey . snd) $ _transactionPairs $ _blockInProgressTransactions bip
+            assertEqual "block has excluded all invalid transactions" expectedTxs actualTxs
+            return $ finalizeBlock bip
+
+        return ()
 
 {-
 tests = do

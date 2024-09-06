@@ -223,44 +223,43 @@ type HighwaterMark = (ServerNonce, MempoolTxId)
 data InsertType = CheckedInsert | UncheckedInsert
   deriving (Show, Eq)
 
-data InsertError = InsertErrorDuplicate
-                 | InsertErrorTTLExpired
-                 | InsertErrorTimeInFuture
-                 | InsertErrorOversized GasLimit
-                 | InsertErrorUndersized
-                    GasPrice -- actual gas price
-                    GasPrice -- minimum gas price
-                 | InsertErrorBadlisted
-                 | InsertErrorMetadataMismatch
-                 | InsertErrorTransactionsDisabled
-                 | InsertErrorBuyGas Text
-                 | InsertErrorCompilationFailed Text
-                 | InsertErrorOther Text
-                 | InsertErrorInvalidHash
-                 | InsertErrorInvalidSigs
-                 | InsertErrorTimedOut
-                 | InsertErrorPactParseError Text
+data InsertError
+  = InsertErrorDuplicate
+  | InsertErrorTTLExpired
+  | InsertErrorTimeInFuture
+  | InsertErrorOversized GasLimit
+  | InsertErrorUndersized
+      GasPrice -- actual gas price
+      GasPrice -- minimum gas price
+  | InsertErrorBadlisted
+  | InsertErrorMetadataMismatch
+  | InsertErrorTransactionsDisabled
+  | InsertErrorBuyGas Text
+  | InsertErrorCompilationFailed Text
+  | InsertErrorOther Text
+  | InsertErrorInvalidHash
+  | InsertErrorInvalidSigs
+  | InsertErrorTimedOut
+  | InsertErrorPactParseError Text
   deriving (Generic, Eq, NFData)
 
-instance Show InsertError
-  where
-    show InsertErrorDuplicate = "Transaction already exists on chain"
-    show InsertErrorTTLExpired = "Transaction time-to-live is expired"
-    show InsertErrorTimeInFuture = "Transaction creation time too far in the future"
-    show (InsertErrorOversized (GasLimit l)) = "Transaction gas limit exceeds block gas limit (" <> show l <> ")"
-    show (InsertErrorUndersized (GasPrice p) (GasPrice m)) = "Transaction gas price (" <> show p <> ") is below minimum gas price (" <> show m <> ")"
-    show InsertErrorBadlisted =
-        "Transaction is badlisted because it previously failed to validate."
-    show InsertErrorMetadataMismatch =
-        "Transaction metadata (chain id, chainweb version) conflicts with this \
-        \endpoint"
-    show InsertErrorTransactionsDisabled = "Transactions are disabled until 2019 Dec 5"
-    show (InsertErrorBuyGas msg) = "Attempt to buy gas failed with: " <> T.unpack msg
-    show (InsertErrorCompilationFailed msg) = "Transaction compilation failed: " <> T.unpack msg
-    show (InsertErrorOther m) = "insert error: " <> T.unpack m
-    show InsertErrorInvalidHash = "Invalid transaction hash"
-    show InsertErrorInvalidSigs = "Invalid transaction sigs"
-    show InsertErrorTimedOut = "Transaction validation timed out"
+instance Show InsertError where
+    show = \case
+      InsertErrorDuplicate -> "Transaction already exists on chain"
+      InsertErrorTTLExpired -> "Transaction time-to-live is expired"
+      InsertErrorTimeInFuture -> "Transaction creation time too far in the future"
+      InsertErrorOversized (GasLimit l) -> "Transaction gas limit exceeds block gas limit (" <> show l <> ")"
+      InsertErrorUndersized (GasPrice p) (GasPrice m) -> "Transaction gas price (" <> show p <> ") is below minimum gas price (" <> show m <> ")"
+      InsertErrorBadlisted -> "Transaction is badlisted because it previously failed to validate."
+      InsertErrorMetadataMismatch -> "Transaction metadata (chain id, chainweb version) conflicts with this endpoint"
+      InsertErrorTransactionsDisabled -> "Transactions are disabled until 2019 Dec 5"
+      InsertErrorBuyGas msg -> "Attempt to buy gas failed with: " <> T.unpack msg
+      InsertErrorCompilationFailed msg -> "Transaction compilation failed: " <> T.unpack msg
+      InsertErrorOther m -> "insert error: " <> T.unpack m
+      InsertErrorInvalidHash -> "Invalid transaction hash"
+      InsertErrorInvalidSigs -> "Invalid transaction sigs"
+      InsertErrorTimedOut -> "Transaction validation timed out"
+      InsertErrorPactParseError msg -> "Pact parse error: " <> T.unpack msg
 
 instance Exception InsertError
 

@@ -165,11 +165,13 @@ assertValidateSigs :: P.Hash -> [P.Signer P.QualifiedName P.PactValue] -> [P.Use
 assertValidateSigs hsh signers sigs
     | length signers /= length sigs = False
     | otherwise = and $ zipWith verifyUserSig sigs signers
-    where verifyUserSig sig signer =
+    where
+        verifyUserSig sig signer =
             let
-              sigScheme = fromMaybe P.ED25519 (P._siScheme signer)
-              okSignature = isRight $ P.verifyUserSig hsh sig signer
-            in okSignature
+                sigScheme = fromMaybe P.ED25519 (P._siScheme signer)
+                okSignature = isRight $ P.verifyUserSig hsh sig signer
+            in
+                okSignature
 
 -- prop_tx_ttl_newBlock/validateBlock
 --

@@ -964,9 +964,8 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
     psEnv <- ask
     psState <- get
     logger <- view psLogger
-    let
-        timeoutLimit = fromIntegral $ (\(Micros n) -> n) $ _psPreInsertCheckTimeout psEnv
-        act = readFromLatest $ SomeBlockM $ Pair
+    let timeoutLimit = fromIntegral $ (\(Micros n) -> n) $ _psPreInsertCheckTimeout psEnv
+    let act = readFromLatest $ SomeBlockM $ Pair
             (do
                 pdb <- view psBlockDbEnv
                 let db' = Pact4._cpPactDbEnv pdb
@@ -1002,10 +1001,15 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
             )
     withPactState $ \run ->
         timeoutYield timeoutLimit (run act) >>= \case
-            Just r -> pure r
+            Just r -> do
+                logDebug_ logger $ "Mempool pre-insert check result: " <> sshow r
+                pure r
             Nothing -> do
                 logError_ logger $ "Mempool pre-insert check timed out for txs:\n" <> sshow txs
-                pure $ V.map (const $ Just Mempool.InsertErrorTimedOut) txs
+                let result = V.map (const $ Just Mempool.InsertErrorTimedOut) txs
+                logDebug_ logger $ "Mempool pre-insert check result: " <> sshow result
+                pure result
+                --pure $ V.map (const $ Just Mempool.InsertErrorTimedOut) txs
 
     where
     attemptBuyGasPact4
