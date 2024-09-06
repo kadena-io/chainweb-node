@@ -1025,7 +1025,7 @@ goldenNewBlock name mpIO mpRefIO reqIO = golden name $ do
       assertSatisfies ("golden tx succeeds, input: " ++ show txIn) (_crResult cr) (isRight . (\(PactResult r) -> r))
     case blockInProgress of
       ForPact4 bip -> goldenBytes resp bip
-      ForPact5 bip -> goldenBytes resp bip
+      ForPact5 bip -> error "pact 5"
   where
     hmToSortedList = List.sortOn fst . HM.toList
     -- missing some fields, only includes the fields that are "outputs" of
