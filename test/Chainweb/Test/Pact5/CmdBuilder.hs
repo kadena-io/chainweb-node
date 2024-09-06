@@ -56,6 +56,7 @@ import Pact.Core.Command.Util
 import qualified Data.Text as T
 import Pact.Core.Names (QualifiedName, DefPactId)
 import Pact.Core.PactValue
+import Pact.Core.Signer
 import Data.Aeson
 import qualified Data.Set as Set
 import Pact.Core.StableEncoding
@@ -109,7 +110,7 @@ sender00Ks = KeySet
 
 -- | Pair a 'Signer' with private key.
 data CmdSigner = CmdSigner
-  { _csSigner :: !(Signer QualifiedName PactValue)
+  { _csSigner :: !Signer
   , _csPrivKey :: !Text
   } deriving (Eq,Show,Ord,Generic)
 makeLenses ''CmdSigner
@@ -125,7 +126,7 @@ mkEd25519Signer pubKey privKey caps = CmdSigner
       { _siScheme = Nothing
       , _siPubKey = pubKey
       , _siAddress = Nothing
-      , _siCapList = caps }
+      , _siCapList = SigCapability <$> caps }
 
 mkEd25519Signer' :: TextKeyPair -> [CapToken QualifiedName PactValue] -> CmdSigner
 mkEd25519Signer' (pub,priv) = mkEd25519Signer pub priv
@@ -140,7 +141,7 @@ mkWebAuthnSigner pubKey privKey caps = CmdSigner
       { _siScheme = Just WebAuthn
       , _siPubKey = pubKey
       , _siAddress = Nothing
-      , _siCapList = caps }
+      , _siCapList = SigCapability <$> caps }
 
 mkWebAuthnSigner' :: TextKeyPair -> [CapToken QualifiedName PactValue] -> CmdSigner
 mkWebAuthnSigner' (pub, priv) caps = mkWebAuthnSigner pub priv caps
@@ -288,7 +289,7 @@ buildRawCmd v CmdBuilder{..} = do
 dieL :: MonadThrow m => [Char] -> Either [Char] a -> m a
 dieL msg = either (\s -> throwM $ userError $ msg ++ ": " ++ s) return
 
-mkDynKeyPairs :: MonadThrow m => CmdSigner -> m (DynKeyPair, [CapToken QualifiedName PactValue])
+mkDynKeyPairs :: MonadThrow m => CmdSigner -> m (DynKeyPair, [SigCapability])
 mkDynKeyPairs (CmdSigner Signer{..} privKey) =
   case (fromMaybe ED25519 _siScheme, _siPubKey, privKey) of
     (ED25519, pub, priv) -> do

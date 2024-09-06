@@ -208,11 +208,11 @@ chainwebPactCoreBlockDb maybeLimit mode env = Pact5Db
         stateVar <- newMVar $ BlockState blockHandle Nothing
         let basePactDb = PactDb
                 { _pdbPurity = PImpure
-                , _pdbRead = \d k -> runOnBlock env stateVar $ doReadRow Nothing d k
+                , _pdbRead = \d k -> runOnBlockGassed env stateVar $ doReadRow Nothing d k
                 , _pdbWrite = \wt d k v ->
                     runOnBlockGassed env stateVar $ doWriteRow Nothing wt d k v
                 , _pdbKeys = \d ->
-                    runOnBlock env stateVar $ doKeys Nothing d
+                    runOnBlockGassed env stateVar $ doKeys Nothing d
                 , _pdbCreateUserTable = \tn ->
                     runOnBlockGassed env stateVar $ doCreateUserTable Nothing tn
                 , _pdbBeginTx = \m ->
@@ -224,10 +224,10 @@ chainwebPactCoreBlockDb maybeLimit mode env = Pact5Db
                 }
         let maybeLimitedPactDb = case maybeLimit of
                 Just (bh, endTxId) -> basePactDb
-                    { _pdbRead = \d k -> runOnBlock env stateVar $ doReadRow (Just (bh, endTxId)) d k
+                    { _pdbRead = \d k -> runOnBlockGassed env stateVar $ doReadRow (Just (bh, endTxId)) d k
                     , _pdbWrite = \wt d k v -> do
                         runOnBlockGassed env stateVar $ doWriteRow (Just (bh, endTxId)) wt d k v
-                    , _pdbKeys = \d -> runOnBlock env stateVar $ doKeys (Just (bh, endTxId)) d
+                    , _pdbKeys = \d -> runOnBlockGassed env stateVar $ doKeys (Just (bh, endTxId)) d
                     , _pdbCreateUserTable = \tn -> do
                         runOnBlockGassed env stateVar $ doCreateUserTable (Just bh) tn
                     }

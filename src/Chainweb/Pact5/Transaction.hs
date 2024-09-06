@@ -63,6 +63,7 @@ import "pact-tng" Pact.Core.StableEncoding
 import "pact-tng" Pact.Core.Syntax.ParseTree
 import "pact-tng" Pact.Core.Verifiers
 import "pact-tng" Pact.Core.Verifiers qualified as Pact5
+import "pact-tng" Pact.Core.Signer
 import "text" Data.Text (Text)
 import "text" Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Chainweb.Pact.Conversion
@@ -174,7 +175,7 @@ fromPact4Command cmd4 = Command
       , _pmCreationTime = fromPact4TxCreationTime (Pact4._pmCreationTime pm4)
       }
 
-    fromPact4Signer :: Pact4.Signer -> Signer QualifiedName PactValue
+    fromPact4Signer :: Pact4.Signer -> Signer
     fromPact4Signer signer4 = Signer
       { _siScheme = Pact4._siScheme signer4 <&> \case { Pact4.ED25519 -> ED25519; Pact4.WebAuthn -> WebAuthn; }
       , _siPubKey = Pact4._siPubKey signer4
@@ -182,8 +183,8 @@ fromPact4Command cmd4 = Command
       , _siCapList = map fromPact4SigCapability (Pact4._siCapList signer4)
       }
 
-    fromPact4SigCapability :: Pact4.SigCapability -> CapToken QualifiedName PactValue
-    fromPact4SigCapability cap4 = CapToken
+    fromPact4SigCapability :: Pact4.SigCapability -> SigCapability
+    fromPact4SigCapability cap4 = SigCapability $ CapToken
       { _ctName = fromLegacyQualifiedName (Pact4._scName cap4)
       , _ctArgs = fromPact4PactValue <$> Pact4._scArgs cap4
       }

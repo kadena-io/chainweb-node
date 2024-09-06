@@ -133,6 +133,7 @@ module Chainweb.Utils
 , fromJuste
 , (???)
 , fromEitherM
+, fromEithere
 , InternalInvariantViolation(..)
 
 -- ** Synchronous Exceptions
@@ -860,6 +861,12 @@ infixl 0 ???
 fromEitherM :: MonadThrow m => Exception e => Either e a -> m a
 fromEitherM = either throwM return
 {-# INLINE fromEitherM #-}
+
+-- | Throw an exception if a value is a 'Left' result.
+--
+fromEithere :: HasCallStack => Either e a -> a
+fromEithere = either (error "Chainweb.Utils.fromJuste: Nothing") id
+{-# INLINE fromEithere #-}
 
 -- | An exeption to indicate an violation of an internal code invariants.
 -- Throwing this type of exception means that there is a bug in the code.

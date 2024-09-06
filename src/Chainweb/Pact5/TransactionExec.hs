@@ -13,6 +13,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
@@ -127,6 +128,7 @@ import Pact.Core.StableEncoding
 import Pact.Core.SPV
 import Pact.Core.Verifiers
 import Pact.Core.Info
+import Pact.Core.Signer
 
 -- internal Chainweb modules
 
@@ -257,7 +259,7 @@ runVerifiers txCtx cmd = do
                     convertPactValue $ coerce @ParsedVerifierProof @PactValue $ _verifierProof pact5Verifier
               , Pact4._verifierCaps =
                 [ Pact4.SigCapability (toQualifiedName n) (convertPactValue <$> args)
-                | CapToken n args <- _verifierCaps pact5Verifier
+                | SigCapability (CapToken n args) <- _verifierCaps pact5Verifier
                 ]
               }
               | pact5Verifier <- fromMaybe [] $ cmd ^. cmdPayload . pVerifiers
@@ -712,7 +714,7 @@ buyGas logger db txCtx cmd = do
   let gasPayerCaps =
         [ cap
         | signer <- signers
-        , cap <- _siCapList signer
+        , SigCapability cap <- _siCapList signer
         , _qnName (_ctName cap) == "GAS_PAYER"
         ]
   let gasLimit = publicMeta ^. pmGasLimit
@@ -773,10 +775,10 @@ buyGas logger db txCtx cmd = do
     gasPrice = publicMeta ^. pmGasPrice
     signers = cmd ^. cmdPayload . pSigners
     signedForGas signer =
-      any (\sc -> sc == coinCap "GAS" []) (_siCapList signer)
+      any (\(SigCapability sc) -> sc == coinCap "GAS" []) (_siCapList signer)
     addDebit signer
       | signedForGas signer =
-        signer & siCapList %~ (coinCap "DEBIT" [PString sender]:)
+        signer & siCapList %~ (SigCapability (coinCap "DEBIT" [PString sender]):)
       | otherwise = signer
     signersWithDebit =
       fmap addDebit signers
