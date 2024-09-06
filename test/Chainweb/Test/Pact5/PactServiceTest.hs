@@ -351,32 +351,52 @@ continueBlockSpec baseRdb = runResourceT $ do
 newBlockTimeoutSpec :: RocksDb -> IO ()
 newBlockTimeoutSpec baseRdb = runResourceT $ do
     let pactServiceConfig = testPactServiceConfig
-            { _pactTxTimeLimit = Just 50_000 -- 50 milliseconds. i added some buffer to help with CI runners
+            { _pactTxTimeLimit = Just (Micros 35_000)
+            -- this may need to be tweaked for CI.
+            -- it should be long enough that `timeoutTx` times out
+            -- but neither `tx1` nor `tx2` time out.
             }
     fixture <- mkFixtureWith pactServiceConfig baseRdb
 
     liftIO $ do
-        txTransfer1 <- buildCwCmd v $ transferCmd 1.0
-        txTransfer2 <- buildCwCmd v $ transferCmd 2.0
-        txTimeout <- buildCwCmd v defaultCmd
-            { _cbRPC = mkExec' $ foldr (\_ expr -> "(map (+ 1) " <> expr <> ")") "(enumerate 1 100000)" [1..1_000] -- make a huge nested tx
+        tx1 <- buildCwCmd v $ defaultCmd
+            { _cbRPC = mkExec' "1"
+            , _cbSigners = [mkEd25519Signer' sender00 []]
+            , _cbChainId = cid
+            , _cbGasPrice = GasPrice 1.0
+            , _cbGasLimit = GasLimit (Gas 400)
+            }
+        tx2 <- buildCwCmd v $ defaultCmd
+            { _cbRPC = mkExec' "2"
+            , _cbSigners = [mkEd25519Signer' sender00 []]
+            , _cbChainId = cid
+            , _cbGasPrice = GasPrice 2.0
+            , _cbGasLimit = GasLimit (Gas 400)
+            }
+        timeoutTx <- buildCwCmd v defaultCmd
+            { _cbRPC = mkExec' $ foldr (\_ expr -> "(map (lambda (x) (+ x 1))" <> expr <> ")") "(enumerate 1 100000)" [1..6_000] -- make a huge nested tx
             , _cbSigners =
                 [ mkEd25519Signer' sender00 []
                 ]
             , _cbSender = "sender00"
             , _cbChainId = cid
             , _cbGasPrice = GasPrice 1.5
-            , _cbGasLimit = GasLimit (Gas 1000)
+            , _cbGasLimit = GasLimit (Gas 5000)
             }
         advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
-            insertMempool mempool CheckedInsert [txTransfer2, txTimeout, txTransfer1]
+            insertMempool mempool CheckedInsert [tx2, timeoutTx, tx1]
             bip <- throwIfNotPact5 =<< throwIfNoHistory =<<
                 newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             -- Mempool orders by GasPrice. 'buildCwCmd' sets the gas price to the transfer amount.
-            -- We hope for 'txTimeout' to fail, meaning that only 'txTransfer2' is in the block.
-            let expectedTxs = List.map _cmdHash [txTransfer2]
+            -- We hope for 'timeoutTx' to fail, meaning that only 'txTransfer2' is in the block.
+            let expectedTxs = List.map _cmdHash [tx2, tx1]
             let actualTxs = Vector.toList $ Vector.map (unRequestKey . _crReqKey . snd) $ _transactionPairs $ _blockInProgressTransactions bip
-            assertEqual "block has only the valid transaction prefix" expectedTxs actualTxs
+            bip & pt _blockInProgressTransactions ? pt _transactionPairs
+                ? predful ? Vector.fromList
+                    [ pair
+                        (pt _cmdHash ? equals (_cmdHash tx2))
+                        successfulTx
+                    ]
             return $ finalizeBlock bip
 
         pure ()
