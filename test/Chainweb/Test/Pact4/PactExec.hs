@@ -376,10 +376,13 @@ testContinuationGasPayer = (txs,checkResultSuccess test)
         (pString "Write succeeded")
       checkPactResultSuccess "contFirstStep" contFirstStep $ assertEqual "contFirstStep"
         (pString "Step One")
-      checkPactResultSuccess "balCheck1" balCheck1 $ assertEqual "balCheck1" (pDecimal 100)
-      checkPactResultSuccess "paidSecondStep" paidSecondStep $ assertEqual "paidSecondStep"
+      checkPactResultSuccess "balCheck1" balCheck1 $
+        assertEqual "balCheck1" (pDecimal 100)
+      checkPactResultSuccess "paidSecondStep" paidSecondStep $
+        assertEqual "paidSecondStep"
         (pString "Step Two")
-      checkPactResultSuccess "balCheck2" balCheck2 $ assertEqual "balCheck2" (pDecimal 99.999_5)
+      checkPactResultSuccess "balCheck2" balCheck2 $
+        assertEqual "balCheck2" (pDecimal 99.999_4)
     test r = assertFailure $ "Expected 6 results, got: " ++ show r
 
 testExecGasPayer :: TxsTest
@@ -428,7 +431,7 @@ testExecGasPayer = (txs,checkResultSuccess test)
         (pString "Write succeeded")
       checkPactResultSuccess "balCheck1" balCheck1 $ assertEqual "balCheck1" (pDecimal 100)
       checkPactResultSuccess "paidTx" paidTx $ assertEqual "paidTx" (pDecimal 3)
-      checkPactResultSuccess "balCheck2" balCheck2 $ assertEqual "balCheck2" (pDecimal 99.999_5)
+      checkPactResultSuccess "balCheck2" balCheck2 $ assertEqual "balCheck2" (pDecimal 99.999_4)
     test r = assertFailure $ "Expected 6 results, got: " ++ show r
 
 testFailureRedeem :: TxsTest
@@ -451,18 +454,18 @@ testFailureRedeem = (txs,checkResultSuccess test)
       -- sender 00 first is 100000000 - full gas debit during tx (1)
       checkPactResultSuccess "sender bal 0" sbal0 $
         assertEqual "sender bal 0" (pDecimal 99_999_990)
-      -- miner first is reward + epsilon tx size gas for [0]
+      -- miner first is reward + tx gas for [0]
       checkPactResultSuccess "miner bal 0" mbal0 $
-        assertEqual "miner bal 0" (pDecimal 2.344523)
+        assertEqual "miner bal 0" (pDecimal 2.504523)
       -- this should reward 10 more to miner
       checkPactResultFailure "forced error" "forced error" ferror
       -- sender 00 second is down epsilon size costs
       -- from [0,1] + 10 for error + 10 full gas debit during tx ~ 99999980
       checkPactResultSuccess "sender bal 1" sbal1 $
-        assertEqual "sender bal 1" (pDecimal 99_999_979.92)
+        assertEqual "sender bal 1" (pDecimal 99_999_979.6)
       -- miner second is up 10 from error plus epsilon from [1,2,3] ~ 12
       checkPactResultSuccess "miner bal 1" mbal1 $
-        assertEqual "miner bal 1" (pDecimal 12.424523)
+        assertEqual "miner bal 1" (pDecimal 12.904523)
     test r = assertFailure $ "Expected 5 results, got: " ++ show r
 
 
