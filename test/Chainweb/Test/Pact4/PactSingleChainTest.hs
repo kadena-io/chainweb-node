@@ -103,6 +103,7 @@ import Chainweb.Storage.Table.RocksDB
 import System.LogLevel (LogLevel(..))
 import qualified Pact.Core.Names as PCore
 import qualified Data.ByteString.Short as SB
+import Text.Show.Pretty (ppShow)
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion petersonChainGraph
@@ -541,7 +542,9 @@ compactionDoesNotDisruptDuplicateDetection rdb = do
 
     run >>= \e -> assertBool "First tx submission succeeds" (isRight e)
     Utils.compact Error [C.NoVacuum] cr.sqlEnv C.LatestUnsafe
-    run >>= \e -> assertBool "First tx submission fails" (isLeft e)
+    run >>= \e -> assertEqual "First tx submission fails"
+      (V.null . _payloadWithOutputsTransactions <$> e)
+      (Right True)
 
     pure ()
 
@@ -771,7 +774,8 @@ blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
 
   let
     useGas g = do
-      bigTx <- buildCwCmd "cmd" testVersion $ set cbGasLimit g $ signSender00 $ set cbRPC (mkExec' "TESTING") defaultCmd
+      bigTx <- buildCwCmd "cmd" testVersion
+        $ set cbGasLimit g $ signSender00 $ set cbRPC (mkExec' "TESTING") defaultCmd
       let
         cr = CommandResult
           (RequestKey (Hash "0")) Nothing
@@ -794,31 +798,47 @@ blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
     Left (BlockGasLimitExceeded _) ->
       return ()
     r ->
-      error $ "not a BlockGasLimitExceeded error: " <> sshow r
+      error $ "not a BlockGasLimitExceeded error: " <> ppShow r
   -- we consume much more than the maximum block gas limit and expect an error.
   useGas 3_000_000 >>= \case
     Left (BlockGasLimitExceeded _) ->
       return ()
     r ->
-      error $ "not a BlockGasLimitExceeded error: " <> sshow r
+      error $ "not a BlockGasLimitExceeded error: " <> ppShow r
   -- we consume exactly the maximum block gas limit and expect no such error.
+  -- our block is otherwise invalid, so we do expect a validation error
   useGas 2_000_000 >>= \case
     Left (BlockGasLimitExceeded _) ->
       error "consumed exactly block gas limit but errored"
-    _ ->
+    Left (BlockValidationFailure _) ->
       return ()
-  -- we consume much less than the maximum block gas limit and expect no such error.
+    Left err ->
+      error $ "failed with other error: " <> sshow err
+    Right _ ->
+      error "succeeded with invalid block"
+  -- we consume much less than the maximum block gas limit and expect no gas error.
+  -- again our block is otherwise invalid, so we do expect a validation error
   useGas 1_000_000 >>= \case
     Left (BlockGasLimitExceeded _) ->
       error "consumed much less than block gas limit but errored"
-    _ ->
+    Left (BlockValidationFailure _) ->
       return ()
-  -- we consume zero gas and expect no such error.
-  useGas 0 >>= \case
+    Left err ->
+      error $ "failed with other error: " <> sshow err
+    Right _ ->
+      error "succeeded with invalid block"
+  -- we consume 1 gas and expect no gas error. again our block is otherwise
+  -- invalid, so we do expect an validation error.
+  -- we cannot consume 0 gas, or the coin contract will fail to buy gas.
+  useGas 1 >>= \case
     Left (BlockGasLimitExceeded _) ->
       error "consumed no gas but errored"
-    _ ->
+    Left (BlockValidationFailure _) ->
       return ()
+    Left err ->
+      error $ "failed with other error: " <> sshow err
+    Right _ ->
+      error "succeeded with invalid block"
 
 mempoolRefillTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do

@@ -479,7 +479,6 @@ serviceRequests memPoolAccess reqQ = go
                     liftIO $ putStrLn "Pact action thread was killed"
                     logWarn "Pact action thread was killed"
                 Left (exn :: SomeException) -> do
-                    liftIO $ putStrLn $ "Exception " ++ sshow exn
                     logError $ mconcat
                         [ "Received exception running pact service ("
                         , which

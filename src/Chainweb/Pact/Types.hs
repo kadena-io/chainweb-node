@@ -488,7 +488,7 @@ instance FromJSON BlockValidationFailureMsg where
 data CoinbaseFailure
   = Pact4CoinbaseFailure !Text
   | Pact5CoinbaseFailure !Pact5CoinbaseError
-  deriving Show
+  deriving stock (Eq, Show)
 
 instance J.Encode CoinbaseFailure where
   build = \case
@@ -569,6 +569,29 @@ data PactException
     }
   deriving stock (Show, Generic)
   deriving anyclass (Exception)
+
+instance Eq PactException where
+  BlockValidationFailure m == BlockValidationFailure m' = m == m'
+  PactInternalError _ m == PactInternalError _ m' = m == m'
+  PactTransactionExecError h m == PactTransactionExecError h' m' =
+    h == h' && m == m'
+  CoinbaseFailure e == CoinbaseFailure e' = e == e'
+  NoBlockValidatedYet == NoBlockValidatedYet = True
+  TransactionValidationException txs == TransactionValidationException txs' =
+    txs == txs'
+  PactDuplicateTableError m == PactDuplicateTableError m' =
+    m == m'
+  TransactionDecodeFailure m == TransactionDecodeFailure m' =
+    m == m'
+  RewindLimitExceeded l lt t == RewindLimitExceeded l' lt' t' =
+    l == l' && lt == lt' && t == t'
+  BlockHeaderLookupFailure m == BlockHeaderLookupFailure m' =
+    m == m'
+  Pact4BuyGasFailure f == Pact4BuyGasFailure f' = f == f'
+  MempoolFillFailure m == MempoolFillFailure m' = m == m'
+  BlockGasLimitExceeded g == BlockGasLimitExceeded g' = g == g'
+  FullHistoryRequired e g == FullHistoryRequired e' g' =
+    e == e' && g == g'
 
 -- instance Show PactException where
 --     show = T.unpack . J.encodeText
