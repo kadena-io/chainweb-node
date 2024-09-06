@@ -154,7 +154,7 @@ extractInt (RowData m) = evaluate (m ^?! ix (Field "k") . _PLiteral . _LInteger)
 runDbAction' :: PactDb CoreBuiltin Info -> DbAction f -> IO (DbAction (Product f Identity))
 runDbAction' pactDb = \case
     DbRead tn k v -> do
-        maybeValue <- tryShow $ _pdbRead pactDb (DUserTables (mkTableName tn)) k
+        maybeValue <- tryShow $ ignoreGas def $ _pdbRead pactDb (DUserTables (mkTableName tn)) k
         integerValue <- (traverse . traverse) extractInt maybeValue
         return $ DbRead tn k $ Pair v (Identity integerValue)
     DbWrite wt tn k v s ->
@@ -163,12 +163,12 @@ runDbAction' pactDb = \case
             $ _pdbWrite pactDb wt (DUserTables (mkTableName tn)) k (RowData $ Map.singleton (Field "k") $ PLiteral $ LInteger v)
     DbKeys tn ks ->
         fmap (DbKeys tn . Pair ks . Identity)
-            $ tryShow $ _pdbKeys pactDb (DUserTables (mkTableName tn))
+            $ tryShow $ ignoreGas def $ _pdbKeys pactDb (DUserTables (mkTableName tn))
     DbSelect tn rs ->
         fmap (DbSelect tn . Pair rs . Identity)
             $ tryShow $ do
-                ks <- _pdbKeys pactDb (DUserTables (mkTableName tn))
-                traverse (\k -> fmap (k,) . extractInt . fromJuste =<< _pdbRead pactDb (DUserTables (mkTableName tn)) k) ks
+                ks <- ignoreGas def $ _pdbKeys pactDb (DUserTables (mkTableName tn))
+                traverse (\k -> fmap (k,) . extractInt . fromJuste =<< ignoreGas def (_pdbRead pactDb (DUserTables (mkTableName tn)) k)) ks
     DbCreateTable tn s ->
         fmap (DbCreateTable tn . Pair s . Identity)
             $ tryShow (ignoreGas def $ _pdbCreateUserTable pactDb (mkTableName tn))

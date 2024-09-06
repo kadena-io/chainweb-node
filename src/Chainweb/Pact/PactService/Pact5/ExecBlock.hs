@@ -29,7 +29,6 @@ import Chainweb.Logger
 import Chainweb.Mempool.Mempool(TransactionHash(..), BlockFill (..), pact5RequestKeyToTransactionHash, InsertError (..))
 import Chainweb.Miner.Pact
 import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
-import Chainweb.Pact.Conversion (decodeRowData)
 import Chainweb.Pact.SPV (pact5SPV)
 import Chainweb.Pact.Types
 import Chainweb.Pact.Types hiding (ctxCurrentBlockHeight, TxContext(..))

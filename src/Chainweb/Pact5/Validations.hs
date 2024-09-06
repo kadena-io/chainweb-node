@@ -161,7 +161,7 @@ assertTxSize initialGas gasLimit = P.GasLimit initialGas < gasLimit
 -- | Check and assert that signers and user signatures are valid for a given
 -- transaction hash.
 --
-assertValidateSigs :: P.Hash -> [P.Signer P.QualifiedName P.PactValue] -> [P.UserSig] -> Bool
+assertValidateSigs :: P.Hash -> [P.Signer] -> [P.UserSig] -> Bool
 assertValidateSigs hsh signers sigs
     | length signers /= length sigs = False
     | otherwise = and $ zipWith verifyUserSig sigs signers
