@@ -134,8 +134,6 @@ execBlock currHeader payload = do
     dbEnv <- view psBlockDbEnv
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
 
-    -- if
-
     trans <- liftIO $ pact4TransactionsFromPayload
       (pact4ParserVersion v (_blockChainId currHeader) (_blockHeight currHeader))
       plData
@@ -157,8 +155,6 @@ execBlock currHeader payload = do
             runExceptT $
               validateParsedChainwebTx logger v cid dbEnv txValidationTime
                 (_blockHeight currHeader) (\_ -> pure ()) tx
--- fmap (either (\err -> [(Pact4._cmdHash tx, sshow err)]) (\() -> [])) $
--- fmap (concat . V.toList)
 
     case NE.nonEmpty [ (hsh, sshow err) | (hsh, Left err) <- errorsIfPresent ] of
       Nothing -> return ()
