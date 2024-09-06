@@ -529,7 +529,7 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
     -- if it uses 5001, that's illegal; if it uses 5000 or less, that's legal.
     newTxGasLimit = case maybeBlockGasRemaining of
       Nothing -> requestedTxGasLimit
-      Just blockGasRemaining -> min (fromIntegral (succ blockGasRemaining)) requestedTxGasLimit
+      Just blockGasRemaining -> min (fromIntegral blockGasRemaining) requestedTxGasLimit
     gasLimitedCmd =
       set Pact4.cmdGasLimit newTxGasLimit (Pact4.payloadObj <$> cmd)
     initialGas = Pact4.initialGasOf (Pact4._cmdPayload cmd)
@@ -566,14 +566,14 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
     -- mark the tx as processed at the checkpointer.
     liftIO $ _cpRegisterProcessedTx dbEnv (coerce $ Pact4.toUntypedHash hsh)
     case maybeBlockGasRemaining of
-      Just blockGasRemaining ->
-        when (Pact4._crGas result >= succ blockGasRemaining) $
-          -- this tx attempted to consume more gas than remains in the
-          -- block, so the block is invalid. we don't know how much gas it
-          -- would've consumed, because we stop early, so we guess that it
-          -- needed its entire original gas limit.
-          throwM $ BlockGasLimitExceeded (blockGasRemaining - fromIntegral requestedTxGasLimit)
-      Nothing -> return ()
+      Just blockGasRemaining
+        | Left _ <- Pact4._pactResult (Pact4._crResult result)
+        , blockGasRemaining < fromIntegral requestedTxGasLimit
+        -> throwM $ BlockGasLimitExceeded (fromIntegral requestedTxGasLimit - blockGasRemaining)
+          -- ^ this tx attempted to consume more gas than remains in the
+          -- block, so the block is invalid. we know this because failing
+          -- transactions consume their entire gas limit.
+      _ -> return ()
     let maybeBlockGasRemaining' = (\g -> g - Pact4._crGas result) <$> maybeBlockGasRemaining
     pure (Right result, T2 mcache' maybeBlockGasRemaining')
 
