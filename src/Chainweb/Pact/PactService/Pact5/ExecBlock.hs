@@ -385,11 +385,7 @@ continueBlock mpAccess blockInProgress = do
                 Just (Right (a, s)) -> do
                   logFunctionText logger Debug "applyCmd buy gas succeeded"
                   ((as, timedOut), s') <- runStateT rest s
-                  case _crResult a of
-                    Pact5.PactResultErr _ -> do
-                      return ((Left (Pact5._cmdHash tx):as, timedOut), s')
-                    _ -> do
-                      return ((Right (tx, a):as, timedOut), s')
+                  return ((Right (tx, a):as, timedOut), s')
               )
               (return ([], False))
               txs
