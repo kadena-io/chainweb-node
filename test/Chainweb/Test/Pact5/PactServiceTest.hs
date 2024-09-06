@@ -57,7 +57,7 @@ import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
-import Chainweb.Pact.Types (defaultModuleCacheLimit, psBlockDbEnv)
+import Chainweb.Pact.Types (defaultModuleCacheLimit, psBlockDbEnv, BlockInProgress (_blockInProgressTransactions))
 import Chainweb.Pact.Utils (emptyPayload)
 import Chainweb.Pact4.Transaction qualified as Pact4
 import Chainweb.Pact4.TransactionExec (applyGenesisCmd)
@@ -457,23 +457,30 @@ testMempoolExcludesInvalid baseRdb = runResourceT $ do
 
         _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
             mempoolInsert mempool CheckedInsert $ Vector.fromList [badParse, badSigs]
-            insertMempool mempool CheckedInsert [{-badUnique,-} badFuture, badPast, badTxHash]
-            let badTxHashes =
-                    [ pact4Hash badParse
-                    --, _cmdHash badUnique
-                    , _cmdHash badFuture
-                    , _cmdHash badPast
-                    , _cmdHash badTxHash
-                    , pact4Hash badSigs
-                    ]
-            inMempool <- lookupMempool mempool (Vector.fromList badTxHashes)
-            forM_ (zip [0..] badTxHashes) $ \(i, badTxHash) -> do
-                assertBool ("bad tx [index = " <> sshow i <> ", hash = " <> sshow badTxHash <> "] should have been evicted from the mempool") $ not $ HashSet.member badTxHash inMempool
+            insertMempool mempool CheckedInsert [badUnique, badFuture, badPast, badTxHash]
             bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             let expectedTxs = []
             let actualTxs = Vector.toList $ Vector.map (unRequestKey . _crReqKey . snd) $ _transactionPairs $ _blockInProgressTransactions bip
             assertEqual "block has excluded all invalid transactions" expectedTxs actualTxs
             return $ finalizeBlock bip
+
+        -- we need to wait until this above block is validate for `badUnique`
+        -- to disappear, because only the parent block is used to find txs to
+        -- delete from the mempool
+        let mempool = _fixtureMempools fixture ^?! atChain cid
+        insertMempool mempool CheckedInsert [badUnique, badFuture, badPast, badTxHash]
+
+        let badTxHashes =
+                [ pact4Hash badParse
+                , _cmdHash badUnique
+                , _cmdHash badFuture
+                , _cmdHash badPast
+                , _cmdHash badTxHash
+                , pact4Hash badSigs
+                ]
+        inMempool <- lookupMempool mempool (Vector.fromList badTxHashes)
+        forM_ (zip [0..] badTxHashes) $ \(i, badTxHash) -> do
+            assertBool ("bad tx [index = " <> sshow i <> ", hash = " <> sshow badTxHash <> "] should have been evicted from the mempool") $ not $ HashSet.member badTxHash inMempool
 
         return ()
 
