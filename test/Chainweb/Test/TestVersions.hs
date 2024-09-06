@@ -144,41 +144,6 @@ testVersionTemplate v = v
     & versionQuirks .~ noQuirks
     & versionServiceDate .~ Nothing
 
--- | A set of fork heights which are relatively fast, but not fast enough to break anything.
-fastForks :: HashMap Fork (ChainMap ForkHeight)
-fastForks = tabulateHashMap $ \case
-    SlowEpoch -> AllChains ForkAtGenesis
-    OldTargetGuard -> AllChains ForkAtGenesis
-    SkipFeatureFlagValidation -> AllChains ForkAtGenesis
-    OldDAGuard -> AllChains ForkAtGenesis
-    Vuln797Fix -> AllChains ForkAtGenesis
-    PactBackCompat_v16 -> AllChains ForkAtGenesis
-    SPVBridge -> AllChains ForkAtGenesis
-    EnforceKeysetFormats -> AllChains ForkAtGenesis
-    CheckTxHash -> AllChains ForkAtGenesis
-    Pact44NewTrans -> AllChains ForkAtGenesis
-    Chainweb213Pact -> AllChains ForkAtGenesis
-    PactEvents -> AllChains ForkAtGenesis
-    CoinV2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
-    Pact42 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
-    SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
-    ModuleNameFix -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
-    ModuleNameFix2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
-    Pact4Coin3 -> AllChains $ ForkAtBlockHeight $ BlockHeight 4
-    Chainweb214Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 5
-    Chainweb215Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 10
-    Chainweb216Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 11
-    Chainweb217Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 20
-    Chainweb218Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 20
-    Chainweb219Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 27
-    Chainweb220Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 30
-    Chainweb221Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 33
-    Chainweb222Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 36
-    Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 38
-    Chainweb224Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 40
-    Chainweb225Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 42
-    Pact5Fork -> AllChains $ ForkAtBlockHeight 42
-
 -- | A test version without Pact or PoW, with only one chain graph.
 barebonesTestVersion :: ChainGraph -> ChainwebVersion
 barebonesTestVersion g = buildTestVersion $ \v ->
@@ -329,7 +294,42 @@ slowForks = tabulateHashMap \case
     Chainweb223Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 120)
     Chainweb224Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 125)
     Chainweb225Pact -> AllChains $ ForkAtBlockHeight (BlockHeight 130)
-    Pact5Fork -> AllChains $ ForkAtBlockHeight (BlockHeight 115)
+    Pact5Fork -> AllChains ForkNever
+
+-- | A set of fork heights which are relatively fast, but not fast enough to break anything.
+fastForks :: HashMap Fork (ChainMap ForkHeight)
+fastForks = tabulateHashMap $ \case
+    SlowEpoch -> AllChains ForkAtGenesis
+    OldTargetGuard -> AllChains ForkAtGenesis
+    SkipFeatureFlagValidation -> AllChains ForkAtGenesis
+    OldDAGuard -> AllChains ForkAtGenesis
+    Vuln797Fix -> AllChains ForkAtGenesis
+    PactBackCompat_v16 -> AllChains ForkAtGenesis
+    SPVBridge -> AllChains ForkAtGenesis
+    EnforceKeysetFormats -> AllChains ForkAtGenesis
+    CheckTxHash -> AllChains ForkAtGenesis
+    Pact44NewTrans -> AllChains ForkAtGenesis
+    Chainweb213Pact -> AllChains ForkAtGenesis
+    PactEvents -> AllChains ForkAtGenesis
+    CoinV2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
+    Pact42 -> AllChains $ ForkAtBlockHeight $ BlockHeight 1
+    SkipTxTimingValidation -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
+    ModuleNameFix -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
+    ModuleNameFix2 -> AllChains $ ForkAtBlockHeight $ BlockHeight 2
+    Pact4Coin3 -> AllChains $ ForkAtBlockHeight $ BlockHeight 4
+    Chainweb214Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 5
+    Chainweb215Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 10
+    Chainweb216Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 11
+    Chainweb217Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 20
+    Chainweb218Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 20
+    Chainweb219Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 27
+    Chainweb220Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 30
+    Chainweb221Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 33
+    Chainweb222Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 36
+    Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 38
+    Chainweb224Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 40
+    Chainweb225Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 42
+    Pact5Fork -> AllChains ForkNever
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades slowly enabled.
 slowForkingCpmTestVersion :: ChainGraph -> ChainwebVersion
