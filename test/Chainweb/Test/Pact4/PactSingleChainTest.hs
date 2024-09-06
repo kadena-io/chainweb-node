@@ -1170,9 +1170,12 @@ runTxInBlock mempoolRef pactQueue blockDb makeTx = do
       else do
         n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
         tx <- makeTx n bHeight bHash bHeader
-        [Right to] <- V.toList <$> valid bHeight bHash (V.singleton $ (fmap . fmap) _pcCode tx)
+        valids <- valid bHeight bHash (V.singleton $ (fmap . fmap) _pcCode tx)
         writeIORef madeTx True
-        pure $ V.singleton to
+        pure $ V.fromList
+          [ v
+          | Right v <- V.toList valids
+          ]
   }
   e <- runBlockE pactQueue blockDb second
   writeIORef madeTx False
