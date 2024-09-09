@@ -1302,8 +1302,10 @@ compactAndSyncTest = do
   runToHeight start
   -- we want to run a transaction but it doesn't matter what it does, as long
   -- as it gets on-chain and thus affects the Pact state.
+  -- note that this is a decimal because we're parsing the CommandResult out of the payload, and
+  -- the json codec treats all numbers as decimals unless in a `{"int": <number>}` object.
   runBlockTest
-    [ PactTxTest (buildBasic $ mkExec' "1") (assertTxSuccess "should allow innocent transaction" (pInteger 1))
+    [ PactTxTest (buildBasic $ mkExec' "1") (assertTxSuccess "should allow innocent transaction" (pDecimal 1))
     ]
   -- save the cut with the tx, we'll return to it after compaction
   cutWithTx <- currentCut
