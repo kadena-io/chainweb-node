@@ -258,20 +258,19 @@ sendHandler
     -> Handler Pact4.RequestKeys
 sendHandler logger v cid mempool (Pact4.SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
-    -- TODO: Pact5 we need to try validating the command as both a Pact4 command and a Pact5 command
-    -- this only does Pact4
-    case traverse (validateCommand v cid) cmds of
-      Right enriched -> do
-          let txs = (fmap . fmap . fmap) Pact4._pcCode $
-                V.fromList $ NEL.toList enriched
+    case (traverse . traverse) (\t -> (encodeUtf8 t,) <$> eitherDecodeStrictText t) cmds of
+      Right (fmap Pact4.mkPayloadWithText -> cmdsWithParsedPayloads) -> do
+          let cmdsWithParsedPayloadsV = V.fromList $ NEL.toList cmdsWithParsedPayloads
           -- If any of the txs in the batch fail validation, we reject them all.
-          liftIO (mempoolInsertCheck mempool txs) >>= checkResult
-          liftIO (mempoolInsert mempool UncheckedInsert txs)
-          return $! Pact4.RequestKeys $ NEL.map Pact4.cmdToRequestKey enriched
+          liftIO (mempoolInsertCheck mempool cmdsWithParsedPayloadsV) >>= checkResult
+          liftIO (mempoolInsert mempool UncheckedInsert cmdsWithParsedPayloadsV)
+          return $! Pact4.RequestKeys $ NEL.map Pact4.cmdToRequestKey cmdsWithParsedPayloads
       Left err -> failWith $ "Validation failed: " <> T.pack err
   where
     failWith :: Text -> ExceptT ServerError IO a
-    failWith err = throwError $ setErrText err err400
+    failWith err = do
+      liftIO $ logFunctionText logger Info err
+      throwError $ setErrText err err400
 
     logg = logFunctionJson (setComponent "send-handler" logger)
 
