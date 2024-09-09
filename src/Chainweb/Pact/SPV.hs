@@ -80,11 +80,11 @@ import qualified Chainweb.Version.Guards as CW
 -- internal pact modules
 
 import qualified Pact.JSON.Encode as J
-import Pact.Types.Command
-import Pact.Types.Hash
-import Pact.Types.PactValue
-import Pact.Types.Runtime
-import Pact.Types.SPV
+import qualified Pact.Types.Command as Pact4
+import qualified Pact.Types.Hash as Pact4
+import qualified Pact.Types.PactValue as Pact4
+import qualified Pact.Types.Runtime as Pact4
+import qualified Pact.Types.SPV as Pact4
 import qualified Pact.Core.SPV as Pact5
 
 catchAndDisplaySPVError :: BlockHeader -> ExceptT Text IO a -> ExceptT Text IO a
@@ -108,8 +108,8 @@ pactSPV
       -- ^ handle into the cutdb
     -> BlockHeader
       -- ^ the context for verifying the proof
-    -> SPVSupport
-pactSPV bdb bh = SPVSupport (verifySPV bdb bh) (verifyCont bdb bh)
+    -> Pact4.SPVSupport
+pactSPV bdb bh = Pact4.SPVSupport (verifySPV bdb bh) (verifyCont bdb bh)
 
 pact5SPV :: BlockHeaderDb -> BlockHeader -> Pact5.SPVSupport
 pact5SPV bdb bh = Pact5.SPVSupport (\_ _ -> error "pact5SPV") (\_ -> error "pact5SPV")
@@ -126,9 +126,9 @@ verifySPV
     -> Text
       -- ^ TXOUT or TXIN - defines the type of proof
       -- used in validation
-    -> Object Name
+    -> Pact4.Object Pact4.Name
       -- ^ the proof object to validate
-    -> IO (Either Text (Object Name))
+    -> IO (Either Text (Pact4.Object Pact4.Name))
 verifySPV bdb bh typ proof = runExceptT $ go typ proof
   where
     cid = CW._chainId bdb
@@ -137,8 +137,8 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
     mkSPVResult' cr j
         | enableBridge =
           return $ mkSPVResult cr j
-        | otherwise = case fromPactValue j of
-            TObject o _ -> return o
+        | otherwise = case Pact4.fromPactValue j of
+            Pact4.TObject o _ -> return o
             _ -> throwError "spv-verified tx output has invalid type"
 
     go s o = case s of
@@ -164,16 +164,16 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
         --  3. Extract tx outputs as a pact object and return the
         --  object.
 
-        TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u (_blockHash bh)
+        TransactionOutput p <- catchAndDisplaySPVError bh $ Pact4.liftIO $ verifyTransactionOutputProofAt_ bdb u (_blockHash bh)
 
-        q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
+        q <- case decodeStrict' p :: Maybe (Pact4.CommandResult Pact4.Hash) of
           Nothing -> forkedThrower bh "unable to decode spv transaction output"
           Just cr -> return cr
 
-        case _crResult q of
-          PactResult Left{} ->
+        case Pact4._crResult q of
+          Pact4.PactResult Left{} ->
             throwError "Failed command result in tx output proof"
-          PactResult (Right v) ->
+          Pact4.PactResult (Right v) ->
             mkSPVResult' q v
 
       t -> throwError $! "unsupported SPV types: " <> t
@@ -259,10 +259,10 @@ verifyCont
       -- ^ handle into the cut db
     -> BlockHeader
         -- ^ the context for verifying the proof
-    -> ContProof
+    -> Pact4.ContProof
       -- ^ bytestring of 'TransactionOutputP roof' object to validate
-    -> IO (Either Text PactExec)
-verifyCont bdb bh (ContProof cp) = runExceptT $ do
+    -> IO (Either Text Pact4.PactExec)
+verifyCont bdb bh (Pact4.ContProof cp) = runExceptT $ do
     let errorMessageType =
           if CW.chainweb221Pact
              (CW._chainwebVersion bh)
@@ -287,13 +287,13 @@ verifyCont bdb bh (ContProof cp) = runExceptT $ do
           --  3. Extract continuation 'PactExec' from decoded result
           --  and return the cont exec object
 
-          TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u (_blockHash bh)
+          TransactionOutput p <- catchAndDisplaySPVError bh $ Pact4.liftIO $ verifyTransactionOutputProofAt_ bdb u (_blockHash bh)
 
-          q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
+          q <- case decodeStrict' p :: Maybe (Pact4.CommandResult Pact4.Hash) of
             Nothing -> forkedThrower bh "unable to decode spv transaction output"
             Just cr -> return cr
 
-          case _crContinuation q of
+          case Pact4._crContinuation q of
             Nothing -> throwError "no pact exec found in command result"
             Just pe -> return pe
   where
@@ -301,14 +301,14 @@ verifyCont bdb bh (ContProof cp) = runExceptT $ do
 
 -- | Extract a 'TransactionOutputProof' from a generic pact object
 --
-extractProof :: Bool -> Object Name -> Either Text (TransactionOutputProof SHA512t_256)
-extractProof False o = toPactValue (TObject o def) >>= k
+extractProof :: Bool -> Pact4.Object Pact4.Name -> Either Text (TransactionOutputProof SHA512t_256)
+extractProof False o = Pact4.toPactValue (Pact4.TObject o def) >>= k
   where
     k = aeson (Left . pack) Right
       . fromJSON
       . J.toJsonViaEncode
-extractProof True (Object (ObjectMap o) _ _ _) = case M.lookup "proof" o of
-  Just (TLitString proof) -> do
+extractProof True (Pact4.Object (Pact4.ObjectMap o) _ _ _) = case M.lookup "proof" o of
+  Just (Pact4.TLitString proof) -> do
     j <- first (const "Base64 decode failed") (decodeB64UrlNoPaddingText proof)
     first (const "Decode of TransactionOutputProof failed") (decodeStrictOrThrow j)
   _ -> Left "Invalid input, expected 'proof' field with base64url unpadded text"
@@ -324,10 +324,10 @@ extractProof True (Object (ObjectMap o) _ _ _) = case M.lookup "proof" o of
 --
 -- For details of the returned value see 'Ethereum.Receipt'
 --
-extractEthProof :: Object Name -> Either Text ReceiptProof
-extractEthProof o = case M.lookup "proof" $ _objectMap $ _oObject o of
+extractEthProof :: Pact4.Object Pact4.Name -> Either Text ReceiptProof
+extractEthProof o = case M.lookup "proof" $ Pact4._objectMap $ Pact4._oObject o of
   Nothing -> Left "Decoding of Eth proof object failed: missing 'proof' property"
-  Just (TLitString p) -> do
+  Just (Pact4.TLitString p) -> do
     bytes' <- errMsg "Decoding of Eth proof object failed: invalid base64URLWithoutPadding encoding"
         $ decodeB64UrlNoPaddingText p
     errMsg "Decoding of Eth proof object failed: invalid binary proof data"
@@ -336,7 +336,7 @@ extractEthProof o = case M.lookup "proof" $ _objectMap $ _oObject o of
   where
     errMsg t = first (const t)
 
-ethResultToPactValue :: ReceiptProofValidation -> Object Name
+ethResultToPactValue :: ReceiptProofValidation -> Pact4.Object Pact4.Name
 ethResultToPactValue ReceiptProofValidation{..} = mkObject
     [ ("depth", tInt _receiptProofValidationDepth)
     , ("header", header _receiptProofValidationHeader)
@@ -348,11 +348,11 @@ ethResultToPactValue ReceiptProofValidation{..} = mkObject
   where
     receipt Receipt{..} = obj
       [ ("cumulative-gas-used", tInt _receiptGasUsed)
-      , ("status",toTerm $ _receiptStatus == TxStatus 1)
-      , ("logs",toTList TyAny def $ map rlog _receiptLogs)]
+      , ("status",Pact4.toTerm $ _receiptStatus == TxStatus 1)
+      , ("logs",Pact4.toTList Pact4.TyAny def $ map rlog _receiptLogs)]
     rlog LogEntry{..} = obj
       [ ("address",jsonStr _logEntryAddress)
-      , ("topics",toTList TyAny def $ map topic _logEntryTopics)
+      , ("topics",Pact4.toTList Pact4.TyAny def $ map topic _logEntryTopics)
       , ("data",jsonStr _logEntryData)]
     topic t = jsonStr t
     header ch@ConsensusHeader{..} = obj
@@ -373,8 +373,8 @@ ethResultToPactValue ReceiptProofValidation{..} = mkObject
       , ("transactions-root", jsonStr _hdrTransactionsRoot)
       ]
     jsonStr v = case toJSON v of
-      String s -> tStr s
-      _ -> tStr $ sshow v
+      String s -> Pact4.tStr s
+      _ -> Pact4.tStr $ sshow v
     ts (Timestamp t) = tInt t
     tix (TransactionIndex i) = tInt i
 {-# INLINE ethResultToPactValue #-}
@@ -390,7 +390,7 @@ getTxIdx
     => BlockHeaderDb
     -> PayloadDb tbl
     -> BlockHeight
-    -> PactHash
+    -> Pact4.PactHash
     -> IO (Either Text Int)
 getTxIdx bdb pdb bh th = do
     -- get BlockPayloadHash
@@ -415,11 +415,11 @@ getTxIdx bdb pdb bh th = do
           & fmap int
           & return
   where
-    toPactTx :: MonadThrow m => Transaction -> m (Command Text)
+    toPactTx :: MonadThrow m => Transaction -> m (Pact4.Command Text)
     toPactTx (Transaction b) = decodeStrictOrThrow' b
 
-    toTxHash :: MonadThrow m => Transaction -> m PactHash
-    toTxHash = fmap _cmdHash . toPactTx
+    toTxHash :: MonadThrow m => Transaction -> m Pact4.PactHash
+    toTxHash = fmap Pact4._cmdHash . toPactTx
 
     sfind :: Monad m => (a -> Bool) -> S.Stream (S.Of a) m () -> m (Maybe a)
     sfind p = S.head_ . S.dropWhile (not . p)
@@ -427,68 +427,68 @@ getTxIdx bdb pdb bh th = do
     sindex :: Monad m => (a -> Bool) -> S.Stream (S.Of a) m () -> m (Maybe Natural)
     sindex p s = S.zip (S.each [0..]) s & sfind (p . snd) & fmap (fmap fst)
 
-mkObject :: [(FieldKey, Term n)] -> Object n
-mkObject ps = Object (ObjectMap (M.fromList ps)) TyAny Nothing def
+mkObject :: [(Pact4.FieldKey, Pact4.Term n)] -> Pact4.Object n
+mkObject ps = Pact4.Object (Pact4.ObjectMap (M.fromList ps)) Pact4.TyAny Nothing def
 
-obj :: [(FieldKey, Term n)] -> Term n
-obj = toTObject TyAny def
+obj :: [(Pact4.FieldKey, Pact4.Term n)] -> Pact4.Term n
+obj = Pact4.toTObject Pact4.TyAny def
 
-tInt :: Integral i => i -> Term Name
-tInt = toTerm . fromIntegral @_ @Integer
+tInt :: Integral i => i -> Pact4.Term Pact4.Name
+tInt = Pact4.toTerm . fromIntegral @_ @Integer
 
 -- | Encode a "successful" CommandResult into a Pact object.
 mkSPVResult
-    :: CommandResult Hash
+    :: Pact4.CommandResult Pact4.Hash
        -- ^ Full CR
-    -> PactValue
+    -> Pact4.PactValue
        -- ^ Success result
-    -> Object Name
-mkSPVResult CommandResult{..} j =
+    -> Pact4.Object Pact4.Name
+mkSPVResult Pact4.CommandResult{..} j =
     mkObject
-    [ ("result", fromPactValue j)
-    , ("req-key", tStr $ asString $ unRequestKey _crReqKey)
-    , ("txid", tStr $ maybe "" asString _crTxId)
-    , ("gas", toTerm $ (fromIntegral _crGas :: Integer))
+    [ ("result", Pact4.fromPactValue j)
+    , ("req-key", Pact4.tStr $ Pact4.asString $ Pact4.unRequestKey _crReqKey)
+    , ("txid", Pact4.tStr $ maybe "" Pact4.asString _crTxId)
+    , ("gas", Pact4.toTerm $ (fromIntegral _crGas :: Integer))
     , ("meta", maybe empty metaField _crMetaData)
-    , ("logs", tStr $ asString _crLogs)
+    , ("logs", Pact4.tStr $ Pact4.asString _crLogs)
     , ("continuation", maybe empty contField _crContinuation)
-    , ("events", toTList TyAny def $ map eventField _crEvents)
+    , ("events", Pact4.toTList Pact4.TyAny def $ map eventField _crEvents)
     ]
   where
     metaField v = case fromJSON v of
       Error _ -> obj []
-      Success p -> fromPactValue p
+      Success p -> Pact4.fromPactValue p
 
-    contField (PactExec stepCount yield executed step pactId pactCont rollback _nested) = obj
-        [ ("step", toTerm step)
-        , ("step-count", toTerm stepCount)
+    contField (Pact4.PactExec stepCount yield executed step pactId pactCont rollback _nested) = obj
+        [ ("step", Pact4.toTerm step)
+        , ("step-count", Pact4.toTerm stepCount)
         , ("yield", maybe empty yieldField yield)
-        , ("pact-id", toTerm pactId)
+        , ("pact-id", Pact4.toTerm pactId)
         , ("cont",contField1 pactCont)
-        , ("step-has-rollback",toTerm rollback)
-        , ("executed",tStr $ maybe "" sshow executed)
+        , ("step-has-rollback",Pact4.toTerm rollback)
+        , ("executed",Pact4.tStr $ maybe "" sshow executed)
         ]
 
-    contField1 PactContinuation {..} = obj
-        [ ("name",tStr $ asString _pcDef)
-        , ("args",toTList TyAny def $ map fromPactValue _pcArgs)
+    contField1 Pact4.PactContinuation {..} = obj
+        [ ("name",Pact4.tStr $ Pact4.asString _pcDef)
+        , ("args",Pact4.toTList Pact4.TyAny def $ map Pact4.fromPactValue _pcArgs)
         ]
 
-    yieldField Yield {..} = obj
-        [ ("data",fromPactValue (PObject _yData))
+    yieldField Pact4.Yield {..} = obj
+        [ ("data",Pact4.fromPactValue (Pact4.PObject _yData))
         , ("provenance", maybe empty provField _yProvenance)
         ]
 
-    provField Provenance {..} = obj
-        [ ("target-chain", toTerm $ _chainId _pTargetChainId)
-        , ("module-hash", tStr $ asString $ _mhHash $ _pModuleHash)
+    provField Pact4.Provenance {..} = obj
+        [ ("target-chain", Pact4.toTerm $ Pact4._chainId _pTargetChainId)
+        , ("module-hash", Pact4.tStr $ Pact4.asString $ Pact4._mhHash $ _pModuleHash)
         ]
 
-    eventField PactEvent {..} = obj
-        [ ("name", toTerm _eventName)
-        , ("params", toTList TyAny def (map fromPactValue _eventParams))
-        , ("module", tStr $ asString _eventModule)
-        , ("module-hash", tStr $ asString _eventModuleHash)
+    eventField Pact4.PactEvent {..} = obj
+        [ ("name", Pact4.toTerm _eventName)
+        , ("params", Pact4.toTList Pact4.TyAny def (map Pact4.fromPactValue _eventParams))
+        , ("module", Pact4.tStr $ Pact4.asString _eventModule)
+        , ("module-hash", Pact4.tStr $ Pact4.asString _eventModuleHash)
         ]
 
     empty = obj []
