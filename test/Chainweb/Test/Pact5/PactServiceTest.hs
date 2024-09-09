@@ -508,7 +508,7 @@ tests = do
 -}
 
 cid = unsafeChainId 0
-v = instantCpmTestVersion singletonChainGraph
+v = pact5InstantCpmTestVersion singletonChainGraph
 
 coinModuleName :: ModuleName
 coinModuleName = ModuleName "coin" Nothing

@@ -115,6 +115,10 @@ nNodes = 1
 v :: ChainwebVersion
 v = instantCpmTestVersion petersonChainGraph
 
+vNetworkId :: Pact.NetworkId
+vNetworkId = Pact.NetworkId $ getChainwebVersionName $ _versionName v
+
+
 cid :: HasCallStack => ChainId
 cid = head . toList $ chainIds v
 
@@ -151,39 +155,37 @@ tests rdb = testGroup "Chainweb.Test.Pact4.RemotePactTest"
         in independentSequentialTestGroup "remote pact tests"
             [ withResourceT (liftIO $ join $ withRequestKeys <$> iot <*> cenv) $ \reqkeys -> golden "remote-golden" $
                 join $ responseGolden <$> cenv <*> reqkeys
-            -- , testCaseSteps "remote spv" $ \step ->
-            --     join $ spvTest <$> iot <*> cenv <*> pure step
-            -- , testCaseSteps "remote eth spv" $ \step ->
-            --     join $ ethSpvTest <$> iot <*> cenv <*> pure step
-            -- , testCaseSteps "/send reports validation failure" $ \step ->
-            --     join $ sendValidationTest <$> iot <*> cenv <*> pure step
-            -- , testCase "/poll reports badlisted txs" $
-            --     join $ pollingBadlistTest <$> cenv
-            -- , testCase "trivialLocalCheck" $
-            --     join $ localTest <$> iot <*> cenv
-            -- , testCase "localChainData" $
-            --     join $ localChainDataTest <$> iot <*> cenv
-            -- , testCaseSteps "transaction size gas tests" $ \step ->
-            --     join $ txTooBigGasTest <$> iot <*> cenv <*> pure step
-            -- , testCaseSteps "genesisAllocations" $ \step ->
-            --     join $ allocationTest <$> iot <*> cenv <*> pure step
-            -- , testCaseSteps "caplist TRANSFER and FUND_TX test" $ \step ->
-            --     join $ caplistTest <$> iot <*> cenv <*> pure step
-            -- , testCaseSteps "local continuation test" $ \step ->
-            --     join $ localContTest <$> iot <*> cenv <*> pure step
-            -- , testCaseSteps "poll confirmation depth test" $ \step ->
-            --     join $ pollingConfirmDepth <$> iot <*> cenv <*> pure step
-            -- , testCaseSteps "/poll rejects keys of incorrect length" $ \step ->
-            --     join $ pollBadKeyTest <$> cenv <*> pure step
+            , testCaseSteps "remote spv" $ \step ->
+                join $ spvTest <$> iot <*> cenv <*> pure step
+            , testCaseSteps "remote eth spv" $ \step ->
+                join $ ethSpvTest <$> iot <*> cenv <*> pure step
+            , testCaseSteps "/send reports validation failure" $ \step ->
+                join $ sendValidationTest <$> iot <*> cenv <*> pure step
+            , testCase "/poll reports badlisted txs" $
+                join $ pollingBadlistTest <$> cenv
+            , testCase "trivialLocalCheck" $
+                join $ localTest <$> iot <*> cenv
+            , testCase "localChainData" $
+                join $ localChainDataTest <$> iot <*> cenv
+            , testCaseSteps "transaction size gas tests" $ \step ->
+                join $ txTooBigGasTest <$> iot <*> cenv <*> pure step
+            , testCaseSteps "genesisAllocations" $ \step ->
+                join $ allocationTest <$> iot <*> cenv <*> pure step
+            , testCaseSteps "caplist TRANSFER and FUND_TX test" $ \step ->
+                join $ caplistTest <$> iot <*> cenv <*> pure step
+            , testCaseSteps "local continuation test" $ \step ->
+                join $ localContTest <$> iot <*> cenv <*> pure step
+            , testCaseSteps "poll confirmation depth test" $ \step ->
+                join $ pollingConfirmDepth <$> iot <*> cenv <*> pure step
+            , testCaseSteps "/poll rejects keys of incorrect length" $ \step ->
+                join $ pollBadKeyTest <$> cenv <*> pure step
             , testCaseSteps "local preflight sim test" $ \step ->
                 join $ localPreflightSimTest <$> iot <*> cenv <*> pure step
-              -- TODO:CORE.buyGas failed!!PEDesugarError (NoSuchModuleMember (ModuleName {_mnName = "coin", _mnNamespace = Nothing}) "buy-gas") ()
-              -- Exception {"tag":"BuyGasFailure","contents":["_PYdFRp_bXffhIY9CUkD1y4Pbmlw4KztXTpUDZQlYtI",{"callStack":[],"type":"EvalError","message":"unknown error [2024-05-07 14:44:36.291995 UTC][Error][node:0,peerId:9LkpIG,port:60784,host:localhost,chain:0,component:pact,pact-request:execLocal] critical transaction failure: \"_PYdFRp_bXffhIY9CUkD1y4Pbmlw4KztXTpUDZQlYtI\": buyGas: Internal error - PEDesugarError (NoSuchModuleMember (ModuleName {_mnName = \"coin\", _mnNamespace = Nothing}) \"buy-gas\") ()\nCallStack (from HasCallStack):\n  error, called at test/Chainweb/Test/Utils.hs:941:46 in main:Chainweb.Test.Utils","info":""}]}
 
-            -- , testCaseSteps "poll correct results test" $ \step ->
-            --     join $ pollingCorrectResults <$> iot <*> cenv <*> pure step
-            -- , testCase "webauthn sig" $
-            --     join $ webAuthnSignatureTest <$> iot <*> cenv
+            , testCaseSteps "poll correct results test" $ \step ->
+                join $ pollingCorrectResults <$> iot <*> cenv <*> pure step
+            , testCase "webauthn sig" $
+                join $ webAuthnSignatureTest <$> iot <*> cenv
             ]
       , testCase "txlogsCompactionTest" $ txlogsCompactionTest rdb
     ]
@@ -520,7 +522,7 @@ localChainDataTest t cenv = do
     localTestBatch mnonce = modifyMVar mnonce $ \(!nn) -> do
         let nonce = "nonce" <> sshow nn
         kps <- testKeyPairs sender00 Nothing
-        c <- Pact.mkExec "(chain-data)" A.Null (pm t) kps [] (Just "instant-CPM-peterson") (Just nonce)
+        c <- Pact.mkExec "(chain-data)" A.Null (pm t) kps [] (Just vNetworkId) (Just nonce)
         pure (succ nn, SubmitBatch (pure c))
         where
           pm = Pact.PublicMeta pactCid "sender00" 1000 0.1 defaultMaxTTL
@@ -673,7 +675,7 @@ localPreflightSimTest t cenv step = do
       let nonce = "nonce" <> sshow nn
           pm = Pact.PublicMeta pcid "sender00" 1000 0.1 defaultMaxTTL
 
-      c <- Pact.mkExec code A.Null (pm t) kps [] (Just "instant-CPM-peterson") (Just nonce)
+      c <- Pact.mkExec code A.Null (pm t) kps [] (Just vNetworkId) (Just nonce)
       pure (succ nn, c)
 
     mkCmdBuilder sigs pcid limit price = do
@@ -756,7 +758,7 @@ sendValidationTest t cenv step = do
     mkBadGasTxBatch code senderName senderKeyPair capList = do
       ks <- testKeyPairs senderKeyPair capList
       let pm = Pact.PublicMeta (Pact.ChainId "0") senderName 100_000 0.01 defaultMaxTTL t
-      let cmd (n :: Int) = liftIO $ Pact.mkExec code A.Null pm ks [] (Just "instant-CPM-peterson") (Just $ sshow n)
+      let cmd (n :: Int) = liftIO $ Pact.mkExec code A.Null pm ks [] (Just vNetworkId) (Just $ sshow n)
       cmds <- mapM cmd (0 NEL.:| [1..5])
       return $ SubmitBatch cmds
 
@@ -806,7 +808,7 @@ ethSpvTest t cenv step = do
     mkTxBatch proof = do
       ks <- liftIO $ testKeyPairs sender00 Nothing
       let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100_000 0.01 defaultMaxTTL t
-      cmd <- liftIO $ Pact.mkExec txcode (txdata proof) pm ks [] (Just "instant-CPM-peterson") (Just "1")
+      cmd <- liftIO $ Pact.mkExec txcode (txdata proof) pm ks [] (Just vNetworkId) (Just "1")
       return $ SubmitBatch (pure cmd)
 
     txcode = "(verify-spv 'ETH (read-msg))"
@@ -838,8 +840,8 @@ spvTest t cenv step = do
       ks <- liftIO $ testKeyPairs sender00
         (Just [mkGasCap, mkXChainTransferCap "sender00" "sender01" 1.0 "2"])
       let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100_000 0.01 defaultMaxTTL t
-      cmd1 <- liftIO $ Pact.mkExec txcode txdata pm ks [] (Just "instant-CPM-peterson") (Just "1")
-      cmd2 <- liftIO $ Pact.mkExec txcode txdata pm ks [] (Just "instant-CPM-peterson") (Just "2")
+      cmd1 <- liftIO $ Pact.mkExec txcode txdata pm ks [] (Just vNetworkId) (Just "1")
+      cmd2 <- liftIO $ Pact.mkExec txcode txdata pm ks [] (Just vNetworkId) (Just "2")
       return $ SubmitBatch (pure cmd1 <> pure cmd2)
 
     txcode = T.unlines
@@ -914,7 +916,7 @@ txTooBigGasTest t cenv step = do
     mkTxBatch code cdata limit n = do
       ks <- testKeyPairs sender00 Nothing
       let pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" limit 0.01 defaultMaxTTL t
-      cmd <- liftIO $ Pact.mkExec code cdata pm ks [] (Just "instant-CPM-peterson") n
+      cmd <- liftIO $ Pact.mkExec code cdata pm ks [] (Just vNetworkId) n
       return $ SubmitBatch (pure cmd)
 
     txcode0 = T.concat ["[", T.replicate 10 " 1", "]"]
@@ -1146,7 +1148,7 @@ mkSingletonBatch
 mkSingletonBatch t kps (PactTransaction c d) nonce pmk clist = do
     ks <- testKeyPairs kps clist
     let dd = fromMaybe A.Null d
-    cmd <- liftIO $ Pact.mkExec c dd (pmk t) ks [] (Just "instant-CPM-peterson") nonce
+    cmd <- liftIO $ Pact.mkExec c dd (pmk t) ks [] (Just vNetworkId) nonce
     return $ SubmitBatch (cmd NEL.:| [])
 
 testSend :: Pact.TxCreationTime -> MVar Int -> ClientEnv -> IO RequestKeys
@@ -1156,7 +1158,7 @@ testBatch'' :: Pact.ChainId -> Pact.TxCreationTime -> Pact.TTLSeconds -> MVar In
 testBatch'' chain t ttl mnonce gp' = modifyMVar mnonce $ \(!nn) -> do
     let nonce = "nonce" <> sshow nn
     kps <- testKeyPairs sender00 Nothing
-    c <- Pact.mkExec "(+ 1 2)" A.Null (pm t) kps [] (Just "instant-CPM-peterson") (Just nonce)
+    c <- Pact.mkExec "(+ 1 2)" A.Null (pm t) kps [] (Just vNetworkId) (Just nonce)
     pure (succ nn, SubmitBatch (pure c))
   where
     pm :: Pact.TxCreationTime -> Pact.PublicMeta

@@ -15,6 +15,7 @@ module Chainweb.Test.TestVersions
     , quirkedGasSlowForkingCpmTestVersion
     , timedConsensusVersion
     , instantCpmTestVersion
+    , pact5InstantCpmTestVersion
     , pact5CheckpointerTestVersion
     , pact5SlowCpmTestVersion
     ) where
@@ -119,6 +120,9 @@ testVersions = _versionName <$> concat
       | g :: KnownGraph <- [minBound..maxBound]
       ]
     , [ instantCpmTestVersion (knownChainGraph g)
+      | g :: KnownGraph <- [minBound..maxBound]
+      ]
+    , [ pact5InstantCpmTestVersion (knownChainGraph g)
       | g :: KnownGraph <- [minBound..maxBound]
       ]
     , [ pact5CheckpointerTestVersion (knownChainGraph g)
@@ -368,15 +372,36 @@ noBridgeCpmTestVersion g = buildTestVersion $ \v -> v
     & versionForks .~ (fastForks & at SPVBridge ?~ AllChains ForkNever)
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades instantly enabled
--- at genesis.
+-- at genesis EXCEPT Pact 5.
 instantCpmTestVersion :: ChainGraph -> ChainwebVersion
 instantCpmTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("instant-CPM-" <> toText g)
     & versionForks .~ tabulateHashMap (\case
+        -- pact 5 is off
+        Pact5Fork -> AllChains ForkNever
+        _ -> AllChains ForkAtGenesis
+        )
+    & versionGenesis .~ VersionGenesis
+        { _genesisBlockPayload = onChains $
+            (unsafeChainId 0, IN0.payloadBlock) :
+            [(n, INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+        , _genesisBlockTarget = AllChains maxTarget
+        , _genesisTime = AllChains $ BlockCreationTime epoch
+        }
+    & versionUpgrades .~ AllChains mempty
+    & versionVerifierPluginNames .~ AllChains
+        (End $ Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"])
+
+pact5InstantCpmTestVersion :: ChainGraph -> ChainwebVersion
+pact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
+    & cpmTestVersion g
+    & versionName .~ ChainwebVersionName ("instant-pact5-CPM-" <> toText g)
+    & versionForks .~ tabulateHashMap (\case
         -- genesis blocks are not ever run with Pact 5
-        Pact5Fork -> onChains [
-            (cid, ForkAtBlockHeight (succ $ genesisHeightSlow v cid)) | cid <- HS.toList $ graphChainIds g
+        Pact5Fork -> onChains
+            [ (cid, ForkAtBlockHeight (succ $ genesisHeightSlow v cid))
+            | cid <- HS.toList $ graphChainIds g
             ]
         _ -> AllChains ForkAtGenesis
         )

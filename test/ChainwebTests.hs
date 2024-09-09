@@ -136,8 +136,8 @@ pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
 nodeTestSuite :: RocksDb -> TestTree
 nodeTestSuite rdb = independentSequentialTestGroup "Tests starting nodes"
     -- [ Chainweb.Test.Rosetta.RestAPI.tests rdb
-    -- [ Chainweb.Test.Pact4.RemotePactTest.tests rdb -- BROKEN
-    []
+    [ Chainweb.Test.Pact4.RemotePactTest.tests rdb -- BROKEN
+    ]
 
 suite :: RocksDb -> [TestTree]
 suite rdb =

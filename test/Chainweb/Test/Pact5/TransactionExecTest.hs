@@ -1004,7 +1004,7 @@ gh = genesisBlockHeader
 
 vUpgrades = pact5SlowCpmTestVersion singletonChainGraph
 
-v = instantCpmTestVersion singletonChainGraph
+v = pact5InstantCpmTestVersion singletonChainGraph
 
 readBal :: (HasCallStack, Default i) => PactDb b i -> T.Text -> IO (Maybe Decimal)
 readBal pactDb acctName = do
