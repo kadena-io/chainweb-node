@@ -219,7 +219,7 @@ assertTxNotInFuture (ParentCreationTime (BlockCreationTime txValidationTime)) tx
 
 -- | Assert that the command hash matches its payload and
 -- its signatures are valid, without parsing the payload.
-assertCommand :: Transaction -> [P.PPKScheme] -> IsWebAuthnPrefixLegal -> Bool
+assertCommand :: P.Command (PayloadWithText m c) -> [P.PPKScheme] -> IsWebAuthnPrefixLegal -> Bool
 assertCommand (P.Command pwt sigs hsh) ppkSchemePassList webAuthnPrefixLegal =
   isRight assertHash &&
   assertValidateSigs ppkSchemePassList webAuthnPrefixLegal hsh signers sigs
