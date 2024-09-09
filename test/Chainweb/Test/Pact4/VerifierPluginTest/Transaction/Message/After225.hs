@@ -48,7 +48,7 @@ tests = testGroup "After225"
   , test generousConfig "verifyWrongSignersFailure" hyperlaneVerifyWrongSignersFailure
   , test generousConfig "verifyNotEnoughRecoveredSignaturesFailure" hyperlaneVerifyNotEnoughRecoveredSignaturesFailure
   , test generousConfig "verifyNotEnoughCapabilitySignaturesFailure" hyperlaneVerifyNotEnoughCapabilitySignaturesFailure
-  , test generousConfig "verifyIncorretProofFailure" hyperlaneVerifyMerkleIncorrectProofFailure
+  , test generousConfig "verifyIncorrectProofFailure" hyperlaneVerifyMerkleIncorrectProofFailure
   , test generousConfig "verifyFailureNotEnoughSignaturesToPassThreshold" hyperlaneVerifyFailureNotEnoughSignaturesToPassThreshold
   ]
   where
