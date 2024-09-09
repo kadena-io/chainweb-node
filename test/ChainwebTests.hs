@@ -158,11 +158,11 @@ suite rdb =
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.Rosetta.tests
         , Chainweb.Test.RestAPI.tests rdb
-        -- , testGroup "SPV"
-        --     [ Chainweb.Test.SPV.tests rdb
-        --     , Chainweb.Test.Pact4.SPV.tests
-        --     , Chainweb.Test.SPV.EventProof.properties
-        --     ]
+        , testGroup "SPV"
+            [ Chainweb.Test.SPV.tests rdb
+            , Chainweb.Test.Pact4.SPV.tests
+            , Chainweb.Test.SPV.EventProof.properties
+            ]
         , Chainweb.Test.Mempool.InMem.tests
         , Chainweb.Test.Mempool.Sync.tests
         , Chainweb.Test.Mempool.RestAPI.tests
