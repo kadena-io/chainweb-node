@@ -41,15 +41,15 @@ import qualified Chainweb.Pact4.Types as Pact4
 tests :: TestTree
 tests = testGroup "Before225"
   [ testGroup "MessageId metadata tests"
-    [ test generousConfig Pact4.getGasModel "verifySuccess" hyperlaneVerifyMessageIdSuccess
-    , test generousConfig Pact4.getGasModel "verifyEmptyRecoveredSignaturesSuccess" hyperlaneVerifyMessageIdEmptyRecoveredSignaturesSuccess
-    , test generousConfig Pact4.getGasModel "verifyWrongSignersFailure" hyperlaneVerifyMessageIdWrongSignersFailure
-    , test generousConfig Pact4.getGasModel "verifyNotEnoughRecoveredSignaturesFailure" hyperlaneVerifyMessageIdNotEnoughRecoveredSignaturesFailure
-    , test generousConfig Pact4.getGasModel "verifyNotEnoughCapabilitySignaturesFailure" hyperlaneVerifyMessageIdNotEnoughCapabilitySignaturesFailure
+    [ test generousConfig "verifySuccess" hyperlaneVerifyMessageIdSuccess
+    , test generousConfig "verifyEmptyRecoveredSignaturesSuccess" hyperlaneVerifyMessageIdEmptyRecoveredSignaturesSuccess
+    , test generousConfig "verifyWrongSignersFailure" hyperlaneVerifyMessageIdWrongSignersFailure
+    , test generousConfig "verifyNotEnoughRecoveredSignaturesFailure" hyperlaneVerifyMessageIdNotEnoughRecoveredSignaturesFailure
+    , test generousConfig "verifyNotEnoughCapabilitySignaturesFailure" hyperlaneVerifyMessageIdNotEnoughCapabilitySignaturesFailure
     ]
 
   , testGroup "MerkleTree metadata tests"
-    [ test generousConfig Pact4.getGasModel "verifyNotEnabledFailure" hyperlaneVerifyMerkleNotEnabledFailure
+    [ test generousConfig "verifyNotEnabledFailure" hyperlaneVerifyMerkleNotEnabledFailure
     ]
   ]
   where
@@ -57,12 +57,12 @@ tests = testGroup "Before225"
     -- we can be generous.
     generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
 
-    test pactConfig gasmodel tname f =
+    test pactConfig tname f =
       withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
         withTestBlockDb testVersion $ \bdb -> do
           (iompa,mpa) <- dmpio
           let logger = hunitDummyLogger step
-          withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,_) ->
+          withWebPactExecutionService logger testVersion pactConfig bdb mpa $ \(pact,_) ->
             runReaderT f $
             SingleEnv bdb pact (return iompa) noMiner cid
 

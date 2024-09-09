@@ -119,11 +119,11 @@ pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
     , Chainweb.Test.Pact4.DbCacheTest.tests
     , Chainweb.Test.Pact4.Checkpointer.tests
 
-    -- , Chainweb.Test.Pact4.PactMultiChainTest.tests -- BROKEN few tests
+    , Chainweb.Test.Pact4.PactMultiChainTest.tests -- BROKEN few tests
 
     , Chainweb.Test.Pact4.PactSingleChainTest.tests rdb
 
-    -- , Chainweb.Test.Pact4.VerifierPluginTest.tests -- BROKEN
+    , Chainweb.Test.Pact4.VerifierPluginTest.tests -- BROKEN
 
     , Chainweb.Test.Pact4.PactReplay.tests rdb
     , Chainweb.Test.Pact4.ModuleCacheOnRestart.tests rdb

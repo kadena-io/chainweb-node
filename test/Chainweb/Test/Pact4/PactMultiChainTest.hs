@@ -33,6 +33,7 @@ import Test.Tasty.HUnit
 import System.IO.Unsafe
 import System.Logger qualified as YAL
 import System.LogLevel
+import Text.Show.Pretty(pPrint)
 
 -- internal modules
 
@@ -130,36 +131,27 @@ data PactTxTest = PactTxTest
 
 tests :: TestTree
 tests = testGroup testName
-  -- [ test generousConfig freeGasModel (const PCore.freeGasModel) "pact4coin3UpgradeTest" pact4coin3UpgradeTest
-  -- , test generousConfig freeGasModel (const PCore.freeGasModel) "pact42UpgradeTest" pact42UpgradeTest
-  -- , test generousConfig freeGasModel (const PCore.freeGasModel) "minerKeysetTest" minerKeysetTest
-  -- , test timeoutConfig freeGasModel (const PCore.freeGasModel) "txTimeoutTest" txTimeoutTest
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "chainweb213Test" chainweb213Test
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "pact43UpgradeTest" pact43UpgradeTest
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "pact431UpgradeTest" pact431UpgradeTest
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "chainweb215Test" chainweb215Test
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "chainweb216Test" chainweb216Test
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "pact45UpgradeTest" pact45UpgradeTest
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "pact46UpgradeTest" pact46UpgradeTest
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "chainweb219UpgradeTest" chainweb219UpgradeTest
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "pactLocalDepthTest" pactLocalDepthTest
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "pact48UpgradeTest" pact48UpgradeTest
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "pact49UpgradeTest" pact49UpgradeTest
---  HEAD
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "pact410UpgradeTest" pact410UpgradeTest -- BROKEN Keyset failure (keys-all): [WEBAUTHN...]
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "chainweb223Test" chainweb223Test -- Failure: resumePact: no previous execution found for: 4CvRIXHAQkFIief2mqucrW_aCUJ-ylsXAi5oNN-ofmUtYnV5Z2Fz"
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "compactAndSyncTest" compactAndSyncTest -- BROKEN PEExecutionError (EvalError "read-keyset failure") (), Failure: resumePact: no previous execution found for: Znk8htOFntCIPjZNIdFmwAs0ucRNpTnzJs4W4KzfHAotYnV5Z2Fz
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "compactionCompactsUnmodifiedTables" compactionCompactsUnmodifiedTables
-  -- , quirkTest
-  -- [ test generousConfig getGasModel (getGasModelCore 300_000) "checkTransferCreate" checkTransferCreate
---
-  -- [ test generousConfig getGasModel (getGasModelCore 300_000) "pact410UpgradeTest" pact410UpgradeTest -- BROKEN Keyset failure (keys-all): [WEBAUTHN...]
-  [ -- test generousConfig getGasModel (getGasModelCore 300_000) "chainweb223Test" chainweb223Test
-   -- Failure: broken because expects coinv6, right now applyUpgrades doesn't upgrade the coin contract (uses v4)
-  --   test generousConfig getGasModel (getGasModelCore 300_000) "compactAndSyncTest" compactAndSyncTest -- BROKEN PEExecutionError (EvalError "read-keyset failure") ()
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "compactionCompactsUnmodifiedTables" compactionCompactsUnmodifiedTables
-  -- , quirkTest
-  -- , test generousConfig getGasModel (getGasModelCore 300_000) "checkTransferCreate" checkTransferCreate
+  [ test generousConfig "pact4coin3UpgradeTest" pact4coin3UpgradeTest
+  , test generousConfig "pact42UpgradeTest" pact42UpgradeTest
+  , test generousConfig "minerKeysetTest" minerKeysetTest
+  , test timeoutConfig "txTimeoutTest" txTimeoutTest
+  , test generousConfig "chainweb213Test" chainweb213Test
+  , test generousConfig "pact43UpgradeTest" pact43UpgradeTest
+  , test generousConfig "pact431UpgradeTest" pact431UpgradeTest
+  , test generousConfig "chainweb215Test" chainweb215Test
+  , test generousConfig "chainweb216Test" chainweb216Test
+  , test generousConfig "pact45UpgradeTest" pact45UpgradeTest
+  , test generousConfig "pact46UpgradeTest" pact46UpgradeTest
+  , test generousConfig "chainweb219UpgradeTest" chainweb219UpgradeTest
+  , test generousConfig "pactLocalDepthTest" pactLocalDepthTest
+  , test generousConfig "pact48UpgradeTest" pact48UpgradeTest
+  , test generousConfig "pact49UpgradeTest" pact49UpgradeTest
+  , test generousConfig "pact410UpgradeTest" pact410UpgradeTest
+  , test generousConfig "chainweb223Test" chainweb223Test
+  , test generousConfig "compactAndSyncTest" compactAndSyncTest
+  , test generousConfig "compactionCompactsUnmodifiedTables" compactionCompactsUnmodifiedTables
+  , quirkTest
+  , test generousConfig "checkTransferCreate" checkTransferCreate
   ]
 
   where
@@ -169,12 +161,12 @@ tests = testGroup testName
     generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
     timeoutConfig = testPactServiceConfig { _pactBlockGasLimit = 100_000 }
 
-    test pactConfig gasmodel gasmodelCore tname f =
+    test pactConfig tname f =
       withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
         withTestBlockDb testVersion $ \bdb -> do
           (iompa,mpa) <- dmpio
           let logger = hunitDummyLogger step
-          withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,pacts) ->
+          withWebPactExecutionService logger testVersion pactConfig bdb mpa $ \(pact,pacts) ->
             runReaderT f $
             MultiEnv bdb pact pacts (return iompa) noMiner cid
 
@@ -1418,7 +1410,7 @@ quirkTest = do
       withTestBlockDb realVersion $ \bdb -> do
         (iompa,mpa) <- dmpio
         let logger = hunitDummyLogger step
-        withWebPactExecutionService logger realVersion testPactServiceConfig bdb mpa Pact4.getGasModel $ \(pact,pacts) ->
+        withWebPactExecutionService logger realVersion testPactServiceConfig bdb mpa $ \(pact,pacts) ->
           flip runReaderT (MultiEnv bdb pact pacts (return iompa) noMiner cid) $ do
             runToHeight 99
 
@@ -1481,17 +1473,17 @@ pact4coin3UpgradeTest = do
   let v3Hash = "1os_sLAUYvBzspn5jjawtRpJWiH1WPfhyNraeVvSIwU"
       block22 =
         [ PactTxTest buildHashCmd $ \cr -> do
-            gasEv0 <- mkTransferEvent "sender00" "NoMiner" 0.0013 "coin" v3Hash
+            gasEv0 <- mkTransferEvent "sender00" "NoMiner" 0.0115 "coin" v3Hash
             assertTxSuccess "Hash of coin @ block 22" (pString v3Hash) cr
             assertTxEvents "Events for tx0 @ block 22" [gasEv0] cr
         , PactTxTest buildReleaseCommand $ \cr -> do
-            gasEv1 <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
+            gasEv1 <- mkTransferEvent "sender00" "NoMiner" 0.0434 "coin" v3Hash
             allocTfr <- mkTransferEvent "" "allocation00" 1000000.0 "coin" v3Hash
             allocEv <- mkEvent "RELEASE_ALLOCATION" [pString "allocation00",pDecimal 1000000.0]
                        "coin" v3Hash
             assertTxEvents "Events for tx1 @ block 22" [gasEv1,allocEv,allocTfr] cr
         , PactTxTest (buildXSend []) $ \cr -> do
-            gasEv2 <- mkTransferEvent "sender00" "NoMiner" 0.0015 "coin" v3Hash
+            gasEv2 <- mkTransferEvent "sender00" "NoMiner" 0.0379 "coin" v3Hash
             sendTfr <- mkTransferEvent "sender00" "" 0.0123 "coin" v3Hash
             yieldEv <- mkXYieldEvent "sender00" "sender00" 0.0123 sender00Ks "pact" v3Hash "0" "0"
             assertTxEvents "Events for tx2 @ block 22" [gasEv2,sendTfr, yieldEv] cr
@@ -1511,7 +1503,7 @@ pact4coin3UpgradeTest = do
       block22_0 =
         [ PactTxTest (buildXReceive xproof) $ \cr -> do
             -- test receive XChain events
-            gasEvRcv <- mkTransferEvent "sender00" "NoMiner" 0.0014 "coin" v3Hash
+            gasEvRcv <- mkTransferEvent "sender00" "NoMiner" 0.0256 "coin" v3Hash
             rcvTfr <- mkTransferEvent "" "sender00" 0.0123 "coin" v3Hash
             assertTxEvents "Events for txRcv" [gasEvRcv,rcvTfr] cr
         ]

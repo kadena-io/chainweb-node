@@ -42,26 +42,26 @@ import qualified Chainweb.Pact4.Types as Pact4
 
 tests :: TestTree
 tests = testGroup "After225"
-  [ test generousConfig Pact4.getGasModel "verifySuccess" hyperlaneVerifySuccess
-  , test generousConfig Pact4.getGasModel "verifyMoreValidatorsSuccess" hyperlaneVerifyMoreValidatorsSuccess
-  , test generousConfig Pact4.getGasModel "verifyThresholdZeroError" hyperlaneVerifyThresholdZeroError
-  , test generousConfig Pact4.getGasModel "verifyWrongSignersFailure" hyperlaneVerifyWrongSignersFailure
-  , test generousConfig Pact4.getGasModel "verifyNotEnoughRecoveredSignaturesFailure" hyperlaneVerifyNotEnoughRecoveredSignaturesFailure
-  , test generousConfig Pact4.getGasModel "verifyNotEnoughCapabilitySignaturesFailure" hyperlaneVerifyNotEnoughCapabilitySignaturesFailure
-  , test generousConfig Pact4.getGasModel "verifyIncorretProofFailure" hyperlaneVerifyMerkleIncorrectProofFailure
-  , test generousConfig Pact4.getGasModel "verifyFailureNotEnoughSignaturesToPassThreshold" hyperlaneVerifyFailureNotEnoughSignaturesToPassThreshold
+  [ test generousConfig "verifySuccess" hyperlaneVerifySuccess
+  , test generousConfig "verifyMoreValidatorsSuccess" hyperlaneVerifyMoreValidatorsSuccess
+  , test generousConfig "verifyThresholdZeroError" hyperlaneVerifyThresholdZeroError
+  , test generousConfig "verifyWrongSignersFailure" hyperlaneVerifyWrongSignersFailure
+  , test generousConfig "verifyNotEnoughRecoveredSignaturesFailure" hyperlaneVerifyNotEnoughRecoveredSignaturesFailure
+  , test generousConfig "verifyNotEnoughCapabilitySignaturesFailure" hyperlaneVerifyNotEnoughCapabilitySignaturesFailure
+  , test generousConfig "verifyIncorretProofFailure" hyperlaneVerifyMerkleIncorrectProofFailure
+  , test generousConfig "verifyFailureNotEnoughSignaturesToPassThreshold" hyperlaneVerifyFailureNotEnoughSignaturesToPassThreshold
   ]
   where
     -- This is way more than what is used in production, but during testing
     -- we can be generous.
     generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
 
-    test pactConfig gasmodel tname f =
+    test pactConfig tname f =
       withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
         withTestBlockDb testVersion $ \bdb -> do
           (iompa,mpa) <- dmpio
           let logger = hunitDummyLogger step
-          withWebPactExecutionService logger testVersion pactConfig bdb mpa gasmodel $ \(pact,_) ->
+          withWebPactExecutionService logger testVersion pactConfig bdb mpa $ \(pact,_) ->
             runReaderT f $
             SingleEnv bdb pact (return iompa) noMiner cid
 
