@@ -436,7 +436,7 @@ pact5SlowCpmTestVersion g = buildTestVersion $ \v -> v
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
     & versionUpgrades .~ indexByForkHeights v
-        [ (Pact5Fork, AllChains (ForPact5 $ Pact5Upgrade (List.map pactTxFrom4To5 CoinV5.transactions)))
+        [ (Pact5Fork, AllChains (ForPact5 $ Pact5Upgrade (List.map pactTxFrom4To5 CoinV6.transactions)))
         ]
     & versionVerifierPluginNames .~ AllChains
         (End $ Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"])
