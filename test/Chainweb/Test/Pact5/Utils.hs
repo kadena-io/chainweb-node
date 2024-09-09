@@ -10,7 +10,6 @@ module Chainweb.Test.Pact5.Utils
     where
 
 import Pact.JSON.Encode qualified as J
-import Control.Monad (forM)
 import Data.Text.Encoding qualified as Text
 import Data.Text (Text)
 import Data.Aeson qualified as Aeson
@@ -23,9 +22,7 @@ import Chainweb.Version
 import qualified Data.Text as T
 import System.LogLevel
 import qualified Pact.Core.Command.Types as Pact5
-import qualified Pact.Core.ChainData as Pact5
 import qualified Chainweb.Pact4.Transaction as Pact4
-import qualified Pact.Types.Command as Pact4
 import qualified Chainweb.Pact5.Transaction as Pact5
 
 initCheckpointer :: ChainwebVersion -> ChainId -> SQLiteEnv -> IO (Checkpointer GenericLogger)
