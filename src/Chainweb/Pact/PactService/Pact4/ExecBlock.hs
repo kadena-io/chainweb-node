@@ -25,7 +25,6 @@
 module Chainweb.Pact.PactService.Pact4.ExecBlock
     ( execBlock
     , execTransactions
-    , execTransactionsOnly
     , continueBlock
     , minerReward
     , toPayloadWithOutputs
@@ -384,18 +383,6 @@ execTransactions isGenesis miner ctxs enfCBFail usePrecomp gasLimit timeLimit = 
     T2 txOuts _mcOut <- applyPactCmds isGenesis ctxs miner mc gasLimit timeLimit
     return $! Transactions (V.zip ctxs txOuts) coinOut
 
-execTransactionsOnly
-    :: (Logger logger)
-    => Miner
-    -> Vector Pact4.Transaction
-    -> ModuleCache
-    -> Maybe Micros
-    -> PactBlockM logger tbl
-       (T2 (Vector (Pact4.Transaction, Either CommandInvalidError (Pact4.CommandResult [Pact4.TxLogJson]))) ModuleCache)
-execTransactionsOnly miner ctxs mc txTimeLimit = do
-    T2 txOuts mcOut <- applyPactCmds False ctxs miner mc Nothing txTimeLimit
-    return $! T2 (V.force (V.zip ctxs txOuts)) mcOut
-
 initModuleCacheForBlock :: (Logger logger) => Bool -> PactBlockM logger tbl ModuleCache
 initModuleCacheForBlock isGenesis = do
   PactServiceState{..} <- get
@@ -548,10 +535,13 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
         let spv = pactSPV bhdb (_parentHeader parent)
         let
           !timeoutError = TxTimeout (pact4RequestKeyToTransactionHash $ Pact4.cmdToRequestKey cmd)
-          txTimeout = case txTimeLimit of
-            Nothing -> id
-            Just limit ->
-              maybe (throwM timeoutError) return <=< newTimeout (fromIntegral limit)
+          txTimeout io = case txTimeLimit of
+            Nothing -> do
+	      logFunctionText logger Debug $ "txTimeLimit was not set - defaulting to a function of the block gas limit"
+	      x
+            Just limit -> do
+	      logFunctionText logger Debug $ "txTimeLimit was " <> sshow limit 
+              maybe (throwM timeoutError) return =<< newTimeout (fromIntegral limit) io
           txGas (T3 r _ _) = fromIntegral $ Pact4._crGas r
         T3 r c _warns <- do
           -- TRACE.traceShowM ("applyPactCmd.CACHE: ", LHM.keys $ _getModuleCache mcache, M.keys $ _getCoreModuleCache cmcache)
@@ -843,7 +833,8 @@ continueBlock mpAccess blockInProgress = do
       -> Micros
       -> GrowableVec (Pact4.Transaction, Pact4.CommandResult [Pact4.TxLogJson])
       -> GrowableVec TransactionHash
-      -> ModuleCache -> BlockFill
+      -> ModuleCache
+      -> BlockFill
       -> PactBlockM logger tbl (T2 ModuleCache BlockFill)
     refill fetchLimit txTimeLimit successes failures = go
       where
@@ -870,11 +861,9 @@ continueBlock mpAccess blockInProgress = do
                   newTrans <- getBlockTxs bfState
                   if V.null newTrans then pure (T2 mc unchanged) else do
 
-                    T2 pairs mc' <- execTransactionsOnly
-                      (_blockInProgressMiner blockInProgress)
-                      newTrans
-                      mc
-                      (Just txTimeLimit)
+                    T2 pairs mc' <- do
+                      T2 txOuts mcOut <- applyPactCmds False newTrans (_blockInProgressMiner blockInProgress) mc Nothing (Just txTimeLimit)
+                      return $! T2 (V.force (V.zip newTrans txOuts)) mcOut
 
                     oldSuccessesLength <- liftIO $ Vec.length successes
 
