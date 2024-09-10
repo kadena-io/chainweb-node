@@ -7,6 +7,10 @@
 
 module Chainweb.Pact5.SPV (pact5SPV) where
 
+import Data.Map.Strict qualified as Map
+import Data.List qualified as List
+import Data.Bifunctor (first)
+import Pact.Core.Names (Field(..))
 import Pact.JSON.Encode qualified as J
 import Pact.Core.PactValue (ObjectData(..), PactValue(..))
 import Chainweb.BlockHeader (BlockHeader, _blockHash)
@@ -117,24 +121,6 @@ verifySPV bdb bh proofType proof = runExceptT $ do
 
 pactObjectOutputProof :: ObjectData PactValue -> Either Text (TransactionOutputProof SHA512t_256)
 pactObjectOutputProof (ObjectData o) = do
-    let x :: _
-        x = J.encode o
-
-    return undefined
-    --case Aeson.fromJSON @(TransactionOutputProof SHA512t_256) $ J.toJsonViaEncode pv of
-    --    Aeson.Error _ -> Left "pactObjectOutputProof: Failed to decode proof object"
-    --    Aeson.Success outputProof -> Right outputProof
-
-{-
-extractProof :: Bool -> Pact4.Object Pact4.Name -> Either Text (TransactionOutputProof SHA512t_256)
-extractProof False o = Pact4.toPactValue (Pact4.TObject o def) >>= k
-  where
-    k = aeson (Left . pack) Right
-      . fromJSON
-      . J.toJsonViaEncode
-extractProof True (Pact4.Object (Pact4.ObjectMap o) _ _ _) = case M.lookup "proof" o of
-  Just (Pact4.TLitString proof) -> do
-    j <- first (const "Base64 decode failed") (decodeB64UrlNoPaddingText proof)
-    first (const "Decode of TransactionOutputProof failed") (decodeStrictOrThrow j)
-  _ -> Left "Invalid input, expected 'proof' field with base64url unpadded text"
--}
+    case Aeson.fromJSON @(TransactionOutputProof SHA512t_256) $ J.toJsonViaEncode (J.Object $ List.map (first _field) $ Map.toList o) of
+        Aeson.Error _ -> Left "pactObjectOutputProof: Failed to decode proof object"
+        Aeson.Success outputProof -> Right outputProof
