@@ -10,7 +10,7 @@
 {-# LANGUAGE ViewPatterns #-}
 
 -- |
--- Module: Chainweb.Pact.PactService
+-- Module: Chainweb.Pact4.SPV
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainers: Emily Pillmore <emily@kadena.io>
@@ -18,7 +18,7 @@
 --
 -- Pact Service SPV support
 --
-module Chainweb.Pact.SPV
+module Chainweb.Pact4.SPV
 ( -- * spv support
   pactSPV
 , pact5SPV
@@ -282,7 +282,7 @@ verifyCont bdb bh (Pact4.ContProof cp) = runExceptT $ do
           --
           --  1. verify spv tx output proof via chainweb spv api
           --
-          --  2. Decode tx outputs to 'HashCommandResult'
+          --  2. Decode tx outputs to 'Pact4.CommandResult' 'Pact4.Hash'
           --
           --  3. Extract continuation 'PactExec' from decoded result
           --  and return the cont exec object

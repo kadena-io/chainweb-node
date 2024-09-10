@@ -4,6 +4,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -175,7 +176,7 @@ import qualified Pact.Core.Syntax.ParseTree as Lisp
 import Pact.Core.Command.Types (Payload(_pSigners))
 import Pact.Core.StableEncoding
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
-import Chainweb.Pact.SPV (pact5SPV)
+import Chainweb.Pact4.SPV qualified as SPV
 import Data.Void
 import Control.Monad.Except
 import Chainweb.Utils.Serialization (runPutS)

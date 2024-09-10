@@ -327,7 +327,8 @@ library
         , Chainweb.Pact.RestAPI.EthSpv
         , Chainweb.Pact.RestAPI.SPV
         , Chainweb.Pact.RestAPI.Server
-        , Chainweb.Pact.SPV
+        , Chainweb.Pact4.SPV
+        , Chainweb.Pact5.SPV
         , Chainweb.Pact.Service.BlockValidation
         , Chainweb.Pact.Service.PactInProcApi
         , Chainweb.Pact.Service.PactQueue

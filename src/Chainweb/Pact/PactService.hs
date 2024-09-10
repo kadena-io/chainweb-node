@@ -114,7 +114,7 @@ import Chainweb.Pact.PactService.Checkpointer
 import qualified Chainweb.Pact4.Backend.ChainwebPactDb as Pact4
 import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
 import Chainweb.Pact.Types
-import Chainweb.Pact.SPV
+import Chainweb.Pact4.SPV qualified as Pact4
 import Chainweb.Pact.Types
 import qualified Chainweb.Pact4.Validations as Pact4
 import Chainweb.Payload

@@ -6,6 +6,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -103,7 +104,7 @@ import Chainweb.Pact.RestAPI
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.RestAPI.SPV
 import Chainweb.Pact.Types
-import Chainweb.Pact.SPV
+import Chainweb.Pact4.SPV qualified as Pact4
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.Orphans ()
@@ -452,7 +453,7 @@ spvHandler l cdb cid (SpvRequest rk (Pact4.ChainId ptid)) = do
         Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
         Just t -> return t
 
-    idx <- liftIO (getTxIdx bdb pdb bhe ph) >>= \case
+    idx <- liftIO (Pact4.getTxIdx bdb pdb bhe ph) >>= \case
       Left e -> toErr
         $ "Internal error: Index lookup for hash failed: "
         <> sshow e

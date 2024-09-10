@@ -89,7 +89,7 @@ import Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
 
 import Chainweb.Pact.Types
-import Chainweb.Pact.SPV
+import Chainweb.Pact4.SPV qualified as Pact4
 import Chainweb.Pact.Types
 import Chainweb.Pact4.NoCoinbase
 import qualified Chainweb.Pact4.Transaction as Pact4
@@ -540,7 +540,7 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
               logFunctionText logger Debug $ "txTimeLimit was not set - defaulting to a function of the block gas limit"
               io
             Just limit -> do
-              logFunctionText logger Debug $ "txTimeLimit was " <> sshow limit 
+              logFunctionText logger Debug $ "txTimeLimit was " <> sshow limit
               maybe (throwM timeoutError) return =<< newTimeout (fromIntegral limit) io
           txGas (T3 r _ _) = fromIntegral $ Pact4._crGas r
         T3 r c _warns <- do

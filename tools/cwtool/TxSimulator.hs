@@ -249,7 +249,7 @@ spvSim sc bh pwo = do
         Left {} -> internalError "input decode failed"
         Right cmd -> case _pPayload $ Pact4.payloadObj $ _cmdPayload cmd of
           Continuation cm | _cmProof cm == Just cp -> do
-            -- the following adapted from Chainweb.Pact.SPV.verifyCont with matching errors
+            -- the following adapted from Chainweb.Pact4.SPV.verifyCont with matching errors
             t <- decodeB64UrlNoPaddingText $ T.decodeUtf8 pf
             case decodeStrict' t of
               Nothing -> internalError "unable to decode continuation proof"
