@@ -159,7 +159,7 @@ tests = testGroup testName
     -- This is way more than what is used in production, but during testing
     -- we can be generous.
     generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
-    timeoutConfig = testPactServiceConfig 
+    timeoutConfig = testPactServiceConfig
       { _pactBlockGasLimit = 300_000_000
       , _pactTxTimeLimit = Just 10_000
       }
@@ -214,7 +214,7 @@ txTimeoutTest = do
   liftIO $ do
     badlisted <- readIORef mempoolBadlistRef
     assertEqual "number of badlisted transactions is 0 before runCut'" 0 (Set.size badlisted)
-  
+
   runCut'
 
   blockAfter <- currentCut <&> (^?! (cutMap . ix chid))
@@ -227,7 +227,6 @@ txTimeoutTest = do
     assertEqual "block is still made despite timeout" (succ (_blockHeight blockBefore)) (_blockHeight blockAfter)
 
   rs <- txResults
-  liftIO $ print rs
   liftIO $ assertEqual "number of transactions in block should be one (1) when second transaction times out" 1 (length rs)
 
 chainweb213Test :: PactTestM ()
