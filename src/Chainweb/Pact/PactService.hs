@@ -726,7 +726,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
     -- TODO: Pact 5
     let act = readFromNthParent (fromIntegral rewindDepth) $ SomeBlockM $ flip Pair (error "pact5") $ do
             pc <- view psParentHeader
-            let spv = pactSPV bhdb (_parentHeader pc)
+            let spv = Pact4.pactSPV bhdb (_parentHeader pc)
             ctx <- Pact4.getTxContext noMiner pm
             let gasModel = Pact4.getGasModel ctx
             mc <- Pact4.getInitCache
@@ -1036,7 +1036,7 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                 pd <- Pact4.getTxContext miner (Pact4.publicMetaOf cmd)
                 bhdb <- view (psServiceEnv . psBlockHeaderDb)
                 dbEnv <- Pact4._cpPactDbEnv <$> view psBlockDbEnv
-                spv <- pactSPV bhdb . _parentHeader <$> view psParentHeader
+                spv <- Pact4.pactSPV bhdb . _parentHeader <$> view psParentHeader
                 let ec = Pact4.mkExecutionConfig $
                         [ Pact4.FlagDisableModuleInstall
                         , Pact4.FlagDisableHistoryInTransactionalMode ] ++

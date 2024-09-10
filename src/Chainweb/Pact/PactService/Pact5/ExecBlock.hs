@@ -29,7 +29,7 @@ import Chainweb.Logger
 import Chainweb.Mempool.Mempool(TransactionHash(..), BlockFill (..), pact5RequestKeyToTransactionHash, InsertError (..))
 import Chainweb.Miner.Pact
 import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
-import Chainweb.Pact4.SPV qualified as Pact4
+import Chainweb.Pact5.SPV qualified as Pact5
 import Chainweb.Pact.Types
 import Chainweb.Pact.Types hiding (ctxCurrentBlockHeight, TxContext(..))
 import Chainweb.Pact5.NoCoinbase
@@ -483,7 +483,7 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
       dbEnv <- view psBlockDbEnv
       bhdb <- view (psServiceEnv . psBlockHeaderDb)
       parent <- view psParentHeader
-      let spv = Pact4.pact5SPV bhdb (_parentHeader parent)
+      let spv = Pact5.pactSPV bhdb (_parentHeader parent)
       let txCtx = TxContext parent miner
       -- TODO: trace more info?
       (resultOrError, blockHandle') <- liftIO $ trace' (logFunction logger) "applyCmd" computeTrace (\_ -> 0) $

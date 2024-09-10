@@ -21,7 +21,6 @@
 module Chainweb.Pact4.SPV
 ( -- * spv support
   pactSPV
-, pact5SPV
 , verifySPV
 , verifyCont
   -- * spv api utilities
@@ -110,9 +109,6 @@ pactSPV
       -- ^ the context for verifying the proof
     -> Pact4.SPVSupport
 pactSPV bdb bh = Pact4.SPVSupport (verifySPV bdb bh) (verifyCont bdb bh)
-
-pact5SPV :: BlockHeaderDb -> BlockHeader -> Pact5.SPVSupport
-pact5SPV bdb bh = Pact5.SPVSupport (\_ _ -> error "pact5SPV") (\_ -> error "pact5SPV")
 
 -- | SPV transaction verification support. Calls to 'verify-spv' in Pact
 -- will thread through this function and verify an SPV receipt, making the

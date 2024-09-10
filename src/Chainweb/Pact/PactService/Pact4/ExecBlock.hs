@@ -532,7 +532,7 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
       else do
         bhdb <- view (psServiceEnv . psBlockHeaderDb)
         parent <- view psParentHeader
-        let spv = pactSPV bhdb (_parentHeader parent)
+        let spv = Pact4.pactSPV bhdb (_parentHeader parent)
         let
           !timeoutError = TxTimeout (pact4RequestKeyToTransactionHash $ Pact4.cmdToRequestKey cmd)
           txTimeout io = case txTimeLimit of

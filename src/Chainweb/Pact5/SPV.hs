@@ -5,8 +5,9 @@
   , TypeApplications
 #-}
 
-module Chainweb.Pact5.SPV (pact5SPV) where
+module Chainweb.Pact5.SPV (pactSPV) where
 
+import Pact.Core.StableEncoding (StableEncoding(..), encodeStable)
 import Data.Map.Strict qualified as Map
 import Data.List qualified as List
 import Data.Bifunctor (first)
@@ -33,9 +34,9 @@ import Pact.Core.DefPacts.Types (DefPactExec(..))
 import Pact.Core.Hash (Hash(..))
 import Pact.Core.SPV (ContProof(..), SPVSupport(..))
 
-pact5SPV :: BlockHeaderDb -> BlockHeader -> SPVSupport
-pact5SPV bdb bh = SPVSupport
-    { _spvSupport = error "TODO: Implement SPV support for Pact5"
+pactSPV :: BlockHeaderDb -> BlockHeader -> SPVSupport
+pactSPV bdb bh = SPVSupport
+    { _spvSupport = \proofType proof -> verifySPV bdb bh proofType proof
     , _spvVerifyContinuation = \contProof -> verifyCont bdb bh contProof
     }
 
@@ -121,6 +122,6 @@ verifySPV bdb bh proofType proof = runExceptT $ do
 
 pactObjectOutputProof :: ObjectData PactValue -> Either Text (TransactionOutputProof SHA512t_256)
 pactObjectOutputProof (ObjectData o) = do
-    case Aeson.fromJSON @(TransactionOutputProof SHA512t_256) $ J.toJsonViaEncode (J.Object $ List.map (first _field) $ Map.toList o) of
-        Aeson.Error _ -> Left "pactObjectOutputProof: Failed to decode proof object"
-        Aeson.Success outputProof -> Right outputProof
+    case Aeson.decodeStrict' @(TransactionOutputProof SHA512t_256) $ encodeStable o of
+        Nothing -> Left "pactObjectOutputProof: Failed to decode proof object"
+        Just outputProof -> Right outputProof
