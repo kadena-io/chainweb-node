@@ -1,3 +1,13 @@
+## 2.25.2 (2024-09-12)
+This is a minor point release. Upgrading is **strongly recommended**.
+
+To upgrade, pull the latest docker image, or download the binary and
+restart the node with the same configuration file as before.
+
+### Changes
+- The payload batch endpoint now returns a 404 when the batch size limit is set to 0. [`23726e1`](https://github.com/kadena-io/chainweb-node/commit/23726e18242ab44a3e01009356d2fda93afdf9e2)
+- Avoid redundant decoding and encoding of transactions in mempool lookup. [`e8b2567`](https://github.com/kadena-io/chainweb-node/commit/e8b2567ca12978f7305ca26a446e6ca8b2d66795)
+
 ## 2.25.1 (2024-08-25)
 This is a minor point release. Upgrading is **strongly recommended**.
 
