@@ -194,16 +194,6 @@ data Fixture = Fixture
     }
 makeLenses ''Fixture
 
-getTestLogLevel :: IO LogLevel
-getTestLogLevel = do
-    let parseLogLevel txt = case T.toUpper txt of
-            "DEBUG" -> Debug
-            "INFO" -> Info
-            "WARN" -> Warn
-            "ERROR" -> Error
-            _ -> Error
-    fromMaybe Error . fmap (parseLogLevel . T.pack) <$> lookupEnv "CHAINWEB_TEST_LOG_LEVEL"
-
 mkFixtureWith :: PactServiceConfig -> RocksDb -> ResourceT IO Fixture
 mkFixtureWith pactServiceConfig baseRdb = do
     sqlite <- withTempSQLiteResource

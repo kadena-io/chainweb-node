@@ -7,13 +7,6 @@
 
 module Chainweb.Pact5.SPV (pactSPV) where
 
-import Pact.Core.StableEncoding (StableEncoding(..), encodeStable)
-import Data.Map.Strict qualified as Map
-import Data.List qualified as List
-import Data.Bifunctor (first)
-import Pact.Core.Names (Field(..))
-import Pact.JSON.Encode qualified as J
-import Pact.Core.PactValue (ObjectData(..), PactValue(..))
 import Chainweb.BlockHeader (BlockHeader, _blockHash)
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.Payload (TransactionOutput(..))
@@ -27,12 +20,19 @@ import Control.Monad.Except (runExceptT, throwError)
 import Control.Monad.IO.Class (liftIO)
 import Crypto.Hash.Algorithms (SHA512t_256)
 import Data.Aeson qualified as Aeson
+import Data.Bifunctor (first)
+import Data.List qualified as List
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text.Encoding qualified as Text
 import Pact.Core.Command.Types (CommandResult(..), PactResult(..))
 import Pact.Core.DefPacts.Types (DefPactExec(..))
 import Pact.Core.Hash (Hash(..))
+import Pact.Core.Names (Field(..))
+import Pact.Core.PactValue (ObjectData(..), PactValue(..))
 import Pact.Core.SPV (ContProof(..), SPVSupport(..))
+import Pact.Core.StableEncoding (StableEncoding(..), encodeStable)
+import Pact.JSON.Encode qualified as J
 
 pactSPV :: BlockHeaderDb -> BlockHeader -> SPVSupport
 pactSPV bdb bh = SPVSupport

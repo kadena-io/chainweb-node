@@ -57,6 +57,7 @@ import qualified Chainweb.Test.Pact4.TTL
 import qualified Chainweb.Test.Pact5.CheckpointerTest
 import qualified Chainweb.Test.Pact5.TransactionExecTest
 import qualified Chainweb.Test.Pact5.PactServiceTest
+import qualified Chainweb.Test.Pact5.SPVTest
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Rosetta
 import qualified Chainweb.Test.Rosetta.RestAPI
@@ -155,6 +156,7 @@ suite rdb =
         , Chainweb.Test.Pact5.CheckpointerTest.tests
         , Chainweb.Test.Pact5.TransactionExecTest.tests rdb
         , Chainweb.Test.Pact5.PactServiceTest.tests rdb
+        , Chainweb.Test.Pact5.SPVTest.tests rdb
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.Rosetta.tests
         , Chainweb.Test.RestAPI.tests rdb
