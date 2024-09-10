@@ -138,6 +138,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
+import Control.Monad.State.Strict
 
 -- -------------------------------------------------------------------------- --
 -- Cut
@@ -729,20 +730,19 @@ join_
     -> HM.HashMap ChainId BlockHeader
     -> IO (Join a)
 join_ wdb prioFun a b = do
-    (m, h) <- foldM f (mempty, mempty) (zipChainIdMaps a' b')
+    (m, h) <- runStateT (HM.traverseWithKey f (zipChainIdMaps a' b')) mempty
     return $! Join (Cut' m (_chainwebVersion wdb)) h
   where
     (a', b') = joinChains a b
 
-    f
-        :: (HM.HashMap ChainId BlockHeader, JoinQueue a)
-        -> (ChainId, BlockHeader, BlockHeader)
-        -> IO (HM.HashMap ChainId BlockHeader, JoinQueue a)
-    f (m, q) (cid, x, y) = do
+    f :: ChainId -> (BlockHeader, BlockHeader)
+        -> StateT (JoinQueue a) IO BlockHeader
+    f cid (x, y) = do
+        !q <- get
         db <- getWebBlockHeaderDb wdb cid
-        (q' :> !h) <- S.fold g q id $ branchDiff_ db x y
-        let h' = HM.insert cid h m
-        return (h', q')
+        (q' :> !h) <- liftIO $ S.fold g q id $ branchDiff_ db x y
+        put q'
+        return h
 
     g :: JoinQueue a -> DiffItem BlockHeader -> JoinQueue a
     g q x = foldl' maybeInsert q $ zip (biList x) (biList (prioFun x))
@@ -759,12 +759,8 @@ join_ wdb prioFun a b = do
     zipChainIdMaps
         :: HM.HashMap ChainId BlockHeader
         -> HM.HashMap ChainId BlockHeader
-        -> [(ChainId, BlockHeader, BlockHeader)]
-    zipChainIdMaps m0 m1 = catMaybes
-        [ (cida, x, y) <$ guard (cida == cidb)
-        | (cida, x) <- itoList m0
-        | (cidb, y) <- itoList m1
-        ]
+        -> HM.HashMap ChainId (BlockHeader, BlockHeader)
+    zipChainIdMaps m0 m1 = HM.intersectionWith (,) m0 m1
 
 -- | If the cuts are from different graphs only the chain ids of the
 -- intersection are included in the result.
@@ -772,15 +768,12 @@ join_ wdb prioFun a b = do
 zipCuts
     :: Cut
     -> Cut
-    -> [(ChainId, BlockHeader, BlockHeader)]
+    -> HM.HashMap ChainId (BlockHeader, BlockHeader)
 zipCuts a b =
-    [ (cid, bha, bhb)
-    | (cid, (bha, bhb)) <-
-        HM.toList $ HM.intersectionWith
-            (,)
-            (_cutHeaders a)
-            (_cutHeaders b)
-    ]
+    HM.intersectionWith
+        (,)
+        (_cutHeaders a)
+        (_cutHeaders b)
 
 -- This can't fail because of missing dependencies. It can't fail because
 -- of conflict.
@@ -883,10 +876,10 @@ meet
     -> Cut
     -> IO Cut
 meet wdb a b = do
-    !r <- HM.fromList <$> mapM f (zipCuts a b)
+    !r <- HM.traverseWithKey f (zipCuts a b)
     return $! Cut' r (_chainwebVersion wdb)
   where
-    f (!cid, !x, !y) = (cid,) <$!> do
+    f cid (!x, !y) = do
         db <- getWebBlockHeaderDb wdb cid
         forkEntry db x y
 
@@ -900,7 +893,7 @@ forkDepth wdb a b = do
     return $! int $ max (maxDepth m a) (maxDepth m b)
   where
     maxDepth l u = maximum
-        $ (\(_, x, y) -> view blockHeight y - view blockHeight x)
+        $ (\(x, y) -> view blockHeight y - view blockHeight x)
         <$> zipCuts l u
 
 cutToTextShort :: Cut -> [Text]
