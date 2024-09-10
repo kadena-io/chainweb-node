@@ -709,7 +709,7 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf = do
         , _psBlockGasLimit = _pactBlockGasLimit conf
         , _psEnableLocalTimeout = False
         , _psTxFailuresCounter = Nothing
-        , _psTxTimeLimit = Nothing
+        , _psTxTimeLimit = _pactTxTimeLimit conf
         }
 
 freeGasModel :: TxContext -> GasModel

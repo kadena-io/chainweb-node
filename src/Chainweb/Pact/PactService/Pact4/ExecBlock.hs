@@ -537,10 +537,10 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
           !timeoutError = TxTimeout (pact4RequestKeyToTransactionHash $ Pact4.cmdToRequestKey cmd)
           txTimeout io = case txTimeLimit of
             Nothing -> do
-	      logFunctionText logger Debug $ "txTimeLimit was not set - defaulting to a function of the block gas limit"
-	      x
+              logFunctionText logger Debug $ "txTimeLimit was not set - defaulting to a function of the block gas limit"
+              io
             Just limit -> do
-	      logFunctionText logger Debug $ "txTimeLimit was " <> sshow limit 
+              logFunctionText logger Debug $ "txTimeLimit was " <> sshow limit 
               maybe (throwM timeoutError) return =<< newTimeout (fromIntegral limit) io
           txGas (T3 r _ _) = fromIntegral $ Pact4._crGas r
         T3 r c _warns <- do

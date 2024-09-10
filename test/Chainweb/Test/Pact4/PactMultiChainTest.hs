@@ -159,9 +159,9 @@ tests = testGroup testName
     -- This is way more than what is used in production, but during testing
     -- we can be generous.
     generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
-    timeoutConfig = testPactServiceConfig
-      { _pactBlockGasLimit = 100_000 
-      , _pactTxTimeLimit = Just 1_000
+    timeoutConfig = testPactServiceConfig 
+      { _pactBlockGasLimit = 300_000_000
+      , _pactTxTimeLimit = Just 10_000
       }
 
     test pactConfig tname f =
@@ -201,9 +201,9 @@ txTimeoutTest = do
   -- we inline some of runBlockTest here because its assertions
   -- don't make sense for tx timeout
   let pts =
-        [ buildBasic $ mkExec' "(+ 1 1)"
-        , buildBasicGas 1000 $ mkExec' "(enumerate 0 999999999999)"
-        , buildBasic $ mkExec' "(+ 2 2)"
+        [ buildBasicGas 400 $ mkExec' "(+ 1 1)"
+        , buildBasicGas 10_000 $ mkExec' $ foldr (\_ expr -> "(map (lambda (x) (+ x 1))" <> expr <> ")") "(enumerate 1 1000)" [1..6_000] -- make a huge nested tx
+        , buildBasicGas 400  $ mkExec' "(+ 2 2)"
         ]
   chid <- view menvChainId
 
@@ -214,6 +214,7 @@ txTimeoutTest = do
   liftIO $ do
     badlisted <- readIORef mempoolBadlistRef
     assertEqual "number of badlisted transactions is 0 before runCut'" 0 (Set.size badlisted)
+  
   runCut'
 
   blockAfter <- currentCut <&> (^?! (cutMap . ix chid))
@@ -226,6 +227,7 @@ txTimeoutTest = do
     assertEqual "block is still made despite timeout" (succ (_blockHeight blockBefore)) (_blockHeight blockAfter)
 
   rs <- txResults
+  liftIO $ print rs
   liftIO $ assertEqual "number of transactions in block should be one (1) when second transaction times out" 1 (length rs)
 
 chainweb213Test :: PactTestM ()
