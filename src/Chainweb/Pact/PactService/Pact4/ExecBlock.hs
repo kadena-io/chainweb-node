@@ -38,6 +38,7 @@ module Chainweb.Pact.PactService.Pact4.ExecBlock
     , CommandInvalidError(..)
     ) where
 
+import Chronos qualified
 import Control.Concurrent.MVar
 import Control.DeepSeq
 import Control.Exception (evaluate)
@@ -550,7 +551,7 @@ applyPactCmd isGenesis miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGa
           txTimeout = case txTimeLimit of
             Nothing -> id
             Just limit ->
-              maybe (throwM timeoutError) return <=< timeout (fromIntegral limit)
+              maybe (throwM timeoutError) return <=< newTimeout (fromIntegral limit)
           txGas (T3 r _ _) = fromIntegral $ Pact4._crGas r
         T3 r c _warns <- do
           -- TRACE.traceShowM ("applyPactCmd.CACHE: ", LHM.keys $ _getModuleCache mcache, M.keys $ _getCoreModuleCache cmcache)
@@ -755,13 +756,15 @@ continueBlock mpAccess blockInProgress = do
           & benvBlockState . bsTxId .~ _blockHandleTxId (_blockInProgressHandle blockInProgress)
 
     blockGasLimit <- view (psServiceEnv . psBlockGasLimit)
+    mTxTimeLimit <- view (psServiceEnv . psTxTimeLimit)
 
-    let
-        txTimeHeadroomFactor :: Double
+    let txTimeHeadroomFactor :: Double
         txTimeHeadroomFactor = 5
+    let txTimeLimit :: Micros
         -- 2.5 microseconds per unit gas
-        txTimeLimit :: Micros
-        txTimeLimit = round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit
+        txTimeLimit = fromMaybe
+          (round $ (2.5 * txTimeHeadroomFactor) * fromIntegral blockGasLimit)
+          mTxTimeLimit
 
     let Pact4ModuleCache initCache = _blockInProgressModuleCache blockInProgress
     let cb = _transactionCoinbase (_blockInProgressTransactions blockInProgress)
@@ -946,3 +949,12 @@ continueBlock mpAccess blockInProgress = do
     updateMempool = liftIO $ do
           mpaProcessFork mpAccess $ _parentHeader newBlockParent
           mpaSetLastHeader mpAccess $ _parentHeader newBlockParent
+
+-- | This timeout variant returns Nothing if the timeout elapsed, regardless of whether or not it was actually able to interrupt its argument.
+--   This is more robust in the face of scheduler behavior than the standard 'System.Timeout.timeout', with small timeouts.
+newTimeout :: Int -> IO a -> IO (Maybe a)
+newTimeout n f = do
+  (timeSpan, a) <- Chronos.stopwatch (timeout n f)
+  if Chronos.getTimespan timeSpan > fromIntegral (n * 1000)
+  then return Nothing
+  else return a

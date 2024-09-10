@@ -159,7 +159,10 @@ tests = testGroup testName
     -- This is way more than what is used in production, but during testing
     -- we can be generous.
     generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
-    timeoutConfig = testPactServiceConfig { _pactBlockGasLimit = 100_000 }
+    timeoutConfig = testPactServiceConfig
+      { _pactBlockGasLimit = 100_000 
+      , _pactTxTimeLimit = Just 1_000
+      }
 
     test pactConfig tname f =
       withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
