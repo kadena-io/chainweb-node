@@ -147,6 +147,8 @@ library
         , Chainweb.BlockHeader.Genesis.FastTimedCPM1to9Payload
         , Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload
         , Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload
+        , Chainweb.BlockHeader.Genesis.Pact5InstantTimedCPM0Payload
+        , Chainweb.BlockHeader.Genesis.Pact5InstantTimedCPM1to9Payload
         , Chainweb.BlockHeader.Genesis.Testnet0Payload
         , Chainweb.BlockHeader.Genesis.Testnet1to19Payload
         , Chainweb.BlockHeader.Genesis.Mainnet0Payload
@@ -766,7 +768,6 @@ executable cwtool
         RunNodes
         SlowTests
         TxStream
-        TxSimulator
         CalculateRelease
 
     build-depends:

@@ -43,8 +43,10 @@ module Chainweb.Pact5.TransactionExec
   -- * Private API, exposed only for tests
   , runVerifiers
   , runPayload
+  , runGenesisPayload
   , redeemGas
   , applyUpgrades
+  , managedNamespacePolicy
 
   -- * Utility
   , initialGasOf
@@ -258,14 +260,16 @@ applyLocal
       -- ^ command with payload to execute
     -> IO (CommandResult [TxLog ByteString] TxFailedError)
 applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
-  let !gasLimit = view (cmdPayload . pMeta . pmGasLimit) cmd
   gasRef <- newIORef mempty
   gasLogRef <- forM maybeGasLogger $ \_ -> newIORef []
-  let runLocal = runVerifiers txCtx cmd *> runPayload Local localFlags coreDb spvSupport txCtx cmd
+  let
+    gasLimitGas :: Gas = cmd ^. cmdPayload . pMeta . pmGasLimit . _GasLimit
+    gasModel = tableGasModel (MilliGasLimit (gasToMilliGas gasLimitGas))
+  let runLocal = runVerifiers txCtx cmd *> runPayload Local localFlags coreDb spvSupport [] managedNamespacePolicy gasModel txCtx cmd
   let gasEnv = GasEnv
         { _geGasRef = gasRef
         , _geGasLog = gasLogRef
-        , _geGasModel = tableGasModel (MilliGasLimit $ gasToMilliGas $ gasLimit ^. _GasLimit)
+        , _geGasModel = gasModel
         }
   let txEnv = TransactionEnv
         { _txEnvGasEnv = gasEnv
@@ -357,7 +361,10 @@ applyCmd logger maybeGasLogger db txCtx spv initialGas cmd = do
         runVerifiers txCtx cmd
 
         -- run payload
-        runPayload Transactional flags db spv txCtx cmd
+        let
+          gasLimitGas :: Gas = cmd ^. cmdPayload . pMeta . pmGasLimit . _GasLimit
+          gasModel = tableGasModel (MilliGasLimit (gasToMilliGas gasLimitGas))
+        runPayload Transactional flags db spv [] managedNamespacePolicy gasModel txCtx cmd
 
   eBuyGasResult <- do
     if GasLimit initialGas > gasLimit
@@ -374,7 +381,7 @@ applyCmd logger maybeGasLogger db txCtx spv initialGas cmd = do
     Left err -> do
       pure (Left err)
     Right buyGasResult -> do
-      gasRef <- newIORef (MilliGas 0)
+      gasRef <- newIORef mempty
       gasLogRef <- forM maybeGasLogger $ \_ ->
         newIORef []
       let gasEnv = GasEnv
@@ -482,7 +489,7 @@ applyCoinbase logger db reward txCtx = do
     (coinbaseTerm, coinbaseData) = mkCoinbaseTerm mid mks reward
   eCoinbaseTxResult <-
     evalExec Transactional
-      db noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) managedNamespacePolicy
+      db noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
       (ctxToPublicData def txCtx)
       MsgData
         { mdHash = coinbaseHash
@@ -561,16 +568,66 @@ compileValueToPactValue = \case
   InterpretValue value _info ->
     value
 
+-- | Run a genesis transaction. This differs from an ordinary transaction:
+--   * Special capabilities allow making token allocations
+--   * Coinbase is allowed, which allows minting as well
+--   * Gas is free
+--   * Any failures are fatal to PactService
+runGenesisPayload
+  :: Logger logger
+  => logger
+  -> PactDb CoreBuiltin Info
+  -> SPVSupport
+  -> TxContext
+  -> Command (Payload PublicMeta ParsedCode)
+  -> IO (Either TxFailedError (CommandResult [TxLog ByteString] Void))
+runGenesisPayload logger db spv ctx cmd = do
+  gasRef <- newIORef (MilliGas 0)
+  let gasEnv = GasEnv gasRef Nothing freeGasModel
+  let txEnv = TransactionEnv logger gasEnv
+  runExceptT
+    (runReaderT
+      (runTransactionM
+        (runPayload
+          Transactional
+          (Set.singleton FlagDisableRuntimeRTC)
+          db
+          spv
+          [ CapToken (QualifiedName "GENESIS" (ModuleName "coin" Nothing)) []
+          , CapToken (QualifiedName "COINBASE" (ModuleName "coin" Nothing)) []
+          ]
+          -- allow installing to root namespace
+          SimpleNamespacePolicy
+          freeGasModel
+          ctx
+          cmd <&> \evalResult ->
+            CommandResult
+              { _crReqKey = RequestKey (_cmdHash cmd)
+              , _crTxId = _erTxId evalResult
+              , _crResult = PactResultOk (compileValueToPactValue $ last $ _erOutput evalResult)
+              , _crGas = _erGas evalResult
+              , _crLogs = Just $ _erLogs evalResult
+              , _crContinuation = _erExec evalResult
+              , _crMetaData = Nothing
+              , _crEvents = _erEvents evalResult
+              }
+        )
+      ) txEnv
+    )
+
 runPayload
     :: (Logger logger)
     => ExecutionMode
     -> Set ExecutionFlag
     -> PactDb CoreBuiltin Info
     -> SPVSupport
+    -> [CapToken QualifiedName PactValue]
+    -> NamespacePolicy
+    -> GasModel CoreBuiltin
     -> TxContext
     -> Command (Payload PublicMeta ParsedCode)
     -> TransactionM logger EvalResult
-runPayload execMode execFlags db spv txCtx cmd = do
+runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx cmd = do
     -- Note [Throw out verifier proofs eagerly]
   let !verifiersWithNoProof =
           (fmap . fmap) (\_ -> ()) verifiers
@@ -581,7 +638,7 @@ runPayload execMode execFlags db spv txCtx cmd = do
     case payload ^. pPayload of
       Exec ExecMsg {..} ->
         evalExec execMode
-          db spv gm execFlags managedNamespacePolicy
+          db spv gasModel execFlags namespacePolicy
           (ctxToPublicData publicMeta txCtx)
           MsgData
             { mdHash = _cmdHash cmd
@@ -589,11 +646,12 @@ runPayload execMode execFlags db spv txCtx cmd = do
             , mdVerifiers = verifiersWithNoProof
             , mdSigners = signers
             }
-          (def @(CapState _ _))
+          (def @(CapState _ _)
+            & csSlots .~ [CapSlot cap [] | cap <- specialCaps])
           (_pcExps _pmCode)
       Continuation ContMsg {..} ->
         evalContinuation execMode
-          db spv gm execFlags managedNamespacePolicy
+          db spv gasModel execFlags namespacePolicy
           (ctxToPublicData publicMeta txCtx)
           MsgData
             { mdHash = _cmdHash cmd
@@ -601,7 +659,8 @@ runPayload execMode execFlags db spv txCtx cmd = do
             , mdSigners = signers
             , mdVerifiers = verifiersWithNoProof
             }
-          (def @(CapState _ _))
+          (def @(CapState _ _)
+            & csSlots .~ [CapSlot cap [] | cap <- specialCaps])
           Cont
               { _cPactId = _cmPactId
               , _cStep = _cmStep
@@ -618,8 +677,6 @@ runPayload execMode execFlags db spv txCtx cmd = do
     signers = payload ^. pSigners
     -- chash = toUntypedHash $ _cmdHash cmd
     publicMeta = cmd ^. cmdPayload . pMeta
-    gasLimit :: Gas = publicMeta ^. pmGasLimit . _GasLimit
-    gm = tableGasModel (MilliGasLimit (gasToMilliGas gasLimit))
 
 runUpgrade
     :: (Logger logger)
@@ -631,7 +688,9 @@ runUpgrade
 runUpgrade _logger db txContext cmd = case payload ^. pPayload of
     Exec pm ->
       evalExec Transactional
-        db noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+        db noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC])
+        -- allow installing to root namespace
+        SimpleNamespacePolicy
         (ctxToPublicData publicMeta txContext)
         MsgData
           { mdHash = chash

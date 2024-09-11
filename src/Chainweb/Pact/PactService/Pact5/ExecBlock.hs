@@ -91,6 +91,7 @@ import qualified Pact.Core.Hash as Pact5
 import System.LogLevel
 import qualified Data.Aeson as Aeson
 import qualified Data.List.NonEmpty as NEL
+import Chainweb.Pact5.NoCoinbase
 
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range. Rewards are calculated
@@ -117,16 +118,20 @@ runPact5Coinbase
     => Miner
     -> PactBlockM logger tbl (Either Pact5CoinbaseError (Pact5.CommandResult [Pact5.TxLog ByteString] Void))
 runPact5Coinbase miner = do
-    logger <- view (psServiceEnv . psLogger)
-    rs <- view (psServiceEnv . psMinerRewards)
-    v <- view chainwebVersion
-    txCtx <- TxContext <$> view psParentHeader <*> pure miner
+    isGenesis <- view psIsGenesis
+    if isGenesis
+    then return $ Right noCoinbase
+    else do
+      logger <- view (psServiceEnv . psLogger)
+      rs <- view (psServiceEnv . psMinerRewards)
+      v <- view chainwebVersion
+      txCtx <- TxContext <$> view psParentHeader <*> pure miner
 
-    let !bh = ctxCurrentBlockHeight txCtx
+      let !bh = ctxCurrentBlockHeight txCtx
 
-    reward <- liftIO $! minerReward v rs bh
-    pactTransaction Nothing $ \db ->
-      applyCoinbase logger db reward txCtx
+      reward <- liftIO $! minerReward v rs bh
+      pactTransaction Nothing $ \db ->
+        applyCoinbase logger db reward txCtx
 
 pact5TransactionsFromPayload
     :: PayloadData
@@ -155,14 +160,18 @@ continueBlock mpAccess blockInProgress = do
   pbBlockHandle .= _blockInProgressHandle blockInProgress
   -- update the mempool, ensuring that we reintroduce any transactions that
   -- were removed due to being completed in a block on a different fork.
-  liftIO $ do
-    mpaProcessFork mpAccess blockParentHeader
-    mpaSetLastHeader mpAccess $ blockParentHeader
-  liftPactServiceM $
-    logInfoPact $ T.unwords
-        [ "(parent height = " <> sshow (_blockHeight blockParentHeader) <> ")"
-        , "(parent hash = " <> sshow (_blockHash blockParentHeader) <> ")"
-        ]
+  case maybeBlockParentHeader of
+    Just blockParentHeader -> do
+      liftIO $ do
+        mpaProcessFork mpAccess blockParentHeader
+        mpaSetLastHeader mpAccess $ blockParentHeader
+      liftPactServiceM $
+        logInfoPact $ T.unwords
+            [ "(parent height = " <> sshow (_blockHeight blockParentHeader) <> ")"
+            , "(parent hash = " <> sshow (_blockHash blockParentHeader) <> ")"
+            ]
+    Nothing ->
+      liftPactServiceM $ logInfoPact "Continuing genesis block"
 
   blockGasLimit <- view (psServiceEnv . psBlockGasLimit)
   mTxTimeLimit <- view (psServiceEnv . psTxTimeLimit)
@@ -212,7 +221,7 @@ continueBlock mpAccess blockInProgress = do
   return blockInProgress'
 
   where
-  blockParentHeader = _parentHeader $ _blockInProgressParentHeader blockInProgress
+  maybeBlockParentHeader = _parentHeader <$> _blockInProgressParentHeader blockInProgress
   refill fetchLimit txTimeLimit blockFillState = over _2 reverse <$> go [] [] blockFillState
     where
     go
@@ -279,13 +288,20 @@ continueBlock mpAccess blockInProgress = do
         startBlockHandle <- use pbBlockHandle
         let p5RemainingGas = Pact5.GasLimit $ Pact5.Gas $ fromIntegral remainingGas
         logger' <- view (psServiceEnv . psLogger)
+        isGenesis <- view psIsGenesis
         ((txResults, timedOut), (finalBlockHandle, Identity finalRemainingGas)) <-
           liftIO $ flip runStateT (startBlockHandle, Identity p5RemainingGas) $ foldr
             (\tx rest -> StateT $ \s -> do
               let logger = addLabel ("transactionHash", sshow (Pact5._cmdHash tx)) logger'
-              m <- liftIO $ newTimeout
-                (fromIntegral @Micros @Int timeLimit)
-                (runExceptT $ runStateT (applyPactCmd env miner tx) s)
+              let timeoutFunc runTx =
+                    if isGenesis
+                    then do
+                      logFunctionText logger Info $ "Running genesis command"
+                      fmap Just runTx
+                    else
+                      newTimeout (fromIntegral @Micros @Int timeLimit) runTx
+              m <- liftIO $ timeoutFunc
+                $ runExceptT $ runStateT (applyPactCmd env miner tx) s
               case m of
                 Nothing -> do
                   logFunctionJson logger Warn $ Aeson.object
@@ -315,19 +331,20 @@ continueBlock mpAccess blockInProgress = do
 
   getBlockTxs :: BlockFill -> PactBlockM logger tbl (Vector Pact5.Transaction)
   getBlockTxs blockFillState = do
+    liftPactServiceM $ logDebugPact "Refill: fetching transactions"
     v <- view chainwebVersion
     cid <- view chainId
     logger <- view (psServiceEnv . psLogger)
     dbEnv <- view psBlockDbEnv
-    let !parentTime =
-          ParentCreationTime (_blockCreationTime blockParentHeader)
+    let (pHash, pHeight, parentTime) = blockInProgressParent blockInProgress
+    isGenesis <- view psIsGenesis
     let validate bhi _bha txs = do
           forM txs $
-            runExceptT . validateRawChainwebTx logger v cid dbEnv parentTime bhi (\_ -> pure ())
+            runExceptT . validateRawChainwebTx logger v cid dbEnv (ParentCreationTime parentTime) bhi isGenesis (\_ -> pure ())
     liftIO $ mpaGetBlock mpAccess blockFillState validate
-      (succ $ _blockHeight blockParentHeader)
-      (_blockHash blockParentHeader)
-      blockParentHeader
+      (succ pHeight)
+      pHash
+      parentTime
 
 type CompletedTransactions = [(Pact5.Transaction, Pact5.CommandResult [Pact5.TxLog ByteString] TxFailedError)]
 type InvalidTransactions = [Pact5.RequestKey]
@@ -349,7 +366,7 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
   let alteredTx = (view payloadObj <$> tx) & Pact5.cmdPayload . Pact5.pMeta . pmGasLimit %~ maybe id min (blockGasRemaining ^? traversed)
   -- TODO: pact5 genesis
   resultOrGasError <- liftIO $ runReaderT
-    (unsafeApplyPactCmd False blockHandle
+    (unsafeApplyPactCmd blockHandle
       (initialGasOf (tx ^. Pact5.cmdPayload))
       alteredTx)
     env
@@ -382,8 +399,7 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
   -- This function completely ignores timeouts and the block gas limit!
   unsafeApplyPactCmd
     :: (Logger logger)
-    => Bool
-    -> BlockHandle
+    => BlockHandle
     -> Pact5.Gas
     -> Pact5.Command (Pact5.Payload PublicMeta Pact5.ParsedCode)
     -> ReaderT
@@ -391,22 +407,30 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
       IO
       (Either Pact5GasPurchaseFailure
         (Pact5.CommandResult [Pact5.TxLog ByteString] TxFailedError, BlockHandle))
-  unsafeApplyPactCmd isGenesis blockHandle initialGas cmd
-    | isGenesis = error "pact5 does not support genesis"
-    | otherwise = do
-      _txFailuresCounter <- view (psServiceEnv . psTxFailuresCounter)
-      logger <- view (psServiceEnv . psLogger)
-      gasLogger <- view (psServiceEnv . psGasLogger)
-      dbEnv <- view psBlockDbEnv
-      bhdb <- view (psServiceEnv . psBlockHeaderDb)
-      parent <- view psParentHeader
-      let spv = Pact5.pactSPV bhdb (_parentHeader parent)
-      let txCtx = TxContext parent miner
-      -- TODO: trace more info?
-      (resultOrError, blockHandle') <- liftIO $ trace' (logFunction logger) "applyCmd" computeTrace (\_ -> 0) $
+  unsafeApplyPactCmd blockHandle initialGas cmd = do
+    _txFailuresCounter <- view (psServiceEnv . psTxFailuresCounter)
+    logger <- view (psServiceEnv . psLogger)
+    gasLogger <- view (psServiceEnv . psGasLogger)
+    dbEnv <- view psBlockDbEnv
+    bhdb <- view (psServiceEnv . psBlockHeaderDb)
+    parent <- view psParentHeader
+    let spv = Pact5.pactSPV bhdb (_parentHeader parent)
+    let txCtx = TxContext parent miner
+    -- TODO: trace more info?
+    (resultOrError, blockHandle') <-
+      liftIO $ trace' (logFunction logger) "applyCmd" computeTrace (\_ -> 0) $
         doPact5DbTransaction dbEnv blockHandle (Just (Pact5.RequestKey $ Pact5._cmdHash cmd)) $ \pactDb ->
-          applyCmd logger gasLogger pactDb txCtx spv initialGas cmd
-      return $ (,blockHandle') <$> resultOrError
+          if _psIsGenesis env
+          then do
+            logFunctionText logger Debug "running genesis command!"
+            r <- runGenesisPayload logger pactDb spv txCtx cmd
+            case r of
+              Left genesisError -> throwM $ Pact5GenesisCommandFailed (Pact5._cmdHash cmd) (sshow genesisError)
+              -- pretend that genesis commands can throw non-fatal errors,
+              -- to make types line up
+              Right res -> return (Right (absurd <$> res))
+          else applyCmd logger gasLogger pactDb txCtx spv initialGas cmd
+    return $ (,blockHandle') <$> resultOrError
     where
     computeTrace (Left gasPurchaseFailure, _) = Aeson.object
       [ "result" Aeson..= Aeson.String "gas purchase failure"
@@ -439,11 +463,13 @@ validateParsedChainwebTx
         -- ^ reference time for tx validation.
     -> BlockHeight
         -- ^ Current block height
+    -> Bool
+        -- ^ Genesis?
     -> (Pact5.Transaction -> ExceptT InsertError IO ())
     -> Pact5.Transaction
     -> ExceptT InsertError IO ()
-validateParsedChainwebTx _logger v cid dbEnv txValidationTime bh doBuyGas tx
-  | bh == genesisHeight v cid = pure ()
+validateParsedChainwebTx _logger v cid dbEnv txValidationTime bh isGenesis doBuyGas tx
+  | isGenesis = pure ()
   | otherwise = do
       checkUnique tx
       checkTxHash tx
@@ -501,15 +527,17 @@ validateRawChainwebTx
         -- ^ reference time for tx validation.
     -> BlockHeight
         -- ^ Current block height
+    -> Bool
+        -- ^ Genesis?
     -> (Pact5.Transaction -> ExceptT InsertError IO ())
     -> Pact4.UnparsedTransaction
     -> ExceptT InsertError IO Pact5.Transaction
-validateRawChainwebTx logger v cid db parentTime bh maybeBuyGas tx = do
+validateRawChainwebTx logger v cid db parentTime bh isGenesis maybeBuyGas tx = do
   tx' <- either (throwError . InsertErrorPactParseError . sshow) return $ Pact5.parsePact4Command tx
   liftIO $ do
     logDebug_ logger $ "validateRawChainwebTx: parse succeeded"
-  validateParsedChainwebTx logger v cid db parentTime bh maybeBuyGas tx'
-  return tx'
+  validateParsedChainwebTx logger v cid db parentTime bh isGenesis maybeBuyGas tx'
+  return $! tx'
 
 execExistingBlock
   :: (CanReadablePayloadCas tbl, Logger logger)
@@ -527,6 +555,7 @@ execExistingBlock currHeader payload = do
   v <- view chainwebVersion
   cid <- view chainId
   db <- view psBlockDbEnv
+  isGenesis <- view psIsGenesis
   -- TODO: pact5 genesis
   let
     txValidationTime = ParentCreationTime (_blockCreationTime $ _parentHeader parentBlockHeader)
@@ -535,6 +564,7 @@ execExistingBlock currHeader payload = do
     errorOrSuccess <- runExceptT $
       validateParsedChainwebTx logger v cid db txValidationTime
         (_blockHeight currHeader)
+        isGenesis
         (\_ -> pure ())
         tx
     case errorOrSuccess of

@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: Ea
@@ -34,7 +35,6 @@ import Data.Foldable
 import Data.Functor
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TB
@@ -62,7 +62,6 @@ import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Time
 import qualified Chainweb.Pact4.Transaction as Pact4
-    (Transaction,payloadCodec, mkPayloadWithTextOld)
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -71,6 +70,7 @@ import Ea.Genesis
 import Pact.ApiReq
 import Pact.Types.ChainMeta
 import Pact.Types.Command hiding (Payload)
+import qualified Data.Aeson as Aeson
 
 ---
 
@@ -80,6 +80,7 @@ main = void $ do
     devnet
     fastnet
     instantnet
+    pact5Instantnet
     testnet
     mainnet
     genTxModules
@@ -100,6 +101,7 @@ main = void $ do
       ]
     fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
     instantnet = mkPayloads [instantCPM0, instantCPMN]
+    pact5Instantnet = mkPayloads [pact5InstantCPM0, pact5InstantCPMN]
     testnet = mkPayloads [testnet0, testnetN]
     mainnet = mkPayloads
       [ mainnet0
@@ -171,7 +173,7 @@ genCoinV6Payloads = genTxModule "CoinV6"
 -- Payload Generation
 ---------------------
 
-genPayloadModule :: ChainwebVersion -> Text -> ChainId -> [Pact4.Transaction] -> IO Text
+genPayloadModule :: ChainwebVersion -> Text -> ChainId -> [Pact4.UnparsedTransaction] -> IO Text
 genPayloadModule v tag cid cwTxs =
     withTempRocksDb "chainweb-ea" $ \rocks ->
     withBlockHeaderDb rocks v cid $ \bhdb -> do
@@ -183,24 +185,19 @@ genPayloadModule v tag cid cwTxs =
                     execNewGenesisBlock noMiner (V.fromList cwTxs)
             return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
 
-mkChainwebTxs :: [FilePath] -> IO [Pact4.Transaction]
+mkChainwebTxs :: [FilePath] -> IO [Pact4.UnparsedTransaction]
 mkChainwebTxs txFiles = mkChainwebTxs' =<< traverse mkTx txFiles
 
-mkChainwebTxs' :: [Command Text] -> IO [Pact4.Transaction]
+mkChainwebTxs' :: [Command Text] -> IO [Pact4.UnparsedTransaction]
 mkChainwebTxs' rawTxs =
     forM rawTxs $ \cmd -> do
-        let cmdBS = fmap TE.encodeUtf8 cmd
-            -- TODO: Use the new `assertPact4Command` function.
-            -- We want to delete `verifyCommand` at some point.
-            -- It's not critical for Ea because WebAuthn signatures (which
-            -- the new `assertPact4Command` knows how to handle) are not present
-            -- in Genesis blocks.
-            procCmd = verifyCommand cmdBS
-        case procCmd of
-            f@ProcFail{} -> fail (show f)
-            ProcSucc c -> do
-                let t = toTxCreationTime (Time (TimeSpan 0))
-                return $! Pact4.mkPayloadWithTextOld <$> (c & setTxTime t & setTTL defaultMaxTTL)
+        let parsedCmd =
+              traverse Aeson.eitherDecodeStrictText cmd
+        case parsedCmd of
+          Left err -> error err
+          Right unparsedTx -> do
+            let t = toTxCreationTime (Time (TimeSpan 0))
+            return $! Pact4.mkPayloadWithTextOldUnparsed <$> (unparsedTx & setTxTime t & setTTL defaultMaxTTL)
   where
     setTxTime = set (cmdPayload . pMeta . pmCreationTime)
     setTTL = set (cmdPayload . pMeta . pmTTL)
@@ -306,7 +303,7 @@ genTxModule tag txFiles = do
 
     let encTxs = map quoteTx cwTxs
         quoteTx tx = "    \"" <> encTx tx <> "\""
-        encTx = encodeB64UrlNoPaddingText . codecEncode (Pact4.payloadCodec maxBound)
+        encTx = encodeB64UrlNoPaddingText . codecEncode Pact4.rawCommandCodec
         modl = T.unlines $ startTxModule tag <> [T.intercalate "\n    ,\n" encTxs] <> endTxModule
         fileName = "src/Chainweb/Pact/Transactions/" <> tag <> "Transactions.hs"
 

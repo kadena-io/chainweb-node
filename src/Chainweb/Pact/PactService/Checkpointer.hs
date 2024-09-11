@@ -174,11 +174,11 @@ readFrom ph doRead = do
     let execPact4 act =
             liftIO $ _cpReadFrom (_cpReadCp cp) ph Pact4T $ \dbenv _ ->
                 evalPactServiceM s e $
-                    Pact4.runPactBlockM pactParent dbenv act
+                    Pact4.runPactBlockM pactParent (isNothing ph) dbenv act
     let execPact5 act =
             liftIO $ _cpReadFrom (_cpReadCp cp) ph Pact5T $ \dbenv blockHandle ->
                 evalPactServiceM s e $ do
-                    fst <$> Pact5.runPactBlockM pactParent dbenv blockHandle act
+                    fst <$> Pact5.runPactBlockM pactParent (isNothing ph) dbenv blockHandle act
     case doRead of
         SomeBlockM (Pair forPact4 forPact5)
             | pact5 v cid currentHeight -> execPact5 forPact5
@@ -218,14 +218,14 @@ restoreAndSave ph blocks = do
                         | pact5 v cid height ->
                             Pact5RunnableBlock $ \dbEnv mph blockHandle -> runPact $ do
                                 pactParent <- getPactParent mph
-                                Pact5.runPactBlockM pactParent dbEnv blockHandle pact5Block
+                                let isGenesis = isNothing mph
+                                Pact5.runPactBlockM pactParent isGenesis dbEnv blockHandle pact5Block
                         | otherwise ->
                             Pact4RunnableBlock $ \dbEnv mph -> runPact $ do
                                 pactParent <- getPactParent mph
-                                Pact4.runPactBlockM pactParent dbEnv pact4Block
+                                let isGenesis = isNothing mph
+                                Pact4.runPactBlockM pactParent isGenesis dbEnv pact4Block
                 )
-    where
-
 
 -- | Find the latest block stored in the checkpointer for which the respective
 -- block header is available in the block header database. A block header may be in

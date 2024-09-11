@@ -15,7 +15,7 @@ module Chainweb.WebPactExecutionService
   , emptyPactExecutionService
   , NewBlock(..)
   , newBlockToPayloadWithOutputs
-  , newBlockParentHeader
+  , newBlockParent
   ) where
 
 import Control.Monad.Catch
@@ -50,6 +50,7 @@ import qualified Pact.Core.Evaluate as Pact5
 import qualified Pact.Types.Command as Pact4
 import qualified Pact.Types.ChainMeta as Pact4
 import Data.Text (Text)
+import Chainweb.BlockCreationTime (BlockCreationTime)
 
 -- -------------------------------------------------------------------------- --
 -- PactExecutionService
@@ -65,10 +66,10 @@ newBlockToPayloadWithOutputs (NewBlockInProgress bip)
 newBlockToPayloadWithOutputs (NewBlockPayload _ pwo)
     = pwo
 
-newBlockParentHeader :: NewBlock -> ParentHeader
-newBlockParentHeader (NewBlockInProgress (ForSomePactVersion Pact4T bip)) = _blockInProgressParentHeader bip
-newBlockParentHeader (NewBlockInProgress (ForSomePactVersion Pact5T bip)) = _blockInProgressParentHeader bip
-newBlockParentHeader (NewBlockPayload ph _) = ph
+newBlockParent :: NewBlock -> (BlockHash, BlockHeight, BlockCreationTime)
+newBlockParent (NewBlockInProgress (ForSomePactVersion _ bip)) = blockInProgressParent bip
+newBlockParent (NewBlockPayload (ParentHeader ph) _) =
+    (_blockHash ph, _blockHeight ph, _blockCreationTime ph)
 
 -- | Service API for interacting with a single or multi-chain ("Web") pact service.
 -- Thread-safe to be called from multiple threads. Backend is queue-backed on a per-chain

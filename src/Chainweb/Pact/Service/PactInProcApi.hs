@@ -54,6 +54,7 @@ import Data.LogMessage
 
 import GHC.Stack (HasCallStack)
 import Chainweb.Counter (Counter)
+import Chainweb.BlockCreationTime
 
 -- | Initialization for Pact (in process) Api
 withPactService
@@ -135,9 +136,9 @@ pactMemPoolGetBlock
     -> (MempoolPreBlockCheck Pact4.UnparsedTransaction to
             -> BlockHeight
             -> BlockHash
-            -> BlockHeader
+            -> BlockCreationTime
             -> IO (Vector to))
-pactMemPoolGetBlock mpc theLogger bf validate height hash _bHeader = do
+pactMemPoolGetBlock mpc theLogger bf validate height hash _btime = do
     logFn theLogger Debug $! "pactMemPoolAccess - getting new block of transactions for "
         <> "height = " <> sshow height <> ", hash = " <> sshow hash
     mempoolGetBlock (mpcMempool mpc) bf validate height hash

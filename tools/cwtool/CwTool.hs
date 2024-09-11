@@ -23,7 +23,6 @@ import qualified RunNodes
 import qualified SlowTests
 import qualified TxStream
 import qualified KnownGraphs
-import qualified TxSimulator
 import qualified CalculateRelease
 
 main :: IO ()
@@ -100,10 +99,6 @@ topLevelCommands =
       "known-graphs"
       "Encode know graphs as JSON values"
       KnownGraphs.main
-  , CommandSpec
-      "tx-sim"
-      "Simulate tx execution against real pact dbs"
-      TxSimulator.simulateMain
   , CommandSpec
       "compact"
       "Compact pact database"

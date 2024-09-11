@@ -27,6 +27,7 @@ module Chainweb.Pact4.Transaction
   , cmdCreationTime
   , mkPayloadWithText
   , mkPayloadWithTextOld
+  , mkPayloadWithTextOldUnparsed
   , payloadBytes
   , payloadObj
   , parsePact
@@ -81,6 +82,12 @@ mkPayloadWithText = over cmdPayload $ \(bs, p) -> PayloadWithText
 mkPayloadWithTextOld :: Payload PublicMeta ParsedCode -> PayloadWithText PublicMeta ParsedCode
 mkPayloadWithTextOld p = PayloadWithText
     { _payloadBytes = SB.toShort $ J.encodeStrict $ toLegacyJsonViaEncode $ fmap _pcCode p
+    , _payloadObj = p
+    }
+
+mkPayloadWithTextOldUnparsed :: Payload PublicMeta Text -> PayloadWithText PublicMeta Text
+mkPayloadWithTextOldUnparsed p = PayloadWithText
+    { _payloadBytes = SB.toShort $ J.encodeStrict $ toLegacyJsonViaEncode p
     , _payloadObj = p
     }
 

@@ -24,6 +24,8 @@ module Ea.Genesis
 , fastTimedCPMN
 , instantCPM0
 , instantCPMN
+, pact5InstantCPM0
+, pact5InstantCPMN
 
   -- * Testnet Genesis txs
 , testnet0
@@ -245,6 +247,23 @@ instantCPM0 = Genesis
 
 instantCPMN :: Genesis
 instantCPMN = instantCPM0
+  & txChainIds .~ mkChainIdRange 1 9
+  & coinbase ?~ fastNGrants
+
+pact5InstantCPM0 :: Genesis
+pact5InstantCPM0 = Genesis
+    { _version = pact5InstantCpmTestVersion petersonChainGraph
+    , _tag = "Pact5InstantTimedCPM"
+    , _txChainIds = onlyChainId 0
+    , _coinbase = Just fast0Grants
+    , _keysets = Just fastKeysets
+    , _allocations = Just fastAllocations
+    , _namespaces = Just devNs2
+    , _coinContract = [fungibleAssetV1, fungibleXChainV1, fungibleAssetV2, installCoinContractV6, gasPayer]
+    }
+
+pact5InstantCPMN :: Genesis
+pact5InstantCPMN = pact5InstantCPM0
   & txChainIds .~ mkChainIdRange 1 9
   & coinbase ?~ fastNGrants
 

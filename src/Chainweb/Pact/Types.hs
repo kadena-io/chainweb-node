@@ -61,7 +61,6 @@ module Chainweb.Pact.Types
   , SQLiteEnv
   , BlockHandle(..)
   , emptyBlockHandle
-  , emptyBlockInProgressForTesting
   , finalizeBlock
   , blockHandlePending
   , blockHandleTxId
@@ -78,6 +77,7 @@ module Chainweb.Pact.Types
   , BlockTxHistory(..)
   , emptySQLitePendingData
   , BlockInProgress(..)
+  , blockInProgressParent
   , blockInProgressHandle
   , blockInProgressModuleCache
   , blockInProgressParentHeader
@@ -85,6 +85,8 @@ module Chainweb.Pact.Types
   , blockInProgressMiner
   , blockInProgressTransactions
   , blockInProgressPactVersion
+  , blockInProgressChainwebVersion
+  , blockInProgressChainId
   , IntraBlockPersistence(..)
   , NewBlockFill(..)
   , Historical(..)
@@ -150,6 +152,7 @@ module Chainweb.Pact.Types
   , PactBlockEnv(..)
   , psBlockDbEnv
   , psParentHeader
+  , psIsGenesis
   , psServiceEnv
 
     -- * Logging with Pact logger
@@ -260,10 +263,10 @@ import Chainweb.Payload
 import Data.ByteString.Short (ShortByteString)
 import Chainweb.VerifierPlugin
 import qualified Data.ByteString.Short as SB
-import Chainweb.Version.Mainnet
-import qualified Chainweb.Pact4.NoCoinbase as Pact4
 import qualified Data.Vector as V
 import qualified Pact.Core.Hash as Pact5
+import Data.Maybe
+import Chainweb.BlockCreationTime
 
 -- | While a block is being run, mutations to the pact database are held
 -- in RAM to be written to the DB in batches at @save@ time. For any given db
@@ -520,6 +523,8 @@ data PactException
   | NoBlockValidatedYet
   | Pact4TransactionValidationException !(NonEmpty (Pact4.PactHash, Text))
   | Pact5TransactionValidationException !(NonEmpty (Pact5.Hash, Text))
+  | Pact5GenesisCommandFailed !Pact5.Hash !Text
+  | Pact5GenesisCommandsInvalid ![InsertError]
   | PactDuplicateTableError !Text
   | TransactionDecodeFailure !Text
   | RewindLimitExceeded
@@ -553,6 +558,10 @@ instance Eq PactException where
     txs == txs'
   Pact5TransactionValidationException txs == Pact5TransactionValidationException txs' =
     txs == txs'
+  Pact5GenesisCommandFailed txHash err == Pact5GenesisCommandFailed txHash' err' =
+    txHash == txHash' && err == err'
+  Pact5GenesisCommandsInvalid errs == Pact5GenesisCommandsInvalid errs' =
+    errs == errs'
   PactDuplicateTableError m == PactDuplicateTableError m' =
     m == m'
   TransactionDecodeFailure m == TransactionDecodeFailure m' =
@@ -580,7 +589,7 @@ data MemPoolAccess = MemPoolAccess
         -> MempoolPreBlockCheck Pact4.UnparsedTransaction to
         -> BlockHeight
         -> BlockHash
-        -> BlockHeader
+        -> BlockCreationTime
         -> IO (Vector to)
         )
   , mpaSetLastHeader :: !(BlockHeader -> IO ())
@@ -751,6 +760,7 @@ makeLenses ''PactServiceState
 data PactBlockEnv logger pv tbl = PactBlockEnv
   { _psServiceEnv :: !(PactServiceEnv logger tbl)
   , _psParentHeader :: !ParentHeader
+  , _psIsGenesis :: !Bool
   , _psBlockDbEnv :: !(PactDbFor logger pv)
   }
 
@@ -1224,7 +1234,9 @@ type family CommandResultFor (pv :: PactVersion) where
 data BlockInProgress pv = BlockInProgress
   { _blockInProgressHandle :: !BlockHandle
   , _blockInProgressModuleCache :: !(ModuleCacheFor pv)
-  , _blockInProgressParentHeader :: !ParentHeader
+  , _blockInProgressParentHeader :: !(Maybe ParentHeader)
+  , _blockInProgressChainwebVersion :: !ChainwebVersion
+  , _blockInProgressChainId :: !ChainId
   , _blockInProgressRemainingGasLimit :: !Pact4.GasLimit
   , _blockInProgressMiner :: !Miner
   , _blockInProgressTransactions :: !(Transactions pv (CommandResultFor pv))
@@ -1236,17 +1248,27 @@ instance Eq (BlockInProgress pv) where
       (Pact4T, Pact4T) ->
         _blockInProgressHandle bip == _blockInProgressHandle bip' &&
         _blockInProgressModuleCache bip == _blockInProgressModuleCache bip' &&
-        _blockInProgressParentHeader bip == _blockInProgressParentHeader  bip' &&
+        _blockInProgressParentHeader bip == _blockInProgressParentHeader bip' &&
         _blockInProgressRemainingGasLimit bip == _blockInProgressRemainingGasLimit  bip' &&
-        _blockInProgressMiner bip == _blockInProgressMiner  bip' &&
+        _blockInProgressMiner bip == _blockInProgressMiner bip' &&
         _blockInProgressTransactions bip == _blockInProgressTransactions  bip'
       (Pact5T, Pact5T) ->
         _blockInProgressHandle bip == _blockInProgressHandle bip' &&
         _blockInProgressModuleCache bip == _blockInProgressModuleCache bip' &&
-        _blockInProgressParentHeader bip == _blockInProgressParentHeader  bip' &&
+        _blockInProgressParentHeader bip == _blockInProgressParentHeader bip' &&
         _blockInProgressRemainingGasLimit bip == _blockInProgressRemainingGasLimit  bip' &&
-        _blockInProgressMiner bip == _blockInProgressMiner  bip' &&
+        _blockInProgressMiner bip == _blockInProgressMiner bip' &&
         _blockInProgressTransactions bip == _blockInProgressTransactions  bip'
+
+blockInProgressParent :: BlockInProgress pv -> (BlockHash, BlockHeight, BlockCreationTime)
+blockInProgressParent bip =
+    maybe
+    (genesisParentBlockHash v cid, genesisHeight v cid, v ^?! versionGenesis . genesisTime . atChain cid)
+    (\bh -> (_blockHash bh, _blockHeight bh, _blockCreationTime bh))
+    (_parentHeader <$> _blockInProgressParentHeader bip)
+    where
+    v = _blockInProgressChainwebVersion bip
+    cid = _blockInProgressChainId bip
 
 instance Show (BlockInProgress pv) where
   show bip = unwords
@@ -1255,27 +1277,13 @@ instance Show (BlockInProgress pv) where
         "Pact4 block,"
       Pact5T ->
         "Pact5 block,"
-    , T.unpack (blockHashToTextShort $ _blockHash $ _parentHeader $ _blockInProgressParentHeader bip)
+    , T.unpack (blockHashToTextShort $ fromMaybe
+        (genesisParentBlockHash (_blockInProgressChainwebVersion bip) (_blockInProgressChainId bip))
+        (_blockHash . _parentHeader <$> _blockInProgressParentHeader bip))
     , show (_blockInProgressMiner bip ^. minerId)
     , "# transactions " <> show (V.length (_transactionPairs $ _blockInProgressTransactions bip)) <> ","
     , "# gas remaining " <> show (_blockInProgressRemainingGasLimit bip)
     ]
-
--- This block is not really valid, don't use it outside tests.
-emptyBlockInProgressForTesting :: BlockInProgress Pact4
-emptyBlockInProgressForTesting = BlockInProgress
-  { _blockInProgressHandle = emptyBlockHandle (Pact4.TxId 0)
-  , _blockInProgressModuleCache = mempty
-  , _blockInProgressParentHeader =
-    ParentHeader (genesisBlockHeader mainnet (unsafeChainId 0))
-  , _blockInProgressRemainingGasLimit = Pact4.GasLimit 0
-  , _blockInProgressMiner = noMiner
-  , _blockInProgressTransactions = Transactions
-    { _transactionCoinbase = Pact4.noCoinbase
-    , _transactionPairs = mempty
-    }
-  , _blockInProgressPactVersion = Pact4T
-  }
 
 finalizeBlock :: BlockInProgress pv -> PayloadWithOutputs
 finalizeBlock bip = case _blockInProgressPactVersion bip of

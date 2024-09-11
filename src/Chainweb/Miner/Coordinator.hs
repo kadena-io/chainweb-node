@@ -235,8 +235,8 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
             logFun @T.Text Debug $ "newWork: chain " <> toText cid <> " not mineable"
             newWork logFun Anything eminer hdb pact tpw c
         Just (T2 (WorkReady newBlock) extension) -> do
-            let ParentHeader primedParent = newBlockParentHeader newBlock
-            if _blockHash primedParent == _blockHash (_parentHeader (_cutExtensionParent extension))
+            let (primedParentHash, primedParentHeight, _) = newBlockParent newBlock
+            if primedParentHash == _blockHash (_parentHeader (_cutExtensionParent extension))
             then do
                 let payload = newBlockToPayloadWithOutputs newBlock
                 let !phash = _payloadWithOutputsPayloadHash payload
@@ -252,8 +252,8 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
                 let !extensionParent = _parentHeader (_cutExtensionParent extension)
                 logFun @T.Text Info
                     $ "newWork: chain " <> toText cid <> " not mineable because of parent header mismatch"
-                    <> ". Primed parent hash: " <> toText (_blockHash primedParent)
-                    <> ". Primed parent height: " <> sshow (_blockHeight primedParent)
+                    <> ". Primed parent hash: " <> toText primedParentHash
+                    <> ". Primed parent height: " <> sshow primedParentHeight
                     <> ". Extension parent: " <> toText (_blockHash extensionParent)
                     <> ". Extension height: " <> sshow (_blockHeight extensionParent)
 

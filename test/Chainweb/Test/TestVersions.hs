@@ -398,11 +398,6 @@ pact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("instant-pact5-CPM-" <> toText g)
     & versionForks .~ tabulateHashMap (\case
-        -- genesis blocks are not ever run with Pact 5
-        Pact5Fork -> onChains
-            [ (cid, ForkAtBlockHeight (succ $ genesisHeightSlow v cid))
-            | cid <- HS.toList $ graphChainIds g
-            ]
         -- SPV Bridge is not in effect for Pact 5 yet.
         SPVBridge -> AllChains ForkNever
         _ -> AllChains ForkAtGenesis

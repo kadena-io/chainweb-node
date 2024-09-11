@@ -105,11 +105,17 @@ newtype PactBlockM logger tbl a = PactBlockM
 -- a database snapshot at that block and information about the parent header.
 -- It is unsafe to use this function in an argument to `liftPactServiceM`.
 runPactBlockM
-  :: ParentHeader -> PactDbFor logger Pact5 -> BlockHandle
+  :: ParentHeader -> Bool -> PactDbFor logger Pact5 -> BlockHandle
   -> PactBlockM logger tbl a -> PactServiceM logger tbl (a, BlockHandle)
-runPactBlockM pctx dbEnv startBlockHandle (PactBlockM act) = PactServiceM $ ReaderT $ \e -> StateT $ \s -> do
+runPactBlockM pctx isGenesis dbEnv startBlockHandle (PactBlockM act) = PactServiceM $ ReaderT $ \e -> StateT $ \s -> do
+  let blockEnv = PactBlockEnv
+        { _psServiceEnv = e
+        , _psParentHeader = pctx
+        , _psIsGenesis = isGenesis
+        , _psBlockDbEnv = dbEnv
+        }
   (a, s') <- runStateT
-    (runReaderT act (PactBlockEnv e pctx dbEnv))
+    (runReaderT act blockEnv)
     (PactBlockState s startBlockHandle)
   return ((a, _pbBlockHandle s'), _pbServiceState s')
 

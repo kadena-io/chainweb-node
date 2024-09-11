@@ -386,16 +386,17 @@ runPayloadShouldReturnEvalResultRelatedToTheInputCommand baseRdb = runResourceT 
                             }
                         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
                         gasRef <- newIORef (MilliGas 0)
+                        let gasModel = tableGasModel $ MilliGasLimit (gasToMilliGas $ Gas 10)
                         let gasEnv = GasEnv
                                 { _geGasRef = gasRef
                                 , _geGasLog = Nothing
-                                , _geGasModel =
-                                    tableGasModel $ MilliGasLimit (gasToMilliGas $ Gas 10)
+                                , _geGasModel = gasModel
                                 }
 
                         payloadResult <- runExceptT $
                             runReaderT
-                                (runTransactionM (runPayload Transactional Set.empty pactDb noSPVSupport txCtx (view payloadObj <$> cmd)))
+                                (runTransactionM
+                                    (runPayload Transactional Set.empty pactDb noSPVSupport [] managedNamespacePolicy gasModel txCtx (view payloadObj <$> cmd)))
                                 (TransactionEnv stdoutDummyLogger gasEnv)
                         gasUsed <- readIORef gasRef
                         return (gasUsed, payloadResult)

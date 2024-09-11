@@ -133,6 +133,9 @@ import qualified Chainweb.Pact5.TransactionExec as Pact5
 import qualified Chainweb.Pact5.Transaction as Pact5
 import Control.Monad.Except
 import Data.Default
+import qualified Chainweb.Pact5.NoCoinbase as Pact5
+import qualified Pact.Parse as Pact4
+import qualified Control.Parallel.Strategies as Strategies
 
 
 runPactService
@@ -266,7 +269,7 @@ initializeCoinContract v cid pwo = do
       Just currentBlockHeader -> do
         if
           _parentHeader currentBlockHeader /= genesisHeader &&
-          not (pact5 v cid $ _blockHeight (_parentHeader currentBlockHeader))
+          not (pact5 v cid $ _blockHeight genesisHeader)
         then do
           !mc <- readFrom (Just currentBlockHeader) (SomeBlockM $ Pair Pact4.readInitModules (error "pact5")) >>= \case
             NoHistory -> throwM $ BlockHeaderLookupFailure
@@ -487,13 +490,15 @@ execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
     logInfoPact $ "(parent height = " <> sshow pHeight <> ")"
         <> " (parent hash = " <> sshow pHash <> ")"
     blockGasLimit <- view psBlockGasLimit
+    v <- view chainwebVersion
+    cid <- view chainId
     readFrom (Just newBlockParent) $
         SomeBlockM $ Pair
             (do
                 blockDbEnv <- view psBlockDbEnv
-                initCache <- initModuleCacheForBlock False
+                initCache <- initModuleCacheForBlock
                 coinbaseOutput <- runPact4Coinbase
-                    False miner
+                    miner
                     (Pact4.EnforceCoinbaseFailure True) (Pact4.CoinbaseUsePrecompiled True)
                     initCache
                 let pactDb = Pact4._cpPactDbEnv blockDbEnv
@@ -507,7 +512,7 @@ execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
                         -- ^ we do not use the module cache populated by coinbase in
                         -- subsequent transactions
                         , _blockInProgressHandle = BlockHandle (Pact4._bsTxId finalBlockState) (Pact4._bsPendingBlock finalBlockState)
-                        , _blockInProgressParentHeader = newBlockParent
+                        , _blockInProgressParentHeader = Just newBlockParent
                         , _blockInProgressRemainingGasLimit = blockGasLimit
                         , _blockInProgressTransactions = Transactions
                             { _transactionCoinbase = coinbaseOutput
@@ -515,6 +520,8 @@ execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
                             }
                         , _blockInProgressMiner = miner
                         , _blockInProgressPactVersion = Pact4T
+                        , _blockInProgressChainwebVersion = v
+                        , _blockInProgressChainId = cid
                         }
                 case fill of
                     NewBlockFill -> ForPact4 <$> Pact4.continueBlock mpAccess blockInProgress
@@ -532,7 +539,7 @@ execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
                 let blockInProgress = BlockInProgress
                         { _blockInProgressModuleCache = Pact5NoModuleCache
                         , _blockInProgressHandle = hndl
-                        , _blockInProgressParentHeader = newBlockParent
+                        , _blockInProgressParentHeader = Just newBlockParent
                         , _blockInProgressRemainingGasLimit = blockGasLimit
                         , _blockInProgressTransactions = Transactions
                             { _transactionCoinbase = coinbaseOutput
@@ -540,6 +547,8 @@ execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
                             }
                         , _blockInProgressMiner = miner
                         , _blockInProgressPactVersion = Pact5T
+                        , _blockInProgressChainwebVersion = v
+                        , _blockInProgressChainId = cid
                         }
                 case fill of
                     NewBlockFill -> ForPact5 <$> Pact5.continueBlock mpAccess blockInProgress
@@ -552,7 +561,7 @@ execContinueBlock
     -> BlockInProgress pv
     -> PactServiceM logger tbl (Historical (BlockInProgress pv))
 execContinueBlock mpAccess blockInProgress = pactLabel "execNewBlock" $ do
-    readFrom (Just newBlockParent) $
+    readFrom newBlockParent $
         case _blockInProgressPactVersion blockInProgress of
             Pact4T -> SomeBlockM $ Pair (Pact4.continueBlock mpAccess blockInProgress) (error "pact5")
             Pact5T -> SomeBlockM $ Pair (error "pact4") (Pact5.continueBlock mpAccess blockInProgress)
@@ -561,25 +570,67 @@ execContinueBlock mpAccess blockInProgress = pactLabel "execNewBlock" $ do
 
 
 -- | only for use in generating genesis blocks in tools.
---   only supports Pact 4.
 --
 execNewGenesisBlock
     :: (Logger logger, CanReadablePayloadCas tbl)
     => Miner
-    -> Vector Pact4.Transaction
+    -> Vector Pact4.UnparsedTransaction
     -> PactServiceM logger tbl PayloadWithOutputs
 execNewGenesisBlock miner newTrans = pactLabel "execNewGenesisBlock" $ do
-    historicalBlock <- readFrom Nothing $ SomeBlockM $ flip Pair (error "pact5") $ do
-      -- NEW GENESIS COINBASE: Reject bad coinbase, use date rule for precompilation
-      results <-
-        execTransactions True miner newTrans
-          (Pact4.EnforceCoinbaseFailure True)
-          (Pact4.CoinbaseUsePrecompiled False) Nothing Nothing
-          >>= throwCommandInvalidError
-      return $! toPayloadWithOutputs Pact4T miner results
+    historicalBlock <- readFrom Nothing $ SomeBlockM $ Pair
+        (do
+            logger <- view (psServiceEnv . psLogger)
+            v <- view chainwebVersion
+            cid <- view chainId
+            txs <- liftIO $ traverse (runExceptT . Pact4.checkParse logger v cid (genesisHeightSlow v cid)) newTrans
+            parsedTxs <- case partitionEithers (V.toList txs) of
+                ([], validTxs) -> return (V.fromList validTxs)
+                (errs, _) -> internalError $ "Invalid genesis txs: " <> sshow errs
+            -- NEW GENESIS COINBASE: Reject bad coinbase, use date rule for precompilation
+            results <-
+                Pact4.execTransactions miner parsedTxs
+                (Pact4.EnforceCoinbaseFailure True)
+                (Pact4.CoinbaseUsePrecompiled False) Nothing Nothing
+                >>= throwCommandInvalidError
+            return $! toPayloadWithOutputs Pact4T miner results
+        )
+        (do
+            v <- view chainwebVersion
+            cid <- view chainId
+            let mempoolAccess = mempty
+                    { mpaGetBlock = \bf pbc bh bhash _bheader -> do
+                        if _bfCount bf == 0
+                        then do
+                            maybeInvalidTxs <- pbc bh bhash newTrans
+                            validTxs <- case partitionEithers (V.toList maybeInvalidTxs) of
+                                ([], validTxs) -> return validTxs
+                                (errs, _) -> throwM $ Pact5GenesisCommandsInvalid errs
+                            V.fromList validTxs `Strategies.usingIO` traverse Strategies.rseq
+                        else do
+                            return V.empty
+                    }
+            startHandle <- use Pact5.pbBlockHandle
+            let bipStart = BlockInProgress
+                    { _blockInProgressHandle = startHandle
+                    , _blockInProgressMiner = miner
+                    , _blockInProgressModuleCache = Pact5NoModuleCache
+                    , _blockInProgressPactVersion = Pact5T
+                    , _blockInProgressParentHeader = Nothing
+                    , _blockInProgressChainwebVersion = v
+                    , _blockInProgressChainId = cid
+                    -- fake gas limit, gas is free for genesis
+                    , _blockInProgressRemainingGasLimit = GasLimit (Pact4.ParsedInteger 999_999_999)
+                    , _blockInProgressTransactions = Transactions
+                        { _transactionCoinbase = absurd <$> Pact5.noCoinbase
+                        , _transactionPairs = mempty
+                        }
+                    }
+            results <- Pact5.continueBlock mempoolAccess bipStart
+            return $! finalizeBlock results
+        )
     case historicalBlock of
-      NoHistory -> internalError "PactService.execNewGenesisBlock: Impossible error, unable to rewind before genesis"
-      Historical block -> return block
+        NoHistory -> internalError "PactService.execNewGenesisBlock: Impossible error, unable to rewind before genesis"
+        Historical block -> return block
 
 execReadOnlyReplay
     :: forall logger tbl
@@ -1001,11 +1052,12 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                     currHeight = succ $ _blockHeight $ _parentHeader pc
                     v = _chainwebVersion pc
                     cid = _chainId pc
-                liftIO $ forM txs $ \tx ->
+                liftIO $ forM txs $ \tx -> do
+                    let isGenesis = False
                     fmap (either Just (\_ -> Nothing)) $ runExceptT $
                         Pact4.validateRawChainwebTx
                             logger v cid pdb parentTime currHeight
-                            (ExceptT . evalPactServiceM psState psEnv . Pact4.runPactBlockM pc pdb . attemptBuyGasPact4 noMiner)
+                            (ExceptT . evalPactServiceM psState psEnv . Pact4.runPactBlockM pc isGenesis pdb . attemptBuyGasPact4 noMiner)
                             tx
             )
             (do
@@ -1017,10 +1069,11 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                 let
                     parentTime = ParentCreationTime (_blockCreationTime $ _parentHeader ph)
                     currHeight = succ $ _blockHeight $ _parentHeader ph
+                    isGenesis = False
                 liftIO $ forM txs $ \tx ->
                     fmap (either Just (\_ -> Nothing)) $ runExceptT $
                         Pact5.validateRawChainwebTx
-                            logger v cid db parentTime currHeight
+                            logger v cid db parentTime currHeight isGenesis
                             (attemptBuyGasPact5 logger ph db blockHandle noMiner)
                             tx
             )

@@ -197,9 +197,9 @@ fromPact4Command cmd4 = Command
     fromPact4NetworkId = NetworkId . Pact4._networkId
 
     legacyJsonToPactValue :: J.LegacyValue -> PactValue
-    legacyJsonToPactValue lv = case decodeStable @PactValue (J.encodeStrict lv) of
-      Just pv -> pv
-      Nothing -> error "TODO: don't throw an error here, use Either"
+    legacyJsonToPactValue lv = case eitherDecodeStable @PactValue (J.encodeStrict lv) of
+      Right pv -> pv
+      Left msg -> error $ "TODO: don't throw an error here, use Either: " <> sshow (J.encodeStrict lv, msg)
 
     fromPact4PactValue :: Pact4.PactValue -> PactValue
     fromPact4PactValue pv4 = case fromLegacyPactValue pv4 of

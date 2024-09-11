@@ -54,7 +54,6 @@ import System.Random
 
 -- internal modules
 
-import Chainweb.BlockHeader
 import Chainweb.Cut.Create
 import Chainweb.Logger
 import Chainweb.Miner.Config
@@ -207,8 +206,8 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ d
             (WorkAlreadyMined _, WorkAlreadyMined _) -> retry
 
             (WorkReady (NewBlockInProgress (ForPact4 lastBip)), WorkReady (NewBlockInProgress (ForPact4 currentBip)))
-                | ParentHeader lastPh <- _blockInProgressParentHeader lastBip
-                , ParentHeader currentPh <- _blockInProgressParentHeader currentBip
+                | lastPh <- _blockInProgressParentHeader lastBip
+                , currentPh <- _blockInProgressParentHeader currentBip
                 , lastPh /= currentPh ->
                 -- we've got a new block on a new parent, we must've missed
                 -- the update where the old block became outdated.
@@ -232,8 +231,8 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ d
                 | otherwise -> retry
 
             (WorkReady (NewBlockInProgress (ForPact5 lastBip)), WorkReady (NewBlockInProgress (ForPact5 currentBip)))
-                | ParentHeader lastPh <- _blockInProgressParentHeader lastBip
-                , ParentHeader currentPh <- _blockInProgressParentHeader currentBip
+                | lastPh <- _blockInProgressParentHeader lastBip
+                , currentPh <- _blockInProgressParentHeader currentBip
                 , lastPh /= currentPh ->
                 -- we've got a new block on a new parent, we must've missed
                 -- the update where the old block became outdated.
