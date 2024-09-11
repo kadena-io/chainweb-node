@@ -518,7 +518,8 @@ data PactException
   | PactTransactionExecError !Pact4.PactHash !Text
   | CoinbaseFailure !CoinbaseFailure
   | NoBlockValidatedYet
-  | TransactionValidationException !(NonEmpty (Pact4.PactHash, Text))
+  | Pact4TransactionValidationException !(NonEmpty (Pact4.PactHash, Text))
+  | Pact5TransactionValidationException !(NonEmpty (Pact5.Hash, Text))
   | PactDuplicateTableError !Text
   | TransactionDecodeFailure !Text
   | RewindLimitExceeded
@@ -548,7 +549,9 @@ instance Eq PactException where
     h == h' && m == m'
   CoinbaseFailure e == CoinbaseFailure e' = e == e'
   NoBlockValidatedYet == NoBlockValidatedYet = True
-  TransactionValidationException txs == TransactionValidationException txs' =
+  Pact4TransactionValidationException txs == Pact4TransactionValidationException txs' =
+    txs == txs'
+  Pact5TransactionValidationException txs == Pact5TransactionValidationException txs' =
     txs == txs'
   PactDuplicateTableError m == PactDuplicateTableError m' =
     m == m'

@@ -90,6 +90,7 @@ import qualified Data.ByteString.Short as SB
 import qualified Pact.Core.Hash as Pact5
 import System.LogLevel
 import qualified Data.Aeson as Aeson
+import qualified Data.List.NonEmpty as NEL
 
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range. Rewards are calculated
@@ -530,7 +531,18 @@ execExistingBlock currHeader payload = do
   let
     txValidationTime = ParentCreationTime (_blockCreationTime $ _parentHeader parentBlockHeader)
     -- TODO: pact5 use this
-  _valids <- liftIO $ traverse (runExceptT . validateParsedChainwebTx logger v cid db txValidationTime (_blockHeight currHeader) (\_ -> pure ())) txs
+  errors <- liftIO $ flip foldMap txs $ \tx -> do
+    errorOrSuccess <- runExceptT $
+      validateParsedChainwebTx logger v cid db txValidationTime
+        (_blockHeight currHeader)
+        (\_ -> pure ())
+        tx
+    case errorOrSuccess of
+      Right () -> return []
+      Left err -> return [(Pact5._cmdHash tx, sshow err)]
+  case NEL.nonEmpty errors of
+    Nothing -> return ()
+    Just errorsNel -> throwM $ Pact5TransactionValidationException errorsNel
 
   coinbaseResult <- runPact5Coinbase miner >>= \case
     Left err -> throwM $ CoinbaseFailure (Pact5CoinbaseFailure err)

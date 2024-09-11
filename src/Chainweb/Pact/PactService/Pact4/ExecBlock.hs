@@ -151,7 +151,7 @@ execBlock currHeader payload = do
 
     case NE.nonEmpty [ (hsh, sshow err) | (hsh, Left err) <- errorsIfPresent ] of
       Nothing -> return ()
-      Just errs -> throwM $ TransactionValidationException errs
+      Just errs -> throwM $ Pact4TransactionValidationException errs
 
     logInitCache
 
