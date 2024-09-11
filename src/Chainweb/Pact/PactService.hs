@@ -520,7 +520,6 @@ execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
             )
 
             (do
-                -- TODO: Pact5
                 coinbaseOutput <- runPact5Coinbase miner >>= \case
                     Left coinbaseError -> internalError $ "Error during coinbase: " <> sshow coinbaseError
                     Right coinbaseOutput ->
