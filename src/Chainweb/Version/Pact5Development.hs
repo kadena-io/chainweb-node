@@ -1,4 +1,5 @@
 {-# language LambdaCase #-}
+{-# language ImportQualifiedPost #-}
 {-# language NumericUnderscores #-}
 {-# language OverloadedStrings #-}
 {-# language PatternSynonyms #-}
@@ -6,9 +7,6 @@
 {-# language ViewPatterns #-}
 
 module Chainweb.Version.Pact5Development(pact5Devnet, pattern Pact5Development) where
-
-import qualified Data.HashSet as HashSet
-import qualified Data.Set as Set
 
 import Chainweb.BlockCreationTime
 import Chainweb.ChainId
@@ -18,11 +16,10 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
-
+import Data.Set qualified as Set
 import Pact.Types.Verifier
-
-import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
-import qualified Chainweb.BlockHeader.Genesis.Development1to19Payload as DNN
+import Chainweb.BlockHeader.Genesis.Development0Payload qualified as DN0
+import Chainweb.BlockHeader.Genesis.Development1to19Payload qualified as DNN
 
 pattern Pact5Development :: ChainwebVersion
 pattern Pact5Development <- ((== pact5Devnet) -> True) where
@@ -34,13 +31,9 @@ pact5Devnet = ChainwebVersion
     , _versionName = ChainwebVersionName "pact5-development"
     , _versionForks = tabulateHashMap $ \case
         -- never run genesis as Pact 5, still
-        Pact5Fork -> onChains
-            [ (cid, ForkAtBlockHeight (succ $ genesisHeightSlow pact5Devnet cid))
-            | cid <- HashSet.toList $ graphChainIds twentyChainGraph
-            ]
+        Pact5Fork -> onChains []
         _ -> AllChains ForkAtGenesis
-    , _versionUpgrades = indexByForkHeights pact5Devnet
-        [ (Pact5Fork, AllChains (ForPact5 $ Pact5Upgrade (List.map pactTxFrom4To5 CoinV6.transactions))) ]
+    , _versionUpgrades = indexByForkHeights pact5Devnet []
     , _versionGraphs = End twentyChainGraph
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
