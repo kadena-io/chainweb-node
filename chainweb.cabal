@@ -270,6 +270,7 @@ library
         , Chainweb.Version.Development
         , Chainweb.Version.Guards
         , Chainweb.Version.Mainnet
+        , Chainweb.Version.Pact5Development
         , Chainweb.Version.RecapDevelopment
         , Chainweb.Version.Registry
         , Chainweb.Version.Testnet
