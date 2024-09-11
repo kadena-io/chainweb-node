@@ -1,5 +1,7 @@
 {-# language
     DataKinds
+    , DeriveAnyClass
+    , DerivingStrategies
     , FlexibleContexts
     , ImpredicativeTypes
     , ImportQualifiedPost
@@ -23,12 +25,27 @@ module Chainweb.Test.Pact5.RemotePactTest
     ( tests
     ) where
 
---import Data.List.NonEmpty qualified as NE
---import Data.List.NonEmpty (NonEmpty)
-import Servant.Client (ClientEnv)
+import Control.Monad.IO.Class (liftIO)
+import Control.Exception (Exception)
+import Chainweb.Test.Utils (testRetryPolicy)
+import Pact.JSON.Encode qualified as J
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HashMap
+import Data.Aeson qualified as Aeson
+import Control.Monad.Catch (Handler(..), throwM)
+import Data.List qualified as List
+import Control.Retry
+import Data.List.NonEmpty qualified as NE
+import Data.List.NonEmpty (NonEmpty)
+import Servant.Client
+import Chainweb.Pact.RestAPI.Client
+import Chainweb.Pact.Types
 import Chainweb.ChainId
+import "pact" Pact.Types.API qualified as Pact4
+import "pact" Pact.Types.Command qualified as Pact4
+import "pact" Pact.Types.Hash qualified as Pact4
 import Chainweb.Graph (singletonChainGraph)
---import Chainweb.Logger
+import Chainweb.Logger
 import Chainweb.Mempool.Mempool (TransactionHash(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table.RocksDB
@@ -156,6 +173,7 @@ mkFixture baseRdb = do
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "Pact5 RemotePactTest"
     [ testCase "foo" (foo rdb)
+    , testCase "pollingBadlistTest" (pollingBadlistTest rdb)
     ]
 
 foo :: RocksDb -> IO ()
@@ -163,32 +181,72 @@ foo rdb = runResourceT $ do
     _fixture <- mkFixture rdb
     return ()
 
-{-pollingBadlistTest :: RocksDb -> IO ()
+--polling
+pollingBadlistTest :: RocksDb -> IO ()
 pollingBadlistTest baseRdb = runResourceT $ do
     fixture <- mkFixture baseRdb
     let clientEnv = fixture ^. fixtureClientEnv
 
     liftIO $ do
-        let rks = RequestKeys $ NE.fromList [pactDeadBeef]
-        sid <- mkChainId maxBound 0
-        x <- polling v sid clientEnv rks ExpectPactError
+        let rks = NE.fromList [pactDeadBeef]
+        x <- polling clientEnv (NE.singleton pactDeadBeef)
         print x
--}
 
-{-
+newtype PollingException = PollingException String
+    deriving stock (Show)
+    deriving anyclass (Exception)
+
+polling :: ()
+    => ClientEnv
+    -> NonEmpty RequestKey
+    -> IO (HashMap RequestKey (CommandResult Aeson.Value Pact5.Hash))
+polling clientEnv rks = do
+    pollingWithDepth clientEnv rks Nothing
+
 pollingWithDepth :: ()
     => ClientEnv
     -> NonEmpty RequestKey
     -> Maybe ConfirmationDepth
-    -> IO PollResponses
+    -> IO (HashMap RequestKey (CommandResult Aeson.Value Pact5.Hash))
 pollingWithDepth clientEnv rks mConfirmationDepth = do
-    poll <- runClientM (pactPollWithQueryApiClient v _ rks mConfirmationDepth (Poll rks)) clientEnv
-    case poll of
-        Left e -> do
-            throwM (PollingFailure (show e))
-        Right (PollingResponse response) -> do
-            error ""
--}
+    recovering testRetryPolicy [retryHandler] $ \iterNumber -> do
+        putStrLn $ "pollingWithDepth: iteration " ++ show iterNumber
+
+        let rksPact4 = NE.map toPact4RequestKey rks
+        poll <- runClientM (pactPollWithQueryApiClient v cid mConfirmationDepth (Pact4.Poll rksPact4)) clientEnv
+        case poll of
+            Left e -> do
+                throwM (PollingException (show e))
+            Right (Pact4.PollResponses response) -> do
+                return (convertPollResponse response)
+
+    where
+        retryHandler :: RetryStatus -> Handler IO Bool
+        retryHandler _ = Handler $ \case
+            PollingException _ -> return True
+            _ -> return False
+
+        toPact4RequestKey :: RequestKey -> Pact4.RequestKey
+        toPact4RequestKey = \case
+            RequestKey (Pact5.Hash bytes) -> Pact4.RequestKey (Pact4.Hash bytes)
+
+        toPact5RequestKey :: Pact4.RequestKey -> RequestKey
+        toPact5RequestKey = \case
+            Pact4.RequestKey (Pact4.Hash bytes) -> RequestKey (Pact5.Hash bytes)
+
+        toPact5CommandResult :: ()
+            => Pact4.CommandResult Pact4.Hash
+            -> CommandResult Aeson.Value Pact5.Hash
+        toPact5CommandResult cr4 = case Aeson.eitherDecodeStrictText (J.encodeText cr4) of
+            Left err -> error $ "toPact5CommandResult: decode failed: " ++ err
+            Right cr5 -> cr5
+
+        convertPollResponse :: ()
+            => HashMap Pact4.RequestKey (Pact4.CommandResult Pact4.Hash)
+            -> HashMap RequestKey (CommandResult Aeson.Value Pact5.Hash)
+        convertPollResponse pact4Response = HashMap.fromList
+            $ List.map (\(rk, cr) -> (toPact5RequestKey rk, toPact5CommandResult cr))
+            $ HashMap.toList pact4Response
 
 successfulTx :: Predicatory p => Pred p (CommandResult log err)
 successfulTx = pt _crResult ? match _PactResultOk something
