@@ -85,9 +85,9 @@ import Chainweb.Utils.Serialization (runGetS, runPutS)
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb)
 import Chainweb.WebPactExecutionService
-import Control.Concurrent
+import Control.Concurrent hiding (throwTo)
 import Control.Concurrent.MVar
-import Control.Exception (evaluate)
+import Control.Exception (evaluate, AsyncException (..))
 import Control.Exception.Safe
 import Control.Lens hiding (only)
 import Control.Monad
@@ -164,9 +164,10 @@ import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 import Test.Tasty.Hedgehog
 import Text.Show.Pretty (pPrint)
 import Text.Printf (printf)
-import Control.Concurrent.Async (forConcurrently)
+import Control.Concurrent.Async (forConcurrently, AsyncCancelled (..))
 import Data.Bool
 import System.IO.Unsafe
+import qualified Control.Monad.Trans.Resource as Resource
 
 -- converts Pact 5 tx so that it can be submitted to the mempool, which
 -- operates on Pact 4 txs with unparsed code.
@@ -192,36 +193,35 @@ data Fixture = Fixture
     , _fixtureMempools :: ChainMap (MempoolBackend Pact4.UnparsedTransaction)
     , _fixturePactQueues :: ChainMap PactQueue
     }
-makeLenses ''Fixture
 
 mkFixtureWith :: PactServiceConfig -> RocksDb -> ResourceT IO Fixture
 mkFixtureWith pactServiceConfig baseRdb = do
     sqlite <- withTempSQLiteResource
-    liftIO $ do
-        tdb <- mkTestBlockDb v =<< testRocksDb "fixture" baseRdb
-        perChain <- iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
-            bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
-            cp <- initCheckpointer v chain sqlite
-            pactQueue <- newPactQueue 2_000
-            pactExecutionServiceVar <- newMVar (mkPactExecutionService pactQueue)
-            let mempoolCfg = validatingMempoolConfig cid v (Pact4.GasLimit 150_000) (Pact4.GasPrice 1e-8) pactExecutionServiceVar
-            logLevel <- getTestLogLevel
-            let logger = genericLogger logLevel Text.putStrLn
-            mempool <- startInMemoryMempoolTest mempoolCfg
-            mempoolConsensus <- mkMempoolConsensus mempool bhdb (Just (_bdbPayloadDb tdb))
-            let mempoolAccess = pactMemPoolAccess mempoolConsensus logger
-            forkIO $ runPactService v cid logger Nothing pactQueue mempoolAccess bhdb (_bdbPayloadDb tdb) sqlite pactServiceConfig
-            return (mempool, pactQueue)
-        let fixture = Fixture
-                { _fixtureBlockDb = tdb
-                , _fixtureMempools = OnChains $ fst <$> perChain
-                , _fixturePactQueues = OnChains $ snd <$> perChain
-                }
-        -- The mempool expires txs based on current time, but newBlock expires txs based on parent creation time.
-        -- So by running an empty block with the creationTime set to the current time, we get these goals to align
-        -- for future blocks we run.
-        advanceAllChains fixture $ onChains []
-        return fixture
+    tdb <- liftIO $ mkTestBlockDb v =<< testRocksDb "fixture" baseRdb
+    perChain <- iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
+        bhdb <- liftIO $ getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) chain
+        pactQueue <- liftIO $ newPactQueue 2_000
+        pactExecutionServiceVar <- liftIO $ newMVar (mkPactExecutionService pactQueue)
+        let mempoolCfg = validatingMempoolConfig chain v (Pact4.GasLimit 150_000) (Pact4.GasPrice 1e-8) pactExecutionServiceVar
+        logLevel <- liftIO getTestLogLevel
+        let logger = genericLogger logLevel Text.putStrLn
+        mempool <- liftIO $ startInMemoryMempoolTest mempoolCfg
+        mempoolConsensus <- liftIO $ mkMempoolConsensus mempool bhdb (Just (_bdbPayloadDb tdb))
+        let mempoolAccess = pactMemPoolAccess mempoolConsensus logger
+        _ <- Resource.allocate
+            (forkIO $ runPactService v chain logger Nothing pactQueue mempoolAccess bhdb (_bdbPayloadDb tdb) sqlite pactServiceConfig)
+            (\tid -> throwTo tid ThreadKilled)
+        return (mempool, pactQueue)
+    let fixture = Fixture
+            { _fixtureBlockDb = tdb
+            , _fixtureMempools = OnChains $ fst <$> perChain
+            , _fixturePactQueues = OnChains $ snd <$> perChain
+            }
+    -- The mempool expires txs based on current time, but newBlock expires txs based on parent creation time.
+    -- So by running an empty block with the creationTime set to the current time, we get these goals to align
+    -- for future blocks we run.
+    _ <- liftIO $ advanceAllChains fixture $ onChains []
+    return fixture
 
 mkFixture :: RocksDb -> ResourceT IO Fixture
 mkFixture baseRdb = do
