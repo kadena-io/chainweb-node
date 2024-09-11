@@ -149,9 +149,9 @@ mkFixture baseRdb = do
     nodeDbDirs <- withNodeDbDirs baseRdb 1
     network <- withNodesAtLatestBehavior v id nodeDbDirs
     return $ Fixture
-      { _fixtureNodeDbDirs = nodeDbDirs
-      , _fixtureNetwork = network
-      }
+        { _fixtureNodeDbDirs = nodeDbDirs
+        , _fixtureNetwork = network
+        }
 
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "Pact5 RemotePactTest"
