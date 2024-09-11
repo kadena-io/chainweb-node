@@ -248,6 +248,7 @@ instance ToJSON PactCmdLog where
 -- -------------------------------------------------------------------------- --
 -- Send Handler
 
+-- TODO: convert to Pact 5?
 sendHandler
     :: Logger logger
     => logger
@@ -287,6 +288,7 @@ sendHandler logger mempool (Pact4.SubmitBatch cmds) = Handler $ do
 -- -------------------------------------------------------------------------- --
 -- Poll Handler
 
+-- TODO: convert to Pact 5?
 pollHandler
     :: HasCallStack
     => CanReadablePayloadCas tbl
@@ -312,6 +314,7 @@ pollHandler logger cdb cid pact mem confDepth (Pact4.Poll request) = do
 -- -------------------------------------------------------------------------- --
 -- Listen Handler
 
+-- TODO: convert to Pact 5?
 listenHandler
     :: CanReadablePayloadCas tbl
     => Logger logger
@@ -367,6 +370,7 @@ listenHandler logger cdb cid pact mem (Pact4.ListenerRequest key) = do
 -- -------------------------------------------------------------------------- --
 -- Local Handler
 
+-- TODO: convert to Pact 5?
 localHandler
     :: Logger logger
     => logger
