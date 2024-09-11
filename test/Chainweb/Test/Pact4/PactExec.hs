@@ -48,7 +48,6 @@ import Chainweb.Pact.PactService
 import Chainweb.Pact.PactService.Checkpointer
 import Chainweb.Pact.PactService.Pact4.ExecBlock
 import Chainweb.Pact.Types
-import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)

@@ -122,8 +122,8 @@ setPactMempool (PactMempool fs) = do
                   buildCwCmd (sshow blockHeader) testVersion $ _mempoolCmdBuilder b blockHeader
                 tos <- mempoolPreBlockCheck bHeight bHash ((fmap . fmap . fmap) _pcCode cmds)
                 return $ V.fromList
-                  [ to
-                  | Right to <- V.toList tos
+                  [ t
+                  | Right t <- V.toList tos
                   ]
                 -- return $ fmap fst $ V.filter snd (V.zip cmds validationResults)
               Nothing -> runMps (succ i) r

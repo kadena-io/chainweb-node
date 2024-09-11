@@ -9,6 +9,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+
 -- |
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
@@ -68,8 +69,6 @@ import Pact.Types.PactValue
 import Pact.Types.Runtime (toPactId)
 import Pact.Types.SPV
 import Pact.Types.Term
-
-import qualified Pact.Core.Gas as PCore
 
 -- internal chainweb modules
 
@@ -336,7 +335,7 @@ chainToMPA' f = mempty
         tos <- pc hi ha ((fmap . fmap . fmap) _pcCode txs)
         forM tos $ \case
           Left err -> error (sshow err)
-          Right to -> return to
+          Right t -> return t
     }
 
 

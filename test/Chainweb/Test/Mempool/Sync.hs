@@ -20,13 +20,11 @@ import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 import Test.Tasty
 ------------------------------------------------------------------------------
-import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Mempool.InMem
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Mempool
     (InsertCheck, MempoolWithFunc(..), lookupIsPending, mempoolProperty)
-import Chainweb.Test.TestVersions (barebonesTestVersion)
 import Chainweb.Utils (Codec(..))
 ------------------------------------------------------------------------------
 

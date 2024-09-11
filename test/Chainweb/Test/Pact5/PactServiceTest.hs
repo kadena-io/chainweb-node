@@ -20,18 +20,8 @@ module Chainweb.Test.Pact5.PactServiceTest
     ( tests
     ) where
 
-import Data.ByteString.Base16 qualified as Base16
-import Chainweb.Block (Block (_blockPayloadWithOutputs))
-import System.Environment (lookupEnv, setEnv)
-import Control.Applicative ((<|>))
-import Data.List qualified as List
-import Chainweb.Payload.PayloadStore
-import Chainweb.Pact.Service.BlockValidation
-import Chainweb.Pact.Service.PactInProcApi
-import Chainweb.Mempool.Consensus
-import Chainweb.Pact.PactService
-import Chainweb.Pact.Service.PactQueue
-import Chainweb.BlockCreationTime
+import "pact" Pact.Types.Command qualified as Pact4
+import "pact" Pact.Types.Hash qualified as Pact4
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb
@@ -41,133 +31,58 @@ import Chainweb.Logger
 import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.InMem
 import Chainweb.Mempool.Mempool (InsertType (..), LookupResult(..), MempoolBackend (..), TransactionHash(..))
-import Chainweb.MerkleLogHash
-import Chainweb.MerkleUniverse (ChainwebMerkleHashAlgorithm)
 import Chainweb.Miner.Pact
-import Chainweb.Miner.Pact (noMiner)
-import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db (doPact5DbTransaction))
-import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
-import Chainweb.Pact.Backend.SQLite.DirectV2 (close_v2)
-import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
-import Chainweb.Pact.PactService (initialPayloadState, withPactService)
-import Chainweb.Pact.PactService.Checkpointer (SomeBlockM (..), readFrom, restoreAndSave)
 import Chainweb.Pact.PactService.Pact4.ExecBlock ()
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
-import Chainweb.Pact.Types (defaultModuleCacheLimit, psBlockDbEnv, BlockInProgress (_blockInProgressTransactions))
-import Chainweb.Pact.Utils (emptyPayload)
 import Chainweb.Pact4.Transaction qualified as Pact4
-import Chainweb.Pact4.TransactionExec (applyGenesisCmd)
-import Chainweb.Pact4.TransactionExec qualified
-import Chainweb.Pact5.Transaction
 import Chainweb.Pact5.Transaction qualified as Pact5
-import Chainweb.Pact5.TransactionExec
-import Chainweb.Pact5.TransactionExec qualified
-import Chainweb.Pact5.TransactionExec qualified as Pact5
-import Chainweb.Pact5.Types
 import Chainweb.Payload
-import Chainweb.Payload (PayloadWithOutputs_ (_payloadWithOutputsPayloadHash), Transaction (Transaction))
-import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), addTestBlockDb, getCutTestBlockDb, getParentTestBlockDb, mkTestBlockDb, setCutTestBlockDb)
-import Chainweb.Test.Pact4.Utils (stdoutDummyLogger, testPactServiceConfig, withBlockHeaderDb)
 import Chainweb.Test.Pact5.CmdBuilder
 import Chainweb.Test.Pact5.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
-import Chainweb.Utils (T2 (..), fromJuste)
-import Chainweb.Utils.Serialization (runGetS, runPutS)
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb)
 import Chainweb.WebPactExecutionService
 import Control.Concurrent hiding (throwTo)
-import Control.Concurrent.MVar
-import Control.Exception (evaluate, AsyncException (..))
+import Control.Concurrent.Async (forConcurrently)
+import Control.Exception (AsyncException (..))
 import Control.Exception.Safe
 import Control.Lens hiding (only)
 import Control.Monad
-import Control.Monad.Except
 import Control.Monad.IO.Class
-import Control.Monad.Reader
 import Control.Monad.Trans.Resource
-import Data.Aeson qualified as Aeson
-import Data.ByteString (ByteString)
+import Control.Monad.Trans.Resource qualified as Resource
 import Data.ByteString.Lazy qualified as LBS
 import Data.Decimal
-import Data.Default
-import Data.Foldable
-import Data.Functor.Const
-import Data.Functor.Identity
-import Data.Functor.Product
-import Data.Graph (Tree)
-import Data.HashMap.Strict qualified as HashMap
-import Data.HashSet qualified as HashSet
 import Data.HashSet (HashSet)
-import Data.IORef
-import Data.Map qualified as Map
+import Data.HashSet qualified as HashSet
 import Data.Maybe (fromMaybe)
-import Data.MerkleLog (MerkleNodeType (..), merkleLeaf, merkleRoot, merkleTree)
-import Data.Set qualified as Set
-import Data.String (fromString)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.Encoding qualified as T
-import Data.Text.IO qualified as T
 import Data.Text.IO qualified as Text
-import Data.Tree qualified as Tree
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
-import GHC.Stack
-import Hedgehog hiding (Update)
-import Hedgehog.Gen qualified as Gen
-import Hedgehog.Range qualified as Range
-import "pact" Pact.Types.Command qualified as Pact4
-import "pact" Pact.Types.Hash qualified as Pact4
-import Numeric.AffineSpace
-import Pact.Core.Builtin
 import Pact.Core.Capabilities
-import Pact.Core.ChainData hiding (_chainId)
-import Pact.Core.Command.RPC
+import Pact.Core.ChainData hiding (ChainId, _chainId)
 import Pact.Core.Command.Types
-import Pact.Core.Compile (CompileValue (..))
-import Pact.Core.Errors
-import Pact.Core.Evaluate
-import Pact.Core.Gas.TableGasModel
 import Pact.Core.Gas.Types
-import Pact.Core.Gen
 import Pact.Core.Hash qualified as Pact5
-import Pact.Core.Info
-import Pact.Core.Literal
 import Pact.Core.Names
-import Pact.Core.Names (ModuleName (ModuleName))
-import Pact.Core.PactDbRegression
-import Pact.Core.PactDbRegression qualified as Pact.Core
 import Pact.Core.PactValue
-import Pact.Core.Persistence
-import Pact.Core.Persistence (PactDb (_pdbRead))
-import Pact.Core.SPV (noSPVSupport)
-import Pact.Core.Serialise
-import Pact.Core.StableEncoding (encodeStable)
-import Pact.Core.Verifiers
 import Pact.Types.Gas qualified as Pact4
 import PredicateTransformers as PT
-import Streaming.Prelude qualified as Stream
-import System.LogLevel
-import System.LogLevel (LogLevel (..))
 import Test.Tasty
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
-import Test.Tasty.Hedgehog
-import Text.Show.Pretty (pPrint)
 import Text.Printf (printf)
-import Control.Concurrent.Async (forConcurrently, AsyncCancelled (..))
-import Data.Bool
-import System.IO.Unsafe
-import qualified Control.Monad.Trans.Resource as Resource
 
 -- converts Pact 5 tx so that it can be submitted to the mempool, which
 -- operates on Pact 4 txs with unparsed code.
@@ -267,7 +182,7 @@ newBlockEmpty baseRdb = runResourceT $ do
             assertEqual "empty block has no transactions" 0 (Vector.length $ _payloadWithOutputsTransactions emptyPwo)
             return emptyPwo
 
-        results <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
+        results <- advanceAllChains fixture $ onChain cid $ \ph pactQueue _ -> do
             nonEmptyBip <- throwIfNotPact5 =<< throwIfNoHistory =<<
                 newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             return $ finalizeBlock nonEmptyBip
@@ -364,7 +279,7 @@ newBlockTimeoutSpec baseRdb = runResourceT $ do
             , _cbGasLimit = GasLimit (Gas 400)
             }
         timeoutTx <- buildCwCmd v defaultCmd
-            { _cbRPC = mkExec' $ foldr (\_ expr -> "(map (lambda (x) (+ x 1))" <> expr <> ")") "(enumerate 1 100000)" [1..6_000] -- make a huge nested tx
+            { _cbRPC = mkExec' $ foldr (\_ expr -> "(map (lambda (x) (+ x 1))" <> expr <> ")") "(enumerate 1 100000)" [1..6_000 :: Word] -- make a huge nested tx
             , _cbSigners =
                 [ mkEd25519Signer' sender00 []
                 ]
@@ -373,14 +288,13 @@ newBlockTimeoutSpec baseRdb = runResourceT $ do
             , _cbGasPrice = GasPrice 1.5
             , _cbGasLimit = GasLimit (Gas 5000)
             }
-        advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
+
+        _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
             insertMempool mempool CheckedInsert [tx2, timeoutTx, tx1]
             bip <- throwIfNotPact5 =<< throwIfNoHistory =<<
                 newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             -- Mempool orders by GasPrice. 'buildCwCmd' sets the gas price to the transfer amount.
             -- We hope for 'timeoutTx' to fail, meaning that only 'txTransfer2' is in the block.
-            let expectedTxs = List.map _cmdHash [tx2, tx1]
-            let actualTxs = Vector.toList $ Vector.map (unRequestKey . _crReqKey . snd) $ _transactionPairs $ _blockInProgressTransactions bip
             bip & pt _blockInProgressTransactions ? pt _transactionPairs
                 ? predful ? Vector.fromList
                     [ pair
@@ -411,7 +325,7 @@ testMempoolExcludesInvalid baseRdb = runResourceT $ do
 
         -- The mempool checks that a tx does not have a creation time too far into the future.
         badFuture <- buildCwCmd v $ (transferCmd 1.0)
-            { _cbCreationTime = Just $ TxCreationTime (2 ^ 32)
+            { _cbCreationTime = Just $ TxCreationTime (2 ^ (32 :: Word))
             }
 
         -- The mempool checks that a tx does not have a creation time too far into the past.
@@ -469,8 +383,8 @@ testMempoolExcludesInvalid baseRdb = runResourceT $ do
                 , pact4Hash badSigs
                 ]
         inMempool <- lookupMempool mempool (Vector.fromList badTxHashes)
-        forM_ (zip [0..] badTxHashes) $ \(i, badTxHash) -> do
-            assertBool ("bad tx [index = " <> sshow i <> ", hash = " <> sshow badTxHash <> "] should have been evicted from the mempool") $ not $ HashSet.member badTxHash inMempool
+        forM_ (zip [0 :: Word ..] badTxHashes) $ \(i, badHash) -> do
+            assertBool ("bad tx [index = " <> sshow i <> ", hash = " <> sshow badTxHash <> "] should have been evicted from the mempool") $ not $ HashSet.member badHash inMempool
 
         return ()
 
@@ -497,12 +411,16 @@ tests = do
     -- * test that rewinding past the pact5 boundary is possible
 -}
 
+cid :: ChainId
 cid = unsafeChainId 0
+
+v :: ChainwebVersion
 v = pact5InstantCpmTestVersion singletonChainGraph
 
 coinModuleName :: ModuleName
 coinModuleName = ModuleName "coin" Nothing
 
+advanceAllChainsWithTxs :: Fixture -> ChainMap [Pact5.Transaction] -> IO (ChainMap (Vector (CommandResult Pact5.Hash Text)))
 advanceAllChainsWithTxs fixture txsPerChain =
     advanceAllChains fixture $
         txsPerChain <&> \txs ph pactQueue mempool -> do
@@ -514,6 +432,10 @@ advanceAllChainsWithTxs fixture txsPerChain =
 
 -- this mines a block on *all chains*. if you don't specify a payload on a chain,
 -- it adds empty blocks!
+advanceAllChains :: ()
+    => Fixture
+    -> ChainMap (BlockHeader -> PactQueue -> MempoolBackend Pact4.UnparsedTransaction -> IO PayloadWithOutputs)
+    -> IO (ChainMap (Vector (CommandResult Pact5.Hash Text)))
 advanceAllChains Fixture{..} blocks = do
     commandResults <-
         forConcurrently (HashSet.toList (chainIds v)) $ \c -> do
@@ -521,9 +443,9 @@ advanceAllChains Fixture{..} blocks = do
             creationTime <- getCurrentTimeIntegral
             let pactQueue = _fixturePactQueues ^?! atChain c
             let mempool = _fixtureMempools ^?! atChain c
-            let makeEmptyBlock ph _ _ = do
+            let makeEmptyBlock p _ _ = do
                     bip <- throwIfNotPact5 =<< throwIfNoHistory =<<
-                        newBlock noMiner NewBlockEmpty (ParentHeader ph) pactQueue
+                        newBlock noMiner NewBlockEmpty (ParentHeader p) pactQueue
                     return $! finalizeBlock bip
 
             payload <- fromMaybe makeEmptyBlock (blocks ^? atChain cid) ph pactQueue mempool
@@ -547,6 +469,7 @@ advanceAllChains Fixture{..} blocks = do
 
     return (onChains commandResults)
 
+getCut :: Fixture -> IO Cut
 getCut Fixture{..} = getCutTestBlockDb _fixtureBlockDb
 
 revert :: Fixture -> Cut -> IO ()

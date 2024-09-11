@@ -8,85 +8,65 @@
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ViewPatterns #-}
+
 module Chainweb.Test.Pact5.CheckpointerTest (tests) where
 
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Logger
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse (ChainwebMerkleHashAlgorithm)
-import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
-import Chainweb.Pact.Backend.SQLite.DirectV2 (close_v2)
-import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Types
-import Chainweb.Pact.Types (defaultModuleCacheLimit)
-import Chainweb.Pact.Utils (emptyPayload)
-import qualified Chainweb.Pact4.TransactionExec
-import Chainweb.Payload (PayloadWithOutputs_ (_payloadWithOutputsPayloadHash), Transaction (Transaction))
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Serialization (runGetS, runPutS)
 import Chainweb.Version
-import Control.Concurrent
 import Control.Exception (evaluate)
 import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Resource
 import Data.ByteString (ByteString)
 import Data.Default
 import Data.Foldable
-import Data.Functor.Const
-import Data.Functor.Identity
 import Data.Functor.Product
-import Data.Graph (Tree)
 import qualified Data.Map as Map
-import Data.MerkleLog (MerkleNodeType (..), merkleLeaf, merkleRoot, merkleTree)
+import Data.MerkleLog (MerkleNodeType(..), merkleRoot, merkleTree)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.Tree as Tree
-import Debug.Trace (traceM)
 import Hedgehog hiding (Update)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import Numeric.AffineSpace
 import Pact.Core.Builtin
 import Pact.Core.Evaluate (Info)
-import Pact.Core.Gen
 import Pact.Core.Literal
 import Pact.Core.Names
-import Pact.Core.PactDbRegression
 import qualified Pact.Core.PactDbRegression as Pact.Core
 import Pact.Core.PactValue
 import Pact.Core.Persistence
 import qualified Streaming.Prelude as Stream
-import System.LogLevel
 import Test.Tasty
 import Test.Tasty.HUnit (assertEqual, testCase)
 import Test.Tasty.Hedgehog
-import Text.Show.Pretty
 import Chainweb.Test.Pact5.Utils
-import Control.Monad.State
 import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
 import GHC.Stack
 
 -- | A @DbAction f@ is a description of some action on the database together with an f-full of results for it.
 type DbValue = Integer
 data DbAction f
-    = forall k v. DbRead !T.Text RowKey (f (Either Text (Maybe DbValue)))
-    | forall k v. DbWrite WriteType !T.Text RowKey DbValue (f (Either Text ()))
-    | forall k v. DbKeys !T.Text (f (Either Text [RowKey]))
-    | forall k v. DbSelect !T.Text (f (Either Text [(RowKey, Integer)]))
+    = DbRead !T.Text RowKey (f (Either Text (Maybe DbValue)))
+    | DbWrite WriteType !T.Text RowKey DbValue (f (Either Text ()))
+    | DbKeys !T.Text (f (Either Text [RowKey]))
+    | DbSelect !T.Text (f (Either Text [(RowKey, Integer)]))
     | DbCreateTable T.Text (f (Either Text ()))
-
-data SomeDomain = forall k v. SomeDomain (Domain k v CoreBuiltin Info)
 
 mkTableName :: T.Text -> TableName
 mkTableName n = TableName n (ModuleName "mod" Nothing)
@@ -144,34 +124,34 @@ tryShow = handleAny (fmap Left . \case
     ) . fmap Right
 
 runDbAction :: PactDb CoreBuiltin Info -> DbAction (Const ()) -> IO (DbAction Identity)
-runDbAction pactDb act =
+runDbAction pactDB act =
     fmap (hoistDbAction (\(Pair (Const ()) fa) -> fa))
-        $ runDbAction' pactDb act
+        $ runDbAction' pactDB act
 
 extractInt :: RowData -> IO Integer
 extractInt (RowData m) = evaluate (m ^?! ix (Field "k") . _PLiteral . _LInteger)
 
 runDbAction' :: PactDb CoreBuiltin Info -> DbAction f -> IO (DbAction (Product f Identity))
-runDbAction' pactDb = \case
+runDbAction' pactDB = \case
     DbRead tn k v -> do
-        maybeValue <- tryShow $ ignoreGas def $ _pdbRead pactDb (DUserTables (mkTableName tn)) k
+        maybeValue <- tryShow $ ignoreGas def $ _pdbRead pactDB (DUserTables (mkTableName tn)) k
         integerValue <- (traverse . traverse) extractInt maybeValue
         return $ DbRead tn k $ Pair v (Identity integerValue)
     DbWrite wt tn k v s ->
         fmap (DbWrite wt tn k v . Pair s . Identity)
             $ tryShow $ ignoreGas def
-            $ _pdbWrite pactDb wt (DUserTables (mkTableName tn)) k (RowData $ Map.singleton (Field "k") $ PLiteral $ LInteger v)
+            $ _pdbWrite pactDB wt (DUserTables (mkTableName tn)) k (RowData $ Map.singleton (Field "k") $ PLiteral $ LInteger v)
     DbKeys tn ks ->
         fmap (DbKeys tn . Pair ks . Identity)
-            $ tryShow $ ignoreGas def $ _pdbKeys pactDb (DUserTables (mkTableName tn))
+            $ tryShow $ ignoreGas def $ _pdbKeys pactDB (DUserTables (mkTableName tn))
     DbSelect tn rs ->
         fmap (DbSelect tn . Pair rs . Identity)
             $ tryShow $ do
-                ks <- ignoreGas def $ _pdbKeys pactDb (DUserTables (mkTableName tn))
-                traverse (\k -> fmap (k,) . extractInt . fromJuste =<< ignoreGas def (_pdbRead pactDb (DUserTables (mkTableName tn)) k)) ks
+                ks <- ignoreGas def $ _pdbKeys pactDB (DUserTables (mkTableName tn))
+                traverse (\k -> fmap (k,) . extractInt . fromJuste =<< ignoreGas def (_pdbRead pactDB (DUserTables (mkTableName tn)) k)) ks
     DbCreateTable tn s ->
         fmap (DbCreateTable tn . Pair s . Identity)
-            $ tryShow (ignoreGas def $ _pdbCreateUserTable pactDb (mkTableName tn))
+            $ tryShow (ignoreGas def $ _pdbCreateUserTable pactDB (mkTableName tn))
 
 -- craft a fake block header from txlogs, i.e. some set of writes.
 -- that way, the block header changes if the write set stops agreeing.
@@ -180,11 +160,11 @@ blockHeaderFromTxLogs ph txLogs = do
     let
         logMerkleTree = merkleTree @ChainwebMerkleHashAlgorithm @ByteString
             [ TreeNode $ merkleRoot $ merkleTree
-                [ InputNode (T.encodeUtf8 (_txDomain log))
-                , InputNode (T.encodeUtf8 (_txKey log))
-                , InputNode (_txValue log)
+                [ InputNode (T.encodeUtf8 (_txDomain txLog))
+                , InputNode (T.encodeUtf8 (_txKey txLog))
+                , InputNode (_txValue txLog)
                 ]
-            | log <- txLogs
+            | txLog <- txLogs
             ]
         encodedLogRoot = runPutS $ encodeMerkleLogHash $ MerkleLogHash $ merkleRoot logMerkleTree
     fakePayloadHash <- runGetS decodeBlockPayloadHash encodedLogRoot
@@ -207,7 +187,7 @@ runBlocks cp ph blks = do
     ((), finishedBlks) <- _cpRestoreAndSave cp (Just ph) $ traverse_ Stream.yield
         [ Pact5RunnableBlock $ \db _ph startHandle -> do
             doPact5DbTransaction db startHandle Nothing $ \txdb -> do
-                _pdbBeginTx txdb Transactional
+                void $ _pdbBeginTx txdb Transactional
                 blk' <- traverse (runDbAction txdb) blk
                 txLogs <- _pdbCommitTx txdb
                 bh <- blockHeaderFromTxLogs (fromJuste _ph) txLogs
@@ -246,8 +226,8 @@ tests = testGroup "Pact5 Checkpointer tests"
         testCase "valid PactDb before genesis" $ do
             cp <- cpIO
             ((), _handle) <- (throwIfNoHistory =<<) $
-                _cpReadFrom (_cpReadCp cp) Nothing Pact5T $ \db handle -> do
-                    doPact5DbTransaction db handle Nothing $ \txdb ->
+                _cpReadFrom (_cpReadCp cp) Nothing Pact5T $ \db blockHandle -> do
+                    doPact5DbTransaction db blockHandle Nothing $ \txdb ->
                         Pact.Core.runPactDbRegression txdb
             return ()
     , withResourceT (liftIO . initCheckpointer testVer cid =<< withTempSQLiteResource) $ \cpIO ->
@@ -269,10 +249,14 @@ tests = testGroup "Pact5 Checkpointer tests"
                     assertBlock cp ph block
     ]
 
+testVer :: ChainwebVersion
 testVer = pact5CheckpointerTestVersion singletonChainGraph
-cid = unsafeChainId 0
-gh = genesisBlockHeader testVer cid
 
+cid :: ChainId
+cid = unsafeChainId 0
+
+gh :: BlockHeader
+gh = genesisBlockHeader testVer cid
 
 instance (forall a. Show a => Show (f a)) => Show (DbAction f) where
     showsPrec n (DbRead tn k v) = showParen (n > 10) $

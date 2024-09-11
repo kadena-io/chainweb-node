@@ -128,10 +128,9 @@ testMemPoolAccess = mempty
           , "\n\nouttxs: "
           , show outtxs
           , "\n\noks: "
-          , show [ fmap (bimap sshow (const ())) oks ]
+          , show [ fmap (bimap (sshow @_ @String) (const ())) oks ]
           ]
-      return $ V.fromList [ to | Right to <- V.toList oks ]
-
+      return $ V.fromList [ t | Right t <- V.toList oks ]
 
 dupegenMemPoolAccess :: IO MemPoolAccess
 dupegenMemPoolAccess = do
@@ -151,9 +150,9 @@ dupegenMemPoolAccess = do
               [ "dupegenMemPoolAccess: tx failed validation! input list: \n"
               , show outtxs
               , "\n\noks: "
-              , show [ fmap (bimap sshow (const ())) oks ]
+              , show [ fmap (bimap (sshow @_ @String) (const ())) oks ]
               ]
-          return $ V.fromList $ [ to | Right to <- V.toList oks ]
+          return $ V.fromList $ [ t | Right t <- V.toList oks ]
     }
 
 -- | This is a regression test for correct initialization of the checkpointer

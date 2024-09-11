@@ -5,6 +5,10 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
+-- I have no idea why this warning is being triggered
+-- for things that are clearly used
+{-# options_ghc -fno-warn-unused-top-binds #-}
+
 -- |
 -- Module: Chainweb.Test.BlockHeaderDB
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -46,10 +50,6 @@ import Pact.Types.RPC
 import Pact.Types.Runtime
 import Pact.Types.SPV
 
-import qualified Pact.Core.Persistence.MockPersistence as PCore
-import qualified Pact.Core.Serialise as PCore
-import qualified Pact.Core.Gas as PCore
-
 -- internal chainweb modules
 
 import Chainweb.BlockCreationTime
@@ -57,7 +57,6 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Types
 import Chainweb.Pact4.Templates
 import Chainweb.Pact4.TransactionExec
 import qualified Chainweb.Pact4.Types as Pact4

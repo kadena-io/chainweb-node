@@ -29,9 +29,9 @@ import Patience qualified as PatienceL
 import Patience.Map qualified as PatienceM
 import Patience.Map (Delta(..))
 
-import Data.Aeson (object, (.=), Value(..), eitherDecode)
+import Data.Aeson (object, (.=), Value(..))
 import qualified Data.ByteString.Lazy as BL
-import Data.Either (isLeft, isRight, fromRight)
+import Data.Either (isRight)
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
@@ -52,13 +52,10 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Pact.Types.Command
-import Pact.Types.Exp(ParsedCode(..))
 import Pact.Types.Hash
 import Pact.Types.Info
 import Pact.Types.Persistence
 import Pact.Types.PactError
-import Pact.Types.RowData
-import Pact.Types.Util (fromText')
 
 import Pact.JSON.Encode qualified as J
 import Pact.JSON.Yaml
@@ -78,12 +75,10 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Compaction qualified as C
 import Chainweb.Pact.Backend.PactState.GrandHash.Algorithm (computeGrandHash)
 import Chainweb.Pact.Backend.PactState qualified as PS
- hiding (RunnableBlock(..))
 import Chainweb.Pact.Service.BlockValidation hiding (local)
 import Chainweb.Pact.Service.PactQueue (PactQueue, newPactQueue)
-import Chainweb.Pact.Types hiding (runBlock)
-import Chainweb.Pact.PactService (runPactService)
 import Chainweb.Pact.Types
+import Chainweb.Pact.PactService (runPactService)
 import Chainweb.Pact.Utils (emptyPayload)
 import Chainweb.Payload
 import Chainweb.Test.Cut.TestBlockDb
@@ -605,9 +600,9 @@ compactionUserTablesDropped rdb =
                   n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
                   tx <- createTable n tbl
                   writeIORef madeRef True
-                  [Right to] <-
+                  [Right t] <-
                     V.toList <$> validate mBlockHeight mBlockHash ((fmap . fmap . fmap) _pcCode $ V.singleton tx)
-                  pure (V.singleton to)
+                  pure (V.singleton t)
 
           if mBlockHeight <= halfwayPoint
           then do
@@ -872,9 +867,8 @@ mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
           Nothing -> return mempty
           Just txs -> do
             tos <- validate bheight bhash =<< (fmap (V.fromList . (fmap . fmap . fmap) _pcCode) $ sequence $ map (next supply bh) txs)
-            return $ V.fromList [to | Right to <- V.toList tos]
+            return $ V.fromList [t | Right t <- V.toList tos]
       }
-
 
     next supply bh f = do
       i <- modifyMVar supply $ return . (succ &&& id)
@@ -929,7 +923,7 @@ moduleNameMempool ns mn = mempty
       set cbRPC (mkExec' code) $
       defaultCmd
     tos <- validate bheight bhash $ (fmap . fmap . fmap) _pcCode builtTxs
-    return $ V.fromList [to | Right to <- V.toList tos ]
+    return $ V.fromList [t | Right t <- V.toList tos ]
     -- undefined
   }
 
@@ -969,8 +963,8 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
 
     getBlock bh tx valid = do
       let txs = V.singleton $ (fmap . fmap) _pcCode tx
-      [Right tx] <- V.toList <$> valid (_blockHeight bh) (_blockHash bh) txs
-      return (V.singleton tx)
+      [Right t] <- V.toList <$> valid (_blockHeight bh) (_blockHash bh) txs
+      return (V.singleton t)
 
 preInsertCheckTimeoutTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 preInsertCheckTimeoutTest _ reqIO = testCase "preInsertCheckTimeoutTest" $ do
@@ -1027,8 +1021,8 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlistNewBlockTest" $ do
   where
     badlistMPA badTx badHashRef = mempty
       { mpaGetBlock = \_ valid bheight bhash _ -> do
-        [Right to] <- V.toList <$> valid bheight bhash (V.singleton $ (fmap . fmap) _pcCode badTx)
-        return (V.singleton to)
+        [Right t] <- V.toList <$> valid bheight bhash (V.singleton $ (fmap . fmap) _pcCode badTx)
+        return (V.singleton t)
       , mpaBadlistTx = \v -> writeIORef badHashRef v
       }
 
@@ -1045,7 +1039,7 @@ goldenNewBlock name mpIO mpRefIO reqIO = golden name $ do
       assertSatisfies ("golden tx succeeds, input: " ++ show txIn) (_crResult cr) (isRight . (\(PactResult r) -> r))
     case blockInProgress of
       ForPact4 bip -> goldenBytes resp bip
-      ForPact5 bip -> error "pact 5"
+      ForPact5 _ -> error "pact 5 in goldenNewBlock"
   where
     hmToSortedList = List.sortOn fst . HM.toList
     -- missing some fields, only includes the fields that are "outputs" of
@@ -1127,7 +1121,7 @@ mempoolOf blocks = do
             , "\n\noks: \n"
             , show [ err | Left err <- V.toList oks ]
             ]
-        return $ V.fromList [ to | Right to <- V.toList oks ]
+        return $ V.fromList [ t | Right t <- V.toList oks ]
 
 data CompactionResources = CompactionResources
   { mempoolRef :: IO (IORef MemPoolAccess)

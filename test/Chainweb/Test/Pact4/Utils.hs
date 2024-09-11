@@ -191,9 +191,6 @@ import Pact.Types.Term
 import Pact.Types.Util (parseB16TextOnly)
 import Pact.Types.Verifier
 
-import qualified Pact.Core.Builtin as PCore
-import qualified Pact.Core.Gas as PCore
-
 -- internal modules
 
 import Chainweb.BlockHeader
@@ -209,11 +206,10 @@ import Chainweb.Pact.Backend.PactState (TableDiffable(..), Table(..), PactRow(..
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.SQLite.DirectV2
 
-import Chainweb.Pact.Backend.Utils hiding (withSqliteDb)
+import Chainweb.Pact.Backend.Utils hiding (tbl, withSqliteDb)
 import Chainweb.Pact.PactService
 import Chainweb.Pact.RestAPI.Server (validateCommand)
 import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Types
 import Chainweb.Pact.Types
 import Chainweb.Pact4.Types
 import Chainweb.Payload

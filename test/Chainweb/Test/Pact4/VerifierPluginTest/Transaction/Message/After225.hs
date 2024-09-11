@@ -28,7 +28,6 @@ import Pact.Types.Runtime
 import Pact.Types.Verifier hiding (verifierName)
 
 import Chainweb.Miner.Pact
-import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact4.Utils
@@ -38,7 +37,6 @@ import Chainweb.VerifierPlugin.Hyperlane.Binary
 import Chainweb.VerifierPlugin.Hyperlane.Utils
 
 import Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Utils
-import qualified Chainweb.Pact4.Types as Pact4
 
 tests :: TestTree
 tests = testGroup "After225"

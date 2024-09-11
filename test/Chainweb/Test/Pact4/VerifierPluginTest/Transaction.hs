@@ -27,7 +27,6 @@ import Pact.Types.Term
 import Pact.Types.Verifier hiding (verifierName)
 
 import Chainweb.Miner.Pact
-import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
 import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact4.Utils
@@ -35,7 +34,6 @@ import Chainweb.Test.Pact4.Utils
 import qualified Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Message.After225 as After225
 import qualified Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Message.Before225 as Before225
 import Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Utils
-import qualified Chainweb.Pact4.Types as Pact4
 
 
 tests :: TestTree

@@ -16,108 +16,56 @@ module Chainweb.Test.Pact5.TransactionExecTest (tests) where
 
 import Data.String (fromString)
 import Data.Set qualified as Set
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.Graph (singletonChainGraph)
-import Chainweb.Logger
-import Chainweb.MerkleLogHash
-import Chainweb.MerkleUniverse (ChainwebMerkleHashAlgorithm)
 import Chainweb.Miner.Pact (noMiner)
-import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
-import Chainweb.Pact.Backend.SQLite.DirectV2 (close_v2)
-import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService (initialPayloadState, withPactService)
-import Chainweb.Pact.PactService.Checkpointer (readFrom, restoreAndSave, SomeBlockM(..))
-import Chainweb.Pact.PactService.Pact4.ExecBlock
+import Chainweb.Pact.PactService.Checkpointer (readFrom, SomeBlockM(..))
 import Chainweb.Pact.Types
-import Chainweb.Pact.Types (defaultModuleCacheLimit, psBlockDbEnv)
-import Chainweb.Pact.Utils (emptyPayload)
-import Chainweb.Pact4.TransactionExec (applyGenesisCmd)
 import Chainweb.Pact5.Transaction
 import Chainweb.Pact5.TransactionExec
 import Chainweb.Pact5.Types
-import Chainweb.Payload (PayloadWithOutputs_ (_payloadWithOutputsPayloadHash), Transaction (Transaction))
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), mkTestBlockDb)
-import Chainweb.Test.Pact4.Utils (stdoutDummyLogger, stdoutDummyLogger, withBlockHeaderDb)
-import Chainweb.Test.Pact4.Utils (testPactServiceConfig)
+import Chainweb.Test.Pact4.Utils (stdoutDummyLogger, stdoutDummyLogger)
 import Chainweb.Test.Pact5.CmdBuilder
-import Chainweb.Test.Pact5.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
-import Chainweb.Time
 import Chainweb.Utils (T2(..))
-import Chainweb.Utils (fromJuste)
-import Chainweb.Utils.Serialization (runGetS, runPutS)
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb)
-import Control.Concurrent
-import Control.Exception (evaluate)
-import Control.Exception.Safe
 import Control.Lens hiding (only)
-import Control.Monad
 import Control.Monad.Except
 import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Control.Monad.Trans.Resource
-import Data.ByteString (ByteString)
 import Data.Decimal
 import Data.Default
-import Data.Foldable
-import Data.Functor.Const
-import Data.Functor.Identity
 import Data.Functor.Product
-import Data.Graph (Tree)
 import Data.IORef
 import Data.Maybe (fromMaybe)
-import Data.MerkleLog (MerkleNodeType (..), merkleLeaf, merkleRoot, merkleTree)
 import Data.Text (Text)
 import GHC.Stack
-import Hedgehog hiding (Update)
-import qualified Hedgehog.Gen as Gen
-import Numeric.AffineSpace
-import Pact.Core.Builtin
 import Pact.Core.Info
 import Pact.Core.Capabilities
-import Pact.Core.ChainData
-import Pact.Core.ChainData (ChainId (ChainId))
-import Pact.Core.Command.RPC
 import Pact.Core.Command.Types
 import Pact.Core.Compile(CompileValue(..))
 import Pact.Core.Errors
 import Pact.Core.Evaluate
 import Pact.Core.Gas.TableGasModel
 import Pact.Core.Gas.Types
-import Pact.Core.Gen
-import Pact.Core.Literal
 import Pact.Core.Names
-import Pact.Core.Names (ModuleName(ModuleName))
-import Pact.Core.PactDbRegression
 import Pact.Core.PactValue
-import Pact.Core.Persistence
-import Pact.Core.Persistence (PactDb(_pdbRead))
+import Pact.Core.Persistence hiding (pactDb)
 import Pact.Core.SPV (noSPVSupport)
-import Pact.Core.Serialise
-import Pact.Core.StableEncoding (encodeStable)
 import Pact.Core.Verifiers
 import Pact.Core.Signer
-import qualified Pact.JSON.Encode as J
+import Pact.JSON.Encode qualified as J
 import PredicateTransformers as PT
-import System.LogLevel
 import Test.Tasty
 import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
-import Test.Tasty.Hedgehog
-import Text.Show.Pretty
-import Chainweb.Pact4.TransactionExec qualified
-import Chainweb.Pact5.TransactionExec qualified
-import Chainweb.Pact5.TransactionExec qualified as Pact5
-import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
-import Data.Tree qualified as Tree
-import Hedgehog.Range qualified as Range
-import Pact.Core.PactDbRegression qualified as Pact.Core
-import Streaming.Prelude qualified as Stream
 import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
 
 coinModuleName :: ModuleName
@@ -125,10 +73,10 @@ coinModuleName = ModuleName "coin" Nothing
 
 -- usually we don't want to check the module hash
 event :: Predicatory p => Pred p Text -> Pred p [PactValue] -> Pred p ModuleName -> Pred p (PactEvent PactValue)
-event n args mod = satAll
+event n args modName = satAll
     [ pt _peName n
     , pt _peArgs args
-    , pt _peModule mod
+    , pt _peModule modName
     ]
 
 tests :: RocksDb -> TestTree
@@ -154,7 +102,6 @@ buyGasShouldTakeGasTokensFromTheTransactionSender :: RocksDb -> IO ()
 buyGasShouldTakeGasTokensFromTheTransactionSender baseRdb = runResourceT $ do
     sql <- withTempSQLiteResource
     liftIO $ do
-        cp <- initCheckpointer v cid sql
         tdb <- mkTestBlockDb v =<< testRocksDb "testBuyGasShouldTakeGasTokensFromTheTransactionSender" baseRdb
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
         T2 () _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
@@ -176,7 +123,7 @@ buyGasShouldTakeGasTokensFromTheTransactionSender baseRdb = runResourceT $ do
                         }
 
                     let txCtx = TxContext { _tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner }
-                    buyGas stdoutDummyLogger pactDb txCtx (view payloadObj <$> cmd)
+                    _ <- buyGas stdoutDummyLogger pactDb txCtx (view payloadObj <$> cmd)
 
                     endSender00Bal <- readBal pactDb "sender00"
                     assertEqual "balance after buying gas" (Just $ 100_000_000 - 200 * 2) endSender00Bal
@@ -186,10 +133,9 @@ buyGasFailures :: RocksDb -> IO ()
 buyGasFailures baseRdb = runResourceT $ do
     sql <- withTempSQLiteResource
     liftIO $ do
-        cp <- initCheckpointer v cid sql
         tdb <- mkTestBlockDb v =<< testRocksDb "testBuyGasFailures" baseRdb
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
-        T2 ((), finalHandle) _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+        T2 ((), _finalHandle) _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
             initialPayloadState v cid
             (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader (gh v cid)) $ SomeBlockM $ Pair (error "pact4") $ do
                 db <- view psBlockDbEnv
@@ -248,7 +194,6 @@ redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner :: RocksDb -> IO ()
 redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner baseRdb = runResourceT $ do
     sql <- withTempSQLiteResource
     liftIO $ do
-        cp <- initCheckpointer v cid sql
         tdb <- mkTestBlockDb v =<< testRocksDb "redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner" baseRdb
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
         T2 ((), _finalHandle) _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
@@ -277,7 +222,7 @@ redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner baseRdb = runResource
                         -- to the gas payer
 
                         -- TODO: should we be throwing some predicates at the redeem gas result?
-                        redeemGasResult <- throwIfError =<< redeemGas stdoutDummyLogger pactDb txCtx (Gas 3) Nothing (view payloadObj <$> cmd)
+                        _redeemGasResult <- throwIfError =<< redeemGas stdoutDummyLogger pactDb txCtx (Gas 3) Nothing (view payloadObj <$> cmd)
                         endSender00Bal <- readBal pactDb "sender00"
                         assertEqual "balance after redeeming gas" (Just $ 100_000_000 + (10 - 3) * 2) endSender00Bal
                         endMinerBal <- readBal pactDb "NoMiner"
@@ -288,7 +233,6 @@ payloadFailureShouldPayAllGasToTheMinerTypeError :: RocksDb -> IO ()
 payloadFailureShouldPayAllGasToTheMinerTypeError baseRdb = runResourceT $ do
     sql <- withTempSQLiteResource
     liftIO $ do
-        cp <- initCheckpointer v cid sql
         tdb <- mkTestBlockDb v =<< testRocksDb "payloadFailureShouldPayAllGasToTheMiner1" baseRdb
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
         T2 ((), _finalHandle) _finalPactState <-
@@ -354,7 +298,6 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds :: RocksDb -> IO ()
 payloadFailureShouldPayAllGasToTheMinerInsufficientFunds baseRdb = runResourceT $ do
     sql <- withTempSQLiteResource
     liftIO $ do
-        cp <- initCheckpointer v cid sql
         tdb <- mkTestBlockDb v =<< testRocksDb "payloadFailureShouldPayAllGasToTheMiner1" baseRdb
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
         T2 ((), _finalHandle) _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
@@ -421,7 +364,6 @@ runPayloadShouldReturnEvalResultRelatedToTheInputCommand :: RocksDb -> IO ()
 runPayloadShouldReturnEvalResultRelatedToTheInputCommand baseRdb = runResourceT $ do
     sql <- withTempSQLiteResource
     liftIO $ do
-        cp <- initCheckpointer v cid sql
         tdb <- mkTestBlockDb v =<< testRocksDb "testApplyPayload" baseRdb
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
         T2 () _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
@@ -477,7 +419,6 @@ applyLocalSpec :: RocksDb -> IO ()
 applyLocalSpec baseRdb = runResourceT $ do
     sql <- withTempSQLiteResource
     liftIO $ do
-        cp <- initCheckpointer v cid sql
         tdb <- mkTestBlockDb v =<< testRocksDb "testApplyLocal" baseRdb
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
         T2 ((), _finalHandle) _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
@@ -527,7 +468,6 @@ applyCmdSpec :: RocksDb -> IO ()
 applyCmdSpec baseRdb = runResourceT $ do
     sql <- withTempSQLiteResource
     liftIO $ do
-        cp <- initCheckpointer v cid sql
         tdb <- mkTestBlockDb v =<< testRocksDb "testApplyCmd" baseRdb
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
         T2 ((), _finalHandle) _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
@@ -601,7 +541,6 @@ applyCmdVerifierSpec :: RocksDb -> IO ()
 applyCmdVerifierSpec baseRdb = runResourceT $ do
     sql <- withTempSQLiteResource
     liftIO $ do
-        cp <- initCheckpointer v cid sql
         tdb <- mkTestBlockDb v =<< testRocksDb "testApplyCmdVerifier" baseRdb
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
         T2 ((), _finalHandle) _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
@@ -720,7 +659,6 @@ applyCmdFailureSpec :: RocksDb -> IO ()
 applyCmdFailureSpec baseRdb = runResourceT $ do
     sql <- withTempSQLiteResource
     liftIO $ do
-        cp <- initCheckpointer v cid sql
         tdb <- mkTestBlockDb v =<< testRocksDb "testApplyCmdFailure" baseRdb
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
         T2 ((), _finalHandle) _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
@@ -787,7 +725,6 @@ applyCmdCoinTransfer :: RocksDb -> IO ()
 applyCmdCoinTransfer baseRdb = runResourceT $ do
     sql <- withTempSQLiteResource
     liftIO $ do
-        cp <- initCheckpointer v cid sql
         tdb <- mkTestBlockDb v =<< testRocksDb "testApplyCmdCoinTransfer" baseRdb
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
         T2 ((), _finalHandle) _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
@@ -874,7 +811,6 @@ applyCoinbaseSpec :: RocksDb -> IO ()
 applyCoinbaseSpec baseRdb = runResourceT $ do
     sql <- withTempSQLiteResource
     liftIO $ do
-        cp <- initCheckpointer v cid sql
         tdb <- mkTestBlockDb v =<< testRocksDb "testApplyCoinbase" baseRdb
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
         T2 ((), _finalHandle) _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
@@ -914,7 +850,6 @@ testCoinUpgrade :: RocksDb -> IO ()
 testCoinUpgrade baseRdb = runResourceT $ do
     sql <- withTempSQLiteResource
     liftIO $ do
-        cp <- initCheckpointer vUpgrades cid sql
         tdb <- mkTestBlockDb vUpgrades =<< testRocksDb "testCoinUpgrade" baseRdb
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
         T2 ((), _finalHandle) _finalPactState <- withPactService vUpgrades cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
@@ -955,7 +890,6 @@ testLocalOnlyFailsOutsideOfLocal :: RocksDb -> IO ()
 testLocalOnlyFailsOutsideOfLocal baseRdb = runResourceT $ do
     sql <- withTempSQLiteResource
     liftIO $ do
-        cp <- initCheckpointer v cid sql
         tdb <- mkTestBlockDb v =<< testRocksDb "testLocalOnlyFailsOutsideOfLocal" baseRdb
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
         T2 ((), _finalHandle) _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
@@ -999,11 +933,16 @@ testLocalOnlyFailsOutsideOfLocal baseRdb = runResourceT $ do
         pure ()
     pure ()
 
+cid :: ChainId
 cid = unsafeChainId 0
+
+gh :: ChainwebVersion -> ChainId -> BlockHeader
 gh = genesisBlockHeader
 
+vUpgrades :: ChainwebVersion
 vUpgrades = pact5SlowCpmTestVersion singletonChainGraph
 
+v :: ChainwebVersion
 v = pact5InstantCpmTestVersion singletonChainGraph
 
 readBal :: (HasCallStack, Default i) => PactDb b i -> T.Text -> IO (Maybe Decimal)

@@ -546,9 +546,10 @@ test-suite chainweb-tests
         Chainweb.Test.Pact4.Utils
         Chainweb.Test.Pact5.CheckpointerTest
         Chainweb.Test.Pact5.CmdBuilder
-        Chainweb.Test.Pact5.TransactionExecTest
         Chainweb.Test.Pact5.PactServiceTest
+        Chainweb.Test.Pact5.RemotePactTest
         Chainweb.Test.Pact5.SPVTest
+        Chainweb.Test.Pact5.TransactionExecTest
         Chainweb.Test.Pact5.Utils
         Chainweb.Test.RestAPI
         Chainweb.Test.RestAPI.Client_

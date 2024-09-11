@@ -555,6 +555,8 @@ localPreflightSimTest t cenv step = do
       Right LocalTimeout ->
         assertFailure "Preflight should never produce a timeout"
       Right LocalResultWithWarns{} -> pure ()
+      Right LocalPact5PreflightResult{} ->
+        assertFailure "Preflight /local call produced Pact5 result in Pact4-only tests"
 
     step "Execute preflight /local tx - preflight+signoverify known /send success"
     cmd0' <- mkRawTx mv psid psigs
@@ -610,6 +612,8 @@ localPreflightSimTest t cenv step = do
         assertFailure "Preflight should never produce a timeout"
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
+      Right LocalPact5PreflightResult{} ->
+        assertFailure "Preflight /local call produced Pact5 result in Pact4-only tests"
       Right (LocalResultWithWarns cr' ws) -> do
         let crbh :: Integer = fromIntegral $ fromMaybe 0 $ crGetBlockHeight cr'
             expectedbh = 1 + fromIntegral currentBlockHeight
@@ -633,6 +637,8 @@ localPreflightSimTest t cenv step = do
         assertFailure "Preflight should never produce a timeout"
       Right MetadataValidationFailure{} ->
         assertFailure "Preflight produced an impossible result"
+      Right LocalPact5PreflightResult{} ->
+        assertFailure "Preflight /local call produced Pact5 result in Pact4-only tests"
       Right (LocalResultWithWarns cr' ws) -> do
         let crbh :: Integer = fromIntegral $ fromMaybe 0 $ crGetBlockHeight cr'
             expectedbh = toInteger $ 1 + (fromIntegral currentBlockHeight') - rewindDepth
