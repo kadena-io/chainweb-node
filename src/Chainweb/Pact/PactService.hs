@@ -104,6 +104,7 @@ import qualified Chainweb.Pact4.Backend.ChainwebPactDb as Pact4
 import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
 import Chainweb.Pact.Types
 import Chainweb.Pact4.SPV qualified as Pact4
+import Chainweb.Pact5.SPV qualified as Pact5
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
@@ -131,6 +132,7 @@ import Data.Functor.Product
 import qualified Chainweb.Pact5.TransactionExec as Pact5
 import qualified Chainweb.Pact5.Transaction as Pact5
 import Control.Monad.Except
+import Data.Default
 
 
 runPactService
@@ -678,7 +680,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
 
 execLocal
     :: (Logger logger, CanReadablePayloadCas tbl)
-    => Pact4.Transaction
+    => Pact4.UnparsedTransaction
     -> Maybe LocalPreflightSimulation
     -- ^ preflight flag
     -> Maybe LocalSignatureVerification
@@ -705,48 +707,93 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
             | otherwise = Nothing
 
     -- TODO: Pact 5
-    let act = readFromNthParent (fromIntegral rewindDepth) $ SomeBlockM $ flip Pair (error "pact5") $ do
-            pc <- view psParentHeader
-            let spv = Pact4.pactSPV bhdb (_parentHeader pc)
-            ctx <- Pact4.getTxContext noMiner pm
-            let gasModel = Pact4.getGasModel ctx
-            mc <- Pact4.getInitCache
-            dbEnv <- Pact4._cpPactDbEnv <$> view psBlockDbEnv
+    let act = readFromNthParent (fromIntegral rewindDepth) $ SomeBlockM $ Pair
+            (do
+                pc <- view psParentHeader
+                let spv = Pact4.pactSPV bhdb (_parentHeader pc)
+                ctx <- Pact4.getTxContext noMiner pm
+                let gasModel = Pact4.getGasModel ctx
+                mc <- Pact4.getInitCache
+                dbEnv <- Pact4._cpPactDbEnv <$> view psBlockDbEnv
+                logger <- view (psServiceEnv . psLogger)
+                liftIO (runExceptT
+                    (Pact4.checkParse logger (_chainwebVersion pc) (_chainId pc) (succ (_blockHeight $ _parentHeader pc)) cwtx))
+                    >>= \case
+                        Left err ->
+                            let
+                                parseError = Pact4.CommandResult
+                                    { _crReqKey = Pact4.RequestKey (Pact4.toUntypedHash $ Pact4._cmdHash cmd)
+                                    , _crTxId = Nothing
+                                    , _crResult = Pact4.PactResult (Left (Pact4.PactError Pact4.SyntaxError def [] (sshow err)))
+                                    , _crGas = cmd ^. Pact4.cmdPayload . Pact4.pMeta . Pact4.pmGasLimit . to fromIntegral
+                                    , _crLogs = Nothing
+                                    , _crContinuation = Nothing
+                                    , _crMetaData = Nothing
+                                    , _crEvents = []
+                                    }
+                            in case preflight of
+                                Just PreflightSimulation -> return $ LocalResultWithWarns parseError []
+                                _ -> return $ LocalResultLegacy parseError
+                        Right pact4Cwtx -> do
 
-            --
-            -- if the ?preflight query parameter is set to True, we run the `applyCmd` workflow
-            -- otherwise, we prefer the old (default) behavior. When no preflight flag is
-            -- specified, we run the old behavior. When it is set to true, we also do metadata
-            -- validations.
-            --
-            case preflight of
-                Just PreflightSimulation -> do
-                    Pact4.liftPactServiceM (Pact4.assertLocalMetadata cmd ctx sigVerify) >>= \case
-                        Right{} -> do
-                            let initialGas = Pact4.initialGasOf $ Pact4._cmdPayload cwtx
-                            T3 cr _mc warns <- liftIO $ Pact4.applyCmd
-                                _psVersion _psLogger _psGasLogger Nothing dbEnv
-                                noMiner gasModel ctx spv cmd
-                                initialGas mc ApplyLocal
+                            --
+                            -- if the ?preflight query parameter is set to True, we run the `applyCmd` workflow
+                            -- otherwise, we prefer the old (default) behavior. When no preflight flag is
+                            -- specified, we run the old behavior. When it is set to true, we also do metadata
+                            -- validations.
+                            --
+                            case preflight of
+                                Just PreflightSimulation -> do
+                                    Pact4.liftPactServiceM (Pact4.assertLocalMetadata cmd ctx sigVerify) >>= \case
+                                        Right{} -> do
+                                            let initialGas = Pact4.initialGasOf $ Pact4._cmdPayload pact4Cwtx
+                                            T3 cr _mc warns <- liftIO $ Pact4.applyCmd
+                                                _psVersion _psLogger _psGasLogger Nothing dbEnv
+                                                noMiner gasModel ctx spv (Pact4.payloadObj <$> pact4Cwtx)
+                                                initialGas mc ApplyLocal
 
-                            let cr' = hashPact4TxLogs cr
-                                warns' = Pact4.renderCompactText <$> toList warns
-                            pure $ LocalResultWithWarns cr' warns'
-                        Left e -> pure $ MetadataValidationFailure e
-                _ -> liftIO $ do
-                    let execConfig = Pact4.mkExecutionConfig $
-                            [ Pact4.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
-                            Pact4.enablePactEvents' (_chainwebVersion ctx) (_chainId ctx) (Pact4.ctxCurrentBlockHeight ctx) ++
-                            Pact4.enforceKeysetFormats' (_chainwebVersion ctx) (_chainId ctx) (Pact4.ctxCurrentBlockHeight ctx) ++
-                            Pact4.disableReturnRTC (_chainwebVersion ctx) (_chainId ctx) (Pact4.ctxCurrentBlockHeight ctx)
+                                            let cr' = hashPact4TxLogs cr
+                                                warns' = Pact4.renderCompactText <$> toList warns
+                                            pure $ LocalResultWithWarns cr' warns'
+                                        Left e -> pure $ MetadataValidationFailure e
+                                _ -> liftIO $ do
+                                    let execConfig = Pact4.mkExecutionConfig $
+                                            [ Pact4.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
+                                            Pact4.enablePactEvents' (_chainwebVersion ctx) (_chainId ctx) (Pact4.ctxCurrentBlockHeight ctx) ++
+                                            Pact4.enforceKeysetFormats' (_chainwebVersion ctx) (_chainId ctx) (Pact4.ctxCurrentBlockHeight ctx) ++
+                                            Pact4.disableReturnRTC (_chainwebVersion ctx) (_chainId ctx) (Pact4.ctxCurrentBlockHeight ctx)
 
-                    cr <- Pact4.applyLocal
-                        _psLogger _psGasLogger dbEnv
-                        gasModel  ctx spv
-                        cwtx mc execConfig
+                                    cr <- Pact4.applyLocal
+                                        _psLogger _psGasLogger dbEnv
+                                        gasModel  ctx spv
+                                        pact4Cwtx mc execConfig
 
-                    let cr' = hashPact4TxLogs cr
-                    pure $ LocalResultLegacy cr'
+                                    let cr' = hashPact4TxLogs cr
+                                    pure $ LocalResultLegacy cr'
+            ) (do
+                ph <- view psParentHeader
+                case Pact5.parsePact4Command cwtx of
+                    Left parseError ->
+                        return $ LocalPact5PreflightResult Pact5.CommandResult
+                            { _crReqKey = Pact5.RequestKey (Pact5.Hash $ Pact4.unHash $ Pact4.toUntypedHash $ Pact4._cmdHash cwtx)
+                            , _crTxId = Nothing
+                            , _crResult = Pact5.PactResultErr ("Parse error: " <> sshow parseError)
+                            , _crGas = Pact5.Gas $ fromIntegral $ cmd ^. Pact4.cmdPayload . Pact4.pMeta . Pact4.pmGasLimit
+                            , _crLogs = Nothing
+                            , _crContinuation = Nothing
+                            , _crMetaData = Nothing
+                            , _crEvents = []
+                            }
+                            []
+                    Right pact5Cmd -> do
+                        let txCtx = Pact5.TxContext ph noMiner
+                        cr <- Pact5.pactTransaction Nothing $ \dbEnv -> do
+                            let spvSupport = Pact5.pactSPV bhdb (_parentHeader ph)
+                            liftIO $
+                                fmap sshow <$> Pact5.applyLocal _psLogger _psGasLogger dbEnv txCtx spvSupport (view Pact5.payloadObj <$> pact5Cmd)
+                        pure $ LocalPact5PreflightResult (hashPact5TxLogs cr) []
+
+            )
 
     case timeoutLimit of
         Nothing -> act

@@ -33,7 +33,6 @@ import Test.Tasty.HUnit
 import System.IO.Unsafe
 import System.Logger qualified as YAL
 import System.LogLevel
-import Text.Show.Pretty(pPrint)
 
 -- internal modules
 
@@ -51,8 +50,6 @@ import Pact.Types.Runtime (PactEvent)
 import Pact.Types.SPV
 import Pact.Types.Term
 
-import qualified Pact.Core.Gas as PCore
-
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
@@ -62,8 +59,8 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
 
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Pact4.TransactionExec (listErrMsg)
 import Chainweb.Payload
 import Chainweb.SPV.CreateProof
@@ -79,7 +76,6 @@ import Chainweb.Version.Registry
 import Chainweb.WebPactExecutionService
 
 import Chainweb.Payload.PayloadStore (lookupPayloadWithHeight)
-import qualified Chainweb.Pact4.Types as Pact4
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion peterson
@@ -202,7 +198,10 @@ txTimeoutTest = do
   -- don't make sense for tx timeout
   let pts =
         [ buildBasicGas 400 $ mkExec' "(+ 1 1)"
-        , buildBasicGas 10_000 $ mkExec' $ foldr (\_ expr -> "(map (lambda (x) (+ x 1))" <> expr <> ")") "(enumerate 1 1000)" [1..6_000] -- make a huge nested tx
+        , buildBasicGas 10_000 $ mkExec' $ foldr
+          (\(_ :: Int) expr -> "(map (lambda (x) (+ x 1))" <> expr <> ")")
+          "(enumerate 1 1000)"
+          [1..6_000] -- make a huge nested tx
         , buildBasicGas 400  $ mkExec' "(+ 2 2)"
         ]
   chid <- view menvChainId
@@ -398,7 +397,7 @@ runLocalWithDepth :: T.Text -> Maybe RewindDepth -> ChainId -> CmdBuilder -> Pac
 runLocalWithDepth nonce depth cid' cmd = do
   pact <- getPactService cid'
   cwCmd <- buildCwCmd nonce testVersion cmd
-  liftIO $ try @_ @PactException $ _pactLocal pact Nothing Nothing depth cwCmd
+  liftIO $ try @_ @PactException $ _pactLocal pact Nothing Nothing depth (Pact4.unparseTransaction cwCmd)
 
 getSqlite :: ChainId -> PactTestM SQLiteEnv
 getSqlite cid' = do
@@ -1595,7 +1594,7 @@ setPactMempool' fakeParentBh (PactMempool fs) = do
                   buildCwCmd (sshow parentBh) v $ _mempoolCmdBuilder b parentBh
                 validationResults <- mempoolPreBlockCheck bHeight bHash $
                   (fmap . fmap . fmap) _pcCode cmds
-                return $ V.fromList [ to | Right to <- V.toList validationResults ]
+                return $ V.fromList [ tOut | Right tOut <- V.toList validationResults ]
               Nothing -> runMps (succ i) r
       runMps 0 mps
 

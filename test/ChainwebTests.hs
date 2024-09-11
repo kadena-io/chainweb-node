@@ -12,7 +12,7 @@
 -- Chainweb Test Suite
 --
 
-module Main ( main ) where
+module Main ( main, setTestLogLevel ) where
 
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
@@ -82,8 +82,6 @@ import qualified Data.Test.Word.Encoding (properties)
 
 import qualified P2P.Test.TaskQueue (properties)
 import qualified P2P.Test.Node (properties)
-import Control.Monad (replicateM_)
-import Control.Exception.Safe (tryAny)
 import System.Environment
 import System.LogLevel
 

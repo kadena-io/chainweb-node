@@ -190,13 +190,12 @@ pactServer d =
     logger = _pactServerDataLogger d
     pact = _pactServerDataPact d
     cdb = _pactServerDataCutDb d
-    v = _chainwebVersion cdb
 
     pactApiHandlers
       = sendHandler logger mempool
       :<|> pollHandler logger cdb cid pact mempool
       :<|> listenHandler logger cdb cid pact mempool
-      :<|> localHandler logger v cid pact
+      :<|> localHandler logger pact
 
     pactSpvHandler = spvHandler logger cdb cid
     pactSpv2Handler = spv2Handler logger cdb cid
@@ -371,8 +370,6 @@ listenHandler logger cdb cid pact mem (Pact4.ListenerRequest key) = do
 localHandler
     :: Logger logger
     => logger
-    -> ChainwebVersion
-    -> ChainId
     -> PactExecutionService
     -> Maybe LocalPreflightSimulation
       -- ^ Preflight flag
@@ -382,7 +379,7 @@ localHandler
       -- ^ Rewind depth
     -> Pact4.Command Text
     -> Handler LocalResult
-localHandler logger v cid pact preflight sigVerify rewindDepth cmd = do
+localHandler logger pact preflight sigVerify rewindDepth cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
     cmd' <- case validatedCommand of
       Right c -> return c
@@ -404,7 +401,7 @@ localHandler logger v cid pact preflight sigVerify rewindDepth cmd = do
       | Just NoVerify <- sigVerify = do
           --
           -- desnote(emily): This workflow is 'Pact.Types.Command.verifyCommand'
-          -- lite - only decode and parse the pact command, no sig checking.
+          -- lite - only decode the pact command, no sig checking.
           -- We at least check the consistency of the payload hash. Further
           -- down in the 'execLocal' code, 'noSigVerify' triggers a nop on
           -- checking again if 'preflight' is set.
@@ -413,11 +410,11 @@ localHandler logger v cid pact preflight sigVerify rewindDepth cmd = do
 
           void $ Pact4.verifyHash @'Pact4.Blake2b_256 (Pact4._cmdHash cmd) payloadBS
           decoded <- eitherDecodeStrict' payloadBS
-          payloadParsed <- traverse Pact4.parsePact decoded
 
-          let cmd' = cmd { Pact4._cmdPayload = (payloadBS, payloadParsed) }
+          let cmd' = cmd { Pact4._cmdPayload = (payloadBS, decoded) }
           pure $ Pact4.mkPayloadWithText cmd'
-      | otherwise = validateCommand v cid cmd
+      | otherwise = Pact4.mkPayloadWithText <$>
+        traverse (\bs -> (encodeUtf8 bs,) <$> eitherDecodeStrictText bs) cmd
 
 -- -------------------------------------------------------------------------- --
 -- Cross Chain SPV Handler

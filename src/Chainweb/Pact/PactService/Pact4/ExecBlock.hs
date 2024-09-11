@@ -35,6 +35,7 @@ module Chainweb.Pact.PactService.Pact4.ExecBlock
     , initModuleCacheForBlock
     , runPact4Coinbase
     , CommandInvalidError(..)
+    , checkParse
     ) where
 
 import Chronos qualified

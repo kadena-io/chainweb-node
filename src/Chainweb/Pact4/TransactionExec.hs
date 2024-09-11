@@ -1486,13 +1486,13 @@ buildExecParsedCode ppv value code = maybe (go Null) go value
 
 -- | Retrieve public metadata from a command
 --
-publicMetaOf :: Command (Payload PublicMeta ParsedCode) -> PublicMeta
+publicMetaOf :: Command (Payload PublicMeta code) -> PublicMeta
 publicMetaOf = _pMeta . _cmdPayload
 {-# INLINE publicMetaOf #-}
 
 -- | Retrieve the optional Network identifier from a command
 --
-networkIdOf :: Command (Payload PublicMeta ParsedCode) -> Maybe NetworkId
+networkIdOf :: Command (Payload PublicMeta code) -> Maybe NetworkId
 networkIdOf = _pNetworkId . _cmdPayload
 {-# INLINE networkIdOf #-}
 

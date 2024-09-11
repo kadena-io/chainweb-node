@@ -43,8 +43,6 @@ import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.SQLite
 import qualified Pact.JSON.Encode as J
 
-import qualified Pact.Core.Gas as PCore
-
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -667,7 +665,6 @@ runExec cp pactdbenv eData eCode = do
       applyExec' 0 defaultInterpreter execMsg [] [] h' permissiveNamespacePolicy
   where
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-    usePact5 = False
     cmdenv :: TransactionEnv logger (BlockEnv logger)
     cmdenv = TransactionEnv Transactional pactdbenv (_cpLogger $ _cpReadCp cp) Nothing def
              noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing Nothing

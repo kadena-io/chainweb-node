@@ -918,6 +918,16 @@ instance Exception PactServiceException
 
 makePrisms ''Historical
 makeLenses ''BlockHandle
+
+-- | Errors that can be encountered by a *valid* transaction, after it's bought gas.
+data TxFailedError = TxPactError !Pact5.PactErrorI | TxVerifierError !VerifierError
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass NFData
+
+instance J.Encode TxFailedError where
+  build (TxPactError err) = J.text $ sshow err
+  build (TxVerifierError err) = J.text $ sshow err
+
 -- | Value that represents how far to go backwards while rewinding.
 newtype RewindDepth = RewindDepth { _rewindDepth :: Word64 }
   deriving (Eq, Ord)
@@ -947,16 +957,12 @@ data LocalResult
     = MetadataValidationFailure !(NE.NonEmpty Text)
     | LocalResultWithWarns !(Pact4.CommandResult Pact4.Hash) ![Text]
     | LocalResultLegacy !(Pact4.CommandResult Pact4.Hash)
+    | LocalPact5PreflightResult (Pact5.CommandResult Pact5.Hash Text) ![Text]
     | LocalTimeout
-    deriving (Show, Generic)
+    deriving stock (Show, Generic)
+    deriving anyclass NFData
 
 makePrisms ''LocalResult
-
-instance NFData LocalResult where
-    rnf (MetadataValidationFailure t) = rnf t
-    rnf (LocalResultWithWarns cr ws) = rnf cr `seq` rnf ws
-    rnf (LocalResultLegacy cr) = rnf cr
-    rnf LocalTimeout = ()
 
 instance J.Encode LocalResult where
     build (MetadataValidationFailure e) = J.object
@@ -965,6 +971,10 @@ instance J.Encode LocalResult where
     build (LocalResultLegacy cr) = J.build cr
     build (LocalResultWithWarns cr ws) = J.object
         [ "preflightResult" J..= cr
+        , "preflightWarnings" J..= J.Array (J.text <$> ws)
+        ]
+    build (LocalPact5PreflightResult cr ws) = J.object
+        [ "preflightResult" J..= fmap (sshow @_ @Text) cr
         , "preflightWarnings" J..= J.Array (J.text <$> ws)
         ]
     build LocalTimeout = J.text "Transaction timed out"
@@ -1117,7 +1127,7 @@ data ValidateBlockReq = ValidateBlockReq
     } deriving stock Show
 
 data LocalReq = LocalReq
-    { _localRequest :: !Pact4.Transaction
+    { _localRequest :: !Pact4.UnparsedTransaction
     , _localPreflight :: !(Maybe LocalPreflightSimulation)
     , _localSigVerification :: !(Maybe LocalSignatureVerification)
     , _localRewindDepth :: !(Maybe RewindDepth)
@@ -1208,13 +1218,6 @@ instance Semigroup (ModuleCacheFor Pact5) where
 type family CommandResultFor (pv :: PactVersion) where
   CommandResultFor Pact4 = Pact4.CommandResult [Pact4.TxLogJson]
   CommandResultFor Pact5 = Pact5.CommandResult [Pact5.TxLog ByteString] TxFailedError
-
-data TxFailedError = TxPactError !Pact5.PactErrorI | TxVerifierError !VerifierError
-  deriving stock (Eq, Show)
-
-instance J.Encode TxFailedError where
-  build (TxPactError err) = J.text $ sshow err
-  build (TxVerifierError err) = J.text $ sshow err
 
 -- State from a block in progress, which is used to extend blocks after
 -- running their payloads.

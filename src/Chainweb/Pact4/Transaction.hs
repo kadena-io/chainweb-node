@@ -12,6 +12,7 @@
 module Chainweb.Pact4.Transaction
   ( Transaction
   , UnparsedTransaction
+  , unparseTransaction
   , HashableTrans(..)
   , PayloadWithText
   , PactParserVersion(..)
@@ -88,6 +89,10 @@ type Transaction = Command (PayloadWithText PublicMeta ParsedCode)
 
 -- | Pact 4 commands with code left not parsed are used in the mempool.
 type UnparsedTransaction = Command (PayloadWithText PublicMeta Text)
+
+-- | Throw away the parsed representation of the Pact code.
+unparseTransaction :: Transaction -> UnparsedTransaction
+unparseTransaction cmd = cmd <&> fmap _pcCode
 
 data PactParserVersion
     = PactParserGenesis

@@ -83,7 +83,7 @@ local
     :: Maybe LocalPreflightSimulation
     -> Maybe LocalSignatureVerification
     -> Maybe RewindDepth
-    -> Pact4.Transaction
+    -> Pact4.UnparsedTransaction
     -> PactQueue
     -> IO LocalResult
 local preflight sigVerify rd ct reqQ = do

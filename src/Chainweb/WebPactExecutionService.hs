@@ -98,7 +98,7 @@ data PactExecutionService = PactExecutionService
         Maybe LocalPreflightSimulation ->
         Maybe LocalSignatureVerification ->
         Maybe RewindDepth ->
-        Pact4.Transaction ->
+        Pact4.UnparsedTransaction ->
         IO LocalResult)
     -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
     -- Corresponds to `local` HTTP endpoint.

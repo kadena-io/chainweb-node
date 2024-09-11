@@ -570,13 +570,14 @@ execLocalTest runPact name (trans',check) = testCase name (go >>= check)
     go = do
       trans <- trans'
       results' <- tryAllSynchronous $ runPact $
-        execLocal trans Nothing Nothing Nothing
+        execLocal (Pact4.unparseTransaction trans) Nothing Nothing Nothing
       case results' of
         Right (MetadataValidationFailure e) ->
           return $ Left $ show e
         Right LocalTimeout -> return $ Left "LocalTimeout"
         Right (LocalResultLegacy cr) -> return $ Right cr
         Right (LocalResultWithWarns cr _) -> return $ Right cr
+        Right (LocalPact5PreflightResult _ _) -> error "Pact 5"
         Left e -> return $ Left $ show e
 
 getPactCode :: TestSource -> IO Text

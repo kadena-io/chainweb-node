@@ -43,7 +43,6 @@ import Chainweb.Miner.Pact
 
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
-import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time

@@ -8,6 +8,8 @@
 {-# language TupleSections #-}
 {-# language TypeApplications #-}
 {-# language RankNTypes #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
 
 module Chainweb.VerifierPlugin
     ( VerifierPlugin(..)
@@ -34,6 +36,7 @@ import Data.Set(Set)
 import qualified Data.Set as Set
 import Data.STRef
 import Data.Text(Text)
+import GHC.Generics
 
 import Pact.Types.Capability
 import Pact.Types.Gas
@@ -47,7 +50,8 @@ import Chainweb.Utils
 
 newtype VerifierError = VerifierError
     { getVerifierError :: Text }
-    deriving stock (Eq, Show)
+    deriving stock (Eq, Generic, Show)
+    deriving anyclass NFData
 instance Exception VerifierError
 
 newtype VerifierPlugin
