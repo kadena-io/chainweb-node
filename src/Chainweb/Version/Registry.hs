@@ -50,7 +50,8 @@ import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet
 import Chainweb.Utils.Rule
-import Chainweb.Version.Pact5Development (pact5Devnet)
+-- temporarily left off because it doesn't validate
+--import Chainweb.Version.Pact5Development (pact5Devnet)
 
 {-# NOINLINE versionMap #-}
 versionMap :: IORef (HashMap ChainwebVersionCode ChainwebVersion)
@@ -158,7 +159,7 @@ fabricateVersionWithName name =
 
 -- | Versions known to us by name.
 knownVersions :: [ChainwebVersion]
-knownVersions = [mainnet, testnet, recapDevnet, devnet, pact5Devnet]
+knownVersions = [mainnet, testnet, recapDevnet, devnet] -- , pact5Devnet]
 
 -- | Look up a known version by name, usually with `m` instantiated to some
 -- configuration parser monad.
