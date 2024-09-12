@@ -26,6 +26,11 @@ module Chainweb.Test.Pact5.RemotePactTest
     ) where
 
 --import Pact.Core.Command.RPC
+import Chainweb.Test.RestAPI.Utils (getCurrentBlockHeight)
+import Data.Text qualified as Text
+import Pact.Core.Errors
+import Pact.Core.StableEncoding
+import Pact.Core.Info
 import "pact" Pact.Types.API qualified as Pact4
 import "pact" Pact.Types.Command qualified as Pact4
 import "pact" Pact.Types.Hash qualified as Pact4
@@ -185,9 +190,17 @@ pollingBadlistTest baseRdb = runResourceT $ do
     let clientEnv = fixture ^. fixtureClientEnv
 
     liftIO $ do
-        let rks = NE.fromList [pactDeadBeef]
-        x <- polling clientEnv (NE.singleton pactDeadBeef)
-        print x
+        pollResult <- polling clientEnv (NE.singleton pactDeadBeef)
+        case pollResult ^?! ix pactDeadBeef . crResult of
+            PactResultOk _ -> do
+                assertFailure "expected PactResultErr badlist"
+            PactResultErr (PEPact5Error pactErrorCode) -> do
+                assertFailure "pollingBadlistTest doesn't support pact5 error codes yet"
+                -- idk how this works
+                --assertEqual "Transaction was badlisted" (_peCode pactErrorCode)
+            PactResultErr (PELegacyError legacyError) -> do
+                assertBool "Transaction was badlisted" ("badlisted" `Text.isInfixOf` _leMessage legacyError)
+            -- _ -> assertFailure "expected PactResultError"
 
 pollingConfirmationDepthTest :: RocksDb -> IO ()
 pollingConfirmationDepthTest baseRdb = runResourceT $ do
@@ -200,9 +213,9 @@ pollingConfirmationDepthTest baseRdb = runResourceT $ do
         rks <- sending clientEnv (cmd1 NE.:| [cmd2])
 
         pollResponse <- pollingWithDepth clientEnv rks (Just (ConfirmationDepth 10))
+        afterPolling <- getCurrentBlockHeight v clientEnv cid
 
         assertEqual "there are two command results" 2 (length (HashMap.keys pollResponse))
-        --afterPolling <- getCurrentBlockHeight v clientEnv cid
 
 {-localTest :: RocksDb -> IO ()
 localTest baseRdb = runResourceT $ do
@@ -221,8 +234,7 @@ newtype PollingException = PollingException String
 polling :: ()
     => ClientEnv
     -> NonEmpty RequestKey
-    -> IO (HashMap Pact4.RequestKey (Pact4.CommandResult Pact4.Hash))
-    -- -> IO (HashMap RequestKey (CommandResult Aeson.Value Pact5.Hash))
+    -> IO (HashMap RequestKey (CommandResult Aeson.Value (PactErrorCompat (StableEncoding SpanInfo))))
 polling clientEnv rks = do
     pollingWithDepth clientEnv rks Nothing
 
@@ -230,19 +242,16 @@ pollingWithDepth :: ()
     => ClientEnv
     -> NonEmpty RequestKey
     -> Maybe ConfirmationDepth
-    -> IO (HashMap Pact4.RequestKey (Pact4.CommandResult Pact4.Hash))
-    -- -> IO (HashMap RequestKey (CommandResult Aeson.Value Pact5.Hash))
+    -> IO (HashMap RequestKey (CommandResult Aeson.Value (PactErrorCompat (StableEncoding SpanInfo))))
 pollingWithDepth clientEnv rks mConfirmationDepth = do
-    recovering testRetryPolicy [retryHandler] $ \iterNumber -> do
-        putStrLn $ "pollingWithDepth: iteration " ++ show iterNumber
-
+    recovering testRetryPolicy [retryHandler] $ \_iterNumber -> do
         let rksPact4 = NE.map toPact4RequestKey rks
         poll <- runClientM (pactPollWithQueryApiClient v cid mConfirmationDepth (Pact4.Poll rksPact4)) clientEnv
         case poll of
             Left e -> do
                 throwM (PollingException (show e))
             Right (Pact4.PollResponses response) -> do
-                return response -- (convertPollResponse response)
+                return (convertPollResponse response)
     where
         retryHandler :: RetryStatus -> Handler IO Bool
         retryHandler _ = Handler $ \case
@@ -258,9 +267,7 @@ sending :: ()
     -> NonEmpty (Command Text)
     -> IO (NonEmpty RequestKey)
 sending clientEnv cmd = do
-    recovering testRetryPolicy [retryHandler] $ \iterNumber -> do
-        putStrLn $ "sending: iteration " ++ show iterNumber
-
+    recovering testRetryPolicy [retryHandler] $ \_iterNumber -> do
         let batch = Pact4.SubmitBatch (NE.map toPact4Command cmd)
         send <- runClientM (pactSendApiClient v cid batch) clientEnv
         case send of
@@ -290,14 +297,14 @@ toPact4Command cmd4 = case Aeson.eitherDecodeStrictText (J.encodeText cmd4) of
 
 toPact5CommandResult :: ()
     => Pact4.CommandResult Pact4.Hash
-    -> CommandResult Aeson.Value Pact5.Hash
+    -> CommandResult Aeson.Value (PactErrorCompat (StableEncoding SpanInfo))
 toPact5CommandResult cr4 = case Aeson.eitherDecodeStrictText (J.encodeText cr4) of
     Left err -> error $ "toPact5CommandResult: decode failed: " ++ err
     Right cr5 -> cr5
 
 convertPollResponse :: ()
     => HashMap Pact4.RequestKey (Pact4.CommandResult Pact4.Hash)
-    -> HashMap RequestKey (CommandResult Aeson.Value Pact5.Hash)
+    -> HashMap RequestKey (CommandResult Aeson.Value (PactErrorCompat (StableEncoding SpanInfo)))
 convertPollResponse pact4Response = HashMap.fromList
     $ List.map (\(rk, cr) -> (toPact5RequestKey rk, toPact5CommandResult cr))
     $ HashMap.toList pact4Response
