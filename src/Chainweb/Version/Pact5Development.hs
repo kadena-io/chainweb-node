@@ -18,8 +18,8 @@ import Chainweb.Utils.Rule
 import Chainweb.Version
 import Data.Set qualified as Set
 import Pact.Types.Verifier
-import Chainweb.BlockHeader.Genesis.Development0Payload qualified as DN0
-import Chainweb.BlockHeader.Genesis.Development1to19Payload qualified as DNN
+import qualified Chainweb.BlockHeader.Genesis.Pact5Development0Payload as DN0
+import qualified Chainweb.BlockHeader.Genesis.Pact5Development1to19Payload as DNN
 
 pattern Pact5Development :: ChainwebVersion
 pattern Pact5Development <- ((== pact5Devnet) -> True) where
@@ -30,10 +30,8 @@ pact5Devnet = ChainwebVersion
     { _versionCode = ChainwebVersionCode 0x00000008
     , _versionName = ChainwebVersionName "pact5-development"
     , _versionForks = tabulateHashMap $ \case
-        -- never run genesis as Pact 5, still
-        Pact5Fork -> onChains []
         _ -> AllChains ForkAtGenesis
-    , _versionUpgrades = indexByForkHeights pact5Devnet []
+    , _versionUpgrades = AllChains mempty
     , _versionGraphs = End twentyChainGraph
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120

@@ -46,12 +46,12 @@ import GHC.Stack
 
 import Chainweb.Version
 import Chainweb.Version.Development
+import Chainweb.Version.Pact5Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Testnet
 import Chainweb.Utils.Rule
 -- temporarily left off because it doesn't validate
---import Chainweb.Version.Pact5Development (pact5Devnet)
 
 {-# NOINLINE versionMap #-}
 versionMap :: IORef (HashMap ChainwebVersionCode ChainwebVersion)
@@ -135,6 +135,7 @@ lookupVersionByCode code
     notRegistered
         | code == _versionCode recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured"
         | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured"
+        | code == _versionCode pact5Devnet = "Pact 5 devnet version used but not registered, remember to do so after it's configured"
         | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.testVersions?"
 
 -- TODO: ideally all uses of this are deprecated. currently in use in
@@ -151,6 +152,8 @@ lookupVersionByName name
             listToMaybe [ v | v <- HM.elems m, _versionName v == name ]
     notRegistered
       | name == _versionName recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured"
+      | name == _versionName devnet = "devnet version used but not registered, remember to do so after it's configured"
+      | name == _versionName pact5Devnet = "Pact 5 devnet version used but not registered, remember to do so after it's configured"
       | otherwise = "version not registered with name " <> show name <> ", have you seen Chainweb.Test.TestVersions.testVersions?"
 
 fabricateVersionWithName :: HasCallStack => ChainwebVersionName -> ChainwebVersion
@@ -159,7 +162,7 @@ fabricateVersionWithName name =
 
 -- | Versions known to us by name.
 knownVersions :: [ChainwebVersion]
-knownVersions = [mainnet, testnet, recapDevnet, devnet] -- , pact5Devnet]
+knownVersions = [mainnet, testnet, recapDevnet, devnet, pact5Devnet]
 
 -- | Look up a known version by name, usually with `m` instantiated to some
 -- configuration parser monad.

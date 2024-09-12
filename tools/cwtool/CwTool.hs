@@ -3,6 +3,7 @@ module Main where
 
 import Chainweb.Version.Development
 import Chainweb.Version.RecapDevelopment
+import Chainweb.Version.Pact5Development
 import Chainweb.Version.Registry
 
 import System.Environment
@@ -29,6 +30,7 @@ main :: IO ()
 main = do
     registerVersion RecapDevelopment
     registerVersion Development
+    registerVersion Pact5Development
     args <- getArgs
     case args of
       [] -> printHelp topLevelCommands

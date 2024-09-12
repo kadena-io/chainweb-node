@@ -92,6 +92,7 @@ main :: IO ()
 main = do
     registerVersion RecapDevelopment
     registerVersion Development
+    registerVersion Pact5Development
     withTempRocksDb "chainweb-tests" $ \rdb ->
         runResourceT $ do
             (h0, db) <- withToyDB rdb toyChainId

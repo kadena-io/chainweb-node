@@ -149,7 +149,7 @@ withMiningCoordination logger conf cdb inner
                 case primed of
                     WorkReady (NewBlockInProgress bip) -> return (Just bip)
                     WorkReady (NewBlockPayload {}) ->
-                      error "periodicallyRefreshPayload: encountered NewBlockPayload in PrimedWork, which cannot be refreshed"
+                        error "periodicallyRefreshPayload: encountered NewBlockPayload in PrimedWork, which cannot be refreshed"
                     WorkAlreadyMined {} -> return Nothing
                     WorkStale -> return Nothing
 

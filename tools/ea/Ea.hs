@@ -78,6 +78,7 @@ main :: IO ()
 main = void $ do
     recapDevnet
     devnet
+    pact5Devnet
     fastnet
     instantnet
     pact5Instantnet
@@ -98,6 +99,10 @@ main = void $ do
     devnet = mkPayloads
       [ fastDevelopment0
       , fastDevelopmentN
+      ]
+    pact5Devnet = mkPayloads
+      [ pact5Development0
+      , pact5DevelopmentN
       ]
     fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
     instantnet = mkPayloads [instantCPM0, instantCPMN]
