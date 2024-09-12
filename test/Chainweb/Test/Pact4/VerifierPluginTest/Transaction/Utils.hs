@@ -59,7 +59,7 @@ cid = unsafeChainId 9
 data SingleEnv = SingleEnv
     { _menvBdb :: !TestBlockDb
     , _menvPact :: !WebPactExecutionService
-    , _menvMpa :: !(IO (IORef MemPoolAccess))
+    , _menvMpa :: !(IORef MemPoolAccess)
     , _menvMiner :: !Miner
     , _menvChainId :: !ChainId
     }
@@ -69,12 +69,12 @@ makeLenses ''SingleEnv
 type PactTestM = ReaderT SingleEnv IO
 
 newtype MempoolCmdBuilder = MempoolCmdBuilder
-    { _mempoolCmdBuilder :: BlockHeader -> CmdBuilder
+    { _mempoolCmdBuilder :: ChainId -> BlockCreationTime -> CmdBuilder
     }
 
 -- | Block filler. A 'Nothing' result means "skip this filler".
 newtype MempoolBlock = MempoolBlock
-    { _mempoolBlock :: BlockHeader -> Maybe [MempoolCmdBuilder]
+    { _mempoolBlock :: ChainId -> BlockCreationTime -> Maybe [MempoolCmdBuilder]
     }
 
 -- | Mempool with an ordered list of fillers.
@@ -107,19 +107,19 @@ setPactMempool :: PactMempool -> PactTestM ()
 setPactMempool (PactMempool fs) = do
   mpa <- view menvMpa
   mpsRef <- liftIO $ newIORef fs
-  setMempool mpa $ mempty {
+  liftIO $ writeIORef mpa $ mempty {
     mpaGetBlock = \_ -> go mpsRef
     }
   where
-    go ref mempoolPreBlockCheck bHeight bHash blockHeader = do
+    go ref mempoolPreBlockCheck bHeight bHash bct = do
       mps <- readIORef ref
       let runMps i = \case
             [] -> return mempty
-            (mp:r) -> case _mempoolBlock mp blockHeader of
+            (mp:r) -> case _mempoolBlock mp cid bct of
               Just bs -> do
                 writeIORef ref (take i mps ++ r)
                 cmds <- fmap V.fromList $ forM bs $ \b ->
-                  buildCwCmd (sshow blockHeader) testVersion $ _mempoolCmdBuilder b blockHeader
+                  buildCwCmd (sshow bct) testVersion $ _mempoolCmdBuilder b cid bct
                 tos <- mempoolPreBlockCheck bHeight bHash ((fmap . fmap . fmap) _pcCode cmds)
                 return $ V.fromList
                   [ t
@@ -129,13 +129,13 @@ setPactMempool (PactMempool fs) = do
               Nothing -> runMps (succ i) r
       runMps 0 mps
 
-filterBlock :: (BlockHeader -> Bool) -> MempoolBlock -> MempoolBlock
-filterBlock f (MempoolBlock b) = MempoolBlock $ \mi ->
-  if f mi then b mi else Nothing
+filterBlock :: (ChainId -> BlockCreationTime -> Bool) -> MempoolBlock -> MempoolBlock
+filterBlock f (MempoolBlock b) = MempoolBlock $ \chain bct ->
+  if f chain bct then b chain bct else Nothing
 
 blockForChain :: ChainId -> MempoolBlock -> MempoolBlock
-blockForChain chid = filterBlock $ \bh ->
-  _blockChainId bh == chid
+blockForChain chid = filterBlock $ \chain _ ->
+  chain == chid
 
 runCut' :: PactTestM ()
 runCut' = do
@@ -176,7 +176,7 @@ runBlockTest pts = do
 
 -- | Convert tests to block for specified chain.
 testsToBlock :: ChainId -> [PactTxTest] -> MempoolBlock
-testsToBlock chid pts = blockForChain chid $ MempoolBlock $ \_ ->
+testsToBlock chid pts = blockForChain chid $ MempoolBlock $ \_ _ ->
   pure $ map _pttBuilder pts
 
 -- | Run tests on current cut and chain.
@@ -219,9 +219,10 @@ buildBasic'
     :: (CmdBuilder -> CmdBuilder)
     -> PactRPC T.Text
     -> MempoolCmdBuilder
-buildBasic' f r = MempoolCmdBuilder $ \bh ->
+buildBasic' f r = MempoolCmdBuilder $ \chain bct ->
   f $ signSender00
-  $ setFromHeader bh
+  $ set cbChainId chain
+  $ set cbCreationTime (toTxCreationTime $ _bct bct)
   $ set cbRPC r
   $ defaultCmd
 

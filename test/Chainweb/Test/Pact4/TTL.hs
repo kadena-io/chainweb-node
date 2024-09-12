@@ -179,8 +179,8 @@ modAt f = modAtTtl f defTtl
 
 modAtTtl :: (Time Micros -> Time Micros) -> Seconds -> MemPoolAccess
 modAtTtl f (Seconds t) = mempty
-    { mpaGetBlock = \_ validate bh hash ph -> do
-        let txTime = toTxCreationTime $ f $ _bct $ _blockCreationTime ph
+    { mpaGetBlock = \_ validate bh hash bct -> do
+        let txTime = toTxCreationTime $ f $ _bct bct
             tt = TTLSeconds (int t)
         outtxs <- fmap V.singleton $ buildCwCmd (sshow bh) testVer
           $ set cbCreationTime txTime

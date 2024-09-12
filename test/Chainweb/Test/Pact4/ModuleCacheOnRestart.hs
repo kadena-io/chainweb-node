@@ -252,7 +252,7 @@ doNextCoinbase iobdb = do
       _ <- execValidateBlock mempty prevH (CheckablePayloadWithOutputs pwo')
 
       bip <- throwIfNoHistory =<< execNewBlock mempty noMiner NewBlockFill (ParentHeader prevH)
-      let prevH' = forAnyPactVersion _blockInProgressParentHeader bip
+      let prevH' = forAnyPactVersion (fromJuste . _blockInProgressParentHeader) bip
       let pwo = forAnyPactVersion finalizeBlock bip
       liftIO $ ParentHeader prevH @?= prevH'
       void $ liftIO $ addTestBlockDb bdb (succ $ _blockHeight prevH) (Nonce 0) (offsetBlockTime second) testChainId pwo

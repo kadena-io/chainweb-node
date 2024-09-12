@@ -719,10 +719,10 @@ withWebPactExecutionService
     -> ChainwebVersion
     -> PactServiceConfig
     -> TestBlockDb
-    -> MemPoolAccess
+    -> ChainMap MemPoolAccess
     -> ((WebPactExecutionService,HM.HashMap ChainId (SQLiteEnv, PactExecutionService)) -> IO a)
     -> IO a
-withWebPactExecutionService logger v pactConfig bdb mempoolAccess act =
+withWebPactExecutionService logger v pactConfig bdb mempools act =
   withDbs $ \sqlenvs -> do
     pacts <- fmap HM.fromList
            $ traverse (\(dbEnv, cid) -> (cid,) . (dbEnv,) <$> mkPact dbEnv cid)
@@ -740,11 +740,11 @@ withWebPactExecutionService logger v pactConfig bdb mempoolAccess act =
         ctx <- testPactCtxSQLite logger v c bhdb (_bdbPayloadDb bdb) sqlenv pactConfig
         return $ PactExecutionService
           { _pactNewBlock = \_ m fill ph ->
-              evalPactServiceM_ ctx $ fmap NewBlockInProgress <$> execNewBlock mempoolAccess m fill ph
+              evalPactServiceM_ ctx $ fmap NewBlockInProgress <$> execNewBlock (mempools ^?! atChain c) m fill ph
           , _pactContinueBlock = \_ bip ->
-              evalPactServiceM_ ctx $ execContinueBlock mempoolAccess bip
+              evalPactServiceM_ ctx $ execContinueBlock (mempools ^?! atChain c) bip
           , _pactValidateBlock = \h d ->
-              evalPactServiceM_ ctx $ fst <$> execValidateBlock mempoolAccess h d
+              evalPactServiceM_ ctx $ fst <$> execValidateBlock (mempools ^?! atChain c) h d
           , _pactLocal = \pf sv rd cmd ->
               evalPactServiceM_ ctx $ execLocal cmd pf sv rd
           , _pactLookup = \_cid cd hashes ->

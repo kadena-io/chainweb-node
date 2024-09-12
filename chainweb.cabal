@@ -438,6 +438,7 @@ library
         , pact-json >= 0.1
         , parallel >= 3.2.2.0
         , patience >= 0.3
+        , Diff >= 0.5
         , pact-tng
         , pact-tng:pact-request-api
         , pem >=0.2
@@ -484,6 +485,7 @@ library
         , crypton-x509-validation >=1.6
         , yaml >= 0.11
         , yet-another-logger >= 0.4.1
+        , pretty-show
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1

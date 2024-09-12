@@ -507,7 +507,7 @@ execTest v runPact request = _trEval request $ do
     results <- runPact $ (throwIfNoHistory =<<) $
       readFrom (Just $ ParentHeader $ genesisBlockHeader v cid) $
         SomeBlockM $ Pair
-          (execTransactions False defaultMiner
+          (execTransactions defaultMiner
             trans (Pact4.EnforceCoinbaseFailure True) (Pact4.CoinbaseUsePrecompiled True) Nothing Nothing
             >>= throwCommandInvalidError
             )
@@ -541,7 +541,7 @@ execTxsTest v runPact name (trans',check) = testCase name (go >>= check)
       results' <- tryAllSynchronous $ runPact $ (throwIfNoHistory =<<) $
         readFrom (Just $ ParentHeader $ genesisBlockHeader v cid) $
           SomeBlockM $ Pair
-            (execTransactions False defaultMiner trans
+            (execTransactions defaultMiner trans
               (Pact4.EnforceCoinbaseFailure True) (Pact4.CoinbaseUsePrecompiled True) Nothing Nothing
               >>= throwCommandInvalidError
               )

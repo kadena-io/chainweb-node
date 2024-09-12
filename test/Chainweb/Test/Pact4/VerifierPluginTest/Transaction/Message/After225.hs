@@ -37,6 +37,8 @@ import Chainweb.VerifierPlugin.Hyperlane.Binary
 import Chainweb.VerifierPlugin.Hyperlane.Utils
 
 import Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Utils
+import Chainweb.Version
+import Data.IORef
 
 tests :: TestTree
 tests = testGroup "After225"
@@ -55,13 +57,15 @@ tests = testGroup "After225"
     generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
 
     test pactConfig tname f =
-      withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
+      testCaseSteps tname $ \step ->
         withTestBlockDb testVersion $ \bdb -> do
-          (iompa,mpa) <- dmpio
           let logger = hunitDummyLogger step
-          withWebPactExecutionService logger testVersion pactConfig bdb mpa $ \(pact,_) ->
+          mempools <- onAllChains testVersion $ \_ -> do
+            mempoolRef <- newIORef mempty
+            return (mempoolRef, delegateMemPoolAccess mempoolRef)
+          withWebPactExecutionService logger testVersion pactConfig bdb (snd <$> mempools) $ \(pact,_) ->
             runReaderT f $
-            SingleEnv bdb pact (return iompa) noMiner cid
+            SingleEnv bdb pact (mempools ^?! atChain cid . _1) noMiner cid
 
 -- hyperlane message tests
 
@@ -220,7 +224,7 @@ hyperlaneVerifySuccess = do
     , PactTxTest (mkMerkleMetadataCall hyperlaneMerkleTreeCorrectProof [validSignature] [validSigner] threshold)
       (\cr -> liftIO $ do
         assertTxSuccess "should have succeeded" (pString "succeeded") cr
-        assertEqual "gas should have been charged" 16592 (_crGas cr))
+        assertEqual "gas should have been charged" 16582 (_crGas cr))
     ]
 
 hyperlaneVerifyMoreValidatorsSuccess :: PactTestM ()
@@ -235,7 +239,7 @@ hyperlaneVerifyMoreValidatorsSuccess = do
     , PactTxTest (mkMerkleMetadataCall hyperlaneMerkleTreeCorrectProof [validSignature] signers threshold)
       (\cr -> liftIO $ do
         assertTxSuccess "should have succeeded" (pString "succeeded") cr
-        assertEqual "gas should have been charged" 16592 (_crGas cr))
+        assertEqual "gas should have been charged" 16583 (_crGas cr))
     ]
 
 hyperlaneVerifyThresholdZeroError :: PactTestM ()

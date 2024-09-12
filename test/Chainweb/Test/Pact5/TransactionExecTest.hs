@@ -17,7 +17,7 @@ module Chainweb.Test.Pact5.TransactionExecTest (tests) where
 import Data.String (fromString)
 import Data.Set qualified as Set
 import Chainweb.BlockHeader
-import Chainweb.Graph (singletonChainGraph)
+import Chainweb.Graph (singletonChainGraph, petersonChainGraph)
 import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.PactService (initialPayloadState, withPactService)
 import Chainweb.Pact.PactService.Checkpointer (readFrom, SomeBlockM(..))
@@ -67,6 +67,7 @@ import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
+import Text.Printf
 
 coinModuleName :: ModuleName
 coinModuleName = ModuleName "coin" Nothing
@@ -279,11 +280,11 @@ payloadFailureShouldPayAllGasToTheMinerTypeError baseRdb = runResourceT $ do
                                 , pt _crLogs . match _Just $
                                     PT.list
                                         [ satAll
-                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        [ pt _txDomain . equals $ "coin_coin-table"
                                         , pt _txKey . equals $ "sender00"
                                         ]
                                         , satAll
-                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        [ pt _txDomain . equals $ "coin_coin-table"
                                         , pt _txKey . equals $ "NoMiner"
                                         ]
                                         ]
@@ -312,7 +313,10 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds baseRdb = runResourceT 
                         startMinerBal <- readBal pactDb "NoMiner"
 
                         cmd <- buildCwCmd v defaultCmd
-                            { _cbRPC = mkExec' $ fromString $ "(coin.transfer \"sender00\" \"sender01\" " <> show (fromMaybe 0 startSender00Bal + 1) <> ".0 )"
+                            { _cbRPC = mkExec' $ fromString $
+                                "(coin.transfer \"sender00\" \"sender01\" "
+                                <> printf "%.f" (realToFrac @_ @Double $ fromMaybe 0 startSender00Bal + 1)
+                                <> ".0 )"
                             , _cbSigners =
                                 [ mkEd25519Signer' sender00
                                     [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
@@ -345,11 +349,11 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds baseRdb = runResourceT 
                             , pt _crLogs . match _Just $
                                 PT.list
                                     [ satAll
-                                    [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                    [ pt _txDomain . equals $ "coin_coin-table"
                                     , pt _txKey . equals $ "sender00"
                                     ]
                                     , satAll
-                                    [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                    [ pt _txDomain . equals $ "coin_coin-table"
                                     , pt _txKey . equals $ "NoMiner"
                                     ]
                                     ]
@@ -512,18 +516,18 @@ applyCmdSpec baseRdb = runResourceT $ do
                             , pt _crLogs . match _Just $
                                 PT.list
                                     [ satAll
-                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        [ pt _txDomain . equals $ "coin_coin-table"
                                         , pt _txKey . equals $ "sender00"
                                         -- TODO: test the values here?
                                         -- here, we're only testing that the write pattern matches
                                         -- gas buy and redeem, not the contents of the writes.
                                         ]
                                     , satAll
-                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        [ pt _txDomain . equals $ "coin_coin-table"
                                         , pt _txKey . equals $ "sender00"
                                         ]
                                     , satAll
-                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        [ pt _txDomain . equals $ "coin_coin-table"
                                         , pt _txKey . equals $ "NoMiner"
                                         ]
                                     ]
@@ -703,11 +707,11 @@ applyCmdFailureSpec baseRdb = runResourceT $ do
                             , pt _crLogs . match _Just $
                                 PT.list
                                     [ satAll
-                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        [ pt _txDomain . equals $ "coin_coin-table"
                                         , pt _txKey . equals $ "sender00"
                                         ]
                                     , satAll
-                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        [ pt _txDomain . equals $ "coin_coin-table"
                                         , pt _txKey . equals $ "NoMiner"
                                         ]
                                     ]
@@ -774,26 +778,26 @@ applyCmdCoinTransfer baseRdb = runResourceT $ do
                             , pt _crLogs . match _Just $
                                 PT.list
                                     [ satAll
-                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        [ pt _txDomain . equals $ "coin_coin-table"
                                         , pt _txKey . equals $ "sender00"
                                         -- TODO: test the values here?
                                         -- here, we're only testing that the write pattern matches
                                         -- gas buy and redeem, not the contents of the writes.
                                         ]
                                     , satAll
-                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        [ pt _txDomain . equals $ "coin_coin-table"
                                         , pt _txKey . equals $ "sender00"
                                         ]
                                     , satAll
-                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        [ pt _txDomain . equals $ "coin_coin-table"
                                         , pt _txKey . equals $ "sender01"
                                         ]
                                     , satAll
-                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        [ pt _txDomain . equals $ "coin_coin-table"
                                         , pt _txKey . equals $ "sender00"
                                         ]
                                     , satAll
-                                        [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                        [ pt _txDomain . equals $ "coin_coin-table"
                                         , pt _txKey . equals $ "NoMiner"
                                         ]
                                     ]
@@ -830,7 +834,7 @@ applyCoinbaseSpec baseRdb = runResourceT $ do
                             , pt _crGas . equals $ Gas 0
                             , pt _crLogs . match _Just $ PT.list
                                 [ satAll
-                                    [ pt _txDomain . equals $ "USER_coin_coin-table"
+                                    [ pt _txDomain . equals $ "coin_coin-table"
                                     , pt _txKey . equals $ "NoMiner"
                                     ]
                                 ]
@@ -944,7 +948,7 @@ vUpgrades :: ChainwebVersion
 vUpgrades = pact5SlowCpmTestVersion singletonChainGraph
 
 v :: ChainwebVersion
-v = pact5InstantCpmTestVersion singletonChainGraph
+v = pact5InstantCpmTestVersion petersonChainGraph
 
 readBal :: (HasCallStack, Default i) => PactDb b i -> T.Text -> IO (Maybe Decimal)
 readBal pactDb acctName = do

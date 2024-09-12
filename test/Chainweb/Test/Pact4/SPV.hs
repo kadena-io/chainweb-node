@@ -262,7 +262,9 @@ roundtrip'
 roundtrip' v sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
   tg <- newMVar mempty
   let logger = hunitDummyLogger step
-  withWebPactExecutionService logger v testPactServiceConfig bdb (chainToMPA' tg) $ \(pact,_) -> do
+  mempools <- onAllChains v $ \chain ->
+    return $ chainToMPA' chain tg
+  withWebPactExecutionService logger v testPactServiceConfig bdb mempools $ \(pact,_) -> do
 
     sid <- mkChainId v maxBound sid0
     tid <- mkChainId v maxBound tid0
@@ -327,11 +329,11 @@ cutToPayloadOutputs c pdb = do
         toCR (TransactionOutput t) = fromJuste $ decodeStrict' t
     return txs
 
-chainToMPA' :: MVar TransactionGenerator -> MemPoolAccess
-chainToMPA' f = mempty
+chainToMPA' :: ChainId -> MVar TransactionGenerator -> MemPoolAccess
+chainToMPA' chain f = mempty
     { mpaGetBlock = \_g pc hi ha he -> do
         tg <- readMVar f
-        txs <- tg (_blockChainId he) hi ha he
+        txs <- tg chain hi ha he
         tos <- pc hi ha ((fmap . fmap . fmap) _pcCode txs)
         forM tos $ \case
           Left err -> error (sshow err)
@@ -346,7 +348,7 @@ type TransactionGenerator
     = Chainweb.ChainId
     -> BlockHeight
     -> BlockHash
-    -> BlockHeader
+    -> BlockCreationTime
     -> IO (Vector Pact4.Transaction)
 
 type BurnGenerator

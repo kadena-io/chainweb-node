@@ -107,8 +107,8 @@ onRestart mpio iop step = do
 
 testMemPoolAccess :: MemPoolAccess
 testMemPoolAccess = mempty
-    { mpaGetBlock = \_g validate bh hash ph -> do
-        let (BlockCreationTime t) = _blockCreationTime ph
+    { mpaGetBlock = \_g validate bh hash bct -> do
+        let (BlockCreationTime t) = bct
         getTestBlock t validate bh hash
     }
   where

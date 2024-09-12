@@ -61,7 +61,6 @@ import Pact.JSON.Encode qualified as J
 import Pact.JSON.Yaml
 
 import qualified Pact.Core.Persistence as PCore
-import Pact.Core.StableEncoding (decodeStable)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash (BlockHash)
@@ -99,6 +98,7 @@ import System.LogLevel (LogLevel(..))
 import qualified Pact.Core.Names as PCore
 import qualified Data.ByteString.Short as SB
 import Text.Show.Pretty (ppShow)
+import qualified Pact.Core.StableEncoding as PCore
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion petersonChainGraph
@@ -235,7 +235,7 @@ newBlockAndContinue refIO reqIO = testCase "newBlockAndContinue" $ do
 
   -- TODO: assert?
   ForPact4 bipStart <- throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader genesisHeader) q
-  let ParentHeader ph = _blockInProgressParentHeader bipStart
+  let ParentHeader ph = fromJuste $ _blockInProgressParentHeader bipStart
   bipContinued <- throwIfNoHistory =<< continueBlock bipStart q
   bipFinal <- throwIfNoHistory =<< continueBlock bipContinued q
   -- we must make progress on the same parent header
@@ -322,7 +322,7 @@ newBlockAndValidationFailure refIO reqIO = testCase "newBlockAndValidationFailur
     _ -> assertFailure "newBlockAndValidationFailure: expected BlockValidationFailure"
 
 toRowData :: HasCallStack => Value -> PCore.RowData
-toRowData v = case decodeStable $ BL.toStrict encV of
+toRowData v = case PCore.decodeStable $ BL.toStrict encV of
     Nothing -> error $
         "toRowData: failed to encode as row data. \n" <> show encV
     Just r -> r
@@ -414,16 +414,17 @@ pactStateSamePreAndPostCompaction rdb =
     let numBlocks :: Num a => a
         numBlocks = 100
 
-    let makeTx :: Word -> BlockHeader -> IO Pact4.Transaction
-        makeTx nth bh = buildCwCmd (sshow (nth, bh)) testVersion
+    let makeTx :: Word -> BlockCreationTime -> IO Pact4.Transaction
+        makeTx nth bct = buildCwCmd (sshow (nth, bct)) testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
-          $ setFromHeader bh
+          $ set cbChainId cid
+          $ set cbCreationTime (toTxCreationTime $ _bct bct)
           $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)")
           $ defaultCmd
 
     replicateM_ numBlocks $ do
       runTxInBlock_ cr.mempoolRef cr.pactQueue cr.blockDb
-        $ \n _ _ bHeader -> makeTx n bHeader
+        $ \n _ _ bct -> makeTx n bct
 
     let db = cr.sqlEnv
 
@@ -469,16 +470,17 @@ compactionIsIdempotent rdb =
     let numBlocks :: Num a => a
         numBlocks = 100
 
-    let makeTx :: Word -> BlockHeader -> IO Pact4.Transaction
-        makeTx nth bh = buildCwCmd (sshow (nth, bh)) testVersion
+    let makeTx :: Word -> BlockCreationTime -> IO Pact4.Transaction
+        makeTx nth bct = buildCwCmd (sshow (nth, bct)) testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
-          $ setFromHeader bh
+          $ set cbChainId cid
+          $ set cbCreationTime (toTxCreationTime $ _bct bct)
           $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)")
           $ defaultCmd
 
     replicateM_ numBlocks $ do
       runTxInBlock_ cr.mempoolRef cr.pactQueue cr.blockDb
-        $ \n _ _ bHeader -> makeTx n bHeader
+        $ \n _ _ bct -> makeTx n bct
 
     let db = cr.sqlEnv
 
@@ -643,10 +645,10 @@ compactionGrandHashUnchanged rdb =
     let numBlocks :: Num a => a
         numBlocks = 100
 
-    let makeTx :: Word -> BlockHeader -> IO Pact4.Transaction
-        makeTx nth bh = buildCwCmd (sshow nth) testVersion
+    let makeTx :: Word -> BlockCreationTime -> IO Pact4.Transaction
+        makeTx nth bct = buildCwCmd (sshow nth) testVersion
           $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkTransferCap "sender00" "sender01" 1.0]]
-          $ setFromHeader bh
+          $ set cbCreationTime (toTxCreationTime $ _bct bct)
           $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)")
           $ defaultCmd
 
@@ -756,12 +758,6 @@ assertSender00Bal bal msg hist =
 signSender00 :: CmdBuilder -> CmdBuilder
 signSender00 = set cbSigners [mkEd25519Signer' sender00 []]
 
-setFromHeader :: BlockHeader -> CmdBuilder -> CmdBuilder
-setFromHeader bh =
-  set cbChainId (_blockChainId bh)
-  . set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
-
-
 -- this test relies on block gas errors being thrown before other Pact errors.
 blockGasLimitTest :: HasCallStack => IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
 blockGasLimitTest _ reqIO = testCase "blockGasLimitTest" $ do
@@ -862,11 +858,11 @@ mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
     checkCount n = assertEqual "tx return count" n . V.length . _payloadWithOutputsTransactions
 
     mp supply txRefillMap = setMempool mpRefIO $ mempty {
-      mpaGetBlock = \BlockFill{..} validate bheight bhash bh ->
+      mpaGetBlock = \BlockFill{..} validate bheight bhash bct ->
         case M.lookup _bfCount (M.fromList txRefillMap) of
           Nothing -> return mempty
           Just txs -> do
-            tos <- validate bheight bhash =<< (fmap (V.fromList . (fmap . fmap . fmap) _pcCode) $ sequence $ map (next supply bh) txs)
+            tos <- validate bheight bhash =<< (fmap (V.fromList . (fmap . fmap . fmap) _pcCode) $ sequence $ map (next supply bct) txs)
             return $ V.fromList [t | Right t <- V.toList tos]
       }
 
@@ -874,16 +870,18 @@ mempoolRefillTest mpRefIO reqIO = testCase "mempoolRefillTest" $ do
       i <- modifyMVar supply $ return . (succ &&& id)
       f i bh
 
-    goodTx i bh = buildCwCmd (sshow (i, bh)) testVersion
+    goodTx i bct = buildCwCmd (sshow (i, bct)) testVersion
         $ signSender00
-        $ setFromHeader bh
+        $ set cbChainId cid
+        $ set cbCreationTime (toTxCreationTime $ _bct bct)
         $ set cbRPC (mkExec' "(+ 1 2)")
         $ defaultCmd
 
-    badTx i bh = buildCwCmd (sshow (i, bh)) testVersion
+    badTx i bct = buildCwCmd (sshow (i, bct)) testVersion
         $ signSender00
         $ set cbSender "bad"
-        $ setFromHeader bh
+        $ set cbChainId cid
+        $ set cbCreationTime (toTxCreationTime $ _bct bct)
         $ set cbRPC (mkExec' "(+ 1 2)")
         $ defaultCmd
 
@@ -911,7 +909,7 @@ moduleNameFork mpRefIO reqIO = testCase "moduleNameFork" $ do
 
 moduleNameMempool :: T.Text -> T.Text -> MemPoolAccess
 moduleNameMempool ns mn = mempty
-  { mpaGetBlock = \_ validate bheight bhash bh -> do
+  { mpaGetBlock = \_ validate bheight bhash bct -> do
     let txs =
           [ "(namespace '" <> ns <> ") (module " <> mn <> " G (defcap G () (enforce false 'cannotupgrade)))"
           , ns <> "." <> mn <> ".G"
@@ -919,7 +917,7 @@ moduleNameMempool ns mn = mempty
     builtTxs <- fmap V.fromList $ forM (zip txs [0..]) $ \(code,n :: Int) ->
       buildCwCmd ("1" <> sshow n) testVersion $
       signSender00 $
-      set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh) $
+      set cbCreationTime (toTxCreationTime $ _bct bct) $
       set cbRPC (mkExec' code) $
       defaultCmd
     tos <- validate bheight bhash $ (fmap . fmap . fmap) _pcCode builtTxs
@@ -958,12 +956,12 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
         $ set cbRPC (mkExec' "1")
         $ defaultCmd
     mp tx = mempty {
-      mpaGetBlock = \_ valid _ _ bh -> getBlock bh tx valid
+      mpaGetBlock = \_ valid bh bhash _ -> getBlock bh bhash tx valid
       }
 
-    getBlock bh tx valid = do
+    getBlock bh bhash tx valid = do
       let txs = V.singleton $ (fmap . fmap) _pcCode tx
-      [Right t] <- V.toList <$> valid (_blockHeight bh) (_blockHash bh) txs
+      [Right t] <- V.toList <$> valid bh bhash txs
       return (V.singleton t)
 
 preInsertCheckTimeoutTest :: IO (IORef MemPoolAccess) -> IO (SQLiteEnv, PactQueue, TestBlockDb) -> TestTree
@@ -1066,7 +1064,7 @@ goldenNewBlock name mpIO mpRefIO reqIO = golden name $ do
           ]
       , "txId" .= fromIntegral @TxId @Word (_blockHandleTxId _blockInProgressHandle)
       , "blockGasLimit" .= fromIntegral @GasLimit @Int _blockInProgressRemainingGasLimit
-      , "parentHeader" .= _parentHeader _blockInProgressParentHeader
+      , "parentHeader" .= _parentHeader (fromJuste _blockInProgressParentHeader)
       ]
     goldenBytes :: PayloadWithOutputs -> BlockInProgress pv -> IO BL.ByteString
     goldenBytes a b = return $ BL.fromStrict $ encodeYaml $ object
@@ -1170,20 +1168,20 @@ runTxInBlock :: ()
   => IO (IORef MemPoolAccess) -- ^ mempoolRef
   -> PactQueue
   -> TestBlockDb
-  -> (Word -> BlockHeight -> BlockHash -> BlockHeader -> IO Pact4.Transaction)
+  -> (Word -> BlockHeight -> BlockHash -> BlockCreationTime -> IO Pact4.Transaction)
   -> IO (Either PactException PayloadWithOutputs)
 runTxInBlock mempoolRef pactQueue blockDb makeTx = do
   madeTx <- newIORef @Bool False
   supply <- newIORef @Word 0
   setMempool mempoolRef $ mempty {
-    mpaGetBlock = \_ valid bHeight bHash bHeader -> do
+    mpaGetBlock = \_ valid bHeight bHash bct -> do
       madeTxYet <- readIORef madeTx
       if madeTxYet
       then do
         pure mempty
       else do
         n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
-        tx <- makeTx n bHeight bHash bHeader
+        tx <- makeTx n bHeight bHash bct
         valids <- valid bHeight bHash (V.singleton $ (fmap . fmap) _pcCode tx)
         writeIORef madeTx True
         pure $ V.fromList
@@ -1199,7 +1197,7 @@ runTxInBlock_ :: ()
   => IO (IORef MemPoolAccess) -- ^ mempoolRef
   -> PactQueue
   -> TestBlockDb
-  -> (Word -> BlockHeight -> BlockHash -> BlockHeader -> IO Pact4.Transaction)
+  -> (Word -> BlockHeight -> BlockHash -> BlockCreationTime -> IO Pact4.Transaction)
   -> IO PayloadWithOutputs
 runTxInBlock_ mempoolRef pactQueue blockDb makeTx = do
   runTxInBlock mempoolRef pactQueue blockDb makeTx >>= \case

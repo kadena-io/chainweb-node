@@ -34,6 +34,8 @@ import Chainweb.Test.Pact4.Utils
 import qualified Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Message.After225 as After225
 import qualified Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Message.Before225 as Before225
 import Chainweb.Test.Pact4.VerifierPluginTest.Transaction.Utils
+import Data.IORef
+import Chainweb.Version
 
 
 tests :: TestTree
@@ -58,13 +60,15 @@ tests = testGroup testName
     generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
 
     test pactConfig tname f =
-      withDelegateMempool $ \dmpio -> testCaseSteps tname $ \step ->
+      testCaseSteps tname $ \step ->
         withTestBlockDb testVersion $ \bdb -> do
-          (iompa,mpa) <- dmpio
           let logger = hunitDummyLogger step
-          withWebPactExecutionService logger testVersion pactConfig bdb mpa $ \(pact,_) ->
+          mempools <- onAllChains testVersion $ \_ -> do
+            mempoolRef <- newIORef mempty
+            return (mempoolRef, delegateMemPoolAccess mempoolRef)
+          withWebPactExecutionService logger testVersion pactConfig bdb (snd <$> mempools) $ \(pact,_) ->
             runReaderT f $
-            SingleEnv bdb pact (return iompa) noMiner cid
+            SingleEnv bdb pact (mempools ^?! atChain cid . _1) noMiner cid
 
 verifierTest :: PactTestM ()
 verifierTest = do
@@ -125,7 +129,7 @@ verifierTest = do
       (\cr -> liftIO $ do
         assertTxSuccess "should have succeeded" (pDecimal 1) cr
         -- The **Allow** verifier costs 100 gas flat
-        assertEqual "gas should have been charged" 344 (_crGas cr)
+        assertEqual "gas should have been charged" 335 (_crGas cr)
       )
     , PactTxTest
       (buildBasic'
@@ -183,7 +187,7 @@ hyperlaneRecoverValidatorAnnouncementSuccess = do
             (mkExec' "(free.m.x)"))
       (\cr -> liftIO $ do
         assertTxSuccess "should have succeeded" (pDecimal 1) cr
-        assertEqual "gas should have been charged" 16501 (_crGas cr))
+        assertEqual "gas should have been charged" 16492 (_crGas cr))
     ]
 
 hyperlaneRecoverValidatorAnnouncementIncorrectSignatureFailure :: PactTestM ()
