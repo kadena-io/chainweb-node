@@ -222,7 +222,7 @@ polling :: ()
     => ClientEnv
     -> NonEmpty RequestKey
     -> IO (HashMap Pact4.RequestKey (Pact4.CommandResult Pact4.Hash))
-    -- -->(HashMap RequestKey (CommandResult Aeson.Value Pact5.Hash))
+    -- -> IO (HashMap RequestKey (CommandResult Aeson.Value Pact5.Hash))
 polling clientEnv rks = do
     pollingWithDepth clientEnv rks Nothing
 
@@ -242,7 +242,6 @@ pollingWithDepth clientEnv rks mConfirmationDepth = do
             Left e -> do
                 throwM (PollingException (show e))
             Right (Pact4.PollResponses response) -> do
-                -- TODO: convert response!
                 return response -- (convertPollResponse response)
     where
         retryHandler :: RetryStatus -> Handler IO Bool
