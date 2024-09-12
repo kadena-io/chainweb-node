@@ -626,7 +626,7 @@ validateHashes bHeader payload miner transactions =
     if newHash == prevHash
       then Right pwo
       else Left $ BlockValidationFailure $ BlockValidationFailureMsg $
-        J.encodeJsonText $ J.object
+        J.encodeText $ J.object
             [ "header" J..= J.encodeWithAeson (ObjectEncoded bHeader)
             , "mismatch" J..= errorMsg "Payload hash" prevHash newHash
             , "details" J..= details

@@ -693,7 +693,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
             let
                 printValidationError (BlockValidationFailure (BlockValidationFailureMsg m)) = do
                     writeIORef validationFailedRef True
-                    logFunctionText logger Error (J.getJsonText m)
+                    logFunctionText logger Error m
                 printValidationError e = throwM e
                 handleMissingBlock NoHistory = throwM $ BlockHeaderLookupFailure $
                     "execReadOnlyReplay: missing block: " <> sshow bh
@@ -712,7 +712,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
         validationFailed <- readIORef validationFailedRef
         when validationFailed $
             throwM $ BlockValidationFailure $ BlockValidationFailureMsg $
-                J.encodeJsonText ("Prior block validation errors" :: Text)
+                J.encodeText ("Prior block validation errors" :: Text)
         return r
 
     heightProgress :: BlockHeight -> IORef BlockHeight -> (Text -> IO ()) -> IO ()
@@ -941,7 +941,6 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
 
                     -- given a header for a block in the fork, fetch its payload
                     -- and run its transactions, validating its hashes
-                    -- TODO: Pact5
                     let runForkBlockHeaders = forkBlockHeaders & Stream.map (\forkBh -> do
                             payload <- liftIO $ lookupPayloadWithHeight payloadDb (Just $ _blockHeight forkBh) (_blockPayloadHash forkBh) >>= \case
                                 Nothing -> internalError
@@ -964,7 +963,6 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
                             )
                             (do
                                 !(gas, pwo) <- Pact5.execExistingBlock headerToValidate payloadToValidate
-                                -- TODO: pact5
                                 return ([(fromIntegral (Pact5._gas gas), pwo)], headerToValidate)
                             )
 

@@ -457,16 +457,9 @@ _cpRewindTo cp ancestor = void $ _cpRestoreAndSave cp
 
 data ApplyCmdExecutionContext = ApplyLocal | ApplySend
 
-newtype BlockValidationFailureMsg = BlockValidationFailureMsg J.JsonText
+newtype BlockValidationFailureMsg = BlockValidationFailureMsg Text
     deriving (Eq, Ord, Generic)
     deriving newtype (Show, J.Encode)
-
--- | Intended only for use in Testing and Debugging. This doesn't
--- roundtrip and may result in misleading failure messages.
---
-instance FromJSON BlockValidationFailureMsg where
-    parseJSON = pure . BlockValidationFailureMsg . J.encodeWithAeson
-
 
 data CoinbaseFailure
   = Pact4CoinbaseFailure !Text
