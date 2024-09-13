@@ -201,8 +201,9 @@ convRowKeyCore (PCore.RowKey name) = toUtf8 name
 convPactId :: PactId -> SQ3.Utf8
 convPactId = toUtf8 . sshow
 
+-- to match legacy keys
 convPactIdCore :: PCore.DefPactId -> SQ3.Utf8
-convPactIdCore = toUtf8 . PCore.renderDefPactId
+convPactIdCore pid = "PactId \"" <> toUtf8 (PCore.renderDefPactId pid) <> "\""
 
 convSavepointName :: SavepointName -> SQ3.Utf8
 convSavepointName = toTextUtf8
