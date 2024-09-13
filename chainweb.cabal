@@ -378,7 +378,6 @@ library
     build-depends:
           Decimal >= 0.4.2
         , aeson >= 2.2
-        , aeson-pretty >= 0.8
         , asn1-encoding >=0.9
         , asn1-types >=0.3
         , async >= 2.2
@@ -387,7 +386,6 @@ library
         , base16-bytestring >= 0.1
         , base64-bytestring-kadena == 0.1
         , binary >= 0.8
-        , bound >= 2
         , bytestring >= 0.10.12
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
@@ -438,7 +436,6 @@ library
         , pact-json >= 0.1
         , parallel >= 3.2.2.0
         , patience >= 0.3
-        , Diff >= 0.5
         , pact-tng
         , pact-tng:pact-request-api
         , pem >=0.2
@@ -447,8 +444,6 @@ library
         , rosetta >= 1.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
-        , scientific >=0.3.8.0
-        , semialign >= 1.3
         , semigroupoids >= 5.3.7
         , servant >= 0.20.1
         , servant-client >= 0.20
@@ -485,7 +480,6 @@ library
         , crypton-x509-validation >=1.6
         , yaml >= 0.11
         , yet-another-logger >= 0.4.1
-        , pretty-show
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
