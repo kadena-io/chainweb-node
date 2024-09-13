@@ -577,6 +577,7 @@ execLocalTest runPact name (trans',check) = testCase name (go >>= check)
         Right (LocalResultLegacy cr) -> return $ Right cr
         Right (LocalResultWithWarns cr _) -> return $ Right cr
         Right (LocalPact5PreflightResult _ _) -> error "Pact 5"
+        Right (LocalPact5ResultLegacy _) -> error "Pact 5"
         Left e -> return $ Left $ show e
 
 getPactCode :: TestSource -> IO Text

@@ -136,6 +136,7 @@ import Data.Default
 import qualified Chainweb.Pact5.NoCoinbase as Pact5
 import qualified Pact.Parse as Pact4
 import qualified Control.Parallel.Strategies as Strategies
+import qualified Chainweb.Pact5.Validations as Pact5
 
 
 runPactService
@@ -757,7 +758,6 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
             | _psEnableLocalTimeout = Just (2 * 1_000_000)
             | otherwise = Nothing
 
-    -- TODO: Pact 5
     let act = readFromNthParent (fromIntegral rewindDepth) $ SomeBlockM $ Pair
             (do
                 pc <- view psParentHeader
@@ -838,11 +838,38 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                             []
                     Right pact5Cmd -> do
                         let txCtx = Pact5.TxContext ph noMiner
-                        cr <- Pact5.pactTransaction Nothing $ \dbEnv -> do
-                            let spvSupport = Pact5.pactSPV bhdb (_parentHeader ph)
-                            liftIO $
-                                fmap sshow <$> Pact5.applyLocal _psLogger _psGasLogger dbEnv txCtx spvSupport (view Pact5.payloadObj <$> pact5Cmd)
-                        pure $ LocalPact5PreflightResult (hashPact5TxLogs cr) []
+                        let spvSupport = Pact5.pactSPV bhdb (_parentHeader ph)
+                        case preflight of
+                            Just PreflightSimulation ->
+                                Pact5.liftPactServiceM (Pact5.assertLocalMetadata (view Pact5.payloadObj <$> pact5Cmd) txCtx sigVerify) >>= \case
+                                    Left e -> pure $ MetadataValidationFailure e
+                                    Right () -> do
+                                        let initialGas = Pact5.initialGasOf $ Pact5._cmdPayload pact5Cmd
+                                        Pact5.pactTransaction Nothing (\dbEnv ->
+                                            Pact5.applyCmd
+                                                _psLogger _psGasLogger dbEnv
+                                                txCtx spvSupport initialGas (view Pact5.payloadObj <$> pact5Cmd)
+                                                ) >>= \case
+                                            Left err ->
+                                                return $ LocalPact5PreflightResult Pact5.CommandResult
+                                                    { _crReqKey = Pact5.RequestKey (Pact5.Hash $ Pact4.unHash $ Pact4.toUntypedHash $ Pact4._cmdHash cwtx)
+                                                    , _crTxId = Nothing
+                                                    , _crResult = Pact5.PactResultErr ("Gas error: " <> sshow err)
+                                                    , _crGas = Pact5.Gas $ fromIntegral $ cmd ^. Pact4.cmdPayload . Pact4.pMeta . Pact4.pmGasLimit
+                                                    , _crLogs = Nothing
+                                                    , _crContinuation = Nothing
+                                                    , _crMetaData = Nothing
+                                                    , _crEvents = []
+                                                    }
+                                                    []
+                                            Right cr -> do
+                                                let cr' = hashPact5TxLogs cr
+                                                -- TODO: pact 5, no warnings yet
+                                                pure $ LocalPact5PreflightResult (sshow <$> cr') []
+                            _ -> do
+                                cr <- Pact5.pactTransaction Nothing $ \dbEnv -> do
+                                    fmap sshow <$> Pact5.applyLocal _psLogger _psGasLogger dbEnv txCtx spvSupport (view Pact5.payloadObj <$> pact5Cmd)
+                                pure $ LocalPact5ResultLegacy (hashPact5TxLogs cr)
 
             )
 

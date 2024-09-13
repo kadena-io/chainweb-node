@@ -960,6 +960,7 @@ data LocalResult
     = MetadataValidationFailure !(NE.NonEmpty Text)
     | LocalResultWithWarns !(Pact4.CommandResult Pact4.Hash) ![Text]
     | LocalResultLegacy !(Pact4.CommandResult Pact4.Hash)
+    | LocalPact5ResultLegacy (Pact5.CommandResult Pact5.Hash Text)
     | LocalPact5PreflightResult (Pact5.CommandResult Pact5.Hash Text) ![Text]
     | LocalTimeout
     deriving stock (Show, Generic)
@@ -972,6 +973,7 @@ instance J.Encode LocalResult where
         [ "preflightValidationFailures" J..= J.Array (J.text <$> e)
         ]
     build (LocalResultLegacy cr) = J.build cr
+    build (LocalPact5ResultLegacy cr) = J.build cr
     build (LocalResultWithWarns cr ws) = J.object
         [ "preflightResult" J..= cr
         , "preflightWarnings" J..= J.Array (J.text <$> ws)
