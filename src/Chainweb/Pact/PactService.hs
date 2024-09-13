@@ -1096,11 +1096,11 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                     currHeight = succ $ _blockHeight $ _parentHeader ph
                     isGenesis = False
                 liftIO $ forM txs $ \tx ->
-                    fmap (either Just (\_ -> Nothing)) $ runExceptT $
-                        Pact5.validateRawChainwebTx
-                            logger v cid db parentTime currHeight isGenesis
-                            (attemptBuyGasPact5 logger ph db blockHandle noMiner)
+                    fmap (either Just (\_ -> Nothing)) $ runExceptT $ do
+                        pact5Tx <- Pact5.validateRawChainwebTx
+                            logger v cid db blockHandle parentTime currHeight isGenesis
                             tx
+                        attemptBuyGasPact5 logger ph db blockHandle noMiner pact5Tx
             )
     withPactState $ \run ->
         timeoutYield timeoutLimit (run act) >>= \case

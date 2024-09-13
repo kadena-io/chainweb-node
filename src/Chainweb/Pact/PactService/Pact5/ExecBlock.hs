@@ -62,7 +62,7 @@ import Data.Void
 import Data.Word
 import Numeric.Natural
 import Pact.Core.ChainData hiding (ChainId)
-import Pact.Core.Command.Types (CommandResult(..), RequestKey(..))
+import Pact.Core.Command.RPC qualified as Pact5
 import Pact.Core.Command.Types qualified as Pact5
 import Pact.Core.Persistence qualified as Pact5
 import Pact.Core.Hash
@@ -87,6 +87,7 @@ import System.LogLevel
 import qualified Data.Aeson as Aeson
 import qualified Data.List.NonEmpty as NEL
 import Chainweb.Pact5.NoCoinbase
+import qualified Pact.Core.Evaluate as Pact5
 
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range. Rewards are calculated
@@ -202,7 +203,7 @@ continueBlock mpAccess blockInProgress = do
   liftIO $ mpaBadlistTx mpAccess
     (V.fromList $ fmap pact5RequestKeyToTransactionHash $ concat invalids)
 
-  liftPactServiceM $ logDebugPact $ "Order of completed transactions: " <> sshow (map (unRequestKey . _crReqKey . snd) $ concat $ reverse valids)
+  liftPactServiceM $ logDebugPact $ "Order of completed transactions: " <> sshow (map (Pact5.unRequestKey . Pact5._crReqKey . snd) $ concat $ reverse valids)
   let !blockInProgress' = blockInProgress
         & blockInProgressHandle .~
           finalBlockHandle
@@ -211,7 +212,7 @@ continueBlock mpAccess blockInProgress = do
         & blockInProgressRemainingGasLimit .~
           finalGasLimit
 
-  liftPactServiceM $ logDebugPact $ "Final block transaction order: " <> sshow (fmap (unRequestKey . _crReqKey . snd) $ _transactionPairs (_blockInProgressTransactions blockInProgress'))
+  liftPactServiceM $ logDebugPact $ "Final block transaction order: " <> sshow (fmap (Pact5.unRequestKey . Pact5._crReqKey . snd) $ _transactionPairs (_blockInProgressTransactions blockInProgress'))
 
   return blockInProgress'
 
@@ -245,8 +246,8 @@ continueBlock mpAccess blockInProgress = do
             execNewTransactions (_blockInProgressMiner blockInProgress) prevRemainingGas txTimeLimit newTxs
 
           liftPactServiceM $ do
-            logDebugPact $ "Refill: included request keys: " <> sshow @[Hash] (fmap (unRequestKey . _crReqKey . snd) newCompletedTransactions)
-            logDebugPact $ "Refill: badlisted request keys: " <> sshow @[Hash] (fmap unRequestKey newInvalidTransactions)
+            logDebugPact $ "Refill: included request keys: " <> sshow @[Hash] (fmap (Pact5.unRequestKey . Pact5._crReqKey . snd) newCompletedTransactions)
+            logDebugPact $ "Refill: badlisted request keys: " <> sshow @[Hash] (fmap Pact5.unRequestKey newInvalidTransactions)
 
           let newBlockFillState = BlockFill
                 { _bfCount = succ prevFillCount
@@ -335,7 +336,7 @@ continueBlock mpAccess blockInProgress = do
     isGenesis <- view psIsGenesis
     let validate bhi _bha txs = do
           forM txs $
-            runExceptT . validateRawChainwebTx logger v cid dbEnv (ParentCreationTime parentTime) bhi isGenesis (\_ -> pure ())
+            runExceptT . validateRawChainwebTx logger v cid dbEnv (_blockInProgressHandle blockInProgress) (ParentCreationTime parentTime) bhi isGenesis
     liftIO $ mpaGetBlock mpAccess blockFillState validate
       (succ pHeight)
       pHash
@@ -448,29 +449,40 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
 -- Skips validation for genesis transactions, since gas accounts, etc. don't
 -- exist yet.
 
+checkDesugar :: Pact5Db -> BlockHandle -> Pact5.Transaction -> ExceptT InsertError IO ()
+checkDesugar db blockHandle tx = ExceptT $ do
+  (desugarResult, _blockHandle') <-
+    doPact5DbTransaction db blockHandle Nothing $ \pactDb ->
+      runExceptT $
+        traverseOf_
+          (Pact5.cmdPayload . payloadObj . Pact5.pPayload . Pact5._Exec . Pact5.pmCode . Pact5.pcExps)
+          (ExceptT . Pact5.desugarTerms_ pactDb)
+          tx
+  return $ over _Left (InsertErrorPactParseError . sshow) desugarResult
+
 validateParsedChainwebTx
     :: (Logger logger)
     => logger
     -> ChainwebVersion
     -> ChainId
-    -> PactDbFor logger Pact5
+    -> Pact5Db
+    -> BlockHandle
     -> ParentCreationTime
         -- ^ reference time for tx validation.
     -> BlockHeight
         -- ^ Current block height
     -> Bool
         -- ^ Genesis?
-    -> (Pact5.Transaction -> ExceptT InsertError IO ())
     -> Pact5.Transaction
     -> ExceptT InsertError IO ()
-validateParsedChainwebTx _logger v cid dbEnv txValidationTime bh isGenesis doBuyGas tx
+validateParsedChainwebTx _logger v cid db blockHandle txValidationTime bh isGenesis tx
   | isGenesis = pure ()
   | otherwise = do
       checkUnique tx
       checkTxHash tx
       checkTxSigs tx
       checkTimes tx
-      doBuyGas tx
+      checkDesugar db blockHandle tx
       return ()
   where
 
@@ -478,7 +490,7 @@ validateParsedChainwebTx _logger v cid dbEnv txValidationTime bh isGenesis doBuy
     checkUnique t = do
       found <- liftIO $
         HashMap.lookup (coerce $ Pact5._cmdHash t) <$>
-          Pact5.lookupPactTransactions dbEnv
+          Pact5.lookupPactTransactions db
             (V.singleton $ coerce $ Pact5._cmdHash t)
       case found of
         Nothing -> pure ()
@@ -517,21 +529,21 @@ validateRawChainwebTx
     => logger
     -> ChainwebVersion
     -> ChainId
-    -> PactDbFor logger Pact5
+    -> Pact5Db
+    -> BlockHandle
     -> ParentCreationTime
         -- ^ reference time for tx validation.
     -> BlockHeight
         -- ^ Current block height
     -> Bool
         -- ^ Genesis?
-    -> (Pact5.Transaction -> ExceptT InsertError IO ())
     -> Pact4.UnparsedTransaction
     -> ExceptT InsertError IO Pact5.Transaction
-validateRawChainwebTx logger v cid db parentTime bh isGenesis maybeBuyGas tx = do
+validateRawChainwebTx logger v cid db blockHandle parentTime bh isGenesis tx = do
   tx' <- either (throwError . InsertErrorPactParseError . sshow) return $ Pact5.parsePact4Command tx
   liftIO $ do
     logDebug_ logger $ "validateRawChainwebTx: parse succeeded"
-  validateParsedChainwebTx logger v cid db parentTime bh isGenesis maybeBuyGas tx'
+  validateParsedChainwebTx logger v cid db blockHandle parentTime bh isGenesis tx'
   return $! tx'
 
 execExistingBlock
@@ -551,16 +563,14 @@ execExistingBlock currHeader payload = do
   cid <- view chainId
   db <- view psBlockDbEnv
   isGenesis <- view psIsGenesis
-  -- TODO: pact5 genesis
+  startBlockHandle <- use pbBlockHandle
   let
     txValidationTime = ParentCreationTime (_blockCreationTime $ _parentHeader parentBlockHeader)
-    -- TODO: pact5 use this
   errors <- liftIO $ flip foldMap txs $ \tx -> do
     errorOrSuccess <- runExceptT $
-      validateParsedChainwebTx logger v cid db txValidationTime
+      validateParsedChainwebTx logger v cid db startBlockHandle txValidationTime
         (_blockHeight currHeader)
         isGenesis
-        (\_ -> pure ())
         tx
     case errorOrSuccess of
       Right () -> return []
@@ -576,7 +586,6 @@ execExistingBlock currHeader payload = do
   let blockGasLimit =
         Pact5.GasLimit . Pact5.Gas . fromIntegral <$> maxBlockGasLimit v (_blockHeight currHeader)
 
-  startBlockHandle <- use pbBlockHandle
   env <- ask
   (results, (finalHandle, _finalBlockGasLimit)) <-
     liftIO $ flip runStateT (startBlockHandle, blockGasLimit) $
