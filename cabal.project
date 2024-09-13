@@ -147,6 +147,20 @@ source-repository-package
     tag: 90247042ab3b8662809210af2a78e6dee0f9b4ac
     --sha256: 0dqsrjxm0cm35xcihm49dhwdvmz79vsv4sd5qs2izc4sbnd0d8n6
 
+
+-- Required for the plonk verifier
+source-repository-package
+    type: git
+    location: https://github.com/argumentcomputer/lurk-hs
+    tag: a4bbe826bb0bed3856469dfb0cf8151d857f9172
+    --sha256: sha256-SATrShoiKrXebOGzhYiKwU4Pmhsii/tEYd9+jq89s8Q=
+
+-- source-repository-package
+--     type: git
+--     location: https://github.com/rsoeldner/lurk-hs.git
+--     tag: 9daa93205759d3752e73623bc1f77973b1617fd3
+--     --sha256: sha256-kntJeZiLPx6SHmqIULwDRSri0z5GvbPXajC1aYkQMo8
+
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
 

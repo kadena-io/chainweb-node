@@ -297,7 +297,7 @@ slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
     & versionName .~ ChainwebVersionName ("slowfork-CPM-" <> toText g)
     & versionForks .~ slowForks
     & versionVerifierPluginNames .~ AllChains
-        (Bottom (minBound, Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]))
+        (Bottom (minBound, Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message", "plonk"]))
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades slowly enabled,
 -- and with a gas fee quirk.
