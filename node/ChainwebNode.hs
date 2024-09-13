@@ -95,7 +95,7 @@ import Chainweb.Miner.Coordinator (MiningStats)
 import Chainweb.Pact.Backend.DbCache (DbCacheStats)
 import Chainweb.Pact.Service.PactQueue (PactQueueStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
-import Chainweb.Pact.Types(TxFailureLog)
+import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
@@ -384,8 +384,8 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
     -- we don't log tx failures in replay
     let !txFailureHandler =
             if _configOnlySyncPact chainwebCfg || _configReadOnlyReplay chainwebCfg
-            then dropLogHandler (Proxy :: Proxy TxFailureLog)
-            else passthroughLogHandler
+            then [dropLogHandler (Proxy :: Proxy Pact4TxFailureLog), dropLogHandler (Proxy :: Proxy Pact5TxFailureLog)]
+            else []
 
     -- Telemetry Backends
     monitorBackend <- managed
@@ -430,28 +430,31 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logCfg) $ logHandles
-            [ logFilterHandle (_logConfigFilter logCfg)
-            , txFailureHandler
-            , logHandler monitorBackend
-            , logHandler p2pInfoBackend
-            , logHandler rtsBackend
-            , logHandler counterBackend
-            , logHandler endpointBackend
-            , logHandler newBlockBackend
-            , logHandler orphanedBlockBackend
-            , logHandler miningStatsBackend
-            , logHandler requestLogBackend
-            , logHandler queueStatsBackend
-            , logHandler reintroBackend
-            , logHandler traceBackend
-            , logHandler mempoolStatsBackend
-            , logHandler blockUpdateBackend
-            , logHandler dbCacheBackend
-            , logHandler dbStatsBackend
-            , logHandler pactQueueStatsBackend
-            , logHandler p2pNodeStatsBackend
-            , logHandler topLevelStatusBackend
-            ] baseBackend
+            (concat
+                [ [ logFilterHandle (_logConfigFilter logCfg) ]
+                , txFailureHandler
+                ,
+                    [ logHandler monitorBackend
+                    , logHandler p2pInfoBackend
+                    , logHandler rtsBackend
+                    , logHandler counterBackend
+                    , logHandler endpointBackend
+                    , logHandler newBlockBackend
+                    , logHandler orphanedBlockBackend
+                    , logHandler miningStatsBackend
+                    , logHandler requestLogBackend
+                    , logHandler queueStatsBackend
+                    , logHandler reintroBackend
+                    , logHandler traceBackend
+                    , logHandler mempoolStatsBackend
+                    , logHandler blockUpdateBackend
+                    , logHandler dbCacheBackend
+                    , logHandler dbStatsBackend
+                    , logHandler pactQueueStatsBackend
+                    , logHandler p2pNodeStatsBackend
+                    , logHandler topLevelStatusBackend
+                    ]
+            ]) baseBackend
 
     liftIO $ f
         $ maybe id (\x -> addLabel ("cluster", toText x)) (_logConfigClusterId logCfg)

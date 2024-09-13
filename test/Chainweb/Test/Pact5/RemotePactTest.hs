@@ -36,11 +36,11 @@ import "pact" Pact.Types.Command qualified as Pact4
 import "pact" Pact.Types.Hash qualified as Pact4
 import Chainweb.ChainId
 import Chainweb.Graph (singletonChainGraph)
-import Chainweb.Logger
+-- import Chainweb.Logger
 import Chainweb.Mempool.Mempool (TransactionHash(..))
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.Types
-import Chainweb.Payload.PayloadStore
+-- import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Pact5.CmdBuilder
 import Chainweb.Test.TestVersions
@@ -194,7 +194,7 @@ pollingBadlistTest baseRdb = runResourceT $ do
         case pollResult ^?! ix pactDeadBeef . crResult of
             PactResultOk _ -> do
                 assertFailure "expected PactResultErr badlist"
-            PactResultErr (PEPact5Error pactErrorCode) -> do
+            PactResultErr (PEPact5Error _pactErrorCode) -> do
                 assertFailure "pollingBadlistTest doesn't support pact5 error codes yet"
                 -- idk how this works
                 --assertEqual "Transaction was badlisted" (_peCode pactErrorCode)
@@ -213,7 +213,7 @@ pollingConfirmationDepthTest baseRdb = runResourceT $ do
         rks <- sending clientEnv (cmd1 NE.:| [cmd2])
 
         pollResponse <- pollingWithDepth clientEnv rks (Just (ConfirmationDepth 10))
-        afterPolling <- getCurrentBlockHeight v clientEnv cid
+        _afterPolling <- getCurrentBlockHeight v clientEnv cid
 
         assertEqual "there are two command results" 2 (length (HashMap.keys pollResponse))
 
@@ -256,7 +256,6 @@ pollingWithDepth clientEnv rks mConfirmationDepth = do
         retryHandler :: RetryStatus -> Handler IO Bool
         retryHandler _ = Handler $ \case
             PollingException _ -> return True
-            _ -> return False
 
 newtype SendingException = SendingException String
     deriving stock (Show)
@@ -280,7 +279,6 @@ sending clientEnv cmd = do
         retryHandler :: RetryStatus -> Handler IO Bool
         retryHandler _ = Handler $ \case
             SendingException _ -> return True
-            _ -> return False
 
 toPact4RequestKey :: RequestKey -> Pact4.RequestKey
 toPact4RequestKey = \case
@@ -321,8 +319,8 @@ trivialTx n = defaultCmd
     , _cbGasLimit = GasLimit (Gas 1000)
     }
 
-successfulTx :: Predicatory p => Pred p (CommandResult log err)
-successfulTx = pt _crResult ? match _PactResultOk something
+_successfulTx :: Predicatory p => Pred p (CommandResult log err)
+_successfulTx = pt _crResult ? match _PactResultOk something
 
 pactDeadBeef :: RequestKey
 pactDeadBeef = case deadbeef of

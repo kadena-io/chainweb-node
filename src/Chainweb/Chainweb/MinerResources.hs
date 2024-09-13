@@ -182,7 +182,7 @@ withMiningCoordination logger conf cdb inner
     primeWork tpw cid =
         forConcurrently_ miners $ \miner ->
             runForever (logFunction (chainLogger cid logger)) "primeWork" (go miner)
-      where
+        where
         go :: Miner -> IO ()
         go miner = do
             pw <- readTVarIO tpw
@@ -192,9 +192,9 @@ withMiningCoordination logger conf cdb inner
                 ourMiner = workForMiner miner cid
             let !outdatedPayload = fromJuste $ pw ^? ourMiner
             let outdatedParentHash = case outdatedPayload of
-                  WorkReady outdatedBlock -> view _1 (newBlockParent outdatedBlock)
-                  WorkAlreadyMined outdatedBlockHash -> outdatedBlockHash
-                  WorkStale -> error "primeWork loop: Invariant Violation: Stale work should be an impossibility"
+                    WorkReady outdatedBlock -> view _1 (newBlockParent outdatedBlock)
+                    WorkAlreadyMined outdatedBlockHash -> outdatedBlockHash
+                    WorkStale -> error "primeWork loop: Invariant Violation: Stale work should be an impossibility"
 
             newParent <- either ParentHeader id <$> race
                 -- wait for a block different from what we've got primed work for

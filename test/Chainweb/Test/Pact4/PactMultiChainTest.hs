@@ -30,7 +30,6 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Test.Tasty
 import Test.Tasty.HUnit
-import System.IO.Unsafe
 import System.Logger qualified as YAL
 import System.LogLevel
 
@@ -72,7 +71,6 @@ import Chainweb.Test.TestVersions
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Version.Registry
 import Chainweb.WebPactExecutionService
 
 import Chainweb.Payload.PayloadStore (lookupPayloadWithHeight)
@@ -80,8 +78,8 @@ import Chainweb.Payload.PayloadStore (lookupPayloadWithHeight)
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion peterson
 
-quirkedGasTestVersion :: RequestKey -> ChainwebVersion
-quirkedGasTestVersion = quirkedGasSlowForkingCpmTestVersion peterson
+-- quirkedGasTestVersion :: RequestKey -> ChainwebVersion
+-- quirkedGasTestVersion = quirkedGasSlowForkingCpmTestVersion peterson
 
 cid :: ChainId
 cid = unsafeChainId 9

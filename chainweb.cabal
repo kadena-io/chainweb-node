@@ -812,7 +812,6 @@ executable cwtool
         , optparse-applicative >= 0.14
         , pact
         , pact-json
-        , pact-tng
         , pact-tng:pact-request-api
         , patience >= 0.3
         , process >= 1.5
@@ -825,7 +824,6 @@ executable cwtool
         , rocksdb-haskell-kadena >= 1.1.0
         , safe-exceptions >= 0.1
         , servant-client >= 0.18.2
-        , servant-client-core >= 0.18.2
         , stm >= 2.4
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
@@ -892,7 +890,6 @@ benchmark bench
         , merkle-log >=0.2
         , mtl >= 2.3
         , pact
-        , pact-tng
         , pact-tng:pact-request-api
         , random >= 1.2
         , streaming
