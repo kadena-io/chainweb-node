@@ -58,7 +58,8 @@ import Chainweb.Test.TestVersions
 import Chainweb.Utils.Bench
 import Chainweb.Utils (sshow)
 import Chainweb.Version
-import Chainweb.Pact4.Backend.ChainwebPactDb (BlockEnv)
+import qualified Chainweb.Pact4.Backend.ChainwebPactDb as Pact4
+import qualified Pact.Types.Command as Pact
 
 testVer :: ChainwebVersion
 testVer = instantCpmTestVersion petersonChainGraph
@@ -72,7 +73,7 @@ cpRestoreAndSave
   :: (Monoid q)
   => Checkpointer logger
   -> Maybe BlockHeader
-  -> [(BlockHeader, PactDbEnv (BlockEnv logger) -> IO q)]
+  -> [(BlockHeader, PactDbEnv (Pact4.BlockEnv logger) -> IO q)]
   -> IO q
 cpRestoreAndSave cp pc blks = snd <$> _cpRestoreAndSave cp (ParentHeader <$> pc)
   (traverse Stream.yield [Pact4RunnableBlock $ \dbEnv _ -> (,bh) <$> fun (Pact4._cpPactDbEnv dbEnv) | (bh, fun) <- blks])
@@ -439,5 +440,5 @@ cpBenchLookupProcessedTx transactionCount cp = C.env setup' $ \ ~(ut) ->
     pc02 = childOf (Just pc01) hash02
 
     go (NoopNFData _) = do
-        _cpReadFrom (_cpReadCp cp) (Just (ParentHeader pc02)) $ \dbEnv ->
-          _cpLookupProcessedTx dbEnv (V.fromList [Pact.TypedHash "" | _ <- [1..transactionCount]])
+        _cpReadFrom (_cpReadCp cp) (Just (ParentHeader pc02)) Pact4T $ \dbEnv _ ->
+          Pact4._cpLookupProcessedTx dbEnv (V.fromList [Pact.RequestKey (Pact.toUntypedHash $ Pact.TypedHash "") | _ <- [1..transactionCount]])
