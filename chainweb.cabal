@@ -513,6 +513,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.GrandHash
         Chainweb.Test.Pact.PactMultiChainTest
         Chainweb.Test.Pact.VerifierPluginTest
+        Chainweb.Test.Pact.VerifierPluginTest.PlonkVerifier
         Chainweb.Test.Pact.VerifierPluginTest.Transaction
         Chainweb.Test.Pact.VerifierPluginTest.Transaction.Message.After225
         Chainweb.Test.Pact.VerifierPluginTest.Transaction.Message.Before225
@@ -639,6 +640,7 @@ test-suite chainweb-tests
         , yet-another-logger >= 0.4.1
         , sha-validation >=0.1
         , hashes >=0.2.2.0
+        , plonk-verify
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
@@ -911,3 +913,4 @@ benchmark bench
         , unordered-containers >= 0.2.16
         , yet-another-logger >= 0.4.1
         , pact-json >= 0.1
+        , plonk-verify
