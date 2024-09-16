@@ -17,6 +17,7 @@
 {-# options_ghc -fno-warn-gadt-mono-local-binds #-}
 
 {-# options_ghc -Wwarn #-}
+{-# options_ghc -w #-}
 
 module Chainweb.Test.Pact5.SPVTest
     ( tests
