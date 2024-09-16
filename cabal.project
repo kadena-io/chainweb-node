@@ -149,7 +149,7 @@ source-repository-package
     type: git
     location: https://github.com/larskuhtz/lurk-hs.git
     tag: bab50227d57a60ad3131738ff12d7f68d29ca1f6
-
+    --sha256: sha256-0rDQshgwr6tRig6zMMyZGFm3w3FvZwHhKydVT0Ym+hE=
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
 
