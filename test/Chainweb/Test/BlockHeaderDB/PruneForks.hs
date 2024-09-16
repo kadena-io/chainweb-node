@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: Chainweb.Test.BlockHeaderDB.PruneForks

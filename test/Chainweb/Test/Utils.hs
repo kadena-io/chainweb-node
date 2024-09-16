@@ -28,6 +28,7 @@ module Chainweb.Test.Utils
 , withResourceT
 , independentSequentialTestGroup
 , unsafeHeadOf
+, getTestLogLevel
 
 -- * Test RocksDb
 , testRocksDb
@@ -124,7 +125,6 @@ module Chainweb.Test.Utils
 , NodeDbDirs(..)
 ) where
 
-import Chainweb.Test.Pact5.Utils (getTestLogLevel)
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Lens
@@ -164,7 +164,7 @@ import Numeric.Natural
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv, runClientM)
 
 import System.Directory (removeDirectoryRecursive)
-import System.Environment (withArgs)
+import System.Environment (withArgs, lookupEnv)
 import System.IO
 import System.IO.Temp
 import System.LogLevel
@@ -237,6 +237,7 @@ import P2P.Peer
 
 import Chainweb.Test.Utils.APIValidation
 import Data.Semigroup
+import Data.Maybe
 
 -- -------------------------------------------------------------------------- --
 -- Intialize Test BlockHeader DB
@@ -1162,3 +1163,13 @@ independentSequentialTestGroup tn tts =
 
 unsafeHeadOf :: HasCallStack => Getting (Endo a) s a -> s -> a
 unsafeHeadOf l s = s ^?! l
+
+getTestLogLevel :: IO LogLevel
+getTestLogLevel = do
+    let parseLogLevel txt = case T.toUpper txt of
+            "DEBUG" -> Debug
+            "INFO" -> Info
+            "WARN" -> Warn
+            "ERROR" -> Error
+            _ -> Error
+    fromMaybe Error . fmap (parseLogLevel . T.pack) <$> lookupEnv "CHAINWEB_TEST_LOG_LEVEL"

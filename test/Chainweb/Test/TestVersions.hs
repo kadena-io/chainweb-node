@@ -53,7 +53,6 @@ import P2P.Peer
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Gas as P
 import qualified Pact.Types.Hash as P
-import Chainweb.Test.Pact5.Utils (pactTxFrom4To5)
 
 import Pact.Types.Verifier
 
@@ -64,6 +63,14 @@ import qualified Chainweb.Pact.Transactions.CoinV6Transactions as CoinV6
 import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
 import qualified Chainweb.Pact.Transactions.OtherTransactions as Other
 import Chainweb.BlockHeader (genesisHeightSlow)
+import qualified Chainweb.Pact4.Transaction as Pact4
+import qualified Chainweb.Pact5.Transaction as Pact5
+import qualified Pact.Core.Command.Types as Pact5
+import qualified Data.Text as T
+import qualified Pact.JSON.Encode as J
+import Data.Text.Encoding
+import qualified Data.ByteString.Short as SBS
+import qualified Data.Aeson as Aeson
 
 testBootstrapPeerInfos :: PeerInfo
 testBootstrapPeerInfos =
@@ -441,3 +448,15 @@ pact5SlowCpmTestVersion g = buildTestVersion $ \v -> v
         ]
     & versionVerifierPluginNames .~ AllChains
         (End $ Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"])
+
+pactTxFrom4To5 :: Pact4.Transaction -> Pact5.Transaction
+pactTxFrom4To5 tx =
+  let
+    e = do
+      let json = J.encode (fmap (decodeUtf8 . SBS.fromShort . Pact4.payloadBytes) tx)
+      cmdWithPayload <- Aeson.eitherDecode @(Pact5.Command T.Text) json
+      Pact5.parseCommand cmdWithPayload
+  in
+  case e of
+    Left err -> error err
+    Right cmds -> cmds

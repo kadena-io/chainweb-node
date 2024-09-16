@@ -37,7 +37,7 @@ import "pact" Pact.Types.Hash qualified as Pact4
 import Chainweb.ChainId
 import Chainweb.Graph (singletonChainGraph)
 -- import Chainweb.Logger
-import Chainweb.Mempool.Mempool (TransactionHash(..))
+import Chainweb.Mempool.Mempool (TransactionHash(..), MempoolBackend)
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.Types
 -- import Chainweb.Payload.PayloadStore
@@ -69,6 +69,9 @@ import Test.Tasty
 import Chainweb.Utils
 import Pact.Core.Gas.Types
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
+import Chainweb.Test.Cut.TestBlockDb
+import qualified Chainweb.Pact4.Transaction as Pact4
+import Chainweb.Pact.Service.PactQueue
 {-
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), addTestBlockDb, getCutTestBlockDb, getParentTestBlockDb, mkTestBlockDb, setCutTestBlockDb)
 import Chainweb.Test.Pact4.Utils (stdoutDummyLogger, testPactServiceConfig, withBlockHeaderDb)
@@ -160,183 +163,188 @@ import Data.Bool
 import System.IO.Unsafe
 -}
 
-data Fixture = Fixture
-    { _fixtureNodeDbDirs :: [NodeDbDirs]
-    , _fixtureNetwork :: ChainwebNetwork
+data NetworkedWebPactFixture = NetworkedWebPactFixture
+    { _networkedWebPactFixtureWebPact :: WebPactFixture
+    , _networkedWebPactFixtureP2PAPIClientEnvs :: ChainMap ClientEnv
+    , _networkedWebPactFixtureServiceAPIClientEnvs :: ChainMap ClientEnv
     }
-makeLenses ''Fixture
+makeLenses ''NetworkedWebPactFixture
 
-fixtureClientEnv :: Getter Fixture ClientEnv
-fixtureClientEnv = to $ \f -> _getServiceClientEnv $ _fixtureNetwork f
+mkNetworkedWebPactFixtureWith :: ChainwebVersion -> PactServiceConfig -> RocksDb -> ResourceT IO NetworkedWebPactFixture
+mkNetworkedWebPactFixtureWith v cfg rdb =
+    undefined
 
-mkFixture :: RocksDb -> ResourceT IO Fixture
-mkFixture baseRdb = do
-    nodeDbDirs <- withNodeDbDirs baseRdb 1
-    network <- withNodesAtLatestBehavior v id nodeDbDirs
-    return $ Fixture
-        { _fixtureNodeDbDirs = nodeDbDirs
-        , _fixtureNetwork = network
-        }
+-- fixtureClientEnv :: Getter Fixture ClientEnv
+-- fixtureClientEnv = to $ \f -> _getServiceClientEnv $ _fixtureNetwork f
 
-tests :: RocksDb -> TestTree
-tests rdb = testGroup "Pact5 RemotePactTest"
-    [ -- testCase "pollingBadlistTest" (pollingBadlistTest rdb)
-      testCase "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
-    ]
+-- mkFixture :: RocksDb -> ResourceT IO Fixture
+-- mkFixture baseRdb = do
+--     nodeDbDirs <- withNodeDbDirs baseRdb 1
+--     network <- withNodesAtLatestBehavior v id nodeDbDirs
+--     return $ Fixture
+--         { _fixtureNodeDbDirs = nodeDbDirs
+--         , _fixtureNetwork = network
+--         }
 
-pollingBadlistTest :: RocksDb -> IO ()
-pollingBadlistTest baseRdb = runResourceT $ do
-    fixture <- mkFixture baseRdb
-    let clientEnv = fixture ^. fixtureClientEnv
+-- tests :: RocksDb -> TestTree
+-- tests rdb = testGroup "Pact5 RemotePactTest"
+--     [ -- testCase "pollingBadlistTest" (pollingBadlistTest rdb)
+--       testCase "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
+--     ]
 
-    liftIO $ do
-        pollResult <- polling clientEnv (NE.singleton pactDeadBeef)
-        case pollResult ^?! ix pactDeadBeef . crResult of
-            PactResultOk _ -> do
-                assertFailure "expected PactResultErr badlist"
-            PactResultErr (PEPact5Error _pactErrorCode) -> do
-                assertFailure "pollingBadlistTest doesn't support pact5 error codes yet"
-                -- idk how this works
-                --assertEqual "Transaction was badlisted" (_peCode pactErrorCode)
-            PactResultErr (PELegacyError legacyError) -> do
-                assertBool "Transaction was badlisted" ("badlisted" `Text.isInfixOf` _leMessage legacyError)
-            -- _ -> assertFailure "expected PactResultError"
+-- pollingBadlistTest :: RocksDb -> IO ()
+-- pollingBadlistTest baseRdb = runResourceT $ do
+--     fixture <- mkFixture baseRdb
+--     let clientEnv = fixture ^. fixtureClientEnv
 
-pollingConfirmationDepthTest :: RocksDb -> IO ()
-pollingConfirmationDepthTest baseRdb = runResourceT $ do
-    fixture <- mkFixture baseRdb
-    let clientEnv = fixture ^. fixtureClientEnv
+--     liftIO $ do
+--         pollResult <- polling clientEnv (NE.singleton pactDeadBeef)
+--         case pollResult ^?! ix pactDeadBeef . crResult of
+--             PactResultOk _ -> do
+--                 assertFailure "expected PactResultErr badlist"
+--             PactResultErr (PEPact5Error _pactErrorCode) -> do
+--                 assertFailure "pollingBadlistTest doesn't support pact5 error codes yet"
+--                 -- idk how this works
+--                 --assertEqual "Transaction was badlisted" (_peCode pactErrorCode)
+--             PactResultErr (PELegacyError legacyError) -> do
+--                 assertBool "Transaction was badlisted" ("badlisted" `Text.isInfixOf` _leMessage legacyError)
+--             -- _ -> assertFailure "expected PactResultError"
 
-    liftIO $ do
-        cmd1 <- buildTextCmd v (trivialTx 42)
-        cmd2 <- buildTextCmd v (trivialTx 43)
-        rks <- sending clientEnv (cmd1 NE.:| [cmd2])
-        putStrLn $ "pollingConfirmationDepth requestKeys: " ++ show rks
+-- pollingConfirmationDepthTest :: RocksDb -> IO ()
+-- pollingConfirmationDepthTest baseRdb = runResourceT $ do
+--     fixture <- mkFixture baseRdb
+--     let clientEnv = fixture ^. fixtureClientEnv
 
-        beforePolling <- getCurrentBlockHeight v clientEnv cid
-        putStrLn $ "beforePolling: " ++ show beforePolling
-        pollResponse <- pollingWithDepth clientEnv rks Nothing --(Just (ConfirmationDepth 10))
-        afterPolling <- getCurrentBlockHeight v clientEnv cid
-        putStrLn $ "afterPolling: " ++ show afterPolling
+--     liftIO $ do
+--         cmd1 <- buildTextCmd v (trivialTx 42)
+--         cmd2 <- buildTextCmd v (trivialTx 43)
+--         rks <- sending clientEnv (cmd1 NE.:| [cmd2])
+--         putStrLn $ "pollingConfirmationDepth requestKeys: " ++ show rks
 
-        assertEqual "there are two command results" 2 (length (HashMap.keys pollResponse))
+--         beforePolling <- getCurrentBlockHeight v clientEnv cid
+--         putStrLn $ "beforePolling: " ++ show beforePolling
+--         pollResponse <- pollingWithDepth clientEnv rks Nothing --(Just (ConfirmationDepth 10))
+--         afterPolling <- getCurrentBlockHeight v clientEnv cid
+--         putStrLn $ "afterPolling: " ++ show afterPolling
 
-{-
-localTest :: RocksDb -> IO ()
-localTest baseRdb = runResourceT $ do
-    fixture <- mkFixture baseRdb
-    let clientEnv = fixture ^. fixtureClientEnv
+--         assertEqual "there are two command results" 2 (length (HashMap.keys pollResponse))
 
-    liftIO $ do
-        let rks = NE.fromList [pactDeadBeef]
-        x <- polling clientEnv (NE.singleton pactDeadBeef)
-        print x
--}
+-- {-
+-- localTest :: RocksDb -> IO ()
+-- localTest baseRdb = runResourceT $ do
+--     fixture <- mkFixture baseRdb
+--     let clientEnv = fixture ^. fixtureClientEnv
 
-newtype PollingException = PollingException String
-    deriving stock (Show)
-    deriving anyclass (Exception)
+--     liftIO $ do
+--         let rks = NE.fromList [pactDeadBeef]
+--         x <- polling clientEnv (NE.singleton pactDeadBeef)
+--         print x
+-- -}
 
-polling :: ()
-    => ClientEnv
-    -> NonEmpty RequestKey
-    -> IO (HashMap RequestKey TestPact5CommandResult)
-polling clientEnv rks = do
-    pollingWithDepth clientEnv rks Nothing
+-- newtype PollingException = PollingException String
+--     deriving stock (Show)
+--     deriving anyclass (Exception)
 
-pollingWithDepth :: ()
-    => ClientEnv
-    -> NonEmpty RequestKey
-    -> Maybe ConfirmationDepth
-    -> IO (HashMap RequestKey TestPact5CommandResult)
-pollingWithDepth clientEnv rks mConfirmationDepth = do
-    recovering testRetryPolicy [retryHandler] $ \_iterNumber -> do
-        let rksPact4 = NE.map toPact4RequestKey rks
-        poll <- runClientM (pactPollWithQueryApiClient v cid mConfirmationDepth (Pact4.Poll rksPact4)) clientEnv
-        case poll of
-            Left e -> do
-                throwM (PollingException (show e))
-            Right (Pact4.PollResponses response) -> do
-                return (convertPollResponse response)
-    where
-        retryHandler :: RetryStatus -> Handler IO Bool
-        retryHandler _ = Handler $ \case
-            PollingException _ -> return True
+-- polling :: ()
+--     => ClientEnv
+--     -> NonEmpty RequestKey
+--     -> IO (HashMap RequestKey TestPact5CommandResult)
+-- polling clientEnv rks = do
+--     pollingWithDepth clientEnv rks Nothing
 
-newtype SendingException = SendingException String
-    deriving stock (Show)
-    deriving anyclass (Exception)
+-- pollingWithDepth :: ()
+--     => ClientEnv
+--     -> NonEmpty RequestKey
+--     -> Maybe ConfirmationDepth
+--     -> IO (HashMap RequestKey TestPact5CommandResult)
+-- pollingWithDepth clientEnv rks mConfirmationDepth = do
+--     recovering testRetryPolicy [retryHandler] $ \_iterNumber -> do
+--         let rksPact4 = NE.map toPact4RequestKey rks
+--         poll <- runClientM (pactPollWithQueryApiClient v cid mConfirmationDepth (Pact4.Poll rksPact4)) clientEnv
+--         case poll of
+--             Left e -> do
+--                 throwM (PollingException (show e))
+--             Right (Pact4.PollResponses response) -> do
+--                 return (convertPollResponse response)
+--     where
+--         retryHandler :: RetryStatus -> Handler IO Bool
+--         retryHandler _ = Handler $ \case
+--             PollingException _ -> return True
 
-sending :: ()
-    => ClientEnv
-    -> NonEmpty (Command Text)
-    -> IO (NonEmpty RequestKey)
-sending clientEnv cmds = do
-    putStrLn $ "sending: pact5 batch: " ++ show cmds
-    recovering testRetryPolicy [retryHandler] $ \_iterNumber -> do
-        let batch = Pact4.SubmitBatch (NE.map toPact4Command cmds)
-        putStrLn $ "sending: pact4 batch: " ++ show batch
-        send <- runClientM (pactSendApiClient v cid batch) clientEnv
-        case send of
-            Left e -> do
-                throwM (SendingException (show e))
-            Right (Pact4.RequestKeys response) -> do
-                return (NE.map toPact5RequestKey response)
-    where
-        retryHandler :: RetryStatus -> Handler IO Bool
-        retryHandler _ = Handler $ \case
-            SendingException _ -> return True
+-- newtype SendingException = SendingException String
+--     deriving stock (Show)
+--     deriving anyclass (Exception)
 
-toPact4RequestKey :: RequestKey -> Pact4.RequestKey
-toPact4RequestKey = \case
-    RequestKey (Pact5.Hash bytes) -> Pact4.RequestKey (Pact4.Hash bytes)
+-- sending :: ()
+--     => ClientEnv
+--     -> NonEmpty (Command Text)
+--     -> IO (NonEmpty RequestKey)
+-- sending clientEnv cmds = do
+--     putStrLn $ "sending: pact5 batch: " ++ show cmds
+--     recovering testRetryPolicy [retryHandler] $ \_iterNumber -> do
+--         let batch = Pact4.SubmitBatch (NE.map toPact4Command cmds)
+--         putStrLn $ "sending: pact4 batch: " ++ show batch
+--         send <- runClientM (pactSendApiClient v cid batch) clientEnv
+--         case send of
+--             Left e -> do
+--                 throwM (SendingException (show e))
+--             Right (Pact4.RequestKeys response) -> do
+--                 return (NE.map toPact5RequestKey response)
+--     where
+--         retryHandler :: RetryStatus -> Handler IO Bool
+--         retryHandler _ = Handler $ \case
+--             SendingException _ -> return True
 
-toPact5RequestKey :: Pact4.RequestKey -> RequestKey
-toPact5RequestKey = \case
-    Pact4.RequestKey (Pact4.Hash bytes) -> RequestKey (Pact5.Hash bytes)
+-- toPact4RequestKey :: RequestKey -> Pact4.RequestKey
+-- toPact4RequestKey = \case
+--     RequestKey (Pact5.Hash bytes) -> Pact4.RequestKey (Pact4.Hash bytes)
 
-toPact4Command :: Command Text -> Pact4.Command Text
-toPact4Command cmd4 = case Aeson.eitherDecodeStrictText (J.encodeText cmd4) of
-    Left err -> error $ "toPact4Command: decode failed: " ++ err
-    Right cmd5 -> cmd5
+-- toPact5RequestKey :: Pact4.RequestKey -> RequestKey
+-- toPact5RequestKey = \case
+--     Pact4.RequestKey (Pact4.Hash bytes) -> RequestKey (Pact5.Hash bytes)
 
-toPact5CommandResult :: ()
-    => Pact4.CommandResult Pact4.Hash
-    -> TestPact5CommandResult
-toPact5CommandResult cr4 = case Aeson.eitherDecodeStrictText (J.encodeText cr4) of
-    Left err -> error $ "toPact5CommandResult: decode failed: " ++ err
-    Right cr5 -> cr5
+-- toPact4Command :: Command Text -> Pact4.Command Text
+-- toPact4Command cmd4 = case Aeson.eitherDecodeStrictText (J.encodeText cmd4) of
+--     Left err -> error $ "toPact4Command: decode failed: " ++ err
+--     Right cmd5 -> cmd5
 
-convertPollResponse :: ()
-    => HashMap Pact4.RequestKey (Pact4.CommandResult Pact4.Hash)
-    -> HashMap RequestKey TestPact5CommandResult
-convertPollResponse pact4Response = HashMap.fromList
-    $ List.map (\(rk, cr) -> (toPact5RequestKey rk, toPact5CommandResult cr))
-    $ HashMap.toList pact4Response
+-- toPact5CommandResult :: ()
+--     => Pact4.CommandResult Pact4.Hash
+--     -> TestPact5CommandResult
+-- toPact5CommandResult cr4 = case Aeson.eitherDecodeStrictText (J.encodeText cr4) of
+--     Left err -> error $ "toPact5CommandResult: decode failed: " ++ err
+--     Right cr5 -> cr5
 
-trivialTx :: Word -> CmdBuilder
-trivialTx n = defaultCmd
-    { _cbRPC = mkExec' (sshow n)
-    , _cbSigners =
-        [ mkEd25519Signer' sender00 []
-        ]
-    , _cbSender = "sender00"
-    , _cbChainId = cid
-    , _cbGasPrice = GasPrice 0.1
-    , _cbGasLimit = GasLimit (Gas 1_000)
-    }
+-- convertPollResponse :: ()
+--     => HashMap Pact4.RequestKey (Pact4.CommandResult Pact4.Hash)
+--     -> HashMap RequestKey TestPact5CommandResult
+-- convertPollResponse pact4Response = HashMap.fromList
+--     $ List.map (\(rk, cr) -> (toPact5RequestKey rk, toPact5CommandResult cr))
+--     $ HashMap.toList pact4Response
 
-_successfulTx :: Predicatory p => Pred p (CommandResult log err)
-_successfulTx = pt _crResult ? match _PactResultOk something
+-- trivialTx :: Word -> CmdBuilder
+-- trivialTx n = defaultCmd
+--     { _cbRPC = mkExec' (sshow n)
+--     , _cbSigners =
+--         [ mkEd25519Signer' sender00 []
+--         ]
+--     , _cbSender = "sender00"
+--     , _cbChainId = cid
+--     , _cbGasPrice = GasPrice 0.1
+--     , _cbGasLimit = GasLimit (Gas 1_000)
+--     }
 
-pactDeadBeef :: RequestKey
-pactDeadBeef = case deadbeef of
-    TransactionHash bytes -> RequestKey (Pact5.Hash bytes)
+-- _successfulTx :: Predicatory p => Pred p (CommandResult log err)
+-- _successfulTx = pt _crResult ? match _PactResultOk something
 
-cid :: ChainId
-cid = unsafeChainId 0
+-- pactDeadBeef :: RequestKey
+-- pactDeadBeef = case deadbeef of
+--     TransactionHash bytes -> RequestKey (Pact5.Hash bytes)
 
-v :: ChainwebVersion
-v = pact5InstantCpmTestVersion singletonChainGraph
+-- cid :: ChainId
+-- cid = unsafeChainId 0
 
-type TestPact5CommandResult = CommandResult Aeson.Value (PactErrorCompat (StableEncoding SpanInfo))
+-- v :: ChainwebVersion
+-- v = pact5InstantCpmTestVersion singletonChainGraph
+
+-- type TestPact5CommandResult = CommandResult Aeson.Value (PactErrorCompat (StableEncoding SpanInfo))
