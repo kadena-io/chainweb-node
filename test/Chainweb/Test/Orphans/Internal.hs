@@ -150,7 +150,7 @@ import Chainweb.Version
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Registry
-import Chainweb.Version.Testnet
+import Chainweb.Version.Testnet04
 import Chainweb.Version.Utils
 
 import Data.Singletons

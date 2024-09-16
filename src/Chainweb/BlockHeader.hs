@@ -168,7 +168,7 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Guards
 import Chainweb.Version.Mainnet
-import Chainweb.Version.Testnet
+import Chainweb.Version.Testnet04
 import Chainweb.Version.Registry (lookupVersionByName, lookupVersionByCode)
 
 import Chainweb.Storage.Table
@@ -665,7 +665,7 @@ genesisBlockHeaderCache = unsafePerformIO $ do
 genesisBlockHeaders :: ChainwebVersion -> HashMap ChainId BlockHeader
 genesisBlockHeaders = \v ->
     if _versionCode v == _versionCode mainnet then mainnetGenesisHeaders
-    else if _versionCode v == _versionCode testnet then testnetGenesisHeaders
+    else if _versionCode v == _versionCode testnet04 then testnetGenesisHeaders
     else unsafeDupablePerformIO $
         HM.lookup (_versionCode v) <$> readIORef genesisBlockHeaderCache >>= \case
             Just hs -> return hs
@@ -675,7 +675,7 @@ genesisBlockHeaders = \v ->
                 return freshGenesisHeaders
   where
     mainnetGenesisHeaders = makeGenesisBlockHeaders mainnet
-    testnetGenesisHeaders = makeGenesisBlockHeaders testnet
+    testnetGenesisHeaders = makeGenesisBlockHeaders testnet04
 
 genesisBlockHeader :: (HasCallStack, HasChainId p) => ChainwebVersion -> p -> BlockHeader
 genesisBlockHeader v p = genesisBlockHeaders v ^?! at (_chainId p) . _Just

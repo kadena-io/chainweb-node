@@ -5,7 +5,7 @@
 {-# language QuasiQuotes #-}
 {-# language ViewPatterns #-}
 
-module Chainweb.Version.Testnet(testnet, pattern Testnet04) where
+module Chainweb.Version.Testnet04(testnet04, pattern Testnet04) where
 
 import Control.Lens
 import qualified Data.HashMap.Strict as HM
@@ -40,10 +40,10 @@ import qualified Chainweb.Pact.Transactions.Mainnet7Transactions as MN7
 import qualified Chainweb.Pact.Transactions.Mainnet8Transactions as MN8
 import qualified Chainweb.Pact.Transactions.Mainnet9Transactions as MN9
 import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
-import qualified Chainweb.BlockHeader.Genesis.Testnet0Payload as PN0
-import qualified Chainweb.BlockHeader.Genesis.Testnet1to19Payload as PNN
+import qualified Chainweb.BlockHeader.Genesis.Testnet040Payload as PN0
+import qualified Chainweb.BlockHeader.Genesis.Testnet041to19Payload as PNN
 
--- | Initial hash target for testnet 20-chain transition. Based on the following
+-- | Initial hash target for testnet04 20-chain transition. Based on the following
 -- header from recap devnet running with 5 GPUs hash power. Using this target unchanged
 -- means, that we should do to the transition with the hash power of about
 -- 5 - 50 GPUs in the system for a smooth transition.
@@ -89,11 +89,11 @@ to20ChainsTestnet :: BlockHeight
 to20ChainsTestnet = 332_604 -- 2020-07-28 16:00:00
 
 pattern Testnet04 :: ChainwebVersion
-pattern Testnet04 <- ((== testnet) -> True) where
-    Testnet04 = testnet
+pattern Testnet04 <- ((== testnet04) -> True) where
+    Testnet04 = testnet04
 
-testnet :: ChainwebVersion
-testnet = ChainwebVersion
+testnet04 :: ChainwebVersion
+testnet04 = ChainwebVersion
     { _versionCode = ChainwebVersionCode 0x00000007
     , _versionName = ChainwebVersionName "testnet04"
     , _versionForks = tabulateHashMap $ \case
@@ -139,7 +139,7 @@ testnet = ChainwebVersion
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionMaxBlockGasLimit =
-        (succ $ testnet ^?! versionForks . at Chainweb216Pact . _Just . atChain (unsafeChainId 0) . _ForkAtBlockHeight, Just 180_000) `Above`
+        (succ $ testnet04 ^?! versionForks . at Chainweb216Pact . _Just . atChain (unsafeChainId 0) . _ForkAtBlockHeight, Just 180_000) `Above`
         End Nothing
     , _versionBootstraps = domainAddr2PeerInfo testnetBootstrapHosts
     , _versionGenesis = VersionGenesis
@@ -155,7 +155,7 @@ testnet = ChainwebVersion
             ]
         }
     , _versionUpgrades = chainZip HM.union
-        (indexByForkHeights testnet
+        (indexByForkHeights testnet04
         [ (CoinV2, onChains $
             [ (unsafeChainId 0, ForSomePactVersion Pact4T $ pact4Upgrade MN0.transactions)
             , (unsafeChainId 1, ForSomePactVersion Pact4T $ pact4Upgrade MN1.transactions)

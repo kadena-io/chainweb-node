@@ -55,11 +55,10 @@ mainnetBootstrapHosts = map unsafeHostAddressFromText
 --
 testnetBootstrapHosts :: [HostAddress]
 testnetBootstrapHosts = map unsafeHostAddressFromText
-    [ "us1.testnet.chainweb.com:443"
-    , "us2.testnet.chainweb.com:443"
-    , "eu1.testnet.chainweb.com:443"
-    , "eu2.testnet.chainweb.com:443"
-    , "ap1.testnet.chainweb.com:443"
-    , "ap2.testnet.chainweb.com:443"
+    [ "us1.testnet04.chainweb.com:443"
+    , "us2.testnet04.chainweb.com:443"
+    , "eu1.testnet04.chainweb.com:443"
+    , "eu2.testnet04.chainweb.com:443"
+    , "ap1.testnet04.chainweb.com:443"
+    , "ap2.testnet04.chainweb.com:443"
     ]
-

@@ -82,7 +82,7 @@ main = void $ do
     fastnet
     instantnet
     pact5Instantnet
-    testnet
+    testnet04
     mainnet
     genTxModules
     genCoinV3Payloads
@@ -107,7 +107,7 @@ main = void $ do
     fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
     instantnet = mkPayloads [instantCPM0, instantCPMN]
     pact5Instantnet = mkPayloads [pact5InstantCPM0, pact5InstantCPMN]
-    testnet = mkPayloads [testnet0, testnetN]
+    testnet04 = mkPayloads [testnet040, testnet04N]
     mainnet = mkPayloads
       [ mainnet0
       , mainnet1

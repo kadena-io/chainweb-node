@@ -54,7 +54,7 @@ import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
 
 -- | Initial hash target for mainnet 20-chain transition. Difficulty on the new
 -- chains is 1/4 of the current difficulty. It is based on the following header
--- from 2020-07-09. This value should be double checked after the testnet
+-- from 2020-07-09. This value should be double checked after the testnet04
 -- transition and before the release of chainweb node version 2.1.
 --
 -- @

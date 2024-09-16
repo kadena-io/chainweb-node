@@ -30,8 +30,8 @@ module Ea.Genesis
 , pact5InstantCPMN
 
   -- * Testnet Genesis txs
-, testnet0
-, testnetN
+, testnet040
+, testnet04N
 
   -- * Mainnet Genesis txs
 , mainnet0
@@ -74,7 +74,7 @@ import Chainweb.Version.Development
 import Chainweb.Version.Pact5Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
-import Chainweb.Version.Testnet
+import Chainweb.Version.Testnet04
 
 
 -- ---------------------------------------------------------------------- --
@@ -322,10 +322,10 @@ fastAllocations = "pact/genesis/devnet/allocations.yaml"
 -- ---------------------------------------------------------------------- --
 -- Testnet
 
-testnet0 :: Genesis
-testnet0 = Genesis
+testnet040 :: Genesis
+testnet040 = Genesis
     { _version = Testnet04
-    , _tag = "Testnet"
+    , _tag = "Testnet04"
     , _txChainIds = onlyChainId 0
     , _coinbase = Just test0Grants
     , _keysets = Just testnetKeysets
@@ -334,8 +334,8 @@ testnet0 = Genesis
     , _coinContract = [fungibleAssetV1, coinContractV1, gasPayer]
     }
 
-testnetN :: Genesis
-testnetN = testnet0
+testnet04N :: Genesis
+testnet04N = testnet040
     & txChainIds .~ mkChainIdRange 1 19
     & coinbase ?~ testNGrants
 

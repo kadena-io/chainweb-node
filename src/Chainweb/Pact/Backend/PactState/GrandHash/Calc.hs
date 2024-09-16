@@ -39,7 +39,7 @@ import Chainweb.Version (ChainwebVersion(..), ChainwebVersionName(..))
 import Chainweb.Version.Development (devnet)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.RecapDevelopment (recapDevnet)
-import Chainweb.Version.Testnet (testnet)
+import Chainweb.Version.Testnet04 (testnet04)
 import Control.Applicative ((<|>), many)
 import Control.Monad (forM_, when)
 import Data.ByteString.Lazy qualified as BL
@@ -330,7 +330,7 @@ chainHashesToModule v input = prefix
 versionModuleName :: ChainwebVersion -> String
 versionModuleName v
   | v == mainnet = "Mainnet"
-  | v == testnet = "Testnet"
+  | v == testnet04 = "Testnet"
   | v == recapDevnet = "RecapDevnet"
   | v == devnet = "Devnet"
   | otherwise = case Text.unpack (getChainwebVersionName (_versionName v)) of

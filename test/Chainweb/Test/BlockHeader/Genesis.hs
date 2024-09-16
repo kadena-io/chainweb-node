@@ -36,7 +36,7 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
-import Chainweb.Version.Testnet
+import Chainweb.Version.Testnet04
 
 ---
 
@@ -83,9 +83,9 @@ graphTransitionTargetTests = testGroup "graph transition genesis targets"
         Just (Testnet04 ^?! versionGenesis . genesisBlockTarget . atChain (unsafeChainId 10)) === (HashTarget <$> decodePowHashNat64 "NZIklpW6xujSPrX3gyhXInfxxOS6JDjkW_GbGwAAAAA")
     , testProperty "testnet20InitialHashTarget json deserialization" $
         Just (Testnet04 ^?! versionGenesis . genesisBlockTarget . atChain (unsafeChainId 10)) === (HashTarget <$> decodePowHashNatJson "NZIklpW6xujSPrX3gyhXInfxxOS6JDjkW_GbGwAAAAA")
-    , testProperties "testnet old chains" $
+    , testProperties "testnet04 old chains" $
         forChain Testnet04 maxTarget . unsafeChainId <$> [0..9]
-    , testProperties "testnet new chains" $
+    , testProperties "testnet04 new chains" $
         forChain Testnet04 (Testnet04 ^?! versionGenesis . genesisBlockTarget . atChain (unsafeChainId 10)) . unsafeChainId <$> [10..19]
 
     -- Cross check targets to ensure that the values are as expected

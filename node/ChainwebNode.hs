@@ -104,7 +104,7 @@ import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
 import Chainweb.Version.Mainnet
-import Chainweb.Version.Testnet (testnet)
+import Chainweb.Version.Testnet04 (testnet04)
 import Chainweb.Version.Registry
 
 import Chainweb.Storage.Table.RocksDB
@@ -495,7 +495,7 @@ withServiceDate v lf msd inner = case msd of
   Nothing -> do
     inner
   Just sd -> do
-    if _versionCode v == _versionCode mainnet || _versionCode v == _versionCode testnet
+    if _versionCode v == _versionCode mainnet || _versionCode v == _versionCode testnet04
     then do
       race (timer sd) inner >>= \case
         Left () -> error "Service date thread terminated unexpectedly"
