@@ -15,7 +15,9 @@
 module Chainweb.Test.Pact5.TransactionExecTest (tests) where
 
 import Data.String (fromString)
+import Data.HashMap.Strict qualified as HashMap
 import Data.Set qualified as Set
+import Data.Vector qualified as Vector
 import Chainweb.BlockHeader
 import Chainweb.Graph (singletonChainGraph, petersonChainGraph)
 import Chainweb.Miner.Pact (noMiner)
@@ -63,10 +65,10 @@ import Pact.Core.Signer
 import Pact.JSON.Encode qualified as J
 import PredicateTransformers as PT
 import Test.Tasty
-import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
+import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
-import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
+import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(..))
 import Text.Printf
 
 coinModuleName :: ModuleName

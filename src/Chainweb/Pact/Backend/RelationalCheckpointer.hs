@@ -146,7 +146,6 @@ initRelationalCheckpointer' dbCacheLimit sqlenv p loggr v cid = do
             }
     return (moduleCacheVar, checkpointer)
 
-
 -- see the docs for _cpReadFrom
 doReadFrom
   :: forall logger pv a

@@ -290,9 +290,7 @@ sendHandler logger mempool (Pact4.SubmitBatch cmds) = Handler $ do
 
 -- TODO: convert to Pact 5?
 pollHandler
-    :: HasCallStack
-    => CanReadablePayloadCas tbl
-    => Logger logger
+    :: (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
     => logger
     -> CutDB.CutDb tbl
     -> ChainId
@@ -305,7 +303,7 @@ pollHandler logger cdb cid pact mem confDepth (Pact4.Poll request) = do
     traverse_ validateRequestKey request
 
     liftIO $! logg Info $ PactCmdLogPoll $ fmap Pact4.requestKeyToB16Text request
-    Pact4.PollResponses <$!> liftIO (internalPoll pdb bdb mem pact confDepth request)
+    Pact4.PollResponses <$!> liftIO (internalPoll logger pdb bdb mem pact confDepth request)
   where
     pdb = view CutDB.cutDbPayloadDb cdb
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
@@ -316,8 +314,7 @@ pollHandler logger cdb cid pact mem confDepth (Pact4.Poll request) = do
 
 -- TODO: convert to Pact 5?
 listenHandler
-    :: CanReadablePayloadCas tbl
-    => Logger logger
+    :: (CanReadablePayloadCas tbl, Logger logger)
     => logger
     -> CutDB.CutDb tbl
     -> ChainId
@@ -350,7 +347,7 @@ listenHandler logger cdb cid pact mem (Pact4.ListenerRequest key) = do
 
         poll :: BlockHeader -> IO Pact4.ListenResponse
         poll bh = do
-          hm <- internalPoll pdb bdb mem pact Nothing (pure key)
+          hm <- internalPoll logger pdb bdb mem pact Nothing (pure key)
           if HM.null hm
           then go bh
           else pure $! Pact4.ListenResponse $ snd $ head $ HM.toList hm
@@ -605,23 +602,27 @@ ethSpvHandler req = do
 -- Poll Helper
 
 internalPoll
-    :: CanReadablePayloadCas tbl
-    => PayloadDb tbl
+    :: (CanReadablePayloadCas tbl, Logger logger)
+    => logger
+    -> PayloadDb tbl
     -> BlockHeaderDb
     -> MempoolBackend Pact4.UnparsedTransaction
     -> PactExecutionService
     -> Maybe ConfirmationDepth
     -> NonEmpty Pact4.RequestKey
     -> IO (HashMap Pact4.RequestKey (Pact4.CommandResult Pact4.Hash))
-internalPoll pdb bhdb mempool pactEx confDepth requestKeys0 = do
+internalPoll logger pdb bhdb mempool pactEx confDepth requestKeys0 = do
+    let dbg txt = logFunctionText logger Debug txt
     -- get leaf block header for our chain from current best cut
     results0 <- _pactLookup pactEx cid confDepth (coerce requestKeys)
+    dbg $ "internalPoll.results0: " <> sshow results0
         -- TODO: are we sure that all of these are raised locally. This will cause the
         -- server to shut down the connection without returning a result to the user.
     let results1 = V.map (\rk -> (rk, HM.lookup (coerce $ Pact4.unRequestKey rk) results0)) requestKeysV
     let (present0, missing) = V.unstablePartition (isJust . snd) results1
     let present = V.map (second fromJuste) present0
     badlisted <- V.toList <$> checkBadList (V.map fst missing)
+    dbg $ "internalPoll.badlisted: " <> sshow badlisted
     vs <- mapM lookup present
     let good = rights $ V.toList vs
     return $! HM.fromList (good ++ badlisted)

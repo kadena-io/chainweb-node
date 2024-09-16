@@ -124,6 +124,7 @@ module Chainweb.Test.Utils
 , NodeDbDirs(..)
 ) where
 
+import Chainweb.Test.Pact5.Utils (getTestLogLevel)
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Lens
@@ -143,6 +144,7 @@ import qualified Data.HashMap.Strict as HashMap
 import Data.IORef
 import Data.List (sortOn, isInfixOf)
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import Data.Tree
 import qualified Data.Tree.Lens as LT
 import qualified Data.Vector as V
@@ -941,10 +943,9 @@ withNodes
     -> (ChainwebConfiguration -> ChainwebConfiguration)
     -> [NodeDbDirs]
     -> ResourceT IO ChainwebNetwork
-withNodes = withNodes_ (genericLogger Error (error . T.unpack))
-    -- Test resources are part of test infrastructure and should never print
-    -- anything. A message at log level error means that the test harness itself
-    -- failed and with thus abort the test.
+withNodes v confF nodeDbDirs = do
+    logLevel <- liftIO getTestLogLevel
+    withNodes_ (genericLogger logLevel T.putStrLn) v confF nodeDbDirs
 
 withNodesAtLatestBehavior
     :: ChainwebVersion

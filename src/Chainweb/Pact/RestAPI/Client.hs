@@ -255,7 +255,5 @@ pactPollWithQueryApiClient
     -> Maybe ConfirmationDepth
     -> Poll
     -> ClientM PollResponses
-pactPollWithQueryApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    (FromSingChainId (SChainId :: Sing c))
-    = pactPollWithQueryApiClient_ @v @c
+pactPollWithQueryApiClient (FromSingChainwebVersion (SChainwebVersion :: Sing v)) (FromSingChainId (SChainId :: Sing c)) confirmationDepth poll = do
+    pactPollWithQueryApiClient_ @v @c confirmationDepth poll

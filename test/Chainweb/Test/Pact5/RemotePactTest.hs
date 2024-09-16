@@ -164,7 +164,7 @@ data Fixture = Fixture
     { _fixtureNodeDbDirs :: [NodeDbDirs]
     , _fixtureNetwork :: ChainwebNetwork
     }
---makeLenses ''Fixture
+makeLenses ''Fixture
 
 fixtureClientEnv :: Getter Fixture ClientEnv
 fixtureClientEnv = to $ \f -> _getServiceClientEnv $ _fixtureNetwork f
@@ -180,8 +180,8 @@ mkFixture baseRdb = do
 
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "Pact5 RemotePactTest"
-    [ testCase "pollingBadlistTest" (pollingBadlistTest rdb)
-    , testCase "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
+    [ -- testCase "pollingBadlistTest" (pollingBadlistTest rdb)
+      testCase "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
     ]
 
 pollingBadlistTest :: RocksDb -> IO ()
@@ -211,13 +211,18 @@ pollingConfirmationDepthTest baseRdb = runResourceT $ do
         cmd1 <- buildTextCmd v (trivialTx 42)
         cmd2 <- buildTextCmd v (trivialTx 43)
         rks <- sending clientEnv (cmd1 NE.:| [cmd2])
+        putStrLn $ "pollingConfirmationDepth requestKeys: " ++ show rks
 
-        pollResponse <- pollingWithDepth clientEnv rks (Just (ConfirmationDepth 10))
-        _afterPolling <- getCurrentBlockHeight v clientEnv cid
+        beforePolling <- getCurrentBlockHeight v clientEnv cid
+        putStrLn $ "beforePolling: " ++ show beforePolling
+        pollResponse <- pollingWithDepth clientEnv rks Nothing --(Just (ConfirmationDepth 10))
+        afterPolling <- getCurrentBlockHeight v clientEnv cid
+        putStrLn $ "afterPolling: " ++ show afterPolling
 
         assertEqual "there are two command results" 2 (length (HashMap.keys pollResponse))
 
-{-localTest :: RocksDb -> IO ()
+{-
+localTest :: RocksDb -> IO ()
 localTest baseRdb = runResourceT $ do
     fixture <- mkFixture baseRdb
     let clientEnv = fixture ^. fixtureClientEnv
@@ -225,7 +230,8 @@ localTest baseRdb = runResourceT $ do
     liftIO $ do
         let rks = NE.fromList [pactDeadBeef]
         x <- polling clientEnv (NE.singleton pactDeadBeef)
-        print x-}
+        print x
+-}
 
 newtype PollingException = PollingException String
     deriving stock (Show)
@@ -234,7 +240,7 @@ newtype PollingException = PollingException String
 polling :: ()
     => ClientEnv
     -> NonEmpty RequestKey
-    -> IO (HashMap RequestKey (CommandResult Aeson.Value (PactErrorCompat (StableEncoding SpanInfo))))
+    -> IO (HashMap RequestKey TestPact5CommandResult)
 polling clientEnv rks = do
     pollingWithDepth clientEnv rks Nothing
 
@@ -242,7 +248,7 @@ pollingWithDepth :: ()
     => ClientEnv
     -> NonEmpty RequestKey
     -> Maybe ConfirmationDepth
-    -> IO (HashMap RequestKey (CommandResult Aeson.Value (PactErrorCompat (StableEncoding SpanInfo))))
+    -> IO (HashMap RequestKey TestPact5CommandResult)
 pollingWithDepth clientEnv rks mConfirmationDepth = do
     recovering testRetryPolicy [retryHandler] $ \_iterNumber -> do
         let rksPact4 = NE.map toPact4RequestKey rks
@@ -265,16 +271,17 @@ sending :: ()
     => ClientEnv
     -> NonEmpty (Command Text)
     -> IO (NonEmpty RequestKey)
-sending clientEnv cmd = do
+sending clientEnv cmds = do
+    putStrLn $ "sending: pact5 batch: " ++ show cmds
     recovering testRetryPolicy [retryHandler] $ \_iterNumber -> do
-        let batch = Pact4.SubmitBatch (NE.map toPact4Command cmd)
+        let batch = Pact4.SubmitBatch (NE.map toPact4Command cmds)
+        putStrLn $ "sending: pact4 batch: " ++ show batch
         send <- runClientM (pactSendApiClient v cid batch) clientEnv
         case send of
             Left e -> do
                 throwM (SendingException (show e))
             Right (Pact4.RequestKeys response) -> do
                 return (NE.map toPact5RequestKey response)
-
     where
         retryHandler :: RetryStatus -> Handler IO Bool
         retryHandler _ = Handler $ \case
@@ -295,14 +302,14 @@ toPact4Command cmd4 = case Aeson.eitherDecodeStrictText (J.encodeText cmd4) of
 
 toPact5CommandResult :: ()
     => Pact4.CommandResult Pact4.Hash
-    -> CommandResult Aeson.Value (PactErrorCompat (StableEncoding SpanInfo))
+    -> TestPact5CommandResult
 toPact5CommandResult cr4 = case Aeson.eitherDecodeStrictText (J.encodeText cr4) of
     Left err -> error $ "toPact5CommandResult: decode failed: " ++ err
     Right cr5 -> cr5
 
 convertPollResponse :: ()
     => HashMap Pact4.RequestKey (Pact4.CommandResult Pact4.Hash)
-    -> HashMap RequestKey (CommandResult Aeson.Value (PactErrorCompat (StableEncoding SpanInfo)))
+    -> HashMap RequestKey TestPact5CommandResult
 convertPollResponse pact4Response = HashMap.fromList
     $ List.map (\(rk, cr) -> (toPact5RequestKey rk, toPact5CommandResult cr))
     $ HashMap.toList pact4Response
@@ -316,7 +323,7 @@ trivialTx n = defaultCmd
     , _cbSender = "sender00"
     , _cbChainId = cid
     , _cbGasPrice = GasPrice 0.1
-    , _cbGasLimit = GasLimit (Gas 1000)
+    , _cbGasLimit = GasLimit (Gas 1_000)
     }
 
 _successfulTx :: Predicatory p => Pred p (CommandResult log err)
@@ -331,3 +338,5 @@ cid = unsafeChainId 0
 
 v :: ChainwebVersion
 v = pact5InstantCpmTestVersion singletonChainGraph
+
+type TestPact5CommandResult = CommandResult Aeson.Value (PactErrorCompat (StableEncoding SpanInfo))

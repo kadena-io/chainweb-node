@@ -20,6 +20,7 @@ module Chainweb.Test.Pact5.PactServiceTest
     ( tests
     ) where
 
+import Data.List qualified as List
 import "pact" Pact.Types.Command qualified as Pact4
 import "pact" Pact.Types.Hash qualified as Pact4
 import Chainweb.BlockHeader
@@ -63,6 +64,7 @@ import Control.Monad.Trans.Resource
 import Control.Monad.Trans.Resource qualified as Resource
 import Data.ByteString.Lazy qualified as LBS
 import Data.Decimal
+import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HashSet
 import Data.Maybe (fromMaybe)
@@ -149,6 +151,7 @@ tests baseRdb = testGroup "Pact5 PactServiceTest"
     , testCase "new block empty" (newBlockEmpty baseRdb)
     , testCase "new block timeout spec" (newBlockTimeoutSpec baseRdb)
     , testCase "mempool excludes invalid transactions" (testMempoolExcludesInvalid baseRdb)
+    , testCase "lookup pact txs spec" (lookupPactTxsSpec baseRdb)
     ]
 
 successfulTx :: Predicatory p => Pred p (CommandResult log err)
@@ -387,6 +390,51 @@ testMempoolExcludesInvalid baseRdb = runResourceT $ do
             assertBool ("bad tx [index = " <> sshow i <> ", hash = " <> sshow badTxHash <> "] should have been evicted from the mempool") $ not $ HashSet.member badHash inMempool
 
         return ()
+
+lookupPactTxsSpec :: RocksDb -> IO ()
+lookupPactTxsSpec baseRdb = runResourceT $ do
+    fixture <- mkFixture baseRdb
+    liftIO $ do
+        cmd1 <- buildCwCmd v (transferCmd 1.0)
+        cmd2 <- buildCwCmd v (transferCmd 2.0)
+
+        -- Depth 0
+        _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
+            insertMempool mempool CheckedInsert [cmd1, cmd2]
+            bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
+            return $ finalizeBlock bip
+
+        let rks = List.sort $ List.map (Pact5.unHash . _cmdHash) [cmd1, cmd2]
+
+        let lookupExpect :: Maybe Word -> IO ()
+            lookupExpect depth = do
+                txs <- lookupPactTxs (fmap (ConfirmationDepth . fromIntegral) depth) (Vector.fromList rks) (_fixturePactQueues fixture ^?! atChain cid)
+                assertEqual ("all txs should be available with depth=" ++ show depth) (HashSet.fromList rks) (HashMap.keysSet txs)
+        let lookupDontExpect :: Maybe Word -> IO ()
+            lookupDontExpect depth = do
+                txs <- lookupPactTxs (fmap (ConfirmationDepth. fromIntegral) depth) (Vector.fromList rks) (_fixturePactQueues fixture ^?! atChain cid)
+                assertEqual ("no txs should be available with depth=" ++ show depth) HashSet.empty (HashMap.keysSet txs)
+
+        lookupExpect Nothing
+        lookupExpect (Just 0)
+        lookupDontExpect (Just 1)
+
+        -- Depth 1
+        _ <- advanceAllChains fixture $ onChains []
+
+        lookupExpect Nothing
+        lookupExpect (Just 0)
+        lookupExpect (Just 1)
+        lookupDontExpect (Just 2)
+
+        -- Depth 2
+        _ <- advanceAllChains fixture $ onChains []
+
+        lookupExpect Nothing
+        lookupExpect (Just 0)
+        lookupExpect (Just 1)
+        lookupExpect (Just 2)
+        lookupDontExpect (Just 3)
 
 {-
 tests = do
