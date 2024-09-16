@@ -153,6 +153,8 @@ library
         , Chainweb.BlockHeader.Genesis.Pact5Development1to19Payload
         , Chainweb.BlockHeader.Genesis.Testnet040Payload
         , Chainweb.BlockHeader.Genesis.Testnet041to19Payload
+        , Chainweb.BlockHeader.Genesis.Testnet050Payload
+        , Chainweb.BlockHeader.Genesis.Testnet051to19Payload
         , Chainweb.BlockHeader.Genesis.Mainnet0Payload
         , Chainweb.BlockHeader.Genesis.Mainnet1Payload
         , Chainweb.BlockHeader.Genesis.Mainnet2Payload
@@ -278,6 +280,7 @@ library
         , Chainweb.Version.RecapDevelopment
         , Chainweb.Version.Registry
         , Chainweb.Version.Testnet04
+        , Chainweb.Version.Testnet05
         , Chainweb.Version.Utils
         , Chainweb.WebBlockHeaderDB
         , Chainweb.WebPactExecutionService
