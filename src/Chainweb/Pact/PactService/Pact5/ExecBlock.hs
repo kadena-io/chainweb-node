@@ -125,7 +125,8 @@ runPact5Coinbase miner = do
 
       let !bh = ctxCurrentBlockHeight txCtx
 
-      reward <- liftIO $! minerReward v rs bh
+      reward <- liftIO $ minerReward v rs bh
+      -- TODO Pact 5: add the coinbase request key here
       pactTransaction Nothing $ \db ->
         applyCoinbase logger db reward txCtx
 
@@ -563,12 +564,12 @@ execExistingBlock currHeader payload = do
   cid <- view chainId
   db <- view psBlockDbEnv
   isGenesis <- view psIsGenesis
-  startBlockHandle <- use pbBlockHandle
+  blockHandlePreCoinbase <- use pbBlockHandle
   let
     txValidationTime = ParentCreationTime (_blockCreationTime $ _parentHeader parentBlockHeader)
   errors <- liftIO $ flip foldMap txs $ \tx -> do
     errorOrSuccess <- runExceptT $
-      validateParsedChainwebTx logger v cid db startBlockHandle txValidationTime
+      validateParsedChainwebTx logger v cid db blockHandlePreCoinbase txValidationTime
         (_blockHeight currHeader)
         isGenesis
         tx
@@ -583,12 +584,15 @@ execExistingBlock currHeader payload = do
     Left err -> throwM $ CoinbaseFailure (Pact5CoinbaseFailure err)
     Right r -> return (absurd <$> r)
 
+  -- TODO pact 5: make this less nasty?
+  postCoinbaseBlockHandle <- use pbBlockHandle
+
   let blockGasLimit =
         Pact5.GasLimit . Pact5.Gas . fromIntegral <$> maxBlockGasLimit v (_blockHeight currHeader)
 
   env <- ask
   (results, (finalHandle, _finalBlockGasLimit)) <-
-    liftIO $ flip runStateT (startBlockHandle, blockGasLimit) $
+    liftIO $ flip runStateT (postCoinbaseBlockHandle, blockGasLimit) $
       forM txs $ \tx ->
         (tx,) <$> mapStateT
           (either (throwM . Pact5BuyGasFailure) return <=< runExceptT)
