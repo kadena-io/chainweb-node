@@ -85,34 +85,21 @@ import PredicateTransformers as PT
 import Test.Tasty
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 import Text.Printf (printf)
+import Chainweb.Test.Pact5.Utils
 
--- converts Pact 5 tx so that it can be submitted to the mempool, which
--- operates on Pact 4 txs with unparsed code.
-insertMempool :: MempoolBackend Pact4.UnparsedTransaction -> InsertType -> [Pact5.Transaction] -> IO ()
-insertMempool mp insertType txs = do
-    let unparsedTxs :: [Pact4.UnparsedTransaction]
-        unparsedTxs = flip map txs $ \tx ->
-            case codecDecode Pact4.rawCommandCodec (codecEncode Pact5.payloadCodec tx) of
-                Left err -> error err
-                Right a -> a
-    mempoolInsert mp insertType $ Vector.fromList unparsedTxs
-
--- | Looks up transactions in the mempool. Returns a set which indicates pending membership of the mempool.
-lookupMempool :: MempoolBackend Pact4.UnparsedTransaction -> Vector Pact5.Hash -> IO (HashSet Pact5.Hash)
-lookupMempool mp hashes = do
-    results <- mempoolLookup mp $ Vector.map (TransactionHash . Pact5.unHash) hashes
-    return $ HashSet.fromList $ Vector.toList $ flip Vector.mapMaybe results $ \case
-        Missing -> Nothing
-        Pending tx -> Just $ Pact5.Hash $ Pact4.unHash $ Pact4.toUntypedHash $ Pact4._cmdHash tx
-
-data Fixture = Fixture
+data WebPactFixture = WebPactFixture
     { _fixtureBlockDb :: TestBlockDb
     , _fixtureMempools :: ChainMap (MempoolBackend Pact4.UnparsedTransaction)
     , _fixturePactQueues :: ChainMap PactQueue
     }
 
-mkFixtureWith :: PactServiceConfig -> RocksDb -> ResourceT IO Fixture
-mkFixtureWith pactServiceConfig baseRdb = do
+makeLenses ''WebPactFixture
+
+instance HasChainwebVersion WebPactFixture where
+  _chainwebVersion = _chainwebVersion . _fixtureBlockDb
+
+mkWebPactFixtureWith :: ChainwebVersion -> PactServiceConfig -> RocksDb -> ResourceT IO WebPactFixture
+mkWebPactFixtureWith v pactServiceConfig baseRdb = do
     sqlite <- withTempSQLiteResource
     tdb <- liftIO $ mkTestBlockDb v =<< testRocksDb "fixture" baseRdb
     perChain <- iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
@@ -129,7 +116,7 @@ mkFixtureWith pactServiceConfig baseRdb = do
             (forkIO $ runPactService v chain logger Nothing pactQueue mempoolAccess bhdb (_bdbPayloadDb tdb) sqlite pactServiceConfig)
             (\tid -> throwTo tid ThreadKilled)
         return (mempool, pactQueue)
-    let fixture = Fixture
+    let fixture = WebPactFixture
             { _fixtureBlockDb = tdb
             , _fixtureMempools = OnChains $ fst <$> perChain
             , _fixturePactQueues = OnChains $ snd <$> perChain
@@ -140,9 +127,69 @@ mkFixtureWith pactServiceConfig baseRdb = do
     _ <- liftIO $ advanceAllChains fixture $ onChains []
     return fixture
 
-mkFixture :: RocksDb -> ResourceT IO Fixture
-mkFixture baseRdb = do
-    mkFixtureWith testPactServiceConfig baseRdb
+mkWebPactFixture :: ChainwebVersion -> RocksDb -> ResourceT IO WebPactFixture
+mkWebPactFixture v baseRdb = do
+    mkWebPactFixtureWith v testPactServiceConfig baseRdb
+
+advanceAllChainsWithTxs :: WebPactFixture -> ChainMap [Pact5.Transaction] -> IO (ChainMap (Vector (Pact5.CommandResult Pact5.Hash Text)))
+advanceAllChainsWithTxs fixture txsPerChain =
+    advanceAllChains fixture $
+        txsPerChain <&> \txs ph pactQueue mempool -> do
+            mempoolClear mempool
+            insertMempool mempool CheckedInsert txs
+            nb <- throwIfNotPact5 =<< throwIfNoHistory =<<
+                newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
+            return $ finalizeBlock nb
+
+-- this mines a block on *all chains*. if you don't specify a payload on a chain,
+-- it adds empty blocks!
+advanceAllChains :: ()
+    => WebPactFixture
+    -> ChainMap (BlockHeader -> PactQueue -> MempoolBackend Pact4.UnparsedTransaction -> IO PayloadWithOutputs)
+    -> IO (ChainMap (Vector (Pact5.CommandResult Pact5.Hash Text)))
+advanceAllChains WebPactFixture{..} blocks = do
+    commandResults <-
+        forConcurrently (HashSet.toList (chainIds (_chainwebVersion _fixtureBlockDb))) $ \c -> do
+            ph <- getParentTestBlockDb _fixtureBlockDb c
+            creationTime <- getCurrentTimeIntegral
+            let pactQueue = _fixturePactQueues ^?! atChain c
+            let mempool = _fixtureMempools ^?! atChain c
+            let makeEmptyBlock p _ _ = do
+                    bip <- throwIfNotPact5 =<< throwIfNoHistory =<<
+                        newBlock noMiner NewBlockEmpty (ParentHeader p) pactQueue
+                    return $! finalizeBlock bip
+
+            payload <- fromMaybe makeEmptyBlock (blocks ^? atChain c) ph pactQueue mempool
+            added <- addTestBlockDb _fixtureBlockDb
+                (succ $ _blockHeight ph)
+                (Nonce 0)
+                (\_ _ -> creationTime)
+                c
+                payload
+            when (not added) $
+                error "failed to mine block"
+            ph' <- getParentTestBlockDb _fixtureBlockDb c
+            payload' <- validateBlock ph' (CheckablePayloadWithOutputs payload) pactQueue
+            assertEqual "payloads must not be altered by validateBlock" payload payload'
+            commandResults :: Vector (Pact5.CommandResult Pact5.Hash Text)
+                <- forM
+                    (_payloadWithOutputsTransactions payload')
+                    (decodeOrThrow' . LBS.fromStrict . _transactionOutputBytes . snd)
+            -- assert on the command results
+            return (c, commandResults)
+
+    return (onChains commandResults)
+
+getCurrentCut :: WebPactFixture -> IO Cut
+getCurrentCut WebPactFixture{..} = getCutTestBlockDb _fixtureBlockDb
+
+revertCut :: WebPactFixture -> Cut -> IO ()
+revertCut WebPactFixture{..} c = do
+    setCutTestBlockDb _fixtureBlockDb c
+    forM_ (HashSet.toList (chainIds (_chainwebVersion _fixtureBlockDb))) $ \chain -> do
+        ph <- getParentTestBlockDb _fixtureBlockDb chain
+        pactSyncToBlock ph (_fixturePactQueues ^?! atChain chain)
+
 
 tests :: RocksDb -> TestTree
 tests baseRdb = testGroup "Pact5 PactServiceTest"
@@ -159,7 +206,7 @@ successfulTx = pt _crResult ? match _PactResultOk something
 
 simpleEndToEnd :: RocksDb -> IO ()
 simpleEndToEnd baseRdb = runResourceT $ do
-    fixture <- mkFixture baseRdb
+    fixture <- mkWebPactFixture v baseRdb
     liftIO $ do
         cmd1 <- buildCwCmd v (transferCmd 1.0)
         cmd2 <- buildCwCmd v (transferCmd 2.0)
@@ -173,7 +220,7 @@ simpleEndToEnd baseRdb = runResourceT $ do
 
 newBlockEmpty :: RocksDb -> IO ()
 newBlockEmpty baseRdb = runResourceT $ do
-    fixture <- mkFixture baseRdb
+    fixture <- mkWebPactFixture v baseRdb
     liftIO $ do
         cmd <- buildCwCmd v (transferCmd 1.0)
         _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
@@ -196,9 +243,9 @@ newBlockEmpty baseRdb = runResourceT $ do
 
 continueBlockSpec :: RocksDb -> IO ()
 continueBlockSpec baseRdb = runResourceT $ do
-    fixture <- mkFixture baseRdb
+    fixture <- mkWebPactFixture v baseRdb
     liftIO $ do
-        startCut <- getCut fixture
+        startCut <- getCurrentCut fixture
 
         -- construct some transactions that we plan to put into the block
         cmd1 <- buildCwCmd v (transferCmd 1.0)
@@ -223,7 +270,7 @@ continueBlockSpec baseRdb = runResourceT $ do
         -- note that this will reinsert all txs in the full block into the
         -- mempool, so we need to clear it after, or else the block will
         -- contain all of the transactions before we extend it.
-        revert fixture startCut
+        revertCut fixture startCut
         results <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
             mempoolClear mempool
             insertMempool mempool CheckedInsert [cmd3]
@@ -264,7 +311,7 @@ newBlockTimeoutSpec baseRdb = runResourceT $ do
             -- it should be long enough that `timeoutTx` times out
             -- but neither `tx1` nor `tx2` time out.
             }
-    fixture <- mkFixtureWith pactServiceConfig baseRdb
+    fixture <- mkWebPactFixtureWith v pactServiceConfig baseRdb
 
     liftIO $ do
         tx1 <- buildCwCmd v $ defaultCmd
@@ -310,7 +357,7 @@ newBlockTimeoutSpec baseRdb = runResourceT $ do
 
 testMempoolExcludesInvalid :: RocksDb -> IO ()
 testMempoolExcludesInvalid baseRdb = runResourceT $ do
-    fixture <- mkFixture baseRdb
+    fixture <- mkWebPactFixture v baseRdb
     liftIO $ do
         -- The mempool should reject a tx that doesn't parse as valid pact.
         badParse <- buildCwCmdNoParse v defaultCmd
@@ -393,7 +440,7 @@ testMempoolExcludesInvalid baseRdb = runResourceT $ do
 
 lookupPactTxsSpec :: RocksDb -> IO ()
 lookupPactTxsSpec baseRdb = runResourceT $ do
-    fixture <- mkFixture baseRdb
+    fixture <- mkWebPactFixture v baseRdb
     liftIO $ do
         cmd1 <- buildCwCmd v (transferCmd 1.0)
         cmd2 <- buildCwCmd v (transferCmd 2.0)
@@ -467,72 +514,6 @@ v = pact5InstantCpmTestVersion singletonChainGraph
 
 coinModuleName :: ModuleName
 coinModuleName = ModuleName "coin" Nothing
-
-advanceAllChainsWithTxs :: Fixture -> ChainMap [Pact5.Transaction] -> IO (ChainMap (Vector (CommandResult Pact5.Hash Text)))
-advanceAllChainsWithTxs fixture txsPerChain =
-    advanceAllChains fixture $
-        txsPerChain <&> \txs ph pactQueue mempool -> do
-            mempoolClear mempool
-            insertMempool mempool CheckedInsert txs
-            nb <- throwIfNotPact5 =<< throwIfNoHistory =<<
-                newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
-            return $ finalizeBlock nb
-
--- this mines a block on *all chains*. if you don't specify a payload on a chain,
--- it adds empty blocks!
-advanceAllChains :: ()
-    => Fixture
-    -> ChainMap (BlockHeader -> PactQueue -> MempoolBackend Pact4.UnparsedTransaction -> IO PayloadWithOutputs)
-    -> IO (ChainMap (Vector (CommandResult Pact5.Hash Text)))
-advanceAllChains Fixture{..} blocks = do
-    commandResults <-
-        forConcurrently (HashSet.toList (chainIds v)) $ \c -> do
-            ph <- getParentTestBlockDb _fixtureBlockDb c
-            creationTime <- getCurrentTimeIntegral
-            let pactQueue = _fixturePactQueues ^?! atChain c
-            let mempool = _fixtureMempools ^?! atChain c
-            let makeEmptyBlock p _ _ = do
-                    bip <- throwIfNotPact5 =<< throwIfNoHistory =<<
-                        newBlock noMiner NewBlockEmpty (ParentHeader p) pactQueue
-                    return $! finalizeBlock bip
-
-            payload <- fromMaybe makeEmptyBlock (blocks ^? atChain cid) ph pactQueue mempool
-            added <- addTestBlockDb _fixtureBlockDb
-                (succ $ _blockHeight ph)
-                (Nonce 0)
-                (\_ _ -> creationTime)
-                c
-                payload
-            when (not added) $
-                error "failed to mine block"
-            ph' <- getParentTestBlockDb _fixtureBlockDb c
-            payload' <- validateBlock ph' (CheckablePayloadWithOutputs payload) pactQueue
-            assertEqual "payloads must not be altered by validateBlock" payload payload'
-            commandResults :: Vector (CommandResult Pact5.Hash Text)
-                <- forM
-                    (_payloadWithOutputsTransactions payload')
-                    (decodeOrThrow' . LBS.fromStrict . _transactionOutputBytes . snd)
-            -- assert on the command results
-            return (c, commandResults)
-
-    return (onChains commandResults)
-
-getCut :: Fixture -> IO Cut
-getCut Fixture{..} = getCutTestBlockDb _fixtureBlockDb
-
-revert :: Fixture -> Cut -> IO ()
-revert Fixture{..} c = do
-    setCutTestBlockDb _fixtureBlockDb c
-    forM_ (HashSet.toList (chainIds v)) $ \chain -> do
-        ph <- getParentTestBlockDb _fixtureBlockDb chain
-        pactSyncToBlock ph (_fixturePactQueues ^?! atChain chain)
-
-throwIfNotPact5 :: ForSomePactVersion f -> IO (f Pact5)
-throwIfNotPact5 h = case h of
-    ForSomePactVersion Pact4T _ -> do
-        assertFailure "throwIfNotPact5: should be pact5"
-    ForSomePactVersion Pact5T a -> do
-        pure a
 
 transferCmd :: Decimal -> CmdBuilder
 transferCmd transferAmount = defaultCmd

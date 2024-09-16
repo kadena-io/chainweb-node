@@ -58,6 +58,8 @@ import Test.Tasty.Hedgehog
 import Chainweb.Test.Pact5.Utils
 import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
 import GHC.Stack
+import Chainweb.Pact.Backend.RelationalCheckpointer
+import System.LogLevel
 
 -- | A @DbAction f@ is a description of some action on the database together with an f-full of results for it.
 type DbValue = Integer
@@ -219,6 +221,10 @@ assertBlock cp ph (expectedBh, blk) = do
             assertEqual "block header" expectedBh actualBh
         return ()
     throwIfNoHistory hist
+
+initCheckpointer :: ChainwebVersion -> ChainId -> SQLiteEnv -> IO (Checkpointer GenericLogger)
+initCheckpointer v cid sql = do
+    initRelationalCheckpointer defaultModuleCacheLimit sql DoNotPersistIntraBlockWrites (genericLogger Error (error . T.unpack)) v cid
 
 tests :: TestTree
 tests = testGroup "Pact5 Checkpointer tests"

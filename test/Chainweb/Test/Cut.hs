@@ -669,4 +669,3 @@ ioTest db v f = T.monadicIO $
 
 pickBlind :: T.Gen a -> T.PropertyM IO a
 pickBlind = fmap T.getBlind . T.pick . fmap T.Blind
-
