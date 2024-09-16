@@ -14,16 +14,13 @@
 
 module Chainweb.Test.Pact5.TransactionExecTest (tests) where
 
-import Data.String (fromString)
-import Data.HashMap.Strict qualified as HashMap
-import Data.Set qualified as Set
-import Data.Vector qualified as Vector
 import Chainweb.BlockHeader
 import Chainweb.Graph (singletonChainGraph, petersonChainGraph)
 import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.PactService (initialPayloadState, withPactService)
 import Chainweb.Pact.PactService.Checkpointer (readFrom, SomeBlockM(..))
 import Chainweb.Pact.Types
+import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(..))
 import Chainweb.Pact5.Transaction
 import Chainweb.Pact5.TransactionExec
 import Chainweb.Pact5.Types
@@ -46,9 +43,12 @@ import Data.Default
 import Data.Functor.Product
 import Data.IORef
 import Data.Maybe (fromMaybe)
+import Data.Set qualified as Set
+import Data.String (fromString)
 import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
 import GHC.Stack
-import Pact.Core.Info
 import Pact.Core.Capabilities
 import Pact.Core.Command.Types
 import Pact.Core.Compile(CompileValue(..))
@@ -56,19 +56,17 @@ import Pact.Core.Errors
 import Pact.Core.Evaluate
 import Pact.Core.Gas.TableGasModel
 import Pact.Core.Gas.Types
+import Pact.Core.Info
 import Pact.Core.Names
 import Pact.Core.PactValue
 import Pact.Core.Persistence hiding (pactDb)
 import Pact.Core.SPV (noSPVSupport)
-import Pact.Core.Verifiers
 import Pact.Core.Signer
+import Pact.Core.Verifiers
 import Pact.JSON.Encode qualified as J
 import PredicateTransformers as PT
 import Test.Tasty
-import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
-import Data.Text qualified as T
-import Data.Text.Encoding qualified as T
-import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(..))
+import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
 import Text.Printf
 
 coinModuleName :: ModuleName
@@ -98,6 +96,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
     , testCase "test local only fails outside of local" (testLocalOnlyFailsOutsideOfLocal baseRdb)
     , testCase "payload failure all gas should go to the miner - type error" (payloadFailureShouldPayAllGasToTheMinerTypeError baseRdb)
     , testCase "payload failure all gas should go to the miner - insufficient funds" (payloadFailureShouldPayAllGasToTheMinerInsufficientFunds baseRdb)
+    , testCase "event ordering spec" (testEventOrdering baseRdb)
     ]
 
 
@@ -889,9 +888,55 @@ testCoinUpgrade baseRdb = runResourceT $ do
                         coinModuleHashAfterUpgrades <- getCoinModuleHash
 
                         assertEqual "coin ModuleHash before upgrades" "wOTjNC3gtOAjqgCY8S9hQ-LBiwcPUE7j4iBDE0TmdJo" coinModuleHashBeforeUpgrades
-                        assertEqual "coin ModuleHash after  upgrades" "bKpffJ52XyVccNAPl86f4CrT_K9Ob8z_BTVgnrPnsCA" coinModuleHashAfterUpgrades
+                        assertEqual "coin ModuleHash after  upgrades" "xMiQPBR-dj7VT1RTAM72kyhtz-V-PctgvKsgDRmKUcM" coinModuleHashAfterUpgrades
         pure ()
     pure ()
+
+testEventOrdering :: RocksDb -> IO ()
+testEventOrdering baseRdb = runResourceT $ do
+    sql <- withTempSQLiteResource
+    liftIO $ do
+        tdb <- mkTestBlockDb v =<< testRocksDb "testEventOrdering" baseRdb
+        bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
+        T2 ((), _finalHandle) _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+            initialPayloadState v cid
+            (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader (gh v cid)) $ SomeBlockM $ Pair (error "pact4") $ do
+                db <- view psBlockDbEnv
+                hndl <- use pbBlockHandle
+                liftIO $ do
+                    doPact5DbTransaction db hndl Nothing $ \pactDb -> do
+                        cmd <- buildCwCmd v defaultCmd
+                            { _cbRPC = mkExec' "(coin.transfer 'sender00 'sender01 420.0) (coin.transfer 'sender00 'sender01 69.0)"
+                            , _cbSigners =
+                                [ mkEd25519Signer' sender00
+                                    [ CapToken (QualifiedName "GAS" coinModuleName) []
+                                    , CapToken (QualifiedName "TRANSFER" coinModuleName) [PString "sender00", PString "sender01", PDecimal 489] ]
+                                ]
+                            , _cbSender = "sender00"
+                            , _cbChainId = cid
+                            , _cbGasPrice = GasPrice 2
+                            , _cbGasLimit = GasLimit (Gas 1000)
+                            }
+                        let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
+                        commandResult <- throwIfError =<< applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
+                        () <- commandResult & satAll
+                            [ pt _crEvents $ PT.list
+                                [ event
+                                    (equals "TRANSFER")
+                                    (equals [PString "sender00", PString "sender01", PDecimal 420])
+                                    (equals coinModuleName)
+                                , event
+                                    (equals "TRANSFER")
+                                    (equals [PString "sender00", PString "sender01", PDecimal 69])
+                                    (equals coinModuleName)
+                                , event
+                                    (equals "TRANSFER")
+                                    (equals [PString "sender00", PString "NoMiner", PDecimal 1730])
+                                    (equals coinModuleName)
+                                ]
+                            ]
+                        return ()
+        return ()
 
 testLocalOnlyFailsOutsideOfLocal :: RocksDb -> IO ()
 testLocalOnlyFailsOutsideOfLocal baseRdb = runResourceT $ do
