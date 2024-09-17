@@ -51,7 +51,7 @@ import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Default
+-- import Data.Default
 
 import Database.SQLite3.Direct
 
@@ -123,13 +123,11 @@ data BlockState = BlockState
 makeLenses ''BlockState
 makeLenses ''BlockHandlerEnv
 
-bsPendingTxOrError :: HasCallStack => Text -> Lens' BlockState (SQLitePendingData, DList (Pact5.TxLog ByteString))
-bsPendingTxOrError msg = lens
-    (\bs -> case _bsPendingTx bs of
-        Nothing -> impureThrow (NotInTx msg)
-        Just t -> t
-    )
-    (\bs p -> set bsPendingTx (Just p) bs)
+getPendingTxOrError :: Text -> BlockHandler logger (SQLitePendingData, DList (Pact5.TxLog ByteString))
+getPendingTxOrError msg = do
+    use bsPendingTx >>= \case
+        Nothing -> liftGas $ throwDbOpErrorGasM (NotInTx msg)
+        Just t -> return t
 
 -- | The Pact 5 database as it's provided by the checkpointer.
 data Pact5Db = Pact5Db
@@ -191,9 +189,6 @@ runOnBlockGassed env stateVar act = do
         return (newState, fmap fst r)
     liftEither r
 
-runOnBlock :: BlockHandlerEnv logger -> MVar BlockState -> BlockHandler logger a -> IO a
-runOnBlock env stateVar = ignoreGas def . runOnBlockGassed env stateVar
-
 chainwebPactCoreBlockDb :: (Logger logger) => Maybe (BlockHeight, TxId) -> BlockHandlerEnv logger -> Pact5Db
 chainwebPactCoreBlockDb maybeLimit env = Pact5Db
     { doPact5DbTransaction = \blockHandle maybeRequestKey kont -> do
@@ -208,11 +203,11 @@ chainwebPactCoreBlockDb maybeLimit env = Pact5Db
                 , _pdbCreateUserTable = \tn ->
                     runOnBlockGassed env stateVar $ doCreateUserTable Nothing tn
                 , _pdbBeginTx = \m ->
-                    runOnBlock env stateVar $ doBegin m
+                    runOnBlockGassed env stateVar $ doBegin m
                 , _pdbCommitTx =
-                    runOnBlock env stateVar doCommit
+                    runOnBlockGassed env stateVar doCommit
                 , _pdbRollbackTx =
-                    runOnBlock env stateVar doRollback
+                    runOnBlockGassed env stateVar doRollback
                 }
         let maybeLimitedPactDb = case maybeLimit of
                 Just (bh, endTxId) -> basePactDb
@@ -245,8 +240,7 @@ chainwebPactCoreBlockDb maybeLimit env = Pact5Db
 getPendingData :: HasCallStack => Text -> BlockHandler logger [SQLitePendingData]
 getPendingData msg = do
     BlockHandle _ sql <- use bsBlockHandle
-    s <- get
-    let ptx = s ^. bsPendingTxOrError msg . _1
+    ptx <- view _1 <$> getPendingTxOrError msg
     -- lookup in pending transactions first
     return $ [ptx, sql]
 
@@ -473,7 +467,7 @@ doKeys mlim d = do
         else id
     dbKeys <- getDbKeys
     pb <- use (bsBlockHandle . blockHandlePending)
-    (mptx, _) <- use (bsPendingTxOrError "keys")
+    (mptx, _) <- getPendingTxOrError "keys"
 
     let memKeys = fmap (T.decodeUtf8 . _deltaRowKey)
                   $ collect pb ++ collect mptx
@@ -533,7 +527,7 @@ recordTxLog
     -> BlockHandler logger ()
 recordTxLog d (Utf8 k) v = do
     -- are we in a tx? if not, error.
-    (pendingSQLite, txlogs) <- use (bsPendingTxOrError "write")
+    (pendingSQLite, txlogs) <- getPendingTxOrError "write"
     modify' (bsPendingTx .~ Just (pendingSQLite, DL.snoc txlogs newLog))
 
   where
@@ -541,7 +535,7 @@ recordTxLog d (Utf8 k) v = do
 
 recordTableCreationTxLog :: TableName -> BlockHandler logger ()
 recordTableCreationTxLog tn = do
-    (pendingSQLite, txlogs) <- use (bsPendingTxOrError "create table")
+    (pendingSQLite, txlogs) <- getPendingTxOrError "create table"
     modify' $ bsPendingTx .~ Just (pendingSQLite, DL.snoc txlogs newLog)
     where
     !newLog = TxLog "SYS:usertables" (_tableName tn) (encodeStable uti)
@@ -552,7 +546,7 @@ modifyPendingData
     -> (SQLitePendingData -> SQLitePendingData)
     -> BlockHandler logger ()
 modifyPendingData msg f = do
-    (pending, txlogs) <- use (bsPendingTxOrError msg)
+    (pending, txlogs) <- getPendingTxOrError msg
     modify' $ set bsPendingTx $ Just (f pending, txlogs)
 
 doCreateUserTable
@@ -564,7 +558,8 @@ doCreateUserTable mbh tn = do
     -- first check if tablename already exists in pending queues
     m <- runMaybeT $ checkDbTablePendingCreation "create table" (tableNameCore tn)
     case m of
-        Nothing -> throwM $ PactDuplicateTableError $ asString tn
+        Nothing ->
+            liftGas $ throwDbOpErrorGasM $ TableAlreadyExists tn
         Just () -> do
             -- then check if it is in the db
             lcTables <- asks $ \e ->
@@ -573,7 +568,8 @@ doCreateUserTable mbh tn = do
                 (_blockHandlerChainId e)
                 (_blockHandlerBlockHeight e)
             cond <- inDb lcTables $ Utf8 $ T.encodeUtf8 $ asString tn
-            when cond $ throwM $ PactDuplicateTableError $ asString tn
+            when cond $
+                liftGas $ throwDbOpErrorGasM $ TableAlreadyExists tn
 
             modifyPendingData "create table"
                 $ over pendingTableCreation (HashSet.insert (T.encodeUtf8 $ asString tn))
@@ -609,7 +605,7 @@ doCommit = view blockHandlerMode >>= \case
         txrs <- if m == Transactional
         then do
             modify' $ over latestTxId (\(TxId tid) -> TxId (succ tid))
-            pending <- use (bsPendingTxOrError "commit")
+            pending <- getPendingTxOrError "commit"
             persistIntraBlockWrites <- view blockHandlerPersistIntraBlockWrites
             -- merge pending tx into pending block data
             modify' $ over (bsBlockHandle . blockHandlePending) (merge persistIntraBlockWrites (fst pending))
@@ -639,7 +635,7 @@ doBegin _m = do
     use bsPendingTx >>= \case
         Just _ -> do
             txid <- use latestTxId
-            throwM (TxAlreadyBegun ("TxId " <> sshow (_txId txid)))
+            liftGas $ throwDbOpErrorGasM (TxAlreadyBegun ("TxId " <> sshow (_txId txid)))
         Nothing -> do
             modify'
                 $ set bsPendingTx (Just (emptySQLitePendingData, mempty))

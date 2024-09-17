@@ -266,7 +266,7 @@ payloadFailureShouldPayAllGasToTheMinerTypeError baseRdb = runResourceT $ do
 
                             -- TODO: Replace this with predicate-transformers once we have the necessary prisms
                             case _crResult commandResult of
-                                PactResultErr (TxPactError (PEExecutionError (NativeArgumentsError _ _) _ _)) -> do
+                                PactResultErr (PEExecutionError (NativeArgumentsError _ _) _ _) -> do
                                     return ()
                                 r -> do
                                     assertFailure $ "Expected NativeArgumentsError, but got: " ++ show r
@@ -335,7 +335,7 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds baseRdb = runResourceT 
 
                         -- TODO: Replace this with predicate-transformers once we have the necessary prisms
                         case _crResult commandResult of
-                            PactResultErr (TxPactError (PEUserRecoverableError (UserEnforceError "Insufficient funds") _ _)) -> do
+                            PactResultErr (PEUserRecoverableError (UserEnforceError "Insufficient funds") _ _) -> do
                                 return ()
                             r -> do
                                 assertFailure $ "Expected Insufficient funds error, but got: " ++ show r
@@ -610,7 +610,7 @@ applyCmdVerifierSpec baseRdb = runResourceT $ do
                             let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
                             commandResult <- throwIfError =<< applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
                             case _crResult commandResult of
-                                PactResultErr (TxPactError (PEUserRecoverableError userRecoverableError _ _)) -> do
+                                PactResultErr (PEUserRecoverableError userRecoverableError _ _) -> do
                                     assertEqual "verifier failure" userRecoverableError (VerifierFailure (VerifierName "allow") "not in transaction")
                                 r -> do
                                     assertFailure $ "expected verifier failure, got: " ++ show r
@@ -977,7 +977,7 @@ testLocalOnlyFailsOutsideOfLocal baseRdb = runResourceT $ do
                                 crNonLocal & match _Right
                                     . pt _crResult
                                     . soleElementOf
-                                        (_PactResultErr . _TxPactError . _PEExecutionError . _1 . _OperationIsLocalOnly)
+                                        (_PactResultErr . _PEExecutionError . _1 . _OperationIsLocalOnly)
                                     ? something
 
                         testLocalOnly "(describe-module \"coin\")"
@@ -999,11 +999,11 @@ v = pact5InstantCpmTestVersion petersonChainGraph
 
 readBal :: (HasCallStack, Default i) => PactDb b i -> T.Text -> IO (Maybe Decimal)
 readBal pactDb acctName = do
-    _ <- _pdbBeginTx pactDb Transactional
+    _ <- ignoreGas def $ _pdbBeginTx pactDb Transactional
     acct <- ignoreGas def $ _pdbRead pactDb
         (DUserTables (TableName "coin-table" (ModuleName "coin" Nothing)))
         (RowKey acctName)
-    _ <- _pdbCommitTx pactDb
+    _ <- ignoreGas def $ _pdbCommitTx pactDb
     return $! acct ^? _Just . ix "balance" . _PDecimal
 
 throwIfError :: (HasCallStack, Show e) => Either e a -> IO a

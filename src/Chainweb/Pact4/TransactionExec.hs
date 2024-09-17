@@ -163,6 +163,8 @@ import Data.Set (Set)
 import Chainweb.Pact4.ModuleCache
 import Chainweb.Pact4.Backend.ChainwebPactDb
 
+import Pact.Core.Errors (VerifierError(..))
+
 -- Note [Throw out verifier proofs eagerly]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 -- We try to discard verifier proofs eagerly so that we don't hang onto them in
@@ -407,7 +409,7 @@ applyCmd v logger gasLogger txFailuresCounter pdbenv miner gasModel txCtx spv cm
             (fromMaybe [] (cmd ^. cmdPayload . pVerifiers))
         case verifierResult of
           Left err -> do
-            let errMsg = "Tx verifier error: " <> getVerifierError err
+            let errMsg = "Tx verifier error: " <> _verifierError err
             cmdResult <- failTxWith
               (PactError TxFailure def [] (pretty errMsg))
               errMsg
@@ -680,7 +682,7 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
           (fromMaybe [] $ cmd ^. cmdPayload . pVerifiers)
       case verifierResult of
         Left err -> do
-          let errMsg = "Tx verifier error: " <> getVerifierError err
+          let errMsg = "Tx verifier error: " <> _verifierError err
           failTxWith
             (PactError TxFailure def [] (pretty errMsg))
             errMsg

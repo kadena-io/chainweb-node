@@ -32,7 +32,6 @@ module Chainweb.Pact5.TransactionExec
   ( -- * Public API
     TransactionM(..)
   , TransactionEnv(..)
-  , TxFailedError(..)
   , applyCoinbase
   , applyLocal
   , applyCmd
@@ -149,6 +148,7 @@ import qualified Pact.Types.Verifier as Pact4
 import qualified Pact.Types.Capability as Pact4
 import qualified Pact.Types.Names as Pact4
 import qualified Pact.Types.Runtime as Pact4
+import qualified Pact.Core.Errors as Pact5
 
 -- Note [Throw out verifier proofs eagerly]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -171,13 +171,13 @@ makeLenses ''TransactionEnv
 
 -- | TODO: document how TransactionM is just for the "paid-for" fragment of the transaction flow
 newtype TransactionM logger a
-  = TransactionM { runTransactionM :: ReaderT (TransactionEnv logger) (ExceptT TxFailedError IO) a }
+  = TransactionM { runTransactionM :: ReaderT (TransactionEnv logger) (ExceptT Pact5.PactErrorI IO) a }
   deriving newtype
   ( Functor
   , Applicative
   , Monad
   , MonadReader (TransactionEnv logger)
-  , MonadError TxFailedError
+  , MonadError Pact5.PactErrorI
   , MonadThrow
   , MonadIO
   )
@@ -185,7 +185,7 @@ newtype TransactionM logger a
 chargeGas :: Info -> GasArgs CoreBuiltin -> TransactionM logger ()
 chargeGas info gasArgs = do
   gasEnv <- view txEnvGasEnv
-  either (throwError . TxPactError) return =<<
+  either throwError return =<<
     liftIO (chargeGasArgsM gasEnv info [] gasArgs)
 
 -- run verifiers
@@ -235,7 +235,7 @@ runVerifiers txCtx cmd = do
           pact4TxVerifiers
       case verifierResult of
         Left err -> do
-          throwError (TxVerifierError err)
+          throwError (Pact5.PEVerifierError err def)
         Right (Pact4.Gas pact4VerifierGasRemaining) -> do
           -- TODO: crash properly on negative?
           let verifierGasRemaining = fromIntegral @Int64 @Word64 pact4VerifierGasRemaining
@@ -258,7 +258,7 @@ applyLocal
       -- ^ SPV support (validates cont proofs)
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
-    -> IO (CommandResult [TxLog ByteString] TxFailedError)
+    -> IO (CommandResult [TxLog ByteString] Pact5.PactErrorI)
 applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
   gasRef <- newIORef mempty
   gasLogRef <- forM maybeGasLogger $ \_ -> newIORef []
@@ -337,7 +337,7 @@ applyCmd
       -- ^ initial gas cost
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
-    -> IO (Either Pact5GasPurchaseFailure (CommandResult [TxLog ByteString] TxFailedError))
+    -> IO (Either Pact5GasPurchaseFailure (CommandResult [TxLog ByteString] Pact5.PactErrorI))
 applyCmd logger maybeGasLogger db txCtx spv initialGas cmd = do
   logDebug_ logger $ "applyCmd: " <> sshow (_cmdHash cmd)
   let flags = Set.fromList
@@ -580,7 +580,7 @@ runGenesisPayload
   -> SPVSupport
   -> TxContext
   -> Command (Payload PublicMeta ParsedCode)
-  -> IO (Either TxFailedError (CommandResult [TxLog ByteString] Void))
+  -> IO (Either Pact5.PactErrorI (CommandResult [TxLog ByteString] Void))
 runGenesisPayload logger db spv ctx cmd = do
   gasRef <- newIORef (MilliGas 0)
   let gasEnv = GasEnv gasRef Nothing freeGasModel
@@ -634,7 +634,7 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx 
           `using` (traverse . traverse) rseq
 
   res <-
-    (either (throwError . TxPactError) return =<<) $ liftIO $
+    (either throwError return =<<) $ liftIO $
     case payload ^. pPayload of
       Exec ExecMsg {..} ->
         evalExec execMode

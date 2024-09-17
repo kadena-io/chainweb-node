@@ -123,9 +123,6 @@ module Chainweb.Pact.Types
   , Pact5BuyGasError(..)
   , Pact5RedeemGasError(..)
   , Pact5GasPurchaseFailure(..)
-  , TxFailedError(..)
-  , _TxPactError
-  , _TxVerifierError
   , Transactions(..)
   , transactionPairs
   , transactionCoinbase
@@ -479,7 +476,7 @@ instance J.Encode Pact5CoinbaseError where
   build = \case
     CoinbasePactError e -> J.object
       [ "tag" J..= J.text "CoinbasePactError"
-      , "contents" J..= T.pack (displayException e)
+      , "contents" J..= J.text (sshow e)
       ]
 
 data Pact5RedeemGasError
@@ -922,15 +919,6 @@ instance Exception PactServiceException
 makePrisms ''Historical
 makeLenses ''BlockHandle
 
--- | Errors that can be encountered by a *valid* transaction, after it's bought gas.
-data TxFailedError = TxPactError !Pact5.PactErrorI | TxVerifierError !VerifierError
-  deriving stock (Eq, Show, Generic)
-  deriving anyclass NFData
-
-instance J.Encode TxFailedError where
-  build (TxPactError err) = J.text $ sshow err
-  build (TxVerifierError err) = J.text $ sshow err
-
 -- | Value that represents how far to go backwards while rewinding.
 newtype RewindDepth = RewindDepth { _rewindDepth :: Word64 }
   deriving (Eq, Ord)
@@ -1222,7 +1210,7 @@ instance Semigroup (ModuleCacheFor Pact5) where
 
 type family CommandResultFor (pv :: PactVersion) where
   CommandResultFor Pact4 = Pact4.CommandResult [Pact4.TxLogJson]
-  CommandResultFor Pact5 = Pact5.CommandResult [Pact5.TxLog ByteString] TxFailedError
+  CommandResultFor Pact5 = Pact5.CommandResult [Pact5.TxLog ByteString] Pact5.PactErrorI
 
 -- State from a block in progress, which is used to extend blocks after
 -- running their payloads.
@@ -1311,12 +1299,10 @@ pact5CommandToBytes tx = Transaction
     J.encodeStrict tx
   }
 
-pact5CommandResultToBytes :: Pact5.CommandResult Pact5.Hash TxFailedError -> TransactionOutput
-pact5CommandResultToBytes cr = TransactionOutput
-  { _transactionOutputBytes =
+pact5CommandResultToBytes :: Pact5.CommandResult Pact5.Hash Pact5.PactErrorI -> ByteString
+pact5CommandResultToBytes cr =
     -- TODO: pact5, error codes
     J.encodeStrict (fmap (sshow @_ @Text) cr)
-  }
 
 hashPact5TxLogs :: Pact5.CommandResult [Pact5.TxLog ByteString] err -> Pact5.CommandResult Pact5.Hash err
 hashPact5TxLogs cr = cr & over (Pact5.crLogs . _Just)
@@ -1346,12 +1332,12 @@ toPayloadWithOutputs Pact5T mi ts =
         trans :: Vector Transaction
         trans = cmdBSToTx . fst <$> oldSeq
         transOuts :: Vector TransactionOutput
-        transOuts = pact5CommandResultToBytes . hashPact5TxLogs . snd <$> oldSeq
+        transOuts = TransactionOutput . pact5CommandResultToBytes . hashPact5TxLogs . snd <$> oldSeq
 
         miner :: MinerData
         miner = toMinerData mi
         cb :: CoinbaseOutput
-        cb = CoinbaseOutput $ J.encodeStrict $ hashPact5TxLogs $ _transactionCoinbase ts
+        cb = CoinbaseOutput $ pact5CommandResultToBytes $ hashPact5TxLogs $ _transactionCoinbase ts
         blockTrans :: BlockTransactions
         blockTrans = snd $ newBlockTransactions miner trans
         cmdBSToTx :: Pact5.Transaction -> Transaction
@@ -1389,4 +1375,3 @@ instance NFData r => NFData (Transactions Pact5 r) where
 
 makeLenses 'Transactions
 makeLenses 'BlockInProgress
-makePrisms ''TxFailedError

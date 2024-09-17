@@ -187,9 +187,9 @@ runBlocks cp ph blks = do
     ((), finishedBlks) <- _cpRestoreAndSave cp (Just ph) $ traverse_ Stream.yield
         [ Pact5RunnableBlock $ \db _ph startHandle -> do
             doPact5DbTransaction db startHandle Nothing $ \txdb -> do
-                void $ _pdbBeginTx txdb Transactional
+                _ <- ignoreGas def $ _pdbBeginTx txdb Transactional
                 blk' <- traverse (runDbAction txdb) blk
-                txLogs <- _pdbCommitTx txdb
+                txLogs <- ignoreGas def $ _pdbCommitTx txdb
                 bh <- blockHeaderFromTxLogs (fromJuste _ph) txLogs
                 return ([(bh, blk')], bh)
         | blk <- blks
@@ -200,9 +200,9 @@ assertBlock :: HasCallStack => Checkpointer GenericLogger -> ParentHeader -> (Bl
 assertBlock cp ph (expectedBh, blk) = do
     hist <- _cpReadFrom (_cpReadCp cp) (Just ph) Pact5T $ \db startHandle -> do
         ((), _endHandle) <- doPact5DbTransaction db startHandle Nothing $ \txdb -> do
-            _ <- _pdbBeginTx txdb Transactional
+            _ <- ignoreGas def $ _pdbBeginTx txdb Transactional
             blk' <- forM blk (runDbAction' txdb)
-            txLogs <- _pdbCommitTx txdb
+            txLogs <- ignoreGas def $ _pdbCommitTx txdb
             forM_ blk' $ \case
                 DbRead _d _k (Pair expected actual) ->
                     assertEqual "read result" expected actual

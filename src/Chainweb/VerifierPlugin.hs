@@ -13,13 +13,12 @@
 
 module Chainweb.VerifierPlugin
     ( VerifierPlugin(..)
-    , VerifierError(..)
     , runVerifierPlugins
     , chargeGas
     ) where
 
 import Control.DeepSeq
-import Control.Exception.Safe(Exception, throw, try, tryAny, handleAny)
+import Control.Exception.Safe(tryAny, handleAny)
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.IO.Class
@@ -35,8 +34,6 @@ import qualified Data.Map.Merge.Strict as Merge
 import Data.Set(Set)
 import qualified Data.Set as Set
 import Data.STRef
-import Data.Text(Text)
-import GHC.Generics
 
 import Pact.Types.Capability
 import Pact.Types.Gas
@@ -47,11 +44,7 @@ import Chainweb.Version
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Utils
-
-newtype VerifierError = VerifierError
-    { getVerifierError :: Text }
-    deriving stock (Eq, Generic, Show)
-    deriving anyclass NFData
+import Pact.Core.Errors (VerifierError(..))
 
 newtype VerifierPlugin
     = VerifierPlugin
@@ -100,7 +93,7 @@ runVerifierPlugins chainContext logger allVerifiers gasRemaining txVerifiers =
                     tryAny (hoist stToIO (runVerifierPlugin verifierPlugin chainContext proof caps gasRef)) >>= \case
                         Left ex -> do
                             liftIO $ logFunctionText logger Warn ("Uncaught exception in verifier: " <> sshow ex)
-                            throwError $ VerifierError "Uncaught exception in verifier"
+                            throwError $ VerifierError $ "Uncaught exception in verifier " <> vn
                         Right () -> return ()
                     verifierDoneGasRemaining <- lift $ stToIO $ readSTRef gasRef
                     if verifierDoneGasRemaining > verifierGasRemaining
