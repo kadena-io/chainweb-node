@@ -152,6 +152,7 @@ tests baseRdb = testGroup "Pact5 PactServiceTest"
     , testCase "new block timeout spec" (newBlockTimeoutSpec baseRdb)
     , testCase "mempool excludes invalid transactions" (testMempoolExcludesInvalid baseRdb)
     , testCase "lookup pact txs spec" (lookupPactTxsSpec baseRdb)
+    , testCase "failed txs should go into blocks" (failedTxsShouldGoIntoBlocks baseRdb)
     ]
 
 successfulTx :: Predicatory p => Pred p (CommandResult log err)
@@ -435,6 +436,35 @@ lookupPactTxsSpec baseRdb = runResourceT $ do
         lookupExpect (Just 1)
         lookupExpect (Just 2)
         lookupDontExpect (Just 3)
+
+failedTxsShouldGoIntoBlocks :: RocksDb -> IO ()
+failedTxsShouldGoIntoBlocks baseRdb = runResourceT $ do
+    fixture <- mkFixture baseRdb
+
+    liftIO $ do
+        cmd1 <- buildCwCmd v (transferCmd 1.0)
+        cmd2 <- buildCwCmd v defaultCmd
+            { _cbRPC = mkExec' "(namespace 'free) (module mod G (defcap G () true) (defun f () true)) (describe-module \"free.mod\")"
+            , _cbSigners =
+                [ mkEd25519Signer' sender00
+                    []
+                ]
+            , _cbSender = "sender00"
+            , _cbChainId = cid
+            -- for ordering the transactions as they appear in the block
+            , _cbGasPrice = GasPrice 0.1
+            , _cbGasLimit = GasLimit (Gas 1000)
+            }
+
+        -- Depth 0
+        _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
+            insertMempool mempool CheckedInsert [cmd1, cmd2]
+            bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
+            let block = finalizeBlock bip
+            assertEqual "block has 2 txs even though one of them failed" 2 (Vector.length $ _payloadWithOutputsTransactions block)
+            return block
+
+        return ()
 
 {-
 tests = do
