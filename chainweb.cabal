@@ -32,7 +32,7 @@ extra-source-files:
 
     -- verifier assets
 
-    assets/plonk/vk.bin
+    verifier-assets/v1.0.8-testnet.bin
 
     -- pact test data
 
@@ -913,4 +913,3 @@ benchmark bench
         , unordered-containers >= 0.2.16
         , yet-another-logger >= 0.4.1
         , pact-json >= 0.1
-        , plonk-verify
