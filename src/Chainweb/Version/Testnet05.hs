@@ -73,7 +73,7 @@ testnet05 = ChainwebVersion
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionMaxBlockGasLimit =
         End (Just 180_000)
-    , _versionBootstraps = domainAddr2PeerInfo testnetBootstrapHosts
+    , _versionBootstraps = domainAddr2PeerInfo testnet05BootstrapHosts
     , _versionGenesis = VersionGenesis
         { _genesisBlockTarget = OnChains $ HM.fromList $ concat
             [ [(unsafeChainId i, maxTarget) | i <- [0..19]]
