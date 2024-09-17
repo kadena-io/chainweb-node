@@ -640,7 +640,6 @@ test-suite chainweb-tests
         , yet-another-logger >= 0.4.1
         , sha-validation >=0.1
         , hashes >=0.2.2.0
-        , plonk-verify
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
