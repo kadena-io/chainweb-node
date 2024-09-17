@@ -19,7 +19,7 @@ module Chainweb.VerifierPlugin
     ) where
 
 import Control.DeepSeq
-import Control.Exception.Safe(Exception, throw, try, tryAny)
+import Control.Exception.Safe(Exception, throw, try, tryAny, handleAny)
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.IO.Class
@@ -52,7 +52,6 @@ newtype VerifierError = VerifierError
     { getVerifierError :: Text }
     deriving stock (Eq, Generic, Show)
     deriving anyclass NFData
-instance Exception VerifierError
 
 newtype VerifierPlugin
     = VerifierPlugin
@@ -85,30 +84,33 @@ runVerifierPlugins
     -> Gas
     -> [Verifier ParsedVerifierProof]
     -> IO (Either VerifierError Gas)
-runVerifierPlugins chainContext logger allVerifiers gasRemaining txVerifiers = try $ do
-    gasRef <- stToIO $ newSTRef gasRemaining
-    either throw (\_ -> stToIO $ readSTRef gasRef) <=< runExceptT $ Merge.mergeA
-        -- verifier in command does not exist in list of all valid verifiers
-        (Merge.traverseMissing $ \(VerifierName vn) _ ->
-            throwError $ VerifierError ("verifier does not exist: " <> vn)
-        )
-        -- valid verifier not used in command
-        Merge.dropMissing
-        (Merge.zipWithAMatched $ \(VerifierName vn) proofsAndCaps verifierPlugin ->
-            for_ proofsAndCaps $ \(ParsedVerifierProof proof, caps) -> do
-                verifierGasRemaining <- lift $ stToIO $ readSTRef gasRef
-                tryAny (hoist stToIO (runVerifierPlugin verifierPlugin chainContext proof caps gasRef)) >>= \case
-                    Left ex -> do
-                        liftIO $ logFunctionText logger Warn ("Uncaught exception in verifier: " <> sshow ex)
-                        throwError $ VerifierError "Uncaught exception in verifier"
-                    Right () -> return ()
-                verifierDoneGasRemaining <- lift $ stToIO $ readSTRef gasRef
-                if verifierDoneGasRemaining > verifierGasRemaining
-                then throwError $ VerifierError ("Verifier attempted to charge negative gas: " <> vn)
-                else return ()
+runVerifierPlugins chainContext logger allVerifiers gasRemaining txVerifiers =
+    handleAny (\_ -> return $ Left $ VerifierError "unknown exception") $ do
+        gasRef <- stToIO $ newSTRef gasRemaining
+        maybeErr <- runExceptT $ Merge.mergeA
+            -- verifier in command does not exist in list of all valid verifiers
+            (Merge.traverseMissing $ \(VerifierName vn) _ ->
+                throwError $ VerifierError ("verifier does not exist: " <> vn)
             )
-        verifiersInCommand
-        allVerifiers
+            -- valid verifier not used in command
+            Merge.dropMissing
+            (Merge.zipWithAMatched $ \(VerifierName vn) proofsAndCaps verifierPlugin ->
+                for_ proofsAndCaps $ \(ParsedVerifierProof proof, caps) -> do
+                    verifierGasRemaining <- lift $ stToIO $ readSTRef gasRef
+                    tryAny (hoist stToIO (runVerifierPlugin verifierPlugin chainContext proof caps gasRef)) >>= \case
+                        Left ex -> do
+                            liftIO $ logFunctionText logger Warn ("Uncaught exception in verifier: " <> sshow ex)
+                            throwError $ VerifierError "Uncaught exception in verifier"
+                        Right () -> return ()
+                    verifierDoneGasRemaining <- lift $ stToIO $ readSTRef gasRef
+                    if verifierDoneGasRemaining > verifierGasRemaining
+                    then throwError $ VerifierError ("Verifier attempted to charge negative gas: " <> vn)
+                    else return ()
+                )
+            verifiersInCommand
+            allVerifiers
+        gasRemaining' <- stToIO $ readSTRef gasRef
+        return (gasRemaining' <$ maybeErr)
     where
     verifiersInCommand :: Map VerifierName [(ParsedVerifierProof, Set SigCapability)]
     verifiersInCommand =
