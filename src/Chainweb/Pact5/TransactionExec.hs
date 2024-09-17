@@ -554,20 +554,6 @@ applyUpgrades logger db txCtx
             logError_ logger $ "Upgrade transaction failed! " <> sshow e
             throwM e
 
-compileValueToPactValue :: CompileValue i -> PactValue
-compileValueToPactValue = \case
-  -- NOTE: this goes into outputs
-  LoadedModule _modName modHash ->
-    PString $
-      "Loaded module " <> encodeB64UrlNoPaddingText (SB.fromShort $ unHash (_mhHash modHash))
-  LoadedInterface _ifaceName ifaceHash ->
-    PString $
-      "Loaded interface " <> encodeB64UrlNoPaddingText (SB.fromShort $ unHash (_mhHash ifaceHash))
-  LoadedImports _imp ->
-    PString $ "Import successful"
-  InterpretValue value _info ->
-    value
-
 -- | Run a genesis transaction. This differs from an ordinary transaction:
 --   * Special capabilities allow making token allocations
 --   * Coinbase is allowed, which allows minting as well
