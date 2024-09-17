@@ -21,7 +21,7 @@ import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse (ChainwebMerkleHashAlgorithm)
 import Chainweb.Pact.Types
 import Chainweb.Test.TestVersions
-import Chainweb.Test.Utils
+import Chainweb.Test.Utils (withResourceT)
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Serialization (runGetS, runPutS)
