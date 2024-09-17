@@ -213,6 +213,7 @@ import System.LogLevel
 import qualified Pact.Core.Builtin as Pact5
 import qualified Pact.Core.Errors as Pact5
 import qualified Pact.Core.Evaluate as Pact5
+import qualified Pact.Core.StableEncoding as Pact5
 
 -- internal chainweb modules
 
@@ -258,7 +259,6 @@ import qualified Data.List.NonEmpty as NE
 import Control.Concurrent.STM
 import Chainweb.Payload
 import Data.ByteString.Short (ShortByteString)
-import Chainweb.VerifierPlugin
 import qualified Data.ByteString.Short as SB
 import qualified Data.Vector as V
 import qualified Pact.Core.Hash as Pact5
@@ -1302,12 +1302,16 @@ pact5CommandToBytes tx = Transaction
 pact5CommandResultToBytes :: Pact5.CommandResult Pact5.Hash Pact5.PactErrorI -> ByteString
 pact5CommandResultToBytes cr =
     -- TODO: pact5, error codes
-    J.encodeStrict (fmap (sshow @_ @Text) cr)
+    J.encodeStrict (fmap convertError cr)
+  where
+  convertError err =
+    Pact5.PEPact5Error $
+      fmap Pact5.StableEncoding $
+        Pact5.pactErrorToErrorCode err
 
 hashPact5TxLogs :: Pact5.CommandResult [Pact5.TxLog ByteString] err -> Pact5.CommandResult Pact5.Hash err
 hashPact5TxLogs cr = cr & over (Pact5.crLogs . _Just)
-  (\ls -> Pact5.hashTxLogs $
-     ls)
+  (\ls -> Pact5.hashTxLogs ls)
 
 toPayloadWithOutputs :: PactVersionT pv -> Miner -> Transactions pv (CommandResultFor pv) -> PayloadWithOutputs
 toPayloadWithOutputs Pact4T mi ts =
