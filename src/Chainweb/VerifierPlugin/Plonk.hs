@@ -1,12 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE LambdaCase #-}
 
 -- |
 
-module Chainweb.VerifierPlugin.Plonk (plugin) where
+module Chainweb.VerifierPlugin.Plonk
+  (plugin) where
 
+import Chainweb.Utils
 import Chainweb.VerifierPlugin
 import Control.Lens
 import Control.Monad
@@ -17,64 +18,56 @@ import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Short as BS
 import qualified Data.Map.Strict as M
 import Data.Maybe
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.Vector as V
+import qualified EmbedVKeys
 import GHC.IO
-import GHC.ST
+import Pact.Types.Capability
 import Pact.Types.Exp
 import Pact.Types.PactValue
-import Pact.Types.Term.Internal
-
 import qualified PlonkVerify
-import qualified EmbedVKeys
 
+-- | Verifying Keys
+--
+-- Providing a (compile-time) mapping of the  @VKey@.
 verifyingKeys :: M.Map T.Text PlonkVerify.VKey
 verifyingKeys = M.fromList $ map (over _1 T.pack) $$(EmbedVKeys.embedVKeys "bin" "verifier-assets")
 
+
+-- The plugin verifies Plonk zero-knowledge proofs within the context of Pact transactions.
+--
+-- [@proof@] A Base-64 URL encoded message without padding.
+--
+-- [@caps@] A set containing precisely one 'SigCapability' with three arguments:
+--    1. A UTF-8 encoded string identifying the verifying key.
+--    2. A Base-64 URL encoded message (without padding) representing the program ID.
+--    3. A Base-16 encoded message representing the public parameters.
 plugin :: VerifierPlugin
-plugin = VerifierPlugin $ \_ proofObj _caps gasRef -> do
+plugin = VerifierPlugin $ \_ proof caps gasRef -> do
   chargeGas gasRef 100
-  case proofObj of
-    PObject (ObjectMap om) -> do
-      let getField k = case om ^? at (FieldKey k) . _Just . _PLiteral of
-            Just (LString str) -> pure str
-            _ -> throwError $ VerifierError $ k <> " is missing."
+  case proof of
+   PLiteral (LString proofMsg) -> do
+     plonkProof <- PlonkVerify.Proof . BS.toShort <$> decodeB64UrlNoPaddingText proofMsg
 
-      vk    <- getField "vkey" >>= (\case
-                 Just vk -> pure vk
-                 Nothing -> throwError $ VerifierError "Unknown verifier key.") . (`M.lookup` verifyingKeys)
+     SigCapability _ capArgs <- case Set.toList caps of
+       [cap] -> pure cap
+       _ -> throwError $ VerifierError "Expected single capability."
 
-      proof  <- PlonkVerify.Proof  <$> (getField "proof" >>= toB16Short)
-      progId <- PlonkVerify.ProgramId <$> (getField "progId" >>= toB16Short)
+     (vk, progId, pub) <- case capArgs of
+       [PLiteral (LString vk), PLiteral (LString progId), PLiteral (LString pub)] -> do
+         vk' <- maybe (throwError $ VerifierError "Unknown verifier key.") pure $ M.lookup vk verifyingKeys
 
-      res <- case om ^. at (FieldKey "pub") of
-        Just (PLiteral (LString hsh)) -> do
-          bytes <- toB16Short hsh
-          pub <- liftEither . first (VerifierError . T.pack) $ PlonkVerify.mkPublicParameterHash bytes
-          lift $ unsafeIOToST $ PlonkVerify.verifyPlonkBn254' vk proof progId pub
+         progId' <- PlonkVerify.ProgramId . BS.toShort <$> decodeB64UrlNoPaddingText progId
 
-        Just (PList l) -> do
-          pub <- traverse mkPublicParameter (V.toList l)
-          lift $ unsafeIOToST $ PlonkVerify.verifyPlonkBn254 vk proof progId pub
+         let spub = fromMaybe pub $ T.stripPrefix "0x" pub
+         pub' <- liftEither . first (const (VerifierError "Base16 decoding failure.")) $
+           PlonkVerify.PublicParameter . BS.toShort <$> B16.decode (T.encodeUtf8 spub)
 
-        Just _ ->
-          throwError $ VerifierError "Expected public parameters as string literal or list."
-        _ ->
-          throwError $ VerifierError "Expected field pub."
+         pure (vk', progId', pub')
+       _ -> throwError $ VerifierError "Incorrect number of capability arguments. Expected vk, progId, pub."
 
+     withness <- lift $ unsafeIOToST $ PlonkVerify.verifyPlonkBn254 vk plonkProof progId pub
+     unless withness $ throwError $ VerifierError "Verification failed."
 
-      unless res $ throwError $ VerifierError "Verification failed."
-
-    _ -> throwError $ VerifierError "Expected object with keys: vkey, progId, pub, proof."
-  where
-    toB16Short str = do
-      let sstr = fromMaybe str $ T.stripPrefix "0x" str
-      case B16.decode (T.encodeUtf8 sstr) of
-        Left _e -> throwError $ VerifierError "decoding hex string failed."
-        Right bytes -> pure $ BS.toShort bytes
-
-    mkPublicParameter :: PactValue -> ExceptT VerifierError (ST s) PlonkVerify.PublicParameter
-    mkPublicParameter = \case
-      PLiteral (LString str) -> PlonkVerify.PublicParameter <$> toB16Short str
-      _ -> throwError $ VerifierError "Expected string literals as public parameters."
+   _ -> throwError $ VerifierError "Expected proof data as a string."
