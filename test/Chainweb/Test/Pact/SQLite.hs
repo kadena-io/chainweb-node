@@ -280,7 +280,7 @@ testAgg n dbVarIO tblIO = do
       512 -> hashToByteString <$> SHA3.hashByteString @SHA3.Sha3_512 b
       _ -> error $ "unsupported SHA3 digest size: " <> show d
 
-hashToByteString :: (SHA3.Hash a, Coercible a BS.ShortByteString) => a -> B.ByteString
+hashToByteString :: SHA3.Hash a => Coercible a BS.ShortByteString => a -> B.ByteString
 hashToByteString = BS.fromShort . coerce
 
 -- -------------------------------------------------------------------------- --
