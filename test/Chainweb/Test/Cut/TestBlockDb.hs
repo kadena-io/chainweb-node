@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 -- |
 -- Module: Chainweb.Test.Cut.TestBlockDb
 -- Copyright: Copyright © 2020 Kadena LLC.

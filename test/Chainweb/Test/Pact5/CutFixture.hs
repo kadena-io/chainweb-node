@@ -113,7 +113,7 @@ mkFixture v pactServiceConfig baseRdb = do
         , _fixturePactQueues = OnChains $ snd <$> perChain
         }
 
-advanceAllChains :: ()
+advanceAllChains :: (HasCallStack)
     => ChainwebVersion
     -> Fixture
     -> IO (ChainMap (Vector (CommandResult Pact5.Hash Text)))
@@ -123,17 +123,23 @@ advanceAllChains v Fixture{..} = do
     let latestBlockHeight = maximum blockHeights
     assertBool "all block heights in the latest cut must be the same" $
         all (== latestBlockHeight) blockHeights
+
     (_finalCut, perChainCommandResults) <- foldM
         (\ (prevCut, !acc) cid -> do
             (newCut, _minedChain, pwo) <- mine noMiner NewBlockFill _fixtureWebPactExecutionService _fixtureCutDb prevCut
 
+            putStrLn $ "PAYLOAD HASH: " <> sshow (_payloadWithOutputsPayloadHash pwo)
+
             commandResults <- forM (_payloadWithOutputsTransactions pwo) $ \(_, txOut) -> do
                 decodeOrThrow' $ LBS.fromStrict $ _transactionOutputBytes txOut
+
+            --addNewPayload _fixturePayloadDb latestBlockHeight pwo
 
             return $ (newCut, (cid, commandResults) : acc)
         )
         (latestCut, [])
         (HashSet.toList (chainIdsAt v (latestBlockHeight + 1)))
+
     return (onChains perChainCommandResults)
 
 withTestCutDb :: (Logger logger)
@@ -217,8 +223,7 @@ testMineWithPayloadHash
     -> cid
     -> Cut
     -> IO (Either MineFailure (T2 BlockHeader Cut))
-testMineWithPayloadHash db n t ph cid c = try
-    $ createNewCut (chainLookupM db) n t ph cid c
+testMineWithPayloadHash db n t ph cid c = try $ createNewCut (chainLookupM db) n t ph cid c
 
 -- | Create a new block. Only produces a new cut but doesn't insert it into the
 -- chain database.
@@ -226,7 +231,7 @@ testMineWithPayloadHash db n t ph cid c = try
 -- The creation time isn't checked.
 --
 createNewCut
-    :: (HasCallStack, MonadCatch m, HasChainId cid)
+    :: (HasCallStack, MonadCatch m, MonadIO m, HasChainId cid)
     => (ChainValue BlockHash -> m BlockHeader)
     -> Nonce
     -> Time Micros
@@ -240,6 +245,7 @@ createNewCut hdb n t pay i c = do
     (h, mc') <- extendCut c pay (solveWork work n t)
         `catch` \(InvalidSolvedHeader _ msg) -> throwM $ InvalidHeader msg
     c' <- fromMaybeM BadAdjacents mc'
+    liftIO $ putStrLn $ "BRUH" <> sshow h
     return $ T2 h c'
 
 -- | Solve Work. Doesn't check that the nonce and the time are valid.

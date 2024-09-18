@@ -25,6 +25,7 @@ module Chainweb.Test.Pact5.RemotePactTest
     ( tests
     ) where
 
+import Chainweb.CutDB.RestAPI.Server (someCutGetServer)
 import Network.Connection qualified as HTTP
 import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Client.TLS qualified as HTTP
@@ -89,6 +90,19 @@ data Fixture = Fixture
     }
 makeLenses ''Fixture
 
+{-
+someServiceApiServe :: (Show t, CanReadablePayloadCas tbl, Logger logger)
+    => ChainwebVersion
+    -> ChainwebServerDbs t tbl
+    -> [(ChainId, PactAPI.PactServerData logger tbl)]
+    -> Maybe (MiningCoordination logger tbl)
+    -> HeaderStream
+    -> Rosetta
+    -> Maybe (BackupEnv logger)
+    -> PayloadBatchLimit
+    -> SomeServer
+-}
+
 mkFixture :: RocksDb -> ResourceT IO Fixture
 mkFixture baseRdb = do
     cutFixture <- CutFixture.mkFixture v testPactServiceConfig baseRdb
@@ -101,7 +115,8 @@ mkFixture baseRdb = do
             , _pactServerDataPact = mkPactExecutionService (cutFixture ^. CutFixture.fixturePactQueues ^?! atChain chainId)
             }
     let pactServer = somePactServers v $ List.map (\chainId -> (chainId, mkSomePactServerData chainId)) (HashSet.toList (chainIds v))
-    let app = someServerApplication pactServer
+    let cutGetServer = someCutGetServer v (cutFixture ^. CutFixture.fixtureCutDb)
+    let app = someServerApplication (pactServer <> cutGetServer)
 
     (_fingerprint, cert, key) <- liftIO $ generateLocalhostCertificate @RsaCert 1
 
@@ -129,15 +144,14 @@ mkFixture baseRdb = do
 
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "Pact5 RemotePactTest"
-    [ -- testCase "pollingBadlistTest" (pollingBadlistTest rdb)
-        --testCase "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
+    [ --testCase "pollingBadlistTest" (pollingBadlistTest rdb)
+        testCase "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
     ]
 
-{-
 pollingBadlistTest :: RocksDb -> IO ()
 pollingBadlistTest baseRdb = runResourceT $ do
     fixture <- mkFixture baseRdb
-    let clientEnv = fixture ^. fixtureClientEnv
+    let clientEnv = fixture ^. serviceClientEnv
 
     liftIO $ do
         pollResult <- polling clientEnv (NE.singleton pactDeadBeef)
@@ -155,22 +169,24 @@ pollingBadlistTest baseRdb = runResourceT $ do
 pollingConfirmationDepthTest :: RocksDb -> IO ()
 pollingConfirmationDepthTest baseRdb = runResourceT $ do
     fixture <- mkFixture baseRdb
-    let clientEnv = fixture ^. fixtureClientEnv
+    let clientEnv = fixture ^. serviceClientEnv
 
     liftIO $ do
-        cmd1 <- buildTextCmd v (trivialTx 42)
-        cmd2 <- buildTextCmd v (trivialTx 43)
-        rks <- sending clientEnv (cmd1 NE.:| [cmd2])
-        putStrLn $ "pollingConfirmationDepth requestKeys: " ++ show rks
+        --cmd1 <- buildTextCmd v (trivialTx 42)
+        --cmd2 <- buildTextCmd v (trivialTx 43)
+        --rks <- sending clientEnv (cmd1 NE.:| [cmd2])
+        --putStrLn $ "pollingConfirmationDepth requestKeys: " ++ show rks
 
-        beforePolling <- getCurrentBlockHeight v clientEnv cid
+        _ <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
+
+        {-beforePolling <- getCurrentBlockHeight v clientEnv cid
         putStrLn $ "beforePolling: " ++ show beforePolling
         pollResponse <- pollingWithDepth clientEnv rks Nothing --(Just (ConfirmationDepth 10))
         afterPolling <- getCurrentBlockHeight v clientEnv cid
         putStrLn $ "afterPolling: " ++ show afterPolling
 
-        assertEqual "there are two command results" 2 (length (HashMap.keys pollResponse))
--}
+        assertEqual "there are two command results" 2 (length (HashMap.keys pollResponse))-}
+        return ()
 
 newtype PollingException = PollingException String
     deriving stock (Show)

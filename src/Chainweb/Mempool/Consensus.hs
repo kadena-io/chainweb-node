@@ -106,11 +106,8 @@ processFork
 processFork blockHeaderDb payloadStore lastHeaderRef logFun newHeader = do
     now <- getCurrentTimeIntegral
     lastHeader <- readIORef lastHeaderRef
-    (a, b) <- processFork' logFun blockHeaderDb newHeader lastHeader
-                           (payloadLookup payloadStore)
-                           (processForkCheckTTL now)
+    (a, b) <- processFork' logFun blockHeaderDb newHeader lastHeader (payloadLookup payloadStore) (processForkCheckTTL now)
     return (V.map Pact4.unHashable a, V.map Pact4.unHashable b)
-
 
 ------------------------------------------------------------------------------
 processForkCheckTTL
