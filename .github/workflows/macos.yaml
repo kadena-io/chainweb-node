@@ -28,7 +28,7 @@ jobs:
       name: Restore ghc & cabal binaries cache
       id: ghc-cabal-cache
       env:
-        key: ${{ runner.os }}-ghc-cabal
+        key: ${{ runner.os }}-${{ runner.arch }}-ghc-cabal
       with:
         path: |
           /Users/runner/.ghcup
