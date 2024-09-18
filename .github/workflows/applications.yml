@@ -648,9 +648,12 @@ jobs:
         # when adding more than one build, use a different package name or
         # different tags
         include:
-        - ghc: "9.6.5"
+        - ghc: "9.8.2"
           os: "ubuntu-22.04"
           use-freeze-file: "true"
+        - ghc: "9.10.1"
+          os: "ubuntu-22.04"
+          use-freeze-file: "false"
     env:
       OS: ${{ matrix.os }}
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
