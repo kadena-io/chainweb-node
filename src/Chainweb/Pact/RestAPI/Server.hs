@@ -17,7 +17,7 @@
 
 module Chainweb.Pact.RestAPI.Server
 ( PactServerData(..)
-, PactServerData_
+, PactServerData_(..)
 , PactCmdLog(..)
 , SomePactServerData(..)
 , somePactServerData

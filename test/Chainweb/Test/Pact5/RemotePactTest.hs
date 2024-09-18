@@ -25,165 +25,115 @@ module Chainweb.Test.Pact5.RemotePactTest
     ( tests
     ) where
 
---import Pact.Core.Command.RPC
-import Chainweb.Test.RestAPI.Utils (getCurrentBlockHeight)
-import Data.Text qualified as Text
-import Pact.Core.Errors
-import Pact.Core.StableEncoding
-import Pact.Core.Info
+import Network.Connection qualified as HTTP
+import Network.HTTP.Client qualified as HTTP
+import Network.HTTP.Client.TLS qualified as HTTP
+import Network.HTTP.Types qualified as HTTP
+import Network.Socket qualified as Network
+import Network.Wai qualified as W
+import Network.Wai.Handler.Warp qualified as W
+import Network.Wai.Handler.WarpTLS qualified as W
+import Chainweb.RestAPI.Utils (someServerApplication)
 import "pact" Pact.Types.API qualified as Pact4
 import "pact" Pact.Types.Command qualified as Pact4
 import "pact" Pact.Types.Hash qualified as Pact4
 import Chainweb.ChainId
 import Chainweb.Graph (singletonChainGraph)
--- import Chainweb.Logger
 import Chainweb.Mempool.Mempool (TransactionHash(..))
 import Chainweb.Pact.RestAPI.Client
+import Chainweb.Pact.RestAPI.Server
 import Chainweb.Pact.Types
--- import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Pact5.CmdBuilder
+import Chainweb.Test.Pact5.CutFixture qualified as CutFixture
+import Chainweb.Test.Pact5.Utils
+import Chainweb.Test.RestAPI.Utils (getCurrentBlockHeight)
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils (ChainwebNetwork(..), NodeDbDirs(..), withNodesAtLatestBehavior, withNodeDbDirs, deadbeef)
 import Chainweb.Test.Utils (testRetryPolicy)
+import Chainweb.Utils
 import Chainweb.Version
-import Control.Exception (Exception)
+import Chainweb.WebPactExecutionService
+import Control.Concurrent
+import Control.Exception (Exception, AsyncException(..))
 import Control.Lens
 import Control.Monad.Catch (Handler(..), throwM)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Resource (ResourceT, runResourceT)
+import Control.Monad.Trans.Resource (ResourceT, runResourceT, allocate)
 import Control.Retry
 import Data.Aeson qualified as Aeson
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
+import Data.HashSet qualified as HashSet
 import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NE
 import Data.Text (Text)
+import Data.Text qualified as Text
+import Network.X509.SelfSigned
 import Pact.Core.Command.Types
+import Pact.Core.Errors
+import Pact.Core.Gas.Types
 import Pact.Core.Hash qualified as Pact5
+import Pact.Core.Info
+import Pact.Core.StableEncoding
 import Pact.JSON.Encode qualified as J
 import PredicateTransformers as PT
 import Servant.Client
 import Test.Tasty
-import Chainweb.Utils
-import Pact.Core.Gas.Types
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
-{-
-import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), addTestBlockDb, getCutTestBlockDb, getParentTestBlockDb, mkTestBlockDb, setCutTestBlockDb)
-import Chainweb.Test.Pact4.Utils (stdoutDummyLogger, testPactServiceConfig, withBlockHeaderDb)
-import Chainweb.Test.Pact5.CmdBuilder
-import Chainweb.Test.Pact5.Utils
-import Chainweb.Test.TestVersions
-import Chainweb.Test.Utils
-import Chainweb.Time
-import Chainweb.Utils
-import Chainweb.Utils (T2 (..), fromJuste)
-import Chainweb.Utils.Serialization (runGetS, runPutS)
-import Chainweb.Version
-import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb)
-import Chainweb.WebPactExecutionService
-import Control.Concurrent
-import Control.Concurrent.MVar
-import Control.Exception (evaluate)
-import Control.Exception.Safe
-import Control.Lens hiding (only)
-import Control.Monad
-import Control.Monad.Except
-import Control.Monad.IO.Class
-import Control.Monad.Reader
-import Data.Aeson qualified as Aeson
-import Data.ByteString (ByteString)
-import Data.ByteString.Lazy qualified as LBS
-import Data.Decimal
-import Data.Default
-import Data.Foldable
-import Data.Functor.Const
-import Data.Functor.Identity
-import Data.Functor.Product
-import Data.Graph (Tree)
-import Data.HashMap.Strict qualified as HashMap
-import Data.HashSet qualified as HashSet
-import Data.HashSet (HashSet)
-import Data.IORef
-import Data.Map qualified as Map
-import Data.Maybe (fromMaybe)
-import Data.MerkleLog (MerkleNodeType (..), merkleLeaf, merkleRoot, merkleTree)
-import Data.Set qualified as Set
-import Data.String (fromString)
-import Data.Text (Text)
-import Data.Text qualified as T
-import Data.Text.Encoding qualified as T
-import Data.Text.IO qualified as T
-import Data.Text.IO qualified as Text
-import Data.Tree qualified as Tree
-import Data.Vector (Vector)
-import Data.Vector qualified as Vector
-import GHC.Stack
-import Hedgehog hiding (Update)
-import Hedgehog.Gen qualified as Gen
-import Hedgehog.Range qualified as Range
-import "pact" Pact.Types.Command qualified as Pact4
-import "pact" Pact.Types.Hash qualified as Pact4
-import Numeric.AffineSpace
-import Pact.Core.Builtin
-import Pact.Core.Capabilities
-import Pact.Core.ChainData hiding (ChainId, _chainId)
-import Pact.Core.Compile (CompileValue (..))
-import Pact.Core.Errors
-import Pact.Core.Evaluate
-import Pact.Core.Gas.TableGasModel
-import Pact.Core.Gas.Types
-import Pact.Core.Gen
-import Pact.Core.Info
-import Pact.Core.Literal
-import Pact.Core.Names
-import Pact.Core.Names (ModuleName (ModuleName))
-import Pact.Core.PactDbRegression
-import Pact.Core.PactDbRegression qualified as Pact.Core
-import Pact.Core.PactValue
-import Pact.Core.Persistence
-import Pact.Core.Persistence (PactDb (_pdbRead))
-import Pact.Core.SPV (noSPVSupport)
-import Pact.Core.Serialise
-import Pact.Core.StableEncoding (encodeStable)
-import Pact.Core.Verifiers
-import Pact.Types.Gas qualified as Pact4
-import Streaming.Prelude qualified as Stream
-import System.LogLevel
-import System.LogLevel (LogLevel (..))
-import Test.Tasty.Hedgehog
-import Text.Show.Pretty (pPrint)
-import Text.Printf (printf)
-import Control.Concurrent.Async (forConcurrently)
-import Data.Bool
-import System.IO.Unsafe
--}
 
 data Fixture = Fixture
-    { _fixtureNodeDbDirs :: [NodeDbDirs]
-    , _fixtureNetwork :: ChainwebNetwork
+    { _cutFixture :: CutFixture.Fixture
+    , _serviceClientEnv :: ClientEnv
     }
 makeLenses ''Fixture
 
-fixtureClientEnv :: Getter Fixture ClientEnv
-fixtureClientEnv = to $ \f -> _getServiceClientEnv $ _fixtureNetwork f
-
 mkFixture :: RocksDb -> ResourceT IO Fixture
 mkFixture baseRdb = do
-    nodeDbDirs <- withNodeDbDirs baseRdb 1
-    network <- withNodesAtLatestBehavior v id nodeDbDirs
+    cutFixture <- CutFixture.mkFixture v testPactServiceConfig baseRdb
+    logger <- liftIO getTestLogger
+
+    let mkSomePactServerData chainId = PactServerData
+            { _pactServerDataCutDb = cutFixture ^. CutFixture.fixtureCutDb
+            , _pactServerDataMempool = cutFixture ^. CutFixture.fixtureMempools ^?! atChain chainId
+            , _pactServerDataLogger = logger
+            , _pactServerDataPact = mkPactExecutionService (cutFixture ^. CutFixture.fixturePactQueues ^?! atChain chainId)
+            }
+    let pactServer = somePactServers v $ List.map (\chainId -> (chainId, mkSomePactServerData chainId)) (HashSet.toList (chainIds v))
+    let app = someServerApplication pactServer
+
+    (_fingerprint, cert, key) <- liftIO $ generateLocalhostCertificate @RsaCert 1
+
+    -- Run pact server API
+    (port, socket) <- snd <$> allocate W.openFreePort (Network.close . snd)
+    _ <- allocate
+        (forkIO $ do
+            W.runTLSSocket (tlsServerSettings cert key) W.defaultSettings socket app
+        )
+        (\tid -> throwTo tid ThreadKilled)
+
+    serviceClientEnv <- liftIO $ do
+        httpManager <- HTTP.newTlsManagerWith (HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True False False) Nothing)
+        return $ mkClientEnv httpManager $ BaseUrl
+            { baseUrlScheme = Https
+            , baseUrlHost = "127.0.0.1"
+            , baseUrlPort = port
+            , baseUrlPath = ""
+            }
+
     return $ Fixture
-        { _fixtureNodeDbDirs = nodeDbDirs
-        , _fixtureNetwork = network
+        { _cutFixture = cutFixture
+        , _serviceClientEnv = serviceClientEnv
         }
 
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "Pact5 RemotePactTest"
     [ -- testCase "pollingBadlistTest" (pollingBadlistTest rdb)
-      testCase "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
+        --testCase "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
     ]
 
+{-
 pollingBadlistTest :: RocksDb -> IO ()
 pollingBadlistTest baseRdb = runResourceT $ do
     fixture <- mkFixture baseRdb
@@ -220,17 +170,6 @@ pollingConfirmationDepthTest baseRdb = runResourceT $ do
         putStrLn $ "afterPolling: " ++ show afterPolling
 
         assertEqual "there are two command results" 2 (length (HashMap.keys pollResponse))
-
-{-
-localTest :: RocksDb -> IO ()
-localTest baseRdb = runResourceT $ do
-    fixture <- mkFixture baseRdb
-    let clientEnv = fixture ^. fixtureClientEnv
-
-    liftIO $ do
-        let rks = NE.fromList [pactDeadBeef]
-        x <- polling clientEnv (NE.singleton pactDeadBeef)
-        print x
 -}
 
 newtype PollingException = PollingException String

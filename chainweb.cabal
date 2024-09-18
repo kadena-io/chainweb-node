@@ -550,6 +550,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact4.Utils
         Chainweb.Test.Pact5.CheckpointerTest
         Chainweb.Test.Pact5.CmdBuilder
+        Chainweb.Test.Pact5.CutFixture
         Chainweb.Test.Pact5.PactServiceTest
         Chainweb.Test.Pact5.RemotePactTest
         Chainweb.Test.Pact5.SPVTest

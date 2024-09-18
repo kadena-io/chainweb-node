@@ -507,13 +507,6 @@ revert Fixture{..} c = do
         ph <- getParentTestBlockDb _fixtureBlockDb chain
         pactSyncToBlock ph (_fixturePactQueues ^?! atChain chain)
 
-throwIfNotPact5 :: ForSomePactVersion f -> IO (f Pact5)
-throwIfNotPact5 h = case h of
-    ForSomePactVersion Pact4T _ -> do
-        assertFailure "throwIfNotPact5: should be pact5"
-    ForSomePactVersion Pact5T a -> do
-        pure a
-
 transferCmd :: Decimal -> CmdBuilder
 transferCmd transferAmount = defaultCmd
     { _cbRPC = mkExec' $
