@@ -36,9 +36,8 @@ module Chainweb.Pact.RestAPI.Server
 import Control.Applicative
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
-import Control.Error (note, rights)
 import Control.DeepSeq
-import Control.Lens (set, view, preview)
+import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
@@ -51,6 +50,7 @@ import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
 import Data.Default (def)
+import Data.Either (partitionEithers)
 import Data.Foldable
 import Data.Function
 import Data.HashMap.Strict (HashMap)
@@ -624,7 +624,9 @@ internalPoll logger pdb bhdb mempool pactEx confDepth requestKeys0 = do
     badlisted <- V.toList <$> checkBadList (V.map fst missing)
     dbg $ "internalPoll.badlisted: " <> sshow badlisted
     vs <- mapM lookup present
-    let good = rights $ V.toList vs
+    let (errs, notErrs) = partitionEithers $ V.toList vs
+    let good = catMaybes notErrs
+    logFunctionJson logger Warn errs
     return $! HM.fromList (good ++ badlisted)
   where
     cid = _chainId bhdb
@@ -633,29 +635,41 @@ internalPoll logger pdb bhdb mempool pactEx confDepth requestKeys0 = do
 
     lookup
         :: (Pact4.RequestKey, T2 BlockHeight BlockHash)
-        -> IO (Either String (Pact4.RequestKey, Pact4.CommandResult Pact4.Hash))
-    lookup (key, T2 _ ha) = fmap (key,) <$> lookupRequestKey key ha
+        -> IO (Either String (Maybe (Pact4.RequestKey, Pact4.CommandResult Pact4.Hash)))
+    lookup (key, T2 _ ha) = (fmap . fmap . fmap) (key,) $ lookupRequestKey key ha
 
     -- TODO: group by block for performance (not very important right now)
+    lookupRequestKey :: Pact4.RequestKey -> BlockHash -> IO (Either String (Maybe (Pact4.CommandResult Pact4.Hash)))
     lookupRequestKey key bHash = runExceptT $ do
         let keyHash = Pact4.unRequestKey key
         let pactHash = Pact4.fromUntypedHash keyHash
         let matchingHash = (== pactHash) . Pact4._cmdHash . fst
-        blockHeader <- liftIO $ TreeDB.lookupM bhdb bHash
+        blockHeader <- liftIO (TreeDB.lookup bhdb bHash) >>= \case
+          Nothing -> throwError $ "missing block header: " <> sshow key
+          Just x -> return x
+
         let payloadHash = _blockPayloadHash blockHeader
-        (_payloadWithOutputsTransactions -> txsBs) <- barf "tablelookupFailed" =<< liftIO (lookupPayloadWithHeight pdb (Just $ _blockHeight blockHeader) payloadHash)
+        (_payloadWithOutputsTransactions -> txsBs) <-
+          barf
+            ("payload lookup failed: " <> T.unpack (blockHeaderShortDescription blockHeader)
+            <> " w/ payload hash " <> sshow (_blockPayloadHash blockHeader))
+          =<< liftIO (lookupPayloadWithHeight pdb (Just $ _blockHeight blockHeader) payloadHash)
         !txs <- mapM fromTx txsBs
         case find matchingHash txs of
             Just (_cmd, TransactionOutput output) -> do
-                out <- barf "decodeStrict' output" $! decodeStrict' output
+                out <- case eitherDecodeStrict' output of
+                    Left err -> throwError $
+                      "error decoding tx output for command " <> sshow (Pact4._cmdHash _cmd) <> ": " <> err
+                    Right decodedOutput -> return decodedOutput
                 when (Pact4._crReqKey out /= key) $
-                    fail "internal error: Transaction output doesn't match its hash!"
-                enrichCR blockHeader out
-            Nothing -> throwError $ "Request key not found: " <> sshow keyHash
+                    throwError "internal error: Transaction output doesn't match its hash!"
+                return $ Just $ enrichCR blockHeader out
+            Nothing -> return Nothing
 
     fromTx :: (Transaction, TransactionOutput) -> ExceptT String IO (Pact4.Command Text, TransactionOutput)
-    fromTx (!tx, !out) = do
-        !tx' <- except $ toPactTx tx
+    fromTx (Transaction txBytes, !out) = do
+        !tx' <- except $ eitherDecodeStrict' txBytes & _Left %~
+          (\decodeErr -> "Transaction failed to decode: " <> decodeErr)
         return (tx', out)
 
     checkBadList :: Vector Pact4.RequestKey -> IO (Vector (Pact4.RequestKey, Pact4.CommandResult Pact4.Hash))
@@ -674,8 +688,8 @@ internalPoll logger pdb bhdb mempool pactEx confDepth requestKeys0 = do
             !cr = Pact4.CommandResult rk Nothing res 0 Nothing Nothing Nothing []
         in (rk, cr)
 
-    enrichCR :: BlockHeader -> Pact4.CommandResult Pact4.Hash -> ExceptT String IO (Pact4.CommandResult Pact4.Hash)
-    enrichCR bh = return . set Pact4.crMetaData
+    enrichCR :: BlockHeader -> Pact4.CommandResult Pact4.Hash -> Pact4.CommandResult Pact4.Hash
+    enrichCR bh = set Pact4.crMetaData
       (Just $ object
        [ "blockHeight" .= _blockHeight bh
        , "blockTime" .= _blockCreationTime bh
@@ -688,9 +702,6 @@ internalPoll logger pdb bhdb mempool pactEx confDepth requestKeys0 = do
 
 barf :: Monad m => e -> Maybe a -> ExceptT e m a
 barf e = maybe (throwError e) return
-
-toPactTx :: Transaction -> Either String (Pact4.Command Text)
-toPactTx (Transaction b) = note "toPactTx failure" (decodeStrict' b)
 
 -- TODO: all of the functions in this module can instead grab the current block height from consensus
 -- and pass it here to get a better estimate of what behavior is correct.
