@@ -1,11 +1,21 @@
+## 2.25.1 (2024-08-25)
+This is a minor point release. Upgrading is **strongly recommended**.
+
+To upgrade, pull the latest docker image, or download the binary and
+restart the node with the same configuration file as before.
+
+### Changes
+- Disable the unused p2p payload batch endpoint. [`34df7ad`](https://github.com/kadena-io/chainweb-node/commit/34df7adaa8e22d6c64612a1c8f64a4209a6a7858)
+
 ## 2.25 (2024-08-21)
 This is a major version update. This release replaces all previous versions.
 
-Any prior version will stop working on **2022-08-21T00:00:00Z**. Node administrators must
+Any prior version will stop working on **2024-08-21T00:00:00Z**. Node administrators must
 upgrade to this version before that date. The 2.25 feature upgrade will
-occur at block height 5060924 which is estimated to be mined at **2022-08-21T00:00:00Z**.
+occur at block height 5060924 which is estimated to be mined at **2024-08-21T00:00:00Z**.
 
 ### Changes
+- Updated to Pact 4.13: https://github.com/kadena-io/pact/releases/tag/v4.13.0
 - Database compaction: Significant performance improvements [`da410fc7`](https://github.com/kadena-io/chainweb-node/commit/da410fc7db2df261d8ef808380d402876ccf79f5)
 - Verifier Plugin support for Hyperlane merkle proofs. This brings Chainweb into compliance with the latest version of the Hyperlane protocol. [`bc87c68b`](https://github.com/kadena-io/chainweb-node/commit/bc87c68bf0fc4ba427ff2cbf2858933b7470543a)
 - Log current cut periodically, instead of when it changes, for more consistency and less space use. [`f5a0cf15`](https://github.com/kadena-io/chainweb-node/commit/f5a0cf157139497c902e12caa65e68bdf716a8c7)

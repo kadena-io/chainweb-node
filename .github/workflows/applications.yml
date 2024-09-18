@@ -134,13 +134,13 @@ jobs:
         if "${{ github.event_name == 'schedule' }}" == "true"; then
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.5", "9.8.2", "9.10.1"],
+          "ghc": ["9.6.6", "9.8.2", "9.10.1"],
           "cabal": ["3.12"],
           "os": ["ubuntu-20.04", "ubuntu-22.04"],
           "use-freeze-file": ["false"],
           "include" : [
             {
-              "ghc": "9.6.5",
+              "ghc": "9.8.2",
               "cabal": "3.12",
               "os": "ubuntu-22.04",
               "use-freeze-file": "true"
@@ -152,13 +152,13 @@ jobs:
         else
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.5", "9.8.2", "9.10.1"],
+          "ghc": ["9.6.6", "9.8.2", "9.10.1"],
           "cabal": ["3.12"],
           "os": ["ubuntu-22.04"],
           "use-freeze-file": ["false"],
           "include" : [
             {
-              "ghc": "9.6.5",
+              "ghc": "9.8.2",
               "cabal": "3.12",
               "os": "ubuntu-22.04",
               "use-freeze-file": "true"
@@ -506,6 +506,7 @@ jobs:
           databaseDirectory: "db"
           chainweb:
             onlySyncPact: true
+            logGas: true
             chainwebVersion: ${{ needs.config.outputs.chainweb-network-version }}
             validateHashesOnReplay: true
             p2p:
@@ -654,7 +655,7 @@ jobs:
       OS: ${{ matrix.os }}
       ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
       ARTIFACTS_ARCHIVE: chainweb.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}.${{ needs.config.outputs.git-sha-short }}${{ needs.config.outputs.tag-suffix }}.tar.gz
-  
+
     steps:
     - name: Get build artifacts
       uses: actions/download-artifact@v4

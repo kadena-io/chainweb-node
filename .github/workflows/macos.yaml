@@ -14,8 +14,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ["9.6.5"]
-        cabal: ["3.10"]
+        ghc: ["9.8.2"]
+        cabal: ["3.12"]
         os: ["macos-14-large"]
         cabalcache: ["true"]
 
