@@ -29,6 +29,14 @@ module Chainweb.Test.Utils
 , independentSequentialTestGroup
 , unsafeHeadOf
 
+, TestPact5CommandResult
+, toPact4RequestKey
+, toPact5RequestKey
+, toPact4Command
+, toPact4CommandResult
+, toPact5CommandResult
+, pact4Poll
+
 -- * Test RocksDb
 , testRocksDb
 
@@ -237,6 +245,17 @@ import P2P.Peer
 
 import Chainweb.Test.Utils.APIValidation
 import Data.Semigroup
+import qualified Pact.Core.Command.Types as Pact5
+import qualified Data.Aeson as Aeson
+import qualified Pact.Core.Errors as Pact5
+import qualified Pact.Core.StableEncoding as Pact5
+import qualified Pact.Core.Info as Pact5
+import qualified Pact.Types.Command as Pact4
+import qualified Pact.Core.Hash as Pact5
+import qualified Pact.Types.Hash as Pact4
+import qualified Pact.JSON.Encode as J
+import qualified Pact.Types.API as Pact4
+import qualified Pact.Core.Command.Server as Pact5
 
 -- -------------------------------------------------------------------------- --
 -- Intialize Test BlockHeader DB
@@ -1162,3 +1181,36 @@ independentSequentialTestGroup tn tts =
 
 unsafeHeadOf :: HasCallStack => Getting (Endo a) s a -> s -> a
 unsafeHeadOf l s = s ^?! l
+
+type TestPact5CommandResult = Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat Pact5.SpanInfo)
+
+toPact4RequestKey :: Pact5.RequestKey -> Pact4.RequestKey
+toPact4RequestKey = \case
+    Pact5.RequestKey (Pact5.Hash bytes) -> Pact4.RequestKey (Pact4.Hash bytes)
+
+toPact5RequestKey :: Pact4.RequestKey -> Pact5.RequestKey
+toPact5RequestKey = \case
+    Pact4.RequestKey (Pact4.Hash bytes) -> Pact5.RequestKey (Pact5.Hash bytes)
+
+toPact4Command :: Pact5.Command T.Text -> Pact4.Command T.Text
+toPact4Command cmd4 = case Aeson.eitherDecodeStrictText (J.encodeText cmd4) of
+    Left err -> error $ "toPact4Command: decode failed: " ++ err
+    Right cmd5 -> cmd5
+
+toPact4CommandResult :: ()
+    => TestPact5CommandResult
+    -> Pact4.CommandResult Pact4.Hash
+toPact4CommandResult cr5 =
+    case Aeson.eitherDecodeStrictText (J.encodeText ((fmap . fmap) Pact5.StableEncoding $ cr5)) of
+        Left err -> error $ "toPact5CommandResult: decode failed: " ++ err
+        Right cr4 -> cr4
+
+toPact5CommandResult :: ()
+    => Pact4.CommandResult Pact4.Hash
+    -> TestPact5CommandResult
+toPact5CommandResult cr4 = case Aeson.eitherDecodeStrictText (J.encodeText cr4) of
+    Left err -> error $ "toPact5CommandResult: decode failed: " ++ err
+    Right cr5 -> (fmap . fmap) Pact5._stableEncoding cr5
+
+pact4Poll :: Pact4.Poll -> Pact5.PollRequest
+pact4Poll (Pact4.Poll rks) = Pact5.PollRequest $ toPact5RequestKey <$> rks

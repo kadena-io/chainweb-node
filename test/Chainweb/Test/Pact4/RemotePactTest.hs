@@ -105,6 +105,7 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Mainnet
 import Chainweb.Storage.Table.RocksDB
+import qualified Pact.Core.Command.Server as Pact5
 
 -- -------------------------------------------------------------------------- --
 -- Global Settings
@@ -721,14 +722,14 @@ pollBadKeyTest cenv step = do
     sid <- liftIO $ mkChainId v maxBound 0
 
     step "RequestKeys of length > 32 fail fast"
-    runClientM (pactPollApiClient v sid (Poll tooBig)) cenv >>= \case
+    runClientM (pactPollWithQueryApiClient v sid Nothing (pact4Poll $ Poll tooBig)) cenv >>= \case
       Left _ -> return ()
-      Right r -> assertFailure $ "Poll succeeded with response: " <> show r
+      Right (Pact5.PollResponse r) -> assertFailure $ "Poll succeeded with response: " <> show r
 
     step "RequestKeys of length < 32 fail fast"
-    runClientM (pactPollApiClient v sid (Poll tooSmall)) cenv >>= \case
+    runClientM (pactPollWithQueryApiClient v sid Nothing (pact4Poll $ Poll tooSmall)) cenv >>= \case
       Left _ -> return ()
-      Right r -> assertFailure $ "Poll succeeded with response: " <> show r
+      Right (Pact5.PollResponse r) -> assertFailure $ "Poll succeeded with response: " <> show r
   where
     toRk = (NEL.:| []) . RequestKey . Hash . SB.toShort
 

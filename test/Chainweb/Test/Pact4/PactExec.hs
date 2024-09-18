@@ -22,6 +22,7 @@ module Chainweb.Test.Pact4.PactExec
 ) where
 
 import Control.Lens hiding ((.=))
+import Control.Exception.Safe (tryAny)
 import Control.Monad
 import Data.Aeson
 import qualified Data.ByteString.Lazy.Char8 as BL
@@ -568,7 +569,7 @@ execLocalTest runPact name (trans',check) = testCase name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- tryAllSynchronous $ runPact $
+      results' <- tryAny $ runPact $
         execLocal (Pact4.unparseTransaction trans) Nothing Nothing Nothing
       case results' of
         Right (MetadataValidationFailure e) ->

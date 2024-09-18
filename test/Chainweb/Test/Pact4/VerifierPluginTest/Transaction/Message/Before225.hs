@@ -455,6 +455,7 @@ hyperlaneVerifyMerkleNotEnabledFailure = do
     , checkVerifierNotInTx "hyperlane_v3_message"
     , PactTxTest (mkMerkleMetadatWithOneSignatureCall hyperlaneMerkleTreeCorrectProof)
       (\cr -> liftIO $ do
-        assertTxFailure "should have failed with uncaught exception" "Tx verifier error: Uncaught exception in verifier" cr
+        -- TODO Pact5: this is a forking change, adding the verifier name to the error
+        assertTxFailure "should have failed with uncaught exception" "Tx verifier error: Uncaught exception in verifier hyperlane_v3_message" cr
         assertEqual "gas should have been charged" 20000 (_crGas cr))
     ]

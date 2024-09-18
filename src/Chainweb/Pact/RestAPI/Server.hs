@@ -99,7 +99,7 @@ import qualified Chainweb.CutDB as CutDB
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
-    (InsertError(..), InsertType(..), MempoolBackend(..), TransactionHash(..), pact4RequestKeyToTransactionHash)
+    (InsertError(..), InsertType(..), MempoolBackend(..), TransactionHash(..), pact5RequestKeyToTransactionHash)
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.RestAPI.SPV
@@ -128,13 +128,17 @@ import qualified Pact.Types.API as Pact4
 import qualified Pact.Types.ChainId as Pact4
 import qualified Pact.Types.Command as Pact4
 import qualified Pact.Types.Hash as Pact4
-import qualified Pact.Types.PactError as Pact4
-import qualified Pact.Types.Pretty as Pact4
 
 import qualified Pact.Core.Command.Types as Pact5
+import qualified Pact.Core.StableEncoding as Pact5
 import qualified Chainweb.Pact5.Transaction as Pact5
 import qualified Chainweb.Pact5.Validations as Pact5
 import Data.Coerce
+import qualified Pact.Core.Command.Server as Pact5
+import qualified Pact.Core.Evaluate as Pact5
+import qualified Pact.Core.Errors as Pact5
+import qualified Pact.Core.Hash as Pact5
+import qualified Pact.Core.Gas as Pact5
 
 -- -------------------------------------------------------------------------- --
 
@@ -297,13 +301,11 @@ pollHandler
     -> PactExecutionService
     -> MempoolBackend Pact4.UnparsedTransaction
     -> Maybe ConfirmationDepth
-    -> Pact4.Poll
-    -> Handler Pact4.PollResponses
-pollHandler logger cdb cid pact mem confDepth (Pact4.Poll request) = do
-    traverse_ validateRequestKey request
-
-    liftIO $! logg Info $ PactCmdLogPoll $ fmap Pact4.requestKeyToB16Text request
-    Pact4.PollResponses <$!> liftIO (internalPoll logger pdb bdb mem pact confDepth request)
+    -> Pact5.PollRequest
+    -> Handler Pact5.PollResponse
+pollHandler logger cdb cid pact mem confDepth (Pact5.PollRequest request) = do
+    liftIO $! logg Info $ PactCmdLogPoll $ fmap Pact5.requestKeyToB64Text request
+    Pact5.PollResponse <$!> liftIO (internalPoll logger pdb bdb mem pact confDepth request)
   where
     pdb = view CutDB.cutDbPayloadDb cdb
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
@@ -320,37 +322,35 @@ listenHandler
     -> ChainId
     -> PactExecutionService
     -> MempoolBackend Pact4.UnparsedTransaction
-    -> Pact4.ListenerRequest
-    -> Handler Pact4.ListenResponse
-listenHandler logger cdb cid pact mem (Pact4.ListenerRequest key) = do
-    validateRequestKey key
-
-    liftIO $ logg Info $ PactCmdLogListen $ Pact4.requestKeyToB16Text key
-    liftIO (registerDelay defaultTimeout >>= runListen)
+    -> Pact5.ListenRequest
+    -> Handler Pact5.ListenResponse
+listenHandler logger cdb cid pact mem (Pact5.ListenRequest key) = do
+    liftIO $ logg Info $ PactCmdLogListen $ Pact5.requestKeyToB64Text key
+    liftIO (registerDelay defaultTimeout) >>= runListen
   where
     pdb = view CutDB.cutDbPayloadDb cdb
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
     logg = logFunctionJson (setComponent "listen-handler" logger)
-    runListen :: TVar Bool -> IO Pact4.ListenResponse
+    runListen :: TVar Bool -> Handler Pact5.ListenResponse
     runListen timedOut = do
-      startCut <- CutDB._cut cdb
+      startCut <- liftIO $ CutDB._cut cdb
       case HM.lookup cid (_cutMap startCut) of
-        Nothing -> pure $! Pact4.ListenTimeout defaultTimeout
+        Nothing -> throwError err504
         Just bh -> poll bh
       where
-        go :: BlockHeader -> IO Pact4.ListenResponse
+        go :: BlockHeader -> Handler Pact5.ListenResponse
         go !prevBlock = do
-          m <- waitForNewBlock prevBlock
+          m <- liftIO $ waitForNewBlock prevBlock
           case m of
-            Nothing -> pure $! Pact4.ListenTimeout defaultTimeout
+            Nothing -> throwError err504
             Just block -> poll block
 
-        poll :: BlockHeader -> IO Pact4.ListenResponse
+        poll :: BlockHeader -> Handler Pact5.ListenResponse
         poll bh = do
-          hm <- internalPoll logger pdb bdb mem pact Nothing (pure key)
+          hm <- liftIO $ internalPoll logger pdb bdb mem pact Nothing (pure key)
           if HM.null hm
           then go bh
-          else pure $! Pact4.ListenResponse $ snd $ head $ HM.toList hm
+          else pure $! Pact5.ListenResponse $ snd $ head $ HM.toList hm
 
         waitForNewBlock :: BlockHeader -> IO (Maybe BlockHeader)
         waitForNewBlock lastBlockHeader = atomically $ do
@@ -609,8 +609,8 @@ internalPoll
     -> MempoolBackend Pact4.UnparsedTransaction
     -> PactExecutionService
     -> Maybe ConfirmationDepth
-    -> NonEmpty Pact4.RequestKey
-    -> IO (HashMap Pact4.RequestKey (Pact4.CommandResult Pact4.Hash))
+    -> NonEmpty Pact5.RequestKey
+    -> IO (HashMap Pact5.RequestKey (Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat Pact5.Info)))
 internalPoll logger pdb bhdb mempool pactEx confDepth requestKeys0 = do
     let dbg txt = logFunctionText logger Debug txt
     -- get leaf block header for our chain from current best cut
@@ -618,7 +618,7 @@ internalPoll logger pdb bhdb mempool pactEx confDepth requestKeys0 = do
     dbg $ "internalPoll.results0: " <> sshow results0
         -- TODO: are we sure that all of these are raised locally. This will cause the
         -- server to shut down the connection without returning a result to the user.
-    let results1 = V.map (\rk -> (rk, HM.lookup (coerce $ Pact4.unRequestKey rk) results0)) requestKeysV
+    let results1 = V.map (\rk -> (rk, HM.lookup (coerce $ Pact5.unRequestKey rk) results0)) requestKeysV
     let (present0, missing) = V.unstablePartition (isJust . snd) results1
     let present = V.map (second fromJuste) present0
     badlisted <- V.toList <$> checkBadList (V.map fst missing)
@@ -631,19 +631,21 @@ internalPoll logger pdb bhdb mempool pactEx confDepth requestKeys0 = do
   where
     cid = _chainId bhdb
     !requestKeysV = V.fromList $ NEL.toList requestKeys0
-    !requestKeys = V.map (Pact4.unRequestKey) requestKeysV
+    !requestKeys = V.map Pact5.unRequestKey requestKeysV
 
     lookup
-        :: (Pact4.RequestKey, T2 BlockHeight BlockHash)
-        -> IO (Either String (Maybe (Pact4.RequestKey, Pact4.CommandResult Pact4.Hash)))
+        :: (Pact5.RequestKey, T2 BlockHeight BlockHash)
+        -> IO (Either String (Maybe (Pact5.RequestKey, Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat Pact5.Info))))
     lookup (key, T2 _ ha) = (fmap . fmap . fmap) (key,) $ lookupRequestKey key ha
 
     -- TODO: group by block for performance (not very important right now)
-    lookupRequestKey :: Pact4.RequestKey -> BlockHash -> IO (Either String (Maybe (Pact4.CommandResult Pact4.Hash)))
+    lookupRequestKey
+      :: Pact5.RequestKey
+      -> BlockHash
+      -> IO (Either String (Maybe (Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat Pact5.Info))))
     lookupRequestKey key bHash = runExceptT $ do
-        let keyHash = Pact4.unRequestKey key
-        let pactHash = Pact4.fromUntypedHash keyHash
-        let matchingHash = (== pactHash) . Pact4._cmdHash . fst
+        let pactHash = Pact5.unRequestKey key
+        let matchingHash = (== pactHash) . Pact5._cmdHash . fst
         blockHeader <- liftIO (TreeDB.lookup bhdb bHash) >>= \case
           Nothing -> throwError $ "missing block header: " <> sshow key
           Just x -> return x
@@ -659,37 +661,37 @@ internalPoll logger pdb bhdb mempool pactEx confDepth requestKeys0 = do
             Just (_cmd, TransactionOutput output) -> do
                 out <- case eitherDecodeStrict' output of
                     Left err -> throwError $
-                      "error decoding tx output for command " <> sshow (Pact4._cmdHash _cmd) <> ": " <> err
-                    Right decodedOutput -> return decodedOutput
-                when (Pact4._crReqKey out /= key) $
+                      "error decoding tx output for command " <> sshow (Pact5._cmdHash _cmd) <> ": " <> err
+                    Right decodedOutput -> return $ ((fmap . fmap) Pact5._stableEncoding) decodedOutput
+                when (Pact5._crReqKey out /= key) $
                     throwError "internal error: Transaction output doesn't match its hash!"
                 return $ Just $ enrichCR blockHeader out
             Nothing -> return Nothing
 
-    fromTx :: (Transaction, TransactionOutput) -> ExceptT String IO (Pact4.Command Text, TransactionOutput)
+    fromTx :: (Transaction, TransactionOutput) -> ExceptT String IO (Pact5.Command Text, TransactionOutput)
     fromTx (Transaction txBytes, !out) = do
         !tx' <- except $ eitherDecodeStrict' txBytes & _Left %~
           (\decodeErr -> "Transaction failed to decode: " <> decodeErr)
         return (tx', out)
 
-    checkBadList :: Vector Pact4.RequestKey -> IO (Vector (Pact4.RequestKey, Pact4.CommandResult Pact4.Hash))
+    checkBadList :: Vector Pact5.RequestKey -> IO (Vector (Pact5.RequestKey, Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat Pact5.Info)))
     checkBadList rkeys = do
-        let !hashes = V.map pact4RequestKeyToTransactionHash rkeys
+        let !hashes = V.map pact5RequestKeyToTransactionHash rkeys
         out <- mempoolCheckBadList mempool hashes
-        let bad = V.map (Pact4.RequestKey . Pact4.Hash . unTransactionHash . fst) $
+        let bad = V.map (Pact5.RequestKey . Pact5.Hash . unTransactionHash . fst) $
                   V.filter snd $ V.zip hashes out
         return $! V.map hashIsOnBadList bad
 
-    hashIsOnBadList :: Pact4.RequestKey -> (Pact4.RequestKey, Pact4.CommandResult Pact4.Hash)
+    hashIsOnBadList :: Pact5.RequestKey -> (Pact5.RequestKey, Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat Pact5.Info))
     hashIsOnBadList rk =
-        let res = Pact4.PactResult (Left err)
-            err = Pact4.PactError Pact4.TxFailure def [] doc
-            doc = Pact4.pretty (T.pack $ show InsertErrorBadlisted)
-            !cr = Pact4.CommandResult rk Nothing res 0 Nothing Nothing Nothing []
+        let res = Pact5.PactResultErr err
+            err = Pact5.PELegacyError $
+              Pact5.LegacyPactError Pact5.LegacyTxFailure def [] "This transaction is badlisted because it previously failed to validate."
+            !cr = Pact5.CommandResult rk Nothing res (mempty :: Pact5.Gas) Nothing Nothing Nothing []
         in (rk, cr)
 
-    enrichCR :: BlockHeader -> Pact4.CommandResult Pact4.Hash -> Pact4.CommandResult Pact4.Hash
-    enrichCR bh = set Pact4.crMetaData
+    enrichCR :: BlockHeader -> Pact5.CommandResult i e -> Pact5.CommandResult i e
+    enrichCR bh = set Pact5.crMetaData
       (Just $ object
        [ "blockHeight" .= _blockHeight bh
        , "blockTime" .= _blockCreationTime bh

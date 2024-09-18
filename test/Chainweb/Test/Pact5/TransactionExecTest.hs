@@ -586,7 +586,7 @@ applyCmdVerifierSpec baseRdb = runResourceT $ do
                                         (equals [PString "sender00", PString "NoMiner", PDecimal 120318])
                                         (equals coinModuleName)
                                     ]
-                                , pt _crResult . traceFailShow . equals $ PactResultOk (PString "Loaded module HcrMpd9fcNbb6fRz07frqtmke2FqRvtXTuV-xTE_NIk")
+                                , pt _crResult . traceFailShow . equals $ PactResultOk (PString "Loaded module free.m, hash HcrMpd9fcNbb6fRz07frqtmke2FqRvtXTuV-xTE_NIk")
                                 -- reflects buyGas gas usage, as well as that of the payload
                                 , pt _crGas . equals $ Gas 60159
                                 , pt _crContinuation . equals $ Nothing

@@ -815,6 +815,7 @@ executable cwtool
         , optparse-applicative >= 0.14
         , pact
         , pact-json
+        , pact-tng
         , pact-tng:pact-request-api
         , patience >= 0.3
         , process >= 1.5

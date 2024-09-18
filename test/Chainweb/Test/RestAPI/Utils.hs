@@ -50,7 +50,6 @@ import Control.Lens
 import Control.Monad.Catch
 import Control.Retry
 
-import Data.Either
 import Data.Foldable (toList)
 import Data.Text (Text)
 import Data.Maybe (fromJust)
@@ -81,6 +80,9 @@ import qualified Pact.JSON.Encode as J
 import Pact.Types.API
 import Pact.Types.Command
 import Pact.Types.Hash
+import qualified Pact.Core.Command.Server as Pact5
+import qualified Pact.Core.Command.Types as Pact5
+import qualified Pact.Types.API as Pact4
 
 -- ------------------------------------------------------------------ --
 -- Defaults
@@ -242,6 +244,7 @@ sending v sid cenv batch =
 -- | Poll with retry using an exponential backoff
 --
 data PollingExpectation = ExpectPactError | ExpectPactResult
+  deriving Eq
 
 polling
     :: ChainwebVersion
@@ -249,7 +252,7 @@ polling
     -> ClientEnv
     -> RequestKeys
     -> PollingExpectation
-    -> IO PollResponses
+    -> IO Pact4.PollResponses
 polling v sid cenv rks pollingExpectation =
   pollingWithDepth v sid cenv rks Nothing pollingExpectation
 
@@ -260,7 +263,7 @@ pollingWithDepth
     -> RequestKeys
     -> Maybe ConfirmationDepth
     -> PollingExpectation
-    -> IO PollResponses
+    -> IO Pact4.PollResponses
 pollingWithDepth v sid cenv rks confirmationDepth pollingExpectation =
     recovering testRetryPolicy [h] $ \s -> do
       debug
@@ -271,25 +274,27 @@ pollingWithDepth v sid cenv rks confirmationDepth pollingExpectation =
       -- by making sure results are successful and request keys
       -- are sane
 
-      runClientM (pactPollWithQueryApiClient v sid confirmationDepth $ Poll rs) cenv >>= \case
+      runClientM (pactPollWithQueryApiClient v sid confirmationDepth $ Pact5.PollRequest rs) cenv >>= \case
         Left e -> throwM $ PollingFailure (show e)
-        Right r@(PollResponses mp) ->
+        Right r@(Pact5.PollResponse mp) ->
           if all (go mp) (toList rs)
-          then return r
+          then do
+            let pact4Resps = HM.fromList $
+                  [ (toPact4RequestKey rk, toPact4CommandResult cr) | (rk, cr) <- HM.toList mp ]
+            return $ Pact4.PollResponses pact4Resps
           else throwM $ PollingFailure $ T.unpack $ "polling check failed: " <> J.encodeText r
   where
     h _ = Handler $ \case
       PollingFailure _ -> return True
       _ -> return False
 
-    rs = _rkRequestKeys rks
+    rs = toPact5RequestKey <$> _rkRequestKeys rks
 
-    validate (PactResult a) = case pollingExpectation of
-      ExpectPactResult -> isRight a
-      ExpectPactError -> isLeft a
+    validate Pact5.PactResultOk{} = pollingExpectation == ExpectPactResult
+    validate Pact5.PactResultErr{} = pollingExpectation == ExpectPactError
 
     go m rk = case m ^. at rk of
-      Just cr ->  _crReqKey cr == rk && validate (_crResult cr)
+      Just cr -> Pact5._crReqKey cr == rk && validate (Pact5._crResult cr)
       Nothing -> False
 
 getCurrentBlockHeight :: ChainwebVersion -> ClientEnv -> ChainId -> IO BlockHeight

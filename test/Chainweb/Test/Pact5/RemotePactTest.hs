@@ -29,8 +29,6 @@ module Chainweb.Test.Pact5.RemotePactTest
 import Chainweb.Test.RestAPI.Utils (getCurrentBlockHeight)
 import Data.Text qualified as Text
 import Pact.Core.Errors
-import Pact.Core.StableEncoding
-import Pact.Core.Info
 import "pact" Pact.Types.API qualified as Pact4
 import "pact" Pact.Types.Command qualified as Pact4
 import "pact" Pact.Types.Hash qualified as Pact4
@@ -44,8 +42,7 @@ import Chainweb.Pact.Types
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Pact5.CmdBuilder
 import Chainweb.Test.TestVersions
-import Chainweb.Test.Utils (ChainwebNetwork(..), NodeDbDirs(..), withNodesAtLatestBehavior, withNodeDbDirs, deadbeef)
-import Chainweb.Test.Utils (testRetryPolicy)
+import Chainweb.Test.Utils
 import Chainweb.Version
 import Control.Exception (Exception)
 import Control.Lens
@@ -53,7 +50,6 @@ import Control.Monad.Catch (Handler(..), throwM)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Resource (ResourceT, runResourceT)
 import Control.Retry
-import Data.Aeson qualified as Aeson
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.List qualified as List
@@ -62,13 +58,13 @@ import Data.List.NonEmpty qualified as NE
 import Data.Text (Text)
 import Pact.Core.Command.Types
 import Pact.Core.Hash qualified as Pact5
-import Pact.JSON.Encode qualified as J
 import PredicateTransformers as PT
 import Servant.Client
 import Test.Tasty
 import Chainweb.Utils
 import Pact.Core.Gas.Types
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
+import qualified Pact.Core.Command.Server as Pact5
 {-
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), addTestBlockDb, getCutTestBlockDb, getParentTestBlockDb, mkTestBlockDb, setCutTestBlockDb)
 import Chainweb.Test.Pact4.Utils (stdoutDummyLogger, testPactServiceConfig, withBlockHeaderDb)
@@ -251,13 +247,12 @@ pollingWithDepth :: ()
     -> IO (HashMap RequestKey TestPact5CommandResult)
 pollingWithDepth clientEnv rks mConfirmationDepth = do
     recovering testRetryPolicy [retryHandler] $ \_iterNumber -> do
-        let rksPact4 = NE.map toPact4RequestKey rks
-        poll <- runClientM (pactPollWithQueryApiClient v cid mConfirmationDepth (Pact4.Poll rksPact4)) clientEnv
+        poll <- runClientM (pactPollWithQueryApiClient v cid mConfirmationDepth (Pact5.PollRequest rks)) clientEnv
         case poll of
             Left e -> do
                 throwM (PollingException (show e))
-            Right (Pact4.PollResponses response) -> do
-                return (convertPollResponse response)
+            Right (Pact5.PollResponse response) -> do
+                return response
     where
         retryHandler :: RetryStatus -> Handler IO Bool
         retryHandler _ = Handler $ \case
@@ -287,32 +282,6 @@ sending clientEnv cmds = do
         retryHandler _ = Handler $ \case
             SendingException _ -> return True
 
-toPact4RequestKey :: RequestKey -> Pact4.RequestKey
-toPact4RequestKey = \case
-    RequestKey (Pact5.Hash bytes) -> Pact4.RequestKey (Pact4.Hash bytes)
-
-toPact5RequestKey :: Pact4.RequestKey -> RequestKey
-toPact5RequestKey = \case
-    Pact4.RequestKey (Pact4.Hash bytes) -> RequestKey (Pact5.Hash bytes)
-
-toPact4Command :: Command Text -> Pact4.Command Text
-toPact4Command cmd4 = case Aeson.eitherDecodeStrictText (J.encodeText cmd4) of
-    Left err -> error $ "toPact4Command: decode failed: " ++ err
-    Right cmd5 -> cmd5
-
-toPact5CommandResult :: ()
-    => Pact4.CommandResult Pact4.Hash
-    -> TestPact5CommandResult
-toPact5CommandResult cr4 = case Aeson.eitherDecodeStrictText (J.encodeText cr4) of
-    Left err -> error $ "toPact5CommandResult: decode failed: " ++ err
-    Right cr5 -> cr5
-
-convertPollResponse :: ()
-    => HashMap Pact4.RequestKey (Pact4.CommandResult Pact4.Hash)
-    -> HashMap RequestKey TestPact5CommandResult
-convertPollResponse pact4Response = HashMap.fromList
-    $ List.map (\(rk, cr) -> (toPact5RequestKey rk, toPact5CommandResult cr))
-    $ HashMap.toList pact4Response
 
 trivialTx :: Word -> CmdBuilder
 trivialTx n = defaultCmd
@@ -338,5 +307,3 @@ cid = unsafeChainId 0
 
 v :: ChainwebVersion
 v = pact5InstantCpmTestVersion singletonChainGraph
-
-type TestPact5CommandResult = CommandResult Aeson.Value (PactErrorCompat (StableEncoding SpanInfo))

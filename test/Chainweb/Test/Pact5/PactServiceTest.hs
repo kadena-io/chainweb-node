@@ -68,7 +68,6 @@ import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HashSet
 import Data.Maybe (fromMaybe)
-import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as Text
 import Data.Vector (Vector)
@@ -78,6 +77,7 @@ import Pact.Core.ChainData hiding (ChainId, _chainId)
 import Pact.Core.Command.Types
 import Pact.Core.Gas.Types
 import Pact.Core.Hash qualified as Pact5
+import Pact.Core.StableEncoding qualified as Pact5
 import Pact.Core.Names
 import Pact.Core.PactValue
 import Pact.Types.Gas qualified as Pact4
@@ -498,7 +498,7 @@ v = pact5InstantCpmTestVersion singletonChainGraph
 coinModuleName :: ModuleName
 coinModuleName = ModuleName "coin" Nothing
 
-advanceAllChainsWithTxs :: Fixture -> ChainMap [Pact5.Transaction] -> IO (ChainMap (Vector (CommandResult Pact5.Hash Text)))
+advanceAllChainsWithTxs :: Fixture -> ChainMap [Pact5.Transaction] -> IO (ChainMap (Vector TestPact5CommandResult))
 advanceAllChainsWithTxs fixture txsPerChain =
     advanceAllChains fixture $
         txsPerChain <&> \txs ph pactQueue mempool -> do
@@ -513,7 +513,7 @@ advanceAllChainsWithTxs fixture txsPerChain =
 advanceAllChains :: ()
     => Fixture
     -> ChainMap (BlockHeader -> PactQueue -> MempoolBackend Pact4.UnparsedTransaction -> IO PayloadWithOutputs)
-    -> IO (ChainMap (Vector (CommandResult Pact5.Hash Text)))
+    -> IO (ChainMap (Vector TestPact5CommandResult))
 advanceAllChains Fixture{..} blocks = do
     commandResults <-
         forConcurrently (HashSet.toList (chainIds v)) $ \c -> do
@@ -538,10 +538,14 @@ advanceAllChains Fixture{..} blocks = do
             ph' <- getParentTestBlockDb _fixtureBlockDb c
             payload' <- validateBlock ph' (CheckablePayloadWithOutputs payload) pactQueue
             assertEqual "payloads must not be altered by validateBlock" payload payload'
-            commandResults :: Vector (CommandResult Pact5.Hash Text)
+            commandResults :: Vector TestPact5CommandResult
                 <- forM
                     (_payloadWithOutputsTransactions payload')
-                    (decodeOrThrow' . LBS.fromStrict . _transactionOutputBytes . snd)
+                    ((fmap . fmap . fmap) Pact5._stableEncoding
+                    . decodeOrThrow'
+                    . LBS.fromStrict
+                    . _transactionOutputBytes
+                    . snd)
             -- assert on the command results
             return (c, commandResults)
 

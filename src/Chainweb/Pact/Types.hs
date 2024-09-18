@@ -952,7 +952,6 @@ data LocalResult
     | LocalPact5PreflightResult (Pact5.CommandResult Pact5.Hash Text) ![Text]
     | LocalTimeout
     deriving stock (Show, Generic)
-    deriving anyclass NFData
 
 makePrisms ''LocalResult
 
@@ -1299,9 +1298,10 @@ pact5CommandToBytes tx = Transaction
     J.encodeStrict tx
   }
 
+-- | This function converts CommandResults into bytes in a stable way that can
+-- be stored on-chain.
 pact5CommandResultToBytes :: Pact5.CommandResult Pact5.Hash Pact5.PactErrorI -> ByteString
 pact5CommandResultToBytes cr =
-    -- TODO: pact5, error codes
     J.encodeStrict (fmap convertError cr)
   where
   convertError err =
