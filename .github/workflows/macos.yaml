@@ -8,6 +8,7 @@ on:
 
 jobs:
 
+  # Note that cabal-cache-action only support arm64 for macos
   build:
     name: Build
     runs-on: ${{ matrix.os }}
@@ -16,7 +17,7 @@ jobs:
       matrix:
         ghc: ["9.8.2"]
         cabal: ["3.12"]
-        os: ["macos-14-large"]
+        os: ["macos-latest"]
         cabalcache: ["true"]
 
     steps:
