@@ -48,6 +48,7 @@
 
 ARG UBUNTU_VERSION=22.04
 ARG GHC_VERSION=9.10.1
+ARG GO_VERSION=1.23.0
 ARG PROJECT_NAME=chainweb
 
 # ############################################################################ #
@@ -100,6 +101,7 @@ RUN <<EOF
   echo "TARGETPLATFORM: $TARGETPLATFORM"
 EOF
 ARG GHC_VERSION
+ARG GO_VERSION
 ARG TARGETPLATFORM
 ARG DEBIAN_FRONTEND=noninteractive
 RUN <<EOF
@@ -150,6 +152,26 @@ RUN --mount=type=cache,target=/root/.ghcup/cache,id=${TARGETPLATFORM} <<EOF
 EOF
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} <<EOF
     cabal update
+EOF
+
+# Install Go toolchain
+ARG GO_TARGETPLATFORM=${TARGETPLATFORM/\//-}
+ARG GOLANG_ARCHIVE=go${GO_VERSION}.${GO_TARGETPLATFORM}.tar.gz
+ENV PATH="${PATH}:/usr/local/go/bin"
+RUN <<EOF
+  curl -L https://go.dev/dl/$GOLANG_ARCHIVE -O
+  rm -rf /usr/local/go && tar -C /usr/local -xzf $GOLANG_ARCHIVE
+  rm -f go${GO_VERSION}.${GO_TARGETPLATFORM}.tar.gz
+  go version
+EOF
+
+# Install Rust toolchain
+ENV PATH="${PATH}:/root/.cargo/bin"
+RUN <<EOF
+  curl -sSf https://sh.rustup.rs | sh -s -- -y
+  curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-/root/.cargo}/bin
+  cargo version
+  rustc --version
 EOF
 
 # ############################################################################ #
