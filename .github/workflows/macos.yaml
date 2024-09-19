@@ -38,14 +38,16 @@ jobs:
     - uses: actions/cache/restore@v4
       name: Restore dist-newstyle cache
       id: cabal-dist-cache
+      env:
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.ghc }}-dist
       with:
         path: |
           ~/.cabal/packages
           ~/.cabal/store
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
+        key: ${{ env.key }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**', 'bench/**', 'tools/**') }}
         restore-keys: |
-          ${{ matrix.os }}-${{ matrix.ghc }}-
+          ${{ env.key }}
 
     - name: Install GHC and Cabal
       uses: haskell-actions/setup@v2
