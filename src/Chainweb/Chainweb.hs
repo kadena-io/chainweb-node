@@ -319,10 +319,12 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
         :: V.Vector (T2 Mempool.TransactionHash ChainwebTransaction)
         -> IO (V.Vector (Either (T2 Mempool.TransactionHash Mempool.InsertError)
                                 (T2 Mempool.TransactionHash ChainwebTransaction)))
-    preInsertBatch txs = do
-        pex <- readMVar mv
-        rs <- _pactPreInsertCheck pex cid (V.map ssnd txs)
-        pure $ alignWithV f rs txs
+    preInsertBatch txs
+        | V.null txs = return V.empty
+        | otherwise = do
+            pex <- readMVar mv
+            rs <- _pactPreInsertCheck pex cid (V.map ssnd txs)
+            pure $ alignWithV f rs txs
       where
         f (These r (T2 h t)) = case r of
                                  Left e -> Left (T2 h e)
