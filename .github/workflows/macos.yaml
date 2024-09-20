@@ -115,7 +115,16 @@ jobs:
     - name: Build chainweb library
       run: cabal build lib:chainweb
     - name: Build chainweb applications
-      run: cabal build exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
+      run: | 
+        cabal build -j
+          exe:chainweb-node \
+          exe:compact \
+          test:chainweb-tests \
+          test:multi-node-network-tests \
+          test:compaction-tests \
+          test:remote-tests \
+          exe:cwtool \
+          chainweb:bench:bench
 
     - name: Run Tests
       run: |

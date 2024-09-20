@@ -338,7 +338,16 @@ jobs:
     - name: Build chainweb library
       run: cabal build --ghc-options=-j2 lib:chainweb
     - name: Build chainweb applications
-      run: cabal build -j2 --ghc-options=-j2 exe:chainweb-node exe:compact test:chainweb-tests exe:cwtool chainweb:bench:bench
+      run: | 
+        cabal build -j2 --ghc-options=-j2 \
+          exe:chainweb-node \
+          exe:compact \
+          test:chainweb-tests \
+          test:multi-node-network-tests \
+          test:compaction-tests \
+          test:remote-tests \
+          exe:cwtool \
+          chainweb:bench:bench
 
     # Checks
     - name: Check that working directory tree is clean
@@ -362,6 +371,9 @@ jobs:
         cp $(cabal list-bin chainweb-node) artifacts/chainweb
         cp $(cabal list-bin compact) artifacts/chainweb
         cp $(cabal list-bin chainweb-tests) artifacts/chainweb
+        cp $(cabal list-bin multi-node-network-tests) artifacts/chainweb
+        cp $(cabal list-bin remote-tests) artifacts/chainweb
+        cp $(cabal list-bin compaction-tests) artifacts/chainweb
         cp $(cabal list-bin cwtool) artifacts/chainweb
         cp $(cabal list-bin bench) artifacts/chainweb
         cp README.md artifacts/chainweb
@@ -384,10 +396,10 @@ jobs:
         if-no-files-found: error
 
   # ########################################################################## #
-  # Run Slow tests (Multinode test)
+  # Run misc test suites
 
-  slow-tests:
-    name: Slow tests
+  remote-tests:
+    name: Remote tests
     needs: [config, build]
     runs-on: ${{ matrix.os }}
     env:
@@ -408,11 +420,67 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
         use-freeze-file: ${{ matrix.use-freeze-file }}
-    - name: Run slow tests
+    - name: Run remote-tests
       timeout-minutes: 20
       run: |
           ulimit -n 10000
-          cwtool slow-tests
+          remote-tests
+
+  compaction-tests:
+    name: Compaction tests
+    needs: [config, build]
+    runs-on: ${{ matrix.os }}
+    env:
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ env.ARTIFACTS_NAME }}
+        path: .
+    - name: Install chainweb from artifacts
+      uses: ./.github/actions/install-chainweb-from-artifacts
+      with:
+        os: ${{ matrix.os }}
+        ghc: ${{ matrix.ghc }}
+        use-freeze-file: ${{ matrix.use-freeze-file }}
+    - name: Run compaction-tests
+      timeout-minutes: 20
+      run: |
+          ulimit -n 10000
+          compaction-tests
+
+  multi-node-network-tests:
+    name: Multi-node network tests
+    needs: [config, build]
+    runs-on: ${{ matrix.os }}
+    env:
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ env.ARTIFACTS_NAME }}
+        path: .
+    - name: Install chainweb from artifacts
+      uses: ./.github/actions/install-chainweb-from-artifacts
+      with:
+        os: ${{ matrix.os }}
+        ghc: ${{ matrix.ghc }}
+        use-freeze-file: ${{ matrix.use-freeze-file }}
+    - name: Run multi-node-network-tests
+      timeout-minutes: 20
+      run: |
+          ulimit -n 10000
+          multi-node-network-tests
 
   # ########################################################################## #
   # Run Benchmarks
