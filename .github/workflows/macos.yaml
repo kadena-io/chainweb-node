@@ -91,7 +91,7 @@ jobs:
         key: ${{ steps.cabal-dist-cache.outputs.cache-primary-key }}
 
     # Build
-    - name: Delete Freeze file if it exists
+    - name: Delete freeze file if it exists
       run: rm -f cabal.project.freeze
     - name: Update package database
       run: cabal update
@@ -126,10 +126,10 @@ jobs:
           exe:cwtool \
           chainweb:bench:bench
 
-    - name: Run Tests
+    - name: Run unit tests
       run: |
         ulimit -n 10000
-        cabal run tests -- --hide-successes
+        $(cabal list-bin chainweb:test:chainweb-tests) --hide-successes
 
     # Checks
     - name: Check that working directory tree is clean
