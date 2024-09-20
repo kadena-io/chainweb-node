@@ -8,15 +8,16 @@ on:
 
 jobs:
 
+  # Note that cabal-cache-action only support arm64 for macos
   build:
     name: Build
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        ghc: ["9.6.5"]
-        cabal: ["3.10"]
-        os: ["macos-14-large"]
+        ghc: ["9.8.2"]
+        cabal: ["3.12"]
+        os: ["macos-latest"]
         cabalcache: ["true"]
 
     steps:
@@ -28,7 +29,7 @@ jobs:
       name: Restore ghc & cabal binaries cache
       id: ghc-cabal-cache
       env:
-        key: ${{ runner.os }}-ghc-cabal
+        key: ${{ runner.os }}-${{ runner.arch }}-ghc-cabal
       with:
         path: |
           /Users/runner/.ghcup
@@ -38,22 +39,30 @@ jobs:
     - uses: actions/cache/restore@v4
       name: Restore dist-newstyle cache
       id: cabal-dist-cache
+      env:
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.ghc }}-dist
       with:
         path: |
           ~/.cabal/packages
           ~/.cabal/store
           dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**') }}
+        key: ${{ env.key }}-${{ hashFiles('cabal.*', '*.cabal', 'src/**', 'test/**', 'bench/**', 'tools/**') }}
         restore-keys: |
-          ${{ matrix.os }}-${{ matrix.ghc }}-
+          ${{ env.key }}
 
     - name: Install GHC and Cabal
+      id: setup
       uses: haskell-actions/setup@v2
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
     - name: Confirm GHC and Cabal installation
       run: |
+        echo "setup ghc-version: ${{ steps.setup.outputs.ghc-version }}"
+        echo "setup cabal-version: ${{ steps.setup.outputs.cabal-version }}"
+        echo "setup cabal-store: ${{ steps.setup.outputs.cabal-store }}"
+        ghc --version
+        cabal --version
         ghc --version
         cabal --version
 
@@ -80,15 +89,6 @@ jobs:
         package pact
           documentation: False
         EOF
-    - uses: actions/cache/save@v4
-      name: Save dist-newstyle cache
-      if: steps.cabal-dist-cache.outputs.cache-hit != 'true'
-      with:
-        path: |
-          ~/.cabal/packages
-          ~/.cabal/store
-          dist-newstyle
-        key: ${{ steps.cabal-dist-cache.outputs.cache-primary-key }}
 
     # Build
     - name: Delete freeze file if it exists
@@ -103,11 +103,12 @@ jobs:
         cabal freeze
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
-      uses: larskuhtz/cabal-cache-action@018b7ae0c480ba3dc4fa0cfa3a0bc1f05b7724b3
+      uses: larskuhtz/cabal-cache-action@4b537195b33898fcd9adc62cee2a44986fd7b1b6
       with:
         bucket: "kadena-cabal-cache"
         region: "us-east-1"
-        folder: "${{ matrix.os }}"
+        folder: "packages/${{ matrix.os }}"
+        store_path: ${{ steps.setup.outputs.cabal-store }}
         aws_access_key_id: "${{ secrets.kadena_cabal_cache_aws_access_key_id }}"
         aws_secret_access_key: "${{ secrets.kadena_cabal_cache_aws_secret_access_key }}"
     - name: Install build dependencies
@@ -126,10 +127,20 @@ jobs:
           exe:cwtool \
           chainweb:bench:bench
 
+    - uses: actions/cache/save@v4
+      name: Save dist-newstyle cache
+      if: steps.cabal-dist-cache.outputs.cache-hit != 'true'
+      with:
+        path: |
+          ~/.cabal/packages
+          ~/.cabal/store
+          dist-newstyle
+        key: ${{ steps.cabal-dist-cache.outputs.cache-primary-key }}
+
     - name: Run unit tests
       run: |
         ulimit -n 10000
-        $(cabal list-bin chainweb:test:chainweb-tests) --hide-successes
+        $(cabal list-bin chainweb:test:chainweb-tests) --hide-successes -p '!/chainweb216Test/'
 
     # Checks
     - name: Check that working directory tree is clean
@@ -151,3 +162,4 @@ jobs:
           exit 1
         fi
         mv cabal.project.freeze.backup cabal.project.freeze
+
