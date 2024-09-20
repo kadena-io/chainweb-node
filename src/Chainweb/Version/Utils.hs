@@ -463,7 +463,7 @@ verifiersAt v cid bh =
     M.restrictKeys allVerifierPlugins activeVerifierNames
     where
     activeVerifierNames =
-        case measureRule bh $ _versionVerifierPluginNames v ^?! onChain cid of
+        case measureRule bh $ _versionVerifierPluginNames v ^?! atChain cid of
             Bottom vs -> vs
             Top (_, vs) -> vs
             Between (_, vs) _ -> vs

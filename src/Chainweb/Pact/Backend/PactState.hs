@@ -55,7 +55,6 @@ module Chainweb.Pact.Backend.PactState
 
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Logger (Logger, addLabel)
-import Chainweb.Pact.Backend.Types (SQLiteEnv)
 import Chainweb.Pact.Backend.Utils (fromUtf8, withSqliteDb)
 import Chainweb.Utils (T2(..), int)
 import Chainweb.Version (ChainId, ChainwebVersion, chainIdToText)
@@ -82,12 +81,15 @@ import Data.Text.Encoding qualified as Text
 import Database.SQLite3 qualified as SQL
 import Database.SQLite3.Direct (Utf8(..), Database)
 import Database.SQLite3.Direct qualified as Direct
+import Chainweb.Pact.Types
+
+import System.Directory (doesFileExist)
+import System.FilePath ((</>))
+
 import Pact.Types.SQLite (SType(..), RType(..))
 import Pact.Types.SQLite qualified as Pact
 import Streaming.Prelude (Stream, Of)
 import Streaming.Prelude qualified as S
-import System.Directory (doesFileExist)
-import System.FilePath ((</>))
 
 excludedTables :: [Utf8]
 excludedTables = checkpointerTables ++ compactionTables

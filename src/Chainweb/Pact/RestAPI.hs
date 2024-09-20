@@ -28,8 +28,6 @@ module Chainweb.Pact.RestAPI
 , pactListenApi
 , PactSendApi
 , pactSendApi
-, PactPollApi
-, pactPollApi
 , PactLocalWithQueryApi
 , pactLocalWithQueryApi
 , PactPollWithQueryApi
@@ -59,8 +57,7 @@ module Chainweb.Pact.RestAPI
 import Data.Text (Text)
 
 import qualified Pact.Types.Command as Pact
-import Pact.Server.API as API
-import Pact.Types.API (Poll, PollResponses)
+import qualified Pact.Server.API as Pact4
 import Pact.Utils.Servant
 
 import Servant
@@ -70,10 +67,11 @@ import Servant
 import Chainweb.ChainId
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.RestAPI.SPV
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV.PayloadProof
 import Chainweb.Version
+import qualified Pact.Core.Command.Server as Pact5
 
 -- -------------------------------------------------------------------------- --
 -- @POST /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/pact/@
@@ -83,7 +81,7 @@ type PactApi_
     = "pact"
     :> "api"
     :> "v1"
-    :> ( ApiSend
+    :> ( Pact4.ApiSend
        :<|> PactPollWithQueryApi_
        :<|> ApiListen
        :<|> PactLocalWithQueryApi_
@@ -108,10 +106,11 @@ type PactV1ApiEndpoint (v :: ChainwebVersionT) (c :: ChainIdT) api
     :> "v1"
     :> api
 
-type PactLocalApi v c = PactV1ApiEndpoint v c ApiLocal
-type PactSendApi v c = PactV1ApiEndpoint v c ApiSend
+type PactLocalApi v c = PactV1ApiEndpoint v c Pact4.ApiLocal
+type PactSendApi v c = PactV1ApiEndpoint v c Pact4.ApiSend
 type PactListenApi v c = PactV1ApiEndpoint v c ApiListen
-type PactPollApi v c = PactV1ApiEndpoint v c ApiPoll
+
+type ApiListen = ("listen" :> ReqBody '[PactJson] Pact5.ListenRequest :> Post '[PactJson] Pact5.ListenResponse)
 
 pactLocalApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
@@ -127,11 +126,6 @@ pactListenApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (PactListenApi v c)
 pactListenApi = Proxy
-
-pactPollApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (PactPollApi v c)
-pactPollApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- POST Queries for Pact Local Pre-flight
@@ -157,8 +151,8 @@ pactLocalWithQueryApi = Proxy
 type PactPollWithQueryApi_
     = "poll"
     :> QueryParam "confirmationDepth" ConfirmationDepth
-    :> ReqBody '[PactJson] Poll
-    :> Post '[PactJson] PollResponses
+    :> ReqBody '[PactJson] Pact5.PollRequest
+    :> Post '[PactJson] Pact5.PollResponse
 
 type PactPollWithQueryApi v c = PactV1ApiEndpoint v c PactPollWithQueryApi_
 

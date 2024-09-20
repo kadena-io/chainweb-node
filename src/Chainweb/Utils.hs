@@ -133,6 +133,7 @@ module Chainweb.Utils
 , fromJuste
 , (???)
 , fromEitherM
+, fromEithere
 , InternalInvariantViolation(..)
 
 -- ** Synchronous Exceptions
@@ -190,6 +191,7 @@ module Chainweb.Utils
 -- * Strict Tuples
 , T2(..)
 , T3(..)
+, T4(..)
 , sfst
 , ssnd
 , scurry
@@ -861,6 +863,12 @@ fromEitherM :: MonadThrow m => Exception e => Either e a -> m a
 fromEitherM = either throwM return
 {-# INLINE fromEitherM #-}
 
+-- | Throw an exception if a value is a 'Left' result.
+--
+fromEithere :: HasCallStack => Either e a -> a
+fromEithere = either (error "Chainweb.Utils.fromJuste: Nothing") id
+{-# INLINE fromEithere #-}
+
 -- | An exeption to indicate an violation of an internal code invariants.
 -- Throwing this type of exception means that there is a bug in the code.
 --
@@ -1284,6 +1292,9 @@ instance Field2 (T3 a b c) (T3 a x c) b x where
     _2 = lens (\(T3 _a b _c) -> b) (\(T3 a _b c) x -> T3 a x c)
 instance Field3 (T3 a b c) (T3 a b x) c x where
     _3 = lens (\(T3 _a _b c) -> c) (\(T3 a b _c) x -> T3 a b x)
+
+data T4 a b c d = T4 !a !b !c !d
+    deriving (Show, Eq, Ord, Generic, NFData, Functor)
 
 sfst :: T2 a b -> a
 sfst (T2 a _) = a

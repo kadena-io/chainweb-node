@@ -49,7 +49,6 @@ module Chainweb.BlockHeaderDB.RestAPI
 -- * API types
   BlockHashPage
 , BlockHeaderPage
-, Block(..)
 , BlockPage
 
 -- * Encodings
@@ -101,6 +100,7 @@ import Network.HTTP.Media ((//), (/:))
 import Servant.API
 
 -- internal modules
+import Chainweb.Block
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
@@ -119,12 +119,6 @@ import Chainweb.Version
 type BlockHashPage = Page (NextItem BlockHash) BlockHash
 
 type BlockHeaderPage = Page (NextItem BlockHash) BlockHeader
-
-data Block = Block
-    { _blockHeader :: !BlockHeader
-    , _blockPayloadWithOutputs :: !PayloadWithOutputs
-    }
-    deriving (Eq, Show)
 
 -- because this endpoint is only used on the service API, we assume clients
 -- want object-encoded block headers.

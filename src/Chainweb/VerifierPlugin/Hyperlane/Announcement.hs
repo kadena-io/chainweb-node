@@ -32,6 +32,7 @@ import Chainweb.Utils.Serialization (putRawByteString, runPutS, putWord32be)
 
 import Chainweb.VerifierPlugin
 import Chainweb.Utils (decodeB64UrlNoPaddingText, sshow)
+import Pact.Core.Errors (VerifierError(..))
 
 plugin :: VerifierPlugin
 plugin = VerifierPlugin $ \_ proof caps gasRef -> do
