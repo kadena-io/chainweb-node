@@ -113,6 +113,8 @@ import Pact.Core.StableEncoding
 import Pact.Core.SPV
 import Pact.Core.Verifiers
 import Pact.Core.Signer
+import Pact.Core.Info
+import qualified Pact.Core.Syntax.ParseTree as Lisp
 
 -- internal Chainweb modules
 
@@ -139,6 +141,8 @@ import Data.ByteString (ByteString)
 import Pact.Core.Command.RPC
 import qualified Pact.Types.Gas as Pact4
 import qualified Data.Set as Set
+import qualified Data.Text as T
+import qualified Data.Vector as Vector
 import Data.Set (Set)
 import Data.Void
 import Control.Monad.Except
@@ -697,6 +701,43 @@ runUpgrade _logger db txContext cmd = case payload ^. pPayload of
     publicMeta = payload ^. pMeta
     chash = _cmdHash cmd
 
+enrichedMsgBodyForGasPayer :: Command (Payload PublicMeta ParsedCode) -> PactValue
+enrichedMsgBodyForGasPayer cmd = case (_pPayload $ _cmdPayload cmd) of
+  Exec exec ->
+    PObject $ Map.fromList
+      [ ("tx-type", PString "exec")
+      -- As part of legacy compat, the "exec-code" field passes chunks of source code as a list
+      -- in Pact 4, we used the pretty instance (O_O) for this.
+      -- In Pact 5, what we instead do, is we use the lexer/parser generated `SpanInfo` to
+      -- then slice the section of code each `TopLevel` uses.
+      , ("exec-code", PList (Vector.fromList (fmap (PString . sliceSpan codeLines) (_pcExps (_pmCode exec)))))
+      , ("exec-user-data", _pmData exec)
+      ]
+    where
+    codeLines = T.lines (_pcCode (_pmCode exec))
+    lispTLInfo = \case
+      Lisp.TLModule m -> Lisp._mInfo m
+      Lisp.TLTerm m -> view Lisp.termInfo m
+      Lisp.TLInterface iface -> Lisp._ifInfo iface
+      Lisp.TLUse _ i -> i
+    sliceSpan :: [Text] -> Lisp.TopLevel Info -> Text
+    sliceSpan code tl =
+      let (SpanInfo startLine startCol endLine endCol) = lispTLInfo tl
+          -- Drop until the start line, and take (endLine - startLine). Note:
+          -- Span info locations are absolute, so `endLine` is not relative to start line, but
+          -- relative to the whole file.
+          lineSpan = take (endLine - startLine) $ drop startLine code
+      in T.concat (over _head (T.drop startCol) . over _last (T.take endCol) $ lineSpan)
+  Continuation cont ->
+    PObject $ Map.fromList
+      [ ("tx-type", PString "cont")
+      , ("cont-pact-id", PString (_defPactId (_cmPactId cont)))
+      , ("cont-step", PInteger (fromIntegral (_cmStep cont)))
+      , ("cont-is-rollback", PBool (_cmRollback cont))
+      , ("cont-user-data", _cmData cont)
+      , ("cont-has-proof", PBool (isJust (_cmProof cont)))
+      ]
+
 -- | Build and execute 'coin.buygas' command from miner info and user command
 -- info (see 'TransactionExec.applyCmd' for more information).
 --
@@ -727,26 +768,26 @@ buyGas logger db txCtx cmd = do
         else mkFundTxTerm mid mks sender supply
 
   runExceptT $ do
-    eval <- case gasPayerCaps of
-      [gasPayerCap] -> do
-        pure $ evalGasPayerCap gasPayerCap
-      [] -> do
-        pure $ evalExecTerm Transactional
+    gasPayerCap <- case gasPayerCaps of
+      [gasPayerCap] -> pure (Just gasPayerCap)
+      [] -> pure Nothing
       _ -> do
         throwError BuyGasMultipleGasPayerCaps
 
-    e <- liftIO $ eval
-      -- TODO: magic constant, 1500 max gas limit for buyGas?
+    e <- liftIO $ maybe (evalExecTerm Transactional) evalGasPayerCap gasPayerCap
       db
       noSPVSupport
+      -- TODO: magic constant, 1500 max gas limit for buyGas?
       (tableGasModel (MilliGasLimit $ gasToMilliGas $ min (Gas 3000) (gasLimit ^. _GasLimit)))
       (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
       (ctxToPublicData publicMeta txCtx)
-      -- no verifiers are allowed in buy gas
       MsgData
-        { mdData = buyGasData
+        -- Note: in the case of gaspayer, buyGas is given extra metadata that comes from
+        -- the Command
+        { mdData = maybe buyGasData (const (enrichedMsgBodyForGasPayer cmd)) gasPayerCap
         , mdHash = bgHash
         , mdSigners = signersWithDebit
+        -- no verifiers are allowed in buy gas
         , mdVerifiers = []
         }
       (def & csSlots .~ [CapSlot (coinCap "GAS" []) []])

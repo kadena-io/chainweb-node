@@ -408,12 +408,12 @@ runPayloadShouldReturnEvalResultRelatedToTheInputCommand baseRdb = runResourceT 
 
             liftIO $ assertEqual
                 "eval result"
-                (MilliGas 1_000, Right EvalResult
+                (MilliGas 2_000, Right EvalResult
                     { _erOutput = [InterpretValue (PInteger 15) (def { _liEndColumn = 22})]
                     , _erEvents = []
                     , _erLogs = []
                     , _erExec = Nothing
-                    , _erGas = Gas 1
+                    , _erGas = Gas 2
                     , _erLoadedModules = mempty
                     , _erTxId = Just (TxId 9)
                     , _erLogGas = Nothing
@@ -457,7 +457,7 @@ applyLocalSpec baseRdb = runResourceT $ do
                             [ pt _crEvents . equals $ []
                             , pt _crResult . equals $ PactResultOk (PInteger 15)
                             -- reflects payload gas usage
-                            , pt _crGas . equals $ Gas 1
+                            , pt _crGas . equals $ Gas 2
                             , pt _crContinuation . equals $ Nothing
                             , pt _crLogs . equals $ Just []
                             , pt _crMetaData $ match _Just continue
@@ -500,7 +500,7 @@ applyCmdSpec baseRdb = runResourceT $ do
                             , _cbGasLimit = GasLimit (Gas 500)
                             }
                         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
-                        let expectedGasConsumed = 160
+                        let expectedGasConsumed = 162
                         commandResult <- throwIfError =<< applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
                         () <- commandResult & satAll
                             -- gas buy event
@@ -508,7 +508,7 @@ applyCmdSpec baseRdb = runResourceT $ do
                             [ pt _crEvents . soleElement $
                                 event
                                     (equals "TRANSFER")
-                                    (equals [PString "sender00", PString "NoMiner", PDecimal 320.0])
+                                    (equals [PString "sender00", PString "NoMiner", PDecimal 324.0])
                                     (equals coinModuleName)
                             , pt _crResult . equals $ PactResultOk (PInteger 15)
                             -- reflects buyGas gas usage, as well as that of the payload
@@ -583,12 +583,12 @@ applyCmdVerifierSpec baseRdb = runResourceT $ do
                                 [ pt _crEvents $ PT.list
                                     [ event
                                         (equals "TRANSFER")
-                                        (equals [PString "sender00", PString "NoMiner", PDecimal 120318])
+                                        (equals [PString "sender00", PString "NoMiner", PDecimal 120322])
                                         (equals coinModuleName)
                                     ]
                                 , pt _crResult . traceFailShow . equals $ PactResultOk (PString "Loaded module free.m, hash HcrMpd9fcNbb6fRz07frqtmke2FqRvtXTuV-xTE_NIk")
                                 -- reflects buyGas gas usage, as well as that of the payload
-                                , pt _crGas . equals $ Gas 60159
+                                , pt _crGas . equals $ Gas 60161
                                 , pt _crContinuation . equals $ Nothing
                                 ]
 
@@ -649,12 +649,12 @@ applyCmdVerifierSpec baseRdb = runResourceT $ do
                                 [ pt _crEvents . traceFailShow $ PT.list
                                     [ event
                                         (equals "TRANSFER")
-                                        (equals [PString "sender00", PString "NoMiner", PDecimal 338])
+                                        (equals [PString "sender00", PString "NoMiner", PDecimal 342])
                                         (equals coinModuleName)
                                     ]
                                 , pt _crResult . equals $ PactResultOk (PInteger 1)
                                 -- reflects buyGas gas usage, as well as that of the payload
-                                , pt _crGas . equals $ Gas 169
+                                , pt _crGas . equals $ Gas 171
                                 , pt _crContinuation . equals $ Nothing
                                 , pt _crMetaData . equals $ Nothing
                                 ]
@@ -758,7 +758,7 @@ applyCmdCoinTransfer baseRdb = runResourceT $ do
                             }
                         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
                         -- Note: if/when core changes gas prices, tweak here.
-                        let expectedGasConsumed = 512
+                        let expectedGasConsumed = 514
                         commandResult <- throwIfError =<< applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
                         () <- commandResult & satAll
                             -- gas buy event
@@ -769,7 +769,7 @@ applyCmdCoinTransfer baseRdb = runResourceT $ do
                                     (equals coinModuleName)
                                 , event
                                     (equals "TRANSFER")
-                                    (traceFailShow (equals [PString "sender00", PString "NoMiner", PDecimal 1024]))
+                                    (traceFailShow (equals [PString "sender00", PString "NoMiner", PDecimal 1028]))
                                     (equals coinModuleName)
                                 ]
                             , pt _crResult . equals $ PactResultOk (PString "Write succeeded")
@@ -805,7 +805,7 @@ applyCmdCoinTransfer baseRdb = runResourceT $ do
                             ]
 
                         endSender00Bal <- readBal pactDb "sender00"
-                        assertEqual "ending balance should be less gas money" (Just 99_998_556) endSender00Bal
+                        assertEqual "ending balance should be less gas money" (Just 99_998_552) endSender00Bal
                         endMinerBal <- readBal pactDb "NoMiner"
                         assertEqual "miner balance after redeeming gas should have increased"
                             (Just $ fromMaybe 0 startMinerBal + (fromIntegral expectedGasConsumed * 2))
@@ -931,7 +931,7 @@ testEventOrdering baseRdb = runResourceT $ do
                                     (equals coinModuleName)
                                 , event
                                     (equals "TRANSFER")
-                                    (equals [PString "sender00", PString "NoMiner", PDecimal 1730])
+                                    (equals [PString "sender00", PString "NoMiner", PDecimal 1734])
                                     (equals coinModuleName)
                                 ]
                             ]
