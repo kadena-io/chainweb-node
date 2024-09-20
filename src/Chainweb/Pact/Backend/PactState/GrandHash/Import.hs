@@ -32,7 +32,7 @@
 --       E.g. say the db has latest height 3_980_000, but the latest embedded
 --       snapshot is at 3_800_000. This means that we will pick the embedded
 --       snapshot at blockheight 3_800_000.
---     - Sets the environment variable `SNAPSHOT_BLOCKHEIGHT`, which is useful
+--     - Sets the environment variable `SNAPSHOTview blockHeight`, which is useful
 --       for debugging and/or consumption by other tools, such as pact-diff.
 --     - Go into the db and compute the blockheader and pact grandhash
 --       ('Snapshot') at 'snapshotBlockHeight'.
@@ -62,8 +62,7 @@ import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot (Snapshot(..))
 import Chainweb.Pact.Backend.PactState.EmbeddedSnapshot.Mainnet qualified as MainnetSnapshots
 import Chainweb.Pact.Backend.PactState.GrandHash.Utils (resolveLatestCutHeaders, resolveCutHeadersAtHeight, computeGrandHashesAt, exitLog, withConnections, chainwebDbFilePath, rocksParser, cwvParser)
 import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpointer)
-import Chainweb.Pact.Backend.Types (IntraBlockPersistence(..), SQLiteEnv, _cpRewindTo)
-import Chainweb.Pact.Types (defaultModuleCacheLimit)
+import Chainweb.Pact.Types
 import Chainweb.Storage.Table.RocksDB (RocksDb, withReadOnlyRocksDb, modernDefaultOptions)
 import Chainweb.Utils (sshow)
 import Chainweb.Version (ChainwebVersion(..))
@@ -212,7 +211,7 @@ pactImportMain = do
         --
         -- pact-import doesn't use this environment variable; it's for
         -- debugging and/or consumption by other tools.
-        setEnv "SNAPSHOT_BLOCKHEIGHT" (show snapshotBlockHeight)
+        setEnv "SNAPSHOTview blockHeight" (show snapshotBlockHeight)
 
         forM_ cfg.targetPactDir $ \targetDir -> do
           pactDropPostVerified logger cfg.chainwebVersion cfg.sourcePactDir targetDir snapshotBlockHeight snapshotChainHashes
@@ -226,7 +225,7 @@ pactImportMain = do
       , "If the hash matches, and a target directory is specificied, the"
       , "database will be copied to the target directory, and any state"
       , "later than what is cryptographically verifiable will be dropped."
-      , "This tool sets the environment variable `SNAPSHOT_BLOCKHEIGHT` which"
+      , "This tool sets the environment variable `SNAPSHOTview blockHeight` which"
       , "can be useful for debugging, or if you want to use the blockheight"
       , "for your own queries."
       ]

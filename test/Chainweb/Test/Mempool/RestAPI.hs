@@ -68,12 +68,12 @@ newTestServer = mask_ $ do
         f <- readMVar mv
         f xs
 
-    server inMemCfg inmemMv envMv restore =
-        InMem.withInMemoryMempool inMemCfg version $ \inmem -> do
-            putMVar inmemMv inmem
-            restore $ withTestAppServer True (return $! mkApp inmem) mkEnv $ \env -> do
-                putMVar envMv env
-                atomically retry
+    server inMemCfg inmemMv envMv restore = do
+        inmem <- InMem.startInMemoryMempoolTest inMemCfg
+        putMVar inmemMv inmem
+        restore $ withTestAppServer True (return $! mkApp inmem) mkEnv $ \env -> do
+            putMVar envMv env
+            atomically retry
 
     version :: ChainwebVersion
     version = barebonesTestVersion singletonChainGraph

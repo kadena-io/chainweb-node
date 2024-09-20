@@ -47,9 +47,9 @@ import qualified Chainweb.Mempool.InMem as Mempool
 import qualified Chainweb.Mempool.InMemTypes as Mempool
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import Chainweb.Pact.Service.PactInProcApi
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Payload.PayloadStore
-import Chainweb.Transaction
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
@@ -62,7 +62,7 @@ import Chainweb.Counter
 data ChainResources logger = ChainResources
     { _chainResBlockHeaderDb :: !BlockHeaderDb
     , _chainResLogger :: !logger
-    , _chainResMempool :: !(MempoolBackend ChainwebTransaction)
+    , _chainResMempool :: !(MempoolBackend Pact4.UnparsedTransaction)
     , _chainResPact :: PactExecutionService
     }
 
@@ -85,7 +85,7 @@ withChainResources
     -> ChainId
     -> RocksDb
     -> logger
-    -> (MVar PactExecutionService -> Mempool.InMemConfig ChainwebTransaction)
+    -> (MVar PactExecutionService -> Mempool.InMemConfig Pact4.UnparsedTransaction)
     -> PayloadDb tbl
     -> FilePath
         -- ^ database directory for checkpointer
@@ -98,7 +98,7 @@ withChainResources
     withBlockHeaderDb rdb v cid $ \cdb -> do
       pexMv <- newEmptyMVar
       let mempoolCfg = mempoolCfg0 pexMv
-      Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg v $ \mempool -> do
+      Mempool.withInMemoryMempool (setComponent "mempool" logger) mempoolCfg v $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
         withPactService v cid logger (Just txFailuresCounter) mpc cdb
                         payloadDb pactDbDir pactConfig $ \requestQ -> do

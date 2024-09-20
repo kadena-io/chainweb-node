@@ -114,7 +114,7 @@ import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultPreInsertCheckTimeout)
-import Chainweb.Pact.Service.Types (RewindLimit(..))
+import Chainweb.Pact.Types (RewindLimit(..))
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
 import Chainweb.Version
@@ -126,6 +126,7 @@ import Chainweb.Time
 
 import P2P.Node.Configuration
 import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
+import Chainweb.Version.Testnet04
 
 -- -------------------------------------------------------------------------- --
 -- Throttling Configuration
@@ -457,12 +458,20 @@ validateRosetta c = do
         throwError "To enable the Rosetta construction API, Rosetta must be enabled, too."
 
 validateChainwebVersion :: ConfigValidation ChainwebVersion []
-validateChainwebVersion v = unless (isDevelopment || elem v knownVersions) $
-    throwError $ T.unwords
-        [ "Specifying version properties is only legal with chainweb-version"
-        , "set to recap-development or development, but version is set to"
-        , sshow (_versionName v)
-        ]
+validateChainwebVersion v = do
+    unless (isDevelopment || elem v knownVersions) $
+        throwError $ T.unwords
+            [ "Specifying version properties is only legal with chainweb-version"
+            , "set to recap-development or development, but version is set to"
+            , sshow (_versionName v)
+            ]
+    -- TODO Pact5: disable
+    when (v == mainnet || v == testnet04) $
+        throwError $ T.unwords
+            [ "This node version is a technical preview of Pact 5, and"
+            , "cannot be used with Pact 4 chainweb versions (testnet04, mainnet)"
+            , "just yet."
+            ]
     where
     isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [recapDevnet, devnet]]
 
@@ -649,10 +658,10 @@ parseVersion = constructVersion
             maybe (_versionUpgrades winningVersion) (\fub' ->
                 OnChains $ HM.mapWithKey
                     (\cid _ ->
-                        case winningVersion ^?! versionForks . at fub' . _Just . onChain cid of
+                        case winningVersion ^?! versionForks . at fub' . _Just . atChain cid of
                             ForkNever -> error "Chainweb.Chainweb.Configuration.parseVersion: the fork upper bound never occurs in this version."
-                            ForkAtBlockHeight fubHeight -> HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionUpgrades . onChain cid)
-                            ForkAtGenesis -> winningVersion ^?! versionUpgrades . onChain cid
+                            ForkAtBlockHeight fubHeight -> HM.filterWithKey (\bh _ -> bh <= fubHeight) (winningVersion ^?! versionUpgrades . atChain cid)
+                            ForkAtGenesis -> winningVersion ^?! versionUpgrades . atChain cid
                     )
                     (HS.toMap (chainIds winningVersion))
             ) fub

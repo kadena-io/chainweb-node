@@ -119,6 +119,8 @@ module Chainweb.BlockHeader.Internal
 , genesisBlockHeaders
 , genesisBlockHeadersAtHeight
 , genesisHeight
+, genesisHeightSlow
+, guardBlockHeader
 , headerSizes
 , headerSizeBytes
 , workSizeBytes
@@ -151,8 +153,8 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Guards
 import Chainweb.Version.Mainnet
-import Chainweb.Version.Registry (lookupVersionByName)
-import Chainweb.Version.Testnet
+import Chainweb.Version.Registry (lookupVersionByName, lookupVersionByCode)
+import Chainweb.Version.Testnet04
 import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((.=))
@@ -380,7 +382,7 @@ instance HasChainGraph BlockHeader where
     _chainGraph h = _chainGraph (_chainwebVersion h, _blockHeight h)
 
 instance HasChainwebVersion BlockHeader where
-    _chainwebVersion = _chainwebVersion . _blockChainwebVersion
+    _chainwebVersion = lookupVersionByCode . _blockChainwebVersion
 
 instance IsCasValue BlockHeader where
     type CasKeyType BlockHeader = BlockHash
@@ -662,7 +664,7 @@ genesisBlockHeaderCache = unsafePerformIO $ do
 genesisBlockHeaders :: ChainwebVersion -> HashMap ChainId BlockHeader
 genesisBlockHeaders = \v ->
     if _versionCode v == _versionCode mainnet then mainnetGenesisHeaders
-    else if _versionCode v == _versionCode testnet then testnetGenesisHeaders
+    else if _versionCode v == _versionCode testnet04 then testnetGenesisHeaders
     else unsafeDupablePerformIO $
         HM.lookup (_versionCode v) <$> readIORef genesisBlockHeaderCache >>= \case
             Just hs -> return hs
@@ -672,7 +674,7 @@ genesisBlockHeaders = \v ->
                 return freshGenesisHeaders
   where
     mainnetGenesisHeaders = makeGenesisBlockHeaders mainnet
-    testnetGenesisHeaders = makeGenesisBlockHeaders testnet
+    testnetGenesisHeaders = makeGenesisBlockHeaders testnet04
 
 genesisBlockHeader :: (HasCallStack, HasChainId p) => ChainwebVersion -> p -> BlockHeader
 genesisBlockHeader v p = genesisBlockHeaders v ^?! at (_chainId p) . _Just
@@ -682,10 +684,11 @@ makeGenesisBlockHeaders v = HM.fromList [ (cid, makeGenesisBlockHeader v cid) | 
 
 makeGenesisBlockHeader :: ChainwebVersion -> ChainId -> BlockHeader
 makeGenesisBlockHeader v cid =
-    makeGenesisBlockHeader' v cid (_genesisTime (_versionGenesis v) ^?! onChain cid) (Nonce 0)
+    makeGenesisBlockHeader' v cid (_genesisTime (_versionGenesis v) ^?! atChain cid) (Nonce 0)
 
-genesisHeight' :: HasCallStack => ChainwebVersion -> ChainId -> BlockHeight
-genesisHeight' v c = fst
+-- this version does not rely on the genesis block headers, but just the version graphs
+genesisHeightSlow :: HasCallStack => ChainwebVersion -> ChainId -> BlockHeight
+genesisHeightSlow v c = fst
     $ head
     $ NE.dropWhile (not . flip isWebChain c . snd)
     $ NE.reverse (ruleElems (BlockHeight 0) $ _versionGraphs v)
@@ -713,11 +716,11 @@ makeGenesisBlockHeader' v p ct@(BlockCreationTime t) n =
         $ mkFeatureFlags
         :+: ct
         :+: genesisParentBlockHash v cid
-        :+: (v ^?! versionGenesis . genesisBlockTarget . onChain cid)
+        :+: (v ^?! versionGenesis . genesisBlockTarget . atChain cid)
         :+: genesisBlockPayloadHash v cid
         :+: cid
         :+: BlockWeight 0
-        :+: genesisHeight' v cid -- because of chain graph changes (new chains) not all chains start at 0
+        :+: genesisHeightSlow v cid -- because of chain graph changes (new chains) not all chains start at 0
         :+: _versionCode v
         :+: EpochStartTime t
         :+: n
@@ -752,7 +755,7 @@ genesisGraph
     => v
     -> c
     -> ChainGraph
-genesisGraph v = chainGraphAt v_ . genesisHeight' v_ . _chainId
+genesisGraph v = chainGraphAt v_ . genesisHeightSlow v_ . _chainId
   where
     v_ = _chainwebVersion v
 
@@ -831,10 +834,10 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader wh
             :+: nonce
             :+: MerkleLogBody adjParents
             ) = _merkleLogEntries l
-        cwv = _chainwebVersion cwvc
+        cwv = lookupVersionByCode cwvc
 
         adjGraph
-            | height == genesisHeight' cwv cid = chainGraphAt cwv height
+            | height == genesisHeightSlow cwv cid = chainGraphAt cwv height
             | otherwise = chainGraphAt cwv (height - 1)
 
 encodeBlockHeaderWithoutHash :: BlockHeader -> Put
@@ -1186,3 +1189,7 @@ workSizeBytes
     -> BlockHeight
     -> Natural
 workSizeBytes v h = headerSizeBytes v (unsafeChainId 0) h - 32
+
+-- | TODO document
+guardBlockHeader :: (ChainwebVersion -> ChainId -> BlockHeight -> a) -> BlockHeader -> a
+guardBlockHeader k bh = k (_chainwebVersion bh) (_chainId bh) (_blockHeight bh)

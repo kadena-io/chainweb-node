@@ -45,6 +45,7 @@ import Servant.API.ContentTypes
 
 -- internal modules
 
+import Chainweb.Block
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
@@ -195,4 +196,3 @@ branchBlocksClient' v c = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing (_versionName v)
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(BranchBlocksApi v c)
-    

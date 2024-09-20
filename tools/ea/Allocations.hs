@@ -64,7 +64,7 @@ generateAllocations
       keysToYaml "mainnet-keysets" readMainnetKeys
 
     testKeysets = T.writeFile (prefix $ "testnet_keysets") $
-      keysToYaml "testnet-keysets" readTestnetKeys
+      keysToYaml "testnet04-keysets" readTestnetKeys
 
     allocations = flip M.traverseWithKey readAllocations $ \cid txs -> do
       let ys = allocToYaml cid txs

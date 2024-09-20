@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: Ea
@@ -34,7 +35,6 @@ import Data.Foldable
 import Data.Functor
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TB
@@ -56,13 +56,12 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types (testPactServiceConfig)
 import Chainweb.Pact.Utils (toTxCreationTime)
-import Chainweb.Pact.Validations (defaultMaxTTL)
+import Chainweb.Pact4.Validations (defaultMaxTTL)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Time
-import Chainweb.Transaction
-    (ChainwebTransaction, chainwebPayloadCodec, mkPayloadWithTextOld)
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -71,6 +70,7 @@ import Ea.Genesis
 import Pact.ApiReq
 import Pact.Types.ChainMeta
 import Pact.Types.Command hiding (Payload)
+import qualified Data.Aeson as Aeson
 
 ---
 
@@ -78,9 +78,12 @@ main :: IO ()
 main = void $ do
     recapDevnet
     devnet
+    pact5Devnet
     fastnet
     instantnet
-    testnet
+    pact5Instantnet
+    testnet04
+    testnet05
     mainnet
     genTxModules
     genCoinV3Payloads
@@ -98,9 +101,15 @@ main = void $ do
       [ fastDevelopment0
       , fastDevelopmentN
       ]
+    pact5Devnet = mkPayloads
+      [ pact5Development0
+      , pact5DevelopmentN
+      ]
     fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
     instantnet = mkPayloads [instantCPM0, instantCPMN]
-    testnet = mkPayloads [testnet0, testnetN]
+    pact5Instantnet = mkPayloads [pact5InstantCPM0, pact5InstantCPMN]
+    testnet04 = mkPayloads [testnet040, testnet04N]
+    testnet05 = mkPayloads [testnet050, testnet05N]
     mainnet = mkPayloads
       [ mainnet0
       , mainnet1
@@ -171,7 +180,7 @@ genCoinV6Payloads = genTxModule "CoinV6"
 -- Payload Generation
 ---------------------
 
-genPayloadModule :: ChainwebVersion -> Text -> ChainId -> [ChainwebTransaction] -> IO Text
+genPayloadModule :: ChainwebVersion -> Text -> ChainId -> [Pact4.UnparsedTransaction] -> IO Text
 genPayloadModule v tag cid cwTxs =
     withTempRocksDb "chainweb-ea" $ \rocks ->
     withBlockHeaderDb rocks v cid $ \bhdb -> do
@@ -183,24 +192,19 @@ genPayloadModule v tag cid cwTxs =
                     execNewGenesisBlock noMiner (V.fromList cwTxs)
             return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
 
-mkChainwebTxs :: [FilePath] -> IO [ChainwebTransaction]
+mkChainwebTxs :: [FilePath] -> IO [Pact4.UnparsedTransaction]
 mkChainwebTxs txFiles = mkChainwebTxs' =<< traverse mkTx txFiles
 
-mkChainwebTxs' :: [Command Text] -> IO [ChainwebTransaction]
+mkChainwebTxs' :: [Command Text] -> IO [Pact4.UnparsedTransaction]
 mkChainwebTxs' rawTxs =
     forM rawTxs $ \cmd -> do
-        let cmdBS = fmap TE.encodeUtf8 cmd
-            -- TODO: Use the new `assertCommand` function.
-            -- We want to delete `verifyCommand` at some point.
-            -- It's not critical for Ea because WebAuthn signatures (which
-            -- the new `assertCommand` knows how to handle) are not present
-            -- in Genesis blocks.
-            procCmd = verifyCommand cmdBS
-        case procCmd of
-            f@ProcFail{} -> fail (show f)
-            ProcSucc c -> do
-                let t = toTxCreationTime (Time (TimeSpan 0))
-                return $! mkPayloadWithTextOld <$> (c & setTxTime t & setTTL defaultMaxTTL)
+        let parsedCmd =
+              traverse Aeson.eitherDecodeStrictText cmd
+        case parsedCmd of
+          Left err -> error err
+          Right unparsedTx -> do
+            let t = toTxCreationTime (Time (TimeSpan 0))
+            return $! Pact4.mkPayloadWithTextOldUnparsed <$> (unparsedTx & setTxTime t & setTTL defaultMaxTTL)
   where
     setTxTime = set (cmdPayload . pMeta . pmCreationTime)
     setTTL = set (cmdPayload . pMeta . pmTTL)
@@ -306,7 +310,7 @@ genTxModule tag txFiles = do
 
     let encTxs = map quoteTx cwTxs
         quoteTx tx = "    \"" <> encTx tx <> "\""
-        encTx = encodeB64UrlNoPaddingText . codecEncode (chainwebPayloadCodec maxBound)
+        encTx = encodeB64UrlNoPaddingText . codecEncode Pact4.rawCommandCodec
         modl = T.unlines $ startTxModule tag <> [T.intercalate "\n    ,\n" encTxs] <> endTxModule
         fileName = "src/Chainweb/Pact/Transactions/" <> tag <> "Transactions.hs"
 
@@ -323,13 +327,13 @@ startTxModule tag =
     , "import Data.Bifunctor (first)"
     , "import System.IO.Unsafe"
     , ""
-    , "import Chainweb.Transaction"
+    , "import qualified Chainweb.Pact4.Transaction as Pact4"
     , "import Chainweb.Utils"
     , ""
-    , "transactions :: [ChainwebTransaction]"
+    , "transactions :: [Pact4.Transaction]"
     , "transactions ="
     , "  let decodeTx t ="
-    , "        fromEitherM . (first (userError . show)) . codecDecode (chainwebPayloadCodec maxBound) =<< decodeB64UrlNoPaddingText t"
+    , "        fromEitherM . (first (userError . show)) . codecDecode (Pact4.payloadCodec maxBound) =<< decodeB64UrlNoPaddingText t"
     , "  in unsafePerformIO $ mapM decodeTx ["
     ]
 

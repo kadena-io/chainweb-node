@@ -62,7 +62,7 @@ import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Miners
 import Chainweb.Miner.Pact (Miner(..), minerId)
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Pact.Utils
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -149,12 +149,14 @@ withMiningCoordination logger conf cdb inner
                 case primed of
                     WorkReady (NewBlockInProgress bip) -> return (Just bip)
                     WorkReady (NewBlockPayload {}) ->
-                      error "periodicallyRefreshPayload: encountered NewBlockPayload in PrimedWork, which cannot be refreshed"
+                        error "periodicallyRefreshPayload: encountered NewBlockPayload in PrimedWork, which cannot be refreshed"
                     WorkAlreadyMined {} -> return Nothing
                     WorkStale -> return Nothing
 
             forM_ mContinuableBlockInProgress $ \continuableBlockInProgress -> do
-                maybeNewBlock <- _pactContinueBlock pact cid continuableBlockInProgress
+                maybeNewBlock <- case continuableBlockInProgress of
+                    ForPact4 block -> fmap ForPact4 <$> _pactContinueBlock pact cid block
+                    ForPact5 block -> fmap ForPact5 <$> _pactContinueBlock pact cid block
                 -- if continuing returns NoHistory then the parent header
                 -- isn't available in the checkpointer right now.
                 -- in that case we just mark the payload as not stale.
@@ -164,7 +166,10 @@ withMiningCoordination logger conf cdb inner
 
                 logFunctionText (chainLogger cid logger) Debug
                     $ "refreshed block, old and new tx count: "
-                    <> sshow (V.length $ _transactionPairs $ _blockInProgressTransactions continuableBlockInProgress, V.length $ _transactionPairs $ _blockInProgressTransactions newBlock)
+                    <> sshow
+                        ( forAnyPactVersion (V.length . _transactionPairs . _blockInProgressTransactions) continuableBlockInProgress
+                        , forAnyPactVersion (V.length . _transactionPairs . _blockInProgressTransactions) newBlock
+                        )
 
                 atomically $ modifyTVar' tpw $
                     workForMiner ourMiner cid .~ WorkReady (NewBlockInProgress newBlock)
@@ -177,7 +182,7 @@ withMiningCoordination logger conf cdb inner
     primeWork tpw cid =
         forConcurrently_ miners $ \miner ->
             runForever (logFunction (chainLogger cid logger)) "primeWork" (go miner)
-      where
+        where
         go :: Miner -> IO ()
         go miner = do
             pw <- readTVarIO tpw
@@ -187,9 +192,9 @@ withMiningCoordination logger conf cdb inner
                 ourMiner = workForMiner miner cid
             let !outdatedPayload = fromJuste $ pw ^? ourMiner
             let outdatedParentHash = case outdatedPayload of
-                  WorkReady outdatedBlock -> view blockHash (_parentHeader (newBlockParentHeader outdatedBlock))
-                  WorkAlreadyMined outdatedBlockHash -> outdatedBlockHash
-                  WorkStale -> error "primeWork loop: Invariant Violation: Stale work should be an impossibility"
+                    WorkReady outdatedBlock -> view _1 (newBlockParent outdatedBlock)
+                    WorkAlreadyMined outdatedBlockHash -> outdatedBlockHash
+                    WorkStale -> error "primeWork loop: Invariant Violation: Stale work should be an impossibility"
 
             newParent <- either ParentHeader id <$> race
                 -- wait for a block different from what we've got primed work for

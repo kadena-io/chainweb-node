@@ -15,6 +15,8 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
 module Chainweb.Pact.Backend.ForkingBench ( bench ) where
 
@@ -31,6 +33,7 @@ import Data.Aeson hiding (Error)
 import Data.ByteString (ByteString)
 import Data.Char
 import Data.Decimal
+import Data.Either
 import Data.FileEmbed
 import Data.Foldable (toList)
 import Data.IORef
@@ -81,15 +84,14 @@ import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool (BlockFill(..))
+import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Compaction qualified as C
-import Chainweb.Pact.Backend.Types
+
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Payload
@@ -97,7 +99,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Test.TestVersions (slowForkingCpmTestVersion)
 import Chainweb.Time
-import Chainweb.Transaction
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 import Chainweb.Utils.Bench
 import Chainweb.Version
@@ -242,7 +244,7 @@ createBlock validate parent nonce pact = do
      -- assemble block without nonce and timestamp
 
      bip <- throwIfNoHistory =<< newBlock noMiner NewBlockFill parent pact
-     let payload = blockInProgressToPayloadWithOutputs bip
+     let payload = forAnyPactVersion finalizeBlock bip
 
      let creationTime = add second $ view blockCreationTime $ _parentHeader parent
      let bh = newBlockHeader
@@ -383,15 +385,16 @@ withResources rdb trunkLength logLevel compact p f = C.envWithCleanup create des
 testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty (DynKeyPair, [SigCapability]))) -> IO MemPoolAccess
 testMemPoolAccess txsPerBlock accounts = do
   return $ mempty
-    { mpaGetBlock = \bf validate bh hash header -> do
+    { mpaGetBlock = \bf validate bh hash bct -> do
         if _bfCount bf /= 0 then pure mempty else do
-          testBlock <- getTestBlock accounts (_bct $ view blockCreationTime header) validate bh hash
+          testBlock <- getTestBlock accounts (_bct bct) validate bh hash
           pure testBlock
     }
   where
 
     setTime time pb = pb { _pmCreationTime = toTxCreationTime time }
 
+    getTestBlock :: _ -> _ -> MempoolPreBlockCheck Pact4.UnparsedTransaction to -> _ -> _ -> IO (V.Vector to)
     getTestBlock mVarAccounts txOrigTime validate bHeight hash
         | bHeight == 1 = do
             meta <- setTime txOrigTime <$> makeMeta cid
@@ -402,10 +405,10 @@ testMemPoolAccess txsPerBlock accounts = do
                   modifyMVar' mVarAccounts
                     (const $ M.fromList $ zip as kss)
 
-                  vs <- validate bHeight hash (V.fromList $ toList r)
+                  vs <- validate bHeight hash (V.fromList $ toList $ Pact4.unparseTransaction <$> r)
                   -- TODO: something better should go here
-                  unless (and vs) $ throwM $ userError $ "at blockheight 1: tx validation failed " <> sshow vs
-                  return $! V.fromList $ toList r
+                  unless (all isRight vs) $ throwM $ userError $ "at blockheight 1: tx validation failed " <> sshow r
+                  return $! V.fromList [v | Right v <- toList vs]
 
         | otherwise = do
           withMVar mVarAccounts $ \accs -> do
@@ -419,7 +422,9 @@ testMemPoolAccess txsPerBlock accounts = do
                 case eCmd of
                   Left e -> throwM $ userError e
                   Right tx -> return tx
-            return $! txs
+            vs <- validate bHeight hash (V.fromList $ toList $ Pact4.unparseTransaction <$> txs)
+            unless (all isRight vs) $ throwM $ userError $ "tx validation failed " <> sshow txs
+            return $! V.fromList [v | Right v <- toList vs]
 
     mkTransferCaps :: ReceiverName -> Amount -> (Account, NonEmpty (DynKeyPair, [SigCapability])) -> (Account, NonEmpty (DynKeyPair, [SigCapability]))
     mkTransferCaps (ReceiverName (Account r)) (Amount m) (s@(Account ss),ks) = (s, (caps <$) <$> ks)
@@ -509,10 +514,10 @@ safeCapitalize :: String -> String
 safeCapitalize = maybe [] (uncurry (:) . bimap toUpper (Prelude.map toLower)) . Data.List.uncons
 
 
--- TODO: Use the new `assertCommand` function.
-validateCommand :: Command Text -> Either String ChainwebTransaction
+-- TODO: Use the new `assertPact4Command` function.
+validateCommand :: Command Text -> Either String Pact4.Transaction
 validateCommand cmdText = case verifyCommand cmdBS of
-    ProcSucc cmd -> Right (mkPayloadWithTextOld <$> cmd)
+    ProcSucc cmd -> Right (Pact4.mkPayloadWithTextOld <$> cmd)
     ProcFail err -> Left err
   where
     cmdBS :: Command ByteString

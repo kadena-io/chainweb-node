@@ -46,11 +46,12 @@ import Text.Read (readEither)
 
 -- internal modules
 
+import Chainweb.Block
 import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
-import Chainweb.BlockHeaderDB.RestAPI (Block(..))
+import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MempoolBackend, MockTx)
@@ -235,7 +236,7 @@ simpleClientSession envIO cid =
             [] -> liftIO $ assertFailure "blocksClient did return empty result"
             (h:_) -> return h
         assertExpectation "block client returned wrong entry"
-            (Expected (Block gbh0 (version ^?! versionGenesis . genesisBlockPayload . onChain cid)))
+            (Expected (Block gbh0 (version ^?! versionGenesis . genesisBlockPayload . atChain cid)))
             (Actual gen1Block)
 
         void $ liftIO $ step "put 3 new blocks"
