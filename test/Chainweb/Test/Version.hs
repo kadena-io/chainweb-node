@@ -38,7 +38,7 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
-import Chainweb.Version.Testnet
+import Chainweb.Version.Testnet04
 
 tests :: TestTree
 tests = testGroup "ChainwebVersion properties"
@@ -53,7 +53,7 @@ propForVersions :: String -> (ChainwebVersion -> Property) -> TestTree
 propForVersions desc prop = testGroup desc
     [ testProperty "arbitrary versions" $ prop
     , testProperty "mainnet" $ prop Mainnet01
-    , testProperty "testnet" $ prop Testnet04
+    , testProperty "testnet04" $ prop Testnet04
     , testProperty "recapDevnet" $ prop RecapDevelopment
     ]
 

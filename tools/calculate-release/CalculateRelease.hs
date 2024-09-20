@@ -37,7 +37,7 @@ main = do
 
     !mainnetHeightNow <- heightOfChain0 "https://us-e1.chainweb.com/chainweb/0.0/mainnet01/cut"
     mainnetTimeNow <- getCurrentTime
-    !testnetHeightNow <- heightOfChain0 "https://us1.testnet.chainweb.com/chainweb/0.0/testnet04/cut"
+    !testnetHeightNow <- heightOfChain0 "https://us1.testnet04.chainweb.com/chainweb/0.0/testnet04/cut"
     testnetTimeNow <- getCurrentTime
     let mainnetForkTime = addUTCTime (24 * 60 * 60) serviceDateTime
     let testnetForkTime = addUTCTime (12 * 60 * 60) serviceDateTime

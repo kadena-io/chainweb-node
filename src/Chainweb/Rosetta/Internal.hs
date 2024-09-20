@@ -44,10 +44,10 @@ import qualified Pact.Types.Runtime as P
 
 import Pact.Types.Command
 import Pact.Types.Hash
-import Pact.Types.Runtime (TxId(..), Domain(..), TxLog(..))
+import Pact.Types.Runtime (TxId(..))
 import Pact.Types.Persistence (RowKey(..))
-import Pact.Types.RowData (RowData)
 import Pact.Types.PactValue
+import qualified Pact.Core.Persistence as Pact5
 
 import Rosetta
 import Servant.Server
@@ -59,7 +59,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Payload hiding (Transaction(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.Rosetta.Utils
@@ -69,6 +69,7 @@ import Chainweb.Version
 import Chainweb.WebPactExecutionService (PactExecutionService(..))
 
 import Chainweb.Storage.Table
+import qualified Pact.Core.Names as Pact5
 
 ---
 
@@ -123,7 +124,8 @@ matchLogs
     -> ExceptT RosettaFailure Handler tx
 matchLogs typ bh logs coinbase txs
   | bheight == genesisHeight v cid = matchGenesis
-  | Just upg <- v ^? versionUpgrades . onChain cid . at bheight . _Just = matchRemediation upg
+  | Just (ForPact4 upg) <- v ^? versionUpgrades . atChain cid . at bheight . _Just = matchRemediation upg
+  -- TODO: integrate pact 5?
   | otherwise = matchRest
   where
     bheight = view blockHeight bh
@@ -138,11 +140,11 @@ matchLogs typ bh logs coinbase txs
       hoistEither $ case typ of
         FullLogs ->
           overwriteError RosettaMismatchTxLogs $!
-            remediations logs cid coinbase (_upgradeTransactions upg) txs
+            remediations logs cid coinbase (_pact4UpgradeTransactions upg) txs
         SingleLog rk ->
           (noteOptional RosettaTxIdNotFound .
             overwriteError RosettaMismatchTxLogs) $
-              singleRemediation logs cid coinbase (_upgradeTransactions upg) txs rk
+              singleRemediation logs cid coinbase (_pact4UpgradeTransactions upg) txs rk
 
     matchRest = hoistEither $ case typ of
       FullLogs ->
@@ -580,10 +582,10 @@ getTxLogs cr bh = do
   histAcctRow <- hoistEither $ parseHist hist
   pure $ getBalanceDeltas histAcctRow lastBalSeen
   where
-    d = UserTables "coin_coin-table"
+    d = Pact5.DUserTables (Pact5.TableName "coin-table" (Pact5.ModuleName "coin" Nothing))
 
     parseHist
-        :: Map TxId [TxLog RowData]
+        :: Map TxId [Pact5.TxLog Pact5.RowData]
         -> Either RosettaFailure (Map TxId [AccountRow])
     parseHist m
       | M.size parsed == M.size m = pure $! parsed
@@ -592,7 +594,7 @@ getTxLogs cr bh = do
         parsed = M.mapMaybe (mapM txLogToAccountRow) m
 
     parsePrevTxs
-        :: Map RowKey (TxLog RowData)
+        :: Map RowKey (Pact5.TxLog Pact5.RowData)
         -> Either RosettaFailure (Map RowKey AccountRow)
     parsePrevTxs m
       | M.size parsed == M.size m = pure $! parsed
@@ -662,8 +664,8 @@ getHistoricalLookupBalance' cr bh k = do
       row <- txLogToAccountRow h ?? RosettaUnparsableTxLog
       pure $ Just row
   where
-    d = UserTables "coin_coin-table"
-    key = RowKey k -- TODO: How to sanitize this further
+    d = Pact5.DUserTables (Pact5.TableName "coin-table" (Pact5.ModuleName "coin" Nothing))
+    key = Pact5.RowKey k -- TODO: How to sanitize this further
 
 getHistoricalLookupBalance
     :: PactExecutionService

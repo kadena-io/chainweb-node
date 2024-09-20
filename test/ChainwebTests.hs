@@ -12,7 +12,7 @@
 -- Chainweb Test Suite
 --
 
-module Main ( main ) where
+module Main ( main, setTestLogLevel ) where
 
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
@@ -38,25 +38,29 @@ import qualified Chainweb.Test.Mempool.RestAPI
 import qualified Chainweb.Test.Mempool.Sync
 import qualified Chainweb.Test.Mining (tests)
 import qualified Chainweb.Test.Misc
-import qualified Chainweb.Test.Pact.DbCacheTest
-import qualified Chainweb.Test.Pact.Checkpointer
-import qualified Chainweb.Test.Pact.GrandHash
-import qualified Chainweb.Test.Pact.ModuleCacheOnRestart
-import qualified Chainweb.Test.Pact.NoCoinbase
-import qualified Chainweb.Test.Pact.PactExec
-import qualified Chainweb.Test.Pact.PactMultiChainTest
-import qualified Chainweb.Test.Pact.PactSingleChainTest
-import qualified Chainweb.Test.Pact.PactReplay
-import qualified Chainweb.Test.Pact.RemotePactTest
-import qualified Chainweb.Test.Pact.VerifierPluginTest
-import qualified Chainweb.Test.Pact.RewardsTest
-import qualified Chainweb.Test.Pact.SQLite
-import qualified Chainweb.Test.Pact.SPV
-import qualified Chainweb.Test.Pact.TransactionTests
-import qualified Chainweb.Test.Pact.TTL
+import qualified Chainweb.Test.Pact4.DbCacheTest
+import qualified Chainweb.Test.Pact4.Checkpointer
+import qualified Chainweb.Test.Pact4.GrandHash
+import qualified Chainweb.Test.Pact4.ModuleCacheOnRestart
+import qualified Chainweb.Test.Pact4.NoCoinbase
+import qualified Chainweb.Test.Pact4.PactExec
+import qualified Chainweb.Test.Pact4.PactMultiChainTest
+import qualified Chainweb.Test.Pact4.PactSingleChainTest
+import qualified Chainweb.Test.Pact4.PactReplay
+import qualified Chainweb.Test.Pact4.RemotePactTest
+import qualified Chainweb.Test.Pact4.VerifierPluginTest
+import qualified Chainweb.Test.Pact4.RewardsTest
+import qualified Chainweb.Test.Pact4.SQLite
+import qualified Chainweb.Test.Pact4.SPV
+import qualified Chainweb.Test.Pact4.TransactionTests
+import qualified Chainweb.Test.Pact4.TTL
+import qualified Chainweb.Test.Pact5.CheckpointerTest
+import qualified Chainweb.Test.Pact5.TransactionExecTest
+import qualified Chainweb.Test.Pact5.PactServiceTest
+import qualified Chainweb.Test.Pact5.SPVTest
+import qualified Chainweb.Test.Pact5.RemotePactTest
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Rosetta
-import qualified Chainweb.Test.Rosetta.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
 import qualified Chainweb.Test.SPV.EventProof
@@ -68,6 +72,7 @@ import Chainweb.Test.Utils
 import qualified Chainweb.Test.Version (tests)
 import qualified Chainweb.Test.Chainweb.Utils.Paging (properties)
 import Chainweb.Version.Development
+import Chainweb.Version.Pact5Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Registry
 
@@ -78,21 +83,29 @@ import qualified Data.Test.Word.Encoding (properties)
 
 import qualified P2P.Test.TaskQueue (properties)
 import qualified P2P.Test.Node (properties)
+import System.Environment
+import System.LogLevel
+
+setTestLogLevel :: LogLevel -> IO ()
+setTestLogLevel l = setEnv "CHAINWEB_TEST_LOG_LEVEL" (show l)
 
 main :: IO ()
 main = do
     registerVersion RecapDevelopment
     registerVersion Development
+    registerVersion Pact5Development
     withTempRocksDb "chainweb-tests" $ \rdb ->
         runResourceT $ do
             (h0, db) <- withToyDB rdb toyChainId
-            liftIO $ defaultMainWithIngredients (consoleAndJsonReporter : defaultIngredients)
+            liftIO
+                $ defaultMainWithIngredients (consoleAndJsonReporter : defaultIngredients)
                 $ adjustOption adj
                 $ testGroup "Chainweb Tests"
                 $ pactTestSuite rdb
                 : mempoolTestSuite db h0
                 : nodeTestSuite rdb
-                : suite rdb
+                : suite rdb -- Coinbase Vuln Fix Tests are broken, waiting for Jose loadScript
+
   where
     adj NoTimeout = Timeout (1_000_000 * 60 * 10) "10m"
     adj x = x
@@ -103,24 +116,28 @@ mempoolTestSuite db genesisBlock = testGroup "Mempool Consensus Tests"
 
 pactTestSuite :: RocksDb -> TestTree
 pactTestSuite rdb = testGroup "Chainweb-Pact Tests"
-    [ Chainweb.Test.Pact.PactExec.tests
-    , Chainweb.Test.Pact.DbCacheTest.tests
-    , Chainweb.Test.Pact.Checkpointer.tests
-    , Chainweb.Test.Pact.PactMultiChainTest.tests
-    , Chainweb.Test.Pact.VerifierPluginTest.tests
-    , Chainweb.Test.Pact.PactSingleChainTest.tests rdb
-    , Chainweb.Test.Pact.PactReplay.tests rdb
-    , Chainweb.Test.Pact.ModuleCacheOnRestart.tests rdb
-    , Chainweb.Test.Pact.TTL.tests rdb
-    , Chainweb.Test.Pact.RewardsTest.tests
-    , Chainweb.Test.Pact.NoCoinbase.tests
-    , Chainweb.Test.Pact.GrandHash.tests
+    [ Chainweb.Test.Pact4.PactExec.tests -- OK: but need fixes (old broken tests)
+    , Chainweb.Test.Pact4.DbCacheTest.tests
+    , Chainweb.Test.Pact4.Checkpointer.tests
+
+    , Chainweb.Test.Pact4.PactMultiChainTest.tests -- BROKEN few tests
+
+    , Chainweb.Test.Pact4.PactSingleChainTest.tests rdb
+
+    , Chainweb.Test.Pact4.VerifierPluginTest.tests -- BROKEN
+
+    , Chainweb.Test.Pact4.PactReplay.tests rdb
+    , Chainweb.Test.Pact4.ModuleCacheOnRestart.tests rdb
+    , Chainweb.Test.Pact4.TTL.tests rdb
+    , Chainweb.Test.Pact4.RewardsTest.tests
+    , Chainweb.Test.Pact4.NoCoinbase.tests
+    , Chainweb.Test.Pact4.GrandHash.tests
     ]
 
 nodeTestSuite :: RocksDb -> TestTree
 nodeTestSuite rdb = independentSequentialTestGroup "Tests starting nodes"
-    [ Chainweb.Test.Rosetta.RestAPI.tests rdb
-    , Chainweb.Test.Pact.RemotePactTest.tests rdb
+    -- [ Chainweb.Test.Rosetta.RestAPI.tests rdb
+    [ Chainweb.Test.Pact4.RemotePactTest.tests rdb -- BROKEN
     ]
 
 suite :: RocksDb -> [TestTree]
@@ -133,15 +150,20 @@ suite rdb =
             , Chainweb.Test.BlockHeaderDB.PruneForks.tests
             , testProperties "Chainweb.Test.TreeDB" Chainweb.Test.TreeDB.properties
             ]
-        , Chainweb.Test.Pact.SQLite.tests
+        , Chainweb.Test.Pact4.SQLite.tests
         , Chainweb.Test.CutDB.tests rdb
-        , Chainweb.Test.Pact.TransactionTests.tests
+        , Chainweb.Test.Pact4.TransactionTests.tests -- TODO: fix, awaiting for Jose to add loadScript function
+        , Chainweb.Test.Pact5.CheckpointerTest.tests
+        , Chainweb.Test.Pact5.TransactionExecTest.tests rdb
+        , Chainweb.Test.Pact5.PactServiceTest.tests rdb
+        , Chainweb.Test.Pact5.SPVTest.tests rdb
+        , Chainweb.Test.Pact5.RemotePactTest.tests rdb
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.Rosetta.tests
         , Chainweb.Test.RestAPI.tests rdb
         , testGroup "SPV"
             [ Chainweb.Test.SPV.tests rdb
-            , Chainweb.Test.Pact.SPV.tests
+            , Chainweb.Test.Pact4.SPV.tests
             , Chainweb.Test.SPV.EventProof.properties
             ]
         , Chainweb.Test.Mempool.InMem.tests

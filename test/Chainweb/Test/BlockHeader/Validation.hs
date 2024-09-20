@@ -56,7 +56,7 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
-import Chainweb.Version.Testnet
+import Chainweb.Version.Testnet04
 
 import Numeric.AffineSpace
 
@@ -73,7 +73,7 @@ tests = testGroup "Chainweb.Test.Blockheader.Validation"
     , prop_featureFlag (barebonesTestVersion petersonChainGraph) 10
     , testProperty "validate arbitrary test header" prop_validateArbitrary
     , testProperty "validate arbitrary test header for mainnet" $ prop_validateArbitrary Mainnet01
-    , testProperty "validate arbitrary test header for testnet" $ prop_validateArbitrary Testnet04
+    , testProperty "validate arbitrary test header for testnet04" $ prop_validateArbitrary Testnet04
     , testProperty "validate arbitrary test header for devnet" $ prop_validateArbitrary RecapDevelopment
     ]
 

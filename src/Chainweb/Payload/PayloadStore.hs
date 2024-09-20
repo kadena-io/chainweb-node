@@ -334,7 +334,7 @@ initializePayloadDb
 initializePayloadDb v db = traverse_ initForChain $ chainIds v
   where
     initForChain cid =
-        addNewPayload db (genesisHeight v cid) $ v ^?! versionGenesis . genesisBlockPayload . onChain cid
+        addNewPayload db (genesisHeight v cid) $ v ^?! versionGenesis . genesisBlockPayload . atChain cid
 
 -- -------------------------------------------------------------------------- --
 -- Insert new Payload

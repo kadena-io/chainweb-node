@@ -6,8 +6,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE GADTs #-}
+
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE BangPatterns #-}
 
 -- |
 -- Module: Chainweb.Pact.ChainwebPactDb
@@ -20,9 +23,13 @@
 
 module Chainweb.Pact.Backend.Utils
   ( -- * General utils
-    callDb
-  , open2
+    open2
   , chainDbFileName
+    -- * Shared Pact database interactions
+  , doLookupSuccessful
+  , commitBlockStateToDatabase
+  , createVersionedTable
+  , tbl
     -- * Savepoints
   , withSavepoint
   , beginSavepoint
@@ -36,11 +43,18 @@ module Chainweb.Pact.Backend.Utils
   , toTextUtf8
   , asStringUtf8
   , domainTableName
+  , domainTableNameCore
+  , tableNameCore
   , convKeySetName
+  , convKeySetNameCore
   , convModuleName
+  , convModuleNameCore
   , convNamespaceName
+  , convNamespaceNameCore
   , convRowKey
+  , convRowKeyCore
   , convPactId
+  , convPactIdCore
   , convSavepointName
   , expectSingleRowCol
   , expectSingle
@@ -59,13 +73,10 @@ module Chainweb.Pact.Backend.Utils
   ) where
 
 import Control.Exception (SomeAsyncException, evaluate)
-import Control.Exception.Safe (tryAny)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.State.Strict
-
-import Control.Monad.Reader
 
 import Data.Bits
 import Data.Foldable
@@ -88,17 +99,44 @@ import Pact.Types.Term
     (KeySetName(..), ModuleName(..), NamespaceName(..), PactId(..))
 import Pact.Types.Util (AsString(..))
 
+import qualified Pact.Core.Names as PCore
+import qualified Pact.Core.Persistence as PCore
+import qualified Pact.Core.Guards as PCore
+
+
 -- chainweb
 
 import Chainweb.Logger
 import Chainweb.Pact.Backend.SQLite.DirectV2
-import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Service.Types
+
+import Chainweb.Pact.Types
 import Chainweb.Version
 import Chainweb.Utils
+import Chainweb.BlockHash
+import Chainweb.BlockHeight
+import Database.SQLite3.Direct hiding (open2)
+import GHC.Stack (HasCallStack)
+import qualified Data.ByteString.Short as SB
+import qualified Data.Vector as V
+import qualified Data.HashMap.Strict as HashMap
+import Chainweb.Utils.Serialization
+import qualified Data.ByteString.Char8 as B8
+import qualified Data.ByteString as BS
+import qualified Pact.Types.Persistence as Pact4
 
 -- -------------------------------------------------------------------------- --
 -- SQ3.Utf8 Encodings
+instance AsString (PCore.Domain k v b i) where
+    asString (PCore.DUserTables t) = asString t
+    asString PCore.DKeySets = "SYS:KeySets"
+    asString PCore.DModules = "SYS:Modules"
+    asString PCore.DNamespaces = "SYS:Namespaces"
+    asString PCore.DDefPacts = "SYS:Pacts"
+
+
+instance AsString (PCore.TableName) where
+    asString (PCore.TableName tn (PCore.ModuleName mn ns)) =
+      maybe "" (\(PCore.NamespaceName n) -> n <> ".") ns <> mn <> "_" <> tn
 
 toUtf8 :: T.Text -> SQ3.Utf8
 toUtf8 = SQ3.Utf8 . T.encodeUtf8
@@ -116,11 +154,20 @@ asStringUtf8 :: AsString a => a -> SQ3.Utf8
 asStringUtf8 = toUtf8 . asString
 {-# INLINE asStringUtf8 #-}
 
-domainTableName :: Domain k v -> SQ3.Utf8
+domainTableName :: Pact4.Domain k v -> SQ3.Utf8
 domainTableName = asStringUtf8
 
 convKeySetName :: KeySetName -> SQ3.Utf8
 convKeySetName = toUtf8 . asString
+
+domainTableNameCore :: PCore.Domain k v b i -> SQ3.Utf8
+domainTableNameCore = asStringUtf8
+
+tableNameCore :: PCore.TableName -> SQ3.Utf8
+tableNameCore = asStringUtf8
+
+convKeySetNameCore :: PCore.KeySetName -> SQ3.Utf8
+convKeySetNameCore = toUtf8 . PCore.renderKeySetName
 
 convModuleName
   :: Bool
@@ -130,32 +177,39 @@ convModuleName
 convModuleName False (ModuleName name _) = toUtf8 name
 convModuleName True mn = asStringUtf8 mn
 
+convModuleNameCore
+  :: Bool
+     -- ^ whether to apply module name fix
+  -> PCore.ModuleName
+  -> SQ3.Utf8
+convModuleNameCore False (PCore.ModuleName name _) = toUtf8 name
+convModuleNameCore True mn = toUtf8 $ PCore.renderModuleName mn
+
+
 convNamespaceName :: NamespaceName -> SQ3.Utf8
 convNamespaceName (NamespaceName name) = toUtf8 name
+
+convNamespaceNameCore :: PCore.NamespaceName -> SQ3.Utf8
+convNamespaceNameCore (PCore.NamespaceName name) = toUtf8 name
 
 convRowKey :: RowKey -> SQ3.Utf8
 convRowKey (RowKey name) = toUtf8 name
 
+convRowKeyCore :: PCore.RowKey -> SQ3.Utf8
+convRowKeyCore (PCore.RowKey name) = toUtf8 name
+
 convPactId :: PactId -> SQ3.Utf8
 convPactId = toUtf8 . sshow
+
+-- to match legacy keys
+convPactIdCore :: PCore.DefPactId -> SQ3.Utf8
+convPactIdCore pid = "PactId \"" <> toUtf8 (PCore.renderDefPactId pid) <> "\""
 
 convSavepointName :: SavepointName -> SQ3.Utf8
 convSavepointName = toTextUtf8
 
 -- -------------------------------------------------------------------------- --
 --
-
-callDb
-    :: (MonadCatch m, MonadReader (BlockHandlerEnv logger) m, MonadIO m)
-    => T.Text
-    -> (SQ3.Database -> IO b)
-    -> m b
-callDb callerName action = do
-  c <- view blockHandlerDb
-  res <- tryAny $ liftIO $ action c
-  case res of
-    Left err -> internalError $ "callDb (" <> callerName <> "): " <> sshow err
-    Right r -> return r
 
 withSavepoint
     :: SQLiteEnv
@@ -362,3 +416,128 @@ sqlite_open_readwrite, sqlite_open_create, sqlite_open_fullmutex :: SQLiteFlag
 sqlite_open_readwrite = 0x00000002
 sqlite_open_create = 0x00000004
 sqlite_open_fullmutex = 0x00010000
+
+markTableMutation :: Utf8 -> BlockHeight -> Database -> IO ()
+markTableMutation tablename blockheight db = do
+    exec' db mutq [SText tablename, SInt (fromIntegral blockheight)]
+  where
+    mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
+
+commitBlockStateToDatabase :: SQLiteEnv -> BlockHash -> BlockHeight -> BlockHandle -> IO ()
+commitBlockStateToDatabase db hsh bh blockHandle = do
+  let newTables = _pendingTableCreation $ _blockHandlePending blockHandle
+  mapM_ (\tn -> createUserTable (Utf8 tn)) newTables
+  let writeV = toChunks $ _pendingWrites (_blockHandlePending blockHandle)
+  backendWriteUpdateBatch writeV
+  indexPendingPactTransactions
+  let nextTxId = _blockHandleTxId blockHandle
+  blockHistoryInsert nextTxId
+  where
+    toChunks writes =
+      over _2 (concatMap toList . HashMap.elems) .
+      over _1 Utf8 <$> HashMap.toList writes
+
+    backendWriteUpdateBatch
+        :: [(Utf8, [SQLiteRowDelta])]
+        -> IO ()
+    backendWriteUpdateBatch writesByTable = mapM_ writeTable writesByTable
+       where
+         prepRow (SQLiteRowDelta _ txid rowkey rowdata) =
+            [ SText (Utf8 rowkey)
+            , SInt (fromIntegral txid)
+            , SBlob rowdata
+            ]
+
+         writeTable (tableName, writes) = do
+            execMulti db q (map prepRow writes)
+            markTableMutation tableName bh db
+           where
+            q = "INSERT OR REPLACE INTO " <> tbl tableName <> "(rowkey,txid,rowdata) VALUES(?,?,?)"
+
+    -- | Record a block as being in the history of the checkpointer
+    blockHistoryInsert :: TxId -> IO ()
+    blockHistoryInsert t =
+        exec' db stmt
+            [ SInt (fromIntegral bh)
+            , SBlob (runPutS (encodeBlockHash hsh))
+            , SInt (fromIntegral t)
+            ]
+      where
+        stmt =
+          "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
+
+    createUserTable :: Utf8 -> IO ()
+    createUserTable tablename = do
+        createVersionedTable tablename db
+        exec' db insertstmt insertargs
+      where
+        insertstmt = "INSERT OR IGNORE INTO VersionedTableCreation VALUES (?,?)"
+        insertargs =  [SText tablename, SInt (fromIntegral bh)]
+
+    -- | Commit the index of pending successful transactions to the database
+    indexPendingPactTransactions :: IO ()
+    indexPendingPactTransactions = do
+        let txs = _pendingSuccessfulTxs $ _blockHandlePending blockHandle
+        dbIndexTransactions txs
+
+      where
+        toRow b = [SBlob b, SInt (fromIntegral bh)]
+        dbIndexTransactions txs = do
+            let rows = map toRow $ toList txs
+            execMulti db "INSERT INTO TransactionIndex (txhash, blockheight) \
+                         \ VALUES (?, ?)" rows
+
+tbl :: HasCallStack => Utf8 -> Utf8
+tbl t@(Utf8 b)
+    | B8.elem ']' b = error $ "Chainweb.Pact4.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
+    | otherwise = "[" <> t <> "]"
+
+createVersionedTable :: Utf8 -> Database -> IO ()
+createVersionedTable tablename db = do
+    exec_ db createtablestmt
+    exec_ db indexcreationstmt
+  where
+    ixName = tablename <> "_ix"
+    createtablestmt =
+      "CREATE TABLE IF NOT EXISTS " <> tbl tablename <> " \
+             \ (rowkey TEXT\
+             \, txid UNSIGNED BIGINT NOT NULL\
+             \, rowdata BLOB NOT NULL\
+             \, UNIQUE (rowkey, txid));"
+    indexcreationstmt =
+        "CREATE INDEX IF NOT EXISTS " <> tbl ixName <> " ON " <> tbl tablename <> "(txid DESC);"
+
+
+doLookupSuccessful :: Database -> BlockHeight -> V.Vector SB.ShortByteString -> IO (HashMap.HashMap SB.ShortByteString (T2 BlockHeight BlockHash))
+doLookupSuccessful db curHeight hashes = do
+  fmap buildResultMap $ do -- swizzle results of query into a HashMap
+      let
+        hss = V.toList hashes
+        params = Utf8 $ BS.intercalate "," (map (const "?") hss)
+        qtext = "SELECT blockheight, hash, txhash FROM \
+                \TransactionIndex INNER JOIN BlockHistory \
+                \USING (blockheight) WHERE txhash IN (" <> params <> ")"
+                <> " AND blockheight <= ?;"
+        qvals
+          -- match query params above. first, hashes
+          = map (\h -> SBlob $ SB.fromShort h) hss
+          -- then, the block height; we don't want to see txs from the
+          -- current block in the db, because they'd show up in pending data
+          ++ [SInt $ fromIntegral (pred curHeight)]
+
+      qry db qtext qvals [RInt, RBlob, RBlob] >>= mapM go
+  where
+    -- NOTE: it's useful to keep the types of 'go' and 'buildResultMap' in sync
+    -- for readability but also to ensure the compiler and reader infer the
+    -- right result types from the db query.
+
+    buildResultMap :: [T3 SB.ShortByteString BlockHeight BlockHash] -> HashMap.HashMap SB.ShortByteString (T2 BlockHeight BlockHash)
+    buildResultMap xs = HashMap.fromList $
+      map (\(T3 txhash blockheight blockhash) -> (txhash, T2 blockheight blockhash)) xs
+
+    go :: [SType] -> IO (T3 SB.ShortByteString BlockHeight BlockHash)
+    go (SInt blockheight:SBlob blockhash:SBlob txhash:_) = do
+        !blockhash' <- either fail return $ runGetEitherS decodeBlockHash blockhash
+        let !txhash' = SB.toShort txhash
+        return $! T3 txhash' (fromIntegral blockheight) blockhash'
+    go _ = fail "impossible"

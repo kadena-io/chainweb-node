@@ -3,6 +3,7 @@ module Main where
 
 import Chainweb.Version.Development
 import Chainweb.Version.RecapDevelopment
+import Chainweb.Version.Pact5Development
 import Chainweb.Version.Registry
 
 import System.Environment
@@ -22,13 +23,13 @@ import qualified RunNodes
 import qualified SlowTests
 import qualified TxStream
 import qualified KnownGraphs
-import qualified TxSimulator
 import qualified CalculateRelease
 
 main :: IO ()
 main = do
     registerVersion RecapDevelopment
     registerVersion Development
+    registerVersion Pact5Development
     args <- getArgs
     case args of
       [] -> printHelp topLevelCommands
@@ -99,10 +100,6 @@ topLevelCommands =
       "known-graphs"
       "Encode know graphs as JSON values"
       KnownGraphs.main
-  , CommandSpec
-      "tx-sim"
-      "Simulate tx execution against real pact dbs"
-      TxSimulator.simulateMain
   , CommandSpec
       "compact"
       "Compact pact database"
