@@ -197,7 +197,11 @@ txTimeoutTest = do
         ]
   chid <- view menvChainId
 
-  mempoolBadlistRef <- setPactMempool $ PactMempool $ List.singleton $ blockForChain chid $ MempoolBlock $ \_ -> pure pts
+  mempoolBadlistRef <- setPactMempool
+    $ PactMempool
+    $ List.singleton
+    $ blockForChain chid
+    $ MempoolBlock $ \_ -> pure pts
 
   blockBefore <- currentCut <&> (^?! (cutMap . ix chid))
 

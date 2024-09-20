@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -36,7 +37,11 @@ import Data.Aeson
 import Data.Bifunctor (bimap)
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
+#if MIN_VERSION_base(4,20,0)
+import Data.Foldable (foldlM)
+#else
 import Data.Foldable (foldl', foldlM)
+#endif
 import Data.Function (on)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
