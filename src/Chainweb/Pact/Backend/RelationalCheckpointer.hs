@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -32,7 +33,9 @@ import Control.Monad.IO.Class
 
 import Data.ByteString (intercalate)
 import qualified Data.ByteString.Short as BS
+#if !MIN_VERSION_base(4,20,0)
 import Data.Foldable (foldl')
+#endif
 import Data.Int
 import qualified Data.Map.Strict as M
 import Data.Maybe
@@ -278,8 +281,7 @@ doGetEarliestBlock db = do
     [] -> return Nothing
     (!o:_) -> return (Just o)
   where
-    qtext = "SELECT blockheight, hash FROM BlockHistory \
-            \ ORDER BY blockheight ASC LIMIT 1"
+    qtext = "SELECT blockheight, hash FROM BlockHistory ORDER BY blockheight ASC LIMIT 1"
 
     go [SInt hgt, SBlob blob] =
         let hash = either error id $ runGetEitherS decodeBlockHash blob
@@ -293,8 +295,7 @@ doGetLatestBlock db = do
     [] -> return Nothing
     (!o:_) -> return (Just o)
   where
-    qtext = "SELECT blockheight, hash FROM BlockHistory \
-            \ ORDER BY blockheight DESC LIMIT 1"
+    qtext = "SELECT blockheight, hash FROM BlockHistory ORDER BY blockheight DESC LIMIT 1"
 
     go [SInt hgt, SBlob blob] =
         let hash = either error id $ runGetEitherS decodeBlockHash blob
@@ -309,8 +310,7 @@ doLookupBlock db (bheight, bhash) = do
         [SInt n] -> return $! n == 1
         _ -> internalError "doLookupBlock: output type mismatch"
   where
-    qtext = "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? \
-            \ AND hash = ?;"
+    qtext = "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? AND hash = ?;"
 
 doGetBlockParent :: ChainwebVersion -> ChainId -> SQLiteEnv -> (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
 doGetBlockParent v cid db (bh, hash)
@@ -336,11 +336,13 @@ doLookupSuccessful curHeight hashes = do
     callDb "doLookupSuccessful" $ \db -> do
       let
         hss = V.toList hashes
-        params = Utf8 $ intercalate "," (map (const "?") hss)
-        qtext = "SELECT blockheight, hash, txhash FROM \
-                \TransactionIndex INNER JOIN BlockHistory \
-                \USING (blockheight) WHERE txhash IN (" <> params <> ")"
-                <> " AND blockheight <= ?;"
+        params = intercalate "," (map (const "?") hss)
+        qtext = Utf8 $ intercalate " "
+            [ "SELECT blockheight, hash, txhash"
+            , "FROM TransactionIndex"
+            , "INNER JOIN BlockHistory USING (blockheight)"
+            , "WHERE txhash IN (" <> params <> ")" <> " AND blockheight <= ?;"
+            ]
         qvals
           -- match query params above. first, hashes
           = map (\(TypedHash h) -> SBlob $ BS.fromShort h) hss

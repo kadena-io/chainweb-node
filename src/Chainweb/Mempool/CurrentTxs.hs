@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -35,7 +36,9 @@ module Chainweb.Mempool.CurrentTxs
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as BS
+#if !MIN_VERSION_base(4,20,0)
 import Data.Foldable
+#endif
 import qualified Data.List as L
 import qualified Data.Set as S
 import qualified Data.Vector as V

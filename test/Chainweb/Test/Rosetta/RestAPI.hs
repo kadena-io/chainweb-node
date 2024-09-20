@@ -217,20 +217,35 @@ blockTransactionTests tio envIo =
       step "send in block tx request"
       resp <- blockTransaction v cenv req
 
-      (fundtx,cred,deb,redeem,reward) <-
+      (fundtx,deb,cred,redeem,reward) <-
         case _transaction_operations $ _blockTransactionResp_transaction resp of
           [a,b,c,d,e] -> return (a,b,c,d,e)
           _ -> assertFailure "transfer should have resulted in 5 transactions"
+
+      -- The order in which operations are returned is flaky and may break. Use
+      -- the following to double check the order in case this test fails.
+      --
+      -- print "fundtx: ----------------------"
+      -- print fundtx
+      -- print "cred: ----------------------"
+      -- print cred
+      -- print "deb: ----------------------"
+      -- print deb
+      -- print "redeem: ----------------------"
+      -- print redeem
+      -- print "reward: ----------------------"
+      -- print reward
+      -- print "----------------------"
 
 
       step "validate initial gas buy at op index 0"
       validateOp 0 "FundTx" sender00ks Successful (negate defFundGas) fundtx
 
-      step "validate sender01 credit at op index 1"
-      validateOp 1 "TransferOrCreateAcct" sender01ks Successful 1.0 cred
+      step "validate sender00 debit at op index 1"
+      validateOp 1 "TransferOrCreateAcct" sender00ks Successful (negate 1.0) deb
 
-      step "validate sender00 debit at op index 2"
-      validateOp 2 "TransferOrCreateAcct" sender00ks Successful (negate 1.0) deb
+      step "validate sender01 credit at op index 2"
+      validateOp 2 "TransferOrCreateAcct" sender01ks Successful 1.0 cred
 
       step "validate sender00 gas redemption at op index 3"
       validateOp 3 "GasPayment" sender00ks Successful (defFundGas - transferGasCost) redeem
@@ -295,7 +310,21 @@ blockTests testname tio envIo = testCaseSteps testname $ \step -> do
 
       validateBlock $ _blockResp_block resp
 
-    validateTxs remeds cbase fundtx cred deb gasRedeem gasReward = do
+    validateTxs remeds cbase fundtx deb cred gasRedeem gasReward = do
+      -- The order in which operations are returned is flaky and may break. Use
+      -- the following to double check the order in case this test fails.
+      --
+      -- step $ "fundtx: ----------------------"
+      -- step $ debugShowOperation fundtx
+      -- step $ "deb: ----------------------"
+      -- step $ debugShowOperation deb
+      -- step $ "cred: ----------------------"
+      -- step $ debugShowOperation cred
+      -- step $ "redeem: ----------------------"
+      -- step $ debugShowOperation gasRedeem
+      -- step $ "reward: ----------------------"
+      -- step $ debugShowOperation gasReward
+      -- step $ "----------------------"
 
       -- coinbase is considered a separate tx list
       validateOp 0 "CoinbaseReward" noMinerks Successful defMiningReward cbase
@@ -307,8 +336,8 @@ blockTests testname tio envIo = testCaseSteps testname $ \step -> do
 
       -- rest txs (i.e. transfer transaction)
       validateOp 0 "FundTx" sender00ks Successful (negate defFundGas) fundtx
-      validateOp 1 "TransferOrCreateAcct" sender01ks Successful 1.0 cred
-      validateOp 2 "TransferOrCreateAcct" sender00ks Successful (negate 1.0) deb
+      validateOp 1 "TransferOrCreateAcct" sender00ks Successful (negate 1.0) deb
+      validateOp 2 "TransferOrCreateAcct" sender01ks Successful 1.0 cred
       validateOp 3 "GasPayment" sender00ks Successful (defFundGas - transferGasCost) gasRedeem
       validateOp 4 "GasPayment" noMinerks Successful transferGasCost gasReward
 
