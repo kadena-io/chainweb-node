@@ -116,7 +116,7 @@ jobs:
       run: cabal build lib:chainweb
     - name: Build chainweb applications
       run: | 
-        cabal build -j
+        cabal build -j \
           exe:chainweb-node \
           exe:compact \
           test:chainweb-tests \
