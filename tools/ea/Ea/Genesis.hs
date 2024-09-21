@@ -323,7 +323,7 @@ fastAllocations :: FilePath
 fastAllocations = "pact/genesis/devnet/allocations.yaml"
 
 -- ---------------------------------------------------------------------- --
--- Testnet
+-- Testnet 04
 
 testnet040 :: Genesis
 testnet040 = Genesis
@@ -342,23 +342,6 @@ testnet04N = testnet040
     & txChainIds .~ mkChainIdRange 1 19
     & coinbase ?~ testNGrants
 
-testnet050 :: Genesis
-testnet050 = Genesis
-    { _version = Testnet05
-    , _tag = "Testnet05"
-    , _txChainIds = onlyChainId 0
-    , _coinbase = Just test0Grants
-    , _keysets = Just testnetKeysets
-    , _allocations = Just testnetAllocations
-    , _namespaces = Just testNs
-    , _coinContract = [fungibleAssetV1, fungibleXChainV1, fungibleAssetV2, installCoinContractV6, gasPayer]
-    }
-
-testnet05N :: Genesis
-testnet05N = testnet050
-    & txChainIds .~ mkChainIdRange 1 19
-    & coinbase ?~ testNGrants
-
 test0Grants :: FilePath
 test0Grants = "pact/genesis/testnet04/grants0.yaml"
 
@@ -373,6 +356,32 @@ testnetAllocations = "pact/genesis/testnet04/allocations.yaml"
 
 testnetKeysets :: FilePath
 testnetKeysets = "pact/genesis/testnet04/keysets.yaml"
+
+-- ---------------------------------------------------------------------- --
+-- Testnet 05
+
+testnet050 :: Genesis
+testnet050 = Genesis
+    { _version = Testnet05
+    , _tag = "Testnet05"
+    , _txChainIds = onlyChainId 0
+    , _coinbase = Just testnet05Chain0Grants
+    , _keysets = Just testnetKeysets
+    , _allocations = Just testnetAllocations
+    , _namespaces = Just testNs
+    , _coinContract = [fungibleAssetV1, fungibleXChainV1, fungibleAssetV2, installCoinContractV6, gasPayer]
+    }
+
+testnet05N :: Genesis
+testnet05N = testnet050
+    & txChainIds .~ mkChainIdRange 1 19
+    & coinbase ?~ testnet05ChainNGrants
+
+testnet05Chain0Grants :: FilePath
+testnet05Chain0Grants = "pact/genesis/testnet05/grants0.yaml"
+
+testnet05ChainNGrants :: FilePath
+testnet05ChainNGrants = "pact/genesis/testnet05/grantsN.yaml"
 
 -- ---------------------------------------------------------------------- --
 -- Mainnet
