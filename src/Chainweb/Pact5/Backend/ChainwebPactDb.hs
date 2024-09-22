@@ -13,6 +13,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE BlockArguments #-}
+-- TODO pact5: fix the orphan PactDbFor instance
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 
 module Chainweb.Pact5.Backend.ChainwebPactDb
