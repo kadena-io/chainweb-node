@@ -9,6 +9,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
+-- TODO pact5: fix the orphan PactDbFor instance
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 -- |
 -- Module: Chainweb.Pact4.Backend.ChainwebPactDb
