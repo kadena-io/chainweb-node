@@ -16,7 +16,7 @@ Read our [whitepapers](https://www.kadena.io/whitepapers):
 - [Chainweb: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput](https://d31d887a-c1e0-47c2-aa51-c69f9f998b07.filesusr.com/ugd/86a16f_029c9991469e4565a7c334dd716345f4.pdf)
 - [Agent-based Simulations of Blockchain Protocols illustrated via Kadena's *Chainweb*](https://d31d887a-c1e0-47c2-aa51-c69f9f998b07.filesusr.com/ugd/86a16f_3b2d0c58179d4edd9df6df4d55d61dda.pdf)
 
-For additional information, press, and development inquires, please refer to the Kadena [website](https://kadena.io)
+For additional information, press, and development inquiries, please refer to the Kadena [website](https://kadena.io)
 
 ## Table of Contents
 
@@ -44,7 +44,7 @@ Minimal recommended hardware requirements for nodes are:
 * 250 GB SSD or fast HDD
 * Public IP address
 
-If the node is also used as API server for Pact or mining, rosetta, chainweb-data: 4 CPU cores and 8GB of RAM.
+If the node is also used as API server for Pact or mining, Rosetta, chainweb-data: 4 CPU cores and 8GB of RAM.
 
 ### Docker (all batteries included)
 
@@ -103,7 +103,7 @@ At this point, you are ready to [run a Chainweb node](#configuring-running-and-m
 
 ## Building from Source
 
-*IMPORTANT NODE: We recommend the use of officially released chainweb-node
+*IMPORTANT NOTE: We recommend the use of officially released chainweb-node
 binaries or docker images, which can be found in the
 [release section of this
 repository](https://github.com/kadena-io/chainweb-node/releases).
@@ -243,7 +243,7 @@ are disabled by default (e.g. mining API, Rosetta, and header updates).
 While the P2P endpoint must be directly available from the public internet, it
 is highly recommended to expose the service API only on a private network. When
 service API endpoints are made available publicly it is recommended to use a
-reverse proxy setup things like rate limiting, authentication, and CORS.
+reverse proxy setup such as rate limiting, authentication, and CORS.
 
 ### Configuration
 
