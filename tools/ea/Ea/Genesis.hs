@@ -368,7 +368,7 @@ testnet050 = Genesis
     , _coinbase = Just testnet05Chain0Grants
     , _keysets = Just testnetKeysets
     , _allocations = Just testnetAllocations
-    , _namespaces = Just testNs
+    , _namespaces = Just "pact/genesis/ns-v2.yaml"
     , _coinContract = [fungibleAssetV1, fungibleXChainV1, fungibleAssetV2, installCoinContractV6, gasPayer]
     }
 
