@@ -341,6 +341,7 @@ EOF
 # Chainweb-node Application
 
 FROM chainweb-runtime AS chainweb-node
+ENV PATH=/chainweb:$PATH
 COPY --from=chainweb-build-node /chainweb/artifacts/chainweb-node .
 COPY --from=chainweb-build-node /chainweb/LICENSE .
 COPY --from=chainweb-build-node /chainweb/README.md .
