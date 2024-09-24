@@ -148,8 +148,8 @@ source-repository-package
 
 source-repository-package
     type: git
-    location: https://github.com/larskuhtz/lurk-hs.git
-    tag: 7e71572e478f9d4c2c60af7f39ca6218776937d5
+    location: https://github.com/rsoeldner/lurk-hs.git
+    tag: 9daa93205759d3752e73623bc1f77973b1617fd3
     --sha256: sha256-2ghQArnZ/KLSmuH/rhSb9smKeAfEmtgHFHO78aQ6evo=
 
 -- -------------------------------------------------------------------------- --
