@@ -41,6 +41,7 @@ import Control.Monad.Trans.Resource
 import Data.Decimal
 import Data.Default
 import Data.Functor.Product
+import Data.HashMap.Strict qualified as HashMap
 import Data.IORef
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
@@ -66,7 +67,7 @@ import Pact.Core.Verifiers
 import Pact.JSON.Encode qualified as J
 import PredicateTransformers as PT
 import Test.Tasty
-import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
+import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 import Text.Printf
 
 coinModuleName :: ModuleName
@@ -97,6 +98,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
     , testCase "payload failure all gas should go to the miner - type error" (payloadFailureShouldPayAllGasToTheMinerTypeError baseRdb)
     , testCase "payload failure all gas should go to the miner - insufficient funds" (payloadFailureShouldPayAllGasToTheMinerInsufficientFunds baseRdb)
     , testCase "event ordering spec" (testEventOrdering baseRdb)
+    , testCase "writes from failed transaction should not make it into the db" (testWritesFromFailedTxDontMakeItIn baseRdb)
     ]
 
 
@@ -981,6 +983,48 @@ testLocalOnlyFailsOutsideOfLocal baseRdb = runResourceT $ do
                                     ? something
 
                         testLocalOnly "(describe-module \"coin\")"
+
+        pure ()
+    pure ()
+
+testWritesFromFailedTxDontMakeItIn :: RocksDb -> IO ()
+testWritesFromFailedTxDontMakeItIn baseRdb = runResourceT $ do
+    sql <- withTempSQLiteResource
+    liftIO $ do
+        tdb <- mkTestBlockDb v =<< testRocksDb "testWritesFromFailedTxDontMakeItIn" baseRdb
+        bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
+        T2 ((), _finalHandle) _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+            initialPayloadState v cid
+            (throwIfNoHistory =<<) $ readFrom (Just $ ParentHeader (gh v cid)) $ SomeBlockM $ Pair (error "pact4") $ do
+                db <- view psBlockDbEnv
+                hndl <- use pbBlockHandle
+                ((), finalHandle) <- liftIO $ do
+                    doPact5DbTransaction db hndl Nothing $ \pactDb -> do
+
+                        let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
+
+                        moduleDeploy <- buildCwCmd v defaultCmd
+                            { _cbRPC = mkExec' "(module m g (defcap g () (enforce false \"non-upgradeable\"))) (enforce false \"boom\")"
+                            , _cbSigners =
+                                [ mkEd25519Signer' sender00
+                                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
+                                ]
+                            , _cbSender = "sender00"
+                            , _cbChainId = cid
+                            , _cbGasPrice = GasPrice 0.1
+                            , _cbGasLimit = GasLimit (Gas 200_000)
+                            }
+
+                        _ <- throwIfError =<< applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> moduleDeploy)
+
+                        return ()
+
+                -- Assert that the writes from the failed transaction didn't make it into the db
+                liftIO $ do
+                    let finalPendingWrites = _pendingWrites $ _blockHandlePending finalHandle
+                    assertBool "there are pending writes to coin" (HashMap.member "coin_coin-table" finalPendingWrites)
+                    assertBool "there are no pending writes to SYS:Modules" (not $ HashMap.member "SYS:Modules" finalPendingWrites)
+                return ((), finalHandle)
 
         pure ()
     pure ()
