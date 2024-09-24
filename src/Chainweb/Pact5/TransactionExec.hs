@@ -726,8 +726,10 @@ enrichedMsgBodyForGasPayer cmd = case (_pPayload $ _cmdPayload cmd) of
           -- Drop until the start line, and take (endLine - startLine). Note:
           -- Span info locations are absolute, so `endLine` is not relative to start line, but
           -- relative to the whole file.
-          lineSpan = take (endLine - startLine) $ drop startLine code
-      in T.concat (over _head (T.drop startCol) . over _last (T.take endCol) $ lineSpan)
+          --
+          -- Note: we take `end - start + 1` since end is inclusive.
+          lineSpan = take (endLine - startLine + 1) $ drop startLine code
+      in T.concat (over _head (T.drop startCol) . over _last (T.take (endCol + 1)) $ lineSpan)
   Continuation cont ->
     PObject $ Map.fromList
       [ ("tx-type", PString "cont")
