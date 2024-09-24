@@ -1267,14 +1267,9 @@ instance Show (BlockInProgress pv) where
     ]
 
 finalizeBlock :: BlockInProgress pv -> PayloadWithOutputs
-finalizeBlock bip = case _blockInProgressPactVersion bip of
-  Pact4T -> toPayloadWithOutputs
-    Pact4T
-    (_blockInProgressMiner bip)
-    (_blockInProgressTransactions bip)
-  -- TODO
-  Pact5T -> toPayloadWithOutputs
-    Pact5T
+finalizeBlock bip =
+  toPayloadWithOutputs
+    (_blockInProgressPactVersion bip)
     (_blockInProgressMiner bip)
     (_blockInProgressTransactions bip)
 
