@@ -450,17 +450,6 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
 -- Skips validation for genesis transactions, since gas accounts, etc. don't
 -- exist yet.
 
--- checkDesugar :: Pact5Db -> BlockHandle -> Pact5.Transaction -> ExceptT InsertError IO ()
--- checkDesugar db blockHandle tx = ExceptT $ do
---   (desugarResult, _blockHandle') <-
---     doPact5DbTransaction db blockHandle Nothing $ \pactDb ->
---       runExceptT $
---         traverseOf_
---           (Pact5.cmdPayload . payloadObj . Pact5.pPayload . Pact5._Exec . Pact5.pmCode . Pact5.pcExps)
---           (ExceptT . Pact5.desugarTerms_ pactDb)
---           tx
---   return $ over _Left (InsertErrorPactParseError . sshow) desugarResult
-
 validateParsedChainwebTx
     :: (Logger logger)
     => logger
@@ -483,7 +472,6 @@ validateParsedChainwebTx _logger v cid db _blockHandle txValidationTime bh isGen
       checkTxHash tx
       checkTxSigs tx
       checkTimes tx
-      -- checkDesugar db blockHandle tx
       return ()
   where
 
