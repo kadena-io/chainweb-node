@@ -134,6 +134,7 @@ module Chainweb.Pact.Types
   , hashPact5TxLogs
   , PactServiceConfig(..)
   , RequestCancelled(..)
+  , convertPact5Error
 
 
   -- * Module cache
@@ -947,8 +948,8 @@ data LocalResult
     = MetadataValidationFailure !(NE.NonEmpty Text)
     | LocalResultWithWarns !(Pact4.CommandResult Pact4.Hash) ![Text]
     | LocalResultLegacy !(Pact4.CommandResult Pact4.Hash)
-    | LocalPact5ResultLegacy (Pact5.CommandResult Pact5.Hash Text)
-    | LocalPact5PreflightResult (Pact5.CommandResult Pact5.Hash Text) ![Text]
+    | LocalPact5ResultLegacy !(Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.StableEncoding Pact5.Info)))
+    | LocalPact5PreflightResult !(Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.StableEncoding Pact5.Info))) ![Text]
     | LocalTimeout
     deriving stock (Show, Generic)
 
@@ -1296,12 +1297,13 @@ pact5CommandToBytes tx = Transaction
 -- be stored on-chain.
 pact5CommandResultToBytes :: Pact5.CommandResult Pact5.Hash Pact5.PactErrorI -> ByteString
 pact5CommandResultToBytes cr =
-    J.encodeStrict (fmap convertError cr)
-  where
-  convertError err =
-    Pact5.PEPact5Error $
-      fmap Pact5.StableEncoding $
-        Pact5.pactErrorToErrorCode err
+    J.encodeStrict (fmap convertPact5Error cr)
+
+convertPact5Error :: Pact5.PactError a -> Pact5.PactErrorCompat (Pact5.StableEncoding a)
+convertPact5Error err =
+  Pact5.PEPact5Error $
+    fmap Pact5.StableEncoding $
+      Pact5.pactErrorToErrorCode err
 
 hashPact5TxLogs :: Pact5.CommandResult [Pact5.TxLog ByteString] err -> Pact5.CommandResult Pact5.Hash err
 hashPact5TxLogs cr = cr & over (Pact5.crLogs . _Just)

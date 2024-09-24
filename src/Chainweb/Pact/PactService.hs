@@ -141,6 +141,7 @@ import qualified Chainweb.Pact5.NoCoinbase as Pact5
 import qualified Pact.Parse as Pact4
 import qualified Control.Parallel.Strategies as Strategies
 import qualified Chainweb.Pact5.Validations as Pact5
+import qualified Pact.Core.Errors as Pact5
 
 
 runPactService
@@ -848,7 +849,8 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                         return $ LocalPact5PreflightResult Pact5.CommandResult
                             { _crReqKey = Pact5.RequestKey (Pact5.Hash $ Pact4.unHash $ Pact4.toUntypedHash $ Pact4._cmdHash cwtx)
                             , _crTxId = Nothing
-                            , _crResult = Pact5.PactResultErr ("Parse error: " <> sshow parseError)
+                            , _crResult = Pact5.PactResultErr $ Pact5.PELegacyError $
+                                Pact5.LegacyPactError Pact5.LegacySyntaxError "" [] ("Parse error: " <> sshow parseError)
                             , _crGas = Pact5.Gas $ fromIntegral $ cmd ^. Pact4.cmdPayload . Pact4.pMeta . Pact4.pmGasLimit
                             , _crLogs = Nothing
                             , _crContinuation = Nothing
@@ -874,7 +876,9 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                                                 return $ LocalPact5PreflightResult Pact5.CommandResult
                                                     { _crReqKey = Pact5.RequestKey (Pact5.Hash $ Pact4.unHash $ Pact4.toUntypedHash $ Pact4._cmdHash cwtx)
                                                     , _crTxId = Nothing
-                                                    , _crResult = Pact5.PactResultErr ("Gas error: " <> sshow err)
+                                                    -- TODO: Pact5, make this nicer, the `sshow` makes for an ugly error
+                                                    , _crResult = Pact5.PactResultErr $ Pact5.PELegacyError $
+                                                        Pact5.LegacyPactError Pact5.LegacyGasError "" [] ("Gas error: " <> sshow err)
                                                     , _crGas = Pact5.Gas $ fromIntegral $ cmd ^. Pact4.cmdPayload . Pact4.pMeta . Pact4.pmGasLimit
                                                     , _crLogs = Nothing
                                                     , _crContinuation = Nothing
@@ -885,10 +889,12 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                                             Right cr -> do
                                                 let cr' = hashPact5TxLogs cr
                                                 -- TODO: pact 5, no warnings yet
-                                                pure $ LocalPact5PreflightResult (sshow <$> cr') []
+                                                -- TODO: pact 5, stop using convertPact5Error in local (same below),
+                                                -- Pact5 has a new function for this, toPrettyLegacyError
+                                                pure $ LocalPact5PreflightResult (convertPact5Error <$> cr') []
                             _ -> do
                                 cr <- Pact5.pactTransaction Nothing $ \dbEnv -> do
-                                    fmap sshow <$> Pact5.applyLocal _psLogger _psGasLogger dbEnv txCtx spvSupport (view Pact5.payloadObj <$> pact5Cmd)
+                                    fmap convertPact5Error <$> Pact5.applyLocal _psLogger _psGasLogger dbEnv txCtx spvSupport (view Pact5.payloadObj <$> pact5Cmd)
                                 pure $ LocalPact5ResultLegacy (hashPact5TxLogs cr)
 
             )
