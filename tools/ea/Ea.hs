@@ -28,6 +28,7 @@
 module Ea
   ( main ) where
 
+import Control.Concurrent.Async
 import Control.Exception
 import Control.Lens
 
@@ -76,20 +77,22 @@ import qualified Data.Aeson as Aeson
 
 main :: IO ()
 main = void $ do
-    recapDevnet
-    devnet
-    pact5Devnet
-    fastnet
-    instantnet
-    pact5Instantnet
-    testnet04
-    testnet05
-    mainnet
-    genTxModules
-    genCoinV3Payloads
-    genCoinV4Payloads
-    genCoinV5Payloads
-    genCoinV6Payloads
+    mapConcurrently_ id
+      [ recapDevnet
+      , devnet
+      , pact5Devnet
+      , fastnet
+      , instantnet
+      , pact5Instantnet
+      , testnet04
+      , testnet05
+      , mainnet
+      , genTxModules
+      , genCoinV3Payloads
+      , genCoinV4Payloads
+      , genCoinV5Payloads
+      , genCoinV6Payloads
+      ]
     putStrLn "Done."
   where
     recapDevnet = mkPayloads
