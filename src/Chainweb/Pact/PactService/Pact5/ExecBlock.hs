@@ -291,6 +291,7 @@ continueBlock mpAccess blockInProgress = do
           liftIO $ flip runStateT (startBlockHandle, Identity p5RemainingGas) $ foldr
             (\tx rest -> StateT $ \s -> do
               let logger = addLabel ("transactionHash", sshow (Pact5._cmdHash tx)) logger'
+              let env' = env & psServiceEnv . psLogger .~ logger
               let timeoutFunc runTx =
                     if isGenesis
                     then do
@@ -299,7 +300,7 @@ continueBlock mpAccess blockInProgress = do
                     else
                       newTimeout (fromIntegral @Micros @Int timeLimit) runTx
               m <- liftIO $ timeoutFunc
-                $ runExceptT $ runStateT (applyPactCmd env miner tx) s
+                $ runExceptT $ runStateT (applyPactCmd env' miner tx) s
               case m of
                 Nothing -> do
                   logFunctionJson logger Warn $ Aeson.object
@@ -392,7 +393,7 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
           traverse (`subtractGasLimit` (Pact5._crGas result)) blockGasRemaining
         return (result, (nextHandle, blockGasRemaining'))
   where
-  -- Apply a Pact command in the current block.
+  -- | Apply a Pact command in the current block.
   -- This function completely ignores timeouts and the block gas limit!
   unsafeApplyPactCmd
     :: (Logger logger)
@@ -427,6 +428,14 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
               -- to make types line up
               Right res -> return (Right (absurd <$> res))
           else applyCmd logger gasLogger pactDb txCtx spv initialGas cmd
+    liftIO $ case resultOrError of
+      Right
+        Pact5.CommandResult
+          {
+            _crResult =
+              Pact5.PactResultErr (Pact5.PEExecutionError (Pact5.UnknownException unknownExceptionMessage) _ _)
+          } -> logFunctionText logger Error $ "Unknown exception encountered " <> unknownExceptionMessage
+      _ -> return ()
     return $ (,blockHandle') <$> resultOrError
     where
     computeTrace (Left gasPurchaseFailure, _) = Aeson.object
