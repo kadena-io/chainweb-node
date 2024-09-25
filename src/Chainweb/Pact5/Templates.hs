@@ -83,11 +83,11 @@ mkFundTxTerm
   -> MinerKeys
   -> Text      -- ^ Address of the sender from the command
   -> GasSupply
-  -> (Expr (), PactValue)
+  -> (Expr (), Map.Map Field PactValue)
 mkFundTxTerm (MinerId mid) (MinerKeys ks) sender total =
   let
     term = fundTxTemplate sender mid
-    buyGasData = PObject $ Map.fromList
+    buyGasData = Map.fromList
       [ ("miner-keyset", convertKeySet ks)
       , ("total", PDecimal $ _pact5GasSupply total)
       ]
@@ -103,10 +103,10 @@ convertKeySet =
 mkBuyGasTerm
   :: Text      -- ^ Address of the sender from the command
   -> GasSupply
-  -> (Expr (), PactValue)
+  -> (Expr (), Map.Map Field PactValue)
 mkBuyGasTerm sender total = (buyGasTemplate sender, buyGasData)
   where
-    buyGasData = PObject $ Map.fromList
+    buyGasData = Map.fromList
       [ ("total", PDecimal $ _pact5GasSupply total) ]
 {-# INLINABLE mkBuyGasTerm #-}
 

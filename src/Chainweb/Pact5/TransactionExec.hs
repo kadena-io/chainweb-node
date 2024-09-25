@@ -701,8 +701,8 @@ runUpgrade _logger db txContext cmd = case payload ^. pPayload of
     publicMeta = payload ^. pMeta
     chash = _cmdHash cmd
 
-enrichedMsgBodyForGasPayer :: Command (Payload PublicMeta ParsedCode) -> PactValue
-enrichedMsgBodyForGasPayer cmd = case (_pPayload $ _cmdPayload cmd) of
+enrichedMsgBodyForGasPayer :: Map.Map Field PactValue -> Command (Payload PublicMeta ParsedCode) -> PactValue
+enrichedMsgBodyForGasPayer dat cmd = case (_pPayload $ _cmdPayload cmd) of
   Exec exec ->
     PObject $ Map.fromList
       [ ("tx-type", PString "exec")
@@ -712,7 +712,7 @@ enrichedMsgBodyForGasPayer cmd = case (_pPayload $ _cmdPayload cmd) of
       -- then slice the section of code each `TopLevel` uses.
       , ("exec-code", PList (Vector.fromList (fmap (PString . sliceSpan codeLines) (_pcExps (_pmCode exec)))))
       , ("exec-user-data", _pmData exec)
-      ]
+      ] `Map.union` dat
     where
     codeLines = T.lines (_pcCode (_pmCode exec))
     lispTLInfo = \case
@@ -738,7 +738,7 @@ enrichedMsgBodyForGasPayer cmd = case (_pPayload $ _cmdPayload cmd) of
       , ("cont-is-rollback", PBool (_cmRollback cont))
       , ("cont-user-data", _cmData cont)
       , ("cont-has-proof", PBool (isJust (_cmProof cont)))
-      ]
+      ] `Map.union` dat
 
 -- | Build and execute 'coin.buygas' command from miner info and user command
 -- info (see 'TransactionExec.applyCmd' for more information).
@@ -786,7 +786,7 @@ buyGas logger db txCtx cmd = do
       MsgData
         -- Note: in the case of gaspayer, buyGas is given extra metadata that comes from
         -- the Command
-        { mdData = maybe buyGasData (const (enrichedMsgBodyForGasPayer cmd)) gasPayerCap
+        { mdData = maybe (PObject buyGasData) (const $ enrichedMsgBodyForGasPayer buyGasData cmd) gasPayerCap
         , mdHash = bgHash
         , mdSigners = signersWithDebit
         -- no verifiers are allowed in buy gas
