@@ -465,7 +465,7 @@ validateChainwebVersion v = do
             , "set to recap-development or development, but version is set to"
             , sshow (_versionName v)
             ]
-    -- TODO Pact5: disable
+    -- FIXME Pact5: disable
     when (v == mainnet || v == testnet04) $
         throwError $ T.unwords
             [ "This node version is a technical preview of Pact 5, and"

@@ -122,7 +122,6 @@ pactMemPoolAccess
     -> MemPoolAccess
 pactMemPoolAccess mpc logger = MemPoolAccess
     { mpaGetBlock = pactMemPoolGetBlock mpc logger
-    -- TODO: pact5
     , mpaSetLastHeader = pactMempoolSetLastHeader mpc logger
     , mpaProcessFork = pactProcessFork mpc logger
     , mpaBadlistTx = mempoolAddToBadList (mpcMempool mpc)

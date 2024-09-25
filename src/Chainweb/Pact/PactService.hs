@@ -876,7 +876,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                                                 return $ LocalPact5PreflightResult Pact5.CommandResult
                                                     { _crReqKey = Pact5.RequestKey (Pact5.Hash $ Pact4.unHash $ Pact4.toUntypedHash $ Pact4._cmdHash cwtx)
                                                     , _crTxId = Nothing
-                                                    -- TODO: Pact5, make this nicer, the `sshow` makes for an ugly error
+                                                    -- FIXME: Pact5, make this nicer, the `sshow` makes for an ugly error
                                                     , _crResult = Pact5.PactResultErr $ Pact5.PELegacyError $
                                                         Pact5.LegacyPactError Pact5.LegacyGasError "" [] ("Gas error: " <> sshow err)
                                                     , _crGas = Pact5.Gas $ fromIntegral $ cmd ^. Pact4.cmdPayload . Pact4.pMeta . Pact4.pmGasLimit
@@ -888,8 +888,8 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                                                     []
                                             Right cr -> do
                                                 let cr' = hashPact5TxLogs cr
-                                                -- TODO: pact 5, no warnings yet
-                                                -- TODO: pact 5, stop using convertPact5Error in local (same below),
+                                                -- FIXME: Pact5, no warnings yet
+                                                -- FIXME: Pact5, stop using convertPact5Error in local (same below),
                                                 -- Pact5 has a new function for this, toPrettyLegacyError
                                                 pure $ LocalPact5PreflightResult (convertPact5Error <$> cr') []
                             _ -> do
@@ -1171,7 +1171,6 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                         [ Pact4.FlagDisableModuleInstall
                         , Pact4.FlagDisableHistoryInTransactionalMode ] ++
                         Pact4.disableReturnRTC (Pact4.ctxVersion pd) (Pact4.ctxChainId pd) (Pact4.ctxCurrentBlockHeight pd)
-                -- TODO: use Pact5's buygas here
                 let buyGasEnv = Pact4.TransactionEnv Pact4.Transactional dbEnv l Nothing (Pact4.ctxToPublicData pd) spv nid gasPrice rk gasLimit ec Nothing Nothing
 
                 cr <- liftIO
