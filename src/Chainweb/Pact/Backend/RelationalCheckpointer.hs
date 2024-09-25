@@ -196,7 +196,6 @@ doReadFrom logger v cid sql moduleCacheVar maybeParent pactVersion doRead = do
                 , PactDb._cpRegisterProcessedTx = \hash ->
                   PactDb.runBlockEnv newDbEnv (PactDb.indexPactTransaction $ BS.fromShort $ coerce hash)
                 , PactDb._cpLookupProcessedTx = \hs ->
-                  -- TODO: Pact 5
                     HashMap.mapKeys coerce <$> doLookupSuccessful sql currentHeight (coerce hs)
                 }
               pactDb

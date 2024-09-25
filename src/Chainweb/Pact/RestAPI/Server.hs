@@ -252,7 +252,7 @@ instance ToJSON PactCmdLog where
 -- -------------------------------------------------------------------------- --
 -- Send Handler
 
--- TODO: convert to Pact 5?
+-- TODO: convert to Pact 5
 sendHandler
     :: Logger logger
     => logger

@@ -104,7 +104,7 @@ validateVersion v = do
                     ])]
             , [ "validateVersion: some pact upgrade has no transactions"
                 | any (any isUpgradeEmpty) (_versionUpgrades v) ]
-            -- TODO: check that pact 4 vs pact 5 fork height respects the upgrades
+            -- TODO: check that pact 4/5 upgrades are only enabled when pact 4/5 is enabled
             ]
     unless (null errors) $
         error $ unlines $ ["errors encountered validating version", show v] <> errors

@@ -127,7 +127,8 @@ runPact5Coinbase miner = do
       let !bh = ctxCurrentBlockHeight txCtx
 
       reward <- liftIO $ minerReward v rs bh
-      -- TODO Pact 5: add the coinbase request key here
+      -- FIXME Pact5: add the coinbase request key here, which is the hash of the parent block.
+      -- see the Pact 4 version for more info.
       pactTransaction Nothing $ \db ->
         applyCoinbase logger db reward txCtx
 
@@ -362,7 +363,6 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
   -- we set the command gas limit to the minimum of its original value and the remaining gas in the block
   -- this way Pact never uses more gas than remains in the block, and the tx fails otherwise
   let alteredTx = (view payloadObj <$> tx) & Pact5.cmdPayload . Pact5.pMeta . pmGasLimit %~ maybe id min (blockGasRemaining ^? traversed)
-  -- TODO: pact5 genesis
   resultOrGasError <- liftIO $ runReaderT
     (unsafeApplyPactCmd blockHandle
       (initialGasOf (tx ^. Pact5.cmdPayload))
@@ -555,7 +555,7 @@ execExistingBlock currHeader payload = do
   miner :: Miner <- decodeStrictOrThrow (_minerData $ view payloadDataMiner plData)
   txs <- liftIO $ pact5TransactionsFromPayload plData
   logger <- view (psServiceEnv . psLogger)
-  -- TODO: Pact5
+  -- TODO: Pact5: ACTUALLY log gas
   _gasLogger <- view (psServiceEnv . psGasLogger)
   v <- view chainwebVersion
   cid <- view chainId
