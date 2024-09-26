@@ -313,11 +313,11 @@
         "rev": "23efab94abb2892175ffb1175dccb9d8cf843d1c",
         "revCount": 19,
         "type": "git",
-        "url": "file:///Users/johnw/kadena/argument/hs-nix-infra"
+        "url": "file:///home/johnw/argument/hs-nix-infra"
       },
       "original": {
         "type": "git",
-        "url": "file:///Users/johnw/kadena/argument/hs-nix-infra"
+        "url": "file:///home/johnw/argument/hs-nix-infra"
       }
     },
     "nix-filter": {

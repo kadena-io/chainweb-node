@@ -7,11 +7,13 @@
       flake = false;
     };
     hs-nix-infra = {
-      url = "github:kadena-io/hs-nix-infra";
+      # url = "github:kadena-io/hs-nix-infra";
+      url = "git+file:///home/johnw/argument/hs-nix-infra";
       inputs.hackage.follows = "hackage";
     };
     flake-utils.url = "github:numtide/flake-utils";
     nix-filter.url = "github:numtide/nix-filter";
+    rust-overlay.url = "github:oxalica/rust-overlay";
     empty = {
       url = "github:kadena-io/empty";
       flake = false;
@@ -25,7 +27,7 @@
     trusted-public-keys = "nixcache.chainweb.com:FVN503ABX9F8x8K0ptnc99XEz5SaA4Sks6kNcZn2pBY= hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ= cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=";
   };
 
-  outputs = inputs@{ self, hs-nix-infra, flake-utils, nix-filter, ... }:
+  outputs = inputs@{ self, hs-nix-infra, rust-overlay, flake-utils, nix-filter, ... }:
     flake-utils.lib.eachSystem
       [ "x86_64-linux" "x86_64-darwin"
         "aarch64-linux" "aarch64-darwin" ] (system:
@@ -37,7 +39,22 @@
       pkgs = import nixpkgs {
         inherit system;
         inherit (haskellNix) config;
-        overlays = [ haskellNix.overlay ];
+        overlays = [
+          haskellNix.overlay
+          (import rust-overlay)
+          (final: prev: {
+             mkShell = args:
+               with prev; mkShell.override {
+                 stdenv =
+                   if stdenv.isDarwin
+                   then overrideSDK stdenv "11.0"
+                   else stdenv;
+               } (args // {
+                 LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
+                 BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${llvmPackages.libclang.lib}/lib/clang/${lib.getVersion pkgs.clang}/include";
+               });
+          })
+        ];
       };
       mkDefaultNix = {
           pact ? pactInput,
