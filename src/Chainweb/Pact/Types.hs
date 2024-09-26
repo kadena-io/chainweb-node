@@ -121,8 +121,13 @@ module Chainweb.Pact.Types
   , CoinbaseFailure(..)
   , Pact5CoinbaseError(..)
   , Pact5BuyGasError(..)
+  , _BuyGasPactError
   , Pact5RedeemGasError(..)
+  , _RedeemGasPactError
   , Pact5GasPurchaseFailure(..)
+  , _BuyGasError
+  , _RedeemGasError
+  , _PurchaseGasTxTooBigForGasLimit
   , Transactions(..)
   , transactionPairs
   , transactionCoinbase
@@ -484,17 +489,20 @@ data Pact5RedeemGasError
   = RedeemGasPactError !(Pact5.PactError Pact5.Info)
     -- ^ Expected pact error
   deriving stock (Eq, Show)
+makePrisms ''Pact5RedeemGasError
 
 data Pact5BuyGasError
   = BuyGasPactError !(Pact5.PactError Pact5.Info)
   | BuyGasMultipleGasPayerCaps
   deriving stock (Eq, Show)
+makePrisms ''Pact5BuyGasError
 
 data Pact5GasPurchaseFailure
   = BuyGasError !Pact5.RequestKey !Pact5BuyGasError
   | RedeemGasError !Pact5.RequestKey !Pact5RedeemGasError
   | PurchaseGasTxTooBigForGasLimit !Pact5.RequestKey
   deriving stock (Eq, Show)
+makePrisms ''Pact5GasPurchaseFailure
 
 data Pact4GasPurchaseFailure = Pact4GasPurchaseFailure !TransactionHash !Pact4.PactError
   deriving (Eq, Show)
