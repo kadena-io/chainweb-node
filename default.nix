@@ -77,10 +77,16 @@ let haskellSrc = with nix-filter.lib; filter {
         zlib
         pkg-config
         sqlite
-	cargo
-        rustc
-        cargo
-        go
+        openssl
+        # The version of Rust desired can be fixed here by changing `latest`
+        # to a version string, like `"1.81.0"`.
+        rust-bin.stable."1.81.0".minimal
+        rustPlatform.bindgenHook
+        go_1_22
+        llvmPackages.libclang.dev
+      ] ++ lib.optionals stdenv.isDarwin [
+        darwin.apple_sdk.frameworks.Security
+        darwin.apple_sdk.frameworks.CoreServices
       ];
       modules = [
         {
