@@ -106,22 +106,22 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
 -- focused on the transaction level. Tests that need to be aware of blocks, for
 -- example to observe database writes, belong in a different suite, like
 -- PactServiceTest or RemotePactTest.
-readFromAfterGenesis :: RocksDb -> PactBlockM GenericLogger RocksDbTable a -> IO a
-readFromAfterGenesis rdb act = runResourceT $ do
+readFromAfterGenesis :: ChainwebVersion -> RocksDb -> PactBlockM GenericLogger RocksDbTable a -> IO a
+readFromAfterGenesis ver rdb act = runResourceT $ do
     sql <- withTempSQLiteResource
     liftIO $ do
-        tdb <- mkTestBlockDb v =<< testRocksDb "testBuyGasShouldTakeGasTokensFromTheTransactionSender" rdb
+        tdb <- mkTestBlockDb ver =<< testRocksDb "testBuyGasShouldTakeGasTokensFromTheTransactionSender" rdb
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb tdb) cid
-        T2 a _finalPactState <- withPactService v cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
-            initialPayloadState v cid
+        T2 a _finalPactState <- withPactService ver cid stdoutDummyLogger Nothing bhdb (_bdbPayloadDb tdb) sql testPactServiceConfig $ do
+            initialPayloadState ver cid
             throwIfNoHistory =<<
                 readFrom
-                    (Just $ ParentHeader (gh v cid))
+                    (Just $ ParentHeader (gh ver cid))
                     (SomeBlockM $ Pair (error "Pact4") act)
         return a
 
 buyGasShouldTakeGasTokensFromTheTransactionSender :: RocksDb -> IO ()
-buyGasShouldTakeGasTokensFromTheTransactionSender rdb = readFromAfterGenesis rdb $
+buyGasShouldTakeGasTokensFromTheTransactionSender rdb = readFromAfterGenesis v rdb $
     pactTransaction Nothing $ \pactDb -> do
         startSender00Bal <- readBal pactDb "sender00"
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
@@ -144,7 +144,7 @@ buyGasShouldTakeGasTokensFromTheTransactionSender rdb = readFromAfterGenesis rdb
         assertEqual "balance after buying gas" (Just $ 100_000_000 - 200 * 2) endSender00Bal
 
 buyGasFailures :: RocksDb -> IO ()
-buyGasFailures rdb = readFromAfterGenesis rdb $ do
+buyGasFailures rdb = readFromAfterGenesis v rdb $ do
     pactTransaction Nothing $ \pactDb -> do
         startSender00Bal <- readBal pactDb "sender00"
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
@@ -189,7 +189,7 @@ buyGasFailures rdb = readFromAfterGenesis rdb $ do
                 >>= equals ? Left BuyGasMultipleGasPayerCaps
 
 redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner :: RocksDb -> IO ()
-redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner rdb = readFromAfterGenesis rdb $ do
+redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner rdb = readFromAfterGenesis v rdb $ do
     pactTransaction Nothing $ \pactDb -> do
         startSender00Bal <- readBal pactDb "sender00"
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
@@ -218,7 +218,7 @@ redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner rdb = readFromAfterGe
         assertEqual "miner balance after redeeming gas" (Just $ fromMaybe 0 startMinerBal + 3 * 2) endMinerBal
 
 payloadFailureShouldPayAllGasToTheMinerTypeError :: RocksDb -> IO ()
-payloadFailureShouldPayAllGasToTheMinerTypeError rdb = readFromAfterGenesis rdb $ do
+payloadFailureShouldPayAllGasToTheMinerTypeError rdb = readFromAfterGenesis v rdb $ do
     pactTransaction Nothing $ \pactDb -> do
         startSender00Bal <- readBal pactDb "sender00"
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
@@ -267,7 +267,7 @@ payloadFailureShouldPayAllGasToTheMinerTypeError rdb = readFromAfterGenesis rdb 
         assertEqual "miner balance after payload failure" (Just $ fromMaybe 0 startMinerBal + gasToMiner) endMinerBal
 
 payloadFailureShouldPayAllGasToTheMinerInsufficientFunds :: RocksDb -> IO ()
-payloadFailureShouldPayAllGasToTheMinerInsufficientFunds rdb = readFromAfterGenesis rdb $
+payloadFailureShouldPayAllGasToTheMinerInsufficientFunds rdb = readFromAfterGenesis v rdb $
     pactTransaction Nothing $ \pactDb -> do
         startSender00Bal <- readBal pactDb "sender00"
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
@@ -322,7 +322,7 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds rdb = readFromAfterGene
         assertEqual "miner balance after payload failure" (Just $ fromMaybe 0 startMinerBal + gasToMiner) endMinerBal
 
 runPayloadShouldReturnEvalResultRelatedToTheInputCommand :: RocksDb -> IO ()
-runPayloadShouldReturnEvalResultRelatedToTheInputCommand rdb = readFromAfterGenesis rdb $
+runPayloadShouldReturnEvalResultRelatedToTheInputCommand rdb = readFromAfterGenesis v rdb $
     pactTransaction Nothing $ \pactDb -> do
         cmd <- buildCwCmd v defaultCmd
             { _cbRPC = mkExec' "(fold + 0 [1 2 3 4 5])"
@@ -367,7 +367,7 @@ runPayloadShouldReturnEvalResultRelatedToTheInputCommand rdb = readFromAfterGene
 
 -- applyLocal should mostly be the same as applyCmd, this is mostly a smoke test
 applyLocalSpec :: RocksDb -> IO ()
-applyLocalSpec rdb = readFromAfterGenesis rdb $
+applyLocalSpec rdb = readFromAfterGenesis v rdb $
     pactTransaction Nothing $ \pactDb -> do
         startSender00Bal <- readBal pactDb "sender00"
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
@@ -401,7 +401,7 @@ applyLocalSpec rdb = readFromAfterGenesis rdb $
         assertEqual "miner balance after redeeming gas should have increased" startMinerBal endMinerBal
 
 applyCmdSpec :: RocksDb -> IO ()
-applyCmdSpec rdb = readFromAfterGenesis rdb $
+applyCmdSpec rdb = readFromAfterGenesis v rdb $
     pactTransaction Nothing $ \pactDb -> do
         startSender00Bal <- readBal pactDb "sender00"
         let expectedStartingBal = 100_000_000
@@ -462,7 +462,7 @@ applyCmdSpec rdb = readFromAfterGenesis rdb $
             endMinerBal
 
 applyCmdVerifierSpec :: RocksDb -> IO ()
-applyCmdVerifierSpec rdb = readFromAfterGenesis rdb $
+applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
     pactTransaction Nothing $ \pactDb -> do
         -- Define module with capability
         do
@@ -567,7 +567,7 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis rdb $
                     ]
 
 applyCmdFailureSpec :: RocksDb -> IO ()
-applyCmdFailureSpec rdb = readFromAfterGenesis rdb $
+applyCmdFailureSpec rdb = readFromAfterGenesis v rdb $
     pactTransaction Nothing $ \pactDb -> do
         startSender00Bal <- readBal pactDb "sender00"
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
@@ -624,7 +624,7 @@ applyCmdFailureSpec rdb = readFromAfterGenesis rdb $
             endMinerBal
 
 applyCmdCoinTransfer :: RocksDb -> IO ()
-applyCmdCoinTransfer rdb = readFromAfterGenesis rdb $ do
+applyCmdCoinTransfer rdb = readFromAfterGenesis v rdb $ do
     txCtx <- TxContext <$> view psParentHeader <*> pure noMiner
     pactTransaction Nothing $ \pactDb -> do
         startSender00Bal <- readBal pactDb "sender00"
@@ -699,7 +699,7 @@ applyCmdCoinTransfer rdb = readFromAfterGenesis rdb $ do
             endMinerBal
 
 applyCoinbaseSpec :: RocksDb -> IO ()
-applyCoinbaseSpec rdb = readFromAfterGenesis rdb $
+applyCoinbaseSpec rdb = readFromAfterGenesis v rdb $
     pactTransaction Nothing $ \pactDb -> do
         startMinerBal <- readBal pactDb "NoMiner"
 
@@ -727,12 +727,12 @@ applyCoinbaseSpec rdb = readFromAfterGenesis rdb $
             endMinerBal
 
 testCoinUpgrade :: RocksDb -> IO ()
-testCoinUpgrade rdb = readFromAfterGenesis rdb $ do
+testCoinUpgrade rdb = readFromAfterGenesis vUpgrades rdb $ do
     txCtx <- TxContext <$> view psParentHeader <*> pure noMiner
     pactTransaction Nothing $ \pactDb -> do
 
         getCoinModuleHash txCtx pactDb
-            >>= equals ? PactResultOk (PString "wOTjNC3gtOAjqgCY8S9hQ-LBiwcPUE7j4iBDE0TmdJo")
+            >>= traceFailShow ? equals ? PactResultOk (PString "wOTjNC3gtOAjqgCY8S9hQ-LBiwcPUE7j4iBDE0TmdJo")
 
         applyUpgrades stdoutDummyLogger pactDb txCtx
 
@@ -753,7 +753,7 @@ testCoinUpgrade rdb = readFromAfterGenesis rdb $ do
         _crResult <$> applyLocal stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (view payloadObj <$> cmd)
 
 testEventOrdering :: RocksDb -> IO ()
-testEventOrdering rdb = readFromAfterGenesis rdb $
+testEventOrdering rdb = readFromAfterGenesis v rdb $
     pactTransaction Nothing $ \pactDb -> do
         cmd <- buildCwCmd v defaultCmd
             { _cbRPC = mkExec' "(coin.transfer 'sender00 'sender01 420.0) (coin.transfer 'sender00 'sender01 69.0)"
@@ -788,7 +788,7 @@ testEventOrdering rdb = readFromAfterGenesis rdb $
                 ]
 
 testLocalOnlyFailsOutsideOfLocal :: RocksDb -> IO ()
-testLocalOnlyFailsOutsideOfLocal rdb = readFromAfterGenesis rdb $ do
+testLocalOnlyFailsOutsideOfLocal rdb = readFromAfterGenesis v rdb $ do
     txCtx <- TxContext <$> view psParentHeader <*> pure noMiner
     pactTransaction Nothing $ \pactDb -> do
         let testLocalOnly txt = do
@@ -818,7 +818,7 @@ testLocalOnlyFailsOutsideOfLocal rdb = readFromAfterGenesis rdb $ do
         testLocalOnly "(describe-module \"coin\")"
 
 testWritesFromFailedTxDontMakeItIn :: RocksDb -> IO ()
-testWritesFromFailedTxDontMakeItIn rdb = readFromAfterGenesis rdb $ do
+testWritesFromFailedTxDontMakeItIn rdb = readFromAfterGenesis v rdb $ do
     txCtx <- TxContext <$> view psParentHeader <*> pure noMiner
     pactTransaction Nothing $ \pactDb -> do
 
