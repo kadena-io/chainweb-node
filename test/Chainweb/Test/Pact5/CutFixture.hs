@@ -245,7 +245,6 @@ createNewCut hdb n t pay i c = do
     (h, mc') <- extendCut c pay (solveWork work n t)
         `catch` \(InvalidSolvedHeader _ msg) -> throwM $ InvalidHeader msg
     c' <- fromMaybeM BadAdjacents mc'
-    liftIO $ putStrLn $ "BRUH" <> sshow h
     return $ T2 h c'
 
 -- | Solve Work. Doesn't check that the nonce and the time are valid.
