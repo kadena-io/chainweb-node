@@ -276,17 +276,17 @@ doReadRow
     -> BlockHandler logger (Maybe v)
 doReadRow mlim d k = forModuleNameFix $ \mnFix ->
     case d of
-        DKeySets -> let f = (\v -> (view document <$> _decodeKeySet serialisePact_raw_spaninfo v)) in
+        DKeySets -> let f = (\v -> (view document <$> _decodeKeySet serialisePact_lineinfo v)) in
             lookupWithKey (convKeySetNameCore k) f (noCache f)
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
-        DModules -> let f = (\v -> (view document <$> _decodeModuleData serialisePact_raw_spaninfo v)) in
+        DModules -> let f = (\v -> (view document <$> _decodeModuleData serialisePact_lineinfo v)) in
             lookupWithKey (convModuleNameCore mnFix k) f (noCache f)
-        DNamespaces -> let f = (\v -> (view document <$> _decodeNamespace serialisePact_raw_spaninfo v)) in
+        DNamespaces -> let f = (\v -> (view document <$> _decodeNamespace serialisePact_lineinfo v)) in
             lookupWithKey (convNamespaceNameCore k) f (noCache f)
-        DUserTables _ -> let f = (\v -> (view document <$> _decodeRowData serialisePact_raw_spaninfo v)) in
+        DUserTables _ -> let f = (\v -> (view document <$> _decodeRowData serialisePact_lineinfo v)) in
             lookupWithKey (convRowKeyCore k) f (noCache f)
-        DDefPacts -> let f = (\v -> (view document <$> _decodeDefPactExec serialisePact_raw_spaninfo v)) in
+        DDefPacts -> let f = (\v -> (view document <$> _decodeDefPactExec serialisePact_lineinfo v)) in
             lookupWithKey (convPactIdCore k) f (noCache f)
   where
     tablename@(Utf8 tableNameBS) = domainTableNameCore d
@@ -367,10 +367,10 @@ writeSys
 writeSys d k v = do
   txid <- use latestTxId
   (kk, vv) <- forModuleNameFix $ \mnFix -> pure $ case d of
-      DKeySets -> (convKeySetNameCore k, _encodeKeySet serialisePact_raw_spaninfo v)
-      DModules ->  (convModuleNameCore mnFix k, _encodeModuleData serialisePact_raw_spaninfo v)
-      DNamespaces -> (convNamespaceNameCore k, _encodeNamespace serialisePact_raw_spaninfo v)
-      DDefPacts -> (convPactIdCore k, _encodeDefPactExec serialisePact_raw_spaninfo v)
+      DKeySets -> (convKeySetNameCore k, _encodeKeySet serialisePact_lineinfo v)
+      DModules ->  (convModuleNameCore mnFix k, _encodeModuleData serialisePact_lineinfo v)
+      DNamespaces -> (convNamespaceNameCore k, _encodeNamespace serialisePact_lineinfo v)
+      DDefPacts -> (convPactIdCore k, _encodeDefPactExec serialisePact_lineinfo v)
       DUserTables _ -> error "impossible"
   recordPendingUpdate kk (toUtf8 tablename) txid vv
   recordTxLog d kk vv
@@ -426,20 +426,20 @@ writeUser mlim wt d k rowdata@(RowData row) = do
     row' <- case m of
         Nothing -> ins txid
         Just old -> upd txid old
-    liftGas (_encodeRowData serialisePact_raw_spaninfo row') >>=
+    liftGas (_encodeRowData serialisePact_lineinfo row') >>=
         \encoded -> recordTxLog d (convRowKeyCore k) encoded
   where
   tn = asString d
 
   upd txid (RowData oldrow) = do
       let row' = RowData (M.union row oldrow)
-      liftGas (_encodeRowData serialisePact_raw_spaninfo row') >>=
+      liftGas (_encodeRowData serialisePact_lineinfo row') >>=
           \encoded -> do
               recordPendingUpdate (convRowKeyCore k) (toUtf8 tn) (PCore.TxId txid) encoded
               return row'
 
   ins txid = do
-      liftGas (_encodeRowData serialisePact_raw_spaninfo rowdata) >>=
+      liftGas (_encodeRowData serialisePact_lineinfo rowdata) >>=
           \encoded -> do
               recordPendingUpdate (convRowKeyCore k) (toUtf8 tn) (PCore.TxId txid) encoded
               return rowdata
@@ -645,7 +645,7 @@ doBegin _m = do
 
 toTxLog :: MonadThrow m => T.Text -> Utf8 -> BS.ByteString -> m (TxLog RowData)
 toTxLog d key value =
-        case fmap (view document) $ _decodeRowData serialisePact_raw_spaninfo value of
+        case fmap (view document) $ _decodeRowData serialisePact_lineinfo value of
             Nothing -> internalError $ "toTxLog: Unexpected value, unable to deserialize log: " <> sshow value
             Just v -> return $! TxLog d (fromUtf8 key) v
 

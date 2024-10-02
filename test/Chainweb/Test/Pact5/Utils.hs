@@ -11,6 +11,7 @@ module Chainweb.Test.Pact5.Utils
     )
     where
 
+import Control.Lens
 import Chainweb.Logger
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Types
@@ -24,6 +25,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
 import Pact.Core.Command.Types qualified as Pact5
+import Pact.Core.Pretty qualified as Pact5
 import Pact.JSON.Encode qualified as J
 import System.Environment (lookupEnv)
 import System.LogLevel
@@ -38,7 +40,7 @@ pactTxFrom4To5 tx =
     e = do
       let json = J.encode (fmap (Text.decodeUtf8 . SBS.fromShort . Pact4.payloadBytes) tx)
       cmdWithPayload <- Aeson.eitherDecode @(Pact5.Command Text) json
-      Pact5.parseCommand cmdWithPayload
+      over _Left Pact5.renderCompactString $ Pact5.parseCommand cmdWithPayload
   in
   case e of
     Left err -> error err

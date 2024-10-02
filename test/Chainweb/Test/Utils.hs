@@ -1193,7 +1193,7 @@ independentSequentialTestGroup tn tts =
 unsafeHeadOf :: HasCallStack => Getting (Endo a) s a -> s -> a
 unsafeHeadOf l s = s ^?! l
 
-type TestPact5CommandResult = Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat Pact5.SpanInfo)
+type TestPact5CommandResult = Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.LineInfo))
 
 toPact4RequestKey :: Pact5.RequestKey -> Pact4.RequestKey
 toPact4RequestKey = \case
@@ -1212,7 +1212,7 @@ toPact4CommandResult :: ()
     => TestPact5CommandResult
     -> Pact4.CommandResult Pact4.Hash
 toPact4CommandResult cr5 =
-    case Aeson.eitherDecodeStrictText (J.encodeText ((fmap . fmap) Pact5.StableEncoding $ cr5)) of
+    case Aeson.eitherDecodeStrictText (J.encodeText cr5) of
         Left err -> error $ "toPact5CommandResult: decode failed: " ++ err
         Right cr4 -> cr4
 
@@ -1221,7 +1221,7 @@ toPact5CommandResult :: ()
     -> TestPact5CommandResult
 toPact5CommandResult cr4 = case Aeson.eitherDecodeStrictText (J.encodeText cr4) of
     Left err -> error $ "toPact5CommandResult: decode failed: " ++ err
-    Right cr5 -> (fmap . fmap) Pact5._stableEncoding cr5
+    Right cr5 -> cr5
 
 pact4Poll :: Pact4.Poll -> Pact5.PollRequest
 pact4Poll (Pact4.Poll rks) = Pact5.PollRequest $ toPact5RequestKey <$> rks
