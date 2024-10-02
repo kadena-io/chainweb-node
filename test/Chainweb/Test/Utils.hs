@@ -250,7 +250,6 @@ import Data.Semigroup
 import qualified Pact.Core.Command.Types as Pact5
 import qualified Data.Aeson as Aeson
 import qualified Pact.Core.Errors as Pact5
-import qualified Pact.Core.StableEncoding as Pact5
 import qualified Pact.Core.Info as Pact5
 import qualified Pact.Types.Command as Pact4
 import qualified Pact.Core.Hash as Pact5
