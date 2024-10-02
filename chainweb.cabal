@@ -419,11 +419,11 @@ library
         , hashable >= 1.4
         , heaps >= 0.3
         , hourglass >=0.2
-        , http2 >= 5.2.1
         , http-client >= 0.5
         , http-client-tls >=0.3
         , http-media >= 0.7
         , http-types >= 0.12
+        , http2 >= 5.2.1
         , iproute >= 1.7
         , ixset-typed >= 0.4
         , lens >= 4.17
@@ -440,10 +440,10 @@ library
         , pact >= 4.2.0.1
         , pact-json >= 0.1
         , pact-time:numeric >=0.3.0.1
-        , parallel >= 3.2.2.0
-        , patience >= 0.3
         , pact-tng
         , pact-tng:pact-request-api
+        , parallel >= 3.2.2.0
+        , patience >= 0.3
         , pem >=0.2
         , primitive >= 0.7.1.0
         , random >= 1.2

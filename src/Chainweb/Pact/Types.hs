@@ -349,6 +349,11 @@ data Historical a
   deriving stock (Eq, Foldable, Functor, Generic, Traversable, Show)
   deriving anyclass NFData
 
+instance Applicative Historical where
+  pure = Historical
+  Historical f <*> Historical a = Historical (f a)
+  _ <*> _ = NoHistory
+
 -- | Gather tx logs for a block, along with last tx for each
 -- key in history, if any
 -- Not intended for public API use; ToJSONs are for logging output.
@@ -1166,12 +1171,15 @@ instance Show HistoricalLookupReq where
     "HistoricalLookupReq@" ++ show h ++ ", " ++ show d ++ ", " ++ show k
 
 data ReadOnlyReplayReq = ReadOnlyReplayReq
-    { _readOnlyReplayLowerBound :: !BlockHeader
+    { _readOnlyReplayIsParity :: !Bool
+    , _readOnlyReplayLowerBound :: !BlockHeader
     , _readOnlyReplayUpperBound :: !(Maybe BlockHeader)
     }
 instance Show ReadOnlyReplayReq where
-  show (ReadOnlyReplayReq l u) =
-    "ReadOnlyReplayReq@" ++ show l ++ ", " ++ show u
+  show (ReadOnlyReplayReq p l u) =
+    "ReadOnlyReplayReq@" ++ parity ++ ", " ++ show l ++ ", " ++ show u
+    where
+      parity = if p then "parity" else "non-parity"
 
 data SyncToBlockReq = SyncToBlockReq
     { _syncToBlockHeader :: !BlockHeader

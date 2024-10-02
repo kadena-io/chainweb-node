@@ -18,6 +18,7 @@ module Chainweb.Pact5.Transaction
   , payloadCodec
   , parseCommand
   , parsePact4Command
+  , fromPact4Command
   ) where
 
 import "aeson" Data.Aeson qualified as Aeson

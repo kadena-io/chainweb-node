@@ -402,10 +402,12 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configRosettaConstructionApi :: !Bool
     , _configBackup :: !BackupConfig
     , _configServiceApi :: !ServiceApiConfig
-    , _configReadOnlyReplay :: !Bool
-        -- ^ do a read-only replay using the cut db params for the block heights
     , _configOnlySyncPact :: !Bool
         -- ^ exit after synchronizing pact dbs to the latest cut
+    , _configReadOnlyReplay :: !Bool
+        -- ^ do a read-only replay using the cut db params for the block heights
+    , _configPactParityReplay :: !Bool
+        -- ^ perform replay in a way that compares pact4 and pact5 outputs.
     , _configSyncPactChains :: !(Maybe [ChainId])
         -- ^ the only chains to be synchronized on startup to the latest cut.
         --   if unset, all chains will be synchronized.
@@ -506,6 +508,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configServiceApi = defaultServiceApiConfig
     , _configOnlySyncPact = False
     , _configReadOnlyReplay = False
+    , _configPactParityReplay = False
     , _configSyncPactChains = Nothing
     , _configBackup = defaultBackupConfig
     , _configModuleCacheLimit = defaultModuleCacheLimit
@@ -568,6 +571,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configServiceApi %.: "serviceApi" % o
         <*< configOnlySyncPact ..: "onlySyncPact" % o
         <*< configReadOnlyReplay ..: "readOnlyReplay" % o
+        <*< configPactParityReplay ..: "pactParityReplay" % o
         <*< configSyncPactChains ..: "syncPactChains" % o
         <*< configBackup %.: "backup" % o
         <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
@@ -626,6 +630,9 @@ pChainwebConfiguration = id
     <*< configReadOnlyReplay .:: boolOption_
         % long "read-only-replay"
         <> help "Replay the block history non-destructively"
+    <*< configPactParityReplay .:: boolOption_
+        % long "pact-parity-replay"
+        <> help "Replay the block history in a way that compares Pact 4 and Pact 5 outputs"
     <*< configSyncPactChains .:: fmap Just % jsonOption
         % long "sync-pact-chains"
         <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."

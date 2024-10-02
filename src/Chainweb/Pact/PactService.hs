@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImportQualifiedPost #-}
@@ -13,7 +15,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE DataKinds #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -42,6 +43,43 @@ module Chainweb.Pact.PactService
     , execNewGenesisBlock
     ) where
 
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
+import Chainweb.ChainId
+import Chainweb.Counter
+import Chainweb.Logger
+import Chainweb.Mempool.Mempool as Mempool
+import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpointer)
+import Chainweb.Pact.PactService.Checkpointer
+import Chainweb.Pact.PactService.Pact4.ExecBlock
+import Chainweb.Pact.PactService.Pact4.ExecBlock qualified as Pact4
+import Chainweb.Pact.PactService.Pact5.ExecBlock (runPact5Coinbase)
+import Chainweb.Pact.PactService.Pact5.ExecBlock qualified as Pact5
+import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
+import Chainweb.Pact.Types
+import Chainweb.Pact4.Backend.ChainwebPactDb qualified as Pact4
+import Chainweb.Pact4.SPV qualified as Pact4
+import Chainweb.Pact4.Transaction qualified as Pact4
+import Chainweb.Pact4.TransactionExec qualified as Pact4
+import Chainweb.Pact4.Types qualified as Pact4
+import Chainweb.Pact4.Validations qualified as Pact4
+import Chainweb.Pact5.Backend.ChainwebPactDb qualified as Pact5
+import Chainweb.Pact5.NoCoinbase qualified as Pact5
+import Chainweb.Pact5.SPV qualified as Pact5
+import Chainweb.Pact5.Transaction qualified as Pact5
+import Chainweb.Pact5.TransactionExec qualified as Pact5
+import Chainweb.Pact5.Types qualified as Pact5
+import Chainweb.Pact5.Validations qualified as Pact5
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
+import Chainweb.Time
+import Chainweb.TreeDB
+import Chainweb.Utils hiding (check)
+import Chainweb.Version
+import Chainweb.Version.Guards
 import Control.Concurrent hiding (throwTo)
 import Control.Concurrent.Async
 import Control.Concurrent.STM
@@ -49,101 +87,64 @@ import Control.Exception (AsyncException(ThreadKilled))
 import Control.Exception.Safe
 import Control.Lens hiding ((:>))
 import Control.Monad
+import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-
+import Control.Parallel.Strategies qualified as Strategies
+import Data.Aeson qualified as Aeson
+import Data.ByteString qualified as BS
+import Data.ByteString.Short qualified as SB
+import Data.Coerce (coerce)
+import Data.Default
 import Data.Either
 import Data.Foldable (toList)
+import Data.Functor.Product
+import Data.HashMap.Strict qualified as HM
 import Data.IORef
-import qualified Data.HashMap.Strict as HM
 import Data.LogMessage
+import Data.Map (Map)
+import Data.Map.Strict qualified as Map
 import Data.Maybe
 import Data.Monoid
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
-import qualified Data.Text as Text
-import Data.Vector (Vector)
-import qualified Data.Vector as V
-import qualified Data.UUID as UUID
-import qualified Data.UUID.V4 as UUID
-
-import System.IO
-import System.LogLevel
-
-import Prelude hiding (lookup)
-
-import qualified Streaming as Stream
-import qualified Streaming.Prelude as Stream
-
-import qualified Pact.Gas as Pact4
-import Pact.Interpreter(PactDbEnv(..))
-import qualified Pact.JSON.Encode as J
-import qualified Pact.Types.Command as Pact4
-import qualified Pact.Types.Hash as Pact4
-import qualified Pact.Types.Runtime as Pact4 hiding (catchesPactError)
-import qualified Pact.Types.Pretty as Pact4
-
-import qualified Pact.Core.Builtin as Pact5
-import qualified Pact.Core.Persistence as Pact5
-import qualified Pact.Core.Gas as Pact5
-import qualified Pact.Core.Info as Pact5
-
-import qualified Chainweb.Pact4.TransactionExec as Pact4
-import qualified Chainweb.Pact4.Validations as Pact4
-
-import Chainweb.BlockHash
-import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB
-import Chainweb.BlockHeight
-import Chainweb.ChainId
-import Chainweb.Logger
-import Chainweb.Mempool.Mempool as Mempool
-import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.RelationalCheckpointer (withProdRelationalCheckpointer)
-
-import Chainweb.Pact.PactService.Pact4.ExecBlock
-import Chainweb.Pact.PactService.Checkpointer
-import qualified Chainweb.Pact4.Backend.ChainwebPactDb as Pact4
-import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
-import Chainweb.Pact.Types
-import Chainweb.Pact4.SPV qualified as Pact4
-import Chainweb.Pact5.SPV qualified as Pact5
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
-import Chainweb.Time
-import qualified Chainweb.Pact4.Transaction as Pact4
-import Chainweb.TreeDB
-import Chainweb.Utils hiding (check)
-import Chainweb.Version
-import Chainweb.Version.Guards
-import Utils.Logging.Trace
-import Chainweb.Counter
+import Data.Text qualified as Text
+import Data.Text.Encoding qualified as T
 import Data.Time.Clock
-import Text.Printf
 import Data.Time.Format.ISO8601
-import qualified Chainweb.Pact.PactService.Pact4.ExecBlock as Pact4
-import qualified Chainweb.Pact4.Types as Pact4
-import qualified Chainweb.Pact5.Backend.ChainwebPactDb as Pact5
-import qualified Pact.Core.Command.Types as Pact5
-import qualified Pact.Core.Hash as Pact5
-import qualified Data.ByteString.Short as SB
-import Data.Coerce (coerce)
-import Chainweb.Pact.PactService.Pact5.ExecBlock (runPact5Coinbase)
+import Data.UUID qualified as UUID
+import Data.UUID.V4 qualified as UUID
+import Data.Vector (Vector)
+import Data.Vector qualified as V
 import Data.Void
-import qualified Chainweb.Pact5.Types as Pact5
-import qualified Chainweb.Pact.PactService.Pact5.ExecBlock as Pact5
-import qualified Pact.Core.Evaluate as Pact5
-import qualified Pact.Core.Names as Pact5
-import Data.Functor.Product
-import qualified Chainweb.Pact5.TransactionExec as Pact5
-import qualified Chainweb.Pact5.Transaction as Pact5
-import Control.Monad.Except
-import Data.Default
-import qualified Chainweb.Pact5.NoCoinbase as Pact5
-import qualified Pact.Parse as Pact4
-import qualified Control.Parallel.Strategies as Strategies
-import qualified Chainweb.Pact5.Validations as Pact5
-import qualified Pact.Core.Errors as Pact5
-
+import Pact.Core.Builtin qualified as Pact5
+import Pact.Core.Capabilities qualified as Pact5
+import Pact.Core.ChainData qualified as Pact5
+import Pact.Core.Command.Types qualified as Pact5
+import Pact.Core.Errors qualified as Pact5
+import Pact.Core.Evaluate qualified as Pact5
+import Pact.Core.Gas qualified as Pact5
+import Pact.Core.Hash qualified as Pact5
+import Pact.Core.Info qualified as Pact5
+import Pact.Core.Names qualified as Pact5
+import Pact.Core.PactValue qualified as Pact5
+import Pact.Core.Persistence qualified as Pact5
+import Pact.Gas qualified as Pact4
+import Pact.Interpreter(PactDbEnv(..))
+import Pact.JSON.Encode qualified as J
+import Pact.Parse qualified as Pact4
+import Pact.Types.Command qualified as Pact4
+import Pact.Types.Hash qualified as Pact4
+import Pact.Types.Pretty qualified as Pact4
+import Pact.Types.Runtime qualified as Pact4 hiding (catchesPactError)
+import Patience.Map qualified as Patience
+import Prelude hiding (lookup)
+import Streaming qualified as Stream
+import Streaming.Prelude qualified as Stream
+import System.LogLevel
+import Text.Printf
+import Utils.Logging.Trace
 
 runPactService
     :: Logger logger
@@ -384,9 +385,9 @@ serviceRequests memPoolAccess reqQ = go
                         execSyncToBlock _syncToBlockHeader
                 go
             ReadOnlyReplayMsg ReadOnlyReplayReq {..} -> do
-                trace logFn "Chainweb.Pact.PactService.execReadOnlyReplay" (_readOnlyReplayLowerBound, _readOnlyReplayUpperBound) 1 $
+                trace logFn "Chainweb.Pact.PactService.execReadOnlyReplay" (_readOnlyReplayIsParity, _readOnlyReplayLowerBound, _readOnlyReplayUpperBound) 1 $
                     tryOne "readOnlyReplayBlock" statusRef $
-                        execReadOnlyReplay _readOnlyReplayLowerBound _readOnlyReplayUpperBound
+                        execReadOnlyReplay _readOnlyReplayIsParity _readOnlyReplayLowerBound _readOnlyReplayUpperBound
                 go
 
     tryOne
@@ -634,13 +635,30 @@ execNewGenesisBlock miner newTrans = pactLabel "execNewGenesisBlock" $ do
         NoHistory -> internalError "PactService.execNewGenesisBlock: Impossible error, unable to rewind before genesis"
         Historical block -> return block
 
+
+data CommandResultDiffable = CommandResutlDiffable
+    { _crdTxId :: Maybe Pact5.TxId
+    , _crdRequestKey :: Pact5.RequestKey
+    -- , _crdMetadata :: Aeson.Value -- maybe ?
+    , _crdEvents :: Set (Pact5.PactEvent Pact5.PactValue)
+    }
+    deriving stock (Eq, Show)
+
+commandResultToDiffable :: Pact5.CommandResult log err -> CommandResultDiffable
+commandResultToDiffable cr = CommandResutlDiffable
+    { _crdTxId = Pact5._crTxId cr
+    , _crdRequestKey = Pact5._crReqKey cr
+    , _crdEvents = Set.fromList (Pact5._crEvents cr)
+    }
+
 execReadOnlyReplay
     :: forall logger tbl
     . (Logger logger, CanReadablePayloadCas tbl)
-    => BlockHeader
+    => Bool
+    -> BlockHeader
     -> Maybe BlockHeader
     -> PactServiceM logger tbl ()
-execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $ do
+execReadOnlyReplay isParity lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $ do
     ParentHeader cur <- findLatestValidBlockHeader
     logger <- view psLogger
     bhdb <- view psBlockHeaderDb
@@ -676,48 +694,134 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
             withAsync (heightProgress lowerHeight (view blockHeight upperBound) heightRef (logInfo_ logger)) $ \_ -> do
                 blocks
                     & Stream.hoist liftIO
-                    & play bhdb pdb heightRef runPact
+                    & play v cid bhdb pdb heightRef runPact
     where
 
     play
         :: CanReadablePayloadCas tbl
-        => BlockHeaderDb
+        => ChainwebVersion
+        -> ChainId
+        -> BlockHeaderDb
         -> PayloadDb tbl
         -> IORef BlockHeight
         -> (forall a. PactServiceM logger tbl a -> IO a)
         -> Stream.Stream (Stream.Of BlockHeader) IO r
         -> IO r
-    play bhdb pdb heightRef runPact blocks = do
+    play v cid bhdb pdb heightRef runPact blocks = do
         logger <- runPact $ view psLogger
         validationFailedRef <- newIORef False
+        parityFailedRef <- newIORef False
         r <- blocks & Stream.mapM_ (\bh -> do
             bhParent <- liftIO $ lookupParentM GenesisParentThrow bhdb bh
-            let
-                printValidationError (BlockValidationFailure (BlockValidationFailureMsg m)) = do
-                    writeIORef validationFailedRef True
-                    logFunctionText logger Error m
-                printValidationError e = throwM e
-                handleMissingBlock NoHistory = throwM $ BlockHeaderLookupFailure $
-                    "execReadOnlyReplay: missing block: " <> sshow bh
-                handleMissingBlock (Historical ()) = return ()
-            payload <- liftIO $ fromJuste <$>
-                lookupPayloadDataWithHeight pdb (Just $ view blockHeight bh) (view blockPayloadHash bh)
-            let isPayloadEmpty = V.null (view payloadDataTransactions payload)
-            let isUpgradeBlock = isJust $ _chainwebVersion bhdb ^? versionUpgrades . atChain (_chainId bhdb) . ix (view blockHeight bh)
-            liftIO $ writeIORef heightRef (view blockHeight bh)
-            unless (isPayloadEmpty && not isUpgradeBlock)
-                $ handle printValidationError
-                $ (handleMissingBlock =<<)
-                $ runPact
-                $ readFrom (Just $ ParentHeader bhParent) $
-                    SomeBlockM $ Pair
-                        (void $ Pact4.execBlock bh (CheckablePayload payload))
-                        (void $ Pact5.execExistingBlock bh (CheckablePayload payload))
+
+            let printValidationError = \case
+                    BlockValidationFailure (BlockValidationFailureMsg m) -> do
+                        writeIORef validationFailedRef True
+                        logFunctionText logger Error m
+                    e -> throwM e
+
+            let catchValidationError io = try io >>= \case
+                    Left (BlockValidationFailure (BlockValidationFailureMsg m)) -> do
+                        writeIORef validationFailedRef True
+                        logFunctionText logger Error m
+                        pure (Left ())
+                    Left e -> do
+                        throwM e
+                    Right r -> do
+                        return (Right r)
+
+            let handleMissingBlock :: Historical a -> IO a
+                handleMissingBlock = \case
+                    NoHistory -> throwM $ BlockHeaderLookupFailure $ "execReadOnlyReplay: missing block: " <> sshow bh
+                    Historical x -> return x
+
+            let height = view blockHeight bh
+            if isParity && chainweb217Pact v cid height
+            then do
+                eOutputs <- catchValidationError
+                    $ (handleMissingBlock =<<)
+                    $ runPact
+                    $ readFromBoth (Just $ ParentHeader bhParent) $ do
+                        liftIO $ writeIORef heightRef height
+                        payload <- liftIO $ fromJuste <$>
+                            lookupPayloadDataWithHeight pdb (Just height) (view blockPayloadHash bh)
+                        SomeBlockM $ Pair
+                            (snd <$> Pact4.execBlock bh (CheckablePayload payload))
+                            (snd <$> Pact5.execExistingBlock bh (CheckablePayload payload))
+                case eOutputs of
+                    Left () -> do
+                        return ()
+                    Right (pact4Outputs, pact5Outputs) -> do
+                        -- TODO: only having the hash of the logs might be an issue if we want to compare logs
+                        pact4Transactions :: Vector (Pact5.Command (Pact5.PayloadWithText Pact5.PublicMeta Text), Pact5.CommandResult Pact5.Hash Aeson.Value)
+                            <- forM (_payloadWithOutputsTransactions pact4Outputs) $ \(Transaction txBytes, TransactionOutput txOutBytes) -> do
+                                let cmdText :: Pact4.Command Text
+                                    cmdText = fromJuste $ decodeStrictOrThrow' txBytes
+
+                                let cmdResult :: Pact4.CommandResult Pact4.Hash
+                                    cmdResult = fromJuste $ decodeStrictOrThrow' txOutBytes
+
+                                cmdPayload <- case Pact4.decodePayload (pact4ParserVersion v cid height) (T.encodeUtf8 $ Pact4._cmdPayload cmdText) of
+                                    Left err -> internalError $ "execReadOnlyReplay parity: failed to decode pact4 command: " <> sshow err
+                                    Right cmdPayload -> return $ fmap Pact4._pcCode cmdPayload
+
+                                -- TODO: Converting to and from JSON here is bad for perf.
+                                cmdResult5 <- decodeStrictOrThrow' (BS.toStrict $ J.encode cmdResult)
+
+                                return (Pact5.fromPact4Command (cmdPayload <$ cmdText), cmdResult5)
+
+                        pact5Transactions :: Vector (Pact5.Command (Pact5.PayloadWithText Pact5.PublicMeta Text), Pact5.CommandResult Pact5.Hash Aeson.Value)
+                            <- forM (_payloadWithOutputsTransactions pact5Outputs) $ \(Transaction txBytes, TransactionOutput txOutBytes) -> do
+                                let cmdText :: Pact5.Command Text
+                                    cmdText = fromJuste $ decodeStrictOrThrow' txBytes
+
+                                let cmdResult :: Pact5.CommandResult Pact5.Hash Aeson.Value
+                                    cmdResult = fromJuste $ decodeStrictOrThrow' txOutBytes
+
+                                cmd <- case Pact5.parseCommand cmdText of
+                                    Left err -> internalError $ "execReadOnlyReplay parity: failed to parse pact5 command: " <> sshow err
+                                    Right cmd -> return cmd
+
+                                return (fmap Pact5._pcCode <$> cmd, cmdResult)
+
+                        let pact4Map :: Map Pact5.Hash CommandResultDiffable
+                            pact4Map = Map.fromList $ fmap (\(cmd, cmdResult) -> (Pact5._cmdHash cmd, commandResultToDiffable cmdResult)) $ V.toList pact4Transactions
+
+                        let pact5Map :: Map Pact5.Hash CommandResultDiffable
+                            pact5Map = Map.fromList $ fmap (\(cmd, cmdResult) -> (Pact5._cmdHash cmd, commandResultToDiffable cmdResult)) $ V.toList pact5Transactions
+
+                        let outputsDiff :: Map Pact5.Hash (Patience.Delta CommandResultDiffable)
+                            outputsDiff = Map.filter (not . Patience.isSame) $ Patience.diff pact4Map pact5Map
+
+                        when (not $ Map.null outputsDiff) $ do
+                            writeIORef parityFailedRef True
+                            logFunctionText logger Error $ "execReadOnlyReplay parity: differences in command results: " <> sshow outputsDiff
+
+                        return ()
+
+            else do
+                handle printValidationError
+                    $ (handleMissingBlock =<<)
+                    $ runPact
+                    $ readFrom (Just $ ParentHeader bhParent) $ do
+                        liftIO $ writeIORef heightRef (view blockHeight bh)
+                        payload <- liftIO $ fromJuste <$>
+                            lookupPayloadDataWithHeight pdb (Just $ view blockHeight bh) (view blockPayloadHash bh)
+                        SomeBlockM $ Pair
+                            (void $ Pact4.execBlock bh (CheckablePayload payload))
+                            (void $ Pact5.execExistingBlock bh (CheckablePayload payload))
             )
+
         validationFailed <- readIORef validationFailedRef
         when validationFailed $
             throwM $ BlockValidationFailure $ BlockValidationFailureMsg $
                 J.encodeText ("Prior block validation errors" :: Text)
+
+        parityFailed <- readIORef parityFailedRef
+        when parityFailed $
+            throwM $ BlockValidationFailure $ BlockValidationFailureMsg $
+                J.encodeText ("Parity validation errors" :: Text)
+
         return r
 
     heightProgress :: BlockHeight -> BlockHeight -> IORef BlockHeight -> (Text -> IO ()) -> IO ()

@@ -114,6 +114,7 @@ data PactExecutionService = PactExecutionService
         -> IO (HM.HashMap ShortByteString (T2 BlockHeight BlockHash))
         )
     , _pactReadOnlyReplay :: !(
+        Bool ->
         BlockHeader ->
         Maybe BlockHeader ->
         IO ()
@@ -197,7 +198,7 @@ mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
     , _pactBlockTxHistory = \h d -> withChainService (_chainId h) $ \p -> _pactBlockTxHistory p h d
     , _pactHistoricalLookup = \h d k -> withChainService (_chainId h) $ \p -> _pactHistoricalLookup p h d k
     , _pactSyncToBlock = \h -> withChainService (_chainId h) $ \p -> _pactSyncToBlock p h
-    , _pactReadOnlyReplay = \l u -> withChainService (_chainId l) $ \p -> _pactReadOnlyReplay p l u
+    , _pactReadOnlyReplay = \parity l u -> withChainService (_chainId l) $ \p -> _pactReadOnlyReplay p parity l u
     }
   where
     withChainService cid act =  maybe (err cid) act $ HM.lookup cid hm
@@ -226,7 +227,7 @@ mkPactExecutionService q = PactExecutionService
     , _pactHistoricalLookup = \h d k ->
         pactHistoricalLookup h d k q
     , _pactSyncToBlock = \h -> pactSyncToBlock h q
-   , _pactReadOnlyReplay = \l u -> pactReadOnlyReplay l u q
+   , _pactReadOnlyReplay = \parity l u -> pactReadOnlyReplay parity l u q
     }
 
 -- | A mock execution service for testing scenarios. Throws out anything it's
@@ -243,5 +244,5 @@ emptyPactExecutionService = PactExecutionService
     , _pactBlockTxHistory = \_ _ -> error "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactBlockTxHistory unsupported"
     , _pactHistoricalLookup = \_ _ _ -> error "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactHistoryLookup unsupported"
     , _pactSyncToBlock = \_ -> return ()
-    , _pactReadOnlyReplay = \_ _ -> return ()
+    , _pactReadOnlyReplay = \_ _ _ -> return ()
     }
