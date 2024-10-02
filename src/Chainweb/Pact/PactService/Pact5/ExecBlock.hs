@@ -62,7 +62,6 @@ import Data.Void
 import Data.Word
 import Numeric.Natural
 import Pact.Core.ChainData hiding (ChainId)
--- import Pact.Core.Command.RPC qualified as Pact5
 import Pact.Core.Command.Types qualified as Pact5
 import Pact.Core.Persistence qualified as Pact5
 import Pact.Core.Hash
@@ -88,7 +87,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.List.NonEmpty as NEL
 import Chainweb.Pact5.NoCoinbase
 import qualified Pact.Core.Errors as Pact5
--- import qualified Pact.Core.Evaluate as Pact5
+import qualified Pact.Core.Evaluate as Pact5
 
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range. Rewards are calculated
@@ -346,7 +345,7 @@ continueBlock mpAccess blockInProgress = do
       pHash
       parentTime
 
-type CompletedTransactions = [(Pact5.Transaction, Pact5.CommandResult [Pact5.TxLog ByteString] Pact5.PactErrorI)]
+type CompletedTransactions = [(Pact5.Transaction, Pact5.CommandResult [Pact5.TxLog ByteString] (Pact5.PactError Pact5.Info))]
 type InvalidTransactions = [Pact5.RequestKey]
 
 -- Apply a Pact command in the current block.
@@ -358,7 +357,7 @@ applyPactCmd
   -> StateT
     (BlockHandle, t P.GasLimit)
     (ExceptT Pact5GasPurchaseFailure IO)
-    (Pact5.CommandResult [Pact5.TxLog ByteString] Pact5.PactErrorI)
+    (Pact5.CommandResult [Pact5.TxLog ByteString] (Pact5.PactError Pact5.Info))
 applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
   -- we set the command gas limit to the minimum of its original value and the remaining gas in the block
   -- this way Pact never uses more gas than remains in the block, and the tx fails otherwise
@@ -404,7 +403,7 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
       (PactBlockEnv logger Pact5 tbl)
       IO
       (Either Pact5GasPurchaseFailure
-        (Pact5.CommandResult [Pact5.TxLog ByteString] Pact5.PactErrorI, BlockHandle))
+        (Pact5.CommandResult [Pact5.TxLog ByteString] (Pact5.PactError Pact5.Info), BlockHandle))
   unsafeApplyPactCmd blockHandle initialGas cmd = do
     _txFailuresCounter <- view (psServiceEnv . psTxFailuresCounter)
     logger <- view (psServiceEnv . psLogger)
@@ -609,7 +608,7 @@ validateHashes
   :: BlockHeader
   -> CheckablePayload
   -> Miner
-  -> Transactions Pact5 (Pact5.CommandResult [Pact5.TxLog ByteString] Pact5.PactErrorI)
+  -> Transactions Pact5 (Pact5.CommandResult [Pact5.TxLog ByteString] (Pact5.PactError Pact5.Info))
   -> Either PactException PayloadWithOutputs
 validateHashes bHeader payload miner transactions =
     if newHash == prevHash

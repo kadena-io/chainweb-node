@@ -60,6 +60,9 @@ import "pact-tng" Pact.Core.StableEncoding
 import "pact-tng" Pact.Core.Verifiers
 import "pact-tng" Pact.Core.Verifiers qualified as Pact5
 import "pact-tng" Pact.Core.Signer
+import "pact-tng" Pact.Core.Errors
+import "pact-tng" Pact.Core.Info
+import "pact-tng" Pact.Core.Pretty qualified as Pact5
 import "text" Data.Text (Text)
 import "text" Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Chainweb.Pact.Conversion
@@ -101,10 +104,13 @@ payloadCodec = Codec enc dec
     where
     enc c = J.encodeStrict $ fmap (decodeUtf8 . encodePayload) c
     dec bs = case Aeson.decodeStrict' bs of
-        Just (cmd :: Command Text) -> parseCommand cmd
+        -- Note: this can only ever emit a `ParseError`, which by default are quite small.
+        -- Still, `pretty` instances are scary, but this cannot make it into block outputs so this should
+        -- be okay
+        Just (cmd :: Command Text) -> over _Left Pact5.renderCompactString $ parseCommand cmd
         Nothing -> Left "decode PayloadWithText failed"
 
-parseCommand :: Command Text -> Either String (Command (PayloadWithText PublicMeta ParsedCode))
+parseCommand :: Command Text -> Either (PactError SpanInfo) (Command (PayloadWithText PublicMeta ParsedCode))
 parseCommand cmd = do
     let cmd' = fmap encodeUtf8 cmd
     let code = SB.toShort (_cmdPayload cmd')
@@ -114,7 +120,7 @@ parseCommand cmd = do
 encodePayload :: PayloadWithText meta code -> ByteString
 encodePayload = SB.fromShort . _payloadBytes
 
-parsePact4Command :: Pact4.UnparsedTransaction -> Either String Transaction
+parsePact4Command :: Pact4.UnparsedTransaction -> Either (PactError SpanInfo) Transaction
 parsePact4Command cmd4 = do
   let cmd = fromPact4Command cmd4
   payloadWithParsedCode :: Payload PublicMeta ParsedCode <-

@@ -85,6 +85,7 @@ import qualified Pact.Types.Pretty as Pact4
 import qualified Pact.Core.Builtin as Pact5
 import qualified Pact.Core.Persistence as Pact5
 import qualified Pact.Core.Gas as Pact5
+import qualified Pact.Core.Info as Pact5
 
 import qualified Chainweb.Pact4.TransactionExec as Pact4
 import qualified Chainweb.Pact4.Validations as Pact4
@@ -842,12 +843,11 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
             ) (do
                 ph <- view psParentHeader
                 case Pact5.parsePact4Command cwtx of
-                    Left parseError ->
+                    Left (fmap Pact5.spanInfoToLineInfo -> parseError) ->
                         return $ LocalPact5PreflightResult Pact5.CommandResult
                             { _crReqKey = Pact5.RequestKey (Pact5.Hash $ Pact4.unHash $ Pact4.toUntypedHash $ Pact4._cmdHash cwtx)
                             , _crTxId = Nothing
-                            , _crResult = Pact5.PactResultErr $ Pact5.PELegacyError $
-                                Pact5.LegacyPactError Pact5.LegacySyntaxError "" [] ("Parse error: " <> sshow parseError)
+                            , _crResult = Pact5.PactResultErr $ Pact5.PELegacyError $ Pact5.toPrettyLegacyError parseError
                             , _crGas = Pact5.Gas $ fromIntegral $ cmd ^. Pact4.cmdPayload . Pact4.pMeta . Pact4.pmGasLimit
                             , _crLogs = Nothing
                             , _crContinuation = Nothing
@@ -886,9 +886,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                                             Right cr -> do
                                                 let cr' = hashPact5TxLogs cr
                                                 -- FIXME: Pact5, no warnings yet
-                                                -- FIXME: Pact5, stop using convertPact5Error in local (same below),
-                                                -- Pact5 has a new function for this, toPrettyLegacyError
-                                                pure $ LocalPact5PreflightResult (convertPact5Error <$> cr') []
+                                                pure $ LocalPact5PreflightResult (Pact5.PELegacyError . Pact5.toPrettyLegacyError <$> cr') []
                             _ -> do
                                 cr <- Pact5.pactTransaction Nothing $ \dbEnv -> do
                                     fmap convertPact5Error <$> Pact5.applyLocal _psLogger _psGasLogger dbEnv txCtx spvSupport (view Pact5.payloadObj <$> pact5Cmd)
