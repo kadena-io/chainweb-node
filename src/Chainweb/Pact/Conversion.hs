@@ -116,7 +116,6 @@ fromLegacyPactValue = \case
     imp = S.fromList $ maybe [] (map fromLegacyModuleName) mmn
     in pure (PModRef $ ModRef mn' imp)
 
-
 fromLegacyKeySetName
   :: Legacy.KeySetName
   -> KeySetName

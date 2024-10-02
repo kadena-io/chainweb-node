@@ -347,6 +347,11 @@ data Historical a
   deriving stock (Eq, Foldable, Functor, Generic, Traversable, Show)
   deriving anyclass NFData
 
+instance Applicative Historical where
+    pure = Historical
+    Historical f <*> Historical a = Historical (f a)
+    _ <*> _ = NoHistory
+
 -- | Gather tx logs for a block, along with last tx for each
 -- key in history, if any
 -- Not intended for public API use; ToJSONs are for logging output.
@@ -1172,12 +1177,15 @@ instance Show HistoricalLookupReq where
     "HistoricalLookupReq@" ++ show h ++ ", " ++ show d ++ ", " ++ show k
 
 data ReadOnlyReplayReq = ReadOnlyReplayReq
-    { _readOnlyReplayLowerBound :: !BlockHeader
+    { _readOnlyReplayIsParity :: !Bool
+    , _readOnlyReplayLowerBound :: !BlockHeader
     , _readOnlyReplayUpperBound :: !(Maybe BlockHeader)
     }
 instance Show ReadOnlyReplayReq where
-  show (ReadOnlyReplayReq l u) =
-    "ReadOnlyReplayReq@" ++ show l ++ ", " ++ show u
+  show (ReadOnlyReplayReq p l u) =
+    "ReadOnlyReplayReq@" ++ parity ++ ", " ++ show l ++ ", " ++ show u
+    where
+      parity = if p then "parity" else "non-parity"
 
 data SyncToBlockReq = SyncToBlockReq
     { _syncToBlockHeader :: !BlockHeader
@@ -1320,8 +1328,7 @@ pact5CommandResultToBytes cr = TransactionOutput
 
 hashPact5TxLogs :: Pact5.CommandResult [Pact5.TxLog ByteString] err -> Pact5.CommandResult Pact5.Hash err
 hashPact5TxLogs cr = cr & over (Pact5.crLogs . _Just)
-  (\ls -> Pact5.hashTxLogs $
-     ls)
+  (\ls -> Pact5.hashTxLogs ls)
 
 toPayloadWithOutputs :: PactVersionT pv -> Miner -> Transactions pv (CommandResultFor pv) -> PayloadWithOutputs
 toPayloadWithOutputs Pact4T mi ts =

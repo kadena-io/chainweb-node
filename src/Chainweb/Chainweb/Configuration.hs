@@ -319,8 +319,8 @@ pServiceApiConfig = id
     <*< serviceApiConfigValidateSpec .:: enableDisableFlag
         % prefixLong service "validate-spec"
         <> internal -- hidden option, for expert use
-  where
-    service = Just "service"
+    where
+        service = Just "service"
 
 -- -------------------------------------------------------------------------- --
 -- Backup configuration
@@ -374,8 +374,8 @@ pBackupConfig = id
     <*< configBackupDirectory .:: fmap Just % textOption
         % prefixLong backup "directory"
         <> suffixHelp backup "Directory in which backups will be placed when using the backup API endpoint"
-  where
-    backup = Just "backup"
+    where
+        backup = Just "backup"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
@@ -400,6 +400,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configRosetta :: !Bool
     , _configBackup :: !BackupConfig
     , _configServiceApi :: !ServiceApiConfig
+    , _configPactParityReplay :: !Bool
     , _configReadOnlyReplay :: !Bool
         -- ^ do a read-only replay using the cut db params for the block heights
     , _configOnlySyncPact :: !Bool
@@ -478,6 +479,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configFullHistoricPactState = True
     , _configServiceApi = defaultServiceApiConfig
     , _configOnlySyncPact = False
+    , _configPactParityReplay = False
     , _configReadOnlyReplay = False
     , _configSyncPactChains = Nothing
     , _configBackup = defaultBackupConfig
@@ -507,6 +509,7 @@ instance ToJSON ChainwebConfiguration where
         , "serviceApi" .= _configServiceApi o
         , "onlySyncPact" .= _configOnlySyncPact o
         , "readOnlyReplay" .= _configReadOnlyReplay o
+        , "pactParityReplay" .= _configPactParityReplay o
         , "syncPactChains" .= _configSyncPactChains o
         , "backup" .= _configBackup o
         , "moduleCacheLimit" .= _configModuleCacheLimit o
@@ -539,6 +542,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configServiceApi %.: "serviceApi" % o
         <*< configOnlySyncPact ..: "onlySyncPact" % o
         <*< configReadOnlyReplay ..: "readOnlyReplay" % o
+        <*< configPactParityReplay ..: "pactParityReplay" % o
         <*< configSyncPactChains ..: "syncPactChains" % o
         <*< configBackup %.: "backup" % o
         <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
@@ -594,6 +598,9 @@ pChainwebConfiguration = id
     <*< configReadOnlyReplay .:: boolOption_
         % long "read-only-replay"
         <> help "Replay the block history non-destructively"
+    <*< configPactParityReplay .:: boolOption_
+        % long "pact-parity-replay"
+        <> help "Replay the block history, comparing the outputs of Pact 4 and Pact 5"
     <*< configSyncPactChains .:: fmap Just % jsonOption
         % long "sync-pact-chains"
         <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."

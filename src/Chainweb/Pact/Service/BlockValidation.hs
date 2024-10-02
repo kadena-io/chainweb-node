@@ -106,13 +106,15 @@ lookupPactTxs confDepth txs reqQ = do
     submitRequestAndWait reqQ msg
 
 pactReadOnlyReplay
-    :: BlockHeader
+    :: Bool -- ^ is this a pact5 parity replay?
+    -> BlockHeader
     -> Maybe BlockHeader
     -> PactQueue
     -> IO ()
-pactReadOnlyReplay l u reqQ = do
+pactReadOnlyReplay parity l u reqQ = do
     let !msg = ReadOnlyReplayMsg ReadOnlyReplayReq
-          { _readOnlyReplayLowerBound = l
+          { _readOnlyReplayIsParity = parity
+          , _readOnlyReplayLowerBound = l
           , _readOnlyReplayUpperBound = u
           }
     submitRequestAndWait reqQ msg

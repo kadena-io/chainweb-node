@@ -527,7 +527,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                                 $ addLabel ("component", "pact")
                                 $ addLabel ("sub-component", "init")
                                 $ _chainResLogger cr
-                        void $ _pactReadOnlyReplay chainPact l u
+                        void $ _pactReadOnlyReplay chainPact (_configPactParityReplay conf) l u
                         logCr Info "pact db synchronized"
                 let bounds =
                         HM.intersectionWith (,)
