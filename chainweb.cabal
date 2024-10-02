@@ -935,6 +935,7 @@ benchmark bench
         , merkle-log >=0.2
         , mtl >= 2.3
         , pact
+        , pact-tng
         , pact-tng:pact-request-api
         , random >= 1.2
         , streaming
