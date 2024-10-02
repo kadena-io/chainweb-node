@@ -640,14 +640,55 @@ data CommandResultDiffable = CommandResutlDiffable
     { _crdTxId :: Maybe Pact5.TxId
     , _crdRequestKey :: Pact5.RequestKey
     -- , _crdMetadata :: Aeson.Value -- maybe ?
+    , _crdResult :: Pact5.PactResult ErrorDiffable
     , _crdEvents :: Set (Pact5.PactEvent Pact5.PactValue)
     }
     deriving stock (Eq, Show)
 
-commandResultToDiffable :: Pact5.CommandResult log err -> CommandResultDiffable
+newtype ErrorDiffable
+  = ErrorDiffable (Pact5.PactErrorCompat ())
+  deriving Show
+
+instance Eq ErrorDiffable where
+    (ErrorDiffable ler) == (ErrorDiffable rer) = diffErr ler rer
+        where
+        diffErr (Pact5.PELegacyError l) (Pact5.PELegacyError r) =
+            Pact5._leType l == Pact5._leType r
+        diffErr (Pact5.PEPact5Error erc) r =
+            diffErr (Pact5.PELegacyError $ mkLegacyErrorFromCode erc) r
+        diffErr l (Pact5.PEPact5Error erc) =
+            diffErr l (Pact5.PELegacyError $ mkLegacyErrorFromCode erc)
+        -- We destroy a bit of information whenever we make error codes, so
+        -- what we can do, is recover what we can, which is the most important bit:
+        -- the failure cause. We don't really care about the error message, callstack or info
+        mkLegacyErrorFromCode (Pact5.prettyErrorCode -> e) =
+            Pact5.LegacyPactError
+            { Pact5._leType = getLegacyErrType e
+            , Pact5._leInfo = mempty
+            , Pact5._leCallStack = []
+            , Pact5._leMessage = ""
+            }
+        getLegacyErrType e = case Pact5._pecFailurePhase e of
+            "PEExecutionError" -> case Pact5._pecFailureCause e of
+                "NativeArgumentsError" -> Pact5.LegacyArgsError
+                "GasExceeded" -> Pact5.LegacyGasError
+                "DbOpFailure" -> Pact5.LegacyDbError
+                "ContinuationError" -> Pact5.LegacyContinuationError
+                _ -> Pact5.LegacyEvalError
+            "PEUserRecoverableError" -> Pact5.LegacyTxFailure
+            "PEParseError" -> Pact5.LegacySyntaxError
+            "PELexerError" -> Pact5.LegacySyntaxError
+            "PEDesugarError" -> Pact5.LegacySyntaxError
+            "PEVerifierError" -> Pact5.LegacyEvalError
+            _ -> error "impossible: Pact 5 error code generated an illegal error code. This should never happen"
+
+
+
+commandResultToDiffable :: Pact5.CommandResult log (Pact5.PactErrorCompat info) -> CommandResultDiffable
 commandResultToDiffable cr = CommandResutlDiffable
     { _crdTxId = Pact5._crTxId cr
     , _crdRequestKey = Pact5._crReqKey cr
+    , _crdResult = Pact5._crResult (ErrorDiffable . void <$> cr)
     , _crdEvents = Set.fromList (Pact5._crEvents cr)
     }
 
@@ -753,7 +794,7 @@ execReadOnlyReplay isParity lowerBound maybeUpperBound = pactLabel "execReadOnly
                         return ()
                     Right (pact4Outputs, pact5Outputs) -> do
                         -- TODO: only having the hash of the logs might be an issue if we want to compare logs
-                        pact4Transactions :: Vector (Pact5.Command (Pact5.PayloadWithText Pact5.PublicMeta Text), Pact5.CommandResult Pact5.Hash Aeson.Value)
+                        pact4Transactions :: Vector (Pact5.Command (Pact5.PayloadWithText Pact5.PublicMeta Text), Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)))
                             <- forM (_payloadWithOutputsTransactions pact4Outputs) $ \(Transaction txBytes, TransactionOutput txOutBytes) -> do
                                 let cmdText :: Pact4.Command Text
                                     cmdText = fromJuste $ decodeStrictOrThrow' txBytes
@@ -770,12 +811,12 @@ execReadOnlyReplay isParity lowerBound maybeUpperBound = pactLabel "execReadOnly
 
                                 return (Pact5.fromPact4Command (cmdPayload <$ cmdText), cmdResult5)
 
-                        pact5Transactions :: Vector (Pact5.Command (Pact5.PayloadWithText Pact5.PublicMeta Text), Pact5.CommandResult Pact5.Hash Aeson.Value)
+                        pact5Transactions :: Vector (Pact5.Command (Pact5.PayloadWithText Pact5.PublicMeta Text), Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)))
                             <- forM (_payloadWithOutputsTransactions pact5Outputs) $ \(Transaction txBytes, TransactionOutput txOutBytes) -> do
                                 let cmdText :: Pact5.Command Text
                                     cmdText = fromJuste $ decodeStrictOrThrow' txBytes
 
-                                let cmdResult :: Pact5.CommandResult Pact5.Hash Aeson.Value
+                                let cmdResult :: Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info))
                                     cmdResult = fromJuste $ decodeStrictOrThrow' txOutBytes
 
                                 cmd <- case Pact5.parseCommand cmdText of
