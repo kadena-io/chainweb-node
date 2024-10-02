@@ -219,7 +219,6 @@ import System.LogLevel
 import qualified Pact.Core.Builtin as Pact5
 import qualified Pact.Core.Errors as Pact5
 import qualified Pact.Core.Evaluate as Pact5
-import qualified Pact.Core.StableEncoding as Pact5
 
 -- internal chainweb modules
 
@@ -732,7 +731,7 @@ instance LogMessage Pact4TxFailureLog where
 instance Show Pact4TxFailureLog where
   show m = T.unpack (logText m)
 
-data Pact5TxFailureLog = Pact5TxFailureLog !Pact5.RequestKey !Pact5.PactErrorI !Text
+data Pact5TxFailureLog = Pact5TxFailureLog !Pact5.RequestKey !(Pact5.PactError Pact5.Info) !Text
   deriving stock (Generic)
   deriving anyclass (NFData, Typeable)
 instance LogMessage Pact5TxFailureLog where
@@ -956,8 +955,8 @@ data LocalResult
     = MetadataValidationFailure !(NE.NonEmpty Text)
     | LocalResultWithWarns !(Pact4.CommandResult Pact4.Hash) ![Text]
     | LocalResultLegacy !(Pact4.CommandResult Pact4.Hash)
-    | LocalPact5ResultLegacy !(Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.StableEncoding Pact5.Info)))
-    | LocalPact5PreflightResult !(Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.StableEncoding Pact5.Info))) ![Text]
+    | LocalPact5ResultLegacy !(Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)))
+    | LocalPact5PreflightResult !(Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info))) ![Text]
     | LocalTimeout
     deriving stock (Show, Generic)
 
@@ -1217,7 +1216,7 @@ instance Semigroup (ModuleCacheFor Pact5) where
 
 type family CommandResultFor (pv :: PactVersion) where
   CommandResultFor Pact4 = Pact4.CommandResult [Pact4.TxLogJson]
-  CommandResultFor Pact5 = Pact5.CommandResult [Pact5.TxLog ByteString] Pact5.PactErrorI
+  CommandResultFor Pact5 = Pact5.CommandResult [Pact5.TxLog ByteString] (Pact5.PactError Pact5.Info)
 
 -- State from a block in progress, which is used to extend blocks after
 -- running their payloads.
@@ -1303,15 +1302,14 @@ pact5CommandToBytes tx = Transaction
 
 -- | This function converts CommandResults into bytes in a stable way that can
 -- be stored on-chain.
-pact5CommandResultToBytes :: Pact5.CommandResult Pact5.Hash Pact5.PactErrorI -> ByteString
+pact5CommandResultToBytes :: Pact5.CommandResult Pact5.Hash (Pact5.PactError Pact5.Info) -> ByteString
 pact5CommandResultToBytes cr =
     J.encodeStrict (fmap convertPact5Error cr)
 
-convertPact5Error :: Pact5.PactError a -> Pact5.PactErrorCompat (Pact5.StableEncoding a)
+convertPact5Error :: Pact5.PactError Pact5.Info -> Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)
 convertPact5Error err =
   Pact5.PEPact5Error $
-    fmap Pact5.StableEncoding $
-      Pact5.pactErrorToErrorCode err
+      Pact5.pactErrorToLocatedErrorCode err
 
 hashPact5TxLogs :: Pact5.CommandResult [Pact5.TxLog ByteString] err -> Pact5.CommandResult Pact5.Hash err
 hashPact5TxLogs cr = cr & over (Pact5.crLogs . _Just)

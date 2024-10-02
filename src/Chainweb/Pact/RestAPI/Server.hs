@@ -130,7 +130,7 @@ import qualified Pact.Types.Command as Pact4
 import qualified Pact.Types.Hash as Pact4
 
 import qualified Pact.Core.Command.Types as Pact5
-import qualified Pact.Core.StableEncoding as Pact5
+import qualified Pact.Core.Pretty as Pact5
 import qualified Chainweb.Pact5.Transaction as Pact5
 import qualified Chainweb.Pact5.Validations as Pact5
 import Data.Coerce
@@ -610,7 +610,7 @@ internalPoll
     -> PactExecutionService
     -> Maybe ConfirmationDepth
     -> NonEmpty Pact5.RequestKey
-    -> IO (HashMap Pact5.RequestKey (Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat Pact5.Info)))
+    -> IO (HashMap Pact5.RequestKey (Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info))))
 internalPoll logger pdb bhdb mempool pactEx confDepth requestKeys0 = do
     let dbg txt = logFunctionText logger Debug txt
     -- get leaf block header for our chain from current best cut
@@ -635,14 +635,14 @@ internalPoll logger pdb bhdb mempool pactEx confDepth requestKeys0 = do
 
     lookup
         :: (Pact5.RequestKey, T2 BlockHeight BlockHash)
-        -> IO (Either String (Maybe (Pact5.RequestKey, Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat Pact5.Info))))
+        -> IO (Either String (Maybe (Pact5.RequestKey, Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)))))
     lookup (key, T2 _ ha) = (fmap . fmap . fmap) (key,) $ lookupRequestKey key ha
 
     -- TODO: group by block for performance (not very important right now)
     lookupRequestKey
       :: Pact5.RequestKey
       -> BlockHash
-      -> IO (Either String (Maybe (Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat Pact5.Info))))
+      -> IO (Either String (Maybe (Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)))))
     lookupRequestKey key bHash = runExceptT $ do
         let pactHash = Pact5.unRequestKey key
         let matchingHash = (== pactHash) . Pact5._cmdHash . fst
@@ -662,7 +662,7 @@ internalPoll logger pdb bhdb mempool pactEx confDepth requestKeys0 = do
                 out <- case eitherDecodeStrict' output of
                     Left err -> throwError $
                       "error decoding tx output for command " <> sshow (Pact5._cmdHash _cmd) <> ": " <> err
-                    Right decodedOutput -> return $ ((fmap . fmap) Pact5._stableEncoding) decodedOutput
+                    Right decodedOutput -> return decodedOutput
                 when (Pact5._crReqKey out /= key) $
                     throwError "internal error: Transaction output doesn't match its hash!"
                 return $ Just $ enrichCR blockHeader out
@@ -674,7 +674,7 @@ internalPoll logger pdb bhdb mempool pactEx confDepth requestKeys0 = do
           (\decodeErr -> "Transaction failed to decode: " <> decodeErr)
         return (tx', out)
 
-    checkBadList :: Vector Pact5.RequestKey -> IO (Vector (Pact5.RequestKey, Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat Pact5.Info)))
+    checkBadList :: Vector Pact5.RequestKey -> IO (Vector (Pact5.RequestKey, Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info))))
     checkBadList rkeys = do
         let !hashes = V.map pact5RequestKeyToTransactionHash rkeys
         out <- mempoolCheckBadList mempool hashes
@@ -682,7 +682,7 @@ internalPoll logger pdb bhdb mempool pactEx confDepth requestKeys0 = do
                   V.filter snd $ V.zip hashes out
         return $! V.map hashIsOnBadList bad
 
-    hashIsOnBadList :: Pact5.RequestKey -> (Pact5.RequestKey, Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat Pact5.Info))
+    hashIsOnBadList :: Pact5.RequestKey -> (Pact5.RequestKey, Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)))
     hashIsOnBadList rk =
         let res = Pact5.PactResultErr err
             err = Pact5.PELegacyError $
@@ -732,7 +732,7 @@ validatePact5Command _v _cid cmdText = case parsedCmd of
     if Pact5.assertCommand commandParsed
     then Right commandParsed
     else Left "Command failed validation"
-  Left e -> Left $ "Pact parsing error: " ++ e
+  Left e -> Left $ "Pact parsing error: " ++ Pact5.renderCompactString e
   where
     parsedCmd = Pact5.parseCommand cmdText
 

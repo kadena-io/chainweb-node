@@ -56,7 +56,6 @@ import Pact.Core.Errors
 import Pact.Core.Evaluate
 import Pact.Core.Gas.TableGasModel
 import Pact.Core.Gas.Types
-import Pact.Core.Info
 import Pact.Core.Names
 import Pact.Core.PactValue
 import Pact.Core.Persistence hiding (pactDb)
@@ -354,7 +353,7 @@ runPayloadShouldReturnEvalResultRelatedToTheInputCommand rdb = readFromAfterGene
         liftIO $ assertEqual
             "eval result"
             (MilliGas 2_000, Right EvalResult
-                { _erOutput = [InterpretValue (PInteger 15) (def { _liEndColumn = 22})]
+                { _erOutput = [InterpretValue (PInteger 15) def]
                 , _erEvents = []
                 , _erLogs = []
                 , _erExec = Nothing

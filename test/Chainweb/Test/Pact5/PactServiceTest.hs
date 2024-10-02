@@ -77,7 +77,6 @@ import Pact.Core.ChainData hiding (ChainId, _chainId)
 import Pact.Core.Command.Types
 import Pact.Core.Gas.Types
 import Pact.Core.Hash qualified as Pact5
-import Pact.Core.StableEncoding qualified as Pact5
 import Pact.Core.Names
 import Pact.Core.PactValue
 import Pact.Types.Gas qualified as Pact4
@@ -541,8 +540,7 @@ advanceAllChains Fixture{..} blocks = do
             commandResults :: Vector TestPact5CommandResult
                 <- forM
                     (_payloadWithOutputsTransactions payload')
-                    ((fmap . fmap . fmap) Pact5._stableEncoding
-                    . decodeOrThrow'
+                    (decodeOrThrow'
                     . LBS.fromStrict
                     . _transactionOutputBytes
                     . snd)

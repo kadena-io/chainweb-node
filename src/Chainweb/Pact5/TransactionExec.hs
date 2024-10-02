@@ -72,28 +72,9 @@ import qualified Data.Text.Encoding as T
 import qualified System.LogLevel as L
 
 -- internal Pact modules
-
--- import Pact.Eval (eval, liftTerm)
--- import Pact.Gas (freeGasEnv)
--- import Pact.Interpreter
 import qualified Pact.JSON.Decode as J
 import qualified Pact.JSON.Encode as J
--- import Pact.Native.Capabilities (evalCap)
--- import Pact.Native.Internal (appToCap)
--- import Pact.Runtime.Capabilities (popCapStack)
--- import Pact.Runtime.Utils (lookupModule)
--- import Pact.Types.Capability
--- import Pact.Types.Command
--- import Pact.Types.Hash as Pact
--- import Pact.Types.KeySet
--- import Pact.Types.PactValue
--- import Pact.Types.Pretty
--- import Pact.Types.RPC
--- import Pact.Types.Server
--- import Pact.Types.SPV
--- import Pact.Types.Verifier
 
--- import Pact.Types.Util as PU
 
 import Pact.Core.Serialise.LegacyPact ()
 import Pact.Core.Compile
@@ -175,13 +156,13 @@ makeLenses ''TransactionEnv
 
 -- | TODO: document how TransactionM is just for the "paid-for" fragment of the transaction flow
 newtype TransactionM logger a
-  = TransactionM { runTransactionM :: ReaderT (TransactionEnv logger) (ExceptT Pact5.PactErrorI IO) a }
+  = TransactionM { runTransactionM :: ReaderT (TransactionEnv logger) (ExceptT (Pact5.PactError Info) IO) a }
   deriving newtype
   ( Functor
   , Applicative
   , Monad
   , MonadReader (TransactionEnv logger)
-  , MonadError Pact5.PactErrorI
+  , MonadError (Pact5.PactError Info)
   , MonadThrow
   , MonadIO
   )
@@ -262,7 +243,7 @@ applyLocal
       -- ^ SPV support (validates cont proofs)
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
-    -> IO (CommandResult [TxLog ByteString] Pact5.PactErrorI)
+    -> IO (CommandResult [TxLog ByteString] (Pact5.PactError Info))
 applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
   gasRef <- newIORef mempty
   gasLogRef <- forM maybeGasLogger $ \_ -> newIORef []
@@ -341,7 +322,7 @@ applyCmd
       -- ^ initial gas cost
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
-    -> IO (Either Pact5GasPurchaseFailure (CommandResult [TxLog ByteString] Pact5.PactErrorI))
+    -> IO (Either Pact5GasPurchaseFailure (CommandResult [TxLog ByteString] (Pact5.PactError Info)))
 applyCmd logger maybeGasLogger db txCtx spv initialGas cmd = do
   logDebug_ logger $ "applyCmd: " <> sshow (_cmdHash cmd)
   let flags = Set.fromList
@@ -570,7 +551,7 @@ runGenesisPayload
   -> SPVSupport
   -> TxContext
   -> Command (Payload PublicMeta ParsedCode)
-  -> IO (Either Pact5.PactErrorI (CommandResult [TxLog ByteString] Void))
+  -> IO (Either (Pact5.PactError Info) (CommandResult [TxLog ByteString] Void))
 runGenesisPayload logger db spv ctx cmd = do
   gasRef <- newIORef (MilliGas 0)
   let gasEnv = GasEnv gasRef Nothing freeGasModel
@@ -638,7 +619,9 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx 
             }
           (def @(CapState _ _)
             & csSlots .~ [CapSlot cap [] | cap <- specialCaps])
-          (_pcExps _pmCode)
+          -- Note: we delete the information here from spans for
+          -- smaller db footprints
+          ((fmap.fmap) spanInfoToLineInfo (_pcExps _pmCode))
       Continuation ContMsg {..} ->
         evalContinuation execMode
           db spv gasModel execFlags namespacePolicy
@@ -710,26 +693,12 @@ enrichedMsgBodyForGasPayer dat cmd = case (_pPayload $ _cmdPayload cmd) of
       -- in Pact 4, we used the pretty instance (O_O) for this.
       -- In Pact 5, what we instead do, is we use the lexer/parser generated `SpanInfo` to
       -- then slice the section of code each `TopLevel` uses.
-      , ("exec-code", PList (Vector.fromList (fmap (PString . sliceSpan codeLines) (_pcExps (_pmCode exec)))))
+      , ("exec-code", PList (Vector.fromList (fmap (PString . sliceFromSourceLines codeLines) expInfos)))
       , ("exec-user-data", _pmData exec)
       ] `Map.union` dat
     where
+    expInfos = fmap (view Lisp.topLevelInfo) $ _pcExps $ _pmCode exec
     codeLines = T.lines (_pcCode (_pmCode exec))
-    lispTLInfo = \case
-      Lisp.TLModule m -> Lisp._mInfo m
-      Lisp.TLTerm m -> view Lisp.termInfo m
-      Lisp.TLInterface iface -> Lisp._ifInfo iface
-      Lisp.TLUse _ i -> i
-    sliceSpan :: [Text] -> Lisp.TopLevel Info -> Text
-    sliceSpan code tl =
-      let (SpanInfo startLine startCol endLine endCol) = lispTLInfo tl
-          -- Drop until the start line, and take (endLine - startLine). Note:
-          -- Span info locations are absolute, so `endLine` is not relative to start line, but
-          -- relative to the whole file.
-          --
-          -- Note: we take `end - start + 1` since end is inclusive.
-          lineSpan = take (endLine - startLine + 1) $ drop startLine code
-      in T.concat (over _head (T.drop startCol) . over _last (T.take (endCol + 1)) $ lineSpan)
   Continuation cont ->
     PObject $ Map.fromList
       [ ("tx-type", PString "cont")
