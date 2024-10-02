@@ -886,8 +886,6 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                                             Right cr -> do
                                                 let cr' = hashPact5TxLogs cr
                                                 -- FIXME: Pact5, no warnings yet
-                                                -- FIXME: Pact5, stop using convertPact5Error in local (same below),
-                                                -- Pact5 has a new function for this, toPrettyLegacyError
                                                 pure $ LocalPact5PreflightResult (Pact5.PELegacyError . Pact5.toPrettyLegacyError <$> cr') []
                             _ -> do
                                 cr <- Pact5.pactTransaction Nothing $ \dbEnv -> do
