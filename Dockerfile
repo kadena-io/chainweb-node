@@ -1,4 +1,4 @@
-# syntax = docker/dockerfile:1.4
+# syntax = docker/dockerfile:1
 
 # INSTRUCTIONS
 #
@@ -46,8 +46,9 @@
 # support this we would have to define dedicated runtime images and build
 # images.
 
-ARG UBUNTU_VERSION=20.04
-ARG GHC_VERSION=9.6.2
+ARG UBUNTU_VERSION=22.04
+ARG GHC_VERSION=9.10.1
+ARG PROJECT_NAME=chainweb
 
 # ############################################################################ #
 # Chainweb Application Runtime Image
@@ -57,32 +58,33 @@ FROM ubuntu:${UBUNTU_VERSION} AS chainweb-runtime
 ARG GHC_VERSION
 ARG UBUNTU_VERSION
 ARG TARGETPLATFORM
-RUN apt-get update -y \
-    && export DEBIAN_FRONTEND=noninteractive \
-    && apt-get install -yqq \
+ARG DEBIAN_FRONTEND=noninteractive
+RUN <<EOF
+    apt-get update -y
+    apt-get install -yqq \
         --no-install-recommends \
         ca-certificates \
-        libssl1.1 \
-        zlib1g \
-        locales \
-        libffi7 \
-        libgmp10 \
-        libncurses5 \
-        libtinfo5 \
-        libsnappy1v5 \
-        zlib1g \
-        liblz4-1 \
         libbz2-1.0 \
-        libgflags2.2 \
-    && if [ "${TARGETPLATFORM}" = "linux/arm64" ] ; then \
+        libffi8 \
+        libgmp10 \
+        liblz4-1 \
+        libncurses5 \
+        libsnappy1v5 \
+        libssl3 \
+        libtinfo5 \
+        locales \
+        zlib1g \
+        libgflags2.2
+    if [ "${TARGETPLATFORM}" = "linux/arm64" ] ; then
         apt-get install -yqq \
             --no-install-recommends \
             llvm-12 \
-            libnuma1 ; \
-       fi \
-    && rm -rf /var/lib/apt/lists/* \
-    && locale-gen en_US.UTF-8 \
-    && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+            libnuma1
+    fi
+    rm -rf /var/lib/apt/lists/*
+    locale-gen en_US.UTF-8
+    update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+EOF
 ENV LANG=en_US.UTF-8
 WORKDIR /chainweb
 LABEL com.chainweb.docker.image.compiler="ghc-${GHC_VERSION}"
@@ -93,13 +95,24 @@ LABEL com.chainweb.docker.image.os="ubuntu-${UBUNTU_VERSION}"
 # ############################################################################ #
 
 FROM chainweb-runtime AS chainweb-build
+RUN <<EOF
+  echo "BUILDPLATFORM: $BUILDPLATFORM"
+  echo "TARGETPLATFORM: $TARGETPLATFORM"
+EOF
 ARG GHC_VERSION
 ARG TARGETPLATFORM
-RUN apt-get update -y \
-    && export DEBIAN_FRONTEND=noninteractive \
-    && apt-get install -yqq \
+ARG DEBIAN_FRONTEND=noninteractive
+RUN <<EOF
+    apt-get update -y
+    apt-get install -yqq \
         --no-install-recommends \
+        binutils \
+        build-essential \
+        ca-certificates \
+        curl \
+        git \
         libbz2-dev \
+        libclang-dev \
         libffi-dev \
         libgflags-dev \
         libgmp-dev \
@@ -108,37 +121,36 @@ RUN apt-get update -y \
         libsnappy-dev \
         libssl-dev \
         libzstd-dev \
-        zlib1g-dev \
-        binutils \
-        build-essential \
+        neovim \
         pkg-config \
-        git \
-        curl \
-    && if [ ${TARGETPLATFORM} = "linux/arm64" ] ; then \
-        echo plat: ${TARGETPLATFORM} && \
+        zlib1g-dev
+    if [ ${TARGETPLATFORM} = "linux/arm64" ] ; then
+        echo plat: ${TARGETPLATFORM}
         apt-get install -yqq \
             --no-install-recommends \
-            llvm-12 \
-            libnuma-dev ; \
-       fi \
-    && rm -rf /var/lib/apt/lists/*
+            libnuma-dev
+    fi
+EOF
+
+# Install Haskell toolchain
+ENV CABAL_DIR=/root/.cabal
+ENV PATH=/root/.local/bin:/root/.ghcup/bin:$PATH
 ENV BOOTSTRAP_HASKELL_NONINTERACTIVE=1
 ENV BOOTSTRAP_HASKELL_MINIMAL=1
 ENV BOOTSTRAP_HASKELL_NO_UPGRADE=1
-RUN --mount=type=cache,target=/root/.ghcup/cache,id=${TARGETPLATFORM} \
-    curl -sSf https://get-ghcup.haskell.org | sh
-ENV PATH=/root/.local/bin:$PATH
-ENV PATH=/root/.ghcup/bin:$PATH
-ENV PATH=/root/.cabal/bin:$PATH
 ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/:$LD_LIBRARY_PATH
-RUN --mount=type=cache,target=/root/.ghcup/cache,id=${TARGETPLATFORM} \
-    ghcup --cache install cabal latest \
-    && ghcup set cabal latest
-RUN --mount=type=cache,target=/root/.ghcup/cache,id=${TARGETPLATFORM} \
-    ghcup --cache install ghc $GHC_VERSION \
-    && ghcup set ghc $GHC_VERSION
-RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
+RUN --mount=type=cache,target=/root/.ghcup/cache,id=${TARGETPLATFORM} <<EOF
+    curl -sSf https://get-ghcup.haskell.org | sh
+    ghcup --cache install cabal latest
+    ghcup set cabal latest
+    ghcup --cache install ghc ${GHC_VERSION}
+    ghcup set ghc ${GHC_VERSION}
+    cabal --version
+    ghc --version
+EOF
+RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} <<EOF
     cabal update
+EOF
 
 # ############################################################################ #
 # Builds
@@ -149,10 +161,12 @@ RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
 
 FROM chainweb-build as chainweb-build-ctx
 ARG TARGETPLATFORM
+# RUN git clone --filter=tree:0 https://github.com/kadena-io/chainweb-node
+# WORKDIR /chainweb/chainweb-node
 COPY . .
 ENV GIT_DISCOVERY_ACROSS_FILESYSTEM=1
 RUN mkdir -p /tools
-COPY <<EOF /tools/check-git-clean.sh
+COPY --chmod=0755 <<EOF /tools/check-git-clean.sh
 #!/bin/sh
 if [ -d ".git" ] && ! [ -f "/tools/wip" ] && ! git diff --exit-code; then \
     echo "Git working tree is not clean. The build changed some file that is checked into git." 1>&2 ; \
@@ -166,19 +180,16 @@ RUN sh /tools/check-git-clean.sh || touch /tools/wip
 
 FROM chainweb-build-ctx as chainweb-build-dependencies
 ARG TARGETPLATFORM
-# RUN git clone --filter=tree:0 https://github.com/kadena-io/chainweb-node
-# WORKDIR /chainweb/chainweb-node
-# RUN git checkout $GIT_REV
-COPY . .
+ARG PROJECT_NAME
 ENV GIT_DISCOVERY_ACROSS_FILESYSTEM=1
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
-    --mount=type=cache,target=./dist-newstyle,id=chainweb-${TARGETPLATFORM},sharing=locked \
+    --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
     [ -f cabal.project.freeze ] || cabal --enable-tests --enable-benchmarks freeze
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
-    --mount=type=cache,target=./dist-newstyle,id=chainweb-${TARGETPLATFORM},sharing=locked \
+    --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
     cabal build --enable-tests --enable-benchmarks --only-download
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
-    --mount=type=cache,target=./dist-newstyle,id=chainweb-${TARGETPLATFORM},sharing=locked \
+    --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
     cabal build --enable-tests --enable-benchmarks --only-dependencies
 
 # ############################################################################ #
@@ -186,9 +197,10 @@ RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
 
 FROM chainweb-build-dependencies AS chainweb-build-lib
 ARG TARGETPLATFORM
+ARG PROJECT_NAME
 ENV GIT_DISCOVERY_ACROSS_FILESYSTEM=1
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
-    --mount=type=cache,target=./dist-newstyle,id=chainweb-${TARGETPLATFORM},sharing=locked \
+    --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
     cabal build --enable-tests --enable-benchmarks chainweb:lib:chainweb
 RUN sh /tools/check-git-clean.sh
 
@@ -197,61 +209,71 @@ RUN sh /tools/check-git-clean.sh
 
 FROM chainweb-build-lib AS chainweb-build-tests
 ARG TARGETPLATFORM
+ARG PROJECT_NAME
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
-    --mount=type=cache,target=./dist-newstyle,id=chainweb-${TARGETPLATFORM},sharing=locked \
+    --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
     cabal build --enable-tests --enable-benchmarks chainweb:test:chainweb-tests
 RUN sh /tools/check-git-clean.sh
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
-    --mount=type=cache,target=./dist-newstyle,id=chainweb-${TARGETPLATFORM},sharing=locked \
-    mkdir -p artifacts \
-    && cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb:test:chainweb-tests) artifacts/
+    --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked <<EOF
+    mkdir -p artifacts
+    cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb:test:chainweb-tests) artifacts/
+EOF
 
 # ############################################################################ #
 # Build cwtool and run ea
 
 FROM chainweb-build-lib AS chainweb-build-cwtool
 ARG TARGETPLATFORM
+ARG PROJECT_NAME
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
-    --mount=type=cache,target=./dist-newstyle,id=chainweb-${TARGETPLATFORM},sharing=locked \
+    --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
     cabal build --enable-tests --enable-benchmarks chainweb:exe:cwtool
 RUN sh /tools/check-git-clean.sh
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
-    --mount=type=cache,target=./dist-newstyle,id=chainweb-${TARGETPLATFORM},sharing=locked \
-    cabal run --enable-tests --enable-benchmarks chainweb:exe:cwtool -- ea \
-RUN sh /tools/check-git-clean.sh || \
+    --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
+    cabal run --enable-tests --enable-benchmarks chainweb:exe:cwtool -- ea
+RUN <<EOF
+    sh /tools/check-git-clean.sh ||
     { echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2 ; exit 1 ; }
+EOF
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
-    --mount=type=cache,target=./dist-newstyle,id=chainweb-${TARGETPLATFORM},sharing=locked \
-    mkdir -p artifacts \
-    && cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb:exe:cwtool) artifacts/
+    --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked <<EOF
+    mkdir -p artifacts
+    cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb:exe:cwtool) artifacts/
+EOF
 
 # ############################################################################ #
 # Build benchmarks
 
 FROM chainweb-build-lib AS chainweb-build-bench
 ARG TARGETPLATFORM
+ARG PROJECT_NAME
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
-    --mount=type=cache,target=./dist-newstyle,id=chainweb-${TARGETPLATFORM},sharing=locked \
+    --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
     cabal build --enable-tests --enable-benchmarks chainweb:bench:bench
 RUN sh /tools/check-git-clean.sh
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
-    --mount=type=cache,target=./dist-newstyle,id=chainweb-${TARGETPLATFORM},sharing=locked \
-    mkdir -p artifacts \
-    && cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb:bench:bench) artifacts/
+    --mount=type=cache,target=./dist-newstyle,id=chainweb-${TARGETPLATFORM},sharing=locked <<EOF
+    mkdir -p artifacts
+    cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb:bench:bench) artifacts/
+EOF
 
 # ############################################################################ #
 # Build Chainweb Node Application
 
 FROM chainweb-build-lib AS chainweb-build-node
 ARG TARGETPLATFORM
+ARG PROJECT_NAME
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
-    --mount=type=cache,target=./dist-newstyle,id=chainweb-${TARGETPLATFORM},sharing=locked \
+    --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
     cabal build --enable-tests --enable-benchmarks chainweb:exe:chainweb-node
 RUN sh /tools/check-git-clean.sh
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
-    --mount=type=cache,target=./dist-newstyle,id=chainweb-${TARGETPLATFORM},sharing=locked \
-    mkdir -p artifacts \
-    && cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb:exe:chainweb-node) artifacts/
+    --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked <<EOF
+    mkdir -p artifacts
+    cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb:exe:chainweb-node) artifacts/
+EOF
 
 # ############################################################################ #
 # Run Tests and Benchmarks
@@ -264,24 +286,30 @@ FROM chainweb-runtime AS chainweb-run-tests
 COPY --from=chainweb-build-tests /chainweb/artifacts/chainweb-tests .
 COPY --from=chainweb-build-tests /chainweb/test/pact test/pact
 COPY --from=chainweb-build-tests /chainweb/pact pact
-RUN ulimit -n 10000 \
-    && ./chainweb-tests --hide-successes --results-json test-results.json
+RUN <<EOF
+    ulimit -n 10000
+    ./chainweb-tests --hide-successes --results-json test-results.json
+EOF
 
 # ############################################################################ #
 # Run slow tests
 
 FROM chainweb-runtime AS chainweb-run-slowtests
 COPY --from=chainweb-build-cwtool /chainweb/artifacts/cwtool .
-RUN ulimit -n 10000 \
-    && ./cwtool slow-tests
+RUN <<EOF
+    ulimit -n 10000
+    ./cwtool slow-tests
+EOF
 
 # ############################################################################ #
 # Run benchmarks
 
 FROM chainweb-runtime AS chainweb-run-bench
 COPY --from=chainweb-build-bench /chainweb/artifacts/bench .
-RUN ulimit -n 10000 \
-    && ./bench
+RUN <<EOF
+    ulimit -n 10000
+    ./bench
+EOF
 
 # ############################################################################ #
 # Applications

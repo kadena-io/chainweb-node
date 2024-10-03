@@ -24,6 +24,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as BS
 import Data.Coerce
 import qualified Data.Hash.SHA3 as SHA3
+import Data.Hash.SHA3 (Sha3_224(..), Sha3_256(..), Sha3_384(..), Sha3_512(..))
 import qualified Data.List as L
 import Data.String
 
@@ -266,15 +267,18 @@ testAgg n dbVarIO tblIO = do
             [[x]] -> error $ "unexpected return value: " <> show x
             [a] -> error $ "unexpected number of result fields: " <> show (length a)
             a -> error $ "unexpected number of result rows: " <> show (length a)
+        hBytes <- hash n (mconcat input)
 
-        h @?= hash n (mconcat input)
+        h @?= hBytes
   where
-    hash 0 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_256
-    hash 224 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_224
-    hash 256 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_256
-    hash 384 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_384
-    hash 512 = hashToByteString . SHA3.hashByteString @SHA3.Sha3_512
-    hash x = error $ "unsupported SHA3 digest size: " <> show x
+    hash :: Int -> B.ByteString -> IO B.ByteString
+    hash d b = case d of
+      0 -> hashToByteString <$> SHA3.hashByteString @SHA3.Sha3_256 b
+      224 -> hashToByteString <$> SHA3.hashByteString @SHA3.Sha3_224 b
+      256 -> hashToByteString <$> SHA3.hashByteString @SHA3.Sha3_256 b
+      384 -> hashToByteString <$> SHA3.hashByteString @SHA3.Sha3_384 b
+      512 -> hashToByteString <$> SHA3.hashByteString @SHA3.Sha3_512 b
+      _ -> error $ "unsupported SHA3 digest size: " <> show d
 
 hashToByteString :: SHA3.Hash a => Coercible a BS.ShortByteString => a -> B.ByteString
 hashToByteString = BS.fromShort . coerce
