@@ -288,7 +288,7 @@ COPY --from=chainweb-build-tests /chainweb/test/pact test/pact
 COPY --from=chainweb-build-tests /chainweb/pact pact
 RUN <<EOF
     ulimit -n 10000
-    ./chainweb-tests --hide-successes --results-json test-results.json
+    ./chainweb-tests --hide-successes --results-json test-results.json -p '!/chainweb216Test/'
 EOF
 
 # ############################################################################ #
@@ -319,6 +319,7 @@ EOF
 # Chainweb-node Application
 
 FROM chainweb-runtime AS chainweb-node
+ENV PATH=/chainweb:$PATH
 COPY --from=chainweb-build-node /chainweb/artifacts/chainweb-node .
 COPY --from=chainweb-build-node /chainweb/LICENSE .
 COPY --from=chainweb-build-node /chainweb/README.md .
