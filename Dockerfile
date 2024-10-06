@@ -267,12 +267,12 @@ ARG TARGETPLATFORM
 ARG PROJECT_NAME
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
     --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
-    cabal build --enable-tests --enable-benchmarks chainweb:exe:chainweb-node
+    cabal build --enable-tests --enable-benchmarks chainweb-node:exe:chainweb-node
 RUN sh /tools/check-git-clean.sh
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
     --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked <<EOF
     mkdir -p artifacts
-    cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb:exe:chainweb-node) artifacts/
+    cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb-node:exe:chainweb-node) artifacts/
 EOF
 
 # ############################################################################ #

@@ -1,4 +1,6 @@
-packages: chainweb.cabal
+packages: 
+    chainweb.cabal
+    node/chainweb-node.cabal
 
 debug-info: True
 
