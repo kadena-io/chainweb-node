@@ -360,7 +360,6 @@ jobs:
     - name: Build chainweb applications
       run: | 
         cabal build -j2 --ghc-options=-j2 \
-          exe:chainweb-node \
           exe:compact \
           test:chainweb-tests \
           test:multi-node-network-tests \
@@ -368,6 +367,8 @@ jobs:
           test:remote-tests \
           exe:cwtool \
           chainweb:bench:bench
+    - name: Build chainweb-node application
+      run: cabal build -j2 --ghc-options=-j2 chainweb-node:exe:chainweb-node
 
     # Checks
     - name: Check that working directory tree is clean

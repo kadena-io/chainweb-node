@@ -118,7 +118,6 @@ jobs:
     - name: Build chainweb applications
       run: | 
         cabal build -j \
-          exe:chainweb-node \
           exe:compact \
           test:chainweb-tests \
           test:multi-node-network-tests \
@@ -126,7 +125,8 @@ jobs:
           test:remote-tests \
           exe:cwtool \
           chainweb:bench:bench
-
+    - name: Build chainweb-node application
+      run: cabal build -j chainweb-node:exe:chainweb-node
     - uses: actions/cache/save@v4
       name: Save dist-newstyle cache
       if: steps.cabal-dist-cache.outputs.cache-hit != 'true'
