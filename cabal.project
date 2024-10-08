@@ -144,7 +144,7 @@ source-repository-package
     type: git
     location: https://github.com/argumentcomputer/lurk-hs
     tag: 77bdf6f4d289d8274f839822d590d05758bfb53d
-    --sha256: sha256-kVFIy+Aj3TNJpsM1Cs/5uGmzeWwHKYWjjCQ+L1/XOj8=
+    --sha256: sha256-kJ4d19bUrH2r3yeIDfBG8LuM0JJac2zqs2nAFVXEKpY=
 
 -- source-repository-package
 --     type: git

@@ -7,8 +7,8 @@
       flake = false;
     };
     hs-nix-infra = {
-      # url = "github:kadena-io/hs-nix-infra";
-      url = "git+file:///home/johnw/argument/hs-nix-infra";
+      url = "github:kadena-io/hs-nix-infra";
+      #url = "git+file:///home/johnw/argument/hs-nix-infra";
       inputs.hackage.follows = "hackage";
     };
     flake-utils.url = "github:numtide/flake-utils";

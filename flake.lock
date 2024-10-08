@@ -307,17 +307,17 @@
         "nixpkgs-rec": "nixpkgs-rec"
       },
       "locked": {
-        "lastModified": 1727241399,
-        "narHash": "sha256-/UA0rMzsUIQNgYEd/V2MSQo3xZCGok+sDYV8qj31/KU=",
-        "ref": "refs/heads/main",
-        "rev": "23efab94abb2892175ffb1175dccb9d8cf843d1c",
-        "revCount": 19,
-        "type": "git",
-        "url": "file:///home/johnw/argument/hs-nix-infra"
+        "lastModified": 1721155341,
+        "narHash": "sha256-TdLe5O6ath6lgsgVYyfZHUwoZm7R4AcCZxa63SOg86I=",
+        "owner": "kadena-io",
+        "repo": "hs-nix-infra",
+        "rev": "b20a03107b870cdff4c16486ada0d674c89f3242",
+        "type": "github"
       },
       "original": {
-        "type": "git",
-        "url": "file:///home/johnw/argument/hs-nix-infra"
+        "owner": "kadena-io",
+        "repo": "hs-nix-infra",
+        "type": "github"
       }
     },
     "nix-filter": {
@@ -337,17 +337,17 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1727089097,
-        "narHash": "sha256-ZMHMThPsthhUREwDebXw7GX45bJnBCVbfnH1g5iuSPc=",
+        "lastModified": 1694822471,
+        "narHash": "sha256-6fSDCj++lZVMZlyqOe9SIOL8tYSBz1bI8acwovRwoX8=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "568bfef547c14ca438c56a0bece08b8bb2b71a9c",
+        "rev": "47585496bcb13fb72e4a90daeea2f434e2501998",
         "type": "github"
       },
       "original": {
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "568bfef547c14ca438c56a0bece08b8bb2b71a9c",
+        "rev": "47585496bcb13fb72e4a90daeea2f434e2501998",
         "type": "github"
       }
     },
