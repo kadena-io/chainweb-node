@@ -126,7 +126,6 @@ import Chainweb.Time
 
 import P2P.Node.Configuration
 import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
-import Chainweb.Version.Testnet04
 
 -- -------------------------------------------------------------------------- --
 -- Throttling Configuration
@@ -407,7 +406,9 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configReadOnlyReplay :: !Bool
         -- ^ do a read-only replay using the cut db params for the block heights
     , _configPactParityReplay :: !Bool
-        -- ^ perform replay in a way that compares pact4 and pact5 outputs.
+        -- ^ dump transaction outputs for comparison.
+    , _configPact5Retro :: !Bool
+        -- ^ Enable pact5 retroactively, as far back as Chainweb 2.17, inclusive
     , _configSyncPactChains :: !(Maybe [ChainId])
         -- ^ the only chains to be synchronized on startup to the latest cut.
         --   if unset, all chains will be synchronized.
@@ -468,12 +469,12 @@ validateChainwebVersion v = do
             , sshow (_versionName v)
             ]
     -- FIXME Pact5: disable
-    when (v == mainnet || v == testnet04) $
+    {-when (v == mainnet || v == testnet04) $
         throwError $ T.unwords
             [ "This node version is a technical preview of Pact 5, and"
             , "cannot be used with Pact 4 chainweb versions (testnet04, mainnet)"
             , "just yet."
-            ]
+            ]-}
     where
     isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [recapDevnet, devnet]]
 
@@ -509,6 +510,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configOnlySyncPact = False
     , _configReadOnlyReplay = False
     , _configPactParityReplay = False
+    , _configPact5Retro = False
     , _configSyncPactChains = Nothing
     , _configBackup = defaultBackupConfig
     , _configModuleCacheLimit = defaultModuleCacheLimit
@@ -538,6 +540,8 @@ instance ToJSON ChainwebConfiguration where
         , "serviceApi" .= _configServiceApi o
         , "onlySyncPact" .= _configOnlySyncPact o
         , "readOnlyReplay" .= _configReadOnlyReplay o
+        , "pactParityReplay" .= _configPactParityReplay o
+        , "pact5Retro" .= _configPact5Retro o
         , "syncPactChains" .= _configSyncPactChains o
         , "backup" .= _configBackup o
         , "moduleCacheLimit" .= _configModuleCacheLimit o
@@ -572,6 +576,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configOnlySyncPact ..: "onlySyncPact" % o
         <*< configReadOnlyReplay ..: "readOnlyReplay" % o
         <*< configPactParityReplay ..: "pactParityReplay" % o
+        <*< configPact5Retro ..: "pact5Retro" % o
         <*< configSyncPactChains ..: "syncPactChains" % o
         <*< configBackup %.: "backup" % o
         <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
@@ -633,6 +638,9 @@ pChainwebConfiguration = id
     <*< configPactParityReplay .:: boolOption_
         % long "pact-parity-replay"
         <> help "Replay the block history in a way that compares Pact 4 and Pact 5 outputs"
+    <*< configPact5Retro .:: boolOption_
+        % long "pact-5-retro"
+        <> help "Enable pact5 retroactively, as far back as Chainweb 2.17, inclusive"
     <*< configSyncPactChains .:: fmap Just % jsonOption
         % long "sync-pact-chains"
         <> help "The only Pact databases to synchronize. If empty or unset, all chains will be synchronized."

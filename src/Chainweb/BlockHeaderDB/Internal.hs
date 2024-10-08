@@ -87,6 +87,7 @@ import Numeric.Additive
 data Configuration = Configuration
     { _configRoot :: !BlockHeader
     , _configRocksDb :: !RocksDb
+    , _configReadOnly :: !Bool
     }
 
 -- -------------------------------------------------------------------------- --
@@ -239,7 +240,8 @@ dbAddChecked db e = unlessM (tableMember (_chainDbCas db) ek) dbAddCheckedIntern
 --
 initBlockHeaderDb :: Configuration -> IO BlockHeaderDb
 initBlockHeaderDb config = do
-    dbAddChecked db rootEntry
+    unless (_configReadOnly config) $ do
+        dbAddChecked db rootEntry
     return db
   where
     rootEntry = _configRoot config
@@ -271,14 +273,16 @@ closeBlockHeaderDb _ = return ()
 withBlockHeaderDb
     :: RocksDb
     -> ChainwebVersion
+    -> Bool
     -> ChainId
     -> (BlockHeaderDb -> IO b)
     -> IO b
-withBlockHeaderDb db v cid = bracket start closeBlockHeaderDb
+withBlockHeaderDb db v readOnly cid = bracket start closeBlockHeaderDb
   where
     start = initBlockHeaderDb Configuration
         { _configRoot = genesisBlockHeader v cid
         , _configRocksDb = db
+        , _configReadOnly = readOnly
         }
 
 -- -------------------------------------------------------------------------- --

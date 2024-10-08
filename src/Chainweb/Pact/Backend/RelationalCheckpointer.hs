@@ -177,64 +177,66 @@ doReadFrom logger v cid sql moduleCacheVar maybeParent pactVersion doRead = do
       latestHeader <- doGetLatestBlock sql
       h <- case pactVersion of
         Pact4T
-          | pact5 v cid currentHeight -> internalError $
-            "Pact 4 readFrom executed on block height after Pact 5 fork, height: " <> sshow currentHeight
-          | otherwise -> PactDb.getEndTxId "doReadFrom" sql maybeParent >>= traverse \startTxId -> do
-            newDbEnv <- newMVar $ PactDb.BlockEnv
-              (PactDb.mkBlockHandlerEnv v cid currentHeight sql DoNotPersistIntraBlockWrites logger)
-              (PactDb.initBlockState defaultModuleCacheLimit startTxId)
-                { PactDb._bsModuleCache = sharedModuleCache }
-            let
-              -- is the parent the latest header, i.e., can we get away without rewinding?
-              parentIsLatestHeader = case (latestHeader, maybeParent) of
-                (Nothing, Nothing) -> True
-                (Just (_, latestHash), Just (ParentHeader ph)) ->
-                  view blockHash ph == latestHash
-                _ -> False
-              mkBlockDbEnv db = PactDb.CurrentBlockDbEnv
-                { PactDb._cpPactDbEnv = PactDbEnv db newDbEnv
-                , PactDb._cpRegisterProcessedTx = \hash ->
-                  PactDb.runBlockEnv newDbEnv (PactDb.indexPactTransaction $ BS.fromShort $ coerce hash)
-                , PactDb._cpLookupProcessedTx = \hs ->
-                    HashMap.mapKeys coerce <$> doLookupSuccessful sql currentHeight (coerce hs)
-                }
-              pactDb
-                | parentIsLatestHeader = PactDb.chainwebPactDb
-                | otherwise = PactDb.rewoundPactDb currentHeight startTxId
-            r <- doRead (mkBlockDbEnv pactDb) (emptyBlockHandle startTxId)
-            finalCache <- PactDb._bsModuleCache . PactDb._benvBlockState <$> readMVar newDbEnv
-            return (r, finalCache)
+          | pact5 v cid currentHeight -> do
+                internalError $
+                    "Pact 4 readFrom executed on block height after Pact 5 fork, height: " <> sshow currentHeight
+          | otherwise -> do
+                PactDb.getEndTxId "doReadFrom" sql maybeParent >>= traverse \startTxId -> do
+                    newDbEnv <- newMVar $ PactDb.BlockEnv
+                      (PactDb.mkBlockHandlerEnv v cid currentHeight sql DoNotPersistIntraBlockWrites logger)
+                      (PactDb.initBlockState defaultModuleCacheLimit startTxId)
+                        { PactDb._bsModuleCache = sharedModuleCache }
+                    let
+                      -- is the parent the latest header, i.e., can we get away without rewinding?
+                      parentIsLatestHeader = case (latestHeader, maybeParent) of
+                        (Nothing, Nothing) -> True
+                        (Just (_, latestHash), Just (ParentHeader ph)) ->
+                          view blockHash ph == latestHash
+                        _ -> False
+                      mkBlockDbEnv db = PactDb.CurrentBlockDbEnv
+                        { PactDb._cpPactDbEnv = PactDbEnv db newDbEnv
+                        , PactDb._cpRegisterProcessedTx = \hash ->
+                          PactDb.runBlockEnv newDbEnv (PactDb.indexPactTransaction $ BS.fromShort $ coerce hash)
+                        , PactDb._cpLookupProcessedTx = \hs ->
+                            HashMap.mapKeys coerce <$> doLookupSuccessful sql currentHeight (coerce hs)
+                        }
+                      pactDb
+                        | parentIsLatestHeader = PactDb.chainwebPactDb
+                        | otherwise = PactDb.rewoundPactDb currentHeight startTxId
+                    r <- doRead (mkBlockDbEnv pactDb) (emptyBlockHandle startTxId)
+                    finalCache <- PactDb._bsModuleCache . PactDb._benvBlockState <$> readMVar newDbEnv
+                    return (r, finalCache)
 
         Pact5T
-          | pact5 v cid currentHeight ->
-            Pact5.getEndTxId "doReadFrom" sql maybeParent >>= traverse \startTxId -> do
-            let
-              -- is the parent the latest header, i.e., can we get away without rewinding?
-              -- TODO: just do this inside of the chainwebPactCoreBlockDb function?
-              parentIsLatestHeader = case (latestHeader, maybeParent) of
-                (Nothing, Nothing) -> True
-                (Just (_, latestHash), Just (ParentHeader ph)) ->
-                  view blockHash ph == latestHash
-                _ -> False
-              blockHandlerEnv = Pact5.BlockHandlerEnv
-                { Pact5._blockHandlerDb = sql
-                , Pact5._blockHandlerLogger = logger
-                , Pact5._blockHandlerVersion = v
-                , Pact5._blockHandlerChainId = cid
-                , Pact5._blockHandlerBlockHeight = currentHeight
-                , Pact5._blockHandlerMode = Pact5.Transactional
-                , Pact5._blockHandlerPersistIntraBlockWrites = DoNotPersistIntraBlockWrites
-                }
-            let upperBound
-                  | parentIsLatestHeader = Nothing
-                  | otherwise = Just (currentHeight, startTxId)
-            let pactDb
-                  = Pact5.chainwebPactCoreBlockDb upperBound blockHandlerEnv
-            r <- doRead pactDb (emptyBlockHandle (coerce @Pact5.TxId @Pact4.TxId startTxId))
-            return (r, sharedModuleCache)
-          | otherwise ->
-            internalError $
-              "Pact 5 readFrom executed on block height before Pact 5 fork, height: " <> sshow currentHeight
+          | pact5 v cid currentHeight -> do
+                Pact5.getEndTxId "doReadFrom" sql maybeParent >>= traverse \startTxId -> do
+                    let
+                      -- is the parent the latest header, i.e., can we get away without rewinding?
+                      -- TODO: just do this inside of the chainwebPactCoreBlockDb function?
+                      parentIsLatestHeader = case (latestHeader, maybeParent) of
+                        (Nothing, Nothing) -> True
+                        (Just (_, latestHash), Just (ParentHeader ph)) ->
+                          view blockHash ph == latestHash
+                        _ -> False
+                      blockHandlerEnv = Pact5.BlockHandlerEnv
+                        { Pact5._blockHandlerDb = sql
+                        , Pact5._blockHandlerLogger = logger
+                        , Pact5._blockHandlerVersion = v
+                        , Pact5._blockHandlerChainId = cid
+                        , Pact5._blockHandlerBlockHeight = currentHeight
+                        , Pact5._blockHandlerMode = Pact5.Transactional
+                        , Pact5._blockHandlerPersistIntraBlockWrites = DoNotPersistIntraBlockWrites
+                        }
+                    let upperBound
+                          | parentIsLatestHeader = Nothing
+                          | otherwise = Just (currentHeight, startTxId)
+                    let pactDb
+                          = Pact5.chainwebPactCoreBlockDb upperBound blockHandlerEnv
+                    r <- doRead pactDb (emptyBlockHandle (coerce @Pact5.TxId @Pact4.TxId startTxId))
+                    return (r, sharedModuleCache)
+          | otherwise -> do
+                internalError $
+                  "Pact 5 readFrom executed on block height before Pact 5 fork, height: " <> sshow currentHeight
       case h of
         NoHistory -> return (sharedModuleCache, NoHistory)
         Historical (r, finalCache) -> return (finalCache, Historical r)

@@ -178,7 +178,7 @@ pruneAllChains
     -> IO ()
 pruneAllChains logger rdb v checks = do
     now <- getCurrentTimeIntegral
-    wdb <- initWebBlockHeaderDb rdb v
+    wdb <- initWebBlockHeaderDb rdb v False
     forConcurrently_ (toList $ chainIds v) (pruneChain now wdb)
   where
     diam = diameter $ chainGraphAt v (maxBound @BlockHeight)
@@ -311,7 +311,7 @@ fullGc logger rdb v = do
 
     -- Prune a single chain and return the sets of marked payloads
     --
-    pruneChain cid = withBlockHeaderDb rdb v cid $ \cdb -> do
+    pruneChain cid = withBlockHeaderDb rdb v False cid $ \cdb -> do
         let chainLogger = addLabel ("chain", toText cid) logger
             chainLogg = logFunctionText chainLogger
 

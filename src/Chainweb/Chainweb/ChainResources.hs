@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -84,6 +85,8 @@ withChainResources
     => ChainwebVersion
     -> ChainId
     -> RocksDb
+    -> Bool
+       -- ^ are we in readonly mode?
     -> logger
     -> (MVar PactExecutionService -> Mempool.InMemConfig Pact4.UnparsedTransaction)
     -> PayloadDb tbl
@@ -93,25 +96,23 @@ withChainResources
     -> Counter "txFailures"
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResources
-  v cid rdb logger mempoolCfg0 payloadDb pactDbDir pactConfig txFailuresCounter inner =
-    withBlockHeaderDb rdb v cid $ \cdb -> do
-      pexMv <- newEmptyMVar
-      let mempoolCfg = mempoolCfg0 pexMv
-      Mempool.withInMemoryMempool (setComponent "mempool" logger) mempoolCfg v $ \mempool -> do
-        mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
-        withPactService v cid logger (Just txFailuresCounter) mpc cdb
-                        payloadDb pactDbDir pactConfig $ \requestQ -> do
-            let pex = pes requestQ
-            putMVar pexMv pex
+withChainResources v cid rdb readOnly logger mempoolCfg0 payloadDb pactDbDir pactConfig txFailuresCounter inner = do
+    withBlockHeaderDb rdb v readOnly cid $ \cdb -> do
+        pexMv <- newEmptyMVar
+        let mempoolCfg = mempoolCfg0 pexMv
+        Mempool.withInMemoryMempool (setComponent "mempool" logger) mempoolCfg v $ \mempool -> do
+            mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
+            withPactService v cid logger (Just txFailuresCounter) mpc cdb payloadDb pactDbDir pactConfig $ \requestQ -> do
+                let pex = pes requestQ
+                putMVar pexMv pex
 
-            -- run inner
-            inner $ ChainResources
-                { _chainResBlockHeaderDb = cdb
-                , _chainResLogger = logger
-                , _chainResMempool = mempool
-                , _chainResPact = pex
-                }
+                -- run inner
+                inner $ ChainResources
+                    { _chainResBlockHeaderDb = cdb
+                    , _chainResLogger = logger
+                    , _chainResMempool = mempool
+                    , _chainResPact = pex
+                    }
   where
     pes requestQ
         | v ^. versionCheats . disablePact = emptyPactExecutionService

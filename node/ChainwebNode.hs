@@ -104,6 +104,7 @@ import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
 import Chainweb.Version.Mainnet
+import Chainweb.Version.Pact5Retro (pact5Retro)
 import Chainweb.Version.Testnet04 (testnet04)
 import Chainweb.Version.Registry
 
@@ -558,10 +559,14 @@ main = do
     installFatalSignalHandlers [ sigHUP, sigTERM, sigXCPU, sigXFSZ ]
     checkRLimits
     runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
-        let v = _configChainwebVersion $ _nodeConfigChainweb conf
+        let nodeConf = _nodeConfigChainweb conf
+        let v = if _configPact5Retro nodeConf
+                then pact5Retro (_configChainwebVersion nodeConf)
+                else _configChainwebVersion nodeConf
+        let conf' = conf & nodeConfigChainweb . configChainwebVersion .~ v
         registerVersion v
         hSetBuffering stderr LineBuffering
-        withNodeLogger (_nodeConfigLog conf) (_nodeConfigChainweb conf) v $ \logger -> do
+        withNodeLogger (_nodeConfigLog conf') (_nodeConfigChainweb conf') v $ \logger -> do
             logFunctionJson logger Info ProcessStarted
             handles
                 [ Handler $ \(e :: SomeAsyncException) ->
@@ -570,8 +575,8 @@ main = do
                     logFunctionJson logger Error (ProcessDied $ show e) >> throwIO e
                 ] $ do
                 kt <- mapM iso8601ParseM (_versionServiceDate v)
-                withServiceDate (_configChainwebVersion (_nodeConfigChainweb conf)) (logFunctionText logger) kt $ void $
-                    race (node conf logger) (gcRunner (logFunctionText logger))
+                withServiceDate (_configChainwebVersion (_nodeConfigChainweb conf')) (logFunctionText logger) kt $ void $
+                    race (node conf' logger) (gcRunner (logFunctionText logger))
     where
     gcRunner lf = runForever lf "GarbageCollect" $ do
         performMajorGC

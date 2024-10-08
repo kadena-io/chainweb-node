@@ -734,8 +734,8 @@ compactRocksDb logger cwVersion cids minBlockHeight srcDb targetDb = do
   log LL.Info "Initializing payload db"
   initializePayloadDb cwVersion targetPayloads
 
-  srcWbhdb <- initWebBlockHeaderDb srcDb cwVersion
-  targetWbhdb <- initWebBlockHeaderDb targetDb cwVersion
+  srcWbhdb <- initWebBlockHeaderDb srcDb cwVersion True
+  targetWbhdb <- initWebBlockHeaderDb targetDb cwVersion False
   forM_ cids $ \cid -> do
     let log' = logFunctionText (addChainIdLabel cid logger)
     log' LL.Info $ "Starting chain " <> chainIdToText cid

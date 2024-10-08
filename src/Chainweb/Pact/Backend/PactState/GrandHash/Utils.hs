@@ -105,7 +105,7 @@ getLatestCutHeaders :: ()
   -> RocksDb
   -> IO (WebBlockHeaderDb, HashMap ChainId BlockHeader)
 getLatestCutHeaders v rocksDb = do
-  wbhdb <- initWebBlockHeaderDb rocksDb v
+  wbhdb <- initWebBlockHeaderDb rocksDb v True
   let cutHashes = cutHashesTable rocksDb
   latestCutHeaders <- readHighestCutHeaders v (\_ _ -> pure ()) wbhdb cutHashes
   pure (wbhdb, latestCutHeaders)

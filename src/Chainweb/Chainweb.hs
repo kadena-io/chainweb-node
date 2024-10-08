@@ -364,8 +364,8 @@ withChainwebInternal
     -> (StartedChainweb logger -> IO ())
     -> IO ()
 withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir resetDb inner = do
-
-    unless (_configOnlySyncPact conf || _configReadOnlyReplay conf) $
+    let isReadOnly = _configReadOnlyReplay conf
+    unless (_configOnlySyncPact conf || isReadOnly) $
         initializePayloadDb v payloadDb
 
     -- Garbage Collection
@@ -412,6 +412,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                     v
                     cid
                     rocksDb
+                    isReadOnly
                     (chainLogger cid)
                     mcfg
                     payloadDb
@@ -421,33 +422,34 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                     x
             )
 
-        -- initialize global resources after all chain resources are initialized
-        (\cs -> do
-            logg Debug "finished initializing chain resources"
-            global (HM.fromList $ zip cidsList cs)
-        )
-        cidsList
+            -- initialize global resources after all chain resources are initialized
+            (\cs -> do
+                logg Debug "finished initializing chain resources"
+                global (HM.fromList $ zip cidsList cs)
+            )
+
+            cidsList
   where
     pactConfig maxGasLimit = PactServiceConfig
-      { _pactReorgLimit = _configReorgLimit conf
-      , _pactPreInsertCheckTimeout = _configPreInsertCheckTimeout conf
-      , _pactQueueSize = _configPactQueueSize conf
-      , _pactResetDb = resetDb
-      , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
-      , _pactUnlimitedInitialRewind =
-          isJust (_cutDbParamsInitialHeightLimit cutConfig) ||
-          isJust (_cutDbParamsInitialCutFile cutConfig)
-      , _pactBlockGasLimit = maybe id min maxGasLimit (_configBlockGasLimit conf)
-      , _pactLogGas = _configLogGas conf
-      , _pactModuleCacheLimit = _configModuleCacheLimit conf
-      , _pactEnableLocalTimeout = _configEnableLocalTimeout conf
-      , _pactFullHistoryRequired = _configFullHistoricPactState conf
-      , _pactPersistIntraBlockWrites =
-          if _configFullHistoricPactState conf
-          then PersistIntraBlockWrites
-          else DoNotPersistIntraBlockWrites
-      , _pactTxTimeLimit = Nothing
-      }
+        { _pactReorgLimit = _configReorgLimit conf
+        , _pactPreInsertCheckTimeout = _configPreInsertCheckTimeout conf
+        , _pactQueueSize = _configPactQueueSize conf
+        , _pactResetDb = resetDb
+        , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
+        , _pactUnlimitedInitialRewind =
+            isJust (_cutDbParamsInitialHeightLimit cutConfig) ||
+            isJust (_cutDbParamsInitialCutFile cutConfig)
+        , _pactBlockGasLimit = maybe id min maxGasLimit (_configBlockGasLimit conf)
+        , _pactLogGas = _configLogGas conf
+        , _pactModuleCacheLimit = _configModuleCacheLimit conf
+        , _pactEnableLocalTimeout = _configEnableLocalTimeout conf
+        , _pactFullHistoryRequired = _configFullHistoricPactState conf
+        , _pactPersistIntraBlockWrites =
+            if _configFullHistoricPactState conf
+            then PersistIntraBlockWrites
+            else DoNotPersistIntraBlockWrites
+        , _pactTxTimeLimit = Nothing
+        }
 
     pruningLogger :: T.Text -> logger
     pruningLogger l = addLabel ("sub-component", l)
@@ -506,8 +508,8 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             let
                 pactSyncChains =
                     case _configSyncPactChains conf of
-                      Just syncChains | _configOnlySyncPact conf || _configReadOnlyReplay conf -> HM.filterWithKey (\k _ -> elem k syncChains) cs
-                      _ -> cs
+                        Just syncChains | _configOnlySyncPact conf || _configReadOnlyReplay conf -> HM.filterWithKey (\k _ -> elem k syncChains) cs
+                        _ -> cs
 
             if _configReadOnlyReplay conf
             then do

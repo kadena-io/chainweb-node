@@ -206,8 +206,11 @@ getHost
     -> [PeerInfo]
     -> IO (Either T.Text Hostname)
 getHost mgr ver logger peers = do
+    let vName = case _versionName ver of
+            ChainwebVersionName n -> ChainwebVersionName (fromMaybe n (T.stripPrefix "pact5-retro-" n))
+
     nis <- forConcurrently peers $ \p ->
-        tryAllSynchronous (requestRemoteNodeInfo mgr (_versionName ver) (_peerAddr p) Nothing) >>= \case
+        tryAllSynchronous (requestRemoteNodeInfo mgr vName (_peerAddr p) Nothing) >>= \case
             Right x -> Just x <$ do
                 logFunctionText logger Info
                     $ "got remote info from " <> toText (_peerAddr p)

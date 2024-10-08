@@ -125,12 +125,11 @@ instance (k ~ CasKeyType (ChainValue BlockHeader)) => ReadableTable WebBlockHead
 initWebBlockHeaderDb
     :: RocksDb
     -> ChainwebVersion
+    -> Bool
     -> IO WebBlockHeaderDb
-initWebBlockHeaderDb db v = WebBlockHeaderDb
-    <$!> itraverse (\cid _ -> initBlockHeaderDb (conf cid db)) (HS.toMap $ chainIds v)
+initWebBlockHeaderDb db v readOnly = WebBlockHeaderDb
+    <$!> itraverse (\cid _ -> initBlockHeaderDb (Configuration (genesisBlockHeader v cid) db readOnly)) (HS.toMap $ chainIds v)
     <*> pure v
-  where
-    conf cid = Configuration (genesisBlockHeader v cid)
 
 -- | FIXME: this needs some consistency checks
 --

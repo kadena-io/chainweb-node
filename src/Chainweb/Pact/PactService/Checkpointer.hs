@@ -29,7 +29,6 @@ module Chainweb.Pact.PactService.Checkpointer
     ( readFromLatest
     , readFromNthParent
     , readFrom
-    , readFromBoth
     , restoreAndSave
     , findLatestValidBlockHeader'
     , findLatestValidBlockHeader
@@ -184,31 +183,6 @@ readFrom ph doRead = do
         SomeBlockM (Pair forPact4 forPact5)
             | pact5 v cid currentHeight -> execPact5 forPact5
             | otherwise -> execPact4 forPact4
-
--- | Run both read actions, not just one. Used for parity replay.
-readFromBoth
-    :: (Logger logger)
-    => Maybe ParentHeader
-    -> SomeBlockM logger tbl a
-    -> PactServiceM logger tbl (Historical (a, a))
-readFromBoth ph doRead = do
-    cp <- view psCheckpointer
-    pactParent <- getPactParent ph
-    s <- get
-    e <- ask
-    let execPact4 act =
-            liftIO $ _cpReadFrom (_cpReadCp cp) ph Pact4T $ \dbenv _ ->
-                evalPactServiceM s e $
-                    Pact4.runPactBlockM pactParent (isNothing ph) dbenv act
-    let execPact5 act =
-            liftIO $ _cpReadFrom (_cpReadCp cp) ph Pact5T $ \dbenv blockHandle ->
-                evalPactServiceM s e $ do
-                    fst <$> Pact5.runPactBlockM pactParent (isNothing ph) dbenv blockHandle act
-    case doRead of
-        SomeBlockM (Pair forPact4 forPact5) -> do
-            pact4Result <- execPact4 forPact4
-            pact5Result <- execPact5 forPact5
-            pure $ (,) <$> pact4Result <*> pact5Result
 
 -- here we cheat, making the genesis block header's parent the genesis
 -- block header, only for Pact's information, *not* for the checkpointer;

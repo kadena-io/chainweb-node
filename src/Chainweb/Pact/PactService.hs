@@ -3,6 +3,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
@@ -45,6 +46,7 @@ module Chainweb.Pact.PactService
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Pact.Core.StableEncoding (StableEncoding(..))
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
 import Chainweb.ChainId
@@ -91,7 +93,6 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Parallel.Strategies qualified as Strategies
-import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
 import Data.ByteString.Short qualified as SB
 import Data.Coerce (coerce)
@@ -102,15 +103,13 @@ import Data.Functor.Product
 import Data.HashMap.Strict qualified as HM
 import Data.IORef
 import Data.LogMessage
-import Data.Map (Map)
-import Data.Map.Strict qualified as Map
 import Data.Maybe
 import Data.Monoid
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.Encoding qualified as T
+import Data.Text.Encoding qualified as Text
 import Data.Time.Clock
 import Data.Time.Format.ISO8601
 import Data.UUID qualified as UUID
@@ -133,15 +132,18 @@ import Pact.Core.Persistence qualified as Pact5
 import Pact.Gas qualified as Pact4
 import Pact.Interpreter(PactDbEnv(..))
 import Pact.JSON.Encode qualified as J
+import Data.Aeson qualified as Aeson
+import Data.Aeson.Encode.Pretty qualified as Aeson
 import Pact.Parse qualified as Pact4
 import Pact.Types.Command qualified as Pact4
 import Pact.Types.Hash qualified as Pact4
 import Pact.Types.Pretty qualified as Pact4
 import Pact.Types.Runtime qualified as Pact4 hiding (catchesPactError)
-import Patience.Map qualified as Patience
 import Prelude hiding (lookup)
 import Streaming qualified as Stream
 import Streaming.Prelude qualified as Stream
+import System.Directory (createDirectoryIfMissing)
+import System.FilePath ((</>))
 import System.LogLevel
 import Text.Printf
 import Utils.Logging.Trace
@@ -278,7 +280,7 @@ initializeCoinContract v cid pwo = do
         if currentBlockHeader /= ParentHeader genesisHeader
         then
             unless (pact5 v cid (view blockHeight genesisHeader)) $ do
-                !mc <- readFrom (Just currentBlockHeader) (SomeBlockM $ Pair Pact4.readInitModules (error "pact5")) >>= \case
+                !mc <- readFrom (Just currentBlockHeader) (SomeBlockM $ Pair Pact4.readInitModules (pure mempty)) >>= \case
                     NoHistory -> throwM $ BlockHeaderLookupFailure
                         $ "initializeCoinContract: internal error: latest block not found: " <> sshow currentBlockHeader
                     Historical mc -> return mc
@@ -635,22 +637,39 @@ execNewGenesisBlock miner newTrans = pactLabel "execNewGenesisBlock" $ do
         NoHistory -> internalError "PactService.execNewGenesisBlock: Impossible error, unable to rewind before genesis"
         Historical block -> return block
 
-
-data CommandResultDiffable = CommandResutlDiffable
+data CommandResultDiffable = CommandResultDiffable
     { _crdTxId :: Maybe Pact5.TxId
     , _crdRequestKey :: Pact5.RequestKey
-    -- , _crdMetadata :: Aeson.Value -- maybe ?
     , _crdResult :: Pact5.PactResult ErrorDiffable
-    , _crdEvents :: Set (Pact5.PactEvent Pact5.PactValue)
+    , _crdEvents :: OrderedEvents
     }
     deriving stock (Eq, Show)
 
+instance J.Encode CommandResultDiffable where
+    build CommandResultDiffable{..} = J.object
+        [ "txId" J..?= fmap (J.Aeson . Pact5._txId) _crdTxId
+        , "requestKey" J..= _crdRequestKey
+        -- , "result" J..= _crdResult
+        , "events" J..= _crdEvents
+        ]
+
+newtype OrderedEvents
+    = OrderedEvents { getOrderedEvents :: (Set (StableEncoding (Pact5.PactEvent Pact5.PactValue))) }
+    deriving stock (Show)
+    deriving newtype (Eq)
+
+instance J.Encode OrderedEvents where
+    build (OrderedEvents s) = J.array s
+
 newtype ErrorDiffable
-  = ErrorDiffable (Pact5.PactErrorCompat ())
-  deriving Show
+    = ErrorDiffable (Pact5.PactErrorCompat ())
+    deriving stock (Show)
+
+instance J.Encode ErrorDiffable where
+    build (ErrorDiffable e) = J.build (fmap J.Array e)
 
 instance Eq ErrorDiffable where
-    (ErrorDiffable ler) == (ErrorDiffable rer) = diffErr ler rer
+    ErrorDiffable ler == ErrorDiffable rer = diffErr ler rer
         where
         diffErr (Pact5.PELegacyError l) (Pact5.PELegacyError r) =
             Pact5._leType l == Pact5._leType r
@@ -682,14 +701,12 @@ instance Eq ErrorDiffable where
             "PEVerifierError" -> Pact5.LegacyEvalError
             _ -> error "impossible: Pact 5 error code generated an illegal error code. This should never happen"
 
-
-
 commandResultToDiffable :: Pact5.CommandResult log (Pact5.PactErrorCompat info) -> CommandResultDiffable
-commandResultToDiffable cr = CommandResutlDiffable
+commandResultToDiffable cr = CommandResultDiffable
     { _crdTxId = Pact5._crTxId cr
     , _crdRequestKey = Pact5._crReqKey cr
     , _crdResult = Pact5._crResult (ErrorDiffable . void <$> cr)
-    , _crdEvents = Set.fromList (Pact5._crEvents cr)
+    , _crdEvents = OrderedEvents $ Set.fromList $ fmap StableEncoding (Pact5._crEvents cr)
     }
 
 execReadOnlyReplay
@@ -776,13 +793,18 @@ execReadOnlyReplay isParity lowerBound maybeUpperBound = pactLabel "execReadOnly
                     NoHistory -> throwM $ BlockHeaderLookupFailure $ "execReadOnlyReplay: missing block: " <> sshow bh
                     Historical x -> return x
 
+            let prettyJson :: J.Encode a => a -> BS.ByteString
+                prettyJson a = case Aeson.eitherDecode @Aeson.Value (J.encode a) of
+                    Left err -> error $ "execReadOnlyReplay: failed to decode json: " <> sshow err
+                    Right json -> BS.toStrict $ Aeson.encodePretty json
+
             let height = view blockHeight bh
             if isParity && chainweb217Pact v cid height
             then do
                 eOutputs <- catchValidationError
                     $ (handleMissingBlock =<<)
                     $ runPact
-                    $ readFromBoth (Just $ ParentHeader bhParent) $ do
+                    $ readFrom (Just $ ParentHeader bhParent) $ do
                         liftIO $ writeIORef heightRef height
                         payload <- liftIO $ fromJuste <$>
                             lookupPayloadDataWithHeight pdb (Just height) (view blockPayloadHash bh)
@@ -792,53 +814,49 @@ execReadOnlyReplay isParity lowerBound maybeUpperBound = pactLabel "execReadOnly
                 case eOutputs of
                     Left () -> do
                         return ()
-                    Right (pact4Outputs, pact5Outputs) -> do
+                    Right outputs -> do
                         -- TODO: only having the hash of the logs might be an issue if we want to compare logs
-                        pact4Transactions :: Vector (Pact5.Command (Pact5.PayloadWithText Pact5.PublicMeta Text), Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)))
-                            <- forM (_payloadWithOutputsTransactions pact4Outputs) $ \(Transaction txBytes, TransactionOutput txOutBytes) -> do
-                                let cmdText :: Pact4.Command Text
-                                    cmdText = fromJuste $ decodeStrictOrThrow' txBytes
-
-                                let cmdResult :: Pact4.CommandResult Pact4.Hash
-                                    cmdResult = fromJuste $ decodeStrictOrThrow' txOutBytes
-
-                                cmdPayload <- case Pact4.decodePayload (pact4ParserVersion v cid height) (T.encodeUtf8 $ Pact4._cmdPayload cmdText) of
-                                    Left err -> internalError $ "execReadOnlyReplay parity: failed to decode pact4 command: " <> sshow err
-                                    Right cmdPayload -> return $ fmap Pact4._pcCode cmdPayload
-
-                                -- TODO: Converting to and from JSON here is bad for perf.
-                                cmdResult5 <- decodeStrictOrThrow' (BS.toStrict $ J.encode cmdResult)
-
-                                return (Pact5.fromPact4Command (cmdPayload <$ cmdText), cmdResult5)
-
-                        pact5Transactions :: Vector (Pact5.Command (Pact5.PayloadWithText Pact5.PublicMeta Text), Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)))
-                            <- forM (_payloadWithOutputsTransactions pact5Outputs) $ \(Transaction txBytes, TransactionOutput txOutBytes) -> do
-                                let cmdText :: Pact5.Command Text
-                                    cmdText = fromJuste $ decodeStrictOrThrow' txBytes
+                        if pact5 v cid height
+                        then do
+                            forM_ (_payloadWithOutputsTransactions outputs) $ \(Transaction txBytes, TransactionOutput txOutBytes) -> do
+                                cmd <- case Pact5.parseCommand (fromJuste $ decodeStrictOrThrow' txBytes) of
+                                    Left err -> internalError $ "execReadOnlyReplay parity: failed to parse pact5 command: " <> sshow err
+                                    Right cmd -> return (fmap (fmap Pact5._pcCode) cmd)
 
                                 let cmdResult :: Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info))
                                     cmdResult = fromJuste $ decodeStrictOrThrow' txOutBytes
 
-                                cmd <- case Pact5.parseCommand cmdText of
-                                    Left err -> internalError $ "execReadOnlyReplay parity: failed to parse pact5 command: " <> sshow err
-                                    Right cmd -> return cmd
+                                let dir = "parity-replay-pact5"
+                                createDirectoryIfMissing True dir
+                                let filename = dir </> Text.unpack (Text.decodeUtf8 (SB.fromShort (Pact5.unHash (Pact5._cmdHash cmd)))) <> ".json"
+                                BS.writeFile filename $ prettyJson $ commandResultToDiffable cmdResult
 
-                                return (fmap Pact5._pcCode <$> cmd, cmdResult)
+                        else do
+                            forM_ (_payloadWithOutputsTransactions outputs) $ \(Transaction txBytes, TransactionOutput txOutBytes) -> do
+                                cmd <- do
+                                    let cmdText :: Pact4.Command Text
+                                        cmdText = fromJuste $ decodeStrictOrThrow' txBytes
 
-                        let pact4Map :: Map Pact5.Hash CommandResultDiffable
-                            pact4Map = Map.fromList $ fmap (\(cmd, cmdResult) -> (Pact5._cmdHash cmd, commandResultToDiffable cmdResult)) $ V.toList pact4Transactions
+                                    {-
+                                    cmdPayload <- case Pact4.decodePayload (pact4ParserVersion v cid height) (T.encodeUtf8 $ Pact4._cmdPayload cmdText) of
+                                        Left err -> internalError $ "execReadOnlyReplay parity: failed to decode pact4 command: " <> sshow err
+                                        Right cmdPayload -> return $ fmap Pact4._pcCode cmdPayload
 
-                        let pact5Map :: Map Pact5.Hash CommandResultDiffable
-                            pact5Map = Map.fromList $ fmap (\(cmd, cmdResult) -> (Pact5._cmdHash cmd, commandResultToDiffable cmdResult)) $ V.toList pact5Transactions
+                                    return $ Pact5.fromPact4Command (cmdPayload <$ cmdText)
+                                    -}
 
-                        let outputsDiff :: Map Pact5.Hash (Patience.Delta CommandResultDiffable)
-                            outputsDiff = Map.filter (not . Patience.isSame) $ Patience.diff pact4Map pact5Map
+                                    return cmdText
 
-                        when (not $ Map.null outputsDiff) $ do
-                            writeIORef parityFailedRef True
-                            logFunctionText logger Error $ "execReadOnlyReplay parity: differences in command results: " <> sshow outputsDiff
+                                -- TODO: Converting to and from JSON here is bad for perf.
+                                cmdResult :: Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)) <- do
+                                    let cmdResult4 :: Pact4.CommandResult Pact4.Hash
+                                        cmdResult4 = fromJuste $ decodeStrictOrThrow' txOutBytes
+                                    decodeStrictOrThrow' (BS.toStrict $ J.encode cmdResult4)
 
-                        return ()
+                                let dir = "parity-replay-pact4"
+                                createDirectoryIfMissing True dir
+                                let filename = dir </> Text.unpack (Pact4.hashToText (Pact4.toUntypedHash (Pact4._cmdHash cmd))) <> ".json"
+                                BS.writeFile filename $ prettyJson $ commandResultToDiffable cmdResult
 
             else do
                 handle printValidationError
