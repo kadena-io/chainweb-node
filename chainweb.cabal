@@ -156,6 +156,7 @@ library
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.Internal
         , Chainweb.BlockHeaderDB.PruneForks
+        , Chainweb.BlockHeaderDB.RemoteDB
         , Chainweb.BlockHeaderDB.RestAPI
         , Chainweb.BlockHeaderDB.RestAPI.Client
         , Chainweb.BlockHeaderDB.RestAPI.Server
@@ -243,7 +244,6 @@ library
         , Chainweb.Time
         , Chainweb.Transaction
         , Chainweb.TreeDB
-        , Chainweb.TreeDB.RemoteDB
         , Chainweb.Utils
         , Chainweb.Utils.Paging
         , Chainweb.Utils.RequestLog
