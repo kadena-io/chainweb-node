@@ -442,10 +442,8 @@ jobs:
         ghc: ${{ matrix.ghc }}
         use-freeze-file: ${{ matrix.use-freeze-file }}
     - name: Run remote-tests
-      timeout-minutes: 20
-      run: |
-          ulimit -n 10000
-          remote-tests
+      timeout-minutes: 2
+      run: remote-tests
 
   compaction-tests:
     name: Compaction tests
@@ -470,7 +468,7 @@ jobs:
         ghc: ${{ matrix.ghc }}
         use-freeze-file: ${{ matrix.use-freeze-file }}
     - name: Run compaction-tests
-      timeout-minutes: 20
+      timeout-minutes: 7
       run: |
           ulimit -n 10000
           compaction-tests
@@ -498,7 +496,7 @@ jobs:
         ghc: ${{ matrix.ghc }}
         use-freeze-file: ${{ matrix.use-freeze-file }}
     - name: Run multi-node-network-tests
-      timeout-minutes: 20
+      timeout-minutes: 7
       run: |
           ulimit -n 10000
           multi-node-network-tests
