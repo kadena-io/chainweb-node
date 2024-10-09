@@ -116,7 +116,9 @@ jobs:
     - name: Build chainweb library
       run: cabal build lib:chainweb
     - name: Build chainweb applications
-      run: cabal build exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
+      run: cabal build test:chainweb-tests exe:cwtool chainweb:bench:bench
+    - name: Build chainweb-node application
+      run: cabal build chainweb-node:exe:chainweb-node
 
     - uses: actions/cache/save@v4
       name: Save dist-newstyle cache
