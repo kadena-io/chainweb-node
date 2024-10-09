@@ -44,6 +44,8 @@ import qualified Data.HashMap.Strict as HashMap
 
 import Numeric.Natural (Natural)
 
+import GHC.Stack
+
 import qualified System.Random.MWC as MWC
 import qualified System.Random.MWC.Distributions as MWC
 
@@ -79,7 +81,8 @@ import Data.LogMessage (LogFunction)
 -- This is not production POW, but only for testing.
 --
 localTest
-    :: Logger logger
+    :: HasCallStack
+    => Logger logger
     => LogFunction
     -> ChainwebVersion
     -> MiningCoordination logger tbl

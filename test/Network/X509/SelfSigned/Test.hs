@@ -48,9 +48,9 @@ tests :: TestTree
 tests = testGroup "SelfSignedCertificate Tests"
     [ testCertType @RsaCert "RSA"
     -- Disabling because of failures on Linux CI and not critically needed
-    -- , testCertType @Ed25519Cert "Ed25519"
-    -- , testCertType @Ed448Cert "Ed448"
-    -- , testCertType @P256Cert "P-256"
+    , testCertType @Ed25519Cert "Ed25519"
+    , testCertType @Ed448Cert "Ed448"
+    , testCertType @P256Cert "P-256"
         -- P-256 is currently not fully supported on the server side
         -- in the master branch of the tls package.
     ]
