@@ -24,6 +24,7 @@
 --
 module Chainweb.Pact.PactService.Pact4.ExecBlock
     ( execBlock
+    , execBlockReflecting
     , execTransactions
     , continueBlock
     , minerReward
@@ -110,7 +111,88 @@ import Chainweb.Pact4.Types
 import Chainweb.Pact4.ModuleCache
 import Control.Monad.Except
 import qualified Data.List.NonEmpty as NE
+import Pact.Core.Persistence.Types qualified as Pact5
+import Pact.Core.Builtin qualified as Pact5
+import Pact.Core.Evaluate qualified as Pact5
 
+                --let originalPact4Db = Pact4._cpPactDbEnv blockDbEnv
+                --(reflecting4Db, reflected5Db) <- liftIO $ mkReflectingPactDb (pdPactDb originalPact4Db)
+                --let pactDb = originalPact4Db { pdPactDb = reflecting4Db }
+
+mkReflectingPactDb :: Pact4.PactDb e -> IO (Pact4.PactDb e, Pact5.PactDb Pact5.CoreBuiltin Pact5.Info)
+mkReflectingPactDb = undefined
+
+execBlockReflecting
+    :: (CanReadablePayloadCas tbl, Logger logger)
+    => BlockHeader
+    -> CheckablePayload
+    -> PactBlockM logger tbl (Pact4.Gas, PayloadWithOutputs, Pact5.PactDb Pact5.CoreBuiltin Pact5.Info)
+execBlockReflecting currHeader payload = do
+    let plData = checkablePayloadToPayloadData payload
+    dbEnv' <- view psBlockDbEnv
+    (reflecting4Db, reflected5Db) <- liftIO $ mkReflectingPactDb (pdPactDb (_cpPactDbEnv dbEnv'))
+    let dbEnv = dbEnv' { _cpPactDbEnv = (_cpPactDbEnv dbEnv') { pdPactDb = reflecting4Db } }
+    miner <- decodeStrictOrThrow' (_minerData $ view payloadDataMiner plData)
+
+    trans <- liftIO $ pact4TransactionsFromPayload
+      (pact4ParserVersion v (_chainId currHeader) (view blockHeight currHeader))
+      plData
+    logger <- view (psServiceEnv . psLogger)
+
+    -- The reference time for tx timings validation.
+    --
+    -- The legacy behavior is to use the creation time of the /current/ header.
+    -- The new default behavior is to use the creation time of the /parent/ header.
+    --
+    txValidationTime <- if isGenesisBlockHeader currHeader
+      then return (ParentCreationTime $ view blockCreationTime currHeader)
+      else ParentCreationTime . view blockCreationTime . _parentHeader <$> view psParentHeader
+
+    -- prop_tx_ttl_validate
+    errorsIfPresent <- liftIO $
+        forM (V.toList trans) $ \tx ->
+          fmap (Pact4._cmdHash tx,) $
+            runExceptT $
+              validateParsedChainwebTx logger v cid dbEnv txValidationTime
+                (view blockHeight currHeader) (\_ -> pure ()) tx
+
+    case NE.nonEmpty [ (hsh, sshow err) | (hsh, Left err) <- errorsIfPresent ] of
+      Nothing -> return ()
+      Just errs -> throwM $ Pact4TransactionValidationException errs
+
+    logInitCache
+
+    !results <- go miner trans >>= throwCommandInvalidError
+
+    let !totalGasUsed = sumOf (folded . to Pact4._crGas) results
+
+    pwo <- either throwM return $
+      validateHashes currHeader payload miner results
+    return (totalGasUsed, pwo, reflected5Db)
+  where
+    blockGasLimit =
+      fromIntegral <$> maxBlockGasLimit v (view blockHeight currHeader)
+
+    logInitCache = liftPactServiceM $ do
+      mc <- fmap (fmap instr . _getModuleCache) <$> use psInitCache
+      logDebugPact $ "execBlock: initCache: " <> sshow mc
+
+    instr (md,_) = preview (Pact4._MDModule . Pact4.mHash) $ Pact4._mdModule md
+
+    v = _chainwebVersion currHeader
+    cid = _chainId currHeader
+
+    isGenesisBlock = isGenesisBlockHeader currHeader
+
+    go m txs = if isGenesisBlock
+      then
+        -- GENESIS VALIDATE COINBASE: Reject bad coinbase, use date rule for precompilation
+        execTransactions m txs
+          (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) blockGasLimit Nothing
+      else
+        -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
+        execTransactions m txs
+          (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) blockGasLimit Nothing
 
 -- | Execute a block -- only called in validate either for replay or for validating current block.
 --

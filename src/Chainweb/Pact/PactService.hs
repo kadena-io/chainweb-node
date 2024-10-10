@@ -53,6 +53,7 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import Data.Either
+import Data.ByteString qualified as BS
 import Data.Foldable (toList)
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
@@ -61,6 +62,7 @@ import Data.Maybe
 import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Text
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.UUID as UUID
@@ -676,43 +678,75 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
             withAsync (heightProgress lowerHeight (view blockHeight upperBound) heightRef (logInfo_ logger)) $ \_ -> do
                 blocks
                     & Stream.hoist liftIO
-                    & play bhdb pdb heightRef runPact
+                    & play v cid bhdb pdb heightRef runPact
     where
 
     play
         :: CanReadablePayloadCas tbl
-        => BlockHeaderDb
+        => ChainwebVersion
+        -> ChainId
+        -> BlockHeaderDb
         -> PayloadDb tbl
         -> IORef BlockHeight
         -> (forall a. PactServiceM logger tbl a -> IO a)
         -> Stream.Stream (Stream.Of BlockHeader) IO r
         -> IO r
-    play bhdb pdb heightRef runPact blocks = do
+    play v cid bhdb pdb heightRef runPact blocks = do
         logger <- runPact $ view psLogger
         validationFailedRef <- newIORef False
         r <- blocks & Stream.mapM_ (\bh -> do
             bhParent <- liftIO $ lookupParentM GenesisParentThrow bhdb bh
-            let
-                printValidationError (BlockValidationFailure (BlockValidationFailureMsg m)) = do
-                    writeIORef validationFailedRef True
-                    logFunctionText logger Error m
-                printValidationError e = throwM e
-                handleMissingBlock NoHistory = throwM $ BlockHeaderLookupFailure $
-                    "execReadOnlyReplay: missing block: " <> sshow bh
-                handleMissingBlock (Historical ()) = return ()
+
+            let printValidationError = \case
+                    BlockValidationFailure (BlockValidationFailureMsg m) -> do
+                        writeIORef validationFailedRef True
+                        logFunctionText logger Error m
+                        return (Left ())
+                    e -> throwM e
+
+            let handleMissingBlock = \case
+                    NoHistory -> throwM $ BlockHeaderLookupFailure $ "execReadOnlyReplay: missing block: " <> sshow bh
+                    Historical x -> return x
+
             payload <- liftIO $ fromJuste <$>
                 lookupPayloadDataWithHeight pdb (Just $ view blockHeight bh) (view blockPayloadHash bh)
             let isPayloadEmpty = V.null (view payloadDataTransactions payload)
             let isUpgradeBlock = isJust $ _chainwebVersion bhdb ^? versionUpgrades . atChain (_chainId bhdb) . ix (view blockHeight bh)
             liftIO $ writeIORef heightRef (view blockHeight bh)
-            unless (isPayloadEmpty && not isUpgradeBlock)
-                $ handle printValidationError
-                $ (handleMissingBlock =<<)
-                $ runPact
-                $ readFrom (Just $ ParentHeader bhParent) $
-                    SomeBlockM $ Pair
-                        (void $ Pact4.execBlock bh (CheckablePayload payload))
-                        (void $ Pact5.execExistingBlock bh (CheckablePayload payload))
+            unless (isPayloadEmpty && not isUpgradeBlock) $ do
+                ei <- handle printValidationError
+                    $ fmap Right
+                    $ (handleMissingBlock =<<)
+                    $ runPact
+                    $ readFrom (Just $ ParentHeader bhParent) $
+                        SomeBlockM $ Pair
+                            ((\(_gas, pwo, pact5Db) -> (pwo, pact5Db)) <$> Pact4.execBlockReflecting bh (CheckablePayload payload))
+                            (error "pact5 lol") -- void $ Pact5.execExistingBlock bh (CheckablePayload payload))
+
+                case ei of
+                    Left () -> do
+                        return ()
+                    Right (pwo, pact5Db) -> do
+                        forM_ (_payloadWithOutputsTransactions pwo) $ \(Transaction txBytes, TransactionOutput txOutBytes) -> do
+                            cmd <- do
+                                let cmdText :: Pact4.Command Text
+                                    cmdText = fromJuste $ decodeStrictOrThrow' txBytes
+
+                                cmdPayload <- case Pact4.decodePayload (pact4ParserVersion v cid (view blockHeight bh)) (Text.encodeUtf8 $ Pact4._cmdPayload cmdText) of
+                                    Left err -> internalError $ "execReadOnlyReplay parity: failed to decode pact4 command: " <> sshow err
+                                    Right cmdPayload -> return $ fmap Pact4._pcCode cmdPayload
+
+                                return $ Pact5.fromPact4Command (cmdPayload <$ cmdText)
+
+                            -- TODO: Converting to and from JSON here is bad for perf.
+                            cmdResult :: Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)) <- do
+                                let cmdResult4 :: Pact4.CommandResult Pact4.Hash
+                                    cmdResult4 = fromJuste $ decodeStrictOrThrow' txOutBytes
+                                decodeStrictOrThrow' (BS.toStrict $ J.encode cmdResult4)
+
+                            return ()
+
+                return ()
             )
         validationFailed <- readIORef validationFailedRef
         when validationFailed $
