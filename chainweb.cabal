@@ -370,6 +370,7 @@ library
         , Chainweb.Pact.Transactions.OtherTransactions
         , Chainweb.Pact.Transactions.RecapDevelopmentTransactions
         , Chainweb.Pact.Types
+        , Chainweb.Pact.Types.Parity
         , Chainweb.Pact.Utils
 
         -- utils
