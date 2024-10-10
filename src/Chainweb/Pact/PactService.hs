@@ -62,6 +62,7 @@ import Data.Maybe
 import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.IO as Text
 import qualified Data.Text.Encoding as Text
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -93,6 +94,7 @@ import qualified Chainweb.Pact4.TransactionExec as Pact4
 import qualified Chainweb.Pact4.Validations as Pact4
 
 import Chainweb.BlockHash
+import Chainweb.Pact.Types.Parity (CommandResultDiffable(..), commandResultToDiffable)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
@@ -798,10 +800,14 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                             Pact5.applyCmd logger Nothing pact5Db txContext spvSupport initialGas (fmap (^. Pact5.payloadObj) cmd) >>= \case
                                 Left e -> do
                                     print e
-                                Right _ -> do
-                                    !_ <- error "it's all good"
-                                    return ()
-                            return ()
+                                Right cmdResult5 -> do
+                                    let txMinerId = miner ^. minerId
+                                    let r4 = commandResultToDiffable txMinerId cmdResult
+                                    let r5 = commandResultToDiffable txMinerId (fmap (Pact5.PELegacyError . Pact5.toPrettyLegacyError) cmdResult5)
+                                    when (r4 /= r5) $ do
+                                        Text.putStrLn $ J.encodeText r4
+                                        Text.putStrLn $ J.encodeText r5
+                                        error "they don't matchup"
 
                 return ()
             )

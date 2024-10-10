@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
@@ -42,8 +43,6 @@ import Data.Aeson (FromJSON)
 import Data.String (IsString)
 import Data.Foldable (forM_)
 
-
-
 type TxLogQueue = IORef (Map TxId [TxLog ByteString])
 
 -- | Small newtype to ensure we
@@ -69,7 +68,6 @@ data TableFromDomain k v b i where
   TFDUser :: IORef (MockUserTable) -> TableFromDomain RowKey RowData b i
   TFDSys :: IORef (MockSysTable k v) -> TableFromDomain k v b i
 
-
 mkReflectingDb :: Pact4.PactDb e -> IO (Pact4.PactDb e, PactDb Pact5.CoreBuiltin Info)
 mkReflectingDb pact4Db = do
   pactTables <- createPactTables
@@ -79,7 +77,12 @@ mkReflectingDb pact4Db = do
 
 type WriteSet = Map Text (Set Text)
 
-isInWriteSet :: (Ord k, Ord a) => k -> a -> Map k (Set a) -> Bool
+{-isInWriteSet :: (Ord k, Ord a) => k -> a -> Map k (Set a) -> Bool
+isInWriteSet dom k ws = maybe False id $ do
+  s <- M.lookup dom ws
+  pure (S.member k s)-}
+
+isInWriteSet :: Text -> Text -> WriteSet -> Bool
 isInWriteSet dom k ws = maybe False id $ do
   s <- M.lookup dom ws
   pure (S.member k s)
@@ -105,7 +108,7 @@ pact4ReflectingDb PactTables{..} pact4Db = do
     _ <- Pact4._writeRow pact4Db wt domain k v meth
     let domString = Pact4.asString domain
         rowString = Pact4.asString k
-    modifyIORef' ws (M.insertWith S.union domString (S.singleton rowString))
+    atomicModifyIORef' ws $ \s -> (M.insertWith S.union domString (S.singleton rowString) s, ())
 
   keys' :: forall k v . (IsString k,Pact4.AsString k) => Pact4.Domain k v -> Pact4.Method e [k]
   keys' dom meth = do
@@ -122,50 +125,41 @@ pact4ReflectingDb PactTables{..} pact4Db = do
 
   read' :: forall k v . (IsString k,FromJSON v) => IORef WriteSet -> Pact4.Domain k v -> k -> Pact4.Method e (Maybe v)
   read' wsRef dom k meth = do
-    putStrLn "peepeepoopoo"
     let domainStr = Pact4.asString dom
     let keyString = Pact4.asString keyString
     writeSet <- readIORef wsRef
     Pact4._readRow pact4Db dom k meth >>= \case
-      Nothing -> pure Nothing
+      Nothing -> do
+        pure Nothing
       Just v -> do
-        unless (isInWriteSet domainStr keyString writeSet) $ do
-          putStrLn $ "Writing { domain = " <> T.unpack domainStr <> ", key =  " <> T.unpack keyString <> " }"
-          writeToPactTables dom k v
+        -- TODO: THIS IS COMPLETELY MESSED UP
+        --unless (isInWriteSet domainStr keyString writeSet) $ do
+        writeToPactTables dom k v
         pure (Just v)
 
   writeToPactTables :: Pact4.Domain k v -> k -> v -> IO ()
   writeToPactTables dom k v = case dom of
     Pact4.UserTables _ -> do
-      MockUserTable tbl <- readIORef ptUser
       let tblString = Pact4.asString dom
           rowString = RowKey (Pact4.asString k)
           encoded = J.encodeStrict v
-      writeIORef ptUser $ MockUserTable $ M.insertWith (<>) (Rendered tblString) (M.singleton rowString encoded) tbl
+      atomicModifyIORef' ptUser $ \(MockUserTable m) -> (MockUserTable $ M.insertWith (<>) (Rendered tblString) (M.singleton rowString encoded) m, ())
     Pact4.Modules -> do
-      MockSysTable tbl <- readIORef ptModules
       let rowString = Pact4.asString k
           encoded = J.encodeStrict v
-      writeIORef ptModules $ MockSysTable $ M.insert (Rendered rowString) encoded tbl
+      atomicModifyIORef' ptModules $ \(MockSysTable m) -> (MockSysTable $ M.insert (Rendered rowString) encoded m, ())
     Pact4.KeySets -> do
-      MockSysTable tbl <- readIORef ptKeysets
       let rowString = Pact4.asString k
           encoded = J.encodeStrict v
-      writeIORef ptKeysets $ MockSysTable $ M.insert (Rendered rowString) encoded tbl
+      atomicModifyIORef' ptKeysets $ \(MockSysTable m) -> (MockSysTable $ M.insert (Rendered rowString) encoded m, ())
     Pact4.Namespaces -> do
-      MockSysTable tbl <- readIORef ptNamespaces
       let rowString = Pact4.asString k
           encoded = J.encodeStrict v
-      writeIORef ptNamespaces $ MockSysTable $ M.insert (Rendered rowString) encoded tbl
+      atomicModifyIORef' ptNamespaces $ \(MockSysTable m) -> (MockSysTable $ M.insert (Rendered rowString) encoded m, ())
     Pact4.Pacts -> do
-      MockSysTable tbl <- readIORef ptDefPact
       let rowString = Pact4.asString k
           encoded = J.encodeStrict v
-      writeIORef ptDefPact $ MockSysTable $ M.insert (Rendered rowString) encoded tbl
-
-
-
-
+      atomicModifyIORef' ptDefPact $ \(MockSysTable m) -> (MockSysTable $ M.insert (Rendered rowString) encoded m, ())
 
 tableFromDomain :: Domain k v b i -> PactTables b i -> TableFromDomain k v b i
 tableFromDomain d PactTables{..} = case d of
@@ -175,7 +169,6 @@ tableFromDomain d PactTables{..} = case d of
   DNamespaces -> TFDSys ptNamespaces
   DDefPacts -> TFDSys ptDefPact
   -- DModuleSource -> TFDSys ptModuleCode
-
 
 -- | A record collection of all of the mutable
 --   table references
@@ -239,8 +232,6 @@ getRollbackState em PactTables{..} =
     <*> readIORef ptNamespaces
     <*> readIORef ptDefPact
     <*> readIORef ptTxLogQueue
-
-
 
 mockPactDb :: forall b i. PactTables b i -> PactSerialise b i -> IO (PactDb b i)
 mockPactDb pactTables serial = do

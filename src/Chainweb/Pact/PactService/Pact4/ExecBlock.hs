@@ -122,7 +122,6 @@ execBlockReflecting
     -> CheckablePayload
     -> PactBlockM logger tbl (Pact4.Gas, PayloadWithOutputs, Pact5.PactDb Pact5.CoreBuiltin Pact5.Info)
 execBlockReflecting currHeader payload = do
-    liftIO $ putStrLn "peeopeeop"
     let plData = checkablePayloadToPayloadData payload
     dbEnv' <- view psBlockDbEnv
     (reflecting4Db, reflected5Db) <- liftIO $ mkReflectingDb (pdPactDb (_cpPactDbEnv dbEnv'))
@@ -157,7 +156,7 @@ execBlockReflecting currHeader payload = do
 
     logInitCache
 
-    !results <- go miner trans >>= throwCommandInvalidError
+    !results <- local (\blockEnv -> blockEnv { _psBlockDbEnv = dbEnv }) (go miner trans >>= throwCommandInvalidError)
 
     let !totalGasUsed = sumOf (folded . to Pact4._crGas) results
 
@@ -552,9 +551,9 @@ applyPactCmd
 applyPactCmd miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
   dbEnv <- view psBlockDbEnv
   let pactDb = _cpPactDbEnv dbEnv
-  prevBlockState <- liftIO $ fmap _benvBlockState $
-    readMVar $ pdPactDbVar pactDb
   logger <- view (psServiceEnv . psLogger)
+
+  prevBlockState <- liftIO $ fmap _benvBlockState $ readMVar $ pdPactDbVar pactDb
   gasLogger <- view (psServiceEnv . psGasLogger)
   txFailuresCounter <- view (psServiceEnv . psTxFailuresCounter)
   isGenesis <- view psIsGenesis
@@ -611,7 +610,7 @@ applyPactCmd miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGasRemaining
         T3 r c _warns <- do
           -- TRACE.traceShowM ("applyPactCmd.CACHE: ", LHM.keys $ _getModuleCache mcache, M.keys $ _getCoreModuleCache cmcache)
           tracePactBlockM' "applyCmd" (\_ -> J.toJsonViaEncode hsh) txGas $ do
-            liftIO $ txTimeout $
+            liftIO $ txTimeout $ do
               Pact4.applyCmd v logger gasLogger txFailuresCounter pactDb miner gasModel txCtx spv gasLimitedCmd initialGas mcache ApplySend
         pure $ T2 r c
 

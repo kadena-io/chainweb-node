@@ -13,6 +13,8 @@ module Chainweb.Pact.Types.Parity
     )
     where
 
+import Chainweb.Miner.Pact (MinerId(..))
+import Data.List qualified as List
 import Data.Functor (void)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -25,8 +27,8 @@ import Pact.Core.StableEncoding (StableEncoding(..))
 import Pact.JSON.Encode qualified as J
 
 data CommandResultDiffable = CommandResultDiffable
-    { _crdTxId :: Maybe Pact5.TxId
-    , _crdRequestKey :: Pact5.RequestKey
+    { -- _crdTxId :: Maybe Pact5.TxId -- TODO: Can't do txId for now
+      _crdRequestKey :: Pact5.RequestKey
     , _crdResult :: Pact5.PactResult ErrorDiffable
     , _crdEvents :: OrderedEvents
     }
@@ -34,9 +36,9 @@ data CommandResultDiffable = CommandResultDiffable
 
 instance J.Encode CommandResultDiffable where
     build CommandResultDiffable{..} = J.object
-        [ "txId" J..?= fmap (J.Aeson . Pact5._txId) _crdTxId
-        , "requestKey" J..= _crdRequestKey
-        -- , "result" J..= _crdResult
+        [ --"txId" J..?= fmap (J.Aeson . Pact5._txId) _crdTxId
+          "requestKey" J..= _crdRequestKey
+        , "result" J..= _crdResult
         , "events" J..= _crdEvents
         ]
 
@@ -88,10 +90,16 @@ instance Eq ErrorDiffable where
             "PEVerifierError" -> Pact5.LegacyEvalError
             _ -> error "impossible: Pact 5 error code generated an illegal error code. This should never happen"
 
-commandResultToDiffable :: Pact5.CommandResult log (Pact5.PactErrorCompat info) -> CommandResultDiffable
-commandResultToDiffable cr = CommandResultDiffable
-    { _crdTxId = Pact5._crTxId cr
-    , _crdRequestKey = Pact5._crReqKey cr
+commandResultToDiffable :: ()
+    => MinerId -- ^ filter out miner
+    -> Pact5.CommandResult log (Pact5.PactErrorCompat info)
+    -> CommandResultDiffable
+commandResultToDiffable (MinerId minerId) cr = CommandResultDiffable
+    { -- _crdTxId = Pact5._crTxId cr
+      _crdRequestKey = Pact5._crReqKey cr
     , _crdResult = Pact5._crResult (ErrorDiffable . void <$> cr)
-    , _crdEvents = OrderedEvents $ Set.fromList $ fmap StableEncoding (Pact5._crEvents cr)
+    , _crdEvents = OrderedEvents $ Set.fromList $ fmap StableEncoding (List.filter (not . isMinerEvent) (Pact5._crEvents cr))
     }
+    where
+        isMinerEvent pe = Pact5.PString minerId `List.elem` Pact5._peArgs pe
+
