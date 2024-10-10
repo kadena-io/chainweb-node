@@ -73,6 +73,7 @@ module Chainweb.Payload.PayloadStore
 , deletePayload
 ) where
 
+import Control.Applicative
 import Control.DeepSeq
 import Control.Exception
 import Control.Lens
@@ -84,10 +85,8 @@ import Data.Foldable
 
 import GHC.Generics
 
-
 -- internal modules
 
-import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
@@ -96,7 +95,6 @@ import Chainweb.Version
 
 import Chainweb.Storage.Table
 import Chainweb.BlockHeight
-import Control.Applicative
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -334,7 +332,7 @@ initializePayloadDb
 initializePayloadDb v db = traverse_ initForChain $ chainIds v
   where
     initForChain cid =
-        addNewPayload db (genesisHeight v cid) $ v ^?! versionGenesis . genesisBlockPayload . onChain cid
+        addNewPayload db (genesisBlockHeight v cid) $ v ^?! versionGenesis . genesisBlockPayload . onChain cid
 
 -- -------------------------------------------------------------------------- --
 -- Insert new Payload
