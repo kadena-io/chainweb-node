@@ -344,7 +344,6 @@ library
         , Chainweb.Pact.Validations
 
         -- utils
-        , Servant.Client_
         , Utils.Logging
         , Utils.Logging.Config
         , Utils.Logging.Trace
@@ -423,7 +422,6 @@ library
         , semigroupoids >= 5.3.7
         , servant >= 0.20.1
         , servant-client >= 0.20
-        , servant-client-core >= 0.20
         , servant-server >= 0.20
         , stm >= 2.4
         , stopwatch >= 0.1
@@ -470,7 +468,7 @@ library chainweb-test-utils
     default-language: Haskell2010
     ghc-options:
         -threaded
-    hs-source-dirs: test
+    hs-source-dirs: test/lib
     exposed-modules:
         Chainweb.Test.Cut
         Chainweb.Test.Cut.TestBlockDb
@@ -496,6 +494,9 @@ library chainweb-test-utils
         Chainweb.Test.Orphans.Pact
         Chainweb.Test.Orphans.Time
         P2P.Test.Orphans
+
+        -- other
+        Servant.Client_
 
     build-depends:
         -- internal
@@ -542,6 +543,7 @@ library chainweb-test-utils
         , rosetta >= 1.0
         , servant >= 0.20.1
         , servant-client >= 0.18.2
+        , servant-client-core >= 0.20
         , stm
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
@@ -586,7 +588,7 @@ test-suite chainweb-tests
     ghc-options:
         -threaded
     type: exitcode-stdio-1.0
-    hs-source-dirs: test
+    hs-source-dirs: test/unit
     main-is: ChainwebTests.hs
 
     other-modules:
@@ -637,7 +639,6 @@ test-suite chainweb-tests
 
         -- P2P
         P2P.Test.Node
-        P2P.Test.Orphans
         P2P.Test.TaskQueue
 
     build-depends:
@@ -657,9 +658,7 @@ test-suite chainweb-tests
         , bytesmith >= 0.3.10
             -- due to change in error message that is inlined in pact
         , bytestring >= 0.10.12
-        , case-insensitive >= 1.2
         , chainweb-storage >= 0.1
-        , crypton-connection >=0.4
         , containers >= 0.5
         , crypton >= 0.31
         , data-default >=0.7
@@ -667,11 +666,11 @@ test-suite chainweb-tests
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
         , direct-sqlite >= 2.3.27
-        , directory >= 1.2
         , ethereum
         , exceptions
         , ghc-compact >= 0.1
         , hashable >= 1.3
+        , hashes >=0.2.2.0
         , http-client >= 0.5
         , http-types >= 0.12
         , lens >= 4.17
@@ -680,48 +679,33 @@ test-suite chainweb-tests
         , memory >=0.14
         , merkle-log >=0.2
         , mtl >= 2.3
-        , network >= 3.1.2
-        , patience >= 0.3
-        , http-client-tls >=0.3
         , pact
         , pact-json >= 0.1
         , pact-time:numeric >=0.3.0.1
+        , patience >= 0.3
         , quickcheck-instances >= 0.3
         , random >= 1.2
         , resource-pool >= 0.4
         , resourcet >= 1.3
-        , retry >= 0.7
-        , rocksdb-haskell-kadena >= 1.1.0
         , rosetta >= 1.0
         , scheduler >= 1.4
-        , servant >= 0.20.1
         , servant-client >= 0.18.2
+        , sha-validation >=0.1
         , statistics >= 0.15
         , stm
         , streaming >= 0.2.2
-        , streaming-commons >= 0.2
         , strict-concurrency >= 0.2
         , tasty >= 1.0
-        , tasty-golden >= 2.3
-        , tasty-json >= 0.1
         , tasty-hunit >= 0.9
+        , tasty-json >= 0.1
         , tasty-quickcheck >= 0.9
-        , temporary >= 1.3
         , text >=2.0
         , time >= 1.12.2
         , transformers >= 0.5
-        , unliftio >= 0.2.25
         , unordered-containers >= 0.2.20
         , vector >= 0.12.2
         , wai >= 3.2
-        , wai-middleware-validation
-        , pretty-show
-        , warp >= 3.3.5
-        , warp-tls >= 3.2.9
         , yaml >= 0.11
-        , yet-another-logger >= 0.4.1
-        , sha-validation >=0.1
-        , hashes >=0.2.2.0
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
@@ -734,7 +718,7 @@ test-suite compaction-tests
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
-    hs-source-dirs: test
+    hs-source-dirs: test/compaction
     main-is: CompactionTests.hs
     build-depends:
         -- internal
@@ -742,55 +726,12 @@ test-suite compaction-tests
         , chainweb:chainweb-test-utils
 
         -- external
-        , Decimal >= 0.5.2
-        , QuickCheck >= 2.14
-        , aeson >= 2.2
-        , async >= 2.2
         , base >= 4.12 && < 5
-        , base16-bytestring >= 0.1
-        , bytestring >= 0.10.12
         , chainweb-storage >= 0.1
-        , chronos >= 1.1
-        , containers >= 0.5
-        , crypton-connection >=0.4
-        , data-default >=0.7
-        , deepseq >= 1.4
-        , direct-sqlite >= 2.3.27
-        , directory >= 1.3
-        , exceptions >= 0.8
-        , filepath >= 1.4
-        , http-client >= 0.5
-        , http-client-tls >=0.3
-        , http-types >= 0.12
-        , lens >= 4.17
         , loglevel >= 0.1
-        , network >= 3.1.2
-        , pact
-        , pact-time:numeric
-        , pact-json
-        , patience >= 0.3
-        , pretty-show
-        , random >= 1.2
-        , resourcet >= 1.3
-        , retry >= 0.9
-        , rocksdb-haskell-kadena >= 1.1.0
-        , servant-client >= 0.18.2
-        , stm >= 2.4
-        , streaming >= 0.2.2
         , tasty >= 1.0
-        , tasty-golden >= 2.3
         , tasty-hunit >= 0.9
-        , tasty-quickcheck >= 0.9
         , temporary >= 1.3
-        , text >= 2.0
-        , unliftio >= 0.2.25
-        , unordered-containers >= 0.2.16
-        , vector >= 0.12.2
-        , wai >= 3.2
-        , wai-middleware-validation
-        , warp >= 3.3.5
-        , warp-tls >= 3.2.9
-        , yaml >= 0.8
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
@@ -803,7 +744,7 @@ test-suite multi-node-network-tests
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
-    hs-source-dirs: test
+    hs-source-dirs: test/multinode
     main-is: MultiNodeNetworkTests.hs
     build-depends:
         -- internal
@@ -811,55 +752,12 @@ test-suite multi-node-network-tests
         , chainweb:chainweb-test-utils
 
         -- external
-        , QuickCheck >= 2.14
-        , Decimal >= 0.5.2
-        , aeson >= 2.2
-        , async >= 2.2
         , base >= 4.12 && < 5
-        , base16-bytestring >= 0.1
-        , bytestring >= 0.10.12
         , chainweb-storage >= 0.1
-        , chronos >= 1.1
-        , containers >= 0.5
-        , crypton-connection >=0.4
-        , data-default >=0.7
-        , deepseq >= 1.4
-        , direct-sqlite >= 2.3.27
-        , directory >= 1.3
-        , exceptions >= 0.8
-        , filepath >= 1.4
-        , http-client >= 0.5
-        , http-client-tls >=0.3
-        , http-types >= 0.12
-        , lens >= 4.17
         , loglevel >= 0.1
-        , network >= 3.1.2
-        , pact
-        , pact-json
-        , pact-time:numeric
-        , patience >= 0.3
-        , pretty-show
-        , random >= 1.2
-        , resourcet >= 1.3
-        , retry >= 0.9
-        , rocksdb-haskell-kadena >= 1.1.0
-        , servant-client >= 0.18.2
-        , stm >= 2.4
-        , streaming >= 0.2.2
         , tasty >= 1.0
-        , tasty-golden >= 2.3
         , tasty-hunit >= 0.9
-        , tasty-quickcheck >= 0.9
         , temporary >= 1.3
-        , text >= 2.0
-        , unliftio >= 0.2.25
-        , unordered-containers >= 0.2.16
-        , vector >= 0.12.2
-        , wai >= 3.2
-        , wai-middleware-validation
-        , warp >= 3.3.5
-        , warp-tls >= 3.2.9
-        , yaml >= 0.8
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
@@ -872,7 +770,7 @@ test-suite remote-tests
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
-    hs-source-dirs: test
+    hs-source-dirs: test/remote
     main-is: RemoteTests.hs
     other-modules:
         Network.X509.SelfSigned.Test
@@ -882,45 +780,17 @@ test-suite remote-tests
         , chainweb:chainweb-test-utils
 
         -- external
-        , QuickCheck >= 2.14
-        , aeson >= 2.2
         , async >= 2.2
         , base >= 4.12 && < 5
         , bytestring >= 0.10.12
-        , chainweb-storage >= 0.1
-        , containers >= 0.5
-        , crypton-connection >=0.4
-        , directory >= 1.3
-        , exceptions >= 0.8
         , http-client >= 0.5
-        , http-client-tls >=0.3
         , http-types >= 0.12
-        , lens >= 4.17
-        , loglevel >= 0.1
         , network >= 3.1.2
-        , pact
-        , pretty-show
-        , random >= 1.2
-        , data-default >=0.7
-        , resourcet >= 1.3
-        , retry >= 0.9
-        , rocksdb-haskell-kadena >= 1.1.0
-        , servant-client >= 0.18.2
-        , stm >= 2.4
         , tasty >= 1.0
-        , tasty-golden >= 2.3
         , tasty-hunit >= 0.9
-        , tasty-quickcheck >= 0.9
-        , temporary >= 1.3
-        , text >= 2.0
-        , unliftio >= 0.2.25
-        , unordered-containers >= 0.2.16
-        , vector >= 0.12.2
         , wai >= 3.2
-        , wai-middleware-validation
         , warp >= 3.3.5
         , warp-tls >= 3.2.9
-        , yaml >= 0.8
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
@@ -947,7 +817,6 @@ executable cwtool
         tools/db-checksum
         tools/known-graphs
         tools/calculate-release
-        test
     main-is: CwTool.hs
     other-modules:
         Allocations
@@ -1059,7 +928,7 @@ benchmark bench
         -threaded
         -rtsopts
         -with-rtsopts=-N
-    hs-source-dirs: bench, test
+    hs-source-dirs: bench
     main-is: Bench.hs
     type: exitcode-stdio-1.0
     other-modules:
@@ -1075,11 +944,11 @@ benchmark bench
 
         -- external
         , Decimal >= 0.4.2
+        , QuickCheck >= 2.14
         , aeson >= 2.2
         , async >= 2.2
         , base >= 4.12 && < 5
         , bytestring >= 0.10.12
-        , case-insensitive >= 1.2
         , chainweb-storage >= 0.1
         , containers >= 0.5
         , criterion
@@ -1088,7 +957,6 @@ benchmark bench
         , file-embed >= 0.0
         , lens >= 4.17
         , loglevel >= 0.1
-        , merkle-log >=0.2
         , mtl >= 2.3
         , pact
         , random >= 1.2
@@ -1096,12 +964,3 @@ benchmark bench
         , text >= 2.0
         , vector >= 0.12.2
         , yaml >= 0.11
-
-        -- from test
-        , QuickCheck >= 2.14
-        , crypton >= 0.31
-        , quickcheck-instances >= 0.3
-        , streaming-commons >= 0.2
-        , unordered-containers >= 0.2.20
-        , yet-another-logger >= 0.4.1
-        , pact-json >= 0.1
