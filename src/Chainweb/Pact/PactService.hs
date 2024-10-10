@@ -125,6 +125,7 @@ import Data.Time.Format.ISO8601
 import qualified Chainweb.Pact.PactService.Pact4.ExecBlock as Pact4
 import qualified Chainweb.Pact4.Types as Pact4
 import qualified Chainweb.Pact5.Backend.ChainwebPactDb as Pact5
+import qualified Pact.Core.Command.RPC as Pact5
 import qualified Pact.Core.Command.Types as Pact5
 import qualified Pact.Core.Hash as Pact5
 import qualified Data.ByteString.Short as SB
@@ -727,16 +728,58 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                     Left () -> do
                         return ()
                     Right (pwo, pact5Db) -> do
-                        forM_ (_payloadWithOutputsTransactions pwo) $ \(Transaction txBytes, TransactionOutput txOutBytes) -> do
+{-
+                        when (V.length (_payloadWithOutputsTransactions pwo) == 1) $ do
+                            let Transaction txBytes = fst $ V.head (_payloadWithOutputsTransactions pwo)
                             cmd <- do
-                                let cmdText :: Pact4.Command Text
-                                    cmdText = fromJuste $ decodeStrictOrThrow' txBytes
+                                -- TODO: Make this transformation not so convoluted...
 
-                                cmdPayload <- case Pact4.decodePayload (pact4ParserVersion v cid (view blockHeight bh)) (Text.encodeUtf8 $ Pact4._cmdPayload cmdText) of
+                                -- 1. Decode input bytes as a Pact4 Command
+                                let cmd4 :: Pact4.Command Text
+                                    cmd4 = fromJuste $ decodeStrictOrThrow' txBytes
+
+                                -- 2. Parse the pact4 payload bytes
+                                cmdPayload4 <- case Pact4.decodePayload (pact4ParserVersion v cid (view blockHeight bh)) (Text.encodeUtf8 $ Pact4._cmdPayload cmd4) of
                                     Left err -> internalError $ "execReadOnlyReplay parity: failed to decode pact4 command: " <> sshow err
                                     Right cmdPayload -> return $ fmap Pact4._pcCode cmdPayload
 
-                                return $ Pact5.fromPact4Command (cmdPayload <$ cmdText)
+                                -- 3. Convert the entire Pact-4 command into a Pact-5 one
+                                let cmd5 = Pact5.fromPact4Command (cmdPayload4 <$ cmd4)
+
+                                -- 4. Re-parse the payload. 'fromPact4Command' unfortunately strips the 'Parsed Code' bit.
+                                -- This is ugly as hell. Oh well.
+                                return $ cmd5 <&> \payloadWithText -> payloadWithText <&> \text -> case Pact5.parsePact text of
+                                    Left err -> error $ "execReadOnlyReplay parity: failed to parse pact5 command: " <> sshow err
+                                    Right cmdPayload -> cmdPayload
+
+                            let code = case Pact5._pPayload (Pact5._cmdPayload cmd ^. Pact5.payloadObj) of
+                                    Pact5.Exec (Pact5.ExecMsg c _data) -> Pact5._pcCode c
+                                    Pact5.Continuation _contMsg -> ""
+                            when ("coin.transfer " `Text.isInfixOf` code) $ do
+                                !_ <- error $ "first block with only 1 tx: " <> sshow (cid, view blockHeight bh, code)
+                                return ()
+-}
+                        forM_ (_payloadWithOutputsTransactions pwo) $ \(Transaction txBytes, TransactionOutput txOutBytes) -> do
+                            cmd <- do
+                                -- TODO: Make this transformation not so convoluted...
+
+                                -- 1. Decode input bytes as a Pact4 Command
+                                let cmd4 :: Pact4.Command Text
+                                    cmd4 = fromJuste $ decodeStrictOrThrow' txBytes
+
+                                -- 2. Parse the pact4 payload bytes
+                                cmdPayload4 <- case Pact4.decodePayload (pact4ParserVersion v cid (view blockHeight bh)) (Text.encodeUtf8 $ Pact4._cmdPayload cmd4) of
+                                    Left err -> internalError $ "execReadOnlyReplay parity: failed to decode pact4 command: " <> sshow err
+                                    Right cmdPayload -> return $ fmap Pact4._pcCode cmdPayload
+
+                                -- 3. Convert the entire Pact-4 command into a Pact-5 one
+                                let cmd5 = Pact5.fromPact4Command (cmdPayload4 <$ cmd4)
+
+                                -- 4. Re-parse the payload. 'fromPact4Command' unfortunately strips the 'Parsed Code' bit.
+                                -- This is ugly as hell. Oh well.
+                                return $ cmd5 <&> \payloadWithText -> payloadWithText <&> \text -> case Pact5.parsePact text of
+                                    Left err -> error $ "execReadOnlyReplay parity: failed to parse pact5 command: " <> sshow err
+                                    Right cmdPayload -> cmdPayload
 
                             -- TODO: Converting to and from JSON here is bad for perf.
                             cmdResult :: Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)) <- do
@@ -744,6 +787,20 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                                     cmdResult4 = fromJuste $ decodeStrictOrThrow' txOutBytes
                                 decodeStrictOrThrow' (BS.toStrict $ J.encode cmdResult4)
 
+                            miner <- fromMinerData (_payloadWithOutputsMiner pwo)
+                            let txContext = Pact5.TxContext
+                                    { _tcParentHeader = ParentHeader bhParent
+                                    , _tcMiner = miner
+                                    }
+                            let spvSupport = Pact5.pactSPV bhdb bh
+                            let initialGas = Pact5.initialGasOf (Pact5._cmdPayload cmd)
+
+                            Pact5.applyCmd logger Nothing pact5Db txContext spvSupport initialGas (fmap (^. Pact5.payloadObj) cmd) >>= \case
+                                Left e -> do
+                                    print e
+                                Right _ -> do
+                                    !_ <- error "it's all good"
+                                    return ()
                             return ()
 
                 return ()

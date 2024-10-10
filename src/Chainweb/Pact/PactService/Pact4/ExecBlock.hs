@@ -114,13 +114,7 @@ import qualified Data.List.NonEmpty as NE
 import Pact.Core.Persistence.Types qualified as Pact5
 import Pact.Core.Builtin qualified as Pact5
 import Pact.Core.Evaluate qualified as Pact5
-
-                --let originalPact4Db = Pact4._cpPactDbEnv blockDbEnv
-                --(reflecting4Db, reflected5Db) <- liftIO $ mkReflectingPactDb (pdPactDb originalPact4Db)
-                --let pactDb = originalPact4Db { pdPactDb = reflecting4Db }
-
-mkReflectingPactDb :: Pact4.PactDb e -> IO (Pact4.PactDb e, Pact5.PactDb Pact5.CoreBuiltin Pact5.Info)
-mkReflectingPactDb = undefined
+import Chainweb.Pact.ReflectingDb (mkReflectingDb)
 
 execBlockReflecting
     :: (CanReadablePayloadCas tbl, Logger logger)
@@ -128,9 +122,10 @@ execBlockReflecting
     -> CheckablePayload
     -> PactBlockM logger tbl (Pact4.Gas, PayloadWithOutputs, Pact5.PactDb Pact5.CoreBuiltin Pact5.Info)
 execBlockReflecting currHeader payload = do
+    liftIO $ putStrLn "peeopeeop"
     let plData = checkablePayloadToPayloadData payload
     dbEnv' <- view psBlockDbEnv
-    (reflecting4Db, reflected5Db) <- liftIO $ mkReflectingPactDb (pdPactDb (_cpPactDbEnv dbEnv'))
+    (reflecting4Db, reflected5Db) <- liftIO $ mkReflectingDb (pdPactDb (_cpPactDbEnv dbEnv'))
     let dbEnv = dbEnv' { _cpPactDbEnv = (_cpPactDbEnv dbEnv') { pdPactDb = reflecting4Db } }
     miner <- decodeStrictOrThrow' (_minerData $ view payloadDataMiner plData)
 

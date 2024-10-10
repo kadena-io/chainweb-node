@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -7,7 +8,8 @@
 
 module Chainweb.Pact.ReflectingDb where
 
-import Data.Text(Text)
+import Data.Text (Text)
+import Data.Text qualified as T
 
 import qualified Pact.Types.Persistence as Pact4
 import qualified Pact.Types.Util as Pact4
@@ -118,17 +120,18 @@ pact4ReflectingDb PactTables{..} pact4Db = do
         pure ks
       _ -> pure ks
 
-
-
   read' :: forall k v . (IsString k,FromJSON v) => IORef WriteSet -> Pact4.Domain k v -> k -> Pact4.Method e (Maybe v)
   read' wsRef dom k meth = do
+    putStrLn "peepeepoopoo"
     let domainStr = Pact4.asString dom
     let keyString = Pact4.asString keyString
     writeSet <- readIORef wsRef
     Pact4._readRow pact4Db dom k meth >>= \case
       Nothing -> pure Nothing
       Just v -> do
-        unless (isInWriteSet domainStr keyString writeSet) $ writeToPactTables dom k v
+        unless (isInWriteSet domainStr keyString writeSet) $ do
+          putStrLn $ "Writing { domain = " <> T.unpack domainStr <> ", key =  " <> T.unpack keyString <> " }"
+          writeToPactTables dom k v
         pure (Just v)
 
   writeToPactTables :: Pact4.Domain k v -> k -> v -> IO ()
