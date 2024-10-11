@@ -16,9 +16,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 
-{-# LANGUAGE PartialTypeSignatures #-}
-{-# OPTIONS_GHC -Wno-partial-type-signatures #-}
-
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
 -- Copyright   :  Copyright © 2018 Kadena LLC.
@@ -216,7 +213,7 @@ runVerifiers txCtx cmd = do
       verifierResult <- liftIO $ runVerifierPlugins
           (_chainwebVersion txCtx, _chainId txCtx, ctxCurrentBlockHeight txCtx) logger
           allVerifiers
-          (Pact4.Gas $ fromIntegral @Word64 @Int64 $ _gas $ milliGasToGas $ initGasRemaining)
+          (Pact4.Gas $ fromIntegral @SatWord @Int64 $ _gas $ milliGasToGas $ initGasRemaining)
           pact4TxVerifiers
       case verifierResult of
         Left err -> do
@@ -227,7 +224,7 @@ runVerifiers txCtx cmd = do
           -- NB: this is not nice.
           -- TODO: better gas info here
           chargeGas def $ GAConstant $ gasToMilliGas $ Gas $
-            verifierGasRemaining - min (_gas (milliGasToGas initGasRemaining)) verifierGasRemaining
+            fromIntegral @Word64 @SatWord verifierGasRemaining - min (_gas (milliGasToGas initGasRemaining)) (fromIntegral @Word64 @SatWord verifierGasRemaining)
 
 applyLocal
     :: (Logger logger)
@@ -470,10 +467,9 @@ applyCoinbase logger db reward txCtx = do
   -- applyCoinbase is when upgrades happen, so we call applyUpgrades first
   applyUpgrades logger db txCtx
   -- we construct the coinbase term and evaluate it
-  let
-    (coinbaseTerm, coinbaseData) = mkCoinbaseTerm mid mks reward
+  let (coinbaseTerm, coinbaseData) = mkCoinbaseTerm mid mks reward
   eCoinbaseTxResult <-
-    evalExec Transactional
+    evalExec (RawCode mempty) Transactional
       db noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
       (ctxToPublicData def txCtx)
       MsgData
@@ -608,7 +604,7 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx 
     (either throwError return =<<) $ liftIO $
     case payload ^. pPayload of
       Exec ExecMsg {..} ->
-        evalExec execMode
+        evalExec (RawCode (_pcCode _pmCode)) execMode
           db spv gasModel execFlags namespacePolicy
           (ctxToPublicData publicMeta txCtx)
           MsgData
@@ -619,9 +615,7 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx 
             }
           (def @(CapState _ _)
             & csSlots .~ [CapSlot cap [] | cap <- specialCaps])
-          -- Note: we delete the information here from spans for
-          -- smaller db footprints
-          ((fmap.fmap) spanInfoToLineInfo (_pcExps _pmCode))
+          (_pcExps _pmCode)
       Continuation ContMsg {..} ->
         evalContinuation execMode
           db spv gasModel execFlags namespacePolicy
@@ -660,7 +654,7 @@ runUpgrade
     -> IO ()
 runUpgrade _logger db txContext cmd = case payload ^. pPayload of
     Exec pm ->
-      evalExec Transactional
+      evalExec (RawCode (_pcCode (_pmCode pm))) Transactional
         db noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC])
         -- allow installing to root namespace
         SimpleNamespacePolicy
@@ -739,30 +733,50 @@ buyGas logger db txCtx cmd = do
         else mkFundTxTerm mid mks sender supply
 
   runExceptT $ do
-    gasPayerCap <- case gasPayerCaps of
+    mGasPayerCap <- case gasPayerCaps of
       [gasPayerCap] -> pure (Just gasPayerCap)
       [] -> pure Nothing
       _ -> do
         throwError BuyGasMultipleGasPayerCaps
 
-    e <- liftIO $ maybe (evalExecTerm Transactional) evalGasPayerCap gasPayerCap
-      db
-      noSPVSupport
-      -- TODO: magic constant, 1500 max gas limit for buyGas?
-      (tableGasModel (MilliGasLimit $ gasToMilliGas $ min (Gas 3000) (gasLimit ^. _GasLimit)))
-      (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
-      (ctxToPublicData publicMeta txCtx)
-      MsgData
-        -- Note: in the case of gaspayer, buyGas is given extra metadata that comes from
-        -- the Command
-        { mdData = maybe (PObject buyGasData) (const $ enrichedMsgBodyForGasPayer buyGasData cmd) gasPayerCap
-        , mdHash = bgHash
-        , mdSigners = signersWithDebit
-        -- no verifiers are allowed in buy gas
-        , mdVerifiers = []
-        }
-      (def & csSlots .~ [CapSlot (coinCap "GAS" []) []])
-      (def <$ buyGasTerm)
+    e <- liftIO $ case mGasPayerCap of
+      Nothing -> evalExecTerm Transactional
+        db
+        noSPVSupport
+        -- TODO: magic constant, 1500 max gas limit for buyGas?
+        (tableGasModel (MilliGasLimit $ gasToMilliGas $ min (Gas 3000) (gasLimit ^. _GasLimit)))
+        (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+        (ctxToPublicData publicMeta txCtx)
+        MsgData
+          -- Note: in the case of gaspayer, buyGas is given extra metadata that comes from
+          -- the Command
+          { mdData = PObject buyGasData
+          , mdHash = bgHash
+          , mdSigners = signersWithDebit
+          -- no verifiers are allowed in buy gas
+          , mdVerifiers = []
+          }
+        (def & csSlots .~ [CapSlot (coinCap "GAS" []) []])
+        (def <$ buyGasTerm)
+      Just gasPayerCap -> evalGasPayerCap
+        gasPayerCap
+        db
+        noSPVSupport
+        -- TODO: magic constant, 1500 max gas limit for buyGas?
+        (tableGasModel (MilliGasLimit $ gasToMilliGas $ min (Gas 3000) (gasLimit ^. _GasLimit)))
+        (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+        (ctxToPublicData publicMeta txCtx)
+        MsgData
+          -- Note: in the case of gaspayer, buyGas is given extra metadata that comes from
+          -- the Command
+          { mdData = enrichedMsgBodyForGasPayer buyGasData cmd
+          , mdHash = bgHash
+          , mdSigners = signersWithDebit
+          -- no verifiers are allowed in buy gas
+          , mdVerifiers = []
+          }
+        (def & csSlots .~ [CapSlot (coinCap "GAS" []) []])
+        (def <$ buyGasTerm)
 
     case e of
       Right er' -> do
@@ -820,6 +834,7 @@ redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
       let (redeemGasTerm, redeemGasData) = mkRedeemGasTerm mid mks sender gasTotal gasFee
 
       evalExec
+        (commandToRawCode cmd)
         Transactional
         -- TODO: more execution flags?
         db noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
@@ -934,3 +949,8 @@ gasSupplyOf (Gas gas) (GasPrice gp) = GasSupply gs
 toCoinUnit :: Decimal -> Decimal
 toCoinUnit = roundTo 12
 {-# INLINE toCoinUnit #-}
+
+commandToRawCode :: Command (Payload PublicMeta ParsedCode) -> RawCode
+commandToRawCode cmd = RawCode $ case _pPayload $ _cmdPayload cmd of
+  Exec exec -> _pcCode $ _pmCode exec
+  Continuation _cont -> mempty

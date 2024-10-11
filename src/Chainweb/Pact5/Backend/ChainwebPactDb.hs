@@ -288,6 +288,7 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
             lookupWithKey (convRowKeyCore k) f (noCache f)
         DDefPacts -> let f = (\v -> (view document <$> _decodeDefPactExec serialisePact_lineinfo v)) in
             lookupWithKey (convPactIdCore k) f (noCache f)
+        DModuleSource -> internalError "doReadRow: DModuleSource not supported"
   where
     tablename@(Utf8 tableNameBS) = domainTableNameCore d
 
@@ -371,6 +372,7 @@ writeSys d k v = do
       DModules ->  (convModuleNameCore mnFix k, _encodeModuleData serialisePact_lineinfo v)
       DNamespaces -> (convNamespaceNameCore k, _encodeNamespace serialisePact_lineinfo v)
       DDefPacts -> (convPactIdCore k, _encodeDefPactExec serialisePact_lineinfo v)
+      DModuleSource -> error "writeSys: DModuleSource not supported"
       DUserTables _ -> error "impossible"
   recordPendingUpdate kk (toUtf8 tablename) txid vv
   recordTxLog d kk vv
@@ -490,6 +492,7 @@ doKeys mlim d = do
               Just v -> pure v
         DNamespaces -> pure $ map NamespaceName allKeys
         DDefPacts ->  pure $ map DefPactId allKeys
+        DModuleSource -> internalError "doKeys: DModuleSource not supported"
         DUserTables _ -> pure $ map RowKey allKeys
 
     where
