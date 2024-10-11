@@ -70,6 +70,8 @@ import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
 
 import System.IO
+import System.Directory (createDirectoryIfMissing)
+import System.FilePath (takeDirectory, (</>))
 import System.LogLevel
 
 import Prelude hiding (lookup)
@@ -119,6 +121,8 @@ import Chainweb.TreeDB
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards
+import Chainweb.Version.Mainnet
+import Chainweb.Version.Testnet04
 import Utils.Logging.Trace
 import Chainweb.Counter
 import Data.Time.Clock
@@ -148,7 +152,6 @@ import qualified Pact.Parse as Pact4
 import qualified Control.Parallel.Strategies as Strategies
 import qualified Chainweb.Pact5.Validations as Pact5
 import qualified Pact.Core.Errors as Pact5
-
 
 runPactService
     :: Logger logger
@@ -762,7 +765,13 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                                 return ()
 -}
                         forM_ (_payloadWithOutputsTransactions pwo) $ \(Transaction txBytes, TransactionOutput txOutBytes) -> do
-                            cmd <- do
+                            -- TODO: Converting to and from JSON here is bad for perf.
+                            cmdResult :: Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)) <- do
+                                let cmdResult4 :: Pact4.CommandResult Pact4.Hash
+                                    cmdResult4 = fromJuste $ decodeStrictOrThrow' txOutBytes
+                                decodeStrictOrThrow' (BS.toStrict $ J.encode cmdResult4)
+
+                            eCmd <- do
                                 -- TODO: Make this transformation not so convoluted...
 
                                 -- 1. Decode input bytes as a Pact4 Command
@@ -779,35 +788,56 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
 
                                 -- 4. Re-parse the payload. 'fromPact4Command' unfortunately strips the 'Parsed Code' bit.
                                 -- This is ugly as hell. Oh well.
-                                return $ cmd5 <&> \payloadWithText -> payloadWithText <&> \text -> case Pact5.parsePact text of
-                                    Left err -> error $ "execReadOnlyReplay parity: failed to parse pact5 command: " <> sshow err
-                                    Right cmdPayload -> cmdPayload
+                                case Pact5._pPayload (Pact5._cmdPayload cmd5 ^. Pact5.payloadObj) of
+                                    Pact5.Exec (Pact5.ExecMsg code _data) -> case Pact5.parsePact code of
+                                        Left err -> do
+                                            return $ Left (err, Pact4.toUntypedHash (Pact4._cmdHash cmd4))
+                                        Right parsedCode -> do
+                                            return $ Right $ fmap (fmap (const parsedCode)) cmd5
+                                    Pact5.Continuation _contMsg -> do
+                                        -- doesn't do anything but change the type
+                                        return $ Right $ fmap (fmap (const (Pact5.ParsedCode "" []))) cmd5
 
-                            -- TODO: Converting to and from JSON here is bad for perf.
-                            cmdResult :: Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)) <- do
-                                let cmdResult4 :: Pact4.CommandResult Pact4.Hash
-                                    cmdResult4 = fromJuste $ decodeStrictOrThrow' txOutBytes
-                                decodeStrictOrThrow' (BS.toStrict $ J.encode cmdResult4)
+                            case eCmd of
+                                Left (err, reqKey) -> do
+                                    let filename = "parity-replay-parse-failures/" </> Text.unpack (Pact4.hashToText reqKey) <> ".md"
+                                    createDirectoryIfMissing True (takeDirectory filename)
+                                    Text.writeFile filename $ sshow err
+                                Right cmd -> do
+                                    miner <- fromMinerData (_payloadWithOutputsMiner pwo)
+                                    let txContext = Pact5.TxContext
+                                            { _tcParentHeader = ParentHeader bhParent
+                                            , _tcMiner = miner
+                                            }
+                                    let spvSupport = Pact5.pactSPV bhdb bh
+                                    let initialGas = Pact5.initialGasOf (Pact5._cmdPayload cmd)
 
-                            miner <- fromMinerData (_payloadWithOutputsMiner pwo)
-                            let txContext = Pact5.TxContext
-                                    { _tcParentHeader = ParentHeader bhParent
-                                    , _tcMiner = miner
-                                    }
-                            let spvSupport = Pact5.pactSPV bhdb bh
-                            let initialGas = Pact5.initialGasOf (Pact5._cmdPayload cmd)
+                                    applyCmdResult <- try @_ @SomeException $ Pact5.applyCmd logger Nothing pact5Db txContext spvSupport initialGas (fmap (^. Pact5.payloadObj) cmd)
+                                    case applyCmdResult of
+                                        Left someException -> do
+                                            -- these exceptions shouldn't happen.
+                                            return ()
+                                        Right (Left e) -> do
+                                            -- uhhhh what do we do here
+                                            return ()
+                                        Right (Right cmdResult5) -> do
+                                            let txMinerId = miner ^. minerId
+                                            let r4 = commandResultToDiffable txMinerId cmdResult
+                                            let r5 = commandResultToDiffable txMinerId (fmap (Pact5.PELegacyError . Pact5.toPrettyLegacyError) cmdResult5)
+                                            when (r4 /= r5) $ do
+                                                let requestKey = Pact5.hashToText (Pact5._cmdHash cmd)
+                                                let cwvPathPiece
+                                                        | v == mainnet = "mainnet"
+                                                        | v == testnet04 = "testnet"
+                                                        | otherwise = error "unsupported chainweb version for explorer link"
+                                                let explorerLink = "https://explorer.chainweb.com/" <> cwvPathPiece <> "/txdetail/" <> requestKey
+                                                let filename = "parity-replay-diffs/" </> Text.unpack requestKey <> ".md"
 
-                            Pact5.applyCmd logger Nothing pact5Db txContext spvSupport initialGas (fmap (^. Pact5.payloadObj) cmd) >>= \case
-                                Left e -> do
-                                    print e
-                                Right cmdResult5 -> do
-                                    let txMinerId = miner ^. minerId
-                                    let r4 = commandResultToDiffable txMinerId cmdResult
-                                    let r5 = commandResultToDiffable txMinerId (fmap (Pact5.PELegacyError . Pact5.toPrettyLegacyError) cmdResult5)
-                                    when (r4 /= r5) $ do
-                                        Text.putStrLn $ J.encodeText r4
-                                        Text.putStrLn $ J.encodeText r5
-                                        error "they don't matchup"
+                                                let diffy = "## Pact4:\n" <> J.encodeText r4 <> "\n\n## Pact5:\n" <> J.encodeText r5
+                                                let fullText = diffy <> "\n\n" <> "### Explorer link:\n" <> explorerLink
+
+                                                createDirectoryIfMissing True (takeDirectory filename)
+                                                Text.writeFile filename fullText
 
                 return ()
             )
