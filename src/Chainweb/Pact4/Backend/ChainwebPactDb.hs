@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -57,6 +58,7 @@ module Chainweb.Pact4.Backend.ChainwebPactDb
 , mkBlockHandlerEnv
 ) where
 
+import Pact.Core.Persistence.Types qualified as Pact5
 import Control.Applicative
 import Control.Lens
 import Control.Monad
@@ -881,6 +883,8 @@ initSchema logger sql =
         create (domainTableName Modules)
         create (domainTableName Namespaces)
         create (domainTableName Pacts)
+        -- TODO: migrate this logic to the checkpointer itself?
+        create (toUtf8 $ Pact5.renderDomain Pact5.DModuleSource)
   where
     create tablename = do
       logDebug_ logger $ "initSchema: "  <> fromUtf8 tablename

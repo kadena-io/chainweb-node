@@ -132,6 +132,7 @@ instance AsString (PCore.Domain k v b i) where
     asString PCore.DModules = "SYS:Modules"
     asString PCore.DNamespaces = "SYS:Namespaces"
     asString PCore.DDefPacts = "SYS:Pacts"
+    asString PCore.DModuleSource = "SYS:ModuleSources"
 
 
 instance AsString (PCore.TableName) where
