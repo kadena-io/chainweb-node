@@ -604,7 +604,7 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx 
     case payload ^. pPayload of
       Exec ExecMsg {..} ->
         evalExec (RawCode (_pcCode _pmCode)) execMode
-          db spv gasModel GasLogsDisabled execFlags namespacePolicy
+          db spv gasModel GasLogsEnabled execFlags namespacePolicy
           (ctxToPublicData publicMeta txCtx)
           MsgData
             { mdHash = _cmdHash cmd
@@ -635,6 +635,7 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx 
               , _cProof = _cmProof
               }
 
+  liftIO $ print $ fmap (fmap _gleArgs) $ _erLogGas res
   chargeGas def (GAConstant (gasToMilliGas $ _erGas res))
   return res
 
