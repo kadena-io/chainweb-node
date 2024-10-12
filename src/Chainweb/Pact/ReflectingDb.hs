@@ -139,7 +139,10 @@ pact4ReflectingDb PactTables{..} pact4Db = do
 
     Pact4.Modules -> do
       let rowString = Pact4.asString k
-          encoded = J.encodeStrict v
+          jsonEncoded = J.encodeStrict v
+
+      let serial = serialisePact_lineinfo
+      let encoded = maybe jsonEncoded (_encodeModuleData serial . view document) (_decodeModuleData serial jsonEncoded)
       atomicModifyIORef' ptModules $ \(MockSysTable m) -> (MockSysTable $ M.insertWith (\_new old -> old) (Rendered rowString) encoded m, ())
     Pact4.KeySets -> do
       let rowString = Pact4.asString k
