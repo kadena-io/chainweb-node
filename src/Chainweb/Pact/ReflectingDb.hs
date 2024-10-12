@@ -80,10 +80,9 @@ toWriteKey a b = a <> "##" <> b
 
 pact4ReflectingDb :: forall e. PactTables Pact5.CoreBuiltin Info -> Pact4.PactDb e -> IO (Pact4.PactDb e)
 pact4ReflectingDb PactTables{..} pact4Db = do
-  ws <- newIORef mempty
   pure $ Pact4.PactDb {
-   Pact4._readRow = read' ws
-  , Pact4._writeRow = write' ws
+   Pact4._readRow = read'
+  , Pact4._writeRow = write'
   , Pact4._keys = keys'
   , Pact4._txids = Pact4._txids pact4Db
   , Pact4._createUserTable = Pact4._createUserTable pact4Db
@@ -94,18 +93,13 @@ pact4ReflectingDb PactTables{..} pact4Db = do
   , Pact4._getTxLog = Pact4._getTxLog pact4Db
   }
   where
-  write' :: (forall k v . (Pact4.AsString k, J.Encode v) => IORef WriteSet -> Pact4.WriteType -> Pact4.Domain k v -> k -> v -> Pact4.Method e ())
-  write' ws wt domain k v meth = do
-    let domString = Pact4.asString domain
-        rowString = Pact4.asString k
-
+  write' :: (forall k v . (Pact4.AsString k, J.Encode v) => Pact4.WriteType -> Pact4.Domain k v -> k -> v -> Pact4.Method e ())
+  write' wt domain k v meth = do
     case domain of
-      Pact4.UserTables _ -> void $ read' ws domain k meth
+      Pact4.UserTables _ -> void $ read' domain k meth
       _ -> pure ()
 
-    _ <- Pact4._writeRow pact4Db wt domain k v meth
-    let key = toWriteKey domString rowString
-    atomicModifyIORef' ws $ \s -> (if key `List.elem` s then s else key : s, ())
+    Pact4._writeRow pact4Db wt domain k v meth
 
   keys' :: forall k v . (IsString k,Pact4.AsString k) => Pact4.Domain k v -> Pact4.Method e [k]
   keys' dom meth = do
@@ -120,18 +114,13 @@ pact4ReflectingDb PactTables{..} pact4Db = do
         pure ks
       _ -> pure ks
 
-  read' :: forall k v . (IsString k,FromJSON v) => IORef WriteSet -> Pact4.Domain k v -> k -> Pact4.Method e (Maybe v)
-  read' wsRef dom k meth = do
-    let domainStr = Pact4.asString dom
-    let keyString = Pact4.asString keyString
+  read' :: forall k v . (IsString k,FromJSON v) => Pact4.Domain k v -> k -> Pact4.Method e (Maybe v)
+  read' dom k meth = do
     Pact4._readRow pact4Db dom k meth >>= \case
       Nothing -> do
         pure Nothing
       Just v -> do
-        keyExists <- atomicModifyIORef' wsRef $ \s -> (s, toWriteKey domainStr keyString `List.elem` s)
-        -- TODO: THIS MIGHT STILL BE COMPLETELY MESSED UP
-        unless keyExists $ do
-          writeToPactTables dom k v
+        writeToPactTables dom k v
         pure (Just v)
 
   writeToPactTables :: Pact4.Domain k v -> k -> v -> IO ()
@@ -140,23 +129,30 @@ pact4ReflectingDb PactTables{..} pact4Db = do
       let tblString = Pact4.asString dom
           rowString = RowKey (Pact4.asString k)
           encoded = J.encodeStrict v
-      atomicModifyIORef' ptUser $ \(MockUserTable m) -> (MockUserTable $ M.insertWith (<>) (Rendered tblString) (M.singleton rowString encoded) m, ())
+      atomicModifyIORef' ptUser $ \(MockUserTable m) ->
+        (MockUserTable $ M.insertWith (insertUserEntry rowString) (Rendered tblString) (M.singleton rowString encoded) m, ())
+      where
+      insertUserEntry rs newMap oldMap = maybe (oldMap <> newMap) id $ do
+        entry <- M.lookup rs oldMap
+        if mempty == entry then pure (newMap <> oldMap)
+        else pure (oldMap <> newMap)
+
     Pact4.Modules -> do
       let rowString = Pact4.asString k
           encoded = J.encodeStrict v
-      atomicModifyIORef' ptModules $ \(MockSysTable m) -> (MockSysTable $ M.insert (Rendered rowString) encoded m, ())
+      atomicModifyIORef' ptModules $ \(MockSysTable m) -> (MockSysTable $ M.insertWith (\_new old -> old) (Rendered rowString) encoded m, ())
     Pact4.KeySets -> do
       let rowString = Pact4.asString k
           encoded = J.encodeStrict v
-      atomicModifyIORef' ptKeysets $ \(MockSysTable m) -> (MockSysTable $ M.insert (Rendered rowString) encoded m, ())
+      atomicModifyIORef' ptKeysets $ \(MockSysTable m) -> (MockSysTable $ M.insertWith (\_new old -> old) (Rendered rowString) encoded m, ())
     Pact4.Namespaces -> do
       let rowString = Pact4.asString k
           encoded = J.encodeStrict v
-      atomicModifyIORef' ptNamespaces $ \(MockSysTable m) -> (MockSysTable $ M.insert (Rendered rowString) encoded m, ())
+      atomicModifyIORef' ptNamespaces $ \(MockSysTable m) -> (MockSysTable $ M.insertWith (\_new old -> old) (Rendered rowString) encoded m, ())
     Pact4.Pacts -> do
       let rowString = Pact4.asString k
           encoded = J.encodeStrict v
-      atomicModifyIORef' ptDefPact $ \(MockSysTable m) -> (MockSysTable $ M.insert (Rendered rowString) encoded m, ())
+      atomicModifyIORef' ptDefPact $ \(MockSysTable m) -> (MockSysTable $ M.insertWith (\_new old -> old) (Rendered rowString) encoded m, ())
 {-# noinline pact4ReflectingDb #-}
 
 tableFromDomain :: Domain k v b i -> PactTables b i -> TableFromDomain k v b i
