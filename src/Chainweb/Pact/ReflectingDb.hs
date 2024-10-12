@@ -9,39 +9,36 @@
 
 module Chainweb.Pact.ReflectingDb where
 
+import Control.Lens ((^?), (^.), ix, view)
+import Control.Monad (unless, void)
+import Control.Monad.IO.Class (liftIO)
+import Data.Aeson (FromJSON)
+import Data.ByteString (ByteString)
+import Data.Foldable (forM_)
+import Data.IORef
+import Data.Map (Map)
+import Data.Maybe (isJust, fromMaybe, catMaybes)
+import Data.Set (Set)
+import Data.String (IsString)
 import Data.Text (Text)
 import Data.Text qualified as T
-
-import qualified Pact.Types.Persistence as Pact4
-import qualified Pact.Types.Util as Pact4
-import qualified Pact.Core.Builtin as Pact5
-import qualified Pact.JSON.Encode as J
-
-
-import Control.Monad.IO.Class (liftIO)
-import Control.Monad (unless)
-import Control.Lens ((^?), (^.), ix, view)
-import Data.Maybe (isJust, fromMaybe, catMaybes)
-import Data.Map (Map)
-import Data.IORef
-import qualified Data.Map.Strict as M
-import qualified Data.Set as S
-import Data.ByteString (ByteString)
-
-
-import Pact.Core.Guards
-import Pact.Core.Namespace
-import Pact.Core.Names hiding (renderTableName)
 import Pact.Core.DefPacts.Types (DefPactExec)
+import Pact.Core.Errors as Errors
+import Pact.Core.Evaluate
+import Pact.Core.Guards
+import Pact.Core.IR.Term (ModuleCode)
+import Pact.Core.Names hiding (renderTableName)
+import Pact.Core.Namespace
 import Pact.Core.Persistence
 import Pact.Core.Serialise
 import Pact.Core.StableEncoding
-import Pact.Core.Errors as Errors
-import Pact.Core.Evaluate
-import Data.Set (Set)
-import Data.Aeson (FromJSON)
-import Data.String (IsString)
-import Data.Foldable (forM_)
+import qualified Data.List as List
+import qualified Data.Map.Strict as M
+import qualified Data.Set as S
+import qualified Pact.Core.Builtin as Pact5
+import qualified Pact.JSON.Encode as J
+import qualified Pact.Types.Persistence as Pact4
+import qualified Pact.Types.Util as Pact4
 
 type TxLogQueue = IORef (Map TxId [TxLog ByteString])
 
@@ -74,18 +71,12 @@ mkReflectingDb pact4Db = do
   reflectingDb <- pact4ReflectingDb pactTables pact4Db
   pdb' <- mockPactDb pactTables serialisePact_lineinfo
   pure (reflectingDb, pdb')
+{-# noinline mkReflectingDb #-}
 
-type WriteSet = Map Text (Set Text)
+type WriteSet = [Text]
 
-{-isInWriteSet :: (Ord k, Ord a) => k -> a -> Map k (Set a) -> Bool
-isInWriteSet dom k ws = maybe False id $ do
-  s <- M.lookup dom ws
-  pure (S.member k s)-}
-
-isInWriteSet :: Text -> Text -> WriteSet -> Bool
-isInWriteSet dom k ws = maybe False id $ do
-  s <- M.lookup dom ws
-  pure (S.member k s)
+toWriteKey :: Text -> Text -> Text
+toWriteKey a b = a <> "##" <> b
 
 pact4ReflectingDb :: forall e. PactTables Pact5.CoreBuiltin Info -> Pact4.PactDb e -> IO (Pact4.PactDb e)
 pact4ReflectingDb PactTables{..} pact4Db = do
@@ -103,12 +94,18 @@ pact4ReflectingDb PactTables{..} pact4Db = do
   , Pact4._getTxLog = Pact4._getTxLog pact4Db
   }
   where
-  write' :: (forall k v . (Pact4.AsString k,J.Encode v) => IORef WriteSet -> Pact4.WriteType -> Pact4.Domain k v -> k -> v -> Pact4.Method e ())
+  write' :: (forall k v . (Pact4.AsString k, J.Encode v) => IORef WriteSet -> Pact4.WriteType -> Pact4.Domain k v -> k -> v -> Pact4.Method e ())
   write' ws wt domain k v meth = do
-    _ <- Pact4._writeRow pact4Db wt domain k v meth
     let domString = Pact4.asString domain
         rowString = Pact4.asString k
-    atomicModifyIORef' ws $ \s -> (M.insertWith S.union domString (S.singleton rowString) s, ())
+
+    case domain of
+      Pact4.UserTables _ -> void $ read' ws domain k meth
+      _ -> pure ()
+
+    _ <- Pact4._writeRow pact4Db wt domain k v meth
+    let key = toWriteKey domString rowString
+    atomicModifyIORef' ws $ \s -> (if key `List.elem` s then s else key : s, ())
 
   keys' :: forall k v . (IsString k,Pact4.AsString k) => Pact4.Domain k v -> Pact4.Method e [k]
   keys' dom meth = do
@@ -127,14 +124,14 @@ pact4ReflectingDb PactTables{..} pact4Db = do
   read' wsRef dom k meth = do
     let domainStr = Pact4.asString dom
     let keyString = Pact4.asString keyString
-    writeSet <- readIORef wsRef
     Pact4._readRow pact4Db dom k meth >>= \case
       Nothing -> do
         pure Nothing
       Just v -> do
-        -- TODO: THIS IS COMPLETELY MESSED UP
-        --unless (isInWriteSet domainStr keyString writeSet) $ do
-        writeToPactTables dom k v
+        keyExists <- atomicModifyIORef' wsRef $ \s -> (s, toWriteKey domainStr keyString `List.elem` s)
+        -- TODO: THIS MIGHT STILL BE COMPLETELY MESSED UP
+        unless keyExists $ do
+          writeToPactTables dom k v
         pure (Just v)
 
   writeToPactTables :: Pact4.Domain k v -> k -> v -> IO ()
@@ -160,6 +157,7 @@ pact4ReflectingDb PactTables{..} pact4Db = do
       let rowString = Pact4.asString k
           encoded = J.encodeStrict v
       atomicModifyIORef' ptDefPact $ \(MockSysTable m) -> (MockSysTable $ M.insert (Rendered rowString) encoded m, ())
+{-# noinline pact4ReflectingDb #-}
 
 tableFromDomain :: Domain k v b i -> PactTables b i -> TableFromDomain k v b i
 tableFromDomain d PactTables{..} = case d of
@@ -168,7 +166,7 @@ tableFromDomain d PactTables{..} = case d of
   DModules -> TFDSys ptModules
   DNamespaces -> TFDSys ptNamespaces
   DDefPacts -> TFDSys ptDefPact
-  -- DModuleSource -> TFDSys ptModuleCode
+  DModuleSource -> TFDSys ptModuleCode
 
 -- | A record collection of all of the mutable
 --   table references
@@ -177,7 +175,7 @@ data PactTables b i
   { ptTxId :: !(IORef TxId)
   , ptUser :: !(IORef MockUserTable)
   , ptModules :: !(IORef (MockSysTable ModuleName (ModuleData b i)))
-  -- , ptModuleCode :: !(IORef (MockSysTable HashedModuleName ModuleCode))
+  , ptModuleCode :: !(IORef (MockSysTable HashedModuleName ModuleCode))
   , ptKeysets :: !(IORef (MockSysTable KeySetName KeySet))
   , ptNamespaces :: !(IORef (MockSysTable NamespaceName Namespace))
   , ptDefPact :: !(IORef (MockSysTable DefPactId (Maybe DefPactExec)))
@@ -202,7 +200,7 @@ data PactTablesState b i
 createPactTables :: IO (PactTables b i)
 createPactTables = do
   refMod <- newIORef mempty
-  -- refMCode <- newIORef mempty
+  refMCode <- newIORef mempty
   refKs <- newIORef mempty
   refUsrTbl <- newIORef mempty
   refPacts <- newIORef mempty
@@ -215,7 +213,7 @@ createPactTables = do
     { ptTxId = refTxId
     , ptUser = refUsrTbl
     , ptModules = refMod
-    -- , ptModuleCode = refMCode
+    , ptModuleCode = refMCode
     , ptKeysets = refKs
     , ptNamespaces = refNS
     , ptDefPact = refPacts
@@ -330,10 +328,10 @@ mockPactDb pactTables serial = do
     DNamespaces -> do
       MockSysTable r <- liftIO $ readIORef ptNamespaces
       pure $ NamespaceName . _unRender <$> M.keys r
-    -- DModuleSource -> do
-    --   MockSysTable r <- liftIO $ readIORef ptModuleCode
-    --   let ks = M.keys r
-    --   traverse (maybe (throwDbOpErrorGasM (RowReadDecodeFailure "Invalid module source key format")) pure . parseHashedModuleName . _unRender) ks
+    DModuleSource -> do
+      MockSysTable r <- liftIO $ readIORef ptModuleCode
+      let ks = M.keys r
+      traverse (maybe (throwDbOpErrorGasM (RowReadDecodeFailure "Invalid module source key format")) pure . parseHashedModuleName . _unRender) ks
 
 
   createUsrTable
@@ -361,7 +359,7 @@ mockPactDb pactTables serial = do
   read' PactTables{..} domain k = case domain of
     DKeySets -> readSysTable ptKeysets k (Rendered . renderKeySetName) _decodeKeySet
     DModules -> readSysTable ptModules k (Rendered . renderModuleName) _decodeModuleData
-    -- DModuleSource -> readSysTable ptModuleCode k (Rendered . renderHashedModuleName)  _decodeModuleCode
+    DModuleSource -> readSysTable ptModuleCode k (Rendered . renderHashedModuleName)  _decodeModuleCode
     DUserTables tbl ->
       readRowData ptUser tbl k
     DDefPacts -> readSysTable ptDefPact k (Rendered . _defPactId) _decodeDefPactExec
@@ -387,7 +385,7 @@ mockPactDb pactTables serial = do
     DUserTables tbl -> writeRowData pt tbl wt k v
     DDefPacts -> liftIO $ writeSysTable pt domain k v (Rendered . _defPactId) _encodeDefPactExec
     DNamespaces -> liftIO $ writeSysTable pt domain k v (Rendered . _namespaceName) _encodeNamespace
-    -- DModuleSource -> liftIO $ writeSysTable pt domain k v (Rendered . renderHashedModuleName) _encodeModuleCode
+    DModuleSource -> liftIO $ writeSysTable pt domain k v (Rendered . renderHashedModuleName) _encodeModuleCode
 
   readRowData
     :: IORef MockUserTable
