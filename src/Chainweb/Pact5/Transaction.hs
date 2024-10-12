@@ -231,7 +231,7 @@ fromPact4Command cmd4 = Command
       | otherwise = fromIntegral i
 
     fromPact4GasLimit :: Pact4.GasLimit -> GasLimit
-    fromPact4GasLimit (Pact4.GasLimit i) = GasLimit (Gas (fromPact4ParsedInteger i))
+    fromPact4GasLimit (Pact4.GasLimit i) = GasLimit (Gas (fromIntegral (fromPact4ParsedInteger i)))
 
     fromPact4GasPrice :: Pact4.GasPrice -> GasPrice
     fromPact4GasPrice (Pact4.GasPrice (Pact4.ParsedDecimal d)) = GasPrice d

@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -57,6 +58,7 @@ module Chainweb.Pact4.Backend.ChainwebPactDb
 , mkBlockHandlerEnv
 ) where
 
+import Pact.Core.Persistence.Types qualified as Pact5
 import Control.Applicative
 import Control.Lens
 import Control.Monad
@@ -264,7 +266,7 @@ forModuleNameFix f = view blockHandlerModuleNameFix >>= f
 tableExistsInDbAtHeight :: Utf8 -> BlockHeight -> BlockHandler logger Bool
 tableExistsInDbAtHeight tableName bh = do
     let knownTbls =
-          ["SYS:Pacts", "SYS:Modules", "SYS:KeySets", "SYS:Namespaces"]
+          ["SYS:Pacts", "SYS:Modules", "SYS:KeySets", "SYS:Namespaces", "SYS:ModuleSources"]
     if tableName `elem` knownTbls
     then return True
     else callDb "tableExists" $ \db -> do
@@ -791,6 +793,7 @@ rewindDbToGenesis db = do
     exec_ db "DELETE FROM [SYS:Modules];"
     exec_ db "DELETE FROM [SYS:Namespaces];"
     exec_ db "DELETE FROM [SYS:Pacts];"
+    exec_ db "DELETE FROM [SYS:ModuleSources];"
     tblNames <- qry_ db "SELECT tablename FROM VersionedTableCreation;" [RText]
     forM_ tblNames $ \t -> case t of
       [SText tn] -> exec_ db ("DROP TABLE [" <> tn <> "];")
@@ -860,6 +863,7 @@ rewindDbToBlock db bh endingTxId = do
         exec' db "DELETE FROM [SYS:Modules] WHERE txid >= ?" tx
         exec' db "DELETE FROM [SYS:Namespaces] WHERE txid >= ?" tx
         exec' db "DELETE FROM [SYS:Pacts] WHERE txid >= ?" tx
+        exec' db "DELETE FROM [SYS:ModuleSources] WHERE txid >= ?" tx
       where
         tx = [SInt $! fromIntegral endingTxId]
 
@@ -881,6 +885,8 @@ initSchema logger sql =
         create (domainTableName Modules)
         create (domainTableName Namespaces)
         create (domainTableName Pacts)
+        -- TODO: migrate this logic to the checkpointer itself?
+        create (toUtf8 $ Pact5.renderDomain Pact5.DModuleSource)
   where
     create tablename = do
       logDebug_ logger $ "initSchema: "  <> fromUtf8 tablename
