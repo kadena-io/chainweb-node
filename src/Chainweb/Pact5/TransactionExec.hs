@@ -85,7 +85,6 @@ import Pact.Core.Hash
 import Pact.Core.PactValue
 import Pact.Core.Environment hiding (_chainId)
 import Pact.Core.Builtin
-import Pact.Core.Syntax.ParseTree
 import Pact.Core.DefPacts.Types
 import Pact.Core.StableEncoding
 import Pact.Core.SPV
@@ -469,7 +468,7 @@ applyCoinbase logger db reward txCtx = do
   -- we construct the coinbase term and evaluate it
   let (coinbaseTerm, coinbaseData) = mkCoinbaseTerm mid mks reward
   eCoinbaseTxResult <-
-    evalExec (RawCode mempty) Transactional
+    evalExecTerm Transactional
       db noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
       (ctxToPublicData def txCtx)
       MsgData
@@ -481,7 +480,7 @@ applyCoinbase logger db reward txCtx = do
       -- applyCoinbase injects a magic capability to get permission to mint tokens
       (def & csSlots .~ [CapSlot (coinCap "COINBASE" []) []])
       -- TODO: better info here might be very valuable for debugging
-      [ def <$ TLTerm coinbaseTerm ]
+      (def <$ coinbaseTerm)
   case eCoinbaseTxResult of
     Left err -> do
       pure $ Left $ CoinbasePactError err
@@ -833,8 +832,7 @@ redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
       -- if we're past chainweb 2.24, we don't use defpacts for gas; see 'pact/coin-contract/coin.pact#redeem-gas'
       let (redeemGasTerm, redeemGasData) = mkRedeemGasTerm mid mks sender gasTotal gasFee
 
-      evalExec
-        (commandToRawCode cmd)
+      evalExecTerm
         Transactional
         -- TODO: more execution flags?
         db noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
@@ -846,7 +844,7 @@ redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
           , mdVerifiers = []
           }
         (def & csSlots .~ [CapSlot (coinCap "GAS" []) []])
-        [TLTerm (def <$ redeemGasTerm)] >>= \case
+        (def <$ redeemGasTerm) >>= \case
           Left unknownPactError -> do
             pure $ Left (RedeemGasPactError unknownPactError)
           Right evalResult -> do
@@ -949,8 +947,3 @@ gasSupplyOf (Gas gas) (GasPrice gp) = GasSupply gs
 toCoinUnit :: Decimal -> Decimal
 toCoinUnit = roundTo 12
 {-# INLINE toCoinUnit #-}
-
-commandToRawCode :: Command (Payload PublicMeta ParsedCode) -> RawCode
-commandToRawCode cmd = RawCode $ case _pPayload $ _cmdPayload cmd of
-  Exec exec -> _pcCode $ _pmCode exec
-  Continuation _cont -> mempty

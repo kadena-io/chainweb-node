@@ -55,6 +55,7 @@ module Chainweb.Pact.Backend.Utils
   , convRowKeyCore
   , convPactId
   , convPactIdCore
+  , convHashedModuleName
   , convSavepointName
   , expectSingleRowCol
   , expectSingle
@@ -127,17 +128,11 @@ import qualified Pact.Types.Persistence as Pact4
 -- -------------------------------------------------------------------------- --
 -- SQ3.Utf8 Encodings
 instance AsString (PCore.Domain k v b i) where
-    asString (PCore.DUserTables t) = asString t
-    asString PCore.DKeySets = "SYS:KeySets"
-    asString PCore.DModules = "SYS:Modules"
-    asString PCore.DNamespaces = "SYS:Namespaces"
-    asString PCore.DDefPacts = "SYS:Pacts"
-    asString PCore.DModuleSource = "SYS:ModuleSources"
+    asString t = PCore.renderDomain t
 
 
 instance AsString (PCore.TableName) where
-    asString (PCore.TableName tn (PCore.ModuleName mn ns)) =
-      maybe "" (\(PCore.NamespaceName n) -> n <> ".") ns <> mn <> "_" <> tn
+    asString t = PCore.renderTableName t
 
 toUtf8 :: T.Text -> SQ3.Utf8
 toUtf8 = SQ3.Utf8 . T.encodeUtf8
@@ -208,6 +203,9 @@ convPactIdCore pid = "PactId \"" <> toUtf8 (PCore.renderDefPactId pid) <> "\""
 
 convSavepointName :: SavepointName -> SQ3.Utf8
 convSavepointName = toTextUtf8
+
+convHashedModuleName :: PCore.HashedModuleName -> SQ3.Utf8
+convHashedModuleName = toUtf8 . PCore.renderHashedModuleName
 
 -- -------------------------------------------------------------------------- --
 --

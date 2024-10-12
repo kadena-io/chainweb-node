@@ -76,6 +76,7 @@ import Pact.Core.Names
 import Pact.Core.Builtin
 import Pact.Core.Guards
 import Pact.Core.Errors
+import Pact.Core.Gas
 
 -- chainweb
 
@@ -281,14 +282,15 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
         DModules -> let f = (\v -> (view document <$> _decodeModuleData serialisePact_lineinfo v)) in
-            lookupWithKey (convModuleNameCore mnFix k) f (noCache f)
+            lookupWithKey (convModuleNameCore mnFix k) f (noCacheChargeModuleSize f)
         DNamespaces -> let f = (\v -> (view document <$> _decodeNamespace serialisePact_lineinfo v)) in
             lookupWithKey (convNamespaceNameCore k) f (noCache f)
         DUserTables _ -> let f = (\v -> (view document <$> _decodeRowData serialisePact_lineinfo v)) in
             lookupWithKey (convRowKeyCore k) f (noCache f)
         DDefPacts -> let f = (\v -> (view document <$> _decodeDefPactExec serialisePact_lineinfo v)) in
             lookupWithKey (convPactIdCore k) f (noCache f)
-        DModuleSource -> internalError "doReadRow: DModuleSource not supported"
+        DModuleSource -> let f = (\v -> (view document <$> _decodeModuleCode serialisePact_lineinfo v)) in
+            lookupWithKey (convHashedModuleName k) f (noCache f)
   where
     tablename@(Utf8 tableNameBS) = domainTableNameCore d
 
@@ -343,6 +345,15 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
                      "doReadRow: Expected (at most) a single result, but got: " <>
                      T.pack (show err)
 
+    noCacheChargeModuleSize
+        :: (BS.ByteString -> Maybe (ModuleData CoreBuiltin Info))
+        -> Utf8
+        -> BS.ByteString
+        -> MaybeT (BlockHandler logger) (ModuleData CoreBuiltin Info)
+    noCacheChargeModuleSize f _key rowdata = do
+        lift $ BlockHandler $ lift $ lift (chargeGasM (GModuleOp (MOpLoadModule (BS.length rowdata))))
+        MaybeT $ return $! f rowdata
+
     noCache
         :: (BS.ByteString -> Maybe v)
         -> Utf8
@@ -372,7 +383,7 @@ writeSys d k v = do
       DModules ->  (convModuleNameCore mnFix k, _encodeModuleData serialisePact_lineinfo v)
       DNamespaces -> (convNamespaceNameCore k, _encodeNamespace serialisePact_lineinfo v)
       DDefPacts -> (convPactIdCore k, _encodeDefPactExec serialisePact_lineinfo v)
-      DModuleSource -> error "writeSys: DModuleSource not supported"
+      DModuleSource -> (convHashedModuleName k, _encodeModuleCode serialisePact_lineinfo v)
       DUserTables _ -> error "impossible"
   recordPendingUpdate kk (toUtf8 tablename) txid vv
   recordTxLog d kk vv
@@ -492,7 +503,11 @@ doKeys mlim d = do
               Just v -> pure v
         DNamespaces -> pure $ map NamespaceName allKeys
         DDefPacts ->  pure $ map DefPactId allKeys
-        DModuleSource -> internalError "doKeys: DModuleSource not supported"
+        DModuleSource -> do
+            let parsed = map parseHashedModuleName allKeys
+            case sequence parsed of
+              Just v -> pure v
+              Nothing -> internalError $ "doKeys.DModuleSources: unexpected decoding"
         DUserTables _ -> pure $ map RowKey allKeys
 
     where
