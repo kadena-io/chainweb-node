@@ -270,7 +270,7 @@ setupClient :: SimConfig -> IO ClientEnv
 setupClient sc = flip mkClientEnv (scApiHostUrl sc) <$> newTlsManagerWith mgrSettings
   where
     mgrSettings = mkManagerSettings
-        (TLSSettingsSimple True False False)
+        (TLSSettingsSimple True False False def)
         Nothing
 
 -- | note, fetches [low - 1, hi] to have parent headers

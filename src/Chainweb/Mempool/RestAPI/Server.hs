@@ -71,9 +71,7 @@ lookupHandler
 lookupHandler mempool txs = handleErrs (liftIO look)
   where
     txV = V.fromList txs
-    txcfg = mempoolTxConfig mempool
-    encode = T.decodeUtf8 . codecEncode (txCodec txcfg)
-    look = V.toList . V.map (fmap encode) <$> mempoolLookup mempool txV
+    look = V.toList . V.map (fmap T.decodeUtf8) <$> mempoolLookupEncoded mempool txV
 
 getPendingHandler
     :: Show t

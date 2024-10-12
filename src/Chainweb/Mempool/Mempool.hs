@@ -280,6 +280,9 @@ data MempoolBackend t = MempoolBackend {
     -- | Lookup transactions in the pending queue by hash.
   , mempoolLookup :: Vector TransactionHash -> IO (Vector (LookupResult t))
 
+    -- | Lookup encoded transactions in the pending queue by hash.
+  , mempoolLookupEncoded :: Vector TransactionHash -> IO (Vector (LookupResult ByteString))
+
     -- | Insert the given transactions into the mempool.
   , mempoolInsert :: InsertType      -- run pre-gossip check? Ignored at remote pools.
                   -> Vector t
@@ -330,6 +333,7 @@ noopMempool = do
     { mempoolTxConfig = txcfg
     , mempoolMember = noopMember
     , mempoolLookup = noopLookup
+    , mempoolLookupEncoded = noopLookupEncoded
     , mempoolInsert = noopInsert
     , mempoolInsertCheck = noopInsertCheck
     , mempoolMarkValidated = noopMV
@@ -351,6 +355,7 @@ noopMempool = do
                               noopMeta
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
+    noopLookupEncoded v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ const $ return ()
     noopInsertCheck _ = fail "unsupported"
     noopMV = const $ return ()

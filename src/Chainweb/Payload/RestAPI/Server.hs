@@ -78,7 +78,7 @@ payloadHandler db k mh = liftIO (lookupPayloadDataWithHeight db mh k) >>= \case
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
         ]
-    Just e -> return e 
+    Just e -> return e
 
 -- -------------------------------------------------------------------------- --
 -- POST Payload Batch Handler
@@ -89,8 +89,9 @@ payloadBatchHandler
     -> PayloadDb tbl
     -> BatchBody
     -> Handler PayloadDataList
-payloadBatchHandler batchLimit db ks
-  = liftIO (PayloadDataList . catMaybes <$> lookupPayloadDataWithHeightBatch db ks')
+payloadBatchHandler 0 _ _ = throwError $ err404Msg @String "payload batch limit is 0"
+payloadBatchHandler batchLimit db ks =
+    liftIO (PayloadDataList . catMaybes <$> lookupPayloadDataWithHeightBatch db ks')
   where
       limit = take (int batchLimit)
       ks' | WithoutHeights xs <- ks = limit (fmap (Nothing,) xs)
@@ -123,13 +124,13 @@ outputsBatchHandler
     -> PayloadDb tbl
     -> BatchBody
     -> Handler PayloadWithOutputsList
-outputsBatchHandler batchLimit db ks
-  = liftIO (PayloadWithOutputsList . catMaybes <$> lookupPayloadWithHeightBatch db ks')
+outputsBatchHandler 0 _ _ = throwError $ err404Msg @String "payload batch limit is 0"
+outputsBatchHandler batchLimit db ks =
+    liftIO (PayloadWithOutputsList . catMaybes <$> lookupPayloadWithHeightBatch db ks')
   where
       limit = take (int batchLimit)
       ks' | WithoutHeights xs <- ks = limit (fmap (Nothing,) xs)
           | WithHeights    xs <- ks = limit (fmap (over _1 Just) xs)
-
 
 -- -------------------------------------------------------------------------- --
 -- Payload API Server
