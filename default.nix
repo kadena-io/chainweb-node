@@ -106,24 +106,33 @@ let haskellSrc = with nix-filter.lib; filter {
     default =
       let
         exesByComponentIndex = [
-          "chainweb-node:exe:chainweb-node"
-          "chainweb:exe:cwtool"
-          "chainweb:exe:compact"
-          "chainweb:exe:pact-diff"
+          {
+            name = "chainweb-node";
+            exes = ["chainweb-node"];
+          }
+
+          {
+            name = "chainweb";
+            exes = ["cwtool" "compact" "pact-diff"];
+          }
         ];
 
         for = xs: f: builtins.map f xs;
-      in
-      pkgs.runCommandCC "chainweb" { inherit passthru; } ''
-        mkdir -pv $out/bin
-        ${builtins.concatStringsSep "\n" (for exesByComponentIndex (exe: ''
-          cp ${flake.packages."${exe}"}/bin/${exe} $out/bin/${exe}
+
+        buildSingle = componentName: exe: ''
+          cp ${flake.packages."${componentName}:exe:${exe}"}/bin/${exe} $out/bin/${exe}
           chmod +w $out/bin/${exe}
           $STRIP $out/bin/${exe}
           ${pkgs.lib.optionalString (pkgs.stdenv.isLinux) ''
             patchelf --shrink-rpath $out/bin/${exe}
           ''}
-        ''))}
+        '';
+      in
+      pkgs.runCommandCC "chainweb" { inherit passthru; } ''
+        mkdir -pv $out/bin
+        ${builtins.concatStringsSep "\n" (for exesByComponentIndex (component:
+          builtins.concatStringsSep "\n" (for component.exes (exe: buildSingle component.name exe))
+        ))}
       '';
 in {
   # The Haskell project flake: Used by flake.nix
