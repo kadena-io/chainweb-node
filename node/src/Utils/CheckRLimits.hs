@@ -13,9 +13,9 @@ import System.Exit
 import System.IO
 
 data UInt64Pair
-foreign import ccall "rlim_utils.h get_open_file_limits" 
+foreign import ccall "rlim_utils.c get_open_file_limits"
     c_getOpenFileLimits :: Ptr UInt64Pair -> IO CInt
-foreign import ccall "rlim_utils.h set_open_file_limits" 
+foreign import ccall "rlim_utils.c set_open_file_limits"
     c_setOpenFileLimits :: Ptr UInt64Pair -> IO CInt
 
 getOpenFileLimits :: IO (Word64, Word64)
@@ -41,12 +41,12 @@ checkRLimits = void $ try @IOException $ do
     when (hard < 32768) $ do
         hPutStrLn stderr $
             "This process is only able to open " <> show hard <> " file descriptors at once, "
-            <> "which is not enough to run chainweb-node.\n" 
+            <> "which is not enough to run chainweb-node.\n"
             <> "Set the open file limit higher than 32767 using the ulimit command or contact an administrator."
         exitFailure
     when (soft < 32768) $ do
         setOpenFileLimits (hard, hard)
-        (soft', hard') <- getOpenFileLimits 
-        when ((soft', hard') /= (hard, hard)) $ 
+        (soft', hard') <- getOpenFileLimits
+        when ((soft', hard') /= (hard, hard)) $
             hPutStrLn stderr $
                 "Failed to set open file limit. This is an internal error. Continuing."

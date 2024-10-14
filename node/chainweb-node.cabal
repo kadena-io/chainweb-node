@@ -94,7 +94,6 @@ executable chainweb-node
         -rtsopts
     hs-source-dirs: src
     main-is: ChainwebNode.hs
-    install-includes: c/rlim_utils.h
     c-sources: c/rlim_utils.c
     other-modules:
         Paths_chainweb_node
