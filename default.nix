@@ -90,7 +90,7 @@ let haskellSrc = with nix-filter.lib; filter {
       src = if pactInput == null then pkgs.fetchgit cached.meta.pact.src else pactInput;
     };
     passthru = {
-      version = flake.packages."chainweb:exe:chainweb-node".version;
+      version = flake.packages."chainweb-node:exe:chainweb-node".version;
       # cached.meta gets propagated through the recursive outputs
       cached.paths.pactSrc = chainweb.hsPkgs.pact.src;
       cached.meta.pact = {
@@ -105,19 +105,19 @@ let haskellSrc = with nix-filter.lib; filter {
     };
     default =
       let
-        exes = [
-          "chainweb-node"
-          "cwtool"
-          "compact"
-          "pact-diff"
+        exesByComponentIndex = [
+          "chainweb-node:exe:chainweb-node"
+          "chainweb:exe:cwtool"
+          "chainweb:exe:compact"
+          "chainweb:exe:pact-diff"
         ];
 
         for = xs: f: builtins.map f xs;
       in
       pkgs.runCommandCC "chainweb" { inherit passthru; } ''
         mkdir -pv $out/bin
-        ${builtins.concatStringsSep "\n" (for exes (exe: ''
-          cp ${flake.packages."chainweb:exe:${exe}"}/bin/${exe} $out/bin/${exe}
+        ${builtins.concatStringsSep "\n" (for exesByComponentIndex (exe: ''
+          cp ${flake.packages."${exe}"}/bin/${exe} $out/bin/${exe}
           chmod +w $out/bin/${exe}
           $STRIP $out/bin/${exe}
           ${pkgs.lib.optionalString (pkgs.stdenv.isLinux) ''
