@@ -239,7 +239,7 @@ dbAddChecked db e = unlessM (tableMember (_chainDbCas db) ek) dbAddCheckedIntern
 --
 initBlockHeaderDb :: Configuration -> IO BlockHeaderDb
 initBlockHeaderDb config = do
-    dbAddChecked db rootEntry
+    -- dbAddChecked db rootEntry
     return db
   where
     rootEntry = _configRoot config
@@ -404,4 +404,3 @@ insertBlockHeaderDb db = dbAddChecked db . _validatedHeader
 unsafeInsertBlockHeaderDb :: BlockHeaderDb -> BlockHeader -> IO ()
 unsafeInsertBlockHeaderDb = dbAddChecked
 {-# INLINE unsafeInsertBlockHeaderDb #-}
-

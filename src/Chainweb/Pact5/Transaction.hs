@@ -23,7 +23,6 @@ module Chainweb.Pact5.Transaction
 import "aeson" Data.Aeson qualified as Aeson
 import "base" Data.Coerce (coerce)
 import "base" Data.Function
-import "base" Data.Word (Word64)
 import "base" GHC.Generics (Generic)
 import "bytestring" Data.ByteString.Char8 (ByteString)
 import "bytestring" Data.ByteString.Short qualified as SB
@@ -224,13 +223,13 @@ fromPact4Command cmd4 = Command
     fromPact4Hash :: Pact4.PactHash -> Hash
     fromPact4Hash (Pact4.TypedHash sbs) = Hash sbs
 
-    fromPact4ParsedInteger :: Pact4.ParsedInteger -> Word64
+    fromPact4ParsedInteger :: Pact4.ParsedInteger -> SatWord
     fromPact4ParsedInteger (Pact4.ParsedInteger i)
       | i < 0 = error "fromPact4ParsedInteger: negative argument"
       | otherwise = fromIntegral i
 
     fromPact4GasLimit :: Pact4.GasLimit -> GasLimit
-    fromPact4GasLimit (Pact4.GasLimit i) = GasLimit (Gas (fromIntegral (fromPact4ParsedInteger i)))
+    fromPact4GasLimit (Pact4.GasLimit i) = GasLimit (Gas (fromPact4ParsedInteger i))
 
     fromPact4GasPrice :: Pact4.GasPrice -> GasPrice
     fromPact4GasPrice (Pact4.GasPrice (Pact4.ParsedDecimal d)) = GasPrice d

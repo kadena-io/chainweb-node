@@ -219,11 +219,11 @@ runVerifiers txCtx cmd = do
           throwError (Pact5.PEVerifierError err def)
         Right (Pact4.Gas pact4VerifierGasRemaining) -> do
           -- TODO: crash properly on negative?
-          let verifierGasRemaining = fromIntegral @Int64 @Word64 pact4VerifierGasRemaining
+          let verifierGasRemaining = fromIntegral @Int64 @SatWord pact4VerifierGasRemaining
           -- NB: this is not nice.
           -- TODO: better gas info here
           chargeGas def $ GAConstant $ gasToMilliGas $ Gas $
-            fromIntegral @Word64 @SatWord verifierGasRemaining - min (_gas (milliGasToGas initGasRemaining)) (fromIntegral @Word64 @SatWord verifierGasRemaining)
+            verifierGasRemaining - min (_gas (milliGasToGas initGasRemaining)) verifierGasRemaining
 
 applyLocal
     :: (Logger logger)
@@ -469,7 +469,7 @@ applyCoinbase logger db reward txCtx = do
   let (coinbaseTerm, coinbaseData) = mkCoinbaseTerm mid mks reward
   eCoinbaseTxResult <-
     evalExecTerm Transactional
-      db noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+      db noSPVSupport freeGasModel GasLogsDisabled (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
       (ctxToPublicData def txCtx)
       MsgData
         { mdHash = coinbaseHash
@@ -604,7 +604,7 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx 
     case payload ^. pPayload of
       Exec ExecMsg {..} ->
         evalExec (RawCode (_pcCode _pmCode)) execMode
-          db spv gasModel execFlags namespacePolicy
+          db spv gasModel GasLogsDisabled execFlags namespacePolicy
           (ctxToPublicData publicMeta txCtx)
           MsgData
             { mdHash = _cmdHash cmd
@@ -617,7 +617,7 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx 
           (_pcExps _pmCode)
       Continuation ContMsg {..} ->
         evalContinuation execMode
-          db spv gasModel execFlags namespacePolicy
+          db spv gasModel GasLogsDisabled execFlags namespacePolicy
           (ctxToPublicData publicMeta txCtx)
           MsgData
             { mdHash = _cmdHash cmd
@@ -654,7 +654,7 @@ runUpgrade
 runUpgrade _logger db txContext cmd = case payload ^. pPayload of
     Exec pm ->
       evalExec (RawCode (_pcCode (_pmCode pm))) Transactional
-        db noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC])
+        db noSPVSupport freeGasModel GasLogsDisabled (Set.fromList [FlagDisableRuntimeRTC])
         -- allow installing to root namespace
         SimpleNamespacePolicy
         (ctxToPublicData publicMeta txContext)
@@ -744,6 +744,7 @@ buyGas logger db txCtx cmd = do
         noSPVSupport
         -- TODO: magic constant, 1500 max gas limit for buyGas?
         (tableGasModel (MilliGasLimit $ gasToMilliGas $ min (Gas 3000) (gasLimit ^. _GasLimit)))
+        GasLogsDisabled
         (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
         (ctxToPublicData publicMeta txCtx)
         MsgData
@@ -763,6 +764,7 @@ buyGas logger db txCtx cmd = do
         noSPVSupport
         -- TODO: magic constant, 1500 max gas limit for buyGas?
         (tableGasModel (MilliGasLimit $ gasToMilliGas $ min (Gas 3000) (gasLimit ^. _GasLimit)))
+        GasLogsDisabled
         (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
         (ctxToPublicData publicMeta txCtx)
         MsgData
@@ -835,7 +837,9 @@ redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
       evalExecTerm
         Transactional
         -- TODO: more execution flags?
-        db noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+        db noSPVSupport freeGasModel
+        GasLogsDisabled
+        (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
         (ctxToPublicData publicMeta txCtx)
         MsgData
           { mdData = redeemGasData
@@ -856,7 +860,9 @@ redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
       -- before chainweb 2.24, we use defpacts for gas; see: 'pact/coin-contract/coin.pact#fund-tx'
       let redeemGasData = PObject $ Map.singleton "fee" (PDecimal $ _pact5GasSupply gasFee)
       evalContinuation Transactional
-        db noSPVSupport freeGasModel (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+        db noSPVSupport freeGasModel
+        GasLogsDisabled
+        (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
         (ctxToPublicData publicMeta txCtx)
         MsgData
           { mdData = redeemGasData

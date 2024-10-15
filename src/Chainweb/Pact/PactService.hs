@@ -275,13 +275,13 @@ initializeCoinContract v cid pwo = do
         validateGenesis
       Just currentBlockHeader -> do
         if currentBlockHeader /= ParentHeader genesisHeader
-        then
-            unless (pact5 v cid (view blockHeight genesisHeader)) $ do
-                !mc <- readFrom (Just currentBlockHeader) (SomeBlockM $ Pair Pact4.readInitModules (error "pact5")) >>= \case
-                    NoHistory -> throwM $ BlockHeaderLookupFailure
-                        $ "initializeCoinContract: internal error: latest block not found: " <> sshow currentBlockHeader
-                    Historical mc -> return mc
-                Pact4.updateInitCache mc currentBlockHeader
+        then do
+            readFrom (Just currentBlockHeader) (SomeBlockM $ Pair
+                (Pact4.readInitModules >>= Pact4.liftPactServiceM . flip Pact4.updateInitCache currentBlockHeader)
+                (return ())) >>= \case
+                NoHistory -> throwM $ BlockHeaderLookupFailure
+                    $ "initializeCoinContract: internal error: latest block not found: " <> sshow currentBlockHeader
+                Historical () -> return ()
         else do
           logWarnPact "initializeCoinContract: Starting from genesis."
           validateGenesis
