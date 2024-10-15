@@ -152,6 +152,7 @@ import qualified Pact.Parse as Pact4
 import qualified Control.Parallel.Strategies as Strategies
 import qualified Chainweb.Pact5.Validations as Pact5
 import qualified Pact.Core.Errors as Pact5
+import qualified Data.Text as T
 
 runPactService
     :: Logger logger
@@ -746,6 +747,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                                 -- TODO: Make this transformation not so convoluted...
 
                                 -- 1. Decode input bytes as a Pact4 Command
+                                -- TODO: try to parse txBytes into a Pact 5 command directly
                                 let cmd4 :: Pact4.Command Text
                                     cmd4 = fromJuste $ decodeStrictOrThrow' txBytes
 
@@ -780,17 +782,19 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                                             { _tcParentHeader = ParentHeader bhParent
                                             , _tcMiner = miner
                                             }
-                                    let spvSupport = Pact5.pactSPV bhdb bh
+                                    let spvSupport = Pact5.pactSPV bhdb bhParent
                                     let initialGas = Pact5.initialGasOf (Pact5._cmdPayload cmd)
 
                                     applyCmdResult <- try @_ @SomeException $ Pact5.applyCmd logger Nothing pact5Db txContext spvSupport initialGas (fmap (^. Pact5.payloadObj) cmd)
                                     case applyCmdResult of
                                         Left someException -> do
+                                            -- TODO: apparently an SPV exception?
                                             -- these exceptions shouldn't happen, do something about it here
-                                            return ()
+                                            logError_ logger $ "Uncaught exception during replay: " <> T.pack (displayException someException)
                                         Right (Left e) -> do
                                             -- uhhhh what do we do here
-                                            return ()
+                                            -- TODO: write all of these out, they should be impossible
+                                            logError_ logger $ "Gas buy error during replay: " <> sshow e
                                         Right (Right cmdResult5) -> do
                                             let txMinerId = miner ^. minerId
                                             let r4 = commandResultToDiffable txMinerId cmdResult

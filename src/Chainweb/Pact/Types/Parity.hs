@@ -34,6 +34,7 @@ import Text.Regex qualified as R
 
 data CommandResultDiffable = CommandResultDiffable
     { -- _crdTxId :: Maybe Pact5.TxId -- TODO: Can't do txId for now
+    -- TODO: include txlogs, after converting them to the same format
       _crdRequestKey :: Pact5.RequestKey
     , _crdResult :: Pact5.PactResult ErrorDiffable
     , _crdEvents :: OrderedEvents

@@ -118,6 +118,7 @@ pact4ReflectingDb PactTables{..} pact4Db = do
   read' dom k meth = do
     Pact4._readRow pact4Db dom k meth >>= \case
       Nothing -> do
+        -- TODO: record `Nothing` here in the tables too
         pure Nothing
       Just v -> do
         writeToPactTables dom k v
