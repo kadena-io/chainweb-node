@@ -18,10 +18,8 @@ import Data.Foldable (forM_)
 import Data.IORef
 import Data.Map (Map)
 import Data.Maybe (isJust, fromMaybe, catMaybes)
-import Data.Set (Set)
 import Data.String (IsString)
 import Data.Text (Text)
-import Data.Text qualified as T
 import Pact.Core.DefPacts.Types (DefPactExec)
 import Pact.Core.Errors as Errors
 import Pact.Core.Evaluate
@@ -32,13 +30,13 @@ import Pact.Core.Namespace
 import Pact.Core.Persistence
 import Pact.Core.Serialise
 import Pact.Core.StableEncoding
-import qualified Data.List as List
+import Pact.Core.Gas
 import qualified Data.Map.Strict as M
-import qualified Data.Set as S
 import qualified Pact.Core.Builtin as Pact5
 import qualified Pact.JSON.Encode as J
 import qualified Pact.Types.Persistence as Pact4
 import qualified Pact.Types.Util as Pact4
+import qualified Data.ByteString as BS
 
 type TxLogQueue = IORef (Map TxId [TxLog ByteString])
 
@@ -52,14 +50,14 @@ renderTableName :: TableName -> Rendered TableName
 renderTableName tn = Rendered (toUserTable tn)
 
 newtype MockUserTable =
-  MockUserTable (Map (Rendered TableName) (Map RowKey ByteString))
+  MockUserTable (Map (Rendered TableName) (Map RowKey (Maybe ByteString)))
   deriving (Eq, Show, Ord)
-  deriving (Semigroup, Monoid) via (Map (Rendered TableName) (Map RowKey ByteString))
+  deriving (Semigroup, Monoid) via (Map (Rendered TableName) (Map RowKey (Maybe ByteString)))
 
 newtype MockSysTable k v =
-  MockSysTable (Map (Rendered k) ByteString)
+  MockSysTable (Map (Rendered k) (Maybe ByteString))
   deriving (Eq, Show, Ord)
-  deriving (Semigroup, Monoid) via (Map (Rendered k) ByteString)
+  deriving (Semigroup, Monoid) via (Map (Rendered k) (Maybe ByteString))
 
 data TableFromDomain k v b i where
   TFDUser :: IORef (MockUserTable) -> TableFromDomain RowKey RowData b i
@@ -116,46 +114,43 @@ pact4ReflectingDb PactTables{..} pact4Db = do
 
   read' :: forall k v . (IsString k,FromJSON v) => Pact4.Domain k v -> k -> Pact4.Method e (Maybe v)
   read' dom k meth = do
-    Pact4._readRow pact4Db dom k meth >>= \case
-      Nothing -> do
-        -- TODO: record `Nothing` here in the tables too
-        pure Nothing
-      Just v -> do
-        writeToPactTables dom k v
-        pure (Just v)
+    v <- Pact4._readRow pact4Db dom k meth
+    writeToPactTables dom k v
+    pure v
 
-  writeToPactTables :: Pact4.Domain k v -> k -> v -> IO ()
+  writeToPactTables :: Pact4.Domain k v -> k -> Maybe v -> IO ()
   writeToPactTables dom k v = case dom of
     Pact4.UserTables _ -> do
       let tblString = Pact4.asString dom
           rowString = RowKey (Pact4.asString k)
-          encoded = J.encodeStrict v
+          encoded = J.encodeStrict <$> v
       atomicModifyIORef' ptUser $ \(MockUserTable m) ->
         (MockUserTable $ M.insertWith (insertUserEntry rowString) (Rendered tblString) (M.singleton rowString encoded) m, ())
       where
+      insertUserEntry :: RowKey -> Map RowKey (Maybe ByteString) -> Map RowKey (Maybe ByteString) -> Map RowKey (Maybe ByteString)
       insertUserEntry rs newMap oldMap = maybe (oldMap <> newMap) id $ do
         entry <- M.lookup rs oldMap
-        if mempty == entry then pure (newMap <> oldMap)
+        if Just mempty == entry then pure (newMap <> oldMap)
         else pure (oldMap <> newMap)
 
     Pact4.Modules -> do
       let rowString = Pact4.asString k
-          jsonEncoded = J.encodeStrict v
+          jsonEncoded = J.encodeStrict <$> v
 
       let serial = serialisePact_lineinfo
-      let encoded = maybe jsonEncoded (_encodeModuleData serial . view document) (_decodeModuleData serial jsonEncoded)
+      let encoded = (\v' -> maybe v' (_encodeModuleData serial . view document) (_decodeModuleData serial v')) <$> jsonEncoded
       atomicModifyIORef' ptModules $ \(MockSysTable m) -> (MockSysTable $ M.insertWith (\_new old -> old) (Rendered rowString) encoded m, ())
     Pact4.KeySets -> do
       let rowString = Pact4.asString k
-          encoded = J.encodeStrict v
+          encoded = J.encodeStrict <$> v
       atomicModifyIORef' ptKeysets $ \(MockSysTable m) -> (MockSysTable $ M.insertWith (\_new old -> old) (Rendered rowString) encoded m, ())
     Pact4.Namespaces -> do
       let rowString = Pact4.asString k
-          encoded = J.encodeStrict v
+          encoded = J.encodeStrict <$> v
       atomicModifyIORef' ptNamespaces $ \(MockSysTable m) -> (MockSysTable $ M.insertWith (\_new old -> old) (Rendered rowString) encoded m, ())
     Pact4.Pacts -> do
       let rowString = Pact4.asString k
-          encoded = J.encodeStrict v
+          encoded = J.encodeStrict <$> v
       atomicModifyIORef' ptDefPact $ \(MockSysTable m) -> (MockSysTable $ M.insertWith (\_new old -> old) (Rendered rowString) encoded m, ())
 {-# noinline pact4ReflectingDb #-}
 
@@ -358,7 +353,19 @@ mockPactDb pactTables serial = do
     -> GasM b i (Maybe v)
   read' PactTables{..} domain k = case domain of
     DKeySets -> readSysTable ptKeysets k (Rendered . renderKeySetName) _decodeKeySet
-    DModules -> readSysTable ptModules k (Rendered . renderModuleName) _decodeModuleData
+    DModules -> do
+      MockSysTable m <- liftIO $ readIORef ptModules
+      case M.lookup (Rendered (renderModuleName k)) m of
+        Just (Just bs) -> do
+          chargeGasM (GModuleOp (MOpLoadModule (BS.length bs)))
+          case _decodeModuleData serial bs of
+            Just rd -> pure (Just (view document rd))
+            Nothing ->
+              throwDbOpErrorGasM (RowReadDecodeFailure (renderModuleName k))
+        -- Empty initial value case
+        Just Nothing -> pure Nothing
+        Nothing -> pure Nothing
+      --readSysTable ptModules k (Rendered . renderModuleName) _decodeModuleData
     DModuleSource -> readSysTable ptModuleCode k (Rendered . renderHashedModuleName)  _decodeModuleCode
     DUserTables tbl ->
       readRowData ptUser tbl k
@@ -397,9 +404,10 @@ mockPactDb pactTables serial = do
     mt@(MockUserTable usrTables) <- liftIO $ readIORef ref
     checkTable tblName tbl mt
     case usrTables ^? ix tblName . ix k of
-      Just bs -> case _decodeRowData serial bs of
+      Just (Just bs) -> case _decodeRowData serial bs of
         Just doc -> pure (Just (view document doc))
         Nothing -> throwDbOpErrorGasM $ RowReadDecodeFailure (_rowKey k)
+      Just Nothing -> pure Nothing
       Nothing -> pure Nothing
 
   writeRowData
@@ -418,27 +426,35 @@ mockPactDb pactTables serial = do
         encodedData <- _encodeRowData serial v
         liftIO $ record pts (TxLog (toUserTable tbl) (k ^. rowKey) encodedData)
         liftIO $ modifyIORef' ptUser
-          (\(MockUserTable m) -> (MockUserTable (M.adjust (M.insert k encodedData) tblName  m)))
+          (\(MockUserTable m) -> (MockUserTable (M.adjust (M.insert k (Just encodedData)) tblName  m)))
       Insert -> do
         case M.lookup tblName usrTables >>= M.lookup k of
-          Just _ -> throwDbOpErrorGasM (Errors.RowFoundError tbl k)
+          Just (Just _) -> throwDbOpErrorGasM (Errors.RowFoundError tbl k)
+          -- Just Nothing signifies an empty initial value
+          Just Nothing -> do
+            encodedData <- _encodeRowData serial v
+            liftIO $ record pts (TxLog (toUserTable tbl) (k ^. rowKey) encodedData)
+            liftIO $ modifyIORef' ptUser
+              (\(MockUserTable m) -> (MockUserTable (M.adjust (M.insert k (Just encodedData)) tblName  m)))
           Nothing -> do
             encodedData <- _encodeRowData serial v
             liftIO $ record pts (TxLog (toUserTable tbl) (k ^. rowKey) encodedData)
             liftIO $ modifyIORef' ptUser
-              (\(MockUserTable m) -> (MockUserTable (M.adjust (M.insert k encodedData) tblName  m)))
+              (\(MockUserTable m) -> (MockUserTable (M.adjust (M.insert k (Just encodedData)) tblName  m)))
       Update -> do
         case M.lookup tblName usrTables >>= M.lookup k of
-          Just bs -> case view document <$> _decodeRowData serial bs of
+          Just (Just bs) -> case view document <$> _decodeRowData serial bs of
             Just (RowData m) -> do
               let (RowData v') = v
                   nrd = RowData (M.union v' m)
               encodedData <- _encodeRowData serial nrd
               liftIO $ record pts (TxLog (toUserTable tbl) (k ^. rowKey) encodedData)
               liftIO $ modifyIORef' ptUser $ \(MockUserTable mut) ->
-                MockUserTable (M.insertWith M.union tblName (M.singleton k encodedData) mut)
+                MockUserTable (M.insertWith M.union tblName (M.singleton k (Just encodedData)) mut)
             Nothing ->
               throwDbOpErrorGasM (RowReadDecodeFailure (_rowKey k))
+          -- Just Nothing = empty initial value
+          Just Nothing -> throwDbOpErrorGasM (NoRowFound tbl k)
           Nothing ->
             throwDbOpErrorGasM (NoRowFound tbl k)
 
@@ -451,10 +467,12 @@ mockPactDb pactTables serial = do
   readSysTable ref rowkey renderKey decode = do
     MockSysTable m <- liftIO $ readIORef ref
     case M.lookup (renderKey rowkey) m of
-      Just bs -> case decode serial bs of
+      Just (Just bs) -> case decode serial bs of
         Just rd -> pure (Just (view document rd))
         Nothing ->
           throwDbOpErrorGasM (RowReadDecodeFailure (_unRender (renderKey rowkey)))
+      -- Empty initial value case
+      Just Nothing -> pure Nothing
       Nothing -> pure Nothing
   {-# INLINE readSysTable #-}
 
@@ -472,7 +490,7 @@ mockPactDb pactTables serial = do
         let encodedData = encode serial value
         record pts (TxLog (renderDomain domain) (_unRender (renderKey rowkey)) encodedData)
         modifyIORef' ref $ \(MockSysTable msys) ->
-            MockSysTable (M.insert (renderKey rowkey) encodedData msys)
+            MockSysTable (M.insert (renderKey rowkey) (Just encodedData) msys)
       TFDUser _ ->
         -- noop, should not be used for user tables
         error "Invariant violated: writeSysTable used for user table"
