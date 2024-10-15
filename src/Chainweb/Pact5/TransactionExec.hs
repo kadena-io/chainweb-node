@@ -51,6 +51,8 @@ module Chainweb.Pact5.TransactionExec
 
 import Control.Lens
 import Control.Monad
+import System.Directory (createDirectoryIfMissing)
+import System.FilePath ((</>), takeDirectory)
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Parallel.Strategies(using, rseq)
@@ -66,6 +68,7 @@ import Data.Maybe
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text.Encoding as T
+import qualified Data.Text.IO as T
 import qualified System.LogLevel as L
 
 -- internal Pact modules
@@ -77,6 +80,7 @@ import Pact.Core.Serialise.LegacyPact ()
 import Pact.Core.Compile
 import Pact.Core.Evaluate
 import Pact.Core.Capabilities
+import Pact.Core.Hash qualified as Pact5
 import Pact.Core.Names
 import Pact.Core.Namespace
 import Pact.Core.Persistence.Types hiding (GasM(..))
@@ -363,8 +367,7 @@ applyCmd logger maybeGasLogger db txCtx spv initialGas cmd = do
       pure (Left err)
     Right buyGasResult -> do
       gasRef <- newIORef mempty
-      gasLogRef <- forM maybeGasLogger $ \_ ->
-        newIORef []
+      gasLogRef <- forM maybeGasLogger $ \_ -> newIORef []
       let gasEnv = GasEnv
             { _geGasRef = gasRef
             , _geGasLog = gasLogRef
@@ -600,42 +603,47 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx 
           `using` (traverse . traverse) rseq
 
   res <-
-    (either throwError return =<<) $ liftIO $
-    case payload ^. pPayload of
-      Exec ExecMsg {..} ->
-        evalExec (RawCode (_pcCode _pmCode)) execMode
-          db spv gasModel GasLogsEnabled execFlags namespacePolicy
-          (ctxToPublicData publicMeta txCtx)
-          MsgData
-            { mdHash = _cmdHash cmd
-            , mdData = _pmData
-            , mdVerifiers = verifiersWithNoProof
-            , mdSigners = signers
-            }
-          (def @(CapState _ _)
-            & csSlots .~ [CapSlot cap [] | cap <- specialCaps])
-          (_pcExps _pmCode)
-      Continuation ContMsg {..} ->
-        evalContinuation execMode
-          -- TODO: Fix gas logs? Maybe pass in an
-          db spv gasModel GasLogsDisabled execFlags namespacePolicy
-          (ctxToPublicData publicMeta txCtx)
-          MsgData
-            { mdHash = _cmdHash cmd
-            , mdData = _cmData
-            , mdSigners = signers
-            , mdVerifiers = verifiersWithNoProof
-            }
-          (def @(CapState _ _)
-            & csSlots .~ [CapSlot cap [] | cap <- specialCaps])
-          Cont
-              { _cPactId = _cmPactId
-              , _cStep = _cmStep
-              , _cRollback = _cmRollback
-              , _cProof = _cmProof
+    (either throwError return =<<) $ liftIO $ do
+      case payload ^. pPayload of
+        Exec ExecMsg {..} ->
+          evalExec (RawCode (_pcCode _pmCode)) execMode
+            db spv gasModel GasLogsEnabled execFlags namespacePolicy
+            (ctxToPublicData publicMeta txCtx)
+            MsgData
+              { mdHash = _cmdHash cmd
+              , mdData = _pmData
+              , mdVerifiers = verifiersWithNoProof
+              , mdSigners = signers
               }
+            (def @(CapState _ _)
+              & csSlots .~ [CapSlot cap [] | cap <- specialCaps])
+            (_pcExps _pmCode)
+        Continuation ContMsg {..} ->
+          evalContinuation execMode
+            db spv gasModel GasLogsDisabled execFlags namespacePolicy
+            (ctxToPublicData publicMeta txCtx)
+            MsgData
+              { mdHash = _cmdHash cmd
+              , mdData = _cmData
+              , mdSigners = signers
+              , mdVerifiers = verifiersWithNoProof
+              }
+            (def @(CapState _ _)
+              & csSlots .~ [CapSlot cap [] | cap <- specialCaps])
+            Cont
+                { _cPactId = _cmPactId
+                , _cStep = _cmStep
+                , _cRollback = _cmRollback
+                , _cProof = _cmProof
+                }
 
-  liftIO $ print $ fmap (fmap _gleArgs) $ _erLogGas res
+  forM_ (fmap (fmap _gleArgs) $ _erLogGas res) $ \gasLogs -> liftIO $ do
+    putStrLn $ "Gas logs for " <> sshow (_cmdHash cmd)
+    let filename = "parity-replay-gas-logs/" </> T.unpack (Pact5.hashToText (_cmdHash cmd)) <> ".gaslogs"
+    createDirectoryIfMissing True (takeDirectory filename)
+    B.writeFile filename $ sshow gasLogs
+
+  --createDirectoryIfMissing --liftIO $ print $ fmap (fmap _gleArgs) $ _erLogGas res
   chargeGas def (GAConstant (gasToMilliGas $ _erGas res))
   return res
 

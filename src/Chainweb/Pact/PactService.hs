@@ -733,44 +733,15 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                     Left () -> do
                         return ()
                     Right (pwo, pact5Db) -> do
-{-
-                        when (V.length (_payloadWithOutputsTransactions pwo) == 1) $ do
-                            let Transaction txBytes = fst $ V.head (_payloadWithOutputsTransactions pwo)
-                            cmd <- do
-                                -- TODO: Make this transformation not so convoluted...
-
-                                -- 1. Decode input bytes as a Pact4 Command
-                                let cmd4 :: Pact4.Command Text
-                                    cmd4 = fromJuste $ decodeStrictOrThrow' txBytes
-
-                                -- 2. Parse the pact4 payload bytes
-                                cmdPayload4 <- case Pact4.decodePayload (pact4ParserVersion v cid (view blockHeight bh)) (Text.encodeUtf8 $ Pact4._cmdPayload cmd4) of
-                                    Left err -> internalError $ "execReadOnlyReplay parity: failed to decode pact4 command: " <> sshow err
-                                    Right cmdPayload -> return $ fmap Pact4._pcCode cmdPayload
-
-                                -- 3. Convert the entire Pact-4 command into a Pact-5 one
-                                let cmd5 = Pact5.fromPact4Command (cmdPayload4 <$ cmd4)
-
-                                -- 4. Re-parse the payload. 'fromPact4Command' unfortunately strips the 'Parsed Code' bit.
-                                -- This is ugly as hell. Oh well.
-                                return $ cmd5 <&> \payloadWithText -> payloadWithText <&> \text -> case Pact5.parsePact text of
-                                    Left err -> error $ "execReadOnlyReplay parity: failed to parse pact5 command: " <> sshow err
-                                    Right cmdPayload -> cmdPayload
-
-                            let code = case Pact5._pPayload (Pact5._cmdPayload cmd ^. Pact5.payloadObj) of
-                                    Pact5.Exec (Pact5.ExecMsg c _data) -> Pact5._pcCode c
-                                    Pact5.Continuation _contMsg -> ""
-                            when ("coin.transfer " `Text.isInfixOf` code) $ do
-                                !_ <- error $ "first block with only 1 tx: " <> sshow (cid, view blockHeight bh, code)
-                                return ()
--}
                         forM_ (_payloadWithOutputsTransactions pwo) $ \(Transaction txBytes, TransactionOutput txOutBytes) -> do
-                            -- TODO: Converting to and from JSON here is bad for perf.
+                            -- Turn the pact4 tx output into a pact5 one.
+                            -- Converting to and from JSON here is bad for perf, but maybe it doesn't matter, because this test won't exist for long.
                             cmdResult :: Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)) <- do
                                 let cmdResult4 :: Pact4.CommandResult Pact4.Hash
                                     cmdResult4 = fromJuste $ decodeStrictOrThrow' txOutBytes
                                 decodeStrictOrThrow' (BS.toStrict $ J.encode cmdResult4)
 
+                            -- Turn the pact4 tx into a pact5 one
                             eCmd <- do
                                 -- TODO: Make this transformation not so convoluted...
 
@@ -815,7 +786,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                                     applyCmdResult <- try @_ @SomeException $ Pact5.applyCmd logger Nothing pact5Db txContext spvSupport initialGas (fmap (^. Pact5.payloadObj) cmd)
                                     case applyCmdResult of
                                         Left someException -> do
-                                            -- these exceptions shouldn't happen.
+                                            -- these exceptions shouldn't happen, do something about it here
                                             return ()
                                         Right (Left e) -> do
                                             -- uhhhh what do we do here
@@ -826,6 +797,11 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                                             let r5 = commandResultToDiffable txMinerId (fmap (Pact5.PELegacyError . Pact5.toPrettyLegacyError) cmdResult5)
                                             when (r4 /= r5) $ do
                                                 let requestKey = Pact5.hashToText (Pact5._cmdHash cmd)
+
+                                                gasLogs <- do
+                                                    let gasLogsPath = "parity-replay-gas-logs" </> Text.unpack (Pact5.hashToText (Pact5._cmdHash cmd)) <> ".gaslogs"
+                                                    (Just <$> Text.readFile gasLogsPath) `catch` \(_ :: IOException) -> return Nothing
+
                                                 let cwvPathPiece
                                                         | v == mainnet = "mainnet"
                                                         | v == testnet04 = "testnet"
@@ -833,8 +809,10 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                                                 let explorerLink = "https://explorer.chainweb.com/" <> cwvPathPiece <> "/txdetail/" <> requestKey
                                                 let filename = "parity-replay-diffs/" </> Text.unpack requestKey <> ".md"
 
-                                                let diffy = "## Pact4:\n" <> J.encodeText r4 <> "\n\n## Pact5:\n" <> J.encodeText r5
-                                                let fullText = diffy <> "\n\n" <> "### Explorer link:\n" <> explorerLink
+                                                let diffSection = "## Pact4:\n" <> J.encodeText r4 <> "\n\n## Pact5:\n" <> J.encodeText r5
+                                                let explorerLinkSection = "### Explorer link:\n" <> explorerLink
+                                                let gasLogsSection = "### Gas logs:\n" <> fromMaybe "No gas logs found." gasLogs
+                                                let fullText = diffSection <> "\n\n" <> explorerLinkSection <> "\n\n" <> gasLogsSection
 
                                                 createDirectoryIfMissing True (takeDirectory filename)
                                                 Text.writeFile filename fullText
