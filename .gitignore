@@ -56,3 +56,4 @@ rosetta/logs/*
 *-diffs/
 parity-replay-gas-logs/
 parity-replay-parse-errors/
+diffs.tar.gz

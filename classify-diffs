@@ -102,8 +102,48 @@ for f in $(grep -Rl parity-replay-diffs/ -e 'Loaded interface');
   do mv "$f" interface-loaded-diffs/;
 done;
 
+# unsure
+mkdir -p minimum-precision-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'Amount violates minimum precision');
+  do mv "$f" minimum-precision-diffs/;
+done;
+
+# coin module hash mismatches, seemingly benign
+mkdir -p coin-module-hash-mismatch-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'rE7DU8jlQL9x_MPYuniZJf5ICBTAEHAIFQCB4blofP4');
+  do mv "$f" coin-module-hash-mismatch-diffs/;
+done;
+
+# Code that implicitly grabs module admin which is no longer allowed
+# will require going through these to see the extent of the breakage
+mkdir -p module-admin-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'Module admin necessary');
+  do mv "$f" module-admin-diffs/;
+done;
+
+# Not sure
+mkdir -p table-already-exists-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'Table .* already exists');
+  do mv "$f" table-already-exists-diffs/;
+done;
+
+# Not sure
+mkdir -p non-pact-value-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'Expected Pact Value, got closure or table reference');
+  do mv "$f" non-pact-value-diffs/;
+done;
+
 mv parity-replay-diffs/_HFqdbIlHNdS8wNgMdNGlkkuhjD4ZllxNL7fTg6EhO0.md interesting-diffs/
 mv parity-replay-diffs/TFcV7ZlgIUavNezrrMjv_40-s3rYwxXdN9hAuSX52yo.md interesting-diffs/
+mv parity-replay-diffs/XKGDNtQNgeGTUQwclhSu5Bzat3XNzClDh_teQ_ET4zE.md interesting-diffs/
+mv parity-replay-diffs/IERmriVgG_Y5FLBMSAb0s70wuq8vFmRheSxALFPArrg.md interesting-diffs/
+mv parity-replay-diffs/1q7J661naTNdALjAow6N0FdNwWUD2qDKI7H2ah594xw.md interesting-diffs/
+mv parity-replay-diffs/KBZEw8l7d3pSwVmEDgPZ8lsNT9xZL1KOI3zYJymLfj8.md interesting-diffs/
+mv parity-replay-diffs/iZTMwypb6iyq85e9lryzMstcoHkM-B6ihG95AhPRk_M.md interesting-diffs/
+mv parity-replay-diffs/2WUTwvO39Z0izsAP1xZsa7cQHtVlxHR2S4ldBdsWUMA.md interesting-diffs/
+mv parity-replay-diffs/pqpNMUvjBmflJEwRbka4pugkfOw3_bloewnfGZ6i4LE.md interesting-diffs/
+mv parity-replay-diffs/jiZrj-NUMGEp1XcVni3gufkjtYItszFd1zjV66hRwhE.md interesting-diffs/
+mv parity-replay-diffs/Akt5RUolyR4bzS2u0xpDrMoR5PdLAHKHp1h4HpBcVVo.md interesting-diffs/
 
 diffCount=$(find parity-replay-diffs -type f -printf "." | wc -c)
 
