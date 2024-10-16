@@ -1,0 +1,110 @@
+#!/usr/bin/env sh
+
+# this is not good
+mkdir -p failed-deserialize-module-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'Failed to deserialize but found value at key:free.kor-oracle');
+  do mv "$f" failed-deserialize-module-diffs/;
+done;
+
+# this is the cap vuln fix *probably*, need to drill down further
+mkdir -p keyset-failure-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'Keyset failure');
+  do mv "$f" keyset-failure-diffs/;
+done;
+
+# not sure about these
+mkdir -p too-many-arguments-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'Attempted to apply a closure to too many arguments');
+  do mv "$f" too-many-arguments-diffs/;
+done;
+
+# we'll have to drill down on these
+mkdir -p gas-exceeded-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'GasError');
+  do mv "$f" gas-exceeded-diffs/;
+done;
+
+# jose says he has a fix for this
+mkdir -p x_resume-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'X_RESUME');
+  do mv "$f" x_resume-diffs/;
+done;
+
+# not sure about these
+mkdir -p unbound-free-variable-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'Unbound free variable');
+  do mv "$f" unbound-free-variable-diffs/;
+done;
+
+# not sure about these
+mkdir -p key-not-found-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'Key .* not found in object');
+  do mv "$f" key-not-found-diffs/;
+done;
+
+# jose has some explanation for this
+mkdir -p expected-bool-got-unit-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'expected bool value, got \(\)');
+  do mv "$f" expected-bool-got-unit-diffs/;
+done;
+
+# not sure about these
+mkdir -p no-such-key-in-table-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'invariant violated: No such key .* in table');
+  do mv "$f" no-such-key-in-table-diffs/;
+done;
+
+# just a new message, this is fine
+mkdir -p keyset-defined-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'Keyset write success');
+  do mv "$f" keyset-defined-diffs/;
+done;
+
+# not sure about these
+mkdir -p kadena-hashing-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'kadenahashing.com');
+  do mv "$f" kadena-hashing-diffs/;
+done;
+
+# not sure about these
+mkdir -p wiza-equipped-item-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'equipped');
+  do mv "$f" wiza-equipped-item-diffs/;
+done;
+
+# we just have a new error message here
+mkdir -p read-keyset-error-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'read-keyset failure');
+  do mv "$f" read-keyset-error-diffs/;
+done;
+
+# not sure at all
+mkdir -p nft-mint-mystery-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'New reward balance for');
+  do mv "$f" nft-mint-mystery-diffs/;
+done;
+
+# new error message
+mkdir -p cannot-find-module-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'Cannot resolve');
+  do mv "$f" cannot-find-module-diffs/;
+done;
+
+# not sure about this
+mkdir -p table-not-found-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'Table .* not found');
+  do mv "$f" table-not-found-diffs/;
+done;
+
+# new interface loading message
+mkdir -p interface-loaded-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'Loaded interface');
+  do mv "$f" interface-loaded-diffs/;
+done;
+
+mv parity-replay-diffs/_HFqdbIlHNdS8wNgMdNGlkkuhjD4ZllxNL7fTg6EhO0.md interesting-diffs/
+mv parity-replay-diffs/TFcV7ZlgIUavNezrrMjv_40-s3rYwxXdN9hAuSX52yo.md interesting-diffs/
+
+diffCount=$(find parity-replay-diffs -type f -printf "." | wc -c)
+
+echo "Remaining diffs: $diffCount"
