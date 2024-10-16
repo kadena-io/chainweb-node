@@ -37,7 +37,7 @@ data CommandResultDiffable = CommandResultDiffable
     -- TODO: include txlogs, after converting them to the same format
       _crdRequestKey :: Pact5.RequestKey
     , _crdResult :: Pact5.PactResult ErrorDiffable
-    , _crdEvents :: OrderedEvents
+    , _crdEvents :: [Pact5.PactEvent Pact5.PactValue]
     }
     deriving stock (Eq, Show)
 
@@ -46,11 +46,11 @@ instance J.Encode CommandResultDiffable where
         [ --"txId" J..?= fmap (J.Aeson . Pact5._txId) _crdTxId
           "requestKey" J..= _crdRequestKey
         , "result" J..= _crdResult
-        , "events" J..= _crdEvents
+        , "events" J..= J.array (StableEncoding <$> _crdEvents)
         ]
 
 newtype OrderedEvents
-    = OrderedEvents { getOrderedEvents :: Set (StableEncoding (Pact5.PactEvent Pact5.PactValue)) }
+    = OrderedEvents { getOrderedEvents :: [StableEncoding (Pact5.PactEvent Pact5.PactValue)] }
     deriving stock (Show)
     deriving newtype (Eq)
 
@@ -105,7 +105,7 @@ commandResultToDiffable (MinerId minerId) cr = CommandResultDiffable
     { -- _crdTxId = Pact5._crTxId cr
       _crdRequestKey = Pact5._crReqKey cr
     , _crdResult = filterModuleHash $ Pact5._crResult (ErrorDiffable . void <$> cr)
-    , _crdEvents = OrderedEvents $ Set.fromList $ fmap StableEncoding (List.filter (not . isMinerEvent) (Pact5._crEvents cr))
+    , _crdEvents = List.filter (not . isMinerEvent) (Pact5._crEvents cr)
     }
     where
         isMinerEvent pe = Pact5.PString minerId `List.elem` Pact5._peArgs pe
