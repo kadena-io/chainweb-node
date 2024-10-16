@@ -53,3 +53,6 @@ rosetta/logs/*
 .ghci_history
 .direnv/
 .envrc
+*-diffs/
+parity-replay-gas-logs/
+parity-replay-parse-errors/
