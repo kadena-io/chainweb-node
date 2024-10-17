@@ -1,0 +1,10 @@
+f
+(module m g (defun f (a:[object:{"hello"}]) 1) (defcap g () true))
+(module m g (defun f (a:[object{1}]) 1) (defcap g () true))
+(module m g (defun f (a:[object{1}]) 1) (defcap g () true))
+(module m g (defun f (a:[object{"lmfao"}]) 1) (defcap g () true))
+(module m g (defun f (a:[object{(+ 1 1)}]) 1) (defcap g () true))
+f
+(module m g (defun f (a:[object{1}]) 1) (defcap g () true))
+f
+(module m g (defun f (a:[object:{1}]) 1) (defcap g () true))

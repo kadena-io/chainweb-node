@@ -1,0 +1,8 @@
+(format-time "%Y%Y%Y%Y%%Y%Y%Y%Y%Y%Y%Y%Y%Y%%Y" (time "2024-06-26T12:00:00Z"))
+(format-time "%Y%Y%Y%Y%" (time "2024-06-26T12:00:00Z"))
+(format-time "%Y%Y%Y%Y%" (time "2024-06-26T12:00:00Z"))
+(format-time "%Y%Y%Y%Y%" (time "2024-06-26T12:00:00Z"))
+(format-time "%Y%Y%Y%Y%" (time "2024-06-26T12:00:00Z"))
+(format-time "%Y%Y%Y%Y%" (time "2024-06-26T12:00:00Z"))
+(format-time "%Y%Y%Y%Y%" (time "2024-06-26T12:00:00Z"))
+(time "2024-06-26T12:00:00Z")
