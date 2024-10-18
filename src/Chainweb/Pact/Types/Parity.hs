@@ -28,6 +28,7 @@ import Pact.Core.Command.Types qualified as Pact5
 import Pact.Core.Errors qualified as Pact5
 import Pact.Core.PactValue qualified as Pact5
 import Pact.Core.Persistence qualified as Pact5
+import Pact.Core.Gas qualified as Pact5
 import Pact.Core.StableEncoding (StableEncoding(..))
 import Pact.JSON.Encode qualified as J
 import Text.Regex qualified as R
@@ -38,8 +39,13 @@ data CommandResultDiffable = CommandResultDiffable
       _crdRequestKey :: Pact5.RequestKey
     , _crdResult :: Pact5.PactResult ErrorDiffable
     , _crdEvents :: [Pact5.PactEvent Pact5.PactValue]
+    , _crdGas :: Pact5.Gas
     }
-    deriving stock (Eq, Show)
+    deriving stock (Show)
+
+instance Eq CommandResultDiffable where
+    (CommandResultDiffable rq res ev _) == (CommandResultDiffable rq' res' ev' _) =
+        rq == rq' && res == res' && ev == ev'
 
 instance J.Encode CommandResultDiffable where
     build CommandResultDiffable{..} = J.object
@@ -47,6 +53,7 @@ instance J.Encode CommandResultDiffable where
           "requestKey" J..= _crdRequestKey
         , "result" J..= _crdResult
         , "events" J..= J.array (StableEncoding <$> _crdEvents)
+        , "gas" J..= J.Aeson (fromIntegral (Pact5._gas _crdGas) :: Int)
         ]
 
 newtype OrderedEvents
@@ -106,6 +113,7 @@ commandResultToDiffable (MinerId minerId) cr = CommandResultDiffable
       _crdRequestKey = Pact5._crReqKey cr
     , _crdResult = filterModuleHash $ Pact5._crResult (ErrorDiffable . void <$> cr)
     , _crdEvents = List.filter (not . isMinerEvent) (Pact5._crEvents cr)
+    , _crdGas = Pact5._crGas cr
     }
     where
         isMinerEvent pe = Pact5.PString minerId `List.elem` Pact5._peArgs pe

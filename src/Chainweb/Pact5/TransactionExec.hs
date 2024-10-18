@@ -330,6 +330,7 @@ applyCmd logger maybeGasLogger db txCtx spv initialGas cmd = do
         , FlagDisableHistoryInTransactionalMode
         , FlagEnforceKeyFormats
         , FlagRequireKeysetNs
+        , FlagEnableLegacyEventHashes
         ]
   let !requestKey = cmdToRequestKey cmd
   -- this process is "paid for", i.e. it's powered by a supply of gas that was

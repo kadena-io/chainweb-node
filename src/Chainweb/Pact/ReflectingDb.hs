@@ -37,6 +37,7 @@ import qualified Pact.JSON.Encode as J
 import qualified Pact.Types.Persistence as Pact4
 import qualified Pact.Types.Util as Pact4
 import qualified Data.ByteString as BS
+import qualified Data.Text as T
 
 type TxLogQueue = IORef (Map TxId [TxLog ByteString])
 
@@ -108,7 +109,7 @@ pact4ReflectingDb PactTables{..} pact4Db = do
           MockUserTable tbl <- readIORef ptUser
           let tblString = Pact4.asString dom
               rowString = RowKey (Pact4.asString rk)
-          writeIORef ptUser $ MockUserTable $ M.insertWith (flip (<>)) (Rendered tblString) (M.singleton rowString mempty) tbl
+          writeIORef ptUser $ MockUserTable $ M.insertWith (flip (<>)) (Rendered tblString) (M.singleton rowString (Just mempty)) tbl
         pure ks
       _ -> pure ks
 
@@ -139,6 +140,7 @@ pact4ReflectingDb PactTables{..} pact4Db = do
 
       let serial = serialisePact_lineinfo
       let encoded = (\v' -> maybe v' (_encodeModuleData serial . view document) (_decodeModuleData serial v')) <$> jsonEncoded
+      -- _ <- traverse (BS.writeFile (T.unpack rowString)) jsonEncoded
       atomicModifyIORef' ptModules $ \(MockSysTable m) -> (MockSysTable $ M.insertWith (\_new old -> old) (Rendered rowString) encoded m, ())
     Pact4.KeySets -> do
       let rowString = Pact4.asString k

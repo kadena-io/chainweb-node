@@ -57,3 +57,7 @@ rosetta/logs/*
 parity-replay-gas-logs/
 parity-replay-parse-errors/
 diffs.tar.gz
+diffs/
+replay.logs
+.pact-history
+.pc-history
