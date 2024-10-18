@@ -1,5 +1,11 @@
 #!/usr/bin/env sh
 
+# Module Hashes can't be the same, so this is a WONTFIX
+mkdir -p diffs/loaded-module-hash
+for f in $(grep -Rl parity-replay-diffs/ -e 'Loaded module');
+  do mv "$f" diffs/loaded-module-hash/;
+done;
+
 # this is not good
 mkdir -p diffs/failed-deserialize-module
 for f in $(grep -Rl parity-replay-diffs/ -e 'Failed to deserialize but found value at key:free.kor-oracle');

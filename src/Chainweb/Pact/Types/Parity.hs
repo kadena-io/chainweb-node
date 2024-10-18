@@ -11,7 +11,6 @@
 module Chainweb.Pact.Types.Parity
     ( CommandResultDiffable(..)
     , commandResultToDiffable
-    , replaceHash
     )
     where
 
@@ -31,7 +30,6 @@ import Pact.Core.Persistence qualified as Pact5
 import Pact.Core.Gas qualified as Pact5
 import Pact.Core.StableEncoding (StableEncoding(..))
 import Pact.JSON.Encode qualified as J
-import Text.Regex qualified as R
 
 data CommandResultDiffable = CommandResultDiffable
     { -- _crdTxId :: Maybe Pact5.TxId -- TODO: Can't do txId for now
@@ -111,24 +109,9 @@ commandResultToDiffable :: ()
 commandResultToDiffable (MinerId minerId) cr = CommandResultDiffable
     { -- _crdTxId = Pact5._crTxId cr
       _crdRequestKey = Pact5._crReqKey cr
-    , _crdResult = filterModuleHash $ Pact5._crResult (ErrorDiffable . void <$> cr)
+    , _crdResult = Pact5._crResult (ErrorDiffable . void <$> cr)
     , _crdEvents = List.filter (not . isMinerEvent) (Pact5._crEvents cr)
     , _crdGas = Pact5._crGas cr
     }
     where
         isMinerEvent pe = Pact5.PString minerId `List.elem` Pact5._peArgs pe
-
-        filterModuleHash :: Pact5.PactResult a -> Pact5.PactResult a
-        filterModuleHash = \case
-            Pact5.PactResultErr err -> Pact5.PactResultErr err
-            Pact5.PactResultOk pv -> Pact5.PactResultOk $ case pv of
-                Pact5.PString s -> Pact5.PString $ replaceHash s
-                _ -> pv
-
--- Function to replace the hash in the "Loaded module ..., hash ..." string
-replaceHash :: Text -> Text
-replaceHash (Text.unpack -> input) = Text.pack $ R.subRegex regex input replacement
-    where
-        -- Regex to match 'Loaded module <any ascii string without spaces>, hash <hash>'
-        regex = R.mkRegex "^Loaded module [a-zA-Z0-9._-]+, hash [^ ]+"
-        replacement = "hash <modulehash_placeholder>"

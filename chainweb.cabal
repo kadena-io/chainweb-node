@@ -449,7 +449,6 @@ library
         , pem >=0.2
         , primitive >= 0.7.1.0
         , random >= 1.2
-        , regex-compat >= 0.95
         , rocksdb-haskell-kadena >= 1.1.0
         , rosetta >= 1.0
         , safe-exceptions >= 0.1
