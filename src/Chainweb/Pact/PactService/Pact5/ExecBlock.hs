@@ -59,7 +59,6 @@ import Data.Text qualified as T
 import Data.Vector (Vector)
 import Data.Vector qualified as V
 import Data.Void
-import Data.Word
 import Numeric.Natural
 import Pact.Core.ChainData hiding (ChainId)
 import Pact.Core.Command.Types qualified as Pact5

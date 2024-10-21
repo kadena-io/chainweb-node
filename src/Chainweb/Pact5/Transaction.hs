@@ -23,7 +23,6 @@ module Chainweb.Pact5.Transaction
 import "aeson" Data.Aeson qualified as Aeson
 import "base" Data.Coerce (coerce)
 import "base" Data.Function
-import "base" Data.Word (Word64)
 import "base" GHC.Generics (Generic)
 import "bytestring" Data.ByteString.Char8 (ByteString)
 import "bytestring" Data.ByteString.Short qualified as SB

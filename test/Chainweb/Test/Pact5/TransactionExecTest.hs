@@ -339,13 +339,6 @@ runPayloadShouldReturnEvalResultRelatedToTheInputCommand rdb = readFromAfterGene
             }
         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
         gasEnv <- mkTableGasEnv (MilliGasLimit (gasToMilliGas $ Gas 10)) GasLogsEnabled
-        -- gasRef <- newIORef (MilliGas 0)
-        -- let gasEnv = GasEnv
-        --         { _geGasRef = gasRef
-        --         , _geGasLog = Nothing
-        --         , _geGasModel = gasModel
-        --         }
-
         payloadResult <- runExceptT $
             runReaderT
                 (runTransactionM
@@ -355,12 +348,12 @@ runPayloadShouldReturnEvalResultRelatedToTheInputCommand rdb = readFromAfterGene
 
         liftIO $ assertEqual
             "eval result"
-            (MilliGas 2_000, Right EvalResult
+            (MilliGas 3_000, Right EvalResult
                 { _erOutput = [InterpretValue (PInteger 15) def]
                 , _erEvents = []
                 , _erLogs = []
                 , _erExec = Nothing
-                , _erGas = Gas 2
+                , _erGas = Gas 3
                 , _erLoadedModules = mempty
                 , _erTxId = Just (TxId 9)
                 , _erLogGas = Nothing
@@ -391,7 +384,7 @@ applyLocalSpec rdb = readFromAfterGenesis v rdb $
                 [ pt _crEvents ? equals ? []
                 , pt _crResult ? equals ? PactResultOk (PInteger 15)
                 -- reflects payload gas usage
-                , pt _crGas ? equals ? Gas 2
+                , pt _crGas ? equals ? Gas 3
                 , pt _crContinuation ? equals ? Nothing
                 , pt _crLogs ? equals ? Just []
                 , pt _crMetaData ? match _Just continue
@@ -422,7 +415,7 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $
             , _cbGasLimit = GasLimit (Gas 500)
             }
         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
-        let expectedGasConsumed = 162
+        let expectedGasConsumed = 155
         applyCmd stdoutDummyLogger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
             >>= match _Right
             ? satAll
@@ -430,7 +423,7 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $
                 [ pt _crEvents ? soleElement ?
                     event
                         (equals "TRANSFER")
-                        (equals [PString "sender00", PString "NoMiner", PDecimal 324.0])
+                        (equals [PString "sender00", PString "NoMiner", PDecimal 310.0])
                         (equals coinModuleName)
                 , pt _crResult ? equals ? PactResultOk (PInteger 15)
                 -- reflects buyGas gas usage, as well as that of the payload
