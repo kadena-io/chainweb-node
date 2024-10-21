@@ -18,6 +18,7 @@ module Chainweb.Pact5.Transaction
   , payloadCodec
   , parseCommand
   , parsePact4Command
+  , fromPact4Command
   ) where
 
 import "aeson" Data.Aeson qualified as Aeson
@@ -65,7 +66,7 @@ import "pact-tng" Pact.Core.Info
 import "pact-tng" Pact.Core.Pretty qualified as Pact5
 import "text" Data.Text (Text)
 import "text" Data.Text.Encoding (decodeUtf8, encodeUtf8)
-import Chainweb.Pact.Conversion
+import Chainweb.Pact.Conversion(fromLegacyPactValue, fromLegacyQualifiedName)
 import Chainweb.Pact4.Transaction qualified as Pact4
 import Chainweb.Utils
 
@@ -230,7 +231,7 @@ fromPact4Command cmd4 = Command
       | otherwise = fromIntegral i
 
     fromPact4GasLimit :: Pact4.GasLimit -> GasLimit
-    fromPact4GasLimit (Pact4.GasLimit i) = GasLimit (Gas (fromPact4ParsedInteger i))
+    fromPact4GasLimit (Pact4.GasLimit i) = GasLimit (Gas (fromIntegral (fromPact4ParsedInteger i)))
 
     fromPact4GasPrice :: Pact4.GasPrice -> GasPrice
     fromPact4GasPrice (Pact4.GasPrice (Pact4.ParsedDecimal d)) = GasPrice d

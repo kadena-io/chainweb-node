@@ -369,7 +369,7 @@ applyCmd v logger gasLogger txFailuresCounter pdbenv miner gasModel txCtx spv cm
     chainweb219Pact' = guardCtx chainweb219Pact txCtx
     chainweb223Pact' = guardCtx chainweb223Pact txCtx
     allVerifiers = verifiersAt v cid currHeight
-    toEmptyPactError (PactError errty _ _ _) = PactError errty def [] mempty
+    toEmptyPactError = id -- (PactError errty _ _ _) = PactError errty def [] mempty
 
     toOldListErr pe = pe { peDoc = listErrMsg }
     isOldListErr = \case
