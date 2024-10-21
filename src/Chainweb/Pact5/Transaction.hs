@@ -66,7 +66,7 @@ import "pact-tng" Pact.Core.Info
 import "pact-tng" Pact.Core.Pretty qualified as Pact5
 import "text" Data.Text (Text)
 import "text" Data.Text.Encoding (decodeUtf8, encodeUtf8)
-import Chainweb.Pact.Conversion
+import Chainweb.Pact.Conversion(fromLegacyPactValue, fromLegacyQualifiedName)
 import Chainweb.Pact4.Transaction qualified as Pact4
 import Chainweb.Utils
 

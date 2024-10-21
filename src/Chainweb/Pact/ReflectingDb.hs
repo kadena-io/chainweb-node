@@ -38,6 +38,7 @@ import qualified Pact.Types.Persistence as Pact4
 import qualified Pact.Types.Util as Pact4
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
 type TxLogQueue = IORef (Map TxId [TxLog ByteString])
 
@@ -408,7 +409,8 @@ mockPactDb pactTables serial = do
     case usrTables ^? ix tblName . ix k of
       Just (Just bs) -> case _decodeRowData serial bs of
         Just doc -> pure (Just (view document doc))
-        Nothing -> throwDbOpErrorGasM $ RowReadDecodeFailure (_rowKey k)
+        Nothing -> do
+          throwDbOpErrorGasM $ RowReadDecodeFailure (_rowKey k)
       Just Nothing -> pure Nothing
       Nothing -> pure Nothing
 
