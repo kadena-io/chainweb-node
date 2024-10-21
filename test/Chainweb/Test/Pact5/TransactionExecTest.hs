@@ -137,7 +137,8 @@ buyGasShouldTakeGasTokensFromTheTransactionSender rdb = readFromAfterGenesis v r
             }
 
         let txCtx = TxContext { _tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner }
-        _ <- buyGas stdoutDummyLogger pactDb txCtx (view payloadObj <$> cmd)
+        gasEnv <- mkTableGasEnv (MilliGasLimit mempty) GasLogsEnabled
+        _ <- buyGas stdoutDummyLogger gasEnv pactDb txCtx (view payloadObj <$> cmd)
 
         endSender00Bal <- readBal pactDb "sender00"
         assertEqual "balance after buying gas" (Just $ 100_000_000 - 200 * 2) endSender00Bal
@@ -162,7 +163,8 @@ buyGasFailures rdb = readFromAfterGenesis v rdb $ do
                 , _cbGasLimit = GasLimit (Gas 100_000)
                 }
             let txCtx' = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
-            buyGas stdoutDummyLogger pactDb txCtx' (view payloadObj <$> cmd)
+            gasEnv <- mkTableGasEnv (MilliGasLimit mempty) GasLogsEnabled
+            buyGas stdoutDummyLogger gasEnv pactDb txCtx' (view payloadObj <$> cmd)
                 >>= match (_Left . _BuyGasPactError . _PEUserRecoverableError)
                 ? pt (view _1)
                 ? equals (UserEnforceError "Insufficient funds")
@@ -184,7 +186,8 @@ buyGasFailures rdb = readFromAfterGenesis v rdb $ do
                 , _cbGasLimit = GasLimit (Gas 200)
                 }
             let txCtx' = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
-            buyGas stdoutDummyLogger pactDb txCtx' (view payloadObj <$> cmd)
+            gasEnv <- mkTableGasEnv (MilliGasLimit mempty) GasLogsEnabled
+            buyGas stdoutDummyLogger gasEnv pactDb txCtx' (view payloadObj <$> cmd)
                 >>= equals ? Left BuyGasMultipleGasPayerCaps
 
 redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner :: RocksDb -> IO ()
@@ -335,20 +338,20 @@ runPayloadShouldReturnEvalResultRelatedToTheInputCommand rdb = readFromAfterGene
             , _cbGasLimit = GasLimit (Gas 10)
             }
         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
-        gasRef <- newIORef (MilliGas 0)
-        let gasModel = tableGasModel $ MilliGasLimit (gasToMilliGas $ Gas 10)
-        let gasEnv = GasEnv
-                { _geGasRef = gasRef
-                , _geGasLog = Nothing
-                , _geGasModel = gasModel
-                }
+        gasEnv <- mkTableGasEnv (MilliGasLimit (gasToMilliGas $ Gas 10)) GasLogsEnabled
+        -- gasRef <- newIORef (MilliGas 0)
+        -- let gasEnv = GasEnv
+        --         { _geGasRef = gasRef
+        --         , _geGasLog = Nothing
+        --         , _geGasModel = gasModel
+        --         }
 
         payloadResult <- runExceptT $
             runReaderT
                 (runTransactionM
-                    (runPayload Transactional Set.empty pactDb noSPVSupport [] managedNamespacePolicy gasModel txCtx (view payloadObj <$> cmd)))
+                    (runPayload Transactional Set.empty pactDb noSPVSupport [] managedNamespacePolicy gasEnv txCtx (view payloadObj <$> cmd)))
                 (TransactionEnv stdoutDummyLogger gasEnv)
-        gasUsed <- readIORef gasRef
+        gasUsed <- readIORef (_geGasRef gasEnv)
 
         liftIO $ assertEqual
             "eval result"
