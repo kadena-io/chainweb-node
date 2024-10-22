@@ -245,3 +245,6 @@ allow-newer: webauthn:time
 allow-newer: webauthn:aeson
 
 allow-newer: lrucaching:base-compat
+
+-- Pact 5 has an upper bound on happy
+constraints: happy < 2
