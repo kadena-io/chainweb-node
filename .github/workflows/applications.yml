@@ -695,6 +695,7 @@ jobs:
           libbz2-1.0 \
           libgflags2.2 \
           zstd \
+          libmpfr6 \
           locales &&
           rm -rf /var/lib/apt/lists/* &&
           locale-gen en_US.UTF-8 &&
