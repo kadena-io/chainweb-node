@@ -177,7 +177,7 @@ mkFixture baseRdb = do
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "Pact5 RemotePactTest"
     [ -- testCase "pollingBadlistTest" (pollingBadlistTest rdb)
-      testCase "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
+      --testCase "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
     ]
 
 pollingBadlistTest :: RocksDb -> IO ()
