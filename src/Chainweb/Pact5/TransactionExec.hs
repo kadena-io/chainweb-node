@@ -6,6 +6,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -388,6 +389,11 @@ applyCmd logger maybeGasLogger db txCtx spv initialGas cmd = do
                 , _crMetaData = Nothing
                 }
         Right payloadResult -> do
+          putStrLn "HELLO WORDL"
+          forM_ (_geGasLog gasEnv {-(,) <$> _geGasLog gasEnv <*> maybeGasLogger-}) $ \gasLogRef {-(gasLogRef, gasLogger)-} -> do
+            gasLogs <- readIORef gasLogRef
+            print gasLogs
+            --logDebug_ gasLogger $ "applyCmd: " <> sshow (_cmdHash cmd) <> " gas logs: " <> sshow gasLogs
           gasUsed <- milliGasToGas <$> readIORef (_geGasRef gasEnv)
           -- return all unused gas to the user and send all used
           -- gas to the miner.
@@ -711,7 +717,7 @@ buyGas
   -> Command (Payload PublicMeta ParsedCode)
   -> IO (Either Pact5BuyGasError EvalResult)
 buyGas logger origGasEnv db txCtx cmd = do
-  let gasEnv = origGasEnv & geGasModel . gmGasLimit .~ Just (MilliGasLimit (MilliGas 1500))
+  let gasEnv = origGasEnv & geGasModel . gmGasLimit .~ Just (MilliGasLimit (MilliGas 1_500_000))
   logFunctionText logger L.Debug $
     "buying gas for " <> sshow (_cmdHash cmd)
   -- TODO: use quirked gas?
