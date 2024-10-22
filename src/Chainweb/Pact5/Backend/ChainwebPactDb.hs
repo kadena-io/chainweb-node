@@ -76,6 +76,7 @@ import Pact.Core.Names
 import Pact.Core.Builtin
 import Pact.Core.Guards
 import Pact.Core.Errors
+import Pact.Core.Gas
 
 -- chainweb
 
@@ -257,7 +258,7 @@ forModuleNameFix f = do
 tableExistsInDbAtHeight :: Utf8 -> BlockHeight -> BlockHandler logger Bool
 tableExistsInDbAtHeight tablename bh = do
     let knownTbls =
-            ["SYS:Pacts", "SYS:Modules", "SYS:KeySets", "SYS:Namespaces"]
+            ["SYS:Pacts", "SYS:Modules", "SYS:KeySets", "SYS:Namespaces", "SYS:ModuleSources"]
     if tablename `elem` knownTbls
     then return True
     else callDb "tableExists" $ \db -> do
@@ -281,13 +282,15 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
         DModules -> let f = (\v -> (view document <$> _decodeModuleData serialisePact_lineinfo v)) in
-            lookupWithKey (convModuleNameCore mnFix k) f (noCache f)
+            lookupWithKey (convModuleNameCore mnFix k) f (noCacheChargeModuleSize f)
         DNamespaces -> let f = (\v -> (view document <$> _decodeNamespace serialisePact_lineinfo v)) in
             lookupWithKey (convNamespaceNameCore k) f (noCache f)
         DUserTables _ -> let f = (\v -> (view document <$> _decodeRowData serialisePact_lineinfo v)) in
             lookupWithKey (convRowKeyCore k) f (noCache f)
         DDefPacts -> let f = (\v -> (view document <$> _decodeDefPactExec serialisePact_lineinfo v)) in
             lookupWithKey (convPactIdCore k) f (noCache f)
+        DModuleSource -> let f = (\v -> (view document <$> _decodeModuleCode serialisePact_lineinfo v)) in
+            lookupWithKey (convHashedModuleName k) f (noCache f)
   where
     tablename@(Utf8 tableNameBS) = domainTableNameCore d
 
@@ -349,6 +352,15 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         -> MaybeT (BlockHandler logger) v
     noCache f _key rowdata = MaybeT $ return $! f rowdata
 
+    noCacheChargeModuleSize
+        :: (BS.ByteString -> Maybe (ModuleData CoreBuiltin Info))
+        -> Utf8
+        -> BS.ByteString
+        -> MaybeT (BlockHandler logger) (ModuleData CoreBuiltin Info)
+    noCacheChargeModuleSize f _key rowdata = do
+        lift $ BlockHandler $ lift $ lift (chargeGasM (GModuleOp (MOpLoadModule (BS.length rowdata))))
+        MaybeT $ return $! f rowdata
+
 
 checkDbTablePendingCreation :: Text -> Utf8 -> MaybeT (BlockHandler logger) ()
 checkDbTablePendingCreation msg (Utf8 tablename) = do
@@ -372,6 +384,7 @@ writeSys d k v = do
       DNamespaces -> (convNamespaceNameCore k, _encodeNamespace serialisePact_lineinfo v)
       DDefPacts -> (convPactIdCore k, _encodeDefPactExec serialisePact_lineinfo v)
       DUserTables _ -> error "impossible"
+      DModuleSource -> (convHashedModuleName k, _encodeModuleCode serialisePact_lineinfo v)
   recordPendingUpdate kk (toUtf8 tablename) txid vv
   recordTxLog d kk vv
     where
@@ -491,6 +504,11 @@ doKeys mlim d = do
         DNamespaces -> pure $ map NamespaceName allKeys
         DDefPacts ->  pure $ map DefPactId allKeys
         DUserTables _ -> pure $ map RowKey allKeys
+        DModuleSource -> do
+            let parsed = map parseHashedModuleName allKeys
+            case sequence parsed of
+              Just v -> pure v
+              Nothing -> internalError $ "doKeys.DModuleSources: unexpected decoding"
 
     where
     blockLimitStmt = maybe "" (const " WHERE txid < ?;") mlim

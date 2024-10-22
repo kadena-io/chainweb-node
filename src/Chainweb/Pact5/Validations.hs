@@ -41,7 +41,7 @@ import Data.Either (isRight)
 import Data.List.NonEmpty (NonEmpty, nonEmpty)
 import Data.Text (Text)
 import qualified Data.ByteString.Short as SBS
-import Data.Word (Word8, Word64)
+import Data.Word (Word8)
 
 -- internal modules
 
@@ -82,7 +82,7 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
           [ eUnless "Chain id mismatch" $ assertChainId cid pcid
           -- TODO: use failing conversion
           , eUnless "Transaction Gas limit exceeds block gas limit"
-            $ assertBlockGasLimit (P.GasLimit $ P.Gas (fromIntegral @Integer @Word64 bgl)) gl
+            $ assertBlockGasLimit (P.GasLimit $ P.Gas (fromIntegral @Integer @P.SatWord bgl)) gl
           , eUnless "Gas price decimal precision too high" $ assertGasPrice gp
           , eUnless "Network id mismatch" $ assertNetworkId v nid
           , eUnless "Signature list size too big" $ assertSigSize sigs
