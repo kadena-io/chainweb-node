@@ -17,9 +17,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 
-{-# LANGUAGE PartialTypeSignatures #-}
-{-# OPTIONS_GHC -Wno-partial-type-signatures #-}
-
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
 -- Copyright   :  Copyright © 2018 Kadena LLC.
@@ -77,25 +74,26 @@ import qualified Pact.JSON.Decode as J
 import qualified Pact.JSON.Encode as J
 
 
-import Pact.Core.Serialise.LegacyPact ()
-import Pact.Core.Compile
-import Pact.Core.Evaluate
+import Pact.Core.Builtin
 import Pact.Core.Capabilities
-import Pact.Core.Names
-import Pact.Core.Namespace
-import Pact.Core.Persistence.Types hiding (GasM(..))
+import Pact.Core.Compile
+import Pact.Core.DefPacts.Types
+import Pact.Core.Environment hiding (_chainId)
+import Pact.Core.Evaluate
 import Pact.Core.Gas
 import Pact.Core.Hash
-import Pact.Core.PactValue
-import Pact.Core.Environment hiding (_chainId)
-import Pact.Core.Builtin
-import Pact.Core.DefPacts.Types
-import Pact.Core.StableEncoding
-import Pact.Core.SPV
-import Pact.Core.Verifiers
-import Pact.Core.Signer
 import Pact.Core.Info
-import qualified Pact.Core.Syntax.ParseTree as Lisp
+import Pact.Core.Names
+import Pact.Core.Namespace
+import Pact.Core.PactValue
+import Pact.Core.Persistence.Types hiding (GasM(..))
+import Pact.Core.SPV
+import Pact.Core.Serialise.LegacyPact ()
+import Pact.Core.Signer
+import Pact.Core.StableEncoding
+import Pact.Core.Verifiers
+import Pact.Core.Syntax.ParseTree qualified as Lisp
+import Pact.Core.Gas.Utils qualified as Pact5
 
 -- internal Chainweb modules
 
@@ -300,7 +298,7 @@ applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
 -- redeems leftover gas.
 --
 applyCmd
-    :: (Logger logger)
+    :: forall logger. (Logger logger)
     => logger
       -- ^ Pact logger
     -> Maybe logger
@@ -332,17 +330,17 @@ applyCmd logger maybeGasLogger db txCtx spv initialGas cmd = do
   -- supply being paid to the miner and the transaction failing, but still going
   -- on-chain.
   -- Todo: Do we even need this assuming we are passing in the same gas env?
-  let paidFor _buyGasResult = do
+  let paidFor :: TransactionM logger EvalResult
+      paidFor = do
         -- TODO: better "info" for this, for gas logs
         chargeGas def (GAConstant $ gasToMilliGas initialGas)
-        -- -- the gas consumed by buying gas is itself paid for by the user
-        -- -- TODO: better "info" for this, for gas logs
-        -- chargeGas def (GAConstant $ gasToMilliGas $ _erGas buyGasResult)
 
         runVerifiers txCtx cmd
 
-        -- run payload
-        runPayload Transactional flags db spv [] managedNamespacePolicy gasEnv txCtx cmd
+        liftIO $ dumpGasLogs "applyCmd.paidFor.beforeRunPayload" (_cmdHash cmd) maybeGasLogger gasEnv
+        evalResult <- runPayload Transactional flags db spv [] managedNamespacePolicy gasEnv txCtx cmd
+        liftIO $ dumpGasLogs "applyCmd.paidFor.afterRunPayload" (_cmdHash cmd) maybeGasLogger gasEnv
+        return evalResult
 
   eBuyGasResult <- do
     if GasLimit initialGas > gasLimit
@@ -363,7 +361,7 @@ applyCmd logger maybeGasLogger db txCtx spv initialGas cmd = do
             { _txEnvGasEnv = gasEnv
             , _txEnvLogger = logger
             }
-      runExceptT (runReaderT (runTransactionM (paidFor buyGasResult)) txEnv) >>= \case
+      runExceptT (runReaderT (runTransactionM paidFor) txEnv) >>= \case
         Left err -> do
           -- if any error occurs during the transaction or verifiers, the output of the command is that error
           -- and all of the gas is sent to the miner. only buying gas and sending it to the miner are recorded.
@@ -389,11 +387,6 @@ applyCmd logger maybeGasLogger db txCtx spv initialGas cmd = do
                 , _crMetaData = Nothing
                 }
         Right payloadResult -> do
-          putStrLn "HELLO WORDL"
-          forM_ (_geGasLog gasEnv {-(,) <$> _geGasLog gasEnv <*> maybeGasLogger-}) $ \gasLogRef {-(gasLogRef, gasLogger)-} -> do
-            gasLogs <- readIORef gasLogRef
-            print gasLogs
-            --logDebug_ gasLogger $ "applyCmd: " <> sshow (_cmdHash cmd) <> " gas logs: " <> sshow gasLogs
           gasUsed <- milliGasToGas <$> readIORef (_geGasRef gasEnv)
           -- return all unused gas to the user and send all used
           -- gas to the miner.
@@ -950,3 +943,19 @@ gasSupplyOf (Gas gas) (GasPrice gp) = GasSupply gs
 toCoinUnit :: Decimal -> Decimal
 toCoinUnit = roundTo 12
 {-# INLINE toCoinUnit #-}
+
+dumpGasLogs :: (Logger logger)
+  => Text -- ^ context
+  -> Hash -- ^ Command Hash
+  -> Maybe logger -- ^ Gas logger
+  -> GasEnv CoreBuiltin Info
+  -> IO ()
+dumpGasLogs ctx txHash maybeGasLogger gasEnv = do
+  forM_ ((,) <$> _geGasLog gasEnv <*> maybeGasLogger) $ \(gasLogRef, gasLogger) -> do
+    gasLogs <- readIORef gasLogRef
+    let prettyLogs = Pact5.prettyGasLogs (_geGasModel gasEnv) (_gleArgs <$> gasLogs)
+    let logger = addLabel ("transactionExecContext", ctx) $ addLabel ("cmdHash", hashToText txHash) $ gasLogger
+    logFunctionText logger L.Debug $ "gas logs: " <> prettyLogs
+
+    -- After every dump, we clear the gas logs, so that each context only writes the gas logs it induced.
+    writeIORef gasLogRef mempty
