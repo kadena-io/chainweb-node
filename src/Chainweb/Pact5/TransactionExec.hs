@@ -6,6 +6,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -51,8 +52,6 @@ module Chainweb.Pact5.TransactionExec
 
 import Control.Lens
 import Control.Monad
-import System.Directory (createDirectoryIfMissing)
-import System.FilePath ((</>), takeDirectory)
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Parallel.Strategies(using, rseq)
@@ -68,7 +67,6 @@ import Data.Maybe
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text.Encoding as T
-import qualified Data.Text.IO as T
 import qualified System.LogLevel as L
 
 -- internal Pact modules
@@ -76,26 +74,26 @@ import qualified Pact.JSON.Decode as J
 import qualified Pact.JSON.Encode as J
 
 
-import Pact.Core.Serialise.LegacyPact ()
-import Pact.Core.Compile
-import Pact.Core.Evaluate
+import Pact.Core.Builtin
 import Pact.Core.Capabilities
-import Pact.Core.Hash qualified as Pact5
-import Pact.Core.Names
-import Pact.Core.Namespace
-import Pact.Core.Persistence.Types hiding (GasM(..))
+import Pact.Core.Compile
+import Pact.Core.DefPacts.Types
+import Pact.Core.Environment hiding (_chainId)
+import Pact.Core.Evaluate
 import Pact.Core.Gas
 import Pact.Core.Hash
-import Pact.Core.PactValue
-import Pact.Core.Environment hiding (_chainId)
-import Pact.Core.Builtin
-import Pact.Core.DefPacts.Types
-import Pact.Core.StableEncoding
-import Pact.Core.SPV
-import Pact.Core.Verifiers
-import Pact.Core.Signer
 import Pact.Core.Info
-import qualified Pact.Core.Syntax.ParseTree as Lisp
+import Pact.Core.Names
+import Pact.Core.Namespace
+import Pact.Core.PactValue
+import Pact.Core.Persistence.Types hiding (GasM(..))
+import Pact.Core.SPV
+import Pact.Core.Serialise.LegacyPact ()
+import Pact.Core.Signer
+import Pact.Core.StableEncoding
+import Pact.Core.Verifiers
+import Pact.Core.Syntax.ParseTree qualified as Lisp
+import Pact.Core.Gas.Utils qualified as Pact5
 
 -- internal Chainweb modules
 
@@ -127,7 +125,6 @@ import qualified Data.Vector as Vector
 import Data.Set (Set)
 import Data.Void
 import Control.Monad.Except
-import Data.Word
 import Data.Int
 import qualified Pact.Types.Verifier as Pact4
 import qualified Pact.Types.Capability as Pact4
@@ -223,11 +220,11 @@ runVerifiers txCtx cmd = do
           throwError (Pact5.PEVerifierError err def)
         Right (Pact4.Gas pact4VerifierGasRemaining) -> do
           -- TODO: crash properly on negative?
-          let verifierGasRemaining = fromIntegral @Int64 @Word64 pact4VerifierGasRemaining
+          let verifierGasRemaining = fromIntegral @Int64 @SatWord pact4VerifierGasRemaining
           -- NB: this is not nice.
           -- TODO: better gas info here
           chargeGas def $ GAConstant $ gasToMilliGas $ Gas $
-            fromIntegral @Word64 @SatWord verifierGasRemaining - min (_gas (milliGasToGas initGasRemaining)) (fromIntegral @Word64 @SatWord verifierGasRemaining)
+            verifierGasRemaining - min (_gas (milliGasToGas initGasRemaining)) verifierGasRemaining
 
 applyLocal
     :: (Logger logger)
@@ -245,17 +242,11 @@ applyLocal
       -- ^ command with payload to execute
     -> IO (CommandResult [TxLog ByteString] (Pact5.PactError Info))
 applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
-  gasRef <- newIORef mempty
-  gasLogRef <- forM maybeGasLogger $ \_ -> newIORef []
+  let gasLogsEnabled = maybe GasLogsDisabled (const GasLogsEnabled) maybeGasLogger
   let
     gasLimitGas :: Gas = cmd ^. cmdPayload . pMeta . pmGasLimit . _GasLimit
-    gasModel = tableGasModel (MilliGasLimit (gasToMilliGas gasLimitGas))
-  let runLocal = runVerifiers txCtx cmd *> runPayload Local localFlags coreDb spvSupport [] managedNamespacePolicy gasModel txCtx cmd
-  let gasEnv = GasEnv
-        { _geGasRef = gasRef
-        , _geGasLog = gasLogRef
-        , _geGasModel = gasModel
-        }
+  gasEnv <- mkTableGasEnv (MilliGasLimit (gasToMilliGas gasLimitGas)) gasLogsEnabled
+  let runLocal = runVerifiers txCtx cmd *> runPayload Local localFlags coreDb spvSupport [] managedNamespacePolicy gasEnv txCtx cmd
   let txEnv = TransactionEnv
         { _txEnvGasEnv = gasEnv
         , _txEnvLogger = logger
@@ -274,7 +265,7 @@ applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
         , _crMetaData = Nothing
         }
     Right payloadResult -> do
-      gasUsed <- milliGasToGas <$> readIORef gasRef
+      gasUsed <- milliGasToGas <$> readIORef (_geGasRef gasEnv)
       let result = case reverse (_erOutput payloadResult) of
             x:_ -> x
             _ -> InterpretValue PUnit (def :: Info)
@@ -307,7 +298,7 @@ applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
 -- redeems leftover gas.
 --
 applyCmd
-    :: (Logger logger)
+    :: forall logger. (Logger logger)
     => logger
       -- ^ Pact logger
     -> Maybe logger
@@ -330,33 +321,35 @@ applyCmd logger maybeGasLogger db txCtx spv initialGas cmd = do
         , FlagDisableHistoryInTransactionalMode
         , FlagEnforceKeyFormats
         , FlagRequireKeysetNs
+        -- ONLY FOR PARITY REPLAY
+        , FlagEnableLegacyEventHashes
         ]
+  let gasLogsEnabled = maybe GasLogsDisabled (const GasLogsEnabled) maybeGasLogger
+  gasEnv <- mkTableGasEnv (MilliGasLimit $ gasToMilliGas $ gasLimit ^. _GasLimit) gasLogsEnabled
   let !requestKey = cmdToRequestKey cmd
   -- this process is "paid for", i.e. it's powered by a supply of gas that was
   -- purchased by a user already. any errors here will result in the entire gas
   -- supply being paid to the miner and the transaction failing, but still going
   -- on-chain.
-  let paidFor buyGasResult = do
+  -- Todo: Do we even need this assuming we are passing in the same gas env?
+  let paidFor :: TransactionM logger EvalResult
+      paidFor = do
         -- TODO: better "info" for this, for gas logs
         chargeGas def (GAConstant $ gasToMilliGas initialGas)
-        -- the gas consumed by buying gas is itself paid for by the user
-        -- TODO: better "info" for this, for gas logs
-        chargeGas def (GAConstant $ gasToMilliGas $ _erGas buyGasResult)
 
         runVerifiers txCtx cmd
 
-        -- run payload
-        let
-          gasLimitGas :: Gas = cmd ^. cmdPayload . pMeta . pmGasLimit . _GasLimit
-          gasModel = tableGasModel (MilliGasLimit (gasToMilliGas gasLimitGas))
-        runPayload Transactional flags db spv [] managedNamespacePolicy gasModel txCtx cmd
+        liftIO $ dumpGasLogs "applyCmd.paidFor.beforeRunPayload" (_cmdHash cmd) maybeGasLogger gasEnv
+        evalResult <- runPayload Transactional flags db spv [] managedNamespacePolicy gasEnv txCtx cmd
+        liftIO $ dumpGasLogs "applyCmd.paidFor.afterRunPayload" (_cmdHash cmd) maybeGasLogger gasEnv
+        return evalResult
 
   eBuyGasResult <- do
     if GasLimit initialGas > gasLimit
     then do
       pure $ Left (PurchaseGasTxTooBigForGasLimit requestKey)
     else do
-      buyGas logger db txCtx cmd >>= \case
+      buyGas logger gasEnv db txCtx cmd >>= \case
         Left buyGasError -> do
           pure $ Left (BuyGasError requestKey buyGasError)
         Right buyGasResult -> do
@@ -366,18 +359,11 @@ applyCmd logger maybeGasLogger db txCtx spv initialGas cmd = do
     Left err -> do
       pure (Left err)
     Right buyGasResult -> do
-      gasRef <- newIORef mempty
-      gasLogRef <- forM maybeGasLogger $ \_ -> newIORef []
-      let gasEnv = GasEnv
-            { _geGasRef = gasRef
-            , _geGasLog = gasLogRef
-            , _geGasModel = tableGasModel (MilliGasLimit $ gasToMilliGas $ gasLimit ^. _GasLimit)
-            }
       let txEnv = TransactionEnv
             { _txEnvGasEnv = gasEnv
             , _txEnvLogger = logger
             }
-      runExceptT (runReaderT (runTransactionM (paidFor buyGasResult)) txEnv) >>= \case
+      runExceptT (runReaderT (runTransactionM paidFor) txEnv) >>= \case
         Left err -> do
           -- if any error occurs during the transaction or verifiers, the output of the command is that error
           -- and all of the gas is sent to the miner. only buying gas and sending it to the miner are recorded.
@@ -403,7 +389,7 @@ applyCmd logger maybeGasLogger db txCtx spv initialGas cmd = do
                 , _crMetaData = Nothing
                 }
         Right payloadResult -> do
-          gasUsed <- milliGasToGas <$> readIORef gasRef
+          gasUsed <- milliGasToGas <$> readIORef (_geGasRef gasEnv)
           -- return all unused gas to the user and send all used
           -- gas to the miner.
           eRedeemGasResult <- redeemGas
@@ -469,10 +455,12 @@ applyCoinbase logger db reward txCtx = do
   -- applyCoinbase is when upgrades happen, so we call applyUpgrades first
   applyUpgrades logger db txCtx
   -- we construct the coinbase term and evaluate it
-  let (coinbaseTerm, coinbaseData) = mkCoinbaseTerm mid mks reward
+  freeGasEnv <- mkFreeGasEnv GasLogsDisabled
+  let
+    (coinbaseTerm, coinbaseData) = mkCoinbaseTerm mid mks reward
   eCoinbaseTxResult <-
     evalExecTerm Transactional
-      db noSPVSupport freeGasModel GasLogsDisabled (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+      db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
       (ctxToPublicData def txCtx)
       MsgData
         { mdHash = coinbaseHash
@@ -554,6 +542,8 @@ runGenesisPayload logger db spv ctx cmd = do
   gasRef <- newIORef (MilliGas 0)
   let gasEnv = GasEnv gasRef Nothing freeGasModel
   let txEnv = TransactionEnv logger gasEnv
+  -- Todo gas logs
+  freeGasEnv <- mkFreeGasEnv GasLogsDisabled
   runExceptT
     (runReaderT
       (runTransactionM
@@ -567,7 +557,7 @@ runGenesisPayload logger db spv ctx cmd = do
           ]
           -- allow installing to root namespace
           SimpleNamespacePolicy
-          freeGasModel
+          freeGasEnv
           ctx
           cmd <&> \evalResult ->
             CommandResult
@@ -592,7 +582,7 @@ runPayload
     -> SPVSupport
     -> [CapToken QualifiedName PactValue]
     -> NamespacePolicy
-    -> GasModel CoreBuiltin
+    -> GasEnv CoreBuiltin Info
     -> TxContext
     -> Command (Payload PublicMeta ParsedCode)
     -> TransactionM logger EvalResult
@@ -603,47 +593,42 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx 
           `using` (traverse . traverse) rseq
 
   res <-
-    (either throwError return =<<) $ liftIO $ do
-      case payload ^. pPayload of
-        Exec ExecMsg {..} ->
-          evalExec (RawCode (_pcCode _pmCode)) execMode
-            db spv gasModel GasLogsEnabled execFlags namespacePolicy
-            (ctxToPublicData publicMeta txCtx)
-            MsgData
-              { mdHash = _cmdHash cmd
-              , mdData = _pmData
-              , mdVerifiers = verifiersWithNoProof
-              , mdSigners = signers
+    (either throwError return =<<) $ liftIO $
+    case payload ^. pPayload of
+      Exec ExecMsg {..} ->
+        evalExec (RawCode (_pcCode _pmCode)) execMode
+          db spv gasModel execFlags namespacePolicy
+          (ctxToPublicData publicMeta txCtx)
+          MsgData
+            { mdHash = _cmdHash cmd
+            , mdData = _pmData
+            , mdVerifiers = verifiersWithNoProof
+            , mdSigners = signers
+            }
+          (def @(CapState _ _)
+            & csSlots .~ [CapSlot cap [] | cap <- specialCaps])
+          -- Note: we delete the information here from spans for
+          -- smaller db footprints
+          (_pcExps _pmCode)
+      Continuation ContMsg {..} ->
+        evalContinuation execMode
+          db spv gasModel execFlags namespacePolicy
+          (ctxToPublicData publicMeta txCtx)
+          MsgData
+            { mdHash = _cmdHash cmd
+            , mdData = _cmData
+            , mdSigners = signers
+            , mdVerifiers = verifiersWithNoProof
+            }
+          (def @(CapState _ _)
+            & csSlots .~ [CapSlot cap [] | cap <- specialCaps])
+          Cont
+              { _cPactId = _cmPactId
+              , _cStep = _cmStep
+              , _cRollback = _cmRollback
+              , _cProof = _cmProof
               }
-            (def @(CapState _ _)
-              & csSlots .~ [CapSlot cap [] | cap <- specialCaps])
-            (_pcExps _pmCode)
-        Continuation ContMsg {..} ->
-          evalContinuation execMode
-            db spv gasModel GasLogsDisabled execFlags namespacePolicy
-            (ctxToPublicData publicMeta txCtx)
-            MsgData
-              { mdHash = _cmdHash cmd
-              , mdData = _cmData
-              , mdSigners = signers
-              , mdVerifiers = verifiersWithNoProof
-              }
-            (def @(CapState _ _)
-              & csSlots .~ [CapSlot cap [] | cap <- specialCaps])
-            Cont
-                { _cPactId = _cmPactId
-                , _cStep = _cmStep
-                , _cRollback = _cmRollback
-                , _cProof = _cmProof
-                }
 
-  forM_ (fmap (fmap _gleArgs) $ _erLogGas res) $ \gasLogs -> liftIO $ do
-    putStrLn $ "Gas logs for " <> sshow (_cmdHash cmd)
-    let filename = "parity-replay-gas-logs/" </> T.unpack (Pact5.hashToText (_cmdHash cmd)) <> ".gaslogs"
-    createDirectoryIfMissing True (takeDirectory filename)
-    B.writeFile filename $ sshow gasLogs
-
-  --createDirectoryIfMissing --liftIO $ print $ fmap (fmap _gleArgs) $ _erLogGas res
   chargeGas def (GAConstant (gasToMilliGas $ _erGas res))
   return res
 
@@ -662,9 +647,10 @@ runUpgrade
     -> Command (Payload PublicMeta ParsedCode)
     -> IO ()
 runUpgrade _logger db txContext cmd = case payload ^. pPayload of
-    Exec pm ->
+    Exec pm -> do
+      freeGasEnv <- mkFreeGasEnv GasLogsDisabled
       evalExec (RawCode (_pcCode (_pmCode pm))) Transactional
-        db noSPVSupport freeGasModel GasLogsDisabled (Set.fromList [FlagDisableRuntimeRTC])
+        db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC])
         -- allow installing to root namespace
         SimpleNamespacePolicy
         (ctxToPublicData publicMeta txContext)
@@ -720,11 +706,13 @@ enrichedMsgBodyForGasPayer dat cmd = case (_pPayload $ _cmdPayload cmd) of
 buyGas
   :: (Logger logger)
   => logger
+  -> GasEnv CoreBuiltin Info
   -> PactDb CoreBuiltin Info
   -> TxContext
   -> Command (Payload PublicMeta ParsedCode)
   -> IO (Either Pact5BuyGasError EvalResult)
-buyGas logger db txCtx cmd = do
+buyGas logger origGasEnv db txCtx cmd = do
+  let gasEnv = origGasEnv & geGasModel . gmGasLimit .~ Just (MilliGasLimit (MilliGas 1_500_000))
   logFunctionText logger L.Debug $
     "buying gas for " <> sshow (_cmdHash cmd)
   -- TODO: use quirked gas?
@@ -742,47 +730,40 @@ buyGas logger db txCtx cmd = do
         else mkFundTxTerm mid mks sender supply
 
   runExceptT $ do
-    mGasPayerCap <- case gasPayerCaps of
+    gasPayerCap <- case gasPayerCaps of
       [gasPayerCap] -> pure (Just gasPayerCap)
       [] -> pure Nothing
       _ -> do
         throwError BuyGasMultipleGasPayerCaps
 
-    e <- liftIO $ case mGasPayerCap of
-      Nothing -> evalExecTerm Transactional
-        db
-        noSPVSupport
-        -- TODO: magic constant, 1500 max gas limit for buyGas?
-        (tableGasModel (MilliGasLimit $ gasToMilliGas $ min (Gas 3000) (gasLimit ^. _GasLimit)))
-        -- TODO: Gas logs
-        GasLogsDisabled
-        (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
-        (ctxToPublicData publicMeta txCtx)
-        MsgData
+    -- Todo: fix once pact-5 fixes the signature of evalGasPayercap.
+    -- It's taking an `Expr Info` instead of `Expr SpanInfo` which is making this code not compile
+    e <- liftIO $ case gasPayerCap of
+      Just cap ->
+        evalGasPayerCap cap db noSPVSupport gasEnv (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+          (ctxToPublicData publicMeta txCtx)
+          MsgData
           -- Note: in the case of gaspayer, buyGas is given extra metadata that comes from
           -- the Command
-          { mdData = PObject buyGasData
+          { mdData = maybe (PObject buyGasData) (const $ enrichedMsgBodyForGasPayer buyGasData cmd) gasPayerCap
           , mdHash = bgHash
           , mdSigners = signersWithDebit
           -- no verifiers are allowed in buy gas
           , mdVerifiers = []
           }
-        (def & csSlots .~ [CapSlot (coinCap "GAS" []) []])
-        (def <$ buyGasTerm)
-      Just gasPayerCap -> evalGasPayerCap
-        gasPayerCap
+          (def & csSlots .~ [CapSlot (coinCap "GAS" []) []])
+          (def <$ buyGasTerm)
+      Nothing ->
+        evalExecTerm Transactional
         db
         noSPVSupport
-        -- TODO: magic constant, 1500 max gas limit for buyGas?
-        (tableGasModel (MilliGasLimit $ gasToMilliGas $ min (Gas 3000) (gasLimit ^. _GasLimit)))
-        -- Todo: Gas logs
-        GasLogsDisabled
+        gasEnv
         (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
         (ctxToPublicData publicMeta txCtx)
         MsgData
           -- Note: in the case of gaspayer, buyGas is given extra metadata that comes from
           -- the Command
-          { mdData = enrichedMsgBodyForGasPayer buyGasData cmd
+          { mdData = maybe (PObject buyGasData) (const $ enrichedMsgBodyForGasPayer buyGasData cmd) gasPayerCap
           , mdHash = bgHash
           , mdSigners = signersWithDebit
           -- no verifiers are allowed in buy gas
@@ -845,14 +826,12 @@ redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
         "redeeming gas (post-2.24) for " <> sshow (_cmdHash cmd)
       -- if we're past chainweb 2.24, we don't use defpacts for gas; see 'pact/coin-contract/coin.pact#redeem-gas'
       let (redeemGasTerm, redeemGasData) = mkRedeemGasTerm mid mks sender gasTotal gasFee
-
+      -- todo: gas logs
+      freeGasEnv <- mkFreeGasEnv GasLogsDisabled
       evalExecTerm
         Transactional
         -- TODO: more execution flags?
-        db noSPVSupport freeGasModel
-        -- TODO: Gas logs
-        GasLogsDisabled
-        (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+        db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
         (ctxToPublicData publicMeta txCtx)
         MsgData
           { mdData = redeemGasData
@@ -868,15 +847,14 @@ redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
             pure $ Right evalResult
 
     | not isChainweb224Pact, Just fundTxPactId <- maybeFundTxPactId = do
+      freeGasEnv <- mkFreeGasEnv GasLogsDisabled
       logFunctionText logger L.Debug $
         "redeeming gas (pre-2.24) for " <> sshow (_cmdHash cmd)
       -- before chainweb 2.24, we use defpacts for gas; see: 'pact/coin-contract/coin.pact#fund-tx'
       let redeemGasData = PObject $ Map.singleton "fee" (PDecimal $ _pact5GasSupply gasFee)
+
       evalContinuation Transactional
-        db noSPVSupport freeGasModel
-        -- TODO: Gas logs
-        GasLogsDisabled
-        (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
+        db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
         (ctxToPublicData publicMeta txCtx)
         MsgData
           { mdData = redeemGasData
@@ -967,3 +945,19 @@ gasSupplyOf (Gas gas) (GasPrice gp) = GasSupply gs
 toCoinUnit :: Decimal -> Decimal
 toCoinUnit = roundTo 12
 {-# INLINE toCoinUnit #-}
+
+dumpGasLogs :: (Logger logger)
+  => Text -- ^ context
+  -> Hash -- ^ Command Hash
+  -> Maybe logger -- ^ Gas logger
+  -> GasEnv CoreBuiltin Info
+  -> IO ()
+dumpGasLogs ctx txHash maybeGasLogger gasEnv = do
+  forM_ ((,) <$> _geGasLog gasEnv <*> maybeGasLogger) $ \(gasLogRef, gasLogger) -> do
+    gasLogs <- readIORef gasLogRef
+    let prettyLogs = Pact5.prettyGasLogs (_geGasModel gasEnv) (_gleArgs <$> gasLogs)
+    let logger = addLabel ("transactionExecContext", ctx) $ addLabel ("cmdHash", hashToText txHash) $ gasLogger
+    logFunctionText logger L.Debug $ "gas logs: " <> prettyLogs
+
+    -- After every dump, we clear the gas logs, so that each context only writes the gas logs it induced.
+    writeIORef gasLogRef mempty

@@ -1297,7 +1297,10 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
         let logger' = addLabel ("transaction", "attemptBuyGas") logger
         (result, _handle') <- liftIO $ Pact5.doPact5DbTransaction db blockHandle Nothing $ \pactDb -> do
             let txCtx = Pact5.TxContext ph miner
-            (tx <$) <$> Pact5.buyGas logger' pactDb txCtx (view Pact5.payloadObj <$> tx)
+            -- Note: `mempty` is fine here for the milligas limit. `buyGas` sets its own limit
+            -- by necessity
+            gasEnv <- Pact5.mkTableGasEnv (Pact5.MilliGasLimit mempty) Pact5.GasLogsDisabled
+            (tx <$) <$> Pact5.buyGas logger' gasEnv pactDb txCtx (view Pact5.payloadObj <$> tx)
         either (throwError . InsertErrorBuyGas . sshow) (\_ -> pure ()) result
 
 execLookupPactTxs
