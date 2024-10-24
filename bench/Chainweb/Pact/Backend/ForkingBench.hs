@@ -97,7 +97,7 @@ import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
-import Chainweb.Test.TestVersions (slowForkingCpmTestVersion)
+import Chainweb.Test.TestVersions (slowForkingCpmTestVersion, pact5SlowCpmTestVersion)
 import Chainweb.Time
 import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
@@ -443,7 +443,8 @@ cid :: ChainId
 cid = someChainId testVer
 
 testVer :: ChainwebVersion
-testVer = slowForkingCpmTestVersion petersonChainGraph
+testVer = pact5SlowCpmTestVersion petersonChainGraph
+--testVer = slowForkingCpmTestVersion petersonChainGraph
 
 -- MORE CODE DUPLICATION
 
