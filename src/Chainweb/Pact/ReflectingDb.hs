@@ -14,7 +14,7 @@ import Control.Monad (unless, void)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (FromJSON)
 import Data.ByteString (ByteString)
-import Data.Foldable (forM_)
+import Data.Foldable
 import Data.IORef
 import Data.Map (Map)
 import Data.Maybe (isJust, fromMaybe, catMaybes)
@@ -32,6 +32,7 @@ import Pact.Core.Serialise
 import Pact.Core.StableEncoding
 import Pact.Core.Gas
 import qualified Data.Map.Strict as M
+import qualified Data.Text as T
 import qualified Pact.Core.Builtin as Pact5
 import qualified Pact.JSON.Encode as J
 import qualified Pact.Types.Persistence as Pact4
@@ -138,6 +139,7 @@ pact4ReflectingDb PactTables{..} pact4Db = do
           jsonEncoded = J.encodeStrict <$> v
 
       let serial = serialisePact_lineinfo
+      traverse_ (\bytes -> BS.writeFile (T.unpack rowString) bytes) jsonEncoded
       let encoded = (\v' -> maybe v' (_encodeModuleData serial . view document) (_decodeModuleData serial v')) <$> jsonEncoded
       atomicModifyIORef' ptModules $ \(MockSysTable m) -> (MockSysTable $ M.insertWith (\_new old -> old) (Rendered rowString) encoded m, ())
     Pact4.KeySets -> do
