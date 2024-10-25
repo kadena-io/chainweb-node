@@ -445,6 +445,8 @@ syncFromPeer node info = do
                 return False
             | otherwise -> do
                 logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> showClientError e
+                -- chessdmund: The idea is that incrementSuccessiveFailures here could help eliminate redundant synchronisation attempts.
+                incrementSuccessiveFailures peerDb info
                 return False
         Right p -> do
             peers <- peerDbSnapshot peerDb
@@ -508,18 +510,20 @@ findNextPeer conf node = do
     candidates <- awaitCandidates
 
     -- random circular shift of a set
-    let shift i = uncurry (++)
+    let shift :: Int -> [a] -> [a]
+        shift i = uncurry (++)
             . swap
-            . splitAt (fromIntegral i)
+            . splitAt i
 
+    let shiftR :: [a] -> IO [a]
         shiftR s = do
             i <- nodeRandomR node (0, max 1 (length s) - 1)
             return $ shift i s
 
     let (p0, p1) = L.partition (\p -> _peerEntryActiveSessionCount p > 0 && _peerEntrySuccessiveFailures p <= 1) candidates
 
-        -- this ix expensive but lazy and only forced if p0 is empty
-        p2 = L.groupBy ((==) `on` _peerEntrySuccessiveFailures) p1
+    -- this ix expensive but lazy and only forced if p0 is empty
+    let p2 = L.groupBy ((==) `on` _peerEntrySuccessiveFailures) p1
 
 
     -- Choose the category to pick from
