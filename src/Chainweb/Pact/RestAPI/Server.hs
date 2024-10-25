@@ -47,7 +47,6 @@ import Data.Bifunctor (second)
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
-import Data.Default (def)
 import Data.Foldable
 import Data.Function
 import Data.HashMap.Strict (HashMap)
@@ -125,6 +124,7 @@ import Pact.Types.API
 import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Command
 import Pact.Types.Hash (Hash(..))
+import Pact.Types.Info (noInfo)
 import qualified Pact.Types.Hash as Pact
 import Pact.Types.PactError (PactError(..), PactErrorType(..))
 import Pact.Types.Pretty (pretty)
@@ -661,7 +661,7 @@ internalPoll pdb bhdb mempool pactEx confDepth requestKeys0 = do
     hashIsOnBadList :: RequestKey -> (RequestKey, CommandResult Hash)
     hashIsOnBadList rk =
         let res = PactResult (Left err)
-            err = PactError TxFailure def [] doc
+            err = PactError TxFailure noInfo [] doc
             doc = pretty (T.pack $ show InsertErrorBadlisted)
             !cr = CommandResult rk Nothing res 0 Nothing Nothing Nothing []
         in (rk, cr)

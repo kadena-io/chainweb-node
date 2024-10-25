@@ -209,6 +209,7 @@ module Chainweb.Utils
 , unsafeManager
 , unsafeManagerWithSettings
 , setManagerRequestTimeout
+, defaultSupportedTlsSettings
 
 -- * SockAddr from network package
 , showIpv4
@@ -253,7 +254,7 @@ import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as CSV
 import Data.Decimal
-import Data.Default (def)
+import Data.Default.Class (def)
 import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
@@ -277,6 +278,7 @@ import qualified Network.Connection as HTTP
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTP
 import Network.Socket hiding (Debug)
+import qualified Network.TLS as HTTP
 
 import Numeric.Natural
 
@@ -1345,6 +1347,9 @@ approximateThreadDelay d = withMVar threadDelayRng (approximately d)
 --
 -- TODO unify with other HTTP managers
 
+defaultSupportedTlsSettings :: HTTP.Supported
+defaultSupportedTlsSettings = def
+
 manager :: Int -> IO HTTP.Manager
 manager micros = HTTP.newManager
     $ setManagerRequestTimeout micros
@@ -1353,12 +1358,18 @@ manager micros = HTTP.newManager
 unsafeManager :: Int -> IO HTTP.Manager
 unsafeManager micros = HTTP.newTlsManagerWith
     $ setManagerRequestTimeout micros
-    $ HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True True True def) Nothing
+    $ HTTP.mkManagerSettings
+        (HTTP.TLSSettingsSimple True True True defaultSupportedTlsSettings)
+        Nothing
 
-unsafeManagerWithSettings :: (HTTP.ManagerSettings -> HTTP.ManagerSettings) -> IO HTTP.Manager
+unsafeManagerWithSettings
+    :: (HTTP.ManagerSettings -> HTTP.ManagerSettings)
+    -> IO HTTP.Manager
 unsafeManagerWithSettings settings = HTTP.newTlsManagerWith
     $ settings
-    $ HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True True True def) Nothing
+    $ HTTP.mkManagerSettings
+        (HTTP.TLSSettingsSimple True True True defaultSupportedTlsSettings)
+        Nothing
 
 setManagerRequestTimeout :: Int -> HTTP.ManagerSettings -> HTTP.ManagerSettings
 setManagerRequestTimeout micros settings = settings

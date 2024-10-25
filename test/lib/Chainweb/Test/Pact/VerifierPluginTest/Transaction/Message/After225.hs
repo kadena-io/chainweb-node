@@ -10,7 +10,6 @@ module Chainweb.Test.Pact.VerifierPluginTest.Transaction.Message.After225 (tests
 
 import Control.Lens hiding ((.=))
 import Control.Monad.Reader
-import Data.Default
 import qualified Data.ByteString as B
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -204,7 +203,7 @@ mkMerkleMetadataCallWithGas gas merkleProof signatures signersText threshold = b
       ]
 
     signers = PList $ V.fromList $ map pString signersText
-    cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
+    cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" noInfo)
             [messageId, message, signers, pInteger threshold]
 
 mkMerkleMetadataCall :: B.ByteString -> [T.Text] -> [T.Text] -> Integer -> MempoolCmdBuilder

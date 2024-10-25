@@ -12,7 +12,6 @@ module Chainweb.Test.Pact.VerifierPluginTest.Transaction
 
 import Control.Lens hiding ((.=))
 import Control.Monad.Reader
-import Data.Default
 import qualified Data.Vector as V
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -21,6 +20,7 @@ import Test.Tasty.HUnit
 
 import Pact.Types.Capability
 import Pact.Types.Command
+import Pact.Types.Info (noInfo)
 import qualified Pact.JSON.Encode as PactJSON
 import Pact.Types.PactValue
 import Pact.Types.Term
@@ -71,7 +71,7 @@ verifierTest :: PactTestM ()
 verifierTest = do
   runToHeight 118
 
-  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "G" def) []
+  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "G" noInfo) []
 
   runBlockTest
     [ PactTxTest
@@ -151,7 +151,7 @@ hyperlaneRecoverValidatorAnnouncementSuccess = do
   runToHeight 119
   let verifierName = "hyperlane_v3_announcement"
 
-  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
+  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" noInfo)
               [pString "storagelocation", pString "0x6c414e7a15088023e28af44ad0e1d593671e4b15", pString "kb-mailbox"]
 
   runBlockTest
@@ -192,7 +192,7 @@ hyperlaneRecoverValidatorAnnouncementIncorrectSignatureFailure = do
   runToHeight 119
   let verifierName = "hyperlane_v3_announcement"
 
-  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
+  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" noInfo)
               [pString "storagelocation", pString "0x6c414e7a15088023e28af44ad0e1d593671e4b15", pString "kb-mailbox"]
 
   runBlockTest
@@ -235,7 +235,7 @@ hyperlaneRecoverValidatorAnnouncementDifferentSignerFailure = do
   runToHeight 119
   let verifierName = "hyperlane_v3_announcement"
 
-  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
+  let cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" noInfo)
               -- bad signer (same as from the previous test but the different first symbol)
               [pString "storagelocation", pString "0x5c414e7a15088023e28af44ad0e1d593671e4b15", pString "kb-mailbox"]
 
