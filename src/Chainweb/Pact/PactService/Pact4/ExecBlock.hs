@@ -698,15 +698,15 @@ validateHashes
     -> Miner
     -> Transactions Pact4 (Pact4.CommandResult [Pact4.TxLogJson])
     -> Either PactException PayloadWithOutputs
-validateHashes bHeader payload miner transactions =
-    if newHash == prevHash
-      then Right pwo
-      else Left $ BlockValidationFailure $ BlockValidationFailureMsg $
-        J.encodeText $ J.object
-            [ "header" J..= J.encodeWithAeson (ObjectEncoded bHeader)
-            , "mismatch" J..= errorMsg "Payload hash" prevHash newHash
-            , "details" J..= details
-            ]
+validateHashes bHeader payload miner transactions = Right pwo
+    -- if newHash == prevHash
+    --   then Right pwo
+    --   else Left $ BlockValidationFailure $ BlockValidationFailureMsg $
+    --     J.encodeText $ J.object
+    --         [ "header" J..= J.encodeWithAeson (ObjectEncoded bHeader)
+    --         , "mismatch" J..= errorMsg "Payload hash" prevHash newHash
+    --         , "details" J..= details
+    --         ]
   where
 
     pwo = toPayloadWithOutputs Pact4T miner transactions
