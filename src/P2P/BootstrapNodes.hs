@@ -77,9 +77,8 @@ testnet05BootstrapHosts :: [HostAddress]
 testnet05BootstrapHosts = map unsafeHostAddressFromText
     [ "us1.testnet05.chainweb.com:443"
     , "us2.testnet05.chainweb.com:443"
-    -- TODO: these don't exist yet.
-    -- , "eu1.testnet05.chainweb.com:443"
-    -- , "eu2.testnet05.chainweb.com:443"
-    -- , "ap1.testnet05.chainweb.com:443"
-    -- , "ap2.testnet05.chainweb.com:443"
+    , "eu1.testnet05.chainweb.com:443"
+    , "eu2.testnet05.chainweb.com:443"
+    , "ap1.testnet05.chainweb.com:443"
+    , "ap2.testnet05.chainweb.com:443"
     ]
