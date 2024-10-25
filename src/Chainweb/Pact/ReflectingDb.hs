@@ -31,6 +31,8 @@ import Pact.Core.Persistence
 import Pact.Core.Serialise
 import Pact.Core.StableEncoding
 import Pact.Core.Gas
+import System.Directory
+import System.FilePath
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Pact.Core.Builtin as Pact5
@@ -38,6 +40,7 @@ import qualified Pact.JSON.Encode as J
 import qualified Pact.Types.Persistence as Pact4
 import qualified Pact.Types.Util as Pact4
 import qualified Data.ByteString as BS
+import Data.ByteArray (create)
 
 type TxLogQueue = IORef (Map TxId [TxLog ByteString])
 
@@ -109,7 +112,7 @@ pact4ReflectingDb PactTables{..} pact4Db = do
           MockUserTable tbl <- readIORef ptUser
           let tblString = Pact4.asString dom
               rowString = RowKey (Pact4.asString rk)
-          writeIORef ptUser $ MockUserTable $ M.insertWith (flip (<>)) (Rendered tblString) (M.singleton rowString mempty) tbl
+          writeIORef ptUser $ MockUserTable $ M.insertWith (flip (<>)) (Rendered tblString) (M.singleton rowString (Just mempty)) tbl
         pure ks
       _ -> pure ks
 
@@ -139,7 +142,8 @@ pact4ReflectingDb PactTables{..} pact4Db = do
           jsonEncoded = J.encodeStrict <$> v
 
       let serial = serialisePact_lineinfo
-      traverse_ (\bytes -> BS.writeFile (T.unpack rowString) bytes) jsonEncoded
+      -- createDirectoryIfMissing True "parity-replay-modules"
+      -- traverse_ (\bytes -> BS.writeFile ("parity-replay-modules" </> T.unpack rowString) bytes) jsonEncoded
       let encoded = (\v' -> maybe v' (_encodeModuleData serial . view document) (_decodeModuleData serial v')) <$> jsonEncoded
       atomicModifyIORef' ptModules $ \(MockSysTable m) -> (MockSysTable $ M.insertWith (\_new old -> old) (Rendered rowString) encoded m, ())
     Pact4.KeySets -> do
