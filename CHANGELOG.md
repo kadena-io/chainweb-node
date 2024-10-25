@@ -1,3 +1,18 @@
+## 2.26 (FIXME)
+This is a major version update. This release replaces all previous versions.
+
+Any prior version will stop working on FIXME. Node administrators must
+upgrade to this version before that date. The 2.26 feature upgrade will
+occur at block height FIXME which is estimated to be mined at FIXME.
+
+### Changes
+- Log large response sizes after a response completes. If the response doesn't complete, still log it if it's large. [`1b57a9b`](https://github.com/kadena-io/chainweb-node/commit/1b57a9bef226d5443d28f2c556f4bfd36f997922)
+- p2p payload batch endpoint: Return 404 when the payload batch limit is 0 [`23726e1`](https://github.com/kadena-io/chainweb-node/commit/23726e18242ab44a3e01009356d2fda93afdf9e2)
+- Support GHC 9.10, build with GHC 9.8.2 by default [`3fa69e8`](https://github.com/kadena-io/chainweb-node/commit/3fa69e89f5f17c97569b3cc5ee8ecead1162f56a)
+- Check for valid host architecture when production mining is enabled [`578e9fc`](https://github.com/kadena-io/chainweb-node/commit/578e9fc1e9fdb4381e889bdd5d85bad6f592115f)
+- Log request bodies with debug level [`834c09e`](https://github.com/kadena-io/chainweb-node/commit/834c09e4217af3d17f7f52f8909031e0b152570f)
+- Performance: Avoid redundant decode/encode in mempool lookup [`e8b2567`](https://github.com/kadena-io/chainweb-node/commit/e8b2567ca12978f7305ca26a446e6ca8b2d66795)
+
 ## 2.25.1 (2024-08-25)
 This is a minor point release. Upgrading is **strongly recommended**.
 
