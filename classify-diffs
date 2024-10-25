@@ -1,0 +1,158 @@
+#!/usr/bin/env sh
+
+# Module Hashes can't be the same, so this is a WONTFIX
+mkdir -p diffs/loaded-module-hash
+for f in $(grep -Rl parity-replay-diffs/ -e 'Loaded module');
+  do mv "$f" diffs/loaded-module-hash/;
+done;
+
+# this is not good
+mkdir -p diffs/failed-deserialize-module
+for f in $(grep -Rl parity-replay-diffs/ -e 'Failed to deserialize but found value at key:free.kor-oracle');
+  do mv "$f" diffs/failed-deserialize-module/;
+done;
+
+# this is the cap vuln fix *probably*, need to drill down further
+mkdir -p diffs/keyset-failure
+for f in $(grep -Rl parity-replay-diffs/ -e 'Keyset failure');
+  do mv "$f" diffs/keyset-failure/;
+done;
+
+# not sure about these
+mkdir -p diffs/too-many-arguments
+for f in $(grep -Rl parity-replay-diffs/ -e 'Attempted to apply a closure to too many arguments');
+  do mv "$f" diffs/too-many-arguments/;
+done;
+
+# we'll have to drill down on these
+mkdir -p diffs/gas-exceeded
+for f in $(grep -Rl parity-replay-diffs/ -e 'GasError');
+  do mv "$f" diffs/gas-exceeded/;
+done;
+
+# jose says he has a fix for this
+mkdir -p diffs/x_resume
+for f in $(grep -Rl parity-replay-diffs/ -e 'X_RESUME');
+  do mv "$f" diffs/x_resume/;
+done;
+
+# not sure about these
+mkdir -p diffs/unbound-free-variable
+for f in $(grep -Rl parity-replay-diffs/ -e 'Unbound free variable');
+  do mv "$f" diffs/unbound-free-variable/;
+done;
+
+# not sure about these
+mkdir -p diffs/key-not-found
+for f in $(grep -Rl parity-replay-diffs/ -e 'Key .* not found in object');
+  do mv "$f" diffs/key-not-found/;
+done;
+
+# jose has some explanation for this
+mkdir -p diffs/expected-bool-got-unit
+for f in $(grep -Rl parity-replay-diffs/ -e 'expected bool value, got \(\)');
+  do mv "$f" diffs/expected-bool-got-unit/;
+done;
+
+# not sure about these
+mkdir -p diffs/no-such-key-in-table
+for f in $(grep -Rl parity-replay-diffs/ -e 'invariant violated: No such key .* in table');
+  do mv "$f" diffs/no-such-key-in-table/;
+done;
+
+# just a new message, this is fine
+mkdir -p diffs/keyset-defined
+for f in $(grep -Rl parity-replay-diffs/ -e 'Keyset write success');
+  do mv "$f" diffs/keyset-defined/;
+done;
+
+# not sure about these
+mkdir -p diffs/kadena-hashing
+for f in $(grep -Rl parity-replay-diffs/ -e 'kadenahashing.com');
+  do mv "$f" diffs/kadena-hashing/;
+done;
+
+# not sure about these
+mkdir -p diffs/wiza-equipped-item
+for f in $(grep -Rl parity-replay-diffs/ -e 'equipped');
+  do mv "$f" diffs/wiza-equipped-item/;
+done;
+
+# we just have a new error message here
+mkdir -p diffs/read-keyset-error
+for f in $(grep -Rl parity-replay-diffs/ -e 'read-keyset failure');
+  do mv "$f" diffs/read-keyset-error/;
+done;
+
+# not sure at all
+mkdir -p diffs/nft-mint-mystery
+for f in $(grep -Rl parity-replay-diffs/ -e 'New reward balance for');
+  do mv "$f" diffs/nft-mint-mystery/;
+done;
+
+# new error message
+mkdir -p diffs/cannot-find-module
+for f in $(grep -Rl parity-replay-diffs/ -e 'Cannot resolve');
+  do mv "$f" diffs/cannot-find-module/;
+done;
+
+# not sure about this
+mkdir -p diffs/table-not-found
+for f in $(grep -Rl parity-replay-diffs/ -e 'Table .* not found');
+  do mv "$f" diffs/table-not-found/;
+done;
+
+# new interface loading message
+mkdir -p diffs/interface-loaded
+for f in $(grep -Rl parity-replay-diffs/ -e 'Loaded interface');
+  do mv "$f" diffs/interface-loaded/;
+done;
+
+# unsure
+mkdir -p diffs/minimum-precision
+for f in $(grep -Rl parity-replay-diffs/ -e 'Amount violates minimum precision');
+  do mv "$f" diffs/minimum-precision;
+done;
+
+# coin module hash mismatches, seemingly benign
+mkdir -p diffs/coin-module-hash-mismatch;
+for f in $(grep -Rl parity-replay-diffs/ -e 'rE7DU8jlQL9x_MPYuniZJf5ICBTAEHAIFQCB4blofP4');
+  do mv "$f" diffs/coin-module-hash-mismatch
+done;
+
+# Code that implicitly grabs module admin which is no longer allowed
+# will require going through these to see the extent of the breakage
+mkdir -p diffs/module-admin
+for f in $(grep -Rl parity-replay-diffs/ -e 'Module admin necessary');
+  do mv "$f" diffs/module-admin
+done;
+
+# Not sure
+mkdir -p diffs/table-already-exists
+for f in $(grep -Rl parity-replay-diffs/ -e 'Table .* already exists');
+  do mv "$f" diffs/table-already-exists
+done;
+
+# Not sure
+mkdir -p diffs/non-pact-value
+for f in $(grep -Rl parity-replay-diffs/ -e 'Expected Pact Value, got closure or table reference');
+  do mv "$f" diffs/non-pact-value
+done;
+
+mkdir -p diffs/interesting
+mv parity-replay-diffs/_HFqdbIlHNdS8wNgMdNGlkkuhjD4ZllxNL7fTg6EhO0.md diffs/interesting 2> /dev/null
+mv parity-replay-diffs/TFcV7ZlgIUavNezrrMjv_40-s3rYwxXdN9hAuSX52yo.md diffs/interesting 2> /dev/null
+mv parity-replay-diffs/XKGDNtQNgeGTUQwclhSu5Bzat3XNzClDh_teQ_ET4zE.md diffs/interesting 2> /dev/null
+mv parity-replay-diffs/IERmriVgG_Y5FLBMSAb0s70wuq8vFmRheSxALFPArrg.md diffs/interesting 2> /dev/null
+mv parity-replay-diffs/1q7J661naTNdALjAow6N0FdNwWUD2qDKI7H2ah594xw.md diffs/interesting 2> /dev/null
+mv parity-replay-diffs/KBZEw8l7d3pSwVmEDgPZ8lsNT9xZL1KOI3zYJymLfj8.md diffs/interesting 2> /dev/null
+mv parity-replay-diffs/iZTMwypb6iyq85e9lryzMstcoHkM-B6ihG95AhPRk_M.md diffs/interesting 2> /dev/null
+mv parity-replay-diffs/2WUTwvO39Z0izsAP1xZsa7cQHtVlxHR2S4ldBdsWUMA.md diffs/interesting 2> /dev/null
+mv parity-replay-diffs/pqpNMUvjBmflJEwRbka4pugkfOw3_bloewnfGZ6i4LE.md diffs/interesting 2> /dev/null
+mv parity-replay-diffs/jiZrj-NUMGEp1XcVni3gufkjtYItszFd1zjV66hRwhE.md diffs/interesting 2> /dev/null
+mv parity-replay-diffs/Akt5RUolyR4bzS2u0xpDrMoR5PdLAHKHp1h4HpBcVVo.md diffs/interesting 2> /dev/null
+mv parity-replay-diffs/0wpwNj7bvh4y9Ax_zmjHzRiKa96pc2Co1ZeDFNK7oac.md diffs/interesting 2> /dev/null
+
+diffCount=$(find parity-replay-diffs -type f -printf "." | wc -c)
+
+echo "Remaining diffs: $diffCount"
