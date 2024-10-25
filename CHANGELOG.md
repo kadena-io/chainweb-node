@@ -1,9 +1,9 @@
-## 2.26 (FIXME)
+## 2.26 (2024-11-13)
 This is a major version update. This release replaces all previous versions.
 
-Any prior version will stop working on FIXME. Node administrators must
+Any prior version will stop working on **2024-11-13T00:00:00Z**. Node administrators must
 upgrade to this version before that date. The 2.26 feature upgrade will
-occur at block height FIXME which is estimated to be mined at FIXME.
+occur at block height 5302559 which is estimated to be mined at **2024-11-14T00:00:00Z**.
 
 ### Changes
 - Log large response sizes after a response completes. If the response doesn't complete, still log it if it's large. [`1b57a9b`](https://github.com/kadena-io/chainweb-node/commit/1b57a9bef226d5443d28f2c556f4bfd36f997922)
@@ -27,7 +27,7 @@ This is a major version update. This release replaces all previous versions.
 
 Any prior version will stop working on **2024-08-21T00:00:00Z**. Node administrators must
 upgrade to this version before that date. The 2.25 feature upgrade will
-occur at block height 5060924 which is estimated to be mined at **2024-08-21T00:00:00Z**.
+occur at block height 5060924 which is estimated to be mined at **2024-08-22T00:00:00Z**.
 
 ### Changes
 - Updated to Pact 4.13: https://github.com/kadena-io/pact/releases/tag/v4.13.0
