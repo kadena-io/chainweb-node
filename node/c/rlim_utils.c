@@ -2,7 +2,6 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <stdint.h>
-#include "rlim_utils.h"
 
 struct uint64_t_pair {
   uint64_t fst;
@@ -29,5 +28,3 @@ int set_open_file_limits(struct uint64_t_pair *limits) {
   if (setrlimit(RLIMIT_NOFILE, &lim) == 0) return 0;
   else return errno;
 }
-
-
