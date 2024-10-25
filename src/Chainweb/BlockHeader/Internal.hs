@@ -175,7 +175,6 @@ import System.IO.Unsafe
 import Text.Read (readEither)
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
-import Data.List.NonEmpty qualified as NE
 import Data.Memory.Endian qualified as BA
 import Data.Text qualified as T
 
@@ -684,12 +683,6 @@ makeGenesisBlockHeader :: ChainwebVersion -> ChainId -> BlockHeader
 makeGenesisBlockHeader v cid =
     makeGenesisBlockHeader' v cid (_genesisTime (_versionGenesis v) ^?! onChain cid) (Nonce 0)
 
-genesisHeight' :: HasCallStack => ChainwebVersion -> ChainId -> BlockHeight
-genesisHeight' v c = fst
-    $ head
-    $ NE.dropWhile (not . flip isWebChain c . snd)
-    $ NE.reverse (ruleElems (BlockHeight 0) $ _versionGraphs v)
-
 -- | Like `genesisBlockHeader`, but with slightly more control.
 --
 -- This call generates the block header from the definitions in
@@ -717,7 +710,7 @@ makeGenesisBlockHeader' v p ct@(BlockCreationTime t) n =
         :+: genesisBlockPayloadHash v cid
         :+: cid
         :+: BlockWeight 0
-        :+: genesisHeight' v cid -- because of chain graph changes (new chains) not all chains start at 0
+        :+: genesisBlockHeight v cid -- because of chain graph changes (new chains) not all chains start at 0
         :+: _versionCode v
         :+: EpochStartTime t
         :+: n
@@ -736,25 +729,6 @@ genesisBlockHeadersAtHeight v h =
 --
 -- -------------------------------------------------------------------------- --
 -- Genesis Height
---
--- | The genesis graph for a given Chain
---
--- Invariant:
---
--- * The given ChainId exists in the first graph of the graph history.
---   (We generally assume that this invariant holds throughout the code base.
---   It is enforced via the 'mkChainId' smart constructor for ChainId.)
---
-genesisGraph
-    :: HasCallStack
-    => HasChainwebVersion v
-    => HasChainId c
-    => v
-    -> c
-    -> ChainGraph
-genesisGraph v = chainGraphAt v_ . genesisHeight' v_ . _chainId
-  where
-    v_ = _chainwebVersion v
 
 -- | Returns the height of the genesis block for a chain.
 --
@@ -834,7 +808,7 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader wh
         cwv = _chainwebVersion cwvc
 
         adjGraph
-            | height == genesisHeight' cwv cid = chainGraphAt cwv height
+            | height == genesisBlockHeight cwv cid = chainGraphAt cwv height
             | otherwise = chainGraphAt cwv (height - 1)
 
 encodeBlockHeaderWithoutHash :: BlockHeader -> Put

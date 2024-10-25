@@ -71,7 +71,7 @@ import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Payload
 import Chainweb.TreeDB
-import Chainweb.TreeDB.RemoteDB
+import Chainweb.BlockHeaderDB.RemoteDB
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.RecapDevelopment

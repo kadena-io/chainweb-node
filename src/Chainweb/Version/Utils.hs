@@ -61,7 +61,6 @@ module Chainweb.Version.Utils
 ) where
 
 import Chainweb.BlockHeight
-import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Time
@@ -261,7 +260,7 @@ blockCountAt v cid h
     | h < gh = 0
     | otherwise = 1 + int h - int gh
   where
-    gh = genesisHeight (_chainwebVersion v) (_chainId cid)
+    gh = genesisBlockHeight (_chainwebVersion v) (_chainId cid)
 
 -- | The block count accross all chains at a given block height
 --
@@ -406,7 +405,7 @@ expectedBlockCountAfterSeconds v cid s = max 0 (1 + (int s / (int r / 1_000_000)
     -- and thus have `genesisHeight > 0`
   where
     BlockDelay r = _versionBlockDelay (_chainwebVersion v)
-    gh = genesisHeight (_chainwebVersion v) (_chainId cid)
+    gh = genesisBlockHeight (_chainwebVersion v) (_chainId cid)
 
 -- | This function is useful for performance testing when calculating the
 -- expected number of mined blocks during a test accross all chains.
