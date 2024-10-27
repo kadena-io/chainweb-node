@@ -63,6 +63,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.RemoteDB
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.ChainValue
@@ -72,7 +73,6 @@ import Chainweb.Payload.RestAPI.Client
 import Chainweb.Time
 import Chainweb.TreeDB
 import qualified Chainweb.TreeDB as TDB
-import Chainweb.TreeDB.RemoteDB
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB

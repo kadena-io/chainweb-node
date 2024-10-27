@@ -17,74 +17,80 @@ module Main ( main, setTestLogLevel ) where
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource
 
+import System.Environment
+import System.LogLevel
+
 import Test.Tasty
 import Test.Tasty.JsonReporter
 import Test.Tasty.QuickCheck
 
--- internal modules
+-- chainweb modules
+
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
-import qualified Chainweb.Test.Difficulty (properties)
-import qualified Chainweb.Test.BlockHeader.Genesis
-import qualified Chainweb.Test.BlockHeader.Validation
-import qualified Chainweb.Test.BlockHeaderDB
-import qualified Chainweb.Test.BlockHeaderDB.PruneForks (tests)
-import qualified Chainweb.Test.Cut (properties)
-import qualified Chainweb.Test.CutDB
-import qualified Chainweb.Test.HostAddress (properties)
-import qualified Chainweb.Test.Mempool.Consensus
-import qualified Chainweb.Test.Mempool.InMem
-import qualified Chainweb.Test.Mempool.RestAPI
-import qualified Chainweb.Test.Mempool.Sync
-import qualified Chainweb.Test.Mining (tests)
-import qualified Chainweb.Test.Misc
-import qualified Chainweb.Test.Pact4.DbCacheTest
-import qualified Chainweb.Test.Pact4.Checkpointer
-import qualified Chainweb.Test.Pact4.GrandHash
-import qualified Chainweb.Test.Pact4.ModuleCacheOnRestart
-import qualified Chainweb.Test.Pact4.NoCoinbase
-import qualified Chainweb.Test.Pact4.PactExec
-import qualified Chainweb.Test.Pact4.PactMultiChainTest
-import qualified Chainweb.Test.Pact4.PactSingleChainTest
-import qualified Chainweb.Test.Pact4.PactReplay
-import qualified Chainweb.Test.Pact4.RemotePactTest
-import qualified Chainweb.Test.Pact4.VerifierPluginTest
-import qualified Chainweb.Test.Pact4.RewardsTest
-import qualified Chainweb.Test.Pact4.SQLite
-import qualified Chainweb.Test.Pact4.SPV
-import qualified Chainweb.Test.Pact4.TransactionTests
-import qualified Chainweb.Test.Pact4.TTL
-import qualified Chainweb.Test.Pact5.CheckpointerTest
-import qualified Chainweb.Test.Pact5.TransactionExecTest
-import qualified Chainweb.Test.Pact5.PactServiceTest
-import qualified Chainweb.Test.Pact5.SPVTest
-import qualified Chainweb.Test.Pact5.RemotePactTest
-import qualified Chainweb.Test.RestAPI
-import qualified Chainweb.Test.Rosetta
-import qualified Chainweb.Test.Roundtrips
-import qualified Chainweb.Test.SPV
-import qualified Chainweb.Test.SPV.EventProof
-import qualified Chainweb.Test.Sync.WebBlockHeaderStore (properties)
-import qualified Chainweb.Test.TreeDB (properties)
-import qualified Chainweb.Test.TreeDB.RemoteDB
-import Chainweb.Test.Utils
-    (independentSequentialTestGroup, toyChainId, withToyDB)
-import qualified Chainweb.Test.Version (tests)
-import qualified Chainweb.Test.Chainweb.Utils.Paging (properties)
+import Chainweb.Storage.Table.RocksDB
 import Chainweb.Version.Development
 import Chainweb.Version.Pact5Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Registry
 
-import Chainweb.Storage.Table.RocksDB
+-- chainweb-test-tools modules
 
+import Chainweb.Test.Utils
+    (independentSequentialTestGroup, toyChainId, withToyDB)
+
+-- internal modules
+
+import qualified Chainweb.Test.BlockHeader.Genesis (tests)
+import qualified Chainweb.Test.BlockHeader.Validation (tests)
+import qualified Chainweb.Test.BlockHeaderDB (tests)
+import qualified Chainweb.Test.BlockHeaderDB.PruneForks (tests)
+import qualified Chainweb.Test.Chainweb.Utils.Paging (properties)
+import qualified Chainweb.Test.Cut (properties)
+import qualified Chainweb.Test.CutDB (tests)
+import qualified Chainweb.Test.Difficulty (properties)
+import qualified Chainweb.Test.HostAddress (properties)
+import qualified Chainweb.Test.Mempool.Consensus (tests)
+import qualified Chainweb.Test.Mempool.InMem (tests)
+import qualified Chainweb.Test.Mempool.RestAPI (tests)
+import qualified Chainweb.Test.Mempool.Sync (tests)
+import qualified Chainweb.Test.Mining (tests)
+import qualified Chainweb.Test.Misc (tests)
+import qualified Chainweb.Test.Pact4.Checkpointer (tests)
+import qualified Chainweb.Test.Pact4.DbCacheTest (tests)
+import qualified Chainweb.Test.Pact4.GrandHash (tests)
+import qualified Chainweb.Test.Pact4.ModuleCacheOnRestart (tests)
+import qualified Chainweb.Test.Pact4.NoCoinbase (tests)
+import qualified Chainweb.Test.Pact4.PactExec (tests)
+import qualified Chainweb.Test.Pact4.PactMultiChainTest (tests)
+import qualified Chainweb.Test.Pact4.PactReplay (tests)
+import qualified Chainweb.Test.Pact4.PactSingleChainTest (tests)
+import qualified Chainweb.Test.Pact4.RemotePactTest (tests)
+import qualified Chainweb.Test.Pact4.RewardsTest (tests)
+import qualified Chainweb.Test.Pact4.SPV (tests)
+import qualified Chainweb.Test.Pact4.SQLite (tests)
+import qualified Chainweb.Test.Pact4.TTL (tests)
+import qualified Chainweb.Test.Pact4.TransactionTests (tests)
+import qualified Chainweb.Test.Pact4.VerifierPluginTest (tests)
+import qualified Chainweb.Test.Pact5.CheckpointerTest
+import qualified Chainweb.Test.Pact5.PactServiceTest
+import qualified Chainweb.Test.Pact5.RemotePactTest
+import qualified Chainweb.Test.Pact5.SPVTest
+import qualified Chainweb.Test.Pact5.TransactionExecTest
+import qualified Chainweb.Test.RestAPI (tests)
+import qualified Chainweb.Test.Rosetta (tests)
+import qualified Chainweb.Test.Rosetta.RestAPI (tests)
+import qualified Chainweb.Test.Roundtrips (tests)
+import qualified Chainweb.Test.SPV (tests)
+import qualified Chainweb.Test.SPV.EventProof (properties)
+import qualified Chainweb.Test.Sync.WebBlockHeaderStore (properties)
+import qualified Chainweb.Test.TreeDB (properties)
+import qualified Chainweb.Test.TreeDB.RemoteDB
+import qualified Chainweb.Test.Version (tests)
 import qualified Data.Test.PQueue (properties)
 import qualified Data.Test.Word.Encoding (properties)
-
-import qualified P2P.Test.TaskQueue (properties)
 import qualified P2P.Test.Node (properties)
-import System.Environment
-import System.LogLevel
+import qualified P2P.Test.TaskQueue (properties)
 
 setTestLogLevel :: LogLevel -> IO ()
 setTestLogLevel l = setEnv "CHAINWEB_TEST_LOG_LEVEL" (show l)
@@ -160,6 +166,7 @@ suite rdb =
         , Chainweb.Test.Pact5.RemotePactTest.tests rdb
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.Rosetta.tests
+        , Chainweb.Test.Rosetta.RestAPI.tests rdb
         , Chainweb.Test.RestAPI.tests rdb
         , testGroup "SPV"
             [ Chainweb.Test.SPV.tests rdb

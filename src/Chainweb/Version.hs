@@ -75,6 +75,8 @@ module Chainweb.Version
     , genesisBlockPayloadHash
     , genesisBlockTarget
     , genesisTime
+    , genesisBlockHeight
+    , genesisGraph
 
     , PactUpgrade(..)
     , PactVersion(..)
@@ -158,6 +160,7 @@ import Data.Word
 
 import GHC.Generics(Generic)
 import GHC.TypeLits
+import GHC.Stack
 
 -- internal modules
 
@@ -650,6 +653,40 @@ chainGraphAt v = snd . ruleHead . chainwebGraphsAt (_chainwebVersion v)
 
 instance HasChainGraph (ChainwebVersion, BlockHeight) where
     _chainGraph = uncurry chainGraphAt
+
+-- | The genesis block height for a given chain.
+--
+-- Raises an error if a non-existing chainid is provided.
+-- (We generally assume that this invariant holds throughout the code base.
+-- It is enforced via the 'mkChainId' smart constructor for ChainId.)
+--
+genesisBlockHeight :: HasCallStack => ChainwebVersion -> ChainId -> BlockHeight
+genesisBlockHeight v c =
+    case measureValue' (flip isWebChain c) $ _versionGraphs v of
+        Top _ -> error $ "Invalid ChainId " <> show c
+        Between (h, _) _ -> h
+        Bottom _ -> BlockHeight 0
+
+-- | The genesis graph for a given Chain
+--
+-- Invariant:
+--
+-- * The given ChainId exists in the first graph of the graph history.
+--   (We generally assume that this invariant holds throughout the code base.
+--   It is enforced via the 'mkChainId' smart constructor for ChainId.)
+--
+genesisGraph
+    :: HasCallStack
+    => HasChainwebVersion v
+    => HasChainId c
+    => v
+    -> c
+    -> ChainGraph
+genesisGraph v c =
+    case measureValue' (flip isWebChain c) $ _versionGraphs (_chainwebVersion v) of
+        Top _ -> error $ "Invalid ChainId " <> show (_chainId c)
+        Between (_, a) _ -> a
+        Bottom a -> a
 
 -------------------------------------------------------------------------- --
 -- Utilities for constructing chainweb versions

@@ -63,7 +63,6 @@ import qualified Chainweb.Pact.Transactions.CoinV5Transactions as CoinV5
 import qualified Chainweb.Pact.Transactions.CoinV6Transactions as CoinV6
 import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
 import qualified Chainweb.Pact.Transactions.OtherTransactions as Other
-import Chainweb.BlockHeader (genesisHeightSlow)
 
 testBootstrapPeerInfos :: PeerInfo
 testBootstrapPeerInfos =
@@ -426,7 +425,7 @@ pact5SlowCpmTestVersion g = buildTestVersion $ \v -> v
     & versionName .~ ChainwebVersionName ("pact5-slow-CPM-" <> toText g)
     & versionForks .~ tabulateHashMap (\case
         -- genesis blocks are not ever run with Pact 5
-        Pact5Fork -> onChains [ (cid, ForkAtBlockHeight (succ $ genesisHeightSlow v cid)) | cid <- HS.toList $ graphChainIds g ]
+        Pact5Fork -> onChains [ (cid, ForkAtBlockHeight (succ $ genesisBlockHeight v cid)) | cid <- HS.toList $ graphChainIds g ]
         -- SPV Bridge is not in effect for Pact 5 yet.
         SPVBridge -> AllChains ForkNever
         _ -> AllChains ForkAtGenesis

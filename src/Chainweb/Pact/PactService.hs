@@ -573,6 +573,8 @@ execContinueBlock mpAccess blockInProgress = pactLabel "execNewBlock" $ do
 
 -- | only for use in generating genesis blocks in tools.
 --
+-- TODO: Why not move it to tools?
+--
 execNewGenesisBlock
     :: (Logger logger, CanReadablePayloadCas tbl)
     => Miner
@@ -584,7 +586,7 @@ execNewGenesisBlock miner newTrans = pactLabel "execNewGenesisBlock" $ do
             logger <- view (psServiceEnv . psLogger)
             v <- view chainwebVersion
             cid <- view chainId
-            txs <- liftIO $ traverse (runExceptT . Pact4.checkParse logger v cid (genesisHeightSlow v cid)) newTrans
+            txs <- liftIO $ traverse (runExceptT . Pact4.checkParse logger v cid (genesisBlockHeight v cid)) newTrans
             parsedTxs <- case partitionEithers (V.toList txs) of
                 ([], validTxs) -> return (V.fromList validTxs)
                 (errs, _) -> internalError $ "Invalid genesis txs: " <> sshow errs

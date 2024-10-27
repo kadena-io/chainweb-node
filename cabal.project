@@ -1,4 +1,6 @@
-packages: chainweb.cabal
+packages:
+    chainweb.cabal
+    node/chainweb-node.cabal
 
 debug-info: True
 
@@ -33,6 +35,9 @@ if os(darwin)
 package chainweb
     tests: True
     benchmarks: True
+    ghc-options: -Wno-missed-extra-shared-lib
+
+package node
     ghc-options: -Wno-missed-extra-shared-lib
 
 if impl(ghc >= 9.8.1)
