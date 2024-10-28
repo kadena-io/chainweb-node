@@ -811,8 +811,8 @@ collectForkBlocks db lastHeader newHeader = do
     (oldL, newL) <- go (branchDiff db lastHeader newHeader) ([], [])
     when (null oldL) $ throwM $ TreeDbParentMissing @db lastHeader
     let !common = unsafeHead "Chainweb.TreeDB.collectForkBlocks.common" oldL
-    let !old = V.fromList $ tail oldL
-    let !new = V.fromList $ tail newL
+    let !old = V.fromList $ unsafeTail "Chainweb.TreeDB.collectForkBlocks.old" oldL
+    let !new = V.fromList $ unsafeTail "Chainweb.TreeDB.collectForkBlocks.new" newL
     return (common, old, new)
   where
     go !stream (!oldBlocks, !newBlocks) = do

@@ -225,6 +225,7 @@ module Chainweb.Utils
 
 -- * General utilities
 , unsafeHead
+, unsafeTail
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
@@ -1475,7 +1476,12 @@ matchOrDisplayException display anyException
     | otherwise
     = T.pack $ displayException anyException
 
-unsafeHead :: String -> [a] -> a
+unsafeHead :: HasCallStack => String -> [a] -> a
 unsafeHead msg = \case
-    [] -> error $ "unsafeHead: empty list: " <> msg
     x : _ -> x
+    [] -> error $ "unsafeHead: empty list: " <> msg
+
+unsafeTail :: HasCallStack => String -> [a] -> [a]
+unsafeTail msg = \case
+    _ : xs -> xs
+    [] -> error $ "unsafeTail: empty list: " <> msg
