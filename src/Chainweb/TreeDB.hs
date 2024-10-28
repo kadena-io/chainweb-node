@@ -732,7 +732,7 @@ toTree db = do
         S.toList_ $ S.map (\h -> (h, key h, [fromMaybe (key h) $ parent h] )) es
     let (g, vert, _) = graphFromEdges hs
         g' = transposeG g
-    pure . fmap (view _1 . vert) . head . dfs g' $ topSort g'
+    pure . fmap (view _1 . vert) . unsafeHead "Chainweb.TreeDB.toTree: empty DFS" . dfs g' $ topSort g'
 
 -- -------------------------------------------------------------------------- --
 -- Misc Utils
@@ -810,7 +810,7 @@ collectForkBlocks
 collectForkBlocks db lastHeader newHeader = do
     (oldL, newL) <- go (branchDiff db lastHeader newHeader) ([], [])
     when (null oldL) $ throwM $ TreeDbParentMissing @db lastHeader
-    let !common = head oldL
+    let !common = unsafeHead "Chainweb.TreeDB.collectForkBlocks.common" oldL
     let !old = V.fromList $ tail oldL
     let !new = V.fromList $ tail newL
     return (common, old, new)

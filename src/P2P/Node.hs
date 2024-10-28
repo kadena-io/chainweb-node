@@ -531,13 +531,13 @@ findNextPeer conf node = do
     nodeGeometric node 0.95 >>= \case
 
         -- Special case that avoids forcing of p2
-        0 | not (null p0) -> head <$> shiftR p0
+        0 | not (null p0) -> unsafeHead "P2P.Node.nodeGeometric.0" <$> shiftR p0
 
         -- general case that forces p2
         n -> do
             let n' = min (length (p0 : p2) - 1) n
             -- note that @p0 : p2@ is guaranteed to be non-empty
-            head . concat <$> traverse shiftR (drop n' (p0 : p2))
+            unsafeHead "P2P.Node.nodeGeometric.n" . concat <$> traverse shiftR (drop n' (p0 : p2))
 
   where
 

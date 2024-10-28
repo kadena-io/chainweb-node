@@ -36,6 +36,7 @@ import Chainweb.CutDB
 import Chainweb.Difficulty (BlockDelay)
 import Chainweb.Graph
 import Chainweb.RestAPI.Utils
+import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
 
@@ -83,7 +84,7 @@ nodeInfoHandler v (SomeCutDb (CutDbT db :: CutDbT cas v)) = do
     let ch = cutToCutHashes Nothing curCut
     let curHeight = maximum $ map _bhwhHeight $ HM.elems $ _cutHashes ch
     let graphs = unpackGraphs v
-    let curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
+    let curGraph = unsafeHead "Chainweb.RestAPI.NodeInfo.nodeInfoHandler.curGraph" $ dropWhile (\(h,_) -> h > curHeight) graphs
     let curChains = map fst $ snd curGraph
     return $ NodeInfo
       { nodeVersion = _versionName v

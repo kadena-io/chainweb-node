@@ -10,6 +10,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -222,6 +223,8 @@ module Chainweb.Utils
 , estimateBlockHeight
 , parseUtcTime
 
+-- * General utilities
+, unsafeHead
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
@@ -1326,8 +1329,9 @@ _T3 = iso (\(T3 a b c) -> (a,b,c)) (\(a,b,c) -> T3 a b c)
 approximately :: Integral a => a -> Prob.GenIO -> IO a
 approximately k gen = max 0 <$!> sample
   where
-    sample = (round . (/ 256.0) . head) <$!>
-             Prob.samples 1 (Prob.normal mean sdev) gen
+    sample = do
+        samples <- Prob.samples 1 (Prob.normal mean sdev) gen
+        return $! round $ unsafeHead "Chainweb.Utils.approximately: empty samples" samples / 256.0
     mean   = fromIntegral $ k * 256
     sdev   = mean / 6
 
@@ -1470,3 +1474,8 @@ matchOrDisplayException display anyException
     = display specificException
     | otherwise
     = T.pack $ displayException anyException
+
+unsafeHead :: String -> [a] -> a
+unsafeHead msg = \case
+    [] -> error $ "unsafeHead: empty list: " <> msg
+    x : _ -> x
