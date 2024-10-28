@@ -642,6 +642,7 @@ executable cwtool
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
+        -Wno-x-partial
     hs-source-dirs:
         tools/cwtool
         tools/ea
