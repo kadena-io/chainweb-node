@@ -445,8 +445,6 @@ syncFromPeer node info = do
                 return False
             | otherwise -> do
                 logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> showClientError e
-                -- chessdmund: The idea is that incrementSuccessiveFailures here could help eliminate redundant synchronisation attempts.
-                incrementSuccessiveFailures peerDb info
                 return False
         Right p -> do
             peers <- peerDbSnapshot peerDb
