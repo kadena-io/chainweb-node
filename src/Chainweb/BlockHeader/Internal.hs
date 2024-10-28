@@ -686,7 +686,7 @@ makeGenesisBlockHeader v cid =
 
 genesisHeight' :: HasCallStack => ChainwebVersion -> ChainId -> BlockHeight
 genesisHeight' v c = fst
-    $ head
+    $ unsafeHead "Chainweb.BlockHeader.Internal.genesisHeight'"
     $ NE.dropWhile (not . flip isWebChain c . snd)
     $ NE.reverse (ruleElems (BlockHeight 0) $ _versionGraphs v)
 
