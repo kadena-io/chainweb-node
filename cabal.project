@@ -210,3 +210,6 @@ allow-newer: *:hashable
 
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
+
+
+constraints: http-client-tls < 0.3.6.4
