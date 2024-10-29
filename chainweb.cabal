@@ -471,7 +471,7 @@ test-suite chainweb-tests
     ghc-options:
         -threaded
         -with-rtsopts=-N4
-        -Wno-x-partial
+        -Wno-x-partial -Wno-unrecognised-warning-flags
     type: exitcode-stdio-1.0
     hs-source-dirs: test
     main-is: ChainwebTests.hs
@@ -642,7 +642,7 @@ executable cwtool
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
-        -Wno-x-partial
+        -Wno-x-partial -Wno-unrecognised-warning-flags
     hs-source-dirs:
         tools/cwtool
         tools/ea
