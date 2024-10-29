@@ -1,10 +1,12 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+
 module TxSimulator
   where
 
@@ -57,6 +59,7 @@ import Chainweb.Version.Registry
 
 import Network.Connection
 import Network.HTTP.Client.TLS
+import Network.TLS.QUIC qualified as TLS
 import Servant.Client.Core
 import Servant.Client
 
@@ -270,7 +273,7 @@ setupClient :: SimConfig -> IO ClientEnv
 setupClient sc = flip mkClientEnv (scApiHostUrl sc) <$> newTlsManagerWith mgrSettings
   where
     mgrSettings = mkManagerSettings
-        (TLSSettingsSimple True False False def)
+        (TLSSettingsSimple True False False TLS.defaultSupported)
         Nothing
 
 -- | note, fetches [low - 1, hi] to have parent headers
