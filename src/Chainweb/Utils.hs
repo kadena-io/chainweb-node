@@ -255,7 +255,6 @@ import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as CSV
 import Data.Decimal
-import Data.Default (def)
 import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
@@ -279,6 +278,7 @@ import qualified Network.Connection as HTTP
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTP
 import Network.Socket hiding (Debug)
+import Network.TLS.QUIC qualified as TLS
 
 import Numeric.Natural
 
@@ -1364,12 +1364,12 @@ manager micros = HTTP.newManager
 unsafeManager :: Int -> IO HTTP.Manager
 unsafeManager micros = HTTP.newTlsManagerWith
     $ setManagerRequestTimeout micros
-    $ HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True True True def) Nothing
+    $ HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True True True TLS.defaultSupported) Nothing
 
 unsafeManagerWithSettings :: (HTTP.ManagerSettings -> HTTP.ManagerSettings) -> IO HTTP.Manager
 unsafeManagerWithSettings settings = HTTP.newTlsManagerWith
     $ settings
-    $ HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True True True def) Nothing
+    $ HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True True True TLS.defaultSupported) Nothing
 
 setManagerRequestTimeout :: Int -> HTTP.ManagerSettings -> HTTP.ManagerSettings
 setManagerRequestTimeout micros settings = settings

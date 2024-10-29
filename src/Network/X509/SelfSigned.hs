@@ -145,6 +145,7 @@ import Network.TLS hiding (HashSHA256, HashSHA512, SHA512)
 import Network.TLS.Extra (ciphersuite_default)
 import Network.Wai.Handler.WarpTLS as WARP
     (TLSSettings(..), tlsSettingsChainMemory, tlsSettingsMemory)
+import Network.TLS.QUIC qualified as TLS
 
 import System.Hourglass (dateCurrent)
 import System.X509 (getSystemCertificateStore)
@@ -679,7 +680,7 @@ certificateCacheManagerSettings policy = do
     -- and 'connectTo' are going to overwrite this anyways.
     --
     settings certstore = (defaultParamsClient "" "")
-        { clientSupported = def
+        { clientSupported = TLS.defaultSupported
             { supportedCiphers = ciphersuite_default
             , supportedVersions = [TLS13, TLS12, TLS11, TLS10]
             }
