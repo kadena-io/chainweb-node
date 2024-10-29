@@ -138,7 +138,6 @@ import Data.Bifunctor hiding (second)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Coerce (coerce)
-import Data.Default (def)
 import Data.Foldable
 import qualified Data.HashMap.Strict as HashMap
 import Data.IORef
@@ -157,6 +156,7 @@ import Network.Socket (close)
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
 import Network.Wai.Handler.WarpTLS as W (runTLSSocket)
+import Network.TLS.QUIC qualified as TLS
 
 import Numeric.Natural
 
@@ -1143,7 +1143,7 @@ getClientEnv :: BaseUrl -> IO ClientEnv
 getClientEnv url = flip mkClientEnv url <$> HTTP.newTlsManagerWith mgrSettings
     where
       mgrSettings = HTTP.mkManagerSettings
-       (HTTP.TLSSettingsSimple True False False def)
+       (HTTP.TLSSettingsSimple True False False TLS.defaultSupported)
        Nothing
 
 -- | Backoff up to a constant 250ms, limiting to ~40s
