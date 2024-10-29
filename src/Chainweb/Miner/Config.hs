@@ -61,7 +61,7 @@ import Chainweb.Time
 import Chainweb.Utils (hostArch, sshow)
 import Chainweb.Version
 import Chainweb.Version.Mainnet
-import Chainweb.Version.Testnet
+import Chainweb.Version.Testnet04
 
 -- -------------------------------------------------------------------------- --
 
