@@ -6,6 +6,7 @@ upgrade to this version before that date. The 2.26 feature upgrade will
 occur at block height 5302559 which is estimated to be mined at **2024-11-14T00:00:00Z**.
 
 ### Changes
+- Update to Pact 4.13.1 (see Pact's [CHANGELOG](https://github.com/kadena-io/pact/blob/master/CHANGELOG.md#4131))
 - Log large response sizes after a response completes. If the response doesn't complete, still log it if it's large. [`1b57a9b`](https://github.com/kadena-io/chainweb-node/commit/1b57a9bef226d5443d28f2c556f4bfd36f997922)
 - p2p payload batch endpoint: Return 404 when the payload batch limit is 0 [`23726e1`](https://github.com/kadena-io/chainweb-node/commit/23726e18242ab44a3e01009356d2fda93afdf9e2)
 - Support GHC 9.10, build with GHC 9.8.2 by default [`3fa69e8`](https://github.com/kadena-io/chainweb-node/commit/3fa69e89f5f17c97569b3cc5ee8ecead1162f56a)
