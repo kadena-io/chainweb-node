@@ -121,7 +121,6 @@ import Data.Bifunctor
 import Data.ByteArray (ByteArray, convert)
 import qualified Data.ByteString as B (ByteString, length, pack)
 import qualified Data.ByteString.Char8 as B8
-import Data.Default (def)
 import Data.Foldable
 import Data.Hashable
 import Data.Hourglass (DateTime, durationHours, timeAdd)
@@ -685,7 +684,7 @@ certificateCacheManagerSettings policy = do
             { supportedCiphers = ciphersuite_default
             , supportedVersions = [TLS13, TLS12, TLS11, TLS10]
             }
-        , clientShared = def
+        , clientShared = (clientShared (defaultParamsClient "" "")) -- song and dance to get the default 'Shared'
             { sharedCAStore = certstore
             , sharedValidationCache = validationCache policy
             }
@@ -733,7 +732,6 @@ isCertificateMismatchException (HttpExceptionRequest _ (InternalException e)) =
     --   CacheSaysNo \"for host: 54.93.103.7:443 expected fingerprint: aXv-A9r5FUbg7R9hQHG0huvVIuS0_HQacvMn-wIUS-M but got fingerprint: GqZr-fWw0zj68xll-HW9RcL46e1mq6wwwDjRuXPlrcA\"
     -- ]"
 isCertificateMismatchException _ = False
-
 
 -- -------------------------------------------------------------------------- --
 -- Server Settings
