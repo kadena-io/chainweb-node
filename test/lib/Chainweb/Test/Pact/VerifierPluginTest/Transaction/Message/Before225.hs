@@ -10,7 +10,6 @@ module Chainweb.Test.Pact.VerifierPluginTest.Transaction.Message.Before225 (test
 
 import Control.Lens hiding ((.=))
 import Control.Monad.Reader
-import Data.Default
 import qualified Data.ByteString as B
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -21,6 +20,7 @@ import Test.Tasty.HUnit
 
 import Pact.Types.Capability
 import Pact.Types.Command
+import Pact.Types.Info (noInfo)
 import Pact.Types.PactValue
 import Pact.Types.Term
 import Pact.Types.Verifier hiding (verifierName)
@@ -115,7 +115,7 @@ hyperlaneVerifyMessageIdSuccess = do
   let
     recipient = pString "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV"
     signers = PList $ V.fromList [ pString "0x909de0a3579891470db562c178905bf17a0e2cc1" ]
-    cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
+    cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" noInfo)
             [pString hyperlaneTokenMessageBase64, recipient, signers]
 
   runBlockTest
@@ -178,7 +178,7 @@ hyperlaneVerifyMessageIdEmptyRecoveredSignaturesSuccess = do
   let
     recipient = pString "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV"
     signers = PList $ V.fromList []
-    cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
+    cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" noInfo)
             [pString hyperlaneTokenMessageBase64, recipient, signers]
 
   runBlockTest
@@ -227,7 +227,7 @@ hyperlaneVerifyMessageIdWrongSignersFailure = do
     recipient = pString "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV"
     -- incorrect validator
     signers = PList $ V.fromList [ pString "wrongValidator" ]
-    cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
+    cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" noInfo)
             [pString hyperlaneTokenMessageBase64, recipient, signers]
 
   runBlockTest
@@ -276,7 +276,7 @@ hyperlaneVerifyMessageIdNotEnoughRecoveredSignaturesFailure = do
   let
     recipient = pString "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV"
     signers = PList $ V.fromList [ pString "wrongValidator" ]
-    cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
+    cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" noInfo)
             [pString hyperlaneTokenMessageBase64, recipient, signers]
 
   runBlockTest
@@ -324,7 +324,7 @@ hyperlaneVerifyMessageIdNotEnoughCapabilitySignaturesFailure = do
   let
     recipient = pString "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV"
     signers = PList $ V.fromList [ pString "0x909de0a3579891470db562c178905bf17a0e2cc1" ]
-    cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
+    cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" noInfo)
             [pString hyperlaneTokenMessageBase64, recipient, signers]
 
   runBlockTest
@@ -440,7 +440,7 @@ mkMerkleMetadatWithOneSignatureCall merkleProof = buildBasic'
   where
     recipient = pString "6YKzqpDNATmPhUJzc5A17mJbFXH-dBkV"
     signers = PList $ V.fromList [ pString "0x4bd34992e0994e9d3c53c1ccfe5c2e38d907338e" ]
-    cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" def)
+    cap = SigCapability (QualifiedName (ModuleName "m" (Just (NamespaceName "free"))) "K" noInfo)
             [pString hyperlaneTokenMessageBase64, recipient, signers]
 
 hyperlaneVerifyMerkleNotEnabledFailure :: PactTestM ()

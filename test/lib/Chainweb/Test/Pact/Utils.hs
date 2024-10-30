@@ -139,7 +139,6 @@ import Data.Aeson (Value(..), object, (.=), Key)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Short as BS
 import Data.Decimal
-import Data.Default (def)
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
@@ -177,6 +176,7 @@ import Pact.Types.Crypto
 import Pact.Types.Exp
 import Pact.Types.Gas
 import Pact.Types.Hash
+import Pact.Types.Info (noInfo)
 import Pact.Types.KeySet
 import qualified Pact.Types.Logger as P
 import Pact.Types.Names
@@ -449,7 +449,7 @@ mkXResumeEvent sender receiver amount ks mn mh tid sid
 
 -- | Cap smart constructor.
 mkCapability :: ModuleName -> Text -> [PactValue] -> SigCapability
-mkCapability mn cap args = SigCapability (QualifiedName mn cap def) args
+mkCapability mn cap args = SigCapability (QualifiedName mn cap noInfo) args
 
 -- | Convenience to make caps like TRANSFER, GAS etc.
 mkCoinCap :: Text -> [PactValue] -> SigCapability
@@ -631,7 +631,7 @@ testKeyPairs skp capsm = do
 -- Service creation utilities
 
 pactTestLogger :: (String -> IO ()) -> Bool -> P.Loggers
-pactTestLogger backend showAll = P.initLoggers backend f def
+pactTestLogger backend showAll = P.initLoggers backend f (P.LogRules mempty)
   where
     f :: (String -> IO ()) -> P.LogName -> String -> String -> IO ()
     f _ b "ERROR" d = P.doLog (\_ -> return ()) b "ERROR" d

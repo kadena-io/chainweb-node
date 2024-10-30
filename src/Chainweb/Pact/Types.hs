@@ -169,7 +169,6 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import Data.Aeson hiding (Error,(.=))
-import Data.Default (def)
 import Data.IORef
 import Data.LogMessage
 import Data.Set (Set)
@@ -189,6 +188,7 @@ import Pact.Types.ChainId (NetworkId)
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas
+import Pact.Types.Info (noInfo)
 import Pact.Types.Persistence (ExecutionMode, TxLogJson)
 import Pact.Types.Pretty (viaShow)
 import Pact.Types.Runtime (ExecutionConfig(..), PactWarning, PactError(..), PactErrorType(..))
@@ -698,7 +698,7 @@ pactLogLevel _ = Info
 -- | Create Pact Loggers that use the the chainweb logging system as backend.
 --
 pactLoggers :: Logger logger => logger -> P.Loggers
-pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
+pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun (P.LogRules mempty)
   where
     fun :: P.LoggerLogFun
     fun _ (P.LogName n) cat msg = do
@@ -767,5 +767,5 @@ catchesPactError logger exnPrinting action = catches (Right <$> action)
           CensorsUnexpectedError -> do
             liftIO $ logWarn_ logger ("catchesPactError: unknown error: " <> sshow e)
             return "unknown error"
-      return $ Left $ PactError EvalError def def err
+      return $ Left $ PactError EvalError noInfo [] err
   ]
