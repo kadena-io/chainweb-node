@@ -466,8 +466,6 @@ library
 library chainweb-test-utils
     import: warning-flags, debugging-flags
     default-language: Haskell2010
-    ghc-options:
-        -threaded
     hs-source-dirs: test/lib
     exposed-modules:
         Chainweb.Test.Cut
