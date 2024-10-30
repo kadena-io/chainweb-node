@@ -570,7 +570,7 @@ findNextPeer conf node = do
         --
         check (int sessionCount < _p2pConfigMaxSessionCount conf)
 
-        let addrs = S.fromList (_peerAddr <$> M.keys sessions)
+        let addrs = S.mapMonotonic _peerAddr (M.keysSet sessions)
 
             -- peerList and candidates are supposed to be lazy. With the
             -- transation we only check that the result is not empty, which
