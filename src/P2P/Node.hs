@@ -128,6 +128,7 @@ import P2P.Node.PeerDB
 import P2P.Node.RestAPI.Client
 import P2P.Peer
 import P2P.Session
+import Data.Proxy
 
 -- -------------------------------------------------------------------------- --
 -- P2pNodeStats
@@ -580,7 +581,7 @@ findNextPeer conf node = do
             -- transation we only check that the result is not empty, which
             -- is expected to be much cheaper than forcing the full list.
             --
-            peersList = IXS.toList peers
+            peersList = IXS.toAscList (Proxy @SuccessiveFailures) peers
             candidates = flip filter peersList $ \peer ->
                 let addr = _peerAddr (_peerEntryInfo peer)
                 in
