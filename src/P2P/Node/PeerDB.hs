@@ -194,11 +194,8 @@ hostAddressIdx = HostAddressIdx . xor pdNonce . hash
 {-# INLINE hostAddressIdx #-}
 
 type PeerEntryIxs =
-    '[ HostAddressIdx
-    , HostAddress
+    '[ HostAddress
         -- a primary index
-    , Maybe PeerId
-        -- unique index in the 'Just' values, but not in the 'Nothing' values
     , SuccessiveFailures
     , LastSuccess
     , NetworkId
@@ -207,9 +204,7 @@ type PeerEntryIxs =
 
 instance Indexable PeerEntryIxs PeerEntry where
     indices = ixList
-        (ixFun $ \e -> [hostAddressIdx $ _peerAddr $ _peerEntryInfo e])
         (ixFun $ \e -> [_peerAddr $ _peerEntryInfo e])
-        (ixFun $ \e -> [_peerId $ _peerEntryInfo e])
         (ixFun $ \e -> [_peerEntrySuccessiveFailures e])
         (ixFun $ \e -> [_peerEntryLastSuccess e])
         (ixFun $ \e -> F.toList (_peerEntryNetworkIds e))
@@ -466,4 +461,3 @@ somePeerDbVal (FromSingChainwebVersion (SChainwebVersion :: Sing v)) n db = f n
     f (FromSingNetworkId (SChainNetwork SChainId :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
     f (FromSingNetworkId (SMempoolNetwork SChainId :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
     f (FromSingNetworkId (SCutNetwork :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
-
