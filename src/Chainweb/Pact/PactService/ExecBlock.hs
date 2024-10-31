@@ -53,6 +53,7 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -560,86 +561,62 @@ validateHashes
     -> Either PactException PayloadWithOutputs
 validateHashes bHeader payload miner transactions =
     if newHash == prevHash
-      then Right pwo
+      then Right actualPwo
       else Left $ BlockValidationFailure $ BlockValidationFailureMsg $
         J.encodeJsonText $ J.object
             [ "header" J..= J.encodeWithAeson (ObjectEncoded bHeader)
             , "mismatch" J..= errorMsg "Payload hash" prevHash newHash
-            , "details" J..= details
+            , "details" J..= difference
             ]
   where
 
-    pwo = toPayloadWithOutputs miner transactions
+    actualPwo = toPayloadWithOutputs miner transactions
 
-    newHash = _payloadWithOutputsPayloadHash pwo
+    newHash = _payloadWithOutputsPayloadHash actualPwo
     prevHash = view blockPayloadHash bHeader
 
     -- The following JSON encodings are used in the BlockValidationFailure message
 
-    check :: Eq a => A.ToJSON a => T.Text -> [Maybe J.KeyValue] -> a -> a -> Maybe J.Builder
-    check desc extra expect actual
-        | expect == actual = Nothing
-        | otherwise = Just $ J.object
-            $ "mismatch" J..= errorMsg desc expect actual
-            : extra
-
-    errorMsg :: A.ToJSON a => T.Text -> a -> a -> J.Builder
+    errorMsg :: (A.ToJSON a) => T.Text -> a -> a -> J.Builder
     errorMsg desc expect actual = J.object
         [ "type" J..= J.text desc
         , "actual" J..= J.encodeWithAeson actual
         , "expected" J..= J.encodeWithAeson expect
         ]
 
-    details = case payload of
-        CheckablePayload pData -> J.Array $ catMaybes
-            [ check "Miner"
-                []
-                (view payloadDataMiner pData)
-                (_payloadWithOutputsMiner pwo)
-            , check "TransactionsHash"
-                [ "txs" J..?=
-                    (J.Array <$> traverse (uncurry $ check "Tx" []) (zip
-                      (toList $ fst <$> _payloadWithOutputsTransactions pwo)
-                      (toList $ view payloadDataTransactions pData)
-                    ))
-                ]
-                (view payloadDataTransactionsHash pData)
-                (_payloadWithOutputsTransactionsHash pwo)
-            , check "OutputsHash"
-                [ "outputs" J..= J.object
-                    [ "coinbase" J..= toPairCR (_transactionCoinbase transactions)
-                    , "txs" J..= J.array (addTxOuts <$> _transactionPairs transactions)
-                    ]
-                ]
-                (view payloadDataOutputsHash pData)
-                (_payloadWithOutputsOutputsHash pwo)
-            ]
-
-        CheckablePayloadWithOutputs localPwo -> J.Array $ catMaybes
-            [ check "Miner"
-                []
-                (_payloadWithOutputsMiner localPwo)
-                (_payloadWithOutputsMiner pwo)
-            , Just $ J.object
-              [ "transactions" J..= J.object
-                  [ "txs" J..?=
-                      (J.Array <$> traverse (uncurry $ check "Tx" []) (zip
-                        (toList $ _payloadWithOutputsTransactions pwo)
-                        (toList $ _payloadWithOutputsTransactions localPwo)
-                      ))
-                  , "coinbase" J..=
-                      check "Coinbase" []
-                        (_payloadWithOutputsCoinbase pwo)
-                        (_payloadWithOutputsCoinbase localPwo)
-                  ]
+    payloadDataToJSON pd = J.object
+      [ "miner" J..= J.encodeWithAeson (view payloadDataMiner pd)
+      , "txs" J..= J.array
+              -- only works because these are valid utf8, they may not be in future!
+              [ J.build $ T.decodeUtf8 $ _transactionBytes cmd
+              | cmd <- V.toList (view payloadDataTransactions pd)
               ]
-            ]
+      , "hash" J..= J.string (show (view payloadDataPayloadHash pd))
+      ]
 
-    addTxOuts :: (ChainwebTransaction, P.CommandResult [P.TxLogJson]) -> J.Builder
-    addTxOuts (tx,cr) = J.object
-        [ "tx" J..= fmap (fmap _pcCode . payloadObj) tx
-        , "result" J..= toPairCR cr
-        ]
+    payloadWithOutputsToJSON pwo = J.object
+      [ "miner" J..= J.encodeWithAeson (_payloadWithOutputsMiner pwo)
+      , "txs" J..= J.array
+              [ J.array
+                -- only works because these are valid utf8, they may not be in future!
+                [ J.build $ T.decodeUtf8 $ _transactionBytes cmd
+                , J.build $ T.decodeUtf8 $ _transactionOutputBytes cr
+                ]
+              | (cmd, cr) <- V.toList (_payloadWithOutputsTransactions pwo)
+              ]
+      , "hash" J..= J.string (show (_payloadWithOutputsPayloadHash pwo))
+      ]
 
-    toPairCR cr = over (P.crLogs . _Just)
-        (CRLogPair (fromJuste $ P._crLogs (toHashCommandResult cr))) cr
+    expectedJSON = case payload of
+      CheckablePayloadWithOutputs expected ->
+        payloadWithOutputsToJSON expected
+      CheckablePayload expected ->
+        payloadDataToJSON expected
+
+    actualJSON =
+      payloadWithOutputsToJSON actualPwo
+
+    difference = J.object
+      [ "expected" J..= expectedJSON
+      , "actual" J..= actualJSON
+      ]
