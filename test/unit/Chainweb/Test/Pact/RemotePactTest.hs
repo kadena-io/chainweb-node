@@ -47,7 +47,6 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Short as SB
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Word (Word64)
-import Data.Default (def)
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.List as L
@@ -76,6 +75,7 @@ import Pact.Types.Continuation
 import Pact.Types.Exp
 import Pact.Types.Gas
 import Pact.Types.Hash (Hash(..))
+import Pact.Types.Info (noInfo)
 import qualified Pact.Types.PactError as Pact
 import Pact.Types.PactValue
 import Pact.Types.Pretty
@@ -904,9 +904,9 @@ txTooBigGasTest t cenv step = do
   where
     sid = unsafeChainId 0
     gasError0 = Just $ Left $
-      Pact.PactError Pact.GasError def [] "Tx too big (4), limit 1"
+      Pact.PactError Pact.GasError noInfo [] "Tx too big (4), limit 1"
     gasError0Mem = Just $ Left $
-      Pact.PactError Pact.TxFailure def [] "Transaction is badlisted because it previously failed to validate."
+      Pact.PactError Pact.TxFailure noInfo [] "Transaction is badlisted because it previously failed to validate."
     gasError1 = "Gas limit (5) exceeded: 6"
     gasError1Mem = "Transaction is badlisted because it previously failed to validate."
 

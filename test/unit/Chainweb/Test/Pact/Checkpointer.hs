@@ -18,7 +18,6 @@ import Control.Monad (when, void)
 import Control.Monad.Reader
 
 import Data.Aeson (Value(..), object, (.=), Key)
-import Data.Default (def)
 import Data.Function
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
@@ -664,8 +663,21 @@ runExec cp pactdbenv eData eCode = do
   where
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
     cmdenv :: TransactionEnv logger (BlockEnv logger)
-    cmdenv = TransactionEnv Transactional pactdbenv (_cpLogger $ _cpReadCp cp) Nothing def
-             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing Nothing
+    cmdenv = TransactionEnv
+        { _txMode = Transactional
+        , _txDbEnv = pactdbenv
+        , _txLogger = _cpLogger (_cpReadCp cp)
+        , _txGasLogger = Nothing
+        , _txPublicData = noPublicData
+        , _txSpvSupport = noSPVSupport
+        , _txNetworkId = Nothing
+        , _txGasPrice = 0.0
+        , _txRequestKey = RequestKey h'
+        , _txGasLimit = 0
+        , _txExecutionConfig = emptyExecutionConfig
+        , _txQuirkGasFee = Nothing
+        , _txTxFailuresCounter = Nothing
+        }
     cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
 runCont :: Logger logger => Checkpointer logger -> ChainwebPactDbEnv logger -> PactId -> Int -> IO EvalResult
@@ -676,8 +688,21 @@ runCont cp pactdbenv pactId step = do
     contMsg = ContMsg pactId step False (toLegacyJson Null) Nothing
 
     h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-    cmdenv = TransactionEnv Transactional pactdbenv (_cpLogger $ _cpReadCp cp) Nothing def
-             noSPVSupport Nothing 0.0 (RequestKey h') 0 def Nothing Nothing
+    cmdenv = TransactionEnv
+        { _txMode = Transactional
+        , _txDbEnv = pactdbenv
+        , _txLogger = _cpLogger (_cpReadCp cp)
+        , _txGasLogger = Nothing
+        , _txPublicData = noPublicData
+        , _txSpvSupport = noSPVSupport
+        , _txNetworkId = Nothing
+        , _txGasPrice = 0.0
+        , _txRequestKey = RequestKey h'
+        , _txGasLimit = 0
+        , _txExecutionConfig = emptyExecutionConfig
+        , _txQuirkGasFee = Nothing
+        , _txTxFailuresCounter = Nothing
+        }
     cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
 -- -------------------------------------------------------------------------- --
@@ -765,10 +790,10 @@ nativeLookup (NativeDefName n) = case HM.lookup n nativeDefs of
     _ -> Nothing
 
 tIntList :: [Int] -> Term Name
-tIntList = toTList (TyPrim TyInteger) def . map toTerm
+tIntList = toTList (TyPrim TyInteger) noInfo . map toTerm
 
 tStringList :: [Text] -> Term Name
-tStringList = toTList (TyPrim TyString) def . map toTerm
+tStringList = toTList (TyPrim TyString) noInfo . map toTerm
 
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm

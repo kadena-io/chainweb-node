@@ -41,7 +41,6 @@ import Data.Aeson hiding (Object, (.=))
 import Data.Bifunctor
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64.URL as B64U
-import Data.Default (def)
 import qualified Data.Map.Strict as M
 import Data.Text (Text, pack)
 import qualified Data.Text as Text
@@ -297,7 +296,7 @@ verifyCont bdb bh (ContProof cp) = runExceptT $ do
 -- | Extract a 'TransactionOutputProof' from a generic pact object
 --
 extractProof :: Bool -> Object Name -> Either Text (TransactionOutputProof SHA512t_256)
-extractProof False o = toPactValue (TObject o def) >>= k
+extractProof False o = toPactValue (TObject o noInfo) >>= k
   where
     k = aeson (Left . pack) Right
       . fromJSON
@@ -344,10 +343,10 @@ ethResultToPactValue ReceiptProofValidation{..} = mkObject
     receipt Receipt{..} = obj
       [ ("cumulative-gas-used", tInt _receiptGasUsed)
       , ("status",toTerm $ _receiptStatus == TxStatus 1)
-      , ("logs",toTList TyAny def $ map rlog _receiptLogs)]
+      , ("logs",toTList TyAny noInfo $ map rlog _receiptLogs)]
     rlog LogEntry{..} = obj
       [ ("address",jsonStr _logEntryAddress)
-      , ("topics",toTList TyAny def $ map topic _logEntryTopics)
+      , ("topics",toTList TyAny noInfo $ map topic _logEntryTopics)
       , ("data",jsonStr _logEntryData)]
     topic t = jsonStr t
     header ch@EthHeader.ConsensusHeader{..} = obj
@@ -423,10 +422,10 @@ getTxIdx bdb pdb bh th = do
     sindex p s = S.zip (S.each [0..]) s & sfind (p . snd) & fmap (fmap fst)
 
 mkObject :: [(FieldKey, Term n)] -> Object n
-mkObject ps = Object (ObjectMap (M.fromList ps)) TyAny Nothing def
+mkObject ps = Object (ObjectMap (M.fromList ps)) TyAny Nothing noInfo
 
 obj :: [(FieldKey, Term n)] -> Term n
-obj = toTObject TyAny def
+obj = toTObject TyAny noInfo
 
 tInt :: Integral i => i -> Term Name
 tInt = toTerm . fromIntegral @_ @Integer
@@ -447,7 +446,7 @@ mkSPVResult CommandResult{..} j =
     , ("meta", maybe empty metaField _crMetaData)
     , ("logs", tStr $ asString _crLogs)
     , ("continuation", maybe empty contField _crContinuation)
-    , ("events", toTList TyAny def $ map eventField _crEvents)
+    , ("events", toTList TyAny noInfo $ map eventField _crEvents)
     ]
   where
     metaField v = case fromJSON v of
@@ -466,7 +465,7 @@ mkSPVResult CommandResult{..} j =
 
     contField1 PactContinuation {..} = obj
         [ ("name",tStr $ asString _pcDef)
-        , ("args",toTList TyAny def $ map fromPactValue _pcArgs)
+        , ("args",toTList TyAny noInfo $ map fromPactValue _pcArgs)
         ]
 
     yieldField Yield {..} = obj
@@ -481,7 +480,7 @@ mkSPVResult CommandResult{..} j =
 
     eventField PactEvent {..} = obj
         [ ("name", toTerm _eventName)
-        , ("params", toTList TyAny def (map fromPactValue _eventParams))
+        , ("params", toTList TyAny noInfo (map fromPactValue _eventParams))
         , ("module", tStr $ asString _eventModule)
         , ("module-hash", tStr $ asString _eventModuleHash)
         ]

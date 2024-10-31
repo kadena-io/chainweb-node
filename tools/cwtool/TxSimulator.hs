@@ -15,7 +15,6 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Crypto.Hash.Algorithms
 import Data.Aeson (decodeStrict')
-import Data.Default
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Data.Text as T
@@ -67,6 +66,7 @@ import Pact.Interpreter
 import Pact.Native
 import Pact.Runtime.Utils
 import Pact.Typechecker
+import Pact.Types.ChainMeta (noPublicMeta)
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.Info
@@ -75,7 +75,7 @@ import Pact.Types.Namespace
 import Pact.Types.Persistence
 import Pact.Types.Pretty
 import Pact.Types.RPC
-import Pact.Types.Runtime (runEval,keys,RefStore(..))
+import Pact.Types.Runtime (runEval,keys,RefStore(..), emptyExecutionConfig, emptyEvalState)
 import Pact.Types.SPV
 import Pact.Types.Term
 import Pact.Types.Typecheck
@@ -157,12 +157,12 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
       (_,True) -> do
         (throwIfNoHistory =<<) $ _cpReadFrom (_cpReadCp cp) (Just parent) $ \dbEnv -> do
           let refStore = RefStore nativeDefs
-              pd = ctxToPublicData $ TxContext parent def
-              loadMod = fmap inlineModuleData . getModule (def :: Info)
+              pd = ctxToPublicData $ TxContext parent noPublicMeta
+              loadMod = fmap inlineModuleData . getModule noInfo
           ee <- setupEvalEnv (_cpPactDbEnv dbEnv) Nothing Local (initMsgData pactInitialHash) refStore freeGasEnv
-              permissiveNamespacePolicy noSPVSupport pd def
-          void $ runEval def ee $ do
-            mods <- keys def Modules
+              permissiveNamespacePolicy noSPVSupport pd emptyExecutionConfig
+          void $ runEval emptyEvalState ee $ do
+            mods <- keys noInfo Modules
             coin <- loadMod "coin"
             let dynEnv = M.singleton "fungible-v2" coin
             forM mods $ \mn -> do
@@ -270,7 +270,7 @@ setupClient :: SimConfig -> IO ClientEnv
 setupClient sc = flip mkClientEnv (scApiHostUrl sc) <$> newTlsManagerWith mgrSettings
   where
     mgrSettings = mkManagerSettings
-        (TLSSettingsSimple True False False def)
+        (TLSSettingsSimple True False False defaultSupportedTlsSettings)
         Nothing
 
 -- | note, fetches [low - 1, hi] to have parent headers

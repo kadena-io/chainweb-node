@@ -29,7 +29,6 @@ import Data.Foldable (for_, traverse_)
 import Data.Function (on)
 import Data.List (intercalate)
 import Data.Text (Text,isInfixOf,unpack)
-import Data.Default
 import qualified System.LogLevel as L
 
 -- internal pact modules
@@ -255,14 +254,14 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
   where
     doCoinbaseExploit pdb mc height localCmd precompile testResult = do
-      let ctx = TxContext (mkTestParentHeader $ height - 1) def
+      let ctx = TxContext (mkTestParentHeader $ height - 1) noPublicMeta
 
       void $ applyCoinbase Mainnet01 logger pdb miner 0.1 ctx
         (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled precompile) mc
 
       let h = H.toUntypedHash (H.hash "" :: H.PactHash)
-          tenv = TransactionEnv Transactional pdb logger Nothing def
-            noSPVSupport Nothing 0.0 (RequestKey h) 0 def Nothing Nothing
+          tenv = TransactionEnv Transactional pdb logger Nothing noPublicData
+            noSPVSupport Nothing 0.0 (RequestKey h) 0 emptyExecutionConfig Nothing Nothing
           txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
 
       CommandResult _ _ (PactResult pr) _ _ _ _ _ <- evalTransactionM tenv txst $!
@@ -289,7 +288,7 @@ testCoinbaseEnforceFailure = do
     (pdb,mc) <- loadCC coinReplV4
     r <- tryAllSynchronous $
       applyCoinbase toyVersion logger pdb badMiner 0.1
-        (TxContext someParentHeader def)
+        (TxContext someParentHeader noPublicMeta)
         (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left e ->
@@ -364,7 +363,7 @@ testUpgradeScript
     -> IO ()
 testUpgradeScript script cid bh test = do
     (pdb, mc) <- loadScript script
-    r <- tryAllSynchronous $ applyCoinbase v logger pdb noMiner 0.1 (TxContext parent def)
+    r <- tryAllSynchronous $ applyCoinbase v logger pdb noMiner 0.1 (TxContext parent noPublicMeta)
         (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left e -> assertFailure $ "tx execution failed: " ++ show e

@@ -156,6 +156,7 @@ library
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.Internal
         , Chainweb.BlockHeaderDB.PruneForks
+        , Chainweb.BlockHeaderDB.RemoteDB
         , Chainweb.BlockHeaderDB.RestAPI
         , Chainweb.BlockHeaderDB.RestAPI.Client
         , Chainweb.BlockHeaderDB.RestAPI.Server
@@ -243,7 +244,6 @@ library
         , Chainweb.Time
         , Chainweb.Transaction
         , Chainweb.TreeDB
-        , Chainweb.TreeDB.RemoteDB
         , Chainweb.Utils
         , Chainweb.Utils.Paging
         , Chainweb.Utils.RequestLog
@@ -344,7 +344,6 @@ library
         , Chainweb.Pact.Validations
 
         -- utils
-        , Servant.Client_
         , Utils.Logging
         , Utils.Logging.Config
         , Utils.Logging.Trace
@@ -373,7 +372,7 @@ library
         , crypton-x509-system >=1.6
         , crypton-x509-validation >=1.6
         , cuckoo >= 0.3
-        , data-default >=0.7
+        , data-default-class >=0.1.2.2
         , data-dword >= 0.3
         , deepseq >= 1.4
         , digraph >= 0.2.3
@@ -423,7 +422,6 @@ library
         , semigroupoids >= 5.3.7
         , servant >= 0.20.1
         , servant-client >= 0.20
-        , servant-client-core >= 0.20
         , servant-server >= 0.20
         , stm >= 2.4
         , stopwatch >= 0.1
@@ -465,26 +463,138 @@ library
 -- Chainweb Test suite
 -- -------------------------------------------------------------------------- --
 
+library chainweb-test-utils
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    hs-source-dirs: test/lib
+    exposed-modules:
+        Chainweb.Test.Cut
+        Chainweb.Test.Cut.TestBlockDb
+        Chainweb.Test.HostAddress
+        Chainweb.Test.MultiNode
+        Chainweb.Test.P2P.Peer.BootstrapConfig
+        Chainweb.Test.Pact.Utils
+        Chainweb.Test.Pact.VerifierPluginTest.Transaction
+        Chainweb.Test.Pact.VerifierPluginTest.Transaction.Message.After225
+        Chainweb.Test.Pact.VerifierPluginTest.Transaction.Message.Before225
+        Chainweb.Test.Pact.VerifierPluginTest.Transaction.Utils
+        Chainweb.Test.Pact.VerifierPluginTest.Unit
+        Chainweb.Test.RestAPI.Client_
+        Chainweb.Test.RestAPI.Utils
+        Chainweb.Test.TestVersions
+        Chainweb.Test.Utils
+        Chainweb.Test.Utils.APIValidation
+        Chainweb.Test.Utils.BlockHeader
+        Chainweb.Test.Utils.TestHeader
+
+        -- Orphan Modules
+        Chainweb.Test.Orphans.Internal
+        Chainweb.Test.Orphans.Pact
+        Chainweb.Test.Orphans.Time
+        P2P.Test.Orphans
+
+        -- other
+        Servant.Client_
+
+    build-depends:
+        -- internal
+        , chainweb
+
+        -- external
+        , Decimal >= 0.4.2
+        , QuickCheck >= 2.14
+        , aeson >= 2.2
+        , async >= 2.2
+        , base >= 4.12 && < 5
+        , base16-bytestring >= 0.1
+        , bytestring >= 0.10.12
+        , case-insensitive >= 1.2
+        , chainweb-storage >= 0.1
+        , chronos >= 1.1
+        , crypton-connection >=0.4
+        , containers >= 0.5
+        , crypton >= 0.31
+        , data-dword >= 0.3
+        , deepseq >= 1.4
+        , direct-sqlite >= 2.3.27
+        , directory >= 1.2
+        , exceptions
+        , filepath >= 1.4
+        , http-client >= 0.5
+        , http-types >= 0.12
+        , lens >= 4.17
+        , loglevel >= 0.1
+        , merkle-log >=0.2
+        , mtl >= 2.3
+        , network >= 3.1.2
+        , patience >= 0.3
+        , http-client-tls >=0.3
+        , pact
+        , pact-json >= 0.1
+        , pact-time:numeric >=0.3.0.1
+        , quickcheck-instances >= 0.3
+        , random >= 1.2
+        , resourcet >= 1.3
+        , retry >= 0.7
+        , rocksdb-haskell-kadena >= 1.1.0
+        , rosetta >= 1.0
+        , servant >= 0.20.1
+        , servant-client >= 0.18.2
+        , servant-client-core >= 0.20
+        , stm
+        , streaming >= 0.2.2
+        , streaming-commons >= 0.2
+        , tasty >= 1.0
+        , tasty-golden >= 2.3
+        , tasty-hunit >= 0.9
+        , tasty-quickcheck >= 0.9
+        , temporary >= 1.3
+        , text >=2.0
+        , unliftio >= 0.2.25
+        , unordered-containers >= 0.2.20
+        , vector >= 0.12.2
+        , wai >= 3.2
+        , wai-middleware-validation
+        , pretty-show
+        , warp >= 3.3.5
+        , warp-tls >= 3.2.9
+        , yaml >= 0.11
+        , yet-another-logger >= 0.4.1
+
+    if flag(ed25519)
+        cpp-options: -DWITH_ED25519=1
+
+-- Chainweb Unit tests
+--
+-- Tests in this test-suite
+--
+-- - must execute quickly
+-- - must not depend on remote resources
+-- - must run in parallel with other tests
+-- - should ideally be focused on a well-defined function or feature
+--
+-- Tests should be grouped into test modules that expose sub-test-suites via a
+-- a top-level function 'tests :: TestTree' or 'test :: RocksDb -> TestTree'
+--
+-- Tests should avoid initializing a new RocksDb. Instead they should create a
+-- temporary RocksDB as overlay of the provided RocksDb resource.
+--
 test-suite chainweb-tests
     import: warning-flags, debugging-flags
     default-language: Haskell2010
     ghc-options:
         -threaded
-        -with-rtsopts=-N4
     type: exitcode-stdio-1.0
-    hs-source-dirs: test
+    hs-source-dirs: test/unit
     main-is: ChainwebTests.hs
+
     other-modules:
         Chainweb.Test.BlockHeader.Genesis
         Chainweb.Test.BlockHeader.Validation
         Chainweb.Test.BlockHeaderDB
         Chainweb.Test.BlockHeaderDB.PruneForks
-        Chainweb.Test.Chainweb.Utils.Paging
-        Chainweb.Test.Cut
-        Chainweb.Test.Cut.TestBlockDb
         Chainweb.Test.CutDB
         Chainweb.Test.Difficulty
-        Chainweb.Test.HostAddress
         Chainweb.Test.Mempool
         Chainweb.Test.Mempool.Consensus
         Chainweb.Test.Mempool.InMem
@@ -492,49 +602,33 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.Sync
         Chainweb.Test.Mining
         Chainweb.Test.Misc
-        Chainweb.Test.Orphans.Internal
-        Chainweb.Test.Orphans.Pact
-        Chainweb.Test.Orphans.Time
-        Chainweb.Test.Pact.GrandHash
-        Chainweb.Test.Pact.PactMultiChainTest
-        Chainweb.Test.Pact.VerifierPluginTest
-        Chainweb.Test.Pact.VerifierPluginTest.Transaction
-        Chainweb.Test.Pact.VerifierPluginTest.Transaction.Message.After225
-        Chainweb.Test.Pact.VerifierPluginTest.Transaction.Message.Before225
-        Chainweb.Test.Pact.VerifierPluginTest.Transaction.Utils
-        Chainweb.Test.Pact.VerifierPluginTest.Unit
-        Chainweb.Test.Pact.PactSingleChainTest
-        Chainweb.Test.P2P.Peer.BootstrapConfig
-        Chainweb.Test.Pact.DbCacheTest
         Chainweb.Test.Pact.Checkpointer
+        Chainweb.Test.Pact.DbCacheTest
+        Chainweb.Test.Pact.GrandHash
         Chainweb.Test.Pact.ModuleCacheOnRestart
         Chainweb.Test.Pact.NoCoinbase
-        Chainweb.Test.Pact.RewardsTest
         Chainweb.Test.Pact.PactExec
+        Chainweb.Test.Pact.PactMultiChainTest
         Chainweb.Test.Pact.PactReplay
+        Chainweb.Test.Pact.PactSingleChainTest
         Chainweb.Test.Pact.RemotePactTest
+        Chainweb.Test.Pact.RewardsTest
         Chainweb.Test.Pact.SPV
-        Chainweb.Test.Pact.TransactionTests
-        Chainweb.Test.Pact.TTL
         Chainweb.Test.Pact.SQLite
-        Chainweb.Test.Pact.Utils
+        Chainweb.Test.Pact.TTL
+        Chainweb.Test.Pact.TransactionTests
+        Chainweb.Test.Pact.VerifierPluginTest
         Chainweb.Test.RestAPI
-        Chainweb.Test.RestAPI.Client_
-        Chainweb.Test.RestAPI.Utils
         Chainweb.Test.Rosetta
         Chainweb.Test.Rosetta.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
         Chainweb.Test.SPV.EventProof
         Chainweb.Test.Sync.WebBlockHeaderStore
-        Chainweb.Test.TestVersions
         Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.RemoteDB
-        Chainweb.Test.Utils
-        Chainweb.Test.Utils.APIValidation
         Chainweb.Test.Version
-        Chainweb.Test.Utils.BlockHeader
-        Chainweb.Test.Utils.TestHeader
+        Chainweb.Test.Chainweb.Utils.Paging
 
         -- Data
         Data.Test.PQueue
@@ -542,12 +636,12 @@ test-suite chainweb-tests
 
         -- P2P
         P2P.Test.Node
-        P2P.Test.Orphans
         P2P.Test.TaskQueue
 
     build-depends:
         -- internal
         , chainweb
+        , chainweb:chainweb-test-utils
 
         -- external
         , Decimal >= 0.4.2
@@ -561,21 +655,18 @@ test-suite chainweb-tests
         , bytesmith >= 0.3.10
             -- due to change in error message that is inlined in pact
         , bytestring >= 0.10.12
-        , case-insensitive >= 1.2
         , chainweb-storage >= 0.1
-        , crypton-connection >=0.4
         , containers >= 0.5
         , crypton >= 0.31
-        , data-default >=0.7
         , data-dword >= 0.3
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
         , direct-sqlite >= 2.3.27
-        , directory >= 1.2
         , ethereum
         , exceptions
         , ghc-compact >= 0.1
         , hashable >= 1.3
+        , hashes >=0.2.2.0
         , http-client >= 0.5
         , http-types >= 0.12
         , lens >= 4.17
@@ -584,54 +675,124 @@ test-suite chainweb-tests
         , memory >=0.14
         , merkle-log >=0.2
         , mtl >= 2.3
-        , network >= 3.1.2
-        , patience >= 0.3
-        , http-client-tls >=0.3
         , pact
         , pact-json >= 0.1
         , pact-time:numeric >=0.3.0.1
+        , patience >= 0.3
         , quickcheck-instances >= 0.3
         , random >= 1.2
         , resource-pool >= 0.4
         , resourcet >= 1.3
-        , retry >= 0.7
-        , rocksdb-haskell-kadena >= 1.1.0
         , rosetta >= 1.0
         , scheduler >= 1.4
-        , servant >= 0.20.1
         , servant-client >= 0.18.2
+        , sha-validation >=0.1
         , statistics >= 0.15
         , stm
         , streaming >= 0.2.2
-        , streaming-commons >= 0.2
         , strict-concurrency >= 0.2
         , tasty >= 1.0
-        , tasty-golden >= 2.3
-        , tasty-json >= 0.1
         , tasty-hunit >= 0.9
+        , tasty-json >= 0.1
         , tasty-quickcheck >= 0.9
-        , temporary >= 1.3
         , text >=2.0
         , time >= 1.12.2
         , transformers >= 0.5
-        , unliftio >= 0.2.25
         , unordered-containers >= 0.2.20
         , vector >= 0.12.2
         , wai >= 3.2
-        , wai-middleware-validation
-        , pretty-show
+        , yaml >= 0.11
+
+    if flag(ed25519)
+        cpp-options: -DWITH_ED25519=1
+
+test-suite compaction-tests
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    type: exitcode-stdio-1.0
+    ghc-options:
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N -H1G -A64M"
+    hs-source-dirs: test/compaction
+    main-is: CompactionTests.hs
+    build-depends:
+        -- internal
+        , chainweb
+        , chainweb:chainweb-test-utils
+
+        -- external
+        , base >= 4.12 && < 5
+        , chainweb-storage >= 0.1
+        , loglevel >= 0.1
+        , tasty >= 1.0
+        , tasty-hunit >= 0.9
+        , temporary >= 1.3
+
+    if flag(ed25519)
+        cpp-options: -DWITH_ED25519=1
+
+test-suite multi-node-network-tests
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    type: exitcode-stdio-1.0
+    ghc-options:
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N -H1G -A64M"
+    hs-source-dirs: test/multinode
+    main-is: MultiNodeNetworkTests.hs
+    build-depends:
+        -- internal
+        , chainweb
+        , chainweb:chainweb-test-utils
+
+        -- external
+        , base >= 4.12 && < 5
+        , chainweb-storage >= 0.1
+        , loglevel >= 0.1
+        , tasty >= 1.0
+        , tasty-hunit >= 0.9
+        , temporary >= 1.3
+
+    if flag(ed25519)
+        cpp-options: -DWITH_ED25519=1
+
+test-suite remote-tests
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    type: exitcode-stdio-1.0
+    ghc-options:
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N -H1G -A64M"
+    hs-source-dirs: test/remote
+    main-is: RemoteTests.hs
+    other-modules:
+        Network.X509.SelfSigned.Test
+    build-depends:
+        -- internal
+        , chainweb
+        , chainweb:chainweb-test-utils
+
+        -- external
+        , async >= 2.2
+        , base >= 4.12 && < 5
+        , bytestring >= 0.10.12
+        , http-client >= 0.5
+        , http-types >= 0.12
+        , network >= 3.1.2
+        , tasty >= 1.0
+        , tasty-hunit >= 0.9
+        , wai >= 3.2
         , warp >= 3.3.5
         , warp-tls >= 3.2.9
-        , yaml >= 0.11
-        , yet-another-logger >= 0.4.1
-        , sha-validation >=0.1
-        , hashes >=0.2.2.0
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
 
 -- -------------------------------------------------------------------------- --
--- Applications
+-- Misc Applications
 -- -------------------------------------------------------------------------- --
 
 executable cwtool
@@ -652,24 +813,9 @@ executable cwtool
         tools/db-checksum
         tools/known-graphs
         tools/calculate-release
-        node
-        test
     main-is: CwTool.hs
     other-modules:
         Allocations
-        Chainweb.Test.Cut
-        Chainweb.Test.Cut.TestBlockDb
-        Chainweb.Test.HostAddress
-        Chainweb.Test.MultiNode
-        Chainweb.Test.Orphans.Internal
-        Chainweb.Test.Orphans.Pact
-        Chainweb.Test.Orphans.Time
-        Chainweb.Test.P2P.Peer.BootstrapConfig
-        Chainweb.Test.Pact.Utils
-        Chainweb.Test.TestVersions
-        Chainweb.Test.Utils
-        Chainweb.Test.Utils.APIValidation
-        Chainweb.Test.Utils.BlockHeader
         CheckpointerDBChecksum
         Ea
         Ea.Genesis
@@ -677,10 +823,7 @@ executable cwtool
         GenConf
         HeaderDump
         KnownGraphs
-        Network.X509.SelfSigned.Test
-        P2P.Test.Orphans
         RunNodes
-        SlowTests
         TxStream
         TxSimulator
         CalculateRelease
@@ -688,77 +831,49 @@ executable cwtool
     build-depends:
         -- internal
         , chainweb
+        , chainweb:chainweb-test-utils
 
         -- external
-        , QuickCheck >= 2.14
         , aeson >= 2.2
         , aeson-pretty >= 0.8
-        , lens-aeson >= 1.2.2
         , async >= 2.2
         , base >= 4.12 && < 5
-        , base16-bytestring >= 0.1
         , bytestring >= 0.10.12
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
         , cereal >= 0.5
         , chainweb-storage >= 0.1
-        , chronos >= 1.1
         , configuration-tools >= 0.6
-        , crypton-connection >=0.4
         , containers >= 0.5
         , crypton >= 0.31
-        , data-default >=0.7
-        , Decimal >= 0.5.2
-        , deepseq >= 1.4
+        , crypton-connection >=0.4
         , digraph >= 0.2.3
         , direct-sqlite >= 2.3.27
         , directory >= 1.3
-        , file-embed
-        , filepath >= 1.4
         , exceptions >= 0.8
         , file-embed >= 0.0
         , http-client >= 0.5
         , http-client-tls >=0.3
-        , http-types >= 0.12
         , lens >= 4.17
+        , lens-aeson >= 1.2.2
         , loglevel >= 0.1
         , memory >=0.14
-        , merkle-log >=0.2
         , mtl >= 2.3
-        , network >= 3.1.2
         , optparse-applicative >= 0.14
         , pact
         , pact-json
-        , pact-time:numeric >=0.3.0.1
-        , patience >= 0.3
         , process >= 1.5
-        , quickcheck-instances >= 0.3
-        , random >= 1.2
-        , resourcet >= 1.3
-        , retry >= 0.9
-        , wreq >= 0.5
         , rocksdb-haskell-kadena >= 1.1.0
         , safe-exceptions >= 0.1
         , servant-client >= 0.18.2
         , servant-client-core >= 0.18.2
-        , stm >= 2.4
         , streaming >= 0.2.2
-        , streaming-commons >= 0.2
-        , tasty >= 1.0
-        , tasty-golden >= 2.3
-        , tasty-hunit >= 0.9
-        , tasty-quickcheck >= 0.9
         , temporary >= 1.3
-        , time >= 1.9
         , text >= 2.0
-        , unliftio >= 0.2.25
-        , unordered-containers >= 0.2.20
+        , time >= 1.12.2
+        , unordered-containers >= 0.2.16
         , vector >= 0.12.2
-        , wai >= 3.2
-        , wai-middleware-validation
-        , pretty-show
-        , warp >= 3.3.5
-        , warp-tls >= 3.2.9
+        , wreq >= 0.5
         , yaml >= 0.8
         , yet-another-logger >= 0.4.1
 
@@ -772,8 +887,7 @@ executable compact
         -threaded
         -rtsopts
         "-with-rtsopts=-N -A4M --disable-delayed-os-memory-return -qn1"
-    hs-source-dirs:
-        compact
+    hs-source-dirs: compact
     main-is: Main.hs
     build-depends:
         -- internal
@@ -789,8 +903,7 @@ executable pact-diff
         -threaded
         -rtsopts
         "-with-rtsopts=-N -A4M --disable-delayed-os-memory-return -qn1"
-    hs-source-dirs:
-        pact-diff
+    hs-source-dirs: pact-diff
     main-is: Main.hs
     build-depends:
         -- internal
@@ -799,6 +912,10 @@ executable pact-diff
         -- external
         , base >= 4.12 && < 5
 
+-- -------------------------------------------------------------------------- --
+-- Benchmarks
+-- -------------------------------------------------------------------------- --
+
 benchmark bench
     import: warning-flags, debugging-flags
     default-language: Haskell2010
@@ -806,7 +923,7 @@ benchmark bench
         -threaded
         -rtsopts
         -with-rtsopts=-N
-    hs-source-dirs: bench, test
+    hs-source-dirs: bench
     main-is: Bench.hs
     type: exitcode-stdio-1.0
     other-modules:
@@ -815,22 +932,18 @@ benchmark bench
         Chainweb.Utils.Bench
         JSONEncoding
 
-        -- From test
-        Chainweb.Test.HostAddress
-        Chainweb.Test.Orphans.Internal
-        Chainweb.Test.Orphans.Pact
-        Chainweb.Test.Orphans.Time
-        Chainweb.Test.TestVersions
-        P2P.Test.Orphans
-
     build-depends:
+        -- internal
+        , chainweb
+        , chainweb:chainweb-test-utils
+
+        -- external
         , Decimal >= 0.4.2
+        , QuickCheck >= 2.14
         , aeson >= 2.2
         , async >= 2.2
         , base >= 4.12 && < 5
         , bytestring >= 0.10.12
-        , case-insensitive >= 1.2
-        , chainweb
         , chainweb-storage >= 0.1
         , containers >= 0.5
         , criterion
@@ -839,7 +952,6 @@ benchmark bench
         , file-embed >= 0.0
         , lens >= 4.17
         , loglevel >= 0.1
-        , merkle-log >=0.2
         , mtl >= 2.3
         , pact
         , random >= 1.2
@@ -847,12 +959,3 @@ benchmark bench
         , text >= 2.0
         , vector >= 0.12.2
         , yaml >= 0.11
-
-        -- from test
-        , QuickCheck >= 2.14
-        , crypton >= 0.31
-        , quickcheck-instances >= 0.3
-        , streaming-commons >= 0.2
-        , unordered-containers >= 0.2.20
-        , yet-another-logger >= 0.4.1
-        , pact-json >= 0.1

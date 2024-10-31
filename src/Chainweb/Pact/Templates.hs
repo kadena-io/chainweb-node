@@ -24,7 +24,6 @@ module Chainweb.Pact.Templates
 
 
 import Control.Lens
-import Data.Default (def)
 import Data.Text (Text, pack)
 
 import Text.Trifecta.Delta (Delta(..))
@@ -102,7 +101,7 @@ redeemGasTemplate =
   )
 
 dummyParsedCode :: ParsedCode
-dummyParsedCode = ParsedCode "1" [ELiteral $ LiteralExp (LInteger 1) def]
+dummyParsedCode = ParsedCode "1" [ELiteral $ LiteralExp (LInteger 1) (Parsed mempty 0)]
 {-# NOINLINE dummyParsedCode #-}
 
 

@@ -7,7 +7,7 @@
 {-# LANGUAGE TypeOperators #-}
 
 -- |
--- Module: Chainweb.TreeDB.RemoteDB
+-- Module: Chainweb.BlockHeaderDB.RemoteDB
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
 -- Maintainer: Colin Woodbury <colin@kadena.io>
@@ -16,7 +16,7 @@
 -- A `TreeDb`-compatible interface to remote `BlockHeader` databases.
 --
 
-module Chainweb.TreeDB.RemoteDB
+module Chainweb.BlockHeaderDB.RemoteDB
   ( RemoteDb(..)
   , remoteDb
   ) where
