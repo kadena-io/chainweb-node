@@ -7,6 +7,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -43,7 +44,9 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import qualified Data.Aeson as A
+import qualified Data.Aeson.Encode.Pretty as A
 import qualified Data.ByteString.Short as SB
+import qualified Data.ByteString.Lazy as BL
 import Data.Decimal
 import Data.List qualified as List
 import Data.Either
@@ -137,6 +140,8 @@ execBlock currHeader payload = do
     !results <- go miner trans >>= throwCommandInvalidError
 
     let !totalGasUsed = sumOf (folded . to P._crGas) results
+
+    liftPactServiceM $ logError $ sshow $ V.map (\(tx, r) -> (P._cmdHash tx, length (P._crLogs r))) $ _transactionPairs results
 
     pwo <- either throwM return $
       validateHashes currHeader payload miner results
@@ -563,12 +568,15 @@ validateHashes bHeader payload miner transactions =
     if newHash == prevHash
       then Right actualPwo
       else Left $ BlockValidationFailure $ BlockValidationFailureMsg $
-        J.encodeJsonText $ J.object
+        prettyJson $ J.encodeText $ J.object
             [ "header" J..= J.encodeWithAeson (ObjectEncoded bHeader)
             , "mismatch" J..= errorMsg "Payload hash" prevHash newHash
             , "details" J..= difference
             ]
   where
+    prettyJson txt = case A.eitherDecodeStrict @A.Value (T.encodeUtf8 txt) of
+      Right obj -> T.cons '\n' $ T.decodeUtf8 $ BL.toStrict $ A.encodePretty obj
+      Left err -> error $ "validateHashes: impossible JSON decode failure: " <> show err
 
     actualPwo = toPayloadWithOutputs miner transactions
 
@@ -576,6 +584,16 @@ validateHashes bHeader payload miner transactions =
     prevHash = view blockPayloadHash bHeader
 
     -- The following JSON encodings are used in the BlockValidationFailure message
+
+    transactionBytesToCommand :: Chainweb.Payload.Transaction -> P.Command T.Text
+    transactionBytesToCommand txBytes = case A.decodeStrict' (_transactionBytes txBytes) of
+      Just cmd -> cmd
+      Nothing -> error $ "validateHashes.transactionBytesToCommand: Failed to decode transaction bytes as Command Text"
+
+    transactionOutputsToCommandResult :: Chainweb.Payload.TransactionOutput -> P.CommandResult A.Value
+    transactionOutputsToCommandResult txOuts = case A.decodeStrict' (_transactionOutputBytes txOuts) of
+      Just cmdRes -> cmdRes
+      Nothing -> error $ "validateHashes.transactionOutputsToJson: Failed to decode transaction output bytes as CommandResult Text"
 
     errorMsg :: (A.ToJSON a) => T.Text -> a -> a -> J.Builder
     errorMsg desc expect actual = J.object
@@ -587,23 +605,25 @@ validateHashes bHeader payload miner transactions =
     payloadDataToJSON pd = J.object
       [ "miner" J..= J.encodeWithAeson (view payloadDataMiner pd)
       , "txs" J..= J.array
+            [ J.array
               -- only works because these are valid utf8, they may not be in future!
-              [ J.build $ T.decodeUtf8 $ _transactionBytes cmd
-              | cmd <- V.toList (view payloadDataTransactions pd)
-              ]
+                [ J.build $ transactionBytesToCommand cmd
+                | cmd <- V.toList (view payloadDataTransactions pd)
+                ]
+            ]
       , "hash" J..= J.string (show (view payloadDataPayloadHash pd))
       ]
 
     payloadWithOutputsToJSON pwo = J.object
       [ "miner" J..= J.encodeWithAeson (_payloadWithOutputsMiner pwo)
       , "txs" J..= J.array
-              [ J.array
-                -- only works because these are valid utf8, they may not be in future!
-                [ J.build $ T.decodeUtf8 $ _transactionBytes cmd
-                , J.build $ T.decodeUtf8 $ _transactionOutputBytes cr
-                ]
-              | (cmd, cr) <- V.toList (_payloadWithOutputsTransactions pwo)
+            [ J.array
+              -- only works because these are valid utf8, they may not be in future!
+              [ J.build $ transactionBytesToCommand cmd
+              , J.build $ transactionOutputsToCommandResult cr
               ]
+            | (cmd, cr) <- V.toList (_payloadWithOutputsTransactions pwo)
+            ]
       , "hash" J..= J.string (show (_payloadWithOutputsPayloadHash pwo))
       ]
 
