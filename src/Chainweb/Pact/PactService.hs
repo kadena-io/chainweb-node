@@ -812,7 +812,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
             let
                 printValidationError (BlockValidationFailure (BlockValidationFailureMsg m)) = do
                     writeIORef validationFailedRef True
-                    logFunctionText logger Error (J.getJsonText m)
+                    logFunctionText logger Error m
                 printValidationError e = throwM e
                 handleMissingBlock NoHistory = throwM $ BlockHeaderLookupFailure $
                   "execReadOnlyReplay: missing block: " <> sshow bh
@@ -831,8 +831,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
             )
         validationFailed <- readIORef validationFailedRef
         when validationFailed $
-            throwM $ BlockValidationFailure $ BlockValidationFailureMsg $
-              J.encodeJsonText ("Prior block validation errors" :: Text)
+            throwM $ BlockValidationFailure $ BlockValidationFailureMsg "Prior block validation errors"
         return r
 
     heightProgress :: BlockHeight -> BlockHeight -> IORef BlockHeight -> (Text -> IO ()) -> IO ()
