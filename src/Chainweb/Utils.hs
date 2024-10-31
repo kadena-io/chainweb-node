@@ -223,6 +223,9 @@ module Chainweb.Utils
 , estimateBlockHeight
 , parseUtcTime
 
+-- * General utilities
+, unsafeHead
+, unsafeTail
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
@@ -1327,9 +1330,10 @@ _T3 = iso (\(T3 a b c) -> (a,b,c)) (\(a,b,c) -> T3 a b c)
 -- Approximate thread delays
 approximately :: Integral a => a -> Prob.GenIO -> IO a
 approximately k gen = max 0 <$!> sample
-  where
-    sample = (round . (/ 256.0) . head) <$!>
-             Prob.samples 1 (Prob.normal mean sdev) gen
+    where
+    sample = do
+        samples <- Prob.samples 1 (Prob.normal mean sdev) gen
+        return $! round $ unsafeHead "Chainweb.Utils.approximately: empty samples" samples / 256.0
     mean   = fromIntegral $ k * 256
     sdev   = mean / 6
 
@@ -1481,3 +1485,13 @@ matchOrDisplayException display anyException
     = display specificException
     | otherwise
     = T.pack $ displayException anyException
+
+unsafeHead :: HasCallStack => String -> [a] -> a
+unsafeHead msg = \case
+    x : _ -> x
+    [] -> error $ "unsafeHead: empty list: " <> msg
+
+unsafeTail :: HasCallStack => String -> [a] -> [a]
+unsafeTail msg = \case
+    _ : xs -> xs
+    [] -> error $ "unsafeTail: empty list: " <> msg

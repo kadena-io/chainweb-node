@@ -345,7 +345,7 @@ listenHandler logger cdb cid pact mem (ListenerRequest key) = do
           hm <- internalPoll pdb bdb mem pact Nothing (pure key)
           if HM.null hm
           then go bh
-          else pure $! ListenResponse $ snd $ head $ HM.toList hm
+          else pure $! ListenResponse $ snd $ unsafeHead "Chainweb.Pact.RestAPI.Server.listenHandler.poll" $ HM.toList hm
 
         waitForNewBlock :: BlockHeader -> IO (Maybe BlockHeader)
         waitForNewBlock lastBlockHeader = atomically $ do
