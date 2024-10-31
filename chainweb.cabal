@@ -372,7 +372,7 @@ library
         , crypton-x509-system >=1.6
         , crypton-x509-validation >=1.6
         , cuckoo >= 0.3
-        , data-default-class >=0.1.2.2
+        , data-default-class >=0.1.2
         , data-dword >= 0.3
         , deepseq >= 1.4
         , digraph >= 0.2.3
