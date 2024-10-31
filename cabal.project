@@ -206,10 +206,11 @@ allow-newer: base-compat-batteries:*
 allow-newer: webauthn:*
 
 -- many packages use an spurious <1.5 upper bound on hashable
-allow-newer: *:hashable
+-- allow-newer: *:hashable
 
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
 
 -- remove when crypton-connection >0.4.1 got released
 constraints: http-client-tls <0.3.6.4
+constraints: hashable < 1.4.5
