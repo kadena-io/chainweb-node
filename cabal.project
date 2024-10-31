@@ -210,3 +210,6 @@ allow-newer: *:hashable
 
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
+
+-- remove when crypton-connection >0.4.1 got released
+constraints: http-client-tls <0.3.6.4
