@@ -141,7 +141,14 @@ execBlock currHeader payload = do
 
     let !totalGasUsed = sumOf (folded . to P._crGas) results
 
-    liftPactServiceM $ logError $ sshow $ V.map (\(tx, r) -> (P._cmdHash tx, length (P._crLogs r))) $ _transactionPairs results
+    liftPactServiceM $ do
+      let txLogToJson txLog = case A.eitherDecodeStrict @A.Value (T.encodeUtf8 (J.getJsonText (P._getTxLogJson txLog))) of
+            Right obj -> T.decodeUtf8 $ BL.toStrict $ A.encode obj
+            Left _ -> error "bruh"
+      let txsLogs = V.map (map txLogToJson) $ V.mapMaybe (P._crLogs . snd) $ _transactionPairs results
+      forM_ txsLogs $ \txLogs -> do
+        forM_ txLogs $ \txLog -> do
+          logError txLog
 
     pwo <- either throwM return $
       validateHashes currHeader payload miner results
