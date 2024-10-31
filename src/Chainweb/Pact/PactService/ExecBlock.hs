@@ -70,7 +70,6 @@ import Pact.Interpreter(PactDbEnv(..))
 import qualified Pact.JSON.Encode as J
 import qualified Pact.Parse as P
 import qualified Pact.Types.Command as P
-import Pact.Types.Exp (ParsedCode(..))
 import Pact.Types.ExpParser (mkTextInfo, ParseEnv(..))
 import qualified Pact.Types.Hash as P
 import Pact.Types.RPC
@@ -140,15 +139,6 @@ execBlock currHeader payload = do
     !results <- go miner trans >>= throwCommandInvalidError
 
     let !totalGasUsed = sumOf (folded . to P._crGas) results
-
-    liftPactServiceM $ do
-      let txLogToJson txLog = case A.eitherDecodeStrict @A.Value (T.encodeUtf8 (J.getJsonText (P._getTxLogJson txLog))) of
-            Right obj -> T.decodeUtf8 $ BL.toStrict $ A.encode obj
-            Left _ -> error "bruh"
-      let txsLogs = V.map (map txLogToJson) $ V.mapMaybe (P._crLogs . snd) $ _transactionPairs results
-      forM_ txsLogs $ \txLogs -> do
-        forM_ txLogs $ \txLog -> do
-          logError txLog
 
     pwo <- either throwM return $
       validateHashes currHeader payload miner results
