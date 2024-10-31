@@ -37,7 +37,7 @@ package chainweb
     benchmarks: True
     ghc-options: -Wno-missed-extra-shared-lib
 
-package node
+package chainweb-node
     ghc-options: -Wno-missed-extra-shared-lib
 
 if impl(ghc >= 9.8.1)
