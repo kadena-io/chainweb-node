@@ -1,7 +1,7 @@
 cabal-version: 3.8
 
 name:         chainweb
-version:      2.25.1
+version:      2.26
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -351,6 +351,7 @@ library
     build-depends:
         , Decimal >= 0.4.2
         , aeson >= 2.2
+        , aeson-pretty >= 0.8
         , asn1-encoding >=0.9
         , asn1-types >=0.3
         , async >= 2.2
@@ -372,7 +373,7 @@ library
         , crypton-x509-system >=1.6
         , crypton-x509-validation >=1.6
         , cuckoo >= 0.3
-        , data-default-class >=0.1.2.2
+        , data-default-class >=0.1.2
         , data-dword >= 0.3
         , deepseq >= 1.4
         , digraph >= 0.2.3
@@ -466,6 +467,8 @@ library
 library chainweb-test-utils
     import: warning-flags, debugging-flags
     default-language: Haskell2010
+    ghc-options:
+        -Wno-x-partial -Wno-unrecognised-warning-flags
     hs-source-dirs: test/lib
     exposed-modules:
         Chainweb.Test.Cut
@@ -584,6 +587,7 @@ test-suite chainweb-tests
     default-language: Haskell2010
     ghc-options:
         -threaded
+        -Wno-x-partial -Wno-unrecognised-warning-flags
     type: exitcode-stdio-1.0
     hs-source-dirs: test/unit
     main-is: ChainwebTests.hs
@@ -714,6 +718,7 @@ test-suite compaction-tests
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
+        -Wno-x-partial -Wno-unrecognised-warning-flags
     hs-source-dirs: test/compaction
     main-is: CompactionTests.hs
     build-depends:
@@ -740,6 +745,7 @@ test-suite multi-node-network-tests
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
+        -Wno-x-partial -Wno-unrecognised-warning-flags
     hs-source-dirs: test/multinode
     main-is: MultiNodeNetworkTests.hs
     build-depends:
@@ -766,6 +772,7 @@ test-suite remote-tests
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
+        -Wno-x-partial -Wno-unrecognised-warning-flags
     hs-source-dirs: test/remote
     main-is: RemoteTests.hs
     other-modules:
@@ -802,6 +809,7 @@ executable cwtool
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
+        -Wno-x-partial -Wno-unrecognised-warning-flags
     hs-source-dirs:
         tools/cwtool
         tools/ea

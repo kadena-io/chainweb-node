@@ -37,12 +37,8 @@ suite = independentSequentialTestGroup "CompactionTests"
         withSystemTempDirectory "compact-resume-test-pact-target" $ \targetPactDbDir -> do
         Chainweb.Test.MultiNode.compactAndResumeTest loglevel (fastForkingCpmTestVersion pairChainGraph) 6 srcRocksDb targetRocksDb srcPactDbDir targetPactDbDir step
     , testCaseSteps "compact-live-node" $ \step ->
-        withTempRocksDb "pact-import-test-rocks" $ \rdb ->
-        withSystemTempDirectory "pact-import-test-pact-src" $ \srcPactDbDir ->
-        withSystemTempDirectory "pact-import-test-pact-target" $ \targetPactDbDir -> do
+        withTempRocksDb "compact-live-test-rocks" $ \rdb ->
+        withSystemTempDirectory "compact-live-test-pact-src" $ \srcPactDbDir ->
+        withSystemTempDirectory "compact-live-test-pact-target" $ \targetPactDbDir -> do
         Chainweb.Test.MultiNode.compactLiveNodeTest loglevel (fastForkingCpmTestVersion twentyChainGraph) 1 rdb srcPactDbDir targetPactDbDir step
-    , testCaseSteps "pact-import" $ \step ->
-        withTempRocksDb "pact-import-test-rocks" $ \rdb ->
-        withSystemTempDirectory "pact-import-test-pact" $ \pactDbDir -> do
-        Chainweb.Test.MultiNode.pactImportTest loglevel (fastForkingCpmTestVersion twentyChainGraph) 1 rdb pactDbDir step
     ]

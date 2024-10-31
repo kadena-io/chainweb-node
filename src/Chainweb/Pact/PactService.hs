@@ -812,7 +812,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
             let
                 printValidationError (BlockValidationFailure (BlockValidationFailureMsg m)) = do
                     writeIORef validationFailedRef True
-                    logFunctionText logger Error (J.getJsonText m)
+                    logFunctionText logger Error m
                 printValidationError e = throwM e
                 handleMissingBlock NoHistory = throwM $ BlockHeaderLookupFailure $
                   "execReadOnlyReplay: missing block: " <> sshow bh
@@ -823,16 +823,15 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                 $ readFrom (Just $ ParentHeader bhParent) $ do
                     liftIO $ writeIORef heightRef (view blockHeight bh)
                     payload <- liftIO $ fromJuste <$>
-                      lookupPayloadDataWithHeight pdb (Just $ view blockHeight bh) (view blockPayloadHash bh)
-                    let isPayloadEmpty = V.null (view payloadDataTransactions payload)
+                      lookupPayloadWithHeight pdb (Just $ view blockHeight bh) (view blockPayloadHash bh)
+                    let isPayloadEmpty = V.null (_payloadWithOutputsTransactions payload)
                     let isUpgradeBlock = isJust $ _chainwebVersion bhdb ^? versionUpgrades . onChain (_chainId bhdb) . ix (view blockHeight bh)
                     unless (isPayloadEmpty && not isUpgradeBlock) $
-                      void $ execBlock bh (CheckablePayload payload)
+                      void $ execBlock bh (CheckablePayloadWithOutputs payload)
             )
         validationFailed <- readIORef validationFailedRef
         when validationFailed $
-            throwM $ BlockValidationFailure $ BlockValidationFailureMsg $
-              J.encodeJsonText ("Prior block validation errors" :: Text)
+            throwM $ BlockValidationFailure $ BlockValidationFailureMsg "Prior block validation errors"
         return r
 
     heightProgress :: BlockHeight -> BlockHeight -> IORef BlockHeight -> (Text -> IO ()) -> IO ()

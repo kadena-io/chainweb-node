@@ -213,15 +213,9 @@ data LocalPreflightSimulation
     | LegacySimulation
     deriving stock (Eq, Show, Generic)
 
-newtype BlockValidationFailureMsg = BlockValidationFailureMsg J.JsonText
+newtype BlockValidationFailureMsg = BlockValidationFailureMsg Text
     deriving (Eq, Ord, Generic)
     deriving newtype (J.Encode)
-
--- | Intended only for use in Testing and Debugging. This doesn't
--- roundtrip and may result in misleading failure messages.
---
-instance FromJSON BlockValidationFailureMsg where
-    parseJSON = pure . BlockValidationFailureMsg . J.encodeWithAeson
 
 -- | The type of local results (used in /local endpoint)
 --

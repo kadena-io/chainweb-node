@@ -5,6 +5,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+
 module TxSimulator
   where
 
@@ -109,7 +110,7 @@ simulate sc@(SimConfig dbDir txIdx' _ _ cid ver gasLog doTypecheck) = do
       initRelationalCheckpointer defaultModuleCacheLimit sqlenv DoNotPersistIntraBlockWrites logger ver cid
     case (txIdx',doTypecheck) of
       (Just txIdx,_) -> do -- single-tx simulation
-        let pwo = head pwos
+        let pwo = unsafeHead "cwtool::TxSimulator.simulate" pwos
         let txs = _payloadWithOutputsTransactions pwo
         let md = _payloadWithOutputsMiner pwo
         miner <- decodeStrictOrThrow $ _minerData md
