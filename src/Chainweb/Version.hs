@@ -603,7 +603,7 @@ genesisBlockHeight :: HasCallStack => ChainwebVersion -> ChainId -> BlockHeight
 genesisBlockHeight v c =
     case measureValue' (flip isWebChain c) $ _versionGraphs v of
         Top _ -> error $ "Invalid ChainId " <> show c
-        Between (h, _) _ -> h
+        Between _ (h, _) -> h
         Bottom _ -> BlockHeight 0
 
 -- | The genesis graph for a given Chain
@@ -624,7 +624,7 @@ genesisGraph
 genesisGraph v c =
     case measureValue' (flip isWebChain c) $ _versionGraphs (_chainwebVersion v) of
         Top _ -> error $ "Invalid ChainId " <> show (_chainId c)
-        Between (_, a) _ -> a
+        Between _ (_, a) -> a
         Bottom a -> a
 
 -------------------------------------------------------------------------- --

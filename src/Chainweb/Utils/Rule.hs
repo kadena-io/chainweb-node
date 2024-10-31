@@ -121,7 +121,7 @@ ruleElemsAsc he = go []
 -- 'Top' when the condition is false at the latest/current grade. It returns
 -- 'Bottom' if the the condition was always true.
 --
-measureValue' :: (a -> Bool) -> Rule h a -> Measurement h a
+measureValue' :: Num h => (a -> Bool) -> Rule h a -> Measurement h a
 measureValue' p ((topH, topA) `Above` topTail)
     | not (p topA) = Top (topH, topA)
     | otherwise = go topH topA topTail
@@ -129,12 +129,14 @@ measureValue' p ((topH, topA) `Above` topTail)
     go lh la (Above (h, a) t)
         | not (p a) = Between (h, a) (lh, la)
         | otherwise = go h a t
-    go _ _ (End a) = Bottom a
+    go lh la (End a)
+        | not (p a) = Between (0, a) (lh, la)
+        | otherwise = Bottom a
 measureValue' _ (End a) = Bottom a
 
 -- | Measures when a value most recently dropped blow the given threshold.
 --
-measureValue :: Ord a => a -> Rule h a -> Measurement h a
+measureValue :: Num h => Ord a => a -> Rule h a -> Measurement h a
 measureValue a =
     measureValue' (\ac -> a >= ac)
 

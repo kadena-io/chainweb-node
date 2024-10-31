@@ -618,10 +618,11 @@ properties_miscCut db v =
 -- -------------------------------------------------------------------------- --
 -- Other Miscelaneous Properties
 
-prop_blockCountAtChainHeight :: ChainGraph -> ChainGraph -> Bool
-prop_blockCountAtChainHeight g0 g1 = all p [0..10]
+prop_blockCountAtChainHeight :: ChainGraph -> ChainGraph -> T.Property
+prop_blockCountAtChainHeight g0 g1 = T.counterexample (show v)
+    $ T.conjoin $ p <$> [0..10]
   where
-    p i = int @_ @Int (globalBlockCountAt v i) == h (int i)
+    p i = T.counterexample (show i) $ int @_ @Int (globalBlockCountAt v i) T.=== h (int i)
     h i = min 8 (i + 1) * int (order g0) + max 0 (i - 7) * int (order g1)
 
     -- (8, g1) :| [(0, g0)]
