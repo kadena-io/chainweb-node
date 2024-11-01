@@ -436,7 +436,7 @@ updatePeerDb (PeerDb _ _ _ lock var) a f
     = withMVar lock . const . atomically . modifyTVar' var $ \s ->
         case getOne $ getEQ a s of
             Nothing -> s
-            Just x -> force $ updateIx a (force $ f x) s
+            Just x -> updateIx a (f x) s
 
 incrementActiveSessionCount :: PeerDb -> PeerInfo -> IO ()
 incrementActiveSessionCount db i
