@@ -19,7 +19,6 @@ import Control.Monad.Reader
 
 import Data.Aeson (Value(..), object, (.=), Key)
 import Data.Function
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -40,6 +39,7 @@ import Pact.Types.Runtime hiding (ChainId)
 import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.SQLite
 import qualified Pact.JSON.Encode as J
+import qualified Pact.Utils.StableHashMap as SHM
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -785,7 +785,7 @@ loadModule = do
     fn = "test/pact/simple.repl"
 
 nativeLookup :: NativeDefName -> Maybe (Term Name)
-nativeLookup (NativeDefName n) = case HM.lookup n nativeDefs of
+nativeLookup (NativeDefName n) = case SHM.lookup n nativeDefs of
     Just (Direct t) -> Just t
     _ -> Nothing
 
