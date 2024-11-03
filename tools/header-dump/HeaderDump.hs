@@ -127,7 +127,7 @@ import Network.HTTP.Client.TLS
 import Servant.Client
 
 import Chainweb.HostAddress
-import Chainweb.TreeDB.RemoteDB
+import Chainweb.BlockHeaderDB.RemoteDB
 #endif
 
 -- -------------------------------------------------------------------------- --

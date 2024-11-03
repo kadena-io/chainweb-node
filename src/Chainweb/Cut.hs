@@ -338,7 +338,7 @@ cutHeadersMinHeight = minimum . fmap (view blockHeight)
 {-# INLINE cutHeadersMinHeight #-}
 
 cutHeadersChainwebVersion :: HM.HashMap ChainId BlockHeader -> ChainwebVersion
-cutHeadersChainwebVersion m = _chainwebVersion $ head $ toList m
+cutHeadersChainwebVersion m = _chainwebVersion $ unsafeHead "Chainweb.Cut.cutHeadersChainwebVersion" $ toList m
 {-# INLINE cutHeadersChainwebVersion #-}
 
 -- | The function projects onto the chains available at the minimum block height

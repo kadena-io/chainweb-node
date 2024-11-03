@@ -47,7 +47,6 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import Data.Aeson hiding (Error,(.=))
-import Data.Default (def)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 
@@ -57,6 +56,7 @@ import qualified Pact.JSON.Encode as J
 import Pact.Parse (ParsedDecimal)
 import Pact.Types.ChainMeta
 import Pact.Types.Gas
+import Pact.Types.Info
 import Pact.Types.Pretty (viaShow)
 import Pact.Types.Runtime (PactError(..), PactErrorType(..))
 import Pact.Types.Term
@@ -263,7 +263,7 @@ catchesPactError logger exnPrinting action = catches (Right <$> action)
           CensorsUnexpectedError -> do
             liftIO $ logWarn_ logger ("catchesPactError: unknown error: " <> sshow e)
             return ("unknown error " <> sshow e)
-      return $ Left $ PactError EvalError def def err
+      return $ Left $ PactError EvalError noInfo [] err
   ]
 
 

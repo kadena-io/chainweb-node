@@ -102,7 +102,6 @@ import Data.Bifunctor
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
-import Data.Default (def)
 import Data.Foldable (fold, for_, traverse_)
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
@@ -369,7 +368,7 @@ applyCmd v logger gasLogger txFailuresCounter pdbenv miner gasModel txCtx spv cm
     chainweb219Pact' = guardCtx chainweb219Pact txCtx
     chainweb223Pact' = guardCtx chainweb223Pact txCtx
     allVerifiers = verifiersAt v cid currHeight
-    toEmptyPactError (PactError errty _ _ _) = PactError errty def [] mempty
+    toEmptyPactError (PactError errty _ _ _) = PactError errty noInfo [] mempty
 
     toOldListErr pe = pe { peDoc = listErrMsg }
     isOldListErr = \case
@@ -411,7 +410,7 @@ applyCmd v logger gasLogger txFailuresCounter pdbenv miner gasModel txCtx spv cm
           Left err -> do
             let errMsg = "Tx verifier error: " <> _verifierError err
             cmdResult <- failTxWith
-              (PactError TxFailure def [] (pretty errMsg))
+              (PactError TxFailure noInfo [] (pretty errMsg))
               errMsg
             redeemAllGas cmdResult
           Right verifierGasRemaining -> do
@@ -486,7 +485,7 @@ applyGenesisCmd logger dbEnv spv txCtx cmd =
         , _txDbEnv = dbEnv
         , _txLogger = logger
         , _txGasLogger = Nothing
-        , _txPublicData = def
+        , _txPublicData = noPublicData
         , _txSpvSupport = spv
         , _txNetworkId = nid
         , _txGasPrice = 0.0
@@ -684,7 +683,7 @@ applyLocal logger gasLogger dbEnv gasModel txCtx spv cmdIn mc execConfig =
         Left err -> do
           let errMsg = "Tx verifier error: " <> _verifierError err
           failTxWith
-            (PactError TxFailure def [] (pretty errMsg))
+            (PactError TxFailure noInfo [] (pretty errMsg))
             errMsg
         Right verifierGasRemaining -> do
           let gas1 = (initGasRemaining - verifierGasRemaining) + gas0
@@ -710,7 +709,7 @@ readInitModules
 readInitModules = do
   logger <- view (psServiceEnv . psLogger)
   dbEnv <- view (psBlockDbEnv . to _cpPactDbEnv)
-  txCtx <- getTxContext noMiner def
+  txCtx <- getTxContext noMiner noPublicMeta
 
   -- guarding chainweb 2.17 here to allow for
   -- cache purging everything but coin and its
@@ -727,7 +726,7 @@ readInitModules = do
     nid = Nothing
     chash = pactInitialHash
     tenv = TransactionEnv Local dbEnv logger Nothing (ctxToPublicData txCtx) noSPVSupport nid 0.0
-          rk 0 def Nothing Nothing
+          rk 0 emptyExecutionConfig Nothing Nothing
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv) mempty
     interp = defaultInterpreter
     die msg = internalError $ "readInitModules: " <> msg
@@ -1136,7 +1135,7 @@ buyGas txCtx cmd (Miner mid mks) = go
             put (initState mc logGas) >> run (pure <$> eval buyGasTerm)
 
       let
-        gasCapName = QualifiedName (ModuleName "coin" Nothing) "GAS" def
+        gasCapName = QualifiedName (ModuleName "coin" Nothing) "GAS" noInfo
         signedForGas signer =
           any (\sc -> _scName sc == gasCapName) (_siCapList signer)
         addDebit signer
@@ -1284,7 +1283,7 @@ redeemGas txCtx cmd (Miner mid mks) = do
 -- during Pact code execution
 --
 initCapabilities :: [CapSlot SigCapability] -> EvalState
-initCapabilities cs = set (evalCapabilities . capStack) cs def
+initCapabilities cs = set (evalCapabilities . capStack) cs emptyEvalState
 {-# INLINABLE initCapabilities #-}
 
 initStateInterpreter :: EvalState -> Interpreter e
@@ -1303,7 +1302,7 @@ checkTooBigTx
 checkTooBigTx initialGas gasLimit next onFail
   | initialGas >= fromIntegral gasLimit = do
 
-      let !pe = PactError GasError def []
+      let !pe = PactError GasError noInfo []
             $ "Tx too big (" <> pretty initialGas <> "), limit "
             <> pretty gasLimit
 
@@ -1317,7 +1316,7 @@ gasInterpreter g = do
     logGas <- isJust <$> view txGasLogger
     return $ initStateInterpreter
         $ set evalLogGas (guard logGas >> Just [("GTxSize",g)]) -- enables gas logging
-        $ setModuleCache mc def
+        $ setModuleCache mc emptyEvalState
 
 
 -- | Initial gas charged for transaction size
@@ -1396,13 +1395,13 @@ mkEvalEnv nsp msg = do
     ]
     where
     -- wiza code
-    wizaDebit = QualifiedName "free.wiza" "DEBIT" def
+    wizaDebit = QualifiedName "free.wiza" "DEBIT" noInfo
     wizaMH = unsafeModuleHashFromB64Text "8b4USA1ZNVoLYRT1LBear4YKt3GB2_bl0AghZU8QxjI"
-    wizEquipmentOwner = QualifiedName "free.wiz-equipment" "OWNER" def
-    wizEquipmentAcctGuard = QualifiedName "free.wiz-equipment" "ACCOUNT_GUARD" def
-    wizArenaAcctGuard = QualifiedName "free.wiz-arena" "ACCOUNT_GUARD" def
-    wizArenaOwner = QualifiedName "free.wiz-arena" "OWNER" def
-    wizaTransfer = QualifiedName "free.wiza" "TRANSFER" def
+    wizEquipmentOwner = QualifiedName "free.wiz-equipment" "OWNER" noInfo
+    wizEquipmentAcctGuard = QualifiedName "free.wiz-equipment" "ACCOUNT_GUARD" noInfo
+    wizArenaAcctGuard = QualifiedName "free.wiz-arena" "ACCOUNT_GUARD" noInfo
+    wizArenaOwner = QualifiedName "free.wiz-arena" "OWNER" noInfo
+    wizaTransfer = QualifiedName "free.wiza" "TRANSFER" noInfo
 
     wizaBypass granted sigCaps =
       let debits = filter ((== wizaDebit) . _scName) $ S.toList granted
@@ -1419,17 +1418,17 @@ mkEvalEnv nsp msg = do
         , wizEquipmentAcctGuard
         , wizArenaAcctGuard]
     -- kaddex code
-    skdxDebit = QualifiedName "kaddex.skdx" "DEBIT" def
+    skdxDebit = QualifiedName "kaddex.skdx" "DEBIT" noInfo
     skdxMH = unsafeModuleHashFromB64Text "g90VWmbKj87GkMkGs8uW947kh_Wg8JdQowa8rO_vZ1M"
-    kdxUnstake = QualifiedName "kaddex.staking" "UNSTAKE" def
+    kdxUnstake = QualifiedName "kaddex.staking" "UNSTAKE" noInfo
 
     kdxBypass granted sigCaps =
       let debits = filter ((== skdxDebit) . _scName) $ S.toList granted
       in all (\c -> S.member (SigCapability kdxUnstake (_scArgs c)) sigCaps) debits
     -- Collect-gallinas code
     collectGallinasMH = unsafeModuleHashFromB64Text "x3BLGdidqSjUQy5q3MorGco9mBDpoVTh_Yoagzu0hls"
-    collectGallinasMarket = QualifiedName "free.collect-gallinas" "MARKET" def
-    collectGallinasAcctGuard = QualifiedName "free.collect-gallinas" "ACCOUNT_GUARD" def
+    collectGallinasMarket = QualifiedName "free.collect-gallinas" "MARKET" noInfo
+    collectGallinasAcctGuard = QualifiedName "free.collect-gallinas" "ACCOUNT_GUARD" noInfo
 
     collectGallinasBypass granted sigCaps = fromMaybe False $ do
       let mkt = filter ((== collectGallinasMarket) . _scName) $ S.toList granted
@@ -1437,8 +1436,8 @@ mkEvalEnv nsp msg = do
       pure $ all (\c -> any (matchingGuard c) sigCaps) mkt
     -- marmalade code
     marmaladeGuardPolicyMH = unsafeModuleHashFromB64Text "LB5sRKx8jN3FP9ZK-rxDK7Bqh0gyznprzS8L4jYlT5o"
-    marmaladeGuardPolicyMint = QualifiedName "marmalade-v2.guard-policy-v1" "MINT" def
-    marmaladeLedgerMint = QualifiedName "marmalade-v2.ledger" "MINT-CALL" def
+    marmaladeGuardPolicyMint = QualifiedName "marmalade-v2.guard-policy-v1" "MINT" noInfo
+    marmaladeLedgerMint = QualifiedName "marmalade-v2.ledger" "MINT-CALL" noInfo
 
     marmaladeBypass granted sigCaps = fromMaybe False $ do
       let mkt = filter ((== marmaladeGuardPolicyMint) . _scName) $ S.toList granted
@@ -1453,7 +1452,7 @@ unsafeModuleHashFromB64Text =
 --
 managedNamespacePolicy :: NamespacePolicy
 managedNamespacePolicy = SmartNamespacePolicy False
-  (QualifiedName (ModuleName "ns" Nothing) "validate" def)
+  (QualifiedName (ModuleName "ns" Nothing) "validate" noInfo)
 {-# NOINLINE managedNamespacePolicy #-}
 
 -- | Builder for "magic" capabilities given a magic cap name
@@ -1466,7 +1465,7 @@ mkCoinCap :: Text -> [PactValue] -> SigCapability
 mkCoinCap c as = SigCapability fqn as
   where
     mn = ModuleName "coin" Nothing
-    fqn = QualifiedName mn c def
+    fqn = QualifiedName mn c noInfo
 {-# INLINE mkCoinCap #-}
 
 -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'

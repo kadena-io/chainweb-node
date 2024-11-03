@@ -30,7 +30,6 @@ import Data.List (find)
 #else
 import Data.List (foldl', find)
 #endif
-import Data.Default (def)
 import Data.Decimal
 import Data.Word (Word64)
 
@@ -49,6 +48,7 @@ import qualified Pact.Types.Runtime as P
 
 import Pact.Types.Command
 import Pact.Types.Hash
+import Pact.Types.Info (noInfo)
 import Pact.Types.Runtime (TxId(..))
 import Pact.Types.Persistence (RowKey(..))
 import Pact.Types.PactValue
@@ -784,7 +784,7 @@ toSignerAcctsMap txInfo payerAcct cid pacts cutDb = do
         -> [PactValue]
         -> P.SigCapability
     mkCapability mn cap args =
-      P.SigCapability (P.QualifiedName mn cap def) args
+      P.SigCapability (P.QualifiedName mn cap noInfo) args
 
     -- Convenience to make caps like TRANSFER, GAS etc.
     mkCoinCap

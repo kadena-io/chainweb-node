@@ -20,7 +20,6 @@ import qualified EncodeDecodeB64Util
 import qualified GenConf
 import qualified HeaderDump
 import qualified RunNodes
-import qualified SlowTests
 import qualified TxStream
 import qualified KnownGraphs
 import qualified CalculateRelease
@@ -71,10 +70,6 @@ topLevelCommands =
       "run-nodes"
       "Run a local cluster of chainweb-node binaries"
       RunNodes.main
-  , CommandSpec
-      "slow-tests"
-      "Run slow Chainweb tests"
-      SlowTests.main
   , CommandSpec
       "tx-list"
       "List all transactions in a chain starting with the most recent block"

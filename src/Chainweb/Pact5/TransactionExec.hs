@@ -60,7 +60,6 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Coerce (coerce)
 import Data.Decimal (Decimal, roundTo)
-import Data.Default (def)
 import Data.IORef
 import qualified Data.Map.Strict as Map
 import Data.Maybe
@@ -217,13 +216,13 @@ runVerifiers txCtx cmd = do
           pact4TxVerifiers
       case verifierResult of
         Left err -> do
-          throwError (Pact5.PEVerifierError err def)
+          throwError (Pact5.PEVerifierError err noInfo)
         Right (Pact4.Gas pact4VerifierGasRemaining) -> do
           -- TODO: crash properly on negative?
           let verifierGasRemaining = fromIntegral @Int64 @SatWord pact4VerifierGasRemaining
           -- NB: this is not nice.
           -- TODO: better gas info here
-          chargeGas def $ GAConstant $ gasToMilliGas $ Gas $
+          chargeGas noInfo $ GAConstant $ gasToMilliGas $ Gas $
             verifierGasRemaining - min (_gas (milliGasToGas initGasRemaining)) verifierGasRemaining
 
 applyLocal
@@ -268,7 +267,7 @@ applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
       gasUsed <- milliGasToGas <$> readIORef (_geGasRef gasEnv)
       let result = case reverse (_erOutput payloadResult) of
             x:_ -> x
-            _ -> InterpretValue PUnit (def :: Info)
+            _ -> InterpretValue PUnit noInfo
       return CommandResult
         { _crReqKey = RequestKey $ _cmdHash cmd
         , _crTxId = _erTxId payloadResult
@@ -333,7 +332,7 @@ applyCmd logger maybeGasLogger db txCtx spv initialGas cmd = do
   let paidFor :: TransactionM logger EvalResult
       paidFor = do
         -- TODO: better "info" for this, for gas logs
-        chargeGas def (GAConstant $ gasToMilliGas initialGas)
+        chargeGas noInfo (GAConstant $ gasToMilliGas initialGas)
 
         runVerifiers txCtx cmd
 
@@ -459,7 +458,7 @@ applyCoinbase logger db reward txCtx = do
   eCoinbaseTxResult <-
     evalExecTerm Transactional
       db noSPVSupport freeGasEnv (Set.fromList [FlagDisableRuntimeRTC]) SimpleNamespacePolicy
-      (ctxToPublicData def txCtx)
+      (ctxToPublicData noPublicMeta txCtx)
       MsgData
         { mdHash = coinbaseHash
         , mdData = coinbaseData
@@ -467,9 +466,9 @@ applyCoinbase logger db reward txCtx = do
         , mdVerifiers = []
         }
       -- applyCoinbase injects a magic capability to get permission to mint tokens
-      (def & csSlots .~ [CapSlot (coinCap "COINBASE" []) []])
+      (emptyCapState & csSlots .~ [CapSlot (coinCap "COINBASE" []) []])
       -- TODO: better info here might be very valuable for debugging
-      (def <$ coinbaseTerm)
+      (noSpanInfo <$ coinbaseTerm)
   case eCoinbaseTxResult of
     Left err -> do
       pure $ Left $ CoinbasePactError err
@@ -603,7 +602,7 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx 
             , mdVerifiers = verifiersWithNoProof
             , mdSigners = signers
             }
-          (def @(CapState _ _)
+          (emptyCapState
             & csSlots .~ [CapSlot cap [] | cap <- specialCaps])
           -- Note: we delete the information here from spans for
           -- smaller db footprints
@@ -618,7 +617,7 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx 
             , mdSigners = signers
             , mdVerifiers = verifiersWithNoProof
             }
-          (def @(CapState _ _)
+          (emptyCapState
             & csSlots .~ [CapSlot cap [] | cap <- specialCaps])
           Cont
               { _cPactId = _cmPactId
@@ -627,7 +626,7 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx 
               , _cProof = _cmProof
               }
 
-  chargeGas def (GAConstant (gasToMilliGas $ _erGas res))
+  chargeGas noInfo (GAConstant (gasToMilliGas $ _erGas res))
   return res
 
   where
@@ -658,10 +657,10 @@ runUpgrade _logger db txContext cmd = case payload ^. pPayload of
           , mdSigners = []
           , mdVerifiers = []
           }
-        (def
+        (emptyCapState
           & csSlots .~ [CapSlot (CapToken (QualifiedName "REMEDIATE" (ModuleName "coin" Nothing)) []) []]
           & csModuleAdmin .~ S.singleton (ModuleName "coin" Nothing))
-        (fmap (def <$) $ _pcExps $ _pmCode pm) >>= \case
+        (fmap (noSpanInfo <$) $ _pcExps $ _pmCode pm) >>= \case
         Left err -> internalError $ "Pact5.runGenesis: internal error " <> sshow err
         -- TODO: we should probably put these events somewhere!
         Right _r -> return ()
@@ -749,8 +748,8 @@ buyGas logger origGasEnv db txCtx cmd = do
           -- no verifiers are allowed in buy gas
           , mdVerifiers = []
           }
-          (def & csSlots .~ [CapSlot (coinCap "GAS" []) []])
-          (def <$ buyGasTerm)
+          (emptyCapState & csSlots .~ [CapSlot (coinCap "GAS" []) []])
+          (noSpanInfo <$ buyGasTerm)
       Nothing ->
         evalExecTerm Transactional
         db
@@ -767,8 +766,8 @@ buyGas logger origGasEnv db txCtx cmd = do
           -- no verifiers are allowed in buy gas
           , mdVerifiers = []
           }
-        (def & csSlots .~ [CapSlot (coinCap "GAS" []) []])
-        (def <$ buyGasTerm)
+        (emptyCapState & csSlots .~ [CapSlot (coinCap "GAS" []) []])
+        (noSpanInfo <$ buyGasTerm)
 
     case e of
       Right er' -> do
@@ -837,8 +836,8 @@ redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
           , mdSigners = signers
           , mdVerifiers = []
           }
-        (def & csSlots .~ [CapSlot (coinCap "GAS" []) []])
-        (def <$ redeemGasTerm) >>= \case
+        (emptyCapState & csSlots .~ [CapSlot (coinCap "GAS" []) []])
+        (noSpanInfo <$ redeemGasTerm) >>= \case
           Left unknownPactError -> do
             pure $ Left (RedeemGasPactError unknownPactError)
           Right evalResult -> do
@@ -860,7 +859,7 @@ redeemGas logger db txCtx gasUsed maybeFundTxPactId cmd
           , mdSigners = signers
           , mdVerifiers = []
           }
-        (def & csSlots .~ [CapSlot (coinCap "GAS" []) []])
+        (emptyCapState & csSlots .~ [CapSlot (coinCap "GAS" []) []])
         Cont
         { _cPactId = fundTxPactId
         , _cStep = 1

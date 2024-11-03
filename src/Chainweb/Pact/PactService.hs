@@ -137,7 +137,6 @@ import Data.Functor.Product
 import qualified Chainweb.Pact5.TransactionExec as Pact5
 import qualified Chainweb.Pact5.Transaction as Pact5
 import Control.Monad.Except
-import Data.Default
 import qualified Chainweb.Pact5.NoCoinbase as Pact5
 import qualified Pact.Parse as Pact4
 import qualified Control.Parallel.Strategies as Strategies
@@ -584,7 +583,7 @@ execNewGenesisBlock miner newTrans = pactLabel "execNewGenesisBlock" $ do
             logger <- view (psServiceEnv . psLogger)
             v <- view chainwebVersion
             cid <- view chainId
-            txs <- liftIO $ traverse (runExceptT . Pact4.checkParse logger v cid (genesisHeightSlow v cid)) newTrans
+            txs <- liftIO $ traverse (runExceptT . Pact4.checkParse logger v cid (genesisBlockHeight v cid)) newTrans
             parsedTxs <- case partitionEithers (V.toList txs) of
                 ([], validTxs) -> return (V.fromList validTxs)
                 (errs, _) -> internalError $ "Invalid genesis txs: " <> sshow errs
@@ -716,8 +715,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
             )
         validationFailed <- readIORef validationFailedRef
         when validationFailed $
-            throwM $ BlockValidationFailure $ BlockValidationFailureMsg $
-                J.encodeText ("Prior block validation errors" :: Text)
+            throwM $ BlockValidationFailure $ BlockValidationFailureMsg "Prior block validation errors"
         return r
 
     heightProgress :: BlockHeight -> BlockHeight -> IORef BlockHeight -> (Text -> IO ()) -> IO ()
@@ -794,7 +792,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                                 parseError = Pact4.CommandResult
                                     { _crReqKey = Pact4.RequestKey (Pact4.toUntypedHash $ Pact4._cmdHash cmd)
                                     , _crTxId = Nothing
-                                    , _crResult = Pact4.PactResult (Left (Pact4.PactError Pact4.SyntaxError def [] (sshow err)))
+                                    , _crResult = Pact4.PactResult (Left (Pact4.PactError Pact4.SyntaxError Pact4.noInfo [] (sshow err)))
                                     , _crGas = cmd ^. Pact4.cmdPayload . Pact4.pMeta . Pact4.pmGasLimit . to fromIntegral
                                     , _crLogs = Nothing
                                     , _crContinuation = Nothing

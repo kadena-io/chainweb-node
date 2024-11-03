@@ -53,7 +53,6 @@ import qualified Data.Aeson as A
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
 import Data.List qualified as List
-import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
@@ -401,7 +400,7 @@ runPact4Coinbase miner enfCBFail usePrecomp mc = do
       logger <- view (psServiceEnv . psLogger)
       rs <- view (psServiceEnv . psMinerRewards)
       v <- view chainwebVersion
-      txCtx <- getTxContext miner def
+      txCtx <- getTxContext miner Pact4.noPublicMeta
 
       let !bh = ctxCurrentBlockHeight txCtx
 

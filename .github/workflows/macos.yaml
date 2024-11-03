@@ -91,7 +91,7 @@ jobs:
         EOF
 
     # Build
-    - name: Delete Freeze file if it exists
+    - name: Delete freeze file if it exists
       run: rm -f cabal.project.freeze
     - name: Update package database
       run: cabal update
@@ -116,10 +116,17 @@ jobs:
     - name: Build chainweb library
       run: cabal build lib:chainweb
     - name: Build chainweb applications
-      run: cabal build test:chainweb-tests exe:cwtool chainweb:bench:bench
+      run: | 
+        cabal build -j \
+          exe:compact \
+          test:chainweb-tests \
+          test:multi-node-network-tests \
+          test:compaction-tests \
+          test:remote-tests \
+          exe:cwtool \
+          chainweb:bench:bench
     - name: Build chainweb-node application
-      run: cabal build chainweb-node:exe:chainweb-node
-
+      run: cabal build -j chainweb-node:exe:chainweb-node
     - uses: actions/cache/save@v4
       name: Save dist-newstyle cache
       if: steps.cabal-dist-cache.outputs.cache-hit != 'true'
@@ -130,10 +137,10 @@ jobs:
           dist-newstyle
         key: ${{ steps.cabal-dist-cache.outputs.cache-primary-key }}
 
-    - name: Run Tests
+    - name: Run unit tests
       run: |
         ulimit -n 10000
-        cabal run tests -- --hide-successes -p '!/chainweb216Test/'
+        $(cabal list-bin chainweb:test:chainweb-tests) --hide-successes -p '!/chainweb216Test/'
 
     # Checks
     - name: Check that working directory tree is clean
@@ -155,3 +162,4 @@ jobs:
           exit 1
         fi
         mv cabal.project.freeze.backup cabal.project.freeze
+

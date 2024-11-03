@@ -120,7 +120,6 @@ import Data.Bifunctor
 import Data.ByteArray (ByteArray, convert)
 import qualified Data.ByteString as B (ByteString, length, pack)
 import qualified Data.ByteString.Char8 as B8
-import Data.Default (def)
 import Data.Foldable
 import Data.Hashable
 import Data.Hourglass (DateTime, durationHours, timeAdd)
@@ -679,15 +678,18 @@ certificateCacheManagerSettings policy = do
     -- and 'connectTo' are going to overwrite this anyways.
     --
     settings certstore = (defaultParamsClient "" "")
-        { clientSupported = def
+        { clientSupported = defSupported
             { supportedCiphers = ciphersuite_default
             , supportedVersions = [TLS13, TLS12, TLS11, TLS10]
             }
-        , clientShared = def
+        , clientShared = defShared
             { sharedCAStore = certstore
             , sharedValidationCache = validationCache policy
             }
         }
+      where
+        defSupported = clientSupported (defaultParamsClient "" "")
+        defShared = clientShared (defaultParamsClient "" "")
 
     validationCache TlsInsecure = ValidationCache
         (\_ _ _ -> return ValidationCachePass)

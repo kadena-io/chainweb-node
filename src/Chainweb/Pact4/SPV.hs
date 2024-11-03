@@ -41,7 +41,6 @@ import Data.Aeson hiding (Object, (.=))
 import Data.Bifunctor
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64.URL as B64U
-import Data.Default (def)
 import qualified Data.Map.Strict as M
 import Data.Text (Text, pack)
 import qualified Data.Text as Text
@@ -81,6 +80,7 @@ import qualified Chainweb.Version.Guards as CW
 import qualified Pact.JSON.Encode as J
 import qualified Pact.Types.Command as Pact4
 import qualified Pact.Types.Hash as Pact4
+import qualified Pact.Types.Info as Pact4
 import qualified Pact.Types.PactValue as Pact4
 import qualified Pact.Types.Runtime as Pact4
 import qualified Pact.Types.SPV as Pact4
@@ -297,7 +297,7 @@ verifyCont bdb bh (Pact4.ContProof cp) = runExceptT $ do
 -- | Extract a 'TransactionOutputProof' from a generic pact object
 --
 extractProof :: Bool -> Pact4.Object Pact4.Name -> Either Text (TransactionOutputProof SHA512t_256)
-extractProof False o = Pact4.toPactValue (Pact4.TObject o def) >>= k
+extractProof False o = Pact4.toPactValue (Pact4.TObject o Pact4.noInfo) >>= k
   where
     k = aeson (Left . pack) Right
       . fromJSON
@@ -344,10 +344,10 @@ ethResultToPactValue ReceiptProofValidation{..} = mkObject
     receipt Receipt{..} = obj
       [ ("cumulative-gas-used", tInt _receiptGasUsed)
       , ("status",Pact4.toTerm $ _receiptStatus == TxStatus 1)
-      , ("logs",Pact4.toTList Pact4.TyAny def $ map rlog _receiptLogs)]
+      , ("logs",Pact4.toTList Pact4.TyAny Pact4.noInfo $ map rlog _receiptLogs)]
     rlog LogEntry{..} = obj
       [ ("address",jsonStr _logEntryAddress)
-      , ("topics",Pact4.toTList Pact4.TyAny def $ map topic _logEntryTopics)
+      , ("topics",Pact4.toTList Pact4.TyAny Pact4.noInfo $ map topic _logEntryTopics)
       , ("data",jsonStr _logEntryData)]
     topic t = jsonStr t
     header ch@EthHeader.ConsensusHeader{..} = obj
@@ -423,10 +423,10 @@ getTxIdx bdb pdb bh th = do
     sindex p s = S.zip (S.each [0..]) s & sfind (p . snd) & fmap (fmap fst)
 
 mkObject :: [(Pact4.FieldKey, Pact4.Term n)] -> Pact4.Object n
-mkObject ps = Pact4.Object (Pact4.ObjectMap (M.fromList ps)) Pact4.TyAny Nothing def
+mkObject ps = Pact4.Object (Pact4.ObjectMap (M.fromList ps)) Pact4.TyAny Nothing Pact4.noInfo
 
 obj :: [(Pact4.FieldKey, Pact4.Term n)] -> Pact4.Term n
-obj = Pact4.toTObject Pact4.TyAny def
+obj = Pact4.toTObject Pact4.TyAny Pact4.noInfo
 
 tInt :: Integral i => i -> Pact4.Term Pact4.Name
 tInt = Pact4.toTerm . fromIntegral @_ @Integer
@@ -447,7 +447,7 @@ mkSPVResult Pact4.CommandResult{..} j =
     , ("meta", maybe empty metaField _crMetaData)
     , ("logs", Pact4.tStr $ Pact4.asString _crLogs)
     , ("continuation", maybe empty contField _crContinuation)
-    , ("events", Pact4.toTList Pact4.TyAny def $ map eventField _crEvents)
+    , ("events", Pact4.toTList Pact4.TyAny Pact4.noInfo $ map eventField _crEvents)
     ]
   where
     metaField v = case fromJSON v of
@@ -466,7 +466,7 @@ mkSPVResult Pact4.CommandResult{..} j =
 
     contField1 Pact4.PactContinuation {..} = obj
         [ ("name",Pact4.tStr $ Pact4.asString _pcDef)
-        , ("args",Pact4.toTList Pact4.TyAny def $ map Pact4.fromPactValue _pcArgs)
+        , ("args",Pact4.toTList Pact4.TyAny Pact4.noInfo $ map Pact4.fromPactValue _pcArgs)
         ]
 
     yieldField Pact4.Yield {..} = obj
@@ -481,7 +481,7 @@ mkSPVResult Pact4.CommandResult{..} j =
 
     eventField Pact4.PactEvent {..} = obj
         [ ("name", Pact4.toTerm _eventName)
-        , ("params", Pact4.toTList Pact4.TyAny def (map Pact4.fromPactValue _eventParams))
+        , ("params", Pact4.toTList Pact4.TyAny Pact4.noInfo (map Pact4.fromPactValue _eventParams))
         , ("module", Pact4.tStr $ Pact4.asString _eventModule)
         , ("module-hash", Pact4.tStr $ Pact4.asString _eventModuleHash)
         ]

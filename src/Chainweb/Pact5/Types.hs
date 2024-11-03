@@ -22,6 +22,11 @@ module Chainweb.Pact5.Types
     , liftPactServiceM
     , pactTransaction
     , localLabelBlock
+    -- * default values
+    , noInfo
+    , noPublicMeta
+    , noSpanInfo
+    , emptyCapState
     )
     where
 
@@ -49,6 +54,11 @@ import Pact.Core.Persistence
 import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(..))
 import qualified Pact.Core.Builtin as Pact5
 import Pact.Core.Command.Types (RequestKey)
+
+import qualified Pact.Core.Capabilities as Pact5
+import qualified Pact.Core.ChainData as Pact5
+import qualified Pact.Core.Info as Pact5
+import qualified Pact.Core.Gas.Types as Pact5
 
 -- | Pair parent header with transaction metadata.
 -- In cases where there is no transaction/Command, 'PublicMeta'
@@ -160,3 +170,25 @@ instance Show GasSupply where show (GasSupply g) = show g
 localLabelBlock :: (Logger logger) => (Text, Text) -> PactBlockM logger tbl x -> PactBlockM logger tbl x
 localLabelBlock lbl x = do
   locally (psServiceEnv . psLogger) (addLabel lbl) x
+
+-- -------------------------------------------------------------------------- --
+-- Default Values
+
+noInfo :: Pact5.Info
+noInfo = Pact5.LineInfo 0
+
+emptyCapState :: Ord name => Ord v => Pact5.CapState name v
+emptyCapState = Pact5.CapState mempty mempty mempty mempty mempty
+
+noSpanInfo :: Pact5.SpanInfo
+noSpanInfo = Pact5.SpanInfo 0 0 0 0
+
+noPublicMeta :: Pact5.PublicMeta
+noPublicMeta = Pact5.PublicMeta
+    { Pact5._pmChainId = Pact5.ChainId ""
+    , Pact5._pmSender = ""
+    , Pact5._pmGasLimit = Pact5.GasLimit (Pact5.Gas 0)
+    , Pact5._pmGasPrice = Pact5.GasPrice 0
+    , Pact5._pmTTL = Pact5.TTLSeconds 0
+    , Pact5._pmCreationTime = Pact5.TxCreationTime 0
+    }
