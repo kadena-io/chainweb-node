@@ -24,6 +24,7 @@ import qualified Data.Text.IO as T
 import qualified Data.Vector as V
 import Options.Applicative
 import System.LogLevel
+import qualified Network.TLS as HTTP
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.RestAPI.Client
@@ -71,7 +72,6 @@ import Pact.Types.ChainMeta (noPublicMeta)
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.Info
---import Pact.Types.Logger
 import Pact.Types.Namespace
 import Pact.Types.Persistence
 import Pact.Types.Pretty
@@ -271,7 +271,7 @@ setupClient :: SimConfig -> IO ClientEnv
 setupClient sc = flip mkClientEnv (scApiHostUrl sc) <$> newTlsManagerWith mgrSettings
   where
     mgrSettings = mkManagerSettings
-        (TLSSettingsSimple True False False defaultSupportedTlsSettings)
+        (TLSSettingsSimple True False False HTTP.defaultSupported)
         Nothing
 
 -- | note, fetches [low - 1, hi] to have parent headers
