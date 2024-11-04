@@ -139,9 +139,9 @@ source-repository-package
 -- Required for non-canonical decode in base64-bytestring (remove after 2.20 fork)
 source-repository-package
     type: git
-    location: https://github.com/emilypi/base64-bytestring-kadena
-    tag: 174af3523616c8fe01449da5ccbb9f16df097ac3
-    --sha256: 0grssxgjygi4ijiqaa87diwv6sdqz77hldf3lr4k7p93w35lhlci
+    location: https://github.com/kadena-io/base64-bytestring-kadena
+    tag: 90247042ab3b8662809210af2a78e6dee0f9b4ac
+    --sha256: 0dqsrjxm0cm35xcihm49dhwdvmz79vsv4sd5qs2izc4sbnd0d8n6
 
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
