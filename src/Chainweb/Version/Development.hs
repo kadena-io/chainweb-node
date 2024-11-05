@@ -33,7 +33,7 @@ devnet = ChainwebVersion
     , _versionName = ChainwebVersionName "development"
     , _versionForks = tabulateHashMap $ \_ -> AllChains ForkAtGenesis
     , _versionUpgrades = AllChains mempty
-    , _versionGraphs = End twentyChainGraph
+    , _versionGraphs = Bottom (minBound, twentyChainGraph)
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
@@ -49,7 +49,7 @@ devnet = ChainwebVersion
 
     -- still the *default* block gas limit is set, see
     -- defaultChainwebConfiguration._configBlockGasLimit
-    , _versionMaxBlockGasLimit = End Nothing
+    , _versionMaxBlockGasLimit = Bottom (minBound, Nothing)
     , _versionCheats = VersionCheats
         { _disablePow = True
         , _fakeFirstEpochStart = True
@@ -59,8 +59,8 @@ devnet = ChainwebVersion
         { _disablePeerValidation = True
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = AllChains $ End
-        $ Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow"]
+    , _versionVerifierPluginNames = AllChains $ Bottom
+        (minBound, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow"])
     , _versionQuirks = noQuirks
     , _versionServiceDate = Nothing
     }

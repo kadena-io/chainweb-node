@@ -89,7 +89,7 @@ recapDevnet = ChainwebVersion
 
     , _versionGraphs =
         (to20ChainsHeight, twentyChainGraph) `Above`
-        End petersonChainGraph
+        Bottom (minBound, petersonChainGraph)
 
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
@@ -108,7 +108,7 @@ recapDevnet = ChainwebVersion
             ]
         }
 
-    , _versionMaxBlockGasLimit = End (Just 180_000)
+    , _versionMaxBlockGasLimit = Bottom (minBound, Just 180_000)
     , _versionCheats = VersionCheats
         { _disablePow = False
         , _fakeFirstEpochStart = True
@@ -120,7 +120,7 @@ recapDevnet = ChainwebVersion
         }
     , _versionVerifierPluginNames = AllChains $
         (600, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow"]) `Above`
-        End mempty
+        Bottom (minBound, mempty)
     , _versionQuirks = noQuirks
     , _versionServiceDate = Nothing
     }
