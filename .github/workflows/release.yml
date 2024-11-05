@@ -46,7 +46,7 @@ jobs:
       VERSION_OLD: ${{ steps.set-vars.outputs.VERSION_OLD }}
       IMAGE: ${{ steps.set-vars.outputs.IMAGE }}
       GHC_VERSION: ${{ steps.set-ghc-version.outputs.GHC_VERSION }}
-      UBUNTU_VERSION: ${{ steps.set-ghc-version.outputs.OS_VERSION }}
+      UBUNTU_VERSION: ${{ steps.set-ghc-version.outputs.UBUNTU_VERSION }}
     steps:
     # if this plugin is bad we just override it
 #       - name: Bump version and push tag
