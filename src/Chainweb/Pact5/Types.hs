@@ -173,6 +173,8 @@ localLabelBlock lbl x = do
 
 -- -------------------------------------------------------------------------- --
 -- Default Values
+--
+-- TODO: move to Pact5
 
 noInfo :: Pact5.Info
 noInfo = Pact5.LineInfo 0

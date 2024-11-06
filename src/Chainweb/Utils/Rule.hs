@@ -103,16 +103,6 @@ ruleElems :: h -> Rule h a -> NE.NonEmpty (h, a)
 ruleElems h (End a) = (h, a) NE.:| []
 ruleElems he (Above (h, a) t) = (h, a) `NE.cons` ruleElems he t
 
--- | Returns the elements of the Rule in ascending order.
---
--- This does not stream. Accessing the first element takes O(n) time.
---
-ruleElemsAsc :: h -> Rule h a -> NE.NonEmpty (h, a)
-ruleElemsAsc he = go []
-  where
-    go acc (End a) = (he, a) NE.:| acc
-    go acc (Above (h, a) t) = go ((h, a) : acc) t
-
 -- | Measures a monotone condition on a value. It tells you when a condition
 -- started to be true most recently (it ignores any previous history).
 --
