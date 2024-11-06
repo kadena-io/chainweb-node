@@ -614,7 +614,13 @@ newSession :: P2pConfiguration -> P2pNode -> IO ()
 newSession conf node = do
     newPeer <- findNextPeer conf node
     let newPeerInfo = _peerEntryInfo newPeer
-    logg node Debug $ "Selected new peer " <> encodeToText newPeer
+    logg node Debug
+        $ "Selected new peer " <> encodeToText newPeerInfo <> ", "
+        <> encodeToText (_peerEntryActiveSessionCount newPeer) <> "# sessions, "
+        <> if _getPeerEntrySticky (_peerEntrySticky newPeer) then "sticky, " else "not sticky, "
+        <> encodeToText (_peerEntrySuccessiveFailures newPeer) <> "consec. failures, "
+        <> encodeToText (_peerEntryLastSuccess newPeer) <> "last success"
+
     syncFromPeer_ newPeerInfo >>= \case
         False -> do
             threadDelay =<< R.randomRIO (400000, 500000)
