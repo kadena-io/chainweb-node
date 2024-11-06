@@ -24,6 +24,7 @@ import Control.Lens
 
 import Pact.Types.Runtime (ModuleData)
 import Pact.Types.Term
+import qualified Pact.Utils.StableHashMap as SHM
 
 -- internal chainweb modules
 
@@ -33,7 +34,6 @@ import Chainweb.ChainId
 import Chainweb.Version
 
 import qualified Pact.JSON.Legacy.HashMap as LHM
-import qualified Data.HashMap.Strict as HM
 
 -- | Block scoped Module Cache
 --
@@ -50,14 +50,14 @@ filterModuleCacheByKey f (ModuleCache c) = ModuleCache $
 
 moduleCacheToHashMap
     :: ModuleCache
-    -> HM.HashMap ModuleName (ModuleData Ref, Bool)
-moduleCacheToHashMap (ModuleCache c) = HM.fromList $ LHM.toList c
+    -> SHM.StableHashMap ModuleName (ModuleData Ref, Bool)
+moduleCacheToHashMap (ModuleCache c) = SHM.fromList $ LHM.toList c
 {-# INLINE moduleCacheToHashMap #-}
 
 moduleCacheFromHashMap
-    :: HM.HashMap ModuleName (ModuleData Ref, Bool)
+    :: SHM.StableHashMap ModuleName (ModuleData Ref, Bool)
     -> ModuleCache
-moduleCacheFromHashMap = ModuleCache . LHM.fromList . HM.toList
+moduleCacheFromHashMap = ModuleCache . LHM.fromList . SHM.toList
 {-# INLINE moduleCacheFromHashMap #-}
 
 moduleCacheKeys :: ModuleCache -> [ModuleName]
