@@ -46,6 +46,7 @@ jobs:
       VERSION_OLD: ${{ steps.set-vars.outputs.VERSION_OLD }}
       IMAGE: ${{ steps.set-vars.outputs.IMAGE }}
       GHC_VERSION: ${{ steps.set-ghc-version.outputs.GHC_VERSION }}
+      UBUNTU_VERSION: ${{ steps.set-ghc-version.outputs.UBUNTU_VERSION }}
     steps:
     # if this plugin is bad we just override it
 #       - name: Bump version and push tag
@@ -83,12 +84,18 @@ jobs:
       - name: Get ghc version
         id: set-ghc-version
         run: |
-          VERSION=$(grep -Po '(?<="ghc": \[")(\d\.\d\.\d)' .github/workflows/applications.yml | head -1)
-            if [[ -z $VERSION ]]; then
-              echo "Unable to get version from chainweb node build"
+          VERSION_GHC=$(grep -Po '(?<="ghc": \[")(\d\.\d\.\d)' .github/workflows/applications.yml | head -1)
+            if [[ -z $VERSION_GHC ]]; then
+              echo "Unable to get GHC version from chainweb node build"
               exit 1
             fi
-          echo "GHC_VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "GHC_VERSION=$VERSION_GHC" >> $GITHUB_OUTPUT
+          VERSION_OS=$(grep -Po '(?<="os": \[")(ubuntu-\d+\.\d+)' .github/workflows/applications.yml | head -1)
+            if [[ -z $VERSION_OS ]]; then
+              echo "Unable to get Ubuntu version from chainweb node build"
+              exit 1
+            fi
+          echo "UBUNTU_VERSION=$VERSION_OS" >> $GITHUB_OUTPUT
 
   chainweb-node-dockerhub:
     uses: kadena-io/chainweb-node-docker/.github/workflows/dockerhub_release.yml@master
@@ -111,6 +118,7 @@ jobs:
       VERSION_OLD: ${{ needs.release_vars.outputs.VERSION_OLD }}
       RELEASE_SHA: ${{  needs.release_vars.outputs.RELEASE_SHA }}
       GHC_VERSION: ${{ needs.release_vars.outputs.GHC_VERSION }}
+      UBUNTU_VERSION: ${{ needs.release_vars.outputs.UBUNTU_VERSION }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -155,34 +163,22 @@ jobs:
       - name: run release script to generate images
         id: repack-binaries
         run: |
-          GHC_VER=${{ env.GHC_VERSION }}
+          UBUNTU_TAR=chainweb.true.$GHC_VERSION.$UBUNTU_VERSION.$SHORT_REVISION.tar.gz
 
-          UBUNTU_20_TAR=chainweb.true.$GHC_VER.ubuntu-20.04.$SHORT_REVISION.tar.gz
-          UBUNTU_22_TAR=chainweb.true.$GHC_VER.ubuntu-22.04.$SHORT_REVISION.tar.gz
+          UBUNTU_NODE=chainweb-$VERSION_NEW.ghc-$GHC_VERSION.$UBUNTU_VERSION.$SHORT_REVISION.tar.gz
+          echo $UBUNTU_TAR
+          echo $UBUNTU_NODE
 
-          UBUNTU_20_NODE=chainweb-$VERSION_NEW.ghc-$GHC_VER.ubuntu-20.04.$SHORT_REVISION.tar.gz
-          UBUNTU_22_NODE=chainweb-$VERSION_NEW.ghc-$GHC_VER.ubuntu-22.04.$SHORT_REVISION.tar.gz
-          echo $UBUNTU_22_TAR
-          echo $UBUNTU_22_NODE
+          curl "s3.us-east-1.amazonaws.com/kadena-cabal-cache/chainweb-node/$UBUNTU_TAR" -o "./$UBUNTU_TAR"
 
-          curl "s3.us-east-1.amazonaws.com/kadena-cabal-cache/chainweb-node/$UBUNTU_20_TAR" -o "./$UBUNTU_20_TAR"
-          curl "s3.us-east-1.amazonaws.com/kadena-cabal-cache/chainweb-node/$UBUNTU_22_TAR" -o "./$UBUNTU_22_TAR"
-
-          tar xvfz "$UBUNTU_20_TAR" chainweb
+          tar xvfz "$UBUNTU_TAR" chainweb
           mv chainweb/{LICENSE,README.md,chainweb-node,compact} .
-          tar cvfz "$UBUNTU_20_NODE" LICENSE README.md chainweb-node compact
+          tar cvfz "$UBUNTU_NODE" LICENSE README.md chainweb-node compact
           rm -fr chainweb-node chainweb
 
-          tar xvfz "$UBUNTU_22_TAR" chainweb
-          mv chainweb/{LICENSE,README.md,chainweb-node,compact} .
-          tar cvfz "$UBUNTU_22_NODE" LICENSE README.md chainweb-node compact
-          rm -fr chainweb-node chainweb
-
-          echo "UBUNTU_20_SHA=$(shasum -a 256 $UBUNTU_20_NODE)" >> $GITHUB_ENV
-          echo "UBUNTU_22_SHA=$(shasum -a 256 $UBUNTU_22_NODE)" >> $GITHUB_ENV
-          shasum -a 256 "$UBUNTU_22_NODE"
-          echo "UBUNTU_20_NODE=$UBUNTU_20_NODE" >> $GITHUB_ENV
-          echo "UBUNTU_22_NODE=$UBUNTU_22_NODE" >> $GITHUB_ENV
+          echo "UBUNTU_SHA=$(shasum -a 256 $UBUNTU_NODE)" >> $GITHUB_ENV
+          shasum -a 256 "$UBUNTU_NODE"
+          echo "UBUNTU_NODE=$UBUNTU_NODE" >> $GITHUB_ENV
 
       #- name: generate release message
       # could generate this from the changelog.md, though changelog.md could be itself generated...
@@ -191,8 +187,7 @@ jobs:
       - name: Generate release message
         continue-on-error: true
         env:
-          UBUNTU_22_NODE: ${{ env.UBUNTU_22_NODE }}
-          UBUNTU_20_NODE: ${{ env.UBUNTU_20_NODE }}
+          UBUNTU_NODE: ${{ env.UBUNTU_NODE }}
           GHCR_DIGEST: ${{ env.GHCR_DIGEST }}
         run: |
           pwd
@@ -210,7 +205,7 @@ jobs:
             docker pull kadena/chainweb-node:${{ env.VERSION_NEW }}
             ```
 
-            *   [Binary-only Ubuntu-20.04 ](ghcr.io/kadena-io/chainweb-node/ubuntu:${{ env.VERSION_NEW }})
+            *   [Binary-only $UBUNTU_VERSION ](ghcr.io/kadena-io/chainweb-node/ubuntu:${{ env.VERSION_NEW }})
             Image Digest: `${{ env.GHCR_DIGEST }}`
             ```sh
             docker pull ghcr.io/kadena-io/chainweb-node/ubuntu:${{ env.VERSION_NEW }}
@@ -221,15 +216,14 @@ jobs:
             SHA256 Hashes
 
             ```
-            ${{ env.UBUNTU_22_SHA }}
-            ${{ env.UBUNTU_20_SHA }}
+            $UBUNTU_VERSION: ${{ env.UBUNTU_SHA }}
             ```
 
             The following dependencies must be installed on the system:
 
-            *   ubuntu-22.04:
+            *   $UBUNTU_VERSION:
                 ```sh
-                apt install ca-certificates libgmp10 libssl3 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd libmpfr6 locales
+                apt-get install ca-certificates libgmp10 libssl3 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd libmpfr6 locales
                 ```
      
           ' >> CHANGELOG.md
@@ -240,7 +234,7 @@ jobs:
         #if: startsWith(github.ref, 'refs/tags/')
         with:
           bodyFile: CHANGELOG.md
-          artifacts: "${{ env.UBUNTU_20_NODE }},${{ env.UBUNTU_22_NODE }}"
+          artifacts: "${{ env.UBUNTU_NODE }}"
           token: ${{ github.token }}
           tag: ${{ env.VERSION_NEW }}
           commit: ${{ env.RELEASE_SHA }}
