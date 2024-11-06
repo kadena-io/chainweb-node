@@ -445,6 +445,10 @@ syncFromPeer node info = do
                 return False
             | otherwise -> do
                 logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> showClientError e
+                -- incrementSuccessiveFailures here helps reduce redundant synchronisation attempts
+                -- by a significant margin, from limited experimentation. More in-depth experimentation
+                -- is still to be done.
+                incrementSuccessiveFailures peerDb info
                 return False
         Right p -> do
             peers <- peerDbSnapshot peerDb
@@ -510,7 +514,7 @@ findNextPeer conf node = do
     -- random circular shift of a set
     let shift i = uncurry (++)
             . swap
-            . splitAt (fromIntegral i)
+            . splitAt i
 
         shiftR s = do
             i <- nodeRandomR node (0, max 1 (length s) - 1)
