@@ -87,8 +87,8 @@ source-repository-package
     type: git
     location: https://github.com/kadena-io/pact-5.git
     -- location: file:///Users/josecardona/kadena/pact-core
-    tag: 9a2fc55fa403bced5c499e267268f05d18717c21
-    --sha256: 1b3m5ay8jmj20b2jgd3j7z9ccncpyykazay3mgyp8q39rpjmg20a
+    tag: f2628e7ea3c74eedbaa42aa54b22d832ecef45fd
+    --sha256: 06w87n5znwpw25g6xw5d33224h30kqrlmd66dwn3dd55bzf8i6mr
 
 source-repository-package
     type: git
