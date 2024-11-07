@@ -368,7 +368,7 @@ library
         , configuration-tools >= 0.6
         , containers >= 0.5
         , crypton >= 0.31
-        , crypton-connection >= 0.4
+        , crypton-connection >= 0.4.2
         , crypton-x509 >=1.7
         , crypton-x509-system >=1.6
         , crypton-x509-validation >=1.6
@@ -513,7 +513,7 @@ library chainweb-test-utils
         , case-insensitive >= 1.2
         , chainweb-storage >= 0.1
         , chronos >= 1.1
-        , crypton-connection >=0.4
+        , crypton-connection >=0.4.2
         , containers >= 0.5
         , crypton >= 0.31
         , data-dword >= 0.3
@@ -854,7 +854,7 @@ executable cwtool
         , configuration-tools >= 0.6
         , containers >= 0.5
         , crypton >= 0.31
-        , crypton-connection >=0.4
+        , crypton-connection >=0.4.2
         , digraph >= 0.2.3
         , direct-sqlite >= 2.3.27
         , directory >= 1.3
