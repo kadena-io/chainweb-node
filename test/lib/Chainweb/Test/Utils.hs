@@ -164,6 +164,7 @@ import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTP
 import qualified Network.HTTP.Types as HTTP
 import Network.Socket (close)
+import qualified Network.TLS as HTTP
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
 import Network.Wai.Handler.WarpTLS as W (runTLSSocket)
@@ -1163,7 +1164,7 @@ getClientEnv :: BaseUrl -> IO ClientEnv
 getClientEnv url = flip mkClientEnv url <$> HTTP.newTlsManagerWith mgrSettings
     where
       mgrSettings = HTTP.mkManagerSettings
-       (HTTP.TLSSettingsSimple True False False defaultSupportedTlsSettings)
+       (HTTP.TLSSettingsSimple True False False HTTP.defaultSupported)
        Nothing
 
 -- | Backoff up to a constant 250ms, limiting to ~40s

@@ -85,8 +85,8 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 058da315f7b427ad5dcaa334683600a1f7fd9588
-    --sha256: 105jbsvrjv2zxsazd3vcbkml99w26xqimwjybfiznkg21456d6hn
+    tag: 1027a1f5fd0439c58522921e3a0532c4f5867a24
+    --sha256: 18xgvzb3p8chch85747ln9a2191df09vwwrv9v3njr2h69n3rhxj
 
 source-repository-package
     type: git
@@ -241,7 +241,7 @@ allow-newer: base-compat-batteries:*
 allow-newer: webauthn:*
 
 -- many packages use an spurious <1.5 upper bound on hashable
--- allow-newer: *:hashable
+allow-newer: *:hashable
 
 allow-newer: lrucaching:base-compat
 
@@ -253,7 +253,6 @@ constraints: happy < 2
 
 -- remove when crypton-connection >0.4.1 got released
 constraints: http-client-tls <0.3.6.4
-constraints: hashable < 1.4.5
 
 -- This is needed on GHC <9.10.1 due to a bug (either in GHC or cabal) it
 -- that Cabal and Cabal-syntax are compatible.

@@ -16,7 +16,6 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
 
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.List (intercalate)
 import qualified Data.Text as T
@@ -32,6 +31,7 @@ import System.LogLevel
 
 import Pact.Types.Runtime (mdModule)
 import Pact.Types.Term
+import qualified Pact.Utils.StableHashMap as SHM
 
 -- chainweb imports
 
@@ -69,7 +69,7 @@ type RewindPoint = (BlockHeader, PayloadWithOutputs)
 data RewindData = RewindData
   { afterV4 :: RewindPoint
   , beforeV4 :: RewindPoint
-  , v3Cache :: HM.HashMap ModuleName (Maybe ModuleHash)
+  , v3Cache :: SHM.StableHashMap ModuleName (Maybe ModuleHash)
   } deriving Generic
 
 instance NFData RewindData
@@ -226,12 +226,12 @@ testCw217CoinOnly iobdb _rewindM = (go, go')
         Nothing -> assertFailure "failed to lookup block at 20"
 
 assertNoCacheMismatch
-    :: HM.HashMap ModuleName (Maybe ModuleHash)
-    -> HM.HashMap ModuleName (Maybe ModuleHash)
+    :: SHM.StableHashMap ModuleName (Maybe ModuleHash)
+    -> SHM.StableHashMap ModuleName (Maybe ModuleHash)
     -> Assertion
 assertNoCacheMismatch c1 c2 = assertBool msg $ c1 == c2
   where
-    showCache = intercalate "\n" . map show . HM.toList
+    showCache = intercalate "\n" . map show . SHM.toList
     msg = mconcat
       [
       "Module cache mismatch, found: \n"
@@ -268,10 +268,10 @@ doNextCoinbaseN_
 doNextCoinbaseN_ n iobdb = fmap last $ replicateM n $ doNextCoinbase iobdb
 
 -- | Interfaces can't be upgraded, but modules can, so verify hash in that case.
-justModuleHashes :: ModuleInitCache -> HM.HashMap ModuleName (Maybe ModuleHash)
+justModuleHashes :: ModuleInitCache -> SHM.StableHashMap ModuleName (Maybe ModuleHash)
 justModuleHashes = justModuleHashes' . snd . last . M.toList
 
-justModuleHashes' :: Pact4.ModuleCache -> HM.HashMap ModuleName (Maybe ModuleHash)
+justModuleHashes' :: Pact4.ModuleCache -> SHM.StableHashMap ModuleName (Maybe ModuleHash)
 justModuleHashes' =
     fmap (preview (_1 . mdModule . _MDModule . mHash)) . Pact4.moduleCacheToHashMap
 
