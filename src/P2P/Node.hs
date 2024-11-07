@@ -437,7 +437,7 @@ peerClientEnv node = peerInfoClientEnv (_p2pNodeManager node)
 --
 syncFromPeer :: P2pNode -> PeerInfo -> IO Bool
 syncFromPeer node info = do
-    prunePeerDb peerDb
+    prunePeerDb (_p2pNodeLogFunction node) peerDb
     runClientM sync env >>= \case
         Left e
             | isCertMismatch e -> do
