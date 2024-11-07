@@ -14,6 +14,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE RankNTypes #-}
 
 -- |
 -- Module: P2P.Node.PeerDB
@@ -31,6 +32,7 @@ module P2P.Node.PeerDB
 , SuccessiveFailures(..)
 , AddedTime(..)
 , ActiveSessionCount(..)
+, PeerEntrySticky(..)
 , HostAddressIdx
 , hostAddressIdx
 
@@ -81,7 +83,7 @@ import Control.Concurrent.MVar
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
 import Control.Lens hiding (Indexable)
-import Control.Monad ((<$!>))
+import Control.Monad ((<$!>), unless)
 import Control.Monad.STM
 
 import Data.Aeson
@@ -115,6 +117,10 @@ import Chainweb.Version
 import Data.Singletons
 
 import P2P.Peer
+import qualified Data.IxSet.Typed as IxSet
+import Data.LogMessage
+import System.LogLevel
+import Data.Text (Text)
 
 -- -------------------------------------------------------------------------- --
 -- Peer Database Entry
@@ -134,6 +140,10 @@ newtype AddedTime = AddedTime { _getAddedTime :: UTCTime }
 newtype ActiveSessionCount = ActiveSessionCount { _getActiveSessionCount :: Natural }
     deriving (Show, Eq, Ord, Generic)
     deriving newtype (ToJSON, FromJSON, Num, Enum, NFData)
+
+newtype PeerEntrySticky = PeerEntrySticky { _getPeerEntrySticky :: Bool }
+    deriving (Show, Eq, Ord, Generic)
+    deriving newtype (ToJSON, FromJSON, Enum, NFData)
 
 data PeerEntry = PeerEntry
     { _peerEntryInfo :: !PeerInfo
@@ -162,7 +172,7 @@ data PeerEntry = PeerEntry
 --         -- ^ Count the number of sessions. When this number becomes to high
 --         -- we should
 
-    , _peerEntrySticky :: !Bool
+    , _peerEntrySticky :: !PeerEntrySticky
         -- ^ A flag that indicates whether this entry can not be pruned form the
         -- db
         --
@@ -176,7 +186,8 @@ newPeerEntry :: NetworkId -> PeerInfo -> PeerEntry
 newPeerEntry = newPeerEntry_ False
 
 newPeerEntry_ :: Bool -> NetworkId -> PeerInfo -> PeerEntry
-newPeerEntry_ sticky nid i = PeerEntry i 0 (LastSuccess Nothing) (S.singleton nid) 0 sticky
+newPeerEntry_ sticky nid i =
+    PeerEntry i 0 (LastSuccess Nothing) (S.singleton nid) 0 (PeerEntrySticky sticky)
 
 -- -------------------------------------------------------------------------- --
 -- Peer Entry Set
@@ -200,6 +211,7 @@ type PeerEntryIxs =
     , LastSuccess
     , NetworkId
     , ActiveSessionCount
+    , PeerEntrySticky
     ]
 
 instance Indexable PeerEntryIxs PeerEntry where
@@ -209,6 +221,7 @@ instance Indexable PeerEntryIxs PeerEntry where
         (ixFun $ \e -> [_peerEntryLastSuccess e])
         (ixFun $ \e -> F.toList (_peerEntryNetworkIds e))
         (ixFun $ \e -> [_peerEntryActiveSessionCount e])
+        (ixFun $ \e -> [_peerEntrySticky e])
 
 type PeerSet = IxSet PeerEntryIxs PeerEntry
 
@@ -251,7 +264,7 @@ addPeerEntry b m = m & case getOne (getEQ addr m) of
         , _peerEntryLastSuccess = max (_peerEntryLastSuccess a) (_peerEntryLastSuccess b)
         , _peerEntryNetworkIds = _peerEntryNetworkIds a <> _peerEntryNetworkIds b
         , _peerEntryActiveSessionCount = _peerEntryActiveSessionCount a + _peerEntryActiveSessionCount b
-        , _peerEntrySticky = False
+        , _peerEntrySticky = PeerEntrySticky False
         }
 
 -- | Add a 'PeerInfo' to an existing 'PeerSet'.
@@ -282,7 +295,7 @@ deletePeer
     -> PeerSet
 deletePeer i True s = deleteIx (_peerAddr i) s
 deletePeer i False s = case _peerEntrySticky <$> getOne (getEQ (_peerAddr i) s) of
-    Just True -> s
+    Just (PeerEntrySticky True) -> s
     _ -> deleteIx (_peerAddr i) s
 
 insertPeerEntryList :: [PeerEntry] -> PeerSet -> PeerSet
@@ -369,19 +382,22 @@ peerDbDelete_ (PeerDb _ _ _ lock var) forceSticky i = withMVar lock
 -- 2. we haven't used since 12h, and that
 -- 3. have had more than 5 failed connection attempts.
 --
-prunePeerDb :: PeerDb -> IO ()
-prunePeerDb (PeerDb _ _ _ lock var) = do
+prunePeerDb :: LogFunction -> PeerDb -> IO ()
+prunePeerDb lg (PeerDb _ _ _ lock var) = do
+    now <- getCurrentTime
     withMVar lock $ \_ -> do
-        now <- getCurrentTime
-        let cutoff = Just $ addUTCTime ((-60) * 60 * 12) now
-        atomically $ modifyTVar' var $ \s ->
-            getGT (ActiveSessionCount 0) s
-            |||
-            getLTE (SuccessiveFailures 5) s
-            |||
-            getGT (LastSuccess cutoff) s
-            |||
-            fromList (filter _peerEntrySticky $ toList s)
+        deletes <- atomically $ do
+            s <- readTVar var
+            let cutoff = Just $ addUTCTime ((-60) * 60 * 12) now
+            let deletes = s
+                    IxSet.@> SuccessiveFailures 5
+                    IxSet.@< LastSuccess cutoff
+                    IxSet.@= ActiveSessionCount 0
+                    IxSet.@= PeerEntrySticky False
+            writeTVar var $! s IxSet.\\\ deletes
+            return deletes
+        unless (IxSet.null deletes) $
+            lg @Text Info $ "Pruned peers: " <> sshow (_peerAddr . _peerEntryInfo <$> IxSet.toList deletes)
 
 peerDbInsertList :: [PeerEntry] -> PeerDb -> IO ()
 peerDbInsertList _ (PeerDb True _ _ _ _) = return ()

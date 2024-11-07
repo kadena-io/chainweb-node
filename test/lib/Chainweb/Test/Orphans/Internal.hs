@@ -250,6 +250,7 @@ deriving newtype instance Arbitrary LastSuccess
 deriving newtype instance Arbitrary SuccessiveFailures
 deriving newtype instance Arbitrary AddedTime
 deriving newtype instance Arbitrary ActiveSessionCount
+deriving newtype instance Arbitrary PeerEntrySticky
 deriving via (NonEmptyList Int) instance Arbitrary NodeVersion
 
 instance Arbitrary X509KeyPem where
