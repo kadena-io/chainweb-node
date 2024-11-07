@@ -1,6 +1,7 @@
 packages:
     chainweb.cabal
     node/chainweb-node.cabal
+    chainweb-beacon/chainweb-beacon.cabal
 
 debug-info: True
 

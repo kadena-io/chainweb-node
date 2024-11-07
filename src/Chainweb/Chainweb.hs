@@ -421,12 +421,12 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                     x
             )
 
-        -- initialize global resources after all chain resources are initialized
-        (\cs -> do
-            logg Debug "finished initializing chain resources"
-            global (HM.fromList $ zip cidsList cs)
-        )
-        cidsList
+            -- initialize global resources after all chain resources are initialized
+            (\cs -> do
+                logg Debug "finished initializing chain resources"
+                global (HM.fromList $ zip cidsList cs)
+            )
+            cidsList
   where
     pactConfig maxGasLimit = PactServiceConfig
       { _pactReorgLimit = _configReorgLimit conf
