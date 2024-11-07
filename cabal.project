@@ -251,9 +251,6 @@ allow-newer: lrucaching:base-compat
 -- Pact 5 has an upper bound on happy
 constraints: happy < 2
 
--- remove when crypton-connection >0.4.1 got released
-constraints: http-client-tls <0.3.6.4
-
 -- This is needed on GHC <9.10.1 due to a bug (either in GHC or cabal) it
 -- that Cabal and Cabal-syntax are compatible.
 constraints: Cabal <=3.12.1.0
