@@ -116,16 +116,21 @@ import Pact.Core.Builtin qualified as Pact5
 import Pact.Core.Evaluate qualified as Pact5
 import Chainweb.Pact.ReflectingDb (mkReflectingDb)
 
+mkReflectingDbEnv :: PactBlockM logger tbl (CurrentBlockDbEnv logger, Pact5.PactDb Pact5.CoreBuiltin Pact5.Info)
+mkReflectingDbEnv = do
+  dbEnv <- view psBlockDbEnv
+  (reflecting4Db, reflected5Db) <- liftIO $ mkReflectingDb (pdPactDb (_cpPactDbEnv dbEnv))
+  let dbEnv' = dbEnv { _cpPactDbEnv = (_cpPactDbEnv dbEnv) { pdPactDb = reflecting4Db } }
+  return (dbEnv', reflected5Db)
+
 execBlockReflecting
     :: (CanReadablePayloadCas tbl, Logger logger)
     => BlockHeader
     -> CheckablePayload
-    -> PactBlockM logger tbl (Pact4.Gas, PayloadWithOutputs, Pact5.PactDb Pact5.CoreBuiltin Pact5.Info)
+    -> PactBlockM logger tbl (Pact4.Gas, PayloadWithOutputs, Map.Map Pact4.RequestKey (Pact5.PactDb Pact5.CoreBuiltin Pact5.Info))
 execBlockReflecting currHeader payload = do
     let plData = checkablePayloadToPayloadData payload
-    dbEnv' <- view psBlockDbEnv
-    (reflecting4Db, reflected5Db) <- liftIO $ mkReflectingDb (pdPactDb (_cpPactDbEnv dbEnv'))
-    let dbEnv = dbEnv' { _cpPactDbEnv = (_cpPactDbEnv dbEnv') { pdPactDb = reflecting4Db } }
+    dbEnv <- view psBlockDbEnv
     miner <- decodeStrictOrThrow' (_minerData $ view payloadDataMiner plData)
 
     trans <- liftIO $ pact4TransactionsFromPayload
@@ -156,13 +161,17 @@ execBlockReflecting currHeader payload = do
 
     logInitCache
 
-    !results <- local (\blockEnv -> blockEnv { _psBlockDbEnv = dbEnv }) (go miner trans >>= throwCommandInvalidError)
+    (!results, !reflectedDbs) <- local (\blockEnv -> blockEnv { _psBlockDbEnv = dbEnv }) $ do
+      (resultsWithErrs, dbs) <- go miner trans
+      resultsWithoutErrs <- throwCommandInvalidError resultsWithErrs
+      pure (resultsWithoutErrs, dbs)
 
     let !totalGasUsed = sumOf (folded . to Pact4._crGas) results
 
     pwo <- either throwM return $
       validateHashes currHeader payload miner results
-    return (totalGasUsed, pwo, reflected5Db)
+
+    return (totalGasUsed, pwo, reflectedDbs)
   where
     blockGasLimit =
       fromIntegral <$> maxBlockGasLimit v (view blockHeight currHeader)
@@ -181,11 +190,11 @@ execBlockReflecting currHeader payload = do
     go m txs = if isGenesisBlock
       then
         -- GENESIS VALIDATE COINBASE: Reject bad coinbase, use date rule for precompilation
-        execTransactions m txs
+        execTransactionsReflecting m txs
           (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) blockGasLimit Nothing
       else
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
-        execTransactions m txs
+        execTransactionsReflecting m txs
           (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) blockGasLimit Nothing
 
 -- | Execute a block -- only called in validate either for replay or for validating current block.
@@ -448,6 +457,24 @@ execTransactions miner ctxs enfCBFail usePrecomp gasLimit timeLimit = do
     T2 txOuts _mcOut <- applyPactCmds ctxs miner mc gasLimit timeLimit
     return $! Transactions (V.zip ctxs txOuts) coinOut
 
+execTransactionsReflecting
+    :: (Logger logger)
+    => Miner
+    -> Vector Pact4.Transaction
+    -> EnforceCoinbaseFailure
+    -> CoinbaseUsePrecompiled
+    -> Maybe Pact4.Gas
+    -> Maybe Micros
+    -> PactBlockM logger tbl (Transactions Pact4 (Either CommandInvalidError (Pact4.CommandResult [Pact4.TxLogJson])), Map.Map Pact4.RequestKey (Pact5.PactDb Pact5.CoreBuiltin Pact5.Info))
+execTransactionsReflecting miner ctxs enfCBFail usePrecomp gasLimit timeLimit = do
+    liftPactServiceM $ logErrorPact "execTransactionsReflecting"
+    mc <- initModuleCacheForBlock
+    -- for legacy reasons (ask Emily) we don't use the module cache resulting
+    -- from coinbase to run the pact cmds
+    (dbEnv0, coinOut) <- runPact4CoinbaseReflecting miner enfCBFail usePrecomp mc
+    T3 txOuts _mcOut reflections <- applyPactCmdsReflecting dbEnv0 ctxs miner mc gasLimit timeLimit
+    return $! (Transactions (V.zip ctxs txOuts) coinOut, reflections)
+
 initModuleCacheForBlock :: (Logger logger) => PactBlockM logger tbl ModuleCache
 initModuleCacheForBlock = do
   PactServiceState{..} <- get
@@ -496,6 +523,39 @@ runPact4Coinbase miner enfCBFail usePrecomp mc = do
       liftPactServiceM $ logInfoPact "Updating init cache for upgrade"
       updateInitCacheM newCache
 
+runPact4CoinbaseReflecting
+    :: (Logger logger)
+    => Miner
+    -> EnforceCoinbaseFailure
+    -> CoinbaseUsePrecompiled
+    -> ModuleCache
+    -> PactBlockM logger tbl (CurrentBlockDbEnv logger, Pact4.CommandResult [Pact4.TxLogJson])
+runPact4CoinbaseReflecting miner enfCBFail usePrecomp mc = do
+    isGenesis <- view psIsGenesis
+    if isGenesis
+    then return (error "runPact4CoinbaseReflecting: shouldn't be run at genesis", noCoinbase)
+    else do
+      logger <- view (psServiceEnv . psLogger)
+      rs <- view (psServiceEnv . psMinerRewards)
+      v <- view chainwebVersion
+      txCtx <- getTxContext miner def
+
+      let !bh = ctxCurrentBlockHeight txCtx
+
+      reward <- liftIO $! minerReward v rs bh
+      (reflectingDbEnv, _reflectedDb) <- mkReflectingDbEnv
+      let pactDb = _cpPactDbEnv reflectingDbEnv
+
+      T2 cr upgradedCacheM <-
+          liftIO $ Pact4.applyCoinbase v logger pactDb reward txCtx enfCBFail usePrecomp mc
+      mapM_ upgradeInitCache upgradedCacheM
+      liftPactServiceM $ debugResult "runPact4Coinbase" (Pact4.crLogs %~ fmap J.Array $ cr)
+      return (reflectingDbEnv, cr)
+
+  where
+    upgradeInitCache newCache = do
+      liftPactServiceM $ logInfoPact "Updating init cache for upgrade"
+      updateInitCacheM newCache
 
 data CommandInvalidError
   = CommandInvalidGasPurchaseFailure !Pact4GasPurchaseFailure
@@ -538,6 +598,59 @@ applyPactCmds cmds miner startModuleCache blockGas txTimeLimit = do
                     go (Left e : acc) rest
                 Right a -> do
                     go (Right a : acc) rest
+
+applyPactCmdsReflecting
+    :: forall logger tbl. (Logger logger)
+    => CurrentBlockDbEnv logger
+    -> Vector Pact4.Transaction
+    -> Miner
+    -> ModuleCache
+    -> Maybe Pact4.Gas
+    -> Maybe Micros
+    -> PactBlockM logger tbl (T3 (Vector (Either CommandInvalidError (Pact4.CommandResult [Pact4.TxLogJson]))) ModuleCache (Map.Map Pact4.RequestKey (Pact5.PactDb Pact5.CoreBuiltin Pact5.Info)))
+applyPactCmdsReflecting dbEnv0 cmds miner startModuleCache blockGas txTimeLimit = do
+    liftPactServiceM $ logErrorPact "applyPactCmdsReflecting"
+    ((txOuts, reflectedDbs), T2 mcOut _) <- flip runStateT (T2 startModuleCache blockGas) $ go dbEnv0 Map.empty [] (V.toList cmds)
+    return $! T3 (V.fromList . List.reverse $ txOuts) mcOut reflectedDbs
+  where
+    go
+      :: CurrentBlockDbEnv logger
+      -> Map.Map Pact4.RequestKey (Pact5.PactDb Pact5.CoreBuiltin Pact5.Info)
+      -> [Either CommandInvalidError (Pact4.CommandResult [Pact4.TxLogJson])]
+      -> [Pact4.Transaction]
+      -> StateT
+          (T2 ModuleCache (Maybe Pact4.Gas))
+          (PactBlockM logger tbl)
+          ([Either CommandInvalidError (Pact4.CommandResult [Pact4.TxLogJson])], Map.Map Pact4.RequestKey (Pact5.PactDb Pact5.CoreBuiltin Pact5.Info))
+    go dbEnvCurrent !reflectedDbs !acc = \case
+        [] -> do
+            pure (acc, reflectedDbs)
+        tx : rest -> do
+            (r, dbEnvNew, reflectedDb) <- applyPactCmdReflecting dbEnvCurrent miner txTimeLimit tx
+            let newReflectedDbs = Map.insert (Pact4.cmdToRequestKey tx) reflectedDb reflectedDbs
+            case r of
+                Left e@(CommandInvalidTxTimeout _) -> do
+                    pure ((Left e : acc), newReflectedDbs)
+                Left e@(CommandInvalidGasPurchaseFailure _) -> do
+                    go dbEnvNew newReflectedDbs (Left e : acc) rest
+                Right a -> do
+                    go dbEnvNew newReflectedDbs (Right a : acc) rest
+
+applyPactCmdReflecting
+  :: (Logger logger)
+  => CurrentBlockDbEnv logger
+  -> Miner
+  -> Maybe Micros
+  -> Pact4.Transaction
+  -> StateT
+      (T2 ModuleCache (Maybe Pact4.Gas))
+      (PactBlockM logger tbl)
+      (Either CommandInvalidError (Pact4.CommandResult [Pact4.TxLogJson]), CurrentBlockDbEnv logger, Pact5.PactDb Pact5.CoreBuiltin Pact5.Info)
+applyPactCmdReflecting dbEnvPrevious miner txTimeLimit cmd = do
+  (reflecting4Db, reflected5Db) <- liftIO $ mkReflectingDb (pdPactDb (_cpPactDbEnv dbEnvPrevious))
+  let dbEnv = dbEnvPrevious { _cpPactDbEnv = (_cpPactDbEnv dbEnvPrevious) { pdPactDb = reflecting4Db } }
+  r <- local (\blockEnv -> blockEnv { _psBlockDbEnv = dbEnv }) $ applyPactCmd miner txTimeLimit cmd
+  return (r, dbEnv, reflected5Db)
 
 applyPactCmd
   :: (Logger logger)

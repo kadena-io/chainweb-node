@@ -3,7 +3,8 @@
 
 module Chainweb.Pact.Conversion
   ( fromLegacyQualifiedName
-  , fromLegacyPactValue)
+  , fromLegacyPactValue
+  )
   where
 
 import qualified Pact.Types.Term as Legacy

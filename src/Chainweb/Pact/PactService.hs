@@ -727,13 +727,13 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                     $ runPact
                     $ readFrom (Just $ ParentHeader bhParent) $
                         SomeBlockM $ Pair
-                            ((\(_gas, pwo, pact5Db) -> (pwo, pact5Db)) <$> Pact4.execBlockReflecting bh (CheckablePayload payload))
+                            ((\(_gas, pwo, pact5Dbs) -> (pwo, pact5Dbs)) <$> Pact4.execBlockReflecting bh (CheckablePayload payload))
                             (error "pact5 lol") -- void $ Pact5.execExistingBlock bh (CheckablePayload payload))
 
                 case ei of
                     Left () -> do
                         return ()
-                    Right (pwo, pact5Db) -> do
+                    Right (pwo, pact5Dbs) -> do
                         forM_ (_payloadWithOutputsTransactions pwo) $ \(Transaction txBytes, TransactionOutput txOutBytes) -> do
                             -- Turn the pact4 tx output into a pact5 one.
                             -- Converting to and from JSON here is bad for perf, but maybe it doesn't matter, because this test won't exist for long.
@@ -785,7 +785,12 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                                     let spvSupport = Pact5.pactSPV bhdb bhParent
                                     let initialGas = Pact5.initialGasOf (Pact5._cmdPayload cmd)
 
-                                    applyCmdResult <- try @_ @SomeException $ Pact5.applyCmd logger Nothing pact5Db txContext spvSupport initialGas (fmap (^. Pact5.payloadObj) cmd)
+                                    let toPact4RequestKey :: Pact5.RequestKey -> Pact4.RequestKey
+                                        toPact4RequestKey = \case
+                                            Pact5.RequestKey (Pact5.Hash bytes) -> Pact4.RequestKey (Pact4.Hash bytes)
+                                    let pactDb = pact5Dbs ^?! ix (toPact4RequestKey (Pact5.RequestKey (Pact5._cmdHash cmd)))
+
+                                    applyCmdResult <- try @_ @SomeException $ Pact5.applyCmd logger Nothing pactDb txContext spvSupport initialGas (fmap (^. Pact5.payloadObj) cmd)
                                     case applyCmdResult of
                                         Left someException -> do
                                             -- TODO: apparently an SPV exception?
