@@ -389,7 +389,7 @@ library
         , configuration-tools >= 0.6
         , containers >= 0.5
         , crypton >= 0.31
-        , crypton-connection >= 0.4
+        , crypton-connection >= 0.4.2
         , crypton-x509 >=1.7
         , crypton-x509-system >=1.6
         , crypton-x509-validation >=1.6
