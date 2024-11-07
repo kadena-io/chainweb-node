@@ -87,11 +87,6 @@ import qualified Pact.Types.Hash as Pact4
 import qualified Pact.Types.Runtime as Pact4 hiding (catchesPactError)
 import qualified Pact.Types.Pretty as Pact4
 
-import qualified Pact.Core.Builtin as Pact5
-import qualified Pact.Core.Persistence as Pact5
-import qualified Pact.Core.Gas as Pact5
-import qualified Pact.Core.Info as Pact5
-
 import qualified Chainweb.Pact4.TransactionExec as Pact4
 import qualified Chainweb.Pact4.Validations as Pact4
 
@@ -112,7 +107,6 @@ import qualified Chainweb.Pact4.Backend.ChainwebPactDb as Pact4
 import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
 import Chainweb.Pact.Types
 import Chainweb.Pact4.SPV qualified as Pact4
-import Chainweb.Pact5.SPV qualified as Pact5
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
@@ -130,29 +124,34 @@ import Text.Printf
 import Data.Time.Format.ISO8601
 import qualified Chainweb.Pact.PactService.Pact4.ExecBlock as Pact4
 import qualified Chainweb.Pact4.Types as Pact4
-import qualified Chainweb.Pact5.Backend.ChainwebPactDb as Pact5
-import qualified Pact.Core.Command.RPC as Pact5
-import qualified Pact.Core.Command.Types as Pact5
-import qualified Pact.Core.Hash as Pact5
 import qualified Data.ByteString.Short as SB
 import Data.Coerce (coerce)
 import Chainweb.Pact.PactService.Pact5.ExecBlock (runPact5Coinbase)
 import Data.Void
-import qualified Chainweb.Pact5.Types as Pact5
-import qualified Chainweb.Pact.PactService.Pact5.ExecBlock as Pact5
-import qualified Pact.Core.Evaluate as Pact5
-import qualified Pact.Core.Names as Pact5
 import Data.Functor.Product
-import qualified Chainweb.Pact5.TransactionExec as Pact5
-import qualified Chainweb.Pact5.Transaction as Pact5
+import Chainweb.Pact5.Backend.ChainwebPactDb qualified as Pact5
+import Chainweb.Pact5.SPV qualified as Pact5
+import Pact.Core.Builtin qualified as Pact5
+import Pact.Core.Persistence qualified as Pact5
+import Pact.Core.Gas qualified as Pact5
+import Pact.Core.Info qualified as Pact5
+import Pact.Core.Command.RPC qualified as Pact5
+import Pact.Core.Command.Types qualified as Pact5
+import Pact.Core.Hash qualified as Pact5
+import Chainweb.Pact5.Types qualified as Pact5
+import Chainweb.Pact.PactService.Pact5.ExecBlock qualified as Pact5
+import Pact.Core.Evaluate qualified as Pact5
+import Pact.Core.Names qualified as Pact5
+import Chainweb.Pact5.TransactionExec qualified as Pact5
+import Chainweb.Pact5.Transaction qualified as Pact5
+import Chainweb.Pact5.NoCoinbase qualified as Pact5
+import Chainweb.Pact5.Validations qualified as Pact5
+import Pact.Core.Errors qualified as Pact5
 import Control.Monad.Except
 import Data.Default
-import qualified Chainweb.Pact5.NoCoinbase as Pact5
-import qualified Pact.Parse as Pact4
-import qualified Control.Parallel.Strategies as Strategies
-import qualified Chainweb.Pact5.Validations as Pact5
-import qualified Pact.Core.Errors as Pact5
-import qualified Data.Text as T
+import Pact.Parse as Pact4
+import Control.Parallel.Strategies as Strategies
+import Data.Text qualified as T
 
 runPactService
     :: Logger logger
@@ -727,13 +726,16 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                     $ runPact
                     $ readFrom (Just $ ParentHeader bhParent) $
                         SomeBlockM $ Pair
-                            ((\(_gas, pwo, pact5Dbs) -> (pwo, pact5Dbs)) <$> Pact4.execBlockReflecting bh (CheckablePayload payload))
+                            (Pact4.execBlock bh (CheckablePayload payload))
                             (error "pact5 lol") -- void $ Pact5.execExistingBlock bh (CheckablePayload payload))
 
                 case ei of
                     Left () -> do
                         return ()
-                    Right (pwo, pact5Dbs) -> do
+                    Right _ -> do
+                        return ()
+                        --(pwo, pact5Dbs) -> do
+                        {-
                         forM_ (_payloadWithOutputsTransactions pwo) $ \(Transaction txBytes, TransactionOutput txOutBytes) -> do
                             -- Turn the pact4 tx output into a pact5 one.
                             -- Converting to and from JSON here is bad for perf, but maybe it doesn't matter, because this test won't exist for long.
@@ -825,6 +827,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
 
                                                 createDirectoryIfMissing True (takeDirectory filename)
                                                 Text.writeFile filename fullText
+                            -}
 
                 return ()
             )

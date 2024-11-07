@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImportQualifiedPost #-}
@@ -24,7 +25,6 @@
 --
 module Chainweb.Pact.PactService.Pact4.ExecBlock
     ( execBlock
-    , execBlockReflecting
     , execTransactions
     , continueBlock
     , minerReward
@@ -39,6 +39,9 @@ module Chainweb.Pact.PactService.Pact4.ExecBlock
     , checkParse
     ) where
 
+import Chainweb.Version.Mainnet (mainnet)
+import Chainweb.Version.Testnet04 (testnet04)
+import Chainweb.Pact.Types.Parity (CommandResultDiffable(..), commandResultToDiffable)
 import Chronos qualified
 import Control.Concurrent.MVar
 import Control.DeepSeq
@@ -52,16 +55,21 @@ import Control.Monad.State.Strict
 import System.LogLevel (LogLevel(..))
 import qualified Data.Aeson as A
 import qualified Data.ByteString.Short as SB
+import Data.ByteString qualified as BS
 import Data.Decimal
 import Data.List qualified as List
 import Data.Default (def)
 import Data.Either
+import System.Directory (createDirectoryIfMissing)
+import System.FilePath (takeDirectory, (</>))
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map as Map
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
+import Control.Exception (IOException)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -87,6 +95,7 @@ import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
+import Chainweb.TreeDB
 
 import Chainweb.Pact.Types
 import Chainweb.Pact4.SPV qualified as Pact4
@@ -115,6 +124,24 @@ import Pact.Core.Persistence.Types qualified as Pact5
 import Pact.Core.Builtin qualified as Pact5
 import Pact.Core.Evaluate qualified as Pact5
 import Chainweb.Pact.ReflectingDb (mkReflectingDb)
+import Chainweb.Pact5.Backend.ChainwebPactDb qualified as Pact5
+import Chainweb.Pact5.SPV qualified as Pact5
+import Pact.Core.Builtin qualified as Pact5
+import Pact.Core.Persistence qualified as Pact5
+import Pact.Core.Gas qualified as Pact5
+import Pact.Core.Info qualified as Pact5
+import Pact.Core.Command.RPC qualified as Pact5
+import Pact.Core.Command.Types qualified as Pact5
+import Pact.Core.Hash qualified as Pact5
+import Chainweb.Pact5.Types qualified as Pact5
+import Chainweb.Pact.PactService.Pact5.ExecBlock qualified as Pact5
+import Pact.Core.Evaluate qualified as Pact5
+import Pact.Core.Names qualified as Pact5
+import Chainweb.Pact5.TransactionExec qualified as Pact5
+import Chainweb.Pact5.Transaction qualified as Pact5
+import Chainweb.Pact5.NoCoinbase qualified as Pact5
+import Chainweb.Pact5.Validations qualified as Pact5
+import Pact.Core.Errors qualified as Pact5
 
 mkReflectingDbEnv :: PactBlockM logger tbl (CurrentBlockDbEnv logger, Pact5.PactDb Pact5.CoreBuiltin Pact5.Info)
 mkReflectingDbEnv = do
@@ -122,80 +149,6 @@ mkReflectingDbEnv = do
   (reflecting4Db, reflected5Db) <- liftIO $ mkReflectingDb (pdPactDb (_cpPactDbEnv dbEnv))
   let dbEnv' = dbEnv { _cpPactDbEnv = (_cpPactDbEnv dbEnv) { pdPactDb = reflecting4Db } }
   return (dbEnv', reflected5Db)
-
-execBlockReflecting
-    :: (CanReadablePayloadCas tbl, Logger logger)
-    => BlockHeader
-    -> CheckablePayload
-    -> PactBlockM logger tbl (Pact4.Gas, PayloadWithOutputs, Map.Map Pact4.RequestKey (Pact5.PactDb Pact5.CoreBuiltin Pact5.Info))
-execBlockReflecting currHeader payload = do
-    let plData = checkablePayloadToPayloadData payload
-    dbEnv <- view psBlockDbEnv
-    miner <- decodeStrictOrThrow' (_minerData $ view payloadDataMiner plData)
-
-    trans <- liftIO $ pact4TransactionsFromPayload
-      (pact4ParserVersion v (_chainId currHeader) (view blockHeight currHeader))
-      plData
-    logger <- view (psServiceEnv . psLogger)
-
-    -- The reference time for tx timings validation.
-    --
-    -- The legacy behavior is to use the creation time of the /current/ header.
-    -- The new default behavior is to use the creation time of the /parent/ header.
-    --
-    txValidationTime <- if isGenesisBlockHeader currHeader
-      then return (ParentCreationTime $ view blockCreationTime currHeader)
-      else ParentCreationTime . view blockCreationTime . _parentHeader <$> view psParentHeader
-
-    -- prop_tx_ttl_validate
-    errorsIfPresent <- liftIO $
-        forM (V.toList trans) $ \tx ->
-          fmap (Pact4._cmdHash tx,) $
-            runExceptT $
-              validateParsedChainwebTx logger v cid dbEnv txValidationTime
-                (view blockHeight currHeader) (\_ -> pure ()) tx
-
-    case NE.nonEmpty [ (hsh, sshow err) | (hsh, Left err) <- errorsIfPresent ] of
-      Nothing -> return ()
-      Just errs -> throwM $ Pact4TransactionValidationException errs
-
-    logInitCache
-
-    (!results, !reflectedDbs) <- local (\blockEnv -> blockEnv { _psBlockDbEnv = dbEnv }) $ do
-      (resultsWithErrs, dbs) <- go miner trans
-      resultsWithoutErrs <- throwCommandInvalidError resultsWithErrs
-      pure (resultsWithoutErrs, dbs)
-
-    let !totalGasUsed = sumOf (folded . to Pact4._crGas) results
-
-    pwo <- either throwM return $
-      validateHashes currHeader payload miner results
-
-    return (totalGasUsed, pwo, reflectedDbs)
-  where
-    blockGasLimit =
-      fromIntegral <$> maxBlockGasLimit v (view blockHeight currHeader)
-
-    logInitCache = liftPactServiceM $ do
-      mc <- fmap (fmap instr . _getModuleCache) <$> use psInitCache
-      logDebugPact $ "execBlock: initCache: " <> sshow mc
-
-    instr (md,_) = preview (Pact4._MDModule . Pact4.mHash) $ Pact4._mdModule md
-
-    v = _chainwebVersion currHeader
-    cid = _chainId currHeader
-
-    isGenesisBlock = isGenesisBlockHeader currHeader
-
-    go m txs = if isGenesisBlock
-      then
-        -- GENESIS VALIDATE COINBASE: Reject bad coinbase, use date rule for precompilation
-        execTransactionsReflecting m txs
-          (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) blockGasLimit Nothing
-      else
-        -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
-        execTransactionsReflecting m txs
-          (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) blockGasLimit Nothing
 
 -- | Execute a block -- only called in validate either for replay or for validating current block.
 --
@@ -457,24 +410,6 @@ execTransactions miner ctxs enfCBFail usePrecomp gasLimit timeLimit = do
     T2 txOuts _mcOut <- applyPactCmds ctxs miner mc gasLimit timeLimit
     return $! Transactions (V.zip ctxs txOuts) coinOut
 
-execTransactionsReflecting
-    :: (Logger logger)
-    => Miner
-    -> Vector Pact4.Transaction
-    -> EnforceCoinbaseFailure
-    -> CoinbaseUsePrecompiled
-    -> Maybe Pact4.Gas
-    -> Maybe Micros
-    -> PactBlockM logger tbl (Transactions Pact4 (Either CommandInvalidError (Pact4.CommandResult [Pact4.TxLogJson])), Map.Map Pact4.RequestKey (Pact5.PactDb Pact5.CoreBuiltin Pact5.Info))
-execTransactionsReflecting miner ctxs enfCBFail usePrecomp gasLimit timeLimit = do
-    liftPactServiceM $ logErrorPact "execTransactionsReflecting"
-    mc <- initModuleCacheForBlock
-    -- for legacy reasons (ask Emily) we don't use the module cache resulting
-    -- from coinbase to run the pact cmds
-    (dbEnv0, coinOut) <- runPact4CoinbaseReflecting miner enfCBFail usePrecomp mc
-    T3 txOuts _mcOut reflections <- applyPactCmdsReflecting dbEnv0 ctxs miner mc gasLimit timeLimit
-    return $! (Transactions (V.zip ctxs txOuts) coinOut, reflections)
-
 initModuleCacheForBlock :: (Logger logger) => PactBlockM logger tbl ModuleCache
 initModuleCacheForBlock = do
   PactServiceState{..} <- get
@@ -523,43 +458,10 @@ runPact4Coinbase miner enfCBFail usePrecomp mc = do
       liftPactServiceM $ logInfoPact "Updating init cache for upgrade"
       updateInitCacheM newCache
 
-runPact4CoinbaseReflecting
-    :: (Logger logger)
-    => Miner
-    -> EnforceCoinbaseFailure
-    -> CoinbaseUsePrecompiled
-    -> ModuleCache
-    -> PactBlockM logger tbl (CurrentBlockDbEnv logger, Pact4.CommandResult [Pact4.TxLogJson])
-runPact4CoinbaseReflecting miner enfCBFail usePrecomp mc = do
-    isGenesis <- view psIsGenesis
-    if isGenesis
-    then return (error "runPact4CoinbaseReflecting: shouldn't be run at genesis", noCoinbase)
-    else do
-      logger <- view (psServiceEnv . psLogger)
-      rs <- view (psServiceEnv . psMinerRewards)
-      v <- view chainwebVersion
-      txCtx <- getTxContext miner def
-
-      let !bh = ctxCurrentBlockHeight txCtx
-
-      reward <- liftIO $! minerReward v rs bh
-      (reflectingDbEnv, _reflectedDb) <- mkReflectingDbEnv
-      let pactDb = _cpPactDbEnv reflectingDbEnv
-
-      T2 cr upgradedCacheM <-
-          liftIO $ Pact4.applyCoinbase v logger pactDb reward txCtx enfCBFail usePrecomp mc
-      mapM_ upgradeInitCache upgradedCacheM
-      liftPactServiceM $ debugResult "runPact4Coinbase" (Pact4.crLogs %~ fmap J.Array $ cr)
-      return (reflectingDbEnv, cr)
-
-  where
-    upgradeInitCache newCache = do
-      liftPactServiceM $ logInfoPact "Updating init cache for upgrade"
-      updateInitCacheM newCache
-
 data CommandInvalidError
   = CommandInvalidGasPurchaseFailure !Pact4GasPurchaseFailure
   | CommandInvalidTxTimeout !TxTimeout
+  deriving stock (Show)
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
 -- The output vector is in the same order as the input (i.e. you can zip it
@@ -573,31 +475,116 @@ applyPactCmds
     -> Maybe Micros
     -> PactBlockM logger tbl (T2 (Vector (Either CommandInvalidError (Pact4.CommandResult [Pact4.TxLogJson]))) ModuleCache)
 applyPactCmds cmds miner startModuleCache blockGas txTimeLimit = do
+    (reflectingDbEnv, reflectedDb) <- mkReflectingDbEnv
+    v <- view chainwebVersion
+    logger <- view (psServiceEnv . psLogger)
+    blockHeaderDb <- view (psServiceEnv . psBlockHeaderDb)
+    parentHeader <- view psParentHeader
+    let spvSupport = Pact5.pactSPV blockHeaderDb (_parentHeader parentHeader)
+    let txContext = Pact5.TxContext
+          { _tcParentHeader = parentHeader
+          , _tcMiner = miner
+          }
+
     let txsGas txs = fromIntegral $ sumOf (traversed . _Right . to Pact4._crGas) txs
+
+    let go
+          :: [Either CommandInvalidError (Pact4.CommandResult [Pact4.TxLogJson])]
+          -> [Pact4.Transaction]
+          -> StateT
+              (T2 ModuleCache (Maybe Pact4.Gas))
+              (PactBlockM logger tbl)
+              [Either CommandInvalidError (Pact4.CommandResult [Pact4.TxLogJson])]
+        go !acc = \case
+            [] -> do
+                pure acc
+            tx : rest -> do
+                r <- applyPactCmd miner txTimeLimit tx
+
+                eCmd5 <- do
+                  let cmd5' = Pact5.fromPact4Command (fmap (fmap _pcCode) tx)
+                  case Pact5._cmdPayload cmd5' ^. Pact5.payloadObj ^. Pact5.pPayload of
+                    Pact5.Exec (Pact5.ExecMsg code _data) -> do
+                      case Pact5.parsePact code of
+                        Left err -> do
+                          return $ Left (err, Pact5._cmdHash cmd5')
+                        Right parsedCode -> do
+                          return $ Right $ fmap (fmap (const parsedCode)) cmd5'
+                    Pact5.Continuation contMsg -> do
+                      return $ Right $ fmap (fmap (const (Pact5.ParsedCode "" []))) cmd5'
+
+                case eCmd5 of
+                  Left (err, reqKey) -> do
+                    let filename = "parity-replay-parse-failures/" </> T.unpack (Pact5.hashToText reqKey) <> ".md"
+                    liftIO $ do
+                      createDirectoryIfMissing True (takeDirectory filename)
+                      T.writeFile filename $ sshow err
+                  Right cmd -> do
+                    eCmdResult <- do
+                      case r of
+                        Left err -> do
+                          return $ Left err
+                        Right cmdResult4 -> do
+                          Right <$> decodeStrictOrThrow' (BS.toStrict $ J.encode (hashPact4TxLogs cmdResult4))
+                    case eCmdResult of
+                      Left err -> do
+                        let filename = "parity-replay-result-failures/" </> T.unpack (Pact5.hashToText (Pact5._cmdHash cmd)) <> ".md"
+                        liftIO $ do
+                          createDirectoryIfMissing True (takeDirectory filename)
+                          T.writeFile filename $ sshow err
+                      Right (cmdResult :: (Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)))) -> do
+                        let initialGas = Pact5.initialGasOf (Pact5._cmdPayload cmd)
+                        applyCmdResult <- liftIO $ try @_ @SomeException $ Pact5.applyCmd logger Nothing reflectedDb txContext spvSupport initialGas (fmap (^. Pact5.payloadObj) cmd)
+                        case applyCmdResult of
+                            Left someException -> do
+                                -- TODO: apparently an SPV exception?
+                                -- these exceptions shouldn't happen, do something about it here
+                                logError_ logger $ "Uncaught exception during replay: " <> T.pack (displayException someException)
+                            Right (Left e) -> do
+                                -- uhhhh what do we do here
+                                -- TODO: write all of these out, they should be impossible
+                                logError_ logger $ "Gas buy error during replay: " <> sshow e
+                            Right (Right cmdResult5) -> do
+                                let txMinerId = miner ^. minerId
+                                let r4 = commandResultToDiffable txMinerId cmdResult
+                                let r5 = commandResultToDiffable txMinerId (fmap (Pact5.PELegacyError . Pact5.toPrettyLegacyError) cmdResult5)
+                                when (r4 /= r5) $ do
+                                    let requestKey = Pact5.hashToText (Pact5._cmdHash cmd)
+
+                                    gasLogs <- do
+                                        let gasLogsPath = "parity-replay-gas-logs" </> T.unpack (Pact5.hashToText (Pact5._cmdHash cmd)) <> ".gaslogs"
+                                        liftIO $ (Just <$> T.readFile gasLogsPath) `catch` \(_ :: IOException) -> return Nothing
+
+                                    let cwvPathPiece
+                                            | v == mainnet = "mainnet"
+                                            | v == testnet04 = "testnet"
+                                            | otherwise = error "unsupported chainweb version for explorer link"
+                                    let explorerLink = "https://explorer.chainweb.com/" <> cwvPathPiece <> "/txdetail/" <> requestKey
+                                    let filename = "parity-replay-diffs/" </> T.unpack requestKey <> ".md"
+
+                                    let diffSection = "## Pact4:\n" <> J.encodeText r4 <> "\n\n## Pact5:\n" <> J.encodeText r5
+                                    let explorerLinkSection = "### Explorer link:\n" <> explorerLink
+                                    let gasLogsSection = "### Gas logs:\n" <> fromMaybe "No gas logs found." gasLogs
+                                    let fullText = diffSection <> "\n\n" <> explorerLinkSection <> "\n\n" <> gasLogsSection
+
+                                    liftIO $ do
+                                      createDirectoryIfMissing True (takeDirectory filename)
+                                      T.writeFile filename fullText
+
+
+                case r of
+                    Left e@(CommandInvalidTxTimeout _) -> do
+                        pure (Left e : acc)
+                    Left e@(CommandInvalidGasPurchaseFailure _) -> do
+                        go (Left e : acc) rest
+                    Right a -> do
+                        go (Right a : acc) rest
+
     (txOuts, T2 mcOut _) <- tracePactBlockM' "applyPactCmds" (\_ -> ()) (txsGas . fst) $
-      flip runStateT (T2 startModuleCache blockGas) $
-        go [] (V.toList cmds)
+      flip runStateT (T2 startModuleCache blockGas)
+        $ local (\blockEnv -> blockEnv { _psBlockDbEnv = reflectingDbEnv })
+        $ go [] (V.toList cmds)
     return $! T2 (V.fromList . List.reverse $ txOuts) mcOut
-  where
-    go
-      :: [Either CommandInvalidError (Pact4.CommandResult [Pact4.TxLogJson])]
-      -> [Pact4.Transaction]
-      -> StateT
-          (T2 ModuleCache (Maybe Pact4.Gas))
-          (PactBlockM logger tbl)
-          [Either CommandInvalidError (Pact4.CommandResult [Pact4.TxLogJson])]
-    go !acc = \case
-        [] -> do
-            pure acc
-        tx : rest -> do
-            r <- applyPactCmd miner txTimeLimit tx
-            case r of
-                Left e@(CommandInvalidTxTimeout _) -> do
-                    pure (Left e : acc)
-                Left e@(CommandInvalidGasPurchaseFailure _) -> do
-                    go (Left e : acc) rest
-                Right a -> do
-                    go (Right a : acc) rest
 
 applyPactCmdsReflecting
     :: forall logger tbl. (Logger logger)
