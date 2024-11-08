@@ -123,7 +123,7 @@ import qualified Data.List.NonEmpty as NE
 import Pact.Core.Persistence.Types qualified as Pact5
 import Pact.Core.Builtin qualified as Pact5
 import Pact.Core.Evaluate qualified as Pact5
-import Chainweb.Pact.ReflectingDb (mkReflectingDb)
+import Chainweb.Pact.ReflectingDb (mkReflectingDb, PactTables, resetPactTables)
 import Chainweb.Pact5.Backend.ChainwebPactDb qualified as Pact5
 import Chainweb.Pact5.SPV qualified as Pact5
 import Pact.Core.Builtin qualified as Pact5
@@ -143,12 +143,12 @@ import Chainweb.Pact5.NoCoinbase qualified as Pact5
 import Chainweb.Pact5.Validations qualified as Pact5
 import Pact.Core.Errors qualified as Pact5
 
-mkReflectingDbEnv :: PactBlockM logger tbl (CurrentBlockDbEnv logger, Pact5.PactDb Pact5.CoreBuiltin Pact5.Info)
+mkReflectingDbEnv :: PactBlockM logger tbl (CurrentBlockDbEnv logger, Pact5.PactDb Pact5.CoreBuiltin Pact5.Info, PactTables Pact5.CoreBuiltin Pact5.Info)
 mkReflectingDbEnv = do
   dbEnv <- view psBlockDbEnv
-  (reflecting4Db, reflected5Db) <- liftIO $ mkReflectingDb (pdPactDb (_cpPactDbEnv dbEnv))
+  (reflecting4Db, reflected5Db, tables) <- liftIO $ mkReflectingDb (pdPactDb (_cpPactDbEnv dbEnv))
   let dbEnv' = dbEnv { _cpPactDbEnv = (_cpPactDbEnv dbEnv) { pdPactDb = reflecting4Db } }
-  return (dbEnv', reflected5Db)
+  return (dbEnv', reflected5Db, tables)
 
 -- | Execute a block -- only called in validate either for replay or for validating current block.
 --
@@ -475,7 +475,7 @@ applyPactCmds
     -> Maybe Micros
     -> PactBlockM logger tbl (T2 (Vector (Either CommandInvalidError (Pact4.CommandResult [Pact4.TxLogJson]))) ModuleCache)
 applyPactCmds cmds miner startModuleCache blockGas txTimeLimit = do
-    (reflectingDbEnv, reflectedDb) <- mkReflectingDbEnv
+    (reflectingDbEnv, reflectedDb, pactTables) <- mkReflectingDbEnv
     v <- view chainwebVersion
     logger <- view (psServiceEnv . psLogger)
     blockHeaderDb <- view (psServiceEnv . psBlockHeaderDb)
@@ -499,6 +499,7 @@ applyPactCmds cmds miner startModuleCache blockGas txTimeLimit = do
             [] -> do
                 pure acc
             tx : rest -> do
+                liftIO $ resetPactTables pactTables
                 r <- applyPactCmd miner txTimeLimit tx
 
                 eCmd5 <- do
@@ -634,7 +635,7 @@ applyPactCmdReflecting
       (PactBlockM logger tbl)
       (Either CommandInvalidError (Pact4.CommandResult [Pact4.TxLogJson]), CurrentBlockDbEnv logger, Pact5.PactDb Pact5.CoreBuiltin Pact5.Info)
 applyPactCmdReflecting dbEnvPrevious miner txTimeLimit cmd = do
-  (reflecting4Db, reflected5Db) <- liftIO $ mkReflectingDb (pdPactDb (_cpPactDbEnv dbEnvPrevious))
+  (reflecting4Db, reflected5Db, _) <- liftIO $ mkReflectingDb (pdPactDb (_cpPactDbEnv dbEnvPrevious))
   let dbEnv = dbEnvPrevious { _cpPactDbEnv = (_cpPactDbEnv dbEnvPrevious) { pdPactDb = reflecting4Db } }
   r <- local (\blockEnv -> blockEnv { _psBlockDbEnv = dbEnv }) $ applyPactCmd miner txTimeLimit cmd
   return (r, dbEnv, reflected5Db)

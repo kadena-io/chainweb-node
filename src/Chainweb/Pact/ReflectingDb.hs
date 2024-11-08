@@ -69,18 +69,30 @@ data TableFromDomain k v b i where
   TFDUser :: IORef (MockUserTable) -> TableFromDomain RowKey RowData b i
   TFDSys :: IORef (MockSysTable k v) -> TableFromDomain k v b i
 
-mkReflectingDb :: Pact4.PactDb e -> IO (Pact4.PactDb e, PactDb Pact5.CoreBuiltin Info)
+mkReflectingDb :: Pact4.PactDb e -> IO (Pact4.PactDb e, PactDb Pact5.CoreBuiltin Info, PactTables Pact5.CoreBuiltin Info)
 mkReflectingDb pact4Db = do
   pactTables <- createPactTables
   reflectingDb <- pact4ReflectingDb pactTables pact4Db
   pdb' <- mockPactDb pactTables serialisePact_lineinfo
-  pure (reflectingDb, pdb')
+  pure (reflectingDb, pdb', pactTables)
 {-# noinline mkReflectingDb #-}
 
 type WriteSet = [Text]
 
 toWriteKey :: Text -> Text -> Text
 toWriteKey a b = a <> "##" <> b
+
+resetPactTables :: PactTables b i -> IO ()
+resetPactTables PactTables{..} = do
+  writeIORef ptTxId (TxId 0)
+  writeIORef ptUser mempty
+  writeIORef ptModules mempty
+  writeIORef ptModuleCode mempty
+  writeIORef ptKeysets mempty
+  writeIORef ptNamespaces mempty
+  writeIORef ptDefPact mempty
+  writeIORef ptTxLogQueue mempty
+  writeIORef ptRollbackState Nothing
 
 pact4ReflectingDb :: forall e. PactTables Pact5.CoreBuiltin Info -> Pact4.PactDb e -> IO (Pact4.PactDb e)
 pact4ReflectingDb PactTables{..} pact4Db = do
