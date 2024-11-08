@@ -350,7 +350,6 @@ library
         , Chainweb.Pact5.TransactionExec
         , Chainweb.Pact5.Types
         , Chainweb.Pact5.Validations
-        , Chainweb.Pact.ReflectingDb
         , Chainweb.Pact.Transactions.FungibleV2Transactions
         , Chainweb.Pact.Transactions.CoinV3Transactions
         , Chainweb.Pact.Transactions.CoinV4Transactions
