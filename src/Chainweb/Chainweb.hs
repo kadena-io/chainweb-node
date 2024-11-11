@@ -892,6 +892,7 @@ runChainweb cw nowServing = do
         & setOnException
             (logWarpException "Service API" clientClosedConnectionsCounter)
         & setBeforeMainLoop (nowServing (nowServingServiceAPI .~ True))
+        & setServerName "Chainweb Service API"
 
     serviceApiHost = _serviceApiConfigInterface $ _configServiceApi $ _chainwebConfig cw
 
