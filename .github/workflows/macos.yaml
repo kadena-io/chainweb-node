@@ -90,6 +90,21 @@ jobs:
           documentation: False
         EOF
 
+    - name: Install plonk verifier dependencies (Go)
+      run: |
+        export PATH="${PATH}:/usr/local/go/bin"
+        sudo curl -L https://go.dev/dl/go1.23.3.darwin-amd64.tar.gz -O
+        sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.23.3.darwin-amd64.tar.gz
+        go version
+
+    - name: Install plonk verifier dependencies (Rust)
+      run: |
+        export PATH="${PATH}:/root/.cargo/bin"
+        curl -sSf https://sh.rustup.rs | sudo sh -s -- -y
+        curl -LsSf https://get.nexte.st/latest/linux | sudo tar zxf - -C ${CARGO_HOME:-/root/.cargo}/bin
+        cargo version
+        rustc --version
+
     # Build
     - name: Delete freeze file if it exists
       run: rm -f cabal.project.freeze
