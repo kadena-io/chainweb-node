@@ -233,7 +233,7 @@ import Configuration.Utils hiding (Error, Lens)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Concurrent.TokenBucket
+import Control.Concurrent.TokenLimiter
 import Control.DeepSeq
 import Control.Exception (SomeAsyncException(..), evaluate)
 import Control.Lens hiding ((.=))
@@ -970,9 +970,13 @@ runForeverThrottled
     -> IO ()
     -> IO ()
 runForeverThrottled logfun name burst rate a = mask $ \umask -> do
-    tokenBucket <- newTokenBucket
+    let config = defaultLimitConfig
+            { maxBucketTokens = fromIntegral burst
+            , bucketRefillTokensPerSecond = fromIntegral rate
+            }
+    tokenBucket <- newRateLimiter config
     logfun Debug $ "start " <> name
-    let runThrottled = tokenBucketWait tokenBucket burst rate >> a
+    let runThrottled = waitDebit config tokenBucket 1 >> a
         go = do
             forever (umask runThrottled) `catchAllSynchronous` \e ->
                 logfun Error $ name <> " failed: " <> sshow e <> ". Restarting ..."
