@@ -20,15 +20,8 @@
 --
 module Chainweb.Chainweb.Configuration
 (
--- * Throttling Configuration
-  ThrottlingConfig(..)
-, throttlingRate
-, throttlingPeerRate
-, throttlingMempoolRate
-, defaultThrottlingConfig
-
 -- * Cut Configuration
-, ChainDatabaseGcConfig(..)
+  ChainDatabaseGcConfig(..)
 , chainDatabaseGcToText
 , chainDatabaseGcFromText
 
@@ -44,6 +37,7 @@ module Chainweb.Chainweb.Configuration
 , ServiceApiConfig(..)
 , serviceApiConfigPort
 , serviceApiConfigInterface
+, serviceApiConfigThrottleConfig
 , defaultServiceApiConfig
 , pServiceApiConfig
 
@@ -63,7 +57,6 @@ module Chainweb.Chainweb.Configuration
 , configP2p
 , configBlockGasLimit
 , configMinGasPrice
-, configThrottling
 , configReorgLimit
 , configFullHistoricPactState
 , configBackup
@@ -124,42 +117,7 @@ import Chainweb.Time
 
 import P2P.Node.Configuration
 import Chainweb.Pact.Backend.DbCache (DbCacheLimitBytes)
-
--- -------------------------------------------------------------------------- --
--- Throttling Configuration
-
-data ThrottlingConfig = ThrottlingConfig
-    { _throttlingRate :: !Double
-    , _throttlingPeerRate :: !Double
-        -- ^ This should throttle aggressively. This endpoint does an expensive
-        -- check of the client. And we want to keep bad actors out of the
-        -- system. There should be no need for a client to call this endpoint on
-        -- the same node more often than at most few times peer minute.
-    , _throttlingMempoolRate :: !Double
-    }
-    deriving stock (Eq, Show)
-
-makeLenses ''ThrottlingConfig
-
-defaultThrottlingConfig :: ThrottlingConfig
-defaultThrottlingConfig = ThrottlingConfig
-    { _throttlingRate = 50 -- per second, in a 100 burst
-    , _throttlingPeerRate = 11 -- per second, 1 for each p2p network
-    , _throttlingMempoolRate = 20 -- one every seconds per mempool.
-    }
-
-instance ToJSON ThrottlingConfig where
-    toJSON o = object
-        [ "global" .= _throttlingRate o
-        , "putPeer" .= _throttlingPeerRate o
-        , "mempool" .= _throttlingMempoolRate o
-        ]
-
-instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
-    parseJSON = withObject "ThrottlingConfig" $ \o -> id
-        <$< throttlingRate ..: "global" % o
-        <*< throttlingPeerRate ..: "putPeer" % o
-        <*< throttlingMempoolRate ..: "mempool" % o
+import qualified Chainweb.Utils.Throttle as Throttle
 
 -- -------------------------------------------------------------------------- --
 -- Cut Configuration
@@ -276,6 +234,7 @@ data ServiceApiConfig = ServiceApiConfig
     , _serviceApiPayloadBatchLimit :: PayloadBatchLimit
         -- ^ maximum size for payload batches on the service API. Default is
         -- 'Chainweb.Payload.RestAPI.defaultServicePayloadBatchLimit'.
+    , _serviceApiConfigThrottleConfig :: !(EnableConfig Throttle.ThrottleConfig)
     }
     deriving (Show, Eq, Generic)
 
@@ -287,6 +246,15 @@ defaultServiceApiConfig = ServiceApiConfig
     , _serviceApiConfigInterface = "*"
     , _serviceApiConfigValidateSpec = False
     , _serviceApiPayloadBatchLimit = defaultServicePayloadBatchLimit
+    , _serviceApiConfigThrottleConfig = defaultEnableConfig
+        Throttle.ThrottleConfig
+            { Throttle._requestCost = 10
+            , Throttle._requestBody100ByteCost = 1
+            , Throttle._responseBody100ByteCost = 2
+            , Throttle._maxBudget = 50_000
+            , Throttle._freeRate = 50_000
+            , Throttle._throttleExpiry = 30
+            }
     }
 
 instance ToJSON ServiceApiConfig where
@@ -295,6 +263,7 @@ instance ToJSON ServiceApiConfig where
         , "interface" .= hostPreferenceToText (_serviceApiConfigInterface o)
         , "validateSpec" .= _serviceApiConfigValidateSpec o
         , "payloadBatchLimit" .= _serviceApiPayloadBatchLimit o
+        , "throttling" .= _serviceApiConfigThrottleConfig o
         ]
 
 instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
@@ -303,6 +272,7 @@ instance FromJSON (ServiceApiConfig -> ServiceApiConfig) where
         <*< setProperty serviceApiConfigInterface "interface" (parseJsonFromText "interface") o
         <*< serviceApiConfigValidateSpec ..: "validateSpec" % o
         <*< serviceApiPayloadBatchLimit ..: "payloadBatchLimit" % o
+        <*< serviceApiConfigThrottleConfig %.: "throttling" % o
 
 pServiceApiConfig :: MParser ServiceApiConfig
 pServiceApiConfig = id
@@ -317,6 +287,9 @@ pServiceApiConfig = id
     <*< serviceApiConfigValidateSpec .:: enableDisableFlag
         % prefixLong service "validate-spec"
         <> internal -- hidden option, for expert use
+    <*< serviceApiConfigThrottleConfig . enableConfigEnabled .:: enableDisableFlag
+        % prefixLong service "throttling"
+        <> suffixHelp service "enable HTTP throttling"
   where
     service = Just "service"
 
@@ -385,7 +358,6 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configHeaderStream :: !Bool
     , _configReintroTxs :: !Bool
     , _configP2p :: !P2pConfiguration
-    , _configThrottling :: !ThrottlingConfig
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configBlockGasLimit :: !Mempool.GasLimit
     , _configLogGas :: !Bool
@@ -450,7 +422,6 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configHeaderStream = False
     , _configReintroTxs = True
     , _configP2p = defaultP2pConfiguration
-    , _configThrottling = defaultThrottlingConfig
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configBlockGasLimit = 150_000
     , _configLogGas = False
@@ -477,7 +448,6 @@ instance ToJSON ChainwebConfiguration where
         , "headerStream" .= _configHeaderStream o
         , "reintroTxs" .= _configReintroTxs o
         , "p2p" .= _configP2p o
-        , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
         , "gasLimitOfBlock" .= J.toJsonViaEncode (_configBlockGasLimit o)
         , "logGas" .= _configLogGas o
@@ -508,7 +478,6 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configHeaderStream ..: "headerStream" % o
         <*< configReintroTxs ..: "reintroTxs" % o
         <*< configP2p %.: "p2p" % o
-        <*< configThrottling %.: "throttling" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
         <*< configLogGas ..: "logGas" % o

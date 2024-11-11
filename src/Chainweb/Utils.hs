@@ -25,6 +25,7 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_GHC -fno-warn-deprecations #-}
+{-# LANGUAGE RecordWildCards #-}
 
 -- |
 -- Module: Chainweb.Utils
@@ -245,7 +246,7 @@ import Configuration.Utils hiding (Error, Lens)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Concurrent.TokenBucket
+import Control.Concurrent.TokenLimiter
 import Control.DeepSeq
 import Control.Exception (SomeAsyncException(..), evaluate)
 import Control.Lens hiding ((.=))
@@ -1058,9 +1059,13 @@ runForeverThrottled
     -> IO ()
     -> IO ()
 runForeverThrottled logfun name burst rate a = mask $ \umask -> do
-    tokenBucket <- newTokenBucket
+    let config = defaultLimitConfig
+            { maxBucketTokens = fromIntegral burst
+            , bucketRefillTokensPerSecond = fromIntegral rate
+            }
+    tokenBucket <- newRateLimiter config
     logfun Debug $ "start " <> name
-    let runThrottled = tokenBucketWait tokenBucket burst rate >> a
+    let runThrottled = waitDebit config tokenBucket 1 >> a
         go = do
             forever (umask runThrottled) `catchAllSynchronous` \e ->
                 logfun Error $ name <> " failed: " <> sshow e <> ". Restarting ..."
@@ -1115,7 +1120,12 @@ instance FromJSON (a -> a) => FromJSON (EnableConfig a -> EnableConfig a) where
     parseJSON = withObject "EnableConfig" $ \o -> id
         <$< enableConfigEnabled ..: "enabled" % o
         <*< enableConfigConfig %.: "configuration" % o
-    {-# INLINE parseJSON #-}
+
+instance FromJSON a => FromJSON (EnableConfig a) where
+    parseJSON = withObject "EnableConfig" $ \o -> do
+        _enableConfigEnabled <- o .: "enabled"
+        _enableConfigConfig <- o .: "configuration"
+        return EnableConfig {..}
 
 validateEnableConfig :: ConfigValidation a l -> ConfigValidation (EnableConfig a) l
 validateEnableConfig v c = when (_enableConfigEnabled c) $ v (_enableConfigConfig c)
