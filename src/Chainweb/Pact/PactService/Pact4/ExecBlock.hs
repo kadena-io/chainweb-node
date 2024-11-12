@@ -470,7 +470,8 @@ applyPactCmds cmds miner startModuleCache blockGas txTimeLimit = do
     pactDbEnv <- view (psBlockDbEnv . cpPactDbEnv)
     let blockEnvVar = pdPactDbVar pactDbEnv
     v <- view chainwebVersion
-    logger <- view (psServiceEnv . psLogger)
+    cid <- view (psServiceEnv . chainId)
+    logger' <- view (psServiceEnv . psLogger)
     blockHeaderDb <- view (psServiceEnv . psBlockHeaderDb)
     parentHeader <- view psParentHeader
     let spvSupport = Pact5.pactSPV blockHeaderDb (_parentHeader parentHeader)
@@ -492,6 +493,10 @@ applyPactCmds cmds miner startModuleCache blockGas txTimeLimit = do
             [] -> do
                 pure acc
             tx : rest -> do
+                let logger = logger'
+                        & addLabel ("blockHeight", sshow (view blockHeight (_parentHeader parentHeader)))
+                        & addLabel ("chainId", chainIdToText cid)
+
                 -- foreach tx
                 --   1. save the BlockHandle (which contains pending writes)
                 --   2. run the tx with pact5
@@ -506,17 +511,17 @@ applyPactCmds cmds miner startModuleCache blockGas txTimeLimit = do
                 -- 2. run the tx with pact5
                 eCmd5 <- do
                   let cmd5' = Pact5.fromPact4Command (fmap (fmap _pcCode) tx)
-                  case Pact5._cmdPayload cmd5' ^. Pact5.payloadObj ^. Pact5.pPayload of
+                  case Pact5._cmdPayload cmd5' ^. (Pact5.payloadObj . Pact5.pPayload) of
                     Pact5.Exec (Pact5.ExecMsg code _data) -> do
                       case Pact5.parsePact code of
                         Left err -> do
                           return $ Left (err, Pact5._cmdHash cmd5')
                         Right parsedCode -> do
                           return $ Right $ fmap (fmap (const parsedCode)) cmd5'
-                    Pact5.Continuation contMsg -> do
+                    Pact5.Continuation _ -> do
                       return $ Right $ fmap (fmap (const (Pact5.ParsedCode "" []))) cmd5'
 
-                (mCmdAndResult) <- case eCmd5 of
+                mCmdAndResult <- case eCmd5 of
                   Left (err, reqKey) -> do
                     let filename = "parity-replay-parse-failures/" </> T.unpack (Pact5.hashToText reqKey) <> ".md"
                     liftIO $ do
@@ -525,7 +530,7 @@ applyPactCmds cmds miner startModuleCache blockGas txTimeLimit = do
                     pure Nothing
                   Right cmd -> do
                     let initialGas = Pact5.initialGasOf (Pact5._cmdPayload cmd)
-                    let convertTxId (Pact4.TxId txId) = Pact5.TxId (fromIntegral txId)
+                    let convertTxId (Pact4.TxId txId) = Pact5.TxId txId
                     let pact5BlockHandlerEnv = Pact5.BlockHandlerEnv
                           { Pact5._blockHandlerDb = _blockHandlerDb $ _blockHandlerEnv blockEnv
                           , Pact5._blockHandlerLogger = logger
@@ -560,7 +565,7 @@ applyPactCmds cmds miner startModuleCache blockGas txTimeLimit = do
 
                 case mCmdAndResult of
                   Nothing -> do
-                    logError_ logger $ "Pact5 command and result missing"
+                    pure ()
                   Just (cmd, cmdResult5) -> do
                     eCmdResult <- do
                       case r of
