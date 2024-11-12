@@ -98,6 +98,8 @@ import Pact.Types.Term (ModuleName(..), ObjectMap(..), TableName(..))
 import Pact.Types.Util (AsString(..))
 
 import qualified Pact.JSON.Encode as J
+import qualified Data.ByteString as B
+import qualified Data.Text as T
 import qualified Pact.JSON.Legacy.HashMap as LHM
 
 -- chainweb
@@ -289,7 +291,11 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         KeySets -> lookupWithKey (convKeySetName k) noCache
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
-        Modules -> lookupWithKey (convModuleName mnFix k) checkModuleCache
+        Modules -> do
+          v <- lookupWithKey (convModuleName mnFix k) checkModuleCache
+          -- _ <- forM v $ \m -> do
+          --   liftIO $ B.writeFile (T.unpack (asString k)) $ J.encodeStrict m
+          pure v
         Namespaces -> lookupWithKey (convNamespaceName k) noCache
         (UserTables _) -> lookupWithKey (convRowKey k) noCache
         Pacts -> lookupWithKey (convPactId k) noCache

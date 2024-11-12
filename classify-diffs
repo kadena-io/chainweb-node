@@ -127,6 +127,51 @@ for f in $(grep -Rl parity-replay-diffs/ -e 'Module admin necessary');
   do mv "$f" diffs/module-admin
 done;
 
+# has no such member
+mkdir -p diffs/no-such-member
+for f in $(grep -Rl parity-replay-diffs/ -e 'has no such member');
+  do mv "$f" diffs/no-such-member
+done;
+
+mkdir -p diffs/insert-ok
+for f in $(grep -Rl parity-replay-diffs/ -e 'Insert: row found for key');
+  do mv "$f" diffs/insert-ok
+done;
+
+mkdir -p diffs/capability-already-installed
+for f in $(grep -Rl parity-replay-diffs/ -e 'Capability already installed');
+  do mv "$f" diffs/capability-already-installed
+done;
+
+mkdir -p diffs/token-protocol-violation
+for f in $(grep -Rl parity-replay-diffs/ -e 'Token protocol violation');
+  do mv "$f" diffs/token-protocol-violation
+done;
+
+mkdir -p diffs/failed-to-call-at
+for f in $(grep -Rl parity-replay-diffs/ -e 'failed to call native function at with argument(s) of type(s)');
+  do mv "$f" diffs/failed-to-call-at
+done;
+
+# LIQUIDITY_POS_GUARD
+mkdir -p diffs/liq-pos-guard
+for f in $(grep -Rl parity-replay-diffs/ -e 'LIQUIDITY_POS_GUARD');
+  do mv "$f" diffs/liq-pos-guard
+done;
+
+# {"status":"success","data":{"int"
+mkdir -p diffs/output-differs-int-double
+for f in $(grep -Rl parity-replay-diffs/ -e '{"status":"success","data":{"int"');
+  do mv "$f" diffs/output-differs-int-double
+done;
+
+# No pact exec
+mkdir -p diffs/no-pact-exec-in-cr
+for f in $(grep -Rl parity-replay-diffs/ -e 'Continuation Error: verifyCont');
+  do mv "$f" diffs/no-pact-exec-in-cr
+done;
+
+
 # Not sure
 mkdir -p diffs/table-already-exists
 for f in $(grep -Rl parity-replay-diffs/ -e 'Table .* already exists');
