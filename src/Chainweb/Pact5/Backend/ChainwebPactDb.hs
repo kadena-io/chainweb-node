@@ -84,7 +84,7 @@ import Chainweb.BlockHeight
 import Chainweb.Logger
 
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Types
+import Chainweb.Pact.Types hiding (internalError)
 import Chainweb.Utils (sshow, T2)
 import Pact.Core.StableEncoding (encodeStable)
 import Data.Text (Text)
@@ -105,6 +105,12 @@ import Data.HashMap.Strict (HashMap)
 import Pact.Core.Command.Types (RequestKey (..))
 import Pact.Core.Hash
 import qualified Data.HashMap.Strict as HM
+
+data InternalDbException =
+    InternalDbException Text
+    deriving (Eq, Show, Typeable)
+
+instance Exception InternalDbException
 
 data BlockHandlerEnv logger = BlockHandlerEnv
     { _blockHandlerDb :: !SQLiteEnv
@@ -177,8 +183,11 @@ callDb callerName action = do
     c <- asks _blockHandlerDb
     res <- liftIO $ tryAny $ action c
     case res of
-        Left err -> internalError $ "callDb (" <> callerName <> "): " <> sshow err
+        Left err -> internalDbError $ "callDb (" <> callerName <> "): " <> sshow err
         Right r -> return r
+
+internalDbError :: MonadThrow m => Text -> m a
+internalDbError = throwM . InternalDbException
 
 liftGas :: GasM CoreBuiltin Info a -> BlockHandler logger a
 liftGas g = BlockHandler (lift (lift g))
@@ -225,7 +234,7 @@ chainwebPactCoreBlockDb maybeLimit env = Pact5Db
         r <- kont maybeLimitedPactDb
         finalState <- readMVar stateVar
         when (isJust (_bsPendingTx finalState)) $
-            internalError "dangling transaction"
+            internalDbError "dangling transaction"
         -- Register a successful transaction in the pending data for the block
         let registerRequestKey = case maybeRequestKey of
                 Just requestKey -> HashSet.insert (SB.fromShort $ unHash $ unRequestKey requestKey)
@@ -341,7 +350,7 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         case result of
             [] -> mzero
             [[SBlob a]] -> checkCache rowkey a
-            err -> internalError $
+            err -> internalDbError $
                      "doReadRow: Expected (at most) a single result, but got: " <>
                      T.pack (show err)
 
@@ -408,22 +417,25 @@ recordPendingUpdate (Utf8 key) (Utf8 tn) txid vs = modifyPendingData "write" mod
 
 checkInsertIsOK
     :: Maybe (BlockHeight, TxId)
+    -> TableName
     -- ^ the highest block we should be reading writes from
     -> WriteType
     -> Domain RowKey RowData CoreBuiltin Info
     -> RowKey
     -> BlockHandler logger (Maybe RowData)
-checkInsertIsOK mlim wt d k = do
+checkInsertIsOK mlim tn wt d k = do
     olds <- doReadRow mlim d k
     case (olds, wt) of
         (Nothing, Insert) -> return Nothing
-        (Just _, Insert) -> err "Insert: row found for key "
+        (Just _, Insert) ->
+            liftGas $ throwDbOpErrorGasM (RowFoundError tn k)
         (Nothing, Write) -> return Nothing
         (Just old, Write) -> return $ Just old
         (Just old, Update) -> return $ Just old
-        (Nothing, Update) -> err "Update: no row found for key "
-  where
-    err msg = internalError $ "checkInsertIsOK: " <> msg <> _rowKey k
+        (Nothing, Update) ->
+            liftGas $ throwDbOpErrorGasM (NoRowFound tn k)
+--   where
+    -- err msg = internalError $ "checkInsertIsOK: " <> msg <> _rowKey k
 
 writeUser
     :: Maybe (BlockHeight, TxId)
@@ -435,7 +447,8 @@ writeUser
     -> BlockHandler logger ()
 writeUser mlim wt d k rowdata@(RowData row) = do
     Pact5.TxId txid <- use latestTxId
-    m <- checkInsertIsOK mlim wt d k
+    let (DUserTables tname) = d
+    m <- checkInsertIsOK mlim tname wt d k
     row' <- case m of
         Nothing -> ins txid
         Just old -> upd txid old
@@ -494,12 +507,12 @@ doKeys mlim d = do
         DKeySets -> do
             let parsed = map parseAnyKeysetName allKeys
             case sequence parsed of
-              Left msg -> internalError $ "doKeys.DKeySets: unexpected decoding " <> T.pack msg
+              Left msg -> internalDbError $ "doKeys.DKeySets: unexpected decoding " <> T.pack msg
               Right v -> pure v
         DModules -> do
             let parsed = map parseModuleName allKeys
             case sequence parsed of
-              Nothing -> internalError $ "doKeys.DModules: unexpected decoding"
+              Nothing -> internalDbError $ "doKeys.DModules: unexpected decoding"
               Just v -> pure v
         DNamespaces -> pure $ map NamespaceName allKeys
         DDefPacts ->  pure $ map DefPactId allKeys
@@ -507,7 +520,7 @@ doKeys mlim d = do
             let parsed = map parseHashedModuleName allKeys
             case sequence parsed of
               Just v -> pure v
-              Nothing -> internalError $ "doKeys.DModuleSources: unexpected decoding"
+              Nothing -> internalDbError $ "doKeys.DModuleSources: unexpected decoding"
         DUserTables _ -> pure $ map RowKey allKeys
 
     where
@@ -525,7 +538,7 @@ doKeys mlim d = do
                 forM ks $ \row -> do
                     case row of
                         [SText k] -> return $ fromUtf8 k
-                        _ -> internalError "doKeys: The impossible happened."
+                        _ -> internalDbError "doKeys: The impossible happened."
 
     tn@(Utf8 tnBS) = asStringUtf8 d
     collect p =
@@ -538,7 +551,7 @@ failIfTableDoesNotExistInDbAtHeight caller tn bh = do
     -- we must reproduce errors that were thrown in earlier blocks from tables
     -- not existing, if this table does not yet exist.
     unless exists $
-        internalError $ "callDb (" <> caller <> "): user error (Database error: ErrorError)"
+        internalDbError $ "callDb (" <> caller <> "): user error (Database error: ErrorError)"
 
 recordTxLog
     :: Domain k v CoreBuiltin Info
@@ -664,7 +677,7 @@ doBegin _m = do
 toTxLog :: MonadThrow m => T.Text -> Utf8 -> BS.ByteString -> m (TxLog RowData)
 toTxLog d key value =
         case fmap (view document) $ _decodeRowData serialisePact_lineinfo value of
-            Nothing -> internalError $ "toTxLog: Unexpected value, unable to deserialize log: " <> sshow value
+            Nothing -> internalDbError $ "toTxLog: Unexpected value, unable to deserialize log: " <> sshow value
             Just v -> return $! TxLog d (fromUtf8 key) v
 
 toPactTxLog :: TxLog RowData -> Pact4.TxLog RowData
@@ -685,4 +698,4 @@ getEndTxId' msg sql bh bhsh = do
         [RInt] >>= \case
         [[SInt tid]] -> return $ Historical (TxId (fromIntegral tid))
         [] -> return NoHistory
-        r -> internalError $ msg <> ".getEndTxId: expected single-row int result, got " <> sshow r
+        r -> internalDbError $ msg <> ".getEndTxId: expected single-row int result, got " <> sshow r

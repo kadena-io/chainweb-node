@@ -54,3 +54,4 @@ rosetta/logs/*
 .direnv/
 .envrc
 parity-*
+diffs/
