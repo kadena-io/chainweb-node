@@ -72,6 +72,7 @@ import qualified Data.Binary                  as Binary
 import           Data.ByteString              (ByteString)
 import           Data.ByteString.Internal     (ByteString (..))
 import qualified Data.ByteString.Lazy         as BSL
+import           GHC.Stack                    (HasCallStack)
 import           Foreign
 import           Foreign.C.String             (CString, withCString)
 import           System.Directory             (createDirectoryIfMissing)
@@ -240,7 +241,6 @@ approximateSize (DB db_ptr) (from, to) = liftIO $
                                     from_ptrs flen_ptrs
                                     to_ptrs tlen_ptrs
                                     size_ptrs
-        liftM head $
         arr <- peekArray 1 size_ptrs >>= mapM toInt64
         case arr of
           x : _ -> pure x
