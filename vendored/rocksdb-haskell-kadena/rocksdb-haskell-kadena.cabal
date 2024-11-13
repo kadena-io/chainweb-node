@@ -38,8 +38,6 @@ description:
     cores, to efficiently use fast storage, to support IO-bound, in-memory and
     write-once workloads, and to be flexible to allow for innovation.
 extra-source-files:
-    README.md
-    AUTHORS
     rocksdb-8.3.2/**/*.h
 
 source-repository head
@@ -498,9 +496,9 @@ library
 
 test-suite rocksdb-tests
   ghc-options: -Wall
-  main-is: tests.hs
+  main-is: Main.hs
   type: exitcode-stdio-1.0
-  hs-source-dirs: tests
+  hs-source-dirs: test
   build-depends:       base >= 3 && < 5
                      , rocksdb-haskell-kadena
                      , hspec >= 1.8

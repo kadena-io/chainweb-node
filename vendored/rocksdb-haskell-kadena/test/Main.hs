@@ -3,18 +3,13 @@
 
 module Main where
 
-import           Control.Monad.IO.Class       (MonadIO (liftIO))
-import           Control.Monad.Trans.Resource (MonadResource, runResourceT)
-import           Data.Default                 (def)
-import           System.IO.Temp               (withSystemTempDirectory)
-
-import           Database.RocksDB             (Compression (..), DB, compression,
-                                               createIfMissing, defaultOptions, get, open,
-                                               put)
-
-import           Test.Hspec                   (describe, hspec, it, shouldReturn)
-import           Test.QuickCheck              (Arbitrary (..), UnicodeString (..),
-                                               generate)
+import Control.Monad.IO.Class (MonadIO (liftIO))
+import Control.Monad.Trans.Resource (MonadResource, runResourceT)
+import Data.Default (def)
+import Database.RocksDB (Compression (..), DB, compression, createIfMissing, defaultOptions, get, open, put)
+import System.IO.Temp (withSystemTempDirectory)
+import Test.Hspec (describe, hspec, it, shouldReturn)
+import Test.QuickCheck (Arbitrary (..), UnicodeString (..), generate)
 
 initializeDB :: MonadResource m => FilePath -> m DB
 initializeDB path =

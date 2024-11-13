@@ -227,7 +227,7 @@ repair path opts = liftIO $ bracket (mkOpts opts) freeOpts repair'
 type Range  = (ByteString, ByteString)
 
 -- | Inspect the approximate sizes of the different levels.
-approximateSize :: MonadIO m => DB -> Range -> m Int64
+approximateSize :: (HasCallStack, MonadIO m) => DB -> Range -> m Int64
 approximateSize (DB db_ptr) (from, to) = liftIO $
     BU.unsafeUseAsCStringLen from $ \(from_ptr, flen) ->
     BU.unsafeUseAsCStringLen to   $ \(to_ptr, tlen)   ->
@@ -240,8 +240,11 @@ approximateSize (DB db_ptr) (from, to) = liftIO $
                                     from_ptrs flen_ptrs
                                     to_ptrs tlen_ptrs
                                     size_ptrs
-        liftM head $ peekArray 1 size_ptrs >>= mapM toInt64
-
+        liftM head $
+        arr <- peekArray 1 size_ptrs >>= mapM toInt64
+        case arr of
+          x : _ -> pure x
+          []    -> error "approximateSize: empty size_ptrs"
     where
         toInt64 = return . fromIntegral
 
