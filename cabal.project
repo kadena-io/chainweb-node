@@ -1,6 +1,8 @@
 packages:
     chainweb.cabal
     node/chainweb-node.cabal
+    vendored/rocksdb-haskell-kadena/rocksdb-haskell-kadena.cabal
+    vendored/chainweb-storage/chainweb-storage.cabal
 
 debug-info: True
 
