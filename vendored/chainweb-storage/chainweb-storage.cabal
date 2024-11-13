@@ -56,7 +56,7 @@ library
         , unordered-containers >=0.2
         , vector >=0.12
 
-test-suite rocksdb-tests
+test-suite chainweb-storage-tests
     type: exitcode-stdio-1.0
     hs-source-dirs: test
     default-language: Haskell2010
