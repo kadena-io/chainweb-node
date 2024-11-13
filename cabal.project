@@ -248,9 +248,6 @@ allow-newer: lrucaching:base-compat
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
 
--- Pact 5 has an upper bound on happy
-constraints: happy < 2
-
 -- This is needed on GHC <9.10.1 due to a bug (either in GHC or cabal) it
 -- that Cabal and Cabal-syntax are compatible.
 constraints: Cabal <=3.12.1.0
