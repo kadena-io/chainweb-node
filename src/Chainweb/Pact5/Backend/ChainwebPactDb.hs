@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -13,9 +14,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE BlockArguments #-}
+
 -- TODO pact5: fix the orphan PactDbFor instance
 {-# OPTIONS_GHC -Wno-orphans #-}
-
 
 module Chainweb.Pact5.Backend.ChainwebPactDb
     ( chainwebPactCoreBlockDb
@@ -106,13 +107,6 @@ import Pact.Core.Command.Types (RequestKey (..))
 import Pact.Core.Hash
 import qualified Data.HashMap.Strict as HM
 
-data InternalDbException =
-    InternalDbException Text
-    deriving (Eq, Show, Typeable)
-
-instance Exception InternalDbException
-
-
 data BlockHandlerEnv logger = BlockHandlerEnv
     { _blockHandlerDb :: !SQLiteEnv
     , _blockHandlerLogger :: !logger
@@ -186,6 +180,11 @@ callDb callerName action = do
     case res of
         Left err -> internalDbError $ "callDb (" <> callerName <> "): " <> sshow err
         Right r -> return r
+
+newtype InternalDbException = InternalDbException Text
+  deriving newtype (Eq)
+  deriving stock (Show)
+  deriving anyclass (Exception)
 
 internalDbError :: MonadThrow m => Text -> m a
 internalDbError = throwM . InternalDbException
