@@ -70,7 +70,6 @@ import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
 import Data.Foldable (fold, for_, traverse_)
 import Data.IORef
-import qualified Data.HashMap.Strict as HM
 import qualified Data.List as List
 import qualified Data.Map.Strict as M
 import Data.Maybe
@@ -105,6 +104,7 @@ import Pact.Types.SPV
 import Pact.Types.Verifier
 
 import Pact.Types.Util as PU
+import qualified Pact.Utils.StableHashMap as SHM
 
 -- internal Chainweb modules
 
@@ -1040,7 +1040,7 @@ findPayer txCtx cmd = runMaybeT $ do
     gasPayerIface = ModuleName "gas-payer-v1" Nothing
 
     lookupIfaceModRef (QualifiedName _ n _) (ModuleData (MDModule Module{..}) refs _)
-      | gasPayerIface `elem` _mInterfaces = HM.lookup n refs
+      | gasPayerIface `elem` _mInterfaces = SHM.lookup n refs
     lookupIfaceModRef _ _ = Nothing
 
     mkApp i r as = App (TVar r i) (map (liftTerm . fromPactValue) as) i

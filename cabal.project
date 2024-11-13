@@ -82,8 +82,8 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 058da315f7b427ad5dcaa334683600a1f7fd9588
-    --sha256: 105jbsvrjv2zxsazd3vcbkml99w26xqimwjybfiznkg21456d6hn
+    tag: 1027a1f5fd0439c58522921e3a0532c4f5867a24
+    --sha256: 18xgvzb3p8chch85747ln9a2191df09vwwrv9v3njr2h69n3rhxj
 
 source-repository-package
     type: git
@@ -141,9 +141,9 @@ source-repository-package
 -- Required for non-canonical decode in base64-bytestring (remove after 2.20 fork)
 source-repository-package
     type: git
-    location: https://github.com/emilypi/base64-bytestring-kadena
-    tag: 174af3523616c8fe01449da5ccbb9f16df097ac3
-    --sha256: 0grssxgjygi4ijiqaa87diwv6sdqz77hldf3lr4k7p93w35lhlci
+    location: https://github.com/kadena-io/base64-bytestring-kadena
+    tag: 90247042ab3b8662809210af2a78e6dee0f9b4ac
+    --sha256: 0dqsrjxm0cm35xcihm49dhwdvmz79vsv4sd5qs2izc4sbnd0d8n6
 
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
@@ -208,11 +208,10 @@ allow-newer: base-compat-batteries:*
 allow-newer: webauthn:*
 
 -- many packages use an spurious <1.5 upper bound on hashable
--- allow-newer: *:hashable
+allow-newer: *:hashable
 
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
 
 -- remove when crypton-connection >0.4.1 got released
 constraints: http-client-tls <0.3.6.4
-constraints: hashable < 1.4.5

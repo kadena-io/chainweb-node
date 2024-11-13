@@ -101,7 +101,6 @@ import Control.Applicative
 import Data.Aeson
 import qualified Data.ByteString.Short as SB
 import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HM
 import qualified Data.List.NonEmpty as NE
 import Data.Text (Text, unpack)
 import qualified Data.Text.Encoding as T
@@ -123,6 +122,7 @@ import Pact.Types.RowData
 import Pact.Types.Runtime hiding (ChainId)
 import qualified Pact.JSON.Encode as J
 import qualified Pact.JSON.Legacy.HashMap as LHM
+import qualified Pact.Utils.StableHashMap as SHM
 
 -- internal chainweb modules
 
@@ -523,14 +523,14 @@ filterModuleCacheByKey f (ModuleCache c) = ModuleCache $
 
 moduleCacheToHashMap
     :: ModuleCache
-    -> HM.HashMap ModuleName (ModuleData Ref, Bool)
-moduleCacheToHashMap (ModuleCache c) = HM.fromList $ LHM.toList c
+    -> SHM.StableHashMap ModuleName (ModuleData Ref, Bool)
+moduleCacheToHashMap (ModuleCache c) = SHM.fromList $ LHM.toList c
 {-# INLINE moduleCacheToHashMap #-}
 
 moduleCacheFromHashMap
-    :: HM.HashMap ModuleName (ModuleData Ref, Bool)
+    :: SHM.StableHashMap ModuleName (ModuleData Ref, Bool)
     -> ModuleCache
-moduleCacheFromHashMap = ModuleCache . LHM.fromList . HM.toList
+moduleCacheFromHashMap = ModuleCache . LHM.fromList . SHM.toList
 {-# INLINE moduleCacheFromHashMap #-}
 
 moduleCacheKeys :: ModuleCache -> [ModuleName]

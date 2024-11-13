@@ -155,13 +155,13 @@ mainnet = ChainwebVersion
 
     , _versionGraphs =
         (to20ChainsMainnet, twentyChainGraph) `Above`
-        End petersonChainGraph
+        Bottom (minBound, petersonChainGraph)
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionMaxBlockGasLimit =
         (succ $ mainnet ^?! versionForks . at Chainweb216Pact . _Just . onChain (unsafeChainId 0) . _ForkAtBlockHeight, Just 180_000) `Above`
-        End Nothing
+        Bottom (minBound, Nothing)
     , _versionBootstraps = domainAddr2PeerInfo mainnetBootstrapHosts
     , _versionGenesis = VersionGenesis
         { _genesisBlockTarget = OnChains $ HM.fromList $ concat
@@ -213,8 +213,9 @@ mainnet = ChainwebVersion
         { _disablePeerValidation = False
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = AllChains $ (4_577_530, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
-        End mempty
+    , _versionVerifierPluginNames = AllChains $
+        (4_577_530, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
+        Bottom (minBound, mempty)
     , _versionQuirks = VersionQuirks
         { _quirkGasFees = HM.fromList
             [ (fromJuste (decodeStrictOrThrow' "\"s9fUspNaCHoV4rNI-Tw-JYU1DxqZAOXS-80oEy7Zfbo\""), Gas 67_618)
