@@ -520,7 +520,7 @@ withServiceDate v lf msd inner = case msd of
 
         shutdownMessage :: Text
         shutdownMessage = T.concat
-          [ "Shutting down. This version of chainweb was only valid until" <> sshow t <> "."
+          [ "Shutting down. This version of chainweb was only valid until " <> sshow t <> "."
           , " Please upgrade to a new version."
           ]
 
