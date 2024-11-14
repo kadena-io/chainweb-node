@@ -359,7 +359,7 @@ jobs:
     - name: Build chainweb library
       run: cabal build --ghc-options=-j2 lib:chainweb
     - name: Build chainweb applications
-      run: | 
+      run: |
         cabal build -j2 --ghc-options=-j2 \
           exe:compact \
           test:chainweb-tests \
@@ -398,6 +398,8 @@ jobs:
         cp $(cabal list-bin compaction-tests) artifacts/chainweb
         cp $(cabal list-bin cwtool) artifacts/chainweb
         cp $(cabal list-bin bench) artifacts/chainweb
+        cp $(cabal list-bin rocksdb-tests) artifacts/chainweb
+        cp $(cabal list-bin chainweb-storage-tests) artifacts/chainweb
         cp README.md artifacts/chainweb
         cp CHANGELOG.md artifacts/chainweb
         cp LICENSE artifacts/chainweb
@@ -419,6 +421,35 @@ jobs:
 
   # ########################################################################## #
   # Run misc test suites
+
+  rocksdb-library-tests:
+    name: RocksDB library tests
+    needs: [config, build]
+    runs-on: $${ matrix.os }}
+    env:
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ env.ARTIFACTS_NAME }}
+        path: .
+    - name: Install chainweb from artifacts
+      uses: ./.github/actions/install-chainweb-from-artifacts
+      with:
+        os: ${{ matrix.os }}
+        ghc: ${{ matrix.ghc }}
+        use-freeze-file: ${{ matrix.use-freeze-file }}
+    - name: Run rocksdb-haskell-kadena tests
+      timeout-minutes: 2
+      run: rocksdb-tests
+    - name: Run chainweb-storage tests
+      timeout-minutes: 2
+      run: chainweb-storage-tests
 
   remote-tests:
     name: Remote tests
