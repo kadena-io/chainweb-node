@@ -1,8 +1,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- |
 -- Module: Ea
@@ -24,30 +24,7 @@
 --
 -- Eä means "to be" in Quenya, the ancient language of Tolkien's elves.
 --
-module Ea
-  ( main ) where
-
-import Control.Exception
-import Control.Lens
-
-import Data.Foldable
-import Data.Functor
-import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
-import qualified Data.Text.IO as TIO
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Builder as TB
-import Data.Traversable
-import qualified Data.Vector as V
-import GHC.Exts(the)
-
-import System.IO.Temp
-import System.LogLevel (LogLevel(..))
-
-import Text.Printf
-
--- internal modules
+module Main (main) where
 
 import Chainweb.BlockHeaderDB
 import Chainweb.Logger (genericLogger)
@@ -61,21 +38,38 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Time
-import Chainweb.Transaction
-    (ChainwebTransaction, chainwebPayloadCodec, mkPayloadWithTextOld)
+import Chainweb.Transaction (ChainwebTransaction, chainwebPayloadCodec, mkPayloadWithTextOld)
 import Chainweb.Utils
 import Chainweb.Version
-
+import Chainweb.Version.Development (pattern Development)
+import Chainweb.Version.RecapDevelopment (pattern RecapDevelopment)
+import Chainweb.Version.Registry (registerVersion)
+import Control.Exception
+import Control.Lens
+import Data.Foldable
+import Data.Functor
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Data.Text.IO qualified as TIO
+import Data.Text.Lazy qualified as TL
+import Data.Text.Lazy.Builder qualified as TB
+import Data.Traversable
+import Data.Vector qualified as V
 import Ea.Genesis
-
+import GHC.Exts(the)
 import Pact.ApiReq
 import Pact.Types.ChainMeta
 import Pact.Types.Command hiding (Payload)
-
----
+import System.IO.Temp
+import System.LogLevel (LogLevel(..))
+import Text.Printf
 
 main :: IO ()
-main = void $ do
+main = do
+    registerVersion RecapDevelopment
+    registerVersion Development
+
     recapDevnet
     devnet
     fastnet

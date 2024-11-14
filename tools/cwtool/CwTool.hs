@@ -14,7 +14,6 @@ import Chainweb.Pact.Backend.PactState.GrandHash.Calc (pactCalcMain)
 import Chainweb.Pact.Backend.PactState.GrandHash.Import (pactImportMain)
 
 import qualified CheckpointerDBChecksum
-import qualified Ea
 import qualified EncodeDecodeB64Util
 import qualified GenConf
 import qualified HeaderDump
@@ -62,10 +61,6 @@ cmdHelpLine cs = printf "  %s%s" (padRight 25 $ csCmd cs) (csDescription cs)
 topLevelCommands :: [CommandSpec]
 topLevelCommands =
   [ CommandSpec
-      "ea"
-      "Generate Chainweb genesis blocks and their payloads"
-      Ea.main
-  , CommandSpec
       "run-nodes"
       "Run a local cluster of chainweb-node binaries"
       RunNodes.main
