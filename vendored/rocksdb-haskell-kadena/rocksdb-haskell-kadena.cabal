@@ -4,7 +4,6 @@ version: 1.1.0
 synopsis: Haskell bindings to RocksDB
 homepage: http://github.com/kadena-io/rocksdb-haskell
 license: BSD-3-Clause
-license-file: LICENSE
 author: Kim Altintop, Alexander Thiemann et.al. (see AUTHORS file)
 maintainer: Edmund Noble <edmund@kadena.io>
 copyright:
