@@ -113,7 +113,7 @@ let haskellSrc = with nix-filter.lib; filter {
 
           {
             name = "chainweb";
-            exes = ["cwtool" "compact" "pact-diff"];
+            exes = ["cwtool" "compact" "ea" "pact-diff"];
           }
         ];
 

@@ -359,7 +359,7 @@ jobs:
     - name: Build chainweb library
       run: cabal build --ghc-options=-j2 lib:chainweb
     - name: Build chainweb applications
-      run: | 
+      run: |
         cabal build -j2 --ghc-options=-j2 \
           exe:compact \
           test:chainweb-tests \
@@ -380,7 +380,7 @@ jobs:
         fi
     - name: Run ea and verify consistency of genesis headers
       run: |
-        cabal run cwtool -- ea
+        cabal run ea
         if ! git diff --exit-code -- src/Chainweb/BlockHeader/Genesis/ src/Chainweb/Pact/Transactions/ ; then
           echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
           exit 1
@@ -390,14 +390,15 @@ jobs:
     - name: Prepare artifacts
       run: |
         mkdir -p artifacts/chainweb
+        cp $(cabal list-bin bench) artifacts/chainweb
         cp $(cabal list-bin chainweb-node) artifacts/chainweb
-        cp $(cabal list-bin compact) artifacts/chainweb
         cp $(cabal list-bin chainweb-tests) artifacts/chainweb
-        cp $(cabal list-bin multi-node-network-tests) artifacts/chainweb
-        cp $(cabal list-bin remote-tests) artifacts/chainweb
+        cp $(cabal list-bin compact) artifacts/chainweb
         cp $(cabal list-bin compaction-tests) artifacts/chainweb
         cp $(cabal list-bin cwtool) artifacts/chainweb
-        cp $(cabal list-bin bench) artifacts/chainweb
+        cp $(cabal list-bin ea) artifacts/chainweb
+        cp $(cabal list-bin multi-node-network-tests) artifacts/chainweb
+        cp $(cabal list-bin remote-tests) artifacts/chainweb
         cp README.md artifacts/chainweb
         cp CHANGELOG.md artifacts/chainweb
         cp LICENSE artifacts/chainweb

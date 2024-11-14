@@ -802,6 +802,33 @@ test-suite remote-tests
 -- Misc Applications
 -- -------------------------------------------------------------------------- --
 
+executable ea
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N -H1G -A64M"
+        -Wno-x-partial -Wno-unrecognised-warning-flags
+    hs-source-dirs:
+        tools/ea
+    main-is:
+        Ea.hs
+    other-modules:
+        Ea.Genesis
+    build-depends:
+        , chainweb
+        , chainweb:chainweb-test-utils
+
+        , base
+        , chainweb-storage
+        , lens
+        , loglevel
+        , pact
+        , temporary
+        , text
+        , vector
+
 executable cwtool
     import: warning-flags, debugging-flags
     default-language: Haskell2010
@@ -812,7 +839,6 @@ executable cwtool
         -Wno-x-partial -Wno-unrecognised-warning-flags
     hs-source-dirs:
         tools/cwtool
-        tools/ea
         tools/encode-decode
         tools/genconf
         tools/run-nodes
@@ -823,10 +849,7 @@ executable cwtool
         tools/calculate-release
     main-is: CwTool.hs
     other-modules:
-        Allocations
         CheckpointerDBChecksum
-        Ea
-        Ea.Genesis
         EncodeDecodeB64Util
         GenConf
         HeaderDump
@@ -848,7 +871,6 @@ executable cwtool
         , base >= 4.12 && < 5
         , bytestring >= 0.10.12
         , case-insensitive >= 1.2
-        , cassava >= 0.5.1
         , cereal >= 0.5
         , chainweb-storage >= 0.1
         , configuration-tools >= 0.6
@@ -859,7 +881,6 @@ executable cwtool
         , direct-sqlite >= 2.3.27
         , directory >= 1.3
         , exceptions >= 0.8
-        , file-embed >= 0.0
         , http-client >= 0.5
         , http-client-tls >=0.3
         , lens >= 4.17
@@ -876,7 +897,6 @@ executable cwtool
         , servant-client >= 0.18.2
         , servant-client-core >= 0.18.2
         , streaming >= 0.2.2
-        , temporary >= 1.3
         , text >= 2.0
         , time >= 1.12.2
         , unordered-containers >= 0.2.16
