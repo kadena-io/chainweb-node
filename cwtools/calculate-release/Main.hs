@@ -1,10 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
-module CalculateRelease(main) where
+module Main (main) where
 
 import Chainweb.BlockHeight
 import Chainweb.Version (ChainwebVersion(..))

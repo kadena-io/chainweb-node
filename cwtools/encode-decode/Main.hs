@@ -1,21 +1,16 @@
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 
-module EncodeDecodeB64Util where
-
-import Control.Monad
-
-import Data.ByteString (ByteString)
-import qualified Data.ByteString.Char8 as B
-
-import qualified Data.Text as T
-import Data.Text (Text)
-import qualified Data.Text.IO as T
-
-import Options.Applicative
-
--- internal imports
+module Main (main) where
 
 import Chainweb.Utils
+import Control.Monad
+import Data.ByteString (ByteString)
+import Data.Text (Text)
+import Options.Applicative
+import Data.ByteString.Char8 qualified as B
+import Data.Text qualified as T
+import Data.Text.IO qualified as T
 
 main :: IO ()
 main = execParser opts >>= \case
