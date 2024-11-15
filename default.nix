@@ -112,8 +112,20 @@ let haskellSrc = with nix-filter.lib; filter {
           }
 
           {
-            name = "chainweb";
-            exes = ["cwtool" "compact" "ea" "pact-diff"];
+            name = "cwtools";
+            exes = [
+              "b64"
+              "calculate-release"
+              "compact"
+              "db-checksum"
+              "ea"
+              "genconf"
+              "header-dump"
+              "known-graphs"
+              "pact-diff"
+              "run-nodes"
+              "tx-list"
+            ];
           }
         ];
 

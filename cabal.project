@@ -1,6 +1,7 @@
 packages:
     chainweb.cabal
     node/chainweb-node.cabal
+    cwtools/cwtools.cabal
 
 debug-info: True
 
@@ -38,6 +39,9 @@ package chainweb
     ghc-options: -Wno-missed-extra-shared-lib
 
 package chainweb-node
+    ghc-options: -Wno-missed-extra-shared-lib
+
+package cwtools
     ghc-options: -Wno-missed-extra-shared-lib
 
 if impl(ghc >= 9.8.1)
