@@ -35,7 +35,7 @@ import Control.Applicative
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
-import Control.Lens (set, view, preview)
+import Control.Lens (set, view, preview, itraverse)
 import Control.Monad
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
@@ -43,7 +43,7 @@ import Control.Monad.State.Strict
 import Control.Monad.Trans.Except (ExceptT, runExceptT, except)
 
 import Data.Aeson as Aeson
-import Data.Bifunctor (second)
+import Data.Bifunctor (first, second)
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
@@ -253,14 +253,14 @@ sendHandler
     -> Handler RequestKeys
 sendHandler logger v cid mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
-    case traverse (validateCommand v cid) cmds of
+    case itraverse (\i cmd -> first (i,) (validateCommand v cid cmd)) cmds of
        Right enriched -> do
            let txs = V.fromList $ NEL.toList enriched
            -- If any of the txs in the batch fail validation, we reject them all.
            liftIO (mempoolInsertCheck mempool txs) >>= checkResult
            liftIO (mempoolInsert mempool UncheckedInsert txs)
            return $! RequestKeys $ NEL.map cmdToRequestKey enriched
-       Left err -> failWith $ "Validation failed: " <> T.pack err
+       Left (pos, err) -> failWith $ "Validation of command at position " <> sshow pos <> " failed: " <> T.pack err
   where
     failWith :: Text -> ExceptT ServerError IO a
     failWith err = throwError $ setErrText err err400
