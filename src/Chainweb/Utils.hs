@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -10,7 +11,9 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -21,6 +24,7 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_GHC -fno-warn-deprecations #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.Utils
@@ -100,6 +104,7 @@ module Chainweb.Utils
 , unsafeFromText
 , parseM
 , parseText
+, strip0x
 
 -- ** Base64
 , encodeB64Text
@@ -120,6 +125,7 @@ module Chainweb.Utils
 , decodeStrictOrThrow'
 , decodeFileStrictOrThrow'
 , parseJsonFromText
+, JsonTextRepresentation(..)
 
 -- ** Cassava (CSV)
 , CsvDecimal(..)
@@ -179,6 +185,9 @@ module Chainweb.Utils
 
 -- * Type Level
 , symbolText
+, symbolVal_
+, natVal_
+, intVal_
 
 -- * Resource Management
 , concurrentWith
@@ -262,7 +271,6 @@ import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import Data.Proxy
 import Data.String (IsString(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -274,18 +282,24 @@ import qualified Data.Vector.Mutable as MV
 import Data.Word
 
 import GHC.Generics
+import GHC.Exts (proxy#)
 import GHC.Stack (HasCallStack)
-import GHC.TypeLits (KnownSymbol, symbolVal)
+import GHC.TypeLits (KnownSymbol, Symbol, symbolVal')
+import GHC.TypeLits qualified as Int (KnownNat, natVal')
+import GHC.TypeNats qualified as Nat (KnownNat, natVal')
 
 import qualified Network.Connection as HTTP
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTP
 import Network.Socket hiding (Debug)
 import qualified Network.TLS as HTTP
+import qualified Network.HTTP.Types as HTTP
 
 import Numeric.Natural
 
 import qualified Options.Applicative as O
+
+import qualified Servant.Client
 
 import qualified Streaming as S (concats, effect, inspect)
 import qualified Streaming.Prelude as S
@@ -298,8 +312,6 @@ import qualified System.Timeout as Timeout
 
 import Text.Printf (printf)
 import Text.Read (readEither)
-import qualified Servant.Client
-import qualified Network.HTTP.Types as HTTP
 
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
@@ -433,6 +445,27 @@ mutableVectorFromList as = do
     forM_ (zip [0..] as) $ uncurry (MV.unsafeWrite vec)
     return vec
 {-# inline mutableVectorFromList #-}
+
+-- -------------------------------------------------------------------------- --
+-- Typelevel
+
+-- | Return the value of a type level symbol as a value of a type that is an
+-- instance of 'IsString'.
+--
+symbolText :: forall s a . KnownSymbol s => IsString a => a
+symbolText = fromString $ symbolVal' @s proxy#
+
+natVal_ :: forall n . Nat.KnownNat n => Natural
+natVal_ = Nat.natVal' @n proxy#
+{-# INLINE natVal_ #-}
+
+intVal_ :: forall n . Int.KnownNat n => Integer
+intVal_ = Int.natVal' @n proxy#
+{-# INLINE intVal_ #-}
+
+symbolVal_ :: forall n . KnownSymbol n => String
+symbolVal_ = symbolVal' @n proxy#
+{-# INLINE symbolVal_ #-}
 
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed
@@ -601,6 +634,13 @@ iso8601DateTimeFormat :: String
 iso8601DateTimeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
 {-# INLINE iso8601DateTimeFormat #-}
 
+strip0x :: MonadThrow m => T.Text -> m T.Text
+strip0x t = case T.stripPrefix "0x" t of
+    Just x -> return x
+    Nothing -> throwM $ TextFormatException 
+        $ "Missing hex prefix 0x in " <> sshow t
+{-# INLINE strip0x #-}
+
 -- -------------------------------------------------------------------------- --
 -- ** Base64
 
@@ -751,6 +791,27 @@ parseJsonFromText
     -> Value
     -> Aeson.Parser a
 parseJsonFromText l = withText l $! either fail return . eitherFromText
+
+-- | A newtype wrapper for derving ToJSON and FromJSON instances via 
+-- a 'HasTextRepresentation' instance
+--
+newtype JsonTextRepresentation (t :: Symbol) a = JsonTextRepresentation a
+    deriving newtype (Show, Eq, Ord, Generic)
+
+instance HasTextRepresentation a => ToJSON (JsonTextRepresentation s a) where
+    toEncoding (JsonTextRepresentation a) = toEncoding $ toText a
+    toJSON (JsonTextRepresentation a) = toJSON $ toText a
+    {-# INLINE toEncoding #-}
+    {-# INLINE toJSON #-}
+
+instance
+    ( KnownSymbol s
+    , HasTextRepresentation a
+    )
+     => FromJSON (JsonTextRepresentation s a)
+  where
+    parseJSON = fmap JsonTextRepresentation . parseJsonFromText (symbolVal_ @s)
+    {-# INLINE parseJSON #-}
 
 -- -------------------------------------------------------------------------- --
 -- ** Cassava (CSV)
@@ -1192,15 +1253,6 @@ data Codec t = Codec
     { codecEncode :: t -> ByteString
     , codecDecode :: ByteString -> Either String t
     }
-
--- -------------------------------------------------------------------------- --
--- Typelevel
-
--- | Return the value of a type level symbol as a value of a type that is an
--- instance of 'IsString'.
---
-symbolText :: forall s a . KnownSymbol s => IsString a => a
-symbolText = fromString $ symbolVal (Proxy @s)
 
 -- -------------------------------------------------------------------------- --
 -- Resource Management
