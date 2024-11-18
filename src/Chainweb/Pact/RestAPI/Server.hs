@@ -114,7 +114,7 @@ import Chainweb.Transaction
 import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Pact.Validations (assertCommand)
+import Chainweb.Pact.Validations (assertCommand, displayAssertCommandError)
 import Chainweb.Version.Guards (isWebAuthnPrefixLegal, pactParserVersion, validPPKSchemes)
 import Chainweb.WebPactExecutionService
 
@@ -689,12 +689,9 @@ toPactTx (Transaction b) = note "toPactTx failure" (decodeStrict' b)
 validateCommand :: ChainwebVersion -> ChainId -> Command Text -> Either String ChainwebTransaction
 validateCommand v cid (fmap encodeUtf8 -> cmdBs) = case parsedCmd of
   Right (commandParsed :: ChainwebTransaction) ->
-    if assertCommand
-         commandParsed
-         (validPPKSchemes v cid bh)
-         (isWebAuthnPrefixLegal v cid bh)
-    then Right commandParsed
-    else Left "Command failed validation"
+    case assertCommand commandParsed (validPPKSchemes v cid bh) (isWebAuthnPrefixLegal v cid bh) of
+      Left err -> Left $ "Command failed validation: " ++ displayAssertCommandError err
+      Right () -> Right commandParsed
   Left e -> Left $ "Pact parsing error: " ++ e
   where
     bh = maxBound :: BlockHeight
