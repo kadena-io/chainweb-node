@@ -95,7 +95,7 @@ nodeInfoHandler v (SomeCutDb (CutDbT db :: CutDbT cas v)) = do
       , nodeGraphHistory = graphs
       , nodeLatestBehaviorHeight = latestBehaviorAt v
       , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight v c)) $ HS.toList (chainIds v)
-      , nodeHistoricalChains = ruleElems 0 $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs v
+      , nodeHistoricalChains = ruleElems $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs v
       , nodeServiceDate = T.pack <$> _versionServiceDate v
       , nodeBlockDelay = _versionBlockDelay v
       }
@@ -105,7 +105,6 @@ nodeInfoHandler v (SomeCutDb (CutDbT db :: CutDbT cas v)) = do
 unpackGraphs :: ChainwebVersion -> [(BlockHeight, [(Int, [Int])])]
 unpackGraphs v = gs
   where
-    gs = map (second graphAdjacencies) $ NE.toList $ ruleElems (BlockHeight 0) $ _versionGraphs v
+    gs = map (second graphAdjacencies) $ NE.toList $ ruleElems $ _versionGraphs v
     graphAdjacencies = map unChain . HM.toList . fmap HS.toList . G.adjacencySets . view chainGraphGraph
     unChain (a, bs) = (chainIdInt a, map chainIdInt bs)
-

@@ -128,6 +128,7 @@ import P2P.Node.PeerDB
 import P2P.Node.RestAPI.Client
 import P2P.Peer
 import P2P.Session
+import Data.Proxy
 
 -- -------------------------------------------------------------------------- --
 -- P2pNodeStats
@@ -436,7 +437,7 @@ peerClientEnv node = peerInfoClientEnv (_p2pNodeManager node)
 --
 syncFromPeer :: P2pNode -> PeerInfo -> IO Bool
 syncFromPeer node info = do
-    prunePeerDb peerDb
+    prunePeerDb (_p2pNodeLogFunction node) peerDb
     runClientM sync env >>= \case
         Left e
             | isCertMismatch e -> do
@@ -445,6 +446,10 @@ syncFromPeer node info = do
                 return False
             | otherwise -> do
                 logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> showClientError e
+                -- incrementSuccessiveFailures here helps reduce redundant synchronisation attempts
+                -- by a significant margin, from limited experimentation. More in-depth experimentation
+                -- is still to be done.
+                incrementSuccessiveFailures peerDb info
                 return False
         Right p -> do
             peers <- peerDbSnapshot peerDb
@@ -556,8 +561,8 @@ findNextPeer conf node = do
         --
         peers <- peerDbSnapshotSTM peerDbVar
         !sessions <- readTVar sessionsVar
-        let peerCount = length peers
-        let sessionCount = length sessions
+        let peerCount = IXS.size peers
+        let sessionCount = M.size sessions
 
         -- Check that there are peers
         --
@@ -578,7 +583,7 @@ findNextPeer conf node = do
             -- transation we only check that the result is not empty, which
             -- is expected to be much cheaper than forcing the full list.
             --
-            peersList = IXS.toList peers
+            peersList = IXS.toAscList (Proxy @SuccessiveFailures) peers
             candidates = flip filter peersList $ \peer ->
                 let addr = _peerAddr (_peerEntryInfo peer)
                 in

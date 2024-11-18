@@ -250,6 +250,7 @@ deriving newtype instance Arbitrary LastSuccess
 deriving newtype instance Arbitrary SuccessiveFailures
 deriving newtype instance Arbitrary AddedTime
 deriving newtype instance Arbitrary ActiveSessionCount
+deriving newtype instance Arbitrary PeerEntrySticky
 deriving via (NonEmptyList Int) instance Arbitrary NodeVersion
 
 instance Arbitrary X509KeyPem where
@@ -296,7 +297,7 @@ instance Arbitrary NodeInfo where
             , nodeGraphHistory = graphs
             , nodeLatestBehaviorHeight = latestBehaviorAt v
             , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight v c)) $ HS.toList $ chainIds v
-            , nodeHistoricalChains = ruleElems 0 $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs v
+            , nodeHistoricalChains = ruleElems $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs v
             , nodeServiceDate = T.pack <$> _versionServiceDate v
             , nodeBlockDelay = _versionBlockDelay v
             }
