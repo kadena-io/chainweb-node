@@ -248,7 +248,7 @@ validateChainwebTxs logger v cid dbEnv txValidationTime bh txs doBuyGas
 
     checkTxSigs :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkTxSigs t
-      | assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs = pure $ Right t
+      | isRight (assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs) = pure $ Right t
       | otherwise = return $ Left InsertErrorInvalidSigs
       where
         hsh = P._cmdHash t

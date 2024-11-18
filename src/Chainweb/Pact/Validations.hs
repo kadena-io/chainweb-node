@@ -1,6 +1,9 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+
 -- |
 -- Module: Chainweb.Pact.Validations
 -- Copyright: Copyright © 2018,2019,2020,2021,2022 Kadena LLC.
@@ -25,9 +28,13 @@ module Chainweb.Pact.Validations
 , assertTxSize
 , IsWebAuthnPrefixLegal(..)
 , assertValidateSigs
+, AssertValidateSigsError(..)
+, displayAssertValidateSigsError
 , assertTxTimeRelativeToParent
 , assertTxNotInFuture
 , assertCommand
+, AssertCommandError(..)
+, displayAssertCommandError
   -- * Defaults
 , defaultMaxCommandUserSigListSize
 , defaultMaxCoinDecimalPlaces
@@ -38,6 +45,7 @@ module Chainweb.Pact.Validations
 import Control.Lens
 
 import Data.Decimal (decimalPlaces)
+import Data.Bifunctor (first)
 import Data.Maybe (isJust, catMaybes, fromMaybe)
 import Data.Either (isRight)
 import Data.List.NonEmpty (NonEmpty, nonEmpty)
@@ -104,7 +112,7 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
   where
     sigValidate validSchemes webAuthnPrefixLegal signers
       | Just NoVerify <- sigVerify = True
-      | otherwise = assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs
+      | otherwise = isRight $ assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs
 
     pct = ParentCreationTime
       . view blockCreationTime
@@ -160,22 +168,68 @@ assertSigSize sigs = length sigs <= defaultMaxCommandUserSigListSize
 assertTxSize :: P.Gas -> P.GasLimit -> Bool
 assertTxSize initialGas gasLimit = initialGas < fromIntegral gasLimit
 
+data AssertValidateSigsError
+  = SignersAndSignaturesLengthMismatch
+      { _signersLength :: !Int
+      , _signaturesLength :: !Int
+      }
+  | InvalidSignerScheme
+      { _position :: !Int
+      }
+  | InvalidSignerWebAuthnPrefix
+      { _position :: !Int
+      }
+  | InvalidUserSig
+      { _position :: !Int
+      , _errMsg :: String
+      }
+
+displayAssertValidateSigsError :: AssertValidateSigsError -> String
+displayAssertValidateSigsError = \case
+  SignersAndSignaturesLengthMismatch signersLength sigsLength ->
+    "The number of signers and signatures do not match. Number of signers: " ++ show signersLength ++ ". Number of signatures: " ++ show sigsLength ++ "."
+  InvalidSignerScheme pos ->
+    "The signer at position " ++ show pos ++ " has an invalid signature scheme."
+  InvalidSignerWebAuthnPrefix pos ->
+    "The signer at position " ++ show pos ++ " has an invalid WebAuthn prefix."
+  InvalidUserSig pos errMsg ->
+    "The signature at position " ++ show pos ++ " is invalid: " ++ errMsg ++ "."
+
 -- | Check and assert that signers and user signatures are valid for a given
 -- transaction hash.
 --
-assertValidateSigs :: [P.PPKScheme] -> IsWebAuthnPrefixLegal -> P.PactHash -> [P.Signer] -> [P.UserSig] -> Bool
-assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs
-    | length signers /= length sigs = False
-    | otherwise = and $ zipWith verifyUserSig sigs signers
-    where verifyUserSig sig signer =
-            let
-              sigScheme = fromMaybe P.ED25519 (P._siScheme signer)
-              okScheme = sigScheme `elem` validSchemes
-              okPrefix =
-                webAuthnPrefixLegal == WebAuthnPrefixLegal ||
-                not (P.webAuthnPrefix `T.isPrefixOf` P._siPubKey signer)
-              okSignature = isRight $ P.verifyUserSig hsh sig signer
-            in okScheme && okPrefix && okSignature
+assertValidateSigs :: ()
+  => [P.PPKScheme]
+  -> IsWebAuthnPrefixLegal
+  -> P.PactHash
+  -> [P.Signer]
+  -> [P.UserSig]
+  -> Either AssertValidateSigsError ()
+assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs = do
+  let signersLength = length signers
+  let sigsLength = length sigs
+  checkE (signersLength == sigsLength)
+    $ SignersAndSignaturesLengthMismatch
+        { _signersLength = signersLength
+        , _signaturesLength = sigsLength
+        }
+
+  iforM_ (zip sigs signers) $ \pos (sig, signer) -> do
+    checkE
+      (fromMaybe P.ED25519 (P._siScheme signer) `elem` validSchemes)
+      (InvalidSignerScheme pos)
+    checkE
+      (webAuthnPrefixLegal == WebAuthnPrefixLegal || not (P.webAuthnPrefix `T.isPrefixOf` P._siPubKey signer))
+      (InvalidSignerWebAuthnPrefix pos)
+    case P.verifyUserSig hsh sig signer of
+      Left errMsg -> Left (InvalidUserSig pos errMsg)
+      Right () -> Right ()
+
+  pure ()
+
+  where
+    checkE :: Bool -> e -> Either e ()
+    checkE b e = if b then Right () else Left e
 
 -- prop_tx_ttl_newBlock/validateBlock
 --
@@ -212,13 +266,22 @@ assertTxNotInFuture (ParentCreationTime (BlockCreationTime txValidationTime)) tx
     P.TxCreationTime txOriginationTime = view cmdCreationTime tx
     lenientTxValidationTime = add (scaleTimeSpan defaultLenientTimeSlop second) txValidationTime
 
+data AssertCommandError
+  = InvalidPayloadHash
+  | AssertValidateSigsError AssertValidateSigsError
+
+displayAssertCommandError :: AssertCommandError -> String
+displayAssertCommandError = \case
+  InvalidPayloadHash -> "The hash of the payload was invalid."
+  AssertValidateSigsError err -> displayAssertValidateSigsError err
 
 -- | Assert that the command hash matches its payload and
 -- its signatures are valid, without parsing the payload.
-assertCommand :: P.Command PayloadWithText -> [P.PPKScheme] -> IsWebAuthnPrefixLegal -> Bool
-assertCommand (P.Command pwt sigs hsh) ppkSchemePassList webAuthnPrefixLegal =
-  isRight assertHash &&
-  assertValidateSigs ppkSchemePassList webAuthnPrefixLegal hsh signers sigs
+assertCommand :: P.Command PayloadWithText -> [P.PPKScheme] -> IsWebAuthnPrefixLegal -> Either AssertCommandError ()
+assertCommand (P.Command pwt sigs hsh) ppkSchemePassList webAuthnPrefixLegal = do
+  if isRight assertHash
+  then first AssertValidateSigsError $ assertValidateSigs ppkSchemePassList webAuthnPrefixLegal hsh signers sigs
+  else Left InvalidPayloadHash
   where
     cmdBS = SBS.fromShort $ payloadBytes pwt
     signers = P._pSigners (payloadObj pwt)
