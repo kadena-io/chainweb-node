@@ -44,7 +44,7 @@ import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class
 
 import Data.Bifunctor
-import Data.IxSet.Typed (getEQ, toAscList)
+import qualified Data.IxSet.Typed as IXS
 import Data.Proxy
 import qualified Data.Text.IO as T
 
@@ -95,9 +95,10 @@ peerGetHandler db nid limit next = do
         . SP.map (second _peerEntryInfo)
         . SP.zip (SP.each [0..])
         . SP.each
-        . toAscList (Proxy @HostAddressIdx)
-        . getEQ (SuccessiveFailures 0)
-        $ getEQ nid sn
+        . IXS.toList
+        . IXS.getEQ (SuccessiveFailures 0)
+        . IXS.getEQ nid
+        $ sn
     return $! over pageItems (fmap snd) page
   where
     effectiveLimit = min
@@ -192,4 +193,3 @@ serveP2pSocket
     -> [(NetworkId, PeerDb)]
     -> IO ()
 serveP2pSocket s sock v = runSettingsSocket s sock . someServerApplication . someP2pServers v
-

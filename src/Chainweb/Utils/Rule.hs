@@ -6,7 +6,21 @@
 {-# language LambdaCase #-}
 {-# language TupleSections #-}
 
-module Chainweb.Utils.Rule where
+module Chainweb.Utils.Rule
+  ( Rule(..)
+  , ruleHead
+  , ruleDropWhile
+  , ruleTakeWhile
+  , ruleValid
+  , ruleElems
+  , RuleZipper(..)
+  , ruleZipperHere
+  , unzipRule
+  , ruleZipperFind
+  , ruleSeek
+  , ruleZipperDown
+
+  ) where
 
 import Control.DeepSeq
 
@@ -29,7 +43,7 @@ import GHC.Generics
 -- we often lookup chain properties (e.g. forks) where we are interested in the
 -- latest occurrence.
 --
-data Rule h a = Above (h, a) (Rule h a) | End a
+data Rule h a = Above (h, a) (Rule h a) | Bottom (h, a)
     deriving stock (Eq, Ord, Show, Foldable, Functor, Generic, Generic1, Traversable)
     deriving anyclass (Hashable, NFData)
 
@@ -39,29 +53,26 @@ instance Bifunctor Rule where
     where
       go = \case
         Above (h, a) r -> Above (fh h, fa a) (go r)
-        End a -> End (fa a)
+        Bottom (h, a) -> Bottom (fh h, fa a)
 
 instance Foldable1 (Rule h) where foldMap1 = foldMap1Default
 instance Traversable1 (Rule h) where
-    traverse1 f (Above (h, a) t) = Above <$> ((h,) <$> f a) <.> traverse1 f t
-    traverse1 f (End a) = End <$> f a
+    traverse1 f (Above (h, a) t) = Above . (h,) <$> f a <.> traverse1 f t
+    traverse1 f (Bottom (h, a)) = Bottom . (h,) <$> f a
 
 instance (ToJSON h, ToJSON a) => ToJSON (Rule h a) where
-    toJSON = toJSON . go
-      where
-        go (Above (h, a) t) = toJSON (toJSON h, toJSON a) : go t
-        go (End a) = [toJSON a]
+    toJSON = toJSON . ruleElems
 
 instance (FromJSON h, FromJSON a) => FromJSON (Rule h a) where
     parseJSON = withArray "Rule" $ go . V.toList
       where
         go [] = fail "empty list"
-        go [a] = End <$> parseJSON a
+        go [a] = Bottom <$> parseJSON a
         go (x:xs) = Above <$> parseJSON x <*> go xs
 
-ruleHead :: Rule h a -> (Maybe h, a)
-ruleHead (Above (h, a) _) = (Just h, a)
-ruleHead (End a) = (Nothing, a)
+ruleHead :: Rule h a -> (h, a)
+ruleHead (Above (h, a) _) = (h, a)
+ruleHead (Bottom (h, a)) = (h, a)
 
 ruleTakeWhile :: (h -> Bool) -> Rule h a -> Rule h a
 ruleTakeWhile p (Above (h, a) t)
@@ -75,63 +86,58 @@ ruleDropWhile p (Above (h, a) t)
     | otherwise = Above (h, a) t
 ruleDropWhile _ t = t
 
--- | A measurement on a rule tells you where a condition starts to be true; at
--- the Top, at the Bottom, or Between lower and upper.
---
-data Measurement h a = Bottom a | Top (h, a) | Between (h, a) (h, a)
+-- | A zipper on a rule represents a measurement on the rule, either at some
+-- point on the rule (including the top) or at the bottom of the rule.
+-- Leftmost fields are "below", rightmost fields are "above".
+data RuleZipper h a
+  = BetweenZipper (Rule h a) [(h, a)]
+  deriving Show
 
--- | Takes a measurement on a rule using a monotone function.
---
-measureRule' :: (h -> Bool) -> Rule h a -> Measurement h a
-measureRule' p ((topH, topA) `Above` topTail)
-    | p topH = Top (topH, topA)
-    | otherwise = go topH topA topTail
+ruleZipperHere :: RuleZipper h a -> (h, a)
+ruleZipperHere (BetweenZipper r _) = ruleHead r
+
+-- | Construct a zipper at the top of the Rule, O(1).
+unzipRule :: Rule h a -> RuleZipper h a
+unzipRule r = BetweenZipper r []
+{-# inline unzipRule #-}
+
+ruleZipperDown :: RuleZipper h a -> RuleZipper h a
+ruleZipperDown = \case
+  BetweenZipper (Bottom t) above -> BetweenZipper (Bottom t) above
+  BetweenZipper (justBelow `Above` below) above ->
+    BetweenZipper below (justBelow : above)
+
+-- | Find the place in the rule zipper that satisfies the condition.
+-- Note that if the condition is never reached, the rule is returned reversed.
+-- O(length(untrue prefix)).
+ruleZipperFind :: (h -> a -> Bool) -> RuleZipper h a -> (Bool, RuleZipper h a)
+ruleZipperFind p = go
   where
-    go lh la (Above (h, a) t)
-        | p h = Between (h, a) (lh, la)
-        | otherwise = go h a t
-    go _ _ (End a) = Bottom a
-measureRule' _ (End a) = Bottom a
+  go pl@(BetweenZipper below above)
+    | (h, a) <- ruleHead below, p h a =
+      (True, pl)
+    | Bottom {} <- below =
+      (False, pl)
+    | justBelow `Above` wayBelow <- below =
+      go (BetweenZipper wayBelow (justBelow : above))
+{-# inline ruleZipperFind #-}
 
-measureRule :: Ord h => h -> Rule h a -> Measurement h a
-measureRule h =
-    measureRule' (\hc -> h >= hc)
+-- | Find the place in the rule that satisfies the condition, and
+-- return it as a zipper.
+-- Note that if it reaches the bottom, the bottom is returned.
+-- O(length(untrue prefix)).
+ruleSeek :: (h -> a -> Bool) -> Rule h a -> (Bool, RuleZipper h a)
+ruleSeek p = ruleZipperFind p . unzipRule
+{-# inline ruleSeek #-}
 
--- | Returns the elements of the Rule.
+-- | Returns the elements of the Rule. O(n) and lazily produces elements.
 --
-ruleElems :: h -> Rule h a -> NE.NonEmpty (h, a)
-ruleElems h (End a) = (h, a) NE.:| []
-ruleElems he (Above (h, a) t) = (h, a) `NE.cons` ruleElems he t
-
--- | Measures a monotone condition on a value. It tells you when a condition
--- started to be true most recently (it ignores any previous history).
---
--- Note that 'Top' provides a lower bound for a possible change and 'Bottom' is
--- an upper bound for a change of the evaluation of the condition: It returns
--- 'Top' when the condition is false at the latest/current grade. It returns
--- 'Bottom' if the the condition was always true.
---
-measureValue' :: Num h => (a -> Bool) -> Rule h a -> Measurement h a
-measureValue' p ((topH, topA) `Above` topTail)
-    | not (p topA) = Top (topH, topA)
-    | otherwise = go topH topA topTail
-  where
-    go lh la (Above (h, a) t)
-        | not (p a) = Between (h, a) (lh, la)
-        | otherwise = go h a t
-    go lh la (End a)
-        | not (p a) = Between (0, a) (lh, la)
-        | otherwise = Bottom a
-measureValue' _ (End a) = Bottom a
-
--- | Measures when a value most recently dropped blow the given threshold.
---
-measureValue :: Num h => Ord a => a -> Rule h a -> Measurement h a
-measureValue a =
-    measureValue' (\ac -> a >= ac)
+ruleElems :: Rule h a -> NE.NonEmpty (h, a)
+ruleElems (Bottom (h, a)) = (h, a) NE.:| []
+ruleElems (Above (h, a) t) = (h, a) `NE.cons` ruleElems t
 
 -- | Checks that a Rule is decreasing, and thus valid.
---
+-- O(n).
 ruleValid :: Ord h => Rule h a -> Bool
 ruleValid (Above (h, _) t@(Above (h', _) _)) = h > h' && ruleValid t
 ruleValid _ = True

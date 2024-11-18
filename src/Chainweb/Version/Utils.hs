@@ -131,9 +131,9 @@ chainGraphs :: HasChainwebVersion v => v -> M.Map BlockHeight ChainGraph
 chainGraphs = \case
     (_chainwebVersion -> v)
         | _versionCode v == _versionCode mainnet -> mainnetGraphs
-        | otherwise -> M.fromDistinctDescList . toList . ruleElems minBound $ _versionGraphs v
+        | otherwise -> M.fromDistinctDescList . toList . ruleElems $ _versionGraphs v
     where
-    mainnetGraphs = M.fromDistinctDescList . toList . ruleElems minBound $ _versionGraphs mainnet
+    mainnetGraphs = M.fromDistinctDescList . toList . ruleElems $ _versionGraphs mainnet
 
 -- | BlockHeight intervals for the chain graphs of a chainweb version up to a
 -- given block height.
@@ -461,11 +461,12 @@ verifiersAt :: ChainwebVersion -> ChainId -> BlockHeight -> Map VerifierName Ver
 verifiersAt v cid bh =
     M.restrictKeys allVerifierPlugins activeVerifierNames
     where
-    activeVerifierNames =
-        case measureRule bh $ _versionVerifierPluginNames v ^?! atChain cid of
-            Bottom vs -> vs
-            Top (_, vs) -> vs
-            Between (_, vs) _ -> vs
+    activeVerifierNames
+        = snd
+        $ ruleZipperHere
+        $ snd
+        $ ruleSeek (\h _ -> bh >= h)
+        $ _versionVerifierPluginNames v ^?! atChain cid
 
 -- the mappings from names to verifier plugins is global. the list of verifier
 -- plugins active in any particular block validation context is the only thing

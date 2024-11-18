@@ -76,7 +76,7 @@ module Chainweb.Version
     , genesisBlockTarget
     , genesisTime
     , genesisBlockHeight
-    , genesisGraph
+    , genesisHeightAndGraph
 
     , PactUpgrade(..)
     , PactVersion(..)
@@ -664,11 +664,8 @@ instance HasChainGraph (ChainwebVersion, BlockHeight) where
 -- It is enforced via the 'mkChainId' smart constructor for ChainId.)
 --
 genesisBlockHeight :: HasCallStack => ChainwebVersion -> ChainId -> BlockHeight
-genesisBlockHeight v c =
-    case measureValue' (flip isWebChain c) $ _versionGraphs v of
-        Top _ -> error $ "Invalid ChainId " <> show c
-        Between _ (h, _) -> h
-        Bottom _ -> BlockHeight 0
+genesisBlockHeight v c = fst $ genesisHeightAndGraph v c
+{-# inlinable genesisBlockHeight #-}
 
 -- | The genesis graph for a given Chain
 --
@@ -678,18 +675,29 @@ genesisBlockHeight v c =
 --   (We generally assume that this invariant holds throughout the code base.
 --   It is enforced via the 'mkChainId' smart constructor for ChainId.)
 --
-genesisGraph
+genesisHeightAndGraph
     :: HasCallStack
     => HasChainwebVersion v
     => HasChainId c
     => v
     -> c
-    -> ChainGraph
-genesisGraph v c =
-    case measureValue' (flip isWebChain c) $ _versionGraphs (_chainwebVersion v) of
-        Top _ -> error $ "Invalid ChainId " <> show (_chainId c)
-        Between _ (_, a) -> a
-        Bottom a -> a
+    -> (BlockHeight, ChainGraph)
+genesisHeightAndGraph v c =
+    case ruleSeek (\_ g -> not (isWebChain g c)) (_versionGraphs (_chainwebVersion v)) of
+        -- the chain was in every graph down to the bottom,
+        -- so the bottom has the genesis graph
+        (False, z) -> ruleZipperHere z
+        (True, (BetweenZipper _ above))
+            -- the chain is not in this graph, and there is no graph above
+            -- which could have it
+            | [] <- above -> missingChainError
+            -- the chain is not in this graph but the graph above does have it
+            | (t:_) <- above -> t
+    where
+    missingChainError = error
+        $ "Invalid ChainId " <> show (_chainId c)
+        <> " for chainweb version " <> show (_versionName (_chainwebVersion v))
+{-# inlinable genesisHeightAndGraph #-}
 
 -------------------------------------------------------------------------- --
 -- Utilities for constructing chainweb versions
@@ -728,7 +736,7 @@ latestBehaviorAt v = foldlOf' behaviorChanges max 0 v + 1
     behaviorChanges = fold
         [ versionForks . folded . folded . _ForkAtBlockHeight
         , versionUpgrades . folded . ifolded . asIndex
-        , versionGraphs . to ruleHead . _1 . _Just
+        , versionGraphs . to ruleHead . _1
         ]
 
 -- | Easy construction of a `ChainMap` with entries for every chain
