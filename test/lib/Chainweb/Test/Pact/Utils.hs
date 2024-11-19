@@ -494,7 +494,8 @@ mkEd25519Signer pubKey privKey caps = CmdSigner
       { _siScheme = Nothing
       , _siPubKey = pubKey
       , _siAddress = Nothing
-      , _siCapList = caps }
+      , _siCapList = caps
+      }
 
 mkEd25519Signer' :: SimpleKeyPair -> [SigCapability] -> CmdSigner
 mkEd25519Signer' (pub,priv) = mkEd25519Signer pub priv
@@ -598,7 +599,7 @@ mkDynKeyPairs (CmdSigner Signer{..} privKey) =
     (ED25519, pub, priv) -> do
       pub' <- either diePubKey return $ parseEd25519PubKey =<< parseB16TextOnly pub
       priv' <- either diePrivKey return $ parseEd25519SecretKey =<< parseB16TextOnly priv
-      return $ (DynEd25519KeyPair (pub', priv'), _siCapList)
+      return (DynEd25519KeyPair (pub', priv'), _siCapList)
 
     (WebAuthn, pub, priv) -> do
       let (pubKeyStripped, wasPrefixed) = fromMaybe
@@ -608,7 +609,7 @@ mkDynKeyPairs (CmdSigner Signer{..} privKey) =
         either diePubKey return (parseWebAuthnPublicKey =<< parseB16TextOnly pubKeyStripped)
       privWebAuthn <-
         either diePrivKey return (parseWebAuthnPrivateKey =<< parseB16TextOnly priv)
-      return $ (DynWebAuthnKeyPair wasPrefixed pubWebAuthn privWebAuthn, _siCapList)
+      return (DynWebAuthnKeyPair wasPrefixed pubWebAuthn privWebAuthn, _siCapList)
   where
     diePubKey str = error $ "pubkey: " <> str
     diePrivKey str = error $ "privkey: " <> str
