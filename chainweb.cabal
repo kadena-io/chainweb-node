@@ -169,6 +169,7 @@ library
         , Chainweb.BlockHeaderDB.RestAPI.Client
         , Chainweb.BlockHeaderDB.RestAPI.Server
         , Chainweb.BlockHeight
+        , Chainweb.BlockPayloadHash
         , Chainweb.BlockWeight
         , Chainweb.ChainId
         , Chainweb.ChainValue

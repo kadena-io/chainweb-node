@@ -163,6 +163,7 @@ import GHC.Stack
 
 -- internal modules
 
+import Chainweb.BlockPayloadHash
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
@@ -234,39 +235,6 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockOutpu
 instance HasTextRepresentation BlockOutputsHash where
   toText (BlockOutputsHash h) = toText h
   fromText = fmap BlockOutputsHash . fromText
-  {-# INLINE toText #-}
-  {-# INLINE fromText #-}
-
--- -------------------------------------------------------------------------- --
--- BlockPayloadHash
-
-type BlockPayloadHash = BlockPayloadHash_ ChainwebMerkleHashAlgorithm
-
-newtype BlockPayloadHash_ a = BlockPayloadHash (MerkleLogHash a)
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-    deriving newtype (BA.ByteArrayAccess)
-    deriving newtype (Hashable, ToJSON, FromJSON)
-    deriving newtype (ToJSONKey, FromJSONKey)
-
-encodeBlockPayloadHash :: BlockPayloadHash_ a -> Put
-encodeBlockPayloadHash (BlockPayloadHash w) = encodeMerkleLogHash w
-
-decodeBlockPayloadHash
-    :: MerkleHashAlgorithm a
-    => Get (BlockPayloadHash_ a)
-decodeBlockPayloadHash = BlockPayloadHash <$!> decodeMerkleLogHash
-
-instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag (BlockPayloadHash_ a) where
-    type Tag (BlockPayloadHash_ a) = 'BlockPayloadHashTag
-    toMerkleNode = encodeMerkleTreeNode
-    fromMerkleNode = decodeMerkleTreeNode
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
-
-instance HasTextRepresentation BlockPayloadHash where
-  toText (BlockPayloadHash h) = toText h
-  fromText = fmap BlockPayloadHash . fromText
   {-# INLINE toText #-}
   {-# INLINE fromText #-}
 
