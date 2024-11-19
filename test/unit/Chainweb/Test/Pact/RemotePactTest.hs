@@ -75,6 +75,7 @@ import Pact.Types.Continuation
 import Pact.Types.Exp
 import Pact.Types.Gas
 import Pact.Types.Hash (Hash(..))
+import Pact.Types.Hash qualified as Pact
 import Pact.Types.Info (noInfo)
 import qualified Pact.Types.PactError as Pact
 import Pact.Types.PactValue
@@ -184,6 +185,7 @@ tests rdb = testGroup "Chainweb.Test.Pact.RemotePactTest"
                 join $ webAuthnSignatureTest <$> iot <*> cenv
             ]
       , testCase "txlogsCompactionTest" $ txlogsCompactionTest rdb
+      , testCase "invalid command test" $ invalidCommandTest rdb
     ]
 
 responseGolden :: ClientEnv -> RequestKeys -> IO LBS.ByteString
@@ -192,6 +194,116 @@ responseGolden cenv rks = do
     let values = mapMaybe (\rk -> _crResult <$> HM.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
     return $ foldMap J.encode values
+
+invalidCommandTest :: RocksDb -> IO ()
+invalidCommandTest rdb = runResourceT $ do
+    nodeDbDirs <- withNodeDbDirs rdb nNodes
+    net <- withNodesAtLatestBehavior v id nodeDbDirs
+    let cenv = _getServiceClientEnv net
+
+    let sendExpect :: [Command Text] -> (Text -> Bool) -> ResourceT IO ()
+        sendExpect txs p = do
+          e <- liftIO $ flip runClientM cenv $
+            pactSendApiClient v cid $ SubmitBatch $ NEL.fromList txs
+          case e of
+            Right _ -> do
+              liftIO $ assertFailure "Expected an error message from /send, but didn't get it"
+            Left clientErr -> do
+              case clientErr of
+                FailureResponse _request resp -> do
+                  let respBody = T.decodeUtf8 (LBS.toStrict (responseBody resp))
+                  if p respBody
+                  then pure ()
+                  else liftIO $ assertFailure $ "Predicate failed, responseBody was: " ++ T.unpack respBody
+                _ -> do
+                  liftIO $ assertFailure "Expected 'FailureResponse', got a different ClientError"
+
+    iot <- liftIO $ toTxCreationTime @Integer <$> getCurrentTimeIntegral
+
+    cmdParseFailure <- liftIO $ buildTextCmd "bare-command" v
+        $ set cbSigners [mkEd25519Signer' sender00 []]
+        $ set cbTTL defaultMaxTTL
+        $ set cbCreationTime iot
+        $ set cbChainId cid
+        $ set cbRPC (mkExec "(+ 1" (mkKeySetData "sender00" [sender00]))
+        $ defaultCmd
+    -- Why does pact just return 'mzero' here...
+    sendExpect [cmdParseFailure] (== "Validation of command at position 0 failed: Pact parsing error: Failed reading: mzero")
+
+    cmdInvalidPayloadHash <- liftIO $ do
+      bareCmd <- buildTextCmd "bare-command" v
+        $ set cbSigners [mkEd25519Signer' sender00 []]
+        $ set cbTTL defaultMaxTTL
+        $ set cbCreationTime iot
+        $ set cbChainId cid
+        $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
+        $ defaultCmd
+      pure $ bareCmd
+        { _cmdHash = Pact.hash "fakehash"
+        }
+    sendExpect [cmdInvalidPayloadHash] (== "Validation of command at position 0 failed: Command failed validation: The hash of the payload was invalid.")
+
+    cmdSignersSigsLengthMismatch1 <- liftIO $ do
+      bareCmd <- buildTextCmd "bare-command" v
+        $ set cbSigners [mkEd25519Signer' sender00 []]
+        $ set cbTTL defaultMaxTTL
+        $ set cbCreationTime iot
+        $ set cbChainId cid
+        $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
+        $ defaultCmd
+      pure $ bareCmd
+        { _cmdSigs = []
+        }
+    sendExpect [cmdSignersSigsLengthMismatch1] (== "Validation of command at position 0 failed: Command failed validation: The number of signers and signatures do not match. Number of signers: 1. Number of signatures: 0.")
+
+    cmdSignersSigsLengthMismatch2 <- liftIO $ do
+      bareCmd <- buildTextCmd "bare-command" v
+        $ set cbSigners []
+        $ set cbTTL defaultMaxTTL
+        $ set cbCreationTime iot
+        $ set cbChainId cid
+        $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
+        $ defaultCmd
+      pure $ bareCmd
+        { -- This is an invalid ED25519 signature, but length signers == length signatures is checked first
+          _cmdSigs = [ED25519Sig "fakeSig"]
+        }
+    sendExpect [cmdSignersSigsLengthMismatch2] (== "Validation of command at position 0 failed: Command failed validation: The number of signers and signatures do not match. Number of signers: 0. Number of signatures: 1.")
+
+    -- TODO: It's hard to test for invalid schemes, because it's baked into
+    -- chainwebversion.
+
+    -- TODO: It's hard to test for an invalid WebAuthn signer prefix, because it's
+    -- baked into chainweb version.
+
+    cmdInvalidUserSig <- liftIO $ do
+      bareCmd <- buildTextCmd "bare-command" v
+        $ set cbSigners [mkEd25519Signer' sender00 []]
+        $ set cbTTL defaultMaxTTL
+        $ set cbCreationTime iot
+        $ set cbChainId cid
+        $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
+        $ defaultCmd
+      pure $ bareCmd
+        { _cmdSigs = [ED25519Sig "fakeSig"]
+        }
+    sendExpect [cmdInvalidUserSig] (== "Validation of command at position 0 failed: Command failed validation: The signature at position 0 is invalid: failed to parse ed25519 signature: invalid bytestring size.")
+
+    cmdGood <- liftIO $ buildTextCmd "good-command" v
+      $ set cbSigners [mkEd25519Signer' sender00 []]
+      $ set cbTTL defaultMaxTTL
+      $ set cbCreationTime iot
+      $ set cbChainId cid
+      $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
+      $ defaultCmd
+    -- Test that [badCmd, goodCmd] fails on badCmd, and the batch is rejected.
+    -- We just re-use a previously built bad cmd.
+    sendExpect [cmdInvalidUserSig, cmdGood] (== "Validation of command at position 0 failed: Command failed validation: The signature at position 0 is invalid: failed to parse ed25519 signature: invalid bytestring size.")
+    -- Test that [goodCmd, badCmd] fails on badCmd, and the batch is rejected.
+    -- Order matters, and the error message also indicates the position of the
+    -- failing tx.
+    -- We just re-use a previously built bad cmd.
+    sendExpect [cmdGood, cmdInvalidUserSig] (== "Validation of command at position 1 failed: Command failed validation: The signature at position 0 is invalid: failed to parse ed25519 signature: invalid bytestring size.")
 
 -- | Check that txlogs don't problematically access history
 --   post-compaction.
