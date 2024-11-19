@@ -13,6 +13,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: BeaconNode
@@ -36,8 +37,9 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Managed
 
+import Data.HashMap.Strict qualified as HM
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Time
 import Data.Typeable
 
@@ -45,15 +47,15 @@ import GHC.Generics hiding (from)
 import GHC.Stack
 import GHC.Stats
 
-import qualified Network.HTTP.Client as HTTP
-import qualified Network.HTTP.Client.TLS as HTTPS
+import Network.HTTP.Client qualified as HTTP
+import Network.HTTP.Client.TLS qualified as HTTPS
 
-import qualified Streaming.Prelude as S
+import Streaming.Prelude qualified as S
 
 import System.Directory
 import System.FilePath
 import System.IO
-import qualified System.Logger as L
+import System.Logger qualified as L
 import System.LogLevel
 import System.Mem
 
@@ -78,7 +80,7 @@ import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
 import Chainweb.Version.Mainnet
-import Chainweb.Version.Testnet (testnet)
+import Chainweb.Version.Testnet04 (testnet04)
 import Chainweb.Version.Registry
 
 import Chainweb.Storage.Table.RocksDB
@@ -342,7 +344,7 @@ withBeaconInternal
     => BeaconConfiguration
     -> logger
     -> PeerResources logger
-    -> (Port, Socket)
+    -> (Port, _)
     -> RocksDb
     -> (StartedChainweb logger -> IO ())
     -> IO ()

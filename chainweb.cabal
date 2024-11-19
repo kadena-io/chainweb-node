@@ -226,6 +226,13 @@ library
         , Chainweb.Payload.RestAPI
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client
+        , Chainweb.PayloadProvider
+        , Chainweb.PayloadProvider.EVM
+        , Chainweb.PayloadProvider.Initialization
+        , Chainweb.PayloadProvider.EVM.EngineAPI
+        , Chainweb.PayloadProvider.EVM.EthRpcAPI
+        , Chainweb.PayloadProvider.EVM.JsonRPC
+        , Chainweb.PayloadProvider.EVM.Utils
         , Chainweb.PowHash
         , Chainweb.RestAPI
         , Chainweb.RestAPI.Backup
@@ -378,7 +385,7 @@ library
         , async >= 2.2
         , attoparsec >= 0.13
         , base >= 4.12 && < 5
-        , base16-bytestring >= 0.1
+        , base16-bytestring >= 1.0
         , base64-bytestring-kadena == 0.1
         , binary >= 0.8
         , bytestring >= 0.10.12
@@ -428,6 +435,7 @@ library
         , mwc-probability >= 2.0
         , mwc-random >= 0.13
         , network >= 3.1.2
+        , network-uri >= 2.6
         , optparse-applicative >= 0.14
         , pact >= 4.2.0.1
         , pact-json >= 0.1
@@ -534,7 +542,7 @@ library chainweb-test-utils
         , aeson >= 2.2
         , async >= 2.2
         , base >= 4.12 && < 5
-        , base16-bytestring >= 0.1
+        , base16-bytestring >= 1.0
         , bytestring >= 0.10.12
         , case-insensitive >= 1.2
         , chainweb-storage >= 0.1
@@ -688,7 +696,7 @@ test-suite chainweb-tests
         , aeson >= 2.2
         , async >= 2.2
         , base >= 4.12 && < 5
-        , base16-bytestring >= 0.1
+        , base16-bytestring >= 1.0
         , base64-bytestring-kadena == 0.1
         , byteslice >= 0.2.12
         , bytesmith >= 0.3.10
