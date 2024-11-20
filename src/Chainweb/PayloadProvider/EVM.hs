@@ -87,8 +87,10 @@ evmSyncToBlock p forkInfo
             -- TODO: investigate the use of engine_getPayloadBodiesByRange or
             -- engine_getPayloadBodiesByHash or engine_newPayload to validate
             -- evaluation contexts before committing to a new state.
-            -- Another options is to not marke any block as safe of finalized
-            -- before the context is evaluated.
+            -- * Store EVM EL headers in the payload database and use them pre
+            --   check the context
+            -- * Another options is to not marke any block as safe of finalized
+            --   before the context is evaluated.
 
             -- validate the EL header
             -- if the validation fails, return the current state
