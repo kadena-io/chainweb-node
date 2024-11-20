@@ -213,7 +213,7 @@ data LocalPreflightSimulation
     | LegacySimulation
     deriving stock (Eq, Show, Generic)
 
-newtype BlockValidationFailureMsg = BlockValidationFailureMsg Text
+newtype BlockValidationFailureMsg = BlockValidationFailureMsg J.JsonText
     deriving (Eq, Ord, Generic)
     deriving newtype (J.Encode)
 
