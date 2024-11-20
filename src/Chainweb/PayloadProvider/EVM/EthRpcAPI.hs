@@ -18,21 +18,25 @@
 module Chainweb.PayloadProvider.EVM.EthRpcAPI
 ( mkRpcCtx
 ) where
+
+import Chainweb.PayloadProvider.EVM.Header
 import Chainweb.PayloadProvider.EVM.JsonRPC
 import Chainweb.PayloadProvider.EVM.Utils
-import Ethereum.Misc
+
+import Control.Applicative
+
+import Data.Aeson
+import Data.ByteString qualified as B
 import Data.Void
+
+import Ethereum.Misc
+import Ethereum.Transaction (Transaction)
+import Ethereum.Utils
+
+import GHC.Generics
 
 import Network.HTTP.Client qualified as HTTP
 import Network.URI.Static (uri)
-
-import Ethereum.Header
-import GHC.Generics
-import Data.Aeson
-import Control.Applicative
-import Ethereum.Transaction (Transaction)
-import Ethereum.Utils
-import qualified Data.ByteString as B
 
 -- -------------------------------------------------------------------------- --
 -- Errors
@@ -63,7 +67,7 @@ instance JsonRpcMethod "eth_chainId" where
 --
 instance JsonRpcMethod "eth_getBlockByNumber" where
     type MethodRequest "eth_getBlockByNumber" = (DefaultBlockParameter, Bool)
-    type MethodResponse "eth_getBlockByNumber" = Maybe ConsensusHeader
+    type MethodResponse "eth_getBlockByNumber" = Maybe Header
     type ServerErrors "eth_getBlockByNumber" = Int
     type ApplicationErrors "eth_getBlockByNumber" = Int
     responseTimeoutMs = Nothing
@@ -71,7 +75,7 @@ instance JsonRpcMethod "eth_getBlockByNumber" where
 
 instance JsonRpcMethod "eth_getBlockByHash" where
     type MethodRequest "eth_getBlockByHash" = (BlockHash, Bool)
-    type MethodResponse "eth_getBlockByHash" = Maybe ConsensusHeader
+    type MethodResponse "eth_getBlockByHash" = Maybe Header
     type ServerErrors "eth_getBlockByHash" = Int
     type ApplicationErrors "eth_getBlockByHash" = Int
     responseTimeoutMs = Nothing
@@ -118,7 +122,7 @@ instance ToJSON SyncingStatus where
 instance FromJSON SyncingStatus where
     parseJSON v = notSyncing v <|> syncStatus v
       where
-        notSyncing = withBool "SyncingStatus" $ \b -> if b
+        notSyncing = withBool "SyncingStatus" $ \b -> if not b
             then return SyncingStatusFalse
             else fail "expected 'false' or object"
         syncStatus = withObject "SyncingStatus" $ \o -> SyncingStatus
