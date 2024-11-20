@@ -118,7 +118,7 @@ instance HasTextRepresentation (HexBytes BS.ShortByteString) where
 
 instance KnownNat n => HasTextRepresentation (HexBytes (BytesN n)) where
     toText = toText . fmap bytes
-    fromText t = do 
+    fromText t = do
         HexBytes bs <- fromText t
         case bytesN bs of
             Right x -> return (HexBytes x)
@@ -187,7 +187,7 @@ data DefaultBlockParameter
     | DefaultBlockLatest
     | DefaultBlockPending
     | DefaultBlockSafe
-    | DefaultBlokFinalized
+    | DefaultBlockFinalized
     | DefaultBlockNumber !BlockNumber
     deriving (Show, Eq, Generic)
     deriving (ToJSON, FromJSON) via (JsonTextRepresentation "DefaultBlockParameter" DefaultBlockParameter)
@@ -197,14 +197,16 @@ instance HasTextRepresentation DefaultBlockParameter where
     toText DefaultBlockLatest = "latest"
     toText DefaultBlockPending = "pending"
     toText DefaultBlockSafe = "safe"
-    toText DefaultBlokFinalized = "finalized"
-    toText (DefaultBlockNumber n) = sshow n
+    toText DefaultBlockFinalized = "finalized"
+    toText (DefaultBlockNumber (BlockNumber n)) = toText (HexQuantity n)
+    {-# INLINE toText #-}
 
     fromText t = case t of
         "latest" -> return DefaultBlockLatest
         "earliest" -> return DefaultBlockEarliest
         "pending" -> return DefaultBlockPending
         "safe" -> return DefaultBlockSafe
-        "finalized" -> return DefaultBlokFinalized
-        x -> DefaultBlockNumber <$> fromText x
+        "finalized" -> return DefaultBlockFinalized
+        x -> DefaultBlockNumber . BlockNumber . fromHexQuanity <$> fromText x
+    {-# INLINE fromText #-}
 
