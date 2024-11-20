@@ -222,6 +222,7 @@ paylaodStatusV1Properties o =
     , "latestValidHash" .= _payloadStatusV1LatestValidHash o
     , "validationError" .= _payloadStatusV1ValidationError o
     ]
+{-# INLINE paylaodStatusV1Properties #-}
 
 instance ToJSON PayloadStatusV1 where
     toEncoding = pairs . mconcat . paylaodStatusV1Properties
@@ -780,7 +781,7 @@ instance HasErrorCode EngineServerErrors where
 -- -------------------------------------------------------------------------- --
 -- Forkchoice Update V2 (Shanghai)
 
--- | Engine Forkchoice Updated V2222
+-- | Engine Forkchoice Updated V2
 --
 -- timeout: 8s
 --
