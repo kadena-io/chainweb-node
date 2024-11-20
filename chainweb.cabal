@@ -230,6 +230,7 @@ library
         , Chainweb.PayloadProvider.EVM
         , Chainweb.PayloadProvider.EVM.EnginAPI
         , Chainweb.PayloadProvider.EVM.EthRpcAPI
+        , Chainweb.PayloadProvider.EVM.Header
         , Chainweb.PayloadProvider.EVM.JsonRPC
         , Chainweb.PayloadProvider.EVM.Utils
         , Chainweb.PayloadProvider.Initialization
