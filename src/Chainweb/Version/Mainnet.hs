@@ -162,6 +162,10 @@ mainnet = ChainwebVersion
     , _versionMaxBlockGasLimit =
         (succ $ mainnet ^?! versionForks . at Chainweb216Pact . _Just . onChain (unsafeChainId 0) . _ForkAtBlockHeight, Just 180_000) `Above`
         Bottom (minBound, Nothing)
+    , _versionSpvProofExpirationWindow =
+        -- FIXME: pin down what this should be
+        --(succ $ mainnet ^?! versionForks . at Chainweb227Pact . _Just . onChain (unsafeChainId 0) . _ForkAtBlockHeight, Nothing) `Above`
+        Bottom (minBound, Nothing)
     , _versionBootstraps = domainAddr2PeerInfo mainnetBootstrapHosts
     , _versionGenesis = VersionGenesis
         { _genesisBlockTarget = OnChains $ HM.fromList $ concat

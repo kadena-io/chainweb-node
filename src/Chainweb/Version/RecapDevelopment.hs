@@ -109,6 +109,8 @@ recapDevnet = ChainwebVersion
         }
 
     , _versionMaxBlockGasLimit = Bottom (minBound, Just 180_000)
+    -- TODO: See what this should be instead of Nothing
+    , _versionSpvProofExpirationWindow = Bottom (minBound, Nothing)
     , _versionCheats = VersionCheats
         { _disablePow = False
         , _fakeFirstEpochStart = True

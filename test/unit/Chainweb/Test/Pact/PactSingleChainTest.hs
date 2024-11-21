@@ -15,6 +15,9 @@ module Chainweb.Test.Pact.PactSingleChainTest
 ( tests
 ) where
 
+import Chainweb.Graph (diameter)
+import Data.ByteString.Base64.URL qualified as B64U
+import Pact.JSON.Legacy.Value qualified as J
 import Control.Arrow ((&&&))
 import Control.Concurrent.Async (withAsync)
 import Control.Concurrent.MVar
@@ -27,8 +30,12 @@ import Patience.Map qualified as PatienceM
 import Patience.Map (Delta(..))
 import Streaming.Prelude qualified as S
 
+import Chainweb.SPV.CreateProof
+import Chainweb.WebPactExecutionService
+import Text.Show.Pretty (pPrint)
 import Data.Int (Int64)
-import Data.Aeson (object, (.=), Value(..), eitherDecode)
+import Data.Aeson (object, (.=), Value(..), eitherDecode, eitherDecodeStrict')
+import Data.Aeson qualified as A
 import qualified Data.ByteString.Lazy as BL
 import Data.Either (isLeft, isRight, fromRight)
 import Data.Foldable
@@ -36,7 +43,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.List as List
 import qualified Data.Map.Strict as M
-import Data.Maybe (isJust, isNothing)
+import Data.Maybe (isJust, isNothing, fromMaybe)
 import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.Text.Encoding as T
@@ -52,6 +59,8 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Pact.Types.Command
+import Pact.Types.SPV (ContProof(..))
+import Pact.Types.Continuation (PactExec(..))
 import Pact.Types.Hash
 import Pact.Types.Info
 import Pact.Types.Persistence
@@ -83,7 +92,7 @@ import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (emptyPayload)
 import Chainweb.Payload
 import Chainweb.Test.Cut.TestBlockDb
-import Chainweb.Test.Pact.Utils
+import Chainweb.Test.Pact.Utils hiding (runCut)
 import Chainweb.Test.Pact.Utils qualified as Utils
 import Chainweb.Test.Utils
 import Chainweb.Test.TestVersions
@@ -91,6 +100,7 @@ import Chainweb.Time
 import Chainweb.Transaction (ChainwebTransaction)
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Guards (spvProofExpirationWindow)
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb)
 import Pact.Types.SQLite (SType(..), RType(..))
@@ -139,6 +149,8 @@ tests rdb = testGroup testName
   , compactionGrandHashUnchanged rdb
   , compactionDoesNotDisruptDuplicateDetection rdb
   , compactionResilientToRowIdOrdering rdb
+  --, spvMinimal rdb
+  , spvExpirationTest rdb
   ]
   where
     testName = "Chainweb.Test.Pact.PactSingleChainTest"
@@ -196,6 +208,31 @@ runBlockE q bdb timeOffset = do
     addTestBlockDb bdb (succ $ view blockHeight ph) (Nonce 0) (\_ _ -> blockTime) c o
   nextH <- getParentTestBlockDb bdb cid
   try (validateBlock nextH (CheckablePayloadWithOutputs nb) q)
+
+runBlockEWithChainId :: (HasCallStack) => ChainId -> ChainMap PactExecutionService -> TestBlockDb -> TimeSpan Micros -> IO PayloadWithOutputs
+runBlockEWithChainId c pacts bdb timeOffset = do
+  ph <- getParentTestBlockDb bdb c
+  -- We can run with non-total pact execution service, so we have to account for when we don't have one.
+  case pacts ^? onChain c of
+    Nothing -> do
+      let pwo = emptyPayload
+      let blockTime = add timeOffset $ _bct $ view blockCreationTime ph
+      void $ addTestBlockDb bdb (succ $ view blockHeight ph) (Nonce 0) (\_ _ -> blockTime) c pwo
+      pure pwo
+    Just pact -> do
+      pwo <- fmap newBlockToPayloadWithOutputs (throwIfNoHistory =<< _pactNewBlock pact c noMiner NewBlockFill (ParentHeader ph))
+      let blockTime = add timeOffset $ _bct $ view blockCreationTime ph
+      _ <- addTestBlockDb bdb (succ $ view blockHeight ph) (Nonce 0) (\_ _ -> blockTime) c pwo
+      nextH <- getParentTestBlockDb bdb c
+      _pactValidateBlock pact nextH (CheckablePayloadWithOutputs pwo)
+
+runCut :: (HasCallStack) => ChainwebVersion -> ChainMap PactExecutionService -> TestBlockDb -> TimeSpan Micros -> IO (ChainMap PayloadWithOutputs)
+runCut v queues bdb timeOffset = do
+  --runExceptT $ do
+  pwos <- forM (toList (chainIds v)) $ \c -> do
+    pwo <- runBlockEWithChainId c queues bdb timeOffset
+    pure (c, pwo)
+  pure $ onChains pwos
 
 -- edmund: why does any of this return PayloadWithOutputs instead of a
 -- list of Pact CommandResult?
@@ -329,6 +366,223 @@ toRowData v = case eitherDecode encV of
     Right r -> r
   where
     encV = J.encode v
+
+spvMinimal :: ()
+  => RocksDb
+  -> TestTree
+spvMinimal rdb =
+  let v = instantCpmTestVersion petersonChainGraph
+      srcChain = minimum $ chainIdsAt v minBound
+      targetChain = maximum $ chainIdsAt v maxBound
+  in
+  withTemporaryDir $ \srcDir -> withSqliteDb cid srcDir $ \srcSqlEnvIO ->
+  withTemporaryDir $ \targetDir -> withSqliteDb cid targetDir $ \targetSqlEnvIO ->
+  withDelegateMempool $ \srcDm ->
+  withDelegateMempool $ \targetDm ->
+    testCase "spvMinimal" $ do
+      T.putStrLn ""
+      when (srcChain == targetChain) $ assertFailure "source and target chains must be different"
+      blockDb <- mkTestBlockDb v rdb
+      srcBhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) srcChain
+      targetBhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) targetChain
+      let payloadDb = _bdbPayloadDb blockDb
+      srcSqlEnv <- srcSqlEnvIO
+      targetSqlEnv <- targetSqlEnvIO
+      (srcMempoolRef, srcMempool) <- do
+        (ref, nonRef) <- srcDm
+        pure (pure ref, nonRef)
+      (targetMempoolRef, targetMempool) <- do
+        (ref, nonRef) <- targetDm
+        pure (pure @IO ref, nonRef)
+      srcPactQueue <- newPactQueue 2_000
+      targetPactQueue <- newPactQueue 2_000
+
+      let logger = genericLogger System.LogLevel.Warn T.putStrLn
+
+      -- Start pact service for the src and target
+      let pactCfg = testPactServiceConfig
+      let srcPactService    = runPactService v srcChain    logger Nothing    srcPactQueue srcMempool    srcBhDb    payloadDb    srcSqlEnv pactCfg
+      let targetPactService = runPactService v targetChain logger Nothing targetPactQueue targetMempool targetBhDb payloadDb targetSqlEnv pactCfg
+
+      --setOneShotMempool mempoolRef =<< goldenMemPool
+
+      withAsync srcPactService $ \_ -> do
+        withAsync targetPactService $ \_ -> do
+          let pacts = onChains
+                [ (srcChain, mkPactExecutionService srcPactQueue)
+                , (targetChain, mkPactExecutionService targetPactQueue)
+                ]
+
+          _ <- runCut v pacts blockDb second
+
+          -- Initiate the transfer
+          sendPwos <- runCutWithTx v pacts srcMempoolRef blockDb $ \_n _bHeight _bHash bHeader -> do
+            buildCwCmd "transfer-crosschain" v
+              $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkXChainTransferCap "sender00" "sender01" 1.0 (chainIdToText targetChain)]]
+              $ set cbRPC (mkExec ("(coin.transfer-crosschain \"sender00\" \"sender01\" (read-keyset 'k) \"" <> chainIdToText targetChain <> "\" 1.0)") (mkKeySetData "k" [sender01]))
+              $ setFromHeader bHeader
+              $ set cbChainId srcChain
+              $ set cbGasPrice 0.01
+              $ set cbTTL 100
+              $ defaultCmd
+
+          cut <- readMVar (_bdbCut blockDb)
+          let height :: BlockHeight
+              height = view blockHeight (cut ^?! ixg srcChain)
+
+          -- You have to wait at least N blocks before attempting to run the continuation,
+          -- where N is the diameter of the graph + some constant (either 1 or 2, currently unsure).
+          -- 10 is a safe bet.
+          replicateM_ 10 $ runCut v pacts blockDb second
+
+          --forM_ (_payloadWithOutputsTransactions $ sendPwos ^?! onChain srcChain) $ \(tx, txOut) -> do
+          --  pPrint $ eitherDecodeStrict' @(CommandResult Text) (_transactionOutputBytes txOut)
+
+          let sendCr :: CommandResult Text
+              sendCr = case eitherDecodeStrict' (_transactionOutputBytes $ snd $ V.head $ _payloadWithOutputsTransactions $ sendPwos ^?! onChain srcChain) of
+                Right cmdRes -> cmdRes
+                Left err -> error $ "Failed to decode transaction output bytes as CommandResult Text: " ++ err
+          --pPrint sendCr
+          let cont = fromMaybe (error "missing continuation") (_crContinuation sendCr)
+          -- TODO: why is this index -1? It fails with 0.
+          spvProof <- createTransactionOutputProof_ (_bdbWebBlockHeaderDb blockDb) payloadDb targetChain srcChain height 0
+          let contMsg = ContMsg
+                { _cmPactId = _pePactId cont
+                , _cmStep = succ $ _peStep cont
+                , _cmRollback = _peStepHasRollback cont
+                , _cmData = J.toLegacyJson Null
+                , _cmProof = Just (ContProof (B64U.encode (BL.toStrict (A.encode spvProof))))
+                }
+
+          recvPwos <- runCutWithTx v pacts targetMempoolRef blockDb $ \n _bHeight _bHash bHeader -> do
+            buildCwCmd "transfer-crosschain" v
+              $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap]]
+              $ set cbRPC (mkCont contMsg)
+              $ setFromHeader bHeader
+              $ set cbChainId targetChain
+              $ set cbGasPrice 0.01
+              $ set cbTTL 100
+              $ defaultCmd
+
+          let recvCr :: CommandResult Text
+              recvCr = case eitherDecodeStrict' (_transactionOutputBytes $ snd $ V.head $ _payloadWithOutputsTransactions $ recvPwos ^?! onChain targetChain) of
+                Right cmdRes -> cmdRes
+                Left err -> error $ "Failed to decode transaction output bytes as CommandResult Text: " ++ err
+          pPrint recvCr
+          pure ()
+
+spvExpirationTest :: ()
+  => RocksDb
+  -> TestTree
+spvExpirationTest rdb =
+  -- This version has an spv expiration window of 5 blocks
+  let v = instantCpmTestVersion petersonChainGraph
+      srcChain = minimum $ chainIdsAt v minBound
+      targetChain = maximum $ chainIdsAt v maxBound
+  in
+  withTemporaryDir $ \srcDir -> withSqliteDb cid srcDir $ \srcSqlEnvIO ->
+  withTemporaryDir $ \targetDir -> withSqliteDb cid targetDir $ \targetSqlEnvIO ->
+  withDelegateMempool $ \srcDm ->
+  withDelegateMempool $ \targetDm ->
+    testCase "spvExpiration" $ do
+      T.putStrLn ""
+      when (srcChain == targetChain) $ assertFailure "source and target chains must be different"
+      blockDb <- mkTestBlockDb v rdb
+      srcBhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) srcChain
+      targetBhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) targetChain
+      let payloadDb = _bdbPayloadDb blockDb
+      srcSqlEnv <- srcSqlEnvIO
+      targetSqlEnv <- targetSqlEnvIO
+      (srcMempoolRef, srcMempool) <- do
+        (ref, nonRef) <- srcDm
+        pure (pure ref, nonRef)
+      (targetMempoolRef, targetMempool) <- do
+        (ref, nonRef) <- targetDm
+        pure (pure @IO ref, nonRef)
+      srcPactQueue <- newPactQueue 2_000
+      targetPactQueue <- newPactQueue 2_000
+
+      let logger = genericLogger System.LogLevel.Warn T.putStrLn
+
+      -- Start pact service for the src and target
+      let pactCfg = testPactServiceConfig
+      let srcPactService    = runPactService v srcChain    logger Nothing    srcPactQueue srcMempool    srcBhDb    payloadDb    srcSqlEnv pactCfg
+      let targetPactService = runPactService v targetChain logger Nothing targetPactQueue targetMempool targetBhDb payloadDb targetSqlEnv pactCfg
+
+      --setOneShotMempool mempoolRef =<< goldenMemPool
+
+      withAsync srcPactService $ \_ -> do
+        withAsync targetPactService $ \_ -> do
+          let pacts = onChains
+                [ (srcChain, mkPactExecutionService srcPactQueue)
+                , (targetChain, mkPactExecutionService targetPactQueue)
+                ]
+
+          replicateM_ 10 $ runCut v pacts blockDb second
+
+          -- Initiate the transfer
+          sendPwos <- runCutWithTx v pacts srcMempoolRef blockDb $ \n _bHeight _bHash bHeader -> do
+            buildCwCmd "transfer-crosschain" v
+              $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap, mkXChainTransferCap "sender00" "sender01" 1.0 (chainIdToText targetChain)]]
+              $ set cbRPC (mkExec ("(coin.transfer-crosschain \"sender00\" \"sender01\" (read-keyset 'k) \"" <> chainIdToText targetChain <> "\" 1.0)") (mkKeySetData "k" [sender01]))
+              $ setFromHeader bHeader
+              $ set cbChainId srcChain
+              $ set cbGasPrice 0.01
+              $ set cbTTL 100
+              $ defaultCmd
+
+          cut <- readMVar (_bdbCut blockDb)
+          let sendHeight = view blockHeight (cut ^?! ixg srcChain)
+
+          -- You have to wait at least N blocks before attempting to run the continuation,
+          -- where N is the diameter of the graph + some constant (either 1 or 2, currently unsure).
+          -- 10 is a safe bet.
+          let waitBlocks = 10
+          replicateM_ waitBlocks $ runCut v pacts blockDb second
+
+          let sendCr :: CommandResult Text
+              sendCr = case eitherDecodeStrict' (_transactionOutputBytes $ snd $ V.head $ _payloadWithOutputsTransactions $ sendPwos ^?! onChain srcChain) of
+                Right cmdRes -> cmdRes
+                Left err -> error $ "Failed to decode transaction output bytes as CommandResult Text: " ++ err
+          let cont = fromMaybe (error "missing continuation") (_crContinuation sendCr)
+          spvProof <- createTransactionOutputProof_ (_bdbWebBlockHeaderDb blockDb) payloadDb targetChain srcChain sendHeight 0
+          let contMsg = ContMsg
+                { _cmPactId = _pePactId cont
+                , _cmStep = succ $ _peStep cont
+                , _cmRollback = _peStepHasRollback cont
+                , _cmData = J.toLegacyJson Null
+                , _cmProof = Just (ContProof (B64U.encode (BL.toStrict (A.encode spvProof))))
+                }
+
+          let fullWindow = fromMaybe (error "missing spv proof expiration window")
+                (spvProofExpirationWindow v sendHeight)
+          -- We have already run an extra 10 blocks since the starting the transfer.
+          -- We need to wait for the full window to expire.
+          let remainingTime = fromIntegral @_ @Int fullWindow - waitBlocks + fromIntegral @_ @Int (diameter (chainGraphAt v sendHeight)) + 1
+          replicateM_ remainingTime $ runCut v pacts blockDb second
+
+          recvPwos <- runCutWithTx v pacts targetMempoolRef blockDb $ \_n _bHeight _bHash bHeader -> do
+            buildCwCmd "transfer-crosschain" v
+              $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap]]
+              $ set cbRPC (mkCont contMsg)
+              $ setFromHeader bHeader
+              $ set cbChainId targetChain
+              $ set cbGasPrice 0.01
+              $ set cbTTL 100
+              $ defaultCmd
+
+          let recvCr :: CommandResult Text
+              recvCr = case eitherDecodeStrict' (_transactionOutputBytes $ snd $ V.head $ _payloadWithOutputsTransactions $ recvPwos ^?! onChain targetChain) of
+                Right cmdRes -> cmdRes
+                Left err -> error $ "Failed to decode transaction output bytes as CommandResult Text: " ++ err
+
+          case _pactResult (_crResult recvCr) of
+            Right _ -> do
+              assertFailure "Expected a failed continuation"
+            Left (PactError ContinuationError _ _ errMsg) -> do
+              assertBool "Expected a continuation error message" ("transaction output is expired" `T.isInfixOf` (sshow errMsg))
+            Left err -> do
+              assertFailure $ "Expected a failed continuation, but got: " ++ show err
 
 -- Test that PactService fails if Rosetta is enabled and we don't have all of
 -- the history.
@@ -1185,6 +1439,32 @@ compactionSetup pat rdb pactCfg f =
             , targetPactQueue = targetPactQueue
             , blockDb = blockDb
             }
+
+runCutWithTx :: ()
+  => ChainwebVersion
+  -> ChainMap PactExecutionService
+  -> IO (IORef MemPoolAccess) -- ^ mempoolRef
+  -> TestBlockDb
+  -> (Word -> BlockHeight -> BlockHash -> BlockHeader -> IO ChainwebTransaction)
+  -> IO (ChainMap PayloadWithOutputs)
+runCutWithTx v pacts mempoolRef blockDb makeTx = do
+  madeTx <- newIORef @Bool False
+  supply <- newIORef @Word 0
+  setMempool mempoolRef $ mempty {
+    mpaGetBlock = \_ _ bHeight bHash bHeader -> do
+      madeTxYet <- readIORef madeTx
+      if madeTxYet
+      then do
+        pure mempty
+      else do
+        n <- atomicModifyIORef' supply $ \a -> (a + 1, a)
+        tx <- makeTx n bHeight bHash bHeader
+        writeIORef madeTx True
+        pure $ V.fromList [tx]
+  }
+  e <- runCut v pacts blockDb second
+  writeIORef madeTx False
+  pure e
 
 runBlockWithTx :: ()
   => IO (IORef MemPoolAccess) -- ^ mempoolRef

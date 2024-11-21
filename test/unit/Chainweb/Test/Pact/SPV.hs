@@ -124,7 +124,6 @@ logg l
   | l <= Warn = T.putStrLn . logText
   | otherwise = const $ return ()
 
-
 -- debugging
 _handle' :: SomeException -> IO (Bool, String)
 _handle' e =

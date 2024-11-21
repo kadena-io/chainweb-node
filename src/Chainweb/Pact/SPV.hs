@@ -1,10 +1,11 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -27,37 +28,30 @@ module Chainweb.Pact.SPV
 , getTxIdx
 ) where
 
-
-import GHC.Stack
-
 import Control.Error
 import Control.Lens hiding (index)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Except
 import Control.Monad.Trans.Except
-
+import Crypto.Hash.Algorithms
 import Data.Aeson hiding (Object, (.=))
 import Data.Bifunctor
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Base64.URL as B64U
-import qualified Data.Map.Strict as M
+import Data.ByteString qualified as B
+import Data.ByteString.Base64.URL qualified as B64U
+import Data.Map.Strict qualified as M
 import Data.Text (Text, pack)
-import qualified Data.Text as Text
-import qualified Data.Text.Encoding as Text
-import Text.Read (readMaybe)
-
-import Crypto.Hash.Algorithms
-
-import qualified Ethereum.Header as EthHeader
+import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
+import Ethereum.Header qualified as EthHeader
 import Ethereum.Misc
+import Ethereum.RLP
 import Ethereum.Receipt
 import Ethereum.Receipt.ReceiptProof
-import Ethereum.RLP
-
+import GHC.Stack
 import Numeric.Natural
-
-import qualified Streaming.Prelude as S
+import Streaming.Prelude qualified as S
+import Text.Read (readMaybe)
 
 -- internal chainweb modules
 
@@ -158,7 +152,7 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
         --  3. Extract tx outputs as a pact object and return the
         --  object.
 
-        TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u (view blockHash bh)
+        TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u bh
 
         q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
           Nothing -> forkedThrower bh "unable to decode spv transaction output"
@@ -281,7 +275,7 @@ verifyCont bdb bh (ContProof cp) = runExceptT $ do
           --  3. Extract continuation 'PactExec' from decoded result
           --  and return the cont exec object
 
-          TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u (view blockHash bh)
+          TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u bh
 
           q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
             Nothing -> forkedThrower bh "unable to decode spv transaction output"
