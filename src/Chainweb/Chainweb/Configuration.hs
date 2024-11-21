@@ -119,6 +119,7 @@ import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBat
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Development
+import Chainweb.Version.Pact5Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Registry
@@ -473,7 +474,7 @@ validateChainwebVersion v = do
             , "just yet."
             ]
     where
-    isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [recapDevnet, devnet]]
+    isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [recapDevnet, devnet, pact5Devnet]]
 
 validateBackupConfig :: ConfigValidation BackupConfig []
 validateBackupConfig c =
