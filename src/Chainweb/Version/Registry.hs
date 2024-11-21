@@ -129,16 +129,20 @@ lookupVersionByCode code
         -- the case that we don't actually need the version, just the code.
         lookupVersion & versionCode .~ code
     where
+
     lookupVersion :: HasCallStack => ChainwebVersion
     lookupVersion = unsafeDupablePerformIO $ do
         m <- readIORef versionMap
         return $ fromMaybe (error notRegistered) $
             HM.lookup code m
+
     notRegistered
-        | code == _versionCode recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured"
-        | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured"
-        | code == _versionCode pact5Devnet = "Pact 5 devnet version used but not registered, remember to do so after it's configured"
+        | code == _versionCode recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured. " <> perhaps
+        | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured. " <> perhaps
+        | code == _versionCode pact5Devnet = "Pact 5 devnet version used but not registered, remember to do so after it's configured. " <> perhaps
         | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.testVersions?"
+
+    perhaps = "Perhaps you are attempting to run a different devnet version than a previous run, and you need to delete your db directory before restarting devnet with the new version?"
 
 -- TODO: ideally all uses of this are deprecated. currently in use in
 -- ObjectEncoded block header decoder and CutHashes decoder.
