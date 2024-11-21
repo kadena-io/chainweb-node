@@ -1,14 +1,24 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
+
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 -- |
 -- Module: Chainweb.PayloadProvider.EVM.Header
@@ -27,22 +37,35 @@
 --
 -- [python execution-specs](https://github.com/ethereum/execution-specs/blob/master/src/ethereum/cancun/blocks.py)
 --
---
 module Chainweb.PayloadProvider.EVM.Header
 ( Header(..)
-, blockHash
 , ommersHash
 , difficulty
 , nonce
+, blockHash
+, blockPayloadHash
+, headerProof
+, runHeaderProof
 , BaseFeePerGas(..)
 , WithdrawalsRoot(..)
 ) where
 
+import Chainweb.BlockPayloadHash
+import Chainweb.Crypto.MerkleLog hiding (headerProof)
+import Chainweb.Crypto.MerkleLog qualified as MerkleLog
+import Chainweb.MerkleLogHash
+import Chainweb.MerkleUniverse
 import Chainweb.PayloadProvider.EVM.Utils
+
+import Control.Monad.Catch
 
 import Data.Aeson
 import Data.Aeson.Types (Pair)
+import Data.ByteString.Short qualified as BS
 import Data.Hashable (Hashable)
+import Data.MerkleLog
+import Data.Text qualified as T
+import Data.Void
 
 import Ethereum.Misc
 import Ethereum.RLP
@@ -50,9 +73,7 @@ import Ethereum.Utils
 
 import Foreign.Storable
 
-import Numeric.Natural
-import Chainweb.Crypto.MerkleLog
-import Chainweb.MerkleUniverse
+import GHC.TypeNats
 
 -- -------------------------------------------------------------------------- --
 -- Header Fields for Paris Hardfork
@@ -213,6 +234,40 @@ blockHash :: Header -> BlockHash
 blockHash = BlockHash . keccak256 . putRlpByteString
 {-# INLINE blockHash #-}
 
+blockPayloadHash :: Header -> BlockPayloadHash
+blockPayloadHash h = BlockPayloadHash $ MerkleLogHash $ computeMerkleLogRoot h
+{-# INLINE blockPayloadHash #-}
+
+-- -------------------------------------------------------------------------- --
+-- Merkle Proofs
+--
+-- Example:
+--
+-- ghci> Just p = headerProof @BlockNumber hdr
+-- ghci> runHeaderProof p == blockPayloadHash hdr
+-- True
+-- ghci> proofSubject @_ @_ @BlockNumber p
+-- BlockNumber 6373
+
+-- | Creates a Merkle proof for a header property of an EVM execution header.
+--
+headerProof
+    :: forall c a m
+    . MonadThrow m
+    => a ~ ChainwebMerkleHashAlgorithm 
+    => HasHeader a ChainwebHashTag c (MkLogType a ChainwebHashTag Header)
+    => Header
+    -> m (MerkleProof a)
+headerProof = MerkleLog.headerProof @c
+{-# INLINE headerProof #-}
+
+-- | Runs a header proof. Returns the BlockPayloadHash of the EVM execution
+-- header for which inclusion is proven.
+--
+runHeaderProof :: MerkleProof ChainwebMerkleHashAlgorithm -> BlockPayloadHash
+runHeaderProof = BlockPayloadHash . MerkleLogHash . runMerkleProof
+{-# INLINE runHeaderProof #-}
+
 -- -------------------------------------------------------------------------- --
 -- Constant Values after Paris Hardfork
 
@@ -370,12 +425,180 @@ instance RLP Header where
     {-# INLINE getRlp #-}
 
 -- -------------------------------------------------------------------------- --
--- MerkleLog Entry
+-- MerkleLog Entries
 
--- TODO
+newtype RlpMerkleLogEntry (tag :: ChainwebHashTag) t = RlpMerkleLogEntry t
+    deriving newtype RLP
+instance
+    ( KnownNat (MerkleTagVal ChainwebHashTag tag)
+    , MerkleHashAlgorithm a
+    , RLP t
+    )
+    => IsMerkleLogEntry a ChainwebHashTag (RlpMerkleLogEntry tag t) where
+    type Tag (RlpMerkleLogEntry tag t) = tag
+    toMerkleNode = InputNode . putRlpByteString
+    fromMerkleNode (InputNode bs) = case get getRlp bs of
+        Left e -> throwM $ MerkleLogDecodeException (T.pack e)
+        Right x -> Right x
+    fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
 
--- instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ParentHash where
---     type Tag ParentHash = 'EthParentHashTag
---     toMerkleNode = InputNode . _blockHash
---     fromMerkleNode (InputNode bs) = Right $ MinerData bs
---     fromMerkleNode (TreeNode _) = throwM expectedInputNodeException
+deriving via (RlpMerkleLogEntry 'EthParentHashTag ParentHash)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ParentHash
+
+deriving via (RlpMerkleLogEntry 'EthOmmersHashTag OmmersHash)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag OmmersHash
+
+deriving via (RlpMerkleLogEntry 'EthBeneficiaryTag Beneficiary)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Beneficiary
+
+deriving via (RlpMerkleLogEntry 'EthStateRootTag StateRoot)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag StateRoot
+
+deriving via (RlpMerkleLogEntry 'EthTransactionsRootTag TransactionsRoot)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag TransactionsRoot
+
+deriving via (RlpMerkleLogEntry 'EthReceiptsRootTag ReceiptsRoot)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ReceiptsRoot
+
+deriving via (RlpMerkleLogEntry 'EthBloomTag Bloom)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Bloom
+
+deriving via (RlpMerkleLogEntry 'EthDifficultyTag Difficulty)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Difficulty
+
+deriving via (RlpMerkleLogEntry 'EthBlockNumberTag BlockNumber)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag BlockNumber
+
+deriving via (RlpMerkleLogEntry 'EthGasLimitTag GasLimit)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag GasLimit
+
+deriving via (RlpMerkleLogEntry 'EthGasUsedTag GasUsed)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag GasUsed
+
+deriving via (RlpMerkleLogEntry 'EthTimestampTag Timestamp)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Timestamp
+
+deriving via (RlpMerkleLogEntry 'EthExtraDataTag ExtraData)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ExtraData
+
+deriving via (RlpMerkleLogEntry 'EthRandaoTag Randao)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Randao
+
+deriving via (RlpMerkleLogEntry 'EthNonceTag Nonce)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Nonce
+
+deriving via (RlpMerkleLogEntry 'EthBaseFeePerGasTag BaseFeePerGas)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag BaseFeePerGas
+
+deriving via (RlpMerkleLogEntry 'EthWithdrawalsRootTag WithdrawalsRoot)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag WithdrawalsRoot
+
+deriving via (RlpMerkleLogEntry 'EthBlobGasUsedTag BlobGasUsed)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag BlobGasUsed
+
+deriving via (RlpMerkleLogEntry 'EthExcessBlobGasTag ExcessBlobGas)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ExcessBlobGas
+
+deriving via (RlpMerkleLogEntry 'EthParentBeaconBlockRootTag ParentBeaconBlockRoot)
+    instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ParentBeaconBlockRoot
+
+-- -------------------------------------------------------------------------- --
+-- MerkleLog Instance
+
+instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag Header where
+
+    -- /IMPORTANT/ a types must occur at most once in this list
+    type MerkleLogHeader Header =
+        '[ ParentHash
+        , OmmersHash
+        , Beneficiary
+        , StateRoot
+        , TransactionsRoot
+        , ReceiptsRoot
+        , Bloom
+        , Difficulty
+        , BlockNumber
+        , GasLimit
+        , GasUsed
+        , Timestamp
+        , ExtraData
+        , Randao
+        , Nonce
+        , BaseFeePerGas
+        , WithdrawalsRoot
+        , BlobGasUsed
+        , ExcessBlobGas
+        , ParentBeaconBlockRoot
+        ]
+    type MerkleLogBody Header = Void
+
+    toLog h = newMerkleLog @ChainwebMerkleHashAlgorithm entries
+      where
+        entries
+            = _hdrParentHash h
+            :+: _hdrOmmersHash h
+            :+: _hdrBeneficiary h
+            :+: _hdrStateRoot h
+            :+: _hdrTransactionsRoot h
+            :+: _hdrReceiptsRoot h
+            :+: _hdrLogsBloom h
+            :+: _hdrDifficulty h
+            :+: _hdrNumber h
+            :+: _hdrGasLimit h
+            :+: _hdrGasUsed h
+            :+: _hdrTimestamp h
+            :+: _hdrExtraData h
+            :+: _hdrPrevRandao h
+            :+: _hdrNonce h
+            :+: _hdrBaseFeePerGas h
+            :+: _hdrWithdrawalsRoot h
+            :+: _hdrBlobGasUsed h
+            :+: _hdrExcessBlobGas h
+            :+: _hdrParentBeaconBlockRoot h
+            :+: emptyBody
+
+    fromLog l = Header
+        { _hdrParentHash = hdrParentHash
+        , _hdrOmmersHash = hdrOmmersHash
+        , _hdrBeneficiary = hdrBeneficiary
+        , _hdrStateRoot = hdrStateRoot
+        , _hdrTransactionsRoot = hdrTransactionsRoot
+        , _hdrReceiptsRoot = hdrReceiptsRoot
+        , _hdrLogsBloom = hdrLogsBloom
+        , _hdrDifficulty = hdrDifficulty
+        , _hdrNumber = hdrNumber
+        , _hdrGasLimit = hdrGasLimit
+        , _hdrGasUsed = hdrGasUsed
+        , _hdrTimestamp = hdrTimestamp
+        , _hdrExtraData = hdrExtraData
+        , _hdrPrevRandao = hdrPrevRandao
+        , _hdrNonce = hdrNonce
+        , _hdrBaseFeePerGas = hdrBaseFeePerGas
+        , _hdrWithdrawalsRoot = hdrWithdrawalsRoot
+        , _hdrBlobGasUsed = hdrBlobGasUsed
+        , _hdrExcessBlobGas = hdrExcessBlobGas
+        , _hdrParentBeaconBlockRoot = hdrParentBeaconBlockRoot
+        }
+      where
+        ( hdrParentHash
+            :+: hdrOmmersHash
+            :+: hdrBeneficiary
+            :+: hdrStateRoot
+            :+: hdrTransactionsRoot
+            :+: hdrReceiptsRoot
+            :+: hdrLogsBloom
+            :+: hdrDifficulty
+            :+: hdrNumber
+            :+: hdrGasLimit
+            :+: hdrGasUsed
+            :+: hdrTimestamp
+            :+: hdrExtraData
+            :+: hdrPrevRandao
+            :+: hdrNonce
+            :+: hdrBaseFeePerGas
+            :+: hdrWithdrawalsRoot
+            :+: hdrBlobGasUsed
+            :+: hdrExcessBlobGas
+            :+: hdrParentBeaconBlockRoot
+            :+: _
+            ) = _merkleLogEntries l

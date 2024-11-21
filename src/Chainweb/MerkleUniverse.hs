@@ -58,6 +58,18 @@ type ChainwebMerkleHashAlgorithm = SHA512t_256
 -- -------------------------------------------------------------------------- --
 -- Chainweb Merkle Universe
 
+-- | Tags for Leaf Nodes in the Chainweb Merkle Tree
+--
+-- IMPORTANT NOTE:
+--
+-- A tag MUST uniquely identify the each particular use of a type in the Merkle
+-- Tree. NEVER EVER reuse a tag at a different place in the tree.
+--
+-- Merkle Proofs for the Chainweb Merkle tree witness the existence of a given
+-- tagged value anywhere in the tree. If the same tagged value is used in
+-- in different roles in multiple places in the tree, the proof will be 
+-- ambiguous.
+--
 data ChainwebHashTag
     = VoidTag
     | MerkleRootTag
@@ -85,6 +97,28 @@ data ChainwebHashTag
     | BlockEventsHashTag
     | RequestKeyTag
     | PactEventTag
+
+    -- Ethereum EL
+    | EthParentHashTag
+    | EthOmmersHashTag
+    | EthBeneficiaryTag
+    | EthStateRootTag
+    | EthTransactionsRootTag
+    | EthReceiptsRootTag
+    | EthBloomTag
+    | EthDifficultyTag
+    | EthBlockNumberTag
+    | EthGasLimitTag
+    | EthGasUsedTag
+    | EthTimestampTag
+    | EthExtraDataTag
+    | EthRandaoTag
+    | EthNonceTag
+    | EthBaseFeePerGasTag
+    | EthWithdrawalsRootTag
+    | EthBlobGasUsedTag
+    | EthExcessBlobGasTag
+    | EthParentBeaconBlockRootTag
     deriving (Show, Eq)
 
 instance MerkleUniverse ChainwebHashTag where
@@ -114,6 +148,28 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'BlockEventsHashTag = 0x0031
     type MerkleTagVal ChainwebHashTag 'RequestKeyTag = 0x0032
     type MerkleTagVal ChainwebHashTag 'PactEventTag = 0x0034
+
+    -- Ethereum EL
+    type MerkleTagVal ChainwebHashTag 'EthParentHashTag = 0x0040
+    type MerkleTagVal ChainwebHashTag 'EthOmmersHashTag = 0x0041
+    type MerkleTagVal ChainwebHashTag 'EthBeneficiaryTag = 0x0042
+    type MerkleTagVal ChainwebHashTag 'EthStateRootTag = 0x0043
+    type MerkleTagVal ChainwebHashTag 'EthTransactionsRootTag = 0x0044
+    type MerkleTagVal ChainwebHashTag 'EthReceiptsRootTag = 0x0045
+    type MerkleTagVal ChainwebHashTag 'EthBloomTag = 0x0046
+    type MerkleTagVal ChainwebHashTag 'EthDifficultyTag = 0x0047
+    type MerkleTagVal ChainwebHashTag 'EthBlockNumberTag = 0x0048
+    type MerkleTagVal ChainwebHashTag 'EthGasLimitTag = 0x0049
+    type MerkleTagVal ChainwebHashTag 'EthGasUsedTag = 0x004a
+    type MerkleTagVal ChainwebHashTag 'EthTimestampTag = 0x004b
+    type MerkleTagVal ChainwebHashTag 'EthExtraDataTag = 0x004c
+    type MerkleTagVal ChainwebHashTag 'EthRandaoTag = 0x004d
+    type MerkleTagVal ChainwebHashTag 'EthNonceTag = 0x004e
+    type MerkleTagVal ChainwebHashTag 'EthBaseFeePerGasTag = 0x004f
+    type MerkleTagVal ChainwebHashTag 'EthWithdrawalsRootTag = 0x0050
+    type MerkleTagVal ChainwebHashTag 'EthBlobGasUsedTag = 0x0051
+    type MerkleTagVal ChainwebHashTag 'EthExcessBlobGasTag = 0x0052
+    type MerkleTagVal ChainwebHashTag 'EthParentBeaconBlockRootTag = 0x0053
 
 instance HashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Void where
     type Tag Void = 'VoidTag
@@ -164,4 +220,3 @@ data MerkleRootMismatch = MerkleRootMismatch
     deriving (Show, Eq, Ord, Generic, NFData)
 
 instance Exception MerkleRootMismatch
-
