@@ -389,8 +389,9 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
 
         !p <- runConcurrently
             -- query payload
+            -- TODO: should we hint the EVM to try to sync here to save a roundtrip?
             $ Concurrently
-                (getBlockPayload payloadStore candidatePayloadCas priority maybeOrigin' header)
+                (_fetchPayload _chainPayloadProvider maybeOrigin' header)
 
             -- query parent (recursively)
             --
@@ -444,7 +445,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         --
 
         logg Debug $ taskMsg k $ "getBlockHeaderInternal validate payload for " <> sshow h <> ": " <> sshow p
-        validateAndInsertPayload header p `catch` \(e :: SomeException) -> do
+        _syncToBlock _payloadProviderForChain (headerToForkInfo header) p `catch` \(e :: SomeException) -> do
             logg Warn $ taskMsg k $ "getBlockHeaderInternal pact validation for " <> sshow h <> " failed with :" <> sshow e
             throwM e
         logg Debug $ taskMsg k "getBlockHeaderInternal pact validation succeeded"

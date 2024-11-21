@@ -17,6 +17,7 @@
 --
 module Chainweb.PayloadProvider.EVM.EthRpcAPI
 ( mkRpcCtx
+, SyncingStatus(..)
 ) where
 
 import Chainweb.PayloadProvider.EVM.Header

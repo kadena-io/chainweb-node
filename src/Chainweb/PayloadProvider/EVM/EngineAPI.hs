@@ -43,8 +43,8 @@
 --   details of the transition from PoW to PoS that are not relevant in the
 --   context of Chainweb.
 --
--- - Shanghai: Introduces support for Withdrawls and adds
---   - WithdrawlsV1
+-- - Shanghai: Introduces support for Withdrawals and adds
+--   - WithdrawalsV1
 --   - ExecutionPayloadBodyV1
 --   - engine_getPayloadBodiesByHashV1
 --   - engine_getPayloadBodiesByRangeV1
@@ -68,8 +68,9 @@
 -- specified by the timeout parameter.
 --
 module Chainweb.PayloadProvider.EVM.EngineAPI
-( WithdrawlV1(..)
+( WithdrawalV1(..)
 , ForkchoiceStateV1(..)
+, PayloadAttributesV1(..)
 , PayloadAttributesV2(..)
 , PayloadAttributesV3(..)
 , PayloadStatusStatus(..)
@@ -79,6 +80,7 @@ module Chainweb.PayloadProvider.EVM.EngineAPI
 , EngineServerErrors(..)
 , EngineErrors(..)
 , ForkchoiceUpdatedV3Request(..)
+, ForkchoiceUpdatedV1Response(..)
 
 -- * Authentication and Client Context
 , JwtSecret(..)
@@ -111,6 +113,7 @@ import GHC.Generics (Generic)
 import GHC.TypeLits
 import Network.HTTP.Client qualified as HTTP
 import Network.URI.Static (uri)
+import Chainweb.PayloadProvider.EVM.Header (ParentBeaconBlockRoot)
 
 -- -------------------------------------------------------------------------- --
 -- Forkchoice State V1
@@ -238,7 +241,7 @@ instance FromJSON PayloadStatusV1 where
     {-# INLINE parseJSON #-}
 
 -- -------------------------------------------------------------------------- --
--- Withdrawl V1
+-- Withdrawal V1
 
 -- | Withdrawal object V1
 --
@@ -251,36 +254,36 @@ instance FromJSON PayloadStatusV1 where
 --
 -- https://github.com/ethereum/execution-apis/blob/main/src/engine/shanghai.md#withdrawalv1
 --
-data WithdrawlV1 = WithdrawlV1
-    { _withdrawlIndex :: !Natural
+data WithdrawalV1 = WithdrawalV1
+    { _withdrawalIndex :: !Natural
         -- ^ index: QUANTITY, 64 Bits
-    , _withdrawlValidatorIndex :: !Natural
+    , _withdrawalValidatorIndex :: !Natural
         -- ^ validatorIndex: QUANTITY, 64 Bits
-    , _withdrawlAddress :: !Address
+    , _withdrawalAddress :: !Address
         -- ^ address: DATA, 20 Bytes
-    , _withdrawlAmount :: !Wei
+    , _withdrawalAmount :: !Wei
         -- ^ amount: QUANTITY, 64 Bits
     }
     deriving (Show, Eq, Generic)
 
-instance ToJSON WithdrawlV1 where
+instance ToJSON WithdrawalV1 where
     toEncoding o = pairs
-        $ "index" .= HexQuantity (_withdrawlIndex o)
-        <> "validatorIndex" .= HexQuantity (_withdrawlValidatorIndex o)
-        <> "address" .= _withdrawlAddress o
-        <> "amount" .= _withdrawlAmount o
+        $ "index" .= HexQuantity (_withdrawalIndex o)
+        <> "validatorIndex" .= HexQuantity (_withdrawalValidatorIndex o)
+        <> "address" .= _withdrawalAddress o
+        <> "amount" .= _withdrawalAmount o
     {-# INLINE toEncoding #-}
 
     toJSON o = object
-        [ "index" .= HexQuantity (_withdrawlIndex o)
-        , "validatorIndex" .= HexQuantity (_withdrawlValidatorIndex o)
-        , "address" .= _withdrawlAddress o
-        , "amount" .= _withdrawlAmount o
+        [ "index" .= HexQuantity (_withdrawalIndex o)
+        , "validatorIndex" .= HexQuantity (_withdrawalValidatorIndex o)
+        , "address" .= _withdrawalAddress o
+        , "amount" .= _withdrawalAmount o
         ]
     {-# INLINE toJSON #-}
 
-instance FromJSON WithdrawlV1 where
-    parseJSON = withObject "Withdrawl" $ \o -> WithdrawlV1
+instance FromJSON WithdrawalV1 where
+    parseJSON = withObject "Withdrawal" $ \o -> WithdrawalV1
         <$> fmap fromHexQuanity (o .: "index")
         <*> fmap fromHexQuanity (o .: "validatorIndex")
         <*> o .: "address"
@@ -502,7 +505,7 @@ instance FromJSON ExecutionPayloadV1 where
 --
 data ExecutionPayloadV2 = ExecutionPayloadV2
     { _executionPayloadV1 :: !ExecutionPayloadV1
-    , _executionPayloadV2Withdrawals :: ![WithdrawlV1]
+    , _executionPayloadV2Withdrawals :: ![WithdrawalV1]
         -- ^ withdrawals: Array of WithdrawalV1 - Array of withdrawals, each
         -- object is an OBJECT containing the fields of a WithdrawalV1 structure.
     }
@@ -581,7 +584,7 @@ instance FromJSON ExecutionPayloadV3 where
 -- | Payload Attributes V1
 --
 -- This structure contains the attributes required to initiate a payload build
--- process in the context of an engine_forkchoiceUpdated call. 
+-- process in the context of an engine_forkchoiceUpdated call.
 --
 -- cf. https://github.com/ethereum/execution-apis/blob/main/src/engine/paris.md#payloadattributesv1
 --
@@ -633,7 +636,7 @@ instance FromJSON PayloadAttributesV1 where
 --
 data PayloadAttributesV2 = PayloadAttributesV2
     { _payloadAttributesV1 :: !PayloadAttributesV1
-    , _payloadAttributesV2Withdrawals :: ![WithdrawlV1]
+    , _payloadAttributesV2Withdrawals :: ![WithdrawalV1]
         -- ^ withdrawals: Array of WithdrawalV1 - Array of withdrawals, each
         -- object is an OBJECT containing the fields of a WithdrawalV1
         -- structure.
@@ -673,7 +676,7 @@ instance FromJSON PayloadAttributesV2 where
 --
 data PayloadAttributesV3 = PayloadAttributesV3
     { _payloadAttributesV2 :: PayloadAttributesV2
-    , _payloadAttributesV3parentBeaconBlockRoot :: !Chainweb.BlockHash
+    , _payloadAttributesV3parentBeaconBlockRoot :: !ParentBeaconBlockRoot
         -- ^ parentBeaconBlockRoot: DATA, 32 Bytes - Root of the parent beacon
         -- block.
     }

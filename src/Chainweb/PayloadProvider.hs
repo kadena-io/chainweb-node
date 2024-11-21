@@ -2,6 +2,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 -- |
 -- Module: Chainweb.PayloadProvider
@@ -13,12 +14,14 @@
 module Chainweb.PayloadProvider
 ( MinerInfo(..)
 , MinerReward(..)
-, SyncState(..)
 , EvaluationCtx(..)
 , ForkInfo(..)
 , PayloadProvider(..)
+, NewPayload(..)
+-- , SyncError(..)
 -- , EvmPayloadCtx
 -- , PactPayloadCtx
+, blockHeaderToEvaluationCtx
 ) where
 
 import Data.Decimal
@@ -27,6 +30,15 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
 import Chainweb.BlockPayloadHash
+import Data.ByteString (ByteString)
+import Chainweb.Utils (encodeB64UrlNoPaddingText, HasTextRepresentation (..), decodeB64UrlNoPaddingText)
+import qualified Data.Text as T
+import P2P.Peer
+import Chainweb.BlockHeader
+import Data.List.NonEmpty
+import Control.Concurrent.STM
+import Chainweb.RankedBlockHash
+import Control.Lens
 -- import Chainweb.Payload qualified as PactPayload
 
 -- -------------------------------------------------------------------------- --
@@ -65,11 +77,11 @@ newtype MinerReward = MinerReward Decimal
 -- | This identifies the block that corresponds to the current state of the
 -- payload provider.
 --
-data SyncState = SyncState
-    { _syncStateHeight :: !BlockHeight
-    , _syncStateBlockHash :: !BlockHash
-    }
-    deriving (Show, Eq, Ord)
+-- data SyncState = SyncState
+--     { _syncStateHeight :: !BlockHeight
+--     , _syncStateBlockHash :: !BlockHash
+--     }
+--     deriving (Show, Eq, Ord)
 
 -- -------------------------------------------------------------------------- --
 -- Payload Evaluation Context
@@ -95,7 +107,7 @@ data SyncState = SyncState
 -- Binary format: The concatenation of the binary serialization of the
 -- individual fields in the order as they appear in the data type definition.
 --
-data EvaluationCtx p = EvaluationCtx
+data EvaluationCtx = EvaluationCtx
     { _evaluationCtxParentCreationTime :: !BlockCreationTime
         -- ^ Creation time of the parent block. If transactions in the block
         -- have a notion of "current" time, they should use this value.
@@ -112,10 +124,18 @@ data EvaluationCtx p = EvaluationCtx
         -- checksum for the payload validation. This value is first computed
         -- when the respective payload is created for mining and before it is
         -- included in a block.
-    , _evaluationCtxPayload :: !p
-        -- ^ The payload of the block that is going to be evaluated.
     }
     deriving (Show, Eq, Ord)
+
+blockHeaderToEvaluationCtx :: ParentHeader -> BlockHeader -> EvaluationCtx
+blockHeaderToEvaluationCtx (ParentHeader ph) bh = EvaluationCtx
+    { _evaluationCtxParentCreationTime = view blockCreationTime ph
+    , _evaluationCtxParentHash = view blockHash ph
+    , _evaluationCtxParentHeight = view blockHeight ph
+    -- TODO: miner reward
+    , _evaluationCtxMinerReward = undefined
+    , _evaluationCtxPayloadHash = view blockPayloadHash bh
+    }
 
 -- | Synchronize the state of a payload provider to a particular fork of a
 -- Chainweb chain.
@@ -138,8 +158,8 @@ data EvaluationCtx p = EvaluationCtx
 -- the entries of `_forkInfoTrace`, followed by the binary serialization of
 -- `forkInfoTraceHash`.
 --
-data ForkInfo p = ForkInfo
-    { _forkInfoTrace :: ![EvaluationCtx p]
+data ForkInfo = ForkInfo
+    { _forkInfoTrace :: [EvaluationCtx]
         -- ^ The payload evaluation contexts for a consecutive sequence of
         -- blocks.  The first entry determines the fork point which must be
         -- known to the payload provider (although it is not necessary that the
@@ -147,14 +167,14 @@ data ForkInfo p = ForkInfo
         -- provider is not obligated to replay all blocks as long as the final
         -- state is valid.
         --
-        -- If evluation of the full list of payloads fails, the payload provider
+        -- If evaluation of the full list of payloads fails, the payload provider
         -- may choose to remain in an intermediate state, as long as that state
         -- is consistent with the evaluation of some prefix of this field.
         --
         -- The payload provider is also obligated to validate the correctness of
         -- the evaluation context with respect the payload provider state for
         -- all provided contexts in this field up to the lastest validated
-        -- block.  This allows the client to requiest the evaluation and
+        -- block.  This allows the client to request the evaluation and
         -- validation of a series of new blocks. The payload provider does not
         -- need to guarantee the correctness of the validation context for
         -- blocks that had been validated before. This includes all re-validated
@@ -165,15 +185,26 @@ data ForkInfo p = ForkInfo
         -- However, the operation for the respective evaluated prefix must
         -- satisfy the ACID criteria.
         --
-    , _forkInfoTargetHash :: !BlockHash
-        -- ^ The hash of the the target block. This allows the payload provider
-        -- to update its `PayloadProviderState`. Intermediate block hashes are
+    , _forkInfoTarget :: RankedBlockHash
+        -- ^ The target sync state. This allows the payload provider
+        -- to update its `SyncState`. Intermediate block hashes are
         -- available in form of `BlockParentHash`s from the `PayloadCtx`
         -- entries.
     }
     deriving (Show, Eq, Ord)
 
 -- -------------------------------------------------------------------------- --
+
+-- A payload with an unknown representation.
+newtype AbstractPayload = AbstractPayload ByteString
+    deriving (Eq, Ord)
+instance Show AbstractPayload where
+    show p = T.unpack $ toText p
+instance HasTextRepresentation AbstractPayload where
+    toText (AbstractPayload p) = encodeB64UrlNoPaddingText p
+    fromText t = AbstractPayload <$> decodeB64UrlNoPaddingText t
+
+data NewPayload = NewPayload ParentHeader AbstractPayload
 
 -- | Payload Provider API.
 --
@@ -214,11 +245,18 @@ class PayloadProvider p where
     -- payload itself in a single data structure. This API can accomodate this
     -- behavior.
     --
-    type Payload p
+    -- type Payload p
 
     -- | Returns the current sync state of the payload provider.
+    -- Note that this may be ahead of that returned by `prefetchBlock`.
     --
-    syncState :: p -> IO SyncState
+    -- syncState :: p -> IO SyncState
+
+    -- | Tell the PayloadProvider to fetch the block, and do whatever work is
+    -- necessary for us to synchronize with a block later that has this payload
+    -- hash.
+    -- This is probably not necessary when compacted headers are added to catchup.
+    prefetchBlock :: p -> Maybe PeerInfo -> [EvaluationCtx] -> IO ()
 
     -- | Request that the payload provider updates its internal state to
     -- represent the validation of the last block in the provide `ForkInfo`.
@@ -230,17 +268,21 @@ class PayloadProvider p where
     -- The payload provider may update the internal state only to a predecessor
     -- of the requested block. This can happen if, for instance, the operation
     -- times out or gets interrupted or an validation error occurs. In any case
-    -- the must be valid and the respective `PayloadProviderSyncState` must be
-    -- returned.
+    -- the must be valid and the respective `SyncState` must be returned.
+    --
+    -- The payload provider may update the internal state to a successor
+    -- of the requested block. This can happen if the provider is unable to
+    -- rewind blocks on a fork, for example the EVM. In that case 'syncToBlock'
+    -- will regardless return a SyncState for the requested block, not the successor.
     --
     -- Independent of the actual final state, the operation must satisify ACID
     -- criteria. In particular, any intermediate state while the operation is
-    -- ongoing must not be obseravable and the final state must be consistent
+    -- ongoing must not be observable and the final state must be consistent
     -- and persistent.
     --
-    syncToBlock :: p -> ForkInfo (Payload p) -> IO SyncState
+    syncToBlock :: p -> Maybe PeerInfo -> ForkInfo -> IO (Maybe RankedBlockHash)
 
-    -- | Create a new block payload on top of the latests block.
+    -- | Create a new block payload on top of the latest block.
     --
     -- This includes validation of the block *on top* of the given `SyncState`.
     -- If the current `SyncState` of the payload provider does not match the
@@ -250,18 +292,7 @@ class PayloadProvider p where
     -- This operation must be *read-only*. It must not change the observable
     -- state of the payload provider.
     --
-    newPayload
-        :: p
-        -> SyncState
-            -- ^ The current state of the payload provider.
-        -> BlockCreationTime
-            -- ^ The creation time of the parent block header.
-        -> MinerReward
-            -- ^ The miner reward for the new block, which depends on the block
-            -- height
-        -> MinerInfo
-            -- ^ The miner info for the new block.
-        -> IO (Either SyncState (Payload p, BlockPayloadHash))
+    latestPayload :: p -> STM NewPayload
 
 -- type EvmPayloadCtx = EvaluationCtx ()
 -- type PactPayloadCtx = EvaluationCtx PactPayload.PayloadData

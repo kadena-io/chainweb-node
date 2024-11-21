@@ -94,6 +94,7 @@ import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (JsonLog(..), LogFunction)
+import Chainweb.PayloadProvider
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -190,17 +191,18 @@ data ChainChoice = Anything | TriedLast !ChainId | Suggestion !ChainId
 -- | Construct a new `BlockHeader` to mine on.
 --
 newWork
-    :: LogFunction
+    :: PayloadProvider p
+    => LogFunction
     -> ChainChoice
     -> Miner
     -> WebBlockHeaderDb
         -- ^ this is used to lookup parent headers that are not in the cut
         -- itself.
-    -> PactExecutionService
+    -> p
     -> TVar PrimedWork
     -> Cut
     -> IO (Maybe (T2 WorkHeader PayloadWithOutputs))
-newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
+newWork logFun choice eminer@(Miner mid _) hdb payloadProvider tpw c = do
 
     -- Randomly pick a chain to mine on. we no longer support the caller
     -- specifying any particular one.
@@ -215,25 +217,21 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
     -- chain has primed work, because if other chains have primed work, we want
     -- to loop and select one of those chains. it is not a normal situation to
     -- have no chains with primed work if there are more than a couple chains.
-    mpw <- atomically $ do
-        PrimedWork pw <- readTVar tpw
-        mpw <- maybe retry return (HM.lookup mid pw)
-        guard (any isWorkReady mpw)
-        return mpw
+    !mpw <- getNewPayload payloadProvider
     let mr = T2
-            <$> HM.lookup cid mpw
+            <$> mpw
             <*> getCutExtension c cid
 
     case mr of
         Just (T2 WorkStale _) -> do
             logFun @T.Text Debug $ "newWork: chain " <> toText cid <> " has stale work"
-            newWork logFun Anything eminer hdb pact tpw c
+            newWork logFun Anything eminer hdb payloadProvider tpw c
         Just (T2 (WorkAlreadyMined _) _) -> do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " has a payload that was already mined"
-            newWork logFun Anything eminer hdb pact tpw c
+            newWork logFun Anything eminer hdb payloadProvider tpw c
         Nothing -> do
             logFun @T.Text Debug $ "newWork: chain " <> toText cid <> " not mineable"
-            newWork logFun Anything eminer hdb pact tpw c
+            newWork logFun Anything eminer hdb payloadProvider tpw c
         Just (T2 (WorkReady newBlock) extension) -> do
             let (primedParentHash, primedParentHeight, _) = newBlockParent newBlock
             if primedParentHash == view blockHash (_parentHeader (_cutExtensionParent extension))

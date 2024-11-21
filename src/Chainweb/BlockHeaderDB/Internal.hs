@@ -29,7 +29,6 @@ module Chainweb.BlockHeaderDB.Internal
 (
 -- * Internal Types
   RankedBlockHeader(..)
-, RankedBlockHash(..)
 , BlockRank(..)
 
 -- * Chain Database Handle
@@ -70,6 +69,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
 import Chainweb.ChainId
+import Chainweb.RankedBlockHash
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec)
 import Chainweb.Utils.Paging
@@ -113,16 +113,6 @@ instance Ord RankedBlockHeader where
     compare = compare `on` ((view blockHeight &&& id) . _getRankedBlockHeader)
     {-# INLINE compare #-}
 
--- -------------------------------------------------------------------------- --
--- Ranked Block Hash
-
-data RankedBlockHash = RankedBlockHash
-    { _rankedBlockHashHeight :: !BlockHeight
-    , _rankedBlockHash :: !BlockHash
-    }
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (Hashable, NFData)
-
 instance IsCasValue RankedBlockHeader where
     type CasKeyType RankedBlockHeader = RankedBlockHash
     casKey (RankedBlockHeader bh)
@@ -151,18 +141,6 @@ encodeRankedBlockHeader = encodeBlockHeader . _getRankedBlockHeader
 decodeRankedBlockHeader :: Get RankedBlockHeader
 decodeRankedBlockHeader = RankedBlockHeader <$!> decodeBlockHeader
 {-# INLINE decodeRankedBlockHeader #-}
-
-encodeRankedBlockHash :: RankedBlockHash -> Put
-encodeRankedBlockHash (RankedBlockHash r bh) = do
-    encodeBlockHeightBe r -- big endian encoding for lexicographical order
-    encodeBlockHash bh
-{-# INLINE encodeRankedBlockHash #-}
-
-decodeRankedBlockHash :: Get RankedBlockHash
-decodeRankedBlockHash = RankedBlockHash
-    <$!> decodeBlockHeightBe
-    <*> decodeBlockHash
-{-# INLINE decodeRankedBlockHash #-}
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader DB
@@ -404,4 +382,3 @@ insertBlockHeaderDb db = dbAddChecked db . _validatedHeader
 unsafeInsertBlockHeaderDb :: BlockHeaderDb -> BlockHeader -> IO ()
 unsafeInsertBlockHeaderDb = dbAddChecked
 {-# INLINE unsafeInsertBlockHeaderDb #-}
-

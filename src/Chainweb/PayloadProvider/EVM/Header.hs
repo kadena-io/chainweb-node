@@ -36,23 +36,22 @@ module Chainweb.PayloadProvider.EVM.Header
 , nonce
 , BaseFeePerGas(..)
 , WithdrawalsRoot(..)
+, ParentBeaconBlockRoot(..)
+, chainwebBlockHashToBeaconBlockRoot
 ) where
 
+import Chainweb.BlockHash qualified as Chainweb
 import Chainweb.PayloadProvider.EVM.Utils
-
+import Chainweb.Utils.Serialization qualified as Chainweb
 import Data.Aeson
 import Data.Aeson.Types (Pair)
+import Data.ByteString.Short qualified as SBS
 import Data.Hashable (Hashable)
-
 import Ethereum.Misc
 import Ethereum.RLP
 import Ethereum.Utils
-
 import Foreign.Storable
-
 import Numeric.Natural
-import Chainweb.Crypto.MerkleLog
-import Chainweb.MerkleUniverse
 
 -- -------------------------------------------------------------------------- --
 -- Header Fields for Paris Hardfork
@@ -95,6 +94,10 @@ newtype ParentBeaconBlockRoot = ParentBeaconBlockRoot (BytesN 32)
     deriving newtype (RLP, Bytes, Storable, Hashable)
     deriving ToJSON via (HexBytes (BytesN 32))
     deriving FromJSON via (HexBytes (BytesN 32))
+
+chainwebBlockHashToBeaconBlockRoot :: Chainweb.BlockHash -> ParentBeaconBlockRoot
+chainwebBlockHashToBeaconBlockRoot bh = ParentBeaconBlockRoot
+    (unsafeBytesN $ SBS.toShort $ Chainweb.runPutS (Chainweb.encodeBlockHash bh))
 
 -- | Gas Used for Blob
 --

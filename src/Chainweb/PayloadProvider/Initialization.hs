@@ -12,8 +12,8 @@ module Chainweb.PayloadProvider.Initialization
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Version
-import Chainweb.Mempool.Mempool
 import Chainweb.Payload.PayloadStore
+import Chainweb.PayloadProvider
 
 -- -------------------------------------------------------------------------- --
 -- Initialization
@@ -22,15 +22,11 @@ import Chainweb.Payload.PayloadStore
 --
 -- Note that not all payload providers require all of these resources.
 --
-data Resources logger = Resources
+data Resources tbl logger = Resources
     { _resourceChainwebVersion :: !ChainwebVersion
     , _resourceChainId :: !ChainId
     , _resourceLogger :: !logger
-    , _resourceMempoolAccess :: !MempoolAccess
-        -- ^ The mempool is own completely by the payload provider. So, maybe
-        -- we should let it initialize the mempool by itself? At the momen
-        -- all network components are initialized centrally.
-    , _resourcePayloadDb :: !PayloadDb
+    , _resourcePayloadDb :: !(PayloadDb tbl)
         -- ^ For the EVM this is not needed, because it manages its own payload
         -- database and synchronization. Pact relies on the consensus header for\
         -- synchronizing the payloads and populating the payload database.
@@ -42,4 +38,3 @@ data Resources logger = Resources
     , _resourceMinerInfo :: !MinerInfo
         -- ^ Should this be on a per block basis?
     }
-
