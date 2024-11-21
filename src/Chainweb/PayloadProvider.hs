@@ -154,7 +154,7 @@ data ForkInfo p = ForkInfo
         -- The payload provider is also obligated to validate the correctness of
         -- the evaluation context with respect the payload provider state for
         -- all provided contexts in this field up to the lastest validated
-        -- block.  This allows the client to requiest the evaluation and
+        -- block.  This allows the client to request the evaluation and
         -- validation of a series of new blocks. The payload provider does not
         -- need to guarantee the correctness of the validation context for
         -- blocks that had been validated before. This includes all re-validated
