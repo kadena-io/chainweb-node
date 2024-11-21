@@ -351,7 +351,6 @@ library
     build-depends:
         , Decimal >= 0.4.2
         , aeson >= 2.2
-        , aeson-pretty >= 0.8
         , asn1-encoding >=0.9
         , asn1-types >=0.3
         , async >= 2.2

@@ -44,9 +44,7 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import qualified Data.Aeson as A
-import qualified Data.Aeson.Encode.Pretty as A
 import qualified Data.ByteString.Short as SB
-import qualified Data.ByteString.Lazy as BL
 import Data.Decimal
 import Data.List qualified as List
 import Data.Either
@@ -56,7 +54,6 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -565,16 +562,12 @@ validateHashes bHeader payload miner transactions =
     if newHash == prevHash
       then Right actualPwo
       else Left $ BlockValidationFailure $ BlockValidationFailureMsg $
-        prettyJson $ J.encodeText $ J.object
+        J.encodeJsonText $ J.object
             [ "header" J..= J.encodeWithAeson (ObjectEncoded bHeader)
             , "mismatch" J..= errorMsg "Payload hash" prevHash newHash
             , "details" J..= difference
             ]
   where
-    prettyJson txt = case A.eitherDecodeStrict @A.Value (T.encodeUtf8 txt) of
-      Right obj -> T.cons '\n' $ T.decodeUtf8 $ BL.toStrict $ A.encodePretty obj
-      Left err -> error $ "validateHashes: impossible JSON decode failure: " <> show err
-
     actualPwo = toPayloadWithOutputs miner transactions
 
     newHash = _payloadWithOutputsPayloadHash actualPwo
