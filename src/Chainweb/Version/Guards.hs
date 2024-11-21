@@ -47,9 +47,11 @@ module Chainweb.Version.Guards
     , chainweb224Pact
     , chainweb225Pact
     , chainweb226Pact
+    , chainweb227Pact
     , pact44NewTrans
     , pactParserVersion
     , maxBlockGasLimit
+    , spvProofExpirationWindow
     , validPPKSchemes
     , isWebAuthnPrefixLegal
     , validKeyFormats
@@ -63,6 +65,7 @@ module Chainweb.Version.Guards
   ) where
 
 import Control.Lens
+import Data.Word (Word64)
 import Numeric.Natural
 import Pact.Types.KeySet (PublicKeyText, ed25519HexFormat, webAuthnFormat)
 import Pact.Types.Scheme (PPKScheme(ED25519, WebAuthn))
@@ -261,6 +264,9 @@ chainweb225Pact = checkFork atOrAfter Chainweb225Pact
 chainweb226Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb226Pact = checkFork before Chainweb226Pact
 
+chainweb227Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+chainweb227Pact = checkFork before Chainweb227Pact
+
 pactParserVersion :: ChainwebVersion -> ChainId -> BlockHeight -> PactParserVersion
 pactParserVersion v cid bh
     | chainweb213Pact v cid bh = PactParserChainweb213
@@ -270,6 +276,9 @@ maxBlockGasLimit :: ChainwebVersion -> BlockHeight -> Maybe Natural
 maxBlockGasLimit v bh = snd $ ruleZipperHere $ snd
     $ ruleSeek (\h _ -> bh >= h) (_versionMaxBlockGasLimit v)
 
+spvProofExpirationWindow :: ChainwebVersion -> BlockHeight -> Maybe Word64
+spvProofExpirationWindow v bh = snd $ ruleZipperHere $ snd
+    $ ruleSeek (\h _ -> bh >= h) (_versionSpvProofExpirationWindow v)
 
 -- | Different versions of Chainweb allow different PPKSchemes.
 --

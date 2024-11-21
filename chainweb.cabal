@@ -677,6 +677,7 @@ test-suite chainweb-tests
         , lens >= 4.17
         , lens-aeson >= 1.2.2
         , loglevel >= 0.1
+        , pretty-show
         , memory >=0.14
         , merkle-log >=0.2
         , mtl >= 2.3

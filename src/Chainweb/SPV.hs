@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -30,19 +31,14 @@ import Control.DeepSeq
 import Control.Lens (Getter, to)
 import Control.Monad
 import Control.Monad.Catch
-
 import Crypto.Hash.Algorithms
-
 import Data.Aeson
-import qualified Data.Aeson.Types as Aeson
-import qualified Data.ByteString as B
+import Data.Aeson.Types qualified as Aeson
+import Data.ByteString qualified as B
 import Data.MerkleLog hiding (Expected, Actual)
-import qualified Data.Text as T
-
+import Data.Text qualified as T
 import GHC.Generics (Generic)
-
 import Numeric.Natural
-
 import Prelude hiding (lookup)
 
 -- internal modules

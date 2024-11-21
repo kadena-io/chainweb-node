@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.SPV.VerifyProof
@@ -25,17 +26,21 @@ module Chainweb.SPV.VerifyProof
 , verifyTransactionOutputProofAt_
 ) where
 
+import Chainweb.BlockHeight (BlockHeight(..))
+import Chainweb.Version (HasChainwebVersion(..))
+import Chainweb.Version.Guards (spvProofExpirationWindow)
+import Control.Lens (view)
+import Control.Monad (when)
 import Control.Monad.Catch
-
 import Crypto.Hash.Algorithms
-
 import Data.MerkleLog
-
+import Data.Text (Text)
 import Prelude hiding (lookup)
 
 -- internal modules
 
 import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.Crypto.MerkleLog
 import Chainweb.CutDB
@@ -65,7 +70,7 @@ verifyTransactionProof
     -> IO Transaction
 verifyTransactionProof cutDb proof@(TransactionProof cid p) = do
     unlessM (member cutDb cid h) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
+        $ SpvExceptionVerificationFailed targetHeaderMissing
     proofSubject p
   where
     h = runTransactionProof proof
@@ -84,7 +89,7 @@ verifyTransactionProofAt
     -> IO Transaction
 verifyTransactionProofAt cutDb proof@(TransactionProof cid p) ctx = do
     unlessM (memberOfM cutDb cid h ctx) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
+        $ SpvExceptionVerificationFailed targetHeaderMissing
     proofSubject p
   where
     h = runTransactionProof proof
@@ -92,8 +97,7 @@ verifyTransactionProofAt cutDb proof@(TransactionProof cid p) ctx = do
 -- | Verifies the proof for the given block hash. The result confirms that the
 -- subject of the proof occurs in the history of the target chain before the
 -- given block hash.
---
--- Throws 'TreeDbKeyNotFound' if the given block hash doesn't exist on target
+-- -- Throws 'TreeDbKeyNotFound' if the given block hash doesn't exist on target
 -- then chain or when the given BlockHeaderDb is not for the target chain.
 --
 verifyTransactionProofAt_
@@ -103,10 +107,10 @@ verifyTransactionProofAt_
     -> IO Transaction
 verifyTransactionProofAt_ bdb proof@(TransactionProof _cid p) ctx = do
     unlessM (ancestorOf bdb h ctx) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
+        $ SpvExceptionVerificationFailed targetHeaderMissing
     proofSubject p
-  where
-    h = runTransactionProof proof
+    where
+      h = runTransactionProof proof
 
 -- -------------------------------------------------------------------------- --
 -- Output Proofs
@@ -128,7 +132,7 @@ verifyTransactionOutputProof
     -> IO TransactionOutput
 verifyTransactionOutputProof cutDb proof@(TransactionOutputProof cid p) = do
     unlessM (member cutDb cid h) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
+        $ SpvExceptionVerificationFailed targetHeaderMissing
     proofSubject p
   where
     h = runTransactionOutputProof proof
@@ -147,7 +151,7 @@ verifyTransactionOutputProofAt
     -> IO TransactionOutput
 verifyTransactionOutputProofAt cutDb proof@(TransactionOutputProof cid p) ctx = do
     unlessM (memberOfM cutDb cid h ctx) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
+        $ SpvExceptionVerificationFailed targetHeaderMissing
     proofSubject p
   where
     h = runTransactionOutputProof proof
@@ -162,11 +166,42 @@ verifyTransactionOutputProofAt cutDb proof@(TransactionOutputProof cid p) ctx = 
 verifyTransactionOutputProofAt_
     :: BlockHeaderDb
     -> TransactionOutputProof SHA512t_256
-    -> BlockHash
+    -> BlockHeader
+       -- ^ latest block header
     -> IO TransactionOutput
-verifyTransactionOutputProofAt_ bdb proof@(TransactionOutputProof _cid p) ctx = do
-    unlessM (ancestorOf bdb h ctx) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
+verifyTransactionOutputProofAt_ bdb proof@(TransactionOutputProof _cid p) latestHeader = do
+    let bHash = runTransactionOutputProof proof
+    -- Some thoughts:
+
+    -- Add a variant of ancestorOf that makes sure that the ancestor is not too far in the past
+    -- w.r.t. the current block
+    -- Benefits:
+    -- 1. Re-usable everywhere
+
+    -- Perhaps a more limited version of the block header db, called a "header oracle", that just
+    -- provides the minimal operation set needed to verify proofs
+    unlessM (ancestorOf bdb bHash (view blockHash latestHeader)) $ do
+        throwM $ SpvExceptionVerificationFailed targetHeaderMissing
+
+    let v = _chainwebVersion latestHeader
+    let latestHeight = view blockHeight latestHeader
+    case spvProofExpirationWindow v latestHeight of
+        Just expirationWindow -> do
+            -- This height is of the root on the target chain.
+            -- It's at least one more than the height of the block containing the submitted tx.
+            bHeight <- view blockHeight <$> lookupM bdb bHash
+            -- I thought to add the diameter to the expiration window before, but it's probably wrong for two reasons:
+            --   1. The expiration is always relative to the source chain, so it doesn't matter if the source and target are out of sync.
+            --   2. At a chaingraph transition, the diameter of the graph can change, and thus change the expiration window.
+            when (latestHeight > bHeight + BlockHeight expirationWindow) $ do
+                throwM $ SpvExceptionVerificationFailed transactionOutputIsExpired
+        Nothing -> do
+            pure ()
     proofSubject p
-  where
-    h = runTransactionOutputProof proof
+
+-- | Constant used to avoid inconsistent error messages on-chain across the different failures in this module.
+targetHeaderMissing :: Text
+targetHeaderMissing = "target header is not in the chain"
+
+transactionOutputIsExpired :: Text
+transactionOutputIsExpired = "transaction output is expired"
