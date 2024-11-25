@@ -33,6 +33,7 @@ data EvmPayloadProvider = EvmPayloadProvider
         -- ^ The current sync state of the EVM EL.
     }
 
+
 -- | Synchronize the EL to the given block.
 --
 -- We *must* validate that the EL header is valid.
@@ -97,3 +98,6 @@ evmSyncToBlock p forkInfo
             -- if the validation succeeds, update the state and continue
             -- with the next header
             evmSyncToBlock p { _evmState = x } forkInfo { _forkInfoTrace = xs }
+  where
+    curState = _evmState p
+    xs = _forkInfoTrace forkInfo

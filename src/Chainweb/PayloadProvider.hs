@@ -172,12 +172,11 @@ data ForkInfo = ForkInfo
         -- However, the operation for the respective evaluated prefix must
         -- satisfy the ACID criteria.
         --
-    , _forkInfoTargetHash :: !SyncState
+    , _forkInfoTargetState :: !SyncState
         -- ^ The hash of the the target block. This allows the payload provider
         -- to update its `PayloadProviderState`. Intermediate block hashes are
         -- available in form of `BlockParentHash`s from the `PayloadCtx`
         -- entries.
-
     , _forkInfoNewBlockCtx :: !(Maybe NewBlockCtx)
         -- ^ If mining is enabled in the payload provider and this field not
         -- `Nothing`, the payload provider creates a new block payload with the
