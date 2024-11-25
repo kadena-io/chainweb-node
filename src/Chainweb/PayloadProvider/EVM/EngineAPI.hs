@@ -85,6 +85,10 @@ module Chainweb.PayloadProvider.EVM.EngineAPI
 , jwtToken
 , getJwtToken
 , mkEngineCtx
+
+, Engine_GetPayloadV2
+, Engine_GetPayloadV3
+, Engine_ForkchoiceUpdatedV3
 ) where
 
 import Chainweb.BlockHash qualified as Chainweb
@@ -874,6 +878,8 @@ instance FromJSON ForkchoiceUpdatedV1Response where
 -- -------------------------------------------------------------------------- --
 -- Forkchoice Update V3 (Cancun)
 
+type Engine_ForkchoiceUpdatedV3 = "engine_forkchoiceUpdatedV3"
+
 -- | Engine Forkchoice Updated V3
 --
 -- cf. https://github.com/ethereum/execution-apis/blob/main/src/engine/cancun.md#engine_forkchoiceupdatedv3
@@ -926,6 +932,8 @@ instance FromJSON ForkchoiceUpdatedV3Request where
 
 -- -------------------------------------------------------------------------- --
 -- Engine Get Payload V2 (Shanghai)
+
+type Engine_GetPayloadV2 = "engine_getPayloadV2"
 
 -- | Engine Get Payload V2
 --
@@ -985,6 +993,8 @@ instance FromJSON GetPayloadV2Response where
 
 -- -------------------------------------------------------------------------- --
 -- Engine Get Payload V3 (Cancun)
+
+type Engine_GetPayloadV3 = "engine_getPayloadV3"
 
 -- | Engine Get Payload V3
 --

@@ -15,6 +15,10 @@ import Chainweb.Version
 import Chainweb.Mempool.Mempool
 import Chainweb.Payload.PayloadStore
 
+data MinerInfo
+data MempoolAccess
+-- data PayloadDb
+
 -- -------------------------------------------------------------------------- --
 -- Initialization
 
@@ -30,7 +34,7 @@ data Resources logger = Resources
         -- ^ The mempool is own completely by the payload provider. So, maybe
         -- we should let it initialize the mempool by itself? At the momen
         -- all network components are initialized centrally.
-    , _resourcePayloadDb :: !PayloadDb
+    -- , _resourcePayloadDb :: !PayloadDb cas
         -- ^ For the EVM this is not needed, because it manages its own payload
         -- database and synchronization. Pact relies on the consensus header for\
         -- synchronizing the payloads and populating the payload database.
