@@ -48,31 +48,31 @@ module Chainweb.PayloadProvider.EVM.Header
 , runHeaderProof
 , BaseFeePerGas(..)
 , WithdrawalsRoot(..)
+, ParentBeaconBlockRoot(..)
+, chainwebBlockHashToBeaconBlockRoot
 ) where
 
+import Chainweb.BlockHash qualified as Chainweb
 import Chainweb.BlockPayloadHash
 import Chainweb.Crypto.MerkleLog hiding (headerProof)
 import Chainweb.Crypto.MerkleLog qualified as MerkleLog
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.PayloadProvider.EVM.Utils
-
+import Chainweb.Utils.Serialization qualified as Chainweb
 import Control.Monad.Catch
-
 import Data.Aeson
 import Data.Aeson.Types (Pair)
 import Data.ByteString.Short qualified as BS
+import Data.ByteString.Short qualified as SBS
 import Data.Hashable (Hashable)
 import Data.MerkleLog
 import Data.Text qualified as T
 import Data.Void
-
 import Ethereum.Misc
 import Ethereum.RLP
 import Ethereum.Utils
-
 import Foreign.Storable
-
 import GHC.TypeNats
 
 -- -------------------------------------------------------------------------- --
@@ -116,6 +116,10 @@ newtype ParentBeaconBlockRoot = ParentBeaconBlockRoot (BytesN 32)
     deriving newtype (RLP, Bytes, Storable, Hashable)
     deriving ToJSON via (HexBytes (BytesN 32))
     deriving FromJSON via (HexBytes (BytesN 32))
+
+chainwebBlockHashToBeaconBlockRoot :: Chainweb.BlockHash -> ParentBeaconBlockRoot
+chainwebBlockHashToBeaconBlockRoot bh = ParentBeaconBlockRoot
+    (unsafeBytesN $ SBS.toShort $ Chainweb.runPutS (Chainweb.encodeBlockHash bh))
 
 -- | Gas Used for Blob
 --
@@ -254,7 +258,7 @@ blockPayloadHash h = BlockPayloadHash $ MerkleLogHash $ computeMerkleLogRoot h
 headerProof
     :: forall c a m
     . MonadThrow m
-    => a ~ ChainwebMerkleHashAlgorithm 
+    => a ~ ChainwebMerkleHashAlgorithm
     => HasHeader a ChainwebHashTag c (MkLogType a ChainwebHashTag Header)
     => Header
     -> m (MerkleProof a)

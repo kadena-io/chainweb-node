@@ -399,7 +399,7 @@ withBeaconInternal conf logger peer serviceSock rocksDb inner = do
         let !webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
 
             -- TODO
-            -- !payloadProviders = mkWebPayloadExecutionService (HM.map _chainResPayloadProvider cs)
+            !payloadProviders = mkWebPayloadExecutionService (HM.map _chainResPayloadProvider cs)
 
             !cutLogger = setComponent "cut" logger
             !mgr = _peerResManager peer

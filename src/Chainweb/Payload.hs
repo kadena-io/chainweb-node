@@ -1,3 +1,4 @@
+-- TODO: perhaps this is Pact-specific and we need a generic Payload type for consensus that is just bytes.
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}

@@ -235,6 +235,7 @@ library
         , Chainweb.PayloadProvider.EVM.JsonRPC
         , Chainweb.PayloadProvider.EVM.Utils
         , Chainweb.PowHash
+        , Chainweb.RankedBlockHash
         , Chainweb.RestAPI
         , Chainweb.RestAPI.Backup
         , Chainweb.RestAPI.Config
