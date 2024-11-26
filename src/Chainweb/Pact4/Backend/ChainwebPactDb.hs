@@ -100,6 +100,7 @@ import Pact.Types.Util (AsString(..))
 import qualified Pact.JSON.Encode as J
 import qualified Data.ByteString as B
 import qualified Data.Text as T
+import System.Directory
 import qualified Pact.JSON.Legacy.HashMap as LHM
 
 -- chainweb
@@ -116,11 +117,12 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Pact.Interpreter (PactDbEnv)
 import Data.HashMap.Strict (HashMap)
-import Data.Vector (Vector)
+import Data.Vector (Vector, create)
 import Control.Concurrent
 import Chainweb.Version.Guards
 import Control.Exception.Safe
 import Pact.Types.Command (RequestKey)
+import System.FilePath
 
 callDb
     :: (MonadCatch m, MonadReader (BlockHandlerEnv logger) m, MonadIO m)
@@ -294,7 +296,8 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         Modules -> do
           v <- lookupWithKey (convModuleName mnFix k) checkModuleCache
           -- _ <- forM v $ \m -> do
-          --   liftIO $ B.writeFile (T.unpack (asString k)) $ J.encodeStrict m
+          --   liftIO $ createDirectoryIfMissing True "parity-replay-modules"
+          --   liftIO $ B.writeFile ("parity-replay-modules" </> T.unpack (asString k)) $ J.encodeStrict m
           pure v
         Namespaces -> lookupWithKey (convNamespaceName k) noCache
         (UserTables _) -> lookupWithKey (convRowKey k) noCache

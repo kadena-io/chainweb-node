@@ -505,9 +505,9 @@ withServiceDate v lf msd inner = case msd of
   where
     timer t = runForever lf "ServiceDate" $ do
       now <- getCurrentTime
-      when (now >= t) $ do
-        lf Error shutdownMessage
-        throw $ ServiceDate shutdownMessage
+    --   when (now >= t) $ do
+    --     lf Error shutdownMessage
+    --     throw $ ServiceDate shutdownMessage
 
       let w = diffUTCTime t now
       let micros = round $ w * 1_000_000

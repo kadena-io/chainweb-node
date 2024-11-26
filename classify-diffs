@@ -178,11 +178,125 @@ for f in $(grep -Rl parity-replay-diffs/ -e 'Table .* already exists');
   do mv "$f" diffs/table-already-exists
 done;
 
+
 # Not sure
 mkdir -p diffs/non-pact-value
 for f in $(grep -Rl parity-replay-diffs/ -e 'Expected Pact Value, got closure or table reference');
   do mv "$f" diffs/non-pact-value
 done;
+
+#
+mkdir -p diffs/quiz-results
+for f in $(grep -Rl parity-replay-diffs/ -e '"source":"quiz_');
+  do mv "$f" diffs/quiz-results
+done;
+
+#
+mkdir -p diffs/read-function-failures
+for f in $(grep -Rl parity-replay-diffs/ -e 'read-decimal failure');
+  do mv "$f" diffs/read-function-failures
+done;
+
+for f in $(grep -Rl parity-replay-diffs/ -e 'No such key in message');
+  do mv "$f" diffs/read-function-failures
+done;
+
+mkdir -p diffs/lago-finance
+for f in $(grep -Rl parity-replay-diffs/ -e 'Runtime typecheck failure, argument is table , but expected type object');
+  do mv "$f" diffs/lago-finance
+done;
+
+# db errorError
+mkdir -p diffs/db-internal-error
+for f in $(grep -Rl parity-replay-diffs/ -e 'callDb (doReadRow): user error (Database error: ErrorError)');
+  do mv "$f" diffs/db-internal-error
+done;
+
+# Invalid arguments in call to if
+mkdir -p diffs/invalid-call-to-if
+for f in $(grep -Rl parity-replay-diffs/ -e 'Invalid arguments in call to if');
+  do mv "$f" diffs/invalid-call-to-if
+done;
+
+# cannot compare incompatible types
+mkdir -p diffs/incompatible-types
+for f in $(grep -Rl parity-replay-diffs/ -e 'cannot compare incompatible types');
+  do mv "$f" diffs/incompatible-types
+done;
+
+# cannot compare incompatible types
+mkdir -p diffs/b64-diffs
+for f in $(grep -Rl parity-replay-diffs/ -e 'invalid b64');
+  do mv "$f" diffs/b64-diffs
+done;
+
+mkdir -p diffs/interface-as-mod-ref
+for f in $(grep -Rl parity-replay-diffs/ -e 'Invalid Interface attempted to be used as module reference');
+  do mv "$f" diffs/interface-as-mod-ref
+done;
+
+# Marmalade mints
+mkdir -p diffs/marmalade-mints
+for f in $(grep -Rl parity-replay-diffs/ -e '"module":{"namespace":"marmalade","name":"ledger"}');
+  do mv "$f" diffs/marmalade-mints
+done;
+
+# Marmalade mints
+mkdir -p diffs/marmalade-v2
+for f in $(grep -Rl parity-replay-diffs/ -e '"module":{"namespace":"marmalade-v2","name":"ledger"}');
+  do mv "$f" diffs/marmalade-v2
+done;
+
+mkdir -p diffs/kadena-mining-club
+for f in $(grep -Rl parity-replay-diffs/ -e '"module":{"namespace":"free","name":"kadena-mining-club"}');
+  do mv "$f" diffs/kadena-mining-club
+done;
+for f in $(grep -Rl parity-replay-diffs/ -e 'Invalid arguments in call to format');
+  do mv "$f" diffs/kadena-mining-club
+done;
+for f in $(grep -Rl parity-replay-diffs/ -e '{"status":"success","data":"Price updated to');
+  do mv "$f" diffs/kadena-mining-club
+done;
+
+mkdir -p diffs/interface-impl-errors
+for f in $(grep -Rl parity-replay-diffs/ -e 'does not correctly implement the function');
+  do mv "$f" diffs/interface-impl-errors
+done;
+
+mkdir -p diffs/minimum-precision
+for f in $(grep -Rl parity-replay-diffs/ -e 'Amount violates minimum denomination');
+  do mv "$f" diffs/minimum-precision
+done;
+
+mkdir -p diffs/dao-hive-factory
+for f in $(grep -Rl parity-replay-diffs/ -e 'dao-hive-factory');
+  do mv "$f" diffs/dao-hive-factory
+done;
+
+#
+mkdir -p diffs/invalid-def-in-term-var
+for f in $(grep -Rl parity-replay-diffs/ -e 'Invalid definition in term variable position');
+  do mv "$f" diffs/invalid-def-in-term-var
+done;
+
+#
+mkdir -p diffs/desugar-syntax-failure
+for f in $(grep -Rl parity-replay-diffs/ -e 'Desugar syntax failure');
+  do mv "$f" diffs/desugar-syntax-failure
+done;
+
+# PactDuplicateTableError
+mkdir -p diffs/duplicate-table-error
+for f in $(grep -Rl parity-replay-diffs/ -e 'PactDuplicateTableError');
+  do mv "$f" diffs/duplicate-table-error
+done;
+
+# Cap already installed
+mkdir -p diffs/cap-is-not-managed
+for f in $(grep -Rl parity-replay-diffs/ -e 'capability is not managed and cannot be installed');
+  do mv "$f" diffs/cap-is-not-managed
+done;
+
 
 mkdir -p diffs/interesting
 mv parity-replay-diffs/_HFqdbIlHNdS8wNgMdNGlkkuhjD4ZllxNL7fTg6EhO0.md diffs/interesting 2> /dev/null
@@ -197,7 +311,24 @@ mv parity-replay-diffs/pqpNMUvjBmflJEwRbka4pugkfOw3_bloewnfGZ6i4LE.md diffs/inte
 mv parity-replay-diffs/jiZrj-NUMGEp1XcVni3gufkjtYItszFd1zjV66hRwhE.md diffs/interesting 2> /dev/null
 mv parity-replay-diffs/Akt5RUolyR4bzS2u0xpDrMoR5PdLAHKHp1h4HpBcVVo.md diffs/interesting 2> /dev/null
 mv parity-replay-diffs/0wpwNj7bvh4y9Ax_zmjHzRiKa96pc2Co1ZeDFNK7oac.md diffs/interesting 2> /dev/null
+mv parity-replay-diffs/uZrgs9xLthCx-bc53_drXnRSkra4pf9ddw65fC_ZGm4.md diffs/interesting 2> /dev/null
+mv parity-replay-diffs/-WQoBV7Ah6VVYtvkkiQ8eIcXeQx_MymbtWW6NxpmPBU.md diffs/interesting 2> /dev/null
 
-diffCount=$(find parity-replay-diffs -type f -printf "." | wc -c)
+# Format list commas
+mv parity-replay-diffs/ijcy5AXfsShzvXbGK9olHUNH3TETD6D-i9CV172nlg8.md diffs/interesting 2> /dev/null
+mv parity-replay-diffs/eXq55WivCpojMa20KjK35uCurSHZVvkZmDggkX4fOuI.md diffs/interesting 2> /dev/null
+mv parity-replay-diffs/VqL6Z6IBs7KOyHAiVNgnrdbysO5KYsJ2A2-HWGYc2eo.md diffs/interesting 2> /dev/null
+mv parity-replay-diffs/uR88qo2v4EPLGxqUfuslJOeeD_QUVKzZE5mY6XauAr8.md diffs/interesting 2> /dev/null
 
-echo "Remaining diffs: $diffCount"
+# diffCount=$(find parity-replay-diffs -type f -exec echo -n "." \; | wc -c)
+# file_count=$(find parity-replay-diffs -type f -exec echo -n "." \; | wc -c)
+
+# echo "Remaining diffs: $diffCount"
+# Check if there are any files remaining
+# if [ "$file_count" -gt 0 ]; then
+#   echo "Number of files: $file_count"
+#   echo "Remaining files:"
+#   find parity-replay-diffs -type f
+# else
+#   echo "No files remaining."
+# fi
