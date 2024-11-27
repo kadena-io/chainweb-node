@@ -67,12 +67,6 @@ for f in $(grep -Rl parity-replay-diffs/ -e 'Keyset write success');
 done;
 
 # not sure about these
-mkdir -p diffs/kadena-hashing
-for f in $(grep -Rl parity-replay-diffs/ -e 'kadenahashing.com');
-  do mv "$f" diffs/kadena-hashing/;
-done;
-
-# not sure about these
 mkdir -p diffs/wiza-equipped-item
 for f in $(grep -Rl parity-replay-diffs/ -e 'equipped');
   do mv "$f" diffs/wiza-equipped-item/;
@@ -114,11 +108,6 @@ for f in $(grep -Rl parity-replay-diffs/ -e 'Amount violates minimum precision')
   do mv "$f" diffs/minimum-precision;
 done;
 
-# coin module hash mismatches, seemingly benign
-mkdir -p diffs/coin-module-hash-mismatch;
-for f in $(grep -Rl parity-replay-diffs/ -e 'rE7DU8jlQL9x_MPYuniZJf5ICBTAEHAIFQCB4blofP4');
-  do mv "$f" diffs/coin-module-hash-mismatch
-done;
 
 # Code that implicitly grabs module admin which is no longer allowed
 # will require going through these to see the extent of the breakage
@@ -251,11 +240,14 @@ mkdir -p diffs/kadena-mining-club
 for f in $(grep -Rl parity-replay-diffs/ -e '"module":{"namespace":"free","name":"kadena-mining-club"}');
   do mv "$f" diffs/kadena-mining-club
 done;
-for f in $(grep -Rl parity-replay-diffs/ -e 'Invalid arguments in call to format');
-  do mv "$f" diffs/kadena-mining-club
-done;
+
 for f in $(grep -Rl parity-replay-diffs/ -e '{"status":"success","data":"Price updated to');
   do mv "$f" diffs/kadena-mining-club
+done;
+
+mkdir -p diffs/kadena-mining-club-format
+for f in $(grep -Rl diffs/kadena-mining-club/ -e 'Invalid arguments in call to format');
+  do mv "$f" diffs/kadena-mining-club-format
 done;
 
 mkdir -p diffs/interface-impl-errors
@@ -295,6 +287,11 @@ done;
 mkdir -p diffs/cap-is-not-managed
 for f in $(grep -Rl parity-replay-diffs/ -e 'capability is not managed and cannot be installed');
   do mv "$f" diffs/cap-is-not-managed
+done;
+
+mkdir -p diffs/kedao
+for f in $(grep -Rl parity-replay-diffs/ -e 'kedao');
+  do mv "$f" diffs/kedao
 done;
 
 
