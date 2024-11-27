@@ -795,12 +795,14 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
         -- must be a locally-produced payload
         let localPayload = _cutHashesLocalPayload hs
 
-        (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
-            & S.map (fmap _bhwhHash)
-            & S.mapM (tryGetBlockHeader hdrs plds localPayload)
-            & S.partitionEithers
-            & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
-            & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
+        T2 missing headers <-
+            HM.toList (_cutHashes hs)
+                & mapConcurrently (tryGetBlockHeader hdrs plds localPayload . over _2 _bhwhHash )
+                <&> foldl' (\(T2 ls rs) -> \case
+                    Left (cid, h) -> T2 (HM.insert cid h ls) rs
+                    Right (cid, h) -> T2 ls (HM.insert cid h rs)
+                ) mempty
+
         if null missing
         then return $! Right headers
         else do
