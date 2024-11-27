@@ -15,6 +15,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE BangPatterns #-}
 
 -- |
 -- Module: P2P.Node.PeerDB
@@ -35,6 +36,7 @@ module P2P.Node.PeerDB
 , PeerEntrySticky(..)
 , HostAddressIdx
 , hostAddressIdx
+, PeerMark(..)
 
 -- * Peer Entry
 , PeerEntry(..)
@@ -42,10 +44,11 @@ module P2P.Node.PeerDB
 , peerEntrySuccessiveFailures
 , peerEntryLastSuccess
 , peerEntryNetworkIds
+, peerEntryMark
 , peerEntrySticky
 
 -- * Peer Database
-, PeerDb(..)
+, PeerDb(_peerDbLocalPeer)
 , peerDbSnapshot
 , peerDbSnapshotSTM
 , peerDbSize
@@ -83,7 +86,7 @@ import Control.Concurrent.MVar
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
 import Control.Lens hiding (Indexable)
-import Control.Monad ((<$!>), unless)
+import Control.Monad ((<$!>), unless, forM)
 import Control.Monad.STM
 
 import Data.Aeson
@@ -145,8 +148,23 @@ newtype PeerEntrySticky = PeerEntrySticky { _getPeerEntrySticky :: Bool }
     deriving (Show, Eq, Ord, Generic)
     deriving newtype (ToJSON, FromJSON, Enum, NFData)
 
+newtype PeerMark = UnsafePeerMark { _getPeerMark :: Int }
+    deriving (Show, Eq, Ord, Generic)
+    deriving newtype (NFData)
+
+randomPeerMark :: IO PeerMark
+randomPeerMark = UnsafePeerMark <$> randomIO
+
 data PeerEntry = PeerEntry
-    { _peerEntryInfo :: !PeerInfo
+    { _peerEntryMark :: !PeerMark
+        -- ^ This "marks" a peer entry with a random number for use in the
+        -- `Ord` instance, allowing the peer list to be quickly sampled in a
+        -- consistent way that will differ across nodes.
+        -- A randomly ordered peer list for each node allows paging through the entire
+        -- peer list without allowing the order to be manipulated as easily.
+        -- Note that this should never be persisted, as this order should differ
+        -- on each node startup.
+    , _peerEntryInfo :: !PeerInfo
         -- ^ There must be only one peer per peer address. A peer id
         -- can be updated from 'Nothing' to 'Just' some value. If a
         -- peer id of 'Just' some value changes, it is considered a
@@ -178,16 +196,16 @@ data PeerEntry = PeerEntry
         --
     }
     deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (ToJSON, FromJSON, NFData)
+    deriving anyclass (NFData)
 
 makeLenses ''PeerEntry
 
-newPeerEntry :: NetworkId -> PeerInfo -> PeerEntry
+newPeerEntry :: NetworkId -> PeerMark -> PeerInfo -> PeerEntry
 newPeerEntry = newPeerEntry_ False
 
-newPeerEntry_ :: Bool -> NetworkId -> PeerInfo -> PeerEntry
-newPeerEntry_ sticky nid i =
-    PeerEntry i 0 (LastSuccess Nothing) (S.singleton nid) 0 (PeerEntrySticky sticky)
+newPeerEntry_ :: Bool -> NetworkId -> PeerMark -> PeerInfo -> PeerEntry
+newPeerEntry_ sticky nid mark i =
+    PeerEntry mark i 0 (LastSuccess Nothing) (S.singleton nid) 0 (PeerEntrySticky sticky)
 
 -- -------------------------------------------------------------------------- --
 -- Peer Entry Set
@@ -258,9 +276,8 @@ addPeerEntry b m = m & case getOne (getEQ addr m) of
   where
     addr = _peerAddr $ _peerEntryInfo b
     replace = updateIx addr b
-    update a = updateIx addr $!! PeerEntry
-        { _peerEntryInfo = _peerEntryInfo a
-        , _peerEntrySuccessiveFailures = _peerEntrySuccessiveFailures a + _peerEntrySuccessiveFailures b
+    update a = updateIx addr $!! a
+        { _peerEntrySuccessiveFailures = _peerEntrySuccessiveFailures a + _peerEntrySuccessiveFailures b
         , _peerEntryLastSuccess = max (_peerEntryLastSuccess a) (_peerEntryLastSuccess b)
         , _peerEntryNetworkIds = _peerEntryNetworkIds a <> _peerEntryNetworkIds b
         , _peerEntryActiveSessionCount = _peerEntryActiveSessionCount a + _peerEntryActiveSessionCount b
@@ -279,10 +296,11 @@ addPeerEntry b m = m & case getOne (getEQ addr m) of
 --
 -- If the 'PeerAddr' exist with the same peer-id, the chain-id is added.
 --
-addPeerInfo :: NetworkId -> PeerInfo -> UTCTime -> PeerSet -> PeerSet
-addPeerInfo nid pinf now = addPeerEntry $ (newPeerEntry nid pinf)
-    { _peerEntryLastSuccess = LastSuccess (Just now)
-    }
+addPeerInfo :: NetworkId -> PeerMark -> PeerInfo -> UTCTime -> PeerSet -> PeerSet
+addPeerInfo nid mark pinf now = addPeerEntry $
+    (newPeerEntry nid mark pinf)
+        { _peerEntryLastSuccess = LastSuccess (Just now)
+        }
 
 -- | Delete a peer, identified by its host address, from the 'PeerSet'. The peer
 -- is delete for all network ids.
@@ -294,8 +312,10 @@ deletePeer
     -> PeerSet
     -> PeerSet
 deletePeer i True s = deleteIx (_peerAddr i) s
-deletePeer i False s = case _peerEntrySticky <$> getOne (getEQ (_peerAddr i) s) of
-    Just (PeerEntrySticky True) -> s
+deletePeer i False s = case getOne (getEQ (_peerAddr i) s) of
+    Just e
+        | PeerEntrySticky True <- e ^. peerEntrySticky
+        -> s
     _ -> deleteIx (_peerAddr i) s
 
 insertPeerEntryList :: [PeerEntry] -> PeerSet -> PeerSet
@@ -347,11 +367,12 @@ peerDbInsert :: PeerDb -> NetworkId -> PeerInfo -> IO ()
 peerDbInsert (PeerDb True _ _ _ _) _ _ = return ()
 peerDbInsert (PeerDb _ _ _ lock var) nid i = do
     now <- getCurrentTime
+    mark <- randomPeerMark
     withMVar lock
         . const
         . atomically
         . modifyTVar' var
-        $ addPeerInfo nid i now
+        $ addPeerInfo nid mark i now
 {-# INLINE peerDbInsert #-}
 
 -- | Delete a peer, identified by its host address, from the peer database.
@@ -397,11 +418,13 @@ prunePeerDb lg (PeerDb _ _ _ lock var) = do
             writeTVar var $! s IxSet.\\\ deletes
             return deletes
         unless (IxSet.null deletes) $
-            lg @Text Info $ "Pruned peers: " <> sshow (_peerAddr . _peerEntryInfo <$> IxSet.toList deletes)
+            lg @Text Info
+                $ "Pruned peers: "
+                <> sshow (_peerAddr . _peerEntryInfo <$> IxSet.toList deletes)
 
 peerDbInsertList :: [PeerEntry] -> PeerDb -> IO ()
 peerDbInsertList _ (PeerDb True _ _ _ _) = return ()
-peerDbInsertList peers (PeerDb _ _ _ lock var) =
+peerDbInsertList peers (PeerDb _ _ _ lock var) = do
     withMVar lock
         . const
         . atomically
@@ -412,14 +435,21 @@ peerDbInsertPeerInfoList :: NetworkId -> [PeerInfo] -> PeerDb -> IO ()
 peerDbInsertPeerInfoList _ _ (PeerDb True _ _ _ _) = return ()
 peerDbInsertPeerInfoList nid ps db = do
     now <- getCurrentTime
-    peerDbInsertList (mkEntry now <$> ps) db
+    entries <- traverse (mkEntry now) ps
+    peerDbInsertList entries db
   where
-    mkEntry now x = newPeerEntry nid x
-        & set peerEntryLastSuccess (LastSuccess (Just now))
+    mkEntry now x = do
+        mark <- randomPeerMark
+        return $ newPeerEntry nid mark x
+            & set peerEntryLastSuccess (LastSuccess (Just now))
 
 peerDbInsertPeerInfoList_ :: Bool -> NetworkId -> [PeerInfo] -> PeerDb -> IO ()
 peerDbInsertPeerInfoList_ _ _ _ (PeerDb True _ _ _ _) = return ()
-peerDbInsertPeerInfoList_ sticky nid ps db = peerDbInsertList (newPeerEntry_ sticky nid <$> ps) db
+peerDbInsertPeerInfoList_ sticky nid peerInfos db = do
+    newEntries <- forM peerInfos $ \info -> do
+        mark <- randomPeerMark
+        return $! newPeerEntry_ sticky nid mark info
+    peerDbInsertList newEntries db
 
 peerDbInsertSet :: S.Set PeerEntry -> PeerDb -> IO ()
 peerDbInsertSet _ (PeerDb True _ _ _ _) = return ()
@@ -436,7 +466,9 @@ updatePeerDb (PeerDb _ _ _ lock var) a f
     = withMVar lock . const . atomically . modifyTVar' var $ \s ->
         case getOne $ getEQ a s of
             Nothing -> s
-            Just x -> updateIx a (f x) s
+            Just x ->
+                let !x' = f x
+                in updateIx a x' s
 
 incrementActiveSessionCount :: PeerDb -> PeerInfo -> IO ()
 incrementActiveSessionCount db i

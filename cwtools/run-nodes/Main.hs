@@ -1,31 +1,23 @@
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module RunNodes ( main, runNodesOpts ) where
+module Main (main) where
 
 import Chainweb.Graph (petersonChainGraph)
+import Chainweb.Test.TestVersions
+import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Registry
-
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Exception
-
-import qualified Data.Text as T
 import Data.Word
-
 import Options.Applicative
-
 import System.Directory (executable, getPermissions)
 import System.Process (callProcess)
-
--- internal modules
-
-import Chainweb.Test.TestVersions
-import Chainweb.Utils
-
----
+import Data.Text qualified as T
 
 data Env = Env
   { exe :: FilePath

@@ -241,7 +241,7 @@ instance Arbitrary P2pConfiguration where
 instance Arbitrary PeerEntry where
     arbitrary = PeerEntry
         <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-        <*> arbitrary
+        <*> arbitrary <*> arbitrary
 
 instance Arbitrary HostAddressIdx where
     arbitrary = hostAddressIdx <$> arbitrary
@@ -251,6 +251,7 @@ deriving newtype instance Arbitrary SuccessiveFailures
 deriving newtype instance Arbitrary AddedTime
 deriving newtype instance Arbitrary ActiveSessionCount
 deriving newtype instance Arbitrary PeerEntrySticky
+deriving newtype instance Arbitrary PeerMark
 deriving via (NonEmptyList Int) instance Arbitrary NodeVersion
 
 instance Arbitrary X509KeyPem where

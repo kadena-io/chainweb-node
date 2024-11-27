@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -10,64 +11,53 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module CheckpointerDBChecksum where
+module Main (main) where
 
-import Configuration.Utils hiding (Error, Lens', action, encode)
-
-import Control.Exception.Safe (tryAny)
-import Control.Monad (foldM, when, void)
-import Control.Monad.Reader
-
-import Crypto.Hash
-
-import Data.ByteArray (convert)
-import qualified Data.ByteString as B (ByteString, writeFile)
-import Data.ByteString.Builder
-import qualified Data.HashSet as HashSet
-import Data.Int
-import Data.Map (Map)
-import qualified Data.Map as M
-import Data.Monoid
-import Data.Serialize
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-
-import Database.SQLite3.Direct as SQ3
-
-import GHC.Generics
-
-import System.Directory
-
-import Text.Printf
-
--- pact imports
-import Pact.Types.SQLite
-
--- chainweb imports
 import Chainweb.BlockHeight
 
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Types
 import Chainweb.Utils hiding (check)
+import Configuration.Utils hiding (Error, Lens', action, encode)
+import Control.Exception.Safe (tryAny)
+import Control.Monad (foldM, when, void)
+import Control.Monad.Reader
+import Crypto.Hash
+import Data.ByteArray (convert)
+import Data.ByteString qualified as B (ByteString, writeFile)
+import Data.ByteString.Builder
+import Data.HashSet qualified as HashSet
+import Data.Int
+import Data.Map (Map)
+import Data.Map qualified as M
+import Data.Monoid
+import Data.Serialize
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
+import Database.SQLite3.Direct (Database, Utf8(..))
+import GHC.Generics
+import Pact.Types.SQLite
+import System.Directory
+import Text.Printf
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \args -> do
     (entiredb, tables) <- work args
-    case _getAllTables args of
-        True -> do
-            putStrLn "----------Computing \"entire\" db----------"
-            let !checksum = convert @(Digest SHA1) @B.ByteString . hashlazy $ toLazyByteString entiredb
-            exists <- doesFileExist $ _entireDBOutputFile args
-            -- Just rewrite the file. Let's not do anything complicated here.
-            when exists $ removeFile $ _entireDBOutputFile args
-            B.writeFile (_entireDBOutputFile args) checksum
-        False -> do
-            putStrLn "----------Computing tables----------"
-            let dir = _tablesOutputLocation args
-            createDirectoryIfMissing True dir
-            files <- listDirectory dir
-            mapM_ (\file -> removeFile (dir <> "/" <> file)) files
-            void $ M.traverseWithKey (go (_tablesOutputLocation args)) tables
+    if _getAllTables args
+    then do
+        putStrLn "----------Computing \"entire\" db----------"
+        let !checksum = convert @(Digest SHA1) @B.ByteString . hashlazy $ toLazyByteString entiredb
+        exists <- doesFileExist $ _entireDBOutputFile args
+        -- Just rewrite the file. Let's not do anything complicated here.
+        when exists $ removeFile $ _entireDBOutputFile args
+        B.writeFile (_entireDBOutputFile args) checksum
+    else do
+        putStrLn "----------Computing tables----------"
+        let dir = _tablesOutputLocation args
+        createDirectoryIfMissing True dir
+        files <- listDirectory dir
+        mapM_ (\file -> removeFile (dir <> "/" <> file)) files
+        void $ M.traverseWithKey (go (_tablesOutputLocation args)) tables
     putStrLn "----------All done----------"
   where
     go :: String -> B.ByteString -> B.ByteString -> IO ()
@@ -329,5 +319,4 @@ deriving instance Generic SType
 deriving instance Serialize SType
 deriving instance Generic Utf8
 deriving instance Serialize Utf8
-
 deriving instance Read BlockHeight

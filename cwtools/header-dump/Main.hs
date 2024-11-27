@@ -1,13 +1,12 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -23,111 +22,70 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
-module HeaderDump
-( main
-, run
-, mainWithConfig
-
--- * Configuration
-, Output(..)
-, Config(..)
-, defaultConfig
-
--- * ChainData
-, ChainData(..)
-, cdChainId
-, cdHeight
-, cdData
-
--- * Tools
-, progress
-, miner
-, coinbaseOutput
-, coinbaseResult
-, pactResult
-, failures
-, transactionsWithOutputs
-, commandValue
-, commandWithOutputsValue
-, withChainDbs
-) where
-
-import Configuration.Utils hiding (Lens)
-import Configuration.Utils.Validation
-
-import Control.Exception
-import Control.Lens hiding ((.=))
-import Control.Monad
-import Control.Monad.Catch (MonadThrow, throwM)
-import Control.Monad.Except
-import Control.Monad.IO.Class
-
-import Data.Aeson.Encode.Pretty hiding (Config)
-import Data.Aeson.Lens
-import Data.Bitraversable
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.CaseInsensitive as CI
-import Data.Foldable
-import Data.Functor.Of
-import qualified Data.HashSet as HS
-import Data.LogMessage
-import Data.Maybe
-import Data.Semigroup
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import qualified Data.Text.IO as T
-import qualified Data.Vector as V
-
-import qualified Database.RocksDB.Base as R
-
-import GHC.Generics hiding (to)
-
-import Numeric.Natural
-
-import qualified Streaming.Prelude as S
-
-import System.Directory
-import qualified System.Logger as Y
-import System.LogLevel
-
--- internal modules
+module Main (main) where
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
-import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
 import Chainweb.ChainValue
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
+import Chainweb.Storage.Table.RocksDB
 import Chainweb.Time
 import Chainweb.TreeDB hiding (key)
 import Chainweb.Utils hiding (progress)
 import Chainweb.Version
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Registry
-
-import Chainweb.Storage.Table.RocksDB
-
-import qualified Pact.JSON.Encode as J
+import Configuration.Utils hiding (Lens)
+import Configuration.Utils.Validation
+import Control.Exception
+import Control.Lens hiding ((.=))
+import Control.Monad
+import Control.Monad.Catch (MonadThrow, throwM)
+import Control.Monad.Except
+import Control.Monad.IO.Class
+import Data.Aeson.Encode.Pretty hiding (Config)
+import Data.Aeson.Lens
+import Data.Bitraversable
+import Data.ByteString.Lazy qualified as BL
+import Data.CaseInsensitive qualified as CI
+import Data.Foldable
+import Data.Functor.Of
+import Data.HashSet qualified as HS
+import Data.LogMessage
+import Data.Maybe
+import Data.Semigroup
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
+import Data.Text.IO qualified as T
+import Data.Vector qualified as V
+import Database.RocksDB.Base qualified as R
+import GHC.Generics hiding (to)
+import Numeric.Natural
+import Pact.JSON.Encode qualified as J
 import Pact.Types.Command
 import Pact.Types.PactError
+import Streaming.Prelude qualified as S
+import System.Directory
+import System.LogLevel
+import System.Logger qualified as Y
 
 -- -------------------------------------------------------------------------- --
 
 #define REMOTE_DB 0
 
 #if REMOTE_DB
+import Chainweb.BlockHeaderDB.RemoteDB
+import Chainweb.HostAddress
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS
-
 import Servant.Client
-
-import Chainweb.HostAddress
-import Chainweb.BlockHeaderDB.RemoteDB
 #endif
 
 -- -------------------------------------------------------------------------- --
@@ -330,7 +288,7 @@ data ChainData a = ChainData
     }
     deriving (Show, Eq, Ord, Functor, Foldable, Traversable)
 
-makeLenses ''ChainData
+makeLensesFor [("_cdData", "cdData")] ''ChainData
 
 instance ToJSON a => ToJSON (ChainData a) where
     toJSON o = object
@@ -569,13 +527,6 @@ coinbaseResult
 coinbaseResult l = S.mapM
     $ l (decodeStrictOrThrow' . _coinbaseOutput . _payloadWithOutputsCoinbase)
 
-pactResult
-    :: Monad m
-    => Traversal a b (CommandResult T.Text) PactResult
-    -> S.Stream (Of a) m r
-    -> S.Stream (Of b) m r
-pactResult l = S.map $ over l _crResult
-
 failures
     :: Monad m
     => Traversal a b (CommandResult T.Text) (Maybe PactError)
@@ -610,16 +561,6 @@ commandWithOutputsValue (c, o) = object
         (id @Value)
         (eitherDecodeStrict' $ T.encodeUtf8 $ _cmdPayload c)
     , "output" .= J.toJsonViaEncode o
-    ]
-
-commandValue :: Command T.Text -> Value
-commandValue c = object
-    [ "sigs" .= fmap J.toJsonViaEncode (_cmdSigs c)
-    , "hash" .= J.toJsonViaEncode (_cmdHash c)
-    , "payload" .= either
-        (const $ String $ _cmdPayload c)
-        (id @Value)
-        (eitherDecodeStrict' $ T.encodeUtf8 $ _cmdPayload c)
     ]
 
 -- -------------------------------------------------------------------------- --

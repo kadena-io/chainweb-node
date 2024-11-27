@@ -1,31 +1,26 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
-module GenConf where
+module Main (main) where
 
-import Control.Lens
-
-import Data.Maybe
-import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.IO as T
-import qualified Data.Yaml as Y
-
-import System.Directory
-import System.Exit
-import System.IO
-import System.Process
-
--- chainweb imports
-import Chainweb.Chainweb
 import Chainweb.Chainweb.Configuration
 import Chainweb.HostAddress
 import Chainweb.Miner.Config
 import Chainweb.Version.Mainnet
-
+import Control.Lens
+import Data.Maybe
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.IO qualified as T
+import Data.Yaml qualified as Y
 import P2P.Node.Configuration
 import P2P.Peer
+import System.Directory
+import System.Exit
+import System.IO
+import System.Process
 
 -- three items to ask the user
 -- 1) ask for their hostname (or public ip address)
@@ -61,9 +56,6 @@ getUserInput prompt defaultVal parse safetyCheck = do
                getUserInput prompt defaultVal parse safetyCheck
              Right y' -> return y'
 
-validate :: (a -> Bool) -> String -> Maybe (a -> Either String a)
-validate f msg = Just $ \a -> if f a then Right a else Left msg
-
 getConf :: IO ChainwebConfiguration
 getConf = do
     ip <- getIP
@@ -80,24 +72,17 @@ getConf = do
     portMsg = "Which port would you like to use (default: 443)?"
     mineCoordMsg = "Would you like to turn mining coordination (default: yes)?"
 
--- This was not exported by the Chainweb.Chainweb module
-defaultThrottlingConfig :: ThrottlingConfig
-defaultThrottlingConfig = ThrottlingConfig
-  { _throttlingRate = 50 -- per second
-  , _throttlingPeerRate = 11  -- per second, one each 2 seconds for each p2p network
-  , _throttlingMempoolRate = 5 -- per second, one each 4 seconds for each mempool
-  }
-
 main :: IO ()
 main = do
     conf <- getConf
     exist <- doesFileExist defaultfile
-    case exist of
-      True ->
-        getUserInput msg (Just True) (return . yesorno2Bool) Nothing >>= \case
-          True -> writeStuff conf
-          False -> putStrLn "Not writing configuration file"
-      False -> writeStuff conf
+    if exist
+    then do
+      getUserInput msg (Just True) (return . yesorno2Bool) Nothing >>= \case
+        True -> writeStuff conf
+        False -> putStrLn "Not writing configuration file"
+      else do
+        writeStuff conf
     exitSuccess
   where
     msg = "Would you like to write the configuration to " <> defaultfile <> "?"
@@ -112,13 +97,6 @@ yesorno2Bool text =
     "yes" -> Just True
     "no" -> Just False
     _ -> Nothing
-
-checkIP :: Text -> IO (Maybe Hostname)
-checkIP ip = do
-    value <- getIP
-    if value == ip
-      then return $ hostnameFromText ip
-      else return Nothing
 
 getIP :: IO Text
 getIP = T.pack . (read @String) <$> readProcess "dig" (words "TXT +short o-o.myaddr.l.google.com @ns1.google.com") ""

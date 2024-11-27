@@ -267,7 +267,7 @@ sendHandler logger mempool (Pact4.SubmitBatch cmds) = Handler $ do
           liftIO (mempoolInsertCheck mempool cmdsWithParsedPayloadsV) >>= checkResult
           liftIO (mempoolInsert mempool UncheckedInsert cmdsWithParsedPayloadsV)
           return $! Pact4.RequestKeys $ NEL.map Pact4.cmdToRequestKey cmdsWithParsedPayloads
-      Left err -> failWith $ "Validation failed: " <> T.pack err
+      Left err -> failWith $ "JSON of transaction failed: " <> T.pack err
   where
     failWith :: Text -> ExceptT ServerError IO a
     failWith err = do
@@ -709,12 +709,9 @@ barf e = maybe (throwError e) return
 validateCommand :: ChainwebVersion -> ChainId -> Pact4.Command Text -> Either String Pact4.Transaction
 validateCommand v cid (fmap encodeUtf8 -> cmdBs) = case parsedCmd of
   Right (commandParsed :: Pact4.Transaction) ->
-    if Pact4.assertCommand
-         commandParsed
-         (validPPKSchemes v cid bh)
-         (isWebAuthnPrefixLegal v cid bh)
-    then Right commandParsed
-    else Left "Command failed validation"
+    case Pact4.assertCommand commandParsed (validPPKSchemes v cid bh) (isWebAuthnPrefixLegal v cid bh) of
+      Left err -> Left $ "Command failed validation: " ++ Pact4.displayAssertCommandError err
+      Right () -> Right commandParsed
   Left e -> Left $ "Pact parsing error: " ++ e
   where
     bh = maxBound :: BlockHeight
