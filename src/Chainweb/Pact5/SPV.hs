@@ -1,5 +1,6 @@
 {-# language
     ImportQualifiedPost
+  , LambdaCase
   , OverloadedStrings
   , ScopedTypeVariables
   , TypeApplications
@@ -7,16 +8,18 @@
 
 module Chainweb.Pact5.SPV (pactSPV) where
 
-import Chainweb.BlockHeader (BlockHeader, blockHash)
+import Chainweb.BlockHeader (BlockHeader, blockHash, blockHeight)
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.Payload (TransactionOutput(..))
-import Chainweb.SPV (TransactionOutputProof(..), outputProofChainId)
+import Chainweb.SPV (SpvException(..), TransactionOutputProof(..), outputProofChainId)
 import Chainweb.SPV.VerifyProof (verifyTransactionOutputProofAt_)
 import Chainweb.Utils (decodeB64UrlNoPaddingText)
-import Chainweb.Version qualified as CWVersion
+import Chainweb.Version qualified as CW
+import Chainweb.Version.Guards qualified as CW
 import Control.Lens
 import Control.Monad (when)
-import Control.Monad.Except (runExceptT, throwError)
+import Control.Monad.Catch (catch, throwM)
+import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.IO.Class (liftIO)
 import Crypto.Hash.Algorithms (SHA512t_256)
 import Data.Aeson qualified as Aeson
@@ -52,7 +55,7 @@ verifyCont bdb bh (ContProof base64Proof) = runExceptT $ do
         Nothing -> throwError "verifyCont: Cannot decode transaction output proof"
         Just u -> return u
 
-    let cid = CWVersion._chainId bdb
+    let cid = CW._chainId bdb
 
     when (view outputProofChainId outputProof /= cid) $
         throwError "verifyCont: cannot redeem continuation proof on wrong targget chain"
@@ -61,7 +64,7 @@ verifyCont bdb bh (ContProof base64Proof) = runExceptT $ do
     --   1. Verify SPV TransactionOutput proof via Chainweb SPV API
     --   2. Decode tx outputs to 'CommandResult' 'Hash' _
     --   3. Extract continuation 'DefPactExec' from decoded result and return the cont exec object
-    TransactionOutput proof <- liftIO $ verifyTransactionOutputProofAt_ bdb outputProof (view blockHash bh)
+    TransactionOutput proof <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb outputProof (view blockHash bh)
 
     -- TODO: Do we care about the error type here?
     commandResult <- case Aeson.decodeStrict' @(CommandResult Hash Aeson.Value) proof of
@@ -79,7 +82,7 @@ verifySPV :: ()
     -> ObjectData PactValue
     -> IO (Either Text (ObjectData PactValue))
 verifySPV bdb bh proofType proof = runExceptT $ do
-    let cid = CWVersion._chainId bdb
+    let cid = CW._chainId bdb
 
     case proofType of
         "ETH" -> do
@@ -97,7 +100,7 @@ verifySPV bdb bh proofType proof = runExceptT $ do
             --   2. Decode tx outputs to 'CommandResult' 'Hash' _
             --   3. Extract tx outputs as a pact object and return the object
 
-            TransactionOutput rawCommandResult <- liftIO $ verifyTransactionOutputProofAt_ bdb outputProof (view blockHash bh)
+            TransactionOutput rawCommandResult <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb outputProof (view blockHash bh)
 
             commandResult <- case Aeson.decodeStrict' @(CommandResult Hash Aeson.Value) rawCommandResult of
                 Nothing -> throwError "verifySPV: Unable to decode SPV transaction output"
@@ -120,3 +123,11 @@ pactObjectOutputProof (ObjectData o) = do
     case Aeson.decodeStrict' @(TransactionOutputProof SHA512t_256) $ encodeStable o of
         Nothing -> Left "pactObjectOutputProof: Failed to decode proof object"
         Just outputProof -> Right outputProof
+
+catchAndDisplaySPVError :: BlockHeader -> ExceptT Text IO a -> ExceptT Text IO a
+catchAndDisplaySPVError bh eio =
+  if CW.chainweb219Pact (CW._chainwebVersion bh) (CW._chainId bh) (view blockHeight bh)
+  then catch eio $ \case
+    SpvExceptionVerificationFailed m -> throwError ("spv verification failed: " <> m)
+    spvErr -> throwM spvErr
+  else eio
