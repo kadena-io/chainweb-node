@@ -154,7 +154,7 @@ jobs:
         mv cabal.project.freeze.backup cabal.project.freeze
     - name: Run ea and verify consistency of genesis headers
       run: |
-        cabal run cwtool -- ea
+        cabal run ea
         mv cabal.project.freeze cabal.project.freeze.backup
         git checkout -- cabal.project.freeze || true
         if ! git diff --exit-code; then
