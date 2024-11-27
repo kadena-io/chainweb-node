@@ -28,7 +28,6 @@ import Test.Tasty.QuickCheck (testProperty)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeight
 import Chainweb.Graph
 import Chainweb.Test.Orphans.Internal
 import Chainweb.Test.Orphans.Internal ()
@@ -75,7 +74,7 @@ prop_chainGraphs_sorted v
 prop_chainGraphs_order :: ChainwebVersion -> Property
 prop_chainGraphs_order v = orders === NE.reverse (NE.sort orders)
   where
-    orders = ruleElems (BlockHeight 0) $ fmap order $ _versionGraphs v
+    orders = ruleElems $ fmap order $ _versionGraphs v
 
 prop_genesisHeight :: ChainwebVersion -> Property
 prop_genesisHeight v = property $ all ((>= 0) . genesisHeight v) $ chainIds v
@@ -113,12 +112,12 @@ prop_headerBaseSizeBytes v = property $ do
 
 prop_headerSizes_sorted :: ChainwebVersion -> Property
 prop_headerSizes_sorted v
-    = NE.reverse (NE.sort (ruleElems (BlockHeight 0) (headerSizes v))) === ruleElems (BlockHeight 0) (headerSizes v)
+    = NE.reverse (NE.sort (ruleElems (headerSizes v))) === ruleElems (headerSizes v)
 
 prop_headerSizes_order :: ChainwebVersion -> Property
 prop_headerSizes_order v = orders === NE.reverse (NE.sort orders)
   where
-    orders = ruleElems (BlockHeight 0) $ fmap order $ _versionGraphs v
+    orders = ruleElems $ fmap order $ _versionGraphs v
 
 prop_headerSizeBytes_gen :: ChainwebVersion -> Property
 prop_headerSizeBytes_gen v = property $ do

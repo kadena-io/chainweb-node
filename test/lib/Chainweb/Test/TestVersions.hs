@@ -143,9 +143,9 @@ testVersionTemplate v = v
     & versionCode .~ ChainwebVersionCode (int (fromJuste $ List.elemIndex (_versionName v) testVersions) + 0x80000000)
     & versionHeaderBaseSizeBytes .~ 318 - 110
     & versionWindow .~ WindowWidth 120
-    & versionMaxBlockGasLimit .~ End (Just 2_000_000)
+    & versionMaxBlockGasLimit .~ Bottom (minBound, Just 2_000_000)
     & versionBootstraps .~ [testBootstrapPeerInfos]
-    & versionVerifierPluginNames .~ AllChains (End mempty)
+    & versionVerifierPluginNames .~ AllChains (Bottom (minBound, mempty))
     & versionQuirks .~ noQuirks
     & versionServiceDate .~ Nothing
 
@@ -156,7 +156,7 @@ barebonesTestVersion g = buildTestVersion $ \v ->
         & versionWindow .~ WindowWidth 120
         & versionBlockDelay .~ BlockDelay 1_000_000
         & versionName .~ ChainwebVersionName ("test-" <> toText g)
-        & versionGraphs .~ End g
+        & versionGraphs .~ Bottom (minBound, g)
         & versionCheats .~ VersionCheats
             { _disablePow = True
             , _fakeFirstEpochStart = True
@@ -187,7 +187,7 @@ timedConsensusVersion g1 g2 = buildTestVersion $ \v -> v
         _ -> AllChains ForkAtGenesis
     )
     & versionUpgrades .~ AllChains HM.empty
-    & versionGraphs .~ (BlockHeight 8, g2) `Above` (End g1)
+    & versionGraphs .~ (BlockHeight 8, g2) `Above` Bottom (minBound, g1)
     & versionCheats .~ VersionCheats
         { _disablePow = True
         , _fakeFirstEpochStart = True
@@ -218,7 +218,7 @@ pact5CheckpointerTestVersion g1 = buildTestVersion $ \v -> v
         _ -> AllChains ForkAtGenesis
     )
     & versionUpgrades .~ AllChains HM.empty
-    & versionGraphs .~ End g1
+    & versionGraphs .~ Bottom (minBound, g1)
     & versionCheats .~ VersionCheats
         { _disablePow = True
         , _fakeFirstEpochStart = True
@@ -240,7 +240,7 @@ cpmTestVersion g v = v
     & testVersionTemplate
     & versionWindow .~ WindowWidth 120
     & versionBlockDelay .~ BlockDelay (Micros 100_000)
-    & versionGraphs .~ End g
+    & versionGraphs .~ Bottom (minBound, g)
     & versionCheats .~ VersionCheats
         { _disablePow = True
         , _fakeFirstEpochStart = True
@@ -347,7 +347,7 @@ slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
     & versionName .~ ChainwebVersionName ("slowfork-CPM-" <> toText g)
     & versionForks .~ slowForks
     & versionVerifierPluginNames .~ AllChains
-        (End $ Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"])
+        (Bottom (minBound, Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]))
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades slowly enabled,
 -- and with a gas fee quirk.
@@ -396,7 +396,11 @@ instantCpmTestVersion g = buildTestVersion $ \v -> v
         }
     & versionUpgrades .~ AllChains mempty
     & versionVerifierPluginNames .~ AllChains
-        (End $ Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"])
+        (Bottom
+            ( minBound
+            , Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
+            )
+        )
 
 pact5InstantCpmTestVersion :: ChainGraph -> ChainwebVersion
 pact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
@@ -416,7 +420,11 @@ pact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
         }
     & versionUpgrades .~ AllChains mempty
     & versionVerifierPluginNames .~ AllChains
-        (End $ Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"])
+        (Bottom
+            ( minBound
+            , Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
+            )
+        )
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades instantly enabled
 -- at genesis. We also have an upgrade after genesis that redeploys Coin v5 as
@@ -443,4 +451,8 @@ pact5SlowCpmTestVersion g = buildTestVersion $ \v -> v
         [ (Pact5Fork, AllChains (ForPact5 $ Pact5Upgrade (List.map pactTxFrom4To5 CoinV6.transactions)))
         ]
     & versionVerifierPluginNames .~ AllChains
-        (End $ Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"])
+        (Bottom
+            ( minBound
+            , Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
+            )
+        )

@@ -700,7 +700,7 @@ makeGenesisBlockHeader'
 makeGenesisBlockHeader' v p ct@(BlockCreationTime t) n =
     fromLog @ChainwebMerkleHashAlgorithm mlog
   where
-    g = genesisGraph v p
+    (h, g) = genesisHeightAndGraph v p
     cid = _chainId p
 
     mlog = newMerkleLog
@@ -711,7 +711,7 @@ makeGenesisBlockHeader' v p ct@(BlockCreationTime t) n =
         :+: genesisBlockPayloadHash v cid
         :+: cid
         :+: BlockWeight 0
-        :+: genesisBlockHeight v cid -- because of chain graph changes (new chains) not all chains start at 0
+        :+: h -- because of chain graph changes (new chains) not all chains start at 0
         :+: _versionCode v
         :+: EpochStartTime t
         :+: n
