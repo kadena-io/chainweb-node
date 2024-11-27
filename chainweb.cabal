@@ -32,6 +32,10 @@ extra-source-files:
 
     rewards/miner_rewards.csv
 
+    -- verifier assets
+
+    verifier-assets/v1.0.8-testnet.bin
+
     -- pact test data
 
     pact/coin-contract/*.repl
@@ -257,6 +261,7 @@ library
         , Chainweb.VerifierPlugin.Hyperlane.Message.After225
         , Chainweb.VerifierPlugin.Hyperlane.Message.Before225
         , Chainweb.VerifierPlugin.Hyperlane.Utils
+        , Chainweb.VerifierPlugin.Plonk
         , Chainweb.Version
         , Chainweb.Version.Development
         , Chainweb.Version.Guards
@@ -452,6 +457,7 @@ library
         , warp-tls >= 3.4
         , yaml >= 0.11
         , yet-another-logger >= 0.4.1
+        , plonk-verify
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
@@ -483,6 +489,7 @@ library chainweb-test-utils
         Chainweb.Test.Pact.VerifierPluginTest.Transaction.Message.Before225
         Chainweb.Test.Pact.VerifierPluginTest.Transaction.Utils
         Chainweb.Test.Pact.VerifierPluginTest.Unit
+        Chainweb.Test.Pact.VerifierPluginTest.PlonkVerifier
         Chainweb.Test.RestAPI.Client_
         Chainweb.Test.RestAPI.Utils
         Chainweb.Test.TestVersions
@@ -564,6 +571,7 @@ library chainweb-test-utils
         , warp-tls >= 3.2.9
         , yaml >= 0.11
         , yet-another-logger >= 0.4.1
+        , data-default
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1

@@ -77,6 +77,10 @@ let haskellSrc = with nix-filter.lib; filter {
         zlib
         pkg-config
         sqlite
+	cargo
+        rustc
+        cargo
+        go
       ];
       modules = [
         {

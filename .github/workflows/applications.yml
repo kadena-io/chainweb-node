@@ -263,6 +263,24 @@ jobs:
         echo "setup cabal-store: ${{ steps.setup.outputs.cabal-store }}"
         ghc --version
         cabal --version
+
+    - name: Install plonk verifier dependencies (Go)
+      if: startsWith(matrix.os, 'ubuntu-')
+      run: |
+        export PATH="${PATH}:/usr/local/go/bin"
+        sudo curl -L https://go.dev/dl/go1.23.3.linux-amd64.tar.gz -O
+        sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.23.3.linux-amd64.tar.gz
+        go version
+
+    - name: Install plonk verifier dependencies (Rust)
+      if: startsWith(matrix.os, 'ubuntu-')
+      run: |
+        export PATH="${PATH}:/root/.cargo/bin"
+        curl -sSf https://sh.rustup.rs | sudo sh -s -- -y
+        curl -LsSf https://get.nexte.st/latest/linux | sudo tar zxf - -C ${CARGO_HOME:-/root/.cargo}/bin
+        cargo version
+        rustc --version
+
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
       run: sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libsnappy-dev libbz2-dev

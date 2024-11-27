@@ -60,7 +60,7 @@ devnet = ChainwebVersion
         , _disableMempoolSync = False
         }
     , _versionVerifierPluginNames = AllChains $ Bottom
-        (minBound, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow"])
+        (minBound, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow", "plonk"])
     , _versionQuirks = noQuirks
     , _versionServiceDate = Nothing
     }
