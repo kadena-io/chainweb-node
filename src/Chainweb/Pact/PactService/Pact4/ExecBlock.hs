@@ -566,28 +566,37 @@ applyPactCmds cmds miner startModuleCache blockGas txTimeLimit = do
                 case mCmdAndResult of
                   Nothing -> do
                     pure ()
-                  Just (cmd, cmdResult5) -> do
+                  Just (cmd5, cmdResult5NotRoundripped) -> do
                     eCmdResult <- do
                       case r of
                         Left err -> do
                           return $ Left err
                         Right cmdResult4 -> do
                           Right <$> decodeStrictOrThrow' (BS.toStrict $ J.encode (hashPact4TxLogs cmdResult4))
+                    -- We have to roundtrip the command result to normalise some things, such as guards, being treated inconsistently
+                    -- as either PGuard or PObject
+                    cmdResult5 <- do
+                      let x :: Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info))
+                          x = hashPact5TxLogs (fmap (Pact5.PELegacyError . Pact5.toPrettyLegacyError) cmdResult5NotRoundripped)
+                      decodeStrictOrThrow'
+                        @_
+                        @(Pact5.CommandResult A.Value (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)))
+                        (BS.toStrict $ J.encode x)
                     case eCmdResult of
                       Left err -> do
-                        let filename = "parity-replay-result-failures/" </> T.unpack (Pact5.hashToText (Pact5._cmdHash cmd)) <> ".md"
+                        let filename = "parity-replay-result-failures/" </> T.unpack (Pact5.hashToText (Pact5._cmdHash cmd5)) <> ".md"
                         liftIO $ do
                           createDirectoryIfMissing True (takeDirectory filename)
                           T.writeFile filename $ sshow err
                       Right (cmdResult :: (Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)))) -> do
                         let txMinerId = miner ^. minerId
                         let r4 = commandResultToDiffable txMinerId cmdResult
-                        let r5 = commandResultToDiffable txMinerId (fmap (Pact5.PELegacyError . Pact5.toPrettyLegacyError) cmdResult5)
+                        let r5 = commandResultToDiffable txMinerId cmdResult5
                         when (r4 /= r5) $ do
-                            let requestKey = Pact5.hashToText (Pact5._cmdHash cmd)
+                            let requestKey = Pact5.hashToText (Pact5._cmdHash cmd5)
 
                             gasLogs <- do
-                                let gasLogsPath = "parity-replay-gas-logs" </> T.unpack (Pact5.hashToText (Pact5._cmdHash cmd)) <> ".gaslogs"
+                                let gasLogsPath = "parity-replay-gas-logs" </> T.unpack (Pact5.hashToText (Pact5._cmdHash cmd5)) <> ".gaslogs"
                                 liftIO $ (Just <$> T.readFile gasLogsPath) `catch` \(_ :: IOException) -> return Nothing
 
                             let cwvPathPiece
