@@ -267,7 +267,7 @@ sendHandler logger mempool (Pact4.SubmitBatch cmds) = Handler $ do
           liftIO (mempoolInsertCheck mempool cmdsWithParsedPayloadsV) >>= checkResult
           liftIO (mempoolInsert mempool UncheckedInsert cmdsWithParsedPayloadsV)
           return $! Pact4.RequestKeys $ NEL.map Pact4.cmdToRequestKey cmdsWithParsedPayloads
-      Left err -> failWith $ "JSON of transaction failed: " <> T.pack err
+      Left err -> failWith $ "reading JSON for transaction failed: " <> T.pack err
   where
     failWith :: Text -> ExceptT ServerError IO a
     failWith err = do
