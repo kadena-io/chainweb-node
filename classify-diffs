@@ -42,12 +42,6 @@ for f in $(grep -Rl parity-replay-diffs/ -e 'Unbound free variable');
   do mv "$f" diffs/unbound-free-variable/;
 done;
 
-# not sure about these
-mkdir -p diffs/key-not-found
-for f in $(grep -Rl parity-replay-diffs/ -e 'Key .* not found in object');
-  do mv "$f" diffs/key-not-found/;
-done;
-
 # jose has some explanation for this
 mkdir -p diffs/expected-bool-got-unit
 for f in $(grep -Rl parity-replay-diffs/ -e 'expected bool value, got \(\)');
@@ -294,6 +288,8 @@ for f in $(grep -Rl parity-replay-diffs/ -e 'kedao');
   do mv "$f" diffs/kedao
 done;
 
+mkdir -p diffs/sort-object-divergence
+mv parity-replay-diffs/DWbywTHYKnP4M_G4xcOkKy3wuSKIE2INlkJVTX67cZA.md diffs/sort-object-divergence 2> /dev/null
 
 mkdir -p diffs/interesting
 mv parity-replay-diffs/_HFqdbIlHNdS8wNgMdNGlkkuhjD4ZllxNL7fTg6EhO0.md diffs/interesting 2> /dev/null

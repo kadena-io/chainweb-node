@@ -295,9 +295,9 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         -- resolution concerns
         Modules -> do
           v <- lookupWithKey (convModuleName mnFix k) checkModuleCache
-          _ <- forM v $ \m -> do
-            liftIO $ createDirectoryIfMissing True "parity-replay-modules"
-            liftIO $ B.writeFile ("parity-replay-modules" </> T.unpack (asString k)) $ J.encodeStrict m
+          -- _ <- forM v $ \m -> do
+          --   liftIO $ createDirectoryIfMissing True "parity-replay-modules"
+          --   liftIO $ B.writeFile ("parity-replay-modules" </> T.unpack (asString k)) $ J.encodeStrict m
           pure v
         Namespaces -> lookupWithKey (convNamespaceName k) noCache
         (UserTables _) -> lookupWithKey (convRowKey k) noCache
