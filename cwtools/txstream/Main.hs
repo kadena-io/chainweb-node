@@ -5,6 +5,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -23,71 +24,45 @@
 --
 -- Print all transactions in a chain starting with the most recent block
 --
-module TxStream
-( main
-, mainWithConfig
-, testLogfun
-, run
-, runOutputs
-) where
-
-import Chainweb.Cut.CutHashes
-import Chainweb.Payload.RestAPI.Client
-
-import Configuration.Utils
-
-import Control.Lens hiding ((.=))
-import Control.Monad ((<=<), when)
-import Control.Monad.Reader
-
-import Data.Aeson.Encode.Pretty hiding (Config)
-import Data.Bitraversable
-import qualified Data.ByteString.Lazy as BL
-import Data.Functor.Of
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import qualified Data.Text.IO as T
-
-import GHC.Generics
-
-import Network.HTTP.Client
-import Network.HTTP.Client.TLS
-
-import Servant.Client
-
-import qualified Streaming.Prelude as S
-
-import qualified System.Logger as Y
-import System.LogLevel
-
--- internal modules
+module Main (main) where
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB.RemoteDB
 import Chainweb.BlockHeight
+import Chainweb.Cut.CutHashes
 import Chainweb.CutDB.RestAPI.Client
 import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Payload
+import Chainweb.Payload.RestAPI.Client
 import Chainweb.TreeDB
-import Chainweb.BlockHeaderDB.RemoteDB
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Registry
 import Chainweb.Version.Utils
-
+import Configuration.Utils
+import Control.Lens hiding ((.=))
+import Control.Monad ((<=<), when)
+import Control.Monad.Reader
+import Data.Aeson.Encode.Pretty hiding (Config)
+import Data.Bitraversable
+import Data.Functor.Of
 import Data.LogMessage
-
-import qualified Pact.JSON.Encode as J
+import GHC.Generics
+import Network.HTTP.Client
+import Network.HTTP.Client.TLS
 import Pact.Types.Command
-
--- -------------------------------------------------------------------------- --
--- GHCI
-
-testLogfun :: LogFunction
-testLogfun _ = T.putStrLn . logText
+import Servant.Client
+import System.LogLevel
+import Data.ByteString.Lazy qualified as BL
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
+import Pact.JSON.Encode qualified as J
+import Streaming.Prelude qualified as S
+import System.Logger qualified as Y
 
 -- -------------------------------------------------------------------------- --
 -- Configuration
@@ -368,7 +343,9 @@ mainWithConfig config = withLog $ \logger -> do
             & addLabel ("host", toText $ _configNode config)
             & addLabel ("version", toText $ _versionName $ _configChainwebVersion config)
             & addLabel ("chain", toText $ _configChainId config)
-    liftIO $ if _configOutputs config
+    liftIO $ do
+        registerVersion (_configChainwebVersion config)
+        if _configOutputs config
         then runOutputs config logg
         else run config logg
 

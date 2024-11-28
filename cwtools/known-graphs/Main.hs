@@ -1,4 +1,6 @@
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
+
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
@@ -8,23 +10,16 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
-module KnownGraphs
-( main
-) where
-
-import Control.Lens hiding ((.=))
-
-import Data.Aeson
-import qualified Data.ByteString.Lazy.Char8 as BL8
-import qualified Data.DiGraph as G
-import qualified Data.Text as T
-
-import System.Environment
-
--- internal modules
+module Main (main) where
 
 import Chainweb.Graph
 import Chainweb.Utils
+import Control.Lens hiding ((.=))
+import Data.Aeson
+import Data.ByteString.Lazy.Char8 qualified as BL8
+import Data.DiGraph qualified as G
+import Data.Text qualified as T
+import System.Environment
 
 main :: IO ()
 main = do

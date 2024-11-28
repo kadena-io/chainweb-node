@@ -1,0 +1,339 @@
+cabal-version: 3.8
+
+name:         cwtools
+version:      2.26
+synopsis:     A collection of various tools for Chainweb users and developers.
+description:  A collection of various tools for Chainweb users and developers.
+homepage:     https://github.com/kadena-io/chainweb
+bug-reports:  https://github.com/kadena-io/chainweb/issues
+license:      BSD-3-Clause
+license-file: LICENSE
+author:       Chainweb Dev Team
+maintainer:   chainweb-dev@kadena.io
+copyright:    Copyright (C) 2018 - 2024 Kadena LLC
+category:     Blockchain, Currency, Bitcoin, Kadena
+build-type:   Simple
+
+tested-with:
+    GHC == 9.10
+    GHC == 9.8
+    GHC == 9.6
+
+extra-source-files:
+   README.md
+   LICENSE
+
+source-repository head
+    type: git
+    location: https://github.com/kadena-io/chainweb-node.git
+
+flag ed25519
+    description:
+        Use ED25519 certificates; depends on the master branch of the tls
+        package.
+    default: False
+    manual: True
+
+flag debug
+    description:
+        Enable various debugging features
+    default: False
+    manual: True
+
+flag ghc-flags
+    description: Enable ghc dumps of .ghc.flags and .ghc.version for tooling
+    default: False
+    manual: True
+
+flag remote-db
+   description: Enable header dumps of remote databases with the header-dump tool
+   default: False
+   manual: True
+
+common debugging-flags
+    if flag(debug)
+        ghc-options:
+            -g
+        cpp-options:
+            -DDEBUG_MULTINODE_TEST=1
+
+common warning-flags
+    ghc-options:
+        -Wall
+        -Werror
+        -Wcompat
+        -Wpartial-fields
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
+        -Widentities
+        -funclutter-valid-hole-fits
+        -fmax-relevant-binds=0
+
+        -- This needed because -Werror and missing-home-modules causes
+        -- problems with ghci.
+        -Wno-missing-home-modules
+
+executable b64
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N -H1G -A64M"
+    hs-source-dirs: encode-decode
+    main-is: Main.hs
+    build-depends:
+        -- internal
+        , chainweb
+
+        -- external
+        , base
+        , bytestring
+        , optparse-applicative
+        , text
+
+executable calculate-release
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+    hs-source-dirs: calculate-release
+    main-is: Main.hs
+    build-depends:
+        -- internal
+        , chainweb
+
+        -- external
+        , base >= 4.12 && < 5
+        , lens
+        , lens-aeson
+        , time
+        , wreq
+
+-- Compact pact state and RocksDB.
+executable compact
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N -A4M --disable-delayed-os-memory-return -qn1"
+    hs-source-dirs: compact
+    main-is: Main.hs
+    build-depends:
+        -- internal
+        , chainweb
+
+        -- external
+        , base >= 4.12 && < 5
+
+executable db-checksum
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N -H1G -A64M"
+    hs-source-dirs: db-checksum
+    main-is: Main.hs
+    build-depends:
+        -- internal
+        , chainweb
+
+        -- external
+        , base
+        , bytestring
+        , cereal >= 0.5
+        , configuration-tools
+        , containers
+        , crypton
+        , direct-sqlite
+        , directory
+        , memory
+        , mtl
+        , pact
+        , safe-exceptions
+        , text
+        , unordered-containers
+
+-- Generate genesis headers.
+executable ea
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N -H1G -A64M"
+        -Wno-x-partial -Wno-unrecognised-warning-flags
+    hs-source-dirs:
+        ea
+    main-is:
+        Ea.hs
+    other-modules:
+        Ea.Genesis
+    build-depends:
+        , chainweb
+        , chainweb:chainweb-test-utils
+
+        , aeson
+        , async
+        , base
+        , chainweb-storage
+        , lens
+        , loglevel
+        , pact
+        , temporary
+        , text
+        , vector
+
+executable genconf
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N -H1G -A64M"
+    hs-source-dirs: genconf
+    main-is: Main.hs
+    build-depends:
+        -- internal
+        , chainweb
+
+        -- external
+        , base
+        , directory
+        , lens
+        , process
+        , text
+        , yaml
+
+executable header-dump
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N -H1G -A64M"
+    hs-source-dirs: header-dump
+    main-is: Main.hs
+    if flag(remote-db)
+      cpp-options:
+        -DREMOTE_DB=1
+      build-depends:
+        , http-client
+        , http-client-tls
+        , servant-client
+    build-depends:
+        -- internal
+        , chainweb
+        , chainweb-storage
+
+        -- external
+        , aeson-pretty
+        , base
+        , bytestring
+        , case-insensitive
+        , configuration-tools
+        , directory
+        , exceptions
+        , lens
+        , lens-aeson
+        , loglevel
+        , mtl
+        , pact
+        , pact-json
+        , rocksdb-haskell-kadena
+        , streaming
+        , text
+        , unordered-containers
+        , vector
+        , yet-another-logger
+
+executable known-graphs
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+    hs-source-dirs: known-graphs
+    main-is: Main.hs
+    build-depends:
+        -- internal
+        , chainweb
+
+        -- external
+        , aeson
+        , base
+        , bytestring
+        , digraph
+        , lens
+        , text
+
+-- Diff pact state between two DBs.
+executable pact-diff
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N -A4M --disable-delayed-os-memory-return -qn1"
+    hs-source-dirs: pact-diff
+    main-is: Main.hs
+    build-depends:
+        -- internal
+        , chainweb
+
+        -- external
+        , base >= 4.12 && < 5
+
+executable run-nodes
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N -H1G -A64M"
+    hs-source-dirs: run-nodes
+    main-is: Main.hs
+    build-depends:
+        -- internal
+        , chainweb
+        , chainweb:chainweb-test-utils
+
+        -- external
+        , async
+        , base
+        , directory
+        , optparse-applicative
+        , process
+        , text
+
+executable tx-list
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+        -rtsopts
+        "-with-rtsopts=-N -H1G -A64M"
+    hs-source-dirs: txstream
+    main-is: Main.hs
+    build-depends:
+        -- internal
+        , chainweb
+
+        -- external
+        , aeson-pretty
+        , base
+        , bytestring
+        , configuration-tools
+        , http-client
+        , http-client-tls
+        , lens
+        , loglevel
+        , mtl
+        , pact
+        , pact-json
+        , servant-client
+        , streaming
+        , text
+        , unordered-containers
+        , yet-another-logger
