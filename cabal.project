@@ -86,7 +86,7 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact-5.git
-    tag: e7ff2cc4ea4d7b682b474dc08a543944ecdecf30
+    tag: f020a0b995ce0f8ade35c84b36a1e82a54af3cb4
     --sha256: sha256-4KaTlKQUy7faGw3QYn7FEX9HZPb1xRVqaSz4LSUh8rg=
 
 source-repository-package
@@ -245,4 +245,3 @@ allow-newer: webauthn:time
 allow-newer: webauthn:aeson
 
 allow-newer: lrucaching:base-compat
-constraints: hashable < 1.4.5
