@@ -5,7 +5,6 @@ mkdir -p diffs/failed-deserialize-module
 mkdir -p diffs/keyset-failure
 mkdir -p diffs/too-many-arguments
 mkdir -p diffs/gas-exceeded
-mkdir -p diffs/x_resume
 mkdir -p diffs/unbound-free-variable
 mkdir -p diffs/expected-bool-got-unit
 mkdir -p diffs/no-such-key-in-table
@@ -19,11 +18,9 @@ mkdir -p diffs/interface-loaded
 mkdir -p diffs/minimum-precision
 mkdir -p diffs/module-admin
 mkdir -p diffs/no-such-member
-mkdir -p diffs/insert-ok
 mkdir -p diffs/capability-already-installed
 mkdir -p diffs/token-protocol-violation
 mkdir -p diffs/failed-to-call-at
-mkdir -p diffs/liq-pos-guard
 mkdir -p diffs/output-differs-int-double
 mkdir -p diffs/no-pact-exec-in-cr
 mkdir -p diffs/table-already-exists
@@ -37,7 +34,6 @@ mkdir -p diffs/invalid-call-to-if
 mkdir -p diffs/incompatible-types
 mkdir -p diffs/b64-diffs
 mkdir -p diffs/interface-as-mod-ref
-mkdir -p diffs/marmalade-mints
 mkdir -p diffs/marmalade-v2
 mkdir -p diffs/kadena-mining-club
 mkdir -p diffs/kadena-mining-club
@@ -50,58 +46,61 @@ mkdir -p diffs/desugar-syntax-failure
 mkdir -p diffs/duplicate-table-error
 mkdir -p diffs/cap-is-not-managed
 mkdir -p diffs/kedao
+mkdir -p diffs/list-commas
+mkdir -p diffs/transfer-exceeded
+mkdir -p diffs/sort-object-divergence
+mkdir -p diffs/interesting
 
 classify_diff() {
-  grep -q 'Loaded module' "$1" && mv "$1" diffs/loaded-module-hash/ && return
-  grep -q 'Failed to deserialize but found value at key:free.kor-oracle' "$1" && mv "$1" diffs/failed-deserialize-module && return
-  grep -q 'Keyset failure' "$1" && mv "$1" diffs/keyset-failure && return
-  grep -q 'Attempted to apply a closure to too many arguments' "$1" && mv "$1" diffs/too-many-arguments && return
-  grep -q 'GasError' "$1" && mv "$1" diffs/gas-exceeded && return
-  grep -q 'X_RESUME' "$1" && mv "$1" diffs/x_resume && return
-  grep -q 'Unbound free variable' "$1" && mv "$1" diffs/unbound-free-variable && return
-  grep -q 'expected bool value, got \(\)' "$1" && mv "$1" diffs/expected-bool-got-unit && return
-  grep -q 'invariant violated: No such key .* in table' "$1" && mv "$1" diffs/no-such-key-in-table && return
-  grep -q 'Keyset write success' "$1" && mv "$1" diffs/keyset-defined && return
-  grep -q 'equipped' "$1" && mv "$1" diffs/wiza-equipped-item && return
-  grep -q 'read-keyset failure' "$1" && mv "$1" diffs/read-keyset-error && return
-  grep -q 'New reward balance for' "$1" && mv "$1" diffs/nft-mint-mystery && return
-  grep -q 'Cannot resolve' "$1" && mv "$1" diffs/cannot-find-module && return
-  grep -q 'Table .* not found' "$1" && mv "$1" diffs/table-not-found && return
-  grep -q 'Loaded interface' "$1" && mv "$1" diffs/interface-loaded && return
-  grep -q 'Amount violates minimum precision' "$1" && mv "$1" diffs/minimum-precision && return
-  grep -q 'Module admin necessary' "$1" && mv "$1" diffs/module-admin && return
-  grep -q 'has no such member' "$1" && mv "$1" diffs/no-such-member && return
-  grep -q 'Insert: row found for key' "$1" && mv "$1" diffs/insert-ok && return
-  grep -q 'Capability already installed' "$1" && mv "$1" diffs/capability-already-installed && return
-  grep -q 'Token protocol violation' "$1" && mv "$1" diffs/token-protocol-violation && return
-  grep -q 'failed to call native function at with argument(s) of type(s)' "$1" && mv "$1" diffs/failed-to-call-at && return
-  grep -q 'LIQUIDITY_POS_GUARD' "$1" && mv "$1" diffs/liq-pos-guard && return
-  grep -q '{"status":"success","data":{"int"' "$1" && mv "$1" diffs/output-differs-int-double && return
-  grep -q 'Continuation Error: verifyCont' "$1" && mv "$1" diffs/no-pact-exec-in-cr && return
-  grep -q 'Table .* already exists' "$1" && mv "$1" diffs/table-already-exists && return
-  grep -q 'Expected Pact Value, got closure or table reference' "$1" && mv "$1" diffs/non-pact-value && return
-  grep -q '"source":"quiz_' "$1" && mv "$1" diffs/quiz-results && return
-  grep -q 'read-decimal failure' "$1" && mv "$1" diffs/read-function-failures && return
-  grep -q 'No such key in message' "$1" && mv "$1" diffs/read-function-failures && return
-  grep -q 'Runtime typecheck failure, argument is table , but expected type object' "$1" && mv "$1" diffs/lago-finance && return
-  grep -q 'callDb (doReadRow): user error (Database error: ErrorError)' "$1" && mv "$1" diffs/db-internal-error && return
-  grep -q 'Invalid arguments in call to if' "$1" && mv "$1" diffs/invalid-call-to-if && return
-  grep -q 'cannot compare incompatible types' "$1" && mv "$1" diffs/incompatible-types && return
-  grep -q 'invalid b64' "$1" && mv "$1" diffs/b64-diffs && return
-  grep -q 'Invalid Interface attempted to be used as module reference' "$1" && mv "$1" diffs/interface-as-mod-ref && return
-  grep -q '"module":{"namespace":"marmalade","name":"ledger"}' "$1" && mv "$1" diffs/marmalade-mints && return
-  grep -q '"module":{"namespace":"marmalade-v2","name":"ledger"}' "$1" && mv "$1" diffs/marmalade-v2 && return
-  grep -q '"module":{"namespace":"free","name":"kadena-mining-club"}' "$1" && mv "$1" diffs/kadena-mining-club && return
-  grep -q '{"status":"success","data":"Price updated to' "$1" && mv "$1" diffs/kadena-mining-club && return
-  grep -q 'Invalid arguments in call to format' "$1" && mv "$1" diffs/kadena-mining-club-format && return
-  grep -q 'does not correctly implement the function' "$1" && mv "$1" diffs/interface-impl-errors && return
-  grep -q 'Amount violates minimum denomination' "$1" && mv "$1" diffs/minimum-precision && return
-  grep -q 'dao-hive-factory' "$1" && mv "$1" diffs/dao-hive-factory && return
-  grep -q 'Invalid definition in term variable position' "$1" && mv "$1" diffs/invalid-def-in-term-var && return
-  grep -q 'Desugar syntax failure' "$1" && mv "$1" diffs/desugar-syntax-failure && return
-  grep -q 'PactDuplicateTableError' "$1" && mv "$1" diffs/duplicate-table-error && return
-  grep -q 'capability is not managed and cannot be installed' "$1" && mv "$1" diffs/cap-is-not-managed && return
-  grep -q 'kedao' "$1" && mv "$1" diffs/kedao && return
+  grep -q 'Loaded module' "$1" && mv -f "$1" diffs/loaded-module-hash/ && return
+  grep -q 'Failed to deserialize but found value at' "$1" && mv -f "$1" diffs/failed-deserialize-module && return
+  grep -q 'Keyset failure' "$1" && mv -f "$1" diffs/keyset-failure && return
+  grep -q 'Attempted to apply a closure to too many arguments' "$1" && mv -f "$1" diffs/too-many-arguments && return
+  grep -q 'Failure parsing decimal: Object' "$1" && mv -f "$1" diffs/parse-decimal-object && return
+  grep -q 'GasError' "$1" && mv -f "$1" diffs/gas-exceeded && return
+  grep -q 'Unbound free variable' "$1" && mv -f "$1" diffs/unbound-free-variable && return
+  grep -q 'expected bool value, got \(\)' "$1" && mv -f "$1" diffs/expected-bool-got-unit && return
+  grep -q 'invariant violated: No such key .* in table' "$1" && mv -f "$1" diffs/no-such-key-in-table && return
+  grep -q 'Keyset write success' "$1" && mv -f "$1" diffs/keyset-defined && return
+  grep -q 'equipped' "$1" && mv -f "$1" diffs/wiza-equipped-item && return
+  grep -q 'read-keyset failure' "$1" && mv -f "$1" diffs/read-keyset-error && return
+  grep -q 'New reward balance for' "$1" && mv -f "$1" diffs/nft-mint-mystery && return
+  grep -q 'Cannot resolve' "$1" && mv -f "$1" diffs/cannot-find-module && return
+  grep -q 'Cannot find module:' "$1" && mv -f "$1" diffs/cannot-find-module && return
+  grep -q 'Table .* not found' "$1" && mv -f "$1" diffs/table-not-found && return
+  grep -q 'Loaded interface' "$1" && mv -f "$1" diffs/interface-loaded && return
+  grep -q 'Amount violates minimum precision' "$1" && mv -f "$1" diffs/minimum-precision && return
+  grep -q 'Module admin necessary' "$1" && mv -f "$1" diffs/module-admin && return
+  grep -q 'has no such member' "$1" && mv -f "$1" diffs/no-such-member && return
+  grep -q 'Capability already installed' "$1" && mv -f "$1" diffs/capability-already-installed && return
+  grep -q 'Token protocol violation' "$1" && mv -f "$1" diffs/token-protocol-violation && return
+  grep -q 'capability is not managed and cannot be installed' "$1" && mv -f "$1" diffs/cap-is-not-managed && return
+  grep -q 'failed to call native function at with argument(s) of type(s)' "$1" && mv -f "$1" diffs/failed-to-call-at && return
+  grep -q '{"status":"success","data":{"int"' "$1" && mv -f "$1" diffs/output-differs-int-double && return
+  grep -q 'Continuation Error: verifyCont' "$1" && mv -f "$1" diffs/no-pact-exec-in-cr && return
+  grep -q 'Table .* already exists' "$1" && mv -f "$1" diffs/table-already-exists && return
+  grep -q 'Expected Pact Value, got closure or table reference' "$1" && mv -f "$1" diffs/non-pact-value && return
+  grep -q '"source":"quiz_' "$1" && mv -f "$1" diffs/quiz-results && return
+  grep -q 'read-decimal failure' "$1" && mv -f "$1" diffs/read-function-failures && return
+  grep -q 'No such key in message' "$1" && mv -f "$1" diffs/read-function-failures && return
+  grep -q 'Runtime typecheck failure, argument is table , but expected type object' "$1" && mv -f "$1" diffs/lago-finance && return
+  grep -q 'user error (Database error: ErrorError)' "$1" && mv -f "$1" diffs/db-internal-error && return
+  grep -q 'Invalid arguments in call to if' "$1" && mv -f "$1" diffs/invalid-call-to-if && return
+  grep -q 'cannot compare incompatible types' "$1" && mv -f "$1" diffs/incompatible-types && return
+  grep -q 'invalid b64' "$1" && mv -f "$1" diffs/b64-diffs && return
+  grep -q 'Invalid Interface attempted to be used as module reference' "$1" && mv -f "$1" diffs/interface-as-mod-ref && return
+  grep -q 'Expected module, found interface' "$1" && mv -f "$1" diffs/interface-as-mod-ref && return
+  grep -q '"module":{"namespace":"marmalade-v2","name":"ledger"}' "$1" && mv -f "$1" diffs/marmalade-v2 && return
+  grep -q 'Succesfully claimed' "$1" && grep -q 'CLAIM' "$1" && mv -f "$1" diffs/kadena-mining-club && return
+  grep -q '{"status":"success","data":"Price updated to' "$1" && mv -f "$1" diffs/kadena-mining-club && return
+  grep -q 'Invalid arguments in call to format' "$1" && mv -f "$1" diffs/kadena-mining-club-format && return
+  grep -q 'does not correctly implement the function' "$1" && mv -f "$1" diffs/interface-impl-errors && return
+  grep -q 'Amount violates minimum denomination' "$1" && mv -f "$1" diffs/minimum-precision && return
+  grep -q 'dao-hive-factory' "$1" && mv -f "$1" diffs/dao-hive-factory && return
+  grep -q 'Invalid definition in term variable position' "$1" && mv -f "$1" diffs/invalid-def-in-term-var && return
+  grep -q 'Desugar syntax failure' "$1" && mv -f "$1" diffs/desugar-syntax-failure && return
+  grep -q 'PactDuplicateTableError' "$1" && mv -f "$1" diffs/duplicate-table-error && return
+  grep -q 'redeem-for-kda' "$1" && mv -f "$1" diffs/kedao && return
 }
 
 for f in parity-replay-diffs/*; do
@@ -109,30 +108,86 @@ for f in parity-replay-diffs/*; do
 done;
 wait;
 
-mkdir -p diffs/sort-object-divergence
-mv parity-replay-diffs/DWbywTHYKnP4M_G4xcOkKy3wuSKIE2INlkJVTX67cZA.md diffs/sort-object-divergence 2> /dev/null
+mv -f parity-replay-diffs/DWbywTHYKnP4M_G4xcOkKy3wuSKIE2INlkJVTX67cZA.md diffs/sort-object-divergence 2> /dev/null
 
-#  mkdir -p diffs/interesting
-#  mv parity-replay-diffs/_HFqdbIlHNdS8wNgMdNGlkkuhjD4ZllxNL7fTg6EhO0.md diffs/interesting 2> /dev/null
-#  mv parity-replay-diffs/TFcV7ZlgIUavNezrrMjv_40-s3rYwxXdN9hAuSX52yo.md diffs/interesting 2> /dev/null
-#  mv parity-replay-diffs/XKGDNtQNgeGTUQwclhSu5Bzat3XNzClDh_teQ_ET4zE.md diffs/interesting 2> /dev/null
-#  mv parity-replay-diffs/IERmriVgG_Y5FLBMSAb0s70wuq8vFmRheSxALFPArrg.md diffs/interesting 2> /dev/null
-#  mv parity-replay-diffs/1q7J661naTNdALjAow6N0FdNwWUD2qDKI7H2ah594xw.md diffs/interesting 2> /dev/null
-#  mv parity-replay-diffs/KBZEw8l7d3pSwVmEDgPZ8lsNT9xZL1KOI3zYJymLfj8.md diffs/interesting 2> /dev/null
-#  mv parity-replay-diffs/iZTMwypb6iyq85e9lryzMstcoHkM-B6ihG95AhPRk_M.md diffs/interesting 2> /dev/null
-#  mv parity-replay-diffs/2WUTwvO39Z0izsAP1xZsa7cQHtVlxHR2S4ldBdsWUMA.md diffs/interesting 2> /dev/null
-#  mv parity-replay-diffs/pqpNMUvjBmflJEwRbka4pugkfOw3_bloewnfGZ6i4LE.md diffs/interesting 2> /dev/null
-#  mv parity-replay-diffs/jiZrj-NUMGEp1XcVni3gufkjtYItszFd1zjV66hRwhE.md diffs/interesting 2> /dev/null
-#  mv parity-replay-diffs/Akt5RUolyR4bzS2u0xpDrMoR5PdLAHKHp1h4HpBcVVo.md diffs/interesting 2> /dev/null
-#  mv parity-replay-diffs/0wpwNj7bvh4y9Ax_zmjHzRiKa96pc2Co1ZeDFNK7oac.md diffs/interesting 2> /dev/null
-#  mv parity-replay-diffs/uZrgs9xLthCx-bc53_drXnRSkra4pf9ddw65fC_ZGm4.md diffs/interesting 2> /dev/null
-#  mv parity-replay-diffs/-WQoBV7Ah6VVYtvkkiQ8eIcXeQx_MymbtWW6NxpmPBU.md diffs/interesting 2> /dev/null
+mv -f parity-replay-diffs/C8E7Bjh1NQS11IsYjPt6Rv6__2IvIS8rM0oUSB5_fC8.md diffs/transfer-exceeded 2>/dev/null
+mv -f parity-replay-diffs/AyzyMGgYJU15zWbSui1H9Sfoilt7dtoq_veaN9Zou9E.md diffs/transfer-exceeded 2>/dev/null
+mv -f parity-replay-diffs/JDvsKyn5mkVbhFL3vB3CYgMhXjP-GxtgmDkQjGBo7nE.md diffs/transfer-exceeded 2>/dev/null
+mv -f parity-replay-diffs/Xu0pBwJr2iDN1tMvXDcgKBm9jHfiteHUoYWmTxXvofA.md diffs/transfer-exceeded 2>/dev/null
+mv -f parity-replay-diffs/Yf7Ci5v_HYSi7ZXM5lU2HJDE95KfmwrfYMJBpw423-M.md diffs/transfer-exceeded 2>/dev/null
+mv -f parity-replay-diffs/akGcLF72Xjo2S1WeUWnzAY7nkGri-Qm6eE81EF0spTs.md diffs/transfer-exceeded 2>/dev/null
+mv -f parity-replay-diffs/nvF7okrNzUFWLIaEt5BFLFPUmXnMEQGAGzBSef05pXQ.md diffs/transfer-exceeded 2>/dev/null
+mv -f parity-replay-diffs/qr3EGV8i5-5aNL0m453R8v5U5xFsHJmZBcWTyNde7G8.md diffs/transfer-exceeded 2>/dev/null
+#  mv -f parity-replay-diffs/_HFqdbIlHNdS8wNgMdNGlkkuhjD4ZllxNL7fTg6EhO0.md diffs/interesting 2> /dev/null
+#  mv -f parity-replay-diffs/TFcV7ZlgIUavNezrrMjv_40-s3rYwxXdN9hAuSX52yo.md diffs/interesting 2> /dev/null
+#  mv -f parity-replay-diffs/XKGDNtQNgeGTUQwclhSu5Bzat3XNzClDh_teQ_ET4zE.md diffs/interesting 2> /dev/null
+#  mv -f parity-replay-diffs/IERmriVgG_Y5FLBMSAb0s70wuq8vFmRheSxALFPArrg.md diffs/interesting 2> /dev/null
+#  mv -f parity-replay-diffs/1q7J661naTNdALjAow6N0FdNwWUD2qDKI7H2ah594xw.md diffs/interesting 2> /dev/null
+#  mv -f parity-replay-diffs/KBZEw8l7d3pSwVmEDgPZ8lsNT9xZL1KOI3zYJymLfj8.md diffs/interesting 2> /dev/null
+#  mv -f parity-replay-diffs/iZTMwypb6iyq85e9lryzMstcoHkM-B6ihG95AhPRk_M.md diffs/interesting 2> /dev/null
+#  mv -f parity-replay-diffs/2WUTwvO39Z0izsAP1xZsa7cQHtVlxHR2S4ldBdsWUMA.md diffs/interesting 2> /dev/null
+#  mv -f parity-replay-diffs/pqpNMUvjBmflJEwRbka4pugkfOw3_bloewnfGZ6i4LE.md diffs/interesting 2> /dev/null
+#  mv -f parity-replay-diffs/jiZrj-NUMGEp1XcVni3gufkjtYItszFd1zjV66hRwhE.md diffs/interesting 2> /dev/null
+#  mv -f parity-replay-diffs/Akt5RUolyR4bzS2u0xpDrMoR5PdLAHKHp1h4HpBcVVo.md diffs/interesting 2> /dev/null
+#  mv -f parity-replay-diffs/0wpwNj7bvh4y9Ax_zmjHzRiKa96pc2Co1ZeDFNK7oac.md diffs/interesting 2> /dev/null
+#  mv -f parity-replay-diffs/uZrgs9xLthCx-bc53_drXnRSkra4pf9ddw65fC_ZGm4.md diffs/interesting 2> /dev/null
+#  mv -f parity-replay-diffs/-WQoBV7Ah6VVYtvkkiQ8eIcXeQx_MymbtWW6NxpmPBU.md diffs/interesting 2> /dev/null
 
 #  # Format list commas
-#  mv parity-replay-diffs/ijcy5AXfsShzvXbGK9olHUNH3TETD6D-i9CV172nlg8.md diffs/interesting 2> /dev/null
-#  mv parity-replay-diffs/eXq55WivCpojMa20KjK35uCurSHZVvkZmDggkX4fOuI.md diffs/interesting 2> /dev/null
-#  mv parity-replay-diffs/VqL6Z6IBs7KOyHAiVNgnrdbysO5KYsJ2A2-HWGYc2eo.md diffs/interesting 2> /dev/null
-#  mv parity-replay-diffs/uR88qo2v4EPLGxqUfuslJOeeD_QUVKzZE5mY6XauAr8.md diffs/interesting 2> /dev/null
+mv -f parity-replay-diffs/ijcy5AXfsShzvXbGK9olHUNH3TETD6D-i9CV172nlg8.md diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/eXq55WivCpojMa20KjK35uCurSHZVvkZmDggkX4fOuI.md diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/VqL6Z6IBs7KOyHAiVNgnrdbysO5KYsJ2A2-HWGYc2eo.md diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/uR88qo2v4EPLGxqUfuslJOeeD_QUVKzZE5mY6XauAr8.md diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/rjW-iQb8iQa0vwIRBR8dUwEDANpxAncJS1jFh03CoOo.md diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/1yQj* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/2Ezlo* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/55Rb* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/8AlDhPu* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/9Fay* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/AOX-* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/B5Rzza* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/BZXIVH1* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/C74x1Z* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/CuKgdq* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/EvT4O5* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/FaKS9oeM1* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/HkmM-E-E* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/HokKpbB* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/J0sx5Dn4* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/KZfw7k_* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/LlqEI6cmj* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/M5XlcCulO* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/N1B00xukn* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/NXNM-nOG* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/NcX0YuW* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/PVsWnj56UI* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/QYKr5vuJg* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/RPm_ubGz4E4* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/RRNp6BE* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/RusfQbF01* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/WT0szcz-* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/Yqd8T_K* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/bZRp5YSby* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/bs5FTZvQN* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/cVfSGQzc* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/e1QB68* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/gs5aH_* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/k7OMew9* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/kt1pXg* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/lvbSGLTH* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/m_Pdn2-TR* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/maBViIK* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/n7poPsh* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/nBK4DVXYK* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/ptBRIkxnEt7BaI* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/qFM5xe47xky* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/rHXwEDb* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/rZu4C3pH0q7* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/rf_2uVai* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/rjW-iQb8i* diffs/list-commas 2> /dev/null
+mv -f parity-replay-diffs/s6w1VVITn* diffs/list-commas 2> /dev/null
+
+mv -f parity-replay-diffs/EMaD-w9ConQkyLfg6_RsfNtld-fS1pEclfTSwtRdNzs.md diffs/interesting 2> /dev/null
 
 #  mv parity-replay-diffs/14RYfa6_zc8UTWPNyMOqV00jfApmk6spD3v9z7OvwWA.md diffs/interesting 2> /dev/null
 #  mv parity-replay-diffs/AtlJbN56F2H_ibfuOfepu3NNiVMy8i9SJp6NIUZUkqM.md diffs/interesting 2> /dev/null
