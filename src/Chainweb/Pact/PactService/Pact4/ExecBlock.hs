@@ -609,7 +609,8 @@ applyPactCmds cmds miner startModuleCache blockGas txTimeLimit = do
                             let diffSection = "## Pact4:\n" <> J.encodeText r4 <> "\n\n## Pact5:\n" <> J.encodeText r5
                             let explorerLinkSection = "### Explorer link:\n" <> explorerLink
                             let gasLogsSection = "### Gas logs:\n" <> fromMaybe "No gas logs found." gasLogs
-                            let fullText = diffSection <> "\n\n" <> explorerLinkSection <> "\n\n" <> gasLogsSection
+                            let locationSection = "### Location:\n" <> "Chain: " <> toText (_chainId parentHeader) <> "\nHeight: " <> toText (succ $ getBlockHeight $ view blockHeight (_parentHeader parentHeader))
+                            let fullText = diffSection <> "\n\n" <> explorerLinkSection <> "\n\n" <> gasLogsSection <> "\n\n" <> locationSection
 
                             liftIO $ do
                               createDirectoryIfMissing True (takeDirectory filename)

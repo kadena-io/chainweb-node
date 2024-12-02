@@ -98,7 +98,8 @@ module Chainweb.Pact.Types
   , RewindDepth(..)
   , LocalResult(..)
   , LocalReq(..)
-  , ReadOnlyReplayReq(..)
+  , ReplayReq(..)
+  , ReplayTarget(..)
   , ConfirmationDepth(..)
   , LocalPreflightSimulation(..)
   , _MetadataValidationFailure
@@ -1083,7 +1084,7 @@ data RequestMsg r where
     BlockTxHistoryMsg :: !BlockTxHistoryReq -> RequestMsg (Historical BlockTxHistory)
     HistoricalLookupMsg :: !HistoricalLookupReq -> RequestMsg (Historical (Maybe (Pact5.TxLog Pact5.RowData)))
     SyncToBlockMsg :: !SyncToBlockReq -> RequestMsg ()
-    ReadOnlyReplayMsg :: !ReadOnlyReplayReq -> RequestMsg ()
+    ReplayMsg :: !ReplayReq -> RequestMsg ()
     CloseMsg :: RequestMsg ()
 
 instance Show (RequestMsg r) where
@@ -1096,7 +1097,7 @@ instance Show (RequestMsg r) where
     show (BlockTxHistoryMsg req) = show req
     show (HistoricalLookupMsg req) = show req
     show (SyncToBlockMsg req) = show req
-    show (ReadOnlyReplayMsg req) = show req
+    show (ReplayMsg req) = show req
     show CloseMsg = "CloseReq"
 
 data NewBlockReq
@@ -1165,13 +1166,33 @@ instance Show HistoricalLookupReq where
   show (HistoricalLookupReq h d k) =
     "HistoricalLookupReq@" ++ show h ++ ", " ++ show d ++ ", " ++ show k
 
-data ReadOnlyReplayReq = ReadOnlyReplayReq
-    { _readOnlyReplayLowerBound :: !BlockHeader
-    , _readOnlyReplayUpperBound :: !(Maybe BlockHeader)
+data ReplayTarget b
+  = ReplayTargetBlockRange
+    { _replayLowerBound :: !b
+    , _replayUpperBound :: !(Maybe b)
     }
-instance Show ReadOnlyReplayReq where
-  show (ReadOnlyReplayReq l u) =
-    "ReadOnlyReplayReq@" ++ show l ++ ", " ++ show u
+  | ReplayTargetTx
+    { _replayTarget :: !Pact5.RequestKey
+    }
+  deriving (Eq, Ord, Show)
+
+instance ToJSON b => ToJSON (ReplayTarget b) where
+    toJSON (ReplayTargetBlockRange l u) = toJSON [toJSON l, toJSON u]
+    toJSON (ReplayTargetTx rk) = toJSON $ Pact5.requestKeyToB64Text rk
+instance FromJSON b => FromJSON (ReplayTarget b) where
+    parseJSON v = (withArray "ReplayTargetBounds" $ \arr -> do
+        [l, u] <- return (V.toList arr)
+        l' <- parseJSON l
+        u' <- parseJSON u
+        return (ReplayTargetBlockRange l' u')
+        ) v <|> (ReplayTargetTx <$> parseJSON v)
+
+
+data ReplayReq
+    = ReplayReq (ReplayTarget BlockHeader)
+instance Show ReplayReq where
+  show (ReplayReq t) =
+    "ReplayReq@" ++ show t
 
 data SyncToBlockReq = SyncToBlockReq
     { _syncToBlockHeader :: !BlockHeader

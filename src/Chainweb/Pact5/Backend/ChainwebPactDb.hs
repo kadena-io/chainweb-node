@@ -311,8 +311,8 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         -> BlockHandler logger (Maybe v)
     lookupWithKey key f checkCache = do
         pds <- getPendingData "read"
-        let lookPD = foldr1 (<|>) $ map (lookupInPendingData key f) pds
-        let lookDB = lookupInDb key f checkCache
+        let lookPD = asum $ map (lookupInPendingData key f) pds
+        let lookDB = lookupInDb key checkCache
         runMaybeT (lookPD <|> lookDB)
 
     lookupInPendingData
@@ -330,10 +330,9 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
     lookupInDb
         :: forall logger v .
            Utf8
-        -> (BS.ByteString -> Maybe v)
         -> (Utf8 -> BS.ByteString -> MaybeT (BlockHandler logger) v)
         -> MaybeT (BlockHandler logger) v
-    lookupInDb rowkey _ checkCache = do
+    lookupInDb rowkey checkCache = do
         -- First, check: did we create this table during this block? If so,
         -- there's no point in looking up the key.
         checkDbTablePendingCreation "read" tablename

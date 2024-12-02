@@ -1,0 +1,29 @@
+#!/usr/bin/env sh
+
+# required for jq to affect exit codes
+set -o pipefail
+
+if [ $# -ne 1 ]
+  then
+    echo "Needs one argument"
+fi
+
+[ -z "${CHAINWEB_DB_DIR}" ] &&
+    echo "CHAINWEB_DB_DIR must be set to the mainnet db directory" && exit 1
+
+# $1 - the diff to re-run
+DIFF_FILENAME=$(basename "$1")
+REQUEST_KEY=${DIFF_FILENAME%.*}
+
+set -x
+
+cabal run chainweb-node -- \
+  --replay \"$REQUEST_KEY\" \
+  --database-directory=$CHAINWEB_DB_DIR \
+  --log-level=error \
+  --enable-ignore-bootstrap-nodes \
+  --bootstrap-reachability=0 \
+  --enable-private \
+  --p2p-port=0 \
+  --service-port=0
+# choose ports at random

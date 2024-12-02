@@ -55,3 +55,4 @@ rosetta/logs/*
 .envrc
 parity-*
 diffs/
+old-diffs/

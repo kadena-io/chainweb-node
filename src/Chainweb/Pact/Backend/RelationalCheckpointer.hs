@@ -132,7 +132,7 @@ initRelationalCheckpointer'
     -> ChainId
     -> IO (MVar (DbCache PersistModuleData), Checkpointer logger)
 initRelationalCheckpointer' dbCacheLimit sqlenv p loggr v cid = do
-    PactDb.initSchema loggr sqlenv
+    -- PactDb.initSchema loggr sqlenv
     moduleCacheVar <- newMVar (emptyDbCache dbCacheLimit)
     let
         checkpointer = Checkpointer

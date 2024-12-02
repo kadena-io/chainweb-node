@@ -113,7 +113,7 @@ import Chainweb.HostAddress
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultPreInsertCheckTimeout)
+import Chainweb.Pact.Types (defaultReorgLimit, defaultModuleCacheLimit, defaultPreInsertCheckTimeout, ReplayTarget)
 import Chainweb.Pact.Types (RewindLimit(..))
 import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBatchLimit)
 import Chainweb.Utils
@@ -402,7 +402,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configRosettaConstructionApi :: !Bool
     , _configBackup :: !BackupConfig
     , _configServiceApi :: !ServiceApiConfig
-    , _configReadOnlyReplay :: !Bool
+    , _configReplay :: !(Maybe (ReplayTarget BlockHeight))
         -- ^ do a read-only replay using the cut db params for the block heights
     , _configOnlySyncPact :: !Bool
         -- ^ exit after synchronizing pact dbs to the latest cut
@@ -498,7 +498,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configFullHistoricPactState = True
     , _configServiceApi = defaultServiceApiConfig
     , _configOnlySyncPact = False
-    , _configReadOnlyReplay = False
+    , _configReplay = Nothing
     , _configSyncPactChains = Nothing
     , _configBackup = defaultBackupConfig
     , _configModuleCacheLimit = defaultModuleCacheLimit
@@ -527,7 +527,7 @@ instance ToJSON ChainwebConfiguration where
         , "fullHistoricPactState" .= _configFullHistoricPactState o
         , "serviceApi" .= _configServiceApi o
         , "onlySyncPact" .= _configOnlySyncPact o
-        , "readOnlyReplay" .= _configReadOnlyReplay o
+        , "replay" .= _configReplay o
         , "syncPactChains" .= _configSyncPactChains o
         , "backup" .= _configBackup o
         , "moduleCacheLimit" .= _configModuleCacheLimit o
@@ -560,7 +560,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configFullHistoricPactState ..: "fullHistoricPactState" % o
         <*< configServiceApi %.: "serviceApi" % o
         <*< configOnlySyncPact ..: "onlySyncPact" % o
-        <*< configReadOnlyReplay ..: "readOnlyReplay" % o
+        <*< configReplay ..: "replay" % o
         <*< configSyncPactChains ..: "syncPactChains" % o
         <*< configBackup %.: "backup" % o
         <*< configModuleCacheLimit ..: "moduleCacheLimit" % o
@@ -616,8 +616,8 @@ pChainwebConfiguration = id
     <*< configOnlySyncPact .:: boolOption_
         % long "only-sync-pact"
         <> help "Terminate after synchronizing the pact databases to the latest cut"
-    <*< configReadOnlyReplay .:: boolOption_
-        % long "read-only-replay"
+    <*< configReplay .:: fmap Just % jsonOption
+        % long "replay"
         <> help "Replay the block history non-destructively"
     <*< configSyncPactChains .:: fmap Just % jsonOption
         % long "sync-pact-chains"

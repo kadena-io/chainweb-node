@@ -35,7 +35,7 @@ module Chainweb.Pact.PactService
     , execPreInsertCheckReq
     , execBlockTxHistory
     , execHistoricalLookup
-    , execReadOnlyReplay
+    , execReplay
     , execSyncToBlock
     , runPactService
     , withPactService
@@ -53,7 +53,6 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import Data.Either
-import Data.ByteString qualified as BS
 import Data.Foldable (toList)
 import Data.IORef
 import qualified Data.HashMap.Strict as HM
@@ -62,16 +61,12 @@ import Data.Maybe
 import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Data.Text.IO as Text
-import qualified Data.Text.Encoding as Text
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
 
 import System.IO
-import System.Directory (createDirectoryIfMissing)
-import System.FilePath (takeDirectory, (</>))
 import System.LogLevel
 
 import Prelude hiding (lookup)
@@ -91,7 +86,6 @@ import qualified Chainweb.Pact4.TransactionExec as Pact4
 import qualified Chainweb.Pact4.Validations as Pact4
 
 import Chainweb.BlockHash
-import Chainweb.Pact.Types.Parity (CommandResultDiffable(..), commandResultToDiffable)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
@@ -152,6 +146,7 @@ import Data.Default
 import Pact.Parse as Pact4
 import Control.Parallel.Strategies as Strategies
 import Data.Text qualified as T
+import Chainweb.Storage.Table (ReadableTable(tableLookup))
 
 runPactService
     :: Logger logger
@@ -391,10 +386,10 @@ serviceRequests memPoolAccess reqQ = go
                     tryOne "syncToBlockBlock" statusRef $
                         execSyncToBlock _syncToBlockHeader
                 go
-            ReadOnlyReplayMsg ReadOnlyReplayReq {..} -> do
-                trace logFn "Chainweb.Pact.PactService.execReadOnlyReplay" (_readOnlyReplayLowerBound, _readOnlyReplayUpperBound) 1 $
-                    tryOne "readOnlyReplayBlock" statusRef $
-                        execReadOnlyReplay _readOnlyReplayLowerBound _readOnlyReplayUpperBound
+            ReplayMsg (ReplayReq target) -> do
+                trace logFn "Chainweb.Pact.PactService.execReplay" target 1 $
+                    tryOne "replayBlock" statusRef $
+                        execReplay target
                 go
 
     tryOne
@@ -642,13 +637,12 @@ execNewGenesisBlock miner newTrans = pactLabel "execNewGenesisBlock" $ do
         NoHistory -> internalError "PactService.execNewGenesisBlock: Impossible error, unable to rewind before genesis"
         Historical block -> return block
 
-execReadOnlyReplay
+execReplay
     :: forall logger tbl
     . (Logger logger, CanReadablePayloadCas tbl)
-    => BlockHeader
-    -> Maybe BlockHeader
+    => ReplayTarget BlockHeader
     -> PactServiceM logger tbl ()
-execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $ do
+execReplay target = pactLabel "execReplay" $ do
     ParentHeader cur <- findLatestValidBlockHeader
     logger <- view psLogger
     bhdb <- view psBlockHeaderDb
@@ -656,8 +650,9 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
     v <- view chainwebVersion
     cid <- view chainId
     -- lower bound must be an ancestor of upper.
-    upperBound <- case maybeUpperBound of
-        Just upperBound -> do
+    targetBounds <- case target of
+        ReplayTargetBlockRange lowerBound (Just upperBound) -> do
+
             liftIO (ancestorOf bhdb (view blockHash lowerBound) (view blockHash upperBound)) >>=
                 flip unless (internalError "lower bound is not an ancestor of upper bound")
 
@@ -665,26 +660,42 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
             liftIO (ancestorOf bhdb (view blockHash upperBound) (view blockHash cur)) >>=
                 flip unless (internalError "upper bound is not an ancestor of latest header")
 
-            return upperBound
-        Nothing -> do
+            return $ Just (lowerBound, upperBound)
+        ReplayTargetBlockRange lowerBound Nothing -> do
             liftIO (ancestorOf bhdb (view blockHash lowerBound) (view blockHash cur)) >>=
                 flip unless (internalError "lower bound is not an ancestor of latest header")
 
-            return cur
-    liftIO $ logFunctionText logger Info $ "pact db replaying between blocks "
-        <> sshow (view blockHeight lowerBound, view blockHash lowerBound) <> " and "
-        <> sshow (view blockHeight upperBound, view blockHash upperBound)
+            return $ Just (lowerBound, cur)
+        ReplayTargetTx reqKey@(Pact5.RequestKey (Pact5.unHash -> reqKeySB)) -> do
+            results <- execLookupPactTxs Nothing (V.singleton reqKeySB)
+            case results HM.!? reqKeySB of
+                Just (T2 bheight bhash) -> do
+                    liftIO $ logFunctionText logger Info $ "pact db has transaction " <> sshow reqKey
+                    bh <- liftIO $ fromJuste <$> lookupRanked bhdb (int bheight) bhash
+                    return $ Just (bh, bh)
+                Nothing -> do
+                    liftIO $ logFunctionText logger Info $ "pact db missing transaction " <> sshow reqKey
+                    return Nothing
 
-    let genHeight = genesisHeight v cid
-    -- we don't want to replay the genesis header in here.
-    let lowerHeight = max (succ genHeight) (view blockHeight lowerBound)
-    withPactState $ \runPact ->
-        liftIO $ getBranchIncreasing bhdb upperBound (int lowerHeight) $ \blocks -> do
-            heightRef <- newIORef lowerHeight
-            withAsync (heightProgress lowerHeight (view blockHeight upperBound) heightRef (logInfo_ logger)) $ \_ -> do
-                blocks
-                    & Stream.hoist liftIO
-                    & play v cid bhdb pdb heightRef runPact
+    case targetBounds of
+        Just (lowerBound, upperBound) -> do
+
+            liftIO $ logFunctionText logger Info $ "pact db replaying between blocks "
+                <> sshow (view blockHeight lowerBound, view blockHash lowerBound) <> " and "
+                <> sshow (view blockHeight upperBound, view blockHash upperBound)
+
+            let genHeight = genesisHeight v cid
+            -- we don't want to replay the genesis header in here.
+            let lowerHeight = max (succ genHeight) (view blockHeight lowerBound)
+            withPactState $ \runPact ->
+                liftIO $ getBranchIncreasing bhdb upperBound (int lowerHeight) $ \blocks -> do
+                    heightRef <- newIORef lowerHeight
+                    withAsync (heightProgress lowerHeight (view blockHeight upperBound) heightRef (logInfo_ logger)) $ \_ -> do
+                        blocks
+                            & Stream.hoist liftIO
+                            & play v cid bhdb pdb heightRef runPact
+        Nothing ->
+            return ()
     where
 
     play
@@ -711,7 +722,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
                     e -> throwM e
 
             let handleMissingBlock = \case
-                    NoHistory -> throwM $ BlockHeaderLookupFailure $ "execReadOnlyReplay: missing block: " <> sshow bh
+                    NoHistory -> throwM $ BlockHeaderLookupFailure $ "execReplay: missing block: " <> sshow bh
                     Historical x -> return x
 
             payload <- liftIO $ fromJuste <$>
@@ -755,7 +766,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
 
                                 -- 2. Parse the pact4 payload bytes
                                 cmdPayload4 <- case Pact4.decodePayload (pact4ParserVersion v cid (view blockHeight bh)) (Text.encodeUtf8 $ Pact4._cmdPayload cmd4) of
-                                    Left err -> internalError $ "execReadOnlyReplay parity: failed to decode pact4 command: " <> sshow err
+                                    Left err -> internalError $ "execReplay parity: failed to decode pact4 command: " <> sshow err
                                     Right cmdPayload -> return $ fmap Pact4._pcCode cmdPayload
 
                                 -- 3. Convert the entire Pact-4 command into a Pact-5 one

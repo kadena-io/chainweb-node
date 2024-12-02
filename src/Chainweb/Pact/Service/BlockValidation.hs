@@ -24,7 +24,7 @@ module Chainweb.Pact.Service.BlockValidation
 , pactBlockTxHistory
 , pactHistoricalLookup
 , pactSyncToBlock
-, pactReadOnlyReplay
+, pactReplay
 ) where
 
 
@@ -51,6 +51,7 @@ import qualified Pact.Core.Evaluate as Pact5
 import qualified Pact.Types.ChainMeta as Pact4
 import Data.Text (Text)
 import qualified Pact.Types.Command as Pact4
+import qualified Pact.Core.Command.Types as Pact5
 
 newBlock :: Miner -> NewBlockFill -> ParentHeader -> PactQueue -> IO (Historical (ForSomePactVersion BlockInProgress))
 newBlock mi fill parent reqQ = do
@@ -105,16 +106,12 @@ lookupPactTxs confDepth txs reqQ = do
     let !msg = LookupPactTxsMsg req
     submitRequestAndWait reqQ msg
 
-pactReadOnlyReplay
-    :: BlockHeader
-    -> Maybe BlockHeader
+pactReplay
+    :: ReplayTarget BlockHeader
     -> PactQueue
     -> IO ()
-pactReadOnlyReplay l u reqQ = do
-    let !msg = ReadOnlyReplayMsg ReadOnlyReplayReq
-          { _readOnlyReplayLowerBound = l
-          , _readOnlyReplayUpperBound = u
-          }
+pactReplay t reqQ = do
+    let !msg = ReplayMsg (ReplayReq t)
     submitRequestAndWait reqQ msg
 
 pactPreInsertCheck

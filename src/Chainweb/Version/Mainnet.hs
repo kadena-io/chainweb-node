@@ -222,5 +222,5 @@ mainnet = ChainwebVersion
             , (fromJuste (decodeStrictOrThrow' "\"_f1xkIQPGRcOBNBWkOvP0dGNOjmNtmXwOnXzfdwnmJQ\""), Gas 69_092)
             ]
         }
-    , _versionServiceDate = Just "2024-11-13T00:00:00Z"
+    , _versionServiceDate = Nothing -- Just "2024-11-13T00:00:00Z"
     }
