@@ -70,6 +70,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
 import Chainweb.ChainId
+import Chainweb.RankedBlockHash
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec)
 import Chainweb.Utils.Paging
@@ -112,16 +113,6 @@ instance HasChainGraph RankedBlockHeader where
 instance Ord RankedBlockHeader where
     compare = compare `on` ((view blockHeight &&& id) . _getRankedBlockHeader)
     {-# INLINE compare #-}
-
--- -------------------------------------------------------------------------- --
--- Ranked Block Hash
-
-data RankedBlockHash = RankedBlockHash
-    { _rankedBlockHashHeight :: !BlockHeight
-    , _rankedBlockHash :: !BlockHash
-    }
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (Hashable, NFData)
 
 instance IsCasValue RankedBlockHeader where
     type CasKeyType RankedBlockHeader = RankedBlockHash
@@ -404,4 +395,3 @@ insertBlockHeaderDb db = dbAddChecked db . _validatedHeader
 unsafeInsertBlockHeaderDb :: BlockHeaderDb -> BlockHeader -> IO ()
 unsafeInsertBlockHeaderDb = dbAddChecked
 {-# INLINE unsafeInsertBlockHeaderDb #-}
-

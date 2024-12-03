@@ -2,6 +2,7 @@ packages:
     chainweb.cabal
     node/chainweb-node.cabal
     cwtools/cwtools.cabal
+    ../pact-core/pact-tng.cabal
 
 debug-info: True
 
@@ -92,10 +93,10 @@ source-repository-package
     tag: 1027a1f5fd0439c58522921e3a0532c4f5867a24
     --sha256: 18xgvzb3p8chch85747ln9a2191df09vwwrv9v3njr2h69n3rhxj
 
-source-repository-package
-    type: git
-    location: https://github.com/kadena-io/pact-5.git
-    tag: a8856bf0ad41ae4b698a2e4e951108bf2bf4f32b
+-- source-repository-package
+    -- type: git
+    -- location: https://github.com/kadena-io/pact-5.git
+    -- tag: a8856bf0ad41ae4b698a2e4e951108bf2bf4f32b
     --sha256: 080mc1z8y7j9v4igjab6wkf0ykvxd2bs4xw3ja3v4nr7b3s0zphl
 
 source-repository-package

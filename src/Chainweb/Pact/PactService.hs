@@ -14,6 +14,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -52,6 +53,7 @@ import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
+import Data.Default
 import Data.Either
 import Data.Foldable (toList)
 import Data.IORef
@@ -142,6 +144,13 @@ import qualified Pact.Parse as Pact4
 import qualified Control.Parallel.Strategies as Strategies
 import qualified Chainweb.Pact5.Validations as Pact5
 import qualified Pact.Core.Errors as Pact5
+import qualified Data.Map.Strict as Map
+import qualified Pact.Core.Serialise as Pact5
+import qualified Pact.Core.Persistence.MockPersistence as Pact5
+import qualified Pact.Core.Environment as Pact5
+import Chainweb.RankedBlockHash
+import qualified Pact.Core.PactValue as Pact5
+import qualified Pact.Core.Repl.Compile as Pact5
 
 
 runPactService
@@ -178,6 +187,10 @@ withPactService
 withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv config act = do
     withProdRelationalCheckpointer checkpointerLogger (_pactModuleCacheLimit config) sqlenv (_pactPersistIntraBlockWrites config) ver cid $ \checkpointer -> do
         let !rs = readRewards
+        sessionRef <- newTVarIO ReplSessionMap
+            { nextReplSessionId = ReplSessionId 0
+            , replSessionMapping = Map.empty
+            }
         let !pse = PactServiceEnv
                     { _psMempoolAccess = Nothing
                     , _psCheckpointer = checkpointer
@@ -195,6 +208,7 @@ withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv config 
                     , _psEnableLocalTimeout = _pactEnableLocalTimeout config
                     , _psTxFailuresCounter = txFailuresCounter
                     , _psTxTimeLimit = _pactTxTimeLimit config
+                    , _psReplSessions = sessionRef
                     }
             !pst = PactServiceState mempty
 
@@ -632,6 +646,82 @@ execNewGenesisBlock miner newTrans = pactLabel "execNewGenesisBlock" $ do
     case historicalBlock of
         NoHistory -> internalError "PactService.execNewGenesisBlock: Impossible error, unable to rewind before genesis"
         Historical block -> return block
+
+newReplState
+    :: IORef [Text]
+    -> Pact5.PactDb (Pact5.ReplBuiltin Pact5.CoreBuiltin) Pact5.SpanInfo
+    -> IO (Pact5.ReplState (Pact5.ReplBuiltin Pact5.CoreBuiltin))
+newReplState outputsRef pdb = do
+    evalEnv <- Pact5.defaultEvalEnv pdb Pact5.replBuiltinMap
+    evalGasLog <- newIORef Nothing
+    return $ Pact5.ReplState mempty evalEnv evalGasLog (Pact5.SourceCode "(interactive)" mempty) mempty mempty Nothing False
+        (\mg -> liftIO $ modifyIORef' outputsRef (mg:))
+
+execInitReplSession :: Logger logger => TVar ReplSessionMap -> ConfirmationDepth -> PactServiceM logger tbl ()
+execInitReplSession sessionsVar (ConfirmationDepth depth) = readFromNthParent (int depth) $ SomeBlockM $ Pair (error "pact4") $ do
+    -- not used during commands
+    unusedOutputsRef <- liftIO $ newIORef []
+    -- not used during commands
+    mockPdb <- liftIO $ Pact5.mockPactDb Pact5.serialisePact_repl_spaninfo
+    replSessionState <- liftIO $ newReplState unusedOutputsRef mockPdb
+    replSessionTargetBlock <- view psParentHeader
+    startBlockHandle <- use Pact5.pbBlockHandle
+    replSessionStateVar <- liftIO $ newMVar (startBlockHandle, replSessionState)
+    let replSession = ReplSession { replSessionTargetBlock, replSessionStateVar }
+    liftIO $ atomically $ do
+        ReplSessionMap { nextReplSessionId, replSessionMapping } <- readTVar sessionsVar
+        writeTVar sessionsVar $ ReplSessionMap
+            { nextReplSessionId = succ nextReplSessionId
+            , replSessionMapping = Map.insert nextReplSessionId replSession replSessionMapping
+            }
+
+execDestroyReplSession :: TVar ReplSessionMap -> ReplSessionId -> IO ()
+execDestroyReplSession replSessionMapVar replSessionId = atomically $ do
+    replSessionMap@ReplSessionMap { replSessionMapping } <- readTVar replSessionMapVar
+    writeTVar replSessionMapVar replSessionMap
+        { replSessionMapping = Map.delete replSessionId replSessionMapping
+        }
+
+execRunRepl :: Logger logger => TVar ReplSessionMap -> ReplSessionId -> [Text] -> PactServiceM logger tbl (Historical [([Text], Maybe (Either (Pact5.PactError Pact5.SpanInfo) [Pact5.ReplCompileValue]))])
+execRunRepl replSessionMapVar replSessionId commands = do
+    ReplSessionMap { replSessionMapping } <- liftIO $ readTVarIO replSessionMapVar
+    case Map.lookup replSessionId replSessionMapping of
+        Nothing -> return NoHistory
+        Just ReplSession { replSessionTargetBlock, replSessionStateVar } -> do
+            withPactState $ \runPact ->
+                modifyMVar replSessionStateVar $ \(replSessionBlockHandle, replSessionState) -> do
+                    r <- runPact $ readFrom (Just replSessionTargetBlock) $ SomeBlockM $ Pair (error "pact4") $ do
+                        Pact5.pbBlockHandle .= replSessionBlockHandle
+                        (rs, finalReplState) <- Pact5.pactTransaction Nothing $ \pdb -> do
+                            let pdb' = replCoreBuiltinPdb pdb
+                            outputsRef <- newIORef []
+                            let replState = replSessionState
+                                    & Pact5.replEvalEnv . Pact5.eePactDb .~ pdb'
+                                    & Pact5.replOutputLine .~ (\t -> liftIO $ modifyIORef' outputsRef (t:))
+                            ref <- newIORef replState
+                            rs <- forM commands $ \command -> do
+                                if Text.null command
+                                then return ([], Nothing)
+                                else do
+                                    commandResult <- Pact5.runEvalMResult (Pact5.ReplEnv ref) def $ Pact5.interpretReplProgramDirect (Pact5.SourceCode "(interactive)" command)
+                                    outputs <- liftIO $ reverse <$> readIORef outputsRef
+                                    liftIO $ writeIORef outputsRef []
+                                    return (outputs, Just commandResult)
+
+                            finalReplState <- readIORef ref
+                            let lessLeakyReplState = finalReplState
+                                    & Pact5.replEvalEnv .~ Pact5._replEvalEnv replSessionState
+                                    & Pact5.replOutputLine .~ Pact5._replOutputLine replSessionState
+
+                            return (rs, lessLeakyReplState)
+                        finalBlockHandle <- use Pact5.pbBlockHandle
+                        return ((finalBlockHandle, finalReplState), rs)
+                    case r of
+                        NoHistory -> return ((replSessionBlockHandle, replSessionState), NoHistory)
+                        Historical t -> return (over _2 Historical t)
+    where
+    replCoreBuiltinPdb :: Pact5.PactDb Pact5.CoreBuiltin Pact5.Info -> Pact5.PactDb Pact5.ReplCoreBuiltin Pact5.SpanInfo
+    replCoreBuiltinPdb = undefined
 
 execReadOnlyReplay
     :: forall logger tbl

@@ -12,6 +12,7 @@ module Chainweb.BlockHeader
 (
 -- * Newtype wrappers for function parameters
   I.ParentHeader(..)
+, I._ParentHeader
 , I.parentHeader
 , I.ParentCreationTime(..)
 

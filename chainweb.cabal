@@ -226,6 +226,7 @@ library
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client
         , Chainweb.PowHash
+        , Chainweb.RankedBlockHash
         , Chainweb.RestAPI
         , Chainweb.RestAPI.Backup
         , Chainweb.RestAPI.Config
@@ -394,6 +395,7 @@ library
         , crypton-x509-system >=1.6
         , crypton-x509-validation >=1.6
         , cuckoo >= 0.3
+        , data-default
         , data-dword >= 0.3
         , deepseq >= 1.4
         , digraph >= 0.2.3
@@ -435,6 +437,7 @@ library
         , patience >= 0.3
         , pact-tng
         , pact-tng:pact-request-api
+        , pact-tng:pact-repl
         , pem >=0.2
         , primitive >= 0.7.1.0
         , random >= 1.2

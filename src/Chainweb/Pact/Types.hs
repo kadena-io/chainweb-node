@@ -53,6 +53,10 @@ module Chainweb.Pact.Types
   , psEnableLocalTimeout
   , psTxFailuresCounter
   , psTxTimeLimit
+  , psReplSessions
+  , ReplSessionMap(..)
+  , ReplSession(..)
+  , ReplSessionId(..)
     --
     -- * Pact Service State
   , PactServiceState(..)
@@ -268,6 +272,8 @@ import qualified Data.Vector as V
 import qualified Pact.Core.Hash as Pact5
 import Data.Maybe
 import Chainweb.BlockCreationTime
+import Control.Concurrent.MVar
+import qualified Pact.Core.Environment.Types as Pact5
 
 -- | While a block is being run, mutations to the pact database are held
 -- in RAM to be written to the DB in batches at @save@ time. For any given db
@@ -601,6 +607,17 @@ instance Semigroup MemPoolAccess where
 instance Monoid MemPoolAccess where
   mempty = MemPoolAccess mempty mempty mempty mempty
 
+data ReplSessionMap = ReplSessionMap
+    { nextReplSessionId :: !ReplSessionId
+    , replSessionMapping :: !(Map ReplSessionId ReplSession)
+    }
+data ReplSession = ReplSession
+    { replSessionTargetBlock :: !ParentHeader
+    , replSessionStateVar :: !(MVar (BlockHandle, Pact5.ReplState Pact5.ReplCoreBuiltin))
+    }
+
+newtype ReplSessionId = ReplSessionId Int
+  deriving newtype (Enum, Eq, Ord, Show)
 
 data PactServiceEnv logger tbl = PactServiceEnv
     { _psMempoolAccess :: !(Maybe MemPoolAccess)
@@ -623,6 +640,7 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psEnableLocalTimeout :: !Bool
     , _psTxFailuresCounter :: !(Maybe (Counter "txFailures"))
     , _psTxTimeLimit :: !(Maybe Micros)
+    , _psReplSessions :: !(TVar ReplSessionMap)
     }
 makeLenses ''PactServiceEnv
 

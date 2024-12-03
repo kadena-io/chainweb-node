@@ -4,6 +4,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 -- |
 -- Module: Chainweb.Pact.RestAPI
@@ -72,6 +75,15 @@ import Chainweb.RestAPI.Utils
 import Chainweb.SPV.PayloadProof
 import Chainweb.Version
 import qualified Pact.Core.Command.Server as Pact5
+import Chainweb.RankedBlockHash
+import Data.Map.Strict (Map)
+import qualified Pact.Repl.Types as Pact5
+import Control.Concurrent.MVar
+import Chainweb.WebPactExecutionService
+import Control.Concurrent.STM
+import qualified Pact.Core.PactValue as Pact5
+import qualified Data.Map.Strict as Map
+import Control.Monad.IO.Class
 
 -- -------------------------------------------------------------------------- --
 -- @POST /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/pact/@
@@ -144,6 +156,24 @@ pactLocalWithQueryApi
   :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
   . Proxy (PactLocalWithQueryApi v c)
 pactLocalWithQueryApi = Proxy
+
+-- POST queries for Pact REPL session management
+--
+
+type InitReplApi = "repl" :> "init" :> QueryParam "depth" ConfirmationDepth :> Post '[PactJson] (RankedBlockHash, ReplSessionId)
+type DestroyReplApi = "repl" :> "destroy" :> QueryParam "session" ReplSessionId :> Post '[NoContent] ()
+type RunReplApi = "repl" :> "run" :> QueryParam "session" ReplSessionId :> ReqBody '[PactJson] [Text] :> Post '[PactJson] [Pact5.PactValue]
+initReplHandler :: PactExecutionService -> ConfirmationDepth -> Handler (RankedBlockHash, ReplSessionId)
+initReplHandler pact depth = liftIO $ pactInitReplState pact depth
+destroyReplHandler :: PactExecutionService -> ReplSessionId -> Handler ()
+destroyReplHandler sessionId = liftIO $ pactDestroyReplState sessionId
+runReplHandler :: PactExecutionService -> ReplSessionId -> [Text] -> Handler [Pact5.PactValue]
+runReplHandler pact sessionId commands = do
+    liftIO (pactRunRepl pact sessionId commands) >>= \case
+        NoHistory -> throwError $ setErrText
+            "This session ID was destroyed; the target block may have been orphaned. Consider trying a higher confirmation depth for the next session." err404
+        Historical results -> return results
+
 
 -- -------------------------------------------------------------------------- --
 -- POST Queries for Pact Poll
