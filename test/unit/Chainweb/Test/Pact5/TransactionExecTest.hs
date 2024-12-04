@@ -69,6 +69,7 @@ import Test.Tasty
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import Text.Printf
 import Chainweb.Logger
+import Chainweb.Pact.Backend.Types
 
 coinModuleName :: ModuleName
 coinModuleName = ModuleName "coin" Nothing

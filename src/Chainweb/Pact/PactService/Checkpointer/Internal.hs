@@ -5,6 +5,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE BlockArguments #-}
@@ -20,10 +21,19 @@
 -- Stability: experimental
 --
 -- Pact Checkpointer for Chainweb
-module Chainweb.Pact.Backend.RelationalCheckpointer
-  ( initRelationalCheckpointer
-  , initRelationalCheckpointer'
-  , withProdRelationalCheckpointer
+module Chainweb.Pact.PactService.Checkpointer.Internal
+  ( Checkpointer(..)
+  , initCheckpointerResources
+  , withCheckpointerResources
+  , rewindTo
+  , readFrom
+  , restoreAndSave
+  , lookupBlock
+  , getEarliestBlock
+  , getLatestBlock
+  , getBlockHistory
+  , getBlockParent
+  , lookupHistorical
   ) where
 
 import Control.Concurrent (threadDelay)
@@ -75,8 +85,9 @@ import Chainweb.Logger
 import qualified Chainweb.Pact4.Backend.ChainwebPactDb as PactDb
 import qualified Chainweb.Pact5.Backend.ChainwebPactDb as Pact5
 
-import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Backend.DbCache
+import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Types
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
@@ -87,19 +98,7 @@ import qualified Pact.Core.Builtin as Pact5
 import qualified Pact.Core.Evaluate as Pact5
 import qualified Pact.Core.Names as Pact5
 
-initRelationalCheckpointer
-    :: (Logger logger)
-    => DbCacheLimitBytes
-    -> SQLiteEnv
-    -> IntraBlockPersistence
-    -> logger
-    -> ChainwebVersion
-    -> ChainId
-    -> IO (Checkpointer logger)
-initRelationalCheckpointer dbCacheLimit sqlenv p loggr v cid =
-    snd <$!> initRelationalCheckpointer' dbCacheLimit sqlenv p loggr v cid
-
-withProdRelationalCheckpointer
+withCheckpointerResources
     :: (Logger logger)
     => logger
     -> DbCacheLimitBytes
@@ -109,10 +108,10 @@ withProdRelationalCheckpointer
     -> ChainId
     -> (Checkpointer logger -> IO a)
     -> IO a
-withProdRelationalCheckpointer logger dbCacheLimit sqlenv p v cid inner = do
-    (moduleCacheVar, cp) <- initRelationalCheckpointer' dbCacheLimit sqlenv p logger v cid
-    withAsync (logModuleCacheStats moduleCacheVar) $ \_ -> inner cp
-  where
+withCheckpointerResources logger dbCacheLimit sqlenv p v cid inner = do
+    cp <- initCheckpointerResources dbCacheLimit sqlenv p logger v cid
+    withAsync (logModuleCacheStats (cpModuleCacheVar cp)) $ \_ -> inner cp
+    where
     logFun = logFunctionText logger
     logModuleCacheStats e = runForever logFun "ModuleCacheStats" $ do
         stats <- modifyMVar e $ \db -> do
@@ -121,8 +120,7 @@ withProdRelationalCheckpointer logger dbCacheLimit sqlenv p v cid inner = do
         logFunctionJson logger Info stats
         threadDelay 60_000_000 {- 1 minute -}
 
--- for testing
-initRelationalCheckpointer'
+initCheckpointerResources
     :: (Logger logger)
     => DbCacheLimitBytes
     -> SQLiteEnv
@@ -130,58 +128,52 @@ initRelationalCheckpointer'
     -> logger
     -> ChainwebVersion
     -> ChainId
-    -> IO (MVar (DbCache PersistModuleData), Checkpointer logger)
-initRelationalCheckpointer' dbCacheLimit sqlenv p loggr v cid = do
-    PactDb.initSchema loggr sqlenv
+    -> IO (Checkpointer logger)
+initCheckpointerResources dbCacheLimit sql p loggr v cid = do
+    initSchema loggr sql
     moduleCacheVar <- newMVar (emptyDbCache dbCacheLimit)
-    let
-        checkpointer = Checkpointer
-            { _cpRestoreAndSave = doRestoreAndSave loggr v cid sqlenv p moduleCacheVar
-            , _cpReadCp = ReadCheckpointer
-                { _cpReadFrom = doReadFrom loggr v cid sqlenv moduleCacheVar
-                , _cpGetBlockHistory = doGetBlockHistory sqlenv
-                , _cpGetHistoricalLookup = doGetHistoricalLookup sqlenv
-                , _cpGetEarliestBlock = doGetEarliestBlock sqlenv
-                , _cpGetLatestBlock = doGetLatestBlock sqlenv
-                , _cpLookupBlockInCheckpointer = doLookupBlock sqlenv
-                , _cpGetBlockParent = doGetBlockParent v cid sqlenv
-                , _cpLogger = loggr
-                }
-            }
-    return (moduleCacheVar, checkpointer)
+    return Checkpointer
+        { cpLogger = loggr
+        , cpCwVersion = v
+        , cpChainId = cid
+        , cpSql = sql
+        , cpIntraBlockPersistence = p
+        , cpModuleCacheVar = moduleCacheVar
+        }
 
--- see the docs for _cpReadFrom
-doReadFrom
+-- | Rewind to a particular block *in-memory*, producing a read-write snapshot
+-- of the database at that block to compute some value, after which the snapshot
+-- is discarded and nothing is saved to the database.
+--
+-- prerequisite: ParentHeader is an ancestor of the "latest block";
+-- if that isn't the case, NoHistory is returned.
+readFrom
   :: forall logger pv a
   . (Logger logger)
-  => logger
-  -> ChainwebVersion
-  -> ChainId
-  -> SQLiteEnv
-  -> MVar (DbCache PersistModuleData)
+  => Checkpointer logger
   -> Maybe ParentHeader
   -> PactVersionT pv
   -> (PactDbFor logger pv -> BlockHandle -> IO a)
   -> IO (Historical a)
-doReadFrom logger v cid sql moduleCacheVar maybeParent pactVersion doRead = do
+readFrom res maybeParent pactVersion doRead = do
   let currentHeight = case maybeParent of
-        Nothing -> genesisHeight v cid
+        Nothing -> genesisHeight res.cpCwVersion res.cpChainId
         Just parent -> succ . view blockHeight . _parentHeader $ parent
 
-  modifyMVar moduleCacheVar $ \sharedModuleCache -> do
+  modifyMVar res.cpModuleCacheVar $ \sharedModuleCache -> do
     bracket
-      (beginSavepoint sql BatchSavepoint)
-      (\_ -> abortSavepoint sql BatchSavepoint) \() -> do
+      (beginSavepoint res.cpSql BatchSavepoint)
+      (\_ -> abortSavepoint res.cpSql BatchSavepoint) \() -> do
       -- NB it's important to do this *after* you start the savepoint (and thus
       -- the db transaction) to make sure that the latestHeader check is up to date.
-      latestHeader <- doGetLatestBlock sql
+      latestHeader <- getLatestBlock res.cpSql
       h <- case pactVersion of
         Pact4T
-          | pact5 v cid currentHeight -> internalError $
+          | pact5 res.cpCwVersion res.cpChainId currentHeight -> internalError $
             "Pact 4 readFrom executed on block height after Pact 5 fork, height: " <> sshow currentHeight
-          | otherwise -> PactDb.getEndTxId "doReadFrom" sql maybeParent >>= traverse \startTxId -> do
+          | otherwise -> PactDb.getEndTxId "doReadFrom" res.cpSql maybeParent >>= traverse \startTxId -> do
             newDbEnv <- newMVar $ PactDb.BlockEnv
-              (PactDb.mkBlockHandlerEnv v cid currentHeight sql DoNotPersistIntraBlockWrites logger)
+              (PactDb.mkBlockHandlerEnv res.cpCwVersion res.cpChainId currentHeight res.cpSql DoNotPersistIntraBlockWrites res.cpLogger)
               (PactDb.initBlockState defaultModuleCacheLimit startTxId)
                 { PactDb._bsModuleCache = sharedModuleCache }
             let
@@ -196,7 +188,7 @@ doReadFrom logger v cid sql moduleCacheVar maybeParent pactVersion doRead = do
                 , PactDb._cpRegisterProcessedTx = \hash ->
                   PactDb.runBlockEnv newDbEnv (PactDb.indexPactTransaction $ BS.fromShort $ coerce hash)
                 , PactDb._cpLookupProcessedTx = \hs ->
-                    HashMap.mapKeys coerce <$> doLookupSuccessful sql currentHeight (coerce hs)
+                    HashMap.mapKeys coerce <$> doLookupSuccessful res.cpSql currentHeight (coerce hs)
                 }
               pactDb
                 | parentIsLatestHeader = PactDb.chainwebPactDb
@@ -206,8 +198,8 @@ doReadFrom logger v cid sql moduleCacheVar maybeParent pactVersion doRead = do
             return (r, finalCache)
 
         Pact5T
-          | pact5 v cid currentHeight ->
-            Pact5.getEndTxId "doReadFrom" sql maybeParent >>= traverse \startTxId -> do
+          | pact5 res.cpCwVersion res.cpChainId currentHeight ->
+            Pact5.getEndTxId "doReadFrom" res.cpSql maybeParent >>= traverse \startTxId -> do
             let
               -- is the parent the latest header, i.e., can we get away without rewinding?
               -- TODO: just do this inside of the chainwebPactCoreBlockDb function?
@@ -217,10 +209,10 @@ doReadFrom logger v cid sql moduleCacheVar maybeParent pactVersion doRead = do
                   view blockHash ph == latestHash
                 _ -> False
               blockHandlerEnv = Pact5.BlockHandlerEnv
-                { Pact5._blockHandlerDb = sql
-                , Pact5._blockHandlerLogger = logger
-                , Pact5._blockHandlerVersion = v
-                , Pact5._blockHandlerChainId = cid
+                { Pact5._blockHandlerDb = res.cpSql
+                , Pact5._blockHandlerLogger = res.cpLogger
+                , Pact5._blockHandlerVersion = res.cpCwVersion
+                , Pact5._blockHandlerChainId = res.cpChainId
                 , Pact5._blockHandlerBlockHeight = currentHeight
                 , Pact5._blockHandlerMode = Pact5.Transactional
                 , Pact5._blockHandlerPersistIntraBlockWrites = DoNotPersistIntraBlockWrites
@@ -241,29 +233,55 @@ doReadFrom logger v cid sql moduleCacheVar maybeParent pactVersion doRead = do
 
 
 
+-- the special case where one doesn't want to extend the chain, just rewind it.
+rewindTo :: Logger logger => Checkpointer logger -> Maybe ParentHeader -> IO ()
+rewindTo cp ancestor = void $ restoreAndSave cp
+    ancestor
+    (pure () :: Stream (Of (RunnableBlock logger ())) IO ())
+
 -- TODO: log more?
--- see the docs for _cpRestoreAndSave.
-doRestoreAndSave
+-- | Rewind to a particular block, and play a stream of blocks afterward,
+-- extending the chain and saving the result persistently. for example,
+-- to validate a block `vb`, we rewind to the common ancestor of `vb` and
+-- the latest block, and extend the chain with all of the blocks on `vb`'s
+-- fork, including `vb`.
+-- this function takes care of making sure that this is done *atomically*.
+-- TODO: fix the below w.r.t. its latest type
+-- promises:
+--   - excluding the fact that each _cpRestoreAndSave call is atomic, the
+--     following two expressions should be equivalent:
+--     do
+--       _cpRestoreAndSave cp p1 x
+--         ((,) <$> (bs1 <* Stream.yield p2) <*> bs2) runBlk
+--     do
+--       (r1, q1) <- _cpRestoreAndSave cp p1 x (bs1 <* Stream.yield p2) runBlk
+--       (r2, q2) <- _cpRestoreAndSave cp (Just (x p2)) x bs2 runBlk
+--       return ((r1, r2), q1 <> q2)
+--     i.e. rewinding, extending, then rewinding to the point you extended
+--     to and extending some more, should give the same result as rewinding
+--     once and extending to the same final point.
+--   - no block in the stream is used more than once.
+-- prerequisites:
+--   - the parent being rewound to must be a direct ancestor
+--     of the latest block, i.e. what's returned by _cpLatestBlock.
+--   - the stream must start with a block that is a child of the rewind
+--     target and each block after must be the child of the previous block.
+restoreAndSave
   :: forall logger r q.
   (Logger logger, Monoid q, HasCallStack)
-  => logger
-  -> ChainwebVersion
-  -> ChainId
-  -> SQLiteEnv
-  -> IntraBlockPersistence
-  -> MVar (DbCache PersistModuleData)
+  => Checkpointer logger
   -> Maybe ParentHeader
   -> Stream (Of (RunnableBlock logger q)) IO r
   -> IO (r, q)
-doRestoreAndSave logger v cid sql p moduleCacheVar rewindParent blocks = do
-    modifyMVar moduleCacheVar $ \moduleCache -> do
+restoreAndSave res rewindParent blocks = do
+    modifyMVar res.cpModuleCacheVar $ \moduleCache -> do
       fmap fst $ generalBracket
-        (beginSavepoint sql BatchSavepoint)
+        (beginSavepoint res.cpSql BatchSavepoint)
         (\_ -> \case
-          ExitCaseSuccess {} -> commitSavepoint sql BatchSavepoint
-          _ -> abortSavepoint sql BatchSavepoint
+          ExitCaseSuccess {} -> commitSavepoint res.cpSql BatchSavepoint
+          _ -> abortSavepoint res.cpSql BatchSavepoint
         ) $ \_ -> do
-          startTxId <- PactDb.rewindDbTo sql rewindParent
+          startTxId <- PactDb.rewindDbTo res.cpSql rewindParent
           ((q, _, _, finalModuleCache) :> r) <- extend startTxId moduleCache
           return (finalModuleCache, (r, q))
   where
@@ -275,16 +293,16 @@ doRestoreAndSave logger v cid sql p moduleCacheVar rewindParent blocks = do
       (\(m, maybeParent, txid, moduleCache) block -> do
         let
           !bh = case maybeParent of
-            Nothing -> genesisHeight v cid
+            Nothing -> genesisHeight res.cpCwVersion res.cpChainId
             Just parent -> (succ . view blockHeight . _parentHeader) parent
         case block of
           Pact4RunnableBlock runBlock
-            | pact5 v cid bh ->
+            | pact5 res.cpCwVersion res.cpChainId bh ->
               internalError $
                 "Pact 4 block executed on block height after Pact 5 fork, height: " <> sshow bh
             | otherwise -> do
-              -- prepare the block state
-              let handlerEnv = PactDb.mkBlockHandlerEnv v cid bh sql p logger
+              -- prepare a fresh block state
+              let handlerEnv = PactDb.mkBlockHandlerEnv res.cpCwVersion res.cpChainId bh res.cpSql res.cpIntraBlockPersistence res.cpLogger
               let state = (PactDb.initBlockState defaultModuleCacheLimit txid)
                     { PactDb._bsModuleCache = moduleCache }
               dbMVar <- newMVar PactDb.BlockEnv
@@ -299,14 +317,13 @@ doRestoreAndSave logger v cid sql p moduleCacheVar rewindParent blocks = do
                     PactDb.runBlockEnv dbMVar (PactDb.indexPactTransaction $ BS.fromShort $ coerce hash)
                   , PactDb._cpLookupProcessedTx = \hs ->
                       fmap (HashMap.mapKeys coerce) $
-                      doLookupSuccessful sql bh $
+                      doLookupSuccessful res.cpSql bh $
                       coerce hs
                   }
 
               -- execute the block
               let pact4Db = PactDbEnv PactDb.chainwebPactDb dbMVar
               (m', newBh) <- runBlock (mkBlockDbEnv pact4Db) maybeParent
-
 
               -- grab any resulting state that we're interested in keeping
               nextState <- PactDb._benvBlockState <$> takeMVar dbMVar
@@ -320,7 +337,7 @@ doRestoreAndSave logger v cid sql p moduleCacheVar rewindParent blocks = do
               -- of the previous block
               case maybeParent of
                 Nothing
-                  | genesisHeight v cid /= view blockHeight newBh -> internalError
+                  | genesisHeight res.cpCwVersion res.cpChainId /= view blockHeight newBh -> internalError
                     "doRestoreAndSave: block with no parent, genesis block, should have genesis height but doesn't,"
                 Just (ParentHeader ph)
                   | succ (view blockHeight ph) /= view blockHeight newBh -> internalError $
@@ -328,21 +345,21 @@ doRestoreAndSave logger v cid sql p moduleCacheVar rewindParent blocks = do
                       <> sshow (view blockHeight ph) <> ", child height " <> sshow (view blockHeight newBh)
                 _ -> return ()
               -- persist any changes to the database
-              PactDb.commitBlockStateToDatabase sql
+              PactDb.commitBlockStateToDatabase res.cpSql
                 (view blockHash newBh) (view blockHeight newBh)
                 (BlockHandle (PactDb._bsTxId nextState) (PactDb._bsPendingBlock nextState))
               return (m'', Just (ParentHeader newBh), nextTxId, nextModuleCache)
           Pact5RunnableBlock runBlock
-            | pact5 v cid bh -> do
+            | pact5 res.cpCwVersion res.cpChainId bh -> do
               let
                 blockEnv = Pact5.BlockHandlerEnv
-                  { Pact5._blockHandlerDb = sql
-                  , Pact5._blockHandlerLogger = logger
-                  , Pact5._blockHandlerVersion = v
+                  { Pact5._blockHandlerDb = res.cpSql
+                  , Pact5._blockHandlerLogger = res.cpLogger
+                  , Pact5._blockHandlerVersion = res.cpCwVersion
                   , Pact5._blockHandlerBlockHeight = bh
-                  , Pact5._blockHandlerChainId = cid
+                  , Pact5._blockHandlerChainId = res.cpChainId
                   , Pact5._blockHandlerMode = Pact5.Transactional
-                  , Pact5._blockHandlerPersistIntraBlockWrites = p
+                  , Pact5._blockHandlerPersistIntraBlockWrites = res.cpIntraBlockPersistence
                   }
                 pactDb = Pact5.chainwebPactCoreBlockDb Nothing blockEnv
               -- run the block
@@ -351,14 +368,14 @@ doRestoreAndSave logger v cid sql p moduleCacheVar rewindParent blocks = do
               let !m'' = m <> m'
               case maybeParent of
                 Nothing
-                  | genesisHeight v cid /= view blockHeight nextBlockHeader -> internalError
+                  | genesisHeight res.cpCwVersion res.cpChainId /= view blockHeight nextBlockHeader -> internalError
                     "doRestoreAndSave: block with no parent, genesis block, should have genesis height but doesn't,"
                 Just (ParentHeader ph)
                   | succ (view blockHeight ph) /= view blockHeight nextBlockHeader -> internalError $
                     "doRestoreAndSave: non-genesis block should be one higher than its parent. parent at "
                       <> sshow (view blockHeight ph) <> ", child height " <> sshow (view blockHeight nextBlockHeader)
                 _ -> return ()
-              PactDb.commitBlockStateToDatabase sql
+              PactDb.commitBlockStateToDatabase res.cpSql
                 (view blockHash nextBlockHeader) (view blockHeight nextBlockHeader)
                 blockHandle
 
@@ -371,8 +388,10 @@ doRestoreAndSave logger v cid sql p moduleCacheVar rewindParent blocks = do
       return
       blocks
 
-doGetEarliestBlock :: HasCallStack => SQLiteEnv -> IO (Maybe (BlockHeight, BlockHash))
-doGetEarliestBlock db = do
+-- | Get the checkpointer's idea of the earliest block. The block height
+-- is the height of the block of the block hash.
+getEarliestBlock :: HasCallStack => SQLiteEnv -> IO (Maybe (BlockHeight, BlockHash))
+getEarliestBlock db = do
   r <- qry_ db qtext [RInt, RBlob] >>= mapM go
   case r of
     [] -> return Nothing
@@ -385,8 +404,12 @@ doGetEarliestBlock db = do
         in return (fromIntegral hgt, hash)
     go _ = fail "Chainweb.Pact.Backend.RelationalCheckpointer.doGetEarliest: impossible. This is a bug in chainweb-node."
 
-doGetLatestBlock :: HasCallStack => SQLiteEnv -> IO (Maybe (BlockHeight, BlockHash))
-doGetLatestBlock db = do
+-- | Get the checkpointer's idea of the latest block. The block height is
+-- is the height of the block of the block hash.
+--
+-- TODO: Under which circumstances does this return 'Nothing'?
+getLatestBlock :: HasCallStack => SQLiteEnv -> IO (Maybe (BlockHeight, BlockHash))
+getLatestBlock db = do
   r <- qry_ db qtext [RInt, RBlob] >>= mapM go
   case r of
     [] -> return Nothing
@@ -397,23 +420,24 @@ doGetLatestBlock db = do
     go [SInt hgt, SBlob blob] =
         let hash = either error id $ runGetEitherS decodeBlockHash blob
         in return (fromIntegral hgt, hash)
-    go _ = fail "Chainweb.Pact.Backend.RelationalCheckpointer.doGetLatest: impossible. This is a bug in chainweb-node."
+    go _ = fail "Chainweb.Pact.Backend.RelationalCheckpointer.getLatest: impossible. This is a bug in chainweb-node."
 
-doLookupBlock :: SQLiteEnv -> (BlockHeight, BlockHash) -> IO Bool
-doLookupBlock db (bheight, bhash) = do
+-- | Ask: is the checkpointer aware of the given block?
+lookupBlock :: SQLiteEnv -> (BlockHeight, BlockHash) -> IO Bool
+lookupBlock db (bheight, bhash) = do
     r <- qry db qtext [SInt $ fromIntegral bheight, SBlob (runPutS (encodeBlockHash bhash))]
                       [RInt]
     liftIO (expectSingle "row" r) >>= \case
         [SInt n] -> return $! n == 1
-        _ -> internalError "doLookupBlock: output type mismatch"
+        _ -> internalError "lookupBlock: output type mismatch"
   where
     qtext = "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? AND hash = ?;"
 
-doGetBlockParent :: ChainwebVersion -> ChainId -> SQLiteEnv -> (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
-doGetBlockParent v cid db (bh, hash)
+getBlockParent :: ChainwebVersion -> ChainId -> SQLiteEnv -> (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
+getBlockParent v cid db (bh, hash)
     | bh == genesisHeight v cid = return Nothing
     | otherwise = do
-        blockFound <- doLookupBlock db (bh, hash)
+        blockFound <- lookupBlock db (bh, hash)
         if not blockFound
           then return Nothing
           else do
@@ -421,28 +445,28 @@ doGetBlockParent v cid db (bh, hash)
             case r of
               [[SBlob blob]] ->
                 either (internalError . T.pack) (return . return) $! runGetEitherS decodeBlockHash blob
-              [] -> internalError "doGetBlockParent: block was found but its parent couldn't be found"
-              _ -> error "doGetBlockParent: output type mismatch"
+              [] -> internalError "getBlockParent: block was found but its parent couldn't be found"
+              _ -> error "getBlockParent: output type mismatch"
   where
     qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?"
 
 
-doGetBlockHistory
+getBlockHistory
   :: SQLiteEnv
   -> BlockHeader
   -> Pact5.Domain Pact5.RowKey Pact5.RowData Pact5.CoreBuiltin Pact5.Info
   -> IO (Historical BlockTxHistory)
-doGetBlockHistory db blockHeader d = do
+getBlockHistory db blockHeader d = do
   historicalEndTxId <-
       fmap fromIntegral
-      <$> PactDb.getEndTxId "doGetBlockHistory" db (Just $ ParentHeader blockHeader)
+      <$> PactDb.getEndTxId "getBlockHistory" db (Just $ ParentHeader blockHeader)
   forM historicalEndTxId $ \endTxId -> do
     startTxId <-
       if bHeight == genesisHeight v cid
       then return 0
-      else PactDb.getEndTxId' "doGetBlockHistory" db (pred bHeight) (view blockParent blockHeader) >>= \case
+      else PactDb.getEndTxId' "getBlockHistory" db (pred bHeight) (view blockParent blockHeader) >>= \case
         NoHistory ->
-          internalError $ "doGetBlockHistory: missing parent for: " <> sshow blockHeader
+          internalError $ "getBlockHistory: missing parent for: " <> sshow blockHeader
         Historical startTxId ->
           return $ fromIntegral startTxId
 
@@ -491,15 +515,15 @@ doGetBlockHistory db blockHeader d = do
         [[SBlob value]] -> Just . (RowKey $ T.decodeUtf8 sk,) <$> Pact5.toTxLog (asString d) k value
         _ -> internalError $ "queryPrev: expected 0 or 1 rows, got: " <> T.pack (show r)
 
-doGetHistoricalLookup
+lookupHistorical
     :: SQLiteEnv
     -> BlockHeader
     -> Pact5.Domain Pact5.RowKey Pact5.RowData Pact5.CoreBuiltin Pact5.Info
     -> Pact5.RowKey
     -> IO (Historical (Maybe (Pact5.TxLog Pact5.RowData)))
-doGetHistoricalLookup db blockHeader d k = do
+lookupHistorical db blockHeader d k = do
   historicalEndTxId <-
-    PactDb.getEndTxId "doGetHistoricalLookup" db (Just $ ParentHeader blockHeader)
+    PactDb.getEndTxId "lookupHistorical" db (Just $ ParentHeader blockHeader)
   forM historicalEndTxId (queryHistoryLookup . fromIntegral)
   where
     queryHistoryLookup :: Int64 -> IO (Maybe (Pact5.TxLog Pact5.RowData))
@@ -512,4 +536,4 @@ doGetHistoricalLookup db blockHeader d k = do
       case r of
         [[SText key, SBlob value]] -> Just <$> Pact5.toTxLog (asString d) key value
         [] -> pure Nothing
-        _ -> internalError $ "doGetHistoricalLookup: expected single-row result, got " <> sshow r
+        _ -> internalError $ "lookupHistorical: expected single-row result, got " <> sshow r

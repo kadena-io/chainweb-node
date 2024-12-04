@@ -87,6 +87,7 @@ import qualified Data.List.NonEmpty as NEL
 import Chainweb.Pact5.NoCoinbase
 import qualified Pact.Core.Errors as Pact5
 import qualified Pact.Core.Evaluate as Pact5
+import Chainweb.Pact.Backend.Types
 
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range. Rewards are calculated

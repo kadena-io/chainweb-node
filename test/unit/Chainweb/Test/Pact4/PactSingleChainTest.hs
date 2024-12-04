@@ -101,6 +101,7 @@ import qualified Pact.Core.Names as PCore
 import qualified Data.ByteString.Short as SB
 import Text.Show.Pretty (ppShow)
 import qualified Pact.Core.StableEncoding as PCore
+import Chainweb.Pact.Backend.Types
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion petersonChainGraph

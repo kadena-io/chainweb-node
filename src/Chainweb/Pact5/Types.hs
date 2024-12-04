@@ -59,6 +59,7 @@ import qualified Pact.Core.Capabilities as Pact5
 import qualified Pact.Core.ChainData as Pact5
 import qualified Pact.Core.Info as Pact5
 import qualified Pact.Core.Gas.Types as Pact5
+import Chainweb.Pact.Backend.Types
 
 -- | Pair parent header with transaction metadata.
 -- In cases where there is no transaction/Command, 'PublicMeta'

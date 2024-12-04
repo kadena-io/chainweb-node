@@ -53,7 +53,6 @@ import Chainweb.Logger
 import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.MerkleUniverse
 import Chainweb.Pact4.Backend.ChainwebPactDb
-import Chainweb.Pact.Backend.RelationalCheckpointer
 
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact4.TransactionExec
@@ -65,6 +64,8 @@ import Chainweb.Utils
 import Chainweb.Version
 
 import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
+import Chainweb.Pact.Backend.Types
+import qualified Chainweb.Pact.PactService.Checkpointer.Internal as Checkpointer
 
 -- -------------------------------------------------------------------------- --
 -- Tests
@@ -127,7 +128,7 @@ testModuleName = withResourceT withTempSQLiteResource $ \s ->
 testKeyset :: TestTree
 testKeyset = withResource initializeSQLite freeSQLiteResource $ \s -> runSQLite keysetTest s
 
-keysetTest ::  IO (Checkpointer logger) -> TestTree
+keysetTest :: Logger logger => IO (Checkpointer logger) -> TestTree
 keysetTest c = testCaseSteps "Keyset test" $ \next -> do
     cp <- c
     let
@@ -652,7 +653,7 @@ runSQLite'
     -> TestTree
 runSQLite' runTest sqlEnvIO = runTest $ do
     sqlenv <- sqlEnvIO
-    cp <- initRelationalCheckpointer defaultModuleCacheLimit sqlenv DoNotPersistIntraBlockWrites logger testVer testChainId
+    cp <- Checkpointer.initCheckpointerResources defaultModuleCacheLimit sqlenv DoNotPersistIntraBlockWrites logger testVer testChainId
     return (cp, sqlenv)
   where
     logger = addLabel ("sub-component", "relational-checkpointer") $ dummyLogger
@@ -668,7 +669,7 @@ runExec cp pactdbenv eData eCode = do
     cmdenv = TransactionEnv
         { _txMode = Transactional
         , _txDbEnv = pactdbenv
-        , _txLogger = _cpLogger (_cpReadCp cp)
+        , _txLogger = cpLogger cp
         , _txGasLogger = Nothing
         , _txPublicData = noPublicData
         , _txSpvSupport = noSPVSupport
@@ -693,7 +694,7 @@ runCont cp pactdbenv pactId step = do
     cmdenv = TransactionEnv
         { _txMode = Transactional
         , _txDbEnv = pactdbenv
-        , _txLogger = _cpLogger (_cpReadCp cp)
+        , _txLogger = cpLogger cp
         , _txGasLogger = Nothing
         , _txPublicData = noPublicData
         , _txSpvSupport = noSPVSupport
@@ -713,13 +714,14 @@ runCont cp pactdbenv pactId step = do
 -- witnessing that we only use the PactDbEnv portion
 -- of the CurrentBlockDbEnv
 cpReadFrom
-  :: Checkpointer logger
+  :: Logger logger
+  => Checkpointer logger
   -> Maybe BlockHeader
   -> (PactDbEnv (BlockEnv logger) -> IO q)
   -> IO q
 cpReadFrom cp pc f = do
-  _cpReadFrom
-    (_cpReadCp cp)
+  Checkpointer.readFrom
+    cp
     (ParentHeader <$> pc)
     Pact4T
     (\env _blockHandle -> f $ (_cpPactDbEnv env)) >>= \case
@@ -732,12 +734,12 @@ cpReadFrom cp pc f = do
 -- allowing a straightforward list of blocks to be passed to the API,
 -- and only exposing the PactDbEnv part of the block context
 cpRestoreAndSave
-  :: (Monoid q)
+  :: (Logger logger, Monoid q)
   => Checkpointer logger
   -> Maybe BlockHeader
   -> [(BlockHeader, PactDbEnv (BlockEnv logger) -> IO q)]
   -> IO q
-cpRestoreAndSave cp pc blks = snd <$> _cpRestoreAndSave cp (ParentHeader <$> pc)
+cpRestoreAndSave cp pc blks = snd <$> Checkpointer.restoreAndSave cp (ParentHeader <$> pc)
   (traverse Stream.yield
     [Pact4RunnableBlock $ \dbEnv _ -> (,bh) <$> (fun $ _cpPactDbEnv dbEnv) | (bh, fun) <- blks])
 
