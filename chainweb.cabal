@@ -313,13 +313,14 @@ library
         , Chainweb.Pact.Backend.PactState.GrandHash.Calc
         , Chainweb.Pact.Backend.PactState.GrandHash.Import
         , Chainweb.Pact.Backend.PactState.GrandHash.Utils
-        , Chainweb.Pact.Backend.RelationalCheckpointer
         , Chainweb.Pact.Backend.SQLite.DirectV2
         , Chainweb.Pact.Backend.SQLite.V2
+        , Chainweb.Pact.Backend.Types
         , Chainweb.Pact.Backend.Utils
         , Chainweb.Pact.Conversion
         , Chainweb.Pact.PactService
         , Chainweb.Pact.PactService.Checkpointer
+        , Chainweb.Pact.PactService.Checkpointer.Internal
         , Chainweb.Pact.PactService.Pact4.ExecBlock
         , Chainweb.Pact.PactService.Pact5.ExecBlock
         , Chainweb.Pact.RestAPI

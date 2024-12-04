@@ -73,6 +73,7 @@ import Chainweb.CutDB (cutHashesTable)
 import Chainweb.Logger (Logger, l2l, setComponent, logFunctionText)
 import Chainweb.Pact4.Backend.ChainwebPactDb ()
 import Chainweb.Pact.Backend.PactState
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Payload.PayloadStore (initializePayloadDb, addNewPayload, lookupPayloadWithHeight)
 import Chainweb.Payload.PayloadStore.RocksDB (newPayloadDb)
@@ -83,7 +84,6 @@ import Chainweb.Version.Registry (lookupVersionByName)
 import Chainweb.Version.Testnet04 (testnet04)
 import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb, initWebBlockHeaderDb)
 import Data.LogMessage (SomeLogMessage, logText)
-import Chainweb.Pact.Types (SQLiteEnv)
 
 withDefaultLogger :: LL.LogLevel -> (YAL.Logger SomeLogMessage -> IO a) -> IO a
 withDefaultLogger ll f = withHandleBackend_ logText handleCfg $ \b ->

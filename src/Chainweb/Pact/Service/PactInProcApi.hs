@@ -55,6 +55,7 @@ import Data.LogMessage
 import GHC.Stack (HasCallStack)
 import Chainweb.Counter (Counter)
 import Chainweb.BlockCreationTime
+import Chainweb.Pact.Backend.Types
 
 -- | Initialization for Pact (in process) Api
 withPactService

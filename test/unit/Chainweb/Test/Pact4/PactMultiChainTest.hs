@@ -72,6 +72,7 @@ import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
 import Chainweb.Payload.PayloadStore (lookupPayloadWithHeight)
+import Chainweb.Pact.Backend.Types
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion peterson
