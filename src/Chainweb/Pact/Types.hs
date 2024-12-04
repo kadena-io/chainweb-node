@@ -58,21 +58,7 @@ module Chainweb.Pact.Types
   , PactServiceState(..)
   , psInitCache
   , PactException(..)
-  , SQLiteEnv
-  , BlockHandle(..)
-  , emptyBlockHandle
   , finalizeBlock
-  , blockHandlePending
-  , blockHandleTxId
-  , SQLiteRowDelta(..)
-  , SQLitePendingData(..)
-  , pendingSuccessfulTxs
-  , pendingWrites
-  , pendingTableCreation
-  , pendingTxLogMap
-  , Checkpointer(..)
-  , ReadCheckpointer(..)
-  , _cpRewindTo
   , RunnableBlock(..)
   , BlockTxHistory(..)
   , emptySQLitePendingData
@@ -87,7 +73,6 @@ module Chainweb.Pact.Types
   , blockInProgressPactVersion
   , blockInProgressChainwebVersion
   , blockInProgressChainId
-  , IntraBlockPersistence(..)
   , NewBlockFill(..)
   , Historical(..)
   , throwIfNoHistory
@@ -231,6 +216,7 @@ import Chainweb.Mempool.Mempool (TransactionHash, BlockFill, MempoolPreBlockChec
 import Chainweb.Miner.Pact
 import Chainweb.Logger
 import Chainweb.Pact.Backend.DbCache
+import Chainweb.Pact.Backend.Types
 
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
@@ -243,13 +229,10 @@ import Data.Vector (Vector)
 import qualified Chainweb.Pact5.Transaction as Pact5
 import Data.ByteString (ByteString)
 import qualified Pact.Types.Persistence as Pact4
-import Data.DList (DList)
 import Data.Map (Map)
 import qualified Pact.Core.Persistence as Pact5
-import Data.HashSet (HashSet)
 import Data.HashMap.Strict (HashMap)
 import Data.List.NonEmpty (NonEmpty)
-import Database.SQLite3.Direct (Database)
 import qualified Pact.Core.Names as Pact5
 import GHC.Stack
 import Streaming
@@ -269,84 +252,6 @@ import qualified Pact.Core.Hash as Pact5
 import Data.Maybe
 import Chainweb.BlockCreationTime
 
--- | While a block is being run, mutations to the pact database are held
--- in RAM to be written to the DB in batches at @save@ time. For any given db
--- write, we need to record the table name, the current tx id, the row key, and
--- the row value.
---
-data SQLiteRowDelta = SQLiteRowDelta
-    { _deltaTableName :: !ByteString -- utf8?
-    , _deltaTxId :: {-# UNPACK #-} !Pact4.TxId
-    , _deltaRowKey :: !ByteString
-    , _deltaData :: !ByteString
-    } deriving (Show, Generic, Eq)
-
-instance Ord SQLiteRowDelta where
-    compare a b = compare aa bb
-      where
-        aa = (_deltaTableName a, _deltaRowKey a, _deltaTxId a)
-        bb = (_deltaTableName b, _deltaRowKey b, _deltaTxId b)
-    {-# INLINE compare #-}
-
--- | A map from table name to a list of 'TxLog' entries. This is maintained in
--- 'BlockState' and is cleared upon pact transaction commit.
-type TxLogMap = Map Pact4.TableName (DList Pact4.TxLogJson)
-
--- | Between a @restore..save@ bracket, we also need to record which tables
--- were created during this block (so the necessary @CREATE TABLE@ statements
--- can be performed upon block save).
-type SQLitePendingTableCreations = HashSet ByteString
-
--- | Pact transaction hashes resolved during this block.
-type SQLitePendingSuccessfulTxs = HashSet ByteString
-
--- | Pending writes to the pact db during a block, to be recorded in 'BlockState'.
--- Structured as a map from table name to a map from rowkey to inserted row delta.
-type SQLitePendingWrites = HashMap ByteString (HashMap ByteString (NonEmpty SQLiteRowDelta))
-
--- Note [TxLogs in SQLitePendingData]
--- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
--- We should really not store TxLogs in SQLitePendingData,
--- because this data structure is specifically for things that
--- can exist both for the whole block and for specific transactions,
--- and txlogs only exist on the transaction level.
--- We don't do this in Pact 5 at all.
-
--- | A collection of pending mutations to the pact db. We maintain two of
--- these; one for the block as a whole, and one for any pending pact
--- transaction. Upon pact transaction commit, the two 'SQLitePendingData'
--- values are merged together.
-data SQLitePendingData = SQLitePendingData
-    { _pendingTableCreation :: !SQLitePendingTableCreations
-    , _pendingWrites :: !SQLitePendingWrites
-    -- See Note [TxLogs in SQLitePendingData]
-    , _pendingTxLogMap :: !TxLogMap
-    , _pendingSuccessfulTxs :: !SQLitePendingSuccessfulTxs
-    }
-    deriving (Eq, Show)
-
-makeLenses ''SQLitePendingData
-
-type SQLiteEnv = Database
-
-emptySQLitePendingData :: SQLitePendingData
-emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
-
--- | Whether we write rows to the database that were already overwritten
--- in the same block. This is temporarily necessary to do while Rosetta uses
--- those rows to determine the contents of historic transactions.
-data IntraBlockPersistence = PersistIntraBlockWrites | DoNotPersistIntraBlockWrites
-  deriving (Eq, Ord, Show)
-
-type family PactDbFor logger (pv :: PactVersion)
-
--- | The result of a historical lookup which might fail to even find the
--- header the history is being queried for.
-data Historical a
-  = Historical a
-  | NoHistory
-  deriving stock (Eq, Foldable, Functor, Generic, Traversable, Show)
-  deriving anyclass NFData
 
 -- | Gather tx logs for a block, along with last tx for each
 -- key in history, if any
@@ -360,95 +265,12 @@ instance Show BlockTxHistory where
   show = show . fmap (show) . _blockTxHistory
 -- instance NFData BlockTxHistory -- TODO: add NFData for RowData
 
--- | The parts of the checkpointer that do not mutate the database.
-data ReadCheckpointer logger = ReadCheckpointer
-  { _cpReadFrom ::
-    !(forall pv a. Maybe ParentHeader -> PactVersionT pv
-      -> (PactDbFor logger pv -> BlockHandle -> IO a) -> IO (Historical a))
-    -- ^ rewind to a particular block *in-memory*, producing a read-write snapshot
-    -- ^ of the database at that block to compute some value, after which the snapshot
-    -- is discarded and nothing is saved to the database.
-    -- ^ prerequisite: ParentHeader is an ancestor of the "latest block".
-    -- if that isn't the case, Nothing is returned.
-  , _cpGetEarliestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
-    -- ^ get the checkpointer's idea of the earliest block. The block height
-    --   is the height of the block of the block hash.
-  , _cpGetLatestBlock :: !(IO (Maybe (BlockHeight, BlockHash)))
-    -- ^ get the checkpointer's idea of the latest block. The block height is
-    -- is the height of the block of the block hash.
-    --
-    -- TODO: Under which circumstances does this return 'Nothing'?
-  , _cpLookupBlockInCheckpointer :: !((BlockHeight, BlockHash) -> IO Bool)
-    -- ^ is the checkpointer aware of the given block?
-  , _cpGetBlockParent :: !((BlockHeight, BlockHash) -> IO (Maybe BlockHash))
-  , _cpGetBlockHistory ::
-      !(BlockHeader -> Pact5.Domain Pact5.RowKey Pact5.RowData Pact5.CoreBuiltin Pact5.Info -> IO (Historical BlockTxHistory))
-  , _cpGetHistoricalLookup ::
-      !(BlockHeader -> Pact5.Domain Pact5.RowKey Pact5.RowData Pact5.CoreBuiltin Pact5.Info -> Pact5.RowKey -> IO (Historical (Maybe (Pact5.TxLog Pact5.RowData))))
-  , _cpLogger :: logger
-  }
-
-data BlockHandle = BlockHandle
-  { _blockHandleTxId :: !Pact4.TxId
-  , _blockHandlePending :: !SQLitePendingData
-  }
-  deriving (Eq, Show)
-emptyBlockHandle :: Pact4.TxId -> BlockHandle
-emptyBlockHandle txid = BlockHandle txid emptySQLitePendingData
-
 -- | A callback which writes a block's data to the input database snapshot,
 -- and knows its parent header (Nothing if it's a genesis block).
 -- Reports back its own header and some extra value.
 data RunnableBlock logger a
   = Pact4RunnableBlock (PactDbFor logger Pact4 -> Maybe ParentHeader -> IO (a, BlockHeader))
   | Pact5RunnableBlock (PactDbFor logger Pact5 -> Maybe ParentHeader -> BlockHandle -> IO ((a, BlockHeader), BlockHandle))
-
--- | One makes requests to the checkpointer to query the pact state at the
--- current block or any earlier block, to extend the pact state with new blocks, and
--- to rewind the pact state to an earlier block.
-data Checkpointer logger = Checkpointer
-  { _cpRestoreAndSave ::
-    !(forall q r.
-      (HasCallStack, Monoid q) =>
-      Maybe ParentHeader ->
-      Stream (Of (RunnableBlock logger q)) IO r ->
-      IO (r, q))
-  -- ^ rewind to a particular block, and play a stream of blocks afterward,
-  -- extending the chain and saving the result persistently. for example,
-  -- to validate a block `vb`, we rewind to the common ancestor of `vb` and
-  -- the latest block, and extend the chain with all of the blocks on `vb`'s
-  -- fork, including `vb`.
-  -- this function takes care of making sure that this is done *atomically*.
-  -- TODO: fix with latest type
-  -- promises:
-  --   - excluding the fact that each _cpRestoreAndSave call is atomic, the
-  --     following two expressions should be equivalent:
-  --     do
-  --       _cpRestoreAndSave cp p1 x
-  --         ((,) <$> (bs1 <* Stream.yield p2) <*> bs2) runBlk
-  --     do
-  --       (r1, q1) <- _cpRestoreAndSave cp p1 x (bs1 <* Stream.yield p2) runBlk
-  --       (r2, q2) <- _cpRestoreAndSave cp (Just (x p2)) x bs2 runBlk
-  --       return ((r1, r2), q1 <> q2)
-  --     i.e. rewinding, extending, then rewinding to the point you extended
-  --     to and extending some more, should give the same result as rewinding
-  --     once and extending to the same final point.
-  --   - no block in the stream is used more than once.
-  -- prerequisites:
-  --   - the parent being rewound to must be a direct ancestor
-  --     of the latest block, i.e. what's returned by _cpLatestBlock.
-  --   - the stream must start with a block that is a child of the rewind
-  --     target and each block after must be the child of the previous block.
-  , _cpReadCp :: !(ReadCheckpointer logger)
-  -- ^ access all read-only operations of the checkpointer.
-  }
-
--- the special case where one doesn't want to extend the chain, just rewind it.
-_cpRewindTo :: Checkpointer logger -> Maybe ParentHeader -> IO ()
-_cpRewindTo cp ancestor = void $ _cpRestoreAndSave cp
-    ancestor
-    (pure () :: Stream (Of (RunnableBlock logger ())) IO ())
-
 
 -- -------------------------------------------------------------------------- --
 -- Coinbase output utils
@@ -923,7 +745,6 @@ instance Show PactServiceException where
 instance Exception PactServiceException
 
 makePrisms ''Historical
-makeLenses ''BlockHandle
 
 -- | Value that represents how far to go backwards while rewinding.
 newtype RewindDepth = RewindDepth { _rewindDepth :: Word64 }

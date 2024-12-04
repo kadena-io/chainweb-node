@@ -15,6 +15,7 @@ module Main (main) where
 
 import Chainweb.BlockHeight
 
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Types
 import Chainweb.Utils hiding (check)

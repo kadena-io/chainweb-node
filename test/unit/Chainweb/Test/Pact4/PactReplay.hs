@@ -56,6 +56,7 @@ import Chainweb.Storage.Table.RocksDB
 
 import Pact.Types.Exp(ParsedCode(..))
 import Data.Either
+import Chainweb.Pact.Backend.Types
 
 testVer :: ChainwebVersion
 testVer = instantCpmTestVersion petersonChainGraph

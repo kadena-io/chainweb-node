@@ -30,6 +30,7 @@ module Chainweb.Pact.Backend.Utils
   , commitBlockStateToDatabase
   , createVersionedTable
   , tbl
+  , initSchema
     -- * Savepoints
   , withSavepoint
   , beginSavepoint
@@ -124,6 +125,8 @@ import Chainweb.Utils.Serialization
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString as BS
 import qualified Pact.Types.Persistence as Pact4
+import Chainweb.Pact.Backend.Types
+import qualified Pact.Core.Persistence as Pact5
 
 -- -------------------------------------------------------------------------- --
 -- SQ3.Utf8 Encodings
@@ -542,3 +545,58 @@ doLookupSuccessful db curHeight hashes = do
         let !txhash' = SB.toShort txhash
         return $! T3 txhash' (fromIntegral blockheight) blockhash'
     go _ = fail "impossible"
+
+-- | Create all tables that exist pre-genesis
+initSchema :: (Logger logger) => logger -> SQLiteEnv -> IO ()
+initSchema logger sql =
+    withSavepoint sql DbTransaction $ do
+        createBlockHistoryTable
+        createTableCreationTable
+        createTableMutationTable
+        createTransactionIndexTable
+        create (domainTableName KeySets)
+        create (domainTableName Modules)
+        create (domainTableName Namespaces)
+        create (domainTableName Pacts)
+        -- TODO: migrate this logic to the checkpointer itself?
+        create (toUtf8 $ Pact5.renderDomain Pact5.DModuleSource)
+  where
+    create tablename = do
+      logDebug_ logger $ "initSchema: "  <> fromUtf8 tablename
+      createVersionedTable tablename sql
+
+    createBlockHistoryTable :: IO ()
+    createBlockHistoryTable =
+      exec_ sql
+        "CREATE TABLE IF NOT EXISTS BlockHistory \
+        \(blockheight UNSIGNED BIGINT NOT NULL,\
+        \ hash BLOB NOT NULL,\
+        \ endingtxid UNSIGNED BIGINT NOT NULL, \
+        \ CONSTRAINT blockHashConstraint UNIQUE (blockheight));"
+
+    createTableCreationTable :: IO ()
+    createTableCreationTable =
+      exec_ sql
+        "CREATE TABLE IF NOT EXISTS VersionedTableCreation\
+        \(tablename TEXT NOT NULL\
+        \, createBlockheight UNSIGNED BIGINT NOT NULL\
+        \, CONSTRAINT creation_unique UNIQUE(createBlockheight, tablename));"
+
+    createTableMutationTable :: IO ()
+    createTableMutationTable =
+      exec_ sql
+        "CREATE TABLE IF NOT EXISTS VersionedTableMutation\
+         \(tablename TEXT NOT NULL\
+         \, blockheight UNSIGNED BIGINT NOT NULL\
+         \, CONSTRAINT mutation_unique UNIQUE(blockheight, tablename));"
+
+    createTransactionIndexTable :: IO ()
+    createTransactionIndexTable = do
+      exec_ sql
+        "CREATE TABLE IF NOT EXISTS TransactionIndex \
+         \ (txhash BLOB NOT NULL, \
+         \ blockheight UNSIGNED BIGINT NOT NULL, \
+         \ CONSTRAINT transactionIndexConstraint UNIQUE(txhash));"
+      exec_ sql
+        "CREATE INDEX IF NOT EXISTS \
+         \ transactionIndexByBH ON TransactionIndex(blockheight)";

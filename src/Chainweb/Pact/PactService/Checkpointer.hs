@@ -15,6 +15,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService.Checkpointer
@@ -35,6 +36,11 @@ module Chainweb.Pact.PactService.Checkpointer
     , exitOnRewindLimitExceeded
     , rewindToIncremental
     , SomeBlockM(..)
+    , getEarliestBlock
+    , getLatestBlock
+    , lookupHistorical
+    , getBlockHistory
+    , Internal.withCheckpointerResources
     ) where
 
 import Control.Concurrent
@@ -78,6 +84,12 @@ import Chainweb.Version
 import qualified Chainweb.Pact4.Types as Pact4
 import qualified Chainweb.Pact5.Types as Pact5
 import Chainweb.Version.Guards (pact5)
+import qualified Chainweb.Pact.PactService.Checkpointer.Internal as Internal
+import Chainweb.BlockHash
+import qualified Pact.Core.Names as Pact5
+import qualified Pact.Core.Persistence.Types as Pact5
+import qualified Pact.Core.Builtin as Pact5
+import qualified Pact.Core.Evaluate as Pact5
 
 exitOnRewindLimitExceeded :: PactServiceM logger tbl a -> PactServiceM logger tbl a
 exitOnRewindLimitExceeded = handle $ \case
@@ -172,11 +184,11 @@ readFrom ph doRead = do
     cid <- view chainId
     let currentHeight = maybe (genesisHeight v cid) (succ . view blockHeight) bh
     let execPact4 act =
-            liftIO $ _cpReadFrom (_cpReadCp cp) ph Pact4T $ \dbenv _ ->
+            liftIO $ Internal.readFrom cp ph Pact4T $ \dbenv _ ->
                 evalPactServiceM s e $
                     Pact4.runPactBlockM pactParent (isNothing ph) dbenv act
     let execPact5 act =
-            liftIO $ _cpReadFrom (_cpReadCp cp) ph Pact5T $ \dbenv blockHandle ->
+            liftIO $ Internal.readFrom cp ph Pact5T $ \dbenv blockHandle ->
                 evalPactServiceM s e $ do
                     fst <$> Pact5.runPactBlockM pactParent (isNothing ph) dbenv blockHandle act
     case doRead of
@@ -211,7 +223,7 @@ restoreAndSave ph blocks = do
             Nothing -> genesisHeight v cid
             Just (ParentHeader bh) -> succ (bh ^. blockHeight)
     withPactState $ \runPact ->
-        _cpRestoreAndSave cp ph
+        Internal.restoreAndSave cp ph
             $ blocks & S.zip (S.iterate succ firstBlockHeight) & S.map
                 (\case
                     (height, SomeBlockM (Pair pact4Block pact5Block))
@@ -240,7 +252,7 @@ restoreAndSave ph blocks = do
 findLatestValidBlockHeader' :: (Logger logger) => PactServiceM logger tbl (Maybe BlockHeader)
 findLatestValidBlockHeader' = do
     cp <- view psCheckpointer
-    latestInCheckpointer <- liftIO (_cpGetLatestBlock (_cpReadCp cp))
+    latestInCheckpointer <- liftIO (Internal.getLatestBlock cp.cpSql)
     case latestInCheckpointer of
         Nothing -> return Nothing
         Just (height, hash) -> Just <$> go height hash
@@ -253,7 +265,7 @@ findLatestValidBlockHeader' = do
                     <> " Failed to lookup hash " <> sshow (height, hash) <> " in block header db."
                     <> " Continuing with parent."
                 cp <- view psCheckpointer
-                liftIO (_cpGetBlockParent (_cpReadCp cp) (height, hash)) >>= \case
+                liftIO (Internal.getBlockParent cp.cpCwVersion cp.cpChainId cp.cpSql (height, hash)) >>= \case
                     Nothing -> internalError
                         $ "missing block parent of last hash " <> sshow (height, hash)
                     Just predHash -> go (pred height) predHash
@@ -355,7 +367,7 @@ rewindToIncremental rewindLimit (ParentHeader parent) = do
 
                 -- we have to rewind to the current header to start, for
                 -- playChunk's invariant to be satisfied
-                _cpRewindTo cp
+                Internal.rewindTo cp
                     (Just $ ParentHeader curHdr)
 
                 heightRef <- newIORef (view blockHeight curHdr)
@@ -368,6 +380,33 @@ rewindToIncremental rewindLimit (ParentHeader parent) = do
 
         when (c /= 0) $
             logInfoPact $ "rewindTo.playFork: replayed " <> sshow c <> " blocks"
+
+getEarliestBlock :: PactServiceM logger tbl (Maybe (BlockHeight, BlockHash))
+getEarliestBlock = do
+    cp <- view psCheckpointer
+    liftIO $ Internal.getEarliestBlock cp.cpSql
+
+getLatestBlock :: PactServiceM logger tbl (Maybe (BlockHeight, BlockHash))
+getLatestBlock = do
+    cp <- view psCheckpointer
+    liftIO $ Internal.getLatestBlock cp.cpSql
+
+lookupHistorical
+    :: BlockHeader
+    -> Pact5.Domain Pact5.RowKey Pact5.RowData Pact5.CoreBuiltin Pact5.Info
+    -> Pact5.RowKey
+    -> PactServiceM logger tbl (Historical (Maybe (Pact5.TxLog Pact5.RowData)))
+lookupHistorical blockHeader d k = do
+    cp <- view psCheckpointer
+    liftIO $ Internal.lookupHistorical cp.cpSql blockHeader d k
+
+getBlockHistory
+    :: BlockHeader
+    -> Pact5.Domain Pact5.RowKey Pact5.RowData Pact5.CoreBuiltin Pact5.Info
+    -> PactServiceM logger tbl (Historical BlockTxHistory)
+getBlockHistory blockHeader d = do
+    cp <- view psCheckpointer
+    liftIO $ Internal.getBlockHistory cp.cpSql blockHeader d
 
 -- -------------------------------------------------------------------------- --
 -- Utils
