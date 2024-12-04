@@ -11,13 +11,14 @@ module Chainweb.Test.Pact5.Utils
     )
     where
 
-import Control.Lens
 import Chainweb.Logger
-import Chainweb.Pact.Backend.RelationalCheckpointer
+import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.PactService.Checkpointer.Internal
 import Chainweb.Pact.Types
 import Chainweb.Pact4.Transaction qualified as Pact4
 import Chainweb.Pact5.Transaction qualified as Pact5
 import Chainweb.Version
+import Control.Lens
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Short qualified as SBS
 import Data.Maybe (fromMaybe)
@@ -32,7 +33,7 @@ import System.LogLevel
 
 initCheckpointer :: ChainwebVersion -> ChainId -> SQLiteEnv -> IO (Checkpointer GenericLogger)
 initCheckpointer v cid sql = do
-    initRelationalCheckpointer defaultModuleCacheLimit sql DoNotPersistIntraBlockWrites (genericLogger Error (error . T.unpack)) v cid
+    initCheckpointerResources defaultModuleCacheLimit sql DoNotPersistIntraBlockWrites (genericLogger Error (error . T.unpack)) v cid
 
 pactTxFrom4To5 :: Pact4.Transaction -> Pact5.Transaction
 pactTxFrom4To5 tx =

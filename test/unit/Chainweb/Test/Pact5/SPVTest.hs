@@ -49,12 +49,12 @@ import Chainweb.MerkleUniverse (ChainwebMerkleHashAlgorithm)
 import Chainweb.Miner.Pact
 import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db (doPact5DbTransaction))
-import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.SQLite.DirectV2 (close_v2)
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.PactService (initialPayloadState, withPactService)
 import Chainweb.Pact.PactService.Checkpointer (SomeBlockM (..), readFrom, restoreAndSave)
+import Chainweb.Pact.PactService.Checkpointer.Internal (initCheckpointerResources)
 import Chainweb.Pact.PactService.Pact4.ExecBlock ()
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactInProcApi
