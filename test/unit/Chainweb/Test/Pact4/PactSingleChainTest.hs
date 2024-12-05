@@ -517,7 +517,7 @@ compactionUserTablesDropped rdb =
     gasLimit = 70_000
 
     pactCfg = testPactServiceConfig {
-      _pactBlockGasLimit = gasLimit
+      _pactNewBlockGasLimit = gasLimit
     }
   in
   compactionSetup "compactionUserTablesDropped" rdb pactCfg $ \cr -> do
@@ -936,7 +936,7 @@ comparePactStateBeforeAndAfter statePreCompaction statePostCompaction = do
 --     gasLimit = 70_000
 
 --     pactCfg = testPactServiceConfig {
---       _pactBlockGasLimit = gasLimit
+--       _pactNewBlockGasLimit = gasLimit
 --     }
 --   in
 --   compactionSetup "compactionUserTablesDropped" rdb pactCfg $ \cr -> do
