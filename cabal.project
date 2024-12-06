@@ -205,7 +205,27 @@ allow-newer: webauthn:*
 allow-newer: *:hashable
 
 -- -------------------------------------------------------------------------- --
--- Upper Bounds
+-- Temporary Dependency Overwrites
+--
+-- NOTE:
+--
+-- Please add a comment for each entry that outlines why it is needed and when
+-- it can be removed.
 
--- remove when crypton-connection >0.4.1 got released
-constraints: http-client-tls <0.3.6.4
+-- generic-data is broken due toi orphans-base >=0.9.3.
+-- PR submitted: https://github.com/Lysxia/generic-data/pull/73
+--
+source-repository-package
+    type: git
+    location: https://github.com/hackage-package-forks/generic-data
+    tag: d7eee31fc7919c629f71ce5f58d5e114adb3fbaf
+    --sha256: 0f411m10kw2bdfyp8rh3kzdwbmnp1hw9v41cry5hdzjgp9pjcdig
+
+-- -------------------------------------------------------------------------- --
+-- Temporary Upper Bound Constraints
+
+-- NOTE:
+--
+-- Please add a comment for each entry that outlines why it is needed and when
+-- it can be removed.
+
