@@ -205,7 +205,18 @@ allow-newer: webauthn:*
 allow-newer: *:hashable
 
 -- -------------------------------------------------------------------------- --
--- Upper Bounds
+-- Temporary Dependency Overwrites
+--
+-- NOTE:
+--
+-- Please add a comment for each entry that outlines why it is needed and when
+-- it can be removed.
 
--- remove when crypton-connection >0.4.1 got released
-constraints: http-client-tls <0.3.6.4
+-- -------------------------------------------------------------------------- --
+-- Temporary Upper Bound Constraints
+
+-- NOTE:
+--
+-- Please add a comment for each entry that outlines why it is needed and when
+-- it can be removed.
+
