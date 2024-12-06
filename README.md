@@ -44,7 +44,7 @@ Minimal recommended hardware requirements for nodes are:
 * 250 GB SSD or fast HDD
 * Public IP address
 
-If the node is also used as API server for Pact or mining, rosetta, chainweb-data: 4 CPU cores and 8GB of RAM.
+If the node is also used as API server for Pact or mining, Rosetta, chainweb-data: 4 CPU cores and 8GB of RAM.
 
 ### Docker (all batteries included)
 
@@ -243,7 +243,7 @@ are disabled by default (e.g. mining API, Rosetta, and header updates).
 While the P2P endpoint must be directly available from the public internet, it
 is highly recommended to expose the service API only on a private network. When
 service API endpoints are made available publicly it is recommended to use a
-reverse proxy setup things like rate limiting, authentication, and CORS.
+reverse proxy setup such as rate limiting, authentication, and CORS.
 
 ### Configuration
 
