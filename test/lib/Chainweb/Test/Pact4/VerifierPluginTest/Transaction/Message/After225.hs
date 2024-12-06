@@ -53,7 +53,7 @@ tests = testGroup "After225"
   where
     -- This is way more than what is used in production, but during testing
     -- we can be generous.
-    generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
+    generousConfig = testPactServiceConfig { _pactNewBlockGasLimit = 300_000 }
 
     test pactConfig tname f =
       testCaseSteps tname $ \step ->
