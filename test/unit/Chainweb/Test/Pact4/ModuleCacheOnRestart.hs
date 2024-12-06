@@ -57,6 +57,7 @@ import Chainweb.WebBlockHeaderDB
 
 import Chainweb.Storage.Table.RocksDB
 import qualified Chainweb.Pact4.ModuleCache as Pact4
+import Chainweb.Pact.Backend.Types
 
 testVer :: ChainwebVersion
 testVer = fastForkingCpmTestVersion singletonChainGraph

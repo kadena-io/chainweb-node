@@ -109,6 +109,7 @@ import Chainweb.Pact4.Types
 import Chainweb.Pact4.ModuleCache
 import Control.Monad.Except
 import qualified Data.List.NonEmpty as NE
+import Chainweb.Pact.Backend.Types (BlockHandle(..))
 
 
 -- | Execute a block -- only called in validate either for replay or for validating current block.

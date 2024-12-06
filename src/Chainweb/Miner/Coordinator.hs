@@ -48,7 +48,7 @@ module Chainweb.Miner.Coordinator
 
 import Control.Concurrent
 import Control.Concurrent.Async (withAsync)
-import Control.Concurrent.STM (atomically, retry)
+import Control.Concurrent.STM (atomically, retry, TMVar, tryTakeTMVar)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
 import Control.Lens
@@ -129,41 +129,16 @@ data MiningCoordination logger tbl = MiningCoordination
     , _coord403s :: !(IORef Int)
     , _coordConf :: !CoordinationConfig
     , _coordUpdateStreamCount :: !(IORef Int)
-    , _coordPrimedWork :: !(TVar PrimedWork)
+    , _coordPrimedWork :: !(TMVar UnminedPayload)
     }
-
--- | Precached payloads for Private Miners. This allows new work requests to be
--- made as often as desired, without clogging the Pact queue.
---
-newtype PrimedWork =
-    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId WorkState))
-    deriving newtype (Semigroup, Monoid)
-    deriving stock Generic
-    deriving anyclass (Wrapped)
-
-data WorkState
-  = WorkReady NewBlock
-    -- ^ We have work ready for the miner
-  | WorkAlreadyMined BlockHash
-    -- ^ A block with this parent has already been mined and submitted to the
-    --   cut pipeline - we don't want to mine it again.
-  | WorkStale
-    -- ^ No work has been produced yet with the latest parent block on this
-    --   chain.
-  deriving stock (Show)
-
-isWorkReady :: WorkState -> Bool
-isWorkReady = \case
-  WorkReady {} -> True
-  _ -> False
 
 -- | Data shared between the mining threads represented by `newWork` and
 -- `publish`.
 --
--- The key is hash of the current block's payload.
+-- The key is hash of the current block's payload and of the parent block.
 --
 newtype MiningState = MiningState
-    { _miningState :: M.Map BlockPayloadHash (T3 Miner PayloadWithOutputs (Time Micros)) }
+    { _miningState :: M.Map (BlockPayloadHash, BlockHash) (T3 Miner PayloadWithOutputs (Time Micros)) }
     deriving stock (Generic)
     deriving newtype (Semigroup, Monoid)
 
@@ -197,7 +172,7 @@ newWork
         -- ^ this is used to lookup parent headers that are not in the cut
         -- itself.
     -> PactExecutionService
-    -> TVar PrimedWork
+    -> HM.HashMap ChainId (TMVar UnminedPayload)
     -> Cut
     -> IO (Maybe (T2 WorkHeader PayloadWithOutputs))
 newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
@@ -216,25 +191,21 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
     -- to loop and select one of those chains. it is not a normal situation to
     -- have no chains with primed work if there are more than a couple chains.
     mpw <- atomically $ do
-        PrimedWork pw <- readTVar tpw
         mpw <- maybe retry return (HM.lookup mid pw)
-        guard (any isWorkReady mpw)
-        return mpw
+        unmined <- maybe retry return (HM.lookup cid mpw)
+        tryTakeTMVar (HM.lookup cid mpw)
     let mr = T2
-            <$> HM.lookup cid mpw
+            <$> mpw
             <*> getCutExtension c cid
 
     case mr of
-        Just (T2 WorkStale _) -> do
-            logFun @T.Text Debug $ "newWork: chain " <> toText cid <> " has stale work"
-            newWork logFun Anything eminer hdb pact tpw c
-        Just (T2 (WorkAlreadyMined _) _) -> do
+        Just (T2 Nothing _) -> do
             logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " has a payload that was already mined"
             newWork logFun Anything eminer hdb pact tpw c
         Nothing -> do
             logFun @T.Text Debug $ "newWork: chain " <> toText cid <> " not mineable"
             newWork logFun Anything eminer hdb pact tpw c
-        Just (T2 (WorkReady newBlock) extension) -> do
+        Just (T2 newBlock extension) -> do
             let (primedParentHash, primedParentHeight, _) = newBlockParent newBlock
             if primedParentHash == view blockHash (_parentHeader (_cutExtensionParent extension))
             then do

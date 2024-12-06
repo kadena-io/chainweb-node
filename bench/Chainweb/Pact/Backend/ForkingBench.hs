@@ -88,6 +88,7 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Compaction qualified as C
 
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.BlockValidation
@@ -343,7 +344,7 @@ withResources rdb trunkLength logLevel compact p f = C.envWithCleanup create des
     startPact version l bhdb pdb mempool sqlEnv = do
         reqQ <- newPactQueue pactQueueSize
         a <- async $ runPactService version cid l Nothing reqQ mempool bhdb pdb sqlEnv testPactServiceConfig
-            { _pactBlockGasLimit = 180_000
+            { _pactNewBlockGasLimit = 180_000
             , _pactPersistIntraBlockWrites = p
             }
 

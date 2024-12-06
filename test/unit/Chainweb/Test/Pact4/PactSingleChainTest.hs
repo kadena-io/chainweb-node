@@ -101,6 +101,7 @@ import qualified Pact.Core.Names as PCore
 import qualified Data.ByteString.Short as SB
 import Text.Show.Pretty (ppShow)
 import qualified Pact.Core.StableEncoding as PCore
+import Chainweb.Pact.Backend.Types
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion petersonChainGraph
@@ -517,7 +518,7 @@ compactionUserTablesDropped rdb =
     gasLimit = 70_000
 
     pactCfg = testPactServiceConfig {
-      _pactBlockGasLimit = gasLimit
+      _pactNewBlockGasLimit = gasLimit
     }
   in
   compactionSetup "compactionUserTablesDropped" rdb pactCfg $ \cr -> do
@@ -936,7 +937,7 @@ comparePactStateBeforeAndAfter statePreCompaction statePostCompaction = do
 --     gasLimit = 70_000
 
 --     pactCfg = testPactServiceConfig {
---       _pactBlockGasLimit = gasLimit
+--       _pactNewBlockGasLimit = gasLimit
 --     }
 --   in
 --   compactionSetup "compactionUserTablesDropped" rdb pactCfg $ \cr -> do

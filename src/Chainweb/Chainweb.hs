@@ -160,8 +160,9 @@ import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import qualified Chainweb.OpenAPIValidation as OpenAPIValidation
+import Chainweb.Pact.Backend.Types(IntraBlockPersistence(..))
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
-import Chainweb.Pact.Types (PactServiceConfig(..), IntraBlockPersistence(..))
+import Chainweb.Pact.Types (PactServiceConfig(..))
 import Chainweb.Pact4.Validations
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
@@ -439,7 +440,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
       , _pactUnlimitedInitialRewind =
           isJust (_cutDbParamsInitialHeightLimit cutConfig) ||
           isJust (_cutDbParamsInitialCutFile cutConfig)
-      , _pactBlockGasLimit = maybe id min maxGasLimit (_configBlockGasLimit conf)
+      , _pactNewBlockGasLimit = maybe id min maxGasLimit (_configBlockGasLimit conf)
       , _pactLogGas = _configLogGas conf
       , _pactModuleCacheLimit = _configModuleCacheLimit conf
       , _pactEnableLocalTimeout = _configEnableLocalTimeout conf

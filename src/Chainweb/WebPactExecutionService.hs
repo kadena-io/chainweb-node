@@ -13,9 +13,9 @@ module Chainweb.WebPactExecutionService
   , mkWebPactExecutionService
   , mkPactExecutionService
   , emptyPactExecutionService
-  , NewBlock(..)
-  , newBlockToPayloadWithOutputs
-  , newBlockParent
+--   , NewBlock(..)
+--   , newBlockToPayloadWithOutputs
+--   , newBlockParent
   ) where
 
 import Control.Lens
@@ -56,21 +56,16 @@ import Chainweb.BlockCreationTime (BlockCreationTime)
 -- -------------------------------------------------------------------------- --
 -- PactExecutionService
 
-data NewBlock
-    = NewBlockInProgress !(ForSomePactVersion BlockInProgress)
-    | NewBlockPayload !ParentHeader !PayloadWithOutputs
-    deriving Show
+-- newBlockToPayloadWithOutputs :: NewBlock -> PayloadWithOutputs
+-- newBlockToPayloadWithOutputs (NewBlockInProgress bip)
+--     = forAnyPactVersion finalizeBlock bip
+-- newBlockToPayloadWithOutputs (NewBlockPayload _ pwo)
+--     = pwo
 
-newBlockToPayloadWithOutputs :: NewBlock -> PayloadWithOutputs
-newBlockToPayloadWithOutputs (NewBlockInProgress bip)
-    = forAnyPactVersion finalizeBlock bip
-newBlockToPayloadWithOutputs (NewBlockPayload _ pwo)
-    = pwo
-
-newBlockParent :: NewBlock -> (BlockHash, BlockHeight, BlockCreationTime)
-newBlockParent (NewBlockInProgress (ForSomePactVersion _ bip)) = blockInProgressParent bip
-newBlockParent (NewBlockPayload (ParentHeader ph) _) =
-    (view blockHash ph, view blockHeight ph, view blockCreationTime ph)
+-- newBlockParent :: NewBlock -> (BlockHash, BlockHeight, BlockCreationTime)
+-- newBlockParent (NewBlockInProgress (ForSomePactVersion _ bip)) = blockInProgressParent bip
+-- newBlockParent (NewBlockPayload (ParentHeader ph) _) =
+--     (view blockHash ph, view blockHeight ph, view blockCreationTime ph)
 
 -- | Service API for interacting with a single or multi-chain ("Web") pact service.
 -- Thread-safe to be called from multiple threads. Backend is queue-backed on a per-chain
@@ -87,7 +82,7 @@ data PactExecutionService = PactExecutionService
         Miner ->
         NewBlockFill ->
         ParentHeader ->
-        IO (Historical NewBlock)
+        IO ()
         )
     , _pactContinueBlock :: !(
         forall pv.
@@ -156,7 +151,7 @@ _webPactNewBlock
     -> Miner
     -> NewBlockFill
     -> ParentHeader
-    -> IO (Historical NewBlock)
+    -> IO ()
 _webPactNewBlock = _pactNewBlock . _webPactExecutionService
 {-# INLINE _webPactNewBlock #-}
 
@@ -212,7 +207,7 @@ mkPactExecutionService q = PactExecutionService
     { _pactValidateBlock = \h pd -> do
         validateBlock h pd q
     , _pactNewBlock = \_ m fill parent -> do
-        fmap NewBlockInProgress <$> newBlock m fill parent q
+        newBlock m fill parent q
     , _pactContinueBlock = \_ bip -> do
         continueBlock bip q
     , _pactLocal = \pf sv rd ct ->

@@ -58,6 +58,8 @@ import Chainweb.Test.Pact5.Utils
 import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
 import Chainweb.Pact5.Types (noInfo)
 import GHC.Stack
+import Chainweb.Pact.Backend.Types
+import qualified Chainweb.Pact.PactService.Checkpointer.Internal as Checkpointer
 
 -- | A @DbAction f@ is a description of some action on the database together with an f-full of results for it.
 type DbValue = Integer
@@ -184,7 +186,7 @@ runBlocks
     -> [DbBlock (Const ())]
     -> IO [(BlockHeader, DbBlock Identity)]
 runBlocks cp ph blks = do
-    ((), finishedBlks) <- _cpRestoreAndSave cp (Just ph) $ traverse_ Stream.yield
+    ((), finishedBlks) <- Checkpointer.restoreAndSave cp (Just ph) $ traverse_ Stream.yield
         [ Pact5RunnableBlock $ \db _ph startHandle -> do
             doPact5DbTransaction db startHandle Nothing $ \txdb -> do
                 _ <- ignoreGas noInfo $ _pdbBeginTx txdb Transactional
@@ -198,7 +200,7 @@ runBlocks cp ph blks = do
 
 assertBlock :: HasCallStack => Checkpointer GenericLogger -> ParentHeader -> (BlockHeader, DbBlock Identity) -> IO ()
 assertBlock cp ph (expectedBh, blk) = do
-    hist <- _cpReadFrom (_cpReadCp cp) (Just ph) Pact5T $ \db startHandle -> do
+    hist <- Checkpointer.readFrom cp (Just ph) Pact5T $ \db startHandle -> do
         ((), _endHandle) <- doPact5DbTransaction db startHandle Nothing $ \txdb -> do
             _ <- ignoreGas noInfo $ _pdbBeginTx txdb Transactional
             blk' <- forM blk (runDbAction' txdb)
@@ -226,7 +228,7 @@ tests = testGroup "Pact5 Checkpointer tests"
         testCase "valid PactDb before genesis" $ do
             cp <- cpIO
             ((), _handle) <- (throwIfNoHistory =<<) $
-                _cpReadFrom (_cpReadCp cp) Nothing Pact5T $ \db blockHandle -> do
+                Checkpointer.readFrom cp Nothing Pact5T $ \db blockHandle -> do
                     doPact5DbTransaction db blockHandle Nothing $ \txdb ->
                         Pact.Core.runPactDbRegression txdb
             return ()
@@ -236,7 +238,7 @@ tests = testGroup "Pact5 Checkpointer tests"
             liftIO $ do
                 cp <- cpIO
                 -- extend this empty chain with the genesis block
-                ((), ()) <- _cpRestoreAndSave cp Nothing $ Stream.yield $ Pact5RunnableBlock $ \_ _ hndl ->
+                ((), ()) <- Checkpointer.restoreAndSave cp Nothing $ Stream.yield $ Pact5RunnableBlock $ \_ _ hndl ->
                     return (((), gh), hndl)
                 -- run all of the generated blocks
                 finishedBlocks <- runBlocks cp (ParentHeader gh) blocks

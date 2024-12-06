@@ -72,6 +72,7 @@ import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
 import Chainweb.Payload.PayloadStore (lookupPayloadWithHeight)
+import Chainweb.Pact.Backend.Types
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion peterson
@@ -151,9 +152,9 @@ tests = testGroup testName
     testName = "Chainweb.Test.Pact4.PactMultiChainTest"
     -- This is way more than what is used in production, but during testing
     -- we can be generous.
-    generousConfig = testPactServiceConfig { _pactBlockGasLimit = 300_000 }
+    generousConfig = testPactServiceConfig { _pactNewBlockGasLimit = 300_000 }
     timeoutConfig = testPactServiceConfig
-      { _pactBlockGasLimit = 300_000_000
+      { _pactNewBlockGasLimit = 300_000_000
       , _pactTxTimeLimit = Just 10_000
       }
 
