@@ -703,7 +703,7 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf = do
                 $ addLabel ("sub-component", "gas")
                 $ _cpLogger $ _cpReadCp cp
 
-        , _psBlockGasLimit = _pactBlockGasLimit conf
+        , _psBlockGasLimit = _pactNewBlockGasLimit conf
         , _psEnableLocalTimeout = False
         , _psTxFailuresCounter = Nothing
         , _psTxTimeLimit = _pactTxTimeLimit conf

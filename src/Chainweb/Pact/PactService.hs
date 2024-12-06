@@ -191,7 +191,7 @@ withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv config 
                     , _psAllowReadsInLocal = _pactAllowReadsInLocal config
                     , _psLogger = pactServiceLogger
                     , _psGasLogger = gasLogger <$ guard (_pactLogGas config)
-                    , _psBlockGasLimit = _pactBlockGasLimit config
+                    , _psBlockGasLimit = _pactNewBlockGasLimit config
                     , _psEnableLocalTimeout = _pactEnableLocalTimeout config
                     , _psTxFailuresCounter = txFailuresCounter
                     , _psTxTimeLimit = _pactTxTimeLimit config
