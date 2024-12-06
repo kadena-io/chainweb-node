@@ -1,3 +1,30 @@
+## 2.26.1 (2024-12-03)
+This is a minor point release. Upgrading is **strongly recommended**.
+
+To upgrade, pull the latest docker image, or download the binary and
+restart the node with the same configuration file as before.
+
+### Changes
+- Update to Pact 4.13.2 [`343b6e3`](https://github.com/kadena-io/chainweb-node/commit/343b6e3d9b2c771bb6a9b757a337fca1ec824e91)
+- Add informative error messages to pact /send API [`bd5d6af`](https://github.com/kadena-io/chainweb-node/commit/bd5d6af959a986cc3cf690e0eb2180d62f78e51e)
+- Increase P2P network resiliency to unreliable nodes [`f784622`](https://github.com/kadena-io/chainweb-node/commit/f7846228795ec93be82ae08ffce60ce4999e19f5)
+- Compute P2P session count in O(1) [`cab1674`](https://github.com/kadena-io/chainweb-node/commit/cab1674ce9e25c2aba3690c219351eb7c049988a)
+- Order P2P peer list by reliability [`c3130c9`](https://github.com/kadena-io/chainweb-node/commit/c3130c995dcb4cd3923d8d6771acd892cf5d18b1)
+- Remove unnecessary performance optimisation in P2P Peer DB update [`b4a4db0`](https://github.com/kadena-io/chainweb-node/commit/b4a4db043fb2a7e1c7665e30f3e31d4f56f7e3ea)
+- Compute P2P peer count using faster monomorphic function [`9a95738`](https://github.com/kadena-io/chainweb-node/commit/9a957388a0fac736abdb45c1cbd0d29694731247)
+- Randomize P2P peer ordering [`a1198fc`](https://github.com/kadena-io/chainweb-node/commit/a1198fc61f6f50ccf8951be4e61d1967b340ed6c)
+- Optimize P2P peer pruning algorithm via set deletion instead of set union [`75ab5b5`](https://github.com/kadena-io/chainweb-node/commit/75ab5b5adc4843084623cfcbba6cb6683a71ac6d)
+- Delete unnecessary indices in the P2P peer db [`5f67ad3`](https://github.com/kadena-io/chainweb-node/commit/5f67ad35a44db0ef05ad77e5d705b3f964ee8b69)
+- Set the HTTP Server header to distinguish between the P2P and Service REST APIs [`4ecc5a9`](https://github.com/kadena-io/chainweb-node/commit/4ecc5a999742e55d61c15d1c42af37362b4d4a23)
+- Support dependency `hashable-1.5.*` [`e5a05c6`](https://github.com/kadena-io/chainweb-node/commit/e5a05c66201a841d20f50babf0b953b9d00594a4)
+- Correct node shutdown message due to old Chainweb version [`c0312c1`](https://github.com/kadena-io/chainweb-node/commit/c0312c13a731b0cf8ac8227e9d18ee51442ac326)
+- Remove redundant dependency on `sbv` [`8d00677`](https://github.com/kadena-io/chainweb-node/commit/8d00677d9f34107849b010d5cd27becdf2dc0852)
+- Split `ea` out into its own executable [`0865649`](https://github.com/kadena-io/chainweb-node/commit/0865649fe6bf68e3ae213dbed522dd14b56ff39b)
+- Split up all `cwtool` subcommands into their own executables. Only include necessary executables into the release. [`0cf12a2`](https://github.com/kadena-io/chainweb-node/commit/0cf12a2975d2b82bd26473d5ddf2dca014c4f5c7)
+- Stop going through PactService to pre-insert check an empty tx batch [`19f7d63`](https://github.com/kadena-io/chainweb-node/commit/19f7d63cce2c5eed0d473047d4169417e61e1735)
+- Update location of `base64-bytestring` dependency to Kadena's fork [`5290cf1`](https://github.com/kadena-io/chainweb-node/commit/5290cf1bc1144524789ce96988428d491090620b)
+- Fix some typos in README.md [`7eea51a`](https://github.com/kadena-io/chainweb-node/commit/7eea51a5ad7b3f15abd6e24a6a6ea36f9868b688)
+
 ## 2.26 (2024-11-13)
 This is a major version update. This release replaces all previous versions.
 
