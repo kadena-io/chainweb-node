@@ -23,8 +23,7 @@
 
 module Chainweb.Pact.Backend.Utils
   ( -- * General utils
-    open2
-  , chainDbFileName
+    chainDbFileName
     -- * Shared Pact database interactions
   , doLookupSuccessful
   , commitBlockStateToDatabase
@@ -64,6 +63,7 @@ module Chainweb.Pact.Backend.Utils
   -- * SQLite runners
   , withSqliteDb
   , startSqliteDb
+  , startReadSqliteDb
   , stopSqliteDb
   , withSQLiteConnection
   , openSQLiteConnection
@@ -116,7 +116,7 @@ import Chainweb.Version
 import Chainweb.Utils
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
-import Database.SQLite3.Direct hiding (open2)
+import Database.SQLite3.Direct
 import GHC.Stack (HasCallStack)
 import qualified Data.ByteString.Short as SB
 import qualified Data.Vector as V
@@ -127,6 +127,7 @@ import qualified Data.ByteString as BS
 import qualified Pact.Types.Persistence as Pact4
 import Chainweb.Pact.Backend.Types
 import qualified Pact.Core.Persistence as Pact5
+import Network.Wai.Middleware.OpenApi (HasReadOnly(readOnly))
 
 -- -------------------------------------------------------------------------- --
 -- SQ3.Utf8 Encodings
@@ -359,6 +360,18 @@ startSqliteDb cid logger dbDir doResetDb = do
     resetDb = removeDirectoryRecursive dbDir
     sqliteFile = dbDir </> chainDbFileName cid
 
+startReadSqliteDb
+    :: Logger logger
+    => ChainId
+    -> logger
+    -> FilePath
+    -> IO SQLiteEnv
+startReadSqliteDb cid logger dbDir = do
+    logFunctionText logger Debug $ "(read-only) opening sqlitedb named " <> T.pack sqliteFile
+    openSQLiteConnection sqliteFile chainwebPragmas
+  where
+    sqliteFile = dbDir </> chainDbFileName cid
+
 chainDbFileName :: ChainId -> FilePath
 chainDbFileName cid = fold
     [ "pact-v1-chain-"
@@ -374,7 +387,25 @@ withSQLiteConnection file ps =
     bracket (openSQLiteConnection file ps) closeSQLiteConnection
 
 openSQLiteConnection :: String -> [Pragma] -> IO SQLiteEnv
-openSQLiteConnection file ps = open2 file >>= \case
+openSQLiteConnection file ps = open_v2
+    (fromString file)
+    (collapseFlags [sqlite_open_readwrite , sqlite_open_create , sqlite_open_nomutex])
+    Nothing -- Nothing corresponds to the nullPtr
+  >>= \case
+    Left (err, msg) ->
+      internalError $
+      "withSQLiteConnection: Can't open db with "
+      <> asString (show err) <> ": " <> asString (show msg)
+    Right r -> do
+      runPragmas r ps
+      return r
+
+openReadSQLiteConnection :: String -> [Pragma] -> IO SQLiteEnv
+openReadSQLiteConnection file ps = open_v2
+    (fromString file)
+    (collapseFlags [sqlite_open_readonly , sqlite_open_create , sqlite_open_nomutex])
+    Nothing -- Nothing corresponds to the nullPtr
+  >>= \case
     Left (err, msg) ->
       internalError $
       "withSQLiteConnection: Can't open db with "
@@ -403,21 +434,16 @@ withTempSQLiteConnection = withSQLiteConnection ""
 withInMemSQLiteConnection :: [Pragma] -> (SQLiteEnv -> IO c) -> IO c
 withInMemSQLiteConnection = withSQLiteConnection ":memory:"
 
-open2 :: String -> IO (Either (SQ3.Error, SQ3.Utf8) SQ3.Database)
-open2 file = open_v2
-    (fromString file)
-    (collapseFlags [sqlite_open_readwrite , sqlite_open_create , sqlite_open_fullmutex])
-    Nothing -- Nothing corresponds to the nullPtr
-
 collapseFlags :: [SQLiteFlag] -> SQLiteFlag
 collapseFlags xs =
     if Prelude.null xs then error "collapseFlags: You must pass a non-empty list"
-    else Prelude.foldr1 (.|.) xs
+    else Prelude.foldl1 (.|.) xs
 
-sqlite_open_readwrite, sqlite_open_create, sqlite_open_fullmutex :: SQLiteFlag
+sqlite_open_readwrite, sqlite_open_create, sqlite_open_nomutex :: SQLiteFlag
 sqlite_open_readwrite = 0x00000002
+sqlite_open_readonly = 0x00000001
 sqlite_open_create = 0x00000004
-sqlite_open_fullmutex = 0x00010000
+sqlite_open_nomutex = 0x00008000
 
 markTableMutation :: Utf8 -> BlockHeight -> Database -> IO ()
 markTableMutation tablename blockheight db = do

@@ -53,6 +53,9 @@ module Chainweb.Pact.Types
   , psEnableLocalTimeout
   , psTxFailuresCounter
   , psTxTimeLimit
+  , psMakeBlocks
+  , psLatestNewBlockVar
+  , psBlockInProgressVar
     --
     -- * Pact Service State
   , PactServiceState(..)
@@ -251,6 +254,7 @@ import qualified Data.Vector as V
 import qualified Pact.Core.Hash as Pact5
 import Data.Maybe
 import Chainweb.BlockCreationTime
+import Control.Concurrent.Async
 
 
 -- | Gather tx logs for a block, along with last tx for each
@@ -445,8 +449,10 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psEnableLocalTimeout :: !Bool
     , _psTxFailuresCounter :: !(Maybe (Counter "txFailures"))
     , _psTxTimeLimit :: !(Maybe Micros)
+    , _psMakeBlocks :: !Bool
+    , _psLatestNewBlockVar :: !(TMVar UnminedPayload)
+    , _psBlockInProgressVar :: !(TMVar (ForSomePactVersion BlockInProgress))
     }
-makeLenses ''PactServiceEnv
 
 instance HasChainwebVersion (PactServiceEnv logger c) where
     _chainwebVersion = _chainwebVersion . _psBlockHeaderDb
@@ -503,6 +509,7 @@ data PactServiceConfig = PactServiceConfig
     -- ^ *Only affects Pact5*
     --   Maximum allowed execution time for a single transaction.
     --   If 'Nothing', it's a function of the BlockGasLimit.
+  , _pactMakeBlocks :: !Bool
   } deriving (Eq,Show)
 
 
@@ -522,6 +529,7 @@ testPactServiceConfig = PactServiceConfig
       , _pactEnableLocalTimeout = False
       , _pactPersistIntraBlockWrites = DoNotPersistIntraBlockWrites
       , _pactTxTimeLimit = Nothing
+      , _pactMakeBlocks = True
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
@@ -574,8 +582,6 @@ data PactServiceState = PactServiceState
     { _psInitCache :: !ModuleInitCache
     }
 
-makeLenses ''PactServiceState
-
 data PactBlockEnv logger pv tbl = PactBlockEnv
   { _psServiceEnv :: !(PactServiceEnv logger tbl)
   , _psParentHeader :: !ParentHeader
@@ -583,12 +589,10 @@ data PactBlockEnv logger pv tbl = PactBlockEnv
   , _psBlockDbEnv :: !(PactDbFor logger pv)
   }
 
-makeLenses ''PactBlockEnv
-
 instance HasChainwebVersion (PactBlockEnv logger db tbl) where
-  chainwebVersion = psServiceEnv . chainwebVersion
+  _chainwebVersion = _chainwebVersion . _psServiceEnv
 instance HasChainId (PactBlockEnv logger db tbl) where
-  chainId = psServiceEnv . chainId
+  _chainId = _chainId . _psServiceEnv
 
 -- | The top level monad of PactService, notably allowing access to a
 -- checkpointer and module init cache and some configuration parameters.
@@ -661,72 +665,6 @@ execPactServiceM
 execPactServiceM st env act
     = execStateT (runReaderT (_unPactServiceM act) env) st
 
--- -------------------------------------------------------------------------- --
--- Pact Logger
-
-pactLogLevel :: String -> LogLevel
-pactLogLevel "INFO" = Info
-pactLogLevel "ERROR" = Error
-pactLogLevel "DEBUG" = Debug
-pactLogLevel "WARN" = Warn
-pactLogLevel _ = Info
-
--- | Create Pact Loggers that use the the chainweb logging system as backend.
---
-pactLoggers :: Logger logger => logger -> Pact4.Loggers
-pactLoggers logger = Pact4.Loggers $ Pact4.mkLogger (error "ignored") fun (Pact4.LogRules mempty)
-  where
-    fun :: Pact4.LoggerLogFun
-    fun _ (Pact4.LogName n) cat msg = do
-        let namedLogger = addLabel ("logger", T.pack n) logger
-        logFunctionText namedLogger (pactLogLevel cat) $ T.pack msg
-
--- | Write log message
---
-logg_ :: (MonadIO m, Logger logger) => logger -> LogLevel -> Text -> m ()
-logg_ logger level msg = liftIO $ logFunction logger level msg
-
--- | Write log message using the logger in Checkpointer environment
-
-logInfo_ :: (MonadIO m, Logger logger) => logger -> Text -> m ()
-logInfo_ l = logg_ l Info
-
-logWarn_ :: (MonadIO m, Logger logger) => logger -> Text -> m ()
-logWarn_ l = logg_ l Warn
-
-logError_ :: (MonadIO m, Logger logger) => logger -> Text -> m ()
-logError_ l = logg_ l Error
-
-logDebug_ :: (MonadIO m, Logger logger) => logger -> Text -> m ()
-logDebug_ l = logg_ l Debug
-
-logJsonTrace_ :: (MonadIO m, ToJSON a, Typeable a, NFData a, Logger logger) => logger -> LogLevel -> JsonLog a -> m ()
-logJsonTrace_ logger level msg = liftIO $ logFunction logger level msg
-
--- | Write log message using the logger in Checkpointer environment
---
-logPact :: (Logger logger) => LogLevel -> Text -> PactServiceM logger tbl ()
-logPact level msg = view psLogger >>= \l -> logg_ l level msg
-
-logInfoPact :: (Logger logger) => Text -> PactServiceM logger tbl ()
-logInfoPact msg = view psLogger >>= \l -> logInfo_ l msg
-
-logWarnPact :: (Logger logger) => Text -> PactServiceM logger tbl ()
-logWarnPact msg = view psLogger >>= \l -> logWarn_ l msg
-
-logErrorPact :: (Logger logger) => Text -> PactServiceM logger tbl ()
-logErrorPact msg = view psLogger >>= \l -> logError_ l msg
-
-logDebugPact :: (Logger logger) => Text -> PactServiceM logger tbl ()
-logDebugPact msg = view psLogger >>= \l -> logDebug_ l msg
-
-logJsonTracePact :: (ToJSON a, Typeable a, NFData a, Logger logger) => LogLevel -> JsonLog a -> PactServiceM logger tbl ()
-logJsonTracePact level msg = view psLogger >>= \l -> logJsonTrace_ l level msg
-
-localLabelPact :: (Logger logger) => (Text, Text) -> PactServiceM logger tbl x -> PactServiceM logger tbl x
-localLabelPact lbl x = do
-  locally psLogger (addLabel lbl) x
-
 
 data PactServiceException = PactServiceIllegalRewind
     { _attemptedRewindTo :: !(Maybe (BlockHeight, BlockHash))
@@ -743,8 +681,6 @@ instance Show PactServiceException where
       ]
 
 instance Exception PactServiceException
-
-makePrisms ''Historical
 
 -- | Value that represents how far to go backwards while rewinding.
 newtype RewindDepth = RewindDepth { _rewindDepth :: Word64 }
@@ -779,8 +715,6 @@ data LocalResult
     | LocalPact5PreflightResult !(Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info))) ![Text]
     | LocalTimeout
     deriving stock (Show, Generic)
-
-makePrisms ''LocalResult
 
 instance J.Encode LocalResult where
     build (MetadataValidationFailure e) = J.object
@@ -895,7 +829,7 @@ instance Show SubmittedRequestMsg where
 
 data RequestMsg r where
     ContinueBlockMsg :: !(ContinueBlockReq pv) -> RequestMsg (Historical (BlockInProgress pv))
-    NewBlockMsg :: !NewBlockReq -> RequestMsg (Historical (ForSomePactVersion BlockInProgress))
+    NewBlockMsg :: !NewBlockReq -> RequestMsg ()
     ValidateBlockMsg :: !ValidateBlockReq -> RequestMsg PayloadWithOutputs
     LocalMsg :: !LocalReq -> RequestMsg LocalResult
     LookupPactTxsMsg :: !LookupPactTxsReq -> RequestMsg (HashMap ShortByteString (T2 BlockHeight BlockHash))
@@ -1051,6 +985,7 @@ data BlockInProgress pv = BlockInProgress
   , _blockInProgressTransactions :: !(Transactions pv (CommandResultFor pv))
   , _blockInProgressPactVersion :: !(PactVersionT pv)
   }
+
 instance Eq (BlockInProgress pv) where
   bip == bip' =
     case (_blockInProgressPactVersion bip, _blockInProgressPactVersion bip') of
@@ -1199,5 +1134,76 @@ instance NFData r => NFData (Transactions Pact5 r) where
     rnf (_transactionPairs txs)
     `seq` rnf (_transactionCoinbase)
 
+makePrisms ''LocalResult
+makePrisms ''Historical
+makeLenses ''PactServiceState
+makeLenses ''PactBlockEnv
 makeLenses 'Transactions
 makeLenses 'BlockInProgress
+makeLenses ''PactServiceEnv
+
+-- -------------------------------------------------------------------------- --
+-- Pact Logger
+
+pactLogLevel :: String -> LogLevel
+pactLogLevel "INFO" = Info
+pactLogLevel "ERROR" = Error
+pactLogLevel "DEBUG" = Debug
+pactLogLevel "WARN" = Warn
+pactLogLevel _ = Info
+
+-- | Create Pact Loggers that use the the chainweb logging system as backend.
+--
+pactLoggers :: Logger logger => logger -> Pact4.Loggers
+pactLoggers logger = Pact4.Loggers $ Pact4.mkLogger (error "ignored") fun (Pact4.LogRules mempty)
+  where
+    fun :: Pact4.LoggerLogFun
+    fun _ (Pact4.LogName n) cat msg = do
+        let namedLogger = addLabel ("logger", T.pack n) logger
+        logFunctionText namedLogger (pactLogLevel cat) $ T.pack msg
+
+-- | Write log message
+--
+logg_ :: (MonadIO m, Logger logger) => logger -> LogLevel -> Text -> m ()
+logg_ logger level msg = liftIO $ logFunction logger level msg
+
+-- | Write log message using the logger in Checkpointer environment
+
+logInfo_ :: (MonadIO m, Logger logger) => logger -> Text -> m ()
+logInfo_ l = logg_ l Info
+
+logWarn_ :: (MonadIO m, Logger logger) => logger -> Text -> m ()
+logWarn_ l = logg_ l Warn
+
+logError_ :: (MonadIO m, Logger logger) => logger -> Text -> m ()
+logError_ l = logg_ l Error
+
+logDebug_ :: (MonadIO m, Logger logger) => logger -> Text -> m ()
+logDebug_ l = logg_ l Debug
+
+logJsonTrace_ :: (MonadIO m, ToJSON a, Typeable a, NFData a, Logger logger) => logger -> LogLevel -> JsonLog a -> m ()
+logJsonTrace_ logger level msg = liftIO $ logFunction logger level msg
+
+-- | Write log message using the logger in Checkpointer environment
+--
+logPact :: (Logger logger) => LogLevel -> Text -> PactServiceM logger tbl ()
+logPact level msg = view psLogger >>= \l -> logg_ l level msg
+
+logInfoPact :: (Logger logger) => Text -> PactServiceM logger tbl ()
+logInfoPact msg = view psLogger >>= \l -> logInfo_ l msg
+
+logWarnPact :: (Logger logger) => Text -> PactServiceM logger tbl ()
+logWarnPact msg = view psLogger >>= \l -> logWarn_ l msg
+
+logErrorPact :: (Logger logger) => Text -> PactServiceM logger tbl ()
+logErrorPact msg = view psLogger >>= \l -> logError_ l msg
+
+logDebugPact :: (Logger logger) => Text -> PactServiceM logger tbl ()
+logDebugPact msg = view psLogger >>= \l -> logDebug_ l msg
+
+logJsonTracePact :: (ToJSON a, Typeable a, NFData a, Logger logger) => LogLevel -> JsonLog a -> PactServiceM logger tbl ()
+logJsonTracePact level msg = view psLogger >>= \l -> logJsonTrace_ l level msg
+
+localLabelPact :: (Logger logger) => (Text, Text) -> PactServiceM logger tbl x -> PactServiceM logger tbl x
+localLabelPact lbl x = do
+  locally psLogger (addLabel lbl) x

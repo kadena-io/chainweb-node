@@ -43,7 +43,8 @@ module Chainweb.BlockHeader.Internal
 (
 -- * Newtype wrappers for function parameters
   ParentHeader(..)
-, parentHeader
+, _ParentHeader
+, HasParentHeader(..)
 , ParentCreationTime(..)
 
 -- * Block Payload Hash
@@ -129,6 +130,9 @@ module Chainweb.BlockHeader.Internal
 
 -- * CAS Constraint
 , BlockHeaderCas
+
+-- * As-yet unmined payloads
+, UnminedPayload(..)
 ) where
 
 import Chainweb.BlockCreationTime
@@ -614,8 +618,21 @@ newtype ParentHeader = ParentHeader
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
 
-parentHeader :: Lens' ParentHeader BlockHeader
-parentHeader = lens _parentHeader $ \_ hdr -> ParentHeader hdr
+_ParentHeader :: Iso' ParentHeader BlockHeader
+_ParentHeader = iso _parentHeader ParentHeader
+
+class HasParentHeader c where
+    parentHeader :: Lens' c ParentHeader
+
+instance HasParentHeader ParentHeader where
+    parentHeader = id
+
+data UnminedPayload
+    = UnminedPayload
+    { unminedParent :: !(Maybe ParentHeader)
+    , unminedPayload :: !PayloadWithOutputs
+    }
+    deriving Show
 
 instance HasChainId ParentHeader where
     _chainId = _chainId . _parentHeader

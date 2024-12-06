@@ -354,6 +354,7 @@ instance NFData (PactVersionT v) where
 data ForSomePactVersion f = forall pv. ForSomePactVersion (PactVersionT pv) (f pv)
 forAnyPactVersion :: (forall pv. f pv -> a) -> ForSomePactVersion f -> a
 forAnyPactVersion k (ForSomePactVersion _ f) = k f
+
 instance (forall pv. Eq (f pv)) => Eq (ForSomePactVersion f) where
     ForSomePactVersion Pact4T f == ForSomePactVersion Pact4T f' = f == f'
     ForSomePactVersion Pact5T f == ForSomePactVersion Pact5T f' = f == f'
@@ -746,4 +747,3 @@ onAllChains v f = OnChains <$>
     HM.traverseWithKey
         (\cid () -> f cid)
         (HS.toMap (chainIds v))
-

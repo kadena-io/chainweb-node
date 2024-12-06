@@ -12,8 +12,10 @@ module Chainweb.BlockHeader
 (
 -- * Newtype wrappers for function parameters
   I.ParentHeader(..)
-, I.parentHeader
+, I._ParentHeader
+, I.HasParentHeader(..)
 , I.ParentCreationTime(..)
+, I.UnminedPayload(..)
 
 -- * Block Payload Hash
 , I.BlockPayloadHash

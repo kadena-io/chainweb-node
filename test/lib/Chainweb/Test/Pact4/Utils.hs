@@ -857,10 +857,7 @@ runCut v bdb pact genTime noncer miner =
         void $ _webPactValidateBlock pact h (CheckablePayloadWithOutputs pout)
 
 initializeSQLite :: IO SQLiteEnv
-initializeSQLite = open2 file >>= \case
-    Left (_err, _msg) ->
-        internalError "initializeSQLite: A connection could not be opened."
-    Right r -> return r
+initializeSQLite = openSQLiteConnection file
   where
     file = "" {- temporary sqlitedb -}
 

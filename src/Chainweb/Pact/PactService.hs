@@ -14,6 +14,9 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -109,7 +112,7 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import qualified Chainweb.Pact4.Transaction as Pact4
-import Chainweb.TreeDB
+import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.Version.Guards
@@ -143,7 +146,64 @@ import qualified Pact.Core.Errors as Pact5
 import Chainweb.Pact.Backend.Types
 import qualified Chainweb.Pact.PactService.Checkpointer as Checkpointer
 import Chainweb.Pact.PactService.Checkpointer (SomeBlockM(..))
+import Data.Pool (Pool)
+import qualified Data.Pool as Pool
 
+data ToRefreshBlock logger bip out = ToRefreshBlock
+    { logger :: logger
+    , continue :: bip -> IO (Historical bip)
+    , blockInProgressVar :: TMVar bip
+    , latestNewBlockVar :: TMVar out
+    , finalize :: bip -> out
+    , getParent :: bip -> Maybe ParentHeader
+    }
+
+refreshBlockStateMachine :: Logger logger => ToRefreshBlock logger bip out -> IO ()
+refreshBlockStateMachine res = do
+    -- note that if this is empty, we wait; taking from it is the way to make us stop
+    blockInProgress <- atomically $ readTMVar res.blockInProgressVar
+    let hasBlockChanged = do
+            blockInProgress' <- readTMVar res.blockInProgressVar
+            let newParentHeader = res.getParent blockInProgress'
+            let oldParentHeader = res.getParent blockInProgress
+            return (newParentHeader /= oldParentHeader)
+    maybeContinuedBlock <- race
+        (atomically (hasBlockChanged >>= guard))
+        (res.continue blockInProgress)
+    case maybeContinuedBlock of
+        Left () -> logOutraced
+        Right NoHistory -> logOutraced
+        Right (Historical continuedBlock) -> do
+            changed <- atomically $ do
+                changed <- hasBlockChanged
+                when (not changed) $ do
+                    writeTMVar res.blockInProgressVar continuedBlock
+                    writeTMVar res.latestNewBlockVar (res.finalize continuedBlock)
+                return changed
+            when changed logOutraced
+    where
+    logOutraced =
+        logFunctionText res.logger Debug $ "Refresher outraced by new block"
+
+-- TODO: this doesn't work yet without a parallel SQL connection or something.
+blockRefresher :: (CanReadablePayloadCas tbl, Logger logger) => MemPoolAccess -> Pool SQLiteEnv -> PactServiceEnv logger tbl -> PactServiceState -> ToRefreshBlock logger (ForSomePactVersion BlockInProgress) UnminedPayload
+blockRefresher mempoolAccess readOnlySqlPool e s = ToRefreshBlock
+    { logger = e._psLogger
+    , continue = \blockInProgress -> do
+        Pool.withResource readOnlySqlPool $ \roSql -> do
+            -- TODO: no
+            let roEnv = e & psCheckpointer %~ \cp -> cp { cpSql = roSql }
+            evalPactServiceM s roEnv $ Checkpointer.readFrom (forAnyPactVersion _blockInProgressParentHeader blockInProgress) $
+                case blockInProgress of
+                    ForSomePactVersion Pact4T bip ->
+                        SomeBlockM $ Pair (ForSomePactVersion Pact4T <$> Pact4.continueBlock mempoolAccess bip) (error "pact5")
+                    ForSomePactVersion Pact5T bip ->
+                        SomeBlockM $ Pair (error "pact4") (ForSomePactVersion Pact5T <$> Pact5.continueBlock mempoolAccess bip)
+    , blockInProgressVar = _psBlockInProgressVar e
+    , latestNewBlockVar = _psLatestNewBlockVar e
+    , finalize = UnminedPayload <$> forAnyPactVersion _blockInProgressParentHeader <*> forAnyPactVersion finalizeBlock
+    , getParent = forAnyPactVersion _blockInProgressParentHeader
+    }
 
 runPactService
     :: Logger logger
@@ -157,12 +217,20 @@ runPactService
     -> BlockHeaderDb
     -> PayloadDb tbl
     -> SQLiteEnv
+    -> Pool SQLiteEnv
+    -> TMVar UnminedPayload
     -> PactServiceConfig
     -> IO ()
-runPactService ver cid chainwebLogger txFailuresCounter reqQ mempoolAccess bhDb pdb sqlenv config =
-    void $ withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv config $ do
+runPactService ver cid chainwebLogger txFailuresCounter reqQ mempoolAccess bhDb pdb sqlenv readOnlySqlPool newBlockVar config =
+    void $ withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv readOnlySqlPool newBlockVar config $ do
         initialPayloadState ver cid
-        serviceRequests mempoolAccess reqQ
+        e <- ask
+        s <- get
+        liftIO $ withAsync
+            (runForever (logFunction chainwebLogger) ("Refresh blocks " <> toText cid) $
+                refreshBlockStateMachine (blockRefresher mempoolAccess readOnlySqlPool e s)
+            ) $ \_ ->
+                runPactServiceM s e $ serviceRequests mempoolAccess reqQ
 
 withPactService
     :: (Logger logger, CanReadablePayloadCas tbl)
@@ -173,12 +241,15 @@ withPactService
     -> BlockHeaderDb
     -> PayloadDb tbl
     -> SQLiteEnv
+    -> Pool SQLiteEnv
+    -> TMVar UnminedPayload
     -> PactServiceConfig
     -> PactServiceM logger tbl a
     -> IO (T2 a PactServiceState)
-withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv config act = do
+withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv readOnlySqlPool newBlockVar config act = do
     Checkpointer.withCheckpointerResources checkpointerLogger (_pactModuleCacheLimit config) sqlenv (_pactPersistIntraBlockWrites config) ver cid $ \checkpointer -> do
         let !rs = readRewards
+        blockInProgressVar <- newEmptyTMVarIO
         let !pse = PactServiceEnv
                     { _psMempoolAccess = Nothing
                     , _psCheckpointer = checkpointer
@@ -196,6 +267,9 @@ withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv config 
                     , _psEnableLocalTimeout = _pactEnableLocalTimeout config
                     , _psTxFailuresCounter = txFailuresCounter
                     , _psTxTimeLimit = _pactTxTimeLimit config
+                    , _psMakeBlocks = _pactMakeBlocks config
+                    , _psLatestNewBlockVar = newBlockVar
+                    , _psBlockInProgressVar = blockInProgressVar
                     }
             !pst = PactServiceState mempty
 
@@ -306,7 +380,7 @@ initializeCoinContract v cid pwo = do
 lookupBlockHeader :: BlockHash -> Text -> PactServiceM logger tbl BlockHeader
 lookupBlockHeader bhash ctx = do
     bhdb <- view psBlockHeaderDb
-    liftIO $! lookupM bhdb bhash `catchAllSynchronous` \e ->
+    liftIO $! TreeDB.lookupM bhdb bhash `catchAllSynchronous` \e ->
         throwM $ BlockHeaderLookupFailure $
             "failed lookup of parent header in " <> ctx <> ": " <> sshow e
 
@@ -485,77 +559,89 @@ execNewBlock
     -> Miner
     -> NewBlockFill
     -> ParentHeader
-    -> PactServiceM logger tbl (Historical (ForSomePactVersion BlockInProgress))
-execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
-    let pHeight = view blockHeight $ _parentHeader newBlockParent
-    let pHash = view blockHash $ _parentHeader newBlockParent
+    -> PactServiceM logger tbl ()
+execNewBlock mpAccess miner fill parent = pactLabel "execNewBlock" $ do
+    let pHeight = view blockHeight $ _parentHeader parent
+    let pHash = view blockHash $ _parentHeader parent
     logInfoPact $ "(parent height = " <> sshow pHeight <> ")"
         <> " (parent hash = " <> sshow pHash <> ")"
     blockGasLimit <- view psBlockGasLimit
     v <- view chainwebVersion
     cid <- view chainId
-    Checkpointer.readFrom (Just newBlockParent) $
-        SomeBlockM $ Pair
-            (do
-                blockDbEnv <- view psBlockDbEnv
-                initCache <- initModuleCacheForBlock
-                coinbaseOutput <- runPact4Coinbase
-                    miner
-                    (Pact4.EnforceCoinbaseFailure True) (Pact4.CoinbaseUsePrecompiled True)
-                    initCache
-                let pactDb = Pact4._cpPactDbEnv blockDbEnv
-                finalBlockState <- fmap Pact4._benvBlockState
-                    $ liftIO
-                    $ readMVar
-                    $ pdPactDbVar
-                    $ pactDb
-                let blockInProgress = BlockInProgress
-                        { _blockInProgressModuleCache = Pact4ModuleCache initCache
-                        -- ^ we do not use the module cache populated by coinbase in
-                        -- subsequent transactions
-                        , _blockInProgressHandle = BlockHandle (Pact4._bsTxId finalBlockState) (Pact4._bsPendingBlock finalBlockState)
-                        , _blockInProgressParentHeader = Just newBlockParent
-                        , _blockInProgressRemainingGasLimit = blockGasLimit
-                        , _blockInProgressTransactions = Transactions
-                            { _transactionCoinbase = coinbaseOutput
-                            , _transactionPairs = mempty
-                            }
-                        , _blockInProgressMiner = miner
-                        , _blockInProgressPactVersion = Pact4T
-                        , _blockInProgressChainwebVersion = v
-                        , _blockInProgressChainId = cid
-                        }
-                case fill of
-                    NewBlockFill -> ForPact4 <$> Pact4.continueBlock mpAccess blockInProgress
-                    NewBlockEmpty -> return (ForPact4 blockInProgress)
-            )
+    latestNewBlockVar <- view psLatestNewBlockVar
+    blockInProgressVar <- view psBlockInProgressVar
 
-            (do
-                coinbaseOutput <- runPact5Coinbase miner >>= \case
-                    Left coinbaseError -> internalError $ "Error during coinbase: " <> sshow coinbaseError
-                    Right coinbaseOutput ->
-                        -- pretend that coinbase can throw an error, when we know it can't.
-                        -- perhaps we can make the Transactions express this, may not be worth it.
-                        return $ coinbaseOutput & Pact5.crResult . Pact5._PactResultErr %~ absurd
-                hndl <- use Pact5.pbBlockHandle
-                let blockInProgress = BlockInProgress
-                        { _blockInProgressModuleCache = Pact5NoModuleCache
-                        , _blockInProgressHandle = hndl
-                        , _blockInProgressParentHeader = Just newBlockParent
-                        , _blockInProgressRemainingGasLimit = blockGasLimit
-                        , _blockInProgressTransactions = Transactions
-                            { _transactionCoinbase = coinbaseOutput
-                            , _transactionPairs = mempty
-                            }
-                        , _blockInProgressMiner = miner
-                        , _blockInProgressPactVersion = Pact5T
-                        , _blockInProgressChainwebVersion = v
-                        , _blockInProgressChainId = cid
-                        }
-                case fill of
-                    NewBlockFill -> ForPact5 <$> Pact5.continueBlock mpAccess blockInProgress
-                    NewBlockEmpty -> return (ForPact5 blockInProgress)
-            )
+    Checkpointer.readFrom (Just parent)
+        (SomeBlockM $ Pair
+            (makeEmptyPact4Block v cid blockGasLimit)
+            (makeEmptyPact5Block v cid blockGasLimit)) >>= \case
+        NoHistory ->
+            logErrorPact
+                $ "Pact failed to find the parent header it was passed: "
+                <> blockHeaderShortDescription (_parentHeader parent)
+        Historical newEmptyBlockInProgress -> liftIO $ atomically $ do
+            latestNewBlock <- readTMVar latestNewBlockVar
+            let newParent = unminedParent latestNewBlock == Just parent
+            when newParent $ do
+                writeTMVar latestNewBlockVar UnminedPayload
+                    { unminedParent = Just parent
+                    , unminedPayload = forAnyPactVersion finalizeBlock newEmptyBlockInProgress
+                    }
+                writeTMVar blockInProgressVar newEmptyBlockInProgress
+    where
+
+    makeEmptyPact4Block v cid blockGasLimit = do
+        blockDbEnv <- view psBlockDbEnv
+        initCache <- initModuleCacheForBlock
+        coinbaseOutput <- runPact4Coinbase
+            miner
+            (Pact4.EnforceCoinbaseFailure True) (Pact4.CoinbaseUsePrecompiled True)
+            initCache
+        let pactDb = Pact4._cpPactDbEnv blockDbEnv
+        finalBlockState <- liftIO $ Pact4._benvBlockState
+            <$> readMVar (pdPactDbVar pactDb)
+        let hndl = BlockHandle (Pact4._bsTxId finalBlockState) (Pact4._bsPendingBlock finalBlockState)
+        let blockInProgress = BlockInProgress
+                { _blockInProgressModuleCache = Pact4ModuleCache initCache
+                -- ^ we do not use the module cache populated by coinbase in
+                -- subsequent transactions
+                , _blockInProgressHandle = hndl
+                , _blockInProgressParentHeader = Just parent
+                , _blockInProgressRemainingGasLimit = blockGasLimit
+                , _blockInProgressTransactions = Transactions
+                    { _transactionCoinbase = coinbaseOutput
+                    , _transactionPairs = mempty
+                    }
+                , _blockInProgressMiner = miner
+                , _blockInProgressPactVersion = Pact4T
+                , _blockInProgressChainwebVersion = v
+                , _blockInProgressChainId = cid
+                }
+        return (ForPact4 blockInProgress)
+
+    makeEmptyPact5Block v cid blockGasLimit = do
+        coinbaseOutput <- runPact5Coinbase miner >>= \case
+            Left coinbaseError -> internalError $ "Error during coinbase: " <> sshow coinbaseError
+            Right coinbaseOutput ->
+                -- pretend that coinbase can throw an error, when we know it can't.
+                -- perhaps we can make the Transactions express this, may not be worth it.
+                return $ coinbaseOutput & Pact5.crResult . Pact5._PactResultErr %~ absurd
+        hndl <- use Pact5.pbBlockHandle
+        let blockInProgress = BlockInProgress
+                { _blockInProgressModuleCache = Pact5NoModuleCache
+                , _blockInProgressHandle = hndl
+                , _blockInProgressParentHeader = Just parent
+                , _blockInProgressRemainingGasLimit = blockGasLimit
+                , _blockInProgressTransactions = Transactions
+                    { _transactionCoinbase = coinbaseOutput
+                    , _transactionPairs = mempty
+                    }
+                , _blockInProgressMiner = miner
+                , _blockInProgressPactVersion = Pact5T
+                , _blockInProgressChainwebVersion = v
+                , _blockInProgressChainId = cid
+                }
+        return (ForPact5 blockInProgress)
 
 execContinueBlock
     :: forall logger tbl pv. (Logger logger, CanReadablePayloadCas tbl)
@@ -649,16 +735,16 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
     -- lower bound must be an ancestor of upper.
     upperBound <- case maybeUpperBound of
         Just upperBound -> do
-            liftIO (ancestorOf bhdb (view blockHash lowerBound) (view blockHash upperBound)) >>=
+            liftIO (TreeDB.ancestorOf bhdb (view blockHash lowerBound) (view blockHash upperBound)) >>=
                 flip unless (internalError "lower bound is not an ancestor of upper bound")
 
             -- upper bound must be an ancestor of latest header.
-            liftIO (ancestorOf bhdb (view blockHash upperBound) (view blockHash cur)) >>=
+            liftIO (TreeDB.ancestorOf bhdb (view blockHash upperBound) (view blockHash cur)) >>=
                 flip unless (internalError "upper bound is not an ancestor of latest header")
 
             return upperBound
         Nothing -> do
-            liftIO (ancestorOf bhdb (view blockHash lowerBound) (view blockHash cur)) >>=
+            liftIO (TreeDB.ancestorOf bhdb (view blockHash lowerBound) (view blockHash cur)) >>=
                 flip unless (internalError "lower bound is not an ancestor of latest header")
 
             return cur
@@ -670,7 +756,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
     -- we don't want to replay the genesis header in here.
     let lowerHeight = max (succ genHeight) (view blockHeight lowerBound)
     withPactState $ \runPact ->
-        liftIO $ getBranchIncreasing bhdb upperBound (int lowerHeight) $ \blocks -> do
+        liftIO $ TreeDB.getBranchIncreasing bhdb upperBound (int lowerHeight) $ \blocks -> do
             heightRef <- newIORef lowerHeight
             withAsync (heightProgress lowerHeight (view blockHeight upperBound) heightRef (logInfo_ logger)) $ \_ -> do
                 blocks
@@ -690,7 +776,7 @@ execReadOnlyReplay lowerBound maybeUpperBound = pactLabel "execReadOnlyReplay" $
         logger <- runPact $ view psLogger
         validationFailedRef <- newIORef False
         r <- blocks & Stream.mapM_ (\bh -> do
-            bhParent <- liftIO $ lookupParentM GenesisParentThrow bhdb bh
+            bhParent <- liftIO $ TreeDB.lookupParentM TreeDB.GenesisParentThrow bhdb bh
             let
                 printValidationError (BlockValidationFailure (BlockValidationFailureMsg m)) = do
                     writeIORef validationFailedRef True
@@ -940,6 +1026,25 @@ execValidateBlock
     -> PactServiceM logger tbl (PayloadWithOutputs, Pact4.Gas)
 execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "execValidateBlock" $ do
     bhdb <- view psBlockHeaderDb
+    -- tell the refresher loop to stop refreshing its block if it's not an ancestor of the block we're jumping to
+    do
+        blockInProgressVar <- view psBlockInProgressVar
+        latestNewBlockVar <- view psLatestNewBlockVar
+        blockInProgress <- liftIO $ atomically $ readTMVar blockInProgressVar
+        let maybeParentOfBlockInProgress = view (_ParentHeader . blockHash) <$> forAnyPactVersion _blockInProgressParentHeader blockInProgress
+        liftIO $ case maybeParentOfBlockInProgress of
+            -- the genesis block never goes out of style
+            Nothing -> return ()
+            Just parentOfBlockInProgress
+                | parentOfBlockInProgress == view blockHash headerToValidate -> return ()
+                | otherwise ->
+                    TreeDB.ancestorOf bhdb parentOfBlockInProgress (view blockParent headerToValidate) >>= \case
+                        True -> return ()
+                        False -> -- stop the block refresher loop, and don't mine
+                            atomically $ do
+                                void $ tryTakeTMVar blockInProgressVar
+                                void $ tryTakeTMVar latestNewBlockVar
+
     payloadDb <- view psPdb
     v <- view chainwebVersion
     cid <- view chainId
@@ -957,7 +1062,7 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
         -- find the common ancestor of the new block and our current block
         commonAncestor <- liftIO $ case (currHeader, parentOfHeaderToValidate) of
             (Just currHeader', Just ph) ->
-                Just <$> forkEntry bhdb currHeader' (_parentHeader ph)
+                Just <$> TreeDB.forkEntry bhdb currHeader' (_parentHeader ph)
             _ ->
                 return Nothing
         -- check that we don't exceed the rewind limit. for the purpose
@@ -979,7 +1084,7 @@ execValidateBlock memPoolAccess headerToValidate payloadToValidate = pactLabel "
                     kont (pure ())
                 Just (ParentHeader parentHeaderOfHeaderToValidate) ->
                     let forkStartHeight = maybe (genesisHeight v cid) (succ . view blockHeight) commonAncestor
-                    in getBranchIncreasing bhdb parentHeaderOfHeaderToValidate (fromIntegral forkStartHeight) kont
+                    in TreeDB.getBranchIncreasing bhdb parentHeaderOfHeaderToValidate (fromIntegral forkStartHeight) kont
 
         ((), results) <-
             withPactState $ \runPact ->

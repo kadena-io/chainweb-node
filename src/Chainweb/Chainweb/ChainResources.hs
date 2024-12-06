@@ -25,6 +25,7 @@ module Chainweb.Chainweb.ChainResources
 , chainResMempool
 , chainResLogger
 , chainResPact
+, chainResLatestNewBlockVar
 , withChainResources
 ) where
 
@@ -55,6 +56,8 @@ import Chainweb.WebPactExecutionService
 
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Counter
+import Control.Concurrent.STM
+import Chainweb.BlockHeader
 
 -- -------------------------------------------------------------------------- --
 -- Single Chain Resources
@@ -64,6 +67,7 @@ data ChainResources logger = ChainResources
     , _chainResLogger :: !logger
     , _chainResMempool :: !(MempoolBackend Pact4.UnparsedTransaction)
     , _chainResPact :: PactExecutionService
+    , _chainResLatestNewBlockVar :: !(TMVar UnminedPayload)
     }
 
 makeLenses ''ChainResources
@@ -100,8 +104,9 @@ withChainResources
       let mempoolCfg = mempoolCfg0 pexMv
       Mempool.withInMemoryMempool (setComponent "mempool" logger) mempoolCfg v $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
+        latestNewBlockVar <- newEmptyTMVarIO
         withPactService v cid logger (Just txFailuresCounter) mpc cdb
-                        payloadDb pactDbDir pactConfig $ \requestQ -> do
+                        payloadDb pactDbDir latestNewBlockVar pactConfig $ \requestQ -> do
             let pex = pes requestQ
             putMVar pexMv pex
 
@@ -111,6 +116,7 @@ withChainResources
                 , _chainResLogger = logger
                 , _chainResMempool = mempool
                 , _chainResPact = pex
+                , _chainResLatestNewBlockVar = latestNewBlockVar
                 }
   where
     pes requestQ
