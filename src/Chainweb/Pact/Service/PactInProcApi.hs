@@ -56,6 +56,10 @@ import GHC.Stack (HasCallStack)
 import Chainweb.Counter (Counter)
 import Chainweb.BlockCreationTime
 import Chainweb.Pact.Backend.Types
+import Data.Pool (Pool)
+import qualified Data.Pool as Pool
+import Control.Concurrent.STM
+import Chainweb.BlockHeader (UnminedPayload)
 
 -- | Initialization for Pact (in process) Api
 withPactService
@@ -69,12 +73,19 @@ withPactService
     -> BlockHeaderDb
     -> PayloadDb tbl
     -> FilePath
+    -> TMVar UnminedPayload
     -> PactServiceConfig
     -> (PactQueue -> IO a)
     -> IO a
-withPactService ver cid logger txFailuresCounter mpc bhdb pdb pactDbDir config action =
-    withSqliteDb cid logger pactDbDir (_pactResetDb config) $ \sqlenv ->
-        withPactService' ver cid logger txFailuresCounter mpa bhdb pdb sqlenv config action
+withPactService ver cid logger txFailuresCounter mpc bhdb pdb pactDbDir latestNewBlockVar config action =
+    withSqliteDb cid logger pactDbDir (_pactResetDb config) $ \sqlenv -> do
+        readOnlySqlPool <- Pool.newPool $ Pool.defaultPoolConfig
+            (startReadSqliteDb cid logger pactDbDir)
+            stopSqliteDb
+            10 -- seconds to keep them around unused
+            2 -- connections at most
+            & Pool.setNumStripes (Just 2) -- two stripes, one connection per stripe
+        withPactService' ver cid logger txFailuresCounter mpa bhdb pdb sqlenv readOnlySqlPool latestNewBlockVar config action
   where
     mpa = pactMemPoolAccess mpc $ addLabel ("sub-component", "MempoolAccess") logger
 
@@ -92,17 +103,19 @@ withPactService'
     -> BlockHeaderDb
     -> PayloadDb tbl
     -> SQLiteEnv
+    -> Pool SQLiteEnv
+    -> TMVar UnminedPayload
     -> PactServiceConfig
     -> (PactQueue -> IO a)
     -> IO a
-withPactService' ver cid logger txFailuresCounter memPoolAccess bhDb pdb sqlenv config action = do
+withPactService' ver cid logger txFailuresCounter memPoolAccess bhDb pdb sqlenv readOnlySqlPool latestNewBlockVar config action = do
     reqQ <- newPactQueue (_pactQueueSize config)
     race (concurrently_ (monitor reqQ) (server reqQ)) (action reqQ) >>= \case
         Left () -> error "Chainweb.Pact.Service.PactInProcApi: pact service terminated unexpectedly"
         Right a -> return a
   where
     server reqQ = runForever logg "pact-service"
-        $ PS.runPactService ver cid logger txFailuresCounter reqQ memPoolAccess bhDb pdb sqlenv config
+        $ PS.runPactService ver cid logger txFailuresCounter reqQ memPoolAccess bhDb pdb sqlenv readOnlySqlPool latestNewBlockVar config
     logg = logFunction logger
     monitor = runPactServiceQueueMonitor $ addLabel ("sub-component", "PactQueue") logger
 
