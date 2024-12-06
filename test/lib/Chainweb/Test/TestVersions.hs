@@ -129,6 +129,7 @@ testVersionTemplate v = v
     & versionVerifierPluginNames .~ AllChains (Bottom (minBound, mempty))
     & versionQuirks .~ noQuirks
     & versionServiceDate .~ Nothing
+    & versionSpvProofExpirationWindow .~ Bottom (minBound, Just 20)
 
 -- | A set of fork heights which are relatively fast, but not fast enough to break anything.
 fastForks :: HashMap Fork (ChainMap ForkHeight)

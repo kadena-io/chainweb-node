@@ -380,9 +380,7 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psAllowReadsInLocal :: !Bool
     , _psLogger :: !logger
     , _psGasLogger :: !(Maybe logger)
-
     , _psBlockGasLimit :: !GasLimit
-
     , _psEnableLocalTimeout :: !Bool
     , _psTxFailuresCounter :: !(Maybe (Counter "txFailures"))
     }

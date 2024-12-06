@@ -157,11 +157,14 @@ doReadFrom logger v cid sql moduleCacheVar maybeParent doRead = do
         Nothing -> genesisHeight v cid
         Just parent -> succ . view blockHeight . _parentHeader $ parent
 
+  logFunctionText logger Debug $ "doReadFrom: currentHeight=" <> sshow currentHeight
+
   modifyMVar moduleCacheVar $ \sharedModuleCache -> do
     bracket
       (beginSavepoint sql BatchSavepoint)
       (\_ -> abortSavepoint sql BatchSavepoint) $ \() -> do
         h <- getEndTxId "doReadFrom" sql maybeParent >>= traverse \startTxId -> do
+          logFunctionText logger Debug $ "doReadFrom: startTxId=" <> sshow startTxId
           newDbEnv <- newMVar $ BlockEnv
             (mkBlockHandlerEnv v cid currentHeight sql DoNotPersistIntraBlockWrites logger)
             (initBlockState defaultModuleCacheLimit startTxId)
@@ -169,6 +172,7 @@ doReadFrom logger v cid sql moduleCacheVar maybeParent doRead = do
           -- NB it's important to do this *after* you start the savepoint (and thus
           -- the db transaction) to make sure that the latestHeader check is up to date.
           latestHeader <- doGetLatestBlock sql
+          logFunctionText logger Debug $ "doReadFrom: latestHeader=" <> sshow latestHeader
           let
             -- is the parent the latest header, i.e., can we get away without rewinding?
             parentIsLatestHeader = case (latestHeader, maybeParent) of
