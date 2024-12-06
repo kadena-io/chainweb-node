@@ -24,8 +24,8 @@
         }
       }
     , "events": []
-    , "gas": 6
-    , "logs": "c_Xbqb7BZetrHBtU7nGdZ4yoc1_Y1iE3CgsO03gOrbc"
+    , "gas": 379
+    , "logs": "haM83WBlgzMmCtcQHLv0qR_0mdoDY_L6Y98PsM2H-_4"
     , "meta": {}
     , "req-key": "pHsX8RJkJNRlrGflD_vRiKOsjlLSVGdf1hYU_eI6fgU"
     , "result":

@@ -461,8 +461,12 @@ verifiersAt :: ChainwebVersion -> ChainId -> BlockHeight -> Map VerifierName Ver
 verifiersAt v cid bh =
     M.restrictKeys allVerifierPlugins activeVerifierNames
     where
-    activeVerifierNames =
-        snd $ ruleZipperHere $ snd $ ruleSeek (\h _ -> bh >= h) $ _versionVerifierPluginNames v ^?! onChain cid
+    activeVerifierNames
+        = snd
+        $ ruleZipperHere
+        $ snd
+        $ ruleSeek (\h _ -> bh >= h)
+        $ _versionVerifierPluginNames v ^?! atChain cid
 
 -- the mappings from names to verifier plugins is global. the list of verifier
 -- plugins active in any particular block validation context is the only thing

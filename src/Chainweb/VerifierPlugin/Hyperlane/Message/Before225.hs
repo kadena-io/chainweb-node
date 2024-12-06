@@ -38,6 +38,7 @@ import Chainweb.VerifierPlugin
 import Chainweb.VerifierPlugin.Hyperlane.Binary
 import Chainweb.VerifierPlugin.Hyperlane.Utils
 import Chainweb.Utils (encodeB64UrlNoPaddingText, decodeB64UrlNoPaddingText, sshow)
+import Pact.Core.Errors (VerifierError(..))
 
 base64DecodeGasCost :: Gas
 base64DecodeGasCost = 5

@@ -61,6 +61,11 @@ package pact
     -- avoid conflict with cryptonite during linking
     flags: +cryptonite-ed25519 -build-tool
 
+package pact-tng
+    ghc-options: -Wwarn
+    -- avoid conflict with cryptonite during linking
+    flags: +cryptonite-ed25519 -build-tool
+
 package rocksdb-haskell-kadena
     ghc-options: -Wwarn -optc-w -optcxx-w
 
@@ -86,6 +91,12 @@ source-repository-package
     location: https://github.com/kadena-io/pact.git
     tag: 1027a1f5fd0439c58522921e3a0532c4f5867a24
     --sha256: 18xgvzb3p8chch85747ln9a2191df09vwwrv9v3njr2h69n3rhxj
+
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/pact-5.git
+    tag: a8856bf0ad41ae4b698a2e4e951108bf2bf4f32b
+    --sha256: 080mc1z8y7j9v4igjab6wkf0ykvxd2bs4xw3ja3v4nr7b3s0zphl
 
 source-repository-package
     type: git
@@ -119,6 +130,12 @@ source-repository-package
 
 source-repository-package
     type: git
+    location: https://github.com/edmundnoble/hs-hashes.git
+    tag: 9665a5d82c9bf890ded0346f58e6bde9843a9320
+    --sha256: sha256-6zK5nPiGGy7EIDj8l9nBQxcBkZlzUiz3/LYKhGemhdg=
+
+source-repository-package
+    type: git
     location: https://github.com/kadena-io/wai-middleware-validation.git
     tag: e0437bf82e9b4d3fec5ad42ef6e860f4bd04e1b4
     --sha256: 1az7jcggcj275djnfsvhdg3n7hjrj6vp8rj137fxrg4hazh0hyzv
@@ -138,6 +155,24 @@ source-repository-package
     location: https://github.com/kadena-io/base64-bytestring-kadena
     tag: 90247042ab3b8662809210af2a78e6dee0f9b4ac
     --sha256: 0dqsrjxm0cm35xcihm49dhwdvmz79vsv4sd5qs2izc4sbnd0d8n6
+
+source-repository-package
+    type: git
+    location: https://github.com/chessai/patience
+    tag: 2f67d546ea6608fc6ebe5f2f6976503cbf340442
+    --sha256: 0x137akvbh4kr3qagksw74xdj2xz5vjnx1fbr41bb54a0lkcb8mm
+
+source-repository-package
+    type: git
+    location: https://github.com/andrewthad/chronos
+    tag: b199bf6df1453af95832c2d2f9f0ef48c3622caa
+    --sha256: 056awkmdmkqdd5g3m8a1ibg2vp02kbppmidkfh4aildb1brq970a
+
+source-repository-package
+    type: git
+    location: https://gitlab.com/edmundnoble/predicate-transformers
+    tag: 67c77e68ade204f56d91ad5952fe432188b40d23
+    --sha256: 0q7nwl56lgic5andc956zv4zipdv5rxjkalm21cxr75r6grkzfmy
 
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
@@ -204,8 +239,12 @@ allow-newer: webauthn:*
 -- many packages use an spurious <1.5 upper bound on hashable
 allow-newer: *:hashable
 
+allow-newer: lrucaching:base-compat
+
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
 
--- remove when crypton-connection >0.4.1 got released
-constraints: http-client-tls <0.3.6.4
+-- This is needed on GHC <9.10.1 due to a bug (either in GHC or cabal) it
+-- that Cabal and Cabal-syntax are compatible.
+constraints: Cabal <=3.12.1.0
+constraints: Cabal-syntax <=3.12.1.0

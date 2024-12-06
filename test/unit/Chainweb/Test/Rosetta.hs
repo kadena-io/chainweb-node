@@ -44,7 +44,7 @@ import Chainweb.Rosetta.RestAPI
 import Chainweb.Rosetta.Utils
 import Chainweb.Version
 import Chainweb.Version.RecapDevelopment
-import Chainweb.Version.Testnet
+import Chainweb.Version.Testnet04
 import qualified Pact.Types.KeySet as P
 
 ---

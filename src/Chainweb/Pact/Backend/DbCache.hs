@@ -38,7 +38,7 @@ import Control.Monad.State.Strict
 import qualified Crypto.Hash as C (hash)
 import Crypto.Hash.Algorithms
 
-import Data.Aeson (FromJSON, ToJSON(..), object, decodeStrict, (.=))
+import Data.Aeson (FromJSON, ToJSON(..), (.=), object)
 import qualified Data.ByteArray as BA
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Short as BS
@@ -107,14 +107,13 @@ instance Ord (CacheEntry a) where
 -- | Cache entries are stored within a compact regions. The whole region is GCed
 -- only when no pointer to any data in the region is live any more.
 --
-compactCacheEntry :: MonadIO m => FromJSON a => ByteString -> m (Maybe (a, Int))
-compactCacheEntry rowdata = do
-    c <- liftIO $ compact (decodeStrict {- lazy, forced by compact -} rowdata)
-    case getCompact c of
-        Nothing -> return Nothing
-        Just m -> do
-            s <- liftIO $ compactSize c
-            return $ Just (m, fromIntegral s)
+compactCacheEntry :: MonadIO m => a -> m (a, Int)
+compactCacheEntry d = do
+    (c, s) <- liftIO $ do
+        c <- compact d
+        s <- compactSize c
+        pure (c, s)
+    return (getCompact c, fromIntegral s)
 
 -- -------------------------------------------------------------------------- --
 -- DbCache
@@ -165,9 +164,10 @@ cacheCount = HM.size . _dcStore
 -- cache maintenance.
 --
 checkDbCache
-    :: FromJSON a
-    => Utf8
+    :: Utf8
         -- ^ Db key for data
+    -> (ByteString -> Maybe a)
+        -- ^ row data's decoding function
     -> ByteString
         -- ^ row data that contains the encoded value
     -> TxId
@@ -175,7 +175,7 @@ checkDbCache
        -- Smaller values are evicted first.
     -> DbCache a
     -> IO (Maybe a, DbCache a)
-checkDbCache key rowdata txid = runStateT $ do
+checkDbCache key f rowdata txid = runStateT $ do
     readCache txid addy >>= \case
 
         -- Cache hit
@@ -184,9 +184,10 @@ checkDbCache key rowdata txid = runStateT $ do
             return $ Just x
 
         -- Cache miss: decode module and insert into cache
-        Nothing -> compactCacheEntry rowdata >>= \case
+        Nothing -> case f rowdata of
             Nothing -> return Nothing
-            Just (m, s) -> do
+            Just v -> do
+                (m, s) <- compactCacheEntry v
                 writeCache txid addy s m
                 modify' (dcMisses +~ 1)
                 return $ Just m
