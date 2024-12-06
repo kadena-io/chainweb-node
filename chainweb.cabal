@@ -154,6 +154,7 @@ library
         , Chainweb.BlockHeader.Genesis.Mainnet10to19Payload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
+        , Chainweb.BlockHeaderDB.HeaderOracle
         , Chainweb.BlockHeaderDB.Internal
         , Chainweb.BlockHeaderDB.PruneForks
         , Chainweb.BlockHeaderDB.RemoteDB
@@ -677,7 +678,6 @@ test-suite chainweb-tests
         , lens >= 4.17
         , lens-aeson >= 1.2.2
         , loglevel >= 0.1
-        , pretty-show
         , memory >=0.14
         , merkle-log >=0.2
         , mtl >= 2.3
