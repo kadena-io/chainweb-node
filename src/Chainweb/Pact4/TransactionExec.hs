@@ -301,6 +301,9 @@ onChainErrorPrintingFor txCtx =
 -- | The main entry point to executing transactions. From here,
 -- 'applyCmd' assembles the command environment for a command and
 -- orchestrates gas buys/redemption, and executing payloads.
+-- Note that crMetaData is intentionally left unset in this path;
+-- it's populated by `/poll`, when using `applyLocal`, or by the preflight
+-- codepath later.
 --
 applyCmd
     :: (Logger logger)

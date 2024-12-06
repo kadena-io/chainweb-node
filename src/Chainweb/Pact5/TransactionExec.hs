@@ -295,6 +295,9 @@ applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
 -- 'applyCmd' assembles the command environment for a command,
 -- purchases gas for the command, executes the command, and
 -- redeems leftover gas.
+-- Note that crMetaData is intentionally left unset in this path;
+-- it's populated by `/poll`, when using `applyLocal`, or by the preflight
+-- codepath later.
 --
 applyCmd
     :: forall logger. (Logger logger)
