@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -63,6 +64,7 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.Cut hiding (join)
 import Chainweb.CutDB
 import Chainweb.Graph
+import Chainweb.BlockHeaderDB.HeaderOracle qualified as Oracle
 import Chainweb.Mempool.Mempool (MockTx)
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
@@ -288,7 +290,8 @@ spvTest rdb v step = do
                     (_chainId h) -- source chain
                     (view blockHeight h) -- source block height
                     txIx -- transaction index
-                subj <- verifyTransactionOutputProof cutDb proof
+                oracle <- Oracle.createSpv (cutDb ^?! cutDbBlockHeaderDb trgChain) h
+                subj <- verifyTransactionOutputProof oracle proof
                 assertEqual "transaction output proof subject matches transaction" txOut subj
 
                 -- return (proof size, block size, height, distance, tx size)
@@ -384,7 +387,8 @@ spvTransactionRoundtripTest rdb v step = do
             (eitherDecode (encode proof))
 
         step "verify proof"
-        subj <- verifyTransactionProof cutDb proof
+        oracle <- Oracle.createSpv (cutDb ^?! cutDbBlockHeaderDb trgChain) h
+        subj <- verifyTransactionProof oracle proof
 
         step "confirm that proof subject matches transaction"
         assertEqual "proof subject matches transaction" tx subj
@@ -420,7 +424,8 @@ spvTransactionOutputRoundtripTest rdb v step = do
             (eitherDecode (encode proof))
 
         step "verify proof"
-        subj <- verifyTransactionOutputProof cutDb proof
+        oracle <- Oracle.createSpv (cutDb ^?! cutDbBlockHeaderDb trgChain) h
+        subj <- verifyTransactionOutputProof oracle proof
 
         step "confirm that proof subject matches transaction output"
         assertEqual "proof subject matches transaction output" out subj
@@ -463,6 +468,8 @@ txApiTests envIO step = do
     txProof <- flip runClientM env $
         spvGetTransactionProofClient v trgChain (_chainId h) (view blockHeight h) (int txIx)
 
+    oracle <- Oracle.createSpv (cutDb ^?! cutDbBlockHeaderDb trgChain) h
+
     case txProof of
 
         Left err ->
@@ -470,7 +477,7 @@ txApiTests envIO step = do
 
         Right proof -> do
             step "verify transaction proof"
-            subj <- verifyTransactionProof cutDb proof
+            subj <- verifyTransactionProof oracle proof
 
             step "confirm that transaction proof subject matches transaction"
             assertEqual "proof subject matches transaction" tx subj
@@ -488,7 +495,7 @@ txApiTests envIO step = do
 
         Right proof -> do
             step "verify transaction output proof"
-            subj <- verifyTransactionOutputProof cutDb proof
+            subj <- verifyTransactionOutputProof oracle proof
 
             step "confirm that transaction output proof subject matches transaction output"
             assertEqual "proof subject matches transaction output" out subj

@@ -63,6 +63,7 @@ import Chainweb.Pact.Utils (aeson)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV
+import Chainweb.BlockHeaderDB.HeaderOracle qualified as Oracle
 import Chainweb.SPV.VerifyProof
 import Chainweb.TreeDB
 import Chainweb.Utils
@@ -117,7 +118,9 @@ verifySPV
     -> Object Name
       -- ^ the proof object to validate
     -> IO (Either Text (Object Name))
-verifySPV bdb bh typ proof = runExceptT $ go typ proof
+verifySPV bdb bh typ proof = do
+  oracle <- Oracle.createSpv bdb bh
+  runExceptT $ go oracle typ proof
   where
     cid = CW._chainId bdb
     enableBridge = CW.enableSPVBridge (CW._chainwebVersion bh) cid (view blockHeight bh)
@@ -129,7 +132,7 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
             TObject o _ -> return o
             _ -> throwError "spv-verified tx output has invalid type"
 
-    go s o = case s of
+    go oracle s o = case s of
 
       -- Ethereum Receipt Proof
       "ETH" | enableBridge -> except (extractEthProof o) >>=
@@ -152,7 +155,7 @@ verifySPV bdb bh typ proof = runExceptT $ go typ proof
         --  3. Extract tx outputs as a pact object and return the
         --  object.
 
-        TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u bh
+        TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProof oracle u
 
         q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
           Nothing -> forkedThrower bh "unable to decode spv transaction output"
@@ -251,6 +254,7 @@ verifyCont
       -- ^ bytestring of 'TransactionOutputP roof' object to validate
     -> IO (Either Text PactExec)
 verifyCont bdb bh (ContProof cp) = runExceptT $ do
+    oracle <- liftIO $ Oracle.createSpv bdb bh
     let errorMessageType =
           if CW.chainweb221Pact
              (CW._chainwebVersion bh)
@@ -275,7 +279,7 @@ verifyCont bdb bh (ContProof cp) = runExceptT $ do
           --  3. Extract continuation 'PactExec' from decoded result
           --  and return the cont exec object
 
-          TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProofAt_ bdb u bh
+          TransactionOutput p <- catchAndDisplaySPVError bh $ liftIO $ verifyTransactionOutputProof oracle u
 
           q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
             Nothing -> forkedThrower bh "unable to decode spv transaction output"
