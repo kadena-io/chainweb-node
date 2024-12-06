@@ -212,15 +212,6 @@ allow-newer: *:hashable
 -- Please add a comment for each entry that outlines why it is needed and when
 -- it can be removed.
 
--- generic-data is broken due toi orphans-base >=0.9.3.
--- PR submitted: https://github.com/Lysxia/generic-data/pull/73
---
-source-repository-package
-    type: git
-    location: https://github.com/hackage-package-forks/generic-data
-    tag: d7eee31fc7919c629f71ce5f58d5e114adb3fbaf
-    --sha256: 0f411m10kw2bdfyp8rh3kzdwbmnp1hw9v41cry5hdzjgp9pjcdig
-
 -- -------------------------------------------------------------------------- --
 -- Temporary Upper Bound Constraints
 

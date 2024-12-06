@@ -41,7 +41,7 @@ constraints: any.Cabal ==3.10.2.0,
              any.base ==4.19.1.0,
              any.base-compat ==0.14.1,
              any.base-compat-batteries ==0.14.1,
-             any.base-orphans ==0.9.3,
+             any.base-orphans ==0.9.2,
              any.base-unicode-symbols ==0.2.4.2,
              base-unicode-symbols +base-4-8 -old-base,
              any.base16-bytestring ==1.0.2.0,
@@ -430,4 +430,4 @@ constraints: any.Cabal ==3.10.2.0,
              any.zigzag ==0.1.0.0,
              any.zlib ==0.7.1.0,
              zlib -bundled-c-zlib +non-blocking-ffi +pkg-config
-index-state: hackage.haskell.org 2024-12-06T18:18:35Z
+index-state: hackage.haskell.org 2024-12-06T21:41:31Z
