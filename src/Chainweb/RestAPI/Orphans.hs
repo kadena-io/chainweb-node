@@ -53,7 +53,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Utils.Serialization
 import Chainweb.Version
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 
 import P2P.Peer
 

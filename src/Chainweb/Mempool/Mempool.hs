@@ -74,7 +74,7 @@ module Chainweb.Mempool.Mempool
   , bfTxHashes
   , bfCount
 
-  , chainwebTransactionConfig
+  , pact4TransactionConfig
   , mockCodec
   , mockEncode
   , mockBlockGasLimit
@@ -86,7 +86,8 @@ module Chainweb.Mempool.Mempool
   , syncMempools'
   , GasLimit(..)
   , GasPrice(..)
-  , requestKeyToTransactionHash
+  , pact4RequestKeyToTransactionHash
+  , pact5RequestKeyToTransactionHash
   ) where
 ------------------------------------------------------------------------------
 import Control.DeepSeq (NFData)
@@ -132,16 +133,19 @@ import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Types.ChainMeta (TTLSeconds(..), TxCreationTime(..))
 import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
-import qualified Pact.Types.Hash as H
+import qualified Pact.Types.Hash as Pact4
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
 import Chainweb.Time (Micros(..), Time(..), TimeSpan(..))
 import qualified Chainweb.Time as Time
-import Chainweb.Transaction
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Data.LogMessage (LogFunctionText)
+import qualified Pact.Types.Command as Pact4
+import qualified Pact.Core.Command.Types as Pact5
+import qualified Pact.Core.Hash as Pact5
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
@@ -182,7 +186,7 @@ instance Traversable LookupResult where
                      Pending x -> Pending <$> f x
 
 ------------------------------------------------------------------------------
-type MempoolPreBlockCheck t = BlockHeight -> BlockHash -> Vector t -> IO (Vector Bool)
+type MempoolPreBlockCheck ti to = BlockHeight -> BlockHash -> Vector ti -> IO (Vector (Either InsertError to))
 
 ------------------------------------------------------------------------------
 -- | Mempool operates over a transaction type @t@. Mempool needs several
@@ -218,43 +222,43 @@ type HighwaterMark = (ServerNonce, MempoolTxId)
 data InsertType = CheckedInsert | UncheckedInsert
   deriving (Show, Eq)
 
-data InsertError = InsertErrorDuplicate
-                 | InsertErrorTTLExpired
-                 | InsertErrorTimeInFuture
-                 | InsertErrorOversized GasLimit
-                 | InsertErrorUndersized
-                    GasPrice -- actual gas price
-                    GasPrice -- minimum gas price
-                 | InsertErrorBadlisted
-                 | InsertErrorMetadataMismatch
-                 | InsertErrorTransactionsDisabled
-                 | InsertErrorBuyGas Text
-                 | InsertErrorCompilationFailed Text
-                 | InsertErrorOther Text
-                 | InsertErrorInvalidHash
-                 | InsertErrorInvalidSigs
-                 | InsertErrorTimedOut
+data InsertError
+  = InsertErrorDuplicate
+  | InsertErrorTTLExpired
+  | InsertErrorTimeInFuture
+  | InsertErrorOversized GasLimit
+  | InsertErrorUndersized
+      GasPrice -- actual gas price
+      GasPrice -- minimum gas price
+  | InsertErrorBadlisted
+  | InsertErrorMetadataMismatch
+  | InsertErrorTransactionsDisabled
+  | InsertErrorBuyGas Text
+  | InsertErrorCompilationFailed Text
+  | InsertErrorOther Text
+  | InsertErrorInvalidHash
+  | InsertErrorInvalidSigs
+  | InsertErrorTimedOut
+  | InsertErrorPactParseError Text
   deriving (Generic, Eq, NFData)
 
-instance Show InsertError
-  where
-    show InsertErrorDuplicate = "Transaction already exists on chain"
-    show InsertErrorTTLExpired = "Transaction time-to-live is expired"
-    show InsertErrorTimeInFuture = "Transaction creation time too far in the future"
-    show (InsertErrorOversized (GasLimit l)) = "Transaction gas limit exceeds block gas limit (" <> show l <> ")"
-    show (InsertErrorUndersized (GasPrice p) (GasPrice m)) = "Transaction gas price (" <> show p <> ") is below minimum gas price (" <> show m <> ")"
-    show InsertErrorBadlisted =
-        "Transaction is badlisted because it previously failed to validate."
-    show InsertErrorMetadataMismatch =
-        "Transaction metadata (chain id, chainweb version) conflicts with this \
-        \endpoint"
-    show InsertErrorTransactionsDisabled = "Transactions are disabled until 2019 Dec 5"
-    show (InsertErrorBuyGas msg) = "Attempt to buy gas failed with: " <> T.unpack msg
-    show (InsertErrorCompilationFailed msg) = "Transaction compilation failed: " <> T.unpack msg
-    show (InsertErrorOther m) = "insert error: " <> T.unpack m
-    show InsertErrorInvalidHash = "Invalid transaction hash"
-    show InsertErrorInvalidSigs = "Invalid transaction sigs"
-    show InsertErrorTimedOut = "Transaction validation timed out"
+instance Show InsertError where
+    show = \case
+      InsertErrorDuplicate -> "Transaction already exists on chain"
+      InsertErrorTTLExpired -> "Transaction time-to-live is expired"
+      InsertErrorTimeInFuture -> "Transaction creation time too far in the future"
+      InsertErrorOversized (GasLimit l) -> "Transaction gas limit exceeds block gas limit (" <> show l <> ")"
+      InsertErrorUndersized (GasPrice p) (GasPrice m) -> "Transaction gas price (" <> show p <> ") is below minimum gas price (" <> show m <> ")"
+      InsertErrorBadlisted -> "Transaction is badlisted because it previously failed to validate."
+      InsertErrorMetadataMismatch -> "Transaction metadata (chain id, chainweb version) conflicts with this endpoint"
+      InsertErrorTransactionsDisabled -> "Transactions are disabled until 2019 Dec 5"
+      InsertErrorBuyGas msg -> "Attempt to buy gas failed with: " <> T.unpack msg
+      InsertErrorCompilationFailed msg -> "Transaction compilation failed: " <> T.unpack msg
+      InsertErrorOther m -> "insert error: " <> T.unpack m
+      InsertErrorInvalidHash -> "Invalid transaction hash"
+      InsertErrorInvalidSigs -> "Invalid transaction sigs"
+      InsertErrorTimedOut -> "Transaction validation timed out"
+      InsertErrorPactParseError msg -> "Pact parse error: " <> T.unpack msg
 
 instance Exception InsertError
 
@@ -305,7 +309,7 @@ data MempoolBackend t = MempoolBackend {
     -- for mining.
     --
   , mempoolGetBlock
-      :: BlockFill -> MempoolPreBlockCheck t -> BlockHeight -> BlockHash -> IO (Vector t)
+      :: forall to. BlockFill -> MempoolPreBlockCheck t to -> BlockHeight -> BlockHash -> IO (Vector to)
 
     -- | Discard any expired transactions.
   , mempoolPrune :: IO ()
@@ -324,8 +328,8 @@ data MempoolBackend t = MempoolBackend {
   , mempoolClear :: IO ()
 }
 
-noopMempoolPreBlockCheck :: MempoolPreBlockCheck t
-noopMempoolPreBlockCheck _ _ v = return $! V.replicate (V.length v) True
+noopMempoolPreBlockCheck :: MempoolPreBlockCheck t t
+noopMempoolPreBlockCheck _ _ v = return $! V.map Right v
 
 noopMempool :: IO (MempoolBackend t)
 noopMempool = do
@@ -368,11 +372,10 @@ noopMempool = do
 
 ------------------------------------------------------------------------------
 
-chainwebTransactionConfig
-    :: PactParserVersion
-    -> TransactionConfig ChainwebTransaction
-chainwebTransactionConfig ppv = TransactionConfig
-    { txCodec = chainwebPayloadCodec ppv
+pact4TransactionConfig
+    :: TransactionConfig Pact4.UnparsedTransaction
+pact4TransactionConfig = TransactionConfig
+    { txCodec = Pact4.rawCommandCodec
     , txHasher = commandHash
     , txHashMeta = chainwebTestHashMeta
     , txGasPrice = getGasPrice
@@ -382,11 +385,11 @@ chainwebTransactionConfig ppv = TransactionConfig
 
 
   where
-    getGasPrice = view cmdGasPrice . fmap payloadObj
-    getGasLimit = view cmdGasLimit . fmap payloadObj
-    getTimeToLive = view cmdTimeToLive . fmap payloadObj
-    getCreationTime = view cmdCreationTime . fmap payloadObj
-    commandHash c = let (H.Hash !h) = H.toUntypedHash $ _cmdHash c
+    getGasPrice = view Pact4.cmdGasPrice . fmap Pact4.payloadObj
+    getGasLimit = view Pact4.cmdGasLimit . fmap Pact4.payloadObj
+    getTimeToLive = view Pact4.cmdTimeToLive . fmap Pact4.payloadObj
+    getCreationTime = view Pact4.cmdCreationTime . fmap Pact4.payloadObj
+    commandHash c = let (Pact4.Hash !h) = Pact4.toUntypedHash $ _cmdHash c
                     in TransactionHash h
     txmeta t =
         TransactionMetadata
@@ -608,8 +611,11 @@ instance HasTextRepresentation TransactionHash where
   {-# INLINE toText #-}
   {-# INLINE fromText #-}
 
-requestKeyToTransactionHash :: RequestKey -> TransactionHash
-requestKeyToTransactionHash = TransactionHash . H.unHash . unRequestKey
+pact4RequestKeyToTransactionHash :: Pact4.RequestKey -> TransactionHash
+pact4RequestKeyToTransactionHash = TransactionHash . Pact4.unHash . Pact4.unRequestKey
+
+pact5RequestKeyToTransactionHash :: Pact5.RequestKey -> TransactionHash
+pact5RequestKeyToTransactionHash = TransactionHash . Pact5.unHash . Pact5.unRequestKey
 
 ------------------------------------------------------------------------------
 --

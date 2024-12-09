@@ -14,15 +14,20 @@ module Chainweb.Test.Cut.TestBlockDb
   , mkTestBlockDb
   , addTestBlockDb
   , getParentTestBlockDb
+  , getParentBlockTestBlockDb
+  , getCutTestBlockDb
+  , setCutTestBlockDb
   , getBlockHeaderDb
   -- convenience export
   , RocksDbTable
   ) where
 
 import Control.Concurrent.MVar
+import Control.Lens
 import Control.Monad.Catch
 import qualified Data.HashMap.Strict as HM
 
+import Chainweb.Block
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
@@ -38,6 +43,7 @@ import Chainweb.WebBlockHeaderDB
 
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.BlockHeight
+import Control.Monad
 
 data TestBlockDb = TestBlockDb
   { _bdbWebBlockHeaderDb :: WebBlockHeaderDb
@@ -102,6 +108,22 @@ getParentTestBlockDb (TestBlockDb _ _ cmv) cid = do
   c <- readMVar cmv
   fromMaybeM (userError $ "Internal error, parent not found for cid " ++ show cid) $
     HM.lookup cid $ _cutMap c
+
+-- | Get header for chain on current cut.
+getParentBlockTestBlockDb :: TestBlockDb -> ChainId -> IO Block
+getParentBlockTestBlockDb tdb cid = do
+  bh <- getParentTestBlockDb tdb cid
+  pwo <- fromJuste <$> lookupPayloadWithHeight (_bdbPayloadDb tdb) (Just $ view blockHeight bh) (view blockPayloadHash bh)
+  return Block
+    { _blockHeader = bh
+    , _blockPayloadWithOutputs = pwo
+    }
+
+getCutTestBlockDb :: TestBlockDb -> IO Cut
+getCutTestBlockDb (TestBlockDb _ _ cmv) = readMVar cmv
+
+setCutTestBlockDb :: TestBlockDb -> Cut -> IO ()
+setCutTestBlockDb (TestBlockDb _ _ cmv) c = void $ swapMVar cmv c
 
 -- | Convenience accessor
 getBlockHeaderDb :: MonadThrow m => ChainId -> TestBlockDb -> m BlockHeaderDb

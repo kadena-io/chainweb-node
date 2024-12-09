@@ -2,6 +2,7 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Chainweb.WebPactExecutionService
   ( WebPactExecutionService(..)
@@ -14,14 +15,14 @@ module Chainweb.WebPactExecutionService
   , emptyPactExecutionService
   , NewBlock(..)
   , newBlockToPayloadWithOutputs
-  , newBlockParentHeader
+  , newBlockParent
   ) where
 
+import Control.Lens
 import Control.Monad.Catch
 
 import qualified Data.HashMap.Strict as HM
 import Data.Vector (Vector)
-import qualified Data.Vector as V
 
 import GHC.Stack
 
@@ -35,33 +36,41 @@ import Chainweb.Mempool.Mempool (InsertError)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Pact.Utils
 import Chainweb.Payload
-import Chainweb.Transaction
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 
-import Pact.Types.Hash
-import Pact.Types.Persistence (RowKey, TxLog, Domain)
-import Pact.Types.RowData (RowData)
+import qualified Pact.Core.Persistence as Pact5
+import Chainweb.Version
+import Data.ByteString.Short (ShortByteString)
+import qualified Pact.Core.Names as Pact5
+import qualified Pact.Core.Builtin as Pact5
+import qualified Pact.Core.Evaluate as Pact5
+import qualified Pact.Types.Command as Pact4
+import qualified Pact.Types.ChainMeta as Pact4
+import Data.Text (Text)
+import Chainweb.BlockCreationTime (BlockCreationTime)
 
 -- -------------------------------------------------------------------------- --
 -- PactExecutionService
 
 data NewBlock
-    = NewBlockInProgress !BlockInProgress
+    = NewBlockInProgress !(ForSomePactVersion BlockInProgress)
     | NewBlockPayload !ParentHeader !PayloadWithOutputs
     deriving Show
 
 newBlockToPayloadWithOutputs :: NewBlock -> PayloadWithOutputs
 newBlockToPayloadWithOutputs (NewBlockInProgress bip)
-    = blockInProgressToPayloadWithOutputs bip
+    = forAnyPactVersion finalizeBlock bip
 newBlockToPayloadWithOutputs (NewBlockPayload _ pwo)
     = pwo
 
-newBlockParentHeader :: NewBlock -> ParentHeader
-newBlockParentHeader (NewBlockInProgress bip) = _blockInProgressParentHeader bip
-newBlockParentHeader (NewBlockPayload ph _) = ph
+newBlockParent :: NewBlock -> (BlockHash, BlockHeight, BlockCreationTime)
+newBlockParent (NewBlockInProgress (ForSomePactVersion _ bip)) = blockInProgressParent bip
+newBlockParent (NewBlockPayload (ParentHeader ph) _) =
+    (view blockHash ph, view blockHeight ph, view blockCreationTime ph)
 
 -- | Service API for interacting with a single or multi-chain ("Web") pact service.
 -- Thread-safe to be called from multiple threads. Backend is queue-backed on a per-chain
@@ -72,7 +81,7 @@ data PactExecutionService = PactExecutionService
         CheckablePayload ->
         IO PayloadWithOutputs
         )
-      -- ^ Validate block payload data by running through pact service.
+    -- ^ Validate block payload data by running through pact service.
     , _pactNewBlock :: !(
         ChainId ->
         Miner ->
@@ -81,52 +90,53 @@ data PactExecutionService = PactExecutionService
         IO (Historical NewBlock)
         )
     , _pactContinueBlock :: !(
+        forall pv.
         ChainId ->
-        BlockInProgress ->
-        IO (Historical BlockInProgress)
+        BlockInProgress pv ->
+        IO (Historical (BlockInProgress pv))
         )
-      -- ^ Request a new block to be formed using mempool
+    -- ^ Request a new block to be formed using mempool
     , _pactLocal :: !(
         Maybe LocalPreflightSimulation ->
         Maybe LocalSignatureVerification ->
         Maybe RewindDepth ->
-        ChainwebTransaction ->
+        Pact4.UnparsedTransaction ->
         IO LocalResult)
-      -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
-      -- Corresponds to `local` HTTP endpoint.
+    -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
+    -- Corresponds to `local` HTTP endpoint.
     , _pactLookup :: !(
         ChainId
         -- for routing
         -> Maybe ConfirmationDepth
         -- confirmation depth
-        -> Vector PactHash
+        -> Vector ShortByteString
         -- txs to lookup
-        -> IO (HM.HashMap PactHash (T2 BlockHeight BlockHash))
+        -> IO (HM.HashMap ShortByteString (T2 BlockHeight BlockHash))
         )
     , _pactReadOnlyReplay :: !(
         BlockHeader ->
         Maybe BlockHeader ->
         IO ()
-      )
-      -- ^ Lookup pact hashes as of a block header to detect duplicates
+    )
+    -- ^ Lookup pact hashes as of a block header to detect duplicates
     , _pactPreInsertCheck :: !(
         ChainId
-        -> Vector ChainwebTransaction
-        -> IO (Vector (Either InsertError ())))
-      -- ^ Run speculative checks to find bad transactions (ie gas buy failures, etc)
+        -> Vector (Pact4.Command (Pact4.PayloadWithText Pact4.PublicMeta Text))
+        -> IO (Vector (Maybe InsertError)))
+    -- ^ Run speculative checks to find bad transactions (ie gas buy failures, etc)
     , _pactBlockTxHistory :: !(
         BlockHeader ->
-        Domain RowKey RowData ->
+        Pact5.Domain Pact5.RowKey Pact5.RowData Pact5.CoreBuiltin Pact5.Info ->
         IO (Historical BlockTxHistory)
         )
-      -- ^ Obtain all transaction history in block for specified table/domain.
+    -- ^ Obtain all transaction history in block for specified table/domain.
     , _pactHistoricalLookup :: !(
         BlockHeader ->
-        Domain RowKey RowData ->
-        RowKey ->
-        IO (Historical (Maybe (TxLog RowData)))
+        Pact5.Domain Pact5.RowKey Pact5.RowData Pact5.CoreBuiltin Pact5.Info ->
+        Pact5.RowKey ->
+        IO (Historical (Maybe (Pact5.TxLog Pact5.RowData)))
         )
-      -- ^ Obtain latest entry at or before the given block for specified table/domain and row key.
+    -- ^ Obtain latest entry at or before the given block for specified table/domain and row key.
     , _pactSyncToBlock :: !(
         BlockHeader ->
         IO ()
@@ -153,9 +163,9 @@ _webPactNewBlock = _pactNewBlock . _webPactExecutionService
 _webPactContinueBlock
     :: WebPactExecutionService
     -> ChainId
-    -> BlockInProgress
-    -> IO (Historical BlockInProgress)
-_webPactContinueBlock = _pactContinueBlock . _webPactExecutionService
+    -> BlockInProgress pv
+    -> IO (Historical (BlockInProgress pv))
+_webPactContinueBlock w cid bip = _pactContinueBlock (_webPactExecutionService w) cid bip
 {-# INLINE _webPactContinueBlock #-}
 
 _webPactValidateBlock
@@ -229,7 +239,7 @@ emptyPactExecutionService = PactExecutionService
     , _pactContinueBlock = \_ _ -> throwM (userError "emptyPactExecutionService: attempted `continueBlock` call")
     , _pactLocal = \_ _ _ _ -> throwM (userError "emptyPactExecutionService: attempted `local` call")
     , _pactLookup = \_ _ _ -> return $! HM.empty
-    , _pactPreInsertCheck = \_ txs -> return $ V.map (const (Right ())) txs
+    , _pactPreInsertCheck = \_ txs -> return $ Nothing <$ txs
     , _pactBlockTxHistory = \_ _ -> error "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactBlockTxHistory unsupported"
     , _pactHistoricalLookup = \_ _ _ -> error "Chainweb.WebPactExecutionService.emptyPactExecutionService: pactHistoryLookup unsupported"
     , _pactSyncToBlock = \_ -> return ()

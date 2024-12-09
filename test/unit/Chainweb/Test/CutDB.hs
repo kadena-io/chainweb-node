@@ -67,7 +67,7 @@ import Chainweb.Test.Cut
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB

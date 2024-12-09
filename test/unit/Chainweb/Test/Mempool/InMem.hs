@@ -7,13 +7,11 @@ import Control.Concurrent.MVar
 import qualified Data.Vector as V
 import Test.Tasty
 ------------------------------------------------------------------------------
-import Chainweb.Graph (singletonChainGraph)
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.InMemTypes (InMemConfig(..))
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Mempool (InsertCheck, MempoolWithFunc(..))
 import qualified Chainweb.Test.Mempool
-import Chainweb.Test.TestVersions
 import Chainweb.Utils (Codec(..))
 ------------------------------------------------------------------------------
 
@@ -26,7 +24,8 @@ tests = testGroup "Chainweb.Test.Mempool"
     wf f = do
         mv <- newMVar (pure . V.map Right)
         let cfg = InMemConfig txcfg mockBlockGasLimit 0 2048 Right (checkMv mv) (1024 * 10)
-        InMem.withInMemoryMempool cfg (barebonesTestVersion singletonChainGraph) $ f mv
+        mp <- InMem.startInMemoryMempoolTest cfg
+        f mv mp
 
     checkMv :: MVar (t -> IO b) -> t -> IO b
     checkMv mv xs = do

@@ -46,7 +46,7 @@ import Numeric.Natural
 
 -- internal modules
 
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Time
 import Chainweb.Utils
 

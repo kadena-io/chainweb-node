@@ -9,8 +9,8 @@
         , "params": ["sender00" "sender01" 1.0]
         }
       ]
-    , "gas": 5
-    , "logs": "zF8hy3XGDeZR0sHrd5e-KehTlPUHguzwSbAQRMU8mcM"
+    , "gas": 547
+    , "logs": "KlSdh0LqHlhmSd0iHzukADGkI-IzkYdNdD_FDrF6uIA"
     , "meta": {}
     , "req-key": "LCLlbFalZdnCr7ax2Cqntuj2PCUq0pVGhmgAE-oabKs"
     , "result": "Write succeeded"

@@ -59,7 +59,7 @@ import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
 import Chainweb.NodeVersion
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.RestAPI.NetworkID

@@ -44,6 +44,7 @@ import Chainweb.VerifierPlugin
 import Chainweb.VerifierPlugin.Hyperlane.Binary
 import Chainweb.VerifierPlugin.Hyperlane.Utils
 import Chainweb.Utils (encodeB64UrlNoPaddingText, decodeB64UrlNoPaddingText, sshow)
+import Pact.Core.Errors (VerifierError(..))
 
 evaluateST :: a -> ST s a
 evaluateST a = unsafeIOToST (evaluate a)
