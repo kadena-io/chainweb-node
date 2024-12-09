@@ -119,6 +119,7 @@ import Chainweb.Payload.RestAPI (PayloadBatchLimit(..), defaultServicePayloadBat
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Development
+import Chainweb.Version.Pact5Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Registry
@@ -422,7 +423,7 @@ instance HasChainwebVersion ChainwebConfiguration where
 
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration []
 validateChainwebConfiguration c = do
-    validateMinerConfig (_configMining c)
+    validateMinerConfig (_configChainwebVersion c) (_configMining c)
     validateBackupConfig (_configBackup c)
     unless (c ^. chainwebVersion . versionDefaults . disablePeerValidation) $
         validateP2pConfiguration (_configP2p c)
@@ -465,8 +466,15 @@ validateChainwebVersion v = do
             , "set to recap-development or development, but version is set to"
             , sshow (_versionName v)
             ]
+    -- FIXME Pact5: disable
+    -- when (v == mainnet || v == testnet04) $
+    --     throwError $ T.unwords
+    --         [ "This node version is a technical preview of Pact 5, and"
+    --         , "cannot be used with Pact 4 chainweb versions (testnet04, mainnet)"
+    --         , "just yet."
+    --         ]
     where
-    isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [recapDevnet, devnet]]
+    isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [recapDevnet, devnet, pact5Devnet]]
 
 validateBackupConfig :: ConfigValidation BackupConfig []
 validateBackupConfig c =

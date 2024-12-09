@@ -49,7 +49,6 @@ import Data.Bifunctor (second)
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
-import Data.Default (def)
 import Data.Either (partitionEithers)
 import Data.Foldable
 import Data.Function
@@ -268,7 +267,7 @@ sendHandler logger mempool (Pact4.SubmitBatch cmds) = Handler $ do
           liftIO (mempoolInsertCheck mempool cmdsWithParsedPayloadsV) >>= checkResult
           liftIO (mempoolInsert mempool UncheckedInsert cmdsWithParsedPayloadsV)
           return $! Pact4.RequestKeys $ NEL.map Pact4.cmdToRequestKey cmdsWithParsedPayloads
-      Left err -> failWith $ "Validation failed: " <> T.pack err
+      Left err -> failWith $ "reading JSON for transaction failed: " <> T.pack err
   where
     failWith :: Text -> ExceptT ServerError IO a
     failWith err = do
@@ -350,7 +349,7 @@ listenHandler logger cdb cid pact mem (Pact5.ListenRequest key) = do
           hm <- liftIO $ internalPoll logger pdb bdb mem pact Nothing (pure key)
           if HM.null hm
           then go bh
-          else pure $! Pact5.ListenResponse $ snd $ head $ HM.toList hm
+          else pure $! Pact5.ListenResponse $ snd $ unsafeHead "Chainweb.Pact.RestAPI.Server.listenHandler.poll" $ HM.toList hm
 
         waitForNewBlock :: BlockHeader -> IO (Maybe BlockHeader)
         waitForNewBlock lastBlockHeader = atomically $ do
@@ -686,7 +685,7 @@ internalPoll logger pdb bhdb mempool pactEx confDepth requestKeys0 = do
     hashIsOnBadList rk =
         let res = Pact5.PactResultErr err
             err = Pact5.PELegacyError $
-              Pact5.LegacyPactError Pact5.LegacyTxFailure def [] "Transaction is badlisted because it previously failed to validate."
+              Pact5.LegacyPactError Pact5.LegacyTxFailure "" [] "Transaction is badlisted because it previously failed to validate."
             !cr = Pact5.CommandResult rk Nothing res (mempty :: Pact5.Gas) Nothing Nothing Nothing []
         in (rk, cr)
 
@@ -710,12 +709,9 @@ barf e = maybe (throwError e) return
 validateCommand :: ChainwebVersion -> ChainId -> Pact4.Command Text -> Either String Pact4.Transaction
 validateCommand v cid (fmap encodeUtf8 -> cmdBs) = case parsedCmd of
   Right (commandParsed :: Pact4.Transaction) ->
-    if Pact4.assertCommand
-         commandParsed
-         (validPPKSchemes v cid bh)
-         (isWebAuthnPrefixLegal v cid bh)
-    then Right commandParsed
-    else Left "Command failed validation"
+    case Pact4.assertCommand commandParsed (validPPKSchemes v cid bh) (isWebAuthnPrefixLegal v cid bh) of
+      Left err -> Left $ "Command failed validation: " ++ Pact4.displayAssertCommandError err
+      Right () -> Right commandParsed
   Left e -> Left $ "Pact parsing error: " ++ e
   where
     bh = maxBound :: BlockHeight

@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -13,9 +14,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE BlockArguments #-}
+
 -- TODO pact5: fix the orphan PactDbFor instance
 {-# OPTIONS_GHC -Wno-orphans #-}
-
 
 module Chainweb.Pact5.Backend.ChainwebPactDb
     ( chainwebPactCoreBlockDb
@@ -106,12 +107,6 @@ import Pact.Core.Command.Types (RequestKey (..))
 import Pact.Core.Hash
 import qualified Data.HashMap.Strict as HM
 
-data InternalDbException =
-    InternalDbException Text
-    deriving (Eq, Show, Typeable)
-
-instance Exception InternalDbException
-
 data BlockHandlerEnv logger = BlockHandlerEnv
     { _blockHandlerDb :: !SQLiteEnv
     , _blockHandlerLogger :: !logger
@@ -185,6 +180,11 @@ callDb callerName action = do
     case res of
         Left err -> internalDbError $ "callDb (" <> callerName <> "): " <> sshow err
         Right r -> return r
+
+newtype InternalDbException = InternalDbException Text
+  deriving newtype (Eq)
+  deriving stock (Show)
+  deriving anyclass (Exception)
 
 internalDbError :: MonadThrow m => Text -> m a
 internalDbError = throwM . InternalDbException
@@ -267,7 +267,7 @@ forModuleNameFix f = do
 tableExistsInDbAtHeight :: Utf8 -> BlockHeight -> BlockHandler logger Bool
 tableExistsInDbAtHeight tablename bh = do
     let knownTbls =
-            ["SYS:Pacts", "SYS:Modules", "SYS:KeySets", "SYS:Namespaces"]
+            ["SYS:Pacts", "SYS:Modules", "SYS:KeySets", "SYS:Namespaces", "SYS:ModuleSources"]
     if tablename `elem` knownTbls
     then return True
     else callDb "tableExists" $ \db -> do
@@ -426,15 +426,11 @@ checkInsertIsOK mlim tn wt d k = do
     olds <- doReadRow mlim d k
     case (olds, wt) of
         (Nothing, Insert) -> return Nothing
-        (Just _, Insert) ->
-            liftGas $ throwDbOpErrorGasM (RowFoundError tn k)
+        (Just _, Insert) -> liftGas $ throwDbOpErrorGasM (RowFoundError tn k)
         (Nothing, Write) -> return Nothing
         (Just old, Write) -> return $ Just old
         (Just old, Update) -> return $ Just old
-        (Nothing, Update) ->
-            liftGas $ throwDbOpErrorGasM (NoRowFound tn k)
---   where
-    -- err msg = internalError $ "checkInsertIsOK: " <> msg <> _rowKey k
+        (Nothing, Update) -> liftGas $ throwDbOpErrorGasM (NoRowFound tn k)
 
 writeUser
     :: Maybe (BlockHeight, TxId)

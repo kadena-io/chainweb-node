@@ -75,6 +75,17 @@ module Chainweb.Version
     , genesisBlockPayloadHash
     , genesisBlockTarget
     , genesisTime
+    , genesisBlockHeight
+    , genesisHeightAndGraph
+
+    , PactUpgrade(..)
+    , PactVersion(..)
+    , PactVersionT(..)
+    , ForBothPactVersions(..)
+    , ForSomePactVersion(..)
+    , pattern ForPact4
+    , pattern ForPact5
+    , forAnyPactVersion
 
     , PactUpgrade(..)
     , PactVersion(..)
@@ -158,6 +169,7 @@ import Data.Word
 
 import GHC.Generics(Generic)
 import GHC.TypeLits
+import GHC.Stack
 
 -- internal modules
 
@@ -222,6 +234,7 @@ data Fork
     | Chainweb224Pact
     | Chainweb225Pact
     | Chainweb226Pact
+    | Chainweb227Pact
     | Pact5Fork
     -- always add new forks at the end, not in the middle of the constructors.
     deriving stock (Bounded, Generic, Eq, Enum, Ord, Show)
@@ -259,6 +272,7 @@ instance HasTextRepresentation Fork where
     toText Chainweb224Pact = "chainweb224Pact"
     toText Chainweb225Pact = "chainweb225Pact"
     toText Chainweb226Pact = "chainweb226Pact"
+    toText Chainweb227Pact = "chainweb227Pact"
     toText Pact5Fork = "pact5"
 
     fromText "slowEpoch" = return SlowEpoch
@@ -292,6 +306,7 @@ instance HasTextRepresentation Fork where
     fromText "chainweb224Pact" = return Chainweb224Pact
     fromText "chainweb225Pact" = return Chainweb225Pact
     fromText "chainweb226Pact" = return Chainweb226Pact
+    fromText "chainweb227Pact" = return Chainweb227Pact
     fromText "pact5" = return Pact5Fork
     fromText t = throwM . TextFormatException $ "Unknown Chainweb fork: " <> t
 
@@ -651,6 +666,48 @@ chainGraphAt v = snd . ruleHead . chainwebGraphsAt (_chainwebVersion v)
 instance HasChainGraph (ChainwebVersion, BlockHeight) where
     _chainGraph = uncurry chainGraphAt
 
+-- | The genesis block height for a given chain.
+--
+-- Raises an error if a non-existing chainid is provided.
+-- (We generally assume that this invariant holds throughout the code base.
+-- It is enforced via the 'mkChainId' smart constructor for ChainId.)
+--
+genesisBlockHeight :: HasCallStack => ChainwebVersion -> ChainId -> BlockHeight
+genesisBlockHeight v c = fst $ genesisHeightAndGraph v c
+{-# inlinable genesisBlockHeight #-}
+
+-- | The genesis graph for a given Chain
+--
+-- Invariant:
+--
+-- * The given ChainId exists in the first graph of the graph history.
+--   (We generally assume that this invariant holds throughout the code base.
+--   It is enforced via the 'mkChainId' smart constructor for ChainId.)
+--
+genesisHeightAndGraph
+    :: HasCallStack
+    => HasChainwebVersion v
+    => HasChainId c
+    => v
+    -> c
+    -> (BlockHeight, ChainGraph)
+genesisHeightAndGraph v c =
+    case ruleSeek (\_ g -> not (isWebChain g c)) (_versionGraphs (_chainwebVersion v)) of
+        -- the chain was in every graph down to the bottom,
+        -- so the bottom has the genesis graph
+        (False, z) -> ruleZipperHere z
+        (True, (BetweenZipper _ above))
+            -- the chain is not in this graph, and there is no graph above
+            -- which could have it
+            | [] <- above -> missingChainError
+            -- the chain is not in this graph but the graph above does have it
+            | (t:_) <- above -> t
+    where
+    missingChainError = error
+        $ "Invalid ChainId " <> show (_chainId c)
+        <> " for chainweb version " <> show (_versionName (_chainwebVersion v))
+{-# inlinable genesisHeightAndGraph #-}
+
 -------------------------------------------------------------------------- --
 -- Utilities for constructing chainweb versions
 
@@ -688,7 +745,7 @@ latestBehaviorAt v = foldlOf' behaviorChanges max 0 v + 1
     behaviorChanges = fold
         [ versionForks . folded . folded . _ForkAtBlockHeight
         , versionUpgrades . folded . ifolded . asIndex
-        , versionGraphs . to ruleHead . _1 . _Just
+        , versionGraphs . to ruleHead . _1
         ]
 
 -- | Easy construction of a `ChainMap` with entries for every chain

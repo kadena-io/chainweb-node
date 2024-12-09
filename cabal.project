@@ -1,4 +1,7 @@
-packages: chainweb.cabal
+packages:
+    chainweb.cabal
+    node/chainweb-node.cabal
+    cwtools/cwtools.cabal
 
 debug-info: True
 
@@ -33,6 +36,12 @@ if os(darwin)
 package chainweb
     tests: True
     benchmarks: True
+    ghc-options: -Wno-missed-extra-shared-lib
+
+package chainweb-node
+    ghc-options: -Wno-missed-extra-shared-lib
+
+package cwtools
     ghc-options: -Wno-missed-extra-shared-lib
 
 if impl(ghc >= 9.8.1)
@@ -80,14 +89,14 @@ package yet-another-logger
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: 058da315f7b427ad5dcaa334683600a1f7fd9588
-    --sha256: 105jbsvrjv2zxsazd3vcbkml99w26xqimwjybfiznkg21456d6hn
+    tag: 1027a1f5fd0439c58522921e3a0532c4f5867a24
+    --sha256: 18xgvzb3p8chch85747ln9a2191df09vwwrv9v3njr2h69n3rhxj
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact-5.git
-    tag: f020a0b995ce0f8ade35c84b36a1e82a54af3cb4
-    --sha256: sha256-4KaTlKQUy7faGw3QYn7FEX9HZPb1xRVqaSz4LSUh8rg=
+    tag: 99e70e6af1977a5c5705affc59ef2de0d165682c
+    --sha256: 0hrir25c9dagid8h0x3qkqy4r23xzhlh03jk3af3c0r7p8mi3m7y
 
 source-repository-package
     type: git
@@ -133,27 +142,37 @@ source-repository-package
 
 -- Required for backward compatibility:
 
--- ixset-typed FIX (no PR yet)
+-- ixset-typed add difference operator (https://github.com/well-typed/ixset-typed/pull/24)
 source-repository-package
     type: git
-    location: https://github.com/larskuhtz/ixset-typed
-    tag: d8019c3404d6f3b3c0b0416e9899cfdf614ef425
-    --sha256: 09msayidg23rsdz97fcfqqalm4pbawx3c1qihgab8hnlmjxby103
-
--- Patch merged into master (upcoming verison 10.0). We are currently using 9.2.
--- This fork contains additional fixes for using 9.2 with recent compilers.
-source-repository-package
-    type: git
-    location: https://github.com/larskuhtz/sbv
-    tag: 1f2d042718fcf9a140398bd3dedac77c207cce27
-    --sha256: 0l3nhsdxsyx17i29dw691d6bbqz26af6lg6pi1c2kb34v59m2rk3
+    location: https://github.com/kadena-io/ixset-typed
+    tag: 8b3227c59305f7e5ca6af7c0b9bc5435e78875a0
+    --sha256: 08xpx3vwl8w7gn6z9s5smc383b962mxal3nav0fd5qh55yxqsp97
 
 -- Required for non-canonical decode in base64-bytestring (remove after 2.20 fork)
 source-repository-package
     type: git
-    location: https://github.com/emilypi/base64-bytestring-kadena
-    tag: 174af3523616c8fe01449da5ccbb9f16df097ac3
-    --sha256: 0grssxgjygi4ijiqaa87diwv6sdqz77hldf3lr4k7p93w35lhlci
+    location: https://github.com/kadena-io/base64-bytestring-kadena
+    tag: 90247042ab3b8662809210af2a78e6dee0f9b4ac
+    --sha256: 0dqsrjxm0cm35xcihm49dhwdvmz79vsv4sd5qs2izc4sbnd0d8n6
+
+source-repository-package
+    type: git
+    location: https://github.com/chessai/patience
+    tag: 2f67d546ea6608fc6ebe5f2f6976503cbf340442
+    --sha256: 0x137akvbh4kr3qagksw74xdj2xz5vjnx1fbr41bb54a0lkcb8mm
+
+source-repository-package
+    type: git
+    location: https://github.com/andrewthad/chronos
+    tag: b199bf6df1453af95832c2d2f9f0ef48c3622caa
+    --sha256: 056awkmdmkqdd5g3m8a1ibg2vp02kbppmidkfh4aildb1brq970a
+
+source-repository-package
+    type: git
+    location: https://gitlab.com/edmundnoble/predicate-transformers
+    tag: 67c77e68ade204f56d91ad5952fe432188b40d23
+    --sha256: 0q7nwl56lgic5andc956zv4zipdv5rxjkalm21cxr75r6grkzfmy
 
 source-repository-package
     type: git
@@ -238,10 +257,12 @@ allow-newer: webauthn:*
 -- many packages use an spurious <1.5 upper bound on hashable
 -- allow-newer: *:hashable
 
+allow-newer: lrucaching:base-compat
+
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
-allow-newer: webauthn:these
-allow-newer: webauthn:time
-allow-newer: webauthn:aeson
 
-allow-newer: lrucaching:base-compat
+-- This is needed on GHC <9.10.1 due to a bug (either in GHC or cabal) it
+-- that Cabal and Cabal-syntax are compatible.
+constraints: Cabal <=3.12.1.0
+constraints: Cabal-syntax <=3.12.1.0

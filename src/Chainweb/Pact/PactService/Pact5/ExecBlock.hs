@@ -59,7 +59,6 @@ import Data.Text qualified as T
 import Data.Vector (Vector)
 import Data.Vector qualified as V
 import Data.Void
-import Data.Word
 import Numeric.Natural
 import Pact.Core.ChainData hiding (ChainId)
 import Pact.Core.Command.Types qualified as Pact5
@@ -325,7 +324,7 @@ continueBlock mpAccess blockInProgress = do
               txs
         pbBlockHandle .= finalBlockHandle
         let (invalidTxHashes, completedTxs) = partitionEithers txResults
-        let p4FinalRemainingGas = fromIntegral @Word64 @Pact4.GasLimit $ finalRemainingGas ^. Pact5._GasLimit . to (P.fromSatWord . Pact5._gas)
+        let p4FinalRemainingGas = fromIntegral @Pact5.SatWord @Pact4.GasLimit $ finalRemainingGas ^. Pact5._GasLimit . to Pact5._gas
         return (completedTxs, Pact5.RequestKey <$> invalidTxHashes, p4FinalRemainingGas, timedOut)
 
   getBlockTxs :: BlockFill -> PactBlockM logger tbl (Vector Pact5.Transaction)

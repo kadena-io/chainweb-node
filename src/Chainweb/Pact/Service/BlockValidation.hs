@@ -51,7 +51,6 @@ import qualified Pact.Core.Evaluate as Pact5
 import qualified Pact.Types.ChainMeta as Pact4
 import Data.Text (Text)
 import qualified Pact.Types.Command as Pact4
-import qualified Pact.Core.Command.Types as Pact5
 
 newBlock :: Miner -> NewBlockFill -> ParentHeader -> PactQueue -> IO (Historical (ForSomePactVersion BlockInProgress))
 newBlock mi fill parent reqQ = do

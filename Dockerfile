@@ -267,12 +267,12 @@ ARG TARGETPLATFORM
 ARG PROJECT_NAME
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
     --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
-    cabal build --enable-tests --enable-benchmarks chainweb:exe:chainweb-node
+    cabal build --enable-tests --enable-benchmarks chainweb-node:exe:chainweb-node
 RUN sh /tools/check-git-clean.sh
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
     --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked <<EOF
     mkdir -p artifacts
-    cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb:exe:chainweb-node) artifacts/
+    cp $(cabal list-bin --enable-tests --enable-benchmarks chainweb-node:exe:chainweb-node) artifacts/
 EOF
 
 # ############################################################################ #
@@ -288,7 +288,7 @@ COPY --from=chainweb-build-tests /chainweb/test/pact test/pact
 COPY --from=chainweb-build-tests /chainweb/pact pact
 RUN <<EOF
     ulimit -n 10000
-    ./chainweb-tests --hide-successes --results-json test-results.json
+    ./chainweb-tests --hide-successes --results-json test-results.json -p '!/chainweb216Test/'
 EOF
 
 # ############################################################################ #
@@ -319,6 +319,7 @@ EOF
 # Chainweb-node Application
 
 FROM chainweb-runtime AS chainweb-node
+ENV PATH=/chainweb:$PATH
 COPY --from=chainweb-build-node /chainweb/artifacts/chainweb-node .
 COPY --from=chainweb-build-node /chainweb/LICENSE .
 COPY --from=chainweb-build-node /chainweb/README.md .

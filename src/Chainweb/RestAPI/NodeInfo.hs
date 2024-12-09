@@ -36,6 +36,7 @@ import Chainweb.CutDB
 import Chainweb.Difficulty (BlockDelay)
 import Chainweb.Graph
 import Chainweb.RestAPI.Utils
+import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Version
 
@@ -83,7 +84,7 @@ nodeInfoHandler v (SomeCutDb (CutDbT db :: CutDbT cas v)) = do
     let ch = cutToCutHashes Nothing curCut
     let curHeight = maximum $ map _bhwhHeight $ HM.elems $ _cutHashes ch
     let graphs = unpackGraphs v
-    let curGraph = head $ dropWhile (\(h,_) -> h > curHeight) graphs
+    let curGraph = unsafeHead "Chainweb.RestAPI.NodeInfo.nodeInfoHandler.curGraph" $ dropWhile (\(h,_) -> h > curHeight) graphs
     let curChains = map fst $ snd curGraph
     return $ NodeInfo
       { nodeVersion = _versionName v
@@ -94,7 +95,7 @@ nodeInfoHandler v (SomeCutDb (CutDbT db :: CutDbT cas v)) = do
       , nodeGraphHistory = graphs
       , nodeLatestBehaviorHeight = latestBehaviorAt v
       , nodeGenesisHeights = map (\c -> (chainIdToText c, genesisHeight v c)) $ HS.toList (chainIds v)
-      , nodeHistoricalChains = ruleElems 0 $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs v
+      , nodeHistoricalChains = ruleElems $ fmap (HM.toList . HM.map HS.toList . toAdjacencySets) $ _versionGraphs v
       , nodeServiceDate = T.pack <$> _versionServiceDate v
       , nodeBlockDelay = _versionBlockDelay v
       }
@@ -104,7 +105,6 @@ nodeInfoHandler v (SomeCutDb (CutDbT db :: CutDbT cas v)) = do
 unpackGraphs :: ChainwebVersion -> [(BlockHeight, [(Int, [Int])])]
 unpackGraphs v = gs
   where
-    gs = map (second graphAdjacencies) $ NE.toList $ ruleElems (BlockHeight 0) $ _versionGraphs v
+    gs = map (second graphAdjacencies) $ NE.toList $ ruleElems $ _versionGraphs v
     graphAdjacencies = map unChain . HM.toList . fmap HS.toList . G.adjacencySets . view chainGraphGraph
     unChain (a, bs) = (chainIdInt a, map chainIdInt bs)
-

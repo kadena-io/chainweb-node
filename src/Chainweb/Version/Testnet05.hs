@@ -65,15 +65,16 @@ testnet05 = ChainwebVersion
         Chainweb224Pact -> AllChains ForkAtGenesis
         Chainweb225Pact -> AllChains ForkAtGenesis
         Chainweb226Pact -> AllChains ForkAtGenesis
+        Chainweb227Pact -> AllChains ForkNever
         Pact5Fork -> AllChains ForkAtGenesis
 
     , _versionGraphs =
-        End twentyChainGraph
+        Bottom (minBound, twentyChainGraph)
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionMaxBlockGasLimit =
-        End (Just 180_000)
+        Bottom (minBound, Just 180_000)
     , _versionBootstraps = domainAddr2PeerInfo testnet05BootstrapHosts
     , _versionGenesis = VersionGenesis
         { _genesisBlockTarget = OnChains $ HM.fromList $ concat
@@ -97,7 +98,7 @@ testnet05 = ChainwebVersion
         , _disableMempoolSync = False
         }
     , _versionVerifierPluginNames = AllChains $
-        End (Set.fromList $ map VerifierName ["hyperlane_v3_message"])
+        Bottom (minBound, Set.fromList $ map VerifierName ["hyperlane_v3_message"])
     , _versionQuirks = VersionQuirks
         { _quirkGasFees = mempty
         }

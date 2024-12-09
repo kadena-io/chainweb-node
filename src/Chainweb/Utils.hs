@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -216,10 +217,16 @@ module Chainweb.Utils
 , showIpv6
 , sockAddrJson
 
+-- * GHC Host Architecture
+, hostArch
+
 -- * Debugging Tools
 , estimateBlockHeight
 , parseUtcTime
 
+-- * General utilities
+, unsafeHead
+, unsafeTail
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
@@ -251,7 +258,6 @@ import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as CSV
 import Data.Decimal
-import Data.Default (def)
 import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
@@ -275,6 +281,7 @@ import qualified Network.Connection as HTTP
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTP
 import Network.Socket hiding (Debug)
+import qualified Network.TLS as HTTP
 
 import Numeric.Natural
 
@@ -1332,9 +1339,10 @@ _T3 = iso (\(T3 a b c) -> (a,b,c)) (\(a,b,c) -> T3 a b c)
 -- Approximate thread delays
 approximately :: Integral a => a -> Prob.GenIO -> IO a
 approximately k gen = max 0 <$!> sample
-  where
-    sample = (round . (/ 256.0) . head) <$!>
-             Prob.samples 1 (Prob.normal mean sdev) gen
+    where
+    sample = do
+        samples <- Prob.samples 1 (Prob.normal mean sdev) gen
+        return $! round $ unsafeHead "Chainweb.Utils.approximately: empty samples" samples / 256.0
     mean   = fromIntegral $ k * 256
     sdev   = mean / 6
 
@@ -1360,12 +1368,18 @@ manager micros = HTTP.newManager
 unsafeManager :: Int -> IO HTTP.Manager
 unsafeManager micros = HTTP.newTlsManagerWith
     $ setManagerRequestTimeout micros
-    $ HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True True True def) Nothing
+    $ HTTP.mkManagerSettings
+        (HTTP.TLSSettingsSimple True True True HTTP.defaultSupported)
+        Nothing
 
-unsafeManagerWithSettings :: (HTTP.ManagerSettings -> HTTP.ManagerSettings) -> IO HTTP.Manager
+unsafeManagerWithSettings
+    :: (HTTP.ManagerSettings -> HTTP.ManagerSettings)
+    -> IO HTTP.Manager
 unsafeManagerWithSettings settings = HTTP.newTlsManagerWith
     $ settings
-    $ HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True True True def) Nothing
+    $ HTTP.mkManagerSettings
+        (HTTP.TLSSettingsSimple True True True HTTP.defaultSupported)
+        Nothing
 
 setManagerRequestTimeout :: Int -> HTTP.ManagerSettings -> HTTP.ManagerSettings
 setManagerRequestTimeout micros settings = settings
@@ -1400,6 +1414,18 @@ showIpv6 ha = T.intercalate ":"
     $ T.pack . printf "%x" <$> [a0,a1,a2,a3,a4,a5,a6,a7]
   where
     (a0,a1,a2,a3,a4,a5,a6,a7) = hostAddress6ToTuple ha
+
+-- -------------------------------------------------------------------------- --
+-- GHC Host architecture
+
+hostArch :: String
+#if aarch64_HOST_ARCH == 1
+hostArch = "aarch64"
+#elif x86_64_HOST_ARCH == 1
+hostArch = "x86_64"
+#else
+hostArch = "unknown"
+#endif
 
 -- -------------------------------------------------------------------------- --
 -- Debugging Tools
@@ -1465,3 +1491,13 @@ matchOrDisplayException display anyException
     = display specificException
     | otherwise
     = T.pack $ displayException anyException
+
+unsafeHead :: HasCallStack => String -> [a] -> a
+unsafeHead msg = \case
+    x : _ -> x
+    [] -> error $ "unsafeHead: empty list: " <> msg
+
+unsafeTail :: HasCallStack => String -> [a] -> [a]
+unsafeTail msg = \case
+    _ : xs -> xs
+    [] -> error $ "unsafeTail: empty list: " <> msg

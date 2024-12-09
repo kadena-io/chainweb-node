@@ -61,7 +61,6 @@ module Chainweb.Version.Utils
 ) where
 
 import Chainweb.BlockHeight
-import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Time
@@ -132,9 +131,9 @@ chainGraphs :: HasChainwebVersion v => v -> M.Map BlockHeight ChainGraph
 chainGraphs = \case
     (_chainwebVersion -> v)
         | _versionCode v == _versionCode mainnet -> mainnetGraphs
-        | otherwise -> M.fromDistinctDescList . toList . ruleElems minBound $ _versionGraphs v
+        | otherwise -> M.fromDistinctDescList . toList . ruleElems $ _versionGraphs v
     where
-    mainnetGraphs = M.fromDistinctDescList . toList . ruleElems minBound $ _versionGraphs mainnet
+    mainnetGraphs = M.fromDistinctDescList . toList . ruleElems $ _versionGraphs mainnet
 
 -- | BlockHeight intervals for the chain graphs of a chainweb version up to a
 -- given block height.
@@ -261,7 +260,7 @@ blockCountAt v cid h
     | h < gh = 0
     | otherwise = 1 + int h - int gh
   where
-    gh = genesisHeight (_chainwebVersion v) (_chainId cid)
+    gh = genesisBlockHeight (_chainwebVersion v) (_chainId cid)
 
 -- | The block count accross all chains at a given block height
 --
@@ -406,7 +405,7 @@ expectedBlockCountAfterSeconds v cid s = max 0 (1 + (int s / (int r / 1_000_000)
     -- and thus have `genesisHeight > 0`
   where
     BlockDelay r = _versionBlockDelay (_chainwebVersion v)
-    gh = genesisHeight (_chainwebVersion v) (_chainId cid)
+    gh = genesisBlockHeight (_chainwebVersion v) (_chainId cid)
 
 -- | This function is useful for performance testing when calculating the
 -- expected number of mined blocks during a test accross all chains.
@@ -462,11 +461,12 @@ verifiersAt :: ChainwebVersion -> ChainId -> BlockHeight -> Map VerifierName Ver
 verifiersAt v cid bh =
     M.restrictKeys allVerifierPlugins activeVerifierNames
     where
-    activeVerifierNames =
-        case measureRule bh $ _versionVerifierPluginNames v ^?! atChain cid of
-            Bottom vs -> vs
-            Top (_, vs) -> vs
-            Between (_, vs) _ -> vs
+    activeVerifierNames
+        = snd
+        $ ruleZipperHere
+        $ snd
+        $ ruleSeek (\h _ -> bh >= h)
+        $ _versionVerifierPluginNames v ^?! atChain cid
 
 -- the mappings from names to verifier plugins is global. the list of verifier
 -- plugins active in any particular block validation context is the only thing

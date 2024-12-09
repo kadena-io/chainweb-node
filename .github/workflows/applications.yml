@@ -134,9 +134,10 @@ jobs:
         if "${{ github.event_name == 'schedule' }}" == "true"; then
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.6", "9.8.2", "9.10.1"],
+          # The first version in this list is the version to be used for release
+          "ghc": ["9.8.2", "9.10.1", "9.6.6"],
           "cabal": ["3.12"],
-          "os": ["ubuntu-20.04", "ubuntu-22.04"],
+          "os": ["ubuntu-22.04"],
           "use-freeze-file": ["false"],
           "include" : [
             {
@@ -152,7 +153,7 @@ jobs:
         else
         MATRIX="$(jq -c '.' <<EOF
         {
-          "ghc": ["9.6.6", "9.8.2", "9.10.1"],
+          "ghc": ["9.8.2", "9.10.1", "9.6.6"],
           "cabal": ["3.12"],
           "os": ["ubuntu-22.04"],
           "use-freeze-file": ["false"],
@@ -264,7 +265,7 @@ jobs:
         cabal --version
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
-      run: sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libsnappy-dev libbz2-dev
+      run: sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libsnappy-dev libbz2-dev libmpfr-dev
     # Project Configuration
     - name: Create cabal.project.local
       run: |
@@ -358,7 +359,26 @@ jobs:
     - name: Build chainweb library
       run: cabal build --ghc-options=-j2 lib:chainweb
     - name: Build chainweb applications
-      run: cabal build -j2 --ghc-options=-j2 exe:chainweb-node exe:compact test:chainweb-tests exe:cwtool chainweb:bench:bench
+      run: |
+        cabal build -j2 --ghc-options=-j2 \
+          chainweb:bench:bench \
+          exe:b64 \
+          exe:calculate-release \
+          exe:compact \
+          exe:db-checksum \
+          exe:ea \
+          exe:genconf \
+          exe:header-dump \
+          exe:known-graphs \
+          exe:pact-diff \
+          exe:run-nodes \
+          exe:tx-list \
+          test:chainweb-tests \
+          test:compaction-tests \
+          test:multi-node-network-tests \
+          test:remote-tests
+    - name: Build chainweb-node application
+      run: cabal build -j2 --ghc-options=-j2 chainweb-node:exe:chainweb-node
 
     # Checks
     - name: Check that working directory tree is clean
@@ -369,7 +389,7 @@ jobs:
         fi
     - name: Run ea and verify consistency of genesis headers
       run: |
-        cabal run cwtool -- ea
+        cabal run ea
         if ! git diff --exit-code -- src/Chainweb/BlockHeader/Genesis/ src/Chainweb/Pact/Transactions/ ; then
           echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
           exit 1
@@ -379,11 +399,23 @@ jobs:
     - name: Prepare artifacts
       run: |
         mkdir -p artifacts/chainweb
-        cp $(cabal list-bin chainweb-node) artifacts/chainweb
-        cp $(cabal list-bin compact) artifacts/chainweb
-        cp $(cabal list-bin chainweb-tests) artifacts/chainweb
-        cp $(cabal list-bin cwtool) artifacts/chainweb
+        cp $(cabal list-bin b64) artifacts/chainweb
         cp $(cabal list-bin bench) artifacts/chainweb
+        cp $(cabal list-bin calculate-release) artifacts/chainweb
+        cp $(cabal list-bin chainweb-node) artifacts/chainweb
+        cp $(cabal list-bin chainweb-tests) artifacts/chainweb
+        cp $(cabal list-bin compact) artifacts/chainweb
+        cp $(cabal list-bin compaction-tests) artifacts/chainweb
+        cp $(cabal list-bin db-checksum) artifacts/chainweb
+        cp $(cabal list-bin ea) artifacts/chainweb
+        cp $(cabal list-bin genconf) artifacts/chainweb
+        cp $(cabal list-bin header-dump) artifacts/chainweb
+        cp $(cabal list-bin known-graphs) artifacts/chainweb
+        cp $(cabal list-bin multi-node-network-tests) artifacts/chainweb
+        cp $(cabal list-bin pact-diff) artifacts/chainweb
+        cp $(cabal list-bin remote-tests) artifacts/chainweb
+        cp $(cabal list-bin run-nodes) artifacts/chainweb
+        cp $(cabal list-bin tx-list) artifacts/chainweb
         cp README.md artifacts/chainweb
         cp CHANGELOG.md artifacts/chainweb
         cp LICENSE artifacts/chainweb
@@ -404,10 +436,10 @@ jobs:
         if-no-files-found: error
 
   # ########################################################################## #
-  # Run Slow tests (Multinode test)
+  # Run misc test suites
 
-  slow-tests:
-    name: Slow tests
+  remote-tests:
+    name: Remote tests
     needs: [config, build]
     runs-on: ${{ matrix.os }}
     env:
@@ -428,11 +460,65 @@ jobs:
         os: ${{ matrix.os }}
         ghc: ${{ matrix.ghc }}
         use-freeze-file: ${{ matrix.use-freeze-file }}
-    - name: Run slow tests
-      timeout-minutes: 20
+    - name: Run remote-tests
+      timeout-minutes: 2
+      run: remote-tests
+
+  compaction-tests:
+    name: Compaction tests
+    needs: [config, build]
+    runs-on: ${{ matrix.os }}
+    env:
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ env.ARTIFACTS_NAME }}
+        path: .
+    - name: Install chainweb from artifacts
+      uses: ./.github/actions/install-chainweb-from-artifacts
+      with:
+        os: ${{ matrix.os }}
+        ghc: ${{ matrix.ghc }}
+        use-freeze-file: ${{ matrix.use-freeze-file }}
+    - name: Run compaction-tests
+      timeout-minutes: 7
       run: |
           ulimit -n 10000
-          cwtool slow-tests
+          compaction-tests
+
+  multi-node-network-tests:
+    name: Multi-node network tests
+    needs: [config, build]
+    runs-on: ${{ matrix.os }}
+    env:
+      ARTIFACTS_NAME: chainweb-applications.${{ matrix.use-freeze-file }}.${{ matrix.ghc }}.${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ env.ARTIFACTS_NAME }}
+        path: .
+    - name: Install chainweb from artifacts
+      uses: ./.github/actions/install-chainweb-from-artifacts
+      with:
+        os: ${{ matrix.os }}
+        ghc: ${{ matrix.ghc }}
+        use-freeze-file: ${{ matrix.use-freeze-file }}
+    - name: Run multi-node-network-tests
+      timeout-minutes: 7
+      run: |
+          ulimit -n 10000
+          multi-node-network-tests
 
   # ########################################################################## #
   # Run Benchmarks
@@ -695,6 +781,7 @@ jobs:
           libbz2-1.0 \
           libgflags2.2 \
           zstd \
+          libmpfr6 \
           locales &&
           rm -rf /var/lib/apt/lists/* &&
           locale-gen en_US.UTF-8 &&

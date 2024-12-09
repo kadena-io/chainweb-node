@@ -130,18 +130,19 @@ testnet04 = ChainwebVersion
         Chainweb223Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 4_100_681 -- 2024-03-06 12:00:00+00:00
         Chainweb224Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 4_333_587 -- 2024-05-29 12:00:00+00:00
         Chainweb225Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 4_575_072 -- 2024-08-21 12:00:00+00:00
-        Chainweb226Pact -> AllChains ForkNever
+        Chainweb226Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 4_816_925 -- 2024-11-13 12:00:00+00:00
+        Chainweb227Pact -> AllChains ForkNever
         Pact5Fork -> AllChains ForkNever
 
     , _versionGraphs =
         (to20ChainsTestnet, twentyChainGraph) `Above`
-        End petersonChainGraph
+        Bottom (minBound, petersonChainGraph)
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionMaxBlockGasLimit =
         (succ $ testnet04 ^?! versionForks . at Chainweb216Pact . _Just . atChain (unsafeChainId 0) . _ForkAtBlockHeight, Just 180_000) `Above`
-        End Nothing
+        Bottom (minBound, Nothing)
     , _versionBootstraps = domainAddr2PeerInfo testnet04BootstrapHosts
     , _versionGenesis = VersionGenesis
         { _genesisBlockTarget = OnChains $ HM.fromList $ concat
@@ -185,12 +186,12 @@ testnet04 = ChainwebVersion
         , _disableMempoolSync = False
         }
     , _versionVerifierPluginNames = AllChains $ (4_100_681, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
-        End mempty
+        Bottom (minBound, mempty)
     , _versionQuirks = VersionQuirks
         { _quirkGasFees = HM.fromList
             [ (fromJuste (decodeStrictOrThrow' "\"myHrgVbYCXlAk8KJbmWHs3TEDSlRKRuzxpFa9yaC7cQ\""), Gas 66239)
             , (fromJuste (decodeStrictOrThrow' "\"3fpFnFUrRsu67ItHicBGa9PVlWp71AggrcWoikht3jk\""), Gas 65130)
             ]
         }
-    , _versionServiceDate = Just "2024-11-13T00:00:00Z"
+    , _versionServiceDate = Just "2025-02-05T00:00:00Z"
     }

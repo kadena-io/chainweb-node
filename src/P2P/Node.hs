@@ -128,6 +128,7 @@ import P2P.Node.PeerDB
 import P2P.Node.RestAPI.Client
 import P2P.Peer
 import P2P.Session
+import Data.Proxy
 
 -- -------------------------------------------------------------------------- --
 -- P2pNodeStats
@@ -436,7 +437,7 @@ peerClientEnv node = peerInfoClientEnv (_p2pNodeManager node)
 --
 syncFromPeer :: P2pNode -> PeerInfo -> IO Bool
 syncFromPeer node info = do
-    prunePeerDb peerDb
+    prunePeerDb (_p2pNodeLogFunction node) peerDb
     runClientM sync env >>= \case
         Left e
             | isCertMismatch e -> do
@@ -445,6 +446,10 @@ syncFromPeer node info = do
                 return False
             | otherwise -> do
                 logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> showClientError e
+                -- incrementSuccessiveFailures here helps reduce redundant synchronisation attempts
+                -- by a significant margin, from limited experimentation. More in-depth experimentation
+                -- is still to be done.
+                incrementSuccessiveFailures peerDb info
                 return False
         Right p -> do
             peers <- peerDbSnapshot peerDb
@@ -508,18 +513,20 @@ findNextPeer conf node = do
     candidates <- awaitCandidates
 
     -- random circular shift of a set
-    let shift i = uncurry (++)
+    let shift :: Int -> [a] -> [a]
+        shift i = uncurry (++)
             . swap
-            . splitAt (fromIntegral i)
+            . splitAt i
 
+    let shiftR :: [a] -> IO [a]
         shiftR s = do
             i <- nodeRandomR node (0, max 1 (length s) - 1)
             return $ shift i s
 
     let (p0, p1) = L.partition (\p -> _peerEntryActiveSessionCount p > 0 && _peerEntrySuccessiveFailures p <= 1) candidates
 
-        -- this ix expensive but lazy and only forced if p0 is empty
-        p2 = L.groupBy ((==) `on` _peerEntrySuccessiveFailures) p1
+    -- this ix expensive but lazy and only forced if p0 is empty
+    let p2 = L.groupBy ((==) `on` _peerEntrySuccessiveFailures) p1
 
 
     -- Choose the category to pick from
@@ -531,13 +538,13 @@ findNextPeer conf node = do
     nodeGeometric node 0.95 >>= \case
 
         -- Special case that avoids forcing of p2
-        0 | not (null p0) -> head <$> shiftR p0
+        0 | not (null p0) -> unsafeHead "P2P.Node.nodeGeometric.0" <$> shiftR p0
 
         -- general case that forces p2
         n -> do
             let n' = min (length (p0 : p2) - 1) n
             -- note that @p0 : p2@ is guaranteed to be non-empty
-            head . concat <$> traverse shiftR (drop n' (p0 : p2))
+            unsafeHead "P2P.Node.nodeGeometric.n" . concat <$> traverse shiftR (drop n' (p0 : p2))
 
   where
 
@@ -554,8 +561,8 @@ findNextPeer conf node = do
         --
         peers <- peerDbSnapshotSTM peerDbVar
         !sessions <- readTVar sessionsVar
-        let peerCount = length peers
-        let sessionCount = length sessions
+        let peerCount = IXS.size peers
+        let sessionCount = M.size sessions
 
         -- Check that there are peers
         --
@@ -576,7 +583,7 @@ findNextPeer conf node = do
             -- transation we only check that the result is not empty, which
             -- is expected to be much cheaper than forcing the full list.
             --
-            peersList = IXS.toList peers
+            peersList = IXS.toAscList (Proxy @SuccessiveFailures) peers
             candidates = flip filter peersList $ \peer ->
                 let addr = _peerAddr (_peerEntryInfo peer)
                 in
@@ -609,7 +616,13 @@ newSession :: P2pConfiguration -> P2pNode -> IO ()
 newSession conf node = do
     newPeer <- findNextPeer conf node
     let newPeerInfo = _peerEntryInfo newPeer
-    logg node Debug $ "Selected new peer " <> encodeToText newPeer
+    logg node Debug
+        $ "Selected new peer " <> encodeToText newPeerInfo <> ", "
+        <> encodeToText (_peerEntryActiveSessionCount newPeer) <> "# sessions, "
+        <> if _getPeerEntrySticky (_peerEntrySticky newPeer) then "sticky, " else "not sticky, "
+        <> encodeToText (_peerEntrySuccessiveFailures newPeer) <> "consec. failures, "
+        <> encodeToText (_peerEntryLastSuccess newPeer) <> "last success"
+
     syncFromPeer_ newPeerInfo >>= \case
         False -> do
             threadDelay =<< R.randomRIO (400000, 500000)

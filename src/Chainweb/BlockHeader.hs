@@ -90,7 +90,6 @@ module Chainweb.BlockHeader
 , I.genesisBlockHeaders
 , I.genesisBlockHeadersAtHeight
 , I.genesisHeight
-, I.genesisHeightSlow
 , I.headerSizes
 , I.headerSizeBytes
 , I.workSizeBytes

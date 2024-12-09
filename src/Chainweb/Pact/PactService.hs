@@ -82,6 +82,11 @@ import qualified Pact.Types.Hash as Pact4
 import qualified Pact.Types.Runtime as Pact4 hiding (catchesPactError)
 import qualified Pact.Types.Pretty as Pact4
 
+import qualified Pact.Core.Builtin as Pact5
+import qualified Pact.Core.Persistence as Pact5
+import qualified Pact.Core.Gas as Pact5
+import qualified Pact.Core.Info as Pact5
+
 import qualified Chainweb.Pact4.TransactionExec as Pact4
 import qualified Chainweb.Pact4.Validations as Pact4
 
@@ -101,6 +106,7 @@ import qualified Chainweb.Pact4.Backend.ChainwebPactDb as Pact4
 import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
 import Chainweb.Pact.Types
 import Chainweb.Pact4.SPV qualified as Pact4
+import Chainweb.Pact5.SPV qualified as Pact5
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
@@ -142,7 +148,6 @@ import Chainweb.Pact5.NoCoinbase qualified as Pact5
 import Chainweb.Pact5.Validations qualified as Pact5
 import Pact.Core.Errors qualified as Pact5
 import Control.Monad.Except
-import Data.Default
 import Pact.Parse as Pact4
 import Control.Parallel.Strategies as Strategies
 import Data.Text qualified as T
@@ -587,7 +592,7 @@ execNewGenesisBlock miner newTrans = pactLabel "execNewGenesisBlock" $ do
             logger <- view (psServiceEnv . psLogger)
             v <- view chainwebVersion
             cid <- view chainId
-            txs <- liftIO $ traverse (runExceptT . Pact4.checkParse logger v cid (genesisHeightSlow v cid)) newTrans
+            txs <- liftIO $ traverse (runExceptT . Pact4.checkParse logger v cid (genesisBlockHeight v cid)) newTrans
             parsedTxs <- case partitionEithers (V.toList txs) of
                 ([], validTxs) -> return (V.fromList validTxs)
                 (errs, _) -> internalError $ "Invalid genesis txs: " <> sshow errs
@@ -844,8 +849,7 @@ execReplay target = pactLabel "execReplay" $ do
             )
         validationFailed <- readIORef validationFailedRef
         when validationFailed $
-            throwM $ BlockValidationFailure $ BlockValidationFailureMsg $
-                J.encodeText ("Prior block validation errors" :: Text)
+            throwM $ BlockValidationFailure $ BlockValidationFailureMsg "Prior block validation errors"
         return r
 
     heightProgress :: BlockHeight -> BlockHeight -> IORef BlockHeight -> (Text -> IO ()) -> IO ()
@@ -922,7 +926,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                                 parseError = Pact4.CommandResult
                                     { _crReqKey = Pact4.RequestKey (Pact4.toUntypedHash $ Pact4._cmdHash cmd)
                                     , _crTxId = Nothing
-                                    , _crResult = Pact4.PactResult (Left (Pact4.PactError Pact4.SyntaxError def [] (sshow err)))
+                                    , _crResult = Pact4.PactResult (Left (Pact4.PactError Pact4.SyntaxError Pact4.noInfo [] (sshow err)))
                                     , _crGas = cmd ^. Pact4.cmdPayload . Pact4.pMeta . Pact4.pmGasLimit . to fromIntegral
                                     , _crLogs = Nothing
                                     , _crContinuation = Nothing

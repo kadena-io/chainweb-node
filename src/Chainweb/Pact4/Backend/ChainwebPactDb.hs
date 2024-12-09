@@ -1,6 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -10,6 +9,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 -- TODO pact5: fix the orphan PactDbFor instance
 {-# OPTIONS_GHC -Wno-orphans #-}
 
@@ -58,7 +58,6 @@ module Chainweb.Pact4.Backend.ChainwebPactDb
 , mkBlockHandlerEnv
 ) where
 
-import Pact.Core.Persistence.Types qualified as Pact5
 import Control.Applicative
 import Control.Lens
 import Control.Monad
@@ -82,6 +81,7 @@ import qualified Data.Set as Set
 import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import Pact.Core.Persistence.Types qualified as Pact5
 
 import Database.SQLite3.Direct as SQ3
 
@@ -98,9 +98,6 @@ import Pact.Types.Term (ModuleName(..), ObjectMap(..), TableName(..))
 import Pact.Types.Util (AsString(..))
 
 import qualified Pact.JSON.Encode as J
-import qualified Data.ByteString as B
-import qualified Data.Text as T
-import System.Directory
 import qualified Pact.JSON.Legacy.HashMap as LHM
 
 -- chainweb
@@ -117,12 +114,11 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Pact.Interpreter (PactDbEnv)
 import Data.HashMap.Strict (HashMap)
-import Data.Vector (Vector, create)
+import Data.Vector (Vector)
 import Control.Concurrent
 import Chainweb.Version.Guards
 import Control.Exception.Safe
 import Pact.Types.Command (RequestKey)
-import System.FilePath
 
 callDb
     :: (MonadCatch m, MonadReader (BlockHandlerEnv logger) m, MonadIO m)

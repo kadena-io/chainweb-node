@@ -63,6 +63,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.RemoteDB
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.ChainValue
@@ -72,7 +73,6 @@ import Chainweb.Payload.RestAPI.Client
 import Chainweb.Time
 import Chainweb.TreeDB
 import qualified Chainweb.TreeDB as TDB
-import Chainweb.TreeDB.RemoteDB
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
@@ -252,11 +252,11 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
     pullOrigin _ k Nothing = do
         logfun Debug $ taskMsg k "no origin"
         return Nothing
-    pullOrigin _ k (Just origin) = do
+    pullOrigin bh k (Just origin) = do
         let originEnv = setResponseTimeout pullOriginResponseTimeout $ peerInfoClientEnv mgr origin
         logfun Debug $ taskMsg k "lookup origin"
         !r <- trace traceLogfun (traceLabel "pullOrigin") k 0
-            $ runClientM (payloadClient v cid k Nothing) originEnv
+            $ runClientM (payloadClient v cid k (Just bh)) originEnv
         case r of
             (Right !x) -> do
                 logfun Debug $ taskMsg k "received from origin"
@@ -268,11 +268,11 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
     -- | Query a block payload via the task queue
     --
     queryPayloadTask :: BlockHeight -> BlockPayloadHash -> IO (Task ClientEnv PayloadData)
-    queryPayloadTask _ k = newTask (sshow k) priority $ \logg env -> do
+    queryPayloadTask bh k = newTask (sshow k) priority $ \logg env -> do
         logg @T.Text Debug $ taskMsg k "query remote block payload"
         let taskEnv = setResponseTimeout taskResponseTimeout env
         !r <- trace traceLogfun (traceLabel "queryPayloadTask") k (let Priority i = priority in i)
-            $ runClientM (payloadClient v cid k Nothing) taskEnv
+            $ runClientM (payloadClient v cid k (Just bh)) taskEnv
         case r of
             (Right !x) -> do
                 logg @T.Text Debug $ taskMsg k "received remote block payload"

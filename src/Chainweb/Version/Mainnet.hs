@@ -151,17 +151,18 @@ mainnet = ChainwebVersion
         Chainweb223Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_577_530) -- 2024-03-07 00:00:00+00:00
         Chainweb224Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 4_819_246) -- 2024-05-30 00:00:00+00:00
         Chainweb225Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 5_060_924) -- 2024-08-22 00:00:00+00:00
-        Chainweb226Pact -> AllChains ForkNever
+        Chainweb226Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 5_302_559) -- 2024-11-14 00:00:00+00:00
+        Chainweb227Pact -> AllChains ForkNever
 
     , _versionGraphs =
         (to20ChainsMainnet, twentyChainGraph) `Above`
-        End petersonChainGraph
+        Bottom (minBound, petersonChainGraph)
     , _versionBlockDelay = BlockDelay 30_000_000
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionMaxBlockGasLimit =
         (succ $ mainnet ^?! versionForks . at Chainweb216Pact . _Just . atChain (unsafeChainId 0) . _ForkAtBlockHeight, Just 180_000) `Above`
-        End Nothing
+        Bottom (minBound, Nothing)
     , _versionBootstraps = domainAddr2PeerInfo mainnetBootstrapHosts
     , _versionGenesis = VersionGenesis
         { _genesisBlockTarget = OnChains $ HM.fromList $ concat
@@ -214,13 +215,14 @@ mainnet = ChainwebVersion
         { _disablePeerValidation = False
         , _disableMempoolSync = False
         }
-    , _versionVerifierPluginNames = AllChains $ (4_577_530, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
-        End mempty
+    , _versionVerifierPluginNames = AllChains $
+        (4_577_530, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
+        Bottom (minBound, mempty)
     , _versionQuirks = VersionQuirks
         { _quirkGasFees = HM.fromList
             [ (fromJuste (decodeStrictOrThrow' "\"s9fUspNaCHoV4rNI-Tw-JYU1DxqZAOXS-80oEy7Zfbo\""), Gas 67_618)
             , (fromJuste (decodeStrictOrThrow' "\"_f1xkIQPGRcOBNBWkOvP0dGNOjmNtmXwOnXzfdwnmJQ\""), Gas 69_092)
             ]
         }
-    , _versionServiceDate = Nothing -- Just "2024-11-13T00:00:00Z"
+    , _versionServiceDate = Just "2025-02-05T00:00:00Z"
     }

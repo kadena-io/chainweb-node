@@ -13,7 +13,7 @@ let flakeDefaultNix = (import (
     };
 in
 { pkgs ? pkgsDef
-, compiler ? "ghc965"
+, compiler ? "ghc982"
 , flakePath ? flakeDefaultNix.outPath
 , nix-filter ? inputs.nix-filter
 , pact ? null
@@ -90,7 +90,7 @@ let haskellSrc = with nix-filter.lib; filter {
       src = if pactInput == null then pkgs.fetchgit cached.meta.pact.src else pactInput;
     };
     passthru = {
-      version = flake.packages."chainweb:exe:chainweb-node".version;
+      version = flake.packages."chainweb-node:exe:chainweb-node".version;
       # cached.meta gets propagated through the recursive outputs
       cached.paths.pactSrc = chainweb.hsPkgs.pact.src;
       cached.meta.pact = {
@@ -105,25 +105,46 @@ let haskellSrc = with nix-filter.lib; filter {
     };
     default =
       let
-        exes = [
-          "chainweb-node"
-          "cwtool"
-          "compact"
-          "pact-diff"
+        exesByComponentIndex = [
+          {
+            name = "chainweb-node";
+            exes = ["chainweb-node"];
+          }
+
+          {
+            name = "cwtools";
+            exes = [
+              "b64"
+              "calculate-release"
+              "compact"
+              "db-checksum"
+              "ea"
+              "genconf"
+              "header-dump"
+              "known-graphs"
+              "pact-diff"
+              "run-nodes"
+              "tx-list"
+            ];
+          }
         ];
 
         for = xs: f: builtins.map f xs;
-      in
-      pkgs.runCommandCC "chainweb" { inherit passthru; } ''
-        mkdir -pv $out/bin
-        ${builtins.concatStringsSep "\n" (for exes (exe: ''
-          cp ${flake.packages."chainweb:exe:${exe}"}/bin/${exe} $out/bin/${exe}
+
+        buildSingle = componentName: exe: ''
+          cp ${flake.packages."${componentName}:exe:${exe}"}/bin/${exe} $out/bin/${exe}
           chmod +w $out/bin/${exe}
           $STRIP $out/bin/${exe}
           ${pkgs.lib.optionalString (pkgs.stdenv.isLinux) ''
             patchelf --shrink-rpath $out/bin/${exe}
           ''}
-        ''))}
+        '';
+      in
+      pkgs.runCommandCC "chainweb" { inherit passthru; } ''
+        mkdir -pv $out/bin
+        ${builtins.concatStringsSep "\n" (for exesByComponentIndex (component:
+          builtins.concatStringsSep "\n" (for component.exes (exe: buildSingle component.name exe))
+        ))}
       '';
 in {
   # The Haskell project flake: Used by flake.nix

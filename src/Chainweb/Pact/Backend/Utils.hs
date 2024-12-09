@@ -128,11 +128,10 @@ import qualified Pact.Types.Persistence as Pact4
 -- -------------------------------------------------------------------------- --
 -- SQ3.Utf8 Encodings
 instance AsString (PCore.Domain k v b i) where
-    asString t = PCore.renderDomain t
-
+    asString = PCore.renderDomain
 
 instance AsString (PCore.TableName) where
-    asString t = PCore.renderTableName t
+    asString = PCore.renderTableName
 
 toUtf8 :: T.Text -> SQ3.Utf8
 toUtf8 = SQ3.Utf8 . T.encodeUtf8

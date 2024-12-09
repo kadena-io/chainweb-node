@@ -91,7 +91,7 @@ jobs:
         EOF
 
     # Build
-    - name: Delete Freeze file if it exists
+    - name: Delete freeze file if it exists
       run: rm -f cabal.project.freeze
     - name: Update package database
       run: cabal update
@@ -116,8 +116,26 @@ jobs:
     - name: Build chainweb library
       run: cabal build lib:chainweb
     - name: Build chainweb applications
-      run: cabal build exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
-
+      run: |
+        cabal build -j \
+          chainweb:bench:bench \
+          exe:b64 \
+          exe:calculate-release \
+          exe:compact \
+          exe:db-checksum \
+          exe:ea \
+          exe:genconf \
+          exe:header-dump \
+          exe:known-graphs \
+          exe:pact-diff \
+          exe:run-nodes \
+          exe:tx-list \
+          test:chainweb-tests \
+          test:compaction-tests \
+          test:multi-node-network-tests \
+          test:remote-tests
+    - name: Build chainweb-node application
+      run: cabal build -j chainweb-node:exe:chainweb-node
     - uses: actions/cache/save@v4
       name: Save dist-newstyle cache
       if: steps.cabal-dist-cache.outputs.cache-hit != 'true'
@@ -128,10 +146,10 @@ jobs:
           dist-newstyle
         key: ${{ steps.cabal-dist-cache.outputs.cache-primary-key }}
 
-    - name: Run Tests
+    - name: Run unit tests
       run: |
         ulimit -n 10000
-        cabal run tests -- --hide-successes -p '!/chainweb216Test/'
+        $(cabal list-bin chainweb:test:chainweb-tests) --hide-successes -p '!/chainweb216Test/'
 
     # Checks
     - name: Check that working directory tree is clean
@@ -145,7 +163,7 @@ jobs:
         mv cabal.project.freeze.backup cabal.project.freeze
     - name: Run ea and verify consistency of genesis headers
       run: |
-        cabal run cwtool -- ea
+        cabal run ea
         mv cabal.project.freeze cabal.project.freeze.backup
         git checkout -- cabal.project.freeze || true
         if ! git diff --exit-code; then
@@ -153,3 +171,4 @@ jobs:
           exit 1
         fi
         mv cabal.project.freeze.backup cabal.project.freeze
+
