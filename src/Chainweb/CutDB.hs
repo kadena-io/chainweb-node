@@ -52,6 +52,7 @@ module Chainweb.CutDB
 , pruneCuts
 , cutDbWebBlockHeaderDb
 , cutDbBlockHeaderDb
+, cutDbStore
 , cutDbPayloadDb
 , cutDbPactService
 , cut
@@ -279,6 +280,10 @@ cutDbPayloadDb = to $ _webBlockPayloadStoreCas . _cutDbPayloadStore
 cutDbPactService :: Getter (CutDb tbl) WebPactExecutionService
 cutDbPactService = to $ _webBlockPayloadStorePact . _cutDbPayloadStore
 {-# INLINE cutDbPactService #-}
+
+cutDbStore :: Getter (CutDb tbl) (Casify RocksDbTable CutHashes)
+cutDbStore = to _cutDbCutStore
+{-# INLINE cutDbStore #-}
 
 cutDbPayloadStore :: Getter (CutDb tbl) (WebBlockPayloadStore tbl)
 cutDbPayloadStore = to _cutDbPayloadStore

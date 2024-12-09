@@ -7,6 +7,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -133,6 +134,7 @@ import Network.Wai.Middleware.Throttle
 
 import Prelude hiding (log)
 
+import Streaming.Prelude qualified as S
 import System.Clock
 import System.LogLevel
 
@@ -141,6 +143,7 @@ import System.LogLevel
 import Chainweb.Backup
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
+import Chainweb.BlockHeight (BlockHeight)
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.Configuration
@@ -168,6 +171,7 @@ import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
+import Chainweb.TreeDB (getBranchIncreasing)
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
@@ -721,14 +725,24 @@ runChainweb cw nowServing = do
             mkValidationMiddleware
         else return id
 
-    concurrentlies_
+    -- Get the minimum blockheight across all chains starting from the cut that the node starts with
+    cutHeaders <- readHighestCutHeaders (_chainwebVersion cw) (logFunctionText $ _chainwebLogger cw) (cutDb ^. cutDbWebBlockHeaderDb) (cutDb ^. cutDbStore)
+    minBlockHeight <- fmap (minimum . fmap (view blockHeight) . catMaybes) $ forM (HM.toList (cutDb ^. cutDbWebBlockHeaderDb ^. webBlockHeaderDb)) $ \(cid, blockHeaderDb) -> do
+        case cutHeaders ^? ix cid of
+            Nothing -> do
+                return Nothing
+            Just latestHeader -> do
+                getBranchIncreasing blockHeaderDb latestHeader 0 $ \branch -> do
+                    S.head_ branch
 
+    concurrentlies_
         -- 1. Start serving Rest API
         [ (if tls then serve else servePlain)
             $ httpLog
             . throttle (_chainwebPutPeerThrottler cw)
             . throttle (_chainwebMempoolThrottler cw)
             . throttle (_chainwebThrottler cw)
+            . minBlockHeightMiddleware minBlockHeight
             . p2pRequestSizeLimit
             . p2pValidationMiddleware
 
@@ -740,6 +754,7 @@ runChainweb cw nowServing = do
             serveServiceApi
                 $ serviceHttpLog
                 . serviceRequestSizeLimit
+                . minBlockHeightMiddleware minBlockHeight
                 . serviceApiValidationMiddleware
         ]
 
@@ -966,3 +981,7 @@ runChainweb cw nowServing = do
         enabled conf = do
             logg Info "Mempool p2p sync enabled"
             return $ map (runMempoolSyncClient mgr conf (_chainwebPeer cw)) chainVals
+
+    minBlockHeightMiddleware :: BlockHeight -> Middleware
+    minBlockHeightMiddleware minBlockHeight app req respond = app req $ \response ->
+        respond (mapResponseHeaders (("X-Min-Block-Height", sshow minBlockHeight) :) response)
