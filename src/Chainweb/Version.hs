@@ -63,6 +63,7 @@ module Chainweb.Version
     , versionGraphs
     , versionHeaderBaseSizeBytes
     , versionMaxBlockGasLimit
+    , versionSpvProofExpirationWindow
     , versionName
     , versionWindow
     , versionGenesis
@@ -405,6 +406,8 @@ data ChainwebVersion
         -- use 'headerSizeBytes'.
     , _versionMaxBlockGasLimit :: Rule BlockHeight (Maybe Natural)
         -- ^ The maximum gas limit for an entire block.
+    , _versionSpvProofExpirationWindow :: Rule BlockHeight (Maybe Word64)
+        -- ^ The number of blocks after which an SPV proof is considered expired.
     , _versionBootstraps :: [PeerInfo]
         -- ^ The locations of the bootstrap peers.
     , _versionGenesis :: VersionGenesis
