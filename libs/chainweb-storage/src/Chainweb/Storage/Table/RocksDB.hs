@@ -369,17 +369,17 @@ rocksDbUpdateDb (RocksDbInsert t _ _) = _rocksDbTableDb t
 -- Otherwise an error is raised.
 --
 updateBatch :: HasCallStack => [RocksDbUpdate] -> IO ()
-updateBatch [] = return ()
-updateBatch batch = R.write rdb R.defaultWriteOptions $ checkMkOp <$> batch
-  where
-    rdb = rocksDbUpdateDb $ head batch
-
-    checkMkOp o
-        | rdb == rocksDbUpdateDb o = mkOp o
-        | otherwise = error "Chainweb.Storage.Table.RocksDB.updateBatch: all operations in a batch must be for the same RocksDB instance."
-
-    mkOp (RocksDbDelete t k) = R.Del (encKey t k)
-    mkOp (RocksDbInsert t k v) = R.Put (encKey t k) (encVal t v)
+updateBatch = \case
+    [] -> do
+        return ()
+    batch@(h : _) -> do
+        let rdb = rocksDbUpdateDb h
+        let checkMkOp o
+                | rdb == rocksDbUpdateDb o = case o of
+                    RocksDbDelete t k -> R.Del (encKey t k)
+                    RocksDbInsert t k v -> R.Put (encKey t k) (encVal t v)
+                | otherwise = error "Chainweb.Storage.Table.RocksDB.updateBatch: all operations in a batch must be for the same RocksDB instance."
+        R.write rdb R.defaultWriteOptions $ checkMkOp <$> batch
 
 -- -------------------------------------------------------------------------- --
 -- Table Iterator

@@ -156,7 +156,7 @@ dedupInsert :: DedupStore k v -> k -> v -> IO ()
 dedupInsert store k v = do
     dedupKey <- dedupStore (_dedupChunks store)
         $ BL.fromStrict $ _codecEncode (_dedupValueCodec store) v
-    tableInsert (_dedupRoots store) k dedupKey 
+    tableInsert (_dedupRoots store) k dedupKey
 {-# INLINE dedupInsert #-}
 
 -- | @dedupLookup db k@ returns 'Just' the value at key @k@ in the
@@ -249,7 +249,7 @@ dedupStore' store = go0
         (hit, miss) <- tableMember store h >>= \x -> if x
             then return (1, 0)
             else do
-                casInsert store (Chunk tag h c) 
+                casInsert store (Chunk tag h c)
                 return (0, 1)
         return (hit, miss, h)
     {-# INLINE hashAndStore #-}
@@ -369,9 +369,9 @@ rollLazy
         -- ^ max size (as power of 2). Must be equal or larger than expected.
     -> [a]
     -> [[a]]
-rollLazy _ _ _ _ [] = []
-rollLazy f expectedPow2 minSizePow2 maxSizePow2 z
-    = go seed 0 z (L.replicate window (head z) <> z) z
+rollLazy f expectedPow2 minSizePow2 maxSizePow2 z = case z of
+    [] -> []
+    (h : _) -> go seed 0 z (L.replicate window h <> z) z
   where
     go
         :: Int64
