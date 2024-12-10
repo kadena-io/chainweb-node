@@ -663,7 +663,7 @@ data PactServiceConfig = PactServiceConfig
     -- ^ blow away pact dbs
   , _pactUnlimitedInitialRewind :: !Bool
     -- ^ disable initial rewind limit
-  , _pactBlockGasLimit :: !Pact4.GasLimit
+  , _pactNewBlockGasLimit :: !Pact4.GasLimit
     -- ^ the gas limit for new block creation, not for validation
   , _pactLogGas :: !Bool
     -- ^ whether to write transaction gas logs at INFO
@@ -693,7 +693,7 @@ testPactServiceConfig = PactServiceConfig
       , _pactResetDb = True
       , _pactAllowReadsInLocal = False
       , _pactUnlimitedInitialRewind = False
-      , _pactBlockGasLimit = testBlockGasLimit
+      , _pactNewBlockGasLimit = testBlockGasLimit
       , _pactLogGas = False
       , _pactModuleCacheLimit = defaultModuleCacheLimit
       , _pactFullHistoryRequired = False
