@@ -5,8 +5,10 @@
 [ -z "${CHAINWEB_DB_DIR}" ] &&
     echo "CHAINWEB_DB_DIR must be set to the mainnet db directory" && exit 1
 
-# do not even re-run discreps in these classes. maybe they're too large, maybe they're intentional semantic divergences
-unchecked_classes="gas-exceeded keyset-failure no-such-member loaded-module-hash minimum-precision lago-finance expected-bool-got-unit capability-already-installed output-differs-int-double cap-is-not-managed kadena-mining-club cannot-find-module no-pact-exec-in-cr interface-loaded keyset-defined desugar-syntax-failure invalid-call-to-if db-internal-error b64-diffs invalid-def-in-term-var marmalade-mints marmalade-v2 too-many-arguments read-keyset-error read-function-failures interface-impl-errors list-commas interface-as-mod-ref nft-mint-mystery module-admin sort-object-divergence incompatible-types"
+# do not even re-run discreps in these classes.
+# maybe they're too large, maybe they're intentional semantic divergences
+unchecked_classes=$(cat unchecked-diff-classes)
+# this builds a find-invocation that ignores those classes
 prune_stmt=$(for cls in $unchecked_classes; do echo -n "-not ( -path old-diffs/$cls -prune ) "; done)
 
 cabal build chainweb-node
