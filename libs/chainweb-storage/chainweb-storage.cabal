@@ -11,15 +11,12 @@ license: BSD-3-Clause
 license-file: LICENSE
 author: Lars Kuhtz
 maintainer: lars@kadena.io
-copyright: Copyright (c) 2019, Kadena LLC
+copyright: Copyright (c) 2024, Kadena LLC
 category: Data
 tested-with:
     GHC==9.0.1
     GHC==8.10.4
     GHC==8.8.4
-extra-source-files:
-    README.md
-    CHANGELOG.md
 
 source-repository head
     type: git
@@ -59,7 +56,7 @@ library
         , unordered-containers >=0.2
         , vector >=0.12
 
-test-suite rocksdb-tests
+test-suite chainweb-storage-tests
     type: exitcode-stdio-1.0
     hs-source-dirs: test
     default-language: Haskell2010
@@ -81,4 +78,3 @@ test-suite rocksdb-tests
         , lens >=4.16
         , nothunks >= 0.1.0.0
         , vector >=0.12
-
