@@ -17,12 +17,12 @@ module Main
 import Test.Tasty
 
 import qualified Chainweb.Test.Pact
-import qualified Chainweb.Test.Pact.PactService
+import qualified Chainweb.Test.Pact4.PactService
 
 main :: IO ()
 main = do
-    pactTests <- Chainweb.Test.Pact.tests
-    pactServiceTests <- Chainweb.Test.Pact.PactService.tests
+    pactTests <- Chainweb.Test.Pact4.tests
+    pactServiceTests <- Chainweb.Test.Pact4.PactService.tests
     defaultMain $ testGroup "Chainweb-Pact Unit Tests"
         [ pactTests
         , pactServiceTests ]

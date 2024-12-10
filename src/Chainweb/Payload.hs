@@ -375,7 +375,7 @@ type BlockPayload = BlockPayload_ ChainwebMerkleHashAlgorithm
 -- | The Payload of a block.
 --
 -- The transactions of a block at a given height in the chain are discovered by
--- @_blockPayloadTransactionsHash . _blockPayloadHash@.
+-- @_blockPayloadTransactionsHash . view blockPayloadHash@.
 --
 -- NOTES:
 --

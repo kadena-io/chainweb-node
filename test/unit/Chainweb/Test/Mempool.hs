@@ -211,9 +211,10 @@ propBadlistPreblock (txs, badTxs) _ mempool = runExceptT $ do
   where
     badHashes = HashSet.fromList $ map hash badTxs
 
-    preblockCheck _ _ ts =
-      let hashes = V.map hash ts
-      in return $! V.map (not . flip HashSet.member badHashes) hashes
+    preblockCheck _ _ ts = return $
+      V.map
+        (\tx -> if hash tx `HashSet.member` badHashes then Left InsertErrorBadlisted else Right tx)
+        ts
 
     txcfg = mempoolTxConfig mempool
     hash = txHasher txcfg

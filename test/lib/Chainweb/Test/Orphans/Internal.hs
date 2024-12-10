@@ -129,7 +129,7 @@ import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
 import Chainweb.NodeVersion
 import Chainweb.Pact.RestAPI.SPV
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.RestAPI.NetworkID
@@ -151,7 +151,7 @@ import Chainweb.Version
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.Registry
-import Chainweb.Version.Testnet
+import Chainweb.Version.Testnet04
 import Chainweb.Version.Utils
 
 import Data.Singletons

@@ -13,6 +13,7 @@ import qualified Data.Text.Encoding as Text
 import Pact.Types.Capability
 import Pact.Types.Exp
 import Pact.Types.PactValue
+import Pact.Core.Errors (VerifierError(..))
 
 import Chainweb.VerifierPlugin
 
