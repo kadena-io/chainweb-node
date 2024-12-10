@@ -12,6 +12,8 @@ prune_stmt=$(for cls in $unchecked_classes; do echo -n "-not ( -path old-diffs/$
 cabal build chainweb-node
 
 # we can't use parallelism here because of a mysterious SQLITE_BUSY when we do
+# the unquoted $prune_stmt is intentional
+echo "Rerunning #diffs $(find old-diffs/ $prune_stmt -type f | wc -l)"
 find old-diffs/ $prune_stmt -type f -print0 | parallel -j1 -0 ./rerun-diff {}
 ./classify-diffs
 for f in $unchecked_classes; do
