@@ -185,6 +185,7 @@ import P2P.Peer
 
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
+import qualified Chainweb.Utils.Throttling as Throttling
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -720,28 +721,29 @@ runChainweb cw nowServing = do
             logg Warn $ "OpenAPI spec validation enabled on service API, make sure this is what you want"
             mkValidationMiddleware
         else return id
+    Throttling.throttleMiddleware (logFunction $ _chainwebLogger cw) "p2p" p2pThrottleEconomy $ \p2pThrottler ->
+        Throttling.throttleMiddleware (logFunction $ _chainwebLogger cw) "service" serviceThrottleEconomy $ \serviceThrottler ->
 
-    concurrentlies_
+            concurrentlies_
 
-        -- 1. Start serving Rest API
-        [ (if tls then serve else servePlain)
-            $ httpLog
-            . throttle (_chainwebPutPeerThrottler cw)
-            . throttle (_chainwebMempoolThrottler cw)
-            . throttle (_chainwebThrottler cw)
-            . p2pRequestSizeLimit
-            . p2pValidationMiddleware
+                -- 1. Start serving Rest API
+                [ (if tls then serve else servePlain)
+                    $ httpLog
+                    . p2pRequestSizeLimit
+                    . p2pThrottler
+                    . p2pValidationMiddleware
 
-        -- 2. Start Clients (with a delay of 500ms)
-        , threadDelay 500000 >> clients
+                -- 2. Start Clients (with a delay of 500ms)
+                , threadDelay 500000 >> clients
 
-        -- 3. Start serving local API
-        , threadDelay 500000 >> do
-            serveServiceApi
-                $ serviceHttpLog
-                . serviceRequestSizeLimit
-                . serviceApiValidationMiddleware
-        ]
+                -- 3. Start serving local API
+                , threadDelay 500000 >> do
+                    serveServiceApi
+                        $ serviceHttpLog
+                        . serviceRequestSizeLimit
+                        . serviceThrottler
+                        . serviceApiValidationMiddleware
+                ]
 
   where
 
@@ -865,6 +867,22 @@ runChainweb cw nowServing = do
     serviceRequestSizeLimit = requestSizeLimitMiddleware $
         setMaxLengthForRequest (\_req -> pure $ Just $ 2 * 1024 * 1024) -- 2MB
         defaultRequestSizeLimitSettings
+
+    p2pThrottleEconomy = Throttling.ThrottleEconomy
+        { Throttling.requestCost = 10
+        , Throttling.requestBody100ByteCost = 1
+        , Throttling.responseBody100ByteCost = 2
+        , Throttling.maxBudget = 35_000
+        , Throttling.freeRate = 35_000
+        }
+
+    serviceThrottleEconomy = Throttling.ThrottleEconomy
+        { Throttling.requestCost = 10
+        , Throttling.requestBody100ByteCost = 1
+        , Throttling.responseBody100ByteCost = 2
+        , Throttling.maxBudget = 50_000
+        , Throttling.freeRate = 50_000
+        }
 
     -- Request size limit for the P2P API
     --
