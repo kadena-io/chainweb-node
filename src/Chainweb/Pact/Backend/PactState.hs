@@ -81,7 +81,6 @@ import Data.Text.Encoding qualified as Text
 import Database.SQLite3 qualified as SQL
 import Database.SQLite3.Direct (Utf8(..), Database)
 import Database.SQLite3.Direct qualified as Direct
-import Chainweb.Pact.Types
 
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
@@ -90,6 +89,7 @@ import Pact.Types.SQLite (SType(..), RType(..))
 import Pact.Types.SQLite qualified as Pact
 import Streaming.Prelude (Stream, Of)
 import Streaming.Prelude qualified as S
+import Chainweb.Pact.Backend.Types
 
 excludedTables :: [Utf8]
 excludedTables = checkpointerTables ++ compactionTables

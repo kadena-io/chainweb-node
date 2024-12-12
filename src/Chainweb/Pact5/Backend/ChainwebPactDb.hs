@@ -85,7 +85,7 @@ import Chainweb.BlockHeight
 import Chainweb.Logger
 
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Types hiding (internalError)
+import Chainweb.Pact.Backend.Types
 import Chainweb.Utils (sshow, T2)
 import Pact.Core.StableEncoding (encodeStable)
 import Data.Text (Text)

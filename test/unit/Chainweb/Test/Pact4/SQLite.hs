@@ -41,7 +41,7 @@ import Test.Tasty.HUnit
 
 
 import Chainweb.Test.Utils
-import Chainweb.Pact.Types (SQLiteEnv)
+import Chainweb.Pact.Backend.Types (SQLiteEnv)
 
 -- -------------------------------------------------------------------------- --
 -- Tests

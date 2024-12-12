@@ -203,7 +203,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Compaction qualified as Sigma
 import Chainweb.Pact.Backend.PactState qualified as PactState
 import Chainweb.Pact.Backend.PactState (TableDiffable(..), Table(..), PactRow(..))
-import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
+import Chainweb.Pact.PactService.Checkpointer.Internal (initCheckpointerResources)
 import Chainweb.Pact.Backend.SQLite.DirectV2
 
 import Chainweb.Pact.Backend.Utils hiding (tbl, withSqliteDb)
@@ -229,6 +229,7 @@ import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
 import Chainweb.Storage.Table.RocksDB
+import Chainweb.Pact.Backend.Types
 
 -- ----------------------------------------------------------------------- --
 -- Keys
@@ -673,7 +674,7 @@ testPactCtxSQLite
   -> PactServiceConfig
   -> IO (TestPactCtx logger tbl)
 testPactCtxSQLite logger v cid bhdb pdb sqlenv conf = do
-    cp <- initRelationalCheckpointer defaultModuleCacheLimit sqlenv DoNotPersistIntraBlockWrites cpLogger v cid
+    cp <- initCheckpointerResources defaultModuleCacheLimit sqlenv DoNotPersistIntraBlockWrites cpLogger v cid
     let rs = readRewards
     !ctx <- TestPactCtx
       <$!> newMVar (PactServiceState mempty)
@@ -694,14 +695,14 @@ testPactCtxSQLite logger v cid bhdb pdb sqlenv conf = do
         , _psOnFatalError = defaultOnFatalError mempty
         , _psVersion = v
         , _psAllowReadsInLocal = _pactAllowReadsInLocal conf
-        , _psLogger = addLabel ("chain-id", chainIdToText cid) $ addLabel ("component", "pact") $ _cpLogger $ _cpReadCp cp
+        , _psLogger = addLabel ("chain-id", chainIdToText cid) $ addLabel ("component", "pact") $ logger
         , _psGasLogger = do
             guard (_pactLogGas conf)
             return
                 $ addLabel ("chain-id", chainIdToText cid)
                 $ addLabel ("component", "pact")
                 $ addLabel ("sub-component", "gas")
-                $ _cpLogger $ _cpReadCp cp
+                $ logger
 
         , _psBlockGasLimit = _pactNewBlockGasLimit conf
         , _psEnableLocalTimeout = False
