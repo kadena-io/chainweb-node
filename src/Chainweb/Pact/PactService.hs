@@ -493,6 +493,8 @@ execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
     v <- view chainwebVersion
     cid <- view chainId
     Checkpointer.readFrom (Just newBlockParent) $
+        -- TODO: after the Pact 5 fork is complete, the Pact 4 case below will
+        -- be unnecessary; the genesis blocks are already handled by 'execNewGenesisBlock'.
         SomeBlockM $ Pair
             (do
                 blockDbEnv <- view psBlockDbEnv
@@ -563,6 +565,8 @@ execContinueBlock
 execContinueBlock mpAccess blockInProgress = pactLabel "execNewBlock" $ do
     Checkpointer.readFrom newBlockParent $
         case _blockInProgressPactVersion blockInProgress of
+            -- TODO: after the Pact 5 fork is complete, the Pact 4 case below will
+            -- be unnecessary; the genesis blocks are already handled by 'execNewGenesisBlock'.
             Pact4T -> SomeBlockM $ Pair (Pact4.continueBlock mpAccess blockInProgress) (error "pact5")
             Pact5T -> SomeBlockM $ Pair (error "pact4") (Pact5.continueBlock mpAccess blockInProgress)
     where
