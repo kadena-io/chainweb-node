@@ -129,7 +129,9 @@ matchLogs
     -> ExceptT RosettaFailure Handler tx
 matchLogs typ bh logs coinbase txs
   | bheight == genesisHeight v cid = matchGenesis
-  | Just (ForPact4 upg) <- v ^? versionUpgrades . atChain cid . at bheight . _Just = matchRemediation upg
+  | Just Pact4Upgrade{_pact4UpgradeTransactions = upgradeTxs}
+    <- v ^? versionUpgrades . atChain cid . at bheight . _Just
+      = matchRemediation upgradeTxs
   -- TODO: integrate pact 5?
   | otherwise = matchRest
   where
@@ -141,15 +143,15 @@ matchLogs typ bh logs coinbase txs
       FullLogs -> genesisTransactions logs cid txs
       SingleLog rk -> genesisTransaction logs cid txs rk
 
-    matchRemediation upg = do
+    matchRemediation upgradeTxs = do
       hoistEither $ case typ of
         FullLogs ->
           overwriteError RosettaMismatchTxLogs $!
-            remediations logs cid coinbase (_pact4UpgradeTransactions upg) txs
+            remediations logs cid coinbase upgradeTxs txs
         SingleLog rk ->
           (noteOptional RosettaTxIdNotFound .
             overwriteError RosettaMismatchTxLogs) $
-              singleRemediation logs cid coinbase (_pact4UpgradeTransactions upg) txs rk
+              singleRemediation logs cid coinbase upgradeTxs txs rk
 
     matchRest = hoistEither $ case typ of
       FullLogs ->

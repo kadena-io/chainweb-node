@@ -509,16 +509,18 @@ applyUpgrades
   -> TxContext
   -> IO ()
 applyUpgrades logger db txCtx
-     | Just (ForPact5 upg) <- _chainwebVersion txCtx
-          ^? versionUpgrades
-          . atChain (_chainId txCtx)
-          . ix (ctxCurrentBlockHeight txCtx)
-         = applyUpgrade upg
+    | Just Pact4Upgrade{} <-
+        v ^? versionUpgrades . atChain cid . ix currentHeight = error "Expected Pact 4 upgrade, got Pact 5"
+    | Just Pact5Upgrade{_pact5UpgradeTransactions = upgradeTxs} <-
+        v ^? versionUpgrades . atChain cid . ix currentHeight = applyUpgrade upgradeTxs
      | otherwise = return ()
   where
-    applyUpgrade :: PactUpgrade Pact5 -> IO ()
-    applyUpgrade upg = do
-      forM_ (_pact5UpgradeTransactions upg) $ \tx ->
+    v = _chainwebVersion txCtx
+    currentHeight = ctxCurrentBlockHeight txCtx
+    cid = _chainId txCtx
+    applyUpgrade :: [Transaction] -> IO ()
+    applyUpgrade upgradeTxs = do
+      forM_ upgradeTxs $ \tx ->
         tryAllSynchronous (runUpgrade logger db txCtx (view payloadObj <$> tx)) >>= \case
           Right _ -> pure ()
           Left e -> do

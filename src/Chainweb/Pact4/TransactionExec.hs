@@ -808,8 +808,10 @@ applyUpgrades
   -> BlockHeight
   -> TransactionM logger p (Maybe ModuleCache)
 applyUpgrades v cid height
-    | Just (ForSomePactVersion Pact4T upg) <-
-        v ^? versionUpgrades . atChain cid . ix height = applyUpgrade upg
+    | Just Pact4Upgrade{_pact4UpgradeTransactions = txs, _legacyUpgradeIsPrecocious = isPrecocious} <-
+        v ^? versionUpgrades . atChain cid . ix height = applyUpgrade txs isPrecocious
+    | Just Pact5Upgrade{} <-
+        v ^? versionUpgrades . atChain cid . ix height = error "Expected Pact 4 upgrade, got Pact 5"
     | cleanModuleCache v cid height = filterModuleCache
     | otherwise = return Nothing
   where
@@ -819,10 +821,10 @@ applyUpgrades v cid height
       mc <- use txCache
       pure $ Just $ filterModuleCacheByKey (== "coin") mc
 
-    applyUpgrade :: PactUpgrade Pact4 -> TransactionM logger p (Maybe ModuleCache)
-    applyUpgrade upg = do
+    applyUpgrade :: [Transaction] -> Bool -> TransactionM logger p (Maybe ModuleCache)
+    applyUpgrade upg isPrecocious = do
       infoLog "Applying upgrade!"
-      let payloads = map (fmap payloadObj) $ _pact4UpgradeTransactions upg
+      let payloads = map (fmap payloadObj) upg
 
       --
       -- In order to prime the module cache with all new modules for subsequent
@@ -831,7 +833,7 @@ applyUpgrades v cid height
       -- init cache in the pact service state (_psInitCache).
       --
 
-      let flags = flagsFor v cid (if _legacyUpgradeIsPrecocious upg then height + 1 else height)
+      let flags = flagsFor v cid (if isPrecocious then height + 1 else height)
       caches <- local
         (txExecutionConfig .~ ExecutionConfig flags)
         (mapM applyTx payloads)

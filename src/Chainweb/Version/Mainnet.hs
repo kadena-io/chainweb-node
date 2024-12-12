@@ -189,23 +189,23 @@ mainnet = ChainwebVersion
     , _versionUpgrades = chainZip HM.union
         (indexByForkHeights mainnet
         [ (CoinV2, onChains
-            [ (unsafeChainId 0, ForPact4 $ pact4Upgrade MN0.transactions)
-            , (unsafeChainId 1, ForPact4 $ pact4Upgrade MN1.transactions)
-            , (unsafeChainId 2, ForPact4 $ pact4Upgrade MN2.transactions)
-            , (unsafeChainId 3, ForPact4 $ pact4Upgrade MN3.transactions)
-            , (unsafeChainId 4, ForPact4 $ pact4Upgrade MN4.transactions)
-            , (unsafeChainId 5, ForPact4 $ pact4Upgrade MN5.transactions)
-            , (unsafeChainId 6, ForPact4 $ pact4Upgrade MN6.transactions)
-            , (unsafeChainId 7, ForPact4 $ pact4Upgrade MN7.transactions)
-            , (unsafeChainId 8, ForPact4 $ pact4Upgrade MN8.transactions)
-            , (unsafeChainId 9, ForPact4 $ pact4Upgrade MN9.transactions)
+            [ (unsafeChainId 0, pact4Upgrade MN0.transactions)
+            , (unsafeChainId 1, pact4Upgrade MN1.transactions)
+            , (unsafeChainId 2, pact4Upgrade MN2.transactions)
+            , (unsafeChainId 3, pact4Upgrade MN3.transactions)
+            , (unsafeChainId 4, pact4Upgrade MN4.transactions)
+            , (unsafeChainId 5, pact4Upgrade MN5.transactions)
+            , (unsafeChainId 6, pact4Upgrade MN6.transactions)
+            , (unsafeChainId 7, pact4Upgrade MN7.transactions)
+            , (unsafeChainId 8, pact4Upgrade MN8.transactions)
+            , (unsafeChainId 9, pact4Upgrade MN9.transactions)
             ])
-        , (Pact4Coin3, AllChains $ ForPact4 $ Pact4Upgrade CoinV3.transactions True)
-        , (Chainweb214Pact, AllChains $ ForPact4 $ Pact4Upgrade CoinV4.transactions True)
-        , (Chainweb215Pact, AllChains $ ForPact4 $ Pact4Upgrade CoinV5.transactions True)
-        , (Chainweb223Pact, AllChains $ ForPact4 $ pact4Upgrade CoinV6.transactions)
+        , (Pact4Coin3, AllChains $ Pact4Upgrade CoinV3.transactions True)
+        , (Chainweb214Pact, AllChains $ Pact4Upgrade CoinV4.transactions True)
+        , (Chainweb215Pact, AllChains $ Pact4Upgrade CoinV5.transactions True)
+        , (Chainweb223Pact, AllChains $ pact4Upgrade CoinV6.transactions)
         ])
-        (onChains [(unsafeChainId 0, HM.singleton to20ChainsMainnet (ForPact4 $ pact4Upgrade MNKAD.transactions))])
+        (onChains [(unsafeChainId 0, HM.singleton to20ChainsMainnet (pact4Upgrade MNKAD.transactions))])
     , _versionCheats = VersionCheats
         { _disablePow = False
         , _fakeFirstEpochStart = False

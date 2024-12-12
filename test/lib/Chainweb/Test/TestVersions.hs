@@ -259,13 +259,13 @@ cpmTestVersion g v = v
         }
     & versionUpgrades .~ chainZip HM.union
         (indexByForkHeights v
-            [ (CoinV2, AllChains (ForSomePactVersion Pact4T $ pact4Upgrade Other.transactions))
-            , (Pact4Coin3, AllChains (ForSomePactVersion Pact4T $ Pact4Upgrade CoinV3.transactions True))
-            , (Chainweb214Pact, AllChains (ForSomePactVersion Pact4T $ Pact4Upgrade CoinV4.transactions True))
-            , (Chainweb215Pact, AllChains (ForSomePactVersion Pact4T $ Pact4Upgrade CoinV5.transactions True))
-            , (Chainweb223Pact, AllChains (ForSomePactVersion Pact4T $ pact4Upgrade CoinV6.transactions))
+            [ (CoinV2, AllChains (pact4Upgrade Other.transactions))
+            , (Pact4Coin3, AllChains (Pact4Upgrade CoinV3.transactions True))
+            , (Chainweb214Pact, AllChains (Pact4Upgrade CoinV4.transactions True))
+            , (Chainweb215Pact, AllChains (Pact4Upgrade CoinV5.transactions True))
+            , (Chainweb223Pact, AllChains (pact4Upgrade CoinV6.transactions))
             ])
-        (onChains [(unsafeChainId 3, HM.singleton (BlockHeight 2) (ForSomePactVersion Pact4T $ Pact4Upgrade MNKAD.transactions False))])
+        (onChains [(unsafeChainId 3, HM.singleton (BlockHeight 2) (Pact4Upgrade MNKAD.transactions False))])
 
 slowForks :: HashMap Fork (ChainMap ForkHeight)
 slowForks = tabulateHashMap \case
@@ -448,7 +448,7 @@ pact5SlowCpmTestVersion g = buildTestVersion $ \v -> v
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
     & versionUpgrades .~ indexByForkHeights v
-        [ (Pact5Fork, AllChains (ForPact5 $ Pact5Upgrade (List.map pactTxFrom4To5 CoinV6.transactions)))
+        [ (Pact5Fork, AllChains (Pact5Upgrade (List.map pactTxFrom4To5 CoinV6.transactions)))
         ]
     & versionVerifierPluginNames .~ AllChains
         (Bottom
