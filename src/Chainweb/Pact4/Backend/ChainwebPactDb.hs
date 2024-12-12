@@ -24,15 +24,10 @@
 module Chainweb.Pact4.Backend.ChainwebPactDb
 ( chainwebPactDb
 , rewoundPactDb
-, rewindDbTo
-, rewindDbToBlock
-, commitBlockStateToDatabase
 , initSchema
 , indexPactTransaction
 , vacuumDb
 , toTxLog
-, getEndTxId
-, getEndTxId'
 , CurrentBlockDbEnv(..)
 , cpPactDbEnv
 , cpRegisterProcessedTx
@@ -56,6 +51,13 @@ module Chainweb.Pact4.Backend.ChainwebPactDb
 , blockHandlerLowerCaseTables
 , blockHandlerPersistIntraBlockWrites
 , mkBlockHandlerEnv
+
+, domainTableName
+, convKeySetName
+, convModuleName
+, convNamespaceName
+, convRowKey
+, convPactId
 ) where
 
 import Control.Applicative
@@ -73,7 +75,6 @@ import Data.List(sort)
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.HashMap.Strict as HashMap
-import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import qualified Data.Map.Strict as M
 import Data.Maybe
@@ -93,7 +94,7 @@ import Pact.PersistPactDb hiding (db)
 import Pact.Types.Persistence
 import Pact.Types.RowData
 import Pact.Types.SQLite
-import Pact.Types.Term (ModuleName(..), ObjectMap(..), TableName(..))
+import Pact.Types.Term (ModuleName(..), ObjectMap(..), TableName(..), KeySetName(..), NamespaceName(..), PactId(..))
 import Pact.Types.Util (AsString(..))
 
 import qualified Pact.JSON.Encode as J
@@ -102,14 +103,12 @@ import qualified Pact.JSON.Legacy.HashMap as LHM
 -- chainweb
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Pact.Backend.DbCache
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Types
 import Chainweb.Utils
-import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Pact.Interpreter (PactDbEnv)
 import Data.HashMap.Strict (HashMap)
@@ -119,6 +118,29 @@ import Chainweb.Version.Guards
 import Control.Exception.Safe
 import Pact.Types.Command (RequestKey)
 import Chainweb.Pact.Backend.Types
+
+domainTableName :: Domain k v -> SQ3.Utf8
+domainTableName = asStringUtf8
+
+convKeySetName :: KeySetName -> SQ3.Utf8
+convKeySetName = toUtf8 . asString
+
+convModuleName
+  :: Bool
+      -- ^ whether to apply module name fix
+  -> ModuleName
+  -> SQ3.Utf8
+convModuleName False (ModuleName name _) = toUtf8 name
+convModuleName True mn = asStringUtf8 mn
+
+convNamespaceName :: NamespaceName -> SQ3.Utf8
+convNamespaceName (NamespaceName name) = toUtf8 name
+
+convRowKey :: RowKey -> SQ3.Utf8
+convRowKey (RowKey name) = toUtf8 name
+
+convPactId :: PactId -> SQ3.Utf8
+convPactId = toUtf8 . sshow
 
 callDb
     :: (MonadCatch m, MonadReader (BlockHandlerEnv logger) m, MonadIO m)
@@ -761,136 +783,6 @@ indexPactTransaction :: BS.ByteString -> BlockHandler logger ()
 indexPactTransaction h = modify' $
     over (bsPendingBlock . pendingSuccessfulTxs) $ HashSet.insert h
 
--- | Delete any state from the database newer than the input parent header.
--- Returns the ending txid of the input parent header.
-rewindDbTo
-    :: SQLiteEnv
-    -> Maybe ParentHeader
-    -> IO TxId
-rewindDbTo db Nothing = do
-  rewindDbToGenesis db
-  return 0
-rewindDbTo db mh@(Just (ParentHeader ph)) = do
-    !historicalEndingTxId <- getEndTxId "rewindDbToBlock" db mh
-    endingTxId <- case historicalEndingTxId of
-      NoHistory ->
-        throwM
-          $ BlockHeaderLookupFailure
-          $ "rewindDbTo.getEndTxId: not in db: "
-          <> sshow ph
-      Historical endingTxId ->
-        return endingTxId
-    rewindDbToBlock db (view blockHeight ph) endingTxId
-    return endingTxId
-
--- rewind before genesis, delete all user tables and all rows in all tables
-rewindDbToGenesis
-  :: SQLiteEnv
-  -> IO ()
-rewindDbToGenesis db = do
-    exec_ db "DELETE FROM BlockHistory;"
-    exec_ db "DELETE FROM [SYS:KeySets];"
-    exec_ db "DELETE FROM [SYS:Modules];"
-    exec_ db "DELETE FROM [SYS:Namespaces];"
-    exec_ db "DELETE FROM [SYS:Pacts];"
-    exec_ db "DELETE FROM [SYS:ModuleSources];"
-    tblNames <- qry_ db "SELECT tablename FROM VersionedTableCreation;" [RText]
-    forM_ tblNames $ \t -> case t of
-      [SText tn] -> exec_ db ("DROP TABLE [" <> tn <> "];")
-      _ -> internalError "Something went wrong when resetting tables."
-    exec_ db "DELETE FROM VersionedTableCreation;"
-    exec_ db "DELETE FROM VersionedTableMutation;"
-    exec_ db "DELETE FROM TransactionIndex;"
-
--- | Rewind the database to a particular block, given the end tx id of that
--- block.
-rewindDbToBlock
-  :: Database
-  -> BlockHeight
-  -> TxId
-  -> IO ()
-rewindDbToBlock db bh endingTxId = do
-    tableMaintenanceRowsVersionedSystemTables
-    droppedtbls <- dropTablesAtRewind
-    vacuumTablesAtRewind droppedtbls
-    deleteHistory
-    clearTxIndex
-  where
-    dropTablesAtRewind :: IO (HashSet BS.ByteString)
-    dropTablesAtRewind = do
-        toDropTblNames <- qry db findTablesToDropStmt
-                          [SInt (fromIntegral bh)] [RText]
-        tbls <- fmap HashSet.fromList . forM toDropTblNames $ \case
-            [SText tblname@(Utf8 tn)] -> do
-                exec_ db $ "DROP TABLE IF EXISTS " <> tbl tblname
-                return tn
-            _ -> internalError rewindmsg
-        exec' db
-            "DELETE FROM VersionedTableCreation WHERE createBlockheight > ?"
-            [SInt (fromIntegral bh)]
-        return tbls
-    findTablesToDropStmt =
-      "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight > ?;"
-    rewindmsg =
-      "rewindBlock: dropTablesAtRewind: Couldn't resolve the name of the table to drop."
-
-    deleteHistory :: IO ()
-    deleteHistory =
-        exec' db "DELETE FROM BlockHistory WHERE blockheight > ?"
-              [SInt (fromIntegral bh)]
-
-    vacuumTablesAtRewind :: HashSet BS.ByteString -> IO ()
-    vacuumTablesAtRewind droppedtbls = do
-        let processMutatedTables ms = fmap HashSet.fromList . forM ms $ \case
-              [SText (Utf8 tn)] -> return tn
-              _ -> internalError "rewindBlock: vacuumTablesAtRewind: Couldn't resolve the name \
-                                 \of the table to possibly vacuum."
-        mutatedTables <- qry db
-            "SELECT DISTINCT tablename FROM VersionedTableMutation WHERE blockheight > ?;"
-          [SInt (fromIntegral bh)]
-          [RText]
-          >>= processMutatedTables
-        let toVacuumTblNames = HashSet.difference mutatedTables droppedtbls
-        forM_ toVacuumTblNames $ \tblname ->
-            exec' db ("DELETE FROM " <> tbl (Utf8 tblname) <> " WHERE txid >= ?")
-                  [SInt $! fromIntegral endingTxId]
-        exec' db "DELETE FROM VersionedTableMutation WHERE blockheight > ?;"
-              [SInt (fromIntegral bh)]
-
-    tableMaintenanceRowsVersionedSystemTables :: IO ()
-    tableMaintenanceRowsVersionedSystemTables = do
-        exec' db "DELETE FROM [SYS:KeySets] WHERE txid >= ?" tx
-        exec' db "DELETE FROM [SYS:Modules] WHERE txid >= ?" tx
-        exec' db "DELETE FROM [SYS:Namespaces] WHERE txid >= ?" tx
-        exec' db "DELETE FROM [SYS:Pacts] WHERE txid >= ?" tx
-        exec' db "DELETE FROM [SYS:ModuleSources] WHERE txid >= ?" tx
-      where
-        tx = [SInt $! fromIntegral endingTxId]
-
-    -- | Delete all future transactions from the index
-    clearTxIndex :: IO ()
-    clearTxIndex =
-        exec' db "DELETE FROM TransactionIndex WHERE blockheight > ?;"
-              [ SInt (fromIntegral bh) ]
-
-
-getEndTxId :: Text -> SQLiteEnv -> Maybe ParentHeader -> IO (Historical TxId)
-getEndTxId msg sql pc = case pc of
-    Nothing -> return (Historical 0)
-    Just (ParentHeader ph) -> getEndTxId' msg sql (view blockHeight ph) (view blockHash ph)
-
-getEndTxId' :: Text -> SQLiteEnv -> BlockHeight -> BlockHash -> IO (Historical TxId)
-getEndTxId' msg sql bh bhsh = do
-    r <- qry sql
-      "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"
-      [ SInt $ fromIntegral bh
-      , SBlob $ runPutS (encodeBlockHash bhsh)
-      ]
-      [RInt]
-    case r of
-      [[SInt tid]] -> return $ Historical (TxId (fromIntegral tid))
-      [] -> return NoHistory
-      _ -> internalError $ msg <> ".getEndTxId: expected single-row int result, got " <> sshow r
 
 -- | Careful doing this! It's expensive and for our use case, probably pointless.
 -- We should reserve vacuuming for an offline process
