@@ -1131,7 +1131,6 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                 let result = V.map (const $ Just Mempool.InsertErrorTimedOut) txs
                 logDebug_ logger $ "Mempool pre-insert check result: " <> sshow result
                 pure result
-                --pure $ V.map (const $ Just Mempool.InsertErrorTimedOut) txs
 
     where
     attemptBuyGasPact4
