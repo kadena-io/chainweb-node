@@ -414,9 +414,10 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
     let spv = Pact5.pactSPV bhdb (_parentHeader parent)
     let txCtx = TxContext parent miner
     -- TODO: trace more info?
+    let rk = Pact5.RequestKey $ Pact5._cmdHash cmd
     (resultOrError, blockHandle') <-
       liftIO $ trace' (logFunction logger) "applyCmd" computeTrace (\_ -> 0) $
-        doPact5DbTransaction dbEnv blockHandle (Just (Pact5.RequestKey $ Pact5._cmdHash cmd)) $ \pactDb ->
+        doPact5DbTransaction dbEnv blockHandle (Just rk) $ \pactDb ->
           if _psIsGenesis env
           then do
             logFunctionText logger Debug "running genesis command!"
@@ -428,13 +429,24 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
               Right res -> return (Right (absurd <$> res))
           else applyCmd logger gasLogger pactDb txCtx spv initialGas cmd
     liftIO $ case resultOrError of
+      -- unknown exceptions are logged specially, because they indicate bugs in Pact or chainweb
       Right
         Pact5.CommandResult
           {
             _crResult =
               Pact5.PactResultErr (Pact5.PEExecutionError (Pact5.UnknownException unknownExceptionMessage) _ _)
           } -> logFunctionText logger Error $ "Unknown exception encountered " <> unknownExceptionMessage
-      _ -> return ()
+      Left gasBuyError ->
+        liftIO $ logFunction logger Debug
+          -- TODO: replace with better print function for gas buy errors
+          (Pact5TxFailureLog rk (sshow gasBuyError))
+      Right Pact5.CommandResult
+          { _crResult = Pact5.PactResultErr err
+          } ->
+        liftIO $ logFunction logger Debug
+          (Pact5TxFailureLog rk (sshow err))
+      _ ->
+        return ()
     return $ (,blockHandle') <$> resultOrError
     where
     computeTrace (Left gasPurchaseFailure, _) = Aeson.object
