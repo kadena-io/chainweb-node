@@ -465,10 +465,8 @@ serviceRequests memPoolAccess reqQ = go
                     )
             case maybeException of
                 Left (fromException -> Just AsyncCancelled) -> do
-                    liftIO $ putStrLn "Pact action was cancelled"
                     logDebugPact "Pact action was cancelled"
                 Left (fromException -> Just ThreadKilled) -> do
-                    liftIO $ putStrLn "Pact action thread was killed"
                     logWarnPact "Pact action thread was killed"
                 Left (exn :: SomeException) -> do
                     logErrorPact $ mconcat
