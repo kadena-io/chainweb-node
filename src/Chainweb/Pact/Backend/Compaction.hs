@@ -540,7 +540,7 @@ createCheckpointerIndexes db logger = do
 
   log "Creating BlockHistory index"
   inTx db $ Pact.exec_ db
-    "CREATE UNIQUE INDEX IF NOT EXISTS BlockHistory_blockHeight_unique_ix ON BlockHistory (blockheight)"
+    "CREATE UNIQUE INDEX IF NOT EXISTS BlockHistory_blockheight_unique_ix ON BlockHistory (blockheight)"
 
   log "Creating VersionedTableCreation index"
   inTx db $ Pact.exec_ db
@@ -548,13 +548,13 @@ createCheckpointerIndexes db logger = do
 
   log "Creating VersionedTableMutation index"
   inTx db $ Pact.exec_ db
-    "CREATE UNIQUE INDEX IF NOT EXISTS VersionedTableMutation_blockHeight_tablename_unique_ix ON VersionedTableMutation (blockheight, tablename)"
+    "CREATE UNIQUE INDEX IF NOT EXISTS VersionedTableMutation_blockheight_tablename_unique_ix ON VersionedTableMutation (blockheight, tablename)"
 
   log "Creating TransactionIndex indexes"
   inTx db $ Pact.exec_ db
     "CREATE UNIQUE INDEX IF NOT EXISTS TransactionIndex_txhash_unique_ix ON TransactionIndex (txhash)"
   inTx db $ Pact.exec_ db
-    "CREATE INDEX IF NOT EXISTS TransactionIndex_blockHeight_ix ON TransactionIndex (blockheight)"
+    "CREATE INDEX IF NOT EXISTS TransactionIndex_blockheight_ix ON TransactionIndex (blockheight)"
 
 -- | Create a single user table
 createUserTable :: Database -> Utf8 -> IO ()
