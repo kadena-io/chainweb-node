@@ -654,6 +654,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact4.TransactionTests
         Chainweb.Test.Pact4.VerifierPluginTest
         Chainweb.Test.Pact5.CheckpointerTest
+        Chainweb.Test.Pact5.CutFixture
         Chainweb.Test.Pact5.PactServiceTest
         Chainweb.Test.Pact5.RemotePactTest
         Chainweb.Test.Pact5.SPVTest
@@ -692,11 +693,11 @@ test-suite chainweb-tests
         , base64-bytestring-kadena == 0.1
         , byteslice >= 0.2.12
         , bytesmith >= 0.3.10
-            -- due to change in error message that is inlined in pact
         , bytestring >= 0.10.12
         , chainweb-storage >= 0.1
         , containers >= 0.5
         , crypton >= 0.31
+        , crypton-connection >=0.4
         , data-dword >= 0.3
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
@@ -708,6 +709,7 @@ test-suite chainweb-tests
         , hashes >=0.2.2.0
         , hedgehog >= 1.4
         , http-client >= 0.5
+        , http-client-tls >=0.3
         , http-types >= 0.12
         , lens >= 4.17
         , lens-aeson >= 1.2.2
@@ -715,12 +717,13 @@ test-suite chainweb-tests
         , memory >=0.14
         , merkle-log >=0.2
         , mtl >= 2.3
+        , network >= 3.1.2
         , pact
+        , pact-json >= 0.1
+        , pact-time:numeric >=0.3.0.1
         , pact-tng
         , pact-tng:pact-request-api
         , pact-tng:test-utils
-        , pact-json >= 0.1
-        , pact-time:numeric >=0.3.0.1
         , patience >= 0.3
         , predicate-transformers == 0.15.0.0
         , pretty-show
@@ -745,12 +748,14 @@ test-suite chainweb-tests
         , tasty-quickcheck >= 0.9
         , text >=2.0
         , time >= 1.12.2
+        , tls >=2.1.4
         , transformers >= 0.5
         , unordered-containers >= 0.2.20
         , vector >= 0.12.2
         , wai >= 3.2
+        , warp >= 3.3.6
+        , warp-tls >= 3.4
         , yaml >= 0.11
-
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
 
