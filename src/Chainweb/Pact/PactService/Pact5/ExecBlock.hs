@@ -126,8 +126,8 @@ runCoinbase miner = do
       let !bh = ctxCurrentBlockHeight txCtx
 
       reward <- liftIO $ minerReward v rs bh
-      -- FIXME Pact5: add the coinbase request key here, which is the hash of the parent block.
-      -- see the Pact 4 version for more info.
+      -- the coinbase request key is not passed here because TransactionIndex
+      -- does not contain coinbase transactions
       pactTransaction Nothing $ \db ->
         applyCoinbase logger db reward txCtx
 
