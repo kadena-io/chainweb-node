@@ -142,6 +142,10 @@ testnet = ChainwebVersion
     , _versionMaxBlockGasLimit =
         (succ $ testnet ^?! versionForks . at Chainweb216Pact . _Just . onChain (unsafeChainId 0) . _ForkAtBlockHeight, Just 180_000) `Above`
         Bottom (minBound, Nothing)
+    , _versionSpvProofExpirationWindow =
+        -- 23_040 is 4x current max TTL
+        (succ $ testnet ^?! versionForks . at Chainweb227Pact . _Just . onChain (unsafeChainId 0) . _ForkAtBlockHeight, Just 23_040) `Above`
+        Bottom (minBound, Nothing)
     , _versionBootstraps = domainAddr2PeerInfo testnetBootstrapHosts
     , _versionGenesis = VersionGenesis
         { _genesisBlockTarget = OnChains $ HM.fromList $ concat
