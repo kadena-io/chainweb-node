@@ -212,7 +212,7 @@ pactImportMain = do
         --
         -- pact-import doesn't use this environment variable; it's for
         -- debugging and/or consumption by other tools.
-        setEnv "SNAPSHOTview blockHeight" (show snapshotBlockHeight)
+        setEnv "SNAPSHOT_BLOCKHEIGHT" (show snapshotBlockHeight)
 
         forM_ cfg.targetPactDir $ \targetDir -> do
           pactDropPostVerified logger cfg.chainwebVersion cfg.sourcePactDir targetDir snapshotBlockHeight snapshotChainHashes
@@ -226,7 +226,7 @@ pactImportMain = do
       , "If the hash matches, and a target directory is specificied, the"
       , "database will be copied to the target directory, and any state"
       , "later than what is cryptographically verifiable will be dropped."
-      , "This tool sets the environment variable `SNAPSHOTview blockHeight` which"
+      , "This tool sets the environment variable `SNAPSHOT_BLOCKHEIGHT` which"
       , "can be useful for debugging, or if you want to use the blockheight"
       , "for your own queries."
       ]
