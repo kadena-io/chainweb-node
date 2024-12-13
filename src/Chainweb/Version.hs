@@ -378,7 +378,7 @@ instance (NFData (f Pact4), NFData (f Pact5)) => NFData (ForBothPactVersions f) 
 -- The type of upgrades, which are sets of transactions to run at certain block
 -- heights during coinbase.
 
-data PactUpgrade (v :: PactVersion) where
+data PactUpgrade where
     Pact4Upgrade ::
         { _pact4UpgradeTransactions :: [Pact4.Transaction]
         , _legacyUpgradeIsPrecocious :: Bool
@@ -386,26 +386,27 @@ data PactUpgrade (v :: PactVersion) where
         -- forks of the next block, rather than the block the upgrade
         -- transactions are included in.  do not use this for new upgrades
         -- unless you are sure you need it, this mostly exists for old upgrades.
-        } -> PactUpgrade Pact4
+        } -> PactUpgrade
     Pact5Upgrade ::
         { _pact5UpgradeTransactions :: [Pact5.Transaction]
-        } -> PactUpgrade Pact5
+        } -> PactUpgrade
 
-instance Eq (PactUpgrade pv) where
+instance Eq PactUpgrade where
     Pact4Upgrade txs precocious == Pact4Upgrade txs' precocious' =
         txs == txs' && precocious == precocious'
     Pact5Upgrade txs == Pact5Upgrade txs' =
         txs == txs'
+    _ == _ = False
 
-instance Show (PactUpgrade pv) where
+instance Show PactUpgrade where
     show Pact4Upgrade {} = "<pact4 upgrade>"
     show Pact5Upgrade {} = "<pact5 upgrade>"
 
-instance NFData (PactUpgrade pv) where
+instance NFData PactUpgrade where
     rnf (Pact4Upgrade txs precocious) = rnf txs `seq` rnf precocious
     rnf (Pact5Upgrade txs) = rnf txs
 
-pact4Upgrade :: [Pact4.Transaction] -> PactUpgrade Pact4
+pact4Upgrade :: [Pact4.Transaction] -> PactUpgrade
 pact4Upgrade txs = Pact4Upgrade txs False
 
 -- The type of quirks, i.e. special validation behaviors that are in some
@@ -449,7 +450,7 @@ data ChainwebVersion
         -- ^ The block heights on each chain to apply behavioral changes.
         -- Interpretation of these is up to the functions in
         -- `Chainweb.Version.Guards`.
-    , _versionUpgrades :: ChainMap (HashMap BlockHeight (ForSomePactVersion PactUpgrade))
+    , _versionUpgrades :: ChainMap (HashMap BlockHeight PactUpgrade)
         -- ^ The Pact upgrade transactions to execute on each chain at certain block
         -- heights.
     , _versionBlockDelay :: BlockDelay
@@ -746,4 +747,3 @@ onAllChains v f = OnChains <$>
     HM.traverseWithKey
         (\cid () -> f cid)
         (HS.toMap (chainIds v))
-

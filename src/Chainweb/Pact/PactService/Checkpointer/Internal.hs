@@ -73,7 +73,6 @@ import Pact.Types.Command(RequestKey(..))
 import Pact.Types.Hash (Hash(..))
 import Pact.Types.Persistence
 import Pact.Types.SQLite
-import Pact.Types.Util (AsString(..))
 
 import qualified Pact.Core.Persistence as Pact5
 
@@ -82,7 +81,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
-import qualified Chainweb.Pact4.Backend.ChainwebPactDb as PactDb
+import qualified Chainweb.Pact4.Backend.ChainwebPactDb as Pact4
 import qualified Chainweb.Pact5.Backend.ChainwebPactDb as Pact5
 
 import Chainweb.Pact.Backend.DbCache
@@ -97,6 +96,7 @@ import qualified Pact.Types.Persistence as Pact4
 import qualified Pact.Core.Builtin as Pact5
 import qualified Pact.Core.Evaluate as Pact5
 import qualified Pact.Core.Names as Pact5
+import qualified Chainweb.Pact.Backend.Utils as PactDb
 
 withCheckpointerResources
     :: (Logger logger)
@@ -172,10 +172,10 @@ readFrom res maybeParent pactVersion doRead = do
           | pact5 res.cpCwVersion res.cpChainId currentHeight -> internalError $
             "Pact 4 readFrom executed on block height after Pact 5 fork, height: " <> sshow currentHeight
           | otherwise -> PactDb.getEndTxId "doReadFrom" res.cpSql maybeParent >>= traverse \startTxId -> do
-            newDbEnv <- newMVar $ PactDb.BlockEnv
-              (PactDb.mkBlockHandlerEnv res.cpCwVersion res.cpChainId currentHeight res.cpSql DoNotPersistIntraBlockWrites res.cpLogger)
-              (PactDb.initBlockState defaultModuleCacheLimit startTxId)
-                { PactDb._bsModuleCache = sharedModuleCache }
+            newDbEnv <- newMVar $ Pact4.BlockEnv
+              (Pact4.mkBlockHandlerEnv res.cpCwVersion res.cpChainId currentHeight res.cpSql DoNotPersistIntraBlockWrites res.cpLogger)
+              (Pact4.initBlockState defaultModuleCacheLimit startTxId)
+                { Pact4._bsModuleCache = sharedModuleCache }
             let
               -- is the parent the latest header, i.e., can we get away without rewinding?
               parentIsLatestHeader = case (latestHeader, maybeParent) of
@@ -183,23 +183,23 @@ readFrom res maybeParent pactVersion doRead = do
                 (Just (_, latestHash), Just (ParentHeader ph)) ->
                   view blockHash ph == latestHash
                 _ -> False
-              mkBlockDbEnv db = PactDb.CurrentBlockDbEnv
-                { PactDb._cpPactDbEnv = PactDbEnv db newDbEnv
-                , PactDb._cpRegisterProcessedTx = \hash ->
-                  PactDb.runBlockEnv newDbEnv (PactDb.indexPactTransaction $ BS.fromShort $ coerce hash)
-                , PactDb._cpLookupProcessedTx = \hs ->
+              mkBlockDbEnv db = Pact4.CurrentBlockDbEnv
+                { Pact4._cpPactDbEnv = PactDbEnv db newDbEnv
+                , Pact4._cpRegisterProcessedTx = \hash ->
+                  Pact4.runBlockEnv newDbEnv (Pact4.indexPactTransaction $ BS.fromShort $ coerce hash)
+                , Pact4._cpLookupProcessedTx = \hs ->
                     HashMap.mapKeys coerce <$> doLookupSuccessful res.cpSql currentHeight (coerce hs)
                 }
               pactDb
-                | parentIsLatestHeader = PactDb.chainwebPactDb
-                | otherwise = PactDb.rewoundPactDb currentHeight startTxId
+                | parentIsLatestHeader = Pact4.chainwebPactDb
+                | otherwise = Pact4.rewoundPactDb currentHeight startTxId
             r <- doRead (mkBlockDbEnv pactDb) (emptyBlockHandle startTxId)
-            finalCache <- PactDb._bsModuleCache . PactDb._benvBlockState <$> readMVar newDbEnv
+            finalCache <- Pact4._bsModuleCache . Pact4._benvBlockState <$> readMVar newDbEnv
             return (r, finalCache)
 
         Pact5T
           | pact5 res.cpCwVersion res.cpChainId currentHeight ->
-            Pact5.getEndTxId "doReadFrom" res.cpSql maybeParent >>= traverse \startTxId -> do
+            PactDb.getEndTxId "doReadFrom" res.cpSql maybeParent >>= traverse \startTxId -> do
             let
               -- is the parent the latest header, i.e., can we get away without rewinding?
               -- TODO: just do this inside of the chainwebPactCoreBlockDb function?
@@ -219,10 +219,10 @@ readFrom res maybeParent pactVersion doRead = do
                 }
             let upperBound
                   | parentIsLatestHeader = Nothing
-                  | otherwise = Just (currentHeight, startTxId)
+                  | otherwise = Just (currentHeight, coerce @Pact4.TxId @Pact5.TxId startTxId)
             let pactDb
-                  = Pact5.chainwebPactCoreBlockDb upperBound blockHandlerEnv
-            r <- doRead pactDb (emptyBlockHandle (coerce @Pact5.TxId @Pact4.TxId startTxId))
+                  = Pact5.chainwebPactBlockDb upperBound blockHandlerEnv
+            r <- doRead pactDb (emptyBlockHandle startTxId)
             return (r, sharedModuleCache)
           | otherwise ->
             internalError $
@@ -302,34 +302,34 @@ restoreAndSave res rewindParent blocks = do
                 "Pact 4 block executed on block height after Pact 5 fork, height: " <> sshow bh
             | otherwise -> do
               -- prepare a fresh block state
-              let handlerEnv = PactDb.mkBlockHandlerEnv res.cpCwVersion res.cpChainId bh res.cpSql res.cpIntraBlockPersistence res.cpLogger
-              let state = (PactDb.initBlockState defaultModuleCacheLimit txid)
-                    { PactDb._bsModuleCache = moduleCache }
-              dbMVar <- newMVar PactDb.BlockEnv
-                { PactDb._blockHandlerEnv = handlerEnv
-                , PactDb._benvBlockState = state
+              let handlerEnv = Pact4.mkBlockHandlerEnv res.cpCwVersion res.cpChainId bh res.cpSql res.cpIntraBlockPersistence res.cpLogger
+              let state = (Pact4.initBlockState defaultModuleCacheLimit txid)
+                    { Pact4._bsModuleCache = moduleCache }
+              dbMVar <- newMVar Pact4.BlockEnv
+                { Pact4._blockHandlerEnv = handlerEnv
+                , Pact4._benvBlockState = state
                 }
 
               let
-                mkBlockDbEnv db = PactDb.CurrentBlockDbEnv
-                  { PactDb._cpPactDbEnv = db
-                  , PactDb._cpRegisterProcessedTx = \hash ->
-                    PactDb.runBlockEnv dbMVar (PactDb.indexPactTransaction $ BS.fromShort $ coerce hash)
-                  , PactDb._cpLookupProcessedTx = \hs ->
+                mkBlockDbEnv db = Pact4.CurrentBlockDbEnv
+                  { Pact4._cpPactDbEnv = db
+                  , Pact4._cpRegisterProcessedTx = \hash ->
+                    Pact4.runBlockEnv dbMVar (Pact4.indexPactTransaction $ BS.fromShort $ coerce hash)
+                  , Pact4._cpLookupProcessedTx = \hs ->
                       fmap (HashMap.mapKeys coerce) $
                       doLookupSuccessful res.cpSql bh $
                       coerce hs
                   }
 
               -- execute the block
-              let pact4Db = PactDbEnv PactDb.chainwebPactDb dbMVar
+              let pact4Db = PactDbEnv Pact4.chainwebPactDb dbMVar
               (m', newBh) <- runBlock (mkBlockDbEnv pact4Db) maybeParent
 
               -- grab any resulting state that we're interested in keeping
-              nextState <- PactDb._benvBlockState <$> takeMVar dbMVar
-              let !nextTxId = PactDb._bsTxId nextState
-              let !nextModuleCache = PactDb._bsModuleCache nextState
-              when (isJust (PactDb._bsPendingTx nextState)) $
+              nextState <- Pact4._benvBlockState <$> takeMVar dbMVar
+              let !nextTxId = Pact4._bsTxId nextState
+              let !nextModuleCache = Pact4._bsModuleCache nextState
+              when (isJust (Pact4._bsPendingTx nextState)) $
                 internalError "tx still in progress at the end of block"
               -- compute the accumulator early
               let !m'' = m <> m'
@@ -347,7 +347,7 @@ restoreAndSave res rewindParent blocks = do
               -- persist any changes to the database
               PactDb.commitBlockStateToDatabase res.cpSql
                 (view blockHash newBh) (view blockHeight newBh)
-                (BlockHandle (PactDb._bsTxId nextState) (PactDb._bsPendingBlock nextState))
+                (BlockHandle (Pact4._bsTxId nextState) (Pact4._bsPendingBlock nextState))
               return (m'', Just (ParentHeader newBh), nextTxId, nextModuleCache)
           Pact5RunnableBlock runBlock
             | pact5 res.cpCwVersion res.cpChainId bh -> do
@@ -361,7 +361,7 @@ restoreAndSave res rewindParent blocks = do
                   , Pact5._blockHandlerMode = Pact5.Transactional
                   , Pact5._blockHandlerPersistIntraBlockWrites = res.cpIntraBlockPersistence
                   }
-                pactDb = Pact5.chainwebPactCoreBlockDb Nothing blockEnv
+                pactDb = Pact5.chainwebPactBlockDb Nothing blockEnv
               -- run the block
               ((m', nextBlockHeader), blockHandle) <- runBlock pactDb maybeParent (emptyBlockHandle txid)
               -- compute the accumulator early
@@ -451,6 +451,7 @@ getBlockParent v cid db (bh, hash)
     qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?"
 
 
+-- TODO: do this in ChainwebPactDb instead?
 getBlockHistory
   :: SQLiteEnv
   -> BlockHeader
@@ -470,7 +471,7 @@ getBlockHistory db blockHeader d = do
         Historical startTxId ->
           return $ fromIntegral startTxId
 
-    let tname = domainTableNameCore d
+    let tname = Pact5.domainTableName d
     history <- queryHistory tname startTxId endTxId
     let (!hkeys,tmap) = foldl' procTxHist (S.empty,mempty) history
     !prev <- M.fromList . catMaybes <$> mapM (queryPrev tname startTxId) (S.toList hkeys)
@@ -496,7 +497,7 @@ getBlockHistory db blockHeader d = do
             [SInt s,SInt e]
             [RInt,RText,RBlob]
       forM r $ \case
-        [SInt txid, SText key, SBlob value] -> (key,fromIntegral txid,) <$> Pact5.toTxLog (asString d) key value
+        [SInt txid, SText key, SBlob value] -> (key,fromIntegral txid,) <$> Pact5.toTxLog (Pact5.renderDomain d) key value
         err -> internalError $
           "queryHistory: Expected single row with three columns as the \
           \result, got: " <> T.pack (show err)
@@ -512,9 +513,10 @@ getBlockHistory db blockHeader d = do
         [RBlob]
       case r of
         [] -> return Nothing
-        [[SBlob value]] -> Just . (RowKey $ T.decodeUtf8 sk,) <$> Pact5.toTxLog (asString d) k value
+        [[SBlob value]] -> Just . (RowKey $ T.decodeUtf8 sk,) <$> Pact5.toTxLog (Pact5.renderDomain d) k value
         _ -> internalError $ "queryPrev: expected 0 or 1 rows, got: " <> T.pack (show r)
 
+-- TODO: do this in ChainwebPactDb instead?
 lookupHistorical
     :: SQLiteEnv
     -> BlockHeader
@@ -528,12 +530,12 @@ lookupHistorical db blockHeader d k = do
   where
     queryHistoryLookup :: Int64 -> IO (Maybe (Pact5.TxLog Pact5.RowData))
     queryHistoryLookup e = do
-      let sql = "SELECT rowKey, rowdata FROM [" <> domainTableNameCore d <>
+      let sql = "SELECT rowKey, rowdata FROM [" <> Pact5.domainTableName d <>
                 "] WHERE txid < ? AND rowkey = ? ORDER BY txid DESC LIMIT 1;"
       r <- qry db sql
-        [SInt e, SText (convRowKeyCore k)]
+        [SInt e, SText (Pact5.convRowKey k)]
         [RText, RBlob]
       case r of
-        [[SText key, SBlob value]] -> Just <$> Pact5.toTxLog (asString d) key value
+        [[SText key, SBlob value]] -> Just <$> Pact5.toTxLog (Pact5.renderDomain d) key value
         [] -> pure Nothing
         _ -> internalError $ "lookupHistorical: expected single-row result, got " <> sshow r

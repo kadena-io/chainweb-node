@@ -617,7 +617,6 @@ getBlockInMem logg cfg lock (BlockFill gasLimit txHashes _) txValidate bheight p
                 | ((txHash, (bytes, t)), r) <- V.toList (V.zip q oks)
                 ]
         logFunctionText logg Debug $ "validateBatch badlisting: " <> sshow (map fst bad1)
-          -- V.partition snd $! V.zip q oks
 
         -- remove considered txs -- successful ones will be re-added at the end
         let !psq' = V.foldl' del psq0 q

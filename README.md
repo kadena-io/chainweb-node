@@ -85,12 +85,12 @@ The following packages must be installed on the host system:
 
 *   ubuntu-20.04:
     ```bash
-    apt-get install ca-certificates libgmp10 libssl1.1 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
+    apt-get install ca-certificates libmpfr6 libgmp10 libssl1.1 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
     ```
 
 *   ubuntu-22.04:
     ```bash
-    apt-get install ca-certificates libgmp10 libssl1.1 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
+    apt-get install ca-certificates libmpfr6 libgmp10 libssl1.1 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
     ```
 
 Chainweb-node binaries for ubuntu-20.04 and ubuntu-22.04 can be found
@@ -130,7 +130,7 @@ You need to install the development versions of the following libraries:
 On apt based distribution these can be installed as follows:
 
 ```
-apt-get install ca-certificates libssl-dev libgmp-dev libsnappy-dev zlib1g-dev liblz4-dev libbz2-dev libgflags-dev libzstd-dev
+apt-get install ca-certificates libssl-dev libmpfr-dev libgmp-dev libsnappy-dev zlib1g-dev liblz4-dev libbz2-dev libgflags-dev libzstd-dev
 ```
 
 To build a `chainweb-node` binary:

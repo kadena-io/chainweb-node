@@ -78,8 +78,6 @@ module Chainweb.BlockHeader
 , I.adjacentChainIds
 , I.absBlockHeightDiff
 
-, I.guardBlockHeader
-
 -- * IsBlockHeader
 , I.IsBlockHeader(..)
 

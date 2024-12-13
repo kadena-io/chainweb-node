@@ -465,10 +465,8 @@ serviceRequests memPoolAccess reqQ = go
                     )
             case maybeException of
                 Left (fromException -> Just AsyncCancelled) -> do
-                    liftIO $ putStrLn "Pact action was cancelled"
                     logDebugPact "Pact action was cancelled"
                 Left (fromException -> Just ThreadKilled) -> do
-                    liftIO $ putStrLn "Pact action thread was killed"
                     logWarnPact "Pact action thread was killed"
                 Left (exn :: SomeException) -> do
                     logErrorPact $ mconcat
@@ -495,6 +493,8 @@ execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
     v <- view chainwebVersion
     cid <- view chainId
     Checkpointer.readFrom (Just newBlockParent) $
+        -- TODO: after the Pact 5 fork is complete, the Pact 4 case below will
+        -- be unnecessary; the genesis blocks are already handled by 'execNewGenesisBlock'.
         SomeBlockM $ Pair
             (do
                 blockDbEnv <- view psBlockDbEnv
@@ -565,6 +565,8 @@ execContinueBlock
 execContinueBlock mpAccess blockInProgress = pactLabel "execNewBlock" $ do
     Checkpointer.readFrom newBlockParent $
         case _blockInProgressPactVersion blockInProgress of
+            -- TODO: after the Pact 5 fork is complete, the Pact 4 case below will
+            -- be unnecessary; the genesis blocks are already handled by 'execNewGenesisBlock'.
             Pact4T -> SomeBlockM $ Pair (Pact4.continueBlock mpAccess blockInProgress) (error "pact5")
             Pact5T -> SomeBlockM $ Pair (error "pact4") (Pact5.continueBlock mpAccess blockInProgress)
     where
@@ -1129,7 +1131,6 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                 let result = V.map (const $ Just Mempool.InsertErrorTimedOut) txs
                 logDebug_ logger $ "Mempool pre-insert check result: " <> sshow result
                 pure result
-                --pure $ V.map (const $ Just Mempool.InsertErrorTimedOut) txs
 
     where
     attemptBuyGasPact4

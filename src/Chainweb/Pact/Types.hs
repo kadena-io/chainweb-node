@@ -552,12 +552,12 @@ instance LogMessage Pact4TxFailureLog where
 instance Show Pact4TxFailureLog where
   show m = T.unpack (logText m)
 
-data Pact5TxFailureLog = Pact5TxFailureLog !Pact5.RequestKey !(Pact5.PactError Pact5.Info) !Text
+data Pact5TxFailureLog = Pact5TxFailureLog !Pact5.RequestKey !Text
   deriving stock (Generic)
   deriving anyclass (NFData, Typeable)
 instance LogMessage Pact5TxFailureLog where
-  logText (Pact5TxFailureLog rk err msg) =
-    msg <> ": " <> sshow rk <> ": " <> sshow err
+  logText (Pact5TxFailureLog rk msg) =
+    "Failed tx " <> sshow rk <> ": " <> msg
 instance Show Pact5TxFailureLog where
   show m = T.unpack (logText m)
 

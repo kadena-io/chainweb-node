@@ -119,7 +119,6 @@ module Chainweb.BlockHeader.Internal
 , genesisBlockHeaders
 , genesisBlockHeadersAtHeight
 , genesisHeight
-, guardBlockHeader
 , headerSizes
 , headerSizeBytes
 , workSizeBytes
@@ -1161,7 +1160,3 @@ workSizeBytes
     -> BlockHeight
     -> Natural
 workSizeBytes v h = headerSizeBytes v (unsafeChainId 0) h - 32
-
--- | TODO document
-guardBlockHeader :: (ChainwebVersion -> ChainId -> BlockHeight -> a) -> BlockHeader -> a
-guardBlockHeader k bh = k (_chainwebVersion bh) (_chainId bh) (_blockHeight bh)
