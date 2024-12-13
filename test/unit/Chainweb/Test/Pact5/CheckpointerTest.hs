@@ -102,12 +102,12 @@ genDbAction = do
 type DbBlock f = [DbAction f]
 
 genDbBlock :: Gen (DbBlock (Const ()))
-genDbBlock = Gen.list (Range.linear 1 20) genDbAction
+genDbBlock = Gen.list (Range.constant 1 20) genDbAction
 
 genBlockHistory :: Gen [DbBlock (Const ())]
 genBlockHistory = do
     let create tn = DbCreateTable tn (Const ())
-    blocks <- Gen.list (Range.constant 1 20) genDbBlock
+    blocks <- Gen.list (Range.linear 1 20) genDbBlock
     -- we always start by making tables A and B to ensure the tests do something,
     -- but we leave table C uncreated to leave some room for divergent table sets
     return $ [create "A", create "B"] : blocks
