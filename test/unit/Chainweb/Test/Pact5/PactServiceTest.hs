@@ -31,7 +31,7 @@ import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Logger
 import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.InMem
-import Chainweb.Mempool.Mempool (InsertType (..), LookupResult(..), MempoolBackend (..), TransactionHash(..))
+import Chainweb.Mempool.Mempool (InsertType (..), MempoolBackend (..))
 import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService
 import Chainweb.Pact.PactService.Pact4.ExecBlock ()
@@ -45,7 +45,7 @@ import Chainweb.Payload
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Cut.TestBlockDb (TestBlockDb (_bdbPayloadDb, _bdbWebBlockHeaderDb), addTestBlockDb, getCutTestBlockDb, getParentTestBlockDb, mkTestBlockDb, setCutTestBlockDb)
 import Chainweb.Test.Pact5.CmdBuilder
-import Chainweb.Test.Pact5.Utils
+import Chainweb.Test.Pact5.Utils hiding (withTempSQLiteResource, testRocksDb)
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -65,7 +65,6 @@ import Control.Monad.Trans.Resource qualified as Resource
 import Data.ByteString.Lazy qualified as LBS
 import Data.Decimal
 import Data.HashMap.Strict qualified as HashMap
-import Data.HashSet (HashSet)
 import Data.HashSet qualified as HashSet
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
@@ -84,25 +83,6 @@ import PredicateTransformers as PT
 import Test.Tasty
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 import Text.Printf (printf)
-
--- converts Pact 5 tx so that it can be submitted to the mempool, which
--- operates on Pact 4 txs with unparsed code.
-insertMempool :: MempoolBackend Pact4.UnparsedTransaction -> InsertType -> [Pact5.Transaction] -> IO ()
-insertMempool mp insertType txs = do
-    let unparsedTxs :: [Pact4.UnparsedTransaction]
-        unparsedTxs = flip map txs $ \tx ->
-            case codecDecode Pact4.rawCommandCodec (codecEncode Pact5.payloadCodec tx) of
-                Left err -> error err
-                Right a -> a
-    mempoolInsert mp insertType $ Vector.fromList unparsedTxs
-
--- | Looks up transactions in the mempool. Returns a set which indicates pending membership of the mempool.
-lookupMempool :: MempoolBackend Pact4.UnparsedTransaction -> Vector Pact5.Hash -> IO (HashSet Pact5.Hash)
-lookupMempool mp hashes = do
-    results <- mempoolLookup mp $ Vector.map (TransactionHash . Pact5.unHash) hashes
-    return $ HashSet.fromList $ Vector.toList $ flip Vector.mapMaybe results $ \case
-        Missing -> Nothing
-        Pending tx -> Just $ Pact5.Hash $ Pact4.unHash $ Pact4.toUntypedHash $ Pact4._cmdHash tx
 
 data Fixture = Fixture
     { _fixtureBlockDb :: TestBlockDb
