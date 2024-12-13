@@ -147,7 +147,7 @@ simpleSessionTests rdb tls =
 
 httpHeaderTests :: IO TestClientEnv_ -> ChainId -> TestTree
 httpHeaderTests envIO cid =
-    testGroup ("http header tests for chain " <> sshow cid)
+    testGroup ("http header tests for chain " <> T.unpack (chainIdToText cid))
         [ testCase "headerClient" $ go $ \v h -> headerClient' v cid (key h)
         , testCase "headersClient" $ go $ \v _ -> headersClient' v cid Nothing Nothing Nothing Nothing
         , testCase "blocksClient" $ go $ \v _ -> blocksClient' v cid Nothing Nothing Nothing Nothing
