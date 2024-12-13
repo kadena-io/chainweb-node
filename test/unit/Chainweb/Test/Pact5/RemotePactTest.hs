@@ -30,7 +30,6 @@ import Chainweb.Test.RestAPI.Utils (getCurrentBlockHeight)
 import Data.Text qualified as Text
 import Pact.Core.Errors
 import "pact" Pact.Types.API qualified as Pact4
-import "pact" Pact.Types.Command qualified as Pact4
 import "pact" Pact.Types.Hash qualified as Pact4
 import Chainweb.ChainId
 import Chainweb.Graph (singletonChainGraph)
