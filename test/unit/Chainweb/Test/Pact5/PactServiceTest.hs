@@ -167,9 +167,9 @@ simpleEndToEnd baseRdb = runResourceT $ do
         results <- advanceAllChainsWithTxs fixture $ onChain cid [cmd1, cmd2]
 
         -- we only care that they succeed; specifics regarding their outputs are in TransactionExecTest
-        predful ? onChain cid ?
-            predful ? Vector.replicate 2 successfulTx $
-                results
+        results &
+            predful ? onChain cid ?
+                predful ? Vector.replicate 2 successfulTx
 
 newBlockEmpty :: RocksDb -> IO ()
 newBlockEmpty baseRdb = runResourceT $ do
@@ -190,9 +190,9 @@ newBlockEmpty baseRdb = runResourceT $ do
                 newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             return $ finalizeBlock nonEmptyBip
 
-        predful ? onChain cid ?
-            predful ? Vector.replicate 1 successfulTx $
-                results
+        results &
+            predful ? onChain cid ?
+                predful ? Vector.replicate 1 successfulTx
 
 continueBlockSpec :: RocksDb -> IO ()
 continueBlockSpec baseRdb = runResourceT $ do
@@ -213,9 +213,9 @@ continueBlockSpec baseRdb = runResourceT $ do
                 newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             return $ finalizeBlock bipAllAtOnce
         -- assert that 3 successful txs are in the block
-        predful ? onChain cid ?
-            predful ? Vector.replicate 3 successfulTx $
-                allAtOnceResults
+        allAtOnceResults &
+            predful ? onChain cid ?
+            predful ? Vector.replicate 3 successfulTx
 
         -- reset back to the empty block for the next phase
         -- next, produce the same block by repeatedly extending a block
@@ -224,7 +224,7 @@ continueBlockSpec baseRdb = runResourceT $ do
         -- mempool, so we need to clear it after, or else the block will
         -- contain all of the transactions before we extend it.
         revert fixture startCut
-        results <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
+        continuedResults <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
             mempoolClear mempool
             insertMempool mempool CheckedInsert [cmd3]
             bipStart <- throwIfNotPact5 =<< throwIfNoHistory =<<
@@ -250,10 +250,8 @@ continueBlockSpec baseRdb = runResourceT $ do
 
             return $ finalizeBlock bipFinal
 
-        -- assert that 3 successful txs are in the block
-        predful ? onChain cid ?
-            predful ? Vector.replicate 3 successfulTx $
-                results
+        -- assert that the continued results are equal to doing it all at once
+        continuedResults & equals allAtOnceResults
 
 -- * test that the NewBlock timeout works properly and doesn't leave any extra state from a timed-out transaction
 newBlockTimeoutSpec :: RocksDb -> IO ()
