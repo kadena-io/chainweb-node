@@ -541,7 +541,6 @@ applyPactCmd miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGasRemaining
               maybe (throwM timeoutError) return =<< newTimeout (fromIntegral limit) io
           txGas (T3 r _ _) = fromIntegral $ Pact4._crGas r
         T3 r c _warns <- do
-          -- TRACE.traceShowM ("applyPactCmd.CACHE: ", LHM.keys $ _getModuleCache mcache, M.keys $ _getCoreModuleCache cmcache)
           tracePactBlockM' "applyCmd" (\_ -> J.toJsonViaEncode hsh) txGas $ do
             liftIO $ txTimeout $
               Pact4.applyCmd v logger gasLogger txFailuresCounter pactDb miner gasModel txCtx spv gasLimitedCmd initialGas mcache ApplySend
