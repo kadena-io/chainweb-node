@@ -130,12 +130,6 @@ source-repository-package
 
 source-repository-package
     type: git
-    location: https://github.com/edmundnoble/hs-hashes.git
-    tag: 9665a5d82c9bf890ded0346f58e6bde9843a9320
-    --sha256: sha256-6zK5nPiGGy7EIDj8l9nBQxcBkZlzUiz3/LYKhGemhdg=
-
-source-repository-package
-    type: git
     location: https://github.com/kadena-io/wai-middleware-validation.git
     tag: e0437bf82e9b4d3fec5ad42ef6e860f4bd04e1b4
     --sha256: 1az7jcggcj275djnfsvhdg3n7hjrj6vp8rj137fxrg4hazh0hyzv
@@ -155,12 +149,6 @@ source-repository-package
     location: https://github.com/kadena-io/base64-bytestring-kadena
     tag: 90247042ab3b8662809210af2a78e6dee0f9b4ac
     --sha256: 0dqsrjxm0cm35xcihm49dhwdvmz79vsv4sd5qs2izc4sbnd0d8n6
-
-source-repository-package
-    type: git
-    location: https://github.com/chessai/patience
-    tag: 2f67d546ea6608fc6ebe5f2f6976503cbf340442
-    --sha256: 0x137akvbh4kr3qagksw74xdj2xz5vjnx1fbr41bb54a0lkcb8mm
 
 source-repository-package
     type: git
@@ -237,8 +225,3 @@ allow-newer: lrucaching:base-compat
 
 -- -------------------------------------------------------------------------- --
 -- Upper Bounds
-
--- This is needed on GHC <9.10.1 due to a bug (either in GHC or cabal) it
--- that Cabal and Cabal-syntax are compatible.
-constraints: Cabal <=3.12.1.0
-constraints: Cabal-syntax <=3.12.1.0
