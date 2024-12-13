@@ -72,8 +72,6 @@ module Chainweb.Chainweb
 , NowServing(..)
 
 -- ** Mempool integration
--- , Pact4.Transaction
--- , Pact5.Transaction
 , Mempool.pact4TransactionConfig
 , validatingMempoolConfig
 
