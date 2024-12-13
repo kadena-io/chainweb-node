@@ -466,10 +466,13 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
       ]
 
 -- | The principal validation logic for groups of Pact Transactions.
+-- This is used by the mempool to estimate tx validity
+-- before inclusion into blocks, but it's also used by ExecBlock to check
+-- if all of the txs in a block are valid.
 --
 -- Skips validation for genesis transactions, since gas accounts, etc. don't
 -- exist yet.
-
+--
 validateParsedChainwebTx
     :: (Logger logger)
     => logger
@@ -533,6 +536,14 @@ validateParsedChainwebTx _logger v cid db _blockHandle txValidationTime bh isGen
         sigs = Pact5._cmdSigs t
         signers = Pact5._pSigners $ view Pact5.payloadObj $ Pact5._cmdPayload t
 
+-- | The validation logic for Pact Transactions that have not had their
+-- code parsed yet. This is used by the mempool to estimate tx validity
+-- before inclusion into blocks, but it's also used by ExecBlock to check
+-- if all of the txs in a block are valid.
+--
+-- Skips validation for genesis transactions, since gas accounts, etc. don't
+-- exist yet.
+--
 validateRawChainwebTx
     :: (Logger logger)
     => logger

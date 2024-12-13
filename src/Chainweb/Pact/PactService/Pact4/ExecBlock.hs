@@ -202,6 +202,14 @@ throwCommandInvalidError = (transactionPairs . traverse . _2) throwGasFailure
 
       Right r -> pure r
 
+-- | The validation logic for Pact Transactions that have not had their
+-- code parsed yet. This is used by the mempool to estimate tx validity
+-- before inclusion into blocks, but it's also used by ExecBlock to check
+-- if all of the txs in a block are valid.
+--
+-- Skips validation for genesis transactions, since gas accounts, etc. don't
+-- exist yet.
+--
 validateRawChainwebTx
     :: forall logger
     . (Logger logger)
@@ -222,6 +230,9 @@ validateRawChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas tx = do
   return parsed
 
 -- | The principal validation logic for groups of Pact Transactions.
+-- This is used by the mempool to estimate tx validity
+-- before inclusion into blocks, but it's also used by ExecBlock to check
+-- if all of the txs in a block are valid.
 --
 -- Skips validation for genesis transactions, since gas accounts, etc. don't
 -- exist yet.
