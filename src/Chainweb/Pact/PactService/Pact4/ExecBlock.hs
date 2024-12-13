@@ -33,7 +33,7 @@ module Chainweb.Pact.PactService.Pact4.ExecBlock
     , validateHashes
     , throwCommandInvalidError
     , initModuleCacheForBlock
-    , runPact4Coinbase
+    , runCoinbase
     , CommandInvalidError(..)
     , checkParse
     ) where
@@ -368,7 +368,7 @@ execTransactions miner ctxs enfCBFail usePrecomp gasLimit timeLimit = do
     mc <- initModuleCacheForBlock
     -- for legacy reasons (ask Emily) we don't use the module cache resulting
     -- from coinbase to run the pact cmds
-    coinOut <- runPact4Coinbase miner enfCBFail usePrecomp mc
+    coinOut <- runCoinbase miner enfCBFail usePrecomp mc
     T2 txOuts _mcOut <- applyPactCmds ctxs miner mc gasLimit timeLimit
     return $! Transactions (V.zip ctxs txOuts) coinOut
 
@@ -386,14 +386,14 @@ initModuleCacheForBlock = do
         return mc
     Just (_,mc) -> pure mc
 
-runPact4Coinbase
+runCoinbase
     :: (Logger logger)
     => Miner
     -> EnforceCoinbaseFailure
     -> CoinbaseUsePrecompiled
     -> ModuleCache
     -> PactBlockM logger tbl (Pact4.CommandResult [Pact4.TxLogJson])
-runPact4Coinbase miner enfCBFail usePrecomp mc = do
+runCoinbase miner enfCBFail usePrecomp mc = do
     isGenesis <- view psIsGenesis
     if isGenesis
     then return noCoinbase

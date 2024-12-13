@@ -14,7 +14,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 module Chainweb.Pact.PactService.Pact5.ExecBlock
-    ( runPact5Coinbase
+    ( runCoinbase
     , continueBlock
     , execExistingBlock
     , validateRawChainwebTx
@@ -109,11 +109,11 @@ minerReward v (MinerRewards rs) bh =
     err = internalError "block heights have been exhausted"
 {-# INLINE minerReward #-}
 
-runPact5Coinbase
+runCoinbase
     :: (Logger logger)
     => Miner
     -> PactBlockM logger tbl (Either Pact5CoinbaseError (Pact5.CommandResult [Pact5.TxLog ByteString] Void))
-runPact5Coinbase miner = do
+runCoinbase miner = do
     isGenesis <- view psIsGenesis
     if isGenesis
     then return $ Right noCoinbase
@@ -588,7 +588,7 @@ execExistingBlock currHeader payload = do
     Nothing -> return ()
     Just errorsNel -> throwM $ Pact5TransactionValidationException errorsNel
 
-  coinbaseResult <- runPact5Coinbase miner >>= \case
+  coinbaseResult <- runCoinbase miner >>= \case
     Left err -> throwM $ CoinbaseFailure (Pact5CoinbaseFailure err)
     Right r -> return (absurd <$> r)
 

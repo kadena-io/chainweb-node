@@ -125,7 +125,6 @@ import qualified Pact.Core.Command.Types as Pact5
 import qualified Pact.Core.Hash as Pact5
 import qualified Data.ByteString.Short as SB
 import Data.Coerce (coerce)
-import Chainweb.Pact.PactService.Pact5.ExecBlock (runPact5Coinbase)
 import Data.Void
 import qualified Chainweb.Pact5.Types as Pact5
 import qualified Chainweb.Pact.PactService.Pact5.ExecBlock as Pact5
@@ -499,7 +498,7 @@ execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
             (do
                 blockDbEnv <- view psBlockDbEnv
                 initCache <- initModuleCacheForBlock
-                coinbaseOutput <- runPact4Coinbase
+                coinbaseOutput <- Pact4.runCoinbase
                     miner
                     (Pact4.EnforceCoinbaseFailure True) (Pact4.CoinbaseUsePrecompiled True)
                     initCache
@@ -531,7 +530,7 @@ execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
             )
 
             (do
-                coinbaseOutput <- runPact5Coinbase miner >>= \case
+                coinbaseOutput <- Pact5.runCoinbase miner >>= \case
                     Left coinbaseError -> internalError $ "Error during coinbase: " <> sshow coinbaseError
                     Right coinbaseOutput ->
                         -- pretend that coinbase can throw an error, when we know it can't.
