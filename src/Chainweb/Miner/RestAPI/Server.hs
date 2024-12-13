@@ -254,7 +254,6 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ d
 
                 -- no apparent change
                 | otherwise -> retry
-
             (WorkReady (NewBlockPayload lastPh lastPwo), WorkReady (NewBlockPayload currentPh currentPwo))
                 | lastPh /= currentPh ->
                     -- we've got a new block on a new parent, we must've missed
@@ -270,7 +269,6 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ d
 
                 -- no apparent change
                 | otherwise -> retry
-
             (WorkReady _, WorkReady _) ->
                 error "awaitNewPrimedWork: impossible: NewBlockInProgress replaced by a NewBlockPayload"
 
