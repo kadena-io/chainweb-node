@@ -373,13 +373,13 @@ commitBlockStateToDatabase db hsh bh blockHandle = do
 
           writeTable (tableName, writes) = do
             execMulti db q (map prepRow writes)
-            markTableMutation tableName bh db
+            markTableMutation tableName bh
             where
             q = "INSERT OR REPLACE INTO " <> tbl tableName <> "(rowkey,txid,rowdata) VALUES(?,?,?)"
 
           -- Mark the table as being mutated during this block, so that we know
           -- to delete from it if we rewind past this block.
-          markTableMutation tablename blockheight db = do
+          markTableMutation tablename blockheight = do
               Pact4.exec' db mutq [Pact4.SText tablename, Pact4.SInt (fromIntegral blockheight)]
             where
               mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
