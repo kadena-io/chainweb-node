@@ -148,7 +148,7 @@ execBlock currHeader payload = do
           fmap (Pact4._cmdHash tx,) $
             runExceptT $
               validateParsedChainwebTx logger v cid dbEnv txValidationTime
-                (view blockHeight currHeader) (\_ -> pure ()) tx
+                (view blockHeight currHeader) tx
 
     case NE.nonEmpty [ (hsh, sshow err) | (hsh, Left err) <- errorsIfPresent ] of
       Nothing -> return ()
@@ -221,12 +221,11 @@ validateRawChainwebTx
         -- ^ reference time for tx validation.
     -> BlockHeight
         -- ^ Current block height
-    -> (Pact4.Transaction -> ExceptT InsertError IO ())
     -> Pact4.UnparsedTransaction
     -> ExceptT InsertError IO Pact4.Transaction
-validateRawChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas tx = do
+validateRawChainwebTx logger v cid dbEnv txValidationTime bh tx = do
   parsed <- checkParse logger v cid bh tx
-  validateParsedChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas parsed
+  validateParsedChainwebTx logger v cid dbEnv txValidationTime bh parsed
   return parsed
 
 -- | The principal validation logic for groups of Pact Transactions.
@@ -247,10 +246,9 @@ validateParsedChainwebTx
         -- ^ reference time for tx validation.
     -> BlockHeight
         -- ^ Current block height
-    -> (Pact4.Transaction -> ExceptT InsertError IO ())
     -> Pact4.Transaction
     -> ExceptT InsertError IO ()
-validateParsedChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas tx
+validateParsedChainwebTx logger v cid dbEnv txValidationTime bh tx
   | bh == genesisHeight v cid = pure ()
   | otherwise = do
       checkUnique logger dbEnv tx
@@ -258,7 +256,7 @@ validateParsedChainwebTx logger v cid dbEnv txValidationTime bh doBuyGas tx
       checkTxSigs logger v cid bh tx
       checkTimes logger v cid bh txValidationTime tx
       _ <- checkCompile logger v cid bh tx
-      doBuyGas tx
+      return ()
 
 checkUnique
   :: (Logger logger)
@@ -837,7 +835,7 @@ continueBlock mpAccess blockInProgress = do
       let pHeight = view blockHeight parent
       let pHash = view blockHash parent
       let validate bhi _bha txs = forM txs $ \tx -> runExceptT $ do
-            validateRawChainwebTx logger v cid dbEnv (ParentCreationTime parentTime) bhi (\_ -> pure ()) tx
+            validateRawChainwebTx logger v cid dbEnv (ParentCreationTime parentTime) bhi tx
 
       liftIO $!
         mpaGetBlock mpAccess bfState validate (pHeight + 1) pHash parentTime

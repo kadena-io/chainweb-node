@@ -1097,11 +1097,12 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                     cid = _chainId pc
                 liftIO $ forM txs $ \tx -> do
                     let isGenesis = False
-                    fmap (either Just (\_ -> Nothing)) $ runExceptT $
-                        Pact4.validateRawChainwebTx
-                            logger v cid pdb parentTime currHeight
-                            (ExceptT . evalPactServiceM psState psEnv . Pact4.runPactBlockM pc isGenesis pdb . attemptBuyGasPact4 noMiner)
-                            tx
+                    fmap (either Just (\_ -> Nothing)) $ runExceptT $ do
+                        parsedTx <- Pact4.validateRawChainwebTx
+                            logger v cid pdb parentTime currHeight tx
+                        ExceptT $ evalPactServiceM psState psEnv . Pact4.runPactBlockM pc isGenesis pdb
+                            $ attemptBuyGasPact4 noMiner parsedTx
+                        return parsedTx
             )
             (do
                 db <- view psBlockDbEnv
@@ -1116,8 +1117,7 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
                 liftIO $ forM txs $ \tx ->
                     fmap (either Just (\_ -> Nothing)) $ runExceptT $ do
                         pact5Tx <- Pact5.validateRawChainwebTx
-                            logger v cid db blockHandle parentTime currHeight isGenesis
-                            tx
+                            logger v cid db blockHandle parentTime currHeight isGenesis tx
                         attemptBuyGasPact5 logger ph db blockHandle noMiner pact5Tx
             )
     withPactState $ \run ->
