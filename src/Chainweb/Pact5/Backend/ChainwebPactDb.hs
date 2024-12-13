@@ -18,6 +18,45 @@
 -- TODO pact5: fix the orphan PactDbFor instance
 {-# OPTIONS_GHC -Wno-orphans #-}
 
+-- | The database operations that manipulate and read the Pact state.
+
+-- Note: [Pact Transactions]
+
+-- What is a "pact transaction"? There are three levels of transactions going on:
+-- +-------------------------------------------------------------------------------------------------------------------------+
+-- | Block                                                                                                                   |
+-- |                                                                                                                         |
+-- | +-----------------+ +---------------------------------------------+   +-----------------------------------------------+ |
+-- | | Apply Coinbase  | | Apply Command                               |   | Apply Command                                 | |
+-- | | |               | |+------------+ +------------+ +------------+ |   |+------------+ +------------+ +------------+   | |
+-- | | |               | || Buy        | | Run        | | Redeem     | |   || Buy        | | Run        | | Redeem     |   | |
+-- | | v               | || Gas        | | Payload    | | Gas        | |   || Gas        | | Payload    | | Gas        |   | |
+-- | | Pact tx         | || |          | | |          | | |          | |   || |          | | |          | | |          |   | |
+-- | | (begin-tx)      | || v          | | v          | | v          | +-->|| v          | | v          | | v          |   | |
+-- | +v----------------+ || Pact tx    | | Pact tx    | | Pact tx    | |   || Pact tx    | | Pact tx    | | Pact tx    |   | |
+-- |  Pact5Db tx         || (begin-tx) | | (begin-tx) | | (begin-tx) | |   || (begin-tx) | | (begin-tx) | | (begin-tx) |   | |
+-- |                     ||            | |            | |            | |   ||            | |            | |            |   | |
+-- |                     |+------------+ +------------+ +------------+ |   |+------------+ +------------+ +------------+   | |
+-- |                     |                                             |   |                                               | |
+-- |                     +v--------------------------------------------+   +v----------------------------------------------+ |
+-- |                      Pact5Db tx                                        Pact5Db tx                                       |
+-- +v------------------------------------------------------------------------------------------------------------------------+
+--  SQLite tx (withSavepoint)
+--    (in some cases multiple blocks in tx)
+--
+--
+-- Transactions must be nested in this way.
+--
+-- SQLite transaction ensures that the Pact5Db transaction
+-- sees a consistent view of the database, especially if its
+-- writes are committed later.
+--
+-- Pact5Db tx ensures that the Pact tx's writes
+-- are recorded.
+--
+-- Pact tx ensures that failed transactions' writes are not recorded.
+
+
 module Chainweb.Pact5.Backend.ChainwebPactDb
     ( chainwebPactBlockDb
     , Pact5Db(..)
@@ -133,14 +172,15 @@ data Pact5Db = Pact5Db
         -> Maybe RequestKey
         -> (Pact.PactDb Pact.CoreBuiltin Pact.Info -> IO a)
         -> IO (a, BlockHandle)
-    -- ^ Give this function a BlockHandle representing the state of a block so far,
-    -- and it will allow you to access a PactDb which contains the Pact state
-    -- as of that point in the block. After you're done, it passes you back
-    -- a BlockHandle representing the state of the block extended with any
-    -- writes you made to the PactDb. Note also that this function handles
-    -- registering transactions as completed, if you pass it a RequestKey.
+        -- ^ Give this function a BlockHandle representing the state of a pending
+        -- block and it will pass you a PactDb which contains the Pact state as of
+        -- that point in the block. After you're done, it passes you back a
+        -- BlockHandle representing the state of the block extended with any writes
+        -- you made to the PactDb.
+        -- Note also that this function handles registering
+        -- transactions as completed, if you pass it a RequestKey.
     , lookupPactTransactions :: Vector RequestKey -> IO (HashMap RequestKey (T2 BlockHeight BlockHash))
-    -- ^ Used to implement transaction polling.
+        -- ^ Used to implement transaction polling.
     }
 
 type instance PactDbFor logger Pact5 = Pact5Db
@@ -259,6 +299,9 @@ chainwebPactBlockDb maybeLimit env = Pact5Db
                 Nothing -> basePactDb
         r <- kont maybeLimitedPactDb
         finalState <- readMVar stateVar
+        -- TODO: this may not be wanted when we allow more unconstrained access
+        -- to the Pact state - which we may do in the future, to run Pact REPL files
+        -- with chainweb's Pact state. Perhaps we use ExecutionMode to flag this?
         when (isJust (_bsPendingTx finalState)) $
             internalDbError "dangling transaction"
         -- Register a successful transaction in the pending data for the block
