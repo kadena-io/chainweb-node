@@ -125,6 +125,7 @@ tryShow = handleAny (fmap Left . \case
     e -> return $ sshow e
     ) . fmap Right
 
+-- Run an empty DbAction, annotating it with its result
 runDbAction :: PactDb CoreBuiltin Info -> DbAction (Const ()) -> IO (DbAction Identity)
 runDbAction pactDB act =
     fmap (hoistDbAction (\(Pair (Const ()) fa) -> fa))
@@ -133,6 +134,7 @@ runDbAction pactDB act =
 extractInt :: RowData -> IO Integer
 extractInt (RowData m) = evaluate (m ^?! ix (Field "k") . _PLiteral . _LInteger)
 
+-- Annotate a DbAction with its result, including any other contents it has
 runDbAction' :: PactDb CoreBuiltin Info -> DbAction f -> IO (DbAction (Product f Identity))
 runDbAction' pactDB = \case
     DbRead tn k v -> do
@@ -179,6 +181,7 @@ blockHeaderFromTxLogs ph txLogs = do
 
 -- TODO things to test later:
 -- that a tree of blocks can be explored, such that reaching any particular block gives identical results to running to that block from genesis
+-- more specific regressions, like in the Pact 4 checkpointer test
 
 runBlocks
     :: Checkpointer GenericLogger
@@ -198,6 +201,8 @@ runBlocks cp ph blks = do
         ]
     return finishedBlks
 
+-- Check that a block's result at the time it was added to the checkpointer
+-- is consistent with us executing that block with `readFrom`
 assertBlock :: HasCallStack => Checkpointer GenericLogger -> ParentHeader -> (BlockHeader, DbBlock Identity) -> IO ()
 assertBlock cp ph (expectedBh, blk) = do
     hist <- Checkpointer.readFrom cp (Just ph) Pact5T $ \db startHandle -> do
@@ -233,7 +238,7 @@ tests = testGroup "Pact5 Checkpointer tests"
                         Pact.Core.runPactDbRegression txdb
             return ()
     , withResourceT (liftIO . initCheckpointer testVer cid =<< withTempSQLiteResource) $ \cpIO ->
-        testProperty "linear block history validity" $ withTests 1000 $ property $ do
+        testProperty "readFrom with linear block history is valid" $ withTests 1000 $ property $ do
             blocks <- forAll genBlockHistory
             liftIO $ do
                 cp <- cpIO
