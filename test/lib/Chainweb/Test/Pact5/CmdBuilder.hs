@@ -48,7 +48,6 @@ import qualified Data.Text as T
 import Pact.Core.Names (Field(..), QualifiedName, DefPactId)
 import Pact.Core.PactValue
 import Pact.Core.Signer
-import Data.Aeson
 import qualified Data.Set as Set
 import Pact.Core.StableEncoding
 import Chainweb.Pact.RestAPI.Server (validatePact5Command)
@@ -57,6 +56,7 @@ import System.Random
 import Control.Monad
 import Data.Vector qualified as Vector
 import Data.Map.Strict qualified as Map
+import Data.Aeson qualified as Aeson
 
 type TextKeyPair = (Text,Text)
 
