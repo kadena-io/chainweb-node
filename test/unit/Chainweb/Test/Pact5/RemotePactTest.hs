@@ -25,6 +25,22 @@ module Chainweb.Test.Pact5.RemotePactTest
     ( tests
     ) where
 
+import Data.Foldable qualified as F
+import Pact.Core.DefPacts.Types
+import Pact.Core.SPV
+import Data.ByteString.Base64.URL qualified as B64U
+import Data.ByteString.Lazy qualified as BL
+import Data.Aeson qualified as A
+import Pact.Core.Command.RPC (ContMsg(..))
+import Control.Monad (forM_, replicateM_)
+import Chainweb.SPV.CreateProof (createTransactionOutputProof_)
+import Chainweb.Cut (cutMap)
+import Chainweb.BlockHeader (blockHeight)
+import Data.Maybe (fromMaybe)
+import Chainweb.CutDB (cut)
+import Pact.Core.Names
+import Pact.Core.Capabilities
+import Pact.Core.PactValue
 import Pact.Core.Command.Server qualified as Pact5
 import Pact.Core.Evaluate (Info)
 import Chainweb.CutDB.RestAPI.Server (someCutGetServer)
@@ -39,7 +55,7 @@ import "pact" Pact.Types.API qualified as Pact4
 import "pact" Pact.Types.Command qualified as Pact4
 import "pact" Pact.Types.Hash qualified as Pact4
 import Chainweb.ChainId
-import Chainweb.Graph (singletonChainGraph)
+import Chainweb.Graph (singletonChainGraph, petersonChainGraph)
 import Chainweb.Mempool.Mempool (TransactionHash(..))
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.RestAPI.Server
@@ -62,7 +78,10 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Resource (ResourceT, runResourceT, allocate)
 import Control.Retry
 import Data.Aeson qualified as Aeson
+import Data.Vector qualified as Vector
 import Data.HashMap.Strict (HashMap)
+import Data.Map.Strict qualified as Map
+import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
 import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty)
@@ -86,8 +105,8 @@ data Fixture = Fixture
     }
 makeLenses ''Fixture
 
-mkFixture :: RocksDb -> ResourceT IO Fixture
-mkFixture baseRdb = do
+mkFixture :: ChainwebVersion -> RocksDb -> ResourceT IO Fixture
+mkFixture v baseRdb = do
     fixture <- CutFixture.mkFixture v testPactServiceConfig baseRdb
     logger <- liftIO getTestLogger
 
@@ -128,56 +147,195 @@ mkFixture baseRdb = do
 
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "Pact5 RemotePactTest"
-    [ testCase "pollingBadlistTest" (pollingBadlistTest rdb)
-        --testCase "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
+    [ testCase "pollingBadlistTest" (pollingInvalidTest rdb)
+    , testCase "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
+    , testCase "spvTest" (spvTest rdb)
     ]
 
-pollingBadlistTest :: RocksDb -> IO ()
-pollingBadlistTest baseRdb = runResourceT $ do
-    fixture <- mkFixture baseRdb
+pollingInvalidTest :: RocksDb -> IO ()
+pollingInvalidTest baseRdb = runResourceT $ do
+    let v = pact5InstantCpmTestVersion singletonChainGraph
+    let cid = unsafeChainId 0
+    fixture <- mkFixture v baseRdb
     let clientEnv = fixture ^. serviceClientEnv
 
     liftIO $ do
-        --cmd1 <- buildTextCmd v (trivialTx 42)
-        --_ <- sending clientEnv (NE.singleton cmd1)
-        --pollResult <- polling clientEnv (NE.singleton (cmdToRequestKey cmd1))
-        --print pollResult
-        pure ()
-{-
-        case pollResult ^?! ix pactDeadBeef . crResult of
-            PactResultOk _ -> do
-                assertFailure "expected PactResultErr badlist"
-            PactResultErr (PEPact5Error _pactErrorCode) -> do
-                assertFailure "pollingBadlistTest doesn't support pact5 error codes yet"
-                -- idk how this works
-                --assertEqual "Transaction was badlisted" (_peCode pactErrorCode)
-            PactResultErr (PELegacyError legacyError) -> do
-                assertBool "Transaction was badlisted" ("badlisted" `Text.isInfixOf` _leMessage legacyError)
-            -- _ -> assertFailure "expected PactResultError"
--}
+        pollResult <- polling v cid clientEnv (NE.singleton pactDeadBeef)
+        assertEqual "invalid poll should return no results" pollResult HashMap.empty
 
-{-
 pollingConfirmationDepthTest :: RocksDb -> IO ()
 pollingConfirmationDepthTest baseRdb = runResourceT $ do
-    fixture <- mkFixture baseRdb
+    let v = pact5InstantCpmTestVersion singletonChainGraph
+    let cid = unsafeChainId 0
+    fixture <- mkFixture v baseRdb
     let clientEnv = fixture ^. serviceClientEnv
 
     liftIO $ do
-        --cmd1 <- buildTextCmd v (trivialTx 42)
-        --cmd2 <- buildTextCmd v (trivialTx 43)
-        --rks <- sending clientEnv (cmd1 NE.:| [cmd2])
-        --putStrLn $ "pollingConfirmationDepth requestKeys: " ++ show rks
+        cmd1 <- buildTextCmd v (trivialTx cid 42)
+        cmd2 <- buildTextCmd v (trivialTx cid 43)
+        rks <- sending v cid clientEnv (cmd1 NE.:| [cmd2])
+
+        pollingWithDepth v cid clientEnv rks Nothing >>= \response -> do
+            assertEqual "there are no command results at depth 0" response HashMap.empty
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 0)) >>= \response -> do
+            assertEqual "there are no command results at depth 0" response HashMap.empty
 
         _ <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
 
-        {-beforePolling <- getCurrentBlockHeight v clientEnv cid
-        putStrLn $ "beforePolling: " ++ show beforePolling
-        pollResponse <- pollingWithDepth clientEnv rks Nothing --(Just (ConfirmationDepth 10))
-        afterPolling <- getCurrentBlockHeight v clientEnv cid
-        putStrLn $ "afterPolling: " ++ show afterPolling
+        pollingWithDepth v cid clientEnv rks Nothing >>= \response -> do
+            assertEqual "results are visible at depth 0" 2 (HashMap.size response)
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 0)) >>= \response -> do
+            assertEqual "results are visible at depth 0" 2 (HashMap.size response)
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 1)) >>= \response -> do
+            assertEqual "results are not visible at depth 1" 0 (HashMap.size response)
 
-        assertEqual "there are two command results" 2 (length (HashMap.keys pollResponse))-}
+        _ <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
+
+        pollingWithDepth v cid clientEnv rks Nothing >>= \response -> do
+            assertEqual "results are visible at depth 0" 2 (HashMap.size response)
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 0)) >>= \response -> do
+            assertEqual "results are visible at depth 0" 2 (HashMap.size response)
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 1)) >>= \response -> do
+            assertEqual "results are visible at depth 1" 2 (HashMap.size response)
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 2)) >>= \response -> do
+            assertEqual "results are not visible at depth 2" 0 (HashMap.size response)
+
+        _ <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
+
+        pollingWithDepth v cid clientEnv rks Nothing >>= \response -> do
+            assertEqual "results are visible at depth 0" 2 (HashMap.size response)
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 0)) >>= \response -> do
+            assertEqual "results are visible at depth 0" 2 (HashMap.size response)
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 1)) >>= \response -> do
+            assertEqual "results are visible at depth 1" 2 (HashMap.size response)
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 2)) >>= \response -> do
+            assertEqual "results are visible at depth 2" 2 (HashMap.size response)
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 3)) >>= \response -> do
+            assertEqual "results are not visible at depth 3" 0 (HashMap.size response)
+
         return ()
+
+spvTest :: RocksDb -> IO ()
+spvTest baseRdb = runResourceT $ do
+    let v = pact5InstantCpmTestVersion petersonChainGraph
+    fixture <- mkFixture v baseRdb
+    let clientEnv = fixture ^. serviceClientEnv
+
+    let srcChain = unsafeChainId 0
+    let targetChain = unsafeChainId 9
+
+    liftIO $ do
+        send <- buildTextCmd v
+            $ set cbSigners
+                [ mkEd25519Signer' sender00
+                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
+                    , CapToken (QualifiedName "TRANSFER_XCHAIN" (ModuleName "coin" Nothing))
+                        [ PString "sender00"
+                        , PString "sender01"
+                        , PDecimal 1.0
+                        , PString (chainIdToText targetChain)
+                        ]
+                    ]
+                ]
+            $ set cbRPC (mkExec ("(coin.transfer-crosschain \"sender00\" \"sender01\" (read-keyset 'k) \"" <> chainIdToText targetChain <> "\" 1.0)") (mkKeySetData "k" [sender01]))
+            $ set cbSender "sender00"
+            $ set cbChainId srcChain
+            $ set cbGasPrice (GasPrice 0.01)
+            $ set cbGasLimit (GasLimit (Gas 1_000))
+            $ defaultCmd
+
+        sendReqKey <- fmap NE.head $ sending v srcChain clientEnv (NE.singleton send)
+        (sendCut, sendResults) <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
+        --let sendCr = Vector.head $ fromMaybe (error "empty results all around!") $ List.find ((> 0) . Vector.length) $ F.toList sendResults
+        sendCr <- fmap (HashMap.! sendReqKey) $ pollingWithDepth v srcChain clientEnv (NE.singleton sendReqKey) (Just (ConfirmationDepth 0))
+        let cont = fromMaybe (error "missing continuation") (_crContinuation sendCr)
+
+        _ <- forM_ [0..9] $ \i -> do
+            print i
+            CutFixture.advanceAllChains v (fixture ^. cutFixture)
+        let sendHeight = sendCut ^?! ixg srcChain . blockHeight
+        spvProof <- createTransactionOutputProof_ (fixture ^. cutFixture . CutFixture.fixtureWebBlockHeaderDb) (fixture ^. cutFixture . CutFixture.fixturePayloadDb) targetChain srcChain sendHeight 0
+        let contMsg = ContMsg
+                { _cmPactId = _peDefPactId cont
+                , _cmStep = succ $ _peStep cont
+                , _cmRollback = _peStepHasRollback cont
+                , _cmData = PUnit -- this was Null in the previous test, is PUnit okay here?
+                , _cmProof = Just (ContProof (B64U.encode (BL.toStrict (A.encode spvProof))))
+                }
+
+        recv <- buildTextCmd v
+            $ set cbSigners
+                [ mkEd25519Signer' sender00
+                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
+                    ]
+                ]
+            $ set cbRPC (mkCont contMsg)
+            $ set cbChainId targetChain
+            $ set cbGasPrice (GasPrice 0.01)
+            $ set cbGasLimit (GasLimit (Gas 1_000))
+            $ defaultCmd
+        recvReqKey <- fmap NE.head $ sending v srcChain clientEnv (NE.singleton recv)
+        recvCr <- fmap (HashMap.! recvReqKey) $ polling v srcChain clientEnv (NE.singleton recvReqKey)
+        print recvCr
+
+        pure ()
+
+    pure ()
+
+{-
+          recvPwos <- runCutWithTx v pacts targetMempoolRef blockDb $ \_n _bHeight _bHash bHeader -> do
+            buildCwCmd "transfer-crosschain" v
+              $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap]]
+              $ set cbRPC (mkCont contMsg)
+              $ setFromHeader bHeader
+              $ set cbChainId targetChain
+              $ set cbGasPrice 0.01
+              $ set cbTTL 100
+              $ defaultCmd
+-}
+{-
+spvTest :: Pact.TxCreationTime -> ClientEnv -> (String -> IO ()) -> IO ()
+spvTest t cenv step = do
+    batch <- mkTxBatch
+    sid <- mkChainId v maxBound 1
+    r <- flip runClientM cenv $ do
+
+      void $ liftIO $ step "sendApiClient: submit batch"
+      rks <- liftIO $ sending v sid cenv batch
+
+      void $ liftIO $ step "pollApiClient: poll until key is found"
+      void $ liftIO $ polling v sid cenv rks ExpectPactResult
+
+      void $ liftIO $ step "spvApiClient: submit request key"
+      liftIO $ spv v sid cenv (SpvRequest (NEL.head $ _rkRequestKeys rks) tid)
+
+    case r of
+      Left e -> assertFailure $ "output proof failed: " <> sshow e
+      Right _ -> return ()
+  where
+    tid = Pact.ChainId "2"
+
+    mkTxBatch = do
+      ks <- liftIO $ testKeyPairs sender00
+        (Just [mkGasCap, mkXChainTransferCap "sender00" "sender01" 1.0 "2"])
+      let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100_000 0.01 defaultMaxTTL t
+      cmd1 <- liftIO $ Pact.mkExec txcode txdata pm ks [] (Just vNetworkId) (Just "1")
+      cmd2 <- liftIO $ Pact.mkExec txcode txdata pm ks [] (Just vNetworkId) (Just "2")
+      return $ SubmitBatch (pure cmd1 <> pure cmd2)
+
+    txcode = T.unlines
+      [ "(coin.transfer-crosschain"
+      , "  'sender00"
+      , "  'sender01"
+      , "  (read-keyset 'sender01-keyset)"
+      , "  (read-msg 'target-chain-id)"
+      , "  1.0)"
+      ]
+
+    txdata = A.object
+        [ "sender01-keyset" A..= [fst sender01]
+        , "target-chain-id" A..= J.toJsonViaEncode tid
+        ]
 -}
 
 newtype PollingException = PollingException String
@@ -185,18 +343,22 @@ newtype PollingException = PollingException String
     deriving anyclass (Exception)
 
 polling :: ()
-    => ClientEnv
+    => ChainwebVersion
+    -> ChainId
+    -> ClientEnv
     -> NonEmpty RequestKey
     -> IO (HashMap RequestKey TestPact5CommandResult)
-polling clientEnv rks = do
-    pollingWithDepth clientEnv rks Nothing
+polling v cid clientEnv rks = do
+    pollingWithDepth v cid clientEnv rks Nothing
 
 pollingWithDepth :: ()
-    => ClientEnv
+    => ChainwebVersion
+    -> ChainId
+    -> ClientEnv
     -> NonEmpty RequestKey
     -> Maybe ConfirmationDepth
     -> IO (HashMap RequestKey TestPact5CommandResult)
-pollingWithDepth clientEnv rks mConfirmationDepth = do
+pollingWithDepth v cid clientEnv rks mConfirmationDepth = do
     recovering testRetryPolicy [retryHandler] $ \_iterNumber -> do
         poll <- runClientM (pactPollWithQueryApiClient v cid mConfirmationDepth (Pact5.PollRequest rks)) clientEnv
         case poll of
@@ -214,14 +376,14 @@ newtype SendingException = SendingException String
     deriving anyclass (Exception)
 
 sending :: ()
-    => ClientEnv
+    => ChainwebVersion
+    -> ChainId
+    -> ClientEnv
     -> NonEmpty (Command Text)
     -> IO (NonEmpty RequestKey)
-sending clientEnv cmds = do
-    putStrLn $ "sending: pact5 batch: " ++ show cmds
+sending v cid clientEnv cmds = do
     recovering testRetryPolicy [retryHandler] $ \_iterNumber -> do
         let batch = Pact4.SubmitBatch (NE.map toPact4Command cmds)
-        putStrLn $ "sending: pact4 batch: " ++ show batch
         send <- runClientM (pactSendApiClient v cid batch) clientEnv
         case send of
             Left e -> do
@@ -242,8 +404,8 @@ toPact4Command cmd4 = case Aeson.eitherDecodeStrictText (J.encodeText cmd4) of
     Left err -> error $ "toPact4Command: decode failed: " ++ err
     Right cmd5 -> cmd5
 
-trivialTx :: Word -> CmdBuilder
-trivialTx n = defaultCmd
+trivialTx :: ChainId -> Word -> CmdBuilder
+trivialTx cid n = defaultCmd
     { _cbRPC = mkExec' (sshow n)
     , _cbSigners =
         [ mkEd25519Signer' sender00 []
@@ -260,11 +422,5 @@ _successfulTx = pt _crResult ? match _PactResultOk something
 pactDeadBeef :: RequestKey
 pactDeadBeef = case deadbeef of
     TransactionHash bytes -> RequestKey (Pact5.Hash bytes)
-
-cid :: ChainId
-cid = unsafeChainId 0
-
-v :: ChainwebVersion
-v = pact5InstantCpmTestVersion singletonChainGraph
 
 type TestPact5CommandResult = CommandResult Pact5.Hash (PactErrorCompat (LocatedErrorInfo Info))

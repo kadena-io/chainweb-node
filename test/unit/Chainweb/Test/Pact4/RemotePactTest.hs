@@ -822,6 +822,7 @@ localPreflightSimTest t cenv step = do
       tx' <- buildTextCmd n v' tx
       pure (succ nn, tx')
 
+-- FIXME: Polling no longer checks request key validity, so this test probably does not pass anymore.
 pollingBadlistTest :: ClientEnv -> IO ()
 pollingBadlistTest cenv = do
     let rks = RequestKeys $ NEL.fromList [pactDeadBeef]

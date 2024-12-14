@@ -1,16 +1,15 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
@@ -22,7 +21,6 @@ module Chainweb.Test.Pact5.CmdBuilder where
 import Pact.Types.ChainMeta qualified as Pact4
 import Pact.Types.Command qualified as Pact4
 import Pact.JSON.Legacy.Value qualified as J
-import Data.Aeson qualified as Aeson
 import Chainweb.Pact4.Transaction qualified as Pact4
 import Control.Lens hiding ((.=))
 import Pact.Core.Command.Types
@@ -47,7 +45,7 @@ import Data.Maybe
 import Pact.Core.Command.Crypto
 import Pact.Core.Command.Util
 import qualified Data.Text as T
-import Pact.Core.Names (QualifiedName, DefPactId)
+import Pact.Core.Names (Field(..), QualifiedName, DefPactId)
 import Pact.Core.PactValue
 import Pact.Core.Signer
 import Data.Aeson
@@ -57,6 +55,8 @@ import Chainweb.Pact.RestAPI.Server (validatePact5Command)
 import Pact.Core.Command.Client (ApiKeyPair (..), mkCommandWithDynKeys)
 import System.Random
 import Control.Monad
+import Data.Vector qualified as Vector
+import Data.Map.Strict qualified as Map
 
 type TextKeyPair = (Text,Text)
 
@@ -89,10 +89,9 @@ allocation00KeyPair =
     , "c63cd081b64ae9a7f8296f11c34ae08ba8e1f8c84df6209e5dee44fa04bcb9f5"
     )
 
-
 -- | Make trivial keyset data
-mkKeySetData :: Key -> [TextKeyPair] -> Value
-mkKeySetData name keys = object [ name .= map fst keys ]
+mkKeySetData :: Text -> [TextKeyPair] -> PactValue
+mkKeySetData name keys = PObject $ Map.singleton (Field name) $ PList (Vector.fromList $ map (PString . fst) keys)
 
 sender00Ks :: KeySet
 sender00Ks = KeySet

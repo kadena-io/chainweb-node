@@ -250,3 +250,4 @@ getTestLogger :: IO GenericLogger
 getTestLogger = do
     logLevel <- getTestLogLevel
     return $ genericLogger logLevel (testLogFn logLevel)
+
