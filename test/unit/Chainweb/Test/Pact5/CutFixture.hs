@@ -85,7 +85,6 @@ import Pact.Core.Command.Types
 import Pact.Core.Hash qualified as Pact5
 import Streaming.Prelude qualified as S
 import Test.QuickCheck
-import Test.Tasty.HUnit (assertBool)
 
 data Fixture = Fixture
     { _fixtureCutDb :: CutDb RocksDbTable
@@ -133,10 +132,6 @@ advanceAllChains v Fixture{..} = do
     latestCut <- liftIO $ _fixtureCutDb ^. cut
     let blockHeights = fmap (view blockHeight) $ latestCut ^. cutMap
     let latestBlockHeight = maximum blockHeights
-    --assertBool "all block heights in the latest cut must be the same" $
-    --    all (== latestBlockHeight) blockHeights
-
-    putStrLn ""
 
     (finalCut, perChainCommandResults) <- foldM
         (\ (prevCut, !acc) cid -> do
