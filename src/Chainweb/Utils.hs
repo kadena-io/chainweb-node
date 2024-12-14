@@ -274,7 +274,7 @@ import qualified Data.Vector.Mutable as MV
 import Data.Word
 
 import GHC.Generics
-import GHC.Stack (HasCallStack)
+import GHC.Stack (HasCallStack, CallStack, callStack, prettyCallStack)
 import GHC.TypeLits (KnownSymbol, symbolVal)
 
 import qualified Network.Connection as HTTP
@@ -879,10 +879,15 @@ fromEithere = either (error "Chainweb.Utils.fromJuste: Nothing") id
 -- | An exeption to indicate an violation of an internal code invariants.
 -- Throwing this type of exception means that there is a bug in the code.
 --
-newtype InternalInvariantViolation = InternalInvariantViolation T.Text
-    deriving (Show)
+data InternalInvariantViolation = HasCallStack => InternalInvariantViolation T.Text
 
-instance Exception InternalInvariantViolation
+instance Show InternalInvariantViolation where
+    show (InternalInvariantViolation t) = "Invariant violation: " <> T.unpack t
+
+instance Exception InternalInvariantViolation where
+    displayException (InternalInvariantViolation v) =
+        "Invariant violation: " <> T.unpack v
+        <> "\n" <> GHC.Stack.prettyCallStack callStack
 
 -- | Catch and handle exception that are not contained in 'SomeAsyncException'.
 --
@@ -1447,7 +1452,7 @@ estimateBlockHeight rate dateStr curHeight = do
 
 -- | Parse UTC Time in the format "%y-%m-%dT%H:%M:%SZ"
 --
-parseUtcTime :: MonadThrow m => String -> m UTCTime
+parseUtcTime :: (HasCallStack, MonadThrow m) => String -> m UTCTime
 parseUtcTime d = case parseTimeM False defaultTimeLocale fmt d of
     Nothing -> throwM $ InternalInvariantViolation
         $ "parseUtcTime: failed to parse utc date " <> sshow d
