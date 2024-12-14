@@ -271,9 +271,24 @@ spvTest baseRdb = runResourceT $ do
             $ set cbGasPrice (GasPrice 0.01)
             $ set cbGasLimit (GasLimit (Gas 1_000))
             $ defaultCmd
-        recvReqKey <- fmap NE.head $ sending v srcChain clientEnv (NE.singleton recv)
-        recvCr <- fmap (HashMap.! recvReqKey) $ polling v srcChain clientEnv (NE.singleton recvReqKey)
-        print recvCr
+        recvReqKey <- fmap NE.head $ sending v targetChain clientEnv (NE.singleton recv)
+        _ <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
+        recvCr <- fmap (HashMap.! recvReqKey) $ polling v targetChain clientEnv (NE.singleton recvReqKey)
+        recvCr
+            & allTrue
+                [ pt _crResult ? match _PactResultOk something
+                , pt _crEvents ? predful
+                    [ something
+                    , allTrue
+                        [ pt _peName ? equals "TRANSFER_XCHAIN_RECD"
+                        , pt _peArgs ? traceFailShow ? equals
+                            [PString "", PString "sender01", PDecimal 1.0, PString (chainIdToText srcChain)]
+                        ]
+                    , pt _peName ? equals "X_RESUME"
+                    , something
+                    ]
+                ]
+
 
         pure ()
 
