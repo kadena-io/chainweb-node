@@ -244,13 +244,11 @@ spvTest baseRdb = runResourceT $ do
             $ defaultCmd
 
         sendReqKey <- fmap NE.head $ sending v srcChain clientEnv (NE.singleton send)
-        (sendCut, sendResults) <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
-        --let sendCr = Vector.head $ fromMaybe (error "empty results all around!") $ List.find ((> 0) . Vector.length) $ F.toList sendResults
+        (sendCut, _) <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
         sendCr <- fmap (HashMap.! sendReqKey) $ pollingWithDepth v srcChain clientEnv (NE.singleton sendReqKey) (Just (ConfirmationDepth 0))
         let cont = fromMaybe (error "missing continuation") (_crContinuation sendCr)
 
-        _ <- forM_ [0..9] $ \i -> do
-            print i
+        _ <- replicateM_ 10 $ do
             CutFixture.advanceAllChains v (fixture ^. cutFixture)
         let sendHeight = sendCut ^?! ixg srcChain . blockHeight
         spvProof <- createTransactionOutputProof_ (fixture ^. cutFixture . CutFixture.fixtureWebBlockHeaderDb) (fixture ^. cutFixture . CutFixture.fixturePayloadDb) targetChain srcChain sendHeight 0
@@ -258,7 +256,7 @@ spvTest baseRdb = runResourceT $ do
                 { _cmPactId = _peDefPactId cont
                 , _cmStep = succ $ _peStep cont
                 , _cmRollback = _peStepHasRollback cont
-                , _cmData = PUnit -- this was Null in the previous test, is PUnit okay here?
+                , _cmData = PUnit
                 , _cmProof = Just (ContProof (B64U.encode (BL.toStrict (A.encode spvProof))))
                 }
 
