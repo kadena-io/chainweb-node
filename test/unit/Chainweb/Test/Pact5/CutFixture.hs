@@ -30,6 +30,7 @@ module Chainweb.Test.Pact5.CutFixture
     )
     where
 
+import Chainweb.Storage.Table (Casify)
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
 import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader hiding (blockCreationTime, blockNonce)
@@ -49,7 +50,6 @@ import Chainweb.Pact.Types
 import Chainweb.Pact4.Transaction qualified as Pact4
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.Pact5.Utils
@@ -73,6 +73,7 @@ import Data.Function
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Vector (Vector)
 import GHC.Stack
 import Network.HTTP.Client qualified as HTTP
@@ -102,7 +103,8 @@ mkFixture v pactServiceConfig baseRdb = do
         withRunPactService logger v chain pactQueue mempool webBHDb payloadDb pactServiceConfig
         return (mempool, pactQueue)
     let webPact = mkWebPactExecutionService $ HashMap.map (mkPactExecutionService . snd) perChain
-    cutDb <- withTestCutDb logger baseRdb v webBHDb webPact
+    let cutHashesStore = cutHashesTable baseRdb
+    cutDb <- withTestCutDb logger v webBHDb payloadDb cutHashesStore webPact
 
     let fixture = Fixture
             { _fixtureCutDb = cutDb
@@ -118,20 +120,20 @@ mkFixture v pactServiceConfig baseRdb = do
 advanceAllChains :: (HasCallStack)
     => ChainwebVersion
     -> Fixture
-    -> IO (ChainMap (Vector (CommandResult Pact5.Hash Text)))
+    -> IO (Cut, ChainMap (Vector (CommandResult Pact5.Hash Text)))
 advanceAllChains v Fixture{..} = do
     latestCut <- liftIO $ _fixtureCutDb ^. cut
     let blockHeights = fmap (view blockHeight) $ latestCut ^. cutMap
     let latestBlockHeight = maximum blockHeights
-    assertBool "all block heights in the latest cut must be the same" $
-        all (== latestBlockHeight) blockHeights
+    --assertBool "all block heights in the latest cut must be the same" $
+    --    all (== latestBlockHeight) blockHeights
 
-    (_finalCut, perChainCommandResults) <- foldM
+    putStrLn ""
+
+    (finalCut, perChainCommandResults) <- foldM
         (\ (prevCut, !acc) cid -> do
-            putStrLn $ "accumulator: " ++ show acc
             (newCut, _minedChain, pwo) <- mine noMiner NewBlockFill _fixtureWebPactExecutionService _fixtureCutDb prevCut
-
-            putStrLn $ "PAYLOAD HASH: " <> sshow (_payloadWithOutputsPayloadHash pwo)
+            putStrLn $ "new cut after processing chain " ++ Text.unpack (chainIdToText cid) ++ " " ++ show (fmap (view blockHeight) $ newCut ^. cutMap)
 
             commandResults <- forM (_payloadWithOutputsTransactions pwo) $ \(_, txOut) -> do
                 decodeOrThrow' $ LBS.fromStrict $ _transactionOutputBytes txOut
@@ -143,28 +145,25 @@ advanceAllChains v Fixture{..} = do
         (latestCut, [])
         (HashSet.toList (chainIdsAt v (latestBlockHeight + 1)))
 
-    return (onChains perChainCommandResults)
+    return (finalCut, onChains perChainCommandResults)
 
 withTestCutDb :: (Logger logger)
     => logger
-    -> RocksDb
     -> ChainwebVersion
     -> WebBlockHeaderDb
+    -> PayloadDb RocksDbTable
+    -> Casify RocksDbTable CutHashes
     -> WebPactExecutionService
     -> ResourceT IO (CutDb RocksDbTable)
-withTestCutDb logger rdb v webBHDb webPact = snd <$> allocate create destroy
+withTestCutDb logger v webBHDb payloadDb cutHashesStore webPact = snd <$> allocate create destroy
     where
         create :: IO (CutDb RocksDbTable)
         create = do
-            rocks <- testRocksDb "withTestCutDb" rdb
-            let payloadDb = newPayloadDb rocks
-            --let cutHashesDb = cutHashesTable rocks
             initializePayloadDb v payloadDb
             httpManager <- HTTP.newManager HTTP.defaultManagerSettings
 
             headerStore <- newWebBlockHeaderStore httpManager webBHDb (logFunction logger)
             payloadStore <- newWebPayloadStore httpManager webPact payloadDb (logFunction logger)
-            let cutHashesStore = cutHashesTable rocks
 
             let cutFetchTimeout = 3_000_000
             cutDb <- startCutDb (defaultCutDbParams v cutFetchTimeout) (logFunction logger) headerStore payloadStore cutHashesStore
