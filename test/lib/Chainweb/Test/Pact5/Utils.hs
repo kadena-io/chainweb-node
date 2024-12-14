@@ -183,7 +183,7 @@ withRunPactService :: (Logger logger)
 withRunPactService logger v cid pactQueue mempool webBHDb payloadDb pactServiceConfig = do
     sqlite <- withTempSQLiteResource
     blockHeaderDb <- liftIO $ getWebBlockHeaderDb webBHDb cid
-    mempoolConsensus <- liftIO $ mkMempoolConsensus mempool blockHeaderDb (Just payloadDb) --bhdb (Just (_bdbPayloadDb tdb))
+    mempoolConsensus <- liftIO $ mkMempoolConsensus mempool blockHeaderDb (Just payloadDb)
     let mempoolAccess = pactMemPoolAccess mempoolConsensus logger
 
     void $ Resource.allocate
