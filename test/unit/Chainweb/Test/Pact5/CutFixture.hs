@@ -135,9 +135,8 @@ advanceAllChains v Fixture{..} = do
 
     (finalCut, perChainCommandResults) <- foldM
         (\ (prevCut, !acc) cid -> do
-            (newCut, _minedChain, pwo) <- mine noMiner NewBlockFill _fixtureWebPactExecutionService _fixtureCutDb prevCut
-            putStrLn $ "new cut after processing chain " ++ Text.unpack (chainIdToText cid) ++ " " ++ show (fmap (view blockHeight) $ newCut ^. cutMap)
-
+            (newCut, _minedChain, pwo) <-
+                mine cid noMiner NewBlockFill _fixtureWebPactExecutionService _fixtureCutDb prevCut
             commandResults <- forM (_payloadWithOutputsTransactions pwo) $ \(_, txOut) -> do
                 decodeOrThrow' $ LBS.fromStrict $ _transactionOutputBytes txOut
 
@@ -170,7 +169,6 @@ withTestCutDb logger v webBHDb payloadDb cutHashesStore webPact = snd <$> alloca
 
             let cutFetchTimeout = 3_000_000
             cutDb <- startCutDb (defaultCutDbParams v cutFetchTimeout) (logFunction logger) headerStore payloadStore cutHashesStore
-            _ <- mine defaultMiner NewBlockEmpty webPact cutDb (genesisCut v)
             return cutDb
 
         destroy :: CutDb RocksDbTable -> IO ()
@@ -178,8 +176,10 @@ withTestCutDb logger v webBHDb payloadDb cutHashesStore webPact = snd <$> alloca
 
 -- | Build a linear chainweb (no forks, assuming single threaded use of the
 -- cutDb). No POW or poison delay is applied. Block times are real times.
-mine :: (HasCallStack, CanReadablePayloadCas tbl)
-    => Miner
+mine
+    :: (HasCallStack, CanReadablePayloadCas tbl)
+    => ChainId
+    -> Miner
         -- ^ The miner. For testing you may use 'defaultMiner' or 'noMiner'.
     -> NewBlockFill
     -> WebPactExecutionService
@@ -188,20 +188,13 @@ mine :: (HasCallStack, CanReadablePayloadCas tbl)
     -> CutDb tbl
     -> Cut
     -> IO (Cut, ChainId, PayloadWithOutputs)
-mine miner newBlockStrat pact cutDb c = do
-
-    -- Pick a chain that isn't blocked. With that mining is guaranteed to
-    -- succeed if
-    --
-    -- - there are no other writers to the cut db,
-    -- - the chainweb is in a consistent state,
-    -- - the pact execution service is synced with the cutdb, and
-    -- - the transaction generator produces valid blocks.
-    cid <- getRandomUnblockedChain c
-
+mine cid miner newBlockStrat pact cutDb c = do
     tryMineForChain miner newBlockStrat pact cutDb c cid >>= \case
         Left _ -> throwM $ InternalInvariantViolation
-            "Failed to create new cut. This is a bug in Chainweb.Test.Pact5.CutFixture or one of its users"
+            $ "Failed to create new cut on chain " <> toText cid <> "."
+            <> "This is a bug in Chainweb.Test.Pact5.CutFixture or one of its users; check that this chain's adjacent chains aren't too far behind."
+            <> "\nCut: \n"
+            <> Text.unlines (cutToTextShort c)
         Right x -> do
             void $ awaitCut cutDb $ ((<=) `on` _cutHeight) (view _1 x)
             return x
