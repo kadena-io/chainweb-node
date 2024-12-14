@@ -356,17 +356,12 @@ pollingWithDepth :: ()
     -> Maybe ConfirmationDepth
     -> IO (HashMap RequestKey TestPact5CommandResult)
 pollingWithDepth v cid clientEnv rks mConfirmationDepth = do
-    recovering testRetryPolicy [retryHandler] $ \_iterNumber -> do
-        poll <- runClientM (pactPollWithQueryApiClient v cid mConfirmationDepth (Pact5.PollRequest rks)) clientEnv
-        case poll of
-            Left e -> do
-                throwM (PollingException (show e))
-            Right (Pact5.PollResponse response) -> do
-                return response
-    where
-        retryHandler :: RetryStatus -> Handler IO Bool
-        retryHandler _ = Handler $ \case
-            PollingException _ -> return True
+    poll <- runClientM (pactPollWithQueryApiClient v cid mConfirmationDepth (Pact5.PollRequest rks)) clientEnv
+    case poll of
+        Left e -> do
+            throwM (PollingException (show e))
+        Right (Pact5.PollResponse response) -> do
+            return response
 
 newtype SendingException = SendingException String
     deriving stock (Show)
@@ -379,18 +374,13 @@ sending :: ()
     -> NonEmpty (Command Text)
     -> IO (NonEmpty RequestKey)
 sending v cid clientEnv cmds = do
-    recovering testRetryPolicy [retryHandler] $ \_iterNumber -> do
-        let batch = Pact4.SubmitBatch (NE.map toPact4Command cmds)
-        send <- runClientM (pactSendApiClient v cid batch) clientEnv
-        case send of
-            Left e -> do
-                throwM (SendingException (show e))
-            Right (Pact4.RequestKeys response) -> do
-                return (NE.map toPact5RequestKey response)
-    where
-        retryHandler :: RetryStatus -> Handler IO Bool
-        retryHandler _ = Handler $ \case
-            SendingException _ -> return True
+    let batch = Pact4.SubmitBatch (NE.map toPact4Command cmds)
+    send <- runClientM (pactSendApiClient v cid batch) clientEnv
+    case send of
+        Left e -> do
+            throwM (SendingException (show e))
+        Right (Pact4.RequestKeys response) -> do
+            return (NE.map toPact5RequestKey response)
 
 toPact5RequestKey :: Pact4.RequestKey -> RequestKey
 toPact5RequestKey = \case
