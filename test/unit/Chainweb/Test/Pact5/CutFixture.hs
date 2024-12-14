@@ -16,6 +16,10 @@
     , TypeApplications
 #-}
 
+-- | A fixture which provides access to the internals of a running node, with
+-- multiple chains. Usually, you initialize it with `mkFixture`, insert
+-- transactions into the mempool as desired, and use `advanceAllChains` to
+-- trigger mining on all chains at once.
 module Chainweb.Test.Pact5.CutFixture
     ( Fixture(..)
     , mkFixture
@@ -117,7 +121,11 @@ mkFixture v pactServiceConfig baseRdb = do
     _ <- liftIO $ advanceAllChains v fixture
     return fixture
 
-advanceAllChains :: (HasCallStack)
+-- | Advance all chains by one block, filling that block with whatever is in
+-- their mempools at the time.
+--
+advanceAllChains
+    :: HasCallStack
     => ChainwebVersion
     -> Fixture
     -> IO (Cut, ChainMap (Vector (CommandResult Pact5.Hash Text)))
