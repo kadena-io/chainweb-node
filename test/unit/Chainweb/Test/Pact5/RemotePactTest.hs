@@ -97,6 +97,7 @@ import PredicateTransformers as PT
 import Servant.Client
 import Test.Tasty
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
+import qualified Pact.Types.Command as Pact4
 
 data Fixture = Fixture
     { _cutFixture :: CutFixture.Fixture
