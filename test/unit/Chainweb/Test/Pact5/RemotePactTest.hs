@@ -93,7 +93,8 @@ import Pact.Core.Errors
 import Pact.Core.Gas.Types
 import Pact.Core.Hash qualified as Pact5
 import Pact.JSON.Encode qualified as J
-import PredicateTransformers as PT
+import PropertyMatchers ((?))
+import PropertyMatchers qualified as P
 import Servant.Client
 import Test.Tasty
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
@@ -276,20 +277,19 @@ spvTest baseRdb = runResourceT $ do
         _ <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
         recvCr <- fmap (HashMap.! recvReqKey) $ polling v targetChain clientEnv (NE.singleton recvReqKey)
         recvCr
-            & allTrue
-                [ pt _crResult ? match _PactResultOk something
-                , pt _crEvents ? predful
-                    [ something
-                    , allTrue
-                        [ pt _peName ? equals "TRANSFER_XCHAIN_RECD"
-                        , pt _peArgs ? traceFailShow ? equals
+            & P.allTrue
+                [ P.fun _crResult ? P.match _PactResultOk P.succeed
+                , P.fun _crEvents ? P.propful
+                    [ P.succeed
+                    , P.allTrue
+                        [ P.fun _peName ? P.equals "TRANSFER_XCHAIN_RECD"
+                        , P.fun _peArgs ? P.equals
                             [PString "", PString "sender01", PDecimal 1.0, PString (chainIdToText srcChain)]
                         ]
-                    , pt _peName ? equals "X_RESUME"
-                    , something
+                    , P.fun _peName ? P.equals "X_RESUME"
+                    , P.succeed
                     ]
                 ]
-
 
         pure ()
 
@@ -419,8 +419,8 @@ trivialTx cid n = defaultCmd
     , _cbGasLimit = GasLimit (Gas 1_000)
     }
 
-_successfulTx :: Predicatory p => Pred p (CommandResult log err)
-_successfulTx = pt _crResult ? match _PactResultOk something
+_successfulTx :: P.Boolish p => P.Prop p (CommandResult log err)
+_successfulTx = P.fun _crResult ? P.match _PactResultOk P.succeed
 
 pactDeadBeef :: RequestKey
 pactDeadBeef = case deadbeef of

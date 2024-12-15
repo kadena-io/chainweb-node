@@ -157,7 +157,8 @@ import Pact.Core.Serialise
 import Pact.Core.StableEncoding (encodeStable)
 import Pact.Core.Verifiers
 import Pact.Types.Gas qualified as Pact4
-import PredicateTransformers as PT
+import PropertyMatchers ((?))
+import PropertyMatchers qualified as P
 import Streaming.Prelude qualified as Stream
 import System.LogLevel
 import System.LogLevel (LogLevel (..))
@@ -252,8 +253,8 @@ tests baseRdb = testGroup "Pact5 SPVTest"
     [ --testCase "simple end to end" (simpleEndToEnd baseRdb)
     ]
 
-successfulTx :: Predicatory p => Pred p (CommandResult log err)
-successfulTx = pt _crResult ? match _PactResultOk something
+successfulTx :: P.Boolish p => P.Prop p (CommandResult log err)
+successfulTx = P.fun _crResult ? P.match _PactResultOk P.succeed
 
 cid = unsafeChainId 0
 v = pact5InstantCpmTestVersion singletonChainGraph

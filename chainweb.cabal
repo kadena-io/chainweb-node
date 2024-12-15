@@ -725,7 +725,7 @@ test-suite chainweb-tests
         , pact-tng:pact-request-api
         , pact-tng:test-utils
         , patience >= 0.3
-        , predicate-transformers == 0.15.0.0
+        , property-matchers ^>= 0.1
         , pretty-show
         , quickcheck-instances >= 0.3
         , random >= 1.2

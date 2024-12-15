@@ -79,7 +79,8 @@ import Pact.Core.Hash qualified as Pact5
 import Pact.Core.Names
 import Pact.Core.PactValue
 import Pact.Types.Gas qualified as Pact4
-import PredicateTransformers as PT
+import PropertyMatchers ((?))
+import PropertyMatchers qualified as P
 import Test.Tasty
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 import Text.Printf (printf)
@@ -134,8 +135,8 @@ tests baseRdb = testGroup "Pact5 PactServiceTest"
     , testCase "failed txs should go into blocks" (failedTxsShouldGoIntoBlocks baseRdb)
     ]
 
-successfulTx :: Predicatory p => Pred p (CommandResult log err)
-successfulTx = pt _crResult ? match _PactResultOk something
+successfulTx :: P.Boolish p => P.Prop p (CommandResult log err)
+successfulTx = P.fun _crResult ? P.match _PactResultOk P.succeed
 
 simpleEndToEnd :: RocksDb -> IO ()
 simpleEndToEnd baseRdb = runResourceT $ do
@@ -148,8 +149,8 @@ simpleEndToEnd baseRdb = runResourceT $ do
 
         -- we only care that they succeed; specifics regarding their outputs are in TransactionExecTest
         results &
-            predful ? onChain cid ?
-                predful ? Vector.replicate 2 successfulTx
+            P.propful ? onChain cid ?
+                P.propful ? Vector.replicate 2 successfulTx
 
 newBlockEmpty :: RocksDb -> IO ()
 newBlockEmpty baseRdb = runResourceT $ do
@@ -171,8 +172,8 @@ newBlockEmpty baseRdb = runResourceT $ do
             return $ finalizeBlock nonEmptyBip
 
         results &
-            predful ? onChain cid ?
-                predful ? Vector.replicate 1 successfulTx
+            P.propful ? onChain cid ?
+                P.propful ? Vector.replicate 1 successfulTx
 
 continueBlockSpec :: RocksDb -> IO ()
 continueBlockSpec baseRdb = runResourceT $ do
@@ -194,8 +195,8 @@ continueBlockSpec baseRdb = runResourceT $ do
             return $ finalizeBlock bipAllAtOnce
         -- assert that 3 successful txs are in the block
         allAtOnceResults &
-            predful ? onChain cid ?
-            predful ? Vector.replicate 3 successfulTx
+            P.propful ? onChain cid ?
+            P.propful ? Vector.replicate 3 successfulTx
 
         -- reset back to the empty block for the next phase
         -- next, produce the same block by repeatedly extending a block
@@ -231,7 +232,7 @@ continueBlockSpec baseRdb = runResourceT $ do
             return $ finalizeBlock bipFinal
 
         -- assert that the continued results are equal to doing it all at once
-        continuedResults & equals allAtOnceResults
+        continuedResults & P.equals allAtOnceResults
 
 -- * test that the NewBlock timeout works properly and doesn't leave any extra state from a timed-out transaction
 newBlockTimeoutSpec :: RocksDb -> IO ()
@@ -276,10 +277,10 @@ newBlockTimeoutSpec baseRdb = runResourceT $ do
                 newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             -- Mempool orders by GasPrice. 'buildCwCmd' sets the gas price to the transfer amount.
             -- We hope for 'timeoutTx' to fail, meaning that only 'txTransfer2' is in the block.
-            bip & pt _blockInProgressTransactions ? pt _transactionPairs
-                ? predful ? Vector.fromList
-                    [ pair
-                        (pt _cmdHash ? equals (_cmdHash tx2))
+            bip & P.fun _blockInProgressTransactions ? P.fun _transactionPairs
+                ? P.propful ? Vector.fromList
+                    [ P.pair
+                        (P.fun _cmdHash ? P.equals (_cmdHash tx2))
                         successfulTx
                     ]
             return $ finalizeBlock bip
