@@ -77,11 +77,10 @@ coinModuleName = ModuleName "coin" Nothing
 
 -- usually we don't want to check the module hash
 event
-    :: P.Boolish p
-    => P.Prop p Text
-    -> P.Prop p [PactValue]
-    -> P.Prop p ModuleName
-    -> P.Prop p (PactEvent PactValue)
+    :: P.Prop Text
+    -> P.Prop [PactValue]
+    -> P.Prop ModuleName
+    -> P.Prop (PactEvent PactValue)
 event n args modName = P.allTrue
     [ P.fun _peName n
     , P.fun _peArgs args
