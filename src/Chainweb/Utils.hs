@@ -274,7 +274,7 @@ import qualified Data.Vector.Mutable as MV
 import Data.Word
 
 import GHC.Generics
-import GHC.Stack (HasCallStack, CallStack, callStack, prettyCallStack)
+import GHC.Stack (HasCallStack, callStack, prettyCallStack)
 import GHC.TypeLits (KnownSymbol, symbolVal)
 
 import qualified Network.Connection as HTTP
