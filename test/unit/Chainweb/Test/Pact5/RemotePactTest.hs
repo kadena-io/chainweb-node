@@ -25,24 +25,20 @@ module Chainweb.Test.Pact5.RemotePactTest
     ( tests
     ) where
 
-import Data.Foldable qualified as F
 import Pact.Core.DefPacts.Types
 import Pact.Core.SPV
 import Data.ByteString.Base64.URL qualified as B64U
 import Data.ByteString.Lazy qualified as BL
 import Data.Aeson qualified as A
 import Pact.Core.Command.RPC (ContMsg(..))
-import Control.Monad (forM_, replicateM_)
+import Control.Monad (replicateM_)
 import Chainweb.SPV.CreateProof (createTransactionOutputProof_)
-import Chainweb.Cut (cutMap)
 import Chainweb.BlockHeader (blockHeight)
 import Data.Maybe (fromMaybe)
-import Chainweb.CutDB (cut)
 import Pact.Core.Names
 import Pact.Core.Capabilities
 import Pact.Core.PactValue
 import Pact.Core.Command.Server qualified as Pact5
-import Pact.Core.Evaluate (Info)
 import Chainweb.CutDB.RestAPI.Server (someCutGetServer)
 import Network.Connection qualified as HTTP
 import Network.HTTP.Client.TLS qualified as HTTP
@@ -65,31 +61,25 @@ import Chainweb.Test.Pact5.CutFixture qualified as CutFixture
 import Chainweb.Test.Pact5.Utils
 import Chainweb.Test.TestVersions
 import Chainweb.Test.Utils (deadbeef, TestPact5CommandResult)
-import Chainweb.Test.Utils (testRetryPolicy)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 import Control.Concurrent
 import Control.Exception (Exception, AsyncException(..))
 import Control.Lens
-import Control.Monad.Catch (Handler(..), throwM)
+import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Resource (ResourceT, runResourceT, allocate)
-import Control.Retry
 import Data.Aeson qualified as Aeson
-import Data.Vector qualified as Vector
 import Data.HashMap.Strict (HashMap)
-import Data.Map.Strict qualified as Map
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
 import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NE
 import Data.Text (Text)
-import Data.Text qualified as Text
 import Network.X509.SelfSigned
 import Pact.Core.Command.Types
-import Pact.Core.Errors
 import Pact.Core.Gas.Types
 import Pact.Core.Hash qualified as Pact5
 import Pact.JSON.Encode qualified as J
@@ -97,7 +87,7 @@ import PropertyMatchers ((?))
 import PropertyMatchers qualified as P
 import Servant.Client
 import Test.Tasty
-import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
+import Test.Tasty.HUnit (assertEqual, testCase)
 import qualified Pact.Types.Command as Pact4
 
 data Fixture = Fixture

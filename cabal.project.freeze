@@ -1,6 +1,6 @@
 active-repositories: hackage.haskell.org:merge
-constraints: any.Cabal ==3.10.2.0,
-             any.Cabal-syntax ==3.10.2.0,
+constraints: any.Cabal ==3.12.1.0,
+             any.Cabal-syntax ==3.12.1.0,
              any.Decimal ==0.5.2,
              any.Diff ==1.0.2,
              any.Glob ==0.10.2,

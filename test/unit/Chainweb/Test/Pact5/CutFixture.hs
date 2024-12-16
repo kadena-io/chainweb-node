@@ -72,7 +72,6 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Resource (ResourceT, allocate)
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Short qualified as SBS
-import Data.Foldable
 import Data.Function
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
@@ -83,8 +82,6 @@ import GHC.Stack
 import Network.HTTP.Client qualified as HTTP
 import Pact.Core.Command.Types
 import Pact.Core.Hash qualified as Pact5
-import Streaming.Prelude qualified as S
-import Test.QuickCheck
 
 data Fixture = Fixture
     { _fixtureCutDb :: CutDb RocksDbTable
@@ -264,21 +261,6 @@ solveWork w n t =
             $ set blockCreationTime (BlockCreationTime t)
             $ set blockNonce n
             $ hdr
--- | Return a random chain id from a cut that is not blocked.
---
-getRandomUnblockedChain :: Cut -> IO ChainId
-getRandomUnblockedChain c = do
-    shuffled <- generate $ shuffle $ toList $ _cutMap c
-    S.each shuffled
-        & S.filter isUnblocked
-        & S.map (view blockChainId)
-        & S.head_
-        & fmap fromJuste
-    where
-        isUnblocked h =
-            let bh = view blockHeight h
-                cid = view blockChainId h
-            in all (>= bh) $ fmap (view blockHeight) $ toList $ cutAdjs c cid
 
 -- | Build a linear chainweb (no forks). No POW or poison delay is applied.
 -- Block times are real times.
