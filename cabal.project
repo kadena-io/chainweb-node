@@ -180,8 +180,6 @@ allow-newer: servant:*
 -- These packages are tightly bound to the GHC version and these
 -- settings ensure that we use the versions that are shipped with the
 -- GHC version that we are using.
-allow-newer: *:Cabal
-allow-newer: *:Cabal-syntax
 allow-newer: *:array
 allow-newer: *:base
 allow-newer: *:bytestring
