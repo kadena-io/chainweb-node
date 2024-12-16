@@ -30,6 +30,7 @@ module Chainweb.Test.Pact5.CutFixture
     , fixtureMempools
     , fixturePactQueues
     , advanceAllChains
+    , advanceAllChains_
     , withTestCutDb
     )
     where
@@ -145,6 +146,13 @@ advanceAllChains v Fixture{..} = do
         (HashSet.toList (chainIdsAt v (latestBlockHeight + 1)))
 
     return (finalCut, onChains perChainCommandResults)
+
+advanceAllChains_
+    :: HasCallStack
+    => ChainwebVersion
+    -> Fixture
+    -> IO ()
+advanceAllChains_ v f = void $ advanceAllChains v f
 
 withTestCutDb :: (Logger logger)
     => logger
