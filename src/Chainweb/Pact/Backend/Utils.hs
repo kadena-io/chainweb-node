@@ -333,7 +333,7 @@ withInMemSQLiteConnection = withSQLiteConnection ":memory:"
 open2 :: String -> IO (Either (SQ3.Error, SQ3.Utf8) SQ3.Database)
 open2 file = open_v2
     (fromString file)
-    (collapseFlags [sqlite_open_readwrite , sqlite_open_create , sqlite_open_fullmutex])
+    (collapseFlags [sqlite_open_readwrite , sqlite_open_nomutex])
     Nothing -- Nothing corresponds to the nullPtr
 
 collapseFlags :: [SQLiteFlag] -> SQLiteFlag
@@ -341,10 +341,12 @@ collapseFlags xs =
     if Prelude.null xs then error "collapseFlags: You must pass a non-empty list"
     else Prelude.foldr1 (.|.) xs
 
-sqlite_open_readwrite, sqlite_open_create, sqlite_open_fullmutex :: SQLiteFlag
+sqlite_open_readonly, sqlite_open_readwrite, sqlite_open_create, sqlite_open_fullmutex, sqlite_open_nomutex :: SQLiteFlag
+sqlite_open_readonly = 0x00000001
 sqlite_open_readwrite = 0x00000002
 sqlite_open_create = 0x00000004
 sqlite_open_fullmutex = 0x00010000
+sqlite_open_nomutex = 0x00008000
 
 commitBlockStateToDatabase :: SQLiteEnv -> BlockHash -> BlockHeight -> BlockHandle -> IO ()
 commitBlockStateToDatabase db hsh bh blockHandle = do

@@ -56,6 +56,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Managed
 
+import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time
@@ -334,7 +335,7 @@ node conf logger = do
     pactDbDir <- getPactDbDir conf
     dbBackupsDir <- getBackupsDir conf
     withRocksDb' <-
-        if _configOnlySyncPact cwConf || _configReadOnlyReplay cwConf
+        if _configOnlySyncPact cwConf || isJust (_configReplay cwConf)
         then
             if _cutPruneChainDatabase (_configCuts cwConf) == GcNone
             then withReadOnlyRocksDb <$ logFunctionText logger Info "Opening RocksDB in read-only mode"
@@ -345,7 +346,8 @@ node conf logger = do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
         logFunctionText logger Debug $ "backup config: " <> sshow (_configBackup cwConf)
         withChainweb cwConf logger rocksDb pactDbDir dbBackupsDir (_nodeConfigResetChainDbs conf) $ \case
-            Replayed _ _ -> return ()
+            Rewound {} -> return ()
+            ReadOnlyReplayed {} -> return ()
             StartedChainweb cw -> do
                 let telemetryEnabled =
                         _enableConfigEnabled $ _logConfigTelemetryBackend $ _nodeConfigLog conf
@@ -383,7 +385,7 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
 
     -- we don't log tx failures in replay
     let !txFailureHandler =
-            if _configOnlySyncPact chainwebCfg || _configReadOnlyReplay chainwebCfg
+            if _configOnlySyncPact chainwebCfg || isJust (_configReplay chainwebCfg)
             then [dropLogHandler (Proxy :: Proxy Pact4TxFailureLog), dropLogHandler (Proxy :: Proxy Pact5TxFailureLog)]
             else []
 

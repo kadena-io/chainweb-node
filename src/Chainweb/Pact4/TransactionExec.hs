@@ -104,6 +104,7 @@ import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
 import Data.Foldable (fold, for_, traverse_)
 import Data.IORef
+import qualified Data.HashMap.Strict as HM
 import qualified Data.List as List
 import qualified Data.Map.Strict as M
 import Data.Maybe
@@ -371,7 +372,7 @@ applyCmd v logger gasLogger txFailuresCounter pdbenv miner gasModel txCtx spv cm
     chainweb219Pact' = guardCtx chainweb219Pact txCtx
     chainweb223Pact' = guardCtx chainweb223Pact txCtx
     allVerifiers = verifiersAt v cid currHeight
-    toEmptyPactError (PactError errty _ _ _) = PactError errty noInfo [] mempty
+    toEmptyPactError = id -- (PactError errty _ _ _) = PactError errty noInfo [] mempty
 
     toOldListErr pe = pe { peDoc = listErrMsg }
     isOldListErr = \case

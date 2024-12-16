@@ -323,6 +323,8 @@ applyCmd logger maybeGasLogger db txCtx spv initialGas cmd = do
         , FlagDisableHistoryInTransactionalMode
         , FlagEnforceKeyFormats
         , FlagRequireKeysetNs
+        -- ONLY FOR PARITY REPLAY
+        , FlagEnableLegacyEventHashes
         ]
   let gasLogsEnabled = maybe GasLogsDisabled (const GasLogsEnabled) maybeGasLogger
   gasEnv <- mkTableGasEnv (MilliGasLimit $ gasToMilliGas $ gasLimit ^. _GasLimit) gasLogsEnabled
@@ -434,7 +436,8 @@ ctxToPublicData pm (TxContext ph _) = PublicData
     BlockHeight !bh = succ $ view blockHeight bheader
     BlockCreationTime (Time (TimeSpan (Micros !bt))) =
       view blockCreationTime bheader
-    BlockHash h = view blockHash bheader
+    -- PARITY REPLAY ONLY
+    BlockHash h = view blockParent bheader
 
 -- | 'applyCoinbase' performs upgrade transactions and constructs and executes
 -- a transaction which pays miners their block reward.

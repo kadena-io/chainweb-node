@@ -363,6 +363,7 @@ library
         , Chainweb.Pact.Transactions.OtherTransactions
         , Chainweb.Pact.Transactions.RecapDevelopmentTransactions
         , Chainweb.Pact.Types
+        , Chainweb.Pact.Types.Parity
         , Chainweb.Pact.Utils
 
         -- utils
@@ -439,6 +440,7 @@ library
         , pem >=0.2
         , primitive >= 0.7.1.0
         , random >= 1.2
+        , regex-compat >= 0.95
         , rocksdb-haskell-kadena >= 1.1.0
         , rosetta >= 1.0
         , safe-exceptions >= 0.1
@@ -637,6 +639,27 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.Sync
         Chainweb.Test.Mining
         Chainweb.Test.Misc
+        Chainweb.Test.Pact4.GrandHash
+        Chainweb.Test.Pact4.PactMultiChainTest
+        Chainweb.Test.Pact4.VerifierPluginTest
+        Chainweb.Test.Pact4.PactSingleChainTest
+        Chainweb.Test.Pact4.DbCacheTest
+        Chainweb.Test.Pact4.Checkpointer
+        Chainweb.Test.Pact4.ModuleCacheOnRestart
+        Chainweb.Test.Pact4.NoCoinbase
+        Chainweb.Test.Pact4.RewardsTest
+        Chainweb.Test.Pact4.PactExec
+        Chainweb.Test.Pact4.PactReplay
+        Chainweb.Test.Pact4.RemotePactTest
+        Chainweb.Test.Pact4.SPV
+        Chainweb.Test.Pact4.TransactionTests
+        Chainweb.Test.Pact4.TTL
+        Chainweb.Test.Pact4.SQLite
+        Chainweb.Test.Pact5.CheckpointerTest
+        Chainweb.Test.Pact5.PactServiceTest
+        Chainweb.Test.Pact5.RemotePactTest
+        Chainweb.Test.Pact5.SPVTest
+        Chainweb.Test.Pact5.TransactionExecTest
         Chainweb.Test.Pact4.Checkpointer
         Chainweb.Test.Pact4.DbCacheTest
         Chainweb.Test.Pact4.GrandHash
@@ -706,7 +729,7 @@ test-suite chainweb-tests
         , exceptions
         , ghc-compact >= 0.1
         , hashable >= 1.3
-        , hashes >=0.2.2.0
+        , hashes >=0.3
         , hedgehog >= 1.4
         , http-client >= 0.5
         , http-client-tls >=0.3
@@ -745,6 +768,8 @@ test-suite chainweb-tests
         , tasty-hedgehog >= 1.4.0.2
         , tasty-hunit >= 0.9
         , tasty-json >= 0.1
+        , tasty-hedgehog >= 1.4.0.2
+        , tasty-hunit >= 0.9
         , tasty-quickcheck >= 0.9
         , text >=2.0
         , time >= 1.12.2
@@ -756,8 +781,14 @@ test-suite chainweb-tests
         , warp >= 3.3.6
         , warp-tls >= 3.4
         , yaml >= 0.11
+        , yet-another-logger >= 0.4.1
+
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
+
+-- -------------------------------------------------------------------------- --
+-- Chainweb Node Application
+-- -------------------------------------------------------------------------- --
 
 test-suite compaction-tests
     import: warning-flags, debugging-flags
@@ -889,6 +920,8 @@ benchmark bench
         , loglevel >= 0.1
         , mtl >= 2.3
         , pact
+        , pact-tng
+        , pact-tng:pact-request-api
         , random >= 1.2
         , streaming
         , text >= 2.0

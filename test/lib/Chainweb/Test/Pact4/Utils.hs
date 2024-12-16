@@ -774,8 +774,8 @@ withWebPactExecutionServiceCompaction logger v pactConfig bdb mempools act =
               evalPactServiceM_ ctx $ execHistoricalLookup h d k
           , _pactSyncToBlock = \h ->
               evalPactServiceM_ ctx $ execSyncToBlock h
-          , _pactReadOnlyReplay = \l u ->
-              evalPactServiceM_ ctx $ execReadOnlyReplay l u
+          , _pactReplay = \_cid t ->
+              evalPactServiceM_ ctx $ execReplay t
           }
 
 -- | A queue-less WebPactExecutionService (for all chains)
@@ -824,8 +824,8 @@ withWebPactExecutionService logger v pactConfig bdb mempools act =
               evalPactServiceM_ ctx $ execHistoricalLookup h d k
           , _pactSyncToBlock = \h ->
               evalPactServiceM_ ctx $ execSyncToBlock h
-          , _pactReadOnlyReplay = \l u ->
-              evalPactServiceM_ ctx $ execReadOnlyReplay l u
+          , _pactReplay = \_cid t ->
+              evalPactServiceM_ ctx $ execReplay t
           }
 
 -- | Noncer for 'runCut'

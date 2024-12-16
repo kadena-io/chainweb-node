@@ -125,7 +125,7 @@ instance HasChainwebVersion TxContext where
 
 -- | Convert context to datatype for Pact environment.
 --
--- TODO: this should be deprecated, since the `ctxBlockHeader`
+-- TODO: this should be deprecated, because the `blockParent`
 -- call fetches a grandparent, not the parent.
 --
 ctxToPublicData :: TxContext -> PublicData

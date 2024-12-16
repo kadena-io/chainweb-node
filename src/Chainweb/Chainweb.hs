@@ -160,7 +160,7 @@ import Chainweb.Miner.Config
 import qualified Chainweb.OpenAPIValidation as OpenAPIValidation
 import Chainweb.Pact.Backend.Types(IntraBlockPersistence(..))
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
-import Chainweb.Pact.Types (PactServiceConfig(..))
+import Chainweb.Pact.Types (PactServiceConfig(..), ReplayTarget (..))
 import Chainweb.Pact4.Validations
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
@@ -334,7 +334,8 @@ validatingMempoolConfig cid v gl gp mv = Mempool.InMemConfig
 
 data StartedChainweb logger where
   StartedChainweb :: (CanReadablePayloadCas cas, Logger logger) => !(Chainweb logger cas) -> StartedChainweb logger
-  Replayed :: !Cut -> !(Maybe Cut) -> StartedChainweb logger
+  ReadOnlyReplayed :: ![(ChainId, ReplayTarget BlockHeader)] -> StartedChainweb logger
+  Rewound :: Cut -> Maybe Cut -> StartedChainweb logger
 
 data ChainwebStatus
     = ProcessStarted
@@ -366,7 +367,7 @@ withChainwebInternal
     -> IO ()
 withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir resetDb inner = do
 
-    unless (_configOnlySyncPact conf || _configReadOnlyReplay conf) $
+    unless (_configOnlySyncPact conf || isJust (_configReplay conf)) $
         initializePayloadDb v payloadDb
 
     -- Garbage Collection
@@ -507,41 +508,46 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             let
                 pactSyncChains =
                     case _configSyncPactChains conf of
-                      Just syncChains | _configOnlySyncPact conf || _configReadOnlyReplay conf -> HM.filterWithKey (\k _ -> elem k syncChains) cs
-                      _ -> cs
+                        Just syncChains
+                            | _configOnlySyncPact conf || isJust (_configReplay conf)
+                            -> HM.filterWithKey (\k _ -> elem k syncChains) cs
+                        _ -> cs
 
-            if _configReadOnlyReplay conf
+            if isJust (_configReplay conf)
             then do
                 logFunctionJson logger Info PactReplayInProgress
                 -- note that we don't use the "initial cut" from cutdb because its height depends on initialBlockHeightLimit.
-                highestCut <-
-                    unsafeMkCut v <$> readHighestCutHeaders v (logFunctionText logger) webchain (cutHashesTable rocksDb)
-                lowerBoundCut <-
-                    tryLimitCut webchain (fromMaybe 0 $ _cutInitialBlockHeightLimit $ _configCuts conf) highestCut
-                upperBoundCut <- forM (_cutFastForwardBlockHeightLimit $ _configCuts conf) $ \upperBound ->
-                    tryLimitCut webchain upperBound highestCut
+                targets :: [(ChainId, ChainResources logger, ReplayTarget BlockHeader)] <- case _configReplay conf of
+                    Nothing -> error "impossible"
+                    Just (ReplayTargetBlockRange l u) -> do
+                        highestCut <-
+                            unsafeMkCut v <$> readHighestCutHeaders v (logFunctionText logger) webchain (cutHashesTable rocksDb)
+                        lowerBoundCut <-
+                            tryLimitCut webchain l highestCut
+                        maybeUpperBoundCut <- forM u $ \upperBound ->
+                            tryLimitCut webchain upperBound highestCut
+                        return $
+                            [ (cid, res, ReplayTargetBlockRange (_cutMap lowerBoundCut HM.! cid) (maybeUpperBoundCut <&> (^?! (cutMap . ix cid))))
+                            | (cid, res) <- HM.toList pactSyncChains
+                            ]
+                    Just (ReplayTargetTx t) -> return
+                        [ (cid, res, ReplayTargetTx t)
+                        | (cid, res) <- HM.toList pactSyncChains
+                        ]
                 let
-                    replayOneChain :: (ChainResources logger, (BlockHeader, Maybe BlockHeader)) -> IO ()
-                    replayOneChain (cr, (l, u)) = do
+                    replayOneChain :: (ChainId, ChainResources logger, ReplayTarget BlockHeader) -> IO ()
+                    replayOneChain (cid, cr, target) = do
                         let chainPact = _chainResPact cr
                         let logCr = logFunctionText
                                 $ addLabel ("component", "pact")
                                 $ addLabel ("sub-component", "init")
                                 $ _chainResLogger cr
-                        void $ _pactReadOnlyReplay chainPact l u
+                        void $ _pactReplay chainPact cid target
                         logCr Info "pact db synchronized"
-                let bounds =
-                        HM.intersectionWith (,)
-                            pactSyncChains
-                            (HM.mapWithKey
-                                (\cid bh ->
-                                    (bh, (HM.! cid) . _cutMap <$> upperBoundCut))
-                                (_cutMap lowerBoundCut)
-                            )
-                mapConcurrently_ replayOneChain bounds
+                mapConcurrently_ replayOneChain targets
                 logg Info "finished fast forward replay"
                 logFunctionJson logger Info PactReplaySuccessful
-                inner $ Replayed lowerBoundCut upperBoundCut
+                inner $ ReadOnlyReplayed [ (cid, target) | (cid, _, target) <- targets ]
             else if _configOnlySyncPact conf
             then do
                 initialCut <- _cut mCutDb
@@ -556,7 +562,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                 synchronizePactDb pactSyncChains newCut
                 logg Info "finished replaying Pact DBs to fast forward cut"
                 logFunctionJson logger Info PactReplaySuccessful
-                inner $ Replayed initialCut (Just newCut)
+                inner $ Rewound initialCut (Just newCut)
             else do
                 initialCut <- _cut mCutDb
                 logg Info "start synchronizing Pact DBs to initial cut"
@@ -627,7 +633,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
         , _cutDbParamsTelemetryLevel = Info
         , _cutDbParamsInitialHeightLimit = _cutInitialBlockHeightLimit cutConf
         , _cutDbParamsFastForwardHeightLimit = _cutFastForwardBlockHeightLimit cutConf
-        , _cutDbParamsReadOnly = _configOnlySyncPact conf || _configReadOnlyReplay conf
+        , _cutDbParamsReadOnly = _configOnlySyncPact conf || isJust (_configReplay conf)
         }
       where
         cutConf = _configCuts conf

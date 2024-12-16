@@ -380,8 +380,8 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         -> BlockHandler logger (Maybe v)
     lookupWithKey key f checkCache = do
         pds <- getPendingData "read"
-        let lookPD = foldr1 (<|>) $ map (lookupInPendingData key f) pds
-        let lookDB = lookupInDb key f checkCache
+        let lookPD = asum $ map (lookupInPendingData key f) pds
+        let lookDB = lookupInDb key checkCache
         runMaybeT (lookPD <|> lookDB)
 
     lookupInPendingData
@@ -398,11 +398,10 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
 
     lookupInDb
         :: forall logger v .
-           SQ3.Utf8
-        -> (BS.ByteString -> Maybe v)
+            SQ3.Utf8
         -> (SQ3.Utf8 -> BS.ByteString -> MaybeT (BlockHandler logger) v)
         -> MaybeT (BlockHandler logger) v
-    lookupInDb rowkey _ checkCache = do
+    lookupInDb rowkey checkCache = do
         -- First, check: did we create this table during this block? If so,
         -- there's no point in looking up the key.
         checkDbTablePendingCreation "read" tablename
@@ -423,13 +422,6 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
                      "doReadRow: Expected (at most) a single result, but got: " <>
                      T.pack (show err)
 
-    noCache
-        :: (BS.ByteString -> Maybe v)
-        -> SQ3.Utf8
-        -> BS.ByteString
-        -> MaybeT (BlockHandler logger) v
-    noCache f _key rowdata = MaybeT $ return $! f rowdata
-
     noCacheChargeModuleSize
         :: (BS.ByteString -> Maybe (Pact.ModuleData Pact.CoreBuiltin Pact.Info))
         -> SQ3.Utf8
@@ -438,6 +430,13 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
     noCacheChargeModuleSize f _key rowdata = do
         lift $ BlockHandler $ lift $ lift (Pact.chargeGasM (Pact.GModuleOp (Pact.MOpLoadModule (BS.length rowdata))))
         MaybeT $ return $! f rowdata
+
+    noCache
+        :: (BS.ByteString -> Maybe v)
+        -> SQ3.Utf8
+        -> BS.ByteString
+        -> MaybeT (BlockHandler logger) v
+    noCache f _key rowdata = MaybeT $ return $! f rowdata
 
 
 checkDbTablePendingCreation :: Text -> SQ3.Utf8 -> MaybeT (BlockHandler logger) ()
@@ -461,8 +460,8 @@ writeSys d k v = do
       Pact.DModules ->  (convModuleName mnFix k, Pact._encodeModuleData Pact.serialisePact_lineinfo v)
       Pact.DNamespaces -> (convNamespaceName k, Pact._encodeNamespace Pact.serialisePact_lineinfo v)
       Pact.DDefPacts -> (convPactId k, Pact._encodeDefPactExec Pact.serialisePact_lineinfo v)
-      Pact.DUserTables _ -> error "impossible"
       Pact.DModuleSource -> (convHashedModuleName k, Pact._encodeModuleCode Pact.serialisePact_lineinfo v)
+      Pact.DUserTables _ -> error "impossible"
   recordPendingUpdate kk (toUtf8 tablename) txid vv
   recordTxLog d kk vv
     where
@@ -581,12 +580,12 @@ doKeys mlim d = do
               Just v -> pure v
         Pact.DNamespaces -> pure $ map Pact.NamespaceName allKeys
         Pact.DDefPacts ->  pure $ map Pact.DefPactId allKeys
-        Pact.DUserTables _ -> pure $ map Pact.RowKey allKeys
         Pact.DModuleSource -> do
             let parsed = map Pact.parseHashedModuleName allKeys
             case sequence parsed of
               Just v -> pure v
               Nothing -> internalDbError $ "doKeys.DModuleSources: unexpected decoding"
+        Pact.DUserTables _ -> pure $ map Pact.RowKey allKeys
 
     where
     blockLimitStmt = maybe "" (const " WHERE txid < ?;") mlim

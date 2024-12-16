@@ -53,3 +53,6 @@ rosetta/logs/*
 .ghci_history
 .direnv/
 .envrc
+parity-*
+diffs/
+old-diffs/

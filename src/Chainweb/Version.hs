@@ -87,6 +87,15 @@ module Chainweb.Version
     , pattern ForPact5
     , forAnyPactVersion
 
+    , PactUpgrade(..)
+    , PactVersion(..)
+    , PactVersionT(..)
+    , ForBothPactVersions(..)
+    , ForSomePactVersion(..)
+    , pattern ForPact4
+    , pattern ForPact5
+    , forAnyPactVersion
+
     -- * Typelevel ChainwebVersionName
     , ChainwebVersionT(..)
     , ChainwebVersionSymbol

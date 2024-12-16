@@ -65,7 +65,7 @@ verifyTransactionProof
     -> IO Transaction
 verifyTransactionProof cutDb proof@(TransactionProof cid p) = do
     unlessM (member cutDb cid h) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
+        $ SpvExceptionVerificationFailed "verifyTransactionProof: target header is not in the chain"
     proofSubject p
   where
     h = runTransactionProof proof
@@ -84,7 +84,7 @@ verifyTransactionProofAt
     -> IO Transaction
 verifyTransactionProofAt cutDb proof@(TransactionProof cid p) ctx = do
     unlessM (memberOfM cutDb cid h ctx) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
+        $ SpvExceptionVerificationFailed "verifyTransactionProofAt: target header is not in the chain"
     proofSubject p
   where
     h = runTransactionProof proof
@@ -103,7 +103,7 @@ verifyTransactionProofAt_
     -> IO Transaction
 verifyTransactionProofAt_ bdb proof@(TransactionProof _cid p) ctx = do
     unlessM (ancestorOf bdb h ctx) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
+        $ SpvExceptionVerificationFailed "verifyTransactionProofAt_: target header is not in the chain"
     proofSubject p
   where
     h = runTransactionProof proof
@@ -128,7 +128,7 @@ verifyTransactionOutputProof
     -> IO TransactionOutput
 verifyTransactionOutputProof cutDb proof@(TransactionOutputProof cid p) = do
     unlessM (member cutDb cid h) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
+        $ SpvExceptionVerificationFailed "verifyTransactionOutputProof_: target header is not in the chain"
     proofSubject p
   where
     h = runTransactionOutputProof proof
@@ -147,7 +147,7 @@ verifyTransactionOutputProofAt
     -> IO TransactionOutput
 verifyTransactionOutputProofAt cutDb proof@(TransactionOutputProof cid p) ctx = do
     unlessM (memberOfM cutDb cid h ctx) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
+        $ SpvExceptionVerificationFailed "verifyTransactionOutputProofAt: target header is not in the chain"
     proofSubject p
   where
     h = runTransactionOutputProof proof
@@ -166,7 +166,7 @@ verifyTransactionOutputProofAt_
     -> IO TransactionOutput
 verifyTransactionOutputProofAt_ bdb proof@(TransactionOutputProof _cid p) ctx = do
     unlessM (ancestorOf bdb h ctx) $ throwM
-        $ SpvExceptionVerificationFailed "target header is not in the chain"
+        $ SpvExceptionVerificationFailed "verifyTransactionOutputProofAt_: target header is not in the chain"
     proofSubject p
   where
     h = runTransactionOutputProof proof

@@ -311,7 +311,12 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         KeySets -> lookupWithKey (convKeySetName k) noCache
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
-        Modules -> lookupWithKey (convModuleName mnFix k) checkModuleCache
+        Modules -> do
+          v <- lookupWithKey (convModuleName mnFix k) checkModuleCache
+          -- _ <- forM v $ \m -> do
+          --   liftIO $ createDirectoryIfMissing True "parity-replay-modules"
+          --   liftIO $ B.writeFile ("parity-replay-modules" </> T.unpack (asString k)) $ J.encodeStrict m
+          pure v
         Namespaces -> lookupWithKey (convNamespaceName k) noCache
         (UserTables _) -> lookupWithKey (convRowKey k) noCache
         Pacts -> lookupWithKey (convPactId k) noCache

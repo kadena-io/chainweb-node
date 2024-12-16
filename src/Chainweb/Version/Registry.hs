@@ -129,7 +129,6 @@ lookupVersionByCode code
         -- the case that we don't actually need the version, just the code.
         lookupVersion & versionCode .~ code
     where
-
     lookupVersion :: HasCallStack => ChainwebVersion
     lookupVersion = unsafeDupablePerformIO $ do
         m <- readIORef versionMap

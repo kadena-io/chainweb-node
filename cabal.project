@@ -156,6 +156,24 @@ source-repository-package
     tag: 67c77e68ade204f56d91ad5952fe432188b40d23
     --sha256: 0q7nwl56lgic5andc956zv4zipdv5rxjkalm21cxr75r6grkzfmy
 
+source-repository-package
+    type: git
+    location: https://github.com/chessai/patience
+    tag: 2f67d546ea6608fc6ebe5f2f6976503cbf340442
+    --sha256: 0x137akvbh4kr3qagksw74xdj2xz5vjnx1fbr41bb54a0lkcb8mm
+
+source-repository-package
+    type: git
+    location: https://github.com/andrewthad/chronos
+    tag: b199bf6df1453af95832c2d2f9f0ef48c3622caa
+    --sha256: 056awkmdmkqdd5g3m8a1ibg2vp02kbppmidkfh4aildb1brq970a
+
+source-repository-package
+    type: git
+    location: https://gitlab.com/edmundnoble/predicate-transformers
+    tag: 67c77e68ade204f56d91ad5952fe432188b40d23
+    --sha256: 0q7nwl56lgic5andc956zv4zipdv5rxjkalm21cxr75r6grkzfmy
+
 -- -------------------------------------------------------------------------- --
 -- Relaxed Bounds
 
@@ -217,7 +235,7 @@ allow-newer: base-compat-batteries:*
 allow-newer: webauthn:*
 
 -- many packages use an spurious <1.5 upper bound on hashable
-allow-newer: *:hashable
+-- allow-newer: *:hashable
 
 allow-newer: lrucaching:base-compat
 

@@ -221,7 +221,9 @@ harvestConsensusState
     -> Int
     -> StartedChainweb logger
     -> IO ()
-harvestConsensusState _ _ _ (Replayed _ _) =
+harvestConsensusState _ _ _ (ReadOnlyReplayed _) =
+    error "harvestConsensusState: doesn't work when replaying, replays don't do consensus"
+harvestConsensusState _ _ _ (Rewound _ _) =
     error "harvestConsensusState: doesn't work when replaying, replays don't do consensus"
 harvestConsensusState logger stateVar nid (StartedChainweb cw) = do
     runChainweb cw (\_ -> return ()) `finally` do
@@ -251,7 +253,8 @@ multiNode loglevel write bootstrapPeerInfoVar conf rdb pactDbDir nid inner = do
                     StartedChainweb cw' ->
                         when (nid == 0) $ putMVar bootstrapPeerInfoVar
                             $ view (chainwebPeer . peerResPeer . peerInfo) cw'
-                    Replayed _ _ -> return ()
+                    Rewound _ _ -> return ()
+                    ReadOnlyReplayed _ -> return ()
                 inner nid cw
   where
     logger :: GenericLogger
@@ -594,7 +597,7 @@ replayTest loglevel v n rdb pactDbDir step = do
                 & set (configCuts . cutInitialBlockHeightLimit) (Just replayInitialHeight)
                 & set configOnlySyncPact True)
             n (Seconds 20) rdb pactDbDir $ \nid cw -> case cw of
-                Replayed l (Just u) -> do
+                Rewound l (Just u) -> do
                     writeIORef firstReplayCompleteRef True
                     _ <- flip HM.traverseWithKey (_cutMap l) $ \cid bh ->
                         assertEqual ("lower chain " <> sshow cid) replayInitialHeight (view blockHeight bh)
@@ -604,7 +607,7 @@ replayTest loglevel v n rdb pactDbDir step = do
                     _ <- flip HM.traverseWithKey (_cutMap u) $ \cid bh ->
                         assertGe ("upper chain " <> sshow cid) (Actual $ view blockHeight bh) (Expected replayInitialHeight)
                     return ()
-                Replayed _ Nothing -> error "replayTest: no replay upper bound"
+                Rewound _ Nothing -> error "replayTest: no replay upper bound"
                 _ -> error "replayTest: not a replay"
         assertEqual "first replay completion" True =<< readIORef firstReplayCompleteRef
         let fastForwardHeight = 10
@@ -616,14 +619,14 @@ replayTest loglevel v n rdb pactDbDir step = do
                 & set (configCuts . cutFastForwardBlockHeightLimit) (Just fastForwardHeight)
                 & set configOnlySyncPact True)
             n (Seconds 20) rdb pactDbDir $ \_ cw -> case cw of
-                Replayed l (Just u) -> do
+                Rewound l (Just u) -> do
                     writeIORef secondReplayCompleteRef True
                     _ <- flip HM.traverseWithKey (_cutMap l) $ \cid bh ->
                         assertEqual ("lower chain " <> sshow cid) replayInitialHeight (view blockHeight bh)
                     _ <- flip HM.traverseWithKey (_cutMap u) $ \cid bh ->
                         assertEqual ("upper chain " <> sshow cid) fastForwardHeight (view blockHeight bh)
                     return ()
-                Replayed _ Nothing -> do
+                Rewound _ Nothing -> do
                     error "replayTest: no replay upper bound"
                 _ -> error "replayTest: not a replay"
         assertEqual "second replay completion" True =<< readIORef secondReplayCompleteRef
