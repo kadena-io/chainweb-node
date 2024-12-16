@@ -138,13 +138,13 @@ mkFixture v baseRdb = do
 
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "Pact5 RemotePactTest"
-    [ testCase "pollingBadlistTest" (pollingInvalidTest rdb)
+    [ testCase "pollingInvalidRequestKeyTest" (pollingInvalidRequestKeyTest rdb)
     , testCase "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
     , testCase "spvTest" (spvTest rdb)
     ]
 
-pollingInvalidTest :: RocksDb -> IO ()
-pollingInvalidTest baseRdb = runResourceT $ do
+pollingInvalidRequestKeyTest :: RocksDb -> IO ()
+pollingInvalidRequestKeyTest baseRdb = runResourceT $ do
     let v = pact5InstantCpmTestVersion singletonChainGraph
     let cid = unsafeChainId 0
     fixture <- mkFixture v baseRdb
