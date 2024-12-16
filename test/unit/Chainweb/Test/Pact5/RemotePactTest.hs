@@ -65,7 +65,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 import Control.Concurrent
-import Control.Exception (Exception, AsyncException(..))
+import Control.Exception (Exception, AsyncException(..), try)
 import Control.Lens
 import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class (liftIO)
@@ -89,6 +89,12 @@ import Servant.Client
 import Test.Tasty
 import Test.Tasty.HUnit (assertEqual, testCase)
 import qualified Pact.Types.Command as Pact4
+import qualified Pact.Core.Command.Types as Pact5
+import qualified Data.HashMap.Strict as HM
+import GHC.Stack (HasCallStack)
+import Data.String (fromString)
+import qualified Data.Text.Encoding as T
+import qualified Data.Text as T
 
 data Fixture = Fixture
     { _cutFixture :: CutFixture.Fixture
@@ -141,6 +147,7 @@ tests rdb = testGroup "Pact5 RemotePactTest"
     [ testCase "pollingBadlistTest" (pollingInvalidTest rdb)
     , testCase "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
     , testCase "spvTest" (spvTest rdb)
+    , testCase "invalidTxsTest" (invalidTxsTest rdb)
     ]
 
 pollingInvalidTest :: RocksDb -> IO ()
@@ -285,6 +292,100 @@ spvTest baseRdb = runResourceT $ do
 
     pure ()
 
+fails :: Exception e => P.Prop e -> P.Prop (IO a)
+fails p actual = try actual >>= \case
+    Left e -> p e
+    _ -> P.fail "a failed computation" actual
+
+invalidTxsTest :: RocksDb -> IO ()
+invalidTxsTest baseRdb = runResourceT $ do
+    let v = pact5InstantCpmTestVersion petersonChainGraph
+    fixture <- mkFixture v baseRdb
+    let clientEnv = fixture ^. serviceClientEnv
+
+    let cid = unsafeChainId 0
+
+    let assertExnContains expectedErrStr (SendingException actualErrStr)
+            | expectedErrStr `List.isInfixOf` actualErrStr = P.succeed actualErrStr
+            | otherwise =
+                P.fail ("Error containing: " <> fromString expectedErrStr) actualErrStr
+
+    let validationFailedPrefix cmd = "Validation failed for hash " <> sshow (_cmdHash cmd) <> ": "
+
+    liftIO $ do
+        cmdParseFailure <- buildTextCmd v
+            $ set cbChainId cid
+            $ set cbRPC (mkExec "(+ 1" PUnit)
+            $ defaultCmd
+        sending v cid clientEnv (NE.singleton cmdParseFailure)
+            & fails ? assertExnContains "Pact parse error"
+
+        cmdInvalidPayloadHash <- do
+            bareCmd <- buildTextCmd v
+                $ set cbChainId cid
+                $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
+                $ defaultCmd
+            pure $ bareCmd
+                { _cmdHash = Pact5.hash "fakehash"
+                }
+        sending v cid clientEnv (NE.singleton cmdInvalidPayloadHash)
+            & fails ? assertExnContains (validationFailedPrefix cmdInvalidPayloadHash <> "Invalid transaction hash")
+
+        cmdSignersSigsLengthMismatch1 <- do
+            bareCmd <- buildTextCmd v
+                $ set cbSigners [mkEd25519Signer' sender00 []]
+                $ set cbChainId cid
+                $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
+                $ defaultCmd
+            pure $ bareCmd
+                { _cmdSigs = []
+                }
+        sending v cid clientEnv (NE.singleton cmdSignersSigsLengthMismatch1)
+            & fails ? assertExnContains (validationFailedPrefix cmdSignersSigsLengthMismatch1 <> "Invalid transaction sigs")
+
+        cmdSignersSigsLengthMismatch2 <- liftIO $ do
+            bareCmd <- buildTextCmd v
+                $ set cbSigners []
+                $ set cbChainId cid
+                $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
+                $ defaultCmd
+            pure $ bareCmd
+                { -- This is an invalid ED25519 signature, but length signers == length signatures is checked first
+                _cmdSigs = [ED25519Sig "fakeSig"]
+                }
+        sending v cid clientEnv (NE.singleton cmdSignersSigsLengthMismatch2)
+            & fails ? assertExnContains (validationFailedPrefix cmdSignersSigsLengthMismatch2 <> "Invalid transaction sigs")
+
+        cmdInvalidUserSig <- liftIO $ do
+            bareCmd <- buildTextCmd v
+                $ set cbSigners [mkEd25519Signer' sender00 []]
+                $ set cbChainId cid
+                $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
+                $ defaultCmd
+            pure $ bareCmd
+                { _cmdSigs = [ED25519Sig "fakeSig"]
+                }
+
+        sending v cid clientEnv (NE.singleton cmdInvalidUserSig)
+            & fails ? assertExnContains (validationFailedPrefix cmdInvalidUserSig <> "Invalid transaction sigs")
+
+        cmdGood <- buildTextCmd v
+            $ set cbSigners [mkEd25519Signer' sender00 []]
+            $ set cbChainId cid
+            $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
+            $ defaultCmd
+        -- Test that [badCmd, goodCmd] fails on badCmd, and the batch is rejected.
+        -- We just re-use a previously built bad cmd.
+        sending v cid clientEnv (NE.fromList [cmdInvalidUserSig, cmdGood])
+            & fails ? assertExnContains (validationFailedPrefix cmdInvalidUserSig <> "Invalid transaction sigs")
+        -- Test that [goodCmd, badCmd] fails on badCmd, and the batch is rejected.
+        -- Order matters, and the error message also indicates the position of the
+        -- failing tx.
+        -- We just re-use a previously built bad cmd.
+        sending v cid clientEnv (NE.fromList [cmdGood, cmdInvalidUserSig])
+            & fails ? assertExnContains (validationFailedPrefix cmdInvalidUserSig <> "Invalid transaction sigs")
+
+
 {-
           recvPwos <- runCutWithTx v pacts targetMempoolRef blockDb $ \_n _bHeight _bHash bHeader -> do
             buildCwCmd "transfer-crosschain" v
@@ -383,7 +484,9 @@ sending v cid clientEnv cmds = do
     let batch = Pact4.SubmitBatch (NE.map toPact4Command cmds)
     send <- runClientM (pactSendApiClient v cid batch) clientEnv
     case send of
-        Left e -> do
+        Left (FailureResponse _req resp) -> do
+            throwM (SendingException (T.unpack $ T.decodeUtf8 $ BL.toStrict (responseBody resp)))
+        Left e ->
             throwM (SendingException (show e))
         Right (Pact4.RequestKeys response) -> do
             return (NE.map toPact5RequestKey response)
