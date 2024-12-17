@@ -574,6 +574,12 @@ instance HasTextRepresentation Integer where
     fromText = treadM
     {-# INLINE fromText #-}
 
+instance HasTextRepresentation Natural where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = treadM
+    {-# INLINE fromText #-}
+
 instance HasTextRepresentation Word where
     toText = sshow
     {-# INLINE toText #-}
@@ -638,7 +644,7 @@ iso8601DateTimeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
 strip0x :: MonadThrow m => T.Text -> m T.Text
 strip0x t = case T.stripPrefix "0x" t of
     Just x -> return x
-    Nothing -> throwM $ TextFormatException 
+    Nothing -> throwM $ TextFormatException
         $ "Missing hex prefix 0x in " <> sshow t
 {-# INLINE strip0x #-}
 
@@ -800,7 +806,7 @@ parseJsonFromText
     -> Aeson.Parser a
 parseJsonFromText l = withText l $! either fail return . eitherFromText
 
--- | A newtype wrapper for derving ToJSON and FromJSON instances via 
+-- | A newtype wrapper for derving ToJSON and FromJSON instances via
 -- a 'HasTextRepresentation' instance
 --
 newtype JsonTextRepresentation (t :: Symbol) a = JsonTextRepresentation a
