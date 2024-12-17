@@ -171,7 +171,7 @@ pollingConfirmationDepthTest baseRdb = runResourceT $ do
         pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 0)) >>= \response -> do
             assertEqual "there are no command results at depth 0" response HashMap.empty
 
-        _ <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
+        CutFixture.advanceAllChains_ v (fixture ^. cutFixture)
 
         pollingWithDepth v cid clientEnv rks Nothing >>= \response -> do
             assertEqual "results are visible at depth 0" 2 (HashMap.size response)
@@ -180,7 +180,7 @@ pollingConfirmationDepthTest baseRdb = runResourceT $ do
         pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 1)) >>= \response -> do
             assertEqual "results are not visible at depth 1" 0 (HashMap.size response)
 
-        _ <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
+        CutFixture.advanceAllChains_ v (fixture ^. cutFixture)
 
         pollingWithDepth v cid clientEnv rks Nothing >>= \response -> do
             assertEqual "results are visible at depth 0" 2 (HashMap.size response)
@@ -191,7 +191,7 @@ pollingConfirmationDepthTest baseRdb = runResourceT $ do
         pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 2)) >>= \response -> do
             assertEqual "results are not visible at depth 2" 0 (HashMap.size response)
 
-        _ <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
+        CutFixture.advanceAllChains_ v (fixture ^. cutFixture)
 
         pollingWithDepth v cid clientEnv rks Nothing >>= \response -> do
             assertEqual "results are visible at depth 0" 2 (HashMap.size response)
