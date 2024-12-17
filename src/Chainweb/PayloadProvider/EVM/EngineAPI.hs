@@ -93,7 +93,7 @@ module Chainweb.PayloadProvider.EVM.EngineAPI
 , Engine_ForkchoiceUpdatedV3
 ) where
 
-import Chainweb.BlockHash qualified as Chainweb
+import Chainweb.PayloadProvider.EVM.Header (ParentBeaconBlockRoot)
 import Chainweb.PayloadProvider.EVM.JsonRPC
 import Chainweb.PayloadProvider.EVM.Utils
 import Chainweb.Utils
@@ -117,7 +117,6 @@ import GHC.Generics (Generic)
 import GHC.TypeLits
 import Network.HTTP.Client qualified as HTTP
 import Network.URI.Static (uri)
-import Chainweb.PayloadProvider.EVM.Header (ParentBeaconBlockRoot)
 
 -- -------------------------------------------------------------------------- --
 -- Forkchoice State V1
@@ -1134,9 +1133,9 @@ mkEngineCtx secret = do
 -- -------------------------------------------------------------------------- --
 -- Example
 --
--- > Just s = fromText @JwtSecret "10b45e8907ab12dd750f688733e73cf433afadfd2f270e5b75a6b8fff22dd352"
--- > ctx <- mkEngineCtx s
--- > Just hdr <- callMethodHttp @"eth_getBlockByNumber" ctx (DefaultBlockLatest, False)
--- > let b = blockHash hdr
--- > callMethodHttp @"engine_forkchoiceUpdatedV3" ctx $ ForkchoiceUpdatedV3Request (ForkchoiceStateV1 b b b) Nothing
+-- >>> Just s = fromText @JwtSecret "10b45e8907ab12dd750f688733e73cf433afadfd2f270e5b75a6b8fff22dd352"
+-- >>> ctx <- mkEngineCtx s
+-- >>> Just hdr <- callMethodHttp @"eth_getBlockByNumber" ctx (DefaultBlockLatest, False)
+-- >>> let b = blockHash hdr
+-- >>> callMethodHttp @"engine_forkchoiceUpdatedV3" ctx $ ForkchoiceUpdatedV3Request (ForkchoiceStateV1 b b b) Nothing
 --

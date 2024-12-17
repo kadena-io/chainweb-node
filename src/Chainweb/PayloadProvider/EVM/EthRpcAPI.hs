@@ -18,6 +18,14 @@
 module Chainweb.PayloadProvider.EVM.EthRpcAPI
 ( mkRpcCtx
 , SyncingStatus(..)
+
+-- * RPC Methods
+, type Eth_ChainId
+, type Eth_BlockNumber
+, type Eth_GetBlockByNumber
+, type Eth_GetBlockByHash
+, type Eth_Syncing
+, type Eth_Call
 ) where
 
 import Chainweb.PayloadProvider.EVM.Header
@@ -56,6 +64,8 @@ instance JsonRpcMethod "eth_blockNumber" where
     responseTimeoutMs = Nothing
     methodErrors = []
 
+type Eth_BlockNumber = "eth_blockNumber"
+
 instance JsonRpcMethod "eth_chainId" where
     type MethodRequest "eth_chainId" = Maybe Void
     type MethodResponse "eth_chainId" = ChainId
@@ -63,6 +73,8 @@ instance JsonRpcMethod "eth_chainId" where
     type ApplicationErrors "eth_chainId" = Int
     responseTimeoutMs = Nothing
     methodErrors = []
+
+type Eth_ChainId = "eth_chainId"
 
 -- | FIXME: this is currently recognizing only Eth1 headers
 --
@@ -74,6 +86,8 @@ instance JsonRpcMethod "eth_getBlockByNumber" where
     responseTimeoutMs = Nothing
     methodErrors = []
 
+type Eth_GetBlockByNumber = "eth_getBlockByNumber"
+
 instance JsonRpcMethod "eth_getBlockByHash" where
     type MethodRequest "eth_getBlockByHash" = (BlockHash, Bool)
     type MethodResponse "eth_getBlockByHash" = Maybe Header
@@ -81,6 +95,8 @@ instance JsonRpcMethod "eth_getBlockByHash" where
     type ApplicationErrors "eth_getBlockByHash" = Int
     responseTimeoutMs = Nothing
     methodErrors = []
+
+type Eth_GetBlockByHash = "eth_getBlockByHash"
 
 -- -------------------------------------------------------------------------- --
 -- | Returns the current sync status or false
@@ -94,6 +110,8 @@ instance JsonRpcMethod "eth_syncing" where
     type ApplicationErrors "eth_syncing" = Int
     responseTimeoutMs = Nothing
     methodErrors = []
+
+type Eth_Syncing = "eth_syncing"
 
 data SyncingStatus
     = SyncingStatus
@@ -141,6 +159,8 @@ instance JsonRpcMethod "eth_call" where
     type ApplicationErrors "eth_call" = Int
     responseTimeoutMs = Nothing
     methodErrors = []
+
+type Eth_Call = "eth_call"
 
 -- -------------------------------------------------------------------------- --
 -- | Default Engine Context
