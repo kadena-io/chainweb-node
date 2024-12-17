@@ -227,6 +227,7 @@ library
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client
         , Chainweb.PowHash
+        , Chainweb.Ranked
         , Chainweb.RestAPI
         , Chainweb.RestAPI.Backup
         , Chainweb.RestAPI.Config

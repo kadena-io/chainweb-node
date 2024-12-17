@@ -29,7 +29,6 @@ module Chainweb.BlockHeaderDB.Internal
 (
 -- * Internal Types
   RankedBlockHeader(..)
-, RankedBlockHash(..)
 , BlockRank(..)
 
 -- * Chain Database Handle
@@ -113,16 +112,6 @@ instance Ord RankedBlockHeader where
     compare = compare `on` ((view blockHeight &&& id) . _getRankedBlockHeader)
     {-# INLINE compare #-}
 
--- -------------------------------------------------------------------------- --
--- Ranked Block Hash
-
-data RankedBlockHash = RankedBlockHash
-    { _rankedBlockHashHeight :: !BlockHeight
-    , _rankedBlockHash :: !BlockHash
-    }
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (Hashable, NFData)
-
 instance IsCasValue RankedBlockHeader where
     type CasKeyType RankedBlockHeader = RankedBlockHash
     casKey (RankedBlockHeader bh)
@@ -151,18 +140,6 @@ encodeRankedBlockHeader = encodeBlockHeader . _getRankedBlockHeader
 decodeRankedBlockHeader :: Get RankedBlockHeader
 decodeRankedBlockHeader = RankedBlockHeader <$!> decodeBlockHeader
 {-# INLINE decodeRankedBlockHeader #-}
-
-encodeRankedBlockHash :: RankedBlockHash -> Put
-encodeRankedBlockHash (RankedBlockHash r bh) = do
-    encodeBlockHeightBe r -- big endian encoding for lexicographical order
-    encodeBlockHash bh
-{-# INLINE encodeRankedBlockHash #-}
-
-decodeRankedBlockHash :: Get RankedBlockHash
-decodeRankedBlockHash = RankedBlockHash
-    <$!> decodeBlockHeightBe
-    <*> decodeBlockHash
-{-# INLINE decodeRankedBlockHash #-}
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader DB
@@ -314,7 +291,7 @@ instance TreeDb BlockHeaderDb where
     keys db k l mir mar f = withSeekTreeDb db k mir $ \it -> f $ do
         iterToKeyStream it
             & maybe id (\x -> S.takeWhile (\a -> int (_rankedBlockHashHeight a) <= x)) mar
-            & S.map _rankedBlockHash
+            & S.map _rankedBlockHashHash
             & limitStream l
     {-# INLINEABLE keys #-}
 
