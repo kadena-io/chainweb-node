@@ -725,13 +725,12 @@ test-suite chainweb-tests
         , pact-tng:pact-request-api
         , pact-tng:test-utils
         , patience >= 0.3
-        , property-matchers ^>= 0.1
+        , property-matchers ^>= 0.2
         , pretty-show
         , quickcheck-instances >= 0.3
         , random >= 1.2
         , resource-pool >= 0.4
         , resourcet >= 1.3
-        , retry >= 0.7
         , rosetta >= 1.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4

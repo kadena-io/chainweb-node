@@ -60,8 +60,7 @@ import Chainweb.Test.Pact5.CmdBuilder
 import Chainweb.Test.Pact5.CutFixture qualified as CutFixture
 import Chainweb.Test.Pact5.Utils
 import Chainweb.Test.TestVersions
-import Chainweb.Test.Utils (deadbeef)
-import Chainweb.Test.Utils (testRetryPolicy)
+import Chainweb.Test.Utils (deadbeef, TestPact5CommandResult)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
@@ -410,11 +409,9 @@ trivialTx cid n = defaultCmd
     , _cbGasLimit = GasLimit (Gas 1_000)
     }
 
-_successfulTx :: P.Boolish p => P.Prop p (CommandResult log err)
+_successfulTx :: P.Prop (CommandResult log err)
 _successfulTx = P.fun _crResult ? P.match _PactResultOk P.succeed
 
 pactDeadBeef :: RequestKey
 pactDeadBeef = case deadbeef of
     TransactionHash bytes -> RequestKey (Pact5.Hash bytes)
-
-type TestPact5CommandResult = CommandResult Pact5.Hash (PactErrorCompat (LocatedErrorInfo Info))

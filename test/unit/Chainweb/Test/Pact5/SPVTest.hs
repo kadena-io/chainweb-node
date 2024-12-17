@@ -253,7 +253,7 @@ tests baseRdb = testGroup "Pact5 SPVTest"
     [ --testCase "simple end to end" (simpleEndToEnd baseRdb)
     ]
 
-successfulTx :: P.Boolish p => P.Prop p (CommandResult log err)
+successfulTx :: P.Prop (CommandResult log err)
 successfulTx = P.fun _crResult ? P.match _PactResultOk P.succeed
 
 cid = unsafeChainId 0
