@@ -61,6 +61,10 @@ module Chainweb.BlockHeader
 -- ** Utilities
 , I._blockPow
 , I.blockPow
+, I.rankedBlockHash
+, I._rankedBlockHash
+, I.rankedBlockPayloadHash
+, I._rankedBlockPayloadHash
 , I._blockAdjacentChainIds
 , I.blockAdjacentChainIds
 , I.encodeBlockHeader
