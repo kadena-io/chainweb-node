@@ -13,12 +13,14 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# LANGUAGE ConstraintKinds #-}
 
 -- |
 -- Module: Chainweb.PayloadProvider.EVM.Header
@@ -42,30 +44,60 @@ module Chainweb.PayloadProvider.EVM.Header
 , ommersHash
 , difficulty
 , nonce
-, blockHash
-, blockPayloadHash
 , headerProof
 , runHeaderProof
 , BaseFeePerGas(..)
 , WithdrawalsRoot(..)
 , ParentBeaconBlockRoot(..)
 , chainwebBlockHashToBeaconBlockRoot
+
+-- * Misc
+
+, type HeaderCas
+, heightToNumber
+, numberToHeight
+, _hdrHeight
+
+-- * Getter
+, hdrParentHash
+, hdrOmmersHash
+, hdrBeneficiary
+, hdrStateRoot
+, hdrTransactionsRoot
+, hdrReceiptsRoot
+, hdrLogsBloom
+, hdrDifficulty
+, hdrNumber
+, hdrGasLimit
+, hdrGasUsed
+, hdrTimestamp
+, hdrExtraData
+, hdrPrevRandao
+, hdrNonce
+, hdrBaseFeePerGas
+, hdrWithdrawalsRoot
+, hdrHeight
+, hdrHash
+, hdrPayloadHash
 ) where
 
 import Chainweb.BlockHash qualified as Chainweb
+import Chainweb.BlockHeight qualified as Chainweb
 import Chainweb.BlockPayloadHash
 import Chainweb.Crypto.MerkleLog hiding (headerProof)
 import Chainweb.Crypto.MerkleLog qualified as MerkleLog
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.PayloadProvider.EVM.Utils
+import Chainweb.Storage.Table
 import Chainweb.Utils.Serialization qualified as Chainweb
+import Control.Lens (Getter, to)
 import Control.Monad.Catch
 import Data.Aeson
 import Data.Aeson.Types (Pair)
 import Data.ByteString.Short qualified as BS
 import Data.ByteString.Short qualified as SBS
-import Data.Hashable (Hashable)
+import Data.Hashable (Hashable(..))
 import Data.MerkleLog
 import Data.Text qualified as T
 import Data.Void
@@ -73,9 +105,20 @@ import Ethereum.Misc
 import Ethereum.RLP
 import Ethereum.Utils
 import Foreign.Storable
+import GHC.Generics (Generic)
 import GHC.TypeNats
+import Data.Function
 
--- -------------------------------------------------------------------------- --
+-- --------------------------------------------------------------------------
+-- Utils
+
+numberToHeight :: BlockNumber -> Chainweb.BlockHeight
+numberToHeight n = fromIntegral n
+
+heightToNumber :: Chainweb.BlockHeight -> BlockNumber
+heightToNumber = fromIntegral
+
+-- ------- ------------------------------------------------------------------- --
 -- Header Fields for Paris Hardfork
 --
 -- The mixHash field was repurposed in the Paris hardfork to store the previous
@@ -228,19 +271,53 @@ data Header = Header
     , _hdrBlobGasUsed :: !BlobGasUsed
     , _hdrExcessBlobGas :: !ExcessBlobGas
     , _hdrParentBeaconBlockRoot :: !ParentBeaconBlockRoot
+
+    -- synthetic fields
+    , _hdrHash :: {- Lazy -} BlockHash
+        -- ^ Ethereum Execution Header Block Hash
+    , _hdrPayloadHash :: {- Lazy -} BlockPayloadHash
+        -- ^ Chainweb BlockPayloadHash
     }
-    deriving (Show, Eq)
+    deriving (Show, Generic)
+
+instance Hashable Header where
+    hashWithSalt s = hashWithSalt s . _hdrPayloadHash
+    {-# INLINEABLE hashWithSalt #-}
+
+instance Eq Header where
+    (==) = (==) `on` _hdrPayloadHash
+
+instance Ord Header where
+    compare = compare `on` (\h -> (_hdrNumber h, _hdrPayloadHash h))
+
+instance IsCasValue Header where
+    type CasKeyType Header = BlockPayloadHash
+    casKey = _hdrPayloadHash
+    {-# INLINE casKey #-}
+
+type HeaderCas tbl = Cas tbl Header
+
+_hdrHeight :: Header -> Chainweb.BlockHeight
+_hdrHeight = numberToHeight . _hdrNumber
+
+instance Hashable BlockHash where
+    hashWithSalt s h = let BlockHash r = h in hashWithSalt s r
+    {-# INLINEABLE hashWithSalt #-}
 
 -- -------------------------------------------------------------------------- --
--- Block Hash Computation
+-- Internal Block Hash Computation
 
-blockHash :: Header -> BlockHash
-blockHash = BlockHash . keccak256 . putRlpByteString
-{-# INLINE blockHash #-}
+-- | Does not force _hdrHash or _hdrPayloadHash
+--
+computeBlockHash :: Header -> BlockHash
+computeBlockHash = BlockHash . keccak256 . putRlpByteString
+{-# INLINE computeBlockHash #-}
 
-blockPayloadHash :: Header -> BlockPayloadHash
-blockPayloadHash h = BlockPayloadHash $ MerkleLogHash $ computeMerkleLogRoot h
-{-# INLINE blockPayloadHash #-}
+-- | Does not force _hdrHash or _hdrPayloadHash
+--
+computeBlockPayloadHash :: Header -> BlockPayloadHash
+computeBlockPayloadHash h = BlockPayloadHash $ MerkleLogHash $ computeMerkleLogRoot h
+{-# INLINE computeBlockPayloadHash #-}
 
 -- -------------------------------------------------------------------------- --
 -- Merkle Proofs
@@ -328,7 +405,7 @@ headerProperties o =
     , "blobGasUsed" .= _hdrBlobGasUsed o
     , "excessBlobGas" .= _hdrExcessBlobGas o
     , "parentBeaconBlockRoot" .= _hdrParentBeaconBlockRoot o
-    , "hash" .= blockHash o
+    , "hash" .= _hdrHash o
     ]
 {-# INLINE headerProperties #-}
 {-# SPECIALIZE headerProperties :: Header -> [Series] #-}
@@ -341,27 +418,34 @@ instance ToJSON Header where
     {-# INLINE toJSON #-}
 
 instance FromJSON Header where
-    parseJSON = withObject "ConsensusHeader" $ \o -> Header
-        <$> o .: "parentHash"
-        <*> o .: "sha3Uncles"
-        <*> o .: "miner"
-        <*> o .: "stateRoot"
-        <*> o .: "transactionsRoot"
-        <*> o .: "receiptsRoot"
-        <*> o .: "logsBloom"
-        <*> o .: "difficulty"
-        <*> o .: "number"
-        <*> o .: "gasLimit"
-        <*> o .: "gasUsed"
-        <*> o .: "timestamp"
-        <*> o .: "extraData"
-        <*> o .: "mixHash" -- legacy property name for prev randao
-        <*> o .: "nonce"
-        <*> o .: "baseFeePerGas"
-        <*> o .: "withdrawalsRoot"
-        <*> o .: "blobGasUsed"
-        <*> o .: "excessBlobGas"
-        <*> o .: "parentBeaconBlockRoot"
+    parseJSON v = do
+        hdr <- flip (withObject "ConsensusHeader") v $ \o -> Header
+            <$> o .: "parentHash"
+            <*> o .: "sha3Uncles"
+            <*> o .: "miner"
+            <*> o .: "stateRoot"
+            <*> o .: "transactionsRoot"
+            <*> o .: "receiptsRoot"
+            <*> o .: "logsBloom"
+            <*> o .: "difficulty"
+            <*> o .: "number"
+            <*> o .: "gasLimit"
+            <*> o .: "gasUsed"
+            <*> o .: "timestamp"
+            <*> o .: "extraData"
+            <*> o .: "mixHash" -- legacy property name for prev randao
+            <*> o .: "nonce"
+            <*> o .: "baseFeePerGas"
+            <*> o .: "withdrawalsRoot"
+            <*> o .: "blobGasUsed"
+            <*> o .: "excessBlobGas"
+            <*> o .: "parentBeaconBlockRoot"
+            <*> pure (error "Chainweb.PayloadProvider.EVM.Header: _hdrHash")
+            <*> pure (error "Chainweb.PayloadProvider.EVM.Header: _hdrPayloadHash")
+        return hdr
+            { _hdrHash = computeBlockHash hdr
+            , _hdrPayloadHash = computeBlockPayloadHash hdr
+            }
     {-# INLINE parseJSON #-}
 
 -- -------------------------------------------------------------------------- --
@@ -401,29 +485,36 @@ instance RLP Header where
         , putRlp $ _hdrParentBeaconBlockRoot hdr
         ]
 
-    getRlp = label "Header" $ getRlpL $ Header
-        <$> getRlp -- parent hash
-        <*> getRlp -- ommers hash
-        <*> getRlp -- beneficiary
-        <*> getRlp -- state root
-        <*> getRlp -- transactions root
-        <*> getRlp -- receipts root
-        <*> getRlp -- logs bloom
-        <*> getRlp -- difficulty
-        <*> getRlp -- number
-        <*> getRlp -- gas limit
-        <*> getRlp -- gas used
-        <*> getRlp -- timestamp
-        <*> getRlp -- extra data
-        <*> getRlp -- prev randao
-        <*> getRlp -- nonce
-        <*> getRlp -- base fee per gas
-        <*> getRlp -- withdrawals root
+    getRlp = label "Header" $ do
+        hdr <- getRlpL $ Header
+            <$> getRlp -- parent hash
+            <*> getRlp -- ommers hash
+            <*> getRlp -- beneficiary
+            <*> getRlp -- state root
+            <*> getRlp -- transactions root
+            <*> getRlp -- receipts root
+            <*> getRlp -- logs bloom
+            <*> getRlp -- difficulty
+            <*> getRlp -- number
+            <*> getRlp -- gas limit
+            <*> getRlp -- gas used
+            <*> getRlp -- timestamp
+            <*> getRlp -- extra data
+            <*> getRlp -- prev randao
+            <*> getRlp -- nonce
+            <*> getRlp -- base fee per gas
+            <*> getRlp -- withdrawals root
 
-        -- Cancun Hardfork
-        <*> getRlp -- blob gas used
-        <*> getRlp -- excess blob gas
-        <*> getRlp -- parent beacon block root
+            -- Cancun Hardfork
+            <*> getRlp -- blob gas used
+            <*> getRlp -- excess blob gas
+            <*> getRlp -- parent beacon block root
+            <*> pure (error "Chainweb.PayloadProvider.EVM.Header: _hdrHash")
+            <*> pure (error "Chainweb.PayloadProvider.EVM.Header: _hdrPayloadHash")
+        return hdr
+            { _hdrHash = computeBlockHash hdr
+            , _hdrPayloadHash = computeBlockPayloadHash hdr
+            }
 
     {-# INLINE putRlp #-}
     {-# INLINE getRlp #-}
@@ -561,48 +652,118 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag Header where
             :+: _hdrParentBeaconBlockRoot h
             :+: emptyBody
 
-    fromLog l = Header
-        { _hdrParentHash = hdrParentHash
-        , _hdrOmmersHash = hdrOmmersHash
-        , _hdrBeneficiary = hdrBeneficiary
-        , _hdrStateRoot = hdrStateRoot
-        , _hdrTransactionsRoot = hdrTransactionsRoot
-        , _hdrReceiptsRoot = hdrReceiptsRoot
-        , _hdrLogsBloom = hdrLogsBloom
-        , _hdrDifficulty = hdrDifficulty
-        , _hdrNumber = hdrNumber
-        , _hdrGasLimit = hdrGasLimit
-        , _hdrGasUsed = hdrGasUsed
-        , _hdrTimestamp = hdrTimestamp
-        , _hdrExtraData = hdrExtraData
-        , _hdrPrevRandao = hdrPrevRandao
-        , _hdrNonce = hdrNonce
-        , _hdrBaseFeePerGas = hdrBaseFeePerGas
-        , _hdrWithdrawalsRoot = hdrWithdrawalsRoot
-        , _hdrBlobGasUsed = hdrBlobGasUsed
-        , _hdrExcessBlobGas = hdrExcessBlobGas
-        , _hdrParentBeaconBlockRoot = hdrParentBeaconBlockRoot
+    fromLog l = hdr
+        { _hdrHash = computeBlockHash hdr
+        , _hdrPayloadHash = computeBlockPayloadHash hdr
         }
       where
-        ( hdrParentHash
-            :+: hdrOmmersHash
-            :+: hdrBeneficiary
-            :+: hdrStateRoot
-            :+: hdrTransactionsRoot
-            :+: hdrReceiptsRoot
-            :+: hdrLogsBloom
-            :+: hdrDifficulty
-            :+: hdrNumber
-            :+: hdrGasLimit
-            :+: hdrGasUsed
-            :+: hdrTimestamp
-            :+: hdrExtraData
-            :+: hdrPrevRandao
-            :+: hdrNonce
-            :+: hdrBaseFeePerGas
-            :+: hdrWithdrawalsRoot
-            :+: hdrBlobGasUsed
-            :+: hdrExcessBlobGas
-            :+: hdrParentBeaconBlockRoot
+        hdr = Header
+            { _hdrParentHash = hParentHash
+            , _hdrOmmersHash = hOmmersHash
+            , _hdrBeneficiary = hBeneficiary
+            , _hdrStateRoot = hStateRoot
+            , _hdrTransactionsRoot = hTransactionsRoot
+            , _hdrReceiptsRoot = hReceiptsRoot
+            , _hdrLogsBloom = hLogsBloom
+            , _hdrDifficulty = hDifficulty
+            , _hdrNumber = hNumber
+            , _hdrGasLimit = hGasLimit
+            , _hdrGasUsed = hGasUsed
+            , _hdrTimestamp = hTimestamp
+            , _hdrExtraData = hExtraData
+            , _hdrPrevRandao = hPrevRandao
+            , _hdrNonce = hNonce
+            , _hdrBaseFeePerGas = hBaseFeePerGas
+            , _hdrWithdrawalsRoot = hWithdrawalsRoot
+            , _hdrBlobGasUsed = hBlobGasUsed
+            , _hdrExcessBlobGas = hExcessBlobGas
+            , _hdrParentBeaconBlockRoot = hParentBeaconBlockRoot
+            , _hdrHash = error "Chainweb.PayloadProvider.EVM.Header: _hdrHash"
+            , _hdrPayloadHash = error "Chainweb.PayloadProvider.EVM.Header: _hdrPayloadHash"
+            }
+        ( hParentHash
+            :+: hOmmersHash
+            :+: hBeneficiary
+            :+: hStateRoot
+            :+: hTransactionsRoot
+            :+: hReceiptsRoot
+            :+: hLogsBloom
+            :+: hDifficulty
+            :+: hNumber
+            :+: hGasLimit
+            :+: hGasUsed
+            :+: hTimestamp
+            :+: hExtraData
+            :+: hPrevRandao
+            :+: hNonce
+            :+: hBaseFeePerGas
+            :+: hWithdrawalsRoot
+            :+: hBlobGasUsed
+            :+: hExcessBlobGas
+            :+: hParentBeaconBlockRoot
             :+: _
             ) = _merkleLogEntries l
+
+-- -------------------------------------------------------------------------- --
+-- Getter
+
+hdrParentHash :: Getter Header ParentHash
+hdrParentHash = to _hdrParentHash
+
+hdrOmmersHash :: Getter Header OmmersHash
+hdrOmmersHash = to _hdrOmmersHash
+
+hdrBeneficiary :: Getter Header Beneficiary
+hdrBeneficiary = to _hdrBeneficiary
+
+hdrStateRoot :: Getter Header StateRoot
+hdrStateRoot = to _hdrStateRoot
+
+hdrTransactionsRoot :: Getter Header TransactionsRoot
+hdrTransactionsRoot = to _hdrTransactionsRoot
+
+hdrReceiptsRoot :: Getter Header ReceiptsRoot
+hdrReceiptsRoot = to _hdrReceiptsRoot
+
+hdrLogsBloom :: Getter Header Bloom
+hdrLogsBloom = to _hdrLogsBloom
+
+hdrDifficulty :: Getter Header Difficulty
+hdrDifficulty = to _hdrDifficulty
+
+hdrNumber :: Getter Header BlockNumber
+hdrNumber = to _hdrNumber
+
+hdrGasLimit :: Getter Header GasLimit
+hdrGasLimit = to _hdrGasLimit
+
+hdrGasUsed :: Getter Header GasUsed
+hdrGasUsed = to _hdrGasUsed
+
+hdrTimestamp :: Getter Header Timestamp
+hdrTimestamp = to _hdrTimestamp
+
+hdrExtraData :: Getter Header ExtraData
+hdrExtraData = to _hdrExtraData
+
+hdrPrevRandao :: Getter Header Randao
+hdrPrevRandao = to _hdrPrevRandao
+
+hdrNonce :: Getter Header Nonce
+hdrNonce = to _hdrNonce
+
+hdrBaseFeePerGas :: Getter Header BaseFeePerGas
+hdrBaseFeePerGas = to _hdrBaseFeePerGas
+
+hdrWithdrawalsRoot :: Getter Header WithdrawalsRoot
+hdrWithdrawalsRoot = to _hdrWithdrawalsRoot
+
+hdrHeight :: Getter Header Chainweb.BlockHeight
+hdrHeight = to _hdrHeight
+
+hdrHash :: Getter Header BlockHash
+hdrHash = to _hdrHash
+
+hdrPayloadHash :: Getter Header BlockPayloadHash
+hdrPayloadHash = to _hdrPayloadHash
+
