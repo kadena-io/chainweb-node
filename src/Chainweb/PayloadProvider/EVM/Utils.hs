@@ -32,6 +32,7 @@ module Chainweb.PayloadProvider.EVM.Utils
 , fromHexBytes
 , nullHash
 , nullBlockHash
+, decodeRlpM
 ) where
 
 import Chainweb.BlockHash qualified as Chainweb
@@ -50,7 +51,7 @@ import Data.Text.Encoding qualified as T
 import Data.Text.Read qualified as T
 
 import Ethereum.Misc
-import Ethereum.RLP (RLP)
+import Ethereum.RLP (RLP, get, getRlp)
 import Ethereum.Transaction (Wei)
 import Ethereum.Utils hiding (int)
 
@@ -137,6 +138,18 @@ instance HasTextRepresentation BlockHash where
     fromText = fmap BlockHash . fromText
     {-# INLINE toText #-}
     {-# INLINE fromText #-}
+
+-- -------------------------------------------------------------------------- --
+-- RLP Encoding Tools
+
+decodeRlpM
+    :: MonadThrow m
+    => RLP a
+    => B.ByteString -> m a
+decodeRlpM bs = case get getRlp bs of
+    Left e -> throwM $ DecodeException $ (T.pack e)
+    Right x -> return x
+{-# INLINE decodeRlpM #-}
 
 -- -------------------------------------------------------------------------- --
 -- HexBytes representation for Chainweb BlockHash
