@@ -25,76 +25,75 @@ module Chainweb.Test.Pact5.RemotePactTest
     ( tests
     ) where
 
-import Pact.Core.DefPacts.Types
-import Pact.Core.SPV
+import Control.Concurrent.Async
+import Control.Exception.Safe
+import Control.Lens
+import Control.Monad (replicateM_)
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Trans.Resource (ResourceT, allocate, runResourceT)
+import Data.Aeson qualified as A
+import Data.Aeson qualified as Aeson
+import Data.Aeson.Lens qualified as A
 import Data.ByteString.Base64.URL qualified as B64U
 import Data.ByteString.Lazy qualified as BL
-import Data.Aeson qualified as A
-import Pact.Core.Command.RPC (ContMsg(..))
-import Control.Monad (replicateM_)
-import Chainweb.SPV.CreateProof (createTransactionOutputProof_)
-import Chainweb.BlockHeader (blockHeight)
-import Data.Maybe (fromMaybe)
-import Pact.Core.Names
-import Pact.Core.Capabilities
-import Pact.Core.PactValue
-import Pact.Core.Command.Server qualified as Pact5
-import Chainweb.CutDB.RestAPI.Server (someCutGetServer)
-import Network.Connection qualified as HTTP
-import Network.HTTP.Client.TLS qualified as HTTP
-import Network.Socket qualified as Network
-import Network.TLS qualified as TLS
-import Network.Wai.Handler.Warp qualified as W
-import Network.Wai.Handler.WarpTLS qualified as W
-import Chainweb.RestAPI.Utils (someServerApplication)
-import "pact" Pact.Types.API qualified as Pact4
-import "pact" Pact.Types.Hash qualified as Pact4
-import Chainweb.ChainId
-import Chainweb.Graph (singletonChainGraph, petersonChainGraph)
-import Chainweb.Mempool.Mempool (TransactionHash(..))
-import Chainweb.Pact.RestAPI.Client
-import Chainweb.Pact.RestAPI.Server
-import Chainweb.Pact.Types
-import Chainweb.Storage.Table.RocksDB
-import Chainweb.Test.Pact5.CmdBuilder
-import Chainweb.Test.Pact5.CutFixture qualified as CutFixture
-import Chainweb.Test.Pact5.Utils
-import Chainweb.Test.TestVersions
-import Chainweb.Test.Utils (deadbeef, TestPact5CommandResult)
-import Chainweb.Utils
-import Chainweb.Version
-import Chainweb.WebPactExecutionService
-import Control.Concurrent
-import Control.Exception (Exception, AsyncException(..), try)
-import Control.Lens
-import Control.Monad.Catch (throwM)
-import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Resource (ResourceT, runResourceT, allocate)
-import Data.Aeson qualified as Aeson
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
 import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NE
+import Data.Maybe (fromMaybe)
+import Data.String (fromString)
 import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
+import Network.Connection qualified as HTTP
+import Network.HTTP.Client.TLS qualified as HTTP
+import Network.Socket qualified as Network
+import Network.TLS qualified as TLS
+import Network.Wai.Handler.Warp qualified as W
+import Network.Wai.Handler.WarpTLS qualified as W
 import Network.X509.SelfSigned
-import Pact.Core.Command.Types
-import Pact.Core.Gas.Types
-import Pact.Core.Hash qualified as Pact5
-import Pact.JSON.Encode qualified as J
 import PropertyMatchers ((?))
 import PropertyMatchers qualified as P
 import Servant.Client
 import Test.Tasty
-import Test.Tasty.HUnit (assertEqual, testCase)
-import qualified Pact.Types.Command as Pact4
-import qualified Pact.Core.Command.Types as Pact5
-import qualified Data.HashMap.Strict as HM
-import GHC.Stack (HasCallStack)
-import Data.String (fromString)
-import qualified Data.Text.Encoding as T
-import qualified Data.Text as T
+import Test.Tasty.HUnit (assertEqual, testCase, testCaseSteps)
+
+import Pact.Core.Capabilities
+import Pact.Core.Command.RPC (ContMsg (..))
+import Pact.Core.Command.Server qualified as Pact5
+import Pact.Core.Command.Types
+import Pact.Core.DefPacts.Types
+import Pact.Core.Gas.Types
+import Pact.Core.Hash qualified as Pact5
+import Pact.Core.Names
+import Pact.Core.PactValue
+import Pact.Core.SPV
+import Pact.JSON.Encode qualified as J
+import Pact.Types.Command qualified as Pact4
+import Pact.Types.API qualified as Pact4
+import Pact.Types.Hash qualified as Pact4
+
+import Chainweb.BlockHeader (blockHeight)
+import Chainweb.ChainId
+import Chainweb.CutDB.RestAPI.Server (someCutGetServer)
+import Chainweb.Graph (petersonChainGraph, singletonChainGraph)
+import Chainweb.Mempool.Mempool (TransactionHash (..))
+import Chainweb.Pact.RestAPI.Client
+import Chainweb.Pact.RestAPI.Server
+import Chainweb.Pact.Types
+import Chainweb.RestAPI.Utils (someServerApplication)
+import Chainweb.SPV.CreateProof (createTransactionOutputProof_)
+import Chainweb.Storage.Table.RocksDB
+import Chainweb.Test.Pact5.CmdBuilder
+import Chainweb.Test.Pact5.CutFixture qualified as CutFixture
+import Chainweb.Test.Pact5.Utils
+import Chainweb.Test.TestVersions
+import Chainweb.Test.Utils (TestPact5CommandResult, deadbeef)
+import Chainweb.Utils
+import Chainweb.Version
+import Chainweb.WebPactExecutionService
 
 data Fixture = Fixture
     { _cutFixture :: CutFixture.Fixture
@@ -122,10 +121,10 @@ mkFixture v baseRdb = do
     -- Run pact server API
     (port, socket) <- snd <$> allocate W.openFreePort (Network.close . snd)
     _ <- allocate
-        (forkIO $ do
+        (async $
             W.runTLSSocket (tlsServerSettings cert key) W.defaultSettings socket app
         )
-        (\tid -> throwTo tid ThreadKilled)
+        cancel
 
     serviceClientEnv <- liftIO $ do
         let defaultTLSSettings = (HTTP.TLSSettingsSimple True False False TLS.defaultSupported)
@@ -148,6 +147,7 @@ tests rdb = testGroup "Pact5 RemotePactTest"
     , testCase "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
     , testCase "spvTest" (spvTest rdb)
     , testCase "invalidTxsTest" (invalidTxsTest rdb)
+    , testCaseSteps "caplistTest" (caplistTest rdb)
     ]
 
 pollingInvalidRequestKeyTest :: RocksDb -> IO ()
@@ -385,6 +385,51 @@ invalidTxsTest baseRdb = runResourceT $ do
         sending v cid clientEnv (NE.fromList [cmdGood, cmdInvalidUserSig])
             & fails ? assertExnContains (validationFailedPrefix cmdInvalidUserSig <> "Invalid transaction sigs")
 
+caplistTest :: RocksDb -> (String -> IO ()) -> IO ()
+caplistTest baseRdb step = runResourceT $ do
+    let testCaseStep m = liftIO (step m)
+
+    testCaseStep "setting up"
+    let v = pact5InstantCpmTestVersion petersonChainGraph
+    fixture <- mkFixture v baseRdb
+    let clientEnv = fixture ^. serviceClientEnv
+
+    let cid = unsafeChainId 0
+
+    liftIO $ do
+
+        tx0 <- buildTextCmd v
+            $ set cbSigners
+                [ mkEd25519Signer' sender00
+                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
+                    , CapToken (QualifiedName "TRANSFER" (ModuleName "coin" Nothing))
+                        [ PString "sender00"
+                        , PString "sender01"
+                        , PDecimal 100.0
+                        ]
+                    ]
+                ]
+            $ set cbChainId cid
+            $ set cbRPC (mkExec "(coin.transfer \"sender00\" \"sender01\" 100.0)" PUnit)
+            $ defaultCmd
+
+        testCaseStep "sending"
+
+        recvReqKey <- fmap NE.head $ sending v cid clientEnv (NE.fromList [tx0])
+
+        testCaseStep "advancing chains"
+
+        CutFixture.advanceAllChains_ (fixture ^. cutFixture)
+
+        testCaseStep "polling"
+
+        polling v cid clientEnv (NE.fromList [recvReqKey]) >>=
+            P.propful ? HashMap.singleton recvReqKey ?
+                P.allTrue
+                    [ P.fun _crResult ? P.match (_PactResultOk . _PString) ? P.equals "Write succeeded"
+                    , P.fun _crMetaData ? P.match (_Just . A._Object . at "blockHash") ? P.match _Just P.succeed
+                    ]
+
 
 {-
           recvPwos <- runCutWithTx v pacts targetMempoolRef blockDb $ \_n _bHeight _bHash bHeader -> do
@@ -397,6 +442,7 @@ invalidTxsTest baseRdb = runResourceT $ do
               $ set cbTTL 100
               $ defaultCmd
 -}
+
 {-
 spvTest :: Pact.TxCreationTime -> ClientEnv -> (String -> IO ()) -> IO ()
 spvTest t cenv step = do
