@@ -115,7 +115,7 @@ mkFixture v pactServiceConfig baseRdb = do
             , _fixtureMempools = OnChains $ fst <$> perChain
             , _fixturePactQueues = OnChains $ snd <$> perChain
             }
-    _ <- liftIO $ advanceAllChains v fixture
+    _ <- liftIO $ advanceAllChains fixture
     return fixture
 
 -- | Advance all chains by one block, filling that block with whatever is in
@@ -123,10 +123,10 @@ mkFixture v pactServiceConfig baseRdb = do
 --
 advanceAllChains
     :: HasCallStack
-    => ChainwebVersion
-    -> Fixture
+    => Fixture
     -> IO (Cut, ChainMap (Vector (CommandResult Pact5.Hash Text)))
-advanceAllChains v Fixture{..} = do
+advanceAllChains Fixture{..} = do
+    let v = _chainwebVersion _fixtureCutDb
     latestCut <- liftIO $ _fixtureCutDb ^. cut
     let blockHeights = fmap (view blockHeight) $ latestCut ^. cutMap
     let latestBlockHeight = maximum blockHeights
@@ -149,10 +149,9 @@ advanceAllChains v Fixture{..} = do
 
 advanceAllChains_
     :: HasCallStack
-    => ChainwebVersion
-    -> Fixture
+    => Fixture
     -> IO ()
-advanceAllChains_ v f = void $ advanceAllChains v f
+advanceAllChains_ f = void $ advanceAllChains f
 
 withTestCutDb :: (Logger logger)
     => logger

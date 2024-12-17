@@ -171,7 +171,7 @@ pollingConfirmationDepthTest baseRdb = runResourceT $ do
         pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 0)) >>= \response -> do
             assertEqual "there are no command results at depth 0" response HashMap.empty
 
-        CutFixture.advanceAllChains_ v (fixture ^. cutFixture)
+        CutFixture.advanceAllChains_ (fixture ^. cutFixture)
 
         pollingWithDepth v cid clientEnv rks Nothing >>= \response -> do
             assertEqual "results are visible at depth 0" 2 (HashMap.size response)
@@ -180,7 +180,7 @@ pollingConfirmationDepthTest baseRdb = runResourceT $ do
         pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 1)) >>= \response -> do
             assertEqual "results are not visible at depth 1" 0 (HashMap.size response)
 
-        CutFixture.advanceAllChains_ v (fixture ^. cutFixture)
+        CutFixture.advanceAllChains_ (fixture ^. cutFixture)
 
         pollingWithDepth v cid clientEnv rks Nothing >>= \response -> do
             assertEqual "results are visible at depth 0" 2 (HashMap.size response)
@@ -191,7 +191,7 @@ pollingConfirmationDepthTest baseRdb = runResourceT $ do
         pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 2)) >>= \response -> do
             assertEqual "results are not visible at depth 2" 0 (HashMap.size response)
 
-        CutFixture.advanceAllChains_ v (fixture ^. cutFixture)
+        CutFixture.advanceAllChains_ (fixture ^. cutFixture)
 
         pollingWithDepth v cid clientEnv rks Nothing >>= \response -> do
             assertEqual "results are visible at depth 0" 2 (HashMap.size response)
@@ -236,12 +236,12 @@ spvTest baseRdb = runResourceT $ do
             $ defaultCmd
 
         sendReqKey <- fmap NE.head $ sending v srcChain clientEnv (NE.singleton send)
-        (sendCut, _) <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
+        (sendCut, _) <- CutFixture.advanceAllChains (fixture ^. cutFixture)
         sendCr <- fmap (HashMap.! sendReqKey) $ pollingWithDepth v srcChain clientEnv (NE.singleton sendReqKey) (Just (ConfirmationDepth 0))
         let cont = fromMaybe (error "missing continuation") (_crContinuation sendCr)
 
         _ <- replicateM_ 10 $ do
-            CutFixture.advanceAllChains v (fixture ^. cutFixture)
+            CutFixture.advanceAllChains (fixture ^. cutFixture)
         let sendHeight = sendCut ^?! ixg srcChain . blockHeight
         spvProof <- createTransactionOutputProof_ (fixture ^. cutFixture . CutFixture.fixtureWebBlockHeaderDb) (fixture ^. cutFixture . CutFixture.fixturePayloadDb) targetChain srcChain sendHeight 0
         let contMsg = ContMsg
@@ -264,7 +264,7 @@ spvTest baseRdb = runResourceT $ do
             $ set cbGasLimit (GasLimit (Gas 1_000))
             $ defaultCmd
         recvReqKey <- fmap NE.head $ sending v targetChain clientEnv (NE.singleton recv)
-        _ <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
+        _ <- CutFixture.advanceAllChains (fixture ^. cutFixture)
         recvCr <- fmap (HashMap.! recvReqKey) $ polling v targetChain clientEnv (NE.singleton recvReqKey)
         recvCr
             & P.allTrue
