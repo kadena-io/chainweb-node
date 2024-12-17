@@ -90,9 +90,6 @@ module Chainweb.Cut
 -- * Meet
 , meet
 
--- * Misc internal tools
-, zipCuts
-
 ) where
 
 import Control.DeepSeq
@@ -109,7 +106,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Heap as H
 import qualified Data.List as List
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Monoid
 import Data.Ord
 import Data.Text (Text)
@@ -730,7 +727,7 @@ join_
     -> HM.HashMap ChainId BlockHeader
     -> IO (Join a)
 join_ wdb prioFun a b = do
-    (m, h) <- runStateT (HM.traverseWithKey f (zipChainIdMaps a' b')) mempty
+    (m, h) <- runStateT (HM.traverseWithKey f (HM.intersectionWith (,) a' b')) mempty
     return $! Join (Cut' m (_chainwebVersion wdb)) h
   where
     (a', b') = joinChains a b
@@ -753,27 +750,6 @@ join_ wdb prioFun a b = do
         -> H.Heap (H.Entry (BlockHeight, a) BlockHeader)
     maybeInsert !q (_, Nothing) = q
     maybeInsert !q (!h, (Just !p)) = H.insert (H.Entry (view blockHeight h, p) h) q
-
-    -- | Only chain ids of the intersection are included in the result.
-    --
-    zipChainIdMaps
-        :: HM.HashMap ChainId BlockHeader
-        -> HM.HashMap ChainId BlockHeader
-        -> HM.HashMap ChainId (BlockHeader, BlockHeader)
-    zipChainIdMaps m0 m1 = HM.intersectionWith (,) m0 m1
-
--- | If the cuts are from different graphs only the chain ids of the
--- intersection are included in the result.
---
-zipCuts
-    :: Cut
-    -> Cut
-    -> HM.HashMap ChainId (BlockHeader, BlockHeader)
-zipCuts a b =
-    HM.intersectionWith
-        (,)
-        (_cutHeaders a)
-        (_cutHeaders b)
 
 -- This can't fail because of missing dependencies. It can't fail because
 -- of conflict.
@@ -838,7 +814,7 @@ prioritizeHeavier = prioritizeHeavier_ `on` _cutHeaders
 --
 prioritizeHeavier_
     :: Foldable f
-    => Ord (f BlockHeader)
+    => Eq (f BlockHeader)
     => f BlockHeader
     -> f BlockHeader
     -> DiffItem BlockHeader
@@ -860,9 +836,18 @@ prioritizeHeavier_ a b = f
         , sumOf (folded . blockHeight) c
             -- for scenarios with trivial difficulty height is added as
             -- secondary metrics
-        , c
+
+        -- NOTE:
+        -- We could consider prioritizing the latest block in the cut here as
+        -- first-level tie breaker. That would further incentivize miners to use
+        -- a block creation time that is close to the real world time (note that
+        -- blocks from the future are rejected, so post-dating blocks is risky
+        -- for miners.)
+
+        , List.sort (toList c)
             -- the block hashes of the cut are added as tie breaker in order
             -- to guarantee commutativity.
+            --
         )
 
 -- -------------------------------------------------------------------------- --
@@ -876,10 +861,10 @@ meet
     -> Cut
     -> IO Cut
 meet wdb a b = do
-    !r <- HM.traverseWithKey f (zipCuts a b)
+    !r <- imapM f $ HM.intersectionWith (,) (_cutHeaders a) (_cutHeaders b)
     return $! Cut' r (_chainwebVersion wdb)
   where
-    f cid (!x, !y) = do
+    f !cid (!x, !y) = do
         db <- getWebBlockHeaderDb wdb cid
         forkEntry db x y
 
@@ -892,9 +877,10 @@ forkDepth wdb a b = do
     m <- meet wdb a b
     return $! int $ max (maxDepth m a) (maxDepth m b)
   where
-    maxDepth l u = maximum
-        $ (\(x, y) -> view blockHeight y - view blockHeight x)
-        <$> zipCuts l u
+    maxDepth l u = maximum $ HM.intersectionWith
+        (\x y -> view blockHeight y - view blockHeight x)
+        (_cutHeaders l)
+        (_cutHeaders u)
 
 cutToTextShort :: Cut -> [Text]
 cutToTextShort c =

@@ -686,7 +686,9 @@ cutStreamToHeaderStream
 cutStreamToHeaderStream db s = S.for (go Nothing s) $ \(T2 p n) ->
     S.foldrT
         (\(cid, a, b) x -> void $ S.mergeOn uniqueBlockNumber x (branch cid a b))
-        (S.each [ (cid, x, y) | (cid, (x, y)) <- HM.toList (zipCuts p n) ])
+        (iforM_ (HM.intersectionWith (,) (_cutMap p) (_cutMap n)) $ \cid (x, y) ->
+            S.yield (cid, x, y)
+        )
   where
     go :: Maybe Cut -> S.Stream (Of Cut) m r -> S.Stream (Of (T2 Cut Cut)) m r
     go c st = lift (S.next st) >>= \case
@@ -713,7 +715,9 @@ cutStreamToHeaderDiffStream
 cutStreamToHeaderDiffStream db s = S.for (cutUpdates Nothing s) $ \(T2 p n) ->
     S.foldrT
         (\(cid, a, b) x -> void $ S.mergeOn toOrd x (branch cid a b))
-        (S.each [ (cid, x, y) | (cid, (x, y)) <- HM.toList (zipCuts p n)])
+        (iforM_ (HM.intersectionWith (,) (_cutMap p) (_cutMap n)) $ \cid (x, y) ->
+            S.yield (cid, x, y)
+        )
   where
     cutUpdates :: Maybe Cut -> S.Stream (Of Cut) m r -> S.Stream (Of (T2 Cut Cut)) m r
     cutUpdates c st = lift (S.next st) >>= \case
