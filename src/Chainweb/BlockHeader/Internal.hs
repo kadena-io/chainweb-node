@@ -94,6 +94,10 @@ module Chainweb.BlockHeader.Internal
 , blockPow
 , _blockAdjacentChainIds
 , blockAdjacentChainIds
+, _rankedBlockHash
+, rankedBlockHash
+, _rankedBlockPayloadHash
+, rankedBlockPayloadHash
 , encodeBlockHeader
 , encodeBlockHeaderWithoutHash
 , decodeBlockHeader
@@ -119,21 +123,24 @@ module Chainweb.BlockHeader.Internal
 , genesisBlockHeaders
 , genesisBlockHeadersAtHeight
 , genesisHeight
-, guardBlockHeader
-, headerSizes
-, headerSizeBytes
-, workSizeBytes
 
 -- * Create a new BlockHeader
 , newBlockHeader
 
 -- * CAS Constraint
 , BlockHeaderCas
+
+-- * Misc
+, guardBlockHeader
+, headerSizes
+, headerSizeBytes
+, workSizeBytes
 ) where
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
+import Chainweb.BlockPayloadHash
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
@@ -141,7 +148,6 @@ import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
-import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.Storage.Table
 import Chainweb.Time
@@ -163,10 +169,14 @@ import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.Function (on)
 import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
 import Data.Hashable
 import Data.IORef
 import Data.Kind
+import Data.Memory.Endian qualified as BA
 import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
+import Data.Text qualified as T
 import Data.Word
 import GHC.Generics (Generic)
 import GHC.Stack
@@ -174,10 +184,6 @@ import Numeric.AffineSpace
 import Numeric.Natural
 import System.IO.Unsafe
 import Text.Read (readEither)
-import Data.HashMap.Strict qualified as HM
-import Data.HashSet qualified as HS
-import Data.Memory.Endian qualified as BA
-import Data.Text qualified as T
 
 -- -------------------------------------------------------------------------- --
 -- Nonce
@@ -392,6 +398,7 @@ type BlockHeaderCas tbl = Cas tbl BlockHeader
 -- | Used for quickly identifying "which block" this is.
 -- Example output:
 -- "0 @ bSQgL5 (height 4810062)"
+--
 blockHeaderShortDescription :: BlockHeader -> T.Text
 blockHeaderShortDescription bh =
     T.unwords
@@ -1108,6 +1115,9 @@ instance TreeDbEntry BlockHeader where
         | isGenesisBlockHeader e = Nothing
         | otherwise = Just (_blockParent e)
 
+-- -------------------------------------------------------------------------- --
+-- Misc
+
 -- | This is an internal function. Use 'headerSizeBytes' instead.
 --
 -- Postconditions: for all @v@
@@ -1163,5 +1173,30 @@ workSizeBytes
 workSizeBytes v h = headerSizeBytes v (unsafeChainId 0) h - 32
 
 -- | TODO document
+--
 guardBlockHeader :: (ChainwebVersion -> ChainId -> BlockHeight -> a) -> BlockHeader -> a
 guardBlockHeader k bh = k (_chainwebVersion bh) (_chainId bh) (_blockHeight bh)
+
+
+_rankedBlockHash :: BlockHeader -> RankedBlockHash
+_rankedBlockHash h = RankedBlockHash
+    { _rankedBlockHashHeight = _blockHeight h
+    , _rankedBlockHashHash = _blockHash h
+    }
+{-# INLINE _rankedBlockHash #-}
+
+rankedBlockHash :: Getter BlockHeader RankedBlockHash
+rankedBlockHash = to _rankedBlockHash
+{-# INLINE rankedBlockHash #-}
+
+_rankedBlockPayloadHash :: BlockHeader -> RankedBlockPayloadHash
+_rankedBlockPayloadHash h = RankedBlockPayloadHash
+    { _rankedBlockPayloadHashHeight = _blockHeight h
+    , _rankedBlockPayloadHashHash = _blockPayloadHash h
+    }
+{-# INLINE _rankedBlockPayloadHash #-}
+
+rankedBlockPayloadHash :: Getter BlockHeader RankedBlockPayloadHash
+rankedBlockPayloadHash = to _rankedBlockPayloadHash
+{-# INLINE rankedBlockPayloadHash #-}
+

@@ -6,6 +6,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 -- |
 -- Module: Chainweb.BlockPayloadHash
@@ -19,22 +21,33 @@ module Chainweb.BlockPayloadHash
 , BlockPayloadHash_(..)
 , encodeBlockPayloadHash
 , decodeBlockPayloadHash
+, nullBlockPayloadHash
+
+-- * Ranked Block Payload Hash
+, type RankedBlockPayloadHash
+, pattern RankedBlockPayloadHash
+, _rankedBlockPayloadHashHash
+, _rankedBlockPayloadHashHeight
+, encodeRankedBlockPayloadHash
+, decodeRankedBlockPayloadHash
 ) where
 
 import Control.DeepSeq
 import Control.Monad
 
 import Data.Aeson
-import qualified Data.ByteArray as BA
+import Data.ByteArray qualified as BA
 import Data.Hashable
 
 import GHC.Generics (Generic)
 
 -- internal modules
 
+import Chainweb.BlockHeight
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
+import Chainweb.Ranked
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
@@ -95,3 +108,30 @@ instance HasTextRepresentation BlockPayloadHash where
   fromText = fmap BlockPayloadHash . fromText
   {-# INLINE toText #-}
   {-# INLINE fromText #-}
+
+nullBlockPayloadHash :: MerkleHashAlgorithm a => BlockPayloadHash_ a
+nullBlockPayloadHash = BlockPayloadHash nullHashBytes
+{-# INLINE nullBlockPayloadHash #-}
+
+-- -------------------------------------------------------------------------- --
+-- Ranked Block Payload Hash
+
+type RankedBlockPayloadHash = Ranked BlockPayloadHash
+
+pattern RankedBlockPayloadHash
+    :: BlockHeight
+    -> BlockPayloadHash
+    -> RankedBlockPayloadHash
+pattern RankedBlockPayloadHash
+    { _rankedBlockPayloadHashHeight
+    , _rankedBlockPayloadHashHash
+    }
+    = Ranked _rankedBlockPayloadHashHeight _rankedBlockPayloadHashHash
+{-# COMPLETE RankedBlockPayloadHash #-}
+
+encodeRankedBlockPayloadHash :: RankedBlockPayloadHash -> Put
+encodeRankedBlockPayloadHash = encodeRanked encodeBlockPayloadHash
+
+decodeRankedBlockPayloadHash :: Get RankedBlockPayloadHash
+decodeRankedBlockPayloadHash = decodeRanked decodeBlockPayloadHash
+

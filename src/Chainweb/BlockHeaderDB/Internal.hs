@@ -69,7 +69,6 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
 import Chainweb.ChainId
-import Chainweb.RankedBlockHash
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec)
 import Chainweb.Utils.Paging
@@ -292,7 +291,7 @@ instance TreeDb BlockHeaderDb where
     keys db k l mir mar f = withSeekTreeDb db k mir $ \it -> f $ do
         iterToKeyStream it
             & maybe id (\x -> S.takeWhile (\a -> int (_rankedBlockHashHeight a) <= x)) mar
-            & S.map _rankedBlockHash
+            & S.map _rankedBlockHashHash
             & limitStream l
     {-# INLINEABLE keys #-}
 
