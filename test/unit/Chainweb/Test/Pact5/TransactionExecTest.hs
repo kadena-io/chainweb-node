@@ -363,7 +363,7 @@ runPayloadShouldReturnEvalResultRelatedToTheInputCommand rdb = readFromAfterGene
                 (TransactionEnv logger gasEnv)
         gasUsed <- readIORef (_geGasRef gasEnv)
 
-        assertEqual "runPayload gas used" (MilliGas 3_750) gasUsed
+        assertEqual "runPayload gas used" (MilliGas 1_750) gasUsed
 
         pure payloadResult >>= P.match _Right ? P.allTrue
             [ P.fun _erOutput ? P.equals [InterpretValue (PInteger 15) noInfo]
@@ -401,7 +401,7 @@ applyLocalSpec rdb = readFromAfterGenesis v rdb $
                 [ P.fun _crEvents ? P.equals ? []
                 , P.fun _crResult ? P.equals ? PactResultOk (PInteger 15)
                 -- reflects payload gas usage
-                , P.fun _crGas ? P.equals ? Gas 4
+                , P.fun _crGas ? P.equals ? Gas 2
                 , P.fun _crContinuation ? P.equals ? Nothing
                 , P.fun _crLogs ? P.equals ? Just []
                 , P.fun _crMetaData ? P.match _Just P.succeed
@@ -432,7 +432,7 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $
             , _cbGasLimit = GasLimit (Gas 500)
             }
         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
-        let expectedGasConsumed = 116
+        let expectedGasConsumed = 58
         logger <- testLogger
         applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
             >>= P.match _Right
@@ -441,7 +441,7 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $
                 [ P.fun _crEvents ? P.list
                     [ event
                         (P.equals "TRANSFER")
-                        (P.equals [PString "sender00", PString "NoMiner", PDecimal 232.0])
+                        (P.equals [PString "sender00", PString "NoMiner", PDecimal 116.0])
                         (P.equals coinModuleName)
                     ]
                 , P.fun _crResult ? P.equals ? PactResultOk (PInteger 15)
@@ -506,12 +506,12 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
                     [ P.fun _crEvents ? P.list
                         [ event
                             (P.equals "TRANSFER")
-                            (P.equals [PString "sender00", PString "NoMiner", PDecimal 904])
+                            (P.equals [PString "sender00", PString "NoMiner", PDecimal 452])
                             (P.equals coinModuleName)
                         ]
                     , P.fun _crResult ? P.equals ? PactResultOk (PString "Loaded module free.m, hash Uj0lQPPu9CKvw13K4VP4DZoaPKOphk_-vuq823hLSLo")
                     -- reflects buyGas gas usage, as well as that of the payload
-                    , P.fun _crGas ? P.equals ? Gas 452
+                    , P.fun _crGas ? P.equals ? Gas 226
                     , P.fun _crContinuation ? P.equals ? Nothing
                     ]
 
@@ -573,12 +573,12 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
                     [ P.fun _crEvents ? P.list
                         [ event
                             (P.equals "TRANSFER")
-                            (P.equals [PString "sender00", PString "NoMiner", PDecimal 264])
+                            (P.equals [PString "sender00", PString "NoMiner", PDecimal 132])
                             (P.equals coinModuleName)
                         ]
                     , P.fun _crResult ? P.equals ? PactResultOk (PInteger 1)
                     -- reflects buyGas gas usage, as well as that of the payload
-                    , P.fun _crGas ? P.equals ? Gas 132
+                    , P.fun _crGas ? P.equals ? Gas 66
                     , P.fun _crContinuation ? P.equals ? Nothing
                     , P.fun _crMetaData ? P.equals ? Nothing
                     ]
@@ -662,7 +662,7 @@ applyCmdCoinTransfer rdb = readFromAfterGenesis v rdb $ do
             , _cbGasLimit = GasLimit (Gas 1_000)
             }
         -- Note: if/when core changes gas prices, tweak here.
-        let expectedGasConsumed = 344
+        let expectedGasConsumed = 172
         logger <- testLogger
         e <- applyCmd logger (Just logger) pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
         e & P.match _Right
@@ -675,7 +675,7 @@ applyCmdCoinTransfer rdb = readFromAfterGenesis v rdb $ do
                         (P.equals coinModuleName)
                     , event
                         (P.equals "TRANSFER")
-                        (P.equals [PString "sender00", PString "NoMiner", PDecimal 34.4])
+                        (P.equals [PString "sender00", PString "NoMiner", PDecimal 17.2])
                         (P.equals coinModuleName)
                     ]
                 , P.fun _crResult ? P.equals ? PactResultOk (PString "Write succeeded")
@@ -711,7 +711,7 @@ applyCmdCoinTransfer rdb = readFromAfterGenesis v rdb $ do
                 ]
 
         endSender00Bal <- readBal pactDb "sender00"
-        assertEqual "ending balance should be less gas money" (Just 99_999_545.6) endSender00Bal
+        assertEqual "ending balance should be less gas money" (Just 99_999_562.8) endSender00Bal
         endMinerBal <- readBal pactDb "NoMiner"
         assertEqual "miner balance after redeeming gas should have increased"
             (Just $ fromMaybe 0 startMinerBal + (fromIntegral expectedGasConsumed * 0.1))
@@ -806,7 +806,7 @@ testEventOrdering rdb = readFromAfterGenesis v rdb $
                         (P.equals coinModuleName)
                     , event
                         (P.equals "TRANSFER")
-                        (P.equals [PString "sender00", PString "NoMiner", PDecimal 1156])
+                        (P.equals [PString "sender00", PString "NoMiner", PDecimal 578])
                         (P.equals coinModuleName)
                     ]
                 ]
