@@ -8,6 +8,7 @@
     , LambdaCase
     , NumericUnderscores
     , OverloadedStrings
+    , PatternSynonyms
     , PackageImports
     , ScopedTypeVariables
     , TypeApplications
@@ -20,6 +21,8 @@
 
 -- temporary
 {-# options_ghc -Wwarn -fno-warn-name-shadowing -fno-warn-unused-top-binds #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
 module Chainweb.Test.Pact5.RemotePactTest
     ( tests
@@ -168,48 +171,71 @@ pollingConfirmationDepthTest baseRdb = runResourceT $ do
     fixture <- mkFixture v baseRdb
     let clientEnv = fixture ^. serviceClientEnv
 
+    let trivialTx :: ChainId -> Word -> CmdBuilder
+        trivialTx cid n = defaultCmd
+            { _cbRPC = mkExec' (sshow n)
+            , _cbSigners =
+                [ mkEd25519Signer' sender00 []
+                ]
+            , _cbSender = "sender00"
+            , _cbChainId = cid
+            , _cbGasPrice = GasPrice 0.1
+            , _cbGasLimit = GasLimit (Gas 1_000)
+            }
+
     liftIO $ do
         cmd1 <- buildTextCmd v (trivialTx cid 42)
         cmd2 <- buildTextCmd v (trivialTx cid 43)
-        rks <- sending v cid clientEnv (cmd1 NE.:| [cmd2])
+        let rks = Pact5.cmdToRequestKey cmd1 NE.:| [Pact5.cmdToRequestKey cmd2]
 
-        pollingWithDepth v cid clientEnv rks Nothing >>= \response -> do
-            assertEqual "there are no command results at depth 0" response HashMap.empty
-        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 0)) >>= \response -> do
-            assertEqual "there are no command results at depth 0" response HashMap.empty
+        let expectSuccessful :: (HasCallStack, _) => P.Prop (HashMap RequestKey (CommandResult _ _))
+            expectSuccessful = P.propful ? HM.fromList
+                [ (Pact5.cmdToRequestKey cmd1, P.fun _crResult ? P.equals (PactResultOk (PInteger 42)))
+                , (Pact5.cmdToRequestKey cmd2, P.fun _crResult ? P.equals (PactResultOk (PInteger 43)))
+                ]
+        let expectEmpty :: (HasCallStack, _) => _
+            expectEmpty = P.equals HashMap.empty
 
-        CutFixture.advanceAllChains_ v (fixture ^. cutFixture)
+        sending v cid clientEnv (cmd1 NE.:| [cmd2])
+            >>= P.equals rks
 
-        pollingWithDepth v cid clientEnv rks Nothing >>= \response -> do
-            assertEqual "results are visible at depth 0" 2 (HashMap.size response)
-        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 0)) >>= \response -> do
-            assertEqual "results are visible at depth 0" 2 (HashMap.size response)
-        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 1)) >>= \response -> do
-            assertEqual "results are not visible at depth 1" 0 (HashMap.size response)
-
-        CutFixture.advanceAllChains_ v (fixture ^. cutFixture)
-
-        pollingWithDepth v cid clientEnv rks Nothing >>= \response -> do
-            assertEqual "results are visible at depth 0" 2 (HashMap.size response)
-        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 0)) >>= \response -> do
-            assertEqual "results are visible at depth 0" 2 (HashMap.size response)
-        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 1)) >>= \response -> do
-            assertEqual "results are visible at depth 1" 2 (HashMap.size response)
-        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 2)) >>= \response -> do
-            assertEqual "results are not visible at depth 2" 0 (HashMap.size response)
+        pollingWithDepth v cid clientEnv rks Nothing
+            >>= expectEmpty
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 0))
+            >>= expectEmpty
 
         CutFixture.advanceAllChains_ v (fixture ^. cutFixture)
 
-        pollingWithDepth v cid clientEnv rks Nothing >>= \response -> do
-            assertEqual "results are visible at depth 0" 2 (HashMap.size response)
-        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 0)) >>= \response -> do
-            assertEqual "results are visible at depth 0" 2 (HashMap.size response)
-        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 1)) >>= \response -> do
-            assertEqual "results are visible at depth 1" 2 (HashMap.size response)
-        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 2)) >>= \response -> do
-            assertEqual "results are visible at depth 2" 2 (HashMap.size response)
-        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 3)) >>= \response -> do
-            assertEqual "results are not visible at depth 3" 0 (HashMap.size response)
+        pollingWithDepth v cid clientEnv rks Nothing
+            >>= expectSuccessful
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 0))
+            >>= expectSuccessful
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 1))
+            >>= expectEmpty
+
+        CutFixture.advanceAllChains_ v (fixture ^. cutFixture)
+
+        pollingWithDepth v cid clientEnv rks Nothing
+            >>= expectSuccessful
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 0))
+            >>= expectSuccessful
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 1))
+            >>= expectSuccessful
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 2))
+            >>= expectEmpty
+
+        CutFixture.advanceAllChains_ v (fixture ^. cutFixture)
+
+        pollingWithDepth v cid clientEnv rks Nothing
+            >>= expectSuccessful
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 0))
+            >>= expectSuccessful
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 1))
+            >>= expectSuccessful
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 2))
+            >>= expectSuccessful
+        pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 3))
+            >>= expectEmpty
 
         return ()
 
@@ -499,18 +525,6 @@ toPact4Command :: Command Text -> Pact4.Command Text
 toPact4Command cmd4 = case Aeson.eitherDecodeStrictText (J.encodeText cmd4) of
     Left err -> error $ "toPact4Command: decode failed: " ++ err
     Right cmd5 -> cmd5
-
-trivialTx :: ChainId -> Word -> CmdBuilder
-trivialTx cid n = defaultCmd
-    { _cbRPC = mkExec' (sshow n)
-    , _cbSigners =
-        [ mkEd25519Signer' sender00 []
-        ]
-    , _cbSender = "sender00"
-    , _cbChainId = cid
-    , _cbGasPrice = GasPrice 0.1
-    , _cbGasLimit = GasLimit (Gas 1_000)
-    }
 
 _successfulTx :: P.Prop (CommandResult log err)
 _successfulTx = P.fun _crResult ? P.match _PactResultOk P.succeed
