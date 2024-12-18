@@ -60,8 +60,7 @@ import Chainweb.Test.Pact5.CmdBuilder
 import Chainweb.Test.Pact5.CutFixture qualified as CutFixture
 import Chainweb.Test.Pact5.Utils
 import Chainweb.Test.TestVersions
-import Chainweb.Test.Utils (deadbeef)
-import Chainweb.Test.Utils (testRetryPolicy)
+import Chainweb.Test.Utils (deadbeef, TestPact5CommandResult)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
@@ -84,7 +83,8 @@ import Pact.Core.Command.Types
 import Pact.Core.Gas.Types
 import Pact.Core.Hash qualified as Pact5
 import Pact.JSON.Encode qualified as J
-import PredicateTransformers as PT
+import PropertyMatchers ((?))
+import PropertyMatchers qualified as P
 import Servant.Client
 import Test.Tasty
 import Test.Tasty.HUnit (assertEqual, testCase)
@@ -138,13 +138,13 @@ mkFixture v baseRdb = do
 
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "Pact5 RemotePactTest"
-    [ testCase "pollingBadlistTest" (pollingInvalidTest rdb)
+    [ testCase "pollingInvalidRequestKeyTest" (pollingInvalidRequestKeyTest rdb)
     , testCase "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
     , testCase "spvTest" (spvTest rdb)
     ]
 
-pollingInvalidTest :: RocksDb -> IO ()
-pollingInvalidTest baseRdb = runResourceT $ do
+pollingInvalidRequestKeyTest :: RocksDb -> IO ()
+pollingInvalidRequestKeyTest baseRdb = runResourceT $ do
     let v = pact5InstantCpmTestVersion singletonChainGraph
     let cid = unsafeChainId 0
     fixture <- mkFixture v baseRdb
@@ -171,7 +171,7 @@ pollingConfirmationDepthTest baseRdb = runResourceT $ do
         pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 0)) >>= \response -> do
             assertEqual "there are no command results at depth 0" response HashMap.empty
 
-        _ <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
+        CutFixture.advanceAllChains_ v (fixture ^. cutFixture)
 
         pollingWithDepth v cid clientEnv rks Nothing >>= \response -> do
             assertEqual "results are visible at depth 0" 2 (HashMap.size response)
@@ -180,7 +180,7 @@ pollingConfirmationDepthTest baseRdb = runResourceT $ do
         pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 1)) >>= \response -> do
             assertEqual "results are not visible at depth 1" 0 (HashMap.size response)
 
-        _ <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
+        CutFixture.advanceAllChains_ v (fixture ^. cutFixture)
 
         pollingWithDepth v cid clientEnv rks Nothing >>= \response -> do
             assertEqual "results are visible at depth 0" 2 (HashMap.size response)
@@ -191,7 +191,7 @@ pollingConfirmationDepthTest baseRdb = runResourceT $ do
         pollingWithDepth v cid clientEnv rks (Just (ConfirmationDepth 2)) >>= \response -> do
             assertEqual "results are not visible at depth 2" 0 (HashMap.size response)
 
-        _ <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
+        CutFixture.advanceAllChains_ v (fixture ^. cutFixture)
 
         pollingWithDepth v cid clientEnv rks Nothing >>= \response -> do
             assertEqual "results are visible at depth 0" 2 (HashMap.size response)
@@ -267,20 +267,19 @@ spvTest baseRdb = runResourceT $ do
         _ <- CutFixture.advanceAllChains v (fixture ^. cutFixture)
         recvCr <- fmap (HashMap.! recvReqKey) $ polling v targetChain clientEnv (NE.singleton recvReqKey)
         recvCr
-            & allTrue
-                [ pt _crResult ? match _PactResultOk something
-                , pt _crEvents ? predful
-                    [ something
-                    , allTrue
-                        [ pt _peName ? equals "TRANSFER_XCHAIN_RECD"
-                        , pt _peArgs ? traceFailShow ? equals
+            & P.allTrue
+                [ P.fun _crResult ? P.match _PactResultOk P.succeed
+                , P.fun _crEvents ? P.propful
+                    [ P.succeed
+                    , P.allTrue
+                        [ P.fun _peName ? P.equals "TRANSFER_XCHAIN_RECD"
+                        , P.fun _peArgs ? P.equals
                             [PString "", PString "sender01", PDecimal 1.0, PString (chainIdToText srcChain)]
                         ]
-                    , pt _peName ? equals "X_RESUME"
-                    , something
+                    , P.fun _peName ? P.equals "X_RESUME"
+                    , P.succeed
                     ]
                 ]
-
 
         pure ()
 
@@ -410,11 +409,9 @@ trivialTx cid n = defaultCmd
     , _cbGasLimit = GasLimit (Gas 1_000)
     }
 
-_successfulTx :: Predicatory p => Pred p (CommandResult log err)
-_successfulTx = pt _crResult ? match _PactResultOk something
+_successfulTx :: P.Prop (CommandResult log err)
+_successfulTx = P.fun _crResult ? P.match _PactResultOk P.succeed
 
 pactDeadBeef :: RequestKey
 pactDeadBeef = case deadbeef of
     TransactionHash bytes -> RequestKey (Pact5.Hash bytes)
-
-type TestPact5CommandResult = CommandResult Pact5.Hash (PactErrorCompat (LocatedErrorInfo Info))

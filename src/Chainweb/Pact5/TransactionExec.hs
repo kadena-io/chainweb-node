@@ -597,8 +597,7 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx 
           (fmap . fmap) (\_ -> ()) verifiers
           `using` (traverse . traverse) rseq
 
-  res <-
-    (either throwError return =<<) $ liftIO $
+  (either throwError return =<<) $ liftIO $
     case payload ^. pPayload of
       Exec ExecMsg {..} ->
         evalExec (RawCode (_pcCode _pmCode)) execMode
@@ -633,10 +632,6 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx 
               , _cRollback = _cmRollback
               , _cProof = _cmProof
               }
-
-  chargeGas noInfo (GAConstant (gasToMilliGas $ _erGas res))
-  return res
-
   where
     payload = cmd ^. cmdPayload
     verifiers = payload ^. pVerifiers . _Just

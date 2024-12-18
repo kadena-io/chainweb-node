@@ -172,6 +172,7 @@ accountBalanceTests tio envIo =
   where
     req = AccountBalanceReq nid (AccountId "sender00" Nothing Nothing) Nothing
 
+    checkBalance :: HasCallStack => AccountBalanceResp -> Decimal -> IO ()
     checkBalance resp bal1 = do
       let b0 = head $ _accountBalanceResp_balances resp
           b1 = kdaToRosettaAmount bal1
