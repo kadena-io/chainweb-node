@@ -14,9 +14,10 @@
 module Main (main) where
 
 import Chainweb.BlockHeight
+
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Backend.Utils hiding (callDb)
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Types
 import Chainweb.Utils hiding (check)
 import Configuration.Utils hiding (Error, Lens', action, encode)
 import Control.Exception.Safe (tryAny)
@@ -183,8 +184,8 @@ work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas (runReaderT 
       "[SYS:Pacts]" -> "SELECT * FROM [SYS:Pacts] \
                        \WHERE txid > ? AND txid <= ? \
                        \ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
-      tbl -> "SELECT * FROM ["
-        <> Utf8 tbl
+      tabl -> "SELECT * FROM ["
+        <> Utf8 tabl
         <> "] WHERE txid > ? AND txid <= ? ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
 
 callDb :: T.Text -> (Database -> IO a) -> ReaderT SQLiteEnv IO a
@@ -216,12 +217,12 @@ getUserTables low high = callDb "getUserTables" $ \db -> do
           >>= eInternalError
 
         when (HashSet.null r) $ internalError errMsg
-        let res = getFirst $ foldMap (\tbl -> First $ if HashSet.member tbl r then Nothing else Just tbl) tbls
+        let res = getFirst $ foldMap (\tabl -> First $ if HashSet.member tabl r then Nothing else Just tabl) tbls
         maybe (return ()) (internalError . tableErrMsg . T.decodeUtf8) res
       where
         errMsg = "Somehow there are no tables in this connection. This should be an impossible case."
         alltables = "SELECT name FROM sqlite_master WHERE type='table';"
-        tableErrMsg tbl = "This table " <> tbl <> " is listed in VersionedTableCreation but is not actually in the database."
+        tableErrMsg tabl = "This table " <> tabl <> " is listed in VersionedTableCreation but is not actually in the database."
 
 data Args = Args
    {  _sqliteFile :: FilePath

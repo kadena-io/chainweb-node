@@ -95,7 +95,7 @@ import Chainweb.Miner.Coordinator (MiningStats)
 import Chainweb.Pact.Backend.DbCache (DbCacheStats)
 import Chainweb.Pact.Service.PactQueue (PactQueueStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
-import Chainweb.Pact.Types(TxFailureLog)
+import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
@@ -104,7 +104,7 @@ import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
 import Chainweb.Version.Mainnet
-import Chainweb.Version.Testnet (testnet)
+import Chainweb.Version.Testnet04 (testnet04)
 import Chainweb.Version.Registry
 
 import Chainweb.Storage.Table.RocksDB
@@ -384,8 +384,8 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
     -- we don't log tx failures in replay
     let !txFailureHandler =
             if _configOnlySyncPact chainwebCfg || _configReadOnlyReplay chainwebCfg
-            then dropLogHandler (Proxy :: Proxy TxFailureLog)
-            else passthroughLogHandler
+            then [dropLogHandler (Proxy :: Proxy Pact4TxFailureLog), dropLogHandler (Proxy :: Proxy Pact5TxFailureLog)]
+            else []
 
     -- Telemetry Backends
     monitorBackend <- managed
@@ -430,28 +430,31 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logCfg) $ logHandles
-            [ logFilterHandle (_logConfigFilter logCfg)
-            , txFailureHandler
-            , logHandler monitorBackend
-            , logHandler p2pInfoBackend
-            , logHandler rtsBackend
-            , logHandler counterBackend
-            , logHandler endpointBackend
-            , logHandler newBlockBackend
-            , logHandler orphanedBlockBackend
-            , logHandler miningStatsBackend
-            , logHandler requestLogBackend
-            , logHandler queueStatsBackend
-            , logHandler reintroBackend
-            , logHandler traceBackend
-            , logHandler mempoolStatsBackend
-            , logHandler blockUpdateBackend
-            , logHandler dbCacheBackend
-            , logHandler dbStatsBackend
-            , logHandler pactQueueStatsBackend
-            , logHandler p2pNodeStatsBackend
-            , logHandler topLevelStatusBackend
-            ] baseBackend
+            (concat
+                [ [ logFilterHandle (_logConfigFilter logCfg) ]
+                , txFailureHandler
+                ,
+                    [ logHandler monitorBackend
+                    , logHandler p2pInfoBackend
+                    , logHandler rtsBackend
+                    , logHandler counterBackend
+                    , logHandler endpointBackend
+                    , logHandler newBlockBackend
+                    , logHandler orphanedBlockBackend
+                    , logHandler miningStatsBackend
+                    , logHandler requestLogBackend
+                    , logHandler queueStatsBackend
+                    , logHandler reintroBackend
+                    , logHandler traceBackend
+                    , logHandler mempoolStatsBackend
+                    , logHandler blockUpdateBackend
+                    , logHandler dbCacheBackend
+                    , logHandler dbStatsBackend
+                    , logHandler pactQueueStatsBackend
+                    , logHandler p2pNodeStatsBackend
+                    , logHandler topLevelStatusBackend
+                    ]
+            ]) baseBackend
 
     liftIO $ f
         $ maybe id (\x -> addLabel ("cluster", toText x)) (_logConfigClusterId logCfg)
@@ -492,7 +495,7 @@ withServiceDate v lf msd inner = case msd of
   Nothing -> do
     inner
   Just sd -> do
-    if _versionCode v == _versionCode mainnet || _versionCode v == _versionCode testnet
+    if _versionCode v == _versionCode mainnet || _versionCode v == _versionCode testnet04
     then do
       race (timer sd) inner >>= \case
         Left () -> error "Service date thread terminated unexpectedly"

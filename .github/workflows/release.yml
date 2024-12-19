@@ -223,10 +223,9 @@ jobs:
 
             *   $UBUNTU_VERSION:
                 ```sh
-                apt-get install ca-certificates libgmp10 libssl3 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd locales
-                
-                
+                apt-get install ca-certificates libgmp10 libssl3 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd libmpfr6 locales
                 ```
+     
           ' >> CHANGELOG.md
           cat CHANGELOG.md
 

@@ -71,17 +71,17 @@ import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Cut.CutHashes (cutIdToText)
 import Chainweb.CutDB (cutHashesTable)
 import Chainweb.Logger (Logger, l2l, setComponent, logFunctionText)
-import Chainweb.Pact.Backend.ChainwebPactDb ()
+import Chainweb.Pact4.Backend.ChainwebPactDb ()
 import Chainweb.Pact.Backend.PactState
-import Chainweb.Pact.Backend.Types (SQLiteEnv)
-import Chainweb.Pact.Backend.Utils (fromUtf8, toUtf8)
+import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Utils
 import Chainweb.Payload.PayloadStore (initializePayloadDb, addNewPayload, lookupPayloadWithHeight)
 import Chainweb.Payload.PayloadStore.RocksDB (newPayloadDb)
 import Chainweb.Utils (sshow, fromText, toText, int)
 import Chainweb.Version (ChainId, ChainwebVersion(..), chainIdToText)
 import Chainweb.Version.Mainnet (mainnet)
 import Chainweb.Version.Registry (lookupVersionByName)
-import Chainweb.Version.Testnet (testnet)
+import Chainweb.Version.Testnet04 (testnet04)
 import Chainweb.WebBlockHeaderDB (getWebBlockHeaderDb, initWebBlockHeaderDb)
 import Data.LogMessage (SomeLogMessage, logText)
 
@@ -617,9 +617,6 @@ getVersionedTableMutationRowsAt logger db target = do
     _ -> do
       exitLog logger "getVersionedTableMutationRowsAt query: invalid query"
 
-tbl :: Utf8 -> Utf8
-tbl u = "[" <> u <> "]"
-
 -- | Locate the latest "safe" target blockheight for compaction.
 --
 --   In mainnet/testnet, this is determined
@@ -647,7 +644,7 @@ locateLatestSafeTarget logger v dbDir cids = do
   -- In devnet or testing versions we don't care.
   let safeDepth :: BlockHeight
       safeDepth
-        | v == mainnet || v == testnet = BlockHeight 1_000
+        | v == mainnet || v == testnet04 = BlockHeight 1_000
         | otherwise = BlockHeight 0
 
   when (latestCommon - earliestCommon < safeDepth) $ do

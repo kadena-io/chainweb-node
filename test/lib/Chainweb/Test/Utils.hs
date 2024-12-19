@@ -27,6 +27,15 @@ module Chainweb.Test.Utils
 , withResource'
 , withResourceT
 , independentSequentialTestGroup
+, unsafeHeadOf
+
+, TestPact5CommandResult
+, toPact4RequestKey
+, toPact5RequestKey
+, toPact4Command
+, toPact4CommandResult
+, toPact5CommandResult
+, pact4Poll
 
 -- * Test RocksDb
 , testRocksDb
@@ -124,6 +133,7 @@ module Chainweb.Test.Utils
 , NodeDbDirs(..)
 ) where
 
+import Chainweb.Test.Pact5.Utils (getTestLogLevel)
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Lens
@@ -143,6 +153,7 @@ import qualified Data.HashMap.Strict as HashMap
 import Data.IORef
 import Data.List (sortOn, isInfixOf)
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import Data.Tree
 import qualified Data.Tree.Lens as LT
 import qualified Data.Vector as V
@@ -153,6 +164,7 @@ import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTP
 import qualified Network.HTTP.Types as HTTP
 import Network.Socket (close)
+import qualified Network.TLS as HTTP
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
 import Network.Wai.Handler.WarpTLS as W (runTLSSocket)
@@ -206,7 +218,7 @@ import Chainweb.Mempool.Mempool (MempoolBackend(..), TransactionHash(..), BlockF
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.Types (SQLiteEnv)
+import Chainweb.Pact.Backend.Types(SQLiteEnv)
 import Chainweb.Pact.Backend.Utils (openSQLiteConnection, closeSQLiteConnection, chainwebPragmas)
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
@@ -234,6 +246,17 @@ import qualified P2P.Node.PeerDB as P2P
 import P2P.Peer
 
 import Chainweb.Test.Utils.APIValidation
+import Data.Semigroup
+import qualified Pact.Core.Command.Types as Pact5
+import qualified Data.Aeson as Aeson
+import qualified Pact.Core.Errors as Pact5
+import qualified Pact.Core.Info as Pact5
+import qualified Pact.Types.Command as Pact4
+import qualified Pact.Core.Hash as Pact5
+import qualified Pact.Types.Hash as Pact4
+import qualified Pact.JSON.Encode as J
+import qualified Pact.Types.API as Pact4
+import qualified Pact.Core.Command.Server as Pact5
 
 -- -------------------------------------------------------------------------- --
 -- Intialize Test BlockHeader DB
@@ -940,10 +963,9 @@ withNodes
     -> (ChainwebConfiguration -> ChainwebConfiguration)
     -> [NodeDbDirs]
     -> ResourceT IO ChainwebNetwork
-withNodes = withNodes_ (genericLogger Error (error . T.unpack))
-    -- Test resources are part of test infrastructure and should never print
-    -- anything. A message at log level error means that the test harness itself
-    -- failed and with thus abort the test.
+withNodes v confF nodeDbDirs = do
+    logLevel <- liftIO getTestLogLevel
+    withNodes_ (genericLogger logLevel T.putStrLn) v confF nodeDbDirs
 
 withNodesAtLatestBehavior
     :: ChainwebVersion
@@ -1142,7 +1164,7 @@ getClientEnv :: BaseUrl -> IO ClientEnv
 getClientEnv url = flip mkClientEnv url <$> HTTP.newTlsManagerWith mgrSettings
     where
       mgrSettings = HTTP.mkManagerSettings
-       (HTTP.TLSSettingsSimple True False False defaultSupportedTlsSettings)
+       (HTTP.TLSSettingsSimple True False False HTTP.defaultSupported)
        Nothing
 
 -- | Backoff up to a constant 250ms, limiting to ~40s
@@ -1166,3 +1188,39 @@ independentSequentialTestGroup tn tts =
                     (mvarIO >>= takeMVar)
                     (\_ -> mvarIO >>= flip putMVar ())
                     $ \_ -> tt
+
+unsafeHeadOf :: HasCallStack => Getting (Endo a) s a -> s -> a
+unsafeHeadOf l s = s ^?! l
+
+type TestPact5CommandResult = Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.LineInfo))
+
+toPact4RequestKey :: Pact5.RequestKey -> Pact4.RequestKey
+toPact4RequestKey = \case
+    Pact5.RequestKey (Pact5.Hash bytes) -> Pact4.RequestKey (Pact4.Hash bytes)
+
+toPact5RequestKey :: Pact4.RequestKey -> Pact5.RequestKey
+toPact5RequestKey = \case
+    Pact4.RequestKey (Pact4.Hash bytes) -> Pact5.RequestKey (Pact5.Hash bytes)
+
+toPact4Command :: Pact5.Command T.Text -> Pact4.Command T.Text
+toPact4Command cmd4 = case Aeson.eitherDecodeStrictText (J.encodeText cmd4) of
+    Left err -> error $ "toPact4Command: decode failed: " ++ err
+    Right cmd5 -> cmd5
+
+toPact4CommandResult :: ()
+    => TestPact5CommandResult
+    -> Pact4.CommandResult Pact4.Hash
+toPact4CommandResult cr5 =
+    case Aeson.eitherDecodeStrictText (J.encodeText cr5) of
+        Left err -> error $ "toPact5CommandResult: decode failed: " ++ err
+        Right cr4 -> cr4
+
+toPact5CommandResult :: ()
+    => Pact4.CommandResult Pact4.Hash
+    -> TestPact5CommandResult
+toPact5CommandResult cr4 = case Aeson.eitherDecodeStrictText (J.encodeText cr4) of
+    Left err -> error $ "toPact5CommandResult: decode failed: " ++ err
+    Right cr5 -> cr5
+
+pact4Poll :: Pact4.Poll -> Pact5.PollRequest
+pact4Poll (Pact4.Poll rks) = Pact5.PollRequest $ toPact5RequestKey <$> rks

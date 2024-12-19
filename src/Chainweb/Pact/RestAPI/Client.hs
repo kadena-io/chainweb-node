@@ -19,8 +19,6 @@ module Chainweb.Pact.RestAPI.Client
 , pactSpv2ApiClient
 , ethSpvApiClient_
 , ethSpvApiClient
-, pactPollApiClient_
-, pactPollApiClient
 , pactListenApiClient_
 , pactListenApiClient
 , pactSendApiClient_
@@ -48,9 +46,10 @@ import Chainweb.ChainId
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.RestAPI.SPV
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import Chainweb.SPV.PayloadProof
 import Chainweb.Version
+import qualified Pact.Core.Command.Server as Pact5
 
 -- -------------------------------------------------------------------------- --
 -- Pact Spv Transaction Output Proof Client
@@ -184,15 +183,15 @@ pactListenApiClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => ListenerRequest
-    -> ClientM ListenResponse
+    => Pact5.ListenRequest
+    -> ClientM Pact5.ListenResponse
 pactListenApiClient_ = client (pactListenApi @v @c)
 
 pactListenApiClient
     :: ChainwebVersion
     -> ChainId
-    -> ListenerRequest
-    -> ClientM ListenResponse
+    -> Pact5.ListenRequest
+    -> ClientM Pact5.ListenResponse
 pactListenApiClient
     (FromSingChainwebVersion (SChainwebVersion :: Sing v))
     (FromSingChainId (SChainId :: Sing c))
@@ -222,40 +221,20 @@ pactSendApiClient
 -- -------------------------------------------------------------------------- --
 -- Pact Poll
 
-pactPollApiClient_
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
-    => Poll
-    -> ClientM PollResponses
-pactPollApiClient_ = client (pactPollApi @v @c)
-
-pactPollApiClient
-    :: ChainwebVersion
-    -> ChainId
-    -> Poll
-    -> ClientM PollResponses
-pactPollApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    (FromSingChainId (SChainId :: Sing c))
-    = pactPollApiClient_ @v @c
-
 pactPollWithQueryApiClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => Maybe ConfirmationDepth
-    -> Poll
-    -> ClientM PollResponses
+    -> Pact5.PollRequest
+    -> ClientM Pact5.PollResponse
 pactPollWithQueryApiClient_ = client (pactPollWithQueryApi @v @c)
 
 pactPollWithQueryApiClient
     :: ChainwebVersion
     -> ChainId
     -> Maybe ConfirmationDepth
-    -> Poll
-    -> ClientM PollResponses
-pactPollWithQueryApiClient
-    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
-    (FromSingChainId (SChainId :: Sing c))
-    = pactPollWithQueryApiClient_ @v @c
+    -> Pact5.PollRequest
+    -> ClientM Pact5.PollResponse
+pactPollWithQueryApiClient (FromSingChainwebVersion (SChainwebVersion :: Sing v)) (FromSingChainId (SChainId :: Sing c)) confirmationDepth poll = do
+    pactPollWithQueryApiClient_ @v @c confirmationDepth poll

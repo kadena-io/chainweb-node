@@ -6,8 +6,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE GADTs #-}
+
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE BangPatterns #-}
 
 -- |
 -- Module: Chainweb.Pact.ChainwebPactDb
@@ -20,9 +23,19 @@
 
 module Chainweb.Pact.Backend.Utils
   ( -- * General utils
-    callDb
-  , open2
+    open2
   , chainDbFileName
+    -- * Shared Pact database interactions
+  , doLookupSuccessful
+  , commitBlockStateToDatabase
+  , createVersionedTable
+  , tbl
+  , initSchema
+  , rewindDbTo
+  , rewindDbToBlock
+  , rewindDbToGenesis
+  , getEndTxId
+  , getEndTxId'
     -- * Savepoints
   , withSavepoint
   , beginSavepoint
@@ -35,12 +48,6 @@ module Chainweb.Pact.Backend.Utils
   , fromUtf8
   , toTextUtf8
   , asStringUtf8
-  , domainTableName
-  , convKeySetName
-  , convModuleName
-  , convNamespaceName
-  , convRowKey
-  , convPactId
   , convSavepointName
   , expectSingleRowCol
   , expectSingle
@@ -59,13 +66,10 @@ module Chainweb.Pact.Backend.Utils
   ) where
 
 import Control.Exception (SomeAsyncException, evaluate)
-import Control.Exception.Safe (tryAny)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.State.Strict
-
-import Control.Monad.Reader
 
 import Data.Bits
 import Data.Foldable
@@ -82,29 +86,45 @@ import System.LogLevel
 
 -- pact
 
-import Pact.Types.Persistence
-import Pact.Types.SQLite
-import Pact.Types.Term
-    (KeySetName(..), ModuleName(..), NamespaceName(..), PactId(..))
+import qualified Pact.Types.Persistence as Pact4
+import qualified Pact.Types.SQLite as Pact4
 import Pact.Types.Util (AsString(..))
+
+import qualified Pact.Core.Persistence as Pact5
+
 
 -- chainweb
 
 import Chainweb.Logger
 import Chainweb.Pact.Backend.SQLite.DirectV2
-import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Service.Types
+
+import Chainweb.Pact.Types
 import Chainweb.Version
 import Chainweb.Utils
+import Chainweb.BlockHash
+import Chainweb.BlockHeight
+import Database.SQLite3.Direct hiding (open2)
+import GHC.Stack (HasCallStack)
+import qualified Data.ByteString.Short as SB
+import qualified Data.Vector as V
+import qualified Data.HashMap.Strict as HashMap
+import Chainweb.Utils.Serialization
+import qualified Data.ByteString.Char8 as B8
+import qualified Data.ByteString as BS
+import Chainweb.Pact.Backend.Types
+import Data.HashSet (HashSet)
+import Chainweb.BlockHeader
+import qualified Data.HashSet as HashSet
+import Data.Text (Text)
 
 -- -------------------------------------------------------------------------- --
 -- SQ3.Utf8 Encodings
 
-toUtf8 :: T.Text -> SQ3.Utf8
+toUtf8 :: Text -> SQ3.Utf8
 toUtf8 = SQ3.Utf8 . T.encodeUtf8
 {-# INLINE toUtf8 #-}
 
-fromUtf8 :: SQ3.Utf8 -> T.Text
+fromUtf8 :: SQ3.Utf8 -> Text
 fromUtf8 (SQ3.Utf8 bytes) = T.decodeUtf8 bytes
 {-# INLINE fromUtf8 #-}
 
@@ -116,46 +136,9 @@ asStringUtf8 :: AsString a => a -> SQ3.Utf8
 asStringUtf8 = toUtf8 . asString
 {-# INLINE asStringUtf8 #-}
 
-domainTableName :: Domain k v -> SQ3.Utf8
-domainTableName = asStringUtf8
-
-convKeySetName :: KeySetName -> SQ3.Utf8
-convKeySetName = toUtf8 . asString
-
-convModuleName
-  :: Bool
-     -- ^ whether to apply module name fix
-  -> ModuleName
-  -> SQ3.Utf8
-convModuleName False (ModuleName name _) = toUtf8 name
-convModuleName True mn = asStringUtf8 mn
-
-convNamespaceName :: NamespaceName -> SQ3.Utf8
-convNamespaceName (NamespaceName name) = toUtf8 name
-
-convRowKey :: RowKey -> SQ3.Utf8
-convRowKey (RowKey name) = toUtf8 name
-
-convPactId :: PactId -> SQ3.Utf8
-convPactId = toUtf8 . sshow
-
-convSavepointName :: SavepointName -> SQ3.Utf8
-convSavepointName = toTextUtf8
 
 -- -------------------------------------------------------------------------- --
 --
-
-callDb
-    :: (MonadCatch m, MonadReader (BlockHandlerEnv logger) m, MonadIO m)
-    => T.Text
-    -> (SQ3.Database -> IO b)
-    -> m b
-callDb callerName action = do
-  c <- view blockHandlerDb
-  res <- tryAny $ liftIO $ action c
-  case res of
-    Left err -> internalError $ "callDb (" <> callerName <> "): " <> sshow err
-    Right r -> return r
 
 withSavepoint
     :: SQLiteEnv
@@ -178,11 +161,14 @@ withSavepoint db name action = mask $ \resetMask -> do
 
 beginSavepoint :: SQLiteEnv -> SavepointName -> IO ()
 beginSavepoint db name =
-  exec_ db $ "SAVEPOINT [" <> convSavepointName name <> "];"
+  Pact4.exec_ db $ "SAVEPOINT [" <> convSavepointName name <> "];"
 
 commitSavepoint :: SQLiteEnv -> SavepointName -> IO ()
 commitSavepoint db name =
-  exec_ db $ "RELEASE SAVEPOINT [" <> convSavepointName name <> "];"
+  Pact4.exec_ db $ "RELEASE SAVEPOINT [" <> convSavepointName name <> "];"
+
+convSavepointName :: SavepointName -> SQ3.Utf8
+convSavepointName = toTextUtf8
 
 -- | @rollbackSavepoint n@ rolls back all database updates since the most recent
 -- savepoint with the name @n@ and restarts the transaction.
@@ -196,7 +182,7 @@ commitSavepoint db name =
 --
 rollbackSavepoint :: SQLiteEnv -> SavepointName -> IO ()
 rollbackSavepoint db name =
-  exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
+  Pact4.exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> convSavepointName name <> "];"
 
 -- | @abortSavepoint n@ rolls back all database updates since the most recent
 -- savepoint with the name @n@ and removes it from the savepoint stack.
@@ -225,9 +211,6 @@ instance HasTextRepresentation SavepointName where
         <> ". Valid names are " <> T.intercalate ", " (toText @SavepointName <$> [minBound .. maxBound])
     {-# INLINE fromText #-}
 
--- instance AsString SavepointName where
---   asString = toText
-
 expectSingleRowCol :: Show a => String -> [[a]] -> IO a
 expectSingleRowCol _ [[s]] = return s
 expectSingleRowCol s v =
@@ -244,7 +227,7 @@ expectSingle desc v =
   "Expected single-" <> asString (show desc) <> " result, got: " <>
   asString (show v)
 
-chainwebPragmas :: [Pragma]
+chainwebPragmas :: [Pact4.Pragma]
 chainwebPragmas =
   [ "synchronous = NORMAL"
   , "journal_mode = WAL"
@@ -262,12 +245,12 @@ chainwebPragmas =
   , "page_size = 1024"
   ]
 
-execMulti :: Traversable t => SQ3.Database -> SQ3.Utf8 -> t [SType] -> IO ()
-execMulti db q rows = bracket (prepStmt db q) destroy $ \stmt -> do
+execMulti :: Traversable t => SQ3.Database -> SQ3.Utf8 -> t [Pact4.SType] -> IO ()
+execMulti db q rows = bracket (Pact4.prepStmt db q) destroy $ \stmt -> do
     forM_ rows $ \row -> do
         SQ3.reset stmt >>= checkError
         SQ3.clearBindings stmt
-        bindParams stmt row
+        Pact4.bindParams stmt row
         SQ3.step stmt >>= checkError
   where
     checkError (Left e) = void $ fail $ "error during batch insert: " ++ show e
@@ -313,18 +296,18 @@ chainDbFileName cid = fold
 stopSqliteDb :: SQLiteEnv -> IO ()
 stopSqliteDb = closeSQLiteConnection
 
-withSQLiteConnection :: String -> [Pragma] -> (SQLiteEnv -> IO c) -> IO c
+withSQLiteConnection :: String -> [Pact4.Pragma] -> (SQLiteEnv -> IO c) -> IO c
 withSQLiteConnection file ps =
     bracket (openSQLiteConnection file ps) closeSQLiteConnection
 
-openSQLiteConnection :: String -> [Pragma] -> IO SQLiteEnv
+openSQLiteConnection :: String -> [Pact4.Pragma] -> IO SQLiteEnv
 openSQLiteConnection file ps = open2 file >>= \case
     Left (err, msg) ->
       internalError $
       "withSQLiteConnection: Can't open db with "
       <> asString (show err) <> ": " <> asString (show msg)
     Right r -> do
-      runPragmas r ps
+      Pact4.runPragmas r ps
       return r
 
 closeSQLiteConnection :: SQLiteEnv -> IO ()
@@ -336,7 +319,7 @@ closeSQLiteConnection c = void $ close_v2 c
 --
 -- Cf. https://www.sqlite.org/inmemorydb.html
 --
-withTempSQLiteConnection :: [Pragma] -> (SQLiteEnv -> IO c) -> IO c
+withTempSQLiteConnection :: [Pact4.Pragma] -> (SQLiteEnv -> IO c) -> IO c
 withTempSQLiteConnection = withSQLiteConnection ""
 
 -- Using the special file name @:memory:@ causes sqlite to create a temporary in-memory
@@ -344,7 +327,7 @@ withTempSQLiteConnection = withSQLiteConnection ""
 --
 -- Cf. https://www.sqlite.org/inmemorydb.html
 --
-withInMemSQLiteConnection :: [Pragma] -> (SQLiteEnv -> IO c) -> IO c
+withInMemSQLiteConnection :: [Pact4.Pragma] -> (SQLiteEnv -> IO c) -> IO c
 withInMemSQLiteConnection = withSQLiteConnection ":memory:"
 
 open2 :: String -> IO (Either (SQ3.Error, SQ3.Utf8) SQ3.Database)
@@ -362,3 +345,322 @@ sqlite_open_readwrite, sqlite_open_create, sqlite_open_fullmutex :: SQLiteFlag
 sqlite_open_readwrite = 0x00000002
 sqlite_open_create = 0x00000004
 sqlite_open_fullmutex = 0x00010000
+
+commitBlockStateToDatabase :: SQLiteEnv -> BlockHash -> BlockHeight -> BlockHandle -> IO ()
+commitBlockStateToDatabase db hsh bh blockHandle = do
+  let newTables = _pendingTableCreation $ _blockHandlePending blockHandle
+  mapM_ (\tn -> createUserTable (Utf8 tn)) newTables
+  let writeV = toChunks $ _pendingWrites (_blockHandlePending blockHandle)
+  backendWriteUpdateBatch writeV
+  indexPendingPactTransactions
+  let nextTxId = _blockHandleTxId blockHandle
+  blockHistoryInsert nextTxId
+  where
+    toChunks writes =
+      over _2 (concatMap toList . HashMap.elems) .
+      over _1 Utf8 <$> HashMap.toList writes
+
+    backendWriteUpdateBatch
+        :: [(Utf8, [SQLiteRowDelta])]
+        -> IO ()
+    backendWriteUpdateBatch writesByTable = mapM_ writeTable writesByTable
+        where
+          prepRow (SQLiteRowDelta _ txid rowkey rowdata) =
+            [ Pact4.SText (Utf8 rowkey)
+            , Pact4.SInt (fromIntegral txid)
+            , Pact4.SBlob rowdata
+            ]
+
+          writeTable (tableName, writes) = do
+            execMulti db q (map prepRow writes)
+            markTableMutation tableName bh
+            where
+            q = "INSERT OR REPLACE INTO " <> tbl tableName <> "(rowkey,txid,rowdata) VALUES(?,?,?)"
+
+          -- Mark the table as being mutated during this block, so that we know
+          -- to delete from it if we rewind past this block.
+          markTableMutation tablename blockheight = do
+              Pact4.exec' db mutq [Pact4.SText tablename, Pact4.SInt (fromIntegral blockheight)]
+            where
+              mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
+
+    -- | Record a block as being in the history of the checkpointer.
+    blockHistoryInsert :: Pact4.TxId -> IO ()
+    blockHistoryInsert t =
+        Pact4.exec' db stmt
+            [ Pact4.SInt (fromIntegral bh)
+            , Pact4.SBlob (runPutS (encodeBlockHash hsh))
+            , Pact4.SInt (fromIntegral t)
+            ]
+      where
+        stmt =
+          "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') VALUES (?,?,?);"
+
+    createUserTable :: Utf8 -> IO ()
+    createUserTable tablename = do
+        createVersionedTable tablename db
+        markTableCreation tablename
+
+    -- Mark the table as being created during this block, so that we know
+    -- to drop it if we rewind past this block.
+    markTableCreation tablename =
+        Pact4.exec' db insertstmt insertargs
+      where
+        insertstmt = "INSERT OR IGNORE INTO VersionedTableCreation VALUES (?,?)"
+        insertargs =  [Pact4.SText tablename, Pact4.SInt (fromIntegral bh)]
+
+    -- | Commit the index of pending successful transactions to the database
+    indexPendingPactTransactions :: IO ()
+    indexPendingPactTransactions = do
+        let txs = _pendingSuccessfulTxs $ _blockHandlePending blockHandle
+        dbIndexTransactions txs
+
+      where
+        toRow b = [Pact4.SBlob b, Pact4.SInt (fromIntegral bh)]
+        dbIndexTransactions txs = do
+            let rows = map toRow $ toList txs
+            execMulti db "INSERT INTO TransactionIndex (txhash, blockheight) \
+                         \ VALUES (?, ?)" rows
+
+tbl :: HasCallStack => Utf8 -> Utf8
+tbl t@(Utf8 b)
+    | B8.elem ']' b = error $ "Chainweb.Pact4.Backend.ChainwebPactDb: Code invariant violation. Illegal SQL table name " <> sshow b <> ". Please report this as a bug."
+    | otherwise = "[" <> t <> "]"
+
+createVersionedTable :: Utf8 -> Database -> IO ()
+createVersionedTable tablename db = do
+    Pact4.exec_ db createtablestmt
+    Pact4.exec_ db indexcreationstmt
+  where
+    ixName = tablename <> "_ix"
+    createtablestmt =
+      "CREATE TABLE IF NOT EXISTS " <> tbl tablename <> " \
+             \ (rowkey TEXT\
+             \, txid UNSIGNED BIGINT NOT NULL\
+             \, rowdata BLOB NOT NULL\
+             \, UNIQUE (rowkey, txid));"
+    indexcreationstmt =
+        "CREATE INDEX IF NOT EXISTS " <> tbl ixName <> " ON " <> tbl tablename <> "(txid DESC);"
+
+
+doLookupSuccessful :: Database -> BlockHeight -> V.Vector SB.ShortByteString -> IO (HashMap.HashMap SB.ShortByteString (T2 BlockHeight BlockHash))
+doLookupSuccessful db curHeight hashes = do
+  fmap buildResultMap $ do -- swizzle results of query into a HashMap
+      let
+        hss = V.toList hashes
+        params = BS.intercalate "," (map (const "?") hss)
+        qtext = Utf8 $ BS.intercalate " "
+            [ "SELECT blockheight, hash, txhash"
+            , "FROM TransactionIndex"
+            , "INNER JOIN BlockHistory USING (blockheight)"
+            , "WHERE txhash IN (" <> params <> ")" <> " AND blockheight <= ?;"
+            ]
+        qvals
+          -- match query params above. first, hashes
+          = map (\h -> Pact4.SBlob $ SB.fromShort h) hss
+          -- then, the block height; we don't want to see txs from the
+          -- current block in the db, because they'd show up in pending data
+          ++ [Pact4.SInt $ fromIntegral (pred curHeight)]
+
+      Pact4.qry db qtext qvals [Pact4.RInt, Pact4.RBlob, Pact4.RBlob] >>= mapM go
+  where
+    -- NOTE: it's useful to keep the types of 'go' and 'buildResultMap' in sync
+    -- for readability but also to ensure the compiler and reader infer the
+    -- right result types from the db query.
+
+    buildResultMap :: [T3 SB.ShortByteString BlockHeight BlockHash] -> HashMap.HashMap SB.ShortByteString (T2 BlockHeight BlockHash)
+    buildResultMap xs = HashMap.fromList $
+      map (\(T3 txhash blockheight blockhash) -> (txhash, T2 blockheight blockhash)) xs
+
+    go :: [Pact4.SType] -> IO (T3 SB.ShortByteString BlockHeight BlockHash)
+    go (Pact4.SInt blockheight:Pact4.SBlob blockhash:Pact4.SBlob txhash:_) = do
+        !blockhash' <- either fail return $ runGetEitherS decodeBlockHash blockhash
+        let !txhash' = SB.toShort txhash
+        return $! T3 txhash' (fromIntegral blockheight) blockhash'
+    go _ = fail "impossible"
+
+-- | Create all tables that exist pre-genesis
+-- TODO: migrate this logic to the checkpointer itself?
+initSchema :: (Logger logger) => logger -> SQLiteEnv -> IO ()
+initSchema logger sql =
+    withSavepoint sql DbTransaction $ do
+        createBlockHistoryTable
+        createTableCreationTable
+        createTableMutationTable
+        createTransactionIndexTable
+        create (toUtf8 $ Pact5.renderDomain Pact5.DKeySets)
+        create (toUtf8 $ Pact5.renderDomain Pact5.DModules)
+        create (toUtf8 $ Pact5.renderDomain Pact5.DNamespaces)
+        create (toUtf8 $ Pact5.renderDomain Pact5.DDefPacts)
+        create (toUtf8 $ Pact5.renderDomain Pact5.DModuleSource)
+  where
+    create tablename = do
+      logDebug_ logger $ "initSchema: "  <> fromUtf8 tablename
+      createVersionedTable tablename sql
+
+    createBlockHistoryTable :: IO ()
+    createBlockHistoryTable =
+      Pact4.exec_ sql
+        "CREATE TABLE IF NOT EXISTS BlockHistory \
+        \(blockheight UNSIGNED BIGINT NOT NULL,\
+        \ hash BLOB NOT NULL,\
+        \ endingtxid UNSIGNED BIGINT NOT NULL, \
+        \ CONSTRAINT blockHashConstraint UNIQUE (blockheight));"
+
+    createTableCreationTable :: IO ()
+    createTableCreationTable =
+      Pact4.exec_ sql
+        "CREATE TABLE IF NOT EXISTS VersionedTableCreation\
+        \(tablename TEXT NOT NULL\
+        \, createBlockheight UNSIGNED BIGINT NOT NULL\
+        \, CONSTRAINT creation_unique UNIQUE(createBlockheight, tablename));"
+
+    createTableMutationTable :: IO ()
+    createTableMutationTable =
+      Pact4.exec_ sql
+        "CREATE TABLE IF NOT EXISTS VersionedTableMutation\
+         \(tablename TEXT NOT NULL\
+         \, blockheight UNSIGNED BIGINT NOT NULL\
+         \, CONSTRAINT mutation_unique UNIQUE(blockheight, tablename));"
+
+    createTransactionIndexTable :: IO ()
+    createTransactionIndexTable = do
+      Pact4.exec_ sql
+        "CREATE TABLE IF NOT EXISTS TransactionIndex \
+         \ (txhash BLOB NOT NULL, \
+         \ blockheight UNSIGNED BIGINT NOT NULL, \
+         \ CONSTRAINT transactionIndexConstraint UNIQUE(txhash));"
+      Pact4.exec_ sql
+        "CREATE INDEX IF NOT EXISTS \
+         \ transactionIndexByBH ON TransactionIndex(blockheight)";
+
+getEndTxId :: Text -> SQLiteEnv -> Maybe ParentHeader -> IO (Historical Pact4.TxId)
+getEndTxId msg sql pc = case pc of
+    Nothing -> return (Historical 0)
+    Just (ParentHeader ph) -> getEndTxId' msg sql (view blockHeight ph) (view blockHash ph)
+
+getEndTxId' :: Text -> SQLiteEnv -> BlockHeight -> BlockHash -> IO (Historical Pact4.TxId)
+getEndTxId' msg sql bh bhsh = do
+    r <- Pact4.qry sql
+      "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"
+      [ Pact4.SInt $ fromIntegral bh
+      , Pact4.SBlob $ runPutS (encodeBlockHash bhsh)
+      ]
+      [Pact4.RInt]
+    case r of
+      [[Pact4.SInt tid]] -> return $ Historical (Pact4.TxId (fromIntegral tid))
+      [] -> return NoHistory
+      _ -> internalError $ msg <> ".getEndTxId: expected single-row int result, got " <> sshow r
+
+
+-- | Delete any state from the database newer than the input parent header.
+-- Returns the ending txid of the input parent header.
+rewindDbTo
+    :: SQLiteEnv
+    -> Maybe ParentHeader
+    -> IO Pact4.TxId
+rewindDbTo db Nothing = do
+  rewindDbToGenesis db
+  return 0
+rewindDbTo db mh@(Just (ParentHeader ph)) = do
+    !historicalEndingTxId <- getEndTxId "rewindDbToBlock" db mh
+    endingTxId <- case historicalEndingTxId of
+      NoHistory ->
+        throwM
+          $ BlockHeaderLookupFailure
+          $ "rewindDbTo.getEndTxId: not in db: "
+          <> sshow ph
+      Historical endingTxId ->
+        return endingTxId
+    rewindDbToBlock db (view blockHeight ph) endingTxId
+    return endingTxId
+
+-- rewind before genesis, delete all user tables and all rows in all tables
+rewindDbToGenesis
+  :: SQLiteEnv
+  -> IO ()
+rewindDbToGenesis db = do
+    Pact4.exec_ db "DELETE FROM BlockHistory;"
+    Pact4.exec_ db "DELETE FROM [SYS:KeySets];"
+    Pact4.exec_ db "DELETE FROM [SYS:Modules];"
+    Pact4.exec_ db "DELETE FROM [SYS:Namespaces];"
+    Pact4.exec_ db "DELETE FROM [SYS:Pacts];"
+    Pact4.exec_ db "DELETE FROM [SYS:ModuleSources];"
+    tblNames <- Pact4.qry_ db "SELECT tablename FROM VersionedTableCreation;" [Pact4.RText]
+    forM_ tblNames $ \t -> case t of
+      [Pact4.SText tn] -> Pact4.exec_ db ("DROP TABLE [" <> tn <> "];")
+      _ -> internalError "Something went wrong when resetting tables."
+    Pact4.exec_ db "DELETE FROM VersionedTableCreation;"
+    Pact4.exec_ db "DELETE FROM VersionedTableMutation;"
+    Pact4.exec_ db "DELETE FROM TransactionIndex;"
+
+-- | Rewind the database to a particular block, given the end tx id of that
+-- block.
+rewindDbToBlock
+  :: Database
+  -> BlockHeight
+  -> Pact4.TxId
+  -> IO ()
+rewindDbToBlock db bh endingTxId = do
+    tableMaintenanceRowsVersionedSystemTables
+    droppedtbls <- dropTablesAtRewind
+    vacuumTablesAtRewind droppedtbls
+    deleteHistory
+    clearTxIndex
+  where
+    dropTablesAtRewind :: IO (HashSet BS.ByteString)
+    dropTablesAtRewind = do
+        toDropTblNames <- Pact4.qry db findTablesToDropStmt
+                          [Pact4.SInt (fromIntegral bh)] [Pact4.RText]
+        tbls <- fmap HashSet.fromList . forM toDropTblNames $ \case
+            [Pact4.SText tblname@(Utf8 tn)] -> do
+                Pact4.exec_ db $ "DROP TABLE IF EXISTS " <> tbl tblname
+                return tn
+            _ -> internalError rewindmsg
+        Pact4.exec' db
+            "DELETE FROM VersionedTableCreation WHERE createBlockheight > ?"
+            [Pact4.SInt (fromIntegral bh)]
+        return tbls
+    findTablesToDropStmt =
+      "SELECT tablename FROM VersionedTableCreation WHERE createBlockheight > ?;"
+    rewindmsg =
+      "rewindBlock: dropTablesAtRewind: Couldn't resolve the name of the table to drop."
+
+    deleteHistory :: IO ()
+    deleteHistory =
+        Pact4.exec' db "DELETE FROM BlockHistory WHERE blockheight > ?"
+              [Pact4.SInt (fromIntegral bh)]
+
+    vacuumTablesAtRewind :: HashSet BS.ByteString -> IO ()
+    vacuumTablesAtRewind droppedtbls = do
+        let processMutatedTables ms = fmap HashSet.fromList . forM ms $ \case
+              [Pact4.SText (Utf8 tn)] -> return tn
+              _ -> internalError "rewindBlock: vacuumTablesAtRewind: Couldn't resolve the name \
+                                 \of the table to possibly vacuum."
+        mutatedTables <- Pact4.qry db
+            "SELECT DISTINCT tablename FROM VersionedTableMutation WHERE blockheight > ?;"
+          [Pact4.SInt (fromIntegral bh)]
+          [Pact4.RText]
+          >>= processMutatedTables
+        let toVacuumTblNames = HashSet.difference mutatedTables droppedtbls
+        forM_ toVacuumTblNames $ \tblname ->
+            Pact4.exec' db ("DELETE FROM " <> tbl (Utf8 tblname) <> " WHERE txid >= ?")
+                  [Pact4.SInt $! fromIntegral endingTxId]
+        Pact4.exec' db "DELETE FROM VersionedTableMutation WHERE blockheight > ?;"
+              [Pact4.SInt (fromIntegral bh)]
+
+    tableMaintenanceRowsVersionedSystemTables :: IO ()
+    tableMaintenanceRowsVersionedSystemTables = do
+        Pact4.exec' db "DELETE FROM [SYS:KeySets] WHERE txid >= ?" tx
+        Pact4.exec' db "DELETE FROM [SYS:Modules] WHERE txid >= ?" tx
+        Pact4.exec' db "DELETE FROM [SYS:Namespaces] WHERE txid >= ?" tx
+        Pact4.exec' db "DELETE FROM [SYS:Pacts] WHERE txid >= ?" tx
+        Pact4.exec' db "DELETE FROM [SYS:ModuleSources] WHERE txid >= ?" tx
+      where
+        tx = [Pact4.SInt $! fromIntegral endingTxId]
+
+    -- | Delete all future transactions from the index
+    clearTxIndex :: IO ()
+    clearTxIndex =
+        Pact4.exec' db "DELETE FROM TransactionIndex WHERE blockheight > ?;"
+              [ Pact4.SInt (fromIntegral bh) ]

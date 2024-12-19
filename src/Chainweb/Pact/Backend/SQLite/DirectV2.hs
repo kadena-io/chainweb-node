@@ -1,7 +1,10 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Chainweb.Pact.Backend.SQLite.DirectV2
-( open_v2
+( SQLiteFlag(..)
+, open_v2
 , close_v2
 , init_sha3
 ) where
@@ -16,8 +19,12 @@ import Database.SQLite3.Bindings.Types
 
 -- chainweb
 import Chainweb.Pact.Backend.SQLite.V2
-import Chainweb.Pact.Backend.Types
 
+import Foreign.C.Types (CInt)
+
+
+newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
+  deriving newtype (Eq, Ord, Bits, Num)
 
 open_v2 :: Utf8 -> SQLiteFlag -> Maybe Utf8 -> IO (Either (Error, Utf8) Database)
 open_v2 (Utf8 path) (SQLiteFlag flag) mzvfs =
