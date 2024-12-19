@@ -50,6 +50,7 @@ import Data.String (fromString)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
+import GHC.Stack
 import Network.Connection qualified as HTTP
 import Network.HTTP.Client.TLS qualified as HTTP
 import Network.Socket qualified as Network
@@ -186,12 +187,12 @@ pollingConfirmationDepthTest baseRdb = runResourceT $ do
     liftIO $ do
         cmd1 <- buildTextCmd v (trivialTx cid 42)
         cmd2 <- buildTextCmd v (trivialTx cid 43)
-        let rks = Pact5.cmdToRequestKey cmd1 NE.:| [Pact5.cmdToRequestKey cmd2]
+        let rks = cmdToRequestKey cmd1 NE.:| [cmdToRequestKey cmd2]
 
         let expectSuccessful :: (HasCallStack, _) => P.Prop (HashMap RequestKey (CommandResult _ _))
-            expectSuccessful = P.propful ? HM.fromList
-                [ (Pact5.cmdToRequestKey cmd1, P.fun _crResult ? P.equals (PactResultOk (PInteger 42)))
-                , (Pact5.cmdToRequestKey cmd2, P.fun _crResult ? P.equals (PactResultOk (PInteger 43)))
+            expectSuccessful = P.propful ? HashMap.fromList
+                [ (cmdToRequestKey cmd1, P.fun _crResult ? P.equals (PactResultOk (PInteger 42)))
+                , (cmdToRequestKey cmd2, P.fun _crResult ? P.equals (PactResultOk (PInteger 43)))
                 ]
         let expectEmpty :: (HasCallStack, _) => _
             expectEmpty = P.equals HashMap.empty
