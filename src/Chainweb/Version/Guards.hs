@@ -47,8 +47,9 @@ module Chainweb.Version.Guards
     , chainweb224Pact
     , chainweb225Pact
     , chainweb226Pact
+    , pact5
     , pact44NewTrans
-    , pactParserVersion
+    , pact4ParserVersion
     , maxBlockGasLimit
     , validPPKSchemes
     , isWebAuthnPrefixLegal
@@ -69,12 +70,12 @@ import Pact.Types.Scheme (PPKScheme(ED25519, WebAuthn))
 
 import Chainweb.BlockHeight
 import Chainweb.ChainId
-import Chainweb.Transaction
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Version
 import Chainweb.Utils.Rule
 
 getForkHeight :: Fork -> ChainwebVersion -> ChainId -> ForkHeight
-getForkHeight fork v cid = v ^?! versionForks . at fork . _Just . onChain cid
+getForkHeight fork v cid = v ^?! versionForks . at fork . _Just . atChain cid
 
 checkFork
     :: (BlockHeight -> ForkHeight -> Bool)
@@ -219,6 +220,9 @@ pact4Coin3 = checkFork after Pact4Coin3
 pact42 :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 pact42 = checkFork atOrAfter Pact42
 
+pact5 :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
+pact5 = checkFork atOrAfter Pact5Fork
+
 chainweb213Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb213Pact = checkFork atOrAfter Chainweb213Pact
 
@@ -261,10 +265,10 @@ chainweb225Pact = checkFork atOrAfter Chainweb225Pact
 chainweb226Pact :: ChainwebVersion -> ChainId -> BlockHeight -> Bool
 chainweb226Pact = checkFork before Chainweb226Pact
 
-pactParserVersion :: ChainwebVersion -> ChainId -> BlockHeight -> PactParserVersion
-pactParserVersion v cid bh
-    | chainweb213Pact v cid bh = PactParserChainweb213
-    | otherwise = PactParserGenesis
+pact4ParserVersion :: ChainwebVersion -> ChainId -> BlockHeight -> Pact4.PactParserVersion
+pact4ParserVersion v cid bh
+    | chainweb213Pact v cid bh = Pact4.PactParserChainweb213
+    | otherwise = Pact4.PactParserGenesis
 
 maxBlockGasLimit :: ChainwebVersion -> BlockHeight -> Maybe Natural
 maxBlockGasLimit v bh = snd $ ruleZipperHere $ snd
@@ -279,11 +283,11 @@ validPPKSchemes v cid bh =
   then [ED25519, WebAuthn]
   else [ED25519]
 
-isWebAuthnPrefixLegal :: ChainwebVersion -> ChainId -> BlockHeight -> IsWebAuthnPrefixLegal
+isWebAuthnPrefixLegal :: ChainwebVersion -> ChainId -> BlockHeight -> Pact4.IsWebAuthnPrefixLegal
 isWebAuthnPrefixLegal v cid bh =
     if chainweb222Pact v cid bh
-    then WebAuthnPrefixLegal
-    else WebAuthnPrefixIllegal
+    then Pact4.WebAuthnPrefixLegal
+    else Pact4.WebAuthnPrefixIllegal
 
 validKeyFormats :: ChainwebVersion -> ChainId -> BlockHeight -> [PublicKeyText -> Bool]
 validKeyFormats v cid bh =

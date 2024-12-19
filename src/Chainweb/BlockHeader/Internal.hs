@@ -151,8 +151,8 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Guards
 import Chainweb.Version.Mainnet
-import Chainweb.Version.Registry (lookupVersionByName)
-import Chainweb.Version.Testnet
+import Chainweb.Version.Registry (lookupVersionByName, lookupVersionByCode)
+import Chainweb.Version.Testnet04
 import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((.=))
@@ -379,7 +379,7 @@ instance HasChainGraph BlockHeader where
     _chainGraph h = _chainGraph (_chainwebVersion h, _blockHeight h)
 
 instance HasChainwebVersion BlockHeader where
-    _chainwebVersion = _chainwebVersion . _blockChainwebVersion
+    _chainwebVersion = lookupVersionByCode . _blockChainwebVersion
 
 instance IsCasValue BlockHeader where
     type CasKeyType BlockHeader = BlockHash
@@ -661,7 +661,7 @@ genesisBlockHeaderCache = unsafePerformIO $ do
 genesisBlockHeaders :: ChainwebVersion -> HashMap ChainId BlockHeader
 genesisBlockHeaders = \v ->
     if _versionCode v == _versionCode mainnet then mainnetGenesisHeaders
-    else if _versionCode v == _versionCode testnet then testnetGenesisHeaders
+    else if _versionCode v == _versionCode testnet04 then testnetGenesisHeaders
     else unsafeDupablePerformIO $
         HM.lookup (_versionCode v) <$> readIORef genesisBlockHeaderCache >>= \case
             Just hs -> return hs
@@ -671,7 +671,7 @@ genesisBlockHeaders = \v ->
                 return freshGenesisHeaders
   where
     mainnetGenesisHeaders = makeGenesisBlockHeaders mainnet
-    testnetGenesisHeaders = makeGenesisBlockHeaders testnet
+    testnetGenesisHeaders = makeGenesisBlockHeaders testnet04
 
 genesisBlockHeader :: (HasCallStack, HasChainId p) => ChainwebVersion -> p -> BlockHeader
 genesisBlockHeader v p = genesisBlockHeaders v ^?! at (_chainId p) . _Just
@@ -681,7 +681,7 @@ makeGenesisBlockHeaders v = HM.fromList [ (cid, makeGenesisBlockHeader v cid) | 
 
 makeGenesisBlockHeader :: ChainwebVersion -> ChainId -> BlockHeader
 makeGenesisBlockHeader v cid =
-    makeGenesisBlockHeader' v cid (_genesisTime (_versionGenesis v) ^?! onChain cid) (Nonce 0)
+    makeGenesisBlockHeader' v cid (_genesisTime (_versionGenesis v) ^?! atChain cid) (Nonce 0)
 
 -- | Like `genesisBlockHeader`, but with slightly more control.
 --
@@ -706,7 +706,7 @@ makeGenesisBlockHeader' v p ct@(BlockCreationTime t) n =
         $ mkFeatureFlags
         :+: ct
         :+: genesisParentBlockHash v cid
-        :+: (v ^?! versionGenesis . genesisBlockTarget . onChain cid)
+        :+: (v ^?! versionGenesis . genesisBlockTarget . atChain cid)
         :+: genesisBlockPayloadHash v cid
         :+: cid
         :+: BlockWeight 0
@@ -805,7 +805,7 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader wh
             :+: nonce
             :+: MerkleLogBody adjParents
             ) = _merkleLogEntries l
-        cwv = _chainwebVersion cwvc
+        cwv = lookupVersionByCode cwvc
 
         adjGraph
             | height == genesisBlockHeight cwv cid = chainGraphAt cwv height

@@ -175,6 +175,8 @@ executable ea
         , chainweb
         , chainweb:chainweb-test-utils
 
+        , aeson
+        , async
         , base
         , chainweb-storage
         , lens

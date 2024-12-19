@@ -52,7 +52,8 @@ import Chainweb.BlockHeader.Internal
 import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.MerkleLogHash
-import Chainweb.Pact.Backend.RelationalCheckpointer
+import Chainweb.Pact.PactService.Checkpointer.Internal
+
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Types
@@ -60,6 +61,8 @@ import Chainweb.Test.TestVersions
 import Chainweb.Utils.Bench
 import Chainweb.Utils (sshow)
 import Chainweb.Version
+import qualified Chainweb.Pact4.Backend.ChainwebPactDb as Pact4
+import qualified Pact.Types.Command as Pact
 
 testVer :: ChainwebVersion
 testVer = instantCpmTestVersion petersonChainGraph
@@ -70,13 +73,13 @@ testChainId = unsafeChainId 0
 -- allowing a straightforward list of blocks to be passed to the API,
 -- and only exposing the PactDbEnv part of the block context
 cpRestoreAndSave
-  :: (Monoid q)
+  :: (Monoid q, Logger logger)
   => Checkpointer logger
   -> Maybe BlockHeader
-  -> [(BlockHeader, ChainwebPactDbEnv logger -> IO q)]
+  -> [(BlockHeader, PactDbEnv (Pact4.BlockEnv logger) -> IO q)]
   -> IO q
-cpRestoreAndSave cp pc blks = snd <$> _cpRestoreAndSave cp (ParentHeader <$> pc)
-  (traverse Stream.yield [RunnableBlock $ \dbEnv _ -> (,bh) <$> fun (_cpPactDbEnv dbEnv) | (bh, fun) <- blks])
+cpRestoreAndSave cp pc blks = snd <$> restoreAndSave cp (ParentHeader <$> pc)
+  (traverse Stream.yield [Pact4RunnableBlock $ \dbEnv _ -> (,bh) <$> fun (Pact4._cpPactDbEnv dbEnv) | (bh, fun) <- blks])
 
 -- | fabricate a `BlockHeader` for a block given its hash and its parent.
 childOf :: Maybe BlockHeader -> BlockHash -> BlockHeader
@@ -150,7 +153,7 @@ cpWithBench torun =
         let neverLogger = genericLogger Error (\_ -> return ())
         !sqliteEnv <- openSQLiteConnection dbFile chainwebPragmas
         !cenv <-
-          initRelationalCheckpointer defaultModuleCacheLimit sqliteEnv DoNotPersistIntraBlockWrites neverLogger testVer testChainId
+          initCheckpointerResources defaultModuleCacheLimit sqliteEnv DoNotPersistIntraBlockWrites neverLogger testVer testChainId
         return $ NoopNFData (sqliteEnv, cenv)
 
     teardown (NoopNFData (sqliteEnv, _cenv)) = closeSQLiteConnection sqliteEnv
@@ -159,7 +162,7 @@ cpWithBench torun =
     benches cpenv =
         [ torun cpenv ]
 
-cpBenchNoRewindOverBlock :: Int -> Checkpointer logger -> C.Benchmark
+cpBenchNoRewindOverBlock :: Logger logger => Int -> Checkpointer logger -> C.Benchmark
 cpBenchNoRewindOverBlock transactionCount cp = C.env setup' $ \ ~ut ->
   C.bench name $ C.nfIO $ do
       mv <- newMVar (initbytestring, pc01)
@@ -201,7 +204,7 @@ cpBenchNoRewindOverBlock transactionCount cp = C.env setup' $ \ ~ut ->
       where
         transaction db = incIntegerAtKey db ut f k 1
 
-cpBenchOverBlock :: Int -> Checkpointer logger -> C.Benchmark
+cpBenchOverBlock :: Logger logger => Int -> Checkpointer logger -> C.Benchmark
 cpBenchOverBlock transactionCount cp = C.env setup' $ \ ~(ut) ->
     C.bench benchname $ C.nfIO (go ut)
   where
@@ -335,7 +338,7 @@ benchUserTableForKeys numSampleEvents dbEnv =
           writeRow db Update ut f rowkeyb a
 
 
-_cpBenchKeys :: Int -> Checkpointer logger -> C.Benchmark
+_cpBenchKeys :: Logger logger => Int -> Checkpointer logger -> C.Benchmark
 _cpBenchKeys numKeys cp =
     C.env setup' $ \ ~(ut) -> C.bench name $ C.nfIO (go ut)
   where
@@ -368,7 +371,7 @@ _cpBenchKeys numKeys cp =
             let rowkey = RowKey $ "k" <> sshow numkey
             incIntegerAtKey db ut f rowkey 1
 
-cpBenchSampleKeys :: Int -> Checkpointer logger -> C.Benchmark
+cpBenchSampleKeys :: Logger logger => Int -> Checkpointer logger -> C.Benchmark
 cpBenchSampleKeys numSampleEvents cp =
     C.env setup' $ \ ~(ut) -> C.bench name $ C.nfIO (go ut)
   where
@@ -414,7 +417,7 @@ cpBenchSampleKeys numSampleEvents cp =
           )]
 
 
-cpBenchLookupProcessedTx :: Int -> Checkpointer logger -> C.Benchmark
+cpBenchLookupProcessedTx :: Logger logger => Int -> Checkpointer logger -> C.Benchmark
 cpBenchLookupProcessedTx transactionCount cp = C.env setup' $ \ ~(ut) ->
     C.bench benchname $ C.nfIO (go ut)
   where
@@ -442,5 +445,5 @@ cpBenchLookupProcessedTx transactionCount cp = C.env setup' $ \ ~(ut) ->
     pc02 = childOf (Just pc01) hash02
 
     go (NoopNFData _) = do
-        _cpReadFrom (_cpReadCp cp) (Just (ParentHeader pc02)) $ \dbEnv ->
-          _cpLookupProcessedTx dbEnv (V.fromList [Pact.TypedHash "" | _ <- [1..transactionCount]])
+        readFrom cp (Just (ParentHeader pc02)) Pact4T $ \dbEnv _ ->
+          Pact4._cpLookupProcessedTx dbEnv (V.fromList [Pact.RequestKey (Pact.toUntypedHash $ Pact.TypedHash "") | _ <- [1..transactionCount]])

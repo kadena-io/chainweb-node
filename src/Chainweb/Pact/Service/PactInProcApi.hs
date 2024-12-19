@@ -22,6 +22,7 @@
 module Chainweb.Pact.Service.PactInProcApi
     ( withPactService
     , withPactService'
+    , pactMemPoolAccess
     ) where
 
 import Control.Concurrent.Async
@@ -39,13 +40,13 @@ import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
-import Chainweb.Pact.Backend.Types
+
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Types
 import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload.PayloadStore
-import Chainweb.Transaction
+import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -53,6 +54,8 @@ import Data.LogMessage
 
 import GHC.Stack (HasCallStack)
 import Chainweb.Counter (Counter)
+import Chainweb.BlockCreationTime
+import Chainweb.Pact.Backend.Types
 
 -- | Initialization for Pact (in process) Api
 withPactService
@@ -130,12 +133,12 @@ pactMemPoolGetBlock
     => MempoolConsensus
     -> logger
     -> BlockFill
-    -> (MempoolPreBlockCheck ChainwebTransaction
+    -> (MempoolPreBlockCheck Pact4.UnparsedTransaction to
             -> BlockHeight
             -> BlockHash
-            -> BlockHeader
-            -> IO (Vector ChainwebTransaction))
-pactMemPoolGetBlock mpc theLogger bf validate height hash _bHeader = do
+            -> BlockCreationTime
+            -> IO (Vector to))
+pactMemPoolGetBlock mpc theLogger bf validate height hash _btime = do
     logFn theLogger Debug $! "pactMemPoolAccess - getting new block of transactions for "
         <> "height = " <> sshow height <> ", hash = " <> sshow hash
     mempoolGetBlock (mpcMempool mpc) bf validate height hash

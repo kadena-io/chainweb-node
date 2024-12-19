@@ -40,7 +40,7 @@ pattern RecapDevelopment <- ((== recapDevnet) -> True) where
 
 recapDevnet :: ChainwebVersion
 recapDevnet = ChainwebVersion
-    { _versionCode = ChainwebVersionCode 0x00000001
+    { _versionCode = ChainwebVersionCode 0x0000_0001
     , _versionName = ChainwebVersionName "recap-development"
 
     , _versionForks = tabulateHashMap $ \case
@@ -76,15 +76,16 @@ recapDevnet = ChainwebVersion
             Chainweb225Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 620
             Chainweb226Pact -> AllChains $ ForkAtBlockHeight $ BlockHeight 630
             Chainweb227Pact -> AllChains ForkNever
+            Pact5Fork -> AllChains ForkNever
 
     , _versionUpgrades = foldr (chainZip HM.union) (AllChains mempty)
         [ indexByForkHeights recapDevnet
-            [ (CoinV2, onChains [(unsafeChainId i, upgrade RecapDevnet.transactions) | i <- [0..9]])
-            , (Pact4Coin3, AllChains (Upgrade CoinV3.transactions True))
-            , (Chainweb214Pact, AllChains (Upgrade CoinV4.transactions True))
-            , (Chainweb215Pact, AllChains (Upgrade CoinV5.transactions True))
+            [ (CoinV2, onChains [(unsafeChainId i, pact4Upgrade RecapDevnet.transactions) | i <- [0..9]])
+            , (Pact4Coin3, AllChains (Pact4Upgrade CoinV3.transactions True))
+            , (Chainweb214Pact, AllChains (Pact4Upgrade CoinV4.transactions True))
+            , (Chainweb215Pact, AllChains (Pact4Upgrade CoinV5.transactions True))
             ]
-        , onChains [(unsafeChainId 0, HM.singleton to20ChainsHeight (upgrade MNKAD.transactions))]
+        , onChains [(unsafeChainId 0, HM.singleton to20ChainsHeight (pact4Upgrade MNKAD.transactions))]
         ]
 
     , _versionGraphs =
