@@ -29,6 +29,7 @@ module Chainweb.Test.Pact5.RemotePactTest
     ) where
 
 import Control.Concurrent.Async
+import Control.Exception (evaluate)
 import Control.Exception.Safe
 import Control.Lens
 import Control.Monad (replicateM_)
@@ -52,6 +53,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import GHC.Stack
 import Network.Connection qualified as HTTP
+import Network.HTTP.Client (Manager)
 import Network.HTTP.Client.TLS qualified as HTTP
 import Network.Socket qualified as Network
 import Network.TLS qualified as TLS
@@ -61,8 +63,9 @@ import Network.X509.SelfSigned
 import PropertyMatchers ((?))
 import PropertyMatchers qualified as P
 import Servant.Client
+import System.IO.Unsafe (unsafePerformIO)
 import Test.Tasty
-import Test.Tasty.HUnit (assertEqual, testCase, testCaseSteps)
+import Test.Tasty.HUnit (assertEqual, testCaseSteps)
 
 import Pact.Core.Capabilities
 import Pact.Core.Command.RPC (ContMsg (..))
@@ -94,7 +97,7 @@ import Chainweb.Test.Pact5.CmdBuilder
 import Chainweb.Test.Pact5.CutFixture qualified as CutFixture
 import Chainweb.Test.Pact5.Utils
 import Chainweb.Test.TestVersions
-import Chainweb.Test.Utils (TestPact5CommandResult, deadbeef)
+import Chainweb.Test.Utils (TestPact5CommandResult, deadbeef, withResource')
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
@@ -104,6 +107,8 @@ data Fixture = Fixture
     , _serviceClientEnv :: ClientEnv
     }
 makeLenses ''Fixture
+
+type Step = String -> IO ()
 
 mkFixture :: ChainwebVersion -> RocksDb -> ResourceT IO Fixture
 mkFixture v baseRdb = do
@@ -120,8 +125,6 @@ mkFixture v baseRdb = do
     let cutGetServer = someCutGetServer v (fixture ^. CutFixture.fixtureCutDb)
     let app = someServerApplication (pactServer <> cutGetServer)
 
-    (_fingerprint, cert, key) <- liftIO $ generateLocalhostCertificate @RsaCert 1
-
     -- Run pact server API
     (port, socket) <- snd <$> allocate W.openFreePort (Network.close . snd)
     _ <- allocate
@@ -130,10 +133,7 @@ mkFixture v baseRdb = do
         )
         cancel
 
-    serviceClientEnv <- liftIO $ do
-        let defaultTLSSettings = (HTTP.TLSSettingsSimple True False False TLS.defaultSupported)
-        httpManager <- HTTP.newTlsManagerWith (HTTP.mkManagerSettings defaultTLSSettings Nothing)
-        return $ mkClientEnv httpManager $ BaseUrl
+    let serviceClientEnv = mkClientEnv httpManager $ BaseUrl
             { baseUrlScheme = Https
             , baseUrlHost = "127.0.0.1"
             , baseUrlPort = port
@@ -145,17 +145,29 @@ mkFixture v baseRdb = do
         , _serviceClientEnv = serviceClientEnv
         }
 
-tests :: RocksDb -> TestTree
-tests rdb = testGroup "Pact5 RemotePactTest"
-    [ testCase "pollingInvalidRequestKeyTest" (pollingInvalidRequestKeyTest rdb)
-    , testCase "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
-    , testCase "spvTest" (spvTest rdb)
-    , testCase "invalidTxsTest" (invalidTxsTest rdb)
-    , testCaseSteps "caplistTest" (caplistTest rdb)
-    ]
+-- generating this cert and making an HTTP manager take quite a while relative
+-- to the rest of the tests, so they're shared globally.
+-- there's no apparent reason to ever switch them out, either.
+cert :: X509CertPem
+key :: X509KeyPem
+(_, cert, key) = unsafePerformIO $ generateLocalhostCertificate @RsaCert 1
+defaultTLSSettings :: HTTP.TLSSettings
+defaultTLSSettings = (HTTP.TLSSettingsSimple True False False TLS.defaultSupported)
+httpManager :: Manager
+httpManager = unsafePerformIO $ HTTP.newTlsManagerWith (HTTP.mkManagerSettings defaultTLSSettings Nothing)
 
-pollingInvalidRequestKeyTest :: RocksDb -> IO ()
-pollingInvalidRequestKeyTest baseRdb = runResourceT $ do
+tests :: RocksDb -> TestTree
+tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
+    testGroup "Pact5 RemotePactTest"
+        [ testCaseSteps "pollingInvalidRequestKeyTest" (pollingInvalidRequestKeyTest rdb)
+        , testCaseSteps "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
+        , testCaseSteps "spvTest" (spvTest rdb)
+        , testCaseSteps "invalidTxsTest" (invalidTxsTest rdb)
+        , testCaseSteps "caplistTest" (caplistTest rdb)
+        ]
+
+pollingInvalidRequestKeyTest :: RocksDb -> Step -> IO ()
+pollingInvalidRequestKeyTest baseRdb _step = runResourceT $ do
     let v = pact5InstantCpmTestVersion singletonChainGraph
     let cid = unsafeChainId 0
     fixture <- mkFixture v baseRdb
@@ -165,8 +177,8 @@ pollingInvalidRequestKeyTest baseRdb = runResourceT $ do
         pollResult <- polling v cid clientEnv (NE.singleton pactDeadBeef)
         assertEqual "invalid poll should return no results" pollResult HashMap.empty
 
-pollingConfirmationDepthTest :: RocksDb -> IO ()
-pollingConfirmationDepthTest baseRdb = runResourceT $ do
+pollingConfirmationDepthTest :: RocksDb -> Step -> IO ()
+pollingConfirmationDepthTest baseRdb _step = runResourceT $ do
     let v = pact5InstantCpmTestVersion singletonChainGraph
     let cid = unsafeChainId 0
     fixture <- mkFixture v baseRdb
@@ -240,8 +252,8 @@ pollingConfirmationDepthTest baseRdb = runResourceT $ do
 
         return ()
 
-spvTest :: RocksDb -> IO ()
-spvTest baseRdb = runResourceT $ do
+spvTest :: RocksDb -> Step -> IO ()
+spvTest baseRdb step = runResourceT $ do
     let v = pact5InstantCpmTestVersion petersonChainGraph
     fixture <- mkFixture v baseRdb
     let clientEnv = fixture ^. serviceClientEnv
@@ -269,11 +281,13 @@ spvTest baseRdb = runResourceT $ do
             $ set cbGasLimit (GasLimit (Gas 1_000))
             $ defaultCmd
 
+        step "xchain send"
         sendReqKey <- fmap NE.head $ sending v srcChain clientEnv (NE.singleton send)
         (sendCut, _) <- CutFixture.advanceAllChains (fixture ^. cutFixture)
         sendCr <- fmap (HashMap.! sendReqKey) $ pollingWithDepth v srcChain clientEnv (NE.singleton sendReqKey) (Just (ConfirmationDepth 0))
         let cont = fromMaybe (error "missing continuation") (_crContinuation sendCr)
 
+        step "waiting"
         _ <- replicateM_ 10 $ do
             CutFixture.advanceAllChains (fixture ^. cutFixture)
         let sendHeight = sendCut ^?! ixg srcChain . blockHeight
@@ -285,6 +299,7 @@ spvTest baseRdb = runResourceT $ do
                 , _cmData = PUnit
                 , _cmProof = Just (ContProof (B64U.encode (BL.toStrict (A.encode spvProof))))
                 }
+        step "xchain recv"
 
         recv <- buildTextCmd v
             $ set cbSigners
@@ -324,10 +339,10 @@ fails p actual = try actual >>= \case
     Left e -> p e
     _ -> P.fail "a failed computation" actual
 
-invalidTxsTest :: RocksDb -> IO ()
-invalidTxsTest baseRdb = runResourceT $ do
+invalidTxsTest :: RocksDb -> Step -> IO ()
+invalidTxsTest rdb _step = runResourceT $ do
     let v = pact5InstantCpmTestVersion petersonChainGraph
-    fixture <- mkFixture v baseRdb
+    fixture <- mkFixture v rdb
     let clientEnv = fixture ^. serviceClientEnv
 
     let cid = unsafeChainId 0
@@ -412,11 +427,12 @@ invalidTxsTest baseRdb = runResourceT $ do
         sending v cid clientEnv (NE.fromList [cmdGood, cmdInvalidUserSig])
             & fails ? assertExnContains (validationFailedPrefix cmdInvalidUserSig <> "Invalid transaction sigs")
 
-caplistTest :: RocksDb -> (String -> IO ()) -> IO ()
-caplistTest baseRdb step = runResourceT $ do
-    let testCaseStep m = liftIO (step m)
+        sending v (unsafeChainId 4) clientEnv (NE.fromList [cmdGood])
+            & fails ? assertExnContains
+                (validationFailedPrefix cmdGood <> "Transaction metadata (chain id, chainweb version) conflicts with this endpoint")
 
-    testCaseStep "setting up"
+caplistTest :: RocksDb -> Step -> IO ()
+caplistTest baseRdb step = runResourceT $ do
     let v = pact5InstantCpmTestVersion petersonChainGraph
     fixture <- mkFixture v baseRdb
     let clientEnv = fixture ^. serviceClientEnv
@@ -424,7 +440,6 @@ caplistTest baseRdb step = runResourceT $ do
     let cid = unsafeChainId 0
 
     liftIO $ do
-
         tx0 <- buildTextCmd v
             $ set cbSigners
                 [ mkEd25519Signer' sender00
@@ -440,15 +455,15 @@ caplistTest baseRdb step = runResourceT $ do
             $ set cbRPC (mkExec "(coin.transfer \"sender00\" \"sender01\" 100.0)" PUnit)
             $ defaultCmd
 
-        testCaseStep "sending"
+        step "sending"
 
         recvReqKey <- fmap NE.head $ sending v cid clientEnv (NE.fromList [tx0])
 
-        testCaseStep "advancing chains"
+        step "advancing chains"
 
         CutFixture.advanceAllChains_ (fixture ^. cutFixture)
 
-        testCaseStep "polling"
+        step "polling"
 
         polling v cid clientEnv (NE.fromList [recvReqKey]) >>=
             P.propful ? HashMap.singleton recvReqKey ?

@@ -131,6 +131,7 @@ advanceAllChains Fixture{..} = do
     let blockHeights = fmap (view blockHeight) $ latestCut ^. cutMap
     let latestBlockHeight = maximum blockHeights
 
+    -- TODO: rejig this to do parallel mining.
     (finalCut, perChainCommandResults) <- foldM
         (\ (prevCut, !acc) cid -> do
             (newCut, _minedChain, pwo) <-
