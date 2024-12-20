@@ -304,7 +304,7 @@ spvTest baseRdb step = runResourceT $ do
         let cont = fromMaybe (error "missing continuation") (_crContinuation sendCr)
 
         step "waiting"
-        replicateM_ 10 $ CutFixture.advanceAllChains_
+        replicateM_ (int $ diameter petersonChainGraph + 1) $ CutFixture.advanceAllChains_
         let sendHeight = sendCut ^?! ixg srcChain . blockHeight
         spvProof <- createTransactionOutputProof_ (fixture ^. cutFixture . CutFixture.fixtureWebBlockHeaderDb) (fixture ^. cutFixture . CutFixture.fixturePayloadDb) targetChain srcChain sendHeight 0
         let contMsg = ContMsg
