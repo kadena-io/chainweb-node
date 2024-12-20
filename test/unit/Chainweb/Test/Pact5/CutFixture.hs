@@ -1,9 +1,11 @@
 {-# language
     BangPatterns
+    , ConstraintKinds
     , DataKinds
     , DeriveAnyClass
     , DerivingStrategies
     , FlexibleContexts
+    , ImplicitParams
     , ImportQualifiedPost
     , LambdaCase
     , NumericUnderscores
@@ -15,6 +17,7 @@
     , TemplateHaskell
     , TypeApplications
 #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 -- | A fixture which provides access to the internals of a running node, with
 -- multiple chains. Usually, you initialize it with `mkFixture`, insert
@@ -22,7 +25,10 @@
 -- trigger mining on all chains at once.
 module Chainweb.Test.Pact5.CutFixture
     ( Fixture(..)
+    , HasFixture(..)
     , mkFixture
+    , withFixture
+    , withFixture'
     , fixtureCutDb
     , fixturePayloadDb
     , fixtureWebBlockHeaderDb
@@ -83,6 +89,7 @@ import GHC.Stack
 import Network.HTTP.Client qualified as HTTP
 import Pact.Core.Command.Types
 import Pact.Core.Hash qualified as Pact5
+import GHC.Exts (WithDict(..))
 
 data Fixture = Fixture
     { _fixtureCutDb :: CutDb RocksDbTable
@@ -93,6 +100,9 @@ data Fixture = Fixture
     , _fixturePactQueues :: ChainMap PactQueue
     }
 makeLenses ''Fixture
+
+class HasFixture where
+    cutFixture :: IO Fixture
 
 mkFixture :: ChainwebVersion -> PactServiceConfig -> RocksDb -> ResourceT IO Fixture
 mkFixture v pactServiceConfig baseRdb = do
@@ -115,17 +125,25 @@ mkFixture v pactServiceConfig baseRdb = do
             , _fixtureMempools = OnChains $ fst <$> perChain
             , _fixturePactQueues = OnChains $ snd <$> perChain
             }
-    _ <- liftIO $ advanceAllChains fixture
+    _ <- withFixture fixture $ liftIO advanceAllChains
     return fixture
+
+withFixture' :: IO Fixture -> (HasFixture => a) -> a
+withFixture' fixture tests =
+    withDict @HasFixture fixture tests
+
+withFixture :: Fixture -> (HasFixture => a) -> a
+withFixture fixture tests =
+    withFixture' (return fixture) tests
 
 -- | Advance all chains by one block, filling that block with whatever is in
 -- their mempools at the time.
 --
 advanceAllChains
-    :: HasCallStack
-    => Fixture
-    -> IO (Cut, ChainMap (Vector (CommandResult Pact5.Hash Text)))
-advanceAllChains Fixture{..} = do
+    :: (HasCallStack, HasFixture)
+    => IO (Cut, ChainMap (Vector (CommandResult Pact5.Hash Text)))
+advanceAllChains = do
+    Fixture{..} <- cutFixture
     let v = _chainwebVersion _fixtureCutDb
     latestCut <- liftIO $ _fixtureCutDb ^. cut
     let blockHeights = fmap (view blockHeight) $ latestCut ^. cutMap
@@ -149,10 +167,9 @@ advanceAllChains Fixture{..} = do
     return (finalCut, onChains perChainCommandResults)
 
 advanceAllChains_
-    :: HasCallStack
-    => Fixture
-    -> IO ()
-advanceAllChains_ f = void $ advanceAllChains f
+    :: (HasCallStack, HasFixture)
+    => IO ()
+advanceAllChains_ = void advanceAllChains
 
 withTestCutDb :: (Logger logger)
     => logger
