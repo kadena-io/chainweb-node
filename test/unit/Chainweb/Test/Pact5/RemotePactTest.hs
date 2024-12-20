@@ -70,7 +70,7 @@ import PropertyMatchers qualified as P
 import Servant.Client
 import System.IO.Unsafe (unsafePerformIO)
 import Test.Tasty
-import Test.Tasty.HUnit (testCaseSteps)
+import Test.Tasty.HUnit (testCaseSteps, testCase)
 
 import Pact.Core.Capabilities
 import Pact.Core.Command.RPC (ContMsg (..))
@@ -102,12 +102,13 @@ import Chainweb.Test.Pact5.CmdBuilder
 import Chainweb.Test.Pact5.CutFixture qualified as CutFixture
 import Chainweb.Test.Pact5.Utils
 import Chainweb.Test.TestVersions
-import Chainweb.Test.Utils (TestPact5CommandResult, deadbeef, withResource')
+import Chainweb.Test.Utils (TestPact5CommandResult, deadbeef, withResource', withResourceT)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 import Network.HTTP.Types.Status (notFound404)
 import GHC.Exts (WithDict(..))
+import Chainweb.Test.Utils (independentSequentialTestGroup)
 
 data Fixture = Fixture
     { _cutFixture :: CutFixture.Fixture
@@ -180,7 +181,7 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
         [ testCaseSteps "pollingInvalidRequestKeyTest" (pollingInvalidRequestKeyTest rdb)
         , testCaseSteps "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
         , testCaseSteps "spvTest" (spvTest rdb)
-        , testCaseSteps "invalidTxsTest" (invalidTxsTest rdb)
+        , invalidTxsTest rdb
         , testCaseSteps "caplistTest" (caplistTest rdb)
         ]
 
@@ -355,25 +356,10 @@ fails p actual = try actual >>= \case
     Left e -> p e
     _ -> P.fail "a failed computation" actual
 
-invalidTxsTest :: RocksDb -> Step -> IO ()
-invalidTxsTest rdb _step = runResourceT $ do
-    let v = pact5InstantCpmTestVersion petersonChainGraph
-    let wrongV = pact5InstantCpmTestVersion twentyChainGraph
-    fixture <- mkFixture v rdb
-
-    let cid = unsafeChainId 0
-    let wrongChain = unsafeChainId 4
-
-    let textContains :: HasCallStack => _
-        textContains expectedStr actualStr
-            | expectedStr `T.isInfixOf` actualStr = P.succeed actualStr
-            | otherwise =
-                P.fail ("String containing: " <> PP.pretty expectedStr) actualStr
-
-    let validationFailedPrefix cmd = "Validation failed for hash " <> sshow (_cmdHash cmd) <> ": "
-
-    withFixture fixture $ liftIO $ do
-        do
+invalidTxsTest :: RocksDb -> TestTree
+invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture' fixtureIO $
+    independentSequentialTestGroup "invalid txs tests"
+        [ testCase "syntax error" $ do
             cmdParseFailure <- buildTextCmd v
                 $ set cbChainId cid
                 $ set cbRPC (mkExec "(+ 1" PUnit)
@@ -381,7 +367,7 @@ invalidTxsTest rdb _step = runResourceT $ do
             send v cid [cmdParseFailure]
                 & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains "Pact parse error"
 
-        do
+        , testCase "invalid hash" $ do
             cmdInvalidPayloadHash <- do
                 bareCmd <- buildTextCmd v
                     $ set cbChainId cid
@@ -394,7 +380,7 @@ invalidTxsTest rdb _step = runResourceT $ do
                 & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
                     (validationFailedPrefix cmdInvalidPayloadHash <> "Invalid transaction hash")
 
-        do
+        , testCase "signature length mismatch" $ do
             cmdSignersSigsLengthMismatch1 <- do
                 bareCmd <- buildTextCmd v
                     $ set cbSigners [mkEd25519Signer' sender00 []]
@@ -408,8 +394,7 @@ invalidTxsTest rdb _step = runResourceT $ do
                 & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
                     (validationFailedPrefix cmdSignersSigsLengthMismatch1 <> "Invalid transaction sigs")
 
-        do
-            cmdSignersSigsLengthMismatch2 <- liftIO $ do
+            cmdSignersSigsLengthMismatch2 <- do
                 bareCmd <- buildTextCmd v
                     $ set cbSigners []
                     $ set cbChainId cid
@@ -423,26 +408,17 @@ invalidTxsTest rdb _step = runResourceT $ do
                 & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
                     (validationFailedPrefix cmdSignersSigsLengthMismatch2 <> "Invalid transaction sigs")
 
-        cmdInvalidUserSig <- liftIO $ do
-            bareCmd <- buildTextCmd v
-                $ set cbSigners [mkEd25519Signer' sender00 []]
-                $ set cbChainId cid
-                $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
-                $ defaultCmd
-            pure $ bareCmd
-                { _cmdSigs = [ED25519Sig "fakeSig"]
-                }
+        , testCase "invalid signatures" $ do
 
-        cmdGood <- buildTextCmd v
-            $ set cbSigners [mkEd25519Signer' sender00 []]
-            $ set cbChainId cid
-            $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
-            $ defaultCmd
+            cmdInvalidUserSig <- mkCmdInvalidUserSig
 
-        do
             send v cid [cmdInvalidUserSig]
                 & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
                     (validationFailedPrefix cmdInvalidUserSig <> "Invalid transaction sigs")
+
+        , testCase "batches are rejected with any invalid txs" $ do
+            cmdGood <- mkCmdGood
+            cmdInvalidUserSig <- mkCmdInvalidUserSig
             -- Test that [badCmd, goodCmd] fails on badCmd, and the batch is rejected.
             -- We just re-use a previously built bad cmd.
             send v cid [cmdInvalidUserSig, cmdGood]
@@ -456,7 +432,8 @@ invalidTxsTest rdb _step = runResourceT $ do
                 & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
                     (validationFailedPrefix cmdInvalidUserSig <> "Invalid transaction sigs")
 
-        do
+        , testCase "invalid chain or version" $ do
+            cmdGood <- mkCmdGood
             send v wrongChain [cmdGood]
                 & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
                     (validationFailedPrefix cmdGood <> "Transaction metadata (chain id, chainweb version) conflicts with this endpoint")
@@ -476,6 +453,29 @@ invalidTxsTest rdb _step = runResourceT $ do
             send v cid [cmdWrongV]
                 & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
                     (validationFailedPrefix cmdWrongV <> "Transaction metadata (chain id, chainweb version) conflicts with this endpoint")
+        ]
+    where
+    v = pact5InstantCpmTestVersion petersonChainGraph
+    wrongV = pact5InstantCpmTestVersion twentyChainGraph
+
+    cid = unsafeChainId 0
+    wrongChain = unsafeChainId 4
+
+    textContains :: HasCallStack => _
+    textContains expectedStr actualStr
+        | expectedStr `T.isInfixOf` actualStr = P.succeed actualStr
+        | otherwise =
+            P.fail ("String containing: " <> PP.pretty expectedStr) actualStr
+
+    validationFailedPrefix cmd = "Validation failed for hash " <> sshow (_cmdHash cmd) <> ": "
+
+    mkCmdInvalidUserSig = mkCmdGood <&> set cmdSigs [ED25519Sig "fakeSig"]
+
+    mkCmdGood = buildTextCmd v
+        $ set cbSigners [mkEd25519Signer' sender00 []]
+        $ set cbChainId cid
+        $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
+        $ defaultCmd
 
 
 caplistTest :: RocksDb -> Step -> IO ()
