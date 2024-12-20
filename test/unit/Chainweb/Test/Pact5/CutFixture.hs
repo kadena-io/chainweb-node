@@ -1,9 +1,11 @@
 {-# language
     BangPatterns
+    , ConstraintKinds
     , DataKinds
     , DeriveAnyClass
     , DerivingStrategies
     , FlexibleContexts
+    , ImplicitParams
     , ImportQualifiedPost
     , LambdaCase
     , NumericUnderscores
@@ -22,7 +24,10 @@
 -- trigger mining on all chains at once.
 module Chainweb.Test.Pact5.CutFixture
     ( Fixture(..)
+    , HasFixture
     , mkFixture
+    , withFixture
+    , withFixture'
     , fixtureCutDb
     , fixturePayloadDb
     , fixtureWebBlockHeaderDb
@@ -94,6 +99,8 @@ data Fixture = Fixture
     }
 makeLenses ''Fixture
 
+type HasFixture = (?cutFixture :: IO Fixture)
+
 mkFixture :: ChainwebVersion -> PactServiceConfig -> RocksDb -> ResourceT IO Fixture
 mkFixture v pactServiceConfig baseRdb = do
     logger <- liftIO getTestLogger
@@ -115,17 +122,25 @@ mkFixture v pactServiceConfig baseRdb = do
             , _fixtureMempools = OnChains $ fst <$> perChain
             , _fixturePactQueues = OnChains $ snd <$> perChain
             }
-    _ <- liftIO $ advanceAllChains fixture
+    _ <- withFixture fixture $ liftIO advanceAllChains
     return fixture
+
+withFixture' :: IO Fixture -> (HasFixture => a) -> a
+withFixture' fixture tests =
+    let ?cutFixture = fixture in tests
+
+withFixture :: Fixture -> (HasFixture => a) -> a
+withFixture fixture tests =
+    withFixture' (return fixture) tests
 
 -- | Advance all chains by one block, filling that block with whatever is in
 -- their mempools at the time.
 --
 advanceAllChains
-    :: HasCallStack
-    => Fixture
-    -> IO (Cut, ChainMap (Vector (CommandResult Pact5.Hash Text)))
-advanceAllChains Fixture{..} = do
+    :: (HasCallStack, HasFixture)
+    => IO (Cut, ChainMap (Vector (CommandResult Pact5.Hash Text)))
+advanceAllChains = do
+    Fixture{..} <- ?cutFixture
     let v = _chainwebVersion _fixtureCutDb
     latestCut <- liftIO $ _fixtureCutDb ^. cut
     let blockHeights = fmap (view blockHeight) $ latestCut ^. cutMap
@@ -149,10 +164,9 @@ advanceAllChains Fixture{..} = do
     return (finalCut, onChains perChainCommandResults)
 
 advanceAllChains_
-    :: HasCallStack
-    => Fixture
-    -> IO ()
-advanceAllChains_ f = void $ advanceAllChains f
+    :: (HasCallStack, HasFixture)
+    => IO ()
+advanceAllChains_ = void advanceAllChains
 
 withTestCutDb :: (Logger logger)
     => logger
