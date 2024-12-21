@@ -45,7 +45,7 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Lens qualified as A
 import Data.ByteString.Base64.URL qualified as B64U
 import Data.ByteString.Lazy qualified as BL
-import Data.Foldable (traverse_)
+import Data.Foldable (forM_, traverse_)
 import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
 import Data.List qualified as List
@@ -108,7 +108,6 @@ import Chainweb.Version
 import Chainweb.WebPactExecutionService
 import Network.HTTP.Types.Status (notFound404)
 import GHC.Exts (WithDict(..))
-import Chainweb.Test.Utils (independentSequentialTestGroup)
 
 data Fixture = Fixture
     { _cutFixture :: CutFixture.Fixture
@@ -358,11 +357,11 @@ fails p actual = try actual >>= \case
 
 invalidTxsTest :: RocksDb -> TestTree
 invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture' fixtureIO $
-    independentSequentialTestGroup "invalid txs tests"
+    sequentialTestGroup "invalid txs tests" AllSucceed
         [ testCase "syntax error" $ do
             cmdParseFailure <- buildTextCmd v
                 $ set cbChainId cid
-                $ set cbRPC (mkExec "(+ 1" PUnit)
+                $ set cbRPC (mkExec' "(+ 1")
                 $ defaultCmd
             send v cid [cmdParseFailure]
                 & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains "Pact parse error"
@@ -401,7 +400,9 @@ invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture
                     $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
                     $ defaultCmd
                 pure $ bareCmd
-                    { -- This is an invalid ED25519 signature, but length signers == length signatures is checked first
+                    {
+                    -- This is an invalid ED25519 signature,
+                    -- but length signers == length signatures is checked first
                     _cmdSigs = [ED25519Sig "fakeSig"]
                     }
             send v cid [cmdSignersSigsLengthMismatch2]
@@ -453,6 +454,10 @@ invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture
             send v cid [cmdWrongV]
                 & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
                     (validationFailedPrefix cmdWrongV <> "Transaction metadata (chain id, chainweb version) conflicts with this endpoint")
+        -- must be the final test!
+        , testCase "none make it into a block" $ do
+            (_, cmdResults) <- CutFixture.advanceAllChains
+            forM_ cmdResults (P.propful mempty)
         ]
     where
     v = pact5InstantCpmTestVersion petersonChainGraph
@@ -498,7 +503,7 @@ caplistTest baseRdb step = runResourceT $ do
                     ]
                 ]
             $ set cbChainId cid
-            $ set cbRPC (mkExec "(coin.transfer \"sender00\" \"sender01\" 100.0)" PUnit)
+            $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 100.0)")
             $ defaultCmd
 
         step "sending"
