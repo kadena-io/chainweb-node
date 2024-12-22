@@ -563,6 +563,7 @@ library chainweb-test-utils
         , pact-time:numeric >=0.3.0.1
         , pact-tng >=5.0
         , pact-tng:pact-request-api >=5.0
+        , property-matchers ^>= 0.2
         , quickcheck-instances >= 0.3
         , random >= 1.2
         , resourcet >= 1.3
