@@ -54,7 +54,7 @@ import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
 
 -- | Initial hash target for mainnet 20-chain transition. Difficulty on the new
 -- chains is 1/4 of the current difficulty. It is based on the following header
--- from 2020-07-09. This value should be double checked after the testnet
+-- from 2020-07-09. This value should be double checked after the testnet04
 -- transition and before the release of chainweb node version 2.1.
 --
 -- @
@@ -135,6 +135,7 @@ mainnet = ChainwebVersion
         Pact4Coin3 -> AllChains (ForkAtBlockHeight $ BlockHeight 1_722_500)      -- 2021-06-19T03:34:05+00:00
         EnforceKeysetFormats -> AllChains (ForkAtBlockHeight $ BlockHeight 2_162_000) -- 2022-01-17T17:51:12
         Pact42 -> AllChains (ForkAtBlockHeight $ BlockHeight 2_334_500) -- 2022-01-17T17:51:12+00:00
+        Pact5Fork -> AllChains ForkNever
         CheckTxHash -> AllChains (ForkAtBlockHeight $ BlockHeight 2_349_800) -- 2022-01-23T02:53:38
         Chainweb213Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 2_447_315) -- 2022-02-26T00:00:00+00:00
         Chainweb214Pact -> AllChains (ForkAtBlockHeight $ BlockHeight 2_605_663) -- 2022-04-22T00:00:00+00:00
@@ -160,7 +161,7 @@ mainnet = ChainwebVersion
     , _versionWindow = WindowWidth 120
     , _versionHeaderBaseSizeBytes = 318 - 110
     , _versionMaxBlockGasLimit =
-        (succ $ mainnet ^?! versionForks . at Chainweb216Pact . _Just . onChain (unsafeChainId 0) . _ForkAtBlockHeight, Just 180_000) `Above`
+        (succ $ mainnet ^?! versionForks . at Chainweb216Pact . _Just . atChain (unsafeChainId 0) . _ForkAtBlockHeight, Just 180_000) `Above`
         Bottom (minBound, Nothing)
     , _versionBootstraps = domainAddr2PeerInfo mainnetBootstrapHosts
     , _versionGenesis = VersionGenesis
@@ -170,40 +171,41 @@ mainnet = ChainwebVersion
             ]
         , _genesisTime = AllChains $ BlockCreationTime [timeMicrosQQ| 2019-10-30T00:01:00.0 |]
         , _genesisBlockPayload = OnChains $ HM.fromList $ concat
-            [ [ (unsafeChainId 0, MN0.payloadBlock)
-              , (unsafeChainId 1, MN1.payloadBlock)
-              , (unsafeChainId 2, MN2.payloadBlock)
-              , (unsafeChainId 3, MN3.payloadBlock)
-              , (unsafeChainId 4, MN4.payloadBlock)
-              , (unsafeChainId 5, MN5.payloadBlock)
-              , (unsafeChainId 6, MN6.payloadBlock)
-              , (unsafeChainId 7, MN7.payloadBlock)
-              , (unsafeChainId 8, MN8.payloadBlock)
-              , (unsafeChainId 9, MN9.payloadBlock)
-              ]
+            [
+                [ (unsafeChainId 0, MN0.payloadBlock)
+                , (unsafeChainId 1, MN1.payloadBlock)
+                , (unsafeChainId 2, MN2.payloadBlock)
+                , (unsafeChainId 3, MN3.payloadBlock)
+                , (unsafeChainId 4, MN4.payloadBlock)
+                , (unsafeChainId 5, MN5.payloadBlock)
+                , (unsafeChainId 6, MN6.payloadBlock)
+                , (unsafeChainId 7, MN7.payloadBlock)
+                , (unsafeChainId 8, MN8.payloadBlock)
+                , (unsafeChainId 9, MN9.payloadBlock)
+                ]
             , [(unsafeChainId i, MNKAD.payloadBlock) | i <- [10..19]]
             ]
         }
     , _versionUpgrades = chainZip HM.union
         (indexByForkHeights mainnet
         [ (CoinV2, onChains
-            [ (unsafeChainId 0, upgrade MN0.transactions)
-            , (unsafeChainId 1, upgrade MN1.transactions)
-            , (unsafeChainId 2, upgrade MN2.transactions)
-            , (unsafeChainId 3, upgrade MN3.transactions)
-            , (unsafeChainId 4, upgrade MN4.transactions)
-            , (unsafeChainId 5, upgrade MN5.transactions)
-            , (unsafeChainId 6, upgrade MN6.transactions)
-            , (unsafeChainId 7, upgrade MN7.transactions)
-            , (unsafeChainId 8, upgrade MN8.transactions)
-            , (unsafeChainId 9, upgrade MN9.transactions)
+            [ (unsafeChainId 0, pact4Upgrade MN0.transactions)
+            , (unsafeChainId 1, pact4Upgrade MN1.transactions)
+            , (unsafeChainId 2, pact4Upgrade MN2.transactions)
+            , (unsafeChainId 3, pact4Upgrade MN3.transactions)
+            , (unsafeChainId 4, pact4Upgrade MN4.transactions)
+            , (unsafeChainId 5, pact4Upgrade MN5.transactions)
+            , (unsafeChainId 6, pact4Upgrade MN6.transactions)
+            , (unsafeChainId 7, pact4Upgrade MN7.transactions)
+            , (unsafeChainId 8, pact4Upgrade MN8.transactions)
+            , (unsafeChainId 9, pact4Upgrade MN9.transactions)
             ])
-        , (Pact4Coin3, AllChains $ Upgrade CoinV3.transactions True)
-        , (Chainweb214Pact, AllChains $ Upgrade CoinV4.transactions True)
-        , (Chainweb215Pact, AllChains $ Upgrade CoinV5.transactions True)
-        , (Chainweb223Pact, AllChains $ upgrade CoinV6.transactions)
+        , (Pact4Coin3, AllChains $ Pact4Upgrade CoinV3.transactions True)
+        , (Chainweb214Pact, AllChains $ Pact4Upgrade CoinV4.transactions True)
+        , (Chainweb215Pact, AllChains $ Pact4Upgrade CoinV5.transactions True)
+        , (Chainweb223Pact, AllChains $ pact4Upgrade CoinV6.transactions)
         ])
-        (onChains [(unsafeChainId 0, HM.singleton to20ChainsMainnet (upgrade MNKAD.transactions))])
+        (onChains [(unsafeChainId 0, HM.singleton to20ChainsMainnet (pact4Upgrade MNKAD.transactions))])
     , _versionCheats = VersionCheats
         { _disablePow = False
         , _fakeFirstEpochStart = False

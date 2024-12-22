@@ -25,7 +25,7 @@
 -- block.
 --
 module Chainweb.Mempool.CurrentTxs
-( CurrentTxs
+( CurrentTxs(..)
 , newCurrentTxs
 , currentTxsSize
 , currentTxsInsert

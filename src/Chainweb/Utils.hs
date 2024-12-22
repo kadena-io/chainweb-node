@@ -134,6 +134,7 @@ module Chainweb.Utils
 , fromJuste
 , (???)
 , fromEitherM
+, fromEithere
 , InternalInvariantViolation(..)
 
 -- ** Synchronous Exceptions
@@ -191,6 +192,7 @@ module Chainweb.Utils
 -- * Strict Tuples
 , T2(..)
 , T3(..)
+, T4(..)
 , sfst
 , ssnd
 , scurry
@@ -209,7 +211,6 @@ module Chainweb.Utils
 , unsafeManager
 , unsafeManagerWithSettings
 , setManagerRequestTimeout
-, defaultSupportedTlsSettings
 
 -- * SockAddr from network package
 , showIpv4
@@ -257,7 +258,6 @@ import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as CSV
 import Data.Decimal
-import Data.Default.Class (def)
 import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
@@ -274,7 +274,7 @@ import qualified Data.Vector.Mutable as MV
 import Data.Word
 
 import GHC.Generics
-import GHC.Stack (HasCallStack)
+import GHC.Stack (HasCallStack, callStack, prettyCallStack)
 import GHC.TypeLits (KnownSymbol, symbolVal)
 
 import qualified Network.Connection as HTTP
@@ -870,13 +870,24 @@ fromEitherM :: MonadThrow m => Exception e => Either e a -> m a
 fromEitherM = either throwM return
 {-# INLINE fromEitherM #-}
 
+-- | Throw an exception if a value is a 'Left' result.
+--
+fromEithere :: HasCallStack => Either e a -> a
+fromEithere = either (error "Chainweb.Utils.fromJuste: Nothing") id
+{-# INLINE fromEithere #-}
+
 -- | An exeption to indicate an violation of an internal code invariants.
 -- Throwing this type of exception means that there is a bug in the code.
 --
-newtype InternalInvariantViolation = InternalInvariantViolation T.Text
-    deriving (Show)
+data InternalInvariantViolation = HasCallStack => InternalInvariantViolation T.Text
 
-instance Exception InternalInvariantViolation
+instance Show InternalInvariantViolation where
+    show (InternalInvariantViolation t) = "Invariant violation: " <> T.unpack t
+
+instance Exception InternalInvariantViolation where
+    displayException (InternalInvariantViolation v) =
+        "Invariant violation: " <> T.unpack v
+        <> "\n" <> GHC.Stack.prettyCallStack callStack
 
 -- | Catch and handle exception that are not contained in 'SomeAsyncException'.
 --
@@ -1294,6 +1305,9 @@ instance Field2 (T3 a b c) (T3 a x c) b x where
 instance Field3 (T3 a b c) (T3 a b x) c x where
     _3 = lens (\(T3 _a _b c) -> c) (\(T3 a b _c) x -> T3 a b x)
 
+data T4 a b c d = T4 !a !b !c !d
+    deriving (Show, Eq, Ord, Generic, NFData, Functor)
+
 sfst :: T2 a b -> a
 sfst (T2 a _) = a
 {-# INLINE sfst #-}
@@ -1351,9 +1365,6 @@ approximateThreadDelay d = withMVar threadDelayRng (approximately d)
 --
 -- TODO unify with other HTTP managers
 
-defaultSupportedTlsSettings :: HTTP.Supported
-defaultSupportedTlsSettings = def
-
 manager :: Int -> IO HTTP.Manager
 manager micros = HTTP.newManager
     $ setManagerRequestTimeout micros
@@ -1363,7 +1374,7 @@ unsafeManager :: Int -> IO HTTP.Manager
 unsafeManager micros = HTTP.newTlsManagerWith
     $ setManagerRequestTimeout micros
     $ HTTP.mkManagerSettings
-        (HTTP.TLSSettingsSimple True True True defaultSupportedTlsSettings)
+        (HTTP.TLSSettingsSimple True True True HTTP.defaultSupported)
         Nothing
 
 unsafeManagerWithSettings
@@ -1372,7 +1383,7 @@ unsafeManagerWithSettings
 unsafeManagerWithSettings settings = HTTP.newTlsManagerWith
     $ settings
     $ HTTP.mkManagerSettings
-        (HTTP.TLSSettingsSimple True True True defaultSupportedTlsSettings)
+        (HTTP.TLSSettingsSimple True True True HTTP.defaultSupported)
         Nothing
 
 setManagerRequestTimeout :: Int -> HTTP.ManagerSettings -> HTTP.ManagerSettings
@@ -1441,7 +1452,7 @@ estimateBlockHeight rate dateStr curHeight = do
 
 -- | Parse UTC Time in the format "%y-%m-%dT%H:%M:%SZ"
 --
-parseUtcTime :: MonadThrow m => String -> m UTCTime
+parseUtcTime :: (HasCallStack, MonadThrow m) => String -> m UTCTime
 parseUtcTime d = case parseTimeM False defaultTimeLocale fmt d of
     Nothing -> throwM $ InternalInvariantViolation
         $ "parseUtcTime: failed to parse utc date " <> sshow d

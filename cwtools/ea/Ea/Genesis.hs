@@ -18,16 +18,22 @@ module Ea.Genesis
 , recapDevelopmentKAD
 , fastDevelopment0
 , fastDevelopmentN
+, pact5Development0
+, pact5DevelopmentN
 
   -- * Testing Genesis Txs
 , fastTimedCPM0
 , fastTimedCPMN
 , instantCPM0
 , instantCPMN
+, pact5InstantCPM0
+, pact5InstantCPMN
 
   -- * Testnet Genesis txs
-, testnet0
-, testnetN
+, testnet040
+, testnet04N
+, testnet050
+, testnet05N
 
   -- * Mainnet Genesis txs
 , mainnet0
@@ -67,9 +73,11 @@ import Chainweb.Graph
 import Chainweb.Test.TestVersions
 import Chainweb.Version
 import Chainweb.Version.Development
+import Chainweb.Version.Pact5Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
-import Chainweb.Version.Testnet
+import Chainweb.Version.Testnet04
+import Chainweb.Version.Testnet05
 
 
 -- ---------------------------------------------------------------------- --
@@ -207,6 +215,23 @@ fastDevelopmentN = fastDevelopment0
     & txChainIds .~ mkChainIdRange 1 19
     & coinbase ?~ devNGrants
 
+pact5Development0 :: Genesis
+pact5Development0 = Genesis
+    { _version = Pact5Development
+    , _tag = "Pact5Development"
+    , _txChainIds = onlyChainId 0
+    , _coinbase = Just dev0Grants
+    , _keysets = Just devKeysets
+    , _allocations = Just devAllocations
+    , _namespaces = Just devNs2
+    , _coinContract = [fungibleAssetV1, fungibleXChainV1, fungibleAssetV2, installCoinContractV6, gasPayer]
+    }
+
+pact5DevelopmentN :: Genesis
+pact5DevelopmentN = pact5Development0
+    & txChainIds .~ mkChainIdRange 1 19
+    & coinbase ?~ devNGrants
+
 devNs2 :: FilePath
 devNs2 = "pact/genesis/ns-v2.yaml"
 
@@ -248,6 +273,23 @@ instantCPMN = instantCPM0
   & txChainIds .~ mkChainIdRange 1 9
   & coinbase ?~ fastNGrants
 
+pact5InstantCPM0 :: Genesis
+pact5InstantCPM0 = Genesis
+    { _version = pact5InstantCpmTestVersion petersonChainGraph
+    , _tag = "Pact5InstantTimedCPM"
+    , _txChainIds = onlyChainId 0
+    , _coinbase = Just fast0Grants
+    , _keysets = Just fastKeysets
+    , _allocations = Just fastAllocations
+    , _namespaces = Just devNs2
+    , _coinContract = [fungibleAssetV1, fungibleXChainV1, fungibleAssetV2, installCoinContractV6, gasPayer]
+    }
+
+pact5InstantCPMN :: Genesis
+pact5InstantCPMN = pact5InstantCPM0
+  & txChainIds .~ mkChainIdRange 1 9
+  & coinbase ?~ fastNGrants
+
 fastTimedCPM0 :: Genesis
 fastTimedCPM0 = Genesis
     { _version = fastForkingCpmTestVersion petersonChainGraph
@@ -281,12 +323,12 @@ fastAllocations :: FilePath
 fastAllocations = "pact/genesis/devnet/allocations.yaml"
 
 -- ---------------------------------------------------------------------- --
--- Testnet
+-- Testnet 04
 
-testnet0 :: Genesis
-testnet0 = Genesis
+testnet040 :: Genesis
+testnet040 = Genesis
     { _version = Testnet04
-    , _tag = "Testnet"
+    , _tag = "Testnet04"
     , _txChainIds = onlyChainId 0
     , _coinbase = Just test0Grants
     , _keysets = Just testnetKeysets
@@ -295,25 +337,51 @@ testnet0 = Genesis
     , _coinContract = [fungibleAssetV1, coinContractV1, gasPayer]
     }
 
-testnetN :: Genesis
-testnetN = testnet0
+testnet04N :: Genesis
+testnet04N = testnet040
     & txChainIds .~ mkChainIdRange 1 19
     & coinbase ?~ testNGrants
 
 test0Grants :: FilePath
-test0Grants = "pact/genesis/testnet/grants0.yaml"
+test0Grants = "pact/genesis/testnet04/grants0.yaml"
 
 testNGrants :: FilePath
-testNGrants = "pact/genesis/testnet/grantsN.yaml"
+testNGrants = "pact/genesis/testnet04/grantsN.yaml"
 
 testNs :: FilePath
 testNs = "pact/genesis/ns-v1.yaml"
 
 testnetAllocations :: FilePath
-testnetAllocations = "pact/genesis/testnet/allocations.yaml"
+testnetAllocations = "pact/genesis/testnet04/allocations.yaml"
 
 testnetKeysets :: FilePath
-testnetKeysets = "pact/genesis/testnet/keysets.yaml"
+testnetKeysets = "pact/genesis/testnet04/keysets.yaml"
+
+-- ---------------------------------------------------------------------- --
+-- Testnet 05
+
+testnet050 :: Genesis
+testnet050 = Genesis
+    { _version = Testnet05
+    , _tag = "Testnet05"
+    , _txChainIds = onlyChainId 0
+    , _coinbase = Just testnet05Chain0Grants
+    , _keysets = Just testnetKeysets
+    , _allocations = Just testnetAllocations
+    , _namespaces = Just "pact/genesis/ns-v2.yaml"
+    , _coinContract = [fungibleAssetV1, fungibleXChainV1, fungibleAssetV2, installCoinContractV6, gasPayer]
+    }
+
+testnet05N :: Genesis
+testnet05N = testnet050
+    & txChainIds .~ mkChainIdRange 1 19
+    & coinbase ?~ testnet05ChainNGrants
+
+testnet05Chain0Grants :: FilePath
+testnet05Chain0Grants = "pact/genesis/testnet05/grants0.yaml"
+
+testnet05ChainNGrants :: FilePath
+testnet05ChainNGrants = "pact/genesis/testnet05/grantsN.yaml"
 
 -- ---------------------------------------------------------------------- --
 -- Mainnet

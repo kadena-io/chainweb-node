@@ -61,6 +61,11 @@ package pact
     -- avoid conflict with cryptonite during linking
     flags: +cryptonite-ed25519 -build-tool
 
+package pact-tng
+    ghc-options: -Wwarn
+    -- avoid conflict with cryptonite during linking
+    flags: +cryptonite-ed25519 -build-tool
+
 package rocksdb-haskell-kadena
     ghc-options: -Wwarn -optc-w -optcxx-w
 
@@ -86,6 +91,12 @@ source-repository-package
     location: https://github.com/kadena-io/pact.git
     tag: 1027a1f5fd0439c58522921e3a0532c4f5867a24
     --sha256: 18xgvzb3p8chch85747ln9a2191df09vwwrv9v3njr2h69n3rhxj
+
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/pact-5.git
+    tag: 52f41d6b48584e8fcbfae745a6e3abe640500885
+    --sha256: 06karzsrih0hjkdipc8s171v4vgk09j5w6fa7zm3rv6qjw6j6jar
 
 source-repository-package
     type: git
@@ -163,8 +174,6 @@ allow-newer: servant:*
 -- These packages are tightly bound to the GHC version and these
 -- settings ensure that we use the versions that are shipped with the
 -- GHC version that we are using.
-allow-newer: *:Cabal
-allow-newer: *:Cabal-syntax
 allow-newer: *:array
 allow-newer: *:base
 allow-newer: *:bytestring
@@ -204,6 +213,8 @@ allow-newer: webauthn:*
 -- many packages use an spurious <1.5 upper bound on hashable
 allow-newer: *:hashable
 
+allow-newer: lrucaching:base-compat
+
 -- -------------------------------------------------------------------------- --
 -- Temporary Dependency Overwrites
 --
@@ -219,4 +230,3 @@ allow-newer: *:hashable
 --
 -- Please add a comment for each entry that outlines why it is needed and when
 -- it can be removed.
-

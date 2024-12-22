@@ -59,8 +59,9 @@ module Chainweb.ChainId
 
 -- * Mapping from chain IDs to values
 , ChainMap(..)
-, onChain
+, atChain
 , onChains
+, onChain
 , chainZip
 ) where
 
@@ -276,6 +277,10 @@ data ChainMap a = AllChains a | OnChains (HashMap ChainId a)
 onChains :: [(ChainId, a)] -> ChainMap a
 onChains = OnChains . HM.fromList
 
+-- | A smart constructor, @onChain c a = OnChains (HM.singleton c a)@.
+onChain :: ChainId -> a -> ChainMap a
+onChain c a = OnChains (HM.singleton c a)
+
 -- | Zips two `ChainMap`s on their chain IDs.
 chainZip :: (a -> a -> a) -> ChainMap a -> ChainMap a -> ChainMap a
 chainZip f (OnChains l) (OnChains r) = OnChains $ HM.unionWith f l r
@@ -296,7 +301,7 @@ instance FromJSON a => FromJSON (ChainMap a) where
 makePrisms ''ChainMap
 
 -- | Provides access to the value at a `ChainId`, if it exists.
-onChain :: ChainId -> Fold (ChainMap a) a
-onChain cid = folding $ \case
+atChain :: ChainId -> Fold (ChainMap a) a
+atChain cid = folding $ \case
     OnChains m -> m ^. at cid
     AllChains a -> Just a

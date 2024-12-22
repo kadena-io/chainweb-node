@@ -1,4 +1,6 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# LANGUAGE MonoLocalBinds #-}
+{-# LANGUAGE NamedFieldPuns #-}
 -- |
 -- Module: Chainweb.Version.Registry
 -- Copyright: Copyright © 2023 Kadena LLC.
@@ -44,16 +46,19 @@ import GHC.Stack
 
 import Chainweb.Version
 import Chainweb.Version.Development
+import Chainweb.Version.Pact5Development
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Mainnet
-import Chainweb.Version.Testnet
+import Chainweb.Version.Testnet04
+import Chainweb.Version.Testnet05
 import Chainweb.Utils.Rule
+-- temporarily left off because it doesn't validate
 
 {-# NOINLINE versionMap #-}
 versionMap :: IORef (HashMap ChainwebVersionCode ChainwebVersion)
 versionMap = unsafePerformIO $ do
     traverse_ validateVersion knownVersions
-    newIORef $ HM.fromList [(_versionCode v, v) | v <- [mainnet, testnet]]
+    newIORef $ HM.fromList [(_versionCode v, v) | v <- [mainnet, testnet04, testnet05]]
 
 -- | Register a version into our registry by code, ensuring it contains no
 -- errors and there are no others registered with that code.
@@ -71,14 +76,15 @@ registerVersion v = do
 -- | Unregister a version from the registry. This is ONLY for testing versions.
 unregisterVersion :: HasCallStack => ChainwebVersion -> IO ()
 unregisterVersion v = do
-    if elem (_versionCode v) (_versionCode <$> [mainnet, testnet])
-    then error "You cannot unregister mainnet or testnet versions"
+    if elem (_versionCode v) (_versionCode <$> [mainnet, testnet04, testnet05])
+    then error "You cannot unregister mainnet, testnet04, or testnet05 versions"
     else atomicModifyIORef' versionMap $ \m -> (HM.delete (_versionCode v) m, ())
 
 validateVersion :: HasCallStack => ChainwebVersion -> IO ()
 validateVersion v = do
     evaluate (rnf v)
     let
+        hasAllChains :: ChainMap a -> Bool
         hasAllChains (AllChains _) = True
         hasAllChains (OnChains m) = HS.fromMap (void m) == chainIds v
         errors = concat
@@ -96,11 +102,18 @@ validateVersion v = do
                     , hasAllChains (_genesisBlockTarget $ _versionGenesis v)
                     , hasAllChains (_genesisTime $ _versionGenesis v)
                     ])]
-            , [ "validateVersion: some upgrade has no transactions"
-              | any (any (\upg -> null (_upgradeTransactions upg))) (_versionUpgrades v) ]
+            , [ "validateVersion: some pact upgrade has no transactions"
+                | any (any isUpgradeEmpty) (_versionUpgrades v) ]
+            -- TODO: check that pact 4/5 upgrades are only enabled when pact 4/5 is enabled
             ]
     unless (null errors) $
         error $ unlines $ ["errors encountered validating version", show v] <> errors
+    where
+    -- TODO: this is an annoying type sig, can we use NoMonoLocalBinds and disable the warning
+    -- about matching on GADTs?
+    isUpgradeEmpty :: PactUpgrade -> Bool
+    isUpgradeEmpty Pact4Upgrade{_pact4UpgradeTransactions = upg} = null upg
+    isUpgradeEmpty Pact5Upgrade{_pact5UpgradeTransactions = upg} = null upg
 
 -- | Look up a version in the registry by code.
 lookupVersionByCode :: HasCallStack => ChainwebVersionCode -> ChainwebVersion
@@ -109,27 +122,35 @@ lookupVersionByCode code
     -- cannot be accidentally replaced and are the most performant to look up.
     -- registering them is still allowed, as long as they are not conflicting.
     | code == _versionCode mainnet = mainnet
-    | code == _versionCode testnet = testnet
+    | code == _versionCode testnet04 = testnet04
+    | code == _versionCode testnet05 = testnet05
     | otherwise =
         -- Setting the version code here allows us to delay doing the lookup in
         -- the case that we don't actually need the version, just the code.
         lookupVersion & versionCode .~ code
-  where
+    where
+
+    lookupVersion :: HasCallStack => ChainwebVersion
     lookupVersion = unsafeDupablePerformIO $ do
         m <- readIORef versionMap
         return $ fromMaybe (error notRegistered) $
             HM.lookup code m
+
     notRegistered
-      | code == _versionCode recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured"
-      | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured"
-      | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.testVersions?"
+        | code == _versionCode recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured. " <> perhaps
+        | code == _versionCode devnet = "devnet version used but not registered, remember to do so after it's configured. " <> perhaps
+        | code == _versionCode pact5Devnet = "Pact 5 devnet version used but not registered, remember to do so after it's configured. " <> perhaps
+        | otherwise = "version not registered with code " <> show code <> ", have you seen Chainweb.Test.TestVersions.testVersions?"
+
+    perhaps = "Perhaps you are attempting to run a different devnet version than a previous run, and you need to delete your db directory before restarting devnet with the new version?"
 
 -- TODO: ideally all uses of this are deprecated. currently in use in
 -- ObjectEncoded block header decoder and CutHashes decoder.
 lookupVersionByName :: HasCallStack => ChainwebVersionName -> ChainwebVersion
 lookupVersionByName name
     | name == _versionName mainnet = mainnet
-    | name == _versionName testnet = testnet
+    | name == _versionName testnet04 = testnet04
+    | name == _versionName testnet05 = testnet05
     | otherwise = lookupVersion & versionName .~ name
   where
     lookupVersion = unsafeDupablePerformIO $ do
@@ -138,6 +159,8 @@ lookupVersionByName name
             listToMaybe [ v | v <- HM.elems m, _versionName v == name ]
     notRegistered
       | name == _versionName recapDevnet = "recapDevnet version used but not registered, remember to do so after it's configured"
+      | name == _versionName devnet = "devnet version used but not registered, remember to do so after it's configured"
+      | name == _versionName pact5Devnet = "Pact 5 devnet version used but not registered, remember to do so after it's configured"
       | otherwise = "version not registered with name " <> show name <> ", have you seen Chainweb.Test.TestVersions.testVersions?"
 
 fabricateVersionWithName :: HasCallStack => ChainwebVersionName -> ChainwebVersion
@@ -146,15 +169,12 @@ fabricateVersionWithName name =
 
 -- | Versions known to us by name.
 knownVersions :: [ChainwebVersion]
-knownVersions = [mainnet, testnet, recapDevnet, devnet]
+knownVersions = [mainnet, testnet04, testnet05, recapDevnet, devnet, pact5Devnet]
 
 -- | Look up a known version by name, usually with `m` instantiated to some
 -- configuration parser monad.
 findKnownVersion :: MonadFail m => ChainwebVersionName -> m ChainwebVersion
 findKnownVersion vn =
     case find (\v -> _versionName v == vn) knownVersions of
-        Nothing -> fail $ T.unpack (getChainwebVersionName vn) <> " is not a known version: try development, mainnet01 or testnet04"
+        Nothing -> fail $ T.unpack (getChainwebVersionName vn) <> " is not a known version: try development, mainnet01, testnet04, or testnet05"
         Just v -> return v
-
-instance HasChainwebVersion ChainwebVersionCode where
-    _chainwebVersion = lookupVersionByCode
