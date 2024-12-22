@@ -83,6 +83,9 @@ import Pact.Types.Hash
 import qualified Pact.Core.Command.Server as Pact5
 import qualified Pact.Core.Command.Types as Pact5
 import qualified Pact.Types.API as Pact4
+import qualified Data.Aeson as Aeson
+import qualified Data.Text.Lazy.Encoding as TL
+import qualified Data.Text.Lazy as TL
 
 -- ------------------------------------------------------------------ --
 -- Defaults
@@ -153,9 +156,11 @@ local
     -> Command Text
     -> IO (CommandResult Hash)
 local v sid cenv cmd = do
-    LocalResultLegacy cr <-
+    Just cr <- preview _LocalResultLegacy <$>
       localWithQueryParams v sid cenv Nothing Nothing Nothing cmd
-    pure cr
+    Just pact4Cr <- return $
+      Aeson.decode (TL.encodeUtf8 $ TL.fromStrict $ J.getJsonText cr)
+    pure pact4Cr
 
 localTestToRetry
     :: ChainwebVersion

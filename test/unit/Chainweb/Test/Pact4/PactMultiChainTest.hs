@@ -7,6 +7,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Chainweb.Test.Pact4.PactMultiChainTest
 ( tests
@@ -303,31 +304,42 @@ pactLocalDepthTest = do
         assertTxGas "Coin post-fork" 1574
     ]
 
-  runLocalWithDepth "0" (Just $ RewindDepth 0) cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the current balance" (pDecimal 99_999_997.6852)
+  runLocalWithDepth "0" (Just $ RewindDepth 0) cid getSender00Balance >>= \case
+    Right (Pact4LocalResultLegacy r) -> assertTxSuccess "Should get the current balance" (pDecimal 99_999_997.6852) r
+    _ -> error "bad"
 
   -- checking that `Just $ RewindDepth 0` has the same behaviour as `Nothing`
-  runLocalWithDepth "1" Nothing cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the current balance as well" (pDecimal 99_999_997.6852)
+  runLocalWithDepth "1" Nothing cid getSender00Balance >>= \case
+    Right (Pact4LocalResultLegacy r) ->
+      assertTxSuccess "Should get the current balance as well" (pDecimal 99_999_997.6852) r
+    _ -> error "bad"
 
-  runLocalWithDepth "2" (Just $ RewindDepth 1) cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the balance one block before" (pDecimal 99_999_998.8426)
+  runLocalWithDepth "2" (Just $ RewindDepth 1) cid getSender00Balance >>= \case
+    Right (Pact4LocalResultLegacy r) ->
+      assertTxSuccess "Should get the balance one block before" (pDecimal 99_999_998.8426) r
+    _ -> error "bad"
 
-  runLocalWithDepth "3" (Just $ RewindDepth 2) cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the balance two blocks before" (pDecimal 100_000_000)
+  runLocalWithDepth "3" (Just $ RewindDepth 2) cid getSender00Balance >>= \case
+    Right (Pact4LocalResultLegacy r) ->
+      assertTxSuccess "Should get the balance two blocks before" (pDecimal 100_000_000) r
+    _ -> error "bad"
 
   -- the genesis depth
-  runLocalWithDepth "5" (Just $ RewindDepth 55) cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000)
+  runLocalWithDepth "5" (Just $ RewindDepth 55) cid getSender00Balance >>= \case
+    Right (Pact4LocalResultLegacy r) ->
+      assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000) r
+    _ -> error "bad"
 
   -- local rewinding past genesis should be the same as rewinding to genesis
-  runLocalWithDepth "6" (Just $ RewindDepth 56) cid getSender00Balance >>= \r ->
-    checkLocalResult r $ assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000)
+  runLocalWithDepth "6" (Just $ RewindDepth 56) cid getSender00Balance >>= \case
+    Right (Pact4LocalResultLegacy r) ->
+      assertTxSuccess "Should get the balance at the genesis block" (pDecimal 100000000) r
+    _ -> error "bad"
 
   where
-  checkLocalResult r checkResult = case r of
-    Right (LocalResultLegacy cr) -> checkResult cr
-    res -> liftIO $ assertFailure $ "Expected LocalResultLegacy, but got: " ++ show res
+  -- checkLocalResult r checkResult = case r of
+  --   Right (preview _LocalResultLegacy -> Just cr) -> checkResult cr
+  --   res -> liftIO $ assertFailure $ "Expected LocalResultLegacy, but got: " ++ show res
   getSender00Balance = set cbGasLimit 700 $ set cbRPC (mkExec' "(coin.get-balance \"sender00\")") $ defaultCmd
   buildCoinXfer code = buildBasic'
     (set cbSigners [mkEd25519Signer' sender00 coinCaps] . set cbGasLimit 3000)
@@ -416,7 +428,7 @@ assertLocalFailure
     -> m ()
 assertLocalFailure s d lr =
   liftIO $ assertEqual s (Just d) $
-    lr ^? _Right . _LocalResultLegacy . crResult . to _pactResult . _Left . to peDoc
+    lr ^? _Right . _Pact4LocalResultLegacy . crResult . to _pactResult . _Left . to peDoc
 
 assertLocalSuccess
     :: (HasCallStack, MonadIO m)
@@ -426,7 +438,7 @@ assertLocalSuccess
     -> m ()
 assertLocalSuccess s pv lr =
   liftIO $ assertEqual s (Just pv) $
-    lr ^? _Right . _LocalResultLegacy . crResult . to _pactResult . _Right
+    lr ^? _Right . _Pact4LocalResultLegacy . crResult . to _pactResult . _Right
 
 pact43UpgradeTest :: PactTestM ()
 pact43UpgradeTest = do
