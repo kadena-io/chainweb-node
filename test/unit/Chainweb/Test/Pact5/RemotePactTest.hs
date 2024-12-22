@@ -184,6 +184,7 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
         , testCaseSteps "spvTest" (spvTest rdb)
         , invalidTxsTest rdb
         , testCaseSteps "caplistTest" (caplistTest rdb)
+        , testCaseSteps "webAuthnSignatureTest" (webAuthnSignatureTest rdb)
         ]
 
 pollingInvalidRequestKeyTest :: RocksDb -> Step -> IO ()
@@ -526,6 +527,23 @@ _PEPact5Error = prism' (PEPact5Error . uncurry3 PactErrorCode) $ \case
     PEPact5Error (PactErrorCode {_peCode, _peMsg, _peInfo}) ->
         Just (_peCode, _peMsg, _peInfo)
     _ -> Nothing
+
+-- Test that transactions signed with (mock) WebAuthn keypairs are accepted
+-- by the pact service.
+webAuthnSignatureTest :: RocksDb -> Step -> IO ()
+webAuthnSignatureTest rdb _step = runResourceT $ do
+    let v = pact5InstantCpmTestVersion petersonChainGraph
+    let cid = unsafeChainId 0
+    fixture <- mkFixture v rdb
+    withFixture fixture $ liftIO $ do
+        cmd <- buildTextCmd v
+            $ set cbSigners [mkWebAuthnSigner' sender02WebAuthn [], mkEd25519Signer' sender00 []]
+            $ set cbRPC (mkExec' "(concat [\"chainweb-\" \"node\"])")
+            $ defaultCmd
+        send v cid [cmd]
+        CutFixture.advanceAllChains_
+        poll v cid [cmdToRequestKey cmd] >>=
+            P.propful [P.match _Just successfulTx]
 
 {-
           recvPwos <- runCutWithTx v pacts targetMempoolRef blockDb $ \_n _bHeight _bHash bHeader -> do
