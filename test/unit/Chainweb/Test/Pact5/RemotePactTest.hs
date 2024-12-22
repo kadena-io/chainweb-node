@@ -28,6 +28,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module Chainweb.Test.Pact5.RemotePactTest
     ( tests
@@ -108,6 +109,7 @@ import Chainweb.Version
 import Chainweb.WebPactExecutionService
 import Network.HTTP.Types.Status (notFound404)
 import GHC.Exts (WithDict(..))
+import Pact.Core.Errors
 
 data Fixture = Fixture
     { _cutFixture :: CutFixture.Fixture
@@ -350,10 +352,6 @@ spvTest baseRdb step = runResourceT $ do
 
     pure ()
 
-fails :: Exception e => P.Prop e -> P.Prop (IO a)
-fails p actual = try actual >>= \case
-    Left e -> p e
-    _ -> P.fail "a failed computation" actual
 
 invalidTxsTest :: RocksDb -> TestTree
 invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture' fixtureIO $
@@ -466,12 +464,6 @@ invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture
     cid = unsafeChainId 0
     wrongChain = unsafeChainId 4
 
-    textContains :: HasCallStack => _
-    textContains expectedStr actualStr
-        | expectedStr `T.isInfixOf` actualStr = P.succeed actualStr
-        | otherwise =
-            P.fail ("String containing: " <> PP.pretty expectedStr) actualStr
-
     validationFailedPrefix cmd = "Validation failed for hash " <> sshow (_cmdHash cmd) <> ": "
 
     mkCmdInvalidUserSig = mkCmdGood <&> set cmdSigs [ED25519Sig "fakeSig"]
@@ -524,6 +516,16 @@ caplistTest baseRdb step = runResourceT $ do
                     , P.fun _crMetaData ? P.match (_Just . A._Object . at "blockHash") ? P.match _Just P.succeed
                     ]
 
+
+successfulTx :: P.Prop (CommandResult log err)
+successfulTx = P.fun _crResult ? P.match _PactResultOk P.succeed
+
+-- TODO: backport into Pact 5
+_PEPact5Error :: Prism' (PactErrorCompat c) (ErrorCode, BoundedText _, c)
+_PEPact5Error = prism' (PEPact5Error . uncurry3 PactErrorCode) $ \case
+    PEPact5Error (PactErrorCode {_peCode, _peMsg, _peInfo}) ->
+        Just (_peCode, _peMsg, _peInfo)
+    _ -> Nothing
 
 {-
           recvPwos <- runCutWithTx v pacts targetMempoolRef blockDb $ \_n _bHeight _bHash bHeader -> do
@@ -664,13 +666,26 @@ toPact5RequestKey = \case
     Pact4.RequestKey (Pact4.Hash bytes) -> RequestKey (Pact5.Hash bytes)
 
 toPact4Command :: Command Text -> Pact4.Command Text
-toPact4Command cmd4 = case Aeson.eitherDecodeStrictText (J.encodeText cmd4) of
+toPact4Command cmd5 = case Aeson.eitherDecodeStrictText (J.encodeText cmd5) of
     Left err -> error $ "toPact4Command: decode failed: " ++ err
-    Right cmd5 -> cmd5
+    Right cmd4 -> cmd4
 
-_successfulTx :: P.Prop (CommandResult log err)
-_successfulTx = P.fun _crResult ? P.match _PactResultOk P.succeed
+toPact5CommandResult :: Pact4.CommandResult Pact4.Hash -> TestPact5CommandResult
+toPact5CommandResult cr4 = case Aeson.eitherDecodeStrictText (J.encodeText cr4) of
+    Left err -> error $ "toPact5CommandResult: decode failed: " ++ err
+    Right cmd5 -> cmd5
 
 pactDeadBeef :: RequestKey
 pactDeadBeef = case deadbeef of
     TransactionHash bytes -> RequestKey (Pact5.Hash bytes)
+
+fails :: Exception e => P.Prop e -> P.Prop (IO a)
+fails p actual = try actual >>= \case
+    Left e -> p e
+    _ -> P.fail "a failed computation" actual
+
+textContains :: HasCallStack => _
+textContains expectedStr actualStr
+    | expectedStr `T.isInfixOf` actualStr = P.succeed actualStr
+    | otherwise =
+        P.fail ("String containing: " <> PP.pretty expectedStr) actualStr
