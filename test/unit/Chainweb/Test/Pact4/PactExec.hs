@@ -7,6 +7,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Test.Pact
@@ -70,6 +71,9 @@ import Pact.Types.Pretty
 
 import qualified Pact.JSON.Encode as J
 import Data.Functor.Product
+import qualified Data.Aeson as Aeson
+import qualified Data.Text.Lazy.Encoding as TL
+import qualified Data.Text.Lazy as TL
 
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion petersonChainGraph
@@ -572,14 +576,19 @@ execLocalTest runPact name (trans',check) = testCase name (go >>= check)
       results' <- tryAny $ runPact $
         execLocal (Pact4.unparseTransaction trans) Nothing Nothing Nothing
       case results' of
-        Right (MetadataValidationFailure e) ->
+        Right (preview _MetadataValidationFailure -> Just e) ->
           return $ Left $ show e
-        Right LocalTimeout -> return $ Left "LocalTimeout"
-        Right (LocalResultLegacy cr) -> return $ Right cr
-        Right (LocalResultWithWarns cr _) -> return $ Right cr
-        Right (LocalPact5PreflightResult _ _) -> error "Pact 5"
-        Right (LocalPact5ResultLegacy _) -> error "Pact 5"
-        Left e -> return $ Left $ show e
+        Right (preview _LocalTimeout -> Just ()) ->
+          return $ Left "LocalTimeout"
+        Right (preview _LocalResultLegacy -> Just cr) -> do
+          Just decodedCr <- return $ Aeson.decode (TL.encodeUtf8 $ TL.fromStrict $ J.getJsonText cr)
+          return $ Right decodedCr
+        Right (preview _LocalResultWithWarns -> Just (cr, _)) -> do
+          Just decodedCr <- return $ Aeson.decode (TL.encodeUtf8 $ TL.fromStrict $ J.getJsonText cr)
+          return $ Right decodedCr
+        Right _ -> error "unknown local result"
+        Left e ->
+          return $ Left $ show e
 
 getPactCode :: TestSource -> IO Text
 getPactCode (Code str) = return (pack str)

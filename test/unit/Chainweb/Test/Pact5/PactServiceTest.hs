@@ -473,9 +473,6 @@ cid = unsafeChainId 0
 v :: ChainwebVersion
 v = pact5InstantCpmTestVersion singletonChainGraph
 
-coinModuleName :: ModuleName
-coinModuleName = ModuleName "coin" Nothing
-
 advanceAllChainsWithTxs :: Fixture -> ChainMap [Pact5.Transaction] -> IO (ChainMap (Vector TestPact5CommandResult))
 advanceAllChainsWithTxs fixture txsPerChain =
     advanceAllChains fixture $

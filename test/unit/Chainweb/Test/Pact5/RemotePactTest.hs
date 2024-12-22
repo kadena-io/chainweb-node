@@ -28,6 +28,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module Chainweb.Test.Pact5.RemotePactTest
     ( tests
@@ -108,6 +109,9 @@ import Chainweb.Version
 import Chainweb.WebPactExecutionService
 import Network.HTTP.Types.Status (notFound404)
 import GHC.Exts (WithDict(..))
+import Pact.Core.Errors
+import qualified Data.Map.Strict as Map
+import Pact.Core.Guards (Guard(GKeySetRef), KeySetName (..))
 
 data Fixture = Fixture
     { _cutFixture :: CutFixture.Fixture
@@ -182,6 +186,7 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
         , testCaseSteps "spvTest" (spvTest rdb)
         , invalidTxsTest rdb
         , testCaseSteps "caplistTest" (caplistTest rdb)
+        , testCaseSteps "allocationTest" (allocationTest rdb)
         ]
 
 pollingInvalidRequestKeyTest :: RocksDb -> Step -> IO ()
@@ -350,10 +355,6 @@ spvTest baseRdb step = runResourceT $ do
 
     pure ()
 
-fails :: Exception e => P.Prop e -> P.Prop (IO a)
-fails p actual = try actual >>= \case
-    Left e -> p e
-    _ -> P.fail "a failed computation" actual
 
 invalidTxsTest :: RocksDb -> TestTree
 invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture' fixtureIO $
@@ -466,12 +467,6 @@ invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture
     cid = unsafeChainId 0
     wrongChain = unsafeChainId 4
 
-    textContains :: HasCallStack => _
-    textContains expectedStr actualStr
-        | expectedStr `T.isInfixOf` actualStr = P.succeed actualStr
-        | otherwise =
-            P.fail ("String containing: " <> PP.pretty expectedStr) actualStr
-
     validationFailedPrefix cmd = "Validation failed for hash " <> sshow (_cmdHash cmd) <> ": "
 
     mkCmdInvalidUserSig = mkCmdGood <&> set cmdSigs [ED25519Sig "fakeSig"]
@@ -524,6 +519,122 @@ caplistTest baseRdb step = runResourceT $ do
                     , P.fun _crMetaData ? P.match (_Just . A._Object . at "blockHash") ? P.match _Just P.succeed
                     ]
 
+
+allocation01KeyPair :: (Text, Text)
+allocation01KeyPair =
+    ( "b4c8a3ea91d3146b0560994740f0e3eed91c59d2eeca1dc99f0c2872845c294d"
+    , "5dbbbd8b765b7d0cf8426d6992924b057c70a2138ecd4cf60cfcde643f304ea9"
+    )
+
+allocation02KeyPair :: (Text, Text)
+allocation02KeyPair =
+    ( "e9e4e71bd063dcf7e06bd5b1a16688897d15ca8bd2e509c453c616219c186cc5"
+    , "45f026b7a6bb278ed4099136c13e842cdd80138ab7c5acd4a1f0e6c97d1d1e3c"
+    )
+
+allocation02KeyPair' :: (Text, Text)
+allocation02KeyPair' =
+    ( "0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a"
+    , "2f75b5d875dd7bf07cc1a6973232a9e53dc1d4ffde2bab0bbace65cd87e87f53"
+    )
+
+allocationTest :: RocksDb -> (String -> IO ()) -> IO ()
+allocationTest rdb step = runResourceT $ do
+    let v = pact5InstantCpmTestVersion petersonChainGraph
+    let cid = unsafeChainId 0
+    fixture <- mkFixture v rdb
+
+    withFixture fixture $ liftIO $ do
+        do
+            step "allocation00"
+            release00Cmd <- buildTextCmd v
+                $ set cbChainId cid
+                $ set cbSigners [mkEd25519Signer' allocation00KeyPair [], mkEd25519Signer' sender00 []]
+                $ set cbRPC (mkExec' "(coin.release-allocation \"allocation00\")")
+                $ set cbSender "sender00"
+                $ defaultCmd
+            send v cid [release00Cmd]
+            CutFixture.advanceAllChains_
+            poll v cid [cmdToRequestKey release00Cmd] >>=
+                P.propful
+                    [ P.match _Just ? P.allTrue
+                        [ P.fun _crResult ? P.match _PactResultOk ? P.succeed
+                        , P.fun _crEvents ? P.startingWith
+                            (event
+                                (P.equals "RELEASE_ALLOCATION")
+                                (P.equals [PString "allocation00", PDecimal 1000000])
+                                (P.equals coinModuleName))
+                        ]
+                    ]
+
+            buildTextCmd v
+                (set cbRPC (mkExec' "(coin.details \"allocation00\")") defaultCmd)
+                >>= local v cid Nothing Nothing Nothing
+                >>= P.match _Pact5LocalResultLegacy
+                    ? P.fun _crResult
+                    ? P.match _PactResultOk
+                    ? P.match _PObject
+                    ? P.propful ? Map.fromList
+                        [ ("account", P.equals (PString "allocation00"))
+                        , ("balance", P.equals (PDecimal 1100000))
+                        , ("guard", P.succeed)
+                        ]
+
+        step "allocation01"
+        do
+            buildTextCmd v
+                (set cbRPC (mkExec' "(coin.release-allocation \"allocation01\")") defaultCmd)
+                >>= local v cid Nothing Nothing Nothing
+                >>= P.match _Pact5LocalResultLegacy ?
+                    P.fun _crResult ? P.match (_PactResultErr . _PEPact5Error . _2) ?
+                        P.fun _boundedText ? textContains "funds locked until \"2100-10-31T18:00:00Z\"."
+
+        step "allocation02"
+        do
+            let c = "(define-keyset \"allocation02\" (read-keyset \"allocation02-keyset\"))"
+            let d = mkKeySetData "allocation02-keyset" [allocation02KeyPair']
+            redefineKeysetCmd <- buildTextCmd v
+                $ set cbSigners [mkEd25519Signer' allocation02KeyPair []]
+                $ set cbSender "allocation02"
+                $ set cbRPC (mkExec c d)
+                $ defaultCmd
+            send v cid [redefineKeysetCmd]
+            CutFixture.advanceAllChains_
+            poll v cid [cmdToRequestKey redefineKeysetCmd]
+                >>= P.propful [P.match _Just successfulTx]
+
+            releaseAllocationCmd <- buildTextCmd v
+                $ set cbSender "allocation02"
+                $ set cbSigners [mkEd25519Signer' allocation02KeyPair' []]
+                $ set cbRPC (mkExec' "(coin.release-allocation \"allocation02\")")
+                $ defaultCmd
+            send v cid [releaseAllocationCmd]
+            CutFixture.advanceAllChains_
+            poll v cid [cmdToRequestKey releaseAllocationCmd]
+                >>= P.propful [P.match _Just successfulTx]
+
+            buildTextCmd v (set cbRPC (mkExec' "(coin.details \"allocation02\")") defaultCmd)
+                >>= local v cid Nothing Nothing Nothing
+                >>= P.match _Pact5LocalResultLegacy
+                    ? P.fun _crResult
+                    ? P.match _PactResultOk
+                    ? P.match _PObject
+                    ? P.equals ? Map.fromList
+                        [ ("account", (PString "allocation02"))
+                        , ("balance", (PDecimal 1_099_999.9748)) -- 1k + 1mm - gas
+                        , ("guard", (PGuard $ GKeySetRef (KeySetName "allocation02" Nothing)))
+                        ]
+
+
+successfulTx :: P.Prop (CommandResult log err)
+successfulTx = P.fun _crResult ? P.match _PactResultOk P.succeed
+
+-- TODO: backport into Pact 5
+_PEPact5Error :: Prism' (PactErrorCompat c) (ErrorCode, BoundedText _, c)
+_PEPact5Error = prism' (PEPact5Error . uncurry3 PactErrorCode) $ \case
+    PEPact5Error (PactErrorCode {_peCode, _peMsg, _peInfo}) ->
+        Just (_peCode, _peMsg, _peInfo)
+    _ -> Nothing
 
 {-
           recvPwos <- runCutWithTx v pacts targetMempoolRef blockDb $ \_n _bHeight _bHash bHeader -> do
@@ -613,15 +724,18 @@ pollWithDepth v cid rks mConfirmationDepth = do
             return
                 (rks <&> (\rk -> HashMap.lookup rk response))
 
-newtype SendException = SendException ClientError
+data ClientException = ClientException CallStack ClientError
     deriving stock (Show)
-    deriving anyclass (Exception)
-_FailureResponse :: Fold SendException (ResponseF Text)
+instance Exception ClientException where
+    displayException (ClientException callStack err) =
+        "Client error: " <> show err
+        <> "\n" <> GHC.Stack.prettyCallStack callStack
+_FailureResponse :: Fold ClientException (ResponseF Text)
 _FailureResponse = folding $ \case
-    SendException (FailureResponse _req resp) -> Just (TL.toStrict . TL.decodeUtf8 <$> resp)
+    ClientException _ (FailureResponse _req resp) -> Just (TL.toStrict . TL.decodeUtf8 <$> resp)
     _ -> Nothing
 
-send :: HasFixture
+send :: (HasCallStack, HasFixture)
     => ChainwebVersion
     -> ChainId
     -> [Command Text]
@@ -633,24 +747,54 @@ send v cid cmds = do
     send <- runClientM (pactSendApiClient v cid batch) clientEnv
     case send of
         Left e -> do
-            throwM (SendException e)
+            throwM (ClientException callStack e)
         Right (Pact4.RequestKeys (fmap toPact5RequestKey -> response)) -> do
             -- the returned request keys should always be exactly the hashes
             -- of the commands
             response & P.equals (cmdToRequestKey <$> commands)
+
+local :: (HasCallStack, HasFixture)
+    => ChainwebVersion
+    -> ChainId
+    -> Maybe LocalPreflightSimulation
+    -> Maybe LocalSignatureVerification
+    -> Maybe RewindDepth
+    -> Command Text
+    -> IO LocalResult
+local v cid preflight sigVerify depth cmd = do
+    -- send a single local request and return the result
+    --
+    clientEnv <- _serviceClientEnv <$> remotePactTestFixture
+    r <- runClientM (pactLocalWithQueryApiClient v cid preflight sigVerify depth (toPact4Command cmd)) clientEnv
+    case r of
+        Right r -> return r
+        Left e -> throwM $ ClientException callStack e
 
 toPact5RequestKey :: Pact4.RequestKey -> RequestKey
 toPact5RequestKey = \case
     Pact4.RequestKey (Pact4.Hash bytes) -> RequestKey (Pact5.Hash bytes)
 
 toPact4Command :: Command Text -> Pact4.Command Text
-toPact4Command cmd4 = case Aeson.eitherDecodeStrictText (J.encodeText cmd4) of
+toPact4Command cmd5 = case Aeson.eitherDecodeStrictText (J.encodeText cmd5) of
     Left err -> error $ "toPact4Command: decode failed: " ++ err
-    Right cmd5 -> cmd5
+    Right cmd4 -> cmd4
 
-_successfulTx :: P.Prop (CommandResult log err)
-_successfulTx = P.fun _crResult ? P.match _PactResultOk P.succeed
+toPact5CommandResult :: Pact4.CommandResult Pact4.Hash -> TestPact5CommandResult
+toPact5CommandResult cr4 = case Aeson.eitherDecodeStrictText (J.encodeText cr4) of
+    Left err -> error $ "toPact5CommandResult: decode failed: " ++ err
+    Right cmd5 -> cmd5
 
 pactDeadBeef :: RequestKey
 pactDeadBeef = case deadbeef of
     TransactionHash bytes -> RequestKey (Pact5.Hash bytes)
+
+fails :: Exception e => P.Prop e -> P.Prop (IO a)
+fails p actual = try actual >>= \case
+    Left e -> p e
+    _ -> P.fail "a failed computation" actual
+
+textContains :: HasCallStack => _
+textContains expectedStr actualStr
+    | expectedStr `T.isInfixOf` actualStr = P.succeed actualStr
+    | otherwise =
+        P.fail ("String containing: " <> PP.pretty expectedStr) actualStr

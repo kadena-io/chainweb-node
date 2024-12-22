@@ -31,6 +31,11 @@ module Chainweb.Test.Pact5.Utils
     , withBlockDbs
     , withTestBlockHeaderDb
     , testRocksDb
+
+        -- * Properties
+    , event
+        -- * Utilities
+    , coinModuleName
     )
     where
 
@@ -56,7 +61,6 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
 import Chainweb.Pact4.Transaction qualified as Pact4
 import Chainweb.Pact5.Transaction qualified as Pact5
-import Pact.Core.Pretty qualified as Pact5
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Storage.Table.RocksDB
@@ -87,12 +91,17 @@ import Data.Word (Word64)
 import Database.RocksDB.Internal qualified as R
 import Pact.Core.Command.Types qualified as Pact5
 import Pact.Core.Hash qualified as Pact5
+import Pact.Core.Pretty qualified as Pact5
 import Pact.JSON.Encode qualified as J
 import Pact.Types.Gas qualified as Pact4
 import System.Environment (lookupEnv)
 import System.IO.Temp (createTempDirectory, getCanonicalTemporaryDirectory)
 import System.LogLevel
 import System.Random (randomIO)
+import PropertyMatchers qualified as P
+import Pact.Core.PactValue
+import Pact.Core.Capabilities
+import Pact.Core.Names
 
 withBlockDbs :: ChainwebVersion -> RocksDb -> ResourceT IO (PayloadDb RocksDbTable, WebBlockHeaderDb)
 withBlockDbs v rdb = do
@@ -251,3 +260,17 @@ getTestLogger = do
     logLevel <- getTestLogLevel
     return $ genericLogger logLevel (testLogFn logLevel)
 
+-- usually we don't want to check the module hash
+event
+    :: P.Prop Text
+    -> P.Prop [PactValue]
+    -> P.Prop ModuleName
+    -> P.Prop (PactEvent PactValue)
+event n args modName = P.allTrue
+    [ P.fun _peName n
+    , P.fun _peArgs args
+    , P.fun _peModule modName
+    ]
+
+coinModuleName :: ModuleName
+coinModuleName = ModuleName "coin" Nothing

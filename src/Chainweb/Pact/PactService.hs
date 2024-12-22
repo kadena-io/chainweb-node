@@ -801,8 +801,8 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                                     , _crEvents = []
                                     }
                             in case preflight of
-                                Just PreflightSimulation -> return $ LocalResultWithWarns parseError []
-                                _ -> return $ LocalResultLegacy parseError
+                                Just PreflightSimulation -> return $ Pact4LocalResultWithWarns parseError []
+                                _ -> return $ Pact4LocalResultLegacy parseError
                         Right pact4Cwtx -> do
 
                             --
@@ -823,8 +823,8 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
 
                                             let cr' = hashPact4TxLogs cr
                                                 warns' = Pact4.renderCompactText <$> toList warns
-                                            pure $ LocalResultWithWarns cr' warns'
-                                        Left e -> pure $ MetadataValidationFailure e
+                                            pure $ Pact4LocalResultWithWarns cr' warns'
+                                        Left e -> pure $ review _MetadataValidationFailure e
                                 _ -> liftIO $ do
                                     let execConfig = Pact4.mkExecutionConfig $
                                             [ Pact4.FlagAllowReadInLocal | _psAllowReadsInLocal ] ++
@@ -838,12 +838,12 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                                         pact4Cwtx mc execConfig
 
                                     let cr' = hashPact4TxLogs cr
-                                    pure $ LocalResultLegacy cr'
+                                    pure $ Pact4LocalResultLegacy cr'
             ) (do
                 ph <- view psParentHeader
                 case Pact5.parsePact4Command cwtx of
                     Left (fmap Pact5.spanInfoToLineInfo -> parseError) ->
-                        return $ LocalPact5PreflightResult Pact5.CommandResult
+                        return $ Pact5LocalResultLegacy Pact5.CommandResult
                             { _crReqKey = Pact5.RequestKey (Pact5.Hash $ Pact4.unHash $ Pact4.toUntypedHash $ Pact4._cmdHash cwtx)
                             , _crTxId = Nothing
                             , _crResult = Pact5.PactResultErr $ Pact5.PELegacyError $ Pact5.toPrettyLegacyError parseError
@@ -853,14 +853,13 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                             , _crMetaData = Nothing
                             , _crEvents = []
                             }
-                            []
                     Right pact5Cmd -> do
                         let txCtx = Pact5.TxContext ph noMiner
                         let spvSupport = Pact5.pactSPV bhdb (_parentHeader ph)
                         case preflight of
                             Just PreflightSimulation ->
                                 Pact5.liftPactServiceM (Pact5.assertLocalMetadata (view Pact5.payloadObj <$> pact5Cmd) txCtx sigVerify) >>= \case
-                                    Left e -> pure $ MetadataValidationFailure e
+                                    Left e -> pure $ review _MetadataValidationFailure e
                                     Right () -> do
                                         let initialGas = Pact5.initialGasOf $ Pact5._cmdPayload pact5Cmd
                                         Pact5.pactTransaction Nothing (\dbEnv ->
@@ -869,7 +868,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                                                 txCtx spvSupport initialGas (view Pact5.payloadObj <$> pact5Cmd)
                                                 ) >>= \case
                                             Left err ->
-                                                return $ LocalPact5PreflightResult Pact5.CommandResult
+                                                return $ Pact5LocalResultWithWarns Pact5.CommandResult
                                                     { _crReqKey = Pact5.RequestKey (Pact5.Hash $ Pact4.unHash $ Pact4.toUntypedHash $ Pact4._cmdHash cwtx)
                                                     , _crTxId = Nothing
                                                     -- FIXME: Pact5, make this nicer, the `sshow` makes for an ugly error
@@ -885,11 +884,13 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                                             Right cr -> do
                                                 let cr' = hashPact5TxLogs cr
                                                 -- FIXME: Pact5, no warnings yet
-                                                pure $ LocalPact5PreflightResult (Pact5.PELegacyError . Pact5.toPrettyLegacyError <$> cr') []
+                                                pure $ Pact5LocalResultWithWarns
+                                                    (Pact5.PELegacyError . Pact5.toPrettyLegacyError <$> cr')
+                                                    []
                             _ -> do
                                 cr <- Pact5.pactTransaction Nothing $ \dbEnv -> do
                                     fmap convertPact5Error <$> Pact5.applyLocal _psLogger _psGasLogger dbEnv txCtx spvSupport (view Pact5.payloadObj <$> pact5Cmd)
-                                pure $ LocalPact5ResultLegacy (hashPact5TxLogs cr)
+                                pure $ Pact5LocalResultLegacy (hashPact5TxLogs cr)
 
             )
 
@@ -899,7 +900,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
             Just r -> pure r
             Nothing -> do
                 logError_ _psLogger $ "Local action timed out for cwtx:\n" <> sshow cwtx
-                pure LocalTimeout
+                pure $ review _LocalTimeout ()
 
 execSyncToBlock
     :: (CanReadablePayloadCas tbl, Logger logger)
