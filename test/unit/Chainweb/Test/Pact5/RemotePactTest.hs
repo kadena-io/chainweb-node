@@ -51,15 +51,18 @@ import Data.HashMap.Strict qualified as HashMap
 import Data.HashSet qualified as HashSet
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.Encoding qualified as TL
+import GHC.Exts (WithDict(..))
 import GHC.Stack
 import Network.Connection qualified as HTTP
 import Network.HTTP.Client (Manager)
 import Network.HTTP.Client.TLS qualified as HTTP
+import Network.HTTP.Types.Status (notFound404)
 import Network.Socket qualified as Network
 import Network.TLS qualified as TLS
 import Network.Wai.Handler.Warp qualified as W
@@ -78,7 +81,9 @@ import Pact.Core.Command.RPC (ContMsg (..))
 import Pact.Core.Command.Server qualified as Pact5
 import Pact.Core.Command.Types
 import Pact.Core.DefPacts.Types
+import Pact.Core.Errors
 import Pact.Core.Gas.Types
+import Pact.Core.Guards (Guard(GKeySetRef), KeySetName (..))
 import Pact.Core.Hash qualified as Pact5
 import Pact.Core.Names
 import Pact.Core.PactValue
@@ -100,6 +105,7 @@ import Chainweb.RestAPI.Utils (someServerApplication)
 import Chainweb.SPV.CreateProof (createTransactionOutputProof_)
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Test.Pact5.CmdBuilder
+import Chainweb.Test.Pact5.CutFixture (advanceAllChains, advanceAllChains_)
 import Chainweb.Test.Pact5.CutFixture qualified as CutFixture
 import Chainweb.Test.Pact5.Utils
 import Chainweb.Test.TestVersions
@@ -107,11 +113,6 @@ import Chainweb.Test.Utils (TestPact5CommandResult, deadbeef, withResource', wit
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
-import Network.HTTP.Types.Status (notFound404)
-import GHC.Exts (WithDict(..))
-import Pact.Core.Errors
-import qualified Data.Map.Strict as Map
-import Pact.Core.Guards (Guard(GKeySetRef), KeySetName (..))
 
 data Fixture = Fixture
     { _cutFixture :: CutFixture.Fixture
@@ -238,7 +239,7 @@ pollingConfirmationDepthTest baseRdb _step = runResourceT $ do
         pollWithDepth v cid rks (Just (ConfirmationDepth 0))
             >>= expectEmpty
 
-        CutFixture.advanceAllChains_
+        advanceAllChains_
 
         pollWithDepth v cid rks Nothing
             >>= expectSuccessful
@@ -247,7 +248,7 @@ pollingConfirmationDepthTest baseRdb _step = runResourceT $ do
         pollWithDepth v cid rks (Just (ConfirmationDepth 1))
             >>= expectEmpty
 
-        CutFixture.advanceAllChains_
+        advanceAllChains_
 
         pollWithDepth v cid rks Nothing
             >>= expectSuccessful
@@ -258,7 +259,7 @@ pollingConfirmationDepthTest baseRdb _step = runResourceT $ do
         pollWithDepth v cid rks (Just (ConfirmationDepth 2))
             >>= expectEmpty
 
-        CutFixture.advanceAllChains_
+        advanceAllChains_
 
         pollWithDepth v cid rks Nothing
             >>= expectSuccessful
@@ -304,12 +305,12 @@ spvTest baseRdb step = runResourceT $ do
         step "xchain initiate"
         send v srcChain [initiator]
         let initiatorReqKey = cmdToRequestKey initiator
-        (sendCut, _) <- CutFixture.advanceAllChains
+        (sendCut, _) <- advanceAllChains
         [Just sendCr] <- pollWithDepth v srcChain [initiatorReqKey] (Just (ConfirmationDepth 0))
         let cont = fromMaybe (error "missing continuation") (_crContinuation sendCr)
 
         step "waiting"
-        replicateM_ (int $ diameter petersonChainGraph + 1) $ CutFixture.advanceAllChains_
+        replicateM_ (int $ diameter petersonChainGraph + 1) advanceAllChains_
         let sendHeight = sendCut ^?! ixg srcChain . blockHeight
         spvProof <- createTransactionOutputProof_ (fixture ^. cutFixture . CutFixture.fixtureWebBlockHeaderDb) (fixture ^. cutFixture . CutFixture.fixturePayloadDb) targetChain srcChain sendHeight 0
         let contMsg = ContMsg
@@ -334,7 +335,7 @@ spvTest baseRdb step = runResourceT $ do
             $ defaultCmd
         send v targetChain [recv]
         let recvReqKey = cmdToRequestKey recv
-        CutFixture.advanceAllChains_
+        advanceAllChains_
         [Just recvCr] <- poll v targetChain [recvReqKey]
         recvCr
             & P.allTrue
@@ -457,7 +458,7 @@ invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture
                     (validationFailedPrefix cmdWrongV <> "Transaction metadata (chain id, chainweb version) conflicts with this endpoint")
         -- must be the final test!
         , testCase "none make it into a block" $ do
-            (_, cmdResults) <- CutFixture.advanceAllChains
+            (_, cmdResults) <- advanceAllChains
             forM_ cmdResults (P.propful mempty)
         ]
     where
@@ -508,7 +509,7 @@ caplistTest baseRdb step = runResourceT $ do
 
         step "advancing chains"
 
-        CutFixture.advanceAllChains_
+        advanceAllChains_
 
         step "polling"
 
@@ -554,7 +555,7 @@ allocationTest rdb step = runResourceT $ do
                 $ set cbSender "sender00"
                 $ defaultCmd
             send v cid [release00Cmd]
-            CutFixture.advanceAllChains_
+            advanceAllChains_
             poll v cid [cmdToRequestKey release00Cmd] >>=
                 P.propful
                     [ P.match _Just ? P.allTrue
@@ -591,15 +592,16 @@ allocationTest rdb step = runResourceT $ do
 
         step "allocation02"
         do
-            let c = "(define-keyset \"allocation02\" (read-keyset \"allocation02-keyset\"))"
-            let d = mkKeySetData "allocation02-keyset" [allocation02KeyPair']
             redefineKeysetCmd <- buildTextCmd v
                 $ set cbSigners [mkEd25519Signer' allocation02KeyPair []]
                 $ set cbSender "allocation02"
-                $ set cbRPC (mkExec c d)
+                $ set cbRPC (mkExec
+                    "(define-keyset \"allocation02\" (read-keyset \"allocation02-keyset\"))"
+                    (mkKeySetData "allocation02-keyset" [allocation02KeyPair'])
+                    )
                 $ defaultCmd
             send v cid [redefineKeysetCmd]
-            CutFixture.advanceAllChains_
+            advanceAllChains_
             poll v cid [cmdToRequestKey redefineKeysetCmd]
                 >>= P.propful [P.match _Just successfulTx]
 
@@ -609,7 +611,7 @@ allocationTest rdb step = runResourceT $ do
                 $ set cbRPC (mkExec' "(coin.release-allocation \"allocation02\")")
                 $ defaultCmd
             send v cid [releaseAllocationCmd]
-            CutFixture.advanceAllChains_
+            advanceAllChains_
             poll v cid [cmdToRequestKey releaseAllocationCmd]
                 >>= P.propful [P.match _Just successfulTx]
 
