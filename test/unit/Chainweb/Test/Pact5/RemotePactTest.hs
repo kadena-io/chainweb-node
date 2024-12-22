@@ -613,15 +613,18 @@ pollWithDepth v cid rks mConfirmationDepth = do
             return
                 (rks <&> (\rk -> HashMap.lookup rk response))
 
-newtype SendException = SendException ClientError
+data ClientException = ClientException CallStack ClientError
     deriving stock (Show)
-    deriving anyclass (Exception)
-_FailureResponse :: Fold SendException (ResponseF Text)
+instance Exception ClientException where
+    displayException (ClientException callStack err) =
+        "Client error: " <> show err
+        <> "\n" <> GHC.Stack.prettyCallStack callStack
+_FailureResponse :: Fold ClientException (ResponseF Text)
 _FailureResponse = folding $ \case
-    SendException (FailureResponse _req resp) -> Just (TL.toStrict . TL.decodeUtf8 <$> resp)
+    ClientException _ (FailureResponse _req resp) -> Just (TL.toStrict . TL.decodeUtf8 <$> resp)
     _ -> Nothing
 
-send :: HasFixture
+send :: (HasCallStack, HasFixture)
     => ChainwebVersion
     -> ChainId
     -> [Command Text]
@@ -633,11 +636,28 @@ send v cid cmds = do
     send <- runClientM (pactSendApiClient v cid batch) clientEnv
     case send of
         Left e -> do
-            throwM (SendException e)
+            throwM (ClientException callStack e)
         Right (Pact4.RequestKeys (fmap toPact5RequestKey -> response)) -> do
             -- the returned request keys should always be exactly the hashes
             -- of the commands
             response & P.equals (cmdToRequestKey <$> commands)
+
+local :: (HasCallStack, HasFixture)
+    => ChainwebVersion
+    -> ChainId
+    -> Maybe LocalPreflightSimulation
+    -> Maybe LocalSignatureVerification
+    -> Maybe RewindDepth
+    -> Command Text
+    -> IO LocalResult
+local v cid preflight sigVerify depth cmd = do
+    -- send a single local request and return the result
+    --
+    clientEnv <- _serviceClientEnv <$> remotePactTestFixture
+    r <- runClientM (pactLocalWithQueryApiClient v cid preflight sigVerify depth (toPact4Command cmd)) clientEnv
+    case r of
+        Right r -> return r
+        Left e -> throwM $ ClientException callStack e
 
 toPact5RequestKey :: Pact4.RequestKey -> RequestKey
 toPact5RequestKey = \case
