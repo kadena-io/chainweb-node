@@ -390,7 +390,7 @@ localHandler logger pact preflight sigVerify rewindDepth cmd = do
     case r of
       Left (err :: PactException)  -> throwError $ setErrText
         ("Execution failed: " <> T.pack (show err)) err400
-      Right (MetadataValidationFailure e) -> do
+      Right (preview _MetadataValidationFailure -> Just e) -> do
         throwError $ setErrText
           ("Metadata validation failed: " <> decodeUtf8 (BSL.toStrict (Aeson.encode e))) err400
       Right lr -> return $! lr
