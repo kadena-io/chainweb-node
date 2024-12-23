@@ -246,27 +246,24 @@ newBlockTimeoutSpec baseRdb = runResourceT $ do
     fixture <- mkFixtureWith pactServiceConfig baseRdb
 
     liftIO $ do
-        tx1 <- buildCwCmd v $ defaultCmd
+        tx1 <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "1"
             , _cbSigners = [mkEd25519Signer' sender00 []]
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 1.0
             , _cbGasLimit = GasLimit (Gas 400)
             }
-        tx2 <- buildCwCmd v $ defaultCmd
+        tx2 <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "2"
             , _cbSigners = [mkEd25519Signer' sender00 []]
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 2.0
             , _cbGasLimit = GasLimit (Gas 400)
             }
-        timeoutTx <- buildCwCmd v defaultCmd
+        timeoutTx <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' $ foldr (\_ expr -> "(map (lambda (x) (+ x 1))" <> expr <> ")") "(enumerate 1 100000)" [1..6_000 :: Word] -- make a huge nested tx
             , _cbSigners =
                 [ mkEd25519Signer' sender00 []
                 ]
             , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 1.5
             , _cbGasLimit = GasLimit (Gas 5000)
             }
@@ -292,13 +289,12 @@ testMempoolExcludesInvalid baseRdb = runResourceT $ do
     fixture <- mkFixture baseRdb
     liftIO $ do
         -- The mempool should reject a tx that doesn't parse as valid pact.
-        badParse <- buildCwCmdNoParse v defaultCmd
+        badParse <- buildCwCmdNoParse v (defaultCmd cid)
             { _cbRPC = mkExec' "(not a valid pact tx"
             , _cbSigners =
                 [ mkEd25519Signer' sender00 []
                 ]
             , _cbSender = "sender00"
-            , _cbChainId = cid
             }
 
         regularTx1 <- buildCwCmd v $ transferCmd 1.0
@@ -321,7 +317,7 @@ testMempoolExcludesInvalid baseRdb = runResourceT $ do
                 { _cmdHash = Pact5.Hash "bad hash"
                 }
 
-        badSigs <- buildCwCmdNoParse v defaultCmd
+        badSigs <- buildCwCmdNoParse v (defaultCmd cid)
             { _cbSigners =
                 [ CmdSigner
                     { _csSigner = Signer
@@ -421,14 +417,13 @@ failedTxsShouldGoIntoBlocks baseRdb = runResourceT $ do
 
     liftIO $ do
         cmd1 <- buildCwCmd v (transferCmd 1.0)
-        cmd2 <- buildCwCmd v defaultCmd
+        cmd2 <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(namespace 'free) (module mod G (defcap G () true) (defun f () true)) (describe-module \"free.mod\")"
             , _cbSigners =
                 [ mkEd25519Signer' sender00
                     []
                 ]
             , _cbSender = "sender00"
-            , _cbChainId = cid
             -- for ordering the transactions as they appear in the block
             , _cbGasPrice = GasPrice 0.1
             , _cbGasLimit = GasLimit (Gas 1000)
@@ -543,7 +538,7 @@ throwIfNotPact5 h = case h of
         pure a
 
 transferCmd :: Decimal -> CmdBuilder
-transferCmd transferAmount = defaultCmd
+transferCmd transferAmount = (defaultCmd cid)
     { _cbRPC = mkExec' $
         "(coin.transfer \"sender00\" \"sender01\" " <>
         -- if the number doesn't end with a decimal part, even if it's zero, Pact will
@@ -557,7 +552,6 @@ transferCmd transferAmount = defaultCmd
             ]
         ]
     , _cbSender = "sender00"
-    , _cbChainId = cid
     -- for ordering the transactions as they appear in the block
     , _cbGasPrice = GasPrice transferAmount
     , _cbGasLimit = GasLimit (Gas 1000)

@@ -117,13 +117,12 @@ buyGasShouldTakeGasTokensFromTheTransactionSender rdb = readFromAfterGenesis v r
         startSender00Bal <- readBal pactDb "sender00"
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
 
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbSigners =
                 [ mkEd25519Signer' sender00
                     [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
                 ]
             , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 200)
             }
@@ -145,13 +144,12 @@ buyGasFailures rdb = readFromAfterGenesis v rdb $ do
         -- buying gas with insufficient balance to pay for the full supply
         -- (gas price * gas limit) should return an error
         do
-            cmd <- buildCwCmd v defaultCmd
+            cmd <- buildCwCmd v (defaultCmd cid)
                 { _cbSigners =
                     [ mkEd25519Signer' sender00
                         [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
                     ]
                 , _cbSender = "sender00"
-                , _cbChainId = cid
                 , _cbGasPrice = GasPrice 70_000
                 , _cbGasLimit = GasLimit (Gas 100_000)
                 }
@@ -166,7 +164,7 @@ buyGasFailures rdb = readFromAfterGenesis v rdb $ do
         -- multiple gas payer caps should lead to an error, because it's unclear
         -- which module will pay for gas
         do
-            cmd <- buildCwCmd v defaultCmd
+            cmd <- buildCwCmd v (defaultCmd cid)
                 { _cbSigners =
                     [ mkEd25519Signer' sender00 [CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []]
                     , mkEd25519Signer' sender00
@@ -175,7 +173,6 @@ buyGasFailures rdb = readFromAfterGenesis v rdb $ do
                         ]
                     ]
                 , _cbSender = "sender00"
-                , _cbChainId = cid
                 , _cbGasPrice = GasPrice 2
                 , _cbGasLimit = GasLimit (Gas 200)
                 }
@@ -192,13 +189,12 @@ redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner rdb = readFromAfterGe
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbSigners =
                 [ mkEd25519Signer' sender00
                     [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
                 ]
             , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 10)
             }
@@ -222,14 +218,13 @@ payloadFailureShouldPayAllGasToTheMinerTypeError rdb = readFromAfterGenesis v rd
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(+ 1 \"hello\")"
             , _cbSigners =
                 [ mkEd25519Signer' sender00
                     [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
                 ]
             , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 1000)
             }
@@ -273,7 +268,7 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds rdb = readFromAfterGene
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' $ fromString $
                 "(coin.transfer \"sender00\" \"sender01\" "
                 <> printf "%.f" (realToFrac @_ @Double $ fromMaybe 0 startSender00Bal + 1)
@@ -285,7 +280,6 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds rdb = readFromAfterGene
                     ]
                 ]
             , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 1000)
             }
@@ -326,14 +320,13 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds rdb = readFromAfterGene
 runPayloadShouldReturnEvalResultRelatedToTheInputCommand :: RocksDb -> IO ()
 runPayloadShouldReturnEvalResultRelatedToTheInputCommand rdb = readFromAfterGenesis v rdb $
     pactTransaction Nothing $ \pactDb -> do
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(fold + 0 [1 2 3 4 5])"
             , _cbSigners =
                 [ mkEd25519Signer' sender00
                     [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
                 ]
             , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 10)
             }
@@ -368,11 +361,10 @@ applyLocalSpec rdb = readFromAfterGenesis v rdb $
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(fold + 0 [1 2 3 4 5])"
             , _cbSigners = []
             , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 500)
             }
@@ -404,14 +396,13 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $
         assertEqual "starting balance" (Just expectedStartingBal) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(fold + 0 [1 2 3 4 5])"
             , _cbSigners =
                 [ mkEd25519Signer' sender00
                     [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
                 ]
             , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 500)
             }
@@ -464,7 +455,7 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
     pactTransaction Nothing $ \pactDb -> do
         -- Define module with capability
         do
-            cmd <- buildCwCmd v defaultCmd
+            cmd <- buildCwCmd v (defaultCmd cid)
                 { _cbRPC = mkExec' $ T.unlines
                     [ "(namespace 'free)"
                     , "(module m G"
@@ -477,7 +468,6 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
                         [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
                     ]
                 , _cbSender = "sender00"
-                , _cbChainId = cid
                 , _cbGasPrice = GasPrice 2
                 , _cbGasLimit = GasLimit (Gas 70_000)
                 }
@@ -499,14 +489,13 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
                     , P.fun _crContinuation ? P.equals ? Nothing
                     ]
 
-        let baseCmd = defaultCmd
+        let baseCmd = (defaultCmd cid)
                 { _cbRPC = mkExec' "(free.m.x)"
                 , _cbSender = "sender00"
                 , _cbSigners =
                     [ mkEd25519Signer' sender00
                         [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
                     ]
-                , _cbChainId = cid
                 , _cbGasPrice = GasPrice 2
                 , _cbGasLimit = GasLimit (Gas 300)
                 }
@@ -574,14 +563,13 @@ applyCmdFailureSpec rdb = readFromAfterGenesis v rdb $
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(+ 1 \"abc\")"
             , _cbSigners =
                 [ mkEd25519Signer' sender00
                     [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
                 ]
             , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 500)
             }
@@ -633,7 +621,7 @@ applyCmdCoinTransfer rdb = readFromAfterGenesis v rdb $ do
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(coin.transfer 'sender00 'sender01 420.0)"
             , _cbSigners =
                 [ mkEd25519Signer' sender00
@@ -641,7 +629,6 @@ applyCmdCoinTransfer rdb = readFromAfterGenesis v rdb $ do
                     , CapToken (QualifiedName "TRANSFER" coinModuleName) [PString "sender00", PString "sender01", PDecimal 420] ]
                 ]
             , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 0.1
             , _cbGasLimit = GasLimit (Gas 1_000)
             }
@@ -746,13 +733,12 @@ testCoinUpgrade rdb = readFromAfterGenesis vUpgrades rdb $ do
             >>= P.equals ? PactResultOk (PString "3iIBQdJnst44Z2ZgXoHPkAauybJ0h85l_en_SGHNibE")
     where
     getCoinModuleHash logger txCtx pactDb = do
-        cmd <- buildCwCmd vUpgrades defaultCmd
+        cmd <- buildCwCmd vUpgrades (defaultCmd cid)
             { _cbRPC = mkExec' "(at 'hash (describe-module 'coin))"
             , _cbSigners =
                 [ mkEd25519Signer' sender00 [CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []]
                 ]
             , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 500)
             }
@@ -761,7 +747,7 @@ testCoinUpgrade rdb = readFromAfterGenesis vUpgrades rdb $ do
 testEventOrdering :: RocksDb -> IO ()
 testEventOrdering rdb = readFromAfterGenesis v rdb $
     pactTransaction Nothing $ \pactDb -> do
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(coin.transfer 'sender00 'sender01 420.0) (coin.transfer 'sender00 'sender01 69.0)"
             , _cbSigners =
                 [ mkEd25519Signer' sender00
@@ -769,7 +755,6 @@ testEventOrdering rdb = readFromAfterGenesis v rdb $
                     , CapToken (QualifiedName "TRANSFER" coinModuleName) [PString "sender00", PString "sender01", PDecimal 489] ]
                 ]
             , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 1100)
             }
@@ -800,13 +785,12 @@ testLocalOnlyFailsOutsideOfLocal rdb = readFromAfterGenesis v rdb $ do
     txCtx <- TxContext <$> view psParentHeader <*> pure noMiner
     pactTransaction Nothing $ \pactDb -> do
         let testLocalOnly txt = do
-                cmd <- buildCwCmd v defaultCmd
+                cmd <- buildCwCmd v (defaultCmd cid)
                     { _cbRPC = mkExec' txt
                     , _cbSigners =
                         [ mkEd25519Signer' sender00 [CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []]
                         ]
                     , _cbSender = "sender00"
-                    , _cbChainId = cid
                     , _cbGasPrice = GasPrice 2
                     , _cbGasLimit = GasLimit (Gas 200_000)
                     }
@@ -829,14 +813,13 @@ testWritesFromFailedTxDontMakeItIn rdb = readFromAfterGenesis v rdb $ do
     txCtx <- TxContext <$> view psParentHeader <*> pure noMiner
     pactTransaction Nothing $ \pactDb -> do
 
-        moduleDeploy <- buildCwCmd v defaultCmd
+        moduleDeploy <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(module m g (defcap g () (enforce false \"non-upgradeable\"))) (enforce false \"boom\")"
             , _cbSigners =
                 [ mkEd25519Signer' sender00
                     [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
                 ]
             , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 0.1
             , _cbGasLimit = GasLimit (Gas 200_000)
             }

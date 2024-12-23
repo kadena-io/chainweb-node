@@ -209,13 +209,12 @@ pollingConfirmationDepthTest baseRdb _step = runResourceT $ do
     fixture <- mkFixture v baseRdb
 
     let trivialTx :: ChainId -> Word -> CmdBuilder
-        trivialTx cid n = defaultCmd
+        trivialTx cid n = (defaultCmd cid)
             { _cbRPC = mkExec' (sshow n)
             , _cbSigners =
                 [ mkEd25519Signer' sender00 []
                 ]
             , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 0.1
             , _cbGasLimit = GasLimit (Gas 1_000)
             }
@@ -299,10 +298,9 @@ spvTest baseRdb step = runResourceT $ do
                 ]
             $ set cbRPC (mkExec ("(coin.transfer-crosschain \"sender00\" \"sender01\" (read-keyset 'k) \"" <> chainIdToText targetChain <> "\" 1.0)") (mkKeySetData "k" [sender01]))
             $ set cbSender "sender00"
-            $ set cbChainId srcChain
             $ set cbGasPrice (GasPrice 0.01)
             $ set cbGasLimit (GasLimit (Gas 1_000))
-            $ defaultCmd
+            $ defaultCmd srcChain
 
         step "xchain initiate"
         send v srcChain [initiator]
@@ -331,10 +329,9 @@ spvTest baseRdb step = runResourceT $ do
                     ]
                 ]
             $ set cbRPC (mkCont contMsg)
-            $ set cbChainId targetChain
             $ set cbGasPrice (GasPrice 0.01)
             $ set cbGasLimit (GasLimit (Gas 1_000))
-            $ defaultCmd
+            $ defaultCmd targetChain
         send v targetChain [recv]
         let recvReqKey = cmdToRequestKey recv
         advanceAllChains_
@@ -364,18 +361,16 @@ invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture
     sequentialTestGroup "invalid txs tests" AllSucceed
         [ testCase "syntax error" $ do
             cmdParseFailure <- buildTextCmd v
-                $ set cbChainId cid
                 $ set cbRPC (mkExec' "(+ 1")
-                $ defaultCmd
+                $ defaultCmd cid
             send v cid [cmdParseFailure]
                 & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains "Pact parse error"
 
         , testCase "invalid hash" $ do
             cmdInvalidPayloadHash <- do
                 bareCmd <- buildTextCmd v
-                    $ set cbChainId cid
                     $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
-                    $ defaultCmd
+                    $ defaultCmd cid
                 pure $ bareCmd
                     { _cmdHash = Pact5.hash "fakehash"
                     }
@@ -387,9 +382,8 @@ invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture
             cmdSignersSigsLengthMismatch1 <- do
                 bareCmd <- buildTextCmd v
                     $ set cbSigners [mkEd25519Signer' sender00 []]
-                    $ set cbChainId cid
                     $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
-                    $ defaultCmd
+                    $ defaultCmd cid
                 pure $ bareCmd
                     { _cmdSigs = []
                     }
@@ -400,9 +394,8 @@ invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture
             cmdSignersSigsLengthMismatch2 <- do
                 bareCmd <- buildTextCmd v
                     $ set cbSigners []
-                    $ set cbChainId cid
                     $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
-                    $ defaultCmd
+                    $ defaultCmd cid
                 pure $ bareCmd
                     {
                     -- This is an invalid ED25519 signature,
@@ -451,9 +444,8 @@ invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture
 
             cmdWrongV <- buildTextCmd wrongV
                 $ set cbSigners [mkEd25519Signer' sender00 []]
-                $ set cbChainId cid
                 $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
-                $ defaultCmd
+                $ defaultCmd cid
 
             send v cid [cmdWrongV]
                 & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
@@ -476,9 +468,8 @@ invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture
 
     mkCmdGood = buildTextCmd v
         $ set cbSigners [mkEd25519Signer' sender00 []]
-        $ set cbChainId cid
         $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
-        $ defaultCmd
+        $ defaultCmd cid
 
 
 caplistTest :: RocksDb -> Step -> IO ()
@@ -500,9 +491,8 @@ caplistTest baseRdb step = runResourceT $ do
                         ]
                     ]
                 ]
-            $ set cbChainId cid
             $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 100.0)")
-            $ defaultCmd
+            $ defaultCmd cid
 
         step "sending"
         send v cid [tx0]
@@ -551,11 +541,10 @@ allocationTest rdb step = runResourceT $ do
         do
             step "allocation00"
             release00Cmd <- buildTextCmd v
-                $ set cbChainId cid
                 $ set cbSigners [mkEd25519Signer' allocation00KeyPair [], mkEd25519Signer' sender00 []]
                 $ set cbRPC (mkExec' "(coin.release-allocation \"allocation00\")")
                 $ set cbSender "sender00"
-                $ defaultCmd
+                $ defaultCmd cid
             send v cid [release00Cmd]
             advanceAllChains_
             poll v cid [cmdToRequestKey release00Cmd] >>=
@@ -571,7 +560,7 @@ allocationTest rdb step = runResourceT $ do
                     ]
 
             buildTextCmd v
-                (set cbRPC (mkExec' "(coin.details \"allocation00\")") defaultCmd)
+                (set cbRPC (mkExec' "(coin.details \"allocation00\")") $ defaultCmd cid)
                 >>= local v cid Nothing Nothing Nothing
                 >>= P.match _Pact5LocalResultLegacy
                     ? P.fun _crResult
@@ -586,7 +575,7 @@ allocationTest rdb step = runResourceT $ do
         step "allocation01"
         do
             buildTextCmd v
-                (set cbRPC (mkExec' "(coin.release-allocation \"allocation01\")") defaultCmd)
+                (set cbRPC (mkExec' "(coin.release-allocation \"allocation01\")") $ defaultCmd cid)
                 >>= local v cid Nothing Nothing Nothing
                 >>= P.match _Pact5LocalResultLegacy ?
                     P.fun _crResult ? P.match (_PactResultErr . _PEPact5Error . _2) ?
@@ -601,7 +590,7 @@ allocationTest rdb step = runResourceT $ do
                     "(define-keyset \"allocation02\" (read-keyset \"allocation02-keyset\"))"
                     (mkKeySetData "allocation02-keyset" [allocation02KeyPair'])
                     )
-                $ defaultCmd
+                $ defaultCmd cid
             send v cid [redefineKeysetCmd]
             advanceAllChains_
             poll v cid [cmdToRequestKey redefineKeysetCmd]
@@ -611,13 +600,13 @@ allocationTest rdb step = runResourceT $ do
                 $ set cbSender "allocation02"
                 $ set cbSigners [mkEd25519Signer' allocation02KeyPair' []]
                 $ set cbRPC (mkExec' "(coin.release-allocation \"allocation02\")")
-                $ defaultCmd
+                $ defaultCmd cid
             send v cid [releaseAllocationCmd]
             advanceAllChains_
             poll v cid [cmdToRequestKey releaseAllocationCmd]
                 >>= P.propful [P.match _Just successfulTx]
 
-            buildTextCmd v (set cbRPC (mkExec' "(coin.details \"allocation02\")") defaultCmd)
+            buildTextCmd v (set cbRPC (mkExec' "(coin.details \"allocation02\")") $ defaultCmd cid)
                 >>= local v cid Nothing Nothing Nothing
                 >>= P.match _Pact5LocalResultLegacy
                     ? P.fun _crResult
@@ -651,7 +640,7 @@ webAuthnSignatureTest rdb _step = runResourceT $ do
         cmd <- buildTextCmd v
             $ set cbSigners [mkWebAuthnSigner' sender02WebAuthn [], mkEd25519Signer' sender00 []]
             $ set cbRPC (mkExec' "(concat [\"chainweb-\" \"node\"])")
-            $ defaultCmd
+            $ defaultCmd cid
         send v cid [cmd]
         advanceAllChains_
         poll v cid [cmdToRequestKey cmd] >>=
@@ -669,7 +658,7 @@ localContTest baseRdb _step = runResourceT $ do
             $ set cbSigners [mkEd25519Signer' sender00 []]
             $ set cbGasLimit (GasLimit (Gas 70_000))
             $ set cbRPC (mkExec' code)
-            $ defaultCmd
+            $ defaultCmd cid
         send v cid [initiator]
         advanceAllChains_
         Just defPactId <- poll v cid [cmdToRequestKey initiator]
@@ -677,7 +666,7 @@ localContTest baseRdb _step = runResourceT $ do
         continuer <- buildTextCmd v
             $ set cbSigners [mkEd25519Signer' sender00 []]
             $ set cbRPC (mkCont (mkContMsg defPactId 1))
-            $ defaultCmd
+            $ defaultCmd cid
         local v cid Nothing Nothing Nothing continuer
             >>= P.match _Pact5LocalResultLegacy ? P.fun _crResult
             ? P.match _PactResultOk ? P.equals (PInteger 2)
@@ -688,10 +677,9 @@ localContTest baseRdb _step = runResourceT $ do
               $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap]]
               $ set cbRPC (mkCont contMsg)
               $ setFromHeader bHeader
-              $ set cbChainId targetChain
               $ set cbGasPrice 0.01
               $ set cbTTL 100
-              $ defaultCmd
+              $ defaultCmd cid
 -}
 
 {-
