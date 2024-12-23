@@ -617,7 +617,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
     -- be off by at most the diameter of the graph.
     --
     farAhead x = do
-        curMax <- maxChainHeight <$> readTVarIO cutVar
+        curMax <- _cutMaxHeight <$> readTVarIO cutVar
         let newMax = _cutHashesMaxHeight x
         let r = newMax >= curMax + farAheadThreshold
         when r $ loggCutId logFun Debug x
@@ -636,7 +636,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
     -- be off by at most the diameter of the graph.
     --
     isVeryOld x = do
-        curMin <- minChainHeight <$> readTVarIO cutVar
+        curMin <- _cutMinHeight <$> readTVarIO cutVar
         let diam = diameter $ chainGraphAt headerStore curMin
             newMin = _cutHashesMinHeight x
         let r = newMin + 2 * (1 + int diam) <= curMin
