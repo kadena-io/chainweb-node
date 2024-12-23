@@ -62,7 +62,7 @@ import GHC.Stack
 import Network.Connection qualified as HTTP
 import Network.HTTP.Client (Manager)
 import Network.HTTP.Client.TLS qualified as HTTP
-import Network.HTTP.Types.Status (notFound404)
+import Network.HTTP.Types.Status (notFound404, badRequest400)
 import Network.Socket qualified as Network
 import Network.TLS qualified as TLS
 import Network.Wai.Handler.Warp qualified as W
@@ -113,6 +113,7 @@ import Chainweb.Test.Utils (TestPact5CommandResult, deadbeef, withResource', wit
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
+import Chainweb.Version.Mainnet (mainnet)
 
 data Fixture = Fixture
     { _cutFixture :: CutFixture.Fixture
@@ -195,6 +196,7 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
         , testCaseSteps "allocationTest" (allocationTest rdb)
         , testCaseSteps "webAuthnSignatureTest" (webAuthnSignatureTest rdb)
         , testCaseSteps "localContTest" (localContTest rdb)
+        , localPreflightSimTest rdb
         ]
 
 pollingInvalidRequestKeyTest :: RocksDb -> Step -> IO ()
@@ -653,6 +655,80 @@ localContTest baseRdb _step = runResourceT $ do
         local v cid Nothing Nothing Nothing continuer
             >>= P.match _Pact5LocalResultLegacy ? P.fun _crResult
             ? P.match _PactResultOk ? P.equals (PInteger 2)
+
+localPreflightSimTest :: RocksDb -> TestTree
+localPreflightSimTest baseRdb = let
+    v = pact5InstantCpmTestVersion petersonChainGraph
+    cid = unsafeChainId 0
+    in withSharedFixture (mkFixture v baseRdb) $ testGroup "preflight sim test"
+        [ testCase "ordinary txs" $ do
+            buildTextCmd v (defaultCmd cid)
+                >>= local v cid (Just PreflightSimulation) Nothing Nothing
+                >>= P.match _Pact5LocalResultWithWarns ? P.fun fst ? successfulTx
+
+            buildTextCmd v (defaultCmd cid)
+                >>= local v cid (Just PreflightSimulation) (Just NoVerify) Nothing
+                >>= P.match _Pact5LocalResultWithWarns ? P.fun fst ? successfulTx
+
+        -- TODO(?)
+        -- step "Execute preflight /local tx - unparseable chain id"
+        -- sigs0 <- testKeyPairs sender00 Nothing
+        -- cmd1 <- mkRawTx mv (Pact.ChainId "fail") sigs0
+        -- runClientFailureAssertion sid cenv cmd1 "Unparseable transaction chain id"
+
+        -- TODO: check that NoVerify actually works
+
+        , testCase "invalid metadata" $ do
+            buildTextCmd v (defaultCmd $ unsafeChainId maxBound)
+                >>= local v cid (Just PreflightSimulation) Nothing Nothing
+                & fails ? P.match _FailureResponse ? P.allTrue
+                    [ P.fun responseStatusCode ? P.equals badRequest400
+                    , P.fun responseBody ? P.equals "Metadata validation failed: [\"Chain id mismatch\"]"
+                    ]
+
+            buildTextCmd v (set cbGasLimit (GasLimit $ Gas 100000000000000) $ defaultCmd cid)
+                >>= local v cid (Just PreflightSimulation) Nothing Nothing
+                & fails ? P.match _FailureResponse ? P.allTrue
+                    [ P.fun responseStatusCode ? P.equals badRequest400
+                    , P.fun responseBody ? P.equals "Metadata validation failed: [\"Transaction Gas limit exceeds block gas limit\"]"
+                    ]
+
+            buildTextCmd v (set cbGasPrice (GasPrice 0.00000000000000001) $ defaultCmd cid)
+                >>= local v cid (Just PreflightSimulation) Nothing Nothing
+                & fails ? P.match _FailureResponse ? P.allTrue
+                    [ P.fun responseStatusCode ? P.equals badRequest400
+                    , P.fun responseBody ? P.equals "Metadata validation failed: [\"Gas price decimal precision too high\"]"
+                    ]
+
+            buildTextCmd mainnet (defaultCmd cid)
+                >>= local v cid (Just PreflightSimulation) Nothing Nothing
+                & fails ? P.match _FailureResponse ? P.allTrue
+                    [ P.fun responseStatusCode ? P.equals badRequest400
+                    , P.fun responseBody ? P.equals "Metadata validation failed: [\"Network id mismatch\"]"
+                    ]
+
+            let sigs' = replicate 101 $ mkEd25519Signer' sender00 []
+            buildTextCmd v (defaultCmd cid & set cbSigners sigs')
+                >>= local v cid (Just PreflightSimulation) Nothing Nothing
+                & fails ? P.match _FailureResponse ? P.allTrue
+                    [ P.fun responseStatusCode ? P.equals badRequest400
+                    , P.fun responseBody ? P.equals "Metadata validation failed: [\"Signature list size too big\"]"
+                    ]
+
+            buildTextCmd v
+                (defaultCmd cid
+                    & set cbGasPrice (GasPrice 10_000_000_000)
+                    & set cbGasLimit (GasLimit (Gas 10_000)))
+                >>= local v cid (Just PreflightSimulation) Nothing Nothing
+                >>= P.match (_Pact5LocalResultWithWarns . _1)
+                ? P.fun _crResult
+                -- TODO: a more detailed check here than "is an error" might be nice
+                ? P.match _PactResultErr P.succeed
+        ]
+
+        -- TODO: check metadata especially block height
+
+        -- TODO: check runLocalWithDepth
 
 newtype PollException = PollException String
     deriving stock (Show)
