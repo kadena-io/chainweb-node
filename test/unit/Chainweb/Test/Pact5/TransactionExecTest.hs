@@ -44,11 +44,10 @@ import Data.IORef
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.String (fromString)
-import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import Data.Text.IO qualified as T
-import Chainweb.Test.Pact5.Utils (getTestLogLevel)
+import Chainweb.Test.Pact5.Utils hiding (testRocksDb, withTempSQLiteResource)
 import GHC.Stack
 import Pact.Core.Capabilities
 import Pact.Core.Command.Types
@@ -71,21 +70,6 @@ import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import Text.Printf
 import Chainweb.Logger
 import Chainweb.Pact.Backend.Types
-
-coinModuleName :: ModuleName
-coinModuleName = ModuleName "coin" Nothing
-
--- usually we don't want to check the module hash
-event
-    :: P.Prop Text
-    -> P.Prop [PactValue]
-    -> P.Prop ModuleName
-    -> P.Prop (PactEvent PactValue)
-event n args modName = P.allTrue
-    [ P.fun _peName n
-    , P.fun _peArgs args
-    , P.fun _peModule modName
-    ]
 
 tests :: RocksDb -> TestTree
 tests baseRdb = testGroup "Pact5 TransactionExecTest"

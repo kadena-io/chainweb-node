@@ -9,6 +9,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Test.RemotePactTest
@@ -664,18 +665,9 @@ localPreflightSimTest t cenv step = do
     psigs <- testKeyPairs sender00 Nothing
     cmd0 <- mkRawTx mv psid psigs
     runLocalPreflightClient sid cenv cmd0 >>= \case
+      Right Pact4LocalResultWithWarns{} -> pure ()
+      Right r -> assertFailure $ "unexpected local result: " <> T.unpack (J.getJsonText $ J.encodeJsonText r)
       Left e -> assertFailure $ show e
-      Right LocalResultLegacy{} ->
-        assertFailure "Preflight /local call produced legacy result"
-      Right MetadataValidationFailure{} ->
-        assertFailure "Preflight produced an impossible result"
-      Right LocalTimeout ->
-        assertFailure "Preflight should never produce a timeout"
-      Right LocalResultWithWarns{} -> pure ()
-      Right LocalPact5PreflightResult{} ->
-        assertFailure "Preflight /local call produced Pact5 result in Pact4-only tests"
-      Right (LocalPact5ResultLegacy _) ->
-        assertFailure "Preflight /local call produced Pact5 result in Pact4-only tests"
 
     step "Execute preflight /local tx - preflight+signoverify known /send success"
     cmd0' <- mkRawTx mv psid psigs
@@ -724,18 +716,7 @@ localPreflightSimTest t cenv step = do
 
     currentBlockHeight <- getCurrentBlockHeight v cenv sid
     runLocalPreflightClient sid cenv cmd7 >>= \case
-      Left e -> assertFailure $ show e
-      Right LocalResultLegacy{} ->
-        assertFailure "Preflight /local call produced legacy result"
-      Right LocalTimeout ->
-        assertFailure "Preflight should never produce a timeout"
-      Right MetadataValidationFailure{} ->
-        assertFailure "Preflight produced an impossible result"
-      Right LocalPact5PreflightResult{} ->
-        assertFailure "Preflight /local call produced Pact5 result in Pact4-only tests"
-      Right (LocalPact5ResultLegacy _) ->
-        assertFailure "Preflight /local call produced Pact5 result in Pact4-only tests"
-      Right (LocalResultWithWarns cr' ws) -> do
+      Right (Pact4LocalResultWithWarns cr' ws) -> do
         let crbh :: Integer = fromIntegral $ fromMaybe 0 $ crGetBlockHeight cr'
             expectedbh = 1 + fromIntegral currentBlockHeight
         assertBool "Preflight's metadata should have increment block height"
@@ -747,22 +728,13 @@ localPreflightSimTest t cenv step = do
           [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
             pure ()
           ws' -> assertFailure $ "Incorrect warns: " ++ show ws'
+      Right r -> assertFailure $ "invalid local result: " <> T.unpack (J.getJsonText $ J.encodeJsonText r)
+      Left e -> assertFailure $ show e
 
     let rewindDepth = 10
     currentBlockHeight' <- getCurrentBlockHeight v cenv sid
     runLocalPreflightClientWithDepth sid cenv cmd7 rewindDepth >>= \case
-      Left e -> assertFailure $ show e
-      Right LocalResultLegacy{} ->
-        assertFailure "Preflight /local call produced legacy result"
-      Right LocalTimeout ->
-        assertFailure "Preflight should never produce a timeout"
-      Right MetadataValidationFailure{} ->
-        assertFailure "Preflight produced an impossible result"
-      Right LocalPact5PreflightResult{} ->
-        assertFailure "Preflight /local call produced Pact5 result in Pact4-only tests"
-      Right (LocalPact5ResultLegacy _) ->
-        assertFailure "Preflight /local call produced Pact5 result in Pact4-only tests"
-      Right (LocalResultWithWarns cr' ws) -> do
+      Right (Pact4LocalResultWithWarns cr' ws) -> do
         let crbh :: Integer = fromIntegral $ fromMaybe 0 $ crGetBlockHeight cr'
             expectedbh = toInteger $ 1 + (fromIntegral currentBlockHeight') - rewindDepth
         assertBool "Preflight's metadata block height should reflect the rewind depth"
@@ -774,6 +746,8 @@ localPreflightSimTest t cenv step = do
           [w] | "decimal/integer operator overload" `T.isInfixOf` w ->
             pure ()
           ws' -> assertFailure $ "Incorrect warns: " ++ show ws'
+      Right r -> assertFailure $ "invalid local result: " <> T.unpack (J.getJsonText $ J.encodeJsonText r)
+      Left e -> assertFailure $ show e
   where
     runLocalPreflightClient sid e cmd = flip runClientM e $
       pactLocalWithQueryApiClient v sid
@@ -788,7 +762,7 @@ localPreflightSimTest t cenv step = do
     runClientFailureAssertion sid e cmd msg =
       runLocalPreflightClient sid e cmd >>= \case
         Left err -> checkClientErrText err msg
-        r -> assertFailure $ "Unintended success: " ++ show r
+        r -> assertFailure $ "Unintended success: " ++ either show (T.unpack . J.getJsonText . J.encodeJsonText) r
 
     checkClientErrText (FailureResponse _ (Response _ _ _ body)) e
       | BS.isInfixOf e $ LBS.toStrict body = pure ()
