@@ -206,9 +206,9 @@ newWork logFun choice eminer@(Miner mid _) hdb pact tpw c = do
     -- specifying any particular one.
     --
     cid <- case choice of
-        Anything -> randomChainIdAt c (minChainHeight c)
+        Anything -> randomChainIdAt c (_cutMinHeight c)
         Suggestion cid' -> pure cid'
-        TriedLast _ -> randomChainIdAt c (minChainHeight c)
+        TriedLast _ -> randomChainIdAt c (_cutMinHeight c)
     logFun @T.Text Debug $ "newWork: picked chain " <> toText cid
 
     -- wait until at least one chain has primed work. we don't wait until *our*
