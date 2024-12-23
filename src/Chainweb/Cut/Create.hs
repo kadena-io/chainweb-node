@@ -3,6 +3,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -67,10 +68,10 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 
-import qualified Data.ByteString.Short as SB
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
-import qualified Data.Text as T
+import Data.ByteString.Short qualified as SB
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
+import Data.Text qualified as T
 
 import GHC.Generics
 import GHC.Stack
@@ -100,9 +101,13 @@ import Chainweb.Version.Utils
 --
 data CutExtension = CutExtension
     { _cutExtensionCut' :: !Cut
+        -- ^ the cut which is to be extended
+        --
         -- This is overly restrictive, since the same cut extension can be
         -- valid for more than one cut. It's fine for now.
     , _cutExtensionParent' :: !ParentHeader
+        -- ^ the header onto which the new block is created. It is expected
+        -- that this header is contained in the cut.
     , _cutExtensionAdjacentHashes' :: !BlockHashRecord
     }
     deriving (Show, Eq, Generic)
@@ -115,9 +120,13 @@ _cutExtensionCut = _cutExtensionCut'
 cutExtensionCut :: Lens' CutExtension Cut
 cutExtensionCut = cutExtensionCut'
 
+-- | The header onto which the new block is created.
+--
 _cutExtensionParent :: CutExtension -> ParentHeader
 _cutExtensionParent = _cutExtensionParent'
 
+-- | The header onto which the new block is created.
+--
 cutExtensionParent :: Lens' CutExtension ParentHeader
 cutExtensionParent = cutExtensionParent'
 
@@ -137,6 +146,8 @@ instance HasChainwebVersion CutExtension where
 
 -- | Witness that a cut can be extended for the given chain by trying to
 -- assemble the adjacent hashes for a new work header.
+--
+-- complexity: O(degree(Graph))
 --
 -- Generally, adajacent validation uses the graph of the parent header. This
 -- ensures that during a graph transition the current header and all
@@ -163,13 +174,13 @@ getCutExtension
     => Cut
         -- ^ the cut which is to be extended
     -> cid
-        -- ^ the header onto which the new block is created. It is expected
-        -- that this header is contained in the cut.
+        -- ^ the chain which is to be extended
     -> Maybe CutExtension
 getCutExtension c cid = do
 
     -- In a graph transition we wait for all chains to do the transition to the
-    -- new graph before moving ahead.
+    -- new graph before moving ahead. Blocks chains that reach the new graph
+    -- until all chains have reached the new graph.
     --
     guard (not $ isGraphTransitionCut && isGraphTransitionPost)
 
@@ -186,8 +197,13 @@ getCutExtension c cid = do
     parentHeight = view blockHeight p
     targetHeight = parentHeight + 1
     parentGraph = chainGraphAt p parentHeight
+
+    -- true if the parent height is the first of a new graph.
     isGraphTransitionPost = isGraphChange c parentHeight
-    isGraphTransitionCut = isTransitionCut c
+
+    -- true if a graph transition occurs in the cut.
+    isGraphTransitionCut = _cutIsTransition c
+        -- this is somewhat expensive
 
     -- | Try to get all adjacent hashes dependencies for the given graph.
     --
