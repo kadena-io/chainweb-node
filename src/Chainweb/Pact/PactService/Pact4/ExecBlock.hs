@@ -26,7 +26,6 @@ module Chainweb.Pact.PactService.Pact4.ExecBlock
     ( execBlock
     , execTransactions
     , continueBlock
-    , minerReward
     , toPayloadWithOutputs
     , validateParsedChainwebTx
     , validateRawChainwebTx
@@ -51,7 +50,6 @@ import Control.Monad.State.Strict
 import System.LogLevel (LogLevel(..))
 import qualified Data.Aeson as A
 import qualified Data.ByteString.Short as SB
-import Data.Decimal
 import Data.List qualified as List
 import Data.Either
 import Data.Foldable (toList)
@@ -84,6 +82,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool as Mempool
+import Chainweb.MinerReward
 import Chainweb.Miner.Pact
 
 import Chainweb.Pact.Types
@@ -408,13 +407,12 @@ runCoinbase miner enfCBFail usePrecomp mc = do
     then return noCoinbase
     else do
       logger <- view (psServiceEnv . psLogger)
-      rs <- view (psServiceEnv . psMinerRewards)
       v <- view chainwebVersion
       txCtx <- getTxContext miner Pact4.noPublicMeta
 
       let !bh = ctxCurrentBlockHeight txCtx
 
-      reward <- liftIO $! minerReward v rs bh
+      let reward = minerReward v bh
       dbEnv <- view psBlockDbEnv
       let pactDb = _cpPactDbEnv dbEnv
 
@@ -591,30 +589,21 @@ debugResult msg result =
     limit = 5000
 
 
--- | Calculate miner reward. We want this to error hard in the case where
--- block times have finally exceeded the 120-year range. Rewards are calculated
--- at regular blockheight intervals.
+-- | Calculate miner reward.
 --
 -- See: 'rewards/miner_rewards.csv'
 --
 minerReward
     :: ChainwebVersion
-    -> MinerRewards
     -> BlockHeight
-    -> IO Pact4.ParsedDecimal
-minerReward v (MinerRewards rs) bh =
-    case Map.lookupGE bh rs of
-      Nothing -> err
-      Just (_, m) -> pure $! Pact4.ParsedDecimal (roundTo 8 (m / n))
-  where
-    !n = int . order $ chainGraphAt v bh
-    err = internalError "block heights have been exhausted"
+    -> Pact4.ParsedDecimal
+minerReward v = Pact4.ParsedDecimal
+    . _kda
+    . minerRewardKda
+    . blockMinerReward v
 {-# INLINE minerReward #-}
 
-
 data CRLogPair = CRLogPair Pact4.Hash [Pact4.TxLogJson]
-
-
 
 instance J.Encode CRLogPair where
   build (CRLogPair h logs) = J.object

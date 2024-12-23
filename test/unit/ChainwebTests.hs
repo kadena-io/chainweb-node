@@ -54,6 +54,7 @@ import qualified Chainweb.Test.Mempool.Consensus (tests)
 import qualified Chainweb.Test.Mempool.InMem (tests)
 import qualified Chainweb.Test.Mempool.RestAPI (tests)
 import qualified Chainweb.Test.Mempool.Sync (tests)
+import qualified Chainweb.Test.MinerReward (tests)
 import qualified Chainweb.Test.Mining (tests)
 import qualified Chainweb.Test.Misc (tests)
 import qualified Chainweb.Test.Pact4.Checkpointer (tests)
@@ -176,6 +177,7 @@ suite rdb =
         , Chainweb.Test.Mempool.Sync.tests
         , Chainweb.Test.Mempool.RestAPI.tests
         , Chainweb.Test.Mining.tests rdb
+        , Chainweb.Test.MinerReward.tests
         , Chainweb.Test.Misc.tests
         , Chainweb.Test.BlockHeader.Genesis.tests
         , Chainweb.Test.BlockHeader.Validation.tests
