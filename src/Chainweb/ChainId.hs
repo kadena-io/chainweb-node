@@ -90,7 +90,7 @@ import Chainweb.MerkleUniverse
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
-import Data.Singletons
+import Data.Singletons hiding (Index)
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -268,6 +268,12 @@ chainIdInt :: Integral i => ChainId -> i
 chainIdInt (ChainId cid) = int cid
 {-# INLINE chainIdInt #-}
 
+-- -------------------------------------------------------------------------- --
+-- ChainMap
+
+-- TODO: Shouldn't this type guarantee that the map is total, i.e. that there
+-- exists a value for each chain?
+
 -- | Values keyed by `ChainId`s, or a single value that applies for all chains.
 data ChainMap a = AllChains a | OnChains (HashMap ChainId a)
     deriving stock (Eq, Functor, Foldable, Generic, Ord, Show)
@@ -305,3 +311,9 @@ atChain :: ChainId -> Fold (ChainMap a) a
 atChain cid = folding $ \case
     OnChains m -> m ^. at cid
     AllChains a -> Just a
+
+type instance Index (ChainMap a) = ChainId
+type instance IxValue (ChainMap a) = a
+
+instance IxedGet (ChainMap a) where
+    ixg i = atChain i
