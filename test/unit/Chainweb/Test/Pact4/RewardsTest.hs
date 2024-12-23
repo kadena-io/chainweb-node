@@ -1,4 +1,3 @@
-{-# LANGUAGE RankNTypes #-}
 
 module Chainweb.Test.Pact4.RewardsTest
 ( tests
@@ -8,11 +7,8 @@ module Chainweb.Test.Pact4.RewardsTest
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Pact.Parse
-
 import Chainweb.Graph
-import Chainweb.Miner.Pact
-import Chainweb.Pact.PactService.Pact4.ExecBlock
+import Chainweb.MinerReward
 import Chainweb.Test.TestVersions
 import Chainweb.Version
 
@@ -26,21 +22,19 @@ tests = testGroup "Chainweb.Test.Pact4.RewardsTest"
       ]
     ]
 
-
 rewardsTest :: HasCallStack => TestTree
 rewardsTest = testCaseSteps "rewards" $ \step -> do
 
-    let rs = readRewards
-        k = minerReward v rs
+    let k = _kda . minerRewardKda . blockMinerReward v
 
     step "block heights below initial threshold"
-    ParsedDecimal a <- k 0
+    let a = k 0
     assertEqual "initial miner reward is 2.304523" 2.304523 a
 
     step "block heights at threshold"
-    ParsedDecimal b <- k 87600
+    let b = k 87600
     assertEqual "max threshold miner reward is 2.304523" 2.304523 b
 
     step "block heights exceeding thresholds change"
-    ParsedDecimal c <- k 87601
+    let c = k 87601
     assertEqual "max threshold miner reward is 2.297878" 2.297878 c

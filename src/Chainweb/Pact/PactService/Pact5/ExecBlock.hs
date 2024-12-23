@@ -26,6 +26,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool(BlockFill (..), pact5RequestKeyToTransactionHash, InsertError (..))
+import Chainweb.MinerReward
 import Chainweb.Miner.Pact
 import Chainweb.Pact5.Backend.ChainwebPactDb (Pact5Db(doPact5DbTransaction))
 import Chainweb.Pact5.SPV qualified as Pact5
@@ -53,13 +54,11 @@ import Data.Coerce
 import Data.Decimal
 import Data.Either (partitionEithers)
 import Data.Foldable
-import Data.Map qualified as Map
 import Data.Maybe
 import Data.Text qualified as T
 import Data.Vector (Vector)
 import Data.Vector qualified as V
 import Data.Void
-import Numeric.Natural
 import Pact.Core.ChainData hiding (ChainId)
 import Pact.Core.Command.Types qualified as Pact5
 import Pact.Core.Persistence qualified as Pact5
@@ -97,16 +96,9 @@ import Chainweb.Pact.Backend.Types
 --
 minerReward
     :: ChainwebVersion
-    -> MinerRewards
     -> BlockHeight
-    -> IO Decimal
-minerReward v (MinerRewards rs) bh =
-    case Map.lookupGE bh rs of
-      Nothing -> err
-      Just (_, m) -> pure $! roundTo 8 (m / n)
-  where
-    !n = int @Natural @Decimal . order $ chainGraphAt v bh
-    err = internalError "block heights have been exhausted"
+    -> Decimal
+minerReward v = _kda . minerRewardKda . blockMinerReward v
 {-# INLINE minerReward #-}
 
 runCoinbase
@@ -119,13 +111,12 @@ runCoinbase miner = do
     then return $ Right noCoinbase
     else do
       logger <- view (psServiceEnv . psLogger)
-      rs <- view (psServiceEnv . psMinerRewards)
       v <- view chainwebVersion
       txCtx <- TxContext <$> view psParentHeader <*> pure miner
 
       let !bh = ctxCurrentBlockHeight txCtx
+      let reward = minerReward v bh
 
-      reward <- liftIO $ minerReward v rs bh
       -- the coinbase request key is not passed here because TransactionIndex
       -- does not contain coinbase transactions
       pactTransaction Nothing $ \db ->
