@@ -211,12 +211,6 @@ pollingConfirmationDepthTest baseRdb _step = runResourceT $ do
     let trivialTx :: ChainId -> Word -> CmdBuilder
         trivialTx cid n = (defaultCmd cid)
             { _cbRPC = mkExec' (sshow n)
-            , _cbSigners =
-                [ mkEd25519Signer' sender00 []
-                ]
-            , _cbSender = "sender00"
-            , _cbGasPrice = GasPrice 0.1
-            , _cbGasLimit = GasLimit (Gas 1_000)
             }
 
     withFixture fixture $ liftIO $ do
@@ -297,9 +291,6 @@ spvTest baseRdb step = runResourceT $ do
                     ]
                 ]
             $ set cbRPC (mkExec ("(coin.transfer-crosschain \"sender00\" \"sender01\" (read-keyset 'k) \"" <> chainIdToText targetChain <> "\" 1.0)") (mkKeySetData "k" [sender01]))
-            $ set cbSender "sender00"
-            $ set cbGasPrice (GasPrice 0.01)
-            $ set cbGasLimit (GasLimit (Gas 1_000))
             $ defaultCmd srcChain
 
         step "xchain initiate"
@@ -323,14 +314,7 @@ spvTest baseRdb step = runResourceT $ do
         step "xchain recv"
 
         recv <- buildTextCmd v
-            $ set cbSigners
-                [ mkEd25519Signer' sender00
-                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
-                    ]
-                ]
             $ set cbRPC (mkCont contMsg)
-            $ set cbGasPrice (GasPrice 0.01)
-            $ set cbGasLimit (GasLimit (Gas 1_000))
             $ defaultCmd targetChain
         send v targetChain [recv]
         let recvReqKey = cmdToRequestKey recv
@@ -381,7 +365,6 @@ invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture
         , testCase "signature length mismatch" $ do
             cmdSignersSigsLengthMismatch1 <- do
                 bareCmd <- buildTextCmd v
-                    $ set cbSigners [mkEd25519Signer' sender00 []]
                     $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
                     $ defaultCmd cid
                 pure $ bareCmd
@@ -443,7 +426,6 @@ invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture
                     ]
 
             cmdWrongV <- buildTextCmd wrongV
-                $ set cbSigners [mkEd25519Signer' sender00 []]
                 $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
                 $ defaultCmd cid
 
@@ -467,7 +449,6 @@ invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture
     mkCmdInvalidUserSig = mkCmdGood <&> set cmdSigs [ED25519Sig "fakeSig"]
 
     mkCmdGood = buildTextCmd v
-        $ set cbSigners [mkEd25519Signer' sender00 []]
         $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
         $ defaultCmd cid
 
@@ -543,7 +524,6 @@ allocationTest rdb step = runResourceT $ do
             release00Cmd <- buildTextCmd v
                 $ set cbSigners [mkEd25519Signer' allocation00KeyPair [], mkEd25519Signer' sender00 []]
                 $ set cbRPC (mkExec' "(coin.release-allocation \"allocation00\")")
-                $ set cbSender "sender00"
                 $ defaultCmd cid
             send v cid [release00Cmd]
             advanceAllChains_
@@ -655,7 +635,6 @@ localContTest baseRdb _step = runResourceT $ do
     withFixture fixture $ liftIO $ do
         let code = "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
         initiator <- buildTextCmd v
-            $ set cbSigners [mkEd25519Signer' sender00 []]
             $ set cbGasLimit (GasLimit (Gas 70_000))
             $ set cbRPC (mkExec' code)
             $ defaultCmd cid
@@ -664,7 +643,6 @@ localContTest baseRdb _step = runResourceT $ do
         Just defPactId <- poll v cid [cmdToRequestKey initiator]
             <&> preview (ix 0 . _Just . crContinuation . _Just . peDefPactId)
         continuer <- buildTextCmd v
-            $ set cbSigners [mkEd25519Signer' sender00 []]
             $ set cbRPC (mkCont (mkContMsg defPactId 1))
             $ defaultCmd cid
         local v cid Nothing Nothing Nothing continuer
@@ -674,11 +652,8 @@ localContTest baseRdb _step = runResourceT $ do
 {-
           recvPwos <- runCutWithTx v pacts targetMempoolRef blockDb $ \_n _bHeight _bHash bHeader -> do
             buildCwCmd "transfer-crosschain" v
-              $ set cbSigners [mkEd25519Signer' sender00 [mkGasCap]]
               $ set cbRPC (mkCont contMsg)
               $ setFromHeader bHeader
-              $ set cbGasPrice 0.01
-              $ set cbTTL 100
               $ defaultCmd cid
 -}
 

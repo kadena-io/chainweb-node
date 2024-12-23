@@ -174,7 +174,7 @@ mkContMsg pid step = ContMsg
 -- | Default builder.
 defaultCmd :: Chainweb.ChainId -> CmdBuilder
 defaultCmd cid = CmdBuilder
-  { _cbSigners = []
+  { _cbSigners = [mkEd25519Signer' sender00 []]
   , _cbVerifiers = []
   , _cbRPC = mkExec' "1"
   , _cbNonce = Nothing
