@@ -65,8 +65,9 @@ import "unliftio" UnliftIO.Async (pooledForConcurrently_)
 import "yet-another-logger" System.Logger hiding (Logger)
 import "yet-another-logger" System.Logger qualified as YAL
 import "yet-another-logger" System.Logger.Backend.ColorOption (useColor)
+import Chainweb.BlockHash
 import Chainweb.BlockHeader (blockHeight, blockHash, blockPayloadHash)
-import Chainweb.BlockHeaderDB.Internal (BlockHeaderDb(..), RankedBlockHash(..), RankedBlockHeader(..))
+import Chainweb.BlockHeaderDB.Internal (BlockHeaderDb(..), RankedBlockHeader(..))
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Cut.CutHashes (cutIdToText)
 import Chainweb.CutDB (cutHashesTable)

@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -10,7 +11,10 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -100,12 +104,14 @@ module Chainweb.Utils
 , unsafeFromText
 , parseM
 , parseText
+, strip0x
 
 -- ** Base64
 , encodeB64Text
 , decodeB64Text
 , encodeB64UrlText
 , decodeB64UrlText
+, encodeB64UrlNoPadding
 , encodeB64UrlNoPaddingText
 , b64UrlNoPaddingTextEncoding
 , decodeB64UrlNoPaddingText
@@ -120,6 +126,7 @@ module Chainweb.Utils
 , decodeStrictOrThrow'
 , decodeFileStrictOrThrow'
 , parseJsonFromText
+, JsonTextRepresentation(..)
 
 -- ** Cassava (CSV)
 , CsvDecimal(..)
@@ -179,6 +186,9 @@ module Chainweb.Utils
 
 -- * Type Level
 , symbolText
+, symbolVal_
+, natVal_
+, intVal_
 
 -- * Resource Management
 , concurrentWith
@@ -245,61 +255,64 @@ import Control.Monad.Primitive
 import Control.Monad.Reader as Reader
 
 import Data.Aeson.Text (encodeToLazyText)
-import qualified Data.Aeson.Types as Aeson
-import qualified Data.Attoparsec.Text as A
+import Data.Aeson.Types qualified as Aeson
+import Data.Attoparsec.Text qualified as A
 import Data.Bifunctor
 import Data.Bool (bool)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Char8 as B8
-import qualified Data.ByteString.Base64 as B64
-import qualified Data.ByteString.Base64.URL as B64U
-import qualified Data.ByteString.Builder as BB
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.Csv as CSV
+import Data.ByteString qualified as B
+import Data.ByteString.Base64 qualified as B64
+import Data.ByteString.Base64.URL qualified as B64U
+import Data.ByteString.Builder qualified as BB
+import Data.ByteString.Char8 qualified as B8
+import Data.ByteString.Lazy qualified as BL
+import Data.Csv qualified as CSV
 import Data.Decimal
 import Data.Functor.Of
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
 import Data.Hashable
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
-import Data.Proxy
 import Data.String (IsString(..))
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import qualified Data.Text.Lazy as TL
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
+import Data.Text.Lazy qualified as TL
 import Data.These (These(..))
 import Data.Time
-import qualified Data.Vector as V
-import qualified Data.Vector.Mutable as MV
+import Data.Vector qualified as V
+import Data.Vector.Mutable qualified as MV
 import Data.Word
 
+import GHC.Exts (proxy#)
 import GHC.Generics
 import GHC.Stack (HasCallStack, callStack, prettyCallStack)
-import GHC.TypeLits (KnownSymbol, symbolVal)
+import GHC.TypeLits (KnownSymbol, Symbol, symbolVal')
+import GHC.TypeLits qualified as Int (KnownNat, natVal')
+import GHC.TypeNats qualified as Nat (KnownNat, natVal')
 
-import qualified Network.Connection as HTTP
-import qualified Network.HTTP.Client as HTTP
-import qualified Network.HTTP.Client.TLS as HTTP
+import Network.Connection qualified as HTTP
+import Network.HTTP.Client qualified as HTTP
+import Network.HTTP.Client.TLS qualified as HTTP
+import Network.HTTP.Types qualified as HTTP
 import Network.Socket hiding (Debug)
-import qualified Network.TLS as HTTP
+import Network.TLS qualified as HTTP
 
 import Numeric.Natural
 
-import qualified Options.Applicative as O
+import Options.Applicative qualified as O
 
-import qualified Streaming as S (concats, effect, inspect)
-import qualified Streaming.Prelude as S
+import Servant.Client qualified
+
+import Streaming qualified as S (concats, effect, inspect)
+import Streaming.Prelude qualified as S
 
 import System.IO.Unsafe (unsafeInterleaveIO, unsafePerformIO)
 import System.LogLevel
-import qualified System.Random.MWC as Prob
-import qualified System.Random.MWC.Probability as Prob
-import qualified System.Timeout as Timeout
+import System.Random.MWC qualified as Prob
+import System.Random.MWC.Probability qualified as Prob
+import System.Timeout qualified as Timeout
 
 import Text.Printf (printf)
 import Text.Read (readEither)
-import qualified Servant.Client
-import qualified Network.HTTP.Types as HTTP
 
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
@@ -435,6 +448,27 @@ mutableVectorFromList as = do
 {-# inline mutableVectorFromList #-}
 
 -- -------------------------------------------------------------------------- --
+-- Typelevel
+
+-- | Return the value of a type level symbol as a value of a type that is an
+-- instance of 'IsString'.
+--
+symbolText :: forall s a . KnownSymbol s => IsString a => a
+symbolText = fromString $ symbolVal' @s proxy#
+
+natVal_ :: forall n . Nat.KnownNat n => Natural
+natVal_ = Nat.natVal' @n proxy#
+{-# INLINE natVal_ #-}
+
+intVal_ :: forall n . Int.KnownNat n => Integer
+intVal_ = Int.natVal' @n proxy#
+{-# INLINE intVal_ #-}
+
+symbolVal_ :: forall n . KnownSymbol n => String
+symbolVal_ = symbolVal' @n proxy#
+{-# INLINE symbolVal_ #-}
+
+-- -------------------------------------------------------------------------- --
 -- * Read only Ixed
 
 -- | Provides a simple Fold lets you fold the value at a given key in a Map or
@@ -540,6 +574,12 @@ instance HasTextRepresentation Integer where
     fromText = treadM
     {-# INLINE fromText #-}
 
+instance HasTextRepresentation Natural where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = treadM
+    {-# INLINE fromText #-}
+
 instance HasTextRepresentation Word where
     toText = sshow
     {-# INLINE toText #-}
@@ -601,6 +641,13 @@ iso8601DateTimeFormat :: String
 iso8601DateTimeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
 {-# INLINE iso8601DateTimeFormat #-}
 
+strip0x :: MonadThrow m => T.Text -> m T.Text
+strip0x t = case T.stripPrefix "0x" t of
+    Just x -> return x
+    Nothing -> throwM $ TextFormatException
+        $ "Missing hex prefix 0x in " <> sshow t
+{-# INLINE strip0x #-}
+
 -- -------------------------------------------------------------------------- --
 -- ** Base64
 
@@ -658,6 +705,13 @@ decodeB64UrlNoPaddingText = fromEitherM
 encodeB64UrlNoPaddingText :: B.ByteString -> T.Text
 encodeB64UrlNoPaddingText = T.dropWhileEnd (== '=') . T.decodeUtf8 . B64U.encode
 {-# INLINE encodeB64UrlNoPaddingText #-}
+
+-- | Encode a binary value to a textual base64-url without padding
+-- representation.
+--
+encodeB64UrlNoPadding :: B.ByteString -> B.ByteString
+encodeB64UrlNoPadding = B8.dropWhileEnd (== '=') . B64U.encode
+{-# INLINE encodeB64UrlNoPadding #-}
 
 -- | Encode a binary value to a base64-url (without padding) JSON encoding.
 --
@@ -751,6 +805,27 @@ parseJsonFromText
     -> Value
     -> Aeson.Parser a
 parseJsonFromText l = withText l $! either fail return . eitherFromText
+
+-- | A newtype wrapper for derving ToJSON and FromJSON instances via
+-- a 'HasTextRepresentation' instance
+--
+newtype JsonTextRepresentation (t :: Symbol) a = JsonTextRepresentation a
+    deriving newtype (Show, Eq, Ord, Generic)
+
+instance HasTextRepresentation a => ToJSON (JsonTextRepresentation s a) where
+    toEncoding (JsonTextRepresentation a) = toEncoding $ toText a
+    toJSON (JsonTextRepresentation a) = toJSON $ toText a
+    {-# INLINE toEncoding #-}
+    {-# INLINE toJSON #-}
+
+instance
+    ( KnownSymbol s
+    , HasTextRepresentation a
+    )
+     => FromJSON (JsonTextRepresentation s a)
+  where
+    parseJSON = fmap JsonTextRepresentation . parseJsonFromText (symbolVal_ @s)
+    {-# INLINE parseJSON #-}
 
 -- -------------------------------------------------------------------------- --
 -- ** Cassava (CSV)
@@ -1197,15 +1272,6 @@ data Codec t = Codec
     { codecEncode :: t -> ByteString
     , codecDecode :: ByteString -> Either String t
     }
-
--- -------------------------------------------------------------------------- --
--- Typelevel
-
--- | Return the value of a type level symbol as a value of a type that is an
--- instance of 'IsString'.
---
-symbolText :: forall s a . KnownSymbol s => IsString a => a
-symbolText = fromString $ symbolVal (Proxy @s)
 
 -- -------------------------------------------------------------------------- --
 -- Resource Management
