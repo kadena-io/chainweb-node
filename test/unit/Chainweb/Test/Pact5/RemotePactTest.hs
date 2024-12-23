@@ -165,6 +165,11 @@ withFixture' fixture tests =
     withDict @HasFixture fixture $
     CutFixture.withFixture' (_cutFixture <$> remotePactTestFixture) tests
 
+withSharedFixture :: ResourceT IO Fixture -> ((CutFixture.HasFixture, HasFixture) => TestTree) -> TestTree
+withSharedFixture mk tests =
+    withResourceT mk $ \fixture ->
+        withFixture' fixture tests
+
 withFixture :: Fixture -> ((CutFixture.HasFixture, HasFixture) => a) -> a
 withFixture fixture tests = withFixture' (return fixture) tests
 
@@ -341,7 +346,7 @@ spvTest baseRdb step = runResourceT $ do
 
 
 invalidTxsTest :: RocksDb -> TestTree
-invalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fixtureIO -> withFixture' fixtureIO $
+invalidTxsTest rdb = withSharedFixture (mkFixture v rdb) $
     sequentialTestGroup "invalid txs tests" AllSucceed
         [ testCase "syntax error" $ do
             cmdParseFailure <- buildTextCmd v
