@@ -172,13 +172,13 @@ mkContMsg pid step = ContMsg
   , _cmProof = Nothing }
 
 -- | Default builder.
-defaultCmd :: CmdBuilder
-defaultCmd = CmdBuilder
+defaultCmd :: Chainweb.ChainId -> CmdBuilder
+defaultCmd cid = CmdBuilder
   { _cbSigners = []
   , _cbVerifiers = []
   , _cbRPC = mkExec' "1"
   , _cbNonce = Nothing
-  , _cbChainId = unsafeChainId 0
+  , _cbChainId = cid
   , _cbSender = "sender00"
   , _cbGasLimit = GasLimit (Gas 10_000)
   , _cbGasPrice = GasPrice 0.000_1
