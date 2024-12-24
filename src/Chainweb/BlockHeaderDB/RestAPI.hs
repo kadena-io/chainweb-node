@@ -91,7 +91,6 @@ module Chainweb.BlockHeaderDB.RestAPI
 import Data.Aeson
 import Data.Bifunctor
 import Data.ByteString.Lazy qualified as L
-import Data.Maybe
 import Data.Proxy
 import Data.Text (Text)
 
@@ -192,6 +191,7 @@ instance MimeRender JsonBlockHeaderObject BlockHeaderPage where
     {-# INLINE mimeRender #-}
 
 -- -------------------------------------------------------------------------- --
+-- TODO: this instance do *not* belong here
 
 instance MimeRender OctetStream BlockPayload where
     mimeRender _ = L.fromStrict . encodeBlockPayloads
@@ -522,8 +522,6 @@ type P2pBlockHeaderDbApi v c
 
 data HeaderUpdate = HeaderUpdate
     { _huHeader :: !(ObjectEncoded BlockHeader)
-    , _huPayloadWithOutputs :: !(Maybe PayloadWithOutputs)
-    , _huTxCount :: !Int
     , _huPowHash :: !Text
     , _huTarget :: !Text
     }
@@ -532,11 +530,8 @@ data HeaderUpdate = HeaderUpdate
 headerUpdateProperties :: KeyValue e kv => HeaderUpdate -> [kv]
 headerUpdateProperties o =
     [ "header"  .= _huHeader o
-    , "txCount" .= _huTxCount o
     , "powHash" .= _huPowHash o
     , "target"  .= _huTarget o
-    ] <> concatMap maybeToList
-    [ ("payloadWithOutputs" .=) <$> _huPayloadWithOutputs o
     ]
 {-# INLINE headerUpdateProperties #-}
 
@@ -549,14 +544,15 @@ instance ToJSON HeaderUpdate where
 instance FromJSON HeaderUpdate where
     parseJSON = withObject "HeaderUpdate" $ \o -> HeaderUpdate
         <$> o .: "header"
-        <*> o .:? "payloadWithOutputs"
-        <*> o .: "txCount"
         <*> o .: "powHash"
         <*> o .: "target"
     {-# INLINE parseJSON #-}
 
 type BlockStreamApi_ =
-    "block" :> "updates" :> Raw :<|>
+    -- FIXME: the block API endpoint should be part of the payload provider.
+    -- Consensus has no access to the payload data
+    -- "block" :> "updates" :> Raw :<|>
+
     "header" :> "updates" :> Raw
 
 -- | A stream of all new blocks that are accepted into the true `Cut`.
