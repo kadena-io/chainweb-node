@@ -16,6 +16,7 @@ module Chainweb.WebPactExecutionService
   , NewBlock(..)
   , newBlockToPayloadWithOutputs
   , newBlockParent
+  , newBlockToNewPayload
   ) where
 
 import Control.Lens
@@ -33,7 +34,6 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool (InsertError)
-import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
@@ -52,10 +52,27 @@ import qualified Pact.Types.Command as Pact4
 import qualified Pact.Types.ChainMeta as Pact4
 import Data.Text (Text)
 import Chainweb.BlockCreationTime (BlockCreationTime)
+import Chainweb.PayloadProvider
+import qualified Data.ByteString as B
 
 -- -------------------------------------------------------------------------- --
 -- PactExecutionService
+--
+-- FIXME: This section does not belong into this Module. It should be in pact
+-- service. This module is node supposed to implement functionality of pact
+-- service but only to be a proxy for the Pact service API.
 
+-- FIXME: PactExecutionService is the public API of Pact service. Why does the
+-- API leak the internals of unfinished blocks? In what situation would the
+-- caller care about NewBlockInProgress? If it is for testing it should be
+-- exposed through an internal type.
+--
+-- FIXME: Make sure that PayloadNumber is strictly monotonic
+--
+-- FIXME: compute total gas
+--
+-- Currently, blocks are finalized only within the miner, which seems wrong.
+--
 data NewBlock
     = NewBlockInProgress !(ForSomePactVersion BlockInProgress)
     | NewBlockPayload !ParentHeader !PayloadWithOutputs
@@ -80,6 +97,31 @@ instance HasChainId NewBlock where
     _chainId (NewBlockInProgress (ForSomePactVersion _ bip)) = _chainId bip
     _chainId (NewBlockPayload ph _) = _chainId ph
 
+newBlockToNewPayload :: NewBlock -> NewPayload
+newBlockToNewPayload nb = NewPayload
+    { _newPayloadChainwebVersion = _chainwebVersion nb
+    , _newPayloadChainId = _chainId nb
+    , _newPayloadParentHeight = height
+    , _newPayloadParentHash = h
+    , _newPayloadBlockPayloadHash = _payloadWithOutputsPayloadHash pwo
+    , _newPayloadEncodedPayloadData = Just epd
+    , _newPayloadEncodedPayloadOutputs = Just epo
+    , _newPayloadNumber = 0 -- FIXME
+    , _newPayloadTxCount = int $ length txs
+    , _newPayloadSize = int $ sum $ B.length . _transactionBytes . fst <$> txs
+    , _newPayloadOutputSize = int $ sum $ B.length . _transactionOutputBytes . snd <$> txs
+    , _newPayloadFees = 0 -- FIXME
+    }
+  where
+    (h, height, _) = newBlockParent nb
+    pwo = newBlockToPayloadWithOutputs nb
+    txs = _payloadWithOutputsTransactions pwo
+
+    epd = EncodedPayloadData $ encodeToByteString $ payloadWithOutputsToPayloadData pwo
+    epo = EncodedPayloadOutputs $ encodeToByteString $ pwo
+
+-- -------------------------------------------------------------------------- --
+
 -- | Service API for interacting with a single or multi-chain ("Web") pact service.
 -- Thread-safe to be called from multiple threads. Backend is queue-backed on a per-chain
 -- basis.
@@ -92,10 +134,9 @@ data PactExecutionService = PactExecutionService
     -- ^ Validate block payload data by running through pact service.
     , _pactNewBlock :: !(
         ChainId ->
-        Miner ->
         NewBlockFill ->
         ParentHeader ->
-        IO (Historical NewBlock)
+        IO (Historical NewPayload)
         )
     , _pactContinueBlock :: !(
         forall pv.
@@ -161,10 +202,9 @@ newtype WebPactExecutionService = WebPactExecutionService
 _webPactNewBlock
     :: WebPactExecutionService
     -> ChainId
-    -> Miner
     -> NewBlockFill
     -> ParentHeader
-    -> IO (Historical NewBlock)
+    -> IO (Historical NewPayload)
 _webPactNewBlock = _pactNewBlock . _webPactExecutionService
 {-# INLINE _webPactNewBlock #-}
 
@@ -197,7 +237,7 @@ mkWebPactExecutionService
     -> WebPactExecutionService
 mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
     { _pactValidateBlock = \h pd -> withChainService (_chainId h) $ \p -> _pactValidateBlock p h pd
-    , _pactNewBlock = \cid m fill parent -> withChainService cid $ \p -> _pactNewBlock p cid m fill parent
+    , _pactNewBlock = \cid fill parent -> withChainService cid $ \p -> _pactNewBlock p cid fill parent
     , _pactContinueBlock = \cid bip -> withChainService cid $ \p -> _pactContinueBlock p cid bip
     , _pactLocal = \_pf _sv _rd _ct -> throwM $ userError "Chainweb.WebPactExecutionService.mkPactExecutionService: No web-level local execution supported"
     , _pactLookup = \cid cd txs -> withChainService cid $ \p -> _pactLookup p cid cd txs
@@ -219,8 +259,11 @@ mkPactExecutionService
 mkPactExecutionService q = PactExecutionService
     { _pactValidateBlock = \h pd -> do
         validateBlock h pd q
-    , _pactNewBlock = \_ m fill parent -> do
-        fmap NewBlockInProgress <$> newBlock m fill parent q
+    , _pactNewBlock = \_ fill parent -> do
+        -- FIXME: This seems wrong. This should really be implemented in pact.
+        -- PactExecutionService is supposed to be a thin an lightweight wrapper.
+        nb <- newBlock fill parent q
+        return $ newBlockToNewPayload . NewBlockInProgress <$> nb
     , _pactContinueBlock = \_ bip -> do
         continueBlock bip q
     , _pactLocal = \pf sv rd ct ->
@@ -243,7 +286,7 @@ mkPactExecutionService q = PactExecutionService
 emptyPactExecutionService :: HasCallStack => PactExecutionService
 emptyPactExecutionService = PactExecutionService
     { _pactValidateBlock = \_ _ -> pure emptyPayload
-    , _pactNewBlock = \_ _ _ _ -> throwM (userError "emptyPactExecutionService: attempted `newBlock` call")
+    , _pactNewBlock = \_ _ _ -> throwM (userError "emptyPactExecutionService: attempted `newBlock` call")
     , _pactContinueBlock = \_ _ -> throwM (userError "emptyPactExecutionService: attempted `continueBlock` call")
     , _pactLocal = \_ _ _ _ -> throwM (userError "emptyPactExecutionService: attempted `local` call")
     , _pactLookup = \_ _ _ -> return $! HM.empty
