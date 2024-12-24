@@ -233,6 +233,8 @@ library
         , Chainweb.PayloadProvider.EVM.EnginAPI
         , Chainweb.PayloadProvider.EVM.EthRpcAPI
         , Chainweb.PayloadProvider.EVM.Header
+        , Chainweb.PayloadProvider.EVM.HeaderDB
+        , Chainweb.PayloadProvider.EVM.HeaderDB.Internal
         , Chainweb.PayloadProvider.EVM.JsonRPC
         , Chainweb.PayloadProvider.EVM.Utils
         , Chainweb.PayloadProvider.Initialization
