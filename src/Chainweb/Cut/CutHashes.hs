@@ -96,16 +96,14 @@ import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Cut
+import Chainweb.Storage.Table
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
-
-import Chainweb.Payload
-
-import Chainweb.Storage.Table
+import Chainweb.Version.Registry (fabricateVersionWithName)
+import Chainweb.PayloadProvider(EncodedPayloadData(..), EncodedPayloadOutputs(..))
 
 import P2P.Peer
-import Chainweb.Version.Registry (fabricateVersionWithName)
 
 -- -------------------------------------------------------------------------- --
 -- CutId
@@ -260,6 +258,17 @@ instance FromJSON BlockHashWithHeight where
 -- Optionally, a node may attach the 'PayloadData' and/or the 'BlockHeader' for
 -- some of the block of the 'Cut'.
 --
+-- FIXME:
+-- We should not misuse the cut hashes structure for passing around payloads.
+-- Instead the payload provider should cache payloads for locally mined blocks
+-- for a while (e.g. until the block height advanced beyond the height of the
+-- payload).
+--
+-- The main benefit of this data is that it allows to push the payload of new
+-- blocks along with the respective cut, saving up to 50% connection overhead
+-- and also reducing latencies significantly. Currently, we do not do this,
+-- though.
+--
 data CutHashes = CutHashes
     { _cutHashes :: !(HM.HashMap ChainId BlockHashWithHeight)
     , _cutOrigin :: !(Maybe PeerInfo)
@@ -270,9 +279,18 @@ data CutHashes = CutHashes
     , _cutHashesId :: !CutId
     , _cutHashesHeaders :: !(HM.HashMap BlockHash BlockHeader)
         -- ^ optional block headers
-    , _cutHashesPayloads :: !(HM.HashMap BlockPayloadHash PayloadData)
+    , _cutHashesPayloads :: !(HM.HashMap BlockPayloadHash EncodedPayloadData)
         -- ^ optional block payloads
-    , _cutHashesLocalPayload :: !(Maybe (BlockPayloadHash, PayloadWithOutputs))
+        --
+        -- This is used for locally mined cuts for which the payload is not
+        -- available otherwise.
+        --
+        -- TODO: This data should actually be ranked. For now we obtain the rank
+        -- from entries in the _cutHashesHeader field and reject the payload if
+        -- we do not have the corresponding header. Alternatively we could
+        -- also use an unranked candidate store, but that would make pruning
+        -- more difficult.
+    , _cutHashesLocalPayload :: !(Maybe (BlockPayloadHash, EncodedPayloadOutputs))
         -- ^ optional, and unused except for error reporting, outputs
         -- Note: we cannot trust outputs from other nodes!
     }
