@@ -45,7 +45,7 @@ type NodeInfoApi = "info" :> Get '[JSON] NodeInfo
 someNodeInfoApi :: SomeApi
 someNodeInfoApi = SomeApi (Proxy @NodeInfoApi)
 
-someNodeInfoServer :: ChainwebVersion -> CutDb tbl -> SomeServer
+someNodeInfoServer :: ChainwebVersion -> CutDb -> SomeServer
 someNodeInfoServer v c =
   SomeServer (Proxy @NodeInfoApi) (nodeInfoHandler v $ someCutDbVal v c)
 
@@ -78,8 +78,8 @@ data NodeInfo = NodeInfo
   deriving (Show, Eq, Generic)
   deriving anyclass (ToJSON, FromJSON)
 
-nodeInfoHandler :: ChainwebVersion -> SomeCutDb tbl -> Server NodeInfoApi
-nodeInfoHandler v (SomeCutDb (CutDbT db :: CutDbT cas v)) = do
+nodeInfoHandler :: ChainwebVersion -> SomeCutDb -> Server NodeInfoApi
+nodeInfoHandler v (SomeCutDb (CutDbT db :: CutDbT v)) = do
     curCut <- liftIO $ _cut db
     let ch = cutToCutHashes Nothing curCut
     let curHeight = maximum $ map _bhwhHeight $ HM.elems $ _cutHashes ch
