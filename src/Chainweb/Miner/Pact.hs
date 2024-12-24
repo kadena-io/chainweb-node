@@ -14,19 +14,16 @@
 -- Maintainer: Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
 --
--- The definition of the Pact miner and the Pact miner reward.
+-- The definition of the Pact miner.
 --
 module Chainweb.Miner.Pact
 ( -- * Data
   MinerId(..)
 , MinerKeys(..)
 , Miner(..)
-, MinerRewards(..)
   -- * Combinators
 , toMinerData
 , fromMinerData
-, readRewards
-, rawMinerRewards
   -- * Optics
 , minerId
 , minerKeys
@@ -42,22 +39,12 @@ import Control.Lens hiding ((.=))
 import Control.Monad.Catch (MonadThrow)
 
 import Data.Aeson hiding (decode)
-import Data.ByteString (ByteString)
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.Csv as CSV
-import Data.Decimal (Decimal)
-import Data.FileEmbed (embedFile)
 import Data.Hashable
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as M
 import Data.String (IsString(..))
 import Data.Text (Text)
-import qualified Data.Vector as V
-import Data.Word
 
 -- internal modules
 
-import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Payload
 import Chainweb.Utils
 
@@ -84,7 +71,10 @@ newtype MinerKeys = MinerKeys Pact4.KeySet
 -- | Miner info data consists of a miner id (text), and its keyset (a pact
 -- type).
 --
-data Miner = Miner !MinerId !MinerKeys
+data Miner = Miner
+    { _minerMinerId :: !MinerId
+    , _minerMinerKeys :: !MinerKeys
+    }
     deriving stock (Eq, Ord, Show, Generic)
     deriving anyclass (NFData)
 
@@ -149,27 +139,3 @@ fromMinerData :: MonadThrow m => MinerData -> m Miner
 fromMinerData = decodeStrictOrThrow' . _minerData
 {-# INLINABLE fromMinerData #-}
 
-newtype MinerRewards = MinerRewards
-    { _minerRewards :: Map BlockHeight Decimal
-      -- ^ The map of blockheight thresholds to miner rewards
-    } deriving (Eq, Ord, Show, Generic)
-
--- | Rewards table mapping 3-month periods to their rewards
--- according to the calculated exponential decay over 120 year period
---
-readRewards :: MinerRewards
-readRewards =
-    case CSV.decode CSV.NoHeader (BL.fromStrict rawMinerRewards) of
-      Left e -> error
-        $ "cannot construct miner reward map: "
-        <> sshow e
-      Right vs -> MinerRewards $ M.fromList . V.toList . V.map formatRow $ vs
-  where
-    formatRow :: (Word64, CsvDecimal) -> (BlockHeight, Decimal)
-    formatRow (!a,!b) = (BlockHeight $ int a, _csvDecimal b)
-
--- | Read in the reward csv via TH for deployment purposes.
---
-rawMinerRewards :: ByteString
-rawMinerRewards = $(embedFile "rewards/miner_rewards.csv")
-{-# NOINLINE rawMinerRewards #-}
