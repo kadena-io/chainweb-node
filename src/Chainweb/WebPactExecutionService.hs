@@ -72,6 +72,14 @@ newBlockParent (NewBlockInProgress (ForSomePactVersion _ bip)) = blockInProgress
 newBlockParent (NewBlockPayload (ParentHeader ph) _) =
     (view blockHash ph, view blockHeight ph, view blockCreationTime ph)
 
+instance HasChainwebVersion NewBlock where
+    _chainwebVersion (NewBlockInProgress (ForSomePactVersion _ bip)) = _chainwebVersion bip
+    _chainwebVersion (NewBlockPayload ph _) = _chainwebVersion ph
+
+instance HasChainId NewBlock where
+    _chainId (NewBlockInProgress (ForSomePactVersion _ bip)) = _chainId bip
+    _chainId (NewBlockPayload ph _) = _chainId ph
+
 -- | Service API for interacting with a single or multi-chain ("Web") pact service.
 -- Thread-safe to be called from multiple threads. Backend is queue-backed on a per-chain
 -- basis.
