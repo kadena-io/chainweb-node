@@ -66,9 +66,8 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
-import Chainweb.CutDB (CutDb, blockDiffStream, cutDbPayloadDb)
+import Chainweb.CutDB (CutDb, blockDiffStream)
 import Chainweb.Difficulty (showTargetHex)
-import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.PowHash (powHashBytes)
 import Chainweb.RestAPI.Orphans ()
@@ -213,6 +212,8 @@ branchHeadersHandler db (BranchBoundsLimit boundsLimit) maxLimit limit next minr
 -- | Query Branch Blocks of the database.
 --
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
+--
+-- FIXME: This endpoint will be available only for Pact chains.
 --
 branchBlocksHandler
     :: CanReadablePayloadCas tbl
@@ -397,13 +398,12 @@ someP2pBlockHeaderDbServers v = mconcat
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream
 
-someBlockStreamServer :: CanReadablePayloadCas tbl => ChainwebVersion -> CutDb tbl -> SomeServer
+someBlockStreamServer :: ChainwebVersion -> CutDb -> SomeServer
 someBlockStreamServer (FromSingChainwebVersion (SChainwebVersion :: Sing v)) cdb =
-    SomeServer (Proxy @(BlockStreamApi v)) $
-        blockStreamHandler cdb True :<|> blockStreamHandler cdb False
+    SomeServer (Proxy @(BlockStreamApi v)) $ blockStreamHandler cdb
 
-blockStreamHandler :: forall tbl. CanReadablePayloadCas tbl => CutDb tbl -> Bool -> Tagged Handler Application
-blockStreamHandler db withPayloads = Tagged $ \req resp -> do
+blockStreamHandler :: CutDb -> Tagged Handler Application
+blockStreamHandler db = Tagged $ \req resp -> do
     streamRef <- newIORef $ SP.map f $ SP.mapM g $ SP.concat $ blockDiffStream db
     eventSourceAppIO (run streamRef) req resp
   where
@@ -412,21 +412,14 @@ blockStreamHandler db withPayloads = Tagged $ \req resp -> do
         Nothing -> return CloseEvent
         Just (cur, !s') -> cur <$ writeIORef var s'
 
-    cas :: PayloadDb tbl
-    cas = view cutDbPayloadDb db
-
     g :: BlockHeader -> IO HeaderUpdate
-    g bh = do
-        Just x <- lookupPayloadWithHeight cas (Just $ view blockHeight bh) (view blockPayloadHash bh)
-        pure $ HeaderUpdate
-            { _huHeader = ObjectEncoded bh
-            , _huPayloadWithOutputs =
-                x <$ guard withPayloads
-            , _huTxCount = length $ _payloadWithOutputsTransactions x
-            , _huPowHash = decodeUtf8 . B16.encode . BS.reverse . fromShort . powHashBytes $ view blockPow bh
-            , _huTarget = showTargetHex $ view blockTarget bh
-            }
+    g bh = pure $ HeaderUpdate
+        { _huHeader = ObjectEncoded bh
+        , _huPowHash = decodeUtf8 . B16.encode . BS.reverse . fromShort . powHashBytes $ view blockPow bh
+        , _huTarget = showTargetHex $ view blockTarget bh
+        }
 
     f :: HeaderUpdate -> ServerEvent
     f hu = ServerEvent (Just $ fromByteString "BlockHeader") Nothing
         [ fromLazyByteString . encode $ toJSON hu ]
+
