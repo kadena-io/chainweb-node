@@ -226,6 +226,9 @@ library
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client
         , Chainweb.PayloadProvider
+        , Chainweb.PayloadProvider.EVM.EngineAPI
+        , Chainweb.PayloadProvider.EVM.EthRpcAPI
+        , Chainweb.PayloadProvider.EVM.JsonRPC
         , Chainweb.PayloadProvider.EVM.Utils
         , Chainweb.PayloadProvider.Initialization
         , Chainweb.PayloadProvider.Minimal
