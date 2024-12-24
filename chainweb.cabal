@@ -222,6 +222,8 @@ library
         , Chainweb.Payload.RestAPI
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client
+        , Chainweb.PayloadProvider
+        , Chainweb.PayloadProvider.Initialization
         , Chainweb.PowHash
         , Chainweb.Ranked
         , Chainweb.RestAPI

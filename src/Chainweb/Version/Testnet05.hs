@@ -102,4 +102,5 @@ testnet05 = ChainwebVersion
         Bottom (minBound, Set.fromList $ map VerifierName ["hyperlane_v3_message"])
     , _versionQuirks = noQuirks
     , _versionServiceDate = Nothing
+    , _versionPayloadProviderTypes = AllChains PactProvider
     }

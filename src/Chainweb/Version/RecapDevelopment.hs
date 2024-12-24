@@ -125,4 +125,5 @@ recapDevnet = ChainwebVersion
         Bottom (minBound, mempty)
     , _versionQuirks = noQuirks
     , _versionServiceDate = Nothing
+    , _versionPayloadProviderTypes = AllChains PactProvider
     }
