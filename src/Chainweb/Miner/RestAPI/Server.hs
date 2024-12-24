@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
@@ -24,26 +25,29 @@ module Chainweb.Miner.RestAPI.Server
 , someMiningServer
 ) where
 
+import Chainweb.Cut.Create
+import Chainweb.Logger
+import Chainweb.Miner.Config
+import Chainweb.Miner.Coordinator
+import Chainweb.Miner.Core
+import Chainweb.Miner.RestAPI (MiningApi)
+import Chainweb.RestAPI.Utils
+import Chainweb.Utils
+import Chainweb.Utils.Serialization
+import Chainweb.Version
+
 import Control.Concurrent.STM.TVar
-    (TVar, readTVar, readTVarIO, registerDelay)
 import Control.Lens
-import Control.Monad (when, unless)
-import Control.Monad.Catch (bracket, try, catches)
-import qualified Control.Monad.Catch as E
+import Control.Monad
+import Control.Monad.Catch (try, catches)
+import Control.Monad.Catch qualified as E
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM
 
 import Data.Binary.Builder (fromByteString)
-import qualified Data.HashMap.Strict as HM
-import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
-import qualified Data.Map.Strict as M
 import Data.Proxy (Proxy(..))
-import qualified Data.Set as S
-import qualified Data.Vector as V
 
-import Network.HTTP.Types.Status
-import Network.Wai (responseLBS)
 import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
 
 import Servant.API
@@ -52,52 +56,24 @@ import Servant.Server
 import System.LogLevel
 import System.Random
 
--- internal modules
-
-import Chainweb.Cut.Create
-import Chainweb.Logger
-import Chainweb.Miner.Config
-import Chainweb.Miner.Coordinator
-import Chainweb.Miner.Core
-import Chainweb.Miner.Pact
-import Chainweb.Miner.RestAPI (MiningApi)
-import Chainweb.Pact.Types(BlockInProgress(..), Transactions(..))
-import Chainweb.Payload
-import Chainweb.RestAPI.Utils
-import Chainweb.Utils
-import Chainweb.Utils.Serialization
-import Chainweb.Version
-import Chainweb.WebPactExecutionService
-
 -- -------------------------------------------------------------------------- --
 -- Work Handler
 
 workHandler
     :: Logger l
-    => MiningCoordination l tbl
-    -> Maybe ChainId
-    -> Miner
+    => MiningCoordination l
     -> Handler WorkBytes
-workHandler mr mcid m@(Miner (MinerId mid) _) = do
-    MiningState ms <- liftIO . readTVarIO $ _coordState mr
-    when (M.size ms > _coordLimit mr) $ do
-        liftIO $ atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
-        throwError $ setErrText "Too many work requests" err503
-    let !conf = _coordConf mr
-        !primed = S.member m $ _coordinationMiners conf
-    unless primed $ do
-        liftIO $ atomicModifyIORef' (_coord403s mr) (\c -> (c + 1, ()))
-        throwError $ setErrText ("Unauthorized Miner: " <> mid) err403
-    wh <- liftIO $ work mr mcid m
+workHandler mr = do
+    wh <- liftIO $ work mr
     return $ WorkBytes $ runPutS $ encodeWorkHeader wh
 
 -- -------------------------------------------------------------------------- --
 -- Solved Handler
 
 solvedHandler
-    :: forall l tbl
+    :: forall l
     . Logger l
-    => MiningCoordination l tbl
+    => MiningCoordination l
     -> HeaderBytes
     -> Handler NoContent
 solvedHandler mr (HeaderBytes bytes) = do
@@ -122,33 +98,122 @@ solvedHandler mr (HeaderBytes bytes) = do
 
 -- | Whether the work is outdated and should be thrown out immediately,
 -- or there's just fresher work available and the old work is still valid.
-data WorkChange = WorkOutdated | WorkRefreshed | WorkRegressed
+--
+-- NOTE: this does not provide any information about whether the chain is ready
+-- or not.
+--
+-- FIXME:
+--
+-- Exposing this information to mining clients is problematic. It assumes that
+-- clients are able to pick an optimal mining strategy (which should represent a
+-- Nash equilibrium). For instance, if clients request new work each time any
+-- event is received for a chain, Clients will spent less time mining chains
+-- that receive many 'WorkRefreshed' events, because on each event a new chain
+-- is selected uniformily. The currently used difficulty adjustement algorithm
+-- assumes that all chains receive and equal amount of hash power. Hence, the
+-- system will converge towards a state where chains that receive more hash
+-- power are being blocked more often and miners are more likely the race on
+-- chains that receive less hash power. As a consequence the number of orphans
+-- is going to increase.
+--
+-- While it is desirable to provide sufficient information to allow smart and
+-- educated miners to pick their own chain selection strategy, the API should
+-- ensure that uninformed miners are going to use a reasonable default strategy
+-- that distributes hash power uniformily accross all chains.
+--
+-- Unlike WorkOutdated events, the distribution of WorkRefreshed events is not
+-- generated by the randomized mining process. Instead WorkRefreshed depends on
+-- the rate at which transactions are sent to the mempool for the respective
+-- chain. Beside of introducing random byzantine skew in the hash power
+-- distribution and increasing orphan block counts, this condition can also be
+-- exploited explicitely by a malicious actor.
+--
+-- (Note that uniform distribution of hash power accross all chains is not the
+-- optimal strategy in a collaborative model. In a collaborative model miners
+-- could reduce the numbers of orphans be giving a slight preference to chains
+-- with a lower block height in the current cut. However, to the best of our
+-- knowledge that strategy does not represent an equilibrium in an adversarial
+-- model. Uniform distribution is the best strategy that we are aware of for an
+-- adversariable setting.)
+--
+data WorkChange
+    = WorkOutdated
+        -- ^ The current work for the chain is invalid.
+        --
+        -- The mining client should request new work. If the chain is currently
+        -- blocked it will be excluded in the selection of the new work.
+        --
+    | WorkRefreshed
+        -- ^ The current work for the chain is still valid, but newer work is
+        -- available.
+        --
     deriving stock (Show, Eq)
 
+-- | This event triggers when the previous work got outdated
+--
+awaitWorkChange
+    :: MiningState
+    -> ChainId
+    -> TVar Bool
+        -- ^ Timer
+    -> TVar WorkState
+        -- ^ Previous Work State
+    -> IO (Maybe WorkChange)
+awaitWorkChange ms cid timer prevVar = go
+  where
+    go = do
+        -- await a change in the work state of the chain
+        r <- atomically $ readTVar timer >>= \case
+            True -> return Nothing
+            False -> do
+                prev <- readTVar prevVar
+                cur <- readTVar (ms ^?! ixg cid)
+                -- TODO: this guard is potentially somewhat expense. However,
+                -- ideally in most cases it should be possible to establish
+                -- equality by pointer equality.
+                guard (prev /= cur)
+                writeTVar prevVar cur
+                return $ Just (prev, cur)
+
+        -- check result
+        case r of
+            Nothing -> return Nothing
+            Just (WorkReady prh ppld pps pwh, WorkReady crh cpld cps cwh)
+                | prh /= crh -> return $ Just WorkOutdated
+                | pps /= cps -> return $ Just WorkOutdated
+                | ppld /= cpld -> return $ Just WorkRefreshed
+                | pwh /= cwh -> return $ Just WorkRefreshed
+                | otherwise -> go
+            Just (WorkReady{}, _) -> return $ Just WorkOutdated
+            _ -> go
+
+-- |
+--
+-- FIXME: the that current API design is broken in several ways. The main issues
+-- are:
+--
+-- 1.  Lack of synchronization between the updates stream and the GET work API.
+--     Events from the update stream race against work returned by GET work.
+-- 2.  It does not support mining clients in deploying a stable and optimal
+--     mining strategy. Any use of the WorkRefreshed event requires non-trivial
+--     client side logic to guarantee a uniform distribution of hash power
+--     across chains.
+--     A simple strategy for clients could be to ignore the WorkRefreshed events
+--     and instead request new work at a fixed rate.
+--
+-- FIXME: consider sending the WorkRefreshed Event at a fixed rate on each
+-- chain.
+--
+-- FIXME: update openAPI spec for mining API to reflect the "Refreshed Block"
+-- event.
+--
 updatesHandler
     :: Logger l
-    => MiningCoordination l tbl
+    => MiningCoordination l
     -> ChainBytes
     -> Tagged Handler Application
-updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ do
-    watchedChain <- runGetS decodeChainId cbytes
-    (watchedMiner, blockOnChain) <- atomically $ do
-        PrimedWork pw <- readTVar (_coordPrimedWork mr)
-        -- we check if `watchedMiner` has new work. we ignore
-        -- all other miner IDs, because we don't know which miner
-        -- is asking for updates, and if we watched all of them at once
-        -- we'd send too many messages.
-        -- this is deliberately partial, primed work will always have
-        -- at least one miner or that's an error
-        let (watchedMiner, minerBlocks) = HM.toList pw ^?! _head
-        -- and that miner will always have this chain(?)
-        -- if this chain doesn't exist yet just wait
-        blockOnChain <- do
-          case minerBlocks ^? ix watchedChain of
-            Just (WorkReady newBlock) -> return newBlock
-            _ -> retry
-        return (watchedMiner, blockOnChain)
-    blockOnChainRef <- newIORef (WorkReady blockOnChain)
+updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> do
+    cid <- runGetS decodeChainId cbytes
 
     -- An update stream is closed after @timeout@ seconds. We add some jitter to
     -- availablility of streams is uniformily distributed over time and not
@@ -157,141 +222,41 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req resp -> withLimit resp $ d
     jitter <- randomRIO @Double (0.9, 1.1)
     timer <- registerDelay (round $ jitter * realToFrac timeout * 1_000_000)
 
-    eventSourceAppIO (go timer watchedChain watchedMiner blockOnChainRef) req resp
+    curWork <- readTVarIO (_coordState mr ^?! ixg cid)
+    prevVar <- newTVarIO curWork
+
+    eventSourceAppIO (go timer cid prevVar) req resp
   where
     timeout = _coordinationUpdateStreamTimeout $ _coordConf mr
 
-    -- | A nearly empty `ServerEvent` that signals the work on this chain has
-    -- changed, and how.
-    --
-    eventForWorkChangeType :: WorkChange -> ServerEvent
-    eventForWorkChangeType WorkOutdated = ServerEvent (Just $ fromByteString "New Cut") Nothing []
-    eventForWorkChangeType WorkRefreshed = ServerEvent (Just $ fromByteString "Refreshed Block") Nothing []
-    -- this is only different from WorkRefreshed for logging
-    eventForWorkChangeType WorkRegressed = ServerEvent (Just $ fromByteString "Refreshed Block") Nothing []
-
-    go :: TVar Bool -> ChainId -> MinerId -> IORef WorkState -> IO ServerEvent
-    go timer watchedChain watchedMiner blockOnChainRef = do
-        lastBlockOnChain <- readIORef blockOnChainRef
-
-        -- await either a timeout or a new event
-        maybeNewBlock <- atomically $ do
-            t <- readTVar timer
-            if t
-                then return Nothing
-                else Just <$> awaitNewPrimedWork watchedChain watchedMiner lastBlockOnChain
-
-        case maybeNewBlock of
-            Nothing -> return CloseEvent
-            Just (workChange, currentBlockOnChain) -> do
-                writeIORef blockOnChainRef currentBlockOnChain
+    go :: TVar Bool -> ChainId -> TVar WorkState -> IO ServerEvent
+    go timer cid prevVar = do
+        awaitWorkChange (_coordState mr) cid timer prevVar >>= \case
+            Nothing -> do
                 logFunctionText logger Debug $
-                    "sent update to miner on chain " <> toText watchedChain <> ": " <> sshow workChange
-                when (workChange == WorkRegressed) $
-                    logFunctionText logger Warn $
-                        "miner block regressed: " <> sshow currentBlockOnChain
-                return (eventForWorkChangeType workChange)
+                    "sent close event to miner on chain " <> toText cid
+                return CloseEvent
+            Just WorkOutdated -> do
+                logFunctionText logger Debug $
+                    "sent work outdated event to miner on chain " <> toText cid
+                return $ ServerEvent (Just $ fromByteString "New Cut") Nothing []
+            Just WorkRefreshed -> do
+                logFunctionText logger Debug $
+                    "sent work outdated event to miner on chain " <> toText cid
+                return $ ServerEvent (Just $ fromByteString "Refreshed Block") Nothing []
         where
-        logger = addLabel ("chain", toText watchedChain) (_coordLogger mr)
-
-    count = _coordUpdateStreamCount mr
-
-    awaitNewPrimedWork watchedChain watchedMiner lastBlockOnChain = do
-        PrimedWork pw <- readTVar (_coordPrimedWork mr)
-        let currentBlockOnChain = pw ^?! ix watchedMiner . ix watchedChain
-        case (lastBlockOnChain, currentBlockOnChain) of
-
-            -- there was no work, and that hasn't changed.
-            (WorkStale, WorkStale) -> retry
-            (WorkAlreadyMined _, WorkAlreadyMined _) -> retry
-
-            (WorkReady (NewBlockInProgress (ForPact4 lastBip)), WorkReady (NewBlockInProgress (ForPact4 currentBip)))
-                | lastPh <- _blockInProgressParentHeader lastBip
-                , currentPh <- _blockInProgressParentHeader currentBip
-                , lastPh /= currentPh ->
-                -- we've got a new block on a new parent, we must've missed
-                -- the update where the old block became outdated.
-                -- miner should restart
-                    return (WorkOutdated, currentBlockOnChain)
-
-                | lastTlen <- V.length (_transactionPairs $ _blockInProgressTransactions lastBip)
-                , currentTlen <- V.length (_transactionPairs $ _blockInProgressTransactions currentBip)
-                , lastTlen /= currentTlen ->
-                    if currentTlen < lastTlen
-                    then
-                        -- our refreshed block somehow has less transactions,
-                        -- but the same parent header, log this as a bizarre case
-                        return (WorkRegressed, currentBlockOnChain)
-                    else
-                        -- we've got a block that's been extended with new transactions
-                        -- miner should restart
-                        return (WorkRefreshed, currentBlockOnChain)
-
-                -- no apparent change
-                | otherwise -> retry
-
-            (WorkReady (NewBlockInProgress (ForPact5 lastBip)), WorkReady (NewBlockInProgress (ForPact5 currentBip)))
-                | lastPh <- _blockInProgressParentHeader lastBip
-                , currentPh <- _blockInProgressParentHeader currentBip
-                , lastPh /= currentPh ->
-                -- we've got a new block on a new parent, we must've missed
-                -- the update where the old block became outdated.
-                -- miner should restart
-                    return (WorkOutdated, currentBlockOnChain)
-
-                | lastTlen <- V.length (_transactionPairs $ _blockInProgressTransactions lastBip)
-                , currentTlen <- V.length (_transactionPairs $ _blockInProgressTransactions currentBip)
-                , lastTlen /= currentTlen ->
-                    if currentTlen < lastTlen
-                    then
-                        -- our refreshed block somehow has less transactions,
-                        -- but the same parent header, log this as a bizarre case
-                        return (WorkRegressed, currentBlockOnChain)
-                    else
-                        -- we've got a block that's been extended with new transactions
-                        -- miner should restart
-                        return (WorkRefreshed, currentBlockOnChain)
-
-                -- no apparent change
-                | otherwise -> retry
-            (WorkReady (NewBlockPayload lastPh lastPwo), WorkReady (NewBlockPayload currentPh currentPwo))
-                | lastPh /= currentPh ->
-                    -- we've got a new block on a new parent, we must've missed
-                    -- the update where the old block became outdated.
-                    -- miner should restart.
-                    return (WorkOutdated, currentBlockOnChain)
-
-                | _payloadWithOutputsPayloadHash lastPwo /= _payloadWithOutputsPayloadHash currentPwo ->
-                    -- this should be impossible because NewBlockPayload is for
-                    -- when Pact is off so blocks can't be refreshed, but we've got
-                    -- a different block with the same parent, so the miner should restart.
-                    return (WorkRefreshed, currentBlockOnChain)
-
-                -- no apparent change
-                | otherwise -> retry
-            (WorkReady _, WorkReady _) ->
-                error "awaitNewPrimedWork: impossible: NewBlockInProgress replaced by a NewBlockPayload"
-
-            _ -> return (WorkOutdated, currentBlockOnChain)
-
-    withLimit resp inner = bracket
-        (atomicModifyIORef' count $ \x -> (x - 1, x - 1))
-        (const $ atomicModifyIORef' count $ \x -> (x + 1, ()))
-        (\x -> if x <= 0 then ret503 resp else inner)
-
-    ret503 resp = do
-        resp $ responseLBS status503 [] "No more update streams available currently. Retry later."
+        logger = addLabel ("chain", toText cid) (_coordLogger mr)
 
 -- -------------------------------------------------------------------------- --
 -- Mining API Server
 
 miningServer
-    :: forall l tbl (v :: ChainwebVersionT)
+    :: forall l (v :: ChainwebVersionT)
     .  Logger l
-    => MiningCoordination l tbl
+    => MiningCoordination l
     -> Server (MiningApi v)
 miningServer mr = workHandler mr :<|> solvedHandler mr :<|> updatesHandler mr
 
-someMiningServer :: Logger l => ChainwebVersion -> MiningCoordination l tbl -> SomeServer
+someMiningServer :: Logger l => ChainwebVersion -> MiningCoordination l -> SomeServer
 someMiningServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) mr =
     SomeServer (Proxy @(MiningApi vT)) $ miningServer mr
