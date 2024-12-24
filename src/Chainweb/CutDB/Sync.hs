@@ -84,11 +84,10 @@ catchupStepSize :: CutHeight
 catchupStepSize = 100
 
 syncSession
-    :: ChainwebVersion
-    -> PeerInfo
-    -> CutDb tbl
+    :: PeerInfo
+    -> CutDb
     -> P2pSession
-syncSession v p db logg env pinf = do
+syncSession p db logg env pinf = do
     race_
         (S.mapM_ send $ S.map (cutToCutHashes (Just p)) $ cutStream db)
         (forever $ receive >> approximateThreadDelay 2000000 {- 2 seconds -})
@@ -102,6 +101,7 @@ syncSession v p db logg env pinf = do
     logg @T.Text Error "unexpectedly exited cut sync session"
     return False
   where
+    v = _chainwebVersion db
     cenv = CutClientEnv v env
 
     send c = do
