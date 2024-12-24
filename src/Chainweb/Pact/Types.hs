@@ -43,7 +43,6 @@ module Chainweb.Pact.Types
   , psCheckpointer
   , psPdb
   , psBlockHeaderDb
-  , psMinerRewards
   , psReorgLimit
   , psPreInsertCheckTimeout
   , psOnFatalError
@@ -55,6 +54,7 @@ module Chainweb.Pact.Types
   , psEnableLocalTimeout
   , psTxFailuresCounter
   , psTxTimeLimit
+  , psMiner
     --
     -- * Pact Service State
   , PactServiceState(..)
@@ -493,7 +493,6 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psCheckpointer :: !(Checkpointer logger)
     , _psPdb :: !(PayloadDb tbl)
     , _psBlockHeaderDb :: !BlockHeaderDb
-    , _psMinerRewards :: !MinerRewards
     , _psPreInsertCheckTimeout :: !Micros
     -- ^ Maximum allowed execution time for the transactions validation.
     , _psReorgLimit :: !RewindLimit
@@ -509,6 +508,7 @@ data PactServiceEnv logger tbl = PactServiceEnv
     , _psEnableLocalTimeout :: !Bool
     , _psTxFailuresCounter :: !(Maybe (Counter "txFailures"))
     , _psTxTimeLimit :: !(Maybe Micros)
+    , _psMiner :: !(Maybe Miner)
     }
 makeLenses ''PactServiceEnv
 
@@ -567,6 +567,9 @@ data PactServiceConfig = PactServiceConfig
     -- ^ *Only affects Pact5*
     --   Maximum allowed execution time for a single transaction.
     --   If 'Nothing', it's a function of the BlockGasLimit.
+    --
+    --   FIXME: this seems dangerous. It could fork the chain!
+  , _pactMiner :: !(Maybe Miner)
   } deriving (Eq,Show)
 
 
@@ -586,6 +589,7 @@ testPactServiceConfig = PactServiceConfig
       , _pactEnableLocalTimeout = False
       , _pactPersistIntraBlockWrites = DoNotPersistIntraBlockWrites
       , _pactTxTimeLimit = Nothing
+      , _pactMiner = Nothing
       }
 
 -- | This default value is only relevant for testing. In a chainweb-node the @GasLimit@
@@ -1032,8 +1036,7 @@ instance Show (RequestMsg r) where
 
 data NewBlockReq
     = NewBlockReq
-    { _newBlockMiner :: !Miner
-    , _newBlockFill :: !NewBlockFill
+    { _newBlockFill :: !NewBlockFill
     -- ^ whether to fill this block with transactions; if false, the block
     -- will be empty.
     , _newBlockParent :: !ParentHeader
