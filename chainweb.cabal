@@ -228,7 +228,7 @@ library
         , Chainweb.Payload.RestAPI.Client
         , Chainweb.PayloadProvider
         , Chainweb.PayloadProvider.EVM
-        , Chainweb.PayloadProvider.EVM.EnginAPI
+        , Chainweb.PayloadProvider.EVM.EngineAPI
         , Chainweb.PayloadProvider.EVM.EthRpcAPI
         , Chainweb.PayloadProvider.EVM.Header
         , Chainweb.PayloadProvider.EVM.HeaderDB
