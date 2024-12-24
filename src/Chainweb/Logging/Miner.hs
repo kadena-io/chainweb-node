@@ -27,12 +27,15 @@ import GHC.Generics
 
 import Chainweb.BlockHeader
 import Chainweb.Time
+import Chainweb.MinerReward
+import Numeric.Natural
 
 data NewMinedBlock = NewMinedBlock
     { _minedBlockHeader :: !(ObjectEncoded BlockHeader)
-    , _minedBlockTrans :: {-# UNPACK #-} !Word
-    , _minedBlockSize :: {-# UNPACK #-} !Word   -- ^ Bytes
-    , _minedBlockMiner :: !Text
+    , _minedBlockTrans :: !Natural
+    , _minedBlockSize :: !Natural
+    , _minedBlockOutputSize :: !Natural
+    , _minedBlockFees :: !Stu
     , _minedBlockDiscoveredAt :: !(Time Micros)
     }
     deriving stock (Eq, Show, Generic)
@@ -42,7 +45,6 @@ data OrphanedBlock = OrphanedBlock
     { _orphanedHeader :: !(ObjectEncoded BlockHeader)
     , _orphanedBestOnCut :: !(ObjectEncoded BlockHeader)
     , _orphanedDiscoveredAt :: !(Time Micros)
-    , _orphanedMiner :: !Text
     , _orphanedReason :: !Text
     }
     deriving stock (Eq, Show, Generic)
