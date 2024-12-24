@@ -37,7 +37,6 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool (InsertError)
-import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
 import Chainweb.Payload
@@ -52,12 +51,11 @@ import qualified Pact.Types.ChainMeta as Pact4
 import Data.Text (Text)
 import qualified Pact.Types.Command as Pact4
 
-newBlock :: Miner -> NewBlockFill -> ParentHeader -> PactQueue -> IO (Historical (ForSomePactVersion BlockInProgress))
-newBlock mi fill parent reqQ = do
+newBlock :: NewBlockFill -> ParentHeader -> PactQueue -> IO (Historical (ForSomePactVersion BlockInProgress))
+newBlock fill parent reqQ = do
     let
         !msg = NewBlockMsg NewBlockReq
-            { _newBlockMiner = mi
-            , _newBlockFill = fill
+            { _newBlockFill = fill
             , _newBlockParent = parent
             }
     submitRequestAndWait reqQ msg
