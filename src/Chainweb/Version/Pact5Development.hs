@@ -64,4 +64,5 @@ pact5Devnet = ChainwebVersion
         )
     , _versionQuirks = noQuirks
     , _versionServiceDate = Nothing
+    , _versionPayloadProviderTypes = AllChains PactProvider
     }

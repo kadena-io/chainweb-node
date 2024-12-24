@@ -20,6 +20,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeAbstractions #-}
 
 -- |
 -- Module: Chainweb.Version
@@ -74,6 +75,7 @@ module Chainweb.Version
     , versionVerifierPluginNames
     , versionQuirks
     , versionServiceDate
+    , versionPayloadProviderTypes
     , genesisBlockPayload
     , genesisBlockPayloadHash
     , genesisBlockTarget
@@ -100,10 +102,16 @@ module Chainweb.Version
     , KnownChainwebVersionSymbol
     , someChainwebVersionVal
 
-    -- * Singletons
+    -- ** Singletons
     , Sing(SChainwebVersion)
     , SChainwebVersion
     , pattern FromSingChainwebVersion
+
+    -- * Payload Provider Type
+    , PayloadProviderType(..)
+    , HasPayloadProviderType(..)
+    , payloadProviderTypeForChain
+    , Sing(SMinimalProvider, SPactProvider, SEvmProvider)
 
     -- * HasChainwebVersion
     , HasChainwebVersion(..)
@@ -164,7 +172,8 @@ import qualified Data.Text as T
 import Data.Word
 
 import GHC.Generics(Generic)
-import GHC.TypeLits
+import GHC.TypeLits hiding (Nat, fromSNat, withSomeSNat)
+import GHC.TypeNats
 import GHC.Stack
 
 -- internal modules
@@ -191,6 +200,9 @@ import Pact.Types.Verifier
 import Data.Singletons
 
 import P2P.Peer
+
+-- -------------------------------------------------------------------------- --
+-- Forks
 
 -- | Data type representing changes to block validation, whether in the payload
 -- or in the header. Always add new forks at the end, not in the middle of the
@@ -320,6 +332,9 @@ data ForkHeight = ForkAtBlockHeight !BlockHeight | ForkAtGenesis | ForkNever
 
 makePrisms ''ForkHeight
 
+-- -------------------------------------------------------------------------- --
+-- Chainweb Version Name
+
 newtype ChainwebVersionName =
     ChainwebVersionName { getChainwebVersionName :: T.Text }
     deriving stock (Generic, Eq, Ord)
@@ -327,6 +342,13 @@ newtype ChainwebVersionName =
     deriving anyclass (Hashable, NFData)
 
 instance Show ChainwebVersionName where show = T.unpack . getChainwebVersionName
+
+instance HasTextRepresentation ChainwebVersionName where
+    toText = getChainwebVersionName
+    fromText = pure . ChainwebVersionName
+
+-- -------------------------------------------------------------------------- --
+-- Chainweb Version Code
 
 newtype ChainwebVersionCode =
     ChainwebVersionCode { getChainwebVersionCode :: Word32 }
@@ -340,10 +362,16 @@ encodeChainwebVersionCode = putWord32le . getChainwebVersionCode
 decodeChainwebVersionCode :: Get ChainwebVersionCode
 decodeChainwebVersionCode = ChainwebVersionCode <$> getWord32le
 
+-- -------------------------------------------------------------------------- --
+-- Merkle Tree Hash Algorithm
+
 instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVersionCode where
     type Tag ChainwebVersionCode = 'ChainwebVersionTag
     toMerkleNode = encodeMerkleInputNode encodeChainwebVersionCode
     fromMerkleNode = decodeMerkleInputNode decodeChainwebVersionCode
+
+-- -------------------------------------------------------------------------- --
+-- Pact Version
 
 data PactVersion = Pact4 | Pact5
 data PactVersionT (v :: PactVersion) where
@@ -387,6 +415,9 @@ deriving stock instance (Show (f Pact4), Show (f Pact5)) => Show (ForBothPactVer
 instance (NFData (f Pact4), NFData (f Pact5)) => NFData (ForBothPactVersions f) where
     rnf b = rnf (_forPact4 b) `seq` rnf (_forPact5 b)
 
+-- -------------------------------------------------------------------------- --
+-- Pact Upgrade
+
 -- The type of upgrades, which are sets of transactions to run at certain block
 -- heights during coinbase.
 
@@ -421,6 +452,9 @@ instance NFData PactUpgrade where
 pact4Upgrade :: [Pact4.Transaction] -> PactUpgrade
 pact4Upgrade txs = Pact4Upgrade txs False
 
+-- -------------------------------------------------------------------------- --
+-- Version Quirks
+
 data TxIdxInBlock = TxBlockIdx Word
     deriving stock (Eq, Ord, Show, Generic)
     deriving anyclass (Hashable, NFData)
@@ -440,6 +474,47 @@ noQuirks :: VersionQuirks
 noQuirks = VersionQuirks
     { _quirkGasFees = AllChains HM.empty
     }
+
+-- -------------------------------------------------------------------------- --
+-- Payload Provider Type
+
+data PayloadProviderType
+    = MinimalProvider
+    | PactProvider
+    | EvmProvider Natural
+        -- ^ The natural number is the Ethereum network id that is used with by
+        -- this instance of the EVM provider
+    deriving (Show, Read, Eq, Ord, Generic)
+    deriving anyclass (NFData)
+
+data instance Sing (p :: PayloadProviderType) where
+    SMinimalProvider :: Sing 'MinimalProvider
+    SPactProvider :: Sing 'PactProvider
+    SEvmProvider :: SNat n -> Sing ('EvmProvider (n :: Natural))
+
+instance SingI 'MinimalProvider where sing = SMinimalProvider
+instance SingI 'PactProvider where sing = SPactProvider
+instance KnownNat n => SingI ('EvmProvider n) where sing = SEvmProvider (natSing @n)
+
+instance SingKind PayloadProviderType where
+    type Demote PayloadProviderType = PayloadProviderType
+    fromSing SMinimalProvider = MinimalProvider
+    fromSing SPactProvider = PactProvider
+    fromSing (SEvmProvider n) = EvmProvider (fromSNat n)
+    toSing MinimalProvider = SomeSing SMinimalProvider
+    toSing PactProvider = SomeSing SPactProvider
+    toSing (EvmProvider n) = withSomeSNat n (SomeSing . SEvmProvider)
+    {-# INLINE fromSing #-}
+    {-# INLINE toSing #-}
+
+instance HasTextRepresentation PayloadProviderType where
+    toText = sshow
+    fromText = treadM
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
+
+-- -------------------------------------------------------------------------- --
+-- Chainweb Version
 
 -- | Chainweb versions are sets of properties that must remain consistent among
 -- all nodes on the same network. For examples see `Chainweb.Version.Mainnet`,
@@ -498,6 +573,8 @@ data ChainwebVersion
         -- ^ Modifications to behavior at particular blockheights
     , _versionServiceDate :: Maybe String
         -- ^ The node service date for this version.
+    , _versionPayloadProviderTypes :: ChainMap PayloadProviderType
+        -- ^ The payload provider type for each chain
     }
     deriving stock (Generic)
     deriving anyclass NFData
@@ -554,6 +631,7 @@ data VersionCheats = VersionCheats
 data VersionGenesis = VersionGenesis
     { _genesisBlockTarget :: ChainMap HashTarget
     , _genesisBlockPayload :: ChainMap PayloadWithOutputs
+        -- ^ FIXME: This is currently only for the Pact Payload Provider
     , _genesisTime :: ChainMap BlockCreationTime
     }
     deriving stock (Generic, Eq)
@@ -568,12 +646,14 @@ makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionCheats
 makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionDefaults
 makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionQuirks
 
+-- | FIXME: This is currently only for the Pact Payload Provider
+--
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
-genesisBlockPayloadHash v cid = v ^?! versionGenesis . genesisBlockPayload . atChain cid . to _payloadWithOutputsPayloadHash
-
-instance HasTextRepresentation ChainwebVersionName where
-    toText = getChainwebVersionName
-    fromText = pure . ChainwebVersionName
+genesisBlockPayloadHash v cid = v
+    ^?! versionGenesis
+    . genesisBlockPayload
+    . atChain cid
+    . to _payloadWithOutputsPayloadHash
 
 -------------------------------------------------------------------------- --
 -- Type level ChainwebVersion
@@ -649,6 +729,33 @@ mkChainId v h i = cid
     <$ checkWebChainId (chainGraphAt (_chainwebVersion v) h) cid
   where
     cid = unsafeChainId i
+
+-- -------------------------------------------------------------------------- --
+-- HasPayloadProviderType Class
+
+class HasPayloadProviderType p where
+    _payloadProviderType :: p -> PayloadProviderType
+    _payloadProviderType = view payloadProviderType
+
+    payloadProviderType :: Getter p PayloadProviderType
+    payloadProviderType = to _payloadProviderType
+
+    {-# INLINE _payloadProviderType #-}
+    {-# INLINE payloadProviderType #-}
+    {-# MINIMAL _payloadProviderType | payloadProviderType #-}
+
+payloadProviderTypeForChain
+    :: HasChainwebVersion v
+    => HasChainId c
+    => v
+    -> c
+    -> PayloadProviderType
+payloadProviderTypeForChain v c = v
+    ^?! chainwebVersion . versionPayloadProviderTypes . atChain c
+
+instance (HasChainwebVersion p, HasChainId p) => HasPayloadProviderType p where
+    _payloadProviderType p = payloadProviderTypeForChain p p
+    {-# INLINE _payloadProviderType #-}
 
 -------------------------------------------------------------------------- --
 -- Properties of Chainweb Versions
