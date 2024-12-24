@@ -64,14 +64,15 @@ import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
-import Chainweb.Miner.Pact
 import Chainweb.RestAPI.Orphans ()
 import qualified Chainweb.Pact4.Transaction as Pact4
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 
-import Data.LogMessage (LogFunction)
+import Data.LogMessage (LogFunction, LogFunctionText)
+import System.LogLevel
+import Control.Concurrent.STM
 
 --------------------------------------------------------------------------------
 -- Local Mining
@@ -85,16 +86,15 @@ localTest
     => Logger logger
     => LogFunction
     -> ChainwebVersion
-    -> MiningCoordination logger tbl
-    -> Miner
-    -> CutDb tbl
+    -> MiningCoordination logger
+    -> CutDb
     -> MWC.GenIO
     -> MinerCount
     -> IO ()
-localTest lf v coord m cdb gen miners =
+localTest lf v coord cdb gen miners =
     runForever lf "Chainweb.Miner.Miners.localTest" $ do
         c <- _cut cdb
-        wh <- work coord Nothing m
+        wh <- work coord
         let height = c ^?! ixg (_workHeaderChainId wh) . blockHeight
 
         race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (go height wh) >>= \case
@@ -136,19 +136,37 @@ mempoolNoopMiner lf chainRes =
 --
 localPOW
     :: Logger logger
-    => LogFunction
-    -> MiningCoordination logger tbl
-    -> Miner
-    -> CutDb tbl
+    => LogFunctionText
+    -> MiningCoordination logger
+    -> CutDb
     -> IO ()
-localPOW lf coord m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
+localPOW lf coord cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ do
     c <- _cut cdb
-    wh <- work coord Nothing m
-    race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (go wh) >>= \case
-        Left _ -> return ()
+    lf Debug "request new work for localPOW miner"
+    wh <- work coord
+    let cid = _workHeaderChainId wh
+    lf Debug $ "run localPOW miner on chain " <> toText cid
+    race (awaitNewCutByChainId cdb cid c) (go wh) >>= \case
+        Left _ -> do
+            lf Debug "abondond work due to chain update"
+            return ()
         Right new -> do
+            lf Debug $ "solved work on chain " <> toText cid
             solve coord new
-            void $ awaitNewCut cdb c
+
+            -- There is a potential race here, if the solved block got orphaned.
+            -- If work isn't updated quickly enough, it can happen that the
+            -- miner uses an old header. We resolve that by awaiting that the
+            -- chain is at least as high as the solved work.
+            -- This can still dead-lock if for some reason the solved work is
+            -- invalid.
+            awaitHeight (_chainId new) (view solvedWorkHeight new)
   where
     go :: WorkHeader -> IO SolvedWork
     go = mine @Blake2s_256 (Nonce 0)
+
+    awaitHeight cid h = atomically $ do
+        c <- _cutStm cdb
+        let h' = view blockHeight $ c ^?! ixg cid
+        guard (h <= h')
+
