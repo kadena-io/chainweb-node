@@ -193,4 +193,5 @@ testnet04 = ChainwebVersion
             ]
         }
     , _versionServiceDate = Just "2025-02-05T00:00:00Z"
+    , _versionPayloadProviderTypes = AllChains PactProvider
     }

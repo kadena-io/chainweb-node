@@ -103,4 +103,5 @@ testnet05 = ChainwebVersion
         { _quirkGasFees = mempty
         }
     , _versionServiceDate = Nothing
+    , _versionPayloadProviderTypes = AllChains PactProvider
     }
