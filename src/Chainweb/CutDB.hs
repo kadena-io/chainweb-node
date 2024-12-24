@@ -8,16 +8,17 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module: Chainweb.CutDB
@@ -52,13 +53,13 @@ module Chainweb.CutDB
 , pruneCuts
 , cutDbWebBlockHeaderDb
 , cutDbBlockHeaderDb
-, cutDbPayloadDb
-, cutDbPactService
+, cutDbPayloadProviders
 , cut
 , _cut
 , _cutStm
 , cutStm
 , awaitNewCut
+, awaitNewCutStm
 , awaitNewCutByChainId
 , awaitNewBlock
 , awaitNewBlockStm
@@ -106,14 +107,14 @@ import Data.Aeson (ToJSON)
 import Data.Foldable
 import Data.Function
 import Data.Functor.Of
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
 import Data.LogMessage
 import Data.Maybe
 import Data.Monoid
 import Data.Ord
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.These
 
 import GHC.Generics hiding (to)
@@ -122,24 +123,27 @@ import Numeric.Natural
 
 import Prelude hiding (lookup)
 
-import qualified Streaming.Prelude as S
+import Streaming.Prelude qualified as S
 
 import System.LogLevel
-import qualified System.Random.MWC as Prob
+import System.Random.MWC qualified as Prob
 import System.Timeout
 
 -- internal modules
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
-import Chainweb.BlockHeaderDB.Internal
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.Graph
-import Chainweb.Payload.PayloadStore
+import Chainweb.PayloadProvider
+import Chainweb.Storage.Table
+import Chainweb.Storage.Table.HashMap
+import Chainweb.Storage.Table.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec, check)
@@ -147,14 +151,10 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
-import Chainweb.WebPactExecutionService
 
-import Chainweb.Storage.Table
-import Chainweb.Storage.Table.HashMap
-import Chainweb.Storage.Table.RocksDB
 import Data.PQueue
+import Data.TaskMap qualified as TM
 
-import qualified Data.TaskMap as TM
 import P2P.TaskQueue
 
 import Utils.Logging.Trace
@@ -255,55 +255,47 @@ instance Exception CutDbStopped where
 
 -- | This is a singleton DB that contains the latest chainweb cut as only entry.
 --
-data CutDb tbl = CutDb
+data CutDb = CutDb
     { _cutDbCut :: !(TVar Cut)
     , _cutDbQueue :: !(PQueue (Down CutHashes))
     , _cutDbAsync :: !(Async ())
     , _cutDbLogFunction :: !LogFunction
     , _cutDbHeaderStore :: !WebBlockHeaderStore
-    , _cutDbPayloadStore :: !(WebBlockPayloadStore tbl)
+    , _cutDbPayloadProviders :: !PayloadProviders
     , _cutDbCutStore :: !(Casify RocksDbTable CutHashes)
     , _cutDbQueueSize :: !Natural
     , _cutDbReadOnly :: !Bool
     , _cutDbFastForwardHeightLimit :: !(Maybe BlockHeight)
     }
 
-instance HasChainwebVersion (CutDb tbl) where
+instance HasChainwebVersion CutDb where
     _chainwebVersion = _chainwebVersion . _cutDbHeaderStore
     {-# INLINE _chainwebVersion #-}
 
-cutDbPayloadDb :: Getter (CutDb tbl) (PayloadDb tbl)
-cutDbPayloadDb = to $ _webBlockPayloadStoreCas . _cutDbPayloadStore
-{-# INLINE cutDbPayloadDb #-}
-
-cutDbPactService :: Getter (CutDb tbl) WebPactExecutionService
-cutDbPactService = to $ _webBlockPayloadStorePact . _cutDbPayloadStore
-{-# INLINE cutDbPactService #-}
-
-cutDbPayloadStore :: Getter (CutDb tbl) (WebBlockPayloadStore tbl)
-cutDbPayloadStore = to _cutDbPayloadStore
-{-# INLINE cutDbPayloadStore #-}
+cutDbPayloadProviders :: Getter CutDb PayloadProviders
+cutDbPayloadProviders = to _cutDbPayloadProviders
+{-# INLINE cutDbPayloadProviders #-}
 
 -- We export the 'WebBlockHeaderDb' read-only
 --
-cutDbWebBlockHeaderDb :: Getter (CutDb tbl) WebBlockHeaderDb
+cutDbWebBlockHeaderDb :: Getter CutDb WebBlockHeaderDb
 cutDbWebBlockHeaderDb = to $ _webBlockHeaderStoreCas . _cutDbHeaderStore
 {-# INLINE cutDbWebBlockHeaderDb #-}
 
-cutDbWebBlockHeaderStore :: Getter (CutDb tbl) WebBlockHeaderStore
+cutDbWebBlockHeaderStore :: Getter CutDb WebBlockHeaderStore
 cutDbWebBlockHeaderStore = to _cutDbHeaderStore
 {-# INLINE cutDbWebBlockHeaderStore #-}
 
 -- | Access the blockerheaderdb via the cutdb for a given chain id
 --
-cutDbBlockHeaderDb :: HasChainId cid => cid -> Fold (CutDb tbl) BlockHeaderDb
+cutDbBlockHeaderDb :: HasChainId cid => cid -> Fold CutDb BlockHeaderDb
 cutDbBlockHeaderDb cid = cutDbWebBlockHeaderDb . ixg (_chainId cid)
 
 -- | Get the current 'Cut', which represent the latest chainweb state.
 --
 -- This the main API method of chainweb-consensus.
 --
-_cut :: CutDb tbl -> IO Cut
+_cut :: CutDb -> IO Cut
 _cut = readTVarIO . _cutDbCut
 {-# INLINE _cut #-}
 
@@ -311,50 +303,56 @@ _cut = readTVarIO . _cutDbCut
 --
 -- This the main API method of chainweb-consensus.
 --
-cut :: Getter (CutDb tbl) (IO Cut)
+cut :: Getter CutDb (IO Cut)
 cut = to _cut
 
-addCutHashes :: CutDb tbl -> CutHashes -> IO ()
+addCutHashes :: CutDb -> CutHashes -> IO ()
 addCutHashes db = pQueueInsertLimit (_cutDbQueue db) (_cutDbQueueSize db) . Down
 
 -- | An 'STM' version of '_cut'.
 --
 -- @_cut db@ is generally more efficient than as @atomically (_cut db)@.
 --
-_cutStm :: CutDb tbl -> STM Cut
+_cutStm :: CutDb -> STM Cut
 _cutStm = readTVar . _cutDbCut
 
 -- | An 'STM' version of 'cut'.
 --
 -- @_cut db@ is generally more efficient than as @atomically (_cut db)@.
 --
-cutStm :: Getter (CutDb tbl) (STM Cut)
+cutStm :: Getter CutDb (STM Cut)
 cutStm = to _cutStm
 
 -- | A common idiom to spin while waiting for a guaranteed new `Cut`, different
 -- from the given one.
 --
-awaitNewCut :: CutDb tbl -> Cut -> IO Cut
-awaitNewCut cdb c = atomically $ do
+awaitNewCutStm :: CutDb -> Cut -> STM Cut
+awaitNewCutStm cdb c = do
     c' <- _cutStm cdb
     when (c' == c) retry
     return c'
 
+-- | A common idiom to spin while waiting for a guaranteed new `Cut`, different
+-- from the given one.
+--
+awaitNewCut :: CutDb -> Cut -> IO Cut
+awaitNewCut cdb c = atomically $ awaitNewCutStm cdb c
+
 -- | As in `awaitNewCut`, but only updates when the specified `ChainId` has
 -- grown.
 --
-awaitNewCutByChainId :: CutDb tbl -> ChainId -> Cut -> IO Cut
+awaitNewCutByChainId :: CutDb -> ChainId -> Cut -> IO Cut
 awaitNewCutByChainId cdb cid c = atomically $ awaitNewCutByChainIdStm cdb cid c
 {-# INLINE awaitNewCutByChainId #-}
 
 -- | As in `awaitNewCut`, but only updates when the header at the specified
 -- `ChainId` has changed, and only returns that new header.
-awaitNewBlock :: CutDb tbl -> ChainId -> BlockHash -> IO BlockHeader
+awaitNewBlock :: CutDb -> ChainId -> BlockHash -> IO BlockHeader
 awaitNewBlock cdb cid bHash = atomically $ awaitNewBlockStm cdb cid bHash
 
 -- | As in `awaitNewCut`, but only updates when the header at the specified
 -- `ChainId` has changed, and only returns that new header.
-awaitNewBlockStm :: CutDb tbl -> ChainId -> BlockHash -> STM BlockHeader
+awaitNewBlockStm :: CutDb -> ChainId -> BlockHash -> STM BlockHeader
 awaitNewBlockStm cdb cid bHash = do
     c <- _cutStm cdb
     case HM.lookup cid (_cutMap c) of
@@ -364,7 +362,7 @@ awaitNewBlockStm cdb cid bHash = do
 -- | As in `awaitNewCut`, but only updates when the specified `ChainId` has
 -- grown.
 --
-awaitNewCutByChainIdStm :: CutDb tbl -> ChainId -> Cut -> STM Cut
+awaitNewCutByChainIdStm :: CutDb -> ChainId -> Cut -> STM Cut
 awaitNewCutByChainIdStm cdb cid c = do
     c' <- _cutStm cdb
     let !b0 = HM.lookup cid $ _cutMap c
@@ -391,21 +389,20 @@ pruneCuts logfun v conf curAvgBlockHeight cutHashesStore = do
         compactRangeRocksDb (unCasify cutHashesStore)
             (Nothing, Just (pruneCutHeight, 0, maxBound :: CutId))
 
-cutDbQueueSize :: CutDb tbl -> IO Natural
+cutDbQueueSize :: CutDb -> IO Natural
 cutDbQueueSize = pQueueSize . _cutDbQueue
 
 withCutDb
-    :: CanPayloadCas tbl
-    => CutDbParams
+    :: CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
-    -> WebBlockPayloadStore tbl
+    -> PayloadProviders
     -> Casify RocksDbTable CutHashes
-    -> (forall t' . CanReadablePayloadCas t' => CutDb t' -> IO a)
+    -> (CutDb -> IO a)
     -> IO a
-withCutDb config logfun headerStore payloadStore cutHashesStore a
+withCutDb config logfun headerStore providers cutHashesStore a
     = bracket
-        (startCutDb config logfun headerStore payloadStore cutHashesStore)
+        (startCutDb config logfun headerStore providers cutHashesStore)
         stopCutDb a
 
 -- | Start a CutDB. This loads the initial cut from the database (falling back
@@ -418,14 +415,13 @@ withCutDb config logfun headerStore payloadStore cutHashesStore a
 -- read-only version of the payload store.
 --
 startCutDb
-    :: CanPayloadCas tbl
-    => CutDbParams
+    :: CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
-    -> WebBlockPayloadStore tbl
+    -> PayloadProviders
     -> Casify RocksDbTable CutHashes
-    -> IO (CutDb tbl)
-startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
+    -> IO CutDb
+startCutDb config logfun headerStore providers cutHashesStore = mask_ $ do
     logg Debug "obtain initial cut"
     initialCut <- readInitialCut
     unless (_cutDbParamsReadOnly config) $
@@ -445,7 +441,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
         , _cutDbAsync = cutAsync
         , _cutDbLogFunction = logfun
         , _cutDbHeaderStore = headerStore
-        , _cutDbPayloadStore = payloadStore
+        , _cutDbPayloadProviders = providers
         , _cutDbQueueSize = _cutDbParamsBufferSize config
         , _cutDbCutStore = cutHashesStore
         , _cutDbReadOnly = _cutDbParamsReadOnly config
@@ -458,7 +454,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
 
     processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
     processor queue cutVar = runForever logfun "CutDB" $
-        processCuts config logfun headerStore payloadStore cutHashesStore queue cutVar
+        processCuts config logfun headerStore providers cutHashesStore queue cutVar
 
     readInitialCut :: IO Cut
     readInitialCut = do
@@ -496,7 +492,7 @@ readHighestCutHeaders v logg wbhdb cutHashesStore = withTableIterator (unCasify 
             Left e -> throwM e
             Right hm -> return hm
 
-fastForwardCutDb :: CutDb cas -> IO ()
+fastForwardCutDb :: CutDb -> IO ()
 fastForwardCutDb cutDb = do
     highestCutHeaders <-
         readHighestCutHeaders v (_cutDbLogFunction cutDb) wbhdb (_cutDbCutStore cutDb)
@@ -510,7 +506,7 @@ fastForwardCutDb cutDb = do
 
 -- | Stop the cut validation pipeline.
 --
-stopCutDb :: CutDb tbl -> IO ()
+stopCutDb :: CutDb -> IO ()
 stopCutDb db = do
     currentCut <- readTVarIO (_cutDbCut db)
     unless (_cutDbReadOnly db) $
@@ -542,16 +538,15 @@ cutAvgBlockHeight v = BlockHeight . round . avgBlockHeightAtCutHeight v . _cutHe
 -- stores the longest cut.
 --
 processCuts
-    :: CanPayloadCas tbl
-    => CutDbParams
+    :: CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
-    -> WebBlockPayloadStore tbl
+    -> PayloadProviders
     -> Casify RocksDbTable CutHashes
     -> PQueue (Down CutHashes)
     -> TVar Cut
     -> IO ()
-processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = do
+processCuts conf logFun headerStore providers cutHashesStore queue cutVar = do
     rng <- Prob.createSystemRandom
     queueToStream
         & S.chain (\c -> loggCutId logFun Debug c "start processing")
@@ -561,7 +556,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
         & S.filterM (fmap not . isCurrent)
 
         & S.chain (\c -> loggCutId logFun Info c "fetching all prerequisites")
-        & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore payloadStore)
+        & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore providers)
         & S.catMaybes
         -- ignore unsuccessful values for now
 
@@ -663,7 +658,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
 -- produced faster than they are consumed from the stream, the stream skips over
 -- cuts and always returns the latest cut in the db.
 --
-cutStream :: MonadIO m => CutDb tbl -> S.Stream (Of Cut) m r
+cutStream :: MonadIO m => CutDb -> S.Stream (Of Cut) m r
 cutStream db = liftIO (_cut db) >>= \c -> S.yield c >> go c
   where
     go cur = do
@@ -678,9 +673,9 @@ cutStream db = liftIO (_cut db) >>= \c -> S.yield c >> go c
 -- cuts. Blocks of the same chain are sorted by block height.
 --
 cutStreamToHeaderStream
-    :: forall m tbl r
+    :: forall m r
     . MonadIO m
-    => CutDb tbl
+    => CutDb
     -> S.Stream (Of Cut) m r
     -> S.Stream (Of BlockHeader) m r
 cutStreamToHeaderStream db s = S.for (go Nothing s) $ \(T2 p n) ->
@@ -707,9 +702,9 @@ cutStreamToHeaderStream db s = S.for (go Nothing s) $ \(T2 p n) ->
 -- cuts. Blocks of the same chain are sorted by block height.
 --
 cutStreamToHeaderDiffStream
-    :: forall m tbl r
+    :: forall m r
     . MonadIO m
-    => CutDb tbl
+    => CutDb
     -> S.Stream (Of Cut) m r
     -> S.Stream (Of (Either BlockHeader BlockHeader)) m r
 cutStreamToHeaderDiffStream db s = S.for (cutUpdates Nothing s) $ \(T2 p n) ->
@@ -750,23 +745,22 @@ uniqueBlockNumber :: BlockHeader -> Natural
 uniqueBlockNumber bh
     = chainIdInt (_chainId bh) + int (view blockHeight bh) * order (_chainGraph bh)
 
-blockStream :: MonadIO m => CutDb tbl -> S.Stream (Of BlockHeader) m r
+blockStream :: MonadIO m => CutDb -> S.Stream (Of BlockHeader) m r
 blockStream db = cutStreamToHeaderStream db $ cutStream db
 
-blockDiffStream :: MonadIO m => CutDb tbl -> S.Stream (Of (Either BlockHeader BlockHeader)) m r
+blockDiffStream :: MonadIO m => CutDb -> S.Stream (Of (Either BlockHeader BlockHeader)) m r
 blockDiffStream db = cutStreamToHeaderDiffStream db $ cutStream db
 
 cutHashesToBlockHeaderMap
-    :: CanPayloadCas tbl
-    => CutDbParams
+    :: CutDbParams
     -> LogFunction
     -> WebBlockHeaderStore
-    -> WebBlockPayloadStore tbl
+    -> PayloadProviders
     -> CutHashes
     -> IO (Maybe (HM.HashMap ChainId BlockHeader))
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
-cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
+cutHashesToBlockHeaderMap conf logfun headerStore providers hs =
     trace logfun "Chainweb.CutDB.cutHashesToBlockHeaderMap" hsid 1 $ do
         timeout (_cutDbParamsFetchTimeout conf) go >>= \case
             Nothing -> do
@@ -789,14 +783,17 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
     hsid = _cutId hs
     go = do
 
+        -- We collect candidate payloads locally in a table and provide them to
+        -- the payload provider by inserting them in the evluation contexts for
+        -- the respective blocks
+        --
         plds <- emptyTable
-        casInsertBatch plds $ HM.elems $ _cutHashesPayloads hs
+        tableInsertBatch plds $ HM.toList $ _cutHashesPayloads hs
 
         hdrs <- emptyTable
         casInsertBatch hdrs $ HM.elems $ _cutHashesHeaders hs
 
         -- for better error messages on validation failure
-        -- must be a locally-produced payload
         let localPayload = _cutHashesLocalPayload hs
 
         (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
@@ -816,18 +813,34 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
 
-    tryGetBlockHeader hdrs plds localPayload cv@(cid, _) =
-        (Right <$> mapM (getBlockHeader headerStore payloadStore hdrs plds localPayload cid priority origin) cv)
-            `catch` \case
-                (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
-                    return (Left cv)
-                e -> throwM e
+    -- tryGetBlockHeader hdrs localPayload cv@(cid, _) =
+    --     (Right <$> mapM
+    --         (getBlockHeader minerInfo headerStore hdrs providers localPayload cid priority origin) cv)
+    --             `catch` \case
+    --                 (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
+    --                     return (Left cv)
+    --                 e -> throwM e
+
+    tryGetBlockHeader hdrs plds localPayload cv@(cid, _) = do
+        fmap Right $ forM cv $ getBlockHeader
+            headerStore
+            hdrs
+            plds
+            providers
+            localPayload
+            cid
+            priority
+            origin
+        `catch` \case
+            (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
+                return (Left cv)
+            e -> throwM e
 
 -- -------------------------------------------------------------------------- --
 -- Membership Queries
 
 memberOfHeader
-    :: CutDb tbl
+    :: CutDb
     -> ChainId
     -> BlockHash
         -- ^ the block hash to look up (the member)
@@ -844,7 +857,7 @@ memberOfHeader db cid h ctx = do
     chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
 
 memberOfM
-    :: CutDb tbl
+    :: CutDb
     -> ChainId
     -> BlockHash
         -- ^ the block hash to look up (the member)
@@ -857,7 +870,7 @@ memberOfM db cid h ctx = do
   where
     chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
 
-member :: CutDb tbl -> ChainId -> BlockHash -> IO Bool
+member :: CutDb -> ChainId -> BlockHash -> IO Bool
 member db cid h = do
     th <- maxEntry chainDb
     memberOfHeader db cid h th
@@ -869,13 +882,13 @@ member db cid h = do
 
 -- | 'CutDb' with type level 'ChainwebVersionName'
 --
-newtype CutDbT tbl (v :: ChainwebVersionT) = CutDbT (CutDb tbl)
+newtype CutDbT (v :: ChainwebVersionT) = CutDbT CutDb
     deriving (Generic)
 
-data SomeCutDb tbl = forall v . KnownChainwebVersionSymbol v => SomeCutDb (CutDbT tbl v)
+data SomeCutDb = forall v . KnownChainwebVersionSymbol v => SomeCutDb (CutDbT v)
 
-someCutDbVal :: ChainwebVersion -> CutDb tbl -> SomeCutDb tbl
-someCutDbVal (FromSingChainwebVersion (SChainwebVersion :: Sing v)) db = SomeCutDb $ CutDbT @_ @v db
+someCutDbVal :: ChainwebVersion -> CutDb -> SomeCutDb
+someCutDbVal (FromSingChainwebVersion (SChainwebVersion :: Sing v)) db = SomeCutDb $ CutDbT @v db
 
 -- -------------------------------------------------------------------------- --
 -- Queue Stats
@@ -884,19 +897,15 @@ data QueueStats = QueueStats
     { _queueStatsCutQueueSize :: !Natural
     , _queueStatsBlockHeaderQueueSize :: !Natural
     , _queueStatsBlockHeaderTaskMapSize :: !Natural
-    , _queueStatsPayloadQueueSize :: !Natural
-    , _queueStatsPayloadTaskMapSize :: !Natural
     }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData, ToJSON)
 
-getQueueStats :: CutDb tbl -> IO QueueStats
+getQueueStats :: CutDb -> IO QueueStats
 getQueueStats db = QueueStats
     <$> cutDbQueueSize db
     <*> pQueueSize (_webBlockHeaderStoreQueue $ view cutDbWebBlockHeaderStore db)
     <*> (int <$> TM.size (_webBlockHeaderStoreMemo $ view cutDbWebBlockHeaderStore db))
-    <*> pQueueSize (_webBlockPayloadStoreQueue $ view cutDbPayloadStore db)
-    <*> (int <$> TM.size (_webBlockPayloadStoreMemo $ view cutDbPayloadStore db))
 
 -- Logging
 loggCutId :: HasCutId c => LogFunction -> LogLevel -> c -> T.Text -> IO ()
