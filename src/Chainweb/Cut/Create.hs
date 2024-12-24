@@ -11,6 +11,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE BangPatterns #-}
 
 -- |
 -- Module: Chainweb.Cut.Create
@@ -47,6 +48,15 @@ module Chainweb.Cut.Create
 , cutExtensionAdjacentHashes
 , getCutExtension
 
+-- * WorkParents
+, WorkParents
+, workParents
+, _workParent
+, workParent
+, _workParentsAdjacentHashes
+, workParentsAdjacentHashes
+, newWork
+
 -- * Work
 , WorkHeader(..)
 , encodeWorkHeader
@@ -73,7 +83,7 @@ import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
 import Data.Text qualified as T
 
-import GHC.Generics
+import GHC.Generics (Generic)
 import GHC.Stack
 
 -- internal modules
@@ -87,17 +97,26 @@ import Chainweb.ChainValue
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty
-import Chainweb.Payload
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Utils
+import Chainweb.PayloadProvider(EncodedPayloadData(..), EncodedPayloadOutputs)
 
 -- -------------------------------------------------------------------------- --
 -- Adjacent Parent Hashes
 
 -- | Witnesses that a cut can be extended for the respective header.
+--
+-- Essentially, this guarantees the following:
+--
+-- 1. The parent header is in the cut.
+-- 2. Adjacent hashes match the adjacent chains in the chain graph.
+-- 3. Adjacent hashes are in the cut or parents of headers in the cut.
+--
+-- There are a few additional corner cases related to genesis blocks and graph
+-- transitions.
 --
 data CutExtension = CutExtension
     { _cutExtensionCut' :: !Cut
@@ -106,9 +125,11 @@ data CutExtension = CutExtension
         -- This is overly restrictive, since the same cut extension can be
         -- valid for more than one cut. It's fine for now.
     , _cutExtensionParent' :: !ParentHeader
-        -- ^ the header onto which the new block is created. It is expected
+        -- ^ The header onto which the new block is created. It is expected
         -- that this header is contained in the cut.
     , _cutExtensionAdjacentHashes' :: !BlockHashRecord
+        -- ^ The adjacent hashes for the new block. These are either part of the
+        -- cut or are parents of headers in the cut.
     }
     deriving (Show, Eq, Generic)
 
@@ -364,6 +385,69 @@ getAdjacentParentHeaders hdb extension
             <> ". CutHashes: " <> encodeToText (cutToCutHashes Nothing c)
 
 -- -------------------------------------------------------------------------- --
+--
+
+data WorkParents = WorkParents
+    { _workParent' :: !ParentHeader
+        -- ^ The header onto which the new block is created.
+    , _workAdjacentParents' :: !(HM.HashMap ChainId ParentHeader)
+        -- ^ The adjacent hashes for the new block. These must be at the same
+        -- height as the parent and must be have a pairwise valid braiding among
+        -- each other and with the parent.
+        --
+        -- Actually, only the hash and the target of the adjacent parents is
+        -- used to construct the new work.
+    }
+    deriving (Show, Eq, Generic)
+
+_workParent :: WorkParents -> ParentHeader
+_workParent = _workParent'
+
+workParent :: Getter WorkParents ParentHeader
+workParent = to _workParent
+
+_workParentsAdjacentHashes :: WorkParents -> BlockHashRecord
+_workParentsAdjacentHashes = BlockHashRecord
+    . fmap (view parentHeaderHash)
+    . _workAdjacentParents'
+
+workParentsAdjacentHashes :: Getter WorkParents BlockHashRecord
+workParentsAdjacentHashes = to _workParentsAdjacentHashes
+
+-- | Returns the work parents for a given cut and a given chain. Returns
+-- 'Nothing' if the chain in blocked for the cut.
+--
+workParents
+    :: HasCallStack
+    => Applicative m
+    => HasChainId cid
+    => (ChainValue BlockHash -> m BlockHeader)
+    -> Cut
+        -- ^ the cut which is to be extended
+    -> cid
+        -- ^ the chain which is to be extended
+    -> m (Maybe WorkParents)
+workParents hdb c cid = case getCutExtension c cid of
+    Nothing -> pure Nothing
+    Just e -> Just . WorkParents (_cutExtensionParent e)
+        <$> getAdjacentParentHeaders hdb e
+
+newWork
+    :: BlockCreationTime
+    -> WorkParents
+    -> BlockPayloadHash
+    -> WorkHeader
+newWork creationTime parents pldHash = WorkHeader
+    { _workHeaderBytes = SB.toShort $ runPutS $ encodeBlockHeaderWithoutHash nh
+    , _workHeaderTarget = view blockTarget nh
+    , _workHeaderChainId = _chainId nh
+    }
+  where
+    adjParents = _workAdjacentParents' parents
+    parent = _workParent' parents
+    nh = newBlockHeader adjParents pldHash (Nonce 0) creationTime parent
+
+-- -------------------------------------------------------------------------- --
 -- Solved Header
 --
 
@@ -383,6 +467,12 @@ encodeSolvedWork (SolvedWork hdr) = encodeBlockHeaderWithoutHash hdr
 
 decodeSolvedWork :: Get SolvedWork
 decodeSolvedWork = SolvedWork <$> decodeBlockHeaderWithoutHash
+
+instance HasChainId SolvedWork where
+    _chainId (SolvedWork hdr) = _chainId hdr
+
+instance HasChainwebVersion SolvedWork where
+    _chainwebVersion (SolvedWork hdr) = _chainwebVersion hdr
 
 data InvalidSolvedHeader = InvalidSolvedHeader BlockHeader T.Text
     deriving (Show, Eq, Ord, Generic)
@@ -405,43 +495,36 @@ instance Exception InvalidSolvedHeader
 extend
     :: MonadThrow m
     => Cut
-    -> PayloadWithOutputs
+    -> Maybe EncodedPayloadData
+    -> Maybe EncodedPayloadOutputs
     -> SolvedWork
     -> m (BlockHeader, Maybe CutHashes)
-extend c pwo s = do
-    (bh, mc) <- extendCut c (_payloadWithOutputsPayloadHash pwo) s
+extend c pld pwo s = do
+    (bh, mc) <- extendCut c s
     return (bh, toCutHashes bh <$> mc)
   where
     toCutHashes bh c' = cutToCutHashes Nothing c'
         & set cutHashesHeaders
             (HM.singleton (view blockHash bh) bh)
         & set cutHashesPayloads
-            (HM.singleton (view blockPayloadHash bh) (payloadWithOutputsToPayloadData pwo))
+            (maybe mempty (HM.singleton (view blockPayloadHash bh)) pld)
         & set cutHashesLocalPayload
-            (Just (view blockPayloadHash bh, pwo))
+            ((view blockPayloadHash bh,) <$> pwo)
 
 -- | For internal use and testing
 --
 extendCut
     :: MonadThrow m
     => Cut
-    -> BlockPayloadHash
     -> SolvedWork
     -> m (BlockHeader, Maybe Cut)
-extendCut c ph (SolvedWork bh) = do
+extendCut c (SolvedWork bh) = do
 
         -- Fail Early: If a `BlockHeader`'s injected Nonce (and thus its POW
         -- Hash) is trivially incorrect, reject it.
         --
         unless (prop_block_pow bh)
             $ throwM $ InvalidSolvedHeader bh "Invalid POW hash"
-
-        -- Fail Early: check that the given payload matches the new block.
-        --
-        unless (view blockPayloadHash bh == ph) $ throwM $ InvalidSolvedHeader bh
-            $ "Invalid payload hash"
-            <> ". Expected: " <> sshow (view blockPayloadHash bh)
-            <> ", Got: " <> sshow ph
 
         -- If the `BlockHeader` is already stale and can't be appended to the
         -- best `Cut`, Nothing is returned
