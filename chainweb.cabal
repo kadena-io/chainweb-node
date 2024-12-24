@@ -236,6 +236,7 @@ library
         , Chainweb.PayloadProvider.EVM.HeaderDB
         , Chainweb.PayloadProvider.EVM.HeaderDB.Internal
         , Chainweb.PayloadProvider.EVM.JsonRPC
+        , Chainweb.PayloadProvider.EVM.P2P
         , Chainweb.PayloadProvider.EVM.Utils
         , Chainweb.PayloadProvider.Initialization
         , Chainweb.PayloadProvider.Minimal
