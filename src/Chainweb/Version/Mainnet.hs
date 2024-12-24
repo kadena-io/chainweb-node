@@ -225,4 +225,5 @@ mainnet = ChainwebVersion
             ]
         }
     , _versionServiceDate = Just "2025-04-30T00:00:00Z"
+    , _versionPayloadProviderTypes = AllChains PactProvider
     }
