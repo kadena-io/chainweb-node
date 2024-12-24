@@ -230,6 +230,9 @@ library
         , Chainweb.Payload.RestAPI.Client
         , Chainweb.PayloadProvider
         , Chainweb.PayloadProvider.Initialization
+        , Chainweb.PayloadProvider.P2P
+        , Chainweb.PayloadProvider.P2P.RestAPI
+        , Chainweb.PayloadProvider.P2P.RestAPI.Client
         , Chainweb.PowHash
         , Chainweb.Ranked
         , Chainweb.RestAPI
