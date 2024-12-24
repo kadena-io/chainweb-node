@@ -169,6 +169,7 @@ library
         , Chainweb.BlockHeaderDB.RestAPI.Client
         , Chainweb.BlockHeaderDB.RestAPI.Server
         , Chainweb.BlockHeight
+        , Chainweb.BlockPayloadHash
         , Chainweb.BlockWeight
         , Chainweb.ChainId
         , Chainweb.ChainValue
@@ -216,6 +217,7 @@ library
         , Chainweb.Miner.RestAPI
         , Chainweb.Miner.RestAPI.Client
         , Chainweb.Miner.RestAPI.Server
+        , Chainweb.MinerReward
         , Chainweb.NodeVersion
         , Chainweb.OpenAPIValidation
         , Chainweb.Payload
@@ -226,6 +228,7 @@ library
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client
         , Chainweb.PowHash
+        , Chainweb.Ranked
         , Chainweb.RestAPI
         , Chainweb.RestAPI.Backup
         , Chainweb.RestAPI.Config
@@ -635,6 +638,7 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.RestAPI
         Chainweb.Test.Mempool.Sync
+        Chainweb.Test.MinerReward
         Chainweb.Test.Mining
         Chainweb.Test.Misc
         Chainweb.Test.Pact4.Checkpointer
@@ -694,6 +698,7 @@ test-suite chainweb-tests
         , byteslice >= 0.2.12
         , bytesmith >= 0.3.10
         , bytestring >= 0.10.12
+        , cassava >= 0.5.1
         , chainweb-storage >= 0.1
         , containers >= 0.5
         , crypton >= 0.31
