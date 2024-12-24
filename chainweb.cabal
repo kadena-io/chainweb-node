@@ -227,6 +227,7 @@ library
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client
         , Chainweb.PayloadProvider
+        , Chainweb.PayloadProvider.EVM.Utils
         , Chainweb.PayloadProvider.Initialization
         , Chainweb.PayloadProvider.Minimal
         , Chainweb.PayloadProvider.Minimal.Payload
