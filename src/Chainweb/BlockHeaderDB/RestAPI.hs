@@ -84,14 +84,11 @@ module Chainweb.BlockHeaderDB.RestAPI
 , headersApi
 , HashesApi
 , hashesApi
-, BlocksApi
-, BranchBlocksApi
 ) where
 
 import Data.Aeson
 import Data.Bifunctor
 import Data.ByteString.Lazy qualified as L
-import Data.Maybe
 import Data.Proxy
 import Data.Text (Text)
 
@@ -192,6 +189,7 @@ instance MimeRender JsonBlockHeaderObject BlockHeaderPage where
     {-# INLINE mimeRender #-}
 
 -- -------------------------------------------------------------------------- --
+-- TODO: this instance do *not* belong here
 
 instance MimeRender OctetStream BlockPayload where
     mimeRender _ = L.fromStrict . encodeBlockPayloads
@@ -468,47 +466,14 @@ p2pHeaderApi
 p2pHeaderApi = Proxy
 
 -- -------------------------------------------------------------------------- --
-type BlocksApi_
-    = "block"
-    :> PageParams (NextItem BlockHash)
-    :> FilterParams
-    :> Get '[JSON] BlockPage
-
--- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/block@
---
--- Returns blocks in the block header tree database in ascending order
--- with respect to the children relation.
---
--- Note that for blocks on different branches, the order isn't determined.
--- Therefore a block of higher block height can be returned before a block of
--- lower block height.
---
-type BlocksApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BlocksApi_
-
--- -------------------------------------------------------------------------- --
-type BranchBlocksApi_
-    = "block" :> "branch"
-    :> PageParams (NextItem BlockHash)
-    :> MinHeightParam
-    :> MaxHeightParam
-    :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
-    :> Post '[JSON] BlockPage
-
-type BranchBlocksApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> Reassoc BranchBlocksApi_
-
--- -------------------------------------------------------------------------- --
 -- | BlockHeaderDb Api
 --
 type BlockHeaderDbApi v c
     = HashesApi v c
     :<|> HeadersApi v c
-    :<|> BlocksApi v c
     :<|> HeaderApi v c
     :<|> BranchHashesApi v c
     :<|> BranchHeadersApi v c
-    :<|> BranchBlocksApi v c
 
 -- | Restricted P2P BlockHeader DB API
 --
@@ -522,8 +487,6 @@ type P2pBlockHeaderDbApi v c
 
 data HeaderUpdate = HeaderUpdate
     { _huHeader :: !(ObjectEncoded BlockHeader)
-    , _huPayloadWithOutputs :: !(Maybe PayloadWithOutputs)
-    , _huTxCount :: !Int
     , _huPowHash :: !Text
     , _huTarget :: !Text
     }
@@ -532,11 +495,8 @@ data HeaderUpdate = HeaderUpdate
 headerUpdateProperties :: KeyValue e kv => HeaderUpdate -> [kv]
 headerUpdateProperties o =
     [ "header"  .= _huHeader o
-    , "txCount" .= _huTxCount o
     , "powHash" .= _huPowHash o
     , "target"  .= _huTarget o
-    ] <> concatMap maybeToList
-    [ ("payloadWithOutputs" .=) <$> _huPayloadWithOutputs o
     ]
 {-# INLINE headerUpdateProperties #-}
 
@@ -549,14 +509,15 @@ instance ToJSON HeaderUpdate where
 instance FromJSON HeaderUpdate where
     parseJSON = withObject "HeaderUpdate" $ \o -> HeaderUpdate
         <$> o .: "header"
-        <*> o .:? "payloadWithOutputs"
-        <*> o .: "txCount"
         <*> o .: "powHash"
         <*> o .: "target"
     {-# INLINE parseJSON #-}
 
 type BlockStreamApi_ =
-    "block" :> "updates" :> Raw :<|>
+    -- FIXME: the block API endpoint should be part of the payload provider.
+    -- Consensus has no access to the payload data
+    -- "block" :> "updates" :> Raw :<|>
+
     "header" :> "updates" :> Raw
 
 -- | A stream of all new blocks that are accepted into the true `Cut`.
