@@ -180,13 +180,11 @@ withPactService
     -> IO (T2 a PactServiceState)
 withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv config act = do
     Checkpointer.withCheckpointerResources checkpointerLogger (_pactModuleCacheLimit config) sqlenv (_pactPersistIntraBlockWrites config) ver cid $ \checkpointer -> do
-        let !rs = readRewards
         let !pse = PactServiceEnv
                     { _psMempoolAccess = Nothing
                     , _psCheckpointer = checkpointer
                     , _psPdb = pdb
                     , _psBlockHeaderDb = bhDb
-                    , _psMinerRewards = rs
                     , _psReorgLimit = _pactReorgLimit config
                     , _psPreInsertCheckTimeout = _pactPreInsertCheckTimeout config
                     , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
@@ -198,6 +196,7 @@ withPactService ver cid chainwebLogger txFailuresCounter bhDb pdb sqlenv config 
                     , _psEnableLocalTimeout = _pactEnableLocalTimeout config
                     , _psTxFailuresCounter = txFailuresCounter
                     , _psTxTimeLimit = _pactTxTimeLimit config
+                    , _psMiner = _pactMiner config
                     }
             !pst = PactServiceState mempty
 
@@ -342,7 +341,7 @@ serviceRequests memPoolAccess reqQ = go
                 trace logFn "Chainweb.Pact.PactService.execNewBlock"
                     () 1 $
                     tryOne "execNewBlock" statusRef $
-                        execNewBlock memPoolAccess _newBlockMiner _newBlockFill _newBlockParent
+                        execNewBlock memPoolAccess _newBlockFill _newBlockParent
                 go
             ContinueBlockMsg (ContinueBlockReq bip) -> do
                 trace logFn "Chainweb.Pact.PactService.execContinueBlock"
@@ -482,11 +481,13 @@ serviceRequests memPoolAccess reqQ = go
 execNewBlock
     :: forall logger tbl. (Logger logger, CanReadablePayloadCas tbl)
     => MemPoolAccess
-    -> Miner
     -> NewBlockFill
     -> ParentHeader
     -> PactServiceM logger tbl (Historical (ForSomePactVersion BlockInProgress))
-execNewBlock mpAccess miner fill newBlockParent = pactLabel "execNewBlock" $ do
+execNewBlock mpAccess fill newBlockParent = pactLabel "execNewBlock" $ do
+    miner <- view psMiner >>= \case
+        Nothing -> internalError "Chainweb.Pact.PactService.execNewBlock: Mining is disabled. Please provide a valid miner in the pact service configuration"
+        Just x -> return x
     let pHeight = view blockHeight $ _parentHeader newBlockParent
     let pHash = view blockHash $ _parentHeader newBlockParent
     logInfoPact $ "(parent height = " <> sshow pHeight <> ")"
