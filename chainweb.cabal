@@ -211,6 +211,7 @@ library
         , Chainweb.Miner.Core
         , Chainweb.Miner.Miners
         , Chainweb.Miner.Pact
+        , Chainweb.Miner.PayloadCache
         , Chainweb.Miner.RestAPI
         , Chainweb.Miner.RestAPI.Client
         , Chainweb.Miner.RestAPI.Server
