@@ -134,7 +134,6 @@ tests rdb = testGroup testName
   , test mempoolRefillTest
   , test blockGasLimitTest
   , testTimeout preInsertCheckTimeoutTest
-  , rosettaFailsWithoutFullHistory rdb
   , rewindPastMinBlockHeightFails rdb
   , pactStateSamePreAndPostCompaction rdb
   , compactionIsIdempotent rdb
@@ -332,63 +331,6 @@ toRowData v = case PCore.decodeStable $ BL.toStrict encV of
     Just r -> r
   where
     encV = J.encode v
-
--- Test that PactService fails if Rosetta is enabled and we don't have all of
--- the history.
---
--- We do this in two stages:
---
--- 1:
---   - Start PactService with Rosetta disabled
---   - Run some blocks
---   - Compact to some arbitrary greater-than-genesis height
--- 2:
---   - Start PactService with Rosetta enabled
---   - Catch the exception that should arise at the start of PactService,
---     when performing the history check
-rosettaFailsWithoutFullHistory :: ()
-  => RocksDb
-  -> TestTree
-rosettaFailsWithoutFullHistory rdb =
-  withTemporaryDir $ \srcDir -> withSqliteDb cid srcDir $ \srcSqlEnvIO ->
-  withTemporaryDir $ \targetDir -> withSqliteDb cid targetDir $ \targetSqlEnvIO ->
-  withDelegateMempool $ \dm ->
-    sequentialTestGroup "rosettaFailsWithoutFullHistory" AllSucceed
-      [
-        -- Run some blocks and then compact
-        withPactTestBlockDb' testVersion cid rdb srcSqlEnvIO mempty testPactServiceConfig $ \reqIO ->
-        testCase "runBlocksAndCompact" $ do
-          (srcSqlEnv, q, bdb) <- reqIO
-
-          mempoolRef <- fmap (pure . fst) dm
-
-          setOneShotMempool mempoolRef =<< goldenMemPool
-          replicateM_ 10 $ void $ runBlock q bdb second
-
-          targetSqlEnv <- targetSqlEnvIO
-          sigmaCompact srcSqlEnv targetSqlEnv (BlockHeight 5)
-
-        -- This needs to run after the previous test
-        -- Annoyingly, we must inline the PactService util starts here.
-        -- ResourceT will help clean all this up
-      , testCase "PactService Should fail" $ do
-          pactQueue <- newPactQueue 2000
-          blockDb <- mkTestBlockDb testVersion rdb
-          bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
-          sqlEnv <- targetSqlEnvIO
-          mempool <- fmap snd dm
-          let payloadDb = _bdbPayloadDb blockDb
-          let cfg = testPactServiceConfig { _pactFullHistoryRequired = True }
-          let logger = genericLogger System.LogLevel.Error (\_ -> return ())
-          e <- try $ runPactService testVersion cid logger Nothing pactQueue mempool bhDb payloadDb sqlEnv cfg
-          case e of
-            Left (FullHistoryRequired {}) -> do
-              pure ()
-            Left err -> do
-              assertFailure $ "Expected FullHistoryRequired exception, instead got: " ++ show err
-            Right _ -> do
-              assertFailure "Expected FullHistoryRequired exception, instead there was no exception at all."
-      ]
 
 rewindPastMinBlockHeightFails :: ()
   => RocksDb
@@ -707,62 +649,6 @@ comparePactStateBeforeAndAfter statePreCompaction statePostCompaction = do
                 putStrLn $ "new: " ++ show y
                 putStrLn ""
     assertFailure "pact state check failed"
-
--- -- Test that PactService fails if Rosetta is enabled and we don't have all of
--- -- the history.
--- --
--- -- We do this in two stages:
--- --
--- -- 1:
--- --   - Start PactService with Rosetta disabled
--- --   - Run some blocks
--- --   - Compact to some arbitrary greater-than-genesis height
--- -- 2:
--- --   - Start PactService with Rosetta enabled
--- --   - Catch the exception that should arise at the start of PactService,
--- --     when performing the history check
--- rosettaFailsWithoutFullHistory :: ()
---   => RocksDb
---   -> TestTree
--- rosettaFailsWithoutFullHistory rdb =
---   withTemporaryDir $ \iodir ->
---   withSqliteDb cid iodir $ \sqlEnvIO ->
---   withDelegateMempool $ \dm ->
---     independentSequentialTestGroup "rosettaFailsWithoutFullHistory"
---       [
---         -- Run some blocks and then compact
---         withPactTestBlockDb' testVersion cid rdb sqlEnvIO mempty testPactServiceConfig $ \reqIO ->
---         testCase "runBlocksAndCompact" $ do
---           (sqlEnv, q, bdb) <- reqIO
-
---           mempoolRef <- fmap (pure . fst) dm
-
---           setOneShotMempool mempoolRef =<< goldenMemPool
---           replicateM_ 10 $ void $ runBlock q bdb second
-
---           compact Error [C.NoVacuum] sqlEnv (C.Target (BlockHeight 5))
-
---         -- This needs to run after the previous test
---         -- Annoyingly, we must inline the PactService util starts here.
---         -- ResourceT will help clean all this up
---       , testCase "PactService Should fail" $ do
---           pactQueue <- newPactQueue 2000
---           blockDb <- mkTestBlockDb testVersion rdb
---           bhDb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb blockDb) cid
---           sqlEnv <- sqlEnvIO
---           mempool <- fmap snd dm
---           let payloadDb = _bdbPayloadDb blockDb
---           let cfg = testPactServiceConfig { _pactFullHistoryRequired = True }
---           let logger = genericLogger System.LogLevel.Error (\_ -> return ())
---           e <- try $ runPactService testVersion cid logger Nothing pactQueue mempool bhDb payloadDb sqlEnv cfg
---           case e of
---             Left (FullHistoryRequired {}) -> do
---               pure ()
---             Left err -> do
---               assertFailure $ "Expected FullHistoryRequired exception, instead got: " ++ show err
---             Right _ -> do
---               assertFailure "Expected FullHistoryRequired exception, instead there was no exception at all."
---       ]
 
 -- rewindPastMinBlockHeightFails :: ()
 --   => RocksDb

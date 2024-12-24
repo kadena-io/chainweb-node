@@ -65,8 +65,6 @@ module Chainweb.Chainweb.Configuration
 , configMinGasPrice
 , configThrottling
 , configReorgLimit
-, configRosetta
-, configRosettaConstructionApi
 , configFullHistoricPactState
 , configBackup
 , configServiceApi
@@ -399,8 +397,6 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configPreInsertCheckTimeout :: !Micros
     , _configAllowReadsInLocal :: !Bool
     , _configFullHistoricPactState :: !Bool
-    , _configRosetta :: !Bool
-    , _configRosettaConstructionApi :: !Bool
     , _configBackup :: !BackupConfig
     , _configServiceApi :: !ServiceApiConfig
     , _configReadOnlyReplay :: !Bool
@@ -427,36 +423,7 @@ validateChainwebConfiguration c = do
     validateBackupConfig (_configBackup c)
     unless (c ^. chainwebVersion . versionDefaults . disablePeerValidation) $
         validateP2pConfiguration (_configP2p c)
-    validateRosetta c
     validateChainwebVersion (_configChainwebVersion c)
-
-validateRosetta :: ConfigValidation ChainwebConfiguration []
-validateRosetta c = do
-    when (_configRosetta c) $
-        tell $ pure $ T.unwords
-            [ "Rosetta is deprecated and will be removed in upcoming versions of chainweb-node."
-            , "The use of Rosetta is strongly discouraged."
-            , "USE AT YOUR OWN RISK."
-            , "No guarantees are made regarding the correctness of any responses of the Rosetta API."
-            , "If your business depends on Rosetta, please submit request at https://github.com/kadena-io/chainweb-node/issues."
-            ]
-    when (_configRosetta c) $
-        tell $ pure $ T.unwords
-            [ "Starting with chainweb-node version 2.25 the Rosetta construction API is not enabled automatically when Rosetta is enabled."
-            , "It can be enabled with the '--rosetta-construction-api' command line flag or via the 'rosettaConstructionApi' configuration setting."
-            ]
-    when (_configRosettaConstructionApi c) $
-        tell $ pure $ T.unwords
-            [ "WARNING: the Rosetta construction API is not officially supported any more by chainweb-node."
-            , "NO GUARANTEE IS MADE ABOUT THE SOUNDNESS OF THIS API."
-            ]
-    when (_configRosetta c && not (_configFullHistoricPactState c)) $
-        throwError $ T.unwords
-            [ "To enable Rosetta, full historic pact state must also be enabled or"
-            , "the Rosetta index will be incomplete."
-            ]
-    when (_configRosettaConstructionApi c && not (_configRosetta c)) $
-        throwError "To enable the Rosetta construction API, Rosetta must be enabled, too."
 
 validateChainwebVersion :: ConfigValidation ChainwebVersion []
 validateChainwebVersion v = do
@@ -501,8 +468,6 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configReorgLimit = defaultReorgLimit
     , _configPreInsertCheckTimeout = defaultPreInsertCheckTimeout
     , _configAllowReadsInLocal = False
-    , _configRosetta = False
-    , _configRosettaConstructionApi = False
     , _configFullHistoricPactState = True
     , _configServiceApi = defaultServiceApiConfig
     , _configOnlySyncPact = False
@@ -530,8 +495,6 @@ instance ToJSON ChainwebConfiguration where
         , "reorgLimit" .= _configReorgLimit o
         , "preInsertCheckTimeout" .= _configPreInsertCheckTimeout o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
-        , "rosetta" .= _configRosetta o
-        , "rosettaConstructionApi" .= _configRosettaConstructionApi o
         , "fullHistoricPactState" .= _configFullHistoricPactState o
         , "serviceApi" .= _configServiceApi o
         , "onlySyncPact" .= _configOnlySyncPact o
@@ -563,8 +526,6 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configReorgLimit ..: "reorgLimit" % o
         <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
         <*< configPreInsertCheckTimeout ..: "preInsertCheckTimeout" % o
-        <*< configRosetta ..: "rosetta" % o
-        <*< configRosettaConstructionApi ..: "rosettaConstructionApi" % o
         <*< configFullHistoricPactState ..: "fullHistoricPactState" % o
         <*< configServiceApi %.: "serviceApi" % o
         <*< configOnlySyncPact ..: "onlySyncPact" % o
@@ -609,12 +570,6 @@ pChainwebConfiguration = id
     <*< configAllowReadsInLocal .:: boolOption_
         % long "allowReadsInLocal"
         <> help "Enable direct database reads of smart contract tables in local queries."
-    <*< configRosetta .:: boolOption_
-        % long "rosetta"
-        <> help "DEPRECATED: Enable the Rosetta endpoints."
-    <*< configRosettaConstructionApi .:: boolOption_
-        % long "rosetta-construction-api"
-        <> help "DEPRECATED: Enable the Rosetta Construction API. DO NOT USE. No guarantees are provided about the correctness of this feature."
     <*< configFullHistoricPactState .:: boolOption_
         % long "full-historic-pact-state"
         <> help "Write full historic Pact state; only enable for custodial or archival nodes."

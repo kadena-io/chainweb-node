@@ -32,7 +32,6 @@ module Chainweb.RestAPI
 
 -- * Component Triggers
 , HeaderStream(..)
-, Rosetta(..)
 
 -- * Chainweb P2P API Server
 , someChainwebServer
@@ -62,7 +61,6 @@ module Chainweb.RestAPI
 
 import Control.Monad (guard)
 
-import Data.Bifunctor
 import Data.Bool (bool)
 
 import GHC.Generics (Generic)
@@ -104,7 +102,6 @@ import Chainweb.RestAPI.Health
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.NodeInfo
 import Chainweb.RestAPI.Utils
-import Chainweb.Rosetta.RestAPI.Server
 import Chainweb.SPV.RestAPI.Server (someSpvServers)
 import Chainweb.Utils
 import Chainweb.Version
@@ -168,11 +165,6 @@ emptyChainwebServerDbs = ChainwebServerDbs
 
 -- -------------------------------------------------------------------------- --
 -- Component Triggers
-
-data Rosetta = Rosetta
-    { _rosettaDefault :: {-# UNPACK #-} !Bool
-    , _rosettaConstructionApi :: {-# UNPACK #-} !Bool
-    }
 
 newtype HeaderStream = HeaderStream Bool
 
@@ -372,26 +364,15 @@ someServiceApiServer
     -> [(ChainId, PactAPI.PactServerData logger tbl)]
     -> Maybe (MiningCoordination logger tbl)
     -> HeaderStream
-    -> Rosetta
     -> Maybe (BackupEnv logger)
     -> PayloadBatchLimit
     -> SomeServer
-someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r rc) backupEnv pbl =
+someServiceApiServer v dbs pacts mr (HeaderStream hs) backupEnv pbl =
     someHealthCheckServer
     <> maybe mempty (someBackupServer v) backupEnv
     <> maybe mempty (someNodeInfoServer v) cuts
     <> PactAPI.somePactServers v pacts
     <> maybe mempty (Mining.someMiningServer v) mr
-    <> maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concretePacts) r) cuts
-    <> maybe mempty
-        (\cdb -> bool
-            -- if rosetta is enabled but the construction API is disabled the server
-            -- returns a failure with a descriptive failure message instead of 404.
-            (bool mempty (someRosettaConstructionDeprecationServer v) r)
-            (someRosettaConstructionServer v concreteMs concretePacts cdb)
-            rc
-        )
-        cuts
     -- <> maybe mempty (someSpvServers v) cuts -- AFAIK currently not used
 
     -- GET Cut, Payload, and Headers endpoints
@@ -401,10 +382,6 @@ someServiceApiServer v dbs pacts mr (HeaderStream hs) (Rosetta r rc) backupEnv p
     <> maybe mempty (someBlockStreamServer v) (bool Nothing cuts hs)
   where
     cuts = _chainwebServerCutDb dbs
-    peers = _chainwebServerPeerDbs dbs
-    concreteMs = second PactAPI._pactServerDataMempool <$> pacts
-    concretePacts = second PactAPI._pactServerDataPact <$> pacts
-    cutPeerDb = fromJuste $ lookup CutNetwork peers
     payloads = _chainwebServerPayloadDbs dbs
     blocks = _chainwebServerBlockHeaderDbs dbs
 
@@ -417,14 +394,13 @@ serviceApiApplication
     -> [(ChainId, PactAPI.PactServerData logger tbl)]
     -> Maybe (MiningCoordination logger tbl)
     -> HeaderStream
-    -> Rosetta
     -> Maybe (BackupEnv logger)
     -> PayloadBatchLimit
     -> Application
-serviceApiApplication v dbs pacts mr hs r be pbl
+serviceApiApplication v dbs pacts mr hs be pbl
     = chainwebServiceMiddlewares
     . someServerApplication
-    $ someServiceApiServer v dbs pacts mr hs r be pbl
+    $ someServiceApiServer v dbs pacts mr hs be pbl
 
 serveServiceApiSocket
     :: Show t
@@ -437,11 +413,10 @@ serveServiceApiSocket
     -> [(ChainId, PactAPI.PactServerData logger tbl)]
     -> Maybe (MiningCoordination logger tbl)
     -> HeaderStream
-    -> Rosetta
     -> Maybe (BackupEnv logger)
     -> PayloadBatchLimit
     -> Middleware
     -> IO ()
-serveServiceApiSocket s sock v dbs pacts mr hs r be pbl m =
-    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs r be pbl
+serveServiceApiSocket s sock v dbs pacts mr hs be pbl m =
+    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs be pbl
 
