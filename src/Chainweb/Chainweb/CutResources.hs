@@ -46,12 +46,10 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.CutDB
 import qualified Chainweb.CutDB.Sync as C
 import Chainweb.Logger
-import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
-import Chainweb.WebPactExecutionService
 
 import Chainweb.Storage.Table.RocksDB
 
@@ -59,6 +57,7 @@ import P2P.Node
 import P2P.Peer
 import P2P.Session
 import P2P.TaskQueue
+import Chainweb.PayloadProvider
 
 -- -------------------------------------------------------------------------- --
 -- Cuts Resources
@@ -68,49 +67,47 @@ data CutSyncResources logger = CutSyncResources
     , _cutResSyncLogger :: !logger
     }
 
-data CutResources logger tbl = CutResources
+data CutResources logger = CutResources
     { _cutResCutConfig :: !CutDbParams
     , _cutResPeer :: !(PeerResources logger)
-    , _cutResCutDb :: !(CutDb tbl)
+    , _cutResCutDb :: !CutDb
     , _cutResLogger :: !logger
     , _cutResCutSync :: !(CutSyncResources logger)
     , _cutResHeaderSync :: !(CutSyncResources logger)
-    , _cutResPayloadSync :: !(CutSyncResources logger)
     }
 
 makeLensesFor
     [ ("_cutResCutDb", "cutsCutDb")
     ] ''CutResources
 
-instance HasChainwebVersion (CutResources logger tbl) where
+instance HasChainwebVersion (CutResources logger) where
     _chainwebVersion = _chainwebVersion . _cutResCutDb
     {-# INLINE _chainwebVersion #-}
 
 withCutResources
     :: Logger logger
-    => CanPayloadCas tbl
     => CutDbParams
     -> PeerResources logger
     -> logger
     -> RocksDb
     -> WebBlockHeaderDb
-    -> PayloadDb tbl
+    -> PayloadProviders
     -> HTTP.Manager
-    -> WebPactExecutionService
-    -> (forall tbl' . CanReadablePayloadCas tbl' => CutResources logger tbl' -> IO a)
+    -> (CutResources logger -> IO a)
     -> IO a
-withCutResources cutDbParams peer logger rdb webchain payloadDb mgr pact f = do
+withCutResources cutDbParams peer logger rdb webchain providers mgr f = do
 
     -- initialize blockheader store
     headerStore <- newWebBlockHeaderStore mgr webchain (logFunction logger)
 
+    -- FIXME
     -- initialize payload store
-    payloadStore <- newWebPayloadStore mgr pact payloadDb (logFunction logger)
+    -- payloadStore <- newWebPayloadStore mgr pact payloadDb (logFunction logger)
 
     -- initialize cutHashes store
     let cutHashesStore = cutHashesTable rdb
 
-    withCutDb cutDbParams (logFunction logger) headerStore payloadStore cutHashesStore $ \cutDb ->
+    withCutDb cutDbParams (logFunction logger) headerStore providers cutHashesStore $ \cutDb ->
         f $ CutResources
             { _cutResCutConfig  = cutDbParams
             , _cutResPeer = peer
@@ -124,10 +121,13 @@ withCutResources cutDbParams peer logger rdb webchain payloadDb mgr pact f = do
                 { _cutResSyncSession = session 10 (_webBlockHeaderStoreQueue headerStore)
                 , _cutResSyncLogger = addLabel ("sync", "header") syncLogger
                 }
-            , _cutResPayloadSync = CutSyncResources
-                { _cutResSyncSession = session 10 (_webBlockPayloadStoreQueue payloadStore)
-                , _cutResSyncLogger = addLabel ("sync", "payload") syncLogger
-                }
+
+            -- FIXME
+            -- , _cutResPayloadSync = CutSyncResources
+            --     { _cutResSyncSession = session 10 (_webBlockPayloadStoreQueue payloadStore)
+            --     , _cutResSyncLogger = addLabel ("sync", "payload") syncLogger
+            --     }
+
             }
   where
     v = _chainwebVersion webchain
@@ -138,12 +138,12 @@ withCutResources cutDbParams peer logger rdb webchain payloadDb mgr pact f = do
 cutNetworks
     :: Logger logger
     => HTTP.Manager
-    -> CutResources logger tbl
+    -> CutResources logger
     -> [IO ()]
 cutNetworks mgr cuts =
     [ runCutNetworkCutSync mgr cuts
     , runCutNetworkHeaderSync mgr cuts
-    , runCutNetworkPayloadSync mgr cuts
+--     , runCutNetworkPayloadSync mgr cuts
     ]
 
 -- | P2P Network for pushing Cuts
@@ -151,7 +151,7 @@ cutNetworks mgr cuts =
 runCutNetworkCutSync
     :: Logger logger
     => HTTP.Manager
-    -> CutResources logger tbl
+    -> CutResources logger
     -> IO ()
 runCutNetworkCutSync mgr c
     = mkCutNetworkSync mgr True c "cut sync" $ _cutResCutSync c
@@ -161,20 +161,20 @@ runCutNetworkCutSync mgr c
 runCutNetworkHeaderSync
     :: Logger logger
     => HTTP.Manager
-    -> CutResources logger tbl
+    -> CutResources logger
     -> IO ()
 runCutNetworkHeaderSync mgr c
     = mkCutNetworkSync mgr False c "block header sync" $ _cutResHeaderSync c
 
 -- | P2P Network for Block Payloads
 --
-runCutNetworkPayloadSync
-    :: Logger logger
-    => HTTP.Manager
-    -> CutResources logger tbl
-    -> IO ()
-runCutNetworkPayloadSync mgr c
-    = mkCutNetworkSync mgr False c "block payload sync" $ _cutResPayloadSync c
+-- runCutNetworkPayloadSync
+--     :: Logger logger
+--     => HTTP.Manager
+--     -> CutResources logger
+--     -> IO ()
+-- runCutNetworkPayloadSync mgr c
+--     = mkCutNetworkSync mgr False c "block payload sync" $ _cutResPayloadSync c
 
 -- | P2P Network for Block Payloads
 --
@@ -186,7 +186,7 @@ mkCutNetworkSync
     => HTTP.Manager
     -> Bool
         -- ^ Do peer synchronization
-    -> CutResources logger tbl
+    -> CutResources logger
     -> T.Text
     -> CutSyncResources logger
     -> IO ()
