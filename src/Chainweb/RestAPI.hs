@@ -146,7 +146,7 @@ serveSocketTls settings certChain key = runTLSSocket tlsSettings settings
 -- functions that run a chainweb server.
 --
 data ChainwebServerDbs t tbl = ChainwebServerDbs
-    { _chainwebServerCutDb :: !(Maybe (CutDb tbl))
+    { _chainwebServerCutDb :: !(Maybe CutDb)
     , _chainwebServerBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
     , _chainwebServerMempools :: ![(ChainId, MempoolBackend t)]
     , _chainwebServerPayloadDbs :: ![(ChainId, PayloadDb tbl)]
@@ -362,7 +362,7 @@ someServiceApiServer
     => ChainwebVersion
     -> ChainwebServerDbs t tbl
     -> [(ChainId, PactAPI.PactServerData logger tbl)]
-    -> Maybe (MiningCoordination logger tbl)
+    -> Maybe (MiningCoordination logger)
     -> HeaderStream
     -> Maybe (BackupEnv logger)
     -> PayloadBatchLimit
@@ -392,7 +392,7 @@ serviceApiApplication
     => ChainwebVersion
     -> ChainwebServerDbs t tbl
     -> [(ChainId, PactAPI.PactServerData logger tbl)]
-    -> Maybe (MiningCoordination logger tbl)
+    -> Maybe (MiningCoordination logger)
     -> HeaderStream
     -> Maybe (BackupEnv logger)
     -> PayloadBatchLimit
@@ -411,7 +411,7 @@ serveServiceApiSocket
     -> ChainwebVersion
     -> ChainwebServerDbs t tbl
     -> [(ChainId, PactAPI.PactServerData logger tbl)]
-    -> Maybe (MiningCoordination logger tbl)
+    -> Maybe (MiningCoordination logger)
     -> HeaderStream
     -> Maybe (BackupEnv logger)
     -> PayloadBatchLimit
