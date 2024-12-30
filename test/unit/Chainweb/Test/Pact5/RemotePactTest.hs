@@ -77,6 +77,7 @@ import Test.Tasty
 import Test.Tasty.HUnit (testCaseSteps, testCase)
 
 import Pact.Core.Capabilities
+import Pact.Core.ChainData (TxCreationTime(..))
 import Pact.Core.Command.RPC (ContMsg (..))
 import Pact.Core.Command.Server qualified as Pact5
 import Pact.Core.Command.Types
@@ -191,7 +192,7 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
         [ testCaseSteps "pollingInvalidRequestKeyTest" (pollingInvalidRequestKeyTest rdb)
         , testCaseSteps "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
         , testCaseSteps "spvTest" (spvTest rdb)
-        , invalidTxsTest rdb
+        , sendInvalidTxsTest rdb
         , testCaseSteps "caplistTest" (caplistTest rdb)
         , testCaseSteps "allocationTest" (allocationTest rdb)
         , testCaseSteps "webAuthnSignatureTest" (webAuthnSignatureTest rdb)
@@ -342,116 +343,167 @@ spvTest baseRdb step = runResourceT $ do
                     ]
                 ]
 
-        pure ()
 
-    pure ()
+-- this test suite really wants you not to put any transactions into the final block.
+sendInvalidTxsTest :: RocksDb -> TestTree
+sendInvalidTxsTest rdb = withSharedFixture (mkFixture v rdb) $
+    sequentialTestGroup "invalid txs in /send" AllFinish
+        [ testGroup "send txs"
+            [ testCase "syntax error" $ do
+                cmdParseFailure <- buildTextCmd v
+                    $ set cbRPC (mkExec' "(+ 1")
+                    $ defaultCmd cid
+                send v cid [cmdParseFailure]
+                    & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains "Pact parse error"
 
+            , testCase "invalid hash" $ do
+                cmdInvalidPayloadHash <- do
+                    bareCmd <- buildTextCmd v
+                        $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
+                        $ defaultCmd cid
+                    pure $ bareCmd
+                        { _cmdHash = Pact5.hash "fakehash"
+                        }
+                send v cid [cmdInvalidPayloadHash]
+                    & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                        (validationFailed cmdInvalidPayloadHash "Invalid transaction hash")
 
-invalidTxsTest :: RocksDb -> TestTree
-invalidTxsTest rdb = withSharedFixture (mkFixture v rdb) $
-    sequentialTestGroup "invalid txs tests" AllSucceed
-        [ testCase "syntax error" $ do
-            cmdParseFailure <- buildTextCmd v
-                $ set cbRPC (mkExec' "(+ 1")
-                $ defaultCmd cid
-            send v cid [cmdParseFailure]
-                & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains "Pact parse error"
+            , testCase "signature length mismatch" $ do
+                cmdSignersSigsLengthMismatch1 <- do
+                    bareCmd <- buildTextCmd v
+                        $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
+                        $ defaultCmd cid
+                    pure $ bareCmd
+                        { _cmdSigs = []
+                        }
+                send v cid [cmdSignersSigsLengthMismatch1]
+                    & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                        (validationFailed cmdSignersSigsLengthMismatch1 "Invalid transaction sigs")
 
-        , testCase "invalid hash" $ do
-            cmdInvalidPayloadHash <- do
-                bareCmd <- buildTextCmd v
+                cmdSignersSigsLengthMismatch2 <- do
+                    bareCmd <- buildTextCmd v
+                        $ set cbSigners []
+                        $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
+                        $ defaultCmd cid
+                    pure $ bareCmd
+                        {
+                        -- This is an invalid ED25519 signature,
+                        -- but length signers == length signatures is checked first
+                        _cmdSigs = [ED25519Sig "fakeSig"]
+                        }
+                send v cid [cmdSignersSigsLengthMismatch2]
+                    & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                        (validationFailed cmdSignersSigsLengthMismatch2 "Invalid transaction sigs")
+
+            , testCase "invalid signatures" $ do
+                cmdInvalidUserSig <- mkCmdInvalidUserSig
+                send v cid [cmdInvalidUserSig]
+                    & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                        (validationFailed cmdInvalidUserSig "Invalid transaction sigs")
+
+            , testCase "batches are rejected with any invalid txs" $ do
+                cmdGood <- mkCmdGood
+                cmdInvalidUserSig <- mkCmdInvalidUserSig
+                -- Test that [badCmd, goodCmd] fails on badCmd, and the batch is rejected.
+                -- We just re-use a previously built bad cmd.
+                send v cid [cmdInvalidUserSig, cmdGood]
+                    & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                        (validationFailed cmdInvalidUserSig "Invalid transaction sigs")
+                -- Test that [goodCmd, badCmd] fails on badCmd, and the batch is rejected.
+                -- Order matters, and the error message also indicates the position of the
+                -- failing tx.
+                -- We just re-use a previously built bad cmd.
+                send v cid [cmdGood, cmdInvalidUserSig]
+                    & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                        (validationFailed cmdInvalidUserSig "Invalid transaction sigs")
+
+            , testCase "invalid metadata" $ do
+                cmdGood <- mkCmdGood
+                send v wrongChain [cmdGood]
+                    & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                        (validationFailed cmdGood "Transaction metadata (chain id, chainweb version) conflicts with this endpoint")
+                send wrongV cid [cmdGood]
+                    & fails ? P.match _FailureResponse ? P.allTrue
+                        [ P.fun responseStatusCode ? P.equals notFound404
+                        , P.fun responseBody ? P.equals ""
+                        ]
+
+                cmdWrongV <- buildTextCmd wrongV
                     $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
                     $ defaultCmd cid
-                pure $ bareCmd
-                    { _cmdHash = Pact5.hash "fakehash"
-                    }
-            send v cid [cmdInvalidPayloadHash]
-                & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
-                    (validationFailedPrefix cmdInvalidPayloadHash <> "Invalid transaction hash")
+                send v cid [cmdWrongV]
+                    & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                        (validationFailed cmdWrongV "Transaction metadata (chain id, chainweb version) conflicts with this endpoint")
 
-        , testCase "signature length mismatch" $ do
-            cmdSignersSigsLengthMismatch1 <- do
-                bareCmd <- buildTextCmd v
-                    $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
+                cmdExpiredTTL <- buildTextCmd v (defaultCmd cid & cbCreationTime .~ Just (TxCreationTime 0))
+                send v cid [cmdExpiredTTL]
+                    & fails ? P.match _FailureResponse ? P.allTrue
+                        [ P.fun responseStatusCode ? P.equals badRequest400
+                        , P.fun responseBody ? textContains
+                            (validationFailed cmdExpiredTTL "Transaction time-to-live is expired")
+                        ]
+
+            , testCase "cannot buy gas" $ do
+                cmdExcessiveGasLimit <- buildTextCmd v
+                    $ set cbGasLimit (GasLimit $ Gas 100000000000000)
                     $ defaultCmd cid
-                pure $ bareCmd
-                    { _cmdSigs = []
-                    }
-            send v cid [cmdSignersSigsLengthMismatch1]
-                & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
-                    (validationFailedPrefix cmdSignersSigsLengthMismatch1 <> "Invalid transaction sigs")
+                send v cid [cmdExcessiveGasLimit]
+                    & fails ? P.match _FailureResponse ? P.allTrue
+                        [ P.fun responseStatusCode ? P.equals badRequest400
+                        , P.fun responseBody ? textContains
+                            (validationFailed cmdExcessiveGasLimit "Transaction gas limit exceeds block gas limit")
+                        ]
 
-            cmdSignersSigsLengthMismatch2 <- do
-                bareCmd <- buildTextCmd v
-                    $ set cbSigners []
-                    $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
+                cmdGasPriceTooPrecise <- buildTextCmd v
+                    $ set cbGasPrice (GasPrice 0.00000000000000001)
                     $ defaultCmd cid
-                pure $ bareCmd
-                    {
-                    -- This is an invalid ED25519 signature,
-                    -- but length signers == length signatures is checked first
-                    _cmdSigs = [ED25519Sig "fakeSig"]
-                    }
-            send v cid [cmdSignersSigsLengthMismatch2]
-                & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
-                    (validationFailedPrefix cmdSignersSigsLengthMismatch2 <> "Invalid transaction sigs")
+                send v cid [cmdGasPriceTooPrecise]
+                    & fails ? P.match _FailureResponse ? P.allTrue
+                        [ P.fun responseStatusCode ? P.equals badRequest400
+                        , P.fun responseBody ? textContains
+                            (validationFailed cmdGasPriceTooPrecise "insert error: This transaction's gas price: 0.00000000000000001 is not correctly rounded. It should be rounded to at most 12 decimal places.")
+                        ]
 
-        , testCase "invalid signatures" $ do
+                cmdNotEnoughGasFunds <- buildTextCmd v
+                    $ set cbGasPrice (GasPrice 10_000_000_000)
+                    $ set cbGasLimit (GasLimit (Gas 10_000))
+                    $ defaultCmd cid
+                send v cid [cmdNotEnoughGasFunds]
+                    & fails ? P.match _FailureResponse ? P.allTrue
+                        [ P.fun responseStatusCode ? P.equals badRequest400
+                        , P.fun responseBody ? textContains
+                            (validationFailed cmdNotEnoughGasFunds "Attempt to buy gas failed with: BuyGasPactError (PEUserRecoverableError (UserEnforceError \"Insufficient funds\")")
+                        ]
 
-            cmdInvalidUserSig <- mkCmdInvalidUserSig
+                cmdInvalidSender <- buildTextCmd v
+                    $ set cbSender "invalid-sender"
+                    $ defaultCmd cid
+                send v cid [cmdInvalidSender]
+                    & fails ? P.match _FailureResponse ? P.allTrue
+                        [ P.fun responseStatusCode ? P.equals badRequest400
+                        , P.fun responseBody ? textContains
+                            -- TODO: the full error is far more verbose than this,
+                            -- perhaps that's something we should fix.
+                            (validationFailed cmdInvalidSender "Attempt to buy gas failed")
+                        ]
 
-            send v cid [cmdInvalidUserSig]
-                & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
-                    (validationFailedPrefix cmdInvalidUserSig <> "Invalid transaction sigs")
+            ]
 
-        , testCase "batches are rejected with any invalid txs" $ do
-            cmdGood <- mkCmdGood
-            cmdInvalidUserSig <- mkCmdInvalidUserSig
-            -- Test that [badCmd, goodCmd] fails on badCmd, and the batch is rejected.
-            -- We just re-use a previously built bad cmd.
-            send v cid [cmdInvalidUserSig, cmdGood]
-                & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
-                    (validationFailedPrefix cmdInvalidUserSig <> "Invalid transaction sigs")
-            -- Test that [goodCmd, badCmd] fails on badCmd, and the batch is rejected.
-            -- Order matters, and the error message also indicates the position of the
-            -- failing tx.
-            -- We just re-use a previously built bad cmd.
-            send v cid [cmdGood, cmdInvalidUserSig]
-                & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
-                    (validationFailedPrefix cmdInvalidUserSig <> "Invalid transaction sigs")
-
-        , testCase "invalid chain or version" $ do
-            cmdGood <- mkCmdGood
-            send v wrongChain [cmdGood]
-                & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
-                    (validationFailedPrefix cmdGood <> "Transaction metadata (chain id, chainweb version) conflicts with this endpoint")
-
-            send wrongV cid [cmdGood]
-                & fails ? P.match _FailureResponse ? P.allTrue
-                    [ P.fun responseStatusCode ? P.equals notFound404
-                    , P.fun responseBody ? P.equals ""
-                    ]
-
-            cmdWrongV <- buildTextCmd wrongV
-                $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
-                $ defaultCmd cid
-
-            send v cid [cmdWrongV]
-                & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
-                    (validationFailedPrefix cmdWrongV <> "Transaction metadata (chain id, chainweb version) conflicts with this endpoint")
-        -- must be the final test!
+        -- the final test! none of the previous tests should have
+        -- submitted even one single valid transaction.
         , testCase "none make it into a block" $ do
             (_, cmdResults) <- advanceAllChains
             forM_ cmdResults (P.propful mempty)
+
         ]
     where
     v = pact5InstantCpmTestVersion petersonChainGraph
     wrongV = pact5InstantCpmTestVersion twentyChainGraph
 
     cid = unsafeChainId 0
-    wrongChain = unsafeChainId 4
+    wrongChain = unsafeChainId 1
 
-    validationFailedPrefix cmd = "Validation failed for hash " <> sshow (_cmdHash cmd) <> ": "
+    validationFailed cmd msg = "Validation failed for hash " <> sshow (_cmdHash cmd) <> ": " <> msg
 
     mkCmdInvalidUserSig = mkCmdGood <&> set cmdSigs [ED25519Sig "fakeSig"]
 
