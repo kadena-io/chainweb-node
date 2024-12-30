@@ -59,7 +59,7 @@ module Chainweb.Chainweb
 , chainwebLogger
 , chainwebSocket
 , chainwebPeer
-, chainwebPayloadDb
+, chainwebPayloadProviders
 , chainwebPactData
 , chainwebThrottler
 , chainwebPutPeerThrottler
@@ -184,6 +184,7 @@ import P2P.Peer
 
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
+import Chainweb.PayloadProvider
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -191,12 +192,12 @@ import qualified Pact.Types.Command as P
 data Chainweb logger tbl = Chainweb
     { _chainwebHostAddress :: !HostAddress
     , _chainwebChains :: !(HM.HashMap ChainId (ChainResources logger))
-    , _chainwebCutResources :: !(CutResources logger tbl)
-    , _chainwebMiner :: !(Maybe (MinerResources logger tbl))
-    , _chainwebCoordinator :: !(Maybe (MiningCoordination logger tbl))
+    , _chainwebCutResources :: !(CutResources logger)
+    , _chainwebMiner :: !(Maybe (MinerResources logger))
+    , _chainwebCoordinator :: !(Maybe (MiningCoordination logger))
     , _chainwebLogger :: !logger
     , _chainwebPeer :: !(PeerResources logger)
-    , _chainwebPayloadDb :: !(PayloadDb tbl)
+    , _chainwebPayloadProviders :: !PayloadProviders
     , _chainwebManager :: !HTTP.Manager
     , _chainwebPactData :: ![(ChainId, PactServerData logger tbl)]
     , _chainwebThrottler :: !(Throttle Address)
@@ -448,6 +449,8 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
           then PersistIntraBlockWrites
           else DoNotPersistIntraBlockWrites
       , _pactTxTimeLimit = Nothing
+      -- FIXME
+      , _pactMiner = Nothing
       }
 
     pruningLogger :: T.Text -> logger
@@ -475,14 +478,16 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
         -> IO ()
     global cs = do
         let !webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
-            !pact = mkWebPactExecutionService (HM.map _chainResPact cs)
+            -- FIXME FIXME FIXME
+            -- !pact = mkWebPactExecutionService (HM.map _chainResPact cs)
+            providers = error "Chainweb.Chainweb.withChainwebInternal.global: provider initialization not yet implemented"
             !cutLogger = setComponent "cut" logger
             !mgr = _peerResManager peer
 
         logg Debug "start initializing cut resources"
         logFunctionJson logger Info InitializingCutResources
 
-        withCutResources cutConfig peer cutLogger rocksDb webchain payloadDb mgr pact $ \cuts -> do
+        withCutResources cutConfig peer cutLogger rocksDb webchain providers mgr $ \cuts -> do
             logg Debug "finished initializing cut resources"
 
             let !mLogger = setComponent "miner" logger
@@ -585,7 +590,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
                                 , _chainwebCoordinator = mc
                                 , _chainwebLogger = logger
                                 , _chainwebPeer = peer
-                                , _chainwebPayloadDb = view cutDbPayloadDb $ _cutResCutDb cuts
+                                , _chainwebPayloadProviders = providers
                                 , _chainwebManager = mgr
                                 , _chainwebPactData = pactData
                                 , _chainwebThrottler = throttler
@@ -604,7 +609,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
 
     withPactData
         :: HM.HashMap ChainId (ChainResources logger)
-        -> CutResources logger tbl
+        -> CutResources logger
         -> ([(ChainId, PactServerData logger tbl)] -> IO b)
         -> IO b
     withPactData cs cuts m = do
@@ -614,6 +619,7 @@ withChainwebInternal conf logger peer serviceSock rocksDb pactDbDir backupDir re
             , _pactServerDataMempool = _chainResMempool cr
             , _pactServerDataLogger = _chainResLogger cr
             , _pactServerDataPact = _chainResPact cr
+            , _pactServerDataPayloadDb = _chainResPayloadDb cr
             })
 
     v = _configChainwebVersion conf
@@ -928,7 +934,7 @@ runChainweb cw nowServing = do
 
     -- Cut DB and Miner
 
-    cutDb :: CutDb tbl
+    cutDb :: CutDb
     cutDb = _cutResCutDb $ _chainwebCutResources cw
 
     cutPeerDb :: PeerDb
