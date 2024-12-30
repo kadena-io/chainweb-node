@@ -44,6 +44,9 @@ module Chainweb.BlockHeader.Internal
 -- * Newtype wrappers for function parameters
   ParentHeader(..)
 , parentHeader
+, parentHeaderHash
+, _rankedParentHash
+, rankedParentHash
 , ParentCreationTime(..)
 
 -- * Block Payload Hash
@@ -623,6 +626,15 @@ newtype ParentHeader = ParentHeader
 parentHeader :: Lens' ParentHeader BlockHeader
 parentHeader = lens _parentHeader $ \_ hdr -> ParentHeader hdr
 
+parentHeaderHash :: Getter ParentHeader BlockHash
+parentHeaderHash = parentHeader . blockHash
+
+_rankedParentHash :: ParentHeader -> RankedBlockHash
+_rankedParentHash = _rankedBlockHash . _parentHeader
+
+rankedParentHash :: Getter ParentHeader RankedBlockHash
+rankedParentHash = parentHeader . rankedBlockHash
+
 instance HasChainId ParentHeader where
     _chainId = _chainId . _parentHeader
     {-# INLINE _chainId #-}
@@ -1072,7 +1084,8 @@ instance IsBlockHeader BlockHeader where
 --
 newBlockHeader
     :: HM.HashMap ChainId ParentHeader
-        -- ^ Adjacent parent hashes.
+        -- ^ Adjacent parent hashes. The hash and the PoW target of these are
+        -- need for construction the new header.
     -> BlockPayloadHash
         -- ^ payload hash
     -> Nonce
