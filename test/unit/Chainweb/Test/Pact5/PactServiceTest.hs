@@ -257,7 +257,7 @@ newBlockTimeoutSpec baseRdb = runResourceT $ do
             , _cbGasLimit = GasLimit (Gas 400)
             }
         timeoutTx <- buildCwCmd v (defaultCmd cid)
-            { _cbRPC = mkExec' $ foldr (\_ expr -> "(map (lambda (x) (+ x 1))" <> expr <> ")") "(enumerate 1 100000)" [1..6_000 :: Word] -- make a huge nested tx
+            { _cbRPC = mkExec' $ "(fold + 0 (enumerate 1 500000))"
             , _cbGasPrice = GasPrice 1.5
             , _cbGasLimit = GasLimit (Gas 5000)
             }
