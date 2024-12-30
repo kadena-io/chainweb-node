@@ -187,6 +187,8 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
         , invalidTxsTest rdb
         , testCaseSteps "caplistTest" (caplistTest rdb)
         , testCaseSteps "allocationTest" (allocationTest rdb)
+        , testCaseSteps "webAuthnSignatureTest" (webAuthnSignatureTest rdb)
+        , testCaseSteps "localContTest" (localContTest rdb)
         ]
 
 pollingInvalidRequestKeyTest :: RocksDb -> Step -> IO ()
@@ -635,6 +637,48 @@ _PEPact5Error = prism' (PEPact5Error . uncurry3 PactErrorCode) $ \case
     PEPact5Error (PactErrorCode {_peCode, _peMsg, _peInfo}) ->
         Just (_peCode, _peMsg, _peInfo)
     _ -> Nothing
+
+-- Test that transactions signed with (mock) WebAuthn keypairs are accepted
+-- by the pact service.
+webAuthnSignatureTest :: RocksDb -> Step -> IO ()
+webAuthnSignatureTest rdb _step = runResourceT $ do
+    let v = pact5InstantCpmTestVersion petersonChainGraph
+    let cid = unsafeChainId 0
+    fixture <- mkFixture v rdb
+    withFixture fixture $ liftIO $ do
+        cmd <- buildTextCmd v
+            $ set cbSigners [mkWebAuthnSigner' sender02WebAuthn [], mkEd25519Signer' sender00 []]
+            $ set cbRPC (mkExec' "(concat [\"chainweb-\" \"node\"])")
+            $ defaultCmd
+        send v cid [cmd]
+        CutFixture.advanceAllChains_
+        poll v cid [cmdToRequestKey cmd] >>=
+            P.propful [P.match _Just successfulTx]
+
+localContTest :: RocksDb -> (String -> IO ()) -> IO ()
+localContTest baseRdb _step = runResourceT $ do
+    let v = pact5InstantCpmTestVersion petersonChainGraph
+    let cid = unsafeChainId 0
+    fixture <- mkFixture v baseRdb
+
+    withFixture fixture $ liftIO $ do
+        let code = "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
+        initiator <- buildTextCmd v
+            $ set cbSigners [mkEd25519Signer' sender00 []]
+            $ set cbGasLimit (GasLimit (Gas 70_000))
+            $ set cbRPC (mkExec' code)
+            $ defaultCmd
+        send v cid [initiator]
+        CutFixture.advanceAllChains_
+        Just defPactId <- poll v cid [cmdToRequestKey initiator]
+            <&> preview (ix 0 . _Just . crContinuation . _Just . peDefPactId)
+        continuer <- buildTextCmd v
+            $ set cbSigners [mkEd25519Signer' sender00 []]
+            $ set cbRPC (mkCont (mkContMsg defPactId 1))
+            $ defaultCmd
+        local v cid Nothing Nothing Nothing continuer
+            >>= P.match _Pact5LocalResultLegacy ? P.fun _crResult
+            ? P.match _PactResultOk ? P.equals (PInteger 2)
 
 {-
           recvPwos <- runCutWithTx v pacts targetMempoolRef blockDb $ \_n _bHeight _bHash bHeader -> do
