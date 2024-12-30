@@ -36,7 +36,6 @@ import Data.Maybe
 
 import Prelude hiding (log)
 
-
 -- internal modules
 
 import Chainweb.BlockHeaderDB
@@ -64,6 +63,7 @@ data ChainResources logger = ChainResources
     , _chainResLogger :: !logger
     , _chainResMempool :: !(MempoolBackend Pact4.UnparsedTransaction)
     , _chainResPact :: PactExecutionService
+    -- , _chainResPayloadDb :: _
     }
 
 makeLenses ''ChainResources
