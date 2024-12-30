@@ -40,7 +40,6 @@ import Servant
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.CutDB
-import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV
 import Chainweb.SPV.CreateProof
@@ -54,8 +53,7 @@ import Data.Singletons
 -- SPV Transaction Proof Handler
 
 spvGetTransactionProofHandler
-    :: CanReadablePayloadCas tbl
-    => CutDb tbl
+    :: CutDb
     -> ChainId
         -- ^ the target chain of the proof. This is the chain for which
         -- inclusion is proved.
@@ -77,8 +75,7 @@ spvGetTransactionProofHandler db tcid scid bh i =
 -- SPV Transaction Output Proof Handler
 
 spvGetTransactionOutputProofHandler
-    :: CanReadablePayloadCas tbl
-    => CutDb tbl
+    :: CutDb
     -> ChainId
         -- ^ the target chain of the proof. This is the chain for which inclusion
         -- is proved.
@@ -101,10 +98,9 @@ spvGetTransactionOutputProofHandler db tcid scid bh i =
 -- SPV API Server
 
 spvServer
-    :: forall tbl v (c :: ChainIdT)
-    . CanReadablePayloadCas tbl
-    => KnownChainIdSymbol c
-    => CutDbT tbl v
+    :: forall v (c :: ChainIdT)
+    . KnownChainIdSymbol c
+    => CutDbT v
     -> Server (SpvApi v c)
 spvServer (CutDbT db)
     = spvGetTransactionProofHandler db tcid
@@ -116,40 +112,37 @@ spvServer (CutDbT db)
 -- Application for a single Chain
 
 spvApp
-    :: forall tbl v c
-    . CanReadablePayloadCas tbl
-    => KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
-    => CutDbT tbl v
-    -> Application
-spvApp db = serve (Proxy @(SpvApi v c)) (spvServer @tbl @v @c db)
-
-spvApiLayout
-    :: forall tbl v c
+    :: forall v c
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => CutDbT tbl v
+    => CutDbT v
+    -> Application
+spvApp db = serve (Proxy @(SpvApi v c)) (spvServer @v @c db)
+
+spvApiLayout
+    :: forall v c
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => CutDbT v
     -> IO ()
 spvApiLayout _ = T.putStrLn $ layout (Proxy @(SpvApi v c))
 
 someSpvServer
-    :: forall tbl c
-    . CanReadablePayloadCas tbl
-    => KnownChainIdSymbol c
-    => SomeCutDb tbl
+    :: forall c
+    . KnownChainIdSymbol c
+    => SomeCutDb
     -> SomeServer
-someSpvServer (SomeCutDb (db :: CutDbT tbl v))
-    = SomeServer (Proxy @(SpvApi v c)) (spvServer @tbl @v @c db)
+someSpvServer (SomeCutDb (db :: CutDbT v))
+    = SomeServer (Proxy @(SpvApi v c)) (spvServer @v @c db)
 
 -- -------------------------------------------------------------------------- --
 -- Multichain Server
 
 someSpvServers
-    :: CanReadablePayloadCas tbl
-    => ChainwebVersion
-    -> CutDb tbl
+    :: ChainwebVersion
+    -> CutDb
     -> SomeServer
 someSpvServers v db = mconcat $ flip fmap cids $ \(FromSingChainId (SChainId :: Sing c)) ->
-    someSpvServer @_ @c (someCutDbVal v db)
+    someSpvServer @c (someCutDbVal v db)
   where
     cids = toList $ chainIds db
