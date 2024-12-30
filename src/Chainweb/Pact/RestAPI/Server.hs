@@ -143,10 +143,11 @@ import qualified Pact.Core.Gas as Pact5
 -- -------------------------------------------------------------------------- --
 
 data PactServerData logger tbl = PactServerData
-    { _pactServerDataCutDb :: !(CutDB.CutDb tbl)
+    { _pactServerDataCutDb :: !CutDB.CutDb
     , _pactServerDataMempool :: !(MempoolBackend Pact4.UnparsedTransaction)
     , _pactServerDataLogger :: !logger
     , _pactServerDataPact :: !PactExecutionService
+    , _pactServerDataPayloadDb :: !(PayloadDb tbl)
     }
 
 newtype PactServerData_ (v :: ChainwebVersionT) (c :: ChainIdT) logger tbl
@@ -194,20 +195,20 @@ pactServer d =
     logger = _pactServerDataLogger d
     pact = _pactServerDataPact d
     cdb = _pactServerDataCutDb d
+    pdb = _pactServerDataPayloadDb d
 
     pactApiHandlers
       = sendHandler logger mempool
-      :<|> pollHandler logger cdb cid pact mempool
-      :<|> listenHandler logger cdb cid pact mempool
+      :<|> pollHandler logger cdb pdb cid pact mempool
+      :<|> listenHandler logger cdb pdb cid pact mempool
       :<|> localHandler logger pact
 
-    pactSpvHandler = spvHandler logger cdb cid
-    pactSpv2Handler = spv2Handler logger cdb cid
+    pactSpvHandler = spvHandler logger cdb pdb pact cid
+    pactSpv2Handler = spv2Handler logger cdb pdb pact cid
 
 somePactServer :: SomePactServerData -> SomeServer
 somePactServer (SomePactServerData (db :: PactServerData_ v c logger tbl))
     = SomeServer (Proxy @(PactServiceApi v c)) (pactServer @v @c $ _unPactServerData db)
-
 
 somePactServers
     :: CanReadablePayloadCas tbl
@@ -300,18 +301,18 @@ sendHandler logger mempool (Pact4.SubmitBatch cmds) = Handler $ do
 pollHandler
     :: (HasCallStack, CanReadablePayloadCas tbl, Logger logger)
     => logger
-    -> CutDB.CutDb tbl
+    -> CutDB.CutDb
+    -> PayloadDb tbl
     -> ChainId
     -> PactExecutionService
     -> MempoolBackend Pact4.UnparsedTransaction
     -> Maybe ConfirmationDepth
     -> Pact5.PollRequest
     -> Handler Pact5.PollResponse
-pollHandler logger cdb cid pact mem confDepth (Pact5.PollRequest request) = do
+pollHandler logger cdb pdb cid pact mem confDepth (Pact5.PollRequest request) = do
     liftIO $! logg Info $ PactCmdLogPoll $ fmap Pact5.requestKeyToB64Text request
     Pact5.PollResponse <$!> liftIO (internalPoll logger pdb bdb mem pact confDepth request)
   where
-    pdb = view CutDB.cutDbPayloadDb cdb
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
     logg = logFunctionJson (setComponent "poll-handler" logger)
 
@@ -322,17 +323,17 @@ pollHandler logger cdb cid pact mem confDepth (Pact5.PollRequest request) = do
 listenHandler
     :: (CanReadablePayloadCas tbl, Logger logger)
     => logger
-    -> CutDB.CutDb tbl
+    -> CutDB.CutDb
+    -> PayloadDb tbl
     -> ChainId
     -> PactExecutionService
     -> MempoolBackend Pact4.UnparsedTransaction
     -> Pact5.ListenRequest
     -> Handler Pact5.ListenResponse
-listenHandler logger cdb cid pact mem (Pact5.ListenRequest key) = do
+listenHandler logger cdb pdb cid pact mem (Pact5.ListenRequest key) = do
     liftIO $ logg Info $ PactCmdLogListen $ Pact5.requestKeyToB64Text key
     liftIO (registerDelay defaultTimeout) >>= runListen
   where
-    pdb = view CutDB.cutDbPayloadDb cdb
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
     logg = logFunctionJson (setComponent "listen-handler" logger)
     runListen :: TVar Bool -> Handler Pact5.ListenResponse
@@ -426,12 +427,13 @@ localHandler logger pact preflight sigVerify rewindDepth cmd = do
 
 spvHandler
     :: forall tbl l
-    . ( Logger l
-      , CanReadablePayloadCas tbl
-      )
+    . Logger l
+    => CanReadablePayloadCas tbl
     => l
-    -> CutDB.CutDb tbl
+    -> CutDB.CutDb
         -- ^ cut db
+    -> PayloadDb tbl
+    -> PactExecutionService
     -> ChainId
         -- ^ the chain id of the source chain id used in the
         -- execution of a cross-chain-transfer.
@@ -441,7 +443,7 @@ spvHandler
         -- Also contains the request key of of the cross-chain transfer
         -- tx request.
     -> Handler TransactionOutputProofB64
-spvHandler l cdb cid (SpvRequest rk (Pact4.ChainId ptid)) = do
+spvHandler l cdb pdb pe cid (SpvRequest rk (Pact4.ChainId ptid)) = do
     validateRequestKey rk
 
     liftIO $! logg (sshow ph)
@@ -471,10 +473,8 @@ spvHandler l cdb cid (SpvRequest rk (Pact4.ChainId ptid)) = do
 
     return $! b64 p
   where
-    pe = _webPactExecutionService $ view CutDB.cutDbPactService cdb
     ph = Pact4.fromUntypedHash $ Pact4.unRequestKey rk
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
-    pdb = view CutDB.cutDbPayloadDb cdb
     b64 = TransactionOutputProofB64
       . encodeB64UrlNoPaddingText
       . BSL8.toStrict
@@ -490,12 +490,13 @@ spvHandler l cdb cid (SpvRequest rk (Pact4.ChainId ptid)) = do
 
 spv2Handler
     :: forall tbl l
-    . ( Logger l
-      , CanReadablePayloadCas tbl
-      )
+    . Logger l
+    => CanReadablePayloadCas tbl
     => l
-    -> CutDB.CutDb tbl
+    -> CutDB.CutDb
         -- ^ CutDb contains the cut, payload, and block db
+    -> PayloadDb tbl
+    -> PactExecutionService
     -> ChainId
         -- ^ ChainId of the target
     -> Spv2Request
@@ -504,7 +505,7 @@ spv2Handler
         -- Also contains the request key of of the cross-chain transfer
         -- tx request.
     -> Handler SomePayloadProof
-spv2Handler l cdb cid r = case _spvSubjectIdType sid of
+spv2Handler l cdb pdb pe cid r = case _spvSubjectIdType sid of
     SpvSubjectResult
         |  _spv2ReqAlgorithm r /= SpvSHA512t_256 ->
             toErr $ "Algorithm " <> sshow r <> " is not supported with SPV result proofs."
@@ -541,10 +542,8 @@ spv2Handler l cdb cid r = case _spvSubjectIdType sid of
     sid = _spv2ReqSubjectIdentifier r
 
     rk = _spvSubjectIdReqKey sid
-    pe = _webPactExecutionService $ view CutDB.cutDbPactService cdb
     ph = Pact4.unRequestKey rk
     bdb = fromJuste $ preview (CutDB.cutDbBlockHeaderDb cid) cdb
-    pdb = view CutDB.cutDbPayloadDb cdb
 
     logg = logFunctionJson (setComponent "spv-handler" l) Info
       . PactCmdLogSpv
