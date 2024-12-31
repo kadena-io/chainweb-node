@@ -216,4 +216,17 @@ allow-newer: webauthn:*
 allow-newer: lrucaching:base-compat
 
 -- -------------------------------------------------------------------------- --
--- Upper Bounds
+-- Temporary Dependency Overwrites
+--
+-- NOTE:
+--
+-- Please add a comment for each entry that outlines why it is needed and when
+-- it can be removed.
+
+-- -------------------------------------------------------------------------- --
+-- Temporary Upper Bound Constraints
+
+-- NOTE:
+--
+-- Please add a comment for each entry that outlines why it is needed and when
+-- it can be removed.
