@@ -49,7 +49,9 @@ mkdir -p diffs/kedao
 mkdir -p diffs/list-commas
 mkdir -p diffs/transfer-exceeded
 mkdir -p diffs/sort-object-divergence
+mkdir -p diffs/coin-upgrade
 mkdir -p diffs/interesting
+mkdir -p diffs/defschema-term-position
 
 classify_diff() {
   grep -q 'Loaded module' "$1" && mv -f "$1" diffs/loaded-module-hash/ && return
@@ -102,6 +104,8 @@ classify_diff() {
   grep -q 'Desugar syntax failure' "$1" && mv -f "$1" diffs/desugar-syntax-failure && return
   grep -q 'PactDuplicateTableError' "$1" && mv -f "$1" diffs/duplicate-table-error && return
   grep -q 'redeem-for-kda' "$1" && mv -f "$1" diffs/kedao && return
+  grep -q 'Height: 4577530' "$1" && mv -f "$1" diffs/coin-upgrade && return
+  grep -q 'Cannot use defschema \w* in term variable position' "$1" && mv -f "$1" diffs/defschema-term-position && return
 }
 
 for f in parity-replay-diffs/*; do
