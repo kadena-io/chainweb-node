@@ -35,7 +35,7 @@ mkdir -p diffs/incompatible-types
 mkdir -p diffs/b64-diffs
 mkdir -p diffs/interface-as-mod-ref
 mkdir -p diffs/marmalade-v2
-mkdir -p diffs/kadena-mining-club
+mkdir -p diffs/decimal-trailing-zeroes
 mkdir -p diffs/kadena-mining-club
 mkdir -p diffs/kadena-mining-club-format
 mkdir -p diffs/interface-impl-errors
@@ -91,8 +91,9 @@ classify_diff() {
   grep -q 'Invalid Interface attempted to be used as module reference' "$1" && mv -f "$1" diffs/interface-as-mod-ref && return
   grep -q 'Expected module, found interface' "$1" && mv -f "$1" diffs/interface-as-mod-ref && return
   grep -q '"module":{"namespace":"marmalade-v2","name":"ledger"}' "$1" && mv -f "$1" diffs/marmalade-v2 && return
-  grep -q 'Succesfully claimed' "$1" && grep -q 'CLAIM' "$1" && mv -f "$1" diffs/kadena-mining-club && return
-  grep -q '{"status":"success","data":"Price updated to' "$1" && mv -f "$1" diffs/kadena-mining-club && return
+  grep -q 'Succesfully claimed' "$1" && grep -q 'CLAIM' "$1" && mv -f "$1" diffs/decimal-trailing-zeroes && return
+  grep -q 'Successfully claimed' "$1" && grep -q 'CLAIM' "$1" && mv -f "$1" diffs/decimal-trailing-zeroes && return
+  grep -q '{"status":"success","data":"Price updated to' "$1" && mv -f "$1" diffs/decimal-trailing-zeroes && return
   grep -q 'Invalid arguments in call to format' "$1" && mv -f "$1" diffs/kadena-mining-club-format && return
   grep -q 'does not correctly implement the function' "$1" && mv -f "$1" diffs/interface-impl-errors && return
   grep -q 'Amount violates minimum denomination' "$1" && mv -f "$1" diffs/minimum-precision && return
