@@ -145,11 +145,11 @@ simpleEndToEnd baseRdb = runResourceT $ do
         cmd1 <- buildCwCmd v (transferCmd 1.0)
         cmd2 <- buildCwCmd v (transferCmd 2.0)
 
-        results <- advanceAllChainsWithTxs fixture $ onChain cid [cmd1, cmd2]
+        results <- advanceAllChainsWithTxs fixture $ onChain chain0 [cmd1, cmd2]
 
         -- we only care that they succeed; specifics regarding their outputs are in TransactionExecTest
         results &
-            P.propful ? onChain cid ?
+            P.propful ? onChain chain0 ?
                 P.propful ? Vector.replicate 2 successfulTx
 
 newBlockEmpty :: RocksDb -> IO ()
@@ -157,7 +157,7 @@ newBlockEmpty baseRdb = runResourceT $ do
     fixture <- mkFixture baseRdb
     liftIO $ do
         cmd <- buildCwCmd v (transferCmd 1.0)
-        _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
+        _ <- advanceAllChains fixture $ onChain chain0 $ \ph pactQueue mempool -> do
             mempoolInsert5 mempool CheckedInsert [cmd]
             -- -- Test that NewBlockEmpty ignores the mempool
             emptyBip <- throwIfNotPact5 =<< throwIfNoHistory =<<
@@ -166,13 +166,13 @@ newBlockEmpty baseRdb = runResourceT $ do
             assertEqual "empty block has no transactions" 0 (Vector.length $ _payloadWithOutputsTransactions emptyPwo)
             return emptyPwo
 
-        results <- advanceAllChains fixture $ onChain cid $ \ph pactQueue _ -> do
+        results <- advanceAllChains fixture $ onChain chain0 $ \ph pactQueue _ -> do
             nonEmptyBip <- throwIfNotPact5 =<< throwIfNoHistory =<<
                 newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             return $ finalizeBlock nonEmptyBip
 
         results &
-            P.propful ? onChain cid ?
+            P.propful ? onChain chain0 ?
                 P.propful ? Vector.replicate 1 successfulTx
 
 continueBlockSpec :: RocksDb -> IO ()
@@ -186,7 +186,7 @@ continueBlockSpec baseRdb = runResourceT $ do
         cmd2 <- buildCwCmd v (transferCmd 2.0)
         cmd3 <- buildCwCmd v (transferCmd 3.0)
 
-        allAtOnceResults <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
+        allAtOnceResults <- advanceAllChains fixture $ onChain chain0 $ \ph pactQueue mempool -> do
             -- insert all transactions
             mempoolInsert5 mempool CheckedInsert [cmd1, cmd2, cmd3]
             -- construct a new block with all of said transactions
@@ -195,7 +195,7 @@ continueBlockSpec baseRdb = runResourceT $ do
             return $ finalizeBlock bipAllAtOnce
         -- assert that 3 successful txs are in the block
         allAtOnceResults &
-            P.propful ? onChain cid ?
+            P.propful ? onChain chain0 ?
             P.propful ? Vector.replicate 3 successfulTx
 
         -- reset back to the empty block for the next phase
@@ -205,7 +205,7 @@ continueBlockSpec baseRdb = runResourceT $ do
         -- mempool, so we need to clear it after, or else the block will
         -- contain all of the transactions before we extend it.
         revert fixture startCut
-        continuedResults <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
+        continuedResults <- advanceAllChains fixture $ onChain chain0 $ \ph pactQueue mempool -> do
             mempoolClear mempool
             mempoolInsert5 mempool CheckedInsert [cmd3]
             bipStart <- throwIfNotPact5 =<< throwIfNoHistory =<<
@@ -246,23 +246,23 @@ newBlockTimeoutSpec baseRdb = runResourceT $ do
     fixture <- mkFixtureWith pactServiceConfig baseRdb
 
     liftIO $ do
-        tx1 <- buildCwCmd v (defaultCmd cid)
+        tx1 <- buildCwCmd v (defaultCmd chain0)
             { _cbRPC = mkExec' "1"
             , _cbGasPrice = GasPrice 1.0
             , _cbGasLimit = GasLimit (Gas 400)
             }
-        tx2 <- buildCwCmd v (defaultCmd cid)
+        tx2 <- buildCwCmd v (defaultCmd chain0)
             { _cbRPC = mkExec' "2"
             , _cbGasPrice = GasPrice 2.0
             , _cbGasLimit = GasLimit (Gas 400)
             }
-        timeoutTx <- buildCwCmd v (defaultCmd cid)
+        timeoutTx <- buildCwCmd v (defaultCmd chain0)
             { _cbRPC = mkExec' $ "(fold + 0 (enumerate 1 500000))"
             , _cbGasPrice = GasPrice 1.5
             , _cbGasLimit = GasLimit (Gas 5000)
             }
 
-        _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
+        _ <- advanceAllChains fixture $ onChain chain0 $ \ph pactQueue mempool -> do
             mempoolInsert5 mempool CheckedInsert [tx2, timeoutTx, tx1]
             bip <- throwIfNotPact5 =<< throwIfNoHistory =<<
                 newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
@@ -283,7 +283,7 @@ testMempoolExcludesInvalid baseRdb = runResourceT $ do
     fixture <- mkFixture baseRdb
     liftIO $ do
         -- The mempool should reject a tx that doesn't parse as valid pact.
-        badParse <- buildCwCmdNoParse v (defaultCmd cid)
+        badParse <- buildCwCmdNoParse v (defaultCmd chain0)
             { _cbRPC = mkExec' "(not a valid pact tx"
             }
 
@@ -307,7 +307,7 @@ testMempoolExcludesInvalid baseRdb = runResourceT $ do
                 { _cmdHash = Pact5.Hash "bad hash"
                 }
 
-        badSigs <- buildCwCmdNoParse v (defaultCmd cid)
+        badSigs <- buildCwCmdNoParse v (defaultCmd chain0)
             { _cbSigners =
                 [ CmdSigner
                     { _csSigner = Signer
@@ -322,12 +322,12 @@ testMempoolExcludesInvalid baseRdb = runResourceT $ do
             }
 
         let pact4Hash = Pact5.Hash . Pact4.unHash . Pact4.toUntypedHash . Pact4._cmdHash
-        _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
+        _ <- advanceAllChains fixture $ onChain chain0 $ \ph pactQueue mempool -> do
             mempoolInsert5 mempool CheckedInsert [regularTx1]
             bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             return $ finalizeBlock bip
 
-        _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
+        _ <- advanceAllChains fixture $ onChain chain0 $ \ph pactQueue mempool -> do
             mempoolInsert mempool CheckedInsert $ Vector.fromList [badParse, badSigs]
             mempoolInsert5 mempool CheckedInsert [badUnique, badFuture, badPast, badTxHash]
             bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
@@ -339,7 +339,7 @@ testMempoolExcludesInvalid baseRdb = runResourceT $ do
         -- we need to wait until this above block is validate for `badUnique`
         -- to disappear, because only the parent block is used to find txs to
         -- delete from the mempool
-        let mempool = _fixtureMempools fixture ^?! atChain cid
+        let mempool = _fixtureMempools fixture ^?! atChain chain0
         mempoolInsert5 mempool CheckedInsert [badUnique, badFuture, badPast, badTxHash]
 
         let badTxHashes =
@@ -364,7 +364,7 @@ lookupPactTxsSpec baseRdb = runResourceT $ do
         cmd2 <- buildCwCmd v (transferCmd 2.0)
 
         -- Depth 0
-        _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
+        _ <- advanceAllChains fixture $ onChain chain0 $ \ph pactQueue mempool -> do
             mempoolInsert5 mempool CheckedInsert [cmd1, cmd2]
             bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             return $ finalizeBlock bip
@@ -373,11 +373,11 @@ lookupPactTxsSpec baseRdb = runResourceT $ do
 
         let lookupExpect :: Maybe Word -> IO ()
             lookupExpect depth = do
-                txs <- lookupPactTxs (fmap (ConfirmationDepth . fromIntegral) depth) (Vector.fromList rks) (_fixturePactQueues fixture ^?! atChain cid)
+                txs <- lookupPactTxs (fmap (ConfirmationDepth . fromIntegral) depth) (Vector.fromList rks) (_fixturePactQueues fixture ^?! atChain chain0)
                 assertEqual ("all txs should be available with depth=" ++ show depth) (HashSet.fromList rks) (HashMap.keysSet txs)
         let lookupDontExpect :: Maybe Word -> IO ()
             lookupDontExpect depth = do
-                txs <- lookupPactTxs (fmap (ConfirmationDepth. fromIntegral) depth) (Vector.fromList rks) (_fixturePactQueues fixture ^?! atChain cid)
+                txs <- lookupPactTxs (fmap (ConfirmationDepth. fromIntegral) depth) (Vector.fromList rks) (_fixturePactQueues fixture ^?! atChain chain0)
                 assertEqual ("no txs should be available with depth=" ++ show depth) HashSet.empty (HashMap.keysSet txs)
 
         lookupExpect Nothing
@@ -407,7 +407,7 @@ failedTxsShouldGoIntoBlocks baseRdb = runResourceT $ do
 
     liftIO $ do
         cmd1 <- buildCwCmd v (transferCmd 1.0)
-        cmd2 <- buildCwCmd v (defaultCmd cid)
+        cmd2 <- buildCwCmd v (defaultCmd chain0)
             { _cbRPC = mkExec' "(namespace 'free) (module mod G (defcap G () true) (defun f () true)) (describe-module \"free.mod\")"
             -- for ordering the transactions as they appear in the block
             , _cbGasPrice = GasPrice 0.1
@@ -415,7 +415,7 @@ failedTxsShouldGoIntoBlocks baseRdb = runResourceT $ do
             }
 
         -- Depth 0
-        _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
+        _ <- advanceAllChains fixture $ onChain chain0 $ \ph pactQueue mempool -> do
             mempoolInsert5 mempool CheckedInsert [cmd1, cmd2]
             bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             let block = finalizeBlock bip
@@ -447,8 +447,8 @@ tests = do
     -- * test that rewinding past the pact5 boundary is possible
 -}
 
-cid :: ChainId
-cid = unsafeChainId 0
+chain0 :: ChainId
+chain0 = unsafeChainId 0
 
 v :: ChainwebVersion
 v = pact5InstantCpmTestVersion singletonChainGraph
@@ -481,7 +481,7 @@ advanceAllChains Fixture{..} blocks = do
                         newBlock noMiner NewBlockEmpty (ParentHeader p) pactQueue
                     return $! finalizeBlock bip
 
-            payload <- fromMaybe makeEmptyBlock (blocks ^? atChain cid) ph pactQueue mempool
+            payload <- fromMaybe makeEmptyBlock (blocks ^? atChain c) ph pactQueue mempool
             added <- addTestBlockDb _fixtureBlockDb
                 (succ $ view blockHeight ph)
                 (Nonce 0)
@@ -523,7 +523,7 @@ throwIfNotPact5 h = case h of
         pure a
 
 transferCmd :: Decimal -> CmdBuilder
-transferCmd transferAmount = (defaultCmd cid)
+transferCmd transferAmount = (defaultCmd chain0)
     { _cbRPC = mkExec' $
         "(coin.transfer \"sender00\" \"sender01\" " <>
         -- if the number doesn't end with a decimal part, even if it's zero, Pact will
