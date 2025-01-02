@@ -95,7 +95,7 @@ mkKeySetData name keys = PObject $ Map.singleton (Field name) $ PList (Vector.fr
 
 sender00Ks :: KeySet
 sender00Ks = KeySet
-    (Set.fromList [PublicKeyText "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"])
+    (Set.fromList [PublicKeyText $ fst sender00])
     KeysAll
 
 

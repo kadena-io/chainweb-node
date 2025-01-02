@@ -44,6 +44,7 @@ import Control.Monad.Trans.Resource (ResourceT, allocate, runResourceT)
 import Data.Aeson qualified as A
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Lens qualified as A
+import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Base64.URL qualified as B64U
 import Data.ByteString.Lazy qualified as BL
 import Data.Foldable (forM_, traverse_)
@@ -55,6 +56,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
 import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.Encoding qualified as TL
 import GHC.Exts (WithDict(..))
@@ -78,6 +80,7 @@ import Test.Tasty.HUnit (testCaseSteps, testCase)
 
 import Pact.Core.Capabilities
 import Pact.Core.ChainData (TxCreationTime(..))
+import Pact.Core.Command.Crypto (signEd25519, exportEd25519Signature, importEd25519KeyPair, PrivateKeyBS (..))
 import Pact.Core.Command.RPC (ContMsg (..))
 import Pact.Core.Command.Server qualified as Pact5
 import Pact.Core.Command.Types
@@ -722,15 +725,35 @@ localPreflightSimTest baseRdb = let
                 >>= local v cid (Just PreflightSimulation) (Just NoVerify) Nothing
                 >>= P.match _Pact5LocalResultWithWarns ? P.fun fst ? successfulTx
 
+        , testCase "signature with the wrong key" $ do
+            let buildSender00Cmd = defaultCmd cid
+                    & cbSigners .~ [mkEd25519Signer' sender00 []]
+            goodCmdHash <- _cmdHash <$> buildTextCmd v buildSender00Cmd
+            sender01KeyPair <- either error return $ importEd25519KeyPair Nothing
+                (PrivBS $ either error id $ B16.decode $ T.encodeUtf8 $ snd sender01)
+            let sender01Sig = T.decodeUtf8 $ B16.encode $ exportEd25519Signature $
+                    signEd25519 (fst sender01KeyPair) (snd sender01KeyPair) goodCmdHash
+
+            buildTextCmd v buildSender00Cmd
+                <&> set cmdSigs [ED25519Sig sender01Sig]
+                >>= local v cid (Just PreflightSimulation) Nothing Nothing
+                & fails ? P.match _FailureResponse ? P.allTrue
+                    [ P.fun responseStatusCode ? P.equals badRequest400
+                    , P.fun responseBody ? P.equals "Metadata validation failed: [\"Invalid transaction signatures\"]"
+                    ]
+
+            buildTextCmd v buildSender00Cmd
+                <&> set cmdSigs [ED25519Sig sender01Sig]
+                >>= local v cid (Just PreflightSimulation) (Just NoVerify) Nothing
+                >>= P.succeed
+
         -- TODO(?)
         -- step "Execute preflight /local tx - unparseable chain id"
         -- sigs0 <- testKeyPairs sender00 Nothing
         -- cmd1 <- mkRawTx mv (Pact.ChainId "fail") sigs0
         -- runClientFailureAssertion sid cenv cmd1 "Unparseable transaction chain id"
 
-        -- TODO: check that NoVerify actually works
-
-        , testCase "invalid metadata" $ do
+        , testCase "invalid tx metadata" $ do
             buildTextCmd v (defaultCmd $ unsafeChainId maxBound)
                 >>= local v cid (Just PreflightSimulation) Nothing Nothing
                 & fails ? P.match _FailureResponse ? P.allTrue
