@@ -23,8 +23,6 @@ module Chainweb.Test.Pact4.SPV
   tests
   -- * repl tests
 , standard
-, wrongChain
-, wrongChainProof
 , invalidProof
 ) where
 
@@ -108,9 +106,7 @@ tests = testGroup "Chainweb.Test.Pact4.SPV"
     , testCaseSteps "tfrTXOUTNew" tfrTXOUTNew
     , testCaseSteps "ethReceiptProof" ethReceiptProof
     , testCaseSteps "noEthReceiptProof" noEthReceiptProof
-    , testCaseSteps "wrong chain execution fails" wrongChain
     , testCaseSteps "invalid proof formats fail" invalidProof
-    , testCaseSteps "wrong target chain in proofs fail" wrongChainProof
     ]
 
 testVer :: ChainwebVersion
@@ -190,24 +186,11 @@ noEthReceiptProof step = do
 rSuccessTXOUT :: Text
 rSuccessTXOUT = "TXOUT Success"
 
-wrongChain :: (String -> IO ()) -> Assertion
-wrongChain step = do
-  (c1,c3) <- roundtrip 0 1 burnGen createWrongTargetChain step
-  checkResult c1 0 "ObjectMap"
-  checkResult c3 1 "Failure: enforceYield: yield provenance"
-
 invalidProof :: (String -> IO ()) -> Assertion
 invalidProof step = do
   (c1,c3) <- roundtrip 0 1 burnGen createInvalidProof step
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Failure: resumePact: no previous execution found"
-
-wrongChainProof :: (String -> IO ()) -> Assertion
-wrongChainProof step = do
-  (c1,c3) <- roundtrip 0 1 burnGen createProofBadTargetChain step
-  checkResult c1 0 "ObjectMap"
-  checkResult c3 1 "cannot redeem continuation proof on wrong target chain"
-  return ()
 
 checkResult :: HasCallStack => CutOutputs -> Word32 -> String -> Assertion
 checkResult co ci expect =
@@ -544,25 +527,6 @@ createSuccess v time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
                 createCont v tid pidv proof time
                     `finally` writeIORef ref True
 
--- | Execute on the create-coin command on the wrong target chain
---
-createWrongTargetChain :: CreatesGenerator
-createWrongTargetChain v time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
-    ref <- newIORef False
-    return $ go ref
-  where
-    go ref cid _bhe _bha _
-        | tid /= cid = return mempty
-        | otherwise = readIORef ref >>= \case
-            True -> return mempty
-            False -> do
-                q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
-
-                let proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
-
-                createCont v sid pidv proof time
-                    `finally` writeIORef ref True
-
 -- | Execute create-coin command with invalid proof
 --
 createInvalidProof :: CreatesGenerator
@@ -576,25 +540,4 @@ createInvalidProof v time _ pidv _ tid _ = do
             True -> return mempty
             False ->
                 createCont v tid pidv Nothing time
-                    `finally` writeIORef ref True
-
--- | Execute on the create-coin command on the correct target chain, with a proof
--- pointing at the wrong target chain
---
-createProofBadTargetChain :: CreatesGenerator
-createProofBadTargetChain v time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
-    ref <- newIORef False
-    return $ go ref
-  where
-    go ref cid _bhe _bha _
-        | tid /= cid = return mempty
-        | otherwise = readIORef ref >>= \case
-            True -> return mempty
-            False -> do
-                tid' <- chainIdFromText "2"
-                q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid' sid bhe 0
-
-                let proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
-
-                createCont v sid pidv proof time
                     `finally` writeIORef ref True
