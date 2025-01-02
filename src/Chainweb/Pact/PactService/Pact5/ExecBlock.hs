@@ -88,6 +88,7 @@ import Chainweb.Pact5.NoCoinbase
 import qualified Pact.Core.Errors as Pact5
 import qualified Pact.Core.Evaluate as Pact5
 import Chainweb.Pact.Backend.Types
+import qualified Pact.Core.ChainData as Pact5
 
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range. Rewards are calculated
@@ -493,10 +494,17 @@ validateParsedChainwebTx _logger v cid db _blockHandle txValidationTime bh isGen
   | otherwise = do
       checkUnique tx
       checkTxHash tx
+      checkChain
       checkTxSigs tx
       checkTimes tx
       return ()
   where
+
+    checkChain :: ExceptT InsertError IO ()
+    checkChain = unless (Pact5.assertChainId cid txCid) $
+        throwError $ InsertErrorWrongChain (chainIdToText cid) (Pact5._chainId txCid)
+      where
+      txCid = view (Pact5.cmdPayload . Pact5.payloadObj . Pact5.pMeta . Pact5.pmChainId) tx
 
     checkUnique :: Pact5.Transaction -> ExceptT InsertError IO ()
     checkUnique t = do
