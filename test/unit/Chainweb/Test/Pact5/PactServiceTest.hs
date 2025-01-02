@@ -130,7 +130,7 @@ tests baseRdb = testGroup "Pact5 PactServiceTest"
     , testCase "continue block spec" (continueBlockSpec baseRdb)
     , testCase "new block empty" (newBlockEmpty baseRdb)
     , testCase "new block timeout spec" (newBlockTimeoutSpec baseRdb)
-    , testCase "mempool excludes invalid transactions" (testMempoolExcludesInvalid baseRdb)
+    , testCase "new block excludes invalid transactions" (testNewBlockExcludesInvalid baseRdb)
     , testCase "lookup pact txs spec" (lookupPactTxsSpec baseRdb)
     , testCase "failed txs should go into blocks" (failedTxsShouldGoIntoBlocks baseRdb)
     ]
@@ -278,8 +278,8 @@ newBlockTimeoutSpec baseRdb = runResourceT $ do
 
         pure ()
 
-testMempoolExcludesInvalid :: RocksDb -> IO ()
-testMempoolExcludesInvalid baseRdb = runResourceT $ do
+testNewBlockExcludesInvalid :: RocksDb -> IO ()
+testNewBlockExcludesInvalid baseRdb = runResourceT $ do
     fixture <- mkFixture baseRdb
     liftIO $ do
         -- The mempool should reject a tx that doesn't parse as valid pact.
@@ -321,6 +321,8 @@ testMempoolExcludesInvalid baseRdb = runResourceT $ do
                 ]
             }
 
+        badChain <- buildCwCmd v $ transferCmd 1.0 & set cbChainId (unsafeChainId 1)
+
         let pact4Hash = Pact5.Hash . Pact4.unHash . Pact4.toUntypedHash . Pact4._cmdHash
         _ <- advanceAllChains fixture $ onChain chain0 $ \ph pactQueue mempool -> do
             mempoolInsert5 mempool CheckedInsert [regularTx1]
@@ -328,8 +330,8 @@ testMempoolExcludesInvalid baseRdb = runResourceT $ do
             return $ finalizeBlock bip
 
         _ <- advanceAllChains fixture $ onChain chain0 $ \ph pactQueue mempool -> do
-            mempoolInsert mempool CheckedInsert $ Vector.fromList [badParse, badSigs]
-            mempoolInsert5 mempool CheckedInsert [badUnique, badFuture, badPast, badTxHash]
+            mempoolInsert mempool UncheckedInsert $ Vector.fromList [badParse, badSigs]
+            mempoolInsert5 mempool UncheckedInsert [badChain, badUnique, badFuture, badPast, badTxHash]
             bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             let expectedTxs = []
             let actualTxs = Vector.toList $ Vector.map (unRequestKey . _crReqKey . snd) $ _transactionPairs $ _blockInProgressTransactions bip
