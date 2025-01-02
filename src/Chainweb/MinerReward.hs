@@ -7,6 +7,9 @@
 {-# LANGUAGE NumDecimals #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE DataKinds #-}
 
 -- |
 -- Module: Chainweb.MinerReward
@@ -37,6 +40,8 @@ module Chainweb.MinerReward
 , MinerReward(..)
 , minerRewardKda
 , blockMinerReward
+, encodeMinerReward
+, decodeMinerReward
 
 -- * Internal
 -- ** Miner Rewards Table
@@ -144,8 +149,19 @@ kdaToStu (Kda { _kda = s }) = Stu $ round (s * 1e12)
 
 --  | Miner Reward in Stu
 --
+--  The maximum miner reward is 23045230000000, which is smaller than 2^51-1.
+--  Miner rewards can thus be represented losslessly as JSON numbers.
+--
 newtype MinerReward = MinerReward { _minerReward :: Stu }
     deriving (Show, Eq, Ord, Generic)
+    deriving (ToJSON, FromJSON) via JsonTextRepresentation "MinerReward" MinerReward
+
+instance HasTextRepresentation MinerReward where
+    toText (MinerReward (Stu n)) = toText n
+    fromText t = MinerReward . Stu <$> fromText t
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
+
 
 minerRewardKda :: MinerReward -> Kda
 minerRewardKda (MinerReward d) = stuToKda d
@@ -168,6 +184,20 @@ blockMinerReward v h = case M.lookupGE h minerRewards of
     Just (_, s) -> MinerReward $ divideStu s n
   where
     !n = int . order $ chainGraphAt v h
+
+-- | Binary encoding of mining rewards as unsigned integral number in little
+-- endian encoding.
+--
+-- The maximum miner reward is 23045230000000. The miner reward can therefore be
+-- encoded in as Word64 value.
+--
+encodeMinerReward :: MinerReward -> Put
+encodeMinerReward (MinerReward (Stu n)) = putWord64le (int n)
+{-# INLINE encodeMinerReward #-}
+
+decodeMinerReward :: Get MinerReward
+decodeMinerReward = MinerReward . int <$>  getWord64le
+{-# INLINE decodeMinerReward #-}
 
 -- -------------------------------------------------------------------------- --
 -- Internal
