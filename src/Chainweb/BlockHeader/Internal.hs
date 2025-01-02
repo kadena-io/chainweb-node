@@ -578,7 +578,7 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
     -- = \frac{sum_{0 \leq i < n} (a_i - t)}{n}
     -- \)
     --
-    -- this is numberically sound because we compute the differences on integral
+    -- this is numerically sound because we compute the differences on integral
     -- types without rounding.
     --
     -- Properties of DA:

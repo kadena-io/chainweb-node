@@ -23,7 +23,7 @@
 -- logging facility, and an limit on the number of attempts in case of failure.
 -- The completion of a task can be awaited.
 --
--- This module alos provides a P2P session that listens on the queue and runs
+-- This module also provides a P2P session that listens on the queue and runs
 -- tasks with peers from the P2P network.
 --
 module P2P.TaskQueue
@@ -167,7 +167,7 @@ session_
 session_ limit q logFun env = E.mask $ \restore -> do
     task <- pQueueRemove q
 
-    -- check if the result variable as already been filled
+    -- check if the result variable has already been filled
     let go = tryReadIVar (_taskResult task) >>= \case
             Nothing -> do
                 logg task Debug "run task"
