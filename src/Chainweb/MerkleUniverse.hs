@@ -97,6 +97,10 @@ data ChainwebHashTag
     | BlockEventsHashTag
     | RequestKeyTag
     | PactEventTag
+
+    -- Minimal Payload Provider
+    | MinimalPayloadTag
+
     deriving (Show, Eq)
 
 instance MerkleUniverse ChainwebHashTag where
@@ -126,6 +130,9 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'BlockEventsHashTag = 0x0031
     type MerkleTagVal ChainwebHashTag 'RequestKeyTag = 0x0032
     type MerkleTagVal ChainwebHashTag 'PactEventTag = 0x0034
+
+    -- Minimal Payload Provider
+    type MerkleTagVal ChainwebHashTag 'MinimalPayloadTag = 0x0035
 
 instance HashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag Void where
     type Tag Void = 'VoidTag

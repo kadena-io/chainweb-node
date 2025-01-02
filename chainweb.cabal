@@ -226,6 +226,9 @@ library
         , Chainweb.Payload.RestAPI.Client
         , Chainweb.PayloadProvider
         , Chainweb.PayloadProvider.Initialization
+        , Chainweb.PayloadProvider.Minimal
+        , Chainweb.PayloadProvider.Minimal.Payload
+        , Chainweb.PayloadProvider.Minimal.PayloadDB
         , Chainweb.PayloadProvider.P2P
         , Chainweb.PayloadProvider.P2P.RestAPI
         , Chainweb.PayloadProvider.P2P.RestAPI.Client
