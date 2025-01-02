@@ -491,7 +491,7 @@ toMerkleNodeTagged b = case toMerkleNode @a @u @b b of
     tag :: Word16
     tag = tagVal @u @(Tag b)
 
--- | /Internal:/ Decode Merkle nodes that are tagged with the respedtive type
+-- | /Internal:/ Decode Merkle nodes that are tagged with the respective type
 -- from the Merkle universe.
 --
 fromMerkleNodeTagged
