@@ -18,8 +18,8 @@ module Chainweb.Test.Pact5.Utils
     , getTestLogger
 
         -- * Mempool
-    , insertMempool
-    , lookupMempool
+    , mempoolInsert5
+    , mempoolLookup5
 
         -- * Resources
     , withTempSQLiteResource
@@ -201,8 +201,8 @@ withRunPactService logger v cid pactQueue mempool webBHDb payloadDb pactServiceC
 
 -- | Insert a 'Pact5.Transaction' into the mempool. The mempool currently operates by default on
 --   'Pact4.UnparsedTransaction's, so the txs have to be converted.
-insertMempool :: MempoolBackend Pact4.UnparsedTransaction -> InsertType -> [Pact5.Transaction] -> IO ()
-insertMempool mp insertType txs = do
+mempoolInsert5 :: MempoolBackend Pact4.UnparsedTransaction -> InsertType -> [Pact5.Transaction] -> IO ()
+mempoolInsert5 mp insertType txs = do
     let unparsedTxs :: [Pact4.UnparsedTransaction]
         unparsedTxs = flip map txs $ \tx ->
             case codecDecode Pact4.rawCommandCodec (codecEncode Pact5.payloadCodec tx) of
@@ -211,8 +211,8 @@ insertMempool mp insertType txs = do
     mempoolInsert mp insertType $ Vector.fromList unparsedTxs
 
 -- | Looks up transactions in the mempool. Returns a set which indicates pending membership of the mempool.
-lookupMempool :: MempoolBackend Pact4.UnparsedTransaction -> Vector Pact5.Hash -> IO (HashSet Pact5.Hash)
-lookupMempool mp hashes = do
+mempoolLookup5 :: MempoolBackend Pact4.UnparsedTransaction -> Vector Pact5.Hash -> IO (HashSet Pact5.Hash)
+mempoolLookup5 mp hashes = do
     results <- mempoolLookup mp $ Vector.map (TransactionHash . Pact5.unHash) hashes
     return $ HashSet.fromList $ Vector.toList $ flip Vector.mapMaybe results $ \case
         Missing -> Nothing

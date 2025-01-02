@@ -158,7 +158,7 @@ newBlockEmpty baseRdb = runResourceT $ do
     liftIO $ do
         cmd <- buildCwCmd v (transferCmd 1.0)
         _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
-            insertMempool mempool CheckedInsert [cmd]
+            mempoolInsert5 mempool CheckedInsert [cmd]
             -- -- Test that NewBlockEmpty ignores the mempool
             emptyBip <- throwIfNotPact5 =<< throwIfNoHistory =<<
                 newBlock noMiner NewBlockEmpty (ParentHeader ph) pactQueue
@@ -188,7 +188,7 @@ continueBlockSpec baseRdb = runResourceT $ do
 
         allAtOnceResults <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
             -- insert all transactions
-            insertMempool mempool CheckedInsert [cmd1, cmd2, cmd3]
+            mempoolInsert5 mempool CheckedInsert [cmd1, cmd2, cmd3]
             -- construct a new block with all of said transactions
             bipAllAtOnce <- throwIfNotPact5 =<< throwIfNoHistory =<<
                 newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
@@ -207,14 +207,14 @@ continueBlockSpec baseRdb = runResourceT $ do
         revert fixture startCut
         continuedResults <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
             mempoolClear mempool
-            insertMempool mempool CheckedInsert [cmd3]
+            mempoolInsert5 mempool CheckedInsert [cmd3]
             bipStart <- throwIfNotPact5 =<< throwIfNoHistory =<<
                 newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
 
-            insertMempool mempool CheckedInsert [cmd2]
+            mempoolInsert5 mempool CheckedInsert [cmd2]
             bipContinued <- throwIfNoHistory =<< continueBlock bipStart pactQueue
 
-            insertMempool mempool CheckedInsert [cmd1]
+            mempoolInsert5 mempool CheckedInsert [cmd1]
             bipFinal <- throwIfNoHistory =<< continueBlock bipContinued pactQueue
 
             -- We must make progress on the same parent header
@@ -263,7 +263,7 @@ newBlockTimeoutSpec baseRdb = runResourceT $ do
             }
 
         _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
-            insertMempool mempool CheckedInsert [tx2, timeoutTx, tx1]
+            mempoolInsert5 mempool CheckedInsert [tx2, timeoutTx, tx1]
             bip <- throwIfNotPact5 =<< throwIfNoHistory =<<
                 newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             -- Mempool orders by GasPrice. 'buildCwCmd' sets the gas price to the transfer amount.
@@ -323,13 +323,13 @@ testMempoolExcludesInvalid baseRdb = runResourceT $ do
 
         let pact4Hash = Pact5.Hash . Pact4.unHash . Pact4.toUntypedHash . Pact4._cmdHash
         _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
-            insertMempool mempool CheckedInsert [regularTx1]
+            mempoolInsert5 mempool CheckedInsert [regularTx1]
             bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             return $ finalizeBlock bip
 
         _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
             mempoolInsert mempool CheckedInsert $ Vector.fromList [badParse, badSigs]
-            insertMempool mempool CheckedInsert [badUnique, badFuture, badPast, badTxHash]
+            mempoolInsert5 mempool CheckedInsert [badUnique, badFuture, badPast, badTxHash]
             bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             let expectedTxs = []
             let actualTxs = Vector.toList $ Vector.map (unRequestKey . _crReqKey . snd) $ _transactionPairs $ _blockInProgressTransactions bip
@@ -340,7 +340,7 @@ testMempoolExcludesInvalid baseRdb = runResourceT $ do
         -- to disappear, because only the parent block is used to find txs to
         -- delete from the mempool
         let mempool = _fixtureMempools fixture ^?! atChain cid
-        insertMempool mempool CheckedInsert [badUnique, badFuture, badPast, badTxHash]
+        mempoolInsert5 mempool CheckedInsert [badUnique, badFuture, badPast, badTxHash]
 
         let badTxHashes =
                 [ pact4Hash badParse
@@ -350,7 +350,7 @@ testMempoolExcludesInvalid baseRdb = runResourceT $ do
                 , _cmdHash badTxHash
                 , pact4Hash badSigs
                 ]
-        inMempool <- lookupMempool mempool (Vector.fromList badTxHashes)
+        inMempool <- mempoolLookup5 mempool (Vector.fromList badTxHashes)
         forM_ (zip [0 :: Word ..] badTxHashes) $ \(i, badHash) -> do
             assertBool ("bad tx [index = " <> sshow i <> ", hash = " <> sshow badTxHash <> "] should have been evicted from the mempool") $ not $ HashSet.member badHash inMempool
 
@@ -365,7 +365,7 @@ lookupPactTxsSpec baseRdb = runResourceT $ do
 
         -- Depth 0
         _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
-            insertMempool mempool CheckedInsert [cmd1, cmd2]
+            mempoolInsert5 mempool CheckedInsert [cmd1, cmd2]
             bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             return $ finalizeBlock bip
 
@@ -416,7 +416,7 @@ failedTxsShouldGoIntoBlocks baseRdb = runResourceT $ do
 
         -- Depth 0
         _ <- advanceAllChains fixture $ onChain cid $ \ph pactQueue mempool -> do
-            insertMempool mempool CheckedInsert [cmd1, cmd2]
+            mempoolInsert5 mempool CheckedInsert [cmd1, cmd2]
             bip <- throwIfNotPact5 =<< throwIfNoHistory =<< newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             let block = finalizeBlock bip
             assertEqual "block has 2 txs even though one of them failed" 2 (Vector.length $ _payloadWithOutputsTransactions block)
@@ -458,7 +458,7 @@ advanceAllChainsWithTxs fixture txsPerChain =
     advanceAllChains fixture $
         txsPerChain <&> \txs ph pactQueue mempool -> do
             mempoolClear mempool
-            insertMempool mempool CheckedInsert txs
+            mempoolInsert5 mempool CheckedInsert txs
             nb <- throwIfNotPact5 =<< throwIfNoHistory =<<
                 newBlock noMiner NewBlockFill (ParentHeader ph) pactQueue
             return $ finalizeBlock nb
