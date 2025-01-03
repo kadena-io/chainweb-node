@@ -9,7 +9,7 @@ For previous work, see past coin upgrade efforts:
 - v4: https://github.com/kadena-io/chainweb-node/pull/1397
 
 
-Upgrading the coin contract is a delicate procedure that requires touching many moving parts. In particular, it touches raw pact source files, Ea (genesis and upgrade tx generation), Rosetta, the transaction execution layer, the chainweb versioning layer, and requires tests that span multiple upgrades in order to prove the correctness of upgrade code. Below is a detailed rundown of the procedure and what code may need to be modified in order to correctly upgrade the code contract.
+Upgrading the coin contract is a delicate procedure that requires touching many moving parts. In particular, it touches raw pact source files, Ea (genesis and upgrade tx generation), the transaction execution layer, the chainweb versioning layer, and requires tests that span multiple upgrades in order to prove the correctness of upgrade code. Below is a detailed rundown of the procedure and what code may need to be modified in order to correctly upgrade the code contract.
 
 ## Coin-v*.pact upgrades
 
@@ -56,7 +56,6 @@ In order to generate upgrade or new genesis transactions, the `ea` tool must be 
   This will produce new modules in the `src/Chainweb/Pact/Transactions` directory.
 - Add the newly generated transaction modules to chainweb-node.cabal
 - Export the new transaction values via `src/Chainweb/Pact/Transactions/UpgradeTransactions.hs`.
-- Update Rosetta if need be (see Linda's note in `src/Chainweb/Pact/Transactions/UpgradeTransactions.hs`).
 
 This procedure will allow the new transactions to be referenced from Haskell code as values. From here, the new transactions need to be applied at a particular block height via the transaction layer. The trigger for such a change is canonically located in `src/Chainweb/Version.hs`, while the application of the upgrades themselves are canonically located in `src/Chainweb/Pact/TransactionExec.hs`.
 

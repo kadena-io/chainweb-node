@@ -118,12 +118,6 @@ source-repository-package
 
 source-repository-package
     type: git
-    location: https://github.com/kadena-io/rosetta.git
-    tag: 6c8dd2eea1f6d0dba925646dbcb6e07feeccbfd5
-    --sha256: 19pjy06xrx2siggzybcmly0qaq4ds3yzxcsvqwgs4qh9kkzh0kqh
-
-source-repository-package
-    type: git
     location: https://github.com/kadena-io/kadena-ethereum-bridge.git
     tag: 3837c4c81f1beaffc1d52375e61576366d49170a
     --sha256: 1knhscph2g3saz0pjd1d5a32mr281msapccfrillgd2qk4pj7xjc
@@ -157,9 +151,6 @@ source-repository-package
 
 allow-newer: token-bucket:*
 allow-newer: ixset-typed:*
-
--- TODO: I think this fixed?
-allow-newer: rosetta:*
 
 -- Servant is notoriously forcing outdated upper bounds onto its users.
 -- It is usually safe to just ignore those.
