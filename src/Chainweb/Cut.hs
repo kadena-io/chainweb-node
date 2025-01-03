@@ -392,7 +392,7 @@ projectChains m = HM.intersection m
 {-# INLINE projectChains #-}
 
 cutProjectChains :: Cut -> Cut
-cutProjectChains c = unsafeMkCut v $! projectChains $ _cutHeaders c
+cutProjectChains c = unsafeMkCut v $ projectChains $ _cutHeaders c
   where
     v = _chainwebVersion c
 {-# INLINE cutProjectChains #-}
@@ -459,7 +459,7 @@ limitCut wdb h c
         return c
     | otherwise = do
         hdrs <- itraverse go $ view cutHeaders c
-        return $! unsafeMkCut v $! projectChains $ HM.mapMaybe id hdrs
+        return $! unsafeMkCut v $ projectChains $ HM.mapMaybe id hdrs
   where
     v = _chainwebVersion c
 
@@ -708,9 +708,9 @@ tryMonotonicCutExtension
     -> m (Maybe Cut)
 tryMonotonicCutExtension c h = isMonotonicCutExtension c h >>= \case
     False -> return Nothing
-    True -> return $ Just
+    True -> return $! Just
         $! unsafeMkCut v
-        $! extendChains
+        $ extendChains
         $ set (ix' (_chainId h)) h
         $ _cutHeaders c
   where
