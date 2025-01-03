@@ -125,6 +125,8 @@ mkFixture v pactServiceConfig baseRdb = do
             , _fixtureMempools = OnChains $ fst <$> perChain
             , _fixturePactQueues = OnChains $ snd <$> perChain
             }
+    -- we create the first block to avoid rejecting txs based on genesis
+    -- block creation time being from the past
     _ <- withFixture fixture $ liftIO advanceAllChains
     return fixture
 
