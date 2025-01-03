@@ -124,7 +124,7 @@ newtype Kda = Kda_ Decimal
     deriving stock (Show, Eq, Ord, Generic)
 
 -- | Smart constructor for KDA. It is an error if the Decimal has more than
--- twelf decimal digits.
+-- twelve decimal digits.
 --
 pattern Kda :: HasCallStack => Decimal -> Kda
 pattern Kda { _kda } <- Kda_ _kda where
@@ -209,12 +209,12 @@ mkMinerRewards =
             $ "cannot construct miner rewards table: " <> sshow e
         Right vs ->
             let rewards = M.fromList . V.toList . V.map formatRow $ vs
-            in if (minerRewardsHash rewards == expectedMinerRewardsHash)
+            in if minerRewardsHash rewards == expectedMinerRewardsHash
                 then rewards
                 else error $ "hash of miner rewards table does not match expected hash"
   where
     formatRow :: (Word64, CsvDecimal) -> (BlockHeight, Stu)
-    formatRow (!a,!b) = (BlockHeight $ int a, kdaToStu (Kda $ _csvDecimal b))
+    formatRow (a, b) = (BlockHeight $ int a, kdaToStu (Kda $ _csvDecimal b))
 
 -- -------------------------------------------------------------------------- --
 -- Miner Rewards File
