@@ -17,6 +17,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE DeriveTraversable #-}
 
 -- |
 -- Module: Chainweb.ChainId
@@ -77,7 +78,9 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.Kind
 import Data.Proxy
+import Data.Semialign
 import qualified Data.Text as T
+import Data.These
 import Data.Word (Word32)
 
 import GHC.Generics (Generic)
@@ -270,8 +273,16 @@ chainIdInt (ChainId cid) = int cid
 
 -- | Values keyed by `ChainId`s, or a single value that applies for all chains.
 data ChainMap a = AllChains a | OnChains (HashMap ChainId a)
-    deriving stock (Eq, Functor, Foldable, Generic, Ord, Show)
+    deriving stock (Eq, Functor, Foldable, Traversable, Generic, Ord, Show)
     deriving anyclass (Hashable, NFData)
+
+-- TODO: fix this. This is not a legal instance, because `align` can change the
+-- shape from `AllChains` to `OnChains`. This breaks the "alignedness" law.
+instance Semialign ChainMap where
+    align (OnChains l) (OnChains r) = OnChains $ align l r
+    align (OnChains l) (AllChains r) = OnChains $ fmap (`These` r) l
+    align (AllChains l) (OnChains r) = OnChains $ fmap (l `These`) r
+    align (AllChains l) (AllChains r) = AllChains $ These l r
 
 -- | A smart constructor, @onChains = OnChains . HM.fromList@.
 onChains :: [(ChainId, a)] -> ChainMap a
