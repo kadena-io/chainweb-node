@@ -42,7 +42,6 @@ import Control.Monad (replicateM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Resource (ResourceT, allocate, runResourceT)
 import Data.Aeson qualified as A
-import Data.Aeson qualified as Aeson
 import Data.Aeson.Lens qualified as A
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Base64.URL qualified as B64U
@@ -887,12 +886,12 @@ toPact5RequestKey = \case
     Pact4.RequestKey (Pact4.Hash bytes) -> RequestKey (Pact5.Hash bytes)
 
 toPact4Command :: Command Text -> Pact4.Command Text
-toPact4Command cmd5 = case Aeson.eitherDecodeStrictText (J.encodeText cmd5) of
+toPact4Command cmd5 = case A.eitherDecodeStrictText (J.encodeText cmd5) of
     Left err -> error $ "toPact4Command: decode failed: " ++ err
     Right cmd4 -> cmd4
 
 toPact5CommandResult :: Pact4.CommandResult Pact4.Hash -> TestPact5CommandResult
-toPact5CommandResult cr4 = case Aeson.eitherDecodeStrictText (J.encodeText cr4) of
+toPact5CommandResult cr4 = case A.eitherDecodeStrictText (J.encodeText cr4) of
     Left err -> error $ "toPact5CommandResult: decode failed: " ++ err
     Right cmd5 -> cmd5
 
