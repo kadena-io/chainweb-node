@@ -886,7 +886,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                                                 let pact5Pm = pact5Cmd ^. Pact5.cmdPayload . Pact5.payloadObj . Pact5.pMeta
                                                 let metadata = J.toJsonViaEncode $ Pact5.StableEncoding $ Pact5.ctxToPublicData pact5Pm txCtx
                                                 let cr' = hashPact5TxLogs $ set Pact5.crMetaData (Just metadata) cr
-                                                -- FIXME: Pact5, no warnings yet
+                                                -- TODO: once Pact 5 has warnings, include them here.
                                                 pure $ Pact5LocalResultWithWarns
                                                     (Pact5.PELegacyError . Pact5.toPrettyLegacyError <$> cr')
                                                     []
