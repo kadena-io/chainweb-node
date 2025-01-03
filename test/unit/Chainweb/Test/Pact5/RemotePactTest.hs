@@ -44,6 +44,7 @@ import Control.Monad.Trans.Resource (ResourceT, allocate, runResourceT)
 import Data.Aeson qualified as A
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Lens qualified as A
+import Data.Aeson.KeyMap qualified as A.KeyMap
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Base64.URL qualified as B64U
 import Data.ByteString.Lazy qualified as BL
@@ -118,6 +119,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 import Chainweb.Version.Mainnet (mainnet)
+import qualified Data.Vector as V
 
 data Fixture = Fixture
     { _cutFixture :: CutFixture.Fixture
@@ -717,13 +719,29 @@ localPreflightSimTest baseRdb = let
     cid = unsafeChainId 0
     in withSharedFixture (mkFixture v baseRdb) $ testGroup "preflight sim test"
         [ testCase "ordinary txs" $ do
+            let expectation = P.allTrue
+                    [ P.fun _crResult ? P.match _PactResultOk ? P.equals (PInteger 1)
+                    , P.fun _crMetaData ? P.match _Just ? P.match A._Object ? P.propful ? A.KeyMap.fromList
+                        [ ("blockHeight", P.equals ? A.Number 2)
+                        , ("blockTime", P.match A._Number P.succeed)
+                        , ("prevBlockHash", P.match A._String P.succeed)
+                        , ("publicMeta", P.match A._Object ? P.propful ? A.KeyMap.fromList
+                            [ ("chainId", P.equals ? A.String "0")
+                            , ("creationTime", P.match A._Number P.succeed)
+                            , ("gasLimit", P.match A._Number P.succeed)
+                            , ("gasPrice", P.match A._Number P.succeed)
+                            , ("sender", P.equals ? A.String "sender00")
+                            , ("ttl", P.equals ? A.Number 300)
+                            ])
+                        ]
+                    ]
             buildTextCmd v (defaultCmd cid)
                 >>= local v cid (Just PreflightSimulation) Nothing Nothing
-                >>= P.match _Pact5LocalResultWithWarns ? P.fun fst ? successfulTx
+                >>= P.match _Pact5LocalResultWithWarns ? P.fun fst ? expectation
 
             buildTextCmd v (defaultCmd cid)
                 >>= local v cid (Just PreflightSimulation) (Just NoVerify) Nothing
-                >>= P.match _Pact5LocalResultWithWarns ? P.fun fst ? successfulTx
+                >>= P.match _Pact5LocalResultWithWarns ? P.fun fst ? expectation
 
         , testCase "signature with the wrong key" $ do
             let buildSender00Cmd = defaultCmd cid
@@ -801,7 +819,6 @@ localPreflightSimTest baseRdb = let
                 ? P.match _PactResultErr P.succeed
         ]
 
-        -- TODO: check metadata especially block height
 
         -- TODO: check runLocalWithDepth
 
