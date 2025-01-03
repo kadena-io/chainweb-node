@@ -103,6 +103,7 @@ module Chainweb.Version
 
     -- * Payload Provider Type
     , PayloadProviderType(..)
+    , type SMinimalProvider
     , type SPactProvider
     , type SEvmProvider
     , HasPayloadProviderType(..)
@@ -461,25 +462,31 @@ noQuirks = VersionQuirks
 -- Payload Provider Type
 
 data PayloadProviderType
-    = PactProvider
+    = MinimalProvider
+    | PactProvider
     | EvmProvider
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
 
 data instance Sing (p :: PayloadProviderType) where
+    SMinimalProvider :: Sing 'MinimalProvider
     SPactProvider :: Sing 'PactProvider
     SEvmProvider :: Sing 'EvmProvider
 
+type SMinimalProvider = Sing 'MinimalProvider
 type SPactProvider = Sing 'PactProvider
 type SEvmProvider = Sing 'EvmProvider
 
+instance SingI 'MinimalProvider where sing = SMinimalProvider
 instance SingI 'PactProvider where sing = SPactProvider
 instance SingI 'EvmProvider where sing = SEvmProvider
 
 instance SingKind PayloadProviderType where
     type Demote PayloadProviderType = PayloadProviderType
+    fromSing SMinimalProvider = MinimalProvider
     fromSing SPactProvider = PactProvider
     fromSing SEvmProvider = EvmProvider
+    toSing MinimalProvider = SomeSing SMinimalProvider
     toSing PactProvider = SomeSing SPactProvider
     toSing EvmProvider = SomeSing SEvmProvider
     {-# INLINE fromSing #-}
