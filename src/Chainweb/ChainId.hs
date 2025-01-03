@@ -307,9 +307,9 @@ instance FromJSON a => FromJSON (ChainMap a) where
 makePrisms ''ChainMap
 
 -- | Provides access to the value at a `ChainId`, if it exists.
-atChain :: ChainId -> Fold (ChainMap a) a
+atChain :: HasChainId cid => cid -> Fold (ChainMap a) a
 atChain cid = folding $ \case
-    OnChains m -> m ^. at cid
+    OnChains m -> m ^. at (_chainId cid)
     AllChains a -> Just a
 
 type instance Index (ChainMap a) = ChainId
