@@ -195,6 +195,8 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
     testGroup "Pact5 RemotePactTest"
         [ testCaseSteps "pollingInvalidRequestKeyTest" (pollingInvalidRequestKeyTest rdb)
         , testCaseSteps "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
+        , testCaseSteps "pollingMetadataTest" (pollingMetadataTest rdb)
+        -- FIXME: there is an error when the above tests are reordered to after spvTest.
         , testCaseSteps "spvTest" (spvTest rdb)
         , sendInvalidTxsTest rdb
         , testCaseSteps "caplistTest" (caplistTest rdb)
@@ -202,7 +204,6 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
         , testCaseSteps "webAuthnSignatureTest" (webAuthnSignatureTest rdb)
         , testCaseSteps "localContTest" (localContTest rdb)
         , localPreflightSimTest rdb
-        , testCaseSteps "pollingMetadataTest" (pollingMetadataTest rdb)
         ]
 
 pollingInvalidRequestKeyTest :: RocksDb -> Step -> IO ()
