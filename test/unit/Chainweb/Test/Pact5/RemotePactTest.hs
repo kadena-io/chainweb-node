@@ -201,6 +201,7 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
         , testCaseSteps "webAuthnSignatureTest" (webAuthnSignatureTest rdb)
         , testCaseSteps "localContTest" (localContTest rdb)
         , localPreflightSimTest rdb
+        , testCaseSteps "pollingMetadataTest" (pollingMetadataTest rdb)
         ]
 
 pollingInvalidRequestKeyTest :: RocksDb -> Step -> IO ()
@@ -804,6 +805,33 @@ localPreflightSimTest baseRdb = let
         -- TODO: check metadata especially block height
 
         -- TODO: check runLocalWithDepth
+
+pollingMetadataTest :: RocksDb -> Step -> IO ()
+pollingMetadataTest baseRdb _step = runResourceT $ do
+    let v = pact5InstantCpmTestVersion singletonChainGraph
+    let cid = unsafeChainId 0
+    fixture <- mkFixture v baseRdb
+
+    withFixture fixture $ liftIO $ do
+        cmd <- buildTextCmd v (defaultCmd cid)
+        send v cid [cmd]
+        (_, commandResults) <- advanceAllChains
+        -- there is no metadata in the actual block outputs
+        commandResults
+            & P.fun (^?! atChain cid) ? P.propful ? V.singleton
+            ? P.fun _crMetaData ? P.equals Nothing
+
+        -- the metadata reported by poll has a different shape from that
+        -- reported by /local
+        poll v cid [cmdToRequestKey cmd] >>=
+            P.propful
+            [ P.match _Just ? P.fun _crMetaData ? P.match _Just ? P.match A._Object ? P.propful ? A.KeyMap.fromList
+                [ ("blockHash", P.match A._String P.succeed)
+                , ("blockHeight", P.equals (A.Number 2))
+                , ("blockTime", P.match A._Number P.succeed)
+                , ("prevBlockHash", P.match A._String P.succeed)
+                ]
+            ]
 
 newtype PollException = PollException String
     deriving stock (Show)
