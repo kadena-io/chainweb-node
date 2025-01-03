@@ -44,7 +44,7 @@ Minimal recommended hardware requirements for nodes are:
 * 250 GB SSD or fast HDD
 * Public IP address
 
-If the node is also used as API server for Pact or mining, rosetta, chainweb-data: 4 CPU cores and 8GB of RAM.
+If the node is also used as API server for Pact, mining, or chainweb-data: 4 CPU cores and 8GB of RAM.
 
 ### Docker (all batteries included)
 
@@ -235,10 +235,10 @@ The node will communicate with other nodes in a P2P network. By default it uses
 port 1789 for the P2P communication.
 
 Node services are exposed via the service API, by default on port 1848. The
-service API includes `/info`, `/health-check`, Pact endpoints, Rosetta
-endpoints, the mining API endpoints, GET endpoints for on-chain data (headers,
-payloads, cuts), and an HTTP event stream of block header updates. Some of these
-are disabled by default (e.g. mining API, Rosetta, and header updates).
+service API includes `/info`, `/health-check`, Pact endpoints, the mining API
+endpoints, GET endpoints for on-chain data (headers, payloads, cuts), and an
+HTTP event stream of block header updates. Some of these are disabled by default
+(e.g. mining API, and header updates).
 
 While the P2P endpoint must be directly available from the public internet, it
 is highly recommended to expose the service API only on a private network. When

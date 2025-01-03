@@ -237,11 +237,6 @@ library
         , Chainweb.RestAPI.NodeInfo
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
-        , Chainweb.Rosetta.Internal
-        , Chainweb.Rosetta.RestAPI
-        , Chainweb.Rosetta.RestAPI.Client
-        , Chainweb.Rosetta.RestAPI.Server
-        , Chainweb.Rosetta.Utils
         , Chainweb.SPV
         , Chainweb.SPV.CreateProof
         , Chainweb.SPV.EventProof
@@ -443,7 +438,6 @@ library
         , primitive >= 0.7.1.0
         , random >= 1.2
         , rocksdb-haskell-kadena >= 1.1.0
-        , rosetta >= 1.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
         , semialign >= 1.3.1
@@ -573,7 +567,6 @@ library chainweb-test-utils
         , resourcet >= 1.3
         , retry >= 0.7
         , rocksdb-haskell-kadena >= 1.1.0
-        , rosetta >= 1.0
         , safe-exceptions >= 0.1
         , servant >= 0.20.1
         , servant-client >= 0.18.2
@@ -666,8 +659,6 @@ test-suite chainweb-tests
         Chainweb.Test.Pact5.SPVTest
         Chainweb.Test.Pact5.TransactionExecTest
         Chainweb.Test.RestAPI
-        Chainweb.Test.Rosetta
-        Chainweb.Test.Rosetta.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
         Chainweb.Test.SPV.EventProof
@@ -739,7 +730,6 @@ test-suite chainweb-tests
         , random >= 1.2
         , resource-pool >= 0.4
         , resourcet >= 1.3
-        , rosetta >= 1.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
         , servant-client >= 0.18.2

@@ -51,8 +51,7 @@ import Data.List.NonEmpty (NonEmpty)
 import Control.DeepSeq (NFData)
 
 -- | Whether we write rows to the database that were already overwritten
--- in the same block. This is temporarily necessary to do while Rosetta uses
--- those rows to determine the contents of historic transactions.
+-- in the same block.
 data IntraBlockPersistence = PersistIntraBlockWrites | DoNotPersistIntraBlockWrites
     deriving (Eq, Ord, Show)
 
