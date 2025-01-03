@@ -266,7 +266,7 @@ event
     -> P.Prop [PactValue]
     -> P.Prop ModuleName
     -> P.Prop (PactEvent PactValue)
-event n args modName = P.allTrue
+event n args modName = P.checkAll
     [ P.fun _peName n
     , P.fun _peArgs args
     , P.fun _peModule modName

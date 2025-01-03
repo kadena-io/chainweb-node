@@ -149,8 +149,8 @@ simpleEndToEnd baseRdb = runResourceT $ do
 
         -- we only care that they succeed; specifics regarding their outputs are in TransactionExecTest
         results &
-            P.propful ? onChain chain0 ?
-                P.propful ? Vector.replicate 2 successfulTx
+            P.alignExact ? onChain chain0 ?
+                P.alignExact ? Vector.replicate 2 successfulTx
 
 newBlockEmpty :: RocksDb -> IO ()
 newBlockEmpty baseRdb = runResourceT $ do
@@ -172,8 +172,8 @@ newBlockEmpty baseRdb = runResourceT $ do
             return $ finalizeBlock nonEmptyBip
 
         results &
-            P.propful ? onChain chain0 ?
-                P.propful ? Vector.replicate 1 successfulTx
+            P.alignExact ? onChain chain0 ?
+                P.alignExact ? Vector.replicate 1 successfulTx
 
 continueBlockSpec :: RocksDb -> IO ()
 continueBlockSpec baseRdb = runResourceT $ do
@@ -195,8 +195,8 @@ continueBlockSpec baseRdb = runResourceT $ do
             return $ finalizeBlock bipAllAtOnce
         -- assert that 3 successful txs are in the block
         allAtOnceResults &
-            P.propful ? onChain chain0 ?
-            P.propful ? Vector.replicate 3 successfulTx
+            P.alignExact ? onChain chain0 ?
+            P.alignExact ? Vector.replicate 3 successfulTx
 
         -- reset back to the empty block for the next phase
         -- next, produce the same block by repeatedly extending a block
@@ -269,7 +269,7 @@ newBlockTimeoutSpec baseRdb = runResourceT $ do
             -- Mempool orders by GasPrice. 'buildCwCmd' sets the gas price to the transfer amount.
             -- We hope for 'timeoutTx' to fail, meaning that only 'txTransfer2' is in the block.
             bip & P.fun _blockInProgressTransactions ? P.fun _transactionPairs
-                ? P.propful ? Vector.fromList
+                ? P.alignExact ? Vector.fromList
                     [ P.pair
                         (P.fun _cmdHash ? P.equals (_cmdHash tx2))
                         successfulTx
