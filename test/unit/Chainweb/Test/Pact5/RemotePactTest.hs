@@ -233,7 +233,7 @@ pollingConfirmationDepthTest baseRdb _step = runResourceT $ do
         let rks = [cmdToRequestKey cmd1, cmdToRequestKey cmd2]
 
         let expectSuccessful :: (HasCallStack, _) => P.Prop [Maybe TestPact5CommandResult]
-            expectSuccessful = P.propful
+            expectSuccessful = P.alignExact
                 [ P.match _Just ? P.fun _crResult ? P.equals (PactResultOk (PInteger 42))
                 , P.match _Just ? P.fun _crResult ? P.equals (PactResultOk (PInteger 43))
                 ]
@@ -335,11 +335,11 @@ spvTest baseRdb step = runResourceT $ do
         advanceAllChains_
         [Just recvCr] <- poll v targetChain [recvReqKey]
         recvCr
-            & P.allTrue
+            & P.checkAll
                 [ P.fun _crResult ? P.match _PactResultOk P.succeed
-                , P.fun _crEvents ? P.propful
+                , P.fun _crEvents ? P.alignExact
                     [ P.succeed
-                    , P.allTrue
+                    , P.checkAll
                         [ P.fun _peName ? P.equals "TRANSFER_XCHAIN_RECD"
                         , P.fun _peArgs ? P.equals
                             [PString "", PString "sender01", PDecimal 1.0, PString (chainIdToText srcChain)]
@@ -429,7 +429,7 @@ sendInvalidTxsTest rdb = withSharedFixture (mkFixture v rdb) $
                     & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
                         (validationFailed cmdGood "Transaction metadata (chain id, chainweb version) conflicts with this endpoint")
                 send wrongV cid [cmdGood]
-                    & fails ? P.match _FailureResponse ? P.allTrue
+                    & fails ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals notFound404
                         , P.fun responseBody ? P.equals ""
                         ]
@@ -443,7 +443,7 @@ sendInvalidTxsTest rdb = withSharedFixture (mkFixture v rdb) $
 
                 cmdExpiredTTL <- buildTextCmd v (defaultCmd cid & cbCreationTime .~ Just (TxCreationTime 0))
                 send v cid [cmdExpiredTTL]
-                    & fails ? P.match _FailureResponse ? P.allTrue
+                    & fails ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? textContains
                             (validationFailed cmdExpiredTTL "Transaction time-to-live is expired")
@@ -454,7 +454,7 @@ sendInvalidTxsTest rdb = withSharedFixture (mkFixture v rdb) $
                     $ set cbGasLimit (GasLimit $ Gas 100000000000000)
                     $ defaultCmd cid
                 send v cid [cmdExcessiveGasLimit]
-                    & fails ? P.match _FailureResponse ? P.allTrue
+                    & fails ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? textContains
                             (validationFailed cmdExcessiveGasLimit "Transaction gas limit exceeds block gas limit")
@@ -464,7 +464,7 @@ sendInvalidTxsTest rdb = withSharedFixture (mkFixture v rdb) $
                     $ set cbGasPrice (GasPrice 0.00000000000000001)
                     $ defaultCmd cid
                 send v cid [cmdGasPriceTooPrecise]
-                    & fails ? P.match _FailureResponse ? P.allTrue
+                    & fails ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? textContains
                             (validationFailed cmdGasPriceTooPrecise "insert error: This transaction's gas price: 0.00000000000000001 is not correctly rounded. It should be rounded to at most 12 decimal places.")
@@ -475,7 +475,7 @@ sendInvalidTxsTest rdb = withSharedFixture (mkFixture v rdb) $
                     $ set cbGasLimit (GasLimit (Gas 10_000))
                     $ defaultCmd cid
                 send v cid [cmdNotEnoughGasFunds]
-                    & fails ? P.match _FailureResponse ? P.allTrue
+                    & fails ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? textContains
                             (validationFailed cmdNotEnoughGasFunds "Attempt to buy gas failed with: BuyGasPactError (PEUserRecoverableError (UserEnforceError \"Insufficient funds\")")
@@ -485,7 +485,7 @@ sendInvalidTxsTest rdb = withSharedFixture (mkFixture v rdb) $
                     $ set cbSender "invalid-sender"
                     $ defaultCmd cid
                 send v cid [cmdInvalidSender]
-                    & fails ? P.match _FailureResponse ? P.allTrue
+                    & fails ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? textContains
                             -- TODO: the full error is far more verbose than this,
@@ -499,7 +499,7 @@ sendInvalidTxsTest rdb = withSharedFixture (mkFixture v rdb) $
         -- submitted even one single valid transaction.
         , testCase "none make it into a block" $ do
             (_, cmdResults) <- advanceAllChains
-            forM_ cmdResults (P.propful mempty)
+            forM_ cmdResults (P.alignExact mempty)
 
         ]
     where
@@ -552,8 +552,8 @@ caplistTest baseRdb step = runResourceT $ do
         step "polling"
 
         poll v cid [recvReqKey]
-            >>= P.propful ? List.singleton ? P.match _Just ?
-                P.allTrue
+            >>= P.alignExact ? List.singleton ? P.match _Just ?
+                P.checkAll
                     [ P.fun _crResult ? P.match (_PactResultOk . _PString) ? P.equals "Write succeeded"
                     , P.fun _crMetaData ? P.match (_Just . A._Object . at "blockHash") ? P.match _Just P.succeed
                     ]
@@ -593,8 +593,8 @@ allocationTest rdb step = runResourceT $ do
             send v cid [release00Cmd]
             advanceAllChains_
             poll v cid [cmdToRequestKey release00Cmd] >>=
-                P.propful
-                    [ P.match _Just ? P.allTrue
+                P.alignExact
+                    [ P.match _Just ? P.checkAll
                         [ P.fun _crResult ? P.match _PactResultOk ? P.succeed
                         , P.fun _crEvents ? P.startingWith
                             (event
@@ -611,7 +611,7 @@ allocationTest rdb step = runResourceT $ do
                     ? P.fun _crResult
                     ? P.match _PactResultOk
                     ? P.match _PObject
-                    ? P.propful ? Map.fromList
+                    ? P.alignExact ? Map.fromList
                         [ ("account", P.equals (PString "allocation00"))
                         , ("balance", P.equals (PDecimal 1100000))
                         , ("guard", P.succeed)
@@ -639,7 +639,7 @@ allocationTest rdb step = runResourceT $ do
             send v cid [redefineKeysetCmd]
             advanceAllChains_
             poll v cid [cmdToRequestKey redefineKeysetCmd]
-                >>= P.propful [P.match _Just successfulTx]
+                >>= P.alignExact [P.match _Just successfulTx]
 
             releaseAllocationCmd <- buildTextCmd v
                 $ set cbSender "allocation02"
@@ -649,7 +649,7 @@ allocationTest rdb step = runResourceT $ do
             send v cid [releaseAllocationCmd]
             advanceAllChains_
             poll v cid [cmdToRequestKey releaseAllocationCmd]
-                >>= P.propful [P.match _Just successfulTx]
+                >>= P.alignExact [P.match _Just successfulTx]
 
             buildTextCmd v (set cbRPC (mkExec' "(coin.details \"allocation02\")") $ defaultCmd cid)
                 >>= local v cid Nothing Nothing Nothing
@@ -689,7 +689,7 @@ webAuthnSignatureTest rdb _step = runResourceT $ do
         send v cid [cmd]
         advanceAllChains_
         poll v cid [cmdToRequestKey cmd] >>=
-            P.propful [P.match _Just successfulTx]
+            P.alignExact [P.match _Just successfulTx]
 
 localContTest :: RocksDb -> (String -> IO ()) -> IO ()
 localContTest baseRdb _step = runResourceT $ do
@@ -720,13 +720,13 @@ localPreflightSimTest baseRdb = let
     cid = unsafeChainId 0
     in withSharedFixture (mkFixture v baseRdb) $ testGroup "preflight sim test"
         [ testCase "ordinary txs" $ do
-            let expectation = P.allTrue
+            let expectation = P.checkAll
                     [ P.fun _crResult ? P.match _PactResultOk ? P.equals (PInteger 1)
-                    , P.fun _crMetaData ? P.match _Just ? P.match A._Object ? P.propful ? A.KeyMap.fromList
+                    , P.fun _crMetaData ? P.match _Just ? P.match A._Object ? P.alignExact ? A.KeyMap.fromList
                         [ ("blockHeight", P.equals ? A.Number 2)
                         , ("blockTime", P.match A._Number P.succeed)
                         , ("prevBlockHash", P.match A._String P.succeed)
-                        , ("publicMeta", P.match A._Object ? P.propful ? A.KeyMap.fromList
+                        , ("publicMeta", P.match A._Object ? P.alignExact ? A.KeyMap.fromList
                             [ ("chainId", P.equals ? A.String "0")
                             , ("creationTime", P.match A._Number P.succeed)
                             , ("gasLimit", P.match A._Number P.succeed)
@@ -756,7 +756,7 @@ localPreflightSimTest baseRdb = let
             buildTextCmd v buildSender00Cmd
                 <&> set cmdSigs [ED25519Sig sender01Sig]
                 >>= local v cid (Just PreflightSimulation) Nothing Nothing
-                & fails ? P.match _FailureResponse ? P.allTrue
+                & fails ? P.match _FailureResponse ? P.checkAll
                     [ P.fun responseStatusCode ? P.equals badRequest400
                     , P.fun responseBody ? P.equals "Metadata validation failed: [\"Invalid transaction signatures\"]"
                     ]
@@ -775,28 +775,28 @@ localPreflightSimTest baseRdb = let
         , testCase "invalid tx metadata" $ do
             buildTextCmd v (defaultCmd $ unsafeChainId maxBound)
                 >>= local v cid (Just PreflightSimulation) Nothing Nothing
-                & fails ? P.match _FailureResponse ? P.allTrue
+                & fails ? P.match _FailureResponse ? P.checkAll
                     [ P.fun responseStatusCode ? P.equals badRequest400
                     , P.fun responseBody ? P.equals "Metadata validation failed: [\"Chain id mismatch\"]"
                     ]
 
             buildTextCmd v (set cbGasLimit (GasLimit $ Gas 100000000000000) $ defaultCmd cid)
                 >>= local v cid (Just PreflightSimulation) Nothing Nothing
-                & fails ? P.match _FailureResponse ? P.allTrue
+                & fails ? P.match _FailureResponse ? P.checkAll
                     [ P.fun responseStatusCode ? P.equals badRequest400
                     , P.fun responseBody ? P.equals "Metadata validation failed: [\"Transaction Gas limit exceeds block gas limit\"]"
                     ]
 
             buildTextCmd v (set cbGasPrice (GasPrice 0.00000000000000001) $ defaultCmd cid)
                 >>= local v cid (Just PreflightSimulation) Nothing Nothing
-                & fails ? P.match _FailureResponse ? P.allTrue
+                & fails ? P.match _FailureResponse ? P.checkAll
                     [ P.fun responseStatusCode ? P.equals badRequest400
                     , P.fun responseBody ? P.equals "Metadata validation failed: [\"Gas price decimal precision too high\"]"
                     ]
 
             buildTextCmd mainnet (defaultCmd cid)
                 >>= local v cid (Just PreflightSimulation) Nothing Nothing
-                & fails ? P.match _FailureResponse ? P.allTrue
+                & fails ? P.match _FailureResponse ? P.checkAll
                     [ P.fun responseStatusCode ? P.equals badRequest400
                     , P.fun responseBody ? P.equals "Metadata validation failed: [\"Network id mismatch\"]"
                     ]
@@ -804,7 +804,7 @@ localPreflightSimTest baseRdb = let
             let sigs' = replicate 101 $ mkEd25519Signer' sender00 []
             buildTextCmd v (defaultCmd cid & set cbSigners sigs')
                 >>= local v cid (Just PreflightSimulation) Nothing Nothing
-                & fails ? P.match _FailureResponse ? P.allTrue
+                & fails ? P.match _FailureResponse ? P.checkAll
                     [ P.fun responseStatusCode ? P.equals badRequest400
                     , P.fun responseBody ? P.equals "Metadata validation failed: [\"Signature list size too big\"]"
                     ]
@@ -835,14 +835,15 @@ pollingMetadataTest baseRdb _step = runResourceT $ do
         (_, commandResults) <- advanceAllChains
         -- there is no metadata in the actual block outputs
         commandResults
-            & P.fun (^?! atChain cid) ? P.propful ? V.singleton
+            & P.alignLax P.succeed ? onChain cid ? P.match _Just
+            ? P.alignExact ? V.singleton
             ? P.fun _crMetaData ? P.equals Nothing
 
         -- the metadata reported by poll has a different shape from that
         -- reported by /local
         poll v cid [cmdToRequestKey cmd] >>=
-            P.propful
-            [ P.match _Just ? P.fun _crMetaData ? P.match _Just ? P.match A._Object ? P.propful ? A.KeyMap.fromList
+            P.alignExact
+            [ P.match _Just ? P.fun _crMetaData ? P.match _Just ? P.match A._Object ? P.alignExact ? A.KeyMap.fromList
                 [ ("blockHash", P.match A._String P.succeed)
                 , ("blockHeight", P.equals (A.Number 2))
                 , ("blockTime", P.match A._Number P.succeed)

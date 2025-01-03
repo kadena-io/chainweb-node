@@ -210,7 +210,7 @@ payloadFailureShouldPayAllGasToTheMinerTypeError rdb = readFromAfterGenesis v rd
         logger <- testLogger
         applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
             >>= P.match _Right
-            ? P.allTrue
+            ? P.checkAll
                 [ P.fun _crResult
                     ? P.match (_PactResultErr . _PEExecutionError . _1)
                     ? P.match _NativeArgumentsError P.succeed
@@ -223,11 +223,11 @@ payloadFailureShouldPayAllGasToTheMinerTypeError rdb = readFromAfterGenesis v rd
                 , P.fun _crGas ? P.equals ? Gas 1_000
                 , P.fun _crLogs ? P.match _Just ?
                     P.list
-                        [ P.allTrue
+                        [ P.checkAll
                             [ P.fun _txDomain ? P.equals "coin_coin-table"
                             , P.fun _txKey ? P.equals "sender00"
                             ]
-                        , P.allTrue
+                        , P.checkAll
                             [ P.fun _txDomain ? P.equals "coin_coin-table"
                             , P.fun _txKey ? P.equals "NoMiner"
                             ]
@@ -264,7 +264,7 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds rdb = readFromAfterGene
         logger <- testLogger
         applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
             >>= P.match _Right
-            ? P.allTrue
+            ? P.checkAll
                 [ P.fun _crResult
                     ? P.match (_PactResultErr . _PEUserRecoverableError . _1)
                     ? P.equals (UserEnforceError "Insufficient funds")
@@ -278,11 +278,11 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds rdb = readFromAfterGene
                 , P.fun _crGas ? P.equals ? Gas 1_000
                 , P.fun _crLogs ? P.match _Just ?
                     P.list
-                        [ P.allTrue
+                        [ P.checkAll
                         [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                         , P.fun _txKey ? P.equals ? "sender00"
                         ]
-                        , P.allTrue
+                        , P.checkAll
                         [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                         , P.fun _txKey ? P.equals ? "NoMiner"
                         ]
@@ -311,7 +311,7 @@ runPayloadShouldReturnEvalResultRelatedToTheInputCommand rdb = readFromAfterGene
 
         assertEqual "runPayload gas used" (MilliGas 1_750) gasUsed
 
-        pure payloadResult >>= P.match _Right ? P.allTrue
+        pure payloadResult >>= P.match _Right ? P.checkAll
             [ P.fun _erOutput ? P.equals [InterpretValue (PInteger 15) noInfo]
             , P.fun _erEvents ? P.equals []
             , P.fun _erLogs ? P.equals []
@@ -337,7 +337,7 @@ applyLocalSpec rdb = readFromAfterGenesis v rdb $
         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
         logger <- testLogger
         applyLocal logger Nothing pactDb txCtx noSPVSupport (view payloadObj <$> cmd)
-            >>= P.allTrue
+            >>= P.checkAll
                 -- Local has no buy gas, therefore
                 -- no gas buy event
                 [ P.fun _crEvents ? P.equals ? []
@@ -372,7 +372,7 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $
         logger <- testLogger
         applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
             >>= P.match _Right
-            ? P.allTrue
+            ? P.checkAll
                 -- only the event reflecting the final transfer to the miner for gas used
                 [ P.fun _crEvents ? P.list
                     [ event
@@ -386,18 +386,18 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $
                 , P.fun _crContinuation ? P.equals ? Nothing
                 , P.fun _crLogs ? P.match _Just ?
                     P.list
-                        [ P.allTrue
+                        [ P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "sender00"
                             -- TODO: test the values here?
                             -- here, we're only testing that the write pattern matches
                             -- gas buy and redeem, not the contents of the writes.
                             ]
-                        , P.allTrue
+                        , P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "sender00"
                             ]
-                        , P.allTrue
+                        , P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "NoMiner"
                             ]
@@ -431,7 +431,7 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
             logger <- testLogger
             applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
                 >>= P.match _Right
-                ? P.allTrue
+                ? P.checkAll
                 -- gas buy event
                     [ P.fun _crEvents ? P.list
                         [ event
@@ -458,13 +458,13 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
             logger <- testLogger
             applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
                 >>= P.match _Right
-                ? P.allTrue
+                ? P.checkAll
                     -- gas buy event
                     [ P.fun _crResult
                         ? P.match (_PactResultErr . _PEUserRecoverableError . _1)
                         ? P.equals ? VerifierFailure (VerifierName "allow") "not in transaction"
                     , P.fun _crEvents ? P.list
-                        [ P.allTrue
+                        [ P.checkAll
                             [ P.fun _peName ? P.equals ? "TRANSFER"
                             , P.fun _peArgs ? P.equals ? [PString "sender00", PString "NoMiner", PDecimal 600]
                             , P.fun _peModule ? P.equals ? ModuleName "coin" Nothing
@@ -492,7 +492,7 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
             logger <- testLogger
             applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
                 >>= P.match _Right
-                ? P.allTrue
+                ? P.checkAll
                 -- gas buy event
                     [ P.fun _crEvents ? P.list
                         [ event
@@ -524,7 +524,7 @@ applyCmdFailureSpec rdb = readFromAfterGenesis v rdb $
         logger <- testLogger
         applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
             >>= P.match _Right
-            ? P.allTrue
+            ? P.checkAll
             -- gas buy event
 
                 [ P.fun _crEvents
@@ -541,11 +541,11 @@ applyCmdFailureSpec rdb = readFromAfterGenesis v rdb $
                 , P.fun _crContinuation ? P.equals ? Nothing
                 , P.fun _crLogs ? P.match _Just ?
                     P.list
-                        [ P.allTrue
+                        [ P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "sender00"
                             ]
-                        , P.allTrue
+                        , P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "NoMiner"
                             ]
@@ -582,7 +582,7 @@ applyCmdCoinTransfer rdb = readFromAfterGenesis v rdb $ do
         logger <- testLogger
         e <- applyCmd logger (Just logger) pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
         e & P.match _Right
-            ? P.allTrue
+            ? P.checkAll
                 [ P.fun _crEvents ? P.list
                     -- transfer event and gas redeem event
                     [ event
@@ -600,26 +600,26 @@ applyCmdCoinTransfer rdb = readFromAfterGenesis v rdb $ do
                 , P.fun _crContinuation ? P.equals ? Nothing
                 , P.fun _crLogs ? P.match _Just ?
                     P.list
-                        [ P.allTrue
+                        [ P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "sender00"
                             -- TODO: test the values here?
                             -- here, we're only testing that the write pattern matches
                             -- gas buy and redeem, not the contents of the writes.
                             ]
-                        , P.allTrue
+                        , P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "sender00"
                             ]
-                        , P.allTrue
+                        , P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "sender01"
                             ]
-                        , P.allTrue
+                        , P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "sender00"
                             ]
-                        , P.allTrue
+                        , P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "NoMiner"
                             ]
@@ -642,11 +642,11 @@ applyCoinbaseSpec rdb = readFromAfterGenesis v rdb $
         logger <- testLogger
         applyCoinbase logger pactDb 5 txCtx
             >>= P.match _Right
-            ? P.allTrue
+            ? P.checkAll
                 [ P.fun _crResult ? P.equals ? PactResultOk (PString "Write succeeded")
                 , P.fun _crGas ? P.equals ? Gas 0
                 , P.fun _crLogs ? P.match _Just ? P.list
-                    [ P.allTrue
+                    [ P.checkAll
                         [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                         , P.fun _txKey ? P.equals ? "NoMiner"
                         ]
@@ -703,7 +703,7 @@ testEventOrdering rdb = readFromAfterGenesis v rdb $
         e <- applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
 
         e & P.match _Right
-            ? P.allTrue
+            ? P.checkAll
                 [ P.fun _crEvents ? P.list
                     [ event
                         (P.equals "TRANSFER")
