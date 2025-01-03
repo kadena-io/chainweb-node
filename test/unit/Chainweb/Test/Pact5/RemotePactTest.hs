@@ -113,7 +113,7 @@ import Chainweb.Test.Pact5.CutFixture (advanceAllChains, advanceAllChains_)
 import Chainweb.Test.Pact5.CutFixture qualified as CutFixture
 import Chainweb.Test.Pact5.Utils
 import Chainweb.Test.TestVersions
-import Chainweb.Test.Utils (TestPact5CommandResult, deadbeef, withResource', withResourceT)
+import Chainweb.Test.Utils (TestPact5CommandResult, deadbeef, withResource', withResourceT, unsafeHeadOf)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
@@ -818,10 +818,79 @@ localPreflightSimTest baseRdb = let
                 ? P.fun _crResult
                 -- TODO: a more detailed check here than "is an error" might be nice
                 ? P.match _PactResultErr P.succeed
+        , testCase "local with depth" $ do
+            startBalance <- buildTextCmd v (defaultCmd cid & set cbRPC (mkExec' "(coin.details 'sender00)"))
+                >>= local v cid Nothing Nothing (Just (RewindDepth 0))
+                <&> unsafeHeadOf
+                    ? _Pact5LocalResultLegacy
+                    . to _crResult
+                    . _PactResultOk . _PObject
+                    . at "balance" . _Just
+                    . _PDecimal
+            let
+                hasBalance :: (HasCallStack, _) => _
+                hasBalance p = P.fun _crResult
+                    ? P.match _PactResultOk
+                    ? P.match (_PObject . at "balance" . _Just)
+                    ? P.match _PDecimal p
+                hasBlockHeight :: (HasCallStack, _) => _
+                hasBlockHeight p = P.fun _crMetaData
+                    ? P.match (_Just . A._Object . at "blockHeight" . _Just . A._Number) p
+
+            transfer <- buildTextCmd v $ set cbSigners
+                [ mkEd25519Signer' sender00
+                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
+                    , CapToken (QualifiedName "TRANSFER" (ModuleName "coin" Nothing))
+                        [ PString "sender00", PString "sender01", PDecimal 100.0 ]
+                    ]
+                ]
+                $ set cbRPC (mkExec' "(coin.transfer \"sender00\" \"sender01\" 100.0)")
+                $ defaultCmd cid
+            send v cid [transfer]
+            advanceAllChains_
+
+            buildTextCmd v (defaultCmd cid & set cbRPC (mkExec' "(coin.details 'sender00)"))
+                >>= local v cid Nothing Nothing Nothing
+                >>= P.match _Pact5LocalResultLegacy
+                ? P.checkAll
+                [ hasBalance ? P.lt startBalance
+                , hasBlockHeight (P.equals 3)
+                ]
+
+            buildTextCmd v (defaultCmd cid & set cbRPC (mkExec' "(coin.details 'sender00)"))
+                >>= local v cid Nothing Nothing (Just (RewindDepth 0))
+                >>= P.match _Pact5LocalResultLegacy
+                ? P.checkAll
+                [ hasBalance ? P.lt startBalance
+                , hasBlockHeight (P.equals 3)
+                ]
+
+            buildTextCmd v (defaultCmd cid & set cbRPC (mkExec' "(coin.details 'sender00)"))
+                >>= local v cid Nothing Nothing (Just (RewindDepth 1))
+                >>= P.match _Pact5LocalResultLegacy
+                ? P.checkAll
+                [ hasBalance ? P.equals startBalance
+                , hasBlockHeight (P.equals 2)
+                ]
+
+            buildTextCmd v (defaultCmd cid & set cbRPC (mkExec' "(coin.details 'sender00)"))
+                >>= local v cid Nothing Nothing (Just (RewindDepth 2))
+                >>= P.match _Pact5LocalResultLegacy
+                ? P.checkAll
+                [ hasBalance ? P.equals startBalance
+                , hasBlockHeight (P.equals 1)
+                ]
+
+            buildTextCmd v (defaultCmd cid & set cbRPC (mkExec' "(coin.details 'sender00)"))
+                >>= local v cid Nothing Nothing (Just (RewindDepth 3))
+                >>= P.match _Pact5LocalResultLegacy
+                ? P.checkAll
+                [ hasBalance ? P.equals startBalance
+                , hasBlockHeight (P.equals 1)
+                ]
+
         ]
 
-
-        -- TODO: check runLocalWithDepth
 
 pollingMetadataTest :: RocksDb -> Step -> IO ()
 pollingMetadataTest baseRdb _step = runResourceT $ do
