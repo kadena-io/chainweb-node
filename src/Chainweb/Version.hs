@@ -19,6 +19,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- |
 -- Module: Chainweb.Version
@@ -84,7 +85,9 @@ module Chainweb.Version
     , ForBothPactVersions(..)
     , ForSomePactVersion(..)
     , pattern ForPact4
+    , _ForPact4
     , pattern ForPact5
+    , _ForPact5
     , forAnyPactVersion
 
     -- * Typelevel ChainwebVersionName
@@ -363,6 +366,14 @@ instance (forall pv. NFData (f pv)) => NFData (ForSomePactVersion f) where
     rnf (ForSomePactVersion pv f) = rnf pv `seq` rnf f
 pattern ForPact4 :: f Pact4 -> ForSomePactVersion f
 pattern ForPact4 x = ForSomePactVersion Pact4T x
+_ForPact4 :: Prism' (ForSomePactVersion f) (f Pact4)
+_ForPact4 = prism' ForPact4 $ \case
+    ForPact4 x -> Just x
+    _ -> Nothing
+_ForPact5 :: Prism' (ForSomePactVersion f) (f Pact5)
+_ForPact5 = prism' ForPact5 $ \case
+    ForPact5 x -> Just x
+    _ -> Nothing
 pattern ForPact5 :: f Pact5 -> ForSomePactVersion f
 pattern ForPact5 x = ForSomePactVersion Pact5T x
 {-# COMPLETE ForPact4, ForPact5 #-}

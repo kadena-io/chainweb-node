@@ -44,11 +44,10 @@ import Data.IORef
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.String (fromString)
-import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import Data.Text.IO qualified as T
-import Chainweb.Test.Pact5.Utils (getTestLogLevel)
+import Chainweb.Test.Pact5.Utils hiding (testRocksDb, withTempSQLiteResource)
 import GHC.Stack
 import Pact.Core.Capabilities
 import Pact.Core.Command.Types
@@ -71,21 +70,6 @@ import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import Text.Printf
 import Chainweb.Logger
 import Chainweb.Pact.Backend.Types
-
-coinModuleName :: ModuleName
-coinModuleName = ModuleName "coin" Nothing
-
--- usually we don't want to check the module hash
-event
-    :: P.Prop Text
-    -> P.Prop [PactValue]
-    -> P.Prop ModuleName
-    -> P.Prop (PactEvent PactValue)
-event n args modName = P.allTrue
-    [ P.fun _peName n
-    , P.fun _peArgs args
-    , P.fun _peModule modName
-    ]
 
 tests :: RocksDb -> TestTree
 tests baseRdb = testGroup "Pact5 TransactionExecTest"
@@ -133,14 +117,8 @@ buyGasShouldTakeGasTokensFromTheTransactionSender rdb = readFromAfterGenesis v r
         startSender00Bal <- readBal pactDb "sender00"
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
 
-        cmd <- buildCwCmd v defaultCmd
-            { _cbSigners =
-                [ mkEd25519Signer' sender00
-                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
-                ]
-            , _cbSender = "sender00"
-            , _cbChainId = cid
-            , _cbGasPrice = GasPrice 2
+        cmd <- buildCwCmd v (defaultCmd cid)
+            { _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 200)
             }
 
@@ -161,14 +139,8 @@ buyGasFailures rdb = readFromAfterGenesis v rdb $ do
         -- buying gas with insufficient balance to pay for the full supply
         -- (gas price * gas limit) should return an error
         do
-            cmd <- buildCwCmd v defaultCmd
-                { _cbSigners =
-                    [ mkEd25519Signer' sender00
-                        [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
-                    ]
-                , _cbSender = "sender00"
-                , _cbChainId = cid
-                , _cbGasPrice = GasPrice 70_000
+            cmd <- buildCwCmd v (defaultCmd cid)
+                { _cbGasPrice = GasPrice 70_000
                 , _cbGasLimit = GasLimit (Gas 100_000)
                 }
             let txCtx' = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
@@ -182,18 +154,14 @@ buyGasFailures rdb = readFromAfterGenesis v rdb $ do
         -- multiple gas payer caps should lead to an error, because it's unclear
         -- which module will pay for gas
         do
-            cmd <- buildCwCmd v defaultCmd
+            cmd <- buildCwCmd v (defaultCmd cid)
                 { _cbSigners =
-                    [ mkEd25519Signer' sender00 [CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []]
-                    , mkEd25519Signer' sender00
-                        [ CapToken (QualifiedName "GAS_PAYER" (ModuleName "coin" Nothing)) []
+                    [ mkEd25519Signer' sender00 [
+                        CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
+                        , CapToken (QualifiedName "GAS_PAYER" (ModuleName "coin" Nothing)) []
                         , CapToken (QualifiedName "GAS_PAYER" (ModuleName "coin2" Nothing)) []
                         ]
                     ]
-                , _cbSender = "sender00"
-                , _cbChainId = cid
-                , _cbGasPrice = GasPrice 2
-                , _cbGasLimit = GasLimit (Gas 200)
                 }
             let txCtx' = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
             gasEnv <- mkTableGasEnv (MilliGasLimit mempty) GasLogsEnabled
@@ -208,14 +176,8 @@ redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner rdb = readFromAfterGe
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v defaultCmd
-            { _cbSigners =
-                [ mkEd25519Signer' sender00
-                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
-                ]
-            , _cbSender = "sender00"
-            , _cbChainId = cid
-            , _cbGasPrice = GasPrice 2
+        cmd <- buildCwCmd v (defaultCmd cid)
+            { _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 10)
             }
         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
@@ -238,14 +200,8 @@ payloadFailureShouldPayAllGasToTheMinerTypeError rdb = readFromAfterGenesis v rd
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(+ 1 \"hello\")"
-            , _cbSigners =
-                [ mkEd25519Signer' sender00
-                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
-                ]
-            , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 1000)
             }
@@ -254,7 +210,7 @@ payloadFailureShouldPayAllGasToTheMinerTypeError rdb = readFromAfterGenesis v rd
         logger <- testLogger
         applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
             >>= P.match _Right
-            ? P.allTrue
+            ? P.checkAll
                 [ P.fun _crResult
                     ? P.match (_PactResultErr . _PEExecutionError . _1)
                     ? P.match _NativeArgumentsError P.succeed
@@ -267,11 +223,11 @@ payloadFailureShouldPayAllGasToTheMinerTypeError rdb = readFromAfterGenesis v rd
                 , P.fun _crGas ? P.equals ? Gas 1_000
                 , P.fun _crLogs ? P.match _Just ?
                     P.list
-                        [ P.allTrue
+                        [ P.checkAll
                             [ P.fun _txDomain ? P.equals "coin_coin-table"
                             , P.fun _txKey ? P.equals "sender00"
                             ]
-                        , P.allTrue
+                        , P.checkAll
                             [ P.fun _txDomain ? P.equals "coin_coin-table"
                             , P.fun _txKey ? P.equals "NoMiner"
                             ]
@@ -289,7 +245,7 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds rdb = readFromAfterGene
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' $ fromString $
                 "(coin.transfer \"sender00\" \"sender01\" "
                 <> printf "%.f" (realToFrac @_ @Double $ fromMaybe 0 startSender00Bal + 1)
@@ -300,8 +256,6 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds rdb = readFromAfterGene
                     , CapToken (QualifiedName "TRANSFER" coinModuleName) [PString "sender00", PString "sender01", PDecimal 1_000_000_000]
                     ]
                 ]
-            , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 1000)
             }
@@ -310,7 +264,7 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds rdb = readFromAfterGene
         logger <- testLogger
         applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
             >>= P.match _Right
-            ? P.allTrue
+            ? P.checkAll
                 [ P.fun _crResult
                     ? P.match (_PactResultErr . _PEUserRecoverableError . _1)
                     ? P.equals (UserEnforceError "Insufficient funds")
@@ -324,11 +278,11 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds rdb = readFromAfterGene
                 , P.fun _crGas ? P.equals ? Gas 1_000
                 , P.fun _crLogs ? P.match _Just ?
                     P.list
-                        [ P.allTrue
+                        [ P.checkAll
                         [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                         , P.fun _txKey ? P.equals ? "sender00"
                         ]
-                        , P.allTrue
+                        , P.checkAll
                         [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                         , P.fun _txKey ? P.equals ? "NoMiner"
                         ]
@@ -342,16 +296,8 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds rdb = readFromAfterGene
 runPayloadShouldReturnEvalResultRelatedToTheInputCommand :: RocksDb -> IO ()
 runPayloadShouldReturnEvalResultRelatedToTheInputCommand rdb = readFromAfterGenesis v rdb $
     pactTransaction Nothing $ \pactDb -> do
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(fold + 0 [1 2 3 4 5])"
-            , _cbSigners =
-                [ mkEd25519Signer' sender00
-                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
-                ]
-            , _cbSender = "sender00"
-            , _cbChainId = cid
-            , _cbGasPrice = GasPrice 2
-            , _cbGasLimit = GasLimit (Gas 10)
             }
         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
         gasEnv <- mkTableGasEnv (MilliGasLimit (gasToMilliGas $ Gas 10)) GasLogsEnabled
@@ -365,7 +311,7 @@ runPayloadShouldReturnEvalResultRelatedToTheInputCommand rdb = readFromAfterGene
 
         assertEqual "runPayload gas used" (MilliGas 1_750) gasUsed
 
-        pure payloadResult >>= P.match _Right ? P.allTrue
+        pure payloadResult >>= P.match _Right ? P.checkAll
             [ P.fun _erOutput ? P.equals [InterpretValue (PInteger 15) noInfo]
             , P.fun _erEvents ? P.equals []
             , P.fun _erLogs ? P.equals []
@@ -384,18 +330,14 @@ applyLocalSpec rdb = readFromAfterGenesis v rdb $
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(fold + 0 [1 2 3 4 5])"
             , _cbSigners = []
-            , _cbSender = "sender00"
-            , _cbChainId = cid
-            , _cbGasPrice = GasPrice 2
-            , _cbGasLimit = GasLimit (Gas 500)
             }
         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
         logger <- testLogger
         applyLocal logger Nothing pactDb txCtx noSPVSupport (view payloadObj <$> cmd)
-            >>= P.allTrue
+            >>= P.checkAll
                 -- Local has no buy gas, therefore
                 -- no gas buy event
                 [ P.fun _crEvents ? P.equals ? []
@@ -420,14 +362,8 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $
         assertEqual "starting balance" (Just expectedStartingBal) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(fold + 0 [1 2 3 4 5])"
-            , _cbSigners =
-                [ mkEd25519Signer' sender00
-                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
-                ]
-            , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 500)
             }
@@ -436,7 +372,7 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $
         logger <- testLogger
         applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
             >>= P.match _Right
-            ? P.allTrue
+            ? P.checkAll
                 -- only the event reflecting the final transfer to the miner for gas used
                 [ P.fun _crEvents ? P.list
                     [ event
@@ -450,18 +386,18 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $
                 , P.fun _crContinuation ? P.equals ? Nothing
                 , P.fun _crLogs ? P.match _Just ?
                     P.list
-                        [ P.allTrue
+                        [ P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "sender00"
                             -- TODO: test the values here?
                             -- here, we're only testing that the write pattern matches
                             -- gas buy and redeem, not the contents of the writes.
                             ]
-                        , P.allTrue
+                        , P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "sender00"
                             ]
-                        , P.allTrue
+                        , P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "NoMiner"
                             ]
@@ -480,7 +416,7 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
     pactTransaction Nothing $ \pactDb -> do
         -- Define module with capability
         do
-            cmd <- buildCwCmd v defaultCmd
+            cmd <- buildCwCmd v (defaultCmd cid)
                 { _cbRPC = mkExec' $ T.unlines
                     [ "(namespace 'free)"
                     , "(module m G"
@@ -488,12 +424,6 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
                     , "  (defun x () (with-capability (G) 1))"
                     , ")"
                     ]
-                , _cbSigners =
-                    [ mkEd25519Signer' sender00
-                        [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
-                    ]
-                , _cbSender = "sender00"
-                , _cbChainId = cid
                 , _cbGasPrice = GasPrice 2
                 , _cbGasLimit = GasLimit (Gas 70_000)
                 }
@@ -501,7 +431,7 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
             logger <- testLogger
             applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
                 >>= P.match _Right
-                ? P.allTrue
+                ? P.checkAll
                 -- gas buy event
                     [ P.fun _crEvents ? P.list
                         [ event
@@ -515,14 +445,8 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
                     , P.fun _crContinuation ? P.equals ? Nothing
                     ]
 
-        let baseCmd = defaultCmd
+        let baseCmd = (defaultCmd cid)
                 { _cbRPC = mkExec' "(free.m.x)"
-                , _cbSender = "sender00"
-                , _cbSigners =
-                    [ mkEd25519Signer' sender00
-                        [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
-                    ]
-                , _cbChainId = cid
                 , _cbGasPrice = GasPrice 2
                 , _cbGasLimit = GasLimit (Gas 300)
                 }
@@ -534,13 +458,13 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
             logger <- testLogger
             applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
                 >>= P.match _Right
-                ? P.allTrue
+                ? P.checkAll
                     -- gas buy event
                     [ P.fun _crResult
                         ? P.match (_PactResultErr . _PEUserRecoverableError . _1)
                         ? P.equals ? VerifierFailure (VerifierName "allow") "not in transaction"
                     , P.fun _crEvents ? P.list
-                        [ P.allTrue
+                        [ P.checkAll
                             [ P.fun _peName ? P.equals ? "TRANSFER"
                             , P.fun _peArgs ? P.equals ? [PString "sender00", PString "NoMiner", PDecimal 600]
                             , P.fun _peModule ? P.equals ? ModuleName "coin" Nothing
@@ -568,7 +492,7 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
             logger <- testLogger
             applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
                 >>= P.match _Right
-                ? P.allTrue
+                ? P.checkAll
                 -- gas buy event
                     [ P.fun _crEvents ? P.list
                         [ event
@@ -590,14 +514,8 @@ applyCmdFailureSpec rdb = readFromAfterGenesis v rdb $
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(+ 1 \"abc\")"
-            , _cbSigners =
-                [ mkEd25519Signer' sender00
-                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
-                ]
-            , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 500)
             }
@@ -606,7 +524,7 @@ applyCmdFailureSpec rdb = readFromAfterGenesis v rdb $
         logger <- testLogger
         applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
             >>= P.match _Right
-            ? P.allTrue
+            ? P.checkAll
             -- gas buy event
 
                 [ P.fun _crEvents
@@ -623,11 +541,11 @@ applyCmdFailureSpec rdb = readFromAfterGenesis v rdb $
                 , P.fun _crContinuation ? P.equals ? Nothing
                 , P.fun _crLogs ? P.match _Just ?
                     P.list
-                        [ P.allTrue
+                        [ P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "sender00"
                             ]
-                        , P.allTrue
+                        , P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "NoMiner"
                             ]
@@ -649,15 +567,13 @@ applyCmdCoinTransfer rdb = readFromAfterGenesis v rdb $ do
         assertEqual "starting balance" (Just 100_000_000) startSender00Bal
         startMinerBal <- readBal pactDb "NoMiner"
 
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(coin.transfer 'sender00 'sender01 420.0)"
             , _cbSigners =
                 [ mkEd25519Signer' sender00
                     [ CapToken (QualifiedName "GAS" coinModuleName) []
                     , CapToken (QualifiedName "TRANSFER" coinModuleName) [PString "sender00", PString "sender01", PDecimal 420] ]
                 ]
-            , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 0.1
             , _cbGasLimit = GasLimit (Gas 1_000)
             }
@@ -666,7 +582,7 @@ applyCmdCoinTransfer rdb = readFromAfterGenesis v rdb $ do
         logger <- testLogger
         e <- applyCmd logger (Just logger) pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
         e & P.match _Right
-            ? P.allTrue
+            ? P.checkAll
                 [ P.fun _crEvents ? P.list
                     -- transfer event and gas redeem event
                     [ event
@@ -684,26 +600,26 @@ applyCmdCoinTransfer rdb = readFromAfterGenesis v rdb $ do
                 , P.fun _crContinuation ? P.equals ? Nothing
                 , P.fun _crLogs ? P.match _Just ?
                     P.list
-                        [ P.allTrue
+                        [ P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "sender00"
                             -- TODO: test the values here?
                             -- here, we're only testing that the write pattern matches
                             -- gas buy and redeem, not the contents of the writes.
                             ]
-                        , P.allTrue
+                        , P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "sender00"
                             ]
-                        , P.allTrue
+                        , P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "sender01"
                             ]
-                        , P.allTrue
+                        , P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "sender00"
                             ]
-                        , P.allTrue
+                        , P.checkAll
                             [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                             , P.fun _txKey ? P.equals ? "NoMiner"
                             ]
@@ -726,11 +642,11 @@ applyCoinbaseSpec rdb = readFromAfterGenesis v rdb $
         logger <- testLogger
         applyCoinbase logger pactDb 5 txCtx
             >>= P.match _Right
-            ? P.allTrue
+            ? P.checkAll
                 [ P.fun _crResult ? P.equals ? PactResultOk (PString "Write succeeded")
                 , P.fun _crGas ? P.equals ? Gas 0
                 , P.fun _crLogs ? P.match _Just ? P.list
-                    [ P.allTrue
+                    [ P.checkAll
                         [ P.fun _txDomain ? P.equals ? "coin_coin-table"
                         , P.fun _txKey ? P.equals ? "NoMiner"
                         ]
@@ -762,30 +678,23 @@ testCoinUpgrade rdb = readFromAfterGenesis vUpgrades rdb $ do
             >>= P.equals ? PactResultOk (PString "3iIBQdJnst44Z2ZgXoHPkAauybJ0h85l_en_SGHNibE")
     where
     getCoinModuleHash logger txCtx pactDb = do
-        cmd <- buildCwCmd vUpgrades defaultCmd
+        cmd <- buildCwCmd vUpgrades (defaultCmd cid)
             { _cbRPC = mkExec' "(at 'hash (describe-module 'coin))"
-            , _cbSigners =
-                [ mkEd25519Signer' sender00 [CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []]
-                ]
-            , _cbSender = "sender00"
-            , _cbChainId = cid
-            , _cbGasPrice = GasPrice 2
-            , _cbGasLimit = GasLimit (Gas 500)
             }
         _crResult <$> applyLocal logger Nothing pactDb txCtx noSPVSupport (view payloadObj <$> cmd)
+
 
 testEventOrdering :: RocksDb -> IO ()
 testEventOrdering rdb = readFromAfterGenesis v rdb $
     pactTransaction Nothing $ \pactDb -> do
-        cmd <- buildCwCmd v defaultCmd
+        cmd <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(coin.transfer 'sender00 'sender01 420.0) (coin.transfer 'sender00 'sender01 69.0)"
             , _cbSigners =
                 [ mkEd25519Signer' sender00
                     [ CapToken (QualifiedName "GAS" coinModuleName) []
-                    , CapToken (QualifiedName "TRANSFER" coinModuleName) [PString "sender00", PString "sender01", PDecimal 489] ]
+                    , CapToken (QualifiedName "TRANSFER" coinModuleName) [PString "sender00", PString "sender01", PDecimal 489]
+                    ]
                 ]
-            , _cbSender = "sender00"
-            , _cbChainId = cid
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 1100)
             }
@@ -794,7 +703,7 @@ testEventOrdering rdb = readFromAfterGenesis v rdb $
         e <- applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
 
         e & P.match _Right
-            ? P.allTrue
+            ? P.checkAll
                 [ P.fun _crEvents ? P.list
                     [ event
                         (P.equals "TRANSFER")
@@ -816,15 +725,8 @@ testLocalOnlyFailsOutsideOfLocal rdb = readFromAfterGenesis v rdb $ do
     txCtx <- TxContext <$> view psParentHeader <*> pure noMiner
     pactTransaction Nothing $ \pactDb -> do
         let testLocalOnly txt = do
-                cmd <- buildCwCmd v defaultCmd
+                cmd <- buildCwCmd v (defaultCmd cid)
                     { _cbRPC = mkExec' txt
-                    , _cbSigners =
-                        [ mkEd25519Signer' sender00 [CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []]
-                        ]
-                    , _cbSender = "sender00"
-                    , _cbChainId = cid
-                    , _cbGasPrice = GasPrice 2
-                    , _cbGasLimit = GasLimit (Gas 200_000)
                     }
 
                 logger <- testLogger
@@ -845,15 +747,8 @@ testWritesFromFailedTxDontMakeItIn rdb = readFromAfterGenesis v rdb $ do
     txCtx <- TxContext <$> view psParentHeader <*> pure noMiner
     pactTransaction Nothing $ \pactDb -> do
 
-        moduleDeploy <- buildCwCmd v defaultCmd
+        moduleDeploy <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(module m g (defcap g () (enforce false \"non-upgradeable\"))) (enforce false \"boom\")"
-            , _cbSigners =
-                [ mkEd25519Signer' sender00
-                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) [] ]
-                ]
-            , _cbSender = "sender00"
-            , _cbChainId = cid
-            , _cbGasPrice = GasPrice 0.1
             , _cbGasLimit = GasLimit (Gas 200_000)
             }
 
@@ -896,3 +791,5 @@ testLogger :: IO GenericLogger
 testLogger = do
     logLevel <- liftIO getTestLogLevel
     pure $ genericLogger logLevel T.putStrLn
+
+-- TODO: explicit test that signing for no caps is equivalent to signing for GAS

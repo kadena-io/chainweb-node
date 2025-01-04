@@ -95,7 +95,7 @@ mkKeySetData name keys = PObject $ Map.singleton (Field name) $ PList (Vector.fr
 
 sender00Ks :: KeySet
 sender00Ks = KeySet
-    (Set.fromList [PublicKeyText "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"])
+    (Set.fromList [PublicKeyText $ fst sender00])
     KeysAll
 
 
@@ -172,13 +172,13 @@ mkContMsg pid step = ContMsg
   , _cmProof = Nothing }
 
 -- | Default builder.
-defaultCmd :: CmdBuilder
-defaultCmd = CmdBuilder
-  { _cbSigners = []
+defaultCmd :: Chainweb.ChainId -> CmdBuilder
+defaultCmd cid = CmdBuilder
+  { _cbSigners = [mkEd25519Signer' sender00 []]
   , _cbVerifiers = []
   , _cbRPC = mkExec' "1"
   , _cbNonce = Nothing
-  , _cbChainId = unsafeChainId 0
+  , _cbChainId = cid
   , _cbSender = "sender00"
   , _cbGasLimit = GasLimit (Gas 10_000)
   , _cbGasPrice = GasPrice 0.000_1

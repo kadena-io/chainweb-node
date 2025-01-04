@@ -12,6 +12,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService.Pact4.ExecBlock
@@ -252,10 +253,19 @@ validateParsedChainwebTx logger v cid dbEnv txValidationTime bh tx
   | otherwise = do
       checkUnique logger dbEnv tx
       checkTxHash logger v cid bh tx
+      checkChain cid tx
       checkTxSigs logger v cid bh tx
       checkTimes logger v cid bh txValidationTime tx
       _ <- checkCompile logger v cid bh tx
       return ()
+
+checkChain
+  :: ChainId -> Pact4.Transaction -> ExceptT InsertError IO ()
+checkChain cid tx =
+  unless (Pact4.assertChainId cid txCid) $
+    throwError $ InsertErrorWrongChain (chainIdToText cid) (Pact4._chainId txCid)
+  where
+  txCid = view (Pact4.cmdPayload . to Pact4.payloadObj . Pact4.pMeta . Pact4.pmChainId) tx
 
 checkUnique
   :: (Logger logger)

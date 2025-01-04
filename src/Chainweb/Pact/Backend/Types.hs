@@ -29,6 +29,8 @@ module Chainweb.Pact.Backend.Types
     , pendingTxLogMap
     , SQLiteRowDelta(..)
     , Historical(..)
+    , _Historical
+    , _NoHistory
     , PactDbFor
     ) where
 
@@ -144,5 +146,7 @@ data Historical a
     | NoHistory
     deriving stock (Eq, Foldable, Functor, Generic, Traversable, Show)
     deriving anyclass NFData
+
+makePrisms ''Historical
 
 type family PactDbFor logger (pv :: PactVersion)
