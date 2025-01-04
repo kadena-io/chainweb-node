@@ -36,7 +36,9 @@ module Chainweb.Utils.Serialization
     , putWord256be
     , getWord256be
     , putByteString
+    , putShortByteString
     , getByteString
+    , getShortByteString
     , putRawByteString
     , getRemainingLazyByteString
 
@@ -56,6 +58,7 @@ import Control.Monad
 import Control.Monad.Catch hiding (bracket)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Short as BS
 import Data.Coerce
 import Data.DoubleWord (Word128(..), Word256(..))
 import Data.Int
@@ -152,8 +155,12 @@ getWord64be :: Get Word64
 getWord64be = coerce Binary.getWord64be
 getByteString :: Int -> Get B.ByteString
 getByteString = coerce Binary.getByteString
+getShortByteString :: Int -> Get BS.ShortByteString
+getShortByteString = fmap BS.toShort . coerce Binary.getByteString
 putByteString :: B.ByteString -> Put
 putByteString = coerce Binary.putByteString
+putShortByteString :: BS.ShortByteString -> Put
+putShortByteString = coerce Binary.putShortByteString
 
 putWord128be :: Word128 -> Put
 putWord128be = encodeWordBe

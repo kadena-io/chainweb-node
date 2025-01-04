@@ -58,6 +58,18 @@ type ChainwebMerkleHashAlgorithm = SHA512t_256
 -- -------------------------------------------------------------------------- --
 -- Chainweb Merkle Universe
 
+-- | Tags for Leaf Nodes in the Chainweb Merkle Tree
+--
+-- IMPORTANT NOTE:
+--
+-- A tag MUST uniquely identify the each particular use of a type in the Merkle
+-- Tree. NEVER EVER reuse a tag at a different place in the tree.
+--
+-- Merkle Proofs for the Chainweb Merkle tree witness the existence of a given
+-- tagged value anywhere in the tree. If the same tagged value is used in
+-- in different roles in multiple places in the tree, the proof will be
+-- ambiguous.
+--
 data ChainwebHashTag
     = VoidTag
     | MerkleRootTag

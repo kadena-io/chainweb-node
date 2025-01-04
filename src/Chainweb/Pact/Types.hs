@@ -1051,6 +1051,7 @@ data BlockInProgress pv = BlockInProgress
   , _blockInProgressTransactions :: !(Transactions pv (CommandResultFor pv))
   , _blockInProgressPactVersion :: !(PactVersionT pv)
   }
+
 instance Eq (BlockInProgress pv) where
   bip == bip' =
     case (_blockInProgressPactVersion bip, _blockInProgressPactVersion bip') of
@@ -1068,6 +1069,14 @@ instance Eq (BlockInProgress pv) where
         _blockInProgressRemainingGasLimit bip == _blockInProgressRemainingGasLimit  bip' &&
         _blockInProgressMiner bip == _blockInProgressMiner bip' &&
         _blockInProgressTransactions bip == _blockInProgressTransactions  bip'
+
+instance HasChainwebVersion (BlockInProgress pv) where
+    _chainwebVersion = _blockInProgressChainwebVersion
+    {-# INLINE _chainwebVersion #-}
+
+instance HasChainId (BlockInProgress pv) where
+    _chainId = _blockInProgressChainId
+    {-# INLINE _chainId #-}
 
 blockInProgressParent :: BlockInProgress pv -> (BlockHash, BlockHeight, BlockCreationTime)
 blockInProgressParent bip =

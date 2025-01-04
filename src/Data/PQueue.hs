@@ -37,7 +37,7 @@ import Numeric.Natural
 --
 -- The queue is fair for users of the queue. It does not guarantee progress for
 -- items in the queue. An item of low priority my starve in the queue if higher
--- priority items are added a rate at least as high as items are removed.
+-- priority items are added at a rate at least as high as items are removed.
 --
 data PQueue a = PQueue !(MVar ()) !(MVar (H.Heap a))
     deriving (Generic)

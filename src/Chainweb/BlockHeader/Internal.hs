@@ -44,6 +44,9 @@ module Chainweb.BlockHeader.Internal
 -- * Newtype wrappers for function parameters
   ParentHeader(..)
 , parentHeader
+, parentHeaderHash
+, _rankedParentHash
+, rankedParentHash
 , ParentCreationTime(..)
 
 -- * Block Payload Hash
@@ -578,7 +581,7 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
     -- = \frac{sum_{0 \leq i < n} (a_i - t)}{n}
     -- \)
     --
-    -- this is numberically sound because we compute the differences on integral
+    -- this is numerically sound because we compute the differences on integral
     -- types without rounding.
     --
     -- Properties of DA:
@@ -622,6 +625,15 @@ newtype ParentHeader = ParentHeader
 
 parentHeader :: Lens' ParentHeader BlockHeader
 parentHeader = lens _parentHeader $ \_ hdr -> ParentHeader hdr
+
+parentHeaderHash :: Getter ParentHeader BlockHash
+parentHeaderHash = parentHeader . blockHash
+
+_rankedParentHash :: ParentHeader -> RankedBlockHash
+_rankedParentHash = _rankedBlockHash . _parentHeader
+
+rankedParentHash :: Getter ParentHeader RankedBlockHash
+rankedParentHash = parentHeader . rankedBlockHash
 
 instance HasChainId ParentHeader where
     _chainId = _chainId . _parentHeader
@@ -1072,7 +1084,8 @@ instance IsBlockHeader BlockHeader where
 --
 newBlockHeader
     :: HM.HashMap ChainId ParentHeader
-        -- ^ Adjacent parent hashes.
+        -- ^ Adjacent parent hashes. The hash and the PoW target of these are
+        -- needed for construction the new header.
     -> BlockPayloadHash
         -- ^ payload hash
     -> Nonce
