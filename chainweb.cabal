@@ -198,6 +198,7 @@ library
         , Chainweb.Mempool.Consensus
         , Chainweb.Mempool.CurrentTxs
         , Chainweb.Mempool.InMem
+        , Chainweb.Mempool.InMem.ValidatingConfig
         , Chainweb.Mempool.InMemTypes
         , Chainweb.Mempool.Mempool
         , Chainweb.Mempool.P2pConfig
