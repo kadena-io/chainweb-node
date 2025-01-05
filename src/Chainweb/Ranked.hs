@@ -1,6 +1,13 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE DataKinds #-}
 
 -- |
 -- Module: Chainweb.Ranked
@@ -19,17 +26,22 @@ module Chainweb.Ranked
 ( Ranked(..)
 , encodeRanked
 , decodeRanked
+, JsonRanked(..)
 ) where
 
 import Chainweb.BlockHeight
+import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
 import Control.DeepSeq
 import Control.Monad
 
+import Data.Aeson
 import Data.Hashable
+import Data.Typeable (Proxy(..), Typeable, typeRep)
 
-import GHC.Generics
+import GHC.Generics (Generic)
+import GHC.TypeLits
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeight Ranked Data
@@ -61,3 +73,29 @@ decodeRanked decodeA = Ranked
     <*> decodeA
 {-# INLINE decodeRanked #-}
 
+-- -------------------------------------------------------------------------- --
+
+-- | JSON Encoding for Ranked Types.
+--
+-- The first type parameter is the JSON key for the value.
+--
+newtype JsonRanked (s :: Symbol) a = JsonRanked { _jsonRanked :: Ranked a }
+
+instance (ToJSON a, KnownSymbol s) => ToJSON (JsonRanked s a) where
+    toJSON (JsonRanked r) = object
+        [ "height" .= _rankedHeight r
+        , symbolText @s .= _ranked r
+        ]
+    toEncoding (JsonRanked r) = pairs $ mconcat
+        [ "height" .= _rankedHeight r
+        , symbolText @s .= _ranked r
+        ]
+    {-# INLINE toJSON #-}
+    {-# INLINE toEncoding #-}
+
+instance (KnownSymbol s, Typeable a, FromJSON a) => FromJSON (JsonRanked s a) where
+    parseJSON = withObject ("Ranked " <> show (typeRep (Proxy @a))) $ \o ->
+        fmap JsonRanked $ Ranked
+            <$> o .: "height"
+            <*> o .: symbolText @s
+    {-# INLINE parseJSON  #-}
