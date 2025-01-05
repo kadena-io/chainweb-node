@@ -88,26 +88,32 @@ runMempoolSyncClient mgr memP2pConfig peerRes chain = bracket create destroy go
     logg = logFunctionText syncLogger
     syncLogger = setComponent "mempool-sync" $ _chainResLogger chain
 
+-- | FIXME:
+--
+-- the mempool should be part of pact. The API can be published to the node API
+-- in the same way the Payload APIs are published.
+--
 mempoolSyncP2pSession
     :: ChainResources logger
     -> Seconds
     -> P2pSession
 mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env _ = do
-    logg Debug "mempool sync session starting"
-    Mempool.syncMempools' logg syncIntervalUs pool peerMempool
-    logg Debug "mempool sync session finished"
-    return True
-  where
-    peerMempool = MPC.toMempool v cid txcfg env
-
-    -- FIXME Potentially dangerous down-cast.
-    syncIntervalUs :: Int
-    syncIntervalUs = int pollInterval * 500000
-
-    remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
-    logg d m = logg0 d $ T.concat ["[mempool sync@", remote, "]:", m]
-
-    pool = _chainResMempool chain
-    txcfg = Mempool.mempoolTxConfig pool
-    cid = _chainId chain
-    v = _chainwebVersion chain
+    error "Chainweb.Chainweb.MempoolSyncClient.mempoolSyncP2pSession: only supported for pact service which is currently disabled"
+--     logg Debug "mempool sync session starting"
+--     Mempool.syncMempools' logg syncIntervalUs pool peerMempool
+--     logg Debug "mempool sync session finished"
+--     return True
+--   where
+--     peerMempool = MPC.toMempool v cid txcfg env
+--
+--     -- FIXME Potentially dangerous down-cast.
+--     syncIntervalUs :: Int
+--     syncIntervalUs = int pollInterval * 500000
+--
+--     remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
+--     logg d m = logg0 d $ T.concat ["[mempool sync@", remote, "]:", m]
+--
+--     pool = _chainResMempool chain
+--     txcfg = Mempool.mempoolTxConfig pool
+--     cid = _chainId chain
+--     v = _chainwebVersion chain
