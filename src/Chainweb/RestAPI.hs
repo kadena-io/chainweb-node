@@ -95,7 +95,6 @@ import qualified Chainweb.Miner.RestAPI.Server as Mining
 import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI
-import Chainweb.Payload.RestAPI.Server
 import Chainweb.RestAPI.Backup
 import Chainweb.RestAPI.Config
 import Chainweb.RestAPI.Health
@@ -145,21 +144,21 @@ serveSocketTls settings certChain key = runTLSSocket tlsSettings settings
 -- | Datatype for collectively passing all storage backends to
 -- functions that run a chainweb server.
 --
-data ChainwebServerDbs t tbl = ChainwebServerDbs
+data ChainwebServerDbs t = ChainwebServerDbs
     { _chainwebServerCutDb :: !(Maybe CutDb)
     , _chainwebServerBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
     , _chainwebServerMempools :: ![(ChainId, MempoolBackend t)]
-    , _chainwebServerPayloadDbs :: ![(ChainId, PayloadDb tbl)]
+    , _chainwebServerPayloads :: ![(ChainId, SomeServer)]
     , _chainwebServerPeerDbs :: ![(NetworkId, PeerDb)]
     }
     deriving (Generic)
 
-emptyChainwebServerDbs :: ChainwebServerDbs t tbl
+emptyChainwebServerDbs :: ChainwebServerDbs t
 emptyChainwebServerDbs = ChainwebServerDbs
     { _chainwebServerCutDb = Nothing
     , _chainwebServerBlockHeaderDbs = []
     , _chainwebServerMempools = []
-    , _chainwebServerPayloadDbs = []
+    , _chainwebServerPayloads = []
     , _chainwebServerPeerDbs = []
     }
 
@@ -211,19 +210,18 @@ chainwebServiceMiddlewares
 
 someChainwebServer
     :: Show t
-    => CanReadablePayloadCas tbl
     => ChainwebConfiguration
-    -> ChainwebServerDbs t tbl
+    -> ChainwebServerDbs t
     -> SomeServer
 someChainwebServer config dbs =
     maybe mempty (someCutServer v cutPeerDb) cuts
-    <> somePayloadServers v p2pPayloadBatchLimit payloads
+    <> mconcat (snd <$> payloads)
     <> someP2pBlockHeaderDbServers v blocks
     <> Mempool.someMempoolServers v mempools
     <> someP2pServers v peers
     <> someGetConfigServer config
   where
-    payloads = _chainwebServerPayloadDbs dbs
+    payloads = _chainwebServerPayloads dbs
     blocks = _chainwebServerBlockHeaderDbs dbs
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
@@ -237,20 +235,19 @@ someChainwebServer config dbs =
 --
 someChainwebServerWithHashesAndSpvApi
     :: Show t
-    => CanReadablePayloadCas tbl
     => ChainwebConfiguration
-    -> ChainwebServerDbs t tbl
+    -> ChainwebServerDbs t
     -> SomeServer
 someChainwebServerWithHashesAndSpvApi config dbs =
     maybe mempty (someCutServer v cutPeerDb) cuts
-    <> somePayloadServers v p2pPayloadBatchLimit payloads
-    <> someBlockHeaderDbServers v blocks payloads
+    <> mconcat (snd <$> payloads)
+    <> someBlockHeaderDbServers v blocks
     <> Mempool.someMempoolServers v mempools
     <> someP2pServers v peers
     <> someGetConfigServer config
     <> maybe mempty (someSpvServers v) cuts
   where
-    payloads = _chainwebServerPayloadDbs dbs
+    payloads = _chainwebServerPayloads dbs
     blocks = _chainwebServerBlockHeaderDbs dbs
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
@@ -263,9 +260,8 @@ someChainwebServerWithHashesAndSpvApi config dbs =
 
 chainwebApplication
     :: Show t
-    => CanReadablePayloadCas tbl
     => ChainwebConfiguration
-    -> ChainwebServerDbs t tbl
+    -> ChainwebServerDbs t
     -> Application
 chainwebApplication config dbs
     = chainwebP2pMiddlewares
@@ -278,9 +274,8 @@ chainwebApplication config dbs
 --
 chainwebApplicationWithHashesAndSpvApi
     :: Show t
-    => CanReadablePayloadCas tbl
     => ChainwebConfiguration
-    -> ChainwebServerDbs t tbl
+    -> ChainwebServerDbs t
     -> Application
 chainwebApplicationWithHashesAndSpvApi config dbs
     = chainwebP2pMiddlewares
@@ -289,29 +284,26 @@ chainwebApplicationWithHashesAndSpvApi config dbs
 
 serveChainwebOnPort
     :: Show t
-    => CanReadablePayloadCas tbl
     => Port
     -> ChainwebConfiguration
-    -> ChainwebServerDbs t tbl
+    -> ChainwebServerDbs t
     -> IO ()
 serveChainwebOnPort p c dbs = run (int p) $ chainwebApplication c dbs
 
 serveChainweb
     :: Show t
-    => CanReadablePayloadCas tbl
     => Settings
     -> ChainwebConfiguration
-    -> ChainwebServerDbs t tbl
+    -> ChainwebServerDbs t
     -> IO ()
 serveChainweb s c dbs = runSettings s $ chainwebApplication c dbs
 
 serveChainwebSocket
     :: Show t
-    => CanReadablePayloadCas tbl
     => Settings
     -> Socket
     -> ChainwebConfiguration
-    -> ChainwebServerDbs t tbl
+    -> ChainwebServerDbs t
     -> Middleware
     -> IO ()
 serveChainwebSocket settings sock c dbs m =
@@ -319,13 +311,12 @@ serveChainwebSocket settings sock c dbs m =
 
 serveChainwebSocketTls
     :: Show t
-    => CanReadablePayloadCas tbl
     => Settings
     -> X509CertChainPem
     -> X509KeyPem
     -> Socket
     -> ChainwebConfiguration
-    -> ChainwebServerDbs t tbl
+    -> ChainwebServerDbs t
     -> Middleware
     -> IO ()
 serveChainwebSocketTls settings certChain key sock c dbs m =
@@ -357,65 +348,59 @@ servePeerDbSocketTls settings certChain key sock v nid pdb m =
 
 someServiceApiServer
     :: Show t
-    => CanReadablePayloadCas tbl
     => Logger logger
     => ChainwebVersion
-    -> ChainwebServerDbs t tbl
-    -> [(ChainId, PactAPI.PactServerData logger tbl)]
+    -> ChainwebServerDbs t
     -> Maybe (MiningCoordination logger)
     -> HeaderStream
     -> Maybe (BackupEnv logger)
     -> PayloadBatchLimit
     -> SomeServer
-someServiceApiServer v dbs pacts mr (HeaderStream hs) backupEnv pbl =
+someServiceApiServer v dbs mr (HeaderStream hs) backupEnv pbl =
     someHealthCheckServer
     <> maybe mempty (someBackupServer v) backupEnv
     <> maybe mempty (someNodeInfoServer v) cuts
-    <> PactAPI.somePactServers v pacts
+    <> mempty -- PactAPI.somePactServers v
     <> maybe mempty (Mining.someMiningServer v) mr
     -- <> maybe mempty (someSpvServers v) cuts -- AFAIK currently not used
 
     -- GET Cut, Payload, and Headers endpoints
     <> maybe mempty (someCutGetServer v) cuts
-    <> somePayloadServers v pbl payloads
-    <> someBlockHeaderDbServers v blocks payloads -- TODO make max limits configurable
+    <> mconcat (snd <$> payloads)
+    <> someBlockHeaderDbServers v blocks
     <> maybe mempty (someBlockStreamServer v) (bool Nothing cuts hs)
   where
     cuts = _chainwebServerCutDb dbs
-    payloads = _chainwebServerPayloadDbs dbs
+    payloads = _chainwebServerPayloads dbs
     blocks = _chainwebServerBlockHeaderDbs dbs
 
 serviceApiApplication
     :: Show t
-    => CanReadablePayloadCas tbl
     => Logger logger
     => ChainwebVersion
-    -> ChainwebServerDbs t tbl
-    -> [(ChainId, PactAPI.PactServerData logger tbl)]
+    -> ChainwebServerDbs t
     -> Maybe (MiningCoordination logger)
     -> HeaderStream
     -> Maybe (BackupEnv logger)
     -> PayloadBatchLimit
     -> Application
-serviceApiApplication v dbs pacts mr hs be pbl
+serviceApiApplication v dbs mr hs be pbl
     = chainwebServiceMiddlewares
     . someServerApplication
-    $ someServiceApiServer v dbs pacts mr hs be pbl
+    $ someServiceApiServer v dbs mr hs be pbl
 
 serveServiceApiSocket
     :: Show t
-    => CanReadablePayloadCas tbl
     => Logger logger
     => Settings
     -> Socket
     -> ChainwebVersion
-    -> ChainwebServerDbs t tbl
-    -> [(ChainId, PactAPI.PactServerData logger tbl)]
+    -> ChainwebServerDbs t
     -> Maybe (MiningCoordination logger)
     -> HeaderStream
     -> Maybe (BackupEnv logger)
     -> PayloadBatchLimit
     -> Middleware
     -> IO ()
-serveServiceApiSocket s sock v dbs pacts mr hs be pbl m =
-    runSettingsSocket s sock $ m $ serviceApiApplication v dbs pacts mr hs be pbl
+serveServiceApiSocket s sock v dbs mr hs be pbl m =
+    runSettingsSocket s sock $ m $ serviceApiApplication v dbs mr hs be pbl
