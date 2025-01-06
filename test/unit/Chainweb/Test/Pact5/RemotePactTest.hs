@@ -203,6 +203,7 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
         , testCaseSteps "allocationTest" (allocationTest rdb)
         , testCaseSteps "webAuthnSignatureTest" (webAuthnSignatureTest rdb)
         , testCaseSteps "localContTest" (localContTest rdb)
+        , testCaseSteps "localSignatureTest" (localSignatureTest rdb)
         , localPreflightSimTest rdb
         ]
 
@@ -713,6 +714,33 @@ localContTest baseRdb _step = runResourceT $ do
         local v cid Nothing Nothing Nothing continuer
             >>= P.match _Pact5LocalResultLegacy ? P.fun _crResult
             ? P.match _PactResultOk ? P.equals (PInteger 2)
+
+localSignatureTest :: RocksDb -> (String -> IO ()) -> IO ()
+localSignatureTest baseRdb _step = runResourceT $ do
+    let v = pact5InstantCpmTestVersion petersonChainGraph
+    let cid = unsafeChainId 0
+    fixture <- mkFixture v baseRdb
+    withFixture fixture $ liftIO $ do
+        let buildSender00Cmd = defaultCmd cid
+                & cbSigners .~ [mkEd25519Signer' sender00 []]
+        goodCmdHash <- _cmdHash <$> buildTextCmd v buildSender00Cmd
+        sender01KeyPair <- either error return $ importEd25519KeyPair Nothing
+            (PrivBS $ either error id $ B16.decode $ T.encodeUtf8 $ snd sender01)
+        let sender01Sig = T.decodeUtf8 $ B16.encode $ exportEd25519Signature $
+                signEd25519 (fst sender01KeyPair) (snd sender01KeyPair) goodCmdHash
+        buildTextCmd v buildSender00Cmd
+            <&> set cmdSigs [ED25519Sig sender01Sig]
+            >>= local v cid Nothing Nothing Nothing
+            & P.fails ? P.match _FailureResponse
+            ? P.checkAll
+                [ P.fun responseStatusCode ? P.equals badRequest400
+                , P.fun responseBody ? P.equals "Metadata validation failed: [\"The signature at position 0 is invalid: invalid ed25519 signature.\"]"
+                ]
+        buildTextCmd v buildSender00Cmd
+            <&> set cmdSigs [ED25519Sig sender01Sig]
+            >>= local v cid Nothing (Just NoVerify) Nothing
+            >>= P.match _LocalResultLegacy
+            ? P.succeed
 
 localPreflightSimTest :: RocksDb -> TestTree
 localPreflightSimTest baseRdb = let

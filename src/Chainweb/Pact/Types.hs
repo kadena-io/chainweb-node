@@ -177,6 +177,10 @@ module Chainweb.Pact.Types
   , ApplyCmdExecutionContext(..)
   , Pact4TxFailureLog(..)
   , Pact5TxFailureLog(..)
+  , AssertCommandError(..)
+  , displayAssertCommandError
+  , AssertValidateSigsError(..)
+  , displayAssertValidateSigsError
 
   -- * miscellaneous
   , defaultOnFatalError
@@ -1261,3 +1265,39 @@ instance NFData r => NFData (Transactions Pact5 r) where
 
 makeLenses 'Transactions
 makeLenses 'BlockInProgress
+
+data AssertValidateSigsError
+  = SignersAndSignaturesLengthMismatch
+      { _signersLength :: !Int
+      , _signaturesLength :: !Int
+      }
+  | InvalidSignerScheme
+      { _position :: !Int
+      }
+  | InvalidSignerWebAuthnPrefix
+      { _position :: !Int
+      }
+  | InvalidUserSig
+      { _position :: !Int
+      , _errMsg :: Text
+      }
+
+displayAssertValidateSigsError :: AssertValidateSigsError -> Text
+displayAssertValidateSigsError = \case
+  SignersAndSignaturesLengthMismatch signersLength sigsLength ->
+    "The number of signers and signatures do not match. Number of signers: " <> sshow signersLength <> ". Number of signatures: " <> sshow sigsLength <> "."
+  InvalidSignerScheme pos ->
+    "The signer at position " <> sshow pos <> " has an invalid signature scheme."
+  InvalidSignerWebAuthnPrefix pos ->
+    "The signer at position " <> sshow pos <> " has an invalid WebAuthn prefix."
+  InvalidUserSig pos errMsg ->
+    "The signature at position " <> sshow pos <> " is invalid: " <> errMsg <> "."
+
+data AssertCommandError
+  = InvalidPayloadHash
+  | AssertValidateSigsError AssertValidateSigsError
+
+displayAssertCommandError :: AssertCommandError -> Text
+displayAssertCommandError = \case
+  InvalidPayloadHash -> "The hash of the payload was invalid."
+  AssertValidateSigsError err -> displayAssertValidateSigsError err

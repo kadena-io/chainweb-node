@@ -49,7 +49,7 @@ import Data.Bifunctor (second)
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
-import Data.Either (partitionEithers)
+import Data.Either (partitionEithers, isRight)
 import Data.Foldable
 import Data.Function
 import Data.HashMap.Strict (HashMap)
@@ -706,13 +706,13 @@ barf e = maybe (throwError e) return
 
 -- TODO: all of the functions in this module can instead grab the current block height from consensus
 -- and pass it here to get a better estimate of what behavior is correct.
-validateCommand :: ChainwebVersion -> ChainId -> Pact4.Command Text -> Either String Pact4.Transaction
+validateCommand :: ChainwebVersion -> ChainId -> Pact4.Command Text -> Either Text Pact4.Transaction
 validateCommand v cid (fmap encodeUtf8 -> cmdBs) = case parsedCmd of
   Right (commandParsed :: Pact4.Transaction) ->
     case Pact4.assertCommand commandParsed (validPPKSchemes v cid bh) (isWebAuthnPrefixLegal v cid bh) of
-      Left err -> Left $ "Command failed validation: " ++ Pact4.displayAssertCommandError err
+      Left err -> Left $ "Command failed validation: " <> Pact4.displayAssertCommandError err
       Right () -> Right commandParsed
-  Left e -> Left $ "Pact parsing error: " ++ e
+  Left e -> Left $ "Pact parsing error: " <> T.pack e
   where
     bh = maxBound :: BlockHeight
     decodeAndParse bs =
@@ -725,7 +725,7 @@ validateCommand v cid (fmap encodeUtf8 -> cmdBs) = case parsedCmd of
 validatePact5Command :: ChainwebVersion -> ChainId -> Pact5.Command Text -> Either String Pact5.Transaction
 validatePact5Command _v _cid cmdText = case parsedCmd of
   Right (commandParsed :: Pact5.Transaction) ->
-    if Pact5.assertCommand commandParsed
+    if isRight (Pact5.assertCommand commandParsed)
     then Right commandParsed
     else Left "Command failed validation"
   Left e -> Left $ "Pact parsing error: " ++ Pact5.renderCompactString e

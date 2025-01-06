@@ -575,7 +575,7 @@ defaultCmd = CmdBuilder
 buildCwCmd :: (MonadThrow m, MonadIO m) => Text -> ChainwebVersion -> CmdBuilder -> m Pact4.Transaction
 buildCwCmd nonce v cmd = buildRawCmd nonce v cmd >>= \(c :: Command ByteString) ->
   case validateCommand v (_cbChainId cmd) (T.decodeUtf8 <$> c) of
-    Left err -> throwM $ userError $ "buildCmd failed: " ++ err
+    Left err -> throwM $ userError $ "buildCmd failed: " ++ T.unpack err
     Right cmd' -> return cmd'
 
 -- | Build unparsed, unverified command
