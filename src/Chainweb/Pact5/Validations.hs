@@ -40,6 +40,7 @@ import Data.Maybe
 import Data.Either (isRight)
 import Data.List.NonEmpty (NonEmpty, nonEmpty)
 import Data.Text (Text)
+import qualified Data.Text as Text
 import qualified Data.ByteString.Short as SBS
 import Data.Word (Word8)
 
@@ -60,6 +61,7 @@ import qualified Pact.Types.Gas as Pact4
 import qualified Pact.Parse as Pact4
 import Chainweb.Pact5.Types
 import qualified Chainweb.Pact5.Transaction as Pact5
+import Chainweb.Utils (ebool_)
 
 
 -- | Check whether a local Api request has valid metadata
@@ -96,7 +98,7 @@ assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
   where
     sigValidate signers
       | Just NoVerify <- sigVerify = True
-      | otherwise = assertValidateSigs hsh signers sigs
+      | otherwise = isRight $ assertValidateSigs hsh signers sigs
 
     pct = ParentCreationTime
       . view blockCreationTime
@@ -150,13 +152,25 @@ assertTxSize initialGas gasLimit = P.GasLimit initialGas < gasLimit
 -- | Check and assert that signers and user signatures are valid for a given
 -- transaction hash.
 --
-assertValidateSigs :: P.Hash -> [P.Signer] -> [P.UserSig] -> Bool
-assertValidateSigs hsh signers sigs
-    | length signers /= length sigs = False
-    | otherwise = and $ zipWith verifyUserSig sigs signers
-    where
-        verifyUserSig sig signer =
-          isRight $ P.verifyUserSig hsh sig signer
+assertValidateSigs :: ()
+  => P.Hash
+  -> [P.Signer]
+  -> [P.UserSig]
+  -> Either AssertValidateSigsError ()
+assertValidateSigs hsh signers sigs = do
+  let signersLength = length signers
+  let sigsLength = length sigs
+  ebool_
+    SignersAndSignaturesLengthMismatch
+        { _signersLength = signersLength
+        , _signaturesLength = sigsLength
+        }
+    (signersLength == sigsLength)
+
+  iforM_ (zip sigs signers) $ \pos (sig, signer) -> do
+    case P.verifyUserSig hsh sig signer of
+      Left errMsg -> Left (InvalidUserSig pos (Text.pack errMsg))
+      Right () -> Right ()
 
 -- prop_tx_ttl_newBlock/validateBlock
 --
@@ -195,10 +209,10 @@ assertTxNotInFuture (ParentCreationTime (BlockCreationTime txValidationTime)) tx
 
 -- | Assert that the command hash matches its payload and
 -- its signatures are valid, without parsing the payload.
-assertCommand :: Pact5.Transaction -> Bool
-assertCommand cmd =
-  isRight assertHash &&
-  assertValidateSigs hsh signers (P._cmdSigs cmd)
+assertCommand :: Pact5.Transaction -> Either AssertCommandError ()
+assertCommand cmd = do
+  _ <- assertHash & _Left .~ InvalidPayloadHash
+  assertValidateSigs hsh signers (P._cmdSigs cmd) & _Left %~ AssertValidateSigsError
   where
     hsh = P._cmdHash cmd
     pwt = P._cmdPayload cmd

@@ -144,6 +144,7 @@ import qualified Chainweb.Pact.PactService.Checkpointer as Checkpointer
 import Chainweb.Pact.PactService.Checkpointer (SomeBlockM(..))
 import qualified Pact.Core.StableEncoding as Pact5
 import Control.Monad.Cont (evalContT)
+import qualified Data.List.NonEmpty as NonEmpty
 
 
 runPactService
@@ -789,6 +790,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
             mc <- Pact4.getInitCache
             dbEnv <- Pact4._cpPactDbEnv <$> view psBlockDbEnv
             logger <- view (psServiceEnv . psLogger)
+
             evalContT $ withEarlyReturn $ \earlyReturn -> do
                 pact4Cwtx <- liftIO (runExceptT (Pact4.checkParse logger v cid bh cwtx)) >>= \case
                     Left err -> earlyReturn $
@@ -807,6 +809,18 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                             Just PreflightSimulation -> Pact4LocalResultWithWarns parseError []
                             _ -> Pact4LocalResultLegacy parseError
                     Right pact4Cwtx -> return pact4Cwtx
+                case (preflight, sigVerify) of
+                    (_, Just NoVerify) -> do
+                        let payloadBS = SB.fromShort (Pact4._cmdPayload $ Pact4.payloadBytes <$> cwtx)
+                        let validated = Pact4.verifyHash @'Pact4.Blake2b_256 (Pact4._cmdHash cmd) payloadBS
+                        case validated of
+                            Left err -> earlyReturn $ review _MetadataValidationFailure $ NonEmpty.singleton $ Text.pack err
+                            Right _ -> return ()
+                    _ -> do
+                        let validated = Pact4.assertCommand pact4Cwtx (validPPKSchemes v cid bh) (isWebAuthnPrefixLegal v cid bh)
+                        case validated of
+                            Left err -> earlyReturn $ review _MetadataValidationFailure (pure $ displayAssertCommandError err)
+                            Right () -> return ()
 
                 --
                 -- if the ?preflight query parameter is set to True, we run the `applyCmd` workflow
@@ -861,6 +875,23 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                             }
                     Right pact5Cmd -> return pact5Cmd
 
+                -- this is just one of our metadata validation passes.
+                -- in preflight, we do another one, which replicates some of this work;
+                -- TODO: unify preflight, newblock, and validateblock tx metadata validation
+                case (preflight, sigVerify) of
+                    (_, Just NoVerify) -> do
+                        let payloadBS = SB.fromShort (Pact4._cmdPayload $ Pact4.payloadBytes <$> cwtx)
+                        let validated = Pact5.verifyHash (Pact5._cmdHash pact5Cmd) payloadBS
+                        case validated of
+                            Left err -> earlyReturn $
+                                review _MetadataValidationFailure $ NonEmpty.singleton $ Text.pack err
+                            Right _ -> return ()
+                    _ -> do
+                        let validated = Pact5.assertCommand pact5Cmd
+                        case validated of
+                            Left err -> earlyReturn $
+                                review _MetadataValidationFailure (pure $ displayAssertCommandError err)
+                            Right () -> return ()
 
                 let txCtx = Pact5.TxContext ph noMiner
                 let spvSupport = Pact5.pactSPV bhdb (_parentHeader ph)

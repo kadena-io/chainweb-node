@@ -51,7 +51,7 @@ import Control.Monad.State.Strict
 import Data.ByteString (ByteString)
 import Data.Coerce
 import Data.Decimal
-import Data.Either (partitionEithers)
+import Data.Either (partitionEithers, isRight)
 import Data.Foldable
 import Data.Map qualified as Map
 import Data.Maybe
@@ -537,7 +537,7 @@ validateParsedChainwebTx _logger v cid db _blockHandle txValidationTime bh isGen
 
     checkTxSigs :: Pact5.Transaction -> ExceptT InsertError IO ()
     checkTxSigs t = do
-      if | Pact5.assertValidateSigs hsh signers sigs -> pure ()
+      if | isRight (Pact5.assertValidateSigs hsh signers sigs) -> pure ()
          | otherwise -> throwError InsertErrorInvalidSigs
       where
         hsh = Pact5._cmdHash t
