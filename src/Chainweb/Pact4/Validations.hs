@@ -18,7 +18,7 @@
 --
 module Chainweb.Pact4.Validations
 ( -- * Local metadata _validation
-  assertLocalMetadata
+  assertPreflightMetadata
   -- * Validation checks
 , assertParseChainId
 , assertChainId
@@ -78,12 +78,12 @@ import Chainweb.Utils (ebool_)
 
 -- | Check whether a local Api request has valid metadata
 --
-assertLocalMetadata
+assertPreflightMetadata
     :: P.Command (P.Payload P.PublicMeta c)
     -> TxContext
     -> Maybe LocalSignatureVerification
     -> PactServiceM logger tbl (Either (NonEmpty Text) ())
-assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
+assertPreflightMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
     v <- view psVersion
     cid <- view chainId
     bgl <- view psBlockGasLimit

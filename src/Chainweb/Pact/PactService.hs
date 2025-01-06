@@ -830,7 +830,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                 --
                 case preflight of
                     Just PreflightSimulation -> do
-                        lift (Pact4.liftPactServiceM (Pact4.assertLocalMetadata cmd ctx sigVerify)) >>= \case
+                        lift (Pact4.liftPactServiceM (Pact4.assertPreflightMetadata cmd ctx sigVerify)) >>= \case
                             Left err -> earlyReturn $ review _MetadataValidationFailure err
                             Right () -> return ()
                         let initialGas = Pact4.initialGasOf $ Pact4._cmdPayload pact4Cwtx
@@ -899,7 +899,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                     Just PreflightSimulation -> do
                         -- preflight needs to do additional checks on the metadata
                         -- to match on-chain tx validation
-                        lift (Pact5.liftPactServiceM (Pact5.assertLocalMetadata (view Pact5.payloadObj <$> pact5Cmd) txCtx sigVerify)) >>= \case
+                        lift (Pact5.liftPactServiceM (Pact5.assertPreflightMetadata (view Pact5.payloadObj <$> pact5Cmd) txCtx sigVerify)) >>= \case
                             Left err -> earlyReturn $ review _MetadataValidationFailure err
                             Right () -> return ()
                         let initialGas = Pact5.initialGasOf $ Pact5._cmdPayload pact5Cmd
