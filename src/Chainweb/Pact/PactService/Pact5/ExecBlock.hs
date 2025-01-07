@@ -12,6 +12,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Chainweb.Pact.PactService.Pact5.ExecBlock
     ( runCoinbase
@@ -281,7 +282,7 @@ continueBlock mpAccess blockInProgress = do
         isGenesis <- view psIsGenesis
         ((txResults, timedOut), (finalBlockHandle, Identity finalRemainingGas)) <-
           liftIO $ flip runStateT (startBlockHandle, Identity p5RemainingGas) $ foldr
-            (\tx rest -> StateT $ \s -> do
+            (\(txIdxInBlock, tx) rest -> StateT $ \s -> do
               let logger = addLabel ("transactionHash", sshow (Pact5._cmdHash tx)) logger'
               let env' = env & psServiceEnv . psLogger .~ logger
               let timeoutFunc runTx =
@@ -292,7 +293,7 @@ continueBlock mpAccess blockInProgress = do
                     else
                       newTimeout (fromIntegral @Micros @Int timeLimit) runTx
               m <- liftIO $ timeoutFunc
-                $ runExceptT $ runStateT (applyPactCmd env' miner tx) s
+                $ runExceptT $ runStateT (applyPactCmd env' miner (TxBlockIdx txIdxInBlock) tx) s
               case m of
                 Nothing -> do
                   logFunctionJson logger Warn $ Aeson.object
@@ -314,7 +315,7 @@ continueBlock mpAccess blockInProgress = do
                   return ((Right (tx, a):as, timedOut), s'')
               )
               (return ([], False))
-              txs
+              (zip [0..] (V.toList txs))
         pbBlockHandle .= finalBlockHandle
         let (invalidTxHashes, completedTxs) = partitionEithers txResults
         let p4FinalRemainingGas = fromIntegral @Pact5.SatWord @Pact4.GasLimit $ finalRemainingGas ^. Pact5._GasLimit . to Pact5._gas
@@ -345,12 +346,12 @@ type InvalidTransactions = [Pact5.RequestKey]
 applyPactCmd
   :: (Traversable t, Logger logger)
   => PactBlockEnv logger Pact5 tbl
-  -> Miner -> Pact5.Transaction
+  -> Miner -> TxIdxInBlock -> Pact5.Transaction
   -> StateT
     (BlockHandle, t P.GasLimit)
     (ExceptT Pact5GasPurchaseFailure IO)
     (Pact5.CommandResult [Pact5.TxLog ByteString] (Pact5.PactError Pact5.Info))
-applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
+applyPactCmd env miner txIdxInBlock tx = StateT $ \(blockHandle, blockGasRemaining) -> do
   -- we set the command gas limit to the minimum of its original value and the remaining gas in the block
   -- this way Pact never uses more gas than remains in the block, and the tx fails otherwise
   let alteredTx = (view payloadObj <$> tx) & Pact5.cmdPayload . Pact5.pMeta . pmGasLimit %~ maybe id min (blockGasRemaining ^? traversed)
@@ -419,7 +420,7 @@ applyPactCmd env miner tx = StateT $ \(blockHandle, blockGasRemaining) -> do
               -- pretend that genesis commands can throw non-fatal errors,
               -- to make types line up
               Right res -> return (Right (absurd <$> res))
-          else applyCmd logger gasLogger pactDb txCtx spv initialGas cmd
+          else applyCmd logger gasLogger pactDb txCtx txIdxInBlock spv initialGas cmd
     liftIO $ case resultOrError of
       -- unknown exceptions are logged specially, because they indicate bugs in Pact or chainweb
       Right
@@ -609,12 +610,12 @@ execExistingBlock currHeader payload = do
         Pact5.GasLimit . Pact5.Gas . fromIntegral <$> maxBlockGasLimit v (view blockHeight currHeader)
 
   env <- ask
-  (results, (finalHandle, _finalBlockGasLimit)) <-
+  (V.fromList -> results, (finalHandle, _finalBlockGasLimit)) <-
     liftIO $ flip runStateT (postCoinbaseBlockHandle, blockGasLimit) $
-      forM txs $ \tx ->
+      forM (zip [0..] (V.toList txs)) $ \(txIdxInBlock, tx) ->
         (tx,) <$> mapStateT
           (either (throwM . Pact5BuyGasFailure) return <=< runExceptT)
-          (applyPactCmd env miner tx)
+          (applyPactCmd env miner (TxBlockIdx txIdxInBlock) tx)
   -- incorporate the final state of the transactions into the block state
   pbBlockHandle .= finalHandle
 

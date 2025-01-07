@@ -13,6 +13,7 @@ module Chainweb.Test.TestVersions
     , noBridgeCpmTestVersion
     , slowForkingCpmTestVersion
     , quirkedGasInstantCpmTestVersion
+    , quirkedGasPact5InstantCpmTestVersion
     , timedConsensusVersion
     , instantCpmTestVersion
     , pact5InstantCpmTestVersion
@@ -32,6 +33,8 @@ import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM0Payload as IN0
 import qualified Chainweb.BlockHeader.Genesis.InstantTimedCPM1to9Payload as INN
 import qualified Chainweb.BlockHeader.Genesis.Pact5InstantTimedCPM0Payload as PIN0
 import qualified Chainweb.BlockHeader.Genesis.Pact5InstantTimedCPM1to9Payload as PINN
+import qualified Chainweb.BlockHeader.Genesis.QuirkedGasPact5InstantTimedCPM0Payload as QPIN0
+import qualified Chainweb.BlockHeader.Genesis.QuirkedGasPact5InstantTimedCPM1to9Payload as QPINN
 
 import System.IO.Unsafe
 
@@ -118,6 +121,9 @@ testVersions = _versionName <$> concat
     , [ quirkedGasInstantCpmTestVersion (knownChainGraph g)
       | g :: KnownGraph <- [minBound..maxBound]
       ]
+    , [ quirkedGasPact5InstantCpmTestVersion (knownChainGraph g)
+      | g :: KnownGraph <- [minBound..maxBound]
+      ]
     , [ instantCpmTestVersion (knownChainGraph g)
       | g :: KnownGraph <- [minBound..maxBound]
       ]
@@ -144,7 +150,6 @@ testVersionTemplate v = v
     & versionMaxBlockGasLimit .~ Bottom (minBound, Just 2_000_000)
     & versionBootstraps .~ [testBootstrapPeerInfos]
     & versionVerifierPluginNames .~ AllChains (Bottom (minBound, mempty))
-    & versionQuirks .~ noQuirks
     & versionServiceDate .~ Nothing
 
 -- | A test version without Pact or PoW, with only one chain graph.
@@ -170,6 +175,7 @@ barebonesTestVersion g = buildTestVersion $ \v ->
             , _genesisTime = AllChains $ BlockCreationTime epoch
             }
         & versionForks .~ HM.fromList [ (f, AllChains ForkAtGenesis) | f <- [minBound..maxBound] ]
+        & versionQuirks .~ noQuirks
         & versionUpgrades .~ AllChains HM.empty
 
 -- | A test version without Pact or PoW, with a chain graph upgrade at block height 8.
@@ -184,6 +190,7 @@ timedConsensusVersion g1 g2 = buildTestVersion $ \v -> v
         -- pact is disabled, we don't care about pact forks
         _ -> AllChains ForkAtGenesis
     )
+    & versionQuirks .~ noQuirks
     & versionUpgrades .~ AllChains HM.empty
     & versionGraphs .~ (BlockHeight 8, g2) `Above` Bottom (minBound, g1)
     & versionCheats .~ VersionCheats
@@ -215,6 +222,7 @@ pact5CheckpointerTestVersion g1 = buildTestVersion $ \v -> v
         -- pact is disabled, we don't care about pact forks
         _ -> AllChains ForkAtGenesis
     )
+    & versionQuirks .~ noQuirks
     & versionUpgrades .~ AllChains HM.empty
     & versionGraphs .~ Bottom (minBound, g1)
     & versionCheats .~ VersionCheats
@@ -346,6 +354,7 @@ slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
     & versionForks .~ slowForks
     & versionVerifierPluginNames .~ AllChains
         (Bottom (minBound, Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]))
+    & versionQuirks .~ noQuirks
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades instantly enabled,
 -- and with a gas fee quirk.
@@ -356,12 +365,36 @@ quirkedGasInstantCpmTestVersion g = buildTestVersion $ \v -> v
     & versionForks .~ tabulateHashMap (\case
         Pact5Fork -> AllChains ForkNever
         _ -> AllChains ForkAtGenesis)
-    & versionQuirks .~
-        VersionQuirks { _quirkGasFees = onChain (unsafeChainId 0) $ HM.singleton (BlockHeight 2, TxBlockIdx 0) (P.Gas 1) }
+    & versionQuirks .~ VersionQuirks
+        { _quirkGasFees = onChain (unsafeChainId 0)
+            $ HM.singleton (BlockHeight 2, TxBlockIdx 0) (P.Gas 1)
+        }
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
             (unsafeChainId 0, IN0.payloadBlock) :
             [(n, INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+        , _genesisBlockTarget = AllChains maxTarget
+        , _genesisTime = AllChains $ BlockCreationTime epoch
+        }
+    & versionUpgrades .~ AllChains mempty
+    & versionVerifierPluginNames .~ AllChains (Bottom (minBound, mempty))
+
+-- | CPM version (see `cpmTestVersion`) with forks and upgrades instantly enabled,
+-- and with a gas fee quirk.
+quirkedGasPact5InstantCpmTestVersion :: ChainGraph -> ChainwebVersion
+quirkedGasPact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
+    & cpmTestVersion g
+    & versionName .~ ChainwebVersionName ("quirked-pact5-instant-CPM-" <> toText g)
+    & versionForks .~ tabulateHashMap (\case
+        _ -> AllChains ForkAtGenesis)
+    & versionQuirks .~ VersionQuirks
+        { _quirkGasFees = onChain (unsafeChainId 0)
+            $ HM.singleton (BlockHeight 1, TxBlockIdx 0) (P.Gas 1)
+        }
+    & versionGenesis .~ VersionGenesis
+        { _genesisBlockPayload = onChains $
+            (unsafeChainId 0, QPIN0.payloadBlock) :
+            [(n, QPINN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
         , _genesisBlockTarget = AllChains maxTarget
         , _genesisTime = AllChains $ BlockCreationTime epoch
         }
@@ -374,6 +407,7 @@ fastForkingCpmTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("fastfork-CPM-" <> toText g)
     & versionForks .~ fastForks
+    & versionQuirks .~ noQuirks
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades quickly enabled
 -- but with no SPV bridge.
@@ -382,6 +416,7 @@ noBridgeCpmTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
     & versionName .~ ChainwebVersionName ("nobridge-CPM-" <> toText g)
     & versionForks .~ (fastForks & at SPVBridge ?~ AllChains ForkNever)
+    & versionQuirks .~ noQuirks
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades instantly enabled
 -- at genesis EXCEPT Pact 5.
@@ -394,6 +429,7 @@ instantCpmTestVersion g = buildTestVersion $ \v -> v
         Pact5Fork -> AllChains ForkNever
         _ -> AllChains ForkAtGenesis
         )
+    & versionQuirks .~ noQuirks
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
             (unsafeChainId 0, IN0.payloadBlock) :
@@ -418,6 +454,7 @@ pact5InstantCpmTestVersion g = buildTestVersion $ \v -> v
         SPVBridge -> AllChains ForkNever
         _ -> AllChains ForkAtGenesis
         )
+    & versionQuirks .~ noQuirks
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
             (unsafeChainId 0, PIN0.payloadBlock) :
@@ -447,6 +484,7 @@ pact5SlowCpmTestVersion g = buildTestVersion $ \v -> v
         SPVBridge -> AllChains ForkNever
         _ -> AllChains ForkAtGenesis
         )
+    & versionQuirks .~ noQuirks
     & versionGenesis .~ VersionGenesis
         { _genesisBlockPayload = onChains $
             (unsafeChainId 0, IN0.payloadBlock) :

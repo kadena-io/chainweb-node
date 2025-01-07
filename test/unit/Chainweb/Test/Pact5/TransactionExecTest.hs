@@ -90,6 +90,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
     , testCase "payload failure all gas should go to the miner - insufficient funds" (payloadFailureShouldPayAllGasToTheMinerInsufficientFunds baseRdb)
     , testCase "event spec" (testEvents baseRdb)
     , testCase "writes from failed transaction should not make it into the db" (testWritesFromFailedTxDontMakeItIn baseRdb)
+    , testCase "quirk spec" (quirkSpec baseRdb)
     ]
 
 -- | Run with the context being that the parent block is the genesis block
@@ -209,7 +210,7 @@ payloadFailureShouldPayAllGasToTheMinerTypeError rdb = readFromAfterGenesis v rd
         let gasToMiner = 2 * 1_000 -- gasPrice * gasLimit
         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
         logger <- testLogger
-        applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
+        applyCmd logger Nothing pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
             >>= P.match _Right
             ? P.checkAll
                 [ P.fun _crResult
@@ -263,7 +264,7 @@ payloadFailureShouldPayAllGasToTheMinerInsufficientFunds rdb = readFromAfterGene
         let gasToMiner = 2 * 1_000 -- gasPrice * gasLimit
         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
         logger <- testLogger
-        applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
+        applyCmd logger Nothing pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
             >>= P.match _Right
             ? P.checkAll
                 [ P.fun _crResult
@@ -306,7 +307,7 @@ runPayloadShouldReturnEvalResultRelatedToTheInputCommand rdb = readFromAfterGene
         payloadResult <- runExceptT $
             runReaderT
                 (runTransactionM
-                    (runPayload Transactional Set.empty pactDb noSPVSupport [] managedNamespacePolicy gasEnv txCtx (view payloadObj <$> cmd)))
+                    (runPayload Transactional Set.empty pactDb noSPVSupport [] managedNamespacePolicy gasEnv txCtx (TxBlockIdx 0) (view payloadObj <$> cmd)))
                 (TransactionEnv logger gasEnv)
         gasUsed <- readIORef (_geGasRef gasEnv)
 
@@ -373,7 +374,7 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $
         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
         let expectedGasConsumed = 73
         logger <- testLogger
-        applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
+        applyCmd logger Nothing pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
             >>= P.match _Right
             ? P.checkAll
                 -- only the event reflecting the final transfer to the miner for gas used
@@ -414,6 +415,39 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $
             (Just $ fromMaybe 0 startMinerBal + (fromIntegral expectedGasConsumed) * 2)
             endMinerBal
 
+quirkSpec :: RocksDb -> IO ()
+quirkSpec rdb = readFromAfterGenesis quirkVer rdb $
+    pactTransaction Nothing $ \pactDb -> do
+        cmd <- buildCwCmd v (defaultCmd cid)
+            { _cbRPC = mkExec' "(* 1000 200000)"
+            , _cbSigners = [mkEd25519Signer' sender00 []]
+            , _cbSender = "sender00"
+            , _cbGasPrice = GasPrice 2
+            , _cbGasLimit = GasLimit (Gas 70_000)
+            }
+        let txCtx = TxContext
+                { _tcParentHeader = ParentHeader (gh quirkVer cid)
+                , _tcMiner = noMiner
+                }
+        logger <- testLogger
+        applyCmd logger Nothing pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
+            >>= P.match _Right
+            ? P.checkAll
+            -- gas buy event
+                [ P.fun _crEvents ? P.list
+                    [ event
+                        (P.equals "TRANSFER")
+                        -- gas 1, gas price 2
+                        (P.equals [PString "sender00", PString "NoMiner", PDecimal (1 * 2)])
+                        (P.equals coinModuleName)
+                    ]
+                , P.fun _crResult ? P.equals ? PactResultOk (PInteger (1000 * 200000))
+                -- quirked gas
+                , P.fun _crGas ? P.equals ? Gas 1
+                ]
+    where
+    quirkVer = quirkedGasPact5InstantCpmTestVersion peterson
+
 applyCmdVerifierSpec :: RocksDb -> IO ()
 applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
     pactTransaction Nothing $ \pactDb -> do
@@ -432,7 +466,7 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
                 }
             let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
             logger <- testLogger
-            applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
+            applyCmd logger Nothing pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
                 >>= P.match _Right
                 ? P.checkAll
                 -- gas buy event
@@ -459,7 +493,7 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
             cmd <- buildCwCmd v baseCmd
             let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
             logger <- testLogger
-            applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
+            applyCmd logger Nothing pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
                 >>= P.match _Right
                 ? P.checkAll
                     -- gas buy event
@@ -493,7 +527,7 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
                 }
             let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
             logger <- testLogger
-            applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
+            applyCmd logger Nothing pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
                 >>= P.match _Right
                 ? P.checkAll
                 -- gas buy event
@@ -525,7 +559,7 @@ applyCmdFailureSpec rdb = readFromAfterGenesis v rdb $
         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
         let expectedGasConsumed = 500
         logger <- testLogger
-        applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
+        applyCmd logger Nothing pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
             >>= P.match _Right
             ? P.checkAll
             -- gas buy event
@@ -583,7 +617,7 @@ applyCmdCoinTransfer rdb = readFromAfterGenesis v rdb $ do
         -- Note: if/when core changes gas prices, tweak here.
         let expectedGasConsumed = 227
         logger <- testLogger
-        e <- applyCmd logger (Just logger) pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
+        e <- applyCmd logger (Just logger) pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
         e & P.match _Right
             ? P.checkAll
                 [ P.fun _crEvents ? P.list
@@ -703,7 +737,7 @@ testEvents rdb = readFromAfterGenesis v rdb $
             }
         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
         logger <- testLogger
-        e <- applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
+        e <- applyCmd logger Nothing pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
 
         e & P.match _Right
             ? P.checkAll
@@ -750,7 +784,7 @@ testLocalOnlyFailsOutsideOfLocal rdb = readFromAfterGenesis v rdb $ do
                     >>= P.fun _crResult (P.match _PactResultOk P.succeed)
 
                 -- should fail in non-local
-                applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> cmd)
+                applyCmd logger Nothing pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
                     >>= P.match _Right
                     ? P.fun _crResult
                     ? P.match (_PactResultErr . _PEExecutionError . _1 . _OperationIsLocalOnly) P.succeed
@@ -768,7 +802,7 @@ testWritesFromFailedTxDontMakeItIn rdb = readFromAfterGenesis v rdb $ do
             }
 
         logger <- testLogger
-        e <- applyCmd logger Nothing pactDb txCtx noSPVSupport (Gas 1) (view payloadObj <$> moduleDeploy)
+        e <- applyCmd logger Nothing pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> moduleDeploy)
         e & P.match _Right ? P.succeed
 
     finalHandle <- use pbBlockHandle
