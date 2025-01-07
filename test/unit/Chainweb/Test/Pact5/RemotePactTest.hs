@@ -188,13 +188,12 @@ httpManager = unsafePerformIO $ HTTP.newTlsManagerWith (HTTP.mkManagerSettings d
 tests :: RocksDb -> TestTree
 tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
     testGroup "Pact5 RemotePactTest"
-        [ testCaseSteps "pollingInvalidRequestKeyTest" (pollingInvalidRequestKeyTest rdb)
-        , testCaseSteps "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
-        , testCaseSteps "pollingMetadataTest" (pollingMetadataTest rdb)
-        -- FIXME: there is an error when the above tests are reordered to after spvTest.
-        , testCaseSteps "spvTest" (spvTest rdb)
+        [ testCaseSteps "spvTest" (spvTest rdb)
         , sendInvalidTxsTest rdb
         , testCaseSteps "caplistTest" (caplistTest rdb)
+        , testCaseSteps "pollingInvalidRequestKeyTest" (pollingInvalidRequestKeyTest rdb)
+        , testCaseSteps "pollingConfirmationDepthTest" (pollingConfirmationDepthTest rdb)
+        , testCaseSteps "pollingMetadataTest" (pollingMetadataTest rdb)
         , testCaseSteps "allocationTest" (allocationTest rdb)
         , testCaseSteps "webAuthnSignatureTest" (webAuthnSignatureTest rdb)
         , localTests rdb
