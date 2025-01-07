@@ -457,12 +457,12 @@ applyPactCmds cmds miner startModuleCache blockGas txTimeLimit = do
     let txsGas txs = fromIntegral $ sumOf (traversed . _Right . to Pact4._crGas) txs
     (txOuts, T2 mcOut _) <- tracePactBlockM' "applyPactCmds" (\_ -> ()) (txsGas . fst) $
       flip runStateT (T2 startModuleCache blockGas) $
-        go [] (V.toList cmds)
+        go [] (zip [0..] $ V.toList cmds)
     return $! T2 (V.fromList . List.reverse $ txOuts) mcOut
   where
     go
       :: [Either CommandInvalidError (Pact4.CommandResult [Pact4.TxLogJson])]
-      -> [Pact4.Transaction]
+      -> [(Word, Pact4.Transaction)]
       -> StateT
           (T2 ModuleCache (Maybe Pact4.Gas))
           (PactBlockM logger tbl)
@@ -470,8 +470,8 @@ applyPactCmds cmds miner startModuleCache blockGas txTimeLimit = do
     go !acc = \case
         [] -> do
             pure acc
-        tx : rest -> do
-            r <- applyPactCmd miner txTimeLimit tx
+        (txIdxInBlock, tx) : rest -> do
+            r <- applyPactCmd (TxBlockIdx txIdxInBlock) miner txTimeLimit tx
             case r of
                 Left e@(CommandInvalidTxTimeout _) -> do
                     pure (Left e : acc)
@@ -482,14 +482,15 @@ applyPactCmds cmds miner startModuleCache blockGas txTimeLimit = do
 
 applyPactCmd
   :: (Logger logger)
-  => Miner
+  => TxIdxInBlock
+  -> Miner
   -> Maybe Micros
   -> Pact4.Transaction
   -> StateT
       (T2 ModuleCache (Maybe Pact4.Gas))
       (PactBlockM logger tbl)
       (Either CommandInvalidError (Pact4.CommandResult [Pact4.TxLogJson]))
-applyPactCmd miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
+applyPactCmd txIdxInBlock miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGasRemaining) -> do
   dbEnv <- view psBlockDbEnv
   let pactDb = _cpPactDbEnv dbEnv
   prevBlockState <- liftIO $ fmap _benvBlockState $
@@ -551,7 +552,7 @@ applyPactCmd miner txTimeLimit cmd = StateT $ \(T2 mcache maybeBlockGasRemaining
         T3 r c _warns <- do
           tracePactBlockM' "applyCmd" (\_ -> J.toJsonViaEncode hsh) txGas $ do
             liftIO $ txTimeout $
-              Pact4.applyCmd v logger gasLogger txFailuresCounter pactDb miner gasModel txCtx spv gasLimitedCmd initialGas mcache ApplySend
+              Pact4.applyCmd v logger gasLogger txFailuresCounter pactDb miner gasModel txCtx txIdxInBlock spv gasLimitedCmd initialGas mcache ApplySend
         pure $ T2 r c
 
     if isGenesis

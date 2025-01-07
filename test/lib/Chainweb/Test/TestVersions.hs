@@ -12,7 +12,7 @@ module Chainweb.Test.TestVersions
     , fastForkingCpmTestVersion
     , noBridgeCpmTestVersion
     , slowForkingCpmTestVersion
-    , quirkedGasSlowForkingCpmTestVersion
+    , quirkedGasInstantCpmTestVersion
     , timedConsensusVersion
     , instantCpmTestVersion
     , pact5InstantCpmTestVersion
@@ -50,9 +50,7 @@ import Chainweb.Version
 import Chainweb.Version.Registry
 import P2P.Peer
 
-import qualified Pact.Types.Command as P
 import qualified Pact.Types.Gas as P
-import qualified Pact.Types.Hash as P
 import Chainweb.Test.Pact5.Utils (pactTxFrom4To5)
 
 import Pact.Types.Verifier
@@ -117,7 +115,7 @@ testVersions = _versionName <$> concat
       | g1 :: KnownGraph <- [minBound..maxBound]
       , g2 :: KnownGraph <- [minBound..maxBound]
       ]
-    , [ quirkedGasSlowForkingCpmTestVersion (knownChainGraph g) (P.RequestKey $ P.Hash mempty)
+    , [ quirkedGasInstantCpmTestVersion (knownChainGraph g)
       | g :: KnownGraph <- [minBound..maxBound]
       ]
     , [ instantCpmTestVersion (knownChainGraph g)
@@ -349,17 +347,26 @@ slowForkingCpmTestVersion g = buildTestVersion $ \v -> v
     & versionVerifierPluginNames .~ AllChains
         (Bottom (minBound, Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]))
 
--- | CPM version (see `cpmTestVersion`) with forks and upgrades slowly enabled,
+-- | CPM version (see `cpmTestVersion`) with forks and upgrades instantly enabled,
 -- and with a gas fee quirk.
-quirkedGasSlowForkingCpmTestVersion :: ChainGraph -> P.RequestKey -> ChainwebVersion
-quirkedGasSlowForkingCpmTestVersion g rk = buildTestVersion $ \v -> v
+quirkedGasInstantCpmTestVersion :: ChainGraph -> ChainwebVersion
+quirkedGasInstantCpmTestVersion g = buildTestVersion $ \v -> v
     & cpmTestVersion g
-    & versionName .~ ChainwebVersionName ("quirked-slowfork-CPM-" <> toText g)
-    & versionForks .~ slowForks
-    & versionForks . at SkipTxTimingValidation .~
-        Just (AllChains $ ForkAtBlockHeight 200)
+    & versionName .~ ChainwebVersionName ("quirked-instant-CPM-" <> toText g)
+    & versionForks .~ tabulateHashMap (\case
+        Pact5Fork -> AllChains ForkNever
+        _ -> AllChains ForkAtGenesis)
     & versionQuirks .~
-        VersionQuirks { _quirkGasFees = HM.singleton rk (P.Gas 1) }
+        VersionQuirks { _quirkGasFees = onChain (unsafeChainId 0) $ HM.singleton (BlockHeight 2, TxBlockIdx 0) (P.Gas 1) }
+    & versionGenesis .~ VersionGenesis
+        { _genesisBlockPayload = onChains $
+            (unsafeChainId 0, IN0.payloadBlock) :
+            [(n, INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+        , _genesisBlockTarget = AllChains maxTarget
+        , _genesisTime = AllChains $ BlockCreationTime epoch
+        }
+    & versionUpgrades .~ AllChains mempty
+    & versionVerifierPluginNames .~ AllChains (Bottom (minBound, mempty))
 
 -- | CPM version (see `cpmTestVersion`) with forks and upgrades quickly enabled.
 fastForkingCpmTestVersion :: ChainGraph -> ChainwebVersion

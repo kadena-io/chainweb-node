@@ -836,7 +836,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                         let initialGas = Pact4.initialGasOf $ Pact4._cmdPayload pact4Cwtx
                         T3 cr _mc warns <- liftIO $ Pact4.applyCmd
                             _psVersion _psLogger _psGasLogger Nothing dbEnv
-                            noMiner gasModel ctx spv (Pact4.payloadObj <$> pact4Cwtx)
+                            noMiner gasModel ctx (TxBlockIdx 0) spv (Pact4.payloadObj <$> pact4Cwtx)
                             initialGas mc ApplyLocal
 
                         let cr' = hashPact4TxLogs cr
