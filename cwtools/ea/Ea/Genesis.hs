@@ -28,6 +28,8 @@ module Ea.Genesis
 , instantCPMN
 , pact5InstantCPM0
 , pact5InstantCPMN
+, quirkedPact5InstantCPM0
+, quirkedPact5InstantCPMN
 
   -- * Testnet Genesis txs
 , testnet040
@@ -287,6 +289,23 @@ pact5InstantCPM0 = Genesis
 
 pact5InstantCPMN :: Genesis
 pact5InstantCPMN = pact5InstantCPM0
+  & txChainIds .~ mkChainIdRange 1 9
+  & coinbase ?~ fastNGrants
+
+quirkedPact5InstantCPM0 :: Genesis
+quirkedPact5InstantCPM0 = Genesis
+    { _version = quirkedGasPact5InstantCpmTestVersion petersonChainGraph
+    , _tag = "QuirkedGasPact5InstantTimedCPM"
+    , _txChainIds = onlyChainId 0
+    , _coinbase = Just fast0Grants
+    , _keysets = Just fastKeysets
+    , _allocations = Just fastAllocations
+    , _namespaces = Just devNs2
+    , _coinContract = [fungibleAssetV1, fungibleXChainV1, fungibleAssetV2, installCoinContractV6, gasPayer]
+    }
+
+quirkedPact5InstantCPMN :: Genesis
+quirkedPact5InstantCPMN = quirkedPact5InstantCPM0
   & txChainIds .~ mkChainIdRange 1 9
   & coinbase ?~ fastNGrants
 

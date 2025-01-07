@@ -906,7 +906,7 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                         applyCmdResult <- lift $ Pact5.pactTransaction Nothing (\dbEnv ->
                             Pact5.applyCmd
                                 _psLogger _psGasLogger dbEnv
-                                txCtx spvSupport initialGas (view Pact5.payloadObj <$> pact5Cmd)
+                                txCtx (TxBlockIdx 0) spvSupport initialGas (view Pact5.payloadObj <$> pact5Cmd)
                                 )
                         commandResult <- case applyCmdResult of
                             Left err ->

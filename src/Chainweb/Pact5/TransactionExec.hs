@@ -246,7 +246,9 @@ applyLocal logger maybeGasLogger coreDb txCtx spvSupport cmd = do
   let
     gasLimitGas :: Gas = cmd ^. cmdPayload . pMeta . pmGasLimit . _GasLimit
   gasEnv <- mkTableGasEnv (MilliGasLimit (gasToMilliGas gasLimitGas)) gasLogsEnabled
-  let runLocal = runVerifiers txCtx cmd *> runPayload Local localFlags coreDb spvSupport [] managedNamespacePolicy gasEnv txCtx cmd
+  let runLocal = do
+        runVerifiers txCtx cmd
+        runPayload Local localFlags coreDb spvSupport [] managedNamespacePolicy gasEnv txCtx (TxBlockIdx 0) cmd
   let txEnv = TransactionEnv
         { _txEnvGasEnv = gasEnv
         , _txEnvLogger = logger
@@ -310,6 +312,7 @@ applyCmd
       -- ^ Pact db environment
     -> TxContext
       -- ^ tx metadata
+    -> TxIdxInBlock
     -> SPVSupport
       -- ^ SPV support (validates cont proofs)
     -> Gas
@@ -317,7 +320,7 @@ applyCmd
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
     -> IO (Either Pact5GasPurchaseFailure (CommandResult [TxLog ByteString] (Pact5.PactError Info)))
-applyCmd logger maybeGasLogger db txCtx spv initialGas cmd = do
+applyCmd logger maybeGasLogger db txCtx txIdxInBlock spv initialGas cmd = do
   logDebug_ logger $ "applyCmd: " <> sshow (_cmdHash cmd)
   let flags = Set.fromList
         [ FlagDisableRuntimeRTC
@@ -341,7 +344,7 @@ applyCmd logger maybeGasLogger db txCtx spv initialGas cmd = do
         runVerifiers txCtx cmd
 
         liftIO $ dumpGasLogs "applyCmd.paidFor.beforeRunPayload" (_cmdHash cmd) maybeGasLogger gasEnv
-        evalResult <- runPayload Transactional flags db spv [] managedNamespacePolicy gasEnv txCtx cmd
+        evalResult <- runPayload Transactional flags db spv [] managedNamespacePolicy gasEnv txCtx txIdxInBlock cmd
         liftIO $ dumpGasLogs "applyCmd.paidFor.afterRunPayload" (_cmdHash cmd) maybeGasLogger gasEnv
         return evalResult
 
@@ -562,6 +565,7 @@ runGenesisPayload logger db spv ctx cmd = do
           SimpleNamespacePolicy
           freeGasEnv
           ctx
+          (TxBlockIdx 0)
           cmd <&> \evalResult ->
             CommandResult
               { _crReqKey = RequestKey (_cmdHash cmd)
@@ -587,19 +591,20 @@ runPayload
     -> NamespacePolicy
     -> GasEnv CoreBuiltin Info
     -> TxContext
+    -> TxIdxInBlock
     -> Command (Payload PublicMeta ParsedCode)
     -> TransactionM logger EvalResult
-runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx cmd = do
+runPayload execMode execFlags db spv specialCaps namespacePolicy gasEnv txCtx txIdxInBlock cmd = do
     -- Note [Throw out verifier proofs eagerly]
   let !verifiersWithNoProof =
           (fmap . fmap) (\_ -> ()) verifiers
           `using` (traverse . traverse) rseq
 
-  (either throwError return =<<) $ liftIO $
+  result <- (either throwError return =<<) $ liftIO $
     case payload ^. pPayload of
       Exec ExecMsg {..} ->
         evalExec (RawCode (_pcCode _pmCode)) execMode
-          db spv gasModel execFlags namespacePolicy
+          db spv gasEnv execFlags namespacePolicy
           (ctxToPublicData publicMeta txCtx)
           MsgData
             { mdHash = _cmdHash cmd
@@ -614,7 +619,7 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx 
           (_pcExps _pmCode)
       Continuation ContMsg {..} ->
         evalContinuation execMode
-          db spv gasModel execFlags namespacePolicy
+          db spv gasEnv execFlags namespacePolicy
           (ctxToPublicData publicMeta txCtx)
           MsgData
             { mdHash = _cmdHash cmd
@@ -630,12 +635,22 @@ runPayload execMode execFlags db spv specialCaps namespacePolicy gasModel txCtx 
               , _cRollback = _cmRollback
               , _cProof = _cmProof
               }
+
+  case maybeQuirkGasFee of
+    Nothing -> return result
+    Just quirkGasFee -> do
+      let convertedQuirkGasFee = Gas $ fromIntegral quirkGasFee
+      liftIO $ writeIORef (_geGasRef gasEnv) $ gasToMilliGas convertedQuirkGasFee
+      return result { _erGas = convertedQuirkGasFee }
+
   where
     payload = cmd ^. cmdPayload
     verifiers = payload ^. pVerifiers . _Just
     signers = payload ^. pSigners
-    -- chash = toUntypedHash $ _cmdHash cmd
     publicMeta = cmd ^. cmdPayload . pMeta
+    v = _chainwebVersion txCtx
+    cid = _chainId txCtx
+    maybeQuirkGasFee = v ^? versionQuirks . quirkGasFees . ixg cid . ix (ctxCurrentBlockHeight txCtx, txIdxInBlock)
 
 runUpgrade
     :: (Logger logger)
