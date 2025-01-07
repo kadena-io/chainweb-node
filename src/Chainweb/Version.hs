@@ -591,8 +591,8 @@ instance (KnownSymbol n) => KnownChainwebVersionSymbol ('ChainwebVersionT n) whe
     type ChainwebVersionSymbol ('ChainwebVersionT n) = n
     chainwebVersionSymbolVal _ = T.pack $ symbolVal (Proxy @n)
 
-someChainwebVersionVal :: ChainwebVersion -> SomeChainwebVersionT
-someChainwebVersionVal v = someChainwebVersionVal' (_versionName v)
+someChainwebVersionVal :: HasChainwebVersion v => v -> SomeChainwebVersionT
+someChainwebVersionVal v = someChainwebVersionVal' (_versionName (_chainwebVersion v))
 
 someChainwebVersionVal' :: ChainwebVersionName -> SomeChainwebVersionT
 someChainwebVersionVal' v = case someSymbolVal (show v) of
