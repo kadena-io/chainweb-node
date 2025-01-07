@@ -143,7 +143,7 @@ data CmdBuilder = CmdBuilder
   , _cbVerifiers :: ![Verifier ParsedVerifierProof]
   , _cbRPC :: !(PactRPC Text)
   , _cbNonce :: !(Maybe Text)
-  , _cbChainId :: !Chainweb.ChainId
+  , _cbChainId :: !Text
   , _cbSender :: !Text
   , _cbGasLimit :: !GasLimit
   , _cbGasPrice :: !GasPrice
@@ -178,7 +178,7 @@ defaultCmd cid = CmdBuilder
   , _cbVerifiers = []
   , _cbRPC = mkExec' "1"
   , _cbNonce = Nothing
-  , _cbChainId = cid
+  , _cbChainId = chainIdToText cid
   , _cbSender = "sender00"
   , _cbGasLimit = GasLimit (Gas 10_000)
   , _cbGasPrice = GasPrice 0.000_1
@@ -190,7 +190,7 @@ defaultCmd cid = CmdBuilder
 -- TODO: Use the new `assertPact4Command` function.
 buildCwCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m Pact5.Transaction
 buildCwCmd v cmd = buildTextCmd v cmd >>= \(c :: Command Text) ->
-  case validatePact5Command v (_cbChainId cmd) c of
+  case validatePact5Command v c of
     Left err -> throwM $ userError $ "buildCwCmd failed: " ++ err
     Right cmd' -> return cmd'
 
@@ -241,7 +241,7 @@ buildRawCmd v CmdBuilder{..} = do
     pure cmd
   where
     nid = NetworkId (sshow v)
-    cid = ChainId $ sshow (chainIdInt _cbChainId :: Int)
+    cid = ChainId _cbChainId
 
 dieL :: MonadThrow m => [Char] -> Either [Char] a -> m a
 dieL msg = either (\s -> throwM $ userError $ msg ++ ": " ++ s) return

@@ -137,7 +137,6 @@ instance HasFixture Fixture where
 instance HasFixture a => HasFixture (IO a) where
     remotePactTestFixture = (>>= remotePactTestFixture)
 
-
 type Step = String -> IO ()
 
 mkFixture :: ChainwebVersion -> RocksDb -> ResourceT IO Fixture

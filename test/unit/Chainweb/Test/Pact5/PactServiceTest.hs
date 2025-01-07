@@ -321,7 +321,7 @@ testNewBlockExcludesInvalid baseRdb = runResourceT $ do
                 ]
             }
 
-        badChain <- buildCwCmd v $ transferCmd 1.0 & set cbChainId (unsafeChainId 1)
+        badChain <- buildCwCmd v $ transferCmd 1.0 & set cbChainId (chainIdToText $ unsafeChainId 1)
 
         let pact4Hash = Pact5.Hash . Pact4.unHash . Pact4.toUntypedHash . Pact4._cmdHash
         _ <- advanceAllChains fixture $ onChain chain0 $ \ph pactQueue mempool -> do

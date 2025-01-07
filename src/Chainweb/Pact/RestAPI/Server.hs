@@ -722,8 +722,8 @@ validateCommand v cid (fmap encodeUtf8 -> cmdBs) = case parsedCmd of
 
 -- TODO: all of the functions in this module can instead grab the current block height from consensus
 -- and pass it here to get a better estimate of what behavior is correct.
-validatePact5Command :: ChainwebVersion -> ChainId -> Pact5.Command Text -> Either String Pact5.Transaction
-validatePact5Command _v _cid cmdText = case parsedCmd of
+validatePact5Command :: ChainwebVersion -> Pact5.Command Text -> Either String Pact5.Transaction
+validatePact5Command _v cmdText = case parsedCmd of
   Right (commandParsed :: Pact5.Transaction) ->
     if isRight (Pact5.assertCommand commandParsed)
     then Right commandParsed
