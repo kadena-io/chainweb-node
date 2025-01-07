@@ -240,6 +240,7 @@ data InsertError
   | InsertErrorInvalidSigs
   | InsertErrorTimedOut
   | InsertErrorPactParseError Text
+  | InsertErrorWrongChain Text Text
   deriving (Generic, Eq, NFData)
 
 instance Show InsertError where
@@ -259,6 +260,7 @@ instance Show InsertError where
       InsertErrorInvalidSigs -> "Invalid transaction sigs"
       InsertErrorTimedOut -> "Transaction validation timed out"
       InsertErrorPactParseError msg -> "Pact parse error: " <> T.unpack msg
+      InsertErrorWrongChain expected actual -> "Wrong chain, expected: " <> T.unpack expected <> ", actual: " <> T.unpack actual
 
 instance Exception InsertError
 

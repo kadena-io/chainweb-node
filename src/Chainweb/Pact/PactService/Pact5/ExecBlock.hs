@@ -52,7 +52,7 @@ import Control.Monad.State.Strict
 import Data.ByteString (ByteString)
 import Data.Coerce
 import Data.Decimal
-import Data.Either (partitionEithers)
+import Data.Either (partitionEithers, isRight)
 import Data.Foldable
 import Data.Maybe
 import Data.Text qualified as T
@@ -87,6 +87,7 @@ import Chainweb.Pact5.NoCoinbase
 import qualified Pact.Core.Errors as Pact5
 import qualified Pact.Core.Evaluate as Pact5
 import Chainweb.Pact.Backend.Types
+import qualified Pact.Core.ChainData as Pact5
 
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range. Rewards are calculated
@@ -484,10 +485,17 @@ validateParsedChainwebTx _logger v cid db _blockHandle txValidationTime bh isGen
   | otherwise = do
       checkUnique tx
       checkTxHash tx
+      checkChain
       checkTxSigs tx
       checkTimes tx
       return ()
   where
+
+    checkChain :: ExceptT InsertError IO ()
+    checkChain = unless (Pact5.assertChainId cid txCid) $
+        throwError $ InsertErrorWrongChain (chainIdToText cid) (Pact5._chainId txCid)
+      where
+      txCid = view (Pact5.cmdPayload . Pact5.payloadObj . Pact5.pMeta . Pact5.pmChainId) tx
 
     checkUnique :: Pact5.Transaction -> ExceptT InsertError IO ()
     checkUnique t = do
@@ -520,7 +528,7 @@ validateParsedChainwebTx _logger v cid db _blockHandle txValidationTime bh isGen
 
     checkTxSigs :: Pact5.Transaction -> ExceptT InsertError IO ()
     checkTxSigs t = do
-      if | Pact5.assertValidateSigs hsh signers sigs -> pure ()
+      if | isRight (Pact5.assertValidateSigs hsh signers sigs) -> pure ()
          | otherwise -> throwError InsertErrorInvalidSigs
       where
         hsh = Pact5._cmdHash t

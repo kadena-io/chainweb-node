@@ -400,10 +400,10 @@ validateOne cfg badmap curTxIdx now t h =
         ebool_ (InsertErrorOther msg) (f (txGasPrice txcfg t))
       where
         f (GasPrice (ParsedDecimal d)) = decimalPlaces d <= defaultMaxCoinDecimalPlaces
-        msg = mconcat
-            [ "This  transaction's gas price: "
+        msg = T.unwords
+            [ "This transaction's gas price:"
             , sshow (txGasPrice txcfg t)
-            , " is not correctly rounded."
+            , "is not correctly rounded."
             , "It should be rounded to at most 12 decimal places."
             ]
 
@@ -498,9 +498,9 @@ insertInMem logger cfg lock runCheck txs0 = do
             recordRecentTransactions maxRecent newHashes
   where
     insertCheck :: IO (Vector (T2 TransactionHash t))
-    insertCheck = if runCheck == CheckedInsert
-                  then insertCheckInMem' cfg lock txs0
-                  else return $! V.map (\tx -> T2 (hasher tx) tx) txs0
+    insertCheck = case runCheck of
+      CheckedInsert -> insertCheckInMem' cfg lock txs0
+      UncheckedInsert -> return $! V.map (\tx -> T2 (hasher tx) tx) txs0
 
     txcfg = _inmemTxCfg cfg
     encodeTx = codecEncode (txCodec txcfg)

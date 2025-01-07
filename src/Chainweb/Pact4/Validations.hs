@@ -18,7 +18,7 @@
 --
 module Chainweb.Pact4.Validations
 ( -- * Local metadata _validation
-  assertLocalMetadata
+  assertPreflightMetadata
   -- * Validation checks
 , assertParseChainId
 , assertChainId
@@ -50,7 +50,7 @@ import Data.Maybe (isJust, catMaybes, fromMaybe)
 import Data.Either (isRight)
 import Data.List.NonEmpty (NonEmpty, nonEmpty)
 import Data.Text (Text)
-import qualified Data.Text as T
+import qualified Data.Text as Text
 import qualified Data.ByteString.Short as SBS
 import Data.Word (Word8)
 
@@ -73,16 +73,17 @@ import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.KeySet as P
 import qualified Pact.Parse as P
 import Chainweb.Pact4.Types
+import Chainweb.Utils (ebool_)
 
 
 -- | Check whether a local Api request has valid metadata
 --
-assertLocalMetadata
+assertPreflightMetadata
     :: P.Command (P.Payload P.PublicMeta c)
     -> TxContext
     -> Maybe LocalSignatureVerification
     -> PactServiceM logger tbl (Either (NonEmpty Text) ())
-assertLocalMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
+assertPreflightMetadata cmd@(P.Command pay sigs hsh) txCtx sigVerify = do
     v <- view psVersion
     cid <- view chainId
     bgl <- view psBlockGasLimit
@@ -169,33 +170,6 @@ assertSigSize sigs = length sigs <= defaultMaxCommandUserSigListSize
 assertTxSize :: P.Gas -> P.GasLimit -> Bool
 assertTxSize initialGas gasLimit = initialGas < fromIntegral gasLimit
 
-data AssertValidateSigsError
-  = SignersAndSignaturesLengthMismatch
-      { _signersLength :: !Int
-      , _signaturesLength :: !Int
-      }
-  | InvalidSignerScheme
-      { _position :: !Int
-      }
-  | InvalidSignerWebAuthnPrefix
-      { _position :: !Int
-      }
-  | InvalidUserSig
-      { _position :: !Int
-      , _errMsg :: String
-      }
-
-displayAssertValidateSigsError :: AssertValidateSigsError -> String
-displayAssertValidateSigsError = \case
-  SignersAndSignaturesLengthMismatch signersLength sigsLength ->
-    "The number of signers and signatures do not match. Number of signers: " ++ show signersLength ++ ". Number of signatures: " ++ show sigsLength ++ "."
-  InvalidSignerScheme pos ->
-    "The signer at position " ++ show pos ++ " has an invalid signature scheme."
-  InvalidSignerWebAuthnPrefix pos ->
-    "The signer at position " ++ show pos ++ " has an invalid WebAuthn prefix."
-  InvalidUserSig pos errMsg ->
-    "The signature at position " ++ show pos ++ " is invalid: " ++ errMsg ++ "."
-
 -- | Check and assert that signers and user signatures are valid for a given
 -- transaction hash.
 --
@@ -209,28 +183,23 @@ assertValidateSigs :: ()
 assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs = do
   let signersLength = length signers
   let sigsLength = length sigs
-  checkE (signersLength == sigsLength)
-    $ SignersAndSignaturesLengthMismatch
+  ebool_
+    SignersAndSignaturesLengthMismatch
         { _signersLength = signersLength
         , _signaturesLength = sigsLength
         }
+    (signersLength == sigsLength)
 
   iforM_ (zip sigs signers) $ \pos (sig, signer) -> do
-    checkE
-      (fromMaybe P.ED25519 (P._siScheme signer) `elem` validSchemes)
+    ebool_
       (InvalidSignerScheme pos)
-    checkE
-      (webAuthnPrefixLegal == WebAuthnPrefixLegal || not (P.webAuthnPrefix `T.isPrefixOf` P._siPubKey signer))
+      (fromMaybe P.ED25519 (P._siScheme signer) `elem` validSchemes)
+    ebool_
       (InvalidSignerWebAuthnPrefix pos)
+      (webAuthnPrefixLegal == WebAuthnPrefixLegal || not (P.webAuthnPrefix `Text.isPrefixOf` P._siPubKey signer))
     case P.verifyUserSig hsh sig signer of
-      Left errMsg -> Left (InvalidUserSig pos errMsg)
+      Left errMsg -> Left (InvalidUserSig pos (Text.pack errMsg))
       Right () -> Right ()
-
-  pure ()
-
-  where
-    checkE :: Bool -> e -> Either e ()
-    checkE b e = if b then Right () else Left e
 
 -- prop_tx_ttl_newBlock/validateBlock
 --
@@ -267,14 +236,6 @@ assertTxNotInFuture (ParentCreationTime (BlockCreationTime txValidationTime)) tx
     P.TxCreationTime txOriginationTime = view cmdCreationTime tx
     lenientTxValidationTime = add (scaleTimeSpan defaultLenientTimeSlop second) txValidationTime
 
-data AssertCommandError
-  = InvalidPayloadHash
-  | AssertValidateSigsError AssertValidateSigsError
-
-displayAssertCommandError :: AssertCommandError -> String
-displayAssertCommandError = \case
-  InvalidPayloadHash -> "The hash of the payload was invalid."
-  AssertValidateSigsError err -> displayAssertValidateSigsError err
 
 -- | Assert that the command hash matches its payload and
 -- its signatures are valid, without parsing the payload.
