@@ -5,9 +5,11 @@
     , DeriveAnyClass
     , DerivingStrategies
     , FlexibleContexts
+    , FlexibleInstances
     , ImplicitParams
     , ImportQualifiedPost
     , LambdaCase
+    , MultiParamTypeClasses
     , NumericUnderscores
     , OverloadedStrings
     , PackageImports
@@ -16,8 +18,8 @@
     , ScopedTypeVariables
     , TemplateHaskell
     , TypeApplications
+    , ViewPatterns
 #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 
 -- | A fixture which provides access to the internals of a running node, with
 -- multiple chains. Usually, you initialize it with `mkFixture`, insert
@@ -27,8 +29,6 @@ module Chainweb.Test.Pact5.CutFixture
     ( Fixture(..)
     , HasFixture(..)
     , mkFixture
-    , withFixture
-    , withFixture'
     , fixtureCutDb
     , fixturePayloadDb
     , fixtureWebBlockHeaderDb
@@ -89,7 +89,6 @@ import GHC.Stack
 import Network.HTTP.Client qualified as HTTP
 import Pact.Core.Command.Types
 import Pact.Core.Hash qualified as Pact5
-import GHC.Exts (WithDict(..))
 
 data Fixture = Fixture
     { _fixtureCutDb :: CutDb RocksDbTable
@@ -101,8 +100,12 @@ data Fixture = Fixture
     }
 makeLenses ''Fixture
 
-class HasFixture where
-    cutFixture :: IO Fixture
+class HasFixture a where
+    cutFixture :: a -> IO Fixture
+instance HasFixture Fixture where
+    cutFixture = return
+instance HasFixture a => HasFixture (IO a) where
+    cutFixture = (>>= cutFixture)
 
 mkFixture :: ChainwebVersion -> PactServiceConfig -> RocksDb -> ResourceT IO Fixture
 mkFixture v pactServiceConfig baseRdb = do
@@ -128,25 +131,18 @@ mkFixture v pactServiceConfig baseRdb = do
             }
     -- we create the first block to avoid rejecting txs based on genesis
     -- block creation time being from the past
-    _ <- withFixture fixture $ liftIO advanceAllChains
+    _ <- liftIO $ advanceAllChains fixture
     return fixture
-
-withFixture' :: IO Fixture -> (HasFixture => a) -> a
-withFixture' fixture tests =
-    withDict @HasFixture fixture tests
-
-withFixture :: Fixture -> (HasFixture => a) -> a
-withFixture fixture tests =
-    withFixture' (return fixture) tests
 
 -- | Advance all chains by one block, filling that block with whatever is in
 -- their mempools at the time.
 --
 advanceAllChains
-    :: (HasCallStack, HasFixture)
-    => IO (Cut, ChainMap (Vector (CommandResult Pact5.Hash Text)))
-advanceAllChains = do
-    Fixture{..} <- cutFixture
+    :: (HasCallStack, HasFixture a)
+    => a
+    -> IO (Cut, ChainMap (Vector (CommandResult Pact5.Hash Text)))
+advanceAllChains fx = do
+    Fixture{..} <- cutFixture fx
     let v = _chainwebVersion _fixtureCutDb
     latestCut <- liftIO $ _fixtureCutDb ^. cut
     let blockHeights = fmap (view blockHeight) $ latestCut ^. cutMap
@@ -170,9 +166,10 @@ advanceAllChains = do
     return (finalCut, onChains perChainCommandResults)
 
 advanceAllChains_
-    :: (HasCallStack, HasFixture)
-    => IO ()
-advanceAllChains_ = void advanceAllChains
+    :: (HasCallStack, HasFixture a)
+    => a
+    -> IO ()
+advanceAllChains_ = void . advanceAllChains
 
 withTestCutDb :: (Logger logger)
     => logger
