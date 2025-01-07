@@ -1,11 +1,15 @@
 {-# language
     BangPatterns
+    , ConstraintKinds
     , DataKinds
     , DeriveAnyClass
     , DerivingStrategies
     , FlexibleContexts
+    , FlexibleInstances
+    , ImplicitParams
     , ImportQualifiedPost
     , LambdaCase
+    , MultiParamTypeClasses
     , NumericUnderscores
     , OverloadedStrings
     , PackageImports
@@ -14,6 +18,7 @@
     , ScopedTypeVariables
     , TemplateHaskell
     , TypeApplications
+    , ViewPatterns
 #-}
 
 -- | A fixture which provides access to the internals of a running node, with
@@ -22,6 +27,7 @@
 -- trigger mining on all chains at once.
 module Chainweb.Test.Pact5.CutFixture
     ( Fixture(..)
+    , HasFixture(..)
     , mkFixture
     , fixtureCutDb
     , fixturePayloadDb
@@ -94,17 +100,25 @@ data Fixture = Fixture
     }
 makeLenses ''Fixture
 
+class HasFixture a where
+    cutFixture :: a -> IO Fixture
+instance HasFixture Fixture where
+    cutFixture = return
+instance HasFixture a => HasFixture (IO a) where
+    cutFixture = (>>= cutFixture)
+
 mkFixture :: ChainwebVersion -> PactServiceConfig -> RocksDb -> ResourceT IO Fixture
 mkFixture v pactServiceConfig baseRdb = do
     logger <- liftIO getTestLogger
-    (payloadDb, webBHDb) <- withBlockDbs v baseRdb
+    testRdb <- liftIO $ testRocksDb "withBlockDbs" baseRdb
+    (payloadDb, webBHDb) <- withBlockDbs v testRdb
     perChain <- iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
         pactQueue <- liftIO $ newPactQueue 2_000
         mempool <- withMempool v chain pactQueue
         withRunPactService logger v chain pactQueue mempool webBHDb payloadDb pactServiceConfig
         return (mempool, pactQueue)
     let webPact = mkWebPactExecutionService $ HashMap.map (mkPactExecutionService . snd) perChain
-    let cutHashesStore = cutHashesTable baseRdb
+    let cutHashesStore = cutHashesTable testRdb
     cutDb <- withTestCutDb logger v webBHDb payloadDb cutHashesStore webPact
 
     let fixture = Fixture
@@ -115,6 +129,8 @@ mkFixture v pactServiceConfig baseRdb = do
             , _fixtureMempools = OnChains $ fst <$> perChain
             , _fixturePactQueues = OnChains $ snd <$> perChain
             }
+    -- we create the first block to avoid rejecting txs based on genesis
+    -- block creation time being from the past
     _ <- liftIO $ advanceAllChains fixture
     return fixture
 
@@ -122,15 +138,17 @@ mkFixture v pactServiceConfig baseRdb = do
 -- their mempools at the time.
 --
 advanceAllChains
-    :: HasCallStack
-    => Fixture
+    :: (HasCallStack, HasFixture a)
+    => a
     -> IO (Cut, ChainMap (Vector (CommandResult Pact5.Hash Text)))
-advanceAllChains Fixture{..} = do
+advanceAllChains fx = do
+    Fixture{..} <- cutFixture fx
     let v = _chainwebVersion _fixtureCutDb
     latestCut <- liftIO $ _fixtureCutDb ^. cut
     let blockHeights = fmap (view blockHeight) $ latestCut ^. cutMap
     let latestBlockHeight = maximum blockHeights
 
+    -- TODO: rejig this to do parallel mining.
     (finalCut, perChainCommandResults) <- foldM
         (\ (prevCut, !acc) cid -> do
             (newCut, _minedChain, pwo) <-
@@ -148,10 +166,10 @@ advanceAllChains Fixture{..} = do
     return (finalCut, onChains perChainCommandResults)
 
 advanceAllChains_
-    :: HasCallStack
-    => Fixture
+    :: (HasCallStack, HasFixture a)
+    => a
     -> IO ()
-advanceAllChains_ f = void $ advanceAllChains f
+advanceAllChains_ = void . advanceAllChains
 
 withTestCutDb :: (Logger logger)
     => logger

@@ -18,8 +18,8 @@ module Chainweb.Test.Pact5.Utils
     , getTestLogger
 
         -- * Mempool
-    , insertMempool
-    , lookupMempool
+    , mempoolInsertPact5
+    , mempoolLookupPact5
 
         -- * Resources
     , withTempSQLiteResource
@@ -31,6 +31,11 @@ module Chainweb.Test.Pact5.Utils
     , withBlockDbs
     , withTestBlockHeaderDb
     , testRocksDb
+
+        -- * Properties
+    , event
+        -- * Utilities
+    , coinModuleName
     )
     where
 
@@ -56,7 +61,6 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
 import Chainweb.Pact4.Transaction qualified as Pact4
 import Chainweb.Pact5.Transaction qualified as Pact5
-import Pact.Core.Pretty qualified as Pact5
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Storage.Table.RocksDB
@@ -87,18 +91,22 @@ import Data.Word (Word64)
 import Database.RocksDB.Internal qualified as R
 import Pact.Core.Command.Types qualified as Pact5
 import Pact.Core.Hash qualified as Pact5
+import Pact.Core.Pretty qualified as Pact5
 import Pact.JSON.Encode qualified as J
 import Pact.Types.Gas qualified as Pact4
 import System.Environment (lookupEnv)
 import System.IO.Temp (createTempDirectory, getCanonicalTemporaryDirectory)
 import System.LogLevel
 import System.Random (randomIO)
+import PropertyMatchers qualified as P
+import Pact.Core.PactValue
+import Pact.Core.Capabilities
+import Pact.Core.Names
 
 withBlockDbs :: ChainwebVersion -> RocksDb -> ResourceT IO (PayloadDb RocksDbTable, WebBlockHeaderDb)
 withBlockDbs v rdb = do
-    testRdb <- liftIO $ testRocksDb "withBlockDbs" rdb
-    webBHDb <- liftIO $ initWebBlockHeaderDb testRdb v
-    let payloadDb = newPayloadDb testRdb
+    webBHDb <- liftIO $ initWebBlockHeaderDb rdb v
+    let payloadDb = newPayloadDb rdb
     liftIO $ initializePayloadDb v payloadDb
     return (payloadDb, webBHDb)
 
@@ -192,8 +200,8 @@ withRunPactService logger v cid pactQueue mempool webBHDb payloadDb pactServiceC
 
 -- | Insert a 'Pact5.Transaction' into the mempool. The mempool currently operates by default on
 --   'Pact4.UnparsedTransaction's, so the txs have to be converted.
-insertMempool :: MempoolBackend Pact4.UnparsedTransaction -> InsertType -> [Pact5.Transaction] -> IO ()
-insertMempool mp insertType txs = do
+mempoolInsertPact5 :: MempoolBackend Pact4.UnparsedTransaction -> InsertType -> [Pact5.Transaction] -> IO ()
+mempoolInsertPact5 mp insertType txs = do
     let unparsedTxs :: [Pact4.UnparsedTransaction]
         unparsedTxs = flip map txs $ \tx ->
             case codecDecode Pact4.rawCommandCodec (codecEncode Pact5.payloadCodec tx) of
@@ -202,8 +210,8 @@ insertMempool mp insertType txs = do
     mempoolInsert mp insertType $ Vector.fromList unparsedTxs
 
 -- | Looks up transactions in the mempool. Returns a set which indicates pending membership of the mempool.
-lookupMempool :: MempoolBackend Pact4.UnparsedTransaction -> Vector Pact5.Hash -> IO (HashSet Pact5.Hash)
-lookupMempool mp hashes = do
+mempoolLookupPact5 :: MempoolBackend Pact4.UnparsedTransaction -> Vector Pact5.Hash -> IO (HashSet Pact5.Hash)
+mempoolLookupPact5 mp hashes = do
     results <- mempoolLookup mp $ Vector.map (TransactionHash . Pact5.unHash) hashes
     return $ HashSet.fromList $ Vector.toList $ flip Vector.mapMaybe results $ \case
         Missing -> Nothing
@@ -251,3 +259,17 @@ getTestLogger = do
     logLevel <- getTestLogLevel
     return $ genericLogger logLevel (testLogFn logLevel)
 
+-- usually we don't want to check the module hash
+event
+    :: P.Prop Text
+    -> P.Prop [PactValue]
+    -> P.Prop ModuleName
+    -> P.Prop (PactEvent PactValue)
+event n args modName = P.checkAll
+    [ P.fun _peName n
+    , P.fun _peArgs args
+    , P.fun _peModule modName
+    ]
+
+coinModuleName :: ModuleName
+coinModuleName = ModuleName "coin" Nothing

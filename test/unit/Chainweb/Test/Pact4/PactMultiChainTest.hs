@@ -7,6 +7,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Chainweb.Test.Pact4.PactMultiChainTest
 ( tests
@@ -326,7 +327,7 @@ pactLocalDepthTest = do
 
   where
   checkLocalResult r checkResult = case r of
-    Right (LocalResultLegacy cr) -> checkResult cr
+    Right (preview _Pact4LocalResultLegacy -> Just cr) -> checkResult cr
     res -> liftIO $ assertFailure $ "Expected LocalResultLegacy, but got: " ++ show res
   getSender00Balance = set cbGasLimit 700 $ set cbRPC (mkExec' "(coin.get-balance \"sender00\")") $ defaultCmd
   buildCoinXfer code = buildBasic'
@@ -416,7 +417,7 @@ assertLocalFailure
     -> m ()
 assertLocalFailure s d lr =
   liftIO $ assertEqual s (Just d) $
-    lr ^? _Right . _LocalResultLegacy . crResult . to _pactResult . _Left . to peDoc
+    lr ^? _Right . _Pact4LocalResultLegacy . crResult . to _pactResult . _Left . to peDoc
 
 assertLocalSuccess
     :: (HasCallStack, MonadIO m)
@@ -426,7 +427,7 @@ assertLocalSuccess
     -> m ()
 assertLocalSuccess s pv lr =
   liftIO $ assertEqual s (Just pv) $
-    lr ^? _Right . _LocalResultLegacy . crResult . to _pactResult . _Right
+    lr ^? _Right . _Pact4LocalResultLegacy . crResult . to _pactResult . _Right
 
 pact43UpgradeTest :: PactTestM ()
 pact43UpgradeTest = do

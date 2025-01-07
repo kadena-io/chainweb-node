@@ -47,6 +47,7 @@ module Chainweb.Pact5.TransactionExec
 
   -- * Utility
   , initialGasOf
+  , ctxToPublicData
 
 ) where
 

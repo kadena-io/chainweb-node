@@ -95,7 +95,7 @@ mkKeySetData name keys = PObject $ Map.singleton (Field name) $ PList (Vector.fr
 
 sender00Ks :: KeySet
 sender00Ks = KeySet
-    (Set.fromList [PublicKeyText "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"])
+    (Set.fromList [PublicKeyText $ fst sender00])
     KeysAll
 
 
@@ -143,7 +143,7 @@ data CmdBuilder = CmdBuilder
   , _cbVerifiers :: ![Verifier ParsedVerifierProof]
   , _cbRPC :: !(PactRPC Text)
   , _cbNonce :: !(Maybe Text)
-  , _cbChainId :: !Chainweb.ChainId
+  , _cbChainId :: !Text
   , _cbSender :: !Text
   , _cbGasLimit :: !GasLimit
   , _cbGasPrice :: !GasPrice
@@ -172,13 +172,13 @@ mkContMsg pid step = ContMsg
   , _cmProof = Nothing }
 
 -- | Default builder.
-defaultCmd :: CmdBuilder
-defaultCmd = CmdBuilder
-  { _cbSigners = []
+defaultCmd :: Chainweb.ChainId -> CmdBuilder
+defaultCmd cid = CmdBuilder
+  { _cbSigners = [mkEd25519Signer' sender00 []]
   , _cbVerifiers = []
   , _cbRPC = mkExec' "1"
   , _cbNonce = Nothing
-  , _cbChainId = unsafeChainId 0
+  , _cbChainId = chainIdToText cid
   , _cbSender = "sender00"
   , _cbGasLimit = GasLimit (Gas 10_000)
   , _cbGasPrice = GasPrice 0.000_1
@@ -190,7 +190,7 @@ defaultCmd = CmdBuilder
 -- TODO: Use the new `assertPact4Command` function.
 buildCwCmd :: (MonadThrow m, MonadIO m) => ChainwebVersion -> CmdBuilder -> m Pact5.Transaction
 buildCwCmd v cmd = buildTextCmd v cmd >>= \(c :: Command Text) ->
-  case validatePact5Command v (_cbChainId cmd) c of
+  case validatePact5Command v c of
     Left err -> throwM $ userError $ "buildCwCmd failed: " ++ err
     Right cmd' -> return cmd'
 
@@ -241,7 +241,7 @@ buildRawCmd v CmdBuilder{..} = do
     pure cmd
   where
     nid = NetworkId (sshow v)
-    cid = ChainId $ sshow (chainIdInt _cbChainId :: Int)
+    cid = ChainId _cbChainId
 
 dieL :: MonadThrow m => [Char] -> Either [Char] a -> m a
 dieL msg = either (\s -> throwM $ userError $ msg ++ ": " ++ s) return

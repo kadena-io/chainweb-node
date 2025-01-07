@@ -237,6 +237,7 @@ module Chainweb.Utils
 -- * General utilities
 , unsafeHead
 , unsafeTail
+, withEarlyReturn
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
@@ -250,6 +251,7 @@ import Control.Exception (SomeAsyncException(..), evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
+import Control.Monad.Cont
 import Control.Monad.IO.Class
 import Control.Monad.Primitive
 import Control.Monad.Reader as Reader
@@ -1572,3 +1574,9 @@ unsafeTail :: HasCallStack => String -> [a] -> [a]
 unsafeTail msg = \case
     _ : xs -> xs
     [] -> error $ "unsafeTail: empty list: " <> msg
+
+-- this is callCC but with a more permissive type signature, allowing the early return to
+-- "return" values of any type, whenever it's used
+withEarlyReturn :: ((forall b. a -> ContT r m b) -> ContT r m a) -> ContT r m a
+withEarlyReturn f = ContT $ \ c -> runContT (f (\ x -> ContT $ \ _ -> c x)) c
+{-# INLINE withEarlyReturn #-}

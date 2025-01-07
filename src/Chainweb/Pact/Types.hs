@@ -10,6 +10,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -21,6 +22,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ViewPatterns #-}
 -- |
 -- Module: Chainweb.Pact.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -81,15 +83,23 @@ module Chainweb.Pact.Types
   , SubmittedRequestMsg(..)
   , ValidateBlockReq(..)
   , RewindDepth(..)
-  , LocalResult(..)
-  , LocalReq(..)
-  , ReadOnlyReplayReq(..)
-  , ConfirmationDepth(..)
-  , LocalPreflightSimulation(..)
+  , LocalResult
   , _MetadataValidationFailure
   , _LocalResultWithWarns
   , _LocalResultLegacy
   , _LocalTimeout
+  , pattern Pact4LocalResultLegacy
+  , _Pact4LocalResultLegacy
+  , pattern Pact5LocalResultLegacy
+  , _Pact5LocalResultLegacy
+  , pattern Pact4LocalResultWithWarns
+  , _Pact4LocalResultWithWarns
+  , pattern Pact5LocalResultWithWarns
+  , _Pact5LocalResultWithWarns
+  , LocalReq(..)
+  , ReadOnlyReplayReq(..)
+  , ConfirmationDepth(..)
+  , LocalPreflightSimulation(..)
   , SyncToBlockReq(..)
   , RequestMsg(..)
   , RewindLimit(..)
@@ -167,6 +177,10 @@ module Chainweb.Pact.Types
   , ApplyCmdExecutionContext(..)
   , Pact4TxFailureLog(..)
   , Pact5TxFailureLog(..)
+  , AssertCommandError(..)
+  , displayAssertCommandError
+  , AssertValidateSigsError(..)
+  , displayAssertValidateSigsError
 
   -- * miscellaneous
   , defaultOnFatalError
@@ -251,6 +265,9 @@ import qualified Data.Vector as V
 import qualified Pact.Core.Hash as Pact5
 import Data.Maybe
 import Chainweb.BlockCreationTime
+import qualified Data.Aeson as Aeson
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TL
 
 
 -- | Gather tx logs for a block, along with last tx for each
@@ -770,15 +787,66 @@ data LocalPreflightSimulation
     deriving stock (Eq, Show, Generic)
 
 -- | The type of local results (used in /local endpoint)
+-- Internally contains a JsonText instead of a CommandResult for compatibility across Pact versions,
+-- but the constructors are hidden.
+-- This can be undone in the 2.28 release.
 --
 data LocalResult
     = MetadataValidationFailure !(NE.NonEmpty Text)
-    | LocalResultWithWarns !(Pact4.CommandResult Pact4.Hash) ![Text]
-    | LocalResultLegacy !(Pact4.CommandResult Pact4.Hash)
-    | LocalPact5ResultLegacy !(Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)))
-    | LocalPact5PreflightResult !(Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info))) ![Text]
+    | LocalResultLegacy !J.JsonText
+    | LocalResultWithWarns !J.JsonText ![Text]
     | LocalTimeout
-    deriving stock (Show, Generic)
+    deriving stock (Generic, Show)
+
+pattern ConvertLocalResultLegacy :: (FromJSON a, J.Encode a) => a -> LocalResult
+pattern ConvertLocalResultLegacy cr <- LocalResultLegacy (Aeson.decode . TL.encodeUtf8 . TL.fromStrict . J.getJsonText -> Just cr) where
+  ConvertLocalResultLegacy cr = LocalResultLegacy (J.encodeJsonText cr)
+
+pattern Pact4LocalResultLegacy
+  :: Pact4.CommandResult Pact4.Hash
+  -> LocalResult
+pattern Pact4LocalResultLegacy cr <- ConvertLocalResultLegacy cr where
+  Pact4LocalResultLegacy cr = ConvertLocalResultLegacy cr
+_Pact4LocalResultLegacy :: Prism' LocalResult (Pact4.CommandResult Pact4.Hash)
+_Pact4LocalResultLegacy = prism' Pact4LocalResultLegacy $ \case
+  Pact4LocalResultLegacy cr -> Just cr
+  _ -> Nothing
+
+pattern Pact5LocalResultLegacy
+  :: Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info))
+  -> LocalResult
+pattern Pact5LocalResultLegacy cr <- ConvertLocalResultLegacy cr where
+  Pact5LocalResultLegacy cr = ConvertLocalResultLegacy cr
+_Pact5LocalResultLegacy :: Prism' LocalResult (Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)))
+_Pact5LocalResultLegacy = prism' Pact5LocalResultLegacy $ \case
+  Pact5LocalResultLegacy cr -> Just cr
+  _ -> Nothing
+
+pattern ConvertLocalResultWithWarns :: (FromJSON a, J.Encode a) => a -> [Text] -> LocalResult
+pattern ConvertLocalResultWithWarns cr warns <- LocalResultWithWarns (Aeson.decode . TL.encodeUtf8 . TL.fromStrict . J.getJsonText -> Just cr) warns where
+  ConvertLocalResultWithWarns cr warns = LocalResultWithWarns (J.encodeJsonText cr) warns
+
+pattern Pact4LocalResultWithWarns
+  :: Pact4.CommandResult Pact4.Hash
+  -> [Text]
+  -> LocalResult
+pattern Pact4LocalResultWithWarns cr warns <- ConvertLocalResultWithWarns cr warns where
+  Pact4LocalResultWithWarns cr warns = ConvertLocalResultWithWarns cr warns
+_Pact4LocalResultWithWarns :: Prism' LocalResult (Pact4.CommandResult Pact4.Hash, [Text])
+_Pact4LocalResultWithWarns = prism' (uncurry Pact4LocalResultWithWarns) $ \case
+  Pact4LocalResultWithWarns cr warns -> Just (cr, warns)
+  _ -> Nothing
+
+pattern Pact5LocalResultWithWarns
+  :: Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info))
+  -> [Text]
+  -> LocalResult
+pattern Pact5LocalResultWithWarns cr warns <- ConvertLocalResultWithWarns cr warns where
+  Pact5LocalResultWithWarns cr warns = ConvertLocalResultWithWarns cr warns
+_Pact5LocalResultWithWarns :: Prism' LocalResult (Pact5.CommandResult Pact5.Hash (Pact5.PactErrorCompat (Pact5.LocatedErrorInfo Pact5.Info)), [Text])
+_Pact5LocalResultWithWarns = prism' (uncurry Pact5LocalResultWithWarns) $ \case
+  Pact5LocalResultWithWarns cr warns -> Just (cr, warns)
+  _ -> Nothing
 
 makePrisms ''LocalResult
 
@@ -787,13 +855,8 @@ instance J.Encode LocalResult where
         [ "preflightValidationFailures" J..= J.Array (J.text <$> e)
         ]
     build (LocalResultLegacy cr) = J.build cr
-    build (LocalPact5ResultLegacy cr) = J.build cr
     build (LocalResultWithWarns cr ws) = J.object
         [ "preflightResult" J..= cr
-        , "preflightWarnings" J..= J.Array (J.text <$> ws)
-        ]
-    build (LocalPact5PreflightResult cr ws) = J.object
-        [ "preflightResult" J..= fmap (sshow @_ @Text) cr
         , "preflightWarnings" J..= J.Array (J.text <$> ws)
         ]
     build LocalTimeout = J.text "Transaction timed out"
@@ -807,18 +870,19 @@ instance FromJSON LocalResult where
             v
       <|> withObject
             "LocalResult"
-            (\o -> metaFailureParser o
-                <|> localWithWarnParser o
-                <|> legacyFallbackParser o
+            (\o ->
+              metaFailureParser o
+                  <|> localWithWarnParser o
+                  <|> pure (legacyFallbackParser o)
             )
             v
       where
         metaFailureParser o =
             MetadataValidationFailure <$> o .: "preflightValidationFailure"
         localWithWarnParser o = LocalResultWithWarns
-            <$> o .: "preflightResult"
+            <$> (J.encodeJsonText @Value <$> o .: "preflightResult")
             <*> o .: "preflightWarnings"
-        legacyFallbackParser _ = LocalResultLegacy <$> parseJSON v
+        legacyFallbackParser _ = LocalResultLegacy $ J.encodeJsonText v
 
 
 -- | Used in tests for matching on JSON serialized pact exceptions
@@ -1210,3 +1274,39 @@ instance NFData r => NFData (Transactions Pact5 r) where
 
 makeLenses 'Transactions
 makeLenses 'BlockInProgress
+
+data AssertValidateSigsError
+  = SignersAndSignaturesLengthMismatch
+      { _signersLength :: !Int
+      , _signaturesLength :: !Int
+      }
+  | InvalidSignerScheme
+      { _position :: !Int
+      }
+  | InvalidSignerWebAuthnPrefix
+      { _position :: !Int
+      }
+  | InvalidUserSig
+      { _position :: !Int
+      , _errMsg :: Text
+      }
+
+displayAssertValidateSigsError :: AssertValidateSigsError -> Text
+displayAssertValidateSigsError = \case
+  SignersAndSignaturesLengthMismatch signersLength sigsLength ->
+    "The number of signers and signatures do not match. Number of signers: " <> sshow signersLength <> ". Number of signatures: " <> sshow sigsLength <> "."
+  InvalidSignerScheme pos ->
+    "The signer at position " <> sshow pos <> " has an invalid signature scheme."
+  InvalidSignerWebAuthnPrefix pos ->
+    "The signer at position " <> sshow pos <> " has an invalid WebAuthn prefix."
+  InvalidUserSig pos errMsg ->
+    "The signature at position " <> sshow pos <> " is invalid: " <> errMsg <> "."
+
+data AssertCommandError
+  = InvalidPayloadHash
+  | AssertValidateSigsError AssertValidateSigsError
+
+displayAssertCommandError :: AssertCommandError -> Text
+displayAssertCommandError = \case
+  InvalidPayloadHash -> "The hash of the payload was invalid."
+  AssertValidateSigsError err -> displayAssertValidateSigsError err

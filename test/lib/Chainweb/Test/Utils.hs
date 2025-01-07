@@ -338,6 +338,7 @@ withSQLiteResource file = snd <$> allocate
     (openSQLiteConnection file chainwebPragmas)
     closeSQLiteConnection
 
+-- | Open a temporary file-backed SQLite database.
 withTempSQLiteResource :: ResourceT IO SQLiteEnv
 withTempSQLiteResource = withSQLiteResource ""
 

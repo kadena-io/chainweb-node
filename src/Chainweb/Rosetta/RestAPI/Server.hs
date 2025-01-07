@@ -22,6 +22,7 @@ module Chainweb.Rosetta.RestAPI.Server
 ) where
 
 import Control.Error.Util
+import Control.Lens (over, _Left)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
@@ -408,7 +409,7 @@ constructionParseH v (ConstructionParseReq net isSigned tx) =
 
     getRosettaSigners cid cmd expectedSignerAccts
       | isSigned = do
-          _ <- toRosettaError RosettaInvalidTx $ validateCommand v cid cmd
+          _ <- toRosettaError RosettaInvalidTx $ over _Left T.unpack $ validateCommand v cid cmd
           pure expectedSignerAccts
           -- If transaction signatures successfully validates,
           -- it was signed correctly with all of the account public
