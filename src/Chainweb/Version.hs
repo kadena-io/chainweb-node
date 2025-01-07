@@ -53,6 +53,8 @@ module Chainweb.Version
     , ChainwebVersionName(..)
     , ChainwebVersion(..)
     , pact4Upgrade
+    , TxIdxInBlock(..)
+    , _TxBlockIdx
     , VersionQuirks(..)
     , noQuirks
     , quirkGasFees
@@ -167,7 +169,6 @@ import GHC.Stack
 
 -- internal modules
 
-import Pact.Types.Command (RequestKey)
 import Pact.Types.Runtime (Gas)
 
 import Chainweb.BlockCreationTime
@@ -420,19 +421,24 @@ instance NFData PactUpgrade where
 pact4Upgrade :: [Pact4.Transaction] -> PactUpgrade
 pact4Upgrade txs = Pact4Upgrade txs False
 
+data TxIdxInBlock = TxBlockIdx Word
+    deriving stock (Eq, Ord, Show, Generic)
+    deriving anyclass (Hashable, NFData)
+
+makePrisms ''TxIdxInBlock
+
 -- The type of quirks, i.e. special validation behaviors that are in some
 -- sense one-offs which can't be expressed as upgrade transactions and must be
 -- preserved.
 data VersionQuirks = VersionQuirks
-    { _quirkGasFees :: !(HashMap RequestKey Gas)
-    -- ^ Note: only works for user txs in blocks right now.
+    { _quirkGasFees :: !(ChainMap (HashMap (BlockHeight, TxIdxInBlock) Gas))
     }
     deriving stock (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
 
 noQuirks :: VersionQuirks
 noQuirks = VersionQuirks
-    { _quirkGasFees = HM.empty
+    { _quirkGasFees = AllChains HM.empty
     }
 
 -- | Chainweb versions are sets of properties that must remain consistent among

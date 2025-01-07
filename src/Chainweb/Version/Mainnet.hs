@@ -219,9 +219,9 @@ mainnet = ChainwebVersion
         (4_577_530, Set.fromList $ map VerifierName ["hyperlane_v3_message"]) `Above`
         Bottom (minBound, mempty)
     , _versionQuirks = VersionQuirks
-        { _quirkGasFees = HM.fromList
-            [ (fromJuste (decodeStrictOrThrow' "\"s9fUspNaCHoV4rNI-Tw-JYU1DxqZAOXS-80oEy7Zfbo\""), Gas 67_618)
-            , (fromJuste (decodeStrictOrThrow' "\"_f1xkIQPGRcOBNBWkOvP0dGNOjmNtmXwOnXzfdwnmJQ\""), Gas 69_092)
+        { _quirkGasFees = onChains
+            [ (unsafeChainId 0, HM.fromList [((BlockHeight 4585419, TxBlockIdx 0), Gas 67_618)])
+            , (unsafeChainId 9, HM.fromList [((BlockHeight 4594049, TxBlockIdx 0), Gas 69_092)])
             ]
         }
     , _versionServiceDate = Just "2025-02-05T00:00:00Z"

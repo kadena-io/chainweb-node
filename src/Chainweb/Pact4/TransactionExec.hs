@@ -321,6 +321,7 @@ applyCmd
       -- ^ Gas model (pact Service config)
     -> TxContext
       -- ^ tx metadata and parent header
+    -> TxIdxInBlock
     -> SPVSupport
       -- ^ SPV support (validates cont proofs)
     -> Command (Payload PublicMeta ParsedCode)
@@ -332,7 +333,7 @@ applyCmd
     -> ApplyCmdExecutionContext
       -- ^ is this a local or send execution context?
     -> IO (T3 (CommandResult [TxLogJson]) ModuleCache (S.Set PactWarning))
-applyCmd v logger gasLogger txFailuresCounter pdbenv miner gasModel txCtx spv cmd initialGas mcache0 callCtx = do
+applyCmd v logger gasLogger txFailuresCounter pdbenv miner gasModel txCtx txIdxInBlock spv cmd initialGas mcache0 callCtx = do
     T2 cr st <- runTransactionM cenv txst applyBuyGas
 
     let cache = _txCache st
@@ -344,7 +345,7 @@ applyCmd v logger gasLogger txFailuresCounter pdbenv miner gasModel txCtx spv cm
       | chainweb217Pact' = gasModel
       | otherwise = _geGasModel freeGasEnv
     txst = TransactionState mcache0 mempty 0 Nothing stGasModel mempty
-    quirkGasFee = v ^? versionQuirks . quirkGasFees . ix requestKey
+    quirkGasFee = v ^? versionQuirks . quirkGasFees . ixg cid . ix (ctxCurrentBlockHeight txCtx, txIdxInBlock)
 
     executionConfigNoHistory = ExecutionConfig
       $ S.singleton FlagDisableHistoryInTransactionalMode

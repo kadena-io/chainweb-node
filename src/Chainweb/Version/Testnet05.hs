@@ -99,8 +99,6 @@ testnet05 = ChainwebVersion
         }
     , _versionVerifierPluginNames = AllChains $
         Bottom (minBound, Set.fromList $ map VerifierName ["hyperlane_v3_message"])
-    , _versionQuirks = VersionQuirks
-        { _quirkGasFees = mempty
-        }
+    , _versionQuirks = noQuirks
     , _versionServiceDate = Nothing
     }

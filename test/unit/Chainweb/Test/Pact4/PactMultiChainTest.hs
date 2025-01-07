@@ -78,9 +78,6 @@ import Chainweb.Pact.Backend.Types
 testVersion :: ChainwebVersion
 testVersion = slowForkingCpmTestVersion peterson
 
--- quirkedGasTestVersion :: RequestKey -> ChainwebVersion
--- quirkedGasTestVersion = quirkedGasSlowForkingCpmTestVersion peterson
-
 cid :: ChainId
 cid = unsafeChainId 9
     -- several tests in this file expect chain 9
@@ -145,7 +142,7 @@ tests = testGroup testName
   , test generousConfig "chainweb223Test" chainweb223Test
   , test generousConfig "compactAndSyncTest" compactAndSyncTest
   , test generousConfig "compactionCompactsUnmodifiedTables" compactionCompactsUnmodifiedTables
-  -- , quirkTest
+  , quirkTest
   , test generousConfig "checkTransferCreate" checkTransferCreate
   ]
 
@@ -1367,65 +1364,31 @@ checkTransferCreate = do
   where
   coinCaps = [ mkGasCap, mkTransferCap "sender00" "sender01" 1.0 ]
 
-
--- TODO: pact5. This test cannot work as constructed anymore. It will need to be redone.
--- quirkTest :: TestTree
--- quirkTest = do
---   -- fake stand-in for the request key of the quirked command, so that we can
---   -- construct the version without knowing the request key of the command
---   -- that will use the version.
---   -- TODO: make this nicer once MempoolCmdBuilder is gone.
---   let fakeReqKey = RequestKey (Hash mempty)
---   let fakeVersion = quirkedGasTestVersion fakeReqKey
---   let genesisHeader = genesisBlockHeader fakeVersion cid
---   let mempoolCmdBuilder =
---         buildBasic (mkExec' "(+ 1 2)")
---   -- this is how setPactMempool builds the commands
---   -- we fake the header here to ensure the request key is consistent later on
---   let cmd = unsafeDupablePerformIO $
---         buildCwCmd
---           (sshow genesisHeader)
---           fakeVersion
---           (_mempoolCmdBuilder mempoolCmdBuilder cid (view blockCreationTime genesisHeader))
---   -- once we have the request key, we can make it a quirk in the version
---   -- we use to actually run the command.
---   let !realReqKey = RequestKey (toUntypedHash $ _cmdHash cmd)
---   let realVersion = quirkedGasTestVersion realReqKey
---   -- we have to unregister the already registered fake version in order
---   -- for the real quirked version to be in the registry when we validate
---   -- blocks
---   withResource (unregisterVersion fakeVersion >> registerVersion realVersion) (\_ -> pure ()) $ \_ ->
---     testCaseSteps "quirkTest" $ \step ->
---       withTestBlockDb realVersion $ \bdb -> do
---         mempools <- onAllChains realVersion $ \_cid -> do
---           r <- newIORef mempty
---           return (r, delegateMemPoolAccess r)
---         let logger = hunitDummyLogger step
---         withWebPactExecutionService logger realVersion testPactServiceConfig bdb (snd <$> mempools) $ \(pact,pacts) ->
---           flip runReaderT (MultiEnv bdb pact pacts (fst <$> mempools) noMiner cid) $ do
---             runToHeight 99
-
---             -- run the command once without it being quirked, to establish
---             -- a baseline gas value
---             runBlockTest
---               [ PactTxTest mempoolCmdBuilder $
---                 assertTxGas "not-quirked gas" 221
---               ]
---             rs <- txResults
---             liftIO $ print rs
---             liftIO $ print realReqKey
---             -- run the command quirked, with the previously calculated request
---             -- key realReqKey, and assert that the gas has been changed
---             let quirkedTests =
---                   [ PactTxTest mempoolCmdBuilder $
---                     \cr -> assertTxGas "quirked gas" 1 cr
---                   ]
---             void $ setPactMempool' (Just genesisHeader) cid
---               $ PactMempool [testsToBlock quirkedTests]
---             runCut'
---             rs <- txResults
---             liftIO $ print rs
---             testCurrentBlock quirkedTests
+-- TODO: pact5.
+quirkTest :: TestTree
+quirkTest = do
+  let v = quirkedGasInstantCpmTestVersion peterson
+  let mempoolCmdBuilder =
+        buildBasic (mkExec' "(+ 1 2)")
+  testCaseSteps "quirkTest" $ \step ->
+    withTestBlockDb v $ \bdb -> do
+      mempools <- onAllChains v $ \_cid -> do
+        r <- newIORef mempty
+        return (r, delegateMemPoolAccess r)
+      let logger = hunitDummyLogger step
+      withWebPactExecutionService logger v testPactServiceConfig bdb (snd <$> mempools) $ \(pact,pacts) ->
+        flip runReaderT (MultiEnv bdb pact pacts pacts (fst <$> mempools) noMiner cid) $ do
+          -- run the command once without it being quirked, to establish
+          -- a baseline gas value
+          local (menvChainId .~ unsafeChainId 0) $ do
+            runBlockTest
+              [ PactTxTest mempoolCmdBuilder $
+                assertTxGas "not-quirked gas" 219
+              ]
+            runBlockTest
+              [ PactTxTest mempoolCmdBuilder $
+                assertTxGas "quirked gas" 1
+              ]
 
 pact4coin3UpgradeTest :: PactTestM ()
 pact4coin3UpgradeTest = do
