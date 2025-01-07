@@ -746,8 +746,8 @@ localPreflightSimTest :: RocksDb -> TestTree
 localPreflightSimTest baseRdb = let
     v = pact5InstantCpmTestVersion petersonChainGraph
     cid = unsafeChainId 0
-    in withSharedFixture (mkFixture v baseRdb) $ testGroup "preflight sim test"
-        [ testCase "ordinary txs" $ do
+    in testGroup "tests for local"
+        [ withSharedFixture (mkFixture v baseRdb) $ testCase "ordinary txs" $ do
             let expectation = P.checkAll
                     [ P.fun _crResult ? P.match _PactResultOk ? P.equals (PInteger 1)
                     , P.fun _crMetaData ? P.match _Just ? P.match A._Object ? P.alignExact ? A.KeyMap.fromList
@@ -772,7 +772,7 @@ localPreflightSimTest baseRdb = let
                 >>= local v cid (Just PreflightSimulation) (Just NoVerify) Nothing
                 >>= P.match _Pact5LocalResultWithWarns ? P.fun fst ? expectation
 
-        , testCase "signature with the wrong key" $ do
+        , withSharedFixture (mkFixture v baseRdb) $ testCase "signature with the wrong key" $ do
             let buildSender00Cmd = defaultCmd cid
                     & cbSigners .~ [mkEd25519Signer' sender00 []]
             goodCmdHash <- _cmdHash <$> buildTextCmd v buildSender00Cmd
@@ -800,7 +800,7 @@ localPreflightSimTest baseRdb = let
         -- cmd1 <- mkRawTx mv (Pact.ChainId "fail") sigs0
         -- runClientFailureAssertion sid cenv cmd1 "Unparseable transaction chain id"
 
-        , testCase "invalid tx metadata" $ do
+        , withSharedFixture (mkFixture v baseRdb) $ testCase "invalid tx metadata" $ do
             buildTextCmd v (defaultCmd $ unsafeChainId maxBound)
                 >>= local v cid (Just PreflightSimulation) Nothing Nothing
                 & fails ? P.match _FailureResponse ? P.checkAll
@@ -846,7 +846,7 @@ localPreflightSimTest baseRdb = let
                 ? P.fun _crResult
                 -- TODO: a more detailed check here than "is an error" might be nice
                 ? P.match _PactResultErr P.succeed
-        , testCase "local with depth" $ do
+        , withSharedFixture (mkFixture v baseRdb) $ testCase "local with depth" $ do
             startBalance <- buildTextCmd v (defaultCmd cid & set cbRPC (mkExec' "(coin.details 'sender00)"))
                 >>= local v cid Nothing Nothing (Just (RewindDepth 0))
                 <&> unsafeHeadOf
