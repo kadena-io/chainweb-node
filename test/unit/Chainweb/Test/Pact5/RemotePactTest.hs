@@ -202,9 +202,7 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
         , testCaseSteps "caplistTest" (caplistTest rdb)
         , testCaseSteps "allocationTest" (allocationTest rdb)
         , testCaseSteps "webAuthnSignatureTest" (webAuthnSignatureTest rdb)
-        , testCaseSteps "localContTest" (localContTest rdb)
-        , testCaseSteps "localSignatureTest" (localSignatureTest rdb)
-        , localPreflightSimTest rdb
+        , localTests rdb
         ]
 
 pollingInvalidRequestKeyTest :: RocksDb -> Step -> IO ()
@@ -692,62 +690,12 @@ webAuthnSignatureTest rdb _step = runResourceT $ do
         poll v cid [cmdToRequestKey cmd] >>=
             P.alignExact [P.match _Just successfulTx]
 
-localContTest :: RocksDb -> (String -> IO ()) -> IO ()
-localContTest baseRdb _step = runResourceT $ do
-    let v = pact5InstantCpmTestVersion petersonChainGraph
-    let cid = unsafeChainId 0
-    fixture <- mkFixture v baseRdb
-
-    withFixture fixture $ liftIO $ do
-        let code = "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
-        initiator <- buildTextCmd v
-            $ set cbGasLimit (GasLimit (Gas 70_000))
-            $ set cbRPC (mkExec' code)
-            $ defaultCmd cid
-        send v cid [initiator]
-        advanceAllChains_
-        Just defPactId <- poll v cid [cmdToRequestKey initiator]
-            <&> preview (ix 0 . _Just . crContinuation . _Just . peDefPactId)
-        continuer <- buildTextCmd v
-            $ set cbRPC (mkCont (mkContMsg defPactId 1))
-            $ defaultCmd cid
-        local v cid Nothing Nothing Nothing continuer
-            >>= P.match _Pact5LocalResultLegacy ? P.fun _crResult
-            ? P.match _PactResultOk ? P.equals (PInteger 2)
-
-localSignatureTest :: RocksDb -> (String -> IO ()) -> IO ()
-localSignatureTest baseRdb _step = runResourceT $ do
-    let v = pact5InstantCpmTestVersion petersonChainGraph
-    let cid = unsafeChainId 0
-    fixture <- mkFixture v baseRdb
-    withFixture fixture $ liftIO $ do
-        let buildSender00Cmd = defaultCmd cid
-                & cbSigners .~ [mkEd25519Signer' sender00 []]
-        goodCmdHash <- _cmdHash <$> buildTextCmd v buildSender00Cmd
-        sender01KeyPair <- either error return $ importEd25519KeyPair Nothing
-            (PrivBS $ either error id $ B16.decode $ T.encodeUtf8 $ snd sender01)
-        let sender01Sig = T.decodeUtf8 $ B16.encode $ exportEd25519Signature $
-                signEd25519 (fst sender01KeyPair) (snd sender01KeyPair) goodCmdHash
-        buildTextCmd v buildSender00Cmd
-            <&> set cmdSigs [ED25519Sig sender01Sig]
-            >>= local v cid Nothing Nothing Nothing
-            & P.fails ? P.match _FailureResponse
-            ? P.checkAll
-                [ P.fun responseStatusCode ? P.equals badRequest400
-                , P.fun responseBody ? P.equals "Metadata validation failed: [\"The signature at position 0 is invalid: invalid ed25519 signature.\"]"
-                ]
-        buildTextCmd v buildSender00Cmd
-            <&> set cmdSigs [ED25519Sig sender01Sig]
-            >>= local v cid Nothing (Just NoVerify) Nothing
-            >>= P.match _LocalResultLegacy
-            ? P.succeed
-
-localPreflightSimTest :: RocksDb -> TestTree
-localPreflightSimTest baseRdb = let
+localTests :: RocksDb -> TestTree
+localTests baseRdb = let
     v = pact5InstantCpmTestVersion petersonChainGraph
     cid = unsafeChainId 0
-    in withSharedFixture (mkFixture v baseRdb) $ testGroup "preflight sim test"
-        [ testCase "ordinary txs" $ do
+    in testGroup "tests for local"
+        [ withSharedFixture (mkFixture v baseRdb) $ testCase "ordinary txs" $ do
             let expectation = P.checkAll
                     [ P.fun _crResult ? P.match _PactResultOk ? P.equals (PInteger 1)
                     , P.fun _crMetaData ? P.match _Just ? P.match A._Object ? P.alignExact ? A.KeyMap.fromList
@@ -772,27 +720,46 @@ localPreflightSimTest baseRdb = let
                 >>= local v cid (Just PreflightSimulation) (Just NoVerify) Nothing
                 >>= P.match _Pact5LocalResultWithWarns ? P.fun fst ? expectation
 
-        , testCase "signature with the wrong key" $ do
+        , withSharedFixture (mkFixture v baseRdb) $ testCase "signature with the wrong key" $ do
             let buildSender00Cmd = defaultCmd cid
                     & cbSigners .~ [mkEd25519Signer' sender00 []]
             goodCmdHash <- _cmdHash <$> buildTextCmd v buildSender00Cmd
             sender01KeyPair <- either error return $ importEd25519KeyPair Nothing
                 (PrivBS $ either error id $ B16.decode $ T.encodeUtf8 $ snd sender01)
-            let sender01Sig = T.decodeUtf8 $ B16.encode $ exportEd25519Signature $
+            let sender01Sig = ED25519Sig $ T.decodeUtf8 $ B16.encode $ exportEd25519Signature $
                     signEd25519 (fst sender01KeyPair) (snd sender01KeyPair) goodCmdHash
 
             buildTextCmd v buildSender00Cmd
-                <&> set cmdSigs [ED25519Sig sender01Sig]
+                <&> set cmdSigs [sender01Sig]
+                -- preflight mode, verify signatures
                 >>= local v cid (Just PreflightSimulation) Nothing Nothing
                 & fails ? P.match _FailureResponse ? P.checkAll
                     [ P.fun responseStatusCode ? P.equals badRequest400
-                    , P.fun responseBody ? P.equals "Metadata validation failed: [\"Invalid transaction signatures\"]"
+                    , P.fun responseBody ? P.equals "Metadata validation failed: [\"The signature at position 0 is invalid: invalid ed25519 signature.\"]"
                     ]
 
             buildTextCmd v buildSender00Cmd
-                <&> set cmdSigs [ED25519Sig sender01Sig]
+                <&> set cmdSigs [sender01Sig]
+                -- preflight mode, do not verify signatures
                 >>= local v cid (Just PreflightSimulation) (Just NoVerify) Nothing
                 >>= P.succeed
+
+            buildTextCmd v buildSender00Cmd
+                <&> set cmdSigs [sender01Sig]
+                -- non-preflight mode, verify signatures
+                >>= local v cid Nothing Nothing Nothing
+                & P.fails ? P.match _FailureResponse
+                ? P.checkAll
+                    [ P.fun responseStatusCode ? P.equals badRequest400
+                    , P.fun responseBody ? P.equals "Metadata validation failed: [\"The signature at position 0 is invalid: invalid ed25519 signature.\"]"
+                    ]
+
+            buildTextCmd v buildSender00Cmd
+                <&> set cmdSigs [sender01Sig]
+                -- non-preflight mode, do not verify signatures
+                >>= local v cid Nothing (Just NoVerify) Nothing
+                >>= P.match _LocalResultLegacy
+                ? P.succeed
 
         -- TODO(?)
         -- step "Execute preflight /local tx - unparseable chain id"
@@ -800,7 +767,7 @@ localPreflightSimTest baseRdb = let
         -- cmd1 <- mkRawTx mv (Pact.ChainId "fail") sigs0
         -- runClientFailureAssertion sid cenv cmd1 "Unparseable transaction chain id"
 
-        , testCase "invalid tx metadata" $ do
+        , withSharedFixture (mkFixture v baseRdb) $ testCase "invalid tx metadata" $ do
             buildTextCmd v (defaultCmd $ unsafeChainId maxBound)
                 >>= local v cid (Just PreflightSimulation) Nothing Nothing
                 & fails ? P.match _FailureResponse ? P.checkAll
@@ -846,7 +813,7 @@ localPreflightSimTest baseRdb = let
                 ? P.fun _crResult
                 -- TODO: a more detailed check here than "is an error" might be nice
                 ? P.match _PactResultErr P.succeed
-        , testCase "local with depth" $ do
+        , withSharedFixture (mkFixture v baseRdb) $ testCase "local with depth" $ do
             startBalance <- buildTextCmd v (defaultCmd cid & set cbRPC (mkExec' "(coin.details 'sender00)"))
                 >>= local v cid Nothing Nothing (Just (RewindDepth 0))
                 <&> unsafeHeadOf
@@ -916,6 +883,23 @@ localPreflightSimTest baseRdb = let
                 [ hasBalance ? P.equals startBalance
                 , hasBlockHeight (P.equals 1)
                 ]
+
+        , withSharedFixture (mkFixture v baseRdb) $ testCase "local continuation" $ do
+            let code = "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
+            initiator <- buildTextCmd v
+                $ set cbGasLimit (GasLimit (Gas 70_000))
+                $ set cbRPC (mkExec' code)
+                $ defaultCmd cid
+            send v cid [initiator]
+            advanceAllChains_
+            Just defPactId <- poll v cid [cmdToRequestKey initiator]
+                <&> preview (ix 0 . _Just . crContinuation . _Just . peDefPactId)
+            continuer <- buildTextCmd v
+                $ set cbRPC (mkCont (mkContMsg defPactId 1))
+                $ defaultCmd cid
+            local v cid Nothing Nothing Nothing continuer
+                >>= P.match _Pact5LocalResultLegacy ? P.fun _crResult
+                ? P.match _PactResultOk ? P.equals (PInteger 2)
 
         ]
 
