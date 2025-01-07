@@ -228,9 +228,9 @@ instance KnownSymbol n => KnownChainIdSymbol ('ChainIdT n) where
     type ChainIdSymbol ('ChainIdT n) = n
     chainIdSymbolVal _ = T.pack $ symbolVal (Proxy @n)
 
-someChainIdVal :: ChainId -> SomeChainIdT
-someChainIdVal cid = case someSymbolVal (T.unpack (toText cid)) of
-    (SomeSymbol (Proxy :: Proxy v)) -> SomeChainIdT (Proxy @('ChainIdT v))
+someChainIdVal :: HasChainId c => c -> SomeChainIdT
+someChainIdVal cid = case someSymbolVal (T.unpack (toText (_chainId cid))) of
+    (SomeSymbol (Proxy :: Proxy cid)) -> SomeChainIdT (Proxy @('ChainIdT cid))
 
 -- -------------------------------------------------------------------------- --
 -- Singletons
