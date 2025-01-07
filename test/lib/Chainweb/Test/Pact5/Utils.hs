@@ -105,9 +105,8 @@ import Pact.Core.Names
 
 withBlockDbs :: ChainwebVersion -> RocksDb -> ResourceT IO (PayloadDb RocksDbTable, WebBlockHeaderDb)
 withBlockDbs v rdb = do
-    testRdb <- liftIO $ testRocksDb "withBlockDbs" rdb
-    webBHDb <- liftIO $ initWebBlockHeaderDb testRdb v
-    let payloadDb = newPayloadDb testRdb
+    webBHDb <- liftIO $ initWebBlockHeaderDb rdb v
+    let payloadDb = newPayloadDb rdb
     liftIO $ initializePayloadDb v payloadDb
     return (payloadDb, webBHDb)
 

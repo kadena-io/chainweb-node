@@ -107,14 +107,15 @@ class HasFixture where
 mkFixture :: ChainwebVersion -> PactServiceConfig -> RocksDb -> ResourceT IO Fixture
 mkFixture v pactServiceConfig baseRdb = do
     logger <- liftIO getTestLogger
-    (payloadDb, webBHDb) <- withBlockDbs v baseRdb
+    testRdb <- liftIO $ testRocksDb "withBlockDbs" baseRdb
+    (payloadDb, webBHDb) <- withBlockDbs v testRdb
     perChain <- iforM (HashSet.toMap (chainIds v)) $ \chain () -> do
         pactQueue <- liftIO $ newPactQueue 2_000
         mempool <- withMempool v chain pactQueue
         withRunPactService logger v chain pactQueue mempool webBHDb payloadDb pactServiceConfig
         return (mempool, pactQueue)
     let webPact = mkWebPactExecutionService $ HashMap.map (mkPactExecutionService . snd) perChain
-    let cutHashesStore = cutHashesTable baseRdb
+    let cutHashesStore = cutHashesTable testRdb
     cutDb <- withTestCutDb logger v webBHDb payloadDb cutHashesStore webPact
 
     let fixture = Fixture
