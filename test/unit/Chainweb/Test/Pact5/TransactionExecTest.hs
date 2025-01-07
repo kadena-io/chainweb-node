@@ -56,6 +56,7 @@ import Pact.Core.Errors
 import Pact.Core.Evaluate
 import Pact.Core.Gas.TableGasModel
 import Pact.Core.Gas.Types
+import Pact.Core.Hash
 import Pact.Core.Names
 import Pact.Core.PactValue
 import Pact.Core.Persistence hiding (pactDb)
@@ -87,7 +88,7 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
     , testCase "test local only fails outside of local" (testLocalOnlyFailsOutsideOfLocal baseRdb)
     , testCase "payload failure all gas should go to the miner - type error" (payloadFailureShouldPayAllGasToTheMinerTypeError baseRdb)
     , testCase "payload failure all gas should go to the miner - insufficient funds" (payloadFailureShouldPayAllGasToTheMinerInsufficientFunds baseRdb)
-    , testCase "event ordering spec" (testEventOrdering baseRdb)
+    , testCase "event spec" (testEvents baseRdb)
     , testCase "writes from failed transaction should not make it into the db" (testWritesFromFailedTxDontMakeItIn baseRdb)
     ]
 
@@ -686,8 +687,8 @@ testCoinUpgrade rdb = readFromAfterGenesis vUpgrades rdb $ do
         _crResult <$> applyLocal logger Nothing pactDb txCtx noSPVSupport (view payloadObj <$> cmd)
 
 
-testEventOrdering :: RocksDb -> IO ()
-testEventOrdering rdb = readFromAfterGenesis v rdb $
+testEvents :: RocksDb -> IO ()
+testEvents rdb = readFromAfterGenesis v rdb $
     pactTransaction Nothing $ \pactDb -> do
         cmd <- buildCwCmd v (defaultCmd cid)
             { _cbRPC = mkExec' "(coin.transfer 'sender00 'sender01 420.0) (coin.transfer 'sender00 'sender01 69.0)"
@@ -707,18 +708,30 @@ testEventOrdering rdb = readFromAfterGenesis v rdb $
         e & P.match _Right
             ? P.checkAll
                 [ P.fun _crEvents ? P.list
-                    [ event
-                        (P.equals "TRANSFER")
-                        (P.equals [PString "sender00", PString "sender01", PDecimal 420])
-                        (P.equals coinModuleName)
-                    , event
-                        (P.equals "TRANSFER")
-                        (P.equals [PString "sender00", PString "sender01", PDecimal 69])
-                        (P.equals coinModuleName)
-                    , event
-                        (P.equals "TRANSFER")
-                        (P.equals [PString "sender00", PString "NoMiner", PDecimal 766])
-                        (P.equals coinModuleName)
+                    [ P.checkAll
+                        [ event
+                            (P.equals "TRANSFER")
+                            (P.equals [PString "sender00", PString "sender01", PDecimal 420])
+                            (P.equals coinModuleName)
+                        , P.fun _peModuleHash ? P.fun moduleHashToText
+                            ? P.equals "3iIBQdJnst44Z2ZgXoHPkAauybJ0h85l_en_SGHNibE"
+                        ]
+                    , P.checkAll
+                        [ event
+                            (P.equals "TRANSFER")
+                            (P.equals [PString "sender00", PString "sender01", PDecimal 69])
+                            (P.equals coinModuleName)
+                        , P.fun _peModuleHash ? P.fun moduleHashToText
+                            ? P.equals "3iIBQdJnst44Z2ZgXoHPkAauybJ0h85l_en_SGHNibE"
+                        ]
+                    , P.checkAll
+                        [ event
+                            (P.equals "TRANSFER")
+                            (P.equals [PString "sender00", PString "NoMiner", PDecimal 766])
+                            (P.equals coinModuleName)
+                        , P.fun _peModuleHash ? P.fun moduleHashToText
+                            ? P.equals "3iIBQdJnst44Z2ZgXoHPkAauybJ0h85l_en_SGHNibE"
+                        ]
                     ]
                 ]
 
