@@ -422,11 +422,18 @@ sendInvalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fx ->
                 send fx v wrongChain [cmdGood]
                     & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
                         (validationFailed cmdGood "Transaction metadata (chain id, chainweb version) conflicts with this endpoint")
+
                 send fx wrongV cid [cmdGood]
                     & fails ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals notFound404
                         , P.fun responseBody ? P.equals ""
                         ]
+
+                let invalidCid = "invalid chain ID"
+                cmdInvalidChain <- buildTextCmd v (defaultCmd cid & set cbChainId invalidCid)
+                send fx v wrongChain [cmdInvalidChain]
+                    & fails ? P.match _FailureResponse ? P.fun responseBody ? textContains
+                        (validationFailed cmdInvalidChain "insert error: Unparsable ChainId")
 
                 cmdWrongV <- buildTextCmd wrongV
                     $ set cbRPC (mkExec "(+ 1 2)" (mkKeySetData "sender00" [sender00]))
@@ -657,7 +664,6 @@ allocationTest rdb step = runResourceT $ do
                         , ("guard", (PGuard $ GKeySetRef (KeySetName "allocation02" Nothing)))
                         ]
 
-
 successfulTx :: P.Prop (CommandResult log err)
 successfulTx = P.fun _crResult ? P.match _PactResultOk P.succeed
 
@@ -760,21 +766,33 @@ localTests baseRdb = let
                     >>= P.match _LocalResultLegacy
                     ? P.succeed
 
-        -- TODO(?)
-        -- step "Execute preflight /local tx - unparseable chain id"
-        -- sigs0 <- testKeyPairs sender00 Nothing
-        -- cmd1 <- mkRawTx mv (Pact.ChainId "fail") sigs0
-        -- runClientFailureAssertion sid cenv cmd1 "Unparseable transaction chain id"
-
         , testCase "invalid tx metadata" $ runResourceT $ do
             fx <- mkFixture v baseRdb
             liftIO $ do
-                buildTextCmd v (defaultCmd $ unsafeChainId maxBound)
+                let wrongChain = unsafeChainId maxBound
+                buildTextCmd v (defaultCmd wrongChain)
                     >>= local fx v cid (Just PreflightSimulation) Nothing Nothing
                     & fails ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? P.equals "Metadata validation failed: [\"Chain id mismatch\"]"
                         ]
+
+                -- /local without preflight does not care about incorrect chains
+                buildTextCmd v (defaultCmd wrongChain)
+                    >>= local fx v cid Nothing Nothing Nothing
+                    >>= P.succeed
+
+                let invalidChain = "not a real chain"
+                buildTextCmd v (defaultCmd cid & set cbChainId invalidChain)
+                    >>= local fx v cid (Just PreflightSimulation) Nothing Nothing
+                    & fails ? P.match _FailureResponse ? P.checkAll
+                        [ P.fun responseStatusCode ? P.equals badRequest400
+                        , P.fun responseBody ? P.equals "Metadata validation failed: [\"Chain id mismatch\"]"
+                        ]
+
+                buildTextCmd v (defaultCmd cid & set cbChainId invalidChain)
+                    >>= local fx v cid Nothing Nothing Nothing
+                    >>= P.succeed
 
                 buildTextCmd v (set cbGasLimit (GasLimit $ Gas 100000000000000) $ defaultCmd cid)
                     >>= local fx v cid (Just PreflightSimulation) Nothing Nothing
