@@ -156,8 +156,8 @@ buyGasFailures rdb = readFromAfterGenesis v rdb $ do
         do
             cmd <- buildCwCmd v (defaultCmd cid)
                 { _cbSigners =
-                    [ mkEd25519Signer' sender00 [
-                        CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
+                    [ mkEd25519Signer' sender00
+                        [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
                         , CapToken (QualifiedName "GAS_PAYER" (ModuleName "coin" Nothing)) []
                         , CapToken (QualifiedName "GAS_PAYER" (ModuleName "coin2" Nothing)) []
                         ]
@@ -366,6 +366,8 @@ applyCmdSpec rdb = readFromAfterGenesis v rdb $
             { _cbRPC = mkExec' "(fold + 0 [1 2 3 4 5])"
             , _cbGasPrice = GasPrice 2
             , _cbGasLimit = GasLimit (Gas 500)
+            -- no caps should be equivalent to the GAS cap
+            , _cbSigners = [mkEd25519Signer' sender00 []]
             }
         let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
         let expectedGasConsumed = 73
@@ -791,5 +793,3 @@ testLogger :: IO GenericLogger
 testLogger = do
     logLevel <- liftIO getTestLogLevel
     pure $ genericLogger logLevel T.putStrLn
-
--- TODO: explicit test that signing for no caps is equivalent to signing for GAS
