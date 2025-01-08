@@ -49,7 +49,6 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import System.LogLevel (LogLevel(..))
-import qualified Data.Aeson as A
 import qualified Data.ByteString.Short as SB
 import Data.List qualified as List
 import Data.Either
@@ -72,7 +71,6 @@ import Pact.Interpreter(PactDbEnv(..))
 import qualified Pact.JSON.Encode as J
 import qualified Pact.Parse as Pact4 hiding (parsePact)
 import qualified Pact.Types.Command as Pact4
-import Pact.Types.Exp (ParsedCode(..))
 import Pact.Types.ExpParser (mkTextInfo, ParseEnv(..))
 import qualified Pact.Types.Hash as Pact4
 import Pact.Types.RPC
@@ -631,89 +629,21 @@ validateHashes
     -> Either PactException PayloadWithOutputs
 validateHashes bHeader payload miner transactions =
     if newHash == prevHash
-      then Right pwo
+      then Right actualPwo
       else Left $ BlockValidationFailure $ BlockValidationFailureMsg $
-        J.encodeText $ J.object
-            [ "header" J..= J.encodeWithAeson (ObjectEncoded bHeader)
-            , "mismatch" J..= errorMsg "Payload hash" prevHash newHash
-            , "details" J..= details
-            ]
+              J.encodeText $ J.object
+                [ "header" J..= J.encodeWithAeson (ObjectEncoded bHeader)
+                , "actual" J..= J.encodeWithAeson actualPwo
+                , "expected" J..?= case payload of
+                    CheckablePayload _ -> Nothing
+                    CheckablePayloadWithOutputs pwo -> Just $ J.encodeWithAeson pwo
+                ]
   where
 
-    pwo = toPayloadWithOutputs Pact4T miner transactions
+    actualPwo = toPayloadWithOutputs Pact4T miner transactions
 
-    newHash = _payloadWithOutputsPayloadHash pwo
+    newHash = _payloadWithOutputsPayloadHash actualPwo
     prevHash = view blockPayloadHash bHeader
-
-    -- The following JSON encodings are used in the BlockValidationFailure message
-
-    check :: Eq a => A.ToJSON a => T.Text -> [Maybe J.KeyValue] -> a -> a -> Maybe J.Builder
-    check desc extra expect actual
-        | expect == actual = Nothing
-        | otherwise = Just $ J.object
-            $ "mismatch" J..= errorMsg desc expect actual
-            : extra
-
-    errorMsg :: A.ToJSON a => T.Text -> a -> a -> J.Builder
-    errorMsg desc expect actual = J.object
-        [ "type" J..= J.text desc
-        , "actual" J..= J.encodeWithAeson actual
-        , "expected" J..= J.encodeWithAeson expect
-        ]
-
-    details = case payload of
-        CheckablePayload pData -> J.Array $ catMaybes
-            [ check "Miner"
-                []
-                (view payloadDataMiner pData)
-                (_payloadWithOutputsMiner pwo)
-            , check "TransactionsHash"
-                [ "txs" J..?=
-                    (J.Array <$> traverse (uncurry $ check "Tx" []) (zip
-                      (toList $ fst <$> _payloadWithOutputsTransactions pwo)
-                      (toList $ view payloadDataTransactions pData)
-                    ))
-                ]
-                (view payloadDataTransactionsHash pData)
-                (_payloadWithOutputsTransactionsHash pwo)
-            , check "OutputsHash"
-                [ "outputs" J..= J.object
-                    [ "coinbase" J..= toPairCR (_transactionCoinbase transactions)
-                    , "txs" J..= J.array (addTxOuts <$> _transactionPairs transactions)
-                    ]
-                ]
-                (view payloadDataOutputsHash pData)
-                (_payloadWithOutputsOutputsHash pwo)
-            ]
-
-        CheckablePayloadWithOutputs localPwo -> J.Array $ catMaybes
-            [ check "Miner"
-                []
-                (_payloadWithOutputsMiner localPwo)
-                (_payloadWithOutputsMiner pwo)
-            , Just $ J.object
-              [ "transactions" J..= J.object
-                  [ "txs" J..?=
-                      (J.Array <$> traverse (uncurry $ check "Tx" []) (zip
-                        (toList $ _payloadWithOutputsTransactions pwo)
-                        (toList $ _payloadWithOutputsTransactions localPwo)
-                      ))
-                  , "coinbase" J..=
-                      check "Coinbase" []
-                        (_payloadWithOutputsCoinbase pwo)
-                        (_payloadWithOutputsCoinbase localPwo)
-                  ]
-              ]
-            ]
-
-    addTxOuts :: (Pact4.Transaction, Pact4.CommandResult [Pact4.TxLogJson]) -> J.Builder
-    addTxOuts (tx,cr) = J.object
-        [ "tx" J..= fmap (fmap _pcCode . Pact4.payloadObj) tx
-        , "result" J..= toPairCR cr
-        ]
-
-    toPairCR cr = over (Pact4.crLogs . _Just)
-        (CRLogPair (fromJuste $ Pact4._crLogs (hashPact4TxLogs cr))) cr
 
 type GrowableVec = Vec (PrimState IO)
 
