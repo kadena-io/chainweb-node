@@ -635,7 +635,7 @@ allocationTest rdb step = runResourceT $ do
                 (set cbRPC (mkExec' "(coin.release-allocation \"allocation01\")") $ defaultCmd cid)
                 >>= local fx v cid Nothing Nothing Nothing
                 >>= P.match _Pact5LocalResultLegacy ?
-                    P.fun _crResult ? P.match (_PactResultErr . _PEPact5Error . _2) ?
+                    P.fun _crResult ? P.match (_PactResultErr . _PEPact5Error . to _peMsg) ?
                         P.fun _boundedText ? textContains "funds locked until \"2100-10-31T18:00:00Z\"."
 
         step "allocation02"
@@ -677,13 +677,6 @@ allocationTest rdb step = runResourceT $ do
 
 successfulTx :: P.Prop (CommandResult log err)
 successfulTx = P.fun _crResult ? P.match _PactResultOk P.succeed
-
--- TODO: backport into Pact 5
-_PEPact5Error :: Prism' (PactErrorCompat c) (ErrorCode, BoundedText 256, c)
-_PEPact5Error = prism' (PEPact5Error . uncurry3 PactErrorCode) $ \case
-    PEPact5Error (PactErrorCode {_peCode, _peMsg, _peInfo}) ->
-        Just (_peCode, _peMsg, _peInfo)
-    _ -> Nothing
 
 -- Test that transactions signed with (mock) WebAuthn keypairs are accepted
 -- by the pact service.
