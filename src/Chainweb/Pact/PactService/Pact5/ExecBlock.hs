@@ -71,7 +71,6 @@ import Utils.Logging.Trace
 import qualified Data.Set as S
 import qualified Pact.Types.Gas as Pact4
 import qualified Pact.Core.Gas as P
-import qualified Data.Aeson as A
 import qualified Data.Text.Encoding as T
 import qualified Data.HashMap.Strict as HashMap
 import qualified Chainweb.Pact5.Backend.ChainwebPactDb as Pact5
@@ -640,8 +639,10 @@ validateHashes bHeader payload miner transactions =
         let jsonText =
               J.encodeText $ J.object
                 [ "header" J..= J.encodeWithAeson (ObjectEncoded bHeader)
-                , "mismatch" J..= errorMsg "Payload hash" prevHash newHash
-                , "details" J..= difference
+                , "actual" J..= J.encodeWithAeson actualPwo
+                , "expected" J..?= case payload of
+                    CheckablePayload _ -> Nothing
+                    CheckablePayloadWithOutputs pwo -> Just $ J.encodeWithAeson pwo
                 ]
 
         Left (BlockValidationFailure $ BlockValidationFailureMsg jsonText)
@@ -653,50 +654,6 @@ validateHashes bHeader payload miner transactions =
     prevHash = view blockPayloadHash bHeader
 
     -- The following JSON encodings are used in the BlockValidationFailure message
-
-    errorMsg :: (A.ToJSON a) => T.Text -> a -> a -> J.Builder
-    errorMsg desc expect actual = J.object
-        [ "type" J..= J.text desc
-        , "actual" J..= J.encodeWithAeson actual
-        , "expected" J..= J.encodeWithAeson expect
-        ]
-
-    payloadDataToJSON pd = J.object
-      [ "miner" J..= J.encodeWithAeson (view payloadDataMiner pd)
-      , "txs" J..= J.array
-              -- only works because these are valid utf8, they may not be in future!
-              [ J.build $ T.decodeUtf8 $ _transactionBytes cmd
-              | cmd <- V.toList (view payloadDataTransactions pd)
-              ]
-      , "hash" J..= J.string (show (view payloadDataPayloadHash pd))
-      ]
-
-    payloadWithOutputsToJSON pwo = J.object
-      [ "miner" J..= J.encodeWithAeson (_payloadWithOutputsMiner pwo)
-      , "txs" J..= J.array
-              [ J.array
-                -- only works because these are valid utf8, they may not be in future!
-                [ J.build $ T.decodeUtf8 $ _transactionBytes cmd
-                , J.build $ T.decodeUtf8 $ _transactionOutputBytes cr
-                ]
-              | (cmd, cr) <- V.toList (_payloadWithOutputsTransactions pwo)
-              ]
-      , "hash" J..= J.string (show (_payloadWithOutputsPayloadHash pwo))
-      ]
-
-    expectedJSON = case payload of
-      CheckablePayloadWithOutputs expected ->
-        payloadWithOutputsToJSON expected
-      CheckablePayload expected ->
-        payloadDataToJSON expected
-
-    actualJSON =
-      payloadWithOutputsToJSON actualPwo
-
-    difference = J.object
-      [ "expected" J..= expectedJSON
-      , "actual" J..= actualJSON
-      ]
 
 data CRLogPair = CRLogPair Hash [Pact5.TxLog ByteString]
 
