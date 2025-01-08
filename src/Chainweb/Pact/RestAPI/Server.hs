@@ -46,6 +46,7 @@ import Control.Monad.Trans.Except (ExceptT, runExceptT, except)
 
 import Data.Aeson as Aeson
 import Data.Bifunctor (second)
+import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
@@ -104,6 +105,7 @@ import Chainweb.Pact.RestAPI.EthSpv
 import Chainweb.Pact.RestAPI.SPV
 import Chainweb.Pact.Types
 import Chainweb.Pact4.SPV qualified as Pact4
+import Pact.Types.ChainMeta qualified as Pact4
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.Orphans ()
@@ -260,11 +262,13 @@ sendHandler
     -> Handler Pact4.RequestKeys
 sendHandler logger mempool (Pact4.SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
-    case (traverse . traverse) (\t -> (encodeUtf8 t,) <$> eitherDecodeStrictText t) cmds of
+    let cmdPayloads :: Either String (NonEmpty (Pact4.Command (ByteString, Pact4.Payload Pact4.PublicMeta Text)))
+        cmdPayloads = traverse (traverse (\t -> (encodeUtf8 t,) <$> eitherDecodeStrictText t)) cmds
+    case cmdPayloads of
       Right (fmap Pact4.mkPayloadWithText -> cmdsWithParsedPayloads) -> do
           let cmdsWithParsedPayloadsV = V.fromList $ NEL.toList cmdsWithParsedPayloads
           -- If any of the txs in the batch fail validation, we reject them all.
-          liftIO (mempoolInsertCheck mempool cmdsWithParsedPayloadsV) >>= checkResult
+          liftIO (mempoolInsertCheckVerbose mempool cmdsWithParsedPayloadsV) >>= checkResult
           liftIO (mempoolInsert mempool UncheckedInsert cmdsWithParsedPayloadsV)
           return $! Pact4.RequestKeys $ NEL.map Pact4.cmdToRequestKey cmdsWithParsedPayloads
       Left err -> failWith $ "reading JSON for transaction failed: " <> T.pack err
@@ -276,17 +280,19 @@ sendHandler logger mempool (Pact4.SubmitBatch cmds) = Handler $ do
 
     logg = logFunctionJson (setComponent "send-handler" logger)
 
-    toPactHash :: TransactionHash -> Pact4.TypedHash h
-    toPactHash (TransactionHash h) = Pact4.TypedHash h
-
-    checkResult :: Either (T2 TransactionHash InsertError) () -> ExceptT ServerError IO ()
-    checkResult (Right _) = pure ()
-    checkResult (Left (T2 hash insErr)) = failWith $ fold
-        [ "Validation failed for hash "
-        , sshow $ toPactHash hash
-        , ": "
-        , sshow insErr
-        ]
+    checkResult :: Vector (T2 TransactionHash (Either InsertError Pact4.UnparsedTransaction)) -> ExceptT ServerError IO ()
+    checkResult vec
+        | V.null vec = return ()
+        | otherwise = do
+            let errors = flip mapMaybe (L.zip [0..] (V.toList vec)) $ \(i, T2 txHash e) -> case e of
+                    Left err -> Just $ "Transaction " <> sshow txHash <> " at index " <> sshow @Word i <> " failed with: " <> sshow err
+                    Right _ -> Nothing
+            if null errors
+            then do
+                return ()
+            else do
+                let err = "One or more transactions were invalid: " <> T.intercalate ", " errors
+                failWith err
 
 -- -------------------------------------------------------------------------- --
 -- Poll Handler

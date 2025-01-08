@@ -59,6 +59,7 @@ toMempool version chain txcfg env =
     , mempoolLookupEncoded = const unsupported
     , mempoolInsert = insert
     , mempoolInsertCheck = const unsupported
+    , mempoolInsertCheckVerbose = const unsupported
     , mempoolMarkValidated = const unsupported
     , mempoolAddToBadList = const unsupported
     , mempoolCheckBadList = const unsupported

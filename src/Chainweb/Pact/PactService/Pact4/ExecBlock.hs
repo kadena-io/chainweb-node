@@ -327,8 +327,11 @@ checkTxSigs
   -> f ()
 checkTxSigs logger v cid bh t = do
   liftIO $ logFunctionText logger Debug $ "Pact4.checkTxSigs: " <> sshow (Pact4._cmdHash t)
-  if | isRight (Pact4.assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs) -> pure ()
-     | otherwise -> throwError InsertErrorInvalidSigs
+  case Pact4.assertValidateSigs validSchemes webAuthnPrefixLegal hsh signers sigs of
+      Right _ -> do
+          pure ()
+      Left err -> do
+        throwError $ InsertErrorInvalidSigs (displayAssertValidateSigsError err)
   where
     hsh = Pact4._cmdHash t
     sigs = Pact4._cmdSigs t
