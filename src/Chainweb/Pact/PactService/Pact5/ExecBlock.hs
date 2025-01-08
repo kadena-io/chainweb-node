@@ -52,7 +52,7 @@ import Control.Monad.State.Strict
 import Data.ByteString (ByteString)
 import Data.Coerce
 import Data.Decimal
-import Data.Either (partitionEithers, isRight)
+import Data.Either (partitionEithers)
 import Data.Foldable
 import Data.Maybe
 import Data.Text qualified as T
@@ -77,6 +77,7 @@ import qualified Chainweb.Pact5.Backend.ChainwebPactDb as Pact5
 import qualified Chainweb.Pact4.Transaction as Pact4
 import qualified Chainweb.Pact5.Transaction as Pact5
 import qualified Chainweb.Pact5.Validations as Pact5
+import Pact.Core.Pretty qualified as Pact5
 import qualified Data.ByteString.Short as SB
 import qualified Pact.Core.Hash as Pact5
 import System.LogLevel
@@ -527,8 +528,11 @@ validateParsedChainwebTx _logger v cid db _blockHandle txValidationTime bh isGen
 
     checkTxSigs :: Pact5.Transaction -> ExceptT InsertError IO ()
     checkTxSigs t = do
-      if | isRight (Pact5.assertValidateSigs hsh signers sigs) -> pure ()
-         | otherwise -> throwError InsertErrorInvalidSigs
+      case Pact5.assertValidateSigs hsh signers sigs of
+          Right _ -> do
+              pure ()
+          Left err -> do
+              throwError $ InsertErrorInvalidSigs (displayAssertValidateSigsError err)
       where
         hsh = Pact5._cmdHash t
         sigs = Pact5._cmdSigs t
@@ -558,7 +562,7 @@ validateRawChainwebTx
     -> Pact4.UnparsedTransaction
     -> ExceptT InsertError IO Pact5.Transaction
 validateRawChainwebTx logger v cid db blockHandle parentTime bh isGenesis tx = do
-  tx' <- either (throwError . InsertErrorPactParseError . sshow) return $ Pact5.parsePact4Command tx
+  tx' <- either (throwError . InsertErrorPactParseError . Pact5.renderText) return $ Pact5.parsePact4Command tx
   liftIO $ do
     logDebug_ logger $ "validateRawChainwebTx: parse succeeded"
   validateParsedChainwebTx logger v cid db blockHandle parentTime bh isGenesis tx'

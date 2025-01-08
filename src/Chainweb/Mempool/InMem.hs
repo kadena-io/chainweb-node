@@ -3,10 +3,12 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -25,6 +27,8 @@ module Chainweb.Mempool.InMem
   ) where
 
 ------------------------------------------------------------------------------
+
+import Data.List qualified as List
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
@@ -119,18 +123,19 @@ toMempoolBackend
 toMempoolBackend logger mempool = do
     return $! MempoolBackend
       { mempoolTxConfig = tcfg
-      , mempoolMember = member
-      , mempoolLookup = lookup
-      , mempoolLookupEncoded = lookupEncoded
-      , mempoolInsert = insert
-      , mempoolInsertCheck = insertCheck
-      , mempoolMarkValidated = markValidated
-      , mempoolAddToBadList = addToBadList
-      , mempoolCheckBadList = checkBadList
-      , mempoolGetBlock = getBlock
-      , mempoolPrune = prune
-      , mempoolGetPendingTransactions = getPending
-      , mempoolClear = clear
+      , mempoolMember = memberInMem lockMVar
+      , mempoolLookup = lookupInMem tcfg lockMVar
+      , mempoolLookupEncoded = lookupEncodedInMem lockMVar
+      , mempoolInsert = insertInMem logger cfg lockMVar
+      , mempoolInsertCheck = insertCheckInMem cfg lockMVar
+      , mempoolInsertCheckVerbose = insertCheckVerboseInMem cfg lockMVar
+      , mempoolMarkValidated = markValidatedInMem logger tcfg lockMVar
+      , mempoolAddToBadList = addToBadListInMem lockMVar
+      , mempoolCheckBadList = checkBadListInMem lockMVar
+      , mempoolGetBlock = getBlockInMem logger cfg lockMVar
+      , mempoolPrune = pruneInMem logger lockMVar
+      , mempoolGetPendingTransactions = getPendingInMem cfg nonce lockMVar
+      , mempoolClear = clearInMem lockMVar
       }
   where
     cfg = _inmemCfg mempool
@@ -138,26 +143,6 @@ toMempoolBackend logger mempool = do
     lockMVar = _inmemDataLock mempool
 
     InMemConfig tcfg _ _ _ _ _ _ = cfg
-    member = memberInMem lockMVar
-    lookup = lookupInMem tcfg lockMVar
-    lookupEncoded = lookupEncodedInMem lockMVar
-    insert = insertInMem logger cfg lockMVar
-    insertCheck = insertCheckInMem cfg lockMVar
-    markValidated = markValidatedInMem logger tcfg lockMVar
-    addToBadList = addToBadListInMem lockMVar
-    checkBadList = checkBadListInMem lockMVar
-    getBlock :: forall to.
-      (NFData t)
-      => BlockFill
-      -> MempoolPreBlockCheck t to
-      -> BlockHeight
-      -> BlockHash
-      -> IO (Vector to)
-    getBlock = getBlockInMem logger cfg lockMVar
-    getPending = getPendingInMem cfg nonce lockMVar
-    prune = pruneInMem logger lockMVar
-    clear = clearInMem lockMVar
-
 
 ------------------------------------------------------------------------------
 -- | A 'bracket' function for in-memory mempools.
@@ -344,6 +329,66 @@ insertCheckInMem cfg lock txs
     case withHashes of
         Left _ -> pure $! void withHashes
         Right r -> void . sequenceA <$!> _inmemPreInsertBatchChecks cfg r
+  where
+    hasher :: t -> TransactionHash
+    hasher = txHasher (_inmemTxCfg cfg)
+
+-- | This function is used when a transaction(s) is inserted into the mempool via
+--   the service API. It is NOT used when a new block is created.
+--   For the latter, more strict validation methods are used. In particular, TTL validation
+--   uses the current time as reference in the former case (mempool insertion)
+--   and the creation time of the parent header in the latter case (new block creation).
+--
+insertCheckVerboseInMem
+    :: forall t
+    .  NFData t
+    => InMemConfig t    -- ^ in-memory config
+    -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
+    -> Vector t  -- ^ new transactions
+    -> IO (Vector (T2 TransactionHash (Either InsertError t)))
+insertCheckVerboseInMem cfg lock txs
+  | V.null txs = return V.empty
+  | otherwise = do
+      now <- getCurrentTimeIntegral
+      badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
+      curTxIdx <- withMVarMasked lock $ readIORef . _inmemCurrentTxs
+
+      let withHashesAndPositions :: (HashMap TransactionHash (Int, InsertError), HashMap TransactionHash (Int, t))
+          withHashesAndPositions =
+            over _1 (HashMap.fromList . V.toList)
+            $ over _2 (HashMap.fromList . V.toList)
+            $ V.partitionWith (\(i, h, e) -> bimap (\err -> (h, (i, err))) (\err -> (h, (i, err))) e)
+            $ flip V.imap txs $ \i tx ->
+                let !h = hasher tx
+                in (i, h,) $! validateOne cfg badmap curTxIdx now tx h
+
+      let (prevFailures, prevSuccesses) = withHashesAndPositions
+
+      preInsertBatchChecks <- _inmemPreInsertBatchChecks cfg (V.fromList $ List.map (\(h, (_, t)) -> T2 h t) $ HashMap.toList prevSuccesses)
+
+      let update (failures, successes) result = case result of
+              Left (T2 txHash insertError) ->
+                case HashMap.lookup txHash successes of
+                  Just (i, _) ->
+                    -- add to failures and remove from successes
+                    ( HashMap.insert txHash (i, insertError) failures
+                    , HashMap.delete txHash successes
+                    )
+                  Nothing -> error "insertCheckInMem: impossible"
+              -- nothing to do; the successes already contains this value.
+              Right _ -> (failures, successes)
+      let (failures, successes) = V.foldl' update (prevFailures, prevSuccesses) preInsertBatchChecks
+
+      let allEntries =
+            [ (i, T2 txHash (Left insertError))
+            | (txHash, (i, insertError)) <- HashMap.toList failures
+            ] ++
+            [ (i, T2 txHash (Right val))
+            | (txHash, (i, val)) <- HashMap.toList successes
+            ]
+      let sortedEntries = V.fromList $ List.map snd $ List.sortBy (compare `on` fst) allEntries
+
+      return sortedEntries
   where
     hasher :: t -> TransactionHash
     hasher = txHasher (_inmemTxCfg cfg)

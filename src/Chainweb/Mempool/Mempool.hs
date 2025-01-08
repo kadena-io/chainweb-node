@@ -90,6 +90,7 @@ module Chainweb.Mempool.Mempool
   , pact5RequestKeyToTransactionHash
   ) where
 ------------------------------------------------------------------------------
+
 import Control.DeepSeq (NFData)
 import Control.Exception
 import Control.Lens hiding ((.=))
@@ -237,7 +238,7 @@ data InsertError
   | InsertErrorCompilationFailed Text
   | InsertErrorOther Text
   | InsertErrorInvalidHash
-  | InsertErrorInvalidSigs
+  | InsertErrorInvalidSigs Text
   | InsertErrorTimedOut
   | InsertErrorPactParseError Text
   | InsertErrorWrongChain Text Text
@@ -257,7 +258,7 @@ instance Show InsertError where
       InsertErrorCompilationFailed msg -> "Transaction compilation failed: " <> T.unpack msg
       InsertErrorOther m -> "insert error: " <> T.unpack m
       InsertErrorInvalidHash -> "Invalid transaction hash"
-      InsertErrorInvalidSigs -> "Invalid transaction sigs"
+      InsertErrorInvalidSigs msg -> "Invalid transaction sigs: " <> T.unpack msg
       InsertErrorTimedOut -> "Transaction validation timed out"
       InsertErrorPactParseError msg -> "Pact parse error: " <> T.unpack msg
       InsertErrorWrongChain expected actual -> "Wrong chain, expected: " <> T.unpack expected <> ", actual: " <> T.unpack actual
@@ -295,8 +296,11 @@ data MempoolBackend t = MempoolBackend {
                   -> IO ()
 
     -- | Perform the pre-insert check for the given transactions. Short-circuits
-    -- on the first Transaction that fails.
+    --   on the first Transaction that fails.
   , mempoolInsertCheck :: Vector t -> IO (Either (T2 TransactionHash InsertError) ())
+
+    -- | Perform the pre-insert check for the given transactions. Does not short circuit.
+  , mempoolInsertCheckVerbose :: Vector t -> IO (Vector (T2 TransactionHash (Either InsertError t)))
 
     -- | Remove the given hashes from the pending set.
   , mempoolMarkValidated :: Vector t -> IO ()
@@ -342,6 +346,7 @@ noopMempool = do
     , mempoolLookupEncoded = noopLookupEncoded
     , mempoolInsert = noopInsert
     , mempoolInsertCheck = noopInsertCheck
+    , mempoolInsertCheckVerbose = noopInsertCheckVerbose
     , mempoolMarkValidated = noopMV
     , mempoolAddToBadList = noopAddToBadList
     , mempoolCheckBadList = noopCheckBadList
@@ -364,6 +369,7 @@ noopMempool = do
     noopLookupEncoded v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ const $ return ()
     noopInsertCheck _ = fail "unsupported"
+    noopInsertCheckVerbose _ = fail "unsupported"
     noopMV = const $ return ()
     noopAddToBadList = const $ return ()
     noopCheckBadList v = return $ V.replicate (V.length v) False

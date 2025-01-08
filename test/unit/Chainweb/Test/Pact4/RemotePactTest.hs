@@ -208,7 +208,7 @@ invalidCommandTest rdb = runResourceT $ do
     net <- withNodesAtLatestBehavior v id nodeDbDirs
     let cenv = _getServiceClientEnv net
 
-    let sendExpect :: [Command Text] -> (Text -> Bool) -> ResourceT IO ()
+    let sendExpect :: (HasCallStack) => [Command Text] -> (Text -> Bool) -> ResourceT IO ()
         sendExpect txs p = do
           e <- liftIO $ flip runClientM cenv $
             pactSendApiClient v cid $ SubmitBatch $ NEL.fromList txs
@@ -227,7 +227,7 @@ invalidCommandTest rdb = runResourceT $ do
 
     iot <- liftIO $ toTxCreationTime @Integer <$> getCurrentTimeIntegral
 
-    let prefix cmd = "Validation failed for hash " <> sshow (_cmdHash cmd) <> ": "
+    let prefix i cmd = "One or more transactions were invalid: Transaction " <> sshow (_cmdHash cmd) <> " at index " <> sshow @Int i <> " failed with: "
 
     cmdParseFailure <- liftIO $ buildTextCmd "bare-command" v
         $ set cbSigners [mkEd25519Signer' sender00 []]
@@ -237,7 +237,7 @@ invalidCommandTest rdb = runResourceT $ do
         $ set cbRPC (mkExec "(+ 1" (mkKeySetData "sender00" [sender00]))
         $ defaultCmd
     -- Why does pact just return 'mzero' here...
-    sendExpect [cmdParseFailure] (== (prefix cmdParseFailure <> "Pact parse error: Failed reading: mzero"))
+    sendExpect [cmdParseFailure] (== (prefix 0 cmdParseFailure <> "Pact parse error: Failed reading: mzero"))
 
     cmdInvalidPayloadHash <- liftIO $ do
       bareCmd <- buildTextCmd "bare-command" v
@@ -250,7 +250,7 @@ invalidCommandTest rdb = runResourceT $ do
       pure $ bareCmd
         { _cmdHash = Pact.hash "fakehash"
         }
-    sendExpect [cmdInvalidPayloadHash] (== (prefix cmdInvalidPayloadHash <> "Invalid transaction hash"))
+    sendExpect [cmdInvalidPayloadHash] (== (prefix 0 cmdInvalidPayloadHash <> "Invalid transaction hash"))
 
     cmdSignersSigsLengthMismatch1 <- liftIO $ do
       bareCmd <- buildTextCmd "bare-command" v
@@ -263,7 +263,7 @@ invalidCommandTest rdb = runResourceT $ do
       pure $ bareCmd
         { _cmdSigs = []
         }
-    sendExpect [cmdSignersSigsLengthMismatch1] (== (prefix cmdSignersSigsLengthMismatch1 <> "Invalid transaction sigs"))
+    sendExpect [cmdSignersSigsLengthMismatch1] (== (prefix 0 cmdSignersSigsLengthMismatch1 <> "Invalid transaction sigs: The number of signers and signatures do not match. Number of signers: 1. Number of signatures: 0."))
 
     cmdSignersSigsLengthMismatch2 <- liftIO $ do
       bareCmd <- buildTextCmd "bare-command" v
@@ -277,7 +277,7 @@ invalidCommandTest rdb = runResourceT $ do
         { -- This is an invalid ED25519 signature, but length signers == length signatures is checked first
           _cmdSigs = [ED25519Sig "fakeSig"]
         }
-    sendExpect [cmdSignersSigsLengthMismatch2] (== (prefix cmdSignersSigsLengthMismatch2 <> "Invalid transaction sigs"))
+    sendExpect [cmdSignersSigsLengthMismatch2] (== (prefix 0 cmdSignersSigsLengthMismatch2 <> "Invalid transaction sigs: The number of signers and signatures do not match. Number of signers: 0. Number of signatures: 1."))
 
     -- TODO: It's hard to test for invalid schemes, because it's baked into
     -- chainwebversion.
@@ -296,7 +296,7 @@ invalidCommandTest rdb = runResourceT $ do
       pure $ bareCmd
         { _cmdSigs = [ED25519Sig "fakeSig"]
         }
-    sendExpect [cmdInvalidUserSig] (== (prefix cmdInvalidUserSig <> "Invalid transaction sigs"))
+    sendExpect [cmdInvalidUserSig] (== (prefix 0 cmdInvalidUserSig <> "Invalid transaction sigs: The signature at position 0 is invalid: failed to parse ed25519 signature: invalid bytestring size."))
 
     cmdGood <- liftIO $ buildTextCmd "good-command" v
       $ set cbSigners [mkEd25519Signer' sender00 []]
@@ -307,12 +307,12 @@ invalidCommandTest rdb = runResourceT $ do
       $ defaultCmd
     -- Test that [badCmd, goodCmd] fails on badCmd, and the batch is rejected.
     -- We just re-use a previously built bad cmd.
-    sendExpect [cmdInvalidUserSig, cmdGood] (== (prefix cmdInvalidUserSig <> "Invalid transaction sigs"))
+    sendExpect [cmdInvalidUserSig, cmdGood] (== (prefix 0 cmdInvalidUserSig <> "Invalid transaction sigs: The signature at position 0 is invalid: failed to parse ed25519 signature: invalid bytestring size."))
     -- Test that [goodCmd, badCmd] fails on badCmd, and the batch is rejected.
     -- Order matters, and the error message also indicates the position of the
     -- failing tx.
     -- We just re-use a previously built bad cmd.
-    sendExpect [cmdGood, cmdInvalidUserSig] (== (prefix cmdInvalidUserSig <> "Invalid transaction sigs"))
+    sendExpect [cmdGood, cmdInvalidUserSig] (== (prefix 1 cmdInvalidUserSig <> "Invalid transaction sigs: The signature at position 0 is invalid: failed to parse ed25519 signature: invalid bytestring size."))
 
 -- | Check that txlogs don't problematically access history
 --   post-compaction.
