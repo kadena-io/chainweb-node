@@ -118,6 +118,9 @@ import Chainweb.Version.Guards
 import Control.Exception.Safe
 import Pact.Types.Command (RequestKey)
 import Chainweb.Pact.Backend.Types
+-- import qualified Data.ByteString as B
+-- import System.Directory
+-- import System.FilePath
 
 domainTableName :: Domain k v -> SQ3.Utf8
 domainTableName = asStringUtf8
@@ -313,9 +316,12 @@ doReadRow mlim d k = forModuleNameFix $ \mnFix ->
         -- resolution concerns
         Modules -> do
           v <- lookupWithKey (convModuleName mnFix k) checkModuleCache
-          -- _ <- forM v $ \m -> do
-          --   liftIO $ createDirectoryIfMissing True "parity-replay-modules"
-          --   liftIO $ B.writeFile ("parity-replay-modules" </> T.unpack (asString k)) $ J.encodeStrict m
+        -- Note: Uncomment this to write modules to "parity-replay-modules",
+        -- but note that this does not work when running more than one chain in parallel during replay
+        -- This is essentially for debugging purposes only.
+        --   _ <- forM v $ \m -> do
+        --     liftIO $ createDirectoryIfMissing True "parity-replay-modules"
+        --     liftIO $ B.writeFile ("parity-replay-modules" </> T.unpack (asString k)) $ J.encodeStrict m
           pure v
         Namespaces -> lookupWithKey (convNamespaceName k) noCache
         (UserTables _) -> lookupWithKey (convRowKey k) noCache

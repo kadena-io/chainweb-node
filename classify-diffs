@@ -54,6 +54,8 @@ mkdir -p diffs/interesting
 mkdir -p diffs/defschema-term-position
 mkdir -p diffs/invalid-governance
 mkdir -p diffs/invalid-def-defschema-position
+mkdir -p diffs/invalid-blessed-hash
+mkdir -p diffs/defpact-entity
 
 classify_diff() {
   grep -q 'Loaded module' "$1" && mv -f "$1" diffs/loaded-module-hash/ && return
@@ -110,6 +112,8 @@ classify_diff() {
   grep -q 'Cannot use defschema \w* in term variable position' "$1" && mv -f "$1" diffs/defschema-term-position && return
   grep -q 'Invalid governance. Must be a 0-argument defcap or a keyset.' "$1" && mv -f "$1" diffs/invalid-governance && return
   grep -q 'Invalid def in defschema position' "$1" && mv -f "$1" diffs/invalid-def-defschema-position && return
+  grep -q 'Invalid blessed hash, incorrect format' "$1" && mv -f "$1" diffs/invalid-blessed-hash && return
+  grep -q 'Pact 5 does not support entity expressions in defpact' "$1" && mv -f "$1" diffs/defpact-entity && return
 }
 
 for f in parity-replay-diffs/*; do
@@ -198,6 +202,16 @@ mv -f parity-replay-diffs/s6w1VVITn* diffs/list-commas 2> /dev/null
 
 mv -f parity-replay-diffs/EMaD-w9ConQkyLfg6_RsfNtld-fS1pEclfTSwtRdNzs.md diffs/interesting 2> /dev/null
 mv -f parity-replay-diffs/bSbkJeudtFC6eiz1x9FTL5jwRkdOzO4bzwKK_DLGisI.md diffs/interesting 2> /dev/null
+mv -f parity-replay-diffs/uHM_66xiDIxpB9CQzxKoNbtYfJ6hkfl1PU_2PvAyl4E.md diffs/interesting 2> /dev/null
+mv -f parity-replay-diffs/nVq3xSmmz2DRhcRzjNdRDwo4YY10TKSTgkCS9rk5L2M.md diffs/interesting 2> /dev/null
+mv -f parity-replay-diffs/XwCeYcM4tyDNZePdBqggnzmIb_plES9p8PREl-xd7yw.md diffs/interesting 2> /dev/null
+
+
+mv -f parity-replay-diffs/F4rREqcjnX4Rztsxu4zKX6r_lMRCSAtiZcsjAehTdCE.md diffs/defpact-entity 2> /dev/null
+mv -f parity-replay-diffs/guXsNE57BOuOW_CyiAOObV_ooPZyDXEy13pqzseh7zY.md diffs/defpact-entity 2> /dev/null
+mv -f parity-replay-diffs/SQAOHyNBSxM42WGL-Sr0HzcFyc8hrL4G9eYmjREkD1E.md diffs/defpact-entity 2> /dev/null
+mv -f parity-replay-diffs/WcMI_riWdz3B9zT1I8oSz2wSbxlLPkZb-kpDpw_hbcs.md diffs/defpact-entity 2> /dev/null
+mv -f parity-replay-diffs/Xx8Kt_4YePIND13ZVq8F9grrxzNLCyV-KisBmtO8HMw.md diffs/defpact-entity 2> /dev/null
 
 #  mv parity-replay-diffs/14RYfa6_zc8UTWPNyMOqV00jfApmk6spD3v9z7OvwWA.md diffs/interesting 2> /dev/null
 #  mv parity-replay-diffs/AtlJbN56F2H_ibfuOfepu3NNiVMy8i9SJp6NIUZUkqM.md diffs/interesting 2> /dev/null
