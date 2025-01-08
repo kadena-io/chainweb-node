@@ -22,6 +22,7 @@ module Chainweb.BlockWeight
 (
 -- * Block Weight
   BlockWeight(..)
+, blockWeightToDouble
 , encodeBlockWeight
 , decodeBlockWeight
 , encodeBlockWeightBe
@@ -66,6 +67,9 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag BlockWeight
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
+blockWeightToDouble :: BlockWeight -> Double
+blockWeightToDouble (BlockWeight diff) = difficultyToDouble diff
+
 encodeBlockWeight :: BlockWeight -> Put
 encodeBlockWeight (BlockWeight w) = encodeHashDifficulty w
 {-# INLINE encodeBlockWeight #-}
@@ -81,4 +85,3 @@ encodeBlockWeightBe (BlockWeight w) = encodeHashDifficultyBe w
 decodeBlockWeightBe :: Get BlockWeight
 decodeBlockWeightBe = BlockWeight <$> decodeHashDifficultyBe
 {-# INLINE decodeBlockWeightBe #-}
-
