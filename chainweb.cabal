@@ -97,7 +97,6 @@ common debugging-flags
 common warning-flags
     ghc-options:
         -Wall
-        -Werror
         -Wcompat
         -Wpartial-fields
         -Wincomplete-record-updates
@@ -106,10 +105,6 @@ common warning-flags
         -funclutter-valid-hole-fits
         -fmax-relevant-binds=0
         -Wno-gadt-mono-local-binds
-
-        -- This needed because -Werror and missing-home-modules causes
-        -- problems with ghci.
-        -Wno-missing-home-modules
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Library
