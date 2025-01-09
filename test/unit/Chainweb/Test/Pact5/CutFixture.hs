@@ -64,6 +64,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.Pact5.Utils
+import Chainweb.Test.Utils(TestPact5CommandResult)
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Utils.Serialization (runGetS, runPutS)
@@ -87,8 +88,6 @@ import Data.Text qualified as Text
 import Data.Vector (Vector)
 import GHC.Stack
 import Network.HTTP.Client qualified as HTTP
-import Pact.Core.Command.Types
-import Pact.Core.Hash qualified as Pact5
 
 data Fixture = Fixture
     { _fixtureCutDb :: CutDb RocksDbTable
@@ -140,7 +139,7 @@ mkFixture v pactServiceConfig baseRdb = do
 advanceAllChains
     :: (HasCallStack, HasFixture a)
     => a
-    -> IO (Cut, ChainMap (Vector (CommandResult Pact5.Hash Text)))
+    -> IO (Cut, ChainMap (Vector TestPact5CommandResult))
 advanceAllChains fx = do
     Fixture{..} <- cutFixture fx
     let v = _chainwebVersion _fixtureCutDb
