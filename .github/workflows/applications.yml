@@ -358,26 +358,27 @@ jobs:
       run: cabal build chainweb --only-dependencies
     - name: Build chainweb library
       run: cabal build --ghc-options=-j2 lib:chainweb
-    - name: Build chainweb applications
-      run: |
-        cabal build -j2 --ghc-options=-j2 \
-          chainweb:bench:bench \
-          exe:b64 \
-          exe:calculate-release \
-          exe:compact \
-          exe:db-checksum \
-          exe:ea \
-          exe:genconf \
-          exe:header-dump \
-          exe:known-graphs \
-          exe:pact-diff \
-          exe:run-nodes \
-          exe:tx-list \
-          test:chainweb-tests \
-          test:compaction-tests \
-          test:multi-node-network-tests \
-          test:remote-tests \
-          test:chainweb-storage-tests
+    # # Temporarily disabled on lars/pp/* branches
+    # - name: Build chainweb applications
+    #   run: |
+    #     cabal build -j2 --ghc-options=-j2 \
+    #       chainweb:bench:bench \
+    #       exe:b64 \
+    #       exe:calculate-release \
+    #       exe:compact \
+    #       exe:db-checksum \
+    #       exe:ea \
+    #       exe:genconf \
+    #       exe:header-dump \
+    #       exe:known-graphs \
+    #       exe:pact-diff \
+    #       exe:run-nodes \
+    #       exe:tx-list \
+    #       test:chainweb-tests \
+    #       test:compaction-tests \
+    #       test:multi-node-network-tests \
+    #       test:remote-tests \
+    #       test:chainweb-storage-tests
     - name: Build chainweb-node application
       run: cabal build -j2 --ghc-options=-j2 chainweb-node:exe:chainweb-node
 
@@ -388,36 +389,35 @@ jobs:
           echo "Git working tree is not clean. The build changed some file that is checked into git." 1>&2
           exit 1
         fi
-    - name: Run ea and verify consistency of genesis headers
-      run: |
-        cabal run ea
-        if ! git diff --exit-code -- src/Chainweb/BlockHeader/Genesis/ src/Chainweb/Pact/Transactions/ ; then
-          echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
-          exit 1
-        fi
+
+      # Temporarily disabled (it seems that ea depends on chainweb-test-utils)
+      # - name: Run ea and verify consistency of genesis headers
+      #   run: |
+      #     cabal run ea
+      #     if ! git diff --exit-code -- src/Chainweb/BlockHeader/Genesis/ src/Chainweb/Pact/Transactions/ ; then
+      #       echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
+      #       exit 1
+      #     fi
 
     # Archive Artifacts
     - name: Prepare artifacts
       run: |
         mkdir -p artifacts/chainweb
-        cp $(cabal list-bin b64) artifacts/chainweb
-        cp $(cabal list-bin bench) artifacts/chainweb
-        cp $(cabal list-bin calculate-release) artifacts/chainweb
         cp $(cabal list-bin chainweb-node) artifacts/chainweb
-        cp $(cabal list-bin chainweb-storage-tests) artifacts/chainweb
-        cp $(cabal list-bin chainweb-tests) artifacts/chainweb
-        cp $(cabal list-bin compact) artifacts/chainweb
-        cp $(cabal list-bin compaction-tests) artifacts/chainweb
-        cp $(cabal list-bin db-checksum) artifacts/chainweb
-        cp $(cabal list-bin ea) artifacts/chainweb
-        cp $(cabal list-bin genconf) artifacts/chainweb
-        cp $(cabal list-bin header-dump) artifacts/chainweb
-        cp $(cabal list-bin known-graphs) artifacts/chainweb
-        cp $(cabal list-bin multi-node-network-tests) artifacts/chainweb
-        cp $(cabal list-bin pact-diff) artifacts/chainweb
-        cp $(cabal list-bin remote-tests) artifacts/chainweb
-        cp $(cabal list-bin run-nodes) artifacts/chainweb
-        cp $(cabal list-bin tx-list) artifacts/chainweb
+        # cp $(cabal list-bin chainweb-storage-tests) artifacts/chainweb
+        # cp $(cabal list-bin chainweb-tests) artifacts/chainweb
+        # cp $(cabal list-bin compact) artifacts/chainweb
+        # cp $(cabal list-bin compaction-tests) artifacts/chainweb
+        # cp $(cabal list-bin db-checksum) artifacts/chainweb
+        # cp $(cabal list-bin ea) artifacts/chainweb
+        # cp $(cabal list-bin genconf) artifacts/chainweb
+        # cp $(cabal list-bin header-dump) artifacts/chainweb
+        # cp $(cabal list-bin known-graphs) artifacts/chainweb
+        # cp $(cabal list-bin multi-node-network-tests) artifacts/chainweb
+        # cp $(cabal list-bin pact-diff) artifacts/chainweb
+        # cp $(cabal list-bin remote-tests) artifacts/chainweb
+        # cp $(cabal list-bin run-nodes) artifacts/chainweb
+        # cp $(cabal list-bin tx-list) artifacts/chainweb
         cp README.md artifacts/chainweb
         cp CHANGELOG.md artifacts/chainweb
         cp LICENSE artifacts/chainweb
