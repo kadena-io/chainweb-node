@@ -56,6 +56,7 @@ module Chainweb.Cut.Create
 
 -- * Solved Work
 , SolvedWork(..)
+, solvedWorkHeight
 , encodeSolvedWork
 , decodeSolvedWork
 , extend
@@ -395,6 +396,9 @@ encodeSolvedWork (SolvedWork hdr) = encodeBlockHeaderWithoutHash hdr
 
 decodeSolvedWork :: Get SolvedWork
 decodeSolvedWork = SolvedWork <$> decodeBlockHeaderWithoutHash
+
+solvedWorkHeight :: Getter SolvedWork BlockHeight
+solvedWorkHeight = to (\(SolvedWork hdr) -> hdr) . blockHeight
 
 instance HasChainId SolvedWork where
     _chainId (SolvedWork hdr) = _chainId hdr
