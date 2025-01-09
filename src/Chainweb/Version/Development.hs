@@ -67,5 +67,5 @@ devnet = ChainwebVersion
         (minBound, Set.fromList $ map VerifierName ["hyperlane_v3_message", "allow"])
     , _versionQuirks = noQuirks
     , _versionServiceDate = Nothing
-    , _versionPayloadProviderTypes = AllChains PactProvider
+    , _versionPayloadProviderTypes = AllChains MinimalProvider
     }
