@@ -73,6 +73,7 @@ RUN <<EOF
         libssl3 \
         libtinfo5 \
         locales \
+        libmpfr6 \
         zlib1g \
         libgflags2.2
     if [ "${TARGETPLATFORM}" = "linux/arm64" ] ; then
@@ -121,6 +122,7 @@ RUN <<EOF
         libsnappy-dev \
         libssl-dev \
         libzstd-dev \
+        libmpfr-dev \
         neovim \
         pkg-config \
         zlib1g-dev
