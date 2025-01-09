@@ -120,59 +120,6 @@ import Chainweb.WebPactExecutionService
 import Chainweb.Version.Mainnet (mainnet)
 import qualified Data.Vector as V
 
-data Fixture = Fixture
-    { _cutFixture :: CutFixture.Fixture
-    , _serviceClientEnv :: ClientEnv
-    }
-makeLenses ''Fixture
-
-instance CutFixture.HasFixture Fixture where
-    cutFixture = return . _cutFixture
-
-class HasFixture a where
-    remotePactTestFixture :: a -> IO Fixture
-
-instance HasFixture Fixture where
-    remotePactTestFixture = return
-instance HasFixture a => HasFixture (IO a) where
-    remotePactTestFixture = (>>= remotePactTestFixture)
-
-type Step = String -> IO ()
-
-mkFixture :: ChainwebVersion -> RocksDb -> ResourceT IO Fixture
-mkFixture v baseRdb = do
-    fx <- CutFixture.mkFixture v testPactServiceConfig baseRdb
-    logger <- liftIO getTestLogger
-
-    let mkSomePactServerData chainId = PactServerData
-            { _pactServerDataCutDb = fx ^. CutFixture.fixtureCutDb
-            , _pactServerDataMempool = fx ^. CutFixture.fixtureMempools ^?! atChain chainId
-            , _pactServerDataLogger = logger
-            , _pactServerDataPact = mkPactExecutionService (fx ^. CutFixture.fixturePactQueues ^?! atChain chainId)
-            }
-    let pactServer = somePactServers v $ List.map (\chainId -> (chainId, mkSomePactServerData chainId)) (HashSet.toList (chainIds v))
-    let cutGetServer = someCutGetServer v (fx ^. CutFixture.fixtureCutDb)
-    let app = someServerApplication (pactServer <> cutGetServer)
-
-    -- Run pact server API
-    (port, socket) <- snd <$> allocate W.openFreePort (Network.close . snd)
-    _ <- allocate
-        (async $
-            W.runTLSSocket (tlsServerSettings cert key) W.defaultSettings socket app
-        )
-        cancel
-
-    let serviceClientEnv = mkClientEnv httpManager $ BaseUrl
-            { baseUrlScheme = Https
-            , baseUrlHost = "127.0.0.1"
-            , baseUrlPort = port
-            , baseUrlPath = ""
-            }
-
-    return $ Fixture
-        { _cutFixture = fx
-        , _serviceClientEnv = serviceClientEnv
-        }
 
 -- generating this cert and making an HTTP manager take quite a while relative
 -- to the rest of the tests, so they're shared globally.
@@ -310,7 +257,7 @@ spvTest baseRdb step = runResourceT $ do
         step "waiting"
         replicateM_ (int $ diameter petersonChainGraph + 1) $ advanceAllChains_ fx
         let sendHeight = sendCut ^?! ixg srcChain . blockHeight
-        spvProof <- createTransactionOutputProof_ (fx ^. cutFixture . CutFixture.fixtureWebBlockHeaderDb) (fx ^. cutFixture . CutFixture.fixturePayloadDb) targetChain srcChain sendHeight 0
+        spvProof <- createTransactionOutputProof_ (fx ^. to _cutFixture . CutFixture.fixtureWebBlockHeaderDb) (fx ^. to _cutFixture . CutFixture.fixturePayloadDb) targetChain srcChain sendHeight 0
         let contMsg = ContMsg
                 { _cmPactId = _peDefPactId cont
                 , _cmStep = succ $ _peStep cont
@@ -955,6 +902,61 @@ pollingMetadataTest baseRdb _step = runResourceT $ do
                 , ("prevBlockHash", P.match A._String P.succeed)
                 ]
             ]
+
+----------------------------------------------------
+
+data Fixture = Fixture
+    { _cutFixture :: CutFixture.Fixture
+    , _serviceClientEnv :: ClientEnv
+    }
+
+instance CutFixture.HasFixture Fixture where
+    cutFixture = return . _cutFixture
+
+class HasFixture a where
+    remotePactTestFixture :: a -> IO Fixture
+
+instance HasFixture Fixture where
+    remotePactTestFixture = return
+instance HasFixture a => HasFixture (IO a) where
+    remotePactTestFixture = (>>= remotePactTestFixture)
+
+type Step = String -> IO ()
+
+mkFixture :: ChainwebVersion -> RocksDb -> ResourceT IO Fixture
+mkFixture v baseRdb = do
+    fx <- CutFixture.mkFixture v testPactServiceConfig baseRdb
+    logger <- liftIO getTestLogger
+
+    let mkSomePactServerData chainId = PactServerData
+            { _pactServerDataCutDb = fx ^. CutFixture.fixtureCutDb
+            , _pactServerDataMempool = fx ^. CutFixture.fixtureMempools ^?! atChain chainId
+            , _pactServerDataLogger = logger
+            , _pactServerDataPact = mkPactExecutionService (fx ^. CutFixture.fixturePactQueues ^?! atChain chainId)
+            }
+    let pactServer = somePactServers v $ List.map (\chainId -> (chainId, mkSomePactServerData chainId)) (HashSet.toList (chainIds v))
+    let cutGetServer = someCutGetServer v (fx ^. CutFixture.fixtureCutDb)
+    let app = someServerApplication (pactServer <> cutGetServer)
+
+    -- Run pact server API
+    (port, socket) <- snd <$> allocate W.openFreePort (Network.close . snd)
+    _ <- allocate
+        (async $
+            W.runTLSSocket (tlsServerSettings cert key) W.defaultSettings socket app
+        )
+        cancel
+
+    let serviceClientEnv = mkClientEnv httpManager $ BaseUrl
+            { baseUrlScheme = Https
+            , baseUrlHost = "127.0.0.1"
+            , baseUrlPort = port
+            , baseUrlPath = ""
+            }
+
+    return $ Fixture
+        { _cutFixture = fx
+        , _serviceClientEnv = serviceClientEnv
+        }
 
 newtype PollException = PollException String
     deriving stock (Show)
