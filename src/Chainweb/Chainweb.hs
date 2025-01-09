@@ -981,5 +981,7 @@ runChainweb cw nowServing = do
             return []
         enabled conf = do
             logg Info "Mempool p2p sync enabled"
-            return $ map (runMempoolSyncClient mgr conf (_chainwebPeer cw)) chainVals
+            -- return $ map (runMempoolSyncClient mgr conf (_chainwebPeer cw)) chainVals
+            logg Warn "Overwriting mempool p2p sync client configuration. It is currently not supported"
+            return []
 
