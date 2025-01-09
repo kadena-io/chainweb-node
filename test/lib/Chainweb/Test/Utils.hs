@@ -569,12 +569,11 @@ starBlockHeaderDbs n dbs = do
 testHost :: String
 testHost = "localhost"
 
-data TestClientEnv t tbl = TestClientEnv
+data TestClientEnv t = TestClientEnv
     { _envClientEnv :: !ClientEnv
-    , _envCutDb :: !(Maybe (CutDb tbl))
+    , _envCutDb :: !(Maybe CutDb)
     , _envBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
     , _envMempools :: ![(ChainId, MempoolBackend t)]
-    , _envPayloadDbs :: ![(ChainId, PayloadDb tbl)]
     , _envPeerDbs :: ![(NetworkId, P2P.PeerDb)]
     , _envVersion :: !ChainwebVersion
     }
@@ -583,26 +582,25 @@ pattern BlockHeaderDbsTestClientEnv
     :: ClientEnv
     -> [(ChainId, BlockHeaderDb)]
     -> ChainwebVersion
-    -> TestClientEnv t tbl
+    -> TestClientEnv t
 pattern BlockHeaderDbsTestClientEnv { _cdbEnvClientEnv, _cdbEnvBlockHeaderDbs, _cdbEnvVersion }
-    = TestClientEnv _cdbEnvClientEnv Nothing _cdbEnvBlockHeaderDbs [] [] [] _cdbEnvVersion
+    = TestClientEnv _cdbEnvClientEnv Nothing _cdbEnvBlockHeaderDbs [] [] _cdbEnvVersion
 
 pattern PeerDbsTestClientEnv
     :: ClientEnv
     -> [(NetworkId, P2P.PeerDb)]
     -> ChainwebVersion
-    -> TestClientEnv t tbl
+    -> TestClientEnv t
 pattern PeerDbsTestClientEnv { _pdbEnvClientEnv, _pdbEnvPeerDbs, _pdbEnvVersion }
-    = TestClientEnv _pdbEnvClientEnv Nothing [] [] [] _pdbEnvPeerDbs _pdbEnvVersion
+    = TestClientEnv _pdbEnvClientEnv Nothing [] [] _pdbEnvPeerDbs _pdbEnvVersion
 
 pattern PayloadTestClientEnv
     :: ClientEnv
-    -> CutDb tbl
-    -> [(ChainId, PayloadDb tbl)]
+    -> CutDb
     -> ChainwebVersion
-    -> TestClientEnv t tbl
-pattern PayloadTestClientEnv { _pEnvClientEnv, _pEnvCutDb, _pEnvPayloadDbs, _eEnvVersion }
-    = TestClientEnv _pEnvClientEnv (Just _pEnvCutDb) [] [] _pEnvPayloadDbs [] _eEnvVersion
+    -> TestClientEnv t
+pattern PayloadTestClientEnv { _pEnvClientEnv, _pEnvCutDb, _eEnvVersion }
+    = TestClientEnv _pEnvClientEnv (Just _pEnvCutDb) [] [] [] _eEnvVersion
 
 withTestAppServer
     :: Bool
@@ -684,16 +682,15 @@ withChainwebTestServer shouldValidateSpec tls v app =
         close sock
 
 clientEnvWithChainwebTestServer
-    :: forall t tbl
+    :: forall t
     .  Show t
     => ToJSON t
     => FromJSON t
-    => CanReadablePayloadCas tbl
     => ShouldValidateSpec
     -> Bool
     -> ChainwebVersion
-    -> ChainwebServerDbs t tbl
-    -> ResourceT IO (TestClientEnv t tbl)
+    -> ChainwebServerDbs t
+    -> ResourceT IO (TestClientEnv t)
 clientEnvWithChainwebTestServer shouldValidateSpec tls v dbs = do
     -- FIXME: Hashes API got removed from the P2P API. We use an application that
     -- includes this API for testing. We should create comprehensive tests for the
@@ -710,20 +707,18 @@ clientEnvWithChainwebTestServer shouldValidateSpec tls v dbs = do
         (_chainwebServerCutDb dbs)
         (_chainwebServerBlockHeaderDbs dbs)
         (_chainwebServerMempools dbs)
-        (_chainwebServerPayloadDbs dbs)
         (_chainwebServerPeerDbs dbs)
         v
 
 withPeerDbsServer
     :: Show t
-    => CanReadablePayloadCas tbl
     => ToJSON t
     => FromJSON t
     => ShouldValidateSpec
     -> Bool
     -> ChainwebVersion
     -> [(NetworkId, P2P.PeerDb)]
-    -> ResourceT IO (TestClientEnv t tbl)
+    -> ResourceT IO (TestClientEnv t)
 withPeerDbsServer shouldValidateSpec tls v peerDbs =
     clientEnvWithChainwebTestServer shouldValidateSpec tls v
         emptyChainwebServerDbs
@@ -732,25 +727,21 @@ withPeerDbsServer shouldValidateSpec tls v peerDbs =
 
 withPayloadServer
     :: Show t
-    => CanReadablePayloadCas tbl
     => ToJSON t
     => FromJSON t
     => ShouldValidateSpec
     -> Bool
     -> ChainwebVersion
-    -> CutDb tbl
-    -> [(ChainId, PayloadDb tbl)]
-    -> ResourceT IO (TestClientEnv t tbl)
-withPayloadServer shouldValidateSpec tls v cutDb payloadDbs =
+    -> CutDb
+    -> ResourceT IO (TestClientEnv t)
+withPayloadServer shouldValidateSpec tls v cutDb =
     clientEnvWithChainwebTestServer shouldValidateSpec tls v
         emptyChainwebServerDbs
-            { _chainwebServerPayloadDbs = payloadDbs
-            , _chainwebServerCutDb = Just cutDb
+            { _chainwebServerCutDb = Just cutDb
             }
 
 withBlockHeaderDbsServer
     :: Show t
-    => CanReadablePayloadCas tbl
     => ToJSON t
     => FromJSON t
     => ShouldValidateSpec
@@ -758,7 +749,7 @@ withBlockHeaderDbsServer
     -> ChainwebVersion
     -> [(ChainId, BlockHeaderDb)]
     -> [(ChainId, MempoolBackend t)]
-    -> ResourceT IO (TestClientEnv t tbl)
+    -> ResourceT IO (TestClientEnv t)
 withBlockHeaderDbsServer shouldValidateSpec tls v chainDbs mempools =
     clientEnvWithChainwebTestServer shouldValidateSpec tls v
         emptyChainwebServerDbs
@@ -1058,7 +1049,7 @@ node rdb rawLogger nowServingRef peerInfoVar conf pactDbDir backupDir nid = do
                     bootStrapPort = view (chainwebServiceSocket . _1) cw
                 putMVar peerInfoVar (bootStrapInfo, bootStrapPort)
 
-            poisonDeadBeef cw
+            -- poisonDeadBeef cw
             runChainweb cw (atomically . modifyTVar' nowServingRef) `finally` do
                 logFunctionText logger Info "write sample data"
                 logFunctionText logger Info "shutdown node"
@@ -1067,10 +1058,13 @@ node rdb rawLogger nowServingRef peerInfoVar conf pactDbDir backupDir nid = do
   where
     logger = addLabel ("node", sshow nid) rawLogger
 
-    poisonDeadBeef cw = mapM_ poison crs
-      where
-        crs = map snd $ HashMap.toList $ view chainwebChains cw
-        poison cr = mempoolAddToBadList (view chainResMempool cr) (V.singleton deadbeef)
+    -- poisonDeadBeef cw = mapM_ poison crs
+    --   where
+    --     crs :: [ChainResources logger]
+    --     crs = map snd $ HashMap.toList $ view chainwebChains cw
+
+    --     poison :: ChainResources logger -> IO ()
+    --     poison cr = mempoolAddToBadList (view chainResMempool cr) (V.singleton deadbeef)
 
 data NodeDbDirs = NodeDbDirs
     { nodePactDbDir :: FilePath
@@ -1139,7 +1133,6 @@ config ver n = defaultChainwebConfiguration ver
   where
     miner = NodeMiningConfig
         { _nodeMiningEnabled = True
-        , _nodeMiner = noMiner
         , _nodeTestMiners = MinerCount n
         }
 
