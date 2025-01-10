@@ -500,12 +500,12 @@ applyCmdVerifierSpec rdb = readFromAfterGenesis v rdb $
                     [ P.fun _crEvents ? P.list
                         [ event
                             (P.equals "TRANSFER")
-                            (P.equals [PString "sender00", PString "NoMiner", PDecimal 162])
+                            (P.equals [PString "sender00", PString "NoMiner", PDecimal 362])
                             (P.equals coinModuleName)
                         ]
                     , P.fun _crResult ? P.equals ? PactResultOk (PInteger 1)
                     -- reflects buyGas gas usage, as well as that of the payload
-                    , P.fun _crGas ? P.equals ? Gas 81
+                    , P.fun _crGas ? P.equals ? Gas 181
                     , P.fun _crContinuation ? P.equals ? Nothing
                     , P.fun _crMetaData ? P.equals ? Nothing
                     ]

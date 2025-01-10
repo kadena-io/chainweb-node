@@ -223,8 +223,19 @@ runVerifiers txCtx cmd = do
           let verifierGasRemaining = fromIntegral @Int64 @SatWord pact4VerifierGasRemaining
           -- NB: this is not nice.
           -- TODO: better gas info here
-          chargeGas noInfo $ GAConstant $ gasToMilliGas $ Gas $
-            verifierGasRemaining - min (_gas (milliGasToGas initGasRemaining)) verifierGasRemaining
+          -- Explanation by cases:
+          -- Case 1:
+          -- gasToMilliGas verifierGasRemaining is less than initGasRemaining,
+          -- in which case the verifier charges gas.
+          -- In that case we can subtract it from initGasRemaining and charge that safely.
+          -- Case 2:
+          -- gasToMilliGas verifierGasRemaining is greater than or equal to initGasRemaining,
+          -- in which case the verifier has not charged gas, or has charged less than
+          -- rounding error.
+          -- In that case we do not charge gas at all.
+          --
+          when (gasToMilliGas (Gas verifierGasRemaining) < initGasRemaining) $
+            chargeGas noInfo $ GAConstant $ MilliGas $ coerce initGasRemaining - coerce (gasToMilliGas (Gas verifierGasRemaining))
 
 applyLocal
     :: (Logger logger)
