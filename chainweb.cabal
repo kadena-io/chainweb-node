@@ -661,6 +661,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact5.RemotePactTest
         Chainweb.Test.Pact5.SPVTest
         Chainweb.Test.Pact5.TransactionExecTest
+        Chainweb.Test.Pact5.TransactionTests
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
@@ -725,6 +726,7 @@ test-suite chainweb-tests
         , pact-tng
         , pact-tng:pact-request-api
         , pact-tng:test-utils
+        , pact-tng:pact-repl
         , patience >= 0.3
         , prettyprinter
         , property-matchers ^>= 0.4
