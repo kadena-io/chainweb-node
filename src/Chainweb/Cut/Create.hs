@@ -496,6 +496,9 @@ instance Exception InvalidSolvedHeader
 -- The result is 'Nothing' if the given cut can't be extended with the solved
 -- work.
 --
+-- FIXME: this should be the only function that can pattern match the Header out
+-- of a 'SolvedWork' value.
+--
 extend
     :: MonadThrow m
     => Cut

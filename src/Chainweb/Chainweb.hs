@@ -7,6 +7,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -102,25 +103,25 @@ import Configuration.Utils hiding (Error, Lens', disabled)
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
-import Control.Concurrent.MVar (MVar, readMVar)
 import Control.DeepSeq
+import Control.Exception
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
-import Control.Monad.Catch (fromException, MonadThrow (throwM))
+import Control.Monad.Catch (MonadThrow (throwM))
 
 import Data.Foldable
-import qualified Data.HashMap.Strict as HM
-import Data.List (isPrefixOf, sortBy)
-import qualified Data.List as L
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
+import Data.List (isPrefixOf)
+import Data.List qualified as L
+import Data.LogMessage (LogFunctionText)
 import Data.Maybe
-import qualified Data.Text as T
-import Data.These (These(..))
-import qualified Data.Vector as V
+import Data.Text qualified as T
 
 import GHC.Generics
 
-import qualified Network.HTTP.Client as HTTP
-import qualified Network.HTTP2.Client as HTTP2
+import Network.HTTP.Client qualified as HTTP
+import Network.HTTP2.Client qualified as HTTP2
 import Network.Socket (Socket)
 import Network.Wai
 import Network.Wai.Handler.Warp hiding (Port)
@@ -136,12 +137,12 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.Backup
+import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.Configuration
 import Chainweb.Chainweb.CutResources
-import Chainweb.Chainweb.MempoolSyncClient
 import Chainweb.Chainweb.MinerResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Chainweb.PruneChainDatabase
@@ -150,46 +151,32 @@ import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.HostAddress
 import Chainweb.Logger
-import qualified Chainweb.Mempool.InMemTypes as Mempool
-import qualified Chainweb.Mempool.Mempool as Mempool
+import Chainweb.Mempool.InMem.ValidatingConfig
+import Chainweb.Mempool.Mempool qualified as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import qualified Chainweb.OpenAPIValidation as OpenAPIValidation
+import Chainweb.OpenAPIValidation qualified as OpenAPIValidation
 import Chainweb.Pact.Backend.Types(IntraBlockPersistence(..))
 import Chainweb.Pact.RestAPI.Server (PactServerData(..))
 import Chainweb.Pact.Types (PactServiceConfig(..))
-import Chainweb.Pact4.Validations
+import Chainweb.Pact4.Transaction qualified as Pact4
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
+import Chainweb.PayloadProvider
+import Chainweb.PayloadProvider.Minimal
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
-import qualified Chainweb.Pact4.Transaction as Pact4
+import Chainweb.Storage.Table.RocksDB
+import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
 import Chainweb.Version.Guards
 import Chainweb.WebBlockHeaderDB
-import Chainweb.WebPactExecutionService
-import Chainweb.Mempool.InMem.ValidatingConfig
-
-import Chainweb.Storage.Table.RocksDB
-
-import Data.LogMessage (LogFunctionText)
 
 import P2P.Node.Configuration
 import P2P.Node.PeerDB (PeerDb)
 import P2P.Peer
-
-import qualified Pact.Types.ChainMeta as P
-import qualified Pact.Types.Command as P
-import Chainweb.PayloadProvider
-import Chainweb.PayloadProvider.Minimal
-import Chainweb.RestAPI.Utils (SomeServer)
-import Control.Exception
-
-import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.BlockHeader
-import qualified Data.HashSet as HS
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -452,9 +439,6 @@ withChainwebInternal conf logger peerRes serviceSock rocksDb pactDbDir backupDir
 
     logg :: LogFunctionText
     logg = logFunctionText initLogger
-
-    chainLogg :: HasChainId c => c -> LogFunctionText
-    chainLogg = logFunctionText . chainLogger
 
     providerLogg :: HasChainId p => HasPayloadProviderType p => p -> LogFunctionText
     providerLogg = logFunctionText . providerLogger
@@ -786,6 +770,7 @@ runChainweb cw nowServing = do
 
     -- FIXME export the SomeServer instead of DBs?
     -- I.e. the handler would be created in the chain resource.
+    -- Similar to how it is done with the payload provider APIs.
     --
     chainDbsToServe :: [(ChainId, BlockHeaderDb)]
     chainDbsToServe = proj _chainResBlockHeaderDb
@@ -840,8 +825,21 @@ runChainweb cw nowServing = do
             logFunctionCounter (_chainwebLogger cw) Info . (:[]) =<<
                 roll clientClosedConnectionsCounter
 
+    chainwebServerDbs :: ChainwebServerDbs Pact4.UnparsedTransaction
+    chainwebServerDbs = ChainwebServerDbs
+        { _chainwebServerCutDb = Just cutDb
+        , _chainwebServerBlockHeaderDbs = chainDbsToServe
+        , _chainwebServerMempools = mempoolsToServe
+        , _chainwebServerPayloads = payloadsToServeOnP2pApi chains
+        , _chainwebServerPeerDbs
+            = (CutNetwork, cutPeerDb)
+            : memP2pPeersToServe
+            <> payloadP2pPeersToServe
+        }
+
     serve :: Middleware -> IO ()
     serve mw = do
+
         clientClosedConnectionsCounter <- newCounter
         concurrently_
             (serveChainwebSocketTls
@@ -850,14 +848,7 @@ runChainweb cw nowServing = do
                 (_peerKey $ _peerResPeer $ _chainwebPeer cw)
                 (_peerResSocket $ _chainwebPeer cw)
                 (_chainwebConfig cw)
-                ChainwebServerDbs
-                    { _chainwebServerCutDb = Just cutDb
-                    , _chainwebServerBlockHeaderDbs = chainDbsToServe
-                    , _chainwebServerMempools = mempoolsToServe
-                    , _chainwebServerPayloads = payloadsToServeOnP2pApi chains
-                    , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb)
-                        : memP2pPeersToServe <> payloadP2pPeersToServe
-                    }
+                chainwebServerDbs
                 mw)
             (monitorConnectionsClosedByClient clientClosedConnectionsCounter)
 
@@ -870,14 +861,9 @@ runChainweb cw nowServing = do
                 (serverSettings clientClosedConnectionsCounter)
                 (_peerResSocket $ _chainwebPeer cw)
                 (_chainwebConfig cw)
-                ChainwebServerDbs
-                    { _chainwebServerCutDb = Just cutDb
-                    , _chainwebServerBlockHeaderDbs = chainDbsToServe
-                    , _chainwebServerMempools = mempoolsToServe
-                    , _chainwebServerPayloads = payloadsToServeOnP2pApi chains
-                    , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pPeersToServe
-                    }
-                mw)
+                chainwebServerDbs
+                mw
+            )
             (monitorConnectionsClosedByClient clientClosedConnectionsCounter)
 
     -- Request size limit for the service API
@@ -933,7 +919,10 @@ runChainweb cw nowServing = do
                 , _chainwebServerBlockHeaderDbs = chainDbsToServe
                 , _chainwebServerMempools = mempoolsToServe
                 , _chainwebServerPayloads = payloadsToServeOnServiceApi chains
-                , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : memP2pPeersToServe
+
+                -- We do not want to serve peer APIs on the service API.
+                -- If at all we could serve the GET endpoints.
+                , _chainwebServerPeerDbs = []
                 }
             (_chainwebCoordinator cw)
             (HeaderStream . _configHeaderStream $ _chainwebConfig cw)

@@ -924,7 +924,6 @@ solve mr solved@(SolvedWork hdr) =
   where
     cid = _chainId solved
     cdb = _coordCutDb mr
-    wdb = fmap _chainValueValue . casLookupM (view cutDbWebBlockHeaderDb (_coordCutDb mr))
     caches = _coordPayloadCache mr
     cache = caches HM.! cid
     cacheKey = RankedBlockHash (view blockHeight hdr - 1) (view blockParent hdr)
