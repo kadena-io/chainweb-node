@@ -62,7 +62,7 @@ import Chainweb.Payload
 import Chainweb.Utils
 
 import qualified Pact.JSON.Encode as J
-import qualified Pact.Types.KeySet as Pact5
+import qualified Pact.Types.KeySet as Pact4
 
 -- -------------------------------------------------------------------------- --
 -- Miner data
@@ -77,7 +77,7 @@ newtype MinerId = MinerId { _minerId :: Text }
 -- | `MinerKeys` are a thin wrapper around a Pact `KeySet` to differentiate it
 -- from user keysets.
 --
-newtype MinerKeys = MinerKeys Pact5.KeySet
+newtype MinerKeys = MinerKeys Pact4.KeySet
     deriving stock (Eq, Ord, Generic)
     deriving newtype (Show, NFData)
 
@@ -97,15 +97,15 @@ data Miner = Miner !MinerId !MinerKeys
 instance J.Encode Miner where
     build (Miner (MinerId m) (MinerKeys ks)) = J.object
         [ "account" J..= m
-        , "predicate" J..= Pact5._ksPredFun ks
-        , "public-keys" J..= J.Array (Pact5._ksKeys ks)
+        , "predicate" J..= Pact4._ksPredFun ks
+        , "public-keys" J..= J.Array (Pact4._ksKeys ks)
         ]
     {-# INLINE build #-}
 
 instance FromJSON Miner where
     parseJSON = withObject "Miner" $ \o -> Miner
         <$> (MinerId <$> o .: "account")
-        <*> (MinerKeys <$> (Pact5.KeySet <$> o .: "public-keys" <*> o .: "predicate"))
+        <*> (MinerKeys <$> (Pact4.KeySet <$> o .: "public-keys" <*> o .: "predicate"))
 
 -- | A lens into the miner id of a miner.
 --
@@ -125,7 +125,7 @@ minerKeys = lens (\(Miner _ k) -> k) (\(Miner i _) b -> Miner i b)
 defaultMiner :: Miner
 defaultMiner = Miner (MinerId "miner")
     $ MinerKeys
-    $ Pact5.mkKeySet
+    $ Pact4.mkKeySet
       ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
       "keys-all"
 
@@ -134,7 +134,7 @@ defaultMiner = Miner (MinerId "miner")
 -- | A trivial Miner.
 --
 noMiner :: Miner
-noMiner = Miner (MinerId "NoMiner") (MinerKeys $ Pact5.mkKeySet [] "<")
+noMiner = Miner (MinerId "NoMiner") (MinerKeys $ Pact4.mkKeySet [] "<")
 {-# NOINLINE noMiner #-}
 
 -- | Convert from Pact `Miner` to Chainweb `MinerData`.

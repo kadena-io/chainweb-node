@@ -913,9 +913,8 @@ execLocal cwtx preflight sigVerify rdepth = pactLabel "execLocal" $ do
                                 earlyReturn $ Pact5LocalResultWithWarns Pact5.CommandResult
                                     { _crReqKey = Pact5.RequestKey (Pact5.Hash $ Pact4.unHash $ Pact4.toUntypedHash $ Pact4._cmdHash cwtx)
                                     , _crTxId = Nothing
-                                    -- FIXME: Pact5, make this nicer, the `sshow` makes for an ugly error
                                     , _crResult = Pact5.PactResultErr $ Pact5.PELegacyError $
-                                        Pact5.LegacyPactError Pact5.LegacyGasError "" [] ("Gas error: " <> sshow err)
+                                        Pact5.LegacyPactError Pact5.LegacyGasError "" [] (prettyPact5GasPurchaseFailure err)
                                     , _crGas = Pact5.Gas $ fromIntegral $ cmd ^. Pact4.cmdPayload . Pact4.pMeta . Pact4.pmGasLimit
                                     , _crLogs = Nothing
                                     , _crContinuation = Nothing
@@ -1236,7 +1235,11 @@ execPreInsertCheckReq txs = pactLabel "execPreInsertCheckReq" $ do
             -- by necessity
             gasEnv <- Pact5.mkTableGasEnv (Pact5.MilliGasLimit mempty) Pact5.GasLogsDisabled
             (tx <$) <$> Pact5.buyGas logger' gasEnv pactDb txCtx (view Pact5.payloadObj <$> tx)
-        either (throwError . InsertErrorBuyGas . sshow) (\_ -> pure ()) result
+        case result of
+            Left err -> do
+                throwError $ InsertErrorBuyGas $ prettyPact5GasPurchaseFailure $ BuyGasError (Pact5.cmdToRequestKey tx) err
+            Right _ -> do
+                pure ()
 
 execLookupPactTxs
     :: (CanReadablePayloadCas tbl, Logger logger)

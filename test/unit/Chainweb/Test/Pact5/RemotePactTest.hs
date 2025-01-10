@@ -146,7 +146,7 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
         , testCaseSteps "allocationTest" (allocationTest rdb)
         , testCaseSteps "webAuthnSignatureTest" (webAuthnSignatureTest rdb)
         , testCaseSteps "hyperlaneValidatorAnnouncementTest" (hyperlaneValidatorAnnouncementTest rdb)
-
+        , testCaseSteps "gasPurchaseFailureMessages" (gasPurchaseFailureMessages rdb)
         , localTests rdb
         ]
 
@@ -441,7 +441,7 @@ sendInvalidTxsTest rdb = withResourceT (mkFixture v rdb) $ \fx ->
                     & fails ? P.match _FailureResponse ? P.checkAll
                         [ P.fun responseStatusCode ? P.equals badRequest400
                         , P.fun responseBody ? textContains
-                            (validationFailed 0 cmdNotEnoughGasFunds "Attempt to buy gas failed with: BuyGasPactError (PEUserRecoverableError (UserEnforceError \"Insufficient funds\")")
+                            (validationFailed 0 cmdNotEnoughGasFunds "Attempt to buy gas failed with: " <> sshow (_cmdHash cmdNotEnoughGasFunds) <> " Failed to buy gas: Insufficient funds")
                         ]
 
                 cmdInvalidSender <- buildTextCmd v
@@ -625,6 +625,72 @@ allocationTest rdb step = runResourceT $ do
                         , ("balance", (PDecimal 1_099_999.9748)) -- 1k + 1mm - gas
                         , ("guard", (PGuard $ GKeySetRef (KeySetName "allocation02" Nothing)))
                         ]
+
+gasPurchaseFailureMessages :: RocksDb -> Step -> IO ()
+gasPurchaseFailureMessages rdb _step = runResourceT $ do
+    let v = pact5InstantCpmTestVersion petersonChainGraph
+    let cid = unsafeChainId 0
+    fx <- mkFixture v rdb
+
+    -- Check the ways buyGas can fail and its error messages.
+    -- Each case is checked with both `/local` (with preflight) and `/send`.
+    liftIO $ do
+        -- buyGas with insufficient balance to pay for the full supply
+        -- (gas price * gas limit) should return an error
+        -- this relies on sender00's starting balance.
+        do
+            cmd <- buildTextCmd v
+                $ set cbSender "sender00"
+                $ set cbSigners [mkEd25519Signer' sender00 []]
+                $ set cbGasPrice (GasPrice 70_000)
+                $ set cbGasLimit (GasLimit (Gas 100_000))
+                $ defaultCmd cid
+
+            local fx v cid (Just PreflightSimulation) Nothing Nothing cmd
+                >>= P.match _Pact5LocalResultWithWarns
+                ? P.fun fst
+                ? P.fun _crResult
+                ? P.match (_PactResultErr . _PELegacyError)
+                ? P.checkAll
+                    [ P.fun _leType ? P.equals LegacyGasError
+                    , P.fun _leMessage ? textContains "Failed to buy gas: Insufficient funds"
+                    ]
+
+            send fx v cid [cmd]
+                & P.fails
+                ? P.match _FailureResponse
+                ? P.fun responseBody
+                ? textContains "Failed to buy gas: Insufficient funds"
+
+        -- multiple gas payer caps should lead to an error, because it's unclear
+        -- which module will pay for gas
+        do
+            cmd <- buildTextCmd v
+                $ set cbSender "sender00"
+                $ set cbSigners
+                    [ mkEd25519Signer' sender00
+                        [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
+                        , CapToken (QualifiedName "GAS_PAYER" (ModuleName "coin" Nothing)) []
+                        , CapToken (QualifiedName "GAS_PAYER" (ModuleName "coin2" Nothing)) []
+                        ]
+                    ]
+                $ defaultCmd cid
+
+            local fx v cid (Just PreflightSimulation) Nothing Nothing cmd
+                >>= P.match _Pact5LocalResultWithWarns
+                ? P.fun fst
+                ? P.fun _crResult
+                ? P.match (_PactResultErr . _PELegacyError)
+                ? P.checkAll
+                    [ P.fun _leType ? P.equals LegacyGasError
+                    , P.fun _leMessage ? textContains "Failed to buy gas: Multiple gas payer capabilities"
+                    ]
+
+            send fx v cid [cmd]
+                & P.fails
+                ? P.match _FailureResponse
+                ? P.fun responseBody
+                ? textContains "Failed to buy gas: Multiple gas payer capabilities"
 
 successfulTx :: P.Prop (CommandResult log err)
 successfulTx = P.fun _crResult ? P.match _PactResultOk P.succeed

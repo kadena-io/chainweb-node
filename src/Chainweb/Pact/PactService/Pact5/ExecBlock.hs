@@ -306,7 +306,7 @@ continueBlock mpAccess blockInProgress = do
                   return (([Left (Pact5._cmdHash tx)], True), s)
                 Just (Left err) -> do
                   logFunctionText logger Debug $
-                    "applyCmd failed to buy gas " <> sshow err
+                    "applyCmd failed to buy gas: " <> prettyPact5GasPurchaseFailure err
                   ((as, timedOut), s') <- runStateT rest s
                   return ((Left (Pact5._cmdHash tx):as, timedOut), s')
                 Just (Right (a, s')) -> do

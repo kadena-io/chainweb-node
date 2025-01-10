@@ -17,7 +17,7 @@ module Chainweb.Test.Pact5.TransactionExecTest (tests) where
 
 import Chainweb.BlockHeader
 import Chainweb.Graph (singletonChainGraph, petersonChainGraph)
-import Chainweb.Miner.Pact (noMiner)
+import Chainweb.Miner.Pact (Miner(..), MinerId(..), MinerKeys(..), noMiner)
 import Chainweb.Pact.PactService (initialPayloadState, withPactService)
 import Chainweb.Pact.PactService.Checkpointer (readFrom, SomeBlockM(..))
 import Chainweb.Pact.Types
@@ -63,6 +63,7 @@ import Pact.Core.Persistence hiding (pactDb)
 import Pact.Core.SPV (noSPVSupport)
 import Pact.Core.Signer
 import Pact.Core.Verifiers
+import Pact.Types.KeySet qualified as Pact4
 import Pact.JSON.Encode qualified as J
 import PropertyMatchers ((?))
 import PropertyMatchers qualified as P
@@ -77,6 +78,8 @@ tests baseRdb = testGroup "Pact5 TransactionExecTest"
     [ testCase "buyGas should take gas tokens from the transaction sender" (buyGasShouldTakeGasTokensFromTheTransactionSender baseRdb)
     , testCase "buyGas failures" (buyGasFailures baseRdb)
     , testCase "redeem gas should give gas tokens to the transaction sender and miner" (redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner baseRdb)
+    , testCase "redeem gas failure" (redeemGasFailure baseRdb)
+    , testCase "purchase gas tx too big" (purchaseGasTxTooBig baseRdb)
     , testCase "run payload should return an EvalResult related to the input command" (runPayloadShouldReturnEvalResultRelatedToTheInputCommand baseRdb)
     , testCase "applyLocal spec" (applyLocalSpec baseRdb)
     , testCase "applyCmd spec" (applyCmdSpec baseRdb)
@@ -194,6 +197,47 @@ redeemGasShouldGiveGasTokensToTheTransactionSenderAndMiner rdb = readFromAfterGe
         assertEqual "balance after redeeming gas" (Just $ 100_000_000 + (10 - 3) * 2) endSender00Bal
         endMinerBal <- readBal pactDb "NoMiner"
         assertEqual "miner balance after redeeming gas" (Just $ fromMaybe 0 startMinerBal + 3 * 2) endMinerBal
+
+redeemGasFailure :: RocksDb -> IO ()
+redeemGasFailure rdb = readFromAfterGenesis v rdb $ do
+    pactTransaction Nothing $ \pactDb -> do
+        let miner = Miner (MinerId "sender00")
+                $ MinerKeys
+                $ Pact4.mkKeySet
+                    [Pact4.PublicKeyText $ fst sender00]
+                    "keys-all"
+
+        cmd <- buildCwCmd v
+            $ set cbRPC (mkExec ("(coin.rotate \"sender00\" (read-keyset 'ks))") (mkKeySetData "ks" [sender01]))
+            $ set cbSigners
+                [ mkEd25519Signer' sender00
+                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
+                    , CapToken (QualifiedName "ROTATE" (ModuleName "coin" Nothing)) [PString "sender00"]
+                    ]
+                ]
+            $ defaultCmd cid
+        let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = miner}
+        logger <- testLogger
+        applyCmd logger Nothing pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 1) (view payloadObj <$> cmd)
+            >>= P.match _Left
+            ? P.match (_RedeemGasError . _2 . _RedeemGasPactError)
+            ? P.match (_PEUserRecoverableError . _1)
+            ? P.equals (UserEnforceError "account guards do not match")
+
+purchaseGasTxTooBig :: RocksDb -> IO ()
+purchaseGasTxTooBig rdb = readFromAfterGenesis v rdb $ do
+    pactTransaction Nothing $ \pactDb -> do
+        cmd <- buildCwCmd v
+            $ set cbSender "sender00"
+            $ set cbSigners [mkEd25519Signer' sender00 []]
+            $ set cbGasLimit (GasLimit (Gas 1)) -- We set the gas limit to lower than the initialGas passed to applyCmd so that this test fails
+            $ defaultCmd cid
+        let txCtx = TxContext {_tcParentHeader = ParentHeader (gh v cid), _tcMiner = noMiner}
+        logger <- testLogger
+        applyCmd logger Nothing pactDb txCtx (TxBlockIdx 0) noSPVSupport (Gas 2) (view payloadObj <$> cmd)
+            >>= P.match _Left
+            ? P.match _PurchaseGasTxTooBigForGasLimit
+            ? P.succeed
 
 payloadFailureShouldPayAllGasToTheMinerTypeError :: RocksDb -> IO ()
 payloadFailureShouldPayAllGasToTheMinerTypeError rdb = readFromAfterGenesis v rdb $ do

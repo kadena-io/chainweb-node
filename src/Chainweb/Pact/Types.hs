@@ -123,6 +123,7 @@ module Chainweb.Pact.Types
   , _BuyGasError
   , _RedeemGasError
   , _PurchaseGasTxTooBigForGasLimit
+  , prettyPact5GasPurchaseFailure
   , Transactions(..)
   , transactionPairs
   , transactionCoinbase
@@ -217,6 +218,7 @@ import System.LogLevel
 import qualified Pact.Core.Builtin as Pact5
 import qualified Pact.Core.Errors as Pact5
 import qualified Pact.Core.Evaluate as Pact5
+import qualified Pact.Core.Pretty as Pact5
 
 -- internal chainweb modules
 
@@ -340,6 +342,15 @@ data Pact5GasPurchaseFailure
   | PurchaseGasTxTooBigForGasLimit !Pact5.RequestKey
   deriving stock (Eq, Show)
 makePrisms ''Pact5GasPurchaseFailure
+
+prettyPact5GasPurchaseFailure :: Pact5GasPurchaseFailure -> Text
+prettyPact5GasPurchaseFailure = \case
+  BuyGasError rk e -> sshow rk <> " Failed to buy gas: " <> case e of
+    BuyGasPactError err -> Pact5.renderText err
+    BuyGasMultipleGasPayerCaps -> "Multiple gas payer capabilities"
+  RedeemGasError rk e -> sshow rk <> " Failed to redeem gas: " <> case e of
+    RedeemGasPactError err -> Pact5.renderText err
+  PurchaseGasTxTooBigForGasLimit rk -> sshow rk <> " Failed to purchas gas: tx too big for gas limit"
 
 data Pact4GasPurchaseFailure = Pact4GasPurchaseFailure !TransactionHash !Pact4.PactError
   deriving (Eq, Show)
