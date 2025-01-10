@@ -186,6 +186,9 @@ ARG PROJECT_NAME
 ENV GIT_DISCOVERY_ACROSS_FILESYSTEM=1
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
     --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
+    cabal update
+RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
+    --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
     [ -f cabal.project.freeze ] || cabal --enable-tests --enable-benchmarks freeze
 RUN --mount=type=cache,target=/root/.cabal,id=${TARGETPLATFORM} \
     --mount=type=cache,target=./dist-newstyle,id=${PROJECT_NAME}-${TARGETPLATFORM},sharing=locked \
