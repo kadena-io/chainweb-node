@@ -79,6 +79,7 @@ import qualified Chainweb.Test.Pact5.PactServiceTest
 import qualified Chainweb.Test.Pact5.RemotePactTest
 import qualified Chainweb.Test.Pact5.SPVTest
 import qualified Chainweb.Test.Pact5.TransactionExecTest
+import qualified Chainweb.Test.Pact5.TransactionTests
 import qualified Chainweb.Test.RestAPI (tests)
 import qualified Chainweb.Test.Roundtrips (tests)
 import qualified Chainweb.Test.SPV (tests)
@@ -164,6 +165,7 @@ suite rdb =
         , Chainweb.Test.Pact5.SPVTest.tests rdb
         , Chainweb.Test.Pact5.RemotePactTest.tests rdb
         , Chainweb.Test.Pact5.HyperlanePluginTests.tests rdb
+        , Chainweb.Test.Pact5.TransactionTests.tests
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.RestAPI.tests rdb
         , testGroup "SPV"
