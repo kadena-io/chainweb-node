@@ -83,7 +83,7 @@ module Chainweb.Pact.Types
   , SubmittedRequestMsg(..)
   , ValidateBlockReq(..)
   , RewindDepth(..)
-  , LocalResult
+  , LocalResult(..)
   , _MetadataValidationFailure
   , _LocalResultWithWarns
   , _LocalResultLegacy

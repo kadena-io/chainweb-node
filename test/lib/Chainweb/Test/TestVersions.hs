@@ -19,6 +19,7 @@ module Chainweb.Test.TestVersions
     , pact5InstantCpmTestVersion
     , pact5CheckpointerTestVersion
     , pact5SlowCpmTestVersion
+    , instantCpmTransitionTestVersion
     ) where
 
 import Control.Lens hiding (elements)
@@ -102,40 +103,43 @@ buildTestVersion f =
 -- result in runtime errors from `Chainweb.Version.Registry`.
 testVersions :: [ChainwebVersionName]
 testVersions = _versionName <$> concat
-    [ [ fastForkingCpmTestVersion (knownChainGraph g)
-      | g :: KnownGraph <- [minBound..maxBound]
-      ]
-    , [ slowForkingCpmTestVersion (knownChainGraph g)
-      | g :: KnownGraph <- [minBound..maxBound]
-      ]
-    , [ barebonesTestVersion (knownChainGraph g)
-      | g :: KnownGraph <- [minBound..maxBound]
-      ]
-    , [ noBridgeCpmTestVersion (knownChainGraph g)
-      | g :: KnownGraph <- [minBound..maxBound]
-      ]
-    , [ timedConsensusVersion (knownChainGraph g1) (knownChainGraph g2)
-      | g1 :: KnownGraph <- [minBound..maxBound]
-      , g2 :: KnownGraph <- [minBound..maxBound]
-      ]
-    , [ quirkedGasInstantCpmTestVersion (knownChainGraph g)
-      | g :: KnownGraph <- [minBound..maxBound]
-      ]
-    , [ quirkedGasPact5InstantCpmTestVersion (knownChainGraph g)
-      | g :: KnownGraph <- [minBound..maxBound]
-      ]
-    , [ instantCpmTestVersion (knownChainGraph g)
-      | g :: KnownGraph <- [minBound..maxBound]
-      ]
-    , [ pact5InstantCpmTestVersion (knownChainGraph g)
-      | g :: KnownGraph <- [minBound..maxBound]
-      ]
-    , [ pact5CheckpointerTestVersion (knownChainGraph g)
-      | g :: KnownGraph <- [minBound..maxBound]
-      ]
-    , [ pact5SlowCpmTestVersion (knownChainGraph g)
-      | g :: KnownGraph <- [minBound..maxBound]
-      ]
+    [   [ fastForkingCpmTestVersion (knownChainGraph g)
+        | g :: KnownGraph <- [minBound..maxBound]
+        ]
+    ,   [ slowForkingCpmTestVersion (knownChainGraph g)
+        | g :: KnownGraph <- [minBound..maxBound]
+        ]
+    ,   [ barebonesTestVersion (knownChainGraph g)
+        | g :: KnownGraph <- [minBound..maxBound]
+        ]
+    ,   [ noBridgeCpmTestVersion (knownChainGraph g)
+        | g :: KnownGraph <- [minBound..maxBound]
+        ]
+    ,   [ timedConsensusVersion (knownChainGraph g1) (knownChainGraph g2)
+        | g1 :: KnownGraph <- [minBound..maxBound]
+        , g2 :: KnownGraph <- [minBound..maxBound]
+        ]
+    ,   [ quirkedGasInstantCpmTestVersion (knownChainGraph g)
+        | g :: KnownGraph <- [minBound..maxBound]
+        ]
+    ,   [ quirkedGasPact5InstantCpmTestVersion (knownChainGraph g)
+        | g :: KnownGraph <- [minBound..maxBound]
+        ]
+    ,   [ instantCpmTestVersion (knownChainGraph g)
+        | g :: KnownGraph <- [minBound..maxBound]
+        ]
+    ,   [ pact5InstantCpmTestVersion (knownChainGraph g)
+        | g :: KnownGraph <- [minBound..maxBound]
+        ]
+    ,   [ pact5CheckpointerTestVersion (knownChainGraph g)
+        | g :: KnownGraph <- [minBound..maxBound]
+        ]
+    ,   [ pact5SlowCpmTestVersion (knownChainGraph g)
+        | g :: KnownGraph <- [minBound..maxBound]
+        ]
+    ,   [ instantCpmTransitionTestVersion (knownChainGraph g)
+        | g :: KnownGraph <- [minBound..maxBound]
+        ]
     ]
 
 -- | Details common to all test versions thus far.
@@ -495,6 +499,32 @@ pact5SlowCpmTestVersion g = buildTestVersion $ \v -> v
     & versionUpgrades .~ indexByForkHeights v
         [ (Pact5Fork, AllChains (Pact5Upgrade (List.map pactTxFrom4To5 CoinV6.transactions)))
         ]
+    & versionVerifierPluginNames .~ AllChains
+        (Bottom
+            ( minBound
+            , Set.fromList $ map VerifierName ["allow", "hyperlane_v3_announcement", "hyperlane_v3_message"]
+            )
+        )
+
+-- | ChainwebVersion that transitions between Pact4 and Pact5 at block height 20.
+instantCpmTransitionTestVersion :: ChainGraph -> ChainwebVersion
+instantCpmTransitionTestVersion g = buildTestVersion $ \v -> v
+    & cpmTestVersion g
+    & versionName .~ ChainwebVersionName ("instant-CPM-transition-" <> toText g)
+    & versionForks .~ tabulateHashMap (\case
+        -- pact 5 is off
+        Pact5Fork -> AllChains $ ForkAtBlockHeight $ BlockHeight 20
+        _ -> AllChains ForkAtGenesis
+        )
+    & versionQuirks .~ noQuirks
+    & versionGenesis .~ VersionGenesis
+        { _genesisBlockPayload = onChains $
+            (unsafeChainId 0, IN0.payloadBlock) :
+            [(n, INN.payloadBlock) | n <- HS.toList (unsafeChainId 0 `HS.delete` graphChainIds g)]
+        , _genesisBlockTarget = AllChains maxTarget
+        , _genesisTime = AllChains $ BlockCreationTime epoch
+        }
+    & versionUpgrades .~ AllChains mempty
     & versionVerifierPluginNames .~ AllChains
         (Bottom
             ( minBound

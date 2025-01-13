@@ -346,6 +346,7 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVer
     fromMerkleNode = decodeMerkleInputNode decodeChainwebVersionCode
 
 data PactVersion = Pact4 | Pact5
+  deriving stock (Eq, Show)
 data PactVersionT (v :: PactVersion) where
     Pact4T :: PactVersionT Pact4
     Pact5T :: PactVersionT Pact5
