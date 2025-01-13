@@ -104,8 +104,6 @@ tests rdb = testGroup  "SPV tests"
 -- -------------------------------------------------------------------------- --
 -- Utils
 
-type Step = String -> IO ()
-
 testCaseStepsN :: String -> Natural -> (Step -> Assertion) -> TestTree
 testCaseStepsN name n test = testGroup name $ flip map [1..n] $ \i ->
     testCaseSteps ("Run test number " <> sshow i) test

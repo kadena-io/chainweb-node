@@ -24,6 +24,7 @@ module Chainweb.Test.Utils
 (
 -- * Misc
   readFile'
+, Step
 , withResource'
 , withResourceT
 , independentSequentialTestGroup
@@ -259,15 +260,8 @@ import qualified Pact.Types.API as Pact4
 import qualified Pact.Core.Command.Server as Pact5
 
 -- -------------------------------------------------------------------------- --
--- Intialize Test BlockHeader DB
 
-testBlockHeaderDb
-    :: RocksDb
-    -> BlockHeader
-    -> IO BlockHeaderDb
-testBlockHeaderDb rdb h = do
-    rdb' <- testRocksDb "withTestBlockHeaderDb" rdb
-    initBlockHeaderDb (Configuration h rdb')
+type Step = String -> IO ()
 
 withResource' :: IO a -> (IO a -> TestTree) -> TestTree
 withResource' create act = withResource create (\_ -> return ()) act
@@ -294,6 +288,15 @@ withResourceT rt act =
             closeInternalState =<< newIORef rm
         )
         (\ioarm -> act (snd <$> ioarm))
+
+-- Initialize Test BlockHeader DB
+testBlockHeaderDb
+    :: RocksDb
+    -> BlockHeader
+    -> IO BlockHeaderDb
+testBlockHeaderDb rdb h = do
+    rdb' <- testRocksDb "withTestBlockHeaderDb" rdb
+    initBlockHeaderDb (Configuration h rdb')
 
 withTestBlockHeaderDb
     :: RocksDb

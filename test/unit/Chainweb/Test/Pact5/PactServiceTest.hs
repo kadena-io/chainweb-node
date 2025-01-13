@@ -135,9 +135,6 @@ tests baseRdb = testGroup "Pact5 PactServiceTest"
     , testCase "failed txs should go into blocks" (failedTxsShouldGoIntoBlocks baseRdb)
     ]
 
-successfulTx :: P.Prop (CommandResult log err)
-successfulTx = P.fun _crResult ? P.match _PactResultOk P.succeed
-
 simpleEndToEnd :: RocksDb -> IO ()
 simpleEndToEnd baseRdb = runResourceT $ do
     fixture <- mkFixture baseRdb
