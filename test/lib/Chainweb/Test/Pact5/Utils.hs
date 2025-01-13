@@ -34,6 +34,7 @@ module Chainweb.Test.Pact5.Utils
 
         -- * Properties
     , event
+    , successfulTx
         -- * Utilities
     , coinModuleName
     )
@@ -98,6 +99,7 @@ import System.Environment (lookupEnv)
 import System.IO.Temp (createTempDirectory, getCanonicalTemporaryDirectory)
 import System.LogLevel
 import System.Random (randomIO)
+import PropertyMatchers ((?))
 import PropertyMatchers qualified as P
 import Pact.Core.PactValue
 import Pact.Core.Capabilities
@@ -273,3 +275,6 @@ event n args modName = P.checkAll
 
 coinModuleName :: ModuleName
 coinModuleName = ModuleName "coin" Nothing
+
+successfulTx :: P.Prop (Pact5.CommandResult log err)
+successfulTx = P.fun Pact5._crResult ? P.match Pact5._PactResultOk P.succeed
