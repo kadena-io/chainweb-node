@@ -656,6 +656,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact4.VerifierPluginTest
         Chainweb.Test.Pact5.CheckpointerTest
         Chainweb.Test.Pact5.CutFixture
+        Chainweb.Test.Pact5.HyperlanePluginTests
         Chainweb.Test.Pact5.PactServiceTest
         Chainweb.Test.Pact5.RemotePactTest
         Chainweb.Test.Pact5.SPVTest
