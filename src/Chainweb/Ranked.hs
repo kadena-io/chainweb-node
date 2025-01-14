@@ -8,6 +8,7 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Ranked
@@ -27,6 +28,9 @@ module Chainweb.Ranked
 , encodeRanked
 , decodeRanked
 , JsonRanked(..)
+
+-- * IsRanked Class
+, IsRanked(..)
 ) where
 
 import Chainweb.BlockHeight
@@ -42,6 +46,7 @@ import Data.Typeable (Proxy(..), Typeable, typeRep)
 
 import GHC.Generics (Generic)
 import GHC.TypeLits
+import Data.Kind (Type)
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeight Ranked Data
@@ -72,6 +77,32 @@ decodeRanked decodeA = Ranked
     <$!> decodeBlockHeightBe
     <*> decodeA
 {-# INLINE decodeRanked #-}
+
+-- -------------------------------------------------------------------------- --
+-- Has Rank Class
+
+-- | Class of Ranked Types.
+--
+-- All instances of this class must have an 'Ord' instance that sorts by height
+-- and a encoding functions that perserve this ordering on the lexicographic
+-- order of the encoded values.
+--
+-- This class is used because for some types the rank can be derived from the
+-- value itself. In those cases the use of the 'Ranked' data type is wastefull
+-- and a simple 'newtype' wrapper is better suited. This class is used to
+-- abstract about both cases and to avoid cluttering the namespace.
+--
+class Ord r => IsRanked r where
+    type Unranked r :: Type
+    rank :: r -> BlockHeight
+    unranked :: r -> Unranked r
+    ranked :: BlockHeight -> Unranked r -> r
+
+instance Ord a => IsRanked (Ranked a) where
+    type Unranked (Ranked a) = a
+    rank = _rankedHeight
+    unranked = _ranked
+    ranked = Ranked
 
 -- -------------------------------------------------------------------------- --
 
