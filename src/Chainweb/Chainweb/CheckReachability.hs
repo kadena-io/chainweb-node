@@ -51,6 +51,7 @@ import Chainweb.Utils
 import Chainweb.Version
 
 import P2P.Node.PeerDB
+import P2P.Node.RestAPI.Client
 import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
@@ -127,6 +128,10 @@ checkReachability sock mgr v logger pdb peers peer threshold = do
 
     withPeerDbServer inner = withAsync servePeerDb $ const inner
 
+    -- Is the really what we want? I think, the other side is trying to connect
+    -- to the cut endpoint. It probably does not matter, because only the
+    -- response headers are checked.
+    --
     servePeerDb = servePeerDbSocketTls
         serverSettings
         (_peerCertificateChain peer)
