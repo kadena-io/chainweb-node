@@ -56,6 +56,7 @@ import Chainweb.BlockHeight
 import Chainweb.BlockPayloadHash
 import Chainweb.ChainId
 import Chainweb.Payload qualified as Pact
+import Chainweb.PayloadProvider.EVM.Header qualified as EVM
 import Chainweb.PayloadProvider.Minimal.Payload qualified as Minimal
 import Chainweb.Ranked
 import Chainweb.RestAPI.Orphans ()
@@ -69,6 +70,7 @@ import Data.Aeson
 import Data.Kind
 import Data.Maybe
 import Data.Proxy
+import Ethereum.RLP qualified as EVM
 import GHC.Generics (Generic)
 import GHC.TypeNats
 import Servant.API
@@ -265,7 +267,7 @@ somePayloadApi v c = runIdentity $ do
         SPactProvider ->
             return $! SomeApi (payloadApi @v' @c' @'PactProvider)
         SEvmProvider @n _ ->
-            error "Chainweb.PayloadProvider.P2P.RestAPI.somePayloadApi: IsPayloadProvider not implemented for EVM"
+            return $! SomeApi (payloadApi @v' @c' @('EvmProvider n))
 
 somePayloadApis :: ChainwebVersion -> [ChainId] -> SomeApi
 somePayloadApis v = mconcat . fmap (somePayloadApi v)
@@ -312,4 +314,31 @@ instance IsPayloadProvider PactProvider where
     p2pPayloadBatchLimit = 20 -- FIXME
     batch = Pact.PayloadDataList . catMaybes
 
+-- | IsPayloadProvider instance for the Pact Payload provider
+--
+instance IsPayloadProvider (EvmProvider n) where
+    type PayloadType (EvmProvider n) = EVM.Header
+    type PayloadBatchType (EvmProvider n) = HeaderList
+    p2pPayloadBatchLimit = 20 -- FIXME
+    batch = HeaderList . catMaybes
+
+newtype HeaderList = HeaderList { _headerList :: [EVM.Header] }
+    deriving (Show, Eq, Generic)
+    deriving newtype (ToJSON, FromJSON, EVM.RLP)
+
+instance MimeRender OctetStream EVM.Header where
+    mimeRender _ = EVM.putRlpLazyByteString
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream EVM.Header where
+    mimeUnrender _ = EVM.getLazy EVM.getRlp
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender OctetStream HeaderList where
+    mimeRender _ = EVM.putRlpLazyByteString
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender OctetStream HeaderList where
+    mimeUnrender _ = EVM.getLazy EVM.getRlp
+    {-# INLINE mimeUnrender #-}
 
