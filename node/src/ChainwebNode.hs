@@ -91,7 +91,7 @@ import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
-import Chainweb.Miner.Coordinator (MiningStats)
+-- import Chainweb.Miner.Coordinator (MiningStats)
 import Chainweb.Pact.Backend.DbCache (DbCacheStats)
 import Chainweb.Pact.Service.PactQueue (PactQueueStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
@@ -212,7 +212,7 @@ runMonitorLoop actionLabel logger = runForeverThrottled
     10 -- 10 bursts in case of failure
     (10 * mega) -- allow restart every 10 seconds in case of failure
 
-runCutMonitor :: Logger logger => logger -> CutDb tbl -> IO ()
+runCutMonitor :: Logger logger => logger -> CutDb -> IO ()
 runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger $ \l ->
     runMonitorLoop "ChainwebNode.runCutMonitor" l $ do
         logFunctionJson l Info . cutToCutHashes Nothing
@@ -240,21 +240,19 @@ instance ToJSON BlockUpdate where
     {-# INLINE toEncoding #-}
     {-# INLINE toJSON #-}
 
-runBlockUpdateMonitor :: CanReadablePayloadCas tbl => Logger logger => logger -> CutDb tbl -> IO ()
+runBlockUpdateMonitor :: Logger logger => logger -> CutDb -> IO ()
 runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-monitor") logger $ \l ->
     runMonitorLoop "ChainwebNode.runBlockUpdateMonitor" l $ do
         blockDiffStream db
             & S.mapM toUpdate
             & S.mapM_ (logFunctionJson l Info)
   where
-    payloadDb = view cutDbPayloadDb db
-
     txCount :: BlockHeader -> IO Int
-    txCount bh = do
-        bp <- lookupPayloadDataWithHeight payloadDb (Just $ view blockHeight bh) (view blockPayloadHash bh) >>= \case
-            Nothing -> error "block payload not found"
-            Just x -> return x
-        return $ length $ view payloadDataTransactions bp
+    txCount bh = return (-1)
+    --     bp <- lookupPayloadDataWithHeight (Just $ view blockHeight bh) (view blockPayloadHash bh) >>= \case
+    --         Nothing -> error "block payload not found"
+    --         Just x -> return x
+    --     return $ length $ view payloadDataTransactions bp
 
     toUpdate :: Either BlockHeader BlockHeader -> IO BlockUpdate
     toUpdate (Right bh) = BlockUpdate
@@ -289,7 +287,7 @@ runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger go
                 logFunctionJson logger Info stats
                 approximateThreadDelay 60_000_000 {- 1 minute -}
 
-runQueueMonitor :: Logger logger => logger -> CutDb tbl -> IO ()
+runQueueMonitor :: Logger logger => logger -> CutDb -> IO ()
 runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") logger go
   where
     go l = do
@@ -403,8 +401,8 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
         $ mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
     orphanedBlockBackend <- managed
         $ mkTelemetryLogger @OrphanedBlock mgr teleLogConfig
-    miningStatsBackend <- managed
-        $ mkTelemetryLogger @MiningStats mgr teleLogConfig
+--     miningStatsBackend <- managed
+--         $ mkTelemetryLogger @MiningStats mgr teleLogConfig
     requestLogBackend <- managed
         $ mkTelemetryLogger @RequestResponseLog mgr teleLogConfig
     queueStatsBackend <- managed
@@ -441,7 +439,7 @@ withNodeLogger logCfg chainwebCfg v f = runManaged $ do
                     , logHandler endpointBackend
                     , logHandler newBlockBackend
                     , logHandler orphanedBlockBackend
-                    , logHandler miningStatsBackend
+                    -- , logHandler miningStatsBackend
                     , logHandler requestLogBackend
                     , logHandler queueStatsBackend
                     , logHandler reintroBackend
