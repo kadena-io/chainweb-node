@@ -95,6 +95,7 @@ import Chainweb.Version
 
 import Chainweb.Storage.Table
 import Chainweb.BlockHeight
+import Chainweb.PayloadProvider.Pact.Genesis
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions
@@ -331,8 +332,14 @@ initializePayloadDb
     -> IO ()
 initializePayloadDb v db = traverse_ initForChain $ chainIds v
   where
-    initForChain cid =
-        addNewPayload db (genesisBlockHeight v cid) $ v ^?! versionGenesis . genesisBlockPayload . atChain cid
+    initForChain cid
+        | provider /= PactProvider =
+            error "Chainweb.Payload.PayloadStore.initializePayloadDb: this module must only be used by Pact"
+        | otherwise =
+            addNewPayload db (genesisBlockHeight v cid) $ genesisPayload v ^?! atChain cid
+      where
+        provider = payloadProviderTypeForChain v cid
+
 
 -- -------------------------------------------------------------------------- --
 -- Insert new Payload

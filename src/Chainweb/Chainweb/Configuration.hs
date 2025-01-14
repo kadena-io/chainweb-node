@@ -108,6 +108,7 @@ import Chainweb.Time hiding (second)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Development
+import Chainweb.Version.EvmDevelopment
 import Chainweb.Version.Mainnet
 import Chainweb.Version.RecapDevelopment
 import Chainweb.Version.Registry
@@ -627,7 +628,7 @@ validateChainwebVersion v = do
             , sshow (_versionName v)
             ]
     where
-    isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [recapDevnet, devnet]]
+    isDevelopment = _versionCode v `elem` [_versionCode dv | dv <- [recapDevnet, devnet, evmDevnet]]
 
 validateBackupConfig :: ConfigValidation BackupConfig []
 validateBackupConfig c =
