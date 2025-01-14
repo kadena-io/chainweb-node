@@ -14,6 +14,7 @@
 {-# LANGUAGE TypeOperators #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Difficulty
@@ -32,6 +33,7 @@ module Chainweb.Difficulty
 -- * PowHashNat
 , PowHashNat(..)
 , powHashNat
+, powHashNatToDouble
 , encodePowHashNat
 , decodePowHashNat
 , encodePowHashNatBe
@@ -50,6 +52,7 @@ module Chainweb.Difficulty
 
 -- * HashDifficulty
 , HashDifficulty(..)
+, difficultyToDouble
 , encodeHashDifficulty
 , decodeHashDifficulty
 , encodeHashDifficultyBe
@@ -89,6 +92,7 @@ import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
 import Numeric.Additive
+import Data.Ratio
 
 -- -------------------------------------------------------------------------- --
 -- Large Word Orphans
@@ -140,6 +144,12 @@ powHashNat = PowHashNat . powHashToWord256
 powHashToWord256 :: (32 <= PowHashBytesCount) => PowHash -> Word256
 powHashToWord256 = either error id . runGetEitherS decodeWordLe . SB.fromShort . powHashBytes
 {-# INLINE powHashToWord256 #-}
+
+-- Strictly for presenting difficulty approximately to interfaces that can't understand Word256.
+powHashNatToDouble :: PowHashNat -> Double
+powHashNatToDouble (PowHashNat w) = realToFrac $
+    (fromIntegral w :: Integer) % (fromIntegral (maxBound @Word256) :: Integer)
+{-# INLINE powHashNatToDouble #-}
 
 encodePowHashNat :: PowHashNat -> Put
 encodePowHashNat (PowHashNat n) = encodeWordLe n
@@ -257,6 +267,10 @@ newtype HashDifficulty = HashDifficulty PowHashNat
     deriving newtype (AdditiveSemigroup, AdditiveAbelianSemigroup)
     deriving newtype (Num, Integral, Real)
 
+-- Strictly for presenting difficulty approximately to interfaces that can't understand Word256.
+difficultyToDouble :: HashDifficulty -> Double
+difficultyToDouble (HashDifficulty phn) = powHashNatToDouble phn
+
 encodeHashDifficulty :: HashDifficulty -> Put
 encodeHashDifficulty (HashDifficulty x) = encodePowHashNat x
 {-# INLINE encodeHashDifficulty #-}
@@ -347,4 +361,3 @@ legacyAdjust (BlockDelay bd) (WindowWidth ww) (TimeSpan delta) (HashTarget oldTa
 
     newTarget :: HashTarget
     newTarget = HashTarget . PowHashNat $ maxTargetWord `div` ceiling newDiff
-

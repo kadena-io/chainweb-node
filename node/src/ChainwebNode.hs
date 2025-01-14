@@ -86,6 +86,7 @@ import Chainweb.Chainweb.CutResources
 import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
+import Chainweb.Difficulty
 import Chainweb.Logger
 import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
@@ -223,6 +224,7 @@ data BlockUpdate = BlockUpdate
     { _blockUpdateBlockHeader :: !(ObjectEncoded BlockHeader)
     , _blockUpdateOrphaned :: !Bool
     , _blockUpdateTxCount :: !Int
+    , _blockUpdateDifficultyDouble :: !Double
     }
     deriving (Show, Eq, Ord, Generic, NFData)
 
@@ -231,10 +233,12 @@ instance ToJSON BlockUpdate where
         $ "header" .= _blockUpdateBlockHeader o
         <> "orphaned" .= _blockUpdateOrphaned o
         <> "txCount" .= _blockUpdateTxCount o
+        <> "difficultyDouble" .= _blockUpdateDifficultyDouble o
     toJSON o = object
         [ "header" .= _blockUpdateBlockHeader o
         , "orphaned" .= _blockUpdateOrphaned o
         , "txCount" .= _blockUpdateTxCount o
+        , "difficultyDouble" .= _blockUpdateDifficultyDouble o
         ]
 
     {-# INLINE toEncoding #-}
@@ -261,10 +265,12 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
         <$> pure (ObjectEncoded bh) -- _blockUpdateBlockHeader
         <*> pure False -- _blockUpdateOrphaned
         <*> txCount bh -- _blockUpdateTxCount
+        <*> pure (difficultyToDouble (targetToDifficulty (view blockTarget bh))) -- _blockUpdateDifficultyDouble
     toUpdate (Left bh) = BlockUpdate
         <$> pure (ObjectEncoded bh) -- _blockUpdateBlockHeader
         <*> pure True -- _blockUpdateOrphaned
         <*> ((0 -) <$> txCount bh) -- _blockUpdateTxCount
+        <*> pure (difficultyToDouble (targetToDifficulty (view blockTarget bh))) -- _blockUpdateDifficultyDouble
 
 -- type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
 
