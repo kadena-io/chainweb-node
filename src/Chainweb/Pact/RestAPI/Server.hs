@@ -21,7 +21,6 @@ module Chainweb.Pact.RestAPI.Server
 , PactCmdLog(..)
 , SomePactServerData(..)
 , somePactServerData
-, pactServer
 , sendHandler
 , pollHandler
 , listenHandler

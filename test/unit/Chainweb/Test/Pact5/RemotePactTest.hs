@@ -25,10 +25,7 @@
     , ViewPatterns
 #-}
 
-{-# options_ghc -fno-warn-gadt-mono-local-binds #-}
-
 -- temporary
-{-# options_ghc -Wwarn -fno-warn-name-shadowing -fno-warn-unused-top-binds #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
 module Chainweb.Test.Pact5.RemotePactTest
@@ -174,14 +171,14 @@ pollingConfirmationDepthTest baseRdb _step = runResourceT $ do
     let cid = unsafeChainId 0
     fx <- mkFixture v baseRdb
 
-    let trivialTx :: ChainId -> Word -> CmdBuilder
-        trivialTx cid n = (defaultCmd cid)
+    let trivialTx :: Word -> CmdBuilder
+        trivialTx n = (defaultCmd cid)
             { _cbRPC = mkExec' (sshow n)
             }
 
     liftIO $ do
-        cmd1 <- buildTextCmd v (trivialTx cid 42)
-        cmd2 <- buildTextCmd v (trivialTx cid 43)
+        cmd1 <- buildTextCmd v (trivialTx 42)
+        cmd2 <- buildTextCmd v (trivialTx 43)
         let rks = [cmdToRequestKey cmd1, cmdToRequestKey cmd2]
 
         let expectSuccessful :: (HasCallStack) => P.Prop [Maybe TestPact5CommandResult]
@@ -590,11 +587,27 @@ allocationTest rdb step = runResourceT $ do
         step "allocation01"
         do
             buildTextCmd v
-                (set cbRPC (mkExec' "(coin.release-allocation \"allocation01\")") $ defaultCmd cid)
+                (set cbRPC
+                    (mkExec' "(coin.release-allocation \"allocation01\")")
+                    $ set cbSigners [mkEd25519Signer' allocation01KeyPair [], mkEd25519Signer' sender00 []]
+                    $ defaultCmd cid)
                 >>= local fx v cid Nothing Nothing Nothing
                 >>= P.match _Pact5LocalResultLegacy ?
                     P.fun _crResult ? P.match (_PactResultErr . _PEPact5Error . to _peMsg) ?
                         P.fun _boundedText ? textContains "funds locked until \"2100-10-31T18:00:00Z\"."
+
+            buildTextCmd v
+                (set cbRPC
+                    (mkExec' "(coin.release-allocation \"allocation01\")")
+                    $ set cbSigners [mkEd25519Signer' allocation01KeyPair [], mkEd25519Signer' sender00 []]
+                    $ defaultCmd cid)
+                >>= local fx v cid (Just PreflightSimulation) Nothing Nothing
+                >>= P.match (_Pact5LocalResultWithWarns . _1) ?
+                    P.fun _crResult ? P.match (_PactResultErr . _PELegacyError) ?
+                    P.checkAll
+                        [ P.fun _leMessage ? textContains "funds locked until \"2100-10-31T18:00:00Z\"."
+                        , P.fun _leType ? P.equals LegacyTxFailure
+                        ]
 
         step "allocation02"
         do
@@ -1097,13 +1110,13 @@ mkFixture v baseRdb = do
     fx <- CutFixture.mkFixture v testPactServiceConfig baseRdb
     logger <- liftIO getTestLogger
 
-    let mkSomePactServerData chainId = PactServerData
+    let mkSomePactServerData cid = PactServerData
             { _pactServerDataCutDb = fx ^. CutFixture.fixtureCutDb
-            , _pactServerDataMempool = fx ^. CutFixture.fixtureMempools ^?! atChain chainId
+            , _pactServerDataMempool = fx ^. CutFixture.fixtureMempools ^?! atChain cid
             , _pactServerDataLogger = logger
-            , _pactServerDataPact = mkPactExecutionService (fx ^. CutFixture.fixturePactQueues ^?! atChain chainId)
+            , _pactServerDataPact = mkPactExecutionService (fx ^. CutFixture.fixturePactQueues ^?! atChain cid)
             }
-    let pactServer = somePactServers v $ List.map (\chainId -> (chainId, mkSomePactServerData chainId)) (HashSet.toList (chainIds v))
+    let pactServer = somePactServers v $ List.map (\cid -> (cid, mkSomePactServerData cid)) (HashSet.toList (chainIds v))
     let cutGetServer = someCutGetServer v (fx ^. CutFixture.fixtureCutDb)
     let app = someServerApplication (pactServer <> cutGetServer)
 
@@ -1151,8 +1164,8 @@ pollWithDepth
 pollWithDepth fx v cid rks mConfirmationDepth = do
     clientEnv <- _serviceClientEnv <$> remotePactTestFixture fx
     let rksNel = NE.fromList rks
-    poll <- runClientM (pactPollWithQueryApiClient v cid mConfirmationDepth (Pact5.PollRequest rksNel)) clientEnv
-    case poll of
+    pollResult <- runClientM (pactPollWithQueryApiClient v cid mConfirmationDepth (Pact5.PollRequest rksNel)) clientEnv
+    case pollResult of
         Left e -> do
             throwM (PollException (show e))
         Right (Pact5.PollResponse response) -> do
@@ -1165,9 +1178,9 @@ pollWithDepth fx v cid rks mConfirmationDepth = do
 data ClientException = ClientException CallStack ClientError
     deriving stock (Show)
 instance Exception ClientException where
-    displayException (ClientException callStack err) =
+    displayException (ClientException errCallStack err) =
         "Client error: " <> show err
-        <> "\n" <> GHC.Stack.prettyCallStack callStack
+        <> "\n" <> GHC.Stack.prettyCallStack errCallStack
 _FailureResponse :: Fold ClientException (ResponseF Text)
 _FailureResponse = folding $ \case
     ClientException _ (FailureResponse _req resp) -> Just (TL.toStrict . TL.decodeUtf8 <$> resp)
@@ -1183,8 +1196,8 @@ send fx v cid cmds = do
     let commands = NE.fromList $ toListOf each cmds
     let batch = Pact4.SubmitBatch (fmap toPact4Command commands)
     clientEnv <- _serviceClientEnv <$> remotePactTestFixture fx
-    send <- runClientM (pactSendApiClient v cid batch) clientEnv
-    case send of
+    sendResult <- runClientM (pactSendApiClient v cid batch) clientEnv
+    case sendResult of
         Left e -> do
             throwM (ClientException callStack e)
         Right (Pact4.RequestKeys (fmap toPact5RequestKey -> response)) -> do
@@ -1206,9 +1219,7 @@ local fx v cid preflight sigVerify depth cmd = do
     --
     clientEnv <- _serviceClientEnv <$> remotePactTestFixture fx
     r <- runClientM (pactLocalWithQueryApiClient v cid preflight sigVerify depth (toPact4Command cmd)) clientEnv
-    case r of
-        Right r -> return r
-        Left e -> throwM $ ClientException callStack e
+    either (throwM . ClientException callStack) return r
 
 pactDeadBeef :: RequestKey
 pactDeadBeef = case deadbeef of
