@@ -195,6 +195,8 @@ data MinimalPayloadProvider = MinimalPayloadProvider
         -- ^ FIXME: should this be moved into the Payload Store?
         --
         -- For now we just prune after each successful syncToBlock.
+        --
+        -- FIXME: is pruning actually implemented?
     , _minimalLogger :: LogFunction
     }
 
@@ -217,8 +219,12 @@ newMinimalPayloadProvider
     -> IO MinimalPayloadProvider
 newMinimalPayloadProvider logger v c rdb mgr conf
     | payloadProviderTypeForChain v c /= MinimalProvider =
-        error "Chainweb.PayloadProvider.Minimal.PayloadDB.configuration: chain does not use minimal provider"
+        error "Chainweb.PayloadProvider.Minimal.configuration: chain does not use minimal provider"
     | otherwise = do
+        SomeChainwebVersionT @v _ <- return $ someChainwebVersionVal v
+        SomeChainIdT @c _ <- return $ someChainIdVal c
+        let payloadClient h = Rest.payloadClient @v @c @'MinimalProvider h
+
         pdb <- PDB.initPayloadDb $ PDB.configuration v c rdb
         store <- newPayloadStore mgr (logFunction pldStoreLogger) pdb payloadClient
         var <- newEmptyTMVarIO
@@ -238,16 +244,6 @@ newMinimalPayloadProvider logger v c rdb mgr conf
     providerLogger = setComponent "payload-provider"
         $ addLabel ("provider", "minimal") logger
     pldStoreLogger = addLabel ("sub-component", "payloadStore") providerLogger
-
-payloadClient
-    :: ChainwebVersion
-    -> ChainId
-    -> RankedBlockPayloadHash
-    -> ClientM Payload
-payloadClient v c h = runIdentity $ do
-    SomeChainwebVersionT @v _ <- return $ someChainwebVersionVal v
-    SomeChainIdT @c _ <- return $ someChainIdVal c
-    return $! Rest.payloadClient @v @c @'MinimalProvider h
 
 instance HasChainwebVersion MinimalPayloadProvider where
     _chainwebVersion = _minimalChainwebVersion
@@ -370,8 +366,6 @@ getPayloadForContext p h ctx = do
         (_minimalCandidatePayloads p)
         (Priority $ negate $ int $ _evaluationCtxParentHeight ctx)
         (_hintsOrigin <$> h)
-        (_chainwebVersion p)
-        (_chainId p)
         (_evaluationCtxRankedPayloadHash ctx)
     casInsert (_minimalCandidatePayloads p) pld
     return pld
@@ -431,6 +425,8 @@ minimalSyncToBlock p h i = do
     logg p Info "syncToBlock called"
     validatePayloads p h i
 
+    -- FIXME: is the right place to prune the candidate store?
+
     -- Produce new block
     case _forkInfoNewBlockCtx i of
         Nothing -> return ()
@@ -477,6 +473,11 @@ makeNewPayload p latest ctx = NewPayload
 --
 -- Throws PayloadValidationFailure if a payload is not valid.
 --
+-- FIXME: is it fine that we can end up with a payload database where
+-- some earlier payloads are missing? This would also mean that the respective
+-- payloads have not been validated. This is probably fine with the current cut
+-- pipeline, but this might not always be the case in the future.
+--
 validatePayloads
     :: MinimalPayloadProvider
     -> Maybe Hints
@@ -488,7 +489,6 @@ validatePayloads p h i= mapConcurrently_ go (_forkInfoTrace i)
         pld <- getPayloadForContext p h ctx
         validatePayload p pld ctx
         casInsert (_minimalPayloadStore p) pld
-
 
 minimalLatestPayloadIO :: MinimalPayloadProvider -> IO NewPayload
 minimalLatestPayloadIO = atomically . readTMVar . _minimalPayloadVar
