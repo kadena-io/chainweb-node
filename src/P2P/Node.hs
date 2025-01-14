@@ -11,6 +11,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -- |
 -- Module: P2P.Node
@@ -40,11 +41,17 @@ module P2P.Node
 , withPeerDb
 
 -- * P2P Node
+, P2pNodeParameters(..)
+, P2pNode
 , p2pCreateNode
 , p2pStartNode
+, p2pStartNodeInactive
 , p2pStopNode
+, p2pRunNode
 , guardPeerDb
 , getNewPeerManager
+, setActive
+, setInactive
 
 -- * Logging and Monitoring
 
@@ -123,7 +130,6 @@ import Data.LogMessage
 
 import Network.X509.SelfSigned
 
-import P2P.Node.Configuration
 import P2P.Node.PeerDB
 import P2P.Node.RestAPI.Client
 import P2P.Peer
@@ -205,7 +211,6 @@ makeLenses ''P2pSessionInfo
 --
 data P2pNode = P2pNode
     { _p2pNodeNetworkId :: !NetworkId
-    , _p2pNodeChainwebVersion :: !ChainwebVersion
     , _p2pNodePeerInfo :: !PeerInfo
     , _p2pNodePeerDb :: !PeerDb
     , _p2pNodeSessions :: !(TVar (M.Map PeerInfo (P2pSessionInfo, Async (Maybe Bool))))
@@ -220,7 +225,14 @@ data P2pNode = P2pNode
     , _p2pNodeDoPeerSync :: !Bool
         -- ^ Synchronize peers at start of each session. Note, that this is
         -- expensive.
+    , _p2pNodePrivate :: !Bool
+        -- ^ Whether this node is private
+    , _p2pNodeMaxSessionCount :: !Natural
+    , _p2pNodeSessionTimeout :: !Seconds
     }
+
+_p2pNodeChainwebVersion :: P2pNode -> ChainwebVersion
+_p2pNodeChainwebVersion = _chainwebVersion . _p2pNodePeerDb
 
 instance HasChainwebVersion P2pNode where
     _chainwebVersion = _p2pNodeChainwebVersion
@@ -312,6 +324,13 @@ nodeGeometric :: HasCallStack => P2pNode -> Double -> IO Int
 nodeGeometric node = nodeRandom node . geometric
 {-# INLINE nodeGeometric #-}
 
+-- | Set a node active, causing it to initiating new sessions.
+--
+setActive :: P2pNode -> STM ()
+setActive node = writeTVar (_p2pNodeActive node) True
+
+-- | Set a node inactive. An inactive node does not initiate any new sessions.
+--
 setInactive :: P2pNode -> STM ()
 setInactive node = writeTVar (_p2pNodeActive node) False
 
@@ -506,10 +525,9 @@ syncFromPeer node info = do
 -- @O(_p2pConfigActivePeerCount conf)@
 --
 findNextPeer
-    :: P2pConfiguration
-    -> P2pNode
+    :: P2pNode
     -> IO PeerEntry
-findNextPeer conf node = do
+findNextPeer node = do
     candidates <- awaitCandidates
 
     -- random circular shift of a set
@@ -527,7 +545,6 @@ findNextPeer conf node = do
 
     -- this ix expensive but lazy and only forced if p0 is empty
     let p2 = L.groupBy ((==) `on` _peerEntrySuccessiveFailures) p1
-
 
     -- Choose the category to pick from
     --
@@ -575,7 +592,7 @@ findNextPeer conf node = do
         -- Retry if there are more active sessions than the maximum number
         -- of sessions
         --
-        check (int sessionCount < _p2pConfigMaxSessionCount conf)
+        check (int sessionCount < _p2pNodeMaxSessionCount node)
 
         let addrs = S.fromList (_peerAddr <$> M.keys sessions)
 
@@ -612,9 +629,9 @@ findNextPeer conf node = do
 -- | This can loop forever if there are no peers available for the respective
 -- network.
 --
-newSession :: P2pConfiguration -> P2pNode -> IO ()
-newSession conf node = do
-    newPeer <- findNextPeer conf node
+newSession :: P2pNode -> IO ()
+newSession node = do
+    newPeer <- findNextPeer node
     let newPeerInfo = _peerEntryInfo newPeer
     logg node Debug
         $ "Selected new peer " <> encodeToText newPeerInfo <> ", "
@@ -629,7 +646,7 @@ newSession conf node = do
                 -- FIXME there are better ways to prevent the node from spinning
                 -- if no suitable (non-failing node) is available.
                 -- cf. GitHub issue #117
-            newSession conf node
+            newSession node
         True -> do
             logg node Debug $ "Connected to new peer " <> showInfo newPeerInfo
             let env = peerClientEnv node newPeerInfo
@@ -647,11 +664,11 @@ newSession conf node = do
             logg node Debug $ "Started peer session " <> showSessionId newPeerInfo newSes
             loggFun node Info $ JsonLog info
   where
-    TimeSpan timeoutMs = secondsToTimeSpan @Double (_p2pConfigSessionTimeout conf)
+    TimeSpan timeoutMs = secondsToTimeSpan @Double (_p2pNodeSessionTimeout node)
     peerDb = _p2pNodePeerDb node
 
     syncFromPeer_ pinfo
-        | _p2pConfigPrivate conf = return True
+        | _p2pNodePrivate node = return True
         | _p2pNodeDoPeerSync node = syncFromPeer node pinfo
         | otherwise = return True
 
@@ -739,20 +756,23 @@ waitAnySession node = do
 startPeerDb
     :: ChainwebVersion
     -> HS.HashSet NetworkId
-    -> P2pConfiguration
+    -> Bool
+        -- ^ Whether this node is private
+    -> [PeerInfo]
+        -- ^ Set of statically known peers.
     -> IO PeerDb
-startPeerDb v nids conf = do
+startPeerDb v nids isPrivate knownPeers = do
     !peerDb <- newEmptyPeerDb v
     forM_ nids $ \nid ->
-        peerDbInsertPeerInfoList_ True nid (_p2pConfigKnownPeers conf) peerDb
-    return $ if _p2pConfigPrivate conf
+        peerDbInsertPeerInfoList_ True nid knownPeers peerDb
+    return $ if isPrivate
         then makePeerDbPrivate peerDb
         else peerDb
 
 -- | Stop a 'PeerDb', possibly persisting the db to a file.
 --
-stopPeerDb :: P2pConfiguration -> PeerDb -> IO ()
-stopPeerDb _ _ = return ()
+stopPeerDb :: PeerDb -> IO ()
+stopPeerDb _ = return ()
 {-# INLINE stopPeerDb #-}
 
 -- | Run a computation with a PeerDb
@@ -760,57 +780,82 @@ stopPeerDb _ _ = return ()
 withPeerDb
     :: ChainwebVersion
     -> HS.HashSet NetworkId
-    -> P2pConfiguration
+    -> Bool
+        -- ^ Whether this node is private
+    -> [PeerInfo]
+        -- ^ Set of statically known peers
     -> (PeerDb -> IO a)
     -> IO a
-withPeerDb v nids conf = bracket (startPeerDb v nids conf) (stopPeerDb conf)
+withPeerDb v nids isPrivate knownPeers =
+    bracket (startPeerDb v nids isPrivate knownPeers) stopPeerDb
 
 -- -------------------------------------------------------------------------- --
 -- Create
 
-p2pCreateNode
-    :: ChainwebVersion
-    -> NetworkId
-    -> Peer
-    -> LogFunction
-    -> PeerDb
-    -> HTTP.Manager
-    -> Bool
-    -> P2pSession
-    -> IO P2pNode
-p2pCreateNode cv nid peer logfun db mgr doPeerSync session = do
+data P2pNodeParameters = P2pNodeParameters
+    { _p2pNodeParamsNetworkId :: !NetworkId
+    , _p2pNodeParamsMyPeerInfo :: !PeerInfo
+    , _p2pNodeParamsLogFunction :: !LogFunction
+    , _p2pNodeParamsPeerDb :: !PeerDb
+    , _p2pNodeParamsManager :: !HTTP.Manager
+    , _p2pNodeParamsDoPeerSync :: !Bool
+       -- ^ whether to synchronize peers on session startup
+    , _p2pNodeParamsIsPrivate :: !Bool
+       -- ^ whether the node is private
+    , _p2pNodeParamsMaxSessionCount :: !Natural
+       -- ^ Maximum Session count
+    , _p2pNodeParamsSessionTimeout :: !Seconds
+       -- ^ Session timeout
+    , _p2pNodeParamsSession :: !P2pSession
+    }
+
+instance HasChainwebVersion P2pNodeParameters where
+    _chainwebVersion = _chainwebVersion . _p2pNodeParamsPeerDb
+
+p2pCreateNode :: P2pNodeParameters -> IO P2pNode
+p2pCreateNode params = do
     -- intialize P2P State
     sessionsVar <- newTVarIO mempty
     statsVar <- newTVarIO emptyP2pNodeStats
     rngVar <- newIORef =<< R.newStdGen
-    activeVar <- newTVarIO True
-    let !s = P2pNode
-                { _p2pNodeNetworkId = nid
-                , _p2pNodeChainwebVersion = cv
-                , _p2pNodePeerInfo = myInfo
-                , _p2pNodePeerDb = db
-                , _p2pNodeSessions = sessionsVar
-                , _p2pNodeManager = mgr
-                , _p2pNodeLogFunction = logfun
-                , _p2pNodeStats = statsVar
-                , _p2pNodeClientSession = session
-                , _p2pNodeRng = rngVar
-                , _p2pNodeActive = activeVar
-                , _p2pNodeDoPeerSync = doPeerSync
-                }
-
-    logfun @T.Text Debug "created node"
-    return s
+    activeVar <- newTVarIO False
+    logfun Debug "created node"
+    return P2pNode
+        { _p2pNodeNetworkId = _p2pNodeParamsNetworkId params
+        , _p2pNodePeerInfo = _p2pNodeParamsMyPeerInfo params
+        , _p2pNodePeerDb = _p2pNodeParamsPeerDb params
+        , _p2pNodeSessions = sessionsVar
+        , _p2pNodeManager = _p2pNodeParamsManager params
+        , _p2pNodeLogFunction = _p2pNodeParamsLogFunction params
+        , _p2pNodeStats = statsVar
+        , _p2pNodeClientSession = _p2pNodeParamsSession params
+        , _p2pNodeRng = rngVar
+        , _p2pNodeActive = activeVar
+        , _p2pNodeDoPeerSync = _p2pNodeParamsDoPeerSync params
+        , _p2pNodePrivate = _p2pNodeParamsIsPrivate params
+        , _p2pNodeMaxSessionCount = _p2pNodeParamsMaxSessionCount params
+        , _p2pNodeSessionTimeout = _p2pNodeParamsSessionTimeout params
+        }
   where
-    myInfo = _peerInfo peer
+    logfun :: LogLevel -> T.Text -> IO ()
+    logfun = _p2pNodeParamsLogFunction params
 
 -- -------------------------------------------------------------------------- --
 -- Run P2P Node
 
-p2pStartNode :: P2pConfiguration -> P2pNode -> IO ()
-p2pStartNode conf node = concurrently_
-    (runForever (logg node) "P2P.Node.awaitSessions" $ awaitSessions node)
-    (runForever (logg node) "P2P.Node.newSessions" $ newSession conf node)
+p2pStartNodeInactive :: P2pNode -> IO ()
+p2pStartNodeInactive node = do
+    atomically (setInactive node)
+    concurrently_
+        (runForever (logg node) "P2P.Node.awaitSessions" $ awaitSessions node)
+        (runForever (logg node) "P2P.Node.newSessions" $ newSession node)
+
+p2pStartNode :: P2pNode -> IO ()
+p2pStartNode node = do
+    atomically (setActive node)
+    concurrently_
+        (runForever (logg node) "P2P.Node.awaitSessions" $ awaitSessions node)
+        (runForever (logg node) "P2P.Node.newSessions" $ newSession node)
 
 p2pStopNode :: P2P.Node.P2pNode -> IO ()
 p2pStopNode node = do
@@ -819,3 +864,11 @@ p2pStopNode node = do
         readTVar (_p2pNodeSessions node)
     mapM_ (uninterruptibleCancel . snd) sessions
     logg node Info "stopped node"
+
+-- | Activate and run a node.
+--
+-- The node is stopped when an asynchronoous exception is raised in the thread.
+--
+p2pRunNode :: P2pNode -> IO ()
+p2pRunNode n = finally (p2pStartNode n) (p2pStopNode n)
+
