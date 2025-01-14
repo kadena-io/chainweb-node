@@ -617,7 +617,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
     -- be off by at most the diameter of the graph.
     --
     farAhead x = do
-        curMax <- maxChainHeight <$> readTVarIO cutVar
+        curMax <- _cutMaxHeight <$> readTVarIO cutVar
         let newMax = _cutHashesMaxHeight x
         let r = newMax >= curMax + farAheadThreshold
         when r $ loggCutId logFun Debug x
@@ -636,7 +636,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = d
     -- be off by at most the diameter of the graph.
     --
     isVeryOld x = do
-        curMin <- minChainHeight <$> readTVarIO cutVar
+        curMin <- _cutMinHeight <$> readTVarIO cutVar
         let diam = diameter $ chainGraphAt headerStore curMin
             newMin = _cutHashesMinHeight x
         let r = newMin + 2 * (1 + int diam) <= curMin
@@ -686,7 +686,9 @@ cutStreamToHeaderStream
 cutStreamToHeaderStream db s = S.for (go Nothing s) $ \(T2 p n) ->
     S.foldrT
         (\(cid, a, b) x -> void $ S.mergeOn uniqueBlockNumber x (branch cid a b))
-        (S.each $ zipCuts p n)
+        (iforM_ (HM.intersectionWith (,) (_cutMap p) (_cutMap n)) $ \cid (x, y) ->
+            S.yield (cid, x, y)
+        )
   where
     go :: Maybe Cut -> S.Stream (Of Cut) m r -> S.Stream (Of (T2 Cut Cut)) m r
     go c st = lift (S.next st) >>= \case
@@ -713,7 +715,9 @@ cutStreamToHeaderDiffStream
 cutStreamToHeaderDiffStream db s = S.for (cutUpdates Nothing s) $ \(T2 p n) ->
     S.foldrT
         (\(cid, a, b) x -> void $ S.mergeOn toOrd x (branch cid a b))
-        (S.each $ zipCuts p n)
+        (iforM_ (HM.intersectionWith (,) (_cutMap p) (_cutMap n)) $ \cid (x, y) ->
+            S.yield (cid, x, y)
+        )
   where
     cutUpdates :: Maybe Cut -> S.Stream (Of Cut) m r -> S.Stream (Of (T2 Cut Cut)) m r
     cutUpdates c st = lift (S.next st) >>= \case

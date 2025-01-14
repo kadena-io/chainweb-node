@@ -3,6 +3,8 @@
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeOperators #-}
 
 -- |
 -- Module: Ea
@@ -33,24 +35,26 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types (testPactServiceConfig)
 import Chainweb.Pact.Utils (toTxCreationTime)
-import Chainweb.Pact.Validations (defaultMaxTTL)
+import Chainweb.Pact4.Transaction qualified as Pact4
+import Chainweb.Pact4.Validations (defaultMaxTTL)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Storage.Table.RocksDB
 import Chainweb.Time
-import Chainweb.Transaction (ChainwebTransaction, chainwebPayloadCodec, mkPayloadWithTextOld)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Development (pattern Development)
+import Chainweb.Version.Pact5Development (pattern Pact5Development)
 import Chainweb.Version.RecapDevelopment (pattern RecapDevelopment)
 import Chainweb.Version.Registry (registerVersion)
+import Control.Concurrent.Async
 import Control.Exception
 import Control.Lens
+import Data.Aeson qualified as Aeson
 import Data.Foldable
 import Data.Functor
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.Builder qualified as TB
@@ -61,26 +65,35 @@ import GHC.Exts(the)
 import Pact.ApiReq
 import Pact.Types.ChainMeta
 import Pact.Types.Command hiding (Payload)
+import System.LogLevel
 import System.IO.Temp
-import System.LogLevel (LogLevel(..))
 import Text.Printf
+
+---
 
 main :: IO ()
 main = do
     registerVersion RecapDevelopment
     registerVersion Development
+    registerVersion Pact5Development
 
-    recapDevnet
-    devnet
-    fastnet
-    instantnet
-    testnet
-    mainnet
-    genTxModules
-    genCoinV3Payloads
-    genCoinV4Payloads
-    genCoinV5Payloads
-    genCoinV6Payloads
+    mapConcurrently_ id
+      [ recapDevnet
+      , devnet
+      , pact5Devnet
+      , fastnet
+      , instantnet
+      , pact5Instantnet
+      , quirkedPact5Instantnet
+      , testnet04
+      , testnet05
+      , mainnet
+      , genTxModules
+      , genCoinV3Payloads
+      , genCoinV4Payloads
+      , genCoinV5Payloads
+      , genCoinV6Payloads
+      ]
     putStrLn "Done."
   where
     recapDevnet = mkPayloads
@@ -92,9 +105,16 @@ main = do
       [ fastDevelopment0
       , fastDevelopmentN
       ]
+    pact5Devnet = mkPayloads
+      [ pact5Development0
+      , pact5DevelopmentN
+      ]
     fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
     instantnet = mkPayloads [instantCPM0, instantCPMN]
-    testnet = mkPayloads [testnet0, testnetN]
+    pact5Instantnet = mkPayloads [pact5InstantCPM0, pact5InstantCPMN]
+    quirkedPact5Instantnet = mkPayloads [quirkedPact5InstantCPM0, quirkedPact5InstantCPMN]
+    testnet04 = mkPayloads [testnet040, testnet04N]
+    testnet05 = mkPayloads [testnet050, testnet05N]
     mainnet = mkPayloads
       [ mainnet0
       , mainnet1
@@ -165,7 +185,7 @@ genCoinV6Payloads = genTxModule "CoinV6"
 -- Payload Generation
 ---------------------
 
-genPayloadModule :: ChainwebVersion -> Text -> ChainId -> [ChainwebTransaction] -> IO Text
+genPayloadModule :: ChainwebVersion -> Text -> ChainId -> [Pact4.UnparsedTransaction] -> IO Text
 genPayloadModule v tag cid cwTxs =
     withTempRocksDb "chainweb-ea" $ \rocks ->
     withBlockHeaderDb rocks v cid $ \bhdb -> do
@@ -177,24 +197,19 @@ genPayloadModule v tag cid cwTxs =
                     execNewGenesisBlock noMiner (V.fromList cwTxs)
             return $ TL.toStrict $ TB.toLazyText $ payloadModuleCode tag payloadWO
 
-mkChainwebTxs :: [FilePath] -> IO [ChainwebTransaction]
+mkChainwebTxs :: [FilePath] -> IO [Pact4.UnparsedTransaction]
 mkChainwebTxs txFiles = mkChainwebTxs' =<< traverse mkTx txFiles
 
-mkChainwebTxs' :: [Command Text] -> IO [ChainwebTransaction]
+mkChainwebTxs' :: [Command Text] -> IO [Pact4.UnparsedTransaction]
 mkChainwebTxs' rawTxs =
     forM rawTxs $ \cmd -> do
-        let cmdBS = fmap TE.encodeUtf8 cmd
-            -- TODO: Use the new `assertCommand` function.
-            -- We want to delete `verifyCommand` at some point.
-            -- It's not critical for Ea because WebAuthn signatures (which
-            -- the new `assertCommand` knows how to handle) are not present
-            -- in Genesis blocks.
-            procCmd = verifyCommand cmdBS
-        case procCmd of
-            f@ProcFail{} -> fail (show f)
-            ProcSucc c -> do
-                let t = toTxCreationTime (Time (TimeSpan 0))
-                return $! mkPayloadWithTextOld <$> (c & setTxTime t & setTTL defaultMaxTTL)
+        let parsedCmd =
+              traverse Aeson.eitherDecodeStrictText cmd
+        case parsedCmd of
+          Left err -> error err
+          Right unparsedTx -> do
+            let t = toTxCreationTime (Time (TimeSpan 0))
+            return $! Pact4.mkPayloadWithTextOldUnparsed <$> (unparsedTx & setTxTime t & setTTL defaultMaxTTL)
   where
     setTxTime = set (cmdPayload . pMeta . pmCreationTime)
     setTTL = set (cmdPayload . pMeta . pmTTL)
@@ -300,7 +315,7 @@ genTxModule tag txFiles = do
 
     let encTxs = map quoteTx cwTxs
         quoteTx tx = "    \"" <> encTx tx <> "\""
-        encTx = encodeB64UrlNoPaddingText . codecEncode (chainwebPayloadCodec maxBound)
+        encTx = encodeB64UrlNoPaddingText . codecEncode Pact4.rawCommandCodec
         modl = T.unlines $ startTxModule tag <> [T.intercalate "\n    ,\n" encTxs] <> endTxModule
         fileName = "src/Chainweb/Pact/Transactions/" <> tag <> "Transactions.hs"
 
@@ -317,13 +332,13 @@ startTxModule tag =
     , "import Data.Bifunctor (first)"
     , "import System.IO.Unsafe"
     , ""
-    , "import Chainweb.Transaction"
+    , "import qualified Chainweb.Pact4.Transaction as Pact4"
     , "import Chainweb.Utils"
     , ""
-    , "transactions :: [ChainwebTransaction]"
+    , "transactions :: [Pact4.Transaction]"
     , "transactions ="
     , "  let decodeTx t ="
-    , "        fromEitherM . (first (userError . show)) . codecDecode (chainwebPayloadCodec maxBound) =<< decodeB64UrlNoPaddingText t"
+    , "        fromEitherM . (first (userError . show)) . codecDecode (Pact4.payloadCodec maxBound) =<< decodeB64UrlNoPaddingText t"
     , "  in unsafePerformIO $ mapM decodeTx ["
     ]
 

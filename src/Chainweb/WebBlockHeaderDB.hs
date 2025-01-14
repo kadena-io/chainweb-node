@@ -258,7 +258,7 @@ checkBlockHeaderGraph b = void
   where
     graph
         | isGenesisBlockHeader b = _chainGraph b
-        | otherwise = chainGraphAt (view blockChainwebVersion b) (view blockHeight b - 1)
+        | otherwise = chainGraphAt (_chainwebVersion b) (view blockHeight b - 1)
 {-# INLINE checkBlockHeaderGraph #-}
 
 -- | Given a 'WebBlockHeaderDb' @db@, @checkBlockAdjacentParents h@ checks that
@@ -270,4 +270,3 @@ checkBlockAdjacentParents
     -> IO ()
 checkBlockAdjacentParents db = void . blockAdjacentParentHeaders db
 {-# INLINE checkBlockAdjacentParents #-}
-

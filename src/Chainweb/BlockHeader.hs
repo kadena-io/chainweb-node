@@ -13,6 +13,9 @@ module Chainweb.BlockHeader
 -- * Newtype wrappers for function parameters
   I.ParentHeader(..)
 , I.parentHeader
+, I.parentHeaderHash
+, I._rankedParentHash
+, I.rankedParentHash
 , I.ParentCreationTime(..)
 
 -- * Block Payload Hash
@@ -61,6 +64,10 @@ module Chainweb.BlockHeader
 -- ** Utilities
 , I._blockPow
 , I.blockPow
+, I.rankedBlockHash
+, I._rankedBlockHash
+, I.rankedBlockPayloadHash
+, I._rankedBlockPayloadHash
 , I._blockAdjacentChainIds
 , I.blockAdjacentChainIds
 , I.encodeBlockHeader

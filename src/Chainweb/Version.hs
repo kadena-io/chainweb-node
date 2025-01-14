@@ -16,6 +16,10 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- |
 -- Module: Chainweb.Version
@@ -48,8 +52,9 @@ module Chainweb.Version
     , decodeChainwebVersionCode
     , ChainwebVersionName(..)
     , ChainwebVersion(..)
-    , Upgrade(..)
-    , upgrade
+    , pact4Upgrade
+    , TxIdxInBlock(..)
+    , _TxBlockIdx
     , VersionQuirks(..)
     , noQuirks
     , quirkGasFees
@@ -75,6 +80,17 @@ module Chainweb.Version
     , genesisTime
     , genesisBlockHeight
     , genesisHeightAndGraph
+
+    , PactUpgrade(..)
+    , PactVersion(..)
+    , PactVersionT(..)
+    , ForBothPactVersions(..)
+    , ForSomePactVersion(..)
+    , pattern ForPact4
+    , _ForPact4
+    , pattern ForPact5
+    , _ForPact5
+    , forAnyPactVersion
 
     -- * Typelevel ChainwebVersionName
     , ChainwebVersionT(..)
@@ -123,6 +139,7 @@ module Chainweb.Version
     -- ** Utilities for constructing Chainweb Version
     , indexByForkHeights
     , latestBehaviorAt
+    , onAllChains
     , domainAddr2PeerInfo
 
     -- * Internal. Don't use. Exported only for testing
@@ -152,7 +169,6 @@ import GHC.Stack
 
 -- internal modules
 
-import Pact.Types.Command (RequestKey)
 import Pact.Types.Runtime (Gas)
 
 import Chainweb.BlockCreationTime
@@ -164,7 +180,8 @@ import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.MerkleUniverse
 import Chainweb.Payload
-import Chainweb.Transaction
+import qualified Chainweb.Pact4.Transaction as Pact4
+import qualified Chainweb.Pact5.Transaction as Pact5
 import Chainweb.Utils
 import Chainweb.Utils.Rule
 import Chainweb.Utils.Serialization
@@ -195,6 +212,7 @@ data Fork
     | Pact4Coin3
     | EnforceKeysetFormats
     | Pact42
+    -- always add new forks at the end, not in the middle of the constructors.
     | CheckTxHash
     | Chainweb213Pact
     | Chainweb214Pact
@@ -212,6 +230,7 @@ data Fork
     | Chainweb225Pact
     | Chainweb226Pact
     | Chainweb227Pact
+    | Pact5Fork
     -- always add new forks at the end, not in the middle of the constructors.
     deriving stock (Bounded, Generic, Eq, Enum, Ord, Show)
     deriving anyclass (NFData, Hashable)
@@ -249,6 +268,7 @@ instance HasTextRepresentation Fork where
     toText Chainweb225Pact = "chainweb225Pact"
     toText Chainweb226Pact = "chainweb226Pact"
     toText Chainweb227Pact = "chainweb227Pact"
+    toText Pact5Fork = "pact5"
 
     fromText "slowEpoch" = return SlowEpoch
     fromText "vuln797Fix" = return Vuln797Fix
@@ -282,6 +302,7 @@ instance HasTextRepresentation Fork where
     fromText "chainweb225Pact" = return Chainweb225Pact
     fromText "chainweb226Pact" = return Chainweb226Pact
     fromText "chainweb227Pact" = return Chainweb227Pact
+    fromText "pact5" = return Pact5Fork
     fromText t = throwM . TextFormatException $ "Unknown Chainweb fork: " <> t
 
 instance ToJSON Fork where
@@ -324,42 +345,101 @@ instance MerkleHashAlgorithm a => IsMerkleLogEntry a ChainwebHashTag ChainwebVer
     toMerkleNode = encodeMerkleInputNode encodeChainwebVersionCode
     fromMerkleNode = decodeMerkleInputNode decodeChainwebVersionCode
 
+data PactVersion = Pact4 | Pact5
+  deriving stock (Eq, Show)
+data PactVersionT (v :: PactVersion) where
+    Pact4T :: PactVersionT Pact4
+    Pact5T :: PactVersionT Pact5
+deriving stock instance Eq (PactVersionT v)
+deriving stock instance Show (PactVersionT v)
+instance NFData (PactVersionT v) where
+    rnf Pact4T = ()
+    rnf Pact5T = ()
+
+data ForSomePactVersion f = forall pv. ForSomePactVersion (PactVersionT pv) (f pv)
+forAnyPactVersion :: (forall pv. f pv -> a) -> ForSomePactVersion f -> a
+forAnyPactVersion k (ForSomePactVersion _ f) = k f
+instance (forall pv. Eq (f pv)) => Eq (ForSomePactVersion f) where
+    ForSomePactVersion Pact4T f == ForSomePactVersion Pact4T f' = f == f'
+    ForSomePactVersion Pact5T f == ForSomePactVersion Pact5T f' = f == f'
+    ForSomePactVersion _ _ == ForSomePactVersion _ _ = False
+deriving stock instance (forall pv. Show (f pv)) => Show (ForSomePactVersion f)
+instance (forall pv. NFData (f pv)) => NFData (ForSomePactVersion f) where
+    rnf (ForSomePactVersion pv f) = rnf pv `seq` rnf f
+pattern ForPact4 :: f Pact4 -> ForSomePactVersion f
+pattern ForPact4 x = ForSomePactVersion Pact4T x
+_ForPact4 :: Prism' (ForSomePactVersion f) (f Pact4)
+_ForPact4 = prism' ForPact4 $ \case
+    ForPact4 x -> Just x
+    _ -> Nothing
+_ForPact5 :: Prism' (ForSomePactVersion f) (f Pact5)
+_ForPact5 = prism' ForPact5 $ \case
+    ForPact5 x -> Just x
+    _ -> Nothing
+pattern ForPact5 :: f Pact5 -> ForSomePactVersion f
+pattern ForPact5 x = ForSomePactVersion Pact5T x
+{-# COMPLETE ForPact4, ForPact5 #-}
+data ForBothPactVersions f = ForBothPactVersions
+    { _forPact4 :: (f Pact4)
+    , _forPact5 :: (f Pact5)
+    }
+deriving stock instance (Eq (f Pact4), Eq (f Pact5)) => Eq (ForBothPactVersions f)
+deriving stock instance (Show (f Pact4), Show (f Pact5)) => Show (ForBothPactVersions f)
+instance (NFData (f Pact4), NFData (f Pact5)) => NFData (ForBothPactVersions f) where
+    rnf b = rnf (_forPact4 b) `seq` rnf (_forPact5 b)
+
 -- The type of upgrades, which are sets of transactions to run at certain block
 -- heights during coinbase.
---
-data Upgrade = Upgrade
-    { _upgradeTransactions :: [ChainwebTransaction]
-    , _legacyUpgradeIsPrecocious :: Bool
+
+data PactUpgrade where
+    Pact4Upgrade ::
+        { _pact4UpgradeTransactions :: [Pact4.Transaction]
+        , _legacyUpgradeIsPrecocious :: Bool
         -- ^ when set to `True`, the upgrade transactions are executed using the
         -- forks of the next block, rather than the block the upgrade
         -- transactions are included in.  do not use this for new upgrades
         -- unless you are sure you need it, this mostly exists for old upgrades.
-    }
-    deriving stock (Generic, Eq)
-    deriving anyclass (NFData)
+        } -> PactUpgrade
+    Pact5Upgrade ::
+        { _pact5UpgradeTransactions :: [Pact5.Transaction]
+        } -> PactUpgrade
 
-instance Show Upgrade where
-    show _ = "<upgrade>"
+instance Eq PactUpgrade where
+    Pact4Upgrade txs precocious == Pact4Upgrade txs' precocious' =
+        txs == txs' && precocious == precocious'
+    Pact5Upgrade txs == Pact5Upgrade txs' =
+        txs == txs'
+    _ == _ = False
 
-upgrade :: [ChainwebTransaction] -> Upgrade
-upgrade txs = Upgrade txs False
+instance Show PactUpgrade where
+    show Pact4Upgrade {} = "<pact4 upgrade>"
+    show Pact5Upgrade {} = "<pact5 upgrade>"
+
+instance NFData PactUpgrade where
+    rnf (Pact4Upgrade txs precocious) = rnf txs `seq` rnf precocious
+    rnf (Pact5Upgrade txs) = rnf txs
+
+pact4Upgrade :: [Pact4.Transaction] -> PactUpgrade
+pact4Upgrade txs = Pact4Upgrade txs False
+
+data TxIdxInBlock = TxBlockIdx Word
+    deriving stock (Eq, Ord, Show, Generic)
+    deriving anyclass (Hashable, NFData)
+
+makePrisms ''TxIdxInBlock
 
 -- The type of quirks, i.e. special validation behaviors that are in some
 -- sense one-offs which can't be expressed as upgrade transactions and must be
 -- preserved.
 data VersionQuirks = VersionQuirks
-    { _quirkGasFees :: !(HashMap RequestKey Gas)
-      -- ^ Gas fee to charge at particular 'RequestKey's.
-      --   This should be 'MilliGas' once 'applyCmd' is refactored
-      --   to use 'MilliGas' instead of 'Gas'.
-      --   Note: only works for user txs in blocks right now.
+    { _quirkGasFees :: !(ChainMap (HashMap (BlockHeight, TxIdxInBlock) Gas))
     }
     deriving stock (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
 
 noQuirks :: VersionQuirks
 noQuirks = VersionQuirks
-    { _quirkGasFees = HM.empty
+    { _quirkGasFees = AllChains HM.empty
     }
 
 -- | Chainweb versions are sets of properties that must remain consistent among
@@ -388,8 +468,8 @@ data ChainwebVersion
         -- ^ The block heights on each chain to apply behavioral changes.
         -- Interpretation of these is up to the functions in
         -- `Chainweb.Version.Guards`.
-    , _versionUpgrades :: ChainMap (HashMap BlockHeight Upgrade)
-        -- ^ The upgrade transactions to execute on each chain at certain block
+    , _versionUpgrades :: ChainMap (HashMap BlockHeight PactUpgrade)
+        -- ^ The Pact upgrade transactions to execute on each chain at certain block
         -- heights.
     , _versionBlockDelay :: BlockDelay
         -- ^ The Proof-of-Work `BlockDelay` for each `ChainwebVersion`. This is
@@ -490,7 +570,7 @@ makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionDefaults
 makeLensesWith (lensRules & generateLazyPatterns .~ True) 'VersionQuirks
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
-genesisBlockPayloadHash v cid = v ^?! versionGenesis . genesisBlockPayload . onChain cid . to _payloadWithOutputsPayloadHash
+genesisBlockPayloadHash v cid = v ^?! versionGenesis . genesisBlockPayload . atChain cid . to _payloadWithOutputsPayloadHash
 
 instance HasTextRepresentation ChainwebVersionName where
     toText = getChainwebVersionName
@@ -662,8 +742,8 @@ indexByForkHeights v = OnChains . foldl' go (HM.empty <$ HS.toMap (chainIds v))
         newTxs = HM.fromList $
             [ (cid, HM.singleton forkHeight upg)
             | cid <- HM.keys acc
-            , Just upg <- [txsPerChain ^? onChain cid]
-            , ForkAtBlockHeight forkHeight <- [v ^?! versionForks . at fork . _Just . onChain cid]
+            , Just upg <- [txsPerChain ^? atChain cid]
+            , ForkAtBlockHeight forkHeight <- [v ^?! versionForks . at fork . _Just . atChain cid]
             , forkHeight /= maxBound
             ]
 
@@ -677,3 +757,11 @@ latestBehaviorAt v = foldlOf' behaviorChanges max 0 v + 1
         , versionUpgrades . folded . ifolded . asIndex
         , versionGraphs . to ruleHead . _1
         ]
+
+-- | Easy construction of a `ChainMap` with entries for every chain
+-- in a `ChainwebVersion`.
+onAllChains :: Applicative m => ChainwebVersion -> (ChainId -> m a) -> m (ChainMap a)
+onAllChains v f = OnChains <$>
+    HM.traverseWithKey
+        (\cid () -> f cid)
+        (HS.toMap (chainIds v))

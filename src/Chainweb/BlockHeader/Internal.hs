@@ -44,6 +44,9 @@ module Chainweb.BlockHeader.Internal
 -- * Newtype wrappers for function parameters
   ParentHeader(..)
 , parentHeader
+, parentHeaderHash
+, _rankedParentHash
+, rankedParentHash
 , ParentCreationTime(..)
 
 -- * Block Payload Hash
@@ -94,6 +97,10 @@ module Chainweb.BlockHeader.Internal
 , blockPow
 , _blockAdjacentChainIds
 , blockAdjacentChainIds
+, _rankedBlockHash
+, rankedBlockHash
+, _rankedBlockPayloadHash
+, rankedBlockPayloadHash
 , encodeBlockHeader
 , encodeBlockHeaderWithoutHash
 , decodeBlockHeader
@@ -119,20 +126,23 @@ module Chainweb.BlockHeader.Internal
 , genesisBlockHeaders
 , genesisBlockHeadersAtHeight
 , genesisHeight
-, headerSizes
-, headerSizeBytes
-, workSizeBytes
 
 -- * Create a new BlockHeader
 , newBlockHeader
 
 -- * CAS Constraint
 , BlockHeaderCas
+
+-- * Misc
+, headerSizes
+, headerSizeBytes
+, workSizeBytes
 ) where
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
+import Chainweb.BlockPayloadHash
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
@@ -140,7 +150,6 @@ import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
-import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.Storage.Table
 import Chainweb.Time
@@ -151,8 +160,8 @@ import Chainweb.Utils.Serialization
 import Chainweb.Version
 import Chainweb.Version.Guards
 import Chainweb.Version.Mainnet
-import Chainweb.Version.Registry (lookupVersionByName)
-import Chainweb.Version.Testnet
+import Chainweb.Version.Registry (lookupVersionByName, lookupVersionByCode)
+import Chainweb.Version.Testnet04
 import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((.=))
@@ -162,10 +171,14 @@ import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.Function (on)
 import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
 import Data.Hashable
 import Data.IORef
 import Data.Kind
+import Data.Memory.Endian qualified as BA
 import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
+import Data.Text qualified as T
 import Data.Word
 import GHC.Generics (Generic)
 import GHC.Stack
@@ -173,10 +186,6 @@ import Numeric.AffineSpace
 import Numeric.Natural
 import System.IO.Unsafe
 import Text.Read (readEither)
-import Data.HashMap.Strict qualified as HM
-import Data.HashSet qualified as HS
-import Data.Memory.Endian qualified as BA
-import Data.Text qualified as T
 
 -- -------------------------------------------------------------------------- --
 -- Nonce
@@ -379,7 +388,7 @@ instance HasChainGraph BlockHeader where
     _chainGraph h = _chainGraph (_chainwebVersion h, _blockHeight h)
 
 instance HasChainwebVersion BlockHeader where
-    _chainwebVersion = _chainwebVersion . _blockChainwebVersion
+    _chainwebVersion = lookupVersionByCode . _blockChainwebVersion
 
 instance IsCasValue BlockHeader where
     type CasKeyType BlockHeader = BlockHash
@@ -391,6 +400,7 @@ type BlockHeaderCas tbl = Cas tbl BlockHeader
 -- | Used for quickly identifying "which block" this is.
 -- Example output:
 -- "0 @ bSQgL5 (height 4810062)"
+--
 blockHeaderShortDescription :: BlockHeader -> T.Text
 blockHeaderShortDescription bh =
     T.unwords
@@ -571,7 +581,7 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
     -- = \frac{sum_{0 \leq i < n} (a_i - t)}{n}
     -- \)
     --
-    -- this is numberically sound because we compute the differences on integral
+    -- this is numerically sound because we compute the differences on integral
     -- types without rounding.
     --
     -- Properties of DA:
@@ -615,6 +625,15 @@ newtype ParentHeader = ParentHeader
 
 parentHeader :: Lens' ParentHeader BlockHeader
 parentHeader = lens _parentHeader $ \_ hdr -> ParentHeader hdr
+
+parentHeaderHash :: Getter ParentHeader BlockHash
+parentHeaderHash = parentHeader . blockHash
+
+_rankedParentHash :: ParentHeader -> RankedBlockHash
+_rankedParentHash = _rankedBlockHash . _parentHeader
+
+rankedParentHash :: Getter ParentHeader RankedBlockHash
+rankedParentHash = parentHeader . rankedBlockHash
 
 instance HasChainId ParentHeader where
     _chainId = _chainId . _parentHeader
@@ -661,7 +680,7 @@ genesisBlockHeaderCache = unsafePerformIO $ do
 genesisBlockHeaders :: ChainwebVersion -> HashMap ChainId BlockHeader
 genesisBlockHeaders = \v ->
     if _versionCode v == _versionCode mainnet then mainnetGenesisHeaders
-    else if _versionCode v == _versionCode testnet then testnetGenesisHeaders
+    else if _versionCode v == _versionCode testnet04 then testnetGenesisHeaders
     else unsafeDupablePerformIO $
         HM.lookup (_versionCode v) <$> readIORef genesisBlockHeaderCache >>= \case
             Just hs -> return hs
@@ -671,7 +690,7 @@ genesisBlockHeaders = \v ->
                 return freshGenesisHeaders
   where
     mainnetGenesisHeaders = makeGenesisBlockHeaders mainnet
-    testnetGenesisHeaders = makeGenesisBlockHeaders testnet
+    testnetGenesisHeaders = makeGenesisBlockHeaders testnet04
 
 genesisBlockHeader :: (HasCallStack, HasChainId p) => ChainwebVersion -> p -> BlockHeader
 genesisBlockHeader v p = genesisBlockHeaders v ^?! at (_chainId p) . _Just
@@ -681,7 +700,7 @@ makeGenesisBlockHeaders v = HM.fromList [ (cid, makeGenesisBlockHeader v cid) | 
 
 makeGenesisBlockHeader :: ChainwebVersion -> ChainId -> BlockHeader
 makeGenesisBlockHeader v cid =
-    makeGenesisBlockHeader' v cid (_genesisTime (_versionGenesis v) ^?! onChain cid) (Nonce 0)
+    makeGenesisBlockHeader' v cid (_genesisTime (_versionGenesis v) ^?! atChain cid) (Nonce 0)
 
 -- | Like `genesisBlockHeader`, but with slightly more control.
 --
@@ -706,7 +725,7 @@ makeGenesisBlockHeader' v p ct@(BlockCreationTime t) n =
         $ mkFeatureFlags
         :+: ct
         :+: genesisParentBlockHash v cid
-        :+: (v ^?! versionGenesis . genesisBlockTarget . onChain cid)
+        :+: (v ^?! versionGenesis . genesisBlockTarget . atChain cid)
         :+: genesisBlockPayloadHash v cid
         :+: cid
         :+: BlockWeight 0
@@ -805,7 +824,7 @@ instance HasMerkleLog ChainwebMerkleHashAlgorithm ChainwebHashTag BlockHeader wh
             :+: nonce
             :+: MerkleLogBody adjParents
             ) = _merkleLogEntries l
-        cwv = _chainwebVersion cwvc
+        cwv = lookupVersionByCode cwvc
 
         adjGraph
             | height == genesisBlockHeight cwv cid = chainGraphAt cwv height
@@ -1065,7 +1084,8 @@ instance IsBlockHeader BlockHeader where
 --
 newBlockHeader
     :: HM.HashMap ChainId ParentHeader
-        -- ^ Adjacent parent hashes.
+        -- ^ Adjacent parent hashes. The hash and the PoW target of these are
+        -- needed for construction the new header.
     -> BlockPayloadHash
         -- ^ payload hash
     -> Nonce
@@ -1106,6 +1126,9 @@ instance TreeDbEntry BlockHeader where
     parent e
         | isGenesisBlockHeader e = Nothing
         | otherwise = Just (_blockParent e)
+
+-- -------------------------------------------------------------------------- --
+-- Misc
 
 -- | This is an internal function. Use 'headerSizeBytes' instead.
 --
@@ -1160,3 +1183,26 @@ workSizeBytes
     -> BlockHeight
     -> Natural
 workSizeBytes v h = headerSizeBytes v (unsafeChainId 0) h - 32
+
+_rankedBlockHash :: BlockHeader -> RankedBlockHash
+_rankedBlockHash h = RankedBlockHash
+    { _rankedBlockHashHeight = _blockHeight h
+    , _rankedBlockHashHash = _blockHash h
+    }
+{-# INLINE _rankedBlockHash #-}
+
+rankedBlockHash :: Getter BlockHeader RankedBlockHash
+rankedBlockHash = to _rankedBlockHash
+{-# INLINE rankedBlockHash #-}
+
+_rankedBlockPayloadHash :: BlockHeader -> RankedBlockPayloadHash
+_rankedBlockPayloadHash h = RankedBlockPayloadHash
+    { _rankedBlockPayloadHashHeight = _blockHeight h
+    , _rankedBlockPayloadHashHash = _blockPayloadHash h
+    }
+{-# INLINE _rankedBlockPayloadHash #-}
+
+rankedBlockPayloadHash :: Getter BlockHeader RankedBlockPayloadHash
+rankedBlockPayloadHash = to _rankedBlockPayloadHash
+{-# INLINE rankedBlockPayloadHash #-}
+

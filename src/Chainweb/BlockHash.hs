@@ -18,6 +18,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- |
 -- Module: Chainweb.BlockHash
@@ -52,6 +53,14 @@ module Chainweb.BlockHash
 , blockHashRecordFromVector
 , blockHashRecordChainIdx
 
+-- * Blockheight Ranked BlockHash
+, type RankedBlockHash
+, pattern RankedBlockHash
+, _rankedBlockHashHash
+, _rankedBlockHashHeight
+, encodeRankedBlockHash
+, decodeRankedBlockHash
+
 -- * Exceptions
 ) where
 
@@ -77,11 +86,13 @@ import Numeric.Natural
 
 -- internal imports
 
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
+import Chainweb.Ranked
 import Chainweb.Utils
 import Chainweb.Utils.Serialization
 
@@ -252,3 +263,20 @@ blockHashRecordFromVector g cid = BlockHashRecord
     . HM.fromList
     . zip (L.sort $ toList $ adjacentChainIds (_chainGraph g) cid)
     . toList
+
+-- -------------------------------------------------------------------------- --
+-- Ranked Block Hash
+
+type RankedBlockHash = Ranked BlockHash
+
+pattern RankedBlockHash :: BlockHeight -> BlockHash -> RankedBlockHash
+pattern RankedBlockHash { _rankedBlockHashHeight, _rankedBlockHashHash }
+    = Ranked _rankedBlockHashHeight _rankedBlockHashHash
+{-# COMPLETE RankedBlockHash #-}
+
+encodeRankedBlockHash :: RankedBlockHash -> Put
+encodeRankedBlockHash = encodeRanked encodeBlockHash
+
+decodeRankedBlockHash :: Get RankedBlockHash
+decodeRankedBlockHash = decodeRanked decodeBlockHash
+

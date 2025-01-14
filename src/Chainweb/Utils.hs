@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -10,7 +11,10 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -100,12 +104,14 @@ module Chainweb.Utils
 , unsafeFromText
 , parseM
 , parseText
+, strip0x
 
 -- ** Base64
 , encodeB64Text
 , decodeB64Text
 , encodeB64UrlText
 , decodeB64UrlText
+, encodeB64UrlNoPadding
 , encodeB64UrlNoPaddingText
 , b64UrlNoPaddingTextEncoding
 , decodeB64UrlNoPaddingText
@@ -120,6 +126,7 @@ module Chainweb.Utils
 , decodeStrictOrThrow'
 , decodeFileStrictOrThrow'
 , parseJsonFromText
+, JsonTextRepresentation(..)
 
 -- ** Cassava (CSV)
 , CsvDecimal(..)
@@ -134,6 +141,7 @@ module Chainweb.Utils
 , fromJuste
 , (???)
 , fromEitherM
+, fromEithere
 , InternalInvariantViolation(..)
 
 -- ** Synchronous Exceptions
@@ -178,6 +186,9 @@ module Chainweb.Utils
 
 -- * Type Level
 , symbolText
+, symbolVal_
+, natVal_
+, intVal_
 
 -- * Resource Management
 , concurrentWith
@@ -191,6 +202,7 @@ module Chainweb.Utils
 -- * Strict Tuples
 , T2(..)
 , T3(..)
+, T4(..)
 , sfst
 , ssnd
 , scurry
@@ -209,7 +221,6 @@ module Chainweb.Utils
 , unsafeManager
 , unsafeManagerWithSettings
 , setManagerRequestTimeout
-, defaultSupportedTlsSettings
 
 -- * SockAddr from network package
 , showIpv4
@@ -226,6 +237,7 @@ module Chainweb.Utils
 -- * General utilities
 , unsafeHead
 , unsafeTail
+, withEarlyReturn
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
@@ -239,67 +251,70 @@ import Control.Exception (SomeAsyncException(..), evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch hiding (bracket)
+import Control.Monad.Cont
 import Control.Monad.IO.Class
 import Control.Monad.Primitive
 import Control.Monad.Reader as Reader
 
 import Data.Aeson.Text (encodeToLazyText)
-import qualified Data.Aeson.Types as Aeson
-import qualified Data.Attoparsec.Text as A
+import Data.Aeson.Types qualified as Aeson
+import Data.Attoparsec.Text qualified as A
 import Data.Bifunctor
 import Data.Bool (bool)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Char8 as B8
-import qualified Data.ByteString.Base64 as B64
-import qualified Data.ByteString.Base64.URL as B64U
-import qualified Data.ByteString.Builder as BB
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.Csv as CSV
+import Data.ByteString qualified as B
+import Data.ByteString.Base64 qualified as B64
+import Data.ByteString.Base64.URL qualified as B64U
+import Data.ByteString.Builder qualified as BB
+import Data.ByteString.Char8 qualified as B8
+import Data.ByteString.Lazy qualified as BL
+import Data.Csv qualified as CSV
 import Data.Decimal
-import Data.Default.Class (def)
 import Data.Functor.Of
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
 import Data.Hashable
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
-import Data.Proxy
 import Data.String (IsString(..))
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import qualified Data.Text.Lazy as TL
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
+import Data.Text.Lazy qualified as TL
 import Data.These (These(..))
 import Data.Time
-import qualified Data.Vector as V
-import qualified Data.Vector.Mutable as MV
+import Data.Vector qualified as V
+import Data.Vector.Mutable qualified as MV
 import Data.Word
 
+import GHC.Exts (proxy#)
 import GHC.Generics
-import GHC.Stack (HasCallStack)
-import GHC.TypeLits (KnownSymbol, symbolVal)
+import GHC.Stack (HasCallStack, callStack, prettyCallStack)
+import GHC.TypeLits (KnownSymbol, Symbol, symbolVal')
+import GHC.TypeLits qualified as Int (KnownNat, natVal')
+import GHC.TypeNats qualified as Nat (KnownNat, natVal')
 
-import qualified Network.Connection as HTTP
-import qualified Network.HTTP.Client as HTTP
-import qualified Network.HTTP.Client.TLS as HTTP
+import Network.Connection qualified as HTTP
+import Network.HTTP.Client qualified as HTTP
+import Network.HTTP.Client.TLS qualified as HTTP
+import Network.HTTP.Types qualified as HTTP
 import Network.Socket hiding (Debug)
-import qualified Network.TLS as HTTP
+import Network.TLS qualified as HTTP
 
 import Numeric.Natural
 
-import qualified Options.Applicative as O
+import Options.Applicative qualified as O
 
-import qualified Streaming as S (concats, effect, inspect)
-import qualified Streaming.Prelude as S
+import Servant.Client qualified
+
+import Streaming qualified as S (concats, effect, inspect)
+import Streaming.Prelude qualified as S
 
 import System.IO.Unsafe (unsafeInterleaveIO, unsafePerformIO)
 import System.LogLevel
-import qualified System.Random.MWC as Prob
-import qualified System.Random.MWC.Probability as Prob
-import qualified System.Timeout as Timeout
+import System.Random.MWC qualified as Prob
+import System.Random.MWC.Probability qualified as Prob
+import System.Timeout qualified as Timeout
 
 import Text.Printf (printf)
 import Text.Read (readEither)
-import qualified Servant.Client
-import qualified Network.HTTP.Types as HTTP
 
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
@@ -435,6 +450,27 @@ mutableVectorFromList as = do
 {-# inline mutableVectorFromList #-}
 
 -- -------------------------------------------------------------------------- --
+-- Typelevel
+
+-- | Return the value of a type level symbol as a value of a type that is an
+-- instance of 'IsString'.
+--
+symbolText :: forall s a . KnownSymbol s => IsString a => a
+symbolText = fromString $ symbolVal' @s proxy#
+
+natVal_ :: forall n . Nat.KnownNat n => Natural
+natVal_ = Nat.natVal' @n proxy#
+{-# INLINE natVal_ #-}
+
+intVal_ :: forall n . Int.KnownNat n => Integer
+intVal_ = Int.natVal' @n proxy#
+{-# INLINE intVal_ #-}
+
+symbolVal_ :: forall n . KnownSymbol n => String
+symbolVal_ = symbolVal' @n proxy#
+{-# INLINE symbolVal_ #-}
+
+-- -------------------------------------------------------------------------- --
 -- * Read only Ixed
 
 -- | Provides a simple Fold lets you fold the value at a given key in a Map or
@@ -540,6 +576,12 @@ instance HasTextRepresentation Integer where
     fromText = treadM
     {-# INLINE fromText #-}
 
+instance HasTextRepresentation Natural where
+    toText = sshow
+    {-# INLINE toText #-}
+    fromText = treadM
+    {-# INLINE fromText #-}
+
 instance HasTextRepresentation Word where
     toText = sshow
     {-# INLINE toText #-}
@@ -601,6 +643,13 @@ iso8601DateTimeFormat :: String
 iso8601DateTimeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
 {-# INLINE iso8601DateTimeFormat #-}
 
+strip0x :: MonadThrow m => T.Text -> m T.Text
+strip0x t = case T.stripPrefix "0x" t of
+    Just x -> return x
+    Nothing -> throwM $ TextFormatException
+        $ "Missing hex prefix 0x in " <> sshow t
+{-# INLINE strip0x #-}
+
 -- -------------------------------------------------------------------------- --
 -- ** Base64
 
@@ -658,6 +707,13 @@ decodeB64UrlNoPaddingText = fromEitherM
 encodeB64UrlNoPaddingText :: B.ByteString -> T.Text
 encodeB64UrlNoPaddingText = T.dropWhileEnd (== '=') . T.decodeUtf8 . B64U.encode
 {-# INLINE encodeB64UrlNoPaddingText #-}
+
+-- | Encode a binary value to a textual base64-url without padding
+-- representation.
+--
+encodeB64UrlNoPadding :: B.ByteString -> B.ByteString
+encodeB64UrlNoPadding = B8.dropWhileEnd (== '=') . B64U.encode
+{-# INLINE encodeB64UrlNoPadding #-}
 
 -- | Encode a binary value to a base64-url (without padding) JSON encoding.
 --
@@ -751,6 +807,27 @@ parseJsonFromText
     -> Value
     -> Aeson.Parser a
 parseJsonFromText l = withText l $! either fail return . eitherFromText
+
+-- | A newtype wrapper for derving ToJSON and FromJSON instances via
+-- a 'HasTextRepresentation' instance
+--
+newtype JsonTextRepresentation (t :: Symbol) a = JsonTextRepresentation a
+    deriving newtype (Show, Eq, Ord, Generic)
+
+instance HasTextRepresentation a => ToJSON (JsonTextRepresentation s a) where
+    toEncoding (JsonTextRepresentation a) = toEncoding $ toText a
+    toJSON (JsonTextRepresentation a) = toJSON $ toText a
+    {-# INLINE toEncoding #-}
+    {-# INLINE toJSON #-}
+
+instance
+    ( KnownSymbol s
+    , HasTextRepresentation a
+    )
+     => FromJSON (JsonTextRepresentation s a)
+  where
+    parseJSON = fmap JsonTextRepresentation . parseJsonFromText (symbolVal_ @s)
+    {-# INLINE parseJSON #-}
 
 -- -------------------------------------------------------------------------- --
 -- ** Cassava (CSV)
@@ -870,13 +947,24 @@ fromEitherM :: MonadThrow m => Exception e => Either e a -> m a
 fromEitherM = either throwM return
 {-# INLINE fromEitherM #-}
 
+-- | Throw an exception if a value is a 'Left' result.
+--
+fromEithere :: HasCallStack => Either e a -> a
+fromEithere = either (error "Chainweb.Utils.fromJuste: Nothing") id
+{-# INLINE fromEithere #-}
+
 -- | An exeption to indicate an violation of an internal code invariants.
 -- Throwing this type of exception means that there is a bug in the code.
 --
-newtype InternalInvariantViolation = InternalInvariantViolation T.Text
-    deriving (Show)
+data InternalInvariantViolation = HasCallStack => InternalInvariantViolation T.Text
 
-instance Exception InternalInvariantViolation
+instance Show InternalInvariantViolation where
+    show (InternalInvariantViolation t) = "Invariant violation: " <> T.unpack t
+
+instance Exception InternalInvariantViolation where
+    displayException (InternalInvariantViolation v) =
+        "Invariant violation: " <> T.unpack v
+        <> "\n" <> GHC.Stack.prettyCallStack callStack
 
 -- | Catch and handle exception that are not contained in 'SomeAsyncException'.
 --
@@ -1188,15 +1276,6 @@ data Codec t = Codec
     }
 
 -- -------------------------------------------------------------------------- --
--- Typelevel
-
--- | Return the value of a type level symbol as a value of a type that is an
--- instance of 'IsString'.
---
-symbolText :: forall s a . KnownSymbol s => IsString a => a
-symbolText = fromString $ symbolVal (Proxy @s)
-
--- -------------------------------------------------------------------------- --
 -- Resource Management
 
 -- | Bracket style resource managment uses CPS style which only supports
@@ -1294,6 +1373,9 @@ instance Field2 (T3 a b c) (T3 a x c) b x where
 instance Field3 (T3 a b c) (T3 a b x) c x where
     _3 = lens (\(T3 _a _b c) -> c) (\(T3 a b _c) x -> T3 a b x)
 
+data T4 a b c d = T4 !a !b !c !d
+    deriving (Show, Eq, Ord, Generic, NFData, Functor)
+
 sfst :: T2 a b -> a
 sfst (T2 a _) = a
 {-# INLINE sfst #-}
@@ -1351,9 +1433,6 @@ approximateThreadDelay d = withMVar threadDelayRng (approximately d)
 --
 -- TODO unify with other HTTP managers
 
-defaultSupportedTlsSettings :: HTTP.Supported
-defaultSupportedTlsSettings = def
-
 manager :: Int -> IO HTTP.Manager
 manager micros = HTTP.newManager
     $ setManagerRequestTimeout micros
@@ -1363,7 +1442,7 @@ unsafeManager :: Int -> IO HTTP.Manager
 unsafeManager micros = HTTP.newTlsManagerWith
     $ setManagerRequestTimeout micros
     $ HTTP.mkManagerSettings
-        (HTTP.TLSSettingsSimple True True True defaultSupportedTlsSettings)
+        (HTTP.TLSSettingsSimple True True True HTTP.defaultSupported)
         Nothing
 
 unsafeManagerWithSettings
@@ -1372,7 +1451,7 @@ unsafeManagerWithSettings
 unsafeManagerWithSettings settings = HTTP.newTlsManagerWith
     $ settings
     $ HTTP.mkManagerSettings
-        (HTTP.TLSSettingsSimple True True True defaultSupportedTlsSettings)
+        (HTTP.TLSSettingsSimple True True True HTTP.defaultSupported)
         Nothing
 
 setManagerRequestTimeout :: Int -> HTTP.ManagerSettings -> HTTP.ManagerSettings
@@ -1441,7 +1520,7 @@ estimateBlockHeight rate dateStr curHeight = do
 
 -- | Parse UTC Time in the format "%y-%m-%dT%H:%M:%SZ"
 --
-parseUtcTime :: MonadThrow m => String -> m UTCTime
+parseUtcTime :: (HasCallStack, MonadThrow m) => String -> m UTCTime
 parseUtcTime d = case parseTimeM False defaultTimeLocale fmt d of
     Nothing -> throwM $ InternalInvariantViolation
         $ "parseUtcTime: failed to parse utc date " <> sshow d
@@ -1495,3 +1574,9 @@ unsafeTail :: HasCallStack => String -> [a] -> [a]
 unsafeTail msg = \case
     _ : xs -> xs
     [] -> error $ "unsafeTail: empty list: " <> msg
+
+-- this is callCC but with a more permissive type signature, allowing the early return to
+-- "return" values of any type, whenever it's used
+withEarlyReturn :: ((forall b. a -> ContT r m b) -> ContT r m a) -> ContT r m a
+withEarlyReturn f = ContT $ \ c -> runContT (f (\ x -> ContT $ \ _ -> c x)) c
+{-# INLINE withEarlyReturn #-}

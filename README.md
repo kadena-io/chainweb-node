@@ -44,7 +44,7 @@ Minimal recommended hardware requirements for nodes are:
 * 250 GB SSD or fast HDD
 * Public IP address
 
-If the node is also used as API server for Pact or mining, rosetta, chainweb-data: 4 CPU cores and 8GB of RAM.
+If the node is also used as API server for Pact, mining, or chainweb-data: 4 CPU cores and 8GB of RAM.
 
 ### Docker (all batteries included)
 
@@ -85,12 +85,12 @@ The following packages must be installed on the host system:
 
 *   ubuntu-20.04:
     ```bash
-    apt-get install ca-certificates libgmp10 libssl1.1 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
+    apt-get install ca-certificates libmpfr6 libgmp10 libssl1.1 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
     ```
 
 *   ubuntu-22.04:
     ```bash
-    apt-get install ca-certificates libgmp10 libssl1.1 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
+    apt-get install ca-certificates libmpfr6 libgmp10 libssl1.1 libsnappy1v5 zlib1g liblz4-1 libbz2-1.0 libgflags2.2 zstd
     ```
 
 Chainweb-node binaries for ubuntu-20.04 and ubuntu-22.04 can be found
@@ -130,7 +130,7 @@ You need to install the development versions of the following libraries:
 On apt based distribution these can be installed as follows:
 
 ```
-apt-get install ca-certificates libssl-dev libgmp-dev libsnappy-dev zlib1g-dev liblz4-dev libbz2-dev libgflags-dev libzstd-dev
+apt-get install ca-certificates libssl-dev libmpfr-dev libgmp-dev libsnappy-dev zlib1g-dev liblz4-dev libbz2-dev libgflags-dev libzstd-dev
 ```
 
 To build a `chainweb-node` binary:
@@ -235,10 +235,10 @@ The node will communicate with other nodes in a P2P network. By default it uses
 port 1789 for the P2P communication.
 
 Node services are exposed via the service API, by default on port 1848. The
-service API includes `/info`, `/health-check`, Pact endpoints, Rosetta
-endpoints, the mining API endpoints, GET endpoints for on-chain data (headers,
-payloads, cuts), and an HTTP event stream of block header updates. Some of these
-are disabled by default (e.g. mining API, Rosetta, and header updates).
+service API includes `/info`, `/health-check`, Pact endpoints, the mining API
+endpoints, GET endpoints for on-chain data (headers, payloads, cuts), and an
+HTTP event stream of block header updates. Some of these are disabled by default
+(e.g. mining API, and header updates).
 
 While the P2P endpoint must be directly available from the public internet, it
 is highly recommended to expose the service API only on a private network. When

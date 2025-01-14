@@ -12,7 +12,8 @@
 --
 module P2P.BootstrapNodes
 ( mainnetBootstrapHosts
-, testnetBootstrapHosts
+, testnet04BootstrapHosts
+, testnet05BootstrapHosts
 ) where
 
 -- internal modules
@@ -45,7 +46,7 @@ mainnetBootstrapHosts = map unsafeHostAddressFromText
     ]
 
 -- -------------------------------------------------------------------------- --
--- | Testnet bootstrap nodes.
+-- | Testnet04 bootstrap nodes.
 --
 -- Nodes in this list need a public DNS name and a corresponding TLS
 -- certificate. Operators of the nodes are expected to guarantee long term
@@ -53,8 +54,8 @@ mainnetBootstrapHosts = map unsafeHostAddressFromText
 --
 -- Please make a pull request, if you like to see your node being included here.
 --
-testnetBootstrapHosts :: [HostAddress]
-testnetBootstrapHosts = map unsafeHostAddressFromText
+testnet04BootstrapHosts :: [HostAddress]
+testnet04BootstrapHosts = map unsafeHostAddressFromText
     [ "us1.testnet.chainweb.com:443"
     , "us2.testnet.chainweb.com:443"
     , "eu1.testnet.chainweb.com:443"
@@ -63,3 +64,21 @@ testnetBootstrapHosts = map unsafeHostAddressFromText
     , "ap2.testnet.chainweb.com:443"
     ]
 
+-- -------------------------------------------------------------------------- --
+-- | Testnet05 bootstrap nodes.
+--
+-- Nodes in this list need a public DNS name and a corresponding TLS
+-- certificate. Operators of the nodes are expected to guarantee long term
+-- availability of the nodes.
+--
+-- Please make a pull request, if you like to see your node being included here.
+--
+testnet05BootstrapHosts :: [HostAddress]
+testnet05BootstrapHosts = map unsafeHostAddressFromText
+    [ "us1.testnet05.chainweb.com:443"
+    , "us2.testnet05.chainweb.com:443"
+    -- , "eu1.testnet05.chainweb.com:443"
+    -- , "eu2.testnet05.chainweb.com:443"
+    -- , "ap1.testnet05.chainweb.com:443"
+    -- , "ap2.testnet05.chainweb.com:443"
+    ]

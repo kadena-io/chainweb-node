@@ -265,7 +265,7 @@ jobs:
         cabal --version
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
-      run: sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libsnappy-dev libbz2-dev
+      run: sudo apt-get install -y libgflags-dev liblz4-dev libzstd-dev libsnappy-dev libbz2-dev libmpfr-dev
     # Project Configuration
     - name: Create cabal.project.local
       run: |
@@ -808,6 +808,7 @@ jobs:
           libbz2-1.0 \
           libgflags2.2 \
           zstd \
+          libmpfr6 \
           locales &&
           rm -rf /var/lib/apt/lists/* &&
           locale-gen en_US.UTF-8 &&
