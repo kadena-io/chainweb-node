@@ -21,28 +21,19 @@
 -- should be kept after intialization of the node is complete.
 --
 module Chainweb.Chainweb.CutResources
-( CutSyncResources(..)
-, CutResources(..)
-, cutsCutDb
+( CutResources(..)
 , withCutResources
 , cutNetworks
 ) where
 
-import Control.Lens hiding ((.=), (<.>))
-import Control.Monad
 import Control.Monad.Catch
-
-import qualified Data.Text as T
 
 import Prelude hiding (log)
 
 import qualified Network.HTTP.Client as HTTP
 
-import System.LogLevel
-
 -- internal modules
 
-import Chainweb.Chainweb.PeerResources
 import Chainweb.CutDB
 import qualified Chainweb.CutDB.Sync as C
 import Chainweb.Logger
@@ -54,156 +45,84 @@ import Chainweb.WebBlockHeaderDB
 import Chainweb.Storage.Table.RocksDB
 
 import P2P.Node
+import P2P.Node.Configuration
 import P2P.Peer
-import P2P.Session
 import P2P.TaskQueue
 import Chainweb.PayloadProvider
+import qualified Data.Text as T
+import P2P.Session (P2pSession)
+import P2P.Node.PeerDB (PeerDb)
 
 -- -------------------------------------------------------------------------- --
 -- Cuts Resources
 
-data CutSyncResources logger = CutSyncResources
-    { _cutResSyncSession :: !P2pSession
-    , _cutResSyncLogger :: !logger
-    }
-
-data CutResources logger = CutResources
-    { _cutResCutConfig :: !CutDbParams
-    , _cutResPeer :: !(PeerResources logger)
+data CutResources = CutResources
+    { _cutResPeerDb :: !PeerDb
     , _cutResCutDb :: !CutDb
-    , _cutResLogger :: !logger
-    , _cutResCutSync :: !(CutSyncResources logger)
-    , _cutResHeaderSync :: !(CutSyncResources logger)
+    , _cutResCutP2pNode :: !P2pNode
+        -- ^ P2P Network for pushing and synchronizing cuts.
+    , _cutResHeaderP2pNode :: !P2pNode
+        -- ^ P2P Network for fetching block headers on demand via a task queue.
     }
 
-makeLensesFor
-    [ ("_cutResCutDb", "cutsCutDb")
-    ] ''CutResources
-
-instance HasChainwebVersion (CutResources logger) where
+instance HasChainwebVersion CutResources where
     _chainwebVersion = _chainwebVersion . _cutResCutDb
     {-# INLINE _chainwebVersion #-}
 
 withCutResources
     :: Logger logger
-    => CutDbParams
-    -> PeerResources logger
-    -> logger
+    => logger
+    -> CutDbParams
+    -> P2pConfiguration
+    -> PeerInfo
+    -> PeerDb
     -> RocksDb
     -> WebBlockHeaderDb
     -> PayloadProviders
     -> HTTP.Manager
-    -> (CutResources logger -> IO a)
+    -> (CutResources -> IO a)
     -> IO a
-withCutResources cutDbParams peer logger rdb webchain providers mgr f = do
+withCutResources logger cutDbParams p2pConfig myInfo peerDb rdb webchain providers mgr f = do
 
     -- initialize blockheader store
     headerStore <- newWebBlockHeaderStore mgr webchain (logFunction logger)
 
-    -- FIXME
-    -- initialize payload store
-    -- payloadStore <- newWebPayloadStore mgr pact payloadDb (logFunction logger)
-
     -- initialize cutHashes store
     let cutHashesStore = cutHashesTable rdb
 
-    withCutDb cutDbParams (logFunction logger) headerStore providers cutHashesStore $ \cutDb ->
+    withCutDb cutDbParams (logFunction logger) headerStore providers cutHashesStore $ \cutDb -> do
+        cutP2pNode <- mkP2pNode True "cut" $
+            C.syncSession myInfo cutDb
+        headerP2pNode <- mkP2pNode False "header" $
+            session 10 (_webBlockHeaderStoreQueue headerStore)
         f $ CutResources
-            { _cutResCutConfig  = cutDbParams
-            , _cutResPeer = peer
+            { _cutResPeerDb = peerDb
             , _cutResCutDb = cutDb
-            , _cutResLogger = logger
-            , _cutResCutSync = CutSyncResources
-                { _cutResSyncSession = C.syncSession v (_peerInfo $ _peerResPeer peer) cutDb
-                , _cutResSyncLogger = addLabel ("sync", "cut") syncLogger
-                }
-            , _cutResHeaderSync = CutSyncResources
-                { _cutResSyncSession = session 10 (_webBlockHeaderStoreQueue headerStore)
-                , _cutResSyncLogger = addLabel ("sync", "header") syncLogger
-                }
-
-            -- FIXME
-            -- , _cutResPayloadSync = CutSyncResources
-            --     { _cutResSyncSession = session 10 (_webBlockPayloadStoreQueue payloadStore)
-            --     , _cutResSyncLogger = addLabel ("sync", "payload") syncLogger
-            --     }
-
+            , _cutResCutP2pNode = cutP2pNode
+            , _cutResHeaderP2pNode = headerP2pNode
             }
   where
-    v = _chainwebVersion webchain
     syncLogger = addLabel ("sub-component", "sync") logger
+
+    mkP2pNode :: Bool -> T.Text -> P2pSession -> IO P2pNode
+    mkP2pNode doPeerSync label s = p2pCreateNode $ P2pNodeParameters
+        { _p2pNodeParamsMyPeerInfo = myInfo
+        , _p2pNodeParamsSession = s
+        , _p2pNodeParamsSessionTimeout = _p2pConfigSessionTimeout p2pConfig
+        , _p2pNodeParamsMaxSessionCount = _p2pConfigMaxSessionCount p2pConfig
+        , _p2pNodeParamsIsPrivate = _p2pConfigPrivate p2pConfig
+        , _p2pNodeParamsDoPeerSync = doPeerSync
+        , _p2pNodeParamsManager = mgr
+        , _p2pNodeParamsPeerDb = peerDb
+        , _p2pNodeParamsLogFunction = logFunction (addLabel ("sync", label) syncLogger)
+        , _p2pNodeParamsNetworkId = CutNetwork
+        }
 
 -- | The networks that are used by the cut DB.
 --
-cutNetworks
-    :: Logger logger
-    => HTTP.Manager
-    -> CutResources logger
-    -> [IO ()]
-cutNetworks mgr cuts =
-    [ runCutNetworkCutSync mgr cuts
-    , runCutNetworkHeaderSync mgr cuts
---     , runCutNetworkPayloadSync mgr cuts
+cutNetworks :: CutResources -> [IO ()]
+cutNetworks cuts =
+    [ p2pRunNode (_cutResCutP2pNode cuts)
+    , p2pRunNode (_cutResHeaderP2pNode cuts)
     ]
 
--- | P2P Network for pushing Cuts
---
-runCutNetworkCutSync
-    :: Logger logger
-    => HTTP.Manager
-    -> CutResources logger
-    -> IO ()
-runCutNetworkCutSync mgr c
-    = mkCutNetworkSync mgr True c "cut sync" $ _cutResCutSync c
-
--- | P2P Network for Block Headers
---
-runCutNetworkHeaderSync
-    :: Logger logger
-    => HTTP.Manager
-    -> CutResources logger
-    -> IO ()
-runCutNetworkHeaderSync mgr c
-    = mkCutNetworkSync mgr False c "block header sync" $ _cutResHeaderSync c
-
--- | P2P Network for Block Payloads
---
--- runCutNetworkPayloadSync
---     :: Logger logger
---     => HTTP.Manager
---     -> CutResources logger
---     -> IO ()
--- runCutNetworkPayloadSync mgr c
---     = mkCutNetworkSync mgr False c "block payload sync" $ _cutResPayloadSync c
-
--- | P2P Network for Block Payloads
---
--- This uses the 'CutNetwork' for syncing peers. The network doesn't restrict
--- the API network endpoints that are used in the client sessions.
---
-mkCutNetworkSync
-    :: Logger logger
-    => HTTP.Manager
-    -> Bool
-        -- ^ Do peer synchronization
-    -> CutResources logger
-    -> T.Text
-    -> CutSyncResources logger
-    -> IO ()
-mkCutNetworkSync mgr doPeerSync cuts label cutSync = bracket create destroy $ \n ->
-    p2pStartNode (_peerResConfig $ _cutResPeer cuts) n
-  where
-    v = _chainwebVersion cuts
-    peer = _peerResPeer $ _cutResPeer cuts
-    logger = _cutResSyncLogger cutSync
-    peerDb = _peerResDb $ _cutResPeer cuts
-    s = _cutResSyncSession cutSync
-
-    create = do
-        !n <- p2pCreateNode v CutNetwork peer (logFunction logger) peerDb mgr doPeerSync s
-        logFunctionText logger Debug $ label <> ": initialized"
-        return n
-
-    destroy n = do
-        p2pStopNode n
-        logFunctionText logger Info $ label <> ": stopped"
