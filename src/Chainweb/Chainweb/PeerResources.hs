@@ -102,6 +102,10 @@ data PeerResources logger = PeerResources
     , _peerLogger :: !logger
     }
 
+instance HasChainwebVersion (PeerResources logger) where
+    _chainwebVersion = _chainwebVersion . _peerResDb
+    {-# INLINE _chainwebVersion #-}
+
 makeLenses ''PeerResources
 
 -- | Allocate Peer resources. All P2P networks of a chainweb node share a single
@@ -238,7 +242,8 @@ withPeerSocket conf act = withSocket port interface $ \(p, s) ->
 -- Run PeerDb for a Chainweb Version
 
 startPeerDb_ :: ChainwebVersion -> P2pConfiguration -> IO PeerDb
-startPeerDb_ v = startPeerDb v nids
+startPeerDb_ v c =
+    startPeerDb v nids (_p2pConfigPrivate c) (_p2pConfigKnownPeers c)
   where
     nids = HS.singleton CutNetwork
         `HS.union` HS.map MempoolNetwork cids
@@ -246,7 +251,7 @@ startPeerDb_ v = startPeerDb v nids
     cids = chainIds v
 
 withPeerDb_ :: ChainwebVersion -> P2pConfiguration -> (PeerDb -> IO a) -> IO a
-withPeerDb_ v conf = bracket (startPeerDb_ v conf) (stopPeerDb conf)
+withPeerDb_ v conf = bracket (startPeerDb_ v conf) stopPeerDb
 
 -- -------------------------------------------------------------------------- --
 -- Connection Manager
