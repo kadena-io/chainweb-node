@@ -53,6 +53,15 @@ import qualified Servant.Client as Sv
 -- -------------------------------------------------------------------------- --
 -- Mempool sync.
 
+-- FIXME this should be moved into Pact.
+--
+-- While Pact is still part of the chainweb-node process, the pact networks will
+-- be run via the global p2p infrastructure.
+--
+-- However, These network should show up in the node initialization under
+-- payloadProviderNetworks and should probably be bundled with the payload
+-- networks from pact.
+
 -- | Synchronize the local mempool over the P2P network.
 --
 runMempoolSyncClient
@@ -64,29 +73,31 @@ runMempoolSyncClient
     -> ChainResources logger
         -- ^ chain resources
     -> IO ()
-runMempoolSyncClient mgr memP2pConfig peerRes chain = bracket create destroy go
-  where
-    create = do
-        logg Debug "starting mempool p2p sync"
-        p2pCreateNode v netId peer (logFunction syncLogger) peerDb mgr True $
-            mempoolSyncP2pSession chain (_mempoolP2pConfigPollInterval memP2pConfig)
-    go n = do
-        -- Run P2P client node
-        logg Debug "mempool sync p2p node initialized, starting session"
-        p2pStartNode p2pConfig n
-
-    destroy n = p2pStopNode n `finally` logg Debug "mempool sync p2p node stopped"
-
-    v = _chainwebVersion chain
-    peer = _peerResPeer peerRes
-    p2pConfig = _peerResConfig peerRes
-        & set p2pConfigMaxSessionCount (_mempoolP2pConfigMaxSessionCount memP2pConfig)
-        & set p2pConfigSessionTimeout (_mempoolP2pConfigSessionTimeout memP2pConfig)
-    peerDb = _peerResDb peerRes
-    netId = MempoolNetwork $ _chainId chain
-
-    logg = logFunctionText syncLogger
-    syncLogger = setComponent "mempool-sync" $ _chainResLogger chain
+runMempoolSyncClient mgr memP2pConfig peerRes chain =
+    error "Chainweb.Chainweb.MempoolSyncClient.mempoolSyncClient: only supported for pact service which is currently disabled"
+--    bracket create destroy go
+--   where
+--     create = do
+--         logg Debug "starting mempool p2p sync"
+--         p2pCreateNode v netId peer (logFunction syncLogger) peerDb mgr True $
+--             mempoolSyncP2pSession chain (_mempoolP2pConfigPollInterval memP2pConfig)
+--     go n = do
+--         -- Run P2P client node
+--         logg Debug "mempool sync p2p node initialized, starting session"
+--         p2pStartNode p2pConfig n
+--
+--     destroy n = p2pStopNode n `finally` logg Debug "mempool sync p2p node stopped"
+--
+--     v = _chainwebVersion chain
+--     peer = _peerResPeer peerRes
+--     p2pConfig = _peerResConfig peerRes
+--         & set p2pConfigMaxSessionCount (_mempoolP2pConfigMaxSessionCount memP2pConfig)
+--         & set p2pConfigSessionTimeout (_mempoolP2pConfigSessionTimeout memP2pConfig)
+--     peerDb = _peerResDb peerRes
+--     netId = MempoolNetwork $ _chainId chain
+--
+--     logg = logFunctionText syncLogger
+--     syncLogger = setComponent "mempool-sync" $ _chainResLogger chain
 
 -- | FIXME:
 --
