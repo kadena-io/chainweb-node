@@ -68,6 +68,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Pact.JSON.Encode (getJsonText)
 import Data.Text.Encoding qualified as T
 import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.Encoding qualified as TL
@@ -88,7 +89,7 @@ import PropertyMatchers qualified as P
 import Servant.Client
 import System.IO.Unsafe (unsafePerformIO)
 import Test.Tasty
-import Test.Tasty.HUnit (testCaseSteps, testCase)
+import Test.Tasty.HUnit (testCaseSteps, testCase, assertFailure)
 
 import Pact.Core.Capabilities
 import Pact.Core.ChainData (TxCreationTime(..))
@@ -103,9 +104,7 @@ import Pact.Core.Guards (Guard(GKeySetRef), KeySetName (..))
 import Pact.Core.Hash
 import Pact.Core.Names
 import Pact.Core.PactValue
-import Pact.Core.Signer (SigCapability(SigCapability))
 import Pact.Core.SPV
-import Pact.Core.Verifiers
 import Pact.Types.API qualified as Pact4
 
 import Chainweb.BlockHeader (blockHeight)
@@ -154,7 +153,8 @@ tests rdb = withResource' (evaluate httpManager >> evaluate cert) $ \_ ->
         , testCaseSteps "allocationTest" (allocationTest rdb)
         , testCaseSteps "webAuthnSignatureTest" (webAuthnSignatureTest rdb)
         , testCaseSteps "gasPurchaseFailureMessages" (gasPurchaseFailureMessages rdb)
-
+        , testCaseSteps "transition occurs" (transitionOccurs rdb)
+        , testCaseSteps "transition crosschain" (transitionCrosschain rdb)
         , localTests rdb
         ]
 
@@ -244,6 +244,7 @@ spvTest baseRdb step = runResourceT $ do
     let targetChain = unsafeChainId 9
 
     liftIO $ do
+        step "xchain initiate"
         initiator <- buildTextCmd v
             $ set cbSigners
                 [ mkEd25519Signer' sender00
@@ -259,7 +260,6 @@ spvTest baseRdb step = runResourceT $ do
             $ set cbRPC (mkExec ("(coin.transfer-crosschain \"sender00\" \"sender01\" (read-keyset 'k) \"" <> chainIdToText targetChain <> "\" 1.0)") (mkKeySetData "k" [sender01]))
             $ defaultCmd srcChain
 
-        step "xchain initiate"
         send fx v srcChain [initiator]
         let initiatorReqKey = cmdToRequestKey initiator
         (sendCut, _) <- advanceAllChains fx
@@ -285,22 +285,21 @@ spvTest baseRdb step = runResourceT $ do
         send fx v targetChain [recv]
         let recvReqKey = cmdToRequestKey recv
         advanceAllChains_ fx
-        [Just recvCr] <- poll fx v targetChain [recvReqKey]
-        recvCr
-            & P.checkAll
-                [ P.fun _crResult ? P.match _PactResultOk P.succeed
-                , P.fun _crEvents ? P.alignExact
-                    [ P.succeed
-                    , P.checkAll
-                        [ P.fun _peName ? P.equals "TRANSFER_XCHAIN_RECD"
-                        , P.fun _peArgs ? P.equals
-                            [PString "", PString "sender01", PDecimal 1.0, PString (chainIdToText srcChain)]
+        poll fx v targetChain [recvReqKey]
+            >>= P.match (_head . _Just)
+                ? P.checkAll
+                    [ P.fun _crResult ? P.match _PactResultOk P.succeed
+                    , P.fun _crEvents ? P.alignExact
+                        [ P.succeed
+                        , P.checkAll
+                            [ P.fun _peName ? P.equals "TRANSFER_XCHAIN_RECD"
+                            , P.fun _peArgs ? P.equals
+                                [PString "", PString "sender01", PDecimal 1.0, PString (chainIdToText srcChain)]
+                            ]
+                        , P.fun _peName ? P.equals "X_RESUME"
+                        , P.succeed
                         ]
-                    , P.fun _peName ? P.equals "X_RESUME"
-                    , P.succeed
                     ]
-                ]
-
 
 -- this test suite really wants you not to put any transactions into the final block.
 sendInvalidTxsTest :: RocksDb -> TestTree
@@ -699,6 +698,102 @@ gasPurchaseFailureMessages rdb _step = runResourceT $ do
                 ? P.match _FailureResponse
                 ? P.fun responseBody
                 ? textContains "Failed to buy gas: Multiple gas payer capabilities"
+
+transitionOccurs :: RocksDb -> Step -> IO ()
+transitionOccurs rdb _step = runResourceT $ do
+    let v = instantCpmTransitionTestVersion petersonChainGraph
+    let cid = unsafeChainId 0
+    fx <- mkFixture v rdb
+
+    liftIO $ do
+        checkPactVersion fx v cid >>= P.equals Pact4
+        forM_ @_ @_ @Word [1..17] $ \i -> do
+            advanceAllChains_ fx
+            -- index trick to show which iteration fails, if any
+            (i,) <$> checkPactVersion fx v cid >>= P.equals (i, Pact4)
+        advanceAllChains_ fx
+        checkPactVersion fx v cid >>= P.equals Pact5
+
+-- | Test that xchains work across the Pact4->Pact4 transition boundary.
+--   This is mostly the same as 'spvTest', except it waits for the transition.
+transitionCrosschain :: RocksDb -> Step -> IO ()
+transitionCrosschain rdb step = runResourceT $ do
+    let v = instantCpmTransitionTestVersion petersonChainGraph
+    let srcChain = unsafeChainId 0
+    let targetChain = unsafeChainId 9
+    fx <- mkFixture v rdb
+
+    let checkIsVersion pv = do
+            checkPactVersion fx v srcChain >>= P.equals pv
+            checkPactVersion fx v targetChain >>= P.equals pv
+
+    liftIO $ do
+        checkIsVersion Pact4
+
+        step "xchain initiate"
+        initiator <- buildTextCmd v
+            $ set cbSigners
+                [ mkEd25519Signer' sender00
+                    [ CapToken (QualifiedName "GAS" (ModuleName "coin" Nothing)) []
+                    , CapToken (QualifiedName "TRANSFER_XCHAIN" (ModuleName "coin" Nothing))
+                        [ PString "sender00"
+                        , PString "sender01"
+                        , PDecimal 1.0
+                        , PString (chainIdToText targetChain)
+                        ]
+                    ]
+                ]
+            $ set cbRPC (mkExec ("(coin.transfer-crosschain \"sender00\" \"sender01\" (read-keyset 'k) \"" <> chainIdToText targetChain <> "\" 1.0)") (mkKeySetData "k" [sender01]))
+            $ defaultCmd srcChain
+
+        send fx v srcChain [initiator]
+        let initiatorReqKey = cmdToRequestKey initiator
+        (sendCut, _) <- advanceAllChains fx
+        [Just sendCr] <- pollWithDepth fx v srcChain [initiatorReqKey] (Just (ConfirmationDepth 0))
+        let cont = fromMaybe (error "missing continuation") (_crContinuation sendCr)
+
+        step "waiting until pact5 transition"
+
+        step "... performing transition"
+        replicateM_ 16 $ advanceAllChains_ fx
+        checkIsVersion Pact4
+        advanceAllChains_ fx
+        checkIsVersion Pact5
+
+        let sendHeight = sendCut ^?! ixg srcChain . blockHeight
+        spvProof <- createTransactionOutputProof_ (fx ^. to _cutFixture . CutFixture.fixtureWebBlockHeaderDb) (fx ^. to _cutFixture . CutFixture.fixturePayloadDb) targetChain srcChain sendHeight 0
+        let contMsg = ContMsg
+                { _cmPactId = _peDefPactId cont
+                , _cmStep = succ $ _peStep cont
+                , _cmRollback = _peStepHasRollback cont
+                , _cmData = PUnit
+                , _cmProof = Just (ContProof (B64U.encode (BL.toStrict (A.encode spvProof))))
+                }
+        step "xchain recv"
+
+        recv <- buildTextCmd v
+            $ set cbRPC (mkCont contMsg)
+            $ defaultCmd targetChain
+        send fx v targetChain [recv]
+        let recvReqKey = cmdToRequestKey recv
+        advanceAllChains_ fx
+        poll fx v targetChain [recvReqKey]
+            >>= P.match (_head . _Just)
+                ? P.checkAll
+                    [ P.fun _crResult ? P.match _PactResultOk P.succeed
+                    , P.fun _crEvents ? P.alignExact
+                        [ P.succeed
+                        , P.checkAll
+                            [ P.fun _peName ? P.equals "TRANSFER_XCHAIN_RECD"
+                            , P.fun _peArgs ? P.equals
+                                [PString "", PString "sender01", PDecimal 1.0, PString (chainIdToText srcChain)]
+                            ]
+                        , P.fun _peName ? P.equals "X_RESUME"
+                        , P.succeed
+                        ]
+                    ]
+
+    return ()
 
 -- Test that transactions signed with (mock) WebAuthn keypairs are accepted
 -- by the pact service.
@@ -1124,3 +1219,24 @@ textContains expectedStr actualStr
     | expectedStr `T.isInfixOf` actualStr = P.succeed actualStr
     | otherwise =
         P.fail ("String containing: " <> PP.pretty expectedStr) actualStr
+
+checkPactVersion :: Fixture -> ChainwebVersion -> ChainId -> IO PactVersion
+checkPactVersion fx v cid = do
+    cmd <- buildTextCmd v
+        $ set cbRPC (mkExec' "(do 1)")
+        $ defaultCmd cid
+    r <- local fx v cid (Just PreflightSimulation) Nothing Nothing cmd
+    case r of
+        LocalResultLegacy (getJsonText -> txt) -> do
+            if extractError txt == Just "Cannot resolve do"
+            then return Pact4
+            else return Pact5
+        LocalResultWithWarns (getJsonText -> txt) _warns -> do
+            if extractError txt == Just "Cannot resolve do"
+            then return Pact4
+            else return Pact5
+        anythingElse -> do
+            assertFailure $ "checkPactVersion: Unexpected result: " ++ show anythingElse
+    where
+        extractError :: Text -> Maybe Text
+        extractError json = json ^? A.key "result" . A.key "error" . A.key "message" . A._String
