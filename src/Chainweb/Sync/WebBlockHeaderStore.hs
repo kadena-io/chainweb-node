@@ -31,6 +31,7 @@ module Chainweb.Sync.WebBlockHeaderStore
 ( WebBlockHeaderStore(..)
 , newWebBlockHeaderStore
 , getBlockHeader
+, forkInfoForHeader
 
 -- *
 , WebBlockPayloadStore(..)
@@ -80,6 +81,7 @@ import P2P.TaskQueue
 import Servant.Client
 import System.LogLevel
 import Utils.Logging.Trace
+import GHC.Stack
 
 -- -------------------------------------------------------------------------- --
 -- Response Timeout Constants
@@ -297,7 +299,11 @@ memoInsert cas m k a = tableLookup cas k >>= \case
 -- - safe: 6 times of the graph diameter block heights, ~ 9 min
 -- - final: 4 epochs, 120 * 4 block heights, ~ 4 hours
 --
-consensusState :: WebBlockHeaderDb -> BlockHeader -> IO ConsensusState
+consensusState
+    :: HasCallStack
+    => WebBlockHeaderDb
+    -> BlockHeader
+    -> IO ConsensusState
 consensusState wdb hdr = do
     db <- getWebBlockHeaderDb wdb hdr
     safeHdr <- fromJuste <$> seekAncestor db hdr safeHeight
@@ -309,8 +315,8 @@ consensusState wdb hdr = do
         }
   where
     WindowWidth w = _versionWindow (_chainwebVersion hdr)
-    finalHeight = max 0 (int height - w * 4)
-    safeHeight = max 0 (int height - 6 * diam)
+    finalHeight = int @Int @_ $ max 0 (int height - int w * 4)
+    safeHeight = int @Int @_ $ max 0 (int height - 6 * int diam)
     height = view blockHeight hdr
     diam = diameterAt hdr height
 
@@ -322,15 +328,24 @@ consensusState wdb hdr = do
 forkInfoForHeader
     :: WebBlockHeaderDb
     -> BlockHeader
+    -> Maybe EncodedPayloadData
     -> IO ForkInfo
-forkInfoForHeader wdb hdr = do
-    phdr <- ParentHeader <$> lookupParentHeader wdb hdr
-    state <- consensusState wdb hdr
-    return $ ForkInfo
-        { _forkInfoTrace = [blockHeaderToEvaluationCtx phdr pld]
-        , _forkInfoTargetState = state
-        , _forkInfoNewBlockCtx = Just nbctx
-        }
+forkInfoForHeader wdb hdr pldData
+    | isGenesisBlockHeader hdr = do
+        state <- consensusState wdb hdr
+        return $ ForkInfo
+            { _forkInfoTrace = []
+            , _forkInfoTargetState = state
+            , _forkInfoNewBlockCtx = Just nbctx
+            }
+    | otherwise = do
+        phdr <- ParentHeader <$> lookupParentHeader wdb hdr
+        state <- consensusState wdb hdr
+        return $ ForkInfo
+            { _forkInfoTrace = [blockHeaderToEvaluationCtx phdr pld pldData]
+            , _forkInfoTargetState = state
+            , _forkInfoNewBlockCtx = Just nbctx
+            }
   where
     pld = view blockPayloadHash hdr
     nbctx = NewBlockCtx
@@ -359,10 +374,12 @@ instance Exception GetBlockHeaderFailure
 getBlockHeaderInternal
     :: BlockHeaderCas candidateHeaderCas
         -- ^ CandidateHeaderCas is a content addressed store for BlockHeaders
+    => ReadableTable candidatePldTbl BlockPayloadHash EncodedPayloadData
     => WebBlockHeaderStore
         -- ^ Block Header Store for all Chains
     -> candidateHeaderCas
         -- ^ Ephemeral store for block headers under consideration
+    -> candidatePldTbl
     -> PayloadProviders
     -> Maybe (BlockPayloadHash, EncodedPayloadOutputs)
         -- ^ Payload and Header data for the block, in case that it is
@@ -378,7 +395,8 @@ getBlockHeaderInternal
 getBlockHeaderInternal
     headerStore
     candidateHeaderCas
-    payloadProviders
+    candidatePldTbl
+    providers
     localPayload
     priority
     maybeOrigin
@@ -432,7 +450,8 @@ getBlockHeaderInternal
                 getBlockHeaderInternal
                     headerStore
                     candidateHeaderCas
-                    payloadProviders
+                    candidatePldTbl
+                    providers
                     localPayload
                     priority
                     maybeOrigin'
@@ -449,7 +468,8 @@ getBlockHeaderInternal
                 void $ getBlockHeaderInternal
                     headerStore
                     candidateHeaderCas
-                    payloadProviders
+                    candidatePldTbl
+                    providers
                     localPayload
                     priority
                     maybeOrigin'
@@ -458,9 +478,10 @@ getBlockHeaderInternal
                 validateInductiveChainM (tableLookup chainDb) header
 
         -- Get the Payload Provider and
-        withPayloadProvider payloadProviders cid $ \provider -> do
+        withPayloadProvider providers cid $ \provider -> do
             let hints = Hints <$> maybeOrigin'
-            finfo <- forkInfoForHeader wdb header
+            pld <- tableLookup candidatePldTbl (view blockPayloadHash header)
+            finfo <- forkInfoForHeader wdb header pld
 
             runConcurrently
                 -- instruct the payload provider to fetch payload data and prepare
@@ -660,8 +681,10 @@ newWebPayloadStore mgr pact payloadDb logfun = do
 
 getBlockHeader
     :: BlockHeaderCas candidateHeaderCas
+    => ReadableTable candidatePldTbl BlockPayloadHash EncodedPayloadData
     => WebBlockHeaderStore
     -> candidateHeaderCas
+    -> candidatePldTbl
     -> PayloadProviders
     -> Maybe (BlockPayloadHash, EncodedPayloadOutputs)
     -> ChainId
@@ -669,13 +692,14 @@ getBlockHeader
     -> Maybe PeerInfo
     -> BlockHash
     -> IO BlockHeader
-getBlockHeader headerStore candidateHeaderCas providers localPayload cid priority maybeOrigin h
+getBlockHeader headerStore candidateHeaderCas candidatePldTbl providers localPayload cid priority maybeOrigin h
     = ((\(ChainValue _ b) -> b) <$> go)
         `catch` \(TaskFailed _es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h
   where
     go = getBlockHeaderInternal
         headerStore
         candidateHeaderCas
+        candidatePldTbl
         providers
         localPayload
         priority
