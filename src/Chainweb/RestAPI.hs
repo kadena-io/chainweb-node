@@ -49,14 +49,6 @@ module Chainweb.RestAPI
 , someServiceApiServer
 , serviceApiApplication
 , serveServiceApiSocket
-
--- * Chainweb API Client
-
--- ** BlockHeaderDb API Client
-, module Chainweb.BlockHeaderDB.RestAPI.Client
-
--- ** P2P API Client
-, module P2P.Node.RestAPI.Client
 ) where
 
 import Control.Monad (guard)
@@ -80,11 +72,10 @@ import System.Clock
 
 import Chainweb.Backup
 import Chainweb.BlockHeaderDB
-import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.BlockHeaderDB.RestAPI.Server
 import Chainweb.ChainId
 import Chainweb.Chainweb.Configuration
-import Chainweb.Chainweb.MinerResources (MiningCoordination)
+import Chainweb.Miner.Coordinator (MiningCoordination)
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.HostAddress
@@ -92,8 +83,7 @@ import Chainweb.Logger (Logger)
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.RestAPI.Server as Mempool
 import qualified Chainweb.Miner.RestAPI.Server as Mining
-import qualified Chainweb.Pact.RestAPI.Server as PactAPI
-import Chainweb.Payload.PayloadStore
+-- import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import Chainweb.Payload.RestAPI
 import Chainweb.RestAPI.Backup
 import Chainweb.RestAPI.Config
@@ -108,7 +98,6 @@ import Chainweb.Version
 import Network.X509.SelfSigned
 
 import P2P.Node.PeerDB
-import P2P.Node.RestAPI.Client
 import P2P.Node.RestAPI.Server
 
 -- -------------------------------------------------------------------------- --
